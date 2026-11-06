@@ -40,7 +40,7 @@ func (r *loopRig) watchLines() []string {
 	var out []string
 	for _, rec := range r.records() {
 		var m event.Message
-		if rec.Task == event.MsgTask && rec.Step == event.StepMessage && json.Unmarshal(rec.Data, &m) == nil && m.Watch != 0 {
+		if rec.Task == event.MsgTask && rec.Step == event.StepMessage && json.Unmarshal(rec.Data, &m) == nil && m.Of.Kind == "watch" {
 			out = append(out, m.Line)
 		}
 	}

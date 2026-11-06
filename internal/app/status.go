@@ -137,12 +137,7 @@ func (a *App) Status() wire.Status {
 		if ps.ScratchQueue == nil {
 			ps.ScratchQueue = []wire.ScratchWait{}
 		}
-		sets := make([]string, 0, len(p.folded.watches))
-		for set := range p.folded.watches {
-			sets = append(sets, set)
-		}
-		sort.Slice(sets, func(i, j int) bool { return p.folded.watches[sets[i]].seq < p.folded.watches[sets[j]].seq })
-		for _, set := range sets {
+		for _, set := range p.openWatches() {
 			w := p.folded.watches[set]
 			ps.Watches = append(ps.Watches, wire.WatchStatus{Task: set, By: w.by, Note: w.note, Since: w.at.Unix()})
 		}

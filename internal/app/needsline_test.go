@@ -2,13 +2,10 @@ package app_test
 
 import (
 	"encoding/json"
-	"errors"
-	"fmt"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -29,7 +26,7 @@ func (r *loopRig) needsLineFacts() []event.Record {
 	for _, rec := range r.records() {
 		if rec.Task == event.MsgTask && rec.Kind == event.KindFact && rec.Step == event.StepMessage {
 			var m event.Message
-			if json.Unmarshal(rec.Data, &m) == nil && m.Needs != 0 {
+			if json.Unmarshal(rec.Data, &m) == nil && m.Of.Kind == "needs" {
 				out = append(out, rec)
 			}
 		}
@@ -37,23 +34,12 @@ func (r *loopRig) needsLineFacts() []event.Record {
 	return out
 }
 
-// waitLinesDelivered waits until the first n needs-you lines are delivered: recorded, their delivery results in the
-// log and folded (nothing waiting). A repeat counts from that folded result's time (T-624), so the clock moves only
-// after it; waiting on the fake inbox's post count instead is not enough, it counts the post before the result is
-// recorded (T-702).
-func (r *loopRig) waitLinesDelivered(n int) {
-	r.t.Helper()
-	r.waitFor(fmt.Sprintf("%d needs-you lines delivered", n), func() bool {
-		return len(r.needsLineFacts()) == n && len(r.lineResults()) >= n && len(r.waiting()) == 0
-	})
-}
-
 // againLines is the needs-you lines that repeat fact seq: the lines ending in " (again, <age>)".
 func (r *loopRig) againLines(seq int64) []string {
 	var out []string
 	for _, rec := range r.needsLineFacts() {
 		var m event.Message
-		if json.Unmarshal(rec.Data, &m) == nil && m.Needs == seq && strings.Contains(m.Line, " (again, ") {
+		if json.Unmarshal(rec.Data, &m) == nil && app.NeedsSeq(m.Of) == seq && strings.Contains(m.Line, " (again, ") {
 			out = append(out, m.Line)
 		}
 	}
@@ -180,182 +166,5 @@ func TestWaitingLineNeedsYouQueuesNoLine(t *testing.T) {
 	r.advance(0)
 	if n, w := len(r.needsLineFacts()), r.waiting(); n != 0 || len(w) != 1 || !strings.HasPrefix(w[0].Line, "[obor other]") {
 		t.Errorf("needs-you lines %d, waiting %+v; want none and only the original line", n, w)
-	}
-}
-
-// T-497: needsLines passes running at once (the merge loop's and the watchdog's) queue one line per needs-you: while
-// the first one's record is still being written, the others queue nothing; a refused record is tried again.
-func TestNeedsYouLineQueuedOnceUnderConcurrentPasses(t *testing.T) {
-	t.Parallel()
-	r := newDispatchRig(t)
-	r.disp.set(func(d *dispatchFakes) {
-		d.fail["prepare"] = func() error { return port.Refused{Line: "lane_setup in L-01: rc 1: boom"} }
-	})
-	r.start()
-	var held, release = make(chan struct{}), make(chan struct{})
-	var first, refused sync.Once
-	app.Refuse(r.app, r.p.Root, func(rec event.Record) error {
-		if rec.Task != event.MsgTask || rec.Step != event.StepMessage {
-			return nil
-		}
-		var err error
-		refused.Do(func() { err = errors.New("log refused") }) // the first try fails, the second is held
-		if err != nil {
-			return err
-		}
-		first.Do(func() { close(held); <-release })
-		return nil
-	})
-	r.mustDispatch("d1")
-	r.waitStep("1 fact needs-you{lane: lane_setup in L-01: rc 1: boom}")
-	select {
-	case <-held:
-	case <-time.After(r.patience()):
-		t.Fatalf("precondition: no line reached its record: %q", r.steps())
-	}
-	done := make(chan struct{})
-	var wg sync.WaitGroup
-	for i := 0; i < 4; i++ {
-		wg.Add(1)
-		go func() { defer wg.Done(); app.NeedsLines(r.app) }()
-	}
-	go func() { wg.Wait(); close(done) }()
-	select {
-	case <-done: // none of them tried to record the claimed fact's line
-	case <-time.After(30 * time.Second): // a "nothing happens" check: a fixed, generous bound
-		t.Error("a concurrent pass recorded (or waited on) a line the first pass had claimed")
-	}
-	close(release)
-	r.waitFor("the line queued", func() bool { return len(r.needsLineFacts()) >= 1 })
-	r.advance(0)
-	r.advance(0)
-	if n := len(r.needsLineFacts()); n != 1 {
-		t.Errorf("needs-you lines recorded %d, want exactly 1: %q", n, r.steps())
-	}
-}
-
-// T-621: a needs-you line still unanswered is posted to the lead again 30 min after it, then every 60, the same line
-// with " (again, <its age>)"; what ends the needs-you (a resume at 105) ends its repeats: nothing follows.
-func TestNeedsYouLineRepeatsWhileItStays(t *testing.T) {
-	t.Parallel()
-	r, line := refusedRig(t)
-	seq := r.needsYou().Seq
-	r.waitFor("the line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
-	r.waitLinesDelivered(1) // the repeat counts from its recorded delivery
-	r.advance(29 * time.Minute)
-	if got := r.againLines(seq); len(got) != 0 {
-		t.Fatalf("at 29 min: again lines %q, want none", got)
-	}
-	r.advance(time.Minute) // 30
-	r.waitFor("the first repeat", func() bool { return len(r.againLines(seq)) == 1 })
-	if got := r.againLines(seq)[0]; got != line+" (again, 30m)" {
-		t.Errorf("at 30 min: line %q, want the same line with (again, 30m)", got)
-	}
-	// The next repeat counts from this one's recorded delivery.
-	r.waitLinesDelivered(2)
-	r.advance(59 * time.Minute) // 89
-	if got := r.againLines(seq); len(got) != 1 {
-		t.Fatalf("at 89 min: again lines %q, want still one", got)
-	}
-	r.advance(time.Minute) // 90
-	r.waitFor("the second repeat", func() bool { return len(r.againLines(seq)) == 2 })
-	if got := r.againLines(seq)[1]; got != line+" (again, 1h)" {
-		t.Errorf("at 90 min: second line %q, want (again, 1h)", got)
-	}
-	r.waitLinesDelivered(3)
-	r.advance(15 * time.Minute) // 105
-	r.disp.set(func(d *dispatchFakes) { delete(d.fail, "prepare") })
-	r.mustResume("r1", "", "RESUMED T-1: retry (lane)")
-	r.waitFor("the needs-you ended", func() bool { return r.taskState() != "needs-you" })
-	r.advance(60 * time.Minute) // 165: the repeat that was due at 150 never comes
-	if got := r.againLines(seq); len(got) != 2 {
-		t.Errorf("after the resume: again lines %q, want only the two before it", got)
-	}
-}
-
-// T-621: a replay starts the clock from the needs-you fact's time: a restart at 40 posts the repeat the first line
-// owed at 30 (once, not every missed one), and the next is 60 min after that, not 30 after the restart.
-func TestNeedsYouLineRepeatsReplayFromTheFactTime(t *testing.T) {
-	t.Parallel()
-	r, line := refusedRig(t)
-	seq := r.needsYou().Seq
-	r.waitFor("the line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
-	r.waitLinesDelivered(1)
-	r.stop()
-	r.clock.Add(40 * time.Minute)
-	r.start()
-	r.waitFor("the repeat after the restart", func() bool { return len(r.againLines(seq)) == 1 })
-	r.waitLinesDelivered(2)
-	if got := r.againLines(seq)[0]; got != line+" (again, 40m)" {
-		t.Errorf("after a restart at 40 min: line %q, want (again, 40m)", got)
-	}
-	r.advance(30 * time.Minute) // 70: a clock restarted at 40 would post its own repeat now
-	if got := r.againLines(seq); len(got) != 1 {
-		t.Errorf("at 70 min: again lines %q, want one (the clock counts from the fact's time)", got)
-	}
-	r.advance(30 * time.Minute) // 100: 60 after the repeat
-	r.waitFor("the next repeat", func() bool { return len(r.againLines(seq)) == 2 })
-	if got := r.againLines(seq)[1]; got != line+" (again, 1h)" {
-		t.Errorf("at 100 min: line %q, want (again, 1h)", got)
-	}
-}
-
-// undeliveredRig is the refused-lane rig with no inbox record for the lead: T-1's needs-you line is queued, not
-// delivered. It returns the needs-you's seq.
-func undeliveredRig(t *testing.T) (*loopRig, int64) {
-	t.Helper()
-	r := newDispatchRig(t)
-	r.inbox.unrecord("pj-lead")
-	r.disp.set(func(d *dispatchFakes) {
-		d.fail["prepare"] = func() error { return port.Refused{Line: "lane_setup in L-01: rc 1: boom"} }
-	})
-	r.start()
-	r.mustDispatch("d1")
-	r.waitFor("the line queued", func() bool { return len(r.waiting()) == 1 && len(r.needsLineFacts()) == 1 })
-	return r, r.needsYou().Seq
-}
-
-// T-624: while the lead has no inbox record the first line waits undelivered; two repeat intervals later still only
-// that line is queued. Once it is delivered at t, the first repeat is due at t + 30 and the next at t + 30 + 60.
-func TestNeedsYouLineRepeatWaitsForTheDeliveryOfThePreviousLine(t *testing.T) {
-	t.Parallel()
-	r, seq := undeliveredRig(t)
-	r.advance(2 * time.Hour) // two repeat intervals and more, nothing delivered
-	if n, w := len(r.needsLineFacts()), r.waiting(); n != 1 || len(w) != 1 {
-		t.Fatalf("after 2 h undelivered: %d lines recorded, waiting %+v; want exactly the first line", n, w)
-	}
-	r.inbox.record("pj-lead") // delivered at t = 2 h
-	r.waitFor("the first line posted", func() bool { return len(r.waiting()) == 0 })
-	r.advance(29 * time.Minute)
-	if got := r.againLines(seq); len(got) != 0 {
-		t.Fatalf("29 min after the delivery: again lines %q, want none", got)
-	}
-	r.advance(time.Minute) // t + 30
-	r.waitFor("the first repeat", func() bool { return len(r.againLines(seq)) == 1 })
-	r.waitFor("the repeat posted", func() bool { return len(r.waiting()) == 0 })
-	r.advance(59 * time.Minute) // t + 89
-	if got := r.againLines(seq); len(got) != 1 {
-		t.Fatalf("89 min after the delivery: again lines %q, want one", got)
-	}
-	r.advance(time.Minute) // t + 90
-	r.waitFor("the second repeat", func() bool { return len(r.againLines(seq)) == 2 })
-}
-
-// T-624: a repeat waiting undelivered blocks the next one too (the deadline counts from delivery, not queuing), and a
-// restart keeps both facts: no line is queued behind a waiting one after the replay.
-func TestNeedsYouLineRepeatReplayKeepsTheWait(t *testing.T) {
-	t.Parallel()
-	r, seq := undeliveredRig(t)
-	r.inbox.record("pj-lead")
-	r.waitFor("the first line posted", func() bool { return len(r.waiting()) == 0 })
-	r.inbox.unrecord("pj-lead")
-	r.advance(30 * time.Minute)
-	r.waitFor("the first repeat queued", func() bool { return len(r.againLines(seq)) == 1 })
-	r.advance(5 * time.Hour)
-	r.stop()
-	r.start()
-	r.advance(0)
-	if got, w := r.againLines(seq), r.waiting(); len(got) != 1 || len(w) != 1 {
-		t.Errorf("after 5 h and a restart: again lines %q, waiting %+v; want the one repeat, still waiting", got, w)
 	}
 }

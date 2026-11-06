@@ -30,13 +30,13 @@ func (r *loopRig) stopLines() []string {
 	return out
 }
 
-// needsLines is the lead's lines announcing a needs-you (row 47: message{needs}).
+// needsLines is the lead's lines announcing a needs-you (row 47: message{of: needs}).
 func (r *loopRig) needsLines() []string {
 	var out []string
 	for _, rec := range r.records() {
 		var m event.Message
 		_ = json.Unmarshal(rec.Data, &m)
-		if rec.Kind == event.KindFact && rec.Step == event.StepMessage && m.Needs != 0 {
+		if rec.Kind == event.KindFact && rec.Step == event.StepMessage && m.Of.Kind == "needs" {
 			out = append(out, m.Line)
 		}
 	}

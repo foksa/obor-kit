@@ -203,8 +203,7 @@ type proj struct {
 
 // folded is a project's state that a replay of its event log alone rebuilds (T-615): foldRecord's folds write it, live
 // code reads it. Two exceptions, both named where they live: a lanes read ends the watchdog facts (active, woke) of a
-// task no lane holds (setLanes: nothing recorded), and lr and watches carry live claims (lr's write state, a watch's
-// lining). The identity table (registry), the lines (outbox) and the nightly check (nightlyState) hold folded parts of
+// task no lane holds (setLanes: nothing recorded), and lr carries a live claim (its write state). The identity table (registry), the lines (outbox) and the nightly check (nightlyState) hold folded parts of
 // their own beside their live state.
 type folded struct {
 	active map[string][]event.Record // task → its watchdog facts since the last resumed
@@ -226,7 +225,7 @@ type folded struct {
 	delivered map[string]int64
 	// lr: the lanes table's projection (lanerows.go, T-439; its write state is live).
 	lr      laneRows
-	watches map[string]*mergeWatch // the open watches of a task's merge by task (mergewatch.go; lining is live)
+	watches map[string]*mergeWatch // each set's last watch of its merges by set (mergewatch.go; open until its line)
 	// review: the open review request (review.go; nil: none; held is live); reviewed: the last review started.
 	review   *reviewReq
 	reviewed lastReview

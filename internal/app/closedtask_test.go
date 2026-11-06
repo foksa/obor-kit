@@ -184,7 +184,7 @@ func TestClosedTaskMergeNeedsYouLine(t *testing.T) {
 			r := newConcRig(t)
 			a, p := r.app(c.proj), r.proj(c.proj)
 			if p.out.leadAgent == "" || !p.merging {
-				t.Fatal("precondition: no lead agent or no merge loop: needsLines posts nothing")
+				t.Fatal("precondition: no lead agent or no merge loop: the needs rule lines nothing")
 			}
 			r.closeTask(c.proj, c.task, c.end, c.live)
 			a.mu.Lock()
@@ -206,10 +206,10 @@ func TestClosedTaskMergeNeedsYouLine(t *testing.T) {
 			if _, pending := p.log.Intent(k); !pending {
 				t.Errorf("the notification of the merge-loop needs-you was settled: %s", p.log.Results[k].Data)
 			}
-			a.needsLines()
+			a.rulePass(context.Background(), []rule{{name: ruleNeeds, when: needsRule}}, &Loop{})
 			lines := 0
 			for _, m := range needsMessages(t, p) {
-				if m.Needs == needs.Seq && strings.Contains(m.Line, "unpin failed: busy") {
+				if m.Of == (event.Of{Kind: ruleNeeds, Seq: needsKey(needs.Seq, 0)}) && strings.Contains(m.Line, "unpin failed: busy") {
 					lines++
 				}
 			}

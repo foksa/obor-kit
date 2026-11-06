@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,11 +15,11 @@ import (
 // Watches of a set of tasks' merges (T-523, T-528; docs/state-model.md row 49): clean merges stay quiet for the lead
 // (docs/decisions.md "Lead noise"), so a lead that must act on a merge subscribes to it. `obor watch <T-xx>` or
 // `obor watch T-a,T-b` (the lead or the owner) records fact watch{task: the comma list, by} on the task key watch; a
-// single task is a set of one. Once every task of the set merged, or the first one is dropped or rejected, watchLines
-// records the lead line (outcome: "[obor] T-xx merged <short sha>", "[obor] T-a,T-b merged (<last short sha>)",
-// "[obor] T-b dropped: <why>" with " (watch T-a,T-b ended)" for a set; fact message{task: the list, watch: the
-// watch's seq}, delivered as every lead line, messages.go); its fold ends the watch, so a replay finds the line
-// recorded and queues none again. A watch may carry the lead's note (T-666): what it meant to do when the set ends,
+// single task is a set of one. Once every task of the set merged, or the first one is dropped or rejected, the watch
+// rule (watchRule, T-927) records the lead line (outcome: "[obor] T-xx merged <short sha>", "[obor] T-a,T-b merged
+// (<last short sha>)", "[obor] T-b dropped: <why>" with " (watch T-a,T-b ended)" for a set; fact message{of: watch
+// and the watch's seq}, delivered as every lead line, messages.go); that line recorded (its did key) ends the watch.
+// A watch may carry the lead's note (T-666): what it meant to do when the set ends,
 // which the line, `obor watch` and `obor status` add after the outcome. `obor watch --rm <list>` ends one
 // (fact unwatch); `obor watch` lists the open ones.
 
@@ -32,14 +33,13 @@ type WatchData struct {
 	Reply string `json:"reply,omitempty"`
 }
 
-// mergeWatch is an open watch: its fact's seq and time, who watches, its note, and whether a pass is recording its
-// line now (watchLines' claim, not folded).
+// mergeWatch is a set's last watch: its fact's seq and time, who watches, its note. It is open until its line is
+// recorded (openWatch).
 type mergeWatch struct {
-	seq    int64
-	at     time.Time
-	by     string
-	note   string
-	lining bool
+	seq  int64
+	at   time.Time
+	by   string
+	note string
 }
 
 // foldWatch folds r, a record of the project's watches.
@@ -61,11 +61,28 @@ func (p *proj) foldWatch(r event.Record) {
 	}
 }
 
-// watchEnded ends the watch of set whose fact is seq: its line is recorded (a message fact's fold, under mu).
-func (p *proj) watchEnded(set string, seq int64) {
-	if w := p.folded.watches[set]; w != nil && w.seq == seq {
-		delete(p.folded.watches, set)
+// openWatch is set's open watch: watched, its line not recorded (nil: none; under mu).
+func (p *proj) openWatch(set string) *mergeWatch {
+	w := p.folded.watches[set]
+	if w == nil {
+		return nil
 	}
+	if _, did := p.folded.did[event.Of{Kind: ruleWatch, Seq: w.seq}]; did {
+		return nil
+	}
+	return w
+}
+
+// openWatches is the sets of p's open watches, oldest first (under mu).
+func (p *proj) openWatches() []string {
+	var sets []string
+	for set := range p.folded.watches {
+		if p.openWatch(set) != nil {
+			sets = append(sets, set)
+		}
+	}
+	sort.Slice(sets, func(i, j int) bool { return p.folded.watches[sets[i]].seq < p.folded.watches[sets[j]].seq })
+	return sets
 }
 
 // outcome is how the watch of set (a task or a comma list) ended in p, as its line names it after "[obor] ": its
@@ -160,7 +177,7 @@ func (a *App) watchCall(c wire.Call) (string, error) {
 	}
 	tasks := strings.Split(c.Task, ",")
 	a.mu.Lock()
-	end, w := p.outcome(c.Task), p.folded.watches[c.Task]
+	end, w := p.outcome(c.Task), p.openWatch(c.Task)
 	var unknown []string
 	for _, task := range tasks {
 		if p.folded.loop[task] == nil {
@@ -214,11 +231,7 @@ func (a *App) watchList(p *proj) string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	now := a.opt.Now()
-	var sets []string
-	for set := range p.folded.watches {
-		sets = append(sets, set)
-	}
-	sort.Slice(sets, func(i, j int) bool { return p.folded.watches[sets[i]].seq < p.folded.watches[sets[j]].seq })
+	sets := p.openWatches()
 	if len(sets) == 0 {
 		return "NO WATCHES"
 	}
@@ -233,39 +246,21 @@ func (a *App) watchList(p *proj) string {
 	return strings.Join(lines, "\n")
 }
 
-// watchLines records, once per watch that ended (outcome), the lead's line naming it; the line's fold ends the
-// watch. A pass claims each watch under mu before it records (as needsLines: the loop's notify
-// and the watchdog's run at once); a refused record leaves it open, so a later pass tries again.
-func (a *App) watchLines() {
-	type todo struct {
-		set  string
-		w    *mergeWatch
-		line string
-	}
-	var out []todo
+// ruleWatch is the merge watch's rule in the rule pass (rules.go, T-927).
+const ruleWatch = "watch"
+
+// watchRule lines p's lead once per open watch that ended (outcome), the oldest first. Key: the watch fact's seq; the
+// line recorded (its did key) ends the watch.
+func watchRule(_ context.Context, a *App, p *proj, _ *Loop, _ time.Time) (int64, action, bool) {
 	a.mu.Lock()
-	p := a.p
-	if p != nil && p.merging && p.out.lead() != "" {
-		for set, w := range p.folded.watches {
-			if end := p.outcome(set); end != "" && !w.lining {
-				w.lining = true
-				out = append(out, todo{set, w, "[obor] " + end})
-			}
+	defer a.mu.Unlock()
+	if p.out.lead() == "" {
+		return 0, action{}, false
+	}
+	for _, set := range p.openWatches() {
+		if end := p.outcome(set); end != "" {
+			return p.folded.watches[set].seq, action{line: "[obor] " + end}, true
 		}
 	}
-	a.mu.Unlock()
-	sort.Slice(out, func(i, j int) bool { return out[i].w.seq < out[j].w.seq })
-	queued := false
-	for _, t := range out {
-		m := event.Message{To: p.out.lead(), From: "obor", Line: t.line, Task: t.set, Watch: t.w.seq}
-		if a.record(p, event.Record{Task: event.MsgTask, Step: event.StepMessage, Kind: event.KindFact}, m) {
-			queued = true
-		}
-		a.mu.Lock()
-		t.w.lining = false
-		a.mu.Unlock()
-	}
-	if queued {
-		a.wake()
-	}
+	return 0, action{}, false
 }

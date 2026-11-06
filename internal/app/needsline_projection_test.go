@@ -43,7 +43,7 @@ func needsMessages(t *testing.T, p *proj) []event.Message {
 		if err := json.Unmarshal(r.Data, &m); err != nil {
 			t.Fatal(err)
 		}
-		if m.Needs != 0 {
+		if m.Of.Kind == ruleNeeds {
 			out = append(out, m)
 		}
 	}
@@ -64,6 +64,7 @@ func TestRV52VerifyProjectionFailureDoesNotDuplicate(t *testing.T) {
 	p := h.proj()
 	t.Cleanup(func() { p.log.Close(); h.a.closeLog() })
 
+	needs := []rule{{name: ruleNeeds, when: needsRule}}
 	d := event.FactData{Lane: "L-01", Cause: "lane", Reason: "lane: prepare\nfailed"}
 	if !h.a.record(p, event.Record{Task: "T-1", Step: event.StepNeedsYou, Kind: event.KindFact}, d) {
 		t.Fatal("the needs-you was refused")
@@ -74,11 +75,11 @@ func TestRV52VerifyProjectionFailureDoesNotDuplicate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h.a.needsLines()
+	h.a.rulePass(context.Background(), needs, fx)
 	if ms := needsMessages(t, p); len(ms) != 1 || p.folded.lr.err == nil {
 		t.Fatalf("precondition: needs-you lines in the log = %d, lane-row error = %v; want 1 and an error", len(ms), p.folded.lr.err)
 	}
-	h.a.needsLines()
+	h.a.rulePass(context.Background(), needs, fx)
 	if ms := needsMessages(t, p); len(ms) != 1 {
 		t.Errorf("needs-you lines for one needs-you after a second pass = %d, want 1", len(ms))
 	}
@@ -86,7 +87,7 @@ func TestRV52VerifyProjectionFailureDoesNotDuplicate(t *testing.T) {
 	if _, err := p.log.DB().Exec("DROP TRIGGER lanes_fail"); err != nil {
 		t.Fatal(err)
 	}
-	h.a.needsLines()
+	h.a.rulePass(context.Background(), needs, fx)
 	for range 4 {
 		h.a.deliver(context.Background(), p, fx)
 	}
@@ -94,7 +95,7 @@ func TestRV52VerifyProjectionFailureDoesNotDuplicate(t *testing.T) {
 		t.Errorf("after the table writes again: posted %d, typed %d; want 1 posted, none typed", len(in.posts), in.typed)
 	}
 	for _, m := range needsMessages(t, p) {
-		if m.Needs != r.Seq || !strings.Contains(m.Line, "prepare failed") {
+		if m.Of != (event.Of{Kind: ruleNeeds, Seq: needsKey(r.Seq, 0)}) || !strings.Contains(m.Line, "prepare failed") {
 			t.Errorf("unexpected line %+v", m)
 		}
 	}
