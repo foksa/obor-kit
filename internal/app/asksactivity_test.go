@@ -25,6 +25,14 @@ func askSeed(t *testing.T) (*harness, *proj) {
 	return h, p
 }
 
+// ask is task_done's Blocked: record for task in lane l (App.ask, under mu as task_done's section holds it).
+func (h *harness) ask(p *proj, task string, l port.Lane, what string) error {
+	h.a.mu.Lock()
+	defer h.a.mu.Unlock()
+	_, err := h.a.ask(p, task, l, what)
+	return err
+}
+
 // TestActivityKeepsAnUnansweredAsk: a worker's activity ends the watchdog facts whose lifecycle activity ends (stalled,
 // blocked, exited), never its open question (RV-54 #1, state model row 12), on the status path (working) and the
 // sampled path (a child runs, a transcript write); the question stays after a replay and obor answer still takes it.
@@ -44,7 +52,7 @@ func TestActivityKeepsAnUnansweredAsk(t *testing.T) {
 						t.Fatalf("precondition: no stall in force: %v", h.facts(0))
 					}
 				}
-				if _, err := h.a.ask(p, "T-1", h.lanes.lanes[0], "may I edit x?"); err != nil {
+				if err := h.ask(p, "T-1", h.lanes.lanes[0], "may I edit x?"); err != nil {
 					t.Fatal(err)
 				}
 				if !p.asks("T-1") || !p.watched("T-1") {

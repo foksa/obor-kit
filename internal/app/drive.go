@@ -35,30 +35,13 @@ import (
 // driveTitle is a drive's spec title: "Owner drive: <name>".
 const driveTitle = "Owner drive: "
 
-// The points a test hooks (App.hook) to interleave a resume and a task_done deterministically.
-const (
-	hookTaskDoneWaits = "task_done.waits" // task_done, before it takes a.submitMu
-	hookTaskDoneCheck = "task_done.check" // task_done holds a.submitMu, its checks passed, before its record
-	hookResumeWaits   = "resume.waits"    // obor resume holds a.verdicts, before it takes a.submitMu
-	hookResumeLocked  = "resume.locked"   // obor resume holds a.verdicts and a.submitMu, before its decision
-)
-
-// hook runs the test's hook at point (none outside the tests).
-func (a *App) hook(point string) {
-	if f := a.hooked.Load(); f != nil {
-		(*f)(point)
-	}
-}
-
 // driveCall answers the socket's drive request (the owner or the lead): a call id is required and a repeated one gets
 // the stored reply. Call.Task: that task, a drive already (driveAgain; any other task refused: a drive is new work
 // only, T-912); else a new drive named Call.Note (newDrive). A task already driving (or the open drive of that name)
-// whose drive agent is not running is started again (driveAgain: nothing recorded). The reply is DRIVE <task> → <lane>
-// (<drive agent>, <type ref>): the CLI starts the drive agent; DRIVING …: <agent> runs already: it runs.
-// It decides and records under a.verdicts.
+// whose drive agent is not running is started again (driveAgain: nothing recorded). The reply is DRIVE <task> →
+// <lane> (<drive agent>, <type ref>): the CLI starts the drive agent; DRIVING …: <agent> runs already: it runs. It
+// reads with no lock, then decides and records in one mu section (App.mu).
 func (a *App) driveCall(ctx context.Context, c wire.Call) (string, error) {
-	a.verdicts.Lock()
-	defer a.verdicts.Unlock()
 	if c.CallID == "" || c.Task == "" && strings.TrimSpace(c.Note) == "" {
 		return "", errors.New("drive: a call id and a name or a task are required")
 	}
@@ -83,20 +66,31 @@ func (a *App) driveCall(ctx context.Context, c wire.Call) (string, error) {
 		return "", err
 	}
 	a.mu.Lock()
-	merging, pause := p.merging, p.paused(a.opt.Now())
+	err = a.driveOpen(p, fx, c)
 	a.mu.Unlock()
-	switch {
-	case !merging:
-		return "", mergeOff(p)
-	case pause != nil:
-		return "", pausedErr(Dash(c.Task), pause)
-	case fx.Lane == nil || fx.Specs == nil || fx.Agents == nil:
-		return "", fmt.Errorf("drive off for %s (no lane adapter)", p.name)
+	if err != nil {
+		return "", err
 	}
 	if c.Task != "" {
+		a.mu.Lock()
+		defer a.mu.Unlock()
 		return a.driveAgain(p, c.Task)
 	}
 	return a.newDrive(ctx, p, fx, c)
+}
+
+// driveOpen is a drive's refusal on the folded state and the adapters (under mu; nil: none): the merge loop off, a
+// pause in force, no lane adapters.
+func (a *App) driveOpen(p *proj, fx *Loop, c wire.Call) error {
+	switch pause := p.paused(a.opt.Now()); {
+	case !p.merging:
+		return mergeOff(p)
+	case pause != nil:
+		return pausedErr(Dash(c.Task), pause)
+	case fx.Lane == nil || fx.Specs == nil || fx.Agents == nil:
+		return fmt.Errorf("drive off for %s (no lane adapter)", p.name)
+	}
+	return nil
 }
 
 // driveReply is a drive's reply: DRIVE <task> → <lane> (<agent>, <type ref>).
@@ -104,20 +98,25 @@ func driveReply(task, lane, agent, ref string) string {
 	return fmt.Sprintf("DRIVE %s → %s (%s, %s)", task, lane, agent, Dash(ref))
 }
 
-// newDrive records a new drive named c.Note (under a.verdicts): the next task id, its spec "Owner drive: <name>", fact
-// dispatch{drive} on the first free lane in config order (not held for another task's dispatch), its model c.Types[0]
-// (a model ref) or the hard level's first model. An open drive of that name is started again (driveAgain: its
-// recorded lane and model, c.Types ignored). Refused (nothing recorded): the model is unknown or its effort not taken,
-// no free lane (the lanes' states named; never a wait), the task branch has commits the target lacks.
+// newDrive records a new drive named c.Note: the next task id, its spec "Owner drive: <name>", fact dispatch{drive}
+// on the first free lane in config order (not held for another task's dispatch), its model c.Types[0] (a model ref)
+// or the hard level's first model. An open drive of that name is started again (driveAgain: its recorded lane and
+// model, c.Types ignored). Refused (nothing recorded): the model is unknown or its effort not taken, no free lane (the
+// lanes' states named; never a wait), the task branch has commits the target lacks. The config, the lanes and the
+// next id's target are read with no lock; the decision, the spec and the record are one mu section, and an id taken
+// meanwhile reads the next one's target (driveTries).
 func (a *App) newDrive(ctx context.Context, p *proj, fx *Loop, c wire.Call) (string, error) {
 	name := strings.Join(strings.Fields(c.Note), " ")
 	cfg, err := config.LoadDaemon(p.root)
 	if err != nil {
 		return "", err
 	}
+	a.mu.Lock()
 	if t := a.driveNamed(p, name); t != "" {
+		defer a.mu.Unlock()
 		return a.driveAgain(p, t)
 	}
+	a.mu.Unlock()
 	ref := ""
 	if len(c.Types) > 0 {
 		ref = c.Types[0]
@@ -138,6 +137,52 @@ func (a *App) newDrive(ctx context.Context, p *proj, fx *Loop, c wire.Call) (str
 	if err != nil {
 		return "", fmt.Errorf("drive: lanes of %s: %v", p.name, err)
 	}
+	for range driveTries {
+		a.mu.Lock()
+		task, idErr := a.nextTaskID(p, cfg)
+		a.mu.Unlock()
+		var target string
+		var ahead bool
+		var tErr error
+		if idErr == nil {
+			target, ahead, tErr = fx.Specs.Target(ctx, task)
+		}
+		reply, again, err := a.driveRecord(p, fx, c, name, cfg, ls, task, driveRead{ref, effort, target, ahead, tErr})
+		if !again {
+			return reply, err
+		}
+	}
+	return "", fmt.Errorf("drive %s: the next task id was taken %d times while it was read: run it again", name, driveTries)
+}
+
+// driveTries bounds newDrive's reads of the next task id's target when another drive takes it meanwhile.
+const driveTries = 3
+
+// driveRead is what newDrive read for its record with no lock: the model ref and its effort, the target of the task
+// id it read and whether its branch has commits the target lacks (err: Specs.Target's).
+type driveRead struct {
+	ref, effort, target string
+	ahead               bool
+	err                 error
+}
+
+// driveRecord is newDrive's decision and record in one mu section, on task (the next id as read) and rd: an open drive
+// of that name started again, driveOpen's refusals again, the free lane, the id (again: another took it since the read;
+// nothing recorded), the target, the spec and fact dispatch{drive}.
+func (a *App) driveRecord(p *proj, fx *Loop, c wire.Call, name string, cfg *config.Config, ls []port.Lane, task string,
+	rd driveRead) (string, bool, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if err := a.driveOpen(p, fx, c); err != nil { // a pause recorded since the read
+		return "", false, err
+	}
+	if reply, ok := p.folded.calls[verdictStep(wire.MethodDrive, c.CallID)]; ok { // the same call recorded meanwhile
+		return reply, false, nil
+	}
+	if t := a.driveNamed(p, name); t != "" { // a drive of that name recorded meanwhile
+		reply, err := a.driveAgain(p, t)
+		return reply, false, err
+	}
 	_, held := a.held(p, "")
 	var l port.Lane
 	for _, x := range ls {
@@ -147,52 +192,49 @@ func (a *App) newDrive(ctx context.Context, p *proj, fx *Loop, c wire.Call) (str
 		}
 	}
 	if l.Name == "" {
-		return "", fmt.Errorf("drive %s: no free lane (%s)", name, laneStates(ls, held))
+		return "", false, fmt.Errorf("drive %s: no free lane (%s)", name, laneStates(ls, held))
 	}
-	task, err := a.nextTaskID(p, cfg)
-	if err != nil {
-		return "", fmt.Errorf("drive %s: %v", name, err)
-	}
-	target, ahead, err := fx.Specs.Target(ctx, task)
-	if err != nil {
-		return "", fmt.Errorf("drive %s: %v", name, err)
+	next, err := a.nextTaskID(p, cfg)
+	switch {
+	case err != nil:
+		return "", false, fmt.Errorf("drive %s: %v", name, err)
+	case next != task:
+		return "", true, nil
+	case rd.err != nil:
+		return "", false, fmt.Errorf("drive %s: %v", name, rd.err)
 	}
 	branch := cfg.TaskBranch(task)
-	if ahead {
-		return "", fmt.Errorf("drive %s: %s exists with commits not in the target (merge or delete it first)", name, branch)
+	if rd.ahead {
+		return "", false, fmt.Errorf("drive %s: %s exists with commits not in the target (merge or delete it first)", name, branch)
 	}
 	if _, _, err := store.SetSpec(p.log.DB(), task, "# "+task+" — "+driveTitle+name+"\n", "", callerOf(c), a.opt.Now()); err != nil {
-		return "", fmt.Errorf("drive %s: %v", name, err)
+		return "", false, fmt.Errorf("drive %s: %v", name, err)
 	}
-	a.mu.Lock()
 	l.Dir = filepath.Clean(l.Dir)
 	l.Agent = rowAgent(cfg, l.Name, l.Agent)
 	names := cfg.LaneAgentAliases(l.Name, "")
 	a.placement(p, l.Dir, append([]string{l.Agent}, names...)...)
-	a.mu.Unlock()
 	agent := roles.DriveAgent(laneAgent(l, cfg.AgentName("worker", l.Name)))
-	d := dispatchData{Lane: l.Name, Dir: l.Dir, Agent: agent, Branch: branch, Target: target, Effort: effort, Type: ref,
-		Drive: true, Caller: callerOf(c), Call: c.CallID, Reply: driveReply(task, l.Name, agent, ref)}
-	if !a.record(p, event.Record{Task: task, Attempt: 1, Step: event.StepDispatched, Kind: event.KindFact}, d) {
-		return "", fmt.Errorf("drive: the event log of %s refused it", p.name)
+	d := dispatchData{Lane: l.Name, Dir: l.Dir, Agent: agent, Branch: branch, Target: rd.target, Effort: rd.effort, Type: rd.ref,
+		Drive: true, Caller: callerOf(c), Call: c.CallID, Reply: driveReply(task, l.Name, agent, rd.ref)}
+	if !a.recordLocked(p, event.Record{Task: task, Attempt: 1, Step: event.StepDispatched, Kind: event.KindFact}, d) {
+		return "", false, fmt.Errorf("drive: the event log of %s refused it", p.name)
 	}
 	a.wake()
-	return d.Reply, nil
+	return d.Reply, false, nil
 }
 
-// driveAgain answers obor drive on task, a drive already (driving, or a new drive's dispatch; under a.verdicts):
-// nothing recorded. Its drive agent running: DRIVING <task> → <lane>: <agent> runs already (the CLI starts nothing);
-// else DRIVE <task> → <lane> (<agent>, <type ref>) on its recorded lane and type, and the CLI starts the agent again
+// driveAgain answers obor drive on task, a drive already (driving, or a new drive's dispatch; under mu): nothing
+// recorded. Its drive agent running: DRIVING <task> → <lane>: <agent> runs already (the CLI starts nothing); else
+// DRIVE <task> → <lane> (<agent>, <type ref>) on its recorded lane and type, and the CLI starts the agent again
 // (RV-92 #2: a start that failed is retried by the same command). Refused, nothing recorded: a task that is not a drive
 // (a worker's, whatever its state, or none open: T-912), a drive no longer driving (landed).
 func (a *App) driveAgain(p *proj, task string) (string, error) {
-	a.mu.Lock()
 	var mt mtask
 	if m := p.folded.loop[task]; m != nil {
 		mt = *m
 	}
 	w := a.whereIs(p, mt.agent)
-	a.mu.Unlock()
 	if !mt.drive {
 		return "", fmt.Errorf("%s is not a drive; obor drive <name> starts one", task)
 	}
@@ -273,21 +315,19 @@ func landReply(task string) string {
 // landCall answers the socket's land request (the owner, the lead or the drive agent): c.Task's drive submitted on its
 // owner's behalf, c.Report (the summary) as its report: fact submitted{land}, then it is an ordinary submitted task. A
 // repeated call id gets the stored reply. Refused: not driving, no summary, a step of it running. The CLI refused a
-// dirty worktree before.
+// dirty worktree before. The decision and the record are one mu section (App.mu).
 func (a *App) landCall(c wire.Call) (string, error) {
-	a.submitMu.Lock() // one submission decision at a time (task_done's lock)
-	defer a.submitMu.Unlock()
 	report := strings.TrimSpace(c.Report)
 	if c.CallID == "" || c.Task == "" {
 		return "", errors.New("land: a call id and a task are required")
 	}
 	a.mu.Lock()
+	defer a.mu.Unlock()
 	p := a.projAt(c.Root)
 	var mt mtask
 	var busy string
 	if p != nil {
 		if reply, stored := p.folded.calls[verdictStep(wire.MethodLand, c.CallID)]; stored {
-			a.mu.Unlock()
 			return reply, nil
 		}
 		if m := p.folded.loop[c.Task]; m != nil {
@@ -295,7 +335,6 @@ func (a *App) landCall(c wire.Call) (string, error) {
 		}
 		busy = p.busy(c.Task)
 	}
-	a.mu.Unlock()
 	switch {
 	case p == nil:
 		return "", fmt.Errorf("land: no served project at %s", c.Root)
@@ -312,7 +351,7 @@ func (a *App) landCall(c wire.Call) (string, error) {
 	case busy != "":
 		return "", busyErr("land", c.Task, busy)
 	}
-	if !a.record(p, event.Record{Task: c.Task, Attempt: mt.attempt, Step: event.StepSubmitted, Kind: event.KindFact},
+	if !a.recordLocked(p, event.Record{Task: c.Task, Attempt: mt.attempt, Step: event.StepSubmitted, Kind: event.KindFact},
 		submitData{Lane: mt.lane, Agent: mt.agent, Call: c.CallID, Report: report, Land: true}) {
 		return "", fmt.Errorf("land: the event log of %s refused it", p.name)
 	}
@@ -320,19 +359,13 @@ func (a *App) landCall(c wire.Call) (string, error) {
 	return landReply(c.Task), nil
 }
 
-// driveNamed is the open drive named name ("": none; under neither lock: it takes mu).
+// driveNamed is the open drive named name ("": none; under mu, its spec read from the store).
 func (a *App) driveNamed(p *proj, name string) string {
-	a.mu.Lock()
-	var open []string
 	for _, t := range p.loopTasks() {
 		if m := p.folded.loop[t]; m.drive && !states[m.state].ended {
-			open = append(open, t)
-		}
-	}
-	a.mu.Unlock()
-	for _, t := range open {
-		if title, err := titleOf(p, t); err == nil && title == driveTitle+name {
-			return t
+			if title, err := titleOf(p, t); err == nil && title == driveTitle+name {
+				return t
+			}
 		}
 	}
 	return ""
@@ -342,7 +375,7 @@ func (a *App) driveNamed(p *proj, name string) string {
 var taskNum = regexp.MustCompile(`^(.*?)([0-9]+)$`)
 
 // nextTaskID is the id after the highest one p knows (its stored specs, its loop's tasks): the same prefix, the number
-// one higher ("T-1" when it knows none); an error when that id does not match task_id_pattern.
+// one higher ("T-1" when it knows none); an error when that id does not match task_id_pattern. Under mu.
 func (a *App) nextTaskID(p *proj, cfg *config.Config) (string, error) {
 	rows, err := store.ReadSpecs(p.log.DB())
 	if err != nil {
@@ -352,9 +385,7 @@ func (a *App) nextTaskID(p *proj, cfg *config.Config) (string, error) {
 	for _, r := range rows {
 		ids = append(ids, r.Task)
 	}
-	a.mu.Lock()
 	ids = append(ids, p.loopTasks()...)
-	a.mu.Unlock()
 	prefix, top := "T-", 0
 	for _, id := range ids {
 		m := taskNum.FindStringSubmatch(id)

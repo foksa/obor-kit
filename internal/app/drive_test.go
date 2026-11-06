@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"obor/internal/config"
 	"obor/internal/herdr/herdrtest"
@@ -244,9 +245,13 @@ func TestDriveOfAWorkersTaskRefused(t *testing.T) {
 			return true
 		}},
 		{"finished", "submitted", func(r *loopRig) bool {
-			release := make(chan struct{})
+			release, running := make(chan struct{}), make(chan struct{}, 1)
 			r.t.Cleanup(func() { close(release) })
 			r.scratch.arm("Gate", func(ctx context.Context) error {
+				select { // the gate's effect runs (p.exec): its phase is gating, not gate pending
+				case running <- struct{}{}:
+				default:
+				}
 				select {
 				case <-release:
 				case <-ctx.Done():
@@ -256,6 +261,11 @@ func TestDriveOfAWorkersTaskRefused(t *testing.T) {
 			r.work("feature.txt", "feature\n")
 			r.submit()
 			r.waitStep("1 intent gate")
+			select {
+			case <-running:
+			case <-time.After(10 * time.Second):
+				r.t.Fatal("the gate's effect did not start")
+			}
 			return false
 		}},
 	} {

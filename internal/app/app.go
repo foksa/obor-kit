@@ -14,7 +14,6 @@ import (
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"obor/internal/store"
@@ -107,18 +106,14 @@ type App struct {
 	reqs      sync.WaitGroup     // the socket requests being answered (Serve's end waits for them)
 	loaded    chan struct{}      // closed at the project's first load: serve binds its socket then (Loaded, T-659)
 	loadOnce  sync.Once          // closes loaded once
-	verdicts  sync.Mutex         // the integrator's verdicts are answered one at a time
-	submitMu  sync.Mutex         // a submission's decision and its record are one step (task_done)
 	configMu  sync.Mutex         // one main-checkout writer at a time: a setup edit, a review's close (T-753, T-926)
 	notifying sync.Mutex         // one notify pass at a time (the watchdogs' and the merge loop's; a second one skips)
 	kick      chan struct{}      // wakes the merge loop (buffered: kicks while it runs coalesce)
 	rescan    chan struct{}      // wakes the lane table's refresher (buffered: kicks while it scans coalesce; lanescan.go)
 	scanned   chan struct{}      // the refresher scanned: the run loop decides (buffered: coalesced)
 	effects   sync.WaitGroup     // the scratch effects running in their own goroutine (the merge loop's end waits)
-	admitted  int                // the verdict calls in progress, waiting for the verdict lock included (under mu)
+	admitted  int                // the verdict calls in progress, a resolved's check of the scratch included (under mu)
 	follow    follow             // the watch of a new obor binary (follow.go, T-719; the merge loop's goroutine only)
-
-	hooked atomic.Pointer[func(string)] // a test's hook at the points App.hook names (nil: none; drive.go)
 }
 
 // proj is the served project: its herdr workspace is the one labelled Name. Its state is in two parts: folded, what a
@@ -183,9 +178,8 @@ type proj struct {
 	// failed restart). Under mu.
 	restartClaim bool
 	// held: the tasks whose selected step runs now (from its start's check to its return, App.next), each with the
-	// step's name; ended: the tasks whose drop is decided and being recorded (App.drop). Both under mu.
-	held  map[string]string
-	ended map[string]bool
+	// step's name. Under mu.
+	held map[string]string
 	// roleFail: when a fresh brief's stop of a role agent last failed, by agent (rolestop.go, T-672, T-870). Under mu.
 	roleFail map[string]time.Time
 	// reg, out, night: the identity table (registry.go), the lines to the project's agents (messages.go, T-466, T-610)

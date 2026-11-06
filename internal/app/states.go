@@ -235,11 +235,11 @@ func (p *proj) stepPhases(open []event.Record) map[string]string {
 	return out
 }
 
-// busy is why no task verb may act on task now ("": one may): the one reader of the live claims on it. A drop of it is
-// being recorded (p.ended), a step or a decision holds it (p.held: claim), its scratch step runs (p.running), or its
-// attempt's next gate or publish intent is open (a step a restart replays; not a needs-you's, which runs no step), or
-// a move's or drop's stop of its worker is pending (T-855: recorded, not settled; a refused stop, its
-// needs-you, is settled). Each verb refuses with "<verb> <T>: <busy>; retry when it settles" (busyErr).
+// busy is why no task verb may act on task now ("": one may): the one reader of the live claims on it. A step holds it
+// (p.held: claim), its scratch step runs (p.running), or its attempt's next gate or publish intent is open (a step a
+// restart replays; not a needs-you's, which runs no step), or a move's or drop's stop of its worker is pending (T-855:
+// recorded, not settled; a refused stop, its needs-you, is settled). Each verb refuses with "<verb> <T>: <busy>; retry
+// when it settles" (busyErr).
 func (p *proj) busy(task string) string {
 	if why := p.claim(task); why != "" {
 		return why
@@ -265,13 +265,11 @@ func (p *proj) busy(task string) string {
 	return ""
 }
 
-// claim is busy's half a selected step's start (begin) reads too: a drop being recorded, or a step or a decision
-// holding the task ("": none). A step's own pending intent is no claim on it: the step replays it.
+// claim is busy's half a selected step's start (begin) reads too: a step holding the task ("": none). A step's own
+// pending intent is no claim on it: the step replays it. A verb's decision holds none: it decides and records in one
+// mu section (App.mu).
 func (p *proj) claim(task string) string {
-	switch {
-	case p.ended[task]:
-		return task + " has a drop being recorded"
-	case p.held[task] != "":
+	if p.held[task] != "" {
 		return fmt.Sprintf("%s has %s running", task, p.held[task])
 	}
 	return ""
