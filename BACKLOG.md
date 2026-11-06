@@ -8,11 +8,10 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 ## Handoff (lead; rewrite at each handoff)
 Read `docs/observations.md` first (patterns from past sessions: where we went in circles, the load tax, traps).
 - 2026-11-06 ~14:00 (lead; owner: near the weekly limit, done for today; previous Handoff: `git show 0869e040:BACKLOG.md`).
-  **Release v0.29.0 in progress:** notes and guide committed (0869e040, `docs/releases/v0.29.0.md`,
-  `docs/UPGRADE-v0.29.md`). `make release V=0.29.0` failed its full check on `TestMakeReleaseKeepsItsFullLog`: the
-  outer release's `OBOR_RELEASE_LOGGED` leaks into the test's nested release (first release with tests/release in the
-  full check). T-937 strips it (watch set). After T-937 merges: `make release V=0.29.0` again, then the owner runs
-  `! make ship`. Check `git tag -l v0.29.0` first: if it exists, the release finished.
+  **Release v0.29.0 tagged** (56697472, checksums 8e2f5c9b) after T-937 (the outer release's `OBOR_RELEASE_LOGGED` leaked
+  into tests/release's nested release) and RV-130. **The owner runs `! make ship`** (push, publish, install, one
+  `obor send` per project); then serves follow the new binary. If `git ls-remote --tags origin v0.29.0` shows nothing,
+  ship has not run yet.
   **Done today:** RV-124..RV-129 all closed. Waves G (verify as a rule + `Fixes:` line, T-924), H (needs-you/watch
   rules, T-927), I (close through serve, T-926/T-928), J1a (four locks → one `mu` section, T-931); J1b (T-933)
   reverted by T-936 after two regressions (the dispatch-class locks order verbs across git reads: they stay); J2
