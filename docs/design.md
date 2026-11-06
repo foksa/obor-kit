@@ -362,9 +362,14 @@ full check and the pause.
   `docs/reviews/`. The integrator has its own worktree `<lanes_dir>/integrator` for its review jobs; its resolve jobs
   work in the scratch (`merge.scratch_dir`). Only the lead works in the main checkout among the merge-loop roles.
   A review's close commit names its reviewed sha, its covered tasks (`Covered:`) and its start sha (`Start:`, T-822);
-  the scope, `review due` and the release check read those. `obor review fix <T-a,T-b>` (T-850) links fix tasks to the
-  open review: once all merged, serve runs the verify in the same reviewer session; `obor review close` is refused
-  until then (`--force`: the owner's word). A spec line `Review: on merge` (T-878, rule tier) makes serve record a
+  the scope, `review due` and the release check read those. A fix task's spec line `Fixes: RV-<n>` (T-924, rule
+  tier; replaces T-850's `obor review fix`) links it to that review: the link is read from the dispatched tasks' stored
+  specs, not recorded. The verify is a rule: while the review is open, its linked tasks that were not dropped have all
+  merged, a finished verify does not cover them, and the reviewer has no open brief and is idle, serve moves the
+  reviewer's worktree to the integration head and briefs the verify in the same session. A verify that fails (the
+  reviewer stopped, a newer brief replaced it, its git failed) leaves the condition true and the next pass briefs again
+  (one line to the lead per failure). Only the reviewer's finished line ends a verify and covers its tasks. `obor
+  review close` is refused while a linked task is open or merged and not covered (`--force`: the owner's word). A spec line `Review: on merge` (T-878, rule tier) makes serve record a
   review request once that task merged and no request is open or review started since; it waits for an open cycle's
   close like any request.
 
