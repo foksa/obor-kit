@@ -87,11 +87,12 @@ func (p *proj) openWatches() []string {
 
 // outcome is how the watch of set (a task or a comma list) ended in p, as its line names it after "[obor] ": its
 // first task dropped or rejected, "T-b dropped: <why>" (a set adds " (watch <set> ended)"); every task merged,
-// "T-xx merged <short sha>" or "T-a,T-b merged (<the last merge's short sha>)"; a watch with a note (T-666) adds
-// " — <note>". "" while it has not (under mu).
+// "T-xx merged <short sha>" or "T-a,T-b merged (<the last merge's short sha>)"; an open watch with a note (T-666)
+// adds " — <note>" (T-929: a closed watch's note is gone, so a later watch gets the outcome alone). "" while it has
+// not (under mu).
 func (p *proj) outcome(set string) string {
 	note := ""
-	if w := p.folded.watches[set]; w != nil {
+	if w := p.openWatch(set); w != nil {
 		note = w.note
 	}
 	tasks := strings.Split(set, ",")
