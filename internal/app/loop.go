@@ -52,10 +52,9 @@ type Loop struct {
 	// Inbox posts the project's lines to its lead into the lead's Claude session (obor send, a brief's finished
 	// line; nil: none posted, T-485): nothing is typed into the pane the owner writes in.
 	Inbox Poster
-	// Restart restarts this serve on the new build (T-652, T-656): after a green after_merge of a project with
-	// commands.after_merge.restart_serve, and on a new obor binary (Options.Binary, T-719). The adapter ends serve as
-	// a signal does (it cancels; then launchd starts it again, or serve execs the kit's shim itself) and returns nil
-	// once it did. Nil: never restarted.
+	// Restart restarts this serve on a new obor binary (T-719, claimed by the binary follow, T-934). The adapter ends
+	// serve as a signal does (it cancels; then launchd starts it again, or serve execs the kit's shim itself) and
+	// returns nil once it did. Nil: never restarted.
 	Restart func(ctx context.Context) error
 	// Config is the main checkout's config file and its git: the owner's setup edits (configset.go, T-753; nil: none).
 	Config ConfigFile
