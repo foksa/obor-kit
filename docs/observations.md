@@ -37,6 +37,9 @@ live in `docs/decisions.md`, open work in `BACKLOG.md`, the lead's own working r
 - The lead's premise was wrong twice on 11-05: E1 (integrator review "adds nothing": it sent back ~8% of merges) and
   "the next workers test main's MCP server" (agents run the installed kit's `obor mcp`, `~/.obor/kit/bin/obor`).
   Check processes/logs/code first; `ps` shows what actually runs.
+- Reviewers rate mixed-version findings "High" from the window alone (RV-124 #1: new client vs old serve). Check
+  the tags first (`git show v<last>:<file>`): a field no release shipped has no old reader, and the forward case needs
+  someone running `obor stop` in the minutes before serve follows. Accept such findings unless the fix is ~free.
 - Review closes said "approved" while verifies requested changes (hard-coded until T-909). Read the verify, not the
   close line.
 
