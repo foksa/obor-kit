@@ -31,11 +31,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
 ## Later candidates
 - **Log snapshot at upgrade** (parked 11-05, docs/research/log-snapshot.md): build when compat branches pass ~300
   prod lines or a record-shape change needs it.
-- **Harden review → fix → verify in obor** (owner 11-04, after the lead closed RV-107..RV-111 right after dispatching
-  fixes, so each fix round was a fresh review without the findings' context). Options: `obor review close` refuses
-  while a fix task it names is open or merged but unverified; or `obor review fix T-a,T-b` links fix tasks to the open
-  review and serve briefs the same reviewer session to verify once they merge, closing only on the verify. Also the
-  skill/review-brief §3 wording: close after the verify, not after the dispatch.
+
 - (RV-63 #4, accepted by rule) `scripts/publish` checks the local tag only, not that it is the remote one: a moved
   pushed tag could upload bytes fresh installs reject. Rule instead of code: a pushed tag never moves (RELEASING.md).
 - **herdr-core (`hc`)** (`docs/research/herdr-core.md`, 10-30): a separate headless terminal core (own `herdr-core`/`hc`
@@ -61,11 +57,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
 - (RV-120, accepted) RV-120 V1 (P2, low): an unknown lane keeps its quiet/blocked/lost timestamps, so the unobserved interval counts on recovery (false stall/blocked needs-you) — folded into T-879 (unknown or stale observation resets every elapsed-time baseline, case table).
 - (RV-119, accepted) RV-119 #1 rest (P2, low likelihood): a resumed worker whose job wake herdr refuses (blocked agent) stays idle; launch's warning goes to serve's io.Discard and the start rule counts it a success. Covered by the stalled-worker needs-you; fix only if seen (wake outcome back to the rule, 30-70 lines).
 - (RV-118, accepted) (RV-118, accepted) idle's key/time ignore the record that clears a non-rule needs-you (e.g. the disk watcher's below-5-GiB needs-you, internal/app/disk.go:38-67; its resumed fact is not an idle end candidate, idle.go:138-145): after such a needs-you clears, the old key, age and acknowledgement stay and no new idle line comes. Rare (disk < 5 GiB); fix 25-50 lines (count the clearing record when it empties the pipeline)
-- (RV-114, accepted) (RV-114, accepted) the idle settle window (60 s, T-859) is time-based: a fix pass that cannot record its verify request for more than a minute still yields one false idle ping; derive the owed verify from round state if long delays become routine
 - (RV-113, accepted) (RV-113, accepted) 4b: an open review started by an obor older than the review.started fact closes at an unfinished manual verify's head (refs/obor/reviewed moves at brief time, reviewverify.go:519; reviewcycle.go:233 falls back to it); needs such an old open review + an unlinked manual verify that fails or is superseded; none exists; fix 25-55 lines (move the fallback ref only on a finished verify)
-- (11-05) The idle line fired at T-856's merge although `obor review fix` was about to brief the verify (ob-rev working
-  seconds later; `obor idle` then said NOT IDLE): idle should count linked fixes that all merged and a verify not yet
-  briefed. A false ping per fix round; fix small (idle.go reads the review-fix state).
 - (11-05) Load flakes in internal/app's role-brief tests, only on T-852's gates so far (load ~30): TestReviewerBriefEndsIdleAndANewEpochStarts,
   TestBriefEndsWhenItsAgentIsGone/not_identified (62 s wait); both pass alone and in the package at load 19. If one
   recurs on another task: a flake task (what the test waits on under load).
