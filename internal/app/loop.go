@@ -333,6 +333,7 @@ func (a *App) advance(ctx context.Context) *Loop {
 		a.drive(ctx, p, fx, task)
 	}
 	a.nightly(ctx, p, fx)
+	a.reviewCloseRead(ctx, p, fx) // once per process: a close commit the log does not record (T-926)
 	a.reviewPass(ctx, p, fx)
 	a.reviewDueTick(ctx, p, fx)
 	return fx

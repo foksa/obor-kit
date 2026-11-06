@@ -26,7 +26,7 @@ import (
 // brief facts: open, finished (its finished line, Ends: its tasks covered, its head reviewed), stopped (a stop with
 // Ends) or replaced (a newer brief). A verify that did not finish leaves the condition true: the next pass briefs again.
 // Its written failure mode: after a crash a verify may be briefed twice, or one pass late. obor review close refuses
-// while a linked task is open, or merged and not covered (ReviewCycle.Pending), --force closes anyway.
+// while a linked task is open, or merged and not covered (reviewCycle.pending, reviewclose.go), --force closes anyway.
 
 // ruleVerify is the verify rule's name in the rule pass (rules.go); ruleVerifyGit keys its git failure's line.
 const (
@@ -46,7 +46,7 @@ type verifyBrief struct {
 	why   string
 }
 
-// reviewLog is the review cycle's records folded (T-856, one fold: serve's and obor review close's alike): the last
+// reviewLog is the review cycle's records folded (T-856, one fold: serve's verify and its close, T-926): the last
 // review started (its fact's seq, id and head), the tasks the cycle covered so far (its in-scope tasks, then each
 // finished verify's), the head the reviewer last finished (the start's, then each finished verify's: T-857), per
 // agent its open verify brief, and the last verify brief since the start that ended unfinished.
@@ -211,15 +211,16 @@ func (f fixState) line() string {
 // once for each linked task that ended unmerged (key: its dispatch's seq) and for each verify brief that did not
 // finish (key: its brief's seq); then, every link merged or ended unmerged, one merged that no finished verify covers,
 // and the reviewer without an open brief and idle, it briefs the verify of the merged, uncovered links (key: the newest
-// of their merges; no line: the brief's fact is its effect). A closed review (a forced close) runs none of it.
-func verifyRule(ctx context.Context, a *App, p *proj, fx *Loop, _ time.Time) (int64, action, bool) {
+// of their merges; no line: the brief's fact is its effect). A closed review (its review.closed fact, T-926) runs none
+// of it and its round leaves obor status: the snapshot it reads is empty (RV-125 #2).
+func verifyRule(_ context.Context, a *App, p *proj, fx *Loop, _ time.Time) (int64, action, bool) {
 	if fx == nil || fx.Review == nil {
 		return 0, action{}, false
 	}
 	a.mu.Lock()
 	started, l := p.folded.reviewed, p.folded.rv
 	covered, failed := slices.Clone(l.covered), l.failed
-	closed := started.seq == 0 || p.fixClosed == started.seq || l.start != started.seq
+	closed := started.open() == "" || l.start != started.seq
 	var cands []fixLink
 	if !closed {
 		cands = fixCandidates(p.folded.loop, started.seq)
@@ -283,17 +284,6 @@ func verifyRule(ctx context.Context, a *App, p *proj, fx *Loop, _ time.Time) (in
 		}
 		key, act = newest, verifyAction(a, p, fx.Review, s, started.id, tasks, notes, newest)
 	}
-	open, err := reviewOpen(ctx, fx.Review, s.Branch, started)
-	if err != nil {
-		a.logf("%s: verify of %s: is it closed: %v", p.name, started.id, err)
-		return 0, action{}, false
-	}
-	if open == "" {
-		a.mu.Lock()
-		p.fixClosed, p.fixes, p.verifyDue = started.seq, fixState{}, false // a close is for good: no read again
-		a.mu.Unlock()
-		return 0, action{}, false
-	}
 	return key, act, true
 }
 
@@ -355,74 +345,26 @@ func (a *App) didLine(p *proj, of event.Of) bool {
 	return p.didLine(of)
 }
 
-// ReviewCycle is review id's state from the project's event log and store (T-856, T-924: reviewLog, the fold serve
-// keeps, and the linked tasks, fixLinks). Covered: the last start's in-scope tasks plus each finished verify's since,
-// once each. Start: the head that review started at. Reviewed: the head the reviewer last finished when the last start
-// is id's (its last finished verify's, else its start's; T-857: never the head of a verify that did not finish; "": the
-// log has no start of id, which obor review close refuses). Pending: id's linked tasks open, or merged and not covered
-// (obor review close's refusal). An unreadable log is the zero state; a spec that does not read is the error.
-type ReviewCycle struct {
-	Covered  []string
-	Start    string
-	Reviewed string
-	Pending  []string
+// openCycle is the open review by git: its id (the newest "RV-<n> closed" commit + 1), the previous review's id and
+// coverage start ("" when it has neither: no close commit yet), and its review file in the main checkout.
+type openCycle struct {
+	ID, Prev, From, File string
 }
 
-// ReadReviewCycle is review id's ReviewCycle from the log and the store of the project at root (obor review close).
-func ReadReviewCycle(root, id string) (ReviewCycle, error) {
-	recs, err := event.ReadLog(root)
-	if err != nil {
-		return ReviewCycle{}, nil
-	}
-	p := &proj{root: root, folded: newFolded()}
-	var l reviewLog
-	for _, r := range recs {
-		p.foldLoop(r)
-		l.fold(r)
-	}
-	c := ReviewCycle{Start: l.startHead}
-	for _, t := range l.covered {
-		if !slices.Contains(c.Covered, t) {
-			c.Covered = append(c.Covered, t)
-		}
-	}
-	if l.start == 0 || l.startID != id {
-		return c, nil
-	}
-	c.Reviewed = l.reviewed
-	db, err := store.OpenRO(event.DBFile(root))
-	if err != nil {
-		return c, err
-	}
-	defer db.Close()
-	links, err := linkFixes(fixCandidates(p.folded.loop, l.start), id, func(task string) (store.SpecRow, bool, error) {
-		return store.ReadSpec(db, task)
-	})
-	c.Pending = pendingFixes(links, c.Covered)
-	return c, err
-}
-
-// OpenCycle is the open review by git: its id (the newest "RV-<n> closed" commit + 1), the previous review's id,
-// reviewed sha and coverage start ("" when it has neither: no close commit yet), and its review file in the main
-// checkout.
-type OpenCycle struct {
-	ID, Prev, PrevSHA, From, File string
-}
-
-// errNoOpenReview is OpenReview's answer when the next review has no review file.
+// errNoOpenReview is openReview's answer when the next review has no review file.
 var errNoOpenReview = errors.New("no open review")
 
-// OpenReview is the open review of the project at root (obor dispatch's Fixes: check, the verify, obor review close):
+// openReview is the open review of the project at root (obor dispatch's Fixes: check, the verify, obor review close):
 // no review file <reviews>/RV-<n>.md in the main checkout (T-718: the reviewer writes it there) is no open review, an
 // error (errNoOpenReview).
-func OpenReview(ctx context.Context, g ReviewGit, root string, s ReviewSetup) (OpenCycle, error) {
+func openReview(ctx context.Context, g ReviewGit, root string, s ReviewSetup) (openCycle, error) {
 	last, err := g.Last(ctx, s.Branch)
 	if err != nil {
-		return OpenCycle{}, err
+		return openCycle{}, err
 	}
-	n, prev, prevSHA := PreviousReview(last.Subject)
+	n, prev, _ := PreviousReview(last.Subject)
 	from, _ := reviewScope(last)
-	c := OpenCycle{ID: reviewID(n), Prev: prev, PrevSHA: prevSHA, From: from}
+	c := openCycle{ID: reviewID(n), Prev: prev, From: from}
 	c.File = filepath.Join(root, s.Reviews, c.ID+".md")
 	if _, err := os.Stat(c.File); err != nil {
 		return c, fmt.Errorf("%w: no %s/%s.md in %s (%s is not written yet, or the last review is closed)",
@@ -447,7 +389,7 @@ func fixesCheck(ctx context.Context, fx *Loop, root, task, text string) error {
 	}
 	ctx, cancel := context.WithTimeout(ctx, verifyGitWait)
 	defer cancel()
-	c, err := OpenReview(ctx, fx.Review, root, s)
+	c, err := openReview(ctx, fx.Review, root, s)
 	switch {
 	case errors.Is(err, errNoOpenReview):
 		return fmt.Errorf("%s: Fixes: %s is not the open review (none is open)", task, id)
@@ -464,7 +406,7 @@ func fixesCheck(ctx context.Context, fx *Loop, root, task, text string) error {
 // brief and that head.
 func verifyText(ctx context.Context, g ReviewGit, root string, s ReviewSetup, id string, tasks, notes []string) (text,
 	head string, err error) {
-	c, err := OpenReview(ctx, g, root, s)
+	c, err := openReview(ctx, g, root, s)
 	if err != nil {
 		return "", "", err
 	}

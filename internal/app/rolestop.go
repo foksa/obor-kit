@@ -18,8 +18,8 @@ import (
 //     review, a conflict to resolve): each job starts a fresh session anyway (T-602), so the next job's start starts
 //     it again. A stopped integrator with no open job is the normal state: no timer watches it (watchJob only runs for
 //     an open job), and obor status shows it as stopped;
-//   - the reviewer, once its review cycle closes (the "RV-<n> closed" commit for the review serve started, review.go),
-//     never before: its verify runs in the same session.
+//   - the reviewer, once its review cycle closes (fact review.closed for the review serve started: obor review
+//     close's call, T-926), never before: its verify runs in the same session.
 //
 // A stop is a rule action: no intent, no result, no retry clock; the agent's labelled pane left at its shell is what
 // obor status shows as stopped, whoever stopped it (stoppedRoles: serve, or the lead's obor restart <agent> --stop).
@@ -61,23 +61,18 @@ func integratorStopRule(_ context.Context, a *App, p *proj, fx *Loop, _ time.Tim
 	return int64(verdicts), stopAction(a, p, fx, p.integrator), true
 }
 
-// reviewerStopRule is the reviewer's stop rule: the last review serve started is closed in git, the reviewer has no
-// open brief (its verify runs in the same session), and its pane runs it and is idle. The close is a commit serve does
-// not record, so the rule reads git for it, at most every reviewDueEvery (rvRead: a serve call for the close replaces
-// the read, wave 5 task I). What a read found is kept apart from that poll time (T-875): a review read closed stays
-// eligible on every pass while it is the same review and the reviewer idle, so a failing stop counts again and
-// ruleFails in a row are the rule pass's needs-you; the cache resets when the review changes or the condition ends.
-// Done when the pane is at its shell: no read, no action.
-func reviewerStopRule(ctx context.Context, a *App, p *proj, fx *Loop, now time.Time) (int64, action, bool) {
-	if fx == nil || fx.Agents == nil || fx.Review == nil {
+// reviewerStopRule is the reviewer's stop rule: the last review serve started is closed (its review.closed fact, the
+// rule's key: T-926, no git read), the reviewer has no open brief (its verify runs in the same session), and its pane
+// runs it and is idle. A failing stop counts on every pass while the condition holds, so ruleFails in a row are the
+// rule pass's needs-you (T-875). Done when the pane is at its shell.
+func reviewerStopRule(_ context.Context, a *App, p *proj, fx *Loop, _ time.Time) (int64, action, bool) {
+	if fx == nil || fx.Agents == nil {
 		return 0, action{}, false
 	}
 	a.mu.Lock()
-	started := p.folded.reviewed
-	closed := started.seq != 0 && p.rvRead.seq == started.seq && p.rvRead.closed
-	polled := started.seq != 0 && p.rvRead.seq == started.seq && now.Sub(p.rvRead.at) < reviewDueEvery
+	closed := p.folded.reviewed.closed
 	a.mu.Unlock()
-	if started.seq == 0 || (!closed && polled) {
+	if closed == 0 {
 		return 0, action{}, false
 	}
 	s, err := reviewConfig(p.root)
@@ -86,29 +81,12 @@ func reviewerStopRule(ctx context.Context, a *App, p *proj, fx *Loop, now time.T
 	}
 	a.mu.Lock()
 	w := a.whereIs(p, s.Agent)
-	skip := w.State != Identified || !Ready(w.Pane.Status) || p.out.brief(s.Agent) != nil
-	if skip {
-		p.rvRead = rvRead{} // the condition ended: the next eligible pass reads git again (T-875)
-	}
+	stop := w.State == Identified && Ready(w.Pane.Status) && p.out.brief(s.Agent) == nil
 	a.mu.Unlock()
-	if skip {
+	if !stop {
 		return 0, action{}, false
 	}
-	if !closed {
-		open, err := reviewOpen(ctx, fx.Review, s.Branch, started)
-		if err != nil {
-			a.logf("review of %s: is %s closed: %v", p.name, started.id, err)
-			return 0, action{}, false
-		}
-		a.mu.Lock()
-		// this review is read: open or closed, the next read is reviewDueEvery later, and a close stays eligible meanwhile
-		p.rvRead = rvRead{seq: started.seq, at: now, closed: open == ""}
-		a.mu.Unlock()
-		if open != "" {
-			return 0, action{}, false
-		}
-	}
-	return started.seq, stopAction(a, p, fx, s.Agent), true
+	return closed, stopAction(a, p, fx, s.Agent), true
 }
 
 // stopAction is a role stop rule's action: the agent stopped at the pane it is identified in, no force (the pane
@@ -164,16 +142,6 @@ func (p *proj) integratorBusy() bool {
 		}
 	}
 	return false
-}
-
-// rvRead is the reviewer's stop rule's last git read of its review, live: the review it read (seq), when (the next
-// read is reviewDueEvery later), and what it found — closed: no "RV-<n> closed" commit has closed it. closed is apart
-// from the poll time (T-875): a review read closed is eligible on every pass until the review changes or the
-// condition ends, not only on the pass that read it.
-type rvRead struct {
-	seq    int64
-	at     time.Time
-	closed bool
 }
 
 // shellPane is the pane labelled agent, a role agent a brief may start (roleAgentOf: never a worker, the lead or the

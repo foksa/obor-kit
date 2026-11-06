@@ -58,6 +58,10 @@ const (
 	// MethodIdle (the lead's or the owner's; obor idle, T-803): Call.Note the why nothing is in flight acknowledges the
 	// idle state ("" shows it). The reply is ACKED idle: <why>, or the state (NOT IDLE, IDLE …).
 	MethodIdle = "idle"
+	// MethodReviewClose (the lead's or the owner's; obor review close, T-926): Call.Note the summary, Call.Accept the
+	// accepted findings' lines, Call.Force closes with fixes pending. Serve commits the close on the integration branch
+	// and records fact review.closed; the reply is CLOSED <subject>.
+	MethodReviewClose = "review_close"
 )
 
 // The MCP job tools' socket methods: `obor mcp` sends each tool call as one request with a Call (Agent, Role, Root from
@@ -105,6 +109,8 @@ type Call struct {
 	Force bool     `json:"force,omitempty"`
 	After []string `json:"after,omitempty"` // the tasks it waits for (obor dispatch --after)
 	Level string   `json:"level,omitempty"` // set with Types by a waiting task's re-dispatch: the spec's level they came from
+	// review_close's: each accepted finding's line for BACKLOG.md's Open section (Force: close with fixes pending).
+	Accept []string `json:"accept,omitempty"`
 	// A drop's (T-439): discard the task's lane's uncommitted changes and unmerged commits.
 	Discard bool `json:"discard,omitempty"`
 	// The MCP job tools': the caller's herdr pane; task_done's report.

@@ -34,8 +34,8 @@ import (
 // {review: the request's seq}, whose fold ends it).
 //
 // One review cycle is open at a time (RV-69 #3): the last review serve started (fact review.started, so a replay
-// keeps it) is open until an "RV-<n> closed" commit for it (or a later one) is on the integration branch, read in git
-// at the call and at firing. While one is open, obor review refuses a new request ("RV-69 is open (not closed): close
+// keeps it) is open until fact review.closed for it (or a later one): obor review close's call, which serve commits and
+// records (reviewclose.go, T-926). While one is open, obor review refuses a new request ("RV-69 is open (not closed): close
 // it first"), and a request that comes due waits (obor status: "waiting RV-69 to close"): a fresh start would replace
 // the session its verify needs. A request a pass claimed (RV-69 #1: to fire it, or for its ended line) cannot change
 // until the claim ends: obor review's replace and --rm are refused while it holds (reviewClaim). A crash between the
@@ -49,8 +49,8 @@ const reviewDue = 3
 const maxBriefFiles = 100
 
 // ReviewData is a review fact's data: the request's tasks and note, who asked, the request a firing or start is of,
-// the review's id, head and tasks once started, a verify request's fix round (T-856), and the call that recorded it
-// with its reply.
+// the review's id, head and tasks once started, a close's reviewed sha, covered tasks and review start sha (T-926: its
+// commit's), and the call that recorded it with its reply.
 type ReviewData struct {
 	After   []string `json:"after,omitempty"`
 	Note    string   `json:"note,omitempty"`
@@ -59,6 +59,9 @@ type ReviewData struct {
 	ID      string   `json:"id,omitempty"`
 	Head    string   `json:"head,omitempty"`
 	Tasks   []string `json:"tasks,omitempty"`
+	SHA     string   `json:"sha,omitempty"`
+	Covered []string `json:"covered,omitempty"`
+	Start   string   `json:"start,omitempty"`
 	Call    string   `json:"call,omitempty"`
 	Reply   string   `json:"reply,omitempty"`
 }
@@ -83,6 +86,19 @@ type ReviewGit interface {
 	Files(ctx context.Context, from, to string) ([]string, error)
 	// Detach puts the role worktree at dir on sha, detached, adding it when it is missing (T-853).
 	Detach(ctx context.Context, dir, sha string) error
+	// Close commits c in the main checkout (T-926; serve calls it admitted, reviewclose.go). Refused, an error ending
+	// "nothing changed": the checkout not on c.Branch, dirty outside BACKLOG.md and c's files, no "## Open" section
+	// in BACKLOG.md for c.Accepts, or c.Reviewed no commit. Else c's files deleted, c.Accepts at the top of
+	// BACKLOG.md's Open section and the commit, BACKLOG.md with it.
+	Close(ctx context.Context, c ReviewCommit) error
+}
+
+// ReviewCommit is a review's close as the main checkout takes it: the integration branch, the review's id and its
+// review file (absolute; its verify file <id>-verify.md beside it goes too when there), the accepted findings' lines
+// for BACKLOG.md, the head the reviewer last finished (full sha) and the commit's subject and body (CloseCommit).
+type ReviewCommit struct {
+	Branch, ID, File, Reviewed, Subject, Body string
+	Accepts                                   []string
 }
 
 // reviewReq is the open review request: its fact's seq and time, its tasks, note and asker, and the open review it
@@ -107,10 +123,20 @@ type reviewClaim struct {
 	claimed func()
 }
 
-// lastReview is the newest review the log started: its fact's seq, its id and the head it reviews (seq 0: none).
+// lastReview is the newest review the log started: its fact's seq, its id and the head it reviews (seq 0: none), and
+// the seq of the review.closed fact that closed it (0: open; T-926).
 type lastReview struct {
 	seq      int64
 	id, head string
+	closed   int64
+}
+
+// open is the review's id while it is open: started and no review.closed fact for it ("": none open).
+func (r lastReview) open() string {
+	if r.seq == 0 || r.closed != 0 {
+		return ""
+	}
+	return r.id
 }
 
 // reviewDueLine is obor status' "review due" line ("": none) as a pass last counted it in git, and what it was
@@ -121,19 +147,28 @@ type reviewDueLine struct {
 	line string
 }
 
-// reviewDueEvery is how often the "review due" count is read again when nothing it was counted on changed (a review's
-// close is a commit serve does not record).
+// reviewDueEvery is how often the "review due" count is read again when nothing it was counted on changed (the
+// integration branch can move without a fold: a merge by hand).
 const reviewDueEvery = 3 * time.Minute
 
 // foldReview folds r, a record of the project's review requests: a request opens (replacing the open one) and ends
-// a failed start's needs-you; --rm and a firing end it; a start is the last review.
+// a failed start's needs-you; --rm and a firing end it; a start is the last review; a close (T-926) closes it when it
+// names it or a later review, the first close counting.
 func (p *proj) foldReview(r event.Record) {
 	if r.Task != event.ReviewTask || r.Kind != event.KindFact {
 		return
 	}
 	var d ReviewData
 	_ = json.Unmarshal(r.Data, &d)
+	method := wire.MethodReview
 	switch r.Step {
+	case event.StepReviewClosed:
+		method = wire.MethodReviewClose
+		last := &p.folded.reviewed
+		n, ok := reviewNumber(d.ID)
+		if open, _ := reviewNumber(last.open()); ok && last.open() != "" && n >= open {
+			last.closed = r.Seq
+		}
 	case event.StepReviewRequest:
 		p.folded.review = &reviewReq{seq: r.Seq, at: event.RecordTime(r), after: d.After, note: d.Note, by: d.By}
 		p.clear(event.ReviewTask)
@@ -152,7 +187,7 @@ func (p *proj) foldReview(r event.Record) {
 		return
 	}
 	if d.Call != "" {
-		p.folded.calls[verdictStep(wire.MethodReview, d.Call)] = d.Reply
+		p.folded.calls[verdictStep(method, d.Call)] = d.Reply
 	}
 }
 
@@ -223,7 +258,7 @@ func ReviewConfig(cfg *config.Config) (ReviewSetup, error) {
 // gets the stored reply. --rm: REVIEW REQUEST ENDED (fact review.rm), or NO REVIEW REQUEST. No --after, no note and a
 // request open: it is listed (reviewList). Else a request (fact review.request): REVIEW REQUESTED (now | after
 // T-a,T-b), " (replaces the request of <age> ago)" when one was open; a task neither dispatched nor specified, a task
-// of --after dropped or rejected already, no reviewer configured, or a review open (reviewOpen): refused, nothing
+// of --after dropped or rejected already, no reviewer configured, or a review open (lastReview.open): refused, nothing
 // recorded. A pass's claim held (reviewClaim): --rm and a request are refused.
 func (a *App) reviewCall(c wire.Call) (string, error) {
 	if c.CallID == "" {
@@ -274,13 +309,10 @@ func (a *App) reviewCall(c wire.Call) (string, error) {
 	case end != "":
 		return "", fmt.Errorf("review: %s already", end)
 	default:
-		s, err := reviewConfig(p.root)
-		if err != nil {
+		if _, err := reviewConfig(p.root); err != nil {
 			return "", fmt.Errorf("review: %v", err)
 		}
-		if id, err := a.reviewOpenNow(p, s.Branch, started); err != nil {
-			return "", fmt.Errorf("review: %v", err)
-		} else if id != "" {
+		if id := started.open(); id != "" {
 			return "", fmt.Errorf("%s is open (not closed): close it first", id)
 		}
 		for _, task := range unknown {
@@ -341,7 +373,7 @@ func (p *proj) reviewStatus(now time.Time) string {
 // reviewDueTick counts, in git, the merges in the next review's scope (reviewScope): since the previous review's review
 // start sha, without the tasks its cycle covered. The previous review is the newest "RV-n closed" commit (or, one
 // started and not closed yet, its head). More than reviewDue: obor status' line "review due: N merges since <RV-prev>".
-// It counts again once a merge or a start folded, or reviewDueEvery passed; a git error keeps the last line and is tried
+// It counts again once a merge, a start or a close folded, or reviewDueEvery passed; a git error keeps the last line and is tried
 // on the next pass.
 func (a *App) reviewDueTick(ctx context.Context, p *proj, fx *Loop) {
 	if fx.Review == nil {
@@ -355,7 +387,7 @@ func (a *App) reviewDueTick(ctx context.Context, p *proj, fx *Loop) {
 		}
 	}
 	started := p.folded.reviewed
-	key := fmt.Sprintf("%d %d", n, started.seq)
+	key := fmt.Sprintf("%d %d %d", n, started.seq, started.closed)
 	now := a.opt.Now()
 	fresh := key == p.due.key && now.Sub(p.due.at) < reviewDueEvery
 	a.mu.Unlock()
@@ -383,9 +415,9 @@ func (a *App) reviewDueCount(ctx context.Context, p *proj, g ReviewGit, started 
 	if err != nil {
 		return "", err
 	}
-	k, prev, _ := PreviousReview(last.Subject)
+	_, prev, _ := PreviousReview(last.Subject)
 	from, covered := reviewScope(last)
-	if n, ok := reviewNumber(started.id); ok && n >= k && started.head != "" {
+	if started.open() != "" && started.head != "" {
 		prev, from, covered = started.id, started.head, nil // started, not closed yet: its findings are being fixed
 	}
 	head, err := g.Head(ctx, s.Branch)
@@ -402,37 +434,9 @@ func (a *App) reviewDueCount(ctx context.Context, p *proj, g ReviewGit, started 
 	return fmt.Sprintf("review due: %d merges since %s", len(merges), cmp.Or(prev, "the first commit (no RV closed yet)")), nil
 }
 
-// reviewOpen is the id of started, the last review serve started, while no "RV-<n> closed" commit on branch closes it
-// or a later one ("": none open, or none started).
-func reviewOpen(ctx context.Context, g ReviewGit, branch string, started lastReview) (string, error) {
-	n, ok := reviewNumber(started.id)
-	if started.seq == 0 || !ok {
-		return "", nil
-	}
-	last, err := g.Last(ctx, branch)
-	if err != nil {
-		return "", err
-	}
-	if next, _, _ := PreviousReview(last.Subject); n >= next {
-		return started.id, nil
-	}
-	return "", nil
-}
-
-// reviewOpenNow is reviewOpen for obor review's call, on the merge loop's git (none: no review is started, none open).
-func (a *App) reviewOpenNow(p *proj, branch string, started lastReview) (string, error) {
-	fx, err := a.opt.Loop(p.root)
-	if err != nil || fx.Review == nil {
-		return "", err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	return reviewOpen(ctx, fx.Review, branch, started)
-}
-
 // reviewPass fires p's open review request when it is due, or ends it when a task of its --after ended unmerged. Due:
-// every --after task merged, no review open in git (reviewOpen; one open: the request waits, held) and the reviewer
-// idle; a publish running does not hold it (T-872: the start reads the head once, roleworktree.go). A pass claims
+// every --after task merged, no review open (lastReview.open: the last start has no review.closed fact, T-926; one
+// open: the request waits, held) and the reviewer idle; a publish running does not hold it (T-872: the start reads the head once, roleworktree.go). A pass claims
 // the request (reviewClaim) before it records: fired, its fact ends it and the claim holds until the start returned;
 // an ended line, its fold does.
 func (a *App) reviewPass(ctx context.Context, p *proj, fx *Loop) {
@@ -447,11 +451,7 @@ func (a *App) reviewPass(ctx context.Context, p *proj, fx *Loop) {
 	setup, cfgErr := reviewConfig(p.root)
 	open, checked := "", ready && cfgErr == nil
 	if checked {
-		var err error
-		if open, err = reviewOpen(ctx, fx.Review, setup.Branch, started); err != nil {
-			a.logf("review of %s: is the last review closed: %v", p.name, err)
-			return
-		}
+		open = started.open()
 	}
 	p.rv.mu.Lock()
 	a.mu.Lock()

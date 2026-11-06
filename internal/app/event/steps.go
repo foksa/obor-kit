@@ -113,6 +113,7 @@ const (
 	StepReviewRm      = "review.rm"      // fact: obor review --rm ended it (data: ReviewData)
 	StepReviewFire    = "review.fire"    // fact: a pass fires the request (data: ReviewData, Request its seq)
 	StepReviewStarted = "review.started" // fact: the reviewer started on the brief (data: ReviewData)
+	StepReviewClosed  = "review.closed"  // fact: serve committed the review's close (T-926; data: ReviewData)
 )
 
 const (

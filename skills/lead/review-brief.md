@@ -100,13 +100,14 @@ invariant → the two-strike rule in the lead skill.
 
 ## 5. Close the cycle
 When a verify approves (or the review found nothing): `obor review close "<summary>" [--accept "<line>"]…
-[--force]`. It
+[--force]`. It is a call to serve (T-926: serve must be up), which
 deletes `<RV-xx>.md` and `<RV-xx>-verify.md` from the main checkout, adds each `--accept` line to `BACKLOG.md`'s Open
 section as `- (<RV-xx>, accepted) <line>`, commits `RV-xx closed · <reviewed sha> · approved · <summary>` on the
 integration branch in the main checkout (`accepted <n>` in place of `approved` when the close carries `--accept` lines;
 with `BACKLOG.md`; the reviewed sha is the head serve's log says the reviewer
 last finished: the last done verify's (T-857: never one replaced or failed), else the review's, not your doc commits
-since); serve stops the reviewer once its pass sees the close commit (T-869: the command stops nothing). Since T-822 the commit's body records the tasks the cycle covered (its in-scope tasks and each verify's)
+since), then records the close (fact `review.closed`): the next review may start, and serve stops the reviewer on its
+next pass. Since T-822 the commit's body records the tasks the cycle covered (its in-scope tasks and each verify's)
 and the sha its review started at:
 
 ```

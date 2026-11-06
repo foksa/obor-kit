@@ -351,7 +351,7 @@ func (s *reviewStopSpy) Stop(_ context.Context, agent, pane string, force bool) 
 	return "STOPPED " + agent, nil
 }
 
-// reviewStopRig is a review rig (RV-4 closed in git, the reviewer pj-rev idle in w:rev) with a stop spy.
+// reviewStopRig is a review rig (RV-4 closed, the reviewer pj-rev idle in w:rev) with a stop spy.
 func reviewStopRig(t *testing.T) (*reviewRig, *reviewStopSpy) {
 	t.Helper()
 	r := newReviewRig(t)
@@ -365,18 +365,22 @@ func reviewStopRig(t *testing.T) (*reviewRig, *reviewStopSpy) {
 	return r, s
 }
 
-// T-870: the reviewer's stop rule, one table (condition → action). The last review serve started is closed in git
-// (read at most every reviewDueEvery), the reviewer has no open brief and its pane runs it and is idle: only then does
-// it stop it, and only once the pane is at its shell is the action done.
+// T-870, T-926: the reviewer's stop rule, one table (condition → action). The last review serve started is closed (its
+// review.closed fact; no rule pass reads git), the reviewer has no open brief and its pane runs it and is idle: only
+// then does it stop it, on the first pass after the close, and only once the pane is at its shell is the action done.
 func TestRoleStopReviewerRule(t *testing.T) {
 	t.Parallel()
 	type step func(t *testing.T, r *reviewRig, s *reviewStopSpy)
 	pass := func(t *testing.T, r *reviewRig, s *reviewStopSpy) {
+		reads := r.git.reads()
 		r.a.rulePass(context.Background(), rules, &Loop{Review: r.git, Agents: s})
+		if n := r.git.reads() - reads; n != 0 {
+			t.Errorf("the rule pass read git %d times, want none (T-926: the close is a fact)", n)
+		}
 	}
 	started := func(t *testing.T, r *reviewRig, _ *reviewStopSpy) { r.started() }
 	closed := func(t *testing.T, r *reviewRig, _ *reviewStopSpy) {
-		r.git.last = "RV-5 closed · abcdef0 · approved · T-a"
+		r.closedBy("RV-5 closed · abcdef0 · approved · T-a")
 	}
 	status := func(status, agent string) step {
 		return func(t *testing.T, r *reviewRig, _ *reviewStopSpy) {
@@ -416,8 +420,8 @@ func TestRoleStopReviewerRule(t *testing.T) {
 		{name: "closed and the pane at its shell after the stop: no second stop",
 			steps: []step{started, closed, pass, status("", ""), later(reviewDueEvery), pass},
 			stops: []string{"pj-rev w:rev force=false"}},
-		{name: "its open review was read less than reviewDueEvery ago: none, then stopped",
-			steps: []step{started, pass, closed, pass, later(reviewDueEvery), pass},
+		{name: "open on a pass, then closed: stopped on the next pass, no poll interval",
+			steps: []step{started, pass, closed, pass},
 			stops: []string{"pj-rev w:rev force=false"}},
 	}
 	for _, c := range cases {
@@ -434,15 +438,14 @@ func TestRoleStopReviewerRule(t *testing.T) {
 	}
 }
 
-// T-875: a reviewer stop that keeps failing is a needs-you after ruleFails passes in a row, though every pass falls
-// inside the git poll's reviewDueEvery: a review read closed stays eligible on every pass until the stop's effect
-// shows, not only on the pass that read it (before, the second pass had no condition, so rulePass dropped the live
-// count and three failures never happened).
+// T-875: a reviewer stop that keeps failing is a needs-you after ruleFails passes in a row: a closed review stays
+// eligible on every pass until the stop's effect shows, not only on the pass that saw the close (before, the second
+// pass had no condition, so rulePass dropped the live count and three failures never happened).
 func TestRoleStopReviewerFailuresAccumulate(t *testing.T) {
 	t.Parallel()
 	r, s := reviewStopRig(t)
 	r.started()
-	r.git.last = "RV-5 closed · abcdef0 · approved · T-a"
+	r.closedBy("RV-5 closed · abcdef0 · approved · T-a")
 	s.err = errors.New("herdr refused the stop")
 	reason := fmt.Sprintf("rule %s failed %d passes in a row (serve's log names the errors)", ruleReviewerStop, ruleFails)
 	for i := 1; i <= ruleFails; i++ {
