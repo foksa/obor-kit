@@ -120,7 +120,7 @@ export interface TaskStatus {
   lane: string;
   attempt: number;
   state: string;
-  open?: boolean;
+  ended?: boolean;
   phase: string;
   stage?: string;
   running?: string;

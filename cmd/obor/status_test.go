@@ -95,10 +95,10 @@ func TestStatusOverServe(t *testing.T) {
 		Name: "pj", Root: p.Root, Merging: true, Paused: &event.Pause{Why: "quota", Caller: "pj-lead"},
 		Agents: []wire.AgentStatus{{Pane: "w1:p1", Name: "pj-l1", Agent: "claude", Lane: "L-01", Task: "T-01", Status: "idle"},
 			{Pane: "w1:p9", Name: "pj-int", Agent: "claude", Status: "working", Age: 300}},
-		Tasks: []wire.TaskStatus{{Task: "T-01", Lane: "L-01", Attempt: 1, State: "working", Open: true, Phase: wire.PhaseNeedsYou},
-			{Task: "T-05", Lane: "L-09", Attempt: 2, State: "needs-you", Open: true, Phase: wire.PhaseNeedsYou},
-			{Task: "T-04", Lane: "L-09", State: "dropped", Phase: wire.PhaseDropped},
-			{Task: "T-09", Attempt: 1, State: "waiting", Open: true, After: []string{"T-03"}, Why: "dispatch T-09: lane L-01 is working on T-01"}},
+		Tasks: []wire.TaskStatus{{Task: "T-01", Lane: "L-01", Attempt: 1, State: "working", Phase: wire.PhaseNeedsYou},
+			{Task: "T-05", Lane: "L-09", Attempt: 2, State: "needs-you", Phase: wire.PhaseNeedsYou},
+			{Task: "T-04", Lane: "L-09", State: "dropped", Ended: true, Phase: wire.PhaseDropped},
+			{Task: "T-09", Attempt: 1, State: "waiting", After: []string{"T-03"}, Why: "dispatch T-09: lane L-01 is working on T-01"}},
 		Facts: []event.Record{
 			fact(t, 1, "T-01", event.FactData{Lane: "L-01", Reason: "asks: may I edit x.go?"}),
 			fact(t, 2, "T-05", event.FactData{Lane: "L-09", Reason: "gate red after 2 sendbacks", Merge: true, Cause: "red"}),
@@ -269,9 +269,9 @@ func heldGateStatus() wire.Status {
 	return wire.Status{Connected: true, Project: &wire.ProjectStatus{
 		Name: "pj", Root: "/work/pj",
 		Tasks: []wire.TaskStatus{
-			{Task: "T-1", Lane: "L-01", Attempt: 1, State: "submitted", Open: true, Phase: wire.PhaseGating, Running: "gate"},
-			{Task: "T-2", Lane: "L-02", Attempt: 1, State: "accepted", Open: true, Phase: wire.PhaseMerging, Running: "publish.2"},
-			{Task: "T-3", Lane: "L-03", Attempt: 1, State: "accepted", Open: true, Phase: wire.PhasePublish},
+			{Task: "T-1", Lane: "L-01", Attempt: 1, State: "submitted", Phase: wire.PhaseGating, Running: "gate"},
+			{Task: "T-2", Lane: "L-02", Attempt: 1, State: "accepted", Phase: wire.PhaseMerging, Running: "publish.2"},
+			{Task: "T-3", Lane: "L-03", Attempt: 1, State: "accepted", Phase: wire.PhasePublish},
 		},
 	}}
 }
@@ -282,7 +282,7 @@ func taskLines(t *testing.T, st wire.Status) map[string]string {
 	var buf bytes.Buffer
 	tasks := map[string]view.Task{}
 	for _, ts := range st.Project.Tasks { // what view.Build takes of serve's tasks for these lines
-		tasks[ts.Task] = view.Task{Task: ts.Task, Lane: ts.Lane, Attempt: ts.Attempt, TaskState: ts.State, Open: ts.Open,
+		tasks[ts.Task] = view.Task{Task: ts.Task, Lane: ts.Lane, Attempt: ts.Attempt, TaskState: ts.State, Open: !ts.Ended,
 			Phase: ts.Phase, Running: ts.Running}
 	}
 	writeStatus(&buf, view.Project{Serve: view.Serve{Up: true, Herdr: true, Project: true, Merging: true},
@@ -294,6 +294,35 @@ func taskLines(t *testing.T, st wire.Status) map[string]string {
 		}
 	}
 	return lines
+}
+
+// T-921 (RV-124 #1): a task an older serve lists without an ended field is open and gets its task line; the new
+// serve's ended: true (a dropped task) keeps it off the lanes section.
+func TestStatusTaskLinesReadAnOlderServesTaskAsOpen(t *testing.T) {
+	t.Parallel()
+	var older wire.Status
+	if err := json.Unmarshal([]byte(`{"project":{"tasks":[{"task":"T-7","lane":"L-07","attempt":1,"state":"working",`+
+		`"phase":"working"}]}}`), &older); err != nil {
+		t.Fatal(err)
+	}
+	if len(older.Project.Tasks) != 1 || older.Project.Tasks[0].Ended {
+		t.Fatalf("precondition: %+v, want one task with no ended", older.Project.Tasks)
+	}
+	line, ok := taskLines(t, older)["T-7"]
+	if !ok || !strings.HasSuffix(line, ": working (attempt 1)") {
+		t.Errorf("T-7 without ended: line %q (listed %v), want an open task line", line, ok)
+	}
+	var ended wire.Status
+	if err := json.Unmarshal([]byte(`{"project":{"tasks":[{"task":"T-7","lane":"L-07","attempt":1,"state":"dropped",`+
+		`"ended":true}]}}`), &ended); err != nil {
+		t.Fatal(err)
+	}
+	if !ended.Project.Tasks[0].Ended {
+		t.Fatalf("precondition: %+v, want ended", ended.Project.Tasks[0])
+	}
+	if line, ok := taskLines(t, ended)["T-7"]; ok {
+		t.Errorf("T-7 ended: line %q, want none", line)
+	}
 }
 
 // A task line ends with the step it runs: a held gate or publish, numbered steps kept, and nothing on an idle task.
@@ -351,7 +380,7 @@ func TestStatusShowsWaiting(t *testing.T) {
 	}
 	// A waiting task is the queue's: no task line of its own in the lanes section.
 	st := heldGateStatus()
-	st.Project.Tasks = append(st.Project.Tasks, wire.TaskStatus{Task: "T-4", Attempt: 1, State: "waiting", Open: true,
+	st.Project.Tasks = append(st.Project.Tasks, wire.TaskStatus{Task: "T-4", Attempt: 1, State: "waiting",
 		After: []string{"T-2"}})
 	if line, ok := taskLines(t, st)["T-4"]; ok {
 		t.Errorf("a waiting task listed as a task line: %q", line)
@@ -497,7 +526,7 @@ func TestStatusShort(t *testing.T) {
 	ss := wire.Status{Since: now.Add(-time.Hour).UTC().Format(time.RFC3339), Connected: true, Project: &wire.ProjectStatus{
 		Name: "pj", Root: p.Root, Merging: true,
 		Running:  []wire.RunningStep{{Step: event.StepGate, Task: "T-1", Since: now.Add(-time.Minute).Unix()}},
-		Tasks:    []wire.TaskStatus{{Task: "T-2", Lane: "L-02", Attempt: 1, State: "working", Open: true}},
+		Tasks:    []wire.TaskStatus{{Task: "T-2", Lane: "L-02", Attempt: 1, State: "working"}},
 		Messages: []wire.MessageStatus{{To: "pj-lead", From: "other", Line: "[obor other] hi", Age: 60}},
 		Facts:    []event.Record{fact(t, 1, "T-3", event.FactData{Lane: "L-03", Reason: "stalled"})},
 	}}
@@ -558,14 +587,14 @@ func TestStatusQueue(t *testing.T) {
 		Agents: []wire.AgentStatus{{Pane: "w1:p1", Name: "pj-int", Agent: "claude", Status: "idle", Age: 120,
 			Session: "s1"}},
 		Tasks: []wire.TaskStatus{
-			{Task: "T-10", Lane: "L-01", Attempt: 1, State: "working", Open: true, Phase: wire.PhaseWorking, Job: "T-10/1/work",
+			{Task: "T-10", Lane: "L-01", Attempt: 1, State: "working", Phase: wire.PhaseWorking, Job: "T-10/1/work",
 				Delivered: true},
-			{Task: "T-100", Lane: "L-04", Attempt: 1, State: "submitted", Open: true, Phase: wire.PhaseSubmitted, Stage: wire.StageSubmitted},
-			{Task: "T-1000", Lane: "L-05", Attempt: 1, State: "conflict", Open: true, Phase: wire.PhaseReview, Stage: wire.StageReview},
-			{Task: "T-11", Lane: "L-02", Attempt: 1, State: "submitted", Open: true, Phase: wire.PhaseSubmitted, Stage: wire.StageSubmitted},
-			{Task: "T-12", Attempt: 1, State: "waiting", Open: true, Phase: wire.PhaseWaiting, After: []string{"T-11"}},
-			{Task: "T-14", Attempt: 1, State: "waiting", Open: true, Phase: wire.PhaseWaiting, Level: "medium", Types: []string{"sonnet"}},
-			{Task: "T-9", Lane: "L-03", Attempt: 1, State: "awaiting-accept", Open: true, Phase: wire.PhaseReviewing, Stage: wire.StageReview, Job: "T-9/1/review"},
+			{Task: "T-100", Lane: "L-04", Attempt: 1, State: "submitted", Phase: wire.PhaseSubmitted, Stage: wire.StageSubmitted},
+			{Task: "T-1000", Lane: "L-05", Attempt: 1, State: "conflict", Phase: wire.PhaseReview, Stage: wire.StageReview},
+			{Task: "T-11", Lane: "L-02", Attempt: 1, State: "submitted", Phase: wire.PhaseSubmitted, Stage: wire.StageSubmitted},
+			{Task: "T-12", Attempt: 1, State: "waiting", Phase: wire.PhaseWaiting, After: []string{"T-11"}},
+			{Task: "T-14", Attempt: 1, State: "waiting", Phase: wire.PhaseWaiting, Level: "medium", Types: []string{"sonnet"}},
+			{Task: "T-9", Lane: "L-03", Attempt: 1, State: "awaiting-accept", Phase: wire.PhaseReviewing, Stage: wire.StageReview, Job: "T-9/1/review"},
 		},
 		// T-669, T-673: serve's scheduler: the conflict T-1000 holds the scratch, so T-100 and T-11 (in the pass's
 		// lexical order) wait on it; no task is next (as data: the view copies what serve says, it does not check it).
@@ -900,8 +929,8 @@ func TestStatusShowsEffortAndType(t *testing.T) {
 	now := time.Now()
 	ss := wire.Status{Since: now.Add(-time.Hour).UTC().Format(time.RFC3339), Connected: true, Project: &wire.ProjectStatus{
 		Name: "pj", Root: p.Root, Merging: true,
-		Tasks: []wire.TaskStatus{{Task: "T-01", Lane: "L-01", Attempt: 1, State: "working", Open: true, Effort: "high"},
-			{Task: "T-02", Lane: "L-02", Attempt: 1, State: "working", Open: true}}}}
+		Tasks: []wire.TaskStatus{{Task: "T-01", Lane: "L-01", Attempt: 1, State: "working", Effort: "high"},
+			{Task: "T-02", Lane: "L-02", Attempt: 1, State: "working"}}}}
 	st, text := statusOf(t, p, ss, nil, now)
 	if len(st.Lanes) != 3 || st.Lanes[0].State != "working" || st.Lanes[1].State != "working" ||
 		st.Lanes[2].State != "free" {

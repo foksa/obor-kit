@@ -1,6 +1,7 @@
 package view
 
 import (
+	"encoding/json"
 	"slices"
 	"testing"
 	"time"
@@ -34,13 +35,13 @@ func TestRestartOpIsTheHeldRestartLock(t *testing.T) {
 // predicted: a task nothing waits behind says nothing more). A task its worker works on is no merge item.
 func TestQueueMerge(t *testing.T) {
 	now := time.Now()
-	tasks := []wire.TaskStatus{{Task: "T-10", State: "submitted", Open: true, Phase: wire.PhaseGating, Stage: wire.StageGating},
-		{Task: "T-3", State: "working", Open: true, Phase: wire.PhaseWorking},
-		{Task: "T-4", State: "working", Open: true, Phase: wire.PhaseNeedsYou}, // a watchdog's needs-you: no stage (T-797)
-		{Task: "T-5", State: "dispatched", Open: true, Phase: wire.PhaseNeedsYou},
-		{Task: "T-7", State: "needs-you", Open: true, Phase: wire.PhaseHeld, Stage: wire.StageHeld},
-		{Task: "T-8", State: "accepted", Open: true, Phase: wire.PhasePublish, Stage: wire.StagePublish},
-		{Task: "T-9", State: "submitted", Open: true, Phase: wire.PhaseSubmitted, Stage: wire.StageSubmitted}}
+	tasks := []wire.TaskStatus{{Task: "T-10", State: "submitted", Phase: wire.PhaseGating, Stage: wire.StageGating},
+		{Task: "T-3", State: "working", Phase: wire.PhaseWorking},
+		{Task: "T-4", State: "working", Phase: wire.PhaseNeedsYou}, // a watchdog's needs-you: no stage (T-797)
+		{Task: "T-5", State: "dispatched", Phase: wire.PhaseNeedsYou},
+		{Task: "T-7", State: "needs-you", Phase: wire.PhaseHeld, Stage: wire.StageHeld},
+		{Task: "T-8", State: "accepted", Phase: wire.PhasePublish, Stage: wire.StagePublish},
+		{Task: "T-9", State: "submitted", Phase: wire.PhaseSubmitted, Stage: wire.StageSubmitted}}
 	ps := wire.ProjectStatus{Tasks: tasks, Scratch: &wire.ScratchStatus{Task: "T-7", Why: wire.ScratchHeld},
 		ScratchQueue: []wire.ScratchWait{{Task: "T-10", WaitsOn: "T-7", Why: wire.ScratchHeld}, {Task: "T-8"},
 			{Task: "T-9", WaitsOn: "T-7", Why: wire.ScratchHeld}}}
@@ -55,6 +56,35 @@ func TestQueueMerge(t *testing.T) {
 	}
 	if q.Scratch != ps.Scratch {
 		t.Errorf("scratch %+v, want serve's %+v", q.Scratch, ps.Scratch)
+	}
+}
+
+// T-921 (RV-124 #1): a task an older serve lists without an ended field is open, so the queue holds it; the new
+// serve's ended: true (a dropped task) leaves it out, as does an ended waiting task.
+func TestQueueReadsAnOlderServesTaskAsOpen(t *testing.T) {
+	t.Parallel()
+	var older wire.ProjectStatus
+	if err := json.Unmarshal([]byte(`{"tasks":[{"task":"T-1","state":"submitted","phase":"gating","stage":"gating"}]}`),
+		&older); err != nil {
+		t.Fatal(err)
+	}
+	if len(older.Tasks) != 1 || older.Tasks[0].Ended {
+		t.Fatalf("precondition: %+v, want one task with no ended", older.Tasks)
+	}
+	if q := queue(&Project{}, older, "", nil, nil, time.Now()); len(q.Merge) != 1 || q.Merge[0].Task != "T-1" {
+		t.Errorf("T-1 without ended: merge %+v, want it", q.Merge)
+	}
+
+	var ended wire.ProjectStatus
+	if err := json.Unmarshal([]byte(`{"tasks":[{"task":"T-1","state":"submitted","stage":"gating","ended":true},`+
+		`{"task":"T-2","state":"waiting","ended":true}]}`), &ended); err != nil {
+		t.Fatal(err)
+	}
+	if len(ended.Tasks) != 2 || !ended.Tasks[0].Ended || !ended.Tasks[1].Ended {
+		t.Fatalf("precondition: %+v, want both ended", ended.Tasks)
+	}
+	if q := queue(&Project{}, ended, "", nil, nil, time.Now()); len(q.Merge) != 0 || len(q.Waiting) != 0 {
+		t.Errorf("ended tasks: merge %+v, waiting %+v, want neither", q.Merge, q.Waiting)
 	}
 }
 

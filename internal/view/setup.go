@@ -73,7 +73,8 @@ type SetupKind struct {
 
 // SetupLane is one configured lane: its name, the model it runs now (its dispatch's; "": none), its agent and its
 // state now (free, working, done, missing …), and whether it holds a task serve would refuse to drop (Locked: the
-// config-set rule, T-896).
+// config-set rule, T-896). Locked is computed here from serve's Free lanes, so an older serve, which names none,
+// locks every lane (T-921).
 type SetupLane struct {
 	Lane   string `json:"lane"`
 	Type   string `json:"type"`
@@ -131,7 +132,7 @@ func (r reading) setup(ctx context.Context, root string) (Setup, error) {
 	}
 	v := Project{}
 	ps := serveOf(&v, in.ss, in.serr, in.p, nil)
-	return setup(in.cfg, in.p.States(), v, in.db, rev, ps.Locked, time.Now()), nil
+	return setup(in.cfg, in.p.States(), v, in.db, rev, ps.Free, time.Now()), nil
 }
 
 // configRev is .obor/config.json's revision under root (config.Rev; "": no file): the page's edits name it, and serve
@@ -145,9 +146,9 @@ func configRev(root string) string {
 }
 
 // setup is Setup for one config snapshot (cfg), the lane table's rows (lanes), the view's role rows and pauses (v), the
-// store (db), the config.json revision the page read (rev) and serve's lanes that hold a task (locked: configset's
-// rule, T-896).
-func setup(cfg *config.Config, lanes []port.Lane, v Project, db *sql.DB, rev string, locked []string, now time.Time) Setup {
+// store (db), the config.json revision the page read (rev) and serve's lanes that hold no task (free: configset's
+// rule, T-896; none from an older serve: every lane counts as locked, T-921).
+func setup(cfg *config.Config, lanes []port.Lane, v Project, db *sql.DB, rev string, free []string, now time.Time) Setup {
 	s := Setup{Difficulty: []SetupLevel{}, Types: []SetupType{}, Models: []SetupModel{}, Kinds: []SetupKind{}, Lanes: []SetupLane{},
 		Roles: []SetupRole{}, Distribution: []DispatchCount{}, ConfigRev: rev}
 	for _, level := range []string{"hard", "medium", "simple"} {
@@ -159,7 +160,7 @@ func setup(cfg *config.Config, lanes []port.Lane, v Project, db *sql.DB, rev str
 	}
 	for _, l := range cfg.Lanes() { // a working lane's view type is its dispatch's model (T-721)
 		s.Lanes = append(s.Lanes, SetupLane{Lane: l.Name, Type: states[l.Name].Type, Agent: cfg.AgentName("worker", l.Name),
-			State: states[l.Name].State, Locked: slices.Contains(locked, l.Name)})
+			State: states[l.Name].State, Locked: !slices.Contains(free, l.Name)})
 	}
 	status := map[string]string{}
 	for _, r := range v.Roles {

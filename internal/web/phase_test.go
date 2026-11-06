@@ -40,7 +40,7 @@ func TestPhaseAgreesAcrossLanesPipelineAndWeb(t *testing.T) {
 			stage = ""
 		}
 		ss := wire.Status{Connected: true, Project: &wire.ProjectStatus{Name: "pj", Root: p.Root,
-			Tasks: []wire.TaskStatus{{Task: "T-01", Lane: "L-01", Attempt: 1, State: c.state, Open: true, Phase: c.phase, Stage: stage}}}}
+			Tasks: []wire.TaskStatus{{Task: "T-01", Lane: "L-01", Attempt: 1, State: c.state, Phase: c.phase, Stage: stage}}}}
 		v := view.Build(view.Input{Status: ss, Lanes: checks.NewLaneTable(context.Background(), cfg), Now: time.Now(), Events: 20})
 		if len(v.Lanes) != 1 || v.Lanes[0].State != "working" || v.Lanes[0].DoneAge == nil {
 			t.Fatalf("precondition: L-01 submitted (working, its task_done's age): %+v", v.Lanes)

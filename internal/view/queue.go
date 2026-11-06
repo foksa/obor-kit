@@ -103,7 +103,7 @@ func queue(v *Project, ps wire.ProjectStatus, nightlyAt string, specs map[string
 	known := map[string]bool{}
 	for _, t := range ps.Tasks {
 		known[t.Task] = true
-		if !t.Open {
+		if t.Ended {
 			continue // ended (rejected, dropped): the tasks log lists it, the queue has nothing to wait for
 		}
 		if t.State == "waiting" {
