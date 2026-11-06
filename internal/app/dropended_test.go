@@ -33,10 +33,10 @@ func needsYouT7(r *concRig) {
 	r.add("pq", "T-7", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "L-07", Merge: true, Cause: causeGate, Reason: "owner"})
 }
 
-// raceDrop is the reviewer's probe (TestVerifyRV42DropAgainstDecidedSubmission) in the one-section order: a submission
-// of T-7 passes its guards and pauses at its append, its mu section held; a drop then waits for that section (it
-// cannot decide against attempt 1 meanwhile); the submission records submitted at attempt 2, then the drop decides on
-// it and records dropped at attempt 2. The injected clock is the barrier at the submission's append.
+// raceDrop is the reviewer's probe (TestVerifyRV42DropAgainstDecidedSubmission): a submission of T-7 passes its guards
+// and pauses before its append; drop decides against attempt 1 and pauses before its; the submission records
+// submitted at attempt 2, then drop records dropped at attempt 1. The injected clock is only the barrier before each
+// append.
 func raceDrop(t *testing.T, r *concRig) (sub, drop callAnswer) {
 	p := r.proj("pq")
 	now := r.app("pq").opt.Now()
@@ -45,12 +45,16 @@ func raceDrop(t *testing.T, r *concRig) (sub, drop callAnswer) {
 	p.lanes = []port.Lane{lane}
 	r.app("pq").mu.Unlock()
 	r.app("pq").lanes = &fakeLanes{lanes: []port.Lane{lane}}
-	subAt, subGo := make(chan struct{}), make(chan struct{})
+	subAt, dropAt, subGo, dropGo := make(chan struct{}), make(chan struct{}), make(chan struct{}), make(chan struct{})
 	var calls atomic.Int32
 	r.app("pq").opt.Now = func() time.Time {
-		if calls.Add(1) == 1 {
+		switch calls.Add(1) {
+		case 1:
 			close(subAt)
 			<-subGo
+		case 2:
+			close(dropAt)
+			<-dropGo
 		}
 		return now
 	}
@@ -61,40 +65,36 @@ func raceDrop(t *testing.T, r *concRig) (sub, drop callAnswer) {
 			CallID: "done", Report: "Summary: fixed\nSelf-check: passed\nSkipped: none\nOpen questions: none"})
 		submitted <- callAnswer{reply, err}
 	}()
-	select {
-	case <-subAt:
-	case <-time.After(5 * time.Second):
-		t.Fatal("the submission did not reach its append")
+	wait := func(c chan struct{}, what string) {
+		select {
+		case <-c:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s did not reach its append", what)
+		}
 	}
-	if !r.locked("pq") {
-		t.Error("the submission's section does not hold mu at its append")
-	}
+	wait(subAt, "the submission")
 	go func() {
 		reply, err := r.dropCall("pq", "T-7", "drop")
 		dropped <- callAnswer{reply, err}
 	}()
-	select {
-	case a := <-dropped:
-		t.Errorf("the drop answered while the submission's section held mu: %q, %v", a.reply, a.err)
-	case <-time.After(50 * time.Millisecond):
-	}
+	wait(dropAt, "the drop")
 	close(subGo)
-	for _, w := range []struct {
-		c    chan callAnswer
-		a    *callAnswer
-		what string
-	}{{submitted, &sub, "the submission"}, {dropped, &drop, "the drop"}} {
-		select {
-		case *w.a = <-w.c:
-		case <-time.After(5 * time.Second):
-			t.Fatalf("%s did not record", w.what)
-		}
+	select {
+	case sub = <-submitted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the submission did not record")
+	}
+	close(dropGo)
+	select {
+	case drop = <-dropped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the drop did not record")
 	}
 	return sub, drop
 }
 
 // Dropped ends the task: each case's first action after its setup is the named entry; then T-7 is in state want at
-// attempt (live and after a replay of the log).
+// attempt (live and after a replay of the log) and no drop mark is left.
 func TestDroppedEndsTheTask(t *testing.T) {
 	t.Parallel()
 	dropOK := func(t *testing.T, a callAnswer) {
@@ -155,9 +155,13 @@ func TestDroppedEndsTheTask(t *testing.T) {
 			p := r.proj("pq")
 			r.app("pq").mu.Lock()
 			live := *p.folded.loop["T-7"]
+			ended := p.ended["T-7"]
 			r.app("pq").mu.Unlock()
 			if live.state != c.want || live.attempt != c.attempt {
 				t.Errorf("live: %s at attempt %d; want %s at %d", live.state, live.attempt, c.want, c.attempt)
+			}
+			if ended {
+				t.Error("the drop mark is left set")
 			}
 			r.app("pq").closeLog() // the first serve ends: the replay is the next one
 			b := New(Options{Root: r.roots["pq"], Now: r.app("pq").opt.Now}, &fakePanes{}, &fakeLanes{})

@@ -122,10 +122,9 @@ func (p *proj) foldJob(r event.Record) {
 // verdict answers one verdict call: a repeated call id gets the stored reply; else the call is validated (the
 // project's merge loop runs (an integrator role), the caller is the project's integrator, the job is the task's open one
 // (mtask.openJob) and fits the method, an accept names its patch) and recorded, a fact under Log.Do, and the merge
-// loop woken: the decision and the record in one mu section (App.mu). A refused call records nothing. A sendback past
-// K sendbacks of the task is recorded and goes to the owner (row 22). A resolved first pins the merge the integrator
-// committed in the scratch (refused when there is none), outside mu: its section then decides again and refuses a job
-// that is not the one checked; the verdict records its sha, the resolved gate's input.
+// loop woken. A refused call records nothing. A sendback past K sendbacks of the task is recorded and goes to the
+// owner (row 22). A resolved first pins the merge the integrator committed in the scratch (refused when there is
+// none): the verdict records its sha, the resolved gate's input.
 func (a *App) verdict(ctx context.Context, method string, c wire.Call) (string, error) {
 	a.mu.Lock()
 	a.admitted++ // serve's restart on a new binary waits for it (follow.go)
@@ -135,43 +134,75 @@ func (a *App) verdict(ctx context.Context, method string, c wire.Call) (string, 
 		a.admitted--
 		a.mu.Unlock()
 	}()
+	a.verdicts.Lock() // one verdict at a time: two calls never both answer one job
+	defer a.verdicts.Unlock()
 	if c.CallID == "" || c.Task == "" {
 		return "", fmt.Errorf("%s: a call id and a task are required", method)
 	}
-	var sha string
-	var checked verdictJob // a resolved's: the job its check pinned the merge of
-	if method == wire.MethodResolved {
-		a.mu.Lock()
-		j, err := a.verdictDecide(method, c)
-		a.mu.Unlock()
-		if err != nil || j.stored {
-			return j.reply, err
+	a.mu.Lock()
+	p := a.projAt(c.Root)
+	var reply string
+	var stored bool
+	var key event.Key
+	var patch string
+	var open, dropped bool
+	var jobSt string // the state of the task's job out: its verdicts
+	var mismatch *port.Mismatch
+	var input string // a resolve job's: the conflicting gate's input, the submitted sha (T-403)
+	sendbacks := 0
+	merging := false
+	if p != nil {
+		merging = p.merging
+		reply, stored = p.folded.calls[verdictStep(method, c.CallID)]
+		if mt := p.folded.loop[c.Task]; mt != nil {
+			key, patch, open, sendbacks, input = mt.jobKey(), mt.patch, mt.openJob(), mt.sendbacks, mt.input
+			jobSt, mismatch = mt.jobState(true), mt.mismatch
+			dropped = mt.state == stDropped || mt.state == stDropping || p.ended[c.Task]
 		}
-		fx, err := a.loopOf(j.p)
+	}
+	a.mu.Unlock()
+	switch {
+	case p == nil:
+		return "", fmt.Errorf("%s: no served project at %s", method, c.Root)
+	case stored:
+		return reply, nil
+	case !merging:
+		return "", mergeOff(p)
+	case c.Role != "integrator" || c.Agent == "" || c.Agent != p.integrator:
+		return "", fmt.Errorf("%s: only the integrator (%s) gives verdicts, not %s (role %s)", method,
+			p.integrator, Dash(c.Agent), Dash(c.Role))
+	case dropped:
+		return "", fmt.Errorf("%s: superseded: %s was dropped", method, c.Task)
+	case !open:
+		return "", fmt.Errorf("%s: no job open for %s", method, c.Task)
+	case c.Job != "" && c.Job != JobID(key):
+		return "", fmt.Errorf("%s: stale job %s (%s's job is %s)", method, c.Job, c.Task, JobID(key))
+	}
+	jobStep, _ := event.StepN(key.Step)
+	switch {
+	case method != wire.MethodHold && !takes(jobSt, method):
+		return "", fmt.Errorf("%s: %s is a %s job (%s)", method, JobID(key), jobStep, accepts(jobSt))
+	case method == wire.MethodAccept && c.Patch != patch:
+		return "", fmt.Errorf("stale: re-read the candidate (%s's patch is %s, not %s)", c.Task, patch, Dash(c.Patch))
+	case (method == wire.MethodSendback || method == wire.MethodReject || method == wire.MethodHold) && strings.TrimSpace(c.Note) == "":
+		return "", fmt.Errorf("%s: say why", method)
+	case method == wire.MethodHold:
+		return a.hold(p, c, key)
+	}
+	var sha string
+	if method == wire.MethodResolved {
+		fx, err := a.loopOf(p)
 		if err == nil {
-			sha, err = a.resolvedCheck(ctx, j.p, fx, c.Task, j.input, j.mismatch)
+			sha, err = a.resolvedCheck(ctx, p, fx, c.Task, input, mismatch)
 		}
 		if err != nil {
 			return "", fmt.Errorf("%s: %v", method, err)
 		}
-		checked = j
 	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	j, err := a.verdictDecide(method, c)
-	switch {
-	case err != nil || j.stored:
-		return j.reply, err
-	case method == wire.MethodResolved && (j.key != checked.key || j.input != checked.input): // a new job since the check
-		return "", fmt.Errorf("%s: stale job %s (%s's job is %s)", method, JobID(checked.key), c.Task, JobID(j.key))
-	case method == wire.MethodHold:
-		return a.hold(j.p, c, j.key)
-	}
-	p, key := j.p, j.key
 	in := event.Intent{Key: event.Key{Task: c.Task, Attempt: key.Attempt, Step: verdictStep(method, c.CallID)}, Class: event.ClassFact,
 		Data: verdictData{Job: JobID(key), Caller: c.Agent, Patch: c.Patch, Note: c.Note}}
-	reply := fmt.Sprintf("%s %s (job %s)", strings.ToUpper(method), c.Task, JobID(key))
-	if method == wire.MethodSendback && j.sendbacks >= K {
+	reply = fmt.Sprintf("%s %s (job %s)", strings.ToUpper(method), c.Task, JobID(key))
+	if method == wire.MethodSendback && sendbacks >= K {
 		reply += fmt.Sprintf(": sent back %d times already, the owner decides", K)
 	}
 	raw, err := p.log.Do(ctx, in, a.opt.Now, func(context.Context) (any, error) {
@@ -182,68 +213,17 @@ func (a *App) verdict(ctx context.Context, method string, c wire.Call) (string, 
 	}
 	var v verdictResult
 	_ = json.Unmarshal(raw, &v)
+	a.mu.Lock()
 	was := p.closed(c.Task)
 	p.foldRecord(event.Record{Task: in.Task, Attempt: in.Attempt, Step: in.Step, Kind: event.KindResult, Data: raw,
 		TS: a.opt.Now().UTC().Format(time.RFC3339)}) // a sendback's time: the next attempt's begun
 	if !was && p.closed(c.Task) {
 		a.settleEnded(p, c.Task) // rejected: its cleared watchdog notifications never run (T-636)
 	}
+	a.mu.Unlock()
 	a.logf("%s %s by %s", p.name, v.Reply, c.Agent)
 	a.wake()
 	return v.Reply, nil
-}
-
-// verdictJob is a verdict's decision (verdictDecide): the call id's stored reply, or the task's open job the verdict
-// answers and what it records from it.
-type verdictJob struct {
-	p         *proj
-	reply     string
-	stored    bool
-	key       event.Key
-	input     string // a resolve job's: the conflicting gate's input, the submitted sha (T-403)
-	mismatch  *port.Mismatch
-	sendbacks int
-}
-
-// verdictDecide is verdict's decision (under mu): the stored reply of the call id, else the job it answers, or the
-// refusal.
-func (a *App) verdictDecide(method string, c wire.Call) (verdictJob, error) {
-	p := a.projAt(c.Root)
-	if p == nil {
-		return verdictJob{}, fmt.Errorf("%s: no served project at %s", method, c.Root)
-	}
-	if reply, ok := p.folded.calls[verdictStep(method, c.CallID)]; ok {
-		return verdictJob{p: p, reply: reply, stored: true}, nil
-	}
-	var mt mtask
-	if m := p.folded.loop[c.Task]; m != nil {
-		mt = *m
-	}
-	key, open := mt.jobKey(), mt.openJob()
-	switch {
-	case !p.merging:
-		return verdictJob{}, mergeOff(p)
-	case c.Role != "integrator" || c.Agent == "" || c.Agent != p.integrator:
-		return verdictJob{}, fmt.Errorf("%s: only the integrator (%s) gives verdicts, not %s (role %s)", method,
-			p.integrator, Dash(c.Agent), Dash(c.Role))
-	case mt.state == stDropped || mt.state == stDropping:
-		return verdictJob{}, fmt.Errorf("%s: superseded: %s was dropped", method, c.Task)
-	case !open:
-		return verdictJob{}, fmt.Errorf("%s: no job open for %s", method, c.Task)
-	case c.Job != "" && c.Job != JobID(key):
-		return verdictJob{}, fmt.Errorf("%s: stale job %s (%s's job is %s)", method, c.Job, c.Task, JobID(key))
-	}
-	jobStep, _ := event.StepN(key.Step)
-	jobSt := mt.jobState(true) // the state of the task's job out: its verdicts
-	switch {
-	case method != wire.MethodHold && !takes(jobSt, method):
-		return verdictJob{}, fmt.Errorf("%s: %s is a %s job (%s)", method, JobID(key), jobStep, accepts(jobSt))
-	case method == wire.MethodAccept && c.Patch != mt.patch:
-		return verdictJob{}, fmt.Errorf("stale: re-read the candidate (%s's patch is %s, not %s)", c.Task, mt.patch, Dash(c.Patch))
-	case (method == wire.MethodSendback || method == wire.MethodReject || method == wire.MethodHold) && strings.TrimSpace(c.Note) == "":
-		return verdictJob{}, fmt.Errorf("%s: say why", method)
-	}
-	return verdictJob{p: p, key: key, input: mt.input, mismatch: mt.mismatch, sendbacks: mt.sendbacks}, nil
 }
 
 // resolvedCheck is Scratch.Resolved holding p's scratch: never while a gate or a publish runs there.
@@ -257,17 +237,18 @@ func (a *App) resolvedCheck(ctx context.Context, p *proj, fx *Loop, task, input 
 	return fx.Scratch.Resolved(ctx, task, input, m)
 }
 
-// hold records the integrator's hold of job j (under mu, verdict's section): one fact, needs-you{held: why}, which
-// also stores the reply under the call id. The job stays open: the integrator's verdict on it ends the hold, as obor
-// resume does.
+// hold records the integrator's hold of job j (under a.verdicts): one fact, needs-you{held: why}, which also stores
+// the reply under the call id. The job stays open: the integrator's verdict on it ends the hold, as obor resume does.
 func (a *App) hold(p *proj, c wire.Call, job event.Key) (string, error) {
+	a.mu.Lock()
 	var lane string
 	held, drive := false, false
 	if mt := p.folded.loop[c.Task]; mt != nil {
 		lane, held, drive = mt.lane, mt.needs.held() && mt.needs.fact.Fact().Cause == event.CauseHeld, mt.drive
 	}
+	a.mu.Unlock()
 	if drive { // a drive's hold goes back to its owner (T-751): the job ends, the lead gets a line, no needs-you
-		if !a.recordLocked(p, event.Record{Task: c.Task, Attempt: job.Attempt, Step: event.StepSendback, Kind: event.KindFact},
+		if !a.record(p, event.Record{Task: c.Task, Attempt: job.Attempt, Step: event.StepSendback, Kind: event.KindFact},
 			noteData{Note: "held: " + c.Note}) {
 			return "", fmt.Errorf("hold: the event log of %s refused it", p.name)
 		}
@@ -277,7 +258,7 @@ func (a *App) hold(p *proj, c wire.Call, job event.Key) (string, error) {
 	if held {
 		return "", fmt.Errorf("hold: %s is held already (the owner is told)", c.Task)
 	}
-	if !a.recordLocked(p, event.Record{Task: c.Task, Attempt: job.Attempt, Step: event.StepNeedsYou, Kind: event.KindFact},
+	if !a.record(p, event.Record{Task: c.Task, Attempt: job.Attempt, Step: event.StepNeedsYou, Kind: event.KindFact},
 		event.FactData{Lane: lane, Machine: Machine, Reason: "held: " + c.Note, Merge: true, Cause: event.CauseHeld, Job: JobID(job),
 			Call: c.CallID}) {
 		return "", fmt.Errorf("hold: the event log of %s refused it", p.name)
@@ -292,56 +273,62 @@ func holdReply(task, job string) string {
 
 func dropReply(task string) string { return "DROPPED " + task }
 
-// drop answers the lead's or the owner's drop of task c.Task (obor drop <T-xx>; c.Note: why): a repeated call id gets
-// the stored reply; else dropDecide's refusals, and the decision and its record are one mu section, the one a selected
-// step's start check takes (begin), so no step starts after it (RV-42 #1). A task whose lane row still holds it (serve
-// knows the lane: a waiting task holds none) in a loop with the lane adapters is dropping (T-852): one fact,
-// dropping{lane, worker, why, force, discard}, answered DROPPING at once; the merge loop then stops its worker, frees
-// its lane and records dropped (stopstep.go). The worker is a refused stop's recorded agent (a move's old worker, with
-// its force; T-855), else laneWorker's. Any other: one fact, dropped{why, by}: the task leaves the loop and its lane
-// row, its needs-you and timers end. A failed write: the drop is refused. The adapters and the config are read first,
-// with no lock.
+// drop answers the lead's or the owner's drop of task c.Task (obor drop <T-xx>; c.Note: why) under a.verdicts: a
+// repeated call id gets the stored reply; else dropDecide's refusals, and the task is marked ended (p.ended) in the
+// same mu section a selected step's start check takes (begin), so no step starts after it. A task whose lane row still
+// holds it (serve knows the lane: a waiting task holds none) in a loop with the lane adapters is dropping (T-852): one
+// fact, dropping{lane, worker, why, force, discard}, answered DROPPING at once; the merge loop then stops its worker,
+// frees its lane and records dropped (stopstep.go). The worker is a refused stop's recorded agent (a move's old
+// worker, with its force; T-855), else laneWorker's. Any other: one fact, dropped{why, by}: the task leaves the loop and
+// its lane row, its needs-you and timers end. The mark ends with the record (a failed write: the drop is refused).
 func (a *App) drop(c wire.Call) (string, error) {
 	if c.CallID == "" || c.Task == "" {
 		return "", errors.New("drop: a call id and a task are required")
 	}
+	a.verdicts.Lock() // one verdict at a time; never held across a wait: the stop and the free are the loop's
+	defer a.verdicts.Unlock()
 	a.mu.Lock()
 	p := a.projAt(c.Root)
-	a.mu.Unlock()
-	if p == nil {
-		return "", fmt.Errorf("drop: no served project at %s", c.Root)
-	}
-	adapters := a.laneAdapters(p)
-	cfg, cfgErr := config.LoadDaemon(p.root)
-	a.mu.Lock()
-	defer a.mu.Unlock()
 	mt, err := a.dropDecide(p, c)
-	if err != nil || mt.task == "" { // the call id's stored reply: DROPPED, or a dropping fact's DROPPING
-		return p.folded.calls[verdictStep(wire.MethodDrop, c.CallID)], err
+	lane, stored := "", ""
+	if err == nil && mt.task == "" { // the call id's stored reply: DROPPED, or a dropping fact's DROPPING
+		stored = p.folded.calls[verdictStep(wire.MethodDrop, c.CallID)]
 	}
-	lane := ""
-	if mt.lane != "" && p.laneTask(mt.lane) == c.Task && adapters { // no lane adapters (a loop observing): its lane as it was
+	if mt.lane != "" && p.laneTask(mt.lane) == c.Task {
 		lane = mt.lane
 	}
+	a.mu.Unlock()
+	if err != nil || mt.task == "" {
+		return stored, err
+	}
+	defer func() {
+		a.mu.Lock()
+		delete(p.ended, c.Task) // folded: the task is dropping or dropped; else the drop is refused
+		a.mu.Unlock()
+	}()
+	if lane != "" && !a.laneAdapters(p) { // no lane adapters (a loop observing): the task dropped, its lane as it was
+		lane = ""
+	}
 	if lane == "" {
-		if !a.recordLocked(p, event.Record{Task: c.Task, Attempt: mt.attempt, Step: event.StepDropped, Kind: event.KindFact},
+		if !a.record(p, event.Record{Task: c.Task, Attempt: mt.attempt, Step: event.StepDropped, Kind: event.KindFact},
 			event.FactData{Lane: mt.lane, Machine: Machine, Agent: c.Agent, Reason: c.Note, Merge: true, Call: c.CallID}) {
 			return "", fmt.Errorf("drop: the event log of %s refused it", p.name)
 		}
 		a.wake()
 		return dropReply(c.Task), nil
 	}
-	if cfgErr != nil {
-		return "", fmt.Errorf("drop: %v", cfgErr)
+	worker, err := a.laneWorker(p, lane, mt)
+	if err != nil {
+		return "", fmt.Errorf("drop: %v", err)
 	}
-	worker, force := laneWorker(cfg, p, lane, mt), c.Force
+	force := c.Force
 	if h := mt.halt; h.pending() { // a refused stop (busy refuses a running one): its recorded agent, never the lane row's (T-855)
 		worker, force = h.agent, force || h.force
 	}
 	d := dropData{Lane: lane, Worker: worker, Agent: c.Agent, Reason: c.Note, Force: force, Discard: c.Discard,
 		Call: c.CallID}
 	d.Reply = dropReplyOf(c.Task, d)
-	if !a.recordLocked(p, event.Record{Task: c.Task, Attempt: mt.attempt, Step: event.StepDropping, Kind: event.KindFact}, d) {
+	if !a.record(p, event.Record{Task: c.Task, Attempt: mt.attempt, Step: event.StepDropping, Kind: event.KindFact}, d) {
 		return "", fmt.Errorf("drop: the event log of %s refused it", p.name)
 	}
 	a.wake()
@@ -354,24 +341,33 @@ func (a *App) laneAdapters(p *proj) bool {
 	return err == nil && fx.Lane != nil && fx.Specs != nil && fx.Agents != nil
 }
 
-// laneWorker is the agent a drop of mt stops in lane (T-773: that task's worker, nothing keeps it; under mu): the lane
-// row's agent while it is still one of the lane's names under cfg, else the lane's derived one, else the task's ("":
-// none known: nothing to stop).
-func laneWorker(cfg *config.Config, p *proj, lane string, mt mtask) string {
+// laneWorker is the agent a drop of mt stops in lane (T-773: that task's worker, nothing keeps it): the lane row's
+// agent while it is still one of the lane's names, else the lane's derived one, else the
+// task's ("": none known: nothing to stop).
+func (a *App) laneWorker(p *proj, lane string, mt mtask) (string, error) {
+	cfg, err := config.LoadDaemon(p.root)
+	if err != nil {
+		return "", err
+	}
+	a.mu.Lock()
 	agent := rowAgent(cfg, lane, p.laneAgent(lane))
 	if row := rowAgent(cfg, lane, p.folded.lr.rows[lane].Agent); row != "" {
 		agent = row
 	}
+	a.mu.Unlock()
 	if agent == "" {
 		agent = mt.agent
 	}
-	return agent
+	return agent, nil
 }
 
-// dropDecide is drop's decision (under mu): the task to drop; mt.task "" with no error: the call id's reply is stored.
-// Refused: the merge loop off, a caller of another role, no why, the task not open, its state takes no drop
-// (mtask.may: merged, dropped), busy.
+// dropDecide is drop's decision (under mu): the task to drop, marked ended; mt.task "" with no error: the call id's
+// reply is stored. Refused: the merge loop off, a caller of another role, no why, the task not open, its state takes no
+// drop (mtask.may: merged, dropped), busy.
 func (a *App) dropDecide(p *proj, c wire.Call) (mtask, error) {
+	if p == nil {
+		return mtask{}, fmt.Errorf("drop: no served project at %s", c.Root)
+	}
 	if _, stored := p.folded.calls[verdictStep(wire.MethodDrop, c.CallID)]; stored {
 		return mtask{}, nil
 	}
@@ -394,6 +390,7 @@ func (a *App) dropDecide(p *proj, c wire.Call) (mtask, error) {
 	if why := p.busy(c.Task); why != "" {
 		return mtask{}, busyErr("drop", c.Task, why)
 	}
+	p.ended[c.Task] = true
 	return mt, nil
 }
 

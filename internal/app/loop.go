@@ -341,8 +341,13 @@ func (a *App) advance(ctx context.Context) *Loop {
 // record appends the fact r with data and folds it; false when the log failed. It takes a.mu for the fold; a verb that
 // decides on folded state records with recordLocked in its one a.mu section instead (the rule at App.mu).
 func (a *App) record(p *proj, r event.Record, data any) bool {
-	_, ok := a.recordIn(p, r, data, false)
+	_, ok := a.recordSeq(p, r, data)
 	return ok
+}
+
+// recordSeq is record, also returning the record's seq (0 when the log failed).
+func (a *App) recordSeq(p *proj, r event.Record, data any) (int64, bool) {
+	return a.recordIn(p, r, data, false)
 }
 
 // recordLocked is record with a.mu held by the caller: the append and the fold in its section.
@@ -556,14 +561,7 @@ func (a *App) settleNeedsLocked(p *proj, task, reason string) bool {
 
 // needsYou records the merge loop's needs-you for mt: the owner decides (obor resume, by cause).
 func (a *App) needsYou(p *proj, mt *mtask, cause, reason string) bool {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.needsYouLocked(p, mt, cause, reason)
-}
-
-// needsYouLocked is needsYou with a.mu held: the caller's check and the record in one section.
-func (a *App) needsYouLocked(p *proj, mt *mtask, cause, reason string) bool {
-	return a.recordLocked(p, event.Record{Task: mt.task, Attempt: mt.attempt, Step: event.StepNeedsYou, Kind: event.KindFact},
+	return a.record(p, event.Record{Task: mt.task, Attempt: mt.attempt, Step: event.StepNeedsYou, Kind: event.KindFact},
 		event.FactData{Lane: mt.lane, Machine: Machine, Reason: reason, Merge: true, Cause: cause})
 }
 
@@ -608,10 +606,10 @@ const maxSteps = 32
 type step func(ctx context.Context, fx *Loop) bool
 
 // next is mt's next step (under mu), nil when it waits. A selected step starts only after begin's atomic check (one
-// rule for every kind, RV-42 #1): its task/attempt is still current and not dropped; the same check holds the task
-// (p.held) until the step returns (a job sample's read excepted: sampleJob), and a drop is refused meanwhile. Drop
-// decides and records in one section of the same lock (App.drop), so no effect starts after DROPPED, and none is still
-// starting when DROPPED is returned.
+// rule for every kind, RV-42 #1): its task/attempt is still current and not ended (dropped, or a drop of it decided:
+// p.ended); the same check holds the task (p.held) until the step returns (a job sample's read excepted: sampleJob),
+// and a drop is refused meanwhile. Drop decides under the same lock (App.drop), so no effect starts after DROPPED, and
+// none is still starting when DROPPED is returned.
 func (a *App) next(p *proj, m *mtask) step {
 	s := a.pick(p, m)
 	if s == nil {
@@ -646,7 +644,7 @@ func (a *App) begin(p *proj, mt mtask) bool {
 	return true
 }
 
-// release ends the hold of task named name (begin's: the step's name): a hold another claimed
+// release ends the hold of task named name (begin's: the step's name; a lead's sendback's): a hold another claimed
 // since (a sample's read holds nothing, sampleJob) stays.
 func (a *App) release(p *proj, task, name string) {
 	a.mu.Lock()

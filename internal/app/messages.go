@@ -1230,8 +1230,15 @@ func (a *App) recordBrief(p *proj, to, from, note, call, prompt string, fresh bo
 	return m.Reply, true
 }
 
-// unnamedIn is a reply's note on a line to agent (under mu): when serve, connected to herdr, cannot identify agent's
-// pane in p (none runs it, or two claim it), that its line is queued until it can; else note.
+// unnamed is a reply's note on a line to agent: when serve, connected to herdr, cannot identify agent's pane in p
+// (none runs it, or two claim it), that its line is queued until it can; else note.
+func (a *App) unnamed(p *proj, agent, note string) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.unnamedIn(p, agent, note)
+}
+
+// unnamedIn is unnamed under mu.
 func (a *App) unnamedIn(p *proj, agent, note string) string {
 	switch w := a.whereIs(p, agent); {
 	case w.State == Ambiguous:

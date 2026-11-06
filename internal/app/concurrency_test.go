@@ -588,7 +588,7 @@ func (f *concScratch) loopWithSpecs(kit string) *Loop {
 	return &Loop{Scratch: f, Agents: f, Typer: f, Lane: f, Specs: f, Kit: kit}
 }
 
-// pauseSpecs is the spec check of a dispatch: it holds the dispatch in its reads at pause.
+// pauseSpecs is the spec check of a dispatch: it holds the admission at pause.
 type pauseSpecs struct {
 	*concScratch
 	pause func()
@@ -615,10 +615,9 @@ func dispatchFacts(t *testing.T, root, task string) int {
 	return n
 }
 
-// #3 (J1b): a pause and a dispatch decide in one mu section each, so no dispatch is recorded after PAUSED: a pause that
-// comes while a dispatch reads (its spec check, outside mu) answers at once, and the dispatch's section then sees it
-// (refused with its reason, nothing recorded); a dispatch after the pause is refused too.
-func TestPauseBeforeADispatchRecords(t *testing.T) {
+// #3: a pause waits for a dispatch in admission (it holds a.verdicts); the dispatch is admitted before PAUSED returns,
+// and a dispatch after the pause is refused with its reason.
+func TestPauseWaitsForDispatchAdmission(t *testing.T) {
 	t.Parallel()
 	r := newConcRig(t)
 	defer r.a.closeLog()
@@ -646,23 +645,24 @@ func TestPauseBeforeADispatchRecords(t *testing.T) {
 		reply, err := r.a.pauseCall(wire.Call{Root: p.root, CallID: "p1", Note: "quota"})
 		paused <- result{reply, err}
 	}()
-	var pr result
 	select {
-	case pr = <-paused:
-	case <-time.After(5 * time.Second):
-		t.Fatal("PAUSED waited for a dispatch's reads")
-	}
-	if pr.err != nil || !strings.HasPrefix(pr.reply, "PAUSED") {
-		t.Fatalf("pause: %q, %v", pr.reply, pr.err)
+	case got := <-paused:
+		t.Fatalf("PAUSED replied while a dispatch was in admission: %q, %v", got.reply, got.err)
+	case <-time.After(50 * time.Millisecond):
 	}
 	close(release)
 	disp := <-done
-	if disp.err == nil || !strings.Contains(disp.err.Error(), "paused: quota") {
-		t.Errorf("the dispatch reading when PAUSED replied: %q, %v; want refused with the reason", disp.reply, disp.err)
+	pr := <-paused
+	if pr.err != nil {
+		t.Fatal(pr.err)
 	}
-	if n := dispatchFacts(t, p.root, "T-8"); n != 0 {
-		t.Fatalf("T-8 dispatch facts %d after PAUSED, want none", n)
+	if disp.err != nil {
+		t.Fatalf("the dispatch in admission before the pause: %v", disp.err)
 	}
+	if n := dispatchFacts(t, p.root, "T-8"); n != 1 {
+		t.Fatalf("T-8 dispatch facts %d when PAUSED replied, want the admitted dispatch (1)", n)
+	}
+	t.Logf("pause replied %q after the admitted dispatch", pr.reply)
 
 	_, err := r.a.dispatchCall(context.Background(), wire.Call{Root: p.root, CallID: "d2", Task: "T-9", Lane: "L-02", Types: []string{"sonnet"}})
 	if err == nil || !strings.Contains(err.Error(), "paused: quota") {

@@ -268,14 +268,12 @@ func (r *concRig) dropWithin(name, task, id string) callAnswer {
 	}
 }
 
-// locked: a section of project name's App.mu is held now (a verb deciding and recording, a drop's among them).
-func (r *concRig) locked(name string) bool {
-	a := r.app(name)
-	if a.mu.TryLock() {
-		a.mu.Unlock()
-		return false
-	}
-	return true
+// ended is whether a drop's mark on task of project name is set.
+func (r *concRig) ended(name, task string) bool {
+	a, p := r.app(name), r.proj(name)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return p.ended[task]
 }
 
 // Step first (T-395's table): a drop while a selected step holds the task (gate, publish, start, a prompt) is
@@ -311,8 +309,10 @@ func TestDropRefusedWhileStepHeld(t *testing.T) {
 					!strings.Contains(a.err.Error(), "pending; retry when it settles") {
 				t.Errorf("drop while the %s runs: %q, %v; want refused, naming the step", c.effect, a.reply, a.err)
 			}
-			if r.count(c.proj, c.task, event.KindFact, event.StepDropped) != 0 || dropGone(r.state(c.proj, c.task)) {
-				t.Errorf("a refused drop changed the task: state %s", r.state(c.proj, c.task))
+			if r.count(c.proj, c.task, event.KindFact, event.StepDropped) != 0 || dropGone(r.state(c.proj, c.task)) ||
+				r.ended(c.proj, c.task) {
+				t.Errorf("a refused drop changed the task: state %s, ended mark %v", r.state(c.proj, c.task),
+					r.ended(c.proj, c.task))
 			}
 			close(fx.unblock)
 			<-stepped
@@ -396,9 +396,8 @@ func submitT7(r *concRig) (string, error) {
 		CallID: "done", Report: "Summary: x\nSelf-check: x\nSkipped: x\nOpen questions: x"})
 }
 
-// Submission vs drop (both orders, each one mu section): a submission that comes while a drop is being recorded waits
-// for the drop's section and is refused by the dropped state, recording nothing; one recorded before the drop leaves
-// the drop to go through. A submitted fact after
+// Submission vs drop (both orders, no shared lock): a submission decided while a drop is being recorded (the task
+// marked ended) records nothing; one recorded before the drop leaves the drop to go through. A submitted fact after
 // dropped, at the same or the next attempt, leaves the task dropped (live and on replay).
 func TestDropAndSubmission(t *testing.T) {
 	t.Parallel()
@@ -428,19 +427,23 @@ func TestDropAndSubmission(t *testing.T) {
 			dropped <- callAnswer{reply, err}
 		}()
 		<-writing
-		if !r.locked("pq") {
-			t.Error("the drop's section does not hold mu while dropped is written")
+		if !r.ended("pq", "T-7") {
+			t.Error("the ended mark is not set while dropped is written")
 		}
 		done := make(chan error, 1)
 		go func() { _, err := submitT7(r); done <- err }()
+		var subErr error
 		select {
-		case err := <-done:
-			t.Errorf("task_done answered while the drop was being recorded: %v", err)
-		case <-time.After(50 * time.Millisecond):
+		case subErr = <-done:
+		case <-time.After(time.Second):
+			t.Error("task_done waited on a task whose drop is being recorded")
 		}
 		release()
-		if err := <-done; err == nil || !strings.Contains(err.Error(), "T-7 is dropped, not open for a submission") {
-			t.Errorf("task_done during the drop: %v; want refused by the dropped state", err)
+		if subErr == nil {
+			subErr = <-done
+		}
+		if subErr == nil || !strings.Contains(subErr.Error(), "T-7 has a drop being recorded; retry when it settles") {
+			t.Errorf("task_done during the drop: %v; want refused", subErr)
 		}
 		if a := <-dropped; a.err != nil || !isDropped(a.reply, "T-7") {
 			t.Fatalf("drop: %q, %v", a.reply, a.err)
@@ -448,8 +451,8 @@ func TestDropAndSubmission(t *testing.T) {
 		if n := r.count("pq", "T-7", event.KindFact, event.StepSubmitted); n != 1 {
 			t.Errorf("submitted facts %d; want only the first", n)
 		}
-		if r.state("pq", "T-7") != stDropped {
-			t.Errorf("after the drop: %s", r.state("pq", "T-7"))
+		if r.state("pq", "T-7") != stDropped || r.ended("pq", "T-7") {
+			t.Errorf("after the drop: %s, ended mark %v", r.state("pq", "T-7"), r.ended("pq", "T-7"))
 		}
 	})
 	t.Run("submission first", func(t *testing.T) {
@@ -490,33 +493,39 @@ func TestDropAndSubmission(t *testing.T) {
 	})
 }
 
-// Decide and record in one section: while dropped is written the drop holds mu, so a selected step's start (begin,
-// under mu) waits; a write that fails leaves the task as it was (a step starts) and the drop fails; a later drop goes
-// through.
+// Mark, then record: while dropped is written the task is marked ended, and a selected step does not start; a write
+// that fails clears the mark (the step starts again) and the drop fails; a later drop goes through.
 func TestDropWriteFailure(t *testing.T) {
 	t.Parallel()
 	r := newConcRig(t)
 	p := r.proj("pq")
-	var locked bool
+	var during struct{ ended, began bool }
 	p.log.Refuse = func(rec event.Record) error {
 		if rec.Step != event.StepDropped {
 			return nil
 		}
-		locked = r.locked("pq")
+		r.app("pq").mu.Lock()
+		during.ended = p.ended["T-3"]
+		mt := *p.folded.loop["T-3"]
+		r.app("pq").mu.Unlock()
+		if during.began = r.app("pq").begin(p, mt); during.began {
+			r.app("pq").release(p, "T-3", mt.stepName())
+		}
 		return errors.New("disk full")
 	}
 	a := r.dropWithin("pq", "T-3", "d1")
 	if a.err == nil || !strings.Contains(a.err.Error(), "the event log of pq refused it") {
 		t.Errorf("drop with a failing write: %q, %v", a.reply, a.err)
 	}
-	if !locked {
-		t.Error("while dropped was written: mu not held (a step could begin)")
+	if !during.ended || during.began {
+		t.Errorf("while dropped was written: ended mark %v, a step began %v; want marked, none", during.ended,
+			during.began)
 	}
 	r.app("pq").mu.Lock()
 	mt := *p.folded.loop["T-3"]
 	r.app("pq").mu.Unlock()
-	if mt.state == stDropped {
-		t.Fatalf("after the failed write: state %s", mt.state)
+	if r.ended("pq", "T-3") || mt.state == stDropped {
+		t.Fatalf("after the failed write: ended mark %v, state %s", r.ended("pq", "T-3"), mt.state)
 	}
 	if !r.app("pq").begin(p, mt) {
 		t.Error("a step does not start after the failed drop")

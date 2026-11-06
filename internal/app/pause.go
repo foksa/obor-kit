@@ -81,19 +81,24 @@ func untilText(until int64) string {
 // pauseCall answers the socket's pause request (the lead or the owner): a call id is required and a repeated one gets
 // the stored reply. Pause: PAUSED until HH:MM|cleared (a new pause replaces the one in force); clear: PAUSE CLEARED,
 // or NOT PAUSED when none holds (nothing recorded). With c.Model the same for that model's pause: PAUSED <model> …,
-// PAUSE CLEARED <model>, NOT PAUSED <model>; a model the config does not know is refused. The config is read with no
-// lock; the decision and the record are one mu section, the one every dispatch decides in: a dispatch recorded
-// before it is in when PAUSED returns, one after it sees the pause.
+// PAUSE CLEARED <model>, NOT PAUSED <model>; a model the config does not know is refused.
 func (a *App) pauseCall(c wire.Call) (string, error) {
 	if c.CallID == "" {
 		return "", errors.New(wire.MethodPause + ": a call id is required")
 	}
-	key := verdictStep(wire.MethodPause, c.CallID)
+	a.verdicts.Lock() // as dispatchCall's admission: an admission in flight ends before PAUSED, later ones see it
+	defer a.verdicts.Unlock()
 	a.mu.Lock()
 	p := a.projAt(c.Root)
-	stored := false
+	key := verdictStep(wire.MethodPause, c.CallID)
+	reply, stored := "", false
+	var held *event.Pause
 	if p != nil {
-		_, stored = p.folded.calls[key]
+		reply, stored = p.folded.calls[key]
+		held = p.paused(a.opt.Now())
+		if c.Model != "" {
+			held = p.modelPaused(c.Model, a.opt.Now())
+		}
 	}
 	a.mu.Unlock()
 	what := ""
@@ -105,17 +110,6 @@ func (a *App) pauseCall(c wire.Call) (string, error) {
 		}
 		if _, ok := cfg.Model(c.Model); !ok {
 			return "", fmt.Errorf("pause: %s is not a model (models: %s)", c.Model, strings.Join(cfg.ModelNames(), ", "))
-		}
-	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	reply := ""
-	var held *event.Pause
-	if p != nil {
-		reply, stored = p.folded.calls[key]
-		held = p.paused(a.opt.Now())
-		if c.Model != "" {
-			held = p.modelPaused(c.Model, a.opt.Now())
 		}
 	}
 	switch {
@@ -141,7 +135,7 @@ func (a *App) pauseCall(c wire.Call) (string, error) {
 	if c.Clear {
 		step, d.Why, d.Until, d.Reply = event.StepUnpaused, "", 0, "PAUSE CLEARED"+what
 	}
-	if !a.recordLocked(p, event.Record{Task: event.PauseTask, Step: step, Kind: event.KindFact}, d) {
+	if !a.record(p, event.Record{Task: event.PauseTask, Step: step, Kind: event.KindFact}, d) {
 		return "", fmt.Errorf("pause: the event log of %s refused it", p.name)
 	}
 	if c.Clear {

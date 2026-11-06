@@ -83,7 +83,7 @@ func (a *App) stopWakes(ctx context.Context, p *proj, fx *Loop) {
 	a.mu.Lock()
 	for _, task := range p.openTasks() {
 		f, ok := p.stop(task)
-		if !ok || !f.Fact().Limit {
+		if !ok || !f.Fact().Limit || p.ended[task] {
 			continue
 		}
 		w := p.tasks[task]
