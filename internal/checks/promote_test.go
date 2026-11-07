@@ -1,0 +1,151 @@
+package checks
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"obor/internal/testkit"
+)
+
+// T-974: serve's promotion run (Promote: the full suite in <scratch_dir>-promote at the sha, a pool slot, the retest
+// once), the fast-forward of branches.promote (PromoteFF) and after_merge in the promotion worktree (AfterPromote).
+
+// promoteFx is fx with branches.promote "prod" at the fixture commit and one more commit on main: its sha.
+func promoteFx(t *testing.T, edits ...func(map[string]any)) (*fx, string) {
+	t.Helper()
+	x := newFx(t, append([]func(map[string]any){testkit.Set("branches.promote", "prod")}, edits...)...)
+	x.Git(x.Root, "branch", "prod")
+	x.Write("next.txt", "next\n")
+	x.Git(x.Root, "add", "next.txt")
+	x.Git(x.Root, "commit", "-qm", "Merge T-05: next")
+	return x, x.head(x.Root)
+}
+
+// record is a command that writes where, at which commit, with which slot priority and OBOR_ROOT it ran under
+// $TMP_DIR/<name>-*, then prints "1 pass".
+func record(name string) string {
+	return `pwd -P > "$TMP_DIR/` + name + `-pwd"; git rev-parse HEAD > "$TMP_DIR/` + name + `-head"; ` +
+		`echo "$CHECK_PRIORITY" > "$TMP_DIR/` + name + `-prio"; echo "$OBOR_ROOT" > "$TMP_DIR/` + name + `-root"; echo "1 pass"`
+}
+
+func (x *fx) tmp(name string) string {
+	x.t.Helper()
+	b, err := os.ReadFile(filepath.Join(x.Base, name))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+func TestPromoteRunsTheFullSuiteAndFastForwards(t *testing.T) {
+	t.Parallel()
+	x, h := promoteFx(t, cmd("check", record("check")))
+	prod := x.ref("refs/heads/prod")
+	r, err := Promote(context.Background(), x.opts(), h)
+	if err != nil || r.Verdict != "GREEN" || r.SHA != h || r.Retried {
+		t.Fatalf("Promote = %+v, %v; want GREEN at %s, not retried\n%s", r, err, h, x.out.String())
+	}
+	dir, _ := filepath.EvalSymlinks(x.scratch + "-promote")
+	x.eq(x.tmp("check-pwd"), dir, "check ran in the promotion worktree")
+	x.eq(x.tmp("check-head"), h, "at the promoted sha")
+	x.eq(x.tmp("check-prio"), "worker", "holding a pool slot, never the merge marker")
+	sha, _, verdict, err := LastFullCheck(x.Root)
+	if err != nil || sha != h || verdict != "GREEN" {
+		t.Errorf("last-full-check = %s %s %v, want %s GREEN", sha, verdict, err, h)
+	}
+	x.eq(x.ref("refs/heads/prod"), prod, "the run itself moves no branch")
+
+	line, err := PromoteFF(context.Background(), x.opts(), h)
+	if err != nil || x.ref("refs/heads/prod") != h {
+		t.Fatalf("PromoteFF = %q, %v; prod %s, want %s", line, err, x.ref("refs/heads/prod"), h)
+	}
+	if line, err := PromoteFF(context.Background(), x.opts(), h); err != nil || !strings.Contains(line, "already") {
+		t.Errorf("a second PromoteFF = %q, %v; want already", line, err)
+	}
+	if err := os.Remove(filepath.Join(x.Base, "check-head")); err != nil {
+		t.Fatal(err)
+	}
+	if r, err := Promote(context.Background(), x.opts(), h); err != nil || r.Verdict != "GREEN" || x.tmp("check-head") != "" {
+		t.Errorf("prod at %s already: Promote = %+v, %v, check ran: %q; want GREEN without a second run", h, r, err,
+			x.tmp("check-head"))
+	}
+}
+
+func TestPromoteFFRefusesANonAncestor(t *testing.T) {
+	t.Parallel()
+	x, h := promoteFx(t, cmd("check", "echo 1 pass"))
+	x.Git(x.Root, "checkout", "-q", "prod")
+	x.Write("other.txt", "other\n")
+	x.Git(x.Root, "add", "other.txt")
+	x.Git(x.Root, "commit", "-qm", "on prod by hand")
+	x.Git(x.Root, "checkout", "-q", "main")
+	prod := x.ref("refs/heads/prod")
+	if line, err := PromoteFF(context.Background(), x.opts(), h); err == nil ||
+		!strings.Contains(err.Error(), "not an ancestor") {
+		t.Errorf("PromoteFF over a diverged prod = %q, %v; want the not-an-ancestor error", line, err)
+	}
+	x.eq(x.ref("refs/heads/prod"), prod, "prod untouched")
+}
+
+// A red check reruns its failing tests once (commands.retest): green then is GREEN, retried; red again is RED with the
+// failing test named.
+func TestPromoteRetestsRedOnce(t *testing.T) {
+	t.Parallel()
+	const grep = `^--- FAIL|^FAIL\s`
+	const redOne = `echo "--- FAIL: TestAlpha (0.01s)"; echo "FAIL example.com/pkg 0.03s"; exit 1`
+	retest := func(rc string) string {
+		return `n=$(cat "$TMP_DIR/retests" 2>/dev/null || echo 0); echo $((n + 1)) > "$TMP_DIR/retests"; echo "1 pass"; exit ` + rc
+	}
+	t.Run("green on the retest", func(t *testing.T) {
+		t.Parallel()
+		x, h := promoteFx(t, testkit.Set("merge.fail_grep", grep), cmd("check", redOne), cmd("retest", retest("0")))
+		r, err := Promote(context.Background(), x.opts(), h)
+		if err != nil || r.Verdict != "GREEN" || !r.Retried {
+			t.Fatalf("Promote = %+v, %v; want GREEN, retried\n%s", r, err, x.out.String())
+		}
+		x.eq(x.tmp("retests"), "1", "one retest")
+	})
+	t.Run("red twice", func(t *testing.T) {
+		t.Parallel()
+		x, h := promoteFx(t, testkit.Set("merge.fail_grep", grep), cmd("check", redOne), cmd("retest", retest("1")))
+		r, err := Promote(context.Background(), x.opts(), h)
+		if err != nil || r.Verdict != "RED" || !r.Retried {
+			t.Fatalf("Promote = %+v, %v; want RED, retried\n%s", r, err, x.out.String())
+		}
+		x.contains(r.Line, "TestAlpha", "the RED line names the failing test")
+		x.eq(x.tmp("retests"), "1", "one retest, never more")
+		if _, _, verdict, _ := LastFullCheck(x.Root); verdict != "RED" {
+			t.Errorf("last-full-check verdict %q, want RED", verdict)
+		}
+	})
+}
+
+func TestAfterPromoteRunsInThePromotionWorktree(t *testing.T) {
+	t.Parallel()
+	x, h := promoteFx(t, cmd("check", "echo 1 pass"), cmd("after_merge", record("after")))
+	line, err := AfterPromote(context.Background(), x.opts(), h, "")
+	if err != nil || line != "ran" {
+		t.Fatalf("AfterPromote = %q, %v; want ran\n%s", line, err, x.out.String())
+	}
+	dir, _ := filepath.EvalSymlinks(x.scratch + "-promote")
+	x.eq(x.tmp("after-pwd"), dir, "after_merge ran in the promotion worktree")
+	x.eq(x.tmp("after-head"), h, "at the promoted sha")
+	x.eq(x.tmp("after-root"), x.Root, "OBOR_ROOT is the main checkout")
+}
+
+// T-974, row 45: the nightly leaves check out while branches.promote is set (each promotion runs it).
+func TestNightlyDropsCheckWhenPromoteIsSet(t *testing.T) {
+	t.Parallel()
+	for _, promote := range []string{"", "prod"} {
+		x := newFx(t, testkit.Set("branches.promote", promote), cmd("check", record("check")))
+		r := x.nightly()
+		ran := x.tmp("check-head") != ""
+		if r.Code != OK || ran != (promote == "") {
+			t.Errorf("promote %q: nightly %+v, check ran %v; want GREEN, check run only while promote is unset",
+				promote, r, ran)
+		}
+	}
+}

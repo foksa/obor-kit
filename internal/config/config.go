@@ -92,6 +92,9 @@ type Limits struct {
 type Branches struct {
 	Main string `json:"main"`
 	Task string `json:"task"`
+	// Promote is the branch serve promotes the target (Main) to once the full suite is GREEN on it and a closed review
+	// covers it (T-974, docs/state-model.md row 50): e.g. main while Main is staging. "": no promotion (today's flow).
+	Promote string `json:"promote,omitempty"`
 }
 
 // Command is commands.<name>: a string is {cmd}, null or absent is unset. Name is the key.
@@ -239,6 +242,38 @@ type Merge struct {
 	// ReceiptMaxAge is a removed key (v0.29, T-966): serve runs the class's checks itself on the candidate, so a receipt
 	// of an earlier obor run is never needed. It WARNs for two minors.
 	ReceiptMaxAge any `json:"receipt_max_age,omitempty"`
+	// PromoteWeight is the weight merged since the last promotion that triggers the next one (T-974; default
+	// DefaultPromoteWeight); Weights is each difficulty level's weight (default DefaultWeights; a level it omits keeps
+	// its default). Read only while branches.promote is set.
+	PromoteWeight *int           `json:"promote_weight,omitempty"`
+	Weights       map[string]int `json:"weights,omitempty"`
+}
+
+// DefaultPromoteWeight is merge.promote_weight's default (T-974).
+const DefaultPromoteWeight = 6
+
+// DefaultWeights is merge.weights' default: a merged task weighs its spec's Difficulty level (T-974).
+var DefaultWeights = map[string]int{"simple": 1, "medium": 2, "hard": 3}
+
+// PromoteWeight is merge.promote_weight, else DefaultPromoteWeight.
+func (c *Config) PromoteWeight() int {
+	if c != nil && c.Data.Merge.PromoteWeight != nil {
+		return *c.Data.Merge.PromoteWeight
+	}
+	return DefaultPromoteWeight
+}
+
+// MergeWeight is level's weight (merge.weights, else DefaultWeights); a level that is none of them weighs medium's.
+func (c *Config) MergeWeight(level string) int {
+	if _, ok := DefaultWeights[level]; !ok {
+		level = "medium"
+	}
+	if c != nil {
+		if w, ok := c.Data.Merge.Weights[level]; ok {
+			return w
+		}
+	}
+	return DefaultWeights[level]
 }
 
 // MergeClass is one merge.classes entry.

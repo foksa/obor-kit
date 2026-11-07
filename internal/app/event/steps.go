@@ -36,6 +36,9 @@ const (
 	IdleTask = "idle"
 	// RuleTask is the task key of the needs-you of a rule whose action failed ruleFails passes in a row (T-866).
 	RuleTask = "rule"
+	// PromoteTask is the task key of the promotion of branches.main to branches.promote (T-974): its runs, its facts
+	// and its needs-you, the project's.
+	PromoteTask = "promote"
 )
 
 // StepAnswered is the fact of an answer (task MsgTask; data: Message, Task the task whose question it ends).
@@ -71,6 +74,13 @@ const (
 
 // StepNightly is the nightly full check's intent/result (G), one key a day: nightly.<YYYY-MM-DD> → NightlyOut.
 const StepNightly = "nightly"
+
+// The promotion's steps (T-974, docs/state-model.md rows 50, 51; task PromoteTask).
+const (
+	StepPromote      = "promote"       // intent/result (G), promote.<seq>: the full suite on the target's head, promoteIn → PromoteOut
+	StepPromoted     = "promoted"      // fact: branches.promote fast-forwarded to the GREEN, reviewed sha (data: promotedData)
+	StepAfterPromote = "after_promote" // intent/result (G), after_promote.<seq>: commands.after_merge in the promotion worktree
+)
 
 // StepConfigSet is the fact of a setup edit serve wrote and committed (task ConfigTask; data: ConfigSet; T-753).
 const StepConfigSet = "config.set"

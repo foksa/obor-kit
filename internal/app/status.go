@@ -121,6 +121,9 @@ func (a *App) Status() wire.Status {
 				Note: q.note, By: q.by, Since: q.at.Unix()}
 		}
 		ps.Briefs = p.briefStatus()
+		if pr := p.prom; pr.branch != "" {
+			ps.Promote = &wire.PromoteStatus{Branch: pr.branch, SHA: pr.head, Merges: pr.merges, Wait: pr.wait}
+		}
 		ps.Stopped = a.stoppedRoles(p)
 		for _, f := range ps.Facts {
 			if f.Step != event.StepNeedsYou {
@@ -162,6 +165,14 @@ func (a *App) Status() wire.Status {
 func commandStep(r event.Record) (step, task string, ok bool) {
 	if strings.HasPrefix(r.Step, event.StepNightly+".") {
 		return event.StepNightly, "", true
+	}
+	if r.Task == event.PromoteTask { // promote.<seq>, after_promote.<seq>: the project's (T-974)
+		for _, base := range []string{event.StepPromote, event.StepAfterPromote} {
+			if promoteSeq(r.Step, base) > 0 {
+				return base, "", true
+			}
+		}
+		return "", "", false
 	}
 	switch step, _ = event.StepN(r.Step); step {
 	case event.StepGate, event.StepTest, event.StepPublish, event.StepAfterMerge:
@@ -211,6 +222,10 @@ func (p *proj) pendingSteps(open []event.Record) []wire.PendingStep {
 		case r.Task == event.NightlyTask:
 			if p.night.fails[r.Step] > 0 {
 				ps.Error, ps.FailedAt = strings.TrimPrefix(p.night.failedWhy, r.Step+": "), p.night.failedAt.Unix()
+			}
+		case r.Task == event.PromoteTask:
+			if p.prom.fails[r.Step] > 0 {
+				ps.Error, ps.FailedAt = strings.TrimPrefix(p.prom.failedWhy, r.Step+": "), p.prom.failedAt.Unix()
 			}
 		case p.folded.loop[r.Task] != nil:
 			if f, failed := p.folded.loop[r.Task].fails[r.Step]; failed {

@@ -69,7 +69,7 @@ func result(code int, format string, a ...any) *Result {
 	return &Result{Code: code, Line: fmt.Sprintf(format, a...)}
 }
 
-// session is one nightly run: its lock, its worktree, and the check runner in it.
+// session is one nightly or promotion run: its lock, its worktree, and the check runner in it.
 type session struct {
 	Options
 	runner
@@ -77,20 +77,20 @@ type session struct {
 	signal  int // the signal's exit code once interrupted
 	sigDone chan struct{}
 	target  string // the main checkout's current branch
-	scratch string // <merge.scratch_dir>-nightly
+	scratch string // <merge.scratch_dir>-<name>: -nightly, -promote
 	window  *project.Lock
 	locked  bool
 	start   time.Time
 }
 
-// open starts a session: the target branch and the worktree path; a signal on Interrupted or the end of ctx cancels
-// its context.
-func open(ctx context.Context, o Options, logName string) (*session, *Result) {
+// open starts a session named name (nightly, promote: its worktree <merge.scratch_dir>-<name> and its logs' prefix):
+// the target branch and the worktree path; a signal on Interrupted or the end of ctx cancels its context.
+func open(ctx context.Context, o Options, name string) (*session, *Result) {
 	s := &session{Options: o, start: time.Now()}
-	s.scratch = o.Cfg.ScratchDir() + "-nightly"
+	s.scratch = o.Cfg.ScratchDir() + "-" + name
 	ctx, s.cancel = context.WithCancel(ctx)
 	s.Options.gitCtx = ctx // a signal kills a running git too
-	s.runner = newRunner(ctx, &s.Options, s.scratch, logName, "flakes-changed-files")
+	s.runner = newRunner(ctx, &s.Options, s.scratch, name, "flakes-changed-files")
 	s.sigDone = make(chan struct{})
 	s.sigCode = func() int { <-s.sigDone; return s.signal }
 	go func() {

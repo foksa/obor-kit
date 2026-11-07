@@ -158,7 +158,7 @@ func mergeLoop(env project.Env, panes herdr.Panes, end *serveEnd) func(root stri
 		agents := &launch.Launcher{Cfg: cfg, Env: env, H: herdrSocket(env), Out: io.Discard,
 			Background: func(search func()) { go search() }, Log: flushWriter{}}
 		scratch := checks.Scratch{Options: o}
-		l := &app.Loop{Scratch: scratch, Agents: agents, Typer: panes, Nightly: nightly(o),
+		l := &app.Loop{Scratch: scratch, Agents: agents, Typer: panes, Nightly: nightly(o), Promote: promotion(o),
 			Disk: diskOf(repo.Root), Inbox: poster{repo.Root}}
 		dispatchLoop(l, env, cfg)
 		l.Review = reviewGit{root: repo.Root, locked: scratch.Locked}
@@ -216,6 +216,26 @@ func nightly(o checks.Options) *app.Nightly {
 			sha, _, _, err := checks.LastFullCheck(root)
 			out.SHA = sha
 			return out, err
+		}}
+}
+
+// promotion is the merge loop's promotion of o's project (T-974): branches.main promoted to branches.promote by the full
+// suite (checks.Promote), the fast-forward (checks.PromoteFF) and after_merge in the promotion worktree
+// (checks.AfterPromote). Nil while branches.promote is unset: no promotion, after_merge after each publish.
+func promotion(o checks.Options) *app.Promote {
+	cfg := o.Cfg
+	if cfg.Data.Branches.Promote == "" {
+		return nil
+	}
+	return &app.Promote{Branch: cfg.Data.Branches.Promote, Target: cfg.Data.Branches.Main, Weight: cfg.PromoteWeight(),
+		Weigh: cfg.MergeWeight,
+		Run: func(ctx context.Context, sha string) (app.PromoteOut, error) {
+			r, err := checks.Promote(ctx, o, sha)
+			return app.PromoteOut{SHA: r.SHA, Verdict: r.Verdict, Line: r.Line, Retried: r.Retried}, err
+		},
+		FF: func(ctx context.Context, sha string) (string, error) { return checks.PromoteFF(ctx, o, sha) },
+		After: func(ctx context.Context, sha, since string) (string, error) {
+			return checks.AfterPromote(ctx, o, sha, since)
 		}}
 }
 

@@ -58,6 +58,10 @@ func (a *App) scratchStep(ctx context.Context, p *proj, mt mtask, step string, e
 	return false
 }
 
+// afterMergePromoted is a publish's after_merge result while branches.promote is set (T-974): commands.after_merge runs
+// after a GREEN promotion instead (after_promote, promote.go).
+const afterMergePromoted = "skipped: branches.promote is set (after_merge runs after a promotion)"
+
 // afterStep runs mt's next after-merge step (rows 37–38); one that fails stays pending and no later one runs before
 // it (no lane reuse after a failed stop). after_merge (G) is the gate's; agent.stop (S) acts on the lane only while
 // its row holds the task (a crash, then the lane reused: its stop is skipped).
@@ -69,6 +73,9 @@ func (a *App) afterStep(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 	case event.StepAfterMerge:
 		in.Data = mt.cand
 		effect = func(ctx context.Context) (any, error) { return fx.Scratch.AfterMerge(ctx, mt.cand) }
+		if fx.Promote != nil { // T-974, row 37: after_merge runs after a GREEN promotion (after_promote), not here
+			effect = func(context.Context) (any, error) { return afterMergePromoted, nil }
+		}
 	case event.StepStop:
 		in.Class, in.Data = event.ClassStart, stopData{Lane: mt.lane, Agent: mt.agent}
 		effect = func(ctx context.Context) (any, error) { return a.stopWorker(ctx, p, fx, mt) }
