@@ -45,9 +45,9 @@ func TestOldDrivePendingStopRetriedAtReplay(t *testing.T) {
 	if got := r.workerStops(); !slices.Contains(got, "pj-l-01 w1:p1") || !r.has("1 result worker.stop") {
 		t.Errorf("stops %q, steps %q; want pj-l-01 stopped", got, r.steps())
 	}
-	r.waitFor("the stop's line", func() bool { return len(r.stopLines()) > 0 })
-	if got := r.stopLines(); !slices.Equal(got, []string{"[obor] T-1: stopped pj-l-01"}) {
-		t.Errorf("the lead's lines %q; want one: stopped pj-l-01", got)
+	r.passes()
+	if got := r.stopLines(); len(got) != 0 {
+		t.Errorf("the lead's lines %q; want none (T-943)", got)
 	}
 }
 

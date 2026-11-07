@@ -14,16 +14,18 @@ import (
 )
 
 // T-852: a move answers at once; the worker's stop is a step of the merge loop (worker.stop), done
-// before the step that needs the lane, its outcome one line to the lead; a stop that fails is a needs-you obor resume
+// before the step that needs the lane, a done stop tells the lead nothing (T-943); a stop that fails is a needs-you obor resume
 // retries. The rig: newWorkerRig (T-1 working on L-01 as sonnet, its worker pj-l-01 in w1:p1).
 
-// stopLines is the lead's lines that tell a worker.stop's outcome.
+// stopLines is the lead's lines that tell a worker.stop's outcome ("stopped <agent>", "<agent> was not running"):
+// T-943: a done stop sends none, so the tests below assert it stays empty.
 func (r *loopRig) stopLines() []string {
 	var out []string
 	for _, rec := range r.records() {
 		var m event.Message
 		_ = json.Unmarshal(rec.Data, &m)
-		if rec.Kind == event.KindFact && rec.Step == event.StepMessage && m.Stopped != "" {
+		if rec.Kind == event.KindFact && rec.Step == event.StepMessage &&
+			(strings.Contains(m.Line, ": stopped pj-l-") || strings.Contains(m.Line, " was not running (")) {
 			out = append(out, m.Line)
 		}
 	}
@@ -119,10 +121,12 @@ func TestMoveAnswersAtOnceThenStopsTheWorker(t *testing.T) {
 	if ls := r.workerLaunches(); len(ls) != 2 || ls[1].Type != "opus" {
 		t.Errorf("launches %+v; want the move's opus start", ls)
 	}
-	r.waitFor("the stop's line", func() bool { return len(r.stopLines()) > 0 })
 	r.passes()
-	if got := r.stopLines(); !slices.Equal(got, []string{"[obor] T-1: stopped pj-l-01"}) {
-		t.Errorf("the lead's lines %q; want one: stopped pj-l-01", got)
+	if got := r.stopLines(); len(got) != 0 {
+		t.Errorf("the lead's lines %q; want none (T-943: the move's reply said it)", got)
+	}
+	if !r.has("2 result worker.stop") {
+		t.Errorf("steps %q; want the stop recorded", r.steps())
 	}
 	if ts := r.task("T-1"); ts.Stopping != "" {
 		t.Errorf("T-1 after the stop: Stopping %q, want none", ts.Stopping)
@@ -186,15 +190,15 @@ func TestMoveWorkerAlreadyGone(t *testing.T) {
 	if len(r.workerStops()) != 0 {
 		t.Errorf("stops %q; want none (no agent to stop)", r.workerStops())
 	}
-	r.waitFor("the stop's line", func() bool { return len(r.stopLines()) > 0 })
-	if got := r.stopLines(); len(got) != 1 || !strings.HasPrefix(got[0], "[obor] T-1: pj-l-01 was not running (") {
-		t.Errorf("the lead's lines %q; want one: pj-l-01 was not running", got)
+	r.passes()
+	if got := r.stopLines(); len(got) != 0 {
+		t.Errorf("the lead's lines %q; want none (T-943: not even \"was not running\")", got)
 	}
 }
 
 // herdr down at the move's stop: the stop is refused, a needs-you{stop} the owner retries; nothing of the new attempt
 // starts (no lane.prepare, no agent.start); the lead gets one line, the needs-you's, naming the retry. obor resume
-// retries the stop (worker.stop.2), then the start runs and the lead gets its stopped line.
+// retries the stop (worker.stop.2), then the start runs and the lead gets no stopped line.
 func TestMoveStopHerdrDown(t *testing.T) {
 	t.Parallel()
 	r := newWorkerRig(t)
@@ -228,8 +232,8 @@ func TestMoveStopHerdrDown(t *testing.T) {
 	if !r.has("2 result worker.stop.2") || !r.before("2 result worker.stop.2", "2 intent agent.start") {
 		t.Errorf("the steps %q; want worker.stop.2, then the start", r.steps())
 	}
-	r.waitFor("the stop's line", func() bool { return len(r.stopLines()) > 0 })
-	if got := r.stopLines(); !slices.Equal(got, []string{"[obor] T-1: stopped pj-l-01"}) {
-		t.Errorf("the lead's lines %q; want the retry's stopped line", got)
+	r.passes()
+	if got := r.stopLines(); len(got) != 0 {
+		t.Errorf("the lead's lines %q; want none after the retry's stop (T-943)", got)
 	}
 }

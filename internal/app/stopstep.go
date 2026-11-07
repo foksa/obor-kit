@@ -1,9 +1,9 @@
 // stopstep.go: the stop of a task's worker as a step of the merge loop (T-852). A move (obor dispatch --model) and a
 // drop (obor drop) record their decision and answer at once; the worker's stop is then the intent worker.stop of the
 // task's next pass, before the step that needs its lane (the redo's lane.prepare and agent.start, the drop's
-// lane.free). Its outcome is one line to the lead: the
-// stop's (stopped, not running), or for a stop that fails its needs-you's line, which obor resume retries (a drop's that
-// needs --force: obor drop --force). A restart replays it: a pending intent runs again, a result is never run twice.
+// lane.free). A done stop (stopped, not running) tells the lead nothing: its own command's reply said it (chatter census,
+// T-943); a stop that fails is the needs-you's line, which obor resume retries (a drop's that needs --force: obor drop
+// --force). A restart replays it: a pending intent runs again, a result is never run twice.
 // A drop is recorded before its lane steps (fact dropping): a step that fails after it is retried by the loop, or is
 // one needs-you, and the task stays dropping, its lane row its own, until fact dropped: never a half-done drop.
 package app
@@ -25,15 +25,13 @@ const causeStop = "stop"
 // halt is the stop of a task's worker its move or drop asked for (mtask.halt; an old log's take-over too:
 // foldOldDrive): agent "" none; force: a working agent is stopped too (a move's always, a drop's with --force); n the last worker.stop.N
 // with a result (the next is n+1, a pending intent's key); done once a result says stopped or gone; refused a result's
-// refusal (the needs-you's why; obor resume clears it); line a done result's lead line, told once its message folded.
+// refusal (the needs-you's why; obor resume clears it).
 type halt struct {
 	agent   string
 	force   bool
 	n       int
 	done    bool
 	refused string
-	line    string
-	told    bool
 }
 
 // ask is a new stop of agent (a new decision), under the next key.
@@ -50,34 +48,16 @@ type stopOut struct {
 	Refused string `json:"refused,omitempty"`
 }
 
-// leadLine is a done stop's one line to the lead ("" for a refused one: its needs-you's line is the one).
-func (o stopOut) leadLine(task, agent string) string {
-	switch {
-	case o.Refused != "":
-		return ""
-	case o.Gone:
-		return fmt.Sprintf("[obor] %s: %s was not running (%s)", task, agent, oneLine(o.Line))
-	}
-	return fmt.Sprintf("[obor] %s: stopped %s", task, agent)
-}
-
 // foldStop folds worker.stop's result (attempt mt's).
 func (mt *mtask) foldStop(n int, raw json.RawMessage) {
 	var d stopOut
 	_ = json.Unmarshal(raw, &d)
 	h := &mt.halt
-	h.n, h.line, h.told = n, d.leadLine(mt.task, h.agent), false
+	h.n = n
 	if d.Refused != "" {
 		h.refused = d.Refused
 	} else {
 		h.done = true
-	}
-}
-
-// foldStopLine folds the lead line that told a stop's outcome (message{stopped}).
-func (p *proj) foldStopLine(m event.Message) {
-	if mt := p.folded.loop[m.Task]; mt != nil && m.Stopped == JobID(mt.stopKey(mt.halt.n)) {
-		mt.halt.told = true
 	}
 }
 
@@ -87,20 +67,15 @@ func (mt *mtask) stopKey(n int) event.Key {
 }
 
 // pickStop is mt's stop step while its halt needs one (under mu; nil: none, the state's next step goes on): the stop,
-// then a done stop's line to the lead (none configured: no line), or a refused stop's needs-you (its own lead line,
-// "[obor] needs-you T-xx (L-nn): <agent> not stopped: <why> → …", is the one).
+// then for a refused stop its needs-you (its own lead line, "[obor] needs-you T-xx (L-nn): <agent> not stopped: <why> →
+// …", is the one); a done stop sends no line.
 func (a *App) pickStop(p *proj, mt mtask) step {
-	h, lead := mt.halt, p.out.lead()
+	h := mt.halt
 	switch {
 	case h.agent == "":
 		return nil
 	case !h.done && h.refused == "":
 		return func(ctx context.Context, fx *Loop) bool { return a.stopStep(ctx, p, fx, mt) }
-	case h.line != "" && !h.told && lead != "":
-		return func(context.Context, *Loop) bool {
-			m := event.Message{To: lead, From: "obor", Task: mt.task, Stopped: JobID(mt.stopKey(h.n)), Line: h.line}
-			return a.record(p, event.Record{Task: event.MsgTask, Step: event.StepMessage, Kind: event.KindFact}, m)
-		}
 	case !h.done:
 		return func(context.Context, *Loop) bool {
 			return a.needsYou(p, &mt, causeStop, h.agent+" not stopped: "+h.refused)

@@ -28,7 +28,7 @@ func TestWorkerStopByIdentity(t *testing.T) {
 		name:  "live labelled worker: stopped by pane",
 		where: "identified w1:p1",
 		arm:   func(r *loopRig) {},
-		want:  outcome{ok: true, line: "[obor] T-1: stopped pj-l-01", stops: []string{"pj-l-01 w1:p1"}},
+		want:  outcome{ok: true, stops: []string{"pj-l-01 w1:p1"}},
 	}, {
 		name:  "live unlabelled worker: stopped by pane, not not running",
 		where: "identified w1:p1 session",
@@ -36,14 +36,14 @@ func TestWorkerStopByIdentity(t *testing.T) {
 			r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Label = "" })
 			r.paneCreated("w1:p1", "")
 		},
-		want: outcome{ok: true, line: "[obor] T-1: stopped pj-l-01", stops: []string{"pj-l-01 w1:p1"}},
+		want: outcome{ok: true, stops: []string{"pj-l-01 w1:p1"}},
 	}, {
 		name:  "worker gone: not running, the next step goes on",
 		where: "unavailable",
 		arm: func(r *loopRig) {
 			r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Kind, p.Name, p.Status, p.Transcript = "", "", "", "" })
 		},
-		want: outcome{ok: true, line: "[obor] T-1: pj-l-01 was not running ("},
+		want: outcome{ok: true},
 	}, {
 		name:  "ambiguous: refused, nothing stopped",
 		where: "ambiguous w1:p1 w1:p3",
@@ -113,7 +113,6 @@ func TestWorkerStopByIdentity(t *testing.T) {
 type stopOutcome struct {
 	ok    bool     // the stop done (stopped, or no agent): the drop goes on to dropped
 	waits bool     // serve is cut off from herdr: no pass, so the stop waits (nothing stopped, no needs-you)
-	line  string   // a done stop's one lead line (its prefix): stopped, not running
 	why   string   // a refused stop's needs-you reason (its prefix): its line is the lead's one (no stop line)
 	stops []string // the worker's Agents.Stop calls since the call: "<agent> <pane>"
 }
@@ -146,14 +145,10 @@ func checkStop(t *testing.T, r *loopRig, want stopOutcome, before int) {
 	if stops := r.workerStops()[before:]; !slices.Equal(stops, want.stops) {
 		t.Errorf("worker stops %q, want %q", stops, want.stops)
 	}
-	if want.line == "" {
-		if lines := r.stopLines(); len(lines) != 0 {
-			t.Errorf("the lead's lines %q, want none", lines)
-		}
-		return
+	if !want.waits { // cut off from herdr, serve makes no pass
+		r.passes()
 	}
-	r.waitFor("the stop's line", func() bool { return len(r.stopLines()) > 0 })
-	if lines := r.stopLines(); len(lines) != 1 || !strings.HasPrefix(lines[0], want.line) {
-		t.Errorf("the lead's lines %q, want one starting %q", lines, want.line)
+	if lines := r.stopLines(); len(lines) != 0 { // T-943: a done stop sends none, a refused one has its needs-you's
+		t.Errorf("the lead's lines %q, want none", lines)
 	}
 }
