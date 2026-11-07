@@ -500,15 +500,31 @@ func (a *App) deliver(ctx context.Context, p *proj, fx *Loop) {
 
 	a.mu.Lock()
 	var done []event.Message
+	var reviewed map[string]string // the finished agents' review files (finishedReview): by agent, the review id + "[-verify]"
 	for agent, b := range p.out.briefs {
 		w := a.whereIs(p, agent)
 		gone := a.gone(p, agent, b, w, now) // noted on every pass: where its agent was last seen
 		if b.worked && b.stop == nil && (w.State == Identified && Ready(w.Pane.Status) || gone) {
 			done = append(done, event.Message{To: p.out.leadAgent, From: "obor", Ends: agent,
 				Line: fmt.Sprintf("[obor] %s finished (briefed %s ago)", agent, Age(now.Sub(b.at)))})
+			if file := p.folded.rv.briefFile(agent, b.seq); file != "" {
+				if reviewed == nil {
+					reviewed = map[string]string{}
+				}
+				reviewed[agent] = file
+			}
 		}
 	}
 	a.mu.Unlock()
+	if len(reviewed) > 0 { // the review files are read outside mu, once, as the lines are composed
+		if s, err := reviewConfig(p.root); err == nil {
+			for i, m := range done {
+				if file := reviewed[m.Ends]; file != "" && m.Ends == s.Agent {
+					done[i].Line = finishedReview(p.root, s.Reviews, file, m.Ends)
+				}
+			}
+		}
+	}
 	sort.Slice(done, func(i, j int) bool { return done[i].Ends < done[j].Ends })
 	for _, m := range done {
 		a.record(p, event.Record{Task: event.MsgTask, Step: event.StepMessage, Kind: event.KindFact}, m)
