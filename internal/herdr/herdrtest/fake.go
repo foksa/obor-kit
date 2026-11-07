@@ -39,6 +39,10 @@ type Pane struct {
 	// Input is the agent's input box: Escape on a working Claude puts the interrupted prompt back there; text typed
 	// into a non-empty input is sent with it as a message (no command); ctrl+c clears it.
 	Input string
+	// LeaveAfter is how many checks of herdr's agent.wait (agent.wait) the agent survives before it exits the pane,
+	// as an agent that leaves while a wait runs: 0 it stays. A check counts when the agent is seen still there, so
+	// LeaveAfter 2 has the wait see it once, then find it gone (agent_not_running).
+	LeaveAfter int
 	// OnPrompt is what a prompt does to the agent: "" or "take" (working, seq+1); "quick" (a turn so short it is idle
 	// again before anyone looks: idle, seq+2); "typed" (typed into the input box, never submitted: only Draft
 	// changes; with --wait herdr answers agent_prompt_stalled). With --wait also: "busy" (taken, the wait times out:

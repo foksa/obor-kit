@@ -569,6 +569,12 @@ func (s *Server) answer(c *conn, method string, params json.RawMessage) (map[str
 			if a != nil {
 				status = a.Status
 				answer = ok(map[string]any{"type": "agent_info", "agent": a.agentJSON()})
+				if a.LeaveAfter > 0 {
+					if a.LeaveAfter--; a.LeaveAfter == 0 {
+						a.exit()
+						a = nil
+					}
+				}
 			}
 			f.mu.Unlock()
 			switch {
