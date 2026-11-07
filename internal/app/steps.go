@@ -322,7 +322,7 @@ func (a *App) test(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 func testResult(task string, o port.TestOutcome) testOut {
 	switch o.Kind {
 	case port.OutcomeGreen:
-		return testOut{Outcome: outGreen, Line: o.Line, Checks: o.Checks, Tree: o.Tree}
+		return testOut{Outcome: outGreen, Line: o.Line, Checks: o.Checks}
 	case port.OutcomeRed:
 		return testOut{Outcome: outRed, Line: o.Line}
 	case port.OutcomeFail:

@@ -38,6 +38,7 @@ type verdictResult struct {
 	Patch string `json:"patch,omitempty"`
 	Note  string `json:"note,omitempty"`
 	SHA   string `json:"sha,omitempty"`  // resolved: the merge pinned at refs/obor/resolved/<task>, the gate's input
+	Rev   int    `json:"rev,omitempty"`  // resolved: the spec rev the resolution was made under (T-968)
 	Lead  bool   `json:"lead,omitempty"` // a sendback of the lead's or the owner's (leadSendback)
 }
 
@@ -189,7 +190,14 @@ func (a *App) verdict(ctx context.Context, method string, c wire.Call) (string, 
 		return a.hold(p, c, key)
 	}
 	var sha string
+	rev := 0
 	if method == wire.MethodResolved {
+		// T-968: the rev the resolution is made under (0: no stored spec); the resolved gate binds the accept only at
+		// this rev, so a rev the lead sets before the gate reviews the task again. A read error leaves 0: a spec'd
+		// task is then reviewed again rather than bound.
+		if row, ok, err := specOf(p, c.Task); err == nil && ok {
+			rev = row.Rev
+		}
 		fx, err := a.loopOf(p)
 		if err == nil {
 			sha, err = a.resolvedCheck(ctx, p, fx, c.Task, input, mismatch)
@@ -205,7 +213,8 @@ func (a *App) verdict(ctx context.Context, method string, c wire.Call) (string, 
 		reply += fmt.Sprintf(": sent back %d times already, the owner decides", K)
 	}
 	a.mu.Lock()
-	r, err := a.verdictRecord(p, in, verdictResult{Job: JobID(key), Reply: reply, Patch: c.Patch, Note: c.Note, SHA: sha})
+	r, err := a.verdictRecord(p, in, verdictResult{Job: JobID(key), Reply: reply, Patch: c.Patch, Note: c.Note, SHA: sha,
+		Rev: rev})
 	if err != nil {
 		a.mu.Unlock()
 		return "", err
