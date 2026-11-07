@@ -68,7 +68,10 @@ trim-go-cache:
 # The merge gate (check: the full suite) and its per-merge tier (check-affected, commands.check_affected, T-347): the
 # same steps, but go test only on the packages $OBOR_CHANGED_FILES affects (obor affected go); any doubt runs the full
 # suite. check-affected also passes -short: the tests marked testkit.Slow (>= 1 s: cmd/obor, internal/checks,
-# internal/setup, T-957) run only in check, the nightly and releases; check does not pass it.
+# internal/setup, T-957) run only in check, the nightly and releases; check does not pass it unless CHECK_SHORT=1.
+# CHECK_SHORT=1 adds -short to check, check-readers and check-web: serve's lane test sets it, so a lane runs the short
+# tier whatever its class (T-989); the promotion's and the nightly's runners do not, so the full suite runs there, and in
+# a release.
 # Serve's lane step runs the class's tier in the task's lane (T-961). check-compile (commands.compile, T-961) is
 # what serve's merge slot runs on each merge: build, gofmt, vet and deadcode, no go test. CHECK_CPUS (obor run and the
 # gates export it: cores / slots.max) is go test -p. Every class check starts with
@@ -95,6 +98,7 @@ check check-affected:
 	    esac; \
 	  else echo "affected: full suite (obor affected go failed)"; fi; \
 	fi; \
+	if [ "$$CHECK_SHORT" = 1 ]; then short=-short; fi; \
 	if [ -z "$$pkgs" ]; then echo "go test: 0 pass, 0 fail (no affected Go packages, go test skipped)"; else \
 	  rc=0; out=$$($(GO) test -count=1 $${CHECK_CPUS:+-p $$CHECK_CPUS} $${short:+$$short} $$pkgs 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
 	  n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
@@ -144,7 +148,8 @@ check-retest:
 READER_PKGS := ./cmd/obor ./internal/agents/claude ./internal/app ./internal/checks ./internal/config ./internal/guard ./internal/setup
 check-readers:
 	@$(GO_GATE); \
-	rc=0; out=$$($(GO) test -count=1 $${CHECK_CPUS:+-p $$CHECK_CPUS} $(READER_PKGS) 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
+	short=; if [ "$$CHECK_SHORT" = 1 ]; then short=-short; fi; \
+	rc=0; out=$$($(GO) test -count=1 $${CHECK_CPUS:+-p $$CHECK_CPUS} $${short:+$$short} $(READER_PKGS) 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
 	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"
 
@@ -156,7 +161,8 @@ check-readers:
 # the build of web/ as committed.
 check-web:
 	@$(GO_GATE); \
-	rc=0; out=$$($(GO) test -count=1 $${CHECK_CPUS:+-p $$CHECK_CPUS} ./internal/web 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
+	short=; if [ "$$CHECK_SHORT" = 1 ]; then short=-short; fi; \
+	rc=0; out=$$($(GO) test -count=1 $${CHECK_CPUS:+-p $$CHECK_CPUS} $${short:+$$short} ./internal/web 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
 	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"
 

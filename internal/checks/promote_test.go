@@ -74,6 +74,23 @@ func TestPromoteRunsTheFullSuiteAndFastForwards(t *testing.T) {
 	}
 }
 
+// T-989: the lane test runs the short tier (CHECK_SHORT=1, lanetest.go); the promotion's check does not carry it, so the
+// full suite runs at the promotion.
+func TestPromoteRunsTheFullSuite(t *testing.T) {
+	t.Parallel()
+	x, h := promoteFx(t, cmd("check", `env > "$TMP_DIR/promote-env"; echo 1 pass`))
+	if r, err := Promote(context.Background(), x.opts(), h); err != nil || r.Verdict != "GREEN" {
+		t.Fatalf("Promote = %+v, %v; want GREEN\n%s", r, err, x.out.String())
+	}
+	env := x.tmp("promote-env")
+	if env == "" {
+		t.Fatal("precondition: the promotion's check recorded its environment")
+	}
+	if strings.Contains("\n"+env+"\n", "\nCHECK_SHORT=1\n") {
+		t.Errorf("the promotion's env carries CHECK_SHORT=1: the full suite must run there:\n%s", env)
+	}
+}
+
 // RV-136 #3 (T-978): a nightly RED stays in last-full-check through a GREEN promotion (its own file,
 // last-promotion), so serve's nightly (LastFullCheck) never reads the promotion as a hand-run GREEN nightly.
 func TestPromoteLeavesANightlyRedAlone(t *testing.T) {

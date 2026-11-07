@@ -226,6 +226,61 @@ func TestMakeCheckGocacheFallback(t *testing.T) {
 	}
 }
 
+// makeCheckShort runs `make -s check` on a kit copy whose go logs each call and passes (writeKit) and whose gofmt passes,
+// with env added (an inherited CHECK_SHORT, this lane test's own, removed first); it returns the logged go calls.
+func makeCheckShort(t *testing.T, env ...string) []string {
+	t.Helper()
+	dir := testkit.Dir(t)
+	writeKit(t, dir)
+	log := filepath.Join(dir, "go.log")
+	writeExec(t, filepath.Join(dir, "stub", "gofmt"), "#!/bin/bash\nexit 0\n")
+	cmd := exec.Command("make", "-s", "-C", dir, "check", "GO="+filepath.Join(dir, "bin", "go"))
+	for _, kv := range plainMakeEnv() {
+		if !strings.HasPrefix(kv, "CHECK_SHORT=") {
+			cmd.Env = append(cmd.Env, kv)
+		}
+	}
+	cmd.Env = append(cmd.Env, "PATH="+filepath.Join(dir, "stub")+string(os.PathListSeparator)+os.Getenv("PATH"))
+	cmd.Env = append(cmd.Env, env...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("make check: %v\n%s", err, out)
+	}
+	return strings.Split(strings.TrimSpace(readFile(t, log)), "\n")
+}
+
+// T-989: CHECK_SHORT=1 makes check pass -short (a lane test runs the short tier whatever the class); without it, or with
+// another value, check runs the full suite, as the promotion, the nightly and a release do.
+func TestMakeCheckShort(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name  string
+		env   []string
+		short bool
+	}{
+		{"CHECK_SHORT=1", []string{"CHECK_SHORT=1"}, true},
+		{"unset", nil, false},
+		{"CHECK_SHORT=0", []string{"CHECK_SHORT=0"}, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			calls := makeCheckShort(t, c.env...)
+			var test string
+			for _, call := range calls {
+				if strings.HasPrefix(call, "test ") {
+					test = call
+				}
+			}
+			if test == "" {
+				t.Fatalf("precondition: make check runs go test: %q", calls)
+			}
+			if got := slices.Contains(strings.Fields(test), "-short"); got != c.short {
+				t.Errorf("go test %q passes -short %v, want %v", test, got, c.short)
+			}
+		})
+	}
+}
+
 // makeCheckTier runs `make -s <target>` on a kit copy whose go and gofmt log their argv to go.log and whose dist/obor
 // stub prints one affected package, logging its own run to affected.log. It returns the output, the logged argv lines
 // and whether the affected list was asked.
