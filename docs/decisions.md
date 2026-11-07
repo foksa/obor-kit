@@ -4,6 +4,8 @@ Owner decisions on record, newest sections first. Folded from STATUS.md on 2026-
 at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
+- 2026-11-07 (owner): **Agent-neutral changes first.** A saving or fix that only works for one agent kind (e.g. Claude Code's MCP `alwaysLoad` to skip the ToolSearch before `job_next`) is not taken; kinds are swappable per role. Jobs stay by fetch (docs/research/job-in-first-prompt-advice.md: job-in-prompt or herdr events as delivery proof add a transport per kind and delete nothing).
+- 2026-11-07 (owner, docs/research/herdr-usage-deep-dive.md H8): **obor stops renaming herdr agents back** when herdr drops a name (T-952); obor addresses panes by id. A human addressing a worker by name after a long first turn may get agent_not_found.
 - 2026-11-05 (owner, docs/research/merge-without-regate.md option C): **A clean move re-runs only the compile
   steps**: no shared file and neither side `full` → build, gofmt, vet, deadcode with `OBOR_MOVED=1`, no `go test`;
   merge `partial` (T-914). Cause: 11-05 had 41 moved re-gates (~140 of ~490 serial gate minutes); in 12 days 165
