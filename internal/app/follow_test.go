@@ -13,7 +13,8 @@ import (
 )
 
 // T-719: serve follows a new obor binary: on its tick it asks Options.Binary and takes the self-restart path
-// (Loop.Restart), at once when idle, else once nothing runs or after 10 minutes; status shows it meanwhile.
+// (Loop.Restart), at once when idle, else at the first pass where nothing runs (T-972: no deadline); status shows it
+// meanwhile.
 
 // followRig is a loop rig whose Binary says isNew and whose Restart counts its calls and gives err (nil: serve ends
 // gracefully, as a signal ends it).
@@ -217,48 +218,6 @@ func TestFollowBinaryWaitsForAdmittedWriter(t *testing.T) {
 	}
 }
 
-// T-934 (RV-128 #1): a writer admitted while a gate runs holds the restart past followWait: no restart until it is
-// unadmitted, then the next pass restarts (the gate cut, as after followWait).
-func TestFollowBinaryWriterPastFollowWait(t *testing.T) {
-	t.Parallel()
-	r := newFollowRig(t, nil)
-	release := make(chan struct{})
-	defer close(release)
-	r.scratch.arm("Gate", func(ctx context.Context) error {
-		select {
-		case <-release:
-		case <-ctx.Done():
-		}
-		return ctx.Err()
-	})
-	r.start()
-	r.submit()
-	r.waitFor("the gate to run", func() bool { return r.scratch.gates.Load() == 1 })
-	r.isNew.Store(1)
-	r.waitFor("the pending restart shown", func() bool { return r.restartingShown() || r.calls.Load() != 0 })
-	if r.calls.Load() != 0 {
-		t.Fatal("precondition: serve restarted with the gate running")
-	}
-	unadmit, err := app.Admit(r.app, r.p.Root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var once sync.Once
-	defer once.Do(unadmit)
-	r.clock.Add(followWait + time.Minute)
-	r.ticks(3)
-	if r.calls.Load() != 0 || !r.restartingShown() {
-		t.Fatalf("a writer admitted past followWait: restarts %d, restarting shown %v; want 0, shown", r.calls.Load(),
-			r.restartingShown())
-	}
-	once.Do(unadmit)
-	r.waitFor("the restart to end serve", r.ended)
-	r.cancel = nil
-	if r.calls.Load() != 1 || r.has("1 result gate") {
-		t.Errorf("unadmitted: restarts %d, gate result %v; want 1 with the gate cut", r.calls.Load(), r.has("1 result gate"))
-	}
-}
-
 // T-934: the restart claimed (Restart called), an admit is refused with the message and nothing admitted; the restart
 // runs on.
 func TestFollowBinaryClaimRefusesAdmit(t *testing.T) {
@@ -291,59 +250,6 @@ func TestFollowBinaryClaimRefusesAdmit(t *testing.T) {
 	r.cancel = nil
 	if r.calls.Load() != 1 {
 		t.Errorf("restarts %d, want 1", r.calls.Load())
-	}
-}
-
-// Never idle: after 10 minutes the restart goes anyway (the gate is cut, as at any restart), whether herdr is up or
-// down (T-737).
-func TestFollowBinaryAfterTenMinutes(t *testing.T) {
-	t.Parallel()
-	for _, c := range []struct {
-		name string
-		down bool
-	}{
-		{"herdr up", false},
-		{"herdr down", true},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			r := newFollowRig(t, nil)
-			release := make(chan struct{})
-			defer close(release)
-			r.scratch.arm("Gate", func(ctx context.Context) error {
-				select {
-				case <-release:
-				case <-ctx.Done():
-				}
-				return ctx.Err()
-			})
-			r.start()
-			r.submit()
-			r.waitFor("the gate to run", func() bool { return r.scratch.gates.Load() == 1 })
-			r.isNew.Store(1)
-			r.waitFor("the pending restart shown", func() bool { return r.restartingShown() || r.calls.Load() != 0 })
-			if r.calls.Load() != 0 {
-				t.Fatal("serve restarted with the gate running, want it to wait")
-			}
-			if c.down {
-				r.down()
-			}
-			r.clock.Add(9 * time.Minute)
-			r.ticks(3)
-			if r.calls.Load() != 0 {
-				t.Fatalf("restarted after 9 minutes with the gate running, want not yet")
-			}
-			if c.down && !r.restartingShown() {
-				t.Fatalf("herdr down, gate running, before the deadline: the restart is not shown")
-			}
-			r.clock.Add(time.Minute)
-			r.waitFor("the restart to end serve", r.ended)
-			r.cancel = nil
-			if r.calls.Load() != 1 || r.has("1 result gate") || (c.down && !r.neverBack()) {
-				t.Errorf("%s: restarts %d, gate result %v, herdr never back %v; want 1 with the gate cut, herdr down throughout if it was:\n%s",
-					c.name, r.calls.Load(), r.has("1 result gate"), r.neverBack(), r.out)
-			}
-		})
 	}
 }
 
@@ -412,6 +318,3 @@ func TestFollowBinaryStreamLost(t *testing.T) {
 		t.Errorf("restarts %d, herdr never back %v; want 1 with herdr down:\n%s", r.calls.Load(), r.neverBack(), r.out)
 	}
 }
-
-// followWait is follow.go's: the wait for an idle moment before the restart goes anyway.
-const followWait = 10 * time.Minute
