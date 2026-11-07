@@ -99,18 +99,19 @@ fetch() {
   trap - EXIT HUP INT TERM
 }
 
-# has_hook <binary> <name>: `<binary> has hook <name>` exits 0 within 2 s (T-195: a stale dist/obor broke every hook;
-# RV-22 #1: a hanging one must not hang them). On expiry the watchdog kills it. No job control (T-279: where setpgid is
-# refused, `set -m` printed to stderr and the group kill missed): a simple background command is the binary's own pid.
+# has_hook <binary> <name>: `<binary> has hook <name>` exits 0 within OBOR_HOOK_TIMEOUT seconds (default 2; tests set
+# 1; T-195: a stale dist/obor broke every hook; RV-22 #1: a hanging one must not hang them). On expiry the watchdog
+# kills it. No job control (T-279: where setpgid is refused, `set -m` printed to stderr and the group kill missed): a
+# simple background command is the binary's own pid.
 # The watchdog sleeps in the background and waits, so a TERM ends it at once, its sleep with it.
 has_hook() {
-  local pid watchdog rc=0
+  local pid watchdog rc=0 timeout=${OBOR_HOOK_TIMEOUT:-2}
   "$1" has hook "$2" < /dev/null > /dev/null 2>&1 &
   pid=$!
   (
     s=
     trap 'kill "$s"; exit 0' TERM
-    sleep 2 &
+    sleep "$timeout" &
     s=$!
     wait "$s"
     kill -KILL "$pid"

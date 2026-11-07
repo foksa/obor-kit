@@ -149,7 +149,8 @@ func hasSubcommand(help, sub string) bool {
 }
 
 func claudeStatic() {
-	ids := map[string]string{"CC-S1": at(claudeGo, "var efforts") + ", CAP §2.1", "CC-S2": "hooks/hooks.json, CAP §2.3"}
+	ids := map[string]string{"CC-S1": at(claudeGo, "var efforts") + ", CAP §2.1", "CC-S2": "hooks/hooks.json, CAP §2.3",
+		"CC-S3": ".claude-plugin/plugin.json, hooks/hooks.json"}
 	path, _, ok := tool("claude", ids)
 	if !ok {
 		return
@@ -161,6 +162,7 @@ func claudeStatic() {
 		ccS1(help, ids["CC-S1"])
 	}
 	ccS2(path, ids["CC-S2"])
+	ccS3(path, ids["CC-S3"])
 }
 
 // ccS1: --effort lists exactly the driver's efforts; the flags the driver and the guard use are there.
@@ -232,6 +234,21 @@ func ccS2(path, where string) {
 	}
 	report("PASS", "CC-S2", "the claude binary names every hook event hooks/hooks.json uses: "+strings.Join(events, ", ")+
 		" (binary strings, not the online hooks doc)", where)
+}
+
+// ccS3: the installed claude accepts this kit's plugin: `.claude-plugin/plugin.json` and hooks/hooks.json validate. Run
+// from the repo root (toRepoRoot), so "." is the plugin root.
+func ccS3(path, where string) {
+	o, err := output(60*time.Second, path, "plugin", "validate", ".")
+	if err != nil {
+		report("FAIL", "CC-S3", "claude plugin validate: "+firstLine(o+err.Error()), where)
+		return
+	}
+	if !strings.Contains(o, "Validation passed") {
+		report("FAIL", "CC-S3", "claude plugin validate printed no \"Validation passed\": "+firstLine(o), where)
+		return
+	}
+	report("PASS", "CC-S3", "claude plugin validate accepted the kit's plugin", where)
 }
 
 func codexStatic() {
