@@ -134,6 +134,7 @@ func TestLaneTestRunsInTheLaneAndRestores(t *testing.T) {
 
 // T-967: the lane test's env is the lane workers' (config.LaneEnv): slots.lane_cpus and the inherited GOFLAGS' other
 // flags kept, CHECK_CPUS the same budget.
+// T-989: and CHECK_SHORT=1: a lane test always runs the short tier, whatever the class.
 func TestLaneTestLaneEnv(t *testing.T) {
 	t.Parallel()
 	y := newSxEnv(t, []string{"GOFLAGS=-mod=mod"}, testkit.Set("slots.lane_cpus", 1), cmd("check", probe))
@@ -149,7 +150,7 @@ func TestLaneTestLaneEnv(t *testing.T) {
 		t.Fatalf("test: %+v %v\noutput:\n%s", o, err, y.out.String())
 	}
 	env := y.probed("env")
-	for _, kv := range []string{"GOMAXPROCS=1", "GOFLAGS=-mod=mod -p=1", "CHECK_CPUS=1"} {
+	for _, kv := range []string{"GOMAXPROCS=1", "GOFLAGS=-mod=mod -p=1", "CHECK_CPUS=1", "CHECK_SHORT=1"} {
 		if !strings.Contains("\n"+env+"\n", "\n"+kv+"\n") {
 			t.Errorf("the check's environment has no %q:\n%s", kv, env)
 		}
