@@ -229,9 +229,10 @@ func promotion(o checks.Options) *app.Promote {
 		return nil
 	}
 	return &app.Promote{Branch: cfg.Data.Branches.Promote, Target: cfg.Data.Branches.Main, Weight: cfg.PromoteWeight(),
-		Weigh: cfg.MergeWeight,
-		Run:   func(ctx context.Context, sha string) (port.PromoteOut, error) { return checks.Promote(ctx, o, sha) },
-		FF:    func(ctx context.Context, sha string) (string, error) { return checks.PromoteFF(ctx, o, sha) },
+		Weigh:  cfg.MergeWeight,
+		Run:    func(ctx context.Context, sha string) (port.PromoteOut, error) { return checks.Promote(ctx, o, sha) },
+		Passed: func(ctx context.Context, sha string) (bool, error) { return checks.PromotePassed(ctx, o, sha) },
+		FF:     func(ctx context.Context, sha string) (port.FFOut, error) { return checks.PromoteFF(ctx, o, sha) },
 		After: func(ctx context.Context, sha, since string) (string, error) {
 			return checks.AfterPromote(ctx, o, sha, since)
 		}}

@@ -24,9 +24,9 @@ const promoteName = "promote"
 // <merge.scratch_dir>-promote (added when missing), reset to sha with lane_links: commands.lane_setup, then
 // commands.check, holding a pool slot (prio worker, never the merge marker: slots.max bounds it with the lane tests).
 // A red check whose failing tests and packages it names is rerun once by commands.retest at the same commit (T-964):
-// green then is GREEN, Retried set. It writes .obor/state/last-promotion (LastPromotionFile, T-978). The
-// promoted branch (branches.promote) at sha already is GREEN with nothing run (a crash between the fast-forward and
-// its fact). GREEN and RED are outcomes; anything else (git, the slot, lane_setup, ctx ended) is an error: the
+// green then is GREEN, Retried set. It writes .obor/state/last-promotion (LastPromotionFile, T-978). The promoted
+// branch (branches.promote) at sha or past it is GREEN with nothing run (T-984: a run cut by a restart after the branch
+// moved past sha). GREEN and RED are outcomes; anything else (git, the slot, lane_setup, ctx ended) is an error: the
 // promotion runs again. One runs at a time (serve's pass).
 func Promote(ctx context.Context, o Options, sha string) (port.PromoteOut, error) {
 	if o.Out == nil {
@@ -34,12 +34,13 @@ func Promote(ctx context.Context, o Options, sha string) (port.PromoteOut, error
 	}
 	sc := Scratch{Options: o}
 	sc.gitCtx = ctx
-	branch := o.Cfg.Data.Branches.Promote
-	if branch == "" {
-		return port.PromoteOut{}, errors.New("no branches.promote")
+	at, past, err := sc.promoted(sha)
+	if err != nil {
+		return port.PromoteOut{}, err
 	}
-	if at, err := sc.call(o.Cfg.Root, "rev-parse", "refs/heads/"+branch); err == nil && at == sha {
-		return port.PromoteOut{SHA: sha, Verdict: "GREEN", Line: branch + " at " + short(sha) + " already"}, nil
+	if past {
+		line := o.Cfg.Data.Branches.Promote + " at " + short(at) + ", " + short(sha) + " in it already"
+		return port.PromoteOut{SHA: sha, Verdict: "GREEN", Line: line}, nil
 	}
 	cut, done := make(chan int, 1), make(chan struct{})
 	defer close(done)
@@ -114,36 +115,57 @@ func (s *session) promoteHalt(h *halt, name string) error {
 	return errors.New(h.fail)
 }
 
-// PromoteFF fast-forwards branches.promote to sha (T-974): update-ref with the branch's sha as the old value, only when
-// that sha is an ancestor of sha; the branch at sha or past it already: nothing to do. Anything else is an error.
-func PromoteFF(ctx context.Context, o Options, sha string) (string, error) {
+// PromoteFF fast-forwards branches.promote to sha (T-974), decided by ancestry (T-984): the branch at sha or past it
+// is already (nothing moved), diverged from sha refused, an ancestor of sha moved there by update-ref with its sha as
+// the old value. An error: git (no branch, a ref that moved meanwhile).
+func PromoteFF(ctx context.Context, o Options, sha string) (port.FFOut, error) {
 	s := Scratch{Options: o}
 	s.gitCtx = ctx
 	branch, root := o.Cfg.Data.Branches.Promote, o.Cfg.Root
-	if branch == "" {
-		return "", errors.New("no branches.promote")
-	}
-	at, err := s.call(root, "rev-parse", "--verify", "refs/heads/"+branch)
-	if err != nil {
-		return "", fmt.Errorf("no branch %s (create it at a commit of %s): %w", branch, o.Cfg.Data.Branches.Main, err)
-	}
-	if at == sha {
-		return branch + " at " + short(sha) + " already", nil
-	}
-	if past, err := s.ancestor(root, sha, at); err != nil || past {
-		return branch + " at " + short(at) + ", past " + short(sha) + " already", err
+	at, past, err := s.promoted(sha)
+	switch {
+	case err != nil:
+		return port.FFOut{}, err
+	case past:
+		return port.FFOut{Outcome: port.FFAlready, Line: branch + " at " + short(at) + ", " + short(sha) + " in it already"}, nil
 	}
 	ff, err := s.ancestor(root, at, sha)
-	if err != nil {
-		return "", err
-	}
-	if !ff {
-		return "", fmt.Errorf("%s at %s is not an ancestor of %s: not fast-forwarded", branch, short(at), short(sha))
+	switch {
+	case err != nil:
+		return port.FFOut{}, err
+	case !ff:
+		return port.FFOut{Outcome: port.FFRefused,
+			Line: fmt.Sprintf("%s at %s is not an ancestor of %s: not fast-forwarded", branch, short(at), short(sha))}, nil
 	}
 	if _, err := s.call(root, "update-ref", "-m", "obor promote", "refs/heads/"+branch, sha, at); err != nil {
-		return "", err
+		return port.FFOut{}, err
 	}
-	return "promoted " + branch + " " + short(at) + ".." + short(sha), nil
+	return port.FFOut{Outcome: port.FFMoved, Line: "promoted " + branch + " " + short(at) + ".." + short(sha)}, nil
+}
+
+// PromotePassed: branches.promote is at sha or past it (sha an ancestor of its head, T-984): nothing to promote there.
+func PromotePassed(ctx context.Context, o Options, sha string) (bool, error) {
+	s := Scratch{Options: o}
+	s.gitCtx = ctx
+	_, past, err := s.promoted(sha)
+	return past, err
+}
+
+// promoted is branches.promote's sha (at) and whether it is at sha or past it.
+func (s Scratch) promoted(sha string) (at string, past bool, err error) {
+	branch, root := s.Cfg.Data.Branches.Promote, s.Cfg.Root
+	if branch == "" {
+		return "", false, errors.New("no branches.promote")
+	}
+	at, err = s.call(root, "rev-parse", "--verify", "refs/heads/"+branch)
+	if err != nil {
+		return "", false, fmt.Errorf("no branch %s (create it at a commit of %s): %w", branch, s.Cfg.Data.Branches.Main, err)
+	}
+	if at == sha {
+		return at, true, nil
+	}
+	past, err = s.ancestor(root, sha, at)
+	return at, past, err
 }
 
 // AfterPromote runs commands.after_merge for the promoted sha (T-974, docs/state-model.md row 51) in the promotion

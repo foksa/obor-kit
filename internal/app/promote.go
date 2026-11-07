@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -35,15 +36,19 @@ import (
 //   - RED: needs-you{promotion RED <sha7>: <line>; merges since <since7>: T-a, …} (the nightly's shape), ended by the
 //     next GREEN promotion (fact promoted). A run that ends neither is a counted failure, tried again promoteRetry
 //     after it; the tries-th is a needs-you.
-//   - GREEN at R: the promoted branch is fast-forwarded to R (Promote.FF), then fact promoted{sha R}. A GREEN at any
-//     other sha is never promoted; it waits for a close at its sha (obor status says why). Commits after R (the close
+//   - R at or behind the promoted branch's head (T-984: the branch switched, or moved past R): passed already, before
+//     anything else: no intent, no suite, no fact, nothing pending in status.
+//   - GREEN at R: the promoted branch is fast-forwarded to R (Promote.FF), then fact promoted{sha R} only when it moved
+//     (already, the branch moved past R meanwhile: nothing recorded; refused: a counted failure). A GREEN at any other
+//     sha is never promoted; it waits for a close at its sha (obor status says why). Commits after R (the close
 //     commit, the lead's docs) are the next review's.
 //   - After fact promoted: intent after_promote.<seq>{sha, since} (G): commands.after_merge in the promotion worktree at
 //     the promoted sha with OBOR_ROOT set (row 51); the per-publish after_merge is skipped while promote is set.
 //
-// A restart mid-run runs the pending intent again at its recorded sha (the promoted branch there already: GREEN without
-// a second run, Promote.Run's own check); a crash between the fast-forward and fact promoted finds the branch at R and
-// records the fact; one between a RED result and its needs-you settles it from the result on the next pass.
+// A restart mid-run runs the pending intent again at its recorded sha (the promoted branch there or past it: GREEN
+// without a second run, Promote.Run's own check); a crash between the fast-forward and fact promoted finds the branch
+// at R with R's GREEN recorded and records the fact; one between a RED result and its needs-you settles it from the
+// result on the next pass.
 
 // promoteRetry is how long after a failed promotion step its next try waits (a git lock, the worktree held).
 const promoteRetry = 10 * time.Minute
@@ -57,11 +62,14 @@ type Promote struct {
 	Target string                 // branches.main: the branch tasks merge into (staging)
 	Weight int                    // merge.promote_weight: the merged weight that triggers a promotion
 	Weigh  func(level string) int // merge.weights: a difficulty level's weight
-	// Run runs the full suite at sha in the promotion worktree: GREEN or RED (the promoted branch at sha already: GREEN,
-	// nothing run); an error: it ended neither (tried again).
+	// Run runs the full suite at sha in the promotion worktree: GREEN or RED (the promoted branch at sha or past it:
+	// GREEN, nothing run); an error: it ended neither (tried again).
 	Run func(ctx context.Context, sha string) (port.PromoteOut, error)
-	// FF fast-forwards the promoted branch to sha (it must be an ancestor of sha; at sha already: nothing to do).
-	FF func(ctx context.Context, sha string) (string, error)
+	// Passed: the promoted branch is at sha or past it (T-984): nothing to promote there.
+	Passed func(ctx context.Context, sha string) (bool, error)
+	// FF fast-forwards the promoted branch to sha, decided by ancestry (T-984): moved, already (at sha or past it) or
+	// refused (diverged); an error: git.
+	FF func(ctx context.Context, sha string) (port.FFOut, error)
 	// After runs commands.after_merge in the promotion worktree at sha, OBOR_ROOT set; since is the sha promoted before
 	// ("": none), for its when paths. ran | skipped | WARN …; an error: tried again.
 	After func(ctx context.Context, sha, since string) (string, error)
@@ -255,11 +263,26 @@ func (a *App) promoteHeads(ctx context.Context, p *proj, fx *Loop, pr *Promote, 
 		a.mu.Unlock()
 	}()
 	r, reviews := a.promoteCandidate(p, st)
-	// R not promoted yet (at R already: a crash after the fast-forward when its GREEN is recorded, the fact is what is
-	// missing): its GREEN fast-forwards the promoted branch; no run at R yet: the suite at R; RED or failed there: it
-	// waits for the next close.
-	if r != "" && r != st.promoted && (r != at || st.ran[r] == "GREEN") {
+	// R not promoted yet: R at or behind the promoted branch's head is passed already (T-984: the branch switched or
+	// moved past it), nothing to run or record, except a crash after the fast-forward (the branch at R, its GREEN
+	// recorded): the fact is what is missing. Else its GREEN fast-forwards the promoted branch; no run at R yet: the
+	// suite at R; RED or failed there: it waits for the next close.
+	if r != "" && r != st.promoted {
+		passed, err := pr.Passed(ctx, r)
+		if err != nil {
+			a.logf("promotion of %s: %s passed: %v", p.name, short(r), err)
+			return
+		}
 		switch ffKey := "ff " + short(r); {
+		case passed:
+			if r == at && st.ran[r] == "GREEN" {
+				since := at
+				if st.in.SHA == r {
+					since = st.in.Since
+				}
+				a.goPromote(ctx, p, func(context.Context) { a.recordPromoted(p, pr, r, since) })
+				return
+			}
 		case st.ran[r] == "GREEN":
 			if !st.spent(ffKey) && !st.waitRetry(ffKey, now) {
 				since := at
@@ -277,7 +300,8 @@ func (a *App) promoteHeads(ctx context.Context, p *proj, fx *Loop, pr *Promote, 
 			return
 		}
 	}
-	if o := st.out; reviews && o != nil && o.Verdict == "GREEN" && o.SHA != r && o.SHA != st.promoted {
+	if o := st.out; reviews && o != nil && o.Verdict == "GREEN" && o.SHA != r && o.SHA != st.promoted &&
+		!a.promotePassed(ctx, p, pr, o.SHA) {
 		wait = "GREEN " + short(o.SHA) + " waits: " + a.reviewWait(p)
 		a.mu.Lock()
 		waitRV = p.folded.reviewed.open()
@@ -454,13 +478,35 @@ func (a *App) runPromote(ctx context.Context, p *proj, pr *Promote, step string,
 	}
 }
 
-// promoteFF fast-forwards the promoted branch to sha (since: where it was), then records fact promoted{sha}, which
-// ends a RED promotion's needs-you; a failure is counted under key.
-func (a *App) promoteFF(ctx context.Context, p *proj, pr *Promote, sha, since, key string) {
-	if _, err := pr.FF(ctx, sha); err != nil {
-		a.promoteFailed(ctx, p, key, err)
-		return
+// promotePassed: the promoted branch is at sha or past it (a git error: not, logged).
+func (a *App) promotePassed(ctx context.Context, p *proj, pr *Promote, sha string) bool {
+	passed, err := pr.Passed(ctx, sha)
+	if err != nil {
+		a.logf("promotion of %s: %s passed: %v", p.name, short(sha), err)
 	}
+	return passed
+}
+
+// promoteFF fast-forwards the promoted branch to sha (since: where it was); moved, it records fact promoted{sha}.
+// Already (the branch moved past sha meanwhile, T-984) records nothing; refused (diverged) and an error are counted
+// under key.
+func (a *App) promoteFF(ctx context.Context, p *proj, pr *Promote, sha, since, key string) {
+	out, err := pr.FF(ctx, sha)
+	switch {
+	case err != nil:
+		a.promoteFailed(ctx, p, key, err)
+	case out.Outcome == port.FFMoved:
+		a.recordPromoted(p, pr, sha, since)
+	case out.Outcome == port.FFAlready:
+		a.logf("promotion of %s: %s: nothing promoted", p.name, out.Line)
+	default:
+		a.promoteFailed(ctx, p, key, errors.New(cmp.Or(out.Line, "fast-forward "+out.Outcome)))
+	}
+}
+
+// recordPromoted records fact promoted{sha} (since: the promoted branch's sha before), which ends a RED promotion's
+// needs-you and starts after_promote.
+func (a *App) recordPromoted(p *proj, pr *Promote, sha, since string) {
 	if a.record(p, event.Record{Task: event.PromoteTask, Step: event.StepPromoted, Kind: event.KindFact},
 		promotedData{SHA: sha, Since: since, Branch: pr.Branch}) {
 		a.settleNeeds(p, event.PromoteTask, "")
