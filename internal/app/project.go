@@ -16,8 +16,7 @@ import (
 )
 
 // load is the served project: its config's name and its replayed log (obor serve holds its serve.flock). Replay folds the facts into the active ones
-// per task; their timers restart now (docs/state-model.md "Not recorded"). A needs-you replayed without a recorded
-// notification is sent once herdr is connected (notify).
+// per task; their timers restart now (docs/state-model.md "Not recorded").
 func (a *App) load(root string) (*proj, error) {
 	cfg, err := config.LoadDaemon(root)
 	if err != nil {
@@ -34,9 +33,9 @@ func (a *App) load(root string) (*proj, error) {
 	}
 	rc, _ := cfg.Role("integrator")
 	p := &proj{root: root, name: name, log: log, tasks: map[string]*watch{},
-		retry: map[event.Key]retry{}, integrator: cfg.AgentName("integrator", ""),
-		out:     newOutbox(cfg.AgentName("lead", ""), roleKind(cfg, "lead")),
-		merging: a.opt.Loop != nil && rc.Configured, timers: map[string]*jobTimer{}, replies: map[string]string{},
+		integrator: cfg.AgentName("integrator", ""),
+		out:        newOutbox(cfg.AgentName("lead", ""), roleKind(cfg, "lead")),
+		merging:    a.opt.Loop != nil && rc.Configured, timers: map[string]*jobTimer{}, replies: map[string]string{},
 		rules: map[string]ruleLive{}, nopane: map[string]time.Time{}, waitLine: map[string]waitRefusal{},
 		unwritten: map[event.Key]json.RawMessage{}, exec: map[event.Key]time.Time{}, scratch: make(chan struct{}, 1),
 		held: map[string]string{}, ended: map[string]bool{}, roleFail: map[string]time.Time{},
@@ -130,16 +129,13 @@ func (p *proj) fold(r event.Record) {
 }
 
 // resume ends task's watchdog facts that its worker's activity ends (a resumed fact's fold): all but a question
-// (asks: obor resume, the task's submission or a drop ends it, state model row 12), with the retries of their failed
-// notifications.
+// (asks: obor resume, the task's submission or a drop ends it, state model row 12).
 func (p *proj) resume(task string) {
 	delete(p.folded.woke, task)
 	var kept []event.Record
-	keep := map[event.Key]bool{}
 	for _, f := range p.folded.active[task] {
 		if isAsk(f) {
 			kept = append(kept, f)
-			keep[notifyKey(f)] = true
 		}
 	}
 	if len(kept) == 0 {
@@ -147,11 +143,6 @@ func (p *proj) resume(task string) {
 		return
 	}
 	p.folded.active[task] = kept
-	for k := range p.retry {
-		if k.Task == task && !keep[k] {
-			delete(p.retry, k)
-		}
-	}
 }
 
 // closed: task ended (its merge loop ended: merged, dropped or rejected; a new dispatch reopens it): the state
@@ -161,28 +152,10 @@ func (p *proj) closed(task string) bool {
 	return mt != nil && states[mt.state].ended
 }
 
-// clear drops task's watchdog facts in force and the retries of their failed notifications.
+// clear drops task's watchdog facts in force.
 func (p *proj) clear(task string) {
 	delete(p.folded.active, task)
 	delete(p.folded.woke, task)
-	for k := range p.retry {
-		if k.Task == task {
-			delete(p.retry, k)
-		}
-	}
-}
-
-// inForce: the fact r is still in force.
-func (p *proj) inForce(r event.Record) bool {
-	if mt := p.folded.loop[r.Task]; mt != nil && mt.needs.fact.Seq == r.Seq && r.Seq != 0 {
-		return true
-	}
-	for _, f := range p.folded.active[r.Task] {
-		if f.Seq == r.Seq {
-			return true
-		}
-	}
-	return false
 }
 
 // asks: task has a worker's question in force (needs-you{asks: …}).

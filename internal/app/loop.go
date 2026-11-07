@@ -282,7 +282,6 @@ func (a *App) mergeLoop(ctx context.Context) {
 		up, stream := a.connected, a.streams
 		a.mu.Unlock()
 		fx := a.advance(ctx)
-		a.notify(ctx)
 		a.rulePass(ctx, rules, fx)
 		a.mu.Lock()
 		a.passes++

@@ -117,16 +117,8 @@ func TestNeedsYouLineQueuedWithoutAnInbox(t *testing.T) {
 	r.start()
 	r.mustDispatch("d1")
 	r.waitFor("the notification", func() bool { return countReq(r.srv, "notification.show") == 1 })
-	// A notification is at least once: its result is recorded after herdr shows it, and a restart before that sends it
-	// again. Under load (parallel tests) the stop below came in between: wait for the recorded result.
-	r.waitFor("the notification's result", func() bool {
-		for _, rec := range r.records() {
-			if rec.Kind == event.KindResult && strings.HasPrefix(rec.Step, "notify.") {
-				return true
-			}
-		}
-		return false
-	})
+	// The needs rule's line is the toast's record (T-949): once it is in the log, a restart sends none again.
+	r.waitFor("the needs line recorded", func() bool { return len(r.needsLineFacts()) == 1 })
 	r.waitFor("the line queued", func() bool { return len(r.waiting()) == 1 })
 	w := r.waiting()[0]
 	if w.To != "pj-lead" || !strings.HasPrefix(w.Line, "[obor] needs-you T-1 (L-01): lane: lane_setup in L-01: rc 1: boom") {
@@ -148,7 +140,8 @@ func TestNeedsYouLineQueuedWithoutAnInbox(t *testing.T) {
 	}
 }
 
-// T-497: the needs-you of a lead line waiting over a day notifies the owner but queues no line to the lead.
+// T-497: the needs-you of a lead line waiting over a day queues no line to the lead. Its owner toast went with the
+// needs rule's line (T-949): a fact the rule does not line, like this one, toasts nothing.
 func TestWaitingLineNeedsYouQueuesNoLine(t *testing.T) {
 	t.Parallel()
 	r := lineRig(t, "idle", "idle")
@@ -161,10 +154,11 @@ func TestWaitingLineNeedsYouQueuesNoLine(t *testing.T) {
 	want := "fact needs-you{line to pj-lead from other waiting over 1d for its delivery: " + sentLine("other", "hello") +
 		" (undelivered: no inbox recorded for pj-lead: its SessionStart hook records one)}" // why it waits (T-746)
 	r.waitFor("the line's needs-you", func() bool { return r.taskStep(event.MsgTask, want) == 1 })
-	r.waitFor("the notification", func() bool { return countReq(r.srv, "notification.show") == 1 })
 	r.advance(0)
 	r.advance(0)
-	if n, w := len(r.needsLineFacts()), r.waiting(); n != 0 || len(w) != 1 || !strings.HasPrefix(w[0].Line, "[obor other]") {
-		t.Errorf("needs-you lines %d, waiting %+v; want none and only the original line", n, w)
+	if n, w, notes := len(r.needsLineFacts()), r.waiting(), countReq(r.srv, "notification.show"); n != 0 ||
+		len(w) != 1 || !strings.HasPrefix(w[0].Line, "[obor other]") || notes != 0 {
+		t.Errorf("needs-you lines %d, waiting %+v, notifications %d; want none, only the original line, none",
+			n, w, notes)
 	}
 }

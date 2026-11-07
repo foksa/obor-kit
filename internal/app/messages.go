@@ -990,8 +990,9 @@ func (p *proj) needsLined(seq int64) int {
 	}
 }
 
-// needsRule lines p's lead about each needs-you fact in force, naming the commands that answer it (T-497: the herdr
-// notification reaches the owner, the lead is the one who acts), and lines it again while it stays in force (T-621):
+// needsRule lines p's lead about each needs-you fact in force, naming the commands that answer it (T-497: the lead is
+// the one who acts), and toasts the owner as the first line's call (T-949: a repeat does not toast again), and lines it
+// again while it stays in force (T-621):
 // 30 min after the first line's delivery, then 60 after each repeat's (T-624: the delivery's result, folded; never
 // while its last line waits undelivered), the line ending in " (again, <its age>)". The needs-you of the project's
 // own lines gets none (a lead line waiting would only queue another one), nor a closed task's watchdog fact (T-635:
@@ -1027,9 +1028,44 @@ func needsRule(_ context.Context, a *App, p *proj, _ *Loop, now time.Time) (int6
 				continue
 			}
 		}
-		return needsKey(r.Seq, n), action{line: p.needsLine(r, n, now)}, true
+		act := action{line: p.needsLine(r, n, now)}
+		if n == 0 { // the owner's toast rides the key's first line; a repeat does not toast again (T-949)
+			title, body := needsToast(p, r)
+			act.call = func(ctx context.Context) error { return a.toast(ctx, title, body) }
+		}
+		return needsKey(r.Seq, n), act, true
 	}
 	return 0, action{}, false
+}
+
+// needsToast is the owner's herdr toast for needs-you fact r: the task and lane, or the project fact's reason alone.
+func needsToast(p *proj, r event.Record) (title, body string) {
+	d := r.Fact()
+	body = d.Reason
+	if !projectKey(r.Task) {
+		body = fmt.Sprintf("%s in %s: %s", r.Task, d.Lane, d.Reason)
+	}
+	return "obor: " + p.name + " needs you", body
+}
+
+// needsYou is p's needs-you facts in force, the one source obor status, the needs rule and the view read: the
+// watchdogs' and the project's (folded.active, the nightly's among them) and the merge loop's (a held block,
+// mtask.needs).
+func (p *proj) needsYou() []event.Record {
+	var out []event.Record
+	for _, fs := range p.folded.active {
+		for _, r := range fs {
+			if r.Step == event.StepNeedsYou {
+				out = append(out, r)
+			}
+		}
+	}
+	for _, mt := range p.folded.loop {
+		if mt.needs.held() {
+			out = append(out, mt.needs.fact)
+		}
+	}
+	return out
 }
 
 // needsLine is line n of needs-you fact r at now (under mu): "[obor] needs-you T-xx (<lane>): <reason> → <the

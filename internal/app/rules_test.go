@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -286,4 +287,56 @@ func TestWorkerStartRuleCondition(t *testing.T) {
 			}
 		})
 	}
+}
+
+// T-949: a stopped role agent's alarm is one rule: its toast is the action's call and the lead's line goes with it,
+// once per stop; herdr busy fails the call, so the next pass toasts again.
+func TestStopAlarmRule(t *testing.T) {
+	t.Parallel()
+	alarm := rule{name: ruleStopAlarm, when: stopAlarmRule}
+	pass := func(h *harness, d time.Duration) {
+		h.now = h.now.Add(d)
+		h.a.rulePass(context.Background(), []rule{alarm}, &Loop{})
+	}
+	stopped := func(h *harness) {
+		p := h.proj()
+		p.out.briefs["pj-rev"] = &brief{seq: 1, at: h.now.Add(-time.Hour), stop: &roleStop{seq: 9,
+			at: h.now.Add(-time.Hour), line: "[obor] pj-rev stopped: usage_limit_exceeded (try later)", woke: h.now.Add(-time.Hour)}}
+	}
+	t.Run("one toast and the lead's line", func(t *testing.T) {
+		t.Parallel()
+		h := ruleHarness(t)
+		stopped(h)
+		pass(h, 30*time.Minute)
+		if len(h.panes.notes) != 1 {
+			t.Fatalf("notes %q, want one", h.panes.notes)
+		}
+		ofs, lines := ruleLines(t, h)
+		if len(ofs) != 1 || ofs[0].Kind != ruleStopAlarm || !strings.HasSuffix(lines[0], stillStopped) {
+			t.Fatalf("lines %v %q, want the alarm's one", ofs, lines)
+		}
+		pass(h, time.Hour)
+		if len(h.panes.notes) != 1 {
+			t.Errorf("notes on a later pass: %q, want still one", h.panes.notes)
+		}
+	})
+	t.Run("busy: the next pass toasts again", func(t *testing.T) {
+		t.Parallel()
+		h := ruleHarness(t)
+		stopped(h)
+		h.panes.notifyFn = func() error { return &port.NotShown{Reason: "rate_limited"} }
+		pass(h, 30*time.Minute)
+		if ofs, _ := ruleLines(t, h); len(ofs) != 0 {
+			t.Fatalf("the line was recorded though the toast failed: %d", len(ofs))
+		}
+		h.panes.notifyFn = nil
+		pass(h, 0)
+		if len(h.panes.notes) != 1 {
+			t.Errorf("notes after the next pass: %q, want one", h.panes.notes)
+		}
+		pass(h, 0)
+		if len(h.panes.notes) != 1 {
+			t.Errorf("notes on a later pass: %q, want still one", h.panes.notes)
+		}
+	})
 }

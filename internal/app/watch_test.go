@@ -9,7 +9,6 @@ import (
 	"obor/internal/app/port"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -323,19 +322,19 @@ var rows = []row{
 			}
 		}},
 	{name: "row 14: stalled, quiet 10 min more → needs-you{stalled}, notified", setup: stalled,
-		event: tick(10 * minute), facts: []string{"T-1 needs-you{stalled}"}, notes: 1},
+		event: tick(10 * minute), facts: []string{"T-1 needs-you{stalled}"}},
 	{name: "row 14: needs-you{stalled} is notified once", setup: escalated, event: tick(30 * minute)},
 	{name: "row 11: blocked 10 min → needs-you{blocked}, notified",
 		setup: func(h *harness) { h.pane("w1:p1").Status = "blocked"; h.connect() },
 		event: tick(11 * minute), facts: []string{"T-1 needs-you{blocked}"},
-		then: tick(20 * minute), later: []string{"T-1 needs-you{blocked}"}, notes: 1},
+		then: tick(20 * minute), later: []string{"T-1 needs-you{blocked}"}},
 	{name: "row 12: working event ends a stall → resumed", setup: stalled,
 		event: func(h *harness) { h.status("w1:p1", func(p *port.Pane) { p.Status = "working" }) },
 		facts: []string{"T-1 resumed"}},
 	{name: "row 15: pane closed with the task open → needs-you{pane exited}, notified", setup: connect,
-		event: func(h *harness) { h.remove("w1:p1", port.EventClosed) }, facts: []string{"T-1 needs-you{pane exited}"}, notes: 1},
+		event: func(h *harness) { h.remove("w1:p1", port.EventClosed) }, facts: []string{"T-1 needs-you{pane exited}"}},
 	{name: "row 15: pane exited (shell gone) → needs-you{pane exited}", setup: connect,
-		event: func(h *harness) { h.remove("w1:p1", port.EventExited) }, facts: []string{"T-1 needs-you{pane exited}"}, notes: 1},
+		event: func(h *harness) { h.remove("w1:p1", port.EventExited) }, facts: []string{"T-1 needs-you{pane exited}"}},
 	{name: "a pane of another workspace in the lane's worktree is not watched",
 		setup: func(h *harness) { h.pane("w1:p1").Workspace = "w2"; h.connect() }, event: tick(30 * minute),
 		check: func(t *testing.T, h *harness) {
@@ -347,7 +346,7 @@ var rows = []row{
 	// RV-36 #2 (app side): events apply after the snapshot they follow; a new snapshot replaces what came before.
 	{name: "#2 a status event after the snapshot wins: blocked replaces the snapshot's idle", setup: connect,
 		event: func(h *harness) { h.status("w1:p1", func(p *port.Pane) { p.Status = "blocked" }) },
-		then:  tick(11 * minute), later: []string{"T-1 needs-you{blocked}"}, notes: 1},
+		then:  tick(11 * minute), later: []string{"T-1 needs-you{blocked}"}},
 	{name: "#2 reconnect (lost connection, events_lost): the new snapshot replaces the old stream's blocked",
 		setup: func(h *harness) {
 			h.connect()
@@ -446,7 +445,7 @@ var rows = []row{
 			h.tick(3 * minute)
 			h.panes.busyErr = nil
 		},
-		event: tick(minute), then: steps(tick(9*minute), tick(minute)), later: []string{"T-1 needs-you{stalled}"}, notes: 1},
+		event: tick(minute), then: steps(tick(9*minute), tick(minute)), later: []string{"T-1 needs-you{stalled}"}},
 	{name: "#10 unknown during escalation: stalled, an hour of failed Busy, then the first quiet check: no needs-you",
 		setup: func(h *harness) {
 			stalled(h)
@@ -462,7 +461,7 @@ var rows = []row{
 			h.tick(60 * minute)
 			h.panes.busyErr = nil
 		},
-		event: tick(0), then: steps(tick(9*minute), tick(minute)), later: []string{"T-1 needs-you{stalled}"}, notes: 1},
+		event: tick(0), then: steps(tick(9*minute), tick(minute)), later: []string{"T-1 needs-you{stalled}"}},
 
 	// T-335, the stall timer as a state machine over observed quiet time (minutes; Q quiet, U unknown, B busy,
 	// A active). The connect samples at 0.
@@ -482,7 +481,7 @@ var rows = []row{
 	{name: "T-335 Q0 Q10(stalled) Q19: nothing", setup: func(h *harness) { h.connect(); h.tick(10 * minute) },
 		event: tick(9 * minute)},
 	{name: "T-335 Q0 Q10(stalled) Q19 Q20 → needs-you{stalled}", setup: func(h *harness) { h.connect(); h.tick(10 * minute) },
-		event: tick(9 * minute), then: tick(minute), later: []string{"T-1 needs-you{stalled}"}, notes: 1},
+		event: tick(9 * minute), then: tick(minute), later: []string{"T-1 needs-you{stalled}"}},
 	{name: "T-335 Q0 Q10(stalled) A12 → resumed; Q13 Q22: nothing",
 		setup: func(h *harness) { h.connect(); h.tick(10 * minute) },
 		event: func(h *harness) { h.panes.last = h.now.Add(time.Minute); h.tick(2 * minute) }, facts: []string{"T-1 resumed"},
@@ -495,7 +494,7 @@ var rows = []row{
 		event: connect},
 	{name: "T-335 replay with stalled in force: Q0 Q10 → needs-you{stalled}",
 		setup: func(h *harness) { h.log(factRec("T-1", event.StepStalled, "idle")) },
-		event: connect, then: tick(10 * minute), later: []string{"T-1 needs-you{stalled}"}, notes: 1},
+		event: connect, then: tick(10 * minute), later: []string{"T-1 needs-you{stalled}"}},
 	{name: "T-335 working at 5, idle at 6: Q6 Q15 nothing", setup: workingAt5IdleAt6, event: tick(9 * minute)},
 	{name: "T-335 working at 5, idle at 6: Q6 Q15 Q16 → stalled", setup: workingAt5IdleAt6,
 		event: tick(9 * minute), then: tick(minute), later: []string{"T-1 stalled{idle}"}},
@@ -544,47 +543,8 @@ var rows = []row{
 		event: func(h *harness) { h.panes.busy = false; h.tick(10 * minute) },
 		then:  tick(10 * minute), later: []string{"T-1 stalled{idle}"}},
 
-	// RV-36 #6: a needs-you's notification is part of the fact: sent once, never lost.
-	{name: "#6 replay: needs-you{blocked} without a notification result is sent",
-		setup: func(h *harness) {
-			h.log(factRec("T-1", event.StepNeedsYou, "blocked"))
-			h.pane("w1:p1").Status = "blocked"
-		},
-		event: connect, then: tick(11 * minute), notes: 1},
-	{name: "#6 replay: needs-you{stalled} without a notification result is sent",
-		setup: func(h *harness) {
-			h.log(factRec("T-1", event.StepStalled, "idle"), factRec("T-1", event.StepNeedsYou, "stalled"))
-		},
-		event: connect, then: tick(11 * minute), notes: 1},
-	{name: "#6 replay: needs-you{pane exited} without a notification result is sent (its pane is gone)",
-		setup: func(h *harness) { h.log(factRec("T-1", event.StepNeedsYou, "pane exited")); h.snap.Panes = nil },
-		event: connect, then: tick(11 * minute), notes: 1},
-	{name: "#6 replay: a notification with a recorded result is not sent again",
-		setup: func(h *harness) {
-			h.log(factRec("T-1", event.StepNeedsYou, "blocked"),
-				event.Record{Task: "T-1", Step: "notify.1", Kind: event.KindIntent, Class: event.ClassFact},
-				event.Record{Task: "T-1", Step: "notify.1", Kind: event.KindResult})
-			h.pane("w1:p1").Status = "blocked"
-		},
-		event: connect, then: tick(11 * minute)},
-	{name: "#6 a failed notification is not sent again before notifyRetry",
-		setup: func(h *harness) {
-			h.pane("w1:p1").Status = "blocked"
-			h.panes.notifyFn = func() error { return errors.New("herdr: timeout") }
-			h.connect()
-			h.tick(11 * minute) // needs-you{blocked}; its notification fails
-			h.panes.notifyFn = nil
-		},
-		event: tick(30 * time.Second)},
-	{name: "#6 a failed notification is sent again after notifyRetry, once; the fact is not recorded again",
-		setup: func(h *harness) {
-			h.pane("w1:p1").Status = "blocked"
-			h.panes.notifyFn = func() error { return errors.New("herdr: timeout") }
-			h.connect()
-			h.tick(11 * minute)
-			h.panes.notifyFn = nil
-		},
-		event: tick(minute), then: tick(minute), notes: 1},
+	// RV-36 #6: a needs-you's owner toast is the needs rule's call (T-949, linerules_test.go), not a watchdog's: a
+	// replayed fact is a fact in force, and old notification records fold as nothing.
 
 	// RV-36 #7: an exit decides on the lane as it is now, not as the last tick read it.
 	{name: "#7 the pane closes after its done file was written: no alarm",
@@ -623,7 +583,7 @@ var rows = []row{
 			h.tick(60 * minute)
 			h.setLane("T-99", false)
 		},
-		event: tick(minute), then: steps(tick(9*minute), tick(minute)), later: []string{"T-99 needs-you{blocked}"}, notes: 1},
+		event: tick(minute), then: steps(tick(9*minute), tick(minute)), later: []string{"T-99 needs-you{blocked}"}},
 
 	// RV-36 #9: observed activity ends a stall.
 	{name: "#9 a busy child after the stall → resumed; quiet again → stalled afresh, not needs-you",
@@ -651,7 +611,7 @@ var rows = []row{
 	// Fable A1: the agent exits, its shell stays.
 	{name: "A1 the agent exits, its shell stays → needs-you{agent exited} after Gone, notified", setup: connect,
 		event: func(h *harness) { h.status("w1:p1", func(p *port.Pane) { p.Agent, p.Status = "", "" }) },
-		then:  tick(2 * minute), later: []string{"T-1 needs-you{agent exited}"}, notes: 1},
+		then:  tick(2 * minute), later: []string{"T-1 needs-you{agent exited}"}},
 	{name: "A1 the agent restarts within Gone: no alarm", setup: connect,
 		event: func(h *harness) { h.status("w1:p1", func(p *port.Pane) { p.Agent, p.Status = "", "" }) },
 		then: func(h *harness) {
@@ -695,7 +655,7 @@ var rows = []row{
 			h.connect()
 			h.snap.Panes = h.snap.Panes[1:]
 		},
-		event: connect, facts: []string{"T-1 needs-you{pane exited}"}, notes: 1},
+		event: connect, facts: []string{"T-1 needs-you{pane exited}"}},
 }
 
 func TestWatchdogTable(t *testing.T) {
@@ -730,189 +690,5 @@ func eq(t *testing.T, got, want []string, what string) {
 	t.Helper()
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("%s = %q, want %q", what, got, want)
-	}
-}
-
-// notifyIntents is how many notification intents pj's log holds for the fact with seq seq.
-func (h *harness) notifyIntents(seq int64) int {
-	n := 0
-	for _, r := range h.records() {
-		if r.Kind == event.KindIntent && r.Step == "notify."+strconv.FormatInt(seq, 10) {
-			n++
-		}
-	}
-	return n
-}
-
-// T-331: the wait after a failed notification doubles and stops at 30 minutes.
-func TestNotifyWait(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		tries int
-		want  time.Duration
-	}{
-		{1, time.Minute}, {2, 2 * time.Minute}, {3, 4 * time.Minute}, {4, 8 * time.Minute},
-		{5, 16 * time.Minute}, {6, 30 * time.Minute}, {7, 30 * time.Minute}, {100, 30 * time.Minute},
-	} {
-		if got := notifyWait(tc.tries); got != tc.want {
-			t.Errorf("notifyWait(%d) = %s, want %s", tc.tries, got, tc.want)
-		}
-	}
-}
-
-// T-331: a failing notification backs off, so two hours of failures write a bounded number of intents instead of one
-// a minute; the owner is told once when herdr answers again, and never twice.
-func TestNotifyRetryBacksOff(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t)
-	h.pane("w1:p1").Status = "blocked"
-	failing := true
-	h.panes.notifyFn = func() error {
-		if failing {
-			return errors.New("herdr: timeout")
-		}
-		return nil
-	}
-	h.connect()
-	h.tick(11 * minute) // needs-you{blocked}; its first notification fails
-	var seq int64
-	for _, r := range h.records() {
-		if r.Kind == event.KindFact && r.Step == event.StepNeedsYou {
-			seq = r.Seq
-		}
-	}
-	if seq == 0 || len(h.panes.notes) != 0 || h.notifyIntents(seq) != 1 {
-		t.Fatalf("after the first failure: seq %d, notes %q, intents %d; want the fact, no send, one intent",
-			seq, h.panes.notes, h.notifyIntents(seq))
-	}
-	for range 120 {
-		h.tick(minute) // two hours of failures
-	}
-	if n := h.notifyIntents(seq); n > 10 {
-		t.Errorf("%d notification intents in two hours of failures, want at most 10", n)
-	}
-	failing = false
-	for range 31 {
-		h.tick(minute) // the next retry is at most notifyRetryMax away
-	}
-	if len(h.panes.notes) != 1 {
-		t.Fatalf("notes after recovery = %q, want one", h.panes.notes)
-	}
-	for range 60 {
-		h.tick(minute)
-	}
-	if len(h.panes.notes) != 1 {
-		t.Errorf("notes an hour after recovery = %q, want still one (never sent twice)", h.panes.notes)
-	}
-}
-
-// T-331/T-332: a failed notification's retry goes with its fact: cleared before the retry, or while the failing send
-// was in flight, it is never sent, even once herdr answers again.
-func TestNotifyRetryClearedWithItsFact(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name     string
-		clear    func(h *harness)
-		inFlight bool // clear runs inside the failing send
-	}{
-		{"resumed", func(h *harness) { h.status("w1:p1", func(p *port.Pane) { p.Status = "working" }) }, false},
-		{"lane freed", func(h *harness) { h.setLane("", false); h.tick(minute) }, false},
-		{"resumed while the send was in flight", func(h *harness) { h.status("w1:p1", func(p *port.Pane) { p.Status = "working" }) }, true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			h := newHarness(t)
-			h.pane("w1:p1").Status = "blocked"
-			h.panes.notifyFn = func() error {
-				if tc.inFlight {
-					tc.clear(h)
-				}
-				return errors.New("herdr: timeout")
-			}
-			h.connect()
-			h.tick(11 * minute) // needs-you{blocked}; its notification fails
-			want := []string{"T-1 needs-you{blocked}"}
-			if tc.inFlight {
-				want = append(want, "T-1 resumed")
-			}
-			eq(t, h.facts(0), want, "facts after the failed notification")
-			p := h.a.p
-			if !tc.inFlight {
-				if len(p.retry) != 1 {
-					t.Fatalf("retries after the failed notification = %v, want one", p.retry)
-				}
-				tc.clear(h)
-			}
-			h.panes.notifyFn = nil // herdr answers again
-			h.tick(2 * minute)     // past the retry's backoff: a cleared fact is never notified
-			if len(p.retry) != 0 {
-				t.Errorf("retries after the fact cleared = %v, want none", p.retry)
-			}
-			if len(h.panes.notes) != 0 {
-				t.Errorf("notes after the fact cleared = %q, want none", h.panes.notes)
-			}
-		})
-	}
-}
-
-// RV-36-verify #12 (documented, docs/state-model.md): notifications are at least once. A notification shown whose
-// result fails to persist is shown again after the backoff (better twice than never), and then never again.
-func TestNotifyShownTwiceWhenItsResultIsLost(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t)
-	h.pane("w1:p1").Status = "blocked"
-	h.connect()
-	h.tick(9 * minute)
-	p := h.a.p
-	appends := 0
-	p.log.Refuse = func(event.Record) error { // the third append from here (the result) fails
-		if appends++; appends == 3 {
-			return errors.New("disk I/O error")
-		}
-		return nil
-	}
-	h.tick(2 * minute) // needs-you{blocked} (append 1), its intent (2), shown, its result lost (3)
-	if appends != 3 || len(h.panes.notes) != 1 || len(p.retry) != 1 {
-		t.Fatalf("precondition: appends %d, notes %q, retries %v; want the result's append failed after one note",
-			appends, h.panes.notes, p.retry)
-	}
-	h.tick(minute)
-	if len(h.panes.notes) != 2 {
-		t.Errorf("notes after the backoff = %q, want the same notification twice (at least once)", h.panes.notes)
-	}
-	for range 60 {
-		h.tick(minute)
-	}
-	if len(h.panes.notes) != 2 {
-		t.Errorf("notes an hour later = %q, want still two (its result is recorded now)", h.panes.notes)
-	}
-}
-
-// RV-36-verify-2 #14: notify picks each fact just before its send. Two needs-you reasons are outstanding for T-1; the
-// first send fails after the agent reports working (resumed clears both); herdr answers again for the next send. The
-// second fact cleared before its send started, so it is never sent.
-func TestNotifyClearWhileSeveralQueued(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t)
-	h.log(factRec("T-1", event.StepNeedsYou, "blocked"), factRec("T-1", event.StepNeedsYou, "pane exited"))
-	h.pane("w1:p1").Status = "blocked"
-	sends := 0
-	h.panes.notifyFn = func() error {
-		if sends++; sends == 1 {
-			h.status("w1:p1", func(p *port.Pane) { p.Status = "working" })
-			return errors.New("herdr: timeout")
-		}
-		return nil
-	}
-	h.connect()
-	eq(t, h.facts(0), []string{"T-1 needs-you{blocked}", "T-1 needs-you{pane exited}", "T-1 resumed"},
-		"facts after the first send")
-	if sends != 1 {
-		t.Errorf("sends = %d, want 1 (the second fact cleared before its send)", sends)
-	}
-	h.tick(2 * minute)
-	p := h.a.p
-	if len(h.panes.notes) != 0 || len(p.retry) != 0 || len(p.folded.active) != 0 {
-		t.Errorf("notes %q, retries %v, facts in force %v; want none", h.panes.notes, p.retry, p.folded.active)
 	}
 }

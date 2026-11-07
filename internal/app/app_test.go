@@ -291,19 +291,12 @@ func TestIdleStallsThenNeedsYou(t *testing.T) {
 		WorkspaceID: "w1", Pane: "w1:p1", Agent: "pj-l-01", Reason: "idle"}) {
 		t.Errorf("stalled record = %+v", rec)
 	}
-	if n := r.count("notification.show"); n != 0 {
-		t.Errorf("notifications after stalled: %d, want 0", n)
-	}
 
 	r.clock.Add(10 * time.Minute)
 	r.waitFacts("T-1 stalled{idle}", "T-1 needs-you{stalled}")
-	r.waitFor("one notification", func() bool { return r.count("notification.show") == 1 })
 	r.clock.Add(30 * time.Minute)
 	r.settle()
 	eq(t, r.facts(), []string{"T-1 stalled{idle}", "T-1 needs-you{stalled}"}, "facts 30 min later")
-	if n := r.count("notification.show"); n != 1 {
-		t.Errorf("notifications 30 min later: %d, want still 1", n)
-	}
 
 	st := r.app.Status()
 	if st.Project == nil || st.Project.Name != "pj" || len(st.Project.Agents) != 2 ||
@@ -415,7 +408,6 @@ func TestBlockedNeedsYou(t *testing.T) {
 	eq(t, r.facts(), nil, "facts after 9 min blocked")
 	r.clock.Add(2 * time.Minute)
 	r.waitFacts("T-1 needs-you{blocked}")
-	r.waitFor("one notification", func() bool { return r.count("notification.show") == 1 })
 	r.clock.Add(20 * time.Minute)
 	r.settle()
 	eq(t, r.facts(), []string{"T-1 needs-you{blocked}"}, "facts 20 min later")
@@ -432,7 +424,6 @@ func TestPaneExitedNeedsYou(t *testing.T) {
 	r.f.Remove("w1:p1")
 	r.srv.Push("pane_exited", map[string]any{"pane_id": "w1:p1"})
 	r.waitFacts("T-2 submitted", "T-1 needs-you{pane exited}")
-	r.waitFor("one notification", func() bool { return r.count("notification.show") == 1 })
 	r.settle()
 	eq(t, r.facts(), []string{"T-2 submitted", "T-1 needs-you{pane exited}"}, "facts after both panes went")
 	if f := r.app.Status().Project.Facts; len(f) != 1 {

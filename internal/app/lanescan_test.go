@@ -133,37 +133,28 @@ func factReason(f string) string {
 	return f[len(s)+1 : len(f)-1]
 }
 
-// T-879: a failed scan keeps a worker's question and its notification retry (T-897's rule for an unknown lane, for
-// the whole table): obor answer still takes it once the scan recovers.
-func TestFailedScanKeepsFactsAndRetries(t *testing.T) {
+// T-879: a failed scan keeps a worker's question (T-897's rule for an unknown lane, for the whole table): obor
+// answer still takes it once the scan recovers.
+func TestFailedScanKeepsFacts(t *testing.T) {
 	t.Parallel()
 	h, p := askSeed(t)
-	h.panes.notifyFn = func() error { return errors.New("herdr away") }
 	if _, err := h.a.ask(p, "T-1", h.lanes.lanes[0], "may I edit x?"); err != nil {
 		t.Fatal(err)
 	}
 	h.tick(time.Minute)
-	retried := func() bool {
-		for k := range p.retry {
-			if k.Task == "T-1" {
-				return true
-			}
-		}
-		return false
-	}
-	if !p.asks("T-1") || !retried() {
-		t.Fatalf("precondition: want the question in force with a notification retry: %v %v", p.folded.active["T-1"], p.retry)
+	if !p.asks("T-1") {
+		t.Fatalf("precondition: want the question in force: %v", p.folded.active["T-1"])
 	}
 	h.lanes.err = errors.New("git: index.lock exists")
 	h.tick(11 * time.Minute)
 	h.tick(11 * time.Minute)
-	if !p.asks("T-1") || !retried() || p.tasks["T-1"] == nil {
-		t.Errorf("the failed scan dropped the question, its retry or the task's watch: %v %v %v", p.folded.active["T-1"], p.retry, p.tasks)
+	if !p.asks("T-1") || p.tasks["T-1"] == nil {
+		t.Errorf("the failed scan dropped the question or the task's watch: %v %v", p.folded.active["T-1"], p.tasks)
 	}
 	h.lanes.err = nil
 	h.tick(time.Minute)
-	if !p.asks("T-1") || !retried() {
-		t.Errorf("recovered: the question or its retry is gone: %v %v", p.folded.active["T-1"], p.retry)
+	if !p.asks("T-1") {
+		t.Errorf("recovered: the question is gone: %v", p.folded.active["T-1"])
 	}
 }
 

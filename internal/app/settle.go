@@ -21,27 +21,23 @@ func notRunResult(r event.Record) bool {
 // (docs/state-model.md "Replay"; T-400): result "not run: <task> <state>", folded as no outcome (foldRecord). The
 // loop runs no step of a dropped task and only the after-merge steps of a merged one, so nothing else would close
 // them: a superseded attempt's (a redispatch, a later submission) or the ended attempt's own (a prompt refused
-// before typing, a start that failed). Of a rejected task only its notifications are (T-636: a new dispatch reopens
-// it). Kept: a merged attempt's after-merge steps (the loop runs them), the notification of any needs-you in force,
-// the merge loop's or a watchdog's (notify shows it; p.needsYou is its source, merged or dropped alike), a verdict's
-// (its call id's reply is its caller's), and one whose effect ran with its result unwritten (App.do writes that).
+// before typing, a start that failed); an old log's notification intents (T-949: nothing sends them now) are settled
+// with them. Of a rejected task only its old notification intents are (T-636: a new dispatch reopens it). Kept: a
+// merged attempt's after-merge steps (the loop runs them), a verdict's (its call id's reply is its caller's), and one
+// whose effect ran with its result unwritten (App.do writes that).
 // Called at replay and live once a merged or dropped fact (record) or a reject (verdict) is folded; under mu when the
 // app runs. It is the number of results written.
 func (a *App) settleEnded(p *proj, task string) int {
-	inForce := map[event.Key]bool{} // the notifications notify still owes: the same facts it picks from
-	for _, f := range p.needsYou() {
-		inForce[notifyKey(f)] = true
-	}
 	n := 0
 	for _, r := range p.log.Pending() {
 		mt := p.folded.loop[r.Task]
 		k := r.Key()
 		_, lost := p.unwritten[k]
 		switch {
-		case task != "" && r.Task != task, mt == nil, lost, inForce[k]:
+		case task != "" && r.Task != task, mt == nil, lost:
 			continue
 		case mt.state == stDropped:
-		case mt.state == stRejected: // only its notifications: a new dispatch reopens the task (T-636)
+		case mt.state == stRejected: // only its old notifications: a new dispatch reopens the task (T-636)
 			if !strings.HasPrefix(r.Step, "notify.") {
 				continue
 			}

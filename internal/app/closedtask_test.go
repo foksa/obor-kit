@@ -51,24 +51,6 @@ func (r *concRig) reload(name string) (*App, *proj) {
 	return b, p
 }
 
-// pendingNotify appends the notification intent of fact f (interrupted before its send) and folds it.
-func pendingNotify(t *testing.T, a *App, p *proj, f event.Record) event.Key {
-	t.Helper()
-	k := notifyKey(f)
-	in, err := p.log.Append(event.Record{Task: k.Task, Attempt: k.Attempt, Step: k.Step, Kind: event.KindIntent, Class: event.ClassFact},
-		a.opt.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	a.mu.Lock()
-	p.foldRecord(in)
-	a.mu.Unlock()
-	if _, pending := p.log.Intent(k); !pending {
-		t.Fatal("precondition: the notification is not pending")
-	}
-	return k
-}
-
 // closedCases is each way a task closes, live and on replay: the project and its task.
 var closedCases = []struct {
 	name, proj, task, end string
@@ -83,8 +65,8 @@ var closedCases = []struct {
 }
 
 // T-636 (RV-68 #1): a worker's stop recorded after its task closed (picked before the merge, drop or reject) puts no
-// watchdog needs-you in force under the closed task, live or on replay, nor does a watchdog's stalled fact: nothing
-// is notified, no lead line. Both of an open task still do.
+// watchdog needs-you in force under the closed task, live or on replay, nor does a watchdog's stalled fact: no lead
+// line and nothing for the needs rule to toast. Both of an open task still do.
 func TestStopAfterCloseNoFact(t *testing.T) {
 	t.Parallel()
 	for _, c := range append(closedCases, struct {
@@ -117,8 +99,6 @@ func TestStopAfterCloseNoFact(t *testing.T) {
 			a.mu.Lock()
 			facts := len(p.folded.active[c.task])
 			a.mu.Unlock()
-			a.notify(context.Background())
-			notes := a.panes.(*fakePanes).notes
 			lines := 0
 			for _, m := range needsMessages(t, p) {
 				if strings.Contains(m.Line, "stopped: rate_limit") {
@@ -126,53 +106,20 @@ func TestStopAfterCloseNoFact(t *testing.T) {
 				}
 			}
 			if c.end == "" {
-				if facts != 2 || len(notes) != 1 {
-					t.Errorf("open task: watchdog facts %d, notifications %v; want the stop and the stall, one shown",
-						facts, notes)
+				if facts != 2 {
+					t.Errorf("open task: watchdog facts %d; want the stop and the stall", facts)
 				}
 				return
 			}
-			if facts != 0 || len(notes) != 0 || lines != 0 {
-				t.Errorf("after %s: watchdog facts %d, notifications %v, lead lines %d; want none", c.end, facts, notes, lines)
+			if facts != 0 || lines != 0 {
+				t.Errorf("after %s: watchdog facts %d, lead lines %d; want none", c.end, facts, lines)
 			}
 		})
 	}
 }
 
-// T-636 (RV-68 #2): a reject settles the pending notification of its task's watchdog needs-you as "not run", live
-// and on replay, as a merge or drop does; nothing is shown for it.
-func TestRejectSettlesWatchdogNotification(t *testing.T) {
-	t.Parallel()
-	for _, live := range []bool{true, false} {
-		t.Run(map[bool]string{true: "live", false: "replay"}[live], func(t *testing.T) {
-			t.Parallel()
-			r := newConcRig(t)
-			a, p := r.app("pr"), r.proj("pr")
-			r.add("pr", "T-4", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "L-04", Reason: "pane exited"})
-			if len(p.folded.active["T-4"]) != 1 {
-				t.Fatalf("precondition: watchdog facts of T-4: %v, want one", p.folded.active["T-4"])
-			}
-			k := pendingNotify(t, a, p, p.folded.active["T-4"][0])
-			r.closeTask("pr", "T-4", stRejected, live)
-			if !live {
-				a, p = r.reload("pr")
-			}
-			if _, pending := p.log.Intent(k); pending {
-				t.Error("the notification of the rejected task's watchdog fact is still pending")
-			}
-			if got := string(p.log.Results[k].Data); got != `"not run: T-4 rejected"` {
-				t.Errorf("its result = %s, want not run", got)
-			}
-			a.notify(context.Background())
-			if notes := a.panes.(*fakePanes).notes; len(notes) != 0 {
-				t.Errorf("notifications shown: %v, want none", notes)
-			}
-		})
-	}
-}
-
-// T-636 (T-401's old case): a closed task's merge-loop needs-you in force (an after-merge step's, a reject's) keeps
-// its pending notification and posts its lead line, live and on replay; notify shows it once.
+// T-636 (T-401's old case): a closed task's merge-loop needs-you in force (an after-merge step's, a reject's) posts its
+// lead line and toasts the owner once, live and on replay.
 func TestClosedTaskMergeNeedsYouLine(t *testing.T) {
 	t.Parallel()
 	for _, c := range closedCases {
@@ -199,12 +146,8 @@ func TestClosedTaskMergeNeedsYouLine(t *testing.T) {
 			if needs.Seq == 0 {
 				t.Fatal("precondition: the merge-loop needs-you is not in force")
 			}
-			k := pendingNotify(t, a, p, needs)
 			if !c.live {
 				a, p = r.reload(c.proj)
-			}
-			if _, pending := p.log.Intent(k); !pending {
-				t.Errorf("the notification of the merge-loop needs-you was settled: %s", p.log.Results[k].Data)
 			}
 			a.rulePass(context.Background(), []rule{{name: ruleNeeds, when: needsRule}}, &Loop{})
 			lines := 0
@@ -216,8 +159,6 @@ func TestClosedTaskMergeNeedsYouLine(t *testing.T) {
 			if lines != 1 {
 				t.Errorf("lead lines of the merge-loop needs-you: %d, want 1", lines)
 			}
-			a.notify(context.Background())
-			a.notify(context.Background())
 			if notes := a.panes.(*fakePanes).notes; len(notes) != 1 {
 				t.Errorf("notifications shown: %v, want one", notes)
 			}

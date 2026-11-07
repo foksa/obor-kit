@@ -438,7 +438,7 @@ func (a *App) ask(p *proj, task string, l port.Lane, what string) (string, error
 	if !p.has(task, event.StepNeedsYou, v.reason) && !a.fact(p, task, w, v) {
 		return "", fmt.Errorf("task_done: the event log of %s refused it", p.name)
 	}
-	a.wake() // the notification goes at the next pass
+	a.wake() // the needs rule lines and toasts it at the next pass
 	return askedReply, nil
 }
 
