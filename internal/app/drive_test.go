@@ -225,7 +225,8 @@ func TestDriveModelHonoured(t *testing.T) {
 
 // T-912: a drive is new work only. obor drive <T-xx> on a worker's task, working, blocked (a needs-you) or finished
 // (its gate running), is refused, "T-1 is not a drive; obor drive <name> starts one": nothing recorded, no stop, no
-// launch, the task's state and its worker as they were. A repeated call id is refused again (nothing was stored).
+// launch, the task's state and attempt as they were (its phase may move on its own: a pass may start its gate, T-980).
+// A repeated call id is refused again (nothing was stored).
 func TestDriveOfAWorkersTaskRefused(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -282,8 +283,9 @@ func TestDriveOfAWorkersTaskRefused(t *testing.T) {
 				t.Errorf("the refusal stopped %q or launched %d (drive agent %d)", r.workerStops()[stops:],
 					len(r.workerLaunches())-launches, r.launchesOf("pj-l-01-drive"))
 			}
-			if after := r.task("T-1"); after.State != before.State || after.Phase != before.Phase || after.Attempt != before.Attempt {
-				t.Errorf("T-1 after the refusal %+v, before %+v: want it as it was", after, before)
+			if after := r.task("T-1"); after.State != before.State || after.Attempt != before.Attempt {
+				t.Errorf("T-1 after the refusal %+v, before %+v: want the same state and attempt (its phase may move: "+
+					"a pass may start its gate, T-980)", after, before)
 			}
 			if c.name == "working" && !app.IsIdentified(r.app, r.p.Root, "pj-l-01") {
 				t.Errorf("the worker pj-l-01 is not running after the refusal")

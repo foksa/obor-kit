@@ -100,6 +100,12 @@ func TestWakeByKind(t *testing.T) {
 // A posted wake refused before a byte went out (a dead socket's dial) is a counted refusal, posted again on a later
 // pass under the same key and only once; after a restart (replay) it is not posted again. The refusal is the next post
 // alone (failOnce): how many passes run before the test looks is the loop's business, not the test's (T-565).
+//
+// The test waits on the refusal's own record, not on the retry's result (T-980): a pass whose herdr stream ends before
+// the refused effect returns records no refusal at all (failed: not connected, so no fact), and the post of the pass
+// after it goes out uncounted. The rig's pushes end serve's stream (workerIs pushes until it sees the status), so the
+// test first waits for serve's stream after its last push: the pass that refuses runs on one stream, and so does the
+// pass that posts.
 func TestWakePostRefusedThenReplayed(t *testing.T) {
 	t.Parallel()
 	r := fetchRig(t)
@@ -109,12 +115,15 @@ func TestWakePostRefusedThenReplayed(t *testing.T) {
 	r.mustDispatch("d1")
 	r.waitStep("1 result work")
 	r.workerIs("working")
+	r.connectedAgain() // no push after this: the pass that refuses the post runs on one stream to its end
 	r.later(5 * time.Minute)
 	w := wake("T-1/1/work")
-	r.waitStep("1 result retry.work") // the pass after the refusal posts it: wait on the record, not on the test's look
-	if n := r.countPrefix("1 fact failed{retry.work: "); n != 1 {
+	const refused = "1 fact failed{retry.work: "
+	r.waitFor("the refused wake counted", func() bool { return r.countPrefix(refused) == 1 })
+	if n := r.countPrefix(refused); n != 1 {
 		t.Fatalf("refused posts %d, want 1: %q", n, r.steps())
 	}
+	r.waitStep("1 result retry.work") // the pass after the refusal posts it: wait on the record, not on the test's look
 	if tried, posted := r.inbox.tries("pj-l-01", w), r.inbox.count("pj-l-01", w); tried != 2 || posted != 1 {
 		t.Fatalf("tried %d, posted %d wakes, want 2 and 1 (one refusal, then the post)", tried, posted)
 	}
