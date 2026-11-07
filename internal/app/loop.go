@@ -382,9 +382,9 @@ func (a *App) recordIn(p *proj, r event.Record, data any) (int64, bool) {
 
 // do runs effect once for in (the log's Begin and Finish) and folds its intent (once written: the effect runs) and its
 // result, each in the a.mu section that wrote it; the effect runs outside mu. An effect that fails, or a ctx that ended
-// (obor serve stops: nothing is decided on a cut-off effect), leaves the intent pending. A key with a result folds that
-// again (folding is idempotent); an intent already in the log is not folded again (a job's intent before its start: a
-// verdict given since stays).
+// (obor serve stops: nothing is decided on a cut-off effect), leaves the intent pending. A stored result is not folded
+// again (it was folded where it was appended: folded after a later record it would undo that record, T-955); an intent
+// already in the log is not folded again (a job's intent before its start: a verdict given since stays).
 //
 // The failure rule (every merge-loop effect; the table in docs/state-model.md "Crash classes"): an effect returns a
 // result only for an outcome final for its step. Anything else is an error: no result, the step stays pending and is
@@ -399,6 +399,7 @@ func (a *App) do(ctx context.Context, p *proj, in event.Intent, effect func(cont
 	a.mu.Lock()
 	r, run, err := a.doBegin(p, in)
 	a.mu.Unlock()
+	a.hook(hookDoBegin)
 	if err != nil {
 		return nil, err
 	}
@@ -416,8 +417,8 @@ func (a *App) do(ctx context.Context, p *proj, in event.Intent, effect func(cont
 		if r, err = a.doFinish(p, in, v, err); err != nil {
 			return nil, err
 		}
+		p.foldRecord(r) // its append and this fold are one section: the live fold order is the log's
 	}
-	p.foldRecord(r)
 	if err := p.laneRowsErr(); err != nil { // the result is in the log: the next pass finds it done and proceeds once the rows are written
 		a.logf("%s %s %s: lane rows: %v", p.name, in.Task, in.Step, err)
 		return nil, err
@@ -425,9 +426,9 @@ func (a *App) do(ctx context.Context, p *proj, in event.Intent, effect func(cont
 	return r.Data, nil
 }
 
-// doBegin is do's first section (under mu): the result to fold without running the effect (the stored one, or the
-// unwritten one written now), or run: the intent written and folded (a pending one is reused, not folded again) and
-// the key's effect running from now (p.exec).
+// doBegin is do's first section (under mu): the stored result of a key that has one (nothing to fold: it was folded
+// when written), or the unwritten result written and folded now; or run: the intent written and folded (a pending one
+// is reused, not folded again) and the key's effect running from now (p.exec).
 func (a *App) doBegin(p *proj, in event.Intent) (event.Record, bool, error) {
 	if raw, lost := p.unwritten[in.Key]; lost {
 		r, err := p.log.Append(event.Record{Task: in.Task, Attempt: in.Attempt, Step: in.Step, Kind: event.KindResult, Data: raw},
@@ -437,6 +438,11 @@ func (a *App) doBegin(p *proj, in event.Intent) (event.Record, bool, error) {
 			return r, false, err
 		}
 		delete(p.unwritten, in.Key)
+		p.foldRecord(r) // here, not after do's next lock: a record appended meanwhile folds after it (T-955)
+		if err := p.laneRowsErr(); err != nil {
+			a.logf("%s %s %s: lane rows: %v", p.name, in.Task, in.Step, err)
+			return r, false, err
+		}
 		return r, false, nil
 	}
 	r, done, wrote, err := p.log.Begin(in, a.opt.Now())

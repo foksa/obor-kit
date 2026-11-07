@@ -42,6 +42,7 @@ const (
 	hookResumeWaits   = "resume.waits"    // obor resume holds a.verdicts, before it takes a.submitMu
 	hookResumeLocked  = "resume.locked"   // obor resume holds a.verdicts and a.submitMu, before its decision
 	hookLandCheck     = "land.check"      // obor land holds a.submitMu, its checks passed, before its record
+	hookDoBegin       = "do.begin"        // a do's first section ended (its append and fold), before its effect or its stored result returns
 	hookAppended      = "record.appended" // a record or a verdict's result is in the log, before its fold (under mu)
 	hookDropDecided   = "drop.decided"    // obor drop holds a.verdicts, the task marked ended, before its record
 )

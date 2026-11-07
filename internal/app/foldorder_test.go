@@ -75,6 +75,61 @@ func TestRecordFoldsInLogOrder(t *testing.T) {
 	}
 }
 
+// T-955 (RV-132 #1): an effect whose result's write failed keeps it in p.unwritten; the retry appends that result and
+// folds it in doBegin's one section (T-944 left the fold after do's relock). A task_done right after that section
+// appends its submitted fact next, so the live fold drops the start's try as replay does, not onto the submitted task.
+func TestRecoveredStartVsSubmission(t *testing.T) {
+	t.Parallel()
+	h, p, _ := answerSeed(t, reasonAsks+"which file", "", "", true)
+	seedWorking(t, h, p)
+	refuseOnce(p, event.StepStartWork)
+	in := event.Intent{Key: event.Key{Task: "T-1", Attempt: 1, Step: event.StepStartWork}, Class: event.ClassStart,
+		Data: startData{Lane: "L-01", Agent: "pj-l-01", Pane: "w1:p1"}}
+	runs := 0
+	if _, err := h.a.do(context.Background(), p, in, func(context.Context) (any, error) {
+		runs++
+		return startOut{Line: "started", Agent: "pj-l-01", Pane: "w1:p1"}, nil
+	}); err == nil {
+		t.Fatal("precondition: the result's write was not refused")
+	}
+	h.a.mu.Lock()
+	_, lost := p.unwritten[in.Key]
+	h.a.mu.Unlock()
+	if runs != 1 || !lost {
+		t.Fatalf("precondition: effect ran %d times, kept unwritten %v; want 1, true", runs, lost)
+	}
+	armed := true
+	hook := func(point string) {
+		if point != hookDoBegin || !armed {
+			return
+		}
+		armed = false
+		if _, err := h.a.taskDone(wire.Call{Root: h.root, Role: "worker", Agent: "pj-l-01", Lane: "L-01", CallID: "s1",
+			Task: "T-1", Report: "Summary: x\nSelf-check: x\nSkipped: x\nOpen questions: none."}); err != nil {
+			t.Errorf("task_done: %v", err)
+		}
+	}
+	h.a.hooked.Store(&hook)
+	defer func() { none := func(string) {}; h.a.hooked.Store(&none) }()
+	if _, err := h.a.do(context.Background(), p, in, func(context.Context) (any, error) {
+		t.Error("the recovered result ran its effect again")
+		return nil, nil
+	}); err != nil {
+		t.Fatalf("the retry: %v", err)
+	}
+	h.a.mu.Lock()
+	live, liveStarted := p.folded.loop["T-1"].state, p.folded.loop["T-1"].started
+	h.a.mu.Unlock()
+	q := reloadProj(t, h)
+	replay, replayStarted := q.folded.loop["T-1"].state, q.folded.loop["T-1"].started
+	if replay != stSubmitted || replayStarted {
+		t.Fatalf("precondition: replay %s started=%v; want submitted, its start's try dropped", replay, replayStarted)
+	}
+	if live != replay || liveStarted != replayStarted {
+		t.Errorf("live %s started=%v, replay %s started=%v", live, liveStarted, replay, replayStarted)
+	}
+}
+
 // seedWorking: T-1 working (its work job delivered), so an outside merge's evidence is checked (mtask.landed).
 func seedWorking(t *testing.T, h *harness, p *proj) {
 	t.Helper()
