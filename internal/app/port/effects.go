@@ -59,6 +59,12 @@ type PaneControl interface {
 	ProcessInfo(ctx context.Context, pane string) (ProcessInfo, error)
 	// Screen is the pane's visible text, its last lines.
 	Screen(ctx context.Context, pane string, lines int) (string, error)
+	// Wait waits (up to timeout) for the agent at target to be in one of until (idle, done): the error's code is
+	// "timeout" when it is not, agent_not_running when it left the pane.
+	Wait(ctx context.Context, target string, until []string, timeout time.Duration) error
+	// WaitForOutput waits (up to timeout) for a line of the pane's visible text to match regex, and returns the text
+	// as it then reads: the error's code is "timeout" when nothing matched.
+	WaitForOutput(ctx context.Context, pane, regex string, timeout time.Duration) (string, error)
 	RenamePane(ctx context.Context, pane, label string) error   // label "" clears it
 	RenameAgent(ctx context.Context, target, name string) error // name "" clears it
 	// Type is text plus Enter, submitted at once.

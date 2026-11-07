@@ -82,10 +82,7 @@ func (l *Launcher) stop(ctx context.Context, t *target, force, escape bool, hint
 		}
 		_ = l.H.SendKeys(ctx, t.pane, "esc")
 		idle := min(l.idle(), left())
-		if !l.until(ctx, idle, func() bool {
-			a, err := l.H.Agent(ctx, t.pane)
-			return err != nil || !a.Busy()
-		}) {
+		if !l.awaitIdle(ctx, t.pane, idle) {
 			if !force {
 				return needsForce("%s still %s %s after Escape (--force stops it)", t.agent, status, idle)
 			}
@@ -218,6 +215,13 @@ func programs(kind string) string {
 		return r.Program + " or " + kind
 	}
 	return kind
+}
+
+// awaitIdle: the agent in pane went idle (or done, or left) within d, as herdr's agent.wait says: one server-owned
+// wait instead of a poll of agent.get. Only herdr's timeout says it is still busy; an agent that left
+// (agent_not_running) and any other error are done, as the poll's error was (T-950).
+func (l *Launcher) awaitIdle(ctx context.Context, pane string, d time.Duration) bool {
+	return port.ErrorCode(l.H.Wait(ctx, pane, []string{"idle", "done"}, d)) != "timeout"
 }
 
 // finish ends the exited agent's leftovers, if they keep the foreground.

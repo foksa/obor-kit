@@ -1187,7 +1187,8 @@ func TestStartAgentNeverUp(t *testing.T) {
 }
 
 // T-544: the start's command is typed only once the shell has run the env line and is back at its prompt (zsh runs a
-// line with the tty in cooked mode, where a long command typed at once is cut off): the mark it echoes, then a prompt.
+// line with the tty in cooked mode, where a long command typed at once is cut off): the mark it echoes, waited for by
+// herdr (T-950: pane.wait_for_output, one server-side wait instead of a screen poll), then a start.
 func TestRestartWaitsForTheEnvLine(t *testing.T) {
 	t.Parallel()
 	t.Run("the shell back: the start after the mark", func(t *testing.T) {
@@ -1198,11 +1199,17 @@ func TestRestartWaitsForTheEnvLine(t *testing.T) {
 		if !ok {
 			t.Fatalf("restart failed:\n%s", out)
 		}
-		env, read, start := x.index("pane.send_input pane_id=w1:p3"), x.index("pane.read pane_id=w1:p3"), x.index("agent.start")
-		if env < 0 || read < env || start < read {
-			t.Errorf("env line %d, screen read %d, start %d: want the start after the read after the env line:\n%s",
-				env, read, start, strings.Join(x.srv.Calls(), "\n"))
+		env, wait, start := x.index("pane.send_input pane_id=w1:p3"), x.index("pane.wait_for_output pane_id=w1:p3"), x.index("agent.start")
+		if env < 0 || wait < env || start < wait {
+			t.Errorf("env line %d, output wait %d, start %d: want the start after the wait after the env line:\n%s",
+				env, wait, start, strings.Join(x.srv.Calls(), "\n"))
 		}
+		okWord, badWord := envWords(t, x.calls("pane.send_input pane_id=w1:p3")[0])
+		waits := x.calls("pane.wait_for_output pane_id=w1:p3")
+		if len(waits) != 1 {
+			t.Fatalf("one env wait, got %q", waits)
+		}
+		contains(t, waits[0], okWord+"|"+badWord, "the env wait's regex: both marks")
 		contains(t, x.f.Pane("w1:p3").Screen, "obor-env-", "precondition: the shell echoed the mark")
 	})
 	t.Run("the shell never back: FAIL, nothing started", func(t *testing.T) {
@@ -1367,6 +1374,16 @@ type startEnds struct {
 func (s startEnds) Start(ctx context.Context, name, kind, pane string, args ...string) (port.Pane, error) {
 	defer close(s.ended)
 	return s.PaneControl.Start(ctx, name, kind, pane, args...)
+}
+
+// waitGone makes herdr's agent.wait answer err at once: a stop's idle wait sees the agent leave (agent_not_running).
+type waitGone struct {
+	port.PaneControl
+	err error
+}
+
+func (w waitGone) Wait(ctx context.Context, target string, until []string, timeout time.Duration) error {
+	return w.err
 }
 
 // Stop before the start: bash restart.test.sh case_running_idle_exits_then_starts,
@@ -1930,15 +1947,34 @@ func TestStop(t *testing.T) {
 		}
 	})
 	// T-773: no "left running": a working agent is interrupted with Escape and quits once idle, force or not.
-	t.Run("working, no force: Escape, idle, /exit, STOPPED", func(t *testing.T) {
+	// T-950: the idle wait is herdr's agent.wait (idle, done), one server-side wait instead of an agent.get poll.
+	t.Run("working, no force: Escape, wait idle, /exit, STOPPED", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.agent("w1:p3", "pj-l-01", "claude", "working")
 		out, ok := x.stop("pj-l-01", "", false)
 		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
-		esc, exit := x.index("pane.send_keys keys=[esc] pane_id=w1:p3"), x.index("pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit")
-		if !ok || esc < 0 || exit < esc || x.f.Panes[0].Kind != "" {
-			t.Errorf("Escape, then /exit, the agent gone: %+v %q", x.f.Panes[0], x.srv.Calls())
+		esc, wait, exit := x.index("pane.send_keys keys=[esc] pane_id=w1:p3"), x.index("agent.wait"), x.index("pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit")
+		if !ok || esc < 0 || wait < esc || exit < wait || x.f.Panes[0].Kind != "" {
+			t.Errorf("Escape, then agent.wait, then /exit, the agent gone: %+v %q", x.f.Panes[0], x.srv.Calls())
+		}
+		waits := x.calls("agent.wait")
+		if len(waits) != 1 {
+			t.Fatalf("one idle wait, got %q", waits)
+		}
+		contains(t, waits[0], "target=w1:p3 timeout_ms=10000 until=[idle done]", "the idle wait's agent and states")
+	})
+	t.Run("working, no force, the agent leaves in the idle wait: done, /exit, STOPPED", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.agent("w1:p3", "pj-l-01", "claude", "working")
+		x.wrap = func(h port.PaneControl) port.PaneControl {
+			return waitGone{h, &herdr.Error{Kind: herdr.Failed, Code: "agent_not_running", Msg: "agent is no longer running in the target pane"}}
+		}
+		out, ok := x.stop("pj-l-01", "", false)
+		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
+		if !ok || len(x.calls("pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit")) != 1 {
+			t.Errorf("the agent gone ends the idle wait, then /exit: %q", x.srv.Calls())
 		}
 	})
 	t.Run("working, no force, Escape ignored: FAIL naming --force, no exit typed", func(t *testing.T) {
@@ -1954,6 +1990,9 @@ func TestStop(t *testing.T) {
 		eq(t, failLine(out), "FAIL pj-l-01 still working 60ms after Escape (--force stops it)", "result")
 		if ok || len(x.calls("text=/exit")) > 0 || x.f.Panes[0].Kind != "claude" {
 			t.Errorf("not stopped, no /exit typed: %+v %q", x.f.Panes[0], x.srv.Calls())
+		}
+		if n := len(x.calls("agent.wait")); n != 1 {
+			t.Errorf("%d idle waits, want the one herdr timed out", n)
 		}
 		// serve's drop refuses on this refusal alone (T-773): it carries port.CodeNeedsForce.
 		if _, err := x.launcher(io.Discard).Stop(context.Background(), "pj-l-01", "", false); !port.NeedsForce(err) {

@@ -915,13 +915,16 @@ func TestRoleIntegratorStartsInItsWorktreeAndNeedsAType(t *testing.T) {
 		t.Errorf("last line %q", last(out))
 	}
 	want := []string{"agent.list", "pane.list", "pane.process_info pane_id=w1:p3", "<env line>",
-		"pane.read lines=30 pane_id=w1:p3 source=visible strip_ansi=true", "pane.rename label=pj-int pane_id=w1:p3",
+		"<env wait>", "pane.rename label=pj-int pane_id=w1:p3",
 		"agent.get target=w1:p3",
 		"agent.start args=[--permission-mode auto --model opus " + settings + " --session-id NEW] kind=claude name=pj-int pane_id=w1:p3"}
 	got := x.reqs()
 	for i, r := range got {
-		if strings.HasPrefix(r, "pane.send_input") {
+		switch {
+		case strings.HasPrefix(r, "pane.send_input"):
 			got[i] = "<env line>"
+		case strings.HasPrefix(r, "pane.wait_for_output"):
+			got[i] = "<env wait>"
 		}
 	}
 	if named(strings.Join(got, "\n")) != strings.Join(want, "\n") {
