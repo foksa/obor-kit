@@ -95,12 +95,16 @@ func (a *App) heldJob(ctx context.Context, p *proj, fx *Loop, mt mtask, key even
 }
 
 // timerOf is the timer of p's open job key (under mu): the one running, else a new one from now (a replay, or the job
-// sent in an earlier process), retried when its retry is in the log.
+// sent in an earlier process), retried when its retry is in the log. A delivered job's quiet time starts at its
+// delivered fact's time when that is older than now (T-946): a restart does not start the nudge's wait over.
 func (a *App) timerOf(p *proj, key event.Key) *jobTimer {
 	t := p.timers[key.Task]
 	if t == nil || t.job != JobID(key) {
 		now := a.opt.Now()
 		t = &jobTimer{job: JobID(key), sent: now, retried: p.log.Done(retryKey(key))}
+		if d := p.folded.delivered[JobID(key)]; !d.at.IsZero() && d.at.Before(now) {
+			t.quietSince = d.at
+		}
 		p.timers[key.Task] = t
 	}
 	return t
@@ -143,7 +147,7 @@ func (a *App) undelivered(p *proj, mt mtask, t *jobTimer, key event.Key, agent s
 // watchFix is the delivery timer of mt's fix job key (under mu), as the work job's (watchWork): delivered by the
 // worker's job_next, else undelivered. A delivered fix job waits for task_done.
 func (a *App) watchFix(p *proj, mt mtask, key event.Key) step {
-	if p.folded.delivered[JobID(key)] != 0 {
+	if p.folded.delivered[JobID(key)].seq != 0 {
 		return nil
 	}
 	t := a.timerOf(p, key)
