@@ -852,8 +852,15 @@ func TestDispatchReplacedWaitStartsAfresh(t *testing.T) {
 	if st := r.taskStatus("T-1"); st.State != "waiting" {
 		t.Fatalf("precondition: the first wait %+v, want waiting 59 min into its refusal", st)
 	}
-	if reply, err := wire.Verdict(context.Background(), r.sock, wire.MethodDrop, wire.Call{Root: r.p.Root, Role: "lead",
-		CallID: "x1", Task: "T-1", Note: "requeue"}); err != nil || reply != "DROPPED T-1" {
+	// A retry pass may hold the dispatch for a moment: the drop is refused "retry when it settles" (same call id).
+	var reply string
+	var err error
+	r.waitFor("the drop", func() bool {
+		reply, err = wire.Verdict(context.Background(), r.sock, wire.MethodDrop, wire.Call{Root: r.p.Root, Role: "lead",
+			CallID: "x1", Task: "T-1", Note: "requeue"})
+		return err == nil || !strings.Contains(err.Error(), "retry when it settles")
+	})
+	if err != nil || reply != "DROPPED T-1" {
 		t.Fatalf("drop: %q, %v", reply, err)
 	}
 	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Role: "lead",
