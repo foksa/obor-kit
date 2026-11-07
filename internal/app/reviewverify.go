@@ -10,7 +10,9 @@ import (
 	"obor/internal/spec"
 	"obor/internal/store"
 	"os"
+	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -447,4 +449,43 @@ func verifyBriefText(id string, s ReviewSetup, short string, fixed, notes []stri
 		text += "\nLead's note: " + n
 	}
 	return text
+}
+
+// briefFile is the review file the reviewer's open brief (its fact's seq) asked for, as "RV-<n>" or "RV-<n>-verify"
+// ("": none known): a verify's brief names the open review's verify file, a brief recorded after the last review's
+// start (its fresh start's own) the review file. Under mu.
+func (l *reviewLog) briefFile(agent string, seq int64) string {
+	switch {
+	case l.open[agent] != nil && l.startID != "":
+		return l.startID + "-verify"
+	case l.startID != "" && seq > l.start:
+		return l.startID
+	}
+	return ""
+}
+
+// resultRE is a review file's Result line: its label, then the text.
+var resultRE = regexp.MustCompile(`(?m)^\s*(?:[-*]\s*)?(?:\*\*)?Result:(?:\*\*)?\s*(.*)$`)
+
+// resultWidth is the longest result text a finished line carries.
+const resultWidth = 100
+
+// finishedReview is the reviewer's finished line (T-942): "[obor] <agent> finished <RV-n>: <reviews>/<file>.md —
+// <result>", the result the file's Result line text (bold markers stripped, cut to resultWidth runes), or "(no Result
+// line)" when the file is missing or has none. The file is read once, here.
+func finishedReview(root, reviews, file, agent string) string {
+	id, _, _ := strings.Cut(file, "-verify")
+	rel := path.Join(filepath.ToSlash(reviews), file+".md")
+	line := "[obor] " + agent + " finished " + id + ": " + rel
+	if b, err := os.ReadFile(filepath.Join(root, reviews, file+".md")); err == nil {
+		if m := resultRE.FindSubmatch(b); m != nil {
+			if r := strings.TrimSpace(strings.ReplaceAll(string(m[1]), "**", "")); r != "" {
+				if rs := []rune(r); len(rs) > resultWidth {
+					r = strings.TrimSpace(string(rs[:resultWidth])) + "…"
+				}
+				return line + " — " + r
+			}
+		}
+	}
+	return line + " (no Result line)"
 }
