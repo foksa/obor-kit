@@ -881,7 +881,7 @@ func TestRestartLaneWorkerWithItsJob(t *testing.T) {
 		var out bytes.Buffer
 		var asked []string
 		l := x.launcher(&out)
-		l.Job = func(_ context.Context, lane string) (string, error) {
+		l.Job = func(_ context.Context, _ string, lane string) (string, error) {
 			asked = append(asked, lane)
 			return job, nil
 		}
@@ -965,6 +965,74 @@ func TestRestartLaneWorkerWithItsJob(t *testing.T) {
 	})
 }
 
+// T-947: obor restart of the integrator carries its open job as its wake, as a lane worker's restart carries its
+// lane's: a fresh session's first prompt is the wake, a resumed one gets it typed once it is up. The job asked for is
+// the integrator's (its role, no lane: a task's review or resolve job); no job: no wake.
+func TestRestartIntegratorWithItsJob(t *testing.T) {
+	t.Parallel()
+	restart := func(x *fx, job string, req launch.Request) (string, []string) {
+		x.t.Helper()
+		var out bytes.Buffer
+		var asked []string
+		l := x.launcher(&out)
+		l.Job = func(_ context.Context, role, lane string) (string, error) {
+			asked = append(asked, role+"/"+lane)
+			return job, nil
+		}
+		line, err := l.Restart(context.Background(), req)
+		got, ok := result(x.t, &out, line, err)
+		if !ok {
+			x.t.Fatal(got)
+		}
+		return got, asked
+	}
+	typed := func(x *fx, wake string) []string { return x.calls("agent.prompt target=w1:p5 text=" + wake) }
+	for _, c := range []struct {
+		name, job string
+		fresh     bool
+	}{
+		{"fresh: a review job's wake is the first prompt", "T-1/1/review", true},
+		{"fresh: a resolve job's wake is the first prompt", "T-2/2/resolve", true},
+		{"resumed: a review job's wake typed after the start", "T-1/1/review", false},
+		{"resumed: a resolve job's wake typed after the start", "T-2/2/resolve", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			wake := "[obor job " + c.job + "] call the obor job_next tool"
+			x := setup(t)
+			x.sid("pj-int", "sid-int")
+			x.shell("w1:p5", "pj-int", "")
+			out, asked := restart(x, c.job, launch.Request{Agent: "pj-int", Fresh: c.fresh})
+			if len(asked) != 1 || asked[0] != "integrator/" {
+				t.Fatalf("precondition: the integrator's job asked once: %q", asked)
+			}
+			if c.fresh {
+				contains(t, x.startCall(), " "+wake+"]", "the wake as the start's first prompt")
+				contains(t, out, "job "+c.job+": its wake is the first prompt", "said")
+				eqInt(t, len(typed(x, wake)), 0, "wakes typed besides the start")
+				return
+			}
+			contains(t, x.startCall(), "--resume sid-int", "resumed")
+			lacks(t, x.startCall(), wake, "a resume carries no first prompt")
+			if start, wakes := x.index("agent.start"), typed(x, wake); len(wakes) != 1 || x.index(wakes[0]) < start {
+				t.Errorf("the wake typed once after the start: %q", x.srv.Calls())
+			}
+			contains(t, out, "job "+c.job+": its wake typed", "said")
+			eq(t, last(out), "RESTARTED pj-int (pane w1:p5, session sid-int)", "result")
+		})
+	}
+	t.Run("no job: no wake", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.sid("pj-int", "sid-int")
+		x.shell("w1:p5", "pj-int", "")
+		out, asked := restart(x, "", launch.Request{Agent: "pj-int"})
+		eqInt(t, len(asked), 1, "precondition: the job asked")
+		eqInt(t, len(x.calls("text=[obor job")), 0, "wakes typed")
+		lacks(t, out, "job ", "said")
+	})
+}
+
 // T-874: serve's start of a lane's worker again (no --fresh, its outstanding job's wake as the Prompt): a recorded
 // session is resumed and the wake typed once it is up; no session to resume starts fresh with the wake as its first
 // prompt instead of the FAIL a CLI restart gets.
@@ -1020,7 +1088,7 @@ func TestRestartLaneWorkerJobUnknownRefuses(t *testing.T) {
 	var out bytes.Buffer
 	asked := 0
 	l := x.launcher(&out)
-	l.Job = func(context.Context, string) (string, error) {
+	l.Job = func(context.Context, string, string) (string, error) {
 		asked++
 		return "", errors.New("L-01 holds T-1 and obor serve cannot tell its job (connection refused)")
 	}
