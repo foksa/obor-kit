@@ -12,7 +12,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -464,27 +463,49 @@ func (l *reviewLog) briefFile(agent string, seq int64) string {
 	return ""
 }
 
-// resultRE is a review file's Result line: its label, then the text.
-var resultRE = regexp.MustCompile(`(?m)^\s*(?:[-*]\s*)?(?:\*\*)?Result:(?:\*\*)?\s*(.*)$`)
+// resultScan is how many of a review file's first non-empty lines are searched for the Result label: the reviewer puts
+// it near the top.
+const resultScan = 10
 
 // resultWidth is the longest result text a finished line carries.
 const resultWidth = 100
 
+// resultText is the text after the first "Result:" among b's first resultScan non-empty lines ("" when there is none),
+// wherever the label sits on its line: a review file starts it, a verify file writes it mid-sentence (T-956). Bold
+// markers are stripped.
+func resultText(b []byte) string {
+	n := 0
+	for _, line := range strings.Split(string(b), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if n++; n > resultScan {
+			break
+		}
+		_, after, ok := strings.Cut(line, "Result:")
+		if !ok {
+			continue
+		}
+		if r := strings.TrimSpace(strings.ReplaceAll(after, "**", "")); r != "" {
+			return r
+		}
+	}
+	return ""
+}
+
 // finishedReview is the reviewer's finished line (T-942): "[obor] <agent> finished <RV-n>: <reviews>/<file>.md —
-// <result>", the result the file's Result line text (bold markers stripped, cut to resultWidth runes), or "(no Result
+// <result>", the result the file's Result label text (bold markers stripped, cut to resultWidth runes), or "(no Result
 // line)" when the file is missing or has none. The file is read once, here.
 func finishedReview(root, reviews, file, agent string) string {
 	id, _, _ := strings.Cut(file, "-verify")
 	rel := path.Join(filepath.ToSlash(reviews), file+".md")
 	line := "[obor] " + agent + " finished " + id + ": " + rel
 	if b, err := os.ReadFile(filepath.Join(root, reviews, file+".md")); err == nil {
-		if m := resultRE.FindSubmatch(b); m != nil {
-			if r := strings.TrimSpace(strings.ReplaceAll(string(m[1]), "**", "")); r != "" {
-				if rs := []rune(r); len(rs) > resultWidth {
-					r = strings.TrimSpace(string(rs[:resultWidth])) + "…"
-				}
-				return line + " — " + r
+		if r := resultText(b); r != "" {
+			if rs := []rune(r); len(rs) > resultWidth {
+				r = strings.TrimSpace(string(rs[:resultWidth])) + "…"
 			}
+			return line + " — " + r
 		}
 	}
 	return line + " (no Result line)"

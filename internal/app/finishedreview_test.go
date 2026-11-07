@@ -66,6 +66,24 @@ func TestReviewerFinishedLineNamesReviewAndResult(t *testing.T) {
 			t.Errorf("finished lines %q, want [%q]", got, want)
 		}
 	})
+	t.Run("a verify file with Result mid-sentence", func(t *testing.T) {
+		t.Parallel()
+		r := fixRig(t)
+		r.merged("T-a")
+		r.merged("T-b")
+		r.verifyPass()
+		if n := len(verifyBriefs(t, r.p.root)); n != 1 {
+			t.Fatalf("precondition: %d verify briefs, want 1", n)
+		}
+		writeReview(t, r.p.root, "RV-5-verify", "# RV-5 verify\n\nReviewed `c579437`: T-944 fixed both found"+
+			" issues; Result: **changes requested**; #1 is incomplete, #2 is fixed.\n")
+		r.finish()
+		got := finishedLines(t, r.p.root, "pj-rev")
+		want := "[obor] pj-rev finished RV-5: reviews/RV-5-verify.md — changes requested; #1 is incomplete, #2 is fixed."
+		if len(got) != 1 || got[0] != want {
+			t.Errorf("finished lines %q, want [%q]", got, want)
+		}
+	})
 	t.Run("no file", func(t *testing.T) {
 		t.Parallel()
 		r := newReviewRig(t)
