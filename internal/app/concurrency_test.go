@@ -26,12 +26,15 @@ import (
 // Resolved) counts in inflight, and max is the most at once.
 type concScratch struct {
 	hold, holdPub, holdResolved string
-	// holdTest: the task whose lane Test waits for release (T-961); based: each Gate's candidate has a Base, so it goes
-	// to its lane test (a candidate before T-961 has none: green at once)
+	// holdTest: the task whose lane Test waits for testRelease (T-961); based: each Gate's candidate has a Base, so it
+	// goes to its lane test (a candidate before T-961 has none: green at once)
 	holdTest string
 	based    bool
-	release  chan struct{}
-	entered  chan string // each Gate's task, as it begins ("publish <task>", "resolved <task>" when held)
+	// release holds a gate, a publish and a resolved check; testRelease holds holdTest's lane test (nil: the Test
+	// waits on release as they do, T-972's gap test needs the two apart).
+	release     chan struct{}
+	testRelease chan struct{}
+	entered     chan string // each Gate's task, as it begins ("publish <task>", "resolved <task>" when held)
 
 	mu       sync.Mutex
 	gates    map[string]int // Gate calls by task (a cut one too)
@@ -98,14 +101,14 @@ func (f *concScratch) Gate(ctx context.Context, in port.GateInput) (port.GateOut
 	return port.GateOutcome{Kind: port.OutcomeGreen, Candidate: c}, nil
 }
 
-// Test is the lane test (T-961): it holds no scratch; holdTest's waits for release.
+// Test is the lane test (T-961): it holds no scratch; holdTest's waits for testRelease (release when none is set).
 func (f *concScratch) Test(ctx context.Context, in port.TestInput) (port.TestOutcome, error) {
 	f.mu.Lock()
 	f.tests[in.Task]++
 	f.mu.Unlock()
 	if in.Task == f.holdTest {
 		f.entered <- "test " + in.Task
-		if err := f.wait(ctx); err != nil {
+		if err := f.waitOn(ctx, f.testRelease); err != nil {
 			return port.TestOutcome{}, err
 		}
 	}
@@ -114,8 +117,16 @@ func (f *concScratch) Test(ctx context.Context, in port.TestInput) (port.TestOut
 
 // wait blocks until release is closed or ctx ends.
 func (f *concScratch) wait(ctx context.Context) error {
+	return f.waitOn(ctx, f.release)
+}
+
+// waitOn blocks until ch is closed (release when nil) or ctx ends.
+func (f *concScratch) waitOn(ctx context.Context, ch chan struct{}) error {
+	if ch == nil {
+		ch = f.release
+	}
 	select {
-	case <-f.release:
+	case <-ch:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()

@@ -7,3 +7,7 @@
   recorded; a brief to any other role agent (advisor, researcher …) is not admitted first (T-737)." Proposed: "A brief
   to the reviewer or the deep dive moves an idle deep dive's role worktree to the integration branch's head (T-853)
   before the brief is recorded; nothing waits for a publish in flight (T-872)." No answer needed, just a doc line.
+- T-972 (serve restarts on a new binary only in its first idle pass): lead-owned `docs/design.md` §Following a new
+  obor binary says the restart goes "at once when idle …, else once it is, at the latest after 10 minutes". Proposed:
+  "… at once when idle (no effect running, no nightly, no verdict call admitted), else at the first pass after the work
+  ends, however long that takes; a pending restart holds nothing back (T-972)." No answer needed, just a doc line.

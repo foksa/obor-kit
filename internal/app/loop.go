@@ -724,13 +724,9 @@ func (a *App) pickGate(p *proj, mt mtask) step {
 }
 
 // pickTest runs the candidate's lane test (row 18b, T-961): outside the scratch token, one per lane, in parallel with
-// the other lanes' tests and with the slot's gates and publishes (laneStep). While a self-restart is pending
-// (p.restarting) no new test starts: the restart waits for the running ones, so idle comes within one lane test
-// instead of after many (T-965; slot steps still start).
+// the other lanes' tests and with the slot's gates and publishes (laneStep). A pending self-restart holds nothing back
+// (T-972): the test starts, and the restart goes in the first pass after the last one ends.
 func (a *App) pickTest(p *proj, mt mtask) step {
-	if !p.restarting.IsZero() {
-		return nil
-	}
 	return func(ctx context.Context, fx *Loop) bool {
 		if a.diskIsLow(p, fx) {
 			return false // it would only fail; it starts once space is back
