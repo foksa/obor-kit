@@ -170,15 +170,12 @@ func ErrorCode(err error) string {
 }
 
 // NotShown is the reason a Panes adapter gives when its toast was not shown: herdr's busy, rate_limited, disabled or
-// no_foreground_client. Retry: a later attempt may show it (busy, rate_limited); the others are final.
+// no_foreground_client. A best-effort toast (T-949): the caller logs it and goes on.
 type NotShown struct {
 	Reason string
 }
 
 func (n *NotShown) Error() string { return "notification not shown: " + n.Reason }
-
-// Retry: herdr may show the toast later.
-func (n *NotShown) Retry() bool { return n.Reason == "busy" || n.Reason == "rate_limited" }
 
 // Process is one foreground process of a pane.
 type Process struct {

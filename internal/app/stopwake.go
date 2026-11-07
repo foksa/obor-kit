@@ -258,8 +258,7 @@ func (a *App) roleWakes(ctx context.Context, p *proj, fx *Loop) {
 const ruleStopAlarm = "stopalarm"
 
 // stopAlarmRule is the alarm's rule: the stop of a briefed role agent, woken, still stopped wakeAlarm later; key its
-// stop's fact seq. The line is the one the record always had; the toast is its call, and a failed one (herdr busy) is
-// the next pass's to try again.
+// stop's fact seq. The lead's line records first; the toast is its best-effort after (T-949).
 func stopAlarmRule(_ context.Context, a *App, p *proj, _ *Loop, now time.Time) (int64, action, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -281,7 +280,7 @@ func stopAlarmRule(_ context.Context, a *App, p *proj, _ *Loop, now time.Time) (
 	}
 	title, body := "obor: "+p.name+" needs you", strings.TrimPrefix(s.line, "[obor] ")+stillStopped
 	return s.seq, action{line: s.line + stillStopped,
-		call: func(ctx context.Context) error { return a.toast(ctx, title, body) }}, true
+		after: func(ctx context.Context) { a.toast(ctx, title, body) }}, true
 }
 
 // roleAlarmed marks the role agent's stop seq as having its alarm line (a message fact's Stop; under mu, folded).

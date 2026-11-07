@@ -1,8 +1,8 @@
 // rules.go: the rule pass (T-866; docs/design.md "Change rules" 1, the rule tier). Serve recomputes each rule's
-// condition from the current state on every merge-loop pass and acts: a line, or one idempotent call. A rule is done
-// when its action's effect shows in state; only a line records did{key} (its message fact's Of). A rule has no intent,
-// crash class, replay case, claim or fold of its own; its written failure mode: after a crash an action may run twice,
-// or one pass late.
+// condition from the current state on every merge-loop pass and acts: a line, one idempotent call, or a best-effort
+// after the line (T-949). A rule is done when its action's effect shows in state; only a line records did{key} (its
+// message fact's Of). A rule has no intent, crash class, replay case, claim or fold of its own; its written failure
+// mode: after a crash an action may run twice, or one pass late.
 package app
 
 import (
@@ -24,10 +24,13 @@ type rule struct {
 }
 
 // action is a rule's effect: call (nil: none), then the lead's line, recorded with Of{the rule's name, its key} ("":
-// none). A failed call records no line, so the next pass runs both again.
+// none), then after, a best-effort effect whose failure is logged and dropped (the owner's toast, T-949). A failed
+// call records no line, so the next pass runs both again; after runs only once the line is recorded, so it never
+// delays or fails it.
 type action struct {
-	call func(ctx context.Context) error
-	line string
+	call  func(ctx context.Context) error
+	line  string
+	after func(ctx context.Context)
 }
 
 // ruleLive is a rule's state in this process: the key its condition holds with and since when, and its failed
@@ -107,17 +110,23 @@ func (a *App) rulePass(ctx context.Context, rs []rule, fx *Loop) {
 	a.settleNeeds(p, event.RuleTask, reason)
 }
 
-// act runs a rule's action: its call, then its line to lead with the back-reference of (the rule's did key).
+// act runs a rule's action: its call, then its line to lead with the back-reference of, then its best-effort after.
+// Only the call and the line can fail it.
 func (a *App) act(ctx context.Context, p *proj, lead string, of event.Of, act action) error {
 	if act.call != nil {
 		if err := act.call(ctx); err != nil {
 			return err
 		}
 	}
-	if act.line == "" {
-		return nil
+	if act.line != "" {
+		if err := a.lineTo(p, lead, of, act.line); err != nil {
+			return err
+		}
 	}
-	return a.lineTo(p, lead, of, act.line)
+	if act.after != nil {
+		act.after(ctx)
+	}
+	return nil
 }
 
 // lineLead is a rule's line to p's lead, recorded with the back-reference of (a rule's did key).

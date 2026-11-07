@@ -584,8 +584,8 @@ func (s *Socket) ProcessInfo(ctx context.Context, pane string) (ProcessInfo, err
 }
 
 // Notify is notification.show: a desktop notification, best effort through herdr's foreground client. herdr's answer
-// says whether it showed it; not shown, the reason is a port.NotShown error (busy and rate_limited: a later call may
-// show it; disabled and no_foreground_client: none will).
+// says whether it showed it; not shown, the reason is a port.NotShown error (busy, rate_limited, disabled,
+// no_foreground_client): the toast's caller logs it and goes on (T-949).
 func (s *Socket) Notify(ctx context.Context, title, body string) error {
 	var r struct {
 		Shown  *bool  `json:"shown"`

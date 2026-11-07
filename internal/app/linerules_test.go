@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"slices"
 	"strconv"
 	"strings"
@@ -297,9 +298,9 @@ func TestWatchNoteEndsWithItsLine(t *testing.T) {
 	}
 }
 
-// T-949: the needs rule carries the owner's toast as its action's call, once for a key's first line; a repeat line
-// does not toast again. herdr busy fails the call, so the line is not recorded and the next pass toasts again;
-// disabled is done: the line is recorded and the key is never toasted again.
+// T-949: the needs rule carries the owner's toast as its action's after (a best effort), once for a key's first line;
+// a repeat line does not toast again. A toast herdr does not show (busy, rate_limited, disabled) or a Notify error is
+// logged once and dropped: the lead's line is recorded all the same, is never retried and is no rule failure.
 func TestNeedsRuleToast(t *testing.T) {
 	t.Parallel()
 	needs := rule{name: ruleNeeds, when: needsRule}
@@ -328,47 +329,41 @@ func TestNeedsRuleToast(t *testing.T) {
 			t.Errorf("notes after the repeat line: %q, want still one", h.panes.notes)
 		}
 	})
-	t.Run("busy: the next pass toasts again", func(t *testing.T) {
-		t.Parallel()
-		h := ruleHarness(t)
-		h.panes.notifyFn = func() error { return &port.NotShown{Reason: "busy"} }
-		fact(t, h)
-		pass(h, 0)
-		if n := len(h.panes.notes); n != 0 {
-			t.Fatalf("notes after the busy answer: %d, want none", n)
-		}
-		if ofs, _ := ruleLines(t, h); len(ofs) != 0 {
-			t.Fatalf("the line was recorded though the toast failed: %d", len(ofs))
-		}
-		h.panes.notifyFn = nil
-		pass(h, 0)
-		if len(h.panes.notes) != 1 {
-			t.Fatalf("notes after the next pass: %q, want one", h.panes.notes)
-		}
-		pass(h, 0)
-		if len(h.panes.notes) != 1 {
-			t.Errorf("notes on a later pass: %q, want still one", h.panes.notes)
-		}
-	})
-	t.Run("disabled: done, never again for that key", func(t *testing.T) {
-		t.Parallel()
-		h := ruleHarness(t)
-		calls := 0
-		h.panes.notifyFn = func() error {
-			calls++
-			return &port.NotShown{Reason: "disabled"}
-		}
-		fact(t, h)
-		pass(h, 0)
-		if ofs, _ := ruleLines(t, h); len(ofs) != 1 {
-			t.Fatalf("lines after the disabled answer: %d, want the first one recorded", len(ofs))
-		}
-		pass(h, 0)
-		pass(h, time.Hour)
-		if calls != 1 {
-			t.Errorf("toast calls %d, want one for the key", calls)
-		}
-	})
+	for _, tc := range []struct {
+		name string
+		fail func() error
+	}{
+		{"a Notify error", func() error { return errors.New("herdr: gone") }},
+		{"shown false busy", func() error { return &port.NotShown{Reason: "busy"} }},
+		{"shown false rate_limited", func() error { return &port.NotShown{Reason: "rate_limited"} }},
+		{"shown false disabled", func() error { return &port.NotShown{Reason: "disabled"} }},
+	} {
+		t.Run(tc.name+": the line still records, no retry, no rule failure", func(t *testing.T) {
+			t.Parallel()
+			h := ruleHarness(t)
+			calls := 0
+			h.panes.notifyFn = func() error {
+				calls++
+				return tc.fail()
+			}
+			fact(t, h)
+			for range ruleFails + 1 {
+				pass(h, 0)
+			}
+			if ofs, lines := ruleLines(t, h); len(ofs) != 1 {
+				t.Fatalf("lines %q, want the first one recorded though the toast failed", lines)
+			}
+			if calls != 1 {
+				t.Errorf("toast calls %d, want one for the key (no retry)", calls)
+			}
+			if n := len(h.panes.notes); n != 0 {
+				t.Errorf("notes %q, want none (the fake records a shown toast only)", h.panes.notes)
+			}
+			if active := h.proj().folded.active[event.RuleTask]; len(active) != 0 {
+				t.Errorf("a rule needs-you after failed toasts: %v", active)
+			}
+		})
+	}
 }
 
 // T-949: an old log's notify.* and alarm.* records replay and fold as nothing: the needs line it recorded before

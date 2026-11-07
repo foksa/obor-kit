@@ -1,4 +1,4 @@
-// toast.go: the owner's herdr toast, one best-effort rule action's call (T-949; rules.go).
+// toast.go: the owner's herdr toast, a rule action's best-effort after (T-949; rules.go).
 package app
 
 import (
@@ -8,15 +8,19 @@ import (
 	"obor/internal/app/port"
 )
 
-// toast shows the owner title and body as herdr's desktop notification. herdr's answer decides what its rule does
-// next: busy or rate_limited is an error, so the rule's next pass calls it again (the rule pass logs it); disabled or
-// no foreground client is done, as a shown toast is, its reason logged once here. Any other error is tried again too.
-func (a *App) toast(ctx context.Context, title, body string) error {
+// toast shows the owner title and body as herdr's desktop notification, fire and forget: the lead's line is recorded
+// first, and no answer of herdr's changes that. A toast not shown (busy, rate_limited, disabled, no foreground
+// client) or any error is logged once and dropped: herdr's toast is best effort by contract, and the lead is the one
+// who acts.
+func (a *App) toast(ctx context.Context, title, body string) {
 	err := a.panes.Notify(ctx, title, body)
-	var ns *port.NotShown
-	if errors.As(err, &ns) && !ns.Retry() {
-		a.logf("notification %q: %s", title, ns.Reason)
-		return nil
+	if err == nil {
+		return
 	}
-	return err
+	var ns *port.NotShown
+	if errors.As(err, &ns) {
+		a.logf("notification %q: not shown: %s", title, ns.Reason)
+		return
+	}
+	a.logf("notification %q: %v", title, err)
 }

@@ -991,8 +991,8 @@ func (p *proj) needsLined(seq int64) int {
 }
 
 // needsRule lines p's lead about each needs-you fact in force, naming the commands that answer it (T-497: the lead is
-// the one who acts), and toasts the owner as the first line's call (T-949: a repeat does not toast again), and lines it
-// again while it stays in force (T-621):
+// the one who acts), and toasts the owner as the first line's best-effort after (T-949: a repeat does not toast again),
+// and lines it again while it stays in force (T-621):
 // 30 min after the first line's delivery, then 60 after each repeat's (T-624: the delivery's result, folded; never
 // while its last line waits undelivered), the line ending in " (again, <its age>)". The needs-you of the project's
 // own lines gets none (a lead line waiting would only queue another one), nor a closed task's watchdog fact (T-635:
@@ -1031,7 +1031,7 @@ func needsRule(_ context.Context, a *App, p *proj, _ *Loop, now time.Time) (int6
 		act := action{line: p.needsLine(r, n, now)}
 		if n == 0 { // the owner's toast rides the key's first line; a repeat does not toast again (T-949)
 			title, body := needsToast(p, r)
-			act.call = func(ctx context.Context) error { return a.toast(ctx, title, body) }
+			act.after = func(ctx context.Context) { a.toast(ctx, title, body) }
 		}
 		return needsKey(r.Seq, n), act, true
 	}

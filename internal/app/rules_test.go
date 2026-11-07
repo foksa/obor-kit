@@ -289,8 +289,8 @@ func TestWorkerStartRuleCondition(t *testing.T) {
 	}
 }
 
-// T-949: a stopped role agent's alarm is one rule: its toast is the action's call and the lead's line goes with it,
-// once per stop; herdr busy fails the call, so the next pass toasts again.
+// T-949: a stopped role agent's alarm is one rule: the lead's line records, and its toast is the action's best-effort
+// after, once per stop. A toast herdr does not show is logged and dropped: the line stays, no retry, no rule failure.
 func TestStopAlarmRule(t *testing.T) {
 	t.Parallel()
 	alarm := rule{name: ruleStopAlarm, when: stopAlarmRule}
@@ -320,23 +320,26 @@ func TestStopAlarmRule(t *testing.T) {
 			t.Errorf("notes on a later pass: %q, want still one", h.panes.notes)
 		}
 	})
-	t.Run("busy: the next pass toasts again", func(t *testing.T) {
+	t.Run("rate_limited: the line still records, no retry, no rule failure", func(t *testing.T) {
 		t.Parallel()
 		h := ruleHarness(t)
 		stopped(h)
-		h.panes.notifyFn = func() error { return &port.NotShown{Reason: "rate_limited"} }
-		pass(h, 30*time.Minute)
-		if ofs, _ := ruleLines(t, h); len(ofs) != 0 {
-			t.Fatalf("the line was recorded though the toast failed: %d", len(ofs))
+		calls := 0
+		h.panes.notifyFn = func() error {
+			calls++
+			return &port.NotShown{Reason: "rate_limited"}
 		}
-		h.panes.notifyFn = nil
-		pass(h, 0)
-		if len(h.panes.notes) != 1 {
-			t.Errorf("notes after the next pass: %q, want one", h.panes.notes)
+		for range ruleFails + 1 {
+			pass(h, 30*time.Minute)
 		}
-		pass(h, 0)
-		if len(h.panes.notes) != 1 {
-			t.Errorf("notes on a later pass: %q, want still one", h.panes.notes)
+		if ofs, lines := ruleLines(t, h); len(ofs) != 1 {
+			t.Fatalf("lines %q, want the alarm's line recorded though the toast failed", lines)
+		}
+		if calls != 1 {
+			t.Errorf("toast calls %d, want one for the stop (no retry)", calls)
+		}
+		if active := h.proj().folded.active[event.RuleTask]; len(active) != 0 {
+			t.Errorf("a rule needs-you after failed toasts: %v", active)
 		}
 	})
 }
