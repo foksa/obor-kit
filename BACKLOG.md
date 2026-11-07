@@ -26,7 +26,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   **Owner side:** obor web on the tailnet (`tailscale serve --bg 8787`); herdr 0.9.5 idle CPU.
 
 ## Owner decisions pending
-- (none; log snapshot and drive decided 11-05, docs/decisions.md)
+- (owner 11-07) **Feature branches or a staging branch** in front of main: tasks merge with a light gate, the full suite runs at promotion to main. Lead: one continuously promoted `staging` first (no inter-feature merges, serve owns promotion and bisects a red one); per-feature branches only if serve owns feature state. When docs/research/gate-time.md lands: brief the advisor with both shapes + its numbers, then the owner decides.
 
 ## Later candidates
 - **Un-defer `job_next`** (chatter census proposal 2, 11-07): skipped as a Claude-only launch flag (an integrator job's first call is ~42k on a near-empty context, ~10% of a job; a global tool-search switch would load every MCP tool). The agent-neutral variant (a fresh session's first prompt carries the job, herdr events as the delivery proof) went to the advisor: docs/research/job-in-first-prompt-advice.md.
