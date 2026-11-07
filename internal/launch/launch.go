@@ -514,6 +514,9 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	if err != nil {
 		return port.Started{}, err
 	}
+	if t.info.Lane != "" { // a lane's CPU budget (T-963): its worker's env line carries GOMAXPROCS and GOFLAGS -p
+		t.env = config.WithLaneEnv(t.env, l.Cfg, l.envOrOS().Get("GOFLAGS"))
+	}
 	// An agent restarted with no first prompt of its own while serve holds a job for it (T-773, T-947): that job's
 	// wake, the first prompt of a fresh session, typed into a resumed one once it is up. A lane's worker asks for its
 	// lane's job (a work or fix job), the integrator for a task's open review or resolve job. Resolved before the stop

@@ -190,6 +190,9 @@ func TestValidate(t *testing.T) {
 		// T-962: checks.load_limit went with the check slots' machine-load wait; a config still naming it warns.
 		{name: "checks.load_limit is removed", edits: []edit{set("checks.load_limit", 12.5)},
 			want: []string{"WARN checks.load_limit: no longer used, remove it"}},
+		{name: "slots.lane_cpus fine", edits: []edit{set("slots.lane_cpus", 1)}},
+		{name: "slots.lane_cpus zero", edits: []edit{set("slots.lane_cpus", 0)},
+			want: []string{"FAIL .slots.lane_cpus: must be a positive integer, got 0"}},
 		// T-777: the compact alias (pj-l1) and the agents key are gone: a lane's agent is <prefix>-l-NN or its row's.
 		// bash config.test.sh case_validate_lane_ready
 		{name: "lane_ready string", edits: []edit{set("commands.lane_ready", "test -d node_modules")}},
@@ -300,6 +303,7 @@ func TestShapeErrorsFailTheLoad(t *testing.T) {
 		{set("merge.receipt_max_age", 1.5), "receipt_max_age"},
 		{set("slots.cpus", "4"), "cpus"},
 		{set("slots.cpus", 2.5), "cpus"},
+		{set("slots.lane_cpus", "3"), "lane_cpus"},
 		{set("checks.loadlimit", 20), `unknown field "loadlimit"`},
 	} {
 		p := newProject(t)

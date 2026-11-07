@@ -27,7 +27,7 @@ func TestPlacementFollowsTheProjectsWorkspace(t *testing.T) {
 
 	out := x.ok(t, "pane", "--start", "L-01")
 	calls := strings.Join(x.reqs(), "\n")
-	has(t, calls, "pane.split cwd="+lane+" direction=right env={OBOR_AGENT=,OBOR_LANE=L-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker,OPENCODE_CONFIG=} target_pane_id=wA:p1",
+	has(t, calls, "pane.split cwd="+lane+" direction=right env={GOFLAGS=-p=2,GOMAXPROCS=2,OBOR_AGENT=,OBOR_LANE=L-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker,OPENCODE_CONFIG=} target_pane_id=wA:p1",
 		"the project's pane")
 	hasNot(t, calls, "target_pane_id=w5:p9", "never the caller's, another project's")
 	hasNot(t, out, "warning:", "a project workspace was found")

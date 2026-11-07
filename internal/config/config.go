@@ -252,6 +252,9 @@ type Slots struct {
 	Dir  string `json:"dir,omitempty"`
 	Max  *int   `json:"max,omitempty"`
 	CPUs *int   `json:"cpus,omitempty"` // CHECK_CPUS: the CPUs one check may use (default cores / max, at least 1)
+	// LaneCPUs is the CPU budget of every Go process in a lane (T-963, default 2): a lane worker's env and serve's
+	// checks in a lane carry GOMAXPROCS and GOFLAGS -p of it (LaneEnv).
+	LaneCPUs *int `json:"lane_cpus,omitempty"`
 	// MergeBlockMax is a removed key (v0.28, T-864): the merge marker's cap is the constant 900 s. It WARNs for two
 	// minors.
 	MergeBlockMax any `json:"merge_block_max,omitempty"`
@@ -815,6 +818,44 @@ func (c *Config) RoleDir(r roles.Role) string {
 		return c.RoleWorktree(r.Name)
 	}
 	return c.Root
+}
+
+// DefaultLaneCPUs is slots.lane_cpus when unset.
+const DefaultLaneCPUs = 2
+
+// LaneCPUs is slots.lane_cpus, else DefaultLaneCPUs.
+func (c *Config) LaneCPUs() int {
+	if c != nil {
+		if s := c.Data.Slots; s != nil && s.LaneCPUs != nil {
+			return *s.LaneCPUs
+		}
+	}
+	return DefaultLaneCPUs
+}
+
+// LaneEnv is the env of every Go process in a lane (T-963): GOMAXPROCS and GOFLAGS with -p of the lane's CPU budget
+// (LaneCPUs), as NAME=value entries. goflags is the GOFLAGS the process would have otherwise: its other flags stay, in
+// front, and a -p in it gives way (an env line typed again in a pane that already holds the budget adds no second -p).
+func LaneEnv(c *Config, goflags string) []string {
+	n := strconv.Itoa(c.LaneCPUs())
+	flags := slices.DeleteFunc(strings.Fields(goflags), func(f string) bool {
+		return f == "-p" || strings.HasPrefix(f, "-p=") || f == "--p" || strings.HasPrefix(f, "--p=")
+	})
+	return []string{"GOMAXPROCS=" + n, "GOFLAGS=" + strings.Join(append(flags, "-p="+n), " ")}
+}
+
+// WithLaneEnv is vars (a start's kind env, not changed) with LaneEnv added: a lane worker's start of any kind,
+// launch's env line and obor setup's pane (T-963).
+func WithLaneEnv(vars map[string]string, c *Config, goflags string) map[string]string {
+	out := make(map[string]string, len(vars)+2)
+	for k, v := range vars {
+		out[k] = v
+	}
+	for _, kv := range LaneEnv(c, goflags) {
+		k, v, _ := strings.Cut(kv, "=")
+		out[k] = v
+	}
+	return out
 }
 
 // RoleWorktree is the worktree serve owns for role (T-853): <lanes_dir>/<role>, never a lane.

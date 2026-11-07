@@ -185,6 +185,9 @@ func (v *validator) optional() {
 	if s := v.d.Slots; s != nil && s.CPUs != nil && *s.CPUs < 1 {
 		v.fail(".slots.cpus", fmt.Sprintf("must be a positive integer, got %d", *s.CPUs))
 	}
+	if s := v.d.Slots; s != nil && s.LaneCPUs != nil && *s.LaneCPUs < 1 {
+		v.fail(".slots.lane_cpus", fmt.Sprintf("must be a positive integer, got %d", *s.LaneCPUs))
+	}
 }
 
 // nonNegative: absent, or not negative (the decode made it an integer).
