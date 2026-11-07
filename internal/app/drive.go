@@ -41,6 +41,7 @@ const (
 	hookTaskDoneCheck = "task_done.check" // task_done holds a.submitMu, its checks passed, before its record
 	hookResumeWaits   = "resume.waits"    // obor resume holds a.verdicts, before it takes a.submitMu
 	hookResumeLocked  = "resume.locked"   // obor resume holds a.verdicts and a.submitMu, before its decision
+	hookLandCheck     = "land.check"      // obor land holds a.submitMu, its checks passed, before its record
 )
 
 // hook runs the test's hook at point (none outside the tests).
@@ -312,11 +313,15 @@ func (a *App) landCall(c wire.Call) (string, error) {
 	case busy != "":
 		return "", busyErr("land", c.Task, busy)
 	}
+	a.hook(hookLandCheck)
 	if !a.record(p, event.Record{Task: c.Task, Attempt: mt.attempt, Step: event.StepSubmitted, Kind: event.KindFact},
 		submitData{Lane: mt.lane, Agent: mt.agent, Call: c.CallID, Report: report, Land: true}) {
 		return "", fmt.Errorf("land: the event log of %s refused it", p.name)
 	}
 	a.wake()
+	if ok, state := a.receipt(p, c.Task, wire.MethodLand, c.CallID); !ok { // the fold ignored it: the task was dropped after the decision
+		return "", fmt.Errorf("land: superseded: %s is %s", c.Task, state)
+	}
 	return landReply(c.Task), nil
 }
 
