@@ -14,7 +14,7 @@ so the code does not move under you while merges go on. You may check out any ot
 ## Outputs
 `<reviews dir>/RV-xx.md` in the main checkout (the brief names its path; gitignored; never committed), not in your
 worktree:
-- Result line: `approved` / `changes requested`, commit reviewed, scope.
+- Result line: starts with `Result:` (in a verify file too): `approved` / `changes requested`, commit reviewed, scope.
 - Part 1 — verification of the previous review's findings (finding · status · evidence).
 - Findings: **#n · severity · file:line · what's wrong · probe/evidence · suggested fix · Extent** (other entry
   points / branches sharing the root cause, each marked checked or unchecked: fixes kept being sized to the probe).
