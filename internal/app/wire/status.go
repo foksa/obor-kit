@@ -44,8 +44,11 @@ type ProjectStatus struct {
 	// Messages is the lines not delivered yet (messages.go): obor send's, obor brief's, a brief's finished line.
 	Messages []MessageStatus `json:"messages,omitempty"`
 	// Review is the open review request, else "review due: …" when more than 3 tasks merged since the last review
-	// (review.go; "": neither); then the open review's fix tasks, "RV-n fixes: T-a merged · T-b open" (T-924).
+	// and branches.promote is unset (review.go; "": neither; T-974: a promotion requests its review itself); then the
+	// open review's fix tasks, "RV-n fixes: T-a merged · T-b open" (T-924).
 	Review string `json:"review,omitempty"`
+	// Promote is the promotion of branches.main to branches.promote (T-974; nil: unset, or no pass read it yet).
+	Promote *PromoteStatus `json:"promote,omitempty"`
 	// ReviewRequest is the open review request as data (T-664: the view's queue; nil: none): Review is its line.
 	ReviewRequest *ReviewRequestStatus `json:"review_request,omitempty"`
 	// Briefs is the role agents' open briefs (messages.go): the brief each is on, since when and whether its line was
@@ -132,6 +135,15 @@ type IdleStatus struct {
 	Last  string `json:"last,omitempty"`
 	Acked bool   `json:"acked,omitempty"`
 	Why   string `json:"why,omitempty"`
+}
+
+// PromoteStatus is the promotion as the last pass read it (T-974): the promoted branch and its sha, the first-parent
+// merges on the target since, and why a GREEN run waits to be promoted ("": none waits).
+type PromoteStatus struct {
+	Branch string `json:"branch"`
+	SHA    string `json:"sha"`
+	Merges int    `json:"merges"`
+	Wait   string `json:"wait,omitempty"`
 }
 
 // TaskDriving is a TaskStatus' State while the owner's drive agent works on the task (obor drive, T-751): serve sends

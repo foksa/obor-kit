@@ -71,7 +71,8 @@ func (a *App) followBinary(ctx context.Context, p *proj) bool {
 	// A lane test counts as running too (p.tests, T-965): it runs minutes, and a test whose start has not reached
 	// p.exec yet is still no idle moment. A new one starts beside the pending restart (T-972), and the restart goes
 	// in the first pass (the gap) after the last ends.
-	idle := p.running.Task == "" && len(p.exec) == 0 && len(p.tests) == 0 && !p.night.running && a.admitted == 0
+	idle := p.running.Task == "" && len(p.exec) == 0 && len(p.tests) == 0 && !p.night.running && !p.prom.running &&
+		a.admitted == 0
 	claim := p.admits == 0 && idle
 	p.restartClaim = claim
 	a.mu.Unlock()

@@ -44,7 +44,10 @@ type Project struct {
 	Lead      *Role              `json:"lead,omitempty"` // the lead's agent, when serve sees its pane (T-714: its background processes)
 	NeedsYou  []NeedsYou         `json:"needs_you"`
 	FullCheck *FullCheck         `json:"full_check"`
-	Paused    *Pause             `json:"paused"`
+	// Promote is the promotion as serve's last pass read it (T-974; nil: branches.promote unset, or serve down): obor
+	// status' "promoted" line replaces the full check's.
+	Promote *wire.PromoteStatus `json:"promote,omitempty"`
+	Paused  *Pause              `json:"paused"`
 	// ModelPauses is the model pauses in force (obor pause --model, T-765), by model: the Setup page shows them (T-766).
 	ModelPauses map[string]*Pause    `json:"-"`
 	Messages    []wire.MessageStatus `json:"messages"`          // the lines not typed yet
@@ -258,6 +261,7 @@ func serveOf(v *Project, ss wire.Status, err error, p *checks.LaneTable, bg map[
 	v.Messages = append(v.Messages, ps.Messages...)
 	v.Review, v.Watches = ps.Review, ps.Watches
 	v.Idle = ps.Idle
+	v.Promote = ps.Promote
 	v.Facts = ps.Facts
 	v.NeedsYou = needsYou(ps)
 	v.Roles, v.Lead = roles(p.Cfg, ps, bg), lead(p.Cfg, ps, bg)
@@ -425,7 +429,8 @@ func laneSince(l Lane, v *Project, now, dispatched int64) *int64 {
 
 // runningCommand is the configured command r runs, for the running line: for a gate or a lane test the command serve
 // says it runs now (T-669, T-961: compile, the class's, the guard or check; its name when not configured; "" while
-// unknown, never a guess), the full check for the nightly check, commands.after_merge for after_merge; "" for a step of
+// unknown, never a guess), the full check for the nightly check and a promotion (T-974), commands.after_merge for
+// after_merge and after_promote; "" for a step of
 // git alone (publish) or an unset command.
 func runningCommand(p *checks.LaneTable, r wire.RunningStep) string {
 	name := ""
@@ -434,9 +439,9 @@ func runningCommand(p *checks.LaneTable, r wire.RunningStep) string {
 		if name = r.Command; name == "" {
 			return ""
 		}
-	case event.StepNightly:
+	case event.StepNightly, event.StepPromote:
 		name = "check"
-	case event.StepAfterMerge:
+	case event.StepAfterMerge, event.StepAfterPromote:
 		name = event.StepAfterMerge
 	}
 	cmd, ok := p.Cfg.Command(name)

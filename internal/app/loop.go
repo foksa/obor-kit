@@ -46,6 +46,9 @@ type Loop struct {
 	// Nightly is the project's nightly full check (merge.nightly_at; off is At "", T-464, T-782; nil: a Loop without
 	// one, tests).
 	Nightly *Nightly
+	// Promote is the project's promotion of branches.main to branches.promote (T-974, promote.go; nil: branches.promote
+	// unset, no promotion, after_merge after each publish as before).
+	Promote *Promote
 	// Disk is the project volume's free space (nil: not watched, T-564).
 	Disk *Disk
 	// Review is the git of a review request's start (review.go; nil: no review is started, T-638).
@@ -344,9 +347,16 @@ func (a *App) advance(ctx context.Context) *Loop {
 		a.drive(ctx, p, fx, task)
 	}
 	a.nightly(ctx, p, fx)
+	a.promotion(ctx, p, fx)
 	a.reviewCloseRead(ctx, p, fx) // once per process: a close commit the log does not record (T-926)
 	a.reviewPass(ctx, p, fx)
-	a.reviewDueTick(ctx, p, fx)
+	if fx.Promote == nil { // T-974: a promotion requests its review itself; the "review due" count is off
+		a.reviewDueTick(ctx, p, fx)
+	} else {
+		a.mu.Lock()
+		p.due = reviewDueLine{}
+		a.mu.Unlock()
+	}
 	return fx
 }
 

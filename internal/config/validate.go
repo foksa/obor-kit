@@ -179,11 +179,45 @@ func (v *validator) optional() {
 			v.fail(".merge.nightly_at", "must be a local time HH:MM (00:00 to 23:59), got "+Compact(at))
 		}
 	}
+	v.promote()
 	if s := v.d.Slots; s != nil && s.CPUs != nil && *s.CPUs < 1 {
 		v.fail(".slots.cpus", fmt.Sprintf("must be a positive integer, got %d", *s.CPUs))
 	}
 	if s := v.d.Slots; s != nil && s.LaneCPUs != nil && *s.LaneCPUs < 1 {
 		v.fail(".slots.lane_cpus", fmt.Sprintf("must be a positive integer, got %d", *s.LaneCPUs))
+	}
+}
+
+// promote: branches.promote (T-974) is a branch name other than branches.main and has commands.check (the suite each
+// promotion runs); merge.promote_weight is positive;
+// merge.weights names only difficulty levels, each with a positive weight.
+func (v *validator) promote() {
+	if b := v.d.Branches.Promote; b != "" {
+		switch {
+		case b == v.d.Branches.Main:
+			v.fail(".branches.promote", "must differ from .branches.main ("+Compact(b)+"): serve promotes the target to it")
+		case strings.ContainsAny(b, " ~^:?*[\\") || strings.HasPrefix(b, "-") || strings.Contains(b, ".."):
+			v.fail(".branches.promote", "is no branch name: "+Compact(b))
+		}
+		if _, ok := v.c.Command("check"); !ok {
+			v.fail(".branches.promote", "needs commands.check: each promotion runs the full suite")
+		}
+	}
+	if w := v.d.Merge.PromoteWeight; w != nil && *w < 1 {
+		v.fail(".merge.promote_weight", fmt.Sprintf("must be a positive integer, got %d", *w))
+	}
+	keys := make([]string, 0, len(v.d.Merge.Weights))
+	for k := range v.d.Merge.Weights {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		switch w := v.d.Merge.Weights[k]; {
+		case DefaultWeights[k] == 0:
+			v.fail(".merge.weights"+key(k), "is not a level: use hard, medium or simple")
+		case w < 1:
+			v.fail(".merge.weights"+key(k), fmt.Sprintf("must be a positive integer, got %d", w))
+		}
 	}
 }
 

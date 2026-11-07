@@ -180,11 +180,13 @@ type proj struct {
 	ended map[string]bool
 	// roleFail: when a fresh brief's stop of a role agent last failed, by agent (rolestop.go, T-672, T-870). Under mu.
 	roleFail map[string]time.Time
-	// reg, out, night: the identity table (registry.go), the lines to the project's agents (messages.go, T-466, T-610)
-	// and the nightly full check (nightly.go): each folds its records itself and keeps live state beside them.
+	// reg, out, night, prom: the identity table (registry.go), the lines to the project's agents (messages.go, T-466,
+	// T-610), the nightly full check (nightly.go) and the promotion (promote.go, T-974): each folds its records itself
+	// and keeps live state beside them.
 	reg   registry
 	out   outbox
 	night nightlyState
+	prom  promoteState
 	// wtAgents: the configured reviewer and deep dive as the config last loaded names them (wtAgentsNow): the role
 	// agents whose role worktree serve moves (roleworktree.go, T-853). Under mu.
 	wtAgents []wtAgent
