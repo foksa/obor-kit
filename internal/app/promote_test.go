@@ -24,7 +24,8 @@ import (
 // needs-you, a restart mid-run, and after_merge off per publish.
 
 // promoteGit is a ReviewGit of named shas: heads by branch, the first-parent merges of "<from>..<to>" (none when not
-// set) and the newest close commit (last, lastBody). Head of a branch it has no sha for is an error.
+// set; from "" is all of to's, as git's: those of "h0..<to>", h0 being the rig's first commit with no merge before it)
+// and the newest close commit (last, lastBody). Head of a branch it has no sha for is an error.
 type promoteGit struct {
 	mu             sync.Mutex
 	heads          map[string]string
@@ -48,7 +49,10 @@ func (g *promoteGit) Head(_ context.Context, branch string) (string, error) {
 func (g *promoteGit) Merges(_ context.Context, from, to string) ([]string, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	return slices.Clone(g.merges[from+".."+to]), nil
+	if ms, ok := g.merges[from+".."+to]; ok || from != "" {
+		return slices.Clone(ms), nil
+	}
+	return slices.Clone(g.merges["h0.."+to]), nil
 }
 func (g *promoteGit) Files(context.Context, string, string) ([]string, error) { return nil, nil }
 func (g *promoteGit) Detach(context.Context, string, string) error            { return nil }
