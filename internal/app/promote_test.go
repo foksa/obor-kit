@@ -580,60 +580,68 @@ func reviewedRig(t *testing.T) *promoteRig {
 	return r
 }
 
-// Review before promotion (owner 11-07, T-978): the trigger requests a review of the batch and runs the suite at H;
-// that GREEN does not move main while the review is requested or open; the review closes at H (R = H): the GREEN
-// recorded at R is reused, main moves to R without a second run, and the close commit after R promotes nothing.
-func TestPromoteReusesTheGreenAtR(t *testing.T) {
+// T-990 (owner 11-07): with reviews set up the trigger only requests the review; the suite runs at R alone, the closed
+// review's reviewed head, never at the target's head. A review open at h1 while two more merges land runs nothing;
+// its close at R = h1 runs the suite there once and main moves to h1.
+func TestPromoteReviewSuiteOnlyAtR(t *testing.T) {
 	t.Parallel()
-	r := reviewedRig(t)
-	r.git.between("h0", "h1", "T-1", "T-2")
-	r.pass() // due: the review request and the run
+	r := reviewedRig(t) // R = h0, main h0
+	r.busy()            // the weight triggers, never the idle loop
+	r.spec("T-1", "hard")
+	r.spec("T-2", "hard")
+	r.git.between("h0", "h1", "T-1", "T-2") // weight 6, the threshold
+	r.pass()                                // due: the review request, no suite
 	r.a.mu.Lock()
 	q := r.p.folded.review
 	r.a.mu.Unlock()
 	if q == nil || q.by != "obor" || q.note != "promotion batch h0..h1: T-1, T-2" {
 		t.Fatalf("review request = %+v, want obor's naming the batch h0..h1: T-1, T-2", q)
 	}
-	if runs, _, _ := r.f.calls(); !slices.Equal(runs, []string{"h1"}) {
-		t.Fatalf("runs = %q, want one at h1 (the suite runs while the review is out)", runs)
+	if runs, ffs, _ := r.f.calls(); len(runs) != 0 || len(ffs) != 0 {
+		t.Fatalf("review requested: runs %q, ffs %q; want no suite at the target's head", runs, ffs)
 	}
-	r.pass()
-	if st := r.a.Status().Project.Promote; r.git.head("main") != "h0" || st == nil ||
-		st.Wait != "GREEN h1 waits: the review request" {
-		t.Fatalf("review requested: main %s, status %+v; want h0 and the wait on the review request",
-			r.git.head("main"), st)
+	if st := r.a.Status().Project.Promote; st == nil || st.Wait != "waiting for review" || st.Run != nil {
+		t.Fatalf("review requested: status %+v, want the wait for the review and no run", st)
 	}
 	r.fact(event.ReviewTask, event.StepReviewFire, ReviewData{Request: q.seq})
 	r.started("RV-5", "h1")
 	r.pass()
-	if st := r.a.Status().Project.Promote; r.git.head("main") != "h0" || st == nil ||
-		st.Wait != "GREEN h1 waits: RV-5 open (not closed)" {
-		t.Fatalf("RV-5 open: main %s, status %+v; want h0 and the wait on RV-5", r.git.head("main"), st)
-	}
-	r.a.mu.Lock()
-	req := r.p.folded.review
-	r.a.mu.Unlock()
-	if req != nil {
-		t.Errorf("a review open: a second request %+v, want none", req)
-	}
-	// RV-5 closes at h1 (no fix); its close commit (no merge, covering T-1, T-2) is the new head.
+	// Two more merges while RV-5 is open: the weight is still reached, nothing runs.
+	r.spec("T-3", "hard")
+	r.spec("T-4", "hard")
 	r.git.set("staging", "h2")
-	r.git.closeCommit("h2", "RV-5", "approved", "h1", "T-1", "T-2")
-	r.closed("RV-5")
+	r.git.between("h0", "h2", "T-1", "T-2", "T-3")
 	r.pass()
-	runs, ffs, _ := r.f.calls()
-	if r.git.head("main") != "h1" || !slices.Equal(ffs, []string{"h1"}) || !slices.Equal(runs, []string{"h1"}) {
-		t.Fatalf("after RV-5's close at h1: main %s, ffs %q, runs %q; want main at h1 by the GREEN recorded there, "+
-			"no second run", r.git.head("main"), ffs, runs)
+	r.git.set("staging", "h3")
+	r.git.between("h0", "h3", "T-1", "T-2", "T-3", "T-4")
+	r.pass()
+	if runs, ffs, _ := r.f.calls(); len(runs) != 0 || len(ffs) != 0 {
+		t.Fatalf("RV-5 open, two more merges: runs %q, ffs %q; want none", runs, ffs)
 	}
-	r.pass()
-	r.pass()
-	if runs, ffs, _ := r.f.calls(); len(runs) != 1 || len(ffs) != 1 {
-		t.Errorf("the close commit alone (no merge since h1) ran or promoted: runs %q, ffs %q", runs, ffs)
+	if got := r.git.head("main"); got != "h0" {
+		t.Fatalf("precondition: main %s, want h0 while RV-5 is open", got)
+	}
+	if st := r.a.Status().Project.Promote; st == nil || st.Wait != "waiting for review RV-5" || st.Run != nil {
+		t.Fatalf("RV-5 open: status %+v, want the wait for RV-5, no run", st)
+	}
+	// RV-5 closes at h1 (no fix): R = h1, the suite runs there once and main moves to it.
+	r.git.set("staging", "h4")
+	r.git.closeCommit("h4", "RV-5", "approved", "h1", "T-1", "T-2")
+	r.closed("RV-5")
+	r.pass() // the suite at R = h1
+	if runs, ffs, _ := r.f.calls(); !slices.Equal(runs, []string{"h1"}) || len(ffs) != 0 {
+		t.Fatalf("RV-5 closed at h1: runs %q, ffs %q; want the suite once at h1 and no fast-forward yet", runs, ffs)
+	}
+	r.pass() // the fast-forward
+	if runs, ffs, _ := r.f.calls(); !slices.Equal(runs, []string{"h1"}) || !slices.Equal(ffs, []string{"h1"}) {
+		t.Fatalf("after the GREEN at h1: runs %q, ffs %q; want main moved to h1 with no second run", runs, ffs)
+	}
+	if got := r.git.head("main"); got != "h1" {
+		t.Errorf("main = %s, want h1", got)
 	}
 }
 
-// RV-136 #1: GREEN at h1, the review requests changes, the fix merges at h2, its verify finishes at h2 and the review
+// RV-136 #1, T-990: the review requests changes, the fix merges at h2, its verify finishes at h2 and the review
 // closes (R = h2): the suite runs at h2 and main moves to h2 only on its GREEN; never to h1. RED at h2: main stays,
 // the promotion's needs-you as T-974's.
 func TestPromoteReviewFixCycle(t *testing.T) {
@@ -645,10 +653,10 @@ func TestPromoteReviewFixCycle(t *testing.T) {
 			r.spec("T-1", "simple")
 			r.spec("T-3", "simple")
 			r.git.between("h0", "h1", "T-1")
-			r.pass() // idle: the review request and the run at h1
+			r.pass() // idle: the review request, no suite (T-990)
 			r.pass()
-			if runs, ffs, _ := r.f.calls(); !slices.Equal(runs, []string{"h1"}) || len(ffs) != 0 {
-				t.Fatalf("precondition: GREEN at h1, not promoted: runs %q, ffs %q", runs, ffs)
+			if runs, ffs, _ := r.f.calls(); len(runs) != 0 || len(ffs) != 0 {
+				t.Fatalf("precondition: review requested, nothing run or promoted: runs %q, ffs %q", runs, ffs)
 			}
 			r.started("RV-5", "h1")
 			// The review requests changes; the fix T-3 merges at h2 (weight 2 with the loop busy: no trigger).
@@ -656,8 +664,8 @@ func TestPromoteReviewFixCycle(t *testing.T) {
 			r.git.set("staging", "h2")
 			r.git.between("h0", "h2", "T-1", "T-3")
 			r.pass()
-			if runs, ffs, _ := r.f.calls(); len(runs) != 1 || len(ffs) != 0 || r.git.head("main") != "h0" {
-				t.Fatalf("RV-5 open, fix merged: runs %q, ffs %q, main %s; want nothing more", runs, ffs,
+			if runs, ffs, _ := r.f.calls(); len(runs) != 0 || len(ffs) != 0 || r.git.head("main") != "h0" {
+				t.Fatalf("RV-5 open, fix merged: runs %q, ffs %q, main %s; want nothing run or promoted", runs, ffs,
 					r.git.head("main"))
 			}
 			if verdict == "RED" {
@@ -669,22 +677,22 @@ func TestPromoteReviewFixCycle(t *testing.T) {
 			r.closed("RV-5")
 			r.pass() // the suite at R = h2
 			runs, ffs, _ := r.f.calls()
-			if !slices.Equal(runs, []string{"h1", "h2"}) || len(ffs) != 0 || r.git.head("main") != "h0" {
+			if !slices.Equal(runs, []string{"h2"}) || len(ffs) != 0 || r.git.head("main") != "h0" {
 				t.Fatalf("after the close at h2: runs %q, ffs %q, main %s; want the suite at h2 first, main at h0",
 					runs, ffs, r.git.head("main"))
 			}
-			if in := r.intent("promote.2"); in.SHA != "h2" || in.Since != "h0" {
-				t.Errorf("intent promote.2 = %+v, want sha h2 since h0", in)
+			if in := r.intent("promote.1"); in.SHA != "h2" || in.Since != "h0" {
+				t.Errorf("intent promote.1 = %+v, want sha h2 since h0", in)
 			}
 			r.pass()
 			r.pass()
 			r.pass()
 			runs, ffs, _ = r.f.calls()
 			if slices.Contains(ffs, "h1") {
-				t.Fatalf("ffs %q: the old GREEN h1 was promoted past the verified fix", ffs)
+				t.Fatalf("ffs %q: h1, never reviewed to a close, was promoted past the verified fix", ffs)
 			}
-			if len(runs) != 2 {
-				t.Errorf("runs %q, want no third run (h2 has its result)", runs)
+			if len(runs) != 1 {
+				t.Errorf("runs %q, want no second run (h2 has its result)", runs)
 			}
 			if verdict == "GREEN" {
 				if r.git.head("main") != "h2" || !slices.Equal(ffs, []string{"h2"}) {
@@ -874,18 +882,16 @@ func TestPromoteRPassedAlready(t *testing.T) {
 		t.Parallel()
 		r := reviewedRig(t)
 		r.git.between("h0", "h1", "T-1")
-		r.pass() // idle: the review request and the suite at h1, GREEN
+		r.closeAt("h1", "h2")
+		r.git.closeCommit("h2", "RV-5", "approved", "h1", "T-1")
+		r.pass() // the suite at R h1, GREEN
 		r.a.mu.Lock()
-		q := r.p.folded.review
 		ran := r.p.prom.ran["h1"]
 		r.a.mu.Unlock()
-		if q == nil || ran != "GREEN" {
-			t.Fatalf("precondition: a review request and a GREEN at h1: %+v, %q", q, ran)
+		if ran != "GREEN" {
+			t.Fatalf("precondition: a GREEN at h1: %q", ran)
 		}
-		r.git.set("staging", "h2") // the switch at the current head h2
-		r.git.set("main", "h2")
-		r.fact(event.ReviewTask, event.StepReviewFire, ReviewData{Request: q.seq})
-		r.closeAt("h1", "h2")
+		r.git.set("main", "h2") // the switch at the current head h2
 		r.pass()
 		r.pass()
 		r.pass()
@@ -1106,7 +1112,7 @@ func TestPromoteEveryMergeReviewed(t *testing.T) {
 			t.Fatalf("T-x not reviewed: main %s, status %+v; want main at h0 and the wait %q", r.git.head("main"),
 				st, want)
 		}
-		// The loop idle: the trigger requests the next review although no merge followed R, and runs the suite at h4.
+		// The loop idle: the trigger requests the next review although no merge followed R; nothing runs (T-990).
 		r.a.mu.Lock()
 		delete(r.p.folded.loop, "T-99")
 		r.a.mu.Unlock()
@@ -1118,17 +1124,16 @@ func TestPromoteEveryMergeReviewed(t *testing.T) {
 		if q == nil || q.by != "obor" {
 			t.Fatalf("T-x waiting, loop idle: review request %+v, want obor's", q)
 		}
-		r.expect("the next review requested", []string{"h4"}, nil, nil,
-			[]string{"intent promote.1", "result promote.1"})
-		if st := r.a.Status().Project.Promote; r.git.head("main") != "h0" || st == nil || st.Wait != want {
-			t.Fatalf("GREEN at h4, T-x waiting: main %s, status %+v; want main at h0, the wait %q", r.git.head("main"),
+		r.expect("the next review requested", nil, nil, nil, nil)
+		if st := r.a.Status().Project.Promote; r.git.head("main") != "h0" || st == nil || st.Wait != want || st.Run != nil {
+			t.Fatalf("the review requested, T-x waiting: main %s, status %+v; want main at h0, the wait %q", r.git.head("main"),
 				st, want)
 		}
 		// RV-6 starts at h4 (its scope T-x), finds nothing and closes; its close commit h5 covers T-x: R = h4.
 		r.fact(event.ReviewTask, event.StepReviewFire, ReviewData{Request: q.seq})
 		r.started("RV-6", "h4")
 		r.pass()
-		r.expect("RV-6 open", []string{"h4"}, nil, nil, []string{"intent promote.1", "result promote.1"})
+		r.expect("RV-6 open", nil, nil, nil, nil)
 		r.git.set("staging", "h5")
 		r.git.closeCommit("h5", "RV-6", "approved", "h4", "T-x")
 		r.closed("RV-6")

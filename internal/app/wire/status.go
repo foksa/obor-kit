@@ -138,10 +138,10 @@ type IdleStatus struct {
 }
 
 // PromoteStatus is the promotion as the last pass read it (T-974): the promoted branch and its sha, the first-parent
-// merges on the target since, and why a GREEN run waits to be promoted ("": none waits). T-977, the monitor's: when
-// the sha was promoted (At, fact promoted's time; 0: no fact promoted it), the tasks merged since (Tasks) and their
-// weight against merge.promote_weight (Threshold), the promotion under way (Run) and the last RED one while its
-// needs-you is open (Red).
+// merges on the target since, and why the promotion waits ("": none waits: the open review or request, T-990, or a
+// GREEN run waiting to be promoted). T-977, the monitor's: when the sha was promoted (At, fact promoted's time; 0: no
+// fact promoted it), the tasks merged since (Tasks) and their weight against merge.promote_weight (Threshold), the
+// promotion under way (Run) and the last RED one while its needs-you is open (Red).
 type PromoteStatus struct {
 	Branch    string      `json:"branch"`
 	SHA       string      `json:"sha"`

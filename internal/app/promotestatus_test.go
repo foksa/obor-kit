@@ -98,13 +98,15 @@ func TestPromoteStatusWeightAndSuite(t *testing.T) {
 func TestPromoteStatusWaitsForReview(t *testing.T) {
 	t.Parallel()
 	r := newPromoteRig(t, true)
-	r.git.last, r.git.lastBody = "RV-4 closed · s0 · approved · earlier", "Covered: T-0\nStart: h0"
 	r.git.between("h0", "h1", "T-1", "T-2")
-	r.pass() // the review request and the GREEN run
+	r.pass() // due (idle): the review request, no suite (T-990)
 	r.pass()
 	st := r.a.Status().Project.Promote
-	if st == nil || st.Run == nil || st.Run.Step != wire.PromoteReview || st.Run.SHA != "h1" || st.Run.Review != "" {
-		t.Fatalf("GREEN, the review only requested: status promote %+v, want waiting for review, no RV yet", st)
+	if st == nil || st.Wait != "waiting for review" || st.Run != nil {
+		t.Fatalf("the review only requested: status promote %+v, want waiting for review, no run", st)
+	}
+	if runs, _, _ := r.f.calls(); len(runs) != 0 {
+		t.Fatalf("the review only requested: runs %q, want none", runs)
 	}
 	r.a.mu.Lock()
 	q := r.p.folded.review
@@ -118,9 +120,8 @@ func TestPromoteStatusWaitsForReview(t *testing.T) {
 		}
 	}
 	r.pass()
-	if st := r.a.Status().Project.Promote; st == nil || st.Run == nil || st.Run.Step != wire.PromoteReview ||
-		st.Run.Review != "RV-5" || st.Run.Since != r.now.Unix() {
-		t.Errorf("RV-5 open: status promote %+v, want waiting for review RV-5 since the GREEN result", st)
+	if st := r.a.Status().Project.Promote; st == nil || st.Wait != "waiting for review RV-5" || st.Run != nil {
+		t.Errorf("RV-5 open: status promote %+v, want waiting for review RV-5, no run", st)
 	}
 }
 

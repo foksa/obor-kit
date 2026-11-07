@@ -1101,8 +1101,8 @@ func TestStatusShowsUnknownLaneReason(t *testing.T) {
 	}
 }
 
-// T-974: with a promotion, the "promoted <sha7> (<n> merges since)" line replaces the full check's, with why a GREEN
-// promotion waits; without one the full check's line stays.
+// T-974: with a promotion, the "promoted <sha7> (<n> merges since)" line replaces the full check's, with why the
+// promotion waits (the open review, T-990; a GREEN run); without one the full check's line stays.
 func TestStatusPromotedLine(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
 	fc := &view.FullCheck{SHA: "abcdef0123", Verdict: "GREEN", At: now.Unix() - 60, Summary: "promote: check 1 pass, 9s"}
@@ -1112,6 +1112,8 @@ func TestStatusPromotedLine(t *testing.T) {
 	}{
 		{nil, "full check: GREEN abcdef0, 1m ago (promote: check 1 pass, 9s)"},
 		{&wire.PromoteStatus{Branch: "main", SHA: "1234567890", Merges: 3}, "promoted 1234567 (3 merges since)"},
+		{&wire.PromoteStatus{Branch: "main", SHA: "1234567890", Merges: 2, Wait: "waiting for review RV-5"},
+			"promoted 1234567 (2 merges since); promotion waiting for review RV-5"},
 		{&wire.PromoteStatus{Branch: "main", SHA: "1234567890", Merges: 2, Wait: "GREEN fedcba9 waits: RV-5 open (not closed)"},
 			"promoted 1234567 (2 merges since); promotion GREEN fedcba9 waits: RV-5 open (not closed)"},
 	}
