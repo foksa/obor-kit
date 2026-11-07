@@ -213,6 +213,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   lane branch first.
 - (T-334) Two `sendback`s (the lead's lane form and the integrator's MCP verb): rename or drop the lane form.
 ## Concerns
+- (lead 11-07) **Serve down 09:53-09:57: store at schema 13.** The audit's uncommitted schema-13 code ran as the live serve (launchd start 09:15 on a `dist/obor` built from the dirty main checkout) and migrated `.obor/state/obor.db`; T-939's merge rebuilt `dist/obor` at 12 and serve refused the store. Lead backed it up (scratchpad obor-schema13-0957.db), dropped `spec_calls` (2 receipts) and set 12. Rule: never `make build` uncommitted code in the main checkout; serve runs `dist/obor`. A store-schema change needs its rollback said in the spec.
 - (11-06, state-machine audit) Tests that inject effect results through `record` can miss differences in the real
   `App.do` path (SM-03: live idle keys differed from replay). Keep production-boundary regressions for durable
   metadata and retry receipts; findings, fixes and state tables are in `docs/state-model.md` (SM-01–04).
