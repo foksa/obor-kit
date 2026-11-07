@@ -84,12 +84,13 @@ type Panes interface {
 	// Busy: the agent in pane still runs a child besides the agent CLI (a command, a background job). An error means
 	// unknown, not idle.
 	Busy(ctx context.Context, pane string) (bool, error)
-	// Activity is when pane's agent last wrote its transcript; known is false when obor cannot tell.
-	Activity(ctx context.Context, pane string) (last time.Time, known bool)
+	// Activity is when pane's agent last wrote its transcript; known is false when obor cannot tell. pane is the one
+	// the caller observed (its Session and Transcript): no herdr call (T-951).
+	Activity(ctx context.Context, pane Pane) (last time.Time, known bool)
 	// Turn is the last turn pane's agent's transcript records, for a kind whose turns are read (agents.Caps.Turns):
 	// the file transcript names (its agent's recorded session's, T-577), else the one herdr's session names; ok false
-	// when obor cannot tell.
-	Turn(ctx context.Context, pane, transcript string) (t agents.Turn, ok bool)
+	// when obor cannot tell. pane is the one the caller observed (T-951).
+	Turn(ctx context.Context, pane Pane, transcript string) (t agents.Turn, ok bool)
 	Notify(ctx context.Context, title, body string) error
 }
 

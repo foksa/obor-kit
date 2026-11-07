@@ -70,9 +70,9 @@ func (a *App) decideLanes(ctx context.Context, p *proj) {
 	a.mu.Unlock()
 	ev := map[string]*evidence{}
 	for _, o := range ask {
-		e := a.evidence(ctx, o.ID)
+		e := a.evidence(ctx, o)
 		if turnsRead(o.Agent) {
-			e.turn, e.turned = a.panes.Turn(ctx, o.ID, transcripts[o.ID])
+			e.turn, e.turned = a.panes.Turn(ctx, o, transcripts[o.ID])
 		}
 		ev[o.ID] = e
 	}
@@ -291,13 +291,14 @@ type evidence struct {
 	turned bool
 }
 
-// evidence asks herdr about pane's activity (outside mu).
-func (a *App) evidence(ctx context.Context, pane string) *evidence {
+// evidence asks herdr about pane's activity (outside mu): the child-process check is a herdr call, its transcript the
+// observed pane's (T-951).
+func (a *App) evidence(ctx context.Context, pane port.Pane) *evidence {
 	e := &evidence{}
-	e.busy, e.err = a.panes.Busy(ctx, pane)
+	e.busy, e.err = a.panes.Busy(ctx, pane.ID)
 	if e.err != nil {
 		e.busy = false
-		a.logf("process info of %s: %v (activity unknown)", pane, e.err)
+		a.logf("process info of %s: %v (activity unknown)", pane.ID, e.err)
 	}
 	e.last, e.known = a.panes.Activity(ctx, pane)
 	return e

@@ -18,7 +18,7 @@ func TestJobSampleHoldsNoVerb(t *testing.T) {
 	r, _ := reviewed(t)
 	r.integratorIs("idle")
 	r.quietBaseline("T-1/1/review")
-	release, reached := r.srv.Hold("agent.get") // the sample's activity read
+	release, reached := r.srv.Hold("pane.process_info") // the sample's child-process read
 	defer release()
 	<-reached
 	r.clock.Add(10 * time.Minute) // the sample in flight comes back due: quiet with the job for Idle

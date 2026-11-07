@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"obor/internal/app/event"
+	"obor/internal/app/port"
 	"time"
 )
 
@@ -64,7 +65,7 @@ func (a *App) watchJob(p *proj, mt mtask) step {
 		t.quietTimer = quietTimer{} // working or blocked: no quiet time
 		return nil
 	}
-	pane := w.Pane.ID
+	pane := w.Pane
 	return func(ctx context.Context, fx *Loop) bool { return a.sampleJob(ctx, p, fx, mt, t, pane) }
 }
 
@@ -165,7 +166,7 @@ func retryKey(job event.Key) event.Key {
 // Idle → one nudge (the quiet time counts again from it), then the owner. The read holds nothing (T-861): it runs on
 // most passes while the integrator idles with the job, so a hold of the task across it refused a verb given then
 // ("T-1 has review running"); the task is held again only to act, and not when a verb changed it meanwhile (heldAgain).
-func (a *App) sampleJob(ctx context.Context, p *proj, fx *Loop, mt mtask, t *jobTimer, pane string) bool {
+func (a *App) sampleJob(ctx context.Context, p *proj, fx *Loop, mt mtask, t *jobTimer, pane port.Pane) bool {
 	a.release(p, mt.task, mt.stepName())
 	e := a.evidence(ctx, pane)
 	now := a.opt.Now()
