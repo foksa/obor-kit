@@ -342,6 +342,56 @@ func TestJobStalled(t *testing.T) {
 	})
 }
 
+// T-946: a delivered integrator job's quiet time starts at its delivered fact, not at serve's or the agent's restart,
+// so the nudge comes at most Idle after delivery whatever restarts happen; activity after delivery still moves it
+// forward.
+func TestJobNudgeFromDelivery(t *testing.T) {
+	t.Parallel()
+	t.Run("serve restarted at 4 min: the nudge at 10 min from delivery", func(t *testing.T) {
+		t.Parallel()
+		r, _ := reviewed(t)
+		r.integratorIs("idle")
+		r.stop() // serve restarted with the job open: the timer is live state, so it used to start over
+		r.clock.Add(4 * time.Minute)
+		r.start()
+		r.later(5 * time.Minute) // 9 min after delivery, 5 after the restart
+		if r.has("1 intent nudge.review") {
+			t.Fatalf("a nudge 9 min after delivery: %q", r.steps())
+		}
+		r.later(time.Minute) // 10 min after delivery (not 14: the restart's 4 + Idle)
+		r.waitStep("1 result nudge.review")
+		if n := r.count("1 intent nudge.review"); n != 1 {
+			t.Errorf("%d nudges, want one: %q", n, r.steps())
+		}
+	})
+	t.Run("agent restarted at 12 min: the nudge on the next pass, then needs-you", func(t *testing.T) {
+		t.Parallel()
+		r, _ := reviewed(t)
+		r.integratorIs("idle")
+		r.stop()
+		r.f.Set("w1:p9", func(p *herdrtest.Pane) { p.Session = "int-2" }) // the integrator restarted: a new session
+		r.clock.Add(12 * time.Minute)                                     // quiet since delivery (12 min) is already past Idle
+		r.start()
+		r.waitStep("1 result nudge.review")
+		r.later(10 * time.Minute)
+		r.waitStep("1 fact needs-you{job stalled: pj-int idle with job T-1/1/review for 10m0s after a nudge}")
+	})
+	t.Run("activity at 8 min: no nudge before 18 min", func(t *testing.T) {
+		t.Parallel()
+		r, _ := reviewed(t)
+		r.integratorIs("idle")
+		r.later(8 * time.Minute)
+		r.integratorIs("working") // the integrator works with the job open
+		r.integratorIs("idle")
+		r.later(9 * time.Minute) // 17 min after delivery, 9 after the activity
+		if r.has("1 intent nudge.review") {
+			t.Fatalf("a nudge 9 min after the activity: %q", r.steps())
+		}
+		r.later(time.Minute) // 18 min after delivery: Idle after the activity
+		r.waitStep("1 result nudge.review")
+	})
+}
+
 // obor hold: the job stays open, needs-you{held: why}, the owner told once; only the integrator holds, with a why;
 // a repeated call id gets the stored reply. obor resume (the lead's): its default for held is reprompt, a new job,
 // the old job id refused; a repeated call id gets the stored reply, a resume with no needs-you is refused.

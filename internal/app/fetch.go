@@ -81,7 +81,7 @@ func (a *App) jobNext(c wire.Call) (string, error) {
 	}
 	a.mu.Lock()
 	mt, key, ok, err := a.callerJob(p, c)
-	delivered := p.folded.delivered[JobID(key)]
+	delivered := p.folded.delivered[JobID(key)].seq
 	a.mu.Unlock()
 	if err != nil {
 		return "", err

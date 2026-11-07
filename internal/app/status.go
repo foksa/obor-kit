@@ -87,7 +87,7 @@ func (a *App) Status() wire.Status {
 				}
 				if open {
 					ts.Job = JobID(key)
-					ts.Delivered = p.folded.delivered[ts.Job] != 0
+					ts.Delivered = p.folded.delivered[ts.Job].seq != 0
 				}
 				ps.Tasks = append(ps.Tasks, ts)
 			}
