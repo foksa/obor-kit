@@ -369,6 +369,7 @@ func TestLoopStartIntentBeforeEffect(t *testing.T) {
 // RV-37 #1 (Sol's probe TestRV37AfterMergeCrashThenLaneReused): after_merge ran, its result was lost, and while obor
 // serve was down the lane took T-06 (its dispatch in the log). The replay stops nothing: T-06's worker stays.
 func TestLoopAfterMergeCrashThenLaneReused(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.work("feature.txt", "feature\n")
@@ -439,6 +440,7 @@ func (r *loopRig) result(step string) string {
 // each pass), not even once it would pass; obor resume retries it (T-340's default for a failed step), and the
 // needs-you ends.
 func TestLoopAfterMergeFailure(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.work("feature.txt", "feature\n")

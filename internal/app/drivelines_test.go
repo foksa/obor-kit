@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"obor/internal/herdr/herdrtest"
+	"obor/internal/testkit"
 )
 
 // T-761: a drive and the lead message each other. The drive agent's obor tell-lead is a lead line naming its task; the
@@ -129,6 +130,7 @@ func TestTellLeadRefusesOthers(t *testing.T) {
 // review) tell-lead is refused, its reason the state answer would be refused in, and nothing is recorded; sent back to
 // driving by the integrator, it goes out again.
 func TestTellLeadOnlyWhileTheDriveCanBeAnswered(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r := driving(t)
 	if reply, err := r.tellLead("t1", "pj-l-01-drive", "driver", "L-01", "while driving"); err != nil ||

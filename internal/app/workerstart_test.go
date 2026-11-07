@@ -11,6 +11,7 @@ import (
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/herdr/herdrtest"
+	"obor/internal/testkit"
 )
 
 // T-874: the worker start rule. The rig: T-1 dispatched on L-01, its work job delivered to pj-l-01 (w1:p1, labelled).
@@ -97,6 +98,7 @@ func (r *loopRig) ruleNeedsYou() bool {
 // before serve ends and after it replays; once cleared, the rule starts pj-l-01 (no --fresh: its session resumed)
 // with its delivered work job's wake, job_next hands it the same job, and its task_done submits T-1.
 func TestWorkerStartAfterStopForce(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r := workingRig(t)
 	if reply, err := r.pause("lead", "p1", wire.Call{Note: wire.StopPause}); err != nil || reply != "PAUSED until cleared" {

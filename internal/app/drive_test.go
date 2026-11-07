@@ -330,6 +330,7 @@ func TestMoveWhileGatingRefused(t *testing.T) {
 // after-merge stop of the drive agent; the lane row is finished (the lane free once merged). A repeated call id gets
 // the stored reply; land of a task not driving is refused.
 func TestDriveLandGatesReviewsMergesAndStopsTheAgent(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r := newDriveRig(t)
 	if _, err := r.landDrive("l0", "T-1", "x"); err == nil || !strings.Contains(err.Error(), "not open") {
@@ -384,6 +385,7 @@ func TestDriveLandGatesReviewsMergesAndStopsTheAgent(t *testing.T) {
 // no needs-you, whatever the count. The next land gates again. A serve restart replays the driving task as driving
 // and sends no second line.
 func TestDriveRedGateBackToDriving(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r := newDriveRig(t, testkit.Set("commands.check", "test ! -f red.txt"))
 	if _, err := r.drive("v1", "web"); err != nil {
@@ -435,6 +437,7 @@ func TestDriveRedGateBackToDriving(t *testing.T) {
 
 // The integrator's hold of a drive's review goes back to the drive, with one line to the lead; no needs-you.
 func TestDriveHeldReviewBackToDriving(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r := newDriveRig(t)
 	if _, err := r.drive("v1", "web"); err != nil {

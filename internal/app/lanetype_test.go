@@ -100,6 +100,7 @@ func (r *loopRig) redoTypes() []any {
 // A redo by task ID through serve's real lane table keeps the full model ref its dispatch ran (opus:high), not the lane
 // row's bare model, nor the spec's level (medium: sonnet); a pause of opus does not hold it (its own model, T-742).
 func TestRedoViaTheRealLaneTableKeepsItsTypeAndEffort(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r := redoRig(t)
 	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodPause, wire.Call{Root: r.p.Root, CallID: "p1",
@@ -117,6 +118,7 @@ func TestRedoViaTheRealLaneTableKeepsItsTypeAndEffort(t *testing.T) {
 // A redo with --model sonnet runs sonnet on its lane; to a paused model it is refused, as a fresh dispatch of that
 // model is (T-742).
 func TestRedoWithExplicitTypesRunsThem(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r := redoRig(t)
 	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodPause, wire.Call{Root: r.p.Root, CallID: "p1",

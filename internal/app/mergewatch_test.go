@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"obor/internal/app"
+	"obor/internal/testkit"
 )
 
 // watch is a watch request to the rig's serve from the lead (role lead, agent pj-lead).
@@ -58,6 +59,7 @@ func (r *loopRig) mergedT1() {
 // T-523: obor watch T-1, then T-1 merges: the lead gets exactly one "[obor] T-1 merged <short sha>" (main's merge);
 // the watch ends with it (obor watch lists none), and a restart's replay posts no second line.
 func TestWatchedMergePostsOneLine(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.work("feature.txt", "feature\n")
@@ -128,6 +130,7 @@ func TestWatchedDropPostsTheDroppedLine(t *testing.T) {
 // T-523: a watch of a task merged already is answered with its outcome at once and records nothing; an unknown task
 // (no dispatch, no spec) is refused; a task with only a spec may be watched; a repeated call id gets its stored reply.
 func TestWatchEndedOrUnknownTask(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.work("feature.txt", "feature\n")
@@ -163,6 +166,7 @@ func TestWatchEndedOrUnknownTask(t *testing.T) {
 
 // T-523: obor watch --rm ends a watch: the merge then posts nothing; --rm of a task not watched records nothing.
 func TestUnwatchedMergePostsNothing(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.work("feature.txt", "feature\n")
@@ -223,6 +227,7 @@ func (r *loopRig) land(task string) {
 // nothing until the last, then one "[obor] T-1,T-2,T-3 merged (<the last merge's short sha>)"; a restart's replay
 // posts it no second time.
 func TestWatchedSetPostsOneLineAfterTheLast(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.work("feature.txt", "feature\n")
@@ -265,6 +270,7 @@ func TestWatchedSetPostsOneLineAfterTheLast(t *testing.T) {
 
 // T-528: a task of a watched set dropped ends the watch at once with its line; the set's later merges post nothing.
 func TestWatchedSetDropEndsIt(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.work("feature.txt", "feature\n")
@@ -291,6 +297,7 @@ func TestWatchedSetDropEndsIt(t *testing.T) {
 // T-528: a set's task merged already counts: the watch waits for the rest; a set all merged is answered at once with
 // its line and records nothing; a set with an unknown task is refused naming it; --rm takes the comma list.
 func TestWatchSetMergedOrUnknown(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.seedFailed("T-2", "T-3", "T-4")
@@ -330,6 +337,7 @@ func TestWatchSetMergedOrUnknown(t *testing.T) {
 
 // T-528: a task of a watched set rejected ends the watch at once with "[obor] T-1 rejected: <note> (watch … ended)".
 func TestWatchedSetRejectEndsIt(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.work("feature.txt", "feature\n")
@@ -353,6 +361,7 @@ func TestWatchedSetRejectEndsIt(t *testing.T) {
 // T-666: a watch with a note keeps it (one line, as the lead meant it) on its fact and in serve's status, and
 // `obor watch` and the merged line carry it after the outcome: "[obor] T-1 merged <sha7> — <note>".
 func TestWatchNoteOnTheMergedLine(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.work("feature.txt", "feature\n")

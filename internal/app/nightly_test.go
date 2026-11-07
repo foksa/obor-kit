@@ -16,6 +16,7 @@ import (
 
 	"obor/internal/app"
 	"obor/internal/config"
+	"obor/internal/testkit"
 )
 
 // nightlyFake is a Loop's Nightly: the last full check's verdict and each run's outcome scripted, the runs counted.
@@ -273,6 +274,7 @@ func (c *configWriter) count() int {
 // T-781: obor nightly on|off is a config_set of merge.nightly_at; the Loop is built on each pass from the config as it
 // is (serve's nightly()), so on runs that night and off runs no more, with no restart. Off when off commits nothing.
 func TestNightlySwitchCountsFromTheNextPass(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	f := &nightlyFake{outs: []app.NightlyOut{green}}
 	r := newLoopRig(t, "echo 1 pass")

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"obor/internal/store"
+	"obor/internal/testkit"
 )
 
 // The prompts table (T-665, T-670): the text of every job, brief and start prompt serve sent is recorded right after
@@ -240,6 +241,7 @@ func TestPromptsWorkJobRefetchedAfterASpecRev(t *testing.T) {
 
 // A fix job fetched again after the spec rev changed: its text carries the new spec, and the table keeps both rows.
 func TestPromptsFixJobRefetchedAfterASpecRev(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r, _ := fetched(t)
 	if _, err := r.verdict(wire.MethodSendback, "s1", "", "add a test"); err != nil {
@@ -271,6 +273,7 @@ func TestPromptsFixJobRefetchedAfterASpecRev(t *testing.T) {
 // A review job fetched again after the lead changed the spec it reviews (the gate merged rev 1): its text says so, and
 // the table keeps both rows, the newest the new text.
 func TestPromptsReviewJobRefetchedAfterASpecChange(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r := fetchRig(t)
 	r.work("feature.txt", "feature\n")

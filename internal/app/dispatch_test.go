@@ -308,6 +308,7 @@ var dispatchSteps = []string{"1 fact dispatch", "1 intent lane.prepare", "1 resu
 // sends the work job's wake. The worker's job_next is delivery (working);
 // its task_done then submits the task, and the merge loop takes it to merged.
 func TestDispatchHappyPath(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r := newDispatchRig(t)
 	r.work("feature.txt", "feature\n")
