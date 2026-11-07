@@ -73,9 +73,10 @@ trim-go-cache:
 # same steps, but go test only on the packages $OBOR_CHANGED_FILES affects (obor affected go); any doubt runs the full
 # suite. check-affected also passes -short: the tests marked testkit.Slow (>= 1 s: cmd/obor, internal/checks,
 # internal/setup, T-957) run only in check, the nightly and releases; check does not pass it unless CHECK_SHORT=1.
-# CHECK_SHORT=1 adds -short to check, check-readers and check-web: serve's lane test sets it, so a lane runs the short
-# tier whatever its class (T-989); the promotion's and the nightly's runners do not, so the full suite runs there, and in
-# a release.
+# CHECK_SHORT=1 adds -short to check, check-readers and check-web: serve's lane test sets it when branches.promote is
+# set (T-989, T-997), so a promoted lane runs the short tier whatever its class; the promotion's and the nightly's
+# runners and a release do not, so the full suite runs there. Without a promotion a lane runs the full class check, as
+# before T-989 (RV-138 #1).
 # CHECK_DIRECT=1 makes check-affected ask obor affected go --direct: the changed packages only, no importers. Serve's
 # lane test sets it when branches.promote is set (T-991): the merge slot's compile (check-compile) catches an importer's
 # build break and the promotion's full suite (commands.check) an importer's test break, so the lane need not run them.

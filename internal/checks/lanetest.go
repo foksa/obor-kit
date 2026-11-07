@@ -77,13 +77,13 @@ func (s Scratch) Test(ctx context.Context, in port.TestInput) (out port.TestOutc
 	// inherited's other flags kept) and CHECK_CPUS the same, never the gate's cores / slots.max.
 	r.env = append(r.env, config.LaneEnv(s.Cfg, s.Env.Get("GOFLAGS"))...)
 	r.env = append(r.env, "CHECK_CPUS="+strconv.Itoa(s.Cfg.LaneCPUs()))
-	// The short tier, whatever the class (T-989): the full suite runs at the promotion and the nightly, never in a lane
-	// (T-986's full:mixed lane timed out on it twice at 1200 s).
-	r.env = append(r.env, "CHECK_SHORT=1")
-	// With promotion on, only the changed packages' tests run here (T-991): the slot's compile catches an importer's
-	// build break, and the promotion's full suite an importer's test break.
+	// With promotion on, the lane runs the short tier and only the changed packages' tests (T-989, T-991, T-997): the
+	// full suite runs at the promotion and the nightly (T-986's full:mixed lane timed out on it twice at 1200 s), the
+	// promotion's full suite covers an importer's test break, and the slot's compile an importer's build break.
+	// Without a promotion nothing runs those later, so the lane runs the full class check, importers included, as
+	// before T-989 (RV-138 #1).
 	if s.Cfg.Data.Branches.Promote != "" {
-		r.env = append(r.env, "CHECK_DIRECT=1")
+		r.env = append(r.env, "CHECK_SHORT=1", "CHECK_DIRECT=1")
 	}
 	defer r.releaseSlot()
 	for _, h := range []func() *halt{
