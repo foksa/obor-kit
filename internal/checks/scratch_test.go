@@ -145,8 +145,8 @@ func (y *sx) gateNorm(o port.GateOutcome) string {
 	if o.Kind != port.OutcomeGreen {
 		return o.Kind + " " + strings.ReplaceAll(o.Line, y.Base, "$BASE")
 	}
-	return fmt.Sprintf("green tree=%s patch=%s checks=%q stat=%q full=%v target-is-main=%v line=%q", y.tree(c.SHA), c.Patch,
-		c.Checks, c.Stat, c.Full, c.Target == y.Git(y.Root, "rev-parse", "HEAD"), o.Line)
+	return fmt.Sprintf("green tree=%s patch=%s checks=%q stat=%q target-is-main=%v line=%q", y.tree(c.SHA), c.Patch,
+		c.Checks, c.Stat, c.Target == y.Git(y.Root, "rev-parse", "HEAD"), o.Line)
 }
 
 // cutStep is one Scratch step of the cut table: setup brings a fresh fixture to the step's start, call runs the step
@@ -248,11 +248,11 @@ func TestScratchMovedGateConflict(t *testing.T) {
 // T-913: a conflict the integrator resolved is not resolved again when the target moves. The gate's merge records the
 // conflict (rerere), the integrator's plain resolve commit records the resolution in the repository's common rr-cache
 // (serve's worktree shares it), and the next merge of the same sha onto a moved target replays it: a clean merge that
-// runs its checks and says so. A target move that changes the conflicted hunk differently is another preimage: a
+// compiles and says so. A target move that changes the conflicted hunk differently is another preimage: a
 // conflict as today.
 func TestScratchRerereReplaysResolvedConflict(t *testing.T) {
 	t.Parallel()
-	y := newSx(t, cmd("check", "echo 1 pass"))
+	y := newSx(t, cmd("compile", "echo 1 pass"))
 	sha := y.conflicted()
 
 	// The cache is the main checkout's own (its common git dir), not a per-worktree one: the two replay each other's
@@ -298,10 +298,7 @@ func TestScratchRerereReplaysResolvedConflict(t *testing.T) {
 	y.eq(y.Git(y.Root, "rev-parse", c.SHA+"^2"), sha, "the merge of the submitted sha (T-403)")
 	y.eq(y.Git(y.Root, "show", c.SHA+":shared.txt"), "both", "the candidate holds the recorded resolution")
 	y.contains(y.Git(y.Root, "log", "-1", "--format=%B", c.SHA), "(conflict resolution reused)", "the merge's message")
-	y.eq(c.Checks, "1 pass", "the checks ran on the replayed merge")
-	if !c.Full {
-		t.Error("the replayed merge's checks are not full")
-	}
+	y.eq(c.Checks, "compile 1 pass", "the replayed merge compiled (T-961: its lane test runs next)")
 	y.clean("the replayed merge")
 
 	z := newSx(t, cmd("check", "echo 1 pass"))
@@ -340,7 +337,7 @@ var cutSteps = []cutStep{
 	},
 	{
 		name:  "gate lane",
-		edits: []func(map[string]any){cmd("check", "echo 1 pass")},
+		edits: []func(map[string]any){cmd("compile", "echo 1 pass")},
 		setup: func(y *sx) cutIn { return cutIn{sha: y.submit()} },
 		call:  gateStep(port.InputLane),
 		end: func(y *sx, in cutIn, out any) {
@@ -355,7 +352,7 @@ var cutSteps = []cutStep{
 	},
 	{
 		name:  "gate resolved",
-		edits: []func(map[string]any){cmd("check", "echo 1 pass")},
+		edits: []func(map[string]any){cmd("compile", "echo 1 pass")},
 		setup: func(y *sx) cutIn {
 			input := y.conflicted()
 			y.resolveServe()
@@ -376,7 +373,7 @@ var cutSteps = []cutStep{
 	},
 	{
 		name:  "gate moved",
-		edits: []func(map[string]any){cmd("check", "echo 1 pass")},
+		edits: []func(map[string]any){cmd("compile", "echo 1 pass")},
 		setup: func(y *sx) cutIn {
 			sha := y.submit()
 			c := y.green(lane(sha))
@@ -392,6 +389,24 @@ var cutSteps = []cutStep{
 			y.eq(y.Git(y.Root, "rev-parse", c.SHA+"^2"), in.sha, "merges the submitted sha, not the old candidate (T-403)")
 			y.eq(c.Patch, in.c.Patch, "an unrelated move keeps the patch")
 			y.eq(y.ref(candidateRefs+"T-05"), c.SHA, "the new candidate pinned")
+		},
+	},
+	{
+		name:  "test",
+		edits: []func(map[string]any){cmd("check", "echo 1 pass")},
+		setup: func(y *sx) cutIn {
+			sha := y.submit()
+			return cutIn{sha: sha, c: y.green(lane(sha))}
+		},
+		call: func(y *sx, in cutIn) (string, any, error) {
+			o, err := y.test(ctx, in.c)
+			return fmt.Sprintf("%s %s tree=%s", o.Kind, strings.ReplaceAll(o.Line, y.Base, "$BASE"), o.Tree), o, err
+		},
+		end: func(y *sx, in cutIn, _ any) {
+			y.eq(y.Git(y.lane, "branch", "--show-current"), "task/T-05", "the lane back on its branch")
+			y.eq(y.head(y.lane), in.sha, "at the submitted sha")
+			y.eq(y.Git(y.lane, "status", "--porcelain"), "", "the lane clean")
+			y.eq(y.ref(candidateRefs+"T-05"), in.c.SHA, "the candidate still pinned")
 		},
 	},
 	{
@@ -543,7 +558,7 @@ func TestScratchGateForeignState(t *testing.T) {
 // target the resolution's first parent.
 func TestScratchGateResolvedAfterRed(t *testing.T) {
 	t.Parallel()
-	y := newSx(t, cmd("check", `test -f "$TMP_DIR/green" && echo 1 pass || { echo 0 pass; exit 1; }`))
+	y := newSx(t, cmd("compile", `test -f "$TMP_DIR/green" && echo 1 pass || { echo 0 pass; exit 1; }`))
 	input := y.conflicted()
 	y.resolveServe()
 	sha, err := y.s.Resolved(ctx, "T-05", input, nil)
@@ -643,8 +658,8 @@ func TestScratchPublish(t *testing.T) {
 	z.eq(z.ref(candidateRefs+"T-05"), c.SHA, "a moved candidate stays pinned")
 }
 
-// RV-40 #1: serve's gate does not reuse a worker's receipt once the guard has staged a change; the check runs on the
-// tree it merges, which holds the guard's file. Without that change the same receipt is reused.
+// RV-40 #1: serve's lane test does not reuse a worker's receipt once the guard has staged a change; the check runs on
+// the tree the index holds, with the guard's file. Without that change the same receipt is reused.
 func TestScratchGateReceiptGuardMutation(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct{ name, guard, want string }{
@@ -663,8 +678,12 @@ func TestScratchGateReceiptGuardMutation(t *testing.T) {
 			if rc := y.worker("check"); rc != 0 {
 				t.Fatalf("the worker's run: %d", rc)
 			}
-			o := y.gate(lane(y.submit()))
-			y.match(o.Line, tc.want, "the gate's line")
+			c := y.green(lane(y.submit()))
+			o, err := y.test(ctx, c) // T-961: the guard and the class's check run in the lane test
+			if err != nil {
+				t.Fatal(err)
+			}
+			y.match(o.Line, tc.want, "the test's line")
 		})
 	}
 }
@@ -986,9 +1005,9 @@ func TestScratchOwnCommitsSkipProjectCommitHooks(t *testing.T) {
 	}
 }
 
-// T-669 (RV-75 #4), T-673: serve's gate tells GateInput.Command each command as it starts and "" as it ends: a partial
-// merge its guard then its class's check (check_affected), never check; a full merge check; and the gate runs on with
-// no command between two.
+// T-669 (RV-75 #4), T-673: serve's gate tells GateInput.Command each command as it starts and "" as it ends (T-961: its
+// lane_setup and compile), and the lane test tells TestInput.Command its own: a partial merge its guard then its class's
+// check (check_affected), never check; a full merge check; each runs on with no command between two.
 func TestGateReportsItsCommands(t *testing.T) {
 	t.Parallel()
 	partial := testkit.Set("merge", map[string]any{"trailer": trailer, "summary_regex": "[0-9]+ pass", "guard": "guard",
@@ -1003,13 +1022,22 @@ func TestGateReportsItsCommands(t *testing.T) {
 		{"full", []func(map[string]any){cmd("check", "echo 3 pass")}, []string{"check", ""}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			y := newSx(t, tc.edits...)
+			y := newSx(t, append(tc.edits, cmd("compile", "echo 1 pass"), cmd("lane_setup", "true"))...)
 			in := lane(y.submit())
 			var got []string
 			in.Command = func(name string) { got = append(got, name) }
-			y.green(in)
-			if !slices.Equal(got, tc.want) {
-				t.Errorf("commands told %q, want %q", got, tc.want)
+			c := y.green(in)
+			if want := []string{"lane_setup", "", "compile", ""}; !slices.Equal(got, want) {
+				t.Errorf("the gate told %q, want %q", got, want)
+			}
+			got = nil
+			ti := port.TestInput{Task: "T-05", Lane: "L-01", SHA: c.SHA, Target: c.Target,
+				Command: func(name string) { got = append(got, name) }}
+			if o, err := y.s.Test(ctx, ti); err != nil || o.Kind != port.OutcomeGreen {
+				t.Fatalf("test: %+v %v", o, err)
+			}
+			if want := append([]string{"lane_setup", ""}, tc.want...); !slices.Equal(got, want) {
+				t.Errorf("the lane test told %q, want %q", got, want)
 			}
 		})
 	}

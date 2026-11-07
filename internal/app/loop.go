@@ -15,11 +15,12 @@ import (
 )
 
 // The merge loop (docs/state-model.md rows 16–38, rules 3–5). A worker's task_done submits its task; submit
-// pins the lane's commit and the gate checks it in the scratch (Scratch: serve's own worktree); a green candidate is a review job for the integrator, whose verdict accepts, sends back or
-// rejects it; an accepted candidate is published, then the after-merge work runs. A red gate sends the task back to
-// its worker (K times, then the owner decides), a conflict is a resolve job for the integrator, a moved target
-// re-gates (an identical patch keeps the accept; a gate whose new commits overlap nothing of the candidate keeps its
-// green result, T-900). Each step is a record first: replay folds them into each task's
+// pins the lane's commit, the gate merges and compiles it in the scratch (Scratch: serve's own worktree, seconds) and
+// the test runs the class's checks on that candidate in the task's lane (T-961, in parallel across lanes); a tested
+// candidate is a review job for the integrator, whose verdict accepts, sends back or rejects it; an accepted candidate
+// is published, then the after-merge work runs. A red gate or test sends the task back to its worker (K times, then the
+// owner decides), a conflict is a resolve job for the integrator, a moved target is merged and compiled again (the
+// accept binds to the task's own diff, which a move keeps: no test, no review). Each step is a record first: replay folds them into each task's
 // state (foldLoop) and the loop goes on from there; settle closes what a crash left open, and each step's effect is
 // a function of durable inputs, safe to run again after a crash at any point in it (docs/state-model.md "Crash
 // classes").
@@ -114,14 +115,15 @@ const tries = 3
 // The states of a merge-loop task: each a phase; a needs-you is a block on it (mtask.needs, block.go), never a state.
 const (
 	stSubmitted  = "submitted"           // submit it (pin the lane's commit), then gate it
-	stGreen      = "green"               // gate green: keep the accept, or a review job
+	stCandidate  = "candidate"           // the slot merged and compiled it: its lane test is next (T-961)
+	stGreen      = "green"               // tested green, or a move compiled: keep the accept, or a review job
 	stAwaiting   = "awaiting-accept"     // the review job is out
 	stRed        = "red"                 // gate red: a sendback, or the owner after K
 	stConflict   = wire.ScratchConflict  // the merge conflicts in the scratch: a resolve job
 	stResolving  = wire.ScratchResolving // the resolve job is out
 	stResolved   = wire.ScratchResolved  // gate the merge the integrator committed in the scratch
 	stAccepted   = "accepted"            // publish it
-	stMoved      = "moved"               // gate the candidate again on the new target (or keep its green, T-900)
+	stMoved      = "moved"               // merge and compile the candidate again on the new target (no test, T-961)
 	stPublished  = "published"           // the target holds the candidate
 	stMerged     = "merged"              // terminal (then after_merge)
 	stRejected   = "rejected"            // terminal; the owner is told
@@ -182,7 +184,8 @@ type attemptVars struct {
 	submits        int
 	input          string             // submit's sha, the lane gate's and the moved gate's input ("": submit first)
 	cand           port.Candidate     // the attempt's last green candidate
-	green          string             // the base the attempt's last checked green gate ran on, while its last gate result is green ("": none; T-900)
+	tests          int                // the attempt's last test step's N (T-961)
+	tested         string             // the attempt's last green lane test's checks (the review job names them; "": none)
 	gateRev        int                // the spec rev in cand's merge message (T-521; 0: none)
 	accepted       string             // the patch hash the integrator accepted in this attempt
 	line           string             // the last gate or publish line, or the integrator's note
@@ -240,10 +243,21 @@ type (
 		Line      string         `json:"line"`
 		Candidate port.Candidate `json:"candidate"`
 		SpecRev   int            `json:"spec_rev,omitempty"` // a gate's: the spec rev in its merge's message (T-521)
-		// Kept: a moved gate's green that kept the result checked on this base, no command run (T-900; partial)
-		Kept string `json:"kept,omitempty"`
 		// Mismatch: a conflict whose replayed resolution lost edits of the checked one (T-917)
 		Mismatch *port.Mismatch `json:"mismatch,omitempty"`
+	}
+	// testIn is a lane test's intent (T-961, row 18b): the candidate it tests, the target it was merged onto, the lane.
+	testIn struct {
+		Candidate string `json:"candidate"`
+		Target    string `json:"target"`
+		Lane      string `json:"lane"`
+	}
+	// testOut is a lane test's result: green, red or fail, its line, the checks' summary and the tree they ran on.
+	testOut struct {
+		Outcome string `json:"outcome"`
+		Line    string `json:"line"`
+		Checks  string `json:"checks,omitempty"`
+		Tree    string `json:"tree,omitempty"`
 	}
 	noteData struct {
 		Note string `json:"note"`
@@ -579,10 +593,11 @@ func (a *App) needsYou(p *proj, mt *mtask, cause, reason string) bool {
 func (a *App) drive(ctx context.Context, p *proj, fx *Loop, task string) {
 	a.mu.Lock()
 	mt := *p.folded.loop[task]
-	running := p.running.Task == task
+	_, testing := p.tests[task]
+	running := p.running.Task == task || testing
 	a.mu.Unlock()
 	if running {
-		return // its gate or publish runs: the task goes on once that has folded
+		return // its gate, publish or lane test runs: the task goes on once that has folded
 	}
 	if mt.landed() {
 		// A merge outside the app (the owner's, by hand in git): merged, no second publish. Git that cannot tell:
@@ -705,6 +720,17 @@ func (a *App) pickGate(p *proj, mt mtask) step {
 			return false // it would only fail; it starts once space is back
 		}
 		return a.scratchStep(ctx, p, mt, nth(event.StepGate, mt.gates+1), func(ctx context.Context) { a.gate(ctx, p, fx, mt) })
+	}
+}
+
+// pickTest runs the candidate's lane test (row 18b, T-961): outside the scratch token, one per lane, in parallel with
+// the other lanes' tests and with the slot's gates and publishes (laneStep).
+func (a *App) pickTest(p *proj, mt mtask) step {
+	return func(ctx context.Context, fx *Loop) bool {
+		if a.diskIsLow(p, fx) {
+			return false // it would only fail; it starts once space is back
+		}
+		return a.laneStep(ctx, p, mt, nth(event.StepTest, mt.tests+1), func(ctx context.Context) { a.test(ctx, p, fx, mt) })
 	}
 }
 

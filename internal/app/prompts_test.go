@@ -168,23 +168,26 @@ func (r *loopRig) spec(callID, text string) string {
 	return reply
 }
 
-// A review job whose patch changed: the moved target re-gates the candidate and sends the next review job (review.2),
-// whose fetch is a row of its own; the old job's row stays (T-670).
-func TestPromptsReviewJobAfterAChangedPatch(t *testing.T) {
+// A second review job of an attempt: the lead set a spec rev after the review, so the moved target's gate (T-961: a
+// move keeps the task's patch, and only a new spec rev ends the accept) sends the next review job (review.2), whose
+// fetch is a row of its own; the old job's row stays (T-670).
+func TestPromptsReviewJobAfterASpecRev(t *testing.T) {
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.work("shared.txt", "lane\n2\n3\n4\n5\n6\n7\n8\n9\n10\n")
 	r.start()
 	r.submit()
 	first := r.waitJob("pj-int", "T-1/1/review")
-	r.p.Write("shared.txt", "1\n2\nmain\n4\n5\n6\n7\n8\n9\n10\n") // in the patch's context: its text changes
-	r.p.Git(r.p.Root, "commit", "-qam", "main edit near the lane's")
+	r.spec("sp1", specOne)
+	r.p.Write("other.txt", "other\n")
+	r.p.Git(r.p.Root, "add", "other.txt")
+	r.p.Git(r.p.Root, "commit", "-qm", "unrelated")
 	if _, err := r.verdict(wire.MethodAccept, "c1", r.patch(first), ""); err != nil {
 		t.Fatal(err)
 	}
 	second := r.waitJob("pj-int", "T-1/1/review.2")
-	if r.patch(second) == r.patch(first) {
-		t.Fatal("precondition: the re-gated patch is the old one")
+	if r.patch(second) != r.patch(first) || !strings.Contains(second, "Do the thing.") {
+		t.Fatalf("precondition: the move keeps the patch and the job carries the new rev:\n%s", second)
 	}
 	rows := r.promptRows(t, store.PromptQuery{Task: "T-1"})
 	if len(rows) != 2 {

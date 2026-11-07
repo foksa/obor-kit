@@ -56,13 +56,8 @@ func (s Scratch) Submit(ctx context.Context, task, id, lane, summary, worker str
 	} else if _, err := exit1(err); err != nil {
 		return "", err
 	}
-	dir := ""
-	for _, l := range s.Cfg.Lanes() {
-		if l.Name == lane {
-			dir = l.Dir
-		}
-	}
-	if fi, err := os.Stat(dir); dir == "" || err != nil || !fi.IsDir() {
+	dir := s.laneDir(lane)
+	if dir == "" {
 		return "", port.Refused{Line: fmt.Sprintf("FAIL no lane %s", lane)}
 	}
 	branch, err := s.call(dir, "branch", "--show-current")
@@ -106,15 +101,17 @@ func (s Scratch) Submit(ctx context.Context, task, id, lane, summary, worker str
 	return head, nil
 }
 
-// Gate resets serve's worktree (created when missing) and gates in.Input there: a lane or moved input (the submitted
+// Gate resets serve's worktree (created when missing) and merges in.Input there: a lane or moved input (the submitted
 // sha, never the old candidate, T-403) is merged onto the target (merge --no-ff --no-commit; a conflict stays open), a
-// resolved one is checked as committed. Green: the merge committed and pinned at refs/obor/candidate/<task>. The merge
-// commit's date is its newer parent's, so a repeat makes the same commit.
+// resolved one is taken as committed. Then commands.compile runs on it (T-961: the slot compiles, it runs no test; red
+// when it fails), after lane_setup when compile is configured. Green: the merge committed and pinned at
+// refs/obor/candidate/<task>, its Patch, Stat and Diff the task's own diff Base..S (Base: merge-base(S, target); S the
+// submitted sha), which a move keeps. The merge commit's date is its newer parent's, so a repeat makes the same commit.
 //
 // T-913: the merge runs with git's rerere, so a hunk the integrator resolved once is replayed by the next merge of the
 // same sha onto a moved target instead of being asked for again. A merge that stopped with MERGE_HEAD but has no
-// unmerged path left after the replay is clean: its checks run as for any merge, and its message says the resolution
-// was reused.
+// unmerged path left after the replay is clean when its patch is the checked resolution's (T-915): it compiles as any
+// merge, and its message says the resolution was reused.
 func (s Scratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutcome, error) {
 	s.gitCtx = ctx
 	if s.Out == nil {
@@ -144,25 +141,21 @@ func (s Scratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutcome,
 	}
 	linkLaneLinks(s.Cfg, s.Cfg.Root, dir)
 
-	r := newRunner(ctx, &s.Options, dir, in.Task, "serve-changed-files")
-	r.onCommand = in.Command // obor status' running line names the command while it runs, none between two (T-669, T-673)
-	defer r.releaseSlot()
 	c := port.Candidate{Task: in.Task, Lane: in.Lane, SHA: in.Input}
-	rev := ""
-	reused := false // the merge got its conflicting hunks from a recorded resolution: clean, not a conflict
+	submitted := in.Input // S: the lane's commit the merge takes in
+	reused := false       // the merge got its conflicting hunks from a recorded resolution: clean, not a conflict
 	if in.Kind == port.InputResolved {
-		if r.pre, err = s.call(dir, "merge-base", target, in.Input); err != nil {
+		if c.Target, err = s.call(dir, "rev-parse", in.Input+"^1"); err != nil {
 			return port.GateOutcome{}, err
 		}
-		if c.Target, err = s.call(dir, "rev-parse", in.Input+"^1"); err != nil {
+		if submitted, err = s.call(dir, "rev-parse", in.Input+"^2"); err != nil {
 			return port.GateOutcome{}, err
 		}
 		if c.SHA, err = s.specResolved(dir, in); err != nil {
 			return port.GateOutcome{}, err
 		}
-		rev = r.pre + ".." + c.SHA
 	} else {
-		r.pre, c.Target, rev = target, target, target+"..."+in.Input
+		c.Target = target
 		args := append(slices.Clone(rerere), "merge", "-q", "--no-commit", "--no-ff", in.Input)
 		if _, errOut, mergeErr := s.gitLocked(nil, dir, args...); mergeErr != nil {
 			err := gitError(dir, []string{"merge"}, errOut, mergeErr) // named the subcommand, not a -c option
@@ -197,25 +190,19 @@ func (s Scratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutcome,
 			reused = true
 		}
 	}
-	keep := keepFull
-	if in.Kind == port.InputMoved && in.Green != "" {
-		if keep, err = s.keeps(dir, in.Green, target, in.Input); err != nil {
-			return port.GateOutcome{}, err
-		}
-	}
-	if keep != keepAll {
-		r.moved = keep == keepMoved
-		if o, err := gateHalt(&r, r.changed(in.Task, rev)); o != nil || err != nil {
-			return *o, err
-		}
+
+	r := newRunner(ctx, &s.Options, dir, in.Task, "serve-changed-files")
+	r.onCommand = in.Command // obor status' running line names the command while it runs, none between two (T-669, T-673)
+	defer r.releaseSlot()
+	if _, ok := s.command("compile"); ok {
 		if o, err := gateHalt(&r, r.laneSetup()); o != nil || err != nil {
 			return *o, err
 		}
-		if o, err := gateHalt(&r, r.runChecks(in.Kind != port.InputResolved)); o != nil || err != nil {
+		if o, err := gateHalt(&r, r.compile()); o != nil || err != nil {
 			return *o, err
 		}
-		r.releaseSlot()
 	}
+	r.releaseSlot()
 
 	if in.Kind != port.InputResolved {
 		moved := ""
@@ -234,28 +221,37 @@ func (s Scratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutcome,
 	if _, err := s.call(s.Cfg.Root, "update-ref", candidateRefs+in.Task, c.SHA); err != nil {
 		return port.GateOutcome{}, err
 	}
-	diff, err := s.call(s.Cfg.Root, "diff", c.Target, c.SHA)
-	if err != nil {
+	if err := s.ownDiff(&c, submitted); err != nil {
 		return port.GateOutcome{}, err
+	}
+	c.Checks = r.check
+	what := c.Checks
+	if what == "" {
+		what = "merged, no commands.compile"
+	}
+	return port.GateOutcome{Kind: port.OutcomeGreen, Candidate: c,
+		Line: fmt.Sprintf("GREEN %s (%s)%s", in.Task, what, r.loaded)}, nil
+}
+
+// ownDiff fills c's Base (merge-base(submitted, c.Target)) and the task's own diff Base..submitted: its Patch (an
+// accept binds to it, row 20), Stat and Diff (at most InlineDiff bytes: the review job carries it, T-602). Base is
+// fixed by the submitted sha's history, so a move onto a newer target keeps the same three (T-961).
+func (s Scratch) ownDiff(c *port.Candidate, submitted string) error {
+	base, err := s.call(s.Cfg.Root, "merge-base", submitted, c.Target)
+	if err != nil {
+		return err
+	}
+	c.Base = base
+	diff, err := s.call(s.Cfg.Root, "diff", base, submitted)
+	if err != nil {
+		return err
 	}
 	c.Patch = fmt.Sprintf("%x", sha256.Sum256([]byte(diff)))
 	if len(diff) <= port.InlineDiff {
-		c.Diff = diff // the review job carries it (T-602)
+		c.Diff = diff
 	}
-	if c.Stat, err = s.call(s.Cfg.Root, "diff", "--stat", c.Target, c.SHA); err != nil {
-		return port.GateOutcome{}, err
-	}
-	if keep == keepAll {
-		c.Checks = "kept " + in.Green[:min(7, len(in.Green))] // partial: no check ran on this tree (Full false)
-		return port.GateOutcome{Kind: port.OutcomeGreen, Candidate: c, Kept: in.Green,
-			Line: fmt.Sprintf("GREEN %s (%s: the new commits overlap none of its files or packages)", in.Task, c.Checks)}, nil
-	}
-	c.Checks, c.Full = r.check+r.gate, !r.class.Partial
-	if keep == keepMoved && r.class.Partial {
-		c.Checks += ", moved" // a partial class ran, its tests may not (T-914)
-	}
-	return port.GateOutcome{Kind: port.OutcomeGreen, Candidate: c,
-		Line: fmt.Sprintf("GREEN %s (%s, %s)%s", in.Task, c.Checks, r.mode, r.loaded)}, nil
+	c.Stat, err = s.call(s.Cfg.Root, "diff", "--stat", base, submitted)
+	return err
 }
 
 // replayDiffers is the files whose patch differs between the merge open in dir (its index against target) and the
@@ -310,62 +306,6 @@ func filePatches(diff string) map[string]string {
 		m[file] += l + "\n"
 	}
 	return m
-}
-
-// keep is a moved gate's decision on its green result (T-900, T-914): keepFull, keepAll or keepMoved.
-type keep int
-
-const (
-	keepFull  keep = iota // they share a file, or a side is full: gate again
-	keepAll               // nothing overlaps: no command runs
-	keepMoved             // only affected packages overlap: a partial class's checks run with OBOR_MOVED=1
-)
-
-// keeps decides what a moved gate does with the green result checked on base (T-900; design "Test tiers and receipts"):
-// keepFull when base is not an ancestor of the new target, the new commits (base..target) and the candidate
-// (target...input, the files its gate classifies) change a file in common, `affected.Go` of either set, run on the
-// clean merge in dir (a Go module at its root), is full, or there is no Affected or Go module (`go list` failing is
-// affected's own failure, which is full). Else the packages decide (T-914): they share one → keepMoved, none →
-// keepAll. Its inputs are shas and the merged tree, so a gate run again after a crash decides the same.
-func (s Scratch) keeps(dir, base, target, input string) (keep, error) {
-	if s.Affected == nil {
-		return keepFull, nil
-	}
-	if in, err := s.ancestor(dir, base, target); err != nil || !in {
-		return keepFull, err
-	}
-	out, err := s.call(dir, "diff", "--no-renames", "--name-only", base, target)
-	if err != nil {
-		return keepFull, err
-	}
-	news := lines(out)
-	if out, err = s.call(dir, "diff", "--no-renames", "--name-only", target+"..."+input); err != nil {
-		return keepFull, err
-	}
-	cands := lines(out)
-	for _, f := range cands {
-		if slices.Contains(news, f) {
-			return keepFull, nil
-		}
-	}
-	if _, err := os.Stat(filepath.Join(dir, "go.mod")); err != nil {
-		return keepFull, nil
-	}
-	globs := s.Cfg.Data.Merge.AffectedFull
-	a, full, err := s.Affected(dir, news, globs)
-	if err != nil || full != "" {
-		return keepFull, nil
-	}
-	b, full, err := s.Affected(dir, cands, globs)
-	if err != nil || full != "" {
-		return keepFull, nil
-	}
-	for _, p := range a {
-		if slices.Contains(b, p) {
-			return keepMoved, nil
-		}
-	}
-	return keepAll, nil
 }
 
 // specBody is the spec part of a merge's message (T-521): a blank line, "Spec rev N:", a blank line and in.Spec (the

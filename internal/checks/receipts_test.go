@@ -79,11 +79,6 @@ func TestReceiptReuse(t *testing.T) {
 			tc.edit(x)
 			x.is(x.gate("L-01", "T-05", "reuse"), OK, tc.want)
 			x.eq(strings.Repeat("r", x.ran()), strings.Repeat("r", tc.runs), "check runs")
-			if strings.Contains(tc.want, "reused") {
-				if x.cand.Full {
-					t.Error("a reused merge stays partial: the candidate is full")
-				}
-			}
 		})
 	}
 
@@ -110,7 +105,7 @@ func TestReceiptReuse(t *testing.T) {
 	})
 }
 
-// mutate is a command that changes the tree being merged: it stages a generated file, like a formatter or codegen.
+// mutate is a command that changes the tree being checked: it stages a generated file, like a formatter or codegen.
 const mutate = `echo "$MUT" > gen.txt; git add gen.txt; echo m >> "$TMP_DIR/mut.ran"; echo 1 pass`
 
 // RV-40 #1: a receipt is reused only when the tree at that moment, and at the end, is the tree it proved.
@@ -123,14 +118,20 @@ func TestReceiptTreeChangedByAnEarlierStep(t *testing.T) {
 	mutator := func(name string) func(map[string]any) {
 		return cmd(name, map[string]any{"cmd": strings.ReplaceAll(mutate, "$MUT", "generated"), "heavy": true})
 	}
-	// verify is the lane's merge: the check ran again on the merged tree, which holds the generated file.
+	// verify is the lane test's run: the check ran again on the tree the step changed. T-961: the slot committed the
+	// candidate before any check, so the generated file is not in it, and the lane test discards it (the lane is back
+	// on its branch, clean).
 	verify := func(t *testing.T, x *fx, wantRuns int) {
 		t.Helper()
 		x.eq(strings.Repeat("r", x.ran()), strings.Repeat("r", wantRuns), "check runs")
 		if x.Read(filepath.Join(x.Base, "mut.ran")) == "" {
 			t.Fatal("precondition: the mutating step ran")
 		}
-		x.eq(x.Git(x.Root, "show", x.cand.SHA+":gen.txt"), "generated", "the merged tree holds the generated file")
+		if gitOK(x.Root, "cat-file", "-e", x.cand.SHA+":gen.txt") {
+			t.Error("the candidate holds the generated file: the slot commits before the checks")
+		}
+		x.eq(x.Git(x.lane, "status", "--porcelain"), "", "the lane test left the lane clean")
+		x.eq(x.Git(x.lane, "branch", "--show-current"), "task/T-05", "on its branch")
 	}
 
 	t.Run("the guard stages a change: the check runs", func(t *testing.T) {

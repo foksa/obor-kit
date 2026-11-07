@@ -171,11 +171,21 @@ func TestTaskPageStepFromRecords(t *testing.T) {
 	if got := step(red, Detail{}); got == nil || *got != wire.TaskStepGate {
 		t.Errorf("a red gate whose line counts passes: step %v, want the gate (%d)", got, wire.TaskStepGate)
 	}
-	greenRecs := append(recs[:2:2], event.Record{Task: "T-1", Attempt: 1, Step: event.StepGate, Kind: event.KindResult,
+	greenGate := append(recs[:2:2], event.Record{Task: "T-1", Attempt: 1, Step: event.StepGate, Kind: event.KindResult,
 		Data: json.RawMessage(`{"outcome":"green","line":"GREEN"}`)})
+	if got := step(writeLog(t, greenGate, at), Detail{}); got == nil || *got != wire.TaskStepGate {
+		t.Errorf("a green gate (T-961: its lane test next): step %v, want the gate (%d)", got, wire.TaskStepGate)
+	}
+	redTest := append(greenGate[:3:3], event.Record{Task: "T-1", Attempt: 1, Step: event.StepTest, Kind: event.KindResult,
+		Data: json.RawMessage(`{"outcome":"red","line":"RED check (0 pass, 1 fail)"}`)})
+	if got := step(writeLog(t, redTest, at), Detail{}); got == nil || *got != wire.TaskStepGate {
+		t.Errorf("a red lane test: step %v, want the gate (%d)", got, wire.TaskStepGate)
+	}
+	greenRecs := append(greenGate[:3:3], event.Record{Task: "T-1", Attempt: 1, Step: event.StepTest, Kind: event.KindResult,
+		Data: json.RawMessage(`{"outcome":"green","line":"GREEN T-1 (check 1 pass)"}`)})
 	green := writeLog(t, greenRecs, at)
 	if got := step(green, Detail{}); got == nil || *got != wire.TaskStepReview {
-		t.Errorf("a green gate: step %v, want the review (%d)", got, wire.TaskStepReview)
+		t.Errorf("a green lane test: step %v, want the review (%d)", got, wire.TaskStepReview)
 	}
 	working := wire.TaskStepWorking
 	placed := Detail{Project: Project{Tasks: map[string]Task{"T-1": {Task: "T-1", Phase: wire.PhaseWorking, Step: &working}}}}

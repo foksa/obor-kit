@@ -195,12 +195,12 @@ func (a *App) reviewText(p *proj, mt mtask, kit string) (string, error) {
 	case row.Rev > 0:
 		spec = fmt.Sprintf("The gate merged no spec; the current one:%s\n", specText(row))
 	}
-	text := fmt.Sprintf("Review %s for obor serve (attempt %d, lane %s): the gate is green (%s).\n%s"+
-		"Candidate: %s, the target %s plus the lane, pinned at refs/obor/candidate/%s; %s\nPatch hash: %s\n"+
+	text := fmt.Sprintf("Review %s for obor serve (attempt %d, lane %s): %s.\n%s"+
+		"Candidate: %s, the lane merged onto the target %s, pinned at refs/obor/candidate/%s; %s\nPatch hash: %s\n"+
 		"The worker's report:\n%s\n"+
 		"%s%s",
-		mt.task, mt.attempt, mt.lane, c.Checks, spec, c.SHA, c.Target, mt.task, diffText(c), c.Patch, mt.report,
-		questionsText(mt.report), decisionText(mt))
+		mt.task, mt.attempt, mt.lane, greenText(mt), spec, c.SHA, c.Target, mt.task, diffText(c, mt.input), c.Patch,
+		mt.report, questionsText(mt.report), decisionText(mt))
 	return integratorRoles(p, text, kit)
 }
 
@@ -231,14 +231,32 @@ func questionsText(report string) string {
 		"\n(end of the open questions)\n"
 }
 
-// diffText is the review job's diff part (T-602): the stat, then the whole diff when the gate kept it (at most
-// InlineDiff bytes: no git diff call needed), else the stat and the git diff to read it with.
-func diffText(c port.Candidate) string {
-	if c.Diff == "" {
-		return fmt.Sprintf("read it with git diff %s %s.\n%s\n", c.Target, c.SHA, c.Stat)
+// greenText is what the review job says made the candidate green: the slot's compile and the lane test's checks
+// (T-961), or the gate's checks (a candidate gated before T-961: it ran them itself).
+func greenText(mt mtask) string {
+	if mt.cand.Base == "" {
+		return "the gate is green (" + mt.cand.Checks + ")"
 	}
-	return fmt.Sprintf("its stat, then its whole diff (git diff %s %s, as the gate made it: no need to run it):\n%s\n"+
-		"%s\n(end of the whole diff)\n", c.Target, c.SHA, c.Stat, strings.TrimRight(c.Diff, "\n"))
+	compiled := mt.cand.Checks
+	if compiled == "" {
+		compiled = "no commands.compile"
+	}
+	return "the slot compiled it (" + compiled + ") and its lane test is green (" + mt.tested + ")"
+}
+
+// diffText is the review job's diff part (T-602): the stat, then the whole diff when the gate kept it (at most
+// InlineDiff bytes: no git diff call needed), else the stat and the git diff to read it with. The diff is the task's
+// own, Base..submitted (T-961: whatever the target did since), or a candidate's gated before T-961 Target..SHA.
+func diffText(c port.Candidate, submitted string) string {
+	from, to, what := c.Target, c.SHA, "the candidate's diff"
+	if c.Base != "" {
+		from, to, what = c.Base, submitted, "the task's own diff"
+	}
+	if c.Diff == "" {
+		return fmt.Sprintf("%s: read it with git diff %s %s.\n%s\n", what, from, to, c.Stat)
+	}
+	return fmt.Sprintf("%s: its stat, then its whole diff (git diff %s %s, as the gate made it: no need to run it):\n%s\n"+
+		"%s\n(end of the whole diff)\n", what, from, to, c.Stat, strings.TrimRight(c.Diff, "\n"))
 }
 
 // decisionText is the line of the lead's decision on mt's last obor resume of the attempt ("": none), for the

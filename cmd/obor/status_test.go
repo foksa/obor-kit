@@ -453,6 +453,12 @@ func TestStatusRunningLine(t *testing.T) {
 			{Step: event.StepGate, Task: "T-656", Command: "check", Since: now.Add(-2*time.Minute - 14*time.Second).Unix()},
 			{Step: event.StepAfterMerge, Task: "T-655", Since: now.Add(-12 * time.Second).Unix()}},
 			"running: gate T-656 (make -s check, 2m14s) · after_merge T-655 (make build, 12s)"},
+		// T-961: the slot's gate and two lanes' tests at once, each test with the class's command it runs.
+		{"lane tests beside the slot", []wire.RunningStep{
+			{Step: event.StepGate, Task: "T-7", Command: "compile", Since: now.Add(-3 * time.Second).Unix()},
+			{Step: event.StepTest, Task: "T-5", Command: "check_affected", Since: now.Add(-2 * time.Minute).Unix()},
+			{Step: event.StepTest, Task: "T-6", Command: "guard", Since: now.Add(-9 * time.Second).Unix()}},
+			"running: gate T-7 (compile, 3s) · test T-5 (make -s check-affected, 2m00s) · test T-6 (guard, 9s)"},
 		{"publish", []wire.RunningStep{{Step: event.StepPublish, Task: "T-4", Since: now.Add(-5 * time.Second).Unix()}},
 			"running: publish T-4 (5s)"},
 		{"nightly check", []wire.RunningStep{{Step: event.StepNightly, Since: now.Add(-90 * time.Second).Unix()}},

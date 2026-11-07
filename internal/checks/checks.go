@@ -22,7 +22,6 @@ import (
 	"strings"
 	"time"
 
-	"obor/internal/app/port"
 	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/run"
@@ -52,9 +51,6 @@ type Options struct {
 	WindowWait time.Duration
 	// Git is the git binary ("": git on PATH); a test puts a shim here that fails a chosen call.
 	Git string
-	// Affected is the moved gate's overlap test of the packages two changes affect (T-900; nil: a moved gate never
-	// keeps a green result, it runs).
-	Affected port.Affected
 	// GitAlive reports whether a git process runs in dir's repository (a lock it holds is not stale); nil: the
 	// system's (ps, the processes' cwd). Serve's git calls only (gitLocked).
 	GitAlive func(dir string) bool

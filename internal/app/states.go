@@ -82,7 +82,10 @@ func init() {
 		// rows 16, 18, 34: submit the lane's commit, then gate it (a conflict open in the scratch: wait)
 		stSubmitted: {pick: (*App).pickGate, name: gateName, verbs: vDrop, landed: true, uses: wire.ScratchGating,
 			phase: wire.PhaseSubmitted},
-		// rows 18–20: an accept bound to the patch is kept, else a review job
+		// row 18b: the slot merged and compiled it; its lane test runs outside the scratch, one per lane (T-961)
+		stCandidate: {pick: (*App).pickTest, name: func(mt mtask) string { return nth(event.StepTest, mt.tests+1) },
+			verbs: vDrop, landed: true, phase: wire.PhaseTesting},
+		// rows 19–20: an accept bound to the patch is kept, else a review job
 		stGreen: {pick: (*App).pickGreen, name: func(mt mtask) string { return nth(event.StepReview, mt.reviews+1) },
 			verbs: vResume | vDrop, landed: true, phase: wire.PhaseReview},
 		// rows 19, 25–29, 31: the review job is out
@@ -111,7 +114,7 @@ func init() {
 		// rows 20, 26, 33, 35: publish it
 		stAccepted: {pick: (*App).pickAccepted, name: func(mt mtask) string { return nth(event.StepPublish, mt.pubs+1) },
 			verbs: vDrop, uses: wire.ScratchPublishing, phase: wire.PhasePublish},
-		// rows 32, 18: gate the candidate again on the new target
+		// rows 32, 18: merge and compile the candidate again on the new target (no test, T-961)
 		stMoved: {pick: (*App).pickGate, name: gateName, verbs: vDrop, uses: wire.ScratchGating, phase: wire.PhaseGating},
 		// rows 33–34: the target holds the candidate
 		stPublished: {pick: (*App).pickPublished, verbs: vDrop, phase: wire.PhasePublish},
@@ -211,33 +214,33 @@ func (p *proj) blocked(mt *mtask) bool {
 	return false
 }
 
-// stepPhases is, by task, the phase its open gate or publish gives it (open: the log's open intents): gating or
-// merging while its effect runs, else gate pending or publish pending (T-662: a failed step, a replay to run).
+// stepPhases is, by task, the phase its open gate, lane test or publish gives it (open: the log's open intents):
+// gating, testing or merging while its effect runs, else gate pending, test pending or publish pending (T-662: a
+// failed step, a replay to run).
 func (p *proj) stepPhases(open []event.Record) map[string]string {
+	running := map[string]string{event.StepGate: wire.PhaseGating, event.StepTest: wire.PhaseTesting,
+		event.StepPublish: wire.PhaseMerging}
+	pending := map[string]string{event.StepGate: wire.PhaseGatePending, event.StepTest: wire.PhaseTestPending,
+		event.StepPublish: wire.PhasePublishPending}
 	out := map[string]string{}
 	for _, r := range open {
 		step, task, ok := commandStep(r)
-		if !ok || task == "" || step != event.StepGate && step != event.StepPublish {
+		if !ok || task == "" || running[step] == "" {
 			continue
 		}
-		_, running := p.exec[r.Key()]
-		switch {
-		case running && step == event.StepGate:
-			out[task] = wire.PhaseGating
-		case running:
-			out[task] = wire.PhaseMerging
-		case out[task] == "" && step == event.StepGate:
-			out[task] = wire.PhaseGatePending
+		switch _, runs := p.exec[r.Key()]; {
+		case runs:
+			out[task] = running[step]
 		case out[task] == "":
-			out[task] = wire.PhasePublishPending
+			out[task] = pending[step]
 		}
 	}
 	return out
 }
 
 // busy is why no task verb may act on task now ("": one may): the one reader of the live claims on it. A drop of it is
-// being recorded (p.ended), a step or a decision holds it (p.held: claim), its scratch step runs (p.running), or its
-// attempt's next gate or publish intent is open (a step a restart replays; not a needs-you's, which runs no step), or
+// being recorded (p.ended), a step or a decision holds it (p.held: claim), its scratch step or lane test runs (p.running, p.tests), or its
+// attempt's next gate, test or publish intent is open (a step a restart replays; not a needs-you's, which runs no step), or
 // a move's or drop's stop of its worker is pending (T-855: recorded, not settled; a refused stop, its
 // needs-you, is settled). Each verb refuses with "<verb> <T>: <busy>; retry when it settles" (busyErr).
 func (p *proj) busy(task string) string {
@@ -246,6 +249,9 @@ func (p *proj) busy(task string) string {
 	}
 	if p.running.Task == task {
 		return fmt.Sprintf("%s has %s running", task, p.running.Step)
+	}
+	if k, ok := p.tests[task]; ok {
+		return fmt.Sprintf("%s has %s running", task, k.Step)
 	}
 	var mt mtask
 	if m := p.folded.loop[task]; m != nil {
@@ -257,7 +263,7 @@ func (p *proj) busy(task string) string {
 	if mt.onHold() { // it runs no step: an open intent is the failed step's, which obor resume retries
 		return ""
 	}
-	for _, step := range []string{nth(event.StepGate, mt.gates+1), nth(event.StepPublish, mt.pubs+1)} {
+	for _, step := range []string{nth(event.StepGate, mt.gates+1), nth(event.StepTest, mt.tests+1), nth(event.StepPublish, mt.pubs+1)} {
 		if p.log.Open(event.Key{Task: task, Attempt: mt.attempt, Step: step}) {
 			return fmt.Sprintf("%s has %s pending", task, step)
 		}

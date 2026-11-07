@@ -13,21 +13,21 @@ import (
 // T-917 (RV-123 V1): a replay mismatch has no unmerged path, so the gate outcome carries the checked resolution and the
 // files, and Scratch.Resolved refuses the staged merge committed as it stands.
 
-// The review's fixture and each keep decision (T-900, T-914) reach the same mismatch.
+// The review's fixture and each kind of move (a disjoint package, an importer, go.mod) reach the same mismatch.
 func TestReplayMismatchOutcomeNamesCheckedResolution(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct{ name, file, old, new string }{
-		{"keepAll", "d/d.go", "return 1", "return 20"},
-		{"keepMoved", "c/c.go", "return a.A()", "return a.A() + 1"},
-		{"keepFull", "go.mod", "go 1.22\n", "go 1.22\n\n// moved\n"},
+		{"a disjoint package", "d/d.go", "return 1", "return 20"},
+		{"an importer", "c/c.go", "return a.A()", "return a.A() + 1"},
+		{"go.mod", "go.mod", "go 1.22\n", "go 1.22\n\n// moved\n"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			y := newGoSx(t)
-			sha, res, old := resolvedGreen(y, true)
+			sha, res, _ := resolvedGreen(y, true)
 			y.edit(y.Root, c.file, c.old, c.new)
-			in := moved(sha, old.Target)
-			in.Resolved, in.Green = res, old.Target
+			in := moved(sha)
+			in.Resolved = res
 			o := y.gate(in)
 			if o.Kind != port.OutcomeConflict || o.Mismatch == nil {
 				t.Fatalf("moved gate: %s %q mismatch %v; want a conflict with a mismatch", o.Kind, o.Line, o.Mismatch)
@@ -63,9 +63,9 @@ func TestUnmergedConflictHasNoMismatch(t *testing.T) {
 func TestResolvedRefusesMismatchUntilEditRestored(t *testing.T) {
 	t.Parallel()
 	y := newGoSx(t)
-	sha, res, old := resolvedGreen(y, true)
+	sha, res, _ := resolvedGreen(y, true)
 	y.edit(y.Root, "d/d.go", "return 1", "return 20")
-	in := moved(sha, old.Target)
+	in := moved(sha)
 	in.Resolved = res
 	o := y.gate(in)
 	if o.Mismatch == nil {
@@ -92,16 +92,16 @@ func TestResolvedRefusesMismatchUntilEditRestored(t *testing.T) {
 	before := y.runs()
 	c := y.green(port.GateInput{Task: "T-05", Lane: "L-01", Kind: port.InputResolved, Input: fixed})
 	y.eq(y.Git(y.Root, "show", c.SHA+":b/b.go"), "package b\n\nfunc B() int { return 40 }", "the candidate holds the edit")
-	y.eq(fmt.Sprint(y.runs()), fmt.Sprint(before+1), "the resolved gate ran the checks")
+	y.eq(fmt.Sprint(y.runs()), fmt.Sprint(before+1), "the resolved gate compiled it")
 }
 
 // An integrator who changed the file otherwise (not the replay's content) is not refused.
 func TestResolvedAcceptsOtherwiseChangedMismatchFile(t *testing.T) {
 	t.Parallel()
 	y := newGoSx(t)
-	sha, res, old := resolvedGreen(y, true)
+	sha, res, _ := resolvedGreen(y, true)
 	y.edit(y.Root, "d/d.go", "return 1", "return 20")
-	in := moved(sha, old.Target)
+	in := moved(sha)
 	in.Resolved = res
 	o := y.gate(in)
 	if o.Mismatch == nil {

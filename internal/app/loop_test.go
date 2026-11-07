@@ -533,12 +533,18 @@ func TestLoopHappyPath(t *testing.T) {
 
 	r.submit()
 	job := r.waitJob("pj-int", "T-1/1/review")
+	if got := r.scratch.tests.Load(); got != 1 {
+		t.Errorf("lane tests %d before the review, want 1 (T-961: gate, candidate, test, then the review)", got)
+	}
+	if got := r.p.Git(r.lane, "branch", "--show-current"); got != "task/T-1" {
+		t.Errorf("the lane is on %q after its test, want its branch task/T-1 back", got)
+	}
 	if r.starts.Load() != 1 {
 		t.Errorf("integrator starts = %d, want 1 (it did not run)", r.starts.Load())
 	}
-	for _, want := range []string{"Review T-1 for obor serve (attempt 1, lane L-01): the gate is green (rc=0)",
-		"No spec is stored for T-1.\n", "feature.txt", "The worker's report:\n" + report,
-		"Patch hash: "} {
+	for _, want := range []string{"Review T-1 for obor serve (attempt 1, lane L-01): the slot compiled it (no commands.compile) " +
+		"and its lane test is green (rc=0)", "No spec is stored for T-1.\n", "feature.txt", "The worker's report:\n" + report,
+		"Patch hash: ", "the task's own diff"} {
 		if !strings.Contains(job, want) {
 			t.Errorf("review job has no %q:\n%s", want, job)
 		}
@@ -564,7 +570,7 @@ func TestLoopHappyPath(t *testing.T) {
 		}
 	}
 	eq(t, steps, []string{"1 fact dispatch", "1 fact submitted", "1 intent submit", "1 result submit", "1 intent gate",
-		"1 result gate", "1 intent review", "1 intent start.review", "1 result start.review", "1 result review",
+		"1 result gate", "1 intent test", "1 result test", "1 intent review", "1 intent start.review", "1 result start.review", "1 result review",
 		"1 fact delivered", "1 intent accept.c1", "1 result accept.c1", "1 intent publish", "1 result publish",
 		"1 fact merged", "1 intent after_merge", "1 result after_merge", "1 intent agent.stop", "1 result agent.stop"},
 		"records")
@@ -589,7 +595,7 @@ func TestLoopHappyPath(t *testing.T) {
 	}
 }
 
-// A red gate goes back to the worker with the reasons; its next task_done is the next attempt. After K = 2 sendbacks a third red goes to the owner (one notification), not to the worker again.
+// A red lane test (T-961) goes back to the worker with the reasons; its next task_done is the next attempt. After K = 2 sendbacks a third red goes to the owner (one notification), not to the worker again.
 func TestLoopRedSendsBackTwiceThenNeedsYou(t *testing.T) {
 	t.Parallel()
 	r := newLoopRig(t, `if [ -f red.txt ]; then echo "0 pass, 1 fail"; exit 1; fi; echo 1 pass`)
@@ -607,7 +613,7 @@ func TestLoopRedSendsBackTwiceThenNeedsYou(t *testing.T) {
 		r.submit()
 		r.waitStep(string(rune('0'+attempt)) + " fact submitted")
 	}
-	r.waitStep("3 result gate")
+	r.waitStep("3 result test") // T-961: the class's check runs in the lane test, not the gate
 	r.waitStep("3 fact needs-you{gate red after 2 sendbacks: " + r.redLine() + "}")
 	r.waitFor("one notification", func() bool { return countReq(r.srv, "notification.show") == 1 })
 	if n := r.count("3 fact sendback"); n != 0 {
@@ -628,11 +634,11 @@ func TestLoopRedSendsBackTwiceThenNeedsYou(t *testing.T) {
 	r.noLead()
 }
 
-// redLine is the third gate's line, as the needs-you names it.
+// redLine is the third attempt's red line (its lane test's, T-961), as the needs-you names it.
 func (r *loopRig) redLine() string {
 	var line string
 	for _, rec := range r.records() {
-		if rec.Kind == event.KindResult && strings.HasPrefix(rec.Step, "gate") && rec.Attempt == 3 {
+		if rec.Kind == event.KindResult && strings.HasPrefix(rec.Step, "test") && rec.Attempt == 3 {
 			var g struct{ Line string }
 			_ = json.Unmarshal(rec.Data, &g)
 			line = g.Line
@@ -740,38 +746,43 @@ func TestLoopTargetMoved(t *testing.T) {
 			t.Errorf("moved merge subject %q, want the task's subject rule (T-360)", got)
 		}
 	})
-	t.Run("changed patch", func(t *testing.T) {
+	// T-961: the target moves within the patch's context after the accept. The slot merges and compiles the task onto
+	// it again (gate.2); the accept binds to the task's own diff Base..S, which the move leaves as it was: accept.kept,
+	// then publish.2. No lane test and no review job on a move; the published merge holds both edits.
+	t.Run("a move next to the lane's lines", func(t *testing.T) {
 		t.Parallel()
 		r := newLoopRig(t, "echo 1 pass")
 		r.work("shared.txt", "lane\n2\n3\n4\n5\n6\n7\n8\n9\n10\n")
 		r.start()
 		r.submit()
 		job := r.waitJob("pj-int", "T-1/1/review")
-		old := r.patch(job)
-		r.p.Write("shared.txt", "1\n2\nmain\n4\n5\n6\n7\n8\n9\n10\n") // in the patch's context: its text changes
+		if n := r.scratch.tests.Load(); n != 1 {
+			t.Fatalf("precondition: one lane test before the review, got %d", n)
+		}
+		r.p.Write("shared.txt", "1\n2\nmain\n4\n5\n6\n7\n8\n9\n10\n") // in the patch's context
 		r.p.Git(r.p.Root, "commit", "-qam", "main edit near the lane's")
-		r.accept("c1", old)
-		job = r.waitJob("pj-int", "T-1/1/review.2")
-		if r.patch(job) == old {
-			t.Fatal("precondition: the re-gated patch is the old one")
-		}
-		if !r.has("1 fact target.moved") || r.has("1 fact accept.kept") {
-			t.Errorf("moved, not kept: %q", r.steps())
-		}
-		if _, err := r.verdict(wire.MethodAccept, "c2", old, ""); err == nil || !strings.Contains(err.Error(), "stale: re-read the candidate") {
-			t.Errorf("accept of the old patch: %v", err)
-		}
-		stale := wire.Call{Root: r.p.Root, Agent: "pj-int", Role: "integrator", CallID: "c3", Task: "T-1",
-			Job: "T-1/1/review", Patch: r.patch(job)}
-		if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodAccept, stale); err == nil ||
-			!strings.Contains(err.Error(), "stale job T-1/1/review") {
-			t.Errorf("accept of the old job: %v", err)
-		}
-		if reply, err := r.verdict(wire.MethodAccept, "c1", old, ""); err != nil || reply != "ACCEPT T-1 (job T-1/1/review)" {
-			t.Errorf("the first accept's call id again: %q, %v; want its stored reply", reply, err)
-		}
-		r.accept("c4", r.patch(job))
+		r.accept("c1", r.patch(job))
 		r.merged(1)
+		for _, s := range []string{"1 fact target.moved", "1 result gate.2", "1 fact accept.kept", "1 result publish.2",
+			"1 fact merged"} {
+			if !r.has(s) {
+				t.Errorf("no record %q: %q", s, r.steps())
+			}
+		}
+		for _, s := range []string{"1 intent test.2", "1 intent review.2"} {
+			if r.has(s) {
+				t.Errorf("a move ran %q: %q", s, r.steps())
+			}
+		}
+		if n := r.scratch.tests.Load(); n != 1 {
+			t.Errorf("lane tests %d, want the one before the review (none on the move)", n)
+		}
+		if n := r.jobPrompts("T-1/1/review.2"); n != 0 {
+			t.Errorf("review.2 prompted %d times, want none: the accept stands", n)
+		}
+		if got := r.p.Read("shared.txt"); got != "lane\n2\nmain\n4\n5\n6\n7\n8\n9\n10\n" {
+			t.Errorf("main's shared.txt %q, want both edits", got)
+		}
 		if _, err := r.verdict(wire.MethodReject, "c5", "", "late"); err == nil || !strings.Contains(err.Error(), "no job open") {
 			t.Errorf("a verdict after the merge: %v", err)
 		}
@@ -782,7 +793,7 @@ func TestLoopTargetMoved(t *testing.T) {
 }
 
 // T-403: a moved gate that conflicts is resolved against the submitted sha (the merge's second parent), then gated as
-// committed and merged; the old candidate does not go along.
+// committed, tested in the lane and merged (T-961: no second review); the old candidate does not go along.
 func TestLoopMovedConflictResolved(t *testing.T) {
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
@@ -805,9 +816,20 @@ func TestLoopMovedConflictResolved(t *testing.T) {
 	if reply, err := r.verdict(wire.MethodResolved, "c1", "", ""); err != nil || reply != "RESOLVED T-1 (job T-1/1/resolve)" {
 		t.Fatalf("resolved against the submitted sha: %q, %v", reply, err)
 	}
-	job = r.waitJob("pj-int", "T-1/1/review.2")
-	r.accept("c2", r.patch(job))
+	// T-961: the resolution is compiled (gate.3), tested once in the lane (test.2) and not reviewed again: the accept
+	// binds to the task's own diff, which the resolution leaves as it was (accept.kept).
 	r.merged(1)
+	for _, s := range []string{"1 result gate.3", "1 intent test.2", "1 result test.2", "1 fact accept.kept"} {
+		if !r.has(s) {
+			t.Errorf("no record %q: %q", s, r.steps())
+		}
+	}
+	if n := r.scratch.tests.Load(); n != 2 {
+		t.Errorf("lane tests %d, want 2: the lane merge's and the resolution's, the move's none", n)
+	}
+	if n := r.jobPrompts("T-1/1/review.2"); n != 0 || r.has("1 intent review.2") {
+		t.Errorf("the resolution was reviewed again (%d prompts): %q", n, r.steps())
+	}
 	if got := r.p.Read("shared.txt"); got != "both\n2\n3\n4\n5\n6\n7\n8\n9\n10\n" {
 		t.Errorf("main's shared.txt %q, want the resolution", got)
 	}

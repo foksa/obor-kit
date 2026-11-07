@@ -24,6 +24,10 @@
         "Makefile"
       ]
     },
+    "compile": {
+      "cmd": "make -s check-compile",
+      "timeout": 600
+    },
     "check": {
       "cmd": "make -s check",
       "timeout": 1200,

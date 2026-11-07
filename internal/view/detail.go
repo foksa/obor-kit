@@ -246,8 +246,8 @@ func (d Detail) Job(job string) (Prompt, bool) {
 }
 
 // recordStep is the step record r (described as d) shows its task reached (wire.TaskStep*; -1: none): the dispatch,
-// the job fetched or a sendback (working), the submission, a gate (red: the gate; green: the review), the review job,
-// an accept or a publish (merging). The merged fact is the page's own "every step done".
+// the job fetched or a sendback (working), the submission, a gate (the gate: its lane test or its review next, T-961), a
+// lane test (red: the gate; green: the review), the review job, an accept or a publish (merging). The merged fact is the page's own "every step done".
 func recordStep(r event.Record, d app.Described) int {
 	base, _ := event.StepN(r.Step)
 	method, _, _ := strings.Cut(r.Step, ".")
@@ -262,9 +262,9 @@ func recordStep(r event.Record, d app.Described) int {
 		return -1
 	case method == wire.MethodAccept || method == event.StepPublish:
 		return wire.TaskStepMerging
-	case base == event.StepGate && d.Outcome == "green":
+	case base == event.StepTest && d.Outcome == "green":
 		return wire.TaskStepReview
-	case base == event.StepGate:
+	case base == event.StepGate, base == event.StepTest:
 		return wire.TaskStepGate
 	case method == event.StepReview:
 		return wire.TaskStepReview

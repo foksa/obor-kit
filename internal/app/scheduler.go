@@ -106,11 +106,19 @@ func (p *proj) scratchQueue() (*wire.ScratchStatus, []wire.ScratchWait) {
 }
 
 // scratchCommand is the command the running gate runs now (Scratch.Gate reports each as it starts and "" as it ends:
-// the class's, the guard, the full check, lane_setup); "" when none runs now, between two commands too (T-673). Under
-// mu.
+// lane_setup, compile); "" when none runs now, between two commands too (T-673). Under mu.
 func (p *proj) scratchCommand(k event.Key) string {
 	if base, _ := event.StepN(k.Step); k != p.running || base != event.StepGate {
 		return ""
 	}
 	return p.runCmd
+}
+
+// stepCommand is the command the running step k runs now: its gate's (scratchCommand) or its lane test's (the
+// class's checks, the guard, lane_setup: TestInput.Command, T-961); "" when none runs now. Under mu.
+func (p *proj) stepCommand(k event.Key) string {
+	if t, ok := p.tests[k.Task]; ok && t == k {
+		return p.testCmd[k.Task]
+	}
+	return p.scratchCommand(k)
 }

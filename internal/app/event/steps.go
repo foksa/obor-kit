@@ -84,7 +84,8 @@ const (
 const (
 	StepSubmitted  = "submitted"    // fact: the worker's task_done submits the task (data: submitData, its report)
 	StepSubmit     = "submit"       // intent/result (G), submit.N: the lane's commit pinned → submitOut
-	StepGate       = "gate"         // intent/result (G), gate.N within an attempt: gateIn → gateOut
+	StepGate       = "gate"         // intent/result (G), gate.N within an attempt: the slot's merge and compile, gateIn → gateOut
+	StepTest       = "test"         // intent/result (G), test.N: the class's checks in the lane (T-961), testIn → testOut
 	StepKept       = "accept.kept"  // fact: the re-gated patch is the one accepted
 	StepSendback   = "sendback"     // fact: the gate is red, back to the worker (data: noteData)
 	StepFix        = "fix"          // prompt intent (P) of the new attempt: the worker's fix job (data: noteData)

@@ -156,17 +156,17 @@ func (p *proj) foldLoop(r event.Record) {
 				mt.block(block{cause: causeGate, why: "submit: " + d.Refused})
 			}
 		case event.StepGate:
-			mt.gates, mt.line, mt.green, mt.mismatch = n, g.Line, "", g.Mismatch
+			mt.gates, mt.line, mt.mismatch = n, g.Line, g.Mismatch
 			switch g.Outcome {
 			case outGreen:
 				if g.SpecRev != mt.gateRev {
 					mt.accepted = "" // the accept was of another spec rev: review again (RV-55 #1)
 				}
 				mt.cand, mt.gateRev, mt.state = g.Candidate, g.SpecRev, stGreen
-				// The base its checks ran on: a kept result's is the one it kept (T-900).
-				mt.green = g.Candidate.Target
-				if g.Kept != "" {
-					mt.green = g.Kept
+				// T-961: a lane or resolved merge the slot compiled is tested in the lane next; a moved one is not (row
+				// 32). A gate before T-961 (no Base) ran the checks itself: green as it folded then.
+				if g.Candidate.Base != "" && mt.kind != port.InputMoved {
+					mt.state = stCandidate
 				}
 			case outRed:
 				mt.state = stRed
@@ -174,6 +174,18 @@ func (p *proj) foldLoop(r event.Record) {
 				mt.state = stConflict
 			default:
 				mt.block(block{cause: causeGate, why: "gate: " + g.Line})
+			}
+		case event.StepTest:
+			var d testOut
+			_ = json.Unmarshal(r.Data, &d)
+			mt.tests, mt.line = n, d.Line
+			switch d.Outcome {
+			case outGreen:
+				mt.state, mt.tested = stGreen, d.Checks
+			case outRed:
+				mt.state = stRed
+			default:
+				mt.block(block{cause: causeGate, why: "test: " + d.Line})
 			}
 		case event.StepPrepare:
 			var d prepareOut

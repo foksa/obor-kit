@@ -8,17 +8,14 @@ import (
 	"obor/internal/run"
 )
 
-// checkedTree is the tree the checks run on: the open merge's (staged: written from the index) or HEAD's. "" when no
-// receipt exists to compare it with (nothing is read then); git failing is an error, like any git I/O of a run.
-func (r *runner) checkedTree(staged bool) (string, error) {
+// checkedTree is the tree the checks run on: the index's (written from it: the candidate checked out, plus what a step
+// staged since, RV-40 #1). "" when no receipt exists to compare it with (nothing is read then); git failing is an
+// error, like any git I/O of a run.
+func (r *runner) checkedTree() (string, error) {
 	if _, err := os.Stat(run.ReceiptDir(r.state)); err != nil {
 		return "", nil
 	}
-	args := []string{"rev-parse", "HEAD^{tree}"}
-	if staged {
-		args = []string{"write-tree"}
-	}
-	tree, err := r.git(r.dir, args...)
+	tree, err := r.git(r.dir, "write-tree")
 	if err != nil {
 		return "", fmt.Errorf("cannot read the tree to check in %s", r.dir)
 	}
@@ -34,7 +31,7 @@ func (r *runner) reuse(name string) (string, bool) {
 		return "", false
 	}
 	// The tree as of now: an earlier command (the guard, a check, the baseline) may have changed the index.
-	tree, err := r.checkedTree(r.staged)
+	tree, err := r.checkedTree()
 	if err != nil || tree == "" {
 		return "", false
 	}

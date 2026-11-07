@@ -47,9 +47,12 @@ func TestGateSpecInMessage(t *testing.T) {
 		}
 		cand := o.Candidate
 		names := y.Git(y.Root, "diff", "--name-only", cand.Target, cand.SHA)
-		changed := y.Read(".obor/state/serve-changed-files")
 		y.contains(names, "feature.txt", c.name+": the candidate's patch")
 		if c.laneCopy {
+			if o, err := y.test(ctx, cand); err != nil || o.Kind != port.OutcomeGreen { // T-961: the lane test lists them
+				t.Fatalf("%s: test: %+v %v", c.name, o, err)
+			}
+			changed := y.Read(".obor/state/lane-changed-files-L-01")
 			y.contains(names, "docs/tasks/T-05.md", c.name+": the patch (the lane's own copy)")
 			y.contains(changed, "docs/tasks/T-05.md", c.name+": OBOR_CHANGED_FILES (the lane's own copy)")
 			y.eq(y.Git(y.Root, "show", cand.SHA+":docs/tasks/T-05.md"), "# T-05 — Rewritten by the worker",

@@ -92,7 +92,7 @@ func closedOf(cause string) block {
 
 func TestStatesOneRowPerState(t *testing.T) {
 	t.Parallel()
-	want := []string{stSubmitted, stGreen, stAwaiting, stRed, stConflict, stResolving, stResolved, stAccepted,
+	want := []string{stSubmitted, stCandidate, stGreen, stAwaiting, stRed, stConflict, stResolving, stResolved, stAccepted,
 		stMoved, stPublished, stMerged, stRejected, stDropped, stWaiting, stDispatched, stWorking, stDriving, stDropping}
 	var got []string
 	for st := range states {
@@ -101,7 +101,7 @@ func TestStatesOneRowPerState(t *testing.T) {
 	slices.Sort(got)
 	slices.Sort(want)
 	if !slices.Equal(got, want) {
-		t.Fatalf("states %v, want the 18 of loop.go %v", got, want)
+		t.Fatalf("states %v, want the 19 of loop.go %v", got, want)
 	}
 }
 
@@ -111,6 +111,16 @@ func TestStateSubmittedRow18(t *testing.T) {
 		landed: true})
 	checkRow(t, rowWant{verbs: vDrop, mt: mtask{state: stSubmitted, attemptVars: attemptVars{input: "abc", gates: 1}}, name: "gate.2",
 		refuse: "T-1 is submitted; retry when it settles", landed: true})
+}
+
+// T-961: a candidate (the slot merged and compiled it) runs its lane test next, test.N; only a drop takes it while it
+// waits, and a merge outside may have landed it.
+func TestStateCandidateRow18b(t *testing.T) {
+	t.Parallel()
+	checkRow(t, rowWant{verbs: vDrop, mt: mtask{state: stCandidate}, name: "test", refuse: "T-1 is candidate; retry when it settles",
+		landed: true})
+	checkRow(t, rowWant{verbs: vDrop, mt: mtask{state: stCandidate, attemptVars: attemptVars{tests: 1}}, name: "test.2",
+		refuse: "T-1 is candidate; retry when it settles", landed: true})
 }
 
 func TestStateGreenRow19(t *testing.T) {

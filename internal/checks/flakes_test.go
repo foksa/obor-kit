@@ -54,8 +54,8 @@ func TestFlakeLog(t *testing.T) {
 	t.Run("red run: one line per failing test with the run's task and sha", func(t *testing.T) {
 		t.Parallel()
 		x := newFx(t, cmd("check", twoFails), testkit.Set("merge.fail_grep", failGrep))
-		base := x.head(x.Root)
 		x.is(x.gate("L-01", "T-05", "red"), Red, `^RED check `)
+		base := x.cand.SHA // T-961: the lane test runs on the candidate, the slot's merge commit
 		got := x.flakes()
 		if len(got) != 2 {
 			t.Fatalf("flake lines %d, want 2: %+v", len(got), got)

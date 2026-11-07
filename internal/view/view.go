@@ -360,8 +360,8 @@ func lead(cfg *config.Config, ps wire.ProjectStatus, bg map[string][]Background)
 }
 
 // laneSince is when l's state column began, as far as the view can tell (nil: a free lane, no task, or nothing
-// recorded): the needs-you's fact (needs-you, held), the gate or publish running on its task (a waiting one: its
-// failure's time, else its intent's), the task_done's record (a task submitted) or the lane row's dispatch.
+// recorded): the needs-you's fact (needs-you, held), the gate, lane test or publish running on its task (a waiting
+// one: its failure's time, else its intent's), the task_done's record (a task submitted) or the lane row's dispatch.
 func laneSince(l Lane, v *Project, now, dispatched int64) *int64 {
 	at := func(n int64) *int64 { return &n }
 	switch l.Column {
@@ -376,13 +376,13 @@ func laneSince(l Lane, v *Project, now, dispatched int64) *int64 {
 			}
 		}
 		return best
-	case wire.PhaseGating, wire.PhaseMerging:
+	case wire.PhaseGating, wire.PhaseTesting, wire.PhaseMerging:
 		for _, r := range v.Running {
 			if l.Task != "" && r.Task == l.Task && r.Since != 0 {
 				return at(r.Since)
 			}
 		}
-	case wire.PhaseGatePending, wire.PhasePublishPending:
+	case wire.PhaseGatePending, wire.PhaseTestPending, wire.PhasePublishPending:
 		for _, p := range v.Pending {
 			if l.Task == "" || p.Task != l.Task {
 				continue
@@ -404,14 +404,14 @@ func laneSince(l Lane, v *Project, now, dispatched int64) *int64 {
 	return nil
 }
 
-// runningCommand is the configured command r runs, for the running line: for a gate the command serve says it runs
-// now (T-669: the class's, the guard or check; its name when not configured; "" while unknown, never a guess), the
-// full check for the nightly check, commands.after_merge for after_merge; "" for a step of git alone (publish) or an
-// unset command.
+// runningCommand is the configured command r runs, for the running line: for a gate or a lane test the command serve
+// says it runs now (T-669, T-961: compile, the class's, the guard or check; its name when not configured; "" while
+// unknown, never a guess), the full check for the nightly check, commands.after_merge for after_merge; "" for a step of
+// git alone (publish) or an unset command.
 func runningCommand(p *checks.LaneTable, r wire.RunningStep) string {
 	name := ""
 	switch r.Step {
-	case event.StepGate:
+	case event.StepGate, event.StepTest:
 		if name = r.Command; name == "" {
 			return ""
 		}
@@ -421,7 +421,7 @@ func runningCommand(p *checks.LaneTable, r wire.RunningStep) string {
 		name = event.StepAfterMerge
 	}
 	cmd, ok := p.Cfg.Command(name)
-	if !ok && r.Step == event.StepGate {
+	if !ok && (r.Step == event.StepGate || r.Step == event.StepTest) {
 		return name
 	}
 	return cmd.Cmd
