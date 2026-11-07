@@ -60,8 +60,8 @@ type nightlyState struct {
 	running   bool // runNightly runs (under mu; only the merge loop's pass starts one)
 }
 
-// foldNightly folds r, a record of the nightly full check. Only nightly.<date> steps are its runs: a notification of
-// its needs-you (notify.<seq>, the same task key) never moves the run cursor (T-468).
+// foldNightly folds r, a record of the nightly full check. Only nightly.<date> steps are its runs: an old log's
+// notification step of its needs-you (notify.<seq>, the same task key) never moves the run cursor (T-468).
 func (p *proj) foldNightly(r event.Record) {
 	if r.Task != event.NightlyTask {
 		return

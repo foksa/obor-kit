@@ -1,7 +1,8 @@
 // Package app is obor's core (docs/module-map.md): the per-project event log, its replay, the watchdogs over the
 // agents herdr reports and the merge loop (loop.go). Adapters reach it through the interfaces it defines: Panes
 // (herdr's events and snapshot), Lanes (which lane holds which task) and the merge loop's Gate, Agents and Typer.
-// The watchdogs only observe: their one outside effect is a herdr notification when a task needs the owner.
+// The watchdogs only observe: what needs the owner is a rule pass's (rules.go), which toasts the owner and lines the
+// lead.
 //
 // One rule runs through the watchdogs: unknown is never idle. A failed process check, a transcript obor cannot find,
 // a lane table it could not read or a herdr session it has not seen before never becomes an alarm to the owner.
@@ -57,22 +58,6 @@ type Options struct {
 	Follow time.Duration
 }
 
-// notifyRetry is the first wait before a failed notification is sent again; it doubles with each failure up to
-// notifyRetryMax, so a herdr that stays away does not write a retry intent a minute.
-const (
-	notifyRetry    = time.Minute
-	notifyRetryMax = 30 * time.Minute
-)
-
-// notifyWait is the wait after tries failed sends: 1, 2, 4 … minutes, at most notifyRetryMax.
-func notifyWait(tries int) time.Duration {
-	d := notifyRetry
-	for i := 1; i < tries && d < notifyRetryMax; i++ {
-		d *= 2
-	}
-	return min(d, notifyRetryMax)
-}
-
 // App is `obor serve`'s state. Make it with New, run it with Serve.
 type App struct {
 	opt   Options
@@ -107,21 +92,20 @@ type App struct {
 	onStream  int               // of those, the passes that ran connected to one herdr stream (mergeLoop), for the tests to wait on
 	scratched int               // scratch effects started in their own goroutine, for the tests to wait on
 
-	life      context.Context    // the daemon's lifetime: the socket requests' effects run under it
-	stop      context.CancelFunc // ends life (Serve's end)
-	reqs      sync.WaitGroup     // the socket requests being answered (Serve's end waits for them)
-	loaded    chan struct{}      // closed at the project's first load: serve binds its socket then (Loaded, T-659)
-	loadOnce  sync.Once          // closes loaded once
-	verdicts  sync.Mutex         // the integrator's verdicts are answered one at a time
-	submitMu  sync.Mutex         // a submission's decision and its record are one step (task_done)
-	configMu  sync.Mutex         // one main-checkout writer at a time: a setup edit, a review's close (T-753, T-926)
-	notifying sync.Mutex         // one notify pass at a time (the watchdogs' and the merge loop's; a second one skips)
-	kick      chan struct{}      // wakes the merge loop (buffered: kicks while it runs coalesce)
-	rescan    chan struct{}      // wakes the lane table's refresher (buffered: kicks while it scans coalesce; lanescan.go)
-	scanned   chan struct{}      // the refresher scanned: the run loop decides (buffered: coalesced)
-	effects   sync.WaitGroup     // the scratch effects running in their own goroutine (the merge loop's end waits)
-	admitted  int                // the verdict calls in progress, waiting for the verdict lock included (under mu)
-	follow    follow             // the watch of a new obor binary (follow.go, T-719; the merge loop's goroutine only)
+	life     context.Context    // the daemon's lifetime: the socket requests' effects run under it
+	stop     context.CancelFunc // ends life (Serve's end)
+	reqs     sync.WaitGroup     // the socket requests being answered (Serve's end waits for them)
+	loaded   chan struct{}      // closed at the project's first load: serve binds its socket then (Loaded, T-659)
+	loadOnce sync.Once          // closes loaded once
+	verdicts sync.Mutex         // the integrator's verdicts are answered one at a time
+	submitMu sync.Mutex         // a submission's decision and its record are one step (task_done)
+	configMu sync.Mutex         // one main-checkout writer at a time: a setup edit, a review's close (T-753, T-926)
+	kick     chan struct{}      // wakes the merge loop (buffered: kicks while it runs coalesce)
+	rescan   chan struct{}      // wakes the lane table's refresher (buffered: kicks while it scans coalesce; lanescan.go)
+	scanned  chan struct{}      // the refresher scanned: the run loop decides (buffered: coalesced)
+	effects  sync.WaitGroup     // the scratch effects running in their own goroutine (the merge loop's end waits)
+	admitted int                // the verdict calls in progress, waiting for the verdict lock included (under mu)
+	follow   follow             // the watch of a new obor binary (follow.go, T-719; the merge loop's goroutine only)
 
 	hooked atomic.Pointer[func(string)] // a test's hook at the points App.hook names (nil: none; drive.go)
 }
@@ -139,7 +123,6 @@ type proj struct {
 	lanes      []port.Lane          // as last read
 	scan       laneScan             // the lane table as last scanned: the watchdogs' cached observation (lanescan.go)
 	tasks      map[string]*watch    // the open tasks (a lane holds it, not in the merge loop), by task
-	retry      map[event.Key]retry  // a failed notification: when to try it again, and how often it failed
 	diskAt     time.Time            // when the free space was last read (disk.go)
 	due        reviewDueLine        // obor status' "review due" line, counted in git on a pass (review.go)
 	rv         reviewClaim          // a pass's claim of the open review request (review.go)
@@ -263,12 +246,6 @@ func newFolded() folded {
 		briefEnds: map[string]idleEnd{}, lr: laneRows{rows: map[string]store.LaneRow{}, submitted: map[string]int64{}}}
 }
 
-// retry is one failed notification's next try; tries counts the failures so far (the wait doubles from notifyRetry).
-type retry struct {
-	at    time.Time
-	tries int
-}
-
 // watch is what the watchdogs know of one open task beyond its facts. A new task, a replay and a new lane start one
 // afresh: no timer inherits time from before it.
 type watch struct {
@@ -285,7 +262,7 @@ func (w *watch) unread() bool { return w.lane.State == port.LaneUnknown }
 
 // forget drops w's elapsed-time baselines (the quiet time, the stall's escalation counting from it, blocked, lost):
 // an unknown or stale observation of its lane, so the next good read starts new ones and no unobserved interval counts
-// (T-879). Its facts and their notification retries stay (T-897); seenWrite stays, a watermark, not a time counted.
+// (T-879). Its facts stay (T-897); seenWrite stays, a watermark, not a time counted.
 func (w *watch) forget() {
 	w.quietSince, w.blocked, w.lost = time.Time{}, time.Time{}, time.Time{}
 }

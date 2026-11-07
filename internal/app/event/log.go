@@ -4,7 +4,6 @@
 package event
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -354,31 +353,9 @@ type Intent struct {
 	Data  any
 }
 
-// Do runs effect once for in.Key: it writes the intent, runs effect without holding the log, and writes its result.
-// A key that has a result returns the stored result and does not run effect. A failed effect writes no result: the
-// intent stays pending (replay lists it) and the caller settles or retries it: a pending key's intent is reused (no
-// second intent line) and its effect runs again. A key whose effect runs now is refused. A caller that folds the
-// records it writes uses its halves, Begin and Finish, each inside the section that folds it (App.do, T-944).
-func (l *Log) Do(ctx context.Context, in Intent, now func() time.Time, effect func(context.Context) (any, error)) (json.RawMessage, error) {
-	r, done, _, err := l.Begin(in, now())
-	if err != nil {
-		return nil, err
-	}
-	if done {
-		return r.Data, nil
-	}
-	v, err := effect(ctx)
-	if err != nil {
-		l.Finish(in.Key, nil, false, now())
-		return nil, err
-	}
-	res, err := l.Finish(in.Key, v, true, now())
-	return res.Data, err
-}
-
-// Begin is Do's first half: the stored result when in.Key has one (done: no effect runs); else the key's effect runs
-// from now until its Finish, with its intent: written now (wrote) or the pending one reused. A key whose effect runs
-// now is refused.
+// Begin starts an effect under in.Key: the stored result when in.Key has one (done: no effect runs); else the key's
+// effect runs from now until its Finish, with its intent: written now (wrote) or the pending one reused. A key whose
+// effect runs now is refused.
 func (l *Log) Begin(in Intent, now time.Time) (r Record, done, wrote bool, err error) {
 	l.Mu.Lock()
 	defer l.Mu.Unlock()
@@ -404,8 +381,8 @@ func (l *Log) Begin(in Intent, now time.Time) (r Record, done, wrote bool, err e
 	return r, false, !ok, nil
 }
 
-// Finish is Do's second half: the effect of k that Begin started has ended; when ok, its result v is written (the
-// record returned, its Data also when the write failed); a failed effect writes none (the intent stays pending).
+// Finish ends the effect of k that Begin started: when ok, its result v is written (the record returned, its Data
+// also when the write failed); a failed effect writes none (the intent stays pending).
 func (l *Log) Finish(k Key, v any, ok bool, now time.Time) (Record, error) {
 	l.Mu.Lock()
 	defer l.Mu.Unlock()

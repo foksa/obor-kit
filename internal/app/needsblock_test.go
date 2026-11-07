@@ -211,7 +211,7 @@ func blockProjAt(t *testing.T, root string) (*App, *proj) {
 	t.Helper()
 	l, recs := openLog(t, root)
 	a := &App{opt: Options{Now: func() time.Time { return logNow }, Out: io.Discard}}
-	p := &proj{root: root, name: "pj", log: l, tasks: map[string]*watch{}, retry: map[event.Key]retry{},
+	p := &proj{root: root, name: "pj", log: l, tasks: map[string]*watch{},
 		integrator: "pj-integrator", out: newOutbox("pj-lead", ""), merging: true, timers: map[string]*jobTimer{},
 		replies: map[string]string{}, nopane: map[string]time.Time{}, waitLine: map[string]waitRefusal{},
 		unwritten: map[event.Key]json.RawMessage{}, exec: map[event.Key]time.Time{}, scratch: make(chan struct{}, 1),

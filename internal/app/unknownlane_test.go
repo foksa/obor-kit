@@ -1,7 +1,6 @@
 package app
 
 import (
-	"errors"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
@@ -34,7 +33,7 @@ func unknownLane(l port.Lane, reason string) port.Lane {
 // resume still takes them. A restart with the lane unknown keeps the folded dispatch's task on it.
 func TestUnknownLaneKeepsItsTasksFacts(t *testing.T) {
 	t.Parallel()
-	for _, fact := range []string{"asks", "stopped", "retry"} {
+	for _, fact := range []string{"asks", "stopped"} {
 		for _, entry := range []string{"tick", "connect", "restart"} {
 			for _, read := range unknownReads {
 				t.Run(fact+"/"+entry+"/"+read.name, func(t *testing.T) {
@@ -42,10 +41,7 @@ func TestUnknownLaneKeepsItsTasksFacts(t *testing.T) {
 					h, p := askSeed(t)
 					known := h.lanes.lanes[0]
 					switch fact {
-					case "asks", "retry":
-						if fact == "retry" {
-							h.panes.notifyFn = func() error { return errors.New("herdr away") }
-						}
+					case "asks":
 						if _, err := h.a.ask(p, "T-1", known, "may I edit x?"); err != nil {
 							t.Fatal(err)
 						}
@@ -53,28 +49,15 @@ func TestUnknownLaneKeepsItsTasksFacts(t *testing.T) {
 						h.a.record(p, event.Record{Task: "T-1", Step: event.StepNeedsYou, Kind: event.KindFact},
 							event.FactData{Lane: "L-01", Reason: "stopped: rate_limit", Cause: causeStopped})
 					}
-					h.tick(time.Minute) // the fact in force, its notification tried
+					h.tick(time.Minute) // the fact in force
 					inForce := func() bool {
 						if fact == "stopped" {
 							return p.stops("T-1")
 						}
 						return p.asks("T-1")
 					}
-					hasRetry := func() bool {
-						h.a.mu.Lock()
-						defer h.a.mu.Unlock()
-						for k := range p.retry {
-							if k.Task == "T-1" {
-								return true
-							}
-						}
-						return false
-					}
 					if !inForce() || p.tasks["T-1"] == nil {
 						t.Fatalf("precondition: %s not in force or T-1 unwatched: %v %v", fact, p.folded.active["T-1"], p.tasks)
-					}
-					if fact == "retry" && !hasRetry() {
-						t.Fatalf("precondition: no notification retry for T-1: %v", p.retry)
 					}
 					before := h.lastSeq()
 
@@ -106,9 +89,6 @@ func TestUnknownLaneKeepsItsTasksFacts(t *testing.T) {
 					if w := p.tasks["T-1"]; w == nil || !w.unread() || w.lane.Task != "T-1" {
 						t.Errorf("%s: T-1 not kept on its unknown lane: %+v", entry, w)
 					}
-					if fact == "retry" && !hasRetry() {
-						t.Errorf("%s: the failed read dropped the notification retry", entry)
-					}
 					if got := h.facts(before); len(got) != 0 {
 						t.Errorf("%s: facts recorded while the lane is unknown: %v", entry, got)
 					}
@@ -118,9 +98,6 @@ func TestUnknownLaneKeepsItsTasksFacts(t *testing.T) {
 					h.tick(time.Minute)
 					if !inForce() {
 						t.Fatalf("recovered: the %s fact is not in force: %v", fact, p.folded.active["T-1"])
-					}
-					if fact == "retry" && !hasRetry() {
-						t.Errorf("recovered: no notification retry for the question")
 					}
 					h.a.mu.Lock()
 					act, _, err := p.resumeFits(*p.folded.loop["T-1"])

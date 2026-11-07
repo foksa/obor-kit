@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -286,4 +287,81 @@ func TestWorkerStartRuleCondition(t *testing.T) {
 			}
 		})
 	}
+}
+
+// T-949: a stopped role agent's alarm is one rule: the lead's line records, and its toast is the action's best-effort
+// after, once per stop. A toast herdr does not show is logged and dropped: the line stays, no retry, no rule failure.
+func TestStopAlarmRule(t *testing.T) {
+	t.Parallel()
+	alarm := rule{name: ruleStopAlarm, when: stopAlarmRule}
+	pass := func(h *harness, d time.Duration) {
+		h.now = h.now.Add(d)
+		h.a.rulePass(context.Background(), []rule{alarm}, &Loop{})
+	}
+	stopped := func(h *harness) {
+		p := h.proj()
+		p.out.briefs["pj-rev"] = &brief{seq: 1, at: h.now.Add(-time.Hour), stop: &roleStop{seq: 9,
+			at: h.now.Add(-time.Hour), line: "[obor] pj-rev stopped: usage_limit_exceeded (try later)", woke: h.now.Add(-time.Hour)}}
+	}
+	t.Run("one toast and the lead's line", func(t *testing.T) {
+		t.Parallel()
+		h := ruleHarness(t)
+		stopped(h)
+		pass(h, 30*time.Minute)
+		if len(h.panes.notes) != 1 {
+			t.Fatalf("notes %q, want one", h.panes.notes)
+		}
+		ofs, lines := ruleLines(t, h)
+		if len(ofs) != 1 || ofs[0].Kind != ruleStopAlarm || !strings.HasSuffix(lines[0], stillStopped) {
+			t.Fatalf("lines %v %q, want the alarm's one", ofs, lines)
+		}
+		pass(h, time.Hour)
+		if len(h.panes.notes) != 1 {
+			t.Errorf("notes on a later pass: %q, want still one", h.panes.notes)
+		}
+	})
+	t.Run("rate_limited: the line still records, no retry, no rule failure", func(t *testing.T) {
+		t.Parallel()
+		h := ruleHarness(t)
+		stopped(h)
+		calls := 0
+		h.panes.notifyFn = func() error {
+			calls++
+			return &port.NotShown{Reason: "rate_limited"}
+		}
+		for range ruleFails + 1 {
+			pass(h, 30*time.Minute)
+		}
+		if ofs, lines := ruleLines(t, h); len(ofs) != 1 {
+			t.Fatalf("lines %q, want the alarm's line recorded though the toast failed", lines)
+		}
+		if calls != 1 {
+			t.Errorf("toast calls %d, want one for the stop (no retry)", calls)
+		}
+		if active := h.proj().folded.active[event.RuleTask]; len(active) != 0 {
+			t.Errorf("a rule needs-you after failed toasts: %v", active)
+		}
+	})
+	t.Run("two stops: one line and toast each, the lower seq first, no repeat", func(t *testing.T) {
+		t.Parallel()
+		h := ruleHarness(t)
+		p := h.proj()
+		p.out.briefs["pj-rev"] = &brief{seq: 1, at: h.now.Add(-time.Hour), stop: &roleStop{seq: 9,
+			at: h.now.Add(-time.Hour), line: "[obor] pj-rev stopped: usage_limit_exceeded (try later)", woke: h.now.Add(-time.Hour)}}
+		p.out.briefs["pj-deep"] = &brief{seq: 2, at: h.now.Add(-time.Hour), stop: &roleStop{seq: 10,
+			at: h.now.Add(-time.Hour), line: "[obor] pj-deep stopped: usage_limit_exceeded (try later)", woke: h.now.Add(-time.Hour)}}
+		pass(h, 30*time.Minute)
+		pass(h, 0)
+		pass(h, 0)
+		ofs, lines := ruleLines(t, h)
+		if len(ofs) != 2 || ofs[0].Seq != 9 || ofs[1].Seq != 10 {
+			t.Fatalf("lines %v %q, want the two alarms, seq 9 then 10", ofs, lines)
+		}
+		if !strings.Contains(lines[0], "pj-rev") || !strings.Contains(lines[1], "pj-deep") {
+			t.Errorf("lines %q, want pj-rev's then pj-deep's", lines)
+		}
+		if len(h.panes.notes) != 2 {
+			t.Errorf("notes %q, want one toast for each stop", h.panes.notes)
+		}
+	})
 }

@@ -570,9 +570,21 @@ func (s *Socket) ProcessInfo(ctx context.Context, pane string) (ProcessInfo, err
 	return *r.Info, nil
 }
 
-// Notify is notification.show: a desktop notification.
+// Notify is notification.show: a desktop notification, best effort through herdr's foreground client. herdr's answer
+// says whether it showed it; not shown, the reason is a port.NotShown error (busy, rate_limited, disabled,
+// no_foreground_client): the toast's caller logs it and goes on (T-949).
 func (s *Socket) Notify(ctx context.Context, title, body string) error {
-	return s.call(ctx, 0, nil, "notification.show", map[string]any{"title": title, "body": body})
+	var r struct {
+		Shown  *bool  `json:"shown"`
+		Reason string `json:"reason"`
+	}
+	if err := s.call(ctx, 0, &r, "notification.show", map[string]any{"title": title, "body": body}); err != nil {
+		return err
+	}
+	if r.Shown != nil && !*r.Shown {
+		return &port.NotShown{Reason: r.Reason}
+	}
+	return nil
 }
 
 // Event kinds a Stream delivers.

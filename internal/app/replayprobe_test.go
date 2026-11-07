@@ -29,7 +29,7 @@ import (
 // replayState is the state recs fold into: a project as load builds it (lead the lead agent's name), every record
 // folded by foldRecord, written by stateText.
 func replayState(recs []event.Record, lead string) string {
-	p := &proj{root: "/replay", name: "replay", tasks: map[string]*watch{}, retry: map[event.Key]retry{},
+	p := &proj{root: "/replay", name: "replay", tasks: map[string]*watch{},
 		out: newOutbox(lead, "claude"), timers: map[string]*jobTimer{}, replies: map[string]string{},
 		rules: map[string]ruleLive{}, nopane: map[string]time.Time{}, waitLine: map[string]waitRefusal{},
 		exec: map[event.Key]time.Time{}, held: map[string]string{}, ended: map[string]bool{},

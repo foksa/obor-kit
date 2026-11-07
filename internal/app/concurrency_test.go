@@ -695,19 +695,20 @@ func replayProj(t *testing.T, r *concRig, p *proj) (*App, *proj) {
 	return b, q
 }
 
-// notifyNightly appends the notification intent of p's needs-you in force (as notify does), with its result when done.
+// notifyNightly appends an old log's notification intent of p's nightly needs-you in force, with its result when done
+// (T-949: nothing runs these steps now; the replay must still ignore them).
 func notifyNightly(t *testing.T, r *concRig, p *proj, done bool) {
 	t.Helper()
 	if len(p.folded.active[event.NightlyTask]) == 0 {
 		t.Fatal("precondition: no nightly needs-you in force")
 	}
-	key := notifyKey(p.folded.active[event.NightlyTask][0])
-	if _, err := p.log.Append(event.Record{Task: key.Task, Step: key.Step, Kind: event.KindIntent, Class: event.ClassFact}, r.a.opt.Now()); err != nil {
+	step := "notify." + fmt.Sprint(p.folded.active[event.NightlyTask][0].Seq)
+	if _, err := p.log.Append(event.Record{Task: event.NightlyTask, Step: step, Kind: event.KindIntent, Class: event.ClassFact}, r.a.opt.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if done {
 		raw, _ := json.Marshal("notified")
-		if _, err := p.log.Append(event.Record{Task: key.Task, Step: key.Step, Kind: event.KindResult, Data: raw}, r.a.opt.Now()); err != nil {
+		if _, err := p.log.Append(event.Record{Task: event.NightlyTask, Step: step, Kind: event.KindResult, Data: raw}, r.a.opt.Now()); err != nil {
 			t.Fatal(err)
 		}
 	}

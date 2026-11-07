@@ -20,7 +20,7 @@ import (
 //     pane herdr reports blocked), under the key continue.<the wake's time, Unix seconds>: one per wake time, a replay
 //     finds it done, and a time passed while serve was down wakes once at the next pass;
 //   - alarm: still stopped wakeAlarm after the stop's first wake, needs-you{<the stop>; still stopped 30m after the
-//     reset wake} (cause stopped) once, the owner notified and the lead told as for any needs-you.
+//     reset wake} (cause stopped) once, the lead told as for any needs-you, the owner toasted by the needs rule.
 //
 // The stop ends with the worker's next turn as before (turnCall, turnStop); a limit hit again is a new stop with its
 // own reset. A stop that is no limit (billing, unknown) gets no wake: the needs-you it is.
@@ -29,9 +29,9 @@ import (
 // stays open, the stop on it) gets the same, from deliver's pass (roleWakes): the wake, a line to the agent under the
 // key continue.<the wake's time>.<agent> of the project's lines, sent as the worker's is; the alarm, still stopped
 // wakeAlarm after the first wake: the lead's line "<the stop's line>; still stopped 30m after the reset wake" (fact
-// message, its Stop the stop's seq) and the owner's notification under alarm.<the stop's seq>, each once. A Codex
-// role agent's stop, its next turn's start and that turn's end are read from its rollout (roleTurns, T-571). With no
-// brief open there is nothing to continue: the stopped line only. The lead is never woken.
+// message, its Stop the stop's seq) and the owner's toast, one rule action's call (stopAlarmRule, T-949), once. A
+// Codex role agent's stop, its next turn's start and that turn's end are read from its rollout (roleTurns, T-571).
+// With no brief open there is nothing to continue: the stopped line only. The lead is never woken.
 
 const (
 	wakeAfter    = 2 * time.Minute  // a known reset: the wake this long after it
@@ -41,7 +41,6 @@ const (
 	stillStopped = "; still stopped 30m after the reset wake"
 	continueText = "Your usage limit has reset: continue where your turn stopped (" + wakeText + " for your job)."
 	roleContinue = "[obor] Your usage limit has reset: continue your brief where your turn stopped."
-	stepAlarm    = "alarm." // notification intent (F) alarm.<the stop's seq>: the owner told a role agent is still stopped
 )
 
 // wakeDue is the time the stop f's latest wake is due at, as of now (ok false: none is due yet). Its Reset known:
@@ -227,24 +226,16 @@ func (a *App) roleTurns(ctx context.Context, p *proj) {
 	}
 }
 
-// roleWakes is one pass of the stopped role agents' wakes and alarms (see above): the alarm lines due recorded, the
-// owner's notifications not shown yet sent, then the wakes due sent (sendWake), each outside mu.
+// roleWakes is one pass of the stopped role agents' wakes (see above): the wakes due sent (sendWake), each outside mu.
+// The alarm line and the owner's toast are the stop alarm's rule (stopAlarmRule, rules.go; T-949).
 func (a *App) roleWakes(ctx context.Context, p *proj, fx *Loop) {
 	now := a.opt.Now()
 	var wakes []wakeTo
-	var alarms []event.Message
-	var shows []*roleStop
 	a.mu.Lock()
 	for agent, b := range p.out.allBriefs() {
 		s := b.stop
 		if s == nil || agent == p.out.lead() {
 			continue
-		}
-		if !s.woke.IsZero() && now.Sub(s.woke) >= wakeAlarm && !s.alarmed {
-			alarms = append(alarms, event.Message{To: p.out.lead(), From: "obor", Line: s.line + stillStopped, Stop: s.seq})
-		}
-		if s.alarmed && !p.log.Done(alarmKey(s.seq)) {
-			shows = append(shows, &roleStop{seq: s.seq, line: s.line})
 		}
 		if due, ok := wakeAt(s.reset, s.at, now); ok {
 			key := event.Key{Task: event.MsgTask, Step: stepContinue + strconv.FormatInt(due.Unix(), 10) + "." + agent}
@@ -254,23 +245,7 @@ func (a *App) roleWakes(ctx context.Context, p *proj, fx *Loop) {
 		}
 	}
 	a.mu.Unlock()
-	sort.Slice(alarms, func(i, j int) bool { return alarms[i].Stop < alarms[j].Stop })
-	sort.Slice(shows, func(i, j int) bool { return shows[i].seq < shows[j].seq })
 	sort.Slice(wakes, func(i, j int) bool { return wakes[i].agent < wakes[j].agent })
-	for _, m := range alarms {
-		if a.record(p, event.Record{Task: event.MsgTask, Step: event.StepMessage, Kind: event.KindFact}, m) {
-			shows = append(shows, &roleStop{seq: m.Stop, line: strings.TrimSuffix(m.Line, stillStopped)})
-		}
-	}
-	for _, s := range shows {
-		body := strings.TrimPrefix(s.line, "[obor] ") + stillStopped
-		_, _ = p.log.Do(ctx, event.Intent{Key: alarmKey(s.seq), Class: event.ClassFact}, a.opt.Now, func(ctx context.Context) (any, error) {
-			if err := a.panes.Notify(ctx, "obor: "+p.name+" needs you", body); err != nil {
-				return nil, err
-			}
-			return "shown", nil
-		})
-	}
 	for _, wk := range wakes {
 		if ctx.Err() != nil {
 			return
@@ -279,9 +254,38 @@ func (a *App) roleWakes(ctx context.Context, p *proj, fx *Loop) {
 	}
 }
 
-// alarmKey is the key of the owner's notification of the role agent's stop seq still in force after its wake.
-func alarmKey(seq int64) event.Key {
-	return event.Key{Task: event.MsgTask, Step: stepAlarm + strconv.FormatInt(seq, 10)}
+// ruleStopAlarm is the stopped role agent's alarm rule (stopwake.go, T-949): its stop's toast and the lead's line.
+const ruleStopAlarm = "stopalarm"
+
+// stopAlarmRule is the alarm's rule: the stop of a briefed role agent, woken, still stopped wakeAlarm later; key its
+// stop's fact seq. The lead's line records first; the toast is its best-effort after (T-949). A stop whose alarm is
+// already recorded is skipped, so the next stopped agent gets its turn (the rule's did is not enough: the condition
+// would keep keying the first one).
+func stopAlarmRule(_ context.Context, a *App, p *proj, _ *Loop, now time.Time) (int64, action, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if p.out.lead() == "" {
+		return 0, action{}, false
+	}
+	var s *roleStop
+	for agent, b := range p.out.allBriefs() {
+		st := b.stop
+		if st == nil || agent == p.out.lead() || st.alarmed || st.woke.IsZero() || now.Sub(st.woke) < wakeAlarm {
+			continue
+		}
+		if _, done := p.folded.did[event.Of{Kind: ruleStopAlarm, Seq: st.seq}]; done {
+			continue
+		}
+		if s == nil || st.seq < s.seq {
+			s = st
+		}
+	}
+	if s == nil {
+		return 0, action{}, false
+	}
+	title, body := "obor: "+p.name+" needs you", strings.TrimPrefix(s.line, "[obor] ")+stillStopped
+	return s.seq, action{line: s.line + stillStopped,
+		after: func(ctx context.Context) { a.toast(ctx, title, body) }}, true
 }
 
 // roleAlarmed marks the role agent's stop seq as having its alarm line (a message fact's Stop; under mu, folded).

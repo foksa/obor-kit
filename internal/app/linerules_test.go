@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"slices"
 	"strconv"
 	"strings"
@@ -9,6 +11,7 @@ import (
 	"time"
 
 	"obor/internal/app/event"
+	"obor/internal/app/port"
 	"obor/internal/app/wire"
 )
 
@@ -292,5 +295,108 @@ func TestWatchNoteEndsWithItsLine(t *testing.T) {
 	restartRig(t, h)
 	if reply := watchAgain("w3"); reply != alone {
 		t.Errorf("a watch after a replay: %q, want %q", reply, alone)
+	}
+}
+
+// T-949: the needs rule carries the owner's toast as its action's after (a best effort), once for a key's first line;
+// a repeat line does not toast again. A toast herdr does not show (busy, rate_limited, disabled) or a Notify error is
+// logged once and dropped: the lead's line is recorded all the same, is never retried and is no rule failure.
+func TestNeedsRuleToast(t *testing.T) {
+	t.Parallel()
+	needs := rule{name: ruleNeeds, when: needsRule}
+	pass := func(h *harness, d time.Duration) {
+		h.now = h.now.Add(d)
+		h.a.rulePass(context.Background(), []rule{needs}, &Loop{})
+	}
+	fact := func(t *testing.T, h *harness) {
+		addRecord(t, h, "T-1", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "L-01", Reason: "blocked"})
+	}
+	t.Run("one toast for the fact, none for its repeat", func(t *testing.T) {
+		t.Parallel()
+		h := ruleHarness(t)
+		fact(t, h)
+		pass(h, 0)
+		if len(h.panes.notes) != 1 {
+			t.Fatalf("notes after the first line: %q, want one", h.panes.notes)
+		}
+		deliverLines(t, h)
+		pass(h, 30*time.Minute)
+		pass(h, 0)
+		if ofs, lines := ruleLines(t, h); len(ofs) != 2 || !strings.Contains(lines[1], " (again, ") {
+			t.Fatalf("lines %q, want the repeat too", lines)
+		}
+		if len(h.panes.notes) != 1 {
+			t.Errorf("notes after the repeat line: %q, want still one", h.panes.notes)
+		}
+	})
+	for _, tc := range []struct {
+		name string
+		fail func() error
+	}{
+		{"a Notify error", func() error { return errors.New("herdr: gone") }},
+		{"shown false busy", func() error { return &port.NotShown{Reason: "busy"} }},
+		{"shown false rate_limited", func() error { return &port.NotShown{Reason: "rate_limited"} }},
+		{"shown false disabled", func() error { return &port.NotShown{Reason: "disabled"} }},
+	} {
+		t.Run(tc.name+": the line still records, no retry, no rule failure", func(t *testing.T) {
+			t.Parallel()
+			h := ruleHarness(t)
+			calls := 0
+			h.panes.notifyFn = func() error {
+				calls++
+				return tc.fail()
+			}
+			fact(t, h)
+			for range ruleFails + 1 {
+				pass(h, 0)
+			}
+			if ofs, lines := ruleLines(t, h); len(ofs) != 1 {
+				t.Fatalf("lines %q, want the first one recorded though the toast failed", lines)
+			}
+			if calls != 1 {
+				t.Errorf("toast calls %d, want one for the key (no retry)", calls)
+			}
+			if n := len(h.panes.notes); n != 0 {
+				t.Errorf("notes %q, want none (the fake records a shown toast only)", h.panes.notes)
+			}
+			if active := h.proj().folded.active[event.RuleTask]; len(active) != 0 {
+				t.Errorf("a rule needs-you after failed toasts: %v", active)
+			}
+		})
+	}
+}
+
+// T-949: an old log's notify.* and alarm.* records replay and fold as nothing: the needs line it recorded before
+// T-927 is what keeps the rule from toasting again, and the old steps are no error.
+func TestOldNotifyRecordsReplay(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	h.withLead()
+	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{}, nil }
+	t.Cleanup(func() {
+		if p := h.a.p; p != nil {
+			p.log.Close()
+		}
+		h.a.closeLog()
+	})
+	factData, _ := json.Marshal(event.FactData{Lane: "L-01", Reason: "blocked"})
+	oldLine, _ := json.Marshal(map[string]any{"to": "pj-lead", "from": "obor",
+		"line": "[obor] needs-you T-1 (L-01): blocked", "needs": 1})
+	h.log(
+		event.Record{Task: "T-1", Step: event.StepNeedsYou, Kind: event.KindFact, Data: factData},
+		event.Record{Task: event.MsgTask, Step: event.StepMessage, Kind: event.KindFact, Data: oldLine},
+		event.Record{Task: "T-1", Step: "notify.1", Kind: event.KindIntent, Class: event.ClassFact},
+		event.Record{Task: "T-1", Step: "notify.1", Kind: event.KindResult, Data: []byte(`"shown"`)},
+		event.Record{Task: event.MsgTask, Step: "alarm.9", Kind: event.KindIntent, Class: event.ClassFact},
+		event.Record{Task: event.MsgTask, Step: "alarm.9", Kind: event.KindResult, Data: []byte(`"shown"`)},
+	)
+	h.connect()
+	p := h.proj()
+	if !p.merging || p.out.lead() == "" || len(p.needsYou()) != 1 {
+		t.Fatalf("precondition: merging %v, lead %q, needs-yous %d", p.merging, p.out.lead(), len(p.needsYou()))
+	}
+	h.a.rulePass(context.Background(), []rule{{name: ruleNeeds, when: needsRule}, {name: ruleStopAlarm, when: stopAlarmRule}}, &Loop{})
+	if notes := h.panes.notes; len(notes) != 0 {
+		t.Errorf("notifications after the replay: %q, want none", notes)
 	}
 }

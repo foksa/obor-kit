@@ -89,25 +89,16 @@ func TestActivityKeepsAnUnansweredAsk(t *testing.T) {
 	}
 }
 
-// TestResumeKeepsTheAsksRetry: a resumed fact drops the notification retries of the facts it ends, not the open
-// question's.
-func TestResumeKeepsTheAsksRetry(t *testing.T) {
+// TestResumeKeepsTheAsks: a resumed fact ends the facts it ends but keeps the open question.
+func TestResumeKeepsTheAsks(t *testing.T) {
 	t.Parallel()
-	p := &proj{folded: folded{active: map[string][]event.Record{}}, retry: map[event.Key]retry{}}
+	p := &proj{folded: folded{active: map[string][]event.Record{}}}
 	stall := event.Record{Seq: 1, Task: "T-1", Step: event.StepStalled, Kind: event.KindFact, Data: []byte(`{"reason":"idle"}`)}
 	ask := event.Record{Seq: 2, Task: "T-1", Step: event.StepNeedsYou, Kind: event.KindFact, Data: []byte(`{"reason":"asks: may I?"}`)}
 	p.fold(stall)
 	p.fold(ask)
-	p.retry[notifyKey(stall)] = retry{tries: 1}
-	p.retry[notifyKey(ask)] = retry{tries: 1}
 	p.fold(event.Record{Seq: 3, Task: "T-1", Step: event.StepResumed, Kind: event.KindFact})
 	if len(p.folded.active["T-1"]) != 1 || p.folded.active["T-1"][0].Seq != 2 {
 		t.Errorf("facts in force %v, want the asks only", p.folded.active["T-1"])
-	}
-	if _, ok := p.retry[notifyKey(ask)]; !ok {
-		t.Error("the question's notification retry ended")
-	}
-	if _, ok := p.retry[notifyKey(stall)]; ok {
-		t.Error("the stall's notification retry stayed")
 	}
 }

@@ -15,8 +15,8 @@ import (
 
 // check is one decision over the project (full: a tick's or a connect's, counted for the tests, which scans its lanes
 // first; else the refresher's, on the table it just scanned for the pane events and own operations that marked it:
-// lanescan.go, T-879). It asks herdr about the agents whose idle timers are due, records the facts due and sends the
-// notifications due. Only the steps that decide hold mu.
+// lanescan.go, T-879). It asks herdr about the agents whose idle timers are due and records the facts due. Only the
+// steps that decide hold mu.
 func (a *App) check(ctx context.Context, full bool) {
 	a.mu.Lock()
 	if !a.connected {
@@ -34,7 +34,6 @@ func (a *App) check(ctx context.Context, full bool) {
 		}
 		a.decideLanes(ctx, p)
 	}
-	a.notify(ctx)
 	a.mu.Lock()
 	if full {
 		a.checks++
@@ -304,8 +303,8 @@ func (a *App) evidence(ctx context.Context, pane port.Pane) *evidence {
 	return e
 }
 
-// fact records v's step for task and folds it in (false: the log failed). A needs-you's notification goes with it
-// (notify).
+// fact records v's step for task and folds it in (false: the log failed). A needs-you's line and toast go with the
+// next rule pass (rules.go, the needs rule).
 func (a *App) fact(p *proj, task string, w *watch, v verdict) bool {
 	data, _ := json.Marshal(event.FactData{Lane: w.lane.Name, Machine: Machine, Workspace: a.spaces[v.pane.Workspace],
 		WorkspaceID: v.pane.Workspace, Pane: v.pane.ID, Agent: a.shownAs(p, v.pane), Reason: v.reason,

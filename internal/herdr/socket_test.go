@@ -999,3 +999,31 @@ func TestSocketRenames(t *testing.T) {
 	}
 	notFound(t, c.RenameAgent(ctx, "nope", "x"), "agent.rename", "agent_not_found")
 }
+
+// T-949: Notify reads herdr's answer. shown true is success; shown false is a port.NotShown naming the reason (the
+// toast's caller logs it and goes on: there is no retry decision here).
+func TestNotifyReadsShownAndReason(t *testing.T) {
+	t.Parallel()
+	for _, reason := range []string{"busy", "rate_limited", "disabled", "no_foreground_client"} {
+		t.Run(reason, func(t *testing.T) {
+			t.Parallel()
+			srv := herdrtest.Serve(t, fixture())
+			c := srv.Client()
+			srv.Reply("notification.show", map[string]any{"type": "notification_show", "shown": false, "reason": reason})
+			err := c.Notify(ctx, "obor", "T-1 needs you")
+			var ns *port.NotShown
+			if !errors.As(err, &ns) {
+				t.Fatalf("Notify = %v, want a port.NotShown", err)
+			}
+			if ns.Reason != reason {
+				t.Errorf("not shown %q, want %q", ns.Reason, reason)
+			}
+		})
+	}
+	srv := herdrtest.Serve(t, fixture())
+	c := srv.Client()
+	srv.Reply("notification.show", map[string]any{"type": "notification_show", "shown": true, "reason": "shown"})
+	if err := c.Notify(ctx, "obor", "T-1 needs you"); err != nil {
+		t.Errorf("shown: %v", err)
+	}
+}
