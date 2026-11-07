@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -81,8 +82,23 @@ func (g *promoteGit) head(branch string) string {
 	return g.heads[branch]
 }
 
-// promoteFake is the Loop's Promote on g: each sha's verdict (verdicts; none: GREEN; "fail": an error), every run's,
-// fast-forward's and after_promote's sha in order; block, when set, holds a run until its ctx ends.
+// passed: main is at sha or past it, the rig's history being linear h0, h1, h2, … (hN an ancestor of hM when N <= M).
+func (g *promoteGit) passed(sha string) bool {
+	n := func(s string) int {
+		i, err := strconv.Atoi(strings.TrimPrefix(s, "h"))
+		if err != nil {
+			panic("promoteGit: no hN sha " + s)
+		}
+		return i
+	}
+	return n(sha) <= n(g.head("main"))
+}
+
+// promoteFake is the Loop's Promote on g: each sha's verdict (verdicts; none: GREEN; "fail": an error), every suite
+// run's, fast-forward's and after_promote's sha in order; block, when set, holds a run until its ctx ends. As checks'
+// (T-984): a run at a sha main is at or past is GREEN with no suite (not in runs), a fast-forward there is already;
+// during, when set, runs inside each suite run (main moved meanwhile), movedAt moves main inside the fast-forward
+// before it decides, and refuse makes it refused.
 type promoteFake struct {
 	mu       sync.Mutex
 	g        *promoteGit
@@ -92,16 +108,25 @@ type promoteFake struct {
 	afters   []string
 	block    bool
 	began    chan struct{}
+	during   func()
+	movedAt  string
+	refuse   bool
 }
 
 func (f *promoteFake) promote(weight int) *Promote {
 	var cfg *config.Config // the default weights
 	return &Promote{Branch: "main", Target: "staging", Weight: weight, Weigh: cfg.MergeWeight,
 		Run: func(ctx context.Context, sha string) (port.PromoteOut, error) {
+			if f.g.passed(sha) {
+				return port.PromoteOut{SHA: sha, Verdict: "GREEN", Line: "main past " + sha + " already"}, nil
+			}
 			f.mu.Lock()
 			f.runs = append(f.runs, sha)
-			v, block, began := f.verdicts[sha], f.block, f.began
+			v, block, began, during := f.verdicts[sha], f.block, f.began, f.during
 			f.mu.Unlock()
+			if during != nil {
+				during()
+			}
 			if block {
 				if began != nil {
 					began <- struct{}{}
@@ -117,12 +142,23 @@ func (f *promoteFake) promote(weight int) *Promote {
 			}
 			return port.PromoteOut{SHA: sha, Verdict: v, Line: "check 1 failed — TestFlaky", Retried: true}, nil
 		},
-		FF: func(_ context.Context, sha string) (string, error) {
+		Passed: func(_ context.Context, sha string) (bool, error) { return f.g.passed(sha), nil },
+		FF: func(_ context.Context, sha string) (port.FFOut, error) {
 			f.mu.Lock()
 			f.ffs = append(f.ffs, sha)
+			movedAt, refuse := f.movedAt, f.refuse
 			f.mu.Unlock()
+			switch {
+			case refuse:
+				return port.FFOut{Outcome: port.FFRefused, Line: "main diverged from " + sha}, nil
+			case movedAt != "":
+				f.g.set("main", movedAt)
+			}
+			if f.g.passed(sha) {
+				return port.FFOut{Outcome: port.FFAlready, Line: "main past " + sha + " already"}, nil
+			}
 			f.g.set("main", sha)
-			return "promoted main", nil
+			return port.FFOut{Outcome: port.FFMoved, Line: "promoted main"}, nil
 		},
 		After: func(_ context.Context, sha, _ string) (string, error) {
 			f.mu.Lock()
@@ -731,4 +767,213 @@ type afterSpy struct {
 func (s *afterSpy) AfterMerge(context.Context, port.Candidate) (string, error) {
 	s.n++
 	return "ran", nil
+}
+
+// expect checks the fake's suite runs, fast-forwards and after_promotes and the promotion's records.
+func (r *promoteRig) expect(what string, runs, ffs, afters, recs []string) {
+	r.t.Helper()
+	gr, gf, ga := r.f.calls()
+	if !slices.Equal(gr, runs) || !slices.Equal(gf, ffs) || !slices.Equal(ga, afters) {
+		r.t.Errorf("%s: runs %q, ffs %q, afters %q; want %q, %q, %q", what, gr, gf, ga, runs, ffs, afters)
+	}
+	if got := r.steps(); !slices.Equal(got, recs) {
+		r.t.Errorf("%s: records %q, want %q", what, got, recs)
+	}
+}
+
+// replay restarts serve on the same log (the git and the fake kept) and runs three passes.
+func (r *promoteRig) replay() {
+	r.t.Helper()
+	r.a, r.p = lineReload(r.t, r.a, r.p, &r.now)
+	r.wire()
+	r.pass()
+	r.pass()
+	r.pass()
+}
+
+// nothingPending: status shows main at at and no promotion pending (no merges, wait, run or RED).
+func (r *promoteRig) nothingPending(what, at string) {
+	r.t.Helper()
+	st := r.a.Status().Project.Promote
+	if st == nil || st.SHA != at || st.Merges != 0 || st.Wait != "" || st.Run != nil || st.Red != nil {
+		r.t.Errorf("%s: status promote = %+v, want main at %s, nothing pending", what, st, at)
+	}
+}
+
+// closeAt starts and closes RV-5 at reviewed with the loop busy (no trigger) and staging at head past it.
+func (r *promoteRig) closeAt(reviewed, head string) {
+	r.t.Helper()
+	r.busy()
+	r.started("RV-5", reviewed)
+	r.git.set("staging", head)
+	r.closed("RV-5")
+	r.a.mu.Lock()
+	got := r.p.folded.closedHead
+	r.a.mu.Unlock()
+	if got != reviewed {
+		r.t.Fatalf("precondition: R = %q, want %s", got, reviewed)
+	}
+}
+
+// T-984 (RV-136 verify #1): R, the last closed review's reviewed head, at or behind the promoted branch's head is
+// passed already: no intent, no suite, no fast-forward, no fact promoted, no after_promote (serve's binary never
+// rebuilt from an older R), and status shows nothing pending; the same after a restart.
+func TestPromoteRPassedAlready(t *testing.T) {
+	t.Parallel()
+	t.Run("the switch: staging = main = h1, R h0 behind it", func(t *testing.T) {
+		t.Parallel()
+		r := reviewedRig(t) // R = h0
+		r.git.set("staging", "h1")
+		r.git.set("main", "h1")
+		if !r.git.passed("h0") || r.git.head("main") == "h0" {
+			t.Fatal("precondition: R h0 strictly behind main")
+		}
+		r.pass()
+		r.pass()
+		r.pass()
+		r.expect("R behind main", nil, nil, nil, nil)
+		r.nothingPending("R behind main", "h1")
+		r.replay()
+		r.expect("replayed", nil, nil, nil, nil)
+		r.nothingPending("replayed", "h1")
+	})
+	t.Run("the switch past a GREEN at R: not fast-forwarded back, not promoted", func(t *testing.T) {
+		t.Parallel()
+		r := reviewedRig(t)
+		r.git.between("h0", "h1", "T-1")
+		r.pass() // idle: the review request and the suite at h1, GREEN
+		r.a.mu.Lock()
+		q := r.p.folded.review
+		ran := r.p.prom.ran["h1"]
+		r.a.mu.Unlock()
+		if q == nil || ran != "GREEN" {
+			t.Fatalf("precondition: a review request and a GREEN at h1: %+v, %q", q, ran)
+		}
+		r.git.set("staging", "h2") // the switch at the current head h2
+		r.git.set("main", "h2")
+		r.fact(event.ReviewTask, event.StepReviewFire, ReviewData{Request: q.seq})
+		r.closeAt("h1", "h2")
+		r.pass()
+		r.pass()
+		r.pass()
+		recs := []string{"intent promote.1", "result promote.1"}
+		r.expect("GREEN at R h1, main h2", []string{"h1"}, nil, nil, recs)
+		if got := r.git.head("main"); got != "h2" {
+			t.Errorf("main = %s, want h2 (never moved back to R)", got)
+		}
+		r.nothingPending("GREEN at R h1, main h2", "h2")
+		r.replay()
+		r.expect("replayed", []string{"h1"}, nil, nil, recs)
+		r.nothingPending("replayed", "h2")
+	})
+	t.Run("R == main: nothing to do", func(t *testing.T) {
+		t.Parallel()
+		r := reviewedRig(t) // R = main = h0
+		r.git.set("staging", "h0")
+		r.pass()
+		r.pass()
+		r.expect("R == main", nil, nil, nil, nil)
+		r.nothingPending("R == main", "h0")
+		r.replay()
+		r.expect("replayed", nil, nil, nil, nil)
+		r.nothingPending("replayed", "h0")
+	})
+}
+
+// T-984: R ahead of main (the normal case): the suite at R, main moved to R, fact promoted, after_promote; a restart
+// repeats none of it.
+func TestPromoteRAheadOfMain(t *testing.T) {
+	t.Parallel()
+	r := reviewedRig(t)
+	r.closeAt("h1", "h2")
+	if r.git.passed("h1") {
+		t.Fatal("precondition: R h1 ahead of main")
+	}
+	r.pass() // the suite at R
+	r.pass() // the fast-forward, fact promoted
+	r.pass() // after_promote
+	r.pass()
+	recs := []string{"intent promote.1", "result promote.1", "fact promoted", "intent after_promote.1",
+		"result after_promote.1"}
+	one := []string{"h1"}
+	r.expect("R ahead", one, one, one, recs)
+	if got := r.git.head("main"); got != "h1" {
+		t.Errorf("main = %s, want h1", got)
+	}
+	r.replay()
+	r.expect("replayed", one, one, one, recs)
+}
+
+// T-984: main moved past R during the run (the suite's GREEN at R, or inside the fast-forward): already, no fact
+// promoted, no after_promote, main not moved back; a restart, also one that cut the run, the same.
+func TestPromoteMainMovedPastRDuringTheRun(t *testing.T) {
+	t.Parallel()
+	recs := []string{"intent promote.1", "result promote.1"}
+	t.Run("during the suite", func(t *testing.T) {
+		t.Parallel()
+		r := reviewedRig(t)
+		r.closeAt("h1", "h3")
+		r.f.during = func() { r.git.set("main", "h2") }
+		r.pass() // the suite at h1; main moves to h2 meanwhile
+		r.pass()
+		r.pass()
+		r.expect("main past R after the run", []string{"h1"}, nil, nil, recs)
+		if got := r.git.head("main"); got != "h2" {
+			t.Errorf("main = %s, want h2", got)
+		}
+		r.nothingPending("main past R", "h2")
+		r.replay()
+		r.expect("replayed", []string{"h1"}, nil, nil, recs)
+	})
+	t.Run("inside the fast-forward: already", func(t *testing.T) {
+		t.Parallel()
+		r := reviewedRig(t)
+		r.closeAt("h1", "h3")
+		r.f.movedAt = "h2"
+		r.pass() // the suite at h1
+		r.pass() // the fast-forward finds main at h2: already
+		r.pass()
+		r.expect("FF already", []string{"h1"}, []string{"h1"}, nil, recs)
+		if got := r.git.head("main"); got != "h2" {
+			t.Errorf("main = %s, want h2", got)
+		}
+		r.replay()
+		r.expect("replayed", []string{"h1"}, []string{"h1"}, nil, recs)
+	})
+	t.Run("a restart cut the run", func(t *testing.T) {
+		t.Parallel()
+		r := reviewedRig(t)
+		r.closeAt("h1", "h3")
+		r.f.block, r.f.began = true, make(chan struct{}, 1)
+		ctx, cancel := context.WithCancel(context.Background())
+		r.a.promotion(ctx, r.p, r.fx)
+		<-r.f.began
+		cancel()
+		r.a.effects.Wait()
+		if got := r.steps(); !slices.Equal(got, []string{"intent promote.1"}) {
+			t.Fatalf("precondition: the cut run's intent is pending: %q", got)
+		}
+		r.f.block = false
+		r.git.set("main", "h2")
+		r.replay()
+		r.expect("replayed past R", []string{"h1"}, nil, nil, recs)
+		r.nothingPending("replayed past R", "h2")
+	})
+}
+
+// T-984: a refused fast-forward (main diverged from R) is a counted failure, no fact promoted.
+func TestPromoteFFRefusedIsCounted(t *testing.T) {
+	t.Parallel()
+	r := reviewedRig(t)
+	r.closeAt("h1", "h2")
+	r.f.refuse = true
+	r.pass()
+	r.pass()
+	r.a.mu.Lock()
+	fails := r.p.prom.fails["ff h1"]
+	r.a.mu.Unlock()
+	if fails != 1 || slices.Contains(r.steps(), "fact promoted") || r.git.head("main") != "h0" {
+		t.Errorf("refused: fails %d, records %q, main %s; want one counted failure, no fact, main at h0", fails,
+			r.steps(), r.git.head("main"))
+	}
 }

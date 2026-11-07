@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"obor/internal/app/port"
 	"obor/internal/testkit"
 )
 
@@ -57,12 +58,12 @@ func TestPromoteRunsTheFullSuiteAndFastForwards(t *testing.T) {
 	x.gone(".obor/state/last-full-check", "the nightly's file untouched (T-978: a promotion is no hand-run nightly)")
 	x.eq(x.ref("refs/heads/prod"), prod, "the run itself moves no branch")
 
-	line, err := PromoteFF(context.Background(), x.opts(), h)
-	if err != nil || x.ref("refs/heads/prod") != h {
-		t.Fatalf("PromoteFF = %q, %v; prod %s, want %s", line, err, x.ref("refs/heads/prod"), h)
+	ff, err := PromoteFF(context.Background(), x.opts(), h)
+	if err != nil || ff.Outcome != port.FFMoved || x.ref("refs/heads/prod") != h {
+		t.Fatalf("PromoteFF = %+v, %v; prod %s, want moved to %s", ff, err, x.ref("refs/heads/prod"), h)
 	}
-	if line, err := PromoteFF(context.Background(), x.opts(), h); err != nil || !strings.Contains(line, "already") {
-		t.Errorf("a second PromoteFF = %q, %v; want already", line, err)
+	if ff, err := PromoteFF(context.Background(), x.opts(), h); err != nil || ff.Outcome != port.FFAlready {
+		t.Errorf("a second PromoteFF = %+v, %v; want already", ff, err)
 	}
 	if err := os.Remove(filepath.Join(x.Base, "check-head")); err != nil {
 		t.Fatal(err)
@@ -101,11 +102,42 @@ func TestPromoteFFRefusesANonAncestor(t *testing.T) {
 	x.Git(x.Root, "commit", "-qm", "on prod by hand")
 	x.Git(x.Root, "checkout", "-q", "main")
 	prod := x.ref("refs/heads/prod")
-	if line, err := PromoteFF(context.Background(), x.opts(), h); err == nil ||
-		!strings.Contains(err.Error(), "not an ancestor") {
-		t.Errorf("PromoteFF over a diverged prod = %q, %v; want the not-an-ancestor error", line, err)
+	if ff, err := PromoteFF(context.Background(), x.opts(), h); err != nil || ff.Outcome != port.FFRefused ||
+		!strings.Contains(ff.Line, "not an ancestor") {
+		t.Errorf("PromoteFF over a diverged prod = %+v, %v; want refused, not an ancestor", ff, err)
 	}
 	x.eq(x.ref("refs/heads/prod"), prod, "prod untouched")
+	if passed, err := PromotePassed(context.Background(), x.opts(), h); err != nil || passed {
+		t.Errorf("PromotePassed over a diverged prod = %v, %v; want false", passed, err)
+	}
+}
+
+// T-984 (RV-136 verify #1): a sha behind the promoted branch (the switch created prod past it) is passed: PromotePassed
+// says so, PromoteFF is already (prod not moved back), Promote is GREEN with no suite run; a sha ahead of prod is not.
+func TestPromoteShaBehindThePromotedBranch(t *testing.T) {
+	t.Parallel()
+	x, h := promoteFx(t, cmd("check", record("check")))
+	old := x.ref("refs/heads/prod")
+	if passed, err := PromotePassed(context.Background(), x.opts(), h); err != nil || passed {
+		t.Fatalf("precondition: prod at %s behind %s: PromotePassed = %v, %v; want false", old, h, passed, err)
+	}
+	x.Git(x.Root, "branch", "-f", "prod", h) // the switch: prod at the head, past old
+	for _, sha := range []string{old, h} {
+		if passed, err := PromotePassed(context.Background(), x.opts(), sha); err != nil || !passed {
+			t.Errorf("prod at %s: PromotePassed(%s) = %v, %v; want true", h, sha, passed, err)
+		}
+	}
+	ff, err := PromoteFF(context.Background(), x.opts(), old)
+	if err != nil || ff.Outcome != port.FFAlready {
+		t.Errorf("PromoteFF to %s behind prod = %+v, %v; want already", old, ff, err)
+	}
+	x.eq(x.ref("refs/heads/prod"), h, "prod not moved back")
+	r, err := Promote(context.Background(), x.opts(), old)
+	if err != nil || r.Verdict != "GREEN" || r.SHA != old {
+		t.Errorf("Promote at %s behind prod = %+v, %v; want GREEN", old, r, err)
+	}
+	x.eq(x.tmp("check-head"), "", "no suite run at a passed sha")
+	x.gone(".obor/state/"+LastPromotionFile, "no promotion result written")
 }
 
 // A red check reruns its failing tests once (commands.retest): green then is GREEN, retried; red again is RED with the

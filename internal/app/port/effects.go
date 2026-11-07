@@ -428,3 +428,18 @@ type PromoteOut struct {
 	Line    string `json:"line"`
 	Retried bool   `json:"retried,omitempty"`
 }
+
+// FFOut is the fast-forward of the promoted branch (T-984), decided by ancestry: moved (fast-forwarded to the sha),
+// already (at the sha or past it: nothing to do, nothing promoted) or refused (diverged: not fast-forwarded); its line
+// says which.
+type FFOut struct {
+	Outcome string // FFMoved | FFAlready | FFRefused
+	Line    string
+}
+
+// FFOut's outcomes.
+const (
+	FFMoved   = "moved"
+	FFAlready = "already"
+	FFRefused = "refused"
+)
