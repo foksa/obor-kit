@@ -98,8 +98,7 @@
     "researcher": "sonnet:medium"
   },
   "branches": {
-    "main": "staging",
-    "promote": "main"
+    "main": "staging"
   },
   "merge": {
     "promote_weight": 6,
