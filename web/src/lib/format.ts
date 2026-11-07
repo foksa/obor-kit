@@ -54,7 +54,7 @@ export function tone(state: string | undefined | null): Tone {
   if (/^driving/.test(s)) return "accent";
   if (/merged|published/.test(s)) return "done";
   if (/pending|waiting|queued|not fetched|stuck|review requested|ready|paused|dirty|^done/.test(s)) return "wait";
-  if (/submitted|gating|gate|merging|review|resolv|accepted|publish/.test(s)) return "info";
+  if (/submitted|gating|gate|testing|candidate|merging|review|resolv|accepted|publish/.test(s)) return "info";
   if (/working|dispatching|running|green|live|up|brief/.test(s)) return "ok";
   return "idle";
 }
@@ -91,13 +91,14 @@ export function eventKind(line: string, bad?: boolean): EventKind {
   if (bad) return "problem";
   if (/^line to |^→|^\[obor [^\]]+\]/.test(s)) return "message";
   if (/^merged\b/.test(s)) return "merge";
-  if (/^gate\b/.test(s)) return "gate";
+  if (/^gate\b|^test\b/.test(s)) return "gate";
   if (/^accepted\b/.test(s)) return "accept";
   if (/^submitted\b/.test(s)) return "submit";
   if (/^dispatched\b|^waiting\b/.test(s)) return "dispatch";
   if (/^drive\b|^land/.test(s)) return "drive";
   if (/^serve\b/.test(s)) return "serve";
-  if (/needs you|sent back|sendback|red\b|fail/i.test(s)) return "problem";
+  // A count ("33 pass, 0 fail") is a summary, not a failure: fail right after a number is no problem.
+  if (/needs you|sent back|sendback|red\b|(?<!\d )fail/i.test(s)) return "problem";
   return "other";
 }
 
