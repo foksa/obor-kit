@@ -16,6 +16,7 @@ func TestAffectedGoCommand(t *testing.T) {
 	p.Config(func(c map[string]any) { c["merge"] = map[string]any{"affected_full": []string{"build/**"}} })
 	p.Write("go.mod", "module fx\n\ngo 1.22\n")
 	p.Write("a/a.go", "package a\n\nfunc F() int { return 1 }\n")
+	p.Write("a/a_test.go", "package a\n\nimport \"testing\"\n\nfunc TestF(t *testing.T) { _ = F() }\n")
 	p.Write("b/b.go", "package b\n\nimport \"fx/a\"\n\nfunc G() int { return a.F() }\n")
 	p.Write("c/c.go", "package c\n")
 	list := func(lines ...string) string {
@@ -37,6 +38,7 @@ func TestAffectedGoCommand(t *testing.T) {
 	}{
 		{"--changed", []string{"affected", "go", "--changed", list("a/a.go")}, nil, "fx/a\nfx/b\n"},
 		{"env default", []string{"affected", "go"}, []string{"OBOR_CHANGED_FILES=" + list("c/c.go", "README.md")}, "fx/c\n"},
+		{"test file only", []string{"affected", "go", "--changed", list("a/a_test.go")}, nil, "fx/a\n"}, // T-954: b imports a, but nothing imports a test file
 		{"no Go file", []string{"affected", "go", "--changed", list("README.md")}, nil, ""},
 		{"go.mod", []string{"affected", "go", "--changed", list("go.mod")}, nil, "full: changed go.mod\n"},
 		{"merge.affected_full", []string{"affected", "go", "--changed", list("a/a.go", "build/x.txt")}, nil, "full: changed build/x.txt\n"},

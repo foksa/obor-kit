@@ -8,7 +8,7 @@ import (
 )
 
 // fixture module fx: top → mid → leaf; tester imports leaf from its tests only; other stands alone (with an embedded
-// file); leaf has a testdata/ file.
+// file); leaf has a testdata/ file; cmd/app is a main package with a test.
 // fixtureFull is the fixture's merge.affected_full: a build file and the shared test-support packages.
 var fixtureFull = []string{"Makefile", "internal/testkit/**", "internal/herdrtest/**"}
 
@@ -29,6 +29,8 @@ func fixture(t *testing.T) string {
 		"other/tmpl/x.txt":        "x\n",
 		"internal/testkit/tk.go":  "package testkit\n",
 		"internal/herdrtest/h.go": "package herdrtest\n",
+		"cmd/app/app.go":          "package main\n\nfunc main() {}\n",
+		"cmd/app/app_test.go":     "package main\n\nimport \"testing\"\n\nfunc TestApp(t *testing.T) {}\n",
 	} {
 		p := filepath.Join(root, name)
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -49,14 +51,16 @@ func TestGoFixture(t *testing.T) {
 		files, want, full string
 		globs             []string
 	}{
-		{"leaf/leaf.go", leafAndImporters, "", fixtureFull},           // a leaf: it plus its importers, direct, indirect and test-only
-		{"leaf/leaf_test.go", leafAndImporters, "", fixtureFull},      // a test file only: its package plus importers
-		{"leaf/testdata/in.txt", leafAndImporters, "", fixtureFull},   // testdata/: its package
-		{"top/top.go", "fx/top", "", fixtureFull},                     // nothing imports top
-		{"tester/tester_test.go", "fx/tester", "", fixtureFull},       // a test-only importer is not imported back
-		{"other/tmpl/x.txt", "fx/other", "", fixtureFull},             // a non-Go file in a package dir (embedded) selects it
-		{"top/top.go docs/a.md README.md", "fx/top", "", fixtureFull}, // files under no package select nothing
-		{"README.md docs/a.md", "", "", fixtureFull},                  // no Go files: empty
+		{"leaf/leaf.go", leafAndImporters, "", fixtureFull},                   // a leaf: it plus its importers, direct, indirect and test-only
+		{"leaf/leaf_test.go", "fx/leaf", "", fixtureFull},                     // T-954: a test file only selects its own package
+		{"leaf/leaf.go leaf/leaf_test.go", leafAndImporters, "", fixtureFull}, // a non-test file in the change still expands
+		{"leaf/testdata/in.txt", leafAndImporters, "", fixtureFull},           // testdata/: its package
+		{"top/top.go", "fx/top", "", fixtureFull},                             // nothing imports top
+		{"tester/tester_test.go", "fx/tester", "", fixtureFull},               // a changed test file picks its package, not the leaf its test imports
+		{"cmd/app/app_test.go", "fx/cmd/app", "", fixtureFull},                // a main package's test file selects it alone
+		{"other/tmpl/x.txt", "fx/other", "", fixtureFull},                     // a non-Go file in a package dir (embedded) selects it
+		{"top/top.go docs/a.md README.md", "fx/top", "", fixtureFull},         // files under no package select nothing
+		{"README.md docs/a.md", "", "", fixtureFull},                          // no Go files: empty
 		{"leaf/leaf.go go.mod", "", "changed go.mod", fixtureFull},
 		{"go.sum", "", "changed go.sum", fixtureFull},
 		{"Makefile", "", "changed Makefile", fixtureFull},

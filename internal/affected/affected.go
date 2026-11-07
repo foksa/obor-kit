@@ -1,6 +1,7 @@
 // Package affected selects the Go packages a change can break (T-347, T-351): the
-// packages of the changed files plus every package whose imports or test imports reach them. `obor affected go` prints
-// them for a project's check_affected command.
+// packages of the changed files plus every package whose imports or test imports reach them. A changed test file
+// selects only its own package (T-954): no other package imports it. `obor affected go` prints them for a project's
+// check_affected command.
 package affected
 
 import (
@@ -24,7 +25,8 @@ type Result struct {
 // Go returns the packages the changed files (repo-relative, as in OBOR_CHANGED_FILES) affect in the module at root. A
 // changed go.mod, go.sum or file matching one of fullGlobs (merge.affected_full) forces the full suite. A file maps to
 // the package of its nearest directory that holds one (a testdata/ or embedded file selects its package); a file under
-// no package selects nothing, except a .go file (a removed package), which forces full.
+// no package selects nothing, except a .go file (a removed package), which forces full. A changed _test.go file selects
+// its directory's package only, never the packages that import it: a test binary is built from that directory alone.
 func Go(root string, files, fullGlobs []string) (Result, error) {
 	for _, f := range files {
 		if f == "go.mod" || f == "go.sum" {
@@ -46,14 +48,20 @@ func Go(root string, files, fullGlobs []string) (Result, error) {
 			byDir[p.Rel] = p.ImportPath
 		}
 	}
-	changed := map[string]bool{}
+	changed := map[string]bool{} // files that are imported (or embedded): their packages and reverse deps
+	direct := map[string]bool{}  // _test.go files: their own package only
 	for _, f := range files {
 		if f = path.Clean(f); f == "." || strings.HasPrefix(f, "../") {
 			continue
 		}
+		test := strings.HasSuffix(f, "_test.go")
 		for dir := path.Dir(f); ; dir = path.Dir(dir) {
 			if ip, ok := byDir[dir]; ok {
-				changed[ip] = true
+				if test {
+					direct[ip] = true
+				} else {
+					changed[ip] = true
+				}
 				break
 			}
 			if dir == "." {
@@ -74,7 +82,7 @@ func Go(root string, files, fullGlobs []string) (Result, error) {
 		if p.ForTest != "" {
 			owner = p.ForTest
 		}
-		if changed[name] {
+		if changed[name] || direct[name] {
 			set[owner] = true
 			continue
 		}
