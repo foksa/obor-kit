@@ -406,6 +406,30 @@ func TestJobNudgeFromDelivery(t *testing.T) {
 	})
 }
 
+// T-960: after a restart following a nudge, the quiet time counts from the nudge, not from delivery, so the needs-you
+// comes Idle after the nudge and not on the restart's first sample.
+func TestJobNudgeFromNudge(t *testing.T) {
+	t.Parallel()
+	r, _ := reviewed(t)
+	r.integratorIs("idle")
+	r.quietBaseline("T-1/1/review")
+	r.later(10 * time.Minute) // t0+Idle: the nudge
+	r.waitStep("1 result nudge.review")
+	r.stop()
+	r.clock.Add(2 * time.Minute) // t0+Idle+2m
+	r.start()
+	r.quietBaseline("T-1/1/review") // the restart's timer, from the nudge, is taken
+	if r.hasPrefix("1 fact needs-you") {
+		t.Fatalf("needs-you on the restart's first sample: %q", r.steps())
+	}
+	r.later(7 * time.Minute) // t0+2·Idle−1m: no needs-you before Idle after the nudge
+	if r.hasPrefix("1 fact needs-you") {
+		t.Fatalf("needs-you before Idle after the nudge: %q", r.steps())
+	}
+	r.later(time.Minute) // t0+2·Idle: Idle after the nudge
+	r.waitStep("1 fact needs-you{job stalled: pj-int idle with job T-1/1/review for 10m0s after a nudge}")
+}
+
 // obor hold: the job stays open, needs-you{held: why}, the owner told once; only the integrator holds, with a why;
 // a repeated call id gets the stored reply. obor resume (the lead's): its default for held is reprompt, a new job,
 // the old job id refused; a repeated call id gets the stored reply, a resume with no needs-you is refused.

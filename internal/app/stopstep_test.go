@@ -167,8 +167,8 @@ func TestMoveRestartBeforeTheStop(t *testing.T) {
 	}
 }
 
-// The worker is gone before the move's stop (no agent in its pane): worker.stop records it gone (nothing stopped),
-// the lead's line says so, and the new model's start runs.
+// The worker is gone before the move's stop (no agent in its pane): worker.stop records that it is done (nothing
+// stopped, no line and no gone: T-943, T-960), and the new model's start runs.
 func TestMoveWorkerAlreadyGone(t *testing.T) {
 	t.Parallel()
 	r := newWorkerRig(t)
@@ -184,8 +184,8 @@ func TestMoveWorkerAlreadyGone(t *testing.T) {
 		t.Fatalf("move: %q, %v", reply, err)
 	}
 	r.waitFor("the new model's start", func() bool { return len(r.workerLaunches()) == 2 })
-	if got := r.resultOf(2, event.StepWorkerStop); !strings.Contains(got, `"gone":true`) {
-		t.Errorf("worker.stop's result %s; want gone", got)
+	if got := r.resultOf(2, event.StepWorkerStop); got != "{}" {
+		t.Errorf("worker.stop's result %s; want {} (T-960: no line, no gone)", got)
 	}
 	if len(r.workerStops()) != 0 {
 		t.Errorf("stops %q; want none (no agent to stop)", r.workerStops())

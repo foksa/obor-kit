@@ -190,10 +190,10 @@ func (r *serveRig) Stop(_ context.Context, agent, pane string, _ bool) (string, 
 }
 
 // seen waits until the app's snapshot has agent (or, !want, has it no more): a workspace event makes it read anew.
-// The deadline is waitFor's 30 s: under a loaded machine (load 40+, four lanes) the app's pass lagged the pane by more
+// The deadline is waitDeadline: under a loaded machine (load 40+, four lanes) the app's pass lagged the pane by more
 // than the 5 s this had and a start.review failed with "pj-int never seen" (T-830's gate).
 func (r *serveRig) seen(agent string, want bool) error {
-	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+	for deadline := time.Now().Add(waitDeadline); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
 		has := false
 		for _, a := range r.app.Status().Project.Agents {
 			has = has || a.Name == agent
@@ -207,9 +207,13 @@ func (r *serveRig) seen(agent string, want bool) error {
 	return errors.New(agent + " never seen")
 }
 
+// waitDeadline is how long a serve test waits for the app. A crash replay re-runs the gate it committed before the
+// crash: under the gate's parallel load that gate took 73 s (T-960's check), so the old 30 s wait fired first.
+const waitDeadline = 2 * time.Minute
+
 func (r *serveRig) waitFor(what string, ok func() bool) {
 	r.t.Helper()
-	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(waitDeadline); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 		if ok() {
 			return
 		}
