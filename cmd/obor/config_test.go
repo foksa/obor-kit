@@ -23,16 +23,16 @@ func TestConfigPrintAndGet(t *testing.T) {
 	}
 	lane := p.Lane("L-01", "task/T-01")
 	p.Config()
-	p.Write(".obor/local.json", `{"merge": {"receipt_max_age": 60}}`)
+	p.Write(".obor/local.json", `{"merge": {"nightly_at": "02:30"}}`)
 
 	rc, stdout, _ := run(t, p.Root, nil, "config")
 	var eff struct {
 		Prefix string `json:"prefix"`
 		Merge  struct {
-			ReceiptMaxAge int64 `json:"receipt_max_age"`
+			NightlyAt string `json:"nightly_at"`
 		} `json:"merge"`
 	}
-	if err := json.Unmarshal([]byte(stdout), &eff); rc != 0 || err != nil || eff.Prefix != "pj" || eff.Merge.ReceiptMaxAge != 60 {
+	if err := json.Unmarshal([]byte(stdout), &eff); rc != 0 || err != nil || eff.Prefix != "pj" || eff.Merge.NightlyAt != "02:30" {
 		t.Errorf("config: exit %d, %v\n%s", rc, err, stdout)
 	}
 	if !strings.Contains(stdout, `"task_id_pattern": "T-[0-9]+[a-z]?"`) {
@@ -45,7 +45,7 @@ func TestConfigPrintAndGet(t *testing.T) {
 		out  string
 	}{
 		{p.Root, []string{"config", "get", ".prefix"}, 0, "pj\n"},
-		{lane, []string{"config", "get", ".merge.receipt_max_age"}, 0, "60\n"},
+		{lane, []string{"config", "get", ".merge.nightly_at"}, 0, "02:30\n"},
 		{p.Root, []string{"config", "get", ".notify"}, 1, ""}, // removed (T-830): an unknown key now
 		{p.Root, []string{"config", "get", ".nosuch"}, 1, ""},
 		{p.Root, []string{"config", "get", ".mcp.jobs"}, 1, ""}, // removed (T-830): an unknown key now
@@ -82,6 +82,9 @@ func TestConfigValidateBinary(t *testing.T) {
 		{[]func(map[string]any){testkit.Set("cache.warn_tokens", 50000)}, 1, ""},
 		{[]func(map[string]any){testkit.Set("version", 2), testkit.Set("paths.research", "r")}, 1,
 			"WARN paths.research: no longer used, remove it\nFAIL .version: must be 1, got 2\n"},
+		// T-966: merge.receipt_max_age went with the test receipts; naming it is one WARN line, not an error.
+		{[]func(map[string]any){testkit.Set("merge.receipt_max_age", 60)}, 0,
+			"WARN merge.receipt_max_age: no longer used, remove it\nOK\n"},
 		// T-428: serve dispatches and merges nothing without roles.integrator, so validate FAILs.
 		{[]func(map[string]any){func(c map[string]any) { delete(c, "roles") }}, 1,
 			"FAIL .roles.integrator: required: serve dispatches and merges nothing without an integrator\n"},

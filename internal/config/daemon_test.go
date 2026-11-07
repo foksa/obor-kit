@@ -109,11 +109,11 @@ func TestLoadDaemonUnknownPaths(t *testing.T) {
 
 // TestLoadDaemonTypeErrors: a wrong type is still an error next to an unknown member.
 func TestLoadDaemonTypeErrors(t *testing.T) {
-	root := writeProject(t, `{"merge":{"future":1,"receipt_max_age":"soon"},"slots":{"future":2}}`, "")
+	root := writeProject(t, `{"merge":{"future":1,"nightly_at":5},"slots":{"future":2}}`, "")
 	var out bytes.Buffer
 	defer func(w interface{ Write([]byte) (int, error) }) { Warn = w }(Warn)
 	Warn = &out
-	if _, err := LoadDaemon(root); err == nil || !strings.Contains(err.Error(), "receipt_max_age") {
-		t.Errorf("LoadDaemon: %v, want the receipt_max_age type error", err)
+	if _, err := LoadDaemon(root); err == nil || !strings.Contains(err.Error(), "nightly_at") {
+		t.Errorf("LoadDaemon: %v, want the nightly_at type error", err)
 	}
 }

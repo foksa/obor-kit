@@ -174,9 +174,6 @@ func (v *validator) optional() {
 		v.allowPush(g.AllowPush)
 		v.denyCommands(g.DenyCommands)
 	}
-	if v.d.Merge.ReceiptMaxAge < 0 {
-		v.fail(".merge.receipt_max_age", fmt.Sprintf("must be a non-negative integer (seconds), got %d", v.d.Merge.ReceiptMaxAge))
-	}
 	if at := v.d.Merge.NightlyAt; at != "" {
 		if _, _, ok := ParseClock(at); !ok {
 			v.fail(".merge.nightly_at", "must be a local time HH:MM (00:00 to 23:59), got "+Compact(at))
@@ -407,6 +404,8 @@ func (c *Config) warnings(o ValidateOptions) []string {
 	if ch := c.Data.Checks; ch != nil {
 		removed("checks.load_limit", ch.LoadLimit != nil)
 	}
+	// T-966: v0.29 dropped merge.receipt_max_age with the test receipts.
+	removed("merge.receipt_max_age", c.Data.Merge.ReceiptMaxAge != nil)
 	for _, name := range c.ModelNames() { // T-705: opencode's own default model may refuse requests, and effort needs one (T-703)
 		m, _ := c.Model(name)
 		if kd, known := agents.Lookup(m.Kind); known && kd.Caps().ModelArg && m.ID == "" && c.modelUsed(name) {
