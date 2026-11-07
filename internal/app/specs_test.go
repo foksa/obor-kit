@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"context"
+	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"slices"
 	"strings"
@@ -17,7 +18,7 @@ import (
 // set line.
 func TestSpecSet(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass")
+	r := newLoopRig(t)
 	r.start()
 	if _, ok, err := store.ReadSpecAt(r.p.Root, "T-1"); err != nil || ok {
 		t.Fatalf("precondition: a spec before any set: %v, %v", ok, err)
@@ -56,7 +57,7 @@ func TestSpecSet(t *testing.T) {
 // T-790: a spec with no title is refused beside the Difficulty refusal, and nothing is stored.
 func TestSpecSetRefusesASpecWithoutATitle(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass")
+	r := newLoopRig(t)
 	r.start()
 	for _, c := range []struct{ call, text string }{
 		{"u1", "# T-1\n\nDifficulty: medium\n"},
@@ -78,7 +79,7 @@ func TestSpecSetRefusesASpecWithoutATitle(t *testing.T) {
 // that has both `Fixes:` and `Review: on merge` (the fix's verify is its review). A refusal stores nothing.
 func TestSpecSetReviewOnMerge(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass")
+	r := newLoopRig(t)
 	r.start()
 	good := "# T-1 — A\n\nDifficulty: medium\nReview: on merge\n\n## Do\n"
 	if got := r.setSpec("r1", good); got != "SET T-1 rev 1" {
@@ -110,7 +111,7 @@ func TestSpecSetReviewOnMerge(t *testing.T) {
 // before the set the request is refused with nothing recorded, after it the same request dispatches.
 func TestDispatchNeedsStoredSpec(t *testing.T) {
 	t.Parallel()
-	r := newDispatchRig(t)
+	r := newLoopRig(t, dispatching())
 	r.disp.refuse["T-1"] = "no spec for T-1 in obor serve's store" // what the real Check says to ""
 	r.start()
 	if _, err := r.dispatch("d1", "L-01"); err == nil || !strings.Contains(err.Error(), "no spec for T-1") {
@@ -146,8 +147,9 @@ func TestFixJobCarriesChangedSpec(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			r := newLoopRig(t, `if [ -f red.txt ]; then echo "0 pass, 1 fail"; exit 1; fi; echo 1 pass`)
+			r := newLoopRig(t)
 			r.work("red.txt", "red\n")
+			r.scratch.Script("Test", "T-1", port.OutcomeRed)
 			r.start()
 			r.setSpec("s1", "# T-1 — Red\n\nDifficulty: medium\n\n## Files you may touch\n`red.txt`\n")
 			r.submit()
@@ -169,9 +171,10 @@ func TestFixJobCarriesChangedSpec(t *testing.T) {
 			if strings.Contains(job, "The spec of T-1") {
 				t.Errorf("second fix job repeats a spec the worker has:\n%s", job)
 			}
-			r.scratch.mu.Lock()
-			specs := slices.Clone(r.scratch.specs)
-			r.scratch.mu.Unlock()
+			var specs []string
+			for _, in := range r.scratch.Inputs() {
+				specs = append(specs, in.Spec)
+			}
 			if len(specs) != 2 || !strings.Contains(specs[0], "`red.txt`\n") ||
 				strings.Contains(specs[1], "more.txt") != c.widen {
 				t.Errorf("gate specs %q; want the current rev at each gate", specs)
@@ -184,7 +187,7 @@ func TestFixJobCarriesChangedSpec(t *testing.T) {
 // writer's spec in between, answers the original reply and does not write the old text over the newer spec.
 func TestSpecSetRetryAfterRestartPreservesNewerSpec(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass")
+	r := newLoopRig(t)
 	r.start()
 	a, b := "# T-1 — A\n\nDifficulty: medium\n", "# T-1 — B\n\nDifficulty: medium\n"
 	if got := r.setSpec("s1", a); got != "SET T-1 rev 1" {
@@ -207,7 +210,7 @@ func TestSpecSetRetryAfterRestartPreservesNewerSpec(t *testing.T) {
 // SM-02 (T-939): simultaneous callers of one call id all get the first call's reply, and the spec is set once.
 func TestSpecSetConcurrentRetriesShareReply(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass")
+	r := newLoopRig(t)
 	r.start()
 	text := "# T-1 — A\n\nDifficulty: medium\n"
 	start := make(chan struct{})

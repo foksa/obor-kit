@@ -8,8 +8,6 @@ import (
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
-	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"sync/atomic"
@@ -18,11 +16,11 @@ import (
 
 	"obor/internal/app"
 	"obor/internal/herdr/herdrtest"
-	"obor/internal/testkit"
 )
 
 // Recovery (T-338, RV-37): obor serve dies at any point of a merge-loop step, before its effect or after it with the
-// result lost, and the restart takes the task on from there with the fake Scratch on a git fixture.
+// result lost, and the restart takes the task on from there with the in-memory Scratch (app.FakeScratch: an effect
+// that ran is in it, as it would be in git).
 
 // crashAt makes the app's log refuse the record kind/step and every record after it, and ends the app there (the
 // process died: nothing after it runs); the flag says it happened.
@@ -52,12 +50,11 @@ func (r *loopRig) appendIntent(step, class string) {
 
 var jobRe = regexp.MustCompile(`^\[obor job ([^\]]+)\] `)
 
-// answers is the integrator as a test plays it: each resolve job is resolved in the scratch (shared.txt =
-// resolution) and answered resolved, each review job accepted (beforeAccept runs once first); only a job whose prompt
+// answers is the integrator as a test plays it: each resolve job is resolved in the scratch (the open conflict
+// committed) and answered resolved, each review job accepted (beforeAccept runs once first); only a job whose prompt
 // has its result (sent). A verdict the app refuses (its log refused it: a crash) is given again later.
 type answers struct {
 	r            *loopRig
-	resolution   string
 	beforeAccept func()
 	done         map[string]bool
 	calls        int
@@ -83,11 +80,8 @@ func (a *answers) pass() {
 		id := fmt.Sprintf("c%d", a.calls)
 		var err error
 		if strings.HasSuffix(m[1], "/resolve") || strings.Contains(m[1], "/resolve.") {
-			scratch := filepath.Join(a.r.p.Base, "proj-wt", "merge")
-			if gitOK(scratch, "rev-parse", "-q", "--verify", "MERGE_HEAD") {
-				a.r.p.Write(filepath.Join(scratch, "shared.txt"), a.resolution)
-				a.r.p.Git(scratch, "add", "shared.txt")
-				a.r.p.Git(scratch, "commit", "-qm", "Merge T-1: resolved")
+			if a.r.scratch.Open() {
+				a.r.scratch.Resolve()
 			}
 			_, err = a.r.verdict(wire.MethodResolved, id, "", "")
 		} else {
@@ -153,14 +147,11 @@ func (r *loopRig) sent(job string) bool {
 	return false
 }
 
-func gitOK(dir string, args ...string) bool {
-	return exec.Command("git", append([]string{"-C", dir}, args...)...).Run() == nil
-}
-
 // foreign is lane L-02 on task T-20 with its worker pj-l-02 in the project's workspace: no step of T-1 may touch it.
 func (r *loopRig) foreign() string {
 	r.t.Helper()
 	lane := r.p.Lane("L-02", "task/T-20")
+	r.scratch.AddLane("L-02", lane, "task/T-20")
 	r.p.State("L-02", map[string]any{"lane": "L-02", "task": "T-20", "branch": "task/T-20", "agent": "pj-l-02",
 		"base": "main", "dispatched_at": 1})
 	w := r.f.Agent("w1:p2", "pj-l-02", "idle", lane)
@@ -170,33 +161,29 @@ func (r *loopRig) foreign() string {
 
 // A merge-loop scenario: how the task gets to its end, and what that end is.
 type scenario struct {
-	check      string                 // commands.check
-	edits      []func(map[string]any) // more config
-	setup      func(r *loopRig)       // the lane's work and main's commits, before the app starts
-	resolution string                 // the integrator's resolution of a conflict
-	moveMain   bool                   // main moves before the accept (an unrelated commit)
-	end        string                 // the record that ends it ("" merged)
-	publishes  int32                  // Publish calls when merged
-	jobs       int32                  // integrator jobs, each its fresh start (T-602; 0: 1)
+	setup     func(r *loopRig) // the lane's work, main's commits and the scripted outcomes, before the app starts
+	moveMain  bool             // main moves before the accept (an unrelated commit)
+	end       string           // the record that ends it ("" merged)
+	publishes int32            // Publish calls when merged
+	jobs      int32            // integrator jobs, each its fresh start (T-602; 0: 1)
 }
 
 const sharedLines = "2\n3\n4\n5\n6\n7\n8\n9\n10\n"
 
-func conflictSetup(r *loopRig) {
-	r.work("shared.txt", "lane\n"+sharedLines)
-	r.p.Write("shared.txt", "main\n"+sharedLines)
-	r.p.Git(r.p.Root, "commit", "-qam", "main edit")
-}
-
 var scenarios = map[string]scenario{
-	"lane":     {check: "echo 1 pass", setup: func(r *loopRig) { r.work("feature.txt", "feature\n") }, publishes: 1},
-	"moved":    {check: "echo 1 pass", setup: func(r *loopRig) { r.work("feature.txt", "feature\n") }, moveMain: true, publishes: 2},
-	"resolved": {check: "echo 1 pass", setup: conflictSetup, resolution: "both\n" + sharedLines, publishes: 1, jobs: 2},
-	"resolved red": {check: `if grep -q red shared.txt; then echo "0 pass, 1 fail"; exit 1; fi; echo 1 pass`,
-		setup: conflictSetup, resolution: "red\n" + sharedLines, end: "1 fact sendback"},
-	"resolved fail": {check: "echo 1 pass", edits: []func(map[string]any){testkit.Set("commands.lane_setup",
-		"if grep -q fail shared.txt; then exit 3; fi")}, setup: conflictSetup, resolution: "fail\n" + sharedLines,
-		end: "1 fact needs-you{gate: FAIL lane_setup (rc 3)}"},
+	"lane":     {setup: func(r *loopRig) { r.work("feature.txt", "feature\n") }, publishes: 1},
+	"moved":    {setup: func(r *loopRig) { r.work("feature.txt", "feature\n") }, moveMain: true, publishes: 2},
+	"resolved": {setup: (*loopRig).conflicting, publishes: 1, jobs: 2},
+	// the resolution's lane test is red
+	"resolved red": {setup: func(r *loopRig) {
+		r.conflicting()
+		r.scratch.Script("Test", "T-1", port.OutcomeRed)
+	}, end: "1 fact sendback"},
+	// the resolved gate's lane_setup fails
+	"resolved fail": {setup: func(r *loopRig) {
+		r.conflicting()
+		r.scratch.Script("Gate resolved", "T-1", port.OutcomeFail+" FAIL lane_setup (rc 3)")
+	}, end: "1 fact needs-you{gate: FAIL lane_setup (rc 3)}"},
 }
 
 // Each step's effect at both crash points (before it; done, result lost): the restart ends the task as without the
@@ -227,8 +214,7 @@ func TestLoopRecovery(t *testing.T) {
 			t.Run(row.scenario+"/"+row.step+"/"+point, func(t *testing.T) {
 				t.Parallel()
 				sc := scenarios[row.scenario]
-				r := newLoopRig(t, sc.check, append([]func(map[string]any){testkit.Set("commands.after_merge",
-					"echo run >> .obor/state/after.runs; echo ran > .obor/state/after.ran")}, sc.edits...)...)
+				r := newLoopRig(t)
 				r.foreign()
 				sc.setup(r)
 				var early atomic.Bool // a job prompt reached pj-int before it was started
@@ -237,13 +223,9 @@ func TestLoopRecovery(t *testing.T) {
 						early.Store(true)
 					}
 				})
-				ans := &answers{r: r, resolution: sc.resolution}
+				ans := &answers{r: r}
 				if sc.moveMain {
-					ans.beforeAccept = func() {
-						r.p.Write("other.txt", "other\n")
-						r.p.Git(r.p.Root, "add", "other.txt")
-						r.p.Git(r.p.Root, "commit", "-qm", "unrelated")
-					}
+					ans.beforeAccept = func() { r.scratch.Move() } // an unrelated commit on main
 				}
 				r.start()
 				kind := event.KindResult
@@ -310,19 +292,20 @@ func TestLoopRecovery(t *testing.T) {
 				if row.step == "publish" && !before {
 					publishes++ // the replay's publish finds the candidate in the target: Already
 				}
-				runs := "run\n"
+				runs := 1
 				if row.step == "after_merge" && !before {
-					runs += "run\n" // the replay runs the idempotent after_merge again (its intent is the once, T-525)
+					runs++ // the replay runs the idempotent after_merge again (its intent is the once, T-525)
 				}
-				if r.mainMerges() != 1 || r.scratch.publishes.Load() != publishes || r.count("1 fact merged") != 1 ||
-					r.count("1 result after_merge") != 1 || r.p.Read(".obor/state/after.runs") != runs ||
-					r.p.Read(".obor/state/after.ran") != "ran\n" {
-					t.Errorf("merges %d, publishes %d (want %d), after_merge runs %q (want %q), effect %q: %q",
-						r.mainMerges(), r.scratch.publishes.Load(), publishes, r.p.Read(".obor/state/after.runs"), runs,
-						r.p.Read(".obor/state/after.ran"), r.steps())
+				if r.mainMerges() != 1 || r.scratch.Publishes.Load() != publishes || r.count("1 fact merged") != 1 ||
+					r.count("1 result after_merge") != 1 || r.scratch.AfterRuns("T-1") != runs {
+					t.Errorf("merges %d, publishes %d (want %d), after_merge runs %d (want %d): %q",
+						r.mainMerges(), r.scratch.Publishes.Load(), publishes, r.scratch.AfterRuns("T-1"), runs, r.steps())
 				}
-				if n := strings.Count("\n"+r.p.Git(r.p.Root, "log", "--format=%s", "main"), "\nT-1: "); n != 1 {
-					t.Errorf("main has %d submit commits of T-1, want the one", n)
+				if n := r.scratch.Commits("T-1"); n != 1 {
+					t.Errorf("the lane has %d submit commits of T-1, want the one", n)
+				}
+				if r.scratch.LaneHead("L-02") != r.scratch.LaneBase("L-02") || r.scratch.LaneAt("L-02") != "" {
+					t.Errorf("lane L-02 was touched: head %s, at %q", r.scratch.LaneHead("L-02"), r.scratch.LaneAt("L-02"))
 				}
 				if len(r.workerStops()) != 1 {
 					t.Errorf("stops %q, want pj-l-01 once", r.stopped())
@@ -337,7 +320,7 @@ func TestLoopRecovery(t *testing.T) {
 // job carries it), nothing typed.
 func TestLoopStartIntentBeforeEffect(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass")
+	r := newLoopRig(t)
 	r.work("feature.txt", "feature\n")
 	r.start()
 	crashed := r.crashAt(event.KindIntent, "start.review")
@@ -369,9 +352,8 @@ func TestLoopStartIntentBeforeEffect(t *testing.T) {
 // RV-37 #1 (Sol's probe TestRV37AfterMergeCrashThenLaneReused): after_merge ran, its result was lost, and while obor
 // serve was down the lane took T-06 (its dispatch in the log). The replay stops nothing: T-06's worker stays.
 func TestLoopAfterMergeCrashThenLaneReused(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass")
+	r := newLoopRig(t)
 	r.work("feature.txt", "feature\n")
 	r.start()
 	crashed := r.crashAt(event.KindResult, "after_merge")
@@ -440,9 +422,8 @@ func (r *loopRig) result(step string) string {
 // each pass), not even once it would pass; obor resume retries it (T-340's default for a failed step), and the
 // needs-you ends.
 func TestLoopAfterMergeFailure(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass")
+	r := newLoopRig(t)
 	r.work("feature.txt", "feature\n")
 	heal := r.armScratch("AfterMerge")
 	r.start()
@@ -453,7 +434,7 @@ func TestLoopAfterMergeFailure(t *testing.T) {
 	r.later(time.Minute)
 	heal()
 	r.later(time.Minute)
-	if n := r.scratch.afterMerges.Load(); n != 3 || r.has("1 result after_merge") || r.count("1 intent after_merge") != 1 {
+	if n := r.scratch.AfterMerges.Load(); n != 3 || r.has("1 result after_merge") || r.count("1 intent after_merge") != 1 {
 		t.Fatalf("after %d tries: want 3, no result, one intent: %q", n, r.steps())
 	}
 	r.mustResume("r1", "", "RESUMED T-1: retry (after_merge failed)")

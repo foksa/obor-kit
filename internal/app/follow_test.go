@@ -5,7 +5,6 @@ import (
 	"errors"
 	"obor/internal/app"
 	"obor/internal/app/event"
-	"obor/internal/testkit"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -29,7 +28,7 @@ type followRig struct {
 
 func newFollowRig(t *testing.T, err error) *followRig {
 	r := &followRig{err: err}
-	r.loopRig = newLoopRig(t, "echo 1 pass")
+	r.loopRig = newLoopRig(t)
 	r.binary = func() bool { return r.isNew.Load() != 0 }
 	r.restart = func(context.Context) error {
 		r.calls.Add(1)
@@ -117,11 +116,10 @@ func TestFollowBinaryIdle(t *testing.T) {
 
 // A gate running: the restart waits for it (shown as restarting meanwhile) and goes once it has ended.
 func TestFollowBinaryWaitsForIdle(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	r := newFollowRig(t, nil)
 	release := make(chan struct{})
-	r.scratch.arm("Gate", func(ctx context.Context) error {
+	r.scratch.Arm("Gate", func(ctx context.Context) error {
 		select {
 		case <-release:
 			return nil
@@ -131,7 +129,7 @@ func TestFollowBinaryWaitsForIdle(t *testing.T) {
 	})
 	r.start()
 	r.submit()
-	r.waitFor("the gate to run", func() bool { return r.scratch.gates.Load() == 1 })
+	r.waitFor("the gate to run", func() bool { return r.scratch.Gates.Load() == 1 })
 	r.isNew.Store(1)
 	r.waitFor("the pending restart shown", func() bool { return r.restartingShown() || r.calls.Load() != 0 })
 	if r.calls.Load() != 0 {
@@ -141,7 +139,7 @@ func TestFollowBinaryWaitsForIdle(t *testing.T) {
 	if r.calls.Load() != 0 {
 		t.Fatalf("restarted %d times while the gate runs, want 0", r.calls.Load())
 	}
-	r.scratch.arm("Gate", nil)
+	r.scratch.Arm("Gate", nil)
 	close(release)
 	r.waitFor("the restart to end serve", r.ended)
 	r.cancel = nil
@@ -158,13 +156,13 @@ func TestFollowBinaryWaitsForLaneTest(t *testing.T) {
 	r := newFollowRig(t, nil)
 	started, release := make(chan struct{}), make(chan struct{})
 	var once sync.Once
-	r.scratch.onTest = func(ctx context.Context, _ string) {
+	r.scratch.OnTest(func(ctx context.Context, _ string) {
 		once.Do(func() { close(started) })
 		select {
 		case <-release:
 		case <-ctx.Done():
 		}
-	}
+	})
 	r.start()
 	r.submit()
 	select {

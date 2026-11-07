@@ -608,6 +608,8 @@ func TestScratchSubmitTwice(t *testing.T) {
 	b := y.submit()
 	y.eq(b, a, "the same sha")
 	y.eq(y.Git(y.lane, "rev-list", "--count", base+".."+a), "1", "one commit")
+	// T-996: its subject is "<task>: <summary>" (internal/app's fake Scratch records the summary it is given)
+	y.eq(y.Git(y.lane, "log", "-1", "--format=%s", a), "T-05: feature", "the submit commit's subject")
 	y.change("late.txt", "late")
 	y.Git(y.lane, "add", "late.txt")
 	y.Git(y.lane, "commit", "-qm", "late")

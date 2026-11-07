@@ -35,7 +35,7 @@ func TestClosedTaskWatchdogFactsEnd(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			r := newLoopRig(t, "echo 1 pass")
+			r := newLoopRig(t)
 			recs := append([]event.Record{{Task: "T-1", Attempt: 1, Step: event.StepNeedsYou, Kind: event.KindFact,
 				Data: raw(asks)}}, c.end...)
 			if err := app.WriteLog(r.p.Root, r.clock.Now(), recs...); err != nil {

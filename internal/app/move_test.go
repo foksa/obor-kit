@@ -15,7 +15,7 @@ import (
 
 // T-773: obor dispatch T-xx --model <ref> on a task its worker works on moves it: serve keeps the lane, branch and
 // spec and records the redo dispatch of the next attempt with the new model; the merge loop stops the worker by its
-// identity (worker.stop, T-852: stopstep_test.go), then the redo's agent.start launches that model with the new attempt's work job. The rig: newWorkerRig (T-1 working on
+// identity (worker.stop, T-852: stopstep_test.go), then the redo's agent.start launches that model with the new attempt's work job. The rig: newLoopRig(t, working()) (T-1 working on
 // L-01 as sonnet, its worker pj-l-01 in w1:p1).
 
 // moveTo is the lead's obor dispatch T-1 --model types.
@@ -42,7 +42,7 @@ func (r *loopRig) workerLaunches() []port.Launch {
 // T-1/2/work, which the new agent fetches. The lane row names opus. A repeated call id gets the stored reply.
 func TestMoveWorkingTaskToAnotherModel(t *testing.T) {
 	t.Parallel()
-	r := newWorkerRig(t)
+	r := newLoopRig(t, working())
 	if ls := r.workerLaunches(); len(ls) != 1 || ls[0].Type != "sonnet" || r.task("T-1").Attempt != 1 {
 		t.Fatalf("precondition: one sonnet start of attempt 1: %+v, attempt %d", ls, r.task("T-1").Attempt)
 	}
@@ -95,7 +95,7 @@ func (r *loopRig) dispatchFacts() int {
 // A move to the model the task runs is refused ("already on"); nothing is recorded or stopped.
 func TestMoveToTheSameModelRefused(t *testing.T) {
 	t.Parallel()
-	r := newWorkerRig(t)
+	r := newLoopRig(t, working())
 	n := len(r.records())
 	_, err := r.moveTo("m1", "sonnet")
 	if err == nil || err.Error() != "dispatch T-1: T-1 is already on sonnet (lane L-01)" {
@@ -110,7 +110,7 @@ func TestMoveToTheSameModelRefused(t *testing.T) {
 // ran) replays the move: no second stop (T-852), the start runs again, with the new model and the new attempt's job.
 func TestMoveReplayedToTheNewModel(t *testing.T) {
 	t.Parallel()
-	r := newWorkerRig(t)
+	r := newLoopRig(t, working())
 	r.disp.set(func(d *dispatchFakes) { d.cut["start"] = "before" })
 	if reply, err := r.moveTo("m1", "opus"); err != nil || !strings.HasPrefix(reply, "MOVING T-1 on L-01: sonnet → opus") {
 		t.Fatalf("move: %q, %v", reply, err)
@@ -150,14 +150,10 @@ func TestMoveAfterSendbackKeepsTheDispatch(t *testing.T) {
 	}{{"integrator sendback", false}, {"red gate", true}} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			check := "echo 1 pass"
-			if c.red {
-				check = `if [ -f red.txt ]; then echo "0 pass, 1 fail"; exit 1; fi; echo 1 pass`
-			}
-			r := newDispatchRigCheck(t, check)
+			r := newLoopRig(t, dispatching())
 			r.work("feature.txt", "feature\n")
 			if c.red {
-				r.work("red.txt", "red\n")
+				r.scratch.Script("Test", "T-1", port.OutcomeRed)
 			}
 			r.start()
 			r.setSpec("s1", "# T-1 — Work\n\nDifficulty: medium\n")

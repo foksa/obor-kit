@@ -9,27 +9,12 @@ import (
 // T-755 (RV-92 #2 #4): a drive's start is retryable (obor drive on a drive already starts its agent again, nothing
 // recorded).
 
-// newWorkerRig is the dispatch rig with T-1 dispatched to L-01 and its worker pj-l-01 working on it.
-func newWorkerRig(t *testing.T) *loopRig {
-	t.Helper()
-	r := newDispatchRig(t)
-	r.start()
-	r.setSpec("s1", "# T-1 — Work\n\nDifficulty: medium\n")
-	r.mustDispatch("d1")
-	r.waitJob("pj-l-01", "T-1/1/work")
-	r.waitFor("working", func() bool { return r.stateOf("T-1") == "working" })
-	// The worker's start pushed a refresh, so serve subscribes again: wait for that stream, the one a move or a drop
-	// decides by serve's identity on (T-758, T-759).
-	r.connectedAgain()
-	return r
-}
-
 // A new drive whose agent never started (the CLI's start failed): obor drive <T-xx> and obor drive <name> answer the
 // drive's DRIVE reply on its recorded lane and type, so the CLI starts the agent again; nothing is recorded, nothing
 // launched. Once its agent runs: DRIVING, naming it (the CLI starts nothing). The same after a replay.
 func TestDriveStartRetried(t *testing.T) {
 	t.Parallel()
-	r := newDriveRig(t)
+	r := newLoopRig(t, dispatching(), started())
 	// Every drive below decides by serve's identity: wait for serve's herdr connection as an event, not a sample
 	// (T-759).
 	r.connectedAgain()

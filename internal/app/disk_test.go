@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"obor/internal/app"
-	"obor/internal/testkit"
 )
 
 // diskFake is a Loop's Disk: the free bytes scripted.
@@ -34,12 +33,11 @@ func diskFacts(r *loopRig) []event.Record {
 // T-564: free space below the bound is the project's needs-you naming the volume, above it ends it;
 // one record per transition, none per tick. A gate waits while it is low and runs after.
 func TestDiskLowIsANeedsYouAndHoldsTheGate(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	const gib = 1 << 30
 	f := &diskFake{}
 	f.free.Store(2 * gib)
-	r := newLoopRig(t, "echo 1 pass")
+	r := newLoopRig(t)
 	r.disk = f.disk()
 	r.work("feature.txt", "feature\n")
 	r.start()

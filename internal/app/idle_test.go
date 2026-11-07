@@ -19,7 +19,7 @@ import (
 // idleLine is the idle line after task's merge (idleLineFor) or a drop.
 func idleLineFor(r *loopRig, task string) string {
 	r.t.Helper()
-	sha := r.p.Git(r.p.Root, "rev-parse", "--short=7", "main")
+	sha := r.scratch.Head()[:7]
 	return idleLineText(task + " merged " + sha)
 }
 
@@ -79,7 +79,7 @@ func TestIdleBlockers(t *testing.T) {
 	t.Parallel()
 	t.Run("a waiting dispatch", func(t *testing.T) {
 		t.Parallel()
-		r := newLoopRig(t, "echo 1 pass")
+		r := newLoopRig(t)
 		r.p.Dispatched("L-01")
 		r.logRecords(record(t, "T-2", 1, event.StepWaiting, event.KindFact, "",
 			map[string]any{"lane": "L-02", "after": []string{"T-1"}}))
@@ -97,7 +97,7 @@ func TestIdleBlockers(t *testing.T) {
 	})
 	t.Run("a needs-you", func(t *testing.T) {
 		t.Parallel()
-		r := newLoopRig(t, "echo 1 pass")
+		r := newLoopRig(t)
 		r.p.Dispatched("L-01")
 		r.logRecords(
 			record(t, "T-2", 1, event.StepDispatched, event.KindFact, "", map[string]any{"lane": "L-02", "agent": "pj-l-02",
@@ -118,7 +118,7 @@ func TestIdleBlockers(t *testing.T) {
 	})
 	t.Run("a reviewer with a brief", func(t *testing.T) {
 		t.Parallel()
-		r := newLoopRig(t, "echo 1 pass", testkit.Set("roles.reviewer", ""))
+		r := newLoopRig(t, withConfig(testkit.Set("roles.reviewer", "")))
 		rev := r.f.Agent("w1:p6", "pj-rev", "idle", r.p.Root)
 		rev.Workspace, rev.Label = "w1", "pj-rev"
 		r.start()
@@ -145,9 +145,8 @@ func TestIdleBlockers(t *testing.T) {
 
 // T-803: obor idle "<why>" acknowledges; no ping follows, and obor status shows the why.
 func TestIdleAckStopsThePing(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass")
+	r := newLoopRig(t)
 	r.start()
 	r.mergedTask()
 	line := idleLineFor(r, "T-1")
@@ -176,15 +175,14 @@ func TestIdleAckStopsThePing(t *testing.T) {
 
 // T-803: a watch on the last task comes first, then the idle line of the same merge.
 func TestIdleLineAfterTheWatchLine(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass")
+	r := newLoopRig(t)
 	r.start()
 	if reply, err := r.watch("w1", "T-1", false); err != nil || reply != "WATCHING T-1" {
 		t.Fatalf("watch: %q, %v", reply, err)
 	}
 	r.mergedTask()
-	sha := r.p.Git(r.p.Root, "rev-parse", "--short=7", "main")
+	sha := r.scratch.Head()[:7]
 	watch, idle := "[obor] T-1 merged "+sha, idleLineText("T-1 merged "+sha)
 	r.settleIdle()
 	r.waitFor("both lines posted", func() bool {
@@ -221,9 +219,8 @@ func (r *loopRig) idleAcked() string {
 
 // T-815: a brief of a role with no role worktree keeps the idle state: its acknowledgement stands.
 func TestCustomRoleBriefKeepsIdle(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass", testkit.Set("roles.researcher", "sonnet"))
+	r := newLoopRig(t, withConfig(testkit.Set("roles.researcher", "sonnet")))
 	line := r.idleAcked()
 	if reply, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-researcher", Note: "look at the docs"}); err != nil ||
 		!strings.HasPrefix(reply, "BRIEFED pj-researcher") {
@@ -245,9 +242,8 @@ func TestCustomRoleBriefKeepsIdle(t *testing.T) {
 // T-859: the idle line waits out its window. A review request ten seconds after the pipeline empties resets it: no
 // line, and only the request's end starts a window that posts the line.
 func TestIdleSettleReviewRequestTenSecondsLater(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass", testkit.Set("roles.reviewer", ""))
+	r := newLoopRig(t, withConfig(testkit.Set("roles.reviewer", "")))
 	r.start()
 	r.mergedTask()
 	line := idleLineFor(r, "T-1")

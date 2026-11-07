@@ -7,13 +7,11 @@ import (
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"obor/internal/app"
-	"obor/internal/testkit"
 )
 
 // The failure rule (T-340, docs/state-model.md "Crash classes"): an effect gives a result only for an outcome final
@@ -36,15 +34,15 @@ func gitIO(context.Context) error { return errors.New("git I/O: index.lock exist
 
 // armScratch makes the Scratch's method fail; the heal is returned.
 func (r *loopRig) armScratch(method string) func() {
-	r.scratch.arm(method, gitIO)
-	return func() { r.scratch.arm(method, nil) }
+	r.scratch.Arm(method, gitIO)
+	return func() { r.scratch.Arm(method, nil) }
 }
 
 // failRow is one error cell of the table: arm makes step fail (before the start) and returns what heals it.
 type failRow struct {
 	step    string // the step's key
 	attempt int    // its attempt (0: 1)
-	check   string // commands.check ("": echo 1 pass)
+	red     bool   // every lane test of T-1 red (a sendback, then attempt 2's fix job)
 	arm     func(r *loopRig, ans *answers) (heal func())
 	pending func(r *loopRig) // more checks while the step is pending
 	end     string           // the record that ends the task once the step ran ("": the merge's last step)
@@ -52,13 +50,12 @@ type failRow struct {
 }
 
 func (row failRow) run(t *testing.T) {
-	check := row.check
-	if check == "" {
-		check = "echo 1 pass"
-	}
 	at := fmt.Sprint(max(row.attempt, 1))
-	r := newLoopRig(t, check)
+	r := newLoopRig(t)
 	r.work("feature.txt", "feature\n")
+	if row.red {
+		r.scratch.Script("Test", "T-1", port.OutcomeRed)
+	}
 	ans := &answers{r: r}
 	heal := row.arm(r, ans)
 	r.start()
@@ -110,16 +107,16 @@ var failRows = map[string]failRow{
 	"submit (git I/O)": {step: "submit", arm: func(r *loopRig, _ *answers) func() {
 		return r.armScratch("Submit")
 	}, pending: func(r *loopRig) {
-		if r.scratch.gates.Load() != 0 || r.scratch.submits.Load() != 3 {
-			r.t.Fatalf("want 3 submits and no gate: submits %d, gates %d: %q", r.scratch.submits.Load(),
-				r.scratch.gates.Load(), r.steps())
+		if r.scratch.Gates.Load() != 0 || r.scratch.Submits.Load() != 3 {
+			r.t.Fatalf("want 3 submits and no gate: submits %d, gates %d: %q", r.scratch.Submits.Load(),
+				r.scratch.Gates.Load(), r.steps())
 		}
 	}},
 	"gate (git I/O)": {step: "gate", arm: func(r *loopRig, _ *answers) func() {
 		return r.armScratch("Gate")
 	}, pending: func(r *loopRig) {
-		if r.scratch.gates.Load() != 3 || !r.hasPrefix("1 fact failed{gate: git I/O: index.lock exists") {
-			r.t.Fatalf("want 3 gates, each counted: gates %d: %q", r.scratch.gates.Load(), r.steps())
+		if r.scratch.Gates.Load() != 3 || !r.hasPrefix("1 fact failed{gate: git I/O: index.lock exists") {
+			r.t.Fatalf("want 3 gates, each counted: gates %d: %q", r.scratch.Gates.Load(), r.steps())
 		}
 	}},
 	"publish (git I/O)": {step: "publish", arm: func(r *loopRig, ans *answers) func() {
@@ -183,9 +180,8 @@ var failRows = map[string]failRow{
 				r.integratorIs("idle") // its turn ended
 			}
 		}, pending: func(r *loopRig) { r.startsWere(3, true) }},
-	"fix (agent_blocked)": {step: "fix", attempt: 2, check: `if [ -f red.txt ]; then echo "0 pass, 1 fail"; exit 1; fi; echo 1 pass`,
+	"fix (agent_blocked)": {step: "fix", attempt: 2, red: true,
 		arm: func(r *loopRig, _ *answers) func() {
-			r.work("red.txt", "red\n")
 			r.srv.Fail("agent.prompt", "agent_blocked", "pj-l-01 is blocked")
 			return func() { r.srv.Reply("agent.prompt", prompted) }
 		}, end: "2 result fix"},
@@ -206,9 +202,8 @@ func TestLoopFailureRule(t *testing.T) {
 // Sol's probe TestRV37VerifyStopFailure, fixed: a stop that fails while the agent is still in its pane is pending,
 // and the stop is retried after a reload.
 func TestRV37VerifyStopFailure(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass")
+	r := newLoopRig(t)
 	r.work("feature.txt", "feature\n")
 	r.mu.Lock()
 	r.onStop = func() error { time.Sleep(200 * time.Millisecond); return errors.New("kill failed") }
@@ -236,14 +231,14 @@ func TestRV37VerifyStopFailure(t *testing.T) {
 // needs-you, not a fresh count.
 func TestLoopFailureCountSurvivesRestart(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass")
+	r := newLoopRig(t)
 	r.work("feature.txt", "feature\n")
 	r.submit()
 	failed := []byte(`{"lane":"L-01","reason":"gate: git I/O: index.lock exists","merge":true,"step":"gate"}`)
 	if err := app.WriteLog(r.p.Root, time.Now(), []event.Record{
 		{Task: "T-1", Attempt: 1, Step: "submitted", Kind: event.KindFact, Data: []byte(`{"lane":"L-01","agent":"pj-l-01"}`)},
 		{Task: "T-1", Attempt: 1, Step: "submit", Kind: event.KindIntent, Class: event.ClassGit},
-		{Task: "T-1", Attempt: 1, Step: "submit", Kind: event.KindResult, Data: []byte(`{"sha":"` + r.p.Git(r.lane, "rev-parse", "HEAD") + `"}`)},
+		{Task: "T-1", Attempt: 1, Step: "submit", Kind: event.KindResult, Data: []byte(`{"sha":"` + r.scratch.LaneHead("L-01") + `"}`)},
 		{Task: "T-1", Attempt: 1, Step: "gate", Kind: event.KindIntent, Class: event.ClassGit, Data: []byte(`{"kind":"lane","lane":"L-01"}`)},
 		{Task: "T-1", Attempt: 1, Step: "failed", Kind: event.KindFact, Data: failed},
 		{Task: "T-1", Attempt: 1, Step: "failed", Kind: event.KindFact, Data: failed},
@@ -253,9 +248,9 @@ func TestLoopFailureCountSurvivesRestart(t *testing.T) {
 	defer r.armScratch("Gate")()
 	r.start()
 	r.waitPrefix("1 fact needs-you{gate failed: git I/O: index.lock exists")
-	if n := r.countPrefix("1 fact failed{gate: "); n != 3 || r.scratch.gates.Load() != 1 {
+	if n := r.countPrefix("1 fact failed{gate: "); n != 3 || r.scratch.Gates.Load() != 1 {
 		t.Errorf("want the third failure (the first after the restart) to be the needs-you: %d failures, %d gates: %q", n,
-			r.scratch.gates.Load(), r.steps())
+			r.scratch.Gates.Load(), r.steps())
 	}
 }
 
@@ -264,14 +259,14 @@ func TestLoopFailureNotCounted(t *testing.T) {
 	t.Parallel()
 	t.Run("ctx cut", func(t *testing.T) {
 		t.Parallel()
-		r := newLoopRig(t, "echo 1 pass")
+		r := newLoopRig(t)
 		r.work("feature.txt", "feature\n")
-		r.scratch.arm("Gate", func(ctx context.Context) error { <-ctx.Done(); return ctx.Err() }) // the stop cuts it off
+		r.scratch.Arm("Gate", func(ctx context.Context) error { <-ctx.Done(); return ctx.Err() }) // the stop cuts it off
 		r.start()
 		r.submit()
-		r.waitFor("the gate", func() bool { return r.scratch.gates.Load() == 1 })
+		r.waitFor("the gate", func() bool { return r.scratch.Gates.Load() == 1 })
 		r.stop()
-		r.scratch.arm("Gate", nil)
+		r.scratch.Arm("Gate", nil)
 		if r.hasPrefix("1 fact failed") || r.has("1 result gate") {
 			t.Fatalf("a cut-off gate counted or decided: %q", r.steps())
 		}
@@ -286,13 +281,13 @@ func TestLoopFailureNotCounted(t *testing.T) {
 	})
 	t.Run("herdr disconnected", func(t *testing.T) {
 		t.Parallel()
-		r := newLoopRig(t, "echo 1 pass")
+		r := newLoopRig(t)
 		r.work("feature.txt", "feature\n")
 		release := make(chan struct{})
-		r.scratch.arm("Gate", func(context.Context) error { <-release; return errors.New("git I/O") })
+		r.scratch.Arm("Gate", func(context.Context) error { <-release; return errors.New("git I/O") })
 		r.start()
 		r.submit()
-		r.waitFor("the gate", func() bool { return r.scratch.gates.Load() == 1 })
+		r.waitFor("the gate", func() bool { return r.scratch.Gates.Load() == 1 })
 		_, gating := app.Counts(r.app) // the pass running the gate is not done yet
 		r.srv.Fail("session.snapshot", "unavailable", "herdr is down")
 		r.srv.DropConns()
@@ -312,18 +307,17 @@ func TestLoopFinalOutcomes(t *testing.T) {
 	t.Parallel()
 	for _, row := range []struct {
 		name, step, want string
-		edits            []func(map[string]any)
 		arm              func(r *loopRig)
 	}{
 		{name: "after_merge's command fails: a warning, done", step: "after_merge", want: `"WARN after_merge failed: broke"`,
-			edits: []func(map[string]any){testkit.Set("commands.after_merge", "echo broke; exit 2")}},
+			arm: func(r *loopRig) { r.scratch.Script("AfterMerge", "T-1", "WARN after_merge failed: broke") }},
 		{name: "agent.stop: not found (the snapshot lags)", step: "agent.stop", want: `"stopped: no agent (`, arm: func(r *loopRig) {
 			r.onStop = func() error { return notFound{} }
 		}},
 	} {
 		t.Run(row.name, func(t *testing.T) {
 			t.Parallel()
-			r := newLoopRig(t, "echo 1 pass", row.edits...)
+			r := newLoopRig(t)
 			r.work("feature.txt", "feature\n")
 			if row.arm != nil {
 				row.arm(r)
@@ -339,8 +333,9 @@ func TestLoopFinalOutcomes(t *testing.T) {
 	}
 	t.Run("fix job: the lane names no worker agent", func(t *testing.T) {
 		t.Parallel()
-		r := newLoopRig(t, `if [ -f red.txt ]; then echo "0 pass, 1 fail"; exit 1; fi; echo 1 pass`)
+		r := newLoopRig(t)
 		r.work("red.txt", "red\n")
+		r.scratch.Script("Test", "T-1", port.OutcomeRed)
 		r.setLane(func(l *port.Lane) { l.Agent = "" })
 		r.p.State("L-01", map[string]any{"lane": "L-01", "task": "T-1", "branch": "task/T-1", "base": "main"})
 		r.submit() // before the start: in the log (no agent could call task_done)
@@ -367,11 +362,11 @@ func TestRV37V2ResumeRetryKeepsTheJob(t *testing.T) {
 	for _, step := range []string{"retry.review", "nudge.review", "retry.resolve", "nudge.resolve"} {
 		t.Run(step, func(t *testing.T) {
 			t.Parallel()
-			r := newLoopRig(t, "echo 1 pass")
+			r := newLoopRig(t)
 			job := "T-1/1/review"
 			if strings.HasSuffix(step, "resolve") {
 				job = "T-1/1/resolve"
-				conflictSetup(r)
+				r.conflicting()
 			} else {
 				r.work("feature.txt", "feature\n")
 			}
@@ -402,10 +397,7 @@ func TestRV37V2ResumeRetryKeepsTheJob(t *testing.T) {
 				text = r.waitJob("pj-int", job)
 			}
 			if strings.HasSuffix(step, "resolve") {
-				scratch := r.scratch.dir()
-				r.p.Write(filepath.Join(scratch, "shared.txt"), "both\n"+sharedLines)
-				r.p.Git(scratch, "add", "shared.txt")
-				r.p.Git(scratch, "commit", "-qm", "Merge T-1: resolved")
+				r.resolveInScratch()
 				if reply, err := r.verdict(wire.MethodResolved, "c1", "", ""); err != nil || reply != "RESOLVED T-1 (job "+job+")" {
 					t.Fatalf("resolved after the resumed %s: %q, %v", step, reply, err)
 				}
@@ -432,7 +424,7 @@ func TestLoopRejectUnpins(t *testing.T) {
 		t.Run(fmt.Sprint("unpin fails ", fail), func(t *testing.T) {
 			t.Parallel()
 			r, _ := reviewed(t)
-			if r.p.Git(r.p.Root, "for-each-ref", "refs/obor/") == "" {
+			if len(r.scratch.Pins()) == 0 {
 				t.Fatal("precondition: no pins")
 			}
 			heal := func() {}
@@ -444,8 +436,7 @@ func TestLoopRejectUnpins(t *testing.T) {
 			}
 			if fail {
 				r.waitPrefix("1 fact needs-you{unpin failed: git I/O")
-				if r.countPrefix("1 fact failed{unpin: ") != 3 || r.has("1 result unpin") ||
-					r.p.Git(r.p.Root, "for-each-ref", "refs/obor/") == "" {
+				if r.countPrefix("1 fact failed{unpin: ") != 3 || r.has("1 result unpin") || len(r.scratch.Pins()) == 0 {
 					t.Fatalf("want unpin pending, counted 3 times, the pins kept: %q", r.steps())
 				}
 				heal()
@@ -453,8 +444,8 @@ func TestLoopRejectUnpins(t *testing.T) {
 				r.mustResume("r1", "", "RESUMED T-1: retry (unpin failed)")
 			}
 			r.waitStep("1 fact needs-you{rejected by the integrator: not this}")
-			if !r.has("1 result unpin") || r.p.Git(r.p.Root, "for-each-ref", "refs/obor/") != "" || r.mainMerges() != 0 {
-				t.Errorf("want unpinned, nothing merged: refs %q: %q", r.p.Git(r.p.Root, "for-each-ref", "refs/obor/"), r.steps())
+			if !r.has("1 result unpin") || len(r.scratch.Pins()) != 0 || r.mainMerges() != 0 {
+				t.Errorf("want unpinned, nothing merged: pins %q: %q", r.scratch.Pins(), r.steps())
 			}
 			if _, err := r.resume("r2", ""); err == nil || !strings.Contains(err.Error(), "is rejected") {
 				t.Errorf("resume of the reject's needs-you: %v", err)
@@ -466,18 +457,17 @@ func TestLoopRejectUnpins(t *testing.T) {
 // Submit's Refused is final (a result, not a counted failure): no gate, the owner decides; obor resume's regate
 // submits again (submit.2), then the task goes on.
 func TestLoopSubmitRefused(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass")
+	r := newLoopRig(t)
 	r.work("feature.txt", "feature\n")
-	r.scratch.arm("Submit", func(context.Context) error { return port.Refused{Line: "FAIL T-1: lane L-01 is not on a branch"} })
+	r.scratch.Arm("Submit", func(context.Context) error { return port.Refused{Line: "FAIL T-1: lane L-01 is not on a branch"} })
 	r.start()
 	r.submit()
 	r.waitStep("1 fact needs-you{submit: FAIL T-1: lane L-01 is not on a branch}")
-	if !r.has("1 result submit") || r.hasPrefix("1 fact failed") || r.scratch.gates.Load() != 0 || r.scratch.submits.Load() != 1 {
+	if !r.has("1 result submit") || r.hasPrefix("1 fact failed") || r.scratch.Gates.Load() != 0 || r.scratch.Submits.Load() != 1 {
 		t.Fatalf("want one submit with its result, nothing counted, no gate: %q", r.steps())
 	}
-	r.scratch.arm("Submit", nil)
+	r.scratch.Arm("Submit", nil)
 	r.waitFor("the needs-you in force", func() bool { return r.facts() == 1 })
 	r.mustResume("r1", "", "RESUMED T-1: regate (gate)")
 	r.accept("c1", r.patch(r.waitJob("pj-int", "T-1/1/review")))

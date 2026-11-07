@@ -89,7 +89,7 @@ func TestPauseGatesDispatch(t *testing.T) {
 // T-465: a pause survives a restart (the fact is folded on replay); a pause past its end no longer holds.
 func TestPauseReplayAndExpiry(t *testing.T) {
 	t.Parallel()
-	r := newDispatchRig(t)
+	r := newLoopRig(t, dispatching())
 	r.start()
 	if _, err := r.pause("", "p1", wire.Call{Note: "kept"}); err != nil {
 		t.Fatal(err)

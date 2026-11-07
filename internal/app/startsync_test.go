@@ -19,7 +19,7 @@ import (
 // heldStart is a project's adapters whose start of agent (every start when agent is "") enters, then returns only once
 // release is closed; the integrator, once started, shows in the app's snapshot (its herdr event).
 type heldStart struct {
-	*concScratch
+	*concFakes
 	a       *App
 	root    string
 	agent   string
@@ -35,7 +35,7 @@ type heldStart struct {
 
 func (f *heldStart) Launch(ctx context.Context, l port.Launch) (port.Started, error) {
 	if f.agent != "" && l.Agent != f.agent {
-		return f.concScratch.Launch(ctx, l)
+		return f.concFakes.Launch(ctx, l)
 	}
 	f.mu.Lock()
 	f.starts++
@@ -70,7 +70,7 @@ func heldRig(t *testing.T, agent string) (*concRig, *proj, *heldStart) {
 	r := newConcRig(t)
 	r.fakes["pj"].hold = ""
 	p := r.proj("pj")
-	f := &heldStart{concScratch: r.fakes["pj"], a: r.a, root: p.root, agent: agent, entered: make(chan string, 4),
+	f := &heldStart{concFakes: r.fakes["pj"], a: r.a, root: p.root, agent: agent, entered: make(chan string, 4),
 		release: make(chan struct{})}
 	loop := r.a.opt.Loop
 	r.a.opt.Loop = func(root string) (*Loop, error) {

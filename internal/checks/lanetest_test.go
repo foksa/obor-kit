@@ -2,6 +2,7 @@ package checks
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,20 +34,24 @@ func (y *sx) test(c context.Context, cand port.Candidate) (port.TestOutcome, err
 }
 
 // The gate runs commands.compile and never the class's checks: green names compile's counts; a compile that fails is
-// red; with no compile configured nothing runs (lane_setup neither) and the merge is green.
+// red; a lane_setup that fails before it is a fail, its rc named (T-996: internal/app's scripted "FAIL lane_setup"
+// gate holds on this); with no compile configured nothing runs (lane_setup neither) and the merge is green.
 func TestGateCompilesOnly(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
 		name, compile, want string
 		kind                string
+		setupRC             int // lane_setup's exit code
 	}{
-		{"compile green", "echo 1 pass", `^GREEN T-05 \(compile 1 pass\)$`, port.OutcomeGreen},
-		{"compile red", "echo '0 pass, 1 fail'; exit 1", `^RED compile \(0 pass, 1 fail\)`, port.OutcomeRed},
-		{"no compile", "", `^GREEN T-05 \(merged, no commands.compile\)$`, port.OutcomeGreen},
+		{"compile green", "echo 1 pass", `^GREEN T-05 \(compile 1 pass\)$`, port.OutcomeGreen, 0},
+		{"compile red", "echo '0 pass, 1 fail'; exit 1", `^RED compile \(0 pass, 1 fail\)`, port.OutcomeRed, 0},
+		{"lane_setup fails", "echo 1 pass", `^FAIL lane_setup \(rc 3\)$`, port.OutcomeFail, 3},
+		{"no compile", "", `^GREEN T-05 \(merged, no commands.compile\)$`, port.OutcomeGreen, 0},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			edits := []func(map[string]any){cmd("check", probe), cmd("lane_setup", `touch "$TMP_DIR/setup-ran"`)}
+			edits := []func(map[string]any){cmd("check", probe),
+				cmd("lane_setup", fmt.Sprintf(`touch "$TMP_DIR/setup-ran"; exit %d`, c.setupRC))}
 			if c.compile != "" {
 				edits = append(edits, cmd("compile", c.compile))
 			}

@@ -4,9 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"obor/internal/app/event"
+	"obor/internal/app/port"
 	"obor/internal/app/wire"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -201,7 +200,7 @@ func reviewed(t *testing.T) (*loopRig, string) {
 
 // woke is the rig at T-1's first review job sent, its wake carried by the integrator's start, not fetched.
 func woke(t *testing.T) *loopRig {
-	r := newLoopRig(t, "echo 1 pass")
+	r := newLoopRig(t)
 	r.work("feature.txt", "feature\n")
 	r.start()
 	r.submit()
@@ -524,7 +523,7 @@ func TestResumeRegate(t *testing.T) {
 	t.Parallel()
 	t.Run("red past K", func(t *testing.T) {
 		t.Parallel()
-		r := newLoopRig(t, "echo 1 pass")
+		r := newLoopRig(t)
 		r.work("feature.txt", "feature\n")
 		r.submit()
 		if err := app.WriteLog(r.p.Root, time.Now(), []event.Record{
@@ -538,7 +537,7 @@ func TestResumeRegate(t *testing.T) {
 		}
 		r.start()
 		r.passes()
-		if r.scratch.gates.Load() != 0 || r.app.Status().Project.Tasks[0].State != "needs-you" {
+		if r.scratch.Gates.Load() != 0 || r.app.Status().Project.Tasks[0].State != "needs-you" {
 			t.Fatalf("precondition: the task waits for the owner: %q", r.steps())
 		}
 		if _, err := r.resume("r0", ""); err == nil || !strings.Contains(err.Error(),
@@ -548,23 +547,23 @@ func TestResumeRegate(t *testing.T) {
 		r.mustResume("r1", wire.ResumeRegate, "RESUMED T-1: regate (red)")
 		r.accept("c1", r.patch(r.waitJob("pj-int", "T-1/1/review")))
 		r.merged(1)
-		if !r.has("1 result gate.2") || r.scratch.gates.Load() != 1 || r.mainMerges() != 1 {
+		if !r.has("1 result gate.2") || r.scratch.Gates.Load() != 1 || r.mainMerges() != 1 {
 			t.Errorf("want gate.2 (a lane gate), merged: %q", r.steps())
 		}
 	})
 	t.Run("publish held", func(t *testing.T) {
 		t.Parallel()
 		r, job := reviewed(t)
-		r.p.Write("feature.txt", "in the main checkout's way\n") // untracked: the fast-forward would overwrite it
+		// an untracked feature.txt in the main checkout's way: the fast-forward would overwrite it (git's refusal:
+		// internal/checks' TestScratchPublish)
+		r.scratch.Script("Publish", "T-1", port.PublishHold+" feature.txt")
 		r.accept("c1", r.patch(job))
 		r.waitPrefix("1 fact needs-you{publish: ")
 		r.later(time.Minute)
-		if r.scratch.publishes.Load() != 1 || r.mainMerges() != 0 {
-			t.Fatalf("publishes %d, merges %d: want the one refused publish: %q", r.scratch.publishes.Load(), r.mainMerges(), r.steps())
+		if r.scratch.Publishes.Load() != 1 || r.mainMerges() != 0 {
+			t.Fatalf("publishes %d, merges %d: want the one refused publish: %q", r.scratch.Publishes.Load(), r.mainMerges(), r.steps())
 		}
-		if err := os.Remove(filepath.Join(r.p.Root, "feature.txt")); err != nil {
-			t.Fatal(err)
-		}
+		r.scratch.Script("Publish", "T-1", "") // the file is gone
 		r.mustResume("r1", "", "RESUMED T-1: regate (publish)")
 		r.merged(1)
 		if !r.has("1 result publish.2") || r.mainMerges() != 1 || r.jobPrompts("T-1/1/review") != 1 {

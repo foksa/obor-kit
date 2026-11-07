@@ -152,7 +152,7 @@ func (r *loopRig) lineResults() []string {
 // lineRig is the loop rig with the lead pj-lead (w1:p5) and the reviewer pj-rev (w1:p6) in the project's workspace,
 // each in status lead / rev.
 func lineRig(t *testing.T, lead, rev string) *loopRig {
-	r := newLoopRig(t, "")
+	r := newLoopRig(t, noCheck())
 	for _, a := range []*herdrtest.Pane{r.f.Agent("w1:p5", "pj-lead", lead, r.p.Root), r.f.Agent("w1:p6", "pj-rev", rev, r.p.Root)} {
 		a.Workspace, a.Label = "w1", a.Name // labelled by its launch
 	}
@@ -484,7 +484,7 @@ func TestBriefOfAFreshStart(t *testing.T) {
 // (T-485): posted to its session.
 func TestLineToAnUnnamedPane(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, "")
+	r := newLoopRig(t, noCheck())
 	r.f.Agent("w1:p5", "", "idle", r.p.Root).Workspace = "w1" // the lead's pane, unnamed
 	rev := r.f.Agent("w1:p6", "pj-rev", "working", r.p.Root)
 	rev.Workspace, rev.Label = "w1", "pj-rev"
@@ -513,7 +513,7 @@ func TestLineToAnUnnamedPane(t *testing.T) {
 // T-499), its work and idle end the brief, and the lead gets the finished line.
 func TestBriefToALabelledPaneWithoutAName(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, "")
+	r := newLoopRig(t, noCheck())
 	r.f.Agent("w1:p5", "pj-lead", "idle", r.p.Root).Workspace = "w1"
 	sol := r.f.Agent("w1:p6", "", "idle", r.p.Root)
 	sol.Workspace, sol.Label, sol.Kind = "w1", "pj-sol", "codex"
@@ -664,7 +664,7 @@ func TestBriefLeavesLeadLinesQueued(t *testing.T) {
 // dispatch is: nothing there would ever deliver the line.
 func TestLinesRefusedWithoutAMergeLoop(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, "")
+	r := newLoopRig(t, noCheck())
 	r.setConfig("roles", map[string]any{"reviewer": ""})
 	r.start()
 	if st := r.app.Status().Project; st.Merging {

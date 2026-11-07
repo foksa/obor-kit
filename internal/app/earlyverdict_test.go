@@ -79,7 +79,7 @@ func TestEarlyVerdict(t *testing.T) {
 			delete(r.a.obs, "w1:p9") // the integrator does not run: the step starts it
 			job := "T-1/1/" + row.job
 			key := event.Key{Task: "T-1", Attempt: 1, Step: row.job}
-			f := &startJobFakes{concScratch: r.fakes["pj"]}
+			f := &startJobFakes{concFakes: r.fakes["pj"]}
 			var fetched wire.JobReply
 			var verdictErr error
 			var during mtask
@@ -148,7 +148,7 @@ func TestEarlyTaskDone(t *testing.T) {
 	r.add("pj", "T-2", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-02", Dir: lane, Agent: "pj-l-02"})
 	r.add("pj", "T-2", event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
 	r.a.lanes.(*fakeLanes).lanes = []port.Lane{{Name: "L-02", Dir: lane, Task: "T-2", Agent: "pj-l-02"}}
-	f := &startJobFakes{concScratch: r.fakes["pj"]}
+	f := &startJobFakes{concFakes: r.fakes["pj"]}
 	var fetched wire.JobReply
 	var doneErr error
 	var during string
@@ -218,7 +218,7 @@ func TestStartAgainSameJob(t *testing.T) {
 	r.add("pj", "T-2", event.StepStartWork, event.KindResult, startOut{Refused: "has background tasks"})
 	r.add("pj", "T-2", event.StepNeedsYou, event.KindFact, event.FactData{Merge: true, Cause: causeStart, Reason: "start: refused"})
 	r.add("pj", "T-2", event.StepUnblocked, event.KindFact, event.FactData{Merge: true, Reason: wire.ResumeRetry})
-	f := &startJobFakes{concScratch: r.fakes["pj"]}
+	f := &startJobFakes{concFakes: r.fakes["pj"]}
 	r.a.mu.Lock()
 	step := r.a.next(p, p.folded.loop["T-2"])
 	r.a.mu.Unlock()

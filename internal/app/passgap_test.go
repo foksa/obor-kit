@@ -12,7 +12,7 @@ import (
 // not_identified's 62 s wait: the brief's lost-since was sampled 30 s late). Passes count again on the next stream.
 func TestPassInResubscribeGapNotCounted(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, "")
+	r := newLoopRig(t, noCheck())
 	r.binary = func() bool { return false } // the binary watch wakes the merge loop each tick, herdr connected or not
 	r.start()
 	r.passes()

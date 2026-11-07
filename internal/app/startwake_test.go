@@ -12,7 +12,6 @@ import (
 // has no bridge for is not dispatched (DD-v0.13 D1: every bridged kind takes a first prompt).
 
 func TestStartPromptDelivery(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	for _, row := range []struct {
 		name string
@@ -81,7 +80,7 @@ func TestStartPromptDelivery(t *testing.T) {
 			same(t, r.disp.called("prompt"), 0, "Prompter calls for the work job")
 		}},
 		{"a lane whose kind has no bridge: the dispatch refused, nothing recorded (DD-v0.13 D1)", func(t *testing.T) {
-			r := newDispatchRig(t, testkit.Set("models.sonnet", map[string]any{"kind": "pi", "model": "x"}))
+			r := newLoopRig(t, dispatching(), withConfig(testkit.Set("models.sonnet", map[string]any{"kind": "pi", "model": "x"})))
 			r.start()
 			reply, err := r.dispatch("d1", "L-01")
 			if err == nil || err.Error() != "dispatch T-1: model sonnet's kind pi has no bridge (obor config validate)" {

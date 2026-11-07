@@ -51,23 +51,6 @@ type dispatchFakes struct {
 	hit  map[string]bool
 }
 
-// newDispatchRig is the merge loop's rig with the dispatch adapters and L-01 free; edits change the config further.
-func newDispatchRig(t *testing.T, edits ...func(map[string]any)) *loopRig {
-	t.Helper()
-	return newDispatchRigCheck(t, "echo 1 pass", edits...)
-}
-
-// newDispatchRigCheck is newDispatchRig whose gate runs check.
-func newDispatchRigCheck(t *testing.T, check string, edits ...func(map[string]any)) *loopRig {
-	t.Helper()
-	r := newLoopRig(t, check, edits...)
-	r.disp = &dispatchFakes{r: r, on: true, refuse: map[string]string{}, calls: map[string]int{},
-		fail: map[string]func() error{}, cut: map[string]string{}, hit: map[string]bool{}}
-	r.setLane(func(l *port.Lane) { l.Task, l.Agent, l.State = "", "", "free" })
-	r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Transcript = "/s/0.jsonl" })
-	return r
-}
-
 func (d *dispatchFakes) loop(fx *app.Loop, panes herdr.Panes) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -308,9 +291,8 @@ var dispatchSteps = []string{"1 fact dispatch", "1 intent lane.prepare", "1 resu
 // sends the work job's wake. The worker's job_next is delivery (working);
 // its task_done then submits the task, and the merge loop takes it to merged.
 func TestDispatchHappyPath(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
-	r := newDispatchRig(t)
+	r := newLoopRig(t, dispatching())
 	r.work("feature.txt", "feature\n")
 	r.start()
 	const stored = "# T-1 — Happy\n\nDifficulty: medium\n\n## Files you may touch\n`feature.txt`\n"
@@ -388,7 +370,7 @@ func TestDispatchHappyPath(t *testing.T) {
 // --model runs its first model on the first free lane; a name that is no model is refused.
 func TestDispatchByModels(t *testing.T) {
 	t.Parallel()
-	r := newDispatchRig(t)
+	r := newLoopRig(t, dispatching())
 	r.start()
 	if _, err := r.dispatch("d0", "", "gpt", "sonnet"); err == nil || !strings.Contains(err.Error(), `"gpt" is not a model`) {
 		t.Fatalf("an unknown model: %v", err)
@@ -419,7 +401,7 @@ func TestDispatchRedoOntoTheTasksLane(t *testing.T) {
 	for _, state := range []string{"working"} { // T-891: "blocked" is no lane state (T-788: git facts only)
 		t.Run("drop with the work kept, lane "+state+": the same lane, its branch kept", func(t *testing.T) {
 			t.Parallel()
-			r := newDispatchRig(t)
+			r := newLoopRig(t, dispatching())
 			r.start()
 			if reply, err := r.dispatch("d1", "", "sonnet"); err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as sonnet" {
 				t.Fatalf("the first dispatch: %q, %v", reply, err)
@@ -450,14 +432,11 @@ func TestDispatchRedoOntoTheTasksLane(t *testing.T) {
 			if !in.Redo || in.Lane != "L-01" || in.Branch != first.Branch || in.Target != first.Target {
 				t.Errorf("the redo's prepare %+v; want lane L-01 on %s at %s with redo", in, first.Branch, first.Target)
 			}
-			if b := r.p.Git(r.lane, "branch", "--show-current"); b != "task/T-1" {
-				t.Errorf("lane L-01 is on %q after the redo, want task/T-1 (its branch kept)", b)
-			}
 		})
 	}
 	t.Run("no other lane of the level free: the redo, not a wait", func(t *testing.T) {
 		t.Parallel()
-		r := newLevelRig(t)
+		r := newLoopRig(t, pooled())
 		r.lanes.mu.Lock()
 		r.lanes.lanes[1].State, r.lanes.lanes[1].Task = "working", "T-9" // L-02 is busy
 		r.lanes.mu.Unlock()
@@ -506,7 +485,7 @@ func TestDispatchNamesIdleLanes(t *testing.T) {
 	busy := []port.Lane{{Name: "L-03", State: "dirty-free"}, {Name: "L-04", State: "working"}}
 	t.Run("two free lanes: the other one is idle", func(t *testing.T) {
 		t.Parallel()
-		r := newDispatchRig(t)
+		r := newLoopRig(t, dispatching())
 		r.addLanes(append([]port.Lane{{Name: "L-02", State: "free"}}, busy...)...)
 		r.start()
 		reply, err := r.dispatch("d1", "", "sonnet", "opus")
@@ -517,7 +496,7 @@ func TestDispatchNamesIdleLanes(t *testing.T) {
 	})
 	t.Run("the last free lane taken: no idle", func(t *testing.T) {
 		t.Parallel()
-		r := newDispatchRig(t)
+		r := newLoopRig(t, dispatching())
 		r.addLanes(busy...)
 		r.start()
 		reply, err := r.dispatch("d1", "", "sonnet")
@@ -586,7 +565,7 @@ func TestDispatchRefusals(t *testing.T) {
 	} {
 		t.Run(row.name, func(t *testing.T) {
 			t.Parallel()
-			r := newDispatchRig(t)
+			r := newLoopRig(t, dispatching())
 			if row.setup != nil {
 				row.setup(r)
 			}
@@ -611,7 +590,7 @@ func TestDispatchRefusals(t *testing.T) {
 	}
 	t.Run("task open, then the call id again", func(t *testing.T) {
 		t.Parallel()
-		r := newDispatchRig(t)
+		r := newLoopRig(t, dispatching())
 		r.start()
 		r.mustDispatch("d1")
 		r.waitStep("1 result work")
@@ -629,7 +608,7 @@ func TestDispatchRefusals(t *testing.T) {
 	})
 	t.Run("lane held by another task's dispatch", func(t *testing.T) {
 		t.Parallel()
-		r := newDispatchRig(t)
+		r := newLoopRig(t, dispatching())
 		r.disp.set(func(d *dispatchFakes) { d.fail["prepare"] = func() error { return errors.New("git I/O") } })
 		r.start()
 		r.mustDispatch("d1")
@@ -659,7 +638,7 @@ func TestDispatchCrashAtEachStep(t *testing.T) {
 	} {
 		t.Run(row.method+" "+row.where, func(t *testing.T) {
 			t.Parallel()
-			r := newDispatchRig(t)
+			r := newLoopRig(t, dispatching())
 			r.disp.set(func(d *dispatchFakes) { d.cut[row.method] = row.where })
 			r.start()
 			r.mustDispatch("d1")
@@ -694,7 +673,7 @@ func TestDispatchNeedsYouThenResume(t *testing.T) {
 	t.Parallel()
 	t.Run("prepare refused", func(t *testing.T) {
 		t.Parallel()
-		r := newDispatchRig(t)
+		r := newLoopRig(t, dispatching())
 		r.disp.set(func(d *dispatchFakes) {
 			d.fail["prepare"] = func() error { return port.Refused{Line: "lane_setup in L-01: rc 1: boom"} }
 		})
@@ -717,7 +696,7 @@ func TestDispatchNeedsYouThenResume(t *testing.T) {
 	})
 	t.Run("start refused", func(t *testing.T) {
 		t.Parallel()
-		r := newDispatchRig(t)
+		r := newLoopRig(t, dispatching())
 		r.disp.set(func(d *dispatchFakes) {
 			d.fail["start"] = func() error { return errors.New("pj-l-01 has background tasks (--force stops them)") }
 		})
@@ -732,7 +711,7 @@ func TestDispatchNeedsYouThenResume(t *testing.T) {
 	})
 	t.Run("three counted failures", func(t *testing.T) {
 		t.Parallel()
-		r := newDispatchRig(t)
+		r := newLoopRig(t, dispatching())
 		r.disp.set(func(d *dispatchFakes) { d.fail["prepare"] = func() error { return errors.New("git I/O") } })
 		r.start()
 		r.mustDispatch("d1")
@@ -752,7 +731,7 @@ func TestDispatchNeedsYouThenResume(t *testing.T) {
 	})
 	t.Run("no pane in the lane", func(t *testing.T) {
 		t.Parallel()
-		r := newDispatchRig(t)
+		r := newLoopRig(t, dispatching())
 		r.f.Locked(func() {
 			r.f.Panes = slices.DeleteFunc(r.f.Panes, func(p *herdrtest.Pane) bool { return p.ID == "w1:p1" })
 		})
@@ -771,7 +750,7 @@ func TestDispatchNeedsYouThenResume(t *testing.T) {
 	// ahead. When herdr has no pane in the lane either, the needs-you goes out as before.
 	t.Run("a pane moved into the lane", func(t *testing.T) {
 		t.Parallel()
-		r := newDispatchRig(t)
+		r := newLoopRig(t, dispatching())
 		r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Cwd = r.p.Root }) // the snapshot serve took: the pane is outside
 		r.start()
 		r.mustDispatch("d1")
@@ -787,7 +766,7 @@ func TestDispatchNeedsYouThenResume(t *testing.T) {
 	})
 	t.Run("herdr has no pane in the lane either", func(t *testing.T) {
 		t.Parallel()
-		r := newDispatchRig(t)
+		r := newLoopRig(t, dispatching())
 		r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Cwd = r.p.Root })
 		r.start()
 		r.mustDispatch("d1")
@@ -805,7 +784,7 @@ func TestDispatchNeedsYouThenResume(t *testing.T) {
 // sends the job anew (work.2), and its delivery makes the task working.
 func TestDispatchDelivery(t *testing.T) {
 	t.Parallel()
-	r := newDispatchRig(t)
+	r := newLoopRig(t, dispatching())
 	r.start()
 	r.mustDispatch("d1")
 	r.waitStep("1 result work")
@@ -875,7 +854,7 @@ func TestDispatchReplacedWaitStartsAfresh(t *testing.T) {
 		t.Errorf("the replacement %+v, want waiting with no reason (the old refusal's)", st)
 	}
 	r.later(time.Minute)
-	r.p.Git(r.p.Root, "commit", "-q", "--allow-empty", "-m", "Merge T-3: by hand")
+	r.scratch.Land("T-3") // obor merge by hand
 	r.waitFor("the replacement's own reason", func() bool { return r.taskStatus("T-1").Why == why })
 	r.later(2 * time.Minute)
 	if st := r.taskStatus("T-1"); st.State != "waiting" || strings.Contains(strings.Join(r.steps(), "\n"), "needs-you{after: T-1") {
@@ -916,7 +895,7 @@ func TestDispatchKeepsTheLaneAgentName(t *testing.T) {
 	} {
 		t.Run(row.name, func(t *testing.T) {
 			t.Parallel()
-			r := newDispatchRig(t)
+			r := newLoopRig(t, dispatching())
 			r.setLane(func(l *port.Lane) { l.Agent = row.rowAgent })
 			r.f.Set("w1:p1", func(p *herdrtest.Pane) {
 				p.Label, p.Name = row.label, row.agent
@@ -951,7 +930,7 @@ func TestDispatchKeepsTheLaneAgentName(t *testing.T) {
 // row says hk-l1 again; the next dispatch still starts the worker by the lane's name under the config (pj-l-01).
 func TestDispatchAfterARenameIgnoresTheReplayedRowAgent(t *testing.T) {
 	t.Parallel()
-	r := newDispatchRig(t)
+	r := newLoopRig(t, dispatching())
 	r.setLane(func(l *port.Lane) { l.Agent = "hk-l1" })
 	r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Label, p.Name, p.Kind, p.Status = "", "", "", "" }) // a shell
 	r.start()
@@ -973,7 +952,7 @@ func TestDispatchOfAnEndedTask(t *testing.T) {
 	t.Parallel()
 	t.Run("merged: refused with each flag, nothing recorded", func(t *testing.T) {
 		t.Parallel()
-		r := newDispatchRig(t)
+		r := newLoopRig(t, dispatching())
 		r.writeLog([]logRec{{1, event.StepSubmitted, event.KindFact, "", map[string]any{"lane": "L-01", "agent": "pj-l-01"}}, {1, event.StepMerged, event.KindFact, "", event.MergedData{Head: "0123456789abcdef"}}})
 		r.start()
 		r.passes()
@@ -1011,7 +990,7 @@ func TestDispatchOfAnEndedTask(t *testing.T) {
 	})
 	t.Run("dropped: dispatched again", func(t *testing.T) {
 		t.Parallel()
-		r := newDispatchRig(t)
+		r := newLoopRig(t, dispatching())
 		r.writeLog([]logRec{{1, event.StepSubmitted, event.KindFact, "", map[string]any{"lane": "L-01", "agent": "pj-l-01"}}, {1, event.StepDropped, event.KindFact, "", event.FactData{Lane: "L-01", Merge: true, Reason: "why"}}})
 		r.start()
 		r.passes()
@@ -1052,7 +1031,7 @@ func TestDispatchFixesLine(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			r := newDispatchRig(t, testkit.Set("roles.reviewer", ""), testkit.Set("paths.reviews", "docs/reviews"))
+			r := newLoopRig(t, dispatching(), withConfig(testkit.Set("roles.reviewer", ""), testkit.Set("paths.reviews", "docs/reviews")))
 			r.review = lastClose{}
 			if c.open {
 				r.p.Write("docs/reviews/RV-5.md", "# RV-5\n")
@@ -1080,7 +1059,7 @@ func TestDispatchFixesLine(t *testing.T) {
 // docs/reviews/RV-5.md written, serve refuses it as no open review, nothing committed.
 func TestReviewCloseOnTheSocket(t *testing.T) {
 	t.Parallel()
-	r := newDispatchRig(t, testkit.Set("roles.reviewer", ""), testkit.Set("paths.reviews", "docs/reviews"))
+	r := newLoopRig(t, dispatching(), withConfig(testkit.Set("roles.reviewer", ""), testkit.Set("paths.reviews", "docs/reviews")))
 	r.review = lastClose{}
 	r.start()
 	_, err := wire.Verdict(context.Background(), r.sock, wire.MethodReviewClose, wire.Call{Root: r.p.Root,

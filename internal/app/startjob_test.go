@@ -12,7 +12,7 @@ import (
 // startJobFakes records the launches and the typed prompts; start runs inside Restart, as an agent that obeys its
 // CLI first prompt before the launch returns.
 type startJobFakes struct {
-	*concScratch
+	*concFakes
 	start    func(port.Launch)
 	launches []port.Launch
 	typed    []string
@@ -92,7 +92,7 @@ func TestStartJobIntegrator(t *testing.T) {
 				delete(r.a.obs, "w1:p9")
 			}
 			job := "T-1/1/" + row.job
-			f := &startJobFakes{concScratch: r.fakes["pj"]}
+			f := &startJobFakes{concFakes: r.fakes["pj"]}
 			var early wire.JobReply
 			f.start = func(port.Launch) {
 				raw, err := r.a.jobNext(wire.Call{Root: p.root, Agent: p.integrator, Role: "integrator", CallID: "early"})
@@ -205,7 +205,7 @@ func same[T comparable](t *testing.T, got, want T, what string) {
 // RV-42's probe effects: start runs inside Restart (an agent obeying its CLI first prompt); typed are the Typer's
 // texts.
 type startEffects struct {
-	*concScratch
+	*concFakes
 	start func(port.Launch)
 	typed []string
 }
@@ -239,7 +239,7 @@ func TestIntegratorJobFetchableDuringStart(t *testing.T) {
 			r.add("pj", "T-1", event.StepGate, event.KindResult, gateOut{Outcome: outcome, Candidate: port.Candidate{Task: "T-1", SHA: "c",
 				Target: "b", Patch: "p"}})
 			delete(r.a.obs, "w1:p9")
-			f := &startEffects{concScratch: r.fakes["pj"]}
+			f := &startEffects{concFakes: r.fakes["pj"]}
 			var early wire.JobReply
 			f.start = func(l port.Launch) {
 				raw, err := r.a.jobNext(wire.Call{Root: p.root, Agent: p.integrator, Role: "integrator", CallID: "early"})
@@ -272,7 +272,7 @@ func TestWorkerEarlyFetchDuringStart(t *testing.T) {
 	p := r.proj("pj")
 	r.add("pj", "T-2", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-02", Dir: r.a.obs["w1:p2"].pane.Cwd, Agent: "pj-l-02"})
 	r.add("pj", "T-2", event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
-	f := &startEffects{concScratch: r.fakes["pj"]}
+	f := &startEffects{concFakes: r.fakes["pj"]}
 	f.start = func(port.Launch) {
 		raw, err := r.a.jobNext(wire.Call{Root: p.root, Agent: "pj-l-02", Role: "worker", Lane: "L-02", CallID: "early"})
 		if err != nil {

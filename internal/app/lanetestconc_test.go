@@ -18,7 +18,7 @@ func TestLaneTestRunsBesideTheSlot(t *testing.T) {
 	t.Parallel()
 	r := newConcRig(t)
 	f := r.fakes["pj"]
-	f.hold, f.holdTest, f.based = "", "T-1", true
+	f.hold, f.holdTest, f.unbased = "", "T-1", false
 	r.run()
 	defer r.stop()
 	for got := ""; got != "test T-1"; {

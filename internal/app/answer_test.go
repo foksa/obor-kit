@@ -183,7 +183,7 @@ func TestNeedsYouAnswerPathsAreAccepted(t *testing.T) {
 		return r.needsYou()
 	}
 	red := func(t *testing.T) (*loopRig, event.Record) {
-		r := newLoopRig(t, "echo 1 pass")
+		r := newLoopRig(t)
 		r.work("feature.txt", "feature\n")
 		r.submit()
 		if err := app.WriteLog(r.p.Root, time.Now(), []event.Record{

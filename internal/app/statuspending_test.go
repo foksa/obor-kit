@@ -6,7 +6,6 @@ import (
 	"context"
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
-	"obor/internal/testkit"
 	"strings"
 	"sync"
 	"testing"
@@ -17,11 +16,11 @@ import (
 // record App.do writes when it runs the effect), and nothing of it is pending.
 func TestStatusRunningGateWhileItsEffectRuns(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass")
+	r := newLoopRig(t)
 	r.work("feature.txt", "feature\n")
 	started, release := make(chan struct{}), make(chan struct{})
 	var once sync.Once
-	r.scratch.arm("Gate", func(context.Context) error { // holds the gate open: its effect runs while the test looks
+	r.scratch.Arm("Gate", func(context.Context) error { // holds the gate open: its effect runs while the test looks
 		once.Do(func() { close(started) })
 		<-release
 		return nil
@@ -58,9 +57,8 @@ func TestStatusRunningGateWhileItsEffectRuns(t *testing.T) {
 // TestStatusPendingAfterMergeFailure: a failed after_merge, its intent held for obor resume, is a pending step with the
 // failure's reason and time — not a running one with a growing elapsed.
 func TestStatusPendingAfterMergeFailure(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass")
+	r := newLoopRig(t)
 	r.work("feature.txt", "feature\n")
 	r.armScratch("AfterMerge") // every try fails: git I/O: index.lock exists
 	r.start()

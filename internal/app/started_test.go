@@ -21,7 +21,7 @@ func (r *loopRig) started() int64 {
 // it from the log.
 func TestStatusStartedIsTheLastStartTry(t *testing.T) {
 	t.Parallel()
-	r := newDispatchRig(t)
+	r := newLoopRig(t, dispatching())
 	r.disp.set(func(d *dispatchFakes) {
 		d.fail["start"] = func() error { return errors.New("pj-l-01 has background tasks (--force stops them)") }
 	})

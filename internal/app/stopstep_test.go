@@ -15,7 +15,7 @@ import (
 
 // T-852: a move answers at once; the worker's stop is a step of the merge loop (worker.stop), done
 // before the step that needs the lane, a done stop tells the lead nothing (T-943); a stop that fails is a needs-you obor resume
-// retries. The rig: newWorkerRig (T-1 working on L-01 as sonnet, its worker pj-l-01 in w1:p1).
+// retries. The rig: newLoopRig(t, working()) (T-1 working on L-01 as sonnet, its worker pj-l-01 in w1:p1).
 
 // stopLines is the lead's lines that tell a worker.stop's outcome ("stopped <agent>", "<agent> was not running"):
 // T-943: a done stop sends none, so the tests below assert it stays empty.
@@ -94,7 +94,7 @@ func (herdrDown) Unavailable() bool { return true }
 // lane.prepare and agent.start run, the new agent gets its work job, and the lead gets one line.
 func TestMoveAnswersAtOnceThenStopsTheWorker(t *testing.T) {
 	t.Parallel()
-	r := newWorkerRig(t)
+	r := newLoopRig(t, working())
 	entered, release := r.holdStops()
 	if len(r.workerStops()) != 0 || len(r.workerLaunches()) != 1 {
 		t.Fatalf("precondition: no stop, one start: %q, %d", r.workerStops(), len(r.workerLaunches()))
@@ -137,7 +137,7 @@ func TestMoveAnswersAtOnceThenStopsTheWorker(t *testing.T) {
 // stop once, then the new model's start.
 func TestMoveRestartBeforeTheStop(t *testing.T) {
 	t.Parallel()
-	r := newWorkerRig(t)
+	r := newLoopRig(t, working())
 	var d map[string]any
 	for _, rec := range r.records() {
 		if rec.Attempt == 1 && rec.Kind == event.KindFact && rec.Step == event.StepDispatched {
@@ -171,7 +171,7 @@ func TestMoveRestartBeforeTheStop(t *testing.T) {
 // stopped, no line and no gone: T-943, T-960), and the new model's start runs.
 func TestMoveWorkerAlreadyGone(t *testing.T) {
 	t.Parallel()
-	r := newWorkerRig(t)
+	r := newLoopRig(t, working())
 	r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Kind, p.Name, p.Status = "", "", "" })
 	r.waitFor("pj-l-01 gone", func() bool {
 		if !app.IsIdentified(r.app, r.p.Root, "pj-l-01") {
@@ -201,7 +201,7 @@ func TestMoveWorkerAlreadyGone(t *testing.T) {
 // retries the stop (worker.stop.2), then the start runs and the lead gets no stopped line.
 func TestMoveStopHerdrDown(t *testing.T) {
 	t.Parallel()
-	r := newWorkerRig(t)
+	r := newLoopRig(t, working())
 	r.mu.Lock()
 	r.onStop = func() error { return herdrDown{} }
 	r.mu.Unlock()

@@ -13,7 +13,6 @@ import (
 	"obor/internal/herdr"
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/testkit"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -24,12 +23,13 @@ import (
 )
 
 // The merge loop at the app boundary: the herdr socket client on the fake herdr socket (snapshot, job prompts,
-// notifications), a fake Scratch on a git fixture (gitScratch), a scripted lane table, and an integrator start that
-// puts pj-int into the fake herdr.
+// notifications), the package's in-memory Scratch (app.FakeScratch: no git, T-996), a scripted lane table, and an
+// integrator start that puts pj-int into the fake herdr.
 
-// loopRig is project proj (main with a 10-line shared.txt; .obor/state/ ignored) with lane L-01 on task/T-1 (its
-// worker pj-l-01 idle in it; without the dispatch rig T-1's dispatch fact in the log at the first start),
-// roles.integrator (pj-int, not running until started) and the app not started yet. check is commands.check ("" for none); edits change the config further.
+// loopRig is project proj (a plain dir: its config written, no git) with lane L-01 on task/T-1 (a plain dir the fake
+// Scratch snapshots; its worker pj-l-01 idle in it; without the dispatch option T-1's dispatch fact in the log at the
+// first start), roles.integrator (pj-int, not running until started) and the app not started yet (unless an option
+// starts it). commands.check is configured ("echo 1 pass": its outcome is the fake's, Script).
 type loopRig struct {
 	t       *testing.T
 	p       *testkit.Project
@@ -37,7 +37,7 @@ type loopRig struct {
 	f       *herdrtest.Fake
 	srv     *herdrtest.Server
 	lanes   *laneTable
-	scratch *gitScratch
+	scratch *app.FakeScratch
 	starts  atomic.Int32
 	callIDs atomic.Int32 // the rig's own task_done and job_next call ids
 	early   bool         // submit before the first start: T-1's task_done is in the log the start replays
@@ -51,7 +51,7 @@ type loopRig struct {
 	checkoutErr     error // what the Loop's Checkout says (nil: on the target branch; under mu)
 
 	disp  *dispatchFakes // the dispatch's adapters (nil: none, the loop has no dispatch)
-	tick  time.Duration  // the watchdogs' tick, each a merge-loop pass (0: 20 ms); set before start
+	tick  time.Duration  // the watchdogs' tick, each a merge-loop pass (0: 2 ms); set before start
 	night *app.Nightly   // the loop's Nightly (nil: none; off is At "", T-782); set before start
 	// nightOf, when set, is the loop's Nightly built on each pass (serve's: from the config as it is, T-781); set
 	// before start
@@ -78,24 +78,60 @@ type loopRig struct {
 	done   chan struct{}
 }
 
-func newLoopRig(t *testing.T, check string, edits ...func(map[string]any)) *loopRig {
+// rigOpts is what newLoopRig's options ask for (T-996: one rig constructor, its variants options).
+type rigOpts struct {
+	check    bool                   // commands.check configured (a green lane test says rc=0; else no check)
+	edits    []func(map[string]any) // config edits
+	dispatch bool                   // the dispatch adapters, L-01 free
+	pool     bool                   // lanes 2: L-02 free too (the dispatch adapters on)
+	start    bool                   // started
+	working  bool                   // T-1 dispatched by its level onto L-01, its worker working (started)
+}
+
+type rigOpt func(*rigOpts)
+
+// noCheck: no commands.check (a green lane test says "no check").
+func noCheck() rigOpt { return func(o *rigOpts) { o.check = false } }
+
+// withConfig changes the config further.
+func withConfig(edits ...func(map[string]any)) rigOpt {
+	return func(o *rigOpts) { o.edits = append(o.edits, edits...) }
+}
+
+// dispatching is the rig with the dispatch adapters (Loop.Lane, Loop.Specs) and L-01 free.
+func dispatching() rigOpt { return func(o *rigOpts) { o.dispatch = true } }
+
+// pooled is dispatching with lanes 2: L-02 free too.
+func pooled() rigOpt { return func(o *rigOpts) { o.dispatch, o.pool = true, true } }
+
+// started is the rig started.
+func started() rigOpt { return func(o *rigOpts) { o.start = true } }
+
+// working is dispatching, started, T-1's spec set (medium) and dispatched onto L-01, its worker working on the work
+// job, and serve subscribed again after the worker's start (the stream a move or a drop decides on, T-758, T-759).
+func working() rigOpt { return func(o *rigOpts) { o.dispatch, o.start, o.working = true, true, true } }
+
+func newLoopRig(t *testing.T, opts ...rigOpt) *loopRig {
 	t.Helper()
-	p := testkit.New(t)
-	p.Write(".gitignore", ".task-done.md\n.obor/state/\n")
-	p.Write("shared.txt", "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n")
-	p.Git(p.Root, "add", "-A")
-	p.Git(p.Root, "commit", "-qm", "fixture")
+	o := rigOpts{check: true}
+	for _, opt := range opts {
+		opt(&o)
+	}
+	p := testkit.NewDir(t)
 	r := &loopRig{t: t, p: p, f: herdrtest.New(), lanes: &laneTable{},
 		clock: &clock{t: time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)}, inbox: &rigInbox{none: map[string]bool{"pj-l-01": true, "pj-int": true}}}
 	r.lane = p.Lane("L-01", "task/T-1")
 	commands := map[string]any{}
-	if check != "" {
-		commands["check"] = check
+	if o.check {
+		commands["check"] = "echo 1 pass"
+	}
+	edits := []func(map[string]any){testkit.Set("roles.integrator", ""), testkit.Set("commands", commands)}
+	if o.pool {
+		edits = append(edits, testkit.Set("lanes", 2))
 	}
 	// The lane's worker is pj-l-01 (L-01's derived name, its pane's label): serve's lane rows come from its log (T-439),
 	// and T-1's is its submission's.
-	p.Config(append([]func(map[string]any){testkit.Set("roles.integrator", ""), testkit.Set("commands", commands)},
-		edits...)...)
+	p.Config(append(edits, o.edits...)...)
 	r.lanes.lanes = []port.Lane{{Name: "L-01", Dir: r.lane, Task: "T-1", Agent: "pj-l-01"}}
 	r.f.Workspaces = []herdr.Workspace{{ID: "w1", Label: "proj"}}
 	w := r.f.Agent("w1:p1", "pj-l-01", "idle", r.lane)
@@ -103,11 +139,33 @@ func newLoopRig(t *testing.T, check string, edits ...func(map[string]any)) *loop
 	r.srv = herdrtest.Serve(t, r.f)
 	r.srv.Reply("notification.show", map[string]any{"type": "notification_show", "shown": true, "reason": "shown"})
 	r.srv.Reply("agent.prompt", prompted)
-	// Git without the developer's config.
-	environ := append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "GIT_AUTHOR_NAME=obor test",
-		"GIT_AUTHOR_EMAIL=obor-test@example.invalid", "GIT_COMMITTER_NAME=obor test",
-		"GIT_COMMITTER_EMAIL=obor-test@example.invalid")
-	r.scratch = &gitScratch{p: p, lanes: r.lanes, environ: environ}
+	r.scratch = app.NewFakeScratch("")
+	r.scratch.Dir = filepath.Join(p.Base, "proj-wt", "merge")
+	if !o.check {
+		r.scratch.Checks = "no check"
+	}
+	r.scratch.AddLane("L-01", r.lane, "task/T-1")
+	if o.dispatch {
+		r.disp = &dispatchFakes{r: r, on: true, refuse: map[string]string{}, calls: map[string]int{},
+			fail: map[string]func() error{}, cut: map[string]string{}, hit: map[string]bool{}}
+		r.setLane(func(l *port.Lane) { l.Task, l.Agent, l.State = "", "", "free" })
+		r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Transcript = "/s/0.jsonl" })
+	}
+	if o.pool {
+		r.addLanes(port.Lane{Name: "L-02", Dir: p.LaneDir("L-02"), State: "free"})
+	}
+	if o.start {
+		r.start()
+	}
+	if o.working {
+		r.setSpec("s1", "# T-1 — Work\n\nDifficulty: medium\n")
+		r.mustDispatch("d1")
+		r.waitJob("pj-l-01", "T-1/1/work")
+		r.waitFor("working", func() bool { return r.stateOf("T-1") == "working" })
+		// The worker's start pushed a refresh, so serve subscribes again: wait for that stream, the one a move or a drop
+		// decides by serve's identity on (T-758, T-759).
+		r.connectedAgain()
+	}
 	return r
 }
 
@@ -236,7 +294,7 @@ func (r *loopRig) launch() {
 	}
 	panes := herdr.Panes{S: r.srv.Client(), PS: func(context.Context) ([]byte, error) { return []byte("2 1 2\n"), nil }}
 	r.out = &syncBuf{}
-	tick := 20 * time.Millisecond
+	tick := 2 * time.Millisecond
 	if r.tick != 0 {
 		tick = r.tick
 	}
@@ -344,7 +402,7 @@ func (r *loopRig) taskDone(text string) (string, error) {
 		Role: "worker", Lane: "L-01", Task: "T-1", CallID: fmt.Sprintf("rig-%d", r.callIDs.Add(1)), Report: text})
 }
 
-// work writes path in the lane (uncommitted: the gate commits it).
+// work writes path in the lane (uncommitted: the submit commits it).
 func (r *loopRig) work(path, text string) { r.p.Write(filepath.Join(r.lane, path), text) }
 
 // records is proj's event log.
@@ -491,15 +549,41 @@ func (r *loopRig) accept(callID, patch string) {
 	}
 }
 
-// mainMerges is main's first-parent commits for T-1 ("Merge T-1…").
-func (r *loopRig) mainMerges() int {
-	n := 0
-	for _, s := range strings.Split(r.p.Git(r.p.Root, "log", "--first-parent", "--format=%s", "main"), "\n") {
-		if strings.HasPrefix(s, "Merge T-1") {
-			n++
-		}
+// mainMerges is how many merges of T-1 the target holds (a publish, or one by hand).
+func (r *loopRig) mainMerges() int { return r.scratch.Merges("T-1") }
+
+// conflicting: T-1's lane edits shared.txt and main moves on, and the gate of the lane's merge conflicts in shared.txt
+// (scripted: the conflict git finds is internal/checks', TestUnmergedConflictHasNoMismatch).
+func (r *loopRig) conflicting() {
+	r.work("shared.txt", "lane\n"+sharedLines)
+	r.scratch.Move()
+	r.scratch.Script("Gate lane", "T-1", port.OutcomeConflict+" shared.txt")
+}
+
+// movedConflict: main moves on, and the gate of the lane's merge onto it conflicts (scripted).
+func (r *loopRig) movedConflict() {
+	r.scratch.Move()
+	r.scratch.Script("Gate moved", "T-1", port.OutcomeConflict+" shared.txt")
+}
+
+// resolveInScratch is the integrator's resolution of the open conflict, committed in the scratch: its sha.
+func (r *loopRig) resolveInScratch() string {
+	r.t.Helper()
+	sha := r.scratch.Resolve()
+	if sha == "" {
+		r.t.Fatalf("no conflict open in the scratch: %q", r.steps())
 	}
-	return n
+	return sha
+}
+
+// published is T-1's candidate the last publish merged.
+func (r *loopRig) published() port.Candidate {
+	r.t.Helper()
+	c, ok := r.scratch.Published("T-1")
+	if !ok {
+		r.t.Fatalf("T-1 not published: %q", r.steps())
+	}
+	return c
 }
 
 // merged waits for the merge and its after-merge work (its last step, the worker's stop).
@@ -521,12 +605,11 @@ func (r *loopRig) noLead() {
 // From a task_done to merged with no one but the integrator in it: the integrator is not running, so it is
 // started for its review job; it accepts the patch the job names; the app publishes and runs the after-merge work.
 func TestLoopHappyPath(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass")
+	r := newLoopRig(t)
 	r.work("feature.txt", "feature\n")
 	r.start()
-	base := r.p.Git(r.p.Root, "rev-parse", "main")
+	base := r.scratch.Head()
 	r.passes()
 	if got := r.steps(); len(got) != 1 || got[0] != "1 fact dispatch" {
 		t.Fatalf("precondition: before the task_done only T-1's dispatch: %q", got)
@@ -534,11 +617,11 @@ func TestLoopHappyPath(t *testing.T) {
 
 	r.submit()
 	job := r.waitJob("pj-int", "T-1/1/review")
-	if got := r.scratch.tests.Load(); got != 1 {
+	if got := r.scratch.Tests.Load(); got != 1 {
 		t.Errorf("lane tests %d before the review, want 1 (T-961: gate, candidate, test, then the review)", got)
 	}
-	if got := r.p.Git(r.lane, "branch", "--show-current"); got != "task/T-1" {
-		t.Errorf("the lane is on %q after its test, want its branch task/T-1 back", got)
+	if got := r.scratch.LaneAt("L-01"); got != "" {
+		t.Errorf("the lane is at %s after its test, want its branch back", got)
 	}
 	if r.starts.Load() != 1 {
 		t.Errorf("integrator starts = %d, want 1 (it did not run)", r.starts.Load())
@@ -553,13 +636,14 @@ func TestLoopHappyPath(t *testing.T) {
 	if strings.Contains(job, "Answer with one obor tool") {
 		t.Errorf("review job repeats the role text's verbs:\n%s", job)
 	}
-	if r.p.Git(r.p.Root, "rev-parse", "main") != base {
+	if r.scratch.Head() != base {
 		t.Fatal("main moved before the accept")
 	}
 	r.accept("c1", r.patch(job))
 	r.merged(1)
-	if r.mainMerges() != 1 || !r.p.Exists("feature.txt") {
-		t.Errorf("main: %d merges of T-1, feature.txt %v; want one merge with the feature", r.mainMerges(), r.p.Exists("feature.txt"))
+	if c := r.published(); r.mainMerges() != 1 || !strings.Contains(c.Stat, "feature.txt") || r.scratch.Head() != c.SHA {
+		t.Errorf("main: %d merges of T-1, at %s; want one merge, its candidate %+v with the feature", r.mainMerges(),
+			r.scratch.Head(), c)
 	}
 	var steps []string // the idle state's own records are not the merge's (T-803): each asserted on its own
 	for _, s := range r.steps() {
@@ -575,11 +659,11 @@ func TestLoopHappyPath(t *testing.T) {
 		"1 fact delivered", "1 intent accept.c1", "1 result accept.c1", "1 intent publish", "1 result publish",
 		"1 fact merged", "1 intent after_merge", "1 result after_merge", "1 intent agent.stop", "1 result agent.stop"},
 		"records")
-	if got := r.p.Git(r.p.Root, "log", "-1", "--format=%s", "main"); got != "Merge T-1: done." {
-		t.Errorf("main's merge subject %q, want the report's summary (GateInput.Summary)", got)
+	if in := r.scratch.Inputs(); len(in) != 1 || in[0].Summary != "done." || in[0].Title != "" {
+		t.Errorf("gate inputs %+v, want one with the report's summary and no title (the merge's subject)", in)
 	}
-	if r.scratch.afterMerges.Load() != 1 || r.scratch.publishes.Load() != 1 {
-		t.Errorf("after_merge runs %d, publishes %d; want 1, 1", r.scratch.afterMerges.Load(), r.scratch.publishes.Load())
+	if r.scratch.AfterMerges.Load() != 1 || r.scratch.Publishes.Load() != 1 {
+		t.Errorf("after_merge runs %d, publishes %d; want 1, 1", r.scratch.AfterMerges.Load(), r.scratch.Publishes.Load())
 	}
 	if r.p.Exists(".obor/state/done") {
 		t.Errorf("a done-file archive dir (gone with T-437)")
@@ -598,10 +682,10 @@ func TestLoopHappyPath(t *testing.T) {
 
 // A red lane test (T-961) goes back to the worker with the reasons; its next task_done is the next attempt. After K = 2 sendbacks a third red goes to the owner (one notification), not to the worker again.
 func TestLoopRedSendsBackTwiceThenNeedsYou(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
-	r := newLoopRig(t, `if [ -f red.txt ]; then echo "0 pass, 1 fail"; exit 1; fi; echo 1 pass`)
+	r := newLoopRig(t)
 	r.work("red.txt", "red\n")
+	r.scratch.Script("Test", "T-1", port.OutcomeRed) // every lane test of T-1
 	r.start()
 	r.submit()
 	for attempt := 2; attempt <= 3; attempt++ {
@@ -663,12 +747,9 @@ func countReq(srv *herdrtest.Server, method string) int {
 // says resolved, the app gates that merge, tests it once in the lane, and reviews it (T-973: the resolve job carries
 // only the conflict, so a first-gate conflict gets the task's review), then publishes after the accept.
 func TestLoopConflictResolvedThenMerged(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass")
-	r.work("shared.txt", "lane\n2\n3\n4\n5\n6\n7\n8\n9\n10\n")
-	r.p.Write("shared.txt", "main\n2\n3\n4\n5\n6\n7\n8\n9\n10\n")
-	r.p.Git(r.p.Root, "commit", "-qam", "main edit")
+	r := newLoopRig(t)
+	r.conflicting()
 	r.start()
 	r.submit()
 	job := r.waitJob("pj-int", "T-1/1/resolve")
@@ -688,9 +769,7 @@ func TestLoopConflictResolvedThenMerged(t *testing.T) {
 	if _, err := r.verdict(wire.MethodAccept, "c0", "x", ""); err == nil || !strings.Contains(err.Error(), "is a resolve job") {
 		t.Errorf("accept on the resolve job: %v", err)
 	}
-	r.p.Write(filepath.Join(scratch, "shared.txt"), "both\n2\n3\n4\n5\n6\n7\n8\n9\n10\n")
-	r.p.Git(scratch, "add", "shared.txt")
-	r.p.Git(scratch, "commit", "-qm", "Merge T-1: resolved")
+	resolution := r.resolveInScratch()
 	if reply, err := r.verdict(wire.MethodResolved, "c1", "", ""); err != nil || reply != "RESOLVED T-1 (job T-1/1/resolve)" {
 		t.Fatalf("resolved: %q, %v", reply, err)
 	}
@@ -698,8 +777,8 @@ func TestLoopConflictResolvedThenMerged(t *testing.T) {
 	review := r.waitJob("pj-int", "T-1/1/review")
 	r.accept("c2", r.patch(review))
 	r.merged(1)
-	if got := r.p.Read("shared.txt"); got != "both\n2\n3\n4\n5\n6\n7\n8\n9\n10\n" || r.mainMerges() != 1 {
-		t.Errorf("main's shared.txt %q, merges %d; want the resolution, merged once", got, r.mainMerges())
+	if c := r.published(); c.SHA != resolution || r.mainMerges() != 1 {
+		t.Errorf("published %s, merges %d; want the resolution %s, merged once", c.SHA, r.mainMerges(), resolution)
 	}
 	for _, s := range []string{"1 result gate", "1 intent resolve", "1 result resolved.c1", "1 result gate.2",
 		"1 intent test", "1 result test", "1 intent review", "1 result review", "1 result publish", "1 fact merged"} {
@@ -723,22 +802,24 @@ func TestLoopConflictResolvedThenMerged(t *testing.T) {
 }
 
 // The target moves between the review job and the accept: publish finds it moved, the gate runs again on the new
-// target. An identical patch keeps the accept (published, no second job); a changed patch is a new review job, and
-// an accept of the old patch or the old job, or a verdict on an answered job, is refused; a repeated call id gets its
-// stored reply.
+// target (T-961: the slot merges and compiles the task onto it again, gate.2). The accept binds to the task's own diff
+// Base..S, which a move leaves as it was: accept.kept, then publish.2, no lane test and no review job on a move; a
+// verdict after the merge finds no job. (That a move in the patch's context keeps the patch and both edits is git's:
+// internal/checks' TestGateCandidateIsTheTasksOwnDiff.)
 func TestLoopTargetMoved(t *testing.T) {
 	t.Parallel()
 	t.Run("identical patch", func(t *testing.T) {
 		t.Parallel()
-		r := newLoopRig(t, "echo 1 pass")
+		r := newLoopRig(t)
 		r.work("feature.txt", "feature\n")
 		r.start()
 		r.submit()
 		job := r.waitJob("pj-int", "T-1/1/review")
-		submitted := r.p.Git(r.lane, "rev-parse", "HEAD")
-		r.p.Write("other.txt", "other\n")
-		r.p.Git(r.p.Root, "add", "other.txt")
-		r.p.Git(r.p.Root, "commit", "-qm", "unrelated")
+		if n := r.scratch.Tests.Load(); n != 1 {
+			t.Fatalf("precondition: one lane test before the review, got %d", n)
+		}
+		submitted := r.scratch.LaneHead("L-01")
+		moved := r.scratch.Move() // an unrelated commit on main
 		r.accept("c1", r.patch(job))
 		r.merged(1)
 		for _, s := range []string{"1 result publish", "1 fact target.moved", "1 result gate.2", "1 fact accept.kept",
@@ -747,61 +828,31 @@ func TestLoopTargetMoved(t *testing.T) {
 				t.Errorf("no record %q: %q", s, r.steps())
 			}
 		}
-		if n := r.jobPrompts("T-1/1/review"); n != 1 || len(r.prompts()) != 0 || r.mainMerges() != 1 || !r.p.Exists("other.txt") {
-			t.Errorf("prompts %d, merges %d; want the one review job, merged once on the moved main", n, r.mainMerges())
+		c := r.published()
+		if n := r.jobPrompts("T-1/1/review"); n != 1 || len(r.prompts()) != 0 || r.mainMerges() != 1 || c.Target != moved {
+			t.Errorf("prompts %d, merges %d, onto %s; want the one review job, merged once on the moved main %s", n,
+				r.mainMerges(), c.Target, moved)
 		}
-		if got := r.p.Git(r.p.Root, "rev-list", "--count", "--merges", "main"); got != "1" {
-			t.Errorf("%s merge commits on main, want one for T-1 (T-403)", got)
+		if got := r.scratch.Merges(""); got != 1 {
+			t.Errorf("%d merges on main, want one for T-1 (T-403)", got)
 		}
-		if got := r.p.Git(r.p.Root, "rev-parse", "main^2"); got != submitted {
-			t.Errorf("main's merge's second parent %s, want the submitted sha %s", got, submitted)
+		if got := r.scratch.Parents(r.scratch.Head()); len(got) != 2 || got[1] != submitted {
+			t.Errorf("main's merge's parents %q, want the submitted sha %s second", got, submitted)
 		}
-		if got := r.p.Git(r.p.Root, "log", "-1", "--format=%s", "main"); got != "Merge T-1: done." {
-			t.Errorf("moved merge subject %q, want the task's subject rule (T-360)", got)
-		}
-	})
-	// T-961: the target moves within the patch's context after the accept. The slot merges and compiles the task onto
-	// it again (gate.2); the accept binds to the task's own diff Base..S, which the move leaves as it was: accept.kept,
-	// then publish.2. No lane test and no review job on a move; the published merge holds both edits.
-	t.Run("a move next to the lane's lines", func(t *testing.T) {
-		t.Parallel()
-		r := newLoopRig(t, "echo 1 pass")
-		r.work("shared.txt", "lane\n2\n3\n4\n5\n6\n7\n8\n9\n10\n")
-		r.start()
-		r.submit()
-		job := r.waitJob("pj-int", "T-1/1/review")
-		if n := r.scratch.tests.Load(); n != 1 {
-			t.Fatalf("precondition: one lane test before the review, got %d", n)
-		}
-		r.p.Write("shared.txt", "1\n2\nmain\n4\n5\n6\n7\n8\n9\n10\n") // in the patch's context
-		r.p.Git(r.p.Root, "commit", "-qam", "main edit near the lane's")
-		r.accept("c1", r.patch(job))
-		r.merged(1)
-		for _, s := range []string{"1 fact target.moved", "1 result gate.2", "1 fact accept.kept", "1 result publish.2",
-			"1 fact merged"} {
-			if !r.has(s) {
-				t.Errorf("no record %q: %q", s, r.steps())
-			}
+		in := r.scratch.Inputs()
+		if len(in) != 2 || in[1].Kind != port.InputMoved || in[1].Input != submitted || in[1].Summary != "done." {
+			t.Errorf("gate inputs %+v; want the moved gate of the submitted sha, the task's subject rule (T-360)", in)
 		}
 		for _, s := range []string{"1 intent test.2", "1 intent review.2"} {
 			if r.has(s) {
 				t.Errorf("a move ran %q: %q", s, r.steps())
 			}
 		}
-		if n := r.scratch.tests.Load(); n != 1 {
+		if n := r.scratch.Tests.Load(); n != 1 {
 			t.Errorf("lane tests %d, want the one before the review (none on the move)", n)
-		}
-		if n := r.jobPrompts("T-1/1/review.2"); n != 0 {
-			t.Errorf("review.2 prompted %d times, want none: the accept stands", n)
-		}
-		if got := r.p.Read("shared.txt"); got != "lane\n2\nmain\n4\n5\n6\n7\n8\n9\n10\n" {
-			t.Errorf("main's shared.txt %q, want both edits", got)
 		}
 		if _, err := r.verdict(wire.MethodReject, "c5", "", "late"); err == nil || !strings.Contains(err.Error(), "no job open") {
 			t.Errorf("a verdict after the merge: %v", err)
-		}
-		if r.mainMerges() != 1 || r.count("1 fact merged") != 1 {
-			t.Errorf("merges %d: %q", r.mainMerges(), r.steps())
 		}
 	})
 }
@@ -809,25 +860,21 @@ func TestLoopTargetMoved(t *testing.T) {
 // T-403: a moved gate that conflicts is resolved against the submitted sha (the merge's second parent), then gated as
 // committed, tested in the lane and merged (T-961: no second review); the old candidate does not go along.
 func TestLoopMovedConflictResolved(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass")
+	r := newLoopRig(t)
 	r.work("shared.txt", "lane\n2\n3\n4\n5\n6\n7\n8\n9\n10\n")
 	r.start()
 	r.submit()
 	job := r.waitJob("pj-int", "T-1/1/review")
-	submitted := r.p.Git(r.lane, "rev-parse", "HEAD")
-	r.p.Write("shared.txt", "main\n2\n3\n4\n5\n6\n7\n8\n9\n10\n") // the same line: the moved merge conflicts
-	r.p.Git(r.p.Root, "commit", "-qam", "main edit")
+	submitted := r.scratch.LaneHead("L-01")
+	r.movedConflict() // main edits the lane's line: the moved merge conflicts
 	r.accept("c1", r.patch(job))
 	job = r.waitJob("pj-int", "T-1/1/resolve")
 	scratch := filepath.Join(r.p.Base, "proj-wt", "merge")
 	if !strings.Contains(job, "CONFLICT in "+scratch) {
 		t.Fatalf("resolve job does not name the moved gate's conflict:\n%s", job)
 	}
-	r.p.Write(filepath.Join(scratch, "shared.txt"), "both\n2\n3\n4\n5\n6\n7\n8\n9\n10\n")
-	r.p.Git(scratch, "add", "shared.txt")
-	r.p.Git(scratch, "commit", "-qm", "Merge T-1: resolved")
+	resolution := r.resolveInScratch()
 	if reply, err := r.verdict(wire.MethodResolved, "c1", "", ""); err != nil || reply != "RESOLVED T-1 (job T-1/1/resolve)" {
 		t.Fatalf("resolved against the submitted sha: %q, %v", reply, err)
 	}
@@ -839,34 +886,31 @@ func TestLoopMovedConflictResolved(t *testing.T) {
 			t.Errorf("no record %q: %q", s, r.steps())
 		}
 	}
-	if n := r.scratch.tests.Load(); n != 2 {
+	if n := r.scratch.Tests.Load(); n != 2 {
 		t.Errorf("lane tests %d, want 2: the lane merge's and the resolution's, the move's none", n)
 	}
 	if n := r.jobPrompts("T-1/1/review.2"); n != 0 || r.has("1 intent review.2") {
 		t.Errorf("the resolution was reviewed again (%d prompts): %q", n, r.steps())
 	}
-	if got := r.p.Read("shared.txt"); got != "both\n2\n3\n4\n5\n6\n7\n8\n9\n10\n" {
-		t.Errorf("main's shared.txt %q, want the resolution", got)
+	if got := r.scratch.Head(); got != resolution || r.scratch.Merges("") != 1 {
+		t.Errorf("main at %s with %d merges, want the resolution %s, one merge for T-1 (T-403)", got,
+			r.scratch.Merges(""), resolution)
 	}
-	if got := r.p.Git(r.p.Root, "rev-list", "--count", "--merges", "main"); got != "1" {
-		t.Errorf("%s merge commits on main, want one for T-1 (T-403)", got)
-	}
-	if got := r.p.Git(r.p.Root, "rev-parse", "main^2"); got != submitted {
-		t.Errorf("main's merge's second parent %s, want the submitted sha %s", got, submitted)
+	if got := r.scratch.Parents(resolution); len(got) != 2 || got[1] != submitted {
+		t.Errorf("the resolution's parents %q, want the submitted sha %s second", got, submitted)
 	}
 }
 
 // An obor merge outside the app while the task waits for its accept (the cutover's race): reconciled to merged, no
 // publish and no after-merge work of its own; the integrator's late accept finds no job.
 func TestLoopMergedOutsideTheApp(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass")
+	r := newLoopRig(t)
 	r.work("feature.txt", "feature\n")
 	r.start()
 	r.submit()
 	job := r.waitJob("pj-int", "T-1/1/review")
-	r.p.Git(r.p.Root, "merge", "-q", "--no-ff", "-m", "Merge T-1: by hand", "task/T-1")
+	r.scratch.Land("T-1") // obor merge by hand: "Merge T-1: by hand" on main
 	r.waitStep("1 fact merged")
 	var d struct{ Outside bool }
 	for _, rec := range r.records() {
@@ -875,9 +919,9 @@ func TestLoopMergedOutsideTheApp(t *testing.T) {
 		}
 	}
 	r.passes()
-	if !d.Outside || r.scratch.publishes.Load() != 0 || r.has("1 intent after_merge") || r.has("1 intent archive") ||
+	if !d.Outside || r.scratch.Publishes.Load() != 0 || r.has("1 intent after_merge") || r.has("1 intent archive") ||
 		r.has("1 intent agent.stop") || r.mainMerges() != 1 {
-		t.Errorf("outside %v, publishes %d, merges %d: %q", d.Outside, r.scratch.publishes.Load(), r.mainMerges(), r.steps())
+		t.Errorf("outside %v, publishes %d, merges %d: %q", d.Outside, r.scratch.Publishes.Load(), r.mainMerges(), r.steps())
 	}
 	if _, err := r.verdict(wire.MethodAccept, "c1", r.patch(job), ""); err == nil || !strings.Contains(err.Error(), "no job open") {
 		t.Errorf("accept after the outside merge: %v", err)
@@ -887,9 +931,8 @@ func TestLoopMergedOutsideTheApp(t *testing.T) {
 // obor serve restarts while the task waits for its accept: the replay settles the review prompt (never sent again),
 // and the integrator's verb after the restart merges it.
 func TestLoopRestartWhileAwaitingAccept(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass")
+	r := newLoopRig(t)
 	r.work("feature.txt", "feature\n")
 	r.start()
 	r.submit()
@@ -903,8 +946,8 @@ func TestLoopRestartWhileAwaitingAccept(t *testing.T) {
 	}
 	r.accept("c1", r.patch(job))
 	r.merged(1)
-	if n := r.jobPrompts("T-1/1/review"); n != 1 || r.mainMerges() != 1 || r.scratch.gates.Load() != 1 {
-		t.Errorf("prompts %d, merges %d, prepares %d; want 1 each", n, r.mainMerges(), r.scratch.gates.Load())
+	if n := r.jobPrompts("T-1/1/review"); n != 1 || r.mainMerges() != 1 || r.scratch.Gates.Load() != 1 {
+		t.Errorf("prompts %d, merges %d, prepares %d; want 1 each", n, r.mainMerges(), r.scratch.Gates.Load())
 	}
 }
 
@@ -913,7 +956,7 @@ func TestLoopRestartWhileAwaitingAccept(t *testing.T) {
 // works ends it.
 func TestLoopErrorIsAFactOnceAndClears(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass")
+	r := newLoopRig(t)
 	setErr := func(err error) {
 		r.mu.Lock()
 		r.loopErr = err
@@ -955,9 +998,8 @@ func TestLoopErrorIsAFactOnceAndClears(t *testing.T) {
 // T-425: while the main checkout is off the target branch the project's pass pauses: one loop needs-you, the
 // task_done recorded (a request, T-437) but neither submitted nor gated; back on the branch the fact ends and the task gates.
 func TestLoopPausedOffTargetBranch(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass")
+	r := newLoopRig(t)
 	set := func(err error) {
 		r.mu.Lock()
 		r.checkoutErr = err
@@ -972,38 +1014,35 @@ func TestLoopPausedOffTargetBranch(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		r.passes()
 	}
-	if n := r.count(fact); n != 1 || !r.has("1 fact submitted") || r.scratch.submits.Load() != 0 || r.scratch.gates.Load() != 0 {
-		t.Errorf("paused: %d needs-you, submits %d, gates %d; want 1, 0, 0: %q", n, r.scratch.submits.Load(),
-			r.scratch.gates.Load(), r.steps())
+	if n := r.count(fact); n != 1 || !r.has("1 fact submitted") || r.scratch.Submits.Load() != 0 || r.scratch.Gates.Load() != 0 {
+		t.Errorf("paused: %d needs-you, submits %d, gates %d; want 1, 0, 0: %q", n, r.scratch.Submits.Load(),
+			r.scratch.Gates.Load(), r.steps())
 	}
 
 	set(nil)
 	r.waitJob("pj-int", "T-1/1/review")
-	if !r.has("0 fact resumed") || r.scratch.gates.Load() != 1 {
-		t.Errorf("back on main: resumed %v, gates %d; want true, 1: %q", r.has("0 fact resumed"), r.scratch.gates.Load(), r.steps())
+	if !r.has("0 fact resumed") || r.scratch.Gates.Load() != 1 {
+		t.Errorf("back on main: resumed %v, gates %d; want true, 1: %q", r.has("0 fact resumed"), r.scratch.Gates.Load(), r.steps())
 	}
 }
 
 // T-360 (RV-39 #6), T-440, T-521: the lane's commit and its merge take the task's title from the stored spec; the
-// title the target has committed changes neither. The review job carries the gated spec rev's text; the merge's
-// message carries it, and the gate writes no spec file. (A draft left in the main checkout's tasks dir holds the
-// publish: drafts live in .obor/drafts/.)
+// title in the main checkout's spec file changes neither. The review job carries the gated spec rev's text; the gate
+// gets that rev and its text for the merge's message (the message itself, and that the gate writes no spec file, are
+// internal/checks': TestGateSpecInMessage).
 func TestCommitSubjectFromStoredSpec(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass")
+	r := newLoopRig(t)
 	const committed = "# T-1 — Committed target title"
 	r.p.Write("docs/tasks/T-1.md", committed+"\n")
-	r.p.Git(r.p.Root, "add", "docs/tasks/T-1.md")
-	r.p.Git(r.p.Root, "commit", "-qm", "spec T-1")
 	r.work("feature.txt", "feature\n")
 	r.start()
 	const stored = "# T-1 — Stored title\n\nDifficulty: medium\n\n## Files you may touch\n`feature.txt`\n"
 	r.setSpec("s1", stored)
 	r.submit()
 	r.waitStep("1 result submit")
-	if got := r.p.Git(r.lane, "log", "-1", "--format=%s", "HEAD"); got != "T-1: Stored title" {
-		t.Errorf("lane commit subject %q, want the stored spec's title", got)
+	if got := r.scratch.Subjects(); len(got) != 1 || got[0] != "T-1: Stored title" {
+		t.Errorf("lane commit subjects %q, want the stored spec's title", got)
 	}
 	job := r.waitJob("pj-int", "T-1/1/review")
 	if want := "Spec to review: rev 1 (the one the candidate's merge message contains):\n\nThe spec of T-1 (rev 1, " +
@@ -1026,11 +1065,11 @@ func TestCommitSubjectFromStoredSpec(t *testing.T) {
 	}
 	r.accept("c1", r.patch(job))
 	r.merged(1)
-	if got := r.p.Git(r.p.Root, "log", "-1", "--format=%B", "main"); got != "Merge T-1: Stored title\n\nSpec rev 1:\n\n"+strings.TrimRight(stored, "\n") {
-		t.Errorf("merge message %q, want the stored spec's title, then rev 1 and its text", got)
+	if in := r.scratch.Inputs(); len(in) != 1 || in[0].Title != "Stored title" || in[0].SpecRev != 1 || in[0].Spec != stored {
+		t.Errorf("gate inputs %+v, want the stored spec's title, then rev 1 and its text", in)
 	}
-	if got := r.p.Git(r.p.Root, "show", "main:docs/tasks/T-1.md"); got != committed {
-		t.Errorf("main's docs/tasks/T-1.md = %q, want the target's committed one (the gate writes no spec file)", got)
+	if got := r.p.Read("docs/tasks/T-1.md"); got != committed+"\n" {
+		t.Errorf("the main checkout's docs/tasks/T-1.md = %q, want it as it was", got)
 	}
 }
 

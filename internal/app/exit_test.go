@@ -14,7 +14,7 @@ import (
 // another project's root and by a serve with no Exit (nothing ended); the owner's ends it, replying EXITING.
 func TestExitEndsServe(t *testing.T) {
 	t.Parallel()
-	r := newDispatchRig(t)
+	r := newLoopRig(t, dispatching())
 	r.start()
 	exit := func(role, root string) (string, error) {
 		c := wire.Call{Root: root, Role: role, CallID: "e1", Note: "obor stop"}

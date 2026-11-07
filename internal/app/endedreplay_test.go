@@ -92,13 +92,13 @@ func TestReplayEndedTaskIntents(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			r := newLoopRig(t, "echo 1 pass")
+			r := newLoopRig(t)
 			r.work("feature.txt", "feature\n")
 			r.writeLog(c.recs)
 			if r.resultOf(c.attempt, c.step) != "" || len(r.open()) != 1 {
 				t.Fatalf("precondition: want one open intent, %s's: %q", c.step, r.open())
 			}
-			head := r.p.Git(r.lane, "rev-parse", "HEAD")
+			head := r.scratch.LaneHead("L-01")
 			starts := func() int { r.mu.Lock(); defer r.mu.Unlock(); return len(r.launches) }
 			r.start()
 			r.waitFor("the replayed intent's result", func() bool { return r.resultOf(c.attempt, c.step) != "" })
@@ -111,15 +111,15 @@ func TestReplayEndedTaskIntents(t *testing.T) {
 			}
 			ended := strings.HasPrefix(c.want, `"not run`)
 			if ended {
-				if got := r.p.Git(r.lane, "rev-parse", "HEAD"); got != head || len(r.prompts()) != 0 ||
+				if got := r.scratch.LaneHead("L-01"); got != head || len(r.prompts()) != 0 ||
 					starts() != 0 || r.has("1 intent gate") {
 					t.Errorf("an effect ran: lane HEAD %s (was %s), prompts %d, starts %d: %q", got, head,
 						len(r.prompts()), starts(), r.steps())
 				}
-				if out := r.p.Git(r.p.Root, "for-each-ref", "refs/obor/"); out != "" {
+				if out := r.scratch.Pins(); len(out) != 0 {
 					t.Errorf("a pin was written: %s", out)
 				}
-			} else if c.step == event.StepSubmit && r.p.Git(r.lane, "rev-parse", "HEAD") == head {
+			} else if c.step == event.StepSubmit && r.scratch.LaneHead("L-01") == head {
 				t.Errorf("the open task's submit did not run again: lane HEAD unchanged: %q", r.steps())
 			}
 			if c.step == event.StepWork && len(r.prompts()) != 0 {
@@ -141,7 +141,7 @@ func TestReplayEndedTaskIntents(t *testing.T) {
 // nothing is typed afterwards.
 func TestDropSettlesOpenIntents(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass")
+	r := newLoopRig(t)
 	r.writeLog([]logRec{
 		{1, event.StepSubmitted, event.KindFact, "", map[string]any{"lane": "L-01", "agent": "pj-l-01"}},
 		{1, event.StepNeedsYou, event.KindFact, "", event.FactData{Lane: "L-01", Merge: true, Cause: "gate", Reason: "owner"}},

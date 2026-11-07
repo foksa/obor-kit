@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"obor/internal/app/wire"
-	"obor/internal/testkit"
 )
 
 // T-861: the stall timer's sample of the idle integrator's open job (a herdr read on most passes) holds no task: a hold
@@ -15,7 +14,6 @@ import (
 // waiting a minute for a crash). A sample that comes back due after the resume changed the task nudges nothing: the
 // resume's new job goes out, the old one gets no reminder.
 func TestJobSampleHoldsNoVerb(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	r, _ := reviewed(t)
 	r.integratorIs("idle")

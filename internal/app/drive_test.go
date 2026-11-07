@@ -7,6 +7,8 @@ import (
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -20,14 +22,6 @@ import (
 // The owner's drive (T-751) on the dispatch rig: obor drive's request (a new drive on the first free lane; a worker's
 // task refused, T-912), the driving state, obor land's request, and the merge loop after it. Lane L-01 is made
 // free for a new drive; the CLI's start of the drive agent is the rig's pane w1:p5 (driveAgentUp).
-
-// newDriveRig is the dispatch rig with L-01 free, and the app started.
-func newDriveRig(t *testing.T, edits ...func(map[string]any)) *loopRig {
-	t.Helper()
-	r := newDispatchRig(t, edits...)
-	r.start()
-	return r
-}
 
 // drive is obor drive's request by the owner (no role): a new drive named name (types: its --type), or a task's when
 // name is a task id.
@@ -117,7 +111,7 @@ func (r *loopRig) hardType() string {
 // all. A repeated call id gets the stored reply; the same name again starts its agent again (T-755), nothing recorded.
 func TestDriveNewOnAFreeUntypedLane(t *testing.T) {
 	t.Parallel()
-	r := newDriveRig(t)
+	r := newLoopRig(t, dispatching(), started())
 	if n := len(r.records()); n != 0 {
 		t.Fatalf("precondition: records before the drive: %q", r.steps())
 	}
@@ -168,7 +162,7 @@ func TestDriveNoFreeLaneRefused(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			r := newDriveRig(t)
+			r := newLoopRig(t, dispatching(), started())
 			r.setLane(c.lane)
 			_, err := r.drive("v1", "web")
 			if err == nil || !strings.Contains(err.Error(), c.why) {
@@ -189,7 +183,7 @@ func TestDriveNoFreeLaneRefused(t *testing.T) {
 // sonnet:high takes L-01, T-2's dispatch of sonnet L-02, a second drive L-03; an unknown model is refused.
 func TestDriveModelHonoured(t *testing.T) {
 	t.Parallel()
-	r := newDispatchRig(t, testkit.Set("lanes", 3))
+	r := newLoopRig(t, dispatching(), withConfig(testkit.Set("lanes", 3)))
 	r.addLanes(port.Lane{Name: "L-02", Dir: r.p.Lane("L-02", ""), State: "free"},
 		port.Lane{Name: "L-03", Dir: r.p.Lane("L-03", ""), State: "free"})
 	r.disp.set(func(d *dispatchFakes) { d.cut["prepare"] = "before" })
@@ -247,7 +241,7 @@ func TestDriveOfAWorkersTaskRefused(t *testing.T) {
 		{"finished", "submitted", func(r *loopRig) bool {
 			release := make(chan struct{})
 			r.t.Cleanup(func() { close(release) })
-			r.scratch.arm("Gate", func(ctx context.Context) error {
+			r.scratch.Arm("Gate", func(ctx context.Context) error {
 				select {
 				case <-release:
 				case <-ctx.Done():
@@ -262,7 +256,7 @@ func TestDriveOfAWorkersTaskRefused(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			r := newWorkerRig(t)
+			r := newLoopRig(t, working())
 			needs := c.arm(r)
 			before := r.task("T-1")
 			if before.State != c.state || (before.Phase == wire.PhaseNeedsYou) != needs {
@@ -297,7 +291,7 @@ func TestDriveOfAWorkersTaskRefused(t *testing.T) {
 // A task gating, under review or merging is not moved: refused by its state, nothing recorded or stopped (T-773).
 func TestMoveWhileGatingRefused(t *testing.T) {
 	t.Parallel()
-	r := newDispatchRig(t)
+	r := newLoopRig(t, dispatching())
 	r.work("feature.txt", "feature\n")
 	r.start()
 	r.setSpec("s1", "# T-1 — Work\n\nDifficulty: medium\n")
@@ -305,7 +299,7 @@ func TestMoveWhileGatingRefused(t *testing.T) {
 	r.waitJob("pj-l-01", "T-1/1/work")
 	release := make(chan struct{})
 	t.Cleanup(func() { close(release) })
-	r.scratch.arm("Gate", func(ctx context.Context) error {
+	r.scratch.Arm("Gate", func(ctx context.Context) error {
 		select {
 		case <-release:
 		case <-ctx.Done():
@@ -330,9 +324,8 @@ func TestMoveWhileGatingRefused(t *testing.T) {
 // after-merge stop of the drive agent; the lane row is finished (the lane free once merged). A repeated call id gets
 // the stored reply; land of a task not driving is refused.
 func TestDriveLandGatesReviewsMergesAndStopsTheAgent(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
-	r := newDriveRig(t)
+	r := newLoopRig(t, dispatching(), started())
 	if _, err := r.landDrive("l0", "T-1", "x"); err == nil || !strings.Contains(err.Error(), "not open") {
 		t.Fatalf("land before any drive: %v", err)
 	}
@@ -342,8 +335,7 @@ func TestDriveLandGatesReviewsMergesAndStopsTheAgent(t *testing.T) {
 	r.waitFor("T-1 driving", func() bool { return r.stateOf("T-1") == wire.TaskDriving })
 	r.driveAgentUp()
 	r.work("page.html", "<p>new</p>\n")
-	r.p.Git(r.lane, "add", "-A")
-	r.p.Git(r.lane, "commit", "-qm", "page")
+	r.scratch.Commit("L-01") // the drive agent commits its work
 	if _, err := r.landDrive("l1", "T-1", ""); err == nil || !strings.Contains(err.Error(), "a summary is required") {
 		t.Errorf("land with no summary: %v", err)
 	}
@@ -385,9 +377,9 @@ func TestDriveLandGatesReviewsMergesAndStopsTheAgent(t *testing.T) {
 // no needs-you, whatever the count. The next land gates again. A serve restart replays the driving task as driving
 // and sends no second line.
 func TestDriveRedGateBackToDriving(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
-	r := newDriveRig(t, testkit.Set("commands.check", "test ! -f red.txt"))
+	r := newLoopRig(t, dispatching(), started())
+	r.scratch.Script("Test", "T-1", port.OutcomeRed) // red while the lane has red.txt
 	if _, err := r.drive("v1", "web"); err != nil {
 		t.Fatal(err)
 	}
@@ -428,7 +420,10 @@ func TestDriveRedGateBackToDriving(t *testing.T) {
 	if n := len(r.driveLines()); n != 3 {
 		t.Errorf("lead lines after the replay: %d, want 3 (none again)", n)
 	}
-	r.p.Git(r.lane, "rm", "-q", "red.txt")
+	if err := os.Remove(filepath.Join(r.lane, "red.txt")); err != nil {
+		t.Fatal(err)
+	}
+	r.scratch.Script("Test", "T-1", "") // its lane test green again
 	if _, err := r.landDrive("l4", "T-1", "fixed"); err != nil {
 		t.Fatal(err)
 	}
@@ -437,9 +432,8 @@ func TestDriveRedGateBackToDriving(t *testing.T) {
 
 // The integrator's hold of a drive's review goes back to the drive, with one line to the lead; no needs-you.
 func TestDriveHeldReviewBackToDriving(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
-	r := newDriveRig(t)
+	r := newLoopRig(t, dispatching(), started())
 	if _, err := r.drive("v1", "web"); err != nil {
 		t.Fatal(err)
 	}
@@ -470,7 +464,7 @@ func TestDriveHeldReviewBackToDriving(t *testing.T) {
 // drive agent stopped and the lane freed; the task dropped.
 func TestDriveDrop(t *testing.T) {
 	t.Parallel()
-	r := newDriveRig(t)
+	r := newLoopRig(t, dispatching(), started())
 	if _, err := r.drive("v1", "web"); err != nil {
 		t.Fatal(err)
 	}
@@ -496,7 +490,7 @@ func TestDriveDrop(t *testing.T) {
 // A serve restart replays a driving task as driving: no second prepare, no worker start, its lane row kept.
 func TestDriveReplayedAsDriving(t *testing.T) {
 	t.Parallel()
-	r := newDriveRig(t)
+	r := newLoopRig(t, dispatching(), started())
 	if _, err := r.drive("v1", "web"); err != nil {
 		t.Fatal(err)
 	}

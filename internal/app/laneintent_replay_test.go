@@ -15,7 +15,7 @@ import (
 // ends in the same steps.
 func TestOldPrepareIntentReplays(t *testing.T) {
 	t.Parallel()
-	r := newDispatchRig(t)
+	r := newLoopRig(t, dispatching())
 	r.disp.set(func(d *dispatchFakes) { d.cut["prepare"] = "before" })
 	r.start()
 	r.mustDispatch("d1")

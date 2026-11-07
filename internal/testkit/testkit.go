@@ -70,6 +70,10 @@ type Project struct {
 	Root string
 
 	herdr *herdrtest.Fake
+	// plain: a project dir with no git (NewDir): Config writes the config uncommitted, Lane makes a plain dir and
+	// notes its branch here, and Git fails the test.
+	plain    bool
+	branches map[string]string // lane → its branch (a plain project's lanes)
 }
 
 // Dir is a fresh temp dir, physical (symlinks resolved, as the code under test sees paths).
@@ -109,6 +113,18 @@ func New(t testing.TB) *Project {
 	return p
 }
 
+// NewDir is a plain project dir <Base>/proj with no git (T-996): for tests whose git side is a fake (internal/app's
+// FakeScratch). Config writes .obor/config.json there; Lane makes a plain lane dir; Git fails the test.
+func NewDir(t testing.TB) *Project {
+	t.Helper()
+	p := &Project{t: t, Base: shortDir(t), plain: true, branches: map[string]string{}}
+	p.Root = filepath.Join(p.Base, "proj")
+	if err := os.MkdirAll(p.Root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
 // Env is the environment a command sees in this project's tests: HOME and the state home under Base, plus kv
 // ("VAR=value"; an empty value leaves VAR unset). A test that runs obor against the fake herdr passes its path
 // (HERDR_SOCKET_PATH=<Serve(t, Herdr()).Path>).
@@ -143,6 +159,9 @@ func (p *Project) Git(dir string, args ...string) string {
 // GitEnv is Git with more environment (GIT_COMMITTER_DATE=…).
 func (p *Project) GitEnv(env []string, dir string, args ...string) string {
 	p.t.Helper()
+	if p.plain {
+		p.t.Fatalf("git %v in a plain project (testkit.NewDir has no git)", args)
+	}
 	cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=obor test",
 		"-c", "user.email=obor-test@example.invalid", "-c", "commit.gpgsign=false"}, args...)...)
 	if env != nil {
@@ -160,11 +179,16 @@ func (p *Project) GitEnv(env []string, dir string, args ...string) string {
 }
 
 // Lane is fx_lane: worktree <Base>/proj-wt/<name> on branch (created from main when new), or detached at main when
-// branch is "".
+// branch is "". In a plain project (NewDir) it is a plain dir and its branch a note.
 func (p *Project) Lane(name, branch string) string {
 	p.t.Helper()
 	dir := p.LaneDir(name)
 	switch {
+	case p.plain:
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			p.t.Fatal(err)
+		}
+		p.branches[name] = branch
 	case branch == "":
 		p.Git(p.Root, "worktree", "add", "-q", "--detach", dir, "main")
 	case exec.Command("git", "-C", p.Root, "show-ref", "--verify", "-q", "refs/heads/"+branch).Run() == nil:
@@ -180,7 +204,7 @@ func (p *Project) Lane(name, branch string) string {
 func (p *Project) LaneDir(name string) string { return filepath.Join(p.Base, "proj-wt", name) }
 
 // Config is fx_config: the default config (prefix pj, lanes: the highest L-NN under proj-wt, T-765), changed by edit,
-// written to .obor/config.json and committed on main (projects commit it).
+// written to .obor/config.json and committed on main (projects commit it; a plain project's stays uncommitted).
 func (p *Project) Config(edit ...func(c map[string]any)) {
 	p.t.Helper()
 	lanes := 0
@@ -212,6 +236,9 @@ func (p *Project) Config(edit ...func(c map[string]any)) {
 		p.t.Fatal(err)
 	}
 	p.Write(".obor/config.json", string(b)+"\n")
+	if p.plain {
+		return
+	}
 	p.Git(p.Root, "add", ".obor/config.json")
 	if exec.Command("git", "-C", p.Root, "diff", "--cached", "--quiet", "--", ".obor/config.json").Run() != nil {
 		p.Git(p.Root, "commit", "-q", "-m", "obor config", "--", ".obor/config.json")
@@ -341,6 +368,9 @@ func (p *Project) SubmitAgo(lane string, secs int64, text ...string) {
 // laneTask is the task id lane's branch names (task/<id>; else the branch).
 func (p *Project) laneTask(lane string) string {
 	p.t.Helper()
+	if p.plain {
+		return strings.TrimPrefix(p.branches[lane], "task/")
+	}
 	b := strings.TrimSpace(p.Git(p.LaneDir(lane), "symbolic-ref", "--short", "HEAD"))
 	return strings.TrimPrefix(b, "task/")
 }
@@ -541,6 +571,9 @@ func (p *Project) enablePlugin(dir string) {
 	}
 	if err := os.WriteFile(settings, []byte(`{"enabledPlugins":{"obor@obor-kit":true}}`+"\n"), 0o644); err != nil {
 		p.t.Fatal(err)
+	}
+	if p.plain {
+		return // no git to exclude it from
 	}
 	exclude := filepath.Join(p.Root, ".git", "info", "exclude")
 	if err := os.MkdirAll(filepath.Dir(exclude), 0o755); err != nil {

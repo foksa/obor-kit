@@ -2,7 +2,6 @@ package app_test
 
 import (
 	"obor/internal/app/event"
-	"obor/internal/testkit"
 	"slices"
 	"strings"
 	"testing"
@@ -12,9 +11,8 @@ import (
 // T-672: a stopped integrator with no open job is the normal state, also across a serve restart: no timer, no
 // job.lost, no needs-you, and obor status shows it as stopped.
 func TestRoleStopIntegratorAcrossRestart(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass")
+	r := newLoopRig(t)
 	r.work("feature.txt", "feature\n")
 	r.start()
 	r.submit()

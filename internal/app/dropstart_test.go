@@ -17,10 +17,10 @@ import (
 // is current and not ended, which also holds the task; drop never waits: under the same lock it is refused while a
 // step holds the task, or marks the task ended before it records dropped.
 
-// dropFx is a project's loop adapters over its concScratch that note every effect; the effect named block waits for
+// dropFx is a project's loop adapters over its concFakes that note every effect; the effect named block waits for
 // unblock (blocked is closed first).
 type dropFx struct {
-	*concScratch
+	*concFakes
 	mu      sync.Mutex
 	effects []string
 	block   string
@@ -46,23 +46,23 @@ func (f *dropFx) ran() []string {
 
 func (f *dropFx) Gate(ctx context.Context, in port.GateInput) (port.GateOutcome, error) {
 	f.note("gate")
-	return f.concScratch.Gate(ctx, in)
+	return f.concFakes.Gate(ctx, in)
 }
 func (f *dropFx) Publish(ctx context.Context, c port.Candidate) (port.PublishOutcome, error) {
 	f.note("publish")
-	return f.concScratch.Publish(ctx, c)
+	return f.concFakes.Publish(ctx, c)
 }
 func (f *dropFx) Submit(ctx context.Context, task, id, lane, summary, worker string) (string, error) {
 	f.note("submit")
-	return f.concScratch.Submit(ctx, task, id, lane, summary, worker)
+	return f.concFakes.Submit(ctx, task, id, lane, summary, worker)
 }
 func (f *dropFx) Launch(ctx context.Context, l port.Launch) (port.Started, error) {
 	f.note("restart")
-	return f.concScratch.Launch(ctx, l)
+	return f.concFakes.Launch(ctx, l)
 }
 func (f *dropFx) Stop(ctx context.Context, agent, pane string, force bool) (string, error) {
 	f.note("stop")
-	return f.concScratch.Stop(ctx, agent, pane, force)
+	return f.concFakes.Stop(ctx, agent, pane, force)
 }
 func (f *dropFx) Type(ctx context.Context, agent, text string, clear bool) (bool, error) {
 	f.note("prompt")
@@ -70,7 +70,7 @@ func (f *dropFx) Type(ctx context.Context, agent, text string, clear bool) (bool
 }
 func (f *dropFx) Prepare(ctx context.Context, in port.PrepareInput) (port.Prepared, error) {
 	f.note("prepare")
-	return f.concScratch.Prepare(ctx, in)
+	return f.concFakes.Prepare(ctx, in)
 }
 func (f *dropFx) Unpin(ctx context.Context, task string) error {
 	f.note("unpin")
@@ -182,7 +182,7 @@ func TestDropSelectedStep(t *testing.T) {
 				c.setup(r)
 				p := r.proj(c.proj)
 				ap := r.app(c.proj)
-				fx := &dropFx{concScratch: r.fakes[c.proj]}
+				fx := &dropFx{concFakes: r.fakes[c.proj]}
 				ap.mu.Lock()
 				selected := ap.next(p, p.folded.loop[c.task])
 				ap.mu.Unlock()
@@ -226,7 +226,7 @@ func TestDropAfterScratchStepStarted(t *testing.T) {
 			ap.mu.Lock()
 			selected := ap.next(p, p.folded.loop[c.task])
 			ap.mu.Unlock()
-			fx := &dropFx{concScratch: f}
+			fx := &dropFx{concFakes: f}
 			selected(context.Background(), fx.loop(r.kit))
 			<-f.entered // the effect runs
 			if _, err := r.dropCall(c.proj, c.task, "drop"); err == nil ||
@@ -292,7 +292,7 @@ func TestDropRefusedWhileStepHeld(t *testing.T) {
 			c.setup(r)
 			p := r.proj(c.proj)
 			ap := r.app(c.proj)
-			fx := &dropFx{concScratch: r.fakes[c.proj], block: c.effect, blocked: make(chan struct{}),
+			fx := &dropFx{concFakes: r.fakes[c.proj], block: c.effect, blocked: make(chan struct{}),
 				unblock: make(chan struct{})}
 			ap.mu.Lock()
 			selected := ap.next(p, p.folded.loop[c.task])
@@ -336,7 +336,7 @@ func TestDropDuringEarlyFetch(t *testing.T) {
 	delete(r.a.obs, "w1:p9") // no integrator runs: the review job's step starts it
 	entered, fetch := make(chan struct{}), make(chan struct{})
 	fetched, stepped := make(chan callAnswer, 1), make(chan struct{})
-	f := &startEffects{concScratch: r.fakes["pj"]}
+	f := &startEffects{concFakes: r.fakes["pj"]}
 	f.start = func(port.Launch) {
 		close(entered)
 		<-fetch

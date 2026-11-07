@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"obor/internal/herdr/herdrtest"
-	"obor/internal/testkit"
 )
 
 // T-761: a drive and the lead message each other. The drive agent's obor tell-lead is a lead line naming its task; the
@@ -64,7 +63,7 @@ func (r *loopRig) leadAnswer(callID, text string) (string, error) {
 // driving is the drive rig with T-1 a new drive on L-01, driving, its agent pj-l-01-drive up in w1:p5.
 func driving(t *testing.T) *loopRig {
 	t.Helper()
-	r := newDriveRig(t)
+	r := newLoopRig(t, dispatching(), started())
 	r.connectedAgain()
 	if _, err := r.drive("v1", "web"); err != nil {
 		t.Fatal(err)
@@ -130,7 +129,6 @@ func TestTellLeadRefusesOthers(t *testing.T) {
 // review) tell-lead is refused, its reason the state answer would be refused in, and nothing is recorded; sent back to
 // driving by the integrator, it goes out again.
 func TestTellLeadOnlyWhileTheDriveCanBeAnswered(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	r := driving(t)
 	if reply, err := r.tellLead("t1", "pj-l-01-drive", "driver", "L-01", "while driving"); err != nil ||
@@ -168,7 +166,7 @@ func TestTellLeadOnlyWhileTheDriveCanBeAnswered(t *testing.T) {
 // A drive still dispatched (its lane's prepare held, so not driving yet) is refused too: the lead could not answer it.
 func TestTellLeadRefusedWhileTheDriveIsDispatched(t *testing.T) {
 	t.Parallel()
-	r := newDriveRig(t)
+	r := newLoopRig(t, dispatching(), started())
 	r.disp.set(func(d *dispatchFakes) { d.cut["prepare"] = "before" })
 	r.start()
 	if _, err := r.drive("v1", "web"); err != nil {
@@ -233,7 +231,7 @@ func TestAnswerToDriveDelivered(t *testing.T) {
 // obor resume of a task that is not driving keeps today's behaviour: a working task with nothing asked is refused.
 func TestAnswerNotDrivingUnchanged(t *testing.T) {
 	t.Parallel()
-	r := newWorkerRig(t)
+	r := newLoopRig(t, working())
 	n := len(r.records())
 	if _, err := r.leadAnswer("a1", "yes"); err == nil || !strings.Contains(err.Error(), "T-1 is working with nothing to resume") {
 		t.Errorf("answer on a working task with no question: %v; want refused", err)
