@@ -124,6 +124,9 @@ func (r *serveRig) start() {
 				"GIT_COMMITTER_NAME=obor test", "GIT_COMMITTER_EMAIL=obor-test@example.invalid")
 			s.Out, s.GitAlive = io.Discard, r.alive
 			l.Scratch, l.Agents = wrapped{s, r}, r
+			// The kit of the checkout under test: the test binary is not in one, and the review and resolve jobs
+			// carry the integrator's role texts from it (T-941).
+			l.Kit, _ = filepath.Abs("../..")
 			// No low-disk watch (T-606): it would hold this loop on the host's free space, a gate that runs while
 			// the host is near the 5 GiB bound then fails to start its jobs; the guard has its own tests (internal/app).
 			l.Disk = nil
