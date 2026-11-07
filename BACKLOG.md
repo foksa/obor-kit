@@ -29,6 +29,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
 - (none; log snapshot and drive decided 11-05, docs/decisions.md)
 
 ## Later candidates
+- **Un-defer `job_next`** (chatter census proposal 2, 11-07): skipped as a Claude-only launch flag (an integrator job's first call is ~42k on a near-empty context, ~10% of a job; a global tool-search switch would load every MCP tool). The agent-neutral variant (a fresh session's first prompt carries the job, herdr events as the delivery proof) went to the advisor: docs/research/job-in-first-prompt-advice.md.
 - **Log snapshot at upgrade** (parked 11-05, docs/research/log-snapshot.md): build when compat branches pass ~300
   prod lines or a record-shape change needs it.
 - (RV-63 #4, accepted by rule) `scripts/publish` checks the local tag only, not that it is the remote one: a moved
