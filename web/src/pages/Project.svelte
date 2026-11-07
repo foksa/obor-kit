@@ -9,8 +9,10 @@
   import { dur, now, roleName, splitTasks, unixOf } from "../lib/format";
   import { idleText } from "../lib/idle";
   import { stageOf, taskOf } from "../lib/stages";
-  import { mainOf, stagingOf } from "../lib/promotion";
-  import type { Lane, MergeItem, ProjectView, Role, WaitItem } from "../lib/types";
+  import { promoteLine, promoteWarning, promoteWarningDetail } from "../lib/promotion";
+  import { WAITS_NEVER, laneSteps, pipelineOf, queuedForLane, waitChips } from "../lib/pipeline";
+  import { tick } from "../lib/clock.svelte";
+  import type { Lane, ProjectView, Role, WaitItem } from "../lib/types";
   import Pill from "../ui/Pill.svelte";
   import Dot from "../ui/Dot.svelte";
   import Stat from "../ui/Stat.svelte";
@@ -37,29 +39,14 @@
   // task is the view's task of an id (T-883): its title, phase, lane and step read the same on every section.
   const task = (id: string | null | undefined) => taskOf(v, id);
   const q = $derived(v?.queue);
-  const merge = $derived(q?.merge || []);
   const waiting = $derived(q?.waiting || []);
 
-  // The pipeline: the dispatches waiting, the lanes at work, then the merge loop's stages (held only when a task is).
-  type Col = { name: string; tone: string; tasks: string[] };
-  const pipeline = $derived.by((): Col[] => {
-    const at = (st: string) => merge.filter((m: MergeItem) => m.stage === st).map((m) => m.task);
-    const work = busy.filter((l) => l.task && !merge.some((m) => m.task === l.task)).map((l) => l.task!);
-    const cols: Col[] = [
-      { name: "Waiting", tone: "wait", tasks: waiting.map((w: WaitItem) => w.task) },
-      { name: "Working", tone: "ok", tasks: work },
-      { name: "Submitted", tone: "info", tasks: at("submitted") },
-      { name: "Gate", tone: "info", tasks: at("gating") },
-      { name: "Review", tone: "info", tasks: at("review") },
-      { name: "Merging", tone: "done", tasks: at("publish") },
-    ];
-    const held = at("held");
-    if (held.length) cols.push({ name: "Held", tone: "bad", tasks: held });
-    return cols;
-  });
-  // After the merge columns, with branches.promote set (T-977): the Staging column and the Main marker (null: off).
-  const staging = $derived(stagingOf(v?.promote));
-  const main = $derived(mainOf(v?.promote));
+  // The pipeline's six blocks (T-986), with branches.promote set the promotion's line under its heading ("": off).
+  const pipeline = $derived(pipelineOf(q, busy));
+  const promo = $derived(promoteLine(v?.promote, Math.max(tick.now, Date.now() / 1000)));
+  // The queue counts only the dispatches with no lane yet: a task in the merge loop holds its lane (T-961).
+  const queued = $derived(queuedForLane(waiting, busy));
+  const never = $derived(waiting.filter((w) => w.waits_on === WAITS_NEVER).length);
 
   const roles = $derived.by((): Role[] => {
     const rs = v?.roles || [];
@@ -70,12 +57,14 @@
   let filter = $state("All");
   const warn = $derived.by(() => {
     const s = v?.serve;
-    const w: { text: string; state: string }[] = [];
+    const w: { text: string; state: string; title?: string }[] = [];
     if (!s) return w;
     if (s.up && !s.project) w.push({ text: "project not loaded", state: "pending" });
     if (s.up && !s.merging) w.push({ text: "merge loop off", state: "idle" });
     if (s.up && !s.herdr) w.push({ text: "herdr not connected", state: "blocked" });
     if (s.log_error) w.push({ text: "log: " + s.log_error, state: "fail" });
+    const red = promoteWarning(v?.promote);
+    if (red) w.push({ text: red, state: "fail", title: promoteWarningDetail(v?.promote) });
     for (const n of v?.notes || []) w.push({ text: n, state: "pending" });
     return w;
   });
@@ -100,7 +89,7 @@
       <h1>{project}</h1>
       {#if v.serve.up}<Pill state="up" text="serve up {v.serve.since ? dur(now() - unixOf(v.serve.since)) : ''}" />
       {:else}<Pill state="down" text="serve down" title={v.serve.error} />{/if}
-      {#each warn as w (w.text)}<Pill state={w.state} text={w.text} />{/each}
+      {#each warn as w (w.text)}<Pill state={w.state} text={w.text} title={w.title} />{/each}
       {#each v.running || [] as r (r.step + r.task)}
         <Pill state="running" text="{r.step}{r.task ? ' ' + r.task : ''} · {dur(now() - r.since)}" title={r.command} />
       {/each}
@@ -158,9 +147,10 @@
     {/if}
 
     <div class="stats">
-      <Stat label="Lanes">{busy.length}<span class="of">/ {lanes.length} busy</span></Stat>
-      <Stat label="Queue">{merge.length + waiting.length}
-        {#snippet foot()}{merge.length} merging · {waiting.length} waiting{/snippet}</Stat>
+      <Stat label="Lanes">{busy.length}<span class="of">of {lanes.length} busy</span>
+        {#snippet foot()}{laneSteps(busy) || "every lane free"}{/snippet}</Stat>
+      <Stat label="Queue">{queued.length}
+        {#snippet foot()}queued for a lane{#if never} · {never} never dispatched{/if}{/snippet}</Stat>
       <Stat label="Watches">{(v.watches || []).length}</Stat>
       <Stat label="Last full check">
         {#if v.full_check}<Pill state={v.full_check.verdict === "GREEN" ? "green" : "fail"} text={v.full_check.verdict} />{:else}<span class="muted">—</span>{/if}
@@ -172,6 +162,7 @@
     </div>
 
     <Section title="Pipeline" sub="tasks by stage now">
+      {#if promo}<p class="promo small mono"><Linked {project} text={promo} raw /></p>{/if}
       <div class="pipe">
         {#each pipeline as c (c.name)}
           <div class="stage t-{c.tasks.length ? c.tone : 'none'}">
@@ -182,31 +173,6 @@
             {/if}
           </div>
         {/each}
-        {#if staging}
-          <div class="stage t-{staging.tasks.length || staging.state ? staging.tone : 'none'}">
-            <span class="sname">Staging</span>
-            <span class="n">{staging.tasks.length}</span>
-            {#if staging.tasks.length}
-              <div class="chips">{#each staging.tasks.slice(0, 4) as t (t)}<TaskLink {project} task={t} chip />{/each}{#if staging.tasks.length > 4}<span class="muted small">+{staging.tasks.length - 4}</span>{/if}</div>
-            {/if}
-            <div class="wbar" title="merged weight {staging.weight} of {staging.threshold}, the promotion's trigger"><span style="width: {staging.fill * 100}%"></span></div>
-            <span class="muted small mono">{staging.weight} / {staging.threshold}</span>
-            {#if staging.red}
-              <div class="redcard small">
-                <strong>RED <span class="mono">{staging.red.sha}</span></strong>
-                <span><Linked {project} text={staging.red.tests} /></span>
-                {#if staging.red.merges.length}<span class="muted">merges since: {#each staging.red.merges as t, j (t)}{j ? ", " : ""}<TaskLink {project} task={t} />{/each}</span>{/if}
-              </div>
-            {:else if staging.state}<span class="small pstate"><Linked {project} text={staging.state} /></span>{/if}
-          </div>
-        {/if}
-        {#if main}
-          <div class="stage t-done">
-            <span class="sname">Main</span>
-            <span class="mono msha">{main.sha || "—"}</span>
-            {#if main.at}<span class="muted small">promoted <Rel at={main.at} /></span>{/if}
-          </div>
-        {/if}
       </div>
       {#if q?.scratch}<p class="muted small">Merge worktree: <TaskLink {project} task={q.scratch.task} /> ({q.scratch.why})</p>{/if}
     </Section>
@@ -280,7 +246,10 @@
               {#each waiting as w (w.task)}
                 <div class="qrow">
                   <Pill state={w.waits_on === "never dispatched" ? "idle" : "waiting"} text={w.waits_on} />
-                  <div class="qbody"><span><TaskLink {project} task={w.task} /> {task(w.task).title || ""}{#if w.difficulty || w.model} <span class="mono small muted">{[w.difficulty, w.model].filter(Boolean).join(" · ")}</span>{/if}</span><span class="muted small"><Linked {project} text={waitWhy(w)} /></span></div>
+                  <div class="qbody">
+                    <span><TaskLink {project} task={w.task} /> {task(w.task).title || ""}</span>
+                    <span class="qmeta">{#each waitChips(w) as c, k (k)}<span class="wchip mono">{c}</span>{/each}<span class="muted small"><Linked {project} text={waitWhy(w)} /></span></span>
+                  </div>
                   <span class="muted small"><Rel at={w.since} /></span>
                 </div>
               {/each}
@@ -377,13 +346,7 @@
   .n { font-size: 22px; font-weight: 600; color: var(--c); line-height: 1; }
   .t-none .n { color: var(--faint); }
   .chips { display: flex; flex-wrap: wrap; gap: 4px; }
-  .wbar { height: 6px; border-radius: 3px; background: var(--sunk); overflow: hidden; }
-  .wbar span { display: block; height: 100%; background: var(--c); }
-  .pstate { color: var(--c); }
-  .msha { font-size: 15px; font-weight: 600; color: var(--c); }
-  .redcard { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; border-radius: 6px; overflow-wrap: anywhere;
-    background: color-mix(in srgb, var(--bad) 12%, transparent); color: var(--fg); }
-  .redcard strong { color: var(--bad); }
+  .promo { margin: -4px 0 8px; color: var(--fg-2); overflow-wrap: anywhere; }
 
   .lanes { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
   .lane { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
@@ -407,6 +370,8 @@
   .qrow { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 11px 16px; border-bottom: 1px solid var(--line-soft); }
   .qrow:last-child { border-bottom: 0; }
   .qbody { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
+  .qmeta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+  .wchip { font-size: 11px; padding: 0 6px; border-radius: 4px; background: var(--sunk); border: 1px solid var(--line-soft); color: var(--fg-2); }
 
   .table-wrap { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 520px; }

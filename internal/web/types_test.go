@@ -168,20 +168,24 @@ func TestTSStringSetsMatchGo(t *testing.T) {
 		}
 	}
 
-	project := readTS(t, filepath.Join(tsPages, "Project.svelte"))
-	shown := pipelineStages(project)
+	// T-986: the project page's pipeline blocks are pipeline.ts's (pipelineOf).
+	pipeline := readTS(t, filepath.Join(tsLib, "pipeline.ts"))
+	shown := pipelineStages(pipeline)
 	if len(shown) != len(stages) {
-		t.Errorf("Project.svelte's pipeline shows %v, want wire's stages %v", shown, stages)
+		t.Errorf("pipeline.ts's pipeline shows %v, want wire's stages %v", shown, stages)
 	}
 	for _, s := range shown {
 		if !slices.Contains(stages, s) {
-			t.Errorf("Project.svelte: the pipeline has stage %q, not a wire.Stage*", s)
+			t.Errorf("pipeline.ts: the pipeline has stage %q, not a wire.Stage*", s)
 		}
 	}
 	for _, s := range stages {
 		if !slices.Contains(shown, s) {
-			t.Errorf("Project.svelte: the pipeline never shows wire stage %q", s)
+			t.Errorf("pipeline.ts: the pipeline never shows wire stage %q", s)
 		}
+	}
+	if !strings.Contains(pipeline, `export const WAITS_NEVER = "`+view.WaitsNever+`";`) {
+		t.Errorf("pipeline.ts: WAITS_NEVER is not view.WaitsNever %q", view.WaitsNever)
 	}
 
 	format := readTS(t, filepath.Join(tsLib, "format.ts"))
