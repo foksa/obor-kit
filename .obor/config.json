@@ -14,7 +14,7 @@
   },
   "commands": {
     "after_merge": {
-      "cmd": "make build",
+      "cmd": "make build OUT=${OBOR_ROOT:-.}/dist/obor",
       "timeout": 300,
       "when": [
         "cmd/**",

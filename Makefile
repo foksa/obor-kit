@@ -1,4 +1,4 @@
-# obor (Go). `make build` → dist/obor, `make test` → go test ./..., `make check` → the merge gate (commands.check),
+# obor (Go). `make build` → dist/obor (OUT elsewhere, T-975), `make test` → go test ./..., `make check` → the merge gate (commands.check),
 # `make check-affected` → its per-merge tier (commands.check_affected), `make check-compile` → the merge slot's
 # compile tier (commands.compile, T-961), `make check-retest` → a red lane test's failing tests once more
 # (commands.retest, T-964), `make check-readers` / `make check-web` →
@@ -11,6 +11,9 @@
 # (scripts/ship); `make release` without V → only the local release files; `make publish` → the four of them to a
 # GitHub release (explicit, outward-facing).
 GO ?= go
+# OUT is where build writes the binary: dist/obor in the kit as always, and another path for a build that runs outside the
+# kit (the promotion's after_merge builds in its own worktree into the main checkout's dist/obor, T-975).
+OUT ?= dist/obor
 VERSION_FILE := VERSION
 VERSION := $(shell cat $(VERSION_FILE))
 # The version stamped into the binary (-X): the tag when HEAD is exactly at one (v0.14.0 at a release), else the newest
@@ -34,7 +37,7 @@ GOARCH_LIST := arm64 amd64
 .PHONY: build test conformance trim-go-cache check check-affected check-compile check-retest check-readers check-web check-release deadcode deps upgrade-check release ship publish clean web web-dev web-test
 
 build:
-	CGO_ENABLED=0 $(GO) build -trimpath -ldflags "-s -w -X obor/internal/version.Version=$(BUILD_VERSION)" -o dist/obor ./cmd/obor
+	CGO_ENABLED=0 $(GO) build -trimpath -ldflags "-s -w -X obor/internal/version.Version=$(BUILD_VERSION)" -o $(OUT) ./cmd/obor
 
 test:
 	$(GO) test ./...
