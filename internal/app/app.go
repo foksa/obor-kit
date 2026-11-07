@@ -84,8 +84,9 @@ type App struct {
 	// it reads (git, config, lanes, the spec store) with no lock, then checks, appends, folds and replies in one mu
 	// section (recordLocked); only an effect in flight is a claim (held, running, rv.what, a line's sending). The
 	// event log's lock is taken inside mu, never the other way round. The dispatch-class verbs (verdict, drop,
-	// dispatch, drive, pause, job_next, resume, task_done, land, spec set, move) keep `verdicts`/`submitMu`: they order
-	// those verbs across their git reads (RV-129).
+	// dispatch, drive, pause, job_next, resume, task_done, land, spec set, move) take a lock besides mu to order those
+	// verbs across their git reads (RV-129): `verdicts` for dispatch, drop, drive, pause, job_next and resume;
+	// `submitMu` for task_done, land, spec set and move (a resume and a move take both: verdicts, then submitMu).
 	mu        sync.Mutex
 	since     time.Time // when New made it: obor status's "serve: up since"
 	connected bool

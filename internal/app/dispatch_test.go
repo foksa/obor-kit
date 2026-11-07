@@ -315,7 +315,7 @@ func TestDispatchHappyPath(t *testing.T) {
 	const stored = "# T-1 — Happy\n\nDifficulty: medium\n\n## Files you may touch\n`feature.txt`\n"
 	r.setSpec("s1", stored)
 	r.passes()
-	if n := len(r.records()); n != 0 {
+	if !slices.Equal(r.steps(), []string{"0 fact spec.set"}) { // the spec's receipt only (T-939)
 		t.Fatalf("precondition: records before the dispatch: %q", r.steps())
 	}
 	// The CLI's call shape (T-538, T-545): a task and its types, no lane.
@@ -323,7 +323,7 @@ func TestDispatchHappyPath(t *testing.T) {
 		t.Fatalf("dispatch: %q, %v", reply, err)
 	}
 	r.waitStep("1 result work")
-	eq(t, r.steps(), dispatchSteps, "records")
+	eq(t, r.steps(), append([]string{"0 fact spec.set"}, dispatchSteps...), "records") // the spec's receipt first (T-939)
 	if r.taskState() != "dispatched" {
 		t.Errorf("state %q before delivery, want dispatched", r.taskState())
 	}
@@ -1058,7 +1058,7 @@ func TestDispatchFixesLine(t *testing.T) {
 			if err == nil || err.Error() != c.want || reply != "" {
 				t.Fatalf("dispatch: %q, %v; want the refusal %q", reply, err, c.want)
 			}
-			if n := len(r.records()); n != 0 {
+			if !slices.Equal(r.steps(), []string{"0 fact spec.set"}) { // the spec's receipt only (T-939)
 				t.Errorf("a refused dispatch recorded %q", r.steps())
 			}
 		})
