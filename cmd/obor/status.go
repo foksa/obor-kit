@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -315,6 +317,9 @@ func queueSection(st view.Project, now time.Time) []string {
 	if q.Pause != nil {
 		out = append(out, strings.TrimSuffix(pauseLine(q.Pause), "\n"))
 	}
+	for _, m := range slices.Sorted(maps.Keys(st.ModelPauses)) { // a paused model, beside the project's pause (T-979)
+		out = append(out, modelPauseLine(m, st.ModelPauses[m]))
+	}
 	if n := q.Nightly; n != nil {
 		out = append(out, fmt.Sprintf("nightly check at %s (in %s)", n.At, app.Age(time.Unix(n.Next, 0).Sub(now))))
 	} else {
@@ -398,6 +403,15 @@ func pauseLine(p *view.Pause) string {
 		until = time.Unix(*p.Until, 0).Format("15:04")
 	}
 	return fmt.Sprintf("paused: %s, until %s (obor pause --clear ends it; no dispatch meanwhile)\n", p.Reason, until)
+}
+
+// modelPauseLine is a model's pause in force as the queue section words it (T-979): "paused sonnet until 18:00 (quota)".
+func modelPauseLine(model string, p *view.Pause) string {
+	until := "cleared"
+	if p.Until != nil {
+		until = time.Unix(*p.Until, 0).Format("15:04")
+	}
+	return fmt.Sprintf("paused %s until %s (%s)", model, until, p.Reason)
 }
 
 // oneLine is s on one line: control characters (newlines, tabs, escapes) become spaces.

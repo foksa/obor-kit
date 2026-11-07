@@ -212,6 +212,28 @@ func Facts(db *sql.DB, step string) ([]Record, error) {
 	return queryRecords(db, recordQuery+" WHERE kind = ? AND step = ? ORDER BY seq", KindFact, step)
 }
 
+// ModelPauses is the model pauses in force in db at now (obor pause --model, T-765), by model name: the newest pause
+// fact per model, one cleared or past its end dropped (T-979: obor setup show marks them).
+func ModelPauses(db *sql.DB, now time.Time) (map[string]*Pause, error) {
+	recs, err := queryRecords(db, recordQuery+" WHERE kind = ? AND task = ? AND step IN (?, ?) ORDER BY seq",
+		KindFact, PauseTask, StepPaused, StepUnpaused)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]*Pause{}
+	for _, r := range recs {
+		var d Pause
+		if json.Unmarshal(r.Data, &d) != nil || d.Model == "" {
+			continue
+		}
+		delete(out, d.Model)
+		if r.Step == StepPaused && (d.Until == 0 || now.Unix() < d.Until) {
+			out[d.Model] = &d
+		}
+	}
+	return out, nil
+}
+
 // FactTasks is every task that has a fact of one of steps (the queue's dispatched tasks), without reading their data.
 func FactTasks(db *sql.DB, steps ...string) (map[string]bool, error) {
 	if len(steps) == 0 {

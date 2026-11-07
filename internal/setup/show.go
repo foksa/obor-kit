@@ -6,8 +6,11 @@ package setup
 import (
 	"strconv"
 	"strings"
+	"time"
 
+	"obor/internal/app/event"
 	"obor/internal/config"
+	"obor/internal/store"
 )
 
 // show is `obor setup show`: read-only, the setup table (per difficulty level each of its models with its kind,
@@ -27,9 +30,10 @@ func (s *Setup) show(args []string) error {
 // obor init ends with it, so a new project's models, effort and lanes are visible instead of living silently in the
 // config.
 func (s *Setup) printTable() {
+	paused := s.modelPauses()
 	s.say("models and effort per difficulty (config difficulty; a spec's Difficulty: line picks the level, dispatch its first free model):")
 	for _, level := range []string{"hard", "medium", "simple"} {
-		s.say("  %-6s → %s", level, s.levelLine(level))
+		s.say("  %-6s → %s", level, s.levelLine(level, paused))
 	}
 	s.say("lanes: %s", s.lanesLine())
 	s.say("roles: %s", s.rolesLine())
@@ -41,19 +45,46 @@ func (s *Setup) printTable() {
 	}
 }
 
+// modelPauses is the model pauses in force now (obor pause --model, T-765), by model: the table marks them (T-979).
+// No store yet, or one that cannot be read, marks none: the table is still worth printing.
+func (s *Setup) modelPauses() map[string]*event.Pause {
+	db, err := store.OpenAt(s.root)
+	if err != nil || db == nil {
+		return nil
+	}
+	defer db.Close()
+	paused, err := event.ModelPauses(db, time.Now())
+	if err != nil {
+		return nil
+	}
+	return paused
+}
+
 // levelLine is one level of the table: each model ref of the level, in order, with what runs it — "opus:high (claude
 // opus, effort high) | deepseek (opencode opencode-go/deepseek-v4.1-flash)" — a ref naming no model of the project
-// marked so.
-func (s *Setup) levelLine(level string) string {
+// marked so, and a model a pause holds marked "(paused until cleared|HH:MM)" (T-979).
+func (s *Setup) levelLine(level string, paused map[string]*event.Pause) string {
 	refs := s.cfg.DifficultyList(level)
 	if len(refs) == 0 {
 		return "no model: a " + level + " task cannot dispatch"
 	}
 	parts := make([]string, 0, len(refs))
 	for _, ref := range refs {
-		parts = append(parts, ref+s.modelDetail(ref))
+		line := ref + s.modelDetail(ref)
+		if name, _ := config.ParseModelRef(ref); paused[name] != nil {
+			line += " (paused until " + pauseUntil(paused[name]) + ")"
+		}
+		parts = append(parts, line)
 	}
 	return strings.Join(parts, " | ")
+}
+
+// pauseUntil is a pause's end as local HH:MM, "cleared" for none (as obor status words it, T-979).
+func pauseUntil(p *event.Pause) string {
+	if p.Until == 0 {
+		return "cleared"
+	}
+	return time.Unix(p.Until, 0).Format("15:04")
 }
 
 // modelDetail is a model ref as the table shows it after its name: " (<kind> <model id>, effort <effort>)", the

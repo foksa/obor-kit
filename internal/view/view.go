@@ -50,8 +50,9 @@ type Project struct {
 	// Promotion is the last promotion run (.obor/state/last-promotion, T-978; nil: none): the promoted line's.
 	Promotion *FullCheck `json:"promotion,omitempty"`
 	Paused    *Pause     `json:"paused"`
-	// ModelPauses is the model pauses in force (obor pause --model, T-765), by model: the Setup page shows them (T-766).
-	ModelPauses map[string]*Pause    `json:"-"`
+	// ModelPauses is the model pauses in force (obor pause --model, T-765), by model name (T-766: the Setup page;
+	// T-979: obor status --json prints them as model_pauses).
+	ModelPauses map[string]*Pause    `json:"model_pauses,omitempty"`
 	Messages    []wire.MessageStatus `json:"messages"`          // the lines not typed yet
 	Review      string               `json:"review,omitempty"`  // the open review request, or "review due: …" (T-638)
 	Watches     []wire.WatchStatus   `json:"watches,omitempty"` // the lead's open watches (obor status, T-658)
