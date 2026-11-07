@@ -556,19 +556,6 @@ func (s *Socket) Close(ctx context.Context, pane string) error {
 	return s.call(ctx, 0, nil, "pane.close", map[string]any{"pane_id": pane})
 }
 
-// Match is a pattern in a pane's text: a substring, or a regex.
-type Match struct {
-	Value string
-	Regex bool
-}
-
-func (m Match) param() map[string]string {
-	if m.Regex {
-		return map[string]string{"type": "regex", "value": m.Value}
-	}
-	return map[string]string{"type": "substring", "value": m.Value}
-}
-
 // ProcessInfo is pane.process_info: the pane's shell and its foreground process group.
 func (s *Socket) ProcessInfo(ctx context.Context, pane string) (ProcessInfo, error) {
 	var r struct {
@@ -591,7 +578,6 @@ func (s *Socket) Notify(ctx context.Context, title, body string) error {
 // Event kinds a Stream delivers.
 const (
 	EventStatus  = "pane.agent_status_changed" // the pane's agent, its status or its metadata changed: Now
-	EventOutput  = "pane.output_matched"
 	EventCreated = "pane.created"
 	EventClosed  = "pane.closed"
 	EventExited  = "pane.exited" // the pane's shell exited and herdr removed the pane (no pane.closed then)
@@ -613,21 +599,10 @@ type Event struct {
 	Pane   string
 	Status string    // EventStatus: the new status (Now's)
 	Agent  string    // EventStatus: the agent kind (claude, codex…), "" when none (Now's)
-	Line   string    // EventOutput: the matching line
-	Text   string    // EventOutput: the pane's text it matched in
-	Watch  Watch     // EventOutput: the watch that matched
 	New    port.Pane // EventCreated: the new pane, its agent fields as Now has them
 	// Now is the pane as herdr reported it when it was read again after the event (EventStatus, EventCreated): its
 	// agent entry (Name, Agent, Status, Cwd, Session, Workspace, Transcript), or the pane's fields when no agent runs.
 	Now port.Pane
-}
-
-// Watch asks for an EventOutput each time pane's text from Source starts to match Match. herdr samples the screen: it
-// fires when a sample goes from no match to a match (text already there fires once at once), not per printed line.
-type Watch struct {
-	Pane   string
-	Source string // herdr's read source: "visible", "recent" or "recent_unwrapped"
-	Match  Match
 }
 
 // eventName is herdr's event name in the dotted form: lifecycle events arrive as pane_created, status events as
@@ -639,8 +614,8 @@ func eventName(s string) string {
 	return s
 }
 
-// Stream is a subscription to herdr's events: status changes of every pane (new panes included), pane lifecycle and
-// the output Watches. C closes when the stream ends: Err says why (ctx done, a closed connection, herdr's error
+// Stream is a subscription to herdr's events: status changes of every pane (new panes included) and pane lifecycle.
+// C closes when the stream ends: Err says why (ctx done, a closed connection, herdr's error
 // line such as events_lost, or Code refresh); the caller then subscribes again and works from the new Snapshot.
 //
 // herdr's events carry no sequence, and arrive on several connections (some queued while the Snapshot was read), so
@@ -668,15 +643,14 @@ type Stream struct {
 }
 
 type subLine struct {
-	l     line
-	watch *Watch // the output watch of the connection it came on
-	err   error
+	l   line
+	err error
 }
 
 // Subscribe starts a Stream. Status events need one subscription per pane (herdr has no wildcard), so it subscribes
 // pane lifecycle first, then the status of every pane in a snapshot, then reads the snapshot again and subscribes any
 // pane it missed; a pane_created event subscribes that pane.
-func (s *Socket) Subscribe(ctx context.Context, watches ...Watch) (*Stream, error) {
+func (s *Socket) Subscribe(ctx context.Context) (*Stream, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	st := &Stream{s: s, ctx: ctx, cancel: cancel, lines: make(chan subLine, 256), out: make(chan Event, 256),
 		subscribed: map[string]bool{}}
@@ -689,13 +663,8 @@ func (s *Socket) Subscribe(ctx context.Context, watches ...Watch) (*Stream, erro
 	for _, typ := range []string{EventCreated, EventClosed, EventExited, eventUpdated, eventDetected, eventMoved, eventSpace, eventRenamed} {
 		lifecycle = append(lifecycle, map[string]any{"type": typ})
 	}
-	if err := st.open(lifecycle, nil); err != nil {
+	if err := st.open(lifecycle); err != nil {
 		return fail(err)
-	}
-	if len(watches) > 0 {
-		if err := st.Watch(watches...); err != nil {
-			return fail(err)
-		}
 	}
 	// Done once a snapshot has no pane without a live subscription. A pane closed between a snapshot and the
 	// subscribe fails it (pane_not_found): the next snapshot no longer has it.
@@ -720,17 +689,6 @@ func (s *Socket) Subscribe(ctx context.Context, watches ...Watch) (*Stream, erro
 	return st, nil
 }
 
-// Watch adds output watches to the stream, each on its own connection (its events then name it).
-func (st *Stream) Watch(watches ...Watch) error {
-	for _, w := range watches {
-		sub := map[string]any{"type": EventOutput, "pane_id": w.Pane, "source": w.Source, "match": w.Match.param()}
-		if err := st.open([]map[string]any{sub}, &w); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // missing is the ids of panes without a status subscription.
 func (st *Stream) missing(panes []port.Pane) []string {
 	st.mu.Lock()
@@ -753,7 +711,7 @@ func (st *Stream) subscribePanes(ids []string) error {
 	if len(subs) == 0 {
 		return nil
 	}
-	if err := st.open(subs, nil); err != nil {
+	if err := st.open(subs); err != nil {
 		return err
 	}
 	st.mu.Lock()
@@ -765,7 +723,7 @@ func (st *Stream) subscribePanes(ids []string) error {
 }
 
 // open sends events.subscribe on a new connection and, once herdr confirms it, feeds its lines to the stream.
-func (st *Stream) open(subs []map[string]any, watch *Watch) error {
+func (st *Stream) open(subs []map[string]any) error {
 	const op = "events.subscribe"
 	c, err := st.s.dial(st.ctx, op)
 	if err != nil {
@@ -816,7 +774,6 @@ func (st *Stream) open(subs []map[string]any, watch *Watch) error {
 			} else if err := json.Unmarshal(b, &sl.l); err != nil {
 				sl.err = &Error{Kind: BadAnswer, Op: op, Msg: "unreadable event: " + project.FirstLine(strings.TrimSpace(string(b)))}
 			}
-			sl.watch = watch
 			select {
 			case st.lines <- sl:
 			case <-st.ctx.Done():
@@ -875,11 +832,7 @@ func (st *Stream) event(sl subLine) (Event, *port.Pane, bool) {
 		Pane   string  `json:"pane_id"`
 		Status string  `json:"agent_status"`
 		Agent  *string `json:"agent"`
-		Line   string  `json:"matched_line"`
-		Read   struct {
-			Text string `json:"text"`
-		} `json:"read"`
-		New *Wire `json:"pane"`
+		New    *Wire   `json:"pane"`
 	}
 	if sl.l.Event == "" || json.Unmarshal(sl.l.Data, &d) != nil {
 		return Event{}, nil, false
@@ -889,11 +842,6 @@ func (st *Stream) event(sl subLine) (Event, *port.Pane, bool) {
 	switch ev.Kind {
 	case EventStatus:
 		hint = &port.Pane{ID: d.Pane, Status: d.Status, Agent: str(d.Agent)}
-	case EventOutput:
-		ev.Line, ev.Text = d.Line, d.Read.Text
-		if sl.watch != nil {
-			ev.Watch = *sl.watch
-		}
 	case EventCreated, eventUpdated:
 		if d.New == nil || d.New.ID == "" {
 			return Event{}, nil, false

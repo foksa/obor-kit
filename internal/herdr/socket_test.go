@@ -473,39 +473,6 @@ func TestStreamEnds(t *testing.T) {
 	st.Close() // a second end is a no-op
 }
 
-func TestSubscribeWatch(t *testing.T) {
-	t.Parallel()
-	srv := herdrtest.Serve(t, fixture())
-	resume := herdr.Watch{Pane: "w1:p1", Source: "recent", Match: herdr.Match{Value: "claude --resume", Regex: true}}
-	st, err := srv.Client().Subscribe(ctx, resume)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	srv.WaitSubscribed(t, herdr.EventOutput, "w1:p1")
-	found := false
-	for _, r := range srv.Requests() {
-		found = found || string(r.Params) == `{"subscriptions":[{"match":{"type":"regex","value":"claude --resume"},"pane_id":"w1:p1","source":"recent","type":"pane.output_matched"}]}`
-	}
-	if !found {
-		t.Errorf("no output_matched subscription with the watch's params in %+v", srv.Requests())
-	}
-
-	help := herdr.Watch{Pane: "w1:p3", Source: "visible", Match: herdr.Match{Value: "Press Ctrl-C again"}}
-	if err := st.Watch(help); err != nil {
-		t.Fatal(err)
-	}
-	srv.WaitSubscribed(t, herdr.EventOutput, "w1:p3")
-	srv.Push("pane.output_matched", map[string]any{"pane_id": "w1:p3", "matched_line": "Press Ctrl-C again to exit", "read": map[string]any{"text": "…\nPress Ctrl-C again to exit"}})
-	if ev := next(t, st); ev.Kind != herdr.EventOutput || ev.Pane != "w1:p3" || ev.Line != "Press Ctrl-C again to exit" || ev.Watch != help || !strings.HasSuffix(ev.Text, "again to exit") {
-		t.Errorf("output event = %+v, want the help watch's", ev)
-	}
-	srv.Push("pane.output_matched", map[string]any{"pane_id": "w1:p1", "matched_line": "claude --resume abc", "read": map[string]any{"text": "x"}})
-	if ev := next(t, st); ev.Watch != resume || ev.Line != "claude --resume abc" {
-		t.Errorf("output event = %+v, want the resume watch's", ev)
-	}
-}
-
 // onSnapshot runs fn while herdr answers the n-th session.snapshot of each Subscribe (reset starts the count again);
 // fn's pushes then sit queued on the stream's connections behind that snapshot. The fixture's Subscribe reads two:
 // the first finds every pane unsubscribed, the second is the final one.
