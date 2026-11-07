@@ -100,8 +100,9 @@ func (a *App) heldJob(ctx context.Context, p *proj, fx *Loop, mt mtask, key even
 }
 
 // timerOf is the timer of p's open job key (under mu): the one running, else a new one from now (a replay, or the job
-// sent in an earlier process), retried when its retry is in the log. A delivered job's quiet time starts at its
-// delivered fact's time when that is older than now (T-946): a restart does not start the nudge's wait over.
+// sent in an earlier process), retried when its retry is in the log. A delivered job's quiet time starts at the newest
+// of its delivered fact's time and its nudge's result when that is older than now (T-946, T-960): a restart does not
+// start the nudge's wait over.
 func (a *App) timerOf(p *proj, key event.Key) *jobTimer {
 	t := p.timers[key.Task]
 	if t == nil || t.job != JobID(key) {
@@ -110,9 +111,19 @@ func (a *App) timerOf(p *proj, key event.Key) *jobTimer {
 		if d := p.folded.delivered[JobID(key)]; !d.at.IsZero() && d.at.Before(now) {
 			t.quietSince = d.at
 		}
+		if r, ok := p.log.Result(nudgeKey(key)); ok {
+			if at := event.RecordTime(r); at.After(t.quietSince) && at.Before(now) {
+				t.quietSince = at
+			}
+		}
 		p.timers[key.Task] = t
 	}
 	return t
+}
+
+// nudgeKey is the key of key's job's nudge.
+func nudgeKey(key event.Key) event.Key {
+	return event.Key{Task: key.Task, Attempt: key.Attempt, Step: stepNudge + key.Step}
 }
 
 // jobSent starts task's job timer for job, prompted at (under mu): the job's delivery timers run from at.
@@ -177,7 +188,7 @@ func (a *App) sampleJob(ctx context.Context, p *proj, fx *Loop, mt mtask, t *job
 	a.mu.Lock()
 	_, due := t.sample(now, e, a.opt.Idle)
 	a.mu.Unlock()
-	nudge := event.Key{Task: mt.task, Attempt: mt.attempt, Step: stepNudge + mt.job}
+	nudge := nudgeKey(mt.jobKey())
 	switch {
 	case !due, !a.heldAgain(p, mt):
 	case !p.log.Done(nudge):

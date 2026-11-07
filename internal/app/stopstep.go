@@ -40,11 +40,9 @@ func (h *halt) ask(agent string, force bool) { *h = halt{agent: agent, force: fo
 // pending: a stop is asked for and not done (running, due, or refused).
 func (h halt) pending() bool { return h.agent != "" && !h.done }
 
-// stopOut is worker.stop's result: the stop's line, or why no agent was there (Gone), or why it was not stopped and
-// how to retry (Refused, final: a needs-you).
+// stopOut is worker.stop's result: why it was not stopped and how to retry (Refused, final: a needs-you). A done stop
+// records just that; its line and the agent gone are not read (T-943), so they are not written (T-960).
 type stopOut struct {
-	Line    string `json:"line,omitempty"`
-	Gone    bool   `json:"gone,omitempty"`
 	Refused string `json:"refused,omitempty"`
 }
 
@@ -94,7 +92,7 @@ func (a *App) stopStep(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 	in := event.Intent{Key: mt.stopKey(h.n + 1), Class: event.ClassStart,
 		Data: stopData{Lane: mt.lane, Agent: h.agent, Force: h.force}}
 	if _, err := a.do(ctx, p, in, func(ctx context.Context) (any, error) {
-		line, gone, err := a.stopAgent(ctx, p, fx, h.agent, h.force, false)
+		_, _, err := a.stopAgent(ctx, p, fx, h.agent, h.force, false)
 		switch {
 		case err != nil && (cutByServe(ctx, err) || errors.Is(err, errCutOff) || a.where(p, h.agent).Why == notConnected):
 			return nil, err
@@ -102,10 +100,8 @@ func (a *App) stopStep(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 			return stopOut{Refused: fmt.Sprintf("%v; obor drop %s --force stops it", err, mt.task)}, nil
 		case err != nil:
 			return stopOut{Refused: fmt.Sprintf("%v; obor resume %s retries", err, mt.task)}, nil
-		case gone:
-			return stopOut{Line: line, Gone: true}, nil
 		}
-		return stopOut{Line: line}, nil
+		return stopOut{}, nil
 	}); err != nil {
 		return a.failed(ctx, p, mt, in.Step, err)
 	}

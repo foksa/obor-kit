@@ -231,8 +231,9 @@ shows the step `running`, and one whose intent waits as `gate pending`/`publish 
 - **Delivery**: no delivery 5 min after the job prompt (its wake) → re-prompt
   once; no delivery 5 min after that → needs-you. The timers are folded from the facts, not recorded: a replay starts
   them afresh. An integrator job delivered, then idle with it: the stall timer's quiet time below (one nudge, then
-  needs-you). That quiet time starts at the job's `delivered` fact's time when that is older than the live timer's
-  start, so the nudge comes at most Idle after delivery, whatever restarts happen (T-946).
+  needs-you). That quiet time starts at the newest of the job's `delivered` fact's time and its nudge's result time
+  when that is older than the live timer's start, so the nudge comes at most Idle after delivery and the needs-you
+  at most Idle after the nudge, whatever restarts happen (T-946, T-960).
 - **Blocked**: a `blocked` herdr status for 10 min since the agent was first seen blocked for the task → needs-you.
 - **Stall** (Idle = 10 min): a state machine over observed quiet time. Its state per open task is `quietSince`
   (zero = no baseline) and `seenWrite`, the newest transcript write already accounted for, with the `stalled{idle}`

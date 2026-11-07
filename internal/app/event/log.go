@@ -434,6 +434,14 @@ func (l *Log) Done(k Key) bool {
 	return ok
 }
 
+// Result is k's result record (false: none): its time, or an effect's stored answer.
+func (l *Log) Result(k Key) (Record, bool) {
+	l.Mu.Lock()
+	defer l.Mu.Unlock()
+	r, ok := l.Results[k]
+	return r, ok
+}
+
 // OpenIntents is every intent without a result, running or not, in seq order: the steps whose effect runs now, or was
 // left to run again after a crash (App.do). obor status' running line lists the command steps among them whose effect
 // runs now, its pending line the others (T-657, T-662).
