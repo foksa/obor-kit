@@ -28,10 +28,10 @@ import (
 //     branch's, and the weight merged since (first-parent merges of promoted..H, each its spec's Difficulty level's
 //     merge.weights, no spec or no line: medium) is at least merge.promote_weight, or at least one merge with the loop
 //     idle. Due, it requests a review when a first-parent merge since R is in H (fact review.request, by obor, its
-//     note naming the batch) unless a review or a request is open, and, unless a run was at H already, records
-//     intent promote.<seq>{sha H, since, merges, weight} (G) and runs it outside the scratch token, one at a time:
-//     Promote.Run, the full suite at H in its own worktree (RED: the failing tests rerun once). A GREEN there is
-//     promoted only when the review closes at exactly H.
+//     note naming the batch) unless a review or a request is open. Reviews set up, that request is all it does: the
+//     suite runs at R alone (T-990), never at H. Reviews not set up, and no run at H already, it records intent
+//     promote.<seq>{sha H, since, merges, weight} (G) and runs it outside the scratch token, one at a time:
+//     Promote.Run, the full suite at H in its own worktree (RED: the failing tests rerun once).
 //   - R (a review closed): the suite at R (intent promote.<seq>{sha R, …}), unless a run at R has a result already
 //     (a GREEN at R is reused, a RED one waits for the next close); the trigger's weight is not asked.
 //   - Every task merged at or before R covered (T-985): a first-parent merge "Merge T-xx:" of promoted..R whose task
@@ -127,8 +127,8 @@ type promoteState struct {
 	failedWhy  string
 	running    bool // a promotion step runs in its own goroutine (under mu)
 	// The last pass's count (live, obor status): the promoted branch, its sha, the merges since (the tasks, their weight
-	// and the weight that triggers a promotion), why the promotion waits (a GREEN run, or R for its tasks' review,
-	// T-985), the review it waits for (T-977) and the GREEN run's sha that waits ("": none).
+	// and the weight that triggers a promotion), why the promotion waits (the open review or request, T-990; a GREEN run
+	// or R for its tasks' review, T-985), the review it waits for (T-977) and the GREEN run's sha that waits ("": none).
 	branch    string
 	head      string
 	merges    int
@@ -354,14 +354,21 @@ func (a *App) promoteHeads(ctx context.Context, p *proj, fx *Loop, pr *Promote, 
 		return
 	}
 	a.setBatch(p, in)
-	if restarting || len(in.Merges) == 0 || in.Weight < pr.Weight && !idle {
+	due := !restarting && len(in.Merges) > 0 && (in.Weight >= pr.Weight || idle)
+	if reviews && due {
+		a.promoteReview(ctx, p, fx, in, r, waiting)
+	}
+	if reviews && wait == "" {
+		wait = a.waitReview(p) // the open review, or its request: what a promotion waits for (T-990)
+	}
+	if !due {
 		return
 	}
 	if reviews {
-		a.promoteReview(ctx, p, fx, in, r, waiting)
+		return // reviews on: the suite runs at R alone, the closed review's head (T-990)
 	}
 	if st.ran[head] != "" {
-		return // run at this head already: a RED one waits for a new merge, a GREEN one for a close at it
+		return // run at this head already: a RED one waits for a new merge, a GREEN one for the next pass's fast-forward
 	}
 	step := event.StepPromote + "." + strconv.Itoa(st.seq+1)
 	a.goPromote(ctx, p, func(ctx context.Context) { a.runPromote(ctx, p, pr, step, in) })
@@ -425,6 +432,20 @@ func (a *App) reviewWait(p *proj) string {
 		return "the review request"
 	}
 	return "no review closed at it"
+}
+
+// waitReview is why the promotion waits for a closed review, for obor status (T-990): "waiting for review RV-n" while
+// one is open, "waiting for review" while only the request is out, "" when none is.
+func (a *App) waitReview(p *proj) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if rv := p.folded.reviewed.open(); rv != "" {
+		return "waiting for review " + rv
+	}
+	if p.folded.review != nil {
+		return "waiting for review"
+	}
+	return ""
 }
 
 // setBatch keeps the merges since the promoted sha, their tasks and weight, for obor status and the monitor.
