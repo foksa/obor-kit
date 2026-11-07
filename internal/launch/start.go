@@ -20,31 +20,27 @@ type (
 	StartError = port.StartError
 )
 
-// Start labels the pane, clears the agent's herdr name from it if herdr still holds it there, prints the launch line
-// (T-145: a wrong model or permission mode is visible before the agent starts) and runs herdr agent start
-// (agent_name_taken: the name cleared and retried once, unless a live agent elsewhere holds it). A start with a first
-// prompt that herdr gave up on while the agent works on it is a start (busyStart); a start ends with the agent named
-// (named: renamed when herdr has no name for it; a refused rename is a warning), and it ends as soon as its agent runs in the pane and is
-// named (started), never at a fixed wait (T-404: herdr's own answer waits up to 30 s for an agent ready for input,
-// which an agent busy on its first prompt never is). A failed start is a *StartError, herdr's error printed: NotReady
-// with a hint when the pane shows a trust dialog or a Codex self-update, or herdr says agent_not_ready. A failed
-// pane label is a Fail (nothing started). A started fresh start of a kind that reports its session records it (done).
+// Start labels the pane, prints the launch line (T-145: a wrong model or permission mode is visible before the agent
+// starts) and runs herdr agent start (agent_name_taken: the stale name cleared and retried once, unless a live agent
+// elsewhere holds it). A start with a first prompt that herdr gave up on while the agent works on it is a start
+// (busyStart); a start ends as soon as its agent runs in the pane (started), never at a fixed wait (T-404: herdr's own
+// answer waits up to 30 s for an agent ready for input, which an agent busy on its first prompt never is). herdr's
+// agent name is neither required nor renamed back (T-952: herdr drops it at times and obor addresses the pane by id).
+// A failed start is a *StartError, herdr's error printed: NotReady with a hint when the pane shows a trust dialog or a
+// Codex self-update, or herdr says agent_not_ready. A failed pane label is a Fail (nothing started). A started fresh
+// start of a kind that reports its session records it (done).
 func (l *Launcher) Start(ctx context.Context, s Start) error {
 	_, err := l.start(ctx, s)
 	return err
 }
 
-// start is Start; it returns the agent the start ran in s.Pane as herdr showed it (its session id the identity a later
-// rename compares, T-418; none when herdr named no pane).
+// start is Start; it returns the agent the start ran in s.Pane as herdr showed it (none when herdr named no agent).
 func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
 	if s.Label != s.Agent {
 		if err := l.H.RenamePane(ctx, s.Pane, s.Agent); err != nil {
 			return port.Pane{}, project.Failf("herdr pane rename %s %s failed", s.Pane, s.Agent)
 		}
 		l.say("labelled pane %s %s", s.Pane, s.Agent)
-	}
-	if l.holds(ctx, s.Agent, s.Pane) {
-		l.release(ctx, s.Agent, s.Pane, true)
 	}
 	k, ok := agents.Lookup(s.Kind)
 	if !ok { // dispatch and obor config validate refuse such a model's kind (DD-v0.13 D1)
@@ -78,21 +74,21 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
 				at = " (pane " + holder + ")"
 			}
 			l.say("agent start: name %s taken%s: clearing it and retrying", s.Agent, at)
-			if holder != "" {
-				l.release(ctx, s.Agent, holder, false)
-			} else {
-				_ = l.H.RenameAgent(ctx, s.Agent, "")
+			// herdr lags in noticing an exit: the name may still belong to a pane that ran the agent before.
+			if cleared := holder != "" && l.H.RenameAgent(ctx, holder, "") == nil; !cleared &&
+				l.H.RenameAgent(ctx, s.Agent, "") != nil {
+				l.say("warning: herdr kept the name %s", s.Agent)
 			}
 			a, err = l.started(ctx, s)
 		}
 	}
 	if err == nil {
-		return l.done(ctx, s, a)
+		return l.done(ctx, s, a), nil
 	}
 	l.say("%v", err)
 	if s.Prompt != "" && port.ErrorCode(err) != "agent_not_ready" {
 		if a, ok := l.busyStart(ctx, s); ok {
-			return l.done(ctx, s, a)
+			return l.done(ctx, s, a), nil
 		}
 	}
 	// Only a failed start looks at the screen (a started agent's prompt delivery is judged by herdr alone).
@@ -107,8 +103,8 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
 	return port.Pane{}, &StartError{Err: err}
 }
 
-// started runs herdr's agent start and returns once the agent runs in s.Pane and is named (the start's done condition,
-// T-404), or herdr's answer: its error, or the agent it detected. A pending answer is no proof: herdr answers before
+// started runs herdr's agent start and returns once the agent runs in s.Pane (the start's done condition, T-404), or
+// herdr's answer: its error, or the agent it detected. A pending answer is no proof: herdr answers before
 // the agent runs (launch_pending, T-544: a command cut off at the shell left no agent, and the start said RESTARTED),
 // so it keeps the poll going, and no agent up within Up is an error. The call runs alongside the poll (T-387: an
 // agent busy on its first prompt is up although herdr may give up on it). started owns that call (T-405): before it
@@ -165,9 +161,9 @@ func detected(a port.Pane, s Start) bool {
 	return a.ID == s.Pane && a.Agent == s.Kind && a.Status != "" && a.Status != "unknown"
 }
 
-// up: a is the agent s's start put in its pane, ready for obor. Its kind, and idle or done, or working on its first
-// prompt (T-387); and named s.Agent, or unnamed in a pane that ran no agent of the kind before (the caller names it:
-// an old agent herdr lost the name of is never taken for the new one).
+// up: a is the agent s's start put in its pane, ready for obor: its kind, and idle or done, or working on its first
+// prompt (T-387); in a pane that ran no agent of the kind before the start (an old agent herdr lost is never taken for
+// the new one). herdr's name is no part of it (T-952).
 func up(pre, a port.Pane, s Start) bool {
 	switch {
 	case a.ID != s.Pane || a.Agent != s.Kind:
@@ -177,13 +173,13 @@ func up(pre, a port.Pane, s Start) bool {
 	case !a.Ready() && a.Status != "working":
 		return false
 	}
-	return a.Name == s.Agent || a.Name == "" && pre.Agent != s.Kind
+	return pre.Agent != s.Kind
 }
 
 // busyStart: a start that carried a first prompt failed, yet the agent of s.Kind runs in s.Pane and took it (working,
 // or idle/done after a short turn): started. herdr's start succeeds only once the agent is ready for input within its
 // 30 s bound, and an agent that works on its first prompt from the outset is not (T-387, live: Sonnet and Codex
-// workers busy on their wake at 30 s); herdr then keeps no name for it (named).
+// workers busy on their wake at 30 s); herdr then keeps no name for it.
 func (l *Launcher) busyStart(ctx context.Context, s Start) (port.Pane, bool) {
 	a, err := l.H.Agent(ctx, s.Pane)
 	if err != nil || a.Agent != s.Kind || (!a.Ready() && a.Status != "working") {
@@ -193,58 +189,14 @@ func (l *Launcher) busyStart(ctx context.Context, s Start) (port.Pane, bool) {
 	return a, true
 }
 
-// done is a start's success path, the one for Start and restart (T-582): the agent named (named), then a fresh start
-// of a kind that reports its session searches for it (searchRollout: the transcript its process holds open, T-588; a
-// resume reports none).
-func (l *Launcher) done(ctx context.Context, s Start, a port.Pane) (port.Pane, error) {
-	a, err := l.named(ctx, s, a)
-	if k, ok := agents.Lookup(s.Kind); err != nil || s.Resume != "" || !ok || !k.Caps().Sessions {
-		return a, err
+// done is a start's success path, the one for Start and restart (T-582): a fresh start of a kind that reports its
+// session searches for it (searchRollout: the transcript its process holds open, T-588; a resume reports none).
+func (l *Launcher) done(ctx context.Context, s Start, a port.Pane) port.Pane {
+	if k, ok := agents.Lookup(s.Kind); s.Resume != "" || !ok || !k.Caps().Sessions {
+		return a
 	}
 	l.searchRollout(ctx, s.Agent, s.Pane, s.Kind, s.Lane, s.Prompt != "")
-	return a, nil
-}
-
-// named ends a start with herdr knowing the agent in s.Pane as s.Agent: a start can leave herdr's agent unnamed (T-387,
-// live: every prompt to the name was agent_not_found until a rename by hand). a is the agent herdr showed at the
-// start (no Pane: it named none, nothing to tell); unnamed or misnamed, it is renamed, best-effort (DD-v0.13 A7: serve
-// finds agents by its identity table, not herdr's name): a refused rename is a warning line, the start stands. herdr
-// renames by pane, so the pane must still hold that agent (same: T-405): a pane that holds another
-// one now is renamed nothing, a Fail. It returns a, the agent started.
-func (l *Launcher) named(ctx context.Context, s Start, a port.Pane) (port.Pane, error) {
-	if a.ID == "" || a.Name == s.Agent {
-		return a, nil
-	}
-	now, err := l.H.Agent(ctx, s.Pane)
-	if err != nil || !same(a, now, s.Agent) {
-		return port.Pane{}, project.Failf("%s started in %s, but the pane holds %s now, not the agent started (session %s): renamed nothing",
-			s.Agent, s.Pane, held(now, err), orNone(a.Session))
-	}
-	if now.Name == s.Agent {
-		return a, nil
-	}
-	if err := l.H.RenameAgent(ctx, s.Pane, s.Agent); err != nil {
-		l.say("warning: %s started in %s, but herdr has no agent of that name there (herdr agent rename %s %s: %v)",
-			s.Agent, s.Pane, s.Pane, s.Agent, err)
-		return a, nil
-	}
-	l.say("named the agent in %s %s (herdr had no name for it)", s.Pane, s.Agent)
-	return a, nil
-}
-
-// same: now, the agent the pane holds, is a, the agent the start saw there: its kind, its session (when herdr knew it
-// at the start), and no name since but a's or name, the start's.
-// Accepted residual risk (owner, 2026-10-26, RV-44-verify-2): with no session in herdr's answer, an unnamed same-kind
-// agent that replaced this start's agent in the pane during the start (only by an action outside obor) is renamed;
-// obor's own drop / reuse wait for the start (T-405).
-func same(a, now port.Pane, name string) bool {
-	switch {
-	case now.Agent != a.Agent:
-		return false
-	case a.Session != "" && now.Session != a.Session:
-		return false
-	}
-	return now.Name == "" || now.Name == a.Name || now.Name == name
+	return a
 }
 
 // session is agent's current recorded session (Sessions, else serve's store).
@@ -261,24 +213,6 @@ func (l *Launcher) session(agent string) (store.Session, bool) {
 // sameSid: herdr's session value live (an id, or its transcript's path) names session sid.
 func sameSid(live, sid string) bool {
 	return live == sid || sid != "" && strings.TrimSuffix(filepath.Base(live), filepath.Ext(live)) == sid
-}
-
-// held is what a pane holds as herdr answered for it (now, err): its agent, or none.
-func held(now port.Pane, err error) string {
-	switch {
-	case port.NotFound(err):
-		return "no agent herdr knows"
-	case err != nil:
-		return "an agent herdr cannot tell (" + err.Error() + ")"
-	}
-	return "a " + now.Agent + " agent (session " + orNone(now.Session) + ", name " + orNone(now.Name) + ")"
-}
-
-func orNone(s string) string {
-	if s == "" {
-		return "none"
-	}
-	return s
 }
 
 var trustRE = regexp.MustCompile(`(?i)trust (this|the) (folder|directory)|do you trust`)
