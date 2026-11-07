@@ -35,13 +35,15 @@ import (
 // driveTitle is a drive's spec title: "Owner drive: <name>".
 const driveTitle = "Owner drive: "
 
-// The points a test hooks (App.hook) to interleave a resume and a task_done deterministically.
+// The points a test hooks (App.hook) to interleave a resume, a task_done and a record deterministically.
 const (
 	hookTaskDoneWaits = "task_done.waits" // task_done, before it takes a.submitMu
 	hookTaskDoneCheck = "task_done.check" // task_done holds a.submitMu, its checks passed, before its record
 	hookResumeWaits   = "resume.waits"    // obor resume holds a.verdicts, before it takes a.submitMu
 	hookResumeLocked  = "resume.locked"   // obor resume holds a.verdicts and a.submitMu, before its decision
 	hookLandCheck     = "land.check"      // obor land holds a.submitMu, its checks passed, before its record
+	hookAppended      = "record.appended" // a record or a verdict's result is in the log, before its fold (under mu)
+	hookDropDecided   = "drop.decided"    // obor drop holds a.verdicts, the task marked ended, before its record
 )
 
 // hook runs the test's hook at point (none outside the tests).

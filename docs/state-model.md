@@ -373,7 +373,8 @@ serial: at most one of gate, publish and a `resolved` verdict's check holds the 
 a publish runs in its own goroutine holding that token; the task waits (no other step of it is decided) until the
 effect's intent and result are folded, then the goroutine wakes the loop. Meanwhile the loop goes on with everything
 else: dispatch steps, after-merge steps, prompts and verdicts. The event log stays the one
-ordered writer (`Log.Do`, appends under its lock); the failure rule and the crash classes are unchanged: a gate cut by a
+ordered writer (`Log.Do`, appends under its lock), and an append and its fold are one section under the app's `mu`
+(T-944: the store write joins it, never an effect), so a live fold sees records in seq order, as replay does; the failure rule and the crash classes are unchanged: a gate cut by a
 stop or a crash leaves its intent pending (not counted), and a replay runs it again under the same key. `obor serve
 status` shows the step running (`running`); the loop's end waits for the running effects, which its context cuts.
 Parallel gates are out (one scratch).

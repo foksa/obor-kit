@@ -338,8 +338,9 @@ func (a *App) advance(ctx context.Context) *Loop {
 	return fx
 }
 
-// record appends the fact r with data and folds it; false when the log failed. It takes a.mu for the fold; a verb that
-// decides on folded state records with recordLocked in its one a.mu section instead (the rule at App.mu).
+// record appends the fact r with data and folds it, in one a.mu section (the append is inside mu: the live fold order
+// is the log order, T-944); false when the log failed. A verb that decides on folded state records with recordLocked
+// in its own a.mu section instead (the rule at App.mu).
 func (a *App) record(p *proj, r event.Record, data any) bool {
 	_, ok := a.recordSeq(p, r, data)
 	return ok
@@ -347,27 +348,26 @@ func (a *App) record(p *proj, r event.Record, data any) bool {
 
 // recordSeq is record, also returning the record's seq (0 when the log failed).
 func (a *App) recordSeq(p *proj, r event.Record, data any) (int64, bool) {
-	return a.recordIn(p, r, data, false)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.recordIn(p, r, data)
 }
 
 // recordLocked is record with a.mu held by the caller: the append and the fold in its section.
 func (a *App) recordLocked(p *proj, r event.Record, data any) bool {
-	_, ok := a.recordIn(p, r, data, true)
+	_, ok := a.recordIn(p, r, data)
 	return ok
 }
 
-// recordIn appends r with data and folds it, a.mu held by the caller (held) or taken for the fold.
-func (a *App) recordIn(p *proj, r event.Record, data any, held bool) (int64, bool) {
+// recordIn appends r with data and folds it (under mu).
+func (a *App) recordIn(p *proj, r event.Record, data any) (int64, bool) {
 	r.Data, _ = json.Marshal(data) // plain structs: cannot fail
 	r, err := p.log.Append(r, a.opt.Now())
 	if err != nil {
 		a.logf("FAIL event log of %s: %v", p.name, err)
 		return 0, false
 	}
-	if !held {
-		a.mu.Lock()
-		defer a.mu.Unlock()
-	}
+	a.hook(hookAppended)
 	p.foldRecord(r)
 	if r.Kind == event.KindFact && (r.Step == event.StepMerged || r.Step == event.StepDropped) {
 		a.settleEnded(p, r.Task) // the task ended: its pending intents never run
@@ -381,10 +381,11 @@ func (a *App) recordIn(p *proj, r event.Record, data any, held bool) (int64, boo
 	return r.Seq, true
 }
 
-// do runs effect under the log's Do for in and folds its intent (once written: the effect ran) and its result. An
-// effect that fails, or a ctx that ended (obor serve stops: nothing is decided on a cut-off effect), leaves the
-// intent pending. A key with a result folds that again (folding is idempotent); an intent already in the log is not
-// folded again (a job's intent before its start: a verdict given since stays).
+// do runs effect once for in (the log's Begin and Finish) and folds its intent (once written: the effect runs) and its
+// result, each in the a.mu section that wrote it; the effect runs outside mu. An effect that fails, or a ctx that ended
+// (obor serve stops: nothing is decided on a cut-off effect), leaves the intent pending. A key with a result folds that
+// again (folding is idempotent); an intent already in the log is not folded again (a job's intent before its start: a
+// verdict given since stays).
 //
 // The failure rule (every merge-loop effect; the table in docs/state-model.md "Crash classes"): an effect returns a
 // result only for an outcome final for its step. Anything else is an error: no result, the step stays pending and is
@@ -396,77 +397,77 @@ func (a *App) recordIn(p *proj, r event.Record, data any, held bool) (int64, boo
 // From the moment the effect runs until it returns its key is p.exec: obor status' running line lists those, and every
 // other open intent as pending (T-662).
 func (a *App) do(ctx context.Context, p *proj, in event.Intent, effect func(context.Context) (any, error)) (json.RawMessage, error) {
-	data, _ := json.Marshal(in.Data)
-	intent := event.Record{Task: in.Task, Attempt: in.Attempt, Step: in.Step, Kind: event.KindIntent, Class: in.Class, Data: data}
 	a.mu.Lock()
-	raw, lost := p.unwritten[in.Key]
+	r, run, err := a.doBegin(p, in)
 	a.mu.Unlock()
-	if lost {
-		r, err := p.log.Append(event.Record{Task: in.Task, Attempt: in.Attempt, Step: in.Step, Kind: event.KindResult, Data: raw},
-			a.opt.Now())
-		if err != nil {
-			a.logf("%s %s %s: its result: %v", p.name, in.Task, in.Step, err)
-			return nil, err
-		}
-		a.mu.Lock()
-		defer a.mu.Unlock()
-		delete(p.unwritten, in.Key)
-		p.foldRecord(r)
-		return raw, p.laneRowsErr()
-	}
-	_, pending := p.log.Intent(in.Key)
-	logged := pending || p.log.Done(in.Key) // folded already: folded again, it would undo what came after it
-	ran, done := false, false
-	raw, err := p.log.Do(ctx, in, a.opt.Now, func(ctx context.Context) (any, error) {
-		if !logged {
-			// before the effect: a verdict on a job the prompt just delivered finds it open; its time as the log wrote
-			// it (a start's try: folded.starts)
-			a.mu.Lock()
-			intent.TS = a.opt.Now().UTC().Format(time.RFC3339)
-			p.foldRecord(intent)
-			a.mu.Unlock()
-		}
-		ran = true
-		a.mu.Lock() // from here the effect runs: obor status' running line shows it, elapsed from now (T-662)
-		p.exec[in.Key] = a.opt.Now()
-		a.mu.Unlock()
-		defer func() {
-			a.mu.Lock()
-			delete(p.exec, in.Key)
-			a.mu.Unlock()
-		}()
-		v, err := effect(ctx)
-		if err == nil && ctx.Err() != nil {
-			err = ctx.Err()
-		}
-		done = err == nil
-		return v, err
-	})
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if ran { // obor's own operation: a worktree may have changed (T-879)
-		a.markLanes(p)
-	}
-	if !ran && err == nil && !logged { // the stored result
-		p.foldRecord(intent)
-	}
-	if err != nil && done { // the effect happened; only its result is not in the log
-		p.unwritten[in.Key] = raw
-	}
 	if err != nil {
-		a.logf("%s %s %s: %v", p.name, in.Task, in.Step, err)
 		return nil, err
 	}
-	r, ok := p.log.Result(in.Key)
-	if !ok {
-		return nil, fmt.Errorf("%s/%d/%s: successful effect has no recorded result", in.Task, in.Attempt, in.Step)
+	var v any
+	if run {
+		if v, err = effect(ctx); err == nil && ctx.Err() != nil {
+			err = ctx.Err()
+		}
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if run {
+		delete(p.exec, in.Key)
+		a.markLanes(p) // obor's own operation: a worktree may have changed (T-879)
+		if r, err = a.doFinish(p, in, v, err); err != nil {
+			return nil, err
+		}
 	}
 	p.foldRecord(r)
 	if err := p.laneRowsErr(); err != nil { // the result is in the log: the next pass finds it done and proceeds once the rows are written
 		a.logf("%s %s %s: lane rows: %v", p.name, in.Task, in.Step, err)
 		return nil, err
 	}
-	return raw, nil
+	return r.Data, nil
+}
+
+// doBegin is do's first section (under mu): the result to fold without running the effect (the stored one, or the
+// unwritten one written now), or run: the intent written and folded (a pending one is reused, not folded again) and
+// the key's effect running from now (p.exec).
+func (a *App) doBegin(p *proj, in event.Intent) (event.Record, bool, error) {
+	if raw, lost := p.unwritten[in.Key]; lost {
+		r, err := p.log.Append(event.Record{Task: in.Task, Attempt: in.Attempt, Step: in.Step, Kind: event.KindResult, Data: raw},
+			a.opt.Now())
+		if err != nil {
+			a.logf("%s %s %s: its result: %v", p.name, in.Task, in.Step, err)
+			return r, false, err
+		}
+		delete(p.unwritten, in.Key)
+		return r, false, nil
+	}
+	r, done, wrote, err := p.log.Begin(in, a.opt.Now())
+	switch {
+	case err != nil:
+		a.logf("%s %s %s: %v", p.name, in.Task, in.Step, err)
+		return r, false, err
+	case done:
+		return r, false, nil
+	case wrote: // before the effect: a verdict on a job the prompt just delivered finds it open (a start's try: folded.starts)
+		p.foldRecord(r)
+	}
+	p.exec[in.Key] = a.opt.Now() // obor status' running line shows it, elapsed from now (T-662)
+	return r, true, nil
+}
+
+// doFinish is do's last section (under mu): the effect's run ends and its result v is written, or none when it failed
+// (err: the intent stays pending). An effect that ran and whose result's write failed keeps it in p.unwritten.
+func (a *App) doFinish(p *proj, in event.Intent, v any, err error) (event.Record, error) {
+	if err != nil {
+		p.log.Finish(in.Key, nil, false, a.opt.Now())
+		a.logf("%s %s %s: %v", p.name, in.Task, in.Step, err)
+		return event.Record{}, err
+	}
+	r, err := p.log.Finish(in.Key, v, true, a.opt.Now())
+	if err != nil { // the effect happened; only its result is not in the log
+		p.unwritten[in.Key] = r.Data
+		a.logf("%s %s %s: %v", p.name, in.Task, in.Step, err)
+	}
+	return r, err
 }
 
 // cutByServe: err is serve's own cancellation (its ctx ended: a restart, a stop), so the effect was cut off, not

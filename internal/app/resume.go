@@ -2,7 +2,6 @@ package app
 
 import (
 	"cmp"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -309,23 +308,15 @@ func (a *App) leadSendback(p *proj, c wire.Call, mt mtask) (string, error) {
 	}
 	in := event.Intent{Key: event.Key{Task: c.Task, Attempt: mt.attempt, Step: verdictStep(method, c.CallID)},
 		Class: event.ClassFact, Data: verdictData{Job: job, Caller: c.Agent, Note: c.Note}}
-	life := a.life
-	if life == nil { // not serving (a test's App): the record's own bound
-		life = context.Background()
-	}
-	ctx, cancel := context.WithTimeout(life, requestTimeout)
-	defer cancel()
-	raw, err := p.log.Do(ctx, in, a.opt.Now, func(context.Context) (any, error) {
-		return verdictResult{Job: job, Reply: reply, Note: c.Note, Lead: true}, nil
-	})
+	a.mu.Lock()
+	r, err := a.verdictRecord(p, in, verdictResult{Job: job, Reply: reply, Note: c.Note, Lead: true})
 	if err != nil {
+		a.mu.Unlock()
 		return "", err
 	}
 	var v verdictResult
-	_ = json.Unmarshal(raw, &v)
-	a.mu.Lock()
-	p.foldRecord(event.Record{Task: in.Task, Attempt: in.Attempt, Step: in.Step, Kind: event.KindResult, Data: raw,
-		TS: a.opt.Now().UTC().Format(time.RFC3339)}) // the next attempt's begun
+	_ = json.Unmarshal(r.Data, &v)
+	p.foldRecord(r) // the next attempt's begun
 	a.mu.Unlock()
 	a.logf("%s %s by %s", p.name, v.Reply, Dash(c.Agent))
 	a.wake()
