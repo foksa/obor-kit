@@ -279,6 +279,36 @@ func TestLaneTestRetestsRedOnce(t *testing.T) {
 		y.eqBool(got[0].PassedOnRetry, false, "passed_on_retry")
 	})
 
+	t.Run("a retest that ran no tests: red", func(t *testing.T) {
+		t.Parallel()
+		// T-976: the retry's summary says it tested nothing ("go test: 0 pass, 0 fail") yet exits 0: the red stands.
+		y := newSx(t, testkit.Set("merge.fail_grep", grep), cmd("check", redOne),
+			cmd("retest", `echo "go test: 0 pass, 0 fail"; echo ran > "$TMP_DIR/retest-ran"; exit 0`))
+		o, err := y.test(ctx, y.green(lane(y.submit())))
+		if err != nil || o.Kind != port.OutcomeRed {
+			t.Fatalf("test: %+v %v; want red (a retry that ran no tests is not green)\noutput:\n%s", o, err, y.out.String())
+		}
+		y.match(o.Line, `^RED check \(rc=1, full:no-guard\) — failing: --- FAIL: TestAlpha`, "the original red")
+		y.eq(y.Read(filepath.Join(y.Base, "retest-ran")), "ran\n", "the retest ran")
+		got := y.flakes()
+		if len(got) != 1 {
+			t.Fatalf("flake lines %d, want 1: %+v", len(got), got)
+		}
+		y.eqBool(got[0].Retried, true, "retried")
+		y.eqBool(got[0].PassedOnRetry, false, "passed_on_retry: a retest that ran no tests proves nothing")
+	})
+
+	t.Run("a retest with no summary: rc decides", func(t *testing.T) {
+		t.Parallel()
+		// No summary line to read says nothing about the tests: the retest's rc 0 is green, as before T-976.
+		y := newSx(t, testkit.Set("merge.fail_grep", grep), cmd("check", redOne), cmd("retest", `exit 0`))
+		o, err := y.test(ctx, y.green(lane(y.submit())))
+		if err != nil || o.Kind != port.OutcomeGreen {
+			t.Fatalf("test: %+v %v; want green (nothing to count: rc 0)\noutput:\n%s", o, err, y.out.String())
+		}
+		y.match(o.Line, `^GREEN T-05 \(rc=0, full:no-guard\)$`, "the retest's rc is the step's counts")
+	})
+
 	t.Run("a build failure: red, no retest", func(t *testing.T) {
 		t.Parallel()
 		y := newSx(t, testkit.Set("merge.fail_grep", grep),
