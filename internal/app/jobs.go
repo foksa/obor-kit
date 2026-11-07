@@ -34,6 +34,10 @@ func (a *App) watchJob(p *proj, mt mtask) step {
 	key := mt.jobKey()
 	t := a.timerOf(p, key)
 	w := a.whereIs(p, p.integrator)
+	if w.Why == notConnected { // nothing is known between two streams (T-759): not the integrator exiting (T-956)
+		t.gone = time.Time{}
+		return nil
+	}
 	if w.State != Identified {
 		if t.gone.IsZero() {
 			t.gone = now
