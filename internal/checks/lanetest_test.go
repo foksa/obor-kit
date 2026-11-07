@@ -139,7 +139,6 @@ func TestLaneTestRunsInTheLaneAndRestores(t *testing.T) {
 
 // T-967: the lane test's env is the lane workers' (config.LaneEnv): slots.lane_cpus and the inherited GOFLAGS' other
 // flags kept, CHECK_CPUS the same budget.
-// T-989: and CHECK_SHORT=1: a lane test always runs the short tier, whatever the class.
 func TestLaneTestLaneEnv(t *testing.T) {
 	t.Parallel()
 	y := newSxEnv(t, []string{"GOFLAGS=-mod=mod"}, testkit.Set("slots.lane_cpus", 1), cmd("check", probe))
@@ -155,16 +154,18 @@ func TestLaneTestLaneEnv(t *testing.T) {
 		t.Fatalf("test: %+v %v\noutput:\n%s", o, err, y.out.String())
 	}
 	env := y.probed("env")
-	for _, kv := range []string{"GOMAXPROCS=1", "GOFLAGS=-mod=mod -p=1", "CHECK_CPUS=1", "CHECK_SHORT=1"} {
+	for _, kv := range []string{"GOMAXPROCS=1", "GOFLAGS=-mod=mod -p=1", "CHECK_CPUS=1"} {
 		if !strings.Contains("\n"+env+"\n", "\n"+kv+"\n") {
 			t.Errorf("the check's environment has no %q:\n%s", kv, env)
 		}
 	}
 }
 
-// T-991: with branches.promote set the lane test asks the affected list for the changed packages only (CHECK_DIRECT=1:
-// the slot's compile and the promotion's full suite cover the importers); without a promotion it does not.
-func TestLaneTestCheckDirect(t *testing.T) {
+// T-991/T-997: the lane test runs the short tier and only the changed packages' tests when branches.promote is set
+// (CHECK_SHORT=1, CHECK_DIRECT=1: the promotion's full suite and the nightly cover the slow tests and the importers,
+// the slot's compile an importer's build break); without a promotion it sets neither, so the full/mixed class runs the
+// full check as before T-989.
+func TestLaneTestPromotionEnv(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
 		name    string
@@ -189,9 +190,11 @@ func TestLaneTestCheckDirect(t *testing.T) {
 				t.Fatalf("test: %+v %v\noutput:\n%s", o, err, y.out.String())
 			}
 			env := y.probed("env")
-			got := strings.Contains("\n"+env+"\n", "\nCHECK_DIRECT=1\n")
-			if got != c.promote {
-				t.Errorf("the check's environment carries CHECK_DIRECT=1 %v, want %v:\n%s", got, c.promote, env)
+			for _, kv := range []string{"CHECK_SHORT=1", "CHECK_DIRECT=1"} {
+				got := strings.Contains("\n"+env+"\n", "\n"+kv+"\n")
+				if got != c.promote {
+					t.Errorf("the check's environment carries %s %v, want %v:\n%s", kv, got, c.promote, env)
+				}
 			}
 		})
 	}
