@@ -126,6 +126,9 @@ func (f *schedScratch) Gate(_ context.Context, in port.GateInput) (port.GateOutc
 	return port.GateOutcome{Kind: port.OutcomeGreen, Candidate: port.Candidate{Task: in.Task, Lane: in.Lane, SHA: "c-" + in.Task,
 		Target: "b", Patch: "p"}}, nil
 }
+func (f *schedScratch) Test(_ context.Context, in port.TestInput) (port.TestOutcome, error) {
+	return port.TestOutcome{Kind: port.OutcomeGreen, Line: "GREEN " + in.Task, Checks: "check 1 pass"}, nil
+}
 func (f *schedScratch) Resolved(_ context.Context, _, input string, _ *port.Mismatch) (string, error) {
 	f.resolved = append(f.resolved, input)
 	return "resolution", nil

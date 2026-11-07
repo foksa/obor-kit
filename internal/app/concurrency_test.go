@@ -26,11 +26,16 @@ import (
 // Resolved) counts in inflight, and max is the most at once.
 type concScratch struct {
 	hold, holdPub, holdResolved string
-	release                     chan struct{}
-	entered                     chan string // each Gate's task, as it begins ("publish <task>", "resolved <task>" when held)
+	// holdTest: the task whose lane Test waits for release (T-961); based: each Gate's candidate has a Base, so it goes
+	// to its lane test (a candidate before T-961 has none: green at once)
+	holdTest string
+	based    bool
+	release  chan struct{}
+	entered  chan string // each Gate's task, as it begins ("publish <task>", "resolved <task>" when held)
 
 	mu       sync.Mutex
 	gates    map[string]int // Gate calls by task (a cut one too)
+	tests    map[string]int // Test calls by task
 	pubs     map[string]int
 	inflight int
 	max      int
@@ -49,7 +54,7 @@ type concScratch struct {
 
 func newConcScratch(hold string) *concScratch {
 	return &concScratch{hold: hold, release: make(chan struct{}), entered: make(chan string, 16),
-		gates: map[string]int{}, pubs: map[string]int{}}
+		gates: map[string]int{}, tests: map[string]int{}, pubs: map[string]int{}}
 }
 
 func (f *concScratch) enter() {
@@ -86,8 +91,25 @@ func (f *concScratch) Gate(ctx context.Context, in port.GateInput) (port.GateOut
 			return port.GateOutcome{}, err
 		}
 	}
-	return port.GateOutcome{Kind: port.OutcomeGreen, Candidate: port.Candidate{Task: in.Task, Lane: in.Lane, SHA: "c-" + in.Task,
-		Target: "b", Patch: "p"}}, nil
+	c := port.Candidate{Task: in.Task, Lane: in.Lane, SHA: "c-" + in.Task, Target: "b", Patch: "p"}
+	if f.based {
+		c.Base = "b0"
+	}
+	return port.GateOutcome{Kind: port.OutcomeGreen, Candidate: c}, nil
+}
+
+// Test is the lane test (T-961): it holds no scratch; holdTest's waits for release.
+func (f *concScratch) Test(ctx context.Context, in port.TestInput) (port.TestOutcome, error) {
+	f.mu.Lock()
+	f.tests[in.Task]++
+	f.mu.Unlock()
+	if in.Task == f.holdTest {
+		f.entered <- "test " + in.Task
+		if err := f.wait(ctx); err != nil {
+			return port.TestOutcome{}, err
+		}
+	}
+	return port.TestOutcome{Kind: port.OutcomeGreen, Line: "GREEN " + in.Task, Checks: "check 1 pass"}, nil
 }
 
 // wait blocks until release is closed or ctx ends.

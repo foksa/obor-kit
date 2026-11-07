@@ -203,7 +203,7 @@ func (a *App) submit(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 }
 
 // gate runs the attempt's next gate (row 18): submit's sha merged into the target, the resolved merge, or the
-// candidate on the moved target.
+// candidate on the moved target, compiled (T-961: the slot runs no test).
 func (a *App) gate(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 	g := port.GateInput{Task: mt.task, Lane: mt.lane, Kind: port.InputLane, Input: mt.input}
 	switch mt.state {
@@ -212,7 +212,6 @@ func (a *App) gate(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 	case stMoved:
 		// T-403: the submitted sha, never the old candidate (one merge commit per task); the subject rule stays (T-360).
 		g.Kind, g.Input = port.InputMoved, mt.input
-		g.Green = mt.green       // T-900: kept when the new commits overlap nothing of it
 		g.Resolved = mt.resolved // T-915: a replayed resolution must equal the checked one
 	}
 	in := event.Intent{Key: event.Key{Task: mt.task, Attempt: mt.attempt, Step: nth(event.StepGate, mt.gates+1)}, Class: event.ClassGit,
@@ -237,7 +236,7 @@ func (a *App) gate(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 			return nil, err
 		}
 		out := gateResult(mt.task, o)
-		out.SpecRev, out.Kept = row.Rev, o.Kept
+		out.SpecRev = row.Rev
 		return out, nil
 	})
 	if err != nil {
@@ -266,6 +265,70 @@ func gateResult(task string, o port.GateOutcome) gateOut {
 		return gateOut{Outcome: outFail, Line: o.Line}
 	}
 	return gateOut{Outcome: outFail, Line: fmt.Sprintf("FAIL %s: unknown gate outcome %q", task, o.Kind)}
+}
+
+// laneStep starts effect, mt's lane test (key step), in its own goroutine outside the scratch token (T-961,
+// docs/state-model.md "Concurrency"): one per task and so one per lane (a lane holds one task), in parallel with the
+// other lanes' and with the slot's steps; the pool slot it takes bounds how many run at once (slots.max). The task
+// waits until the effect's records are folded, then the goroutine wakes the loop. False: the task waits.
+func (a *App) laneStep(ctx context.Context, p *proj, mt mtask, step string, effect func(context.Context)) bool {
+	key := event.Key{Task: mt.task, Attempt: mt.attempt, Step: step}
+	a.mu.Lock()
+	if _, ok := p.tests[mt.task]; ok {
+		a.mu.Unlock()
+		return false
+	}
+	p.tests[mt.task] = key
+	a.mu.Unlock()
+	a.effects.Add(1)
+	go func() {
+		defer a.effects.Done()
+		effect(ctx)
+		a.mu.Lock()
+		delete(p.tests, mt.task)
+		delete(p.testCmd, mt.task)
+		a.mu.Unlock()
+		a.wake()
+	}()
+	return false
+}
+
+// test runs the attempt's next lane test (row 18b, T-961): the class's checks on the candidate in the task's lane.
+func (a *App) test(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
+	in := event.Intent{Key: event.Key{Task: mt.task, Attempt: mt.attempt, Step: nth(event.StepTest, mt.tests+1)},
+		Class: event.ClassGit, Data: testIn{Candidate: mt.cand.SHA, Target: mt.cand.Target, Lane: mt.lane}}
+	ti := port.TestInput{Task: mt.task, Lane: mt.lane, Branch: mt.disp.Branch, SHA: mt.cand.SHA, Target: mt.cand.Target}
+	ti.Command = func(name string) { // obor status' running line names the command while it runs (as a gate's)
+		a.mu.Lock()
+		if p.tests[mt.task] == in.Key {
+			p.testCmd[mt.task] = name
+		}
+		a.mu.Unlock()
+	}
+	_, err := a.do(ctx, p, in, func(ctx context.Context) (any, error) {
+		o, err := fx.Scratch.Test(ctx, ti)
+		if err != nil {
+			return nil, err
+		}
+		return testResult(mt.task, o), nil
+	})
+	if err != nil {
+		return a.failed(ctx, p, mt, in.Step, err)
+	}
+	return true
+}
+
+// testResult is the lane test outcome o of task as its result.
+func testResult(task string, o port.TestOutcome) testOut {
+	switch o.Kind {
+	case port.OutcomeGreen:
+		return testOut{Outcome: outGreen, Line: o.Line, Checks: o.Checks, Tree: o.Tree}
+	case port.OutcomeRed:
+		return testOut{Outcome: outRed, Line: o.Line}
+	case port.OutcomeFail:
+		return testOut{Outcome: outFail, Line: o.Line}
+	}
+	return testOut{Outcome: outFail, Line: fmt.Sprintf("FAIL %s: unknown test outcome %q", task, o.Kind)}
 }
 
 // publish fast-forwards the target to the accepted candidate (row 33): merged, already in the target (a crash after

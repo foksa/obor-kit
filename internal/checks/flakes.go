@@ -80,8 +80,8 @@ func (r *runner) logFlakes(name string, outs ...output) {
 	}
 }
 
-// sha is the commit the checks ran on (a merge's target: the merge is uncommitted while its checks run); "" when git
-// cannot name one.
+// sha is the commit the checks ran on (a lane test's candidate, T-961; a nightly's head); "" when git cannot name
+// one.
 func (r *runner) sha() string {
 	out, err := r.git(r.dir, "rev-parse", "HEAD")
 	if err != nil {

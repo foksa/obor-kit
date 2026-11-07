@@ -14,7 +14,7 @@ import (
 // changed row is a changed test.
 var statePhase = map[string]string{
 	stWaiting: wire.PhaseWaiting, stDispatched: wire.PhaseDispatching, stWorking: wire.PhaseWorking,
-	stDriving: wire.PhaseDriving, stSubmitted: wire.PhaseSubmitted, stRed: wire.PhaseGating,
+	stDriving: wire.PhaseDriving, stSubmitted: wire.PhaseSubmitted, stCandidate: wire.PhaseTesting, stRed: wire.PhaseGating,
 	stResolved: wire.PhaseGating, stMoved: wire.PhaseGating, stGreen: wire.PhaseReview, stConflict: wire.PhaseReview,
 	stAwaiting: wire.PhaseReviewing, stResolving: wire.PhaseReviewing, stAccepted: wire.PhasePublish,
 	stPublished: wire.PhasePublish, stMerged: wire.PhaseMerged, stRejected: wire.PhaseRejected, stDropped: wire.PhaseDropped,
@@ -47,6 +47,8 @@ func TestPhaseOfEveryStateAndOverlay(t *testing.T) {
 			{"a watchdog's needs-you", overlays{blocked: true}, wire.PhaseNeedsYou},
 			{"its gate running", overlays{step: wire.PhaseGating}, wire.PhaseGating},
 			{"its gate pending", overlays{step: wire.PhaseGatePending}, wire.PhaseGatePending},
+			{"its lane test running", overlays{step: wire.PhaseTesting}, wire.PhaseTesting},
+			{"its lane test pending", overlays{step: wire.PhaseTestPending}, wire.PhaseTestPending},
 			{"its publish running", overlays{step: wire.PhaseMerging}, wire.PhaseMerging},
 			{"its publish pending", overlays{step: wire.PhasePublishPending}, wire.PhasePublishPending},
 			{"a needs-you and a step", overlays{blocked: true, step: wire.PhaseGating}, wire.PhaseNeedsYou},

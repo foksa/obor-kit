@@ -37,6 +37,7 @@ type fx struct {
 	environ              []string       // more command environment
 	windowWait           time.Duration  // > 0: the nightly lock's wait (T-864: no merge.window_wait key)
 	cand                 port.Candidate // the last green gate's (gate)
+	gated                string         // the last green gate's line (gate: the test's is its result's)
 	spec                 string         // the task's stored spec gate passes (GateInput.Spec; "": none)
 	sig                  chan int
 }
@@ -99,9 +100,10 @@ func (x *fx) opts() Options {
 	}
 }
 
-// gate submits lane's work for task (worker label "worker") and gates it in serve's worktree, as obor serve does
-// (Scratch.Submit, then a lane Gate): green is OK, red Red, fail and conflict Fail, each with the gate's line; a
-// refusal or error is Fail with its text. A green gate's candidate is x.cand.
+// gate submits lane's work for task (worker label "worker"), gates it in serve's worktree and tests the candidate in
+// the lane, as obor serve does (Scratch.Submit, a lane Gate, then Test: T-961): green is OK, red Red, fail and conflict
+// Fail, each with the gate's line or, past a green gate, the test's; a refusal or error is Fail with its text. A green
+// gate's candidate is x.cand, its line x.gated.
 func (x *fx) gate(lane, task, summary string) Result {
 	x.t.Helper()
 	return x.gateCtx(context.Background(), lane, task, summary)
@@ -120,13 +122,22 @@ func (x *fx) gateCtx(ctx context.Context, lane, task, summary string) Result {
 	switch {
 	case err != nil:
 		return Result{Code: Fail, Line: err.Error()}
-	case o.Kind == port.OutcomeGreen:
-		x.cand = o.Candidate
-		return Result{Code: OK, Line: o.Line}
 	case o.Kind == port.OutcomeRed:
 		return Result{Code: Red, Line: o.Line}
+	case o.Kind != port.OutcomeGreen:
+		return Result{Code: Fail, Line: o.Line}
 	}
-	return Result{Code: Fail, Line: o.Line}
+	x.cand, x.gated = o.Candidate, o.Line
+	t, err := s.Test(ctx, port.TestInput{Task: task, Lane: lane, SHA: o.Candidate.SHA, Target: o.Candidate.Target})
+	switch {
+	case err != nil:
+		return Result{Code: Fail, Line: err.Error()}
+	case t.Kind == port.OutcomeGreen:
+		return Result{Code: OK, Line: t.Line}
+	case t.Kind == port.OutcomeRed:
+		return Result{Code: Red, Line: t.Line}
+	}
+	return Result{Code: Fail, Line: t.Line}
 }
 
 func (x *fx) nightly() Result {

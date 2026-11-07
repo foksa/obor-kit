@@ -129,7 +129,8 @@ next pass writes the result it had; after a restart its crash class settles it.
 | Step | Result (final) | Error (retry, counted) |
 |---|---|---|
 | `submit[.N]` | the lane's commit `{sha}`, pinned at `refs/obor/submitted/<task>/<attempt>[.N]`; `Refused` (no lane dir, not on a branch, already in the target) → `needs-you{submit: …}` (regate submits again) | git I/O |
-| `gate[.N]` lane, `gate.N` resolved, moved | `Green{Candidate}`, `Red{line}`, `Conflict{files, dir}`, `Fail{line}` (lane_setup, a missing command) | the worktree's creation, git I/O, the stored spec's read (never "no spec"), the check slot, ctx |
+| `gate[.N]` lane, `gate.N` resolved, moved | `Green{Candidate}`, `Red{line}` (compile, T-961), `Conflict{files, dir}`, `Fail{line}` (lane_setup) | the worktree's creation, git I/O, the stored spec's read (never "no spec"), the check slot, ctx |
+| `test[.N]` (T-961) | `Green{line, checks, tree}`, `Red{line}`, `Fail{line}` (no such lane, lane_setup, a missing command) | the lane dirty (uncommitted changes: the lane not touched), git I/O, the pool slot, ctx |
 | `publish[.N]` | `Merged`, `Already`, `Moved{head}`, `Hold{files}` (row 35: local changes in the main checkout to the merge's files; nothing merged) | git I/O, an ff refused with the target unchanged and no dirty paths |
 | `after_merge` | ran, skipped, a `WARN` line (a configured command's failure) | ctx |
 | `unpin` (a reject) | `unpinned` (an absent pin is not an error) | git I/O |
@@ -146,8 +147,9 @@ next pass writes the result it had; after a restart its crash class settles it.
 | Intent | Class | Replay (crash before the effect, or after it with the result lost) |
 |---|---|---|
 | `submit[.N]` | G | Its pin `refs/obor/submitted/<task>/<attempt>[.N]` there → that sha, nothing touched (a crash after the pin: a worker commit since stays out). Else commits the lane's uncommitted work only while `status --porcelain` is dirty, then pins HEAD: a repeat commits nothing twice. Residual: a crash between the commit and the pin reads HEAD again, so a worker commit in that window is included (the worker is idle by then). The gate merges the pinned sha, never the live lane. |
-| `gate[.N]` (lane, moved) | G | Reset the worktree to the target (any earlier partial state goes: an open merge, a dirty tree, a foreign `MERGE_HEAD`), merge the input sha again, check, commit, pin: the same two shas give the same merge. |
-| `gate.N` (resolved) | G | Reset to the verdict's pin `refs/obor/resolved/<task>` and check it: a pure function of the commit; green, red and fail replay to the same outcome. |
+| `gate[.N]` (lane, moved) | G | Reset the worktree to the target (any earlier partial state goes: an open merge, a dirty tree, a foreign `MERGE_HEAD`), merge the input sha again, compile, commit, pin: the same two shas give the same merge. Seconds (T-961). |
+| `gate.N` (resolved) | G | Reset to the verdict's pin `refs/obor/resolved/<task>` and compile it: a pure function of the commit; green, red and fail replay to the same outcome. |
+| `test[.N]` (T-961) | G | Run again under its key (a serve cut it: not counted): the lane clean (else an error, tried again), `checkout --detach C` again (a lane the cut left detached at C: a no-op), the checks again, the branch restored (the one checked out, else the dispatch's). A function of (C, T, the lane's ignored files); minutes lost, the same outcome. A sendback's fix job never goes out while it is pending (the task is `candidate`). |
 | `publish[.N]` | G | The target holds `Candidate.SHA` → `Already` (no second publish); target moved → `Moved`; dirty merged paths → `Hold` before any write; else ff, then the pins go. |
 | `after_merge` | G | `commands.after_merge`; its result → not run again, a pending intent runs it again (idempotent by contract, T-525). |
 | `unpin` | G | Deletes the pins again (an absent one is not an error). |
@@ -202,11 +204,12 @@ at serve's nightly backup (`PrunePrompts`; a backup made read-only with serve do
 ## States
 
 Task, exactly the states the code has (`internal/app/loop.go`): **submitted** (submit the lane's commit, then gate it)
-· **green** (gate green: a review job, or an accept already bound to the patch) · **awaiting-accept** (the review job
-is out) · **red** (gate red: a sendback, or the owner after K) · **conflict** (the merge conflicts in the scratch: a
+· **candidate** (T-961: the slot merged and compiled it, its lane test is next, row 18b) · **green** (tested green, or a
+move compiled: a review job, or an accept already bound to the patch) · **awaiting-accept** (the review job
+is out) · **red** (gate or lane test red: a sendback, or the owner after K) · **conflict** (the merge conflicts in the scratch: a
 resolve job) · **resolving** (the resolve job is out) · **resolved** (gate the merge the integrator committed in the
-scratch) · **accepted** (publish it) · **moved** (gate the candidate again on the
-new target) · **published** (the target holds the candidate) · **merged** (terminal, then the after-merge steps) ·
+scratch) · **accepted** (publish it) · **moved** (merge and compile the candidate again on the
+new target: no test, no review, row 32) · **published** (the target holds the candidate) · **merged** (terminal, then the after-merge steps) ·
 **rejected** (terminal; the owner is told) · **dropped** (terminal; the lead abandoned it) · **waiting** (a dispatch
 that waits for the tasks it names to merge, row 2a) · **dispatched** (a dispatch's steps: `lane.prepare`,
 `agent.start`, the work job) · **working** (the work job delivered, or
@@ -222,8 +225,9 @@ step, step name, verdicts, sendback, resume rule and scratch, each naming its ro
 `TestState<Name>Row<N>`; a new state or step is a row there and here.
 
 A task with no record in the loop has no state: approved with its spec in the store, it waits for a dispatch (row 2).
-Two are not states: a gate or a publish running (`submitted`, `moved`, `resolved` or `accepted`; `obor status --facts`
-shows the step `running`, and one whose intent waits as `gate pending`/`publish pending`, T-662), and a watchdog's
+Two are not states: a gate, a lane test or a publish running (`submitted`, `moved`, `resolved`, `candidate` or
+`accepted`; `obor status --facts` shows the step `running` and the task `gating`/`testing`/`merging`, and one whose
+intent waits as `gate pending`/`test pending`/`publish pending`, T-662, T-961), and a watchdog's
 `stalled{idle}` (row 10, a fact: the task stays `working`).
 
 ## Timers
@@ -303,11 +307,12 @@ publish already running refuses its fast-forward off the branch (an error: run a
 | 16a | working (no change) | MCP `task_done` whose report has a `Blocked:` line (a question asked only in chat is not ingested: the worker Stop hook makes the worker call `task_done`, and its question goes in as `Blocked:`) | the guards of row 16 but the report's sections | fact `needs-you{asks: <the rest of the Blocked: line, else the next line>}` (once while one is in force; no submission; the stall timer, rows 10–14, does not run while it is in force; it ends with `obor resume`, the task's submission, or its merge, drop or reject, T-635) | reply "not submitted: the owner is told …; stop and wait", notify | — | F |
 | 16b | working (dispatched) → working, **same attempt** (T-511) | `obor resume <T> "<text>"`{call id} (the lead or the owner, not a worker or the integrator; T-775: resume's action on a question in force; `--regate` instead records `unblocked{regate}`, which ends the question and submits and gates the lane as it is) | the task's worker asked (row 16a's `needs-you{asks}` in force); the task is working or dispatched (not a needs-you of the merge loop); none of its steps running or pending; else refused by name (`<T> is working with nothing to resume`) | fact `answered{text}` (ends the asks and the task's watchdog facts, as `resumed` does; no new attempt, not a sendback) | reply `ANSWERED <T> (attempt <n>)`; the answer is a line to the worker, delivered by its bridge (posted for Claude, typed for others) | — | F |
 | 17 | working (no change) | MCP `task_done` whose guard fails | guard of row 16 fails | — | reply the error, nothing recorded | — | F (the client may retry) |
-| 18 | submitted, moved, resolved → green \| red \| conflict \| fail | scheduler tick | scratch free (a resolved gate: the task's own conflict is open in it); a machine check slot free. Serve's worktree is its own: while a conflict is open in it (conflict, resolving, resolved) no other task is gated, also while a needs-you pauses that work (the state it left is conflict, resolving or resolved; RV-38 #9); that ends when the task abandons the work (reject, regate, a new attempt) or merges | intent `gate[.N]{kind, lane, input}`: kind `lane` (submit's sha), `resolved` (the merge the integrator committed in the scratch, after row 30) or `moved` (the candidate merged onto the moved target, after row 32) | `Scratch.Gate`: reset the worktree to the target, merge in the scratch, check, commit, pin | result `{Candidate, patch hash, green\|red\|conflict\|fail}` | G |
-| 19 | green → awaiting-accept | after row 18 green | no accept bound to this patch hash | intent `review[.N]{agent, job, patch}` (job `<task>/<attempt>/review[.N]`) | the job text carries the worker's report, and apart its `Open questions:` section verbatim (cut at 15 KB like the diff) when it leaves something open, for the integrator to decide or hold (T-649); the job's first start (`start.<job step>`, row 36) is a fresh integrator session with the wake as its first prompt (T-602), also when one runs; the wake is typed only after a start that did not carry it (a replay's `running`, a later `start.<job>.N`) and for retry/nudge | result `sent` / `sent: <error>` | — |
-| 20 | green → accepted | after row 18 green (a re-gate included) | an accept for this attempt has the same patch hash | fact `accept.kept{patch hash}` | — | — | F (then row 33) |
-| 21 | red → working (sendback) | row 18 red | sendbacks < K | fact `sendback{gate red, attempt+1}` | — | — | F (then row 24) |
-| 22 | red (past K), fail → needs-you | row 18 fail (lane_setup, missing command, timeout), or red with sendbacks ≥ K | — | fact `needs-you{gate …}` | notify | — | F |
+| 18 | submitted, resolved → candidate; moved → green; any of them → red \| conflict \| fail | scheduler tick | scratch free (a resolved gate: the task's own conflict is open in it); the merge marker free (compile holds it, seconds). Serve's worktree is its own: while a conflict is open in it (conflict, resolving, resolved) no other task is gated, also while a needs-you pauses that work (the state it left is conflict, resolving or resolved; RV-38 #9); that ends when the task abandons the work (reject, regate, a new attempt) or merges | intent `gate[.N]{kind, lane, input}`: kind `lane` (submit's sha), `resolved` (the merge the integrator committed in the scratch, after row 30) or `moved` (the candidate merged onto the moved target, after row 32) | `Scratch.Gate` (T-961: the slot runs no test): reset the worktree to the target, merge S onto the target head T in the scratch (resolved: R as committed), `commands.compile` after `lane_setup` (obor-kit: `make check-compile`, build, gofmt, vet, deadcode; none configured: nothing runs), commit C, pin `refs/obor/candidate/<task>`; `Candidate{SHA: C, Target: T, Base: merge-base(S, T), Patch/Stat/Diff of Base..S}` (the task's own diff, which a move keeps) | result `{Candidate, patch hash, green\|red\|conflict\|fail}`: a lane or resolved input green → candidate (row 18b); a moved input green → green (row 20 decides); red: it does not compile. A result before T-961 (its candidate has no `Base`: the gate ran the checks) folds green as then | G |
+| 18b | candidate → green \| red \| fail | after row 18 green (lane or resolved input) | outside the scratch token: one per lane, in parallel with the other lanes' tests and the slot's steps; a pool slot (prio `worker`, never the merge marker: `slots.max` bounds the lanes testing at once); the lane clean (uncommitted changes there: an error, tried again on a later pass, the lane never touched; three, a needs-you `test failed: lane <L> dirty …`) | intent `test[.N]{candidate C, target T, lane}` | `Scratch.Test` (`internal/checks/lanetest.go`) in the lane worktree: `checkout --detach C`, `lane_links`, `OBOR_CHANGED_FILES` = `diff T..C`, classify, `lane_setup`, the class's checks and the guard (`runChecks`; obor-kit's `check_affected`), the lane's CPU budget (`GOMAXPROCS`, `GOFLAGS=-p`, `CHECK_CPUS`: `slots.lane_cpus`' default 2), then what the checks changed discarded and the lane's branch checked out again (the dispatch's branch when the lane was found detached: a test cut before its restore); a step that stages a file no longer lands it in the merge (C is committed before any check) | result `{green\|red\|fail, line, checks, tree}`: green → green (row 19/20), red → red (rows 21–22), fail → needs-you | G |
+| 19 | green → awaiting-accept | after row 18b green (a gate before T-961: row 18 green) | no accept bound to this patch hash | intent `review[.N]{agent, job, patch}` (job `<task>/<attempt>/review[.N]`) | the job text carries the task's own diff `Base..S` (T-961: `Stat` and `Diff` of it, `git diff <Base> <S>`, the candidate sha for context; whatever the target did since, one review per attempt), the worker's report, and apart its `Open questions:` section verbatim (cut at 15 KB like the diff) when it leaves something open, for the integrator to decide or hold (T-649); the job's first start (`start.<job step>`, row 36) is a fresh integrator session with the wake as its first prompt (T-602), also when one runs; the wake is typed only after a start that did not carry it (a replay's `running`, a later `start.<job>.N`) and for retry/nudge | result `sent` / `sent: <error>` | — |
+| 20 | green → accepted | after row 18 green (a moved gate's) or 18b green (a resolution's test) | an accept for this attempt has the same patch hash: T-961, the patch is `sha256(diff Base..S)`, which a move keeps, so a moved gate always lands here; a lead spec change since the accept ends it (the gate's spec rev differs: row 19 again) | fact `accept.kept{patch hash}` | — | — | F (then row 33) |
+| 21 | red → working (sendback) | row 18 red (it does not compile) or row 18b red | sendbacks < K | fact `sendback{gate red, attempt+1}` | — | — | F (then row 24) |
+| 22 | red (past K), fail → needs-you | row 18 or 18b fail (lane_setup, missing command, timeout), or red with sendbacks ≥ K (both reds count) | — | fact `needs-you{gate …}` | notify | — | F |
 | 23 | conflict → resolving | after row 18 conflict | integrator running (row 36) | intent `resolve[.N]{agent, job, patch}` (job `<task>/<attempt>/resolve[.N]`; no fact of its own: the job's intent is the transition) | the job's first start (`start.<job step>`, row 36) is a fresh integrator session with the wake as its first prompt (T-602), also when one runs; the wake is typed only after a start that did not carry it (a replay's `running`, a later `start.<job>.N`) and for retry/nudge (the job's text, fetched, names the conflict and the scratch) | result `sent` / `sent: <error>` | — |
 | 24 | (sendback) working | after row 21, 28 or 16b | — | intent `prompt{job fix}` | `agent.prompt` to the worker: the fix job's wake (its text, fetched: the reasons) | result `sent` | — (delivery timers as rows 6–8, T-419) |
 | 25 | awaiting-accept / resolving → the attempt's next job | after row 19 or 23: an owner's reprompt (`obor resume reprompt`, row 40), or `job.lost` (row 31: the integrator started again, row 36) | integrator running (row 36) | intent `review[.N]` / `resolve[.N]{agent, job, patch}` (a later job of the attempt, e.g. `review.2`) | the job's first start (`start.<job step>`, row 36) is a fresh integrator session with the wake as its first prompt (T-602), also when one runs; the wake is typed only after a start that did not carry it (a replay's `running`, a later `start.<job>.N`) and for retry/nudge; the earlier job is closed (row 6), so its id is no longer the open job | result `sent` / `sent: <error>` | — (job id = task/attempt/review.N or resolve.N) |
@@ -315,9 +320,9 @@ publish already running refuses its fast-forward off the branch (an error: run a
 | 27 | awaiting-accept (no change) | MCP `accept` with a stale hash | hash ≠ current candidate's | — | reply `stale: re-read the candidate` | — | F (nothing recorded) |
 | 28 | awaiting-accept → working | MCP `sendback{notes, call id}` | caller is the integrator; sendbacks < K (else row 22 path) | the verdict's record `sendback.<call id>` (the transition, no separate fact; past K it records and goes to the owner) | reply | — | F (then row 24) |
 | 29 | awaiting-accept → rejected | MCP `reject{reason, call id}` | caller is the integrator | fact `rejected{reason, call id}`, then the step `unpin` (G) deletes the task's pins | reply; then `needs-you{rejected by the integrator: …}`: the owner frees the lane. The app stops no worker after a reject (row 37 is a merge's) | — | F (then row 40) |
-| 30 | resolving → resolved | MCP `resolved{call id}` | caller is the integrator; the scratch holds the merge commit: the verdict first pins it at `refs/obor/resolved/<task>` (refused when there is none, it is uncommitted, or it is not the merge of the conflicting gate's input onto the target: another task's HEAD is never pinned) | fact `resolved{call id}` with the pinned sha, the resolved gate's input | reply | — | F (then row 18 as `gate.N`; the publish and a reject's `unpin` drop the pin) |
+| 30 | resolving → resolved | MCP `resolved{call id}` | caller is the integrator; the scratch holds the merge commit: the verdict first pins it at `refs/obor/resolved/<task>` (refused when there is none, it is uncommitted, or it is not the merge of the conflicting gate's input onto the target: another task's HEAD is never pinned) | fact `resolved{call id}` with the pinned sha, the resolved gate's input | reply | — | F (then row 18 as `gate.N`, compiled, then row 18b: a resolution is tested once in the lane, and row 20 keeps an accept, else row 19; the publish and a reject's `unpin` drop the pin) |
 | 31 | resolving / awaiting-accept → needs-you | MCP `reject{reason}` on the resolve job, or the job fails: not delivered (rows 7–8), delivered and the integrator idle with it 10 min after one nudge (`nudge.<job step>`), or its pane exited a second time (the first: fact `job.lost`, the integrator started again (row 36), the job re-sent as the next job, `review.N`/`resolve.N`), or the integrator holds it (MCP `hold{why}`, the verdicts' checks: one fact, no verdict record; the job stays open and a verdict on it ends the hold as `obor resume` does) | — | fact `needs-you{resolve rejected \| job not delivered \| job stalled \| held: why}` | notify | — | F (the job timers are folded from the facts, not recorded: a replay starts them afresh) |
-| 32 | accepted → moved | target HEAD ≠ `Candidate.Target` (seen before publish, or ff refused) | — | fact `target.moved{new sha}` | — | — | F (then row 18 as `gate.N`; rows 19/20 decide accept) |
+| 32 | accepted → moved | target HEAD ≠ `Candidate.Target` (seen before publish, or ff refused) | — | fact `target.moved{new sha}` | — | — | F (then row 18 as `gate.N`: merge onto the new target and compile, seconds; green → row 20 `accept.kept` → row 33 `publish.N`. No test, no review on a move, T-961) |
 | 33 | accepted → published | scheduler tick | target HEAD = `Candidate.Target` | intent `publish{Candidate.SHA, target sha}` | `Scratch.Publish`: ff-only of the target | result `{target head}` / `Already` | G |
 | 34 | published → merged; submitted, green, awaiting-accept, red, conflict, resolving, fail, working, needs-you → merged (outside) | row 33 result ok, or the task's merge evidence is on the target before the app published it (a hand merge in git) | — | fact `merged{head}` / `merged{outside}` (a log's `full`, before T-781, is not read) | — | — | F (then rows 37–38; outside: no publish, no after_merge) |
 | 35 | accepted → needs-you | ff refused, target not moved (dirty main checkout, hook refused) | — | fact `needs-you{publish}` | notify | — | F |
@@ -353,10 +358,11 @@ Rule 1 is row 2a, rules 3 and 4 are rows 18–33; rule 2 (tier lists) and rule 5
    names as a dependency (`--after`) is merged.
 2. **Dispatch by tier list**: not built.
 3. **Accept / reject / sendback**: only the integrator gives them, only for the current candidate (patch hash). The
-   gate's red is an automatic sendback, at most K = 2 per task, then needs-you. A gate conflict is a resolve job for
+   gate's or the lane test's red is an automatic sendback, at most K = 2 per task, then needs-you. A gate conflict is a resolve job for
    the integrator, not a needs-you; needs-you only after that job fails or is rejected.
-4. **Gate before accept; moved target**: nothing is accepted before its gate is green. Before publish and on a
-   refused ff, re-gate; a byte-identical patch keeps the accept, a different one goes back to awaiting-accept. The
+4. **Gate and test before accept; moved target**: nothing is accepted before its gate and its lane test are green
+   (T-961). Before publish and on a refused ff, merge and compile again (`gate.N`); the accept is bound to the task's
+   own patch (`Base..S`), which a move keeps, so it always stands unless the spec rev changed (row 20). The
    publish waits only for an admission in force (a `config_set` or a `review_close`, from its wait to its commit in, T-730, T-926); a role's start
    (a review's, a verify, a brief to the reviewer or the deep dive) and the reviewer or the deep dive working hold
    nothing (T-853, T-872: a start reads the head once and uses that sha; they read their own role worktree, which
@@ -371,21 +377,26 @@ multi-machine.
 ## Concurrency (T-369)
 
 One merge loop goroutine serves the project (a serve holds one, T-522), and only what needs serve's worktree is
-serial: at most one of gate, publish and a `resolved` verdict's check holds the scratch at a time (a token). A gate or
+serial: at most one of gate, publish and a `resolved` verdict's check holds the scratch at a time (a token; T-961: a
+gate merges and compiles, seconds). A lane test (row 18b) runs outside the token, one per lane (a lane holds one task),
+in parallel with the other lanes' and with the slot's steps (`p.tests`; its effect in `p.exec` like any); the pool slot
+it takes bounds how many lanes test at once (`slots.max`). A gate or
 a publish runs in its own goroutine holding that token; the task waits (no other step of it is decided) until the
 effect's intent and result are folded, then the goroutine wakes the loop. Meanwhile the loop goes on with everything
 else: dispatch steps, after-merge steps, prompts and verdicts. The event log stays the one
 ordered writer (`Log.Do`, appends under its lock), and an append and its fold are one section under the app's `mu`
-(T-944: the store write joins it, never an effect), so a live fold sees records in seq order, as replay does; the failure rule and the crash classes are unchanged: a gate cut by a
-stop or a crash leaves its intent pending (not counted), and a replay runs it again under the same key. `obor serve
+(T-944: the store write joins it, never an effect), so a live fold sees records in seq order, as replay does; the failure rule and the crash classes are unchanged: a gate or a lane test cut by a
+stop or a crash leaves its intent pending (not counted), and a replay runs it again under the same key (a cut test
+restores the lane's branch first; a crash that left the lane detached is restored by the replay's run). `obor serve
 status` shows the step running (`running`); the loop's end waits for the running effects, which its context cuts.
-Parallel gates are out (one scratch).
+Parallel gates are out (one scratch); parallel lane tests are in.
 
 Drop vs a selected step (T-392, T-395, RV-42 #1): a step the loop selected starts only after one atomic check (under
 the app's lock) that its task/attempt is still current and not ended (dropped, or a drop of it decided); the check
-holds the task until the step returns (a gate or publish keeps the scratch and `running` through its effect). `obor
+holds the task until the step returns (a gate or publish keeps the scratch and `running` through its effect, a lane
+test `p.tests`). `obor
 drop` never waits: in one section under the same lock it decides and marks the task ended, refused at once while a
-step holds the task (`<step> is running; retry when it settles`) or a gate or publish is pending. The mark lands
+step holds the task (`<step> is running; retry when it settles`) or a gate, lane test or publish is pending. The mark lands
 before `dropped` (or `dropping`, T-852) is written (a failed write clears it and the drop fails), so no effect starts
 after `DROPPED` or `DROPPING` but the drop's own steps (a step selected before `dropping` is refused by the same
 check), and none is still starting when it is returned. Submissions (`task_done`) check the mark under the

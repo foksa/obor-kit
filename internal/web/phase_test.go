@@ -30,7 +30,8 @@ func TestPhaseAgreesAcrossLanesPipelineAndWeb(t *testing.T) {
 	for _, c := range []struct{ state, phase string }{ // a worker's needs-you (working) has no merge stage (T-797)
 		{"waiting", wire.PhaseWaiting}, {"dispatched", wire.PhaseDispatching}, {"working", wire.PhaseWorking},
 		{"driving", wire.PhaseDriving}, {"submitted", wire.PhaseSubmitted}, {"submitted", wire.PhaseGating},
-		{"submitted", wire.PhaseGatePending}, {"green", wire.PhaseReview}, {"awaiting-accept", wire.PhaseReviewing},
+		{"submitted", wire.PhaseGatePending}, {"candidate", wire.PhaseTesting}, {"candidate", wire.PhaseTestPending},
+		{"green", wire.PhaseReview}, {"awaiting-accept", wire.PhaseReviewing},
 		{"accepted", wire.PhasePublish}, {"accepted", wire.PhaseMerging}, {"accepted", wire.PhasePublishPending},
 		{"working", wire.PhaseNeedsYou}, {"needs-you", wire.PhaseHeld},
 		{"rejected", wire.PhaseRejected},

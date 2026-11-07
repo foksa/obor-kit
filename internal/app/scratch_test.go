@@ -19,20 +19,21 @@ import (
 )
 
 // gitScratch is the fake app.Scratch the loop tests drive: the real adapter's steps over the fixture's
-// git in a few lines (the real adapter is checks'; T-341). Its worktree is <Base>/proj-wt/merge; commands.lane_setup,
-// commands.check and commands.after_merge run there (after_merge in the main checkout) with sh. fail makes a method
+// git in a few lines (the real adapter is checks'; T-341). Its worktree is <Base>/proj-wt/merge; commands.lane_setup
+// and commands.compile run there, commands.check in the lane (Test, T-961) and commands.after_merge in the main checkout,
+// each with sh. fail makes a method
 // return an error instead of acting (the failure rule's error cells).
 type gitScratch struct {
 	p       *testkit.Project
 	lanes   *laneTable
 	environ []string
 
-	submits, gates, publishes, afterMerges atomic.Int32
-	full                                   atomic.Bool // each gate's Candidate.Full
+	submits, gates, tests, publishes, afterMerges atomic.Int32
 
 	mu           sync.Mutex
 	fail         map[string]func(ctx context.Context) error // by method: Submit, Gate, Publish, AfterMerge, Unpin
 	onAfterMerge func()                                     // runs before each AfterMerge
+	onTest       func(ctx context.Context, lane string)     // runs in each Test with the candidate checked out in lane
 	specs        []string                                   // each gate's GateInput.Spec, in order
 }
 
@@ -175,17 +176,20 @@ func (s *gitScratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutc
 	} else if rc > 0 {
 		return port.GateOutcome{Kind: port.OutcomeFail, Line: fmt.Sprintf("FAIL lane_setup (rc %d)", rc)}, nil
 	}
-	checks := ""
-	if rc, out, err := s.sh(ctx, dir, "check"); err != nil {
+	checks := "" // T-961: the slot compiles (commands.compile), the lane test runs commands.check
+	if rc, out, err := s.sh(ctx, dir, "compile"); err != nil {
 		return port.GateOutcome{}, err
 	} else if rc > 0 {
-		return port.GateOutcome{Kind: port.OutcomeRed, Line: fmt.Sprintf("RED check (rc %d): %s", rc, out)}, nil
+		return port.GateOutcome{Kind: port.OutcomeRed, Line: fmt.Sprintf("RED compile (rc %d): %s", rc, out)}, nil
 	} else if rc == 0 {
-		checks = "rc=0"
+		checks = "compile rc=0"
 	}
-	sha := in.Input
+	sha, submitted := in.Input, in.Input
 	if in.Kind == port.InputResolved {
 		if target, err = s.git(ctx, dir, "rev-parse", sha+"^1"); err != nil {
+			return port.GateOutcome{}, err
+		}
+		if submitted, err = s.git(ctx, dir, "rev-parse", sha+"^2"); err != nil {
 			return port.GateOutcome{}, err
 		}
 	} else {
@@ -206,14 +210,76 @@ func (s *gitScratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutc
 	if _, err := s.git(ctx, s.p.Root, "update-ref", "refs/obor/candidate/"+in.Task, sha); err != nil {
 		return port.GateOutcome{}, err
 	}
-	diff, err := s.git(ctx, s.p.Root, "diff", target, sha)
+	// The task's own diff (T-961): merge-base(S, target)..S, which a move keeps.
+	base, err := s.git(ctx, s.p.Root, "merge-base", submitted, target)
 	if err != nil {
 		return port.GateOutcome{}, err
 	}
-	stat, _ := s.git(ctx, s.p.Root, "diff", "--stat", target, sha)
+	diff, err := s.git(ctx, s.p.Root, "diff", base, submitted)
+	if err != nil {
+		return port.GateOutcome{}, err
+	}
+	stat, _ := s.git(ctx, s.p.Root, "diff", "--stat", base, submitted)
 	sum := sha256.Sum256([]byte(diff))
 	return port.GateOutcome{Kind: port.OutcomeGreen, Candidate: port.Candidate{Task: in.Task, Lane: in.Lane, SHA: sha, Target: target,
-		Patch: hex.EncodeToString(sum[:]), Checks: checks, Stat: stat, Full: s.full.Load()}}, nil
+		Base: base, Patch: hex.EncodeToString(sum[:]), Checks: checks, Stat: stat}}, nil
+}
+
+// Test is the lane test (T-961), as checks.Scratch's: a dirty lane is an error (the lane untouched); the candidate
+// checked out detached in the lane, commands.check run there, the lane's branch restored.
+func (s *gitScratch) Test(ctx context.Context, in port.TestInput) (port.TestOutcome, error) {
+	s.tests.Add(1)
+	if err := s.failing(ctx, "Test"); err != nil {
+		return port.TestOutcome{}, err
+	}
+	dir := ""
+	s.lanes.mu.Lock()
+	for _, l := range s.lanes.lanes {
+		if l.Name == in.Lane {
+			dir = l.Dir
+		}
+	}
+	s.lanes.mu.Unlock()
+	if dir == "" {
+		return port.TestOutcome{Kind: port.OutcomeFail, Line: "FAIL no lane " + in.Lane}, nil
+	}
+	if dirty, err := s.git(ctx, dir, "status", "--porcelain"); err != nil {
+		return port.TestOutcome{}, err
+	} else if dirty != "" {
+		return port.TestOutcome{}, errors.New("lane " + in.Lane + " dirty: its test runs once it is clean")
+	}
+	branch, err := s.git(ctx, dir, "branch", "--show-current")
+	if err != nil {
+		return port.TestOutcome{}, err
+	}
+	if branch == "" {
+		branch = in.Branch
+	}
+	if _, err := s.git(ctx, dir, "checkout", "-q", "--detach", in.SHA); err != nil {
+		return port.TestOutcome{}, err
+	}
+	s.mu.Lock()
+	during := s.onTest
+	s.mu.Unlock()
+	if during != nil {
+		during(ctx, dir)
+	}
+	rc, out, err := s.sh(ctx, dir, "check")
+	if _, rerr := s.git(context.WithoutCancel(ctx), dir, "checkout", "-q", branch); rerr != nil && err == nil {
+		err = rerr
+	}
+	switch {
+	case err != nil:
+		return port.TestOutcome{}, err
+	case rc > 0:
+		return port.TestOutcome{Kind: port.OutcomeRed, Line: fmt.Sprintf("RED check (rc %d): %s", rc, out)}, nil
+	}
+	checks := "no check"
+	if rc == 0 {
+		checks = "rc=0"
+	}
+	tree, _ := s.git(ctx, s.p.Root, "rev-parse", in.SHA+"^{tree}")
+	return port.TestOutcome{Kind: port.OutcomeGreen, Line: "GREEN " + in.Task + " (" + checks + ")", Checks: checks, Tree: tree}, nil
 }
 
 func (s *gitScratch) Resolved(ctx context.Context, task, input string, _ *port.Mismatch) (string, error) {

@@ -1,5 +1,6 @@
 # obor (Go). `make build` → dist/obor, `make test` → go test ./..., `make check` → the merge gate (commands.check),
-# `make check-affected` → its per-merge tier (commands.check_affected), `make check-readers` / `make check-web` →
+# `make check-affected` → its per-merge tier (commands.check_affected), `make check-compile` → the merge slot's
+# compile tier (commands.compile, T-961), `make check-readers` / `make check-web` →
 # the two non-Go classes' checks (skills/templates/hooks and the page's Go side, T-901), `make check-release` → the
 # kit's own release tooling (the Makefile, scripts/, install.sh; tests/release, T-902),
 # `make trim-go-cache` → the Go build cache's entries unused for 48 h (commands.trim_go_cache, nightly, T-817),
@@ -29,7 +30,7 @@ endif
 GOOS_LIST := darwin linux
 GOARCH_LIST := arm64 amd64
 
-.PHONY: build test conformance trim-go-cache check check-affected check-readers check-web check-release deadcode deps upgrade-check release ship publish clean web web-dev web-test
+.PHONY: build test conformance trim-go-cache check check-affected check-compile check-readers check-web check-release deadcode deps upgrade-check release ship publish clean web web-dev web-test
 
 build:
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags "-s -w -X obor/internal/version.Version=$(BUILD_VERSION)" -o dist/obor ./cmd/obor
@@ -62,9 +63,9 @@ trim-go-cache:
 
 # The merge gate (check: the full suite) and its per-merge tier (check-affected, commands.check_affected, T-347): the
 # same steps, but go test only on the packages $OBOR_CHANGED_FILES affects (obor affected go); any doubt runs the full
-# suite. A clean move (OBOR_MOVED=1, T-914: the gate kept a green result and the two sides share only affected
-# packages) skips go test and runs build, gofmt, vet and deadcode. CHECK_CPUS (obor run and the gates export it:
-# cores / slots.max) is go test -p. Every class check starts with
+# suite. Serve's lane step runs the class's tier in the task's lane (T-961). check-compile (commands.compile, T-961) is
+# what serve's merge slot runs on each merge: build, gofmt, vet and deadcode, no go test. CHECK_CPUS (obor run and the
+# gates export it: cores / slots.max) is go test -p. Every class check starts with
 # GO_GATE: GOCACHE falls back to $TMPDIR when the default is not writable (a Codex sandbox, T-206), then build, gofmt and
 # vet; every failure prints a line fail_grep matches (^FAIL).
 GO_GATE = c=$$($(GO) env GOCACHE 2>/dev/null); \
@@ -75,11 +76,9 @@ GO_GATE = c=$$($(GO) env GOCACHE 2>/dev/null); \
 	$(GO) vet ./... || { echo "FAIL go vet"; exit 1; }
 check check-affected:
 	@$(GO_GATE); \
-	pkgs=./...; skip=; \
+	pkgs=./...; \
 	if [ "$@" = check-affected ]; then \
-	  if [ -n "$$OBOR_MOVED" ]; then \
-	    skip=1; echo "go test: skipped (a clean move: compile steps only, OBOR_MOVED=1)"; \
-	  elif a=$$(./dist/obor affected go); then \
+	  if a=$$(./dist/obor affected go); then \
 	    case "$$a" in \
 	      "full: "*) echo "affected: full suite ($${a#full: })" ;; \
 	      "") pkgs= ;; \
@@ -87,14 +86,16 @@ check check-affected:
 	    esac; \
 	  else echo "affected: full suite (obor affected go failed)"; fi; \
 	fi; \
-	if [ -z "$$skip" ]; then \
-	  if [ -z "$$pkgs" ]; then echo "go test: 0 pass, 0 fail (no affected Go packages, go test skipped)"; else \
-	    rc=0; out=$$($(GO) test -count=1 $${CHECK_CPUS:+-p $$CHECK_CPUS} $$pkgs 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
-	    n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
-	    echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"; \
-	  fi; \
+	if [ -z "$$pkgs" ]; then echo "go test: 0 pass, 0 fail (no affected Go packages, go test skipped)"; else \
+	  rc=0; out=$$($(GO) test -count=1 $${CHECK_CPUS:+-p $$CHECK_CPUS} $$pkgs 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
+	  n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
+	  echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"; \
 	fi; \
 	$(MAKE) -s deadcode || { echo "FAIL deadcode"; exit 1; }
+check-compile:
+	@$(GO_GATE); \
+	$(MAKE) -s deadcode || { echo "FAIL deadcode"; exit 1; }; \
+	echo "compile: build, gofmt, vet, deadcode OK"
 
 # check-readers: the packages that read the non-Go files outside a Go rule (merge.classes "readers", T-901). The survey
 # greps the .go files under cmd/ and internal/ for each path, package by package; TestOborKitReaders fails when a package

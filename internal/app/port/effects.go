@@ -227,17 +227,18 @@ func (p Process) Program() string {
 	return s[strings.LastIndex(s, "/")+1:]
 }
 
-// Candidate is a checked merge waiting to be published, pinned at refs/obor/candidate/<task> until it is published or
-// rejected: the commit the checks passed on and the target it was checked against.
+// Candidate is a compiled merge waiting to be tested and published, pinned at refs/obor/candidate/<task> until it is
+// published or rejected: the commit the slot made and the target it merged onto (T-961). Patch, Stat and Diff are of
+// the task's own diff Base..S (S: the submitted sha, the merge's second parent), so a move keeps them (row 20).
 type Candidate struct {
 	Task, Lane string
-	SHA        string // the checked merge commit (its first parent is Target)
-	Target     string // the target sha the checks ran against
-	Patch      string // sha256 of git diff Target SHA: an accept is bound to it (docs/state-model.md)
-	Checks     string // the checks summary ("" when none ran)
-	Stat       string // git diff --stat Target SHA
-	Diff       string // git diff Target SHA when at most InlineDiff bytes, else "" (the review job carries it, T-602)
-	Full       bool   // a full check ran, not a class's partial one
+	SHA        string // the merge commit (its first parent is Target, its second the submitted sha)
+	Target     string // the target sha the merge went onto
+	Base       string // merge-base(S, Target): the task's own diff is Base..S ("": a gate before T-961)
+	Patch      string // sha256 of git diff Base S: an accept is bound to it (docs/state-model.md row 20)
+	Checks     string // the slot's compile summary ("" when no compile ran)
+	Stat       string // git diff --stat Base S
+	Diff       string // git diff Base S when at most InlineDiff bytes, else "" (the review job carries it, T-602)
 }
 
 // InlineDiff is the largest candidate diff the review job carries whole (T-602): larger, the job says to read it.
@@ -251,8 +252,13 @@ type Scratch interface {
 	// it already has is returned as it is. A final refusal (no lane dir, not on a branch, already in the target) is a
 	// Refused error.
 	Submit(ctx context.Context, task, id, lane, summary, worker string) (sha string, err error)
-	// Gate resets serve's worktree, merges or takes in.Input there, checks it, commits and pins the candidate.
+	// Gate resets serve's worktree, merges or takes in.Input there, compiles it (commands.compile), commits and pins
+	// the candidate (T-961: no test runs there).
 	Gate(ctx context.Context, in GateInput) (GateOutcome, error)
+	// Test runs the class's checks for the candidate in.SHA in the task's lane worktree (T-961, row 18b): checked out
+	// detached there, the lane's branch restored after. A lane with uncommitted changes is an error (tried again: the
+	// lane is never touched); an outcome is green, red or fail.
+	Test(ctx context.Context, in TestInput) (TestOutcome, error)
 	// Resolved pins the merge the integrator resolved and committed in serve's worktree at refs/obor/resolved/<task>:
 	// its sha (the verdict's pin). It must be the merge of input (the conflicting gate's) onto the target; anything
 	// else (an open merge, HEAD in the target, another merge) is a Refused error.
@@ -283,24 +289,30 @@ type GateInput struct {
 	Body                    string // the worker report's whole Summary section, the merge's body ("": Summary, T-807)
 	Spec                    string
 	SpecRev                 int
-	// Green, on an InputMoved gate, is the base the attempt's last checked green gate ran on, set only while the
-	// attempt's last gate result is green ("": none, the gate runs). The gate keeps that result, no command run, when
-	// the merge onto the new target is clean, Green is its ancestor and the commits since Green overlap none of the
-	// candidate's files and affected packages, neither side full (T-900; design "Test tiers and receipts").
-	Green string
 	// Resolved, on an InputMoved gate, is the attempt's last checked resolution (the resolved gate's input, T-915; "":
 	// none). A merge that needed a rerere replay is clean only when its patch equals that resolution's: else, or with
 	// none, a conflict naming the files whose patch differs (rerere replays hunks, not the resolution's other edits).
 	Resolved string
-	// Command, when set, is told the name of each command the gate starts (commands.<name>: lane_setup, the guard,
-	// the class's checks, or check), for obor status' running line (T-669).
+	// Command, when set, is told the name of each command the gate starts (commands.<name>: lane_setup, compile), for
+	// obor status' running line (T-669).
 	Command func(name string)
 }
 
-// Affected is `obor affected go` (internal/affected) as the entry hands it to the merge gate (T-900; adapters reach
-// each other only through core types): the Go packages the changed files (repo-relative) of the module at root
-// affect, or full's reason ("": not full) when the whole suite must run (fullGlobs: merge.affected_full).
-type Affected func(root string, files, fullGlobs []string) (pkgs []string, full string, err error)
+// TestInput is one lane test (T-961, row 18b): the task's candidate SHA, compiled onto Target, tested in Lane's
+// worktree; Branch is the lane's branch as the dispatch recorded it, restored when the lane is found detached already
+// (a test cut before its restore). Command is told each command it starts, as GateInput's.
+type TestInput struct {
+	Task, Lane, Branch string
+	SHA, Target        string
+	Command            func(name string)
+}
+
+// TestOutcome is a lane test's final outcome: Kind OutcomeGreen, OutcomeRed or OutcomeFail with Line; Checks the
+// checks' summary, Tree the tree they ran on (SHA's).
+type TestOutcome struct {
+	Kind, Line   string
+	Checks, Tree string
+}
 
 // Gate input kinds.
 const (
@@ -319,9 +331,6 @@ type GateOutcome struct {
 	Dir       string
 	// Mismatch: a conflict that is no unmerged path but a replayed resolution lost edits of the checked one (T-917).
 	Mismatch *Mismatch
-	// Kept: a green moved gate that kept the result checked on this base (GateInput.Green, T-900): no command ran, its
-	// Candidate is partial (Full false) and its Checks read "kept <base7>".
-	Kept string
 }
 
 // Mismatch is a replayed resolution that differs from the checked one (T-915, T-917): the checked resolution's sha,

@@ -124,7 +124,7 @@ func (v *validator) models() {
 
 // gatingCommands are the commands a merge or the nightly gates on, a merge class's checks beside them:
 // merge.nightly_commands must name none of them (T-817).
-var gatingCommands = []string{"lane_setup", "check", "check_milestone", "baseline", "gate", "e2e", "guard"}
+var gatingCommands = []string{"lane_setup", "compile", "check", "check_milestone", "baseline", "gate", "e2e", "guard"}
 
 // nightlyCommands: every merge.nightly_commands entry is a defined commands.<name> and no gating command — nightly
 // runs it non-gating, after its gates (T-817).

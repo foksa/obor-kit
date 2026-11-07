@@ -19,24 +19,23 @@ import (
 
 // runner is the command side of a check run: commands in dir under their
 // timeouts, every one but lane_setup holding the check slot, their logs, counts and failures, and the merge's class.
-// It holds no lock and no scratch state: obor serve's Scratch makes one per gate.
+// It holds no lock and no scratch state: obor serve's Scratch makes one per gate and per lane test.
 type runner struct {
 	*Options
 	ctx         context.Context
 	sigCode     func() int // the exit code of the signal that ended ctx (nil: Fail)
 	root, state string     // the main checkout and its .obor/state
-	dir         string     // where the commands run: the scratch
+	dir         string     // where the commands run: the scratch, or a lane (a lane test)
 	logName     string     // log file prefix: the task, nightly, milestone
 	changedFile string     // the OBOR_CHANGED_FILES file under state
 	slot        string
-	env         []string // extra command environment (OBOR_CHANGED_FILES, OBOR_MOVED, OBOR_BASELINE, OBOR_GATE)
+	env         []string // extra command environment (OBOR_CHANGED_FILES, OBOR_BASELINE, OBOR_GATE, a lane test's CPU budget)
+	prio        string   // the check slot's priority: "merge" (the merge marker; "" too) or "worker" (a pool slot: a lane test, T-961)
 	pre         string   // the target side of the merge
-	moved       bool     // a clean move kept green: the class's checks run without their tests (OBOR_MOVED=1, T-914)
 	class       Class
 	mode        string            // class.Mode() once classified
 	check       string            // the checks' counts
 	gate        string            // ", gate <counts>" when the gate ran
-	staged      bool              // the merge being checked is uncommitted in dir (its tree is written from the index)
 	reused      []string          // the trees the reused receipts named (receipts.go)
 	noReuse     bool              // a reused tree went stale: every check runs
 	pruned      bool              // the old logs were removed (once per run)
@@ -118,7 +117,7 @@ func (r *runner) exec(name string, dir ...string) (output, bool, *halt) {
 		if h := r.takeSlot(); h != nil {
 			return output{}, true, h
 		}
-		environ = append(environ, "CHECK_PRIORITY=merge", "CHECK_SLOT_HELD="+r.slot)
+		environ = append(environ, "CHECK_PRIORITY="+r.priority(), "CHECK_SLOT_HELD="+r.slot)
 	}
 	environ = append(environ, r.env...)
 	wd := r.dir
@@ -162,7 +161,16 @@ func (r *runner) writeLog(name string, b []byte) string {
 	return path
 }
 
-// takeSlot takes the merge-running-<project> check slot unless held.
+// priority is the check slot's priority the runner takes: merge unless set (a lane test's worker, T-961).
+func (r *runner) priority() string {
+	if r.prio == "" {
+		return "merge"
+	}
+	return r.prio
+}
+
+// takeSlot takes the check slot of the runner's priority unless held: the merge-running-<project> marker (merge), or
+// a pool slot (worker).
 func (r *runner) takeSlot() *halt {
 	if r.slot != "" {
 		return nil
@@ -172,7 +180,7 @@ func (r *runner) takeSlot() *halt {
 		sl := run.SlotsFor(r.Cfg, r.Env)
 		slots = &sl
 	}
-	path, err := slots.Acquire(r.ctx, "merge", r.PID, r.Out)
+	path, err := slots.Acquire(r.ctx, r.priority(), r.PID, r.Out)
 	switch {
 	case err == nil:
 		r.slot = path
@@ -345,9 +353,6 @@ func (r *runner) changed(task, rev string) *halt {
 	r.class = Classify(r.Cfg.Data.Merge, files, r.Env.Get("OBOR_FULL") == "1")
 	r.mode = r.class.Mode()
 	r.env = append(r.env, "OBOR_CHANGED_FILES="+path)
-	if r.moved && r.class.Partial {
-		r.env = append(r.env, "OBOR_MOVED=1") // a clean move's class checks may skip their tests (T-914)
-	}
 	return nil
 }
 
@@ -367,19 +372,29 @@ func (r *runner) laneSetup() *halt {
 	return &halt{fail: fmt.Sprintf("lane_setup (rc %d)", o.rc)}
 }
 
+// compile runs commands.compile, the merge slot's one check (T-961: build, gofmt, vet, deadcode in obor-kit): a failure
+// is red. r.check is its counts, "" when it is not configured (nothing runs).
+func (r *runner) compile() *halt {
+	o, ok, h := r.must("compile")
+	if h != nil || !ok {
+		return h
+	}
+	r.check = "compile " + r.counts(o)
+	return nil
+}
+
 // runChecks runs the class's checks: partial → merge.guard, then the class's checks (a missing command → fail);
 // full → check, then baseline and gate when their "at" is "merge" (default "milestone"), the gate only when the merge
-// touches its paths or OBOR_GATE=1. staged: the merge is uncommitted in dir (its files are the index's against HEAD),
-// else committed (pre..HEAD).
-func (r *runner) runChecks(staged bool) *halt {
-	r.staged, r.noReuse = staged, false
+// (pre..HEAD: the candidate checked out in a lane, T-961) touches its paths or OBOR_GATE=1.
+func (r *runner) runChecks() *halt {
+	r.noReuse = false
 	class, envLen := r.class, len(r.env)
-	if h := r.runClassChecks(staged); h != nil || len(r.reused) == 0 {
+	if h := r.runClassChecks(); h != nil || len(r.reused) == 0 {
 		return h
 	}
 	// The guard, baseline or a check may have changed the tree after a receipt was matched (RV-40 #1): the candidate
 	// must be the tree the reused checks proved, else nothing is reused and every check runs on the final tree.
-	final, err := r.checkedTree(staged)
+	final, err := r.checkedTree()
 	if err != nil {
 		return &halt{err: err}
 	}
@@ -387,10 +402,10 @@ func (r *runner) runChecks(staged bool) *halt {
 		return nil
 	}
 	r.class, r.env, r.noReuse = class, r.env[:envLen], true
-	return r.runClassChecks(staged)
+	return r.runClassChecks()
 }
 
-func (r *runner) runClassChecks(staged bool) *halt {
+func (r *runner) runClassChecks() *halt {
 	r.gate, r.reused = "", nil
 	if r.class.Partial {
 		var checks []string
@@ -440,13 +455,7 @@ func (r *runner) runClassChecks(staged bool) *halt {
 	if gate, ok := r.command("gate"); ok && r.atMerge("gate") {
 		run := r.Env.Get("OBOR_GATE") == "1"
 		if !run {
-			var out string
-			var err error
-			if staged {
-				out, err = r.git(r.dir, "diff", "--cached", "--name-only", "HEAD")
-			} else {
-				out, err = r.git(r.dir, "diff", "--name-only", r.pre, "HEAD")
-			}
+			out, err := r.git(r.dir, "diff", "--name-only", r.pre, "HEAD")
 			if err != nil {
 				return &halt{err: fmt.Errorf("cannot list the files the gate checks in %s", r.dir)}
 			}

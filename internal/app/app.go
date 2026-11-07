@@ -161,6 +161,10 @@ type proj struct {
 	scratch chan struct{}
 	running event.Key
 	runCmd  string
+	// tests: the lane tests running now in their own goroutines (T-961: outside the scratch token, one per lane), the
+	// step's key by task; testCmd the command each runs now (TestInput.Command; "": none). Under mu.
+	tests   map[string]event.Key
+	testCmd map[string]string
 	// exec: the effects running now, each with when its start began (App.do). obor status' running line lists the
 	// command steps among them; an open intent not here is pending (T-662). Under mu.
 	exec map[event.Key]time.Time

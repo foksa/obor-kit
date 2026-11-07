@@ -149,6 +149,8 @@ const (
 	PhaseSubmitted      = "submitted"       // submitted: its gate is next
 	PhaseGating         = "gating"          // its gate runs, or runs again next (resolved, moved, red)
 	PhaseGatePending    = "gate pending"    // its gate's intent waits: a failed step, or a replay to run (T-662)
+	PhaseTesting        = "testing"         // its candidate's lane test runs, or runs next (T-961)
+	PhaseTestPending    = "test pending"    // its lane test's intent waits: a failed step (a dirty lane), or a replay to run
 	PhaseReview         = "review"          // gate green: its review or resolve job is next
 	PhaseReviewing      = "reviewing"       // the integrator's review or resolve job is out
 	PhasePublish        = "publish"         // accepted: its publish is next
@@ -165,7 +167,7 @@ const (
 // The merge loop's stages (PhaseStage): the pipeline's columns, in the order a task goes through them.
 const (
 	StageSubmitted = "submitted" // submitted, waits for the scratch
-	StageGating    = "gating"    // its gate runs, waits, or failed red
+	StageGating    = "gating"    // its gate or lane test runs, waits, or failed red
 	StageReview    = "review"    // gate green: the integrator's review or resolve job
 	StagePublish   = "publish"   // accepted: published onto the target
 	StageHeld      = "held"      // needs-you or held: the owner decides
@@ -177,7 +179,7 @@ func PhaseStage(phase string) string {
 	switch phase {
 	case PhaseSubmitted:
 		return StageSubmitted
-	case PhaseGating, PhaseGatePending:
+	case PhaseGating, PhaseGatePending, PhaseTesting, PhaseTestPending:
 		return StageGating
 	case PhaseReview, PhaseReviewing:
 		return StageReview
@@ -211,7 +213,7 @@ func PhaseStep(phase string) (int, bool) {
 		return TaskStepWorking, true
 	case PhaseSubmitted:
 		return TaskStepSubmitted, true
-	case PhaseGating, PhaseGatePending:
+	case PhaseGating, PhaseGatePending, PhaseTesting, PhaseTestPending:
 		return TaskStepGate, true
 	case PhaseReview, PhaseReviewing:
 		return TaskStepReview, true
@@ -233,7 +235,7 @@ type TaskStatus struct {
 	Ended   bool   `json:"ended,omitempty"`
 	Phase   string `json:"phase"`             // what serve does for it now (Phase*, T-788)
 	Stage   string `json:"stage,omitempty"`   // its merge-loop stage (Stage*; "": not in the merge loop; T-797)
-	Running string `json:"running,omitempty"` // the step whose effect runs now in its own goroutine (gate, publish)
+	Running string `json:"running,omitempty"` // the step whose effect runs now in its own goroutine (gate, test, publish)
 
 	After  []string `json:"after,omitempty"`  // waiting: the tasks it waits for
 	Why    string   `json:"why,omitempty"`    // waiting, all it waits for merged: its dispatch's last refusal

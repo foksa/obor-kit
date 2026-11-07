@@ -317,8 +317,8 @@ func (r *serveRig) merged() {
 	}
 }
 
-// From a task_done to merged through serve's own worktree: the lane's work is committed and gated there, the
-// integrator's accept publishes it.
+// From a task_done to merged through serve's own worktree: the lane's work is committed and gated there, tested in
+// the lane (T-961), the integrator's accept publishes it.
 func TestServeLoopHappyPath(t *testing.T) {
 	r := newServeRig(t)
 	r.p.Write(filepath.Join(r.lane, "feature.txt"), "feature\n")
@@ -331,6 +331,13 @@ func TestServeLoopHappyPath(t *testing.T) {
 	}
 	if got := r.p.Git(r.serveDir(), "log", "-1", "--format=%s"); got != "Merge T-1: done." {
 		t.Errorf("serve's worktree HEAD %q, want the gate's merge", got)
+	}
+	if r.count("1 result gate") != 1 || r.count("1 result test") != 1 {
+		t.Errorf("gate %d, test %d before the review; want one each (T-961: gate, candidate, lane test): %q",
+			r.count("1 result gate"), r.count("1 result test"), r.steps())
+	}
+	if got := r.p.Git(r.lane, "branch", "--show-current"); got != "task/T-1" {
+		t.Errorf("the lane after its test is on %q, want task/T-1", got)
 	}
 	r.accept("c1", job)
 	r.merged()
@@ -413,6 +420,9 @@ func TestServeLoopMovedTarget(t *testing.T) {
 	if r.count("1 fact target.moved") != 1 || r.count("1 fact accept.kept") != 1 {
 		t.Errorf("moved %d, kept %d; want the moved target kept, no second review: %q", r.count("1 fact target.moved"),
 			r.count("1 fact accept.kept"), r.steps())
+	}
+	if r.count("1 intent test.2") != 0 || r.count("1 intent test") != 1 {
+		t.Errorf("lane tests: %q; want the one before the review, none on the move (T-961)", r.steps())
 	}
 }
 

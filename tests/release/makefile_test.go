@@ -226,10 +226,10 @@ func TestMakeCheckGocacheFallback(t *testing.T) {
 	}
 }
 
-// makeCheckAffected runs `make -s check-affected` on a kit copy whose go and gofmt log their argv to go.log and whose
-// dist/obor stub prints one affected package, logging its own run to affected.log. It returns the output, the logged
-// argv lines and whether the affected list was asked.
-func makeCheckAffected(t *testing.T, moved bool) (string, []string, bool) {
+// makeCheckTier runs `make -s <target>` on a kit copy whose go and gofmt log their argv to go.log and whose dist/obor
+// stub prints one affected package, logging its own run to affected.log. It returns the output, the logged argv lines
+// and whether the affected list was asked.
+func makeCheckTier(t *testing.T, target string) (string, []string, bool) {
 	t.Helper()
 	dir := testkit.Dir(t)
 	writeKit(t, dir)
@@ -237,33 +237,31 @@ func makeCheckAffected(t *testing.T, moved bool) (string, []string, bool) {
 	writeExec(t, filepath.Join(dir, "stub", "gofmt"), "#!/bin/bash\necho \"gofmt $*\" >> \""+log+"\"\n")
 	writeExec(t, filepath.Join(dir, "dist", "obor"),
 		"#!/bin/bash\necho \"$*\" >> \""+filepath.Join(dir, "affected.log")+"\"\necho fx/a\n")
-	cmd := exec.Command("make", "-s", "-C", dir, "check-affected", "GO="+filepath.Join(dir, "bin", "go"))
+	cmd := exec.Command("make", "-s", "-C", dir, target, "GO="+filepath.Join(dir, "bin", "go"))
 	cmd.Env = append(plainMakeEnv(), "PATH="+filepath.Join(dir, "stub")+string(os.PathListSeparator)+os.Getenv("PATH"))
-	if moved {
-		cmd.Env = append(cmd.Env, "OBOR_MOVED=1")
-	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("make check-affected (moved %v): %v\n%s", moved, err, out)
+		t.Fatalf("make %s: %v\n%s", target, err, out)
 	}
 	_, aerr := os.Stat(filepath.Join(dir, "affected.log"))
 	return string(out), strings.Split(strings.TrimSpace(readFile(t, log)), "\n"), aerr == nil
 }
 
-// T-914: a clean move exports OBOR_MOVED=1, and check-affected then runs its compile steps only — build, gofmt, vet and
-// deadcode — with no go test (nor the affected list it would test); unset, the tier runs the affected packages' tests.
-func TestMakeCheckAffectedMoved(t *testing.T) {
+// T-961: check-compile (commands.compile, the merge slot's tier) runs the compile steps only — build, gofmt, vet and
+// deadcode — with no go test (nor the affected list it would test); check-affected (the lane step's tier) runs the
+// same steps and the affected packages' tests.
+func TestMakeCheckCompileAndAffected(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
-		name        string
-		moved, test bool
+		target string
+		test   bool
 	}{
-		{"a clean move: the compile steps only", true, false},
-		{"no move: the affected packages' tests", false, true},
+		{"check-compile", false},
+		{"check-affected", true},
 	} {
-		t.Run(c.name, func(t *testing.T) {
+		t.Run(c.target, func(t *testing.T) {
 			t.Parallel()
-			out, calls, affected := makeCheckAffected(t, c.moved)
+			out, calls, affected := makeCheckTier(t, c.target)
 			ran := func(prefix string) bool {
 				return slices.ContainsFunc(calls, func(c string) bool { return strings.HasPrefix(c, prefix) })
 			}
@@ -275,14 +273,14 @@ func TestMakeCheckAffectedMoved(t *testing.T) {
 			if got := ran("test "); got != c.test {
 				t.Errorf("go test ran %v; want %v (calls %q)", got, c.test, calls)
 			}
-			if got := strings.Contains(out, "go test: skipped (a clean move"); got != c.moved {
-				t.Errorf("the output says the move skipped go test %v; want %v:\n%s", got, c.moved, out)
+			if got := affected; got != c.test {
+				t.Errorf("the affected list was asked %v; want %v (the compile tier: no tests, no list)", got, c.test)
 			}
-			if got := affected; got != !c.moved {
-				t.Errorf("the affected list was asked %v; want %v (moved gate: no tests, no list)", got, !c.moved)
+			if got := strings.Contains(out, "go test: 0 pass, 0 fail"); got != c.test {
+				t.Errorf("the tests' summary printed %v; want %v:\n%s", got, c.test, out)
 			}
-			if !c.moved && !strings.Contains(out, "go test: 0 pass, 0 fail") {
-				t.Errorf("the tests ran and printed their summary:\n%s", out)
+			if got := strings.Contains(out, "compile: build, gofmt, vet, deadcode OK"); got != !c.test {
+				t.Errorf("the compile tier's line printed %v; want %v:\n%s", got, !c.test, out)
 			}
 		})
 	}

@@ -46,6 +46,19 @@ var worded = map[string]worder{
 		}
 		return nil
 	},
+	"result " + event.StepTest: func(r event.Record, d *Described) error {
+		var out testOut
+		if err := decode(r, &out); err != nil {
+			return err
+		}
+		d.Outcome, d.Text = out.Outcome, out.Line
+		if out.Outcome == "green" {
+			d.Line = "test " + r.Task + " pass (" + out.Line + ")"
+		} else {
+			d.Line, d.Bad = "test "+r.Task+" fail ("+out.Line+")", true
+		}
+		return nil
+	},
 	"result " + wire.MethodAccept: func(r event.Record, d *Described) error {
 		d.Line = "accepted " + r.Task
 		return nil
@@ -174,7 +187,7 @@ func describedKey(r event.Record) string {
 	if r.Kind != event.KindResult {
 		return r.Kind + " " + r.Step
 	}
-	if base, _ := event.StepN(r.Step); base == event.StepGate {
+	if base, _ := event.StepN(r.Step); base == event.StepGate || base == event.StepTest {
 		return r.Kind + " " + base
 	}
 	method, _, _ := strings.Cut(r.Step, ".")

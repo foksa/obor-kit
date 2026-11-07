@@ -70,6 +70,8 @@ func (a *App) Status() wire.Status {
 					Effort: mt.disp.Effort}
 				if p.running.Task == mt.task {
 					ts.Running = p.running.Step
+				} else if k, ok := p.tests[mt.task]; ok {
+					ts.Running = k.Step
 				}
 				if at := p.folded.starts[mt.task]; !at.IsZero() {
 					ts.Started = at.Unix()
@@ -155,14 +157,14 @@ func (a *App) Status() wire.Status {
 }
 
 // commandStep is a record's step as the running and pending lines show it (T-657, T-662): the merge loop's command
-// steps — gate, publish the merge, after_merge, the nightly check — by their base name, the nightly one with no task.
+// steps — gate, a lane test, publish the merge, after_merge, the nightly check — by their base name, the nightly one with no task.
 // false: another step's record (a prompt, a start) runs no command the lines show.
 func commandStep(r event.Record) (step, task string, ok bool) {
 	if strings.HasPrefix(r.Step, event.StepNightly+".") {
 		return event.StepNightly, "", true
 	}
 	switch step, _ = event.StepN(r.Step); step {
-	case event.StepGate, event.StepPublish, event.StepAfterMerge:
+	case event.StepGate, event.StepTest, event.StepPublish, event.StepAfterMerge:
 		return step, r.Task, true
 	}
 	return "", "", false
@@ -183,7 +185,7 @@ func (p *proj) runningSteps(open []event.Record) []wire.RunningStep {
 		if !running {
 			continue
 		}
-		out = append(out, wire.RunningStep{Step: step, Task: task, Command: p.scratchCommand(r.Key()), Since: at.Unix()})
+		out = append(out, wire.RunningStep{Step: step, Task: task, Command: p.stepCommand(r.Key()), Since: at.Unix()})
 	}
 	if !p.restarting.IsZero() {
 		out = append(out, wire.RunningStep{Step: event.StepServeRestart, Since: p.restarting.Unix()})
