@@ -289,9 +289,6 @@ func (p *proj) foldMsg(r event.Record) {
 		if m.Drive != 0 {
 			p.foldDriveLine(m)
 		}
-		if m.Stopped != "" {
-			p.foldStopLine(m)
-		}
 		if m.Review != 0 {
 			// T-906: a request ended by a failed --after still ends here, but only --rm and a firing count as review
 			// ends that suppress the on-merge rule (review.on.merge). T-909: idle counts this end too (its own marker).
