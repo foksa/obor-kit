@@ -1,12 +1,11 @@
 # events
-25 msg bad=false "line to pj-int: hello"
-24 msg bad=false "line to pj-l-01: look at T-1"
-23 review bad=false "review request ended"
-22 review bad=false "review started RV-9"
-21 review bad=false "review requested"
-20 review bad=false "review requested (after T-1,T-4)"
-19 T-4 bad=false "merged T-4 (outside obor serve)"
-17 T-3 bad=false "drive T-3 (L-03): taken over by the owner"
+24 msg bad=false "line to pj-int: hello"
+23 msg bad=false "line to pj-l-01: look at T-1"
+22 review bad=false "review request ended"
+21 review bad=false "review started RV-9"
+20 review bad=false "review requested"
+19 review bad=false "review requested (after T-1,T-4)"
+18 T-4 bad=false "merged T-4 (outside obor serve)"
 16 T-2 bad=false "drive T-2 (L-02)"
 15 T-1 bad=false "merged T-1 abcdef0"
 14 T-1 bad=false "accepted T-1"
@@ -20,7 +19,7 @@
 4 T-1 bad=false "submitted T-1"
 1 T-1 bad=false "dispatched T-1 (L-01)"
 # since 3
-seq 25
+seq 24
 4 T-1 bad=false "submitted T-1"
 6 T-1 bad=true "gate T-1 fail (RED T-1: e2e failed)"
 7 T-1 bad=false "sendback T-1: fix the e2e"
@@ -32,14 +31,13 @@ seq 25
 14 T-1 bad=false "accepted T-1"
 15 T-1 bad=false "merged T-1 abcdef0"
 16 T-2 bad=false "drive T-2 (L-02)"
-17 T-3 bad=false "drive T-3 (L-03): taken over by the owner"
-19 T-4 bad=false "merged T-4 (outside obor serve)"
-20 review bad=false "review requested (after T-1,T-4)"
-21 review bad=false "review requested"
-22 review bad=false "review started RV-9"
-23 review bad=false "review request ended"
-24 msg bad=false "line to pj-l-01: look at T-1"
-25 msg bad=false "line to pj-int: hello"
+18 T-4 bad=false "merged T-4 (outside obor serve)"
+19 review bad=false "review requested (after T-1,T-4)"
+20 review bad=false "review requested"
+21 review bad=false "review started RV-9"
+22 review bad=false "review request ended"
+23 msg bad=false "line to pj-l-01: look at T-1"
+24 msg bad=false "line to pj-int: hello"
 # task T-1
 lane "L-01" agent "pj-l-01" report "Summary: fixed" gate "check 26 pass" rev 3
 15 fact merged "merged T-1 abcdef0"
@@ -58,4 +56,4 @@ lane "L-01" agent "pj-l-01" report "Summary: fixed" gate "check 26 pass" rev 3
 2 intent work ""
 1 fact dispatch "dispatched T-1 (L-01)"
 # agent pj-l-01
-24 from "pj-lead" "look at T-1"
+23 from "pj-lead" "look at T-1"

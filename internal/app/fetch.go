@@ -248,10 +248,6 @@ func movedFix(mt mtask) string {
 	if mt.disp.Fix == "" {
 		return ""
 	}
-	if mt.disp.Answer {
-		return fmt.Sprintf("\n\n%s moved to you (attempt %d) with the answer to the previous worker's question: %s\n"+
-			"Go on with the task from the lane's branch.", mt.task, mt.attempt, mt.disp.Fix)
-	}
 	return fmt.Sprintf("\n\n%s moved to you (attempt %d) while it was sent back to the previous worker: %s\nFix it "+
 		"on the lane's branch and run the tests; when finished, call task_done with your report.", mt.task, mt.attempt,
 		mt.disp.Fix)

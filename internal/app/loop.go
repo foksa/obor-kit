@@ -199,7 +199,6 @@ type attemptVars struct {
 	delivered      bool               // the integrator took that job (fact delivered)
 	lost           int                // how often the integrator exited with a job open since the last resume
 	fixed          bool               // stWorking: the fix job of this attempt is out
-	answer         bool               // stWorking: this attempt's fix job is the answer to the worker's question (an older log's obor resume)
 	decision       string             // the lead's or the owner's text of this attempt's last obor resume (its next job carries it)
 	fixes          int                // the attempt's last fix job's N (fix, fix.2 … after obor resume)
 	fails          map[string]failure // counted failures per step key since the attempt began or the last resume

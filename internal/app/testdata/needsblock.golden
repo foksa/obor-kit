@@ -426,16 +426,6 @@
     next: gate.2; job open false; scratch "T-1" "resolved"; dispatchable false; awaits task_done false; in loop true; sendbacks 0
     resume cmds: obor drop T-1
     input "sha1", decision "Lead's decision (obor resume, gate failed): decided", work "", fixed false, fails 0
-== held fix job, drive take-over
-  status: state driving, phase driving, stage "", attempt 2, job ""
-  facts: 
-  needs-you: 
-  verbs: resume drop land
-  next: waits; job open false; scratch "" ""; dispatchable false; awaits task_done false; in loop true; sendbacks 1
-  resume cmds: obor resume T-1 "<text>" | obor drop T-1
-  resume --: drive (text needed true)
-  resume --regate: refused: resume T-1: --regate does not fit: obor resume T-1 sends the drive agent the line
-  resume --sendback: refused: resume T-1: --sendback does not fit: obor resume T-1 sends the drive agent the line
 == held, merged outside
   facts: 
   needs-you: 

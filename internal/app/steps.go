@@ -407,10 +407,6 @@ func (a *App) sendFix(ctx context.Context, p *proj, fx *Loop, mt mtask, key, job
 func fixText(mt mtask, row store.SpecRow, read string) string {
 	text := fmt.Sprintf("%s is sent back to you (attempt %d): %s\nFix it and run the tests; when finished, call "+
 		"task_done again with your new report (obor serve takes it as your next attempt).", mt.task, mt.attempt, mt.line)
-	if mt.answer {
-		text = fmt.Sprintf("The answer to your question on %s (attempt %d): %s\nGo on with the task; when finished, "+
-			"call task_done with your report (obor serve takes it as your next attempt).", mt.task, mt.attempt, mt.line)
-	}
 	text += "\n" + read
 	if row.Rev > 0 && row.Rev != mt.specRev {
 		text += specText(row)

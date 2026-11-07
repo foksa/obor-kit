@@ -64,12 +64,11 @@ type (
 		After []string `json:"after,omitempty"` // waiting: the tasks it waits for
 		// Drive: the owner's drive (obor drive, T-751): no worker, no work job; after lane.prepare the task is driving.
 		Drive bool `json:"drive,omitempty"`
-		// Fix: a move's (T-778) outstanding fix of the attempt it moved, a sendback's or a red gate's text (Answer: the
-		// answer to the worker's question, an older log's obor answer); the moved attempt's work job carries it.
-		Fix    string `json:"fix,omitempty"`
-		Answer bool   `json:"answer,omitempty"`
+		// Fix: a move's (T-778) outstanding fix of the attempt it moved, a sendback's or a red gate's text; the moved
+		// attempt's work job carries it.
+		Fix string `json:"fix,omitempty"`
 		// Stop: the worker the merge loop stops (with force) before the step that needs the lane (T-852): a move's (the
-		// redo's, before lane.prepare; an old log's fact drive had one too: foldOldDrive). "": none.
+		// redo's, before lane.prepare). "": none.
 		Stop   string `json:"stop,omitempty"`
 		Caller string `json:"caller,omitempty"`
 		Call   string `json:"call,omitempty"`

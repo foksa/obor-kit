@@ -94,7 +94,6 @@ func (p *proj) foldRecord(r event.Record) {
 		p.clear(r.Task) // merged, dropped or rejected: its watchdog facts end, an asks too (state model rows 12/16a)
 	}
 	p.foldLanes(r)
-	p.foldOldDrive(r) // old logs only (T-912)
 	p.foldStart(r)
 	p.foldNightly(r)
 	p.foldPromote(r)
