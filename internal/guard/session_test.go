@@ -189,7 +189,13 @@ func TestSessionRoleTextRows(t *testing.T) {
 		}, "", "",
 			[]string{kit + "/templates/agents/worker.md, project: docs/agents/worker.md — read it before acting"}, nil},
 		{"an integrator", nil, "integrator", "root",
-			[]string{"obor: role integrator", kit + "/templates/agents/integrator.md — read it before acting"}, nil},
+			[]string{"obor: role integrator", kit + "/templates/agents/integrator.md — your jobs carry it (job_next), no read needed"},
+			[]string{"read it before acting"}},
+		{"an integrator with a project doc", func() {
+			f.Write("docs/agents/integrator.md", "# integrator here\n")
+		}, "integrator", "root",
+			[]string{kit + "/templates/agents/integrator.md, project: docs/agents/integrator.md — your jobs carry it (job_next), no read needed"},
+			[]string{"read it before acting"}},
 		{"a reviewer with paths.agents", func() {
 			f.Write("doc/roles/reviewer.md", "# reviewer here\n")
 			f.Config(testkit.Set("paths.agents", "doc/roles"))

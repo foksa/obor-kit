@@ -133,7 +133,7 @@ func sessionKind(cfg *config.Config, agent, cwd string) string {
 // roleText is the line naming this role's text (T-204): the kit's templates/agents/<doc file>, read in place, plus the
 // project's <paths.agents>/<doc file> when the worktree has one; a custom role (T-801) without a kit text has the
 // project's doc alone. The lead's text is the obor:lead skill. "" when there is no text for the role (none …, a role
-// cfg does not know).
+// cfg does not know). The integrator's line says its jobs carry the texts (T-941); the others say to read them.
 func roleText(cfg *config.Config, role, kit, top string) string {
 	rc, known := cfg.Role(role)
 	if !known {
@@ -148,11 +148,15 @@ func roleText(cfg *config.Config, role, kit, top string) string {
 		return "obor: role text: run /obor:lead" + projectPart(project) + " — read it before acting"
 	}
 	text := filepath.Join(kit, "templates", "agents", rc.Role.DocFile())
+	tail := " — read it before acting"
+	if role == "integrator" { // T-941: its review and resolve jobs carry the role texts
+		tail = " — your jobs carry it (job_next), no read needed"
+	}
 	switch {
 	case kit != "" && regular(text):
-		return "obor: role text: " + text + projectPart(project) + " — read it before acting"
+		return "obor: role text: " + text + projectPart(project) + tail
 	case project != "":
-		return "obor: role text: " + project + " — read it before acting"
+		return "obor: role text: " + project + tail
 	}
 	return ""
 }
