@@ -35,7 +35,6 @@ type fx struct {
 	out                  syncBuffer
 	env                  []string       // project.Env (OBOR_GATE, OBOR_FULL)
 	environ              []string       // more command environment
-	slotLoad             float64        // > 0: the slots see this machine load above their limit, their load wait cut short (T-720)
 	windowWait           time.Duration  // > 0: the nightly lock's wait (T-864: no merge.window_wait key)
 	cand                 port.Candidate // the last green gate's (gate)
 	spec                 string         // the task's stored spec gate passes (GateInput.Spec; "": none)
@@ -93,15 +92,10 @@ func (x *fx) opts() Options {
 	x.t.Cleanup(cancel)
 	slots := &run.Slots{Dir: x.slots, Max: 2, BlockMax: 900 * time.Second, Marker: "merge-running-proj",
 		Poll: 20 * time.Millisecond, Report: time.Hour}
-	if l := x.slotLoad; l > 0 {
-		slots.LoadLimit, slots.LoadCap, slots.Load = 1, time.Millisecond, func() (float64, bool) { return l, true }
-	}
 	return Options{
 		Cfg: cfg, Env: x.Env(x.env...), Environ: append(environ, x.environ...), Out: &x.out, PID: os.Getpid(),
 		Interrupted: x.sig, callCtx: callCtx, WindowWait: x.windowWait,
 		Slots: slots,
-		// The load a flake line records: unreadable, so no test reads the machine's.
-		Load: func() (float64, bool) { return 0, false },
 	}
 }
 

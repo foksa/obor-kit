@@ -185,9 +185,6 @@ func (v *validator) optional() {
 	if s := v.d.Slots; s != nil && s.CPUs != nil && *s.CPUs < 1 {
 		v.fail(".slots.cpus", fmt.Sprintf("must be a positive integer, got %d", *s.CPUs))
 	}
-	if c := v.d.Checks; c != nil && c.LoadLimit != nil && !(*c.LoadLimit >= 0) {
-		v.fail(".checks.load_limit", fmt.Sprintf("must be a non-negative number (a load average; 0: never wait), got %v", *c.LoadLimit))
-	}
 }
 
 // nonNegative: absent, or not negative (the decode made it an integer).
@@ -403,6 +400,10 @@ func (c *Config) warnings(o ValidateOptions) []string {
 	}
 	removed("mcp", c.Data.MCP != nil)
 	removed("cache", c.Data.Cache != nil)
+	// T-962: v0.29 dropped checks.load_limit with the check slots' machine-load wait.
+	if ch := c.Data.Checks; ch != nil {
+		removed("checks.load_limit", ch.LoadLimit != nil)
+	}
 	for _, name := range c.ModelNames() { // T-705: opencode's own default model may refuse requests, and effort needs one (T-703)
 		m, _ := c.Model(name)
 		if kd, known := agents.Lookup(m.Kind); known && kd.Caps().ModelArg && m.ID == "" && c.modelUsed(name) {

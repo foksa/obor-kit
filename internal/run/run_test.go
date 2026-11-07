@@ -26,7 +26,6 @@ type fx struct {
 	lane  string
 	slots string
 	cfg   *config.Config
-	load  func() (float64, bool) // non-nil: the slots' load reader, their load wait cut to 1 ms (T-720)
 }
 
 // setup is a project with lane L-01 and commands, its slots in a temp dir (slots.max 2, project "proj"); the lane
@@ -76,9 +75,6 @@ func (f *fx) runErr(t *testing.T, dir string, env []string, interrupt <-chan int
 		Args: args, Stdout: &out, Stderr: errOut, PID: os.Getpid(), Interrupted: interrupt}
 	s := SlotsFor(f.cfg, o.Env)
 	s.Poll, s.Report = 20*time.Millisecond, time.Hour
-	if f.load != nil {
-		s.Load, s.LoadCap = f.load, time.Millisecond
-	}
 	o.Slots = &s
 	return result{Run(o), out.String(), errOut.String()}
 }

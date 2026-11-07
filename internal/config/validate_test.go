@@ -187,11 +187,9 @@ func TestValidate(t *testing.T) {
 			want: []string{"FAIL .slots.cpus: must be a positive integer, got 0"}},
 		{name: "slots.cpus negative", edits: []edit{set("slots.cpus", -2)},
 			want: []string{"FAIL .slots.cpus: must be a positive integer, got -2"}},
-		// T-720
-		{name: "checks.load_limit fine", edits: []edit{set("checks.load_limit", 12.5)}},
-		{name: "checks.load_limit 0 (never wait) fine", edits: []edit{set("checks.load_limit", 0)}},
-		{name: "checks.load_limit negative", edits: []edit{set("checks.load_limit", -1)},
-			want: []string{"FAIL .checks.load_limit: must be a non-negative number (a load average; 0: never wait), got -1"}},
+		// T-962: checks.load_limit went with the check slots' machine-load wait; a config still naming it warns.
+		{name: "checks.load_limit is removed", edits: []edit{set("checks.load_limit", 12.5)},
+			want: []string{"WARN checks.load_limit: no longer used, remove it"}},
 		// T-777: the compact alias (pj-l1) and the agents key are gone: a lane's agent is <prefix>-l-NN or its row's.
 		// bash config.test.sh case_validate_lane_ready
 		{name: "lane_ready string", edits: []edit{set("commands.lane_ready", "test -d node_modules")}},
@@ -302,7 +300,6 @@ func TestShapeErrorsFailTheLoad(t *testing.T) {
 		{set("merge.receipt_max_age", 1.5), "receipt_max_age"},
 		{set("slots.cpus", "4"), "cpus"},
 		{set("slots.cpus", 2.5), "cpus"},
-		{set("checks.load_limit", "20"), "load_limit"},
 		{set("checks.loadlimit", 20), `unknown field "loadlimit"`},
 	} {
 		p := newProject(t)
@@ -370,6 +367,8 @@ func TestRemovedKeysWithinTwoVersions(t *testing.T) {
 		{"slots.merge_block_max", set("slots.merge_block_max", 60), 28, 30},
 		{"mcp", set("mcp", map[string]any{}), 28, 30},
 		{"cache", set("cache", map[string]any{}), 28, 30},
+		// T-962: v0.29 dropped checks.load_limit with the check slots' machine-load wait.
+		{"checks.load_limit", set("checks.load_limit", 12.5), 29, 31},
 	} {
 		if r.removed > 0 {
 			if r.keepUntil != r.removed+2 {

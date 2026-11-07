@@ -44,9 +44,6 @@ type Options struct {
 	PID         int         // this process (lock, slot and op record holder)
 	Interrupted <-chan int  // a signal's exit code (130, 143, 129)
 	Slots       *run.Slots  // nil: run.SlotsFor(Cfg, Env)
-	// Load is the 1-min load average (ok false: unreadable); nil reads the system's. It goes with a red run into the
-	// flake log.
-	Load func() (float64, bool)
 	// WindowWait is how long the nightly waits for another nightly's lock before it FAILs (default
 	// DefaultWindowWait); a test shortens it.
 	WindowWait time.Duration

@@ -183,7 +183,7 @@ func (w *world) env() []string {
 	return append(env, "HOME="+w.home, "OBOR_STATE_HOME="+w.state, "OBOR_PLUGIN_ROOT="+w.kit,
 		"HERDR_SOCKET_PATH="+w.herdr, "PATH="+w.stub+":"+w.oborDir+":"+os.Getenv("PATH"),
 		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "GIT_AUTHOR_NAME=obor upgrade", "GIT_AUTHOR_EMAIL=upgrade@example.invalid",
-		"GIT_COMMITTER_NAME=obor upgrade", "GIT_COMMITTER_EMAIL=upgrade@example.invalid", "CHECK_LOAD_LIMIT=0")
+		"GIT_COMMITTER_NAME=obor upgrade", "GIT_COMMITTER_EMAIL=upgrade@example.invalid")
 }
 
 // obor runs the phase's binary with args in dir (60 s at most): its combined output and whether it exited 0.
