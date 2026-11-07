@@ -148,6 +148,45 @@ func TestFollowBinaryWaitsForIdle(t *testing.T) {
 	}
 }
 
+// T-965: a lane test running holds the restart as a gate does (it runs minutes): the pending restart is shown
+// meanwhile, no restart while it runs, and it goes once the test has ended — the test is not cut.
+func TestFollowBinaryWaitsForLaneTest(t *testing.T) {
+	t.Parallel()
+	r := newFollowRig(t, nil)
+	started, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	r.scratch.onTest = func(ctx context.Context, _ string) {
+		once.Do(func() { close(started) })
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
+	}
+	r.start()
+	r.submit()
+	select {
+	case <-started:
+	case <-time.After(r.patience()):
+		t.Fatalf("the lane test never began: %q", r.steps())
+	}
+	r.isNew.Store(1)
+	r.waitFor("the pending restart shown", func() bool { return r.restartingShown() || r.calls.Load() != 0 })
+	if r.calls.Load() != 0 {
+		t.Fatal("serve restarted with a lane test running, want it to wait")
+	}
+	r.ticks(3)
+	if r.calls.Load() != 0 {
+		t.Fatalf("restarted %d times while the lane test runs, want 0", r.calls.Load())
+	}
+	close(release)
+	r.waitFor("the restart to end serve", r.ended)
+	r.cancel = nil
+	if r.calls.Load() != 1 || !r.has("1 result test") {
+		t.Errorf("restarts %d, test result %v; want 1 after the test ended: %q", r.calls.Load(), r.has("1 result test"),
+			r.steps())
+	}
+}
+
 // T-930: an admitted main-checkout writer (a config_set's or a review close's commit, p.admits) holds the restart as a
 // running gate does: shown waiting meanwhile, no restart, and once it is unadmitted the next pass restarts.
 func TestFollowBinaryWaitsForAdmittedWriter(t *testing.T) {

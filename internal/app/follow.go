@@ -73,7 +73,9 @@ func (a *App) followBinary(ctx context.Context, p *proj) bool {
 		a.follow.since, p.restarting = now, now
 	}
 	since := a.follow.since
-	idle := p.running.Task == "" && len(p.exec) == 0 && !p.night.running && a.admitted == 0
+	// A lane test counts as running too (p.tests, T-965): it runs minutes, and a test whose start has not reached
+	// p.exec yet is still no idle moment. pickTest refuses new ones meanwhile, so idle comes within one lane test.
+	idle := p.running.Task == "" && len(p.exec) == 0 && len(p.tests) == 0 && !p.night.running && a.admitted == 0
 	claim := p.admits == 0 && (idle || now.Sub(since) >= followWait)
 	p.restartClaim = claim
 	a.mu.Unlock()

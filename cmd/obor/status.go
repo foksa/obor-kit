@@ -446,12 +446,18 @@ func writeServe(w io.Writer, s view.Serve, now time.Time) {
 
 // writeRunning is the running line right under serve's (T-657): what serve does without an agent, each step with the
 // command it runs and its elapsed time (`running: gate T-656 (make -s check, 2m14s) · after_merge T-655 (make build,
-// 12s)`), or `running: nothing`. A restart in progress reads "restarting serve", a step without a command (publish, a
-// gate of git alone) its elapsed time only.
+// 12s)`), or `running: nothing`. A restart in progress reads "restarting serve", with "draining: N lane tests" while
+// lane tests still run (T-965); a step without a command (publish, a gate of git alone) its elapsed time only.
 func writeRunning(w io.Writer, st view.Project, now time.Time) {
 	if len(st.Running) == 0 {
 		fmt.Fprintln(w, "running: nothing")
 		return
+	}
+	tests := 0 // the lane tests running (T-965: a pending restart drains them before it goes)
+	for _, r := range st.Running {
+		if r.Step == event.StepTest {
+			tests++
+		}
 	}
 	items := make([]string, 0, len(st.Running))
 	for _, r := range st.Running {
@@ -459,16 +465,27 @@ func writeRunning(w io.Writer, st view.Project, now time.Time) {
 		if r.Task != "" {
 			item += " " + r.Task
 		}
-		if r.Step != event.StepServeRestart {
-			if r.Command != "" {
-				item += fmt.Sprintf(" (%s, %s)", r.Command, elapsed(now.Sub(time.Unix(r.Since, 0))))
-			} else {
-				item += fmt.Sprintf(" (%s)", elapsed(now.Sub(time.Unix(r.Since, 0))))
+		switch {
+		case r.Step == event.StepServeRestart:
+			if tests > 0 {
+				item += fmt.Sprintf(" (draining: %d %s)", tests, laneTests(tests))
 			}
+		case r.Command != "":
+			item += fmt.Sprintf(" (%s, %s)", r.Command, elapsed(now.Sub(time.Unix(r.Since, 0))))
+		default:
+			item += fmt.Sprintf(" (%s)", elapsed(now.Sub(time.Unix(r.Since, 0))))
 		}
 		items = append(items, item)
 	}
 	fmt.Fprintln(w, "running: "+strings.Join(items, " · "))
+}
+
+// laneTests is n lane tests, singular for one.
+func laneTests(n int) string {
+	if n == 1 {
+		return "lane test"
+	}
+	return "lane tests"
 }
 
 // writePending is the pending line under the running one (T-662): the merge loop's command steps whose intent has no
