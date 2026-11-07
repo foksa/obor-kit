@@ -300,6 +300,14 @@ func pausesOf(v *Project, ps wire.ProjectStatus) {
 func lane(p *checks.LaneTable, s port.Lane, v *Project, ps wire.ProjectStatus, row store.LaneRow,
 	starts map[string]int64) Lane {
 	l := Lane{Lane: s, Op: restartOp(p.Root, s.Name)}
+	// T-969: a lane serve owns shows the task its row records and the dispatch's branch, whatever git's HEAD says: a
+	// lane test checks the candidate out detached, so git names no branch. An unowned lane keeps git's reading.
+	if ts := laneTaskOn(ps, s.Name); ts != nil && row.Task == ts.Task {
+		l.Task = ts.Task
+		if row.Branch != "" {
+			l.Branch = row.Branch
+		}
+	}
 	if l.Warning == "" && s.State == port.LaneWorking && pluginMissing(p, s, starts) {
 		l.Warning = "no-plugin"
 	}
@@ -312,6 +320,17 @@ func lane(p *checks.LaneTable, s port.Lane, v *Project, ps wire.ProjectStatus, r
 	}
 	l.Since = laneSince(l, v, p.Now, row.DispatchedAt)
 	return l
+}
+
+// laneTaskOn is serve's open task on lane (nil: none): the task whose record owns the lane's row, even while git has
+// the lane detached at its candidate (T-969).
+func laneTaskOn(ps wire.ProjectStatus, lane string) *wire.TaskStatus {
+	for i := range ps.Tasks {
+		if ts := &ps.Tasks[i]; ts.Lane == lane && !ts.Ended {
+			return ts
+		}
+	}
+	return nil
 }
 
 // roles is one row per role agent on no lane that the config names (config.RoleAgents: an optional role, a custom one
