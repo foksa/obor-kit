@@ -52,10 +52,9 @@ func TestPromoteRunsTheFullSuiteAndFastForwards(t *testing.T) {
 	x.eq(x.tmp("check-pwd"), dir, "check ran in the promotion worktree")
 	x.eq(x.tmp("check-head"), h, "at the promoted sha")
 	x.eq(x.tmp("check-prio"), "worker", "holding a pool slot, never the merge marker")
-	sha, _, verdict, err := LastFullCheck(x.Root)
-	if err != nil || sha != h || verdict != "GREEN" {
-		t.Errorf("last-full-check = %s %s %v, want %s GREEN", sha, verdict, err, h)
-	}
+	x.match(x.Read(".obor/state/"+LastPromotionFile), `^`+h+` [0-9]+ GREEN promote: check 1 pass, [0-9]+s\n$`,
+		"the promotion's own result file")
+	x.gone(".obor/state/last-full-check", "the nightly's file untouched (T-978: a promotion is no hand-run nightly)")
 	x.eq(x.ref("refs/heads/prod"), prod, "the run itself moves no branch")
 
 	line, err := PromoteFF(context.Background(), x.opts(), h)
@@ -72,6 +71,25 @@ func TestPromoteRunsTheFullSuiteAndFastForwards(t *testing.T) {
 		t.Errorf("prod at %s already: Promote = %+v, %v, check ran: %q; want GREEN without a second run", h, r, err,
 			x.tmp("check-head"))
 	}
+}
+
+// RV-136 #3 (T-978): a nightly RED stays in last-full-check through a GREEN promotion (its own file,
+// last-promotion), so serve's nightly (LastFullCheck) never reads the promotion as a hand-run GREEN nightly.
+func TestPromoteLeavesANightlyRedAlone(t *testing.T) {
+	t.Parallel()
+	x, h := promoteFx(t, cmd("check", "echo 1 pass"))
+	x.Write(".obor/state/last-full-check", "abc1234 1700000000 RED failed: check_milestone; 9s\n")
+	if sha, _, verdict, err := LastFullCheck(x.Root); err != nil || sha != "abc1234" || verdict != "RED" {
+		t.Fatalf("precondition: the nightly RED = %s %s %v", sha, verdict, err)
+	}
+	if r, err := Promote(context.Background(), x.opts(), h); err != nil || r.Verdict != "GREEN" {
+		t.Fatalf("Promote = %+v, %v; want GREEN\n%s", r, err, x.out.String())
+	}
+	if sha, _, verdict, err := LastFullCheck(x.Root); err != nil || sha != "abc1234" || verdict != "RED" {
+		t.Errorf("after a GREEN promotion: last-full-check %s %s %v, want the nightly's RED abc1234 kept", sha, verdict,
+			err)
+	}
+	x.match(x.Read(".obor/state/"+LastPromotionFile), `^`+h+` [0-9]+ GREEN `, "the promotion's GREEN in its own file")
 }
 
 func TestPromoteFFRefusesANonAncestor(t *testing.T) {
@@ -117,9 +135,8 @@ func TestPromoteRetestsRedOnce(t *testing.T) {
 		}
 		x.contains(r.Line, "TestAlpha", "the RED line names the failing test")
 		x.eq(x.tmp("retests"), "1", "one retest, never more")
-		if _, _, verdict, _ := LastFullCheck(x.Root); verdict != "RED" {
-			t.Errorf("last-full-check verdict %q, want RED", verdict)
-		}
+		x.match(x.Read(".obor/state/"+LastPromotionFile), `^`+h+` [0-9]+ RED failed: check; `, "last-promotion")
+		x.gone(".obor/state/last-full-check", "the nightly's file untouched")
 	})
 }
 

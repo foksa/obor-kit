@@ -1055,4 +1055,11 @@ func TestStatusPromotedLine(t *testing.T) {
 			t.Errorf("promote %+v: %q, want [%q]", c.pr, got, c.want)
 		}
 	}
+	// T-978: the last promotion run (last-promotion) on the promoted line, never the nightly's full check.
+	run := &view.FullCheck{SHA: "fedcba9876", Verdict: "RED", At: now.Unix() - 120, Summary: "failed: check; 9s"}
+	pr := &wire.PromoteStatus{Branch: "main", SHA: "1234567890", Merges: 1}
+	got := fullCheckSection(view.Project{FullCheck: fc, Promote: pr, Promotion: run}, now)
+	if want := "promoted 1234567 (1 merges since); last run RED fedcba9, 2m ago"; len(got) != 1 || got[0] != want {
+		t.Errorf("with a last promotion run: %q, want [%q]", got, want)
+	}
 }
