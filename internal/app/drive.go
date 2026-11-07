@@ -16,7 +16,6 @@ package app
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"obor/internal/app/event"
@@ -210,47 +209,9 @@ func (a *App) driveAgain(p *proj, task string) (string, error) {
 	return driveReply(task, mt.lane, mt.agent, ref) + " again: its agent is not running", nil
 }
 
-// foldOldDrive folds fact drive, a past take-over of a worker's task (T-751, T-852): old logs only; goes with the log
-// snapshot (owner 11-05; T-912: no record writes it now). It is the one reader of the record, called by foldRecord
-// after foldLanes, and folds it as the take-over did: its call's stored reply; the task driving, the drive agent's, its
-// needs-you ended, its lane, branch, spec and attempt kept, its worker's stop asked for (halt); the lane row's agent
-// the drive agent.
-func (p *proj) foldOldDrive(r event.Record) {
-	if r.Kind != event.KindFact || r.Step != event.StepDrive {
-		return
-	}
-	var d dispatchData
-	_ = json.Unmarshal(r.Data, &d)
-	if d.Call != "" {
-		p.folded.calls[verdictStep(wire.MethodDrive, d.Call)] = d.Reply
-	}
-	if row, ok := p.folded.lr.rows[d.Lane]; ok && row.Task == r.Task {
-		row.Agent = d.Agent
-		p.folded.lr.rows[d.Lane] = row
-	}
-	mt := p.folded.loop[r.Task]
-	if mt == nil || states[mt.state].ended {
-		return
-	}
-	mt.unblock()
-	mt.drive, mt.agent, mt.state = true, d.Agent, stDriving
-	mt.attemptVars, mt.refused = attemptVars{}, ""
-	if d.Stop != "" {
-		mt.halt.ask(d.Stop, true)
-	}
-	mt.disp.Drive = true
-	if d.Type != "" {
-		mt.disp.Type = d.Type // a retry's start (driveAgain) takes the recorded type
-	}
-}
-
-// pickDriving is a driving task's step (under mu): an old take-over's stop of the worker (pickStop; old logs only, goes
-// with the log snapshot, as foldOldDrive), the lead's line once a red gate, a sendback or a hold sent it back (its why
-// in line; message{drive: the attempt} marks it told), else nothing: the owner drives.
+// pickDriving is a driving task's step (under mu): the lead's line once a red gate, a sendback or a hold sent it back
+// (its why in line; message{drive: the attempt} marks it told), else nothing: the owner drives.
 func (a *App) pickDriving(p *proj, mt mtask) step {
-	if s := a.pickStop(p, mt); s != nil || mt.halt.pending() { // an old take-over's: the worker stopped first (T-852)
-		return s
-	}
 	lead := p.out.lead()
 	if mt.line == "" || mt.lined || lead == "" {
 		return nil

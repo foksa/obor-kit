@@ -244,18 +244,17 @@ const (
 // sendback starts the next attempt: the worker fixes what note says.
 func (mt *mtask) sendback(note string) {
 	mt.sendbacks++
-	mt.next(note, false)
+	mt.next(note)
 }
 
-// next starts mt's next attempt on its worker: working, the fix job (note its text; answer: the answer to its
-// question, obor resume) to be sent.
-func (mt *mtask) next(note string, answer bool) {
+// next starts mt's next attempt on its worker: working, the fix job (note its text) to be sent.
+func (mt *mtask) next(note string) {
 	mt.attempt++
 	mt.state = stWorking
 	if mt.drive { // a drive goes back to its owner, never to a worker (T-751)
 		mt.state = stDriving
 	}
-	mt.attemptVars = attemptVars{line: note, answer: answer}
+	mt.attemptVars = attemptVars{line: note}
 }
 
 // jobKey is the key of the attempt's last integrator job.
@@ -333,18 +332,12 @@ func gateState(kind string) string {
 // verdict folds the integrator's verdict on the task's open job (its state's verdicts), or the lead's sendback
 // (v.Lead); one that no longer fits the state changes nothing.
 func (mt *mtask) verdict(method string, v verdictResult) {
-	if method == stepAnswer { // an older log's answer: its fix job the next attempt
-		if mt.is(stWorking) || mt.is(stDispatched) {
-			mt.next(v.Note, true)
-		}
-		return
-	}
 	if method == wire.MethodSendback && v.Lead {
 		if mt.is(stGreen) || mt.is(stAwaiting) || mt.is(stResolving) || mt.onHold() {
 			// The lead's sendback starts the next attempt but does not count toward K: K counts the gate's and the
 			// integrator's sendbacks (T-619).
 			mt.unblock()
-			mt.next(v.Note, false)
+			mt.next(v.Note)
 		}
 		return
 	}

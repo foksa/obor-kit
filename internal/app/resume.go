@@ -27,8 +27,7 @@ import (
 //
 // A flag only where two actions fit; one that does not fit is refused naming what would happen. The text is required
 // for an answer, a line, a sendback and a hold's decision; elsewhere it is the decision the integrator's next job
-// carries. One fact per action; a repeated call id gets the stored reply. An answer result of an older log
-// (answer.<call id>, its fix job the next attempt) still folds as it did (stepAnswer).
+// carries. One fact per action; a repeated call id gets the stored reply.
 
 // The actions of obor resume besides the unblocked fact's (wire.ResumeRegate, ResumeReprompt, ResumeRetry).
 const (
@@ -37,10 +36,6 @@ const (
 	actDrive    = "drive"    // a driving task: the line to the drive agent
 	actSendback = "sendback" // the lead's sendback: the next attempt, its fix job the text
 )
-
-// stepAnswer is an older log's answer verdict step (answer.<call id>, before T-511's answered fact): it folds as it
-// did, a fix job of the next attempt.
-const stepAnswer = "answer"
 
 // resumeDoes is what obor resume does by action act, for its refusals and the needs-you lines.
 func resumeDoes(act string) string {

@@ -47,7 +47,6 @@ func wordedLog() []event.Record {
 		rec("T-1", 3, "accept.c4", event.KindResult, `{"reply":"ok"}`),
 		rec("T-1", 3, event.StepMerged, event.KindFact, `{"head":"abcdef0123456789"}`),
 		rec("T-2", 1, event.StepDispatched, event.KindFact, `{"lane":"L-02","agent":"pj-l-02","drive":true}`),
-		rec("T-3", 1, event.StepDrive, event.KindFact, `{"lane":"L-03","drive":true}`),
 		rec("T-3", 1, event.StepNeedsYou, event.KindFact, `{"lane":"L-03","reason":"asks: may I?"}`),
 		rec("T-4", 1, event.StepMerged, event.KindFact, `{"outside":true}`),
 		rec(event.ReviewTask, 0, event.StepReviewRequest, event.KindFact, `{"after":["T-1","T-4"],"by":"lead"}`),

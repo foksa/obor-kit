@@ -178,8 +178,6 @@ func blockCases() []blockCase {
 			JobData{Patch: "patch"}).verdict(1, wire.MethodResolved, event.StepResolve, verdictResult{SHA: "res"}).
 			add(1, nth(event.StepGate, 2), event.KindIntent, gateIn{Kind: port.InputResolved, Lane: "L-01"}).
 			failed(1, nth(event.StepGate, 2), "boom", tries).needs(1, event.StepGate+failedSuffix, "gate.2 failed: boom")},
-		{"held fix job, drive take-over", fixUndelivered.copy().needs(2, causeUndelivered, "job not delivered").
-			fact(2, event.StepDrive, dispatchData{Lane: "L-01", Agent: "pj-w1-drive", Drive: true, Reply: "DRIVE"})},
 		{"held, merged outside", gateFail.copy().needs(1, causeGate, "gate: gate fail").fact(1, event.StepMerged, event.MergedData{Outside: true})},
 		{"held, dropped", gateFail.copy().needs(1, causeGate, "gate: gate fail").fact(1, event.StepDropped, event.FactData{Reason: "no"})},
 		{"due, dropped", gateFail.copy().fact(1, event.StepDropped, event.FactData{Reason: "no"})},

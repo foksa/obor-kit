@@ -100,9 +100,9 @@ func (a *App) moveTask(p *proj, fx *Loop, c wire.Call) (string, error) {
 		Force: c.Force, Types: c.Types, Effort: effort, Type: ref, Stop: worker, Caller: callerOf(c),
 		Call: c.CallID, Reply: moveReply(c.Task, mt.lane, mt.disp.Type, ref, worker)}
 	if mt.is(stWorking) && mt.work == "" { // a sent-back attempt (sendback, red gate): its fix moves with it
-		d.Fix, d.Answer = mt.line, mt.answer
+		d.Fix = mt.line
 	} else { // the dispatched attempt itself: a fix a move gave it is still outstanding
-		d.Fix, d.Answer = mt.disp.Fix, mt.disp.Answer
+		d.Fix = mt.disp.Fix
 	}
 	if !a.record(p, event.Record{Task: c.Task, Attempt: attempt, Step: event.StepDispatched, Kind: event.KindFact}, d) {
 		return "", fmt.Errorf("dispatch: the event log of %s refused it", p.name)

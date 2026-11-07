@@ -22,10 +22,10 @@ import (
 // causeStop is the needs-you of a worker.stop that failed: obor resume retries it.
 const causeStop = "stop"
 
-// halt is the stop of a task's worker its move or drop asked for (mtask.halt; an old log's take-over too:
-// foldOldDrive): agent "" none; force: a working agent is stopped too (a move's always, a drop's with --force); n the last worker.stop.N
-// with a result (the next is n+1, a pending intent's key); done once a result says stopped or gone; refused a result's
-// refusal (the needs-you's why; obor resume clears it).
+// halt is the stop of a task's worker its move or drop asked for (mtask.halt): agent "" none; force: a working agent
+// is stopped too (a move's always, a drop's with --force); n the last worker.stop.N with a result (the next is n+1, a
+// pending intent's key); done once a result says stopped or gone; refused a result's refusal (the needs-you's why;
+// obor resume clears it).
 type halt struct {
 	agent   string
 	force   bool

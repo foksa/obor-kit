@@ -51,7 +51,7 @@ func verdictMethod(step string) (method, callID string) {
 		return "", ""
 	}
 	switch m {
-	case wire.MethodAccept, wire.MethodSendback, wire.MethodReject, wire.MethodResolved, stepAnswer:
+	case wire.MethodAccept, wire.MethodSendback, wire.MethodReject, wire.MethodResolved:
 		return m, id
 	}
 	return "", ""
@@ -110,11 +110,7 @@ func (p *proj) foldJob(r event.Record) {
 		var v verdictResult
 		_ = json.Unmarshal(r.Data, &v)
 		p.folded.calls[method+"."+id] = v.Reply
-		if method == stepAnswer {
-			p.answered(r.Task)
-		} else {
-			p.folded.verdicts++ // a verdict came (rolestop.go, T-870)
-		}
+		p.folded.verdicts++ // a verdict came (rolestop.go, T-870)
 	}
 }
 

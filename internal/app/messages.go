@@ -30,8 +30,7 @@ import (
 //     A new brief of that agent also ends its undelivered brief lines (T-575: a newer brief makes an older
 //     undelivered one obsolete; lead lines and needs-you lines are never superseded, and a line whose delivery is in
 //     flight may have landed and stays): its fact names their seqs (supersedes) and its fold retires them, live and on
-//     replay, so the brief and its supersede are one append (T-580; an older log's fact superseded{seq, by} still
-//     retires its line).
+//     replay, so the brief and its supersede are one append (T-580).
 //     Once that agent's pane has worked after the brief (after its line was delivered) and is idle again, serve records
 //     message{to: the lead, line "[obor] <agent> finished (briefed <age> ago)", ends: the agent}: the brief is over.
 //

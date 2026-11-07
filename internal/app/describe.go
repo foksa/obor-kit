@@ -89,15 +89,6 @@ var worded = map[string]worder{
 		}
 		return nil
 	},
-	"fact " + event.StepDrive: func(r event.Record, d *Described) error { // old logs only (T-912)
-		var dd dispatchData
-		if err := decode(r, &dd); err != nil {
-			return err
-		}
-		d.Lane, d.Agent = dd.Lane, dd.Agent
-		d.Line = "drive " + r.Task + laneIn(dd.Lane) + ": taken over by the owner"
-		return nil
-	},
 	"fact " + event.StepSubmitted: func(r event.Record, d *Described) error {
 		var s submitData
 		if err := decode(r, &s); err != nil {

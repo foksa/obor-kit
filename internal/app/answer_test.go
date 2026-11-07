@@ -291,25 +291,3 @@ func TestNeedsYouAnswerPathsAreAccepted(t *testing.T) {
 		ok(t, r, r.needsYou(), "drop", "not needed", "DROPPED T-1")
 	})
 }
-
-// An answer an older build recorded (answer.<call id>, before T-511) replays as it did: its fold ends the question,
-// starts attempt 2 and the worker's fix job is the answer.
-func TestAnswerOfAnOlderLogReplays(t *testing.T) {
-	t.Parallel()
-	r := asked(t)
-	r.stop()
-	r.writeLog([]logRec{
-		{1, "answer.a1", event.KindIntent, event.ClassFact, map[string]any{"caller": "pj-lead", "note": "yes"}},
-		{1, "answer.a1", event.KindResult, "", map[string]any{"reply": "ANSWERED T-1 (attempt 2): obor serve sends the worker the answer",
-			"note": "yes", "lead": true}},
-	})
-	r.start()
-	r.waitStep("2 result fix")
-	jr := r.workerNext("f1")
-	if jr.Job != "T-1/2/fix" || !strings.Contains(jr.Text, "The answer to your question on T-1 (attempt 2): yes") {
-		t.Errorf("job_next after the replay: %+v, want the answer as attempt 2's fix job", jr)
-	}
-	if r.facts() != 0 {
-		t.Errorf("facts in force after the replay: %d, want none", r.facts())
-	}
-}

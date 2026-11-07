@@ -230,9 +230,6 @@ func TestStateDroppingRowT852(t *testing.T) {
 		checkRow(t, rowWant{verbs: vResume | vDrop, mt: mtask{state: stDropping, needs: heldOf(cause)}, waits: true,
 			name: "a step (needs-you)", landed: true, cause: cause, resume: retry})
 	}
-	// an old log's take-over's refused stop (foldOldDrive): driving, held, obor resume retries it
-	checkRow(t, rowWant{verbs: vResume | vDrop | vSubmit, mt: mtask{state: stDriving, drive: true, needs: heldOf(causeStop)},
-		waits: true, name: "a step (needs-you)", landed: true, cause: causeStop, resume: resumeRule{retry: true}})
 }
 
 func TestStateWaitingRow2a(t *testing.T) {
