@@ -185,6 +185,9 @@ func (v *validator) optional() {
 	if s := v.d.Slots; s != nil && s.CPUs != nil && *s.CPUs < 1 {
 		v.fail(".slots.cpus", fmt.Sprintf("must be a positive integer, got %d", *s.CPUs))
 	}
+	if s := v.d.Slots; s != nil && s.LaneCPUs != nil && *s.LaneCPUs < 1 {
+		v.fail(".slots.lane_cpus", fmt.Sprintf("must be a positive integer, got %d", *s.LaneCPUs))
+	}
 	if c := v.d.Checks; c != nil && c.LoadLimit != nil && !(*c.LoadLimit >= 0) {
 		v.fail(".checks.load_limit", fmt.Sprintf("must be a non-negative number (a load average; 0: never wait), got %v", *c.LoadLimit))
 	}

@@ -366,3 +366,29 @@ func TestTaskFromBranch(t *testing.T) {
 		t.Error("a pattern that does not compile matches nothing")
 	}
 }
+
+// T-963: a lane's Go processes run on slots.lane_cpus (default 2): GOMAXPROCS and GOFLAGS -p, a GOFLAGS' other flags
+// kept in front, an earlier -p replaced.
+func TestLaneEnv(t *testing.T) {
+	def := load(t, `{}`, "")
+	if def.Data.Slots != nil && def.Data.Slots.LaneCPUs != nil {
+		t.Fatalf("precondition: lane_cpus unset, got %d", *def.Data.Slots.LaneCPUs)
+	}
+	three := load(t, `{"slots": {"lane_cpus": 3}}`, "")
+	for _, c := range []struct {
+		name    string
+		cfg     *Config
+		goflags string
+		want    []string
+	}{
+		{"default", def, "", []string{"GOMAXPROCS=2", "GOFLAGS=-p=2"}},
+		{"lane_cpus 3", three, "", []string{"GOMAXPROCS=3", "GOFLAGS=-p=3"}},
+		{"other flags kept", def, "-mod=mod", []string{"GOMAXPROCS=2", "GOFLAGS=-mod=mod -p=2"}},
+		{"earlier -p replaced", three, "-mod=mod -p=2 -count=1", []string{"GOMAXPROCS=3", "GOFLAGS=-mod=mod -count=1 -p=3"}},
+		{"nil config", nil, "", []string{"GOMAXPROCS=2", "GOFLAGS=-p=2"}},
+	} {
+		if got := LaneEnv(c.cfg, c.goflags); !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: LaneEnv = %q, want %q", c.name, got, c.want)
+		}
+	}
+}
