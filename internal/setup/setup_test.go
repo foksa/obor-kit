@@ -664,7 +664,7 @@ func TestPaneSplitsTheTabAndStartsTheAgentInOrder(t *testing.T) {
 	}
 	want := []string{"agent.list", "pane.list", "pane.layout pane_id=w1:p1",
 		"pane.split cwd=" + lane + " direction=right env={OBOR_AGENT=,OBOR_LANE=L-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker,OPENCODE_CONFIG=} target_pane_id=w1:p1",
-		"pane.rename label=pj-l-01 pane_id=w1:n1", "agent.get target=pj-l-01", "agent.get target=w1:n1", "agent.get target=w1:n1",
+		"pane.rename label=pj-l-01 pane_id=w1:n1", "agent.get target=w1:n1",
 		"agent.start args=[" + laneArgs + " --session-id NEW] kind=claude name=pj-l-01 pane_id=w1:n1"}
 	if got := x.reqs(); named(strings.Join(got, "\n")) != strings.Join(want, "\n") {
 		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
@@ -740,8 +740,8 @@ func TestPaneLabelSetAndRefused(t *testing.T) {
 	if x.h.Pane("w1:p1").Label != "pj-l-01" {
 		t.Error("label set in herdr")
 	}
-	has(t, named(strings.Join(x.reqs(), "\n")), "pane.rename label=pj-l-01 pane_id=w1:p1\nagent.get target=pj-l-01\nagent.get target=w1:p1\nagent.get target=w1:p1\nagent.start args=["+laneArgs+" --session-id NEW] kind=claude name=pj-l-01 pane_id=w1:p1",
-		"rename, the name-held check, then the start")
+	has(t, named(strings.Join(x.reqs(), "\n")), "pane.rename label=pj-l-01 pane_id=w1:p1\nagent.get target=w1:p1\nagent.start args=["+laneArgs+" --session-id NEW] kind=claude name=pj-l-01 pane_id=w1:p1",
+		"rename, then the start")
 
 	x.noAgents()
 	if out := x.ok(t, "pane", "--start", "L-01", "--pane", "w1:p1"); last(out) != "OK L-01: pj-l-01 in pane w1:p1" {
@@ -916,7 +916,7 @@ func TestRoleIntegratorStartsInItsWorktreeAndNeedsAType(t *testing.T) {
 	}
 	want := []string{"agent.list", "pane.list", "pane.process_info pane_id=w1:p3", "<env line>",
 		"pane.read lines=30 pane_id=w1:p3 source=visible strip_ansi=true", "pane.rename label=pj-int pane_id=w1:p3",
-		"agent.get target=pj-int", "agent.get target=w1:p3", "agent.get target=w1:p3",
+		"agent.get target=w1:p3",
 		"agent.start args=[--permission-mode auto --model opus " + settings + " --session-id NEW] kind=claude name=pj-int pane_id=w1:p3"}
 	got := x.reqs()
 	for i, r := range got {

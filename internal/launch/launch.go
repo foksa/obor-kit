@@ -22,9 +22,9 @@
 //	Stop     see Stop. A child the pane's shell stopped (Ctrl+Z: herdr then sees an idle shell) → FAIL with a hint, before
 //	         anything is stopped or typed: no fg resume.
 //	Start    the env line typed at the shell (never into another program), then Start (the one start, shared with
-//	         obor setup): the pane labelled <agent>, the name cleared from the pane if herdr still holds it, herdr agent
-//	         start (agent_name_taken: cleared and retried once), a look for a startup dialog. The start ends when its
-//	         agent runs in the pane and is named, not at herdr's own bound for an agent ready for input (T-404).
+//	         obor setup): the pane labelled <agent>, herdr agent start (agent_name_taken: cleared and retried once), a
+//	         look for a startup dialog. The start ends when its agent runs in the pane, not at herdr's own bound for an
+//	         agent ready for input (T-404). herdr's agent name is neither required nor renamed back (T-952).
 //	Self     the caller's own pane (HERDR_PANE_ID): scheduled, see self.go.
 //
 // Every operation registers one op record (kind restart) for its whole run.
@@ -822,38 +822,6 @@ func (l *Launcher) args(t *target, effort string) ([]string, error) {
 		}
 	}
 	return lt.LaunchArgs(t.info.Role, effort, dirs), nil
-}
-
-// holds: pane holds agent's herdr name.
-func (l *Launcher) holds(ctx context.Context, agent, pane string) bool {
-	if a, err := l.H.Agent(ctx, agent); err == nil && a.ID == pane {
-		return true
-	}
-	a, err := l.H.Agent(ctx, pane)
-	return err == nil && a.Name == agent
-}
-
-// release clears agent's name from pane (T-124, T-137): right after a stop herdr may not have noticed yet (a clear
-// then failed, Codex): with wait, wait (≤ 10 s) until herdr sees no agent in the pane; then clear unless herdr
-// already did, retrying once by name.
-func (l *Launcher) release(ctx context.Context, agent, pane string, wait bool) {
-	if wait {
-		l.until(ctx, min(l.wait(), 10*time.Second), func() bool {
-			_, err := l.H.Agent(ctx, pane)
-			return err != nil
-		})
-	}
-	if !l.holds(ctx, agent, pane) {
-		return
-	}
-	if l.H.RenameAgent(ctx, pane, "") == nil {
-		return
-	}
-	time.Sleep(l.poll())
-	if l.H.RenameAgent(ctx, agent, "") == nil {
-		return
-	}
-	l.say("warning: herdr kept the name %s in pane %s", agent, pane)
 }
 
 func (l *Launcher) kill(pgid int, sig syscall.Signal) error {

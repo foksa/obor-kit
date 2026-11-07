@@ -28,7 +28,8 @@ otherwise.
 - Auto mode can't check `bash -c '…'` scripts that contain `rm` → a permission prompt that auto-denies after ~2 min.
   Write probes to a script file in the scratchpad and run it.
 - Spawning panes/agents can be blocked by the auto-mode classifier → ask the user.
-- An agent can't `/clear` itself; send `/clear` via `herdr agent prompt`. If the pane shows the Background tasks
+- An agent can't `/clear` itself; send `/clear` via `herdr agent prompt <pane id> "/clear"` — the pane id, not the
+  agent name (herdr drops a name at times, and obor never reads it, T-952). If the pane shows the Background tasks
   panel, send `esc` first — only while the agent is idle: Esc interrupts a working turn.
 - TaskStop on a background shell can leave its child script running → check by script path, kill by PID.
 - Claude panes except leads start with `--settings '{"autoMemoryEnabled":false,"remoteControlAtStartup":false}'` (only the lead

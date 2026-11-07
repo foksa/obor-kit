@@ -1106,7 +1106,8 @@ func TestRestartLaneWorkerJobUnknownRefuses(t *testing.T) {
 }
 
 // T-387: herdr's start waits for an agent ready for input; one working on its first prompt is not, herdr gives up
-// after 30 s and keeps no name for it. A start with a prompt whose agent runs and works in the pane is a start, named.
+// after 30 s and keeps no name for it. A start with a prompt whose agent runs and works in the pane is a start; the
+// name it keeps from herdr is not obor's business (T-952: no rename back).
 func TestStartBusyOnFirstPrompt(t *testing.T) {
 	t.Parallel()
 	const wake = "[obor job T-1/1/work] call the obor job_next tool"
@@ -1114,7 +1115,7 @@ func TestStartBusyOnFirstPrompt(t *testing.T) {
 		name, prompt, status string
 		ok                   bool
 	}{
-		{"wake, working at herdr's timeout: RESTARTED, named", wake, "working", true},
+		{"wake, working at herdr's timeout: RESTARTED", wake, "working", true},
 		{"wake, blocked at herdr's timeout: FAIL", wake, "blocked", false},
 		{"no wake, working at herdr's timeout: FAIL as before", "", "working", false},
 	} {
@@ -1137,8 +1138,8 @@ func TestStartBusyOnFirstPrompt(t *testing.T) {
 			}
 			eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new)", "result")
 			contains(t, out, "pj-l-01 runs in w1:p3 (working on its first prompt): started", "said")
-			eq(t, strings.Join(x.calls("agent.rename"), "\n"), "agent.rename name=pj-l-01 target=w1:p3", "named")
-			eq(t, x.f.Pane("w1:p3").Name, "pj-l-01", "herdr knows the name")
+			eqInt(t, len(x.calls("agent.rename")), 0, "nothing renamed")
+			eq(t, x.f.Pane("w1:p3").Name, "", "herdr kept no name, and the start stands")
 		})
 	}
 }
@@ -1274,67 +1275,44 @@ func envWords(t *testing.T, line string) (ok, bad string) {
 }
 
 // T-404: herdr's agent start answers only once the agent is ready for input (30 s), which an agent busy on its first
-// prompt never is: a start ends with its agent up and named, while herdr's answer is still pending (T-405: the start
-// owns herdr's call, cancelled before it returns). An agent herdr left unnamed is named by the launch; one it never
-// names is still started, with a warning (DD-v0.13 A7).
+// prompt never is: a start ends with its agent up while herdr's answer is still pending (T-405: the start owns herdr's
+// call, cancelled before it returns). T-952: an agent herdr left unnamed is a start; nothing renames it back.
 func TestStartEndsWithTheAgentUp(t *testing.T) {
 	t.Parallel()
-	for _, c := range []struct {
-		name     string
-		onStart  string // what agent start leaves behind (the fake's OnStart)
-		noRename bool
-		renames  int
-	}{
-		{"named at once: RESTARTED without herdr's answer", "", false, 0},
-		{"unnamed: named by the launch, RESTARTED without herdr's answer", "unnamed", false, 1},
-		{"never named: the rename refused, RESTARTED with a warning", "unnamed", true, 1},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			x := setup(t)
-			release, ended := make(chan struct{}), make(chan struct{})
-			defer close(release) // herdr's answer comes after the test's checks
-			x.pendingStart(release, ended)
-			x.shell("w1:p3", "pj-l-01", "").OnStart = c.onStart
-			if c.noRename {
-				x.srv.Fail("agent.rename", "agent_not_found", "no agent named")
-			}
-			var out bytes.Buffer
-			done := make(chan struct {
-				line string
-				err  error
-			}, 1)
-			go func() {
-				line, err := x.launcher(&out).Restart(context.Background(), launch.Request{Agent: "pj-l-01", Fresh: true})
-				done <- struct {
-					line string
-					err  error
-				}{line, err}
-			}()
-			select {
-			case got := <-done:
-				if got.err != nil {
-					t.Fatalf("the start: %v\n%s", got.err, out.String())
-				}
-				eq(t, got.line, "RESTARTED pj-l-01 (pane w1:p3, session new)", "result")
-			case <-time.After(10 * time.Second):
-				t.Fatal("the start waited for herdr's answer")
-			}
-			select { // T-405: the start owns herdr's call: ended (cancelled) before the start returns
-			case <-ended:
-			default:
-				t.Error("herdr's agent start call still runs after the start returned")
-			}
-			lacks(t, out.String(), "(timeout)", "herdr's answer is not waited for")
-			eqInt(t, len(x.calls("agent.rename target=w1:p3")), c.renames, "renames")
-			if c.noRename {
-				contains(t, out.String(), "warning: pj-l-01 started in w1:p3, but herdr has no agent of that name there", "warned")
-				eq(t, x.f.Pane("w1:p3").Name, "", "herdr kept no name")
-				return
-			}
-			eq(t, x.f.Pane("w1:p3").Name, "pj-l-01", "herdr knows the name")
-		})
+	x := setup(t)
+	release, ended := make(chan struct{}), make(chan struct{})
+	defer close(release) // herdr's answer comes after the test's checks
+	x.pendingStart(release, ended)
+	x.shell("w1:p3", "pj-l-01", "").OnStart = "unnamed"
+	var out bytes.Buffer
+	done := make(chan struct {
+		line string
+		err  error
+	}, 1)
+	go func() {
+		line, err := x.launcher(&out).Restart(context.Background(), launch.Request{Agent: "pj-l-01", Fresh: true})
+		done <- struct {
+			line string
+			err  error
+		}{line, err}
+	}()
+	select {
+	case got := <-done:
+		if got.err != nil {
+			t.Fatalf("the start: %v\n%s", got.err, out.String())
+		}
+		eq(t, got.line, "RESTARTED pj-l-01 (pane w1:p3, session new)", "result")
+	case <-time.After(10 * time.Second):
+		t.Fatal("the start waited for herdr's answer")
 	}
+	select { // T-405: the start owns herdr's call: ended (cancelled) before the start returns
+	case <-ended:
+	default:
+		t.Error("herdr's agent start call still runs after the start returned")
+	}
+	lacks(t, out.String(), "(timeout)", "herdr's answer is not waited for")
+	eqInt(t, len(x.calls("agent.rename")), 0, "nothing renamed")
+	eq(t, x.f.Pane("w1:p3").Name, "", "herdr kept no name, and the start stands")
 }
 
 // T-404: a start is its own agent. An agent of the kind already in the pane (herdr lost its name) is not taken for the
@@ -1389,126 +1367,6 @@ type startEnds struct {
 func (s startEnds) Start(ctx context.Context, name, kind, pane string, args ...string) (port.Pane, error) {
 	defer close(s.ended)
 	return s.PaneControl.Start(ctx, name, kind, pane, args...)
-}
-
-// holdsAgent makes agent.get fail with not_found from the agent.start on, while pending is true: herdr has not
-// detected the agent yet (the test clears pending when herdr's answer comes).
-func (x *fx) holdsAgent(pending *atomic.Bool) {
-	x.srv.Before(func(r herdrtest.Request) {
-		switch r.Method {
-		case "agent.start":
-			pending.Store(true)
-		case "agent.get":
-			if pending.Load() {
-				x.srv.Fail("agent.get", "agent_not_found", "detection pending")
-				return
-			}
-			x.srv.Clear("agent.get")
-		}
-	})
-}
-
-// T-405 (RV-44 #1): herdr renames by pane, so a start names only the agent it started. herdr's answer to an unnamed
-// start comes while the pane's agent is not detected yet; by then another agent holds the pane (another kind, or a
-// new session): the start renames nothing and fails with why; the same agent is named.
-func TestStartRenamesOnlyItsAgent(t *testing.T) {
-	t.Parallel()
-	for _, c := range []struct {
-		name          string
-		kind, session string // the pane's agent when herdr's answer comes ("": the started one, unchanged)
-		fail          string // "": named
-	}{
-		{"another kind: renamed nothing, FAIL", "codex", "replacement", "but the pane holds a codex agent (session replacement, name other)"},
-		{"another session: renamed nothing, FAIL", "claude", "replacement", "but the pane holds a claude agent (session replacement, name other)"},
-		{"the started agent: named", "", "", ""},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			x := setup(t)
-			release := make(chan struct{})
-			rel, entered := x.srv.Hold("agent.start")
-			var pending atomic.Bool
-			x.holdsAgent(&pending)
-			pane := x.shell("w1:p3", "pj-l-01", "")
-			pane.OnStart, pane.Session = "unnamed", "started"
-			done := make(chan error, 1)
-			go func() {
-				done <- x.launcher(&bytes.Buffer{}).Start(context.Background(),
-					launch.Start{Agent: "pj-l-01", Kind: "claude", Pane: "w1:p3", Label: "pj-l-01", Prompt: "wake"})
-			}()
-			select {
-			case <-entered:
-			case <-time.After(10 * time.Second):
-				t.Fatal("the start never reached herdr")
-			}
-			eq(t, pane.Kind, "claude", "precondition: the start's agent in the pane")
-			if c.kind != "" {
-				pane.Kind, pane.Name, pane.Session = c.kind, "other", c.session
-			}
-			pending.Store(false)
-			close(release)
-			rel()
-			var err error
-			select {
-			case err = <-done:
-			case <-time.After(10 * time.Second):
-				t.Fatal("the start did not end")
-			}
-			if c.fail == "" {
-				if err != nil {
-					t.Fatalf("the start: %v", err)
-				}
-				eq(t, pane.Name, "pj-l-01", "the started agent named")
-				eqInt(t, len(x.calls("agent.rename target=w1:p3")), 1, "renames")
-				return
-			}
-			if err == nil || !strings.Contains(err.Error(), c.fail) || !strings.Contains(err.Error(), "renamed nothing") {
-				t.Fatalf("the start's FAIL: %v, want %q", err, c.fail)
-			}
-			eq(t, pane.Name, "other", "the other agent keeps its name")
-			eqInt(t, len(x.calls("agent.rename")), 0, "renames")
-		})
-	}
-}
-
-// T-387: a start ends with herdr knowing the agent by its name: a start herdr answered but left unnamed is named;
-// one that cannot be named is still a start, with a warning that says so (DD-v0.13 A7: nothing finds it by name).
-func TestStartNamesTheAgent(t *testing.T) {
-	t.Parallel()
-	for _, c := range []struct {
-		name     string
-		noRename bool
-		want     string
-	}{
-		{"unnamed after the start: renamed, RESTARTED", false, "RESTARTED pj-l-01 (pane w1:p3, session new)"},
-		{"unnamed and the rename refused: RESTARTED, warned with the reason", true,
-			"warning: pj-l-01 started in w1:p3, but herdr has no agent of that name there (herdr agent rename w1:p3 pj-l-01: " +
-				"herdr agent.rename: not found: no agent named (agent_not_found))"},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			x := setup(t)
-			x.shell("w1:p3", "pj-l-01", "").OnStart = "unnamed"
-			if c.noRename {
-				x.srv.Fail("agent.rename", "agent_not_found", "no agent named")
-			}
-			out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
-			eqInt(t, len(x.calls("agent.start")), 1, "precondition: one start")
-			lacks(t, out, "(timeout)", "precondition: herdr answered the start")
-			if !ok {
-				t.Fatalf("not started: %s", out)
-			}
-			if c.noRename {
-				eqInt(t, len(x.calls("agent.rename name=pj-l-01 target=w1:p3")), 1, "precondition: the rename was tried")
-				contains(t, out, c.want, "warned")
-				eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new)", "result: the start stands")
-				return
-			}
-			eq(t, last(out), c.want, "result")
-			contains(t, out, "named the agent in w1:p3 pj-l-01 (herdr had no name for it)", "said")
-			eq(t, x.f.Pane("w1:p3").Name, "pj-l-01", "herdr knows the name")
-		})
-	}
 }
 
 // Stop before the start: bash restart.test.sh case_running_idle_exits_then_starts,
@@ -1629,23 +1487,10 @@ func eqInt(t *testing.T, got, want int, what string) {
 	}
 }
 
-// Name release and the start: bash restart.test.sh case_same_pane_name_cleared_then_start_failure_fails,
-// case_codex_same_pane_clear_fails_once_retried, case_start_name_taken_once_cleared_and_retried
-func TestRestartReleasesTheName(t *testing.T) {
+// The start's agent_name_taken retry (T-952: herdr keeps a name from a pane that ran agent before, and lags in
+// noticing an exit; obor itself renames nothing back).
+func TestRestartAgentNameTaken(t *testing.T) {
 	t.Parallel()
-	t.Run("the pane still holds the name: cleared before the start", func(t *testing.T) {
-		t.Parallel()
-		x := setup(t)
-		x.wait = shortWait
-		x.sid("pj-l-01", "sid-1")
-		x.agent("w1:p3", "pj-l-01", "claude", "idle").Foreground = 1 // exited; herdr not done with it yet
-		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
-		clr, start := x.index("agent.rename name=null target=w1:p3"), x.index("agent.start")
-		if !ok || clr < 0 || clr > start {
-			t.Errorf("cleared before agent start:\n%s\n%q", out, x.srv.Calls())
-		}
-		lacks(t, strings.Join(x.calls("pane.send_input"), "\n"), "/exit", "at its shell: nothing to quit")
-	})
 	t.Run("start fails twice: retried once, herdr's error, FAIL", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
@@ -1654,7 +1499,8 @@ func TestRestartReleasesTheName(t *testing.T) {
 		taken := herdrtest.Failure{Code: "agent_name_taken", Message: "name pj-l-01 taken"}
 		x.srv.Once("agent.start", taken, taken)
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01", Pane: "w1:p3"})
-		lacks(t, strings.Join(x.calls("agent.rename"), "\n"), "w1:p3 --clear", "unnamed pane: no clear by pane")
+		contains(t, strings.Join(x.calls("agent.rename"), "\n"), "agent.rename name=null target=pj-l-01",
+			"the stale name cleared by name")
 		eqInt(t, len(x.calls("agent.start")), 2, "agent_name_taken: retried once")
 		contains(t, out, "agent_name_taken", "herdr's error printed")
 		eq(t, failLine(out), "FAIL start failed in w1:p3 (no agent runs there: the pane is at its shell, maybe mid-command: run obor restart pj-l-01 --pane w1:p3 again or start it by hand)", "result")
@@ -1675,7 +1521,9 @@ func TestRestartReleasesTheName(t *testing.T) {
 			t.Errorf("cleared before the retry: %q", x.srv.Calls())
 		}
 		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
-		_ = ok
+		if !ok {
+			t.Errorf("restarted:\n%s", out)
+		}
 	})
 	t.Run("start blocked at a startup dialog (agent_not_ready): FAIL that says so, not retried", func(t *testing.T) {
 		t.Parallel()
@@ -1690,21 +1538,22 @@ func TestRestartReleasesTheName(t *testing.T) {
 			t.Error("a failure")
 		}
 	})
-	t.Run("codex: first clear by pane fails, retried by name", func(t *testing.T) {
+	t.Run("the pane still holds the name (herdr lagging an exit): cleared by its pane, retried", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.wait = shortWait
 		a := x.agent("w1:p7", "pj-rev", "codex", "working")
 		a.Session, a.OnQuit = "cx-9", "linger"
-		x.srv.Once("agent.rename", herdrtest.Failure{Code: "agent_not_found", Message: "no agent in w1:p7"})
+		x.srv.Once("agent.start", herdrtest.Failure{Code: "agent_name_taken", Message: "name pj-rev taken"})
 		out, ok := x.restart(launch.Request{Agent: "pj-rev", Fresh: true, Force: true})
 		contains(t, strings.Join(x.calls("pane.send_input"), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p7 text=/quit", "precondition: Codex stopped")
-		eq(t, strings.Join(x.calls("agent.rename"), "\n"), "agent.rename name=null target=w1:p7\nagent.rename name=null target=pj-rev",
-			"first clear failed → retried by name")
-		lacks(t, out, "warning: herdr agent rename", "the retry took")
-		eqInt(t, len(x.calls("agent.start")), 1, "started once")
+		eq(t, strings.Join(x.calls("agent.rename"), "\n"), "agent.rename name=null target=w1:p7", "the stale name cleared by its pane")
+		contains(t, out, "agent start: name pj-rev taken (pane w1:p7): clearing it and retrying", "said")
+		eqInt(t, len(x.calls("agent.start")), 2, "retried once")
 		eq(t, last(out), "RESTARTED pj-rev (pane w1:p7, session new)", "result")
-		_ = ok
+		if !ok {
+			t.Errorf("restarted:\n%s", out)
+		}
 	})
 }
 
