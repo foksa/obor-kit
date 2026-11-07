@@ -89,6 +89,7 @@ func claudeLive(l *lab, turn bool) {
 	s := l.start("conf-claude", "claude", pane, argv, 30*time.Second)
 	trustShown := trustDialog(l, pane, s)
 	ready := l.readyAfter(s, t0, "idle")
+	startSeq, _ := l.completionSeq(pane) // H3's baseline: before any turn
 	reportStart("claude (trust dialog on screen)", s, 0)
 	if !trustShown && ready == 0 {
 		report("FAIL", "CC-L1", "claude did not come up: "+tail(l.visible(pane), 6), where1)
@@ -108,6 +109,7 @@ func claudeLive(l *lab, turn bool) {
 		report("SKIP", "CC-L4", "needs TURN=1 (a model call)", at(claudeGo, "func (kind) Deliver")+", F4.2")
 		report("SKIP", "CC-L6", "needs TURN=1 (a model call)", "internal/guard/stop.go")
 	}
+	turn1Seq := ccL8(l, pane, startSeq, turn)
 	// CC-L2's existence check runs after the turn: Claude creates the transcript at the first prompt (CAP §2.4, T-820).
 	ccL2(out, sid, hooks, turn, "internal/guard/session.go, "+at(claudeGo, "func (kind) Start")+", F4.3, F4.4")
 
@@ -129,6 +131,7 @@ func claudeLive(l *lab, turn bool) {
 	s = l.start("conf-claude2", "claude", pane, argv, 30*time.Second)
 	ready = l.readyAfter(s, t0, "idle")
 	reportStart("claude", s, ready)
+	ccL8Restart(l, pane, turn1Seq, turn)
 	shown := len(l.waitRecords("mcp", "manifest", 20*time.Second)) > 0
 	where := at(claudeGo, "const StrictFlag") + ", T-445, T-770"
 	switch {
@@ -355,6 +358,124 @@ func ccTurn(l *lab, k agents.Kind, hooks []record) {
 		return
 	}
 	report("PASS", "CC-L6", fmt.Sprintf("the Stop payload carries last_assistant_message %q (StopFailure stays docs-only)", p.LastMessage), where6)
+}
+
+// ccL8 (T-953, H3): completion_seq on agent.get across two short turns of one Claude agent: the value after the start,
+// after the inbox's turn and after a second typed turn, whether it grew, and what herdr says about detection. Returns
+// the value after turn 1 (the restart probe compares a fresh agent's with it).
+func ccL8(l *lab, pane string, start *uint64, turn bool) *uint64 {
+	where := at(socketGo, "completion_seq") + ", H3, F4.2"
+	if !turn {
+		report("SKIP", "CC-L8", "needs TURN=1 (two short model calls)", where)
+		return nil
+	}
+	if err := l.waitIdle(pane, 60*time.Second); err != nil {
+		report("FAIL", "CC-L8", "after the inbox's turn the agent is not idle: "+err.Error(), where)
+		return nil
+	}
+	turn1, err := l.completionSeq(pane)
+	if err != nil {
+		report("FAIL", "CC-L8", "agent.get after turn 1: "+err.Error(), where)
+		return nil
+	}
+	if _, err := l.call("agent.prompt", map[string]any{"target": pane, "text": "Reply with exactly OK"}, 15*time.Second); err != nil {
+		report("FAIL", "CC-L8", "the second turn: agent.prompt: "+err.Error(), where)
+		return nil
+	}
+	if err := l.waitTurn(pane, turn1, 120*time.Second); err != nil {
+		report("FAIL", "CC-L8", "the second turn did not finish: "+err.Error(), where)
+		return nil
+	}
+	turn2, err := l.completionSeq(pane)
+	if err != nil {
+		report("FAIL", "CC-L8", "agent.get after turn 2: "+err.Error(), where)
+		return nil
+	}
+	a, _ := l.agent(pane)
+	fact := fmt.Sprintf("completion_seq on agent.get of one Claude agent: %s after the start, %s after turn 1, %s after turn 2 (grew: %t, %t); screen_detection_skipped %t, herdr's agent_session %s",
+		seqFact(start), seqFact(turn1), seqFact(turn2), grew(start, turn1), grew(turn1, turn2), a.ScreenSkipped, sessionFact(a.Session))
+	report("PASS", "CC-L8", fact, where)
+	return turn1
+}
+
+// ccL8Restart (T-953, H3): completion_seq of a fresh Claude agent in the pane the first one was quit from, after one
+// typed turn: a per-agent counter reads the quit agent's after-one-turn value or below, a server-wide one goes on.
+func ccL8Restart(l *lab, pane string, oldTurn1 *uint64, turn bool) {
+	where := at(socketGo, "completion_seq") + ", H3"
+	if !turn {
+		return
+	}
+	if err := l.waitIdle(pane, 30*time.Second); err != nil {
+		report("FAIL", "CC-L8", "the fresh agent is not idle for the restart probe: "+err.Error(), where)
+		return
+	}
+	start, err := l.completionSeq(pane)
+	if err != nil {
+		report("FAIL", "CC-L8", "agent.get of the fresh agent: "+err.Error(), where)
+		return
+	}
+	if _, err := l.call("agent.prompt", map[string]any{"target": pane, "text": "Reply with exactly OK"}, 15*time.Second); err != nil {
+		report("FAIL", "CC-L8", "the fresh agent's turn: agent.prompt: "+err.Error(), where)
+		return
+	}
+	if err := l.waitTurn(pane, start, 120*time.Second); err != nil {
+		report("FAIL", "CC-L8", "the fresh agent's turn did not finish: "+err.Error(), where)
+		return
+	}
+	after, err := l.completionSeq(pane)
+	if err != nil {
+		report("FAIL", "CC-L8", "agent.get after the fresh agent's turn: "+err.Error(), where)
+		return
+	}
+	fact := fmt.Sprintf("a fresh Claude start in the pane the first one was quit from: completion_seq %s after it was ready, %s after its first turn; the quit agent read %s after its first turn",
+		seqFact(start), seqFact(after), seqFact(oldTurn1))
+	switch {
+	case oldTurn1 == nil || after == nil:
+		fact += "; not comparable (a null reading after a turn)"
+	case *after <= *oldTurn1:
+		fact += "; per agent: the counter restarts with the agent"
+	default:
+		fact += "; not per agent: the counter goes on across the restart"
+	}
+	report("PASS", "CC-L8", fact, where)
+}
+
+// waitIdle waits until the agent in pane reads idle.
+func (l *lab) waitIdle(pane string, d time.Duration) error {
+	var a agentInfo
+	if !poll(d, func() bool {
+		var err error
+		a, err = l.agent(pane)
+		return err == nil && a.Status == "idle"
+	}) {
+		return fmt.Errorf("status %s after %.0fs", orNone(a.Status), d.Seconds())
+	}
+	return nil
+}
+
+// waitTurn waits for a turn an agent.prompt started to finish: the agent leaves idle (or completion_seq grows) and reads
+// idle again. before is its completion_seq when the prompt went in.
+func (l *lab) waitTurn(pane string, before *uint64, d time.Duration) error {
+	started := false
+	var a agentInfo
+	deadline := time.Now().Add(d)
+	for {
+		var err error
+		a, err = l.agent(pane)
+		if err != nil {
+			return err
+		}
+		if a.Status != "idle" || grew(before, a.CompletionSeq) {
+			started = true
+		}
+		if started && a.Status == "idle" {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("status %s, completion_seq %s after %.0fs", orNone(a.Status), seqFact(a.CompletionSeq), d.Seconds())
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
 }
 
 // post writes lines to the unix socket path.

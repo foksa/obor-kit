@@ -19,7 +19,8 @@ var codexAllow = []string{"HOME", "LOGNAME", "PATH", "SHELL", "USER", "__CF_USER
 
 // codexLive: on a scratch CODEX_HOME (auth.json copied, removed after; a config.toml with the model and the scratch
 // dirs trusted), a start with --no-daemon and then one without, each with --strict-config: CX-L1 per start, CX-L2,
-// H-L1; with TURN=1 one turn on the first (CX-L3). The per-launch SessionStart hook is not probed (CX-L5 deleted
+// H-L1; with TURN=1 one turn on the first (CX-L3); then H-L11 on a third start, whose home holds the user's hooks.json
+// (herdr's Codex integration) for that start alone. The per-launch SessionStart hook is not probed (CX-L5 deleted
 // until P6's Codex half is a task: the driver sends none).
 func codexLive(l *lab, turn bool) {
 	k := kindOf("codex")
@@ -111,7 +112,10 @@ func codexLive(l *lab, turn bool) {
 		}
 	}
 
-	// 3: the repository's own server (T-898), last: CX-L3 reads the first turn's rollout.
+	// 3: H-L11 (T-953, H7): herdr's agent_session on a fresh --no-daemon start whose CODEX_HOME has the integration.
+	hL11Start(l, k, pane, codexHome, src, turn)
+
+	// 4: the repository's own server (T-898), last: CX-L3 reads the first turn's rollout.
 	cxL4(l, pane, codexHome, turn)
 }
 
@@ -183,6 +187,69 @@ func rollouts(dir string) string {
 		}
 	}
 	return b.String()
+}
+
+// hL11Start (T-953, H7): a fresh codex --no-daemon start in a CODEX_HOME holding herdr's Codex integration (the user's
+// hooks.json, whose SessionStart it runs), and when agent_session reaches agent.get: what the start alone gives, and with
+// TURN=1 how long after the first turn it arrives (codex dispatches SessionStart with the session's first turn, not at
+// TUI startup). The scratch home has neither the user's `[features] hooks = true` nor its hook trust, so the start
+// carries --enable hooks and --dangerously-bypass-hook-trust; obor's real launch adds neither (the user's home has
+// both). hooks.json is removed after, so the lab's next start is its usual one.
+func hL11Start(l *lab, k agents.Kind, pane, codexHome, src string, turn bool) {
+	where := at("internal/launch/session.go", "func (l *Launcher) reportRollout") + ", H7, F4.3"
+	hooks, err := os.ReadFile(filepath.Join(src, "hooks.json"))
+	if err != nil {
+		report("SKIP", "H-L11", "herdr's Codex integration is not installed ("+filepath.Join(src, "hooks.json")+"), so no agent_session can be reported", where)
+		return
+	}
+	hooksPath := filepath.Join(codexHome, "hooks.json")
+	if err := os.WriteFile(hooksPath, hooks, 0o644); err != nil {
+		report("FAIL", "H-L11", err.Error(), where)
+		return
+	}
+	defer func() { _ = os.Remove(hooksPath) }()
+	argv := k.Start(agents.Start{Kit: l.kit, Args: []string{"--strict-config", "--no-daemon", "--enable", "hooks",
+		"--dangerously-bypass-hook-trust"}})
+	t0 := time.Now()
+	s := l.start("conf-codex-session", "codex", pane, argv, 30*time.Second)
+	if l.readyAfter(s, t0, "idle", "blocked") == 0 {
+		report("FAIL", "H-L11", "codex did not come up for the session probe: "+answer(s)+"; "+tail(l.screen(pane), 4), where)
+		l.stopAgent(pane)
+		return
+	}
+	before, _ := l.agent(pane)
+	fact := fmt.Sprintf("a fresh codex --no-daemon start with herdr's Codex integration: agent.get reported agent_session %s when the start was ready (%.1fs after it began)",
+		sessionFact(before.Session), time.Since(t0).Seconds())
+	if turn {
+		if _, err := l.call("agent.prompt", map[string]any{"target": pane, "text": "Reply with exactly OK"}, 15*time.Second); err != nil {
+			report("FAIL", "H-L11", "the probe's first turn: agent.prompt: "+err.Error(), where)
+			l.stopAgent(pane)
+			return
+		}
+		prompted := time.Now()
+		var a agentInfo
+		filled := poll(60*time.Second, func() bool {
+			var err error
+			a, err = l.agent(pane)
+			return err == nil && a.Session != nil
+		})
+		after := time.Since(prompted)
+		switch {
+		case !filled:
+			fact += fmt.Sprintf("; still none %.1fs after the first prompt", after.Seconds())
+		case before.Session != nil:
+			fact += "; no change needed after the first turn"
+		default:
+			fact += fmt.Sprintf("; %s arrived %.1fs after the first prompt", sessionFact(a.Session), after.Seconds())
+		}
+	} else {
+		fact += "; whether it arrives at the first turn needs TURN=1"
+	}
+	report("PASS", "H-L11", fact, where)
+	st := k.Stop()
+	if code, err := l.quit(pane, st.Quit, st.SecondEnter); err != nil || code != 0 {
+		l.stopAgent(pane)
+	}
 }
 
 // codexUp starts codex in pane with the driver's argv for args (H-L1 per start): the screen once it is up;

@@ -20,8 +20,9 @@ const (
 	launchGo = "internal/launch/launch.go"
 )
 
-// herdrLive: H-L8, H-L7, H-L4, H-L3, H-L5, H-L1 (timeout), H-L6 last (it restarts the session). H-L2 needs a known dialog:
-// it runs in the claude session (Claude's trust dialog); H-L1's answer timing is measured on each agent kind's start.
+// herdrLive: H-L8, H-L7, H-L4, H-L3, H-L5, H-L9, H-L1 (timeout), H-L6 last (it restarts the session). H-L2 needs a
+// known dialog: it runs in the claude session (Claude's trust dialog); H-L1's answer timing is measured on each agent
+// kind's start.
 func herdrLive(l *lab, _ bool) {
 	hL8(l)
 	pane, err := l.workspace("conf", l.lane)
@@ -33,6 +34,7 @@ func herdrLive(l *lab, _ bool) {
 	hL4(l, pane)
 	hL3(l, pane)
 	hL5(l, pane)
+	hL9(l, pane)
 	hL1Timeout(l, pane)
 	report("SKIP", "H-L2", "runs in the claude session (KIND=claude): Claude's trust dialog is the known dialog it needs",
 		at(launchGo, "l.H.Wake(")+", F3.3")
@@ -122,10 +124,54 @@ func orOK(err error) string {
 	return err.Error()
 }
 
+// paneEvent is one event line's pane payload: the event name and the pane's id, label and cwds (H9's relabel, H10's cd).
+type paneEvent struct {
+	name, pane, label, cwd, foreground string
+}
+
+// paneEventOf parses an event line's pane payload; both the event's data.pane and a flat data.pane_id are read.
+func paneEventOf(line []byte) paneEvent {
+	var e struct {
+		Event string `json:"event"`
+		Data  struct {
+			PaneID string `json:"pane_id"`
+			Pane   struct {
+				PaneID     string `json:"pane_id"`
+				Label      string `json:"label"`
+				Cwd        string `json:"cwd"`
+				Foreground string `json:"foreground_cwd"`
+			} `json:"pane"`
+		} `json:"data"`
+	}
+	_ = json.Unmarshal(line, &e)
+	p := e.Data.Pane
+	id := p.PaneID
+	if id == "" {
+		id = e.Data.PaneID
+	}
+	return paneEvent{e.Event, id, p.Label, p.Cwd, p.Foreground}
+}
+
+// paneEvents collects the pane events of pane (or naming no pane) seen on s within d.
+func paneEvents(s *sub, pane string, d time.Duration) []paneEvent {
+	var got []paneEvent
+	deadline := time.Now().Add(d)
+	for time.Now().Before(deadline) {
+		line := s.next(time.Until(deadline))
+		if line == nil {
+			break
+		}
+		if e := paneEventOf(line); e.pane == "" || e.pane == pane {
+			got = append(got, e)
+		}
+	}
+	return got
+}
+
 // hL3: pane.rename emits no event on a stream subscribed to pane.updated and the pane's status: the stream's reread
-// stays the way a relabel is seen (T-839: the settled fact, asserted).
+// stays the way a relabel is seen (T-839: the settled fact, asserted; re-probed on 0.9.5, T-953: still none).
 func hL3(l *lab, pane string) {
-	where := at(socketGo, "pane.rename emits no event") + ", F3.2"
+	where := at(socketGo, "pane.rename emits no event") + ", F3.2, H9"
 	s, err := l.subscribe(map[string]any{"type": "pane.updated"}, map[string]any{"type": "pane.agent_status_changed", "pane_id": pane})
 	if err != nil {
 		report("FAIL", "H-L3", err.Error(), where)
@@ -136,22 +182,24 @@ func hL3(l *lab, pane string) {
 		report("FAIL", "H-L3", "pane.rename: "+err.Error(), where)
 		return
 	}
-	var seen []string
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		line := s.next(time.Until(deadline))
-		if line == nil {
-			break
-		}
-		if name, p := event(line); p == "" || p == pane {
-			seen = append(seen, name)
-		}
+	var label string
+	if r, err := l.call("pane.get", map[string]any{"pane_id": pane}, 10*time.Second); err == nil {
+		get(r, "pane.label", &label)
 	}
-	if len(seen) > 0 {
-		report("FAIL", "H-L3", "pane.rename emits "+strings.Join(seen, ", ")+": a relabel arrives as an event, so the stream's reread is not the only way it is seen", where)
+	if label != "conf-renamed" {
+		report("FAIL", "H-L3", fmt.Sprintf("the rename did not take: the pane's label reads %q, not conf-renamed", label), where)
 		return
 	}
-	report("PASS", "H-L3", "pane.rename emits no event in 3s on a stream subscribed to pane.updated and the pane's status: the stream's reread stays the way a relabel is seen", where)
+	got := paneEvents(s, pane, 3*time.Second)
+	if len(got) > 0 {
+		var seen []string
+		for _, e := range got {
+			seen = append(seen, fmt.Sprintf("%s (label %q)", e.name, e.label))
+		}
+		report("FAIL", "H-L3", "pane.rename emits "+strings.Join(seen, ", ")+" in 3s: a relabel arrives as an event, so the stream's reread is not the only way it is seen (H9's workaround can go)", where)
+		return
+	}
+	report("PASS", "H-L3", "pane.rename to conf-renamed (pane.get reads the new label) emits no event in 3s on a stream subscribed to pane.updated and the pane's status: the stream's reread stays the way a relabel is seen", where)
 }
 
 // hL5: the lifecycle events' spelling on the wire (pane_created or pane.created) for a split, a close and a shell that
@@ -210,6 +258,74 @@ func hL5(l *lab, pane string) {
 		return
 	}
 	report("PASS", "H-L5", fact+" (eventName maps the underscore spelling to the dotted one)", where)
+}
+
+// hL9: a cd in a pane's shell and what a stream subscribed to pane.updated sees (T-953: H10's probe; obor's rereadPanes
+// exists because 0.9.3 gave no event for a cd). Records the event, its cwd and the pane's own read, and passes either way:
+// obor's reread is correct whichever answer herdr gives, and which proposal the answer settles is the probe doc's call.
+func hL9(l *lab, pane string) {
+	where := at("internal/app/panes.go", "a cd in the pane gives no event") + ", H10, F3.2"
+	dir := filepath.Join(l.root, "cwd-probe")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		report("FAIL", "H-L9", "the probe dir: "+err.Error(), where)
+		return
+	}
+	probe, err := l.split(pane, l.root)
+	if err != nil {
+		report("FAIL", "H-L9", "split: "+err.Error(), where)
+		return
+	}
+	defer func() { _, _ = l.call("pane.close", map[string]any{"pane_id": probe}, 10*time.Second) }()
+	s, err := l.subscribe(map[string]any{"type": "pane.updated"})
+	if err != nil {
+		report("FAIL", "H-L9", err.Error(), where)
+		return
+	}
+	defer s.close()
+	_ = s.drain()
+	if err := l.typeLine(probe, "cd "+shq(dir)); err != nil {
+		report("FAIL", "H-L9", "the cd: "+err.Error(), where)
+		return
+	}
+	got := paneEvents(s, probe, 3*time.Second)
+	var cwd, foreground string
+	poll(3*time.Second, func() bool {
+		r, err := l.call("pane.get", map[string]any{"pane_id": probe}, 10*time.Second)
+		var p struct {
+			Cwd        string `json:"cwd"`
+			Foreground string `json:"foreground_cwd"`
+		}
+		if err != nil || !get(r, "pane", &p) {
+			return false
+		}
+		cwd, foreground = p.Cwd, p.Foreground
+		return same(cwd, dir) || same(foreground, dir)
+	})
+	if !same(cwd, dir) && !same(foreground, dir) {
+		report("FAIL", "H-L9", fmt.Sprintf("the cd to %s did not take: pane.get reads cwd %q, foreground_cwd %q, and %d pane.updated event(s) came",
+			dir, cwd, foreground, len(got)), where)
+		return
+	}
+	var events []string
+	withCwd := false
+	for _, e := range got {
+		events = append(events, fmt.Sprintf("%s (cwd %q, foreground_cwd %q)", e.name, e.cwd, e.foreground))
+		withCwd = withCwd || same(e.cwd, dir) || same(e.foreground, dir)
+	}
+	seen := "no pane.updated event in 3s"
+	if len(got) > 0 {
+		seen = fmt.Sprintf("%d pane.updated event(s) in 3s: %s", len(got), strings.Join(events, ", "))
+	}
+	fact := fmt.Sprintf("a cd to %s in a fresh pane: %s; pane.get then reads cwd %q (foreground_cwd %q)", dir, seen, cwd, foreground)
+	switch {
+	case len(got) == 0:
+		fact += "; a cd gives no event (H10 has nothing to use, the reread stays)"
+	case withCwd:
+		fact += "; the event carries the new cwd (H10's event exists)"
+	default:
+		fact += "; no event carries the new cwd (H10's event alone does not say where the shell went)"
+	}
+	report("PASS", "H-L9", fact, where)
 }
 
 // drain empties what the stream holds now.

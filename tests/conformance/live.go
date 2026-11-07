@@ -37,9 +37,9 @@ var liveKinds = map[string]func(l *lab, turn bool){"herdr": herdrLive, "claude":
 
 // liveIDs are each kind's live rows, for the SKIP lines when the kind cannot run.
 var liveIDs = map[string][]string{
-	"herdr":    {"H-L1", "H-L2", "H-L3", "H-L4", "H-L5", "H-L6", "H-L7", "H-L8"},
-	"claude":   {"CC-L1", "CC-L2", "CC-L3", "CC-L4", "CC-L5", "CC-L6", "CC-L7"},
-	"codex":    {"CX-L1", "CX-L2", "CX-L3", "CX-L4"},
+	"herdr":    {"H-L1", "H-L2", "H-L3", "H-L4", "H-L5", "H-L6", "H-L7", "H-L8", "H-L9"},
+	"claude":   {"CC-L1", "CC-L2", "CC-L3", "CC-L4", "CC-L5", "CC-L6", "CC-L7", "CC-L8"},
+	"codex":    {"CX-L1", "CX-L2", "CX-L3", "CX-L4", "H-L11"},
 	"opencode": {"OC-L1", "OC-L2", "OC-L3", "OC-L4", "OC-L5", "OC-L6"},
 }
 
@@ -655,12 +655,23 @@ func poll(d time.Duration, cond func() bool) bool {
 
 // agentInfo is the part of herdr's agent answer the checks read.
 type agentInfo struct {
-	Name          string `json:"name"`
-	Agent         string `json:"agent"`
-	Status        string `json:"agent_status"`
-	LaunchPending bool   `json:"launch_pending"`
-	Ready         bool   `json:"interactive_ready"`
-	Pane          string `json:"pane_id"`
+	Name          string        `json:"name"`
+	Agent         string        `json:"agent"`
+	Status        string        `json:"agent_status"`
+	LaunchPending bool          `json:"launch_pending"`
+	Ready         bool          `json:"interactive_ready"`
+	Pane          string        `json:"pane_id"`
+	CompletionSeq *uint64       `json:"completion_seq"` // H3: the idle transition that completed work; nil: herdr reports none
+	Session       *agentSession `json:"agent_session"`  // H7: the session herdr's integration reported
+	ScreenSkipped bool          `json:"screen_detection_skipped"`
+}
+
+// agentSession is herdr's agent_session (H7): the agent's id or transcript path, and its source.
+type agentSession struct {
+	Agent  string `json:"agent"`
+	Kind   string `json:"kind"`
+	Source string `json:"source"`
+	Value  string `json:"value"`
 }
 
 func (l *lab) agent(target string) (agentInfo, error) {
@@ -670,6 +681,36 @@ func (l *lab) agent(target string) (agentInfo, error) {
 		get(r, "agent", &a)
 	}
 	return a, err
+}
+
+// completionSeq is agent target's completion_seq (H3), nil when herdr reports none.
+func (l *lab) completionSeq(target string) (*uint64, error) {
+	a, err := l.agent(target)
+	if err != nil {
+		return nil, err
+	}
+	return a.CompletionSeq, nil
+}
+
+// seqFact renders a completion_seq for a fact line ("null": herdr reported none).
+func seqFact(v *uint64) string {
+	if v == nil {
+		return "null"
+	}
+	return strconv.FormatUint(*v, 10)
+}
+
+// grew: after is a completion_seq the agent did not have before (set where before was none, or larger).
+func grew(before, after *uint64) bool {
+	return after != nil && (before == nil || *after > *before)
+}
+
+// sessionFact renders herdr's agent_session for a fact line.
+func sessionFact(s *agentSession) string {
+	if s == nil {
+		return "none"
+	}
+	return fmt.Sprintf("%s from %s %q", orNone(s.Kind), orNone(s.Source), s.Value)
 }
 
 // started is one agent.start: its answer, how long herdr took, and what the pane showed then.
@@ -703,12 +744,17 @@ func (l *lab) start(name, kind, pane string, args []string, timeout time.Duratio
 
 // reportStart is H-L1 for a kind's agent.start: the answer within obor's 10 s client timeout, with what (status,
 // launch_pending) and when the agent took input; an at-once launch_pending answer is a fact of the run, not a failure.
+// T-953: the fact also says whether the answer came before or only when the agent was ready (H6).
 func reportStart(kind string, s started, readyAfter time.Duration) {
-	where := at("internal/herdr/socket.go", "func (s *Socket) Start") + ", " + at("internal/launch/start.go", "func (l *Launcher) started") + ", F3.4"
+	where := at("internal/herdr/socket.go", "func (s *Socket) Start") + ", " + at("internal/launch/start.go", "func (l *Launcher) started") + ", F3.4, H6"
 	fact := fmt.Sprintf("%s: agent.start (timeout_ms %d) answered after %.1fs", kind, s.timeout.Milliseconds(), s.took.Seconds())
 	fact += " with " + answer(s)
 	if readyAfter > 0 {
-		fact += fmt.Sprintf("; the agent took input after %.1fs", readyAfter.Seconds())
+		when := "before it was ready"
+		if readyAfter <= s.took+time.Second {
+			when = "only when it was ready"
+		}
+		fact += fmt.Sprintf("; the agent took input after %.1fs: the answer came %s", readyAfter.Seconds(), when)
 	}
 	const client = 10 * time.Second // internal/herdr/socket.go: the per-request default agent.start runs under
 	if s.took > client {
