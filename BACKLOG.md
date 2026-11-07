@@ -213,6 +213,9 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   lane branch first.
 - (T-334) Two `sendback`s (the lead's lane form and the integrator's MCP verb): rename or drop the lane form.
 ## Concerns
+- (11-06, state-machine audit) Tests that inject effect results through `record` can miss differences in the real
+  `App.do` path (SM-03: live idle keys differed from replay). Keep production-boundary regressions for durable
+  metadata and retry receipts; findings, fixes and state tables are in `docs/state-model.md` (SM-01–04).
 - (11-04) `make upgrade-check` takes the catalog's newest release below VERSION as the previous one, so a second release before the first ships 404s on its download (v0.24.1 over the unpublished v0.24.0). Ran it with `PREV=0.23.1` (what the axis projects run). Fix if it recurs: default to the newest release origin has, or ship each release before tagging the next.
 - (11-03) T-765 rollout on obor-kit: the old serve could not load the merged config, so `dist/obor` was not rebuilt
   and serve stayed down ("lanes: must be an object") until the lead ran `make build`, `obor setup migrate`
