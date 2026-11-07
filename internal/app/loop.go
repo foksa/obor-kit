@@ -457,8 +457,11 @@ func (a *App) do(ctx context.Context, p *proj, in event.Intent, effect func(cont
 		a.logf("%s %s %s: %v", p.name, in.Task, in.Step, err)
 		return nil, err
 	}
-	p.foldRecord(event.Record{Task: in.Task, Attempt: in.Attempt, Step: in.Step, Kind: event.KindResult, Data: raw,
-		TS: a.opt.Now().UTC().Format(time.RFC3339)}) // as the log wrote it (recordTime)
+	r, ok := p.log.Result(in.Key)
+	if !ok {
+		return nil, fmt.Errorf("%s/%d/%s: successful effect has no recorded result", in.Task, in.Attempt, in.Step)
+	}
+	p.foldRecord(r)
 	if err := p.laneRowsErr(); err != nil { // the result is in the log: the next pass finds it done and proceeds once the rows are written
 		a.logf("%s %s %s: lane rows: %v", p.name, in.Task, in.Step, err)
 		return nil, err

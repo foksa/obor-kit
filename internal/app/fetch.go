@@ -395,11 +395,14 @@ func (a *App) taskDone(c wire.Call) (string, error) {
 	}
 	a.wake()
 	a.mu.Lock()
-	m := p.folded.loop[c.Task]
-	dropped := m != nil && (m.state == stDropped || m.state == stDropping)
+	state := "gone"
+	if m := p.folded.loop[c.Task]; m != nil {
+		state = m.shown()
+	}
+	_, recorded := p.folded.calls[verdictStep(wire.MethodTaskDone, c.CallID)]
 	a.mu.Unlock()
-	if dropped { // dropped after the decision: the submitted fact changes nothing
-		return "", fmt.Errorf("task_done: superseded: %s was dropped", c.Task)
+	if !recorded { // foldRecord ignored the submission: the task was dropped or ended after the decision
+		return "", fmt.Errorf("task_done: superseded: %s is %s", c.Task, state)
 	}
 	return taskDoneReply, nil
 }

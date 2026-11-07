@@ -79,6 +79,11 @@ func (p *proj) foldRecord(r event.Record) {
 	if notRunResult(r) {
 		return
 	}
+	if r.Kind == event.KindFact && r.Step == event.StepSubmitted {
+		if mt := p.folded.loop[r.Task]; mt != nil && (states[mt.state].ended || mt.state == stDropping) {
+			return // a late submission cannot reopen a task or reclaim its old lane
+		}
+	}
 	if r.Kind == event.KindFact {
 		p.fold(r)
 	}
