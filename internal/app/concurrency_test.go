@@ -194,7 +194,7 @@ func (f *concScratch) Free(_ context.Context, in port.FreeInput) (string, error)
 	}
 	if f.freeErrs > 0 {
 		f.freeErrs--
-		return "", errors.New("git branch -D task/T-2: signal: terminated")
+		return "", errors.New("git branch -D task/T-2: signal: terminated — run the same obor drop again to finish it")
 	}
 	f.frees = append(f.frees, in)
 	return "discarded in " + in.Lane, nil

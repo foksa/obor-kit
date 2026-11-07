@@ -317,6 +317,74 @@ func TestLaneFreeHistoryFailurePreservesBranch(t *testing.T) {
 	}
 }
 
+// T-981: a drop whose branch delete fails after the lane was detached says the same drop finishes it, and it does:
+// the lane is freed all the same (detached at the target), the branch kept, and a free without the failing git deletes
+// it. Nothing before the detach carries the hint (that failure freed no lane).
+func TestLaneFreeBranchDeleteFailsAfterTheLaneIsFreed(t *testing.T) {
+	t.Parallel()
+	p, lane, target := laneFx(t)
+	if _, err := laneAdapter(t, p, "").Prepare(context.Background(), laneInput(lane, target)); err != nil {
+		t.Fatal(err)
+	}
+	in := port.FreeInput{Lane: "L-01", Dir: lane, Branch: "task/T-01", Target: target}
+	if b := p.Git(lane, "branch", "--show-current"); b != in.Branch {
+		t.Fatalf("precondition: the lane is on %q, want %q", b, in.Branch)
+	}
+	// call 5 is the branch delete: status, rev-parse, ancestor, detach, delete.
+	_, err := laneAdapter(t, p, gitShim(t, p.Base, 5, 128)).Free(context.Background(), in)
+	if err == nil || !strings.Contains(err.Error(), "git branch -D task/T-01") ||
+		!strings.HasSuffix(err.Error(), " — run the same obor drop again to finish it") {
+		t.Fatalf("branch delete failure: %v; want the retry hint", err)
+	}
+	if b := p.Git(lane, "branch", "--show-current"); b != "" {
+		t.Errorf("the failed free left the lane on %q, want detached (freed)", b)
+	}
+	if h := p.Git(lane, "rev-parse", "HEAD"); h != target {
+		t.Errorf("lane HEAD %s, want the target %s", h, target)
+	}
+	if out := p.Git(p.Root, "branch", "--list", in.Branch); out == "" {
+		t.Fatal("precondition: the failed delete kept task/T-01")
+	}
+	if _, err := laneAdapter(t, p, "").Free(context.Background(), in); err != nil {
+		t.Fatalf("the same free again: %v", err)
+	}
+	if out := p.Git(p.Root, "branch", "--list", in.Branch); out != "" {
+		t.Errorf("the second free kept the task branch: %q", out)
+	}
+}
+
+// T-981: an empty index.lock left in the lane's git dir makes lane.prepare fail 128 on its checkout; the error names
+// the stale lock and what to do with it, and removes nothing.
+func TestLanePrepareStaleIndexLock(t *testing.T) {
+	t.Parallel()
+	p, lane, target := laneFx(t)
+	gitDir := p.Git(lane, "rev-parse", "--git-dir")
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(lane, gitDir)
+	}
+	lock := filepath.Join(gitDir, "index.lock")
+	if err := os.WriteFile(lock, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := laneAdapter(t, p, "").Prepare(context.Background(), laneInput(lane, target))
+	want := "stale " + lock + " (no git running in the lane? remove it)"
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("prepare with a stale lock: %v; want %q", err, want)
+	}
+	if _, statErr := os.Stat(lock); statErr != nil {
+		t.Errorf("prepare removed the stale lock: %v", statErr)
+	}
+	if b := p.Git(lane, "branch", "--show-current"); b != "task/T-01" {
+		t.Errorf("the failed prepare left the lane on %q, want task/T-01", b)
+	}
+	if err := os.Remove(lock); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := laneAdapter(t, p, "").Prepare(context.Background(), laneInput(lane, target)); err != nil {
+		t.Errorf("prepare once the lock is gone: %v", err)
+	}
+}
+
 // gitShim writes an executable git that fails its failAt-th call and is real git otherwise.
 func gitShim(t *testing.T, dir string, failAt, code int) string {
 	t.Helper()

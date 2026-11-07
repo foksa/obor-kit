@@ -342,8 +342,9 @@ func TestDropFreeFailsAfterTheRecord(t *testing.T) {
 			if c.held {
 				r.waitFor("the free's needs-you", func() bool { return r.heldWhy(p, "T-2") != "" })
 				if why := r.heldWhy(p, "T-2"); !strings.HasPrefix(why, "lane.free failed: ") ||
-					!strings.Contains(why, "git branch -D task/T-2") {
-					t.Errorf("needs-you %q; want lane.free failed with its error", why)
+					!strings.Contains(why, "git branch -D task/T-2") ||
+					!strings.HasSuffix(why, "— run the same obor drop again to finish it") {
+					t.Errorf("needs-you %q; want lane.free failed with its error and the retry hint", why)
 				}
 				r.a.mu.Lock()
 				st := p.folded.loop["T-2"].state
