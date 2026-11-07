@@ -26,7 +26,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   **Owner side:** obor web on the tailnet (`tailscale serve --bg 8787`); herdr 0.9.5 idle CPU.
 
 ## Owner decisions pending
-- (owner 11-07) **Feature branches or a staging branch** in front of main: tasks merge with a light gate, the full suite runs at promotion to main. Lead: one continuously promoted `staging` first (no inter-feature merges, serve owns promotion and bisects a red one); per-feature branches only if serve owns feature state. When docs/research/gate-time.md lands: brief the advisor with both shapes + its numbers, then the owner decides.
+- (none; branching decided 11-07, docs/decisions.md)
 
 ## Later candidates
 - **Un-defer `job_next`** (chatter census proposal 2, 11-07): skipped as a Claude-only launch flag (an integrator job's first call is ~42k on a near-empty context, ~10% of a job; a global tool-search switch would load every MCP tool). The agent-neutral variant (a fresh session's first prompt carries the job, herdr events as the delivery proof) went to the advisor: docs/research/job-in-first-prompt-advice.md.
@@ -49,6 +49,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (lead 11-07) **Branching phase 0 → 1:** once T-957 (gate tier) has run 3-4 days (~11-11): measure gate median, reds, and nightly REDs caused by a `-short`-skipped test (gate logs, .obor/state/last-full-check, flakes.jsonl); then spec phase 1 (staging + promotion, docs/research/branching-advice.md §2, §4; hard) with the owner's N and branch names.
 - (RV-131, accepted) RV-131 #1: a crash between SetSpec's commit and the spec.set receipt, then another writer's spec within the 15 s retry, lets the retry write the old text as a new rev (internal/app/specs.go:88-100; docs/state-model.md:396-400). Very low likelihood; fix = spec + receipt in one transaction, 60-120 prod lines
 - (RV-129, accepted) verify design note: app.go:83's J1 rule comment lists the dispatch-class verbs as exceptions but they take two different locks (verdicts: dispatch, drop, drive, pause, job_next, resume; submitMu: task_done, land, spec set, move); say which lock each takes on the next touch of app.go
 - (lead 11-06) Empty `index.lock` files appeared in all four lane worktrees (`.git/worktrees/L-0x/index.lock`) at 12:31, with no git running; every dispatch then failed `lane.prepare … checkout -B … exit status 128`. Serve had not restarted (up since 12:15); the deep dive (12:22) and the RV-127 verify (Codex sandbox) were the only other agents. Removed by hand. If it recurs: find who runs git in the lanes and dies; `lane.prepare` could name the lock in its FAIL.
