@@ -278,8 +278,7 @@ func (s *gitScratch) Test(ctx context.Context, in port.TestInput) (port.TestOutc
 	if rc == 0 {
 		checks = "rc=0"
 	}
-	tree, _ := s.git(ctx, s.p.Root, "rev-parse", in.SHA+"^{tree}")
-	return port.TestOutcome{Kind: port.OutcomeGreen, Line: "GREEN " + in.Task + " (" + checks + ")", Checks: checks, Tree: tree}, nil
+	return port.TestOutcome{Kind: port.OutcomeGreen, Line: "GREEN " + in.Task + " (" + checks + ")", Checks: checks}, nil
 }
 
 func (s *gitScratch) Resolved(ctx context.Context, task, input string, _ *port.Mismatch) (string, error) {

@@ -408,8 +408,12 @@ func TestRV37V2ResumeRetryKeepsTheJob(t *testing.T) {
 				if reply, err := r.verdict(wire.MethodResolved, "c1", "", ""); err != nil || reply != "RESOLVED T-1 (job "+job+")" {
 					t.Fatalf("resolved after the resumed %s: %q, %v", step, reply, err)
 				}
-				// T-968: the resolve verdict is its own review: the resolution is tested in the lane and published,
-				// with no review job after it.
+				// T-973: a first-gate conflict's resolution is tested in the lane and then reviewed (its resolve job
+				// carries only the conflict); the review's accept publishes it.
+				if reply, err := r.verdict(wire.MethodAccept, "c2", r.patch(r.waitJob("pj-int", "T-1/1/review")), ""); err != nil ||
+					reply != "ACCEPT T-1 (job T-1/1/review)" {
+					t.Fatalf("accept after the resolution: %q, %v", reply, err)
+				}
 			} else if reply, err := r.verdict(wire.MethodAccept, "c1", r.patch(text), ""); err != nil ||
 				reply != "ACCEPT T-1 (job "+job+")" {
 				t.Fatalf("accept after the resumed %s: %q, %v", step, reply, err)

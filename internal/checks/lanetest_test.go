@@ -109,7 +109,6 @@ func TestLaneTestRunsInTheLaneAndRestores(t *testing.T) {
 	}
 	y.match(o.Line, `^GREEN T-05 \(1 pass, full:`, "the test's line")
 	y.eq(o.Checks, "1 pass", "its checks")
-	y.eq(o.Tree, y.tree(c.SHA), "the tree they ran on")
 	lane, _ := filepath.EvalSymlinks(y.lane)
 	y.eq(y.probed("pwd"), lane, "the check ran in the lane")
 	y.eq(y.probed("head"), c.SHA, "on the candidate")

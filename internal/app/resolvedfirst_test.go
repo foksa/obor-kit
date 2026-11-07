@@ -10,9 +10,9 @@ import (
 	"obor/internal/app/wire"
 )
 
-// T-968 (RV-134 #2): a conflict resolved before any accept is reviewed by the resolution itself: its resolved
-// candidate is gated and tested once in the lane, and a green test publishes it with no second integrator start. What
-// still reviews is a red lane test (it sends back) and a spec rev the lead set since the resolution.
+// T-973 (RV-134 verify #1): a conflict resolved before any accept is not the task's review: the resolve job carries
+// only the conflict, so its resolved candidate is gated, tested once in the lane, and then reviewed before it
+// publishes. A red lane test sends back; a moved conflict keeps its earlier accept (row 20).
 
 // conflict has the lane's edit and main's collide in shared.txt: T-1's first gate conflicts and the integrator
 // resolves it in the scratch, where resolve writes and commits the resolution (the resolved gate's input).
@@ -39,9 +39,9 @@ func resolve(t *testing.T, r *loopRig, callID string, add ...func(dir string)) {
 	}
 }
 
-// A task with a stored spec: the resolve verdict records the rev it was made under (the store's, read at the verdict),
-// so the resolved gate at that same rev binds the accept too, and the task publishes.
-func TestLoopResolvedFirstConflictAtStoredRevMerged(t *testing.T) {
+// A first-gate conflict's resolved candidate is tested in the lane and then reviewed once (T-973): the review job
+// carries the stored spec, and its accept publishes the resolution.
+func TestLoopResolvedFirstConflictReviewsThenMerges(t *testing.T) {
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	conflict(t, r)
@@ -51,15 +51,30 @@ func TestLoopResolvedFirstConflictAtStoredRevMerged(t *testing.T) {
 	}
 	r.submit()
 	resolve(t, r, "c1")
+	job := r.waitJob("pj-int", "T-1/1/review")
+	if !strings.Contains(job, "Do the thing.") {
+		t.Errorf("the review job carries no rev 1 spec:\n%s", job)
+	}
+	for _, s := range []string{"1 result gate.2", "1 intent test", "1 result test"} {
+		if !r.has(s) {
+			t.Errorf("no record %q: %q", s, r.steps())
+		}
+	}
+	for _, s := range []string{"1 fact accept.kept", "1 result publish", "1 fact merged"} {
+		if r.has(s) {
+			t.Errorf("the resolution published before its review (%q): %q", s, r.steps())
+		}
+	}
+	r.accept("c2", r.patch(job))
 	r.merged(1)
-	if !r.has("1 fact accept.kept") || r.mainMerges() != 1 || r.has("1 intent review") {
-		t.Errorf("rev 1: no kept accept, a merge, no review: %q", r.steps())
+	if n := r.count("1 intent review"); n != 1 || r.mainMerges() != 1 {
+		t.Errorf("review jobs %d, merges %d; want one review and one merge: %q", n, r.mainMerges(), r.steps())
 	}
 	r.noLead()
 }
 
-// The resolved candidate's lane test is red: the task goes back to its worker with the red line, as any red test; the
-// resolve verdict bound no publish.
+// The resolved candidate's lane test is red: the task goes back to its worker with the red line, as any red test; no
+// review job and no publish.
 func TestLoopResolvedFirstConflictRedSendsBack(t *testing.T) {
 	t.Parallel()
 	r := newLoopRig(t, `if [ -f resolved.txt ]; then echo "0 pass, 1 fail"; exit 1; fi; echo 1 pass`)
@@ -89,9 +104,9 @@ func TestLoopResolvedFirstConflictRedSendsBack(t *testing.T) {
 	r.noLead()
 }
 
-// The lead sets a new spec rev after the resolution: the resolved gate's rev is not the verdict's, so the accept does
-// not bind and the task is reviewed (the attempt's first review job) before it publishes. A low disk holds the
-// resolved gate off the scratch until the rev is set, so the case is not a race.
+// The lead sets a new spec rev after the resolution: the review job that follows the resolved candidate's lane test
+// carries that rev, and its accept publishes the task. A low disk holds the resolved gate off the scratch until the rev
+// is set, so the case is not a race.
 func TestLoopResolvedFirstConflictNewSpecRevReviews(t *testing.T) {
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
@@ -128,7 +143,7 @@ func TestLoopResolvedFirstConflictNewSpecRevReviews(t *testing.T) {
 	}
 	for _, s := range []string{"1 fact accept.kept", "1 result publish", "1 fact merged"} {
 		if r.has(s) {
-			t.Errorf("a spec rev set since the resolution published (%q): %q", s, r.steps())
+			t.Errorf("the resolution published before its review (%q): %q", s, r.steps())
 		}
 	}
 	r.accept("c2", r.patch(job))

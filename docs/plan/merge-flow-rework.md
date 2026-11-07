@@ -271,8 +271,10 @@ serve's). The reviewer's cadence and `Review: on merge` count merges to `staging
 ## 7. Decisions the spec of T-A should state (defaults I took)
 
 - A **resolved** merge is tested once in the lane (`test.N`) and not re-reviewed: the integrator's own resolution is
-  its review; the accept binds to the task's own diff. (Alternative: re-review after a resolution. Costs a job per
-  conflict, ~19 per 165 moves on 11-05's volume.)
+  its review; the accept binds to the task's own diff. Reverted (T-973) for a first-gate conflict, whose resolve job
+  carries only the conflict, not the spec, report or task diff: binding the accept there published an unreviewed task,
+  so it gets a review job again (a moved conflict still keeps its accept). (Alternative: re-review after a resolution.
+  Costs a job per conflict, ~19 per 165 moves on 11-05's volume.)
 - A move is **never** tested, not even when the new commits touch the candidate's files (today's `keepFull`). The
   compile step and the promotion carry that. (Alternative: keep `keepFull`'s "shared file → full re-gate" as a test
   trigger: it keeps the three-way answer alive, which the owner asked to delete.)

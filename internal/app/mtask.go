@@ -159,18 +159,10 @@ func (p *proj) foldLoop(r event.Record) {
 			mt.gates, mt.line, mt.mismatch = n, g.Line, g.Mismatch
 			switch g.Outcome {
 			case outGreen:
-				// T-968: the resolution of a conflict that had no accept is the review of what follows it: the
-				// accept binds to the task's own patch once the resolved candidate is known. It publishes only after
-				// the lane test that runs next is green (a red one is a sendback); a spec rev the lead set since the
-				// resolution (the gate's rev differs from the verdict's) reviews it again (row 19).
-				bind := mt.state == stResolved && mt.accepted == ""
 				if g.SpecRev != mt.gateRev {
 					mt.accepted = "" // the accept was of another spec rev: review again (RV-55 #1)
 				}
 				mt.cand, mt.gateRev, mt.state = g.Candidate, g.SpecRev, stGreen
-				if bind && g.Candidate.Patch != "" && g.SpecRev == mt.resolvedRev {
-					mt.accepted = g.Candidate.Patch
-				}
 				// T-961: a lane or resolved merge the slot compiled is tested in the lane next; a moved one is not (row
 				// 32). A gate before T-961 (no Base) ran the checks itself: green as it folded then.
 				if g.Candidate.Base != "" && mt.kind != port.InputMoved {
