@@ -157,6 +157,41 @@ func TestLaneTestLaneEnv(t *testing.T) {
 	}
 }
 
+// T-991: with branches.promote set the lane test asks the affected list for the changed packages only (CHECK_DIRECT=1:
+// the slot's compile and the promotion's full suite cover the importers); without a promotion it does not.
+func TestLaneTestCheckDirect(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name    string
+		promote bool
+	}{
+		{"promotion on", true},
+		{"promotion off", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			edits := []func(map[string]any){cmd("check", probe)}
+			if c.promote {
+				edits = append(edits, testkit.Set("branches.promote", "prod"))
+			}
+			y := newSx(t, edits...)
+			if got := y.s.Cfg.Data.Branches.Promote != ""; got != c.promote {
+				t.Fatalf("precondition: branches.promote set %v, want %v", got, c.promote)
+			}
+			sha := y.submit()
+			o, err := y.test(ctx, y.green(lane(sha)))
+			if err != nil || o.Kind != port.OutcomeGreen {
+				t.Fatalf("test: %+v %v\noutput:\n%s", o, err, y.out.String())
+			}
+			env := y.probed("env")
+			got := strings.Contains("\n"+env+"\n", "\nCHECK_DIRECT=1\n")
+			if got != c.promote {
+				t.Errorf("the check's environment carries CHECK_DIRECT=1 %v, want %v:\n%s", got, c.promote, env)
+			}
+		})
+	}
+}
+
 // A lane with uncommitted changes is refused before anything runs (an error: the step runs again on a later pass):
 // never checked out, the change kept, no check run.
 func TestLaneTestRefusesDirtyLane(t *testing.T) {

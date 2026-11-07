@@ -27,7 +27,9 @@ type Result struct {
 // the package of its nearest directory that holds one (a testdata/ or embedded file selects its package); a file under
 // no package selects nothing, except a .go file (a removed package), which forces full. A changed _test.go file selects
 // its directory's package only, never the packages that import it: a test binary is built from that directory alone.
-func Go(root string, files, fullGlobs []string) (Result, error) {
+// With direct, only the changed packages themselves are returned (T-991): no reverse dependencies, while the full
+// answers (go.mod, fullGlobs, no package for a .go file) stay as they are.
+func Go(root string, files, fullGlobs []string, direct bool) (Result, error) {
 	for _, f := range files {
 		if f == "go.mod" || f == "go.sum" {
 			return Result{Full: "changed " + f}, nil
@@ -48,8 +50,8 @@ func Go(root string, files, fullGlobs []string) (Result, error) {
 			byDir[p.Rel] = p.ImportPath
 		}
 	}
-	changed := map[string]bool{} // files that are imported (or embedded): their packages and reverse deps
-	direct := map[string]bool{}  // _test.go files: their own package only
+	changed := map[string]bool{}   // files that are imported (or embedded): their packages and reverse deps
+	testFiles := map[string]bool{} // _test.go files: their own package only
 	for _, f := range files {
 		if f = path.Clean(f); f == "." || strings.HasPrefix(f, "../") {
 			continue
@@ -58,7 +60,7 @@ func Go(root string, files, fullGlobs []string) (Result, error) {
 		for dir := path.Dir(f); ; dir = path.Dir(dir) {
 			if ip, ok := byDir[dir]; ok {
 				if test {
-					direct[ip] = true
+					testFiles[ip] = true
 				} else {
 					changed[ip] = true
 				}
@@ -82,8 +84,11 @@ func Go(root string, files, fullGlobs []string) (Result, error) {
 		if p.ForTest != "" {
 			owner = p.ForTest
 		}
-		if changed[name] || direct[name] {
+		if changed[name] || testFiles[name] {
 			set[owner] = true
+			continue
+		}
+		if direct {
 			continue
 		}
 		for _, d := range p.Deps {

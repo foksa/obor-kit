@@ -11,6 +11,10 @@
 # (scripts/ship); `make release` without V → only the local release files; `make publish` → the four of them to a
 # GitHub release (explicit, outward-facing).
 GO ?= go
+# TEST_TIMEOUT is go test's per-package -timeout for the tiers. Go's own default is 10 minutes, below the check's own
+# budget (commands.check 2400 s) and within reach of tests/release on a lane's 2 cores under load: T-991's lane test was
+# a false RED at 600 s with 32 of 33 packages green and no failing test. A hang still fails, just later.
+TEST_TIMEOUT ?= 20m
 # OUT is where build writes the binary: dist/obor in the kit as always, and another path for a build that runs outside the
 # kit (the promotion's after_merge builds in its own worktree into the main checkout's dist/obor, T-975).
 OUT ?= dist/obor
@@ -72,6 +76,11 @@ trim-go-cache:
 # CHECK_SHORT=1 adds -short to check, check-readers and check-web: serve's lane test sets it, so a lane runs the short
 # tier whatever its class (T-989); the promotion's and the nightly's runners do not, so the full suite runs there, and in
 # a release.
+# CHECK_DIRECT=1 makes check-affected ask obor affected go --direct: the changed packages only, no importers. Serve's
+# lane test sets it when branches.promote is set (T-991): the merge slot's compile (check-compile) catches an importer's
+# build break and the promotion's full suite (commands.check) an importer's test break, so the lane need not run them.
+# Without a promotion nothing would catch those, so a lane runs the importers too, as before; the gate, the nightly and
+# a release never set it.
 # Serve's lane step runs the class's tier in the task's lane (T-961). check-compile (commands.compile, T-961) is
 # what serve's merge slot runs on each merge: build, gofmt, vet and deadcode, no go test. CHECK_CPUS (obor run and the
 # gates export it: cores / slots.max) is go test -p. Every class check starts with
@@ -90,7 +99,8 @@ check check-affected:
 	pkgs=./...; short=; \
 	if [ "$@" = check-affected ]; then \
 	  short=-short; \
-	  if a=$$(./dist/obor affected go); then \
+	  direct=; if [ "$$CHECK_DIRECT" = 1 ]; then direct=--direct; fi; \
+	  if a=$$(./dist/obor affected go $$direct); then \
 	    case "$$a" in \
 	      "full: "*) echo "affected: full suite ($${a#full: })" ;; \
 	      "") pkgs= ;; \
@@ -100,7 +110,7 @@ check check-affected:
 	fi; \
 	if [ "$$CHECK_SHORT" = 1 ]; then short=-short; fi; \
 	if [ -z "$$pkgs" ]; then echo "go test: 0 pass, 0 fail (no affected Go packages, go test skipped)"; else \
-	  rc=0; out=$$($(GO) test -count=1 $${CHECK_CPUS:+-p $$CHECK_CPUS} $${short:+$$short} $$pkgs 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
+	  rc=0; out=$$($(GO) test -count=1 -timeout $(TEST_TIMEOUT) $${CHECK_CPUS:+-p $$CHECK_CPUS} $${short:+$$short} $$pkgs 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
 	  n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	  echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"; \
 	fi; \
@@ -149,7 +159,7 @@ READER_PKGS := ./cmd/obor ./internal/agents/claude ./internal/app ./internal/che
 check-readers:
 	@$(GO_GATE); \
 	short=; if [ "$$CHECK_SHORT" = 1 ]; then short=-short; fi; \
-	rc=0; out=$$($(GO) test -count=1 $${CHECK_CPUS:+-p $$CHECK_CPUS} $${short:+$$short} $(READER_PKGS) 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
+	rc=0; out=$$($(GO) test -count=1 -timeout $(TEST_TIMEOUT) $${CHECK_CPUS:+-p $$CHECK_CPUS} $${short:+$$short} $(READER_PKGS) 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
 	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"
 
@@ -162,7 +172,7 @@ check-readers:
 check-web:
 	@$(GO_GATE); \
 	short=; if [ "$$CHECK_SHORT" = 1 ]; then short=-short; fi; \
-	rc=0; out=$$($(GO) test -count=1 $${CHECK_CPUS:+-p $$CHECK_CPUS} $${short:+$$short} ./internal/web 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
+	rc=0; out=$$($(GO) test -count=1 -timeout $(TEST_TIMEOUT) $${CHECK_CPUS:+-p $$CHECK_CPUS} $${short:+$$short} ./internal/web 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
 	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"
 
@@ -174,7 +184,7 @@ check-web:
 # target once more before the tag. No deadcode step: its fixture scripts are the tree's, not a package's API.
 check-release:
 	@$(GO_GATE); \
-	rc=0; out=$$($(GO) test -count=1 $${CHECK_CPUS:+-p $$CHECK_CPUS} ./tests/release 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
+	rc=0; out=$$($(GO) test -count=1 -timeout $(TEST_TIMEOUT) $${CHECK_CPUS:+-p $$CHECK_CPUS} ./tests/release 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
 	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"
 

@@ -282,9 +282,10 @@ func TestMakeCheckShort(t *testing.T) {
 }
 
 // makeCheckTier runs `make -s <target>` on a kit copy whose go and gofmt log their argv to go.log and whose dist/obor
-// stub prints one affected package, logging its own run to affected.log. It returns the output, the logged argv lines
-// and whether the affected list was asked.
-func makeCheckTier(t *testing.T, target string) (string, []string, bool) {
+// stub prints one affected package, logging its own argv to affected.log. env is appended to the make environment (an
+// inherited CHECK_DIRECT, this lane test's own, removed first). It returns the output, the logged go argv lines and the
+// affected list's argv ("": it was not asked).
+func makeCheckTier(t *testing.T, target string, env ...string) (string, []string, string) {
 	t.Helper()
 	dir := testkit.Dir(t)
 	writeKit(t, dir)
@@ -293,13 +294,20 @@ func makeCheckTier(t *testing.T, target string) (string, []string, bool) {
 	writeExec(t, filepath.Join(dir, "dist", "obor"),
 		"#!/bin/bash\necho \"$*\" >> \""+filepath.Join(dir, "affected.log")+"\"\necho fx/a\n")
 	cmd := exec.Command("make", "-s", "-C", dir, target, "GO="+filepath.Join(dir, "bin", "go"))
-	cmd.Env = append(plainMakeEnv(), "PATH="+filepath.Join(dir, "stub")+string(os.PathListSeparator)+os.Getenv("PATH"))
+	var base []string
+	for _, kv := range plainMakeEnv() {
+		if !strings.HasPrefix(kv, "CHECK_DIRECT=") {
+			base = append(base, kv)
+		}
+	}
+	cmd.Env = append(base, "PATH="+filepath.Join(dir, "stub")+string(os.PathListSeparator)+os.Getenv("PATH"))
+	cmd.Env = append(cmd.Env, env...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("make %s: %v\n%s", target, err, out)
 	}
-	_, aerr := os.Stat(filepath.Join(dir, "affected.log"))
-	return string(out), strings.Split(strings.TrimSpace(readFile(t, log)), "\n"), aerr == nil
+	affected, _ := os.ReadFile(filepath.Join(dir, "affected.log"))
+	return string(out), strings.Split(strings.TrimSpace(readFile(t, log)), "\n"), strings.TrimSpace(string(affected))
 }
 
 // T-961: check-compile (commands.compile, the merge slot's tier) runs the compile steps only — build, gofmt, vet and
@@ -328,7 +336,7 @@ func TestMakeCheckCompileAndAffected(t *testing.T) {
 			if got := ran("test "); got != c.test {
 				t.Errorf("go test ran %v; want %v (calls %q)", got, c.test, calls)
 			}
-			if got := affected; got != c.test {
+			if got := affected != ""; got != c.test {
 				t.Errorf("the affected list was asked %v; want %v (the compile tier: no tests, no list)", got, c.test)
 			}
 			if got := strings.Contains(out, "go test: 0 pass, 0 fail"); got != c.test {
@@ -336,6 +344,55 @@ func TestMakeCheckCompileAndAffected(t *testing.T) {
 			}
 			if got := strings.Contains(out, "compile: build, gofmt, vet, deadcode OK"); got != !c.test {
 				t.Errorf("the compile tier's line printed %v; want %v:\n%s", got, !c.test, out)
+			}
+		})
+	}
+}
+
+// T-991: CHECK_DIRECT=1 makes check-affected ask obor affected go for the changed packages only (--direct; serve's lane
+// test sets it when branches.promote is); without it, or with another value, the list keeps the importers' expansion.
+func TestMakeCheckAffectedDirect(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name string
+		env  []string
+		want string
+	}{
+		{"CHECK_DIRECT=1", []string{"CHECK_DIRECT=1"}, "affected go --direct"},
+		{"unset", nil, "affected go"},
+		{"CHECK_DIRECT=0", []string{"CHECK_DIRECT=0"}, "affected go"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			_, _, affected := makeCheckTier(t, "check-affected", c.env...)
+			if affected != c.want {
+				t.Errorf("check-affected asked obor %q, want %q", affected, c.want)
+			}
+		})
+	}
+}
+
+// T-991 lane fix: go test's per-package timeout is above Go's 10-minute default (a loaded 2-core lane made tests/release
+// a false RED at 600 s with no failing test); the check's own commands.check budget still bounds the run.
+func TestMakeCheckGoTestTimeout(t *testing.T) {
+	t.Parallel()
+	for _, target := range []string{"check-affected", "check-release"} {
+		t.Run(target, func(t *testing.T) {
+			t.Parallel()
+			_, calls, _ := makeCheckTier(t, target)
+			var test string
+			for _, c := range calls {
+				if strings.HasPrefix(c, "test ") {
+					test = c
+				}
+			}
+			if test == "" {
+				t.Fatalf("precondition: %s runs go test: %q", target, calls)
+			}
+			f := strings.Fields(test)
+			i := slices.Index(f, "-timeout")
+			if i < 0 || i+1 == len(f) || f[i+1] != "20m" {
+				t.Errorf("%s: go test %q, want -timeout 20m", target, test)
 			}
 		})
 	}

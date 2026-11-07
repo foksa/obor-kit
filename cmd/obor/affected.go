@@ -9,23 +9,32 @@ import (
 	"obor/internal/help"
 )
 
-// affectedCmd is `obor affected go [--changed <file>]`: the Go packages the changed files (one repo-relative path per
-// line; default $OBOR_CHANGED_FILES) can break, one import path per line (none: nothing affected), or one line
-// "full: <why>" when the whole suite must run. Run from the module root; merge.affected_full globs force full.
+// affectedCmd is `obor affected go [--direct] [--changed <file>]`: the Go packages the changed files (one repo-relative
+// path per line; default $OBOR_CHANGED_FILES) can break, one import path per line (none: nothing affected), or one line
+// "full: <why>" when the whole suite must run. Run from the module root; merge.affected_full globs force full. --direct
+// asks for the changed packages only, no reverse dependencies (a lane test with promotion on, T-991).
 func affectedCmd(args []string) int {
 	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
 		fmt.Fprintln(out, help.Usage("affected"))
 		return 0
 	}
-	var changed string
-	switch {
-	case len(args) == 1 && args[0] == "go":
-		changed = os.Getenv("OBOR_CHANGED_FILES")
-	case len(args) == 3 && args[0] == "go" && args[1] == "--changed":
-		changed = args[2]
-	default:
+	if len(args) == 0 || args[0] != "go" {
 		errf("%s", help.Usage("affected"))
 		return 2
+	}
+	changed, direct := os.Getenv("OBOR_CHANGED_FILES"), false
+	for args = args[1:]; len(args) > 0; {
+		switch {
+		case args[0] == "--direct":
+			direct = true
+			args = args[1:]
+		case args[0] == "--changed" && len(args) > 1:
+			changed = args[1]
+			args = args[2:]
+		default:
+			errf("%s", help.Usage("affected"))
+			return 2
+		}
 	}
 	_, cfg, rc := load()
 	if rc != 0 {
@@ -46,7 +55,7 @@ func affectedCmd(args []string) int {
 			files = append(files, f)
 		}
 	}
-	res, err := affected.Go(".", files, cfg.Data.Merge.AffectedFull)
+	res, err := affected.Go(".", files, cfg.Data.Merge.AffectedFull, direct)
 	switch {
 	case err != nil:
 		errf("obor affected: %v", err)
