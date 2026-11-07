@@ -1,8 +1,10 @@
 package app
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"obor/internal/app/event"
 	"obor/internal/app/wire"
 	"strings"
 
@@ -24,12 +26,16 @@ func (a *App) specSet(c wire.Call) (string, error) {
 	if c.CallID == "" || c.Task == "" {
 		return "", errors.New(wire.MethodSpecSet + ": a call id and a task are required")
 	}
+	// The receipt lookup, the write and the receipt's record are one step under a.submitMu (task_done's lock; order
+	// submitMu, then mu): a concurrent retry of the call id waits for the first call's receipt (SM-02, T-939).
+	a.submitMu.Lock()
+	defer a.submitMu.Unlock()
 	a.mu.Lock()
 	p := a.projAt(c.Root)
 	key := verdictStep(wire.MethodSpecSet, c.CallID)
 	reply, stored := "", false
 	if p != nil {
-		reply, stored = p.replies[key]
+		reply, stored = p.folded.calls[key]
 	}
 	a.mu.Unlock()
 	switch {
@@ -79,22 +85,20 @@ func (a *App) specSet(c wire.Call) (string, error) {
 	default:
 		by = "lead"
 	}
-	// task_done's submission decides under a.submitMu: one order of "the spec changed" and "the work against it was
-	// submitted" (T-819).
-	a.submitMu.Lock()
 	rev, changed, err := store.SetSpec(p.log.DB(), c.Task, c.Spec, c.Note, by, a.opt.Now())
 	if err != nil {
-		a.submitMu.Unlock()
 		return "", err
 	}
 	reply = fmt.Sprintf("SET %s rev %d", c.Task, rev)
 	if !changed {
 		reply = fmt.Sprintf("UNCHANGED %s rev %d", c.Task, rev)
 	}
-	a.submitMu.Unlock()
-	a.mu.Lock()
-	p.replies[key] = reply
-	a.mu.Unlock()
+	// The receipt is a fact folded into folded.calls, so it outlives a restart. A crash between the store's commit and
+	// this append makes the retry re-apply the same text and answer UNCHANGED (accepted).
+	if !a.record(p, event.Record{Task: c.Task, Step: event.StepSpecSet, Kind: event.KindFact},
+		event.SpecSet{Call: c.CallID, Reply: reply, Rev: rev}) {
+		return "", fmt.Errorf("spec set: the event log of %s refused it", p.name)
+	}
 	if changed {
 		a.wake()
 	}
@@ -130,4 +134,16 @@ func titleOf(p *proj, task string) (string, error) {
 func specText(row store.SpecRow) string {
 	return fmt.Sprintf("\n\nThe spec of %s (rev %d, as obor serve stores it; obor spec show %s prints the current rev):\n\n%s",
 		row.Task, row.Rev, row.Task, row.Text)
+}
+
+// foldSpecSet folds a spec_set's fact: its call's stored reply (T-939).
+func (p *proj) foldSpecSet(r event.Record) {
+	if r.Kind != event.KindFact || r.Step != event.StepSpecSet {
+		return
+	}
+	var d event.SpecSet
+	_ = json.Unmarshal(r.Data, &d)
+	if d.Call != "" {
+		p.folded.calls[verdictStep(wire.MethodSpecSet, d.Call)] = d.Reply
+	}
 }

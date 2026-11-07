@@ -129,3 +129,10 @@ func ReadMerges(root string) ([]Merge, error) {
 	}
 	return ms, nil
 }
+
+// SpecSet is a spec_set's fact data (T-939): the call id, the reply it got and the rev the store gave the task.
+type SpecSet struct {
+	Call  string `json:"call"`
+	Reply string `json:"reply"`
+	Rev   int    `json:"rev"`
+}

@@ -315,7 +315,7 @@ func TestDispatchHappyPath(t *testing.T) {
 	const stored = "# T-1 — Happy\n\nDifficulty: medium\n\n## Files you may touch\n`feature.txt`\n"
 	r.setSpec("s1", stored)
 	r.passes()
-	if n := len(r.records()); n != 0 {
+	if !slices.Equal(r.steps(), []string{"0 fact spec.set"}) { // the spec's receipt only (T-939)
 		t.Fatalf("precondition: records before the dispatch: %q", r.steps())
 	}
 	// The CLI's call shape (T-538, T-545): a task and its types, no lane.
@@ -323,7 +323,7 @@ func TestDispatchHappyPath(t *testing.T) {
 		t.Fatalf("dispatch: %q, %v", reply, err)
 	}
 	r.waitStep("1 result work")
-	eq(t, r.steps(), dispatchSteps, "records")
+	eq(t, r.steps(), append([]string{"0 fact spec.set"}, dispatchSteps...), "records") // the spec's receipt first (T-939)
 	if r.taskState() != "dispatched" {
 		t.Errorf("state %q before delivery, want dispatched", r.taskState())
 	}
@@ -852,8 +852,15 @@ func TestDispatchReplacedWaitStartsAfresh(t *testing.T) {
 	if st := r.taskStatus("T-1"); st.State != "waiting" {
 		t.Fatalf("precondition: the first wait %+v, want waiting 59 min into its refusal", st)
 	}
-	if reply, err := wire.Verdict(context.Background(), r.sock, wire.MethodDrop, wire.Call{Root: r.p.Root, Role: "lead",
-		CallID: "x1", Task: "T-1", Note: "requeue"}); err != nil || reply != "DROPPED T-1" {
+	// A retry pass may hold the dispatch for a moment: the drop is refused "retry when it settles" (same call id).
+	var reply string
+	var err error
+	r.waitFor("the drop", func() bool {
+		reply, err = wire.Verdict(context.Background(), r.sock, wire.MethodDrop, wire.Call{Root: r.p.Root, Role: "lead",
+			CallID: "x1", Task: "T-1", Note: "requeue"})
+		return err == nil || !strings.Contains(err.Error(), "retry when it settles")
+	})
+	if err != nil || reply != "DROPPED T-1" {
 		t.Fatalf("drop: %q, %v", reply, err)
 	}
 	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Role: "lead",
@@ -1058,7 +1065,7 @@ func TestDispatchFixesLine(t *testing.T) {
 			if err == nil || err.Error() != c.want || reply != "" {
 				t.Fatalf("dispatch: %q, %v; want the refusal %q", reply, err, c.want)
 			}
-			if n := len(r.records()); n != 0 {
+			if !slices.Equal(r.steps(), []string{"0 fact spec.set"}) { // the spec's receipt only (T-939)
 				t.Errorf("a refused dispatch recorded %q", r.steps())
 			}
 		})

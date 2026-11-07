@@ -393,6 +393,11 @@ attempt. So `DROPPED` is true once it is returned, whatever was decided before. 
 request lock is held across a wait for external work. `obor drop` is wholly serve's (T-439): the mark holds while the
 lane is given back (`LaneSetup.Free`, the worker stop), outside the verdict lock; a refused lane clears the mark.
 
+Spec call receipts (T-939, SM-02): `spec_set` records a `spec.set` fact `{call, reply, rev}` under the task (attempt 0),
+folded into `folded.calls` like the other verbs' receipts, so a call id retried after a restart answers its original
+reply. It holds `submitMu` from the receipt lookup through the write and the fact (order `submitMu`, then `mu`, as
+`task_done`); a crash between the spec commit and the fact makes the retry answer `UNCHANGED rev n`.
+
 ## Folded vs live (T-615)
 `proj` holds two kinds of state. **Folded**: what a replay of the event log alone rebuilds (`proj.folded`, plus the
 parts `registry`, `outbox` and `nightlyState` declare as theirs); only folds write it, live code reads it. **Live**:

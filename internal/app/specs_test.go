@@ -5,6 +5,7 @@ import (
 	"obor/internal/app/wire"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"obor/internal/store"
@@ -176,5 +177,57 @@ func TestFixJobCarriesChangedSpec(t *testing.T) {
 				t.Errorf("gate specs %q; want the current rev at each gate", specs)
 			}
 		})
+	}
+}
+
+// SM-02 (T-939): spec_set's receipt is a folded fact, so a retry of a call id after a serve restart, with another
+// writer's spec in between, answers the original reply and does not write the old text over the newer spec.
+func TestSpecSetRetryAfterRestartPreservesNewerSpec(t *testing.T) {
+	t.Parallel()
+	r := newLoopRig(t, "echo 1 pass")
+	r.start()
+	a, b := "# T-1 — A\n\nDifficulty: medium\n", "# T-1 — B\n\nDifficulty: medium\n"
+	if got := r.setSpec("s1", a); got != "SET T-1 rev 1" {
+		t.Fatalf("precondition: s1 replied %q", got)
+	}
+	if got := r.setSpec("s2", b); got != "SET T-1 rev 2" {
+		t.Fatalf("precondition: s2 replied %q", got)
+	}
+	r.stop()
+	r.start() // serve restarts: the live reply cache is gone
+	if got := r.setSpec("s1", a); got != "SET T-1 rev 1" {
+		t.Errorf("s1 retried after the restart: %q, want its original SET T-1 rev 1", got)
+	}
+	row, ok, err := store.ReadSpecAt(r.p.Root, "T-1")
+	if err != nil || !ok || row.Rev != 2 || row.Text != b {
+		t.Errorf("spec after the retry %+v, %v, %v; want B at rev 2", row, ok, err)
+	}
+}
+
+// SM-02 (T-939): simultaneous callers of one call id all get the first call's reply, and the spec is set once.
+func TestSpecSetConcurrentRetriesShareReply(t *testing.T) {
+	t.Parallel()
+	r := newLoopRig(t, "echo 1 pass")
+	r.start()
+	text := "# T-1 — A\n\nDifficulty: medium\n"
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			got, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root,
+				Role: "lead", CallID: "same", Task: "T-1", Spec: text})
+			if err != nil || got != "SET T-1 rev 1" {
+				t.Errorf("concurrent retry: %q, %v; want the original SET T-1 rev 1", got, err)
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	row, ok, err := store.ReadSpecAt(r.p.Root, "T-1")
+	if err != nil || !ok || row.Rev != 1 {
+		t.Errorf("spec after the concurrent retries %+v, %v, %v; want rev 1", row, ok, err)
 	}
 }
