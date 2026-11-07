@@ -184,6 +184,26 @@ func (a *App) callerJob(p *proj, c wire.Call) (mtask, event.Key, bool, error) {
 	return mtask{}, event.Key{}, false, fmt.Errorf("job_next: no jobs for the role %s", Dash(c.Role))
 }
 
+// restartJob answers restart_job (T-959): the job obor restart of c's agent carries as its wake, by callerJob's own
+// predicate and order ("" none). A client parsing the status JSON's step strings could only guess: a task's job is
+// its worker's or its integrator's, and a held one is no job a restart may wake its agent on.
+func (a *App) restartJob(c wire.Call) (string, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	p := a.projAt(c.Root)
+	if p == nil {
+		return "", fmt.Errorf("restart_job: no served project at %s", c.Root)
+	}
+	_, key, ok, err := a.callerJob(p, c)
+	switch {
+	case err != nil:
+		return "", err
+	case !ok:
+		return "", nil
+	}
+	return JobID(key), nil
+}
+
 // fetchText is the text of mt's job key (outside mu): the worker prompt with the spec, the fix job (with the spec when
 // its rev changed), the review or resolve job; and the spec rev a worker's job carries (0: none).
 func (a *App) fetchText(p *proj, mt mtask, key event.Key) (string, int, error) {

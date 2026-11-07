@@ -382,7 +382,21 @@ func TestJobNudgeFromDelivery(t *testing.T) {
 		r.integratorIs("idle")
 		r.later(8 * time.Minute)
 		r.integratorIs("working") // the integrator works with the job open
+		// A pass must see the working pane end the job's quiet time before it idles again (the BACKLOG's T-946 nudge
+		// flake under load: the status alone can flip back before a pass sampled it, and the old baseline then nudged
+		// at 17 min).
+		r.waitFor("the job's quiet time ended by the activity", func() bool {
+			job, _, quiet := app.JobTimer(r.app, r.p.Root, "T-1")
+			r.push()
+			return job == "T-1/1/review" && quiet.IsZero()
+		})
 		r.integratorIs("idle")
+		at := r.clock.Now()
+		r.waitFor("the job's quiet time begun again at the activity", func() bool {
+			job, _, quiet := app.JobTimer(r.app, r.p.Root, "T-1")
+			r.push()
+			return job == "T-1/1/review" && quiet.Equal(at)
+		})
 		r.later(9 * time.Minute) // 17 min after delivery, 9 after the activity
 		if r.has("1 intent nudge.review") {
 			t.Fatalf("a nudge 9 min after the activity: %q", r.steps())
