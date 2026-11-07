@@ -88,12 +88,8 @@ func (s Scratch) Test(ctx context.Context, in port.TestInput) (out port.TestOutc
 		}
 	}
 	r.releaseSlot()
-	tree, err := s.call(dir, "rev-parse", in.SHA+"^{tree}")
-	if err != nil {
-		return port.TestOutcome{}, err
-	}
 	checks := r.check + r.gate
-	return port.TestOutcome{Kind: port.OutcomeGreen, Checks: checks, Tree: tree,
+	return port.TestOutcome{Kind: port.OutcomeGreen, Checks: checks,
 		Line: fmt.Sprintf("GREEN %s (%s, %s)", in.Task, checks, r.mode)}, nil
 }
 

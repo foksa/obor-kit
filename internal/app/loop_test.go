@@ -658,8 +658,8 @@ func countReq(srv *herdrtest.Server, method string) int {
 }
 
 // A conflict is a resolve job for the integrator (not the owner): it resolves and commits the merge in the scratch,
-// says resolved, the app gates that merge and tests it once in the lane. T-968: the resolve verdict is the review of
-// what follows it, so the task publishes with no second integrator start.
+// says resolved, the app gates that merge, tests it once in the lane, and reviews it (T-973: the resolve job carries
+// only the conflict, so a first-gate conflict gets the task's review), then publishes after the accept.
 func TestLoopConflictResolvedThenMerged(t *testing.T) {
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
@@ -691,24 +691,30 @@ func TestLoopConflictResolvedThenMerged(t *testing.T) {
 	if reply, err := r.verdict(wire.MethodResolved, "c1", "", ""); err != nil || reply != "RESOLVED T-1 (job T-1/1/resolve)" {
 		t.Fatalf("resolved: %q, %v", reply, err)
 	}
+	// T-973: a first-gate conflict had no accept, so the resolved candidate's green lane test is reviewed once.
+	review := r.waitJob("pj-int", "T-1/1/review")
+	r.accept("c2", r.patch(review))
 	r.merged(1)
 	if got := r.p.Read("shared.txt"); got != "both\n2\n3\n4\n5\n6\n7\n8\n9\n10\n" || r.mainMerges() != 1 {
 		t.Errorf("main's shared.txt %q, merges %d; want the resolution, merged once", got, r.mainMerges())
 	}
 	for _, s := range []string{"1 result gate", "1 intent resolve", "1 result resolved.c1", "1 result gate.2",
-		"1 intent test", "1 result test", "1 fact accept.kept", "1 result publish", "1 fact merged"} {
+		"1 intent test", "1 result test", "1 intent review", "1 result review", "1 result publish", "1 fact merged"} {
 		if !r.has(s) {
 			t.Errorf("no record %q: %q", s, r.steps())
 		}
 	}
-	// T-968: the resolve verdict bound the accept to the task's own patch: no review job, no second start.
-	for _, s := range []string{"1 intent review", "1 intent review.2"} {
-		if r.has(s) {
-			t.Errorf("a review job after the resolution: %q", r.steps())
-		}
+	if n := r.count("1 intent resolve"); n != 1 {
+		t.Errorf("resolve jobs %d, want one: %q", n, r.steps())
 	}
-	if r.starts.Load() != 1 {
-		t.Errorf("integrator starts = %d, want 1 (the resolve's; the resolution is its review, T-968)", r.starts.Load())
+	if n := r.count("1 intent review"); n != 1 {
+		t.Errorf("review jobs %d, want one (a first-gate conflict's single review): %q", n, r.steps())
+	}
+	if r.has("1 fact accept.kept") {
+		t.Errorf("a kept accept with no earlier accept: %q", r.steps())
+	}
+	if r.starts.Load() != 2 {
+		t.Errorf("integrator starts = %d, want 2 (the resolve's and the review's)", r.starts.Load())
 	}
 	r.noLead()
 }

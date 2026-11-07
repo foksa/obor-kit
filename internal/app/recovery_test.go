@@ -191,7 +191,7 @@ func conflictSetup(r *loopRig) {
 var scenarios = map[string]scenario{
 	"lane":     {check: "echo 1 pass", setup: func(r *loopRig) { r.work("feature.txt", "feature\n") }, publishes: 1},
 	"moved":    {check: "echo 1 pass", setup: func(r *loopRig) { r.work("feature.txt", "feature\n") }, moveMain: true, publishes: 2},
-	"resolved": {check: "echo 1 pass", setup: conflictSetup, resolution: "both\n" + sharedLines, publishes: 1, jobs: 1},
+	"resolved": {check: "echo 1 pass", setup: conflictSetup, resolution: "both\n" + sharedLines, publishes: 1, jobs: 2},
 	"resolved red": {check: `if grep -q red shared.txt; then echo "0 pass, 1 fail"; exit 1; fi; echo 1 pass`,
 		setup: conflictSetup, resolution: "red\n" + sharedLines, end: "1 fact sendback"},
 	"resolved fail": {check: "echo 1 pass", edits: []func(map[string]any){testkit.Set("commands.lane_setup",

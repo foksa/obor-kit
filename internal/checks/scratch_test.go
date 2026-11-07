@@ -410,7 +410,7 @@ var cutSteps = []cutStep{
 		},
 		call: func(y *sx, in cutIn) (string, any, error) {
 			o, err := y.test(ctx, in.c)
-			return fmt.Sprintf("%s %s tree=%s", o.Kind, strings.ReplaceAll(o.Line, y.Base, "$BASE"), o.Tree), o, err
+			return fmt.Sprintf("%s %s", o.Kind, strings.ReplaceAll(o.Line, y.Base, "$BASE")), o, err
 		},
 		end: func(y *sx, in cutIn, _ any) {
 			y.eq(y.Git(y.lane, "branch", "--show-current"), "task/T-05", "the lane back on its branch")

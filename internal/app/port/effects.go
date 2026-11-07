@@ -308,10 +308,10 @@ type TestInput struct {
 }
 
 // TestOutcome is a lane test's final outcome: Kind OutcomeGreen, OutcomeRed or OutcomeFail with Line; Checks the
-// checks' summary, Tree the tree they ran on (SHA's).
+// checks' summary.
 type TestOutcome struct {
-	Kind, Line   string
-	Checks, Tree string
+	Kind, Line string
+	Checks     string
 }
 
 // Gate input kinds.

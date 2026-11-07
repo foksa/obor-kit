@@ -143,7 +143,6 @@ type mtask struct {
 	sendbacks         int
 	attemptVars              // what a new attempt resets (next)
 	resolved          string // stResolved: the resolved merge's sha, pinned at refs/obor/resolved/<task>
-	resolvedRev       int    // the spec rev the resolution was made under (T-968: a rev the lead set since reviews it)
 	report            string // the last submission's report (task_done's)
 	after             int    // stMerged: how many afterSteps have a result (all: a merge outside the app did them)
 	head              string // stMerged: the merge's sha (mergedData.Head; "": a merge outside the app)

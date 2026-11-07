@@ -373,8 +373,8 @@ func TestServeLoopMergeBodyKeepsSummary(t *testing.T) {
 }
 
 // A conflict is a resolve job naming serve's worktree (no --ff-retry): the integrator commits the resolution there,
-// says resolved, the app gates it and tests it in the lane; the resolution is its review (T-968), so it publishes as
-// committed.
+// says resolved, the app gates it, tests it in the lane and reviews it once (T-973: a first-gate conflict's resolve
+// job is not the task's review), then publishes it as committed after the accept.
 func TestServeLoopConflictResolved(t *testing.T) {
 	r := newServeRig(t)
 	r.p.Write(filepath.Join(r.lane, "shared.txt"), "lane\n"+sharedLines)
@@ -390,13 +390,15 @@ func TestServeLoopConflictResolved(t *testing.T) {
 	r.p.Git(r.serveDir(), "add", "shared.txt")
 	r.p.Git(r.serveDir(), "commit", "-qm", "Merge T-1: done.")
 	r.verdict(wire.MethodResolved, "c1", "", "RESOLVED T-1")
+	// T-973: a first-gate conflict's resolve job carries only the conflict, so the resolved candidate is tested and
+	// reviewed once before it publishes.
+	r.accept("c2", r.job("T-1/1/review"))
 	r.merged()
 	if got := r.p.Read("shared.txt"); got != "both\n"+sharedLines {
 		t.Errorf("main's shared.txt %q, want the resolution", got)
 	}
-	if n, kept := r.count("1 intent review"), r.count("1 fact accept.kept"); n != 0 || kept != 1 {
-		t.Errorf("review jobs %d, kept accepts %d; want none and one (T-968: the resolution is its review): %q", n,
-			kept, r.steps())
+	if n, kept := r.count("1 intent review"), r.count("1 fact accept.kept"); n != 1 || kept != 0 {
+		t.Errorf("review jobs %d, kept accepts %d; want one and none: %q", n, kept, r.steps())
 	}
 }
 
