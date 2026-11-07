@@ -6,11 +6,13 @@ import (
 	"time"
 
 	"obor/internal/herdr/herdrtest"
+	"obor/internal/testkit"
 )
 
 // A run's panes go to the project's herdr workspace — the one whose panes work in the project — never to the workspace
 // of the pane obor was run from when that is another project's (T-628, live: axis-maps' panes landed in obor-kit's w5).
 func TestPlacementFollowsTheProjectsWorkspace(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	x := newFx(t)
 	x.ok(t, "lane", "L-01")
@@ -241,6 +243,7 @@ func TestPlacementTable(t *testing.T) {
 // The caller's tab holds another project's lead, in the workspace of this project's pane: that pane is never split
 // (T-628), and the workspace is not the project's (T-634: another project's pane there): a workspace of its own.
 func TestPlacementSkipsAnotherProjectsLeadTab(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	x := newFx(t)
 	x.ok(t, "lane", "L-01")

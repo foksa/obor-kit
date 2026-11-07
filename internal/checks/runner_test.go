@@ -5,6 +5,8 @@ import (
 	"slices"
 	"testing"
 	"time"
+
+	"obor/internal/testkit"
 )
 
 // commandCalls is a runner over dir whose onCommand trail the test reads: the command each start names and "" each end
@@ -38,6 +40,7 @@ func TestRunnerCommandEnds(t *testing.T) {
 
 // T-673: a command that times out, and one a signal cuts, end like any other: the runner reports no command running.
 func TestRunnerCommandEndsOnTimeoutAndInterrupt(t *testing.T) {
+	testkit.Slow(t)
 	x := newFx(t, cmd("check", map[string]any{"cmd": "sleep 8", "timeout": 1}))
 	o := x.opts()
 	r, got := commandCalls(t, o, x.Root)

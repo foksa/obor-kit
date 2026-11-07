@@ -220,6 +220,7 @@ func (x *hx) binary(script string) {
 // bash tests/githooks.test.sh case_setup_githooks_sets_refuses_removes is
 // TestGithooksSetsRefusesRemoves.
 func TestGithooks(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	bin := filepath.Join(testkit.Dir(t), "obor")
 	if out, err := exec.Command("go", "build", "-o", bin, "../../cmd/obor").CombinedOutput(); err != nil {

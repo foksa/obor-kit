@@ -187,6 +187,7 @@ func publishStep(y *sx, in cutIn) (string, any, error) {
 // candidate: main gets one merge commit for the task, whose second parent is the lane commit, and an unrelated move
 // keeps the patch (accept.kept keeps the task).
 func TestRV39MovedSubject(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	y := newSx(t, cmd("check", "echo 1 pass"))
 	sha := y.submit()
@@ -222,6 +223,7 @@ func TestRV39MovedSubject(t *testing.T) {
 // unrelated main edit and "gate resolved" takes its conflict from a lane gate, so this is the one moved-conflict
 // sequence: conflict, resolve, regate green.
 func TestScratchMovedGateConflict(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	y := newSx(t, cmd("check", "echo 1 pass"))
 	y.Write(filepath.Join(y.lane, "shared.txt"), "lane\n")
@@ -251,6 +253,7 @@ func TestScratchMovedGateConflict(t *testing.T) {
 // compiles and says so. A target move that changes the conflicted hunk differently is another preimage: a
 // conflict as today.
 func TestScratchRerereReplaysResolvedConflict(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	y := newSx(t, cmd("compile", "echo 1 pass"))
 	sha := y.conflicted()
@@ -519,6 +522,7 @@ func TestScratchCutTable(t *testing.T) {
 // A lane gate from any foreign state of serve's worktree (an open merge, a dirty tree, HEAD elsewhere, the worktree
 // removed) is green with the same candidate as from a clean one.
 func TestScratchGateForeignState(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	y := newSx(t, cmd("check", "echo 1 pass"))
 	sha := y.submit()
@@ -557,6 +561,7 @@ func TestScratchGateForeignState(t *testing.T) {
 // A resolved gate after a red one, with the worktree reset by another gate meanwhile: reset to the pin, green, its
 // target the resolution's first parent.
 func TestScratchGateResolvedAfterRed(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	y := newSx(t, cmd("compile", `test -f "$TMP_DIR/green" && echo 1 pass || { echo 0 pass; exit 1; }`))
 	input := y.conflicted()
@@ -588,6 +593,7 @@ func TestScratchGateResolvedAfterRed(t *testing.T) {
 
 // Submit twice commits once and pins the same sha; a worker commit after the submission is not what the gate merges.
 func TestScratchSubmitTwice(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	y := newSx(t)
 	base := y.head(y.lane)
@@ -613,6 +619,7 @@ func TestScratchSubmitTwice(t *testing.T) {
 // Publish: a dirty merged file holds without a merge call; an index.lock a live git holds is waited for, then merged; a
 // moved target is Moved with its head; a landed candidate is Already.
 func TestScratchPublish(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	y := newSx(t, cmd("check", "echo 1 pass"))
 	c := y.green(lane(y.submit()))
@@ -692,6 +699,7 @@ func TestScratchGateReceiptGuardMutation(t *testing.T) {
 // onto main, publish refuses (its ff would move the other branch) and Landed reads main's log; back on main, publish
 // merges.
 func TestScratchTargetIsBranchesMain(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	y := newSx(t, cmd("check", "echo 1 pass"))
 	sha := y.submit()
@@ -771,6 +779,7 @@ func TestLegacySpecIsNotLanded(t *testing.T) {
 // out. Another submit (a new attempt, submit.N) pins the lane as it is now under its own ref. A pin from before submits
 // had an id (refs/obor/submitted/<task>) gives way.
 func TestSubmitPinReplay(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	y := newSx(t)
 	y.Git(y.Root, "update-ref", submittedRefs+"T-05", "HEAD")
@@ -815,6 +824,7 @@ func TestSubmitPinReplay(t *testing.T) {
 // refuses, instead of pinning T-20's candidate for T-05; so does a merge of T-05's input onto something else. T-05's
 // own committed resolution is pinned, with its human edit.
 func TestResolvedPinsOwnMergeOnly(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	y := newSx(t, cmd("check", "echo 1 pass"))
 	input := y.conflicted()
@@ -857,6 +867,7 @@ func TestResolvedPinsOwnMergeOnly(t *testing.T) {
 // while a git call blocks (a hook's child, say): the call's process group is killed, Submit returns promptly with no
 // child left, and run again it completes.
 func TestGitEndsWithCtx(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	y := newSx(t)
 	y.change("feature2.txt", "more")
@@ -915,6 +926,7 @@ exec '%[3]s' "$@"`, child, blocked, real))
 
 // RV-38 #11: Landed returns git's error instead of "not landed"; it still finds a merge.
 func TestLandedReturnsGitError(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	y := newSx(t, cmd("check", "echo 1 pass"))
 	y.arm(1)
@@ -936,6 +948,7 @@ func TestLandedReturnsGitError(t *testing.T) {
 // T-602: the gate keeps the candidate's whole diff (git diff target sha, as the patch hash reads it) for the review
 // job when it is at most port.InlineDiff bytes; a larger one is not kept.
 func TestScratchGateKeepsSmallDiff(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	y := newSx(t, cmd("check", "echo 1 pass"))
 	c := y.green(lane(y.submit()))
@@ -960,6 +973,7 @@ func TestScratchGateKeepsSmallDiff(t *testing.T) {
 // T-622: serve's own commits pass --no-verify. The project's own hooks dir (obor.hooksChain, chained by the kit's
 // commit-msg since T-620) rejects every message, yet submit's commit and the gate's merge commit are made.
 func TestScratchOwnCommitsSkipProjectCommitHooks(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	y := newSx(t, cmd("check", "echo 1 pass"))
 	// The kit's commit-msg lives in githooks/chain/ and sources ../_hook (T-623): copy the two files into the same
@@ -1009,6 +1023,7 @@ func TestScratchOwnCommitsSkipProjectCommitHooks(t *testing.T) {
 // lane_setup and compile), and the lane test tells TestInput.Command its own: a partial merge its guard then its class's
 // check (check_affected), never check; a full merge check; each runs on with no command between two.
 func TestGateReportsItsCommands(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	partial := testkit.Set("merge", map[string]any{"trailer": trailer, "summary_regex": "[0-9]+ pass", "guard": "guard",
 		"classes": []any{map[string]any{"name": "any", "paths": []any{"**"}, "checks": []any{"check_affected"}}}})

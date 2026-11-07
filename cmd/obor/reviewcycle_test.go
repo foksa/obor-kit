@@ -86,6 +86,7 @@ func closeOf(p *testkit.Project, reviewed string, accepts ...string) app.ReviewC
 // the top of BACKLOG.md's Open section naming the review and commits the subject and body as one commit on main's head
 // with BACKLOG.md; the checkout is clean after it.
 func TestReviewGitClose(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	p, head := reviewFixture(t)
 	g := reviewGit{root: p.Root}

@@ -601,6 +601,7 @@ func TestLaneTakesOnlyTheNextLNN(t *testing.T) {
 // T-765: a lane pane without --start is labelled and starts nothing; with --start it runs the default kind with no
 // model (no dispatch names one), as obor restart does.
 func TestPaneOnALaneStartsTheDefaultKindWithoutADispatch(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	x := newFx(t)
 	x.ok(t, "lane", "L-01")
@@ -621,6 +622,7 @@ func TestPaneOnALaneStartsTheDefaultKindWithoutADispatch(t *testing.T) {
 // T-770: the owner's drive agent (role driver) is a lane's agent too: its Claude start is strict — obor's MCP server
 // alone, the user's MCP servers out of its context on every job.
 func TestDriveStartIsStrict(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	x := newFx(t)
 	x.ok(t, "lane", "L-01")
@@ -654,6 +656,7 @@ var laneArgs = "--mcp-config " + claude.MCPConfig(kit) + " --strict-mcp-config "
 
 // bash setup.test.sh case_pane_splits_the_tab_and_starts_the_agent_in_order
 func TestPaneSplitsTheTabAndStartsTheAgentInOrder(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	x := newFx(t)
 	x.ok(t, "lane", "L-01")
@@ -712,6 +715,7 @@ func TestPaneSplitsTheLargestPane(t *testing.T) {
 
 // bash setup.test.sh case_pane_refuses_a_full_tab
 func TestPaneRefusesAFullTab(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	x := newFx(t, testkit.Set("limits.max_panes_per_tab", 3))
 	x.ok(t, "lane", "L-01")
@@ -732,6 +736,7 @@ func TestPaneRefusesAFullTab(t *testing.T) {
 // for another agent → FAIL before any split or start; a failing rename → FAIL, no start.
 // bash setup.test.sh case_pane_label_set_and_refused
 func TestPaneLabelSetAndRefused(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	x := newFx(t)
 	x.ok(t, "lane", "L-01")
@@ -822,6 +827,7 @@ func TestPaneNotReadyHints(t *testing.T) {
 
 // bash setup.test.sh case_pane_refuses_an_unknown_lane_and_ambiguous_placement
 func TestPaneRefusesUnknownLaneAndAmbiguousPlacement(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	x := newFx(t)
 	x.failing(t, "FAIL unknown lane L-09 (lanes: 0; obor setup lane L-09 first)", "pane", "L-09", "--tab", "w1:t1")
@@ -842,6 +848,7 @@ func TestPaneRefusesUnknownLaneAndAmbiguousPlacement(t *testing.T) {
 // checkout): setup role adds it detached when missing, keeps one that is there, refuses a dir that is no worktree of
 // the repo, and leaves a leftover of the old names (review, deep-dive) alone. No lane is added.
 func TestReviewerAndDeepDiveRunInTheirRoleWorktree(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	for _, c := range []struct {
 		role, old, agent, line, env string
@@ -904,6 +911,7 @@ func TestReviewerAndDeepDiveRunInTheirRoleWorktree(t *testing.T) {
 // bash setup.test.sh case_role_integrator_starts_in_the_root_and_needs_a_type; T-853: in its role worktree
 // <lanes_dir>/integrator (not the merge scratch, where gates run), added detached when missing.
 func TestRoleIntegratorStartsInItsWorktreeAndNeedsAType(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	x := newFx(t)
 	x.h.Tab("w1:t1", 200, 50, "w1:p3")
@@ -957,6 +965,7 @@ func (x *fx) envLines() []string {
 // A reused pane (--pane) gets the env line a restart types, so a shell that holds the env of the agent that ran there
 // before (a stale OBOR_AGENT, OBOR_LANE) starts the new agent with its own: cd, exports and unsets, before the start.
 func TestSetupPaneTypesTheEnvAtAReusedPane(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	x := newFx(t, testkit.Set("roles", `{"integrator": "opus"}`))
 	x.ok(t, "lane", "L-01")
@@ -1048,6 +1057,7 @@ func envWords(t *testing.T, line string) (ok, bad string) {
 
 // bash setup.test.sh case_role_lead_new_tab_gets_role_and_agent_env
 func TestRoleLeadNewTabGetsRoleEnv(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	x := newFx(t, testkit.Set("roles", `{"lead": "opus"}`))
 	if out := x.ok(t, "role", "lead", "--new-tab", "lead", "--start"); last(out) != "OK lead: pj-lead in pane w1:n1" {
@@ -1060,6 +1070,7 @@ func TestRoleLeadNewTabGetsRoleEnv(t *testing.T) {
 
 // T-280: a lead of a type without settings keeps Remote Control; a worker does not. (Setup role lead, the one lead.)
 func TestLeadKeepsRemoteControl(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	x := newFx(t, testkit.Set("roles", `{"lead": "opus"}`))
 	if out := x.ok(t, "role", "lead", "--new-tab", "lead", "--start"); last(out) != "OK lead: pj-lead in pane w1:n1" {
@@ -1073,6 +1084,7 @@ func TestLeadKeepsRemoteControl(t *testing.T) {
 // bash setup.test.sh case_role_triage_runs_in_the_root_with_agent_env_only_and_creates_bugs_md; T-796: OBOR_ROLE=triage,
 // so its identity is derived like every other role's.
 func TestRoleTriageRunsInTheRootWithItsRoleEnvAndCreatesBugsMd(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	x := newFx(t)
 	x.failing(t, `FAIL roles.triage is not set (a model ref, e.g. "opus:high")`, "role", "triage", "--new-tab", "triage", "--start")
@@ -1099,6 +1111,7 @@ func TestRoleTriageRunsInTheRootWithItsRoleEnvAndCreatesBugsMd(t *testing.T) {
 // OBOR_ROLE=<name>, its agent <prefix>-<name, _ → ->; it seeds nothing (only a default row with Seeds does); a name with
 // no row is the usage line.
 func TestRoleCustomPlaced(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	x := newFx(t)
 	x.failing(t, "FAIL "+Usage(), "role", "ux_buddy", "--new-tab", "ux", "--start")

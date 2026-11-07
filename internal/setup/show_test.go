@@ -67,6 +67,7 @@ func TestSetupShowLevelLines(t *testing.T) {
 
 // T-647: obor init writes setup.confirmed: false when the config has no such key, and a rerun keeps the owner's true.
 func TestOborInitRecordsTheSetupAnswer(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	x := newInitFx(t, true)
 	out := x.init(t)
@@ -101,6 +102,7 @@ func TestOborInitRecordsTheSetupAnswer(t *testing.T) {
 // T-647: an existing config without the setup key (written before the table) gets confirmed: false on init: nothing
 // there says the owner saw the table.
 func TestOborInitAddsTheMissingSetupAnswer(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	x := newInitFx(t, true)
 	x.init(t)

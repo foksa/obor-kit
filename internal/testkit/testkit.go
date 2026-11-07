@@ -29,6 +29,15 @@ func Main(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+// Slow marks a test that takes a second or more: the per-merge gate's fast tier (go test -short, T-957) skips it, and
+// make check, the nightly and releases (no -short) run it. It is the first line of the test.
+func Slow(t testing.TB) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("slow: runs in make check")
+	}
+}
+
 // Isolate keeps the tests away from the developer's shell: no OBOR_* / HERDR_* variables (but a herdr socket that is not there), no check-slot variables the
 // merge gate exports to `make check` (nor Claude's or Codex's config dirs), git without global or system config.
 // CHECK_LOAD_LIMIT is 0: no heavy command waits for the machine load (T-720).

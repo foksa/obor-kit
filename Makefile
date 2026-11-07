@@ -63,7 +63,9 @@ trim-go-cache:
 
 # The merge gate (check: the full suite) and its per-merge tier (check-affected, commands.check_affected, T-347): the
 # same steps, but go test only on the packages $OBOR_CHANGED_FILES affects (obor affected go); any doubt runs the full
-# suite. Serve's lane step runs the class's tier in the task's lane (T-961). check-compile (commands.compile, T-961) is
+# suite. check-affected also passes -short: the tests marked testkit.Slow (>= 1 s: cmd/obor, internal/checks,
+# internal/setup, T-957) run only in check, the nightly and releases; check does not pass it.
+# Serve's lane step runs the class's tier in the task's lane (T-961). check-compile (commands.compile, T-961) is
 # what serve's merge slot runs on each merge: build, gofmt, vet and deadcode, no go test. CHECK_CPUS (obor run and the
 # gates export it: cores / slots.max) is go test -p. Every class check starts with
 # GO_GATE: GOCACHE falls back to $TMPDIR when the default is not writable (a Codex sandbox, T-206), then build, gofmt and
@@ -76,8 +78,9 @@ GO_GATE = c=$$($(GO) env GOCACHE 2>/dev/null); \
 	$(GO) vet ./... || { echo "FAIL go vet"; exit 1; }
 check check-affected:
 	@$(GO_GATE); \
-	pkgs=./...; \
+	pkgs=./...; short=; \
 	if [ "$@" = check-affected ]; then \
+	  short=-short; \
 	  if a=$$(./dist/obor affected go); then \
 	    case "$$a" in \
 	      "full: "*) echo "affected: full suite ($${a#full: })" ;; \
@@ -87,7 +90,7 @@ check check-affected:
 	  else echo "affected: full suite (obor affected go failed)"; fi; \
 	fi; \
 	if [ -z "$$pkgs" ]; then echo "go test: 0 pass, 0 fail (no affected Go packages, go test skipped)"; else \
-	  rc=0; out=$$($(GO) test -count=1 $${CHECK_CPUS:+-p $$CHECK_CPUS} $$pkgs 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
+	  rc=0; out=$$($(GO) test -count=1 $${CHECK_CPUS:+-p $$CHECK_CPUS} $${short:+$$short} $$pkgs 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
 	  n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	  echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"; \
 	fi; \
