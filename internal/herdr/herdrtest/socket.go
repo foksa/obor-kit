@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -18,13 +19,13 @@ import (
 )
 
 // Server is a fake herdr socket: newline JSON over a unix socket in a temp dir, answering as herdr's API does. It
-// answers ping, session.snapshot, agent.list, agent.get, pane.list, pane.get, pane.process_info, pane.layout and
-// pane.read from F's panes, plays agent.prompt and agent.send_keys on them (Pane.OnPrompt, Prompts, Draft, Submitted,
-// OnEnter; a "fail-typed" prompt is typed, then its connection drops unanswered; OnEnter "fail" refuses an Enter),
-// pane.send_input, pane.send_keys, pane.rename, agent.rename, agent.start, pane.split, tab.create, tab.list,
-// plugin.list, plugin.link and plugin.unlink on F's Plugins, notification.show, and takes events.subscribe (a pane_id
-// that F has not is pane_not_found); every other method answers what Reply, Fail or Once scripted (a scripted failure
-// comes first, then a scripted answer).
+// answers ping, session.snapshot, agent.list, agent.get, agent.wait, pane.list, pane.get, pane.process_info,
+// pane.wait_for_output, pane.layout and pane.read from F's panes, plays agent.prompt and agent.send_keys on them
+// (Pane.OnPrompt, Prompts, Draft, Submitted, OnEnter; a "fail-typed" prompt is typed, then its connection drops
+// unanswered; OnEnter "fail" refuses an Enter), pane.send_input, pane.send_keys, pane.rename, agent.rename,
+// agent.start, pane.split, tab.create, tab.list, plugin.list, plugin.link and plugin.unlink on F's Plugins,
+// notification.show, and takes events.subscribe (a pane_id that F has not is pane_not_found); every other method
+// answers what Reply, Fail or Once scripted (a scripted failure comes first, then a scripted answer).
 // Push sends an event to the connections subscribed to it, PushError an error line to every subscribed connection.
 type Server struct {
 	Path string
@@ -468,6 +469,24 @@ func fail(code, msg string) map[string]any {
 	return map[string]any{"error": map[string]string{"code": code, "message": msg}}
 }
 
+// outputLine: the first line of screen that match (a substring or a regex, re) selects, as pane.wait_for_output
+// reads it; false when none matches.
+func outputLine(screen, typ, value string, re *regexp.Regexp) (string, bool) {
+	for _, line := range strings.Split(screen, "\n") {
+		switch typ {
+		case "regex":
+			if re.MatchString(line) {
+				return line, true
+			}
+		default:
+			if strings.Contains(line, value) {
+				return line, true
+			}
+		}
+	}
+	return "", false
+}
+
 func ok(result map[string]any) map[string]any { return map[string]any{"result": result} }
 
 // answer is the response to one request, without its id, and what to do once it is sent (herdr confirms a subscription
@@ -525,6 +544,53 @@ func (s *Server) answer(c *conn, method string, params json.RawMessage) (map[str
 			return fail("agent_not_found", "agent target "+p.Target+" not found"), nil
 		}
 		return ok(map[string]any{"type": "agent_info", "agent": a.agentJSON()}), nil
+	case "agent.wait":
+		// herdr's server-side wait: the status now, then again until until or timeout_ms; an agent that leaves the
+		// pane ends it with agent_not_running. The fake polls, as herdr's events would wake it.
+		var p struct {
+			Target  string   `json:"target"`
+			Until   []string `json:"until"`
+			Timeout *uint64  `json:"timeout_ms"`
+		}
+		_ = json.Unmarshal(params, &p)
+		if len(p.Until) == 0 {
+			p.Until = []string{"idle", "done"}
+		}
+		var deadline time.Time
+		if p.Timeout != nil {
+			deadline = time.Now().Add(time.Duration(*p.Timeout) * time.Millisecond)
+		}
+		saw := false
+		for {
+			f.mu.Lock()
+			a := f.agentPane(p.Target)
+			var status string
+			var answer map[string]any
+			if a != nil {
+				status = a.Status
+				answer = ok(map[string]any{"type": "agent_info", "agent": a.agentJSON()})
+				if a.LeaveAfter > 0 {
+					if a.LeaveAfter--; a.LeaveAfter == 0 {
+						a.exit()
+						a = nil
+					}
+				}
+			}
+			f.mu.Unlock()
+			switch {
+			case a != nil && slices.Contains(p.Until, status):
+				return answer, nil
+			case a == nil && !saw:
+				return fail("agent_not_found", "agent target "+p.Target+" not found"), nil
+			case a == nil:
+				return fail("agent_not_running", "agent is no longer running in the target pane"), nil
+			}
+			saw = true
+			if !deadline.IsZero() && !time.Now().Before(deadline) {
+				return fail("timeout", "timed out waiting for agent status"), nil
+			}
+			time.Sleep(time.Millisecond)
+		}
 	case "pane.get":
 		var p struct {
 			Pane string `json:"pane_id"`
@@ -612,6 +678,48 @@ func (s *Server) answer(c *conn, method string, params json.RawMessage) (map[str
 		}
 		f.mu.Unlock()
 		return ok(map[string]any{"type": "pane_list", "panes": panes}), nil
+	case "pane.wait_for_output":
+		// herdr's server-side wait: a line of the source's text that matches now, else again until it does or
+		// timeout_ms runs out. The fake has the one screen; every source reads it, one line at a time.
+		var p struct {
+			Pane   string `json:"pane_id"`
+			Source string `json:"source"`
+			Match  struct {
+				Type  string `json:"type"`
+				Value string `json:"value"`
+			} `json:"match"`
+			Timeout *uint64 `json:"timeout_ms"`
+		}
+		_ = json.Unmarshal(params, &p)
+		var re *regexp.Regexp
+		if p.Match.Type == "regex" {
+			var err error
+			if re, err = regexp.Compile(p.Match.Value); err != nil {
+				return fail("invalid_regex", err.Error()), nil
+			}
+		}
+		var deadline time.Time
+		if p.Timeout != nil {
+			deadline = time.Now().Add(time.Duration(*p.Timeout) * time.Millisecond)
+		}
+		for {
+			f.mu.Lock()
+			pane := f.pane(p.Pane)
+			if pane == nil {
+				f.mu.Unlock()
+				return fail("pane_not_found", "pane "+p.Pane+" not found"), nil
+			}
+			screen := pane.Screen
+			f.mu.Unlock()
+			if line, hit := outputLine(screen, p.Match.Type, p.Match.Value, re); hit {
+				return ok(map[string]any{"type": "output_matched", "pane_id": p.Pane, "revision": 1, "matched_line": line,
+					"read": map[string]any{"pane_id": p.Pane, "source": "visible", "text": screen}}), nil
+			}
+			if !deadline.IsZero() && !time.Now().Before(deadline) {
+				return fail("timeout", "timed out waiting for output match"), nil
+			}
+			time.Sleep(time.Millisecond)
+		}
 	case "pane.layout", "pane.read", "pane.send_input", "pane.send_keys", "pane.rename":
 		var p struct {
 			Pane  string   `json:"pane_id"`

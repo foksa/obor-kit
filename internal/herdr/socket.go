@@ -345,6 +345,18 @@ func (s *Socket) Agent(ctx context.Context, target string) (port.Pane, error) {
 	return s.agentResult(ctx, 0, "agent.get", map[string]any{"target": target})
 }
 
+// waitGrace is how much longer than a wait's own timeout the client waits for herdr's answer: herdr answers the
+// timeout itself (Code "timeout"), and that answer must arrive before the connection's deadline.
+const waitGrace = 5 * time.Second
+
+// Wait is agent.wait: herdr answers once the agent at target (an agent name or the pane id hosting it) is in one of
+// until (idle, done, …), with herdr's error code "timeout" after timeout, or agent_not_running when the agent left
+// the pane first. The agent in the answer is not read.
+func (s *Socket) Wait(ctx context.Context, target string, until []string, timeout time.Duration) error {
+	p := map[string]any{"target": target, "until": until, "timeout_ms": timeout.Milliseconds()}
+	return s.call(ctx, timeout+waitGrace, nil, "agent.wait", p)
+}
+
 // Pane is pane.get.
 func (s *Socket) Pane(ctx context.Context, id string) (port.Pane, error) {
 	var r struct {
@@ -400,6 +412,25 @@ func (s *Socket) Screen(ctx context.Context, pane string, lines int) (string, er
 	}
 	if r.Read == nil {
 		return "", &Error{Kind: BadAnswer, Op: "pane.read", Msg: "no read in the answer"}
+	}
+	return r.Read.Text, nil
+}
+
+// WaitForOutput is pane.wait_for_output: the pane's visible text, as pane.read gives it, once a line of it matches
+// regex (text already on the screen matches at once); herdr's error code "timeout" after timeout.
+func (s *Socket) WaitForOutput(ctx context.Context, pane, regex string, timeout time.Duration) (string, error) {
+	var r struct {
+		Read *struct {
+			Text string `json:"text"`
+		} `json:"read"`
+	}
+	p := map[string]any{"pane_id": pane, "source": "visible", "timeout_ms": timeout.Milliseconds(),
+		"match": map[string]string{"type": "regex", "value": regex}}
+	if err := s.call(ctx, timeout+waitGrace, &r, "pane.wait_for_output", p); err != nil {
+		return "", err
+	}
+	if r.Read == nil {
+		return "", &Error{Kind: BadAnswer, Op: "pane.wait_for_output", Msg: "no read in the answer", reached: true}
 	}
 	return r.Read.Text, nil
 }

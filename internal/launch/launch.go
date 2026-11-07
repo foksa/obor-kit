@@ -669,25 +669,14 @@ func (l *Launcher) setEnv(ctx context.Context, t *target) error {
 	if err := l.H.Type(ctx, t.pane, envLine(t)+" && echo "+okMark.typed+" || echo "+badMark.typed); err != nil {
 		return project.Failf("herdr pane run %s (env) failed", t.pane)
 	}
-	failed := false
-	if !l.until(ctx, l.wait(), func() bool {
-		screen, err := l.H.Screen(ctx, t.pane, 30)
-		if err != nil {
-			return false
-		}
-		switch {
-		case badMark.done(screen):
-			failed = true
-			return true
-		case okMark.done(screen):
-			return true
-		}
-		return false
-	}) {
+	// One server-owned wait for either mark (the echoed words, which the typed line's quoted forms never match): its
+	// timeout is the env line's bound, and the text read says which mark the shell printed (T-950).
+	screen, err := l.H.WaitForOutput(ctx, t.pane, okMark.echoed+"|"+badMark.echoed, l.wait())
+	if err != nil {
 		return l.giveUp(ctx, t, "the shell in %s did not finish the env line in %s (nothing started; the env line may have failed: check the pane)",
 			t.pane, l.wait())
 	}
-	if failed {
+	if strings.Contains(screen, badMark.echoed) {
 		return l.giveUp(ctx, t, "the env line in %s failed (nothing started; check the pane)", t.pane)
 	}
 	return nil
@@ -756,22 +745,6 @@ var markSeq atomic.Int64
 func envMark() mark {
 	n := strconv.FormatInt(time.Now().UnixNano(), 36) + strconv.FormatInt(markSeq.Add(1), 36)
 	return mark{typed: `obor-env-"` + n + `"`, echoed: "obor-env-" + n}
-}
-
-// done: screen shows the echoed word on a line of its own with a non-empty line (the shell's next prompt) below it.
-func (m mark) done(screen string) bool {
-	var lines []string
-	for _, ln := range strings.Split(screen, "\n") {
-		if ln = strings.TrimSpace(ln); ln != "" {
-			lines = append(lines, ln)
-		}
-	}
-	for i := len(lines) - 2; i >= 0; i-- {
-		if lines[i] == m.echoed {
-			return true
-		}
-	}
-	return false
 }
 
 var shellSafe = regexp.MustCompile(`^[A-Za-z0-9_./:@%+=,-]+$`)

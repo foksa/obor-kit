@@ -228,13 +228,13 @@ func TestSocketErrors(t *testing.T) {
 
 	srv.Before(func(r herdrtest.Request) {
 		if r.Method == "agent.list" {
-			time.Sleep(300 * time.Millisecond)
+			time.Sleep(5 * time.Second) // far past the client's bound: only its own deadline can end the call, whatever the load
 		}
 	})
 	slow := &herdr.Socket{Path: srv.Path, Timeout: 50 * time.Millisecond}
 	start := time.Now()
 	_, err = slow.Agents(ctx)
-	if !errors.Is(err, errUnavailable) || !strings.Contains(err.Error(), "timed out after 50ms") || time.Since(start) > 250*time.Millisecond {
+	if !errors.Is(err, errUnavailable) || !strings.Contains(err.Error(), "timed out after 50ms") || time.Since(start) > 2*time.Second {
 		t.Errorf("slow answer = %v after %s, want unavailable: timed out after 50ms, at once", err, time.Since(start))
 	}
 }
@@ -274,6 +274,72 @@ func TestSocketStartSentOnce(t *testing.T) {
 	if len(p.Args) != 4 || p.Args[3] != prompt {
 		t.Errorf("the prompt arrived as %d args, last %d bytes; want 4 args, the prompt whole (%d bytes)",
 			len(p.Args), len(p.Args[len(p.Args)-1]), len(prompt))
+	}
+}
+
+// T-950: herdr's own waits: agent.wait ends when the agent reaches the state asked for (text already on the screen
+// matches at once), times out while it does not, and ends agent_not_running when the agent leaves the pane;
+// pane.wait_for_output reads the text when the regex matches. Each is one request: obor does not poll.
+func TestSocketWaits(t *testing.T) {
+	t.Parallel()
+	f := fixture()
+	srv := herdrtest.Serve(t, f)
+	c := srv.Client()
+
+	if err := c.Wait(ctx, "pj-l-01", []string{"idle", "done"}, time.Second); err != nil {
+		t.Fatalf("Wait of an idle agent: %v", err)
+	}
+	if got, want := lastParams(t, srv, "agent.wait"), `{"target":"pj-l-01","timeout_ms":1000,"until":["idle","done"]}`; got != want {
+		t.Errorf("agent.wait params = %s\nwant %s", got, want)
+	}
+
+	// The agent works on: the wait ends when it reaches done, not at the call.
+	f.Set("w1:p3", func(p *herdrtest.Pane) { p.Name = "pj-l-03" })
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		f.Set("w1:p3", func(p *herdrtest.Pane) { p.Status = "done" })
+	}()
+	start := time.Now()
+	if err := c.Wait(ctx, "pj-l-03", []string{"idle", "done"}, 10*time.Second); err != nil {
+		t.Errorf("Wait until the working agent finished: %v", err)
+	} else if waited := time.Since(start); waited < 15*time.Millisecond {
+		t.Errorf("Wait answered in %s: it answered before the status changed", waited)
+	}
+
+	// It times out while the agent stays busy.
+	if err := c.Wait(ctx, "pj-l-03", []string{"idle"}, 60*time.Millisecond); herdrErr(t, err).Code != "timeout" {
+		t.Errorf("Wait on a busy agent = %v, want timeout", err)
+	}
+
+	// An agent that leaves its pane ends the wait with agent_not_running: the wait sees it once, then it is gone
+	// (LeaveAfter counts checks, so the order is the fake's, not the machine's).
+	f.Set("w1:p3", func(p *herdrtest.Pane) { p.LeaveAfter = 2 })
+	if err := c.Wait(ctx, "pj-l-03", []string{"idle"}, 10*time.Second); herdrErr(t, err).Code != "agent_not_running" {
+		t.Errorf("Wait on an agent that left = %v, want agent_not_running", err)
+	}
+
+	// Text on the screen matches at once; text printed during the wait matches when it comes.
+	f.Set("w1:p2", func(p *herdrtest.Pane) { p.Screen = "early EARLY_42\n" })
+	text, err := c.WaitForOutput(ctx, "w1:p2", "EARLY_42", time.Second)
+	if err != nil || !strings.Contains(text, "EARLY_42") {
+		t.Errorf("WaitForOutput of text on the screen = %q, %v", text, err)
+	}
+	if got, want := lastParams(t, srv, "pane.wait_for_output"),
+		`{"match":{"type":"regex","value":"EARLY_42"},"pane_id":"w1:p2","source":"visible","timeout_ms":1000}`; got != want {
+		t.Errorf("pane.wait_for_output params = %s\nwant %s", got, want)
+	}
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		f.Set("w1:p2", func(p *herdrtest.Pane) { p.Screen += "late LATE_42\n" })
+	}()
+	if text, err := c.WaitForOutput(ctx, "w1:p2", "LATE_42", 10*time.Second); err != nil || !strings.Contains(text, "LATE_42") {
+		t.Errorf("WaitForOutput of text printed during the wait = %q, %v", text, err)
+	}
+	if _, err := c.WaitForOutput(ctx, "w1:p2", "NEVER_42", 60*time.Millisecond); herdrErr(t, err).Code != "timeout" {
+		t.Errorf("WaitForOutput of text never printed = %v, want timeout", err)
+	}
+	if n, m := count(srv, "agent.wait"), count(srv, "pane.wait_for_output"); n != 4 || m != 3 {
+		t.Errorf("%d agent.wait and %d pane.wait_for_output requests, want one per wait: 4 and 3", n, m)
 	}
 }
 
