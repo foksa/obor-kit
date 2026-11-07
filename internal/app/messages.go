@@ -1209,7 +1209,7 @@ func (a *App) recordBrief(p *proj, to, from, note, call, prompt string, fresh bo
 		}
 		m.Reply += fmt.Sprintf(" (replaces %d undelivered %s)", len(old), briefs)
 	}
-	seq, ok := a.recordIn(p, event.Record{Task: event.MsgTask, Step: event.StepBriefed, Kind: event.KindFact}, m, true)
+	seq, ok := a.recordIn(p, event.Record{Task: event.MsgTask, Step: event.StepBriefed, Kind: event.KindFact}, m)
 	a.mu.Unlock()
 	if !ok {
 		return "", false

@@ -5,7 +5,6 @@ import (
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
-	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -35,30 +34,31 @@ func needsYouT7(r *concRig) {
 
 // raceDrop is the reviewer's probe (TestVerifyRV42DropAgainstDecidedSubmission): a submission of T-7 passes its guards
 // and pauses before its append; drop decides against attempt 1 and pauses before its; the submission records
-// submitted at attempt 2, then drop records dropped at attempt 1. The injected clock is only the barrier before each
-// append.
+// submitted at attempt 2, then drop records dropped at attempt 1. The barrier before each append is the hook at the end
+// of its decision (task_done's check, the drop's mark), outside mu: the append and its fold are one mu section (T-944).
 func raceDrop(t *testing.T, r *concRig) (sub, drop callAnswer) {
 	p := r.proj("pq")
-	now := r.app("pq").opt.Now()
 	lane := port.Lane{Name: "L-07", Task: "T-7", Agent: "pq-l-07"}
 	r.app("pq").mu.Lock()
 	p.lanes = []port.Lane{lane}
 	r.app("pq").mu.Unlock()
 	r.app("pq").lanes = &fakeLanes{lanes: []port.Lane{lane}}
 	subAt, dropAt, subGo, dropGo := make(chan struct{}), make(chan struct{}), make(chan struct{}), make(chan struct{})
-	var calls atomic.Int32
-	r.app("pq").opt.Now = func() time.Time {
-		switch calls.Add(1) {
-		case 1:
+	hook := func(point string) {
+		switch point {
+		case hookTaskDoneCheck:
 			close(subAt)
 			<-subGo
-		case 2:
+		case hookDropDecided:
 			close(dropAt)
 			<-dropGo
 		}
-		return now
 	}
-	defer func() { r.app("pq").opt.Now = func() time.Time { return now } }()
+	r.app("pq").hooked.Store(&hook)
+	defer func() {
+		none := func(string) {}
+		r.app("pq").hooked.Store(&none)
+	}()
 	submitted, dropped := make(chan callAnswer, 1), make(chan callAnswer, 1)
 	go func() {
 		reply, err := r.app("pq").taskDone(wire.Call{Root: p.root, Task: "T-7", Agent: "pq-l-07", Role: "worker", Lane: "L-07",

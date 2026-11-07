@@ -42,8 +42,7 @@ func (p *proj) foldLanes(r event.Record) {
 		p.folded.lr.submitted[r.Task] = event.RecordTime(r).Unix()
 		var d submitData
 		_ = json.Unmarshal(r.Data, &d)
-		mt := p.folded.loop[r.Task]
-		if d.Lane == "" || mt == nil || mt.state == stDropped || p.folded.lr.rows[d.Lane].Task == r.Task {
+		if d.Lane == "" || p.folded.lr.rows[d.Lane].Task == r.Task { // an ended task's submission never folds (foldRecord)
 			return
 		}
 		// A submission from a lane no row gives the task (dispatched before serve dispatched): the task is there.

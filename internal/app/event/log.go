@@ -357,56 +357,70 @@ type Intent struct {
 // Do runs effect once for in.Key: it writes the intent, runs effect without holding the log, and writes its result.
 // A key that has a result returns the stored result and does not run effect. A failed effect writes no result: the
 // intent stays pending (replay lists it) and the caller settles or retries it: a pending key's intent is reused (no
-// second intent line) and its effect runs again. A key whose effect runs now is refused.
+// second intent line) and its effect runs again. A key whose effect runs now is refused. A caller that folds the
+// records it writes uses its halves, Begin and Finish, each inside the section that folds it (App.do, T-944).
 func (l *Log) Do(ctx context.Context, in Intent, now func() time.Time, effect func(context.Context) (any, error)) (json.RawMessage, error) {
-	l.Mu.Lock()
-	if r, ok := l.Results[in.Key]; ok {
-		l.Mu.Unlock()
-		return r.Data, nil
-	}
-	if _, ok := l.inflight[in.Key]; ok {
-		l.Mu.Unlock()
-		return nil, fmt.Errorf("%s/%d/%s: its effect is running", in.Task, in.Attempt, in.Step)
-	}
-	if _, ok := l.pending[in.Key]; !ok {
-		rec := Record{Task: in.Task, Attempt: in.Attempt, Step: in.Step, Kind: KindIntent, Class: in.Class}
-		if in.Data != nil {
-			b, err := json.Marshal(in.Data)
-			if err != nil {
-				l.Mu.Unlock()
-				return nil, err
-			}
-			rec.Data = b
-		}
-		if _, err := l.append(rec, now()); err != nil {
-			l.Mu.Unlock()
-			return nil, err
-		}
-	}
-	l.inflight[in.Key] = struct{}{}
-	l.Mu.Unlock()
-	defer func() {
-		l.Mu.Lock()
-		delete(l.inflight, in.Key)
-		l.Mu.Unlock()
-	}()
-
-	v, err := effect(ctx)
+	r, done, _, err := l.Begin(in, now())
 	if err != nil {
 		return nil, err
 	}
-	res := Record{Task: in.Task, Attempt: in.Attempt, Step: in.Step, Kind: KindResult}
-	if v != nil {
-		if res.Data, err = json.Marshal(v); err != nil {
-			return nil, err
-		}
+	if done {
+		return r.Data, nil
 	}
+	v, err := effect(ctx)
+	if err != nil {
+		l.Finish(in.Key, nil, false, now())
+		return nil, err
+	}
+	res, err := l.Finish(in.Key, v, true, now())
+	return res.Data, err
+}
+
+// Begin is Do's first half: the stored result when in.Key has one (done: no effect runs); else the key's effect runs
+// from now until its Finish, with its intent: written now (wrote) or the pending one reused. A key whose effect runs
+// now is refused.
+func (l *Log) Begin(in Intent, now time.Time) (r Record, done, wrote bool, err error) {
 	l.Mu.Lock()
 	defer l.Mu.Unlock()
-	if _, err := l.append(res, now()); err != nil {
-		return res.Data, err
+	if r, ok := l.Results[in.Key]; ok {
+		return r, true, false, nil
 	}
-	return res.Data, nil
+	if _, ok := l.inflight[in.Key]; ok {
+		return Record{}, false, false, fmt.Errorf("%s/%d/%s: its effect is running", in.Task, in.Attempt, in.Step)
+	}
+	r, ok := l.pending[in.Key]
+	if !ok {
+		r = Record{Task: in.Task, Attempt: in.Attempt, Step: in.Step, Kind: KindIntent, Class: in.Class}
+		if in.Data != nil {
+			if r.Data, err = json.Marshal(in.Data); err != nil {
+				return Record{}, false, false, err
+			}
+		}
+		if r, err = l.append(r, now); err != nil {
+			return Record{}, false, false, err
+		}
+	}
+	l.inflight[in.Key] = struct{}{}
+	return r, false, !ok, nil
+}
+
+// Finish is Do's second half: the effect of k that Begin started has ended; when ok, its result v is written (the
+// record returned, its Data also when the write failed); a failed effect writes none (the intent stays pending).
+func (l *Log) Finish(k Key, v any, ok bool, now time.Time) (Record, error) {
+	l.Mu.Lock()
+	defer l.Mu.Unlock()
+	delete(l.inflight, k)
+	if !ok {
+		return Record{}, nil
+	}
+	res := Record{Task: k.Task, Attempt: k.Attempt, Step: k.Step, Kind: KindResult}
+	if v != nil {
+		var err error
+		if res.Data, err = json.Marshal(v); err != nil {
+			return Record{}, err
+		}
+	}
+	return l.append(res, now)
 }
 
 // Open: k has an intent without a result (a crash or a failed effect left it; its effect does not run now).
@@ -441,14 +455,6 @@ func (l *Log) Done(k Key) bool {
 	defer l.Mu.Unlock()
 	_, ok := l.Results[k]
 	return ok
-}
-
-// Result is k's durable result, including the sequence and time used by replay.
-func (l *Log) Result(k Key) (Record, bool) {
-	l.Mu.Lock()
-	defer l.Mu.Unlock()
-	r, ok := l.Results[k]
-	return r, ok
 }
 
 // OpenIntents is every intent without a result, running or not, in seq order: the steps whose effect runs now, or was

@@ -9,7 +9,6 @@ import (
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"strings"
-	"time"
 
 	"obor/internal/config"
 )
@@ -121,8 +120,8 @@ func (p *proj) foldJob(r event.Record) {
 
 // verdict answers one verdict call: a repeated call id gets the stored reply; else the call is validated (the
 // project's merge loop runs (an integrator role), the caller is the project's integrator, the job is the task's open one
-// (mtask.openJob) and fits the method, an accept names its patch) and recorded, a fact under Log.Do, and the merge
-// loop woken. A refused call records nothing. A sendback past K sendbacks of the task is recorded and goes to the
+// (mtask.openJob) and fits the method, an accept names its patch) and recorded, an intent and its result written and
+// folded in one mu section (verdictRecord), and the merge loop woken. A refused call records nothing. A sendback past K sendbacks of the task is recorded and goes to the
 // owner (row 22). A resolved first pins the merge the integrator committed in the scratch (refused when there is
 // none): the verdict records its sha, the resolved gate's input.
 func (a *App) verdict(ctx context.Context, method string, c wire.Call) (string, error) {
@@ -205,18 +204,16 @@ func (a *App) verdict(ctx context.Context, method string, c wire.Call) (string, 
 	if method == wire.MethodSendback && sendbacks >= K {
 		reply += fmt.Sprintf(": sent back %d times already, the owner decides", K)
 	}
-	raw, err := p.log.Do(ctx, in, a.opt.Now, func(context.Context) (any, error) {
-		return verdictResult{Job: JobID(key), Reply: reply, Patch: c.Patch, Note: c.Note, SHA: sha}, nil
-	})
+	a.mu.Lock()
+	r, err := a.verdictRecord(p, in, verdictResult{Job: JobID(key), Reply: reply, Patch: c.Patch, Note: c.Note, SHA: sha})
 	if err != nil {
+		a.mu.Unlock()
 		return "", err
 	}
 	var v verdictResult
-	_ = json.Unmarshal(raw, &v)
-	a.mu.Lock()
+	_ = json.Unmarshal(r.Data, &v)
 	was := p.closed(c.Task)
-	p.foldRecord(event.Record{Task: in.Task, Attempt: in.Attempt, Step: in.Step, Kind: event.KindResult, Data: raw,
-		TS: a.opt.Now().UTC().Format(time.RFC3339)}) // a sendback's time: the next attempt's begun
+	p.foldRecord(r) // its time as the log wrote it: a sendback's, the next attempt's begun
 	if !was && p.closed(c.Task) {
 		a.settleEnded(p, c.Task) // rejected: its cleared watchdog notifications never run (T-636)
 	}
@@ -224,6 +221,24 @@ func (a *App) verdict(ctx context.Context, method string, c wire.Call) (string, 
 	a.logf("%s %s by %s", p.name, v.Reply, c.Agent)
 	a.wake()
 	return v.Reply, nil
+}
+
+// verdictRecord writes the verdict in and its result v (under mu: a verdict's effect is only its reply, so the
+// intent, the result and their folds are one section, T-944): the intent folded once written, the result (the
+// stored one when in has one) returned for the caller to fold in the same section.
+func (a *App) verdictRecord(p *proj, in event.Intent, v verdictResult) (event.Record, error) {
+	r, done, wrote, err := p.log.Begin(in, a.opt.Now())
+	if err != nil || done {
+		return r, err
+	}
+	if wrote {
+		p.foldRecord(r)
+	}
+	if r, err = p.log.Finish(in.Key, v, true, a.opt.Now()); err != nil {
+		return r, err
+	}
+	a.hook(hookAppended)
+	return r, nil
 }
 
 // resolvedCheck is Scratch.Resolved holding p's scratch: never while a gate or a publish runs there.
@@ -301,6 +316,7 @@ func (a *App) drop(c wire.Call) (string, error) {
 	if err != nil || mt.task == "" {
 		return stored, err
 	}
+	a.hook(hookDropDecided)
 	defer func() {
 		a.mu.Lock()
 		delete(p.ended, c.Task) // folded: the task is dropping or dropped; else the drop is refused

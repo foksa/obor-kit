@@ -82,7 +82,9 @@ type App struct {
 	// mu guards the state below. Serve's goroutine changes it; it decides under mu and asks herdr, git and the lane
 	// table outside it (Busy, Activity, Lanes and Notify are never called while mu is held). The rule for a verb (J1):
 	// it reads (git, config, lanes, the spec store) with no lock, then checks, appends, folds and replies in one mu
-	// section (recordLocked); only an effect in flight is a claim (held, running, rv.what, a line's sending). The
+	// section (recordLocked); only an effect in flight is a claim (held, running, rv.what, a line's sending). Every
+	// append is inside mu with its fold (record, do's intent and result, a verdict's: T-944), so the live fold order is
+	// the log's seq order; only the store write joins the section, never an effect (git, herdr, a launch). The
 	// event log's lock is taken inside mu, never the other way round. The dispatch-class verbs (verdict, drop,
 	// dispatch, drive, pause, job_next, resume, task_done, land, spec set, move) take a lock besides mu to order those
 	// verbs across their git reads (RV-129): `verdicts` for dispatch, drop, drive, pause, job_next and resume;
