@@ -188,7 +188,7 @@
     ]
   },
   "slots": {
-    "max": 1,
+    "max": 4,
     "cpus": 4
   },
   "setup": {
