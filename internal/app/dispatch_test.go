@@ -1026,6 +1026,9 @@ type lastClose struct{}
 func (lastClose) Last(context.Context, string) (app.ReviewClose, error) {
 	return app.ReviewClose{Subject: "RV-4 closed · 1111111 · approved · T-9"}, nil
 }
+
+func (lastClose) Closes(context.Context, string, string) ([]app.ReviewClose, error) { return nil, nil }
+
 func (lastClose) Head(context.Context, string) (string, error)             { return "head1", nil }
 func (lastClose) Merges(context.Context, string, string) ([]string, error) { return nil, nil }
 func (lastClose) Files(context.Context, string, string) ([]string, error)  { return nil, nil }

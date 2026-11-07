@@ -9,6 +9,7 @@ import (
 	"maps"
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -33,6 +34,10 @@ import (
 //     promoted only when the review closes at exactly H.
 //   - R (a review closed): the suite at R (intent promote.<seq>{sha R, …}), unless a run at R has a result already
 //     (a GREEN at R is reused, a RED one waits for the next close); the trigger's weight is not asked.
+//   - Every task merged at or before R covered (T-985): a first-parent merge "Merge T-xx:" of promoted..R whose task
+//     no close commit's Covered: line names (one merged during the review, inside its verify's head) holds R back:
+//     no suite, no fast-forward; status "waiting: T-a, T-b merged during RV-n, not reviewed yet", and the trigger
+//     requests the next review even with no merge since R. Its close yields the next R. No state: git alone.
 //   - RED: needs-you{promotion RED <sha7>: <line>; merges since <since7>: T-a, …} (the nightly's shape), ended by the
 //     next GREEN promotion (fact promoted). A run that ends neither is a counted failure, tried again promoteRetry
 //     after it; the tries-th is a needs-you.
@@ -122,7 +127,8 @@ type promoteState struct {
 	failedWhy  string
 	running    bool // a promotion step runs in its own goroutine (under mu)
 	// The last pass's count (live, obor status): the promoted branch, its sha, the merges since (the tasks, their weight
-	// and the weight that triggers a promotion), why a GREEN run waits and the review it waits for (T-977).
+	// and the weight that triggers a promotion), why the promotion waits (a GREEN run, or R for its tasks' review,
+	// T-985), the review it waits for (T-977) and the GREEN run's sha that waits ("": none).
 	branch    string
 	head      string
 	merges    int
@@ -131,6 +137,7 @@ type promoteState struct {
 	threshold int
 	wait      string
 	waitRV    string
+	waitRun   string
 }
 
 // promoteSeq is the <seq> of step "<base>.<seq>" (0: another step).
@@ -256,22 +263,36 @@ func (a *App) promotion(ctx context.Context, p *proj, fx *Loop) {
 // promoteHeads is promotion's part once it read the target's head and the promoted branch's sha (at).
 func (a *App) promoteHeads(ctx context.Context, p *proj, fx *Loop, pr *Promote, st promoteState, head, at string,
 	idle, restarting bool, now time.Time) {
-	wait, waitRV := "", ""
+	wait, waitRV, waitRun := "", "", ""
+	var waiting []string // the tasks merged up to R that no closed review covered (T-985)
 	defer func() {
 		a.mu.Lock()
 		p.prom.branch, p.prom.head, p.prom.wait, p.prom.waitRV, p.prom.threshold = pr.Branch, at, wait, waitRV, pr.Weight
+		p.prom.waitRun = waitRun
 		a.mu.Unlock()
 	}()
 	r, reviews := a.promoteCandidate(p, st)
 	// R not promoted yet: R at or behind the promoted branch's head is passed already (T-984: the branch switched or
 	// moved past it), nothing to run or record, except a crash after the fast-forward (the branch at R, its GREEN
 	// recorded): the fact is what is missing. Else its GREEN fast-forwards the promoted branch; no run at R yet: the
-	// suite at R; RED or failed there: it waits for the next close.
+	// suite at R; RED or failed there: it waits for the next close. A task merged up to R that no closed review covered
+	// (T-985: one merged during the review, inside its verify's head) holds R back, no suite run: the next review covers
+	// it and yields the next R.
 	if r != "" && r != st.promoted {
 		passed, err := pr.Passed(ctx, r)
 		if err != nil {
 			a.logf("promotion of %s: %s passed: %v", p.name, short(r), err)
 			return
+		}
+		if !passed && reviews {
+			var rv string
+			if waiting, rv, err = unreviewed(ctx, fx.Review, at, r, head); err != nil {
+				a.logf("promotion of %s: the reviews of %s: %v", p.name, short(r), err)
+				return
+			}
+			if len(waiting) > 0 {
+				wait = "waiting: " + strings.Join(waiting, ", ") + " merged during " + rv + ", not reviewed yet"
+			}
 		}
 		switch ffKey := "ff " + short(r); {
 		case passed:
@@ -283,6 +304,7 @@ func (a *App) promoteHeads(ctx context.Context, p *proj, fx *Loop, pr *Promote, 
 				a.goPromote(ctx, p, func(context.Context) { a.recordPromoted(p, pr, r, since) })
 				return
 			}
+		case len(waiting) > 0: // R waits for the next review's close
 		case st.ran[r] == "GREEN":
 			if !st.spent(ffKey) && !st.waitRetry(ffKey, now) {
 				since := at
@@ -300,9 +322,12 @@ func (a *App) promoteHeads(ctx context.Context, p *proj, fx *Loop, pr *Promote, 
 			return
 		}
 	}
-	if o := st.out; reviews && o != nil && o.Verdict == "GREEN" && o.SHA != r && o.SHA != st.promoted &&
-		!a.promotePassed(ctx, p, pr, o.SHA) {
-		wait = "GREEN " + short(o.SHA) + " waits: " + a.reviewWait(p)
+	if o := st.out; reviews && o != nil && o.Verdict == "GREEN" && (o.SHA != r || len(waiting) > 0) &&
+		o.SHA != st.promoted && !a.promotePassed(ctx, p, pr, o.SHA) {
+		waitRun = o.SHA
+		if wait == "" {
+			wait = "GREEN " + short(o.SHA) + " waits: " + a.reviewWait(p)
+		}
 		a.mu.Lock()
 		waitRV = p.folded.reviewed.open()
 		a.mu.Unlock()
@@ -333,7 +358,7 @@ func (a *App) promoteHeads(ctx context.Context, p *proj, fx *Loop, pr *Promote, 
 		return
 	}
 	if reviews {
-		a.promoteReview(ctx, p, fx, in, r)
+		a.promoteReview(ctx, p, fx, in, r, waiting)
 	}
 	if st.ran[head] != "" {
 		return // run at this head already: a RED one waits for a new merge, a GREEN one for a close at it
@@ -356,6 +381,36 @@ func (a *App) promoteCandidate(p *proj, st promoteState) (string, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return p.folded.closedHead, true
+}
+
+// unreviewed is the tasks merged at or before r (first-parent "Merge T-xx:" commits of at..r, oldest first, each once)
+// that no closed review covered, by git alone (T-985): a close commit of at..head names each covered task on its
+// Covered: line (a task merged after at is covered, if at all, by a close after its merge, so after at). rv is the
+// newest of those closes' id, the review they merged during ("the last review": no close in the range).
+func unreviewed(ctx context.Context, g ReviewGit, at, r, head string) (tasks []string, rv string, err error) {
+	merges, err := g.Merges(ctx, at, r)
+	if err != nil || len(merges) == 0 {
+		return nil, "", err
+	}
+	closes, err := g.Closes(ctx, at, head)
+	if err != nil {
+		return nil, "", err
+	}
+	var covered []string
+	for i, c := range closes {
+		id, _, _, cov, _ := parseCloseCommit(c.Subject, c.Body)
+		if i == 0 {
+			rv = id
+		}
+		covered = append(covered, cov...)
+	}
+	for _, m := range merges {
+		_, subject, _ := strings.Cut(m, " ")
+		if t := parseMergeSubject(subject); t != "" && !slices.Contains(covered, t) && !slices.Contains(tasks, t) {
+			tasks = append(tasks, t)
+		}
+	}
+	return tasks, cmp.Or(rv, "the last review"), nil
 }
 
 // reviewWait is why a GREEN run at another sha than R waits, for obor status: the open review, the review request,
@@ -408,22 +463,24 @@ func (a *App) promoteBatch(ctx context.Context, p *proj, fx *Loop, pr *Promote, 
 }
 
 // promoteReview requests the review of in's batch (fact review.request by obor, its note naming the batch) when a
-// first-parent merge since r (the last closed review's reviewed head; "": none, every merge) is in in.SHA and no
-// review, request or claim is open.
-func (a *App) promoteReview(ctx context.Context, p *proj, fx *Loop, in promoteIn, r string) {
+// first-parent merge since r (the last closed review's reviewed head; "": none, every merge) is in in.SHA, or a task
+// merged up to r waits for its review (waiting, T-985), and no review, request or claim is open.
+func (a *App) promoteReview(ctx context.Context, p *proj, fx *Loop, in promoteIn, r string, waiting []string) {
 	a.mu.Lock()
 	busy := p.folded.review != nil || p.folded.reviewed.open() != "" || p.rv.what != ""
 	a.mu.Unlock()
-	if busy || r == in.SHA {
+	if busy || r == in.SHA && len(waiting) == 0 {
 		return
 	}
-	merges, err := fx.Review.Merges(ctx, r, in.SHA)
-	if err != nil {
-		a.logf("promotion of %s: merges since %s: %v", p.name, short(r), err)
-		return
-	}
-	if len(merges) == 0 {
-		return
+	if len(waiting) == 0 {
+		merges, err := fx.Review.Merges(ctx, r, in.SHA)
+		if err != nil {
+			a.logf("promotion of %s: merges since %s: %v", p.name, short(r), err)
+			return
+		}
+		if len(merges) == 0 {
+			return
+		}
 	}
 	note := fmt.Sprintf("promotion batch %s..%s: %s", short(in.Since), short(in.SHA), strings.Join(in.Merges, ", "))
 	a.mu.Lock()
@@ -578,7 +635,7 @@ func (p *proj) promoteStatus() *wire.PromoteStatus {
 	switch o := s.out; {
 	case s.step != "" && !s.done:
 		st.Run = &wire.PromoteRun{SHA: s.in.SHA, Since: unixOr0(s.startedAt), Step: wire.PromoteSuite}
-	case o != nil && o.Verdict == "GREEN" && s.wait != "":
+	case o != nil && o.Verdict == "GREEN" && s.waitRun != "" && s.waitRun == o.SHA:
 		st.Run = &wire.PromoteRun{SHA: o.SHA, Since: unixOr0(s.doneAt), Step: wire.PromoteReview, Review: s.waitRV}
 	case o != nil && o.Verdict == "RED" && p.redOpen(o.SHA):
 		st.Red = &wire.PromoteRed{SHA: o.SHA, Tests: o.Line, At: unixOr0(s.doneAt), Since: s.in.Since,

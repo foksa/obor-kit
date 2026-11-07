@@ -61,8 +61,29 @@ func (g reviewGit) Last(ctx context.Context, branch string) (app.ReviewClose, er
 	if err != nil {
 		return app.ReviewClose{}, err
 	}
-	subject, body, _ := strings.Cut(strings.TrimSpace(out), "\n")
-	return app.ReviewClose{Subject: subject, Body: strings.TrimSpace(body)}, nil
+	return parseMessage(out), nil
+}
+
+// Closes is the close commits of from..to, newest first: each message after a record separator (%x1e).
+func (g reviewGit) Closes(ctx context.Context, from, to string) ([]app.ReviewClose, error) {
+	out, err := g.git(ctx, "log", "-E", "--grep="+app.CloseCommitGrep, "--format=%x1e%B", "--end-of-options",
+		span(from, to))
+	if err != nil {
+		return nil, err
+	}
+	var closes []app.ReviewClose
+	for _, msg := range strings.Split(out, "\x1e") {
+		if strings.TrimSpace(msg) != "" {
+			closes = append(closes, parseMessage(msg))
+		}
+	}
+	return closes, nil
+}
+
+// parseMessage is a commit message (%B) as a ReviewClose: its first line the subject, the rest the body.
+func parseMessage(msg string) app.ReviewClose {
+	subject, body, _ := strings.Cut(strings.TrimSpace(msg), "\n")
+	return app.ReviewClose{Subject: subject, Body: strings.TrimSpace(body)}
 }
 
 func (g reviewGit) Head(ctx context.Context, branch string) (string, error) {

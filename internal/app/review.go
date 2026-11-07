@@ -74,6 +74,9 @@ type ReviewClose struct {
 type ReviewGit interface {
 	// Last is the newest commit on branch whose subject starts "RV-<n> closed" ({}, subject "", when none).
 	Last(ctx context.Context, branch string) (ReviewClose, error)
+	// Closes is the close commits of from..to (CloseCommitGrep; from "": all of to), newest first (T-985: their Covered:
+	// lines are what the promotion counts as reviewed).
+	Closes(ctx context.Context, from, to string) ([]ReviewClose, error)
 	// Head is branch's sha.
 	Head(ctx context.Context, branch string) (string, error)
 	// Merges is the first-parent merges of from..to as "<sha> <subject>" lines, oldest first (from "": all of to).
