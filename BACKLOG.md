@@ -51,6 +51,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (RV-138, accepted) RV-138 #2: the queue card counts --after dispatches waiting for their dependency as queued for a lane; serve should ship the waiting-for-lane count (web/src/lib/pipeline.ts:~33)
 - (RV-138, accepted) #2 the queue card's 'queued for a lane' counts --after dispatches still waiting for their dependency (web/src/lib/pipeline.ts:~33); serve should ship the waiting-for-lane count; next touch of the queue card.
 - (RV-137, accepted) RV-137 #1-#3: promotion status hides the wait reason, drops an open RED when a new run starts, shows a failed/spent promotion as running; fix kept in keep/T-988, re-land when promotion is turned back on
 - (lead 11-07) **Serve's own fixes were stuck behind the promotion**: with `branches.promote` set, serve's binary follows `main` (after_promote), so serve-side fixes merged into staging (T-972, T-985, T-989, T-990) were not live while the promotion kept failing for the very reasons they fix; serve ran cc3ab575 for 3 h. The lead built `dist/obor` from staging's committed head and restarted serve (22:3x). Decide: for obor-kit serve follows staging (after_merge per publish again), or the lead rebuilds by hand until promotions run clean. Also: opencode (deepseek) workers ignored Escape twice (T-958, T-992), both needed --force.
