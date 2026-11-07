@@ -367,6 +367,22 @@ func TestNotStalledWhileAChildRuns(t *testing.T) {
 	r.waitFacts("T-2 stalled{idle}", "T-1 stalled{idle}", "T-2 needs-you{stalled}")
 }
 
+// T-951: the stall watchdog samples the pane it already observed: a ready agent costs no agent.get per tick, while
+// the child-process check still runs.
+func TestWatchdogAsksNoAgentGetPerTick(t *testing.T) {
+	t.Parallel()
+	r := newRig(t)
+	r.start()
+	gets, procs := r.count("agent.get"), r.count("pane.process_info")
+	r.settle() // two more full checks, each sampling both ready agents
+	if n := r.count("agent.get") - gets; n != 0 {
+		t.Errorf("agent.get over two quiet ticks = %d, want 0 (the sample reads its observed pane)", n)
+	}
+	if n := r.count("pane.process_info") - procs; n == 0 {
+		t.Fatal("no process info over two ticks: the sample did not run (vacuous)")
+	}
+}
+
 func TestNotStalledWhileTheTranscriptChanges(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)

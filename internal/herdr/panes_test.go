@@ -219,6 +219,14 @@ func TestPanesTurn(t *testing.T) {
 	}
 	srv := herdrtest.Serve(t, f)
 	p := herdr.Panes{S: srv.Client(), Home: home}
+	snap, err := p.Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]port.Pane{}
+	for _, pane := range snap.Panes {
+		seen[pane.ID] = pane
+	}
 	hit := agents.Turn{ID: "t1", Error: "usage_limit_exceeded", Details: "try again at 6:30 PM", Ended: true}
 	t2 := agents.Turn{ID: "t2"}
 	for _, tc := range []struct {
@@ -240,7 +248,7 @@ func TestPanesTurn(t *testing.T) {
 		{"no agent", "w1:p2", agents.Turn{}, false},
 		{"no pane", "w9:p9", agents.Turn{}, false},
 	} {
-		if got, ok := p.Turn(ctx, tc.pane, ""); ok != tc.ok || got != tc.want {
+		if got, ok := p.Turn(ctx, seen[tc.pane], ""); ok != tc.ok || got != tc.want {
 			t.Errorf("%s: Turn = %.200v, %v; want %.200v, %v", tc.name, got, ok, tc.want, tc.ok)
 		}
 	}
@@ -277,6 +285,14 @@ func TestPanesActivity(t *testing.T) {
 	f.Agent("w1:p6", "pj-new", "idle", "/proj-wt/L-06").Session = "no-such-file"
 	srv := herdrtest.Serve(t, f)
 	p := herdr.Panes{S: srv.Client(), Home: home}
+	snap, err := p.Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]port.Pane{}
+	for _, pane := range snap.Panes {
+		seen[pane.ID] = pane
+	}
 	for _, tc := range []struct {
 		name, pane string
 		want       time.Time
@@ -290,7 +306,7 @@ func TestPanesActivity(t *testing.T) {
 		{"no agent", "w1:p2", time.Time{}, false},
 		{"no pane", "w9:p9", time.Time{}, false},
 	} {
-		if last, known := p.Activity(ctx, tc.pane); known != tc.known || !last.Equal(tc.want) {
+		if last, known := p.Activity(ctx, seen[tc.pane]); known != tc.known || !last.Equal(tc.want) {
 			t.Errorf("%s: Activity = %v, %v; want %v, %v", tc.name, last, known, tc.want, tc.known)
 		}
 	}

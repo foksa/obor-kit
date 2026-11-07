@@ -69,11 +69,11 @@ func (f *fakePanes) Busy(_ context.Context, pane string) (bool, error) {
 	return f.busy, f.busyErr
 }
 
-func (f *fakePanes) Activity(context.Context, string) (time.Time, bool) {
+func (f *fakePanes) Activity(context.Context, port.Pane) (time.Time, bool) {
 	return f.last, !f.last.IsZero()
 }
 
-func (f *fakePanes) Turn(context.Context, string, string) (agents.Turn, bool) {
+func (f *fakePanes) Turn(context.Context, port.Pane, string) (agents.Turn, bool) {
 	return f.turn, f.turned
 }
 
