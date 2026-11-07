@@ -323,3 +323,26 @@ func TestIdleKeyIsTheNewestEnd(t *testing.T) {
 		})
 	}
 }
+
+// An effect's durable sequence and time must identify the same idle epoch live
+// and after replay. Use do, rather than injecting a result through record.
+func TestEffectResultIdleEpochMatchesReplay(t *testing.T) {
+	t.Parallel()
+	h := ruleHarness(t)
+	addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "L-01"})
+	addRecord(t, h, "T-1", event.StepMerged, event.KindFact, event.MergedData{Head: "abcdef0"})
+	p := h.proj()
+	for _, step := range afterSteps {
+		h.now = h.now.Add(time.Minute)
+		_, err := h.a.do(context.Background(), p, event.Intent{Key: event.Key{Task: "T-1", Attempt: 1, Step: step}},
+			func(context.Context) (any, error) { return "done", nil })
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	live := p.idleNow()
+	replayed := reloadProj(t, h).idleNow()
+	if !live.ok || live.end != replayed.end || !live.at.Equal(replayed.at) {
+		t.Fatalf("live idle %+v, replayed %+v; want the same final effect's epoch", live, replayed)
+	}
+}

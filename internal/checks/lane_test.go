@@ -142,7 +142,7 @@ func TestLanePrepareRepeats(t *testing.T) {
 			t.Parallel()
 			p, lane, target := laneFx(t)
 			in := laneInput(lane, target)
-			shim := gitShim(t, p.Base, failAt)
+			shim := gitShim(t, p.Base, failAt, 1)
 			if _, err := laneAdapter(t, p, shim).Prepare(context.Background(), in); err == nil {
 				t.Fatal("prepare with a failing git call: no error")
 			} else {
@@ -279,12 +279,50 @@ func TestLaneFree(t *testing.T) {
 	}
 }
 
+// A failed history read is unknown, never proof that a branch is merged.
+// Calls 2–4 read the branch, ancestry and unmerged commits. None may turn a
+// read failure into permission to detach or delete, even with --discard.
+func TestLaneFreeHistoryFailurePreservesBranch(t *testing.T) {
+	t.Parallel()
+	for _, failAt := range []int{2, 3, 4} {
+		for _, discard := range []bool{false, true} {
+			t.Run(fmt.Sprintf("call %d discard %v", failAt, discard), func(t *testing.T) {
+				t.Parallel()
+				p, lane, target := laneFx(t)
+				p.Commit(lane)
+				head := p.Git(lane, "rev-parse", "HEAD")
+				in := port.FreeInput{Lane: "L-01", Dir: lane, Branch: "task/T-01", Target: target, Discard: discard}
+				code := 128 // 1 is the documented negative answer of the first two predicates
+				if failAt == 4 {
+					code = 1
+				}
+				_, err := laneAdapter(t, p, gitShim(t, p.Base, failAt, code)).Free(context.Background(), in)
+				var refused port.Refused
+				if err == nil || errors.As(err, &refused) {
+					t.Fatalf("history failure: %v; want a retryable error", err)
+				}
+				if b := p.Git(lane, "branch", "--show-current"); b != in.Branch {
+					t.Errorf("failed free moved lane to %q", b)
+				}
+				if got := p.Git(p.Root, "rev-parse", "refs/heads/"+in.Branch); got != head {
+					t.Errorf("failed free lost branch head %q, want %q", got, head)
+				}
+				// A healthy retry still needs explicit discard for unmerged work.
+				_, err = laneAdapter(t, p, "").Free(context.Background(), in)
+				if discard && err != nil || !discard && !errors.As(err, &refused) {
+					t.Errorf("retry: %v; want refusal without --discard, success with it", err)
+				}
+			})
+		}
+	}
+}
+
 // gitShim writes an executable git that fails its failAt-th call and is real git otherwise.
-func gitShim(t *testing.T, dir string, failAt int) string {
+func gitShim(t *testing.T, dir string, failAt, code int) string {
 	t.Helper()
 	count := filepath.Join(dir, "git-calls")
 	script := fmt.Sprintf("#!/bin/sh\nn=$(cat %s 2>/dev/null || echo 0)\nn=$((n+1))\necho $n > %s\n"+
-		"if [ \"$n\" = \"%d\" ]; then exit 1; fi\nexec git \"$@\"\n", count, count, failAt)
+		"if [ \"$n\" = \"%d\" ]; then exit %d; fi\nexec git \"$@\"\n", count, count, failAt, code)
 	shim := filepath.Join(dir, "bin", "git-shim")
 	if err := os.MkdirAll(filepath.Dir(shim), 0o755); err != nil {
 		t.Fatal(err)

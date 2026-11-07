@@ -59,11 +59,23 @@ func (l Lane) Free(ctx context.Context, in port.FreeInput) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("git status in %s: %w", in.Dir, err)
 	}
-	_, noBranch := l.git(ctx, in.Dir, "rev-parse", "-q", "--verify", "refs/heads/"+in.Branch)
+	_, branchErr := l.git(ctx, in.Dir, "rev-parse", "-q", "--verify", "refs/heads/"+in.Branch)
+	exists, err := exit1(branchErr)
+	if err != nil {
+		return "", fmt.Errorf("read branch %s: %w", in.Branch, err)
+	}
 	var commits string
-	if noBranch == nil {
-		if _, err := l.git(ctx, in.Dir, "merge-base", "--is-ancestor", "refs/heads/"+in.Branch, in.Target); err != nil {
-			commits, _ = l.git(ctx, in.Dir, "log", "--oneline", in.Target+"..refs/heads/"+in.Branch)
+	if exists {
+		_, ancestryErr := l.git(ctx, in.Dir, "merge-base", "--is-ancestor", "refs/heads/"+in.Branch, in.Target)
+		merged, err := exit1(ancestryErr)
+		if err != nil {
+			return "", fmt.Errorf("check branch %s ancestry: %w", in.Branch, err)
+		}
+		if !merged {
+			commits, err = l.git(ctx, in.Dir, "log", "--oneline", in.Target+"..refs/heads/"+in.Branch)
+			if err != nil {
+				return "", fmt.Errorf("read unmerged commits on %s: %w", in.Branch, err)
+			}
 		}
 	}
 	switch {
@@ -90,7 +102,7 @@ func (l Lane) Free(ctx context.Context, in port.FreeInput) (string, error) {
 	if _, err := l.git(ctx, in.Dir, "checkout", "-q", "--detach", in.Target); err != nil {
 		return "", fmt.Errorf("git checkout --detach %s in %s: %w", in.Target, in.Dir, err)
 	}
-	if noBranch == nil {
+	if exists {
 		if _, err := l.git(ctx, in.Dir, "branch", "-q", "-D", in.Branch); err != nil {
 			return "", fmt.Errorf("git branch -D %s: %w", in.Branch, err)
 		}

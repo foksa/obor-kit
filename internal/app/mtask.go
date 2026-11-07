@@ -43,9 +43,6 @@ func (p *proj) foldLoop(r event.Record) {
 		_ = json.Unmarshal(r.Data, &d)
 		next := &mtask{task: r.Task, lane: d.Lane, agent: d.Agent, attempt: r.Attempt, state: stSubmitted,
 			report: d.Report}
-		if mt != nil && (mt.state == stDropped || mt.state == stDropping) {
-			return // ended: a submission decided before the drop
-		}
 		if mt != nil {
 			// The worker's spec rev outlives its attempt; a drive stays one (T-751).
 			next.sendbacks, next.specRev, next.drive = mt.sendbacks, mt.specRev, mt.drive

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
@@ -129,5 +130,51 @@ func TestResumeSerialisesWithTaskDone(t *testing.T) {
 				t.Errorf("T-1 %s after a late submission; want green (never back to submitted)", st)
 			}
 		})
+	}
+}
+
+// The worker's submission can already be decided when the merge loop discovers
+// that the owner merged its task outside obor. That terminal fact must win.
+func TestTaskDoneCannotReopenConcurrentOutsideMerge(t *testing.T) {
+	t.Parallel()
+	h, p, _ := answerSeed(t, reasonAsks+"owner deciding", "", "", true)
+	addRecord(t, h, "T-1", event.StepWork, event.KindIntent, promptData{Agent: "pj-l-01"})
+	addRecord(t, h, "T-1", event.StepDelivered, event.KindFact, event.FactData{Job: "T-1/1/work"})
+	hook := func(point string) {
+		if point == hookTaskDoneCheck {
+			h.a.drive(context.Background(), p, &Loop{Scratch: landedScratch{}}, "T-1")
+			if st := p.folded.loop["T-1"].state; st != stMerged {
+				t.Fatalf("precondition: outside merge left %s", st)
+			}
+		}
+	}
+	h.a.hooked.Store(&hook)
+	_, err := h.a.taskDone(wire.Call{Root: h.root, Role: "worker", Agent: "pj-l-01", Lane: "L-01", Task: "T-1",
+		CallID: "late", Report: "Summary: done\nSelf-check: pass\nSkipped: none\nOpen questions: none"})
+	if err == nil {
+		t.Error("late submission reported success after the task merged")
+	}
+	if st := p.folded.loop["T-1"].state; st != stMerged {
+		t.Errorf("late task_done reopened task as %s", st)
+	}
+	// The lane may already have been reused before a legacy late fact lands.
+	addRecord(t, h, "T-2", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Agent: "pj-l-01"})
+	addRecord(t, h, "T-2", event.StepPrepare, event.KindResult, prepareOut{Base: "new-base"})
+	if got := p.laneTask("L-01"); got != "T-2" {
+		t.Fatalf("precondition: lane holds %q, want T-2", got)
+	}
+	addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "L-01", Agent: "pj-l-01"})
+	if st := p.folded.loop["T-1"].state; st != stMerged {
+		t.Errorf("late submitted fact reopened task as %s", st)
+	}
+	if got := p.laneTask("L-01"); got != "T-2" {
+		t.Errorf("late submission reclaimed reused lane: %q", got)
+	}
+	p = reloadProj(t, h)
+	if st := p.folded.loop["T-1"].state; st != stMerged {
+		t.Errorf("replay reopened task as %s", st)
+	}
+	if got := p.laneTask("L-01"); got != "T-2" {
+		t.Errorf("replay reclaimed reused lane: %q", got)
 	}
 }
