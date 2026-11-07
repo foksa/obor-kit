@@ -95,11 +95,12 @@ type Launcher struct {
 	// Open is the files processes pids hold open (a fresh start's session: the transcript its agent has open, T-588);
 	// nil: /proc/<pid>/fd on linux, lsof elsewhere.
 	Open func(pids []int) []string
-	// Job is the open worker job (<task>/<attempt>/<step>) of the task lane holds in obor serve ("": none): obor
-	// restart of a lane's worker sends its wake (T-773), never an idle agent with no job. An error (the lane holds a
-	// task and serve cannot answer, T-778) refuses the restart before the old agent is stopped. nil: none asked (obor
+	// Job is the open job (<task>/<attempt>/<step>) obor serve holds for role's agent on lane ("": none): a lane
+	// worker's work or fix job of the task its lane holds, the integrator's review or resolve job of a task (T-773,
+	// T-947); obor restart sends its wake, never an idle agent with no job. An error (the agent's lane holds a task
+	// and serve cannot answer, T-778) refuses the restart before the old agent is stopped. nil: none asked (obor
 	// serve's own starts carry their job's wake).
-	Job func(ctx context.Context, lane string) (string, error)
+	Job func(ctx context.Context, role, lane string) (string, error)
 }
 
 // Request is one `obor restart` (the core's port.Launch: Launcher is an port.Agents).
@@ -512,12 +513,13 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	if err != nil {
 		return port.Started{}, err
 	}
-	// A lane's worker restarted with no first prompt of its own while its lane's task has a job open (T-773): that job's
-	// wake, the first prompt of a fresh session, typed into a resumed one once it is up. Resolved before the stop
+	// An agent restarted with no first prompt of its own while serve holds a job for it (T-773, T-947): that job's
+	// wake, the first prompt of a fresh session, typed into a resumed one once it is up. A lane's worker asks for its
+	// lane's job (a work or fix job), the integrator for a task's open review or resolve job. Resolved before the stop
 	// (T-778): a lane with a task whose job serve cannot tell refuses the restart, the old agent untouched.
 	job := ""
-	if req.Prompt == "" && l.Job != nil && t.info.Role == "worker" && t.info.Lane != "" {
-		if job, err = l.Job(ctx, t.info.Lane); err != nil {
+	if req.Prompt == "" && l.Job != nil && (t.info.Role == "integrator" || t.info.Role == "worker" && t.info.Lane != "") {
+		if job, err = l.Job(ctx, t.info.Role, t.info.Lane); err != nil {
 			return port.Started{}, project.Failf("%s not restarted (nothing stopped): %v", t.agent, err)
 		}
 	}
