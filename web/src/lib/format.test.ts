@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dur, eventKind, human, lineTo, parts, relText, splitTasks, tone } from "./format";
+import { EVENT_FILTERS, dur, eventKind, human, lineTo, parts, relText, splitTasks, tone } from "./format";
 
 describe("wording", () => {
   it("says durations as a person does", () => {
@@ -46,5 +46,15 @@ describe("wording", () => {
     expect(eventKind("test T-1 red (RED T-1 (1 fail))", true)).toBe("problem");
     expect(eventKind("gate T-1 pass (GREEN T-1 (33 pass, 0 fail))")).toBe("gate");
     expect(eventKind("check 33 pass, 0 fail")).toBe("other");
+  });
+  // T-977: a promotion's events are serve's kind, never read from their wording; a RED one is still a problem.
+  it("takes the promotion's kind from serve", () => {
+    expect(eventKind("promotion started: full suite on abc1234 (T-1)", false, "promotion")).toBe("promotion");
+    expect(eventKind("promotion RED abc1234: check 1 failed", true, "promotion")).toBe("promotion");
+    expect(eventKind("promoted main → abc1234", false, "promotion")).toBe("promotion");
+    expect(eventKind("promotion RED abc1234: check 1 failed", true)).toBe("problem"); // no kind: as before
+    expect(EVENT_FILTERS.Problems("promotion", true)).toBe(true);
+    expect(EVENT_FILTERS.Problems("promotion", false)).toBe(false);
+    expect(EVENT_FILTERS.Flow("promotion")).toBe(true);
   });
 });

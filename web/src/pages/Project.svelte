@@ -9,6 +9,7 @@
   import { dur, now, roleName, splitTasks, unixOf } from "../lib/format";
   import { idleText } from "../lib/idle";
   import { stageOf, taskOf } from "../lib/stages";
+  import { mainOf, stagingOf } from "../lib/promotion";
   import type { Lane, MergeItem, ProjectView, Role, WaitItem } from "../lib/types";
   import Pill from "../ui/Pill.svelte";
   import Dot from "../ui/Dot.svelte";
@@ -56,6 +57,9 @@
     if (held.length) cols.push({ name: "Held", tone: "bad", tasks: held });
     return cols;
   });
+  // After the merge columns, with branches.promote set (T-977): the Staging column and the Main marker (null: off).
+  const staging = $derived(stagingOf(v?.promote));
+  const main = $derived(mainOf(v?.promote));
 
   const roles = $derived.by((): Role[] => {
     const rs = v?.roles || [];
@@ -178,6 +182,31 @@
             {/if}
           </div>
         {/each}
+        {#if staging}
+          <div class="stage t-{staging.tasks.length || staging.state ? staging.tone : 'none'}">
+            <span class="sname">Staging</span>
+            <span class="n">{staging.tasks.length}</span>
+            {#if staging.tasks.length}
+              <div class="chips">{#each staging.tasks.slice(0, 4) as t (t)}<TaskLink {project} task={t} chip />{/each}{#if staging.tasks.length > 4}<span class="muted small">+{staging.tasks.length - 4}</span>{/if}</div>
+            {/if}
+            <div class="wbar" title="merged weight {staging.weight} of {staging.threshold}, the promotion's trigger"><span style="width: {staging.fill * 100}%"></span></div>
+            <span class="muted small mono">{staging.weight} / {staging.threshold}</span>
+            {#if staging.red}
+              <div class="redcard small">
+                <strong>RED <span class="mono">{staging.red.sha}</span></strong>
+                <span><Linked {project} text={staging.red.tests} /></span>
+                {#if staging.red.merges.length}<span class="muted">merges since: {#each staging.red.merges as t, j (t)}{j ? ", " : ""}<TaskLink {project} task={t} />{/each}</span>{/if}
+              </div>
+            {:else if staging.state}<span class="small pstate"><Linked {project} text={staging.state} /></span>{/if}
+          </div>
+        {/if}
+        {#if main}
+          <div class="stage t-done">
+            <span class="sname">Main</span>
+            <span class="mono msha">{main.sha || "—"}</span>
+            {#if main.at}<span class="muted small">promoted <Rel at={main.at} /></span>{/if}
+          </div>
+        {/if}
       </div>
       {#if q?.scratch}<p class="muted small">Merge worktree: <TaskLink {project} task={q.scratch.task} /> ({q.scratch.why})</p>{/if}
     </Section>
@@ -251,7 +280,7 @@
               {#each waiting as w (w.task)}
                 <div class="qrow">
                   <Pill state={w.waits_on === "never dispatched" ? "idle" : "waiting"} text={w.waits_on} />
-                  <div class="qbody"><span><TaskLink {project} task={w.task} /> {task(w.task).title || ""}</span><span class="muted small"><Linked {project} text={waitWhy(w)} /></span></div>
+                  <div class="qbody"><span><TaskLink {project} task={w.task} /> {task(w.task).title || ""}{#if w.difficulty || w.model} <span class="mono small muted">{[w.difficulty, w.model].filter(Boolean).join(" · ")}</span>{/if}</span><span class="muted small"><Linked {project} text={waitWhy(w)} /></span></div>
                   <span class="muted small"><Rel at={w.since} /></span>
                 </div>
               {/each}
@@ -348,6 +377,13 @@
   .n { font-size: 22px; font-weight: 600; color: var(--c); line-height: 1; }
   .t-none .n { color: var(--faint); }
   .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .wbar { height: 6px; border-radius: 3px; background: var(--sunk); overflow: hidden; }
+  .wbar span { display: block; height: 100%; background: var(--c); }
+  .pstate { color: var(--c); }
+  .msha { font-size: 15px; font-weight: 600; color: var(--c); }
+  .redcard { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; border-radius: 6px; overflow-wrap: anywhere;
+    background: color-mix(in srgb, var(--bad) 12%, transparent); color: var(--fg); }
+  .redcard strong { color: var(--bad); }
 
   .lanes { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
   .lane { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }

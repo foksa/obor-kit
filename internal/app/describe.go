@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"encoding/json"
 	"strings"
 
@@ -26,7 +27,11 @@ type Described struct {
 	Level   string   // a dispatch's difficulty level
 	Types   []string // a dispatch's model refs (--model or the level's)
 	Type    string   // the model ref a dispatch chose (T-721)
+	Kind    string   // the event's kind when serve names one (KindPromotion; "": the readers word it by its line)
 }
+
+// KindPromotion is Described.Kind of a promotion's events (T-977): started, GREEN, RED, promoted.
+const KindPromotion = "promotion"
 
 // worder words one record of its kind into d from its data (an error: the data is not the kind's shape).
 type worder func(r event.Record, d *Described) error
@@ -156,6 +161,37 @@ var worded = map[string]worder{
 		d.Line = "review request ended"
 		return nil
 	},
+	"intent " + event.StepPromote: func(r event.Record, d *Described) error {
+		var in promoteIn
+		if err := decode(r, &in); err != nil {
+			return err
+		}
+		d.Kind, d.Line = KindPromotion, "promotion started: full suite on "+short(in.SHA)
+		if len(in.Merges) > 0 {
+			d.Line += " (" + strings.Join(in.Merges, ", ") + ")"
+		}
+		return nil
+	},
+	"result " + event.StepPromote: func(r event.Record, d *Described) error {
+		var out PromoteOut
+		if err := decode(r, &out); err != nil {
+			return err
+		}
+		if out.Verdict == "" { // the effect's error: a counted failure (fact failed), not a verdict
+			return nil
+		}
+		d.Kind, d.Outcome, d.Text = KindPromotion, out.Verdict, out.Line
+		d.Line, d.Bad = "promotion "+out.Verdict+" "+short(out.SHA)+": "+out.Line, out.Verdict != "GREEN"
+		return nil
+	},
+	"fact " + event.StepPromoted: func(r event.Record, d *Described) error {
+		var pd promotedData
+		if err := decode(r, &pd); err != nil {
+			return err
+		}
+		d.Kind, d.Line = KindPromotion, "promoted "+cmp.Or(pd.Branch, "the promoted branch")+" → "+short(pd.SHA)
+		return nil
+	},
 	"fact " + event.StepMessage: func(r event.Record, d *Described) error {
 		var m event.Message
 		if err := decode(r, &m); err != nil {
@@ -184,6 +220,9 @@ func Describe(r event.Record) Described {
 // describedKey is r's key in worded: "<kind> <step>", a result's step without its .N, a verdict's its method (the
 // step is <method>.<call id>).
 func describedKey(r event.Record) string {
+	if promoteSeq(r.Step, event.StepPromote) > 0 { // the promotion's promote.<seq>, intent and result (T-977)
+		return r.Kind + " " + event.StepPromote
+	}
 	if r.Kind != event.KindResult {
 		return r.Kind + " " + r.Step
 	}

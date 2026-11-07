@@ -272,7 +272,7 @@ func queueSection(st view.Project, now time.Time) []string {
 		out = append(out, mergeLine(m, st.Tasks[m.Task]))
 	}
 	for _, w := range q.Waiting {
-		out = append(out, "queued "+w.Task+": "+waitLine(w, st.Tasks[w.Task], now))
+		out = append(out, "queued "+w.Task+runsOn(w)+": "+waitLine(w, st.Tasks[w.Task], now))
 	}
 	if st.Review != "" {
 		out = append(out, st.Review)
@@ -341,6 +341,21 @@ func mergeLine(m view.MergeItem, t view.Task) string {
 		line += ", job " + j.ID + " " + fetched
 	}
 	return line
+}
+
+// runsOn is a queued line's " (<difficulty>, <model>)": the waiting task's Difficulty and the model it will run on
+// (T-977; serve's, either "" left out; "": serve sent neither).
+func runsOn(w view.WaitItem) string {
+	var parts []string
+	for _, s := range []string{w.Difficulty, w.Model} {
+		if s != "" {
+			parts = append(parts, s)
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return " (" + strings.Join(parts, ", ") + ")"
 }
 
 // waitLine is a waiting dispatch's queue line after "queued <T-xx>: ": its --after tasks and its last refusal, the lane

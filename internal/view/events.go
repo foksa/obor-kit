@@ -10,13 +10,15 @@ import (
 )
 
 // Event is one record of the log as the view words it: its seq (a UI's cursor: "changed since seq X"; 0 for serve's
-// own start, which is no record), its time, its task, its line, and whether that line is bad news (T-688).
+// own start, which is no record), its time, its task, its line, whether that line is bad news (T-688), and its kind
+// when serve names one (app.KindPromotion, T-977; "": the page reads the line).
 type Event struct {
 	Seq  int64     `json:"seq"`
 	TS   string    `json:"ts"`
 	Task string    `json:"task,omitempty"`
 	Line string    `json:"line"`
 	Bad  bool      `json:"bad,omitempty"`
+	Kind string    `json:"kind,omitempty"`
 	At   time.Time `json:"-"` // TS, parsed
 }
 
@@ -79,5 +81,5 @@ func eventOf(r event.Record) (Event, bool) {
 		return Event{}, false
 	}
 	at, _ := time.Parse(time.RFC3339, r.TS)
-	return Event{Seq: r.Seq, TS: r.TS, Task: r.Task, Line: d.Line, Bad: d.Bad, At: at}, true
+	return Event{Seq: r.Seq, TS: r.TS, Task: r.Task, Line: d.Line, Bad: d.Bad, Kind: d.Kind, At: at}, true
 }

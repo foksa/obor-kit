@@ -138,12 +138,47 @@ type IdleStatus struct {
 }
 
 // PromoteStatus is the promotion as the last pass read it (T-974): the promoted branch and its sha, the first-parent
-// merges on the target since, and why a GREEN run waits to be promoted ("": none waits).
+// merges on the target since, and why a GREEN run waits to be promoted ("": none waits). T-977, the monitor's: when
+// the sha was promoted (At, fact promoted's time; 0: no fact promoted it), the tasks merged since (Tasks) and their
+// weight against merge.promote_weight (Threshold), the promotion under way (Run) and the last RED one while its
+// needs-you is open (Red).
 type PromoteStatus struct {
-	Branch string `json:"branch"`
+	Branch    string      `json:"branch"`
+	SHA       string      `json:"sha"`
+	At        int64       `json:"at,omitempty"`
+	Merges    int         `json:"merges"`
+	Tasks     []string    `json:"tasks,omitempty"`
+	Weight    int         `json:"weight"`
+	Threshold int         `json:"threshold"`
+	Wait      string      `json:"wait,omitempty"`
+	Run       *PromoteRun `json:"run,omitempty"`
+	Red       *PromoteRed `json:"red,omitempty"`
+}
+
+// What a promotion under way does (PromoteRun.Step, T-977).
+const (
+	PromoteSuite  = "suite"  // the full suite runs on the target's head
+	PromoteReview = "review" // the suite was GREEN; the fast-forward waits for a closed review
+)
+
+// PromoteRun is the promotion under way: the target's head it checks, since when (the suite's start, or the GREEN
+// result's time while it waits for review), its step (Promote*) and, waiting for review, the open review (RV-n; "":
+// none is open yet, the request or a merge not reviewed).
+type PromoteRun struct {
 	SHA    string `json:"sha"`
-	Merges int    `json:"merges"`
-	Wait   string `json:"wait,omitempty"`
+	Since  int64  `json:"since"`
+	Step   string `json:"step"`
+	Review string `json:"review,omitempty"`
+}
+
+// PromoteRed is a RED promotion whose needs-you is open: the sha it ran on, the failing tests' line, when, and the
+// tasks merged since the promoted sha it followed (Since).
+type PromoteRed struct {
+	SHA    string   `json:"sha"`
+	Tests  string   `json:"tests"`
+	At     int64    `json:"at"`
+	Since  string   `json:"since,omitempty"`
+	Merges []string `json:"merges,omitempty"`
 }
 
 // TaskDriving is a TaskStatus' State while the owner's drive agent works on the task (obor drive, T-751): serve sends
@@ -249,11 +284,16 @@ type TaskStatus struct {
 	Stage   string `json:"stage,omitempty"`   // its merge-loop stage (Stage*; "": not in the merge loop; T-797)
 	Running string `json:"running,omitempty"` // the step whose effect runs now in its own goroutine (gate, test, publish)
 
-	After  []string `json:"after,omitempty"`  // waiting: the tasks it waits for
-	Why    string   `json:"why,omitempty"`    // waiting, all it waits for merged: its dispatch's last refusal
-	Level  string   `json:"level,omitempty"`  // waiting: the difficulty level its models came from
-	Types  []string `json:"types,omitempty"`  // waiting: the models it takes (model refs, T-695, T-765)
-	Effort string   `json:"effort,omitempty"` // dispatched: the effort its lane's agent starts with ("": the kind's; T-695)
+	After []string `json:"after,omitempty"` // waiting: the tasks it waits for
+	Why   string   `json:"why,omitempty"`   // waiting, all it waits for merged: its dispatch's last refusal
+	Level string   `json:"level,omitempty"` // waiting: the difficulty level its models came from
+	Types []string `json:"types,omitempty"` // waiting: the models it takes (model refs, T-695, T-765)
+	// Difficulty is a waiting task's spec Difficulty level (its dispatch's level, else its stored spec's line: a --model
+	// override; "": neither) and Model the model ref it will run on: its first of Types not paused (a --model
+	// override's or its level's; "": every one is paused) (T-977).
+	Difficulty string `json:"difficulty,omitempty"`
+	Model      string `json:"model,omitempty"`
+	Effort     string `json:"effort,omitempty"` // dispatched: the effort its lane's agent starts with ("": the kind's; T-695)
 	// Job is its open job (a worker's work or fix job, the integrator's review or resolve job: <task>/<attempt>/<step>)
 	// and Delivered whether its agent's job_next fetched it (T-664; "": no job open).
 	Job       string `json:"job,omitempty"`

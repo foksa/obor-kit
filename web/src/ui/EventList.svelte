@@ -15,17 +15,18 @@
   const ICON: Record<EventKind, [string, string]> = {
     merge: ["MG", "done"], gate: ["GT", "info"], accept: ["AC", "ok"], submit: ["SB", "info"],
     dispatch: ["DP", "idle"], message: ["→", "accent"], drive: ["DR", "accent"], problem: ["!", "bad"],
-    serve: ["SV", "idle"], other: ["·", "idle"],
+    serve: ["SV", "idle"], promotion: ["PR", "done"], other: ["·", "idle"],
   };
-  const rows = $derived(events.map((e) => ({ e, k: eventKind(e.line, e.bad), to: lineTo(e.line) }))
-    .filter((r) => EVENT_FILTERS[filter]?.(r.k) ?? true));
+  const rows = $derived(events.map((e) => ({ e, k: eventKind(e.line, e.bad, e.kind), to: lineTo(e.line) }))
+    .filter((r) => EVENT_FILTERS[filter]?.(r.k, r.e.bad) ?? true));
   let open = $state<Record<string, boolean>>({});
   const key = (e: Row) => `${e.project}:${e.seq}:${e.ts}`;
 </script>
 
 <div class="card list">
   {#each rows as { e, k, to } (key(e))}
-    {@const [icon, t] = ICON[k]}
+    {@const [icon, t0] = ICON[k]}
+    {@const t = e.bad ? "bad" : t0}
     {@const long = e.line.length > 180}
     <div class="ev">
       <span class="icon" style="--c: var(--{t})" aria-hidden="true">{icon}</span>

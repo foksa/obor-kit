@@ -8,6 +8,7 @@
   import { href } from "../lib/route";
   import { dur, human, now, roleName, tone, unixOf } from "../lib/format";
   import { stageOf } from "../lib/stages";
+  import { mainOf, promoteWarning } from "../lib/promotion";
   import type { LaneDot, ProjectsEntry } from "../lib/types";
   import Pill from "../ui/Pill.svelte";
   import Stat from "../ui/Stat.svelte";
@@ -120,7 +121,12 @@
               <div class="name">
                 <a class="pname" href={href.project(p.name)}>{p.name}</a>
                 <span class="mono path ell" title={p.root}>{p.root}</span>
+                {#if mainOf(p.promote)}
+                  {@const m = mainOf(p.promote)!}
+                  <span class="small muted">{m.branch} <span class="mono">{m.sha || "—"}</span>{#if m.at} · <Rel at={m.at} />{/if}</span>
+                {/if}
               </div>
+              {#if promoteWarning(p.promote)}<Pill state="fail" text={promoteWarning(p.promote)} />{/if}
               {#if p.needs_you}<Pill state="needs-you" text="{p.needs_you} needs you" />{/if}
               {#if p.error}<Pill state="fail" text="error" />
               {:else if p.paused}<Pill state="paused" text="paused" />

@@ -84,10 +84,17 @@ export function parts(text: string): Part[] {
 }
 
 // EventKind is an event line's kind, for its icon and the page's filters.
-export type EventKind = "merge" | "gate" | "accept" | "submit" | "dispatch" | "message" | "drive" | "problem" | "serve" | "other";
+export type EventKind = "merge" | "gate" | "accept" | "submit" | "dispatch" | "message" | "drive" | "problem" | "serve"
+  | "promotion" | "other";
 
-export function eventKind(line: string, bad?: boolean): EventKind {
+// SERVE_KINDS are the kinds serve names itself (Event.kind, app.Kind*: internal/web's types_test), read before the line.
+export const SERVE_KINDS = ["promotion"] as const;
+
+// eventKind is an event's kind: the one serve names (kind, T-977: a promotion's start, GREEN, RED and fast-forward, a
+// RED one bad), else read from its line.
+export function eventKind(line: string, bad?: boolean, kind?: string): EventKind {
   const s = String(line || "");
+  if (kind && (SERVE_KINDS as readonly string[]).includes(kind)) return kind as EventKind;
   if (bad) return "problem";
   if (/^line to |^→|^\[obor [^\]]+\]/.test(s)) return "message";
   if (/^merged\b/.test(s)) return "merge";
@@ -102,12 +109,12 @@ export function eventKind(line: string, bad?: boolean): EventKind {
   return "other";
 }
 
-// EVENT_FILTERS are the events list's filters: which kinds each shows.
-export const EVENT_FILTERS: Record<string, (k: EventKind) => boolean> = {
+// EVENT_FILTERS are the events list's filters: which kinds each shows (bad: the event is bad news, a RED promotion).
+export const EVENT_FILTERS: Record<string, (k: EventKind, bad?: boolean) => boolean> = {
   All: () => true,
-  Flow: (k) => ["merge", "gate", "accept", "submit", "dispatch", "drive"].includes(k),
+  Flow: (k) => ["merge", "gate", "accept", "submit", "dispatch", "drive", "promotion"].includes(k),
   Messages: (k) => k === "message",
-  Problems: (k) => k === "problem",
+  Problems: (k, bad) => k === "problem" || !!bad,
 };
 
 // lineTo is an event "line to <agent>: <text>" as its agent and text (null: another kind of line).
