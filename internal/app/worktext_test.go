@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"obor/internal/app/port"
 	"obor/internal/config"
 	"obor/internal/store"
 )
@@ -332,5 +333,87 @@ func TestFixJobCarriesAChangedRevOnly(t *testing.T) {
 	if text := fixText(mtask{task: "T-9", attempt: 2, attemptVars: attemptVars{line: "add a test"}, specRev: 2}, row,
 		"read it."); strings.Contains(text, "The spec of T-9") {
 		t.Errorf("a fix job at the spec's rev repeats it: %q", text)
+	}
+}
+
+// T-941: the integrator's review and resolve jobs carry its role texts the way the work job carries the worker's.
+
+// roleRoot is a project root like roleFixture's, with the integrator's project doc.
+func roleRoot(t *testing.T) string {
+	t.Helper()
+	p, _ := roleFixture(t, "# Role: worker\n", "")
+	writeRoleFile(t, filepath.Join(p.root, "doc/roles/integrator.md"), "# Integrator here\nproject integrator rules\n")
+	return p.root
+}
+
+// roleKit is a kit with the integrator's role text.
+func roleKit(t *testing.T) string {
+	t.Helper()
+	_, kit := roleFixture(t, "# Role: worker\n", "")
+	writeRoleFile(t, filepath.Join(kit, "templates", "agents", "integrator.md"), "# Role: integrator\nkit integrator rules\n")
+	return kit
+}
+
+// integratorJobs is the review and resolve job texts of a rig project whose kit and project doc carry integrator role
+// texts (kitRole under the kit's templates/agents), and the paths of the two files.
+func integratorJobs(t *testing.T, kitRole string) (jobs map[string]string, kitPath, docPath string) {
+	t.Helper()
+	r := newConcRig(t)
+	p := r.proj("pj")
+	cfg, err := config.LoadDaemon(p.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kit := t.TempDir()
+	kitPath = filepath.Join(kit, "templates", "agents", "integrator.md")
+	docPath = filepath.Join(p.root, cfg.Data.Paths["agents"], "integrator.md")
+	writeRoleFile(t, kitPath, kitRole)
+	writeRoleFile(t, docPath, "# Integrator here\nproject integrator rules\n")
+	mt := *p.folded.loop["T-1"]
+	mt.cand = port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1", Stat: "stat-line"}
+	mt.line = "CONFLICT in /s: a.go"
+	review, err := r.a.reviewText(p, mt, kit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolve, err := resolveText(p, mt, kit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return map[string]string{"review": review, "resolve": resolve}, kitPath, docPath
+}
+
+func TestIntegratorJobsCarryBothRoleTexts(t *testing.T) {
+	t.Parallel()
+	jobs, kitPath, docPath := integratorJobs(t, "# Role: integrator\nkit integrator rules\n")
+	for name, text := range jobs {
+		if !strings.HasPrefix(text, map[string]string{"review": "Review T-1", "resolve": "Resolve T-1"}[name]) {
+			t.Fatalf("%s job is not the %s job:\n%s", name, name, text)
+		}
+		for _, want := range []string{"# Role: integrator\nkit integrator rules", "# Integrator here\nproject integrator rules",
+			"Your role text (" + kitPath + "):", "This project's integrator rules (" + docPath + "):"} {
+			if !strings.Contains(text, want) {
+				t.Errorf("%s job has no %q:\n%s", name, want, text)
+			}
+		}
+		if strings.Contains(text, "Read your role text") {
+			t.Errorf("%s job names a read:\n%s", name, text)
+		}
+	}
+}
+
+func TestIntegratorJobNamesARoleTextTooLargeToCarry(t *testing.T) {
+	t.Parallel()
+	jobs, kitPath, _ := integratorJobs(t, "# Role: integrator\n"+strings.Repeat("K", roleTextMax))
+	for name, text := range jobs {
+		if !strings.Contains(text, "Read your role text before you act: "+kitPath+" (too large to carry here).") {
+			t.Errorf("%s job has no read line naming %s:\n%s", name, kitPath, text)
+		}
+		if strings.Contains(text, strings.Repeat("K", 64)) {
+			t.Errorf("%s job inlines a role text over roleTextMax", name)
+		}
+		if !strings.Contains(text, "project integrator rules") {
+			t.Errorf("%s job lacks the project doc under the cap:\n%s", name, text)
+		}
 	}
 }

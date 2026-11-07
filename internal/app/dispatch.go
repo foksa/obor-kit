@@ -1146,7 +1146,13 @@ func workText(p *proj, mt mtask, kit string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	roles, read, err := roleTexts(cfg, kit)
+	return withRoleTexts(text, cfg, kit, "worker")
+}
+
+// withRoleTexts is text with the role's role texts after it (T-603, T-941): a too-large one named for a read, the
+// others inlined under their path lines.
+func withRoleTexts(text string, cfg *config.Config, kit, role string) (string, error) {
+	roles, read, err := roleTexts(cfg, kit, role)
 	if err != nil {
 		return "", err
 	}
@@ -1166,15 +1172,15 @@ const roleTextMax = 12 << 10
 // roleFile is one role text of the work job: the line naming it and its path.
 type roleFile struct{ title, path string }
 
-// roleTexts is the work job's role texts as they are now: the obor kit's templates/agents/worker.md and the project's
-// worker doc (<paths.agents>/worker.md) when the main checkout has one. Each comes under a line naming its path; one
+// roleTexts is a job's role texts as they are now (role: worker or integrator): the obor kit's
+// templates/agents/<role>.md and the project's doc (<paths.agents>/<role>.md) when the main checkout has one. Each comes under a line naming its path; one
 // larger than roleTextMax is not inlined, its path is returned in read instead. An empty "## This project" section
 // (the template's fill-in note and nothing else) is not sent.
-func roleTexts(cfg *config.Config, kit string) (text string, read []string, err error) {
-	files := []roleFile{{"Your role text", filepath.Join(kit, "templates", "agents", "worker.md")}}
-	doc := filepath.Join(cfg.Root, cfg.Data.Paths["agents"], "worker.md")
+func roleTexts(cfg *config.Config, kit, role string) (text string, read []string, err error) {
+	files := []roleFile{{"Your role text", filepath.Join(kit, "templates", "agents", role+".md")}}
+	doc := filepath.Join(cfg.Root, cfg.Data.Paths["agents"], role+".md")
 	if _, err := os.Stat(doc); err == nil {
-		files = append(files, roleFile{"This project's worker rules", doc})
+		files = append(files, roleFile{"This project's " + role + " rules", doc})
 	}
 	var parts []string
 	for _, f := range files {

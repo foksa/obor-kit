@@ -255,7 +255,7 @@ func (r *loopRig) launch() {
 			if r.nightOf != nil {
 				night = r.nightOf()
 			}
-			fx := &app.Loop{Scratch: r.scratch, Agents: r, Typer: panes, Nightly: night, Disk: r.disk,
+			fx := &app.Loop{Scratch: r.scratch, Agents: r, Typer: panes, Kit: "../..", Nightly: night, Disk: r.disk,
 				Inbox: r.inbox, Restart: r.restart, Config: r.config, Review: r.review,
 				Checkout: func(context.Context) error {
 					r.mu.Lock()
@@ -668,10 +668,11 @@ func TestLoopConflictResolvedThenMerged(t *testing.T) {
 			t.Errorf("resolve job has no %q:\n%s", want, job)
 		}
 	}
-	if strings.Contains(job, "obor resolved tool") || strings.Contains(job, "git commit -m") {
+	own, _, _ := strings.Cut(job, "Your role text (") // the job's own part: the role texts (T-941) come after it
+	if strings.Contains(own, "obor resolved tool") || strings.Contains(own, "git commit -m") {
 		t.Errorf("resolve job repeats the role text's steps:\n%s", job)
 	}
-	if strings.Contains(job, "--ff-retry") {
+	if strings.Contains(own, "--ff-retry") {
 		t.Errorf("resolve job names obor merge --ff-retry:\n%s", job)
 	}
 	if _, err := r.verdict(wire.MethodAccept, "c0", "x", ""); err == nil || !strings.Contains(err.Error(), "is a resolve job") {

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -19,7 +20,10 @@ func TestResolveJobNamesReplayMismatch(t *testing.T) {
 	}
 	mt := mtask{task: "T-05", lane: "L-01", attempt: 1, state: stConflict}
 	mt.line, mt.mismatch = g.Line, g.Mismatch
-	text := resolveText(mt)
+	text, err := resolveText(&proj{root: roleRoot(t)}, mt, roleKit(t))
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, want := range []string{"lost edits of the checked one 0123456", "b/b.go", "git diff 0123456 -- b/b.go",
 		"the target's new changes stay"} {
 		if !strings.Contains(text, want) {
@@ -36,7 +40,10 @@ func TestResolveJobForUnmergedPathsHasNoMismatchWording(t *testing.T) {
 		t.Fatalf("gateResult: %+v", g)
 	}
 	mt := mtask{task: "T-05", lane: "L-01", attempt: 1, state: stConflict, line: g.Line}
-	text := resolveText(mt)
+	text, err := resolveText(&proj{root: roleRoot(t)}, mt, roleKit(t))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !strings.Contains(text, "CONFLICT in /scratch: a/a.go") || strings.Contains(text, "lost edits") {
 		t.Errorf("resolve job: %s", text)
 	}
@@ -49,6 +56,9 @@ func resolveFetched(t *testing.T, out gateOut) (string, string) {
 		result(1, event.StepGate, gateIn{Kind: port.InputLane, Lane: "L-01"}, out).
 		add(1, event.StepResolve, event.KindIntent, JobData{Patch: "patch"})
 	a, p := blockProj(t, l.recs)
+	writeRoleFile(t, filepath.Join(p.root, ".obor", "config.json"), `{"name":"pj"}`)
+	kit, _ := filepath.Abs("../..")
+	a.opt.Loop = func(string) (*Loop, error) { return &Loop{Kit: kit}, nil }
 	mt := p.folded.loop[blockTask]
 	if mt == nil || mt.state != stResolving || !mt.openJob() {
 		t.Fatalf("folded task %+v; want an open resolve job", mt)

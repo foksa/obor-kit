@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
+	"obor/internal/config"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -177,7 +178,7 @@ func (a *App) startJob(ctx context.Context, p *proj, mt mtask, in event.Intent, 
 
 // reviewText is the review job (row 25): the spec to review (the rev the gate put into the candidate's message,
 // T-521), the worker's report, the candidate and its patch hash.
-func (a *App) reviewText(p *proj, mt mtask) (string, error) {
+func (a *App) reviewText(p *proj, mt mtask, kit string) (string, error) {
 	c := mt.cand
 	row, _, err := specOf(p, mt.task)
 	if err != nil {
@@ -194,12 +195,23 @@ func (a *App) reviewText(p *proj, mt mtask) (string, error) {
 	case row.Rev > 0:
 		spec = fmt.Sprintf("The gate merged no spec; the current one:%s\n", specText(row))
 	}
-	return fmt.Sprintf("Review %s for obor serve (attempt %d, lane %s): the gate is green (%s).\n%s"+
+	text := fmt.Sprintf("Review %s for obor serve (attempt %d, lane %s): the gate is green (%s).\n%s"+
 		"Candidate: %s, the target %s plus the lane, pinned at refs/obor/candidate/%s; %s\nPatch hash: %s\n"+
 		"The worker's report:\n%s\n"+
 		"%s%s",
 		mt.task, mt.attempt, mt.lane, c.Checks, spec, c.SHA, c.Target, mt.task, diffText(c), c.Patch, mt.report,
-		questionsText(mt.report), decisionText(mt)), nil
+		questionsText(mt.report), decisionText(mt))
+	return integratorRoles(p, text, kit)
+}
+
+// integratorRoles is the integrator job's text with the integrator's role texts after it (T-941: one fresh session
+// per job, so a Bash read of them per job is a call saved).
+func integratorRoles(p *proj, text, kit string) (string, error) {
+	cfg, err := config.LoadDaemon(p.root)
+	if err != nil {
+		return "", err
+	}
+	return withRoleTexts(text, cfg, kit, "integrator")
 }
 
 // questionsText is the review job's part for the report's Open questions: section (T-649; "": it leaves nothing
@@ -239,16 +251,16 @@ func decisionText(mt mtask) string {
 }
 
 // resolveText is the resolve job (row 25): the conflict and where it is open. The steps are the role text's.
-func resolveText(mt mtask) string {
+func resolveText(p *proj, mt mtask, kit string) (string, error) {
 	if m := mt.mismatch; m != nil {
 		c, f := m.Checked[:min(7, len(m.Checked))], strings.Join(m.Files, " ")
-		return fmt.Sprintf("Resolve %s's merge for obor serve (attempt %d, lane %s): the replayed resolution lost edits of "+
+		return integratorRoles(p, fmt.Sprintf("Resolve %s's merge for obor serve (attempt %d, lane %s): the replayed resolution lost edits of "+
 			"the checked one %s in %s (no conflict markers; the merge is open in %s): compare with `git diff %s -- %s` and "+
-			"restore them (the target's new changes stay)\n%s", mt.task, mt.attempt, mt.lane, c, f, m.Dir, c, f, decisionText(mt))
+			"restore them (the target's new changes stay)\n%s", mt.task, mt.attempt, mt.lane, c, f, m.Dir, c, f, decisionText(mt)), kit)
 	}
 	line, _, _ := strings.Cut(mt.line, "(resolve there")
-	return fmt.Sprintf("Resolve %s's merge for obor serve (attempt %d, lane %s): %s\n%s",
-		mt.task, mt.attempt, mt.lane, strings.TrimSpace(line), decisionText(mt))
+	return integratorRoles(p, fmt.Sprintf("Resolve %s's merge for obor serve (attempt %d, lane %s): %s\n%s",
+		mt.task, mt.attempt, mt.lane, strings.TrimSpace(line), decisionText(mt)), kit)
 }
 
 // subjectOf is the subject text of the lane's commit and its merge (T-355): the task spec's title (the store's, T-440;

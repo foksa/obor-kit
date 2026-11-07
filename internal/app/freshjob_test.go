@@ -310,10 +310,11 @@ func TestReviewTextDiff(t *testing.T) {
 	} {
 		mt := *p.folded.loop["T-1"]
 		mt.cand = port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1", Stat: "stat-line", Diff: c.diff}
-		text, err := r.a.reviewText(p, mt)
+		text, err := r.a.reviewText(p, mt, r.kit)
 		if err != nil {
 			t.Fatal(err)
 		}
+		text, _, _ = strings.Cut(text, "Your role text (") // the integrator's role texts (T-941) are not the diff part
 		for _, w := range c.want {
 			if !strings.Contains(text, w) {
 				t.Errorf("%s: the review job has no %q:\n%s", c.name, w, text)

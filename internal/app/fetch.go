@@ -188,18 +188,19 @@ func (a *App) callerJob(p *proj, c wire.Call) (mtask, event.Key, bool, error) {
 // its rev changed), the review or resolve job; and the spec rev a worker's job carries (0: none).
 func (a *App) fetchText(p *proj, mt mtask, key event.Key) (string, int, error) {
 	base, _ := event.StepN(key.Step)
-	if base != event.StepWork && base != event.StepFix {
-		if base == event.StepReview {
-			text, err := a.reviewText(p, mt)
-			return text, 0, err
-		}
-		return resolveText(mt), 0, nil
-	}
-	row, _, err := specOf(p, mt.task)
+	fx, err := a.loopOf(p)
 	if err != nil {
 		return "", 0, err
 	}
-	fx, err := a.loopOf(p)
+	if base != event.StepWork && base != event.StepFix {
+		if base == event.StepReview {
+			text, err := a.reviewText(p, mt, fx.Kit)
+			return text, 0, err
+		}
+		text, err := resolveText(p, mt, fx.Kit)
+		return text, 0, err
+	}
+	row, _, err := specOf(p, mt.task)
 	if err != nil {
 		return "", 0, err
 	}
