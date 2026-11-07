@@ -394,17 +394,23 @@ func (a *App) taskDone(c wire.Call) (string, error) {
 		return "", fmt.Errorf("task_done: the event log of %s refused it", p.name)
 	}
 	a.wake()
-	a.mu.Lock()
-	state := "gone"
-	if m := p.folded.loop[c.Task]; m != nil {
-		state = m.shown()
-	}
-	_, recorded := p.folded.calls[verdictStep(wire.MethodTaskDone, c.CallID)]
-	a.mu.Unlock()
-	if !recorded { // foldRecord ignored the submission: the task was dropped or ended after the decision
+	if ok, state := a.receipt(p, c.Task, wire.MethodTaskDone, c.CallID); !ok { // the fold ignored the submission: the task was dropped or ended after the decision
 		return "", fmt.Errorf("task_done: superseded: %s is %s", c.Task, state)
 	}
 	return taskDoneReply, nil
+}
+
+// receipt is whether the fold kept the call's receipt of method for task, and the task's shown state (task_done's and
+// land's check after their record: a fold that ignored the submission leaves no receipt, T-938).
+func (a *App) receipt(p *proj, task, method, callID string) (bool, string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	state := "gone"
+	if m := p.folded.loop[task]; m != nil {
+		state = m.shown()
+	}
+	_, ok := p.folded.calls[verdictStep(method, callID)]
+	return ok, state
 }
 
 // taskDoneReply is task_done's answer once the task is submitted.
