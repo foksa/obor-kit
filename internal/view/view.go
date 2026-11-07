@@ -47,7 +47,9 @@ type Project struct {
 	// Promote is the promotion as serve's last pass read it (T-974; nil: branches.promote unset, or serve down): obor
 	// status' "promoted" line replaces the full check's.
 	Promote *wire.PromoteStatus `json:"promote,omitempty"`
-	Paused  *Pause              `json:"paused"`
+	// Promotion is the last promotion run (.obor/state/last-promotion, T-978; nil: none): the promoted line's.
+	Promotion *FullCheck `json:"promotion,omitempty"`
+	Paused    *Pause     `json:"paused"`
 	// ModelPauses is the model pauses in force (obor pause --model, T-765), by model: the Setup page shows them (T-766).
 	ModelPauses map[string]*Pause    `json:"-"`
 	Messages    []wire.MessageStatus `json:"messages"`          // the lines not typed yet
@@ -157,7 +159,7 @@ type NeedsYou struct {
 	Since  int64  `json:"since,omitempty"`  // when serve recorded the fact (epoch seconds)
 }
 
-// FullCheck is the last full check (.obor/state/last-full-check).
+// FullCheck is the last full check (.obor/state/last-full-check), or the last promotion run (last-promotion).
 type FullCheck struct {
 	SHA     string `json:"sha"`
 	Verdict string `json:"verdict"` // GREEN | RED
@@ -226,7 +228,8 @@ func Build(in Input) Project {
 		}
 		v.Lanes = append(v.Lanes, l)
 	}
-	v.FullCheck = readFullCheck(p.Root)
+	v.FullCheck = readFullCheck(p.Root, "last-full-check")
+	v.Promotion = readFullCheck(p.Root, checks.LastPromotionFile)
 	v.Queue = queue(&v, ps, p.Cfg.Data.Merge.NightlyAt, specs, dispatchedTasks(in.DB), in.Now)
 	v.Events = events(in.DB, in.Events, v.Serve)
 	return v
@@ -451,10 +454,10 @@ func runningCommand(p *checks.LaneTable, r wire.RunningStep) string {
 	return cmd.Cmd
 }
 
-// readFullCheck is .obor/state/last-full-check ("<sha> <epoch> GREEN|RED <summary>", obor nightly);
-// nil when there is none.
-func readFullCheck(root string) *FullCheck {
-	b, err := os.ReadFile(filepath.Join(project.StateDir(root), "last-full-check"))
+// readFullCheck is .obor/state/<name> ("<sha> <epoch> GREEN|RED <summary>": last-full-check, obor nightly's;
+// last-promotion, the promotion's); nil when there is none.
+func readFullCheck(root, name string) *FullCheck {
+	b, err := os.ReadFile(filepath.Join(project.StateDir(root), name))
 	if err != nil {
 		return nil
 	}

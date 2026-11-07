@@ -5,37 +5,44 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
 	"strconv"
 	"strings"
 	"time"
 
+	"obor/internal/app/port"
 	"obor/internal/spec"
 )
 
 // The promotion (T-974; docs/state-model.md rows 50, 51; owner 11-07: one staging branch promoted by serve). With
 // branches.promote set, tasks merge into branches.main (the target, e.g. staging) and serve moves the promoted branch
-// (e.g. main) only to a head the full suite passed on and a closed review covers. Each pass:
+// (e.g. main) only to R, the reviewed head of the last closed review (T-978: the start's head, or its last finished
+// verify's when it verified fixes; reviews not set up: the last GREEN run's sha), once the full suite passed at R.
+// Each pass:
 //
 //   - Trigger: no promotion running, no self-restart waiting (the drain), the target's head H is not the promoted
 //     branch's, and the weight merged since (first-parent merges of promoted..H, each its spec's Difficulty level's
 //     merge.weights, no spec or no line: medium) is at least merge.promote_weight, or at least one merge with the loop
-//     idle. Due, it requests a review of the merges no closed review covers (fact review.request, by obor, its note
-//     naming the batch) unless a review or a request is open, and, unless the last run was at H already, records
+//     idle. Due, it requests a review when a first-parent merge since R is in H (fact review.request, by obor, its
+//     note naming the batch) unless a review or a request is open, and, unless a run was at H already, records
 //     intent promote.<seq>{sha H, since, merges, weight} (G) and runs it outside the scratch token, one at a time:
-//     Promote.Run, the full suite at H in its own worktree (RED: the failing tests rerun once).
+//     Promote.Run, the full suite at H in its own worktree (RED: the failing tests rerun once). A GREEN there is
+//     promoted only when the review closes at exactly H.
+//   - R (a review closed): the suite at R (intent promote.<seq>{sha R, …}), unless a run at R has a result already
+//     (a GREEN at R is reused, a RED one waits for the next close); the trigger's weight is not asked.
 //   - RED: needs-you{promotion RED <sha7>: <line>; merges since <since7>: T-a, …} (the nightly's shape), ended by the
 //     next GREEN promotion (fact promoted). A run that ends neither is a counted failure, tried again promoteRetry
 //     after it; the tries-th is a needs-you.
-//   - GREEN at G: the promoted branch is fast-forwarded to G (Promote.FF) once a closed review covers G (no merge
-//     since the last close's start that its cycle did not cover; reviews not set up: covered), then fact
-//     promoted{sha G}; before that the promotion waits (obor status says why). A later head is the next promotion's.
+//   - GREEN at R: the promoted branch is fast-forwarded to R (Promote.FF), then fact promoted{sha R}. A GREEN at any
+//     other sha is never promoted; it waits for a close at its sha (obor status says why). Commits after R (the close
+//     commit, the lead's docs) are the next review's.
 //   - After fact promoted: intent after_promote.<seq>{sha, since} (G): commands.after_merge in the promotion worktree at
 //     the promoted sha with OBOR_ROOT set (row 51); the per-publish after_merge is skipped while promote is set.
 //
-// A restart mid-run runs the pending intent again at its recorded H (the promoted branch at H already: GREEN without a
-// second run, Promote.Run's own check); a crash between the fast-forward and fact promoted finds the branch at G and
+// A restart mid-run runs the pending intent again at its recorded sha (the promoted branch there already: GREEN without
+// a second run, Promote.Run's own check); a crash between the fast-forward and fact promoted finds the branch at R and
 // records the fact; one between a RED result and its needs-you settles it from the result on the next pass.
 
 // promoteRetry is how long after a failed promotion step its next try waits (a git lock, the worktree held).
@@ -52,7 +59,7 @@ type Promote struct {
 	Weigh  func(level string) int // merge.weights: a difficulty level's weight
 	// Run runs the full suite at sha in the promotion worktree: GREEN or RED (the promoted branch at sha already: GREEN,
 	// nothing run); an error: it ended neither (tried again).
-	Run func(ctx context.Context, sha string) (PromoteOut, error)
+	Run func(ctx context.Context, sha string) (port.PromoteOut, error)
 	// FF fast-forwards the promoted branch to sha (it must be an ancestor of sha; at sha already: nothing to do).
 	FF func(ctx context.Context, sha string) (string, error)
 	// After runs commands.after_merge in the promotion worktree at sha, OBOR_ROOT set; since is the sha promoted before
@@ -60,14 +67,9 @@ type Promote struct {
 	After func(ctx context.Context, sha, since string) (string, error)
 }
 
-// PromoteOut is a promotion run's result: the sha it checked, GREEN or RED, its line, and whether the failing tests
-// were rerun (T-964).
-type PromoteOut struct {
-	SHA     string `json:"sha"`
-	Verdict string `json:"verdict"` // GREEN | RED
-	Line    string `json:"line"`
-	Retried bool   `json:"retried,omitempty"`
-}
+// PromoteOut is port.PromoteOut, the promotion run's one result type (T-978), by its name in package app (the
+// readers' describe.go decodes a result with it).
+type PromoteOut = port.PromoteOut
 
 // promoteIn is a promotion's intent: the target's head it checks, the promoted sha it follows, the merges between
 // them and their weight.
@@ -87,17 +89,19 @@ type promotedData struct {
 }
 
 // promoteState is the promotion's fold and its live state: the last run's step, intent and result (and whether a RED
-// one waits for its needs-you), the last promoted sha, the last after_promote, the counted failures per step, and,
-// live, whether a step runs and what the last pass counted (obor status).
+// one waits for its needs-you), every run's outcome by sha, the last promoted sha, the last after_promote, the counted
+// failures per step, and, live, whether a step runs and what the last pass counted (obor status).
 type promoteState struct {
-	seq        int // the last promote.<seq>
-	step       string
-	in         promoteIn
-	startedAt  time.Time // the last run's intent's time
-	done       bool
-	doneAt     time.Time // its result's time
-	out        *PromoteOut
-	unsettled  bool      // out is RED and no needs-you or resumed fact followed it
+	seq       int // the last promote.<seq>
+	step      string
+	in        promoteIn
+	startedAt time.Time // the last run's intent's time
+	done      bool
+	doneAt    time.Time // its result's time
+	out       *port.PromoteOut
+	unsettled bool // out is RED and no needs-you or resumed fact followed it
+	// ran is each sha's run outcome: GREEN, RED, or failed (its step failed tries times); none: not run there.
+	ran        map[string]string
 	promoted   string    // the last fact promoted's sha
 	since      string    // the sha promoted before it
 	promotedAt time.Time // the last fact promoted's time
@@ -143,9 +147,10 @@ func (p *proj) foldPromote(r event.Record) {
 		_ = json.Unmarshal(r.Data, &s.in)
 	case r.Kind == event.KindResult && run > 0 && r.Step == s.step:
 		s.done, s.doneAt = true, event.RecordTime(r)
-		var out PromoteOut
+		var out port.PromoteOut
 		if json.Unmarshal(r.Data, &out) == nil && out.Verdict != "" {
 			s.out, s.unsettled = &out, out.Verdict == "RED"
+			s.setRan(out.SHA, out.Verdict)
 		}
 	case r.Kind == event.KindIntent && after > 0:
 		var d promotedData
@@ -161,11 +166,23 @@ func (p *proj) foldPromote(r event.Record) {
 		if s.fails == nil {
 			s.fails = map[string]int{}
 		}
-		s.fails[r.Fact().Step]++
+		key := r.Fact().Step
+		s.fails[key]++
 		s.failedAt, s.failedWhy = event.RecordTime(r), r.Fact().Reason
+		if key == s.step && !s.done && s.spent(key) {
+			s.setRan(s.in.SHA, "failed")
+		}
 	case r.Kind == event.KindFact && (r.Step == event.StepNeedsYou || r.Step == event.StepResumed):
 		s.unsettled = false
 	}
+}
+
+// setRan records sha's run outcome.
+func (s *promoteState) setRan(sha, outcome string) {
+	if s.ran == nil {
+		s.ran = map[string]string{}
+	}
+	s.ran[sha] = outcome
 }
 
 // spent: step failed tries times (its needs-you is out); it is not tried again.
@@ -201,6 +218,7 @@ func (a *App) promotion(ctx context.Context, p *proj, fx *Loop) {
 	}
 	a.mu.Lock()
 	st := p.prom
+	st.ran = maps.Clone(p.prom.ran) // the pass reads its own copy, the fold writes the map under mu
 	idle, restarting := p.loopIdle(), !p.restarting.IsZero()
 	a.mu.Unlock()
 	if st.running {
@@ -236,25 +254,34 @@ func (a *App) promoteHeads(ctx context.Context, p *proj, fx *Loop, pr *Promote, 
 		p.prom.branch, p.prom.head, p.prom.wait, p.prom.waitRV, p.prom.threshold = pr.Branch, at, wait, waitRV, pr.Weight
 		a.mu.Unlock()
 	}()
-	// A GREEN run not promoted yet: the fast-forward once a closed review covers it (at G already: a crash after the
-	// fast-forward, the fact is what is missing).
-	if o := st.out; o != nil && o.Verdict == "GREEN" && st.promoted != o.SHA {
-		ffKey := "ff " + short(o.SHA)
-		ok, why, err := a.reviewCovers(ctx, p, fx, o.SHA)
-		switch {
-		case err != nil:
-			a.logf("promotion of %s: review cover of %s: %v", p.name, short(o.SHA), err)
-		case at != o.SHA && !ok:
-			wait = "GREEN " + short(o.SHA) + " waits: " + why
-			a.mu.Lock()
-			waitRV = p.folded.reviewed.open()
-			a.mu.Unlock()
-		case st.spent(ffKey) || st.waitRetry(ffKey, now):
-		default:
-			sha, since := o.SHA, at
-			a.goPromote(ctx, p, func(ctx context.Context) { a.promoteFF(ctx, p, pr, sha, since, ffKey) })
+	r, reviews := a.promoteCandidate(p, st)
+	// R not promoted yet (at R already: a crash after the fast-forward when its GREEN is recorded, the fact is what is
+	// missing): its GREEN fast-forwards the promoted branch; no run at R yet: the suite at R; RED or failed there: it
+	// waits for the next close.
+	if r != "" && r != st.promoted && (r != at || st.ran[r] == "GREEN") {
+		switch ffKey := "ff " + short(r); {
+		case st.ran[r] == "GREEN":
+			if !st.spent(ffKey) && !st.waitRetry(ffKey, now) {
+				since := at
+				a.goPromote(ctx, p, func(ctx context.Context) { a.promoteFF(ctx, p, pr, r, since, ffKey) })
+				return
+			}
+		case st.ran[r] == "" && !restarting:
+			in, err := a.promoteBatch(ctx, p, fx, pr, at, r)
+			if err != nil {
+				a.logf("promotion of %s: merges since %s: %v", p.name, short(at), err)
+				return
+			}
+			step := event.StepPromote + "." + strconv.Itoa(st.seq+1)
+			a.goPromote(ctx, p, func(ctx context.Context) { a.runPromote(ctx, p, pr, step, in) })
 			return
 		}
+	}
+	if o := st.out; reviews && o != nil && o.Verdict == "GREEN" && o.SHA != r && o.SHA != st.promoted {
+		wait = "GREEN " + short(o.SHA) + " waits: " + a.reviewWait(p)
+		a.mu.Lock()
+		waitRV = p.folded.reviewed.open()
+		a.mu.Unlock()
 	}
 	// after_promote of the last promoted sha, once (G: a cut one runs again).
 	if st.promoted != "" && (st.afterSHA != st.promoted || !st.afterDone) {
@@ -281,12 +308,44 @@ func (a *App) promoteHeads(ctx context.Context, p *proj, fx *Loop, pr *Promote, 
 	if restarting || len(in.Merges) == 0 || in.Weight < pr.Weight && !idle {
 		return
 	}
-	a.promoteReview(ctx, p, fx, in)
-	if o := st.out; o != nil && o.SHA == head || st.spent(st.step) && st.in.SHA == head {
-		return // run at this head already: a RED one waits for a new merge, a GREEN one for its review
+	if reviews {
+		a.promoteReview(ctx, p, fx, in, r)
+	}
+	if st.ran[head] != "" {
+		return // run at this head already: a RED one waits for a new merge, a GREEN one for a close at it
 	}
 	step := event.StepPromote + "." + strconv.Itoa(st.seq+1)
 	a.goPromote(ctx, p, func(ctx context.Context) { a.runPromote(ctx, p, pr, step, in) })
+}
+
+// promoteCandidate is the one sha the promotion may move the promoted branch to (RV-136, T-978), and whether reviews
+// are set up: R, the reviewed head of the last closed review (the fold's closedHead: its start's head, or its last
+// finished verify's; "": none closed in the log yet); reviews not set up, the last run's sha when it is GREEN (nothing
+// to wait for).
+func (a *App) promoteCandidate(p *proj, st promoteState) (string, bool) {
+	if _, err := reviewConfig(p.root); err != nil {
+		if o := st.out; o != nil && o.Verdict == "GREEN" {
+			return o.SHA, false
+		}
+		return "", false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return p.folded.closedHead, true
+}
+
+// reviewWait is why a GREEN run at another sha than R waits, for obor status: the open review, the review request,
+// or no review closed at it.
+func (a *App) reviewWait(p *proj) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	switch {
+	case p.folded.reviewed.open() != "":
+		return p.folded.reviewed.open() + " open (not closed)"
+	case p.folded.review != nil:
+		return "the review request"
+	}
+	return "no review closed at it"
 }
 
 // setBatch keeps the merges since the promoted sha, their tasks and weight, for obor status and the monitor.
@@ -324,57 +383,22 @@ func (a *App) promoteBatch(ctx context.Context, p *proj, fx *Loop, pr *Promote, 
 	return in, nil
 }
 
-// reviewCovers: a closed review covers sha — no first-parent merge since the newest close's start (reviewScope) up to
-// sha that its cycle did not cover (a review closed with accepted lines is closed too). Reviews not set up (no
-// reviewer): covered, there is nothing to wait for. Not covered: why, for obor status.
-func (a *App) reviewCovers(ctx context.Context, p *proj, fx *Loop, sha string) (bool, string, error) {
-	s, err := reviewConfig(p.root)
-	if err != nil {
-		return true, "", nil
-	}
-	last, err := fx.Review.Last(ctx, s.Branch)
-	if err != nil {
-		return false, "", err
-	}
-	from, covered := reviewScope(last)
-	merges, err := fx.Review.Merges(ctx, from, sha)
-	if err != nil {
-		return false, "", err
-	}
-	left := uncovered(merges, covered)
-	if len(left) == 0 {
-		return true, "", nil
-	}
-	a.mu.Lock()
-	open, req := p.folded.reviewed.open(), p.folded.review != nil
-	a.mu.Unlock()
-	switch {
-	case open != "":
-		return false, open + " open (not closed)", nil
-	case req:
-		return false, "the review request", nil
-	}
-	return false, fmt.Sprintf("%d merge(s) not reviewed", len(left)), nil
-}
-
-// promoteReview requests the review of in's batch (fact review.request by obor, its note naming the batch) when a merge
-// up to in.SHA is not covered by a closed review, reviews are set up, and no review, request or claim is open.
-func (a *App) promoteReview(ctx context.Context, p *proj, fx *Loop, in promoteIn) {
+// promoteReview requests the review of in's batch (fact review.request by obor, its note naming the batch) when a
+// first-parent merge since r (the last closed review's reviewed head; "": none, every merge) is in in.SHA and no
+// review, request or claim is open.
+func (a *App) promoteReview(ctx context.Context, p *proj, fx *Loop, in promoteIn, r string) {
 	a.mu.Lock()
 	busy := p.folded.review != nil || p.folded.reviewed.open() != "" || p.rv.what != ""
 	a.mu.Unlock()
-	if busy {
+	if busy || r == in.SHA {
 		return
 	}
-	if _, err := reviewConfig(p.root); err != nil {
-		return
-	}
-	ok, _, err := a.reviewCovers(ctx, p, fx, in.SHA)
+	merges, err := fx.Review.Merges(ctx, r, in.SHA)
 	if err != nil {
-		a.logf("promotion of %s: review cover of %s: %v", p.name, short(in.SHA), err)
+		a.logf("promotion of %s: merges since %s: %v", p.name, short(r), err)
 		return
 	}
-	if ok {
+	if len(merges) == 0 {
 		return
 	}
 	note := fmt.Sprintf("promotion batch %s..%s: %s", short(in.Since), short(in.SHA), strings.Join(in.Merges, ", "))
@@ -424,7 +448,7 @@ func (a *App) runPromote(ctx context.Context, p *proj, pr *Promote, step string,
 		a.promoteFailed(ctx, p, step, err)
 		return
 	}
-	var out PromoteOut
+	var out port.PromoteOut
 	if json.Unmarshal(raw, &out) == nil && out.Verdict == "RED" {
 		a.promoteRed(p, out, in)
 	}
@@ -472,7 +496,7 @@ func (a *App) promoteFailed(ctx context.Context, p *proj, key string, err error)
 
 // promoteRed is a RED run's needs-you{promotion RED <sha7>: <line>; merges since <since7>: T-a, …}: one line, the
 // nightly's shape; the next GREEN promotion ends it (fact promoted).
-func (a *App) promoteRed(p *proj, out PromoteOut, in promoteIn) {
+func (a *App) promoteRed(p *proj, out port.PromoteOut, in promoteIn) {
 	since := "the first commit"
 	if in.Since != "" {
 		since = short(in.Since)

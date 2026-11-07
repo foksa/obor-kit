@@ -253,7 +253,7 @@ switch below.
    `Target` is still an ancestor, so publish fast-forwards as before). Optionally `git push -u origin staging`.
 3. Config (`.obor/config.json`, then `obor config validate`, then `obor serve restart`):
    `branches.main: "staging"` (the loop's target; every reader follows it: `scratch.go:759-764`,
-   `cmd/obor/serve_dispatch.go:70-72`, `flakes.go:243`), `branches.promote: "main"`, `merge.promote_every: 6`,
+   `cmd/obor/serve_dispatch.go:70-72`, `flakes.go:243`), `branches.promote: "main"`, `merge.promote_weight: 6`,
    `slots.max: 4` (the pool bounds parallel lane tests; today's `1` would serialize them; the pool dir
    `/tmp/obor-check-slots` is shared with the other obor projects on the machine), `slots.cpus: 3` (→ `go test -p 3`).
 4. `obor pause --clear`. The next pass promotes once staging has a merge (idle trigger), which builds `dist/obor`

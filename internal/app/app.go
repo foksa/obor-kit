@@ -228,6 +228,9 @@ type folded struct {
 	reviewed lastReview
 	// rv: the review cycle's starts and verify briefs, one fold (reviewverify.go, T-856, T-924).
 	rv reviewLog
+	// closedHead: the last closed review's reviewed head R, its start's or its last finished verify's (full sha; the
+	// promotion's one candidate, T-978); "": none closed, or its start not in the log.
+	closedHead string
 	// sessions: the agents' recorded sessions in log order (sessions.go, T-577).
 	sessions []store.Session
 	// did: the rules' lines by their key (rules.go, T-866: a lead line's Of) and when each was recorded.

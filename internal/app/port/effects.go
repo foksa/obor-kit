@@ -418,3 +418,13 @@ type PrepareInput struct {
 	Dispatch
 	At time.Time
 }
+
+// PromoteOut is a promotion run's outcome (T-974; one type from checks.Promote to the promotion's result record,
+// T-978): the sha it checked, GREEN or RED, its line (RED: what failed and the failing tests), and whether the
+// failing tests were rerun (commands.retest, T-964).
+type PromoteOut struct {
+	SHA     string `json:"sha"`
+	Verdict string `json:"verdict"` // GREEN | RED
+	Line    string `json:"line"`
+	Retried bool   `json:"retried,omitempty"`
+}

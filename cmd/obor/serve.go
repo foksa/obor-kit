@@ -15,6 +15,7 @@ import (
 
 	"obor/internal/app"
 	"obor/internal/app/event"
+	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/checks"
 	"obor/internal/config"
@@ -229,11 +230,8 @@ func promotion(o checks.Options) *app.Promote {
 	}
 	return &app.Promote{Branch: cfg.Data.Branches.Promote, Target: cfg.Data.Branches.Main, Weight: cfg.PromoteWeight(),
 		Weigh: cfg.MergeWeight,
-		Run: func(ctx context.Context, sha string) (app.PromoteOut, error) {
-			r, err := checks.Promote(ctx, o, sha)
-			return app.PromoteOut{SHA: r.SHA, Verdict: r.Verdict, Line: r.Line, Retried: r.Retried}, err
-		},
-		FF: func(ctx context.Context, sha string) (string, error) { return checks.PromoteFF(ctx, o, sha) },
+		Run:   func(ctx context.Context, sha string) (port.PromoteOut, error) { return checks.Promote(ctx, o, sha) },
+		FF:    func(ctx context.Context, sha string) (string, error) { return checks.PromoteFF(ctx, o, sha) },
 		After: func(ctx context.Context, sha, since string) (string, error) {
 			return checks.AfterPromote(ctx, o, sha, since)
 		}}

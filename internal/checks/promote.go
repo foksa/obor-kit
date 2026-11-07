@@ -8,15 +8,14 @@ import (
 	"path/filepath"
 	"time"
 
+	"obor/internal/app/port"
 	"obor/internal/project"
 )
 
-// PromoteResult is a promotion run's outcome (T-974): the sha it checked, GREEN or RED, its line (RED: what failed and
-// the failing tests), and whether the failing tests were rerun (commands.retest, T-964).
-type PromoteResult struct {
-	SHA, Verdict, Line string
-	Retried            bool
-}
+// LastPromotionFile is the promotion's own result file in .obor/state (T-978): "<sha> <epoch> GREEN|RED <summary>",
+// last-full-check's shape; obor status reads it for the promoted line. The nightly's last-full-check is the nightly's
+// alone, so a promotion never reads as a hand-run nightly.
+const LastPromotionFile = "last-promotion"
 
 // promoteName is the promotion session's name: its worktree <merge.scratch_dir>-promote and its logs' prefix.
 const promoteName = "promote"
@@ -25,11 +24,11 @@ const promoteName = "promote"
 // <merge.scratch_dir>-promote (added when missing), reset to sha with lane_links: commands.lane_setup, then
 // commands.check, holding a pool slot (prio worker, never the merge marker: slots.max bounds it with the lane tests).
 // A red check whose failing tests and packages it names is rerun once by commands.retest at the same commit (T-964):
-// green then is GREEN, Retried set. It writes .obor/state/last-full-check as obor nightly does (LastFullCheck). The
+// green then is GREEN, Retried set. It writes .obor/state/last-promotion (LastPromotionFile, T-978). The
 // promoted branch (branches.promote) at sha already is GREEN with nothing run (a crash between the fast-forward and
 // its fact). GREEN and RED are outcomes; anything else (git, the slot, lane_setup, ctx ended) is an error: the
 // promotion runs again. One runs at a time (serve's pass).
-func Promote(ctx context.Context, o Options, sha string) (PromoteResult, error) {
+func Promote(ctx context.Context, o Options, sha string) (port.PromoteOut, error) {
 	if o.Out == nil {
 		o.Out = io.Discard
 	}
@@ -37,10 +36,10 @@ func Promote(ctx context.Context, o Options, sha string) (PromoteResult, error) 
 	sc.gitCtx = ctx
 	branch := o.Cfg.Data.Branches.Promote
 	if branch == "" {
-		return PromoteResult{}, errors.New("no branches.promote")
+		return port.PromoteOut{}, errors.New("no branches.promote")
 	}
 	if at, err := sc.call(o.Cfg.Root, "rev-parse", "refs/heads/"+branch); err == nil && at == sha {
-		return PromoteResult{SHA: sha, Verdict: "GREEN", Line: branch + " at " + short(sha) + " already"}, nil
+		return port.PromoteOut{SHA: sha, Verdict: "GREEN", Line: branch + " at " + short(sha) + " already"}, nil
 	}
 	cut, done := make(chan int, 1), make(chan struct{})
 	defer close(done)
@@ -54,31 +53,31 @@ func Promote(ctx context.Context, o Options, sha string) (PromoteResult, error) 
 	o.Interrupted = cut
 	s, r := open(context.Background(), o, promoteName)
 	if r != nil {
-		return PromoteResult{}, errors.New(r.Line)
+		return port.PromoteOut{}, errors.New(r.Line)
 	}
 	defer s.close()
 	return s.promote(sha)
 }
 
 // promote is Promote's run in the session's worktree.
-func (s *session) promote(sha string) (PromoteResult, error) {
+func (s *session) promote(sha string) (port.PromoteOut, error) {
 	if err := (Scratch{Options: s.Options}).worktree(s.scratch, sha); err != nil {
-		return PromoteResult{}, err
+		return port.PromoteOut{}, err
 	}
 	if !s.reset(sha) {
-		return PromoteResult{}, fmt.Errorf("cannot reset %s to %s", s.scratch, short(sha))
+		return port.PromoteOut{}, fmt.Errorf("cannot reset %s to %s", s.scratch, short(sha))
 	}
 	linkLaneLinks(s.Cfg, s.root, s.scratch)
 	s.prio, s.retest = "worker", true
 	if h := s.laneSetup(); h != nil {
-		return PromoteResult{}, s.promoteHalt(h, "lane_setup")
+		return port.PromoteOut{}, s.promoteHalt(h, "lane_setup")
 	}
 	o, ok, h := s.must("check")
 	if h != nil && h.red == nil {
-		return PromoteResult{}, s.promoteHalt(h, "check")
+		return port.PromoteOut{}, s.promoteHalt(h, "check")
 	}
 	if !ok {
-		return PromoteResult{}, errors.New("commands.check not configured")
+		return port.PromoteOut{}, errors.New("commands.check not configured")
 	}
 	s.releaseSlot()
 	s.reset(sha) // no command artifacts left behind
@@ -95,11 +94,11 @@ func (s *session) promote(sha string) (PromoteResult, error) {
 	if s.retried {
 		summary += ", retried"
 	}
-	file := filepath.Join(s.state, "last-full-check")
+	file := filepath.Join(s.state, LastPromotionFile)
 	if err := project.WriteAtomic(file, []byte(fmt.Sprintf("%s %d %s %s\n", sha, time.Now().Unix(), verdict, summary))); err != nil {
-		return PromoteResult{}, err
+		return port.PromoteOut{}, err
 	}
-	return PromoteResult{SHA: sha, Verdict: verdict, Line: line, Retried: s.retried}, nil
+	return port.PromoteOut{SHA: sha, Verdict: verdict, Line: line, Retried: s.retried}, nil
 }
 
 // promoteHalt is a promotion's halt as an error: a signal (ctx ended), a git or slot error, a failed command.

@@ -27,11 +27,13 @@ switch (the plan's steps, `docs/plan/merge-flow-rework.md` §6), at a quiet queu
 2. In the main checkout: `git checkout -b staging main` (staging is main at that moment, so every open candidate's
    target is still an ancestor and publish fast-forwards as before); optionally `git push -u origin staging`.
 3. In `.obor/config.json`: `branches.main` = `"staging"` (the loop's target), `branches.promote` = `"main"`,
-   `merge.promote_every` = 6, `slots.max` = 4 (the pool bounds parallel lane tests), `slots.cpus` = 3 (→ `go test
+   `merge.promote_weight` = 6, `slots.max` = 4 (the pool bounds parallel lane tests), `slots.cpus` = 3 (→ `go test
    -p 3`); then `obor config validate` and `obor serve restart`.
-4. `obor pause --clear`. The next pass promotes once staging has a merge (the idle trigger): it builds `dist/obor` from
-   `main` and restarts serve on it.
+4. `obor pause --clear`. Once staging has a merge (the idle trigger) the pass requests a review and runs the suite;
+   `main` moves to the closed review's reviewed head R once the suite is GREEN at R (T-978), then `after_merge`
+   builds `dist/obor` from `main` and restarts serve on it.
 
-After the switch, commits in the main checkout land on `staging`, `main` moves only on a GREEN full suite, and a
+After the switch, commits in the main checkout land on `staging`, `main` moves only to a closed review's reviewed
+head on a GREEN full suite there (commits after it, such as the close commit, wait for the next review), and a
 release is cut from a separate worktree at `main`. Never `git checkout main` in the main checkout (the loop pauses,
 T-425); `git push origin staging main` when pushing.

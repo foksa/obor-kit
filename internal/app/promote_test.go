@@ -20,11 +20,12 @@ import (
 )
 
 // T-974: the promotion of branches.main (staging) to branches.promote (main): the trigger by weight and by idle, the
-// full suite's run, the fast-forward once a closed review covers the GREEN sha, after_promote, RED's needs-you, a
-// restart mid-run, and after_merge off per publish.
+// full suite's run, the fast-forward to exactly R, the last closed review's reviewed head (T-978), after_promote, RED's
+// needs-you, a restart mid-run, and after_merge off per publish.
 
 // promoteGit is a ReviewGit of named shas: heads by branch, the first-parent merges of "<from>..<to>" (none when not
-// set) and the newest close commit (last, lastBody). Head of a branch it has no sha for is an error.
+// set; from "" is all of to's, as git's: those of "h0..<to>", h0 being the rig's first commit with no merge before it)
+// and the newest close commit (last, lastBody). Head of a branch it has no sha for is an error.
 type promoteGit struct {
 	mu             sync.Mutex
 	heads          map[string]string
@@ -48,7 +49,10 @@ func (g *promoteGit) Head(_ context.Context, branch string) (string, error) {
 func (g *promoteGit) Merges(_ context.Context, from, to string) ([]string, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	return slices.Clone(g.merges[from+".."+to]), nil
+	if ms, ok := g.merges[from+".."+to]; ok || from != "" {
+		return slices.Clone(ms), nil
+	}
+	return slices.Clone(g.merges["h0.."+to]), nil
 }
 func (g *promoteGit) Files(context.Context, string, string) ([]string, error) { return nil, nil }
 func (g *promoteGit) Detach(context.Context, string, string) error            { return nil }
@@ -93,7 +97,7 @@ type promoteFake struct {
 func (f *promoteFake) promote(weight int) *Promote {
 	var cfg *config.Config // the default weights
 	return &Promote{Branch: "main", Target: "staging", Weight: weight, Weigh: cfg.MergeWeight,
-		Run: func(ctx context.Context, sha string) (PromoteOut, error) {
+		Run: func(ctx context.Context, sha string) (port.PromoteOut, error) {
 			f.mu.Lock()
 			f.runs = append(f.runs, sha)
 			v, block, began := f.verdicts[sha], f.block, f.began
@@ -103,15 +107,15 @@ func (f *promoteFake) promote(weight int) *Promote {
 					began <- struct{}{}
 				}
 				<-ctx.Done()
-				return PromoteOut{}, ctx.Err()
+				return port.PromoteOut{}, ctx.Err()
 			}
 			switch v {
 			case "":
-				return PromoteOut{SHA: sha, Verdict: "GREEN", Line: "check 10 passed"}, nil
+				return port.PromoteOut{SHA: sha, Verdict: "GREEN", Line: "check 10 passed"}, nil
 			case "fail":
-				return PromoteOut{}, errors.New("cannot reset the worktree")
+				return port.PromoteOut{}, errors.New("cannot reset the worktree")
 			}
-			return PromoteOut{SHA: sha, Verdict: v, Line: "check 1 failed — TestFlaky", Retried: true}, nil
+			return port.PromoteOut{SHA: sha, Verdict: v, Line: "check 1 failed — TestFlaky", Retried: true}, nil
 		},
 		FF: func(_ context.Context, sha string) (string, error) {
 			f.mu.Lock()
@@ -464,12 +468,55 @@ func TestPromoteCrashAfterFastForward(t *testing.T) {
 	}
 }
 
-// Review before promotion (owner 11-07): the trigger requests a review of the batch; the suite GREEN with the review
-// open does not move main; once the review closes (with accepted lines) covering the GREEN sha, main moves to it.
-func TestPromoteWaitsForReview(t *testing.T) {
-	t.Parallel()
+// fact records a fact of task (fails when the log refuses it).
+func (r *promoteRig) fact(task, step string, d any) {
+	r.t.Helper()
+	if !r.a.record(r.p, event.Record{Task: task, Step: step, Kind: event.KindFact}, d) {
+		r.t.Fatalf("the log refused fact %s %s", task, step)
+	}
+}
+
+// started starts review id at head (fact review.started).
+func (r *promoteRig) started(id, head string) {
+	r.t.Helper()
+	r.fact(event.ReviewTask, event.StepReviewStarted, ReviewData{ID: id, Head: head})
+}
+
+// verified is a finished verify of tasks at head: the reviewer's verify brief, then its finished line.
+func (r *promoteRig) verified(head string, tasks ...string) {
+	r.t.Helper()
+	r.fact(event.MsgTask, event.StepBriefed, event.Message{To: "pj-rev", Line: "verify", Task: strings.Join(tasks, ","),
+		Reviewed: head})
+	r.fact(event.MsgTask, event.StepMessage, event.Message{To: "lead", From: "pj-rev", Line: "finished", Ends: "pj-rev"})
+}
+
+// closed closes review id (fact review.closed; its close commit is not read by the promotion).
+func (r *promoteRig) closed(id string) {
+	r.t.Helper()
+	r.fact(event.ReviewTask, event.StepReviewClosed, ReviewData{ID: id})
+}
+
+// reviewedRig is a rig with reviews set up whose last closed review, RV-4, reviewed h0, main's sha: nothing to promote.
+func reviewedRig(t *testing.T) *promoteRig {
+	t.Helper()
 	r := newPromoteRig(t, true)
-	r.git.last, r.git.lastBody = "RV-4 closed · s0 · approved · earlier", "Covered: T-0\nStart: h0"
+	r.started("RV-4", "h0")
+	r.closed("RV-4")
+	r.a.mu.Lock()
+	head := r.p.folded.closedHead
+	r.a.mu.Unlock()
+	if head != "h0" {
+		t.Fatalf("precondition: RV-4's reviewed head = %q, want h0", head)
+	}
+	return r
+}
+
+// Review before promotion (owner 11-07, T-978): the trigger requests a review of the batch and runs the suite at H;
+// that GREEN does not move main while the review is requested or open; the review closes at H (R = H): the GREEN
+// recorded at R is reused, main moves to R without a second run, and the close commit after R promotes nothing.
+func TestPromoteReusesTheGreenAtR(t *testing.T) {
+	t.Parallel()
+	r := reviewedRig(t)
 	r.git.between("h0", "h1", "T-1", "T-2")
 	r.pass() // due: the review request and the run
 	r.a.mu.Lock()
@@ -478,27 +525,20 @@ func TestPromoteWaitsForReview(t *testing.T) {
 	if q == nil || q.by != "obor" || q.note != "promotion batch h0..h1: T-1, T-2" {
 		t.Fatalf("review request = %+v, want obor's naming the batch h0..h1: T-1, T-2", q)
 	}
-	if runs, _, _ := r.f.calls(); len(runs) != 1 {
-		t.Fatalf("runs = %q, want one (the suite runs while the review is out)", runs)
+	if runs, _, _ := r.f.calls(); !slices.Equal(runs, []string{"h1"}) {
+		t.Fatalf("runs = %q, want one at h1 (the suite runs while the review is out)", runs)
 	}
 	r.pass()
-	if got := r.git.head("main"); got != "h0" {
-		t.Fatalf("main = %s with the review requested, want h0", got)
+	if st := r.a.Status().Project.Promote; r.git.head("main") != "h0" || st == nil ||
+		st.Wait != "GREEN h1 waits: the review request" {
+		t.Fatalf("review requested: main %s, status %+v; want h0 and the wait on the review request",
+			r.git.head("main"), st)
 	}
-	if st := r.a.Status().Project.Promote; st == nil || st.Wait != "GREEN h1 waits: the review request" {
-		t.Errorf("status promote = %+v, want the wait on the review request", st)
-	}
-	// The request fires: RV-5 starts and is open.
-	for _, rec := range []struct {
-		step string
-		d    ReviewData
-	}{{event.StepReviewFire, ReviewData{Request: q.seq}}, {event.StepReviewStarted, ReviewData{ID: "RV-5", Head: "h1"}}} {
-		if !r.a.record(r.p, event.Record{Task: event.ReviewTask, Step: rec.step, Kind: event.KindFact}, rec.d) {
-			t.Fatal("the log refused the review's fact")
-		}
-	}
+	r.fact(event.ReviewTask, event.StepReviewFire, ReviewData{Request: q.seq})
+	r.started("RV-5", "h1")
 	r.pass()
-	if st := r.a.Status().Project.Promote; r.git.head("main") != "h0" || st == nil || st.Wait != "GREEN h1 waits: RV-5 open (not closed)" {
+	if st := r.a.Status().Project.Promote; r.git.head("main") != "h0" || st == nil ||
+		st.Wait != "GREEN h1 waits: RV-5 open (not closed)" {
 		t.Fatalf("RV-5 open: main %s, status %+v; want h0 and the wait on RV-5", r.git.head("main"), st)
 	}
 	r.a.mu.Lock()
@@ -507,24 +547,142 @@ func TestPromoteWaitsForReview(t *testing.T) {
 	if req != nil {
 		t.Errorf("a review open: a second request %+v, want none", req)
 	}
-	// RV-5 closes with accepted lines, covering T-1 and T-2; its close commit (no merge) is the new head.
-	r.git.mu.Lock()
-	r.git.last, r.git.lastBody = "RV-5 closed · h1 · accepted 2 · batch", "Covered: T-1, T-2\nStart: h0"
-	r.git.mu.Unlock()
+	// RV-5 closes at h1 (no fix); its close commit (no merge) is the new head.
 	r.git.set("staging", "h2")
-	if !r.a.record(r.p, event.Record{Task: event.ReviewTask, Step: event.StepReviewClosed, Kind: event.KindFact},
-		ReviewData{ID: "RV-5"}) {
-		t.Fatal("the log refused the close")
-	}
+	r.closed("RV-5")
 	r.pass()
 	runs, ffs, _ := r.f.calls()
-	if got := r.git.head("main"); got != "h1" || strings.Join(ffs, ",") != "h1" {
-		t.Errorf("after RV-5's close: main %s, ffs %q; want main fast-forwarded to h1", got, ffs)
+	if r.git.head("main") != "h1" || !slices.Equal(ffs, []string{"h1"}) || !slices.Equal(runs, []string{"h1"}) {
+		t.Fatalf("after RV-5's close at h1: main %s, ffs %q, runs %q; want main at h1 by the GREEN recorded there, "+
+			"no second run", r.git.head("main"), ffs, runs)
 	}
 	r.pass()
 	r.pass()
-	if runs2, _, _ := r.f.calls(); len(runs2) != len(runs) {
-		t.Errorf("the close commit alone (no merge since h1) ran a promotion: %q", runs2)
+	if runs, ffs, _ := r.f.calls(); len(runs) != 1 || len(ffs) != 1 {
+		t.Errorf("the close commit alone (no merge since h1) ran or promoted: runs %q, ffs %q", runs, ffs)
+	}
+}
+
+// RV-136 #1: GREEN at h1, the review requests changes, the fix merges at h2, its verify finishes at h2 and the review
+// closes (R = h2): the suite runs at h2 and main moves to h2 only on its GREEN; never to h1. RED at h2: main stays,
+// the promotion's needs-you as T-974's.
+func TestPromoteReviewFixCycle(t *testing.T) {
+	t.Parallel()
+	for _, verdict := range []string{"GREEN", "RED"} {
+		t.Run(verdict+" at the verified fix", func(t *testing.T) {
+			t.Parallel()
+			r := reviewedRig(t)
+			r.spec("T-1", "simple")
+			r.spec("T-3", "simple")
+			r.git.between("h0", "h1", "T-1")
+			r.pass() // idle: the review request and the run at h1
+			r.pass()
+			if runs, ffs, _ := r.f.calls(); !slices.Equal(runs, []string{"h1"}) || len(ffs) != 0 {
+				t.Fatalf("precondition: GREEN at h1, not promoted: runs %q, ffs %q", runs, ffs)
+			}
+			r.started("RV-5", "h1")
+			// The review requests changes; the fix T-3 merges at h2 (weight 2 with the loop busy: no trigger).
+			r.busy()
+			r.git.set("staging", "h2")
+			r.git.between("h0", "h2", "T-1", "T-3")
+			r.pass()
+			if runs, ffs, _ := r.f.calls(); len(runs) != 1 || len(ffs) != 0 || r.git.head("main") != "h0" {
+				t.Fatalf("RV-5 open, fix merged: runs %q, ffs %q, main %s; want nothing more", runs, ffs,
+					r.git.head("main"))
+			}
+			if verdict == "RED" {
+				r.f.verdicts["h2"] = "RED"
+			}
+			r.verified("h2", "T-3")
+			r.git.set("staging", "h3") // the close commit
+			r.closed("RV-5")
+			r.pass() // the suite at R = h2
+			runs, ffs, _ := r.f.calls()
+			if !slices.Equal(runs, []string{"h1", "h2"}) || len(ffs) != 0 || r.git.head("main") != "h0" {
+				t.Fatalf("after the close at h2: runs %q, ffs %q, main %s; want the suite at h2 first, main at h0",
+					runs, ffs, r.git.head("main"))
+			}
+			if in := r.intent("promote.2"); in.SHA != "h2" || in.Since != "h0" {
+				t.Errorf("intent promote.2 = %+v, want sha h2 since h0", in)
+			}
+			r.pass()
+			r.pass()
+			r.pass()
+			runs, ffs, _ = r.f.calls()
+			if slices.Contains(ffs, "h1") {
+				t.Fatalf("ffs %q: the old GREEN h1 was promoted past the verified fix", ffs)
+			}
+			if len(runs) != 2 {
+				t.Errorf("runs %q, want no third run (h2 has its result)", runs)
+			}
+			if verdict == "GREEN" {
+				if r.git.head("main") != "h2" || !slices.Equal(ffs, []string{"h2"}) {
+					t.Errorf("GREEN at h2: main %s, ffs %q; want main fast-forwarded to h2", r.git.head("main"), ffs)
+				}
+				return
+			}
+			want := "promotion RED h2: check 1 failed — TestFlaky; merges since h0: T-1, T-3"
+			if got := r.needs(); r.git.head("main") != "h0" || len(ffs) != 0 || !slices.Equal(got, []string{want}) {
+				t.Errorf("RED at h2: main %s, ffs %q, needs-you %q; want main at h0, no ff, [%q]", r.git.head("main"),
+					ffs, got, want)
+			}
+		})
+	}
+}
+
+// A review closed with accepted lines at R (no GREEN there yet, no trigger due): the suite runs at R and main moves to
+// R on its GREEN.
+func TestPromoteAcceptedCloseRunsAtR(t *testing.T) {
+	t.Parallel()
+	r := reviewedRig(t)
+	r.busy()
+	r.spec("T-1", "simple")
+	r.git.between("h0", "h1", "T-1")
+	r.pass()
+	if runs, _, _ := r.f.calls(); len(runs) != 0 {
+		t.Fatalf("precondition: weight 1, loop busy: runs %q, want none", runs)
+	}
+	r.started("RV-5", "h1")
+	r.git.mu.Lock()
+	r.git.last, r.git.lastBody = "RV-5 closed · h1 · accepted 2 · batch", "Covered: T-1\nStart: h0"
+	r.git.mu.Unlock()
+	r.git.set("staging", "h2")
+	r.closed("RV-5")
+	r.pass()
+	r.pass()
+	runs, ffs, _ := r.f.calls()
+	if !slices.Equal(runs, []string{"h1"}) || !slices.Equal(ffs, []string{"h1"}) || r.git.head("main") != "h1" {
+		t.Errorf("accepted close at h1: runs %q, ffs %q, main %s; want one run and main at h1", runs, ffs,
+			r.git.head("main"))
+	}
+}
+
+// A restart mid-run at R: the pending intent runs again at R, not at the target's newer head.
+func TestPromoteRestartMidRunAtR(t *testing.T) {
+	t.Parallel()
+	r := reviewedRig(t)
+	r.busy()
+	r.started("RV-5", "h1")
+	r.git.set("staging", "h2")
+	r.closed("RV-5")
+	r.f.block, r.f.began = true, make(chan struct{}, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	r.a.promotion(ctx, r.p, r.fx)
+	<-r.f.began
+	cancel()
+	r.a.effects.Wait()
+	if got := r.steps(); !slices.Equal(got, []string{"intent promote.1"}) || r.intent("promote.1").SHA != "h1" {
+		t.Fatalf("precondition: the cut run's intent at h1 is pending: %q", got)
+	}
+	r.a, r.p = lineReload(t, r.a, r.p, &r.now)
+	r.wire()
+	r.f.block = false
+	r.git.set("staging", "h3")
+	r.pass()
+	r.pass()
+	runs, ffs, _ := r.f.calls()
+	if !slices.Equal(runs, []string{"h1", "h1"}) || !slices.Equal(ffs, []string{"h1"}) {
+		t.Errorf("after the restart: runs %q, ffs %q; want the cut run again at h1, then main to h1", runs, ffs)
 	}
 }
 

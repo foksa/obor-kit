@@ -163,6 +163,10 @@ func (p *proj) foldReview(r event.Record) {
 		n, ok := reviewNumber(d.ID)
 		if open, _ := reviewNumber(last.open()); ok && last.open() != "" && n >= open {
 			last.closed = r.Seq
+			p.folded.closedHead = ""
+			if l := p.folded.rv; l.start == last.seq && l.startID == last.id {
+				p.folded.closedHead = l.reviewed
+			}
 		}
 	case event.StepReviewRequest:
 		p.folded.review = &reviewReq{seq: r.Seq, at: event.RecordTime(r), after: d.After, note: d.Note, by: d.By}
