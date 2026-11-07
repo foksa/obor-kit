@@ -1,6 +1,7 @@
 # obor (Go). `make build` → dist/obor, `make test` → go test ./..., `make check` → the merge gate (commands.check),
 # `make check-affected` → its per-merge tier (commands.check_affected), `make check-compile` → the merge slot's
-# compile tier (commands.compile, T-961), `make check-readers` / `make check-web` →
+# compile tier (commands.compile, T-961), `make check-retest` → a red lane test's failing tests once more
+# (commands.retest, T-964), `make check-readers` / `make check-web` →
 # the two non-Go classes' checks (skills/templates/hooks and the page's Go side, T-901), `make check-release` → the
 # kit's own release tooling (the Makefile, scripts/, install.sh; tests/release, T-902),
 # `make trim-go-cache` → the Go build cache's entries unused for 48 h (commands.trim_go_cache, nightly, T-817),
@@ -30,7 +31,7 @@ endif
 GOOS_LIST := darwin linux
 GOARCH_LIST := arm64 amd64
 
-.PHONY: build test conformance trim-go-cache check check-affected check-compile check-readers check-web check-release deadcode deps upgrade-check release ship publish clean web web-dev web-test
+.PHONY: build test conformance trim-go-cache check check-affected check-compile check-retest check-readers check-web check-release deadcode deps upgrade-check release ship publish clean web web-dev web-test
 
 build:
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags "-s -w -X obor/internal/version.Version=$(BUILD_VERSION)" -o dist/obor ./cmd/obor
@@ -99,6 +100,14 @@ check-compile:
 	@$(GO_GATE); \
 	$(MAKE) -s deadcode || { echo "FAIL deadcode"; exit 1; }; \
 	echo "compile: build, gofmt, vet, deadcode OK"
+
+# check-retest (commands.retest, T-964): a red lane test's failing tests once more on the same tree, not the check's
+# whole package tier: go test -short -run "$OBOR_FAILED_TESTS" on $OBOR_FAILED_PKGS (the run named them both), CHECK_CPUS
+# as -p. Green → the red was a flake; anything else (and a run with no names: no retest at all, the lane step) is red.
+check-retest:
+	@rc=0; out=$$($(GO) test -short -count=1 $${CHECK_CPUS:+-p $$CHECK_CPUS} -run "$$OBOR_FAILED_TESTS" $$OBOR_FAILED_PKGS 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
+	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
+	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"
 
 # check-readers: the packages that read the non-Go files outside a Go rule (merge.classes "readers", T-901). The survey
 # greps the .go files under cmd/ and internal/ for each path, package by package; TestOborKitReaders fails when a package

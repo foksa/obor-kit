@@ -17,7 +17,7 @@ import (
 )
 
 // A Flake is one .obor/state/flakes.jsonl line: a check run's failing test. Retried and PassedOnRetry are written by
-// scripts/release's own rerun (T-717); the checks have had no rerun since T-864.
+// scripts/release's own rerun (T-717) and by a lane test's one retest (commands.retest, T-964).
 type Flake struct {
 	Time          int64  `json:"time"`            // epoch seconds
 	Test          string `json:"test"`            // a fail_grep name: the test, else the package
@@ -63,9 +63,47 @@ func (opt *Options) failingNames(outs ...output) []string {
 	return names
 }
 
+// failingTests is the retest's view of a red run (T-964): the failing tests of outs ("--- FAIL: <name>" lines) and the
+// packages that FAILed ("FAIL <module>/<pkg> <time>" lines, the module path's slash or dot telling a package from a
+// check's own "FAIL <what>" line), one entry each, in order. built: a package that did not build (a "[build failed]"
+// line), which no -run reruns.
+func (opt *Options) failingTests(outs ...output) (tests, pkgs []string, built bool) {
+	seen := map[string]bool{}
+	add := func(list *[]string, n string) {
+		if n == "" || seen[n] {
+			return
+		}
+		seen[n] = true
+		*list = append(*list, n)
+	}
+	for _, o := range outs {
+		for _, l := range opt.failing(o) {
+			if rest, ok := strings.CutPrefix(strings.TrimSpace(l), "--- FAIL:"); ok {
+				if f := strings.Fields(rest); len(f) > 0 {
+					add(&tests, f[0])
+				}
+				continue
+			}
+			f := strings.Fields(l)
+			if len(f) < 2 || f[0] != "FAIL" {
+				continue
+			}
+			if strings.Contains(l, "[build failed]") {
+				built = true
+				continue
+			}
+			if strings.ContainsAny(f[1], "/.") {
+				add(&pkgs, f[1])
+			}
+		}
+	}
+	return tests, pkgs, built
+}
+
 // logFlakes appends the failing tests of outs (one logical record: a red run) to the project's flake log; a write error
-// is a warning line, never the check's result.
-func (r *runner) logFlakes(name string, outs ...output) {
+// is a warning line, never the check's result. retried: commands.retest ran the failures once more (a lane test, T-964);
+// passed: and they passed there.
+func (r *runner) logFlakes(name string, retried, passed bool, outs ...output) {
 	names := r.failingNames(outs...)
 	if len(names) == 0 {
 		return
@@ -73,7 +111,8 @@ func (r *runner) logFlakes(name string, outs ...output) {
 	at, sha := time.Now().Unix(), r.sha()
 	entries := make([]Flake, 0, len(names))
 	for _, test := range names {
-		entries = append(entries, Flake{Time: at, Test: test, Check: name, Task: r.logName, SHA: sha})
+		entries = append(entries, Flake{Time: at, Test: test, Check: name, Task: r.logName, SHA: sha,
+			Retried: retried, PassedOnRetry: retried && passed})
 	}
 	if err := appendFlakes(r.state, entries); err != nil {
 		fmt.Fprintf(r.Out, "warning: flake log: %v\n", err)

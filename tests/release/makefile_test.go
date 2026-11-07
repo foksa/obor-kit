@@ -286,6 +286,39 @@ func TestMakeCheckCompileAndAffected(t *testing.T) {
 	}
 }
 
+// T-964: check-retest (commands.retest, a red lane test's one rerun) tests only what the red named: -short, the -run
+// regexp of OBOR_FAILED_TESTS and the packages of OBOR_FAILED_PKGS, CHECK_CPUS as -p, the other tiers' summary line.
+func TestMakeCheckRetest(t *testing.T) {
+	t.Parallel()
+	dir := testkit.Dir(t)
+	writeFile(t, filepath.Join(dir, "Makefile"), string(treeFile(t, "Makefile")))
+	writeFile(t, filepath.Join(dir, "VERSION"), "1.2.3\n")
+	log := filepath.Join(dir, "go.log")
+	fake := filepath.Join(dir, "fake-go")
+	writeExec(t, fake, "#!/bin/bash\necho \"$*\" >> \""+log+"\"\necho \"ok example.com/pkg 0.01s\"\n")
+	var env []string // the test's own: an inherited OBOR_FAILED_* or CHECK_CPUS must not win over the ones set here
+	for _, kv := range plainMakeEnv() {
+		name, _, _ := strings.Cut(kv, "=")
+		if !strings.HasPrefix(name, "OBOR_FAILED_") && name != "CHECK_CPUS" {
+			env = append(env, kv)
+		}
+	}
+	cmd := exec.Command("make", "-s", "-C", dir, "check-retest", "GO="+fake)
+	cmd.Env = append(env, "OBOR_FAILED_TESTS=^TestAlpha$|^TestBeta$",
+		"OBOR_FAILED_PKGS=example.com/pkg example.com/other", "CHECK_CPUS=3")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("make check-retest: %v\n%s", err, out)
+	}
+	want := "test -short -count=1 -p 3 -run ^TestAlpha$|^TestBeta$ example.com/pkg example.com/other"
+	if got := strings.TrimSpace(readFile(t, log)); got != want {
+		t.Errorf("go test: %q, want %q", got, want)
+	}
+	if !strings.Contains(string(out), "go test: 1 pass, 0 fail") {
+		t.Errorf("the tests' summary missing:\n%s", out)
+	}
+}
+
 // P7-1: make release refuses a plugin.json version that differs from VERSION, before it builds anything (the plugin
 // version keys Claude's cache dir: a mismatch serves the old copy).
 func TestMakeReleaseVersionMismatch(t *testing.T) {
