@@ -53,6 +53,11 @@ func (g *reviewGitFake) Last(context.Context, string) (ReviewClose, error) {
 	g.lasts++
 	return ReviewClose{Subject: g.last, Body: g.lastBody}, nil
 }
+
+// Closes is no close commit: the promotion that reads it is promote_test.go's.
+func (g *reviewGitFake) Closes(context.Context, string, string) ([]ReviewClose, error) {
+	return nil, nil
+}
 func (g *reviewGitFake) Head(context.Context, string) (string, error) {
 	g.mu.Lock()
 	hook := g.onHead

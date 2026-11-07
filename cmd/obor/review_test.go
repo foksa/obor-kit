@@ -78,6 +78,18 @@ func TestReviewGit(t *testing.T) {
 		last.Body != "Covered: T-5, T-6\nStart: "+base {
 		t.Errorf("last: %+v, %v", last, err)
 	}
+	// T-985: the close commits of a range, newest first, each its subject and body.
+	all, err := g.Closes(ctx, "", head)
+	if err != nil || len(all) != 2 || all[0].Subject != "RV-4 closed · "+base[:7]+" · approved · T-8" ||
+		all[0].Body != "Covered: T-5, T-6\nStart: "+base || all[1] != (app.ReviewClose{Subject: "RV-3 closed · 0000000 · approved"}) {
+		t.Errorf("closes of all of main: %+v, %v; want RV-4's then RV-3's", all, err)
+	}
+	if since, err := g.Closes(ctx, base, head); err != nil || len(since) != 1 || since[0].Subject != all[0].Subject {
+		t.Errorf("closes since RV-3's: %+v, %v; want RV-4's only", since, err)
+	}
+	if none, err := g.Closes(ctx, p.Git(p.Root, "rev-parse", "HEAD^"), head); err != nil || len(none) != 0 {
+		t.Errorf("closes of the merge alone: %+v, %v; want none", none, err)
+	}
 	if h, err := g.Head(ctx, "main"); err != nil || h != head {
 		t.Errorf("head %q, %v; want %s", h, err, head)
 	}
