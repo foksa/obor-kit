@@ -608,8 +608,10 @@ func TestStatusQueue(t *testing.T) {
 			{Task: "T-100", Lane: "L-04", Attempt: 1, State: "submitted", Phase: wire.PhaseSubmitted, Stage: wire.StageSubmitted},
 			{Task: "T-1000", Lane: "L-05", Attempt: 1, State: "conflict", Phase: wire.PhaseReview, Stage: wire.StageReview},
 			{Task: "T-11", Lane: "L-02", Attempt: 1, State: "submitted", Phase: wire.PhaseSubmitted, Stage: wire.StageSubmitted},
-			{Task: "T-12", Attempt: 1, State: "waiting", Phase: wire.PhaseWaiting, After: []string{"T-11"}},
-			{Task: "T-14", Attempt: 1, State: "waiting", Phase: wire.PhaseWaiting, Level: "medium", Types: []string{"sonnet"}},
+			{Task: "T-12", Attempt: 1, State: "waiting", Phase: wire.PhaseWaiting, After: []string{"T-11"},
+				Difficulty: "hard", Model: "opus:high"},
+			{Task: "T-14", Attempt: 1, State: "waiting", Phase: wire.PhaseWaiting, Level: "medium", Types: []string{"sonnet"},
+				Difficulty: "medium", Model: "sonnet"},
 			{Task: "T-9", Lane: "L-03", Attempt: 1, State: "awaiting-accept", Phase: wire.PhaseReviewing, Stage: wire.StageReview, Job: "T-9/1/review"},
 		},
 		// T-669, T-673: serve's scheduler: the conflict T-1000 holds the scratch, so T-100 and T-11 (in the pass's
@@ -669,10 +671,12 @@ func TestStatusQueue(t *testing.T) {
 				Why         string
 			} `json:"merge"`
 			Waiting []struct {
-				Task    string   `json:"task"`
-				WaitsOn string   `json:"waits_on"`
-				After   []string `json:"after"`
-				Level   string   `json:"level"`
+				Task       string   `json:"task"`
+				WaitsOn    string   `json:"waits_on"`
+				After      []string `json:"after"`
+				Level      string   `json:"level"`
+				Difficulty string   `json:"difficulty"`
+				Model      string   `json:"model"`
 			} `json:"waiting"`
 			Review []struct {
 				After []string `json:"after"`
@@ -727,7 +731,8 @@ func TestStatusQueue(t *testing.T) {
 	}
 	if len(q.Waiting) != 3 || q.Waiting[0].Task != "T-12" || q.Waiting[0].WaitsOn != "after" ||
 		strings.Join(q.Waiting[0].After, ",") != "T-11" || q.Waiting[1].Task != "T-14" || q.Waiting[1].WaitsOn != "lane" ||
-		q.Waiting[1].Level != "medium" || q.Waiting[2].Task != "T-20" || q.Waiting[2].WaitsOn != "never dispatched" ||
+		q.Waiting[1].Level != "medium" || q.Waiting[0].Difficulty != "hard" || q.Waiting[0].Model != "opus:high" ||
+		q.Waiting[1].Difficulty != "medium" || q.Waiting[1].Model != "sonnet" || q.Waiting[2].Task != "T-20" || q.Waiting[2].WaitsOn != "never dispatched" ||
 		js.Tasks["T-20"].SpecRev != 1 || js.Tasks["T-20"].Title != "never sent" {
 		t.Errorf("queue.waiting %+v; want T-12 after T-11, T-14 a medium lane, T-20 never dispatched (r1, its title)",
 			q.Waiting)
@@ -774,8 +779,8 @@ func TestStatusQueue(t *testing.T) {
 		`^scratch T-1000: conflict$`,
 		`^merge T-100 \(L-04\): submitted, waits for T-1000 \(conflict\)$`,
 		`^merge T-11 \(L-02\): submitted, waits for T-1000 \(conflict\)$`,
-		`^queued T-12: waiting \(after T-11\)$`,
-		`^queued T-14: waiting for a free lane \(medium: sonnet\)$`,
+		`^queued T-12 \(hard, opus:high\): waiting \(after T-11\)$`, // T-977: difficulty and model, after stays
+		`^queued T-14 \(medium, sonnet\): waiting for a free lane \(medium: sonnet\)$`,
 		`^queued T-20: spec r1 stored [0-9]+s ago, never dispatched: never sent$`,
 		`^review request since 3m \(after T-11, waiting T-11\), note: check x$`,
 		`^watch T-11,T-20 since 3m \(by pj-lead\) — release v0\.17\.4$`,

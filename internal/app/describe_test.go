@@ -63,6 +63,24 @@ func TestDescribeWordsEveryKind(t *testing.T) {
 		{"a line", event.KindFact, event.StepMessage, `{"to":"pj-l-01","line":"look","from":"pj-lead"}`,
 			Described{Line: "line to pj-l-01: look", To: "pj-l-01", From: "pj-lead", Text: "look"}},
 		{"an intent is not worded", event.KindIntent, event.StepGate, `{"kind":"lane"}`, Described{}},
+		// T-977: the promotion's events, of their own kind
+		{"a promotion's start", event.KindIntent, event.StepPromote + ".3",
+			`{"sha":"abcdef0123","since":"0123456789","merges":["T-1","T-2"],"weight":4}`,
+			Described{Line: "promotion started: full suite on abcdef0 (T-1, T-2)", Kind: KindPromotion}},
+		{"a GREEN promotion", event.KindResult, event.StepPromote + ".3",
+			`{"sha":"abcdef0123","verdict":"GREEN","line":"check 10 passed"}`,
+			Described{Line: "promotion GREEN abcdef0: check 10 passed", Kind: KindPromotion, Outcome: "GREEN",
+				Text: "check 10 passed"}},
+		{"a RED promotion", event.KindResult, event.StepPromote + ".1",
+			`{"sha":"abcdef0123","verdict":"RED","line":"check 1 failed — TestX","retried":true}`,
+			Described{Line: "promotion RED abcdef0: check 1 failed — TestX", Bad: true, Kind: KindPromotion,
+				Outcome: "RED", Text: "check 1 failed — TestX"}},
+		{"a promotion that ended neither is not worded", event.KindResult, event.StepPromote + ".2", ``,
+			Described{}},
+		{"main promoted", event.KindFact, event.StepPromoted, `{"sha":"abcdef0123","since":"0123456789","branch":"main"}`,
+			Described{Line: "promoted main → abcdef0", Kind: KindPromotion}},
+		{"an after_promote is not worded", event.KindIntent, event.StepAfterPromote + ".1", `{"sha":"abcdef0123"}`,
+			Described{}},
 	}
 	covered := map[string]bool{}
 	for _, c := range cases {

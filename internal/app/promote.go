@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"strconv"
 	"strings"
 	"time"
@@ -78,37 +79,46 @@ type promoteIn struct {
 }
 
 // promotedData is fact promoted's data and after_promote's intent: the sha the promoted branch was moved to, and the
-// sha it was at before (after_promote's).
+// sha it was at before (after_promote's); fact promoted's names the branch it moved too (T-977: the event's line).
 type promotedData struct {
-	SHA   string `json:"sha"`
-	Since string `json:"since,omitempty"`
+	SHA    string `json:"sha"`
+	Since  string `json:"since,omitempty"`
+	Branch string `json:"branch,omitempty"`
 }
 
 // promoteState is the promotion's fold and its live state: the last run's step, intent and result (and whether a RED
 // one waits for its needs-you), the last promoted sha, the last after_promote, the counted failures per step, and,
 // live, whether a step runs and what the last pass counted (obor status).
 type promoteState struct {
-	seq       int // the last promote.<seq>
-	step      string
-	in        promoteIn
-	done      bool
-	out       *PromoteOut
-	unsettled bool   // out is RED and no needs-you or resumed fact followed it
-	promoted  string // the last fact promoted's sha
-	since     string // the sha promoted before it
-	afterSeq  int
-	afterStep string
-	afterSHA  string
-	afterDone bool
-	fails     map[string]int
-	failedAt  time.Time
-	failedWhy string
-	running   bool // a promotion step runs in its own goroutine (under mu)
-	// The last pass's count (live, obor status): the promoted branch, its sha, the merges since, why a GREEN run waits.
-	branch string
-	head   string
-	merges int
-	wait   string
+	seq        int // the last promote.<seq>
+	step       string
+	in         promoteIn
+	startedAt  time.Time // the last run's intent's time
+	done       bool
+	doneAt     time.Time // its result's time
+	out        *PromoteOut
+	unsettled  bool      // out is RED and no needs-you or resumed fact followed it
+	promoted   string    // the last fact promoted's sha
+	since      string    // the sha promoted before it
+	promotedAt time.Time // the last fact promoted's time
+	afterSeq   int
+	afterStep  string
+	afterSHA   string
+	afterDone  bool
+	fails      map[string]int
+	failedAt   time.Time
+	failedWhy  string
+	running    bool // a promotion step runs in its own goroutine (under mu)
+	// The last pass's count (live, obor status): the promoted branch, its sha, the merges since (the tasks, their weight
+	// and the weight that triggers a promotion), why a GREEN run waits and the review it waits for (T-977).
+	branch    string
+	head      string
+	merges    int
+	tasks     []string
+	weight    int
+	threshold int
+	wait      string
+	waitRV    string
 }
 
 // promoteSeq is the <seq> of step "<base>.<seq>" (0: another step).
@@ -129,10 +139,10 @@ func (p *proj) foldPromote(r event.Record) {
 	run, after := promoteSeq(r.Step, event.StepPromote), promoteSeq(r.Step, event.StepAfterPromote)
 	switch {
 	case r.Kind == event.KindIntent && run > 0:
-		s.seq, s.step, s.done, s.in = run, r.Step, false, promoteIn{}
+		s.seq, s.step, s.done, s.in, s.startedAt = run, r.Step, false, promoteIn{}, event.RecordTime(r)
 		_ = json.Unmarshal(r.Data, &s.in)
 	case r.Kind == event.KindResult && run > 0 && r.Step == s.step:
-		s.done = true
+		s.done, s.doneAt = true, event.RecordTime(r)
 		var out PromoteOut
 		if json.Unmarshal(r.Data, &out) == nil && out.Verdict != "" {
 			s.out, s.unsettled = &out, out.Verdict == "RED"
@@ -146,7 +156,7 @@ func (p *proj) foldPromote(r event.Record) {
 	case r.Kind == event.KindFact && r.Step == event.StepPromoted:
 		var d promotedData
 		_ = json.Unmarshal(r.Data, &d)
-		s.promoted, s.since = d.SHA, d.Since
+		s.promoted, s.since, s.promotedAt = d.SHA, d.Since, event.RecordTime(r)
 	case r.Kind == event.KindFact && r.Step == event.StepFailed:
 		if s.fails == nil {
 			s.fails = map[string]int{}
@@ -220,10 +230,10 @@ func (a *App) promotion(ctx context.Context, p *proj, fx *Loop) {
 // promoteHeads is promotion's part once it read the target's head and the promoted branch's sha (at).
 func (a *App) promoteHeads(ctx context.Context, p *proj, fx *Loop, pr *Promote, st promoteState, head, at string,
 	idle, restarting bool, now time.Time) {
-	wait := ""
+	wait, waitRV := "", ""
 	defer func() {
 		a.mu.Lock()
-		p.prom.branch, p.prom.head, p.prom.wait = pr.Branch, at, wait
+		p.prom.branch, p.prom.head, p.prom.wait, p.prom.waitRV, p.prom.threshold = pr.Branch, at, wait, waitRV, pr.Weight
 		a.mu.Unlock()
 	}()
 	// A GREEN run not promoted yet: the fast-forward once a closed review covers it (at G already: a crash after the
@@ -236,6 +246,9 @@ func (a *App) promoteHeads(ctx context.Context, p *proj, fx *Loop, pr *Promote, 
 			a.logf("promotion of %s: review cover of %s: %v", p.name, short(o.SHA), err)
 		case at != o.SHA && !ok:
 			wait = "GREEN " + short(o.SHA) + " waits: " + why
+			a.mu.Lock()
+			waitRV = p.folded.reviewed.open()
+			a.mu.Unlock()
 		case st.spent(ffKey) || st.waitRetry(ffKey, now):
 		default:
 			sha, since := o.SHA, at
@@ -256,7 +269,7 @@ func (a *App) promoteHeads(ctx context.Context, p *proj, fx *Loop, pr *Promote, 
 		}
 	}
 	if head == at {
-		a.setMerges(p, 0)
+		a.setBatch(p, promoteIn{})
 		return
 	}
 	in, err := a.promoteBatch(ctx, p, fx, pr, at, head)
@@ -264,7 +277,7 @@ func (a *App) promoteHeads(ctx context.Context, p *proj, fx *Loop, pr *Promote, 
 		a.logf("promotion of %s: merges since %s: %v", p.name, short(at), err)
 		return
 	}
-	a.setMerges(p, len(in.Merges))
+	a.setBatch(p, in)
 	if restarting || len(in.Merges) == 0 || in.Weight < pr.Weight && !idle {
 		return
 	}
@@ -276,10 +289,10 @@ func (a *App) promoteHeads(ctx context.Context, p *proj, fx *Loop, pr *Promote, 
 	a.goPromote(ctx, p, func(ctx context.Context) { a.runPromote(ctx, p, pr, step, in) })
 }
 
-// setMerges keeps the merges since the promoted sha for obor status.
-func (a *App) setMerges(p *proj, n int) {
+// setBatch keeps the merges since the promoted sha, their tasks and weight, for obor status and the monitor.
+func (a *App) setBatch(p *proj, in promoteIn) {
 	a.mu.Lock()
-	p.prom.merges = n
+	p.prom.merges, p.prom.tasks, p.prom.weight = len(in.Merges), in.Merges, in.Weight
 	a.mu.Unlock()
 }
 
@@ -425,7 +438,7 @@ func (a *App) promoteFF(ctx context.Context, p *proj, pr *Promote, sha, since, k
 		return
 	}
 	if a.record(p, event.Record{Task: event.PromoteTask, Step: event.StepPromoted, Kind: event.KindFact},
-		promotedData{SHA: sha, Since: since}) {
+		promotedData{SHA: sha, Since: since, Branch: pr.Branch}) {
 		a.settleNeeds(p, event.PromoteTask, "")
 	}
 }
@@ -476,4 +489,48 @@ func (a *App) promoteRed(p *proj, out PromoteOut, in promoteIn) {
 	a.mu.Lock()
 	p.prom.unsettled = false
 	a.mu.Unlock()
+}
+
+// promoteStatus is the promotion as obor status and the monitor show it (T-974, T-977; nil: no pass read it, or
+// branches.promote is unset): the last pass's count, the promoted sha's time when a fact promoted it, the run under
+// way — its suite (the intent open) or, GREEN and not promoted, its wait for review — and the RED run whose
+// needs-you is open. Under mu.
+func (p *proj) promoteStatus() *wire.PromoteStatus {
+	s := p.prom
+	if s.branch == "" {
+		return nil
+	}
+	st := &wire.PromoteStatus{Branch: s.branch, SHA: s.head, Merges: s.merges, Tasks: s.tasks, Weight: s.weight,
+		Threshold: s.threshold, Wait: s.wait}
+	if s.promoted != "" && s.promoted == s.head && !s.promotedAt.IsZero() {
+		st.At = s.promotedAt.Unix()
+	}
+	switch o := s.out; {
+	case s.step != "" && !s.done:
+		st.Run = &wire.PromoteRun{SHA: s.in.SHA, Since: unixOr0(s.startedAt), Step: wire.PromoteSuite}
+	case o != nil && o.Verdict == "GREEN" && s.wait != "":
+		st.Run = &wire.PromoteRun{SHA: o.SHA, Since: unixOr0(s.doneAt), Step: wire.PromoteReview, Review: s.waitRV}
+	case o != nil && o.Verdict == "RED" && p.redOpen(o.SHA):
+		st.Red = &wire.PromoteRed{SHA: o.SHA, Tests: o.Line, At: unixOr0(s.doneAt), Since: s.in.Since,
+			Merges: s.in.Merges}
+	}
+	return st
+}
+
+// redOpen: the project's needs-you of a RED promotion at sha is open (promoteRed's reason).
+func (p *proj) redOpen(sha string) bool {
+	for _, f := range p.folded.active[event.PromoteTask] {
+		if f.Step == event.StepNeedsYou && strings.HasPrefix(f.Fact().Reason, promoteRedPrefix+short(sha)+":") {
+			return true
+		}
+	}
+	return false
+}
+
+// unixOr0 is t's epoch seconds, 0 for the zero time.
+func unixOr0(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+	return t.Unix()
 }

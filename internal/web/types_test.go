@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"obor/internal/app"
 	"obor/internal/app/wire"
 	"obor/internal/view"
 )
@@ -69,6 +70,9 @@ var goStructs = map[string]reflect.Type{
 	"DispatchCount": reflect.TypeOf(view.DispatchCount{}),
 	"Setup":         reflect.TypeOf(view.Setup{}),
 	"Help":          reflect.TypeOf(Help{}),
+	"PromoteStatus": reflect.TypeOf(wire.PromoteStatus{}),
+	"PromoteRun":    reflect.TypeOf(wire.PromoteRun{}),
+	"PromoteRed":    reflect.TypeOf(wire.PromoteRed{}),
 }
 
 // tsOnly are the interfaces with no same-named Go struct: help's rows are help.Command and help.Section (web.Help ties
@@ -181,6 +185,16 @@ func TestTSStringSetsMatchGo(t *testing.T) {
 	}
 
 	format := readTS(t, filepath.Join(tsLib, "format.ts"))
+	// T-977: the event kinds serve names and a promotion run's steps are Go's.
+	if kinds, ok := tsStringSet(format, "export const SERVE_KINDS = [", "]"); !ok || !slices.Equal(kinds, []string{app.KindPromotion}) {
+		t.Errorf("format.ts: SERVE_KINDS %v (parsed %v), want [%s] (app.Kind*)", kinds, ok, app.KindPromotion)
+	}
+	promotion := readTS(t, filepath.Join(tsLib, "promotion.ts"))
+	if steps, ok := tsStringSet(promotion, "export const PROMOTE_STEPS = [", "]"); !ok ||
+		!slices.Equal(steps, []string{wire.PromoteSuite, wire.PromoteReview}) {
+		t.Errorf("promotion.ts: PROMOTE_STEPS %v (parsed %v), want [%s %s] (wire.Promote*)", steps, ok,
+			wire.PromoteSuite, wire.PromoteReview)
+	}
 	if strings.Contains(format, "export const FREE") {
 		t.Errorf("format.ts retypes the free lane states: the view ships Lane.free (T-883)")
 	}

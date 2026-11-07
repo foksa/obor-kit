@@ -46,15 +46,18 @@ const (
 
 // WaitItem is a dispatch that waits, of a task by id (Project.Tasks has its title and spec rev, T-883): for its
 // --after tasks (After; Why: its last refused dispatch once they all merged), for a lane of its level (Level, Types,
-// Why), or a stored spec never dispatched (Since: the spec's set time).
+// Why), or a stored spec never dispatched (Since: the spec's set time). A dispatch's carries serve's Difficulty and
+// the Model it will run on (wire.TaskStatus', T-977; "": serve has none).
 type WaitItem struct {
-	Task    string   `json:"task"`
-	WaitsOn string   `json:"waits_on"`
-	After   []string `json:"after,omitempty"`
-	Why     string   `json:"why,omitempty"`
-	Level   string   `json:"level,omitempty"`
-	Types   []string `json:"types,omitempty"`
-	Since   int64    `json:"since,omitempty"`
+	Task       string   `json:"task"`
+	WaitsOn    string   `json:"waits_on"`
+	After      []string `json:"after,omitempty"`
+	Why        string   `json:"why,omitempty"`
+	Level      string   `json:"level,omitempty"`
+	Types      []string `json:"types,omitempty"`
+	Difficulty string   `json:"difficulty,omitempty"`
+	Model      string   `json:"model,omitempty"`
+	Since      int64    `json:"since,omitempty"`
 }
 
 // ReviewItem is the open review request as serve sends it (the tasks it waits to merge, those not merged yet, the task
@@ -111,6 +114,7 @@ func queue(v *Project, ps wire.ProjectStatus, nightlyAt string, specs map[string
 			if len(t.After) > 0 {
 				w = WaitItem{Task: t.Task, WaitsOn: WaitsAfter, After: t.After, Why: t.Why}
 			}
+			w.Difficulty, w.Model = t.Difficulty, t.Model
 			q.Waiting = append(q.Waiting, w)
 			continue
 		}

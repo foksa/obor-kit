@@ -9,6 +9,8 @@ import (
 	"net"
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
+	"obor/internal/config"
+	"obor/internal/spec"
 	"obor/internal/version"
 	"slices"
 	"sort"
@@ -82,6 +84,7 @@ func (a *App) Status() wire.Status {
 				if mt.is(stWaiting) {
 					ts.After, ts.Why = mt.disp.After, p.waitLine[mt.task].line
 					ts.Level, ts.Types = mt.disp.Level, mt.disp.Types
+					ts.Difficulty, ts.Model = p.waitDifficulty(mt), p.firstUnpaused(mt.disp.Types, now)
 				}
 				key, open := mt.workerJob()
 				if !open {
@@ -121,9 +124,7 @@ func (a *App) Status() wire.Status {
 				Note: q.note, By: q.by, Since: q.at.Unix()}
 		}
 		ps.Briefs = p.briefStatus()
-		if pr := p.prom; pr.branch != "" {
-			ps.Promote = &wire.PromoteStatus{Branch: pr.branch, SHA: pr.head, Merges: pr.merges, Wait: pr.wait}
-		}
+		ps.Promote = p.promoteStatus()
 		ps.Stopped = a.stoppedRoles(p)
 		for _, f := range ps.Facts {
 			if f.Step != event.StepNeedsYou {
@@ -480,4 +481,29 @@ func (a *App) herdrNote() string {
 		return ""
 	}
 	return fmt.Sprintf("herdr %s, protocol %d (newer than obor's %d)", a.herdrVer, a.herdrProt, a.herdrOwn)
+}
+
+// waitDifficulty is a waiting task's Difficulty level: its dispatch's level, else (a --model override, which names
+// none) its stored spec's Difficulty line; "": neither (T-977). Under mu.
+func (p *proj) waitDifficulty(mt *mtask) string {
+	if mt.disp.Level != "" {
+		return mt.disp.Level
+	}
+	row, ok, err := specOf(p, mt.task)
+	if err != nil || !ok {
+		return ""
+	}
+	level, _ := spec.Difficulty(row.Text)
+	return level
+}
+
+// firstUnpaused is the model ref of types a dispatch runs on now: the first whose model obor pause --model does not
+// hold (pickLane's choice; "": every one is held). Under mu.
+func (p *proj) firstUnpaused(types []string, now time.Time) string {
+	for _, t := range types {
+		if typ, _ := config.ParseModelRef(t); p.modelPaused(typ, now) == nil {
+			return t
+		}
+	}
+	return ""
 }
