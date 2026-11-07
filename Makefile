@@ -72,6 +72,11 @@ trim-go-cache:
 # CHECK_SHORT=1 adds -short to check, check-readers and check-web: serve's lane test sets it, so a lane runs the short
 # tier whatever its class (T-989); the promotion's and the nightly's runners do not, so the full suite runs there, and in
 # a release.
+# CHECK_DIRECT=1 makes check-affected ask obor affected go --direct: the changed packages only, no importers. Serve's
+# lane test sets it when branches.promote is set (T-991): the merge slot's compile (check-compile) catches an importer's
+# build break and the promotion's full suite (commands.check) an importer's test break, so the lane need not run them.
+# Without a promotion nothing would catch those, so a lane runs the importers too, as before; the gate, the nightly and
+# a release never set it.
 # Serve's lane step runs the class's tier in the task's lane (T-961). check-compile (commands.compile, T-961) is
 # what serve's merge slot runs on each merge: build, gofmt, vet and deadcode, no go test. CHECK_CPUS (obor run and the
 # gates export it: cores / slots.max) is go test -p. Every class check starts with
@@ -90,7 +95,8 @@ check check-affected:
 	pkgs=./...; short=; \
 	if [ "$@" = check-affected ]; then \
 	  short=-short; \
-	  if a=$$(./dist/obor affected go); then \
+	  direct=; if [ "$$CHECK_DIRECT" = 1 ]; then direct=--direct; fi; \
+	  if a=$$(./dist/obor affected go $$direct); then \
 	    case "$$a" in \
 	      "full: "*) echo "affected: full suite ($${a#full: })" ;; \
 	      "") pkgs= ;; \

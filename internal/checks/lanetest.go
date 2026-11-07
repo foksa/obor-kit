@@ -80,6 +80,11 @@ func (s Scratch) Test(ctx context.Context, in port.TestInput) (out port.TestOutc
 	// The short tier, whatever the class (T-989): the full suite runs at the promotion and the nightly, never in a lane
 	// (T-986's full:mixed lane timed out on it twice at 1200 s).
 	r.env = append(r.env, "CHECK_SHORT=1")
+	// With promotion on, only the changed packages' tests run here (T-991): the slot's compile catches an importer's
+	// build break, and the promotion's full suite an importer's test break.
+	if s.Cfg.Data.Branches.Promote != "" {
+		r.env = append(r.env, "CHECK_DIRECT=1")
+	}
 	defer r.releaseSlot()
 	for _, h := range []func() *halt{
 		func() *halt { return r.changed(in.Task, in.Target+".."+in.SHA) },

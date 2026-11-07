@@ -37,6 +37,10 @@ func TestAffectedGoCommand(t *testing.T) {
 		want string
 	}{
 		{"--changed", []string{"affected", "go", "--changed", list("a/a.go")}, nil, "fx/a\nfx/b\n"},
+		{"--direct", []string{"affected", "go", "--direct", "--changed", list("a/a.go")}, nil, "fx/a\n"}, // T-991: no importer b
+		{"--direct after --changed", []string{"affected", "go", "--changed", list("a/a.go"), "--direct"}, nil, "fx/a\n"},
+		{"--direct from env", []string{"affected", "go", "--direct"}, []string{"OBOR_CHANGED_FILES=" + list("a/a.go")}, "fx/a\n"},
+		{"--direct affected_full", []string{"affected", "go", "--direct", "--changed", list("a/a.go", "build/x.txt")}, nil, "full: changed build/x.txt\n"},
 		{"env default", []string{"affected", "go"}, []string{"OBOR_CHANGED_FILES=" + list("c/c.go", "README.md")}, "fx/c\n"},
 		{"test file only", []string{"affected", "go", "--changed", list("a/a_test.go")}, nil, "fx/a\n"}, // T-954: b imports a, but nothing imports a test file
 		{"no Go file", []string{"affected", "go", "--changed", list("README.md")}, nil, ""},
@@ -58,6 +62,9 @@ func TestAffectedGoCommand(t *testing.T) {
 	}
 	if rc, _, _ := run(t, p.Root, nil, "affected", "rust"); rc != 2 {
 		t.Errorf("affected rust: exit %d, want 2", rc)
+	}
+	if rc, _, _ := run(t, p.Root, nil, "affected", "go", "--bogus"); rc != 2 {
+		t.Errorf("affected go --bogus: exit %d, want 2", rc)
 	}
 	if rc, _, _ := run(t, p.Root, nil, "has", "affected", "go"); rc != 0 {
 		t.Errorf("obor has affected go: exit %d, want 0", rc)
