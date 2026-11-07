@@ -143,6 +143,7 @@ type mtask struct {
 	sendbacks         int
 	attemptVars              // what a new attempt resets (next)
 	resolved          string // stResolved: the resolved merge's sha, pinned at refs/obor/resolved/<task>
+	resolvedRev       int    // the spec rev the resolution was made under (T-968: a rev the lead set since reviews it)
 	report            string // the last submission's report (task_done's)
 	after             int    // stMerged: how many afterSteps have a result (all: a merge outside the app did them)
 	head              string // stMerged: the merge's sha (mergedData.Head; "": a merge outside the app)
@@ -252,12 +253,11 @@ type (
 		Target    string `json:"target"`
 		Lane      string `json:"lane"`
 	}
-	// testOut is a lane test's result: green, red or fail, its line, the checks' summary and the tree they ran on.
+	// testOut is a lane test's result: green, red or fail, its line and the checks' summary.
 	testOut struct {
 		Outcome string `json:"outcome"`
 		Line    string `json:"line"`
 		Checks  string `json:"checks,omitempty"`
-		Tree    string `json:"tree,omitempty"`
 	}
 	noteData struct {
 		Note string `json:"note"`

@@ -408,13 +408,11 @@ func TestRV37V2ResumeRetryKeepsTheJob(t *testing.T) {
 				if reply, err := r.verdict(wire.MethodResolved, "c1", "", ""); err != nil || reply != "RESOLVED T-1 (job "+job+")" {
 					t.Fatalf("resolved after the resumed %s: %q, %v", step, reply, err)
 				}
-				text = r.waitJob("pj-int", "T-1/1/review")
+				// T-968: the resolve verdict is its own review: the resolution is tested in the lane and published,
+				// with no review job after it.
 			} else if reply, err := r.verdict(wire.MethodAccept, "c1", r.patch(text), ""); err != nil ||
 				reply != "ACCEPT T-1 (job "+job+")" {
 				t.Fatalf("accept after the resumed %s: %q, %v", step, reply, err)
-			}
-			if strings.HasSuffix(step, "resolve") {
-				r.accept("c2", r.patch(text))
 			}
 			r.merged(1)
 		})

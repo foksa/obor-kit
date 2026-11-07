@@ -103,7 +103,9 @@ func init() {
 		// rows 23, 25, 30–31: the resolve job is out
 		stResolving: {pick: (*App).pickJob, name: jobName, verbs: vResume | vDrop, scratch: true, landed: true,
 			phase: wire.PhaseReviewing, verdicts: []verdictRule{
-				{wire.MethodResolved, func(mt *mtask, v verdictResult) { mt.state, mt.resolved = stResolved, v.SHA }},
+				{wire.MethodResolved, func(mt *mtask, v verdictResult) {
+					mt.state, mt.resolved, mt.resolvedRev = stResolved, v.SHA, v.Rev
+				}},
 				{wire.MethodReject, func(mt *mtask, v verdictResult) {
 					mt.block(block{cause: causeResolveRejected, why: "resolve rejected: " + v.Note})
 				}},
