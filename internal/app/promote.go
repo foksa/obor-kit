@@ -66,6 +66,10 @@ type Promote struct {
 	After func(ctx context.Context, sha, since string) (string, error)
 }
 
+// PromoteOut is port.PromoteOut, the promotion run's one result type (T-978), by its name in package app (the
+// readers' describe.go decodes a result with it).
+type PromoteOut = port.PromoteOut
+
 // promoteIn is a promotion's intent: the target's head it checks, the promoted sha it follows, the merges between
 // them and their weight.
 type promoteIn struct {
