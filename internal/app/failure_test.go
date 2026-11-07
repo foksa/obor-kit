@@ -206,6 +206,7 @@ func TestLoopFailureRule(t *testing.T) {
 // Sol's probe TestRV37VerifyStopFailure, fixed: a stop that fails while the agent is still in its pane is pending,
 // and the stop is retried after a reload.
 func TestRV37VerifyStopFailure(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.work("feature.txt", "feature\n")
@@ -465,6 +466,7 @@ func TestLoopRejectUnpins(t *testing.T) {
 // Submit's Refused is final (a result, not a counted failure): no gate, the owner decides; obor resume's regate
 // submits again (submit.2), then the task goes on.
 func TestLoopSubmitRefused(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.work("feature.txt", "feature\n")

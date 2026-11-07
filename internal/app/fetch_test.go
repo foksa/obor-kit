@@ -249,6 +249,7 @@ func fetched(t *testing.T) (*loopRig, string) {
 // The integrator's start carries its job's wake; its review job is a wake, fetched by job_next (no status rule), and
 // accepted as today.
 func TestFetchReviewJob(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r, text := fetched(t)
 	r.mu.Lock()
@@ -278,6 +279,7 @@ func TestFetchReviewJob(t *testing.T) {
 // call id gets the stored reply; once submitted, another task_done is refused. The guards: the caller's role and
 // agent, the report (empty, a section missing).
 func TestFetchFixAndTaskDone(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r, _ := fetched(t)
 	if reply, err := r.verdict(wire.MethodSendback, "s1", "", "add a test"); err != nil || !strings.HasPrefix(reply, "SENDBACK T-1") {
@@ -396,6 +398,7 @@ func (r *loopRig) callDone(agent, role, callID, report string) (string, error) {
 // An unfetched fix job: its wake again after 5 min, the owner after 5 more; obor resume (its default: retry) sends it
 // anew as fix.2, whose fetch delivers it.
 func TestFetchFixUndelivered(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r, _ := fetched(t)
 	if _, err := r.verdict(wire.MethodSendback, "s1", "", "add a test"); err != nil {

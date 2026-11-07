@@ -145,6 +145,7 @@ func TestIdleBlockers(t *testing.T) {
 
 // T-803: obor idle "<why>" acknowledges; no ping follows, and obor status shows the why.
 func TestIdleAckStopsThePing(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.start()
@@ -175,6 +176,7 @@ func TestIdleAckStopsThePing(t *testing.T) {
 
 // T-803: a watch on the last task comes first, then the idle line of the same merge.
 func TestIdleLineAfterTheWatchLine(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.start()
@@ -219,6 +221,7 @@ func (r *loopRig) idleAcked() string {
 
 // T-815: a brief of a role with no role worktree keeps the idle state: its acknowledgement stands.
 func TestCustomRoleBriefKeepsIdle(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass", testkit.Set("roles.researcher", "sonnet"))
 	line := r.idleAcked()
@@ -242,6 +245,7 @@ func TestCustomRoleBriefKeepsIdle(t *testing.T) {
 // T-859: the idle line waits out its window. A review request ten seconds after the pipeline empties resets it: no
 // line, and only the request's end starts a window that posts the line.
 func TestIdleSettleReviewRequestTenSecondsLater(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass", testkit.Set("roles.reviewer", ""))
 	r.start()

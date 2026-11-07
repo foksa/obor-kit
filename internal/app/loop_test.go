@@ -521,6 +521,7 @@ func (r *loopRig) noLead() {
 // From a task_done to merged with no one but the integrator in it: the integrator is not running, so it is
 // started for its review job; it accepts the patch the job names; the app publishes and runs the after-merge work.
 func TestLoopHappyPath(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.work("feature.txt", "feature\n")
@@ -597,6 +598,7 @@ func TestLoopHappyPath(t *testing.T) {
 
 // A red lane test (T-961) goes back to the worker with the reasons; its next task_done is the next attempt. After K = 2 sendbacks a third red goes to the owner (one notification), not to the worker again.
 func TestLoopRedSendsBackTwiceThenNeedsYou(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r := newLoopRig(t, `if [ -f red.txt ]; then echo "0 pass, 1 fail"; exit 1; fi; echo 1 pass`)
 	r.work("red.txt", "red\n")
@@ -661,6 +663,7 @@ func countReq(srv *herdrtest.Server, method string) int {
 // says resolved, the app gates that merge, tests it once in the lane, and reviews it (T-973: the resolve job carries
 // only the conflict, so a first-gate conflict gets the task's review), then publishes after the accept.
 func TestLoopConflictResolvedThenMerged(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.work("shared.txt", "lane\n2\n3\n4\n5\n6\n7\n8\n9\n10\n")
@@ -806,6 +809,7 @@ func TestLoopTargetMoved(t *testing.T) {
 // T-403: a moved gate that conflicts is resolved against the submitted sha (the merge's second parent), then gated as
 // committed, tested in the lane and merged (T-961: no second review); the old candidate does not go along.
 func TestLoopMovedConflictResolved(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.work("shared.txt", "lane\n2\n3\n4\n5\n6\n7\n8\n9\n10\n")
@@ -855,6 +859,7 @@ func TestLoopMovedConflictResolved(t *testing.T) {
 // An obor merge outside the app while the task waits for its accept (the cutover's race): reconciled to merged, no
 // publish and no after-merge work of its own; the integrator's late accept finds no job.
 func TestLoopMergedOutsideTheApp(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.work("feature.txt", "feature\n")
@@ -882,6 +887,7 @@ func TestLoopMergedOutsideTheApp(t *testing.T) {
 // obor serve restarts while the task waits for its accept: the replay settles the review prompt (never sent again),
 // and the integrator's verb after the restart merges it.
 func TestLoopRestartWhileAwaitingAccept(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.work("feature.txt", "feature\n")
@@ -949,6 +955,7 @@ func TestLoopErrorIsAFactOnceAndClears(t *testing.T) {
 // T-425: while the main checkout is off the target branch the project's pass pauses: one loop needs-you, the
 // task_done recorded (a request, T-437) but neither submitted nor gated; back on the branch the fact ends and the task gates.
 func TestLoopPausedOffTargetBranch(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	set := func(err error) {
@@ -982,6 +989,7 @@ func TestLoopPausedOffTargetBranch(t *testing.T) {
 // message carries it, and the gate writes no spec file. (A draft left in the main checkout's tasks dir holds the
 // publish: drafts live in .obor/drafts/.)
 func TestCommitSubjectFromStoredSpec(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	const committed = "# T-1 — Committed target title"

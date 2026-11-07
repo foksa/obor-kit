@@ -18,6 +18,7 @@ import (
 // longer names (D-01, removed by T-765) from its old dispatch records, and serve drops it; the configured lane's row
 // stays and reads the same in status, the setup view and launch (which starts a lane's worker at the row's model).
 func TestLaneRowsHoldConfiguredLanesOnly(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass", testkit.Set("lanes", 2))
 	r.p.Lane("L-02", "") // the second configured lane: free

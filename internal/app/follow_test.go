@@ -5,6 +5,7 @@ import (
 	"errors"
 	"obor/internal/app"
 	"obor/internal/app/event"
+	"obor/internal/testkit"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -116,6 +117,7 @@ func TestFollowBinaryIdle(t *testing.T) {
 
 // A gate running: the restart waits for it (shown as restarting meanwhile) and goes once it has ended.
 func TestFollowBinaryWaitsForIdle(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	r := newFollowRig(t, nil)
 	release := make(chan struct{})
