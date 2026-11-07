@@ -1105,6 +1105,31 @@ func TestRestartLaneWorkerJobUnknownRefuses(t *testing.T) {
 	}
 }
 
+// T-959: a Job error that is restart's own line (a project.Fail: the integrator's serve is down and may hold its job)
+// is the FAIL line itself, never wrapped as "not restarted (nothing stopped)": obor restart prints exactly what its
+// spec names. Nothing is stopped either.
+func TestRestartIntegratorServeDownRefuses(t *testing.T) {
+	t.Parallel()
+	x := setup(t)
+	x.agent("w1:p5", "pj-int", "claude", "idle")
+	var out bytes.Buffer
+	l := x.launcher(&out)
+	l.Job = func(context.Context, string, string) (string, error) {
+		return "", project.Failf("restart pj-int: obor serve is not running; it may hold an open job for pj-int: start " +
+			"serve, then restart")
+	}
+	line, err := l.Restart(context.Background(), launch.Request{Agent: "pj-int", Fresh: true})
+	got, ok := result(t, &out, line, err)
+	if ok {
+		t.Fatalf("restarted: %s", got)
+	}
+	const want = "FAIL restart pj-int: obor serve is not running; it may hold an open job for pj-int: start serve, then restart"
+	eq(t, failLine(got), want, "result")
+	if len(x.calls("pane.send_keys")) > 0 || len(x.calls("pane.send_input")) > 0 || x.startCall() != "" {
+		t.Errorf("the agent touched: %q", x.srv.Calls())
+	}
+}
+
 // T-387: herdr's start waits for an agent ready for input; one working on its first prompt is not, herdr gives up
 // after 30 s and keeps no name for it. A start with a prompt whose agent runs and works in the pane is a start; the
 // name it keeps from herdr is not obor's business (T-952: no rename back).

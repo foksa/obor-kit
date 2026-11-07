@@ -40,6 +40,10 @@ const (
 	MethodBrief    = "brief"      // Call.To the role agent, Call.Note the brief ("": the restart's first prompt carried it)
 	MethodStopped  = "stopped"    // Call.Agent the agent, Call.Role its role, Call.Lane a worker's lane, Call.Error, Call.Details
 	MethodTurn     = "turn"       // an agent's next turn began or ended (its UserPromptSubmit or Stop hook): Call.Agent, Call.Lane
+	// MethodRestartJob (obor restart's, T-959): the job an agent's restart carries as its wake — the job job_next
+	// would hand its agent, with the same predicate and order (Call.Role, Call.Agent, Call.Lane). Reply: that job id,
+	// or "" when the agent has none.
+	MethodRestartJob = "restart_job"
 	// MethodExit (the owner's or the lead's; obor stop, T-711): serve ends gracefully, as a signal ends it and as its
 	// self-restart does (T-652, T-656): Call.Root its project, Call.Note why. The reply is EXITING; the caller confirms
 	// serve down by its serve.flock and socket.

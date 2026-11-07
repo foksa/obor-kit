@@ -258,7 +258,7 @@ func TestRestartCommand(t *testing.T) {
 	a.Foreground, a.OnQuit = os.Getpid(), "stay" // the live fake would quit on /exit: this agent ignores it
 	srv := herdrtest.Serve(t, f)
 	env := []string{"HERDR_SOCKET_PATH=" + srv.Path, "HOME=" + p.Base + "/home",
-		"OBOR_STATE_HOME=" + p.Base + "/state", "OBOR_RESTART_WAIT=1"}
+		"OBOR_STATE_HOME=" + p.Base + "/state", "OBOR_RESTART_WAIT=1", callDown}
 	for _, c := range []struct {
 		args []string
 		rc   int
@@ -276,6 +276,9 @@ func TestRestartCommand(t *testing.T) {
 		{[]string{"restart", "pj-l-01", "--sid", "sid-9"}, 1, "FAIL " + help.Usage("restart")},
 		{[]string{"restart", "pj-l-01", "--type=luna"}, 1, "FAIL " + help.Usage("restart")},
 		{[]string{"restart", "nobody"}, 1, "FAIL unknown agent nobody (no lane, role, agents entry or recorded session)"},
+		// T-959: serve is down and may hold an open job for the integrator: refused, not restarted without a wake.
+		{[]string{"restart", "pj-int", "--fresh"}, 1, "FAIL restart pj-int: obor serve is not running; it may hold an " +
+			"open job for pj-int: start serve, then restart"},
 		{[]string{"restart", "pj-int", "--stop"}, 0, "STOPPED pj-int (pane w1:p2, already at a shell)"},
 	} {
 		rc, stdout, stderr := run(t, p.Root, env, c.args...)

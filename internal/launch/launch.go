@@ -97,9 +97,10 @@ type Launcher struct {
 	Open func(pids []int) []string
 	// Job is the open job (<task>/<attempt>/<step>) obor serve holds for role's agent on lane ("": none): a lane
 	// worker's work or fix job of the task its lane holds, the integrator's review or resolve job of a task (T-773,
-	// T-947); obor restart sends its wake, never an idle agent with no job. An error (the agent's lane holds a task
-	// and serve cannot answer, T-778) refuses the restart before the old agent is stopped. nil: none asked (obor
-	// serve's own starts carry their job's wake).
+	// T-947); obor restart sends its wake, never an idle agent with no job. An error refuses the restart before the old
+	// agent is stopped: the agent's lane holds a task and serve cannot answer (T-778), or the integrator's serve is not
+	// running and may hold one of its jobs (T-959; that error is already restart's whole FAIL line). nil: none asked
+	// (obor serve's own starts carry their job's wake).
 	Job func(ctx context.Context, role, lane string) (string, error)
 }
 
@@ -520,6 +521,10 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	job := ""
 	if req.Prompt == "" && l.Job != nil && (t.info.Role == "integrator" || t.info.Role == "worker" && t.info.Lane != "") {
 		if job, err = l.Job(ctx, t.info.Role, t.info.Lane); err != nil {
+			var fail project.Fail
+			if errors.As(err, &fail) { // restart's own refusal: the whole FAIL line (T-959: serve down for the integrator)
+				return port.Started{}, err
+			}
 			return port.Started{}, project.Failf("%s not restarted (nothing stopped): %v", t.agent, err)
 		}
 	}

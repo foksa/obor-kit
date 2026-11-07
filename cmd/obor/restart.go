@@ -5,11 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"path/filepath"
-	"strings"
 	"time"
 
-	"obor/internal/app/event"
 	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/help"
@@ -50,7 +47,7 @@ func restart(args []string) int {
 	if _, cfg, rc := load(); rc == 0 {
 		l.Cfg = cfg
 		l.Job = func(ctx context.Context, role, lane string) (string, error) {
-			return serveAgentJob(ctx, cfg, role, lane)
+			return serveAgentJob(ctx, cfg, req.Agent, role, lane)
 		}
 	} else if rc != 3 {
 		fmt.Fprintln(out, "FAIL the config does not load (obor config validate)")
@@ -86,24 +83,28 @@ func launchResult(w io.Writer, line string, err error) int {
 	return 0
 }
 
-// serveAgentJob is the open job of role's agent (a lane's worker on lane; the integrator's lane is "") that obor serve
-// holds ("": none): obor restart sends its wake (T-773, T-947). serve not answering within a few seconds (no socket, an
-// error, a timeout) or serving another project is no job only on a lane whose row holds no task (the store's lanes
-// table, T-778); a lane with a task is an error naming serve's state, so the restart refuses before it stops anything.
-func serveAgentJob(ctx context.Context, cfg *config.Config, role, lane string) (string, error) {
+// serveAgentJob is the job agent's (role's; a lane's worker on lane, the integrator's lane is "") restart carries as its
+// wake ("": none): serve's answer, by the rule its job_next hands jobs out (T-959: the agent's oldest open job, never a
+// held one). serve not answering within a few seconds (no socket, an error, a timeout) refuses the restart where serve
+// may hold a job: for the integrator always (T-959: no lane row says otherwise), for a lane whose row holds a task
+// (T-778).
+func serveAgentJob(ctx context.Context, cfg *config.Config, agent, role, lane string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	return resolveAgentJob(cfg.Root, role, lane, func() (wire.Status, error) { return wire.Ask(ctx, wire.SocketPath(cfg.Root)) })
+	return resolveAgentJob(cfg.Root, agent, role, lane, func(c wire.Call) (string, error) {
+		return wire.Verdict(ctx, wire.SocketPath(cfg.Root), wire.MethodRestartJob, c)
+	})
 }
 
-// resolveAgentJob is serveAgentJob over ask (serve's status).
-func resolveAgentJob(root, role, lane string, ask func() (wire.Status, error)) (string, error) {
-	st, err := ask()
-	if err == nil && (st.Project == nil || filepath.Clean(st.Project.Root) != filepath.Clean(root)) {
-		err = errors.New("it serves no project at " + root)
-	}
+// resolveAgentJob is serveAgentJob over ask (serve's restart_job).
+func resolveAgentJob(root, agent, role, lane string, ask func(wire.Call) (string, error)) (string, error) {
+	job, err := ask(wire.Call{Root: root, Agent: agent, Role: role, Lane: lane})
 	if err == nil {
-		return agentJob(st, root, role, lane), nil
+		return job, nil
+	}
+	if role == "integrator" {
+		return "", project.Failf("restart %s: obor serve is not running; it may hold an open job for %s: start serve, "+
+			"then restart", agent, agent)
 	}
 	row, ok, _ := store.ReadLaneAt(root, lane)
 	if !ok || row.Task == "" {
@@ -111,31 +112,4 @@ func resolveAgentJob(root, role, lane string, ask func() (wire.Status, error)) (
 	}
 	return "", fmt.Errorf("%s holds %s and obor serve cannot tell its job (%v): start obor serve (obor serve restart "+
 		"for the installed service, obor serve in a pane; obor status --facts checks it), then retry", lane, row.Task, err)
-}
-
-// agentJob is the open job of role's agent that obor restart carries as its wake (T-773, T-947): a lane worker's work
-// or fix job of the task st's project holds on its lane, the integrator's review or resolve job of any task there
-// (its lane is ""); "": none.
-func agentJob(st wire.Status, root, role, lane string) string {
-	p := st.Project
-	if p == nil || filepath.Clean(p.Root) != filepath.Clean(root) {
-		return ""
-	}
-	integrator := role == "integrator"
-	for _, t := range p.Tasks {
-		if t.Job == "" || !integrator && t.Lane != lane {
-			continue
-		}
-		base, _, _ := strings.Cut(t.Job[strings.LastIndex(t.Job, "/")+1:], ".")
-		if integrator {
-			if base == event.StepReview || base == event.StepResolve {
-				return t.Job
-			}
-			continue
-		}
-		if base == event.StepWork || base == event.StepFix {
-			return t.Job
-		}
-	}
-	return ""
 }

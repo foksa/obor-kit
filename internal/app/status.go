@@ -367,7 +367,7 @@ func (a *App) Listen(ln net.Listener) {
 			case req.Method == wire.MethodAccept || req.Method == wire.MethodSendback || req.Method == wire.MethodReject ||
 				req.Method == wire.MethodResolved || req.Method == wire.MethodHold || req.Method == wire.MethodResume || req.Method == wire.MethodDrop ||
 				req.Method == wire.MethodDispatch || req.Method == wire.MethodJobNext || req.Method == wire.MethodTaskDone ||
-				req.Method == wire.MethodDrive || req.Method == wire.MethodLand:
+				req.Method == wire.MethodDrive || req.Method == wire.MethodLand || req.Method == wire.MethodRestartJob:
 				if req.Call == nil {
 					ans.Error = req.Method + ": no call"
 					break
@@ -393,6 +393,8 @@ func (a *App) Listen(ln net.Listener) {
 					cancel()
 				case wire.MethodLand:
 					reply, err = a.landCall(*req.Call)
+				case wire.MethodRestartJob:
+					reply, err = a.restartJob(*req.Call)
 				default:
 					ctx, cancel := context.WithTimeout(a.life, requestTimeout)
 					reply, err = a.verdict(ctx, req.Method, *req.Call)
