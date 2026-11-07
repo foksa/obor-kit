@@ -325,7 +325,7 @@ func TestSocketWaits(t *testing.T) {
 		t.Errorf("WaitForOutput of text on the screen = %q, %v", text, err)
 	}
 	if got, want := lastParams(t, srv, "pane.wait_for_output"),
-		`{"match":{"type":"regex","value":"EARLY_42"},"pane_id":"w1:p2","source":"visible","timeout_ms":1000}`; got != want {
+		`{"match":{"type":"regex","value":"EARLY_42"},"pane_id":"w1:p2","source":"recent_unwrapped","timeout_ms":1000}`; got != want {
 		t.Errorf("pane.wait_for_output params = %s\nwant %s", got, want)
 	}
 	go func() {

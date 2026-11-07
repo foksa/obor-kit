@@ -62,7 +62,7 @@ type PaneControl interface {
 	// Wait waits (up to timeout) for the agent at target to be in one of until (idle, done): the error's code is
 	// "timeout" when it is not, agent_not_running when it left the pane.
 	Wait(ctx context.Context, target string, until []string, timeout time.Duration) error
-	// WaitForOutput waits (up to timeout) for a line of the pane's visible text to match regex, and returns the text
+	// WaitForOutput waits (up to timeout) for a line of the pane's recent text to match regex, and returns the text
 	// as it then reads: the error's code is "timeout" when nothing matched.
 	WaitForOutput(ctx context.Context, pane, regex string, timeout time.Duration) (string, error)
 	RenamePane(ctx context.Context, pane, label string) error   // label "" clears it

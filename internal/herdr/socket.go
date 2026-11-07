@@ -416,15 +416,16 @@ func (s *Socket) Screen(ctx context.Context, pane string, lines int) (string, er
 	return r.Read.Text, nil
 }
 
-// WaitForOutput is pane.wait_for_output: the pane's visible text, as pane.read gives it, once a line of it matches
-// regex (text already on the screen matches at once); herdr's error code "timeout" after timeout.
+// WaitForOutput is pane.wait_for_output: the pane's recent unwrapped text, once a line of it matches regex (text
+// already printed matches at once); herdr's error code "timeout" after timeout. Not "visible": that was stale in a
+// shell after an agent exited (T-970), while "recent" had the line; unwrapped keeps a long typed line whole.
 func (s *Socket) WaitForOutput(ctx context.Context, pane, regex string, timeout time.Duration) (string, error) {
 	var r struct {
 		Read *struct {
 			Text string `json:"text"`
 		} `json:"read"`
 	}
-	p := map[string]any{"pane_id": pane, "source": "visible", "timeout_ms": timeout.Milliseconds(),
+	p := map[string]any{"pane_id": pane, "source": "recent_unwrapped", "timeout_ms": timeout.Milliseconds(),
 		"match": map[string]string{"type": "regex", "value": regex}}
 	if err := s.call(ctx, timeout+waitGrace, &r, "pane.wait_for_output", p); err != nil {
 		return "", err
