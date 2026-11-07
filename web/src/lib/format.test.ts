@@ -23,6 +23,14 @@ describe("wording", () => {
     expect(["working", "waiting", "needs-you", "merged", "gating", "free", "driving", "done", "unknown"].map(tone))
       .toEqual(["ok", "wait", "bad", "done", "info", "idle", "accent", "wait", "bad"]);
   });
+  // T-971: a lane test is part of the merge loop (T-961): serve reports "testing" on the gate step and "test pending"
+  // while its intent waits.
+  it("colors a lane test like the merge loop's other stages", () => {
+    expect(tone("testing")).toBe("info");
+    expect(tone("candidate")).toBe("info");
+    expect(tone("test pending")).toBe("wait");
+    expect(tone("gating")).toBe("info");
+  });
   it("sorts events by kind", () => {
     expect(eventKind("merged T-1 abc")).toBe("merge");
     expect(eventKind("gate T-1 pass (GREEN)")).toBe("gate");
@@ -31,5 +39,12 @@ describe("wording", () => {
     expect(eventKind("anything", true)).toBe("problem");
     expect(lineTo("line to aa-rev: verify RV-4")).toEqual({ agent: "aa-rev", text: "verify RV-4" });
     expect(lineTo("merged T-1")).toBeNull();
+  });
+  // T-971: the lane test's lines are the gate's other half (T-961), and a pass's count ("0 fail") is no problem.
+  it("reads a lane test's line as the gate's, with a count no problem", () => {
+    expect(eventKind("test T-1 pass (GREEN T-1 (33 pass, 0 fail))")).toBe("gate");
+    expect(eventKind("test T-1 red (RED T-1 (1 fail))", true)).toBe("problem");
+    expect(eventKind("gate T-1 pass (GREEN T-1 (33 pass, 0 fail))")).toBe("gate");
+    expect(eventKind("check 33 pass, 0 fail")).toBe("other");
   });
 });
