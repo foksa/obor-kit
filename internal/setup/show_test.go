@@ -1,10 +1,14 @@
 package setup
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
+	"obor/internal/app/event"
 	"obor/internal/config"
+	"obor/internal/store"
 	"obor/internal/testkit"
 )
 
@@ -96,6 +100,72 @@ func TestOborInitRecordsTheSetupAnswer(t *testing.T) {
 	}
 	if stateOf(out, "setup") != "already" || !strings.HasSuffix(summary(out, "setup"), "confirmed by the owner") {
 		t.Errorf("setup step after the answer: %q", summary(out, "setup"))
+	}
+}
+
+// T-979: obor setup show marks a paused model in each level's list with its end ("cleared" for none), and stops
+// marking it once serve records the clear.
+func TestSetupShowMarksPausedModels(t *testing.T) {
+	t.Parallel()
+	x := newFx(t, testkit.Set("setup", `{"confirmed": true}`))
+	pauseFact(t, x.Project, "sonnet", "quota", 0)
+	until := time.Now().Add(2 * time.Hour).Unix()
+	pauseFact(t, x.Project, "deepseek", "down", until)
+	out := x.ok(t, "show")
+	for _, want := range []string{
+		"sonnet (claude sonnet) (paused until cleared)",
+		"deepseek (opencode opencode-go/deepseek-v4.1-flash) (paused until " + time.Unix(until, 0).Format("15:04") + ")",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("obor setup show lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "haiku (claude haiku) (paused") {
+		t.Errorf("obor setup show marks a model no pause holds:\n%s", out)
+	}
+
+	unpauseFact(t, x.Project, "sonnet")
+	out = x.ok(t, "show")
+	if strings.Contains(out, "sonnet (claude sonnet) (paused") {
+		t.Errorf("obor setup show still marks sonnet after its clear:\n%s", out)
+	}
+	if !strings.Contains(out, "deepseek (opencode opencode-go/deepseek-v4.1-flash) (paused until ") {
+		t.Errorf("obor setup show lost deepseek's pause after sonnet's clear:\n%s", out)
+	}
+}
+
+// pauseFact records a model's pause in p's log, as obor pause --model name [--for until] "why" does (until 0: until
+// cleared).
+func pauseFact(t *testing.T, p *testkit.Project, model, why string, until int64) {
+	t.Helper()
+	pauseStep(t, p, event.StepPaused, event.Pause{Model: model, Why: why, Until: until, Caller: "pj-lead"})
+}
+
+// unpauseFact records the clear of model's pause, as obor pause --model name --clear does.
+func unpauseFact(t *testing.T, p *testkit.Project, model string) {
+	t.Helper()
+	pauseStep(t, p, event.StepUnpaused, event.Pause{Model: model, Caller: "pj-lead"})
+}
+
+// pauseStep appends d as a fact of step on the project's pause task.
+func pauseStep(t *testing.T, p *testkit.Project, step string, d event.Pause) {
+	t.Helper()
+	db, err := store.OpenRW(store.File(p.Root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	l, _, err := event.OpenLog(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.Append(event.Record{Task: event.PauseTask, Step: step, Kind: event.KindFact, Data: data},
+		time.Now()); err != nil {
+		t.Fatal(err)
 	}
 }
 

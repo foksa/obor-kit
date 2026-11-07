@@ -263,6 +263,67 @@ func TestStatusJSON(t *testing.T) {
 	}
 }
 
+// T-979: a model paused with and without --for is one line per model beside the project's pause, --json carries them
+// as model_pauses, and a model serve no longer names (its pause cleared) is gone.
+func TestStatusListsModelPauses(t *testing.T) {
+	t.Parallel()
+	p := testkit.New(t)
+	p.Lane("L-01", "task/T-01")
+	p.Config()
+	now := time.Now()
+	until := now.Add(2 * time.Hour).Unix()
+	ss := wire.Status{Connected: true, Project: &wire.ProjectStatus{Name: "pj", Root: p.Root, Merging: true,
+		Paused: &event.Pause{Why: "quota", Caller: "pj-lead"},
+		ModelPauses: map[string]*event.Pause{
+			"sonnet":   {Why: "quota", Caller: "pj-lead"},
+			"deepseek": {Why: "down", Until: until, Caller: "pj-lead"},
+		}}}
+	st, text := statusOf(t, p, ss, nil, now)
+	if len(st.ModelPauses) != 2 {
+		t.Fatalf("precondition: status model pauses %+v, want sonnet's and deepseek's", st.ModelPauses)
+	}
+	matchLine(t, text, `^paused sonnet until cleared \(quota\)$`, "sonnet")
+	matchLine(t, text, `^paused deepseek until `+time.Unix(until, 0).Format("15:04")+` \(down\)$`, "deepseek")
+	if i, j, k := strings.Index(text, "paused: quota"), strings.Index(text, "paused deepseek"),
+		strings.Index(text, "paused sonnet"); i < 0 || j < i || k < j {
+		t.Errorf("pause lines out of order (project's first, then models sorted):\n%s", text)
+	}
+
+	// --json: serve's answer through the client (serve ships it, T-979)
+	home, _ := startFakeServe(t, p.Root, ss, "", "")
+	env := []string{"OBOR_STATE_HOME=" + home}
+	rc, stdout, stderr := run(t, p.Root, env, "status", "--json")
+	if rc != 0 {
+		t.Fatalf("status --json: exit %d, %s", rc, stderr)
+	}
+	var got struct {
+		ModelPauses map[string]struct {
+			Reason string `json:"reason"`
+			Until  *int64 `json:"until"`
+		} `json:"model_pauses"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.ModelPauses) != 2 || got.ModelPauses["sonnet"].Reason != "quota" || got.ModelPauses["sonnet"].Until != nil ||
+		got.ModelPauses["deepseek"].Until == nil || *got.ModelPauses["deepseek"].Until != until {
+		t.Errorf("--json model_pauses %+v, want sonnet's (quota, until cleared) and deepseek's (down, until %d)",
+			got.ModelPauses, until)
+	}
+
+	// cleared: serve names none, so neither the text nor the JSON has one
+	ss.Project.ModelPauses = nil
+	_, text = statusOf(t, p, ss, nil, now)
+	if strings.Contains(text, "paused sonnet") || strings.Contains(text, "paused deepseek") {
+		t.Errorf("a cleared model still has a line:\n%s", text)
+	}
+	startFakeServeAt(t, wire.SocketPath(p.Root), ss, "", "")
+	_, stdout, _ = run(t, p.Root, env, "status", "--json")
+	if strings.Contains(stdout, "model_pauses") {
+		t.Errorf("--json names model_pauses after the clear:\n%s", stdout)
+	}
+}
+
 // heldGateStatus is the app's status while T-1's gate is held open in its own goroutine (a running step on the task),
 // with a publish on T-2 numbered publish.2 and T-3 idle: the fixture the CLI renders.
 func heldGateStatus() wire.Status {
