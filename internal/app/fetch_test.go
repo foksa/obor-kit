@@ -20,7 +20,7 @@ import (
 // fetchRig is the dispatch rig (edits change the config further).
 func fetchRig(t *testing.T, edits ...func(map[string]any)) *loopRig {
 	t.Helper()
-	return newDispatchRig(t, edits...)
+	return newLoopRig(t, dispatching(), withConfig(edits...))
 }
 
 // task is serve's status of task (zero: none).
@@ -249,7 +249,6 @@ func fetched(t *testing.T) (*loopRig, string) {
 // The integrator's start carries its job's wake; its review job is a wake, fetched by job_next (no status rule), and
 // accepted as today.
 func TestFetchReviewJob(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	r, text := fetched(t)
 	r.mu.Lock()
@@ -279,7 +278,6 @@ func TestFetchReviewJob(t *testing.T) {
 // call id gets the stored reply; once submitted, another task_done is refused. The guards: the caller's role and
 // agent, the report (empty, a section missing).
 func TestFetchFixAndTaskDone(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	r, _ := fetched(t)
 	if reply, err := r.verdict(wire.MethodSendback, "s1", "", "add a test"); err != nil || !strings.HasPrefix(reply, "SENDBACK T-1") {
@@ -383,6 +381,7 @@ func TestFetchBlockedAsks(t *testing.T) {
 		t.Fatalf("the worker's activity ended its question: %q", r.steps())
 	}
 	full := "Summary: done.\nSelf-check: ok.\nSkipped: none.\nOpen questions: none."
+	r.work("feature.txt", "feature\n") // its gate merges something: no needs-you of its own after the submission
 	if reply, err := r.callDone("pj-l-01", "worker", "t1", full); err != nil || reply != "submitted" {
 		t.Errorf("task_done after the answer: %q, %v", reply, err)
 	}
@@ -398,7 +397,6 @@ func (r *loopRig) callDone(agent, role, callID, report string) (string, error) {
 // An unfetched fix job: its wake again after 5 min, the owner after 5 more; obor resume (its default: retry) sends it
 // anew as fix.2, whose fetch delivers it.
 func TestFetchFixUndelivered(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	r, _ := fetched(t)
 	if _, err := r.verdict(wire.MethodSendback, "s1", "", "add a test"); err != nil {

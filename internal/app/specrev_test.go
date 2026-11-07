@@ -147,7 +147,7 @@ func TestBlockedTaskDoneOlderSpecRevAccepted(t *testing.T) {
 // task_done submits without a refusal.
 func TestMoveAfterSpecSetStartsOnTheNewRev(t *testing.T) {
 	t.Parallel()
-	r := newWorkerRig(t)
+	r := newLoopRig(t, working())
 	jr := r.workerNext("n1")
 	if !strings.Contains(jr.Text, "The spec of T-1 (rev 1") {
 		t.Fatalf("precondition: attempt 1's job carries rev 1: %q", jr.Text)

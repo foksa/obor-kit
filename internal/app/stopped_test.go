@@ -13,7 +13,6 @@ import (
 
 	"obor/internal/app"
 	"obor/internal/herdr/herdrtest"
-	"obor/internal/testkit"
 )
 
 // stoppedCall is the StopFailure hook's request for agent (role, lane) with call id: a rate_limit, 429.
@@ -393,7 +392,6 @@ func codexStoppedWith(t *testing.T, limited string) codexRig {
 // nothing: codexStopped); more idle checks and a replay record nothing more; a later turn's start in the rollout (the
 // pane working) ends it: fact resumed, and its clean end records nothing.
 func TestStoppedCodexUsageLimit(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	r := codexStopped(t)
 	line := "pj-lead: [obor] needs-you T-1 (L-01): " + r.reason

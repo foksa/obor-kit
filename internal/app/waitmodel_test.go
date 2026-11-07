@@ -11,7 +11,7 @@ import (
 // paused, or a --model override's (the override names no level: the Difficulty is the stored spec's).
 func TestWaitingTaskCarriesDifficultyAndModel(t *testing.T) {
 	t.Parallel()
-	r := newLevelRig(t)
+	r := newLoopRig(t, pooled())
 	r.lanes.mu.Lock()
 	for i := range r.lanes.lanes {
 		r.lanes.lanes[i].State, r.lanes.lanes[i].Task = "working", "T-9"

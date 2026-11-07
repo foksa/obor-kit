@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"obor/internal/app"
-	"obor/internal/testkit"
 )
 
 // T-462: obor dispatch … --after waits for merges (docs/state-model.md row 2a, readiness rule 1). T-2 is the task T-1
@@ -35,7 +34,7 @@ func (r *loopRig) seedT2(more ...event.Record) {
 // landT2 is an obor merge of T-2 on main outside the app: the loop records merged{outside}.
 func (r *loopRig) landT2() {
 	r.t.Helper()
-	r.p.Git(r.p.Root, "commit", "-q", "--allow-empty", "-m", "Merge T-2: the dependency")
+	r.scratch.Land("T-2") // obor merge by hand
 	r.waitFor("T-2 merged", func() bool { return r.taskStep("T-2", "fact merged") > 0 })
 }
 
@@ -77,7 +76,7 @@ func (r *loopRig) taskStatus(task string) wire.TaskStatus {
 // call (T-845's gate).
 func startWithT2(t *testing.T, more ...event.Record) *loopRig {
 	t.Helper()
-	r := newDispatchRig(t)
+	r := newLoopRig(t, dispatching())
 	r.seedT2(more...)
 	r.start()
 	r.waitFor("T-2 needs-you", func() bool { return r.taskStatus("T-2").State == "needs-you" })
@@ -88,7 +87,6 @@ func startWithT2(t *testing.T, more ...event.Record) *loopRig {
 // Row 2a: the request records fact waiting (no lane touched); the loop dispatches T-1 once T-2 is merged, by the
 // dispatch's own steps; a second request of the waiting task replaces its fact (T-538); status shows what it waits for.
 func TestWaitingDispatchesOnceAfterMerge(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	r := startWithT2(t)
 	reply, err := r.waitAfter("d1", "T-2")
@@ -129,7 +127,6 @@ func TestWaitingDispatchesOnceAfterMerge(t *testing.T) {
 
 // Row 2a, replay: a waiting task survives a restart and dispatches exactly once after its dependency merges.
 func TestWaitingSurvivesRestart(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	r := startWithT2(t)
 	if _, err := r.waitAfter("d1", "T-2"); err != nil {
@@ -152,9 +149,8 @@ func TestWaitingSurvivesRestart(t *testing.T) {
 // Row 2a, kill -9 between the merge and the dispatch: the log holds T-2's merged fact and T-1's waiting fact, no
 // dispatch; the replay dispatches once, and a second restart dispatches nothing more.
 func TestWaitingCrashAfterMerge(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
-	r := newDispatchRig(t)
+	r := newLoopRig(t, dispatching())
 	wait, _ := json.Marshal(map[string]any{"lane": "L-01", "after": []string{"T-2"}, "types": []string{"sonnet"},
 		"caller": "pj-lead", "call": "d1", "reply": "WAITING T-1 after T-2 (queued)"})
 	merged, _ := json.Marshal(map[string]any{"outside": true})
@@ -177,7 +173,6 @@ func TestWaitingCrashAfterMerge(t *testing.T) {
 // record) or dropped, an unknown lane. One not in the loop yet but with a spec: it waits. All merged: a plain dispatch
 // at once.
 func TestWaitingRefusals(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	r := startWithT2(t)
 	for _, c := range []struct {
@@ -303,7 +298,6 @@ func TestWaitingLaneBusy(t *testing.T) {
 // refusal for an hour is needs-you{after: …}, kept by a restart (the store's fact); obor resume sends it back to
 // waiting, its hour from the start.
 func TestWaitingRefusedSaysWhyThenNeedsYou(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	r := startWithT2(t)
 	r.setLane(func(l *port.Lane) { l.State, l.Task = "working", "T-9" })
@@ -346,7 +340,6 @@ func TestWaitingRefusedSaysWhyThenNeedsYou(t *testing.T) {
 // DD-v0.12 A7 (a): a task T-1 waits for with no loop record (T-3: a spec, done by hand) counts as merged once the
 // target holds its merge evidence; until then T-1 waits.
 func TestWaitingForATaskMergedByHand(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	r := startWithT2(t)
 	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Role: "lead",
@@ -361,7 +354,7 @@ func TestWaitingForATaskMergedByHand(t *testing.T) {
 	if n := r.taskStep("T-1", "fact dispatch"); n != 0 || r.taskStatus("T-1").State != "waiting" {
 		t.Fatalf("dispatched before T-3 merged: %q", r.steps())
 	}
-	r.p.Git(r.p.Root, "commit", "-q", "--allow-empty", "-m", "Merge T-3: by hand")
+	r.scratch.Land("T-3") // obor merge by hand
 	r.waitFor("T-1's work job", func() bool { return r.taskStep("T-1", "result work") == 1 })
 	if n := r.taskStep("T-3", "fact merged"); n != 0 {
 		t.Errorf("T-3 got loop records: %q", r.steps())

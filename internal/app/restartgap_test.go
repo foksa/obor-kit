@@ -27,7 +27,7 @@ func TestPendingRestartGoesInTheFirstGap(t *testing.T) {
 	// T-1's lane test waits for its own release; T-5's gate waits, so its candidate comes later, while the restart
 	// is pending.
 	f.hold, f.holdTest = "T-5", "T-1"
-	f.based = true // a green gate's candidate has a Base: its lane test is next
+	f.unbased = false // a green gate's candidate has a Base: its lane test is next
 	f.testRelease = make(chan struct{})
 
 	// T-1's gate is green with a Base: its lane test is the work running when the new binary appears.

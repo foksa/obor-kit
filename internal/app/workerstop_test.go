@@ -78,7 +78,7 @@ func TestWorkerStopByIdentity(t *testing.T) {
 	}} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			r := newWorkerRig(t)
+			r := newLoopRig(t, working())
 			r.waitFor("pj-l-01 identified at w1:p1 (labelled)", func() bool {
 				return strings.HasPrefix(app.WhereOf(r.app, r.p.Root, "pj-l-01"), "identified w1:p1")
 			})

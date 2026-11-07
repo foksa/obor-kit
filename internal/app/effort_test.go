@@ -17,7 +17,7 @@ import (
 // effortRig is a dispatch rig whose lane L-01 (agent pj-l-01) is free.
 func effortRig(t *testing.T, edits ...func(map[string]any)) *loopRig {
 	t.Helper()
-	r := newDispatchRig(t, edits...)
+	r := newLoopRig(t, dispatching(), withConfig(edits...))
 	r.setLane(func(l *port.Lane) { l.Agent = "pj-l-01" })
 	return r
 }

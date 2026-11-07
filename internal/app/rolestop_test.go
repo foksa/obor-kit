@@ -31,7 +31,7 @@ func (s *stopSpy) Stop(_ context.Context, agent, pane string, force bool) (strin
 }
 
 func newStopSpy(r *concRig) *stopSpy {
-	return &stopSpy{startJobFakes: &startJobFakes{concScratch: r.fakes["pj"]}}
+	return &stopSpy{startJobFakes: &startJobFakes{concFakes: r.fakes["pj"]}}
 }
 
 // runJob runs task's next step (its review job's start) with s as agents and typer.
@@ -281,7 +281,7 @@ func TestBriefToStoppedRoleAgent(t *testing.T) {
 			if seq == 0 {
 				t.Fatal("no briefed fact")
 			}
-			f := &startJobFakes{concScratch: newConcScratch("")}
+			f := &startJobFakes{concFakes: newConcFakes("")}
 			a.deliver(context.Background(), p, &Loop{Agents: f, Typer: f})
 			line := "[obor pj-lead] why X?"
 			key := event.Key{Task: event.MsgTask, Step: stepDeliver + fmt.Sprint(seq)}
@@ -325,7 +325,7 @@ func TestBriefReachesCustomRole(t *testing.T) {
 	if !strings.Contains(reply, "serve starts it fresh") {
 		t.Errorf("reply %q, want it started fresh", reply)
 	}
-	f := &startJobFakes{concScratch: newConcScratch("")}
+	f := &startJobFakes{concFakes: newConcFakes("")}
 	a.deliver(context.Background(), p, &Loop{Agents: f, Typer: f})
 	if want := (port.Launch{Agent: "pj-ux-buddy", Pane: "w:ux", Fresh: true, Prompt: "[obor pj-lead] review the flows"}); len(f.launches) != 1 || f.launches[0] != want {
 		t.Errorf("launches %+v, want %+v", f.launches, want)
@@ -504,7 +504,7 @@ func TestBriefToStoppedWorkerStartsNothing(t *testing.T) {
 	if strings.Contains(reply, "serve starts it fresh") {
 		t.Errorf("reply %q says the worker is started fresh", reply)
 	}
-	f := &startJobFakes{concScratch: newConcScratch("")}
+	f := &startJobFakes{concFakes: newConcFakes("")}
 	a.deliver(context.Background(), p, &Loop{Agents: f, Typer: f})
 	same(t, len(f.launches), 0, "starts of the stopped worker")
 	same(t, len(f.typed), 0, "lines typed")

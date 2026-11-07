@@ -14,7 +14,7 @@ import (
 
 // T-855 (RV-113 #1): a task whose move's stop of its worker is pending (recorded, not settled) is busy for every other
 // verb: a drop is refused, "retry when it settles". A stop that failed (its needs-you) is settled, and a drop then
-// stops the halt's recorded agent (the old worker) before it frees the lane. The rig: newWorkerRig (T-1 working on L-01, its worker pj-l-01 in w1:p1).
+// stops the halt's recorded agent (the old worker) before it frees the lane. The rig: newLoopRig(t, working()) (T-1 working on L-01, its worker pj-l-01 in w1:p1).
 
 // dropCall is obor drop of T-1 by the lead (its reply or refusal).
 func (r *loopRig) dropCall(callID, why string) (string, error) {
@@ -120,7 +120,7 @@ func (r *loopRig) oldWorkerStoppedFirst(attempt int) {
 // Move, drop while its stop is pending: refused; the move goes on.
 func TestMoveDropWhileStopPending(t *testing.T) {
 	t.Parallel()
-	r := newWorkerRig(t)
+	r := newLoopRig(t, working())
 	tried, settle := r.cutStops()
 	if reply, err := r.moveTo("m1", "opus"); err != nil || !strings.HasPrefix(reply, "MOVING T-1 on L-01") {
 		t.Fatalf("move: %q, %v", reply, err)
@@ -141,7 +141,7 @@ func TestMoveDropWhileStopPending(t *testing.T) {
 // freed; the move's start never runs.
 func TestMoveStopFailedThenDrop(t *testing.T) {
 	t.Parallel()
-	r := newWorkerRig(t)
+	r := newLoopRig(t, working())
 	r.failStops(true)
 	if reply, err := r.moveTo("m1", "opus"); err != nil || !strings.HasPrefix(reply, "MOVING T-1 on L-01") {
 		t.Fatalf("move: %q, %v", reply, err)

@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"obor/internal/herdr/herdrtest"
-	"obor/internal/testkit"
 )
 
 // continueLine is the continue wake T-1's stopped worker gets (T-568): its work job's tag, then the text.
@@ -89,7 +88,6 @@ func resetIn(d time.Duration) func(r *loopRig) string {
 // before, nor while its pane is blocked; a replay after T wakes it no second time; still stopped 30 min after the
 // wake → the alarm: the needs-you's reason says so and the owner is notified, once.
 func TestStopWakeAtReset(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	r, reason := limitStop(t, "rate_limit", resetIn(time.Hour))
 	r.later(time.Hour + time.Minute) // T+1m
@@ -187,7 +185,6 @@ func TestStopWakeNotALimit(t *testing.T) {
 
 // T-568: a usage limit whose reset is unknown (429, no time) wakes the worker every 30 min from the stop, each once.
 func TestStopWakeUnknownReset(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	r, _ := limitStop(t, "rate_limit", func(*loopRig) string { return "429 Too Many Requests" })
 	r.later(29 * time.Minute)
@@ -266,7 +263,6 @@ func notified(r *loopRig, suffix string) int {
 // the wake → the lead's line says so and the owner is notified, once; its next turn in the rollout ends the stop
 // (fact turned) and the finished line follows when it is idle.
 func TestRoleWakeCodexReviewer(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	r := lineRig(t, "idle", "idle")
 	reset := r.clock.Now().Add(time.Hour)
@@ -428,7 +424,6 @@ func TestRoleWakeClaude(t *testing.T) {
 // T-569: a briefed role agent's stop that is no usage limit (billing_error) ends its brief as before: no wake, no
 // finished line, no alarm.
 func TestRoleWakeNotALimit(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	r := claudeRoleStop(t, true, "billing_error", func(*loopRig) string { return "credit balance too low" })
 	for range 4 {

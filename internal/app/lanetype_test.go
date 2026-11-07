@@ -11,23 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"obor/internal/checks"
-	"obor/internal/config"
 	"obor/internal/store"
-	"obor/internal/testkit"
 )
 
 // T-738, T-765: a redo runs the model ref its dispatch ran unless its --model names another; a model ref naming no
 // model of the project is refused before a lane is picked. The rig: lanes L-01 and L-02, both free.
-
-func newPoolRig(t *testing.T, edits ...func(map[string]any)) *loopRig {
-	t.Helper()
-	r := newDispatchRig(t, append([]func(map[string]any){testkit.Set("lanes", 2)}, edits...)...)
-	r.lanes.mu.Lock()
-	r.lanes.lanes = append(r.lanes.lanes, port.Lane{Name: "L-02", Dir: r.p.LaneDir("L-02"), State: "free"})
-	r.lanes.mu.Unlock()
-	return r
-}
 
 // specOf stores task's spec (obor spec set).
 func (r *loopRig) specOf(task, text string) {
@@ -43,16 +31,13 @@ func (r *loopRig) dispatchOf(task string) (string, error) {
 	return r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: "d-" + task, Task: task})
 }
 
-// redoRig is the pool rig on serve's own lane table (checks.Lanes over the fixture's worktrees and the lanes table
-// serve writes): T-1's dispatch ran opus:high on L-01 (prepared, so its lane row holds it with that type)
-// and left a needs-you; L-01 has T-1's work committed (working on T-1).
+// redoRig is the pool rig whose lane table reads L-01 as serve's own adapter does once T-1's work is committed there:
+// working on T-1, its type the lane row's bare model (opus; checks.Lanes over git: internal/checks' TestLaneStates).
+// T-1's dispatch ran opus:high on L-01 (prepared, so its lane row holds it with that type) and left a needs-you.
 func redoRig(t *testing.T) *loopRig {
 	t.Helper()
-	r := newPoolRig(t)
-	r.lanes.mu.Lock()
-	r.lanes.real = checks.Lanes{}
-	r.lanes.mu.Unlock()
-	r.p.Commit(r.lane)
+	r := newLoopRig(t, pooled())
+	r.setLane(func(l *port.Lane) { l.State, l.Task, l.Type = "working", "T-1", "opus" })
 	d, _ := json.Marshal(map[string]any{"lane": "L-01", "agent": "pj-l-01", "branch": "task/T-1", "type": "opus:high",
 		"level": "hard", "types": []string{"opus:high"}})
 	prep, _ := json.Marshal(map[string]any{"base": "b"})
@@ -69,17 +54,10 @@ func redoRig(t *testing.T) *loopRig {
 		row, ok, _ := store.ReadLaneAt(r.p.Root, "L-01")
 		return ok && row.Task == "T-1" && row.Type == "opus:high"
 	})
-	ls, err := checks.Lanes{}.Lanes(context.Background(), r.p.Root)
-	if err != nil || len(ls) == 0 || ls[0].Name != "L-01" || ls[0].State != "working" || ls[0].Task != "T-1" {
-		t.Fatalf("precondition: serve's lane table %+v, %v; want L-01 working on T-1", ls, err)
-	}
-	cfg, err := config.LoadDaemon(r.p.Root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if st := checks.NewLaneTable(context.Background(), cfg).States(); st[0].Type != "opus" {
-		t.Fatalf("precondition: obor status's type of L-01 %q, want its dispatch's opus", st[0].Type)
-	}
+	r.waitFor("L-01 working on T-1 as opus in serve's lane table", func() bool {
+		l, ok := app.CachedLane(r.app, r.p.Root, "L-01")
+		return ok && l.State == "working" && l.Task == "T-1" && l.Type == "opus"
+	})
 	r.specOf("T-1", "# T-1 — Redone\n\nDifficulty: medium\n")
 	return r
 }
@@ -100,7 +78,6 @@ func (r *loopRig) redoTypes() []any {
 // A redo by task ID through serve's real lane table keeps the full model ref its dispatch ran (opus:high), not the lane
 // row's bare model, nor the spec's level (medium: sonnet); a pause of opus does not hold it (its own model, T-742).
 func TestRedoViaTheRealLaneTableKeepsItsTypeAndEffort(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	r := redoRig(t)
 	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodPause, wire.Call{Root: r.p.Root, CallID: "p1",
@@ -118,7 +95,6 @@ func TestRedoViaTheRealLaneTableKeepsItsTypeAndEffort(t *testing.T) {
 // A redo with --model sonnet runs sonnet on its lane; to a paused model it is refused, as a fresh dispatch of that
 // model is (T-742).
 func TestRedoWithExplicitTypesRunsThem(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	r := redoRig(t)
 	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodPause, wire.Call{Root: r.p.Root, CallID: "p1",
@@ -154,7 +130,7 @@ func TestUnknownExplicitTypeIsRefused(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			r := newPoolRig(t)
+			r := newLoopRig(t, pooled())
 			r.start()
 			r.specOf("T-9", "# T-9 — First\n\nDifficulty: medium\n")
 			r.specOf("T-1", "# T-1 — Typed\n\nDifficulty: medium\n")

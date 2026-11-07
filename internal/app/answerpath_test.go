@@ -15,7 +15,7 @@ func answerSeed(t *testing.T, cause, state, job string, watch bool) (*harness, *
 	t.Helper()
 	h, _ := newIdentHarness(t)
 	h.withLead()
-	f := newConcScratch("")
+	f := newConcFakes("")
 	fx := &Loop{Lane: f, Specs: f, Agents: f}
 	h.a.opt.Loop = func(string) (*Loop, error) { return fx, nil }
 	h.connect()

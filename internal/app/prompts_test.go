@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"obor/internal/store"
-	"obor/internal/testkit"
 )
 
 // The prompts table (T-665, T-670): the text of every job, brief and start prompt serve sent is recorded right after
@@ -174,15 +173,13 @@ func (r *loopRig) spec(callID, text string) string {
 // fetch is a row of its own; the old job's row stays (T-670).
 func TestPromptsReviewJobAfterASpecRev(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass")
+	r := newLoopRig(t)
 	r.work("shared.txt", "lane\n2\n3\n4\n5\n6\n7\n8\n9\n10\n")
 	r.start()
 	r.submit()
 	first := r.waitJob("pj-int", "T-1/1/review")
 	r.spec("sp1", specOne)
-	r.p.Write("other.txt", "other\n")
-	r.p.Git(r.p.Root, "add", "other.txt")
-	r.p.Git(r.p.Root, "commit", "-qm", "unrelated")
+	r.scratch.Move() // an unrelated commit on main
 	if _, err := r.verdict(wire.MethodAccept, "c1", r.patch(first), ""); err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +238,6 @@ func TestPromptsWorkJobRefetchedAfterASpecRev(t *testing.T) {
 
 // A fix job fetched again after the spec rev changed: its text carries the new spec, and the table keeps both rows.
 func TestPromptsFixJobRefetchedAfterASpecRev(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	r, _ := fetched(t)
 	if _, err := r.verdict(wire.MethodSendback, "s1", "", "add a test"); err != nil {
@@ -273,7 +269,6 @@ func TestPromptsFixJobRefetchedAfterASpecRev(t *testing.T) {
 // A review job fetched again after the lead changed the spec it reviews (the gate merged rev 1): its text says so, and
 // the table keeps both rows, the newest the new text.
 func TestPromptsReviewJobRefetchedAfterASpecChange(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	r := fetchRig(t)
 	r.work("feature.txt", "feature\n")

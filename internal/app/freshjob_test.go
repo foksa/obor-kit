@@ -47,7 +47,7 @@ func TestFreshIntegratorPerJob(t *testing.T) {
 	if w := r.a.whereIs(p, p.integrator); w.State != Identified {
 		t.Fatalf("precondition: the integrator is not identified: %+v", w)
 	}
-	f := &startJobFakes{concScratch: r.fakes["pj"]}
+	f := &startJobFakes{concFakes: r.fakes["pj"]}
 	greenTask(r, "T-1", port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
 	if !runNext(r, p, "T-1", f) {
 		t.Fatal("T-1's review job not started")
@@ -97,7 +97,7 @@ func TestFreshIntegratorIdleBound(t *testing.T) {
 	r.a.opt.Now = func() time.Time { return now }
 	var out strings.Builder
 	r.a.opt.Out = &out
-	f := &startJobFakes{concScratch: r.fakes["pj"]}
+	f := &startJobFakes{concFakes: r.fakes["pj"]}
 	greenTask(r, "T-1", port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
 	for _, status := range []string{"working", "blocked"} {
 		t.Run(status, func(t *testing.T) {
@@ -141,7 +141,7 @@ func TestFreshIntegratorIdleBoundTwoJobs(t *testing.T) {
 	r.a.opt.Now = func() time.Time { return now }
 	var out strings.Builder
 	r.a.opt.Out = &out
-	f := &startJobFakes{concScratch: r.fakes["pj"]}
+	f := &startJobFakes{concFakes: r.fakes["pj"]}
 	setStatus(r, "working")
 	greenTask(r, "T-1", port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
 	greenTask(r, "T-5", port.Candidate{Task: "T-5", SHA: "c5", Target: "b", Patch: "p5"})
@@ -273,7 +273,7 @@ func TestFreshIntegratorReplay(t *testing.T) {
 	greenTask(r, "T-1", port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
 	r.add("pj", "T-1", event.StepReview, event.KindIntent, promptData{Agent: "pj-int", Job: "T-1/1/review", Patch: "p1"})
 	r.add("pj", "T-1", "start.review", event.KindIntent, startData{Agent: "pj-int"})
-	f := &startJobFakes{concScratch: r.fakes["pj"]}
+	f := &startJobFakes{concFakes: r.fakes["pj"]}
 	if !runNext(r, p, "T-1", f) {
 		t.Fatal("the replayed job step failed")
 	}
@@ -362,7 +362,7 @@ func TestFreshIntegratorPendingStart(t *testing.T) {
 				r.a.obs["w1:p9"].pane.Session = c.now
 			}
 			r.a.mu.Unlock()
-			f := &startJobFakes{concScratch: r.fakes["pj"]}
+			f := &startJobFakes{concFakes: r.fakes["pj"]}
 			if !runNext(r, p, "T-1", f) {
 				t.Fatal("the pending job step failed")
 			}

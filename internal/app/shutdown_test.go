@@ -68,7 +68,7 @@ func TestShutdownDeliveryNotRecorded(t *testing.T) {
 // cancellation is not a failure of the loop. A real error still records as before (T-425).
 func TestShutdownLoopNotRecorded(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass")
+	r := newLoopRig(t)
 	set := func(err error) {
 		r.mu.Lock()
 		r.checkoutErr = err

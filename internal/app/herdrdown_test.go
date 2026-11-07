@@ -11,7 +11,7 @@ import (
 // (prepared only once herdr is back: the merge loop needs a snapshot), and the fresh snapshot drives that dispatch.
 func TestServeWaitsForHerdr(t *testing.T) {
 	t.Parallel()
-	r := newDispatchRig(t)
+	r := newLoopRig(t, dispatching())
 	r.start()
 	r.setSpec("s1", "# T-1 — Waits\n\nDifficulty: medium\n")
 	if out := r.out.String(); !strings.Contains(out, "herdr: connected") || strings.Contains(out, "herdr: gone") {
@@ -60,7 +60,7 @@ func TestServeWaitsForHerdr(t *testing.T) {
 // Herdr down when serve starts: serve waits for it (one gone line), and works once it is up.
 func TestServeStartsWithHerdrDown(t *testing.T) {
 	t.Parallel()
-	r := newDispatchRig(t)
+	r := newLoopRig(t, dispatching())
 	r.srv.Die()
 	r.launch()
 	// Revive only once serve has logged herdr gone: serve's replay alone took 0.3 s on a loaded machine, so a fixed

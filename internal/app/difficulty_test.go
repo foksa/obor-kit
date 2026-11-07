@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"obor/internal/app/event"
-	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"strings"
 	"testing"
@@ -17,15 +16,6 @@ import (
 // default), the spec's Model: line first: the first model not paused, on the first free lane (every lane is pooled);
 // no free lane: the task waits for one; every model of the request paused: it waits, the reply says why. The rig has
 // lanes L-01 and L-02, both free.
-
-func newLevelRig(t *testing.T, edits ...func(map[string]any)) *loopRig {
-	t.Helper()
-	r := newDispatchRig(t, append([]func(map[string]any){testkit.Set("lanes", 2)}, edits...)...)
-	r.lanes.mu.Lock()
-	r.lanes.lanes = append(r.lanes.lanes, port.Lane{Name: "L-02", Dir: r.p.LaneDir("L-02"), State: "free"})
-	r.lanes.mu.Unlock()
-	return r
-}
 
 // dispatchLevel is the lead's dispatch of T-1 by its spec's level (no lane, no types).
 func (r *loopRig) dispatchLevel(callID string, types ...string) (string, error) {
@@ -71,7 +61,7 @@ func TestDifficultyTakesTheLevelsModels(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			r := newLevelRig(t)
+			r := newLoopRig(t, pooled())
 			r.start()
 			r.setSpec("s-"+c.name, c.spec)
 			var reply string
@@ -97,7 +87,7 @@ func TestDifficultyTakesTheLevelsModels(t *testing.T) {
 // pauses in force (T-766).
 func TestDifficultySkipsAPausedModel(t *testing.T) {
 	t.Parallel()
-	r := newLevelRig(t)
+	r := newLoopRig(t, pooled())
 	r.start()
 	r.specLevel("medium") // sonnet, deepseek
 	if reply, err := r.pause("lead", "p0", wire.Call{Model: "gpt", Note: "x"}); err == nil || !strings.Contains(err.Error(), `gpt is not a model`) {
@@ -145,7 +135,7 @@ func TestDifficultySkipsAPausedModel(t *testing.T) {
 
 func TestDifficultyModelsWithNoFreeLaneRefuse(t *testing.T) {
 	t.Parallel()
-	r := newLevelRig(t)
+	r := newLoopRig(t, pooled())
 	r.lanes.mu.Lock()
 	for i := range r.lanes.lanes {
 		r.lanes.lanes[i].State, r.lanes.lanes[i].Task = "working", "T-9"
@@ -167,7 +157,7 @@ func TestDifficultyModelsWithNoFreeLaneRefuse(t *testing.T) {
 
 func TestDifficultyConfigOverridesTheDefault(t *testing.T) {
 	t.Parallel()
-	r := newLevelRig(t, testkit.Set("difficulty.medium", []string{"luna:low"}))
+	r := newLoopRig(t, pooled(), withConfig(testkit.Set("difficulty.medium", []string{"luna:low"})))
 	r.start()
 	r.specLevel("medium")
 	if reply, err := r.dispatchLevel("d1"); err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01 (queued) as luna effort low") {
@@ -177,7 +167,7 @@ func TestDifficultyConfigOverridesTheDefault(t *testing.T) {
 
 func TestDifficultySpecSetRefusesASpecWithoutALevel(t *testing.T) {
 	t.Parallel()
-	r := newLevelRig(t)
+	r := newLoopRig(t, pooled())
 	r.start()
 	for _, text := range []string{"# T-1 — A\n", "# T-1 — A\n\nDifficulty: easy\n", "# T-1 — A\n\nsome text\nDifficulty: hard\n"} {
 		_, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Role: "lead",
@@ -203,7 +193,7 @@ func TestDifficultySpecSetRefusesASpecWithoutALevel(t *testing.T) {
 // reason does not carry over; a lane that is free then dispatches it.
 func TestDifficultyRedispatchOfAWaitingTaskReplacesIt(t *testing.T) {
 	t.Parallel()
-	r := newLevelRig(t)
+	r := newLoopRig(t, pooled())
 	r.lanes.mu.Lock()
 	r.lanes.lanes[0].State, r.lanes.lanes[0].Task = "working", "T-9"
 	r.lanes.lanes[1].State, r.lanes.lanes[1].Task = "working", "T-9"

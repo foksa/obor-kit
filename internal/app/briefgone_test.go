@@ -119,7 +119,7 @@ func TestBriefUnderAStopStaysOpenWhenItsAgentIsGone(t *testing.T) {
 // A worked brief left open in the log (an earlier serve's) whose agent is gone ends on the first pass after replay.
 func TestReplayedWorkedBriefOfAGoneAgentEnds(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, "")
+	r := newLoopRig(t, noCheck())
 	r.f.Agent("w1:p5", "pj-lead", "idle", r.p.Root).Workspace = "w1"
 	r.f.Shell("w1:p6", "pj-rev", r.p.Root).Workspace = "w1" // its agent stopped
 	at := r.clock.Now().Add(-2 * time.Hour)

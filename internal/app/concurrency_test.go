@@ -21,28 +21,11 @@ import (
 // merge loop goes on with every other step meanwhile. The fakes below are safe for the loop goroutine, the gate's
 // goroutine and the test at once.
 
-// concScratch is one project's Scratch and Agents: gates are green, a gate of task hold (a publish of holdPub, a
-// resolved check of holdResolved) blocks until release is closed (or its ctx ends); every scratch call (Gate, Publish,
-// Resolved) counts in inflight, and max is the most at once.
-type concScratch struct {
-	hold, holdPub, holdResolved string
-	// holdTest: the task whose lane Test waits for testRelease (T-961); based: each Gate's candidate has a Base, so it
-	// goes to its lane test (a candidate before T-961 has none: green at once)
-	holdTest string
-	based    bool
-	// release holds a gate, a publish and a resolved check; testRelease holds holdTest's lane test (nil: the Test
-	// waits on release as they do, T-972's gap test needs the two apart).
-	release     chan struct{}
-	testRelease chan struct{}
-	entered     chan string // each Gate's task, as it begins ("publish <task>", "resolved <task>" when held)
-
-	mu       sync.Mutex
-	gates    map[string]int // Gate calls by task (a cut one too)
-	tests    map[string]int // Test calls by task
-	pubs     map[string]int
-	inflight int
-	max      int
-	restarts int
+// concFakes is one project's adapters: its Scratch the package's one fake (FakeScratch: gates green, a held gate,
+// publish, resolved check or lane test waits for its release), its Agents, Typer, LaneSetup and Specs.
+type concFakes struct {
+	*FakeScratch
+	restarts int // under the FakeScratch's mu
 	// obor drop by lane (T-439): the stops (agent, force) and Free inputs; refuse: Free's refusal ("": frees).
 	stops  []string
 	frees  []port.FreeInput
@@ -55,119 +38,21 @@ type concScratch struct {
 	freeErrs int
 }
 
-func newConcScratch(hold string) *concScratch {
-	return &concScratch{hold: hold, release: make(chan struct{}), entered: make(chan string, 16),
-		gates: map[string]int{}, tests: map[string]int{}, pubs: map[string]int{}}
+// newConcFakes is a project's adapters whose gate of hold waits for release; the target is at "b", and a candidate
+// has no Base unless the test says so (unbased false: a lane test follows its gate, T-961).
+func newConcFakes(hold string) *concFakes {
+	s := NewFakeScratch("b")
+	s.hold, s.release, s.entered, s.unbased, s.Checks = hold, make(chan struct{}), make(chan string, 16), true, "check 1 pass"
+	return &concFakes{FakeScratch: s}
 }
 
-func (f *concScratch) enter() {
-	f.mu.Lock()
-	f.inflight++
-	f.max = max(f.max, f.inflight)
-	f.mu.Unlock()
-}
-
-func (f *concScratch) leave() {
-	f.mu.Lock()
-	f.inflight--
-	f.mu.Unlock()
-}
-
-func (f *concScratch) count(m map[string]int, task string) int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return m[task]
-}
-
-func (f *concScratch) Submit(context.Context, string, string, string, string, string) (string, error) {
-	return "submitted", nil
-}
-func (f *concScratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutcome, error) {
-	f.enter()
-	defer f.leave()
-	f.mu.Lock()
-	f.gates[in.Task]++
-	f.mu.Unlock()
-	f.entered <- in.Task
-	if in.Task == f.hold {
-		if err := f.wait(ctx); err != nil {
-			return port.GateOutcome{}, err
-		}
-	}
-	c := port.Candidate{Task: in.Task, Lane: in.Lane, SHA: "c-" + in.Task, Target: "b", Patch: "p"}
-	if f.based {
-		c.Base = "b0"
-	}
-	return port.GateOutcome{Kind: port.OutcomeGreen, Candidate: c}, nil
-}
-
-// Test is the lane test (T-961): it holds no scratch; holdTest's waits for testRelease (release when none is set).
-func (f *concScratch) Test(ctx context.Context, in port.TestInput) (port.TestOutcome, error) {
-	f.mu.Lock()
-	f.tests[in.Task]++
-	f.mu.Unlock()
-	if in.Task == f.holdTest {
-		f.entered <- "test " + in.Task
-		if err := f.waitOn(ctx, f.testRelease); err != nil {
-			return port.TestOutcome{}, err
-		}
-	}
-	return port.TestOutcome{Kind: port.OutcomeGreen, Line: "GREEN " + in.Task, Checks: "check 1 pass"}, nil
-}
-
-// wait blocks until release is closed or ctx ends.
-func (f *concScratch) wait(ctx context.Context) error {
-	return f.waitOn(ctx, f.release)
-}
-
-// waitOn blocks until ch is closed (release when nil) or ctx ends.
-func (f *concScratch) waitOn(ctx context.Context, ch chan struct{}) error {
-	if ch == nil {
-		ch = f.release
-	}
-	select {
-	case <-ch:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
-func (f *concScratch) Resolved(ctx context.Context, task, _ string, _ *port.Mismatch) (string, error) {
-	f.enter()
-	defer f.leave()
-	if task == f.holdResolved {
-		f.entered <- "resolved " + task
-		if err := f.wait(ctx); err != nil {
-			return "", err
-		}
-	}
-	return "resolution", nil
-}
-func (f *concScratch) Publish(ctx context.Context, c port.Candidate) (port.PublishOutcome, error) {
-	f.enter()
-	defer f.leave()
-	f.mu.Lock()
-	f.pubs[c.Task]++
-	f.mu.Unlock()
-	if c.Task == f.holdPub {
-		f.entered <- "publish " + c.Task
-		if err := f.wait(ctx); err != nil {
-			return port.PublishOutcome{}, err
-		}
-	}
-	return port.PublishOutcome{Kind: port.PublishMerged}, nil
-}
-func (f *concScratch) Landed(context.Context, string) (bool, error)               { return false, nil }
-func (f *concScratch) Unpin(context.Context, string) error                        { return nil }
-func (f *concScratch) AfterMerge(context.Context, port.Candidate) (string, error) { return "ran", nil }
-func (f *concScratch) Launch(context.Context, port.Launch) (port.Started, error) {
+func (f *concFakes) Launch(context.Context, port.Launch) (port.Started, error) {
 	f.mu.Lock()
 	f.restarts++
 	f.mu.Unlock()
 	return port.Started{Line: "STARTED"}, nil
 }
-func (f *concScratch) Stop(_ context.Context, agent, _ string, force bool) (string, error) {
+func (f *concFakes) Stop(_ context.Context, agent, _ string, force bool) (string, error) {
 	f.mu.Lock()
 	f.stops = append(f.stops, fmt.Sprintf("%s force=%t", agent, force))
 	ignores, fails := f.ignoresEsc, f.stopFails
@@ -180,13 +65,13 @@ func (f *concScratch) Stop(_ context.Context, agent, _ string, force bool) (stri
 	}
 	return "STOPPED", nil
 }
-func (f *concScratch) Type(context.Context, string, string, bool) (bool, error) {
+func (f *concFakes) Type(context.Context, string, string, bool) (bool, error) {
 	return true, nil
 }
-func (f *concScratch) Prepare(context.Context, port.PrepareInput) (port.Prepared, error) {
+func (f *concFakes) Prepare(context.Context, port.PrepareInput) (port.Prepared, error) {
 	return port.Prepared{Base: "target", Head: "target"}, nil
 }
-func (f *concScratch) Free(_ context.Context, in port.FreeInput) (string, error) {
+func (f *concFakes) Free(_ context.Context, in port.FreeInput) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.refuse != "" {
@@ -199,8 +84,8 @@ func (f *concScratch) Free(_ context.Context, in port.FreeInput) (string, error)
 	f.frees = append(f.frees, in)
 	return "discarded in " + in.Lane, nil
 }
-func (f *concScratch) Check(context.Context, string, string) (string, error) { return "", nil }
-func (f *concScratch) Target(context.Context, string) (string, bool, error) {
+func (f *concFakes) Check(context.Context, string, string) (string, error) { return "", nil }
+func (f *concFakes) Target(context.Context, string) (string, bool, error) {
 	return "target", false, nil
 }
 
@@ -213,7 +98,7 @@ type concRig struct {
 	a      *App
 	apps   map[string]*App   // project → its app
 	roots  map[string]string // project → root
-	fakes  map[string]*concScratch
+	fakes  map[string]*concFakes
 	kit    string
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -222,7 +107,7 @@ type concRig struct {
 func newConcRig(t *testing.T) *concRig {
 	base := t.TempDir()
 	kit, _ := filepath.Abs("../..")
-	r := &concRig{t: t, apps: map[string]*App{}, roots: map[string]string{}, fakes: map[string]*concScratch{}, kit: kit}
+	r := &concRig{t: t, apps: map[string]*App{}, roots: map[string]string{}, fakes: map[string]*concFakes{}, kit: kit}
 	now := time.Date(2026, 10, 25, 12, 0, 0, 0, time.UTC)
 	lane := filepath.Join(base, "pj-wt", "L-02")
 	for _, name := range []string{"pj", "pq", "pr"} {
@@ -235,7 +120,7 @@ func newConcRig(t *testing.T) *concRig {
 			t.Fatal(err)
 		}
 		r.roots[name] = root
-		f := newConcScratch("")
+		f := newConcFakes("")
 		r.fakes[name] = f
 		fx := &Loop{Scratch: f, Agents: f, Typer: f, Kit: r.kit}
 		if name == "pj" {
@@ -617,13 +502,13 @@ func TestLaneRowWriteFailurePersistent(t *testing.T) {
 	}
 }
 
-func (f *concScratch) loopWithSpecs(kit string) *Loop {
+func (f *concFakes) loopWithSpecs(kit string) *Loop {
 	return &Loop{Scratch: f, Agents: f, Typer: f, Lane: f, Specs: f, Kit: kit}
 }
 
 // pauseSpecs is the spec check of a dispatch: it holds the admission at pause.
 type pauseSpecs struct {
-	*concScratch
+	*concFakes
 	pause func()
 }
 

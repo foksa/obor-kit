@@ -50,7 +50,7 @@ func (r *loopRig) againLines(seq int64) []string {
 // rc 1: boom". It returns that fact's line to the lead, as serve's answers name the commands that answer it.
 func refusedRig(t *testing.T) (*loopRig, string) {
 	t.Helper()
-	r := newDispatchRig(t)
+	r := newLoopRig(t, dispatching())
 	r.disp.set(func(d *dispatchFakes) {
 		d.fail["prepare"] = func() error { return port.Refused{Line: "lane_setup in L-01: rc 1: boom"} }
 	})
@@ -109,7 +109,7 @@ func TestNeedsYouIsPostedToTheLeadOnce(t *testing.T) {
 // unchanged; a restart queues no second one, and the record posts it once.
 func TestNeedsYouLineQueuedWithoutAnInbox(t *testing.T) {
 	t.Parallel()
-	r := newDispatchRig(t)
+	r := newLoopRig(t, dispatching())
 	r.inbox.unrecord("pj-lead")
 	r.disp.set(func(d *dispatchFakes) {
 		d.fail["prepare"] = func() error { return port.Refused{Line: "lane_setup in L-01: rc 1: boom"} }

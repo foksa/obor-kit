@@ -14,7 +14,7 @@ func landSeed(t *testing.T, adapters bool) (*harness, *proj) {
 	t.Helper()
 	h, _ := newIdentHarness(t)
 	h.withLead()
-	f := newConcScratch("")
+	f := newConcFakes("")
 	h.a.opt.Loop = func(string) (*Loop, error) {
 		if !adapters {
 			return &Loop{}, nil

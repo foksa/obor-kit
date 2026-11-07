@@ -25,7 +25,7 @@ import (
 func TestTypedDispatchStartsOnOneLine(t *testing.T) {
 	testkit.Slow(t)
 	t.Parallel()
-	r := newDispatchRig(t, testkit.Set("kinds.claude.prompt_extra", "Also read docs/notes.md.\nThen start."))
+	r := newLoopRig(t, dispatching(), withConfig(testkit.Set("kinds.claude.prompt_extra", "Also read docs/notes.md.\nThen start.")))
 	cfg, err := config.Load(r.p.Root)
 	if err != nil {
 		t.Fatal(err)

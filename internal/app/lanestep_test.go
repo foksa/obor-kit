@@ -10,20 +10,21 @@ import (
 	"time"
 )
 
-// T-961: the lane test of a candidate (row 18b) at the app boundary: the loop rig's lane is a real worktree, and the
-// fake Scratch's Test checks the candidate out there as checks.Scratch does.
+// T-961: the lane test of a candidate (row 18b) at the app boundary: the fake Scratch's Test refuses a dirty lane and
+// "checks the candidate out" there while its hook runs, as checks.Scratch does over git (internal/checks'
+// TestLaneTest* hold the git side: the checkout, the restore, the dirty refusal).
 
 // A lane with uncommitted changes when its test is due: the test is refused before it touches the lane (never checked
 // out, the change kept), counted as a failed step and tried again on later passes, then a needs-you; once the lane is
 // clean, obor resume runs it again and the task goes on to its review.
 func TestLoopDirtyLaneTestRetried(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass")
+	r := newLoopRig(t)
 	r.work("feature.txt", "feature\n")
 	var checkouts atomic.Int32
-	r.scratch.onTest = func(context.Context, string) { checkouts.Add(1) }
+	r.scratch.OnTest(func(context.Context, string) { checkouts.Add(1) })
 	dirty := filepath.Join(r.lane, "scratch-note.txt")
-	r.scratch.arm("Gate", func(context.Context) error { // the worker writes on after its task_done
+	r.scratch.Arm("Gate", func(context.Context) error { // the worker writes on after its task_done
 		return os.WriteFile(dirty, []byte("still writing\n"), 0o644)
 	})
 	r.start()
@@ -47,14 +48,14 @@ func TestLoopDirtyLaneTestRetried(t *testing.T) {
 	if n := checkouts.Load(); n != 0 {
 		t.Errorf("the dirty lane was checked out %d times, want never", n)
 	}
-	if got := r.p.Git(r.lane, "branch", "--show-current"); got != "task/T-1" {
-		t.Errorf("the dirty lane is on %q, want its branch task/T-1", got)
+	if got := r.scratch.LaneAt("L-01"); got != "" {
+		t.Errorf("the dirty lane is at %s, want its branch", got)
 	}
 	if got := r.p.Read(dirty); got != "still writing\n" {
 		t.Errorf("the worker's uncommitted file %q, want it kept", got)
 	}
 
-	r.scratch.arm("Gate", nil)
+	r.scratch.Arm("Gate", nil)
 	if err := os.Remove(dirty); err != nil {
 		t.Fatal(err)
 	}
@@ -68,8 +69,8 @@ func TestLoopDirtyLaneTestRetried(t *testing.T) {
 	if !r.has("1 result test") || r.count("1 intent test") != 1 {
 		t.Errorf("the test ran under its pending key once the lane was clean: %q", r.steps())
 	}
-	if got := r.p.Git(r.lane, "branch", "--show-current"); got != "task/T-1" {
-		t.Errorf("the lane is on %q after its test, want task/T-1", got)
+	if got := r.scratch.LaneAt("L-01"); got != "" {
+		t.Errorf("the lane is at %s after its test, want its branch", got)
 	}
 }
 
@@ -77,16 +78,16 @@ func TestLoopDirtyLaneTestRetried(t *testing.T) {
 // branch; the next serve's replay runs the test again under the same key, and the task goes on to its review.
 func TestLoopRestartMidTestRunsItAgain(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass")
+	r := newLoopRig(t)
 	r.work("feature.txt", "feature\n")
 	started := make(chan struct{})
 	var runs atomic.Int32
-	r.scratch.onTest = func(ctx context.Context, lane string) {
+	r.scratch.OnTest(func(ctx context.Context, lane string) {
 		if runs.Add(1) == 1 {
 			close(started)
 			<-ctx.Done() // the first test runs until serve stops
 		}
-	}
+	})
 	r.start()
 	r.submit()
 	select {
@@ -94,15 +95,15 @@ func TestLoopRestartMidTestRunsItAgain(t *testing.T) {
 	case <-time.After(r.patience()):
 		t.Fatalf("no lane test began: %q", r.steps())
 	}
-	if got := r.p.Git(r.lane, "rev-parse", "HEAD"); got != r.p.Git(r.p.Root, "rev-parse", "refs/obor/candidate/T-1") {
-		t.Fatalf("precondition: the lane is at the candidate while its test runs, got %s", got)
+	if got := r.scratch.LaneAt("L-01"); got == "" || got != r.scratch.Pin("candidate/T-1") {
+		t.Fatalf("precondition: the lane is at the candidate while its test runs, got %q", got)
 	}
 	r.stop()
 	if !r.has("1 intent test") || r.has("1 result test") || r.hasPrefix("1 fact failed{test") {
 		t.Fatalf("the cut test: %q; want its intent pending, no result, no failure", r.steps())
 	}
-	if got := r.p.Git(r.lane, "branch", "--show-current"); got != "task/T-1" {
-		t.Errorf("the lane after the cut test is on %q, want its branch task/T-1 back", got)
+	if got := r.scratch.LaneAt("L-01"); got != "" {
+		t.Errorf("the lane after the cut test is at %s, want its branch back", got)
 	}
 
 	r.start()
@@ -113,8 +114,8 @@ func TestLoopRestartMidTestRunsItAgain(t *testing.T) {
 	if r.count("1 intent test") != 1 || r.count("1 result test") != 1 {
 		t.Errorf("the replay ran under the pending key: %q", r.steps())
 	}
-	if got := r.p.Git(r.lane, "branch", "--show-current"); got != "task/T-1" {
-		t.Errorf("the lane after the replayed test is on %q, want task/T-1", got)
+	if got := r.scratch.LaneAt("L-01"); got != "" {
+		t.Errorf("the lane after the replayed test is at %s, want its branch", got)
 	}
 }
 
@@ -123,21 +124,19 @@ func TestLoopRestartMidTestRunsItAgain(t *testing.T) {
 // diff is git diff <fork point> <submitted sha>, the main commit's file absent from it.
 func TestLoopReviewDiffIsTheTasksOwnAfterAMove(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass")
+	r := newLoopRig(t)
 	r.work("feature.txt", "feature\n")
 	r.start()
 	r.submit()
 	first := r.waitJob("pj-int", "T-1/1/review")
-	submitted := r.p.Git(r.lane, "rev-parse", "HEAD")
-	base := r.p.Git(r.p.Root, "merge-base", submitted, "main") // the lane's fork point
+	submitted := r.scratch.LaneHead("L-01")
+	base := r.scratch.LaneBase("L-01") // the lane's fork point
 	want := "git diff " + base + " " + submitted
 	if !strings.Contains(first, want) {
 		t.Fatalf("precondition: the first review job names %q:\n%s", want, first)
 	}
 	r.spec("sp1", specOne)
-	r.p.Write("other.txt", "other\n")
-	r.p.Git(r.p.Root, "add", "other.txt")
-	r.p.Git(r.p.Root, "commit", "-qm", "unrelated")
+	r.scratch.Move() // an unrelated commit on main
 	r.accept("c1", r.patch(first))
 	second := r.waitJob("pj-int", "T-1/1/review.2")
 	diff, _, _ := strings.Cut(second, "Patch hash:")

@@ -144,7 +144,7 @@ func (r *concRig) entered2(name string) string { return r.entered(name) }
 
 // laneT2 is the rig with pj's T-2 dispatched onto L-02 and its lane prepared (L-02's row holds it), the merge loops
 // running.
-func laneT2(t *testing.T) (*concRig, *proj, *concScratch) {
+func laneT2(t *testing.T) (*concRig, *proj, *concFakes) {
 	t.Helper()
 	r := newConcRig(t)
 	dispatchT2(r)
