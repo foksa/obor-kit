@@ -34,7 +34,7 @@ type Panes struct {
 
 var _ port.Panes = Panes{}
 
-// Subscribe is a Stream as the core sees it: lifecycle and status events (output watches are not the core's yet).
+// Subscribe is a Stream as the core sees it: lifecycle and status events.
 // It pings first: a herdr on another protocol is refused with a clear error. An EventStatus carries the pane as read
 // after the event in New (name, workspace, cwd and transcript too), like an EventCreated.
 func (p Panes) Subscribe(ctx context.Context) (*port.Stream, error) {
@@ -52,9 +52,6 @@ func (p Panes) Subscribe(ctx context.Context) (*port.Stream, error) {
 	go func() {
 		defer close(c)
 		for ev := range st.C {
-			if ev.Kind == EventOutput {
-				continue
-			}
 			select {
 			case c <- p.appEvent(ev):
 			case <-done:

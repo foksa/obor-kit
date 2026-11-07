@@ -44,6 +44,5 @@ var SentSubscriptions = map[string][]string{
 	"pane.moved":                nil,
 	"workspace.created":         nil,
 	"workspace.renamed":         nil,
-	"pane.output_matched":       {"pane_id", "source", "match"},
 	"pane.agent_status_changed": {"pane_id"},
 }
