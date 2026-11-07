@@ -16,6 +16,7 @@ import (
 // obor lead; a rerun leaves the loaded agent alone (no second bootstrap). Off darwin the serve step is skipped with
 // the run-it-yourself line and init still succeeds.
 func TestInitEndToEnd(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	p := testkit.New(t)
 	x := herdrtest.New()

@@ -345,6 +345,7 @@ func (k *noBinKit) deniesAll(t *testing.T, what string) {
 // obor project → every Bash / Edit / Write / NotebookEdit denied with the hint, except the repair command; other tools
 // and a cwd outside an obor project allowed.
 func TestPreToolUseMissingBinaryDenies(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	k := newNoBinKit(t)
 	if k.p.Exists("kit/dist/obor") || k.p.Exists(filepath.Join(k.home, ".obor/bin")) {
@@ -383,6 +384,7 @@ func TestPreToolUseMissingBinaryDenies(t *testing.T) {
 // bash plugin.test.sh case_pre_tool_use_stale_binary_denies: a stale dist/obor (no `has`: the T-193 outage) or a
 // binary whose `has hook pre-tool-use` exits 1 is not run: the hint denies; a binary that has it runs.
 func TestPreToolUseStaleBinaryDenies(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	k := newNoBinKit(t)
 	dist := filepath.Join(k.dir, "dist/obor")
@@ -418,6 +420,7 @@ func TestPreToolUseStaleBinaryDenies(t *testing.T) {
 // → denied with the hint within ~2 s, the binary and its child reaped; the repair command allowed; the binary rebuilt
 // runs.
 func TestPreToolUseHangingBinaryDenies(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	k := newNoBinKit(t)
 	dist := filepath.Join(k.dir, "dist/obor")

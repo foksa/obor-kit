@@ -228,6 +228,7 @@ exit 1
 
 // bash tests/bin.test.sh case_self_host, case_lane_uses_main_bin, case_opt_out_and_no_loop, case_needs_obor_manifest
 func TestShimSelfHost(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	f := newShimFixture(t)
 	stable, own := filepath.Join(f.stable, "bin", "obor"), filepath.Join(f.Root, "bin", "obor")
@@ -376,6 +377,7 @@ func alive(pid int) bool { return syscall.Kill(pid, 0) == nil }
 // bash tests/bin.test.sh case_hanging_binary_skipped_for_hooks (RV-22 #1): a dist/obor whose `has` never returns is
 // skipped within ~2 s and killed (its own pid: no process group, T-279); the release runs.
 func TestShimHookSkipsHangingDevBuild(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	f := newShimFixture(t)
 	hangGo(t, filepath.Join(f.Root, "dist", "obor"), f.Base)

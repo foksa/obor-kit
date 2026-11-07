@@ -11,6 +11,7 @@ import (
 // T-536: setup talks to herdr over its socket (HERDR_SOCKET_PATH). The run's PATH has no herdr on it: only the fake
 // socket answers, and every call is its answer.
 func TestSetupPaneUsesTheHerdrSocket(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	p := testkit.New(t)
 	p.Config()

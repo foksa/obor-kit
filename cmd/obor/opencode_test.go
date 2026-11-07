@@ -8,12 +8,15 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"obor/internal/testkit"
 )
 
 // The opencode plugin (T-306): opencode/obor.js ships as a package dir, each start's generated config names it (the
 // bridge, T-495, T-809), and its event mapping and hooks pass opencode/obor.test.js under `node --test` (skipped
 // without node).
 func TestOpencodePlugin(t *testing.T) {
+	testkit.Slow(t)
 	root := checkoutRoot(t)
 	js := filepath.Join(root, "opencode", "obor.js")
 	if fi, err := os.Stat(js); err != nil || !fi.Mode().IsRegular() {
