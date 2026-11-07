@@ -51,6 +51,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (owner 11-07) **Task priority, next change**: fixes for what burns CPU or blocks main/other tasks went to the back of the lane queue three times on 11-07 (T-970, T-989, T-990 waited behind ordinary tasks while promotion re-ran its full suite 6 times). Shape: a spec line `Priority: high` puts the task first among those waiting for a lane; a `Fixes:` task of the review that holds the promotion gets it automatically; no preemption, merge loop unchanged.
 - (RV-136, accepted) RV-136 #4: direct commits on staging after the last reviewed head (lead docs, a review close) reach main only with the next review's promotion
 - (lead 11-07) **Staging switch after T-978:** RV-136's verify approves T-978 → the owner switches (docs/UPGRADE-v0.30.md; key `merge.promote_weight`) → dispatch the test batch T-979..T-983 (weight 7). Then measure: slot seconds per merge, lane test minutes, reds/retests, promotion runs.
 - (RV-131, accepted) RV-131 #1: a crash between SetSpec's commit and the spec.set receipt, then another writer's spec within the 15 s retry, lets the retry write the old text as a new rev (internal/app/specs.go:88-100; docs/state-model.md:396-400). Very low likelihood; fix = spec + receipt in one transaction, 60-120 prod lines
@@ -200,6 +201,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   lane branch first.
 - (T-334) Two `sendback`s (the lead's lane form and the integrator's MCP verb): rename or drop the lane form.
 ## Concerns
+- (lead 11-07) **A task parked on a needs-you keeps its lane**: T-982 and T-983 (gate timeouts, not their diffs) held L-04 and L-01 while the fixes for the timeouts (T-989, T-990) waited for a lane. Since T-961 a merge-loop task holds its lane for its lane test; a parked one could release it (its tree is in its branch and candidate pin) and take a lane again when resumed. Decide with the next merge-flow change.
 - (lead 11-07) The reviewer (codex terra) wrote RV-135 and RV-135-verify without a leading `Result:` line despite T-956's template sentence, so the finished line says '(no Result line)'. If it recurs: put the Result-line rule into the review/verify brief serve writes (reviewverify.go), not only the role text.
 - (lead 11-07) **Flake, 3 sightings**: `TestWakePostRefusedThenReplayed` (internal/app) failed T-704's gate, a gate near serve.log:13435 and T-957's full re-gate 11-07 14:28 (0.7 s, passes on main in 0.8 s); each red sent a worker back. The rework's retest (plan §5 T-C) absorbs it; fix the test if it recurs after T-C.
 - (lead 11-07) **Not a flake**: `TestJobNudgeFromDelivery/activity_at_8_min` red in T-956's gate was a rule bug: watchJob counted herdr 'not connected' as the integrator gone (against T-759); fixed in T-956 (jobs.go, joblost_test.go). Also: lead commits to main while candidates wait cost each a moved re-gate (12:40 BACKLOG commit moved T-950): bookkeeping only at a quiet merge queue.
