@@ -465,6 +465,17 @@ func TestStatusRunningLine(t *testing.T) {
 			"running: nightly check (make -s check, 1m30s)"},
 		{"restarting serve", []wire.RunningStep{{Step: event.StepServeRestart, Since: now.Unix()}},
 			"running: restarting serve"},
+		// T-965: a pending restart drains the lane tests running: the note says how many wait for it.
+		{"restarting serve draining a lane test", []wire.RunningStep{
+			{Step: event.StepTest, Task: "T-5", Command: "check_affected", Since: now.Add(-2 * time.Minute).Unix()},
+			{Step: event.StepServeRestart, Since: now.Unix()}},
+			"running: test T-5 (make -s check-affected, 2m00s) · restarting serve (draining: 1 lane test)"},
+		{"restarting serve draining two lane tests", []wire.RunningStep{
+			{Step: event.StepTest, Task: "T-5", Command: "check_affected", Since: now.Add(-2 * time.Minute).Unix()},
+			{Step: event.StepTest, Task: "T-6", Command: "guard", Since: now.Add(-9 * time.Second).Unix()},
+			{Step: event.StepServeRestart, Since: now.Unix()}},
+			"running: test T-5 (make -s check-affected, 2m00s) · test T-6 (guard, 9s) · restarting serve " +
+				"(draining: 2 lane tests)"},
 	} {
 		ss := wire.Status{Connected: true, Project: &wire.ProjectStatus{Name: "pj", Root: p.Root, Running: c.running}}
 		st, text := statusOf(t, p, ss, nil, now)
