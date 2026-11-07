@@ -257,12 +257,10 @@ type Slots struct {
 	MergeBlockMax any `json:"merge_block_max,omitempty"`
 }
 
-// Checks holds the settings of every check run (obor run's heavy commands, the gates).
+// Checks holds removed settings of every check run: checks.load_limit went with the machine-load wait (v0.29,
+// T-962); it WARNs for two minors.
 type Checks struct {
-	// LoadLimit (T-720): a check waits for its slot while the machine's 1-minute load average is above it, at most
-	// 15 min, then runs marked "(run under load <x>)". Default 2 × the CPU count (run.LoadFactor); 0 never waits.
-	// Env CHECK_LOAD_LIMIT overrides it.
-	LoadLimit *float64 `json:"load_limit,omitempty"`
+	LoadLimit any `json:"load_limit,omitempty"`
 }
 
 // Defaults is a fresh copy each call: decoding reuses a slice's backing array. A null in the files leaves a default.

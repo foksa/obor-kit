@@ -150,9 +150,9 @@ func (s *session) nightly() *Result {
 	}
 	s.printLines(details)
 	if verdict == "GREEN" {
-		return result(OK, "NIGHTLY GREEN %s on %s (%s)%s", sha[:min(7, len(sha))], s.target, summary, s.loaded)
+		return result(OK, "NIGHTLY GREEN %s on %s (%s)", sha[:min(7, len(sha))], s.target, summary)
 	}
-	return result(Red, "NIGHTLY RED %s on %s (%s)%s — %s", sha[:min(7, len(sha))], s.target, summary, s.loaded,
+	return result(Red, "NIGHTLY RED %s on %s (%s) — %s", sha[:min(7, len(sha))], s.target, summary,
 		strings.Join(evidence, " | "))
 }
 

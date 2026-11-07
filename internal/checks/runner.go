@@ -30,7 +30,6 @@ type runner struct {
 	changedFile string     // the OBOR_CHANGED_FILES file under state
 	slot        string
 	env         []string // extra command environment (OBOR_CHANGED_FILES, OBOR_MOVED, OBOR_BASELINE, OBOR_GATE)
-	loaded      string   // " (run under load <x>)" once a slot was claimed after the load wait ran out (T-720)
 	pre         string   // the target side of the merge
 	moved       bool     // a clean move kept green: the class's checks run without their tests (OBOR_MOVED=1, T-914)
 	class       Class
@@ -173,13 +172,10 @@ func (r *runner) takeSlot() *halt {
 		sl := run.SlotsFor(r.Cfg, r.Env)
 		slots = &sl
 	}
-	path, loaded, err := slots.Acquire(r.ctx, "merge", r.PID, r.Out)
+	path, err := slots.Acquire(r.ctx, "merge", r.PID, r.Out)
 	switch {
 	case err == nil:
 		r.slot = path
-		if loaded > 0 {
-			r.loaded = run.UnderLoad(loaded)
-		}
 		return nil
 	case r.ctx.Err() != nil:
 		return interrupt(r.interrupted())
@@ -318,13 +314,6 @@ func (opt *Options) printLines(ls []string) {
 	for _, l := range ls {
 		fmt.Fprintln(opt.Out, l)
 	}
-}
-
-func (opt *Options) load() (float64, bool) {
-	if opt.Load != nil {
-		return opt.Load()
-	}
-	return run.SystemLoad()
 }
 
 // baselineDir is commands.baseline.dir made absolute, "" when unset or not a directory.

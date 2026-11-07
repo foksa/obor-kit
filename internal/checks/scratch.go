@@ -255,7 +255,7 @@ func (s Scratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutcome,
 		c.Checks += ", moved" // a partial class ran, its tests may not (T-914)
 	}
 	return port.GateOutcome{Kind: port.OutcomeGreen, Candidate: c,
-		Line: fmt.Sprintf("GREEN %s (%s, %s)%s", in.Task, c.Checks, r.mode, r.loaded)}, nil
+		Line: fmt.Sprintf("GREEN %s (%s, %s)", in.Task, c.Checks, r.mode)}, nil
 }
 
 // replayDiffers is the files whose patch differs between the merge open in dir (its index against target) and the
@@ -443,7 +443,7 @@ func gateHalt(r *runner, h *halt) (*port.GateOutcome, error) {
 		return o, h.err
 	case h.red != nil:
 		what, evidence := r.redLine(*h.red)
-		o.Kind, o.Line = port.OutcomeRed, fmt.Sprintf("RED %s (%s)%s%s", h.red.name, what, r.loaded, evidence)
+		o.Kind, o.Line = port.OutcomeRed, fmt.Sprintf("RED %s (%s)%s", h.red.name, what, evidence)
 	default:
 		o.Kind, o.Line = port.OutcomeFail, "FAIL "+h.fail
 	}

@@ -19,14 +19,13 @@ import (
 // A Flake is one .obor/state/flakes.jsonl line: a check run's failing test. Retried and PassedOnRetry are written by
 // scripts/release's own rerun (T-717); the checks have had no rerun since T-864.
 type Flake struct {
-	Time          int64    `json:"time"`            // epoch seconds
-	Test          string   `json:"test"`            // a fail_grep name: the test, else the package
-	Check         string   `json:"check"`           // commands.<name>
-	Task          string   `json:"task"`            // the run's task (nightly, milestone for those)
-	SHA           string   `json:"sha"`             // the commit the checks ran on
-	Load          *float64 `json:"load"`            // 1-min load average (null: unreadable)
-	Retried       bool     `json:"retried"`         // the run was rerun (scripts/release's)
-	PassedOnRetry bool     `json:"passed_on_retry"` // and the test passed then
+	Time          int64  `json:"time"`            // epoch seconds
+	Test          string `json:"test"`            // a fail_grep name: the test, else the package
+	Check         string `json:"check"`           // commands.<name>
+	Task          string `json:"task"`            // the run's task (nightly, milestone for those)
+	SHA           string `json:"sha"`             // the commit the checks ran on
+	Retried       bool   `json:"retried"`         // the run was rerun (scripts/release's)
+	PassedOnRetry bool   `json:"passed_on_retry"` // and the test passed then
 }
 
 // flakeWindow is how far back obor flakes looks.
@@ -71,14 +70,10 @@ func (r *runner) logFlakes(name string, outs ...output) {
 	if len(names) == 0 {
 		return
 	}
-	var load *float64
-	if v, ok := r.load(); ok {
-		load = &v
-	}
 	at, sha := time.Now().Unix(), r.sha()
 	entries := make([]Flake, 0, len(names))
 	for _, test := range names {
-		entries = append(entries, Flake{Time: at, Test: test, Check: name, Task: r.logName, SHA: sha, Load: load})
+		entries = append(entries, Flake{Time: at, Test: test, Check: name, Task: r.logName, SHA: sha})
 	}
 	if err := appendFlakes(r.state, entries); err != nil {
 		fmt.Fprintf(r.Out, "warning: flake log: %v\n", err)
