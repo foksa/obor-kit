@@ -73,10 +73,12 @@ trim-go-cache:
 # what serve's merge slot runs on each merge: build, gofmt, vet and deadcode, no go test. CHECK_CPUS (obor run and the
 # gates export it: cores / slots.max) is go test -p. Every class check starts with
 # GO_GATE: GOCACHE falls back to $TMPDIR when the default is not writable (a Codex sandbox, T-206), then build, gofmt and
-# vet; every failure prints a line fail_grep matches (^FAIL).
-GO_GATE = c=$$($(GO) env GOCACHE 2>/dev/null); \
+# vet; every failure prints a line fail_grep matches (^FAIL). GO_CACHE is that GOCACHE selection alone, shared with
+# check-retest (T-976).
+GO_CACHE = c=$$($(GO) env GOCACHE 2>/dev/null); \
 	{ mkdir -p "$$c" && : > "$$c/.obor-probe" && rm -f "$$c/.obor-probe"; } 2>/dev/null || \
-	  { GOCACHE="$${TMPDIR:-/tmp}/obor-go-build"; export GOCACHE; }; \
+	  { GOCACHE="$${TMPDIR:-/tmp}/obor-go-build"; export GOCACHE; }
+GO_GATE = $(GO_CACHE); \
 	$(MAKE) -s build || { echo "FAIL make build"; exit 1; }; \
 	f=$$(gofmt -l cmd internal); test -z "$$f" || { echo "FAIL gofmt: $$(printf '%s\n' "$$f" | tr '\n' ' ')"; exit 1; }; \
 	$(GO) vet ./... || { echo "FAIL go vet"; exit 1; }
@@ -104,11 +106,15 @@ check-compile:
 	$(MAKE) -s deadcode || { echo "FAIL deadcode"; exit 1; }; \
 	echo "compile: build, gofmt, vet, deadcode OK"
 
-# check-retest (commands.retest, T-964): a red lane test's failing tests once more on the same tree, not the check's
-# whole package tier: go test -short -run "$OBOR_FAILED_TESTS" on $OBOR_FAILED_PKGS (the run named them both), CHECK_CPUS
-# as -p. Green → the red was a flake; anything else (and a run with no names: no retest at all, the lane step) is red.
+# check-retest (commands.retest, T-964, T-976): a red lane test's failing tests once more on the same tree, not the
+# check's whole package tier: go test -run "$OBOR_FAILED_TESTS" on $OBOR_FAILED_PKGS (the run named them both), with
+# GO_CACHE (an unwritable default cache falls back as the checks do), CHECK_CPUS as -p. No -short: a test that failed
+# ran, so the retry runs it as it ran (a testkit.Slow test would otherwise SKIP and turn a real failure green, RV-135
+# #1); the retry still skips build, gofmt and vet. Green → the red was a flake; anything else (and a run with no names:
+# no retest at all, the lane step) is red.
 check-retest:
-	@rc=0; out=$$($(GO) test -short -count=1 $${CHECK_CPUS:+-p $$CHECK_CPUS} -run "$$OBOR_FAILED_TESTS" $$OBOR_FAILED_PKGS 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
+	@$(GO_CACHE); \
+	rc=0; out=$$($(GO) test -count=1 $${CHECK_CPUS:+-p $$CHECK_CPUS} -run "$$OBOR_FAILED_TESTS" $$OBOR_FAILED_PKGS 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
 	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"
 

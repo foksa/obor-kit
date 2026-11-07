@@ -480,8 +480,9 @@ func (r *runner) must(name string) (output, bool, *halt) {
 
 // retestOnRed runs a red lane test's failures once more (T-964, one retest, never more): the tests and packages the run
 // named, commands.retest in the same dir at the same commit, OBOR_FAILED_TESTS (a -run regexp of the names) and
-// OBOR_FAILED_PKGS, the runner's CPU budget. green: the retest passed; ran false: none ran (no name or package, a
-// build failure, no commands.retest), so the red stands as before.
+// OBOR_FAILED_PKGS, the runner's CPU budget. green: the retest passed and ran at least one test (a run that tested
+// nothing, "0 pass, 0 fail", is not green, T-976); ran false: none ran (no name or package, a build failure, no
+// commands.retest), so the red stands as before.
 func (r *runner) retestOnRed(red output) (out output, green, ran bool) {
 	tests, pkgs, built := r.failingTests(red)
 	if built || len(tests) == 0 || len(pkgs) == 0 {
@@ -494,7 +495,23 @@ func (r *runner) retestOnRed(red output) (out output, green, ran bool) {
 	if h != nil || !ok {
 		return output{}, false, false
 	}
-	return o, o.rc == 0, true
+	return o, o.rc == 0 && ranTests(r.counts(o)), true
+}
+
+// ranTests is whether a retest's counts (merge.summary_regex) show at least one test: the retry's own "go test: 0
+// pass, 0 fail" is a run that tested nothing (an empty package list, a -run that matched nothing) and cannot turn the
+// original red green (T-976). counts' "rc=<n>" (no summary line) says nothing about tests, so rc alone decides.
+func ranTests(counts string) bool {
+	if strings.HasPrefix(counts, "rc=") {
+		return true
+	}
+	nums := number.FindAllString(counts, -1)
+	for _, n := range nums {
+		if v, _ := strconv.Atoi(n); v != 0 {
+			return true
+		}
+	}
+	return len(nums) == 0
 }
 
 // testRegexp is go test -run's regexp for tests: every name quoted and anchored, joined by |. -run reads a "/" as the
