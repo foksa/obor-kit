@@ -97,7 +97,12 @@
     "integrator": "opus:medium",
     "researcher": "sonnet:medium"
   },
+  "branches": {
+    "main": "staging",
+    "promote": "main"
+  },
   "merge": {
+    "promote_weight": 6,
     "trailer": "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>",
     "summary_regex": "[0-9]+ pass|[0-9]+ fail",
     "guard": "guard",
