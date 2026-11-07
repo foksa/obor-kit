@@ -258,7 +258,9 @@ func (a *App) roleWakes(ctx context.Context, p *proj, fx *Loop) {
 const ruleStopAlarm = "stopalarm"
 
 // stopAlarmRule is the alarm's rule: the stop of a briefed role agent, woken, still stopped wakeAlarm later; key its
-// stop's fact seq. The lead's line records first; the toast is its best-effort after (T-949).
+// stop's fact seq. The lead's line records first; the toast is its best-effort after (T-949). A stop whose alarm is
+// already recorded is skipped, so the next stopped agent gets its turn (the rule's did is not enough: the condition
+// would keep keying the first one).
 func stopAlarmRule(_ context.Context, a *App, p *proj, _ *Loop, now time.Time) (int64, action, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -269,6 +271,9 @@ func stopAlarmRule(_ context.Context, a *App, p *proj, _ *Loop, now time.Time) (
 	for agent, b := range p.out.allBriefs() {
 		st := b.stop
 		if st == nil || agent == p.out.lead() || st.alarmed || st.woke.IsZero() || now.Sub(st.woke) < wakeAlarm {
+			continue
+		}
+		if _, done := p.folded.did[event.Of{Kind: ruleStopAlarm, Seq: st.seq}]; done {
 			continue
 		}
 		if s == nil || st.seq < s.seq {
