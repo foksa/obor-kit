@@ -29,6 +29,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
 - (none; branching decided 11-07, docs/decisions.md)
 
 ## Later candidates
+- (RV-135 design) The web derives event kinds from line wording (`format.ts` eventKind); serve knows step and outcome (`app.Describe`): ship a semantic kind with each event and drop the client regexes. Next touch of view/events.
 - **Un-defer `job_next`** (chatter census proposal 2, 11-07): skipped as a Claude-only launch flag (an integrator job's first call is ~42k on a near-empty context, ~10% of a job; a global tool-search switch would load every MCP tool). The agent-neutral variant (a fresh session's first prompt carries the job, herdr events as the delivery proof) went to the advisor: docs/research/job-in-first-prompt-advice.md.
 - **Log snapshot at upgrade** (parked 11-05, docs/research/log-snapshot.md): build when compat branches pass ~300
   prod lines or a record-shape change needs it.
@@ -217,6 +218,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   lane branch first.
 - (T-334) Two `sendback`s (the lead's lane form and the integrator's MCP verb): rename or drop the lane form.
 ## Concerns
+- (lead 11-07) The reviewer (codex terra) wrote RV-135 and RV-135-verify without a leading `Result:` line despite T-956's template sentence, so the finished line says '(no Result line)'. If it recurs: put the Result-line rule into the review/verify brief serve writes (reviewverify.go), not only the role text.
 - (lead 11-07) **Flake, 3 sightings**: `TestWakePostRefusedThenReplayed` (internal/app) failed T-704's gate, a gate near serve.log:13435 and T-957's full re-gate 11-07 14:28 (0.7 s, passes on main in 0.8 s); each red sent a worker back. The rework's retest (plan §5 T-C) absorbs it; fix the test if it recurs after T-C.
 - (lead 11-07) **Not a flake**: `TestJobNudgeFromDelivery/activity_at_8_min` red in T-956's gate was a rule bug: watchJob counted herdr 'not connected' as the integrator gone (against T-759); fixed in T-956 (jobs.go, joblost_test.go). Also: lead commits to main while candidates wait cost each a moved re-gate (12:40 BACKLOG commit moved T-950): bookkeeping only at a quiet merge queue.
 - (lead 11-07) **A role agent's 'finished' fires while it waits on its own background monitors**: ob-researcher ended its turn at 11:10 with 3 Monitor tasks running (go test -json runs) and no report yet; serve sent `[obor] ob-researcher finished` → a wasted lead wake. Chatter-census class: finished = ready pane, not done work. Candidate: the finished line waits for the brief's named output file, or herdr's completion_seq (T-953 probes it).
