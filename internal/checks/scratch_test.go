@@ -28,7 +28,14 @@ type sx struct {
 
 func newSx(t *testing.T, edits ...func(map[string]any)) *sx {
 	t.Helper()
+	return newSxEnv(t, nil, edits...)
+}
+
+// newSxEnv is newSx with env added to the project's environment (what serve's Env answers, T-967).
+func newSxEnv(t *testing.T, env []string, edits ...func(map[string]any)) *sx {
+	t.Helper()
 	x := newFx(t, edits...)
+	x.env = append(x.env, env...)
 	real, err := exec.LookPath("git")
 	if err != nil {
 		t.Fatal(err)

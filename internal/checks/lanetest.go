@@ -9,11 +9,8 @@ import (
 	"time"
 
 	"obor/internal/app/port"
+	"obor/internal/config"
 )
-
-// laneCPUs is a lane test's CPU budget (T-961): GOMAXPROCS, GOFLAGS=-p and CHECK_CPUS of its commands, so four lanes
-// testing at once leave the machine room. It is slots.lane_cpus' default; T-963 makes it the key's helper.
-const laneCPUs = 2
 
 // restoreWait bounds the restore of a lane's branch after its test, also when serve's ctx ended (a stop cut the test:
 // the lane goes back to its branch all the same).
@@ -76,8 +73,10 @@ func (s Scratch) Test(ctx context.Context, in port.TestInput) (out port.TestOutc
 
 	r := newRunner(ctx, &s.Options, dir, in.Task, "lane-changed-files-"+in.Lane)
 	r.prio, r.pre, r.onCommand, r.retest = "worker", in.Target, in.Command, true
-	n := strconv.Itoa(laneCPUs)
-	r.env = append(r.env, "GOMAXPROCS="+n, "GOFLAGS=-p="+n, "CHECK_CPUS="+n)
+	// The lane's CPU budget (T-967): slots.lane_cpus as the lane workers' launch has it (config.LaneEnv, the GOFLAGS
+	// inherited's other flags kept) and CHECK_CPUS the same, never the gate's cores / slots.max.
+	r.env = append(r.env, config.LaneEnv(s.Cfg, s.Env.Get("GOFLAGS"))...)
+	r.env = append(r.env, "CHECK_CPUS="+strconv.Itoa(s.Cfg.LaneCPUs()))
 	defer r.releaseSlot()
 	for _, h := range []func() *halt{
 		func() *halt { return r.changed(in.Task, in.Target+".."+in.SHA) },
