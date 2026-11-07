@@ -51,6 +51,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (RV-136, accepted) RV-136 #4: direct commits on staging after the last reviewed head (lead docs, a review close) reach main only with the next review's promotion
 - (lead 11-07) **Staging switch after T-978:** RV-136's verify approves T-978 → the owner switches (docs/UPGRADE-v0.30.md; key `merge.promote_weight`) → dispatch the test batch T-979..T-983 (weight 7). Then measure: slot seconds per merge, lane test minutes, reds/retests, promotion runs.
 - (RV-131, accepted) RV-131 #1: a crash between SetSpec's commit and the spec.set receipt, then another writer's spec within the 15 s retry, lets the retry write the old text as a new rev (internal/app/specs.go:88-100; docs/state-model.md:396-400). Very low likelihood; fix = spec + receipt in one transaction, 60-120 prod lines
 - (RV-129, accepted) verify design note: app.go:83's J1 rule comment lists the dispatch-class verbs as exceptions but they take two different locks (verdicts: dispatch, drop, drive, pause, job_next, resume; submitMu: task_done, land, spec set, move); say which lock each takes on the next touch of app.go
