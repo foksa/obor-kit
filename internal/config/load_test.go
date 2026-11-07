@@ -79,7 +79,7 @@ func TestLoadHook(t *testing.T) {
 		{name: "clean", cfg: `{"prefix":"pj"}`},
 		{name: "unknown keys", cfg: `{"prefix":"pj","keep_warm":{"x":1}}`, local: `{"merge":{"future":1}}`,
 			unknown: []string{"keep_warm", "merge.future"}},
-		{name: "unknown key and a type error", cfg: `{"keep_warm":1,"merge":{"receipt_max_age":"soon"}}`, err: "receipt_max_age"},
+		{name: "unknown key and a type error", cfg: `{"keep_warm":1,"merge":{"nightly_at":5}}`, err: "nightly_at"},
 		{name: "syntax error", cfg: `{"prefix":`, err: "not valid JSON"},
 		{name: "syntax error in local.json", cfg: `{"keep_warm":1}`, local: `{`, err: "local.json is not valid JSON"},
 		{name: "no config", err: "no "},

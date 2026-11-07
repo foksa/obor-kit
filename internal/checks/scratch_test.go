@@ -658,36 +658,6 @@ func TestScratchPublish(t *testing.T) {
 	z.eq(z.ref(candidateRefs+"T-05"), c.SHA, "a moved candidate stays pinned")
 }
 
-// RV-40 #1: serve's lane test does not reuse a worker's receipt once the guard has staged a change; the check runs on
-// the tree the index holds, with the guard's file. Without that change the same receipt is reused.
-func TestScratchGateReceiptGuardMutation(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct{ name, guard, want string }{
-		{"the guard stages a changed file", `echo broken > feature.txt; git add feature.txt; echo 1 pass`, `^RED check \(rc=1, partial:any\)`},
-		{"the guard changes nothing", `echo 1 pass`, `^GREEN T-05 \(guard 1 pass, check reused L-01 [0-9a-f]{7}, partial:any\)`},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			y := newSx(t,
-				cmd("check", map[string]any{"cmd": `if grep -q broken feature.txt; then echo 1 fail; exit 1; fi; echo 4 pass`, "heavy": true, "timeout": 20}),
-				cmd("guard", map[string]any{"cmd": tc.guard}),
-				testkit.Set("merge", map[string]any{"trailer": trailer, "summary_regex": "[0-9]+ pass", "guard": "guard", "receipt_max_age": 3600,
-					"classes": []any{map[string]any{"name": "any", "paths": []any{"**"}, "checks": []any{"check"}}}}))
-			y.Git(y.lane, "merge", "-q", "--ff-only", "main") // the lane is based on the current target, as right after a submit
-			y.Write(filepath.Join(y.lane, "feature.txt"), "fine\n")
-			if rc := y.worker("check"); rc != 0 {
-				t.Fatalf("the worker's run: %d", rc)
-			}
-			c := y.green(lane(y.submit()))
-			o, err := y.test(ctx, c) // T-961: the guard and the class's check run in the lane test
-			if err != nil {
-				t.Fatal(err)
-			}
-			y.match(o.Line, tc.want, "the test's line")
-		})
-	}
-}
-
 // T-425: the target is branches.main whatever the main checkout has checked out. On another branch the gate merges
 // onto main, publish refuses (its ff would move the other branch) and Landed reads main's log; back on main, publish
 // merges.

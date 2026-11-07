@@ -101,7 +101,6 @@ func Run(o Options) int {
 	interrupted := func() int { return int(signal.Load()) }
 
 	environ := o.Environ
-	var receipt *laneRun
 	if c.Heavy {
 		slots := o.Slots
 		if slots == nil {
@@ -124,11 +123,10 @@ func Run(o Options) int {
 		// The command runs under this slot: a slot-aware runner inside reuses it (T-121).
 		environ = append(append([]string(nil), environ...), "CHECK_SLOT_HELD="+path, CPUsEnv(o.Cfg, o.Env))
 		if lane != "" {
-			receipt = o.beforeLaneRun(ctx, top, lane, &environ)
+			o.exportChangedFiles(ctx, top, lane, &environ)
 		}
 	}
 
-	t0 := time.Now()
 	rc, timedOut := Execute(ctx, c, top, o.Args, environ, o.Stdout, o.Stderr)
 	switch {
 	case signal.Load() != 0:
@@ -137,25 +135,17 @@ func Run(o Options) int {
 		fmt.Fprintf(o.Stderr, "obor run: %s timed out after %d s\n", c.Name, c.Timeout)
 		return 124
 	}
-	if rc == 0 && receipt != nil && len(o.Args) == 0 {
-		o.writeReceipt(ctx, receipt, c, time.Since(t0))
-	}
 	return rc
 }
 
-// laneRun is a lane's state before a heavy command: its name, where it runs and the tree it ran on.
-type laneRun struct {
-	name, top, tree string
-}
-
-// beforeLaneRun exports OBOR_CHANGED_FILES, the lane's changes against the merge base with the target (the main
+// exportChangedFiles exports OBOR_CHANGED_FILES, the lane's changes against the merge base with the target (the main
 // checkout's branch) in .obor/state/run-changed-<lane>, as the gate does for its own run. Without a tree or a base the
-// command gets no list (its selector then runs everything) and no receipt is written.
-func (o Options) beforeLaneRun(ctx context.Context, top, lane string, environ *[]string) *laneRun {
+// command gets no list (its selector then runs everything).
+func (o Options) exportChangedFiles(ctx context.Context, top, lane string, environ *[]string) {
 	tree, err := Tree(ctx, top, o.Environ)
 	if err != nil {
-		fmt.Fprintf(o.Stderr, "note: cannot compute the lane's tree (%v): no changed-file list, no receipt\n", err)
-		return nil
+		fmt.Fprintf(o.Stderr, "note: cannot compute the lane's tree (%v): no changed-file list\n", err)
+		return
 	}
 	state := project.StateDir(o.Cfg.Root)
 	files, err := o.changedFiles(top, tree)
@@ -171,7 +161,6 @@ func (o Options) beforeLaneRun(ctx context.Context, top, lane string, environ *[
 	} else {
 		*environ = append(*environ, "OBOR_CHANGED_FILES="+path)
 	}
-	return &laneRun{name: lane, top: top, tree: tree}
 }
 
 // changedFiles is tree's files against the merge base of HEAD and the main checkout's branch.
@@ -187,15 +176,55 @@ func (o Options) changedFiles(top, tree string) ([]string, error) {
 	return ChangedFiles(top, strings.TrimSpace(base), tree)
 }
 
-// writeReceipt records the green run, unless the lane's tree changed while it ran (then it proves nothing).
-func (o Options) writeReceipt(ctx context.Context, l *laneRun, c config.Command, took time.Duration) {
-	after, err := Tree(ctx, l.top, o.Environ)
-	if err != nil || after != l.tree {
-		return
+// Tree is the content tree of the work in dir (a worktree): HEAD plus every tracked and untracked change, as serve's
+// submit commits a lane (add -A), the run marker excluded. It is computed with a temporary index (its own git, under
+// the caller's ctx: a canceled run's Tree ends with it, T-873), so dir's index and history are not touched.
+func Tree(ctx context.Context, dir string, environ []string) (string, error) {
+	tmp, err := os.MkdirTemp("", "obor-tree-")
+	if err != nil {
+		return "", err
 	}
-	if err := WriteReceipt(project.StateDir(o.Cfg.Root), l.tree, c, l.name, took, time.Now(),
-		time.Duration(o.Cfg.Data.Merge.ReceiptMaxAge)*time.Second); err != nil {
-		fmt.Fprintf(o.Stderr, "note: cannot write the test receipt: %v\n", err)
+	defer os.RemoveAll(tmp)
+	if environ == nil {
+		environ = os.Environ()
+	}
+	env := append(append([]string(nil), environ...), "GIT_INDEX_FILE="+filepath.Join(tmp, "index"))
+	git := func(args ...string) (string, error) {
+		out, err := project.GitCtxEnv(ctx, dir, env, args...)
+		return strings.TrimSpace(out), err
+	}
+	for _, args := range [][]string{{"read-tree", "HEAD"}, {"add", "-A"},
+		{"reset", "-q", "--", MarkerName}} {
+		if _, err := git(args...); err != nil {
+			return "", fmt.Errorf("git %s in %s: %w", args[0], dir, err)
+		}
+	}
+	return git("write-tree")
+}
+
+// ChangedFiles is the files a tree changes against base (names only, a rename as a deletion and an addition: the
+// merge's own listing, RV-03 #2).
+func ChangedFiles(dir, base, tree string) ([]string, error) {
+	out, err := project.Git(dir, "diff", "--no-renames", "--name-only", base, tree)
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, l := range strings.Split(out, "\n") {
+		if l != "" {
+			files = append(files, l)
+		}
+	}
+	return files, nil
+}
+
+// PruneOlder removes the files in dir last modified before cutoff (a dot file is a write in flight).
+func PruneOlder(dir string, cutoff time.Time) {
+	ents, _ := os.ReadDir(dir)
+	for _, e := range ents {
+		if info, err := e.Info(); err == nil && !strings.HasPrefix(e.Name(), ".") && info.Mode().IsRegular() && info.ModTime().Before(cutoff) {
+			os.Remove(filepath.Join(dir, e.Name()))
+		}
 	}
 }
 

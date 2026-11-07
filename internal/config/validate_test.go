@@ -161,10 +161,10 @@ func TestValidate(t *testing.T) {
 		{name: "several problems: one line each", edits: []edit{set("version", 3), set("prefix", "X"), set("models.extra", map[string]any{})},
 			want: []string{"FAIL .version: must be 1, got 3", `FAIL .prefix: must match ^[a-z][a-z0-9-]{0,7}$, got "X"`,
 				"FAIL .models.extra.kind: required (claude, codex, opencode)"}},
-		// T-349
-		{name: "receipt_max_age and cpus fine", edits: []edit{set("merge.receipt_max_age", 0), set("slots.cpus", 4)}},
-		{name: "receipt_max_age negative", edits: []edit{set("merge.receipt_max_age", -1)},
-			want: []string{"FAIL .merge.receipt_max_age: must be a non-negative integer (seconds), got -1"}},
+		{name: "slots.cpus fine", edits: []edit{set("slots.cpus", 4)}},
+		// T-966: merge.receipt_max_age went with the test receipts; a config still naming it warns.
+		{name: "merge.receipt_max_age is removed", edits: []edit{set("merge.receipt_max_age", 60)},
+			want: []string{"WARN merge.receipt_max_age: no longer used, remove it"}},
 		{name: "nightly_at fine", edits: []edit{set("merge.nightly_at", "02:00")}},
 		{name: "nightly_at no time", edits: []edit{set("merge.nightly_at", "2am")},
 			want: []string{`FAIL .merge.nightly_at: must be a local time HH:MM (00:00 to 23:59), got "2am"`}},
@@ -299,8 +299,6 @@ func TestShapeErrorsFailTheLoad(t *testing.T) {
 		{set("spec", map[string]any{"files_heading": "Files"}), "spec"},
 		{set("roles", `{"leads": [{"name": "mp"}]}`), "leads"},
 		{set("obor", map[string]any{"version": "0.7.0"}), "obor"},
-		{set("merge.receipt_max_age", "1d"), "receipt_max_age"},
-		{set("merge.receipt_max_age", 1.5), "receipt_max_age"},
 		{set("slots.cpus", "4"), "cpus"},
 		{set("slots.cpus", 2.5), "cpus"},
 		{set("slots.lane_cpus", "3"), "lane_cpus"},
@@ -373,6 +371,8 @@ func TestRemovedKeysWithinTwoVersions(t *testing.T) {
 		{"cache", set("cache", map[string]any{}), 28, 30},
 		// T-962: v0.29 dropped checks.load_limit with the check slots' machine-load wait.
 		{"checks.load_limit", set("checks.load_limit", 12.5), 29, 31},
+		// T-966: v0.29 dropped merge.receipt_max_age with the test receipts.
+		{"merge.receipt_max_age", set("merge.receipt_max_age", 60), 29, 31},
 	} {
 		if r.removed > 0 {
 			if r.keepUntil != r.removed+2 {

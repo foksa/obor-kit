@@ -36,8 +36,6 @@ type runner struct {
 	mode        string            // class.Mode() once classified
 	check       string            // the checks' counts
 	gate        string            // ", gate <counts>" when the gate ran
-	reused      []string          // the trees the reused receipts named (receipts.go)
-	noReuse     bool              // a reused tree went stale: every check runs
 	pruned      bool              // the old logs were removed (once per run)
 	onCommand   func(name string) // told each command as it starts and "" as it ends (serve's gate: obor status' running line, T-669, T-673)
 }
@@ -385,28 +383,10 @@ func (r *runner) compile() *halt {
 
 // runChecks runs the class's checks: partial → merge.guard, then the class's checks (a missing command → fail);
 // full → check, then baseline and gate when their "at" is "merge" (default "milestone"), the gate only when the merge
-// (pre..HEAD: the candidate checked out in a lane, T-961) touches its paths or OBOR_GATE=1.
+// (pre..HEAD: the candidate checked out in a lane, T-961) touches its paths or OBOR_GATE=1. Every check runs: a run in
+// a lane has nothing to reuse (T-966).
 func (r *runner) runChecks() *halt {
-	r.noReuse = false
-	class, envLen := r.class, len(r.env)
-	if h := r.runClassChecks(); h != nil || len(r.reused) == 0 {
-		return h
-	}
-	// The guard, baseline or a check may have changed the tree after a receipt was matched (RV-40 #1): the candidate
-	// must be the tree the reused checks proved, else nothing is reused and every check runs on the final tree.
-	final, err := r.checkedTree()
-	if err != nil {
-		return &halt{err: err}
-	}
-	if !slices.ContainsFunc(r.reused, func(t string) bool { return t != final }) {
-		return nil
-	}
-	r.class, r.env, r.noReuse = class, r.env[:envLen], true
-	return r.runClassChecks()
-}
-
-func (r *runner) runClassChecks() *halt {
-	r.gate, r.reused = "", nil
+	r.gate = ""
 	if r.class.Partial {
 		var checks []string
 		if r.class.Name != "neutral" {
@@ -418,12 +398,6 @@ func (r *runner) runClassChecks() *halt {
 		}
 		var counts []string
 		for _, name := range append([]string{r.Cfg.Data.Merge.Guard}, checks...) {
-			if name != r.Cfg.Data.Merge.Guard {
-				if note, ok := r.reuse(name); ok {
-					counts = append(counts, name+" "+note)
-					continue
-				}
-			}
 			o, ok, h := r.must(name)
 			if h != nil {
 				return h
@@ -437,9 +411,7 @@ func (r *runner) runClassChecks() *halt {
 		return nil
 	}
 	r.check = "no check"
-	if note, ok := r.reuse("check"); ok {
-		r.check = note
-	} else if o, ok, h := r.must("check"); h != nil {
+	if o, ok, h := r.must("check"); h != nil {
 		return h
 	} else if ok {
 		r.check = r.counts(o)
@@ -464,10 +436,6 @@ func (r *runner) runClassChecks() *halt {
 			}
 		}
 		if run {
-			if note, ok := r.reuse("gate"); ok {
-				r.gate = ", gate " + note
-				return nil
-			}
 			o, _, h := r.must("gate")
 			if h != nil {
 				return h

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -263,4 +264,18 @@ func Release(path string, pid int) {
 	if h, ok := holder(path); ok && path != "" && h == strconv.Itoa(pid) {
 		os.Remove(path)
 	}
+}
+
+// CPUs is CHECK_CPUS: slots.cpus when set, else cores / slots.max (CHECK_SLOTS), at least 1. Two checks at Go's default
+// parallelism put twice the cores' jobs on the machine; the project maps it (go test -p).
+func CPUs(cfg *config.Config, env project.Env, cores int) int {
+	if s := cfg.Data.Slots; s != nil && s.CPUs != nil {
+		return *s.CPUs
+	}
+	return max(1, cores/max(1, SlotsFor(cfg, env).Max))
+}
+
+// CPUsEnv is CPUs for this machine as an environment entry.
+func CPUsEnv(cfg *config.Config, env project.Env) string {
+	return "CHECK_CPUS=" + strconv.Itoa(CPUs(cfg, env, runtime.NumCPU()))
 }

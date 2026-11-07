@@ -236,8 +236,9 @@ type Merge struct {
 	// each non-gating (T-817): one report line, never RED; a nonzero exit a WARN line. A name must be a defined
 	// command and no gating one. Unset: none.
 	NightlyCommands []string `json:"nightly_commands,omitzero"`
-	// ReceiptMaxAge is how old (s) a worker's green-run receipt may be for the gate to reuse it (default 86400; 0: never).
-	ReceiptMaxAge int `json:"receipt_max_age"`
+	// ReceiptMaxAge is a removed key (v0.29, T-966): serve runs the class's checks itself on the candidate, so a receipt
+	// of an earlier obor run is never needed. It WARNs for two minors.
+	ReceiptMaxAge any `json:"receipt_max_age,omitempty"`
 }
 
 // MergeClass is one merge.classes entry.
@@ -275,7 +276,6 @@ func Defaults() Data {
 		DoneFileSections: []string{"Summary", "Self-check", "Skipped", "Open questions"},
 		LaneLinks:        []string{},
 		ProtectedFiles:   []string{},
-		Merge:            Merge{ReceiptMaxAge: 86400},
 	}
 }
 

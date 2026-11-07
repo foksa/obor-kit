@@ -68,13 +68,13 @@ func TestDefaultsAndDerivedKeys(t *testing.T) {
 }
 
 func TestLocalOverlay(t *testing.T) {
-	c := load(t, `{"prefix":"pj","merge":{"receipt_max_age":60},"done_file_sections":["A","B","C"],
+	c := load(t, `{"prefix":"pj","merge":{"nightly_at":"03:00"},"done_file_sections":["A","B","C"],
 		"kinds":{"claude":{"args":["--x"],"prompt_extra":"P"}},"lanes":4,
 		"commands":{"check":{"cmd":"make check","timeout":90}},
-		"merge":{"receipt_max_age":60,"classes":[{"name":"a","paths":["src/a/**"]}]}}`,
+		"merge":{"nightly_at":"03:00","classes":[{"name":"a","paths":["src/a/**"]}]}}`,
 		`{"merge":{"nightly_at":"02:00","classes":[{"name":"b","paths":["src/b/**"]}]},"done_file_sections":["X"],
 		"kinds":{"claude":{"args":["--y"]}},"lanes":2,"commands":{"check":{"dir":"sub"}},"lanes_dir":"/wt"}`)
-	if m := c.Data.Merge; m.ReceiptMaxAge != 60 || m.NightlyAt != "02:00" {
+	if m := c.Data.Merge; m.NightlyAt != "02:00" {
 		t.Errorf("merge: objects merge key by key, got %+v", m)
 	}
 	if !reflect.DeepEqual(c.Data.DoneFileSections, []string{"X"}) {
@@ -192,7 +192,6 @@ func TestDefaults(t *testing.T) {
 		get       func(*Config) any
 		def, val  any
 	}{
-		{"merge.receipt_max_age", `"merge":{"receipt_max_age":60}`, func(c *Config) any { return c.Data.Merge.ReceiptMaxAge }, 86400, 60},
 		{"merge.nightly_commands", `"merge":{"nightly_commands":["trim"]}`, func(c *Config) any { return len(c.Data.Merge.NightlyCommands) }, 0, 1},
 		{"merge.affected_full", `"merge":{"affected_full":["Makefile"]}`, func(c *Config) any { return len(c.Data.Merge.AffectedFull) }, 0, 1},
 		{"paths.agents", `"paths":{"agents":"doc/roles"}`, func(c *Config) any { return c.Data.Paths["agents"] }, "docs/agents", "doc/roles"},

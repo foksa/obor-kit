@@ -28,7 +28,7 @@ gate runs it. Adapters never import each other: one that needs another goes thro
   `TaskFromBranch` / `TaskBranch`; `edit.go` (T-753): `Edit`, the one setup change obor web may make, applied to config.json's bytes
   in their own layout, and `LoadWith` (what it would load as).
 - `roles`: role names and defaults. `spec`: a spec text's title, sections and globs (the text is the store's).
-- `run`: commands under a timeout as a process group; machine-wide check slots; receipts. `run.Group`, `run.Slots`.
+- `run`: commands under a timeout as a process group; machine-wide check slots. `run.Group`, `run.Slots`.
 - `version`: build version line.
 - `help` (T-854): the one list of obor commands (`help.Commands`: name, usage, description, group), printed by
   `obor help` and shown by obor web's Help page, and README's "Install" and "Set up a project" sections (`Sections`).
@@ -108,7 +108,7 @@ Adding a kind = one package + a config entry.
 - `checks`: git and the merge gate: lanes (`checks.Lane`, `LaneSetup`), serve's worktree `merge.scratch_dir` (submit,
   gate: merge and compile, resolved, publish, after_merge over pins under `refs/obor/`), the lane test of a candidate in
   the task's lane worktree (`lanetest.go`, `Scratch.Test`: the class's checks, T-961), nightly/milestone checks in their own worktree,
-  flakes, receipts, and the lane table (`LaneTable`: worktree facts for `obor status` and `app.Lanes`, merge evidence; `Lanes` is serve's
+  flakes, and the lane table (`LaneTable`: worktree facts for `obor status` and `app.Lanes`, merge evidence; `Lanes` is serve's
   `app.Lanes` adapter, each lane's configured type, T-738).
   Implements `app.Scratch`.
 - `launch`: start, stop (the kill sequence) and restart an agent CLI in its pane (`Launcher`, panes via
