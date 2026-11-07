@@ -372,6 +372,32 @@ func TestMakeCheckAffectedDirect(t *testing.T) {
 	}
 }
 
+// T-991 lane fix: go test's per-package timeout is above Go's 10-minute default (a loaded 2-core lane made tests/release
+// a false RED at 600 s with no failing test); the check's own commands.check budget still bounds the run.
+func TestMakeCheckGoTestTimeout(t *testing.T) {
+	t.Parallel()
+	for _, target := range []string{"check-affected", "check-release"} {
+		t.Run(target, func(t *testing.T) {
+			t.Parallel()
+			_, calls, _ := makeCheckTier(t, target)
+			var test string
+			for _, c := range calls {
+				if strings.HasPrefix(c, "test ") {
+					test = c
+				}
+			}
+			if test == "" {
+				t.Fatalf("precondition: %s runs go test: %q", target, calls)
+			}
+			f := strings.Fields(test)
+			i := slices.Index(f, "-timeout")
+			if i < 0 || i+1 == len(f) || f[i+1] != "20m" {
+				t.Errorf("%s: go test %q, want -timeout 20m", target, test)
+			}
+		})
+	}
+}
+
 // T-964/T-976: check-retest (commands.retest, a red lane test's one rerun) tests only what the red named: the -run
 // regexp of OBOR_FAILED_TESTS and the packages of OBOR_FAILED_PKGS, CHECK_CPUS as -p, the other tiers' summary line.
 // No -short (a test that failed ran, so the retry runs it as it ran) and no build, gofmt or vet.
