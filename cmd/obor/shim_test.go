@@ -64,8 +64,8 @@ func staleGo(t *testing.T, path string) {
 	writeExec(t, path, "#!/bin/bash\n[ \"$1 $2\" = \"hook noop\" ] && exit 0\necho \"usage: obor hook noop\" >&2\nexit 2\n")
 }
 
-// hang is how long hangGo's `has` sleeps: a shim back sooner gave up on it by its own bound.
-const hang = 30 * time.Second
+// hang is how long hangGo's `has` sleeps: a shim back sooner gave up on it by its own bound (hookTimeoutEnv).
+const hang = 3 * time.Second
 
 // hangGo logs its argv to <dir>/stub.log; its `has` never returns (it writes its pid to <dir>/stub.pids, then execs
 // sleep for hang: no child, T-279).
@@ -375,15 +375,16 @@ func TestShimHookSkipsStaleDevBuild(t *testing.T) {
 func alive(pid int) bool { return syscall.Kill(pid, 0) == nil }
 
 // bash tests/bin.test.sh case_hanging_binary_skipped_for_hooks (RV-22 #1): a dist/obor whose `has` never returns is
-// skipped within ~2 s and killed (its own pid: no process group, T-279); the release runs.
+// skipped within the watchdog's bound (OBOR_HOOK_TIMEOUT, 1 s here) and killed (its own pid: no process group,
+// T-279); the release runs.
 func TestShimHookSkipsHangingDevBuild(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	f := newShimFixture(t)
 	hangGo(t, filepath.Join(f.Root, "dist", "obor"), f.Base)
 	fakeGo(t, filepath.Join(f.home, ".obor", "bin", shimAsset(shimVersion)))
 	start := time.Now()
-	rc, stdout, stderr := f.shim(t, f.Root, noSelfHost, filepath.Join(f.Root, "bin", "obor"), "hook", "stop")
+	rc, stdout, stderr := f.shim(t, f.Root, append([]string{hookTimeoutEnv}, noSelfHost...),
+		filepath.Join(f.Root, "bin", "obor"), "hook", "stop")
 	elapsed := time.Since(start)
 	if want := "argv: <hook> <stop> source=kit default root=" + f.Root + "\n"; rc != 0 || stdout != want {
 		t.Errorf("hanging dist/obor → the release runs the hook: exit %d, %q; want %q", rc, stdout, want)
@@ -391,8 +392,8 @@ func TestShimHookSkipsHangingDevBuild(t *testing.T) {
 	if stderr != "" {
 		t.Errorf("nothing on stderr (no job notice): %q", stderr)
 	}
-	// The bound is the shim's own 2 s watchdog: back before the hang's own end, the shim killed it (the wall-clock 2 s
-	// is not asserted: a loaded machine stretches it).
+	// The bound is the shim's own watchdog (OBOR_HOOK_TIMEOUT=1 s here): back before the hang's own end, the shim
+	// killed it (the wall-clock 1 s is not asserted: a loaded machine stretches it).
 	if elapsed >= hang {
 		t.Errorf("a hanging has is bounded by the shim, not by the hang (%v): took %v", hang, elapsed)
 	}

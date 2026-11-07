@@ -34,7 +34,8 @@ func (x *hx) remote() string {
 	return remote
 }
 
-// hx is a project (prefix pj, lane L-01 on task/T-05) with the hooks of kit installed by `obor setup githooks`.
+// hx is a project (prefix pj, lane L-01 on task/T-05) with the hooks of kit installed by `obor setup githooks`, and a
+// stub binary (refuse); a case sets its own with binary.
 type hx struct {
 	*fx
 	t    testing.TB
@@ -42,14 +43,19 @@ type hx struct {
 	kit  string
 }
 
-func newHx(t *testing.T, bin string) *hx {
+// refuse is the default stub dist/obor: whoami answers like a worker in a lane (a lane commit refuses with the lane
+// line) and whoami --can-push refuses (a push refuses). The real binary's answers are cmd/obor's TestWhoamiCanPush.
+const refuse = "#!/bin/bash\n[ \"$2\" = --can-push ] && exit 1\necho 'role: worker'\necho 'source: cwd'\n"
+
+func newHx(t *testing.T) *hx {
 	t.Helper()
 	p := testkit.New(t)
 	lane := p.Lane("L-01", "task/T-05")
 	p.Config()
 	h := herdrtest.New()
-	x := &hx{fx: &fx{Project: p, h: h, srv: herdrtest.Serve(t, h)}, t: t, lane: lane, kit: newKit(t, bin)}
+	x := &hx{fx: &fx{Project: p, h: h, srv: herdrtest.Serve(t, h)}, t: t, lane: lane, kit: newKit(t, "")}
 	x.fx.kit = x.kit
+	x.binary(refuse)
 	x.ok(t, "githooks")
 	if got := x.Git(x.Root, "config", "--get", "core.hooksPath"); got != x.hooks() {
 		t.Fatalf("precondition: hooks installed: %q", got)
@@ -218,14 +224,11 @@ func (x *hx) binary(script string) {
 }
 
 // bash tests/githooks.test.sh case_setup_githooks_sets_refuses_removes is
-// TestGithooksSetsRefusesRemoves.
+// TestGithooksSetsRefusesRemoves. The binary is a stub (hx.binary) at each case, never a build: the real binary's
+// whoami --can-push answers are cmd/obor's TestWhoamiCanPush.
 func TestGithooks(t *testing.T) {
 	testkit.Slow(t)
 	t.Parallel()
-	bin := filepath.Join(testkit.Dir(t), "obor")
-	if out, err := exec.Command("go", "build", "-o", bin, "../../cmd/obor").CombinedOutput(); err != nil {
-		t.Fatalf("go build: %v\n%s", err, out)
-	}
 	const lane = "obor: no commits in a lane"
 	const unknown = "obor: cannot tell whether this is a lane"
 	for _, c := range []struct {
@@ -251,9 +254,12 @@ func TestGithooks(t *testing.T) {
 				t.Error("pushed")
 			}
 		}},
-		// T-793: the hook asks the binary (whoami --can-push): the agent guard's rule, config.MayPush.
-		{"pre-push allows a role in guards.allow_push, refuses one not listed and a lane-bound one", func(t *testing.T, x *hx) {
+		// T-793: the hook asks the binary (whoami --can-push) and obeys its answer: a listed role passes, a role not
+		// listed and a lane-bound one refuse. The decision itself (guards.allow_push, the lane row) is the real
+		// binary's, tested in cmd/obor's TestWhoamiCanPush.
+		{"pre-push obeys whoami --can-push: a listed role passes, a role not listed and a lane-bound one refuse", func(t *testing.T, x *hx) {
 			x.Config(func(c map[string]any) { c["guards"] = map[string]any{"allow_push": []string{"lead", "worker"}} })
+			x.binary("#!/bin/bash\n[ \"$OBOR_ROLE\" = lead ] && exit 0\nexit 1\n")
 			remote := x.remote()
 			pushes := func(dir, branch string, env []string, rc int, what string) {
 				t.Helper()
@@ -271,7 +277,7 @@ func TestGithooks(t *testing.T) {
 			pushes(x.Root, "main", x.gitEnv("OBOR_ROLE=reviewer"), 1, "role not listed")
 			pushes(x.Root, "main", x.gitEnv(), 1, "no role (the owner without the env)")
 			x.Git(x.lane, "branch", "-f", "lanebranch", "HEAD")
-			pushes(x.lane, "lanebranch", x.gitEnv("OBOR_ROLE=worker"), 1, "lane-bound role listed in allow_push")
+			pushes(x.lane, "lanebranch", x.gitEnv("OBOR_ROLE=worker"), 1, "lane-bound role (the binary answers no)")
 			pushes(x.Root, "main", x.gitEnv("OBOR_ROLE=lead"), 0, "lead listed in allow_push")
 		}},
 		{"pre-push refuses without a usable binary (none, stale, hanging)", func(t *testing.T, x *hx) {
@@ -334,8 +340,13 @@ func TestGithooks(t *testing.T) {
 			x.commits(t, x.Root, x.gitEnv(), 0, "", "main commit")
 		}},
 		// T-762: the owner's drive agent (role driver) commits on its branch in its lane; a worker and any other role
-		// stay refused, and the main checkout and OBOR_MERGE=1 are as before.
+		// stay refused, and the main checkout and OBOR_MERGE=1 are as before. The classifier is a stub here; whoami
+		// derives driver/worker from OBOR_ROLE and the cwd in cmd/obor's tests.
 		{"pre-commit allows a drive agent's commit in its lane, refuses a worker's", func(t *testing.T, x *hx) {
+			x.binary("#!/bin/bash\ncase \"${OBOR_ROLE:-}\" in\n" +
+				"  driver) echo 'role: driver'; echo 'source: env+cwd';;\n" +
+				"  *) echo 'role: worker'; echo 'source: cwd';;\n" +
+				"esac\n")
 			x.commits(t, x.lane, x.gitEnv("OBOR_ROLE=driver"), 0, "", "drive agent commit in its lane")
 			x.commits(t, x.lane, x.gitEnv("OBOR_ROLE=worker"), 1, lane, "worker commit in its lane")
 			x.commits(t, x.lane, x.gitEnv(), 1, lane, "no OBOR_ROLE in a lane (cwd: worker)")
@@ -576,7 +587,7 @@ func TestGithooks(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			c.test(t, newHx(t, bin))
+			c.test(t, newHx(t))
 		})
 	}
 }

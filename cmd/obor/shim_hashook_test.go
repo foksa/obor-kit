@@ -17,8 +17,9 @@ import (
 )
 
 // bin/obor's has_hook (T-279): `obor hook pre-tool-use` through the shim of a kit copy whose dist/obor is a fake, run
-// without a process group of its own. A hanging `has` is bounded at 2 s with no job control: denied with exactly the
-// hint, nothing else on stderr (no setpgid line), the fake killed and no watchdog sleep left behind.
+// without a process group of its own. A hanging `has` is bounded at OBOR_HOOK_TIMEOUT (1 s here) with no job control:
+// denied with exactly the hint, nothing else on stderr (no setpgid line), the fake killed and no watchdog sleep left
+// behind.
 func TestShimHasHook(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -27,7 +28,7 @@ func TestShimHasHook(t *testing.T) {
 		hint      bool // stderr is exactly the hint; else empty
 		ran       bool // the fake's hook ran (stdout "go ran")
 	}{
-		{"hanging binary: hint after 2 s, killed, no stray sleep", `echo $$ > "$dir/has.pid"; exec /bin/sleep 30`, 2, true, false},
+		{"hanging binary: hint after the 1 s watchdog, killed, no stray sleep", `echo $$ > "$dir/has.pid"; exec /bin/sleep 3`, 2, true, false},
 		{"stale binary: the hint only", started + `; exit 1`, 2, true, false},
 		{"good binary: runs Go", started + `; exit 0`, 0, false, true},
 	}
@@ -56,7 +57,8 @@ func TestShimHasHook(t *testing.T) {
 			defer cancel()
 			cmd := exec.CommandContext(ctx, "/bin/bash", filepath.Join(kit, "bin", "obor"), "hook", "pre-tool-use")
 			cmd.Dir = p.Base
-			cmd.Env = []string{"HOME=" + filepath.Join(p.Base, "home"), "PATH=" + fakes + ":/usr/bin:/bin:/usr/sbin:/sbin"}
+			cmd.Env = []string{"HOME=" + filepath.Join(p.Base, "home"), hookTimeoutEnv,
+				"PATH=" + fakes + ":/usr/bin:/bin:/usr/sbin:/sbin"}
 			cmd.Stdin = strings.NewReader(`{"tool_name":"Edit","cwd":"` + p.Root + `","tool_input":{"file_path":"x"}}`)
 			var stdout, stderr bytes.Buffer
 			cmd.Stdout, cmd.Stderr = &stdout, &stderr
@@ -94,9 +96,9 @@ func TestShimHasHook(t *testing.T) {
 				}
 			}
 			if strings.HasPrefix(tc.name, "hanging") {
-				// The 2 s bound plus the shim's own work (git, jq: over 1 s on a loaded machine); the fake sleeps 30 s.
-				if elapsed < 2*time.Second || elapsed > hangBound {
-					t.Errorf("took %v, want the 2 s bound", elapsed)
+				// The 1 s bound plus the shim's own work (git, jq: a second or more on a loaded machine); the fake sleeps 3 s.
+				if elapsed < hookTimeout || elapsed > hangBound {
+					t.Errorf("took %v, want the %s bound", elapsed, hookTimeout)
 				}
 				pids := readPids(t, filepath.Join(kit, "dist", "has.pid"))
 				if len(pids) != 1 {
@@ -133,7 +135,7 @@ func readPids(t *testing.T, path string) []int {
 	return pids
 }
 
-// gone: pid has exited within 500 ms (re-parented zombies are reaped by init shortly after), well under the 2 s a
+// gone: pid has exited within 500 ms (re-parented zombies are reaped by init shortly after), well under the 1 s a
 // leftover watchdog sleep would live.
 func gone(pid int) bool {
 	for deadline := time.Now().Add(500 * time.Millisecond); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {

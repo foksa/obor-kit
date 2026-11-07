@@ -3,20 +3,15 @@ package main
 import (
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
-
-	"obor/internal/testkit"
 )
 
-// The opencode plugin (T-306): opencode/obor.js ships as a package dir, each start's generated config names it (the
-// bridge, T-495, T-809), and its event mapping and hooks pass opencode/obor.test.js under `node --test` (skipped
-// without node).
+// The opencode plugin (T-306): opencode/obor.js ships as a package dir and each start's generated config names it (the
+// bridge, T-495, T-809). Its event mapping and hooks are the tool's behaviour: `node --check` and `node --test` run in
+// conformance OC-S2, not here.
 func TestOpencodePlugin(t *testing.T) {
-	testkit.Slow(t)
 	root := checkoutRoot(t)
 	js := filepath.Join(root, "opencode", "obor.js")
 	if fi, err := os.Stat(js); err != nil || !fi.Mode().IsRegular() {
@@ -41,15 +36,5 @@ func TestOpencodePlugin(t *testing.T) {
 	}
 	if has([]string{"setup", "agents"}) != 0 || has([]string{"setup", "opencode-plugin"}) != 1 {
 		t.Error("obor has setup agents: yes; the alias opencode-plugin: gone (T-774)")
-	}
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("no node on PATH")
-	}
-	// The suite takes ~5 s idle (one case waits out obor.js's 5 s hook timeout) and its fixtures run git: shimRun's 20 s
-	// timed out under the merge gate's load (obor flakes: TestOpencodePlugin ×6), so it gets 2 min.
-	rc, stdout, stderr, _ := shimRunWithin(t, 2*time.Minute, root, "", nil, node, "--test", filepath.Join(root, "opencode", "obor.test.js"))
-	if rc != 0 {
-		t.Errorf("node --test opencode/obor.test.js: exit %d\n%s\n%s", rc, stdout, stderr)
 	}
 }

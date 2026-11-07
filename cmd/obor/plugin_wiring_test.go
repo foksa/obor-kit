@@ -18,8 +18,16 @@ import (
 	"obor/internal/testkit"
 )
 
-// hangBound: the watchdog fires at 2 s; the rest is headroom for a loaded merge machine.
+// hangBound: the watchdog fires at OBOR_HOOK_TIMEOUT (2 s by default, 1 s in these tests); the rest is headroom for a
+// loaded merge machine.
 const hangBound = 15 * time.Second
+
+// hookTimeoutEnv sets the shim's hang watchdog (bin/obor has_hook) to 1 s; hookTimeout is that bound. (The plan's
+// 0.3 s raced the stub's own bash startup under a loaded package: the watchdog killed it before its first line.)
+const hookTimeoutEnv = "OBOR_HOOK_TIMEOUT=1"
+
+// hookTimeout is the watchdog bound hookTimeoutEnv sets.
+const hookTimeout = time.Second
 
 // The plugin wiring: the JSON manifests, hooks/hooks.json, `claude plugin validate`, and the five hooks run as
 // `bin/obor hook <name>` without a usable Go binary (T-195, RV-22 #1, T-201). What the hooks do is the Go binary's
@@ -208,17 +216,7 @@ func TestHooksJSONWiring(t *testing.T) {
 	}
 }
 
-// bash plugin.test.sh case_claude_validate
-func TestClaudePlugin(t *testing.T) {
-	if _, err := exec.LookPath("claude"); err != nil {
-		t.Skip("claude not on PATH: claude plugin validate / test not run")
-	}
-	root := checkoutRoot(t)
-	if rc, out, stderr, _ := shimRun(t, root, "", nil, "claude", "plugin", "validate", root); rc != 0 ||
-		!strings.Contains(out, "Validation passed") {
-		t.Errorf("claude plugin validate: exit %d\n%s\n%s", rc, out, stderr)
-	}
-}
+// `claude plugin validate`, the tool's behaviour, is conformance CC-S3 (tests/conformance/static.go).
 
 // --- hooks without a usable Go binary (T-195, RV-22 #1, T-201) -------------------------------------------------------
 
@@ -256,7 +254,7 @@ func newNoBinKit(t *testing.T) *noBinKit {
 // hook is the kit's `bin/obor hook <name>` with the event on stdin, run from the kit (no version pin).
 func (k *noBinKit) hook(t *testing.T, name, event string, env ...string) (int, string, string, time.Duration) {
 	t.Helper()
-	env = append([]string{"HOME=" + k.home, "OBOR_NO_SELF_HOST=1"}, env...)
+	env = append([]string{"HOME=" + k.home, "OBOR_NO_SELF_HOST=1", hookTimeoutEnv}, env...)
 	return shimRun(t, k.dir, event, env, "bash", filepath.Join(k.dir, "bin/obor"), "hook", name)
 }
 
@@ -278,7 +276,7 @@ func (k *noBinKit) stub(t *testing.T, path, kind string) {
 		"no":    "[ \"$1\" = has ] && exit 1\necho \"obor: go stub\" >&2\nexit 2\n",
 		"deny":  "[ \"$1\" = has ] && exit 0\necho \"obor: go stub\" >&2\nexit 2\n",
 		"good":  "[ \"$1\" = has ] && exit 0\necho \"go stub\"\n",
-		"hang": fmt.Sprintf("[ \"$1\" = has ] && { echo \"$$\" > '%s'; exec sleep 30; }\necho \"go stub\"\n",
+		"hang": fmt.Sprintf("[ \"$1\" = has ] && { echo \"$$\" > '%s'; exec sleep 3; }\necho \"go stub\"\n",
 			filepath.Join(k.p.Base, "stub.pids")),
 	}[kind]
 	if body == "" {
@@ -345,7 +343,6 @@ func (k *noBinKit) deniesAll(t *testing.T, what string) {
 // obor project → every Bash / Edit / Write / NotebookEdit denied with the hint, except the repair command; other tools
 // and a cwd outside an obor project allowed.
 func TestPreToolUseMissingBinaryDenies(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	k := newNoBinKit(t)
 	if k.p.Exists("kit/dist/obor") || k.p.Exists(filepath.Join(k.home, ".obor/bin")) {
@@ -384,7 +381,6 @@ func TestPreToolUseMissingBinaryDenies(t *testing.T) {
 // bash plugin.test.sh case_pre_tool_use_stale_binary_denies: a stale dist/obor (no `has`: the T-193 outage) or a
 // binary whose `has hook pre-tool-use` exits 1 is not run: the hint denies; a binary that has it runs.
 func TestPreToolUseStaleBinaryDenies(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	k := newNoBinKit(t)
 	dist := filepath.Join(k.dir, "dist/obor")
@@ -417,10 +413,9 @@ func TestPreToolUseStaleBinaryDenies(t *testing.T) {
 }
 
 // bash plugin.test.sh case_pre_tool_use_hanging_binary_denies (RV-22 #1, T-201): a dist/obor whose `has` never returns
-// → denied with the hint within ~2 s, the binary and its child reaped; the repair command allowed; the binary rebuilt
-// runs.
+// → denied with the hint within the watchdog's bound (OBOR_HOOK_TIMEOUT, 1 s here), the binary and its child reaped;
+// the repair command allowed; the binary rebuilt runs.
 func TestPreToolUseHangingBinaryDenies(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	k := newNoBinKit(t)
 	dist := filepath.Join(k.dir, "dist/obor")
@@ -431,7 +426,7 @@ func TestPreToolUseHangingBinaryDenies(t *testing.T) {
 		t.Errorf("hanging dist/obor: exit %d, %q; want 2 with the hint", rc, stderr)
 	}
 	if took > hangBound {
-		t.Errorf("a hanging has is bounded (2 s): took %s", took)
+		t.Errorf("a hanging has is bounded (%s): took %s", hookTimeout, took)
 	}
 	if got := k.stubLog(); got != "has hook pre-tool-use" {
 		t.Errorf("stub log %q: want has asked once, never run", got)
@@ -506,7 +501,7 @@ func TestOtherHooksNoBinaryAllow(t *testing.T) {
 
 			k.stub(t, dist, "hang")
 			if took := allows("hanging binary"); took > hangBound {
-				t.Errorf("a hanging has is bounded (2 s): took %s", took)
+				t.Errorf("a hanging has is bounded (%s): took %s", hookTimeout, took)
 			}
 			if log := k.stubLog(); log != "has hook "+c.hook {
 				t.Errorf("hanging binary: stub log %q, want has asked once, never run", log)
