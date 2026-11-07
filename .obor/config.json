@@ -43,6 +43,10 @@
       "timeout": 1200,
       "heavy": true
     },
+    "retest": {
+      "cmd": "make -s check-retest",
+      "timeout": 600
+    },
     "check_web": {
       "cmd": "make -s check-web",
       "timeout": 1200,

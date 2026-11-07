@@ -28,7 +28,9 @@ const restoreWait = 30 * time.Second
 //  2. checkout --detach in.SHA (ignored files, the lane's build outputs, stay), lane_links.
 //  3. The changed files in.Target..in.SHA (OBOR_CHANGED_FILES), classified; lane_setup; the class's checks and the
 //     guard (runChecks, as the gate ran them before T-961), holding a pool slot (prio worker, never the merge
-//     marker: slots.max bounds how many lanes test at once), the lane's CPU budget in their environment.
+//     marker: slots.max bounds how many lanes test at once), the lane's CPU budget in their environment. A red whose
+//     failing tests and packages it names is rerun once by commands.retest at the same commit (T-964): green then is
+//     the step's green, the flake logged as retried and passed.
 //  4. What the checks changed discarded, checkout <branch>: the lane is where the worker left it (restore). A step that
 //     generates or stages a file no longer lands it in the merge: the slot committed the candidate before any check.
 //
@@ -73,7 +75,7 @@ func (s Scratch) Test(ctx context.Context, in port.TestInput) (out port.TestOutc
 	linkLaneLinks(s.Cfg, s.Cfg.Root, dir)
 
 	r := newRunner(ctx, &s.Options, dir, in.Task, "lane-changed-files-"+in.Lane)
-	r.prio, r.pre, r.onCommand = "worker", in.Target, in.Command
+	r.prio, r.pre, r.onCommand, r.retest = "worker", in.Target, in.Command, true
 	n := strconv.Itoa(laneCPUs)
 	r.env = append(r.env, "GOMAXPROCS="+n, "GOFLAGS=-p="+n, "CHECK_CPUS="+n)
 	defer r.releaseSlot()

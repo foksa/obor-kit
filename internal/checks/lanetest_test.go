@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"obor/internal/app/port"
+	"obor/internal/testkit"
 )
 
 // T-961: the merge slot merges and compiles (Gate); the class's checks run in the task's lane (Test).
@@ -195,6 +196,94 @@ func TestLaneTestCutRestoresBranch(t *testing.T) {
 		t.Fatalf("the test again on the detached lane: %+v %v", o, err)
 	}
 	y.eq(y.Git(y.lane, "branch", "--show-current"), "task/T-05", "restored to the dispatch's branch")
+}
+
+// T-964: a red lane test reruns the tests and packages it named once (commands.retest, OBOR_FAILED_TESTS/OBOR_FAILED_PKGS)
+// in the lane at the candidate. Green then is the step's green and the flake is logged retried and passed; still red is
+// the original red; a build failure and a project without commands.retest rerun nothing.
+func TestLaneTestRetestsRedOnce(t *testing.T) {
+	t.Parallel()
+	const grep = `^--- FAIL|^FAIL\s`
+	const redOne = `echo "--- FAIL: TestAlpha (0.01s)"; echo "FAIL example.com/pkg 0.03s"; exit 1`
+	// retestCmd is commands.retest: it counts its runs and records where and how it ran under $TMP_DIR, then exits rc.
+	retestCmd := func(rc string) string {
+		return `n=$(cat "$TMP_DIR/retests" 2>/dev/null || echo 0); echo $((n + 1)) > "$TMP_DIR/retests"; ` +
+			`pwd -P > "$TMP_DIR/retest-pwd"; git rev-parse HEAD > "$TMP_DIR/retest-head"; ` +
+			`echo "$OBOR_FAILED_TESTS" > "$TMP_DIR/retest-tests"; echo "$OBOR_FAILED_PKGS" > "$TMP_DIR/retest-pkgs"; ` +
+			`echo "1 pass"; exit ` + rc
+	}
+	t.Run("passes on the retest: green, the flake retried and passed", func(t *testing.T) {
+		t.Parallel()
+		y := newSx(t, testkit.Set("merge.fail_grep", grep), cmd("check", redOne), cmd("retest", retestCmd("0")))
+		c := y.green(lane(y.submit()))
+		o, err := y.test(ctx, c)
+		if err != nil || o.Kind != port.OutcomeGreen {
+			t.Fatalf("test: %+v %v; want green on the retest\noutput:\n%s", o, err, y.out.String())
+		}
+		y.match(o.Line, `^GREEN T-05 \(1 pass, full:no-guard\)$`, "the step is green on the retest's counts")
+		y.eq(y.Read(filepath.Join(y.Base, "retests")), "1\n", "one retest, never more")
+		y.eq(strings.TrimSpace(y.Read(filepath.Join(y.Base, "retest-tests"))), "^TestAlpha$",
+			"OBOR_FAILED_TESTS: the failing test's -run regexp")
+		y.eq(strings.TrimSpace(y.Read(filepath.Join(y.Base, "retest-pkgs"))), "example.com/pkg", "OBOR_FAILED_PKGS: its package")
+		laneDir, _ := filepath.EvalSymlinks(y.lane)
+		y.eq(strings.TrimSpace(y.Read(filepath.Join(y.Base, "retest-pwd"))), laneDir, "the retest ran in the lane")
+		y.eq(strings.TrimSpace(y.Read(filepath.Join(y.Base, "retest-head"))), c.SHA, "at the candidate")
+		got := y.flakes()
+		if len(got) != 1 {
+			t.Fatalf("flake lines %d, want 1: %+v", len(got), got)
+		}
+		y.eq(got[0].Test, "TestAlpha", "the flake's test")
+		y.eq(got[0].SHA, c.SHA, "the flake's sha")
+		y.eqBool(got[0].Retried, true, "retried")
+		y.eqBool(got[0].PassedOnRetry, true, "passed_on_retry")
+	})
+
+	t.Run("fails again: the original red, one retest", func(t *testing.T) {
+		t.Parallel()
+		y := newSx(t, testkit.Set("merge.fail_grep", grep), cmd("check", redOne), cmd("retest", retestCmd("1")))
+		o, err := y.test(ctx, y.green(lane(y.submit())))
+		if err != nil || o.Kind != port.OutcomeRed {
+			t.Fatalf("test: %+v %v; want red", o, err)
+		}
+		y.match(o.Line, `^RED check \(rc=1, full:no-guard\) — failing: --- FAIL: TestAlpha \(0\.01s\), FAIL example\.com/pkg 0\.03s; log `,
+			"the red is the check's own line")
+		y.eq(y.Read(filepath.Join(y.Base, "retests")), "1\n", "one retest, never more")
+		got := y.flakes()
+		if len(got) != 1 {
+			t.Fatalf("flake lines %d, want 1: %+v", len(got), got)
+		}
+		y.eqBool(got[0].Retried, true, "retried")
+		y.eqBool(got[0].PassedOnRetry, false, "passed_on_retry")
+	})
+
+	t.Run("a build failure: red, no retest", func(t *testing.T) {
+		t.Parallel()
+		y := newSx(t, testkit.Set("merge.fail_grep", grep),
+			cmd("check", `echo "FAIL make build"; echo "FAIL example.com/pkg [build failed]"; exit 1`),
+			cmd("retest", retestCmd("0")))
+		o, err := y.test(ctx, y.green(lane(y.submit())))
+		if err != nil || o.Kind != port.OutcomeRed {
+			t.Fatalf("test: %+v %v; want red", o, err)
+		}
+		if _, err := os.Stat(filepath.Join(y.Base, "retests")); err == nil {
+			t.Error("a build failure was retested; want no retest")
+		}
+	})
+
+	t.Run("no commands.retest: red as today", func(t *testing.T) {
+		t.Parallel()
+		y := newSx(t, testkit.Set("merge.fail_grep", grep), cmd("check", redOne))
+		o, err := y.test(ctx, y.green(lane(y.submit())))
+		if err != nil || o.Kind != port.OutcomeRed {
+			t.Fatalf("test: %+v %v; want red", o, err)
+		}
+		y.match(o.Line, `^RED check \(rc=1, full:no-guard\) — failing: --- FAIL: TestAlpha`, "the red line")
+		got := y.flakes()
+		if len(got) != 1 {
+			t.Fatalf("flake lines %d, want 1: %+v", len(got), got)
+		}
+		y.eqBool(got[0].Retried || got[0].PassedOnRetry, false, "no retry")
+	})
 }
 
 // A check that changes the lane (a tracked file, an untracked one) does not leave it so: the lane was clean when the

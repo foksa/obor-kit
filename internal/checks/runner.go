@@ -31,6 +31,7 @@ type runner struct {
 	slot        string
 	env         []string // extra command environment (OBOR_CHANGED_FILES, OBOR_BASELINE, OBOR_GATE, a lane test's CPU budget)
 	prio        string   // the check slot's priority: "merge" (the merge marker; "" too) or "worker" (a pool slot: a lane test, T-961)
+	retest      bool     // a lane test: a red run's failing tests are rerun once (commands.retest, T-964)
 	pre         string   // the target side of the merge
 	class       Class
 	mode        string            // class.Mode() once classified
@@ -99,7 +100,7 @@ func (opt *Options) command(name string) (config.Command, bool) { return run.Com
 func (r *runner) run(name string, dir ...string) (output, bool, *halt) {
 	o, ok, h := r.exec(name, dir...)
 	if h == nil && ok && o.rc != 0 && len(dir) == 0 {
-		r.logFlakes(name, o)
+		r.logFlakes(name, false, false, o)
 	}
 	return o, ok, h
 }
@@ -484,7 +485,8 @@ func (r *runner) atMerge(name string) bool {
 }
 
 // must runs commands.<name>; a failure is red. ok false: not configured. Every red run's failing tests go to the flake
-// log (T-350). The load retry that used to save a red with only timeouts failing under load is gone (T-864).
+// log (T-350). A lane test reruns a red's failing tests once (retestOnRed, T-964). The load retry that used to save a
+// red with only timeouts failing under load is gone (T-864).
 func (r *runner) must(name string) (output, bool, *halt) {
 	o, ok, h := r.exec(name)
 	if h != nil || !ok {
@@ -493,8 +495,50 @@ func (r *runner) must(name string) (output, bool, *halt) {
 	if o.rc == 0 {
 		return o, ok, nil
 	}
-	r.logFlakes(name, o)
+	if r.retest {
+		if out, green, ran := r.retestOnRed(o); ran {
+			r.logFlakes(name, true, green, o)
+			if green {
+				return out, true, nil
+			}
+			return o, true, &halt{red: &o}
+		}
+	}
+	r.logFlakes(name, false, false, o)
 	return o, true, &halt{red: &o}
+}
+
+// retestOnRed runs a red lane test's failures once more (T-964, one retest, never more): the tests and packages the run
+// named, commands.retest in the same dir at the same commit, OBOR_FAILED_TESTS (a -run regexp of the names) and
+// OBOR_FAILED_PKGS, the runner's CPU budget. green: the retest passed; ran false: none ran (no name or package, a
+// build failure, no commands.retest), so the red stands as before.
+func (r *runner) retestOnRed(red output) (out output, green, ran bool) {
+	tests, pkgs, built := r.failingTests(red)
+	if built || len(tests) == 0 || len(pkgs) == 0 {
+		return output{}, false, false
+	}
+	n := len(r.env)
+	r.env = append(r.env, "OBOR_FAILED_TESTS="+testRegexp(tests), "OBOR_FAILED_PKGS="+strings.Join(pkgs, " "))
+	o, ok, h := r.exec("retest")
+	r.env = r.env[:n]
+	if h != nil || !ok {
+		return output{}, false, false
+	}
+	return o, o.rc == 0, true
+}
+
+// testRegexp is go test -run's regexp for tests: every name quoted and anchored, joined by |. -run reads a "/" as the
+// per-level pattern of a subtest, so a name's levels are anchored one by one.
+func testRegexp(tests []string) string {
+	parts := make([]string, 0, len(tests))
+	for _, t := range tests {
+		levels := strings.Split(t, "/")
+		for i, l := range levels {
+			levels[i] = "^" + regexp.QuoteMeta(l) + "$"
+		}
+		parts = append(parts, strings.Join(levels, "/"))
+	}
+	return strings.Join(parts, "|")
 }
 
 // redLine is a red run's result-line parts: what failed (counts or the timeout, and the class) and its evidence (" —
