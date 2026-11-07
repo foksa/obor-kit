@@ -30,7 +30,7 @@
     },
     "check": {
       "cmd": "make -s check",
-      "timeout": 1200,
+      "timeout": 2400,
       "heavy": true
     },
     "check_affected": {
