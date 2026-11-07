@@ -94,9 +94,10 @@ func (a *App) specSet(c wire.Call) (string, error) {
 		reply = fmt.Sprintf("UNCHANGED %s rev %d", c.Task, rev)
 	}
 	// The receipt is a fact folded into folded.calls, so it outlives a restart. A crash between the store's commit and
-	// this append makes the retry re-apply the same text and answer UNCHANGED (accepted).
+	// this append makes the retry re-apply its text: UNCHANGED if nothing changed the spec meanwhile, else the old text
+	// is written as a new rev (accepted, RV-131).
 	if !a.record(p, event.Record{Task: c.Task, Step: event.StepSpecSet, Kind: event.KindFact},
-		event.SpecSet{Call: c.CallID, Reply: reply, Rev: rev}) {
+		event.SpecSet{Call: c.CallID, Reply: reply}) {
 		return "", fmt.Errorf("spec set: the event log of %s refused it", p.name)
 	}
 	if changed {
