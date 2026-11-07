@@ -133,6 +133,30 @@ func TestLaneTestRunsInTheLaneAndRestores(t *testing.T) {
 	}
 }
 
+// T-967: the lane test's env is the lane workers' (config.LaneEnv): slots.lane_cpus and the inherited GOFLAGS' other
+// flags kept, CHECK_CPUS the same budget.
+func TestLaneTestLaneEnv(t *testing.T) {
+	t.Parallel()
+	y := newSxEnv(t, []string{"GOFLAGS=-mod=mod"}, testkit.Set("slots.lane_cpus", 1), cmd("check", probe))
+	if got := y.s.Cfg.LaneCPUs(); got != 1 {
+		t.Fatalf("precondition: slots.lane_cpus 1, got %d", got)
+	}
+	if got := y.s.Env.Get("GOFLAGS"); got != "-mod=mod" {
+		t.Fatalf("precondition: the inherited GOFLAGS is -mod=mod, got %q", got)
+	}
+	sha := y.submit()
+	o, err := y.test(ctx, y.green(lane(sha)))
+	if err != nil || o.Kind != port.OutcomeGreen {
+		t.Fatalf("test: %+v %v\noutput:\n%s", o, err, y.out.String())
+	}
+	env := y.probed("env")
+	for _, kv := range []string{"GOMAXPROCS=1", "GOFLAGS=-mod=mod -p=1", "CHECK_CPUS=1"} {
+		if !strings.Contains("\n"+env+"\n", "\n"+kv+"\n") {
+			t.Errorf("the check's environment has no %q:\n%s", kv, env)
+		}
+	}
+}
+
 // A lane with uncommitted changes is refused before anything runs (an error: the step runs again on a later pass):
 // never checked out, the change kept, no check run.
 func TestLaneTestRefusesDirtyLane(t *testing.T) {
