@@ -14,9 +14,10 @@ import (
 	"obor/internal/testkit"
 )
 
-// waitFor polls cond for up to 15 s.
+// waitFor polls cond for up to a minute. Detached commands (the restore below) and herdr over a socket are slow on a
+// loaded machine: the gate's parallel packages took one past 15 s (T-960's check).
 func waitFor(cond func() bool) bool {
-	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
 		if cond() {
 			return true
 		}
