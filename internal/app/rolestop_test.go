@@ -534,6 +534,9 @@ func shell(root, id, agent string) port.Pane {
 	return port.Pane{ID: id, Group: "proj", Cwd: root, Label: agent}
 }
 
+// T-677: a role agent whose only labelled pane is at its shell is stopped in status, whoever stopped it — serve once its
+// work was done (T-672) or the lead's obor restart <agent> --stop — for every role, not only the two serve stops.
+
 // T-677: status calls a role agent stopped only when herdr shows exactly one labelled pane of it at its shell — whoever
 // stopped it (serve after its work, or the lead's obor restart <agent> --stop), for every role and with no role.stop
 // result in the log. Two labelled panes (which runs it is unknown), herdr down and no pane are not stopped.
