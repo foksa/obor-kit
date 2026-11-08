@@ -148,7 +148,7 @@ func laneT2(t *testing.T) (*concRig, *proj, *concFakes) {
 	t.Helper()
 	r := newConcRig(t)
 	dispatchT2(r)
-	r.add("pj", "T-2", event.StepPrepare, event.KindResult, prepareOut{Base: "target", Head: "target"})
+	r.add("pj", "T-2", event.StepPrepare, event.KindResult, prepareOut{Base: "target"})
 	r.run()
 	t.Cleanup(r.stop)
 	return r, r.proj("pj"), r.fakes["pj"]

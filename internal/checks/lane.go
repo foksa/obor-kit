@@ -27,8 +27,8 @@ type Lane struct {
 var _ port.LaneSetup = Lane{}
 
 // Prepare puts in.Dir on in.Branch at in.Target (in.Redo: the branch is kept as it is) and runs lane_ready (then
-// lane_setup and lane_ready again when it was red). It returns the target sha the branch is based on and the lane's
-// head (merge-base(HEAD, target)): serve's lane row (T-439). Repeating it converges on the same state.
+// lane_setup and lane_ready again when it was red). It returns the target sha the branch is based on: serve's lane row
+// (T-439; its head is the submitted head, T-1015). Repeating it converges on the same state.
 // A final refusal: no lane dir, lane_setup red, lane_ready still red; git failures are plain errors (retry), a git
 // that failed on an index.lock naming the stale lock (T-981: nothing is removed).
 func (l Lane) Prepare(ctx context.Context, in port.PrepareInput) (port.Prepared, error) {
@@ -44,11 +44,7 @@ func (l Lane) Prepare(ctx context.Context, in port.PrepareInput) (port.Prepared,
 	if err := LaneSetup(ctx, l.Cfg, in.Lane, in.Dir, l.Out); err != nil {
 		return port.Prepared{}, port.Refused{Line: err.Error()}
 	}
-	head, err := l.git(ctx, in.Dir, "merge-base", "HEAD", in.Target)
-	if err != nil {
-		return port.Prepared{}, fmt.Errorf("merge-base HEAD %s in %s: %w%s", in.Target, in.Dir, err, staleIndexLock(in.Dir, err))
-	}
-	return port.Prepared{Base: in.Target, Head: head}, nil
+	return port.Prepared{Base: in.Target}, nil
 }
 
 // staleIndexLock is a failed lane git call's hint for a lock left behind (T-981): git's exit 128 whose stderr names

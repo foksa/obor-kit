@@ -376,8 +376,8 @@ func (r Refused) Error() string { return r.Line }
 // LaneSetup prepares a lane for a dispatched task (internal/checks implements it).
 type LaneSetup interface {
 	// Prepare puts the lane at in.Dir on in.Branch at in.Target (in.Redo: the branch is kept as it is), runs
-	// lane_ready, then lane_setup and lane_ready again when it was red. It returns the base sha and the lane's head
-	// (merge-base(HEAD, target)): its lane row's (serve's projection, T-439). Repeating it converges on the same state.
+	// lane_ready, then lane_setup and lane_ready again when it was red. It returns the base sha: its lane row's
+	// (serve's projection, T-439; its head is the submitted head, T-1015). Repeating it converges on the same state.
 	// A final refusal (no lane dir, lane_setup red, lane_ready still red) is a Refused error; anything else (git I/O)
 	// is an error to retry.
 	Prepare(ctx context.Context, in PrepareInput) (Prepared, error)
@@ -388,9 +388,8 @@ type LaneSetup interface {
 	Free(ctx context.Context, in FreeInput) (line string, err error)
 }
 
-// Prepared is lane.prepare's outcome: the base sha the task branch is on, and the lane's head (merge-base(HEAD,
-// base)).
-type Prepared struct{ Base, Head string }
+// Prepared is lane.prepare's outcome: the base sha the task branch is on.
+type Prepared struct{ Base string }
 
 // Dispatch is what a dispatch chose for the lane: the lane and its worktree, its worker agent, the task branch and the
 // target sha read when the dispatch fact was recorded (Redo: the branch is kept as it is). The app's dispatch fact

@@ -48,9 +48,8 @@ func laneInput(lane, target string) port.PrepareInput {
 		Agent: "pj-l-01", At: laneAt}
 }
 
-// TestLanePrepare: a fresh prepare puts the branch at the target; base and head are the target (serve's lane row), and
-// it writes no lane state file (serve's row replaces it, T-439). A redo keeps the lane's commits (no checkout) and
-// returns the fork point as its head.
+// TestLanePrepare: a fresh prepare puts the branch at the target; base is the target (serve's lane row), and it writes
+// no lane state file (serve's row replaces it, T-439). A redo keeps the lane's commits (no checkout).
 func TestLanePrepare(t *testing.T) {
 	t.Parallel()
 	p, lane, target := laneFx(t)
@@ -59,7 +58,7 @@ func TestLanePrepare(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
 	}
-	if want := (port.Prepared{Base: target, Head: target}); got != want {
+	if want := (port.Prepared{Base: target}); got != want {
 		t.Errorf("prepared %+v, want %+v", got, want)
 	}
 	if got := p.Git(lane, "rev-parse", "HEAD"); got != target {
@@ -86,8 +85,8 @@ func TestLanePrepare(t *testing.T) {
 	if got := p.Git(lane, "rev-parse", "HEAD"); got != work {
 		t.Errorf("redo moved the lane HEAD: %s, want its commit %s", got, work)
 	}
-	if got.Head != target || got.Base != target {
-		t.Errorf("redo prepared %+v, want base and head the fork point %q", got, target)
+	if got.Base != target {
+		t.Errorf("redo prepared %+v, want base the target %q", got, target)
 	}
 }
 
@@ -133,37 +132,32 @@ func TestLanePrepareRefused(t *testing.T) {
 	}
 }
 
-// TestLanePrepareRepeats: a failure at either git call (checkout, merge-base) is a plain error (retry), and preparing
-// again converges on the same result as a clean prepare.
+// TestLanePrepareRepeats: a failure at the checkout git call is a plain error (retry), and preparing again converges on
+// the same result as a clean prepare.
 func TestLanePrepareRepeats(t *testing.T) {
 	t.Parallel()
-	for _, failAt := range []int{1, 2} {
-		t.Run(fmt.Sprintf("git call %d fails", failAt), func(t *testing.T) {
-			t.Parallel()
-			p, lane, target := laneFx(t)
-			in := laneInput(lane, target)
-			shim := gitShim(t, p.Base, failAt, 1)
-			if _, err := laneAdapter(t, p, shim).Prepare(context.Background(), in); err == nil {
-				t.Fatal("prepare with a failing git call: no error")
-			} else {
-				var refused port.Refused
-				if errors.As(err, &refused) {
-					t.Errorf("git failure is a refusal %q, want a plain error to retry", refused.Line)
-				}
-			}
-			l := laneAdapter(t, p, "")
-			first, err := l.Prepare(context.Background(), in)
-			if err != nil {
-				t.Fatalf("repeat: %v", err)
-			}
-			second, err := l.Prepare(context.Background(), in)
-			if err != nil {
-				t.Fatalf("second repeat: %v", err)
-			}
-			if want := (port.Prepared{Base: target, Head: target}); first != want || second != want {
-				t.Errorf("repeats prepared %+v, %+v; want %+v", first, second, want)
-			}
-		})
+	p, lane, target := laneFx(t)
+	in := laneInput(lane, target)
+	shim := gitShim(t, p.Base, 1, 1)
+	if _, err := laneAdapter(t, p, shim).Prepare(context.Background(), in); err == nil {
+		t.Fatal("prepare with a failing git call: no error")
+	} else {
+		var refused port.Refused
+		if errors.As(err, &refused) {
+			t.Errorf("git failure is a refusal %q, want a plain error to retry", refused.Line)
+		}
+	}
+	l := laneAdapter(t, p, "")
+	first, err := l.Prepare(context.Background(), in)
+	if err != nil {
+		t.Fatalf("repeat: %v", err)
+	}
+	second, err := l.Prepare(context.Background(), in)
+	if err != nil {
+		t.Fatalf("second repeat: %v", err)
+	}
+	if want := (port.Prepared{Base: target}); first != want || second != want {
+		t.Errorf("repeats prepared %+v, %+v; want %+v", first, second, want)
 	}
 }
 
