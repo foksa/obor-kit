@@ -6,6 +6,7 @@
 # kit's own release tooling (the Makefile, scripts/, install.sh; tests/release, T-902),
 # `make check-budget` → the nightly test budget (tests/budget, T-1002),
 # `make trim-go-cache` → every entry of the Go build cache (commands.trim_go_cache, nightly, T-817, T-1027),
+# `make vulncheck` → the nightly's pinned govulncheck (commands.check_milestone, T-1034),
 # `make deadcode` → its dead-code check, `make deps` → a warm module cache for an offline machine, `make upgrade-check`
 # → the previous release upgraded to this build (tests/upgrade),
 # `make release V=x.y.z` → the whole release (scripts/release); `make ship` → the owner's push, publish and install
@@ -40,7 +41,7 @@ endif
 GOOS_LIST := darwin linux
 GOARCH_LIST := arm64 amd64
 
-.PHONY: build test conformance trim-go-cache check check-affected check-compile check-retest check-readers check-web check-release check-budget deadcode deps upgrade-check release ship publish clean web web-dev web-test
+.PHONY: build test conformance trim-go-cache check check-affected check-compile check-retest check-readers check-web check-release check-budget vulncheck deadcode deps upgrade-check release ship publish clean web web-dev web-test
 
 build:
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags "-s -w -X obor/internal/version.Version=$(BUILD_VERSION)" -o $(OUT) ./cmd/obor
@@ -224,6 +225,10 @@ check-release:
 check-budget:
 	@$(GO_CACHE); \
 	GO="$(GO)" $(GO) run ./tests/budget
+
+# vulncheck (commands.check_milestone, T-1034): the nightly's pinned govulncheck, through make so it carries GOFLAGS=-trimpath (T-1027).
+vulncheck:
+	$(GO) run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
 # Pinned; the module cache comes before the proxy, so a warm cache needs no network (a Codex sandbox has none).
 # Test support (herdrtest, testkit) is excepted. The prompts table's path readers stay for the hooks and CLIs of T-665
