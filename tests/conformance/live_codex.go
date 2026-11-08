@@ -116,8 +116,13 @@ func codexLive(l *lab, turn bool) {
 	// 3: H-L11 (T-953, H7): herdr's agent_session on a fresh --no-daemon start whose CODEX_HOME has the integration.
 	hL11Start(l, k, pane, codexHome, src, turn)
 
-	// 4: the repository's own server (T-898), last: CX-L3 reads the first turn's rollout.
+	// 4: the repository's own server (T-898): CX-L3 reads the first turn's rollout.
 	cxL4(l, pane, codexHome, turn)
+
+	// 5: H-L14 (T-1059): a start with a first prompt that keeps codex working, then the same right after its exit.
+	l.stopAgent(pane)
+	hL14(l, "codex", pane, k.(agents.Split).Start(agents.Start{Kit: l.kit,
+		Args: []string{"--strict-config", "--no-daemon", "-a", "never"}, Prompt: hL14Prompt}), turn)
 }
 
 // cxL4 (T-898): codex starts as a worker of the lab's project with the repository's own `obor mcp` (not the stub) and

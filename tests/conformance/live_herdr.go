@@ -24,10 +24,11 @@ const (
 	launchGo = "internal/launch/launch.go"
 )
 
-// herdrLive: H-L8, H-L7, H-L4, H-L3, H-L5, H-L9, H-L1 (timeout), the contract (H-C), H-L12, H-L13, H-L6 last (it restarts the session). H-L2 needs a
+// herdrLive: H-L8, H-L7, H-L4, H-L3, H-L5, H-L9, H-L1 (timeout), the contract (H-C), H-L12, H-L13, H-L14 (claude;
+// TURN=1), H-L6 last (it restarts the session). H-L2 needs a
 // known dialog: it runs in the claude session (Claude's trust dialog); H-L1's answer timing is measured on each agent
 // kind's start.
-func herdrLive(l *lab, _ bool) {
+func herdrLive(l *lab, turn bool) {
 	hL8(l)
 	pane, err := l.workspace("conf", l.lane)
 	if err != nil {
@@ -43,6 +44,12 @@ func herdrLive(l *lab, _ bool) {
 	hContract(l, pane, "conf")
 	hL12(l, pane)
 	hL13(l, pane)
+	if _, err := exec.LookPath("claude"); err != nil {
+		report("SKIP", "H-L14", "a first-prompt start: claude is not installed", "internal/launch/start.go")
+	} else {
+		hL14(l, "claude", pane, kindOf("claude").(agents.Split).Start(agents.Start{
+			Args: []string{"--allowedTools", "Bash(perl:*)", "--model", "haiku"}, Prompt: hL14Prompt}), turn)
+	}
 	report("SKIP", "H-L2", "runs in the claude session (KIND=claude): Claude's trust dialog is the known dialog it needs",
 		at(launchGo, "l.H.Wake(")+", F3.3")
 	hL6(l, pane)
@@ -606,7 +613,8 @@ func hL12(l *lab, pane string) {
 		report("SKIP", "H-L12", "agent.get across a start: claude is not installed", where)
 		return
 	}
-	trusted, fact0 := false, ""
+	var trusted time.Time
+	fact0 := ""
 	// follow samples agent.get on pane until done holds or d passes: the transitions, and the raw answer at each (none: an error).
 	follow := func(t0 time.Time, d time.Duration, done func(agentInfo, error) bool) (seen, raws []string, sawPending, sawReady, readyAfterPending bool) {
 		last := ""
@@ -628,10 +636,12 @@ func hL12(l *lab, pane string) {
 			sawPending = sawPending || err == nil && a.LaunchPending
 			sawReady = sawReady || err == nil && a.Ready
 			readyAfterPending = readyAfterPending || sawPending && err == nil && !a.LaunchPending && a.Ready
-			if !trusted && strings.Contains(strings.ToLower(l.visible(pane)), "trust") {
+			// down, enter: "Yes, I trust this folder" (the default is "No, exit"); once per scratch dir, again every 2 s
+			// while the dialog shows (T-1059: keys sent while it renders are lost, and the start then never comes up).
+			if time.Since(trusted) > 2*time.Second && strings.Contains(strings.ToLower(l.visible(pane)), "trust this folder") {
 				fact0 = "trust dialog: " + tail(l.visible(pane), 6)
-				_, kerr := l.call("pane.send_input", map[string]any{"pane_id": pane, "keys": []string{"down", "enter"}}, 10*time.Second)
-				trusted = kerr == nil // down, enter: "Yes, I trust this folder" (the default is "No, exit"); once per scratch dir
+				_, _ = l.call("pane.send_input", map[string]any{"pane_id": pane, "keys": []string{"down", "enter"}}, 10*time.Second)
+				trusted = time.Now()
 			}
 			return done(a, err)
 		})
@@ -725,4 +735,166 @@ func hL13(l *lab, pane string) {
 		return
 	}
 	report("PASS", "H-L13", fact+": obor's start returned only once herdr's launch was over", where)
+}
+
+// hL14Prompt is H-L14's first prompt: one shell command that keeps the agent working past 60 s (a 70 s sleep through
+// its shell tool, the one tool argv allows without asking; perl, as Claude Code refuses a long bare `sleep`).
+const hL14Prompt = "Run the shell command `perl -e 'sleep 70'` exactly once in the foreground (not in the background), " +
+	"with a timeout of at least 120 seconds, then reply with exactly OK."
+
+// hL14 (T-1059): a start with a first prompt that keeps the agent working, sent as obor sends it (agent.start with no
+// timeout_ms, the call left open up to 90 s): when herdr answers and with what, and each change of agent.get (kind,
+// status, launch_pending, interactive_ready) over 60 s from t0 (the first call; agent_pane_busy retried); then the
+// agent is stopped (halt) and the same start runs right after its exit in the pane; last, obor's own start of it
+// (hL14Obor). argv is kind's command line with the prompt. A model call: TURN=1 only.
+func hL14(l *lab, kind, pane string, argv []string, turn bool) {
+	where := at("internal/launch/start.go", "func (l *Launcher) started") + ", " + at(socketGo, "func (s *Socket) Start")
+	if !turn {
+		report("SKIP", "H-L14", kind+": a first-prompt start needs TURN=1 (a model call)", where)
+		return
+	}
+	var facts []string
+	worked, trusted := 0, time.Time{}
+	for _, when := range []string{"fresh pane", "right after the old agent's exit"} {
+		halt(l, kind, pane) // the first run: whatever ran before; the second: the first run's agent
+		if !l.waitShell(pane, 20*time.Second) {
+			report("FAIL", "H-L14", kind+": the pane is not a shell: "+strings.Join(facts, "; ")+"; screen: "+tail(l.visible(pane), 4), where)
+			return
+		}
+		name := fmt.Sprintf("conf-prompt-%d", l.seq.Add(1))
+		type reply struct {
+			r    json.RawMessage
+			err  error
+			at   time.Duration // the answer, from t0
+			sent time.Duration // the call answered, from t0 (after busy retries)
+		}
+		t0 := time.Now()
+		res := make(chan reply, 1)
+		go func() { // a pane whose agent just exited reads busy until herdr sees its shell again: retried, as obor does
+			for {
+				t := time.Now()
+				r, err := l.call("agent.start", map[string]any{"name": name, "kind": kind, "pane_id": pane, "args": argv}, 90*time.Second)
+				if errCode(err) != "agent_pane_busy" || time.Since(t0) > 20*time.Second {
+					res <- reply{r, err, time.Since(t0), t.Sub(t0)}
+					return
+				}
+				time.Sleep(200 * time.Millisecond)
+			}
+		}()
+		var seen []string
+		ans, last, sawWorking, workedPending := "unanswered after 60s", "", false, false
+		answered := false
+		poll(60*time.Second, func() bool {
+			select {
+			case r := <-res:
+				answered = true
+				ans = fmt.Sprintf("sent at %.1fs, answered at %.1fs: %s", r.sent.Seconds(), r.at.Seconds(), startAnswer(r.r, r.err))
+			default:
+			}
+			r, err := l.call("agent.get", map[string]any{"target": pane}, 10*time.Second)
+			var a agentInfo
+			if err == nil {
+				get(r, "agent", &a)
+			}
+			cur := "agent.get " + orNone(errCode(err))
+			if err == nil {
+				cur = fmt.Sprintf("%s/%s pending=%t ready=%t", orNone(a.Agent), orNone(a.Status), a.LaunchPending, a.Ready)
+			}
+			if cur != last {
+				seen = append(seen, fmt.Sprintf("%.1fs %s", time.Since(t0).Seconds(), cur))
+				last = cur
+			}
+			// Claude's trust dialog of this start (its kind listed after the call, the dialog on screen), answered as H-L12
+			// does ("Yes, I trust this folder"), again every 2 s while it shows: keys sent while it renders are lost.
+			if err == nil && a.Agent == kind && time.Since(trusted) > 2*time.Second &&
+				strings.Contains(strings.ToLower(l.visible(pane)), "trust this folder") {
+				_, kerr := l.call("pane.send_input", map[string]any{"pane_id": pane, "keys": []string{"down", "enter"}}, 10*time.Second)
+				trusted = time.Now()
+				seen = append(seen, fmt.Sprintf("%.1fs trust dialog answered (%s)", time.Since(t0).Seconds(), orOK(kerr)))
+			}
+			if err == nil && a.Agent == kind && a.Status == "working" {
+				sawWorking = true
+				workedPending = workedPending || a.LaunchPending
+			}
+			return false
+		})
+		screen := tail(l.visible(pane), 3)
+		if !answered {
+			halt(l, kind, pane)
+			select {
+			case r := <-res:
+				ans += fmt.Sprintf(" (answered %.1fs after the start, once the agent was stopped: %s)", r.at.Seconds(), startAnswer(r.r, r.err))
+			case <-time.After(30 * time.Second):
+				ans += " (still unanswered 30 s after the agent was stopped)"
+			}
+		}
+		if sawWorking {
+			worked++
+		}
+		facts = append(facts, fmt.Sprintf("%s %s: agent.start %s; agent.get %s; working seen %t (with launch_pending %t); screen at 60s: %s",
+			kind, when, ans, strings.Join(seen, ", "), sawWorking, workedPending, screen))
+	}
+	halt(l, kind, pane)
+	if !l.waitShell(pane, 20*time.Second) {
+		report("FAIL", "H-L14", kind+": the pane is not a shell for obor's start: "+strings.Join(facts, "; "), where)
+		return
+	}
+	obor, started := hL14Obor(l, kind, pane, argv)
+	facts = append(facts, obor)
+	halt(l, kind, pane)
+	fact := strings.Join(facts, "; ")
+	switch {
+	case worked < 2:
+		report("FAIL", "H-L14", fact+": an agent never worked on its first prompt (the probe's premise)", where)
+	case !started:
+		report("FAIL", "H-L14", fact+": obor's start of a first-prompt agent that works was not started within its bound", where)
+	default:
+		report("PASS", "H-L14", fact, where)
+	}
+}
+
+// hL14Obor is H-L14's last leg: obor's own start (launch.Launcher.Start, T-1059's rule) of the first-prompt agent in
+// pane, right after the previous agent's exit, with obor's 30 s Up: the fact, and whether it returned started while
+// herdr lists the agent working (its launch still pending, if H-L14's raw runs hold).
+func hL14Obor(l *lab, kind, pane string, argv []string) (string, bool) {
+	var out bytes.Buffer
+	ln := &launch.Launcher{H: &herdr.Socket{Path: l.sock, Timeout: 10 * time.Second}, Out: &out, Poll: 200 * time.Millisecond,
+		Up: 30 * time.Second, Install: func() agents.InstallHost { return agents.InstallHost{} },
+		Background: func(func()) {}} // no session search: the start's result is what is read
+	t0 := time.Now()
+	err := ln.Start(l.ctx, launch.Start{Agent: fmt.Sprintf("conf-obor-%d", l.seq.Add(1)), Kind: kind, Pane: pane,
+		Label: "conf-obor", Args: argv, Prompt: hL14Prompt, Shell: 20 * time.Second, Await: true})
+	took := time.Since(t0)
+	a, gerr := l.agent(pane)
+	fact := fmt.Sprintf("%s obor's start with the first prompt: returned %s after %.1fs; agent.get then %s/%s pending=%t ready=%t (%s)",
+		kind, orOK(err), took.Seconds(), orNone(a.Agent), orNone(a.Status), a.LaunchPending, a.Ready, orOK(gerr))
+	if err != nil {
+		fact += "; obor said: " + tail(out.String(), 4)
+	}
+	return fact, err == nil && took < 30*time.Second && gerr == nil && a.Agent == kind && a.Status == "working"
+}
+
+// startAnswer is an agent.start answer r (or its error) for a fact.
+func startAnswer(r json.RawMessage, err error) string {
+	if err != nil {
+		return "error " + orNone(errCode(err)) + " (" + err.Error() + ")"
+	}
+	var a agentInfo
+	get(r, "agent", &a)
+	return fmt.Sprintf("%s/%s, launch_pending %t, interactive_ready %t", orNone(a.Agent), orNone(a.Status), a.LaunchPending, a.Ready)
+}
+
+// halt ends a kind's agent in pane that may be working: its turn interrupted (esc), then its quit recipe, then
+// ctrl+c (stopAgent) if it still runs. A pane at its shell is left as it is.
+func halt(l *lab, kind, pane string) {
+	if l.atShell(pane) {
+		return
+	}
+	for i := 0; i < 2; i++ {
+		_ = l.keys(pane, "esc")
+		time.Sleep(time.Second)
+	}
+	if _, err := l.quit(pane, kindOf(kind).Stop()); err != nil {
+		l.stopAgent(pane)
+	}
 }

@@ -21,6 +21,7 @@ Summary:
 | H-L9 | Does a `cd` emit `pane.updated` with the new cwd? | No event in 3 s; `pane.get` does read the new cwd | H10: killed; `rereadPanes` stays |
 | CC-L8 | `completion_seq` across two short Claude turns; per agent? screen-detected? reset on restart? | null → 4 → 6; set for a screen-detected agent; a fresh agent in the same pane read 12 after its first turn (the quit agent 4) | H3: confirmed, with a caveat (it is not one per turn, and it does not reset per agent) |
 | H-L11 | Is `agent_session` filled for a fresh `codex --no-daemon` start, and when? | No at start (4.0 s after the start began); `id` after the first prompt, 0.5 s later | H7: killed as written; the value is not there at start and is an id, not a rollout path |
+| H-L14 | A start with a first prompt (no `timeout_ms`, as obor sends it): when does `agent.start` answer, and what does `agent.get` say while the agent works? | At once (0.0–0.4 s), pending; `<kind>/working` with `launch_pending: true` from ~4 s until herdr's own ~30 s bound, then `launch_pending` gone and `interactive_ready` still false | T-1059: a first-prompt start is up on `working` after the acceptance |
 
 ## H-L1 (H6): `agent.start` answers before the agent is ready
 
@@ -167,6 +168,75 @@ without `launch_pending`, then `agent_not_found`: a listing from before the star
 is judged by `launch_pending`. The decode is `port.Pane.Launched` (`internal/herdr/socket.go`); the rule is
 `attempt.counts` (`internal/launch/start.go`). Each kind's H-L1 `readyAfter` (TURN=1 runs of claude, codex and
 opencode, same day) waits for `launch_pending` to leave, and it did for every kind.
+
+## H-L14 (T-1059): a first-prompt start answers at once and stays pending while the agent works
+
+```
+$ make conformance TIER=live KIND=herdr TURN=1   (2026-11-08; claude 2.1.319, --model haiku)
+PASS H-L14 claude fresh pane: agent.start sent at 0.3s, answered at 0.3s: none/unknown, launch_pending true,
+interactive_ready false; agent.get 0.0s none/idle pending=false ready=true, 0.4s none/unknown pending=true ready=false,
+0.8s claude/unknown pending=true ready=false, 4.2s claude/working pending=true ready=false, 30.5s claude/working
+pending=false ready=false; working seen true (with launch_pending true); …; claude right after the old agent's exit:
+agent.start sent at 0.2s, answered at 0.2s: none/idle, launch_pending true, interactive_ready false; agent.get 0.0s
+claude/idle pending=false ready=false, 0.2s agent.get agent_not_found, 0.4s none/idle pending=true ready=false, 0.6s
+claude/unknown pending=true ready=false, 3.8s claude/working pending=true ready=false, 30.3s claude/working
+pending=false ready=false; working seen true (with launch_pending true); …; claude obor's start with the first prompt:
+returned ok after 3.8s; agent.get then claude/working pending=true ready=false (ok)
+```
+
+```
+$ make conformance TIER=live KIND=codex TURN=1   (2026-11-08; codex-cli 0.167.0, --no-daemon -a never)
+PASS H-L14 codex fresh pane: agent.start sent at 0.2s, answered at 0.2s: none/unknown, launch_pending true,
+interactive_ready false; agent.get 0.0s none/idle pending=false ready=true, 0.2s agent.get agent_not_found, 0.4s
+none/unknown pending=true ready=false, 0.6s codex/unknown pending=true ready=false, 4.1s codex/working pending=true
+ready=false, 30.2s codex/working pending=false ready=false; working seen true (with launch_pending true); …; codex right
+after the old agent's exit: agent.start sent at 0.0s, answered at 0.0s: none/idle, launch_pending true,
+interactive_ready false; agent.get 0.0s agent.get agent_not_found, 0.2s none/idle pending=true ready=false, 0.4s
+codex/unknown pending=true ready=false, 3.6s codex/working pending=true ready=false, 30.1s codex/working pending=false
+ready=false; working seen true (with launch_pending true); …; codex obor's start with the first prompt: returned ok
+after 3.6s; agent.get then codex/working pending=true ready=false (ok)
+```
+
+```
+$ make conformance TIER=live KIND=opencode TURN=1   (2026-11-08; opencode 2.2.0, --standalone)
+PASS H-L14 opencode fresh pane: agent.start sent at 0.4s, answered at 0.4s: none/unknown, launch_pending true,
+interactive_ready false; agent.get 0.0s opencode/idle pending=false ready=true, 0.2s none/idle pending=false ready=true,
+0.4s agent.get agent_not_found, 0.6s none/unknown pending=true ready=false, 1.0s opencode/unknown pending=true
+ready=false, 4.4s opencode/working pending=true ready=false, 30.5s opencode/working pending=false ready=false; working
+seen true (with launch_pending true); …; opencode right after the old agent's exit: agent.start sent at 0.2s, answered
+at 0.2s: none/idle, launch_pending true, interactive_ready false; agent.get 0.0s opencode/idle pending=false
+ready=false, 0.2s agent.get agent_not_found, 0.4s none/idle pending=true ready=false, 0.6s opencode/unknown pending=true
+ready=false, 4.0s opencode/working pending=true ready=false, 30.3s opencode/working pending=false ready=false; working
+seen true (with launch_pending true); …; opencode obor's start with the first prompt: returned ok after 3.7s; agent.get
+then opencode/working pending=true ready=false (ok)
+```
+
+The first prompt is one shell command that runs 70 s (`perl -e 'sleep 70'`: Claude Code refuses a long bare `sleep`),
+sent as obor sends a start: `agent.start` without `timeout_ms`, the call left open up to 90 s; `agent.get` sampled every
+200 ms for 60 s from the first call ("sent at": the `agent_pane_busy` retries while the previous agent left). Each "…"
+is the screen at 60 s (the agent's TUI on its sleep). The last leg is obor's own start (`launch.Launcher.Start`, Up
+30 s) of the same first-prompt agent, on the rule below.
+
+- herdr answers a first-prompt start **at once** too, launch pending: its answer does not wait for the agent (the
+  regression's premise that it does not answer within obor's 30 s `Up` did not hold here, for any kind).
+- After the acceptance `agent.get` reads herdr's reset record, `launch_pending: true` with no kind (`none/unknown`, at
+  times `none/idle`), then the kind with `unknown`, then the kind **`working` with `launch_pending: true`** from ~4 s:
+  an agent busy on its first prompt never becomes `interactive_ready`, so herdr keeps the launch pending until its own
+  bound, ~30 s after the start (no `timeout_ms`: herdr's default), when `launch_pending` goes and `interactive_ready`
+  stays false. T-1058's rule (`Launched` required) therefore met its first counting listing at ~30.2–30.5 s, just
+  past obor's 30 s `Up` counted from the call: the live failure (RV-152's reviewer start, `start failed … no agent
+  runs there` after 32 s).
+- Right after the old agent's exit, the listing before the call is the old agent (`<kind>/idle pending=false`), then
+  `agent_not_found`, then the reset record. A pending `none/idle` is no proof of this start: an old agent whose own
+  launch was still pending reads the same right after its exit (an H-L12 run whose trust dialog was not answered:
+  `claude/blocked pending=true`, then `none/idle pending=true`, then `agent_not_found`); a pending record with status
+  `unknown` was seen only after a start's acceptance.
+- The rule (`internal/launch/start.go`, T-1059): the poll runs alongside the call; before the answer the reset record
+  (`launching`: pending, status `unknown`, no other kind) is the acceptance; after the acceptance any start is up on
+  `Launched` and up, a first-prompt start also on its kind `working`, pending or not (`attempt.counts`). An exited agent
+  and the old agent's stale idle are never `working`. obor's start of each kind returned in 3.6–3.8 s on the working
+  agent (the legs above); H-L13 (no first prompt) still returned only once the launch was over.
+- `timeout_ms` would not help: herdr answers at once whatever it is; it bounds only how long the launch stays pending.
 
 ## Limits
 

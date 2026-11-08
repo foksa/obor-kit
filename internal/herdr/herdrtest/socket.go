@@ -822,6 +822,9 @@ func (s *Server) answer(c *conn, method string, params json.RawMessage) (map[str
 		}
 		if t.StartPending > 0 {
 			t.Kind, t.Name, t.Status, t.Seq, t.Foreground = p.Kind, p.Name, "idle", t.Seq+1, 0
+			if t.PendingStatus != "" {
+				t.Status = t.PendingStatus
+			}
 			t.LaunchPending, t.InteractiveReady = true, false
 			return ok(map[string]any{"type": "agent_started", "agent": t.agentJSON()}), nil
 		}
