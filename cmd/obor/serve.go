@@ -88,7 +88,8 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 	}
 	panes := herdr.Panes{S: herdrSocket(env)}
 	a := app.New(app.Options{Root: root, Out: flushWriter{}, Refresh: refreshed, Loop: mergeLoop(env, panes, end),
-		Inboxed: inboxed(root), Exit: stop, Binary: binaryWatch(env), Tick: serveTick, Follow: serveTick},
+		Inboxed: inboxed(root), Exit: stop, Binary: binaryWatch(env), Tick: serveTick, Follow: serveTick,
+		Restore: restorer(paneless(env))},
 		panes, checks.Lanes{})
 	served := make(chan struct{})
 	go func() {

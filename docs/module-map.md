@@ -86,7 +86,8 @@ reset), `project-warnings` (T-1033). It imports `agents` only (`Pin`, `ResetIn`)
 process (`plugin.Local`).
 
 **core** — `app`: the only place with obor logic. Files by concern: `app.go` (types, options), `serve.go` (New, Serve,
-  run, the serve flock), `project.go` (load, log, fold), `log.go` (serve's side of the backup), `panes.go` (herdr events to projects),
+  run, the serve flock), `restore.go` (the restore of the project's panes after a lost terminal connection came
+  back, through the `Restorer` port, T-1051), `project.go` (load, log, fold), `log.go` (serve's side of the backup), `panes.go` (herdr events to projects),
   `watchdog.go`, `lanescan.go` (the lane table as a cached observation: scanned on the tick and by a refresher, never
   per pane event; T-879), `toast.go` (the owner's herdr toast, a rule action's best-effort after, T-949), `status.go` (the status snapshot and `Listen`: the socket's server half); the merge loop: `loop.go` (wake, advance, record, do, drive, the picks),
   `mtask.go` (loop state fold), `states.go` (the state table), `steps.go` (scratch/after steps, submit, gate, publish,
@@ -150,7 +151,8 @@ process (`plugin.Local`).
   are behind `//go:build integration` (`workflow_integration_test.go`, `scratch_integration_test.go`, `gitlock_test.go`; T-1011, T-1029).
 - `launch`: start, stop (the kill sequence) and restart an agent CLI in its pane (`Launcher`, panes via
   `app.PaneControl`; implements `app.Agents` and `app.Starter`); the per-lane restart lock (`restartlock.go`:
-  `RestartLock`, T-500); the herdr plugin's restore (`Restorer`); `session.go`: the id obor names a fresh Claude
+  `RestartLock`, T-500); the restore after the terminal restarts (`Restorer`: serve's run for its project, the herdr
+  plugin's for every project, one at a time per project under its `RestoreLock`, T-1051); `session.go`: the id obor names a fresh Claude
   start and records before it runs (T-813), and a fresh Codex start's session from the transcript its process holds
   open (a Codex rollout, T-588), both reported to serve.
 - `mcp`: stdio shim from an agent to the app's socket; typed tools per role: the worker's `job_next`/`task_done`, the

@@ -116,6 +116,14 @@ func NotRunning(err error) bool {
 	return errors.As(err, &e) && e.Unavailable()
 }
 
+// Restorer restarts a project's labelled panes that run no agent (launch.Restorer, T-1051): serve calls it once its
+// subscription is back from a lost terminal connection (a Subscribe or a stream's end with NotRunning). It is
+// idempotent: a pane whose agent runs is left alone, and runs for one project are one at a time, so another trigger's
+// run (the herdr plugin's) and serve's restart each pane at most once. It returns when the run has ended (or ctx has).
+type Restorer interface {
+	RestoreProject(ctx context.Context, root string)
+}
+
 // TerminalSetup is what obor setup and obor init ask of the terminal (T-1044), in terminal-neutral terms: the pane
 // operations launch needs, the agents running now, a new pane for an agent placed by the adapter's own layout, the
 // terminal's integration for obor, and a project rename's share. The herdr adapter (herdr.Setup) implements it; setup

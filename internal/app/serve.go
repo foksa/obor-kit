@@ -60,7 +60,8 @@ func (a *App) logf(format string, args ...any) {
 // doubling up to RetryMax), one line when it is back, then it works from the fresh snapshot; the socket requests
 // and the merge loop's goroutine go on meanwhile. It returns once the merge loop has stopped and the socket requests
 // in progress, canceled, have ended (their process groups cleaned up). The binary watch (follow.go) has its own timer,
-// herdr connected or not (T-737).
+// herdr connected or not (T-737). The first stream after a lost connection (port.NotRunning: a failed subscribe, or
+// the stream's end) starts the restore of the project's panes (restore.go, T-1051).
 func (a *App) Serve(ctx context.Context) error {
 	defer a.shutdown()
 	tick := time.NewTicker(a.opt.Tick)
@@ -87,6 +88,7 @@ func (a *App) Serve(ctx context.Context) error {
 		}
 	}
 	wait, down := a.opt.Retry, false
+	lost := false   // the terminal connection was lost since the last stream: the next one restores (restore.go)
 	var ended error // the last stream's end, not logged yet (nil: none, or a refresh)
 	for ctx.Err() == nil {
 		a.loadProject()
@@ -95,6 +97,7 @@ func (a *App) Serve(ctx context.Context) error {
 			if ctx.Err() != nil {
 				break
 			}
+			lost = lost || port.NotRunning(err)
 			if !down {
 				down = true
 				if ended != nil {
@@ -120,6 +123,10 @@ func (a *App) Serve(ctx context.Context) error {
 		}
 		wait, down, ended = a.opt.Retry, false, nil
 		a.connect(ctx, st.Snapshot)
+		if lost {
+			lost = false
+			a.restore(ctx, &wg)
+		}
 		a.run(ctx, st, tick.C)
 		st.Close()
 		a.mu.Lock()
@@ -132,7 +139,7 @@ func (a *App) Serve(ctx context.Context) error {
 		case err == nil:
 			ended = errors.New("closed")
 		default: // the socket went: the next subscribe says whether herdr is gone (one line either way)
-			ended = err
+			ended, lost = err, port.NotRunning(err)
 		}
 	}
 	return nil

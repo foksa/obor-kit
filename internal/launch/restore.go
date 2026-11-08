@@ -1,13 +1,16 @@
 package launch
 
-// The obor.events herdr plugin's restore (`obor plugin restore`; design "herdr integration"; T-470: package plugin
-// moved here). herdr runs the manifest's command from the plugin directory; the command backgrounds the work at once
+// The restore after the terminal restarts, two triggers (T-1051): obor serve, once its subscription is back from a
+// lost terminal connection (port.Restorer: its own project), and the obor.events herdr plugin where it is linked, a
+// faster trigger (`obor plugin restore`: every project; design "herdr integration"; T-470: package plugin moved
+// here). herdr runs the manifest's command from the plugin directory; the command backgrounds the work at once
 // (cmd/obor), so herdr never waits on it. It acts only on panes whose label is an agent of an obor project (R-28 §2:
 // obor setup and obor restart label the pane): the main checkout of the pane cwd's repository, when its config knows
 // the label. Anything else (no label, no git, no .obor/config.json, a label the project has no agent for) is silent.
 //
 // After herdr restores a session (with [session] resume_agents_on_restore = false obor panes come back as shells):
-// each labelled obor pane that runs no agent is restarted with obor restart, one at a time, each bounded by
+// each labelled obor pane that runs no agent is restarted with obor restart, one at a time (a project's under its
+// restore lock: the two triggers' runs restart a pane at most once), each bounded by
 // OBOR_RESTORE_TIMEOUT (s, default 120). Skipped, with a log line: a pane that runs an agent, and the worker of a free
 // (or dirty-free) lane (obor dispatch starts it, T-169). A pane with no recorded
 // session (serve's store, T-583) or a kind that resumes nothing starts --fresh (RV-18 #3, T-627: a role pane started
@@ -79,34 +82,104 @@ func RestoreLog(env project.Env) string {
 	return filepath.Join(project.StateHome(env), "restore.log")
 }
 
-// Restore restarts the labelled obor panes herdr's pane list shows without an agent, in its order.
-func (p *Restorer) Restore(ctx context.Context) {
-	hctx, cancel := context.WithTimeout(ctx, panesTimeout)
-	panes, err := p.H.Panes(hctx)
-	cancel()
-	if err != nil {
+// Restore restarts the labelled obor panes herdr's pane list shows without an agent, every project's (the plugin's
+// run): project by project, in the order the list first shows each.
+func (p *Restorer) Restore(ctx context.Context) { p.restore(ctx, "") }
+
+var _ port.Restorer = (*Restorer)(nil)
+
+// RestoreProject is Restore for the project at root alone (serve's run after its terminal connection came back,
+// T-1051).
+func (p *Restorer) RestoreProject(ctx context.Context, root string) {
+	p.restore(ctx, filepath.Clean(root))
+}
+
+// RestoreLock is a project's restore lock, <state>/restore.lock: held while one run restores the project's panes, so
+// a second trigger's run (the plugin's and serve's after one herdr restart) waits, then reads the panes again and
+// finds each restarted pane running its agent (skipped): no pane is restarted twice.
+func RestoreLock(root string) *project.Lock {
+	return project.NewLock(filepath.Join(project.StateDir(root), "restore.lock"))
+}
+
+// restore is Restore over the projects whose root is only ("": every project).
+func (p *Restorer) restore(ctx context.Context, only string) {
+	panes, ok := p.panes(ctx)
+	if !ok {
 		return
+	}
+	var roots []string
+	seen := map[string]bool{}
+	for _, pane := range panes {
+		cfg, ok := oborPane(pane)
+		if !ok || only != "" && filepath.Clean(cfg.Root) != only || seen[cfg.Root] {
+			continue
+		}
+		seen[cfg.Root] = true
+		roots = append(roots, cfg.Root)
 	}
 	limit := 120 * time.Second
 	if n, err := strconv.Atoi(p.Env.Get("OBOR_RESTORE_TIMEOUT")); err == nil && n > 0 {
 		limit = time.Duration(n) * time.Second
 	}
+	for _, root := range roots {
+		p.restoreRoot(ctx, root, limit)
+	}
+}
+
+// restoreRoot restores the project at root's panes under its restore lock, from a pane list read once the lock is
+// held: a pane another run restarted meanwhile runs its agent now.
+func (p *Restorer) restoreRoot(ctx context.Context, root string, limit time.Duration) {
 	log := RestoreLog(p.Env)
+	lock := RestoreLock(root)
+	lock.Output = io.Discard
+	ok, err := lock.Try()
+	if err == nil && !ok {
+		err = lock.Wait(ctx, -1)
+	}
+	if err != nil {
+		appendLog(log, func(w io.Writer) {
+			fmt.Fprintf(w, "%s restore of %s: FAIL cannot take its restore lock: %v\n", p.stamp(), root, err)
+		})
+		return
+	}
+	defer lock.Unlock()
+	panes, ok := p.panes(ctx)
+	if !ok {
+		return
+	}
 	for _, pane := range panes {
-		if pane.Label == "" {
-			continue
-		}
-		cfg, ok := paneConfig(pane.Cwd)
-		if !ok {
-			continue
-		}
-		if _, ok := cfg.AgentLookup(pane.Label, ""); !ok {
+		cfg, ok := oborPane(pane)
+		if !ok || cfg.Root != root {
 			continue
 		}
 		appendLog(log, func(w io.Writer) {
 			p.restoreOne(ctx, cfg, pane, limit, w)
 		})
 	}
+}
+
+// panes is herdr's pane list, bounded by panesTimeout; false when it cannot be read.
+func (p *Restorer) panes(ctx context.Context) ([]port.Pane, bool) {
+	hctx, cancel := context.WithTimeout(ctx, panesTimeout)
+	defer cancel()
+	panes, err := p.H.Panes(hctx)
+	return panes, err == nil
+}
+
+// oborPane is the config of the obor project whose agent pane's label names (paneConfig); false for an unlabelled
+// pane, one outside an obor project, or a label the project has no agent for.
+func oborPane(pane port.Pane) (*config.Config, bool) {
+	if pane.Label == "" {
+		return nil, false
+	}
+	cfg, ok := paneConfig(pane.Cwd)
+	if !ok {
+		return nil, false
+	}
+	if _, ok := cfg.AgentLookup(pane.Label, ""); !ok {
+		return nil, false
+	}
+	return cfg, true
 }
 
 func (p *Restorer) restoreOne(ctx context.Context, cfg *config.Config, pane port.Pane, limit time.Duration, w io.Writer) {

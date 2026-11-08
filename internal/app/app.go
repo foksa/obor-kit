@@ -59,6 +59,9 @@ type Options struct {
 	// Tokens is a session transcript's context size (the keep lane handoff rule, T-1031; ok false: none read). Nil:
 	// project.ContextTokens' read of the file.
 	Tokens func(transcript string) (int, bool)
+	// Restore restarts the project's labelled panes that run no agent, after the terminal connection came back
+	// (restore.go, T-1051; nil: never).
+	Restore port.Restorer
 }
 
 // App is `obor serve`'s state. Make it with New, run it with Serve.
@@ -108,6 +111,7 @@ type App struct {
 	effects  sync.WaitGroup     // the scratch effects running in their own goroutine (the merge loop's end waits)
 	admitted int                // the verdict calls in progress, waiting for the verdict lock included (under mu)
 	follow   follow             // the watch of a new obor binary (follow.go, T-719; the merge loop's goroutine only)
+	rst      restoreState       // the restore after a reconnect (restore.go, T-1051; under mu)
 
 	hooked atomic.Pointer[func(string)] // a test's hook at the points App.hook names (nil: none; drive.go)
 }

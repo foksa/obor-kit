@@ -93,11 +93,12 @@ type rig struct {
 	mu sync.Mutex
 	ps string // the process table Busy reads
 
-	loop   func(string) (*app.Loop, error) // Options.Loop (nil: observe only)
-	app    *app.App
-	out    *syncBuf
-	cancel context.CancelFunc
-	done   chan struct{}
+	loop    func(string) (*app.Loop, error) // Options.Loop (nil: observe only)
+	restore port.Restorer                   // Options.Restore (nil: none)
+	app     *app.App
+	out     *syncBuf
+	cancel  context.CancelFunc
+	done    chan struct{}
 }
 
 // newRig is project pj (workspace w1) with lanes L-01 (T-1) and L-02 (T-2), each with an idle claude, a workspace
@@ -173,7 +174,7 @@ func (r *rig) start() {
 		Now: r.clock.Now, Out: r.out, Refresh: func(err error) bool {
 			var e *herdr.Error
 			return errors.As(err, &e) && e.Code == "refresh"
-		}, Loop: r.loop}, panes, r.lanes)
+		}, Loop: r.loop, Restore: r.restore}, panes, r.lanes)
 	ctx, cancel := context.WithCancel(context.Background())
 	r.cancel, r.done = cancel, make(chan struct{})
 	go func() {
