@@ -392,19 +392,14 @@ func TestHooksPinNoSelfHost(t *testing.T) {
 	t.Parallel()
 	k := newNoBinKit(t)
 	k.p.Write(".claude-plugin/plugin.json", `{"name":"obor"}`+"\n")
-	broken := k.p.Write("bin/obor", "#!/bin/bash\necho broken project obor >&2\nexit 9\n")
-	if err := os.Chmod(broken, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	broken := testkit.Script(t, filepath.Join(k.p.Root, "bin"), "obor",
+		"#!/bin/bash\necho broken project obor >&2\nexit 9\n")
 	if rc, _, _, _ := shimRun(t, k.p.Root, "", nil, "bash", broken); rc != 9 {
 		t.Fatalf("precondition: the project's bin/obor is broken (exit %d)", rc)
 	}
 	pins := testkit.Dir(t)
-	dist := k.p.Write("kit/dist/obor", fmt.Sprintf(
-		"#!/bin/bash\n[ \"$1\" = has ] && exit 0\necho \"${OBOR_NO_SELF_HOST-unset}\" > '%s/pin.'\"$2\"\nexit 0\n", pins))
-	if err := os.Chmod(dist, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	testkit.Script(t, filepath.Join(k.dir, "dist"), "obor",
+		"#!/bin/bash\n[ \"$1\" = has ] && exit 0\necho \"${OBOR_NO_SELF_HOST-unset}\" > \"${PIN_DIR:?}/pin.$2\"\nexit 0\n")
 	var h hooksFile
 	readJSON(t, filepath.Join(checkoutRoot(t), "hooks/hooks.json"), &h)
 	event, _ := json.Marshal(map[string]any{"hook_event_name": "x", "tool_name": "Read", "cwd": k.lane, "prompt": "hi",
@@ -416,7 +411,8 @@ func TestHooksPinNoSelfHost(t *testing.T) {
 		}
 		cmd := h.Hooks[name][0].Hooks[0].Command
 		// testkit.Isolate already cleared OBOR_NO_SELF_HOST from this environment.
-		shimRun(t, k.lane, string(event), []string{"HOME=" + k.home, "CLAUDE_PLUGIN_ROOT=" + k.dir}, "sh", "-c", cmd)
+		env := []string{"HOME=" + k.home, "CLAUDE_PLUGIN_ROOT=" + k.dir, "PIN_DIR=" + pins}
+		shimRun(t, k.lane, string(event), env, "sh", "-c", cmd)
 		hook := cmd[strings.LastIndex(cmd, " ")+1:]
 		got, err := os.ReadFile(filepath.Join(pins, "pin."+hook))
 		if err != nil || strings.TrimSpace(string(got)) != "1" {

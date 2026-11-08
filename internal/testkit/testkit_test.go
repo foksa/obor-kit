@@ -144,3 +144,36 @@ func TestTemplateChild(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestScript: Script writes the body as an executable, and the same body again is the same file (a hardlink to the one
+// cached copy: macOS scans a fresh executable on its first exec, T-1025).
+func TestScript(t *testing.T) {
+	body := "#!/bin/sh\necho hi\n"
+	one := Script(t, t.TempDir(), "stub", body)
+	two := Script(t, filepath.Join(t.TempDir(), "sub"), "stub", body)
+	info, err := os.Stat(one)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm()&0o111 == 0 {
+		t.Errorf("%s is not executable (mode %v)", one, info.Mode())
+	}
+	if got, err := os.ReadFile(two); err != nil || string(got) != body {
+		t.Errorf("%s: %q, %v; want the body", two, got, err)
+	}
+	twoInfo, err := os.Stat(two)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(info, twoInfo) {
+		t.Errorf("the same body is two files: %s and %s (the scan is paid twice)", one, two)
+	}
+	other := Script(t, t.TempDir(), "stub", "#!/bin/sh\necho bye\n")
+	otherInfo, err := os.Stat(other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if os.SameFile(info, otherInfo) {
+		t.Errorf("a different body is the same file %s", other)
+	}
+}

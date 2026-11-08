@@ -32,10 +32,9 @@ func restartStub(t *testing.T, p *testkit.Project) (home, bin, log string) {
 	if err := os.WriteFile(plist, []byte("<key>WorkingDirectory</key><string>"+p.Root+"</string>\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	script := "#!/bin/sh\necho \"$*\" >> " + log + "\ncase \"$1\" in print) printf '\\tpid = 999999\\n' ;; esac\n"
-	if err := os.WriteFile(filepath.Join(bin, "launchctl"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	script := "#!/bin/sh\ndir=$(dirname \"$0\")\necho \"$*\" >> \"$dir/calls\"\n" +
+		"case \"$1\" in print) printf '\\tpid = 999999\\n' ;; esac\n"
+	testkit.Script(t, bin, "launchctl", script)
 	return home, bin, log
 }
 
@@ -113,19 +112,19 @@ func TestServeRestartServeNeverAnswers(t *testing.T) {
 	p := servedProject(t)
 	home, bin, _ := restartStub(t, p)
 	env := []string{"HOME=" + home, "PATH=" + bin + ":" + os.Getenv("PATH"), "OBOR_STATE_HOME=" + t.TempDir(),
-		"HERDR_SOCKET_PATH=", "OBOR_SERVE_READY_WAIT=0.3"}
+		"HERDR_SOCKET_PATH=", "OBOR_SERVE_READY_WAIT=0.1"}
 	if _, err := os.Stat(wire.SocketPath(p.Root)); !os.IsNotExist(err) {
 		t.Fatalf("socket before the restart: %v", err)
 	}
 	start := time.Now()
 	rc, stdout, stderr := run(t, p.Root, env, "serve", "restart")
 	elapsed := time.Since(start)
-	want := "FAIL obor serve restart: launchd restarted it but serve did not answer in 300ms (obor status; its log: "
+	want := "FAIL obor serve restart: launchd restarted it but serve did not answer in 100ms (obor status; its log: "
 	if rc != 1 || stdout != "" || !strings.HasPrefix(stderr, want) || !strings.HasSuffix(stderr, "serve.log)\n") {
 		t.Fatalf("restart: %d %q %q; want the FAIL line after %q … serve.log)", rc, stdout, stderr, want)
 	}
-	if elapsed < 300*time.Millisecond {
-		t.Errorf("restart failed in %s, before the 300ms deadline: it did not wait", elapsed)
+	if elapsed < 100*time.Millisecond {
+		t.Errorf("restart failed in %s, before the 100ms deadline: it did not wait", elapsed)
 	}
 }
 
@@ -143,11 +142,10 @@ func TestServeRestarter(t *testing.T) {
 	}
 	bin := t.TempDir()
 	pid, calls := filepath.Join(bin, "pid"), filepath.Join(bin, "calls")
-	launchctl := "#!/bin/sh\necho \"$*\" >> " + calls + "\ncase \"$1\" in print) [ -f " + pid + " ] || exit 113; " +
-		"echo \"\tpid = $(cat " + pid + ")\" ;; kickstart) exit 1 ;; esac\n"
-	if err := os.WriteFile(filepath.Join(bin, "launchctl"), []byte(launchctl), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	launchctl := "#!/bin/sh\ndir=$(dirname \"$0\")\necho \"$*\" >> \"$dir/calls\"\n" +
+		"case \"$1\" in print) [ -f \"$dir/pid\" ] || exit 113; " +
+		"echo \"\tpid = $(cat \"$dir/pid\")\" ;; kickstart) exit 1 ;; esac\n"
+	testkit.Script(t, bin, "launchctl", launchctl)
 	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
 	env := kitEnv(t, true)
 	ran := func() string { b, _ := os.ReadFile(calls); return string(b) }
@@ -185,9 +183,7 @@ func TestServeRestarterOffLaunchd(t *testing.T) {
 		t.Fatal(err)
 	}
 	bin := t.TempDir() // a launchctl that knows no agent (darwin); unused elsewhere
-	if err := os.WriteFile(filepath.Join(bin, "launchctl"), []byte("#!/bin/sh\nexit 113\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	testkit.Script(t, bin, "launchctl", "#!/bin/sh\nexit 113\n")
 	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
 	for _, c := range []struct {
 		name string
