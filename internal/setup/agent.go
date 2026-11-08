@@ -304,31 +304,19 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 		return nil
 	}
 	s.started = true
-	run := func() error {
-		return l.Start(ctx, port.Start{Agent: a.name, Kind: lt.Kind, Pane: pane, Label: label, Args: built.Args,
-			Session: built.Session, Lane: a.lane, Prompt: prompt})
-	}
 	// A pane a new tab or a split made is a shell that may still be coming up: herdr answers agent_pane_busy until it
-	// is one (T-628, live 2026-10-31). It is used again only once herdr reports a shell there, within the bound.
-	deadline := time.Now().Add(s.shellWait())
-	if fresh { // its id is known now: the env line exports OBOR_PANE before the start (T-1037), once its shell is up
-		if !s.shellUp(ctx, pane, deadline) {
-			return s.notShell(pane, a.name, lt.Kind)
-		}
-		if err := setEnv(); err != nil {
-			return err
-		}
+	// is one (T-628, live 2026-10-31). The start waits for it within the bound, then types the env line (its id is
+	// known now: the env line exports OBOR_PANE before the start, T-1037) and retries a busy answer within the same
+	// bound (launch's one start, T-1057). A reused pane's env line is typed above, and its start is not retried.
+	st := port.Start{Agent: a.name, Kind: lt.Kind, Pane: pane, Label: label, Args: built.Args, Session: built.Session,
+		Lane: a.lane, Prompt: prompt}
+	if fresh {
+		st.Shell, st.Await, st.Env = s.shellWait(), true, func(context.Context) error { return setEnv() }
 	}
-	err = run()
-	for fresh && startCode(err) == "agent_pane_busy" && time.Now().Before(deadline) {
-		if !s.waitShell(ctx, pane, deadline) {
-			break
-		}
-		err = run()
-	}
+	err = l.Start(ctx, st)
 	var se *port.StartError
 	switch {
-	case fresh && startCode(err) == "agent_pane_busy":
+	case errors.As(err, &se) && se.NoShell, fresh && startCode(err) == "agent_pane_busy":
 		return s.notShell(pane, a.name, lt.Kind)
 	case errors.As(err, &se) && se.NotReady:
 		return project.Failf("agent not ready: %s", se.Hint)
@@ -357,41 +345,11 @@ func (s *Setup) notShell(pane, agent, kind string) error {
 		"(herdr agent start %s --kind %s --pane %s)", pane, s.shellWait(), agent, kind, pane)
 }
 
-// shellUp: herdr reports pane an available shell now, else within until (waitShell).
-func (s *Setup) shellUp(ctx context.Context, pane string, until time.Time) bool {
-	if pi, err := s.T.ProcessInfo(ctx, pane); err == nil && pi.AtShell() {
-		return true
-	}
-	return s.waitShell(ctx, pane, until)
-}
-
-// waitShell waits until herdr reports pane an available shell (its shell in the foreground), no longer than until;
-// false when the bound came first. It waits one poll before asking: a start herdr answered agent_pane_busy for is
-// retried no faster than that.
-func (s *Setup) waitShell(ctx context.Context, pane string, until time.Time) bool {
-	for {
-		left := time.Until(until)
-		if left <= 0 {
-			return false
-		}
-		select {
-		case <-ctx.Done():
-			return false
-		case <-time.After(min(shellPoll, left)):
-		}
-		if pi, err := s.T.ProcessInfo(ctx, pane); err == nil && pi.AtShell() {
-			return true
-		}
-	}
-}
-
 // --- placement (T-628) -------------------------------------------------------------------------------------------
 
-// shellWait bounds the wait for a new pane's shell, and shellPoll is how often herdr is asked meanwhile.
-const (
-	shellWait = 10 * time.Second
-	shellPoll = 100 * time.Millisecond
-)
+// shellWait bounds the wait for a new pane's shell and the start's agent_pane_busy retries (port.Start.Shell): a new
+// pane's shell is up in moments, unlike a restart's, which waits for the old agent's exit to be reaped.
+const shellWait = 10 * time.Second
 
 // shellWait is the bound (Setup.ShellWait when set: tests shorten it).
 func (s *Setup) shellWait() time.Duration {

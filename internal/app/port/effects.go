@@ -224,14 +224,26 @@ type Start struct {
 	Session string
 	Prompt  string // the CLI's first prompt (a job's wake), in Args already; "" for none
 	Lane    string // the agent's lane: a session a fresh start reports is recorded with it
+	// Shell bounds the wait for the pane's shell (Await) and the retries of a start the terminal answered
+	// agent_pane_busy (T-628, T-1053): one bound for both, from the start's beginning; 0: neither, a pane the caller
+	// knows is its shell. The callers' bounds differ (obor setup's new pane: 10 s, its shell comes up in moments; a
+	// restart: 30 s, the old agent's exit is reaped first).
+	Shell time.Duration
+	// Await: the start waits for the pane's shell before its env line and start (a pane a new tab or split just made,
+	// a pane whose agent was just stopped); past Shell, a StartError with NoShell and nothing typed. false: a pane not at
+	// its shell is the env line's to refuse (a person's program in a pane that ran no agent).
+	Await bool
+	// Env types the agent's env line at the pane's shell once it is up, before the start (nil: the caller set it).
+	Env func(ctx context.Context) error
 }
 
 // StartError is a failed start (the multiplexer's error, or the startup dialog seen in the pane). NotReady: the agent
-// runs but waits at a startup dialog; Hint says what to do.
+// runs but waits at a startup dialog; Hint says what to do. NoShell: no start was made (Start.Await).
 type StartError struct {
 	Err      error
 	NotReady bool
 	Hint     string
+	NoShell  bool // the pane did not become its shell within Start.Shell (Await): nothing typed, nothing started
 }
 
 func (e *StartError) Error() string {

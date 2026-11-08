@@ -1,6 +1,8 @@
 package launch_test
 
 import (
+	"bytes"
+	"context"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -110,5 +112,73 @@ func TestRestartWaitsForTheShellAfterTheStop(t *testing.T) {
 		contains(t, out, "waiting for the shell of pane w1:p3", "the wait said")
 		eqInt(t, left, 0, "the wait looked until the pane was its shell")
 		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
+	})
+}
+
+// T-1057 (RV-151 #1): each entry point's start goes through the one start, whose evidence rule takes a listing of the
+// kind for the new agent once herdr accepted the start. The review's probe: herdr still lists the old Claude after it
+// exited (linger), the first start answers agent_pane_busy, the second starts a Claude that works on its first prompt
+// and herdr gives up waiting on it (timeout). The start held the old listing against the new agent: FAIL while it ran.
+func TestEveryEntryPointStartsThroughTheOneStart(t *testing.T) {
+	t.Parallel()
+	const wake = "[obor job T-1/1/work] call the obor job_next tool"
+	probe := func(x *fx, pane, agent string) *herdrtest.Pane {
+		p := x.agent(pane, agent, "claude", "idle")
+		p.OnQuit = "linger" // the old Claude still listed after its exit
+		p.StartBusy = 1
+		p.OnStart = "working" // the new one works on its first prompt: herdr's timeout
+		return p
+	}
+	t.Run("obor restart with a first prompt, the old Claude still listed: RESTARTED", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		probe(x, "w1:p6", "pj-lead")
+		out, ok := x.restart(launch.Request{Agent: "pj-lead", Fresh: true, Prompt: wake})
+		eqInt(t, len(x.calls("agent.start")), 2, "precondition: busy, then the start herdr made")
+		contains(t, out, "(timeout)", "precondition: herdr gave up on the new agent")
+		if !ok {
+			t.Fatalf("a running start said failed:\n%s", out)
+		}
+		eq(t, last(out), "RESTARTED pj-lead (pane w1:p6, session new)", "result")
+		contains(t, out, "pj-lead runs in w1:p6 (working on its first prompt): started", "said")
+	})
+	t.Run("the detached handoff restart, the old Claude still listed: RESTARTED", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		probe(x, "w1:p6", "pj-lead")
+		out, ok, spawns := x.self("w1:p6", true, launch.Request{Agent: "pj-lead", Fresh: true, Prompt: wake}, false, nil)
+		eqInt(t, len(x.calls("agent.start")), 2, "precondition: busy, then the start herdr made")
+		if !ok || len(spawns) != 0 {
+			t.Fatalf("the detached run: %v\n%s", spawns, out)
+		}
+		eq(t, last(out), "RESTARTED pj-lead (pane w1:p6, session new)", "result")
+	})
+	t.Run("serve's worker start with its job's wake, the old Claude still listed: RESTARTED", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		probe(x, "w1:p3", "pj-l-01")
+		var out bytes.Buffer
+		l := x.launcher(&out)
+		l.Job = func(context.Context, string, string) (string, error) { return "T-1/1/work", nil }
+		line, err := l.Restart(context.Background(), launch.Request{Agent: "pj-l-01", Fresh: true})
+		got, ok := result(t, &out, line, err)
+		contains(t, x.startCall(), "T-1/1/work", "precondition: the job's wake is the first prompt")
+		eqInt(t, len(x.calls("agent.start")), 2, "precondition: busy, then the start herdr made")
+		if !ok {
+			t.Fatalf("a running start said failed:\n%s", got)
+		}
+		eq(t, last(got), "RESTARTED pj-l-01 (pane w1:p3, session new)", "result")
+	})
+	t.Run("restore's restart of a labelled pane without an agent: busy retried, no shell wait, RESTARTED", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.shell("w1:p3", "pj-l-01", "").StartBusy = 1
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01", Pane: "w1:p3", Fresh: true})
+		eqInt(t, len(x.calls("agent.start")), 2, "a start after the busy answer, then the one that ran")
+		if !ok {
+			t.Fatalf("restart failed:\n%s", out)
+		}
+		lacks(t, out, "waiting for the shell of pane", "a pane that ran no agent is not waited on before the env line")
+		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new)", "result")
 	})
 }
