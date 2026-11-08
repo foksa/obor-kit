@@ -4,7 +4,9 @@
 package testkit
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -41,6 +43,9 @@ func Run(m *testing.M) int {
 	if tmpl.base != "" {
 		os.RemoveAll(tmpl.base)
 	}
+	if scripts.dir != "" {
+		os.RemoveAll(scripts.dir)
+	}
 	return code
 }
 
@@ -55,6 +60,17 @@ var tmpl struct {
 	base   string
 	err    error
 	builds int
+}
+
+// scripts is Script's cache: one written executable per body, hardlinked into the tests' dirs (T-1025). macOS scans a
+// fresh executable before its first exec (100+ ms for a small script, 200+ ms for the 24 MB obor binary), so a suite
+// that writes the same launcher in each test paid that scan per test.
+var scripts struct {
+	once sync.Once
+	dir  string
+	err  error
+	mu   sync.Mutex
+	by   map[[32]byte]string
 }
 
 // template is the template's proj dir, built on first use: git init, add and commit of the .gitignore (a leftover done
@@ -140,6 +156,53 @@ func Slow(t testing.TB) {
 	if testing.Short() {
 		t.Skip("slow: runs in make check")
 	}
+}
+
+// Script writes body as the executable dir/name and returns its path: a test's fake launchctl, a stub obor. It is one
+// copy per body per test binary, hardlinked into dir (T-1025): macOS scans a fresh executable before its first exec
+// (100+ ms for a small script), so a launcher written in each test paid that scan per test. Bodies that differ in a
+// test's paths are different copies, so keep them out of the body: derive them from $0 or pass them in the environment.
+func Script(t testing.TB, dir, name, body string) string {
+	t.Helper()
+	src := scriptCopy(t, body)
+	path := filepath.Join(dir, name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
+	}
+	if err := os.Link(src, path); err != nil {
+		// Another filesystem (a TMPDIR on another volume): its own copy, at the cost of the scan.
+		if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return path
+}
+
+// scriptCopy is Script's cached file for body, written once.
+func scriptCopy(t testing.TB, body string) string {
+	t.Helper()
+	scripts.once.Do(func() {
+		scripts.by = map[[32]byte]string{}
+		scripts.dir, scripts.err = os.MkdirTemp("", "hk-bin")
+	})
+	if scripts.err != nil {
+		t.Fatalf("testkit: script cache: %v", scripts.err)
+	}
+	sum := sha256.Sum256([]byte(body))
+	scripts.mu.Lock()
+	defer scripts.mu.Unlock()
+	if path, ok := scripts.by[sum]; ok {
+		return path
+	}
+	path := filepath.Join(scripts.dir, fmt.Sprintf("%x", sum))
+	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	scripts.by[sum] = path
+	return path
 }
 
 // Isolate keeps the tests away from the developer's shell: no OBOR_* / HERDR_* variables (but a herdr socket that is not there), no check-slot variables the

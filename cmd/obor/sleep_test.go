@@ -95,7 +95,9 @@ func sleepFx(t *testing.T) (p *testkit.Project, s *sleeper, out *bytes.Buffer, s
 		t.Fatal(err)
 	}
 	f = &sleepServe{root: p.Root, up: true}
-	s = &sleeper{Cfg: cfg, Env: env, Cwd: p.Root, Out: out, Why: "obor stop", Wait: 300 * time.Millisecond,
+	// Wait is the serve wait a stop may sit out: 100ms, the loop's own poll (sleep.go's stopServe), long enough for a
+	// test that must see the deadline pass and short enough not to (T-1025: it was 300ms).
+	s = &sleeper{Cfg: cfg, Env: env, Cwd: p.Root, Out: out, Why: "obor stop", Wait: 100 * time.Millisecond,
 		H: &herdr.Socket{Path: herdrtest.Serve(t, p.Herdr()).Path}, Ask: f.ask, Call: f.call,
 		Stop: func(_ context.Context, agent, pane string, force bool) (string, error) {
 			*stops = append(*stops, stopCall{agent, pane, force})
@@ -452,22 +454,21 @@ func TestStopRefusesAServeThatStaysUp(t *testing.T) {
 }
 
 // fakeLaunchctl puts a launchctl on PATH (the test's process env: no t.Parallel) that logs each call to the returned
-// file and keeps one label loaded while its state file exists (as internal/service's own fake).
+// file and keeps one label loaded while its state file exists (as internal/service's own fake). Its calls and state
+// live next to the script, so its body is the same in every test and testkit.Script runs it once (T-1025).
 func fakeLaunchctl(t *testing.T) (log, state string) {
 	dir := t.TempDir()
 	log, state = filepath.Join(dir, "calls"), filepath.Join(dir, "loaded")
-	script := `#!/bin/sh
-echo "$*" >> "` + log + `"
-state="` + state + `"
+	testkit.Script(t, dir, "launchctl", `#!/bin/sh
+dir=$(dirname "$0")
+echo "$*" >> "$dir/calls"
+state="$dir/loaded"
 case "$1" in
 bootstrap) : > "$state" ;;
 bootout) [ -f "$state" ] || exit 3; rm "$state" ;;
 print) [ -f "$state" ] || exit 113; printf 'pid = 4242\n' ;;
 esac
-`
-	if err := os.WriteFile(filepath.Join(dir, "launchctl"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+`)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return log, state
 }
