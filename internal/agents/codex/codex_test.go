@@ -3,6 +3,7 @@ package codex_test
 import (
 	"io/fs"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -332,6 +333,62 @@ func TestProjectWarnings(t *testing.T) {
 	for file, want := range map[string]int{"": 0, "sandbox_mode = \"x\"\n[t]\nwhat ever\n": 0, "what ever\n": 1} {
 		if got := pc.ProjectWarnings("/lane", projectFS(file)); len(got) != want {
 			t.Errorf("%q: warnings %q, want %d", file, got, want)
+		}
+	}
+}
+
+// T-1045: on darwin, the files beside the resolved codex (symlinks followed) that carry com.apple.quarantine make one
+// warning naming them and the fix on the package's version dir; none when nothing is quarantined, codex is not on the
+// PATH, or the machine is not a Mac.
+func TestInstallWarnings(t *testing.T) {
+	k, _ := agents.Lookup("codex")
+	c, ok := k.(agents.InstallChecker)
+	if !ok {
+		t.Fatal("precondition: codex is an InstallChecker")
+	}
+	const link, ver = "/opt/homebrew/bin/codex", "/opt/homebrew/Caskroom/codex/0.167.0"
+	host := func(goos string, found bool, quarantined ...string) agents.InstallHost {
+		return agents.InstallHost{
+			GOOS: goos,
+			LookPath: func(name string) (string, error) {
+				if !found || name != "codex" {
+					return "", fs.ErrNotExist
+				}
+				return link, nil
+			},
+			Resolve: func(p string) (string, error) {
+				if p == link {
+					return ver + "/bin/codex", nil
+				}
+				return p, nil
+			},
+			Quarantined: func(p string) bool { return slices.Contains(quarantined, p) },
+		}
+	}
+	fix := "fix: xattr -dr com.apple.quarantine " + ver + " (or brew reinstall --cask codex --no-quarantine)"
+	for _, tc := range []struct {
+		name string
+		h    agents.InstallHost
+		want string // "" no warning; else the files part of the one line
+	}{
+		{"the host quarantined", host("darwin", true, ver+"/bin/codex-code-mode-host"), ver + "/bin/codex-code-mode-host carry"},
+		{"all three", host("darwin", true, ver+"/bin/codex", ver+"/bin/codex-code-mode-host", ver+"/bin/codex-exec-server"),
+			ver + "/bin/codex, " + ver + "/bin/codex-code-mode-host, " + ver + "/bin/codex-exec-server carry"},
+		{"the symlink's own dir is not checked", host("darwin", true, "/opt/homebrew/bin/codex-code-mode-host"), ""},
+		{"nothing quarantined", host("darwin", true), ""},
+		{"no codex on the PATH", host("darwin", false, ver+"/bin/codex-code-mode-host"), ""},
+		{"not a Mac", host("linux", true, ver+"/bin/codex-code-mode-host"), ""},
+	} {
+		got := c.InstallWarnings(tc.h)
+		if tc.want == "" {
+			if len(got) != 0 {
+				t.Errorf("%s: want no warning, got %q", tc.name, got)
+			}
+			continue
+		}
+		if len(got) != 1 || !strings.HasPrefix(got[0], tc.want+" com.apple.quarantine") || !strings.HasSuffix(got[0], fix) ||
+			!strings.Contains(got[0], "code-mode host") {
+			t.Errorf("%s: want one line %q … %q, got %q", tc.name, tc.want, fix, got)
 		}
 	}
 }

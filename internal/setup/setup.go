@@ -63,6 +63,7 @@ import (
 	"strings"
 	"time"
 
+	"obor/internal/agents"
 	"obor/internal/app/port"
 	"obor/internal/config"
 	"obor/internal/project"
@@ -90,6 +91,9 @@ type Setup struct {
 	// Installed is the plist of cfg's serve LaunchAgent when it is installed (cmd/obor passes the service adapter's;
 	// nil: none is): obor setup rename refuses while it is (DD-consolidation I7).
 	Installed func(cfg *config.Config) (plist string, ok bool)
+	// Install is the machine for the doctor's install checks (agents.InstallChecker, T-1045); nil: this one
+	// (installHost).
+	Install func() agents.InstallHost
 	// ShellWait bounds the wait for a pane a new tab or a split made to be an available shell (T-628; 0: 10 s).
 	ShellWait time.Duration
 

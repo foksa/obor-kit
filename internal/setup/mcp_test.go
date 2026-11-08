@@ -277,3 +277,35 @@ func TestSetupAgentsPluginKind(t *testing.T) {
 	}
 	x.failing(t, "FAIL agents mine: kind mine: install: exit 2: nope", "agents")
 }
+
+// T-1045: the doctor prints a used kind's install warnings (codex: quarantined files beside its binary) as WARN lines
+// and still ends OK (a warning, never a failure); a kind the project does not run is not checked.
+func TestSetupMCPInstallWarning(t *testing.T) {
+	t.Parallel()
+	x := bare(t)
+	claudeOnly := testkit.Set("difficulty", `{"hard": ["opus"], "medium": ["sonnet"], "simple": ["haiku"]}`)
+	const host = "/c/0.167.0/bin/codex-code-mode-host"
+	asked := 0
+	x.install = func() agents.InstallHost {
+		return agents.InstallHost{GOOS: "darwin",
+			LookPath:    func(string) (string, error) { asked++; return "/c/0.167.0/bin/codex", nil },
+			Quarantined: func(p string) bool { return p == host }}
+	}
+	x.Config(claudeOnly)
+	out, rc := x.run(t, "mcp")
+	if rc != 0 || asked != 0 {
+		t.Errorf("codex unused: exit %d, install checked %d times\n%s", rc, asked, out)
+	}
+	hasNot(t, out, "WARN codex", "an unused kind's install is not checked")
+
+	x.Config(claudeOnly, testkit.Set("roles.reviewer", "luna"))
+	out, rc = x.run(t, "mcp")
+	if asked == 0 {
+		t.Fatalf("precondition: a codex reviewer makes codex used\n%s", out)
+	}
+	if rc != 0 || last(out) != "OK mcp" {
+		t.Errorf("a quarantined codex: exit %d, last %q (a warning, not a failure)\n%s", rc, last(out), out)
+	}
+	has(t, out, "WARN codex: "+host+" carry com.apple.quarantine", "the quarantined file is named")
+	has(t, out, "fix: xattr -dr com.apple.quarantine /c/0.167.0", "the fix on the version dir")
+}

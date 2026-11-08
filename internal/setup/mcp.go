@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 
 	"obor/internal/agents"
@@ -189,6 +191,11 @@ func (s *Setup) mcpCmd(_ context.Context, args []string) error {
 			continue
 		}
 		k, _ := agents.Lookup(name)
+		if c, ok := k.(agents.InstallChecker); ok { // the CLI's install (T-1045): a warning, never a failure
+			for _, w := range c.InstallWarnings(s.installHost()) {
+				s.say("WARN %s: %s", name, w)
+			}
+		}
 		in, err := agents.InstallOf(k, s.Kit, s.Env.Get)
 		if err != nil { // a plugin kind's install failed (T-1036)
 			s.say("WARN mcp %s: %v", name, err)
@@ -231,6 +238,39 @@ func (s *Setup) mcpCmd(_ context.Context, args []string) error {
 	}
 	s.say("OK mcp")
 	return nil
+}
+
+// installHost is this machine for agents.InstallChecker: the CLI looked up on the project env's PATH (an env without
+// one finds none), the quarantine flag read with macOS's xattr.
+func (s *Setup) installHost() agents.InstallHost {
+	if s.Install != nil {
+		return s.Install()
+	}
+	return agents.InstallHost{
+		GOOS:     runtime.GOOS,
+		LookPath: func(name string) (string, error) { return lookPath(name, s.Env.Get("PATH")) },
+		Resolve:  filepath.EvalSymlinks,
+		Quarantined: func(path string) bool {
+			if _, err := os.Stat(path); err != nil {
+				return false
+			}
+			return exec.Command("xattr", "-p", "com.apple.quarantine", path).Run() == nil
+		},
+	}
+}
+
+// lookPath is name's first executable file in path's dirs.
+func lookPath(name, path string) (string, error) {
+	for _, dir := range filepath.SplitList(path) {
+		if dir == "" {
+			continue
+		}
+		p := filepath.Join(dir, name)
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() && fi.Mode()&0o111 != 0 {
+			return p, nil
+		}
+	}
+	return "", os.ErrNotExist
 }
 
 // usedKinds are the kinds the project runs: every used model's (a level's, a role's, an agent's), and agents.Default

@@ -59,6 +59,9 @@ type fx struct {
 	serve func(context.Context, *config.Config) (string, string, error)
 	// installed is Setup.Installed (the serve LaunchAgent's plist when installed; nil: none is)
 	installed func(*config.Config) (string, bool)
+	// install is Setup.Install (the machine of the doctor's install checks; nil: an empty one, so a test never reads
+	// this machine's CLIs)
+	install func() agents.InstallHost
 	// shellWait is Setup.ShellWait (0: 10 s), for tests that count on the bound
 	shellWait time.Duration
 }
@@ -165,11 +168,15 @@ func (x *fx) newSetup(t *testing.T) (*Setup, *bytes.Buffer) {
 	if open == nil {
 		open = func([]int) []string { return nil }
 	}
+	install := x.install
+	if install == nil {
+		install = func() agents.InstallHost { return agents.InstallHost{} }
+	}
 	env, h := x.Env(x.env...), x.srv.Client()
 	return &Setup{Kit: k, Env: env, T: &herdr.Setup{Socket: h, Env: env}, Out: &out, McpCheck: check, ShellWait: x.shellWait,
 		Starter: func(cfg *config.Config) port.Starter {
 			return &launch.Launcher{Cfg: cfg, Env: env, Kit: k, H: h, Out: &out, Rollout: rollout, Open: open}
-		}, Serve: x.serve, Installed: x.installed}, &out
+		}, Serve: x.serve, Installed: x.installed, Install: install}, &out
 }
 
 // reqs is the requests the fake herdr socket got since reset, each as req's one line, e.g. "pane.split cwd=/w

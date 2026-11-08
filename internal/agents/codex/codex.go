@@ -106,6 +106,45 @@ func (kind) ProjectWarnings(dir string, read agents.ReadFile) []string {
 	return nil
 }
 
+// installFiles are the binaries of a Codex package, side by side: Codex spawns the code-mode host for every tool
+// call (0.167) and the exec server for commands.
+var installFiles = []string{"codex", "codex-code-mode-host", "codex-exec-server"}
+
+// InstallWarnings (T-1045): on darwin, the files beside the resolved codex that carry com.apple.quarantine, one line.
+// A quarantined codex-code-mode-host hangs at exec (macOS never approves it for a child process), so every tool call
+// of a 0.167 session fails "timed out negotiating with the code-mode host" while the TUI itself starts fine.
+func (kind) InstallWarnings(h agents.InstallHost) []string {
+	if h.GOOS != "darwin" || h.LookPath == nil || h.Quarantined == nil {
+		return nil
+	}
+	bin, err := h.LookPath("codex")
+	if err != nil {
+		return nil
+	}
+	if h.Resolve != nil {
+		if r, err := h.Resolve(bin); err == nil {
+			bin = r
+		}
+	}
+	dir := filepath.Dir(bin)
+	var q []string
+	for _, f := range installFiles {
+		if p := filepath.Join(dir, f); h.Quarantined(p) {
+			q = append(q, p)
+		}
+	}
+	if len(q) == 0 {
+		return nil
+	}
+	version := dir // a package's bin/ sits in its version dir (Homebrew's Caskroom/codex/<version>)
+	if filepath.Base(dir) == "bin" {
+		version = filepath.Dir(dir)
+	}
+	return []string{fmt.Sprintf("%s carry com.apple.quarantine: macOS may never start them, and every tool call then "+
+		"times out negotiating with the code-mode host (T-1045); fix: xattr -dr com.apple.quarantine %s "+
+		"(or brew reinstall --cask codex --no-quarantine)", strings.Join(q, ", "), version)}
+}
+
 // tomlKey is a `key = value` line of TOML: the key bare or quoted, dotted parts allowed; the value after the `=`.
 var tomlKey = regexp.MustCompile(`^((?:[A-Za-z0-9_-]+|"[^"\\]*"|'[^']*')(?:\s*\.\s*(?:[A-Za-z0-9_-]+|"[^"\\]*"|'[^']*'))*)\s*=\s*(.*)$`)
 
