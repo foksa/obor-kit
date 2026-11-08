@@ -91,6 +91,7 @@ func TestRestoreLabelledOborPanes(t *testing.T) {
 	lane := f.p.Lane("L-01", "task/T-01")
 	f.p.Commit(lane)
 	f.p.Config()
+	f.p.State("L-01", `{"task":"T-01","branch":"task/T-01","agent":"pj-l-01"}`) // its row holds T-01, not landed: busy (T-1012)
 	other := filepath.Join(f.p.Base, "other")
 	f.p.Git(f.p.Base, "init", "-q", other)
 	f.shell("w1:p1", lane, "pj-l-01")
@@ -168,6 +169,7 @@ func TestRestoreFailureLoggedNextPaneRestarts(t *testing.T) {
 	lane := f.p.Lane("L-01", "task/T-01")
 	f.p.Commit(lane)
 	f.p.Config()
+	f.p.State("L-01", `{"task":"T-01","branch":"task/T-01","agent":"pj-l-01"}`) // its row holds T-01, not landed: busy (T-1012)
 	f.shell("w1:p1", f.p.Root, "pj-lead")
 	f.shell("w1:p2", lane, "pj-l-01")
 	f.fail["pj-lead"] = true
@@ -183,10 +185,11 @@ func TestRestoreWorkerWithoutSessionFresh(t *testing.T) {
 	f.p.Commit(o1)
 	f.p.Commit(o2)
 	f.p.Config()
+	f.p.State("L-01", `{"task":"T-01","branch":"task/T-01","agent":"pj-l-01"}`) // its row holds T-01, not landed: busy (T-1012)
 	f.shell("w1:p1", o1, "pj-l-01")
 	f.shell("w1:p2", o2, "l-02")
 	f.shell("w1:p3", f.p.Root, "pj-lead")
-	f.p.State("L-02", `{"lane":"L-02","agent":"l-02"}`) // a bare lane name is the lane's only when its state names it
+	f.p.State("L-02", `{"lane":"L-02","task":"T-02","branch":"task/T-02","agent":"l-02"}`) // a bare lane name is the lane's only when its state names it
 	recordSessions(t, f.p.Root, store.Session{Agent: "l-02", Kind: "claude", ID: "sid-l-02", Started: time.Now().Unix()})
 	f.pl.Restore(context.Background())
 	f.wantCalls(f.p.Root+" restart pj-l-01 --pane w1:p1 --fresh", f.p.Root+" restart l-02 --pane w1:p2",
@@ -222,6 +225,7 @@ func TestRestoreWorkerRecordedSession(t *testing.T) {
 		lane := f.p.Lane("L-01", "task/T-01")
 		f.p.Commit(lane)
 		f.p.Config()
+		f.p.State("L-01", `{"task":"T-01","branch":"task/T-01","agent":"pj-l-01"}`) // its row holds T-01, not landed: busy (T-1012)
 		f.shell("w1:p1", lane, "pj-l-01")
 		recordSessions(t, f.p.Root, store.Session{Agent: "pj-l-01", Kind: "claude", ID: "sid-l-01", Started: time.Now().Unix()})
 		f.pl.Restore(context.Background())
