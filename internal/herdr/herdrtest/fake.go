@@ -58,6 +58,10 @@ type Pane struct {
 	// status OnStart (T-387). "never": herdr answers agent_started (launch_pending, as protocol 22 does at once) but no
 	// agent ever comes up: the pane stays at its shell (T-544: the command typed while the shell was busy, cut off).
 	OnStart string
+	// StartBusy is how many agent start calls yet answer agent_pane_busy: herdr has not noticed the pane's old agent
+	// leave, though pane.process_info may already show its shell (T-1053: the exit not yet reaped). Each call spends
+	// one.
+	StartBusy int
 	// OnRun is what the pane's shell does with a command line typed at it (pane.send_input with Enter): "" it succeeds,
 	// printing the word its "&& echo <word>" clause echoes (quotes removed) and a new prompt "% " on the Screen; "fail"
 	// it fails before that clause (a cd into a missing dir), printing its "|| echo <word>" word instead; "hang": it

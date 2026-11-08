@@ -416,6 +416,45 @@ func (l *Launcher) atShell(ctx context.Context, pane string) bool {
 	return err != nil
 }
 
+// ShellWait is how long a restart waits after its stop for the pane's shell, and how long it retries a start herdr
+// answered agent_pane_busy (Launcher.Shell overrides it). herdr keeps the pane no available shell (agent.start:
+// agent_pane_busy) until the old agent's exit is reaped, so a start sent at once failed while the restart still said
+// RESTARTED (T-1053).
+const ShellWait = 30 * time.Second
+
+// waitShell waits until pane is a shell (atShell), no longer than by: one poll first (herdr's agent.start answer is
+// newer than its process info), then a look each poll. false: the bound passed.
+func (l *Launcher) waitShell(ctx context.Context, pane string, by time.Time) bool {
+	for {
+		left := time.Until(by)
+		if left <= 0 {
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(min(l.poll(), left)):
+		}
+		if l.atShell(ctx, pane) {
+			return true
+		}
+	}
+}
+
+// awaitShell (a restart, after its stop): the pane is a shell again, ≤ by; else the one Fail that stops the restart
+// before anything is typed or started. Says the wait when there is one.
+func (l *Launcher) awaitShell(ctx context.Context, t *target, by time.Time) error {
+	if l.atShell(ctx, t.pane) {
+		return nil
+	}
+	l.say("waiting for the shell of pane %s (≤ %s): the old agent has not left it", t.pane, l.shellWait())
+	if l.waitShell(ctx, t.pane, by) {
+		return nil
+	}
+	return l.giveUp(ctx, t, "pane %s is not a shell after %s (the old agent has not left): nothing started", t.pane,
+		l.shellWait())
+}
+
 // exitDialog: the kind's quit dialog d (nil: the kind has none) is on the pane's screen; n is the key of its option
 // ("" when the screen shows none).
 func (l *Launcher) exitDialog(ctx context.Context, pane string, d *agents.Dialog) (n string, open bool) {

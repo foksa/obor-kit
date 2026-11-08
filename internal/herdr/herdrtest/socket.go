@@ -794,6 +794,10 @@ func (s *Server) answer(c *conn, method string, params json.RawMessage) (map[str
 		if t == nil {
 			return fail("pane_not_found", "pane "+p.Pane+" not found"), nil
 		}
+		if t.StartBusy > 0 {
+			t.StartBusy--
+			return fail("agent_pane_busy", "agent target pane "+t.ID+" is not an available shell"), nil
+		}
 		if !t.ready() {
 			return fail("agent_pane_busy", "agent target pane "+t.ID+" is not an available shell"), nil
 		}

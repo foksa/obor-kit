@@ -41,21 +41,22 @@ const laneMCP = strictMCP + " --strict-mcp-config "
 // -s workspace-write -a never -m gpt-6-luna), roles integrator and lead (opus) and reviewer (luna), a fake herdr with no panes, every pid alive and a ps that lists no
 // process.
 type fx struct {
-	t      *testing.T
-	p      *testkit.Project
-	f      *herdrtest.Fake
-	srv    *herdrtest.Server // the fake herdr's socket: what the launch called
-	lane   string
-	claude string // CLAUDE_CONFIG_DIR
-	wrap   func(port.PaneControl) port.PaneControl
-	gone   map[string]bool                      // pids that are not alive (every other pid is)
-	onExit func()                               // what /exit does besides the fake herdr's OnQuit (nil: nothing)
-	kills  []string                             // kill hook calls: "<pgid> <signal>"
-	onKill func(pgid int, sig syscall.Signal)   // what a kill does (nil: nothing)
-	ps     func(args ...string) ([]byte, error) // the launcher's PS (nil: the real ps)
-	wait   time.Duration                        // the launcher's exit wait and idle wait (0: bound, the load-proof default)
-	up     time.Duration                        // the launcher's wait for a started agent to come up (0: wait)
-	poll   time.Duration                        // the launcher's pane poll interval (0: 1 ms)
+	t          *testing.T
+	p          *testkit.Project
+	f          *herdrtest.Fake
+	srv        *herdrtest.Server // the fake herdr's socket: what the launch called
+	lane       string
+	claude     string // CLAUDE_CONFIG_DIR
+	wrap       func(port.PaneControl) port.PaneControl
+	gone       map[string]bool                      // pids that are not alive (every other pid is)
+	onExit     func()                               // what /exit does besides the fake herdr's OnQuit (nil: nothing)
+	kills      []string                             // kill hook calls: "<pgid> <signal>"
+	onKill     func(pgid int, sig syscall.Signal)   // what a kill does (nil: nothing)
+	ps         func(args ...string) ([]byte, error) // the launcher's PS (nil: the real ps)
+	wait       time.Duration                        // the launcher's exit wait and idle wait (0: bound, the load-proof default)
+	up         time.Duration                        // the launcher's wait for a started agent to come up (0: wait)
+	poll       time.Duration                        // the launcher's pane poll interval (0: 1 ms)
+	shellBound time.Duration                        // the launcher's bound on a stopped pane's shell (T-1053; 0: the default)
 	// A stop test may ask for less: waitEnv is OBOR_RESTART_WAIT for the launcher's env ("" none), idle overrides the
 	// exit wait for the idle wait alone, waitZero leaves the launcher's Wait unset (the env's or the default's wait),
 	// bound is the launcher's stop bound (0: port.StopBound).
@@ -225,7 +226,7 @@ func (x *fx) launcher(out io.Writer) *launch.Launcher {
 	}
 	return &launch.Launcher{Cfg: cfg, Env: x.env(), Kit: "/kit", H: h, Out: out,
 		Wait: wait, Idle: idle, Up: up, Poll: poll, Rollout: rollout, Bound: x.bound, Background: background, Log: x,
-		TermGrace: termGrace, KillGrace: killGrace,
+		TermGrace: termGrace, KillGrace: killGrace, Shell: x.shellBound,
 		Kill: func(pgid int, sig syscall.Signal) error {
 			x.kills = append(x.kills, fmt.Sprintf("%d %s", pgid, sig))
 			if x.onKill != nil {
