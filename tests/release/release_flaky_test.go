@@ -50,8 +50,8 @@ func TestMakeReleaseFlakyPackagePassesOnRerun(t *testing.T) {
 	if n := f.goTests(); n != 2 {
 		t.Errorf("go test ran %d times, want 2 (the check, the rerun):\n%s", n, readFileOr(f.log))
 	}
-	if !regexp.MustCompile(`(?m)^test (-p [0-9]+ )?obor/internal/racy$`).MatchString(readFileOr(f.log)) {
-		t.Errorf("the rerun is not `go test obor/internal/racy` with nothing else:\n%s", readFileOr(f.log))
+	if !regexp.MustCompile(`(?m)^test -tags integration (-p [0-9]+ )?obor/internal/racy$`).MatchString(readFileOr(f.log)) {
+		t.Errorf("the rerun is not `go test -tags integration obor/internal/racy` with nothing else:\n%s", readFileOr(f.log))
 	}
 	flakes := f.Read(".obor/state/flakes.jsonl")
 	for _, want := range []string{`"test":"TestRace"`, `"passed_on_retry":true`, `"retried":true`, `"task":"release"`} {

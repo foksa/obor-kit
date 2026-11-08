@@ -2,7 +2,8 @@
 // two tiers and compares them with tests/budget.json. Run it with `make check-budget` (commands.check_budget, in
 // merge.nightly_commands as a non-gating line, like conformance).
 //
-// It measures each package with tests at GOMAXPROCS=2, twice: the full tier and the -short tier (the lane's). A counting
+// It measures each package with tests at GOMAXPROCS=2, twice: the full tier and the -short tier (the lane's), both with
+// -tags integration (T-1014: the whole suite is measured). A counting
 // `git` wrapper is first on PATH for the whole run and a private TMPDIR is every test's temp dir; the package's `go
 // test -json` elapsed is its wall time. A breach prints one line, `FAIL budget: <pkg> <metric> <got> > <max>`:
 //
@@ -359,16 +360,12 @@ func (r *runner) env() []string {
 	return append(env, "PATH="+r.path, "TMPDIR="+r.tmp, "GOMAXPROCS=2")
 }
 
-// run measures pkg's full tier, or its -short tier, as one `go test -json -count=1`.
+// run measures pkg's full tier, or its -short tier, as one `go test -json -count=1 -tags integration`.
 func (r *runner) run(pkg string, short bool) (Run, error) {
 	if err := os.Remove(r.count); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return Run{}, err
 	}
-	args := []string{"test", "-json", "-count=1"}
-	if short {
-		args = append(args, "-short")
-	}
-	args = append(args, pkg)
+	args := testArgs(pkg, short)
 	cmd := exec.Command(r.goBin, args...)
 	cmd.Dir = r.dir
 	cmd.Env = r.env()
@@ -384,6 +381,16 @@ func (r *runner) run(pkg string, short bool) (Run, error) {
 		}
 	}
 	return run, nil
+}
+
+// testArgs is one tier's go test: -tags integration, so the budget measures the tagged tests too (T-1014); a package
+// whose only tests are tagged would otherwise never be measured.
+func testArgs(pkg string, short bool) []string {
+	args := []string{"test", "-json", "-count=1", "-tags", "integration"}
+	if short {
+		args = append(args, "-short")
+	}
+	return append(args, pkg)
 }
 
 // gitCount is the wrapper's calls since the last run.
@@ -451,9 +458,11 @@ func findRoot() (string, error) {
 	}
 }
 
-// listPackages names the module's packages that have tests, in the order go list gives them.
+// listPackages names the module's packages that have tests, in the order go list gives them. The tag is passed too, so
+// a package whose tests are all behind `//go:build integration` still counts (T-1014: an unmeasured package is a
+// breach).
 func listPackages(root, goBin string, env []string) ([]string, error) {
-	cmd := exec.Command(goBin, "list", "-f", "{{.ImportPath}} {{len .TestGoFiles}} {{len .XTestGoFiles}}", "./...")
+	cmd := exec.Command(goBin, "list", "-tags", "integration", "-f", "{{.ImportPath}} {{len .TestGoFiles}} {{len .XTestGoFiles}}", "./...")
 	cmd.Dir = root
 	cmd.Env = env
 	out, err := cmd.CombinedOutput()
