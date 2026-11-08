@@ -451,9 +451,9 @@ func TestToolErrorsAreResults(t *testing.T) {
 	f := newFixture(t)
 	// The server's ctx is the tool calls': a short deadline ends the call to a serve that is not running soon, not at
 	// the deadline table's 15 s (T-685). It counts from here, before the server starts, and the call retries until it
-	// less askMargin (200 ms): 2 s leaves the call time to begin under a loaded suite (at 200 ms it began past the
+	// less askMargin (200 ms): 800 ms leaves the call 600 ms to begin under a loaded suite (at 200 ms it began past the
 	// deadline once and answered "did not answer in 0s", T-872). The run ends with it: the other answers get their own.
-	down, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	down, cancel := context.WithTimeout(context.Background(), 800*time.Millisecond)
 	defer cancel()
 	if got := startCtx(t, down, f.worker(), f.lane).tool("job_next", nil); !got.IsError ||
 		!strings.Contains(got.Text, "obor serve is not running") {

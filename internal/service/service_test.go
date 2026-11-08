@@ -35,14 +35,23 @@ func TestPlistGolden(t *testing.T) {
 // with launchd's "5: Input/output error", nothing loaded; a file noload makes bootstrap exit 0 loading nothing. In
 // the environment: FAKE_KICK_PID is written to the pid file as kickstart begins, FAKE_KICK_UNLOAD unloads the label
 // then, FAKE_KICK_SLEEP seconds it then takes (exec sleep: a kill ends it), and FAKE_KICK_EXIT is its exit code.
+//
+// The script is the same for every test, under its per-test dir in FAKE_LAUNCHCTL_DIR (T-1006: macOS charges ~60-200 ms
+// for the first exec of a fresh file, so a script written per call would dominate these tests).
 func fakeLaunchctl(t *testing.T) (log, state string) {
 	dir := t.TempDir()
 	log = filepath.Join(dir, "calls")
 	state = filepath.Join(dir, "loaded")
-	script := `#!/bin/sh
-echo "$*" >> "` + log + `"
-dir="` + dir + `"
-state="` + state + `"
+	if fakeDir == "" {
+		d, err := os.MkdirTemp("", "obor-fake-launchctl")
+		if err != nil {
+			t.Fatal(err)
+		}
+		fakeDir = d
+		script := `#!/bin/sh
+echo "$*" >> "$FAKE_LAUNCHCTL_DIR/calls"
+dir="$FAKE_LAUNCHCTL_DIR"
+state="$dir/loaded"
 case "$1" in
 bootstrap)
 	n=$(cat "$dir/eio" 2>/dev/null || echo 0)
@@ -59,11 +68,24 @@ print) [ -f "$state" ] || { echo "Could not find service" >&2; exit 113; }
 	printf 'gui/501/x = {\n\tstate = running\n\tpid = %s\n}\n' "$(cat "$dir/pid" 2>/dev/null || echo 4242)" ;;
 esac
 `
-	if err := os.WriteFile(filepath.Join(dir, "launchctl"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
+		if err := os.WriteFile(filepath.Join(d, "launchctl"), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("FAKE_LAUNCHCTL_DIR", dir)
+	t.Setenv("PATH", fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return log, state
+}
+
+// fakeDir is the fake launchctl's shared script dir (fakeLaunchctl), removed after the tests.
+var fakeDir string
+
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if fakeDir != "" {
+		os.RemoveAll(fakeDir)
+	}
+	os.Exit(code)
 }
 
 func calls(t *testing.T, log string) []string {
@@ -434,11 +456,14 @@ func installed(t *testing.T, log string) Service {
 // once.
 func TestRestartSlowKickstart(t *testing.T) {
 	fast(t)
+	// 400 ms: slower than that flat 300 ms deadline, and far enough under stopTimeout that a loaded machine still runs
+	// it inside (T-1006: a whole second was waited out for nothing).
+	const slowKick = 400 * time.Millisecond
 	log, _ := fakeLaunchctl(t)
 	s := installed(t, log)
-	t.Setenv("FAKE_KICK_SLEEP", "1")
+	t.Setenv("FAKE_KICK_SLEEP", "0.4")
 	t.Setenv("FAKE_KICK_PID", "4243")
-	if time.Second >= stopTimeout {
+	if slowKick >= stopTimeout {
 		t.Fatal("precondition: the kickstart is inside stopTimeout")
 	}
 	line, err := s.Restart(context.Background())
@@ -493,6 +518,9 @@ func TestRestartKickstartErrorNotRestarted(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			fast(t)
+			// The failed kickstart changes nothing, so the FAIL comes from the whole settle window read: 100 ms still
+			// reads the fake's state four times and keeps the test off a 500 ms wait per case (T-1006).
+			settle, pollEvery = 100*time.Millisecond, 20*time.Millisecond
 			log, _ := fakeLaunchctl(t)
 			s := installed(t, log)
 			for k, v := range c.env {

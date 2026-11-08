@@ -375,15 +375,15 @@ func TestShimHookSkipsStaleDevBuild(t *testing.T) {
 func alive(pid int) bool { return syscall.Kill(pid, 0) == nil }
 
 // bash tests/bin.test.sh case_hanging_binary_skipped_for_hooks (RV-22 #1): a dist/obor whose `has` never returns is
-// skipped within the watchdog's bound (OBOR_HOOK_TIMEOUT, 1 s here) and killed (its own pid: no process group,
-// T-279); the release runs.
+// skipped within the watchdog's bound (OBOR_HOOK_TIMEOUT, 0.5 s here: ample for the stub to write its pid before the
+// kill, T-1006) and killed (its own pid: no process group, T-279); the release runs.
 func TestShimHookSkipsHangingDevBuild(t *testing.T) {
 	t.Parallel()
 	f := newShimFixture(t)
 	hangGo(t, filepath.Join(f.Root, "dist", "obor"), f.Base)
 	fakeGo(t, filepath.Join(f.home, ".obor", "bin", shimAsset(shimVersion)))
 	start := time.Now()
-	rc, stdout, stderr := f.shim(t, f.Root, append([]string{hookTimeoutEnv}, noSelfHost...),
+	rc, stdout, stderr := f.shim(t, f.Root, append([]string{"OBOR_HOOK_TIMEOUT=0.5"}, noSelfHost...),
 		filepath.Join(f.Root, "bin", "obor"), "hook", "stop")
 	elapsed := time.Since(start)
 	if want := "argv: <hook> <stop> source=kit default root=" + f.Root + "\n"; rc != 0 || stdout != want {
@@ -392,8 +392,8 @@ func TestShimHookSkipsHangingDevBuild(t *testing.T) {
 	if stderr != "" {
 		t.Errorf("nothing on stderr (no job notice): %q", stderr)
 	}
-	// The bound is the shim's own watchdog (OBOR_HOOK_TIMEOUT=1 s here): back before the hang's own end, the shim
-	// killed it (the wall-clock 1 s is not asserted: a loaded machine stretches it).
+	// The bound is the shim's own watchdog (OBOR_HOOK_TIMEOUT=0.5 s here): back before the hang's own end, the shim
+	// killed it (the wall-clock bound is not asserted: a loaded machine stretches it).
 	if elapsed >= hang {
 		t.Errorf("a hanging has is bounded by the shim, not by the hang (%v): took %v", hang, elapsed)
 	}

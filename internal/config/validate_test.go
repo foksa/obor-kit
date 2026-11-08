@@ -62,6 +62,14 @@ func newProject(t *testing.T) *testkit.Project {
 	return p
 }
 
+// newPlainProject is newProject without git: these tests' subject is config.Load and Validate, and a plain project
+// keeps each case's fixture cost (a git init, a commit, a worktree) off a loop of cases (T-1006).
+func newPlainProject(t *testing.T) *testkit.Project {
+	p := testkit.NewDir(t)
+	p.Lane("L-01", "")
+	return p
+}
+
 func TestValidate(t *testing.T) {
 	for _, c := range []struct {
 		name  string
@@ -283,6 +291,7 @@ func TestValidate(t *testing.T) {
 
 // Shapes are the load's: a wrong type or an unknown key fails config.Load with the key named; validate never sees it.
 func TestShapeErrorsFailTheLoad(t *testing.T) {
+	p := newPlainProject(t)
 	for _, c := range []struct {
 		edit edit
 		want string
@@ -323,7 +332,6 @@ func TestShapeErrorsFailTheLoad(t *testing.T) {
 		{set("slots.lane_cpus", "3"), "lane_cpus"},
 		{set("checks.loadlimit", 20), `unknown field "loadlimit"`},
 	} {
-		p := newProject(t)
 		p.Config(c.edit)
 		if _, err := config.Load(p.Root); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("load: %v, want an error naming %s", err, c.want)
@@ -370,6 +378,7 @@ func releaseMinor(t *testing.T) int {
 // key's two versions. paths.research and paths.questions have no recorded removal version, so they have no window.
 func TestRemovedKeysWithinTwoVersions(t *testing.T) {
 	minor := releaseMinor(t)
+	p := newPlainProject(t)
 	for _, r := range []struct {
 		key       string // the WARN's path
 		e         edit
@@ -403,7 +412,6 @@ func TestRemovedKeysWithinTwoVersions(t *testing.T) {
 				continue
 			}
 		}
-		p := newProject(t)
 		if got := validate(t, p, r.e); !warnsKey(got, r.key) {
 			t.Errorf("%s: no WARN for it in %q", r.key, got)
 		}
