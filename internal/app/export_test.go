@@ -184,7 +184,7 @@ func NeedsSeq(of event.Of) int64 {
 }
 
 // ReplayLanes loads the project at root as serve does on start, with no herdr and no lanes source, and closes it: its
-// log's replay writes the lanes table (T-439), the rows the lane table and dispatch read (T-1015's end-to-end test).
+// log's replay writes the lanes table (T-439), the rows the lane table and dispatch read (T-1015's fold test).
 func ReplayLanes(root string, now time.Time) {
 	a := New(Options{Root: root, Now: func() time.Time { return now }}, &fakePanes{}, &fakeLanes{})
 	a.loadProject()

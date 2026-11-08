@@ -7,7 +7,8 @@
 // `git` wrapper is first on PATH for the whole run and a private TMPDIR is every test's temp dir; the package's `go
 // test -json` elapsed is its wall time. A breach prints one line, `FAIL budget: <pkg> <metric> <got> > <max>`:
 //
-//	short_s / full_s   go test's package Elapsed against tests/budget.json (seconds)
+//	short_s / full_s   go test's package Elapsed against tests/budget.json (seconds; a cap under a second never fails
+//	                   on wall time alone, minWallS: at that size go test's 0.1 s granularity is the measurement)
 //	git_procs          git processes the full tier started, against git_procs
 //	test/<name>        a top-level test over its `tests` cap, or over `untagged_s` with neither a cap nor testkit.Slow
 //	                   (T-1004: a test's cost is its own Elapsed plus every paused subtest's; the -short tier's skip
@@ -76,6 +77,15 @@ type Run struct {
 // slowMark is testkit.Slow's skip message; the -short tier marks every Slow test with it.
 const slowMark = "slow: runs in make check"
 
+// minWallS is the floor of a package's wall-time cap (T-1024): go test's Elapsed moves by 0.1 s from run to run, so a
+// cap under a second is the same size as that noise (internal/version 0.6 > 0.4, tests/budget 0.9 > 0.9 on a quiet
+// machine). A package under it never fails on wall time alone: its wall time is that small. Per-test caps are hand-set
+// (all a second or more) and get no floor.
+const minWallS = 1.0
+
+// wallLimit is the wall-time cap a package is measured against: its cap, or the floor when the cap is under it.
+func wallLimit(cap float64) float64 { return math.Max(cap, minWallS) }
+
 // check returns one FAIL budget line per breach and the number of packages it compared.
 func check(budget File, pkgs []string, full, short map[string]Run, tmpLeft []string) (lines []string, n int) {
 	n = len(pkgs)
@@ -89,8 +99,8 @@ func check(budget File, pkgs []string, full, short map[string]Run, tmpLeft []str
 		if !f.Passed {
 			lines = append(lines, "FAIL budget: "+pkg+" full run failed"+f.failure())
 		} else {
-			if f.Elapsed > b.FullS {
-				lines = append(lines, fmt.Sprintf("FAIL budget: %s full_s %.1fs > %.1fs", pkg, f.Elapsed, b.FullS))
+			if limit := wallLimit(b.FullS); f.Elapsed > limit {
+				lines = append(lines, fmt.Sprintf("FAIL budget: %s full_s %.1fs > %.1fs", pkg, f.Elapsed, limit))
 			}
 			if f.Git > b.GitProcs {
 				lines = append(lines, fmt.Sprintf("FAIL budget: %s git_procs %d > %d", pkg, f.Git, b.GitProcs))
@@ -98,8 +108,8 @@ func check(budget File, pkgs []string, full, short map[string]Run, tmpLeft []str
 		}
 		if !s.Passed {
 			lines = append(lines, "FAIL budget: "+pkg+" short run failed"+s.failure())
-		} else if s.Elapsed > b.ShortS {
-			lines = append(lines, fmt.Sprintf("FAIL budget: %s short_s %.1fs > %.1fs", pkg, s.Elapsed, b.ShortS))
+		} else if limit := wallLimit(b.ShortS); s.Elapsed > limit {
+			lines = append(lines, fmt.Sprintf("FAIL budget: %s short_s %.1fs > %.1fs", pkg, s.Elapsed, limit))
 		}
 		for _, t := range f.Tests {
 			if limit, ok := budget.Tests[pkg+" "+t.Name]; ok {
