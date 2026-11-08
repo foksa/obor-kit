@@ -12,7 +12,8 @@ fix of a review's findings: the line `Fixes: RV-<n>[ <what to check>]` in its pl
 (its verify is the review; T-924, T-928; `obor spec set` refuses the pair, T-932), links the task to that open
 review (obor dispatch refuses another review); serve verifies once the linked tasks merged, the free text the
 reviewer's note. Optional: a line `Ref: <id>` names the task in an external tracker (a Jira or Linear id, e.g.
-`Ref: JIRA-12`); `obor status --json` carries it as the task's `ref`. Delete this comment. -->
+`Ref: JIRA-12`); `obor status --json` carries it as the task's `ref`. Optional: a line `Priority: high` puts a waiting
+dispatch first for the next free lane (`obor spec set` refuses any other value, T-1030). Delete this comment. -->
 
 <1–3 sentences: why, and the source of truth — design doc section, review finding R-xx #n, file:line.>
 

@@ -15,8 +15,8 @@ import (
 
 // Queue is what waits (T-664, the owner: "not only what is going on but also what is queued"), as typed arrays the
 // text renderers word: who holds serve's worktree (Scratch, serve's own word: T-669), the merge loop's tasks with their
-// stage and what each waits for (never which one goes next, T-673), the dispatches waiting and on what, the review
-// request, the lines and briefs not done, the pause and the next nightly run.
+// stage and what each waits for (never which one goes next, T-673), the dispatches waiting and on what (a high one
+// first, T-1030), the review request, the lines and briefs not done, the pause and the next nightly run.
 type Queue struct {
 	Scratch *wire.ScratchStatus `json:"scratch"`
 	Merge   []MergeItem         `json:"merge"`
@@ -47,12 +47,14 @@ const (
 // WaitItem is a dispatch that waits, of a task by id (Project.Tasks has its title and spec rev, T-883): for its
 // --after tasks (After; Why: its last refused dispatch once they all merged), for a lane of its level (Level, Types,
 // Why), or a stored spec never dispatched (Since: the spec's set time). A dispatch's carries serve's Difficulty and
-// the Model it will run on (wire.TaskStatus', T-977; "": serve has none).
+// the Model it will run on (wire.TaskStatus', T-977; "": serve has none). High: its dispatch goes first for the next
+// free lane (serve's status: Priority: high, or a fix of the review the promotion waits for; T-1030).
 type WaitItem struct {
 	Task       string   `json:"task"`
 	WaitsOn    string   `json:"waits_on"`
 	After      []string `json:"after,omitempty"`
 	Why        string   `json:"why,omitempty"`
+	High       bool     `json:"high,omitempty"`
 	Level      string   `json:"level,omitempty"`
 	Types      []string `json:"types,omitempty"`
 	Difficulty string   `json:"difficulty,omitempty"`
@@ -113,9 +115,9 @@ func queue(v *Project, ps wire.ProjectStatus, nightlyAt string, specs map[string
 			continue // ended (rejected, dropped): the tasks log lists it, the queue has nothing to wait for
 		}
 		if t.State == "waiting" {
-			w := WaitItem{Task: t.Task, WaitsOn: WaitsLane, Why: t.Why, Level: t.Level, Types: t.Types}
+			w := WaitItem{Task: t.Task, WaitsOn: WaitsLane, Why: t.Why, Level: t.Level, Types: t.Types, High: t.High}
 			if len(t.After) > 0 {
-				w = WaitItem{Task: t.Task, WaitsOn: WaitsAfter, After: t.After, Why: t.Why}
+				w = WaitItem{Task: t.Task, WaitsOn: WaitsAfter, After: t.After, Why: t.Why, High: t.High}
 			}
 			w.Difficulty, w.Model = t.Difficulty, t.Model
 			q.Waiting = append(q.Waiting, w)
@@ -140,7 +142,14 @@ func queue(v *Project, ps wire.ProjectStatus, nightlyAt string, specs map[string
 			q.Waiting = append(q.Waiting, w)
 		}
 	}
-	sortTasks(q.Waiting, func(w WaitItem) string { return w.Task })
+	// T-1030: a high dispatch is listed before the ordinary ones (serve's order is the lane's pick order); within each,
+	// by task id.
+	sort.SliceStable(q.Waiting, func(i, j int) bool {
+		if q.Waiting[i].High != q.Waiting[j].High {
+			return q.Waiting[i].High
+		}
+		return lessTask(q.Waiting[i].Task, q.Waiting[j].Task)
+	})
 	if r := ps.ReviewRequest; r != nil {
 		state := "ready"
 		if len(r.Waiting) > 0 || r.Held != "" {
@@ -161,15 +170,17 @@ func queue(v *Project, ps wire.ProjectStatus, nightlyAt string, specs map[string
 
 // sortTasks sorts items by their task id (idOf), numerically: T-9 before T-10.
 func sortTasks[T any](items []T, idOf func(T) string) {
-	sort.SliceStable(items, func(i, j int) bool {
-		a, b := idOf(items[i]), idOf(items[j])
-		na, ea := idNum(a)
-		nb, eb := idNum(b)
-		if ea == nil && eb == nil && na != nb {
-			return na < nb
-		}
-		return a < b
-	})
+	sort.SliceStable(items, func(i, j int) bool { return lessTask(idOf(items[i]), idOf(items[j])) })
+}
+
+// lessTask is task id a before task id b: numerically (T-9 before T-10), else as strings.
+func lessTask(a, b string) bool {
+	na, ea := idNum(a)
+	nb, eb := idNum(b)
+	if ea == nil && eb == nil && na != nb {
+		return na < nb
+	}
+	return a < b
 }
 
 // idNum is a task id's number (T-664 → 664).

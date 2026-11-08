@@ -114,6 +114,21 @@ func TestParse(t *testing.T) {
 		{"ref: the first one wins", "# T-1 — A\n\nDifficulty: medium\nRef: JIRA-12\nRef: JIRA-13\n",
 			Spec{Title: "A", Level: "medium", LevelKnown: true, Ref: "JIRA-12", RefOK: true}},
 
+		// Priority (T-1030): a head line like Ref:, between the title and the first "## " heading, as written (spec set
+		// refuses any value but high).
+		{"priority: high", "# T-1 — A\n\nDifficulty: medium\nPriority: high\n",
+			Spec{Title: "A", Level: "medium", LevelKnown: true, Priority: "high", PriorityOK: true}},
+		{"priority: spaces", "# T-1 — A\n\nDifficulty: medium\nPriority:   high  \n",
+			Spec{Title: "A", Level: "medium", LevelKnown: true, Priority: "high", PriorityOK: true}},
+		{"priority: another value", "# T-1 — A\n\nDifficulty: medium\nPriority: urgent\n",
+			Spec{Title: "A", Level: "medium", LevelKnown: true, Priority: "urgent", PriorityOK: true}},
+		{"priority: empty", "# T-1 — A\n\nDifficulty: medium\nPriority:\n",
+			Spec{Title: "A", Level: "medium", LevelKnown: true, PriorityOK: true}},
+		{"priority: below a section", "# T-1 — A\n\nDifficulty: medium\n\n## Do\nPriority: high\n",
+			Spec{Title: "A", Level: "medium", LevelKnown: true}},
+		{"priority: none", "# T-1 — A\n\nDifficulty: medium\n",
+			Spec{Title: "A", Level: "medium", LevelKnown: true}},
+
 		// Protected (T-496): only the exact paths of that section; a glob, a blank span, another section (a longer
 		// heading too) and the old files section unlock nothing.
 		{"protected: exact paths only", "# T-02\n\n## Files you may touch\n`old.md`\n" +
@@ -131,8 +146,9 @@ func TestParse(t *testing.T) {
 	}
 }
 
-// T-1022: obor spec set's refusals are one function over the parsed spec: no title, no known Difficulty level, the old
-// Type: line, a Review: value but "on merge", a fix with Review: on merge, an empty Ref:.
+// T-1022, T-1030: obor spec set's refusals are one function over the parsed spec: no title, no known Difficulty level,
+// the old Type: line, a Review: value but "on merge", a fix with Review: on merge, an empty Ref:, a Priority: value
+// but high.
 func TestValidate(t *testing.T) {
 	for _, c := range []struct{ name, text, want string }{
 		{"valid", "# T-1 — A\n\nDifficulty: medium\n", ""},
@@ -146,6 +162,11 @@ func TestValidate(t *testing.T) {
 		{"a fix with Review: on merge", "# T-1 — A\n\nDifficulty: hard\nFixes: RV-12\nReview: on merge\n",
 			"a fix (Fixes:) is reviewed by its verify; drop the Review: on merge line"},
 		{"empty Ref", "# T-1 — A\n\nDifficulty: medium\nRef:\n", `the "Ref:" line needs an id`},
+		{"Priority: high", "# T-1 — A\n\nDifficulty: medium\nPriority: high\n", ""},
+		{"another Priority value", "# T-1 — A\n\nDifficulty: medium\nPriority: urgent\n",
+			`the "Priority:" line takes one value: "high"`},
+		{"empty Priority", "# T-1 — A\n\nDifficulty: medium\nPriority:\n",
+			`the "Priority:" line takes one value: "high"`},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			err := Validate("T-1", Parse(c.text))

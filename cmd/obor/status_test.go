@@ -587,3 +587,29 @@ func TestStatusPromotedLine(t *testing.T) {
 		t.Errorf("with a last promotion run: %q, want [%q]", got, want)
 	}
 }
+
+// T-1030: the queue lists a high waiting dispatch first and marks it `high`: the order is serve's (the lane's pick
+// order), not the task id's.
+func TestStatusQueueMarksHighWaitingFirst(t *testing.T) {
+	t.Parallel()
+	p := testkit.NewPlain(t)
+	p.Config()
+	now := time.Now()
+	waiting := func(task string, high bool) wire.TaskStatus {
+		return wire.TaskStatus{Task: task, Attempt: 1, State: "waiting", Phase: wire.PhaseWaiting, High: high,
+			Level: "medium", Types: []string{"sonnet"}, Difficulty: "medium", Model: "sonnet"}
+	}
+	ss := wire.Status{Connected: true, Project: &wire.ProjectStatus{Name: "pj", Root: p.Root,
+		Tasks: []wire.TaskStatus{waiting("T-2", false), waiting("T-3", true)}}}
+	_, text := statusOf(t, p, ss, nil, now)
+	var queued []string
+	for _, l := range strings.Split(text, "\n") {
+		if strings.HasPrefix(l, "queued ") {
+			queued = append(queued, l)
+		}
+	}
+	if len(queued) != 2 || !strings.HasPrefix(queued[0], "queued T-3 (high, medium, sonnet): ") ||
+		!strings.HasPrefix(queued[1], "queued T-2 (medium, sonnet): ") {
+		t.Errorf("queued lines %q, want T-3 (marked high) before T-2", queued)
+	}
+}

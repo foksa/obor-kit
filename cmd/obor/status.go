@@ -259,9 +259,9 @@ func fullCheckSection(st view.Project, now time.Time) []string {
 // queueSection is what waits (T-664), one line per item, in the order of urgency: a merge open in serve's worktree
 // (T-669: a gate or publish there is on the running line), the merge loop's tasks in its order with their stage and
 // what each waits for, where serve's scheduler knows of one (T-673: it names no task as next), the dispatches waiting
-// and on what (--after tasks, a lane of their level, a spec never dispatched), the review request (or "review due"),
-// the lead's watches, the lines not typed yet and the briefs in progress, the pause and the next nightly check (or
-// that it is off).
+// and on what (--after tasks, a lane of their level, a spec never dispatched; a high one before the ordinary ones,
+// T-1030), the review request (or "review due"), the lead's watches, the lines not typed yet and the briefs in
+// progress, the pause and the next nightly check (or that it is off).
 func queueSection(st view.Project, now time.Time) []string {
 	var out []string
 	q := st.Queue
@@ -354,9 +354,13 @@ func mergeLine(m view.MergeItem, t view.Task) string {
 }
 
 // runsOn is a queued line's " (<difficulty>, <model>)": the waiting task's Difficulty and the model it will run on
-// (T-977; serve's, either "" left out; "": serve sent neither).
+// (T-977; serve's, either "" left out; "": serve sent neither), "high" first when its dispatch goes first for the next
+// free lane (T-1030).
 func runsOn(w view.WaitItem) string {
 	var parts []string
+	if w.High {
+		parts = append(parts, "high")
+	}
 	for _, s := range []string{w.Difficulty, w.Model} {
 		if s != "" {
 			parts = append(parts, s)
