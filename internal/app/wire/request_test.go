@@ -12,76 +12,188 @@ import (
 // env is the golden rows' envelope.
 var env = Envelope{Root: "/p", Agent: "ag", Role: "ro", Version: "v1", CallID: "c1"}
 
-// goldenRequests is the socket's oracle (T-1055): per method a request with every field the method uses set, and the
-// exact line the union Call of the obor before the split marshalled for it (captured from that code, as
-// Request{Method, Call: &Call{…}}). The one difference: a method that takes no task sends no "task" key, where the
-// union always sent "task":"" (dropsTask): a serve of either side reads a missing key as the "" it sent.
-var goldenRequests = []struct {
-	req       Req
-	old       string
-	dropsTask bool
-}{
+// droppedKey is a key a method's request type no longer sends, with why no serve of either version reads it for that
+// method. A key a method's handler does read belongs in no row.
+type droppedKey struct{ key, why string }
+
+var (
+	dropTask = droppedKey{"task", "no serve reads task for this method: it takes no task, and a missing key decodes as " +
+		`the "" the old line sent`}
+	dropPaneVerdict = droppedKey{"pane", "no serve reads pane for a verdict: v0.30.0's verdict handler reads task, " +
+		"job, patch and note, and its only caller, the integrator, has no lane's pane"}
+	dropPaneDone = droppedKey{"pane", "no serve reads pane for task_done: v0.30.0's taskDone resolves the worker's " +
+		"lane to its task and reads no pane"}
+	dropPauseSource = droppedKey{"source", "no serve reads source for pause: only config_set's handler does (v0.30.0)"}
+)
+
+// requestLine is one row of the socket's oracle: the request a caller (or the test) builds, the exact line the union
+// Call of the obor before the split marshalled for it, and every key the new type no longer sends with why no serve of
+// either version reads it for the method.
+type requestLine struct {
+	req   Req
+	old   string
+	drops []droppedKey
+}
+
+// goldenRequests is the socket's oracle (T-1055, T-1060): per method a request with every field the method uses set, and
+// the exact line the union Call of the obor before the split marshalled for it (captured from that code, as
+// Request{Method, Call: &Call{…}}, in the union's key order; T-1060 leaves these lines as they were). drops names every
+// key its old line carries that the new type no longer sends, each with why no serve of either version reads it for the
+// method: the guarantee is that every key a serve of either version reads is sent and every old line decodes into the
+// new type, not that the bytes are equal.
+var goldenRequests = []requestLine{
 	{&VerdictReq{Envelope: env, Verb: MethodAccept, Task: "T-1", Job: "T-1/1/review", Patch: "ph", Note: "n"},
-		`{"method":"accept","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"T-1","job":"T-1/1/review","patch":"ph","note":"n"}}`, false},
+		`{"method":"accept","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"T-1","job":"T-1/1/review","patch":"ph","note":"n"}}`, nil},
 	{&VerdictReq{Envelope: env, Verb: MethodSendback, Task: "T-1", Job: "T-1/1/review", Note: "why"},
-		`{"method":"sendback","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"T-1","job":"T-1/1/review","note":"why"}}`, false},
+		`{"method":"sendback","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"T-1","job":"T-1/1/review","note":"why"}}`, nil},
 	{&VerdictReq{Envelope: env, Verb: MethodReject, Task: "T-1", Job: "T-1/1/review", Note: "why"},
-		`{"method":"reject","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"T-1","job":"T-1/1/review","note":"why"}}`, false},
+		`{"method":"reject","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"T-1","job":"T-1/1/review","note":"why"}}`, nil},
 	{&VerdictReq{Envelope: env, Verb: MethodResolved, Task: "T-1", Job: "T-1/1/resolve"},
-		`{"method":"resolved","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"T-1","job":"T-1/1/resolve"}}`, false},
+		`{"method":"resolved","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"T-1","job":"T-1/1/resolve"}}`, nil},
 	{&VerdictReq{Envelope: env, Verb: MethodHold, Task: "T-1", Job: "T-1/1/review", Note: "why"},
-		`{"method":"hold","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"T-1","job":"T-1/1/review","note":"why"}}`, false},
+		`{"method":"hold","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"T-1","job":"T-1/1/review","note":"why"}}`, nil},
 	{&DropReq{Envelope: env, Task: "T-1", Why: "why", Force: true, Discard: true},
-		`{"method":"drop","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"T-1","note":"why","force":true,"discard":true}}`, false},
+		`{"method":"drop","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"T-1","note":"why","force":true,"discard":true}}`, nil},
 	{&ResumeReq{Envelope: env, Task: "T-1", Text: "yes", Flag: ResumeRegate},
-		`{"method":"resume","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"T-1","note":"yes","to":"regate"}}`, false},
+		`{"method":"resume","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"T-1","note":"yes","to":"regate"}}`, nil},
 	{&DispatchReq{Envelope: env, Task: "T-1", Lane: "L-01", Types: []string{"go"}, Force: true, After: []string{"T-0"},
 		Level: "hard"},
-		`{"method":"dispatch","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"T-1","lane":"L-01","types":["go"],"force":true,"after":["T-0"],"level":"hard"}}`, false},
+		`{"method":"dispatch","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"T-1","lane":"L-01","types":["go"],"force":true,"after":["T-0"],"level":"hard"}}`, nil},
 	{&WatchReq{Envelope: env, Task: "T-1,T-2", Note: "n", Clear: true},
-		`{"method":"watch","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"T-1,T-2","note":"n","clear":true}}`, false},
+		`{"method":"watch","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"T-1,T-2","note":"n","clear":true}}`, nil},
 	{&PauseReq{Envelope: env, Why: "why", Until: 99, Model: "opus", Clear: true},
-		`{"method":"pause","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","note":"why","until":99,"model":"opus","clear":true}}`, true},
+		`{"method":"pause","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","note":"why","until":99,"model":"opus","clear":true}}`, []droppedKey{dropTask}},
 	{&ReviewReq{Envelope: env, Note: "n", After: []string{"T-1"}, Clear: true},
-		`{"method":"review","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","note":"n","after":["T-1"],"clear":true}}`, true},
+		`{"method":"review","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","note":"n","after":["T-1"],"clear":true}}`, []droppedKey{dropTask}},
 	{&SessionReq{Envelope: env, Session: &store.Session{Agent: "ag", Kind: "claude", ID: "s1", Transcript: "/t",
 		Pane: "p1", Lane: "L-01", Task: "T-1", Started: 7, Source: "startup"}},
-		`{"method":"session","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","session_fact":{"agent":"ag","kind":"claude","id":"s1","transcript":"/t","pane":"p1","lane":"L-01","task":"T-1","started":7,"source":"startup"}}}`, true},
+		`{"method":"session","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","session_fact":{"agent":"ag","kind":"claude","id":"s1","transcript":"/t","pane":"p1","lane":"L-01","task":"T-1","started":7,"source":"startup"}}}`, []droppedKey{dropTask}},
 	{&SpecSetReq{Envelope: env, Task: "T-1", Changed: "changed", Spec: "# T-1"},
-		`{"method":"spec_set","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"T-1","note":"changed","spec":"# T-1"}}`, false},
+		`{"method":"spec_set","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"T-1","note":"changed","spec":"# T-1"}}`, nil},
 	{&ConfigSetReq{Envelope: env, Changes: []ConfigChange{{Key: "k", Value: json.RawMessage(`{"a":1}`)}}, Base: "r1",
 		Source: "web"},
-		`{"method":"config_set","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","changes":[{"key":"k","value":{"a":1}}],"base":"r1","source":"web"}}`, true},
+		`{"method":"config_set","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","changes":[{"key":"k","value":{"a":1}}],"base":"r1","source":"web"}}`, []droppedKey{dropTask}},
 	{&BackupReq{Envelope: env},
-		`{"method":"backup","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":""}}`, true},
+		`{"method":"backup","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":""}}`, []droppedKey{dropTask}},
 	{&SendReq{Envelope: env, Text: "hi", From: "other"},
-		`{"method":"send","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","note":"hi","from":"other"}}`, true},
+		`{"method":"send","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","note":"hi","from":"other"}}`, []droppedKey{dropTask}},
 	{&BriefReq{Envelope: env, Text: "brief", To: "lead", Prompt: "go", Fresh: true},
-		`{"method":"brief","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","note":"brief","to":"lead","prompt":"go","fresh":true}}`, true},
+		`{"method":"brief","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","note":"brief","to":"lead","prompt":"go","fresh":true}}`, []droppedKey{dropTask}},
 	{&StoppedReq{Envelope: env, Lane: "L-01", Error: "overloaded", Details: "d"},
-		`{"method":"stopped","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","lane":"L-01","error":"overloaded","details":"d"}}`, true},
+		`{"method":"stopped","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","lane":"L-01","error":"overloaded","details":"d"}}`, []droppedKey{dropTask}},
 	{&TurnReq{Envelope: env, Lane: "L-01", Ended: true},
-		`{"method":"turn","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","lane":"L-01","ended":true}}`, true},
+		`{"method":"turn","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","lane":"L-01","ended":true}}`, []droppedKey{dropTask}},
 	{&RestartJobReq{Envelope: env, Lane: "L-01"},
-		`{"method":"restart_job","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","lane":"L-01"}}`, true},
+		`{"method":"restart_job","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","lane":"L-01"}}`, []droppedKey{dropTask}},
 	{&ExitReq{Envelope: env, Why: "obor stop: why"},
-		`{"method":"exit","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","note":"obor stop: why"}}`, true},
+		`{"method":"exit","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","note":"obor stop: why"}}`, []droppedKey{dropTask}},
 	{&DriveReq{Envelope: env, Task: "T-1", Name: "name", Types: []string{"go"}},
-		`{"method":"drive","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"T-1","note":"name","types":["go"]}}`, false},
+		`{"method":"drive","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"T-1","note":"name","types":["go"]}}`, nil},
 	{&LandReq{Envelope: env, Task: "T-1", Report: "r"},
-		`{"method":"land","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"T-1","report":"r"}}`, false},
+		`{"method":"land","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"T-1","report":"r"}}`, nil},
 	{&TellLeadReq{Envelope: env, Text: "text", Lane: "L-01"},
-		`{"method":"tell_lead","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","note":"text","lane":"L-01"}}`, true},
+		`{"method":"tell_lead","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","note":"text","lane":"L-01"}}`, []droppedKey{dropTask}},
 	{&IdleReq{Envelope: env, Why: "why"},
-		`{"method":"idle","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","note":"why"}}`, true},
+		`{"method":"idle","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","note":"why"}}`, []droppedKey{dropTask}},
 	{&ReviewCloseReq{Envelope: env, Summary: "summary", Force: true, Accept: []string{"- a"}},
-		`{"method":"review_close","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","note":"summary","force":true,"accept":["- a"]}}`, true},
+		`{"method":"review_close","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","note":"summary","force":true,"accept":["- a"]}}`, []droppedKey{dropTask}},
 	{&EventsReq{Envelope: env, Seq: 5, Follow: true},
-		`{"method":"events","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","seq":5,"follow":true}}`, true},
+		`{"method":"events","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","seq":5,"follow":true}}`, []droppedKey{dropTask}},
 	{&JobNextReq{Envelope: env, Job: "T-1/1/work", Lane: "L-01", Pane: "p1"},
-		`{"method":"job_next","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","job":"T-1/1/work","lane":"L-01","pane":"p1"}}`, true},
+		`{"method":"job_next","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","job":"T-1/1/work","lane":"L-01","pane":"p1"}}`, []droppedKey{dropTask}},
 	{&TaskDoneReq{Envelope: env, Task: "T-1", Lane: "L-01", Report: "r"},
-		`{"method":"task_done","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"T-1","lane":"L-01","report":"r"}}`, false},
+		`{"method":"task_done","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"T-1","lane":"L-01","report":"r"}}`, nil},
+}
+
+// callerRequests is the same oracle for the requests a real caller builds with the fields it sets (T-1060): the MCP
+// tools' (mcp.go at 58a8d75^1 set Pane, from project.Pane, on every tool call, and Lane from OBOR_LANE) and the web's
+// (web.go's ask set Source "web" on every page's call). These rows are separate from goldenRequests because those old
+// lines stay exactly as captured; a caller that set "pane" or "source" is a different old line, not an edit to them.
+//
+// The builders are not called here: this package cannot import internal/mcp or internal/web (both import wire), and each
+// sits behind a serve call: MCP's task_done request is a closure inside mcp.register, reached through s.call and
+// wire.Verdict, and web's pause is pauseAPI, reachable only with a project and an http request (its s.Call hook replaces
+// the socket). Each row is the value that builder makes, with the pane or source the old caller added; the integrator is
+// not lane-bound, so an old verdict's Lane is empty and its line carries none.
+var callerRequests = []requestLine{
+	{&VerdictReq{Envelope: env, Verb: MethodAccept, Task: "T-1", Job: "T-1/1/review", Patch: "ph", Note: "n"},
+		`{"method":"accept","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"T-1","job":"T-1/1/review","patch":"ph","note":"n","pane":"p1"}}`, []droppedKey{dropPaneVerdict}},
+	{&VerdictReq{Envelope: env, Verb: MethodSendback, Task: "T-1", Job: "T-1/1/review", Note: "why"},
+		`{"method":"sendback","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"T-1","job":"T-1/1/review","note":"why","pane":"p1"}}`, []droppedKey{dropPaneVerdict}},
+	{&VerdictReq{Envelope: env, Verb: MethodReject, Task: "T-1", Job: "T-1/1/review", Note: "why"},
+		`{"method":"reject","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"T-1","job":"T-1/1/review","note":"why","pane":"p1"}}`, []droppedKey{dropPaneVerdict}},
+	{&VerdictReq{Envelope: env, Verb: MethodResolved, Task: "T-1", Job: "T-1/1/resolve"},
+		`{"method":"resolved","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"T-1","job":"T-1/1/resolve","pane":"p1"}}`, []droppedKey{dropPaneVerdict}},
+	{&VerdictReq{Envelope: env, Verb: MethodHold, Task: "T-1", Job: "T-1/1/review", Note: "why"},
+		`{"method":"hold","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"T-1","job":"T-1/1/review","note":"why","pane":"p1"}}`, []droppedKey{dropPaneVerdict}},
+	{&TaskDoneReq{Envelope: env, Task: "T-1", Lane: "L-01", Report: "r"},
+		`{"method":"task_done","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"T-1","lane":"L-01","pane":"p1","report":"r"}}`, []droppedKey{dropPaneDone}},
+	{&PauseReq{Envelope: env, Why: "quota", Until: 99},
+		`{"method":"pause","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","note":"quota","source":"web","until":99}}`, []droppedKey{dropTask, dropPauseSource}},
+}
+
+// callObject is line's call as its JSON object: each key's exact value, independent of key order.
+func callObject(t *testing.T, method, line string) map[string]json.RawMessage {
+	t.Helper()
+	var req Request
+	if err := json.Unmarshal([]byte(line), &req); err != nil {
+		t.Fatalf("%s: the line does not decode: %v: %s", method, err, line)
+	}
+	if req.Method != method {
+		t.Fatalf("%s: the line's method is %q", method, req.Method)
+	}
+	var call map[string]json.RawMessage
+	if err := json.Unmarshal(req.Call, &call); err != nil {
+		t.Fatalf("%s: the call is not a JSON object: %v: %s", method, err, line)
+	}
+	return call
+}
+
+// checkRequestLine asserts g's guarantee: its request's line equals its old line less exactly g.drops, and its old line
+// decodes into the request type with every field the method reads equal.
+func checkRequestLine(t *testing.T, g requestLine) {
+	t.Helper()
+	method := g.req.Method()
+	call, err := json.Marshal(g.req)
+	if err != nil {
+		t.Fatalf("%s: marshal: %v", method, err)
+	}
+	b, _ := json.Marshal(Request{Method: method, Call: call})
+	oldCall := callObject(t, method, g.old)
+	newCall := callObject(t, method, string(b))
+	named := map[string]bool{}
+	for _, d := range g.drops {
+		if named[d.key] || d.why == "" {
+			t.Fatalf("precondition: %s's drops names %q once and says why it is unread", method, d.key)
+		}
+		named[d.key] = true
+		if _, ok := oldCall[d.key]; !ok {
+			t.Fatalf("precondition: %s's old line carries the key its drops names (%q): %s", method, d.key, g.old)
+		}
+		delete(oldCall, d.key)
+	}
+	if !reflect.DeepEqual(newCall, oldCall) {
+		for k, want := range oldCall {
+			got, ok := newCall[k]
+			switch {
+			case !ok:
+				t.Errorf("%s's line sends no %q, a key no drops entry names\n got %s\nold %s", method, k, b, g.old)
+			case string(got) != string(want):
+				t.Errorf("%s's %q changed:\n got %s\nold %s", method, k, got, want)
+			}
+		}
+		for k := range newCall {
+			if _, ok := oldCall[k]; !ok {
+				t.Errorf("%s's line sends %q, which the old line does not: not a key of the union", method, k)
+			}
+		}
+	}
+	for _, line := range []string{g.old, string(b)} {
+		m, got := decodeAs(t, line, g.req)
+		if m != method || !reflect.DeepEqual(got, g.req) {
+			t.Errorf("%s: %s decodes to %s %+v, want %+v", method, line, m, got, g.req)
+		}
+	}
 }
 
 // decodeAs decodes a request line's call into a new value of want's request type, its method the line's (a
@@ -102,9 +214,15 @@ func decodeAs(t *testing.T, line string, want Req) (string, Req) {
 	return req.Method, got
 }
 
-// T-1055: every method's request marshals to the line the union Call sent (less its empty "task" where the method takes
-// none), and that line, and the new one, decode back into the request type equal to the value: the socket is unchanged.
-func TestRequestsKeepTheSocketLines(t *testing.T) {
+// T-1060: every method's request sends every key a serve of either version reads for it, and every old line decodes into
+// the request type with the fields the method reads equal. The only keys a new line may lack are its row's drops, each
+// named with why no serve reads it for the method: the byte-for-byte equality T-1055 promised is not the guarantee.
+//
+// A drops entry that names a key the method's handler does read would pass here: the handlers are in internal/app, which
+// imports this package, so this test cannot inspect them. The rows' drops were checked against them by hand instead
+// (T-1060: v0.30.0's verdict and taskDone handlers read no Pane, pause reads no Source, and every no-task method reads
+// no Task).
+func TestRequestLinesDropOnlyUnreadKeys(t *testing.T) {
 	t.Parallel()
 	methods := map[string]bool{}
 	for _, g := range goldenRequests {
@@ -116,27 +234,7 @@ func TestRequestsKeepTheSocketLines(t *testing.T) {
 		if !strings.Contains(g.old, `"task":`) {
 			t.Fatalf("precondition: %s's old line carries the union's task key: %s", method, g.old)
 		}
-		want := g.old
-		if g.dropsTask {
-			want = strings.NewReplacer(`,"task":""}`, "}", `,"task":"",`, ",").Replace(g.old)
-			if want == g.old {
-				t.Fatalf("precondition: %s's old line has an empty task to drop: %s", method, g.old)
-			}
-		}
-		call, err := json.Marshal(g.req)
-		if err != nil {
-			t.Fatalf("%s: marshal: %v", method, err)
-		}
-		b, _ := json.Marshal(Request{Method: method, Call: call})
-		if string(b) != want {
-			t.Errorf("%s's line changed:\n got %s\nwant %s", method, b, want)
-		}
-		for _, line := range []string{g.old, string(b)} {
-			m, got := decodeAs(t, line, g.req)
-			if m != method || !reflect.DeepEqual(got, g.req) {
-				t.Errorf("%s: %s decodes to %s %+v, want %+v", method, line, m, got, g.req)
-			}
-		}
+		checkRequestLine(t, g)
 	}
 	// Every method of the socket but status (no call) has its row.
 	for _, m := range []string{MethodAccept, MethodSendback, MethodReject, MethodResolved, MethodHold, MethodDrop,
@@ -146,6 +244,18 @@ func TestRequestsKeepTheSocketLines(t *testing.T) {
 		if !methods[m] {
 			t.Errorf("no golden row for %s", m)
 		}
+	}
+}
+
+// T-1060: the caller-built rows keep the same guarantee, and each differs from its golden row (it has a dropped key the
+// old caller set and the new type cannot send).
+func TestCallerBuiltRequestLinesDropOnlyUnreadKeys(t *testing.T) {
+	t.Parallel()
+	for _, g := range callerRequests {
+		if len(g.drops) == 0 {
+			t.Fatalf("precondition: %s's caller row has a key the new type drops", g.req.Method())
+		}
+		checkRequestLine(t, g)
 	}
 }
 
