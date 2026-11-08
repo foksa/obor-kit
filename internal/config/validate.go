@@ -577,18 +577,6 @@ func (c *Config) warnings(o ValidateOptions) []string {
 	}
 	removed("paths.research", c.Data.Paths["research"] != "")
 	removed("paths.questions", c.Data.Paths["questions"] != "")
-	// T-864: keys no project sets, and the sections that held no key; each WARNs for two minors (v0.28).
-	removed("integrator_handoff_tokens", c.Data.IntegratorHandoffTokens != nil)
-	removed("stop_idle_workers", c.Data.StopIdleWorkers != nil)
-	removed("merge.timeout_grep", c.Data.Merge.TimeoutGrep != nil)
-	removed("merge.max_load", c.Data.Merge.MaxLoad != nil)
-	removed("merge.load_wait", c.Data.Merge.LoadWait != nil)
-	removed("merge.window_wait", c.Data.Merge.WindowWait != nil)
-	if s := c.Data.Slots; s != nil {
-		removed("slots.merge_block_max", s.MergeBlockMax != nil)
-	}
-	removed("mcp", c.Data.MCP != nil)
-	removed("cache", c.Data.Cache != nil)
 	// T-962: v0.29 dropped checks.load_limit with the check slots' machine-load wait.
 	if ch := c.Data.Checks; ch != nil {
 		removed("checks.load_limit", ch.LoadLimit != nil)

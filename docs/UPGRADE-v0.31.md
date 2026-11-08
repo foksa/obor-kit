@@ -111,3 +111,10 @@ the same way.
 A project whose checks print neither line, or whose retest needs no names, leaves these keys out: obor then parses
 nothing and errors nothing. `obor config validate` refuses a `merge.flake_regex` that is not a pair of regexps, one
 that does not compile, and one without its named group; a `merge.fail_grep` line matching neither regex is ignored.
+
+## v0.31.0 (the nine keys v0.28 removed are gone)
+
+`integrator_handoff_tokens`, `stop_idle_workers`, `merge.timeout_grep`, `merge.max_load`, `merge.load_wait`,
+`merge.window_wait`, `slots.merge_block_max`, `mcp` and `cache` warned for two versions after v0.28 removed them; they
+are now refused as unknown keys by `obor config validate` and serve. Delete them from the config if it still sets one.
+

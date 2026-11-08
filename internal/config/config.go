@@ -53,24 +53,16 @@ type Data struct {
 	Models Ordered[ModelEntry] `json:"models,omitzero"`
 	// HandoffTokens is the lead's automatic handoff threshold (T-175); absent: the guard's default.
 	HandoffTokens *int64 `json:"handoff_tokens,omitempty"`
-	// IntegratorHandoffTokens and StopIdleWorkers are removed keys (v0.28, T-864): the integrator's threshold is a
-	// constant (it starts fresh per job, T-602) and a merged lane's worker is always stopped. They WARN for two minors.
-	IntegratorHandoffTokens any   `json:"integrator_handoff_tokens,omitempty"`
-	StopIdleWorkers         any   `json:"stop_idle_workers,omitempty"`
-	Roles                   Roles `json:"roles"`
-	Setup                   Setup `json:"setup,omitzero"`
-	Merge                   Merge `json:"merge"`
+	Roles         Roles  `json:"roles"`
+	Setup         Setup  `json:"setup,omitzero"`
+	Merge         Merge  `json:"merge"`
 	// Workflow is workflow: the git workflow serve runs (T-1029); absent: scratch-ff.
 	Workflow Workflow `json:"workflow,omitzero"`
 	// Terminal is terminal: the terminal adapter obor drives its panes through (T-1044); absent: herdr.
 	Terminal Terminal `json:"terminal,omitzero"`
-	// MCP and Cache are removed sections (v0.28, T-864): they hold no key, yet a config that sets one (even {})
-	// WARNs for two minors; a member inside one is an unknown key, as it is under an absent section.
-	MCP    *struct{} `json:"mcp,omitempty"`
-	Slots  *Slots    `json:"slots,omitempty"`
-	Checks *Checks   `json:"checks,omitempty"`
-	Limits *Limits   `json:"limits,omitempty"`
-	Cache  *struct{} `json:"cache,omitempty"`
+	Slots    *Slots   `json:"slots,omitempty"`
+	Checks   *Checks  `json:"checks,omitempty"`
+	Limits   *Limits  `json:"limits,omitempty"`
 	// Difficulty maps a level (hard, medium, simple) to its model refs in dispatch order; a level it omits has the
 	// built-in default (DifficultyDefault).
 	Difficulty map[string][]string `json:"difficulty,omitempty"`
@@ -275,14 +267,7 @@ type Merge struct {
 	FlakeRegex []string `json:"flake_regex,omitzero"`
 	// RetestJoin is what commands.retest's {tests} joins the failing tests with (default "|", a regexp's
 	// alternatives; T-1047).
-	RetestJoin string `json:"retest_join,omitempty"`
-	// TimeoutGrep is a removed key (v0.28, T-864): the red-under-load re-run is gone. It WARNs for two minors.
-	TimeoutGrep any `json:"timeout_grep,omitempty"`
-	// MaxLoad, LoadWait and WindowWait are removed keys (v0.28, T-864): the nightly lock's default is a constant
-	// (900 s). They WARN for two minors.
-	MaxLoad    any              `json:"max_load,omitempty"`
-	LoadWait   any              `json:"load_wait,omitempty"`
-	WindowWait any              `json:"window_wait,omitempty"`
+	RetestJoin string           `json:"retest_join,omitempty"`
 	Classes    List[MergeClass] `json:"classes,omitzero"`
 	Neutral    []string         `json:"neutral,omitzero"`
 	// AffectedFull are globs of files whose change makes a project's affected-packages list answer "full" (build and
@@ -365,9 +350,6 @@ type Slots struct {
 	// LaneEnv is the env every process in a lane gets beside the generic facts, NAME: value (T-1041): the project's
 	// own policy, its values templated with {cpus} (LaneEnv). Unset: only the facts.
 	LaneEnv map[string]string `json:"lane_env,omitempty"`
-	// MergeBlockMax is a removed key (v0.28, T-864): the merge marker's cap is the constant 900 s. It WARNs for two
-	// minors.
-	MergeBlockMax any `json:"merge_block_max,omitempty"`
 }
 
 // Checks holds removed settings of every check run: checks.load_limit went with the machine-load wait (v0.29,

@@ -163,7 +163,7 @@ func TestOrderedMapsKeepOrder(t *testing.T) {
 }
 
 func TestGet(t *testing.T) {
-	c := load(t, `{"prefix":"pj","lanes":2,"roles":{"integrator":"opus:high"},"integrator_handoff_tokens":0}`, "")
+	c := load(t, `{"prefix":"pj","lanes":2,"roles":{"integrator":"opus:high"},"handoff_tokens":0}`, "")
 	for _, tc := range []struct {
 		path, want string
 		ok         bool
@@ -171,7 +171,7 @@ func TestGet(t *testing.T) {
 		{".prefix", "pj", true},
 		{".lanes", "2", true},
 		{".roles.integrator", "opus:high", true},
-		{".integrator_handoff_tokens", "0", true},
+		{".handoff_tokens", "0", true},
 		{".roles.leads", "", false},
 		{".nope", "", false},
 		{".prefix.x", "", false},
