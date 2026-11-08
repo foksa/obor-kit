@@ -40,8 +40,9 @@ The lead, in a clean checkout on main:
    nothing (the version commit stays: the re-run starts at the upgrade check). `SKIP_UPGRADE_CHECK="<why>"` skips it,
    the owner's call only, like `UNREVIEWED`, and puts the reason in the tag message. Then `make check-release`
    (`tests/release`: the Makefile's check, release and publish targets, `scripts/release`, `scripts/ship`,
-   `scripts/publish` and `install.sh`, against fixture repos in a temp dir; the full `make check` runs the same package
-   too) — a red one tags nothing and the re-run starts here. In a scratch
+   `scripts/publish` and `install.sh`, against fixture repos in a temp dir; behind `//go:build release`, so `make
+   check` leaves them out and this step and the nightly's `release_tests` run them, T-1001) — a red one tags nothing and
+   the re-run starts here. In a scratch
    worktree at that commit it sets the marketplace `name` to `obor-kit`, builds the four binaries and `bin/checksums.txt`,
    commits and tags `v<x.y.z>`. It copies the four files and the catalog back to main, commits them, and removes the
    worktree. Each step has its done evidence and its undo (`scripts/release`'s header lists them): a re-run skips a step

@@ -1,7 +1,10 @@
+//go:build release
+
 // Package release is the kit's own release tooling tests (T-902): the Makefile's check/release/publish targets,
 // scripts/release, scripts/ship, scripts/publish and install.sh, run against fixture repos in a temp dir. They live
-// outside the product's packages because they test obor-kit, not obor: `make check-release` runs them, the release
-// class in .obor/config.json selects it, and a full merge's check (go test ./...) still runs them.
+// outside the product's packages because they test obor-kit, not obor, and behind `//go:build release` (T-1001) so a
+// merge's go test ./... leaves them out: `make check-release` and the nightly's release_tests command run them, and the
+// release class in .obor/config.json selects them in a lane whose release paths changed.
 package release
 
 import (

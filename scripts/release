@@ -12,8 +12,8 @@
 #                 newest below <version>) upgraded to this build; SKIP_UPGRADE_CHECK="<why>" skips it (the owner's call,
 #                 like UNREVIEWED; it goes into the tag message)   fail: refuse, nothing tagged (the bump stays committed)
 #   release check `make check-release` (T-902), run only while the tag is not made: tests/release (the Makefile,
-#                 scripts/ and install.sh against fixture repos), also part of the check above   fail: refuse, nothing
-#                 tagged (the bump stays committed)
+#                 scripts/ and install.sh against fixture repos), not part of `make check` (behind //go:build release,
+#                 T-1001)   fail: refuse, nothing tagged (the bump stays committed)
 #   tag           done: a local tag v<version> whose commit changes only the catalog and marketplace name on top of its
 #                 source parent, which differs from HEAD in docs and bin/checksums.txt only (scripts/release-lib.sh)
 #                 make: a scratch worktree detached at HEAD under this repo's git dir, marketplace name obor-kit,

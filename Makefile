@@ -11,10 +11,6 @@
 # (scripts/ship); `make release` without V → only the local release files; `make publish` → the four of them to a
 # GitHub release (explicit, outward-facing).
 GO ?= go
-# TEST_TIMEOUT is go test's per-package -timeout for the tiers. Go's own default is 10 minutes, below the check's own
-# budget (commands.check 2400 s) and within reach of tests/release on a lane's 2 cores under load: T-991's lane test was
-# a false RED at 600 s with 32 of 33 packages green and no failing test. A hang still fails, just later.
-TEST_TIMEOUT ?= 20m
 # OUT is where build writes the binary: dist/obor in the kit as always, and another path for a build that runs outside the
 # kit (the promotion's after_merge builds in its own worktree into the main checkout's dist/obor, T-975).
 OUT ?= dist/obor
@@ -111,7 +107,7 @@ check check-affected:
 	fi; \
 	if [ "$$CHECK_SHORT" = 1 ]; then short=-short; fi; \
 	if [ -z "$$pkgs" ]; then echo "go test: 0 pass, 0 fail (no affected Go packages, go test skipped)"; else \
-	  rc=0; out=$$($(GO) test -count=1 -timeout $(TEST_TIMEOUT) $${CHECK_CPUS:+-p $$CHECK_CPUS} $${short:+$$short} $$pkgs 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
+	  rc=0; out=$$($(GO) test -count=1 $${CHECK_CPUS:+-p $$CHECK_CPUS} $${short:+$$short} $$pkgs 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
 	  n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	  echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"; \
 	fi; \
@@ -160,7 +156,7 @@ READER_PKGS := ./cmd/obor ./internal/agents/claude ./internal/app ./internal/che
 check-readers:
 	@$(GO_GATE); \
 	short=; if [ "$$CHECK_SHORT" = 1 ]; then short=-short; fi; \
-	rc=0; out=$$($(GO) test -count=1 -timeout $(TEST_TIMEOUT) $${CHECK_CPUS:+-p $$CHECK_CPUS} $${short:+$$short} $(READER_PKGS) 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
+	rc=0; out=$$($(GO) test -count=1 $${CHECK_CPUS:+-p $$CHECK_CPUS} $${short:+$$short} $(READER_PKGS) 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
 	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"
 
@@ -173,7 +169,7 @@ check-readers:
 check-web:
 	@$(GO_GATE); \
 	short=; if [ "$$CHECK_SHORT" = 1 ]; then short=-short; fi; \
-	rc=0; out=$$($(GO) test -count=1 -timeout $(TEST_TIMEOUT) $${CHECK_CPUS:+-p $$CHECK_CPUS} $${short:+$$short} ./internal/web 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
+	rc=0; out=$$($(GO) test -count=1 $${CHECK_CPUS:+-p $$CHECK_CPUS} $${short:+$$short} ./internal/web 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
 	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"
 
@@ -181,20 +177,21 @@ check-web:
 # every product merge: the Makefile's check, release and publish targets, scripts/release, scripts/ship, scripts/publish
 # and install.sh, each against fixture repos in a temp dir (tests/release, beside tests/upgrade). A change to what they
 # test (merge.classes "release": Makefile, scripts/**, install.sh, RELEASING.md, .claude-plugin/marketplace.json,
-# tests/release/**) runs them; the full check's go test ./... still includes the package, and scripts/release runs this
-# target once more before the tag. No deadcode step: its fixture scripts are the tree's, not a package's API.
+# tests/release/**) runs them; tests/release is behind `//go:build release`, so the merge's `go test ./...` leaves it out
+# (T-1001) and this target, scripts/release and the nightly's release_tests command are where it runs. No deadcode step:
+# its fixture scripts are the tree's, not a package's API.
 check-release:
 	@$(GO_GATE); \
-	rc=0; out=$$($(GO) test -count=1 -timeout $(TEST_TIMEOUT) $${CHECK_CPUS:+-p $$CHECK_CPUS} ./tests/release 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
+	rc=0; out=$$($(GO) test -count=1 -tags release $${CHECK_CPUS:+-p $$CHECK_CPUS} ./tests/release 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
 	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"
 
 # Pinned; the module cache comes before the proxy, so a warm cache needs no network (a Codex sandbox has none).
 # Test support (herdrtest, testkit) is excepted. The prompts table's path readers stay for the hooks and CLIs of T-665
-# (obor web reads with a store handle it opens itself, view.Load's). -tags conformance: tests/conformance's main is
-# behind that tag, and its untagged writer (report.go) is reached only from it.
+# (obor web reads with a store handle it opens itself, view.Load's). -tags conformance,release: tests/conformance's main
+# and tests/release are behind those tags, and their untagged files (conformance's report.go) are reached only from them.
 deadcode:
-	@out=$$(GOPROXY="file://$$($(GO) env GOMODCACHE)/cache/download,$$($(GO) env GOPROXY)" $(GO) run golang.org/x/tools/cmd/deadcode@v0.52.0 -tags conformance ./...) || exit $$?; \
+	@out=$$(GOPROXY="file://$$($(GO) env GOMODCACHE)/cache/download,$$($(GO) env GOPROXY)" $(GO) run golang.org/x/tools/cmd/deadcode@v0.52.0 -tags conformance,release ./...) || exit $$?; \
 	out=$$(printf '%s\n' "$$out" | grep -v -e '/herdrtest/' -e '/testkit/' \
 	  -e '^internal/store/prompts\.go:[0-9:]*: unreachable func: ReadPromptsAt$$'); \
 	if [ -n "$$out" ]; then printf '%s\n' "$$out"; exit 1; fi
