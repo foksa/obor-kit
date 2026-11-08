@@ -51,8 +51,9 @@ checks placement against `docs/module-map.md` at accept).
   git processes and its untagged >= 1 s tests; the nightly's `make check-budget` prints `FAIL budget: …` per breach. A
   budget is raised only by an owner line in `docs/decisions.md`; a task that gets under it lowers it.
 - Test rules (test rework, `docs/plan/test-suite-rework.md`):
-  - Real git only in `internal/checks` and the CLI tests (`cmd/obor`): the code that runs git. Anywhere else a test
-    uses the package's fake (a `FakeScratch`, a stub runner), not a fixture repo.
+  - Real git only in `internal/checks`, the CLI tests (`cmd/obor`) and `internal/setup`'s githook tests (hooks that
+    git itself runs): the code that runs git. Anywhere else a test uses the package's fake (a `FakeScratch`, a stub
+    runner), not a fixture repo.
   - A test of >= 1 s starts with `testkit.Slow(t)` and a comment on why it cannot be faster; `-short` skips it.
   - A task that replaces a mechanism deletes the old mechanism's tests with it; a new test per behaviour, not per
     call path already covered.
