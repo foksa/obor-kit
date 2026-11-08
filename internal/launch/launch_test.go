@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"obor/internal/agents"
 	"obor/internal/app/port"
 	"obor/internal/config"
 	"obor/internal/herdr"
@@ -85,7 +86,9 @@ type fx struct {
 	// files replaces the launcher's Open when set: a test's own view of the files (it may act while the search reads
 	// them, T-646).
 	files func(pids []int) []string
-	mu    sync.Mutex // guards reported, logged, open, searches
+	// install is the launcher's install check machine (T-1052; zero: no kind's start is refused).
+	install agents.InstallHost
+	mu      sync.Mutex // guards reported, logged, open, searches
 }
 
 // hold makes pid hold path open (a Codex writing its rollout).
@@ -258,7 +261,8 @@ func (x *fx) launcher(out io.Writer) *launch.Launcher {
 				x.reports <- s
 			}
 			return x.reportErr
-		}}
+		},
+		Install: func() agents.InstallHost { return x.install }}
 }
 
 func (x *fx) env() project.Env {

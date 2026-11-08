@@ -155,17 +155,16 @@ type InstallChecker interface {
 	InstallWarnings(h InstallHost) []string
 }
 
-// ErrorHinter is a kind that explains an error obor reports as one of its agents' failures (T-1049): the clause
-// appended to the stop's line and its needs-you ("" when this kind has none for it).
-type ErrorHinter interface {
-	ErrorHint(errText, details string) string
+// StartChecker is a kind that refuses a start its CLI's install cannot make work (T-1052): StartRefusal is why ("" the
+// start may go ahead), naming the files and the owner's fix. h is the machine's install; the kind runs no process.
+type StartChecker interface {
+	StartRefusal(h InstallHost) string
 }
 
-// ErrorHint is the kind name's explanation of a stop's error (errText and details as the kind or the hook named them):
-// "" when it has none, or there is no such kind.
-func ErrorHint(kind, errText, details string) string {
-	if h, ok := lookup(kind).(ErrorHinter); ok {
-		return h.ErrorHint(errText, details)
+// StartRefusal is the kind name's refusal of a start on machine h ("" when the start may go ahead, or no such kind).
+func StartRefusal(kind string, h InstallHost) string {
+	if c, ok := lookup(kind).(StartChecker); ok {
+		return c.StartRefusal(h)
 	}
 	return ""
 }

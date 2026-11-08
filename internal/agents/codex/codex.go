@@ -114,17 +114,18 @@ var installFiles = []string{"codex", "codex-code-mode-host", "codex-exec-server"
 // Gatekeeper's dialog was answered Open): such a file will not prompt again.
 const userApproved = 0x0040
 
-// InstallWarnings (T-1045, T-1049): on darwin, the files beside the resolved codex that carry com.apple.quarantine
-// without the user-approved bit, one line.
+// quarantined (T-1045, T-1049, T-1052): on darwin, the files beside the resolved codex that carry
+// com.apple.quarantine without the user-approved bit, and the package's version dir to clear. One read of the
+// machine's install for both the setup warning and the start check.
 // A quarantined codex-code-mode-host hangs at exec (macOS never approves it for a child process), so every tool call
 // of a 0.167 session fails "timed out negotiating with the code-mode host" while the TUI itself starts fine.
-func (kind) InstallWarnings(h agents.InstallHost) []string {
+func quarantined(h agents.InstallHost) (files []string, version string) {
 	if h.GOOS != "darwin" || h.LookPath == nil || h.Quarantine == nil {
-		return nil
+		return nil, ""
 	}
 	bin, err := h.LookPath("codex")
 	if err != nil {
-		return nil
+		return nil, ""
 	}
 	if h.Resolve != nil {
 		if r, err := h.Resolve(bin); err == nil {
@@ -132,36 +133,44 @@ func (kind) InstallWarnings(h agents.InstallHost) []string {
 		}
 	}
 	dir := filepath.Dir(bin)
-	var q []string
 	for _, f := range installFiles {
 		if flags, ok := h.Quarantine(filepath.Join(dir, f)); ok && flags&userApproved == 0 {
-			q = append(q, filepath.Join(dir, f))
+			files = append(files, filepath.Join(dir, f))
 		}
 	}
-	if len(q) == 0 {
-		return nil
+	if len(files) == 0 {
+		return nil, ""
 	}
-	version := dir // a package's bin/ sits in its version dir (Homebrew's Caskroom/codex/<version>)
+	version = dir // a package's bin/ sits in its version dir (Homebrew's Caskroom/codex/<version>)
 	if filepath.Base(dir) == "bin" {
 		version = filepath.Dir(dir)
+	}
+	return files, version
+}
+
+// InstallWarnings (T-1045, T-1049): the quarantined files, one line naming them and the fix.
+func (kind) InstallWarnings(h agents.InstallHost) []string {
+	q, version := quarantined(h)
+	if len(q) == 0 {
+		return nil
 	}
 	return []string{fmt.Sprintf("%s carry com.apple.quarantine: macOS may never start them, and every tool call then "+
 		"times out negotiating with the code-mode host (T-1045); fix: xattr -dr com.apple.quarantine %s",
 		strings.Join(q, ", "), version)}
 }
 
-// codeModeTimeout is the error a Codex tool call fails with while the quarantined codex-code-mode-host waits on an
-// unanswered Gatekeeper dialog (T-1049, docs/research/codex-quarantine.md §1).
-const codeModeTimeout = "timed out negotiating with the code-mode host"
-
-// ErrorHint: a stop on this error is most likely the Gatekeeper dialog for a quarantined codex-code-mode-host, open on
-// the Mac's screen while nobody answers it (an obor start runs unattended).
-func (kind) ErrorHint(errText, details string) string {
-	if !strings.Contains(errText, codeModeTimeout) && !strings.Contains(details, codeModeTimeout) {
+// StartRefusal (T-1052): a Codex start whose resolved install carries an unapproved quarantine flag is not made. The
+// Gatekeeper dialog for codex-code-mode-host would sit unanswered in an unattended pane, so every tool call of the
+// session would time out; the line names the files and the owner's fix (obor applies none).
+func (kind) StartRefusal(h agents.InstallHost) string {
+	q, version := quarantined(h)
+	if len(q) == 0 {
 		return ""
 	}
-	return "a macOS Gatekeeper dialog for codex-code-mode-host may be open on this Mac's screen " +
-		"(docs/research/codex-quarantine.md)"
+	return fmt.Sprintf("codex is quarantined: %s carry com.apple.quarantine and macOS may never start them, so every tool "+
+		"call of the session would time out negotiating with the code-mode host; a Codex start is refused until the owner "+
+		"clears the flag: xattr -dr com.apple.quarantine %s (obor applies no fix)",
+		strings.Join(q, ", "), version)
 }
 
 // tomlKey is a `key = value` line of TOML: the key bare or quoted, dotted parts allowed; the value after the `=`.

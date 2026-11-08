@@ -708,6 +708,27 @@ func TestDispatchNeedsYouThenResume(t *testing.T) {
 		r.waitStep("1 result agent.start.2")
 		r.waitStep("1 result work")
 	})
+	t.Run("start refused by the launch's check: one needs-you, no retries", func(t *testing.T) {
+		t.Parallel()
+		r := newLoopRig(t, dispatching())
+		const line = "codex is quarantined: /c/0.167.0/bin/codex-code-mode-host carry com.apple.quarantine; a Codex start " +
+			"is refused until the owner clears the flag: xattr -dr com.apple.quarantine /c/0.167.0 (obor applies no fix)"
+		r.disp.set(func(d *dispatchFakes) {
+			d.fail["start"] = func() error { return port.Refused{Line: line} }
+		})
+		r.start()
+		r.mustDispatch("d1")
+		r.waitPrefix("1 fact needs-you{start: " + line + "}")
+		r.passes()
+		if n := r.disp.called("start"); n != 1 {
+			t.Errorf("start calls %d while the refusal holds, want 1 (a final refusal, not a counted failure)", n)
+		}
+		r.needsYouState()
+		r.disp.set(func(d *dispatchFakes) { delete(d.fail, "start") })
+		r.mustResume("r1", "", "RESUMED T-1: retry (start)")
+		r.waitStep("1 result agent.start.2")
+		r.waitStep("1 result work")
+	})
 	t.Run("three counted failures", func(t *testing.T) {
 		t.Parallel()
 		r := newLoopRig(t, dispatching())

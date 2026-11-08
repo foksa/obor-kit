@@ -46,6 +46,11 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
 	if _, ok := agents.Lookup(s.Kind); !ok { // dispatch and obor config validate refuse such a model's kind (DD-v0.13 D1)
 		return port.Pane{}, project.Failf("%s: kind %s has no bridge (obor config validate)", s.Agent, s.Kind)
 	}
+	// A start the owner makes at a screen (obor lead, obor setup role): a quarantined install warns, never refuses (T-1052)
+	// — the Gatekeeper dialog can be answered there.
+	if why := agents.StartRefusal(s.Kind, l.installHost()); why != "" {
+		l.say("warning: " + why)
+	}
 	// The session obor chose for a kind whose sessions it names (Built.Session, T-813): recorded before the agent runs.
 	if s.Session != "" {
 		l.recordSession(ctx, s)
