@@ -51,6 +51,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (lead 11-08) `TestScratchCutTable` costs 31 s of work at 2 cores even after T-1000 (TestNightly 6.7 s, lane tests 2-4 s): they stay in -short with caps (T-1004 rev 5); a speed-up task for them lets the caps drop.
 - (RV-139, accepted) #3: tests that replace PATH (cmd/obor TestInitEndToEnd) hide their child's git calls from the budget's counting wrapper; one fixed test, its count does not grow by itself. Design notes: `release_tests` duplicates `check_release` only to drop `heavy` (merge if a second such duplicate appears); T-1001 lost TestUpgradeBrokenBuild's negative case (`make upgrade-check` runs the real upgrade).
 - (RV-138, accepted) RV-138 #2: the queue card counts --after dispatches waiting for their dependency as queued for a lane; serve should ship the waiting-for-lane count (web/src/lib/pipeline.ts:~33)
 - (RV-138, accepted) #2 the queue card's 'queued for a lane' counts --after dispatches still waiting for their dependency (web/src/lib/pipeline.ts:~33); serve should ship the waiting-for-lane count; next touch of the queue card.

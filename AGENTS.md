@@ -54,7 +54,9 @@ checks placement against `docs/module-map.md` at accept).
   - Real git only in `internal/checks`, the CLI tests (`cmd/obor`) and `internal/setup`'s githook tests (hooks that
     git itself runs): the code that runs git. Anywhere else a test uses the package's fake (a `FakeScratch`, a stub
     runner), not a fixture repo.
-  - A test of >= 1 s starts with `testkit.Slow(t)` and a comment on why it cannot be faster; `-short` skips it.
+  - A test of >= 1 s of work starts with `testkit.Slow(t)` and a comment on why it cannot be faster; `-short` skips it.
+    A merge-path test the lane must keep running (`internal/checks`' gate and cut tables) gets a cap in
+    `tests/budget.json` instead (T-1004): it stays in `-short`, and growing past its cap is a budget failure.
   - A task that replaces a mechanism deletes the old mechanism's tests with it; a new test per behaviour, not per
     call path already covered.
   - A spec names its expected test change (added, changed, deleted; `templates/task-spec.md`): a task that adds
