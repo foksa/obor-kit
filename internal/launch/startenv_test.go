@@ -16,16 +16,17 @@ import (
 
 // T-812: every start path types its env line through the one builder (agents.StartVars): run in a real sh after a
 // shell that exports a stale value of every registry var (another role, another lane, another kind's model and config,
-// the retired OBOR_AGENT), the line leaves the new start's values and none of the stale ones. A user's own
+// the retired OBOR_AGENT, another pane's OBOR_PANE), the line leaves the new start's values and none of the stale ones:
+// OBOR_PANE is the pane the start runs in (T-1037). A user's own
 // XDG_STATE_HOME and OPENCODE_CONFIG_CONTENT are none of obor's (T-703: the per-agent state dirs are gone) and stay as
 // they were. Paths: a restart, a dispatch's type (OpenCode: its model and config), a start in another pane (a move),
 // and setup's reused pane (SetEnv). A restore runs obor restart (TestRestoreWorkerWithoutSessionFresh): the restart path.
 func TestEveryStartPathTypesTheRegistryEnv(t *testing.T) {
 	t.Parallel()
 	const stale = "export OBOR_ROLE=lead OBOR_LANE=L-09 OBOR_AGENT=old OBOR_OPENCODE_MODEL=old/m OPENCODE_CONFIG=/old.json" +
-		" XDG_STATE_HOME=/mine OPENCODE_CONFIG_CONTENT=c"
+		" OBOR_PANE=w9:old XDG_STATE_HOME=/mine OPENCODE_CONFIG_CONTENT=c"
 	const show = `echo "${OBOR_ROLE-UNSET} ${OBOR_LANE-UNSET} ${OBOR_AGENT-UNSET} ${OBOR_OPENCODE_MODEL-UNSET} ${OPENCODE_CONFIG-UNSET}"` +
-		` "${XDG_STATE_HOME-UNSET} ${OPENCODE_CONFIG_CONTENT-UNSET}"`
+		` "${OBOR_PANE-UNSET}" "${XDG_STATE_HOME-UNSET} ${OPENCODE_CONFIG_CONTENT-UNSET}"`
 	const user = " /mine c" // the user's own, untouched by every row
 	for _, c := range []struct {
 		name string
@@ -74,7 +75,7 @@ func TestEveryStartPathTypesTheRegistryEnv(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%v: %s", err, out)
 			}
-			want := strings.Replace(c.want, "CONFIG", x.p.Root+"/.obor/state/opencode.json", 1) + user
+			want := strings.Replace(c.want, "CONFIG", x.p.Root+"/.obor/state/opencode.json", 1) + " " + c.pane + user
 			if got := strings.TrimSpace(string(out)); got != want {
 				t.Errorf("after a stale shell, the env line %q leaves %q, want %q", line, got, want)
 			}

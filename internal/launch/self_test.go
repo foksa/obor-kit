@@ -20,12 +20,12 @@ import (
 // spawned is one Spawn call: the args, the output file and the cwd.
 type spawned struct{ args, out, dir string }
 
-// self runs req (stop: --stop) as the agent in pane own would (HERDR_PANE_ID), scheduled: as the detached run.
+// self runs req (stop: --stop) as the agent in pane own would (OBOR_PANE), scheduled: as the detached run.
 func (x *fx) self(own string, scheduled bool, req launch.Request, stop bool, tune func(*launch.Launcher)) (string, bool, []spawned) {
 	x.t.Helper()
 	var out bytes.Buffer
 	l := x.launcher(&out)
-	kv := []string{"CLAUDE_CONFIG_DIR=" + x.claude, "HERDR_PANE_ID=" + own}
+	kv := []string{"CLAUDE_CONFIG_DIR=" + x.claude, "OBOR_PANE=" + own}
 	if scheduled {
 		op := "restart"
 		if stop {

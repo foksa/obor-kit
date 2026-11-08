@@ -330,7 +330,7 @@ func TestSessionNoIdentityFromRecords(t *testing.T) {
 	f.Write(home+"/agents/pj-lead.pane", "w9:p1\n")
 	f.label("w9:p1", "pj-lead")
 	envFile := f.Base + "/claude-env"
-	out := f.session(t, f.Root, "sid-lead", "HERDR_PANE_ID=w9:p1", sock, "CLAUDE_ENV_FILE="+envFile)
+	out := f.session(t, f.Root, "sid-lead", "OBOR_PANE=w9:p1", sock, "CLAUDE_ENV_FILE="+envFile)
 	contains(t, out, "a recorded sid gives no identity", "obor: role none")
 	if n := strings.Count(out, "pj-lead"); n != 0 { // T-786: no lost-identity line either
 		t.Errorf("the pane's label is named: %d in\n%s", n, out)
@@ -339,7 +339,7 @@ func TestSessionNoIdentityFromRecords(t *testing.T) {
 		t.Error("something exported or recorded")
 	}
 	os.Remove(home + "/agents/pj-lead.pane")
-	contains(t, f.session(t, o1, "sid-o1-new", "OBOR_AGENT=pj-l-01", "HERDR_PANE_ID=w9:p2", sock), "hook ran", "obor: role worker")
+	contains(t, f.session(t, o1, "sid-o1-new", "OBOR_AGENT=pj-l-01", "OBOR_PANE=w9:p2", sock), "hook ran", "obor: role worker")
 	entries, _ := os.ReadDir(home + "/agents")
 	for _, e := range entries {
 		if strings.HasSuffix(e.Name(), ".pane") {
@@ -471,12 +471,12 @@ func TestSessionWithOborAgentIgnoresOtherRecords(t *testing.T) {
 	f, o1 := sessionFx(t, true)
 	srv, sock := f.serve(t)
 	f.label("w9:p1", "pj-l-01")
-	plain := f.session(t, o1, "sid-o1", "OBOR_AGENT=pj-l-01", "HERDR_PANE_ID=w9:p1", sock)
+	plain := f.session(t, o1, "sid-o1", "OBOR_AGENT=pj-l-01", "OBOR_PANE=w9:p1", sock)
 	contains(t, plain, "hook ran", "obor: role worker, lane L-01, task T-05 (cwd)")
 	home := f.Base + "/state-home"
 	f.Write(home+"/agents/pj-lead.pane", "w9:p1\n")
 	before := panes(srv, "w9:p1")
-	if out := f.session(t, o1, "sid-o1", "OBOR_AGENT=pj-l-01", "HERDR_PANE_ID=w9:p1", sock); out != plain {
+	if out := f.session(t, o1, "sid-o1", "OBOR_AGENT=pj-l-01", "OBOR_PANE=w9:p1", sock); out != plain {
 		t.Errorf("env set: output changed by another agent's records:\n%s\nwas\n%s", out, plain)
 	}
 	if f.Exists(home+"/sessions") || panes(srv, "w9:p1") != before {
@@ -492,7 +492,7 @@ func TestSessionLabelledPaneNoLostIdentity(t *testing.T) {
 	for _, c := range []struct{ label, cwd, role string }{{"pj-l-01", o1, ""}, {"pj-lead", f.Root, "OBOR_ROLE=lead"}} {
 		f.label("w9:p1", c.label)
 		before := len(srv.Requests())
-		out := f.session(t, c.cwd, "sid-zzz", "HERDR_PANE_ID=w9:p1", c.role, sock)
+		out := f.session(t, c.cwd, "sid-zzz", "OBOR_PANE=w9:p1", c.role, sock)
 		contains(t, out, "precondition: the hook ran", "obor: role ")
 		lacks(t, out, c.label+": no lost-identity line", "WARNING", "OBOR_AGENT")
 		if n := len(srv.Requests()) - before; n != 0 {

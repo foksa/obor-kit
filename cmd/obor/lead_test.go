@@ -165,7 +165,7 @@ func TestLeadOwnPaneStartsOnceItExits(t *testing.T) {
 		x := newLeadFx(t)
 		x.f.Shell("w1:p1", "pj-lead", x.p.Root).Session = "old-sid"
 		x.p.Session("pj-lead", "old-sid") // T-813: the resume's source is the record, not herdr's session
-		x.env = []string{"HERDR_PANE_ID=w1:p1"}
+		x.env = []string{"OBOR_PANE=w1:p1"}
 		x.srv.Reply("pane.process_info", map[string]any{"type": "pane_process_info", "process_info": map[string]any{
 			"pane_id": "w1:p1", "shell_pid": 1, "foreground_process_group_id": 77,
 			"foreground_processes": []any{map[string]any{"pid": 77, "argv0": "obor"}}}}) // obor lead itself has the foreground

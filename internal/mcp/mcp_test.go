@@ -72,7 +72,7 @@ func (f *fixture) env(kv ...string) project.Env {
 
 // worker is the environment of the lane's worker agent, a stale OBOR_AGENT included (T-786: never read).
 func (f *fixture) worker() project.Env {
-	return f.env("OBOR_ROLE=worker", "OBOR_AGENT=pj-old-name", "OBOR_LANE=L-01", "HERDR_PANE_ID=w1:p1")
+	return f.env("OBOR_ROLE=worker", "OBOR_AGENT=pj-old-name", "OBOR_LANE=L-01", "OBOR_PANE=w1:p1")
 }
 
 // fakeServe is obor serve's app socket in a test: it records each request line and answers reply/refusal, like the
@@ -399,7 +399,7 @@ func TestIntegratorVerdicts(t *testing.T) {
 		return strings.ToUpper(method) + " T-05", ""
 	}}
 	serveFake(t, wire.SocketPath(f.root), a)
-	c := start(t, f.env("OBOR_ROLE=integrator", "OBOR_AGENT=pj-old-int", "HERDR_PANE_ID=w1:p2"), f.root)
+	c := start(t, f.env("OBOR_ROLE=integrator", "OBOR_AGENT=pj-old-int", "OBOR_PANE=w1:p2"), f.root)
 	if got := c.tool("job_next", nil); got.IsError || !strings.Contains(got.Text, "T-05/1/review") {
 		t.Fatalf("job_next: %+v; want the review job", got)
 	}
@@ -568,7 +568,8 @@ func (f *fixture) worktree(dir string) {
 
 // TestJobNextPerKind (T-791): the MCP server started as each kind starts it — its cwd and environment as the live
 // processes have them (ps eww / lsof of the running `obor mcp`s, 2026-11-04) — names the lane's worker, so job_next
-// returns the lane's job. No shape carries OBOR_AGENT (T-786 stopped exporting it).
+// returns the lane's job and the call carries the pane (OBOR_PANE, T-1037). No shape carries OBOR_AGENT (T-786 stopped
+// exporting it).
 func TestJobNextPerKind(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
@@ -581,7 +582,7 @@ func TestJobNextPerKind(t *testing.T) {
 		return `{"state":"job","job":"T-01/1/work","task":"T-01","attempt":1,"step":"work"}`, ""
 	}}
 	serveFake(t, wire.SocketPath(f.root), a)
-	pane := []string{"OBOR_ROLE=worker", "OBOR_LANE=L-01", "HERDR_PANE_ID=w1:p2"}
+	pane := []string{"OBOR_ROLE=worker", "OBOR_LANE=L-01", "OBOR_PANE=w1:p2"}
 	for _, tc := range []struct {
 		kind string
 		env  project.Env
@@ -593,7 +594,7 @@ func TestJobNextPerKind(t *testing.T) {
 		{"claude", f.env(append(pane, "OBOR_NO_SELF_HOST=1", "PWD="+lane)...)},
 		// codex: a stripped environment, only the variables mcp_servers.obor.env_vars forwards (agents.EnvVars).
 		{"codex", testkit.MapEnv(map[string]string{"OBOR_ROLE": "worker", "OBOR_LANE": "L-01",
-			"HERDR_PANE_ID": "w1:p2", "OBOR_STATE_HOME": f.home})},
+			"OBOR_PANE": "w1:p2", "OBOR_STATE_HOME": f.home})},
 	} {
 		if _, ok := tc.env("OBOR_AGENT"); ok {
 			t.Fatalf("%s: the shape exports OBOR_AGENT", tc.kind)
@@ -607,8 +608,9 @@ func TestJobNextPerKind(t *testing.T) {
 		if len(reqs) != before+1 {
 			t.Fatalf("%s: the app got %d requests; want 1", tc.kind, len(reqs)-before)
 		}
-		if c := reqs[before].Call; c.Agent != "pj-l-01" || c.Role != "worker" || c.Lane != "L-01" || c.Root != f.root {
-			t.Errorf("%s: call %+v; want pj-l-01, worker, L-01, root %s", tc.kind, c, f.root)
+		if c := reqs[before].Call; c.Agent != "pj-l-01" || c.Role != "worker" || c.Lane != "L-01" || c.Pane != "w1:p2" ||
+			c.Root != f.root {
+			t.Errorf("%s: call %+v; want pj-l-01, worker, L-01, pane w1:p2 (OBOR_PANE), root %s", tc.kind, c, f.root)
 		}
 	}
 }
@@ -620,7 +622,7 @@ func TestNoCallerIdentity(t *testing.T) {
 	f := newFixture(t)
 	a := &fakeServe{answer: func(string, wire.Call) (string, string) { return "", "unexpected request" }}
 	serveFake(t, wire.SocketPath(f.root), a)
-	got := start(t, f.env("OBOR_ROLE=worker", "HERDR_PANE_ID=w1:p2"), f.root).tool("job_next", nil)
+	got := start(t, f.env("OBOR_ROLE=worker", "OBOR_PANE=w1:p2"), f.root).tool("job_next", nil)
 	want := "job_next: no caller identity: role worker without a lane: OBOR_LANE is not set and the cwd " + f.root +
 		" is no lane worktree"
 	if !got.IsError || got.Text != want {

@@ -43,7 +43,7 @@ func herdrLive(l *lab, _ bool) {
 
 // hL7: herdr's injected HERDR_* in the pane's shell and in a child of it (the stub, as an MCP server would start).
 func hL7(l *lab, pane string) {
-	where := "F1.1, " + at("internal/mcp/mcp.go", "HERDR_PANE_ID") + ", CAP §5.1"
+	where := "F1.1, " + at("internal/project/pane.go", "terminalPaneVar =") + " (the resolver's fallback, T-1037), CAP §5.1"
 	envFile := filepath.Join(l.root, "pane-env.txt")
 	if st, err := l.shell(pane, "env > "+shq(envFile), 10*time.Second); err != nil || st != 0 {
 		report("FAIL", "H-L7", fmt.Sprintf("env in the pane failed (status %d, %v)", st, err), where)

@@ -27,9 +27,9 @@ func TestPluginBinary(t *testing.T) {
 	p.Herdr().Agent("w9:l", "pj-lead", "idle", p.Root).Label = "pj-lead"
 	p.Herdr().Shell("w9:o1", "pj-l-01", lane)
 	srv := herdrtest.Serve(t, p.Herdr())
-	// herdr is reached over HERDR_SOCKET_PATH, as herdr runs its plugins. HERDR_PANE_ID is a pane a plugin command can
-	// carry (T-301): the restore below restarts that pane now, never as its own (SCHEDULED).
-	env := []string{"HERDR_SOCKET_PATH=" + srv.Path, "HERDR_PANE_ID=w9:o1",
+	// herdr is reached over HERDR_SOCKET_PATH, as herdr runs its plugins. OBOR_PANE and HERDR_PANE_ID name a pane a
+	// plugin command can carry (T-301, T-1037): the restore below restarts that pane now, never as its own (SCHEDULED).
+	env := []string{"HERDR_SOCKET_PATH=" + srv.Path, "OBOR_PANE=w9:o1", "HERDR_PANE_ID=w9:o1",
 		"OBOR_STATE_HOME=" + p.Base + "/state-home"}
 	plugin := filepath.Join(p.Base, "plugin-dir") // herdr's cwd for plugin commands: no project
 	if err := os.MkdirAll(plugin, 0o755); err != nil {

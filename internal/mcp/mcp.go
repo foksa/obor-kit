@@ -111,8 +111,8 @@ func (s *server) self(r *project.Repo) (name, missing string) {
 // caller's identity is derived and the app asked. Every refusal — a bad argument, no project, no identity, the app's
 // own, serve being down — is the error, the tool's error text; never a broken server.
 func (s *server) call(method string, fill func(*wire.Call) error) (string, error) {
-	c := wire.Call{Role: s.role(), Lane: s.env.Get("OBOR_LANE"), Pane: s.env.Get("HERDR_PANE_ID"),
-		CallID: wire.NewCallID()}
+	pane, _ := project.Pane(s.env) // none: a call from no pane, which serve's own checks then answer
+	c := wire.Call{Role: s.role(), Lane: s.env.Get("OBOR_LANE"), Pane: pane, CallID: wire.NewCallID()}
 	if err := fill(&c); err != nil {
 		return "", fmt.Errorf("%s: %w", method, err)
 	}

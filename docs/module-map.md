@@ -20,7 +20,9 @@ gate runs it. Adapters never import each other: one that needs another goes thro
 **base** — shared leaves, no obor state of their own.
 - `project`: find the project, main checkout, lane dirs, session role/agent. `project.Find(dir)`, `Env`; the file lock (`lock.go`: `Lock`),
   `LabelOurs` (whether a labelled pane is this project's), the sid files and the opencode plugin marker (`plugin.go`), the background Bash calls the PreToolUse hook records
-  (`background.go`, T-714),
+  (`background.go`, T-714), the caller's own pane (`pane.go`, T-1037: `Pane`, the one resolver: `OBOR_PANE`, else the
+  terminal's `HERDR_PANE_ID` for a pane obor did not start, else `ErrNoPane`; here, not in `herdr`, because adapters
+  never import each other),
   the machine's list of obor projects by name (`projects.go`, T-646: `Register`, `Projects`, `RootOf`); a stopped
   project (`stopped.go`, T-709, T-711: `Stopped`, `WriteStopMarker` (the pause stop replaced), `BeginStart`/`EndStart`, `Unregister`: obor stop / obor start).
 - `config`: effective config. `config.Load(root) (*Config, error)`; `LoadReader` (obor status, obor stop/start, web: an

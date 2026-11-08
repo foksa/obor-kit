@@ -652,7 +652,7 @@ func (s *Setup) initPanes(ctx context.Context, add func(name, state, format stri
 		return nil, err
 	}
 	integrator := beside
-	if s.Env.Get("HERDR_PANE_ID") != "" {
+	if _, err := project.Pane(s.Env); err == nil {
 		integrator = nil // the default placement: the caller's tab when it is the project's (T-628)
 	}
 	if err := place("integrator", s.cfg.AgentName("integrator", ""), role("integrator"), integrator); err != nil {

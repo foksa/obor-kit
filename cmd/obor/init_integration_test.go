@@ -37,7 +37,7 @@ func TestInitEndToEnd(t *testing.T) {
 	kit, _ := filepath.Abs(filepath.Join("..", ".."))
 	home := t.TempDir()
 	env := []string{"HERDR_SOCKET_PATH=" + srv.Path, "PATH=" + bin + ":/usr/bin:/bin", "HOME=" + home,
-		"OBOR_PLUGIN_ROOT=" + kit, "OBOR_STATE_HOME=" + t.TempDir(), "HERDR_PANE_ID=", "HERDR_CONFIG_PATH="}
+		"OBOR_PLUGIN_ROOT=" + kit, "OBOR_STATE_HOME=" + t.TempDir(), "HERDR_PANE_ID=", "OBOR_PANE=", "HERDR_CONFIG_PATH="}
 	rc, stdout, stderr := run(t, p.Root, env, "init")
 	if rc != 0 || !strings.Contains(stdout, "OK init proj (prefix proj); next: first task for the lead: set up the stack "+
 		"and `commands.check` (lane_setup, lane_ready); until then every gate stops on \"missing command\"\n") ||

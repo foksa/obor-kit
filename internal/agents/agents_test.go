@@ -194,8 +194,8 @@ func TestVarsRegistry(t *testing.T) {
 	}
 }
 
-// T-812: StartVars, the one builder of a start's env: the role, the lane and the kind's vars set (a "" value: none),
-// every other registry var unset, whatever kind set it before; keep leaves one as the pane has it.
+// T-812: StartVars, the one builder of a start's env: the role, the lane, the pane (T-1037) and the kind's vars set (a
+// "" value: none), every other registry var unset, whatever kind set it before; keep leaves one as the pane has it.
 func TestStartVars(t *testing.T) {
 	names := func(set []agents.EnvVar) string {
 		var out []string
@@ -205,23 +205,26 @@ func TestStartVars(t *testing.T) {
 		return strings.Join(out, " ")
 	}
 	for _, c := range []struct {
-		name, role, lane string
-		kind             map[string]string
-		keep             []string
-		set, unset       string
+		name, role, lane, pane string
+		kind                   map[string]string
+		keep                   []string
+		set, unset             string
 	}{
-		{"a claude worker: another kind's vars unset", "worker", "L-01", nil, nil,
-			"OBOR_ROLE=worker OBOR_LANE=L-01", "OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG"},
-		{"an opencode role agent: its vars set, the lane unset", "reviewer", "",
+		{"a claude worker: its pane set, another kind's vars unset", "worker", "L-01", "w1:3", nil, nil,
+			"OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:3", "OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG"},
+		{"an opencode role agent: its vars set, the lane unset", "reviewer", "", "w1:4",
 			map[string]string{"OPENCODE_CONFIG": "/s/oc.json", "OBOR_OPENCODE_MODEL": "p/m#high"}, nil,
-			"OBOR_ROLE=reviewer OBOR_OPENCODE_MODEL=p/m#high OPENCODE_CONFIG=/s/oc.json", "OBOR_AGENT OBOR_LANE"},
-		{"an opencode start without a model: the model unset", "reviewer", "",
+			"OBOR_ROLE=reviewer OBOR_PANE=w1:4 OBOR_OPENCODE_MODEL=p/m#high OPENCODE_CONFIG=/s/oc.json", "OBOR_AGENT OBOR_LANE"},
+		{"an opencode start without a model: the model unset", "reviewer", "", "w1:4",
 			map[string]string{"OPENCODE_CONFIG": "/s/oc.json", "OBOR_OPENCODE_MODEL": ""}, nil,
-			"OBOR_ROLE=reviewer OPENCODE_CONFIG=/s/oc.json", "OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL"},
-		{"no role: unset", "", "", nil, nil, "", "OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OBOR_ROLE OPENCODE_CONFIG"},
-		{"no role, OBOR_ROLE kept", "", "", nil, []string{"OBOR_ROLE"}, "", "OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OPENCODE_CONFIG"},
+			"OBOR_ROLE=reviewer OBOR_PANE=w1:4 OPENCODE_CONFIG=/s/oc.json", "OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL"},
+		{"a pane being made: OBOR_PANE unset (not the maker's), a kind's OBOR_PANE ignored", "worker", "L-01", "",
+			map[string]string{"OBOR_PANE": "w9:9"}, nil,
+			"OBOR_ROLE=worker OBOR_LANE=L-01", "OBOR_AGENT OBOR_OPENCODE_MODEL OBOR_PANE OPENCODE_CONFIG"},
+		{"no role: unset", "", "", "", nil, nil, "", "OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OBOR_PANE OBOR_ROLE OPENCODE_CONFIG"},
+		{"no role, OBOR_ROLE kept", "", "", "", nil, []string{"OBOR_ROLE"}, "", "OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OBOR_PANE OPENCODE_CONFIG"},
 	} {
-		set, unset := agents.StartVars(c.role, c.lane, c.kind, c.keep...)
+		set, unset := agents.StartVars(c.role, c.lane, c.pane, c.kind, c.keep...)
 		if got := names(set); got != c.set {
 			t.Errorf("%s: set %q, want %q", c.name, got, c.set)
 		}

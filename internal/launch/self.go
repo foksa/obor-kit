@@ -25,10 +25,10 @@ import (
 // which the give-up text names (T-289).
 const ScheduledEnv = "OBOR_RESTART_SCHEDULED"
 
-// ownPane: t's pane is the caller's (HERDR_PANE_ID).
+// ownPane: t's pane is the caller's (project.Pane; none: the caller runs in no pane).
 func (l *Launcher) ownPane(t *target) bool {
-	p := l.Env.Get("HERDR_PANE_ID")
-	return p != "" && p == t.pane
+	p, err := project.Pane(l.envOrOS())
+	return err == nil && p == t.pane
 }
 
 // schedule starts the detached run of req (stop: --stop) and returns the SCHEDULED line.

@@ -62,7 +62,7 @@ func opencodeLive(l *lab, turn bool) {
 		report("FAIL", "OC-L1", "no workspace in the throwaway session: "+err.Error(), "deep dive §6")
 		return
 	}
-	paneEnv := map[string]string{"OBOR_ROLE": "worker", "OBOR_LANE": "L-01", "OBOR_CONF_PANE_ONLY": "1"}
+	paneEnv := map[string]string{"OBOR_ROLE": "worker", "OBOR_LANE": "L-01", agents.PaneVar: pane, "OBOR_CONF_PANE_ONLY": "1"}
 	for k, v := range xdg {
 		paneEnv[k] = v
 	}
@@ -233,7 +233,7 @@ func ocL1(l *lab, pane string, mcp []record) {
 	if !grandchild {
 		bad = append(bad, "not the TUI's grandchild")
 	}
-	for k, v := range map[string]string{"HERDR_PANE_ID": pane, "OBOR_ROLE": "worker", "OBOR_LANE": "L-01", "OBOR_CONF_PANE_ONLY": "1"} {
+	for k, v := range map[string]string{agents.PaneVar: pane, "OBOR_ROLE": "worker", "OBOR_LANE": "L-01", "OBOR_CONF_PANE_ONLY": "1"} {
 		if r.Env[k] != v {
 			bad = append(bad, fmt.Sprintf("%s=%q (want %s)", k, r.Env[k], v))
 		}
@@ -247,7 +247,7 @@ func ocL1(l *lab, pane string, mcp []record) {
 		report("FAIL", "OC-L1", fact+": "+strings.Join(bad, "; "), where)
 		return
 	}
-	report("PASS", "OC-L1", fact+": the TUI's grandchild, with the pane's env (HERDR_PANE_ID, OBOR_*, a pane-only var), cwd = lane", where)
+	report("PASS", "OC-L1", fact+": the TUI's grandchild, with the pane's env (OBOR_PANE, OBOR_*, a pane-only var), cwd = lane", where)
 }
 
 // ocTurn (TURN=1): a role agent (OBOR_ROLE=researcher) in the main checkout, OBOR_OPENCODE_MODEL from
@@ -375,7 +375,7 @@ func ocL6(l *lab, pane string, xdg map[string]string, st agents.Stop) {
 			at("internal/config/models.go", "func (m Model) LaunchArgs")+", T-910")
 		return
 	}
-	paneEnv := map[string]string{"OBOR_ROLE": "worker", "OBOR_LANE": "L-01"}
+	paneEnv := map[string]string{"OBOR_ROLE": "worker", "OBOR_LANE": "L-01", agents.PaneVar: pane}
 	for name, v := range start.env {
 		paneEnv[name] = v
 	}

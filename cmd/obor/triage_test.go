@@ -79,7 +79,7 @@ func TestTriageSessionStartRecordsItsInbox(t *testing.T) {
 	}
 
 	_, serve := startFakeServe(t, p.Root, wire.Status{}, "SESSION pj-triage sid-t1", "")
-	env := []string{"OBOR_ROLE=triage", "OBOR_STATE_HOME=" + t.TempDir(), "HERDR_PANE_ID=w1:p9",
+	env := []string{"OBOR_ROLE=triage", "OBOR_STATE_HOME=" + t.TempDir(), "OBOR_PANE=w1:p9",
 		"CLAUDE_CODE_MESSAGING_SOCKET=" + sock, "CLAUDE_CODE_MESSAGING_TOKEN=tok-t"}
 	event, _ := json.Marshal(map[string]any{"hook_event_name": "SessionStart", "cwd": p.Root, "session_id": "sid-t1",
 		"source": "startup"})

@@ -30,7 +30,7 @@ func TestStartEffort(t *testing.T) {
 		{"codex: the role's effort", "luna:xhigh", "", "", "", []string{"-c model_reasoning_effort=xhigh"},
 			[]string{"model_reasoning_effort=high"}, "unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL ", ""},
 		{"opencode: the model and effort reach the plugin as model#variant", "oc:high", "",
-			"", "", []string{"--auto"}, []string{"--model", "go/ds", "high"}, "export OBOR_ROLE=reviewer OBOR_OPENCODE_MODEL='go/ds#high'", "OPENCODE_CONFIG_CONTENT"},
+			"", "", []string{"--auto"}, []string{"--model", "go/ds", "high"}, "export OBOR_ROLE=reviewer OBOR_PANE=w1:p7 OBOR_OPENCODE_MODEL='go/ds#high'", "OPENCODE_CONFIG_CONTENT"},
 		{"opencode, no model or effort: the variable unset", "bare", "",
 			"", "", []string{"--auto"}, nil, "unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL ", "export OBOR_OPENCODE_MODEL"},
 		// T-722, T-765: a pooled lane's worker runs the model its lane row's type names, and the launch's type before it.

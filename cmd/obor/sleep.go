@@ -119,7 +119,7 @@ func (s *sleeper) name() string { return s.Cfg.ProjectName() }
 // answers for the project (else: start serve first); (2) serve paused by stop's own untimed pause, so nothing new is
 // dispatched (a pause in force already is replaced, and recorded); (3) the tasks in progress, asked of serve: refused,
 // or with --force kept open (the agents stop; the tasks continue at obor start) — never the lane whose agent runs in
-// the caller's own pane (HERDR_PANE_ID, T-711); (4) herdr's panes listed (an error refuses) and every agent obor
+// the caller's own pane (project.Pane, T-711); (4) herdr's panes listed (an error refuses) and every agent obor
 // started in the project stopped but the caller's own;
 // (5) serve ended (launchd's agent uninstalled; one in a pane or run by hand asked to exit over its socket) and
 // confirmed down (its socket and lock gone); (6) the project unregistered and the marker written, with the replaced
@@ -181,8 +181,9 @@ func (s *sleeper) stop(ctx context.Context) int {
 	case err != nil:
 		return refuse("%v", err)
 	case own != "":
+		pane, _ := project.Pane(s.Env) // ownLane found the lane by it
 		return refuse("lane %s's agent runs in this pane (%s): obor stop would stop its own caller: run it from the "+
-			"owner's or the lead's pane", own, s.Env.Get("HERDR_PANE_ID"))
+			"owner's or the lead's pane", own, pane)
 	}
 
 	if err := s.stopAgents(ctx); err != nil {
@@ -326,11 +327,11 @@ func untilLine(until int64) string {
 	return time.Unix(until, 0).Format("2006-01-02 15:04")
 }
 
-// ownLane is the lane among busy whose agent runs in the caller's own herdr pane (HERDR_PANE_ID; T-711): its label is
-// that lane's agent or its cwd in that lane. "": none, or no pane of the caller's. An error: herdr's panes not
-// listed, so the caller's pane is not known.
+// ownLane is the lane among busy whose agent runs in the caller's own pane (project.Pane; T-711): its label is that
+// lane's agent or its cwd in that lane. "": none, or no pane of the caller's. An error: herdr's panes not listed, so
+// the caller's pane is not known.
 func (s *sleeper) ownLane(ctx context.Context, busy []busyTask) (string, error) {
-	own := s.Env.Get("HERDR_PANE_ID")
+	own, _ := project.Pane(s.Env) // none: the caller runs in no pane, so no lane's agent is its own
 	lanes := map[string]bool{}
 	for _, b := range busy {
 		if b.Lane != "" {
@@ -413,7 +414,8 @@ func (s *sleeper) stopAgents(ctx context.Context) error {
 		return fmt.Errorf("herdr's panes not listed (%v): its agents may still run; obor stop again once herdr answers", err)
 	}
 	repo, _ := project.Find(s.Cwd)
-	ownPane, ownAgent := s.Env.Get("HERDR_PANE_ID"), project.Self(repo, s.Cfg, s.Env) // derived (T-786)
+	ownPane, _ := project.Pane(s.Env)            // none: no pane of the caller's to spare
+	ownAgent := project.Self(repo, s.Cfg, s.Env) // derived (T-786)
 	stopped := 0
 	for _, p := range panes {
 		if p.Label == "" || p.Agent == "" || p.ID == ownPane || ownAgent != "" && p.Label == ownAgent {
