@@ -42,12 +42,22 @@ checks placement against `docs/module-map.md` at accept).
   main checkout (T-791: an opencode worker's MCP calls lost their name; T-814: a removed role kept write rights).
 
 ## Tests
-- The merge gate is `make check` (`commands.check`, heavy): `make build`, gofmt, `go vet`, `go test ./...`,
-  `make deadcode` (pinned; `herdrtest`/`testkit` excepted), on a `$TMPDIR` GOCACHE when the default is not writable.
-- Two tiers (T-347): a merge of only `cmd/**`/`internal/**` (plus neutral docs) runs `make check-affected`
-  (`commands.check_affected`): `make -s build` (it builds the `dist/obor` that picks the affected packages) and `go
-  test` on the changed packages and their importers (`cmd/affected`) — no gofmt, vet or deadcode, the slot's
-  `check-compile` ran them on the same commit (T-995); every other merge, and `obor nightly`, run the full `make check`.
+- Where tests run (T-961, T-995): the merge slot runs `make check-compile` (build, gofmt, vet, deadcode; no `go test`);
+  the task's lane runs its class's check, for Go `make check-affected` (`make -s build` for the `dist/obor` that picks
+  the packages, then `go test -short` on the changed packages and their importers); the full `make check` (every test,
+  no `-short`) runs at `obor nightly` and before a release; `tests/release` only under `-tags release`
+  (`make check-release`, T-1001).
+- The suite has a budget (T-1002): `tests/budget.json` caps each package's full and `-short` wall time at 2 cores, its
+  git processes and its untagged >= 1 s tests; the nightly's `make check-budget` prints `FAIL budget: …` per breach. A
+  budget is raised only by an owner line in `docs/decisions.md`; a task that gets under it lowers it.
+- Test rules (test rework, `docs/plan/test-suite-rework.md`):
+  - Real git only in `internal/checks` and the CLI tests (`cmd/obor`): the code that runs git. Anywhere else a test
+    uses the package's fake (a `FakeScratch`, a stub runner), not a fixture repo.
+  - A test of >= 1 s starts with `testkit.Slow(t)` and a comment on why it cannot be faster; `-short` skips it.
+  - A task that replaces a mechanism deletes the old mechanism's tests with it; a new test per behaviour, not per
+    call path already covered.
+  - A spec names its expected test change (added, changed, deleted; `templates/task-spec.md`): a task that adds
+    tests without a line for them is a review finding.
 - No load runs (T-543): one plain `go test <pkgs>` at a time — `-count` > 1, `-race` and two test commands at once
   (`&`, `xargs -P`, `parallel`) are denied by the guard for every role; the gate and nightly run the rest.
 - Tests are Go only (`go test ./...`; no bash suite). Tests build fixture repos in a temp dir and put a stub `herdr`
