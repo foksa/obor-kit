@@ -600,26 +600,21 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	if err := l.stop(ctx, t, req.Force, false, "--force to restart anyway"); err != nil {
 		return port.Started{}, err
 	}
-	// The start runs only once the pane is a shell again (T-1053): until the old agent's exit is reaped, herdr answers
-	// agent.start with agent_pane_busy, and the env line would fail in a pane that still runs it. One bound covers this
-	// wait and the start retries below; past it, no start and a FAIL naming the pane. Only a pane that ran an agent is
-	// waited on: a pane at a shell, or one running a person's program, is setEnv's to refuse.
-	shellBy := time.Now().Add(l.shellWait())
-	if t.entry.Agent != "" {
-		if err := l.awaitShell(ctx, t, shellBy); err != nil {
-			return port.Started{}, err
-		}
-	}
-	if err := l.setEnv(ctx, t); err != nil {
-		return port.Started{}, err
-	}
 	if sid != "" {
 		l.say("resuming %s (from %s)", sid, src)
 	}
+	// The start runs only once the pane is a shell again (T-1053): until the old agent's exit is reaped, herdr answers
+	// agent.start with agent_pane_busy, and the env line would fail in a pane that still runs it. One bound covers this
+	// wait and the start's retries; past it, no start and a FAIL naming the pane. Only a pane that ran an agent is
+	// waited on (Await): a pane at a shell, or one running a person's program, is setEnv's to refuse.
 	seen, err := l.start(ctx, Start{Agent: t.agent, Kind: t.kind, Pane: t.pane, Label: t.entry.Label, Args: args,
-		Resume: sid, Session: t.session, Prompt: prompt, Lane: t.info.Lane}, shellBy)
+		Resume: sid, Session: t.session, Prompt: prompt, Lane: t.info.Lane, Shell: l.shellWait(), Await: t.entry.Agent != "",
+		Env: func(ctx context.Context) error { return l.setEnv(ctx, t) }})
 	var se *StartError
 	switch {
+	case errors.As(err, &se) && se.NoShell:
+		return port.Started{}, l.giveUp(ctx, t, "pane %s is not a shell after %s (the old agent has not left): nothing started",
+			t.pane, l.shellWait())
 	case errors.As(err, &se) && se.NotReady:
 		return port.Started{}, l.giveUp(ctx, t, "start failed in %s (%s)", t.pane, se.Hint)
 	case errors.As(err, &se) && port.ErrorCode(se.Err) == "agent_pane_busy":

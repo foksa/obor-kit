@@ -251,6 +251,8 @@ func TestPlacementSkipsAnotherProjectsLeadTab(t *testing.T) {
 
 // A pane a new tab or a split makes is not an available shell at once (live 2026-10-31: "agent target pane w5:p10 is
 // not an available shell (agent_pane_busy)"): the start waits for herdr to report a shell there, within the bound.
+// T-1057: setup's direct starter entry point into launch's one start (its shell wait and busy retry, the case table in
+// internal/launch); past setup's bound, setup's own refusal.
 func TestNewPaneShellIsWaitedFor(t *testing.T) {
 	t.Parallel()
 	t.Run("busy 0.3 s: the start waits and succeeds", func(t *testing.T) {
