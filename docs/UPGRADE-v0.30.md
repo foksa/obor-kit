@@ -12,8 +12,8 @@ obor config validate      # names a configuration problem you still have
 obor serve restart
 ```
 
-`obor config validate` warns about the removed keys `checks.load_limit`, `slots.merge_block_max` and
-`merge.receipt_max_age` (the load wait, the check slot's block and receipts are gone): delete them. New, all optional:
+`obor config validate` warns about the removed keys `checks.load_limit` and `merge.receipt_max_age` (the
+machine-load wait and check receipts are gone): delete them. New, all optional:
 `slots.lane_cpus` (default 2), `merge.classes[].with_full`, `branches.promote` and `merge.promote_weight` (below).
 
 Then restart the running agents (an agent's MCP server is the binary it started with): `obor stop --force "v0.30"`
