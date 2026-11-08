@@ -63,6 +63,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (RV-154, accepted) RV-154 verify V1 (design.md slot sentence implied compile/nightly avoid the merge marker): fixed by the lead after the second verify (design.md, one sentence), not re-verified
 - (RV-151, accepted) herdr adapter decodes an omitted launch_pending as false (launched): true for herdr 0.9.5 (live H-L12/H-L13); a herdr that stops sending the field would fall back to listing evidence — recheck the probe on each herdr upgrade (likelihood: low, at upgrade only; fix: a version check, ~10 lines)
 - (RV-149, accepted) (RV-149 verify, unlikely: a Codex lead) an unattended restore (serve reconnect or the herdr plugin) of a Codex lead with a quarantined helper only logs the warning to the restore log and starts; fix when a project runs a Codex lead: restore refuses it and raises an owner-visible line (~30-70 lines)
 - (RV-148, accepted) (RV-148 verify 2, unlikely: a config edit during an in-progress worker start on a keep lane, then the same alias next) the start result records the config rev re-read after the launch (dispatch.go:1167), not the one the launcher used; fix: carry the launch's config rev through the launcher result (~20-40 lines) when keep lanes are in real use
