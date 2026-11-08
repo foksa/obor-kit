@@ -16,8 +16,8 @@
 // A missing entry for a package with tests is a breach too, so a new package is never unbudgeted. A green run prints
 // `budget OK: N packages` and exits 0; a breach exits 1 (the nightly records it as a red non-gating line).
 //
-// The budgets are seeded from one quiet machine's run x1.5: `go run ./tests/budget -seed` prints the file to stdout,
-// keeping the per-test caps and untagged_s of the tests/budget.json it finds (T-1007). A budget is raised only by an
+// The budgets are seeded from one quiet machine's run x1.5: `go run ./tests/budget -seed` writes tests/budget.json
+// itself, keeping the per-test caps and untagged_s of the file it finds (T-1007, T-1008). A budget is raised only by an
 // owner line in docs/decisions.md and lowered by any task that gets under it (docs/plan/test-suite-rework.md §3).
 // Per-test caps are hand-set after a seed: they record a cost the project accepts.
 package main
@@ -247,6 +247,43 @@ func seeded(root string, full, short map[string]Run) (File, error) {
 	return seed(full, short, prev), nil
 }
 
+// seedFile is -seed's write (T-1008): the seeded file into tests/budget.json, through a temp file in the same dir and a
+// rename, so the old file stays on any error. A tier that did not pass is no measurement and writes nothing; before, the
+// Makefile's redirect truncated the file before seeded could read its caps (RV-139 #2).
+func seedFile(root string, pkgs []string, full, short map[string]Run) error {
+	for _, pkg := range pkgs {
+		if !full[pkg].Passed || !short[pkg].Passed {
+			return fmt.Errorf("%s did not pass; tests/budget.json left unchanged", pkg)
+		}
+	}
+	f, err := seeded(root, full, short)
+	if err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(f, "", "  ")
+	if err != nil {
+		return err
+	}
+	dir := filepath.Join(root, "tests")
+	tmp, err := os.CreateTemp(dir, ".budget-*.json")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	defer os.Remove(name) // a failed write or rename leaves no temp file behind
+	if _, err := tmp.Write(append(b, '\n')); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(name, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(name, filepath.Join(dir, "budget.json"))
+}
+
 // runner runs the tiers in one module root with the counting git wrapper first on PATH and a private TMPDIR.
 type runner struct {
 	goBin string
@@ -464,7 +501,7 @@ func main() {
 // run is main's work, returning the exit status: 0 green, 1 a breach, 2 the check itself could not run. It returns
 // instead of exiting so the deferred close removes the work dir (a breached run leaves no temp dirs behind).
 func run() int {
-	seedFlag := flag.Bool("seed", false, "print a tests/budget.json measured now (x1.5) and compare nothing")
+	seedFlag := flag.Bool("seed", false, "write tests/budget.json measured now (x1.5) and compare nothing")
 	verbose := flag.Bool("v", false, "print each package's measurement to stderr")
 	flag.Parse()
 
@@ -513,15 +550,10 @@ func run() int {
 	}
 
 	if *seedFlag {
-		f, err := seeded(root, full, short)
-		if err != nil {
+		if err := seedFile(root, pkgs, full, short); err != nil {
 			return fail(err)
 		}
-		b, err := json.MarshalIndent(f, "", "  ")
-		if err != nil {
-			return fail(err)
-		}
-		fmt.Println(string(b))
+		fmt.Fprintln(os.Stderr, "seed: wrote tests/budget.json")
 		return 0
 	}
 	lines, n := check(budget, pkgs, full, short, r.leftovers())

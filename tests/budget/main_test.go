@@ -345,6 +345,57 @@ func TestSeededKeepsCaps(t *testing.T) {
 	}
 }
 
+// T-1008 (RV-139 #2): -seed writes tests/budget.json itself, over the caps of the file it finds and complete for every
+// measured package; a tier that failed writes nothing, so the old file stays byte for byte.
+func TestSeedWritesFile(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "tests"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "tests", "budget.json")
+	prev := `{"untagged_s":2.5,"tests":{"a TestSlow":4},"packages":{"a":{"short_s":1,"full_s":1,"git_procs":0}}}`
+	if err := os.WriteFile(path, []byte(prev), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	full := map[string]Run{"a": {Passed: true, Elapsed: 2.0, Git: 2}, "b": {Passed: true, Elapsed: 1.0}}
+	short := map[string]Run{"a": {Passed: true, Elapsed: 1.0}, "b": {Passed: true, Elapsed: 0.5}}
+	if err := seedFile(root, []string{"a", "b"}, full, short); err != nil {
+		t.Fatalf("seedFile: %v", err)
+	}
+	got, err := load(root)
+	if err != nil {
+		t.Fatalf("the seeded file does not load: %v", err)
+	}
+	if got.UntaggedS != 2.5 {
+		t.Errorf("seeded untagged_s = %v; want the old file's 2.5", got.UntaggedS)
+	}
+	if len(got.Tests) != 1 || got.Tests["a TestSlow"] != 4 {
+		t.Errorf("seeded tests = %v; want the old file's a TestSlow 4", got.Tests)
+	}
+	if len(got.Packages) != 2 {
+		t.Errorf("seeded packages = %v; want both measured packages", got.Packages)
+	}
+	if b, want := got.Packages["b"], (Budget{ShortS: 0.8, FullS: 1.5, GitProcs: 0}); b != want {
+		t.Errorf("seeded package b = %+v; want the measurement %+v", b, want)
+	}
+	ents, err := os.ReadDir(filepath.Join(root, "tests"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ents) != 1 || ents[0].Name() != "budget.json" {
+		t.Errorf("the seed left %d entries in tests/; want only budget.json (no temp file)", len(ents))
+	}
+
+	before := readFile(t, path)
+	bad := map[string]Run{"a": {Passed: true, Elapsed: 2.0, Git: 2}, "b": {Passed: false, Elapsed: 1.0}}
+	if err := seedFile(root, []string{"a", "b"}, full, bad); err == nil {
+		t.Fatal("seedFile seeded a failed tier; want an error")
+	}
+	if after := readFile(t, path); after != before {
+		t.Errorf("a failed measurement changed tests/budget.json:\n%s", after)
+	}
+}
+
 // T-1004: a budget file without untagged_s is an error, not a zero threshold (which would report every test).
 func TestLoadNeedsUntaggedS(t *testing.T) {
 	root := t.TempDir()

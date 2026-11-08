@@ -37,23 +37,24 @@ func (c Class) Mode() string {
 // matched class, config order, are the partial's (a class matched by several entries once, by name); only neutral files
 // → partial neutral. A class named neutral never counts as partial (it would read as guard-only).
 //
-// Full keeps the matched class names too (T-1007): runChecks runs the checks of those marked with_full after check.
+// Full keeps the matched class names too (T-1007): runChecks runs the checks of those marked with_full after check. A
+// forced or no-guard merge records its reason first and scans the files anyway (T-1008): its matched classes keep their
+// with_full checks.
 func Classify(m config.Merge, files []string, forced bool) Class {
-	full := func(format string, a ...any) Class { return Class{Reason: fmt.Sprintf(format, a...)} }
+	reason := "" // the full reason: forced or no-guard before any file, else the first file that decides full
 	switch {
 	case forced:
-		return full("forced")
+		reason = "forced"
 	case m.Guard == "":
-		return full("no-guard")
+		reason = "no-guard"
 	case len(files) == 0:
-		return full("no-changes")
+		return Class{Reason: "no-changes"}
 	}
 	neutral := m.Neutral
 	if neutral == nil {
 		neutral = []string{"docs/**"}
 	}
 	matched := make([]bool, len(m.Classes))
-	reason := "" // the first file that decides full: its class breaks it, or it has no class
 	for _, f := range files {
 		if matchAny(f, neutral) {
 			continue
