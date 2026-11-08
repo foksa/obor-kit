@@ -477,10 +477,11 @@ var cutSteps = []cutStep{
 	},
 }
 
-// The cut table: for each step and every N, the shim fails the step's N-th git
-// call; that run is an error (not decided), and the step run again gives the uncut run's outcome and end state. The
-// last N is the first one the step never reaches: that run is the uncut one. The step's start state is built once per
-// step and copied for every N (T-998: the setup's merges were rebuilt for every git call before).
+// The cut table: for each step, the shim fails the step's N-th git call, one N per state-changing call; that run is an
+// error (not decided), and the step run again gives the uncut run's outcome and end state. One read-only call per
+// step is cut too, so a failing read is shown to take the step's error path as well. The step's start state is built
+// once per step and copied for every N (T-998: the setup's merges were rebuilt for every git call before; T-1000: the
+// read-only calls run uncut, so the cost grows with the writes, not with every call).
 func TestScratchCutTable(t *testing.T) {
 	t.Parallel()
 	for _, st := range cutSteps {
@@ -495,33 +496,85 @@ func TestScratchCutTable(t *testing.T) {
 				t.Fatalf("uncut: %v\noutput:\n%s", err, ref.out.String())
 			}
 			st.end(ref, in, out)
-			calls := len(ref.calls())
-			if calls == 0 {
+			calls := ref.calls()
+			if len(calls) == 0 {
 				t.Fatal("precondition: the step calls git")
 			}
-			for n := 1; n <= calls; n++ {
+			for _, n := range cutPoints(calls) {
 				y := copySx(t, start)
 				y.arm(n)
 				got, _, err := st.call(y, in)
-				cut := y.calls()
-				if len(cut) < n {
-					t.Fatalf("cut %d: the step made only %d git calls (uncut: %d)", n, len(cut), calls)
+				if run := y.calls(); len(run) < n {
+					t.Fatalf("cut %d: the step made only %d git calls (uncut: %d)", n, len(run), len(calls))
 				}
 				if err == nil {
-					t.Fatalf("cut %d (git %s): outcome %q, want an error", n, cut[n-1], got)
+					t.Fatalf("cut %d (git %s): outcome %q, want an error", n, calls[n-1], got)
 				}
 				y.arm(0)
 				got, out, err := st.call(y, in)
 				if err != nil {
-					t.Fatalf("cut %d (git %s), run again: %v\noutput:\n%s", n, cut[n-1], err, y.out.String())
+					t.Fatalf("cut %d (git %s), run again: %v\noutput:\n%s", n, calls[n-1], err, y.out.String())
 				}
 				if got != want {
-					t.Errorf("cut %d (git %s), run again: %s\nwant %s", n, cut[n-1], got, want)
+					t.Errorf("cut %d (git %s), run again: %s\nwant %s", n, calls[n-1], got, want)
 				}
 				st.end(y, in, out)
 			}
 		})
 	}
+}
+
+// cutWrites are the git subcommands that change the repository: the table cuts each of them (T-1000). The other calls
+// the steps make are read-only (rev-parse, status, log, show, diff, cat-file, merge-base, for-each-ref, config, …) and
+// run uncut, except the first read-only call of each step: one cut read shows it too takes the step's error path.
+var cutWrites = []string{"add", "branch", "cherry-pick", "clean", "commit", "merge", "rerere", "reset", "stash",
+	"switch", "tag", "update-ref", "worktree", "write-tree"}
+
+// cutPoints is the 1-based number of every call the table cuts, in call order.
+func cutPoints(calls []string) []int {
+	read := -1 // the first read-only call, cut as the step's one read case
+	var ns []int
+	for i, c := range calls {
+		switch {
+		case cutWrite(c):
+			ns = append(ns, i+1)
+		case read < 0:
+			read = i + 1
+		}
+	}
+	if read > 0 {
+		ns = append(ns, read)
+		slices.Sort(ns)
+	}
+	return ns
+}
+
+// cutWrite reports whether call changes the repository, so the table cuts it. A call is git's global -C and -c options,
+// then the subcommand; a read (branch --show-current) classifies as one even though branch can write.
+func cutWrite(call string) bool {
+	sub, args := cutCall(call)
+	if sub == "branch" && slices.Contains(args, "--show-current") {
+		return false
+	}
+	return slices.Contains(cutWrites, sub)
+}
+
+// cutCall splits a recorded call ("-C <dir> [-c k=v …] <sub> <args…>", as the shim logs it) into its subcommand and
+// the args after it.
+func cutCall(call string) (string, []string) {
+	f := strings.Fields(call)
+	i := 0
+	for i < len(f) && strings.HasPrefix(f[i], "-") {
+		if f[i] == "-C" || f[i] == "-c" { // git's options that take a value
+			i += 2
+			continue
+		}
+		i++
+	}
+	if i >= len(f) {
+		return "", nil
+	}
+	return f[i], f[i+1:]
 }
 
 // A lane gate from any foreign state of serve's worktree (an open merge, a dirty tree, HEAD elsewhere, the worktree
