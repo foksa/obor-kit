@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -140,5 +141,37 @@ func TestQueueListsStoredSpecsWithServeStatus(t *testing.T) {
 	if len(revived.Queue.Waiting) != 2 || revived.Queue.Waiting[0].Task != "T-1" ||
 		revived.Queue.Waiting[0].WaitsOn != WaitsNever || revived.Queue.Waiting[1].Task != "T-2" {
 		t.Errorf("waiting %+v, want T-1 queued again (never dispatched) and T-2", revived.Queue.Waiting)
+	}
+}
+
+// T-1030: the queue lists serve's high waiting dispatches before the ordinary ones (serve's order is the lane's pick
+// order) and carries the flag; its order is serve's status's alone, the view never reads a spec (a spec never
+// dispatched is ordinary).
+func TestQueueListsHighWaitingTasksFirst(t *testing.T) {
+	t.Parallel()
+	p := testkit.NewDir(t)
+	p.Config()
+	now := time.Now()
+	storeSpec(t, p, "T-8", "a spec never dispatched")
+	waiting := func(task string, high bool, after ...string) wire.TaskStatus {
+		return wire.TaskStatus{Task: task, Attempt: 1, State: "waiting", Phase: wire.PhaseWaiting, High: high,
+			After: after, Level: "medium", Types: []string{"sonnet"}, Difficulty: "medium", Model: "sonnet"}
+	}
+	ss := wire.Status{Connected: true, Project: &wire.ProjectStatus{Name: "proj", Root: p.Root,
+		Tasks: []wire.TaskStatus{waiting("T-2", false), waiting("T-4", true), waiting("T-3", true, "T-5")}}}
+	v := queueOf(t, p, ss, nil, now)
+	if !v.Serve.Project {
+		t.Fatalf("precondition: serve has this project: %+v", v.Serve)
+	}
+	var got []string
+	var high []bool
+	for _, w := range v.Queue.Waiting {
+		got, high = append(got, w.Task), append(high, w.High)
+	}
+	if want := []string{"T-3", "T-4", "T-2", "T-8"}; !slices.Equal(got, want) {
+		t.Fatalf("waiting %v, want %v: the high ones first, then by task id", got, want)
+	}
+	if want := []bool{true, true, false, false}; !slices.Equal(high, want) {
+		t.Errorf("waiting high flags %v, want %v: the flag is serve's", high, want)
 	}
 }

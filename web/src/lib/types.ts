@@ -127,6 +127,7 @@ export interface TaskStatus {
   running?: string;
   after?: string[];
   why?: string;
+  high?: boolean; // its dispatch goes first for the next free lane when it waits (T-1030)
   level?: string;
   types?: string[];
   difficulty?: string;
@@ -190,6 +191,7 @@ export interface WaitItem {
   waits_on: string;
   after?: string[];
   why?: string;
+  high?: boolean; // its dispatch goes first for the next free lane (Priority: high, or a fix of the promotion's review; T-1030)
   level?: string;
   types?: string[];
   difficulty?: string;

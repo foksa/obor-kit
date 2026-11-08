@@ -233,7 +233,7 @@ func specFirst(cfg *config.Config, sp spec.Spec, refs []string) []string {
 // waitLane records fact waiting for c.Task's request (under a.verdicts) when none of its level's models gets a lane
 // (nl): the reply WAITING <task> (queued): <why> (<level>: <models>) and the lanes still idle. It replaces a waiting
 // fact of the task (a new request: models, after). The merge loop dispatches it when a lane frees or a pause ends
-// (waiting tasks oldest first, passOrder).
+// (passOrder: a high task first, then oldest wait first, T-1030).
 func (a *App) waitLane(p *proj, c wire.Call, nl noLaneError) (string, error) {
 	mt, held := a.held(p, c.Task)
 	if !mt.dispatchable() {
@@ -692,6 +692,27 @@ func (p *proj) foldWaiting(r event.Record) {
 	p.folded.loop[r.Task] = next
 	delete(p.waitLine, r.Task) // a new wait: no refusal of the one it replaces (its reason, its hour)
 }
+
+// waitHigh is whether task's waiting dispatch takes the next free lane before every ordinary waiting one (T-1030): its
+// stored spec is high (highPriority). A project with no log or store (a hand-built one in a test) has no specs. Under mu.
+func (p *proj) waitHigh(task string) bool {
+	if p.log == nil || p.log.DB() == nil {
+		return false
+	}
+	row, ok, err := specOf(p, task)
+	return err == nil && ok && highPriority(row.Spec, p.promReview())
+}
+
+// highPriority is whether spec's task is high (T-1030): its `Priority: high` line, or a Fixes: of rv, the review the
+// promotion waits for ("" none).
+func highPriority(sp spec.Spec, rv string) bool {
+	return sp.Priority == spec.PriorityHigh || rv != "" && sp.FixesReview == rv
+}
+
+// promReview is the review the promotion waits for (T-1030): p.prom.waitRV, set while a GREEN run waits on its close
+// (promoteHeads, T-977: what obor status shows as the promotion's run and Review); "" when nothing waits, promotion
+// off or nothing to promote. Under mu.
+func (p *proj) promReview() string { return p.prom.waitRV }
 
 // pickWaiting is a waiting task's next step (under mu; readiness rule 1): nothing while a task it waits for is not
 // merged; one of them dropped or rejected: needs-you{after}; all merged: the dispatch (waitDispatch). A task it waits

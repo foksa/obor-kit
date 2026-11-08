@@ -27,6 +27,8 @@ type Spec struct {
 	Protected   []string // the exact paths of the "## Protected files this task may edit" section
 	Ref         string   // Ref: an external tracker's id ("" when none)
 	RefOK       bool     // a Ref: line
+	Priority    string   // the Priority: value, as written ("" when no line)
+	PriorityOK  bool     // a Priority: line
 }
 
 // Parse reads a spec's text into its head: never fails, an old stored spec parses as its lines read today.
@@ -35,17 +37,18 @@ func Parse(text string) Spec {
 	review, reviewOK := reviewValue(text)
 	fixesReview, fixesNote, fixesOK := fixes(text)
 	ref, refOK := headValue(text, "Ref:")
+	priority, priorityOK := headValue(text, "Priority:")
 	return Spec{
 		Title: title(text), Level: level, LevelKnown: known, Models: models(text), OldType: oldTypeLine(text),
 		Review: review, ReviewOK: reviewOK, OnMerge: reviewOnMerge(text),
 		FixesReview: fixesReview, FixesNote: fixesNote, FixesOK: fixesOK, Protected: protected(text),
-		Ref: ref, RefOK: refOK,
+		Ref: ref, RefOK: refOK, Priority: priority, PriorityOK: priorityOK,
 	}
 }
 
-// Validate is what obor spec set refuses, in one place (T-764, T-790, T-878, T-932, T-1022): a spec without a title or
-// a known difficulty, one with the old Type: line, a Review: value but "on merge", a fix with Review: on merge, or an
-// empty Ref:. task names the spec in the messages.
+// Validate is what obor spec set refuses, in one place (T-764, T-790, T-878, T-932, T-1022, T-1030): a spec without a
+// title or a known difficulty, one with the old Type: line, a Review: value but "on merge", a fix with Review: on
+// merge, an empty Ref:, or a Priority: value but high. task names the spec in the messages.
 func Validate(task string, s Spec) error {
 	switch {
 	case s.Title == "":
@@ -61,6 +64,8 @@ func Validate(task string, s Spec) error {
 		return errors.New("a fix (Fixes:) is reviewed by its verify; drop the Review: on merge line")
 	case s.RefOK && s.Ref == "":
 		return errors.New(`the "Ref:" line needs an id (an external tracker's id)`)
+	case s.PriorityOK && s.Priority != PriorityHigh:
+		return fmt.Errorf("the \"Priority:\" line takes one value: %q", PriorityHigh)
 	}
 	return nil
 }
@@ -274,6 +279,10 @@ func oldTypeLine(text string) bool {
 // ReviewOnMergeValue is the one value of the spec's optional `Review:` line (T-878).
 const ReviewOnMergeValue = "on merge"
 
+// PriorityHigh is the one value of the spec's optional `Priority:` line (T-1030): the task's waiting dispatch goes
+// first for the next free lane.
+const PriorityHigh = "high"
+
 // reviewOnMerge reports whether the spec asks for a review once the task merges (T-878, T-932): the line
 // `Review: on merge` between its title and its first "## " heading, or `Difficulty: hard`; never for a spec with a
 // `Fixes:` line (its verify is its review).
@@ -306,7 +315,7 @@ func fixes(text string) (review, note string, ok bool) {
 }
 
 // headValue is the trimmed rest of the first line starting with key between the spec's title and its first "## "
-// heading; ok false when there is none. The Review:, Fixes: and Ref: lines are read this way.
+// heading; ok false when there is none. The Review:, Fixes:, Ref: and Priority: lines are read this way.
 func headValue(text, key string) (string, bool) {
 	in := false
 	for _, l := range strings.Split(text, "\n") {

@@ -11,8 +11,9 @@ import (
 // and advance decide with them, and obor status reports the same (scratchQueue): the view copies it, never predicts.
 
 // passOrder is the order a pass drives p's tasks in (advance): by id as strings (T-10 before T-9), the waiting ones
-// last (a task they wait for may merge in the same pass), oldest wait first (its waiting fact's seq; T-723: a freed
-// lane goes to the oldest waiting task not at its type's max). Under mu.
+// last (a task they wait for may merge in the same pass), a high one before every ordinary one (T-1030: its spec says
+// so), then oldest wait first (its waiting fact's seq; T-723: a freed lane goes to the oldest waiting task not at its
+// type's max). Under mu.
 func (p *proj) passOrder() []string {
 	var tasks, waiting []string
 	for task, mt := range p.folded.loop {
@@ -23,7 +24,14 @@ func (p *proj) passOrder() []string {
 		}
 	}
 	sort.Strings(tasks)
+	high := make(map[string]bool, len(waiting))
+	for _, task := range waiting {
+		high[task] = p.waitHigh(task)
+	}
 	sort.Slice(waiting, func(i, j int) bool {
+		if high[waiting[i]] != high[waiting[j]] {
+			return high[waiting[i]]
+		}
 		a, b := p.folded.loop[waiting[i]], p.folded.loop[waiting[j]]
 		if a.dispSeq != b.dispSeq {
 			return a.dispSeq < b.dispSeq

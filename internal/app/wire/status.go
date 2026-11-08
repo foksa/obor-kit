@@ -286,6 +286,10 @@ type TaskStatus struct {
 
 	After []string `json:"after,omitempty"` // waiting: the tasks it waits for
 	Why   string   `json:"why,omitempty"`   // waiting, all it waits for merged: its dispatch's last refusal
+	// High is a waiting task whose dispatch takes the next free lane before the ordinary waiting ones (T-1030): its
+	// spec's `Priority: high`, or a Fixes: of the review the promotion waits for. The view's queue lists the high ones
+	// first, obor status marks them.
+	High  bool     `json:"high,omitempty"`
 	Level string   `json:"level,omitempty"` // waiting: the difficulty level its models came from
 	Types []string `json:"types,omitempty"` // waiting: the models it takes (model refs, T-695, T-765)
 	// Difficulty is a waiting task's spec Difficulty level (its dispatch's level, else its stored spec's line: a --model

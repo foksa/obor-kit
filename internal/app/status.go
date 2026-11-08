@@ -64,12 +64,14 @@ func (a *App) Status() wire.Status {
 		ps.Facts = append(ps.Facts, p.needsYou()...)
 		intents := p.log.OpenIntents()
 		steps := p.stepPhases(intents)
+		rv := p.promReview() // T-1030: the review the promotion waits for
 		for _, mt := range p.folded.loop {
 			if mt.state != stMerged {
 				ts := wire.TaskStatus{Task: mt.task, Lane: mt.lane, Attempt: mt.attempt, State: mt.shown(),
 					Ended: states[mt.state].ended, Phase: a.phaseOf(p, mt, steps), Stage: a.stageOf(p, mt, steps),
 					Effort: mt.disp.Effort}
-				if row, ok, err := specOf(p, mt.task); err == nil && ok { // T-1022: the spec's external id
+				row, hasSpec, err := specOf(p, mt.task)
+				if err == nil && hasSpec { // T-1022: the spec's external id
 					ts.Ref = row.Spec.Ref
 				}
 				if p.running.Task == mt.task {
@@ -87,6 +89,7 @@ func (a *App) Status() wire.Status {
 					ts.After, ts.Why = mt.disp.After, p.waitLine[mt.task].line
 					ts.Level, ts.Types = mt.disp.Level, mt.disp.Types
 					ts.Difficulty, ts.Model = p.waitDifficulty(mt), p.firstUnpaused(mt.disp.Types, now)
+					ts.High = err == nil && hasSpec && highPriority(row.Spec, rv)
 				}
 				key, open := mt.workerJob()
 				if !open {
