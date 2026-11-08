@@ -396,8 +396,8 @@ func Load(root string) (*Config, error) {
 	return c, err
 }
 
-// LoadDaemon is Load for the long-running process (obor serve): a key this binary does not know
-// (the config is newer than the binary) is ignored with one warning per key and process on Warn, not an error that
+// LoadDaemon is Load for the long-running process (obor serve): a key this binary does not know (the config is newer
+// than the binary, or the key was retired) is ignored with one warning per key and process on Warn, not an error that
 // stops the loop (T-377). Every other error is Load's.
 func LoadDaemon(root string) (*Config, error) {
 	c, unknown, err := read(root)
@@ -413,16 +413,17 @@ func LoadDaemon(root string) (*Config, error) {
 func LoadHook(root string) (*Config, []string, error) { return read(root) }
 
 // LoadReader is Load for the readers (obor status, obor stop/start, obor web; T-709): a key this binary does not know (a
-// long-running obor web older than the config) is ignored, and warn names it, instead of failing the page. Every other
-// error is Load's; obor config validate (Load) keeps refusing such a config. The readers and serve (LoadDaemon, T-377)
-// are lenient, validate strict: that is the contract (T-710).
+// config newer than a long-running obor web, or a key this obor retired) is ignored, and warn names it, instead of
+// failing the page. Every other error is Load's; obor config validate (Load) keeps refusing such a config. The readers
+// and serve (LoadDaemon, T-377) are lenient, validate strict: that is the contract (T-710).
 func LoadReader(root string) (cfg *Config, warn string, err error) {
 	c, unknown, err := read(root)
 	if err != nil || len(unknown) == 0 {
 		return c, "", err
 	}
 	return c, "WARN " + strings.TrimPrefix(c.unknownErr.Error(), "obor: ") +
-		" ignored: this obor binary is older than the config (restart it; obor config validate)", nil
+		" ignored: this obor does not know it — either this binary is older than the config (restart it) or the" +
+		" key was retired (obor config validate names it; delete it)", nil
 }
 
 // Warn receives LoadDaemon's warnings.
@@ -532,7 +533,8 @@ func warnUnknown(root, key string) {
 	if _, dup := warned.LoadOrStore(root+": "+key, true); dup {
 		return
 	}
-	fmt.Fprintf(Warn, "obor: %s: unknown key %q ignored: this binary is older than the config: restart serve\n",
+	fmt.Fprintf(Warn, "obor: %s: unknown key %q ignored: this obor does not know it — either this binary is older"+
+		" than the config (restart serve) or the key was retired (obor config validate names it; delete it)\n",
 		filepath.Join(root, ".obor"), key)
 }
 

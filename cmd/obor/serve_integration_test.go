@@ -188,7 +188,9 @@ func TestServeToleratesUnknownConfigKey(t *testing.T) {
 	}
 	_ = cmd.Process.Signal(syscall.SIGTERM)
 	_ = cmd.Wait()
-	if n := strings.Count(out.String(), `"merge.from_a_newer_obor"`); n != 1 || !strings.Contains(out.String(), "restart serve") {
-		t.Errorf("warnings for the key: %d, want 1 naming the restart:\n%s", n, out.String())
+	if n := strings.Count(out.String(), `"merge.from_a_newer_obor"`); n != 1 ||
+		!strings.Contains(out.String(), "older than the config (restart serve)") ||
+		!strings.Contains(out.String(), "key was retired (obor config validate names it; delete it)") {
+		t.Errorf("warnings for the key: %d, want 1 naming both causes:\n%s", n, out.String())
 	}
 }
