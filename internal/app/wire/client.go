@@ -44,7 +44,9 @@ func NewCallID() string {
 }
 
 // Verdict sends the request r (a VerdictReq, a DispatchReq, …) to the app listening at path, its envelope stamped
-// with this binary's version (T-826): its reply line, or the app's refusal as the error. The call has its method's deadline
+// with this binary's version (T-826): its reply line, or the app's refusal as the error. r's JSON is the socket line: the
+// union's keys less the ones no serve reads for its method (T-1060, request_test.go's drops), never a promise of the old
+// bytes. The call has its method's deadline
 // (callDeadline) or ctx's, the earlier. A call its deadline ends says serve may still be working on it (T-825).
 func Verdict(ctx context.Context, path string, r Req) (string, error) {
 	method := r.Method()
