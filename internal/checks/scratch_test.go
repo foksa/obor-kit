@@ -527,8 +527,8 @@ func TestScratchCutTable(t *testing.T) {
 // cutWrites are the git subcommands that change the repository: the table cuts each of them (T-1000). The other calls
 // the steps make are read-only (rev-parse, status, log, show, diff, cat-file, merge-base, for-each-ref, config, …) and
 // run uncut, except the first read-only call of each step: one cut read shows it too takes the step's error path.
-var cutWrites = []string{"add", "branch", "cherry-pick", "clean", "commit", "merge", "rerere", "reset", "stash",
-	"switch", "tag", "update-ref", "worktree", "write-tree"}
+var cutWrites = []string{"add", "branch", "checkout", "cherry-pick", "clean", "commit", "merge", "rerere", "reset",
+	"stash", "switch", "tag", "update-ref", "worktree", "write-tree"}
 
 // cutPoints is the 1-based number of every call the table cuts, in call order.
 func cutPoints(calls []string) []int {
