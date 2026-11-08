@@ -261,5 +261,6 @@ func (kind) InboxRecord(func(string) string) []byte { return nil }
 // Caps: hooks through obor's plugin; a session is recorded but never resumed (Resume false: obor starts an OpenCode
 // agent fresh, T-581), and no hook event carries the version, so the marker takes OPENCODE_VERSION.
 func (kind) Caps() agents.Caps {
-	return agents.Caps{Hooks: agents.HooksPlugin, ModelArg: true, Resume: false, VersionVar: "OPENCODE_VERSION"}
+	return agents.Caps{Hooks: agents.HooksPlugin, ModelArg: true, Resume: false, VersionVar: "OPENCODE_VERSION",
+		Status: agents.StatusTerminal}
 }

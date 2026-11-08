@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -40,9 +41,40 @@ var KindBaseArgs = map[string][]string{
 }
 
 // KindEntry is kinds.<kind>: args appended to every start of the kind, and the prompt_extra its work jobs carry.
+// Command makes it a plugin kind (T-1036): the executable answering obor's kind protocol (docs/agents/kind-protocol.md),
+// a path (relative: to the project root; KindCommand).
 type KindEntry struct {
 	Args        []string `json:"args,omitzero"`
 	PromptExtra string   `json:"prompt_extra,omitempty"`
+	Command     string   `json:"command,omitempty"`
+}
+
+// KindCommand is kinds.<name>.command as a path ("": name is no plugin kind of this config).
+func (c *Config) KindCommand(name string) string {
+	cmd := c.Data.Kinds.M[name].Command
+	if cmd == "" || filepath.IsAbs(cmd) {
+		return cmd
+	}
+	return filepath.Join(c.Root, cmd)
+}
+
+// StateDir is the project's state dir (project.StateDir: config cannot import project).
+func (c *Config) StateDir() string { return filepath.Join(c.Root, ".obor", "state") }
+
+// registerPlugins makes this config's plugin kinds (kinds.<name>.command) the registry's (agents.SetPlugins), each
+// with the manifest obor setup agents cached: no process runs (every load, hooks included). A binary without the
+// plugin package registers none.
+func (c *Config) registerPlugins() {
+	if agents.Plugins == nil {
+		return
+	}
+	var ks []agents.Kind
+	for _, name := range c.Data.Kinds.Keys {
+		if cmd := c.KindCommand(name); cmd != "" {
+			ks = append(ks, agents.Plugins.Kind(name, cmd, c.StateDir()))
+		}
+	}
+	agents.SetPlugins(ks)
 }
 
 // ModelEntry is models.<name>: a model the built-in table lacks, or a built-in one overridden. Kind may be left out
@@ -141,23 +173,24 @@ func (c *Config) CheckModelRef(ref string) error {
 }
 
 // LaunchArgs are the model's launch args: args (with effort: the kind sets it, T-695), then the settings as its kind
-// takes them (agents.Kind.Start: Claude's --settings <settings>; a kind obor has no bridge for: args alone), and a lane's
+// takes them (agents.Kind.Start: Claude's --settings <settings>; a kind obor has no bridge for: args alone; an error: a
+// plugin kind's start failed, agents.StartArgs, T-1036), and a lane's
 // agent starts strict (its obor MCP server alone, T-770). Every agent but a lead starts with
 // {"remoteControlAtStartup":false,"autoMemoryEnabled":false} (only the lead on the phone, T-280, and only the lead keeps
 // auto memory, T-471). role is the agent's (roles.Role.Name; "": none); dir its start dir, the cwd whose committed CLI
 // config the kind's policy flags give way to (agents.Start.Dir, T-1033; "": none read); writeDirs the dirs outside its
 // cwd it writes (RoleWriteDirs: a sandboxed kind's start lets it, T-853).
-func (m Model) LaunchArgs(role, effort, dir string, writeDirs []string) []string {
+func (m Model) LaunchArgs(role, effort, dir string, writeDirs []string) ([]string, error) {
 	var settings map[string]any
 	if role != "lead" {
 		settings = map[string]any{"remoteControlAtStartup": false, "autoMemoryEnabled": false}
 	}
 	k, ok := agents.Lookup(m.Kind)
 	if !ok {
-		return append([]string(nil), m.Args...)
+		return append([]string(nil), m.Args...), nil
 	}
-	return k.Start(agents.Start{Args: m.Args, Settings: settings, Effort: effort, StrictMCP: roles.LaneBound(role),
-		WriteDirs: writeDirs, Dir: dir, Read: os.ReadFile})
+	return agents.StartArgs(k, agents.Start{Args: m.Args, Settings: settings, Effort: effort,
+		StrictMCP: roles.LaneBound(role), WriteDirs: writeDirs, Dir: dir, Read: os.ReadFile})
 }
 
 // StartEnv is the environment a start of this model needs beyond the pane's (agents.Kind.StartEnv: OpenCode's model

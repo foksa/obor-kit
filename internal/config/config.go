@@ -474,6 +474,7 @@ func readWith(root string, doc []byte) (*Config, []string, error) {
 		return nil, nil, fmt.Errorf("obor: %s: %s", filepath.Join(root, ".obor", name), strings.TrimPrefix(err.Error(), "json: "))
 	}
 	c.Data.derive(filepath.Base(root))
+	c.registerPlugins()
 	b, err := json.Marshal(c.Data)
 	if err != nil {
 		return nil, nil, fmt.Errorf("obor: cannot build the effective config: %w", err)

@@ -821,7 +821,11 @@ func (l *Launcher) args(t *target, effort string) ([]string, error) {
 			return nil, project.Failf("%s: %v", t.agent, err)
 		}
 	}
-	return lt.LaunchArgs(t.info.Role, effort, t.info.Cwd, dirs), nil
+	args, err := lt.LaunchArgs(t.info.Role, effort, t.info.Cwd, dirs)
+	if err != nil {
+		return nil, project.Failf("%s: %v", t.agent, err)
+	}
+	return args, nil
 }
 
 func (l *Launcher) kill(pgid int, sig syscall.Signal) error {

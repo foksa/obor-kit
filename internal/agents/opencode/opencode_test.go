@@ -64,7 +64,7 @@ func TestKind(t *testing.T) {
 	if d, ok := k.Deliver("hi", nil); !ok || !d.Typed {
 		t.Errorf("Deliver = %+v, %v; want typed", d, ok)
 	}
-	if got, ok := k.LastTurn([]byte(`{"type":"event_msg","payload":{"type":"task_complete","turn_id":"t1","error":{"message":"m","codex_error_info":"usage_limit_exceeded"}}}` + "\n")); ok { // T-563: its turns are not read (Caps.Turns false below)
+	if got, ok := k.LastTurn([]byte(`{"type":"event_msg","payload":{"type":"task_complete","turn_id":"t1","error":{"message":"m","codex_error_info":"usage_limit_exceeded"}}}` + "\n")); ok { // T-563: its turns are not read (Caps.Status terminal below)
 		t.Errorf("LastTurn = %+v, true; want none read", got)
 	}
 	// T-584: parse the plugin's StopFailure details; the app tests exercise worker and role routing.
@@ -82,7 +82,7 @@ func TestKind(t *testing.T) {
 			t.Errorf("%s: Reset = %v, %v; want %v, %v", c.name, got, limited, c.want, c.limited)
 		}
 	}
-	if c := k.Caps(); c != (agents.Caps{Hooks: agents.HooksPlugin, ModelArg: true, VersionVar: "OPENCODE_VERSION"}) {
+	if c := k.Caps(); c != (agents.Caps{Hooks: agents.HooksPlugin, ModelArg: true, VersionVar: "OPENCODE_VERSION", Status: agents.StatusTerminal}) {
 		t.Errorf("Caps = %+v", c)
 	}
 	if r := k.InboxRecord(env(map[string]string{"CLAUDE_CODE_MESSAGING_SOCKET": "/s"})); r != nil {

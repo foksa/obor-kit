@@ -189,7 +189,13 @@ func (s *Setup) mcpCmd(_ context.Context, args []string) error {
 			continue
 		}
 		k, _ := agents.Lookup(name)
-		m := k.Install(s.Kit, s.Env.Get).MCP
+		in, err := agents.InstallOf(k, s.Kit, s.Env.Get)
+		if err != nil { // a plugin kind's install failed (T-1036)
+			s.say("WARN mcp %s: %v", name, err)
+			bad = true
+			continue
+		}
+		m := in.MCP
 		if m.Where == agents.PerStart { // nothing to install
 			how, _, _ := m.Lane(nil, os.ReadFile)
 			s.say("mcp %s: registered per start (%s)", name, how)
@@ -272,10 +278,20 @@ func (s *Setup) mcpLane(name string) error {
 		s.say("WARN mcp model %s (%s): not registered: obor registers its server for %s", name, lt.Kind, kindList())
 		return project.Failf("mcp model %s", name)
 	}
-	m := k.Install(s.Kit, s.Env.Get).MCP
+	in, err := agents.InstallOf(k, s.Kit, s.Env.Get)
+	if err != nil { // a plugin kind's install failed (T-1036)
+		s.say("WARN mcp model %s (%s): %v", name, lt.Kind, err)
+		return project.Failf("mcp model %s", name)
+	}
+	m := in.MCP
 	// a lane's start: a lane never is the lead, the settings default applies, and a lane's agent starts strict (T-770)
 	// unless the project's committed CLI config opts out (T-1033: the main checkout's copy stands for a lane's)
-	how, registered, static := m.Lane(lt.LaunchArgs("worker", "", s.cfg.Root, nil), os.ReadFile)
+	args, err := lt.LaunchArgs("worker", "", s.cfg.Root, nil)
+	if err != nil {
+		s.say("WARN mcp model %s (%s): %v", name, lt.Kind, err)
+		return project.Failf("mcp model %s", name)
+	}
+	how, registered, static := m.Lane(args, os.ReadFile)
 
 	switch {
 	case !static && registered:

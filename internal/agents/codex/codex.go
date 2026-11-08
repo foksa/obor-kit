@@ -436,5 +436,5 @@ func (kind) Deliver(string, []byte) (agents.Delivery, bool) {
 func (kind) InboxRecord(func(string) string) []byte { return nil }
 
 func (kind) Caps() agents.Caps {
-	return agents.Caps{Hooks: agents.HooksNone, Resume: true, Transcript: true, Turns: true, Sessions: true}
+	return agents.Caps{Hooks: agents.HooksNone, Resume: true, Transcript: true, Status: agents.StatusTranscript, Sessions: true}
 }

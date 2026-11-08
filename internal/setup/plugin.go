@@ -10,7 +10,9 @@ import (
 	"strings"
 
 	"obor/internal/agents"
+	"obor/internal/agents/plugin"
 	"obor/internal/app/port"
+	"obor/internal/config"
 	"obor/internal/project"
 )
 
@@ -268,14 +270,22 @@ func (s *Setup) resumeHint() {
 // install (agents.Install): its plugin link (Plugin), then the obor entry of its user config (a Config registration,
 // configMCP). A link to another kit's copy is re-linked; a file there that is no link, or links elsewhere, is left
 // alone. --remove deletes only that link and that entry. Nothing else is touched; a kind with neither is said once.
+// In a project, each plugin kind its config names (kinds.<name>.command, T-1036) is described first and its manifest
+// cached in the state dir (plugin.Cache), what hooks and the guard read; a plugin kind's install failing is a FAIL.
 func (s *Setup) agentsCmd(args []string) error {
 	remove := len(args) == 1 && args[0] == "--remove"
 	if len(args) > 0 && !remove {
 		return errUsage
 	}
+	if err := s.cachePlugins(); err != nil {
+		return err
+	}
 	for _, name := range agents.Names() {
 		k, _ := agents.Lookup(name)
-		in := k.Install(s.Kit, s.Env.Get)
+		in, err := agents.InstallOf(k, s.Kit, s.Env.Get)
+		if err != nil {
+			return project.Failf("agents %s: %v", name, err)
+		}
 		if in.Plugin == nil && in.MCP.Where != agents.Config {
 			s.say("agents %s: nothing to install", name)
 			continue
@@ -289,6 +299,36 @@ func (s *Setup) agentsCmd(args []string) error {
 			if err := s.configMCP(name, in.MCP, remove); err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+// cachePlugins describes every plugin kind of the project around Dir (none outside a project, or with no config) and
+// caches its manifest, then reloads the config so the registry's plugin kinds carry it.
+func (s *Setup) cachePlugins() error {
+	if s.findRoot() != nil {
+		return nil
+	}
+	cfg, err := config.Load(s.root)
+	if err != nil {
+		return nil
+	}
+	cached := false
+	for _, name := range cfg.Data.Kinds.Keys {
+		cmd := cfg.KindCommand(name)
+		if cmd == "" {
+			continue
+		}
+		if _, err := plugin.Cache(name, cmd, cfg.StateDir()); err != nil {
+			return project.Failf("agents %s: %v", name, err)
+		}
+		s.say("OK agents %s: manifest of %s cached (%s)", name, cmd, s.rel(plugin.CacheFile(cfg.StateDir(), name)))
+		cached = true
+	}
+	if cached {
+		if _, err := config.Load(s.root); err != nil {
+			return project.Failf("%v", err)
 		}
 	}
 	return nil

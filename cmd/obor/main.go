@@ -19,6 +19,7 @@ import (
 	_ "obor/internal/agents/claude"
 	_ "obor/internal/agents/codex"
 	_ "obor/internal/agents/opencode"
+	_ "obor/internal/agents/plugin" // the plugin kinds a config names (kinds.<name>.command, T-1036)
 	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/guard"

@@ -59,10 +59,10 @@ func TestModelEffortPerKind(t *testing.T) {
 		if err := c.CheckModelRef(tc.model + ":" + tc.effort); err != nil {
 			t.Errorf("%s:%s refused: %v", tc.model, tc.effort, err)
 		}
-		if got := strings.Join(m.LaunchArgs("lead", tc.effort, "", nil), " "); !strings.Contains(got, tc.inArgs) {
+		if got := strings.Join(launchArgs(t, m, "lead", tc.effort), " "); !strings.Contains(got, tc.inArgs) {
 			t.Errorf("%s at %s: args %q, want %q in them", tc.model, tc.effort, got, tc.inArgs)
 		}
-		if got := strings.Join(m.LaunchArgs("lead", "", "", nil), " "); strings.Contains(got, "effort") {
+		if got := strings.Join(launchArgs(t, m, "lead", ""), " "); strings.Contains(got, "effort") {
 			t.Errorf("%s with no effort: args %q set one (the kind's default stands)", tc.model, got)
 		}
 	}
@@ -117,7 +117,7 @@ func TestCodexStartsWithNoDaemon(t *testing.T) {
 			t.Fatalf("Model(%s) is not known", name)
 		}
 		for _, role := range []string{"worker", "reviewer"} {
-			args := m.LaunchArgs(role, "", "", nil)
+			args := launchArgs(t, m, role, "")
 			if n := strings.Count(" "+strings.Join(args, " ")+" ", " --no-daemon "); n != 1 {
 				t.Errorf("%s for %s: args %q carry --no-daemon %d times, want once", name, role, args, n)
 				continue
@@ -130,7 +130,7 @@ func TestCodexStartsWithNoDaemon(t *testing.T) {
 	}
 	for _, name := range []string{"opus", "deepseek"} {
 		m, _ := c.Model(name)
-		if slices.Contains(m.LaunchArgs("reviewer", "", "", nil), "--no-daemon") {
+		if slices.Contains(launchArgs(t, m, "reviewer", ""), "--no-daemon") {
 			t.Errorf("%s: args %q carry Codex's --no-daemon", name, m.Args)
 		}
 	}
@@ -204,4 +204,14 @@ func TestLanesCount(t *testing.T) {
 	if LaneName(12) != "L-12" || LaneName(100) != "L-100" {
 		t.Errorf("LaneName: %s %s", LaneName(12), LaneName(100))
 	}
+}
+
+// launchArgs is m.LaunchArgs with no dir or write dirs; an error fails the test (a compiled kind's start has none).
+func launchArgs(t *testing.T, m Model, role, effort string) []string {
+	t.Helper()
+	args, err := m.LaunchArgs(role, effort, "", nil)
+	if err != nil {
+		t.Fatalf("LaunchArgs(%s, %s): %v", role, effort, err)
+	}
+	return args
 }

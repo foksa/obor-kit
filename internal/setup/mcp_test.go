@@ -248,3 +248,32 @@ func TestSetupAgentsEveryKind(t *testing.T) {
 		t.Errorf("usage names agents: %s", Usage())
 	}
 }
+
+// TestSetupAgentsPluginKind (T-1036): obor setup agents describes a plugin kind the config names, caches its manifest in
+// the state dir and installs what its install call returns; an install that fails is a FAIL naming the kind and the
+// call. Not parallel: the load registers the plugin kind in the process's registry.
+func TestSetupAgentsPluginKind(t *testing.T) {
+	x := newFx(t, testkit.Set("kinds.mine", map[string]any{"command": "obor-kind-mine"}))
+	t.Cleanup(func() { agents.SetPlugins(nil) }) // the parallel tests after this one load no config
+	cmd := filepath.Join(x.Root, "obor-kind-mine")
+	manifest := `{"version":1,"name":"mine","status":"terminal"}`
+	script := "#!/bin/sh\ncat >/dev/null\ncase $1 in describe) echo '" + manifest + "';;\n" +
+		"install) if [ -e " + cmd + ".broken ]; then echo nope >&2; exit 2; fi; echo '{\"version\":1,\"mcp\":{\"where\":\"start\"}}';;\nesac\n"
+	if err := os.WriteFile(cmd, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cache := filepath.Join(x.Root, ".obor", "state", "kinds", "mine.json")
+	if _, err := os.Stat(cache); err == nil {
+		t.Fatal("precondition: a manifest cached before setup agents")
+	}
+	out := x.ok(t, "agents")
+	has(t, out, "OK agents mine: manifest of "+cmd+" cached (.obor/state/kinds/mine.json)", "the manifest cached")
+	has(t, out, "agents mine: nothing to install", "its install: per start")
+	if b, err := os.ReadFile(cache); err != nil || !strings.Contains(string(b), `"name": "mine"`) {
+		t.Errorf("cache %s: %s, %v", cache, b, err)
+	}
+	if err := os.WriteFile(cmd+".broken", nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	x.failing(t, "FAIL agents mine: kind mine: install: exit 2: nope", "agents")
+}

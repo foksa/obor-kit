@@ -45,6 +45,26 @@ func (c *Config) Validate(o ValidateOptions) (warns, fails []string) {
 	return append(c.warnings(o), v.warns...), v.fails
 }
 
+// pluginKind: kinds.<k>.command names no compiled kind, is executable and its describe answers with k's manifest
+// (agents.PluginLoader.Check, T-1036: it runs the command once).
+func (v *validator) pluginKind(k string) {
+	path := ".kinds" + key(k) + ".command"
+	switch {
+	case agents.Plugins == nil:
+		v.fail(path, "this obor binary runs no plugin kinds")
+	case !agents.IsPlugin(k):
+		if _, compiled := agents.Lookup(k); compiled {
+			v.fail(path, k+" is a compiled kind: a plugin kind takes a name of its own")
+			return
+		}
+		fallthrough
+	default:
+		if err := agents.Plugins.Check(k, v.c.KindCommand(k)); err != nil {
+			v.fail(path, err.Error())
+		}
+	}
+}
+
 // projectFiles: the notes each agent kind has on the project's committed CLI config in the main checkout (T-1033,
 // agents.ProjectWarnings): a file that does not parse, a key that switches part of obor off. Never a failure.
 func (v *validator) projectFiles() {
@@ -121,7 +141,11 @@ func (v *validator) models() {
 		}
 	}
 	for _, k := range v.d.Kinds.Keys {
-		bridged(".kinds"+key(k), k)
+		if v.d.Kinds.M[k].Command != "" {
+			v.pluginKind(k)
+		} else {
+			bridged(".kinds"+key(k), k)
+		}
 		if slices.Contains(v.d.Kinds.M[k].Args, "--") {
 			v.fail(".kinds"+key(k)+".args", "`--` is not allowed: obor adds the first prompt itself")
 		}

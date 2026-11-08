@@ -111,7 +111,11 @@ func (l *lab) launchOf(kind, model, kit string, writeState func(string, []byte) 
 	if err != nil {
 		return liveStart{}, err
 	}
-	return liveStart{args: m.LaunchArgs("worker", "", l.lane, nil), env: vars}, nil
+	args, err := m.LaunchArgs("worker", "", l.lane, nil)
+	if err != nil {
+		return liveStart{}, err
+	}
+	return liveStart{args: args, env: vars}, nil
 }
 
 // liveModel is the model a kind's real-server case starts: the kind's first built-in model (config.BuiltinModels:
