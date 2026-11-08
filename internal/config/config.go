@@ -253,7 +253,8 @@ type Merge struct {
 	WindowWait any              `json:"window_wait,omitempty"`
 	Classes    List[MergeClass] `json:"classes,omitzero"`
 	Neutral    []string         `json:"neutral,omitzero"`
-	// AffectedFull are globs of files whose change makes `obor affected go` answer "full" (build and test support).
+	// AffectedFull are globs of files whose change makes a project's affected-packages list answer "full" (build and
+	// test support; obor-kit's list is tools/affected, T-1040).
 	AffectedFull []string `json:"affected_full,omitzero"`
 	Guard        string   `json:"guard,omitempty"`
 	// NightlyAt is when obor serve runs the nightly full check ("HH:MM" local time; "": never, T-464).

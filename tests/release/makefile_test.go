@@ -48,12 +48,14 @@ esac
 }
 
 // writeKit makes dir a kit copy for `make build`: the tree's Makefile, VERSION 1.2.3 and a fake go at dir/bin/go that
-// logs its argv to dir/go.log. dir/bin goes first on PATH, so a test can stub git there too.
+// logs its argv to dir/go.log and answers the affected list (`go run ./tools/affected`) with one package. dir/bin goes
+// first on PATH, so a test can stub git there too.
 func writeKit(t *testing.T, dir string) {
 	t.Helper()
 	writeFile(t, filepath.Join(dir, "Makefile"), string(treeFile(t, "Makefile")))
 	writeFile(t, filepath.Join(dir, "VERSION"), "1.2.3\n")
-	writeExec(t, filepath.Join(dir, "bin", "go"), "#!/bin/bash\necho \"$*\" >> \""+filepath.Join(dir, "go.log")+"\"\n")
+	writeExec(t, filepath.Join(dir, "bin", "go"), "#!/bin/bash\necho \"$*\" >> \""+filepath.Join(dir, "go.log")+"\"\n"+
+		"case \"$1 $2\" in \"run ./tools/affected\") echo fx/a ;; esac\n")
 }
 
 // makeBuild runs `make -s -C dir build` on a kit copy (writeKit) and returns the fake go's logged argv.
@@ -283,18 +285,16 @@ func TestMakeCheckShort(t *testing.T) {
 	}
 }
 
-// makeCheckTier runs `make -s <target>` on a kit copy whose go and gofmt log their argv to go.log and whose dist/obor
-// stub prints one affected package, logging its own argv to affected.log. env is appended to the make environment (an
-// inherited CHECK_DIRECT, this lane test's own, removed first). It returns the output, the logged go argv lines and the
-// affected list's argv ("": it was not asked).
+// makeCheckTier runs `make -s <target>` on a kit copy whose go and gofmt log their argv to go.log; the fake go answers
+// `go run ./tools/affected` with one package (fx/a), as the kit's tool would. It returns the output, the logged go argv
+// lines and the affected list's call ("": the tool was not asked). env is appended to the make environment (an
+// inherited CHECK_DIRECT, this lane test's own, removed first).
 func makeCheckTier(t *testing.T, target string, env ...string) (string, []string, string) {
 	t.Helper()
 	dir := testkit.Dir(t)
 	writeKit(t, dir)
 	log := filepath.Join(dir, "go.log")
 	writeExec(t, filepath.Join(dir, "stub", "gofmt"), "#!/bin/bash\necho \"gofmt $*\" >> \""+log+"\"\n")
-	writeExec(t, filepath.Join(dir, "dist", "obor"),
-		"#!/bin/bash\necho \"$*\" >> \""+filepath.Join(dir, "affected.log")+"\"\necho fx/a\n")
 	cmd := exec.Command("make", "-s", "-C", dir, target, "GO="+filepath.Join(dir, "bin", "go"))
 	var base []string
 	for _, kv := range plainMakeEnv() {
@@ -308,14 +308,14 @@ func makeCheckTier(t *testing.T, target string, env ...string) (string, []string
 	if err != nil {
 		t.Fatalf("make %s: %v\n%s", target, err, out)
 	}
-	affected, _ := os.ReadFile(filepath.Join(dir, "affected.log"))
-	return string(out), strings.Split(strings.TrimSpace(readFile(t, log)), "\n"), strings.TrimSpace(string(affected))
+	calls := strings.Split(strings.TrimSpace(readFile(t, log)), "\n")
+	return string(out), calls, goCall(calls, "run ./tools/affected")
 }
 
 // T-961/T-995: check-compile (commands.compile, the merge slot's tier) runs the compile steps only — build, gofmt, vet
 // and deadcode — with no go test (nor the affected list it would test). The lane's class checks run go test and nothing
-// else of the compile tier: check-affected builds dist/obor first (its affected list needs the binary) but runs no
-// gofmt, vet or deadcode, and check-readers and check-web skip the build too — the slot compiled the same commit.
+// else of the compile tier: check-affected asks tools/affected for the list and runs go test (no build, gofmt, vet or
+// deadcode), and check-readers and check-web skip the build too — the slot compiled the same commit.
 func TestMakeCheckTiers(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -327,7 +327,7 @@ func TestMakeCheckTiers(t *testing.T) {
 		affected bool
 	}{
 		{"check-compile", true, true, true, false, false},
-		{"check-affected", true, false, false, true, true},
+		{"check-affected", false, false, false, true, true},
 		{"check-readers", false, false, false, true, false},
 		{"check-web", false, false, false, true, false},
 	} {
@@ -340,7 +340,7 @@ func TestMakeCheckTiers(t *testing.T) {
 			if got := ran("build "); got != c.build {
 				t.Errorf("the tier runs go build %v; want %v: %q", got, c.build, calls)
 			}
-			for _, step := range []string{"vet ", "gofmt -l cmd internal"} {
+			for _, step := range []string{"vet ", "gofmt -l cmd internal tools"} {
 				if got := ran(step); got != c.gate {
 					t.Errorf("the tier runs %q %v; want %v: %q", step, got, c.gate, calls)
 				}
@@ -449,8 +449,8 @@ func TestMakeChecksPassIntegrationTag(t *testing.T) {
 
 // T-1014: the tag's point — a test behind `//go:build integration` runs in check and check-affected and is left out by a
 // plain go test. The fixture is a tiny module whose scratch package has a unit test and a tagged test that fails, so a
-// run of the tagged one is visible in the output; its go is the real go except build (it writes the affected-list stub)
-// and deadcode.
+// run of the tagged one is visible in the output; its go is the real go except build (it writes the affected-list
+// stub), the affected list (it prints the fixture's package) and deadcode.
 func TestIntegrationTagRunsInChecksNotInPlainGoTest(t *testing.T) {
 	t.Parallel()
 	goBin, err := exec.LookPath("go")
@@ -475,7 +475,9 @@ case "$1" in
     mkdir -p "$(dirname "$out")" || exit 1
     printf '#!/bin/sh\necho example.com/fx/scratch\n' > "$out" || exit 1
     chmod +x "$out"; exit 0 ;;
-  run) exit 0 ;; # make deadcode
+  run)
+    [ "$2" != ./tools/affected ] || { echo example.com/fx/scratch; exit 0; }
+    exit 0 ;; # make deadcode
 esac
 exec `+goBin+` "$@"
 `)
@@ -514,9 +516,9 @@ exec `+goBin+` "$@"
 	}
 }
 
-// T-995: check-affected builds dist/obor (the affected list needs it) and drops the rest of GO_GATE, but the lane still
-// catches a vet error: go test runs vet's high-confidence subset (printf here) on the packages it builds, so a changed
-// file with a format mistake fails the tier. The fixture's dist/obor is a real build whose binary prints the changed
+// T-995: check-affected asks tools/affected for the list and runs go test, dropping the rest of GO_GATE, but the lane
+// still catches a vet error: go test runs vet's high-confidence subset (printf here) on the packages it builds, so a
+// changed file with a format mistake fails the tier. The fixture's tool is a real build whose binary prints the changed
 // package.
 func TestMakeCheckAffectedCatchesVetError(t *testing.T) {
 	t.Parallel()
@@ -528,15 +530,10 @@ func TestMakeCheckAffectedCatchesVetError(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "Makefile"), string(treeFile(t, "Makefile")))
 	writeFile(t, filepath.Join(dir, "VERSION"), "1.2.3\n")
 	writeFile(t, filepath.Join(dir, "go.mod"), "module obor\n\ngo 1.21\n")
-	writeFile(t, filepath.Join(dir, "internal", "version", "version.go"),
-		"package version\n\nvar Version = \"dev\"\n") // the build's -X target
-	writeFile(t, filepath.Join(dir, "cmd", "obor", "main.go"),
+	writeFile(t, filepath.Join(dir, "tools", "affected", "main.go"),
 		"package main\n\nimport \"fmt\"\n\nfunc main() { fmt.Println(\"obor/bad\") }\n") // the affected-list stub
 	writeFile(t, filepath.Join(dir, "bad", "bad.go"),
 		"package bad\n\nimport \"fmt\"\n\nfunc Wrong() { fmt.Printf(\"%d\\n\", \"not a number\") }\n")
-	if err := os.MkdirAll(filepath.Join(dir, "dist"), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	cmd := exec.Command("make", "-s", "-C", dir, "check-affected", "GO="+goBin)
 	cmd.Env = plainMakeEnv()
 	out, err := cmd.CombinedOutput()
@@ -555,7 +552,7 @@ func TestMakeCheckAffectedCatchesVetError(t *testing.T) {
 	}
 }
 
-// T-991: CHECK_DIRECT=1 makes check-affected ask obor affected go for the changed packages only (--direct; serve's lane
+// T-991: CHECK_DIRECT=1 makes check-affected ask tools/affected for the changed packages only (--direct; serve's lane
 // test sets it when branches.promote is); without it, or with another value, the list keeps the importers' expansion.
 func TestMakeCheckAffectedDirect(t *testing.T) {
 	t.Parallel()
@@ -564,15 +561,15 @@ func TestMakeCheckAffectedDirect(t *testing.T) {
 		env  []string
 		want string
 	}{
-		{"CHECK_DIRECT=1", []string{"CHECK_DIRECT=1"}, "affected go --direct"},
-		{"unset", nil, "affected go"},
-		{"CHECK_DIRECT=0", []string{"CHECK_DIRECT=0"}, "affected go"},
+		{"CHECK_DIRECT=1", []string{"CHECK_DIRECT=1"}, "run ./tools/affected --direct"},
+		{"unset", nil, "run ./tools/affected"},
+		{"CHECK_DIRECT=0", []string{"CHECK_DIRECT=0"}, "run ./tools/affected"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			_, _, affected := makeCheckTier(t, "check-affected", c.env...)
 			if affected != c.want {
-				t.Errorf("check-affected asked obor %q, want %q", affected, c.want)
+				t.Errorf("check-affected asked %q, want %q", affected, c.want)
 			}
 		})
 	}

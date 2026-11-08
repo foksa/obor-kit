@@ -111,8 +111,6 @@ func main() {
 		exit(reviewCmd(args))
 	case "run":
 		exit(runCmd(args))
-	case "affected":
-		exit(affectedCmd(args))
 	case "flakes":
 		exit(flakesCmd(args))
 	case "nightly":
@@ -214,7 +212,6 @@ var commands = map[string][]string{
 	"watch":     nil,
 	"idle":      nil,
 	"review":    {"verify", "close"},
-	"affected":  {"go"},
 	"flakes":    nil,
 	"nightly":   {"on", "off"},
 	"plugin":    {"restore"},

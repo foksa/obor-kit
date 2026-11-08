@@ -52,17 +52,19 @@ var layerOf = map[string]string{
 
 	"internal/view": view,
 
-	"cmd/obor": entry, "internal/web": entry, "internal/affected": adapter,
+	"cmd/obor": entry, "internal/web": entry,
 
 	"internal/testkit": testhelp, "internal/herdr/herdrtest": testhelp,
 }
 
-// layerPrefixes give whole trees a layer: the app may grow subpackages; probes and spikes are standalone.
+// layerPrefixes give whole trees a layer: the app may grow subpackages; probes, spikes and the kit's tools are
+// standalone.
 var layerPrefixes = []struct{ prefix, layer string }{
 	{"internal/app/", core},
 	{"internal/agents/", bridge},
 	{"tests/", tool},
 	{"spikes/", tool},
+	{"tools/", tool},
 }
 
 func layer(pkg string) string {

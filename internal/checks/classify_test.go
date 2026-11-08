@@ -187,6 +187,7 @@ func TestOborKitConfig(t *testing.T) {
 		{"go", "check_affected", [][]string{
 			{"internal/app/loop.go", "internal/app/loop_test.go"},
 			{"internal/app/loop.go", "cmd/obor/main.go", "internal/checks/merge.go", "docs/tasks/T-75.md"},
+			{"tools/affected/main.go"}, // T-1040: the kit's Go tool is Go code the gate tests
 		}},
 		{"readers", "check_readers", [][]string{
 			{"skills/lead/SKILL.md"}, {"templates/agents/worker.md"}, {"hooks/hooks.json"}, {"bin/go-commands"},
