@@ -2,6 +2,7 @@ package view
 
 import (
 	"database/sql"
+	"encoding/json"
 	"sort"
 	"strconv"
 	"strings"
@@ -93,10 +94,10 @@ type Nightly struct {
 }
 
 // queue is v's queue at now: from serve's tasks (in its merge loop's order), its scheduler's state, review request,
-// lines and briefs (ps), the specs stored (their set time) and the tasks
-// the store saw dispatched (a spec of neither is never dispatched), and merge.nightly_at.
+// lines and briefs (ps), the specs stored (their set time) and the tasks the store saw dispatched (a spec of neither is
+// never dispatched), the specs the lead dropped (dropped: their rev, T-1016) and merge.nightly_at.
 func queue(v *Project, ps wire.ProjectStatus, nightlyAt string, specs map[string]store.SpecRow,
-	dispatched map[string]bool, now time.Time) Queue {
+	dispatched map[string]bool, dropped map[string]int, now time.Time) Queue {
 	q := Queue{Scratch: ps.Scratch, Merge: []MergeItem{}, Waiting: []WaitItem{}, Review: []ReviewItem{},
 		Outbox: []OutboxItem{}, Pause: v.Paused, Nightly: nightly(nightlyAt, now)}
 	waits := map[string]wire.ScratchWait{}
@@ -124,7 +125,7 @@ func queue(v *Project, ps wire.ProjectStatus, nightlyAt string, specs map[string
 		}
 	}
 	for task, s := range specs {
-		if known[task] || dispatched[task] {
+		if known[task] || dispatched[task] || s.Rev <= dropped[task] { // a spec-only drop: not queued until a new rev
 			continue
 		}
 		w := WaitItem{Task: task, WaitsOn: WaitsNever}
@@ -206,6 +207,34 @@ func dispatchedTasks(db *sql.DB) map[string]bool {
 	out, err := event.FactTasks(db, event.StepDispatched, event.StepWaiting, event.StepMerged)
 	if err != nil {
 		return map[string]bool{}
+	}
+	return out
+}
+
+// droppedSpecs is each task's spec-only drop (T-1016): the spec rev its dropped fact recorded, so a spec at that rev or
+// an older one is never queued and a later obor spec set's rev revives it. A drop of a task the merge loop held
+// records no rev: it is not here.
+func droppedSpecs(db *sql.DB) map[string]int {
+	out := map[string]int{}
+	if db == nil {
+		return out
+	}
+	rows, err := db.Query("SELECT task, data FROM events WHERE kind = ? AND step = ? ORDER BY seq", event.KindFact,
+		event.StepDropped)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var task string
+		var data []byte
+		if err := rows.Scan(&task, &data); err != nil {
+			return out
+		}
+		var f event.FactData
+		if json.Unmarshal(data, &f) == nil && f.Rev > 0 {
+			out[task] = f.Rev
+		}
 	}
 	return out
 }

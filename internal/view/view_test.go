@@ -45,7 +45,7 @@ func TestQueueMerge(t *testing.T) {
 	ps := wire.ProjectStatus{Tasks: tasks, Scratch: &wire.ScratchStatus{Task: "T-7", Why: wire.ScratchHeld},
 		ScratchQueue: []wire.ScratchWait{{Task: "T-10", WaitsOn: "T-7", Why: wire.ScratchHeld}, {Task: "T-8"},
 			{Task: "T-9", WaitsOn: "T-7", Why: wire.ScratchHeld}}}
-	q := queue(&Project{}, ps, "", nil, nil, now)
+	q := queue(&Project{}, ps, "", nil, nil, nil, now)
 	want := []MergeItem{
 		{Task: "T-10", Stage: wire.StageGating, WaitsOn: "T-7", Why: wire.ScratchHeld},
 		{Task: "T-7", Stage: wire.StageHeld},
@@ -71,7 +71,7 @@ func TestQueueReadsAnOlderServesTaskAsOpen(t *testing.T) {
 	if len(older.Tasks) != 1 || older.Tasks[0].Ended {
 		t.Fatalf("precondition: %+v, want one task with no ended", older.Tasks)
 	}
-	if q := queue(&Project{}, older, "", nil, nil, time.Now()); len(q.Merge) != 1 || q.Merge[0].Task != "T-1" {
+	if q := queue(&Project{}, older, "", nil, nil, nil, time.Now()); len(q.Merge) != 1 || q.Merge[0].Task != "T-1" {
 		t.Errorf("T-1 without ended: merge %+v, want it", q.Merge)
 	}
 
@@ -83,7 +83,7 @@ func TestQueueReadsAnOlderServesTaskAsOpen(t *testing.T) {
 	if len(ended.Tasks) != 2 || !ended.Tasks[0].Ended || !ended.Tasks[1].Ended {
 		t.Fatalf("precondition: %+v, want both ended", ended.Tasks)
 	}
-	if q := queue(&Project{}, ended, "", nil, nil, time.Now()); len(q.Merge) != 0 || len(q.Waiting) != 0 {
+	if q := queue(&Project{}, ended, "", nil, nil, nil, time.Now()); len(q.Merge) != 0 || len(q.Waiting) != 0 {
 		t.Errorf("ended tasks: merge %+v, waiting %+v, want neither", q.Merge, q.Waiting)
 	}
 }

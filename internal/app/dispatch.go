@@ -290,6 +290,9 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Call) 
 	if err != nil {
 		return "", fmt.Errorf("dispatch %s: %v", c.Task, err)
 	}
+	if why := a.specDropped(p, c.Task, row.Rev); why != "" { // T-1016: a spec-only drop, until a new rev
+		return "", fmt.Errorf("dispatch %s: %s", c.Task, why)
+	}
 	if why, err := fx.Specs.Check(ctx, c.Task, row.Text); err != nil || why != "" {
 		if err != nil {
 			why = err.Error()

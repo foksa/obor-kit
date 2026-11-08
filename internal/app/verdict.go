@@ -87,8 +87,12 @@ func (p *proj) foldJob(r event.Record) {
 			p.folded.refusals[verdictStep(wire.MethodTaskDone, d.Call)] = d.Reason
 		}
 	case r.Kind == event.KindFact && r.Step == event.StepDropped:
-		if d := r.Fact(); d.Call != "" {
+		d := r.Fact()
+		if d.Call != "" {
 			p.folded.calls[verdictStep(wire.MethodDrop, d.Call)] = dropReply(r.Task)
+		}
+		if d.Rev > 0 { // a spec stored and never dispatched: dropped at its rev (T-1016)
+			p.folded.dropped[r.Task] = droppedSpec{Rev: d.Rev, Why: d.Reason}
 		}
 	case r.Kind == event.KindFact && r.Step == event.StepDropping: // T-852: its DROPPING reply
 		var d dropData
@@ -284,6 +288,25 @@ func holdReply(task, job string) string {
 
 func dropReply(task string) string { return "DROPPED " + task }
 
+// droppedSpec is a task's spec-only drop (T-1016): the spec rev its dropped fact recorded and the why. A later obor spec
+// set (a new rev) revives the task; until then a dispatch of it is refused.
+type droppedSpec struct {
+	Rev int
+	Why string
+}
+
+// specDropped is why a dispatch of task at spec rev is refused: its spec was dropped at that rev and no later set
+// replaced it (T-1016). "" none: no spec-only drop, or a newer spec set revived it.
+func (a *App) specDropped(p *proj, task string, rev int) string {
+	a.mu.Lock()
+	d := p.folded.dropped[task]
+	a.mu.Unlock()
+	if d.Rev == 0 || rev > d.Rev {
+		return ""
+	}
+	return fmt.Sprintf("%s's spec rev %d was dropped (%s): obor spec set %s to dispatch it again", task, d.Rev, d.Why, task)
+}
+
 // drop answers the lead's or the owner's drop of task c.Task (obor drop <T-xx>; c.Note: why) under a.verdicts: a
 // repeated call id gets the stored reply; else dropDecide's refusals, and the task is marked ended (p.ended) in the
 // same mu section a selected step's start check takes (begin), so no step starts after it. A task whose lane row still
@@ -300,16 +323,16 @@ func (a *App) drop(c wire.Call) (string, error) {
 	defer a.verdicts.Unlock()
 	a.mu.Lock()
 	p := a.projAt(c.Root)
-	mt, err := a.dropDecide(p, c)
+	mt, rev, err := a.dropDecide(p, c)
 	lane, stored := "", ""
-	if err == nil && mt.task == "" { // the call id's stored reply: DROPPED, or a dropping fact's DROPPING
+	if err == nil && mt.task == "" && rev == 0 { // the call id's stored reply: DROPPED, or a dropping fact's DROPPING
 		stored = p.folded.calls[verdictStep(wire.MethodDrop, c.CallID)]
 	}
 	if mt.lane != "" && p.laneTask(mt.lane) == c.Task {
 		lane = mt.lane
 	}
 	a.mu.Unlock()
-	if err != nil || mt.task == "" {
+	if err != nil || (mt.task == "" && rev == 0) {
 		return stored, err
 	}
 	a.hook(hookDropDecided)
@@ -323,7 +346,8 @@ func (a *App) drop(c wire.Call) (string, error) {
 	}
 	if lane == "" {
 		if !a.record(p, event.Record{Task: c.Task, Attempt: mt.attempt, Step: event.StepDropped, Kind: event.KindFact},
-			event.FactData{Lane: mt.lane, Machine: Machine, Agent: c.Agent, Reason: c.Note, Merge: true, Call: c.CallID}) {
+			event.FactData{Lane: mt.lane, Machine: Machine, Agent: c.Agent, Reason: c.Note, Merge: true, Call: c.CallID,
+				Rev: rev}) {
 			return "", fmt.Errorf("drop: the event log of %s refused it", p.name)
 		}
 		a.wake()
@@ -373,15 +397,16 @@ func (a *App) laneWorker(p *proj, lane string, mt mtask) (string, error) {
 	return agent, nil
 }
 
-// dropDecide is drop's decision (under mu): the task to drop, marked ended; mt.task "" with no error: the call id's
-// reply is stored. Refused: the merge loop off, a caller of another role, no why, the task not open, its state takes no
-// drop (mtask.may: merged, dropped), busy.
-func (a *App) dropDecide(p *proj, c wire.Call) (mtask, error) {
+// dropDecide is drop's decision (under mu): the task to drop, marked ended and the spec rev the drop records (0: a task
+// of the loop's; a spec stored with no loop record: its rev, T-1016); mt.task "" with no error: the call id's reply is
+// stored. Refused: the merge loop off, a caller of another role, no why, no task of the loop and no spec, its state
+// takes no drop (mtask.may: merged, dropped), busy.
+func (a *App) dropDecide(p *proj, c wire.Call) (mtask, int, error) {
 	if p == nil {
-		return mtask{}, fmt.Errorf("drop: no served project at %s", c.Root)
+		return mtask{}, 0, fmt.Errorf("drop: no served project at %s", c.Root)
 	}
 	if _, stored := p.folded.calls[verdictStep(wire.MethodDrop, c.CallID)]; stored {
-		return mtask{}, nil
+		return mtask{}, 0, nil
 	}
 	var mt mtask
 	if m := p.folded.loop[c.Task]; m != nil {
@@ -389,21 +414,32 @@ func (a *App) dropDecide(p *proj, c wire.Call) (mtask, error) {
 	}
 	switch {
 	case !p.merging:
-		return mtask{}, mergeOff(p)
+		return mtask{}, 0, mergeOff(p)
 	case c.Role != "" && c.Role != "lead":
-		return mtask{}, fmt.Errorf("drop: the lead or the owner drops a task, not %s (role %s)", Dash(c.Agent), c.Role)
+		return mtask{}, 0, fmt.Errorf("drop: the lead or the owner drops a task, not %s (role %s)", Dash(c.Agent), c.Role)
 	case strings.TrimSpace(c.Note) == "":
-		return mtask{}, errors.New("drop: say why")
-	case mt.task == "":
-		return mtask{}, fmt.Errorf("drop: %s is not open in obor serve", c.Task)
+		return mtask{}, 0, errors.New("drop: say why")
+	case mt.task == "": // a spec stored and never dispatched: dropped too, at its rev (T-1016)
+		row, ok, err := specOf(p, c.Task)
+		switch {
+		case err != nil:
+			return mtask{}, 0, fmt.Errorf("drop: %v", err)
+		case !ok:
+			return mtask{}, 0, fmt.Errorf("drop: %s is not open in obor serve", c.Task)
+		}
+		if why := p.busy(c.Task); why != "" {
+			return mtask{}, 0, busyErr("drop", c.Task, why)
+		}
+		p.ended[c.Task] = true
+		return mtask{}, row.Rev, nil
 	case !mt.may(vDrop):
-		return mtask{}, fmt.Errorf("drop: %s is %s already", c.Task, mt.state)
+		return mtask{}, 0, fmt.Errorf("drop: %s is %s already", c.Task, mt.state)
 	}
 	if why := p.busy(c.Task); why != "" {
-		return mtask{}, busyErr("drop", c.Task, why)
+		return mtask{}, 0, busyErr("drop", c.Task, why)
 	}
 	p.ended[c.Task] = true
-	return mt, nil
+	return mt, 0, nil
 }
 
 // mergeOff refuses a verdict or resume for p, whose merge loop is off: it is observe-only (RV-38 #13).
