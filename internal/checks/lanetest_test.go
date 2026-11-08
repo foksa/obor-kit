@@ -196,8 +196,8 @@ func laneTestLaneEnv(t *testing.T) {
 
 // T-991/T-997: the lane test runs the short tier and only the changed packages' tests when branches.promote is set
 // (CHECK_SHORT=1, CHECK_DIRECT=1: the promotion's full suite and the nightly cover the slow tests and the importers,
-// the slot's compile an importer's build break); without a promotion it sets neither, so the full/mixed class runs the
-// full check as before T-989.
+// the slot's compile an importer's build break); without a promotion it sets neither, so a class's checks run whole as
+// before T-989.
 func laneTestPromotionEnv(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {

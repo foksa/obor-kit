@@ -78,7 +78,7 @@ func (s Scratch) Test(ctx context.Context, in port.TestInput) (out port.TestOutc
 	r.env = append(r.env, config.LaneEnv(s.Cfg, s.Env.Get("GOFLAGS"))...)
 	r.env = append(r.env, "CHECK_CPUS="+strconv.Itoa(s.Cfg.LaneCPUs()))
 	// With promotion on, the lane runs the short tier and only the changed packages' tests (T-989, T-991, T-997): the
-	// full suite runs at the promotion and the nightly (T-986's full:mixed lane timed out on it twice at 1200 s), the
+	// full suite runs at the promotion and the nightly (T-986's lane that ran it timed out on it twice at 1200 s), the
 	// promotion's full suite covers an importer's test break, and the slot's compile an importer's build break.
 	// Without a promotion nothing runs those later, so the lane runs the full class check, importers included, as
 	// before T-989 (RV-138 #1).

@@ -43,7 +43,8 @@ func TestClassify(t *testing.T) {
 		// bash case_all_ui, case_mixed, case_unmatched, case_full_class
 		{"", nil, false, "src/ui/a.ts e2e/flow.spec.ts README.md", "partial:ui"},
 		{"", nil, false, "tools/x.sh", "partial:tools"},
-		{"", nil, false, "src/ui/a.ts tools/x.sh", "full:mixed ui/tools (tools/x.sh)"},
+		{"", nil, false, "src/ui/a.ts tools/x.sh", "partial:ui+tools"},
+		{"", nil, false, "tools/x.sh src/ui/a.ts", "partial:ui+tools"}, // config order, not the files'
 		{"", nil, false, "src/ui/a.ts package.json", "full:unmatched package.json"},
 		{"", nil, false, "src/ui/a.ts src/engine/e.ts", "full:full-class core (src/engine/e.ts)"},
 		{"", nil, false, "notes/x.txt", "full:full-class notes (notes/x.txt)"},
@@ -61,7 +62,7 @@ func TestClassify(t *testing.T) {
 		{"", nil, false, "docs/a.md tools/x.sh", "partial:tools"},
 		{"", nil, false, "tools/x.sh docs/sub/b.txt docs/a.md", "partial:tools"},
 		{"", nil, false, "skills/x/SKILL.md", "partial:ui"},
-		{"", nil, false, "tools/x.sh STATUS.md", "full:mixed tools/ui (STATUS.md)"},
+		{"", nil, false, "tools/x.sh STATUS.md", "partial:ui+tools"},
 		{noMD, nil, false, "skills/x/SKILL.md", "full:unmatched skills/x/SKILL.md"},
 		{noMD, nil, false, "docs/a.md src/content/help.md", "full:unmatched src/content/help.md"},
 		{noMD, nil, false, "docs/a.md", "partial:neutral"},
@@ -69,7 +70,7 @@ func TestClassify(t *testing.T) {
 		{"", nil, false, "docs/a.md docs/b.txt docs/sub/c.md", "partial:neutral"},
 		{"", nil, true, "docs/a.md", "full:forced"},
 		{"", func(m *config.Merge) { m.Guard = "" }, false, "docs/a.md", "full:no-guard"},
-		{"", nil, false, "docs/a.md src/ui/a.ts README.md tools/x.sh docs/b.md", "full:mixed ui/tools (tools/x.sh)"},
+		{"", nil, false, "docs/a.md src/ui/a.ts README.md tools/x.sh docs/b.md", "partial:ui+tools"},
 		{"", nil, false, "docs/a.md src/engine/e.ts", "full:full-class core (src/engine/e.ts)"},
 		{"", nil, false, "README.md package.json", "full:unmatched package.json"},
 		// bash case_neutral_custom
@@ -77,14 +78,14 @@ func TestClassify(t *testing.T) {
 		{"", func(m *config.Merge) { m.Neutral = []string{"tools/**"} }, false, "docs/x.txt", "full:unmatched docs/x.txt"},
 		{"", func(m *config.Merge) { m.Neutral = []string{"tools/**"} }, false, "tools/x.sh", "partial:neutral"},
 		{"", func(m *config.Merge) { m.Neutral = []string{} }, false, "docs/x.txt", "full:unmatched docs/x.txt"},
-		{"", func(m *config.Merge) { m.Neutral = []string{} }, false, "README.md tools/x.sh", "full:mixed ui/tools (tools/x.sh)"},
+		{"", func(m *config.Merge) { m.Neutral = []string{} }, false, "README.md tools/x.sh", "partial:ui+tools"},
 		// bash case_neutral_class_name
 		{`[{"name": "neutral", "paths": ["n/**"], "checks": ["c"]}, {"name": "ui", "paths": ["src/ui/**"], "checks": ["u"]}]`,
 			nil, false, "n/a.sh", "full:full-class neutral (n/a.sh)"},
 		// bash case_rename_both_paths
 		{"", nil, false, "src/engine/a.ts src/ui/a.ts", "full:full-class core (src/engine/a.ts)"},
 		{"", nil, false, "src/ui/a.ts src/engine/a.ts", "full:full-class core (src/engine/a.ts)"},
-		{"", nil, false, "src/ui/a.ts tools/a.sh", "full:mixed ui/tools (tools/a.sh)"},
+		{"", nil, false, "src/ui/a.ts tools/a.sh", "partial:ui+tools"},
 		{"", nil, false, "src/ui/a.ts src/ui/b.ts", "partial:ui"},
 		// bash case_duplicate_names: entries are told apart by index
 		{`[{"name": "same", "paths": ["src/core/**"], "full": true}, {"name": "same", "paths": ["src/ui/**"], "checks": ["ui"]},
@@ -92,7 +93,7 @@ func TestClassify(t *testing.T) {
 		{`[{"name": "same", "paths": ["src/core/**"], "full": true}, {"name": "same", "paths": ["src/ui/**"], "checks": ["ui"]},
 			{"name": "same", "paths": ["lib/**"], "checks": ["lib"]}]`, nil, false, "src/ui/a.ts src/ui/b.ts", "partial:same"},
 		{`[{"name": "same", "paths": ["src/core/**"], "full": true}, {"name": "same", "paths": ["src/ui/**"], "checks": ["ui"]},
-			{"name": "same", "paths": ["lib/**"], "checks": ["lib"]}]`, nil, false, "src/ui/a.ts lib/a.sh", "full:mixed same/same (lib/a.sh)"},
+			{"name": "same", "paths": ["lib/**"], "checks": ["lib"]}]`, nil, false, "src/ui/a.ts lib/a.sh", "partial:same"},
 	} {
 		m := classes(t, c.classes)
 		if c.edit != nil {
@@ -137,7 +138,8 @@ func TestCounts(t *testing.T) {
 // packages, T-347); skills/, templates/, hooks/, bin/go-commands and .claude-plugin/ partial readers and run
 // check_readers; web/src/ and the committed internal/web/dist partial web and run check_web; the kit's release tooling
 // (Makefile, scripts/, install.sh, RELEASING.md, the marketplace, tests/release/, T-902) partial release and runs
-// check_release; every other file still runs the full check.
+// check_release; two of them in one merge are partial with both names (config order) and run both checks (T-1003);
+// every other file still runs the full check.
 func TestOborKitConfig(t *testing.T) {
 	t.Parallel()
 	repo, _ := filepath.Abs("../..")
@@ -178,9 +180,34 @@ func TestOborKitConfig(t *testing.T) {
 				t.Errorf("%v: %s (want partial:%s)", files, got.Mode(), c.class)
 				continue
 			}
-			if checks, ok := classChecks(m, got.Name); !ok || strings.Join(checks, " ") != c.checks {
+			if checks, ok := classChecks(m, got.String()); !ok || strings.Join(checks, " ") != c.checks {
 				t.Errorf("%v: class checks %v ok %v (want %s)", files, checks, ok, c.checks)
 			}
+		}
+	}
+	// A merge in two classes is partial, named in config order, and runs both classes' checks (T-1003).
+	for _, c := range []struct{ files, class, checks string }{
+		{"internal/app/loop.go Makefile", "go+release", "check_affected check_release"},
+		{"Makefile skills/lead/SKILL.md", "release+readers", "check_release check_readers"},
+		{"internal/app/loop.go web/src/lib/format.ts", "web+go", "check_web check_affected"},
+	} {
+		files := strings.Fields(c.files)
+		got := Classify(m, files, false)
+		if got.Mode() != "partial:"+c.class {
+			t.Errorf("%v: %s (want partial:%s)", files, got.Mode(), c.class)
+			continue
+		}
+		var checks []string
+		for _, name := range got.Names {
+			cs, ok := classChecks(m, name)
+			if !ok {
+				t.Errorf("%v: class %s has no unique checks entry", files, name)
+				continue
+			}
+			checks = append(checks, cs...)
+		}
+		if got := strings.Join(checks, " "); got != c.checks {
+			t.Errorf("%v: checks %q, want %q", files, got, c.checks)
 		}
 	}
 	// Anything no class names still runs the full suite, alone and beside a class's file.
@@ -192,16 +219,6 @@ func TestOborKitConfig(t *testing.T) {
 		if c := Classify(m, []string{"internal/app/loop.go", f, "docs/tasks/T-75.md"}, false); c.Partial {
 			t.Errorf("%s beside Go files: %s (want a full merge)", f, c.Mode())
 		}
-	}
-	if got := Classify(m, []string{"internal/app/loop.go", "Makefile"}, false).Mode(); got != "full:mixed go/release (Makefile)" {
-		t.Errorf("Makefile with Go files: %s (want full:mixed go/release Makefile)", got)
-	}
-	// A merge in two classes runs the full check: the machinery picks one class or none.
-	if got := Classify(m, []string{"internal/app/loop.go", "skills/lead/SKILL.md"}, false).Mode(); got != "full:mixed go/readers (skills/lead/SKILL.md)" {
-		t.Errorf("Go and a skill: %s (want full:mixed go/readers)", got)
-	}
-	if got := Classify(m, []string{"internal/app/loop.go", "web/src/lib/format.ts"}, false).Mode(); got != "full:mixed go/web (web/src/lib/format.ts)" {
-		t.Errorf("Go and the page: %s (want full:mixed go/web)", got)
 	}
 }
 
