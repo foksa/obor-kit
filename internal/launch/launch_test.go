@@ -1255,6 +1255,48 @@ func TestStartBusyOnFirstPrompt(t *testing.T) {
 	}
 }
 
+// T-1059 (live regression of T-1058, H-L14): serve's first-prompt starts through Launch, a review's fresh start on its
+// brief (internal/app/review.go) and a worker dispatch's fresh start on its first prompt (internal/app/dispatch.go):
+// herdr answers at once with the launch pending and keeps it pending while the agent works on the prompt, past the
+// start's bound. Started on the agent working, not FAIL.
+func TestServeFirstPromptStartWhileTheLaunchStaysPending(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name, pane, kind string
+		req              launch.Request
+	}{
+		{"a serve review start: the reviewer (codex) fresh on its brief", "w1:p7", "codex",
+			launch.Request{Agent: "pj-rev", Fresh: true, Prompt: "Review RV-5. main is at abcdef0. write only reviews/RV-5.md"}},
+		{"a serve worker dispatch: the lane's worker fresh on its first prompt", "w1:p3", "claude",
+			launch.Request{Agent: "pj-l-01", Pane: "w1:p3", Fresh: true, Prompt: "[obor job T-1/1/work] call the obor job_next tool"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			x := setup(t)
+			p := x.shell(c.pane, c.req.Agent, "")
+			p.StartPending, p.PendingStatus = 1<<30, "working" // pending for every read: herdr's own bound is past the start's
+			var out bytes.Buffer
+			s, err := x.launcher(&out).Launch(context.Background(), c.req)
+			got, ok := result(t, &out, s.Line, err)
+			eqInt(t, len(x.calls("agent.start")), 1, "precondition: one start")
+			contains(t, x.startCall(), " "+c.req.Prompt+"]", "precondition: the prompt is the start's first")
+			if !ok {
+				t.Fatalf("a first-prompt start whose agent works was not started:\n%s", got)
+			}
+			var pending bool
+			var kind, status string
+			x.f.Locked(func() { pending, kind, status = p.LaunchPending, p.Kind, p.Status })
+			if !pending || kind != c.kind || status != "working" {
+				t.Fatalf("precondition: herdr still lists the launch pending, %s working; got pending %t, %s %s", c.kind, pending, kind, status)
+			}
+			if start, gets := x.index("agent.start"), x.calls("agent.get target="+c.pane); len(gets) == 0 || x.index(gets[len(gets)-1]) < start {
+				t.Errorf("started without a listing read after the start: %q", x.srv.Calls())
+			}
+			eq(t, last(got), "RESTARTED "+c.req.Agent+" (pane "+c.pane+", session new)", "result")
+		})
+	}
+}
+
 // T-548: the launcher finds the agent's pane in the one pane list it reads to resolve the restart, not in a second list
 // that can differ (or fail, which it reported as "no pane labelled"): the label gone from every later list changes nothing.
 func TestRestartResolvesFromOnePaneList(t *testing.T) {

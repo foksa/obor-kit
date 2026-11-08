@@ -62,6 +62,9 @@ type Pane struct {
 	// pane then lists the start's kind with a stale idle status and launch_pending for this many agent.get reads of it,
 	// after which the agent is up (idle, interactive_ready). Ahead of OnStart while > 0.
 	StartPending int
+	// PendingStatus is the status the pending launch lists (StartPending): "" the stale idle; "working": the agent busy
+	// on its first prompt while herdr keeps its launch pending (live H-L14, T-1059).
+	PendingStatus string
 	// StartBusy is how many agent start calls yet answer agent_pane_busy: herdr has not noticed the pane's old agent
 	// leave, though pane.process_info may already show its shell (T-1053: the exit not yet reaped). Each call spends
 	// one.

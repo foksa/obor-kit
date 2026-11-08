@@ -106,11 +106,18 @@ func opencodeLive(l *lab, turn bool) {
 		report("SKIP", "OC-L2", "needs TURN=1: obor.js runs a hook only for a session's events, which need a turn", "F1.3, P5")
 		report("SKIP", "OC-L5", "session.execution.* reaching the plugin and OBOR_OPENCODE_MODEL's switch need TURN=1", at(opencodeGo, "const ModelVar"))
 		report("SKIP", "OC-L6", "needs TURN=1 (a model call that uses the tool)", at("internal/mcp/mcp.go", "func Serve")+", T-898")
+		hL14(l, "opencode", pane, nil, turn)
 		return
 	}
 	l.opencodeAuth(xdg)
 	ocTurn(l, pane, argv, xdg, st)
 	ocL6(l, pane, xdg, st)
+	// H-L14 (T-1059): a start with a first prompt that keeps opencode working, then the same right after its exit.
+	if prompted, err := agents.StartOf(k, agents.Start{Args: []string{"--standalone"}, Prompt: hL14Prompt}); err != nil {
+		report("FAIL", "H-L14", "opencode: the first-prompt start: "+err.Error(), at(opencodeGo, "func start("))
+	} else {
+		hL14(l, "opencode", pane, prompted.Args, turn)
+	}
 }
 
 // ocL3: the start's generated config's mcp.servers.obor is the one obor server that runs (its `obor mcp`, no label).
