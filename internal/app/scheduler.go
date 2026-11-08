@@ -1,9 +1,11 @@
 package app
 
 import (
+	"math"
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
 	"sort"
+	"time"
 )
 
 // The scheduler's rule for serve's worktree (the scratch), in one place (T-669, RV-75): the pass's order (passOrder),
@@ -11,34 +13,67 @@ import (
 // and advance decide with them, and obor status reports the same (scratchQueue): the view copies it, never predicts.
 
 // passOrder is the order a pass drives p's tasks in (advance): by id as strings (T-10 before T-9), the waiting ones
-// last (a task they wait for may merge in the same pass), a high one before every ordinary one (T-1030: its spec says
-// so), then oldest wait first (its waiting fact's seq; T-723: a freed lane goes to the oldest waiting task not at its
-// type's max). Under mu.
+// last (a task they wait for may merge in the same pass), in the order waitFirst gives them (T-1030, T-723). Under mu.
 func (p *proj) passOrder() []string {
-	var tasks, waiting []string
+	var tasks []string
+	var waiting []waitPlace
 	for task, mt := range p.folded.loop {
 		if mt.state == stWaiting {
-			waiting = append(waiting, task)
+			waiting = append(waiting, waitPlace{task: task, high: p.waitHigh(task), seq: mt.dispSeq})
 		} else {
 			tasks = append(tasks, task)
 		}
 	}
 	sort.Strings(tasks)
-	high := make(map[string]bool, len(waiting))
-	for _, task := range waiting {
-		high[task] = p.waitHigh(task)
+	sort.Slice(waiting, func(i, j int) bool { return waitFirst(waiting[i], waiting[j]) })
+	for _, w := range waiting {
+		tasks = append(tasks, w.task)
 	}
-	sort.Slice(waiting, func(i, j int) bool {
-		if high[waiting[i]] != high[waiting[j]] {
-			return high[waiting[i]]
+	return tasks
+}
+
+// waitPlace is a waiting dispatch's place in the pass's order: its task, whether it is high (waitHigh) and its waiting
+// fact's seq.
+type waitPlace struct {
+	task string
+	high bool
+	seq  int64
+}
+
+// waitFirst: the wait a comes before b in the pass's order: a high one before every ordinary one (T-1030: its spec says
+// so), then oldest wait first (its waiting fact's seq; T-723: a freed lane goes to the oldest waiting task not at its
+// type's max), then by task id.
+func waitFirst(a, b waitPlace) bool {
+	if a.high != b.high {
+		return a.high
+	}
+	if a.seq != b.seq {
+		return a.seq < b.seq
+	}
+	return a.task < b.task
+}
+
+// keepAhead is the waiting dispatch keep lane lane goes to before task (under mu; T-1048: the scheduler's choice,
+// never a second order): of the dispatches waiting for the lane, the first in the pass's order (waitFirst) placed
+// before task's own wait (task not waiting: a new wait's place, after every wait of its priority) and eligible now:
+// its --after tasks merged and a model of its request not paused (firstUnpaused). "": none, the lane is task's to take.
+// An older wait whose models are all paused does not hold the lane (as a fresh lane's wait does not, waitpick).
+func (p *proj) keepAhead(task, lane string, now time.Time) string {
+	me := waitPlace{task: task, high: p.waitHigh(task), seq: math.MaxInt64}
+	if m := p.folded.loop[task]; m != nil && m.is(stWaiting) {
+		me.seq = m.dispSeq
+	}
+	for _, t := range p.passOrder() {
+		m := p.folded.loop[t]
+		if t == task || !m.is(stWaiting) || !m.disp.Keep || m.disp.Lane != lane ||
+			!waitFirst(waitPlace{task: t, high: p.waitHigh(t), seq: m.dispSeq}, me) {
+			continue
 		}
-		a, b := p.folded.loop[waiting[i]], p.folded.loop[waiting[j]]
-		if a.dispSeq != b.dispSeq {
-			return a.dispSeq < b.dispSeq
+		if p.afterMerged(m) && p.firstUnpaused(m.disp.Types, now) != "" {
+			return t
 		}
-		return waiting[i] < waiting[j]
-	})
-	return append(tasks, waiting...)
+	}
+	return ""
 }
 
 // scratchHolder is the task of p other than except whose merge is open in the scratch (rule: one merge there at a

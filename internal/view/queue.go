@@ -110,6 +110,12 @@ func queue(v *Project, ps wire.ProjectStatus, nightlyAt string, specs map[string
 	for _, w := range ps.ScratchQueue {
 		waits[w.Task] = w
 	}
+	keepLane := map[string]string{} // T-1048: a task's keep lane is the lane whose queue lists it (serve's Queues)
+	for lane, tasks := range ps.Queues {
+		for _, t := range tasks {
+			keepLane[t] = lane
+		}
+	}
 	known := map[string]bool{}
 	ranks := map[string]int{} // T-1043: serve's rank of a dispatched wait (its place in the pass's order)
 	for _, t := range ps.Tasks {
@@ -120,7 +126,7 @@ func queue(v *Project, ps wire.ProjectStatus, nightlyAt string, specs map[string
 		if t.Waiting {
 			ranks[t.Task] = t.Rank
 			w := WaitItem{Task: t.Task, WaitsOn: WaitsLane, Why: t.Why, Level: t.Level, Types: t.Types, High: t.High,
-				Queue: t.Queue}
+				Queue: keepLane[t.Task]}
 			if len(t.After) > 0 {
 				w = WaitItem{Task: t.Task, WaitsOn: WaitsAfter, After: t.After, Why: t.Why, High: t.High}
 			}

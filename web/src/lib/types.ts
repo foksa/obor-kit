@@ -70,7 +70,7 @@ export interface Lane {
   column: string;
   since?: number;
   background?: Background[];
-  queue?: string[]; // a keep lane's queue, in dispatch order (T-1031)
+  queue?: string[]; // a keep lane's queue, in serve's pass order (T-1031, T-1048)
 }
 
 export interface BriefStatus {
@@ -134,7 +134,6 @@ export interface TaskStatus {
   rank?: number; // waiting: its place in serve's pass order, the queue's order (T-1043; absent: not a waiting dispatch)
   level?: string;
   types?: string[];
-  queue?: string; // waiting: the keep lane it queues on (T-1031)
   difficulty?: string;
   model?: string;
   ref?: string; // its spec's Ref: an external tracker's id (T-1022)

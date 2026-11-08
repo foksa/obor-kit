@@ -13,8 +13,9 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-1031: the view's lane says its mode (keep) and its queue (serve's Queues, in dispatch order), its agent the lane's
-// derived name with no lane row; a task queued on it is a waiting item naming that lane; a fresh lane says neither.
+// T-1031: the view's lane says its mode (keep) and its queue (serve's Queues, in the pass's order), its agent the lane's
+// derived name with no lane row; a task queued on it is a waiting item naming that lane, read from Queues (T-1048: the
+// owner, no per-task copy), listed in serve's order (a high T-3 before the older T-2); a fresh lane says neither.
 func TestViewKeepLaneModeAndQueue(t *testing.T) {
 	p := testkit.New(t)
 	p.Lane("L-01", "task/T-01")
@@ -40,20 +41,19 @@ func TestViewKeepLaneModeAndQueue(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	ps := &wire.ProjectStatus{Name: "pj", Root: p.Root, Queues: map[string][]string{"L-01": {"T-2", "T-3"}},
+	ps := &wire.ProjectStatus{Name: "pj", Root: p.Root, Queues: map[string][]string{"L-01": {"T-3", "T-2"}},
 		Tasks: []wire.TaskStatus{
-			{Task: "T-2", Attempt: 1, State: "waiting", Waiting: true, Rank: 1, Queue: "L-01",
-				Why: "behind T-1 on keep lane L-01"},
-			{Task: "T-3", Attempt: 1, State: "waiting", Waiting: true, Rank: 2, Queue: "L-01",
-				Why: "behind T-2 on keep lane L-01"}}}
+			{Task: "T-2", Attempt: 1, State: "waiting", Waiting: true, Rank: 2, Why: "behind T-1 on keep lane L-01"},
+			{Task: "T-3", Attempt: 1, State: "waiting", Waiting: true, Rank: 1, High: true,
+				Why: "behind T-1 on keep lane L-01"}}}
 	v := Build(Input{Status: wire.Status{Connected: true, Project: ps}, Lanes: checks.NewLaneTable(context.Background(), cfg),
 		DB: db, Now: time.Now()})
 	if len(v.Lanes) != 2 {
 		t.Fatalf("lanes %+v, want L-01 and L-02", v.Lanes)
 	}
 	keep, fresh := v.Lanes[0], v.Lanes[1]
-	if keep.Mode != config.LaneKeep || !slices.Equal(keep.Queue, []string{"T-2", "T-3"}) || keep.Agent != "pj-l-01" {
-		t.Errorf("L-01 mode %q, queue %q, agent %q; want keep, T-2 T-3, pj-l-01", keep.Mode, keep.Queue, keep.Agent)
+	if keep.Mode != config.LaneKeep || !slices.Equal(keep.Queue, []string{"T-3", "T-2"}) || keep.Agent != "pj-l-01" {
+		t.Errorf("L-01 mode %q, queue %q, agent %q; want keep, T-3 T-2, pj-l-01", keep.Mode, keep.Queue, keep.Agent)
 	}
 	if fresh.Mode != "" || len(fresh.Queue) != 0 || fresh.Agent != "pj-l-02" {
 		t.Errorf("L-02 mode %q, queue %q, agent %q; want no mode, no queue, pj-l-02", fresh.Mode, fresh.Queue, fresh.Agent)
@@ -64,8 +64,7 @@ func TestViewKeepLaneModeAndQueue(t *testing.T) {
 			queued = append(queued, w.Task+": "+w.Why)
 		}
 	}
-	slices.Sort(queued)
-	if want := []string{"T-2: behind T-1 on keep lane L-01", "T-3: behind T-2 on keep lane L-01"}; !slices.Equal(queued, want) {
-		t.Errorf("waiting %q, want %q", queued, want)
+	if want := []string{"T-3: behind T-1 on keep lane L-01", "T-2: behind T-1 on keep lane L-01"}; !slices.Equal(queued, want) {
+		t.Errorf("waiting %q, want %q (serve's order, each on L-01)", queued, want)
 	}
 }

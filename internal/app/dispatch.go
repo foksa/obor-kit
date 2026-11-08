@@ -67,11 +67,13 @@ type (
 		// attempt's work job carries it.
 		Fix string `json:"fix,omitempty"`
 		// Stop: the worker the merge loop stops (with force) before the step that needs the lane (T-852): a move's (the
-		// redo's, before lane.prepare). "": none.
+		// redo's, before lane.prepare), or a keep lane's live agent whose recorded start does not run this dispatch's
+		// model (keepStop, T-1048: stopped between tasks, the dispatch's model started). "": none.
 		Stop string `json:"stop,omitempty"`
 		// Keep: the lane is a keep lane (T-1031, config.LaneKeep), as the config said at the dispatch: the merged task's
 		// after-merge steps keep its agent (afterList), the start runs only when the lane has no live agent
-		// (nextDispatch), and a waiting one queues for its lane behind the older ones (queuedAhead).
+		// (nextDispatch: only when its recorded start runs this dispatch's model, T-1048), and a waiting one queues for its
+		// lane in the scheduler's order (keepAhead).
 		Keep   bool   `json:"keep,omitempty"`
 		Caller string `json:"caller,omitempty"`
 		Call   string `json:"call,omitempty"`
@@ -174,7 +176,7 @@ func (e queueError) why() string { return "behind " + e.behind + " on keep lane 
 
 // waitQueue records fact waiting for c.Task's request (under a.verdicts) queued on the keep lane qe names: the reply
 // WAITING <task> (queued): behind <task> on keep lane <lane>. As waitLane's, it replaces a waiting fact of the task;
-// the merge loop dispatches it when the lane frees and no older dispatch waits for it (queuedAhead).
+// the merge loop dispatches it when the lane frees and no wait the scheduler puts first is eligible for it (keepAhead).
 func (a *App) waitQueue(p *proj, c wire.Call, qe queueError) (string, error) {
 	mt, held := a.held(p, c.Task)
 	if !mt.dispatchable() {
@@ -194,10 +196,10 @@ func (a *App) waitQueue(p *proj, c wire.Call, qe queueError) (string, error) {
 	return d.Reply, nil
 }
 
-// keepBusy is the task a dispatch of c naming keep lane c.Lane queues behind ("": the lane takes it now): an older
-// dispatch waiting for the lane (ahead, queuedAhead's), else the task whose dispatch holds it (held), else the task the
-// lane works on (its row's task not landed: submitted, in the gate, in review), unless that is c.Task itself, not
-// finished (a redo, pickLane's).
+// keepBusy is the task a dispatch of c naming keep lane c.Lane queues behind ("": the lane takes it now): a dispatch
+// waiting for the lane that the scheduler puts first (ahead, keepAhead's), else the task whose dispatch holds it
+// (held), else the task the lane works on (its row's task not landed: submitted, in the gate, in review), unless that
+// is c.Task itself, not finished (a redo, pickLane's).
 func keepBusy(ls []port.Lane, c wire.Call, held map[string]string, finished bool, ahead string) string {
 	if ahead != "" {
 		return ahead
@@ -213,27 +215,6 @@ func keepBusy(ls []port.Lane, c wire.Call, held map[string]string, finished bool
 	return ""
 }
 
-// queuedAhead is the oldest dispatch other than task's waiting for keep lane lane with nothing else to wait for (its
-// --after tasks merged), older than task's own wait when task waits too ("": none; under mu): the queue's order is the
-// dispatch order (T-1031).
-func (p *proj) queuedAhead(task, lane string) string {
-	var mine int64 = -1
-	if m := p.folded.loop[task]; m != nil && m.is(stWaiting) {
-		mine = m.dispSeq
-	}
-	best, seq := "", int64(0)
-	for t, m := range p.folded.loop {
-		if t == task || !m.is(stWaiting) || !m.disp.Keep || m.disp.Lane != lane || mine >= 0 && m.dispSeq > mine ||
-			!p.afterMerged(m) {
-			continue
-		}
-		if best == "" || m.dispSeq < seq {
-			best, seq = t, m.dispSeq
-		}
-	}
-	return best
-}
-
 // afterMerged: every task m waits for (--after) merged in the loop (under mu).
 func (p *proj) afterMerged(m *mtask) bool {
 	for _, dep := range m.disp.After {
@@ -244,11 +225,11 @@ func (p *proj) afterMerged(m *mtask) bool {
 	return true
 }
 
-// laneQueues is each keep lane's queue (under mu): the tasks waiting for it, in dispatch order (T-1031: obor status'
-// lane line and the view).
+// laneQueues is each keep lane's queue (under mu): the tasks waiting for it, in the pass's order (passOrder: the
+// order keepAhead admits them in; T-1031: obor status' lane line and the view, its owner of a task's keep lane).
 func (p *proj) laneQueues() map[string][]string {
 	var out map[string][]string
-	for _, t := range p.passOrder() { // the waiting ones last, oldest dispatch first
+	for _, t := range p.passOrder() { // the waiting ones last, a high one first, then oldest wait first
 		if m := p.folded.loop[t]; m.state == stWaiting && m.disp.Keep && m.disp.Lane != "" {
 			if out == nil {
 				out = map[string][]string{}
@@ -441,7 +422,7 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Call) 
 	a.mu.Unlock()
 	if keep {
 		a.mu.Lock()
-		ahead := p.queuedAhead(c.Task, c.Lane)
+		ahead := p.keepAhead(c.Task, c.Lane, a.opt.Now())
 		a.mu.Unlock()
 		if behind := keepBusy(ls, c, held, finished, ahead); behind != "" {
 			return "", queueError{task: c.Task, lane: c.Lane, behind: behind, level: c.Level, types: c.Types, ls: ls}
@@ -487,7 +468,8 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Call) 
 	agent := cfg.AgentName("worker", l.Name) // derived (T-777: a lane pane's old label is no name of the worker; T-1031)
 	caller := callerOf(c)
 	d := dispatchData{Lane: l.Name, Dir: l.Dir, Agent: agent, Branch: branch, Target: target, Redo: redo, Force: c.Force,
-		Level: c.Level, Types: c.Types, Effort: effort, Type: ref, Keep: cfg.KeepLane(l.Name), Caller: caller, Call: c.CallID,
+		Level: c.Level, Types: c.Types, Effort: effort, Type: ref, Keep: cfg.KeepLane(l.Name), Stop: a.keepStop(p, cfg, l, agent, ref),
+		Caller: caller, Call: c.CallID,
 		Reply: fmt.Sprintf("DISPATCHED %s → %s (queued)", c.Task, l.Name) + typeNote(typ) + effortNote(effort) +
 			idleNote(ls, l.Name, held) + note}
 	if !a.record(p, event.Record{Task: c.Task, Attempt: mt.nextAttempt(), Step: event.StepDispatched, Kind: event.KindFact}, d) {
