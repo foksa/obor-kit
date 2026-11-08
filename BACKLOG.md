@@ -64,6 +64,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (RV-144, accepted) (RV-144 verify note) the fold keeps the review.closing pointer after the close although recovery no longer reads it (a retained copy of the frozen snapshot): clear it on close when next touching reviewfold.go
 - (RV-143 verify design) the view decides "waiting" by comparing `wire.TaskStatus.State` to `"waiting"` (`internal/view/queue.go:113`) though serve knows the predicate (`app/status.go:89`): serve ships it on the next touch (design rule 6). Also `specSetRev` parses the rev from the spec-set reply's text (T-1026), coupling replay to reply wording: keep the format, or a structured rev when the record is next revised.
 - (RV-141, accepted) (RV-141 verify design) the prepare-time head is no longer read: checks.Lane.Prepare's git merge-base and prepareOut.Head remain, and docs/state-model.md:293 and port/effects.go:380 still describe the old head; deleted in T-1017
 - (RV-141 #2, accepted) A rejected task whose branch the owner merges by hand keeps its lane `working` until `obor drop` (T-1012 removed the ancestry read that freed it); the drop is the explicit step. Also accepted: view/dispatch/restore still compare lane state strings (one decider in port, several readers of its output).
