@@ -155,6 +155,22 @@ func fxConfig(edits ...func(map[string]any)) []func(map[string]any) {
 	}, edits...)
 }
 
+// goLines is a project whose checks print `go test` output, with obor-kit's failing lines (T-1047): fail_grep picks
+// them, merge.flake_regex names the test and the package on them.
+func goLines() func(map[string]any) {
+	return func(c map[string]any) {
+		m := c["merge"].(map[string]any) // fxConfig's
+		m["fail_grep"] = goFailGrep
+		m["flake_regex"] = []any{goTestLine, goPkgLine}
+	}
+}
+
+const (
+	goFailGrep = `^--- FAIL|^FAIL\s`
+	goTestLine = `^--- FAIL: (?P<test>\S+)`
+	goPkgLine  = `^FAIL\s+(?P<package>[^\s./][^\s]*[./][^\s]*)`
+)
+
 // buildTemplate builds the fixture repo once: the fixture commit, lane L-01 on task/T-05 with its uncommitted
 // feature.txt, and the config commit on main after it (so a lane forks before the config, as every test expects).
 func buildTemplate() string {

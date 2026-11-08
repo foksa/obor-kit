@@ -44,7 +44,7 @@
       "heavy": true
     },
     "retest": {
-      "cmd": "make -s check-retest",
+      "cmd": "make -s check-retest TESTS='^({tests})$'",
       "timeout": 600
     },
     "check_web": {
@@ -189,7 +189,12 @@
       "internal/herdrtest/**",
       "internal/herdr/herdrtest/**"
     ],
-    "fail_grep": "^--- FAIL|^FAIL\\s"
+    "fail_grep": "^--- FAIL|^FAIL\\s",
+    "flake_regex": [
+      "^--- FAIL: (?P<test>\\S+)",
+      "^FAIL\\s+(?P<package>[^\\s./][^\\s]*[./][^\\s]*)"
+    ],
+    "retest_join": "|"
   },
   "task_id_pattern": "(T|R)-[0-9]+[a-z]?",
   "guards": {

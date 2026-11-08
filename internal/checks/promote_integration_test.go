@@ -163,14 +163,13 @@ func TestPromoteShaBehindThePromotedBranch(t *testing.T) {
 // failing test named.
 func TestPromoteRetestsRedOnce(t *testing.T) {
 	t.Parallel()
-	const grep = `^--- FAIL|^FAIL\s`
 	const redOne = `echo "--- FAIL: TestAlpha (0.01s)"; echo "FAIL example.com/pkg 0.03s"; exit 1`
 	retest := func(rc string) string {
 		return `n=$(cat "$TMP_DIR/retests" 2>/dev/null || echo 0); echo $((n + 1)) > "$TMP_DIR/retests"; echo "1 pass"; exit ` + rc
 	}
 	t.Run("green on the retest", func(t *testing.T) {
 		t.Parallel()
-		x, h := promoteFx(t, testkit.Set("merge.fail_grep", grep), cmd("check", redOne), cmd("retest", retest("0")))
+		x, h := promoteFx(t, goLines(), cmd("check", redOne), cmd("retest", retest("0")))
 		r, err := Promote(context.Background(), x.opts(), h)
 		if err != nil || r.Verdict != "GREEN" || !r.Retried {
 			t.Fatalf("Promote = %+v, %v; want GREEN, retried\n%s", r, err, x.out.String())
@@ -179,7 +178,7 @@ func TestPromoteRetestsRedOnce(t *testing.T) {
 	})
 	t.Run("red twice", func(t *testing.T) {
 		t.Parallel()
-		x, h := promoteFx(t, testkit.Set("merge.fail_grep", grep), cmd("check", redOne), cmd("retest", retest("1")))
+		x, h := promoteFx(t, goLines(), cmd("check", redOne), cmd("retest", retest("1")))
 		r, err := Promote(context.Background(), x.opts(), h)
 		if err != nil || r.Verdict != "RED" || !r.Retried {
 			t.Fatalf("Promote = %+v, %v; want RED, retried\n%s", r, err, x.out.String())

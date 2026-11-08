@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -19,7 +20,7 @@ import (
 // scripts/release's own rerun (T-717) and by a lane test's one retest (commands.retest, T-964).
 type Flake struct {
 	Time          int64  `json:"time"`            // epoch seconds
-	Test          string `json:"test"`            // a fail_grep name: the test, else the package
+	Test          string `json:"test"`            // the fail_grep line's name: the test, else the package (merge.flake_regex)
 	Check         string `json:"check"`           // commands.<name>
 	Task          string `json:"task"`            // the run's task (nightly, milestone for those)
 	SHA           string `json:"sha"`             // the commit the checks ran on
@@ -30,80 +31,77 @@ type Flake struct {
 // flakeWindow is how far back obor flakes looks.
 const flakeWindow = 7 * 24 * time.Hour
 
-// failingNames is the failing tests of outs: per output the "--- FAIL: <name>" fail_grep lines, and the "FAIL <pkg>"
-// ones no test name of that package covers (a build failure or a panic has no test line; go test prints a package's
-// test lines before its FAIL line). One entry per name across outs, in order.
-func (opt *Options) failingNames(outs ...output) []string {
-	var names []string
-	seen := map[string]bool{}
-	add := func(n string) {
-		if n == "" || seen[n] {
-			return
-		}
-		seen[n] = true
-		names = append(names, n)
+// flakeRegexp compiles merge.flake_regex: the failed-test line and the failed-package line (T-1047). A nil entry is
+// no regex configured, or one that does not compile (validate refuses that): that line is not parsed.
+func (opt *Options) flakeRegexp() (test, pkg *regexp.Regexp) {
+	if pair := opt.Cfg.Data.Merge.FlakeRegex; len(pair) == 2 {
+		test, _ = regexp.Compile(pair[0])
+		pkg, _ = regexp.Compile(pair[1])
 	}
-	for _, o := range outs {
-		tests := false // a test line since the last package line
-		for _, l := range opt.failing(o) {
-			if rest, ok := strings.CutPrefix(strings.TrimSpace(l), "--- FAIL:"); ok {
-				if f := strings.Fields(rest); len(f) > 0 {
-					add(f[0])
-					tests = true
-				}
-			} else if f := strings.Fields(l); len(f) > 1 && f[0] == "FAIL" {
-				if !tests || strings.Contains(l, "[build failed]") {
-					add(f[1])
-				}
-				tests = false
-			}
-		}
-	}
-	return names
+	return test, pkg
 }
 
-// failingTests is the retest's view of a red run (T-964): the failing tests of outs ("--- FAIL: <name>" lines) and the
-// packages that FAILed ("FAIL <module>/<pkg> <time>" lines, the module path's slash or dot telling a package from a
-// check's own "FAIL <what>" line), one entry each, in order. built: a package that did not build (a "[build failed]"
-// line), which no -run reruns.
-func (opt *Options) failingTests(outs ...output) (tests, pkgs []string, built bool) {
-	seen := map[string]bool{}
-	add := func(list *[]string, n string) {
-		if n == "" || seen[n] {
+// flakeGroup is re's named group name in l; "" when re is nil, l does not match, or the group is empty.
+func flakeGroup(re *regexp.Regexp, name, l string) string {
+	if re == nil {
+		return ""
+	}
+	m := re.FindStringSubmatch(l)
+	if i := re.SubexpIndex(name); m != nil && i >= 0 {
+		return m[i]
+	}
+	return ""
+}
+
+// flakeParse reads outs' fail_grep lines with merge.flake_regex (T-1047). names is the flake log's list, in line order:
+// a failed-test line's test, and a failed-package line's package unless a test line since the previous package line
+// covers it (a build failure or a panic has no test line of its own). tests is every test line's name, pkgs every
+// package line's package — the retest reruns the tests in all of them. One entry per name, in order; no regex: nothing,
+// no error.
+func (opt *Options) flakeParse(outs ...output) (names, tests, pkgs []string) {
+	testRe, pkgRe := opt.flakeRegexp()
+	if testRe == nil && pkgRe == nil {
+		return nil, nil, nil
+	}
+	type list struct {
+		items []string
+		seen  map[string]bool
+	}
+	var logNames, testNames, pkgNames list
+	logNames.seen, testNames.seen, pkgNames.seen = map[string]bool{}, map[string]bool{}, map[string]bool{}
+	add := func(l *list, n string) {
+		if n == "" || l.seen[n] {
 			return
 		}
-		seen[n] = true
-		*list = append(*list, n)
+		l.seen[n] = true
+		l.items = append(l.items, n)
 	}
 	for _, o := range outs {
+		covered := false // a test line since the last package line
 		for _, l := range opt.failing(o) {
-			if rest, ok := strings.CutPrefix(strings.TrimSpace(l), "--- FAIL:"); ok {
-				if f := strings.Fields(rest); len(f) > 0 {
-					add(&tests, f[0])
+			if t := flakeGroup(testRe, "test", l); t != "" {
+				add(&logNames, t)
+				add(&testNames, t)
+				covered = true
+				continue
+			}
+			if p := flakeGroup(pkgRe, "package", l); p != "" {
+				if !covered {
+					add(&logNames, p)
 				}
-				continue
-			}
-			f := strings.Fields(l)
-			if len(f) < 2 || f[0] != "FAIL" {
-				continue
-			}
-			if strings.Contains(l, "[build failed]") {
-				built = true
-				continue
-			}
-			if strings.ContainsAny(f[1], "/.") {
-				add(&pkgs, f[1])
+				add(&pkgNames, p)
+				covered = false
 			}
 		}
 	}
-	return tests, pkgs, built
+	return logNames.items, testNames.items, pkgNames.items
 }
 
 // logFlakes appends the failing tests of outs (one logical record: a red run) to the project's flake log; a write error
 // is a warning line, never the check's result. retried: commands.retest ran the failures once more (a lane test, T-964);
 // passed: and they passed there.
 func (r *runner) logFlakes(name string, retried, passed bool, outs ...output) {
-	names := r.failingNames(outs...)
+	names, _, _ := r.flakeParse(outs...)
 	if len(names) == 0 {
 		return
 	}
