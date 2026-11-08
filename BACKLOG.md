@@ -7,36 +7,36 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 
 ## Handoff (lead; rewrite at each handoff)
 Read `docs/observations.md` first (patterns from past sessions: where we went in circles, the load tax, traps).
-- 2026-11-08 ~06:30 (lead; previous Handoff: `git show 577e5b80:BACKLOG.md`). **Test-suite rework done**
-  (docs/plan/test-suite-rework.md; owner 11-07: "full and proper fix of test"). Nothing in flight; every lane free;
-  serve on staging's head; `branches.promote` OFF (config: `"branches": {"main": "staging"}`).
-  **Where tests run now** (AGENTS.md Tests, docs/decisions.md 11-08): slot = merge + `make check-compile`; lane =
-  class checks (Go: `check-affected`, `go test -short` on changed pkgs + importers; several classes → each class's
-  check; full lane → `make check` + `with_full` classes release/web); nightly = full `make check`, `check_budget`.
-  Budget: `tests/budget.json` (per-package caps at 2 cores, git counts, per-test caps for merge-path tests that stay in
-  `-short`, `untagged_s` 1.3). **`make check-budget` 11-08 06:23 (after every fix; 449 s, load 2.9 → 2.5):** no
-  package over its wall or git cap; 17 untagged tests >= 1.3 s, now visible because parallel subtests' work counts
-  (T-1004): launch TestStopForceTerminates 20.9 s, TestStopLeftoverMCP 12.3, TestStopUnprovenLeftovers 10.0,
-  TestStopEveryKind 2.3, TestScheduledWaitsThenDecidesFresh 2.1, TestSameAgentAfterScheduledWait 1.9; setup
-  TestPlacementTable 17.2, TestPaneSplitsTheLargestPane 5.8, TestCodexSetupStartRecordsItsSession 3.8,
-  TestOborInitLaneSetupOnARerun 2.8, TestNewPaneShellIsWaitedFor 2.6, TestSetupNonOpencodePaneDropsTheInheritedModel
-  2.2, TestSetupPaneStopsWhenTheEnvLineFailed 2.0; config TestValidate 10.3; cmd/obor TestOtherHooksNoBinaryAllow 6.2,
-  TestReviewGitCloseCommitFails 3.2, TestShimHasHook 2.1. Most look like waited-out grace periods and sleeps (stop,
-  scheduled wait). Next task: same shape as T-1006 (faster first; inject the wait; Slow only with a real why).
-  **Measured** (2 cores, quiet): internal/app -short 60.9 → 12.8 s (git 10,292 → 30); internal/checks -short 99.4 →
-  ~40 s; cmd/obor -short 41.5 → 26.5 s; full suite 20+ min → ~145 s; a lane's check-affected for one internal/app file
-  67.4 → 27.7 s. Causes found 11-07: git storms (25–33k per run), fseventsd overload + 14k leaked temp dirs, an editor
-  watching worktrees, full suites in lanes, speculative promotion runs.
-  **Merged 11-08:** T-995 (lane: go test only), T-1001 (release tests behind a tag), T-1002 (budget), T-1003 (multi-class
-  lanes), T-1004 (budget counts parallel work; 4 revs — my rule was wrong twice: read how Go reports before writing a
-  measure), T-1005, T-1006 (13 slow tests fast or marked), T-1007 (`with_full`), T-1008. RV-139 closed (3 accepted).
-  **Next:** (0) the 17-test task above (spec like T-1006, `.obor/drafts/T-1006.md`). (1) rewrite `docs/design.md` "Test tiers and receipts" (~line 536; lead-owned, protected): most of it
-  describes the pre-T-961 gate (receipts, kept/moved re-gates, OBOR_MOVED); check the code for what still exists, then
-  rewrite to the tiers above. (2) Task priority (Open, owner 11-07). (3) Decide promotion: it stays off until the
-  generic test-time flow (Later) and serve following staging vs main (Open) are settled; its stale needs-you repeats
-  hourly until then (Concerns). (4) `TestScratchCutTable` speed-up (31 s of work, capped). (5) T-993/T-994 are stored
-  specs only, both superseded (status lists them as queued; nothing to drop). (6) Review due counts from RV-139's close.
-  **Owner side:** `.obor/local.json` slots.max 4 (was 1; backup in the 11-07 lead's scratchpad).
+- 2026-11-08 ~12:10 (lead; previous Handoff: `git show 8ff591d1:BACKLOG.md`). Nothing in flight, every lane free,
+  promotion OFF (`branches: {main: staging}`). **v0.30.0 released and shipped** (tag pushed, GitHub release with four
+  assets); only `sh install.sh` on this machine is left (GitHub release downloads returned 504 for every repo at
+  ~09:30; the owner runs `! sh install.sh` when they work).
+  **Owner direction 11-08 (docs/decisions.md, top five entries):** core = agent automation; agent kinds and
+  integrations become out-of-process plugins, terminal and workflow compiled-in adapters chosen by config; workflow,
+  lane shape and gate configurable; standing data/architecture passes; **target architecture accepted:
+  `docs/plan/architecture-target.md`** (advisor; inputs `docs/research/architecture-inventory.md`,
+  `entity-model.md`), 14 steps. Workers run unit tests only: `//go:build integration` holds real git/sockets/binaries,
+  every gate passes the tag (T-1014); `docs/agents/worker.md` says so.
+  **Done today (plan steps 1-4 + test splits):** T-1009 template fixtures, T-1010 launch/guard without git, T-1011
+  Scratch decide/do split, T-1012 + T-1015 lane free by one rule at the submitted head, T-1013 promotion needs-you
+  settles when off, T-1014 integration tag, T-1016 `obor drop` of a never-dispatched spec, T-1017 prepare head gone,
+  T-1018 checks unit tier git-free, T-1019 template cleanup enforced, T-1020 cmd/obor split, T-1021 setup split.
+  RV-139..RV-142 closed.
+  **Measured (plain `go test` = what a worker runs, 2 cores, counting git wrapper):** internal/checks 22 s/1,935 git →
+  4 s/0; cmd/obor 40 s/1,440 → 18 s/0; internal/setup 23 s/1,589 → 2 s/0; launch 16 s/2,041 → 4 s/30; guard
+  5.7 s/1,127 → 1.2 s/31. Full budget run (with the tag): ≈14.4k git processes → ≈6.6k (11:16, before T-1018..T-1021).
+  Integration tiers: cmd/obor 36 s/1,025 git, setup 22 s/1,225.
+  **Next:** (1) `make check-budget` on a quiet machine, then lower caps the packages now run under (tests/budget.json;
+  the 11:16 run flagged app git 59 > 45, fixed by T-1019, and load-noise tests at 1.3-1.8 s). (2) cmd/obor's unit tier
+  is still 18 s with no git: find what it waits on. (3) Review due: T-1020, T-1021 (+ T-1016, T-1017 if not covered).
+  (4) Plan steps 5-6 (review state from the log; spec parsed once), then 7-8 (workflow interface; lane keep mode),
+  9-11 plugins in the owner's order. (5) Rewrite `docs/design.md` "Test tiers and receipts" (~line 536, protected,
+  lead-owned) to the unit/integration/e2e shape. (6) Release-from-worktree gap (Open: `make ship` needs `dist/` in the
+  main checkout and the checkout on main). (7) Task priority (Open, owner 11-07).
+  **Lessons today:** a measurement rule I wrote without reading how Go reports test time was wrong twice (T-1004:
+  read the tool's semantics first); `make release` from a scratch worktree loses `dist/` (I rebuilt it from tag^ plus
+  the uncommitted marketplace edit to match the checksums); a long private TMPDIR breaks the stub sockets in tests.
+  **Owner side:** `.obor/local.json` slots.max 4.
 
 ## Owner decisions pending
 - (none; branching decided 11-07, docs/decisions.md)
