@@ -70,7 +70,7 @@
       "timeout": 120
     },
     "check_milestone": {
-      "cmd": "go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...",
+      "cmd": "make -s vulncheck",
       "timeout": 600
     },
     "conformance": {
