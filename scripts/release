@@ -18,11 +18,12 @@
 #   tag           done: a local tag v<version> whose commit changes only the catalog and marketplace name on top of its
 #                 source parent, which differs from HEAD in docs and bin/checksums.txt only (scripts/release-lib.sh)
 #                 make: a scratch worktree detached at HEAD under this repo's git dir, marketplace name obor-kit,
-#                 `make release` (the four binaries and bin/checksums.txt), commit, tag     fail: remove the scratch
+#                 `make release` (the eight binaries: obor and the OpenCode kind per platform, T-1046; and
+#                 bin/checksums.txt), commit, tag     fail: remove the scratch
 #                 worktree; an existing tag is never touched
-#   copy-back     done: the branch's bin/checksums.txt has the tag's four lines and this checkout's four dist files
-#                 match them
-#                 make: all four files checked against the tag's catalog first, then copied and the catalog committed
+#   copy-back     done: the branch's bin/checksums.txt has the tag's lines for the release and this checkout's dist
+#                 files match them
+#                 make: all eight files checked against the tag's catalog first, then copied and the catalog committed
 #                 fail: bin/checksums.txt's index and tree back to HEAD
 #   main          done: refs/heads/main is the release's "checksums: v<version>" commit or past it
 #                 make: fast-forward refs/heads/main to that commit by git update-ref, the way a promotion moves it (the
@@ -53,7 +54,6 @@ done
 tag="v$v"
 vre=$(printf '%s' "$v" | sed 's/\./\\./g')
 guide="docs/UPGRADE-v${v%.*}.md"
-platforms="darwin-arm64 darwin-amd64 linux-arm64 linux-amd64"
 tmpdir=${TMPDIR:-/tmp}
 
 # log: this run's own full log (set below once the run starts; a --dry-run has none).
@@ -208,9 +208,9 @@ never_moves() {
   fi
 }
 
-# four_lines <catalog text>: its lines for this version, one per platform (empty when any is missing).
-four_lines() {
-  printf '%s\n' "$1" | grep -F "dist/obor-$v-" || true
+# asset_lines <catalog text>: its lines for this version's files (release-lib.sh's version_lines).
+asset_lines() {
+  printf '%s\n' "$1" | version_lines "$v"
 }
 
 # head_versions_are_v: VERSION and the plugin version at HEAD are both <version>.
@@ -247,10 +247,10 @@ dist_source() {
   if [ -f "$scratch/$1" ]; then echo "$scratch/$1"; else echo "$1"; fi
 }
 
-# check_dist: each of the four files (dist_source) is there and matches the tag's catalog; nothing is written.
+# check_dist: each of the release's files (dist_source) is there and matches the tag's catalog; nothing is written.
 check_dist() {
-  for pl in $platforms; do
-    f="dist/obor-$v-$pl"
+  for a in $(release_assets "$v"); do
+    f="dist/$a"
     src=$(dist_source "$f")
     [ -f "$src" ] ||
       fail "$f is gone (in neither dist/ nor $scratch): a re-run cannot recreate identical bytes; $(never_moves)"
@@ -260,11 +260,11 @@ check_dist() {
   done
 }
 
-# copyback_done: the branch's catalog at HEAD has the tag's four lines and this checkout's four files match them.
+# copyback_done: the branch's catalog at HEAD has the tag's lines for the release and this checkout's files match them.
 copyback_done() {
-  [ "$(four_lines "$(git show HEAD:bin/checksums.txt 2> /dev/null || true)")" = "$tagv" ] || return 1
-  for pl in $platforms; do
-    f="dist/obor-$v-$pl"
+  [ "$(asset_lines "$(git show HEAD:bin/checksums.txt 2> /dev/null || true)")" = "$tagv" ] || return 1
+  for a in $(release_assets "$v"); do
+    f="dist/$a"
     [ -f "$f" ] || return 1
     want=$(printf '%s\n' "$tagcat" | awk -v f="$f" '$2 == f { print $1; exit }')
     [ "$(shasum -a 256 "$f" | awk '{ print $1 }')" = "$want" ] || return 1
@@ -433,7 +433,7 @@ if git rev-parse -q --verify "refs/tags/$tag" > /dev/null 2>&1; then
 elif [ "$dry" = 1 ]; then
   say "would: git worktree add --detach $scratch HEAD"
   say "would: set the marketplace name obor-kit there, make release, commit, git tag -a $tag"
-  say "would: copy the four dist/obor-$v-<os>-<arch> files from $tag to this checkout's dist/"
+  say "would: copy the $(asset_count) dist/<binary>-$v-<os>-<arch> files from $tag to this checkout's dist/"
   say "would: git commit -m 'checksums: $tag' on $branch"
   say "would: remove the worktree $scratch"
   planned=1
@@ -476,26 +476,26 @@ fi
 # --- copy-back
 if [ "$planned" = 0 ]; then
   tagcat=$(git show "$tag:bin/checksums.txt" 2> /dev/null) || fail "no bin/checksums.txt at $tag: the tag is not a finished release"
-  tagv=$(four_lines "$tagcat")
-  [ "$(printf '%s\n' "$tagv" | grep -c . || true)" = 4 ] ||
-    fail "bin/checksums.txt at $tag has no four lines for $v: the tag is not a finished release"
-  # All four files are checked before anything is written: a failure leaves the branch as it was.
+  tagv=$(asset_lines "$tagcat")
+  [ "$(printf '%s\n' "$tagv" | grep -c . || true)" = "$(asset_count)" ] ||
+    fail "bin/checksums.txt at $tag lacks lines for $v's $(asset_count) files: the tag is not a finished release"
+  # All the files are checked before anything is written: a failure leaves the branch as it was.
   check_dist
 
   if copyback_done; then
-    say "bin/checksums.txt at HEAD has $tag's four lines: copy-back commit skipped"
+    say "bin/checksums.txt at HEAD has $tag's lines: copy-back commit skipped"
   elif [ "$dry" = 1 ]; then
-    say "would: copy the four dist/obor-$v-<os>-<arch> files from $tag to this checkout's dist/"
+    say "would: copy the $(asset_count) dist/<binary>-$v-<os>-<arch> files from $tag to this checkout's dist/"
     say "would: git commit -m 'checksums: $tag' on $branch"
   else
     mkdir -p dist
-    for pl in $platforms; do
-      f="dist/obor-$v-$pl"
+    for a in $(release_assets "$v"); do
+      f="dist/$a"
       [ ! -f "$scratch/$f" ] || cp "$scratch/$f" "$f" || fail "cannot copy $scratch/$f to this checkout"
     done
-    headv=$(four_lines "$(git show HEAD:bin/checksums.txt 2> /dev/null || true)")
+    headv=$(asset_lines "$(git show HEAD:bin/checksums.txt 2> /dev/null || true)")
     if [ "$headv" = "$tagv" ]; then
-      say "bin/checksums.txt at HEAD has $tag's four lines: copied the four files, copy-back commit skipped"
+      say "bin/checksums.txt at HEAD has $tag's lines: copied the files, copy-back commit skipped"
     else
       undo=undo_catalog
       printf '%s\n' "$tagcat" > bin/checksums.txt

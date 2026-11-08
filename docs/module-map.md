@@ -9,9 +9,10 @@ multi-machine itself is later, but no interface may assume local.
 
 ## Layers and import rules
 
-The layers are base, bridge, core, adapter, view, entry, test helpers and tools (probes under `tests/`, the kit's own
+The layers are base, bridge, core, adapter, view, entry, test helpers, tools (probes under `tests/`, the kit's own
 programs under `tools/`: `affected`, the Go packages a change can break, run by the Makefile's `check-affected`,
-T-1040). The enforced table
+T-1040) and kind binaries (`kinds/<name>`: a plugin kind the kit ships as its own binary, T-1046; it imports the bridge
+and its own tree only). The enforced table
 (which package is in which layer, and who may import whom) is `layerOf` in `internal/checks/boundary_test.go`; the merge
 gate runs it. Adapters never import each other: one that needs another goes through an interface the core defines
 (e.g. `launch` gets panes via `app.PaneControl`, not `herdr`). A package with no layer fails the test: add it to
@@ -38,7 +39,8 @@ gate runs it. Adapters never import each other: one that needs another goes thro
   protocol (`docs/agents/kind-protocol.md`), run as a process group under a per-call timeout. `config` registers the
   kinds its `kinds.<name>.command` name through `agents.Plugins` (it cannot import this package) on every load, each with
   the manifest `obor setup agents` cached (`plugin.Cache`, `.obor/state/kinds/<name>.json`): no process runs at load.
-  Base, not bridge: it runs processes and writes the cache.
+  Base, not bridge: it runs processes and writes the cache. `Local` (T-1046): a kind answered in process by its own Go
+  handler instead of its command (testkit's OpenCode; empty in obor).
 - `help` (T-854): the one list of obor commands (`help.Commands`: name, usage, description, group), printed by
   `obor help` and shown by obor web's Help page, and README's "Install" and "Set up a project" sections (`Sections`).
 - `selfexec`: a long-running obor process follows a new obor binary (T-719): `Candidate` (the binary the kit's shim
@@ -56,24 +58,32 @@ gate runs it. Adapters never import each other: one that needs another goes thro
   sessions (T-577) are `events` facts on task key `session` (`sessions.go`: `store.Session`, readers
   `ReadSessionsAt` / `CurrentAt` / `TranscriptAt` for launch and the hooks).
 
-**bridge** — `agents` and one package per agent kind (`agents/claude`, `agents/codex`, `agents/opencode`; phase 5,
+**bridge** — `agents` and one package per compiled agent kind (`agents/claude`, `agents/codex`; phase 5,
 T-495): **what** differs per agent CLI, as data and pure functions; standard library only,
-imports no obor package (every other layer may import it). `agents.Kind`: `Name`, `Start(Start) []string`
-(fresh/resume argv, MCP registration, first prompt; `Start.Read` is the adapter's file read, a `--mcp-config` path),
-`NotReady(screen)`, `StartEnv` (a start's own env: OpenCode's `OBOR_OPENCODE_MODEL` for obor's plugin, T-703), `Stop() Stop` (quit recipe), `Headless() Headless` (argv forms the guard denies), `Install(kit, env)
+imports no obor package (every other layer may import it). `agents.Kind`: `Name`, `NotReady(screen)`, `Stop() Stop` (quit recipe), `Headless() Headless` (argv forms the guard denies), `Install(kit, env)
 Install` (MCP registration, plugin link), `Transcript(env, sid)` (a glob: the file of that session id, no cwd — a
 kind's directory for it is the kind's own, T-813), `Session(first line)` (the session a
 transcript begins with: Codex's `session_meta`, T-577), `Deliver(text, record) (Delivery, bool)` (typed
 vs inbox post), `Caps()` (hooks transport — the plugin marker is `Caps().Hooks == HooksPlugin` —, inbox, resume,
 transcript, a named session: `NamedSession`, obor chooses the id of a fresh start, T-813; `Status`, where the status and
-turns come from: `terminal`, `hooks`, `transcript`, T-1036). Registry: the compiled kinds register from their init; a
-config load replaces the plugin kinds (`SetPlugins`); a start is built once at the launch boundary from the complete
-`agents.Start` (`agents.StartOf`: a plugin kind's one start call, `Whole`, its argv, env and files together, T-1042), and
-a plugin kind's start and install can fail (`StartOf`, `InstallOf`). `Install` and `Transcript`
+turns come from: `terminal`, `hooks`, `transcript`, T-1036). A kind starts as `agents.Split` (a compiled kind:
+`Start(Start) []string`, the fresh/resume argv, MCP registration and first prompt, `Start.Read` the adapter's file read;
+`StartEnv`, a start's own env) or `agents.Whole` (a plugin kind's one start call: its argv, env and files together,
+T-1042; RV-147, T-1046: a plugin kind has no `Start`/`StartEnv`). Registry: the compiled kinds register from their init; a
+config load replaces the plugin kinds (`SetPlugins`; OpenCode's the kit's binary, `kinds/opencode`, T-1046); a start is
+built once at the launch boundary from the complete `agents.Start` (`agents.StartOf`), and a plugin kind's start and
+install can fail (`StartOf`, `InstallOf`). `Install` and `Transcript`
 take the environment (config dirs: `XDG_CONFIG_HOME`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`). Registry: `agents.Lookup`, `Names`,
 `Default`. All I/O stays in the adapters, which ask the kind what differs; non-lead default settings stay in
-`config.Model.Launch`, which asks the kind to render them. No kind name outside the bridges (boundary test).
-Adding a kind = one package + a config entry.
+`config.Model.Launch`, which asks the kind to render them. No kind name outside the bridges and the kind binaries (boundary test).
+Adding a kind = a plugin kind's executable (`docs/agents/kind-protocol.md`) + `kinds.<name>.command`.
+
+**kind binaries** — `kinds/opencode` (T-1046, plan step 9b): the OpenCode kind as the reference plugin kind, its own
+binary `obor-kind-opencode` (`main.go`: stdin → `kind.Handle` → stdout) beside obor's. Package `kinds/opencode/kind` is
+the kind: the manifest, `start` (the args without `--model`, `--prompt`; `OBOR_OPENCODE_MODEL` model#effort and
+`OPENCODE_CONFIG`, the generated config with obor's MCP server and plugin `<kit>/opencode`), `turn` (a `rate_limit`'s
+reset), `project-warnings` (T-1033). It imports `agents` only (`Pin`, `ResetIn`); testkit registers its handler in
+process (`plugin.Local`).
 
 **core** — `app`: the only place with obor logic. Files by concern: `app.go` (types, options), `serve.go` (New, Serve,
   run, the serve flock), `project.go` (load, log, fold), `log.go` (serve's side of the backup), `panes.go` (herdr events to projects),

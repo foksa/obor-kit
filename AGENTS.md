@@ -21,7 +21,8 @@ none of this replaces the task, and "nothing to flag" needs no line.
   `make check` as the gate (the owner approves new ones). `govulncheck` runs in `obor nightly` (`check_milestone`).
   Today the two dependencies are the shell parser (`mvdan.cc/sh`) and SQLite (`modernc.org/sqlite`, cgo-free, with its
   matching `modernc.org/libc` pin). One static binary
-  (`make build` → `dist/obor`); `bin/obor` is the only bash (bash 3.2 compatible, macOS and Linux).
+  (`make build` → `dist/obor`), and beside it each plugin kind the kit ships as its own (`dist/obor-kind-opencode`,
+  `kinds/opencode`, T-1046); `bin/obor` is the only bash (bash 3.2 compatible, macOS and Linux).
 - Runtime deps: **git, herdr, jq** (jq only in the `bin/obor` shim) + the binary. No python, node or bun in shipped code; the mods are TypeScript run by
   Claude Code itself.
 - Timeouts through `context`; processes that may leave children run as a process group (`run.Group`).

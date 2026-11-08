@@ -1,6 +1,30 @@
 # release-lib.sh: what scripts/release and scripts/ship both prove about a release tag, sourced by both (T-643).
 # Needs $tag (v<version>). POSIX sh.
 
+# The release's files (T-1046): obor and each kind binary obor runs beside it (Makefile RELEASE_BINARIES), one per
+# platform each, dist/<binary>-<version>-<os>-<arch> and the asset of that name on the GitHub release.
+binaries="obor obor-kind-opencode"
+platforms="darwin-arm64 darwin-amd64 linux-arm64 linux-amd64"
+
+# release_assets <version>: the release's asset names, one per line: each binary's four platforms, obor's first.
+release_assets() {
+  for b in $binaries; do
+    for pl in $platforms; do
+      echo "$b-$1-$pl"
+    done
+  done
+}
+
+# asset_count: how many assets a release has.
+asset_count() { release_assets 0 | grep -c .; }
+
+# version_lines <version>: the lines of the catalog on stdin that name one of the version's files (dist/<asset>), in
+# their order.
+version_lines() {
+  awk -v v="$1" -v bins="$binaries" 'BEGIN { n = split(bins, b, " ") }
+    { for (i = 1; i <= n; i++) if (index($2, "dist/" b[i] "-" v "-") == 1) { print; next } }'
+}
+
 # version_lt <a> <b>: version a (x.y.z) is below version b, comparing the parts numerically (false for anything that is
 # not x.y.z, both sides: a prerelease or malformed tag never becomes the changelog baseline, T-683).
 version_lt() {

@@ -17,13 +17,18 @@ import (
 	_ "modernc.org/sqlite"
 
 	"obor/internal/agents"
-	"obor/internal/agents/opencode"
 	"obor/internal/store"
 )
 
+// The variables the OpenCode kind's start sets (kinds/opencode/kind: a tool may not import a kind's package).
+const (
+	ocConfigVar = "OPENCODE_CONFIG"
+	ocModelVar  = "OBOR_OPENCODE_MODEL"
+)
+
 // opencodeLive: on scratch XDG dirs holding nothing of obor's (T-809: `obor setup agents` installs nothing global; an
-// old entry and link are removed by hand, T-835), one --standalone start in the lane with the env the driver's StartEnv
-// gives it (OPENCODE_CONFIG naming its generated config, under the scratch dir): OC-L1, H-L1, OC-L3 (the start's own
+// old entry and link are removed by hand, T-835), one --standalone start in the lane with the env the kind's start (the
+// real kinds/opencode binary through obor's plugin package, T-1046) gives it (OPENCODE_CONFIG naming its generated config, under the scratch dir): OC-L1, H-L1, OC-L3 (the start's own
 // mcp.servers.obor runs), OC-L4 (no global link; obor.js set up once, from the config's package dir), OC-L5's quit.
 // With TURN=1 a role agent in the main checkout takes one turn (OC-L2, OC-L5).
 func opencodeLive(l *lab, turn bool) {
@@ -41,20 +46,21 @@ func opencodeLive(l *lab, turn bool) {
 		}
 		return xdg[n]
 	})
-	where3, where4 := at(opencodeGo, "func (kind) Install")+", P1, CAP §4.2", at(opencodeGo, "func Config")+", P1, CAP §4.3"
+	where3, where4 := at(opencodeGo, `case "install"`)+", P1, CAP §4.2", at(opencodeGo, "func Config")+", P1, CAP §4.3"
 	if inst.MCP.Where != agents.PerStart || inst.Plugin != nil {
 		report("FAIL", "OC-L3", fmt.Sprintf("Install still registers globally (%s, plugin %v)", inst.MCP.Where, inst.Plugin != nil), where3)
 		return
 	}
-	vars, err := k.StartEnv(agents.Start{Kit: l.kit, WriteState: func(name string, data []byte) (string, error) {
+	withKit, err := agents.StartOf(k, agents.Start{Kit: l.kit, WriteState: func(name string, data []byte) (string, error) {
 		path := filepath.Join(l.root, "state", name)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			return "", err
 		}
 		return path, os.WriteFile(path, data, 0o644)
 	}})
-	if err != nil || vars[opencode.ConfigVar] == "" {
-		report("FAIL", "OC-L3", fmt.Sprintf("StartEnv names no generated config (%v, %v)", vars, err), at(opencodeGo, "func (k kind) StartEnv"))
+	vars := withKit.Env
+	if err != nil || vars[ocConfigVar] == "" {
+		report("FAIL", "OC-L3", fmt.Sprintf("the start names no generated config (%v, %v)", vars, err), at(opencodeGo, "func start("))
 		return
 	}
 	pane, err := l.workspace("conf", l.lane)
@@ -74,8 +80,13 @@ func opencodeLive(l *lab, turn bool) {
 		return
 	}
 	st := k.Stop()
-	where5 := at(opencodeGo, "func (kind) Stop") + ", CAP §4.6"
-	argv := k.Start(agents.Start{Args: []string{"--standalone"}})
+	where5 := at(opencodeGo, `"stop"`) + ", CAP §4.6"
+	bare, err := agents.StartOf(k, agents.Start{Args: []string{"--standalone"}})
+	if err != nil {
+		report("FAIL", "OC-L1", "the start: "+err.Error(), at(opencodeGo, "func start("))
+		return
+	}
+	argv := bare.Args
 
 	l.fresh()
 	if l.opencodeStart(pane, argv, "as obor starts it") {
@@ -207,7 +218,7 @@ func (l *lab) opencodeStart(pane string, argv []string, mode string) bool {
 	ready := l.readyAfter(s, t0, "idle")
 	reportStart("opencode "+mode, s, ready)
 	if l.atShell(pane) {
-		report("FAIL", "OC-L1", mode+": opencode did not start: "+tail(l.screen(pane), 6), at(opencodeGo, "func (kind) Start"))
+		report("FAIL", "OC-L1", mode+": opencode did not start: "+tail(l.screen(pane), 6), at(opencodeGo, "func start("))
 		return false
 	}
 	return true
@@ -261,7 +272,7 @@ func ocTurn(l *lab, pane string, argv []string, xdg map[string]string, st agents
 		return
 	}
 	l.fresh()
-	line := "cd " + shq(l.main) + " && unset OBOR_LANE && export OBOR_ROLE=researcher " + opencode.ModelVar + "=" + shq(model)
+	line := "cd " + shq(l.main) + " && unset OBOR_LANE && export OBOR_ROLE=researcher " + ocModelVar + "=" + shq(model)
 	if _, err := l.shell(pane, line, 10*time.Second); err != nil || !l.opencodeStart(pane, argv, "role agent, main checkout") {
 		report("SKIP", "OC-L2", "opencode did not start for the turn", where2)
 		report("SKIP", "OC-L5", "opencode did not start for the turn", where5)
@@ -288,7 +299,7 @@ func ocTurn(l *lab, pane string, argv []string, xdg map[string]string, st agents
 		report("FAIL", "OC-L5", "no stop hook (session.execution.succeeded) in 120s; hooks run: "+orNone(strings.Join(slices.Compact(seen), " ")), where5)
 	} else {
 		report("PASS", "OC-L5", "session.execution.* reach obor.js (hooks "+strings.Join(slices.Compact(seen), " ")+")", where5)
-		report("SKIP", "OC-L5", "the model switch ("+opencode.ModelVar+") is not read back: the turn's answer does not name the model it ran on", where5)
+		report("SKIP", "OC-L5", "the model switch ("+ocModelVar+") is not read back: the turn's answer does not name the model it ran on", where5)
 	}
 	if _, err := l.quit(pane, st); err != nil {
 		l.stopAgent(pane)
@@ -347,7 +358,7 @@ func (l *lab) opencodeAuth(xdg map[string]string) {
 // list the server's tools, or cannot call one, leaves no such result. Runs after ocTurn, so it sets the lane worker's
 // environment again (ocTurn left the main checkout as a researcher).
 func ocL6(l *lab, pane string, xdg map[string]string, st agents.Stop) {
-	where := at("internal/mcp/mcp.go", "func Serve") + ", " + at("internal/agents/opencode/opencode.go", "func Config") + ", T-898"
+	where := at("internal/mcp/mcp.go", "func Serve") + ", " + at(opencodeGo, "func Config") + ", T-898"
 	real, err := l.realKit()
 	if err != nil {
 		report("FAIL", "OC-L6", "the repository's own obor is not built: "+err.Error(), where)
@@ -357,7 +368,6 @@ func ocL6(l *lab, pane string, xdg map[string]string, st agents.Stop) {
 		report("FAIL", "OC-L6", err.Error(), where)
 		return
 	}
-	k := kindOf("opencode")
 	model, ok := liveModel("opencode")
 	if !ok {
 		report("FAIL", "OC-L6", "the config's built-in model table has no opencode model", at("internal/config/models.go", "var BuiltinModels")+", T-910")
@@ -370,7 +380,7 @@ func ocL6(l *lab, pane string, xdg map[string]string, st agents.Stop) {
 		}
 		return path, os.WriteFile(path, data, 0o644)
 	})
-	if err != nil || start.env[opencode.ConfigVar] == "" {
+	if err != nil || start.env[ocConfigVar] == "" {
 		report("FAIL", "OC-L6", fmt.Sprintf("the launch of %s names no generated config (%v, %v)", model, start.env, err),
 			at("internal/config/models.go", "func (m Model) Launch")+", T-910")
 		return
@@ -387,7 +397,7 @@ func ocL6(l *lab, pane string, xdg map[string]string, st agents.Stop) {
 		report("FAIL", "OC-L6", fmt.Sprintf("the env line failed (status %d, %v)", code, err), at(launchGo, "func envLine"))
 		return
 	}
-	argv := k.Start(agents.Start{Args: start.args})
+	argv := start.args // the launch's own argv: a plugin kind's start is one call (launchOf)
 	t0 := time.Now()
 	s := l.start("conf-opencode-mcp", "opencode", pane, argv, 30*time.Second)
 	reportStart("opencode real mcp", s, l.readyAfter(s, t0, "idle"))

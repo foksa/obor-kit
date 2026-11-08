@@ -170,11 +170,19 @@ func (v *validator) models() {
 	for _, k := range v.d.Kinds.Keys {
 		if v.d.Kinds.M[k].Command != "" {
 			v.pluginKind(k)
-		} else {
+		} else if _, kit := KitKinds[k]; !kit {
 			bridged(".kinds"+key(k), k)
 		}
 		if slices.Contains(v.d.Kinds.M[k].Args, "--") {
 			v.fail(".kinds"+key(k)+".args", "`--` is not allowed: obor adds the first prompt itself")
+		}
+	}
+	for _, k := range v.c.PluginKinds() {
+		// a config from before T-1046 that uses a kit kind runs the kit's binary, until v0.32.0
+		if v.d.Kinds.M[k].Command == "" && v.c.namesKind(k) {
+			v.warns = append(v.warns, fmt.Sprintf("WARN kinds.%s.command: not set, so obor runs the kit's %s (obor "+
+				"setup agents sets it; v0.32.0 drops the default)", k, KitKinds[k]))
+			v.pluginKind(k)
 		}
 	}
 	for _, k := range v.d.Roles.Keys {
@@ -628,6 +636,24 @@ func (v *validator) modelRef(path, ref string, required bool) {
 
 // modelUsed: a level (its own list or the default), a role or an agent of c names model.
 func (c *Config) modelUsed(model string) bool { return slices.Contains(c.UsedModels(), model) }
+
+// namesKind: c names kind k, as kinds.<k>, a models entry's kind or the kind of a model it uses.
+func (c *Config) namesKind(k string) bool {
+	if _, ok := c.Data.Kinds.M[k]; ok {
+		return true
+	}
+	for _, name := range c.Data.Models.Keys {
+		if c.Data.Models.M[name].Kind == k {
+			return true
+		}
+	}
+	for _, name := range c.UsedModels() {
+		if m, ok := c.Model(name); ok && m.Kind == k {
+			return true
+		}
+	}
+	return false
+}
 
 // UsedModels are the models a level (its own list or the default), a role or an agent of c names, known or not, in
 // level (hard, medium, simple), role, agent order.

@@ -9,7 +9,7 @@ import (
 	"obor/internal/agents"
 	_ "obor/internal/agents/claude"
 	_ "obor/internal/agents/codex"
-	_ "obor/internal/agents/opencode"
+	_ "obor/internal/testkit" // OpenCode, a plugin kind answering in process (T-1046)
 )
 
 // T-495: the registry is the one list of kinds (sorted), Default is one of them, an unknown kind is no kind (Cursor's
@@ -145,9 +145,6 @@ func TestModelArgs(t *testing.T) {
 			[]string{"-m", "gpt-7", "-c", "model_reasoning_effort=high", "-s", "workspace-write"}},
 		{"codex", "gpt-7", []string{"-s", "workspace-write", "--model=gpt-6"}, []string{"-s", "workspace-write", "--model=gpt-7"}},
 		{"codex", "gpt-7", []string{"-a", "never"}, []string{"-a", "never", "-m", "gpt-7"}},
-		{"opencode", "opencode-go/kimi", []string{"--auto", "--model", "opencode-go/deepseek", "--standalone"},
-			[]string{"--auto", "--model", "opencode-go/kimi", "--standalone"}},
-		{"opencode", "p/m", []string{"--auto", "-m=x/y"}, []string{"--auto", "-m=p/m"}},
 	} {
 		got, err := agents.ModelArgs(c.kind, c.args, c.val)
 		if err != nil || !slices.Equal(got, c.want) {
@@ -157,10 +154,13 @@ func TestModelArgs(t *testing.T) {
 	if _, err := agents.ModelArgs("cursor", nil, "m"); err == nil {
 		t.Error("a kind with no bridge names no model: want an error")
 	}
+	if _, err := agents.ModelArgs("opencode", nil, "m"); err == nil { // T-1046: config appends --model <id>
+		t.Error("a plugin kind names no model in its args: want an error")
+	}
 }
 
 // T-812: the registry of the env vars obor sets for an agent is one list: the identity vars, the retired OBOR_AGENT and
-// every kind's own (Kind.Vars), and a kind's StartEnv sets none outside it.
+// every kind's own (Kind.Vars), and a kind's start sets none outside it.
 func TestVarsRegistry(t *testing.T) {
 	vars := agents.Vars()
 	for _, v := range []string{"OBOR_ROLE", "OBOR_LANE", "OBOR_AGENT", "OBOR_OPENCODE_MODEL", "OPENCODE_CONFIG"} {
@@ -179,16 +179,17 @@ func TestVarsRegistry(t *testing.T) {
 				t.Errorf("%s's var %s is not in the registry", name, v)
 			}
 		}
-		env, err := k.StartEnv(agents.Start{Kit: "/kit", Args: []string{"--model", "p/m"}, Effort: "high", WriteState: write})
+		l, err := agents.StartOf(k, agents.Start{Kit: "/kit", Args: []string{"--model", "p/m"}, Effort: "high", WriteState: write})
 		if err != nil {
-			t.Fatalf("%s: StartEnv: %v", name, err)
+			t.Fatalf("%s: start: %v", name, err)
 		}
+		env := l.Env
 		if name == "opencode" && len(env) == 0 {
 			t.Fatal("precondition: opencode's start sets vars")
 		}
 		for v := range env {
 			if !slices.Contains(k.Vars(), v) {
-				t.Errorf("%s's StartEnv sets %s, not one of its Vars %q", name, v, k.Vars())
+				t.Errorf("%s's start sets %s, not one of its Vars %q", name, v, k.Vars())
 			}
 		}
 	}

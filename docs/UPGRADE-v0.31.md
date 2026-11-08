@@ -1,5 +1,32 @@
 # Upgrading an obor project from v0.30 to v0.31
 
+## v0.31.0 (OpenCode leaves the obor binary: a plugin kind of its own)
+
+OpenCode is now a plugin kind (`docs/agents/kind-protocol.md`): the kit ships it as its own binary,
+`obor-kind-opencode`, beside obor's (`make build` writes `dist/obor-kind-opencode`; the installer fetches
+`~/.obor/bin/obor-kind-opencode-<v>-<os>-<arch>` with obor's binary). An OpenCode agent starts as before: the same argv,
+env, generated config (`OPENCODE_CONFIG`), model switch and quit; `opencode/obor.js` is still its hook transport.
+
+What obor knows about OpenCode without running it (its stop recipe, the `opencode run` the guard denies, its efforts,
+its env vars) is the binary's manifest, cached per project. **Until a project caches it, OpenCode agents cannot start
+there** (`kind opencode: no manifest cached (…): run obor setup agents`) and the guard does not know `opencode run`.
+
+A config needs `kinds.opencode.command`; one without it still runs the kit's binary until v0.32.0, and `obor config
+validate` warns while it is missing. Re-run the installer, then in every project:
+
+```sh
+obor setup agents        # caches the manifest and writes kinds.opencode.command = "obor-kind-opencode" (uncommitted)
+obor config validate     # no WARN kinds.opencode.command
+git commit -m "kinds.opencode.command" .obor/config.json
+```
+
+The config line, if you write it by hand (`obor-kind-opencode` names the kit's binary beside obor, not a file in the
+project):
+
+```json
+"kinds": { "opencode": { "command": "obor-kind-opencode" } }
+```
+
 ## v0.31.0 (a lane's env is the project's config, not obor's code)
 
 A lane's environment is now what obor always exports as facts — `OBOR_LANE_CPUS` (the lane's `slots.lane_cpus`,

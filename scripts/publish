@@ -1,18 +1,21 @@
 #!/bin/sh
-# publish <version>: upload the four release binaries of v<version> to its GitHub release (`make publish`). The four
-# paths are a literal list, not GOOS_LIST/GOARCH_LIST and not a glob, and each is checked against the tag's own
+# publish <version>: upload the eight release binaries of v<version> (obor and the OpenCode kind, per platform, T-1046)
+# to its GitHub release (`make publish`). The paths are a literal list (release-lib.sh's binaries and platforms), not
+# GOOS_LIST/GOARCH_LIST and not a glob, and each is checked against the tag's own
 # bin/checksums.txt before gh runs, so what is uploaded is what the tag's catalog names. The release carries a title
 # "obor <version>" and the notes of docs/releases/v<version>.md at the tag (T-682), plus a Full Changelog line to the
 # newest earlier GitHub release; a tag without the notes, or a failed release list, refuses before anything is created
 # (T-683). POSIX sh.
 #   publish <version> --check: only the checks (scripts/ship runs them before it pushes the tag);
-#   publish <version> --upload <os-arch>…: the checks, then only those platforms' files to the existing release
-#   (scripts/ship, for a release that lacks some of its four assets).
+#   publish <version> --upload <asset>…: the checks, then only those assets (<binary>-<version>-<os>-<arch>) to the
+#   existing release (scripts/ship, for a release that lacks some of its assets).
 set -eu
 
-usage() { echo "usage: publish <version> [--check | --upload <os-arch>...]" >&2; exit 2; }
-platforms="darwin-arm64 darwin-amd64 linux-arm64 linux-amd64"
+usage() { echo "usage: publish <version> [--check | --upload <asset>...]" >&2; exit 2; }
 tmpdir=${TMPDIR:-/tmp}
+
+# shellcheck source=scripts/release-lib.sh
+. "$(dirname "$0")/release-lib.sh"
 
 [ "$#" -ge 1 ] || usage
 v=$1
@@ -24,8 +27,9 @@ case ${1:-} in
   --upload)
     shift
     [ "$#" -ge 1 ] || usage
-    for pl in "$@"; do
-      case " $platforms " in *" $pl "*) ;; *) usage ;; esac
+    assets=" $(release_assets "$v" | tr '\n' ' ')"
+    for a in "$@"; do
+      case $assets in *" $a "*) ;; *) usage ;; esac
     done
     mode=upload
     ;;
@@ -35,9 +39,6 @@ upload="$*"
 tag="v$v"
 
 fail() { echo "FAIL $*" >&2; exit 1; }
-
-# shellcheck source=scripts/release-lib.sh
-. "$(dirname "$0")/release-lib.sh"
 
 git rev-parse -q --verify "refs/tags/$tag" > /dev/null || fail "no tag $tag: commit the release, tag it, then publish"
 tagver=$(git show "$tag:VERSION" 2> /dev/null | tr -d '[:space:]') || tagver=
@@ -51,8 +52,8 @@ require_tag_market
 catalog=$(git show "$tag:bin/checksums.txt" 2> /dev/null) || fail "no bin/checksums.txt at $tag: commit the release's catalog before tagging"
 
 files=
-for platform in $platforms; do
-  f="dist/obor-$v-$platform"
+for a in $(release_assets "$v"); do
+  f="dist/$a"
   [ -f "$f" ] || fail "missing $f: run make release first"
   want=$(printf '%s\n' "$catalog" | awk -v f="$f" '$2 == f { print $1; exit }')
   [ -n "$want" ] || fail "no line for $f in bin/checksums.txt at $tag"
@@ -64,7 +65,7 @@ done
 # Upload mode is unchanged: it adds assets to an existing release, whose notes are publish's create-mode business.
 if [ "$mode" = upload ]; then
   set --
-  for platform in $upload; do set -- "$@" "dist/obor-$v-$platform"; done
+  for a in $upload; do set -- "$@" "dist/$a"; done
   exec gh release upload "$tag" "$@"
 fi
 
@@ -102,5 +103,5 @@ if [ -n "$prev" ]; then
 else
   printf '%s\n' "$notes" > "$notesfile"
 fi
-# shellcheck disable=SC2086 # the four literal paths, no spaces
+# shellcheck disable=SC2086 # the release's literal paths, no spaces
 gh release create "$tag" --verify-tag --title "obor $v" --notes-file "$notesfile" $files

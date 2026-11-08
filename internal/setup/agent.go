@@ -242,7 +242,7 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 		}
 	}
 
-	if err := agents.CheckEffortArgs(lt.Kind, lt.Args, a.effort); err != nil {
+	if err := agents.CheckEffort(lt.Kind, a.effort); err != nil { // one the args cannot carry: the start's error (T-1046)
 		return project.Failf("%s: %v (obor config validate)", a.name, err)
 	}
 	// The start, built once (T-1042): its argv for the start and its env for the new pane or the env line, from one

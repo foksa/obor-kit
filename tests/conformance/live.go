@@ -31,6 +31,8 @@ import (
 	"time"
 
 	"obor/internal/agents"
+	"obor/internal/agents/plugin"
+	"obor/internal/config"
 )
 
 // liveKinds is each kind's live tier.
@@ -212,11 +214,32 @@ func (l *lab) makeProject() error {
 	if err := os.MkdirAll(filepath.Join(l.main, ".obor"), 0o755); err != nil {
 		return err
 	}
-	config := `{"version": 1, "name": "conf", "prefix": "cf", "lanes_dir": "../proj-wt", "lanes": 1,
-  "branches": {"task": "task/{id}", "main": "main"}, "task_id_pattern": "T-[0-9]+", "commands": {}}
+	kinds := ""
+	if l.kind == "opencode" {
+		cmd, err := l.opencodeKind()
+		if err != nil {
+			return err
+		}
+		b, _ := json.Marshal(cmd)
+		kinds = `, "kinds": {"opencode": {"command": ` + string(b) + `}}`
+	}
+	doc := `{"version": 1, "name": "conf", "prefix": "cf", "lanes_dir": "../proj-wt", "lanes": 1,
+  "branches": {"task": "task/{id}", "main": "main"}, "task_id_pattern": "T-[0-9]+", "commands": {}` + kinds + `}
 `
-	if err := os.WriteFile(filepath.Join(l.main, ".obor", "config.json"), []byte(config), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(l.main, ".obor", "config.json"), []byte(doc), 0o644); err != nil {
 		return err
+	}
+	if l.kind == "opencode" { // its manifest cached as obor setup agents caches it, then the config registers the kind
+		cfg, err := config.Load(l.main)
+		if err == nil {
+			_, err = plugin.Cache("opencode", cfg.KindCommand("opencode"), cfg.StateDir())
+		}
+		if err == nil {
+			_, err = config.Load(l.main)
+		}
+		if err != nil {
+			return fmt.Errorf("the opencode kind: %v", err)
+		}
 	}
 	git := func(dir string, args ...string) error {
 		args = append([]string{"-C", dir, "-c", "user.name=obor-conformance", "-c", "user.email=conformance@obor.invalid",
@@ -237,6 +260,16 @@ func (l *lab) makeProject() error {
 		}
 	}
 	return nil
+}
+
+// opencodeKind builds the OpenCode kind's binary (kinds/opencode, T-1046) into the scratch dir, as `make build` puts it
+// beside obor: the lab's opencode is that plugin kind, run through obor's plugin package.
+func (l *lab) opencodeKind() (string, error) {
+	exe := filepath.Join(l.root, "bin", "obor-kind-opencode")
+	if o, err := output(3*time.Minute, "go", "build", "-o", exe, "./kinds/opencode"); err != nil {
+		return "", fmt.Errorf("go build ./kinds/opencode: %v: %s", err, o)
+	}
+	return exe, nil
 }
 
 // cleanEnv is the server's environment: the user's identity, shell, PATH and locale, a terminal, and nothing of the

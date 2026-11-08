@@ -51,7 +51,7 @@ func TestReleaseAndShipOnStaging(t *testing.T) {
 	if !f.ancestor(t, base, "refs/heads/main") {
 		t.Errorf("main moved off its line: %s is not an ancestor of the release commit", base)
 	}
-	// The four binaries are in this checkout's dist/, matching the tag's catalog: that is where ship's publish reads
+	// The eight binaries are in this checkout's dist/, matching the tag's catalog: that is where ship's publish reads
 	// them.
 	sums := map[string]string{}
 	for _, line := range strings.Split(strings.TrimSpace(f.Git(f.Root, "show", "v1.2.4:bin/checksums.txt")), "\n") {
@@ -59,8 +59,8 @@ func TestReleaseAndShipOnStaging(t *testing.T) {
 			sums[fields[1]] = fields[0]
 		}
 	}
-	for _, pl := range publishPlatforms {
-		rel := "dist/obor-1.2.4-" + pl
+	for _, a := range releaseAssets("1.2.4") {
+		rel := "dist/" + a
 		want, ok := sums[rel]
 		if !ok {
 			t.Fatalf("precondition: the tag's catalog has no line for %s", rel)

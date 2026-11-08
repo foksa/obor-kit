@@ -24,6 +24,7 @@ import (
 var Timeouts = map[string]time.Duration{
 	"describe": 10 * time.Second, "install": 30 * time.Second,
 	"start": 5 * time.Second, "not-ready": 2 * time.Second, "turn": 5 * time.Second, "deliver": 3 * time.Second,
+	"project-warnings": 5 * time.Second,
 }
 
 // Log receives the failures of the calls whose agents.Kind method returns no error (not-ready aside: its failure is
@@ -49,6 +50,13 @@ func (k *Kind) run(call string, req map[string]any, reply any) error {
 	if err != nil {
 		return fail("request: %v", err)
 	}
+	if k.local != nil {
+		out, err := k.local(call, in)
+		if err != nil {
+			return fail("%v", err)
+		}
+		return decode(out, reply, fail)
+	}
 	limit := Timeouts[call]
 	ctx, cancel := context.WithTimeout(context.Background(), limit)
 	defer cancel()
@@ -73,11 +81,17 @@ func (k *Kind) run(call string, req map[string]any, reply any) error {
 	case stdout.Len() > replyMax:
 		return fail("a reply over %d bytes", replyMax)
 	}
+	return decode(stdout.Bytes(), reply, fail)
+}
+
+// decode is the reply out into reply: an error (fail's) when it does not parse, names no or another version, or carries
+// error.
+func decode(out []byte, reply any, fail func(string, ...any) error) error {
 	var env struct {
 		Version *int   `json:"version"`
 		Error   string `json:"error"`
 	}
-	if err := json.Unmarshal(stdout.Bytes(), &env); err != nil {
+	if err := json.Unmarshal(out, &env); err != nil {
 		return fail("malformed reply: %v", err)
 	}
 	switch {
@@ -88,7 +102,7 @@ func (k *Kind) run(call string, req map[string]any, reply any) error {
 	case env.Error != "":
 		return fail("%s", env.Error)
 	}
-	if err := json.Unmarshal(stdout.Bytes(), reply); err != nil {
+	if err := json.Unmarshal(out, reply); err != nil {
 		return fail("malformed reply: %v", err)
 	}
 	return nil
@@ -171,6 +185,9 @@ func (k *Kind) start(in agents.Start) (startReply, error) {
 // writeState is a start file written as name in k's state dir (project.StateWriter's), when the caller gives no
 // WriteState.
 func (k *Kind) writeState(name string, data []byte) (string, error) {
+	if k.stateDir == "" {
+		return "", errors.New("no state dir to write it to")
+	}
 	path := filepath.Join(k.stateDir, name)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return "", err
@@ -188,16 +205,32 @@ func (k *Kind) StartWhole(in agents.Start) (agents.Launch, error) {
 	return agents.Launch{Args: r.Args, Env: r.Env}, nil
 }
 
-// Start is StartWhole's argv (nil when it fails). A launch never calls it (agents.StartOf: StartWhole), nor StartEnv.
-func (k *Kind) Start(in agents.Start) []string {
-	l, _ := k.StartWhole(in)
-	return l.Args
+// CheckEffort (agents.ArgsChecker) is why args cannot carry effort: a start of the args and effort alone, its reply's
+// error (an effort that needs an arg the args lack: OpenCode's model id, T-697); its files are not written.
+func (k *Kind) CheckEffort(args []string, effort string) error {
+	if _, err := k.manifest(); err != nil {
+		return err
+	}
+	var r startReply
+	return k.run("start", map[string]any{"args": args, "effort": effort}, &r)
 }
 
-// StartEnv is StartWhole's env.
-func (k *Kind) StartEnv(in agents.Start) (map[string]string, error) {
-	l, err := k.StartWhole(in)
-	return l.Env, err
+// ProjectWarnings (agents.ProjectChecker) runs project-warnings {dir} for a manifest with project_warnings (the kind
+// reads the files itself: read is the compiled kinds'); a failed call is its one warning.
+func (k *Kind) ProjectWarnings(dir string, _ agents.ReadFile) []string {
+	if m := k.cached(); m == nil || !m.ProjectWarnings {
+		return nil
+	}
+	if _, err := k.manifest(); err != nil {
+		return []string{err.Error()}
+	}
+	var r struct {
+		Warnings []string `json:"warnings"`
+	}
+	if err := k.run("project-warnings", map[string]any{"dir": dir}, &r); err != nil {
+		return []string{err.Error()}
+	}
+	return r.Warnings
 }
 
 // NotReady is the manifest's pattern's reason when it matches the screen, or not-ready's why; a failed call is the
@@ -257,9 +290,10 @@ func (k *Kind) InstallErr(kit string, env func(string) string) (agents.Install, 
 		return failedInstall(err), err
 	}
 	lane := m.MCPLane
+	how := strings.ReplaceAll(lane.How, "{kit}", kit)
 	in := agents.Install{MCP: agents.MCPRegistration{Where: r.MCP.Where, Path: r.MCP.Path, AltPath: r.MCP.AltPath,
 		Key: r.MCP.Key, Entry: r.MCP.Entry, Unpinned: r.MCP.Unpinned,
-		Lane: func([]string, agents.ReadFile) (string, bool, bool) { return lane.How, lane.Registered, lane.Static }}}
+		Lane: func([]string, agents.ReadFile) (string, bool, bool) { return how, lane.Registered, lane.Static }}}
 	if r.Plugin != nil {
 		in.Plugin = &agents.Link{From: r.Plugin.From, To: r.Plugin.To}
 	}

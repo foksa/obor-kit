@@ -801,7 +801,7 @@ func (l *Launcher) build(t *target, effort, resume, prompt string) ([]string, er
 		b.Kind, b.Args = lt.Kind, lt.Args
 	}
 	if !bare {
-		if err := agents.CheckEffortArgs(b.Kind, b.Args, effort); err != nil {
+		if err := agents.CheckEffort(b.Kind, effort); err != nil { // one the args cannot carry: the start's error (T-1046)
 			return nil, project.Failf("%s: %v", t.agent, err)
 		}
 		rc, _ := l.Cfg.Role(t.info.Role)

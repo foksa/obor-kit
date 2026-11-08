@@ -45,13 +45,14 @@ of `main`, no separate worktree):
    `scripts/publish` and `install.sh`, against fixture repos in a temp dir; behind `//go:build release`, so `make
    check` leaves them out and this step and the nightly's `release_tests` run them, T-1001) — a red one tags nothing and
    the re-run starts here. In a scratch
-   worktree at that commit (under this repo's git dir) it sets the marketplace `name` to `obor-kit`, builds the four
-   binaries and `bin/checksums.txt`, commits and tags `v<x.y.z>`. It copies the four files into this checkout's `dist/`
+   worktree at that commit (under this repo's git dir) it sets the marketplace `name` to `obor-kit`, builds the eight
+   binaries (`obor-<v>-<os>-<arch>` and, beside each, the OpenCode kind `obor-kind-opencode-<v>-<os>-<arch>`, T-1046)
+   and `bin/checksums.txt`, commits and tags `v<x.y.z>`. It copies the eight files into this checkout's `dist/`
    (where `make ship` reads them), commits the catalog on the branch, fast-forwards `refs/heads/main` to that commit by
    `git update-ref` (the way a promotion moves it: the checkout keeps its branch and working tree, so `main` is never
    checked out), and removes the worktree. Each step has its done evidence and its undo (`scripts/release`'s header
    lists them): a re-run skips a step whose evidence holds (the `obor v<x.y.z>: …` version commit, the tag, the branch's
-   catalog with the four files
+   catalog with the eight files
    matching it, `main` at the release commit or past it)
    and a failed step is undone (the bump's or the catalog's index and tree back to `HEAD`, the scratch worktree removed),
    so the re-run starts from a clean tree. An existing tag is never touched: one whose bytes differ, whose tree has no
@@ -66,7 +67,7 @@ The owner:
    stale-tag check as `make release`, against the release's `checksums: v<x.y.z>` commit on main instead of HEAD; then
    pushes main up to that commit and the tag, runs `scripts/publish` (the GitHub release), then `install.sh` on this
    machine. Each step is skipped when it is already done and checked after it runs: origin has the tag (the same
-   object) and a main containing that commit; the GitHub release is not a draft and has the four assets (a release
+   object) and a main containing that commit; the GitHub release is not a draft and has the eight assets (a release
    missing some gets only those, via `scripts/publish --upload`; a draft stops with the `gh release edit` command); the
    installed `obor` is this version. Ship publishes main up to the release; later merges wait for the next release.
    Its last step tells the leads, one `obor send <project> "obor v<x.y.z> is installed. <docs/releases/v<x.y.z>.md at
@@ -79,6 +80,7 @@ The owner:
 Guarantees: main keeps marketplace `obor-kit-dev` (only the tag ships `obor-kit`); `scripts/publish` titles each GitHub
 release `obor <x.y.z>` with the notes of `docs/releases/v<x.y.z>.md` at the tag and a Full Changelog link to the newest
 earlier numbered release — a failed `gh release list` stops it before it creates anything, and a prerelease or
-non-`x.y.z` tag is never that baseline; it uploads exactly the four binaries the tag's `bin/checksums.txt` names, and the
+non-`x.y.z` tag is never that baseline; it uploads exactly the eight binaries the tag's `bin/checksums.txt` names (the list is `scripts/release-lib.sh`'s
+`binaries` × `platforms`, the Makefile's `RELEASE_BINARIES`), and the
 catalog stays cumulative. A pushed tag never moves: a release that needs other bytes or another catalog is a new
 (patch) version.

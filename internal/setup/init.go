@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -147,7 +149,8 @@ func (s *Setup) writeConfig(name, prefix string) error {
 
 // configJSON is the .obor/config.json init writes: the kit's example with name, prefix, the lanes dir beside the root
 // and no lanes, commands, lane links or protected files; the example's difficulty and kinds go (initDifficulty writes
-// the levels from the kinds init detected, RV-88 #1).
+// the levels from the kinds init detected, RV-88 #1), but for each kit kind's command (config.KitKinds: OpenCode's
+// binary, T-1046).
 func (s *Setup) configJSON(name, prefix string) ([]byte, error) {
 	example, err := os.ReadFile(filepath.Join(s.Kit, "templates", "config.example.json"))
 	if err != nil {
@@ -169,6 +172,11 @@ func (s *Setup) configJSON(name, prefix string) ([]byte, error) {
 	}
 	for _, key := range []string{"difficulty", "kinds"} {
 		if example, err = config.EditJSON(example, []string{key}, nil); err != nil {
+			return nil, project.Failf("cannot read templates/config.example.json: %v", err)
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(config.KitKinds)) {
+		if example, err = config.EditJSON(example, []string{"kinds", name, "command"}, config.KitKinds[name]); err != nil {
 			return nil, project.Failf("cannot read templates/config.example.json: %v", err)
 		}
 	}

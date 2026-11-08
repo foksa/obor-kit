@@ -429,8 +429,9 @@ func TestShipPushDoneWhenOriginContainsMain(t *testing.T) {
 	}
 }
 
-// Ship publish row, RV-70 #5: done is a release that is not a draft and has all four assets. A release with two of
-// them gets only the other two, after scripts/publish's byte checks; a draft stops with the exact repair command.
+// Ship publish row, RV-70 #5: done is a release that is not a draft and has all eight assets (T-1046: obor and the
+// OpenCode kind per platform). A release missing some gets only those, after scripts/publish's byte checks; a draft
+// stops with the exact repair command.
 func TestShipPublishEvidence(t *testing.T) {
 	t.Parallel()
 	f := newShipFixture(t)
@@ -440,19 +441,25 @@ func TestShipPublishEvidence(t *testing.T) {
 	if out, failed := f.make(t, "ship"); failed {
 		t.Fatalf("make ship failed:\n%s", out)
 	}
-	// The release lost two assets (an interrupted upload).
-	writeFile(t, filepath.Join(f.ghstate, "assets"), "obor-1.2.4-darwin-arm64\nobor-1.2.4-darwin-amd64\n")
+	// The release lost three assets (an interrupted upload): two of obor's, one of the kind's.
+	var kept []string
+	for _, a := range releaseAssets("1.2.4") {
+		if a != "obor-1.2.4-linux-arm64" && a != "obor-1.2.4-linux-amd64" && a != "obor-kind-opencode-1.2.4-linux-amd64" {
+			kept = append(kept, a)
+		}
+	}
+	writeFile(t, filepath.Join(f.ghstate, "assets"), strings.Join(kept, "\n")+"\n")
 	creates := strings.Count(readFile(t, f.ghlog), "release create")
 	out, failed := f.make(t, "ship")
 	if failed {
 		t.Fatalf("ship with two missing assets failed:\n%s", out)
 	}
-	if !strings.Contains(out, "uploaded the missing assets of v1.2.4: linux-arm64 linux-amd64") {
-		t.Errorf("ship does not say it uploaded the two missing assets:\n%s", out)
+	if !strings.Contains(out, "uploaded the missing assets of v1.2.4: obor-1.2.4-linux-arm64 obor-1.2.4-linux-amd64 obor-kind-opencode-1.2.4-linux-amd64") {
+		t.Errorf("ship does not say it uploaded the three missing assets:\n%s", out)
 	}
 	gh := readFile(t, f.ghlog)
-	if !strings.Contains(gh, "release upload v1.2.4 dist/obor-1.2.4-linux-arm64 dist/obor-1.2.4-linux-amd64\n") {
-		t.Errorf("gh was not given an upload of only the two missing files:\n%s", gh)
+	if !strings.Contains(gh, "release upload v1.2.4 dist/obor-1.2.4-linux-arm64 dist/obor-1.2.4-linux-amd64 dist/obor-kind-opencode-1.2.4-linux-amd64\n") {
+		t.Errorf("gh was not given an upload of only the three missing files:\n%s", gh)
 	}
 	if strings.Contains(gh, "release upload v1.2.4 dist/obor-1.2.4-darwin") {
 		t.Errorf("ship re-uploaded an asset the release had:\n%s", gh)

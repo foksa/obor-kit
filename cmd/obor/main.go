@@ -15,11 +15,11 @@ import (
 	"syscall"
 	"time"
 
-	// the agent kinds (agents.Kind): each registers itself
+	// the compiled agent kinds (agents.Kind): each registers itself
 	_ "obor/internal/agents/claude"
 	_ "obor/internal/agents/codex"
-	_ "obor/internal/agents/opencode"
-	_ "obor/internal/agents/plugin" // the plugin kinds a config names (kinds.<name>.command, T-1036)
+	// the plugin kinds a config names (kinds.<name>.command, T-1036), OpenCode's the kit's binary (T-1046)
+	_ "obor/internal/agents/plugin"
 	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/guard"

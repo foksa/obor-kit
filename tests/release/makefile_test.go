@@ -340,7 +340,7 @@ func TestMakeCheckTiers(t *testing.T) {
 			if got := ran("build "); got != c.build {
 				t.Errorf("the tier runs go build %v; want %v: %q", got, c.build, calls)
 			}
-			for _, step := range []string{"vet ", "gofmt -l cmd internal tools"} {
+			for _, step := range []string{"vet ", "gofmt -l cmd internal tools kinds"} {
 				if got := ran(step); got != c.gate {
 					t.Errorf("the tier runs %q %v; want %v: %q", step, got, c.gate, calls)
 				}
@@ -755,6 +755,20 @@ func TestMakeReleaseVersionMismatch(t *testing.T) {
 
 var publishPlatforms = []string{"darwin-arm64", "darwin-amd64", "linux-arm64", "linux-amd64"}
 
+// releaseBinaries are the binaries a release ships, one per platform each (T-1046: obor and the OpenCode kind).
+var releaseBinaries = []string{"obor", "obor-kind-opencode"}
+
+// releaseAssets are version v's release files' names (<binary>-<v>-<os>-<arch>), in scripts/release-lib.sh's order.
+func releaseAssets(v string) []string {
+	var out []string
+	for _, b := range releaseBinaries {
+		for _, pl := range publishPlatforms {
+			out = append(out, b+"-"+v+"-"+pl)
+		}
+	}
+	return out
+}
+
 // releaseMarketplace is the marketplace name a release tag ships (T-592; main says obor-kit-dev).
 // It is devMarketplace with only its top-level name flipped (T-645).
 var releaseMarketplace = strings.Replace(devMarketplace, `"name": "obor-kit-dev"`, `"name": "obor-kit"`, 1)
@@ -763,7 +777,7 @@ var releaseMarketplace = strings.Replace(devMarketplace, `"name": "obor-kit-dev"
 // and an Upgrading line, no Full Changelog line (publish adds that).
 const releaseNotes = "A release of the kit.\n\n- **New:** something changed.\n- **Fixed:** a bug.\n\nUpgrading: re-run the installer.\n"
 
-// publishFixture is a repo shaped like a finished release of 1.2.3: the four dist files, bin/checksums.txt listing them,
+// publishFixture is a repo shaped like a finished release of 1.2.3: the eight dist files, bin/checksums.txt listing them,
 // VERSION and plugin.json at 1.2.3, the release notes at docs/releases/v1.2.3.md, all committed and tagged v1.2.3; a
 // logging gh stub is first on PATH. The stub reads the releases to compare with from releases (one tag per line) and the
 // repo slug from slug, both outside the repo, and keeps the notes file gh release create got in notes.
@@ -798,9 +812,9 @@ func newPublishFixture(t *testing.T) *publishFixture {
 	p.Git(dir, "commit", "-q", "-m", "obor v1.2.3: VERSION, plugin version")
 	writeFile(t, filepath.Join(dir, ".claude-plugin", "marketplace.json"), releaseMarketplace+"\n")
 	var catalog string
-	for _, pl := range publishPlatforms {
-		writeFile(t, filepath.Join(dir, "dist", "obor-1.2.3-"+pl), "binary "+pl)
-		catalog += fileSum(t, filepath.Join(dir, "dist", "obor-1.2.3-"+pl)) + "  dist/obor-1.2.3-" + pl + "\n"
+	for _, a := range releaseAssets("1.2.3") {
+		writeFile(t, filepath.Join(dir, "dist", a), "binary "+a)
+		catalog += fileSum(t, filepath.Join(dir, "dist", a)) + "  dist/" + a + "\n"
 	}
 	writeFile(t, filepath.Join(dir, "bin", "checksums.txt"), catalog)
 	log := f.log
@@ -873,14 +887,15 @@ func (f *publishFixture) commitAll(t *testing.T) {
 	f.Git(f.Root, "commit", "-q", "--amend", "-m", "release 1.2.3, changed")
 }
 
-// RV-63: make publish uploads exactly the four checked binaries of the tag: a literal platform list passed to gh as
-// explicit arguments (no glob, no GOOS_LIST override), each file's sha256 equal to its line in the tag's catalog.
+// RV-63: make publish uploads exactly the eight checked binaries of the tag (obor and the OpenCode kind per platform,
+// T-1046): a literal list passed to gh as explicit arguments (no glob, no GOOS_LIST override), each file's sha256 equal
+// to its line in the tag's catalog.
 // T-682: the create carries the release's title and its notes from the tag.
 func TestMakePublish(t *testing.T) {
 	t.Parallel()
 	create := "release create v1.2.3 --verify-tag --title obor 1.2.3 --notes-file <notes>"
-	for _, pl := range publishPlatforms {
-		create += " dist/obor-1.2.3-" + pl
+	for _, a := range releaseAssets("1.2.3") {
+		create += " dist/" + a
 	}
 	wantCalls := []string{"release list --limit 100 --json tagName --jq .[].tagName", create}
 	t.Run("control: release, commit catalog, tag, publish", func(t *testing.T) {
@@ -903,7 +918,7 @@ func TestMakePublish(t *testing.T) {
 			t.Errorf("publish failed %v, gh got %q; want exactly %q\n%s", failed, gh, wantCalls, out)
 		}
 	})
-	t.Run("GOOS_LIST/GOARCH_LIST overrides do not narrow the four", func(t *testing.T) {
+	t.Run("GOOS_LIST/GOARCH_LIST overrides do not narrow the eight", func(t *testing.T) {
 		t.Parallel()
 		f := newPublishFixture(t)
 		for _, pl := range publishPlatforms[1:] {
@@ -922,6 +937,15 @@ func TestMakePublish(t *testing.T) {
 		}
 		out, failed, gh := f.publish(t)
 		wantPublishFail(t, out, failed, gh, "dist/obor-1.2.3-linux-amd64")
+	})
+	t.Run("a missing kind binary", func(t *testing.T) {
+		t.Parallel()
+		f := newPublishFixture(t)
+		if err := os.Remove(filepath.Join(f.Root, "dist", "obor-kind-opencode-1.2.3-darwin-arm64")); err != nil {
+			t.Fatal(err)
+		}
+		out, failed, gh := f.publish(t)
+		wantPublishFail(t, out, failed, gh, "dist/obor-kind-opencode-1.2.3-darwin-arm64")
 	})
 	t.Run("an artifact altered after release", func(t *testing.T) {
 		t.Parallel()

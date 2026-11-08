@@ -87,7 +87,7 @@ once nothing runs there.
   `docs/UPGRADE-v<x.y>.md` (with the `v<x.y.z>` heading) and
   `docs/releases/v<x.y.z>.md` (the GitHub notes: a summary line, `- **Name:**` bullets, no task ids) and commit both;
   then `make release V=x.y.z` does the rest (version commit, full check, scratch worktree with marketplace `name`
-  `obor-kit`, the four binaries and `bin/checksums.txt`, `git tag -a v<x.y.z>`, the catalog committed on the branch and
+  `obor-kit`, the eight binaries (obor and the OpenCode kind per platform) and `bin/checksums.txt`, `git tag -a v<x.y.z>`, the catalog committed on the branch and
   `main` fast-forwarded to it; no checkout of `main`, no worktree at it). The owner
   runs `make ship` (push, `make publish`, `install.sh`, then one `obor send <project>` per other project, each telling
   its lead "obor v<x.y.z> is installed. <the release notes>"); the classifier refuses the lead's push. A pushed tag never

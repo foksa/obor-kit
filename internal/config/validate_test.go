@@ -14,10 +14,10 @@ import (
 	"obor/internal/spec"
 	"obor/internal/testkit"
 
-	// The bridges register their kinds in init (cmd/obor imports them in production): validate needs them too.
+	// The bridges register their kinds in init (cmd/obor imports them in production): validate needs them too
+	// (OpenCode, a plugin kind, answers in process: testkit).
 	_ "obor/internal/agents/claude"
 	_ "obor/internal/agents/codex"
-	_ "obor/internal/agents/opencode"
 )
 
 func TestMain(m *testing.M) { testkit.Main(m) }
@@ -94,6 +94,12 @@ func TestValidate(t *testing.T) {
 			want: []string{`WARN models.oc: opencode model without a model id (opencode's own default may not work, and an effort needs one): set its "model", e.g. "opencode-go/deepseek-v4.1-flash"`}},
 		{name: "an unused opencode model without a model id is fine", edits: []edit{
 			set("models.oc", map[string]any{"kind": "opencode", "model": ""})}},
+		// T-1046: a config from before OpenCode's binary (no kinds.opencode.command) runs the kit's, with a WARN while it
+		// uses OpenCode (the default levels' deepseek), and none when it uses no OpenCode model.
+		{name: "no kinds.opencode.command, OpenCode used: the kit's binary, a WARN", edits: []edit{del("kinds")},
+			want: []string{`WARN kinds.opencode.command: not set, so obor runs the kit's obor-kind-opencode (obor setup agents sets it; v0.32.0 drops the default)`}},
+		{name: "no kinds.opencode.command, OpenCode unused: nothing", edits: []edit{del("kinds"),
+			set("difficulty", map[string]any{"hard": []any{"opus"}, "medium": []any{"sonnet"}, "simple": []any{"haiku"}})}},
 		{name: "a new model needs its kind", edits: []edit{set("models.cur", map[string]any{"model": "x"})},
 			want: []string{"FAIL .models.cur.kind: required (claude, codex, opencode)"}},
 		{name: "a built-in's override may keep its kind", edits: []edit{set("models.opus", map[string]any{"model": "claude-opus-5-5"})}},
@@ -154,7 +160,7 @@ func TestValidate(t *testing.T) {
 			set("models.oc", map[string]any{"kind": "opencode", "model": ""}),
 			set("difficulty", map[string]any{"hard": []any{"deepseek:high", "oc:high", "oc"}})},
 			want: []string{`WARN models.oc: opencode model without a model id (opencode's own default may not work, and an effort needs one): set its "model", e.g. "opencode-go/deepseek-v4.1-flash"`,
-				`FAIL .difficulty.hard[1]: oc:high: opencode: effort high needs a model id (models.<name>.model, provider/model)`}},
+				`FAIL .difficulty.hard[1]: oc:high: kind opencode: start: effort high needs a model id (models.<name>.model, provider/model)`}},
 		{name: "difficulty with an unknown model and an effort", edits: []edit{set("difficulty", map[string]any{"hard": []any{"ghost:high"}})},
 			want: []string{`FAIL .difficulty.hard[0]: "ghost" is not a model (models: opus, sonnet, haiku, fable, deepseek, terra, sol, luna)`}},
 		{name: "a role with an effort its kind lacks", edits: []edit{set("roles.lead", "opus:turbo")},

@@ -25,6 +25,7 @@
   "roles": { "lead": "opus:high", "integrator": "opus", "reviewer": "sol:high" },
   "kinds": {
     "opencode": {
+      "command": "obor-kind-opencode",
       "prompt_extra": "You run in opencode, not sandboxed; obor's opencode plugin guards your tools (git writes and files outside your lane are denied): no git commands, no installs, stay in this directory. Checks: the focused tests of the files you touched (never the whole suite). Quote summary lines and failures only."
     },
     "codex": { "prompt_extra": "Network is unavailable; deps are installed." }
