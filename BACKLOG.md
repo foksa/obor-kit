@@ -64,6 +64,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (RV-141 #2, accepted) A rejected task whose branch the owner merges by hand keeps its lane `working` until `obor drop` (T-1012 removed the ancestry read that freed it); the drop is the explicit step. Also accepted: view/dispatch/restore still compare lane state strings (one decider in port, several readers of its output).
 - (lead 11-08, v0.30.0) **Release from a worktree loses the binaries:** `make release` builds the four `dist/obor-<v>-*` files in the checkout it runs in (gitignored), but `make ship` reads them from the main checkout's `dist/` and refuses off `main`; UPGRADE-v0.30 says to cut a release from a separate worktree at main (staging setups). The lead rebuilt them reproducibly (tag^ + the uncommitted marketplace edit: the binary embeds vcs.revision/modified). Fix: release copies `dist/` back to the main checkout, or ship reads the tag's assets from the release worktree; and ship's branch check allows a staging-based checkout.
 - (RV-140, accepted) (RV-140 design) internal/run TestRunRcArgsTimeout and TestExecuteLeavesNoGroup mix a real wait with quick assertions; split the quick cases out of the Slow tests when next touching them (plan step 2 covers run's tests)
 - (RV-139, accepted) (RV-139 verify 2, P2) OBOR_FULL=1 forced full returns before scanning files, so with_full release/web checks are skipped (classify.go:~43); fix in T-1008
