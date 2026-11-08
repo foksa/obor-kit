@@ -287,7 +287,8 @@ func TestMakeReleaseUnreviewedOverride(t *testing.T) {
 	}
 }
 
-// T-640, T-642, T-648: make release's refusals share one fixture, a row each: off main, a dirty tree, a V not greater
+// T-640, T-642, T-648, T-1035: make release's refusals share one fixture, a row each: a detached HEAD (the release
+// commits land on the branch the main checkout has; T-1035), a dirty tree, a V not greater
 // than VERSION, a guide missing or without this version's heading, unreviewed merges (with and without a close, and
 // --dry-run reporting them too), a close line quoted in a merge body (only a subject is a close commit), and a foreign
 // directory at the scratch path. Each refusal leaves the repo as it was: nothing committed, no tag, no check, no
@@ -302,9 +303,9 @@ func TestMakeReleaseRefusals(t *testing.T) {
 		want    string
 		dry     bool // the dry run reports the same refusal
 	}{
-		{"not main", "1.2.4", func(t *testing.T, f *releaseFixture) {
-			f.Git(f.Root, "checkout", "-q", "-b", "other")
-		}, "not main", false},
+		{"detached HEAD", "1.2.4", func(t *testing.T, f *releaseFixture) {
+			f.Git(f.Root, "checkout", "-q", "--detach")
+		}, "on a detached HEAD, not a branch", false},
 		{"dirty tree", "1.2.4", func(t *testing.T, f *releaseFixture) {
 			f.Write("notes.txt", "uncommitted\n")
 		}, "dirty", false},
@@ -494,8 +495,10 @@ func TestMakeReleaseResumes(t *testing.T) {
 		t.Errorf("the re-run ran go %d more times, want the check skipped", n-goCalls)
 	}
 
-	// The tag is there but the copy-back commit is not: main rebuilt from the tag's files only.
+	// The tag is there but the copy-back commit is not (main moved with it, as release does, T-1035): main rebuilt from
+	// the tag's files only.
 	f.Git(f.Root, "reset", "--hard", "HEAD~1")
+	f.Git(f.Root, "update-ref", "refs/heads/main", "HEAD")
 	if out, failed := f.release(t, "V=1.2.4"); failed {
 		t.Fatalf("the resume failed:\n%s", out)
 	}

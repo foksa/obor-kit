@@ -83,10 +83,12 @@ once nothing runs there.
   axis-alies runs `~/.obor/kit` since 10-31 (migrated, 54543f08).
 - obor-kit's `scripts/release` refuses while a review is due; `UNREVIEWED="<why>"` overrides it, only on the owner's word.
 - Tag only after the merges since the last tag are reviewed and verified, and `make check` is green. Steps
-  (`RELEASING.md`, T-640): on main write `docs/UPGRADE-v<x.y>.md` (with the `v<x.y.z>` heading) and
+  (`RELEASING.md`, T-640, T-1035): in the main checkout, on the loop's branch (`staging`), write
+  `docs/UPGRADE-v<x.y>.md` (with the `v<x.y.z>` heading) and
   `docs/releases/v<x.y.z>.md` (the GitHub notes: a summary line, `- **Name:**` bullets, no task ids) and commit both;
   then `make release V=x.y.z` does the rest (version commit, full check, scratch worktree with marketplace `name`
-  `obor-kit`, the four binaries and `bin/checksums.txt`, `git tag -a v<x.y.z>`, the catalog back on main). The owner
+  `obor-kit`, the four binaries and `bin/checksums.txt`, `git tag -a v<x.y.z>`, the catalog committed on the branch and
+  `main` fast-forwarded to it; no checkout of `main`, no worktree at it). The owner
   runs `make ship` (push, `make publish`, `install.sh`, then one `obor send <project>` per other project, each telling
   its lead "obor v<x.y.z> is installed. <the release notes>"); the classifier refuses the lead's push. A pushed tag never
   moves. No `obor send` of what changed follows ship; the serve restarts do (RELEASING.md step 4). A release

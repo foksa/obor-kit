@@ -258,9 +258,10 @@ upgrade-check:
 deps:
 	$(GO) mod download
 
-# release: with V=x.y.z the lead's one command (scripts/release: the version commit and full check on main, the scratch
-# worktree with marketplace obor-kit and the four binaries, the tag, and the catalog back on main); without V only the
-# local release files, as before. DRY=1 (with V) prints the steps and changes nothing. The owner's next command: ship.
+# release: with V=x.y.z the lead's one command (scripts/release: the version commit and full check on the loop's branch,
+# the scratch worktree with marketplace obor-kit and the four binaries, the tag, the catalog committed on the branch and
+# main fast-forwarded to it); without V only the local release files, as before. DRY=1 (with V) prints the steps and
+# changes nothing. The owner's next command: ship.
 release:
 ifeq ($(strip $(V)),)
 	@plugin=$$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' .claude-plugin/plugin.json | head -n 1); \
@@ -286,7 +287,7 @@ endif
 
 # ship is the owner's one command after make release V=x.y.z (scripts/ship): push main up to the release (its
 # `checksums: vx.y.z` commit, not main's tip) and the tag, publish the GitHub release, install the kit; each step is
-# skipped when it is already done.
+# skipped when it is already done. It runs in the main checkout on its own branch (T-1035: no checkout of main).
 ship:
 	@sh scripts/ship "$(VERSION)"
 

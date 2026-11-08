@@ -1,10 +1,13 @@
 #!/bin/sh
-# ship <x.y.z>: the owner's one command after `make release V=<x.y.z>` (RELEASING.md), from the main checkout. Before
-# anything leaves this machine the tag must be this release's (scripts/publish --check: its contents and the four dist
-# files' bytes) and not predate code in the release (scripts/release-lib.sh). The release is the tag plus its
-# `checksums: v<version>` commit on main (the newest with that subject on main's first-parent line, T-661): ship pushes
-# main up to that commit, never main's tip, so merges after `make release` wait for the next release. Then three steps,
-# each skipped when its done evidence holds and proven by it after it runs (T-643):
+# ship <x.y.z>: the owner's one command after `make release V=<x.y.z>` (RELEASING.md), in the main checkout. It runs on
+# whatever branch that checkout has (staging when the loop merges there, T-1035): release already fast-forwarded
+# refs/heads/main to the release commit, so no checkout of main is needed and this script never switches or resets the
+# checkout's branch or working tree. Before anything leaves this machine the tag must be this release's (scripts/publish
+# --check: its contents and the four dist files' bytes) and not predate code in the release (scripts/release-lib.sh).
+# The release is the tag plus its `checksums: v<version>` commit on main (the newest with that subject on main's
+# first-parent line, T-661): ship pushes main up to that commit, never main's tip, so merges after `make release` wait
+# for the next release. Then three steps, each skipped when its done evidence holds and proven by it after it runs
+# (T-643):
 #   push     done: origin has tag v<version> (the same object) and origin's main contains the checksums commit
 #            run: git push origin <checksums commit>:refs/heads/main and/or the tag, whichever origin lacks
 #            (OBOR_ALLOW_PUSH=1)                                  fail: stop
@@ -36,10 +39,8 @@ say() { echo "ship: $*"; }
   fail "not at a kit checkout's root: run make ship there"
 
 git rev-parse -q --verify "refs/tags/$tag" > /dev/null 2>&1 || fail "no tag $tag: run make release V=$v first"
-branch=$(git symbolic-ref --quiet --short HEAD 2> /dev/null) || branch=
-[ "$branch" = main ] || fail "on ${branch:-a detached HEAD}, not main: make ship runs on main"
 [ -z "$(git status --porcelain)" ] || fail "the working tree is dirty: commit first (make ship pushes, it does not commit)"
-[ "$(tr -d '[:space:]' < VERSION)" = "$v" ] || fail "VERSION is $(cat VERSION), not $v: make ship ships the checked-out version"
+[ "$(tr -d '[:space:]' < VERSION)" = "$v" ] || fail "VERSION is $(cat VERSION), not $v: make ship ships the released version"
 
 # The release on main: the copy-back commit scripts/release makes ("checksums: v<version>"), the newest on main's
 # first-parent line, with the release's catalog. Main past it (later merges) is the next release's.
