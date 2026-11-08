@@ -7,36 +7,27 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 
 ## Handoff (lead; rewrite at each handoff)
 Read `docs/observations.md` first (patterns from past sessions: where we went in circles, the load tax, traps).
-- 2026-11-08 ~18:00 (lead; previous Handoff: `git show c710c2ae:BACKLOG.md`). Every lane free, nothing queued,
-  promotion OFF (`branches: {main: staging}`). v0.30.0 is the last release; 31 merges on staging since.
-  **Done this session (plan `docs/plan/architecture-target.md` steps 5-12, all merged and reviewed RV-143..RV-149):**
-  T-1022 spec parsed once (+`Ref:`), T-1023 review coverage from the log (+T-1032 close snapshot), T-1029
-  `port.Workflow`, T-1030 `Priority: high`, T-1031 keep lanes (+T-1048, T-1050), T-1033 agent start params give way to
-  the project's committed CLI files, T-1036 kind plugin protocol (+T-1042 one whole start), T-1046 OpenCode as the
-  second binary `dist/obor-kind-opencode`, T-1037 `OBOR_PANE`, T-1044 terminal-neutral ports + `terminal.kind`,
-  T-1051 restore on reconnect, T-1039 event feed + custom-role verbs, T-1040/T-1041/T-1047 gate residue out
-  (`tools/affected`, `slots.lane_env`, flake regex/retest in config), T-1035 release/ship from the main checkout on
-  staging, T-1027/T-1034 `-trimpath` everywhere + nightly empties the Go cache, T-1024/T-1025 budget, T-1026/T-1028
-  spec-only drop, T-1043 serve ships queue order, T-1038/T-1045/T-1049/T-1052 Codex live + quarantine.
-  **Owner decisions today** (docs/decisions.md top): nightly empties the Go cache; agent start params native files
-  first (rules approved, T-1033); reference kind plugin = second Go binary; Codex quarantine: warning only.
-  **After the first handoff (18:00-18:30):** the handoff restart left no lead (`obor restart` started before the old
-  claude exited, then printed RESTARTED anyway): fixed by T-1053 (on-merge review RV-151 comes). RV-150 closed: T-1054
-  makes serve start and init write the plugin manifest cache (obor-kit needed a hand `obor setup agents`; committed
-  `kinds.opencode.command`).
-  **In flight / next:** (1) RV-151 (T-1053, on merge) — triage it. (2) Plan step
-  13 (`wire.Call` per method, plan §6 table; now has a reason: the integration surface T-1039) and step 14 (tiers go:
-  measure the lane test step median from the event log first, plan §9 row 14). (3) A release: v0.31.0 carries a new
-  asset set (T-1046: `obor-kind-opencode-*`) and config changes other projects must know (T-1041 `slots.lane_env`:
-  Go projects lose GOMAXPROCS/-p without it; see docs/UPGRADE-*); run `obor review` + `make release` from the main
-  checkout on staging (T-1035), owner runs `! make ship`. (4) `docs/design.md` "Test tiers and receipts" (~line 536,
-  protected, lead-owned) still to rewrite to the unit/integration shape. (5) Accepted residuals in Open: RV-148
-  (keep-lane config rev), RV-149 (Codex lead restore), RV-145/146/147 design notes.
-  **Machine:** Codex 0.167.0 (Homebrew cask) quarantine cleared by the owner; after any `brew upgrade` of codex the
-  reviewer breaks again until `xattr -dr com.apple.quarantine /opt/homebrew/Caskroom/codex/<v>` (obor setup warns and a
-  Codex start is refused with that line since T-1052). `obor web` (pid 91304, since Nov 5) runs an old binary: the
-  owner restarts it in its shell. Owner said codex credits were restored after a usage-limit stop (~14:00).
-
+- 2026-11-08 ~22:05 (lead; previous Handoff: `git show 23fe075c:BACKLOG.md`). Owner stopped for the day. Every lane free,
+  nothing queued, no review open, promotion OFF (`branches: {main: staging}`).
+  **Released and shipped v0.31.0** (owner ran `make ship`; tag 2f951f45). In it: architecture plan steps 1-14 all done
+  (13: `wire.Call` → per-method request types, T-1055/T-1060, the socket JSON compatible both ways, not byte-identical;
+  14: `-short`/`testkit.Slow` gone, T-1056, lane test median 40.5 s without them); the start-evidence chain T-1053 →
+  T-1057 → T-1058 → T-1059 (a start counts only on herdr's `launch_pending`/`interactive_ready`, and first-prompt starts
+  poll alongside the call again; live H-L14 for claude, codex, opencode); v0.28's nine retired config keys deleted
+  (T-1062, T-1063). Reviews RV-151..RV-155 closed.
+  **After the release (owner decision 11-08, docs/decisions.md): internal/app organized.** Tests beside their code
+  (T-1065; cmd/obor T-1068), `internal/app/identity` (T-1066, app-split step 7), `internal/app/outbox` (T-1067, step 6),
+  `dispatch.go` split by concern into dispatch/lanepick/waiting/workerstart/worktext (T-1071). Package root 210 → 150
+  files. design.md's test/check sections rewritten true to the code (T-1064, T-1069, T-1070, lead's last sentence).
+  Briefs carry the Result line (T-1072).
+  **Unreviewed:** T-1071, T-1072 (2 merges since RV-155): the next `obor review` takes them.
+  **Next steps:** (1) Check the 11-09 02:00 nightly: GREEN, and `make check-budget`'s wall breaches on a quiet run
+  (Concerns line from T-1056; still over → a fix task, not a raise). (2) axis-alies owes `kinds.opencode.command`
+  (Concerns line): `obor send ~/Gamedev/axis-alies` once its serve is up. (3) The owner picks the next work from
+  "Later candidates"; lead's recommendation: the generic test flow for adopters (restate it without `-short`), then
+  semantic event kinds from serve (small).
+  **Machine:** Codex 0.167.0, quarantine clear; codex quota at 18:4x: 14 % of 5 h, 10 % weekly. `obor web` may still
+  run an old binary (restart it in its shell).
 ## Owner decisions pending
 - (none; branching decided 11-07, docs/decisions.md)
 
