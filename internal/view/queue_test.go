@@ -1,14 +1,19 @@
 package view
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
+	"obor/internal/checks"
+	"obor/internal/config"
 	"obor/internal/store"
+	"obor/internal/testkit"
 )
 
 // addFact inserts one fact of task with data d into db's log.
@@ -25,35 +30,115 @@ func addFact(t *testing.T, db *sql.DB, at time.Time, task, step string, d any) {
 	}
 }
 
-// T-1016, T-1026: a spec stored and never dispatched, then dropped, is serve's dropped task (ended) until a later
-// obor spec set revives it: the queue reads serve's tasks alone (no second reading of the log's drops), so it leaves the
-// task out while serve lists it and lists it as never dispatched once serve no longer does.
-func TestQueueSkipsADroppedSpecUntilANewRev(t *testing.T) {
-	t.Parallel()
-	db, err := store.OpenRW(store.File(t.TempDir()))
+// queueOf is view.Build of p's project with serve's answer ss (err: serve gave none), as obor status and obor web build
+// it.
+func queueOf(t *testing.T, p *testkit.Project, ss wire.Status, err error, now time.Time) Project {
+	t.Helper()
+	cfg, cerr := config.Load(p.Root)
+	if cerr != nil {
+		t.Fatal(cerr)
+	}
+	db, oerr := store.OpenRO(store.File(p.Root))
+	if oerr != nil {
+		t.Fatal(oerr)
+	}
+	defer db.Close()
+	return Build(Input{Status: ss, Err: err, Lanes: checks.NewLaneTable(context.Background(), cfg), DB: db, Now: now})
+}
+
+// storeSpec is p's task spec at the next rev, as obor spec set stores it.
+func storeSpec(t *testing.T, p *testkit.Project, task, title string) {
+	t.Helper()
+	p.Spec(task, "# "+task+" — "+title+"\n\nDifficulty: simple\n")
+}
+
+func dropFact(t *testing.T, p *testkit.Project, at time.Time, task string, rev int) {
+	t.Helper()
+	db, err := store.OpenRW(store.File(p.Root))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
-	for _, task := range []string{"T-1", "T-2"} {
-		if _, _, err := store.SetSpec(db, task, "# "+task+" — A\n\nDifficulty: medium\n", "", "lead", now); err != nil {
-			t.Fatal(err)
+	addFact(t, db, at, task, event.StepDropped, event.FactData{Reason: "superseded", Merge: true, Rev: rev})
+}
+
+// T-1028 (RV-143 verify #1): a spec dropped before any dispatch is serve's task outcome alone (T-1026, its dropped task
+// status), so without serve's status for this project — down, up with no project, or answering for another one — the
+// queue cannot tell the dropped spec from one never dispatched and lists neither; it never lists T-1 as a drop that did
+// not happen.
+func TestQueueListsNoDroppedSpecWithoutServeStatus(t *testing.T) {
+	t.Parallel()
+	p := testkit.NewDir(t)
+	p.Config()
+	now := time.Now()
+	storeSpec(t, p, "T-1", "a spec dropped at rev 1")
+	dropFact(t, p, now, "T-1", 1)
+	for _, c := range []struct {
+		name string
+		ss   wire.Status
+		err  error
+	}{
+		{name: "serve down", err: errors.New("obor serve is not running")},
+		{name: "serve up, no project", ss: wire.Status{Connected: true}},
+		{name: "another project", ss: wire.Status{Connected: true, Project: &wire.ProjectStatus{Name: "other",
+			Root: "/elsewhere"}}},
+	} {
+		v := queueOf(t, p, c.ss, c.err, now)
+		if v.Serve.Project {
+			t.Fatalf("%s: precondition: serve has this project: %+v", c.name, v.Serve)
+		}
+		if len(v.Queue.Waiting) != 0 {
+			t.Errorf("%s: waiting %+v, want none: a stored-only drop is unknown without serve's status", c.name,
+				v.Queue.Waiting)
 		}
 	}
-	addFact(t, db, now, "T-1", event.StepDropped, event.FactData{Reason: "superseded on 11-07", Merge: true, Rev: 1})
-	specs, dispatched := readSpecs(db), dispatchedTasks(db)
-	if len(specs) != 2 || dispatched["T-1"] {
-		t.Fatalf("specs %+v, dispatched %+v: want T-1 and T-2 stored, neither dispatched", specs, dispatched)
+}
+
+// T-1028: the accepted trade-off — without serve's status a valid spec that was never dispatched is not listed either
+// (the view shows nothing it cannot know).
+func TestQueueListsNoNeverDispatchedSpecWithoutServeStatus(t *testing.T) {
+	t.Parallel()
+	p := testkit.NewDir(t)
+	p.Config()
+	now := time.Now()
+	storeSpec(t, p, "T-1", "a spec never dispatched")
+	v := queueOf(t, p, wire.Status{}, errors.New("obor serve is not running"), now)
+	if v.Serve.Project {
+		t.Fatalf("precondition: serve has no status: %+v", v.Serve)
 	}
-	dropped := wire.ProjectStatus{Tasks: []wire.TaskStatus{{Task: "T-1", State: "dropped", Ended: true}}}
-	q := queue(&Project{}, dropped, "", specs, dispatched, now)
-	if len(q.Waiting) != 1 || q.Waiting[0].Task != "T-2" {
-		t.Errorf("waiting %+v, want T-2 alone: serve lists T-1 dropped", q.Waiting)
+	if len(v.Queue.Waiting) != 0 {
+		t.Errorf("waiting %+v, want none: serve is down, so a spec's dispatch is unknown", v.Queue.Waiting)
 	}
-	// A later spec set revives it: serve lists it no more, and the queue lists it as never dispatched.
-	q = queue(&Project{}, wire.ProjectStatus{}, "", specs, dispatched, now)
-	if len(q.Waiting) != 2 || q.Waiting[0].Task != "T-1" || q.Waiting[0].WaitsOn != WaitsNever {
-		t.Errorf("waiting %+v, want T-1 queued again (never dispatched) and T-2", q.Waiting)
+}
+
+// T-1016, T-1026, T-1028: with serve's status a stored spec not in it is never dispatched — unless serve lists it as
+// dropped (ended), which hides it until a later obor spec set revives it; a valid spec is listed as never dispatched.
+func TestQueueListsStoredSpecsWithServeStatus(t *testing.T) {
+	t.Parallel()
+	p := testkit.NewDir(t)
+	p.Config()
+	now := time.Now()
+	storeSpec(t, p, "T-1", "a dropped spec")
+	storeSpec(t, p, "T-2", "a spec never dispatched")
+	dropFact(t, p, now, "T-1", 1)
+	status := func(tasks ...wire.TaskStatus) wire.Status {
+		return wire.Status{Connected: true, Project: &wire.ProjectStatus{Name: "proj", Root: p.Root, Tasks: tasks}}
+	}
+
+	dropped := queueOf(t, p, status(wire.TaskStatus{Task: "T-1", State: "dropped", Ended: true}), nil, now)
+	if !dropped.Serve.Project {
+		t.Fatalf("precondition: serve has this project: %+v", dropped.Serve)
+	}
+	if len(dropped.Queue.Waiting) != 1 || dropped.Queue.Waiting[0].Task != "T-2" ||
+		dropped.Queue.Waiting[0].WaitsOn != WaitsNever {
+		t.Errorf("waiting %+v, want T-2 alone as never dispatched: serve lists T-1 dropped", dropped.Queue.Waiting)
+	}
+
+	// A later spec set is the next rev: serve lists T-1 no more, and the queue lists it as never dispatched.
+	storeSpec(t, p, "T-1", "a dropped spec, widened")
+	revived := queueOf(t, p, status(), nil, now)
+	if len(revived.Queue.Waiting) != 2 || revived.Queue.Waiting[0].Task != "T-1" ||
+		revived.Queue.Waiting[0].WaitsOn != WaitsNever || revived.Queue.Waiting[1].Task != "T-2" {
+		t.Errorf("waiting %+v, want T-1 queued again (never dispatched) and T-2", revived.Queue.Waiting)
 	}
 }

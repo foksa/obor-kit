@@ -95,7 +95,9 @@ type Nightly struct {
 // queue is v's queue at now: from serve's tasks (in its merge loop's order), its scheduler's state, review request,
 // lines and briefs (ps), the specs stored (their set time) and the tasks the store saw dispatched (a spec of neither is
 // never dispatched; one serve lists is its task, a spec dropped before any dispatch among them, T-1026) and
-// merge.nightly_at.
+// merge.nightly_at. Without serve's status for this project (v.Serve.Project) a stored spec is not listed at all
+// (T-1028): serve's task status alone knows a spec-only drop, so the view cannot tell a dropped spec from one never
+// dispatched, and lists neither rather than a drop that did not happen.
 func queue(v *Project, ps wire.ProjectStatus, nightlyAt string, specs map[string]store.SpecRow,
 	dispatched map[string]bool, now time.Time) Queue {
 	q := Queue{Scratch: ps.Scratch, Merge: []MergeItem{}, Waiting: []WaitItem{}, Review: []ReviewItem{},
@@ -124,15 +126,19 @@ func queue(v *Project, ps wire.ProjectStatus, nightlyAt string, specs map[string
 			q.Merge = append(q.Merge, MergeItem{Task: t.Task, Stage: stage, WaitsOn: w.WaitsOn, Why: w.Why})
 		}
 	}
-	for task, s := range specs {
-		if known[task] || dispatched[task] { // serve's task (a spec dropped until a new rev too), or dispatched
-			continue
+	// T-1028: without serve's status for this project a stored spec's fate is unknown (a spec-only drop lives in serve's
+	// task status alone, T-1026): list none of them as never dispatched (RV-143 verify #1).
+	if v.Serve.Project {
+		for task, s := range specs {
+			if known[task] || dispatched[task] { // serve's task (a spec dropped until a new rev too), or dispatched
+				continue
+			}
+			w := WaitItem{Task: task, WaitsOn: WaitsNever}
+			if t, err := time.Parse(time.RFC3339, s.SetAt); err == nil {
+				w.Since = t.Unix()
+			}
+			q.Waiting = append(q.Waiting, w)
 		}
-		w := WaitItem{Task: task, WaitsOn: WaitsNever}
-		if t, err := time.Parse(time.RFC3339, s.SetAt); err == nil {
-			w.Since = t.Unix()
-		}
-		q.Waiting = append(q.Waiting, w)
 	}
 	sortTasks(q.Waiting, func(w WaitItem) string { return w.Task })
 	if r := ps.ReviewRequest; r != nil {
