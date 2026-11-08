@@ -39,5 +39,6 @@ switch (the plan's steps, `docs/plan/merge-flow-rework.md` §6), at a quiet queu
 
 After the switch, commits in the main checkout land on `staging`, `main` moves only to a closed review's reviewed
 head on a GREEN full suite there (commits after it, such as the close commit, wait for the next review), and a
-release is cut from a separate worktree at `main`. Never `git checkout main` in the main checkout (the loop pauses,
+release is cut in the main checkout on `staging` (`make release V=x.y.z` there fast-forwards `refs/heads/main` to the
+release commit; `make ship` then pushes it, T-1035). Never `git checkout main` in the main checkout (the loop pauses,
 T-425); `git push origin staging main` when pushing.

@@ -260,9 +260,10 @@ switch below.
    from `main` and restarts serve on it.
 
 **Lead, after the switch.** Commits in the main checkout land on `staging` (docs, BACKLOG, specs' publish); they move
-candidates by seconds. Never `git checkout main` in the main checkout (the loop pauses, T-425); cut releases from a
-separate worktree at `main` or at a quiet moment. `git push origin staging main` when pushing (both refs; `main` is
-moved by serve's `update-ref`, never checked out). A RED promotion is one line and one decision: a fix task (spec
+candidates by seconds. Never `git checkout main` in the main checkout (the loop pauses, T-425); cut releases on
+`staging` at a quiet moment (T-1035: `make release` fast-forwards `main`, `make ship` pushes it). `git push origin
+staging main` when pushing (both refs; `main` is moved by serve's `update-ref`, never checked out). A RED promotion is
+one line and one decision: a fix task (spec
 `Fixes:`-less, ordinary) or a revert task; the needs-you ends at the next GREEN promotion. Green promotions are
 silent. `docs/agents/worker.md:9-11` stays (workers test their own packages before `task_done`; the lane step is
 serve's). The reviewer's cadence and `Review: on merge` count merges to `staging` (unchanged,

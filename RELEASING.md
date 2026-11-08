@@ -6,7 +6,8 @@ Install (a new machine; re-running is the upgrade):
 curl -fsSL https://raw.githubusercontent.com/foksa/obor-kit/main/install.sh | sh
 ```
 
-The lead, in a clean checkout on main:
+The lead, in the main checkout (on the branch the loop merges to: `staging` when promotion is off — T-1035: no checkout
+of `main`, no separate worktree):
 
 1. Write `docs/UPGRADE-v<x.y>.md` with a `## v<x.y.z>` heading — the release's guide, at tag time from
    `git log v<prev>..` (every merge's spec is in its message), not task by task: a guide written mid-milestone misses
@@ -16,13 +17,14 @@ The lead, in a clean checkout on main:
    nothing; a patch may. Also write `docs/releases/v<x.y.z>.md`, the release's GitHub notes: plain
    user-facing Markdown, a summary line, then `- **Name:** what changed` bullets, then an optional `Upgrading:` line,
    no task ids. `scripts/publish` titles the release `obor <x.y.z>`, publishes this file (as tagged) and appends the
-   Full Changelog link. Commit both on main.
-2. `make release V=x.y.z` (`DRY=1` prints the steps and changes nothing). It refuses off main, on a dirty tree, when
-   `V` is not above `VERSION`, when the guide has no `v<x.y.z>` heading, when `docs/releases/v<x.y.z>.md` is missing or
-   empty, or when a merge after the last `RV-<n> closed` commit changes anything but docs (`docs/` or a `.md` file):
+   Full Changelog link. Commit both on the loop's branch.
+2. `make release V=x.y.z` (`DRY=1` prints the steps and changes nothing). It refuses on a detached HEAD, on a dirty tree,
+   when `V` is not above `VERSION`, when the guide has no `v<x.y.z>` heading, when `docs/releases/v<x.y.z>.md` is missing
+   or empty, or when a merge after the last `RV-<n> closed` commit changes anything but docs (`docs/` or a `.md` file):
    run `obor review` and close it first. `UNREVIEWED="<why>"` overrides the last refusal (the owner's call only) and
    puts the reason in the tag message. Then it sets `VERSION` and
-   the plugin `version`, runs the full `make check` (a failure commits nothing), and commits them on main. The whole run is also written to
+   the plugin `version`, runs the full `make check` (a failure commits nothing), and commits them on that branch. The
+   whole run is also written to
    `.obor/state/logs/release-<x.y.z>.log` (a re-run appends; `--dry-run` writes none), and every `FAIL` line names that log.
    When `make check` fails only in `go test` packages, those packages run once more in one `go test <pkgs>`: if all
    pass, the release goes on, prints `FLAKY: <pkg> <test> (failed, passed on rerun)` and records it in the flake log
@@ -43,18 +45,24 @@ The lead, in a clean checkout on main:
    `scripts/publish` and `install.sh`, against fixture repos in a temp dir; behind `//go:build release`, so `make
    check` leaves them out and this step and the nightly's `release_tests` run them, T-1001) — a red one tags nothing and
    the re-run starts here. In a scratch
-   worktree at that commit it sets the marketplace `name` to `obor-kit`, builds the four binaries and `bin/checksums.txt`,
-   commits and tags `v<x.y.z>`. It copies the four files and the catalog back to main, commits them, and removes the
-   worktree. Each step has its done evidence and its undo (`scripts/release`'s header lists them): a re-run skips a step
-   whose evidence holds (the `obor v<x.y.z>: …` version commit, the tag, main's catalog with the four files matching it)
+   worktree at that commit (under this repo's git dir) it sets the marketplace `name` to `obor-kit`, builds the four
+   binaries and `bin/checksums.txt`, commits and tags `v<x.y.z>`. It copies the four files into this checkout's `dist/`
+   (where `make ship` reads them), commits the catalog on the branch, fast-forwards `refs/heads/main` to that commit by
+   `git update-ref` (the way a promotion moves it: the checkout keeps its branch and working tree, so `main` is never
+   checked out), and removes the worktree. Each step has its done evidence and its undo (`scripts/release`'s header
+   lists them): a re-run skips a step whose evidence holds (the `obor v<x.y.z>: …` version commit, the tag, the branch's
+   catalog with the four files
+   matching it, `main` at the release commit or past it)
    and a failed step is undone (the bump's or the catalog's index and tree back to `HEAD`, the scratch worktree removed),
    so the re-run starts from a clean tree. An existing tag is never touched: one whose bytes differ, whose tree has no
-   non-blank `docs/releases/v<x.y.z>.md` (notes committed on main after the tag do not repair it), or that predates
-   code merged on main after it (anything but docs and `bin/checksums.txt`), is refused — release a new patch version.
+   non-blank `docs/releases/v<x.y.z>.md` (notes committed on the branch after the tag do not repair it), or that predates
+   code merged on the branch after it (anything but docs and `bin/checksums.txt`), is refused — release a new patch
+   version.
 
 The owner:
 
-3. `make ship` (with `OBOR_ALLOW_PUSH=1` inside): first the tag's own checks (`scripts/publish --check`) and the same
+3. `make ship`, in the same main checkout (no checkout of `main` is needed: release already moved `refs/heads/main`;
+   `OBOR_ALLOW_PUSH=1` is inside the push): first the tag's own checks (`scripts/publish --check`) and the same
    stale-tag check as `make release`, against the release's `checksums: v<x.y.z>` commit on main instead of HEAD; then
    pushes main up to that commit and the tag, runs `scripts/publish` (the GitHub release), then `install.sh` on this
    machine. Each step is skipped when it is already done and checked after it runs: origin has the tag (the same
