@@ -274,7 +274,8 @@ func (s *Setup) mcpLane(name string) error {
 	}
 	m := k.Install(s.Kit, s.Env.Get).MCP
 	// a lane's start: a lane never is the lead, the settings default applies, and a lane's agent starts strict (T-770)
-	how, registered, static := m.Lane(lt.LaunchArgs("worker", "", nil), os.ReadFile)
+	// unless the project's committed CLI config opts out (T-1033: the main checkout's copy stands for a lane's)
+	how, registered, static := m.Lane(lt.LaunchArgs("worker", "", s.cfg.Root, nil), os.ReadFile)
 
 	switch {
 	case !static && registered:

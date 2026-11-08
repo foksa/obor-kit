@@ -142,6 +142,7 @@ type Start struct {
 	Resume            string   // the session id to resume; "" for a new one
 	Prompt            string   // the CLI's first prompt (a job's wake); "" for none
 	Lane              string   // the agent's lane: a session a fresh start reports is recorded with it
+	Dir               string   // the agent's cwd: its kind reads the project's committed CLI config there (T-1033)
 }
 
 // StartError is a failed start (the multiplexer's error, or the startup dialog seen in the pane). NotReady: the agent

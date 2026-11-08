@@ -6,7 +6,10 @@
 package agents
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
@@ -97,10 +100,44 @@ type Start struct {
 	// files go to the main checkout's reviews dir from its role worktree): a kind that sandboxes its writes to the cwd
 	// lets it write there too (codex: --add-dir); a kind with no such sandbox ignores them.
 	WriteDirs []string
+	// Dir is the start dir, the agent's cwd (its lane worktree, or the main checkout or role worktree of a role): a
+	// kind reads the project's committed CLI config there with Read, for the keys its policy flags give way to (T-1033:
+	// a project customizes its agents natively); "" or Read nil: no project file is read, the flags as before.
+	Dir string
 }
 
 // ReadFile reads a file for a kind (os.ReadFile): the adapter's I/O, handed to a pure function.
 type ReadFile func(path string) ([]byte, error)
+
+// ProjectFile is the file rel of the start's dir (in.Dir), read with in.Read (T-1033). found false: no dir or reader,
+// or no such file; err: a file there that could not be read (the kind then starts as if it set nothing).
+func ProjectFile(in Start, rel string) (b []byte, found bool, err error) {
+	if in.Dir == "" || in.Read == nil {
+		return nil, false, nil
+	}
+	b, err = in.Read(filepath.Join(in.Dir, rel))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, false, nil
+	}
+	return b, true, err
+}
+
+// ProjectChecker is a kind that reads a project's committed CLI config (T-1033): Warnings are `obor config validate`'s
+// notes on the files in dir, "<file>: <why>" each (a file that does not parse, a key that disables part of obor).
+type ProjectChecker interface {
+	ProjectWarnings(dir string, read ReadFile) []string
+}
+
+// ProjectWarnings are every registered kind's ProjectChecker warnings on dir's files, kinds in name order.
+func ProjectWarnings(dir string, read ReadFile) []string {
+	var out []string
+	for _, n := range Names() {
+		if c, ok := kinds[n].(ProjectChecker); ok {
+			out = append(out, c.ProjectWarnings(dir, read)...)
+		}
+	}
+	return out
+}
 
 // Stop is a kind's quit recipe.
 type Stop struct {

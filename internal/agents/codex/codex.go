@@ -6,6 +6,8 @@ package codex
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -30,12 +32,21 @@ func EnvVarsTOML() string {
 // Start: `resume <sid>` before the type's args (with in.Effort: their model_reasoning_effort replaced by
 // -c model_reasoning_effort=<effort>, T-695), then obor's server (with a kit), then the update check off (T-570),
 // then the prompt (a resume carries none). Codex takes no settings.
+//
+// The project's committed .codex/config.toml in in.Dir (T-1033) outranks obor's policy: a top-level sandbox_mode drops
+// the base args' -s workspace-write, a top-level check_for_update_on_startup leaves the update check as the file sets
+// it. A file that does not parse counts as absent (config validate warns).
 func (kind) Start(in agents.Start) []string {
+	top, _ := projectKeys(in)
+	args := in.Args
+	if top[sandboxKey] {
+		args = withoutSandbox(args)
+	}
 	var out []string
 	if in.Resume != "" {
 		out = append(out, "resume", in.Resume)
 	}
-	out = append(out, withEffort(in.Args, in.Effort)...)
+	out = append(out, withEffort(args, in.Effort)...)
 	for _, d := range in.WriteDirs { // workspace-write writes the cwd only (T-853)
 		out = append(out, "--add-dir", d)
 	}
@@ -50,13 +61,123 @@ func (kind) Start(in agents.Start) []string {
 	}
 	// Codex's own "Update available" menu blocks a fresh start until someone picks "Skip" (T-570); a type arg that
 	// sets the key wins.
-	if !updateCheckSet(in.Args) {
+	if !updateCheckSet(in.Args) && !top[updateCheck] {
 		out = append(out, "-c", updateCheck+"=false")
 	}
 	if in.Prompt != "" && in.Resume == "" {
 		out = append(out, in.Prompt)
 	}
 	return out
+}
+
+// ConfigFile is the project's committed config, relative to the start dir.
+const ConfigFile = ".codex/config.toml"
+
+// sandboxKey is Codex's sandbox setting; sandbox is the -s value of obor's base args (config.KindBaseArgs).
+const (
+	sandboxKey = "sandbox_mode"
+	sandbox    = "workspace-write"
+)
+
+// withoutSandbox is args without their first `-s workspace-write` (the base args' pair: they come first).
+func withoutSandbox(args []string) []string {
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "-s" && args[i+1] == sandbox {
+			return append(append([]string(nil), args[:i]...), args[i+2:]...)
+		}
+	}
+	return args
+}
+
+// projectKeys are the top-level keys of the start dir's ConfigFile (nil: no file, or one that does not parse).
+func projectKeys(in agents.Start) (map[string]bool, error) {
+	b, found, err := agents.ProjectFile(in, ConfigFile)
+	if !found || err != nil {
+		return nil, err
+	}
+	return topKeys(string(b))
+}
+
+// ProjectWarnings: a config file whose top-level part does not parse (obor's start flags then apply as without it).
+func (kind) ProjectWarnings(dir string, read agents.ReadFile) []string {
+	if _, err := projectKeys(agents.Start{Dir: dir, Read: read}); err != nil {
+		return []string{ConfigFile + ": does not parse (" + err.Error() + "): obor's start flags apply as if it were absent"}
+	}
+	return nil
+}
+
+// tomlKey is a `key = value` line of TOML: the key bare or quoted, dotted parts allowed; the value after the `=`.
+var tomlKey = regexp.MustCompile(`^((?:[A-Za-z0-9_-]+|"[^"\\]*"|'[^']*')(?:\s*\.\s*(?:[A-Za-z0-9_-]+|"[^"\\]*"|'[^']*'))*)\s*=\s*(.*)$`)
+
+// topKeys are the keys a TOML document sets before its first [table] header: a narrow scan, no TOML parser (T-1033).
+// It reads `key = value` lines, skips blank and comment lines, and follows a value over lines while a bracket or a
+// triple-quoted string it opens is open; any other line is an error naming its number.
+func topKeys(doc string) (map[string]bool, error) {
+	keys := map[string]bool{}
+	var open value
+	for i, line := range strings.Split(doc, "\n") {
+		if open.pending() {
+			open.scan(line)
+			continue
+		}
+		t := strings.TrimSpace(line)
+		switch {
+		case t == "" || strings.HasPrefix(t, "#"):
+			continue
+		case strings.HasPrefix(t, "["):
+			return keys, nil
+		}
+		m := tomlKey.FindStringSubmatch(t)
+		if m == nil || strings.TrimSpace(m[2]) == "" {
+			return nil, fmt.Errorf("line %d is no key = value", i+1)
+		}
+		keys[strings.Trim(m[1], `"'`)] = true
+		open.scan(m[2])
+	}
+	if open.pending() {
+		return nil, errors.New("a value is not closed")
+	}
+	return keys, nil
+}
+
+// value follows one TOML value over lines: the depth of its open brackets and braces, and the triple quote it is in.
+type value struct {
+	depth  int
+	triple string // `"""` or `'''` while a multi-line string is open
+}
+
+func (v *value) pending() bool { return v.depth > 0 || v.triple != "" }
+
+// scan reads one line of the value: its strings, brackets and a trailing comment.
+func (v *value) scan(s string) {
+	for i := 0; i < len(s); i++ {
+		if v.triple != "" {
+			if strings.HasPrefix(s[i:], v.triple) {
+				i += 2
+				v.triple = ""
+			}
+			continue
+		}
+		switch c := s[i]; c {
+		case '#':
+			return
+		case '[', '{':
+			v.depth++
+		case ']', '}':
+			v.depth--
+		case '"', '\'':
+			if q := strings.Repeat(string(c), 3); strings.HasPrefix(s[i:], q) {
+				v.triple = q
+				i += 2
+				continue
+			}
+			for i++; i < len(s) && s[i] != c; i++ {
+				if c == '"' && s[i] == '\\' {
+					i++
+				}
+			}
+		}
+	}
 }
 
 // effortKey is Codex's reasoning effort setting.

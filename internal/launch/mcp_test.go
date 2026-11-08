@@ -213,3 +213,59 @@ func TestStartArgsTable(t *testing.T) {
 		})
 	}
 }
+
+// T-1033: a lane worker's start reads the project's committed CLI config in its lane worktree (its cwd), in both
+// passes of the argv (LaunchArgs, then the kind's start with the kit): Claude with an MCP opt-in starts without the
+// strict flag and obor's --mcp-config, --settings keeping the key the file does not set; Codex with a top-level
+// sandbox_mode and update check starts without -s workspace-write and obor's update-check option.
+func TestStartReadsTheLaneProjectConfig(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name, typ, rel, file string
+		has, lacks           []string
+	}{
+		{"claude", "", ".claude/settings.json", `{"enabledMcpjsonServers":["mine"],"autoMemoryEnabled":true}`,
+			[]string{`--settings {"remoteControlAtStartup":false}`, "kind=claude"},
+			[]string{"--strict-mcp-config", "--mcp-config", "autoMemoryEnabled"}},
+		{"codex", "luna", ".codex/config.toml", "sandbox_mode = \"read-only\"\ncheck_for_update_on_startup = true\n",
+			[]string{"kind=codex", "-a never"}, []string{"workspace-write", "check_for_update_on_startup"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			start := func(file string) string {
+				x := setup(t)
+				if file != "" {
+					path := filepath.Join(x.lane, c.rel)
+					if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.WriteFile(path, []byte(file), 0o644); err != nil {
+						t.Fatal(err)
+					}
+				}
+				x.shell("w1:p3", "pj-l-01", "")
+				if out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true, Type: c.typ}); !ok {
+					t.Fatal(out)
+				}
+				return x.startCall()
+			}
+			before := start("") // precondition: without the file, the start carries obor's flags
+			for _, l := range c.lacks {
+				if !strings.Contains(before, l) {
+					t.Fatalf("precondition: no project file, agent.start %q lacks %q", before, l)
+				}
+			}
+			got := start(c.file)
+			for _, h := range c.has {
+				if !strings.Contains(got, h) {
+					t.Errorf("agent.start %q lacks %q", got, h)
+				}
+			}
+			for _, l := range c.lacks {
+				if strings.Contains(got, l) {
+					t.Errorf("agent.start %q has %q", got, l)
+				}
+			}
+		})
+	}
+}

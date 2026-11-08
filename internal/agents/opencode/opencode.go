@@ -158,6 +158,83 @@ func Config(kit string) []byte {
 	return append(b, '\n')
 }
 
+// ProjectFiles are the project config files OpenCode reads in a start dir (opencode.ai/docs/config), relative to it.
+var ProjectFiles = []string{"opencode.json", "opencode.jsonc", ".opencode/opencode.json", ".opencode/opencode.jsonc"}
+
+// ProjectWarnings (T-1033): a project file defining mcp.servers.obor replaces obor's server (OpenCode's project layer
+// outranks OPENCODE_CONFIG, docs/research/agent-project-config.md §3), and a file that does not parse.
+func (kind) ProjectWarnings(dir string, read agents.ReadFile) []string {
+	var out []string
+	for _, rel := range ProjectFiles {
+		b, found, err := agents.ProjectFile(agents.Start{Dir: dir, Read: read}, rel)
+		if !found {
+			continue
+		}
+		var doc struct {
+			MCP struct {
+				Servers map[string]json.RawMessage `json:"servers"`
+			} `json:"mcp"`
+		}
+		if err == nil {
+			err = json.Unmarshal(plainJSON(b), &doc)
+		}
+		switch {
+		case err != nil:
+			out = append(out, rel+": does not parse ("+err.Error()+")")
+		case doc.MCP.Servers["obor"] != nil:
+			out = append(out, rel+": mcp.servers.obor replaces obor's own server (the project's config wins): remove it")
+		}
+	}
+	return out
+}
+
+// plainJSON is JSONC as JSON: its // and /* */ comments and the commas before a closing bracket or brace dropped,
+// strings as they are.
+func plainJSON(b []byte) []byte {
+	out := make([]byte, 0, len(b))
+	comma := -1 // the index in out of a comma that may trail
+	for i := 0; i < len(b); i++ {
+		c := b[i]
+		switch {
+		case c == '"':
+			j := i + 1
+			for ; j < len(b) && b[j] != '"'; j++ {
+				if b[j] == '\\' {
+					j++
+				}
+			}
+			j = min(j, len(b)-1)
+			out = append(out, b[i:j+1]...)
+			i, comma = j, -1
+			continue
+		case c == '/' && i+1 < len(b) && b[i+1] == '/':
+			for i < len(b) && b[i] != '\n' {
+				i++
+			}
+			i--
+			continue
+		case c == '/' && i+1 < len(b) && b[i+1] == '*':
+			end := strings.Index(string(b[i+2:]), "*/")
+			if end < 0 {
+				return out // an open comment: what is left is no JSON
+			}
+			i += end + 3
+			continue
+		case c == ',':
+			comma = len(out)
+		case c == ']' || c == '}':
+			if comma >= 0 {
+				out = append(out[:comma], out[comma+1:]...)
+			}
+			comma = -1
+		case c != ' ' && c != '\t' && c != '\n' && c != '\r':
+			comma = -1
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
 func (kind) Transcript(func(string) string, string) string { return "" }
 
 // LastTurn: none read; OpenCode keeps its sessions in a database, not a transcript obor finds.

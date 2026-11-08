@@ -281,7 +281,7 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	}
 
 	s.placed = pane
-	args := lt.LaunchArgs(a.role.Name, a.effort, s.cfg.RoleWriteDirs(a.role))
+	args := lt.LaunchArgs(a.role.Name, a.effort, a.cwd, s.cfg.RoleWriteDirs(a.role))
 	for _, d := range s.cfg.RoleWriteDirs(a.role) { // a dir the start lets the agent write must be there (T-853)
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return project.Failf("cannot create %s", d)
@@ -311,7 +311,7 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 			prompt = a.role.StartPrompt(lt.Kind)
 		}
 		return l.Start(ctx, port.Start{Agent: a.name, Kind: lt.Kind, Pane: pane, Label: label, Args: args, Lane: a.lane,
-			Prompt: prompt})
+			Prompt: prompt, Dir: a.cwd})
 	}
 	// A pane a new tab or a split made is a shell that may still be coming up: herdr answers agent_pane_busy until it
 	// is one (T-628, live 2026-10-31). It is used again only once herdr reports a shell there, within the bound.
