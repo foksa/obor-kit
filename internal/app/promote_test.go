@@ -469,6 +469,53 @@ func TestPromoteRedThenGreen(t *testing.T) {
 	}
 }
 
+// T-1013: with branches.promote unset (no Loop.Promote) the pass ends the promotion's open needs-you (one resumed
+// fact) before returning; a pass with nothing open records nothing; with promotion set, the needs-you stays.
+func TestPromoteOffSettlesNeedsYou(t *testing.T) {
+	t.Parallel()
+	red := func(t *testing.T) *promoteRig {
+		t.Helper()
+		r := newPromoteRig(t, false)
+		r.git.between("h0", "h1", "T-1")
+		r.f.verdicts["h1"] = "RED"
+		r.pass() // the run
+		r.pass() // its needs-you
+		if got := r.needs(); len(got) != 1 || !strings.HasPrefix(got[0], promoteRedPrefix) {
+			t.Fatalf("precondition: a promotion RED needs-you is open, got %q", got)
+		}
+		return r
+	}
+	t.Run("promotion off: one resumed fact, then nothing more", func(t *testing.T) {
+		t.Parallel()
+		r := red(t)
+		r.fx.Promote = nil // branches.promote unset
+		before := r.steps()
+		r.pass()
+		if got := r.needs(); len(got) != 0 {
+			t.Errorf("promotion off, after a pass: needs-you %q, want none", got)
+		}
+		want := append(slices.Clone(before), "fact "+event.StepResumed)
+		if got := r.steps(); !slices.Equal(got, want) {
+			t.Errorf("promotion off: records %q, want %q", got, want)
+		}
+		r.pass()
+		if got := r.steps(); !slices.Equal(got, want) {
+			t.Errorf("promotion off, nothing open: records %q, want unchanged %q", got, want)
+		}
+	})
+	t.Run("promotion set: the needs-you stays", func(t *testing.T) {
+		t.Parallel()
+		r := red(t)
+		r.pass()
+		if got := r.needs(); len(got) != 1 || !strings.HasPrefix(got[0], promoteRedPrefix) {
+			t.Errorf("promotion set: needs-you %q, want the RED one still open", got)
+		}
+		if got := r.steps(); slices.Contains(got, "fact "+event.StepResumed) {
+			t.Errorf("promotion set: records %q, want no resumed fact", got)
+		}
+	})
+}
+
 // A promotion that ends neither GREEN nor RED is counted; the third is a needs-you.
 func TestPromoteFailureCounted(t *testing.T) {
 	t.Parallel()

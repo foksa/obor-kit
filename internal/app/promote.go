@@ -39,7 +39,8 @@ import (
 //     no suite, no fast-forward; status "waiting: T-a, T-b merged during RV-n, not reviewed yet", and the trigger
 //     requests the next review even with no merge since R. Its close yields the next R. No state: git alone.
 //   - RED: needs-you{promotion RED <sha7>: <line>; merges since <since7>: T-a, …} (the nightly's shape), ended by the
-//     next GREEN promotion (fact promoted). A run that ends neither is a counted failure, tried again promoteRetry
+//     next GREEN promotion (fact promoted), or by the first pass with promotion turned off (T-1013: the off branch
+//     settles it). A run that ends neither is a counted failure, tried again promoteRetry
 //     after it; the tries-th is a needs-you.
 //   - R at or behind the promoted branch's head (T-984: the branch switched, or moved past R): passed already, before
 //     anything else: no intent, no suite, no fact, nothing pending in status.
@@ -225,10 +226,15 @@ func (p *proj) loopIdle() bool {
 }
 
 // promotion is the pass's promotion step (see the top of this file): settle, a pending run, a GREEN run's
-// fast-forward, after_promote, then the trigger. Off (no Loop.Promote, or no review git): nothing.
+// fast-forward, after_promote, then the trigger. Off (no Loop.Promote): the promotion's open needs-you ends (T-1013);
+// no review git: nothing.
 func (a *App) promotion(ctx context.Context, p *proj, fx *Loop) {
 	pr := fx.Promote
-	if pr == nil || fx.Review == nil {
+	if pr == nil {
+		a.settleNeeds(p, event.PromoteTask, "") // T-1013: promotion off, no promotion needs-you stays open
+		return
+	}
+	if fx.Review == nil {
 		return
 	}
 	a.mu.Lock()
