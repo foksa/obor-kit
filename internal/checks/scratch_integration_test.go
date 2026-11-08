@@ -4,7 +4,6 @@ package checks
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -21,10 +20,10 @@ import (
 	"obor/internal/testkit"
 )
 
-// Scratch on real git (T-1011): the scenario table whose names match internal/app's FakeScratch cases, and the cases
-// only real git shows (rerere's replay, a canceled git's process group, --no-verify against a project's hooks, the
-// gate's and lane test's commands). Behind the integration tag: plain go test runs the fake-backed decision tests
-// (decide_test.go) alone.
+// Scratch on real git (T-1011): the cases only real git shows (rerere's replay, a canceled git's process group,
+// --no-verify against a project's hooks, the gate's and lane test's commands, a gate from a foreign state); the scenario
+// table is the workflow contract's (TestWorkflowContractScratchFF, T-1029). Behind the integration tag: plain go test
+// runs the fake-backed decision tests (decide_test.go) alone.
 
 // T-913: a conflict the integrator resolved is not resolved again when the target moves. The gate's merge records the
 // conflict (rerere), the integrator's plain resolve commit records the resolution in the repository's common rr-cache
@@ -243,163 +242,37 @@ func TestGateReportsItsCommands(t *testing.T) {
 	}
 }
 
-// The real-git scenario table (T-1011): Scratch's decisions are tested on fakeGit (decide_test.go); these few cases per
-// gitIO method show real git gives the answers the fake scripts. Each name is the internal/app FakeScratch case it
-// stands behind ("Gate lane conflict": Script("Gate lane", task, port.OutcomeConflict)); the lock cases are
-// TestSubmitLocks', the lane test's TestLaneTest*'s, the replayed resolution's TestScratchRerereReplaysResolvedConflict
-// and TestRV123RerereDropsOtherResolvedEdits'.
-func TestScratchGitScenarios(t *testing.T) {
+// T-1011: a gate converges from whatever serve's worktree holds (an open merge and a dirty tree, the worktree gone): the
+// same candidate, the worktree clean. The rest of the scenario table is the workflow contract's
+// (TestWorkflowContractScratchFF, T-1029).
+func TestGateLaneGreenFromAForeignState(t *testing.T) {
 	t.Parallel()
-	t.Run("Submit, Gate lane green, Publish hold, merged, already, Landed, Unpin", func(t *testing.T) {
-		t.Parallel()
-		y := newSx(t, cmd("check", "echo 1 pass"))
-		if landed, err := y.s.Landed(ctx, "T-05"); landed || err != nil {
-			t.Errorf("Landed before the merge: %v %v; want false", landed, err)
-		}
-		base, target := y.head(y.lane), y.head(y.Root)
-		sha := y.submit()
-		y.eq(y.Git(y.lane, "rev-list", "--count", base+".."+sha), "1", "Submit: one commit")
-		y.eq(y.Git(y.lane, "log", "-1", "--format=%s", sha), "T-05: feature", "Submit: the commit's subject")
-		y.eq(y.Git(y.lane, "status", "--porcelain"), "", "Submit: the lane committed")
-		y.eq(y.ref(submittedRefs+"T-05/1"), sha, "Submit: pinned")
-		y.lane2() // on task/T-20 at the target: its work is not there
-		if _, err := y.s.Submit(ctx, "T-20", "1", "L-02", "x", "w"); !errors.As(err, new(port.Refused)) {
-			t.Errorf("Submit of a lane already in the target: %v; want Refused", err)
-		}
-
-		c := y.green(lane(sha))
-		y.eq(y.Git(y.Root, "rev-parse", c.SHA+"^1")+" "+y.Git(y.Root, "rev-parse", c.SHA+"^2"), target+" "+sha,
-			"Gate lane green: the candidate merges the submitted sha onto the target")
-		y.eq(y.Git(y.Root, "log", "-1", "--format=%s", c.SHA), "Merge T-05: feature", "Gate lane green: the subject")
-		y.eq(y.ref(candidateRefs+"T-05"), c.SHA, "Gate lane green: pinned")
-		y.eq(y.head(y.serve), c.SHA, "Gate lane green: serve's worktree at the candidate")
-		y.eq(y.Git(y.serve, "status", "--porcelain"), "", "Gate lane green: serve's worktree clean")
-		y.eq(c.Base, y.Git(y.Root, "merge-base", sha, target), "Gate lane green: the base, the lane's fork point")
-		y.eq(c.Patch, fmt.Sprintf("%x", sha256.Sum256([]byte(y.Git(y.Root, "diff", c.Base, sha)))),
-			"Gate lane green: the patch, the own diff's hash")
-		y.contains(c.Diff, "+feature", "Gate lane green: the diff kept")
-		y.eq(c.Diff, y.Git(y.Root, "diff", c.Target, c.SHA), "Gate lane green: the candidate's diff")
-		y.contains(c.Stat, "feature.txt", "Gate lane green: the stat")
-		y.eq(y.green(lane(sha)).SHA, c.SHA, "Gate lane green: a repeat makes the same commit")
-
-		y.Write("feature.txt", "mine\n")
-		o, err := y.s.Publish(ctx, c)
-		y.eq(fmt.Sprintf("%s %v %v", o.Kind, o.Files, err), "hold [feature.txt] <nil>", "Publish hold: a dirty merged file")
-		y.eq(y.head(y.Root), target, "Publish hold: nothing merged")
-		os.Remove(y.Path("feature.txt"))
-		o, err = y.s.Publish(ctx, c)
-		y.eq(fmt.Sprintf("%s %v", o.Kind, err), "merged <nil>", "Publish merged")
-		y.eq(y.head(y.Root), c.SHA, "Publish merged: fast-forwarded")
-		y.eq(y.pins("T-05"), "submitted=- candidate=- resolved=-", "Publish merged: unpinned")
-		o, err = y.s.Publish(ctx, c)
-		y.eq(fmt.Sprintf("%s %v", o.Kind, err), "already <nil>", "Publish already")
-		if landed, err := y.s.Landed(ctx, "T-05"); !landed || err != nil {
-			t.Errorf("Landed after the publish: %v %v; want true", landed, err)
-		}
-
-		y.Git(y.Root, "update-ref", submittedRefs+"T-05/2", c.SHA)
-		y.Git(y.Root, "update-ref", submittedRefs+"T-050/1", c.SHA)
-		if err := y.s.Unpin(ctx, "T-05"); err != nil {
-			t.Fatal(err)
-		}
-		y.eq(y.Git(y.Root, "for-each-ref", "--format=%(refname)", "refs/obor/"), submittedRefs+"T-050/1",
-			"Unpin: T-05's pins gone, T-050's kept")
-	})
-	t.Run("Gate lane green from a foreign state", func(t *testing.T) {
-		t.Parallel()
-		y := newSx(t, cmd("check", "echo 1 pass"))
-		sha := y.submit()
-		want := y.green(lane(sha))
-		y.Write(filepath.Join(y.lane2(), "other.txt"), "other\n")
-		y.Git(y.lane2(), "add", "other.txt")
-		y.Git(y.lane2(), "commit", "-qm", "other")
-		for _, c := range []struct {
-			name  string
-			state func()
-		}{
-			{"an open merge, a dirty tree", func() {
-				y.Git(y.serve, "merge", "-q", "--no-commit", "--no-ff", "task/T-20")
-				y.Write(filepath.Join(y.serve, "shared.txt"), "dirty\n")
-				y.Write(filepath.Join(y.serve, "stray.txt"), "stray\n")
-			}},
-			{"the worktree removed", func() {
-				if err := os.RemoveAll(y.serve); err != nil {
-					t.Fatal(err)
-				}
-			}},
-		} {
-			c.state()
-			got := y.green(lane(sha))
-			y.eq(fmt.Sprintf("%+v", got), fmt.Sprintf("%+v", want), c.name+": the same candidate")
-			y.eq(y.Git(y.serve, "status", "--porcelain"), "", c.name+": serve's worktree clean")
-		}
-	})
-	t.Run("Gate lane conflict, Resolved, Gate resolved green", func(t *testing.T) {
-		t.Parallel()
-		y, input := conflict.openConflict(t)
-		if !gitOK(y.serve, "rev-parse", "-q", "--verify", "MERGE_HEAD") {
-			t.Fatal("Gate lane conflict: the merge is not open in serve's worktree")
-		}
-		y.Write(filepath.Join(y.serve, "shared.txt"), "both\n")
-		y.Git(y.serve, "add", "shared.txt")
-		y.Git(y.serve, "commit", "-qm", "Merge T-05: resolved\n\nkept both sides")
-		res := y.head(y.serve)
-		got, err := y.s.Resolved(ctx, "T-05", input, nil)
-		if err != nil {
-			t.Fatalf("Resolved: %v", err)
-		}
-		y.eq(got, res, "Resolved: the resolution")
-		y.eq(y.ref(resolvedRefs+"T-05"), res, "Resolved: pinned")
-		in := port.GateInput{Task: "T-05", Lane: "L-01", Kind: port.InputResolved, Input: res, Title: "Stored", Summary: "feature"}
-		c := y.green(in)
-		parents := func(sha string) string { return y.Git(y.Root, "rev-parse", sha+"^1", sha+"^2", sha+"^{tree}") }
-		y.eq(parents(c.SHA), parents(res), "Gate resolved green: the amended merge's parents and tree")
-		y.eq(c.Target, y.Git(y.Root, "rev-parse", res+"^1"), "Gate resolved green: the target")
-		y.eq(y.Git(y.Root, "log", "-1", "--format=%B", c.SHA), "Merge T-05: Stored\n\nkept both sides\n\nSummary: feature",
-			"Gate resolved green: the amended message")
-		y.eq(y.ref(candidateRefs+"T-05"), c.SHA, "Gate resolved green: pinned")
-		y.eq(y.green(in).SHA, c.SHA, "Gate resolved green: a repeat makes the same commit")
-	})
-	t.Run("Publish moved, Gate moved green, Publish merged", func(t *testing.T) {
-		t.Parallel()
-		y := newSx(t, cmd("check", "echo 1 pass"))
-		sha := y.submit()
-		old := y.green(lane(sha))
-		y.Write("other.txt", "other\n")
-		y.Git(y.Root, "add", "other.txt")
-		y.Git(y.Root, "commit", "-qm", "unrelated")
-		o, err := y.s.Publish(ctx, old)
-		y.eq(fmt.Sprintf("%s %s %v", o.Kind, o.Head, err), "moved "+y.head(y.Root)+" <nil>", "Publish moved")
-		y.eq(y.ref(candidateRefs+"T-05"), old.SHA, "Publish moved: the candidate stays pinned")
-		c := y.green(port.GateInput{Task: "T-05", Lane: "L-01", Kind: port.InputMoved, Input: sha, Summary: "feature"})
-		y.eq(c.Target, y.head(y.Root), "Gate moved green: on the moved target")
-		y.eq(y.Git(y.Root, "rev-parse", c.SHA+"^2"), sha, "Gate moved green: merges the submitted sha (T-403)")
-		if gitOK(y.Root, "merge-base", "--is-ancestor", old.SHA, c.SHA) {
-			t.Errorf("Gate moved green: the old candidate %s went along", old.SHA)
-		}
-		y.eq(c.Patch, old.Patch, "Gate moved green: an unrelated move keeps the patch")
-		y.contains(y.Git(y.Root, "log", "-1", "--format=%b", c.SHA), "Merged onto the moved main at "+c.Target,
-			"Gate moved green: the body")
-		if o, err := y.s.Publish(ctx, c); err != nil || o.Kind != port.PublishMerged {
-			t.Fatalf("Publish merged: %+v %v", o, err)
-		}
-		y.eq(y.Git(y.Root, "rev-list", "--count", "--merges", "main"), "1", "Publish merged: one merge commit on main")
-	})
-	t.Run("Gate moved conflict", func(t *testing.T) {
-		t.Parallel()
-		y := newSx(t, cmd("check", "echo 1 pass"))
-		y.Write(filepath.Join(y.lane, "shared.txt"), "lane\n")
-		sha := y.submit()
-		y.green(lane(sha))
-		y.Write("shared.txt", "main\n")
-		y.Git(y.Root, "commit", "-qam", "main edit")
-		o := y.gate(port.GateInput{Task: "T-05", Lane: "L-01", Kind: port.InputMoved, Input: sha, Summary: "feature"})
-		if o.Kind != port.OutcomeConflict {
-			t.Fatalf("Gate moved conflict: %s %q", o.Kind, o.Line)
-		}
-		y.eq(strings.Join(o.Files, " "), "shared.txt", "Gate moved conflict: the conflicting file")
-		y.eq(y.Git(y.serve, "rev-parse", "MERGE_HEAD"), sha, "Gate moved conflict: the submitted sha's merge open")
-	})
+	y := newSx(t, cmd("check", "echo 1 pass"))
+	sha := y.submit()
+	want := y.green(lane(sha))
+	y.Write(filepath.Join(y.lane2(), "other.txt"), "other\n")
+	y.Git(y.lane2(), "add", "other.txt")
+	y.Git(y.lane2(), "commit", "-qm", "other")
+	for _, c := range []struct {
+		name  string
+		state func()
+	}{
+		{"an open merge, a dirty tree", func() {
+			y.Git(y.serve, "merge", "-q", "--no-commit", "--no-ff", "task/T-20")
+			y.Write(filepath.Join(y.serve, "shared.txt"), "dirty\n")
+			y.Write(filepath.Join(y.serve, "stray.txt"), "stray\n")
+		}},
+		{"the worktree removed", func() {
+			if err := os.RemoveAll(y.serve); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		c.state()
+		got := y.green(lane(sha))
+		y.eq(fmt.Sprintf("%+v", got), fmt.Sprintf("%+v", want), c.name+": the same candidate")
+		y.eq(y.Git(y.serve, "status", "--porcelain"), "", c.name+": serve's worktree clean")
+	}
 }
 
 // T-915 (RV-123 #1): git rerere replays conflict hunks, not the whole resolution commit. A moved gate whose merge

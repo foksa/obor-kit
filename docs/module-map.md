@@ -79,7 +79,8 @@ Adding a kind = one package + a config entry.
   writes it with; the view's one reader of record data, T-893): one concern each.
 - `app/port` (core, a leaf below `app`; T-690): the ports and the types they exchange, with no logic: herdr's `Pane`,
   `Snapshot`, `Event`, `Stream`, `Panes`; `Lane`, `Lanes`; and the effects (`Agents`, `Typer`, `PaneControl`, `Starter`,
-  `Scratch`, `LaneSetup` and their inputs and outcomes). Adapters import it instead of `app`; `app` keeps type and const
+  `Scratch`, `LaneSetup`, `Review` and their inputs and outcomes, and `Workflow`, the git workflow behind one
+  interface: those three, the dispatch's `Target` and the `Promote`, T-1029). Adapters import it instead of `app`; `app` keeps type and const
   aliases of it until a later task removes them (`app/ports.go`).
 - `app/event` (core, a leaf below `app`; T-691): the event log's vocabulary and its store: `Record`, `Key`, `Intent`,
   `FactData`, the `Kind*`/`Class*` constants, every exported `Step*` and the task keys (`MsgTask` …), the fact data
@@ -111,9 +112,11 @@ Adding a kind = one package + a config entry.
   the promotion's full suite, fast-forward and after_merge in `<merge.scratch_dir>-promote` (`promote.go`, T-974),
   flakes, and the lane table (`LaneTable`: worktree facts for `obor status` and `app.Lanes`, merge evidence; `Lanes` is serve's
   `app.Lanes` adapter, each lane's configured type, T-738).
-  Implements `app.Scratch`. `Scratch` decides over git's answers; its git goes through `gitReader`/`gitWriter`
-  (`gitio.go`: `realGit`, the one adapter over real git), so its decision tests run on `fakegit_test.go`'s fake and its real-git scenario table is behind `//go:build
-  integration` (`scratch_integration_test.go`, `gitlock_test.go`; T-1011).
+  Implements `port.Workflow` as `ScratchFF` (`workflow.go`, workflow.kind `scratch-ff`, T-1029: `Scratch`, `Lane`, the
+  target, the review git cmd/obor gives it, the promotion). `Scratch` decides over git's answers; its git goes through `gitReader`/`gitWriter`
+  (`gitio.go`: `realGit`, the one adapter over real git), so its decision tests run on `fakegit_test.go`'s fake; the
+  workflow contract table (`testkit.WorkflowContract`, run on internal/app's `FakeWorkflow` too) and the real-git cases
+  are behind `//go:build integration` (`workflow_integration_test.go`, `scratch_integration_test.go`, `gitlock_test.go`; T-1011, T-1029).
 - `launch`: start, stop (the kill sequence) and restart an agent CLI in its pane (`Launcher`, panes via
   `app.PaneControl`; implements `app.Agents` and `app.Starter`); the per-lane restart lock (`restartlock.go`:
   `RestartLock`, T-500); the herdr plugin's restore (`Restorer`); `session.go`: the id obor names a fresh Claude
@@ -152,12 +155,13 @@ core and the adapters; only entry packages import it. **Every reader of project 
 `obor status` (`--json` prints `view.Project` as is) and `obor web` render the same struct, so a field added for one
 appears in both; the narrow page reads share its mapping helpers, and there is no second Project builder.
 
-**test helpers** — `testkit` (fixture projects, the store helpers tests use) and `herdr/herdrtest` (the fake herdr
+**test helpers** — `testkit` (fixture projects, the store helpers tests use, the workflow contract table) and `herdr/herdrtest` (the fake herdr
 socket: scripted panes and plugins, and every request a test's client sent).
 
 **entry** — `cmd/obor`: flags and wiring only; `obor status`' rendering of
 `view.Project` (rendering only: no state is joined there); the
-thin `app.Specs`, `Lanes`, `Poster` adapters live here (and `configFile`, `app.ConfigFile` on the main checkout's git, T-753). The lead's chat commands are the same CLI (`status`, `dispatch`,
+thin `app.Specs`, `Lanes`, `Poster` adapters and the review git (`reviewGit`, `port.Review`) live here; `workflowOf`
+picks the workflow by workflow.kind (and `configFile`, `app.ConfigFile` on the main checkout's git, T-753). The lead's chat commands are the same CLI (`status`, `dispatch`,
 `resume`, `drop`, `drive`, `land`, `spec`, `watch`, `pause`, `send`, `projects`, `brief`), beside `serve`, `mcp`,
 `setup`, `config` and the rest (`run`, `nightly`, `affected`, `flakes`, `restart`, `lead`, `plugin`,
 `hook`, `whoami`).

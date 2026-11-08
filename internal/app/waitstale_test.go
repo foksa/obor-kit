@@ -33,7 +33,7 @@ func newStaleRig(t *testing.T) (*harness, *Loop) {
 	h.write(filepath.Join(h.root, ".obor/config.json"), `{"name":"pj","prefix":"pj","roles":{"integrator":""},"lanes":2}`)
 	h.lanes.lanes = []port.Lane{{Name: "L-01", Dir: h.lane("L-01"), State: "working", Task: "T-9"},
 		{Name: "L-02", Dir: h.lane("L-02"), State: "working", Task: "T-8"}}
-	fx := &Loop{Lane: staleFx{}, Specs: staleFx{}}
+	fx := &Loop{Workflow: WorkflowOf(staleFx{}), Specs: staleFx{}}
 	h.a.opt.Loop = func(string) (*Loop, error) { return fx, nil }
 	h.connect()
 	h.a.p.dispatching = true

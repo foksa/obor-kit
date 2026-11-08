@@ -30,7 +30,7 @@ import (
 type dispatchFakes struct {
 	r  *loopRig
 	mu sync.Mutex
-	on bool // the loop has the dispatch adapters (Loop.Lane, Loop.Specs)
+	on bool // the loop has the dispatch adapters (its lanes and target in Loop.Workflow, Loop.Specs)
 	// The Specs: refusals by task, the target sha, the task branch ahead.
 	refuse map[string]string
 	texts  []string // the spec text each Check was given (the store's, T-440)
@@ -57,7 +57,7 @@ func (d *dispatchFakes) loop(fx *app.Loop, panes herdr.Panes) {
 	defer d.mu.Unlock()
 	kit, _ := filepath.Abs("../..")
 	if d.on {
-		fx.Lane, fx.Specs = d, d
+		fx.Workflow, fx.Specs = app.WorkflowOf(fx.Workflow, d), d
 	}
 	fx.Kit = kit
 	fx.Typer = cutPrompter{d, panes}
@@ -1007,7 +1007,7 @@ type lastClose struct{}
 func (lastClose) Head(context.Context, string) (string, error)                   { return "head1", nil }
 func (lastClose) Files(context.Context, string, string) ([]string, error)        { return nil, nil }
 func (lastClose) Detach(context.Context, string, string) error                   { return nil }
-func (lastClose) Close(context.Context, app.ReviewCommit) error                  { return nil }
+func (lastClose) Close(context.Context, port.ReviewCommit) error                 { return nil }
 func (lastClose) Closed(context.Context, string, string, string) (string, error) { return "", nil }
 
 // reviewsLog writes the log of a stopped app: RV-4 started and closed, then each of open started (not closed).

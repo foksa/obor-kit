@@ -82,7 +82,7 @@ func (r *loopRig) startWithAgents(agents port.Agents) {
 			var e *herdr.Error
 			return errors.As(err, &e) && e.Code == "refresh"
 		}, Loop: func(string) (*app.Loop, error) {
-			fx := &app.Loop{Scratch: r.scratch, Agents: agents, Typer: panes}
+			fx := &app.Loop{Workflow: app.WorkflowOf(r.scratch), Agents: agents, Typer: panes}
 			r.disp.loop(fx, panes)
 			return fx, nil
 		}},

@@ -353,7 +353,8 @@ const (
 
 // PublishOutcome is a publish's final outcome: PublishMerged, PublishAlready (the target holds the candidate),
 // PublishMoved (the target is at Head, not the candidate's), PublishHold (uncommitted Files in the main checkout are
-// among the merged ones: nothing merged).
+// among the merged ones: nothing merged), PublishPending (the merge was asked for and is not done yet: the task waits
+// published until Landed says the target holds it, T-1029; no implementation returns it yet).
 type PublishOutcome struct {
 	Kind  string
 	Head  string
@@ -366,6 +367,7 @@ const (
 	PublishAlready = "already"
 	PublishMoved   = "moved"
 	PublishHold    = "hold"
+	PublishPending = "pending"
 )
 
 // Refused is a final refusal returned as an error (Submit, Resolved): the step is not run again.

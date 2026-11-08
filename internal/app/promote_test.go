@@ -24,7 +24,7 @@ import (
 // full suite's run, the fast-forward to exactly R, the last closed review's reviewed head (T-978), after_promote, RED's
 // needs-you, a restart mid-run, and after_merge off per publish.
 
-// promoteGit is a ReviewGit of named shas: heads by branch (the history linear: h0, h1, …). Head of a branch it has
+// promoteGit is a port.Review of named shas: heads by branch (the history linear: h0, h1, …). Head of a branch it has
 // no sha for is an error. What merged and what a review covered are the log's (T-1023): promoteRig.between, started.
 type promoteGit struct {
 	mu    sync.Mutex
@@ -49,7 +49,7 @@ func (g *promoteGit) Head(_ context.Context, branch string) (string, error) {
 }
 func (g *promoteGit) Files(context.Context, string, string) ([]string, error) { return nil, nil }
 func (g *promoteGit) Detach(context.Context, string, string) error            { return nil }
-func (g *promoteGit) Close(context.Context, ReviewCommit) error               { return nil }
+func (g *promoteGit) Close(context.Context, port.ReviewCommit) error          { return nil }
 func (g *promoteGit) Closed(context.Context, string, string, string) (string, error) {
 	return "", nil
 }
@@ -91,9 +91,9 @@ type promoteFake struct {
 	refuse   bool
 }
 
-func (f *promoteFake) promote(weight int) *Promote {
+func (f *promoteFake) promote(weight int) *port.Promote {
 	var cfg *config.Config // the default weights
-	return &Promote{Branch: "main", Target: "staging", Weight: weight, Weigh: cfg.MergeWeight,
+	return &port.Promote{Branch: "main", Target: "staging", Weight: weight, Weigh: cfg.MergeWeight,
 		Run: func(ctx context.Context, sha string) (port.PromoteOut, error) {
 			if f.g.passed(sha) {
 				return port.PromoteOut{SHA: sha, Verdict: "GREEN", Line: "main past " + sha + " already"}, nil
@@ -182,7 +182,7 @@ func newPromoteRig(t *testing.T, reviews bool) *promoteRig {
 }
 
 func (r *promoteRig) wire() {
-	r.fx = &Loop{Review: r.git, Agents: &agentsSpy{}, Promote: r.f.promote(6)}
+	r.fx = &Loop{Workflow: WorkflowOf(r.git, r.f.promote(6)), Agents: &agentsSpy{}}
 	r.a.opt.Loop = func(string) (*Loop, error) { return r.fx, nil }
 }
 
@@ -414,7 +414,7 @@ func TestPromoteRedThenGreen(t *testing.T) {
 	}
 }
 
-// T-1013: with branches.promote unset (no Loop.Promote) the pass ends the promotion's open needs-you (one resumed
+// T-1013: with branches.promote unset (no Workflow.Promotion) the pass ends the promotion's open needs-you (one resumed
 // fact) before returning; a pass with nothing open records nothing; with promotion set, the needs-you stays.
 func TestPromoteOffSettlesNeedsYou(t *testing.T) {
 	t.Parallel()
@@ -433,7 +433,7 @@ func TestPromoteOffSettlesNeedsYou(t *testing.T) {
 	t.Run("promotion off: one resumed fact, then nothing more", func(t *testing.T) {
 		t.Parallel()
 		r := red(t)
-		r.fx.Promote = nil // branches.promote unset
+		r.fx.Workflow = WorkflowOf(r.git) // branches.promote unset
 		before := r.steps()
 		r.pass()
 		if got := r.needs(); len(got) != 0 {
@@ -783,7 +783,7 @@ func TestPromoteRestartMidRunAtR(t *testing.T) {
 	}
 }
 
-// branches.promote unset (no Loop.Promote): no promotion, and after_merge runs after the publish as before; set: the
+// branches.promote unset (no Workflow.Promotion): no promotion, and after_merge runs after the publish as before; set: the
 // publish's after_merge runs nothing (after_promote does).
 func TestPromoteAfterMergePerPublish(t *testing.T) {
 	t.Parallel()
@@ -793,9 +793,9 @@ func TestPromoteAfterMergePerPublish(t *testing.T) {
 			r := newPromoteRig(t, false)
 			r.between("h0", "h1", "T-1")
 			spy := &afterSpy{}
-			r.fx.Scratch = spy
+			r.fx.Workflow = WorkflowOf(r.fx.Workflow, spy)
 			if !set {
-				r.fx.Promote = nil
+				r.fx.Workflow = WorkflowOf(spy, r.git)
 			}
 			r.pass()
 			if runs, _, _ := r.f.calls(); set != (len(runs) == 1) || !set && len(r.steps()) != 0 {

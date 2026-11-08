@@ -34,7 +34,7 @@ func seedRoles(t *testing.T) (*harness, *schedScratch) {
 		port.Pane{ID: "w1:rev", Workspace: "w1", Cwd: filepath.Join(h.wt, "reviewer"), Agent: "claude", Label: "pj-rev", Status: "idle"},
 		port.Pane{ID: "w1:dd", Workspace: "w1", Cwd: filepath.Join(h.wt, "deep_dive"), Agent: "claude", Label: "pj-deep-dive", Status: "idle"})
 	f := &schedScratch{h: h}
-	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Scratch: f, Agents: f, Typer: f}, nil }
+	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Workflow: WorkflowOf(f), Agents: f, Typer: f}, nil }
 	if err := os.MkdirAll(h.lanes.lanes[0].Dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func newAdmitRig(t *testing.T, gated bool) *admitRig {
 	if gated {
 		r.s.release = make(chan struct{})
 	}
-	r.fx = &Loop{Scratch: r.s, Agents: r.agents, Typer: f, Review: r.git}
+	r.fx = &Loop{Workflow: WorkflowOf(r.s, r.git), Agents: r.agents, Typer: f}
 	h.a.opt.Loop = func(string) (*Loop, error) { return r.fx, nil }
 	return r
 }
@@ -260,13 +260,13 @@ func TestMergeDuringAReviewPublishesAtOnce(t *testing.T) {
 			}
 			if c.to != "" {
 				h.a.opt.Loop = func(string) (*Loop, error) {
-					return &Loop{Scratch: &schedScratch{h: h}, Agents: &agentsSpy{}, Review: &reviewGitFake{head: "base1"}}, nil
+					return &Loop{Workflow: WorkflowOf(&schedScratch{h: h}, &reviewGitFake{head: "base1"}), Agents: &agentsSpy{}}, nil
 				}
 				if _, err := h.a.briefCall(wire.Call{Root: h.root, CallID: "b1", To: c.to, Note: "look", Role: "lead"}); err != nil {
 					t.Fatal(err)
 				}
 				f := &schedScratch{h: h}
-				h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Scratch: f, Agents: f, Typer: f}, nil }
+				h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Workflow: WorkflowOf(f), Agents: f, Typer: f}, nil }
 			}
 			h.a.mu.Lock()
 			briefed := c.to != "" && h.a.p.out.brief(c.to) != nil

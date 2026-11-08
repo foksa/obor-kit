@@ -144,7 +144,7 @@ type proj struct {
 	// rules: each rule's live state in the rule pass (rules.go, T-866): the key its condition holds with, since when,
 	// and its failed actions in a row. Not recorded: a restart starts it again; under mu.
 	rules map[string]ruleLive
-	// dispatching: the merge loop's last pass had the dispatch adapters (Loop.Lane, Loop.Specs); nopane: since when a
+	// dispatching: the merge loop's last pass had the dispatch adapters (Loop.Workflow, Loop.Specs); nopane: since when a
 	// dispatched task's lane has no pane, by task; waitLine: a waiting task's last refused dispatch (logged on change)
 	// and since when that refusal holds.
 	dispatching bool

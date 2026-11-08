@@ -31,25 +31,22 @@ import (
 
 // Loop is what the merge loop drives in one project.
 type Loop struct {
-	Scratch port.Scratch
-	Agents  port.Agents
+	// Workflow is the project's git workflow (T-1029, port.Workflow: the merge slot, the lanes, the target, the
+	// review's git and the promotion; workflow.kind picks it at serve start). Nil: a Loop without one (tests): nothing
+	// is gated, published, dispatched or reviewed.
+	Workflow port.Workflow
+	Agents   port.Agents
 	// Typer types job wakes and lines into agents' panes (nil: none typed; posted ones need Inbox).
 	Typer port.Typer
-	// Lane prepares a dispatched lane (and frees a dropped one); Specs is what a dispatch reads; Kit is the
-	// obor kit (the worker prompt's template). Without Lane and Specs the app dispatches nothing (dispatch.go).
-	Lane  port.LaneSetup
+	// Specs is what a dispatch reads of a task's id and spec; Kit is the obor kit (the worker prompt's template).
+	// Without Workflow and Specs the app dispatches nothing (dispatch.go).
 	Specs Specs
 	Kit   string
 	// Nightly is the project's nightly full check (merge.nightly_at; off is At "", T-464, T-782; nil: a Loop without
 	// one, tests).
 	Nightly *Nightly
-	// Promote is the project's promotion of branches.main to branches.promote (T-974, promote.go; nil: branches.promote
-	// unset, no promotion, after_merge after each publish as before).
-	Promote *Promote
 	// Disk is the project volume's free space (nil: not watched, T-564).
 	Disk *Disk
-	// Review is the git of a review request's start (review.go; nil: no review is started, T-638).
-	Review ReviewGit
 	// Inbox posts the project's lines to its lead into the lead's Claude session (obor send, a brief's finished
 	// line; nil: none posted, T-485): nothing is typed into the pane the owner writes in.
 	Inbox Poster
@@ -59,6 +56,15 @@ type Loop struct {
 	Restart func(ctx context.Context) error
 	// Config is the main checkout's config file and its git: the owner's setup edits (configset.go, T-753; nil: none).
 	Config ConfigFile
+}
+
+// promotion is the workflow's promotion (nil: no workflow, or one without a promotion: after_merge after each
+// publish, T-974).
+func (fx *Loop) promotion() *port.Promote {
+	if fx.Workflow == nil {
+		return nil
+	}
+	return fx.Workflow.Promotion()
 }
 
 // K is how often a task is sent back before the owner decides (rule 3).
@@ -125,6 +131,7 @@ const (
 	stAccepted   = "accepted"            // publish it
 	stMoved      = "moved"               // merge and compile the candidate again on the new target (no test, T-961)
 	stPublished  = "published"           // the target holds the candidate
+	stPending    = "pending"             // published, the merge not done yet (port.PublishPending): the Landed rule ends it
 	stMerged     = "merged"              // terminal (then after_merge)
 	stRejected   = "rejected"            // terminal; the owner is told
 	stDropped    = "dropped"             // terminal; the lead abandoned it (obor drop)
@@ -332,7 +339,7 @@ func (a *App) advance(ctx context.Context) *Loop {
 		return nil
 	}
 	a.mu.Lock()
-	p.dispatching = fx.Lane != nil && fx.Specs != nil
+	p.dispatching = fx.Workflow != nil && fx.Specs != nil
 	tasks := p.passOrder()
 	a.mu.Unlock()
 	a.diskTick(p, fx)
@@ -346,7 +353,7 @@ func (a *App) advance(ctx context.Context) *Loop {
 	a.promotion(ctx, p, fx)
 	a.reviewCloseRead(ctx, p, fx) // once per process: the open review's close commit a crash cut from its fact (T-926)
 	a.reviewPass(ctx, p, fx)
-	if fx.Promote == nil { // T-974: a promotion requests its review itself; the "review due" count is off
+	if fx.promotion() == nil { // T-974: a promotion requests its review itself; the "review due" count is off
 		a.reviewDueTick(ctx, p, fx)
 	} else {
 		a.mu.Lock()
@@ -605,15 +612,19 @@ func (a *App) drive(ctx context.Context, p *proj, fx *Loop, task string) {
 		return // its gate, publish or lane test runs: the task goes on once that has folded
 	}
 	if mt.landed() {
-		// A merge outside the app (the owner's, by hand in git): merged, no second publish. Git that cannot tell:
-		// the task waits for the next pass.
-		landed, err := fx.Scratch.Landed(ctx, task)
+		// A merge outside the app (the owner's, by hand in git), or the merge a pending publish asked for: merged, no
+		// second publish. Git that cannot tell, or not landed yet: the task waits for the next pass.
+		landed, err := fx.Workflow.Landed(ctx, task)
 		if err != nil {
 			a.logf("merge loop of %s: %s: %v", p.name, task, err)
 			return
 		}
 		if landed {
-			a.record(p, event.Record{Task: task, Attempt: mt.attempt, Step: event.StepMerged, Kind: event.KindFact}, event.MergedData{Outside: true})
+			merged := event.MergedData{Outside: true}
+			if mt.is(stPending) { // the merge its publish asked for is done (T-1029)
+				merged = event.MergedData{Head: mt.cand.SHA}
+			}
+			a.record(p, event.Record{Task: task, Attempt: mt.attempt, Step: event.StepMerged, Kind: event.KindFact}, merged)
 			return
 		}
 	}
@@ -778,7 +789,7 @@ func (a *App) pickRed(p *proj, mt mtask) step {
 // meanwhile (row 34).
 func (a *App) pickDue(p *proj, mt mtask) step {
 	return func(ctx context.Context, fx *Loop) bool {
-		landed, err := fx.Scratch.Landed(ctx, mt.task)
+		landed, err := fx.Workflow.Landed(ctx, mt.task)
 		switch {
 		case err != nil:
 			a.logf("merge loop of %s: %s: %v", p.name, mt.task, err)

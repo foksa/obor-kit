@@ -25,7 +25,7 @@ func TestRecordFoldsInLogOrder(t *testing.T) {
 		other func(h *harness, p *proj) error
 	}{
 		{"outside merged vs submitted", stMerged, seedWorking, func(h *harness, p *proj) error {
-			h.a.drive(context.Background(), p, &Loop{Scratch: landedScratch{}}, "T-1")
+			h.a.drive(context.Background(), p, &Loop{Workflow: WorkflowOf(landedScratch{})}, "T-1")
 			return nil
 		}},
 		{"dropping vs submitted", stDropping, seedWorking, func(h *harness, p *proj) error {

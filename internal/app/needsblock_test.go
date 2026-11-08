@@ -382,7 +382,7 @@ func TestNeedsYouBlockMergedOutside(t *testing.T) {
 		if len(p.needsYou()) > 1 {
 			t.Fatalf("precondition: %d needs-you", len(p.needsYou()))
 		}
-		a.drive(context.Background(), p, &Loop{Scratch: landedScratch{}}, blockTask)
+		a.drive(context.Background(), p, &Loop{Workflow: WorkflowOf(landedScratch{})}, blockTask)
 		mt := p.folded.loop[blockTask]
 		if mt.state != stMerged || len(p.needsYou()) != 0 {
 			t.Errorf("after a merge outside: %s, %d needs-you; want merged, none", mt.state, len(p.needsYou()))
@@ -415,7 +415,7 @@ func TestNeedsYouBlockDueRecordedOnce(t *testing.T) {
 			t.Fatal("precondition: the due block has no step")
 		}
 		if s != nil {
-			s(context.Background(), &Loop{Scratch: notLanded{}})
+			s(context.Background(), &Loop{Workflow: WorkflowOf(notLanded{})})
 		}
 		if n := count(p); n != 1 {
 			t.Fatalf("pass %d: %d needs-you in force, want 1", pass, n)

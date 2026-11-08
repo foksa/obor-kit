@@ -64,7 +64,7 @@ func gateGroupHarness(t *testing.T, dir string) (*harness, *groupGate) {
 		Retry: 5 * time.Millisecond}, &openPanes{fakePanes: h.panes, snap: h.snap}, h.lanes)
 	g := &groupGate{schedScratch: &schedScratch{h: h}, dir: dir}
 	h.a.opt.Loop = func(string) (*Loop, error) {
-		return &Loop{Scratch: g, Agents: g.schedScratch, Typer: g.schedScratch}, nil
+		return &Loop{Workflow: WorkflowOf(g), Agents: g.schedScratch, Typer: g.schedScratch}, nil
 	}
 	if err := os.MkdirAll(h.lanes.lanes[0].Dir, 0o755); err != nil {
 		t.Fatal(err)

@@ -25,7 +25,7 @@ func (r *reviewRig) afterStepsDone(task string) {
 
 // idlePass is the merge loop's rule pass after its advance.
 func (r *reviewRig) idlePass() {
-	r.a.rulePass(context.Background(), rules, &Loop{Review: r.git, Agents: r.agents})
+	r.a.rulePass(context.Background(), rules, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents})
 }
 
 // idleSettled lets the idle window pass at the rig's clock: the first check starts (or keeps) it, the clock moves past
@@ -114,7 +114,7 @@ func TestIdleClosedRoundStopsCounting(t *testing.T) {
 	r.stop("s1", "overloaded", "API overloaded")
 	r.working(false)
 	owed := func() bool { // the verify rule's condition read, its action not run
-		verifyRule(context.Background(), r.a, r.p, &Loop{Review: r.git, Agents: r.agents}, r.now)
+		verifyRule(context.Background(), r.a, r.p, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents}, r.now)
 		r.a.mu.Lock()
 		defer r.a.mu.Unlock()
 		return r.p.verifyDue

@@ -118,6 +118,9 @@ func init() {
 		stMoved: {pick: (*App).pickGate, name: gateName, verbs: vDrop, uses: wire.ScratchGating, phase: wire.PhaseGating},
 		// rows 33–34: the target holds the candidate
 		stPublished: {pick: (*App).pickPublished, verbs: vDrop, phase: wire.PhasePublish},
+		// T-1029: the publish asked for the merge, not done yet: no step; each pass's Landed rule (drive) records it
+		// merged once the target holds it. Shown as a publish, as published is
+		stPending: {verbs: vDrop, landed: true, phase: wire.PhasePublish},
 		// rows 34, 37–38: the after-merge steps; a needs-you of one has no job to re-prompt
 		stMerged: {pick: (*App).pickMerged, ended: true, verbs: vResume, phase: wire.PhaseMerged,
 			resume: func(mtask, string) resumeRule { return resumeRule{noReprompt: true} }},

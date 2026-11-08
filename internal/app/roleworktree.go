@@ -13,7 +13,7 @@ import (
 // Role worktrees (T-853, E2; T-718's merge hold deleted): the reviewer and the deep dive read their own worktree,
 // <lanes_dir>/<role> (config.RoleWorktree), detached at the head serve hands them, so a merge never waits for them
 // (the integrator has one too, which serve does not move: a review job checks out its candidate there itself).
-// Serve moves a role worktree (ReviewGit.Detach, which adds it when it is missing) at the start that hands the role a
+// Serve moves a role worktree (port.Review.Detach, which adds it when it is missing) at the start that hands the role a
 // head, to the sha that start read (T-872: no publish admission): the reviewer's at a review's start and at each
 // verify once it is idle (T-856: never under its turn), to the head it reviews; the deep dive's at a brief while it is
 // idle, to the integration branch's head. A brief to a working deep dive leaves its worktree where it is (the code
@@ -72,17 +72,17 @@ func (a *App) briefMove(ctx context.Context, p *proj, role, agent string) error 
 		return err
 	}
 	fx, err := a.opt.Loop(p.root)
-	if err == nil && fx.Review == nil {
-		err = fmt.Errorf("the merge loop has no review git")
+	if err == nil && fx.Workflow == nil {
+		err = fmt.Errorf("the merge loop has no workflow")
 	}
 	if err != nil {
 		return err
 	}
-	head, err := fx.Review.Head(ctx, cfg.Data.Branches.Main)
+	head, err := fx.Workflow.Head(ctx, cfg.Data.Branches.Main)
 	if err != nil {
 		return err
 	}
-	return fx.Review.Detach(ctx, cfg.RoleWorktree(role), head)
+	return fx.Workflow.Detach(ctx, cfg.RoleWorktree(role), head)
 }
 
 // Admission (T-730, T-872): a call that commits in the main checkout (config_set) passes one serve-owned point first.

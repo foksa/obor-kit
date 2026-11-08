@@ -96,7 +96,7 @@ func promptRig(t *testing.T, started bool, before ...func(h *harness)) (*harness
 	kit, _ := filepath.Abs("../..")
 	f := &boxPrompter{box: map[string]string{}}
 	ag := &startAgents{h: h, sid: "new-session"}
-	return h, &Loop{Scratch: s, Agents: ag, Typer: f, Kit: kit}, f, ag
+	return h, &Loop{Workflow: WorkflowOf(s), Agents: ag, Typer: f, Kit: kit}, f, ag
 }
 
 // proj is pj now (a reload replaces it).
@@ -284,7 +284,7 @@ func TestPromptIntegratorJob(t *testing.T) {
 	t.Parallel()
 	h, s := seedSched(t, true)
 	f := &boxPrompter{box: map[string]string{"w1:p9": "[obor job T-2/1/review]"}}
-	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Scratch: s, Agents: s, Typer: f}, nil }
+	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Workflow: WorkflowOf(s), Agents: s, Typer: f}, nil }
 	p := h.proj()
 	raw, _ := json.Marshal(promptData{Agent: "pj-int", Job: "T-2/1/review"})
 	r, err := p.log.Append(event.Record{Task: "T-2", Attempt: 1, Step: event.StepReview, Kind: event.KindIntent, Class: event.ClassPrompt,

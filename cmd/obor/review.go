@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"obor/internal/app"
+	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/help"
@@ -81,14 +81,14 @@ func reviewCloseCmd(args []string) int {
 	})
 }
 
-// reviewGit is app.ReviewGit on the project's main checkout: git -C <root>. locked runs Detach's checkout as serve's
+// reviewGit is port.Review on the project's main checkout: git -C <root>. locked runs Detach's checkout as serve's
 // own git calls run (checks.Scratch.Locked: a lock another git holds is waited for, T-872); nil: Detach fails.
 type reviewGit struct {
 	root   string
 	locked func(ctx context.Context, dir string, args ...string) (string, error)
 }
 
-var _ app.ReviewGit = reviewGit{}
+var _ port.Review = reviewGit{}
 
 func (g reviewGit) Head(ctx context.Context, branch string) (string, error) {
 	out, err := g.git(ctx, "rev-parse", "--verify", "--end-of-options", branch+"^{commit}")

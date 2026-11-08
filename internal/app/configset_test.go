@@ -118,7 +118,9 @@ func configRig(t *testing.T) (*harness, *fakeConfig) {
 	h.write(path, configJSON)
 	f := &fakeConfig{path: path}
 	sched := &schedScratch{h: h}
-	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Scratch: sched, Agents: sched, Typer: sched, Config: f}, nil }
+	h.a.opt.Loop = func(string) (*Loop, error) {
+		return &Loop{Workflow: WorkflowOf(sched), Agents: sched, Typer: sched, Config: f}, nil
+	}
 	h.lanes.lanes[0].Task = "" // L-01 free
 	h.connect()
 	h.a.mu.Lock()

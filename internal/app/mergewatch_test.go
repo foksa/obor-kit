@@ -80,7 +80,7 @@ func TestWatchedMergePostsOneLine(t *testing.T) {
 		t.Fatalf("a line before the merge: %q", l)
 	}
 	r.mergedT1()
-	line := "[obor] T-1 merged " + r.scratch.Head()[:7]
+	line := "[obor] T-1 merged " + r.scratch.TargetHead()[:7]
 	r.waitFor("the merge line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
 	r.passes()
 	if l := r.watchLines(); len(l) != 1 || l[0] != line {
@@ -133,7 +133,7 @@ func TestWatchEndedOrUnknownTask(t *testing.T) {
 	r.work("feature.txt", "feature\n")
 	r.start()
 	r.mergedT1()
-	want := "T-1 merged " + r.scratch.Head()[:7]
+	want := "T-1 merged " + r.scratch.TargetHead()[:7]
 	if reply, err := r.watch("w1", "T-1", false); err != nil || reply != want {
 		t.Errorf("watch of a merged task: %q, %v; want %q", reply, err, want)
 	}
@@ -245,7 +245,7 @@ func TestWatchedSetPostsOneLineAfterTheLast(t *testing.T) {
 		t.Fatalf("a line before the last merge: %q", l)
 	}
 	r.mergedT1()
-	line := "[obor] T-1,T-2,T-3 merged (" + r.scratch.Head()[:7] + ")"
+	line := "[obor] T-1,T-2,T-3 merged (" + r.scratch.TargetHead()[:7] + ")"
 	r.waitFor("the set's line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
 	r.passes()
 	if l := r.watchLines(); len(l) != 1 || l[0] != line {
@@ -380,7 +380,7 @@ func TestWatchNoteOnTheMergedLine(t *testing.T) {
 		t.Errorf("status watches %+v, want T-1 with its note", ws)
 	}
 	r.mergedT1()
-	line := "[obor] T-1 merged " + r.scratch.Head()[:7] + " — " + one
+	line := "[obor] T-1 merged " + r.scratch.TargetHead()[:7] + " — " + one
 	r.waitFor("the merged line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
 	r.passes()
 	if l := r.watchLines(); len(l) != 1 || l[0] != line {

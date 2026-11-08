@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"obor/internal/app/event"
+	"obor/internal/app/port"
 	"obor/internal/spec"
 	"obor/internal/store"
 	"os"
@@ -141,7 +142,7 @@ func (f fixState) line() string {
 // of their merges; no line: the brief's fact is its effect). A closed review (its review.closed fact, T-926) runs none
 // of it and its round leaves obor status: the snapshot it reads is empty (RV-125 #2).
 func verifyRule(_ context.Context, a *App, p *proj, fx *Loop, _ time.Time) (int64, action, bool) {
-	if fx == nil || fx.Review == nil {
+	if fx == nil || fx.Workflow == nil {
 		return 0, action{}, false
 	}
 	a.mu.Lock()
@@ -209,7 +210,7 @@ func verifyRule(_ context.Context, a *App, p *proj, fx *Loop, _ time.Time) (int6
 		if !idle {
 			return 0, action{}, false
 		}
-		key, act = newest, verifyAction(a, p, fx.Review, s, started.id, tasks, notes, newest)
+		key, act = newest, verifyAction(a, p, fx.Workflow, s, started.id, tasks, notes, newest)
 	}
 	return key, act, true
 }
@@ -229,10 +230,10 @@ func fixRest(links []fixLink, task string) string {
 }
 
 // verifyAction is the verify's brief: the integration head read once, the reviewer's worktree detached there
-// (ReviewGit.Detach, idempotent; T-853), the verify brief recorded to the same session. Its git failing is the error
+// (port.Review.Detach, idempotent; T-853), the verify brief recorded to the same session. Its git failing is the error
 // and, once per key, the lead's line (Of{ruleVerifyGit, key}); a brief to the reviewer recorded meanwhile skips it
 // (recordBrief).
-func verifyAction(a *App, p *proj, g ReviewGit, s ReviewSetup, id string, tasks, notes []string, key int64) action {
+func verifyAction(a *App, p *proj, g port.Review, s ReviewSetup, id string, tasks, notes []string, key int64) action {
 	return action{call: func(ctx context.Context) error {
 		ctx, cancel := context.WithTimeout(ctx, verifyGitWait)
 		defer cancel()
@@ -324,7 +325,7 @@ func (a *App) fixesCheck(p *proj, task string, sp spec.Spec) error {
 // verifyText finds the open review (it must be id) and each task's merge in the fold since the review before it
 // (T-822: a task merged after the review started, which it does not cover, is allowed), then reads the integration
 // branch's head: the verify brief and that head.
-func (a *App) verifyText(ctx context.Context, p *proj, g ReviewGit, s ReviewSetup, id string, tasks, notes []string) (text,
+func (a *App) verifyText(ctx context.Context, p *proj, g port.Review, s ReviewSetup, id string, tasks, notes []string) (text,
 	head string, err error) {
 	c, err := a.openReview(p, s)
 	if err != nil {

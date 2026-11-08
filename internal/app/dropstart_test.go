@@ -83,7 +83,7 @@ func (f *dropFx) AfterMerge(ctx context.Context, c port.Candidate) (string, erro
 
 // loop is fx as a project's adapters (the dispatch's too).
 func (f *dropFx) loop(kit string) *Loop {
-	return &Loop{Scratch: f, Agents: f, Typer: f, Lane: f, Specs: f, Kit: kit}
+	return &Loop{Workflow: WorkflowOf(f), Agents: f, Typer: f, Specs: f, Kit: kit}
 }
 
 // worker puts an idle claude pane labelled agent into proj's workspace and reconciles its identity table.

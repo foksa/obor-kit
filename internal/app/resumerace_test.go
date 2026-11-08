@@ -142,7 +142,7 @@ func TestTaskDoneCannotReopenConcurrentOutsideMerge(t *testing.T) {
 	addRecord(t, h, "T-1", event.StepDelivered, event.KindFact, event.FactData{Job: "T-1/1/work"})
 	hook := func(point string) {
 		if point == hookTaskDoneCheck {
-			h.a.drive(context.Background(), p, &Loop{Scratch: landedScratch{}}, "T-1")
+			h.a.drive(context.Background(), p, &Loop{Workflow: WorkflowOf(landedScratch{})}, "T-1")
 			if st := p.folded.loop["T-1"].state; st != stMerged {
 				t.Fatalf("precondition: outside merge left %s", st)
 			}

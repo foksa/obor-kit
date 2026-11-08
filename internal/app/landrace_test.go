@@ -19,7 +19,7 @@ func landSeed(t *testing.T, adapters bool) (*harness, *proj) {
 		if !adapters {
 			return &Loop{}, nil
 		}
-		return &Loop{Lane: f, Specs: f, Agents: f}, nil
+		return &Loop{Workflow: WorkflowOf(f), Specs: f, Agents: f}, nil
 	}
 	h.connect()
 	p := h.proj()

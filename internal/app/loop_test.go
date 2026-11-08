@@ -23,7 +23,7 @@ import (
 )
 
 // The merge loop at the app boundary: the herdr socket client on the fake herdr socket (snapshot, job prompts,
-// notifications), the package's in-memory Scratch (app.FakeScratch: no git, T-996), a scripted lane table, and an
+// notifications), the package's in-memory Scratch (app.FakeWorkflow: no git, T-996), a scripted lane table, and an
 // integrator start that puts pj-int into the fake herdr.
 
 // loopRig is project proj (a plain dir: its config written, no git) with lane L-01 on task/T-1 (a plain dir the fake
@@ -37,7 +37,7 @@ type loopRig struct {
 	f       *herdrtest.Fake
 	srv     *herdrtest.Server
 	lanes   *laneTable
-	scratch *app.FakeScratch
+	scratch *app.FakeWorkflow
 	starts  atomic.Int32
 	callIDs atomic.Int32 // the rig's own task_done and job_next call ids
 	early   bool         // submit before the first start: T-1's task_done is in the log the start replays
@@ -56,7 +56,7 @@ type loopRig struct {
 	// before start
 	nightOf func() *app.Nightly
 	config  app.ConfigFile // the loop's config_set writer (nil: none); set before start
-	review  app.ReviewGit  // the loop's review git (nil: none: no review starts); set before start
+	review  port.Review    // the loop's review git (nil: the fake workflow's own, T-1029); set before start
 	disk    *app.Disk      // the loop's Disk (nil: none); set before start
 	// restart is the loop's Restart, serve's self-restart (nil: none, T-719); set before start
 	restart func(ctx context.Context) error
@@ -97,7 +97,7 @@ func withConfig(edits ...func(map[string]any)) rigOpt {
 	return func(o *rigOpts) { o.edits = append(o.edits, edits...) }
 }
 
-// dispatching is the rig with the dispatch adapters (Loop.Lane, Loop.Specs) and L-01 free.
+// dispatching is the rig with the dispatch adapters (the workflow's lanes and target, Loop.Specs) and L-01 free.
 func dispatching() rigOpt { return func(o *rigOpts) { o.dispatch = true } }
 
 // pooled is dispatching with lanes 2: L-02 free too.
@@ -138,7 +138,7 @@ func newLoopRig(t *testing.T, opts ...rigOpt) *loopRig {
 	r.srv = herdrtest.Serve(t, r.f)
 	r.srv.Reply("notification.show", map[string]any{"type": "notification_show", "shown": true, "reason": "shown"})
 	r.srv.Reply("agent.prompt", prompted)
-	r.scratch = app.NewFakeScratch("")
+	r.scratch = app.NewFakeWorkflow("")
 	r.scratch.Dir = filepath.Join(p.Base, "proj-wt", "merge")
 	if !o.check {
 		r.scratch.Checks = "no check"
@@ -318,8 +318,8 @@ func (r *loopRig) launch() {
 			if r.nightOf != nil {
 				night = r.nightOf()
 			}
-			fx := &app.Loop{Scratch: r.scratch, Agents: r, Typer: panes, Kit: "../..", Nightly: night, Disk: r.disk,
-				Inbox: r.inbox, Restart: r.restart, Config: r.config, Review: r.review}
+			fx := &app.Loop{Workflow: app.WorkflowOf(r.scratch, r.review), Agents: r, Typer: panes, Kit: "../..", Nightly: night, Disk: r.disk,
+				Inbox: r.inbox, Restart: r.restart, Config: r.config}
 			if r.disp != nil {
 				r.disp.loop(fx, panes)
 			}
@@ -609,7 +609,7 @@ func TestLoopHappyPath(t *testing.T) {
 	r := newLoopRig(t)
 	r.work("feature.txt", "feature\n")
 	r.start()
-	base := r.scratch.Head()
+	base := r.scratch.TargetHead()
 	r.passes()
 	if got := r.steps(); len(got) != 1 || got[0] != "1 fact dispatch" {
 		t.Fatalf("precondition: before the task_done only T-1's dispatch: %q", got)
@@ -643,14 +643,14 @@ func TestLoopHappyPath(t *testing.T) {
 	if strings.Contains(job, "Answer with one obor tool") {
 		t.Errorf("review job repeats the role text's verbs:\n%s", job)
 	}
-	if r.scratch.Head() != base {
+	if r.scratch.TargetHead() != base {
 		t.Fatal("main moved before the accept")
 	}
 	r.accept("c1", r.patch(job))
 	r.merged(1)
-	if c := r.published(); r.mainMerges() != 1 || !strings.Contains(c.Stat, "feature.txt") || r.scratch.Head() != c.SHA {
+	if c := r.published(); r.mainMerges() != 1 || !strings.Contains(c.Stat, "feature.txt") || r.scratch.TargetHead() != c.SHA {
 		t.Errorf("main: %d merges of T-1, at %s; want one merge, its candidate %+v with the feature", r.mainMerges(),
-			r.scratch.Head(), c)
+			r.scratch.TargetHead(), c)
 	}
 	var steps []string // the idle state's own records are not the merge's (T-803): each asserted on its own
 	for _, s := range r.steps() {
@@ -843,7 +843,7 @@ func TestLoopTargetMoved(t *testing.T) {
 		if got := r.scratch.Merges(""); got != 1 {
 			t.Errorf("%d merges on main, want one for T-1 (T-403)", got)
 		}
-		if got := r.scratch.Parents(r.scratch.Head()); len(got) != 2 || got[1] != submitted {
+		if got := r.scratch.Parents(r.scratch.TargetHead()); len(got) != 2 || got[1] != submitted {
 			t.Errorf("main's merge's parents %q, want the submitted sha %s second", got, submitted)
 		}
 		in := r.scratch.Inputs()
@@ -899,7 +899,7 @@ func TestLoopMovedConflictResolved(t *testing.T) {
 	if n := r.jobPrompts("T-1/1/review.2"); n != 0 || r.has("1 intent review.2") {
 		t.Errorf("the resolution was reviewed again (%d prompts): %q", n, r.steps())
 	}
-	if got := r.scratch.Head(); got != resolution || r.scratch.Merges("") != 1 {
+	if got := r.scratch.TargetHead(); got != resolution || r.scratch.Merges("") != 1 {
 		t.Errorf("main at %s with %d merges, want the resolution %s, one merge for T-1 (T-403)", got,
 			r.scratch.Merges(""), resolution)
 	}

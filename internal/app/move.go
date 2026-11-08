@@ -54,7 +54,7 @@ func (a *App) moveTask(p *proj, fx *Loop, c wire.Call) (string, error) {
 		return "", mergeOff(p)
 	case pause != nil:
 		return "", pausedErr(c.Task, pause)
-	case fx.Lane == nil || fx.Specs == nil || fx.Agents == nil:
+	case fx.Workflow == nil || fx.Specs == nil || fx.Agents == nil:
 		return "", fmt.Errorf("dispatch off for %s (no lane adapter)", p.name)
 	case mt.task == "":
 		return "", fmt.Errorf("dispatch %s: %s is not open in obor serve", c.Task, c.Task)

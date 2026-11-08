@@ -10,7 +10,7 @@ import (
 
 // T-1023: what a review covered is the log's, one table over the fold (records → the next review's scope, which is
 // both the brief's in-scope tasks and the "review due" count; the next id; the closed head R; the promotion's
-// unreviewed tasks and batch). It replaces the tests that drove these through a ReviewGit fake's Merges, Closes and
+// unreviewed tasks and batch). It replaces the tests that drove these through a port.Review fake's Merges, Closes and
 // Last.
 
 // foldLog builds records in seq order for a reviewLog.

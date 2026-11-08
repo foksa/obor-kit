@@ -246,7 +246,7 @@ func (a *App) resolvedCheck(ctx context.Context, p *proj, fx *Loop, task, input 
 		return "", ctx.Err()
 	}
 	defer func() { <-p.scratch }()
-	return fx.Scratch.Resolved(ctx, task, input, m)
+	return fx.Workflow.Resolved(ctx, task, input, m)
 }
 
 // hold records the integrator's hold of job j (under a.verdicts): one fact, needs-you{held: why}, which also stores
@@ -365,7 +365,7 @@ func (a *App) drop(c wire.Call) (string, error) {
 // laneAdapters: p's merge loop has the lane adapters a drop frees a lane with.
 func (a *App) laneAdapters(p *proj) bool {
 	fx, err := a.loopOf(p)
-	return err == nil && fx.Lane != nil && fx.Specs != nil && fx.Agents != nil
+	return err == nil && fx.Workflow != nil && fx.Specs != nil && fx.Agents != nil
 }
 
 // laneWorker is the agent a drop of mt stops in lane (T-773: that task's worker, nothing keeps it): the lane row's

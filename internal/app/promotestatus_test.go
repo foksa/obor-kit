@@ -40,7 +40,7 @@ func promoteJSON(t *testing.T, a *App) map[string]json.RawMessage {
 func TestPromoteStatusOff(t *testing.T) {
 	t.Parallel()
 	r := newPromoteRig(t, false)
-	r.fx.Promote = nil // branches.promote unset
+	r.fx.Workflow = WorkflowOf(r.git) // branches.promote unset
 	r.between("h0", "h1", "T-1")
 	r.pass()
 	if st := r.a.Status().Project; st == nil || st.Promote != nil {
