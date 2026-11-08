@@ -432,3 +432,42 @@ func readFile(t *testing.T, p string) string {
 	}
 	return string(b)
 }
+
+// T-1014: both tiers of every package run with -tags integration, so a test behind `//go:build integration` is measured
+// instead of silently skipped.
+func TestTestArgsIntegration(t *testing.T) {
+	for _, short := range []bool{false, true} {
+		args := testArgs("obor/internal/checks", short)
+		if !slices.Contains(args, "integration") {
+			t.Errorf("testArgs(short=%v) = %q; want -tags integration", short, args)
+		}
+		if got := slices.Contains(args, "-short"); got != short {
+			t.Errorf("testArgs(short=%v) = %q; -short present %v", short, args, got)
+		}
+		if args[len(args)-1] != "obor/internal/checks" {
+			t.Errorf("testArgs(short=%v) = %q; the package is not last", short, args)
+		}
+	}
+}
+
+// T-1014: go list passes the tag too, so a package whose only tests are tagged is measured rather than dropped.
+func TestListPackagesTagsIntegration(t *testing.T) {
+	dir := t.TempDir()
+	log := filepath.Join(dir, "go.log")
+	goBin := filepath.Join(dir, "go")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + quote(log) + "\n" +
+		"printf 'example.com/tagged 0 1\\nexample.com/none 0 0\\n'\n"
+	if err := os.WriteFile(goBin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pkgs, err := listPackages(dir, goBin, os.Environ())
+	if err != nil {
+		t.Fatalf("listPackages: %v", err)
+	}
+	if want := []string{"example.com/tagged"}; !slices.Equal(pkgs, want) {
+		t.Errorf("listPackages = %v; want %v (a package with only tagged tests counts)", pkgs, want)
+	}
+	if call := readFile(t, log); !strings.Contains(call, "-tags integration") {
+		t.Errorf("go list ran without -tags integration: %q", call)
+	}
+}

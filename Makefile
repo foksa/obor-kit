@@ -88,18 +88,23 @@ trim-go-cache:
 # line fail_grep matches (^FAIL). GO_CACHE is that GOCACHE selection alone (shared with check-retest, T-976).
 # check-affected starts with GO_CACHE and the dist/obor build its affected list needs; check-readers and check-web start
 # with GO_CACHE only; none of them runs gofmt, go vet or deadcode: the slot compiled the commit (T-995).
+# The integration tag (T-1014, owner 11-08): tests that need real I/O (real git, herdr's fake socket, a built binary) go
+# in files with `//go:build integration`, and a worker's plain `go test ./<pkg>/...` leaves them out. Every check that
+# gates or measures (check, check-affected, check-retest, check-readers, check-web, check-release, vet, deadcode and
+# tests/budget) passes -tags integration, so a tagged test keeps running wherever it gates. `make test` stays plain: it
+# is the unit tier a worker runs; the tag moves no test until T-1011 tags its package.
 GO_CACHE = c=$$($(GO) env GOCACHE 2>/dev/null); \
 	{ mkdir -p "$$c" && : > "$$c/.obor-probe" && rm -f "$$c/.obor-probe"; } 2>/dev/null || \
 	  { GOCACHE="$${TMPDIR:-/tmp}/obor-go-build"; export GOCACHE; }
 GO_GATE = $(GO_CACHE); \
 	$(MAKE) -s build || { echo "FAIL make build"; exit 1; }; \
 	f=$$(gofmt -l cmd internal); test -z "$$f" || { echo "FAIL gofmt: $$(printf '%s\n' "$$f" | tr '\n' ' ')"; exit 1; }; \
-	$(GO) vet ./... || { echo "FAIL go vet"; exit 1; }
+	$(GO) vet -tags integration ./... || { echo "FAIL go vet"; exit 1; }
 check:
 	@$(GO_GATE); \
 	short=; \
 	if [ "$$CHECK_SHORT" = 1 ]; then short=-short; fi; \
-	rc=0; out=$$($(GO) test -count=1 $${CHECK_CPUS:+-p $$CHECK_CPUS} $${short:+$$short} ./... 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
+	rc=0; out=$$($(GO) test -count=1 -tags integration $${CHECK_CPUS:+-p $$CHECK_CPUS} $${short:+$$short} ./... 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
 	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"; \
 	$(MAKE) -s deadcode || { echo "FAIL deadcode"; exit 1; }
@@ -117,7 +122,7 @@ check-affected:
 	  esac; \
 	else echo "affected: full suite (obor affected go failed)"; fi; \
 	if [ -z "$$pkgs" ]; then echo "go test: 0 pass, 0 fail (no affected Go packages, go test skipped)"; else \
-	  rc=0; out=$$($(GO) test -count=1 -short $${CHECK_CPUS:+-p $$CHECK_CPUS} $$pkgs 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
+	  rc=0; out=$$($(GO) test -count=1 -tags integration -short $${CHECK_CPUS:+-p $$CHECK_CPUS} $$pkgs 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
 	  n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	  echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"; \
 	fi
@@ -135,7 +140,7 @@ check-compile:
 # no retest at all, the lane step) is red.
 check-retest:
 	@$(GO_CACHE); \
-	rc=0; out=$$($(GO) test -count=1 $${CHECK_CPUS:+-p $$CHECK_CPUS} -run "$$OBOR_FAILED_TESTS" $$OBOR_FAILED_PKGS 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
+	rc=0; out=$$($(GO) test -count=1 -tags integration $${CHECK_CPUS:+-p $$CHECK_CPUS} -run "$$OBOR_FAILED_TESTS" $$OBOR_FAILED_PKGS 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
 	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"
 
@@ -167,7 +172,7 @@ READER_PKGS := ./cmd/obor ./internal/agents/claude ./internal/app ./internal/che
 check-readers:
 	@$(GO_CACHE); \
 	short=; if [ "$$CHECK_SHORT" = 1 ]; then short=-short; fi; \
-	rc=0; out=$$($(GO) test -count=1 $${CHECK_CPUS:+-p $$CHECK_CPUS} $${short:+$$short} $(READER_PKGS) 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
+	rc=0; out=$$($(GO) test -count=1 -tags integration $${CHECK_CPUS:+-p $$CHECK_CPUS} $${short:+$$short} $(READER_PKGS) 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
 	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"
 
@@ -181,7 +186,7 @@ check-readers:
 check-web:
 	@$(GO_CACHE); \
 	short=; if [ "$$CHECK_SHORT" = 1 ]; then short=-short; fi; \
-	rc=0; out=$$($(GO) test -count=1 $${CHECK_CPUS:+-p $$CHECK_CPUS} $${short:+$$short} ./internal/web 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
+	rc=0; out=$$($(GO) test -count=1 -tags integration $${CHECK_CPUS:+-p $$CHECK_CPUS} $${short:+$$short} ./internal/web 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
 	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"
 
@@ -190,11 +195,11 @@ check-web:
 # and install.sh, each against fixture repos in a temp dir (tests/release, beside tests/upgrade). A change to what they
 # test (merge.classes "release": Makefile, scripts/**, install.sh, RELEASING.md, .claude-plugin/marketplace.json,
 # tests/release/**) runs them; tests/release is behind `//go:build release`, so the merge's `go test ./...` leaves it out
-# (T-1001) and this target, scripts/release and the nightly's release_tests command are where it runs. No deadcode step:
-# its fixture scripts are the tree's, not a package's API.
+# (T-1001) and this target, scripts/release and the nightly's release_tests command are where it runs; integration is the
+# gate's tag (T-1014). No deadcode step: its fixture scripts are the tree's, not a package's API.
 check-release:
 	@$(GO_GATE); \
-	rc=0; out=$$($(GO) test -count=1 -tags release $${CHECK_CPUS:+-p $$CHECK_CPUS} ./tests/release 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
+	rc=0; out=$$($(GO) test -count=1 -tags release,integration $${CHECK_CPUS:+-p $$CHECK_CPUS} ./tests/release 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
 	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"
 
@@ -215,10 +220,11 @@ check-budget:
 
 # Pinned; the module cache comes before the proxy, so a warm cache needs no network (a Codex sandbox has none).
 # Test support (herdrtest, testkit) is excepted. The prompts table's path readers stay for the hooks and CLIs of T-665
-# (obor web reads with a store handle it opens itself, view.Load's). -tags conformance,release: tests/conformance's main
-# and tests/release are behind those tags, and their untagged files (conformance's report.go) are reached only from them.
+# (obor web reads with a store handle it opens itself, view.Load's). -tags conformance,release,integration:
+# tests/conformance's main and tests/release are behind those tags, and their untagged files (conformance's report.go)
+# are reached only from them; integration is the gate's tag too (T-1014), so a tagged file is analysed as it is tested.
 deadcode:
-	@out=$$(GOPROXY="file://$$($(GO) env GOMODCACHE)/cache/download,$$($(GO) env GOPROXY)" $(GO) run golang.org/x/tools/cmd/deadcode@v0.52.0 -tags conformance,release ./...) || exit $$?; \
+	@out=$$(GOPROXY="file://$$($(GO) env GOMODCACHE)/cache/download,$$($(GO) env GOPROXY)" $(GO) run golang.org/x/tools/cmd/deadcode@v0.52.0 -tags conformance,release,integration ./...) || exit $$?; \
 	out=$$(printf '%s\n' "$$out" | grep -v -e '/herdrtest/' -e '/testkit/' \
 	  -e '^internal/store/prompts\.go:[0-9:]*: unreachable func: ReadPromptsAt$$'); \
 	if [ -n "$$out" ]; then printf '%s\n' "$$out"; exit 1; fi
@@ -231,7 +237,7 @@ deadcode:
 # its step and the output. scripts/release runs it before the tag.
 upgrade-check:
 	@$(MAKE) -s build || { echo "FAIL make build"; exit 1; }; \
-	OBOR_UPGRADE_CHECK=1 OBOR_UPGRADE_PREV="$(PREV)" $(GO) test -count=1 -run '^TestUpgradeCheck$$' ./tests/upgrade || \
+	OBOR_UPGRADE_CHECK=1 OBOR_UPGRADE_PREV="$(PREV)" $(GO) test -count=1 -tags integration -run '^TestUpgradeCheck$$' ./tests/upgrade || \
 	  { echo "FAIL upgrade check (above: the step that failed and its output)"; exit 1; }; \
 	echo "upgrade check: OK"
 

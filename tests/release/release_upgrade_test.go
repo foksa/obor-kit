@@ -42,7 +42,7 @@ func TestMakeReleaseRunsUpgradeCheckBeforeTag(t *testing.T) {
 		t.Errorf("the release does not say it ran the upgrade check:\n%s", out)
 	}
 	run := f.upgradeRun(t)
-	if run != "test -count=1 -run ^TestUpgradeCheck$ ./tests/upgrade" {
+	if run != "test -count=1 -tags integration -run ^TestUpgradeCheck$ ./tests/upgrade" {
 		t.Fatalf("the upgrade check's go test = %q, want TestUpgradeCheck of ./tests/upgrade once:\n%s", run, readFileOr(f.log))
 	}
 	log := readFileOr(f.log)

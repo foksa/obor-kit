@@ -377,6 +377,143 @@ func TestMakeCheckTiers(t *testing.T) {
 	}
 }
 
+// goCall is the last logged go call whose text starts with prefix ("" when there is none).
+func goCall(calls []string, prefix string) string {
+	for i := len(calls) - 1; i >= 0; i-- {
+		if strings.HasPrefix(calls[i], prefix) {
+			return calls[i]
+		}
+	}
+	return ""
+}
+
+// tagged reports whether a logged go call passes tag to -tags.
+func tagged(call, tag string) bool {
+	f := strings.Fields(call)
+	for i, a := range f {
+		if a == "-tags" && i+1 < len(f) {
+			return slices.Contains(strings.Split(f[i+1], ","), tag)
+		}
+	}
+	return false
+}
+
+// T-1014: every check that gates or measures passes -tags integration to go test, go vet and deadcode, so a test behind
+// `//go:build integration` keeps running wherever it gates; the worker's plain `make test` / `go test` does not (the next
+// test shows that).
+func TestMakeChecksPassIntegrationTag(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		target string
+		env    []string // make variables the target needs
+		test   bool
+		vet    bool // GO_GATE's vet
+		dead   bool // make deadcode
+	}{
+		{target: "check", test: true, vet: true, dead: true},
+		{target: "check-affected", test: true},
+		{target: "check-retest", env: []string{"OBOR_FAILED_TESTS=^TestX$", "OBOR_FAILED_PKGS=example.com/pkg"}, test: true},
+		{target: "check-readers", test: true},
+		{target: "check-web", test: true},
+		{target: "check-release", test: true, vet: true},
+		{target: "check-compile", vet: true, dead: true},
+	} {
+		t.Run(c.target, func(t *testing.T) {
+			t.Parallel()
+			var calls []string
+			if c.target == "check" {
+				calls = makeCheckShort(t) // the fixture's go passes, so check reaches deadcode too
+			} else {
+				_, calls, _ = makeCheckTier(t, c.target, c.env...)
+			}
+			check := func(prefix, step string, want bool) {
+				t.Helper()
+				call := goCall(calls, prefix)
+				if got := call != ""; got != want {
+					t.Errorf("%s runs %s %v; want %v: %q", c.target, step, got, want, calls)
+					return
+				}
+				if call != "" && !tagged(call, "integration") {
+					t.Errorf("%s: %s %q passes no -tags integration", c.target, step, call)
+				}
+			}
+			check("test ", "go test", c.test)
+			check("vet ", "go vet", c.vet)
+			check("run golang.org/x/tools/cmd/deadcode", "deadcode", c.dead)
+			if c.target == "check-release" && !tagged(goCall(calls, "test "), "release") {
+				t.Errorf("check-release dropped its release tag: %q", goCall(calls, "test "))
+			}
+		})
+	}
+}
+
+// T-1014: the tag's point — a test behind `//go:build integration` runs in check and check-affected and is left out by a
+// plain go test. The fixture is a tiny module whose scratch package has a unit test and a tagged test that fails, so a
+// run of the tagged one is visible in the output; its go is the real go except build (it writes the affected-list stub)
+// and deadcode.
+func TestIntegrationTagRunsInChecksNotInPlainGoTest(t *testing.T) {
+	t.Parallel()
+	goBin, err := exec.LookPath("go")
+	if err != nil {
+		t.Skipf("no go on PATH: %v", err)
+	}
+	dir := testkit.Dir(t)
+	writeFile(t, filepath.Join(dir, "Makefile"), string(treeFile(t, "Makefile")))
+	writeFile(t, filepath.Join(dir, "VERSION"), "1.2.3\n")
+	writeFile(t, filepath.Join(dir, "go.mod"), "module example.com/fx\n\ngo 1.21\n")
+	writeFile(t, filepath.Join(dir, "scratch", "unit_test.go"),
+		"package scratch\n\nimport \"testing\"\n\nfunc TestUnit(t *testing.T) {}\n")
+	writeFile(t, filepath.Join(dir, "scratch", "integration_test.go"),
+		"//go:build integration\n\npackage scratch\n\nimport \"testing\"\n\n"+
+			"func TestIntegration(t *testing.T) { t.Fatal(\"the integration tag's test ran\") }\n")
+	writeExec(t, filepath.Join(dir, "bin", "go"), `#!/bin/bash
+echo "$*" >> "`+filepath.Join(dir, "go.log")+`"
+case "$1" in
+  build)
+    out=; prev=
+    for a; do [ "$prev" != -o ] || out=$a; prev=$a; done
+    mkdir -p "$(dirname "$out")" || exit 1
+    printf '#!/bin/sh\necho example.com/fx/scratch\n' > "$out" || exit 1
+    chmod +x "$out"; exit 0 ;;
+  run) exit 0 ;; # make deadcode
+esac
+exec `+goBin+` "$@"
+`)
+	writeExec(t, filepath.Join(dir, "stub", "gofmt"), "#!/bin/sh\nexit 0\n")
+	env := append(plainMakeEnv(), "PATH="+filepath.Join(dir, "stub")+string(os.PathListSeparator)+os.Getenv("PATH"))
+	run := func(args ...string) (string, error) {
+		cmd := exec.Command(goBin, args...)
+		cmd.Dir, cmd.Env = dir, env
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+	out, err := run("test", "-count=1", "./...")
+	if err != nil {
+		t.Fatalf("plain go test failed; it must leave the tagged test out: %v\n%s", err, out)
+	}
+	if strings.Contains(out, "the integration tag's test ran") {
+		t.Fatalf("plain go test ran the tagged test:\n%s", out)
+	}
+	// The precondition: the file is there and fails with the tag on, so the plain run's pass is the tag's doing.
+	if out, err := run("test", "-count=1", "-tags", "integration", "./..."); err == nil {
+		t.Fatalf("precondition: go test -tags integration passed; the tagged test must fail:\n%s", out)
+	} else if !strings.Contains(out, "the integration tag's test ran") {
+		t.Fatalf("precondition: go test -tags integration did not run the tagged test:\n%s", out)
+	}
+	for _, target := range []string{"check", "check-affected"} {
+		cmd := exec.Command("make", "-s", "-C", dir, target, "GO="+filepath.Join(dir, "bin", "go"))
+		cmd.Env = env
+		out, err := cmd.CombinedOutput()
+		if err == nil {
+			t.Errorf("%s passed; a test behind //go:build integration failed:\n%s", target, out)
+			continue
+		}
+		if !strings.Contains(string(out), "the integration tag's test ran") {
+			t.Errorf("%s did not run the tagged test:\n%s", target, out)
+		}
+	}
+}
+
 // T-995: check-affected builds dist/obor (the affected list needs it) and drops the rest of GO_GATE, but the lane still
 // catches a vet error: go test runs vet's high-confidence subset (printf here) on the packages it builds, so a changed
 // file with a format mistake fails the tier. The fixture's dist/obor is a real build whose binary prints the changed
@@ -492,7 +629,7 @@ func TestMakeCheckRetest(t *testing.T) {
 		t.Fatalf("make check-retest: %v\n%s", err, out)
 	}
 	calls := strings.Split(strings.TrimSpace(readFile(t, log)), "\n")
-	want := "test -count=1 -p 3 -run ^TestAlpha$|^TestBeta$ example.com/pkg example.com/other"
+	want := "test -count=1 -tags integration -p 3 -run ^TestAlpha$|^TestBeta$ example.com/pkg example.com/other"
 	if got := calls[len(calls)-1]; got != want {
 		t.Errorf("go test: %q, want %q", got, want)
 	}

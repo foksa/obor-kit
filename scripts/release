@@ -68,7 +68,8 @@ plain_make() {
 }
 
 # run_check: the full `make check` (T-717). Its output goes to the terminal and to a scratch file this function reads; a
-# red check that is only go test packages is rerun once (one `go test <pkgs>`, no -count): all pass → FLAKY lines and flake
+# red check that is only go test packages is rerun once (one `go test -tags integration <pkgs>`, no -count; the tag runs
+# the integration tests again, as the check did, T-1014): all pass → FLAKY lines and flake
 # records and the release goes on; else the release is refused. Anything outside go test refuses at once.
 run_check() {
   chk=$(mktemp "$tmpdir/obor-check.XXXXXX")
@@ -92,7 +93,7 @@ run_check() {
   rerun=$(mktemp "$tmpdir/obor-rerun.XXXXXX")
   rrc=0
   # shellcheck disable=SC2086
-  { env -u MAKEFLAGS -u MFLAGS -u MAKELEVEL -u V -u DRY -u UNREVIEWED -u SKIP_UPGRADE_CHECK "${GO:-go}" test ${CHECK_CPUS:+-p "$CHECK_CPUS"} $pkgs 2>&1 \
+  { env -u MAKEFLAGS -u MFLAGS -u MAKELEVEL -u V -u DRY -u UNREVIEWED -u SKIP_UPGRADE_CHECK "${GO:-go}" test -tags integration ${CHECK_CPUS:+-p "$CHECK_CPUS"} $pkgs 2>&1 \
     || echo "go test rerun exit $?" > "$rerun.rc"; } | tee "$rerun"
   [ ! -f "$rerun.rc" ] || rrc=1
   rm -f "$rerun.rc"
