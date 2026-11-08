@@ -4,7 +4,7 @@
 // starts and wires an MCP server, not that obor's own `obor mcp` works with a real client. These cases point one start
 // per kind at the repository's own obor (built in the scratch dir; a kit's bin/obor shim in front of it), ask the agent
 // to call job_next once, and pass only when the server's rendered reply reaches the session's transcript. The start is
-// the shipped launch's (launchOf: config.Model.LaunchArgs and StartEnv for a worker, T-910), so the case proves obor's
+// the shipped launch's (launchOf: config.Model.Launch for a worker, T-910, T-1042), so the case proves obor's
 // own launch reaches its tool, not a copy of the launch with the tool wired in by hand (RV-122 #1). The lab's project is
 // the same scratch checkout with a stub serve on its app socket, so no real serve is needed.
 package main
@@ -83,15 +83,15 @@ func (l *lab) makeRealKit() error {
 	return nil
 }
 
-// liveStart is one worker's start as internal/launch builds it: the model's launch args (config.Model.LaunchArgs: the
-// kind's base args, its model, kinds.<kind>.args, the settings, and a lane's strict flag) and the start's own env
-// (config.Model.StartEnv: OpenCode's model and generated config).
+// liveStart is one worker's start as internal/launch builds it (config.Model.Launch, T-1042): the model's launch args
+// (the kind's base args, its model, kinds.<kind>.args, the settings, and a lane's strict flag) and the start's own env
+// (OpenCode's model and generated config).
 type liveStart struct {
 	args []string
 	env  map[string]string
 }
 
-// launchOf builds a worker's start of model in the lab's project, the two calls internal/launch makes, its start dir
+// launchOf builds a worker's start of model in the lab's project as internal/launch does (a compiled kind's), its start dir
 // the lab's lane (T-1033: the project's CLI config there counts). Each kind's
 // real-server case starts from this, so it runs the shipped launch instead of a copy of its arguments that could drift
 // from it (RV-122 #1, T-910); model is a built-in model of the lab config's table (liveModel).
@@ -107,15 +107,16 @@ func (l *lab) launchOf(kind, model, kit string, writeState func(string, []byte) 
 	if m.Kind != kind {
 		return liveStart{}, fmt.Errorf("model %s is %s's, not %s's", model, m.Kind, kind)
 	}
-	vars, err := m.StartEnv(agents.Start{Kit: kit, WriteState: writeState})
+	// the env of a start with the kit; the args of one without (the case's own start adds the kit's registration)
+	withKit, err := m.Launch("worker", agents.Start{Kit: kit, WriteState: writeState})
 	if err != nil {
 		return liveStart{}, err
 	}
-	args, err := m.LaunchArgs("worker", "", l.lane, nil)
+	noKit, err := m.Launch("worker", agents.Start{Dir: l.lane, Read: os.ReadFile})
 	if err != nil {
 		return liveStart{}, err
 	}
-	return liveStart{args: args, env: vars}, nil
+	return liveStart{args: noKit.Args, env: withKit.Env}, nil
 }
 
 // liveModel is the model a kind's real-server case starts: the kind's first built-in model (config.BuiltinModels:

@@ -133,16 +133,36 @@ type AgentEnv struct {
 	Vars                   map[string]string
 }
 
+// Build is an agent's start to build (Starter.Build, T-1042): its type (the model's kind and args), its role ("": none),
+// effort ("": the type's), cwd, the dirs outside it the agent writes, and the session to resume or the first prompt.
+type Build struct {
+	Agent, Kind       string
+	Args              []string // the model's args (config.Model.Args)
+	Role, Effort, Dir string
+	WriteDirs         []string
+	Resume, Prompt    string
+}
+
+// Built is a start as its kind built it from the complete start, in one call of a plugin kind: the argv after the
+// binary, the start's own env (Vars; "" unsets one) and the session id obor chose for it ("": none, or a resume).
+type Built struct {
+	Args    []string
+	Vars    map[string]string
+	Session string
+}
+
 // Start is one agent start in its pane (obor setup pane / role, obor restart): the agent's env and cwd are the
-// pane shell's already.
+// pane shell's already, its argv the one its Build built.
 type Start struct {
 	Agent, Kind, Pane string
 	Label             string   // the pane's label now: renamed to Agent when it differs
-	Args              []string // the type's launch args (config.Model.LaunchArgs)
+	Args              []string // the argv after the binary (Built.Args): started as it is
 	Resume            string   // the session id to resume; "" for a new one
-	Prompt            string   // the CLI's first prompt (a job's wake); "" for none
-	Lane              string   // the agent's lane: a session a fresh start reports is recorded with it
-	Dir               string   // the agent's cwd: its kind reads the project's committed CLI config there (T-1033)
+	// Session is the session id obor chose for a fresh start (Built.Session; Args name it): recorded for the agent
+	// before it runs; "" for none.
+	Session string
+	Prompt  string // the CLI's first prompt (a job's wake), in Args already; "" for none
+	Lane    string // the agent's lane: a session a fresh start reports is recorded with it
 }
 
 // StartError is a failed start (the multiplexer's error, or the startup dialog seen in the pane). NotReady: the agent
@@ -161,8 +181,10 @@ func (e *StartError) Error() string {
 }
 
 // Starter starts an agent in a pane the caller placed (launch.Launcher implements it; `obor setup pane` and `role`
-// are its callers): SetEnv types the agent's env line at the pane's shell, Start runs the agent.
+// are its callers): Build builds the start once (its argv and env), SetEnv types the agent's env line at the pane's
+// shell, Start runs the agent with the built argv.
 type Starter interface {
+	Build(b Build) (Built, error)
 	SetEnv(ctx context.Context, pane string, e AgentEnv) error
 	Start(ctx context.Context, s Start) error
 }

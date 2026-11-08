@@ -256,6 +256,7 @@ type target struct {
 	panes      []port.Pane
 	kind       string
 	env        map[string]string // the start's own env (agents.Kind.StartEnv; "" unsets the variable), set by the env line
+	session    string            // the session id obor chose for the start (build; "": none)
 }
 
 // resolve is who and where (shared by Restart and Stop) with typ the launch's model type ("": none; port.Launch.Type, a
@@ -529,13 +530,6 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	if effort == "" {
 		effort = t.info.Effort
 	}
-	args, err := l.args(t, effort)
-	if err != nil {
-		return port.Started{}, err
-	}
-	if t.info.Lane != "" { // a lane's CPU budget (T-963): its worker's env line carries GOMAXPROCS and GOFLAGS -p
-		t.env = config.WithLaneEnv(t.env, l.Cfg, l.envOrOS().Get("GOFLAGS"))
-	}
 	// An agent restarted with no first prompt of its own while serve holds a job for it (T-773, T-947): that job's
 	// wake, the first prompt of a fresh session, typed into a resumed one once it is up. A lane's worker asks for its
 	// lane's job (a work or fix job), the integrator for a task's open review or resolve job. Resolved before the stop
@@ -549,15 +543,6 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 			}
 			return port.Started{}, project.Failf("%s not restarted (nothing stopped): %v", t.agent, err)
 		}
-	}
-	if err := l.stop(ctx, t, req.Force, false, "--force to restart anyway"); err != nil {
-		return port.Started{}, err
-	}
-	if err := l.setEnv(ctx, t); err != nil {
-		return port.Started{}, err
-	}
-	if sid != "" {
-		l.say("resuming %s (from %s)", sid, src)
 	}
 	wake, what := "", "the first prompt"
 	switch {
@@ -578,8 +563,25 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 			prompt = rc.Role.StartPrompt(t.kind)
 		}
 	}
+	// The start, built once before anything is stopped (T-1042): its argv and its env from one complete start.
+	args, err := l.build(t, effort, sid, prompt)
+	if err != nil {
+		return port.Started{}, err
+	}
+	if t.info.Lane != "" { // a lane's CPU budget (T-963): its worker's env line carries GOMAXPROCS and GOFLAGS -p
+		t.env = config.WithLaneEnv(t.env, l.Cfg, l.envOrOS().Get("GOFLAGS"))
+	}
+	if err := l.stop(ctx, t, req.Force, false, "--force to restart anyway"); err != nil {
+		return port.Started{}, err
+	}
+	if err := l.setEnv(ctx, t); err != nil {
+		return port.Started{}, err
+	}
+	if sid != "" {
+		l.say("resuming %s (from %s)", sid, src)
+	}
 	seen, err := l.start(ctx, Start{Agent: t.agent, Kind: t.kind, Pane: t.pane, Label: t.entry.Label, Args: args,
-		Resume: sid, Prompt: prompt, Lane: t.info.Lane, Dir: t.info.Cwd})
+		Resume: sid, Session: t.session, Prompt: prompt, Lane: t.info.Lane})
 	var se *StartError
 	switch {
 	case errors.As(err, &se) && se.NotReady:
@@ -784,48 +786,80 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-// args are the type's launch args (config.Model.LaunchArgs; a role without a type: the defaults of the resolved kind; a
-// lead keeps Remote Control, T-280; a lane's agent starts strict, T-770) with effort in place of the type's ("": the
-// type's, T-695), and t.env the start's own env (agents.Kind.StartEnv: OpenCode's model and effort, its generated config)
-// for the env line. An effort the start cannot carry is a Fail (nothing stopped yet).
-func (l *Launcher) args(t *target, effort string) ([]string, error) {
+// build is t's one start (T-1042), built before anything is stopped: the type's (a role without a type: the defaults
+// of the resolved kind; a lead keeps Remote Control, T-280; a lane's agent starts strict, T-770) with effort in place of
+// the type's ("": the type's, T-695), resume or the first prompt; its argv returned, t.env its own env (OpenCode's
+// model and effort, its generated config) for the env line, t.session the session obor names for it. An agent with
+// neither type nor role starts with no launch args: the kind's start over none, still with its env (OpenCode: its
+// generated config, T-809). An effort the start cannot carry is a Fail (nothing stopped yet).
+func (l *Launcher) build(t *target, effort, resume, prompt string) ([]string, error) {
+	b := port.Build{Agent: t.agent, Kind: t.kind, Role: t.info.Role, Effort: effort, Dir: t.info.Cwd, Resume: resume,
+		Prompt: prompt}
+	bare := t.info.Type == "" && t.info.Role == ""
+	if t.info.Type != "" {
+		lt, _ := l.Cfg.Model(t.info.Type)
+		b.Kind, b.Args = lt.Kind, lt.Args
+	}
+	if !bare {
+		if err := agents.CheckEffortArgs(b.Kind, b.Args, effort); err != nil {
+			return nil, project.Failf("%s: %v", t.agent, err)
+		}
+		rc, _ := l.Cfg.Role(t.info.Role)
+		b.WriteDirs = l.Cfg.RoleWriteDirs(rc.Role)
+	}
+	built, err := l.startOf(b, bare)
+	if err != nil {
+		return nil, project.Failf("%s: %v", t.agent, err)
+	}
+	t.env, t.session = built.Vars, built.Session
+	return built.Args, nil
+}
+
+// Build is the agent's one start (port.Starter, T-1042), built once at the launch boundary: the complete agents.Start
+// (the kit, the model's args with the role's settings and strictness, the effort, the cwd, the dirs the agent writes,
+// which it makes, the resume or the first prompt as one line, the session obor names for a kind that takes one, the
+// env and state writer), handed to the kind once (config.Model.Launch, agents.StartOf): the argv, the env and the files
+// a plugin kind writes come from one start call. An unknown kind: the args as given (Start refuses it).
+func (l *Launcher) Build(b port.Build) (port.Built, error) {
+	return l.startOf(b, false)
+}
+
+// startOf is b's complete start: the model's (config.Model.Launch), or bare the kind's start over no launch args (no
+// settings, not strict).
+func (l *Launcher) startOf(b port.Build, bare bool) (port.Built, error) {
+	k, ok := agents.Lookup(b.Kind)
+	if !ok {
+		return port.Built{Args: append([]string(nil), b.Args...)}, nil
+	}
+	for _, d := range b.WriteDirs { // a dir a start lets the agent write (Codex's --add-dir) must be there (T-853)
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			return port.Built{}, err
+		}
+	}
 	kit := l.Kit
 	if kit == "" {
 		kit = project.KitRoot(l.Env)
 	}
-	in := agents.Start{Kit: kit, Effort: effort, Read: os.ReadFile, Env: l.envOrOS().Get, WriteState: project.StateWriter(l.Cfg.Root)}
-	lt := config.Model{Kind: t.kind}
-	switch {
-	case t.info.Type != "":
-		lt, _ = l.Cfg.Model(t.info.Type)
-	case t.info.Role == "": // no type, no args; still the kind's env (OpenCode: its generated config, T-809)
-		vars, err := lt.StartEnv(in)
-		if err != nil {
-			return nil, project.Failf("%s: %v", t.agent, err)
-		}
-		t.env = vars
-		return nil, nil
+	// A kind whose sessions obor names (T-813): the id is obor's, recorded for the agent before it runs (Start), so the
+	// store and a restart know it before its SessionStart hook reports it (the hook confirms it, with its transcript).
+	session := ""
+	if b.Resume == "" && k.Caps().NamedSession {
+		session = l.newSession(b.Agent)
 	}
-	if err := agents.CheckEffortArgs(lt.Kind, lt.Args, effort); err != nil {
-		return nil, project.Failf("%s: %v", t.agent, err)
+	in := agents.Start{Kit: kit, Effort: b.Effort, Resume: b.Resume, Prompt: oneLine(b.Prompt), Session: session,
+		WriteDirs: b.WriteDirs, Dir: b.Dir, Read: os.ReadFile, Env: l.envOrOS().Get,
+		WriteState: project.StateWriter(l.Cfg.Root)}
+	var r agents.Launch
+	var err error
+	if bare {
+		r, err = agents.StartOf(k, in)
+	} else {
+		r, err = config.Model{Kind: b.Kind, Args: b.Args}.Launch(b.Role, in)
 	}
-	vars, err := lt.StartEnv(in)
 	if err != nil {
-		return nil, project.Failf("%s: %v", t.agent, err)
+		return port.Built{}, err
 	}
-	t.env = vars
-	rc, _ := l.Cfg.Role(t.info.Role)
-	dirs := l.Cfg.RoleWriteDirs(rc.Role)
-	for _, d := range dirs { // a dir a start lets the agent write (Codex's --add-dir) must be there (T-853)
-		if err := os.MkdirAll(d, 0o755); err != nil {
-			return nil, project.Failf("%s: %v", t.agent, err)
-		}
-	}
-	args, err := lt.LaunchArgs(t.info.Role, effort, t.info.Cwd, dirs)
-	if err != nil {
-		return nil, project.Failf("%s: %v", t.agent, err)
-	}
-	return args, nil
+	return port.Built{Args: r.Args, Vars: r.Env, Session: session}, nil
 }
 
 func (l *Launcher) kill(pgid int, sig syscall.Signal) error {

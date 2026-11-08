@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -96,8 +97,8 @@ type call struct {
 var calls = []call{
 	{"start", `{"version":1,"args":["--x","{file:c.json}"],"env":{"STUB_CONFIG":"{file:c.json}"},"files":[{"name":"c.json","bytes":"{}"}]}`,
 		func(k *plugin.Kind, _ *bytes.Buffer) (string, string) {
-			args, err := k.StartErr(agents.Start{Args: []string{"--a"}})
-			return strings.Join(args, " "), errText(err)
+			l, err := k.StartWhole(agents.Start{Args: []string{"--a"}})
+			return strings.Join(l.Args, " ") + " " + l.Env["STUB_CONFIG"], errText(err)
 		}},
 	{"not-ready", `{"version":1,"why":"updating"}`, func(k *plugin.Kind, _ *bytes.Buffer) (string, string) {
 		why := k.NotReady("screen")
@@ -161,8 +162,8 @@ func TestCalls(t *testing.T) {
 				t.Errorf("%s %s: error %q", c.name, r.name, err)
 			case c.name == "start":
 				conf := filepath.Join(state, "c.json")
-				if got != "--x "+conf {
-					t.Errorf("start good: args %q, want --x %s", got, conf)
+				if got != "--x "+conf+" "+conf {
+					t.Errorf("start good: args and env %q, want --x %s %s (one call: argv and env)", got, conf, conf)
 				}
 				if b, err := os.ReadFile(conf); err != nil || string(b) != "{}" {
 					t.Errorf("start good: the reply's file: %q, %v", b, err)
@@ -192,19 +193,21 @@ func boolText(registered, static bool) string {
 	return s
 }
 
-// TestStartRequest: start's request carries the version, the call, the start's fields and the manifest's env snapshot
-// (closure 1 as data: the dir the plugin reads itself); StartEnv substitutes the file's path; an env var the manifest's
-// vars do not name is an error.
+// TestStartRequest: start's request carries the version, the call, every field of the complete start and the
+// manifest's env snapshot (closure 1 as data: the dir the plugin reads itself), in one call whose argv and env both
+// have the file's path substituted (T-1042); an env var the manifest's vars do not name is an error.
 func TestStartRequest(t *testing.T) {
-	k, state := kind(t, `cat >"$REQ"; echo '{"version":1,"args":[],"env":{"STUB_CONFIG":"{file:c.json}"},"files":[{"name":"c.json","bytes":"x"}]}'`)
+	k, state := kind(t, `cat >"$REQ"; echo '{"version":1,"args":["-c","{file:c.json}"],"env":{"STUB_CONFIG":"{file:c.json}"},"files":[{"name":"c.json","bytes":"x"}]}'`)
 	env := func(v string) string { return map[string]string{"HOME": "/home/u", "OTHER": "o"}[v] }
-	vars, err := k.StartEnv(agents.Start{Kit: "/kit", Args: []string{"-m", "x"}, Prompt: "go", Effort: "high",
-		StrictMCP: true, Dir: "/lane", Env: env, Settings: map[string]any{"a": false}})
+	l, err := k.StartWhole(agents.Start{Kit: "/kit", Args: []string{"-m", "x"}, Prompt: "go", Effort: "high",
+		StrictMCP: true, Dir: "/lane", Env: env, Settings: map[string]any{"a": false}, Session: "s-1",
+		WriteDirs: []string{"/reviews"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := filepath.Join(state, "c.json"); vars["STUB_CONFIG"] != want {
-		t.Errorf("StartEnv = %v, want STUB_CONFIG=%s", vars, want)
+	want := filepath.Join(state, "c.json")
+	if l.Env["STUB_CONFIG"] != want || strings.Join(l.Args, " ") != "-c "+want {
+		t.Errorf("StartWhole = %+v, want -c %s and STUB_CONFIG=%s", l, want, want)
 	}
 	b, err := os.ReadFile(filepath.Join(stubDir, "req.json"))
 	if err != nil {
@@ -219,6 +222,8 @@ func TestStartRequest(t *testing.T) {
 		Effort    string            `json:"effort"`
 		StrictMCP bool              `json:"strict_mcp"`
 		Dir       string            `json:"dir"`
+		Session   string            `json:"session"`
+		WriteDirs []string          `json:"write_dirs"`
 		Env       map[string]string `json:"env"`
 		Settings  map[string]any    `json:"settings"`
 	}
@@ -226,7 +231,8 @@ func TestStartRequest(t *testing.T) {
 		t.Fatalf("request %s: %v", b, err)
 	}
 	if req.Version != 1 || req.Call != "start" || req.Kit != "/kit" || strings.Join(req.Args, " ") != "-m x" ||
-		req.Prompt != "go" || req.Effort != "high" || !req.StrictMCP || req.Dir != "/lane" || req.Settings["a"] != false {
+		req.Prompt != "go" || req.Effort != "high" || !req.StrictMCP || req.Dir != "/lane" || req.Settings["a"] != false ||
+		req.Session != "s-1" || strings.Join(req.WriteDirs, " ") != "/reviews" {
 		t.Errorf("request %s", b)
 	}
 	if len(req.Env) != 1 || req.Env["HOME"] != "/home/u" {
@@ -234,11 +240,11 @@ func TestStartRequest(t *testing.T) {
 	}
 
 	k, _ = kind(t, `cat >/dev/null; echo '{"version":1,"env":{"PATH":"/x"}}'`)
-	if _, err := k.StartEnv(agents.Start{}); err == nil || !strings.Contains(err.Error(), "kind stub: start: env PATH is not among the manifest's vars") {
+	if _, err := k.StartWhole(agents.Start{}); err == nil || !strings.Contains(err.Error(), "kind stub: start: env PATH is not among the manifest's vars") {
 		t.Errorf("an env var outside vars: %v", err)
 	}
 	k, _ = kind(t, `cat >/dev/null; echo '{"version":1,"files":[{"name":"../x","bytes":""}]}'`)
-	if _, err := k.StartErr(agents.Start{}); err == nil || !strings.Contains(err.Error(), "is no name in the state dir") {
+	if _, err := k.StartWhole(agents.Start{}); err == nil || !strings.Contains(err.Error(), "is no name in the state dir") {
 		t.Errorf("a file outside the state dir: %v", err)
 	}
 }
@@ -295,7 +301,7 @@ func TestManifestFromCache(t *testing.T) {
 	if err := os.Chtimes(stubCmd, time.Now(), c.Mtime.Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := k.StartErr(agents.Start{}); err == nil || !strings.Contains(err.Error(), "kind stub: describe: exit 1") {
+	if _, err := k.StartWhole(agents.Start{}); err == nil || !strings.Contains(err.Error(), "kind stub: describe: exit 1") {
 		t.Errorf("start after the command changed: %v, want describe's failure", err)
 	}
 }
@@ -307,7 +313,7 @@ func TestNoCache(t *testing.T) {
 	if c := k.Caps(); c != (agents.Caps{}) {
 		t.Errorf("Caps = %+v, want none", c)
 	}
-	_, err := k.StartErr(agents.Start{})
+	_, err := k.StartWhole(agents.Start{})
 	if err == nil || !strings.Contains(err.Error(), "kind stub: no manifest cached") || !strings.Contains(err.Error(), "obor setup agents") {
 		t.Errorf("start without a cache: %v", err)
 	}
@@ -331,15 +337,17 @@ func TestManifestChecks(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "kind stub: describe: ") || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: %v, want %q", c.reply, err, c.want)
 		}
-		if err := agents.Plugins.Check("stub", stubCmd); err == nil || !strings.Contains(err.Error(), c.want) {
+		if _, err := agents.Plugins.Check("stub", stubCmd); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("Check %s: %v, want %q", c.reply, err, c.want)
 		}
 	}
 	stub(t, reply(manifest), "exit 1")
-	if err := agents.Plugins.Check("stub", stubCmd); err != nil {
+	if k, err := agents.Plugins.Check("stub", stubCmd); err != nil || k == nil {
 		t.Errorf("Check of a good manifest: %v", err)
+	} else if !slices.Equal(k.Efforts(), []string{"low", "high"}) {
+		t.Errorf("Check's kind: efforts %q, want the manifest's (low, high)", k.Efforts())
 	}
-	if err := agents.Plugins.Check("stub", "/no/such/obor-kind"); err == nil {
+	if _, err := agents.Plugins.Check("stub", "/no/such/obor-kind"); err == nil {
 		t.Error("Check of a missing command: no error")
 	}
 }

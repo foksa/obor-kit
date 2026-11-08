@@ -21,7 +21,8 @@ type (
 )
 
 // Start labels the pane, prints the launch line (T-145: a wrong model or permission mode is visible before the agent
-// starts) and runs herdr agent start (agent_name_taken: the stale name cleared and retried once, unless a live agent
+// starts; s.Args as its Build built them, T-1042: no kind is asked again), records the session obor chose for it
+// (s.Session) and runs herdr agent start (agent_name_taken: the stale name cleared and retried once, unless a live agent
 // elsewhere holds it). A start with a first prompt that herdr gave up on while the agent works on it is a start
 // (busyStart); a start ends as soon as its agent runs in the pane (started), never at a fixed wait (T-404: herdr's own
 // answer waits up to 30 s for an agent ready for input, which an agent busy on its first prompt never is). herdr's
@@ -42,25 +43,13 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
 		}
 		l.say("labelled pane %s %s", s.Pane, s.Agent)
 	}
-	k, ok := agents.Lookup(s.Kind)
-	if !ok { // dispatch and obor config validate refuse such a model's kind (DD-v0.13 D1)
+	if _, ok := agents.Lookup(s.Kind); !ok { // dispatch and obor config validate refuse such a model's kind (DD-v0.13 D1)
 		return port.Pane{}, project.Failf("%s: kind %s has no bridge (obor config validate)", s.Agent, s.Kind)
 	}
-	kit := l.Kit
-	if kit == "" {
-		kit = project.KitRoot(l.Env)
+	// The session obor chose for a kind whose sessions it names (Built.Session, T-813): recorded before the agent runs.
+	if s.Session != "" {
+		l.recordSession(ctx, s)
 	}
-	// A kind whose sessions obor names (T-813): the id is obor's, recorded for the agent before it runs, so the store
-	// and a restart know it before its SessionStart hook reports it (the hook confirms it, with its transcript).
-	session := ""
-	if s.Resume == "" && k.Caps().NamedSession {
-		session = l.nameSession(ctx, s)
-	}
-	args, err := startArgs(k, s, kit, session)
-	if err != nil {
-		return port.Pane{}, project.Failf("%s: %v", s.Agent, err)
-	}
-	s.Args = args
 	shown := strings.Join(s.Args, " ")
 	if shown == "" {
 		shown = "none"

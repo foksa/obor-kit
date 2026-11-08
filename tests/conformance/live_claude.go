@@ -178,7 +178,7 @@ func ccL7(l *lab, pane string, turn bool) {
 	}
 	start, err := l.launchOf("claude", model, real, nil)
 	if err != nil {
-		report("FAIL", "CC-L7", "the launch of "+model+" cannot be built: "+err.Error(), at("internal/config/models.go", "func (m Model) LaunchArgs")+", T-910")
+		report("FAIL", "CC-L7", "the launch of "+model+" cannot be built: "+err.Error(), at("internal/config/models.go", "func (m Model) Launch")+", T-910")
 		return
 	}
 	sid := uuid()

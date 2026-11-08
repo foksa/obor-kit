@@ -40,7 +40,7 @@ obor runs `<command> <call>` with one JSON object on stdin and reads one JSON ob
 | Call | Request fields | Reply | Replaces (`agents.Kind`) | When |
 |---|---|---|---|---|
 | `describe` | — | the manifest (below) | `Name`, `Caps`, `Efforts`, `Vars`, `Stop`, `Headless`, `Transcript`, `InboxRecord`, `MCPRegistration.Lane` | `obor setup agents`, `obor config validate`, a changed command |
-| `start` | `env`, `kit`, `args`, `settings`, `resume`, `prompt`, `effort`, `strict_mcp`, `session`, `write_dirs`, `dir` | `args` (argv after the binary), `env` (variable → value, "" unsets), `files: [{name, bytes}]` | `Start`, `StartEnv` | each agent start (several times: env, then argv) |
+| `start` | `env`, `kit`, `args`, `settings`, `resume`, `prompt`, `effort`, `strict_mcp`, `session`, `write_dirs`, `dir` | `args` (argv after the binary), `env` (variable → value, "" unsets), `files: [{name, bytes}]` | `StartWhole` (`Start`, `StartEnv`) | once per agent start, with every field of the start: its argv, env and files applied together (T-1042) |
 | `not-ready` | `screen` | `why` ("" ready) | `NotReady` | per poll during a start, when the manifest says `not_ready: {call: true}` |
 | `install` | `kit`, `env` | `mcp: {where, path, alt_path, key, entry, unpinned}`, `plugin: {from, to}` or null | `Install` | `obor setup agents`, `obor setup mcp` |
 | `turn` | `what: last` + `tail`; `what: session` + `first`; `what: reset` + `error`, `details`, `at` | last: `ok`, `turn: {id, error, details, ended, reset}`; session: `ok`, `session: {id, cwd, started}`; reset: `limited`, `reset` | `LastTurn`, `Session`, `Reset` | per transcript poll (status `transcript`), a launch finding a session, a stop on an error |

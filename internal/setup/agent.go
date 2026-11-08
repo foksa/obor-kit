@@ -231,11 +231,19 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	if err := agents.CheckEffortArgs(lt.Kind, lt.Args, a.effort); err != nil {
 		return project.Failf("%s: %v (obor config validate)", a.name, err)
 	}
-	vars, err := lt.StartEnv(agents.Start{Kit: s.Kit, Effort: a.effort, Read: os.ReadFile, Env: s.Env.Get,
-		WriteState: project.StateWriter(s.root)})
+	// The start, built once (T-1042): its argv for the start and its env for the new pane or the env line, from one
+	// complete start (a plugin kind's one start call).
+	l := s.Starter(s.cfg)
+	prompt := a.prompt
+	if prompt == "" {
+		prompt = a.role.StartPrompt(lt.Kind)
+	}
+	built, err := l.Build(port.Build{Agent: a.name, Kind: lt.Kind, Args: lt.Args, Role: a.role.Name, Effort: a.effort,
+		Dir: a.cwd, WriteDirs: s.cfg.RoleWriteDirs(a.role), Prompt: prompt})
 	if err != nil {
 		return project.Failf("%s: %v", a.name, err)
 	}
+	vars := built.Vars
 	// The one builder of a start's env (agents.StartVars, T-812), as the env line of a reused pane: herdr's pane env
 	// cannot unset, so every registry var the start does not set goes to herdr empty, none to obor (the pane may inherit
 	// setup's own env: an OpenCode agent running setup, T-703; a stale OBOR_AGENT, T-786; the caller's OBOR_PANE: the
@@ -282,16 +290,6 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	}
 
 	s.placed = pane
-	args, err := lt.LaunchArgs(a.role.Name, a.effort, a.cwd, s.cfg.RoleWriteDirs(a.role))
-	if err != nil {
-		return project.Failf("%s: %v", a.name, err)
-	}
-	for _, d := range s.cfg.RoleWriteDirs(a.role) { // a dir the start lets the agent write must be there (T-853)
-		if err := os.MkdirAll(d, 0o755); err != nil {
-			return project.Failf("cannot create %s", d)
-		}
-	}
-	l := s.Starter(s.cfg)
 	setEnv := func() error {
 		return l.SetEnv(ctx, pane, port.AgentEnv{Agent: a.name, Role: a.role.Name, Lane: a.lane, Cwd: a.cwd, Vars: vars})
 	}
@@ -313,12 +311,8 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	}
 	s.started = true
 	run := func() error {
-		prompt := a.prompt
-		if prompt == "" {
-			prompt = a.role.StartPrompt(lt.Kind)
-		}
-		return l.Start(ctx, port.Start{Agent: a.name, Kind: lt.Kind, Pane: pane, Label: label, Args: args, Lane: a.lane,
-			Prompt: prompt, Dir: a.cwd})
+		return l.Start(ctx, port.Start{Agent: a.name, Kind: lt.Kind, Pane: pane, Label: label, Args: built.Args,
+			Session: built.Session, Lane: a.lane, Prompt: prompt})
 	}
 	// A pane a new tab or a split made is a shell that may still be coming up: herdr answers agent_pane_busy until it
 	// is one (T-628, live 2026-10-31). It is used again only once herdr reports a shell there, within the bound.

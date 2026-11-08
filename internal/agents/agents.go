@@ -77,7 +77,7 @@ type Kind interface {
 type Start struct {
 	Kit      string         // this kit's root ("": no kit to name; no MCP registration on the command line)
 	Args     []string       // the type's args as given
-	Settings map[string]any // the settings to start with (config.Model.LaunchArgs); nil: none
+	Settings map[string]any // the settings to start with (config.Model.Launch); nil: none
 	Resume   string         // the session id to resume ("": fresh)
 	Prompt   string         // the first prompt of a fresh start, one line ("": none)
 	Read     ReadFile       // reads a file an arg names (a config file); nil: none is read
@@ -372,9 +372,10 @@ type PluginLoader interface {
 	// Kind is the kind name answering obor's kind protocol as command, its manifest the one obor setup agents cached in
 	// stateDir: no process runs (hooks and the guard load the config).
 	Kind(name, command, stateDir string) Kind
-	// Check runs command's describe: why it cannot be the kind name (not executable, no answer, a bad manifest); nil:
-	// it answers (obor config validate).
-	Check(name, command string) error
+	// Check runs command's describe: why it cannot be the kind name (not executable, no answer, a bad manifest), else
+	// the kind with the manifest it answered, which it caches nowhere (obor config validate checks efforts against it,
+	// T-1042).
+	Check(name, command string) (Kind, error)
 }
 
 // Plugins is the binary's PluginLoader; nil: this binary runs no plugin kinds.
@@ -404,19 +405,42 @@ func IsPlugin(name string) bool {
 	return plugins[name]
 }
 
-// Fallible is a kind whose calls can fail (a plugin kind runs a process, T-1036): Start and Install with their error.
-// Its Start and Install give the failure's zero form (no args; no registration, Lane saying why).
+// Fallible is a kind whose install can fail (a plugin kind runs a process, T-1036): Install with its error. Its
+// Install gives the failure's zero form (no registration, Lane saying why).
 type Fallible interface {
-	StartErr(in Start) ([]string, error)
 	InstallErr(kit string, env func(string) string) (Install, error)
 }
 
-// StartArgs is k.Start(in), or a Fallible kind's StartErr: the argv, or why the kind could not build it.
-func StartArgs(k Kind, in Start) ([]string, error) {
-	if f, ok := k.(Fallible); ok {
-		return f.StartErr(in)
+// Launch is one start as its kind built it: the argv after the binary and the start's own env (variable → value; ""
+// unsets it), from one complete Start (StartOf).
+type Launch struct {
+	Args []string
+	Env  map[string]string
+}
+
+// Whole is a kind whose start is one call (a plugin kind runs its command once per start, T-1042): the argv, the env and
+// the files it writes come from one reply to the complete Start, applied together.
+type Whole interface {
+	StartWhole(in Start) (Launch, error)
+}
+
+// StartOf is k's start of in, a complete Start built once at the launch boundary (T-1042): a Whole kind's one call;
+// a compiled kind's env (StartEnv) and its argv in two passes of Start, as before: the type's launch args (Args with
+// Settings, Effort, StrictMCP, WriteDirs), then the start over them (Kit, Resume, Session, Prompt), Dir and Read in
+// both. An error: the start cannot carry in.Effort, or a plugin kind's start failed.
+func StartOf(k Kind, in Start) (Launch, error) {
+	if w, ok := k.(Whole); ok {
+		return w.StartWhole(in)
 	}
-	return k.Start(in), nil
+	env, err := k.StartEnv(in)
+	if err != nil {
+		return Launch{}, err
+	}
+	args := k.Start(Start{Args: in.Args, Settings: in.Settings, Effort: in.Effort, StrictMCP: in.StrictMCP,
+		WriteDirs: in.WriteDirs, Dir: in.Dir, Read: in.Read})
+	args = k.Start(Start{Kit: in.Kit, Args: args, Resume: in.Resume, Session: in.Session, Prompt: in.Prompt,
+		Dir: in.Dir, Read: in.Read})
+	return Launch{Args: args, Env: env}, nil
 }
 
 // InstallOf is k.Install(kit, env), or a Fallible kind's InstallErr.
@@ -486,6 +510,15 @@ func CheckEffortArgs(kind string, args []string, effort string) error {
 		return c.CheckEffort(args, effort)
 	}
 	return nil
+}
+
+// CheckEffortOf is CheckEffort for a kind at hand (obor config validate's plugin kind as its describe just answered,
+// T-1042), not the registry's.
+func CheckEffortOf(k Kind, effort string) error {
+	if effort == "" {
+		return nil
+	}
+	return checkEffort(k, effort)
 }
 
 // ModelEditor is a kind that names its model in the args (config.Model, T-765): WithModel is args with model in place

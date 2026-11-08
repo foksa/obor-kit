@@ -169,7 +169,7 @@ func (k *Kind) start(in agents.Start) (startReply, error) {
 }
 
 // writeState is a start file written as name in k's state dir (project.StateWriter's), when the caller gives no
-// WriteState (config.Model.LaunchArgs).
+// WriteState.
 func (k *Kind) writeState(name string, data []byte) (string, error) {
 	path := filepath.Join(k.stateDir, name)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -178,22 +178,26 @@ func (k *Kind) writeState(name string, data []byte) (string, error) {
 	return path, project.WriteAtomic(path, data)
 }
 
-// StartErr is start's argv.
-func (k *Kind) StartErr(in agents.Start) ([]string, error) {
+// StartWhole is one start (agents.Whole, T-1042): one start call with the complete start, its argv, env and files
+// applied together.
+func (k *Kind) StartWhole(in agents.Start) (agents.Launch, error) {
 	r, err := k.start(in)
-	return r.Args, err
+	if err != nil {
+		return agents.Launch{}, err
+	}
+	return agents.Launch{Args: r.Args, Env: r.Env}, nil
 }
 
-// Start is StartErr's argv; nil when it fails (agents.StartArgs gives the error).
+// Start is StartWhole's argv (nil when it fails). A launch never calls it (agents.StartOf: StartWhole), nor StartEnv.
 func (k *Kind) Start(in agents.Start) []string {
-	args, _ := k.StartErr(in)
-	return args
+	l, _ := k.StartWhole(in)
+	return l.Args
 }
 
-// StartEnv is start's env.
+// StartEnv is StartWhole's env.
 func (k *Kind) StartEnv(in agents.Start) (map[string]string, error) {
-	r, err := k.start(in)
-	return r.Env, err
+	l, err := k.StartWhole(in)
+	return l.Env, err
 }
 
 // NotReady is the manifest's pattern's reason when it matches the screen, or not-ready's why; a failed call is the

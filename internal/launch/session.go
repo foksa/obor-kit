@@ -40,22 +40,26 @@ func newSessionID() (string, error) {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:]), nil
 }
 
-// nameSession is the session id a fresh start of s runs as, for a kind whose sessions obor names (T-813): the id is
-// obor's, recorded for the agent before the agent runs, so the store and a restart know it before its SessionStart
-// hook reports it. "" when obor cannot make one (the kind then picks its own, and the hook records that one). No serve
-// listening: nothing said (its hook records the session anyway, with its transcript); a serve that refused it is
-// said, and the start goes on.
-func (l *Launcher) nameSession(ctx context.Context, s Start) string {
+// newSession is the session id a fresh start of agent runs as, for a kind whose sessions obor names (T-813): the id
+// is obor's, recorded for the agent before the agent runs (recordSession). "" when obor cannot make one (the kind then
+// picks its own, and the hook records that one).
+func (l *Launcher) newSession(agent string) string {
 	id, err := newSessionID()
 	if err != nil {
-		l.say("warning: %s: no session id to name this start: %v", s.Agent, err)
+		l.say("warning: %s: no session id to name this start: %v", agent, err)
 		return ""
 	}
-	if err := l.report(ctx, l.chosenSession(s, id)); err != nil && !wire.Absent(err) {
-		l.say("warning: session %s of %s not recorded before the start: %v (its SessionStart hook records it)", id,
-			s.Agent, err)
-	}
 	return id
+}
+
+// recordSession records the session obor chose for s (s.Session) before the agent runs, so the store and a restart
+// know it before its SessionStart hook reports it. No serve listening: nothing said (its hook records the session
+// anyway, with its transcript); a serve that refused it is said, and the start goes on.
+func (l *Launcher) recordSession(ctx context.Context, s Start) {
+	if err := l.report(ctx, l.chosenSession(s, s.Session)); err != nil && !wire.Absent(err) {
+		l.say("warning: session %s of %s not recorded before the start: %v (its SessionStart hook records it)",
+			s.Session, s.Agent, err)
+	}
 }
 
 // chosenSession is the session fact of a start obor named: the agent, its kind and the id, where it starts and its
