@@ -156,12 +156,12 @@ func fixCandidates(loop map[string]*mtask, start int64) []fixLink {
 func linkFixes(cands []fixLink, id string, read func(task string) (store.SpecRow, bool, error)) ([]fixLink, error) {
 	var out []fixLink
 	for _, f := range cands {
-		row, ok, err := read(f.task)
+		row, _, err := read(f.task)
 		if err != nil {
 			return nil, fmt.Errorf("the spec of %s: %v", f.task, err)
 		}
-		if review, note, has := spec.Fixes(row.Text); ok && has && review == id {
-			f.note = note
+		if row.Spec.FixesOK && row.Spec.FixesReview == id {
+			f.note = row.Spec.FixesNote
 			out = append(out, f)
 		}
 	}
@@ -376,11 +376,11 @@ func openReview(ctx context.Context, g ReviewGit, root string, s ReviewSetup) (o
 
 // fixesCheck is obor dispatch's refusal of a spec whose Fixes: line names a review that is not the open one (T-924);
 // nil without such a line, or when it names the open review.
-func fixesCheck(ctx context.Context, fx *Loop, root, task, text string) error {
-	id, _, ok := spec.Fixes(text)
-	if !ok {
+func fixesCheck(ctx context.Context, fx *Loop, root, task string, sp spec.Spec) error {
+	if !sp.FixesOK {
 		return nil
 	}
+	id := sp.FixesReview
 	s, err := reviewConfig(root)
 	if err != nil {
 		return fmt.Errorf("%s: Fixes: %s: %v", task, id, err)

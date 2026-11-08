@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 
-	"obor/internal/spec"
 	"obor/internal/store"
 )
 
@@ -237,7 +236,7 @@ func (a *App) gate(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 		}
 		g.Spec, g.SpecRev = row.Text, row.Rev
 		// the merge's subject and body (T-802, T-807)
-		g.Title, g.Summary, g.Body = spec.Title(row.Text), summaryOf(mt.report), summarySection(mt.report)
+		g.Title, g.Summary, g.Body = row.Spec.Title, summaryOf(mt.report), summarySection(mt.report)
 		o, err := fx.Scratch.Gate(ctx, g)
 		if err != nil {
 			return nil, err

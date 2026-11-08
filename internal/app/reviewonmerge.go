@@ -8,7 +8,6 @@ import (
 	"context"
 	"errors"
 	"obor/internal/app/event"
-	"obor/internal/spec"
 	"slices"
 	"time"
 )
@@ -49,7 +48,7 @@ func reviewOnMergeRule(_ context.Context, a *App, p *proj, _ *Loop, _ time.Time)
 			a.logf("%s: review on merge %s: spec: %v", p.name, m.task, err)
 			return 0, action{}, false
 		}
-		if !ok || !spec.ReviewOnMerge(row.Text) {
+		if !ok || !row.Spec.OnMerge {
 			continue
 		}
 		return m.seq, reviewOnMergeAction(a, p, m.task), true

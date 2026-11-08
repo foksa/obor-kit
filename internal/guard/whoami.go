@@ -3,7 +3,6 @@ package guard
 import (
 	"obor/internal/config"
 	"obor/internal/project"
-	"obor/internal/spec"
 	"obor/internal/store"
 )
 
@@ -39,7 +38,7 @@ func Whoami(repo *project.Repo, cfg *config.Config, env project.Env) (*Who, erro
 			return nil, err
 		}
 		if ok {
-			w.Rev, w.Protected = sp.Rev, spec.Protected(sp.Text)
+			w.Rev, w.Protected = sp.Rev, sp.Spec.Protected
 		}
 	}
 	return w, nil

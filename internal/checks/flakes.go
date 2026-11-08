@@ -12,7 +12,6 @@ import (
 	"obor/internal/app/event"
 	"obor/internal/config"
 	"obor/internal/project"
-	"obor/internal/spec"
 	"obor/internal/store"
 )
 
@@ -349,7 +348,7 @@ func (r *flakeRule) load() {
 	// The store's specs (T-440, the only source since T-521).
 	if rows, err := store.ReadSpecsAt(r.cfg.Root); err == nil {
 		for _, row := range rows {
-			r.specs = append(r.specs, flakeSpec{task: row.Task, title: spec.Title(row.Text)})
+			r.specs = append(r.specs, flakeSpec{task: row.Task, title: row.Spec.Title})
 		}
 	}
 }

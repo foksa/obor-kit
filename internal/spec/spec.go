@@ -1,21 +1,77 @@
-// Package spec reads a task spec's text: its title and the exact paths of its "## Protected files this task may edit"
-// section; and matches path globs (config globs: protected_files, merge classes). The text is the store's
-// (internal/store specs, T-440).
+// Package spec reads a task spec's text once (Parse) into the fields its readers use, refuses what obor spec set may
+// not store (Validate); and matches path globs (config globs: protected_files, merge classes). The text is the store's
+// (internal/store specs, T-440): a row carries the parsed value (T-1022).
 package spec
 
 import (
+	"errors"
+	"fmt"
 	"regexp"
 	"slices"
 	"strings"
 )
 
+// Spec is a task spec's parsed head (Parse): every field a reader takes from the text, read once.
+type Spec struct {
+	Title       string   // the text after the task id of the first "# " heading ("" when there is no title)
+	Level       string   // the Difficulty: level, as written ("" when no line)
+	LevelKnown  bool     // whether Level is one of Levels
+	Models      []string // the Model: refs, as written, first occurrence of each
+	OldType     bool     // a Type: line where Model: belongs (T-765)
+	Review      string   // the Review: value ("" when no line)
+	ReviewOK    bool     // a Review: line
+	OnMerge     bool     // asks a review on merge: Review: on merge or Difficulty: hard, and no Fixes: (T-878, T-932)
+	FixesReview string   // Fixes: the review it fixes (T-924)
+	FixesNote   string   // and the free text after it
+	FixesOK     bool     // a Fixes: line
+	Protected   []string // the exact paths of the "## Protected files this task may edit" section
+	Ref         string   // Ref: an external tracker's id ("" when none)
+	RefOK       bool     // a Ref: line
+}
+
+// Parse reads a spec's text into its head: never fails, an old stored spec parses as its lines read today.
+func Parse(text string) Spec {
+	level, known := difficulty(text)
+	review, reviewOK := reviewValue(text)
+	fixesReview, fixesNote, fixesOK := fixes(text)
+	ref, refOK := headValue(text, "Ref:")
+	return Spec{
+		Title: title(text), Level: level, LevelKnown: known, Models: models(text), OldType: oldTypeLine(text),
+		Review: review, ReviewOK: reviewOK, OnMerge: reviewOnMerge(text),
+		FixesReview: fixesReview, FixesNote: fixesNote, FixesOK: fixesOK, Protected: protected(text),
+		Ref: ref, RefOK: refOK,
+	}
+}
+
+// Validate is what obor spec set refuses, in one place (T-764, T-790, T-878, T-932, T-1022): a spec without a title or
+// a known difficulty, one with the old Type: line, a Review: value but "on merge", a fix with Review: on merge, or an
+// empty Ref:. task names the spec in the messages.
+func Validate(task string, s Spec) error {
+	switch {
+	case s.Title == "":
+		return fmt.Errorf("the spec needs a title: `# %s — <title>`", task)
+	case !s.LevelKnown:
+		return fmt.Errorf("the spec needs a \"Difficulty: <level>\" line right under its title (%s)", strings.Join(Levels,
+			", "))
+	case s.OldType:
+		return errors.New(`the "Type:" line is now "Model: <model>[:<effort>], …" (T-765): rename it`)
+	case s.ReviewOK && s.Review != ReviewOnMergeValue:
+		return fmt.Errorf("the \"Review:\" line takes one value: %q", ReviewOnMergeValue)
+	case s.FixesOK && s.ReviewOK && s.Review == ReviewOnMergeValue:
+		return errors.New("a fix (Fixes:) is reviewed by its verify; drop the Review: on merge line")
+	case s.RefOK && s.Ref == "":
+		return errors.New(`the "Ref:" line needs an id (an external tracker's id)`)
+	}
+	return nil
+}
+
 // ProtectedHeading is the spec section whose backticked exact paths unlock protected files for that one task (T-238,
 // T-496).
 const ProtectedHeading = "Protected files this task may edit"
 
-// Protected is the exact paths of the spec's "## Protected files this task may edit" section: its backticked spans
+// protected is the exact paths of the spec's "## Protected files this task may edit" section: its backticked spans
 // without a wildcard (*, ?, [): a glob unlocks nothing.
-func Protected(text string) []string {
+func protected(text string) []string {
 	var out []string
 	for _, line := range section(text, ProtectedHeading) {
 		for _, m := range backticked.FindAllString(line, -1) {
@@ -104,9 +160,9 @@ func globRegexp(glob string) string {
 	return b.String()
 }
 
-// Title is a spec text's title: the text after the task id of its first "# <task> <sep> <title>" heading, for a sep of
+// title is a spec text's title: the text after the task id of its first "# <task> <sep> <title>" heading, for a sep of
 // "—", "–", "-" or ":" ("" when it has no such heading or no title).
-func Title(text string) string {
+func title(text string) string {
 	for _, l := range strings.Split(text, "\n") {
 		h, ok := strings.CutPrefix(l, "# ")
 		if !ok {
@@ -179,10 +235,10 @@ func flat(g string) string {
 // Levels are the difficulty levels a spec's `Difficulty:` line may name, hardest first.
 var Levels = []string{"hard", "medium", "simple"}
 
-// Difficulty is the level of the spec's `Difficulty: <level>` line: the first non-blank line under the title (the
+// difficulty is the level of the spec's `Difficulty: <level>` line: the first non-blank line under the title (the
 // `# ` line). ok is false when there is no such line or it names no level in Levels; level is then what it wrote ("":
 // no line).
-func Difficulty(text string) (level string, ok bool) {
+func difficulty(text string) (level string, ok bool) {
 	_, v, found := difficultyLine(text)
 	if !found {
 		return "", false
@@ -191,10 +247,10 @@ func Difficulty(text string) (level string, ok bool) {
 	return level, slices.Contains(Levels, level)
 }
 
-// Models is the model refs of the spec's optional `Model: <model>[, <model>…]` line (T-765; it was `Type:`): the
+// models is the model refs of the spec's optional `Model: <model>[, <model>…]` line (T-765; it was `Type:`): the
 // first non-blank line after the `Difficulty:` line. Each is a model ref, `<model>[:<effort>]` as written
 // (config.ParseModelRef, T-695). nil when there is no such line (a `Model:` elsewhere is ignored).
-func Models(text string) []string {
+func models(text string) []string {
 	v, ok := lineAfterDifficulty(text, "Model:")
 	if !ok {
 		return nil
@@ -208,9 +264,9 @@ func Models(text string) []string {
 	return out
 }
 
-// OldTypeLine: the first non-blank line after the spec's `Difficulty:` line is the `Type:` line before T-765 (now
+// oldTypeLine: the first non-blank line after the spec's `Difficulty:` line is the `Type:` line before T-765 (now
 // `Model:`): obor spec set refuses it, so it is not silently ignored.
-func OldTypeLine(text string) bool {
+func oldTypeLine(text string) bool {
 	_, ok := lineAfterDifficulty(text, "Type:")
 	return ok
 }
@@ -218,29 +274,29 @@ func OldTypeLine(text string) bool {
 // ReviewOnMergeValue is the one value of the spec's optional `Review:` line (T-878).
 const ReviewOnMergeValue = "on merge"
 
-// ReviewOnMerge reports whether the spec asks for a review once the task merges (T-878, T-932): the line
+// reviewOnMerge reports whether the spec asks for a review once the task merges (T-878, T-932): the line
 // `Review: on merge` between its title and its first "## " heading, or `Difficulty: hard`; never for a spec with a
 // `Fixes:` line (its verify is its review).
-func ReviewOnMerge(text string) bool {
-	if _, _, ok := Fixes(text); ok {
+func reviewOnMerge(text string) bool {
+	if _, _, ok := fixes(text); ok {
 		return false
 	}
-	if v, ok := ReviewValue(text); ok && v == ReviewOnMergeValue {
+	if v, ok := reviewValue(text); ok && v == ReviewOnMergeValue {
 		return true
 	}
-	level, ok := Difficulty(text)
+	level, ok := difficulty(text)
 	return ok && level == "hard"
 }
 
-// ReviewValue is the value of the spec's first `Review:` line between its title and its first "## " heading: one line
+// reviewValue is the value of the spec's first `Review:` line between its title and its first "## " heading: one line
 // there (T-878). ok is false when there is no such line; a `Review:` below a "## " heading is ignored. obor spec set
 // refuses a value other than ReviewOnMergeValue.
-func ReviewValue(text string) (value string, ok bool) { return headValue(text, "Review:") }
+func reviewValue(text string) (value string, ok bool) { return headValue(text, "Review:") }
 
-// Fixes is the spec's first `Fixes: RV-<n>[ <free text>]` line between its title and its first "## " heading (T-924):
+// fixes is the spec's first `Fixes: RV-<n>[ <free text>]` line between its title and its first "## " heading (T-924):
 // the review it fixes (its first word, as written) and the free text after it, the note the verify brief carries for
 // this task. ok is false when there is no such line. obor dispatch refuses a review that is not the open one.
-func Fixes(text string) (review, note string, ok bool) {
+func fixes(text string) (review, note string, ok bool) {
 	v, ok := headValue(text, "Fixes:")
 	if !ok {
 		return "", "", false
@@ -250,7 +306,7 @@ func Fixes(text string) (review, note string, ok bool) {
 }
 
 // headValue is the trimmed rest of the first line starting with key between the spec's title and its first "## "
-// heading; ok false when there is none.
+// heading; ok false when there is none. The Review:, Fixes: and Ref: lines are read this way.
 func headValue(text, key string) (string, bool) {
 	in := false
 	for _, l := range strings.Split(text, "\n") {

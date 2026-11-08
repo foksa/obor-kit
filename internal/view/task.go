@@ -4,7 +4,6 @@ import (
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
-	"obor/internal/spec"
 	"obor/internal/store"
 )
 
@@ -29,6 +28,7 @@ type Task struct {
 	Attempt int    `json:"attempt,omitempty"`
 	Running string `json:"running,omitempty"` // its step running now (its gate, its publish …)
 	Effort  string `json:"effort,omitempty"`  // the effort its dispatch started its agent with (T-695)
+	Ref     string `json:"ref,omitempty"`     // its spec's Ref: an external tracker's id (T-1022)
 	Job     *Job   `json:"job,omitempty"`     // its open job (nil: none)
 }
 
@@ -60,6 +60,7 @@ func tasks(ps wire.ProjectStatus, lanes []port.Lane, rows map[string]store.LaneR
 	for _, st := range ps.Tasks {
 		t := get(st.Task)
 		t.TaskState, t.Phase, t.Attempt, t.Running, t.Effort = st.State, st.Phase, st.Attempt, st.Running, st.Effort
+		t.Ref = st.Ref
 		t.Open = !st.Ended
 		if st.Lane != "" {
 			t.Lane = st.Lane
@@ -80,7 +81,7 @@ func tasks(ps wire.ProjectStatus, lanes []port.Lane, rows map[string]store.LaneR
 		out[f.Task] = t
 	}
 	for id, t := range out {
-		t.Title, t.Agent = spec.Title(specs[id].Text), agents[t.Lane]
+		t.Title, t.Agent = specs[id].Spec.Title, agents[t.Lane]
 		if step, ok := wire.PhaseStep(t.Phase); ok {
 			t.Step = &step
 		}

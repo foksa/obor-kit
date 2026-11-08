@@ -6,17 +6,156 @@ import (
 	"testing"
 )
 
-// T-496: only the exact paths of the "Protected files this task may edit" section; a glob, a blank span, another
-// section (a longer heading too) and the old files section unlock nothing.
-func TestProtected(t *testing.T) {
-	text := "# T-02\n\n## Files you may touch\n`old.md`\n## Protected files this task may edit (old)\n`no.md`\n" +
-		"## Protected files this task may edit  \n`docs/design.md`, `docs/*.md` (a glob)\n\n`` and `  ` are blank, " +
-		"`a[b].md` `x?`\n` AGENTS.md `\n## Tests\n`not/this.md`\n"
-	if got, want := Protected(text), []string{"docs/design.md", "AGENTS.md"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("Protected = %q, want %q", got, want)
+// T-1022: one Parse reads a spec's head, every field a reader uses. Every case the per-line tests had (T-440's title,
+// T-538's difficulty, T-689/T-765's models and old Type: line, T-878/T-932's review, T-924's fixes, T-496's protected
+// paths) is a row, plus the Ref: line.
+func TestParse(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		text string
+		want Spec
+	}{
+		// Title (T-440, T-790): the text after the task id of the first "# " heading; no separator or no heading is "".
+		{"title: em dash", "# T-1 — a", Spec{Title: "a"}},
+		{"title: colon", "# T-1: a", Spec{Title: "a"}},
+		{"title: hyphen", "# T-1 - a", Spec{Title: "a"}},
+		{"title: en dash", "# T-1 – a", Spec{Title: "a"}},
+		{"title: none", "# T-1", Spec{}},
+		{"title: empty after the colon", "# T-1:", Spec{}},
+		{"title: no heading", "no heading\n## T-1 — a section\n", Spec{}},
+		{"title: a section follows", "# T-05 — Committed title\n\n## Files you may touch\n", Spec{Title: "Committed title"}},
+		{"title: second line heading", "intro\n# T-06 — Second line heading\n# T-06 — later\n",
+			Spec{Title: "Second line heading"}},
+		{"title: no separator", "# T-07 no dash\n# T-07 — later\n", Spec{}},
+		{"title: blank", "# T-09 —   \n", Spec{}},
+
+		// Difficulty (T-538): the level is the Difficulty line right under the title (blank lines between are fine).
+		{"difficulty: medium", "# T-1 — A\n\nDifficulty: medium\n\n## Do\n",
+			Spec{Title: "A", Level: "medium", LevelKnown: true}},
+		{"difficulty: spaces", "# T-1 — A\nDifficulty:   hard  \n", Spec{Title: "A", Level: "hard", LevelKnown: true, OnMerge: true}},
+		{"difficulty: no final newline", "# T-1 — A\n\nDifficulty: simple",
+			Spec{Title: "A", Level: "simple", LevelKnown: true}},
+		{"difficulty: unknown level", "# T-1 — A\n\nDifficulty: easy\n", Spec{Title: "A", Level: "easy"}},
+		{"difficulty: not under the title", "# T-1 — A\n\nwhy\n\nDifficulty: hard\n", Spec{Title: "A"}},
+		{"difficulty: missing", "# T-1 — A\n", Spec{Title: "A"}},
+		{"difficulty: no title", "Difficulty: hard\n", Spec{}},
+		{"difficulty: empty text", "", Spec{}},
+
+		// Models (T-689, T-765): the optional Model line is the next non-blank line after Difficulty; the Type line it
+		// replaced is told apart so spec set can refuse it.
+		{"models: none", "# T-1 — A\n\nDifficulty: medium\n\n## Do\n",
+			Spec{Title: "A", Level: "medium", LevelKnown: true}},
+		{"models: one", "# T-1 — A\n\nDifficulty: medium\nModel: opus\n",
+			Spec{Title: "A", Level: "medium", LevelKnown: true, Models: []string{"opus"}}},
+		{"models: effort and model", "# T-1 — A\n\nDifficulty: hard\nModel: opus:high, opus\n",
+			Spec{Title: "A", Level: "hard", LevelKnown: true, Models: []string{"opus:high", "opus"}, OnMerge: true}},
+		{"models: blanks and a duplicate", "# T-1 — A\n\nDifficulty: hard\n\n\nModel:  opus ,opus:high, opus\n",
+			Spec{Title: "A", Level: "hard", LevelKnown: true, Models: []string{"opus", "opus:high"}, OnMerge: true}},
+		{"models: efforts", "# T-1 — A\n\nDifficulty: hard\nModel: opus:high, sonnet ,luna:xhigh\n", // T-695
+			Spec{Title: "A", Level: "hard", LevelKnown: true, Models: []string{"opus:high", "sonnet", "luna:xhigh"}, OnMerge: true}},
+		{"models: not the next line", "# T-1 — A\n\nDifficulty: hard\nwhy\nModel: opus\n",
+			Spec{Title: "A", Level: "hard", LevelKnown: true, OnMerge: true}},
+		{"models: before difficulty", "# T-1 — A\n\nModel: opus\nDifficulty: hard\n", Spec{Title: "A"}},
+		{"models: below a section", "# T-1 — A\n\nDifficulty: hard\n\n## Do\nModel: opus\n",
+			Spec{Title: "A", Level: "hard", LevelKnown: true, OnMerge: true}},
+		{"models: old Type line", "# T-1 — A\n\nDifficulty: hard\nType: opus\n",
+			Spec{Title: "A", Level: "hard", LevelKnown: true, OldType: true, OnMerge: true}},
+		{"models: no title", "Difficulty: hard\nModel: opus\n", Spec{}},
+		{"old Type: after a blank line", "# T-1 — A\n\nDifficulty: hard\n\nType: x\n",
+			Spec{Title: "A", Level: "hard", LevelKnown: true, OldType: true, OnMerge: true}},
+		{"old Type: not the next line", "# T-1 — A\n\nDifficulty: hard\nwhy\nType: x\n",
+			Spec{Title: "A", Level: "hard", LevelKnown: true, OnMerge: true}},
+
+		// Review (T-878, T-932): the first Review: line between the title and the first "## " heading; only "on merge"
+		// turns it on, a review is asked for by it or by `Difficulty: hard`, and never beside a Fixes: line.
+		{"review: on merge", "# T-1 — A\n\nDifficulty: medium\nReview: on merge\n\n## Do\n",
+			Spec{Title: "A", Level: "medium", LevelKnown: true, Review: "on merge", ReviewOK: true, OnMerge: true}},
+		{"review: none", "# T-1 — A\n\nDifficulty: medium\n\n## Do\n",
+			Spec{Title: "A", Level: "medium", LevelKnown: true}},
+		{"review: another value", "# T-1 — A\n\nDifficulty: medium\nReview: now\n",
+			Spec{Title: "A", Level: "medium", LevelKnown: true, Review: "now", ReviewOK: true}},
+		{"review: spaces", "# T-1 — A\n\nDifficulty: medium\nReview:   on merge  \n",
+			Spec{Title: "A", Level: "medium", LevelKnown: true, Review: "on merge", ReviewOK: true, OnMerge: true}},
+		{"review: below a section", "# T-1 — A\n\nDifficulty: medium\n\n## Do\nReview: on merge\n",
+			Spec{Title: "A", Level: "medium", LevelKnown: true}},
+		{"review: before the title", "Review: on merge\n", Spec{}},
+		{"review: hard asks for one", "# T-1 — A\n\nDifficulty: hard\n\n## Do\n",
+			Spec{Title: "A", Level: "hard", LevelKnown: true, OnMerge: true}},
+		{"review: never beside fixes", "# T-1 — A\n\nDifficulty: hard\nFixes: RV-12\n\n## Do\n",
+			Spec{Title: "A", Level: "hard", LevelKnown: true, FixesReview: "RV-12", FixesOK: true}},
+		{"review: simple asks for none", "# T-1 — A\n\nDifficulty: simple\n\n## Do\n",
+			Spec{Title: "A", Level: "simple", LevelKnown: true}},
+		{"review: hard, on merge and a fix", "# T-1 — A\n\nDifficulty: hard\nReview: on merge\nFixes: RV-12\n",
+			Spec{Title: "A", Level: "hard", LevelKnown: true, Review: "on merge", ReviewOK: true,
+				FixesReview: "RV-12", FixesOK: true}},
+		{"review: medium, on merge and a fix", "# T-1 — A\n\nDifficulty: medium\nReview: on merge\nFixes: RV-12\n",
+			Spec{Title: "A", Level: "medium", LevelKnown: true, Review: "on merge", ReviewOK: true,
+				FixesReview: "RV-12", FixesOK: true}},
+
+		// Fixes (T-924): the review (its first word) and the free text after it.
+		{"fixes: id alone", "# T-1 — A\n\nDifficulty: medium\nFixes: RV-12\n\n## Do\n",
+			Spec{Title: "A", Level: "medium", LevelKnown: true, FixesReview: "RV-12", FixesOK: true}},
+		{"fixes: id and a note", "# T-1 — A\n\nFixes: RV-12 #1, #3 — re-run with an old status JSON\nReview: on merge\n",
+			Spec{Title: "A", Review: "on merge", ReviewOK: true, FixesReview: "RV-12",
+				FixesNote: "#1, #3 — re-run with an old status JSON", FixesOK: true}},
+		{"fixes: spaces", "# T-1 — A\n\nFixes:   RV-3    two  spaces \n",
+			Spec{Title: "A", FixesReview: "RV-3", FixesNote: "two  spaces", FixesOK: true}},
+		{"fixes: below a section", "# T-1 — A\n\nDifficulty: medium\n\n## Do\nFixes: RV-12\n",
+			Spec{Title: "A", Level: "medium", LevelKnown: true}},
+		{"fixes: before the title", "Fixes: RV-12\n", Spec{}},
+
+		// Ref (T-1022): a head line like Fixes:, between the title and the first "## " heading; the first one wins.
+		{"ref: an external id", "# T-1 — A\n\nDifficulty: medium\nRef: JIRA-12\n",
+			Spec{Title: "A", Level: "medium", LevelKnown: true, Ref: "JIRA-12", RefOK: true}},
+		{"ref: empty", "# T-1 — A\n\nDifficulty: medium\nRef:\n",
+			Spec{Title: "A", Level: "medium", LevelKnown: true, RefOK: true}},
+		{"ref: below a section", "# T-1 — A\n\nDifficulty: medium\n\n## Do\nRef: JIRA-12\n",
+			Spec{Title: "A", Level: "medium", LevelKnown: true}},
+		{"ref: the first one wins", "# T-1 — A\n\nDifficulty: medium\nRef: JIRA-12\nRef: JIRA-13\n",
+			Spec{Title: "A", Level: "medium", LevelKnown: true, Ref: "JIRA-12", RefOK: true}},
+
+		// Protected (T-496): only the exact paths of that section; a glob, a blank span, another section (a longer
+		// heading too) and the old files section unlock nothing.
+		{"protected: exact paths only", "# T-02\n\n## Files you may touch\n`old.md`\n" +
+			"## Protected files this task may edit (old)\n`no.md`\n" +
+			"## Protected files this task may edit  \n`docs/design.md`, `docs/*.md` (a glob)\n\n" +
+			"`` and `  ` are blank, `a[b].md` `x?`\n` AGENTS.md `\n## Tests\n`not/this.md`\n",
+			Spec{Protected: []string{"docs/design.md", "AGENTS.md"}}},
+		{"protected: no section", "## Files you may touch\n`docs/design.md`\n", Spec{}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := Parse(c.text); !reflect.DeepEqual(got, c.want) {
+				t.Errorf("Parse(%q) = %#v, want %#v", c.text, got, c.want)
+			}
+		})
 	}
-	if got := Protected("## Files you may touch\n`docs/design.md`\n"); got != nil {
-		t.Errorf("no section: %q", got)
+}
+
+// T-1022: obor spec set's refusals are one function over the parsed spec: no title, no known Difficulty level, the old
+// Type: line, a Review: value but "on merge", a fix with Review: on merge, an empty Ref:.
+func TestValidate(t *testing.T) {
+	for _, c := range []struct{ name, text, want string }{
+		{"valid", "# T-1 — A\n\nDifficulty: medium\n", ""},
+		{"valid with a Ref", "# T-1 — A\n\nDifficulty: medium\nRef: JIRA-12\n", ""},
+		{"no title", "# T-1\n\nDifficulty: medium\n", "the spec needs a title: `# T-1 — <title>`"},
+		{"unknown difficulty", "# T-1 — A\n\nDifficulty: easy\n", "hard, medium, simple"},
+		{"no difficulty", "# T-1 — A\n", "hard, medium, simple"},
+		{"old Type line", "# T-1 — A\n\nDifficulty: hard\nType: opus\n", `the "Type:" line is now "Model:`},
+		{"another Review value", "# T-1 — A\n\nDifficulty: medium\nReview: now\n",
+			`the "Review:" line takes one value: "on merge"`},
+		{"a fix with Review: on merge", "# T-1 — A\n\nDifficulty: hard\nFixes: RV-12\nReview: on merge\n",
+			"a fix (Fixes:) is reviewed by its verify; drop the Review: on merge line"},
+		{"empty Ref", "# T-1 — A\n\nDifficulty: medium\nRef:\n", `the "Ref:" line needs an id`},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			err := Validate("T-1", Parse(c.text))
+			switch {
+			case c.want == "" && err != nil:
+				t.Errorf("Validate(%q) = %v, want nil", c.text, err)
+			case c.want != "" && (err == nil || !strings.Contains(err.Error(), c.want)):
+				t.Errorf("Validate(%q) = %v, want %q", c.text, err, c.want)
+			}
+		})
 	}
 }
 
@@ -83,136 +222,6 @@ func TestOverlap(t *testing.T) {
 	} {
 		if got, rev := Overlap(c.a, c.b), Overlap(c.b, c.a); got != c.want || rev != c.want {
 			t.Errorf("Overlap(%q, %q) = %v / reversed %v, want %v", c.a, c.b, got, rev, c.want)
-		}
-	}
-}
-
-// T-440 (T-360's heading rule, moved from checks; T-790 a ":" or "-" separates too): a spec's title is the text after
-// the task id of its first "# " heading; no separator or no heading is "".
-func TestTitle(t *testing.T) {
-	for _, c := range []struct{ text, want string }{
-		{"# T-1 — a", "a"},
-		{"# T-1: a", "a"},
-		{"# T-1 - a", "a"},
-		{"# T-1 – a", "a"},
-		{"# T-1", ""},
-		{"# T-1:", ""},
-		{"no heading\n## T-1 — a section\n", ""},
-		{"# T-05 — Committed title\n\n## Files you may touch\n", "Committed title"},
-		{"intro\n# T-06 — Second line heading\n# T-06 — later\n", "Second line heading"},
-		{"# T-07 no dash\n# T-07 — later\n", ""},
-		{"# T-09 —   \n", ""},
-	} {
-		if got := Title(c.text); got != c.want {
-			t.Errorf("Title(%q) = %q, want %q", c.text, got, c.want)
-		}
-	}
-}
-
-// T-538: the level is the Difficulty line right under the title (blank lines between are fine).
-func TestDifficulty(t *testing.T) {
-	for _, c := range []struct {
-		text, level string
-		ok          bool
-	}{
-		{"# T-1 — A\n\nDifficulty: medium\n\n## Do\n", "medium", true},
-		{"# T-1 — A\nDifficulty:   hard  \n", "hard", true},
-		{"# T-1 — A\n\nDifficulty: simple", "simple", true},
-		{"# T-1 — A\n\nDifficulty: easy\n", "easy", false},
-		{"# T-1 — A\n\nwhy\n\nDifficulty: hard\n", "", false},
-		{"# T-1 — A\n", "", false},
-		{"Difficulty: hard\n", "", false},
-		{"", "", false},
-	} {
-		if level, ok := Difficulty(c.text); level != c.level || ok != c.ok {
-			t.Errorf("Difficulty(%q) = %q, %v; want %q, %v", c.text, level, ok, c.level, c.ok)
-		}
-	}
-}
-
-// T-689, T-765: the optional Model line is the next non-blank line after Difficulty; the Type line it replaced is
-// told apart (OldTypeLine) so spec set can refuse it.
-func TestModels(t *testing.T) {
-	for _, c := range []struct {
-		text string
-		want []string
-	}{
-		{"# T-1 — A\n\nDifficulty: medium\n\n## Do\n", nil},
-		{"# T-1 — A\n\nDifficulty: medium\nModel: opus\n", []string{"opus"}},
-		{"# T-1 — A\n\nDifficulty: hard\nModel: opus:high, opus\n", []string{"opus:high", "opus"}},
-		{"# T-1 — A\n\nDifficulty: hard\n\n\nModel:  opus ,opus:high, opus\n", []string{"opus", "opus:high"}},
-		{"# T-1 — A\n\nDifficulty: hard\nModel: opus:high, sonnet ,luna:xhigh\n", []string{"opus:high", "sonnet", "luna:xhigh"}}, // T-695
-		{"# T-1 — A\n\nDifficulty: hard\nwhy\nModel: opus\n", nil},
-		{"# T-1 — A\n\nModel: opus\nDifficulty: hard\n", nil},
-		{"# T-1 — A\n\nDifficulty: hard\n\n## Do\nModel: opus\n", nil},
-		{"# T-1 — A\n\nDifficulty: hard\nType: opus\n", nil},
-		{"Difficulty: hard\nModel: opus\n", nil},
-	} {
-		if got := Models(c.text); strings.Join(got, "|") != strings.Join(c.want, "|") || (got == nil) != (c.want == nil) {
-			t.Errorf("Models(%q) = %q; want %q", c.text, got, c.want)
-		}
-	}
-	for text, want := range map[string]bool{
-		"# T-1 — A\n\nDifficulty: hard\nType: opus\n":   true,
-		"# T-1 — A\n\nDifficulty: hard\nModel: opus\n":  false,
-		"# T-1 — A\n\nDifficulty: hard\n\nType: x\n":    true,
-		"# T-1 — A\n\nDifficulty: hard\nwhy\nType: x\n": false,
-	} {
-		if got := OldTypeLine(text); got != want {
-			t.Errorf("OldTypeLine(%q) = %v, want %v", text, got, want)
-		}
-	}
-}
-
-// T-878, T-932: the Review line is the spec's first "Review:" line between its title and its first "## " heading; only
-// the value "on merge" turns the line on, and a line below a section (or before the title) is ignored. A review is
-// asked for by that line or by `Difficulty: hard` (T-932), and never beside a `Fixes:` line (its verify is its review).
-func TestReview(t *testing.T) {
-	for _, c := range []struct {
-		text, value string
-		ok, merge   bool
-	}{
-		{"# T-1 — A\n\nDifficulty: medium\nReview: on merge\n\n## Do\n", "on merge", true, true},
-		{"# T-1 — A\n\nDifficulty: medium\n\n## Do\n", "", false, false},
-		{"# T-1 — A\n\nDifficulty: medium\nReview: now\n", "now", true, false},
-		{"# T-1 — A\n\nDifficulty: medium\nReview:   on merge  \n", "on merge", true, true},
-		{"# T-1 — A\n\nDifficulty: medium\n\n## Do\nReview: on merge\n", "", false, false},
-		{"Review: on merge\n", "", false, false},
-		{"", "", false, false},
-		{"# T-1 — A\n\nDifficulty: hard\n\n## Do\n", "", false, true},
-		{"# T-1 — A\n\nDifficulty: hard\nFixes: RV-12\n\n## Do\n", "", false, false},
-		{"# T-1 — A\n\nDifficulty: simple\n\n## Do\n", "", false, false},
-		{"# T-1 — A\n\nDifficulty: hard\nReview: on merge\nFixes: RV-12\n", "on merge", true, false},
-		{"# T-1 — A\n\nDifficulty: medium\nReview: on merge\nFixes: RV-12\n", "on merge", true, false},
-	} {
-		value, ok := ReviewValue(c.text)
-		if value != c.value || ok != c.ok {
-			t.Errorf("ReviewValue(%q) = %q, %v; want %q, %v", c.text, value, ok, c.value, c.ok)
-		}
-		if got := ReviewOnMerge(c.text); got != c.merge {
-			t.Errorf("ReviewOnMerge(%q) = %v, want %v", c.text, got, c.merge)
-		}
-	}
-}
-
-// T-924: the Fixes: line between the title and the first "## " heading: the review (its first word) and the free text.
-func TestFixes(t *testing.T) {
-	t.Parallel()
-	for _, c := range []struct {
-		text, review, note string
-		ok                 bool
-	}{
-		{"# T-1 — A\n\nDifficulty: medium\nFixes: RV-12\n\n## Do\n", "RV-12", "", true},
-		{"# T-1 — A\n\nFixes: RV-12 #1, #3 — re-run with an old status JSON\nReview: on merge\n", "RV-12",
-			"#1, #3 — re-run with an old status JSON", true},
-		{"# T-1 — A\n\nFixes:   RV-3    two  spaces \n", "RV-3", "two  spaces", true},
-		{"# T-1 — A\n\nDifficulty: medium\n\n## Do\nFixes: RV-12\n", "", "", false},
-		{"Fixes: RV-12\n", "", "", false},
-		{"", "", "", false},
-	} {
-		review, note, ok := Fixes(c.text)
-		if review != c.review || note != c.note || ok != c.ok {
-			t.Errorf("Fixes(%q) = %q, %q, %v; want %q, %q, %v", c.text, review, note, ok, c.review, c.note, c.ok)
 		}
 	}
 }

@@ -3,10 +3,13 @@ package store
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"obor/internal/spec"
 )
 
 // TestSpecsSetShowList (T-440): a first set is rev 1, the same text again changes nothing, another text is the next
@@ -45,7 +48,7 @@ func TestSpecsSetShowList(t *testing.T) {
 	db.Close() // serve down: the readers open the file read-only
 	row, ok, err := ReadSpecAt(root, "T-1")
 	if err != nil || !ok || row.Rev != 2 || row.Text != "# T-1 — B\n" || row.SetBy != "hk-lead" ||
-		row.SetAt != "2026-10-27T09:00:00Z" || row.Note != "widen the guard" {
+		row.SetAt != "2026-10-27T09:00:00Z" || row.Note != "widen the guard" || row.Spec.Title != "B" {
 		t.Errorf("ReadSpecAt T-1: %+v %v %v", row, ok, err)
 	}
 	if _, ok, err := ReadSpecAt(root, "T-3"); err != nil || ok {
@@ -82,8 +85,9 @@ func TestOpenRWMigratesTheSpecNote(t *testing.T) {
 		}
 	}
 	db.Close()
-	old := SpecRow{Task: "T-1", Text: "# T-1 — A\n", Rev: 1, SetBy: "lead", SetAt: "2026-10-27T09:00:00Z"}
-	if r, ok, err := ReadSpecAt(root, "T-1"); err != nil || !ok || r != old {
+	old := SpecRow{Task: "T-1", Text: "# T-1 — A\n", Rev: 1, SetBy: "lead", SetAt: "2026-10-27T09:00:00Z",
+		Spec: spec.Parse("# T-1 — A\n")}
+	if r, ok, err := ReadSpecAt(root, "T-1"); err != nil || !ok || !reflect.DeepEqual(r, old) {
 		t.Errorf("ReadSpecAt on schema 9 = %+v, %v, %v; want %+v", r, ok, err, old)
 	}
 
@@ -97,7 +101,7 @@ func TestOpenRWMigratesTheSpecNote(t *testing.T) {
 		version != strconv.Itoa(SchemaVersion) {
 		t.Errorf("schema_version = %q, %v; want %d after the migration", version, err, SchemaVersion)
 	}
-	if r, ok, err := ReadSpec(db, "T-1"); err != nil || !ok || r != old {
+	if r, ok, err := ReadSpec(db, "T-1"); err != nil || !ok || !reflect.DeepEqual(r, old) {
 		t.Errorf("row after the migration: %+v, %v, %v; want %+v", r, ok, err, old)
 	}
 	if _, changed, err := SetSpec(db, "T-1", "# T-1 — B\n", "widen the guard", "lead", time.Now()); err != nil || !changed {

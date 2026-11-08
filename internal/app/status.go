@@ -10,7 +10,6 @@ import (
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
 	"obor/internal/config"
-	"obor/internal/spec"
 	"obor/internal/version"
 	"slices"
 	"sort"
@@ -70,6 +69,9 @@ func (a *App) Status() wire.Status {
 				ts := wire.TaskStatus{Task: mt.task, Lane: mt.lane, Attempt: mt.attempt, State: mt.shown(),
 					Ended: states[mt.state].ended, Phase: a.phaseOf(p, mt, steps), Stage: a.stageOf(p, mt, steps),
 					Effort: mt.disp.Effort}
+				if row, ok, err := specOf(p, mt.task); err == nil && ok { // T-1022: the spec's external id
+					ts.Ref = row.Spec.Ref
+				}
 				if p.running.Task == mt.task {
 					ts.Running = p.running.Step
 				} else if k, ok := p.tests[mt.task]; ok {
@@ -493,8 +495,7 @@ func (p *proj) waitDifficulty(mt *mtask) string {
 	if err != nil || !ok {
 		return ""
 	}
-	level, _ := spec.Difficulty(row.Text)
-	return level
+	return row.Spec.Level
 }
 
 // firstUnpaused is the model ref of types a dispatch runs on now: the first whose model obor pause --model does not

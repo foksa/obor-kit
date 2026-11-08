@@ -47,31 +47,16 @@ func (a *App) specSet(c wire.Call) (string, error) {
 		return "", fmt.Errorf("spec set: only the lead or the owner sets a spec, not %s (role %s)", Dash(c.Agent),
 			c.Role)
 	}
-	if spec.Title(c.Spec) == "" {
-		return "", fmt.Errorf("spec set %s: the spec needs a title: `# %s — <title>`", c.Task, c.Task)
+	sp := spec.Parse(c.Spec)
+	if err := spec.Validate(c.Task, sp); err != nil {
+		return "", fmt.Errorf("spec set %s: %w", c.Task, err)
 	}
-	if _, ok := spec.Difficulty(c.Spec); !ok {
-		return "", fmt.Errorf("spec set %s: the spec needs a \"Difficulty: <level>\" line right under its title (%s)", c.Task,
-			strings.Join(spec.Levels, ", "))
-	}
-	if spec.OldTypeLine(c.Spec) {
-		return "", fmt.Errorf("spec set %s: the \"Type:\" line is now \"Model: <model>[:<effort>], …\" (T-765): rename it", c.Task)
-	}
-	if v, ok := spec.ReviewValue(c.Spec); ok && v != spec.ReviewOnMergeValue {
-		return "", fmt.Errorf("spec set %s: the \"Review:\" line takes one value: %q", c.Task, spec.ReviewOnMergeValue)
-	}
-	// T-932: a fix is reviewed by its review's verify; a Review: on merge line would queue a second review.
-	if _, _, fixes := spec.Fixes(c.Spec); fixes {
-		if v, ok := spec.ReviewValue(c.Spec); ok && v == spec.ReviewOnMergeValue {
-			return "", fmt.Errorf("spec set %s: a fix (Fixes:) is reviewed by its verify; drop the Review: on merge line", c.Task)
-		}
-	}
-	if refs := spec.Models(c.Spec); len(refs) > 0 {
+	if len(sp.Models) > 0 {
 		cfg, err := config.LoadDaemon(p.root)
 		if err != nil {
 			return "", fmt.Errorf("spec set %s: %v", c.Task, err)
 		}
-		for _, t := range refs { // `<model>[:<effort>]` (T-695)
+		for _, t := range sp.Models { // `<model>[:<effort>]` (T-695)
 			if err := cfg.CheckModelRef(t); err != nil {
 				return "", fmt.Errorf("spec set %s: \"Model: %s\": %v", c.Task, t, err)
 			}
@@ -128,7 +113,7 @@ func titleOf(p *proj, task string) (string, error) {
 	if err != nil || !ok {
 		return "", err
 	}
-	return spec.Title(row.Text), nil
+	return row.Spec.Title, nil
 }
 
 // specText is a worker job's spec part: the task's stored spec, its rev and its text.

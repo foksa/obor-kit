@@ -107,6 +107,21 @@ func TestSpecSetReviewOnMerge(t *testing.T) {
 	}
 }
 
+// T-1022: an empty Ref: line is refused (an external tracker's id is the point of it), and nothing is stored.
+func TestSpecSetRefusesAnEmptyRef(t *testing.T) {
+	t.Parallel()
+	r := newLoopRig(t)
+	r.start()
+	_, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Role: "lead",
+		CallID: "e1", Task: "T-1", Spec: "# T-1 — A\n\nDifficulty: medium\nRef:\n"})
+	if err == nil || !strings.Contains(err.Error(), `the "Ref:" line needs an id`) {
+		t.Errorf("spec set with an empty \"Ref:\": %v; want the refusal naming the id", err)
+	}
+	if _, ok, err := store.ReadSpecAt(r.p.Root, "T-1"); err != nil || ok {
+		t.Errorf("a refused spec was stored: %v, %v", ok, err)
+	}
+}
+
 // T-440: a dispatch reads the stored spec for Specs.Check (which refuses "": no stored spec, cmd/obor TestSpecs):
 // before the set the request is refused with nothing recorded, after it the same request dispatches.
 func TestDispatchNeedsStoredSpec(t *testing.T) {

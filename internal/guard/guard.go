@@ -152,7 +152,7 @@ func (g *guard) unlocked() []string {
 		return nil
 	}
 	if sp, ok, err := store.ReadSpecAt(g.root, row.Task); err == nil && ok {
-		g.unlocks = spec.Protected(sp.Text)
+		g.unlocks = sp.Spec.Protected
 	}
 	return g.unlocks
 }

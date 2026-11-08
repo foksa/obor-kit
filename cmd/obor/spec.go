@@ -10,7 +10,6 @@ import (
 	"obor/internal/config"
 	"obor/internal/help"
 	"obor/internal/project"
-	"obor/internal/spec"
 	"obor/internal/store"
 )
 
@@ -101,7 +100,7 @@ func specList() int {
 		return 2
 	}
 	for _, r := range rows {
-		fmt.Fprintf(out, "%s rev %d %s %s %s\n", r.Task, r.Rev, r.SetAt, r.SetBy, spec.Title(r.Text))
+		fmt.Fprintf(out, "%s rev %d %s %s %s\n", r.Task, r.Rev, r.SetAt, r.SetBy, r.Spec.Title)
 	}
 	return 0
 }

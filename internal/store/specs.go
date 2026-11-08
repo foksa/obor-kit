@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"obor/internal/spec"
 	"os"
 	"strings"
 	"time"
@@ -14,13 +15,15 @@ import (
 // list, the flakes rule. A later set with another text is the next rev; the gate puts the current rev into every
 // merge message of the task (T-521).
 
-// SpecRow is one task's spec: its text and rev (1 for the first set), who set it and when (RFC 3339), and the note
-// the set that made this rev carried (T-819: what changed; "" none, and for a rev set before it).
+// SpecRow is one task's spec: its text and rev (1 for the first set), who set it and when (RFC 3339), the note
+// the set that made this rev carried (T-819: what changed; "" none, and for a rev set before it), and the text's
+// parsed head (T-1022).
 type SpecRow struct {
 	Task, Text   string
 	Rev          int
 	SetBy, SetAt string
 	Note         string
+	Spec         spec.Spec
 }
 
 // specCols is the select list of a spec row in db: a specs table from before schema 10 (a serve not restarted since
@@ -37,9 +40,13 @@ func specCols(db *sql.DB) (string, error) {
 	return "task, text, rev, set_by, set_at, " + note, nil
 }
 
-// scanSpec reads one row of specCols' select list into r.
+// scanSpec reads one row of specCols' select list into r, parsing its text (T-1022).
 func scanSpec(scan func(...any) error, r *SpecRow) error {
-	return scan(&r.Task, &r.Text, &r.Rev, &r.SetBy, &r.SetAt, &r.Note)
+	if err := scan(&r.Task, &r.Text, &r.Rev, &r.SetBy, &r.SetAt, &r.Note); err != nil {
+		return err
+	}
+	r.Spec = spec.Parse(r.Text)
+	return nil
 }
 
 // SetSpec stores text as task's spec: rev 1 for a new task, the next rev when the text differs from the stored one,
@@ -87,8 +94,7 @@ func ReadSpec(db *sql.DB, task string) (SpecRow, bool, error) {
 		return SpecRow{}, false, err
 	}
 	var r SpecRow
-	err = db.QueryRow("SELECT "+cols+" FROM specs WHERE task = ?", task).Scan(&r.Task, &r.Text, &r.Rev, &r.SetBy,
-		&r.SetAt, &r.Note)
+	err = scanSpec(db.QueryRow("SELECT "+cols+" FROM specs WHERE task = ?", task).Scan, &r)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		return SpecRow{}, false, nil
