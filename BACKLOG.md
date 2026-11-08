@@ -64,6 +64,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (RV-146, accepted) (RV-146 design) a Claude lane that opts into project MCP servers starts non-strict, so it also loads the user's and plugins' MCP servers (CC-L9 listed many): document it in Customizing agents; revisit if Claude gains a narrower flag
 - (RV-145 design) the workflow contract table (T-1029) covers scratch, lane and target, not the review and promotion methods (tested on their own today): extend it with their portable outcomes before a second workflow implementation. Also `checks.ScratchFF` holds the config twice (`Scratch.Options.Cfg`, `Lane.Cfg`): one when next touched.
 - (RV-144, accepted) (RV-144 verify note) the fold keeps the review.closing pointer after the close although recovery no longer reads it (a retained copy of the frozen snapshot): clear it on close when next touching reviewfold.go
 - (RV-143 verify design) the view decides "waiting" by comparing `wire.TaskStatus.State` to `"waiting"` (`internal/view/queue.go:113`) though serve knows the predicate (`app/status.go:89`): serve ships it on the next touch (design rule 6). Also `specSetRev` parses the rev from the spec-set reply's text (T-1026), coupling replay to reply wording: keep the format, or a structured rev when the record is next revised.
