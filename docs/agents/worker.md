@@ -8,6 +8,11 @@ path).
   kit's `scripts/*`/`install.sh`: the Go package whose tests run it: `./internal/setup` for `githooks/*`, `./cmd/obor`
   for `bin/obor`, `go test -tags release ./tests/release` for the kit's release tooling, T-902: behind the release tag,
   T-1001).
+- Unit and integration tests (owner 11-08): a plain `go test` runs a package's unit tests; tests that run real git, a
+  real socket or a built binary are behind `//go:build integration` and the lane test runs them. A split package
+  (today `internal/checks`) needs no `-short`. You changed an adapter's git or I/O code (a file with an
+  `_integration_test.go` beside it): also run that package's integration tests once, `go test -tags integration
+  -run '<the tests of your change>' ./<pkg>/`. A new test that needs real git goes in an `_integration_test.go` file.
 - Before `task_done` (owner 2026-11-05): one `go test -short` of the packages you changed (the line above), nothing
   more. Never `obor run check_affected` or `obor run check` in a lane: the gate runs the class check once (a break in
   an importer comes back as a sendback in the same attempt). This replaces the role text's "one run of the gate's
