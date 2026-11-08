@@ -367,7 +367,7 @@ func (kind) Deliver(text string, record []byte) (agents.Delivery, bool) {
 
 func (kind) Caps() agents.Caps {
 	return agents.Caps{Hooks: agents.HooksNative, NamedSession: true, ProjectPlugin: true, Inbox: true, Resume: true,
-		Skills: true, Transcript: true}
+		Skills: true, Transcript: true, Status: agents.StatusTerminal}
 }
 
 // inbox is the record's part Deliver reads and InboxRecord writes.

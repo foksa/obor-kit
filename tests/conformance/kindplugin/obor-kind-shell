@@ -1,0 +1,53 @@
+#!/bin/sh
+# obor-kind-shell: a plugin kind written as a shell script (T-1036), answering every call of obor's kind protocol
+# (docs/agents/kind-protocol.md) with fixed replies. The static conformance tier (`make conformance TIER=static
+# KIND=plugin`, tests/conformance/plugin.go) runs obor's plugin package against it. POSIX sh, no jq: the request's
+# fields are read with sed (obor writes compact JSON, keys sorted).
+req=$(cat)
+field() { printf '%s' "$req" | sed -n 's/.*"'"$1"'":"\([^"]*\)".*/\1/p'; }
+case "$1" in
+describe)
+	cat <<'JSON'
+{"version":1,"name":"shell","status":"hooks",
+ "caps":{"hooks":"plugin","resume":true,"sessions":true,"version_var":"SHELL_KIND_VERSION"},
+ "efforts":["low","high"],"vars":["SHELL_KIND_CONFIG"],"env":["HOME"],
+ "stop":{"quit":"/exit","second_enter":true,"clear_input":["esc","ctrl+u"]},
+ "headless":{"subcommands":["run"],"print_flag":true},
+ "transcript":"${HOME}/.shell-kind/{sid}.jsonl","inbox_record":["SHELL_KIND_INBOX"],
+ "not_ready":{"call":true},
+ "mcp_lane":{"how":"SHELL_KIND_CONFIG (the start's generated config)","registered":true}}
+JSON
+	;;
+start)
+	prompt=$(field prompt)
+	cat <<JSON
+{"version":1,"args":["--config","{file:shell-kind.json}","--prompt","$prompt"],
+ "env":{"SHELL_KIND_CONFIG":"{file:shell-kind.json}"},
+ "files":[{"name":"shell-kind.json","bytes":"{\"mcp\":\"$(field kit)/bin/obor mcp\"}"}]}
+JSON
+	;;
+not-ready)
+	case "$req" in
+	*Updating*) echo '{"version":1,"why":"is updating itself"}' ;;
+	*) echo '{"version":1,"why":""}' ;;
+	esac
+	;;
+install)
+	echo '{"version":1,"mcp":{"where":"start"},"plugin":null}'
+	;;
+turn)
+	case $(field what) in
+	last) echo '{"version":1,"ok":true,"turn":{"id":"t-1","ended":true,"error":"rate_limit","details":"resets 6pm"}}' ;;
+	session) echo '{"version":1,"ok":true,"session":{"id":"s-1","cwd":"/lane","started":"2026-11-08T10:00:00Z"}}' ;;
+	reset) echo '{"version":1,"limited":true,"reset":"2026-11-08T18:00:00Z"}' ;;
+	*) echo '{"version":1,"error":"turn: no such what"}' ;;
+	esac
+	;;
+deliver)
+	echo '{"version":1,"ok":true,"delivery":{"typed":true}}'
+	;;
+*)
+	echo "obor-kind-shell: no call $1" >&2
+	exit 2
+	;;
+esac

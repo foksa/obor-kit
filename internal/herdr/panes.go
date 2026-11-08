@@ -134,7 +134,7 @@ const turnChunk = 256 << 10
 // Transcript, no herdr call.
 func (p Panes) Turn(_ context.Context, pane port.Pane, transcript string) (agents.Turn, bool) {
 	k, ok := agents.Lookup(pane.Agent)
-	if !ok || !k.Caps().Turns {
+	if !ok || !agents.TurnsRead(k) {
 		return agents.Turn{}, false
 	}
 	path := transcript

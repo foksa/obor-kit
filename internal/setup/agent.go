@@ -281,7 +281,10 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	}
 
 	s.placed = pane
-	args := lt.LaunchArgs(a.role.Name, a.effort, a.cwd, s.cfg.RoleWriteDirs(a.role))
+	args, err := lt.LaunchArgs(a.role.Name, a.effort, a.cwd, s.cfg.RoleWriteDirs(a.role))
+	if err != nil {
+		return project.Failf("%s: %v", a.name, err)
+	}
 	for _, d := range s.cfg.RoleWriteDirs(a.role) { // a dir the start lets the agent write must be there (T-853)
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return project.Failf("cannot create %s", d)

@@ -29,7 +29,7 @@ import (
 // hook sends serve a turn request (turnCall). Its pane's working status never ends it (judge): herdr's status and the
 // time it was seen say nothing of which turn it is (T-540).
 //
-// A worker of a kind with no such hook whose transcript records its turns (agents.Caps.Turns: Codex, T-563) is read
+// A worker of a kind with no such hook whose transcript records its turns (agents.Caps.Status transcript: Codex, T-563) is read
 // instead: idle with an open task, its transcript's last turn ended on an error (a usage limit) → the same fact
 // stopped, its needs-you and lead line, with the turn (turnStop); once per turn, as its call id is the turn's. A later
 // turn in the transcript (its start, read whatever the pane's status) ends it: fact resumed (cause stopped).
@@ -194,10 +194,10 @@ func limitOf(kind, errText, details string, turn, at time.Time) (limit bool, res
 	return true, r.Unix()
 }
 
-// turnsRead: the agents of kind have their turns read from their transcripts (agents.Caps.Turns).
+// turnsRead: the agents of kind have their turns read from their transcripts (agents.TurnsRead: Caps.Status transcript, T-1036).
 func turnsRead(kind string) bool {
 	k, ok := agents.Lookup(kind)
-	return ok && k.Caps().Turns
+	return ok && agents.TurnsRead(k)
 }
 
 // turnAct is what a turn's evidence does (turnDecide).

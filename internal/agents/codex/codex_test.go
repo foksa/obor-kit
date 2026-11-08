@@ -88,7 +88,7 @@ func TestKind(t *testing.T) {
 	if d, ok := k.Deliver("hi", []byte(`{"socket":"/s"}`)); !ok || !d.Typed || d.Socket != "" {
 		t.Errorf("Deliver = %+v, %v; want typed", d, ok)
 	}
-	if c := k.Caps(); c != (agents.Caps{Hooks: agents.HooksNone, Resume: true, Transcript: true, Turns: true, Sessions: true}) {
+	if c := k.Caps(); c != (agents.Caps{Hooks: agents.HooksNone, Resume: true, Transcript: true, Status: agents.StatusTranscript, Sessions: true}) {
 		t.Errorf("Caps = %+v", c)
 	}
 }

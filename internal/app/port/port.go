@@ -87,7 +87,7 @@ type Panes interface {
 	// Activity is when pane's agent last wrote its transcript; known is false when obor cannot tell. pane is the one
 	// the caller observed (its Session and Transcript): no herdr call (T-951).
 	Activity(ctx context.Context, pane Pane) (last time.Time, known bool)
-	// Turn is the last turn pane's agent's transcript records, for a kind whose turns are read (agents.Caps.Turns):
+	// Turn is the last turn pane's agent's transcript records, for a kind whose turns are read (agents.TurnsRead):
 	// the file transcript names (its agent's recorded session's, T-577), else the one herdr's session names; ok false
 	// when obor cannot tell. pane is the one the caller observed (T-951).
 	Turn(ctx context.Context, pane Pane, transcript string) (t agents.Turn, ok bool)

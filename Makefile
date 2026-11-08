@@ -166,6 +166,9 @@ check-retest:
 #   internal/checks  matches only through the classification table and a fixture that name paths without reading them:
 #                    listed so the survey needs no per-file exception; its tests run beside cmd/obor's and internal/app's,
 #                    so the extra package costs little wall time.
+#   internal/agents, internal/agents/plugin  match only through the status value "hooks" (Caps.Status, T-1036) and the
+#                    kind protocol's caps.hooks in plugin's test manifests, no path: listed for the same reason; their
+#                    tests take about two seconds.
 # tests/conformance reads hooks/hooks.json too, but that suite is `make conformance`, nightly. No compile step (the slot's
 # check-compile compiled the commit, T-995) and no deadcode: a changed skill or template moves no package's API. Left as
 # they are: docs/** is merge.neutral (guard only, unchanged) — the
@@ -176,7 +179,7 @@ check-retest:
 # tests/release/**, T-902). In .obor/config.json the web class must stay before go (internal/web/dist/** lies under
 # internal/**) and the release class before readers (.claude-plugin/marketplace.json lies under readers'
 # .claude-plugin/**), since the first class whose glob matches owns the file.
-READER_PKGS := ./cmd/obor ./internal/agents/claude ./internal/app ./internal/checks ./internal/config ./internal/guard ./internal/setup
+READER_PKGS := ./cmd/obor ./internal/agents ./internal/agents/claude ./internal/agents/plugin ./internal/app ./internal/checks ./internal/config ./internal/guard ./internal/setup
 check-readers:
 	@$(GO_CACHE); \
 	short=; if [ "$$CHECK_SHORT" = 1 ]; then short=-short; fi; \

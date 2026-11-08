@@ -185,11 +185,11 @@ func TestKind(t *testing.T) {
 	if rec := k.InboxRecord(env(map[string]string{"CLAUDE_CODE_MESSAGING_TOKEN": "t1"})); rec != nil {
 		t.Errorf("InboxRecord without a socket = %s, want none (messaging off)", rec)
 	}
-	if got, ok := k.LastTurn([]byte(`{"type":"event_msg","payload":{"type":"task_complete","turn_id":"t1","error":{"message":"m","codex_error_info":"usage_limit_exceeded"}}}` + "\n")); ok { // T-563: its turns are not read (Caps.Turns false below)
+	if got, ok := k.LastTurn([]byte(`{"type":"event_msg","payload":{"type":"task_complete","turn_id":"t1","error":{"message":"m","codex_error_info":"usage_limit_exceeded"}}}` + "\n")); ok { // T-563: its turns are not read (Caps.Status terminal below)
 		t.Errorf("LastTurn = %+v, true; want none read", got)
 	}
 	if c := k.Caps(); c != (agents.Caps{Hooks: agents.HooksNative, NamedSession: true, ProjectPlugin: true, Inbox: true,
-		Resume: true, Skills: true, Transcript: true}) {
+		Resume: true, Skills: true, Transcript: true, Status: agents.StatusTerminal}) {
 		t.Errorf("Caps = %+v", c)
 	}
 }

@@ -30,6 +30,11 @@ gate runs it. Adapters never import each other: one that needs another goes thro
 - `roles`: role names and defaults. `spec`: a spec text's title, sections and globs (the text is the store's).
 - `run`: commands under a timeout as a process group; machine-wide check slots. `run.Group`, `run.Slots`.
 - `version`: build version line.
+- `agents/plugin` (T-1036): a plugin kind, an `agents.Kind` whose CLI-specific part is an executable answering the kind
+  protocol (`docs/agents/kind-protocol.md`), run as a process group under a per-call timeout. `config` registers the
+  kinds its `kinds.<name>.command` name through `agents.Plugins` (it cannot import this package) on every load, each with
+  the manifest `obor setup agents` cached (`plugin.Cache`, `.obor/state/kinds/<name>.json`): no process runs at load.
+  Base, not bridge: it runs processes and writes the cache.
 - `help` (T-854): the one list of obor commands (`help.Commands`: name, usage, description, group), printed by
   `obor help` and shown by obor web's Help page, and README's "Install" and "Set up a project" sections (`Sections`).
 - `selfexec`: a long-running obor process follows a new obor binary (T-719): `Candidate` (the binary the kit's shim
@@ -56,7 +61,10 @@ Install` (MCP registration, plugin link), `Transcript(env, sid)` (a glob: the fi
 kind's directory for it is the kind's own, T-813), `Session(first line)` (the session a
 transcript begins with: Codex's `session_meta`, T-577), `Deliver(text, record) (Delivery, bool)` (typed
 vs inbox post), `Caps()` (hooks transport — the plugin marker is `Caps().Hooks == HooksPlugin` —, inbox, resume,
-transcript, a named session: `NamedSession`, obor chooses the id of a fresh start, T-813). `Install` and `Transcript`
+transcript, a named session: `NamedSession`, obor chooses the id of a fresh start, T-813; `Status`, where the status and
+turns come from: `terminal`, `hooks`, `transcript`, T-1036). Registry: the compiled kinds register from their init; a
+config load replaces the plugin kinds (`SetPlugins`); a plugin kind's start and install can fail (`agents.StartArgs`,
+`InstallOf`). `Install` and `Transcript`
 take the environment (config dirs: `XDG_CONFIG_HOME`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`). Registry: `agents.Lookup`, `Names`,
 `Default`. All I/O stays in the adapters, which ask the kind what differs; non-lead default settings stay in
 `config.LaneType.LaunchArgs`, which asks the kind to render them. No kind name outside the bridges (boundary test).

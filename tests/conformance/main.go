@@ -2,7 +2,8 @@
 
 // Command conformance checks the facts obor's drivers depend on in the tools they drive (deep dive §6). It is a
 // program behind the conformance build tag, outside `go test ./...`: run it with
-// `make conformance [KIND=herdr|claude|codex|opencode] [TIER=static|live] [TURN=1]`. Each check prints one line,
+// `make conformance [KIND=herdr|claude|codex|opencode|plugin] [TIER=static|live] [TURN=1]` (plugin: the kind protocol
+// against a shell-script kind, static only, T-1036). Each check prints one line,
 // `PASS|FAIL|SKIP|WARN <id> <fact> (<driver file:line>, CAP §x)`, and the last line sums them. The exit status is 1
 // when any check FAILs. A tool that is not installed, or a check that cannot run (no auth, no TURN), SKIPs with why.
 // Every run records the versions it checked in .obor/state/conformance.json (report.go).
@@ -65,16 +66,20 @@ func main() {
 		fmt.Fprintln(os.Stderr, "FAIL conformance:", err)
 		os.Exit(2)
 	}
-	run := kinds
+	all := kinds
+	if tier == "static" { // the kind protocol has no live tier: its kind is a script, no CLI (plugin.go)
+		all = append(all[:len(all):len(all)], "plugin")
+	}
+	run := all
 	if kind != "" {
 		run = nil
-		for _, k := range kinds {
+		for _, k := range all {
 			if k == kind {
 				run = []string{k}
 			}
 		}
 		if run == nil {
-			report("SKIP", "kind", "no checks for kind "+kind+" (kinds: "+strings.Join(kinds, " ")+")", "tests/conformance")
+			report("SKIP", "kind", "no checks for kind "+kind+" (kinds: "+strings.Join(all, " ")+")", "tests/conformance")
 		}
 	}
 	switch tier {
@@ -97,7 +102,8 @@ func main() {
 }
 
 // static is each kind's static tier.
-var static = map[string]func(){"herdr": herdrStatic, "claude": claudeStatic, "codex": codexStatic, "opencode": opencodeStatic}
+var static = map[string]func(){"herdr": herdrStatic, "claude": claudeStatic, "codex": codexStatic, "opencode": opencodeStatic,
+	"plugin": pluginStatic}
 
 // toRepoRoot moves to the directory holding go.mod, so the driver files named in the lines resolve.
 func toRepoRoot() error {

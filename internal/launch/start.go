@@ -56,7 +56,11 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
 	if s.Resume == "" && k.Caps().NamedSession {
 		session = l.nameSession(ctx, s)
 	}
-	s.Args = startArgs(k, s, kit, session)
+	args, err := startArgs(k, s, kit, session)
+	if err != nil {
+		return port.Pane{}, project.Failf("%s: %v", s.Agent, err)
+	}
+	s.Args = args
 	shown := strings.Join(s.Args, " ")
 	if shown == "" {
 		shown = "none"

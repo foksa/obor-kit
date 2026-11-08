@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -52,7 +53,7 @@ type Kind interface {
 	Transcript(env func(string) string, sid string) string
 	// LastTurn is the last turn a part of a session's transcript records, whole lines only (a partial last line is
 	// not read); ok false: none in it. The adapter passes the transcript's end, then earlier parts while none is found.
-	// A kind whose hooks report a stop reads none (Caps.Turns false).
+	// A kind whose hooks report a stop reads none (Caps.Status not StatusTranscript).
 	LastTurn(tail []byte) (t Turn, ok bool)
 	// Session is the session a transcript's first line names (T-577: launch finds a new session's transcript by it);
 	// ok false: this kind's transcripts name none there, or the line is not such a record.
@@ -132,7 +133,7 @@ type ProjectChecker interface {
 func ProjectWarnings(dir string, read ReadFile) []string {
 	var out []string
 	for _, n := range Names() {
-		if c, ok := kinds[n].(ProjectChecker); ok {
+		if c, ok := lookup(n).(ProjectChecker); ok {
 			out = append(out, c.ProjectWarnings(dir, read)...)
 		}
 	}
@@ -232,8 +233,10 @@ type Caps struct {
 	Resume     bool // Start honours Resume
 	Skills     bool // a first prompt may be a plugin's slash command (/obor:lead, T-594)
 	Transcript bool // Transcript finds the session file
-	Turns      bool // LastTurn reads the session's turns from its transcript (T-563)
-	Sessions   bool // Session reads the session a transcript begins with: launch reports a fresh start's (T-577)
+	// Status is where the agent's status and turns come from (T-1036): StatusTranscript, LastTurn reads the session's
+	// turns from its transcript (T-563, Codex); StatusTerminal, herdr's agent detection; StatusHooks, its hooks.
+	Status   Status
+	Sessions bool // Session reads the session a transcript begins with: launch reports a fresh start's (T-577)
 	// NamedSession: a fresh start names its session id (Start.Session: obor's choice, recorded before the start) and
 	// its transcript is the path the session itself reports: obor is the only source of its session ids, so herdr's
 	// agent_session is never adopted for a resume (T-813).
@@ -243,6 +246,21 @@ type Caps struct {
 	// VersionVar is the session's environment variable holding the CLI's version, for the plugin marker ("": none)
 	VersionVar string
 }
+
+// Status is a kind's source of its agents' status (idle, working, done) and turns (Caps.Status, T-1036).
+type Status string
+
+const (
+	StatusTerminal   Status = "terminal"   // the terminal's agent detection (herdr's --kind)
+	StatusHooks      Status = "hooks"      // the kind's hooks report a turn's start and stop
+	StatusTranscript Status = "transcript" // LastTurn reads the turns from the session's transcript
+)
+
+// Statuses are the Status values, in the manifest's order (a plugin kind's `status`).
+var Statuses = []Status{StatusTerminal, StatusHooks, StatusTranscript}
+
+// TurnsRead: k's turns are read from its transcript (Caps.Status StatusTranscript).
+func TurnsRead(k Kind) bool { return k.Caps().Status == StatusTranscript }
 
 // Default is the kind of an agent with no type that herdr reports no kind for.
 const Default = "claude"
@@ -271,7 +289,9 @@ var RetiredVars = []string{"OBOR_AGENT"}
 func Vars() []string {
 	out := append([]string{RoleVar, LaneVar}, RetiredVars...)
 	for _, n := range Names() {
-		out = append(out, kinds[n].Vars()...)
+		if k := lookup(n); k != nil {
+			out = append(out, k.Vars()...)
+		}
 	}
 	sort.Strings(out)
 	return slices.Compact(out)
@@ -309,10 +329,18 @@ func StartVars(role, lane string, kind map[string]string, keep ...string) (set [
 	return set, unset
 }
 
-var kinds = map[string]Kind{}
+// The registry: the compiled kinds (Register, from their init) and the plugin kinds the loaded config names
+// (SetPlugins, T-1036). A config load replaces the plugin kinds while serve's goroutines look kinds up: mu guards both.
+var (
+	mu      sync.RWMutex
+	kinds   = map[string]Kind{}
+	plugins = map[string]bool{} // the names in kinds that are plugin kinds
+)
 
 // Register adds k (a kind package's init); a second kind of one name panics.
 func Register(k Kind) {
+	mu.Lock()
+	defer mu.Unlock()
 	if _, dup := kinds[k.Name()]; dup {
 		panic("agents: kind " + k.Name() + " registered twice")
 	}
@@ -321,16 +349,85 @@ func Register(k Kind) {
 
 // Lookup is the kind of name; ok false: no such kind.
 func Lookup(name string) (Kind, bool) {
+	mu.RLock()
+	defer mu.RUnlock()
 	k, ok := kinds[name]
 	return k, ok
+}
+
+// lookup is Lookup's kind alone (nil: none).
+func lookup(name string) Kind {
+	k, _ := Lookup(name)
+	return k
+}
+
+// PluginLoader builds the kinds a project's config names as executables (kinds.<name>.command, T-1036); the plugin
+// package (internal/agents/plugin) sets Plugins from its init, so the config (which cannot import it) registers them.
+type PluginLoader interface {
+	// Kind is the kind name answering obor's kind protocol as command, its manifest the one obor setup agents cached in
+	// stateDir: no process runs (hooks and the guard load the config).
+	Kind(name, command, stateDir string) Kind
+	// Check runs command's describe: why it cannot be the kind name (not executable, no answer, a bad manifest); nil:
+	// it answers (obor config validate).
+	Check(name, command string) error
+}
+
+// Plugins is the binary's PluginLoader; nil: this binary runs no plugin kinds.
+var Plugins PluginLoader
+
+// SetPlugins makes ks the plugin kinds (a config load: the kinds its kinds.<name>.command name), replacing the last
+// load's. A plugin kind never replaces a compiled one (obor config validate refuses the name): it is left out.
+func SetPlugins(ks []Kind) {
+	mu.Lock()
+	defer mu.Unlock()
+	for n := range plugins {
+		delete(kinds, n)
+	}
+	clear(plugins)
+	for _, k := range ks {
+		if _, compiled := kinds[k.Name()]; !compiled {
+			kinds[k.Name()] = k
+			plugins[k.Name()] = true
+		}
+	}
+}
+
+// IsPlugin: name is a plugin kind of the loaded config (no compiled kind).
+func IsPlugin(name string) bool {
+	mu.RLock()
+	defer mu.RUnlock()
+	return plugins[name]
+}
+
+// Fallible is a kind whose calls can fail (a plugin kind runs a process, T-1036): Start and Install with their error.
+// Its Start and Install give the failure's zero form (no args; no registration, Lane saying why).
+type Fallible interface {
+	StartErr(in Start) ([]string, error)
+	InstallErr(kit string, env func(string) string) (Install, error)
+}
+
+// StartArgs is k.Start(in), or a Fallible kind's StartErr: the argv, or why the kind could not build it.
+func StartArgs(k Kind, in Start) ([]string, error) {
+	if f, ok := k.(Fallible); ok {
+		return f.StartErr(in)
+	}
+	return k.Start(in), nil
+}
+
+// InstallOf is k.Install(kit, env), or a Fallible kind's InstallErr.
+func InstallOf(k Kind, kit string, env func(string) string) (Install, error) {
+	if f, ok := k.(Fallible); ok {
+		return f.InstallErr(kit, env)
+	}
+	return k.Install(kit, env), nil
 }
 
 // ByProgram is the kind whose Headless.Programs (default: its Name()) holds program, an executable's base name; ok
 // false: no kind runs as program.
 func ByProgram(program string) (Kind, bool) {
 	for _, n := range Names() {
-		if slices.Contains(Programs(kinds[n]), program) {
-			return kinds[n], true
+		if k := lookup(n); k != nil && slices.Contains(Programs(k), program) {
+			return k, true
 		}
 	}
 	return nil, false
@@ -339,21 +436,21 @@ func ByProgram(program string) (Kind, bool) {
 // Skills: the kind named name takes a plugin's slash command as its first prompt (its Caps.Skills); an unknown kind
 // does not.
 func Skills(name string) bool {
-	k, ok := kinds[name]
+	k, ok := Lookup(name)
 	return ok && k.Caps().Skills
 }
 
 // Resumes: the kind named name resumes a session (its Caps.Resume), as OpenCode's does not (T-581); an unknown kind
 // does not either.
 func Resumes(name string) bool {
-	k, ok := kinds[name]
+	k, ok := Lookup(name)
 	return ok && k.Caps().Resume
 }
 
 // NamedSession: the kind named name starts a session obor names itself (its Caps.NamedSession, T-813); an unknown
 // kind's sessions are not obor's.
 func NamedSession(name string) bool {
-	k, ok := kinds[name]
+	k, ok := Lookup(name)
 	return ok && k.Caps().NamedSession
 }
 
@@ -363,7 +460,7 @@ func CheckEffort(kind, effort string) error {
 	if effort == "" {
 		return nil
 	}
-	k, ok := kinds[kind]
+	k, ok := Lookup(kind)
 	if !ok {
 		return fmt.Errorf("kind %s has no bridge, so no effort", kind)
 	}
@@ -380,7 +477,7 @@ func CheckEffortArgs(kind string, args []string, effort string) error {
 	if err := CheckEffort(kind, effort); err != nil || effort == "" {
 		return err
 	}
-	if c, ok := kinds[kind].(ArgsChecker); ok {
+	if c, ok := lookup(kind).(ArgsChecker); ok {
 		return c.CheckEffort(args, effort)
 	}
 	return nil
@@ -394,7 +491,7 @@ type ModelEditor interface {
 
 // ModelArgs is args of kind with model as their model (ModelEditor); an error for a kind whose model is no arg.
 func ModelArgs(kind string, args []string, model string) ([]string, error) {
-	e, ok := kinds[kind].(ModelEditor)
+	e, ok := lookup(kind).(ModelEditor)
 	if !ok {
 		return nil, fmt.Errorf("kind %s names no model in its args", kind)
 	}
@@ -461,6 +558,8 @@ func Programs(k Kind) []string {
 
 // Names are the registered kinds, sorted.
 func Names() []string {
+	mu.RLock()
+	defer mu.RUnlock()
 	out := make([]string, 0, len(kinds))
 	for n := range kinds {
 		out = append(out, n)

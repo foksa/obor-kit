@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"obor/internal/agents"
 	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/spec"
@@ -559,5 +560,55 @@ func TestValidateProjectFiles(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("validate = %q, want %q", got, want)
+	}
+}
+
+// TestPluginKind (T-1036): kinds.<name>.command registers a plugin kind on load (agents.Lookup finds it, a model may
+// name it); validate runs its describe: a command that answers passes, one that is not executable, answers for another
+// kind, or takes a compiled kind's name fails.
+func TestPluginKind(t *testing.T) {
+	p := newPlainProject(t)
+	cmd := filepath.Join(p.Root, "kinds", "obor-kind-mine")
+	if err := os.MkdirAll(filepath.Dir(cmd), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\ncat >/dev/null\necho '{\"version\":1,\"name\":\"mine\",\"status\":\"hooks\",\"stop\":{\"quit\":\"/q\"}}'\n"
+	if err := os.WriteFile(cmd, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cmd+".txt", []byte(script), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mine := set("kinds.mine", map[string]any{"command": "kinds/obor-kind-mine"})
+	got := validate(t, p, mine, set("models.m1", map[string]any{"kind": "mine", "model": ""}))
+	if len(got) != 0 {
+		t.Errorf("a plugin kind that answers: %q, want OK", got)
+	}
+	if !agents.IsPlugin("mine") {
+		t.Fatal("kinds.mine.command: no plugin kind mine registered on load")
+	}
+	if _, ok := agents.Lookup("mine"); !ok {
+		t.Error("agents.Lookup(mine): none")
+	}
+	for _, c := range []struct {
+		name string
+		edit edit
+		want string
+	}{
+		{"not executable", set("kinds.mine", map[string]any{"command": "kinds/obor-kind-mine.txt"}),
+			"FAIL .kinds.mine.command: " + cmd + ".txt is not an executable file"},
+		{"another kind's describe", set("kinds.other", map[string]any{"command": cmd}),
+			`FAIL .kinds.other.command: kind other: describe: manifest names kind "mine", the config "other"`},
+		{"a compiled kind's name", set("kinds.claude", map[string]any{"command": cmd}),
+			"FAIL .kinds.claude.command: claude is a compiled kind: a plugin kind takes a name of its own"},
+	} {
+		got := validate(t, p, c.edit)
+		if len(got) != 1 || got[0] != c.want {
+			t.Errorf("%s: %q, want %q", c.name, got, c.want)
+		}
+	}
+	validate(t, p) // a load without kinds.<name>.command: no plugin kind left
+	if _, ok := agents.Lookup("mine"); ok {
+		t.Error("a config without kinds.mine: the last load's plugin kind is still registered")
 	}
 }
