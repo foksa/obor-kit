@@ -1,507 +1,487 @@
-package app_test
+package app
 
 import (
-	"encoding/json"
-	"errors"
-	"obor/internal/app/event"
-	"obor/internal/app/wire"
+	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
-	"obor/internal/app"
-	"obor/internal/herdr/herdrtest"
+	"obor/internal/agents"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 )
 
-// stoppedCall is the StopFailure hook's request for agent (role, lane) with call id: a rate_limit, 429.
-func (r *loopRig) stoppedCall(agent, role, lane, callID string) (string, error) {
-	return r.stoppedCallWith(agent, role, lane, callID, "rate_limit", "429 Too Many Requests")
-}
-
-func (r *loopRig) stoppedCallWith(agent, role, lane, callID, errText, details string) (string, error) {
-	return r.line(callID, &wire.StoppedReq{Envelope: wire.Envelope{Agent: agent, Role: role}, Lane: lane,
-		Error: errText, Details: details})
-}
-
-// T-584: the plugin's exact StopFailure error shape reaches the OpenCode Reset through both stoppedCall paths:
-// worker NeedsYou and a briefed role's roleStop keep the reset; billing_error does not. Claude remains the control.
-func TestOpenCodeStoppedReset(t *testing.T) {
+// T-617 (RV-66): a worker's stop, and its next turn clearing it, are recorded against the lane's current task — the
+// one the loop has awaiting its task_done there — never an old watch: the lane's old task ended and T-1 was dispatched
+// before the watchdog's next look, its watch of the old task still on the lane. No watch yet (T-612) still works; a
+// watch of the current task is the one used. Of two tasks awaiting task_done on the lane, the newest dispatch is the
+// current one, though its name sorts later (T-615's rule).
+func TestStoppedCurrentTaskNotAnOldWatch(t *testing.T) {
 	t.Parallel()
-	const details = "You exceeded your current quota; resets at 6pm (provider.rate-limit)|1793365200"
+	old := func() *watch { return &watch{lane: port.Lane{Name: "L-01", Agent: "pj-l-01", Task: "T-0"}} }
+	cur := func() *watch { return &watch{lane: port.Lane{Name: "L-01", Agent: "pj-l-01", Task: "T-1"}} }
 	for _, c := range []struct {
-		name, agentKind, role, errText, details string
-		roleAgent, wantLimit                    bool
-		wantReset                               int64
+		name  string
+		then  string               // a second task dispatched to L-01 after T-1 ("" none)
+		want  string               // the lane's current task
+		watch func(p *proj) *watch // the watches on L-01 before each call; the one to keep (nil: a new one)
 	}{
-		{"OpenCode worker rate limit", "opencode", "worker", "rate_limit", details, false, true, 1793365200},
-		{"OpenCode role rate limit", "opencode", "reviewer", "rate_limit", details, true, true, 1793365200},
-		{"OpenCode billing error", "opencode", "worker", "billing_error", "budget spent (provider.budget-limit)", false, false, 0},
-		{"Claude worker control", "claude", "worker", "rate_limit", "Claude AI usage limit reached|1793365200", false, true, 1793365200},
+		{"old watch, new task", "", "T-1",
+			func(p *proj) *watch { p.tasks["T-0"] = old(); delete(p.tasks, "T-1"); return nil }},
+		{"no watch yet", "", "T-1",
+			func(p *proj) *watch { delete(p.tasks, "T-0"); delete(p.tasks, "T-1"); return nil }},
+		{"watch of the current task", "", "T-1", func(p *proj) *watch { w := cur(); p.tasks["T-1"] = w; return w }},
+		{"two awaiting, newest dispatch wins", "T-2", "T-2",
+			func(p *proj) *watch { p.tasks["T-1"] = cur(); delete(p.tasks, "T-2"); return nil }},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			var r *loopRig
-			if c.roleAgent {
-				r = lineRig(t, "idle", "idle")
-				r.f.Set("w1:p6", func(p *herdrtest.Pane) { p.Kind = c.agentKind })
-				r.start()
-				if _, err := r.line("b1", &wire.BriefReq{To: "pj-rev", Text: "review"}); err != nil {
-					t.Fatal(err)
-				}
-				r.waitFor("role brief posted", func() bool { return r.typedTo("pj-rev", "[obor pj-lead] review") == 1 })
-				r.agentIs("w1:p6", "pj-rev", "working")
-				r.passes()
-			} else {
-				r = fetchRig(t)
-				r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Kind = c.agentKind })
-				r.start()
-				r.mustDispatch("d1")
-				r.waitStep("1 result work")
-				r.workerNext("n1")
-				r.waitFor("worker working", func() bool { return r.taskState() == "working" })
-			}
-
-			agent, lane := "pj-l-01", "L-01"
-			if c.roleAgent {
-				agent, lane = "pj-rev", ""
-			}
-			if _, err := r.stoppedCallWith(agent, c.role, lane, "stop", c.errText, c.details); err != nil {
+			h := newHarness(t)
+			h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","roles":{"integrator":""}}`)
+			f := &schedScratch{h: h}
+			h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Workflow: WorkflowOf(f), Agents: f, Typer: f}, nil }
+			if err := os.MkdirAll(h.lanes.lanes[0].Dir, 0o755); err != nil {
 				t.Fatal(err)
 			}
-			var stopped struct {
-				NeedsYou *event.FactData `json:"needs_you"`
-				Brief    int64           `json:"brief"`
-				Reset    int64           `json:"reset"`
+			h.lanes.lanes[0].Task = "" // the last check saw the lane free (its old task over); T-1 dispatched after
+			h.connect()
+			h.lanes.lanes[0].Task = c.want
+			tasks := []string{"T-1"}
+			if c.then != "" {
+				tasks = append(tasks, c.then)
 			}
-			for _, rec := range r.records() {
-				if rec.Task == event.MsgTask && rec.Kind == event.KindFact && rec.Step == event.StepStopped {
-					if err := json.Unmarshal(rec.Data, &stopped); err != nil {
-						t.Fatal(err)
-					}
+			for _, task := range tasks {
+				addRecord(t, h, task, event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"),
+					Agent: "pj-l-01", Branch: "task/" + task, Target: "b"})
+				addRecord(t, h, task, event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
+			}
+			p := h.a.p
+			for _, task := range tasks {
+				if mt := p.folded.loop[task]; mt == nil || !mt.awaitsTaskDone() || mt.lane != "L-01" {
+					t.Fatalf("precondition: %s %+v; want waiting on its worker in L-01", task, mt)
 				}
 			}
-			if c.roleAgent {
-				if stopped.Brief == 0 || (stopped.Reset != c.wantReset) {
-					t.Errorf("role stop = brief %d, reset %d; want an open brief and reset %d", stopped.Brief, stopped.Reset, c.wantReset)
-				}
-				return
+			if c.then != "" && !(p.folded.loop[c.then].dispSeq > p.folded.loop["T-1"].dispSeq && "T-1" < c.then) {
+				t.Fatalf("precondition: %s not the newer dispatch sorting after T-1", c.then)
 			}
-			if stopped.NeedsYou == nil || stopped.NeedsYou.Limit != c.wantLimit || stopped.NeedsYou.Reset != c.wantReset {
-				t.Errorf("worker stop needs_you = %+v; want limit %v, reset %d", stopped.NeedsYou, c.wantLimit, c.wantReset)
+			stale := "T-0" // the watch on L-01 not of the current task
+			if c.then != "" {
+				stale = "T-1"
+			}
+
+			// the stop is recorded against the current task
+			h.a.mu.Lock()
+			keep := c.watch(p)
+			h.a.mu.Unlock()
+			staleWatch := keep == nil && c.name != "no watch yet" // the case leaves a stale watch on L-01
+			if p.tasks[c.want] != keep || (p.tasks[stale] != nil) != staleWatch {
+				t.Fatalf("precondition: watches %+v; want the case's", p.tasks)
+			}
+			reply, err := h.a.stoppedCall(wire.StoppedReq{Envelope: wire.Envelope{Root: h.root, Agent: "pj-l-01",
+				Role: "worker", CallID: "s1"}, Lane: "L-01", Error: "rate_limit", Details: "429 Too Many Requests"})
+			if err != nil || reply != "STOPPED pj-l-01 (needs-you "+c.want+")" {
+				t.Fatalf("stopped: %q, %v; want %s's needs-you", reply, err, c.want)
+			}
+			if !p.stops(c.want) || p.stops(stale) {
+				t.Fatalf("stop in force: %s %v, %s %v; want %s's only", c.want, p.stops(c.want), stale, p.stops(stale),
+					c.want)
+			}
+			w := p.tasks[c.want]
+			if w == nil || w.lane.Name != "L-01" || w.lane.Task != c.want || (keep != nil && w != keep) {
+				t.Errorf("%s's watch %+v; want L-01's (the current one kept: %v)", c.want, w, keep != nil)
+			}
+			if p.tasks[stale] != nil {
+				t.Errorf("the stale watch of %s still in force after the stop", stale)
+			}
+
+			// the next turn clears the stop, the same watches on the lane again
+			h.a.mu.Lock()
+			keep = c.watch(p)
+			h.a.mu.Unlock()
+			reply, err = h.a.turnCall(wire.TurnReq{Envelope: wire.Envelope{Root: h.root, Agent: "pj-l-01",
+				Role: "worker"}, Lane: "L-01"})
+			if err != nil || reply != "TURN pj-l-01 (the stop of "+c.want+" ended)" {
+				t.Fatalf("turn: %q, %v; want %s's stop ended", reply, err, c.want)
+			}
+			if p.stops(c.want) {
+				t.Errorf("%s's stop still in force after the next turn", c.want)
+			}
+			if keep != nil && p.tasks[c.want] != keep {
+				t.Errorf("the turn replaced %s's watch; want the current one used", c.want)
+			}
+			if p.tasks[stale] != nil {
+				t.Errorf("the stale watch of %s still in force after the turn", stale)
 			}
 		})
 	}
 }
 
-// T-532: a briefed role agent whose turn ends on an API error (the StopFailure hook's request) gets fact stopped and
-// the lead's line "[obor] <agent> stopped: <error> (<details>)" instead of the brief's finished line; a repeated call
-// id gets the stored reply and records nothing. Its next brief (a later turn) ends with the finished line again.
-func TestStoppedRoleAgentLine(t *testing.T) {
-	t.Parallel()
-	r := lineRig(t, "idle", "idle")
-	r.start()
-	if _, err := r.line("b1", &wire.BriefReq{To: "pj-rev", Text: "verify finding 3"}); err != nil {
-		t.Fatal(err)
-	}
-	r.waitFor("the brief posted", func() bool { return r.inbox.count("pj-rev", "[obor pj-lead] verify finding 3") == 1 })
-	r.agentIs("w1:p6", "pj-rev", "working")
-	r.passes()
+// T-571 (RV-60 #1, #3): a turn's start and its end are different evidence, decided by one table (turnDecide). The
+// rows below run the socket-free core (lineApp: pj-rev, a briefed reviewer, over the fake herdr) with the real log and
+// folds; each ends with a replay that must give no second line and the same state.
 
-	reply, err := r.stoppedCall("pj-rev", "reviewer", "", "s1")
-	if err != nil || reply != "STOPPED pj-rev (the lead is told)" {
-		t.Fatalf("stopped: %q, %v", reply, err)
-	}
-	if again, err := r.stoppedCall("pj-rev", "reviewer", "", "s1"); err != nil || again != reply {
-		t.Errorf("a repeated call id: %q, %v; want the stored reply", again, err)
-	}
-	if n := r.taskStep(event.MsgTask, "fact stopped"); n != 1 {
-		t.Fatalf("stopped facts %d, want 1: %q", n, r.steps())
-	}
-	r.agentIs("w1:p6", "pj-rev", "idle")
-	const stopped = "[obor] pj-rev stopped: rate_limit (429 Too Many Requests)"
-	r.waitFor("the stopped line posted", func() bool { return r.inbox.count("pj-lead", stopped) == 1 })
-	r.passes()
-	r.passes()
-	if n := r.taskStep(event.MsgTask, "fact message"); n != 0 {
-		t.Errorf("a finished line besides the stopped one: %q", r.steps())
-	}
-	for _, p := range r.inbox.posted() {
-		if strings.Contains(p, "finished") {
-			t.Errorf("posted %q, want no finished line for the stopped brief", p)
+// TestTurnDecide is the table itself, row by row (stopped.go).
+func TestTurnDecide(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name string
+		in   turnCase
+		want turnAct
+	}{
+		{"stop, start: resume", turnCase{stopped: true, ended: false}, turnResume},
+		{"stop, start, work seen: still resume (a lingering status)", turnCase{stopped: true, worked: true}, turnResume},
+		{"stop, end: finish", turnCase{stopped: true, ended: true}, turnFinish},
+		{"stop, end on an error: stop", turnCase{stopped: true, ended: true, failed: true}, turnStop},
+		{"followed, start: none", turnCase{followed: true}, turnNone},
+		{"followed, end: finish", turnCase{followed: true, ended: true}, turnFinish},
+		{"followed, end on an error: stop", turnCase{followed: true, ended: true, failed: true}, turnStop},
+		{"neither, start: none", turnCase{worked: true}, turnNone},
+		{"neither, end: none (seen work arms the finish)", turnCase{worked: true, ended: true}, turnNone},
+		{"neither, end on an error after work: stop", turnCase{worked: true, ended: true, failed: true}, turnStop},
+		{"neither, end on an error, no work: none", turnCase{ended: true, failed: true}, turnNone},
+	} {
+		if got := turnDecide(c.in); got != c.want {
+			t.Errorf("%s: turnDecide(%+v) = %d, want %d", c.name, c.in, got, c.want)
 		}
 	}
+}
 
-	// The agent's next turn: a new brief, worked and idle → its finished line.
-	if _, err := r.line("b2", &wire.BriefReq{To: "pj-rev", Text: "go on"}); err != nil {
+// turnRig is the line core with pj-rev (kind) briefed, its work seen, then stopped on a usage limit resetting at
+// now+1h: a Codex reviewer's by its rollout's turn "old" (roleTurns), a Claude one's by its StopFailure hook.
+type turnRig struct {
+	t    *testing.T
+	a    *App
+	p    *proj
+	now  *time.Time
+	kind string
+	turn agents.Turn // the rollout's last turn (Codex)
+	out  *linerSpy
+}
+
+func newTurnRig(t *testing.T, kind string) *turnRig {
+	now := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
+	r := &turnRig{t: t, now: &now, kind: kind, out: &linerSpy{}}
+	r.a, r.p = lineApp(t, lineRoot(t), r.now)
+	r.setKind()
+	queueLine(t, r.a, r.p, "finished", now) // briefed, worked, idle
+	if kind == "codex" {
+		r.turn = agents.Turn{ID: "old", Ended: true, Error: "usage_limit_exceeded", Details: "limit",
+			Reset: now.Add(time.Hour)}
+	} else if _, err := r.a.stoppedCall(wire.StoppedReq{Envelope: wire.Envelope{Root: r.p.root, CallID: "limit",
+		Agent: "pj-rev", Role: "reviewer"}, Error: "rate_limit",
+		Details: "limit|" + strconv.FormatInt(now.Add(time.Hour).Unix(), 10)}); err != nil {
 		t.Fatal(err)
 	}
-	r.waitFor("the second brief posted", func() bool { return r.inbox.count("pj-rev", "[obor pj-lead] go on") == 1 })
-	r.agentIs("w1:p6", "pj-rev", "working")
-	r.agentIs("w1:p6", "pj-rev", "idle")
-	r.waitFor("the finished line of the next brief", func() bool {
-		return r.inbox.count("pj-lead", "[obor] pj-rev finished (briefed 0s ago)") == 1
-	})
-	if n := r.inbox.count("pj-lead", stopped); n != 1 {
-		t.Errorf("stopped line posted %d times, want once", n)
+	r.deliver()
+	if b := r.p.out.brief("pj-rev"); b == nil || b.stop == nil || r.stops() != 1 || r.finished() != 0 {
+		t.Fatalf("precondition: one stop on an open brief, no finished line: %+v, %d stops, %d finished",
+			b, r.stops(), r.finished())
 	}
+	return r
 }
 
-// turnCall is a worker's UserPromptSubmit or Stop hook telling serve its next turn began or ended (T-540).
-func (r *loopRig) turnCall() (string, error) {
-	return r.line(wire.NewCallID(), &wire.TurnReq{Envelope: wire.Envelope{Agent: "pj-l-01", Role: "worker"},
-		Lane: "L-01"})
+// setKind makes pj-rev's pane of r's kind (an event: observed).
+func (r *turnRig) setKind() {
+	pane := r.a.obs["w:rev"].pane
+	pane.Agent = r.kind
+	eventNow(r.a, port.Event{Kind: port.EventStatus, Pane: pane.ID, Status: pane.Status, Agent: r.kind, New: pane})
 }
 
-// stopReason is the worker's stop the rig's stoppedCall records.
-const stopReason = "pj-l-01 stopped: rate_limit (429 Too Many Requests)"
+// deliver is one delivery pass, the rollout's last turn r.turn (Codex).
+func (r *turnRig) deliver() {
+	f := r.a.panes.(*fakePanes)
+	f.turn, f.turned = r.turn, r.kind == "codex" && r.turn.ID != ""
+	r.a.deliver(context.Background(), r.p, linerLoop(r.out))
+}
 
-// stopsInForce is how many needs-you{stopReason} of T-1 are in force.
-func (r *loopRig) stopsInForce() int {
+// status is pj-rev's pane status as herdr reports it.
+func (r *turnRig) status(s string) { lineStatus(r.a, "w:rev", s, *r.now) }
+
+// hook is pj-rev's turn request: its Stop hook's (ended), else its UserPromptSubmit's.
+func (r *turnRig) hook(ended bool) string {
+	reply, err := r.a.turnCall(wire.TurnReq{Envelope: wire.Envelope{Root: r.p.root, Agent: "pj-rev", Role: "reviewer"},
+		Ended: ended})
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	return reply
+}
+
+// facts counts the log's facts of the lines with step whose data contains sub.
+func (r *turnRig) facts(step, sub string) int {
+	recs, err := event.ReadLog(r.p.root)
+	if err != nil {
+		r.t.Fatal(err)
+	}
 	n := 0
-	for _, f := range r.app.Status().Project.Facts {
-		if f.Task == "T-1" && f.Step == event.StepNeedsYou && f.Fact().Reason == stopReason {
+	for _, rec := range recs {
+		if rec.Task == event.MsgTask && rec.Kind == event.KindFact && rec.Step == step && strings.Contains(string(rec.Data), sub) {
 			n++
 		}
 	}
 	return n
 }
 
-// stoppedWorker is the fetch rig with T-1's worker working, then its turn ended on an API error (the stopped call
-// s1): the stop is in force.
-func stoppedWorker(t *testing.T) *loopRig {
-	r := fetchRig(t)
-	r.start()
-	r.mustDispatch("d1")
-	r.waitStep("1 result work")
-	r.workerNext("n1")
-	r.waitFor("working", func() bool { return r.taskState() == "working" })
-	r.workerIs("working")
-	if reply, err := r.stoppedCall("pj-l-01", "worker", "L-01", "s1"); err != nil || reply != "STOPPED pj-l-01 (needs-you T-1)" {
-		t.Fatalf("stopped: %q, %v", reply, err)
+func (r *turnRig) stops() int { return r.facts(event.StepStopped, `"agent":"pj-rev"`) }
+
+func (r *turnRig) finished() int { return r.facts(event.StepMessage, "pj-rev finished") }
+
+// state is pj-rev's brief as the folds hold it: open, stopped (its turn), followed, worked.
+func (r *turnRig) state() string {
+	b := r.p.out.brief("pj-rev")
+	if b == nil {
+		return "closed"
 	}
-	if n := r.stopsInForce(); n != 1 {
-		t.Fatalf("precondition: stops in force %d, want 1: %+v", n, r.app.Status().Project.Facts)
+	s := "open"
+	if b.stop != nil {
+		s += " stopped(" + b.stop.turn + ")"
 	}
-	return r
+	if b.followed {
+		s += " followed"
+	}
+	if b.worked {
+		s += " worked"
+	}
+	return s
 }
 
-// T-532, T-540: a worker whose turn ends on an API error gets one fact stopped carrying its task, and the watchdog's
-// needs-you{<agent> stopped: <error> (<details>)} of the task folded from it, posted to the lead as
-// "[obor] needs-you T-1 (L-01): …"; its working status does not end it, nor does an idle wait stall it; its next
-// turn's hook (the turn request) ends it: fact resumed.
-func TestStoppedWorkerNeedsYou(t *testing.T) {
+// replayed restarts serve (the log replayed, the pane seen anew) and runs two delivery passes on the same evidence:
+// no new line or fact, the same state.
+func (r *turnRig) replayed() {
+	r.t.Helper()
+	state, stops, finished, turned := r.state(), r.stops(), r.finished(), r.facts(event.StepTurned, "")
+	r.a, r.p = lineReload(r.t, r.a, r.p, r.now)
+	r.setKind()
+	r.deliver()
+	r.deliver()
+	if r.state() != state || r.stops() != stops || r.finished() != finished || r.facts(event.StepTurned, "") != turned {
+		r.t.Errorf("after a replay: %s, %d stops, %d finished, %d turned; want %s, %d, %d, %d", r.state(), r.stops(),
+			r.finished(), r.facts(event.StepTurned, ""), state, stops, finished, turned)
+	}
+}
+
+// RV-60 #1: a Codex role's next turn starts while herdr still says idle → the stop ends, the brief stays open, no
+// finished line; that turn's task_complete → the finished line, once.
+func TestTurnCodexStartWhileIdle(t *testing.T) {
 	t.Parallel()
-	r := stoppedWorker(t)
-	if n := r.taskStep(event.MsgTask, "fact stopped"); n != 1 {
-		t.Fatalf("stopped facts %d, want 1: %q", n, r.steps())
+	r := newTurnRig(t, "codex")
+	r.turn = agents.Turn{ID: "new"} // task_started; the pane still idle
+	r.deliver()
+	r.deliver()
+	if s := r.state(); s != "open followed" || r.finished() != 0 || r.facts(event.StepTurned, "") != 1 {
+		t.Fatalf("at the start: %s, %d finished, %d turned; want open followed, 0, 1", s, r.finished(),
+			r.facts(event.StepTurned, ""))
 	}
-	if r.hasPrefix("0 fact needs-you") {
-		t.Errorf("a second record for the stop: %q, want the needs-you folded from stopped", r.steps())
+	r.replayed()
+	r.turn = agents.Turn{ID: "new", Ended: true} // task_complete
+	r.deliver()
+	r.deliver()
+	if s := r.state(); s != "closed" || r.finished() != 1 {
+		t.Fatalf("at the end: %s, %d finished; want closed, 1", s, r.finished())
 	}
-	const line = "[obor] needs-you T-1 (L-01): " + stopReason
-	r.waitFor("the needs-you line posted", func() bool {
-		for _, p := range r.inbox.posted() {
-			if strings.HasPrefix(p, "pj-lead: "+line) {
-				return true
-			}
-		}
-		return false
-	})
-
-	r.push()
-	r.passes() // herdr still shows the stopped turn working
-	r.workerIs("idle")
-	r.later(25 * time.Minute)
-	r.push()
-	r.passes()
-	r.later(time.Second)
-	r.workerIs("working") // working again: not evidence of a new turn
-	r.push()
-	r.passes()
-	if r.hasPrefix("0 fact stalled") || r.hasPrefix("0 fact resumed") || r.stopsInForce() != 1 {
-		t.Fatalf("while stopped: %q, want only the stop in force", r.steps())
-	}
-	reply, err := r.turnCall()
-	if err != nil || reply != "TURN pj-l-01 (the stop of T-1 ended)" {
-		t.Fatalf("turn: %q, %v", reply, err)
-	}
-	if !r.has("0 fact resumed") {
-		t.Errorf("no fact resumed after the next turn: %q", r.steps())
-	}
-	if f := r.app.Status().Project.Facts; len(f) != 0 {
-		t.Errorf("facts in force %+v after the next turn, want none", f)
-	}
-	if again, err := r.turnCall(); err != nil || again != "TURN pj-l-01 (no stop)" || r.count("0 fact resumed") != 1 {
-		t.Errorf("a later turn: %q, %v, %d resumed; want nothing recorded", again, err, r.count("0 fact resumed"))
-	}
+	r.replayed()
 }
 
-// T-540 (RV-56 #2): the worker's stop is one record. With every needs-you append refused (the old second write
-// failing) the stop is in force all the same; after a replay (serve cut right after stopped) it is still, and an
-// identical retry of the call gets the same reply and records nothing, the needs-you in force once.
-func TestStoppedWorkerOneRecordReplay(t *testing.T) {
+// RV-60 #1: the resumed turn starts, then hits its limit too → a second stop, the brief open, its wake due after the
+// new reset (and not before).
+func TestTurnCodexStartThenLimit(t *testing.T) {
 	t.Parallel()
-	r := fetchRig(t)
-	r.start()
-	r.mustDispatch("d1")
-	r.waitStep("1 result work")
-	r.workerNext("n1")
-	r.waitFor("working", func() bool { return r.taskState() == "working" })
-	r.workerIs("working")
-	app.Refuse(r.app, r.p.Root, func(rec event.Record) error {
-		if rec.Step == event.StepNeedsYou {
-			return errors.New("needs-you refused")
-		}
-		return nil
-	})
-
-	reply, err := r.stoppedCall("pj-l-01", "worker", "L-01", "s1")
-	if err != nil || reply != "STOPPED pj-l-01 (needs-you T-1)" {
-		t.Fatalf("stopped: %q, %v", reply, err)
+	r := newTurnRig(t, "codex")
+	r.turn = agents.Turn{ID: "new"}
+	r.deliver()
+	reset := r.now.Add(2 * time.Hour)
+	r.turn = agents.Turn{ID: "new", Ended: true, Error: "usage_limit_exceeded", Details: "limit", Reset: reset}
+	r.deliver()
+	r.deliver()
+	if s := r.state(); s != "open stopped(new)" || r.stops() != 2 || r.finished() != 0 {
+		t.Fatalf("after the second limit: %s, %d stops, %d finished; want open stopped(new), 2, 0", s, r.stops(),
+			r.finished())
 	}
-	if n := r.stopsInForce(); n != 1 {
-		t.Fatalf("stops in force %d with the needs-you append refused, want 1", n)
+	r.replayed()
+	*r.now = reset.Add(time.Minute)
+	r.a.roleWakes(context.Background(), r.p, linerLoop(r.out))
+	if n := typedTo(r.out, roleContinue); n != 0 {
+		t.Fatalf("woken %d times before the new reset+2m", n)
 	}
-	r.stop() // the cut: nothing after stopped
-	r.start()
-	if n := r.stopsInForce(); n != 1 {
-		t.Fatalf("after replay: stops in force %d, want 1: %q", n, r.steps())
+	*r.now = reset.Add(wakeAfter)
+	r.a.roleWakes(context.Background(), r.p, linerLoop(r.out))
+	r.a.roleWakes(context.Background(), r.p, linerLoop(r.out))
+	if n := typedTo(r.out, roleContinue); n != 1 {
+		t.Fatalf("at the new reset+2m: %d wakes, want 1", n)
 	}
-	again, err := r.stoppedCall("pj-l-01", "worker", "L-01", "s1")
-	if err != nil || again != reply {
-		t.Errorf("identical retry: %q, %v; want %q", again, err, reply)
-	}
-	if n, m := r.taskStep(event.MsgTask, "fact stopped"), r.stopsInForce(); n != 1 || m != 1 {
-		t.Errorf("after the retry: %d stopped facts, %d stops in force; want 1, 1: %q", n, m, r.steps())
+	r.replayed()
+	r.a.roleWakes(context.Background(), r.p, linerLoop(r.out))
+	if n := typedTo(r.out, roleContinue); n != 1 {
+		t.Errorf("after a replay: %d wakes, want 1", n)
 	}
 }
 
-// T-540 (RV-56 #3): serve restarts while herdr still shows the stopped turn working (the same snapshot, seen anew
-// later than the stop): the stop stays.
-func TestStoppedWorkerRestartSameWorking(t *testing.T) {
-	t.Parallel()
-	r := stoppedWorker(t)
-	r.later(5 * time.Second)
-	r.stop()
-	r.start()
-	r.workerIs("working")
-	r.later(5 * time.Second)
-	r.push()
-	r.passes()
-	if r.hasPrefix("0 fact resumed") || r.stopsInForce() != 1 {
-		t.Fatalf("after a restart on the same working pane: %q, %d stops; want the stop in force", r.steps(),
-			r.stopsInForce())
-	}
-}
-
-// T-540 (RV-56 #3): two turns within one second, the clock not moved: idle, working again, then the next turn's
-// UserPromptSubmit (the turn request) ends the stop.
-func TestStoppedWorkerNextTurnSameSecond(t *testing.T) {
-	t.Parallel()
-	r := stoppedWorker(t)
-	r.workerIs("idle")
-	r.workerIs("working")
-	r.passes()
-	if r.stopsInForce() != 1 {
-		t.Fatalf("precondition: the stop in force before the hook: %q", r.steps())
-	}
-	if reply, err := r.turnCall(); err != nil || reply != "TURN pj-l-01 (the stop of T-1 ended)" {
-		t.Fatalf("turn: %q, %v", reply, err)
-	}
-	if r.stopsInForce() != 0 || !r.has("0 fact resumed") {
-		t.Errorf("after the next turn's prompt: %q, %d stops; want resumed, none", r.steps(), r.stopsInForce())
-	}
-}
-
-// posted is the posts that went out ("<agent>: <line>"), in order.
-func (in *rigInbox) posted() []string {
-	in.mu.Lock()
-	defer in.mu.Unlock()
-	return append([]string(nil), in.posts...)
-}
-
-// Codex rollout lines (the shape of a real rollout, 2026-10-15): turn t1's start and an item, its end on the usage
-// limit, turn t2's start and its clean end.
-const (
-	cdxStarted = `{"type":"event_msg","payload":{"type":"task_started","turn_id":"t1"}}` + "\n" +
-		`{"type":"response_item","payload":{"type":"message"}}` + "\n"
-	cdxLimitMsg = "You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/settings/usage to purchase more credits or try again at 6:30 PM."
-	cdxLimited  = `{"type":"event_msg","payload":{"type":"task_complete","turn_id":"t1","last_agent_message":null,"error":{"message":"` +
-		cdxLimitMsg + `","codex_error_info":"usage_limit_exceeded"}}}` + "\n"
-	cdxStarted2 = `{"type":"event_msg","payload":{"type":"task_started","turn_id":"t2"}}` + "\n"
-	cdxDone2    = `{"type":"event_msg","payload":{"type":"task_complete","turn_id":"t2","last_agent_message":"done"}}` + "\n"
-)
-
-// codexRig is the fetch rig with T-1's worker a Codex agent working on it, its rollout (append adds lines) holding
-// turn t1's start, then the end on the usage limit: the stop in force (inForce counts it, its turn t1).
-type codexRig struct {
-	*loopRig
-	append  func(string)
-	reason  string
-	inForce func() int
-}
-
-func codexStopped(t *testing.T) codexRig {
-	return codexStoppedOn(t, cdxLimited, cdxReason)
-}
-
-// cdxReason is the stop's reason on the usage limit (T-563).
-const cdxReason = "pj-l-01 stopped: usage_limit_exceeded (" + cdxLimitMsg + ")"
-
-// codexStoppedOn is codexStopped with limited the lines that end turn t1, so the stop in force says reason.
-func codexStoppedOn(t *testing.T, limited, reason string) codexRig {
-	r := fetchRig(t)
-	r.start()
-	r.mustDispatch("d1")
-	r.waitStep("1 result work")
-	r.workerNext("n1")
-	r.waitFor("working", func() bool { return r.taskState() == "working" })
-	rollout := filepath.Join(t.TempDir(), "rollout-2026-10-15T13-25-21-c1.jsonl")
-	c := codexRig{loopRig: r, reason: reason}
-	c.append = func(s string) {
-		f, err := os.OpenFile(rollout, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer f.Close()
-		if _, err := f.WriteString(s); err != nil {
-			t.Fatal(err)
+func typedTo(l *linerSpy, line string) int {
+	n := 0
+	for _, c := range l.calls {
+		if strings.HasSuffix(c, ": "+line) {
+			n++
 		}
 	}
-	c.inForce = func() int {
-		n := 0
-		for _, f := range r.app.Status().Project.Facts {
-			if f.Task == "T-1" && f.Step == event.StepNeedsYou && f.Fact().Reason == c.reason &&
-				f.Fact().Cause == "stopped" && f.Fact().Turn == "t1" {
-				n++
-			}
-		}
-		return n
-	}
-	c.append(cdxStarted)
-	r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Kind, p.Transcript = "codex", rollout })
-	r.workerIs("idle") // the turn's start is the last event: running, not stopped
-	r.passes()
-	if r.taskStep(event.MsgTask, "fact stopped") != 0 || r.hasPrefix("0 fact needs-you") {
-		t.Fatalf("precondition: a stop with the turn running: %q", r.steps())
-	}
-	c.append(limited)
-	r.push()
-	r.waitFor("the stop in force", func() bool { return c.inForce() == 1 })
-	return c
+	return n
 }
 
-// T-563: a Codex worker (no StopFailure hook) whose rollout's last turn ended on its usage limit is read when it goes
-// idle with its task open: one fact stopped with the turn, its needs-you{pj-l-01 stopped: usage_limit_exceeded
-// (<message>)} folded from it and posted to the lead, as the hook's (while the turn's start was the last event,
-// nothing: codexStopped); more idle checks and a replay record nothing more; a later turn's start in the rollout (the
-// pane working) ends it: fact resumed, and its clean end records nothing.
-func TestStoppedCodexUsageLimit(t *testing.T) {
+// Control: the Codex role is seen working first (its start read with it), then idle with the turn's end → the
+// finished line once.
+func TestTurnCodexWorkingFirst(t *testing.T) {
 	t.Parallel()
-	r := codexStopped(t)
-	line := "pj-lead: [obor] needs-you T-1 (L-01): " + r.reason
-	r.waitFor("the needs-you line posted", func() bool {
-		for _, p := range r.inbox.posted() {
-			if strings.HasPrefix(p, line) {
-				return true
-			}
-		}
-		return false
-	})
-	r.later(25 * time.Minute) // idle long after: no stall, no second stop
-	r.push()
-	r.passes()
-	if n := r.taskStep(event.MsgTask, "fact stopped"); n != 1 || r.inForce() != 1 || r.hasPrefix("0 fact needs-you") ||
-		r.hasPrefix("0 fact stalled") {
-		t.Fatalf("after more idle checks: %d stopped facts, %d in force: %q; want one of each, nothing else",
-			n, r.inForce(), r.steps())
+	r := newTurnRig(t, "codex")
+	r.status("working")
+	r.turn = agents.Turn{ID: "new"}
+	r.deliver()
+	if s := r.state(); s != "open followed" || r.finished() != 0 {
+		t.Fatalf("working: %s, %d finished; want open followed, 0", s, r.finished())
 	}
-
-	r.stop() // a replay
-	r.start()
-	r.push()
-	r.passes()
-	if n := r.taskStep(event.MsgTask, "fact stopped"); n != 1 || r.inForce() != 1 {
-		t.Fatalf("after a replay: %d stopped facts, %d in force: %q; want 1, 1", n, r.inForce(), r.steps())
+	r.status("idle")
+	r.turn = agents.Turn{ID: "new", Ended: true}
+	r.deliver()
+	r.deliver()
+	if s := r.state(); s != "closed" || r.finished() != 1 {
+		t.Fatalf("idle, the turn ended: %s, %d finished; want closed, 1", s, r.finished())
 	}
-
-	r.workerIs("working") // working alone is no new turn
-	r.passes()
-	if r.hasPrefix("0 fact resumed") || r.inForce() != 1 {
-		t.Fatalf("working, the rollout's last turn still t1: %q", r.steps())
-	}
-	r.append(cdxStarted2)
-	r.push()
-	r.waitFor("fact resumed", func() bool { return r.has("0 fact resumed") })
-	if r.inForce() != 0 {
-		t.Errorf("the stop in force after the next turn: %+v", r.app.Status().Project.Facts)
-	}
-	r.append(cdxDone2)
-	r.workerIs("idle")
-	r.passes()
-	if n, m := r.taskStep(event.MsgTask, "fact stopped"), r.count("0 fact resumed"); n != 1 || m != 1 {
-		t.Errorf("after the next turn's clean end: %d stopped, %d resumed; want 1, 1: %q", n, m, r.steps())
-	}
+	r.replayed()
 }
 
-// T-563: once per turn. The Codex worker's stop ended another way (here a turn request) while its rollout's last turn
-// is still the one that ended on the limit: later idle checks, and a replay, record no second stop for that turn.
-func TestStoppedCodexOncePerTurn(t *testing.T) {
+// RV-60 #3: a Claude role's start hook was missed (serve down, the request timed out); its work is seen while the
+// stop is in force, then its Stop hook → the stop ends and the finished line follows, once.
+func TestTurnClaudeMissedStart(t *testing.T) {
 	t.Parallel()
-	r := codexStopped(t)
-	if reply, err := r.turnCall(); err != nil || reply != "TURN pj-l-01 (the stop of T-1 ended)" {
-		t.Fatalf("turn: %q, %v", reply, err)
+	r := newTurnRig(t, "claude")
+	r.status("working")
+	r.deliver() // the work logged (fact worked); held by the stop
+	if s := r.state(); s != "open stopped() worked" || r.finished() != 0 {
+		t.Fatalf("working, start missed: %s, %d finished; want open stopped() worked, 0", s, r.finished())
 	}
-	if r.inForce() != 0 {
-		t.Fatalf("precondition: the stop ended: %q", r.steps())
+	if reply := r.hook(true); reply != "TURN pj-rev (its brief's turn ended)" {
+		t.Fatalf("Stop hook: %q", reply)
 	}
-	r.later(time.Minute)
-	r.push()
-	r.passes()
-	r.stop()
-	r.start()
-	r.push()
-	r.passes()
-	if n := r.taskStep(event.MsgTask, "fact stopped"); n != 1 || r.inForce() != 0 {
-		t.Errorf("idle on the same turn after its stop ended: %d stopped facts, %d in force: %q; want 1, 0",
-			n, r.inForce(), r.steps())
+	if r.p.out.brief("pj-rev").stop != nil {
+		t.Fatal("the stop still in force after the Stop hook")
+	}
+	r.status("idle")
+	r.deliver()
+	r.deliver()
+	if s := r.state(); s != "closed" || r.finished() != 1 {
+		t.Fatalf("after the Stop hook, idle: %s, %d finished; want closed, 1", s, r.finished())
+	}
+	r.replayed()
+}
+
+// Control: the Claude role's start hook, then its Stop hook (no status seen between) → the finished line once.
+func TestTurnClaudeStartThenStop(t *testing.T) {
+	t.Parallel()
+	r := newTurnRig(t, "claude")
+	if reply := r.hook(false); reply != "TURN pj-rev (the stop of its brief ended)" {
+		t.Fatalf("start hook: %q", reply)
+	}
+	r.deliver()
+	if s := r.state(); s != "open followed" || r.finished() != 0 {
+		t.Fatalf("after the start hook: %s, %d finished; want open followed, 0", s, r.finished())
+	}
+	r.replayed()
+	if reply := r.hook(true); reply != "TURN pj-rev (its brief's turn ended)" {
+		t.Fatalf("Stop hook: %q", reply)
+	}
+	r.deliver()
+	r.deliver()
+	if s := r.state(); s != "closed" || r.finished() != 1 {
+		t.Fatalf("after the Stop hook: %s, %d finished; want closed, 1", s, r.finished())
+	}
+	r.replayed()
+	if reply := r.hook(true); reply != "TURN pj-rev (no stop)" || r.facts(event.StepTurned, "") != 2 {
+		t.Errorf("a later Stop hook: %q, %d turned facts; want no stop, 2", reply, r.facts(event.StepTurned, ""))
 	}
 }
 
-// RV-59 #2: the Codex worker's next turn starts, then writes more than the adapter's first read (one 300 KiB output)
-// while serve is down (a replay) or its herdr connection is lost (a reconnect): the stop still ends on that start.
-func TestStoppedCodexNextTurnPastTheTail(t *testing.T) {
+// An aborted turn after the stop, its work seen → finished; a turn that ends on a new error at once → a new stop.
+func TestTurnCodexAbortedAndNewError(t *testing.T) {
 	t.Parallel()
-	next := cdxStarted2 + `{"type":"response_item","payload":{"output":"` + strings.Repeat("x", 300<<10) + `"}}` + "\n"
-	t.Run("replay", func(t *testing.T) {
+	t.Run("aborted after work", func(t *testing.T) {
 		t.Parallel()
-		r := codexStopped(t)
-		r.stop()
-		r.append(next)
-		r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Status = "working" })
-		if r.inForce() != 1 || r.has("0 fact resumed") {
-			t.Fatalf("precondition: the stop in force before the replay: %q", r.steps())
+		r := newTurnRig(t, "codex")
+		r.status("working")
+		r.status("idle")
+		r.turn = agents.Turn{ID: "new", Ended: true} // turn_aborted
+		r.deliver()
+		if s := r.state(); s != "closed" || r.finished() != 1 {
+			t.Fatalf("aborted: %s, %d finished; want closed, 1", s, r.finished())
 		}
-		r.start()
-		r.waitFor("fact resumed", func() bool { return r.has("0 fact resumed") })
-		if r.inForce() != 0 {
-			t.Errorf("the stop in force after the replay: %+v", r.app.Status().Project.Facts)
-		}
+		r.replayed()
 	})
-	t.Run("reconnect", func(t *testing.T) {
+	t.Run("new error at once", func(t *testing.T) {
 		t.Parallel()
-		r := codexStopped(t)
-		if r.inForce() != 1 || r.has("0 fact resumed") {
-			t.Fatalf("precondition: the stop in force before the reconnect: %q", r.steps())
+		r := newTurnRig(t, "codex")
+		r.turn = agents.Turn{ID: "new", Ended: true, Error: "usage_limit_exceeded", Details: "again",
+			Reset: r.now.Add(3 * time.Hour)}
+		r.deliver()
+		if s := r.state(); s != "open stopped(new)" || r.stops() != 2 || r.finished() != 0 {
+			t.Fatalf("new error: %s, %d stops, %d finished; want open stopped(new), 2, 0", s, r.stops(), r.finished())
 		}
-		r.srv.DropConns()
-		r.append(next)
-		r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Status = "working" })
-		r.waitFor("fact resumed", func() bool { return r.has("0 fact resumed") })
-		if r.inForce() != 0 {
-			t.Errorf("the stop in force after the reconnect: %+v", r.app.Status().Project.Facts)
-		}
+		r.replayed()
 	})
+}
+
+// Workers have no brief: their hooks' start and end of the resumed turn each end the stop (fact resumed); a Codex
+// worker's rollout the same, by its next turn's start or its end. No brief is made or read.
+func TestTurnWorkerPhases(t *testing.T) {
+	t.Parallel()
+	for _, ended := range []bool{false, true} {
+		name := map[bool]string{false: "start", true: "end"}[ended]
+		t.Run("hook "+name, func(t *testing.T) {
+			t.Parallel()
+			h, _, _, _ := promptRig(t, true)
+			addRecord(t, h, "T-1", event.StepWork, event.KindIntent, promptData{Agent: "pj-l-01", Job: "T-1/1/work"})
+			h.connect()
+			if _, err := h.a.stoppedCall(wire.StoppedReq{Envelope: wire.Envelope{Root: h.root, CallID: "limit",
+				Agent: "pj-l-01", Role: "worker"}, Lane: "L-01", Error: "rate_limit", Details: "429"}); err != nil {
+				t.Fatal(err)
+			}
+			p := h.proj()
+			if !p.stops("T-1") {
+				t.Fatal("precondition: T-1 stopped")
+			}
+			reply, err := h.a.turnCall(wire.TurnReq{Envelope: wire.Envelope{Root: h.root, Agent: "pj-l-01",
+				Role: "worker"}, Lane: "L-01", Ended: ended})
+			if err != nil || reply != "TURN pj-l-01 (the stop of T-1 ended)" || p.stops("T-1") || p.briefCount() != 0 {
+				t.Errorf("%s hook: %q, %v, stopped %v, %d briefs; want the stop ended, none", name, reply, err,
+					p.stops("T-1"), p.briefCount())
+			}
+		})
+		t.Run("rollout "+name, func(t *testing.T) {
+			t.Parallel()
+			h, _, _, _ := promptRig(t, true)
+			addRecord(t, h, "T-1", event.StepWork, event.KindIntent, promptData{Agent: "pj-l-01", Job: "T-1/1/work"})
+			h.connect()
+			p := h.proj()
+			h.a.mu.Lock()
+			defer h.a.mu.Unlock()
+			w := p.tasks["T-1"]
+			at, _ := h.a.agentOf(p, w.lane)
+			if at.State != Identified || !Ready(at.Pane.Status) {
+				t.Fatalf("precondition: the worker identified and idle: %+v", at)
+			}
+			turn := func(tu agents.Turn) bool {
+				return h.a.turnStop(p, "T-1", w, map[string]*evidence{at.Pane.ID: {turn: tu, turned: true}})
+			}
+			if !turn(agents.Turn{ID: "t1", Ended: true, Error: "usage_limit_exceeded", Details: "limit"}) || !p.stops("T-1") {
+				t.Fatal("precondition: the rollout's limit is T-1's stop")
+			}
+			if turn(agents.Turn{ID: "t1", Ended: true, Error: "usage_limit_exceeded", Details: "limit"}) {
+				t.Fatal("the stopped turn read again decided something")
+			}
+			if !turn(agents.Turn{ID: "t2", Ended: ended}) || p.stops("T-1") || p.briefCount() != 0 {
+				t.Errorf("the next turn's %s: stopped %v, %d briefs; want the stop ended, none", name, p.stops("T-1"),
+					p.briefCount())
+			}
+		})
+	}
 }

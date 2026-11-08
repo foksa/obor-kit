@@ -1,687 +1,1962 @@
-package app_test
+package app
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
-	"obor/internal/app/event"
-	"obor/internal/app/wire"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
-	"obor/internal/herdr"
-	"obor/internal/herdr/herdrtest"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
+	"obor/internal/store"
 )
 
-// rigInbox is the rig's Poster (T-485): the lead's lines posted, the agents with no inbox record, and how a post
-// fails (refused: before a byte, as a dead socket's dial; partial: after one).
-type rigInbox struct {
-	mu       sync.Mutex
-	posts    []string        // "<agent>: <line>" per post that went out (began)
-	attempts []string        // every post tried
-	none     map[string]bool // agents with no record
-	refused  bool
-	partial  bool
-	once     bool // refused and partial end after the next post (failOnce)
-	cutting  bool // the next post waits for serve's ctx and fails with its error (cut)
+// recSeq is the seq of the first record of task with step and kind (0: none).
+func recSeq(t *testing.T, h *harness, task, step, kind string) int64 {
+	t.Helper()
+	for _, rec := range readLog(t, h.root) {
+		if rec.Task == task && rec.Step == step && rec.Kind == kind {
+			return rec.Seq
+		}
+	}
+	return 0
 }
 
-func (in *rigInbox) Post(ctx context.Context, _, agent, line string) (bool, error) {
-	in.mu.Lock()
-	in.attempts = append(in.attempts, agent+": "+line)
-	cut := in.cutting
-	if cut {
-		in.cutting = false
-	}
-	in.mu.Unlock()
-	if cut { // a post serve's own stop cut before a byte went out (T-660), as its inbox's ctx ends
-		<-ctx.Done()
-		return false, ctx.Err()
-	}
-	// A post on an ended ctx fails before a byte goes out, as the real poster's dial does: a retry the stopping serve
-	// makes after a cut must not count as posted (a red TestShutdownDeliveryNotRecorded under load: posted twice).
-	if err := ctx.Err(); err != nil {
-		return false, err
-	}
-	in.mu.Lock()
-	defer in.mu.Unlock()
-	switch {
-	case in.none[agent]:
-		return false, errors.New("no session recorded for " + agent)
-	case in.refused:
-		if in.once {
-			in.refused = false
+// readBriefLine is the line of the last brief to agent in the log.
+func readBriefLine(t *testing.T, h *harness, agent string) string {
+	t.Helper()
+	line := ""
+	for _, rec := range readLog(t, h.root) {
+		var m event.Message
+		if rec.Step == event.StepBriefed && json.Unmarshal(rec.Data, &m) == nil && m.To == agent {
+			line = m.Line
 		}
-		return false, errors.New("dial unix: connection refused")
 	}
-	for _, row := range strings.Split(line, "\n") { // a batched post (T-651) counts as one entry per row
-		in.posts = append(in.posts, agent+": "+row)
+	return line
+}
+
+// T-853: a brief moves only an idle deep dive's worktree: a working one (its pane working, or a brief open) keeps its
+// head for its turn, and a plain brief to the reviewer never moves the reviewer's (its head is the reviewed one). A
+// worktree's git failing refuses the brief, nothing recorded.
+func TestBriefMovesAnIdleDeepDive(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name, to, moved string
+		prep            func(r *admitRig)
+	}{
+		{"idle deep dive", "pj-deep-dive", "deep_dive@base1", func(*admitRig) {}},
+		{"working deep dive", "pj-deep-dive", "", func(r *admitRig) { r.h.work("w1:dd", true) }},
+		// The first brief (idle) moved it; the second, with that brief open, moves nothing more.
+		{"deep dive with a brief open", "pj-deep-dive", "deep_dive@base1", func(r *admitRig) {
+			if _, err := r.h.a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: r.h.root, CallID: "b0",
+				Role: "lead"}, To: "pj-deep-dive", Text: "first"}); err != nil {
+				r.h.t.Fatal(err)
+			}
+		}},
+		{"reviewer", "pj-rev", "", func(*admitRig) {}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			r := newAdmitRig(t, false)
+			h := r.h
+			c.prep(r)
+			if _, err := h.a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: h.root, CallID: "b1", Role: "lead"},
+				To: c.to, Text: "look at x"}); err != nil {
+				t.Fatal(err)
+			}
+			if got := r.git.detachedAt(); got != c.moved {
+				t.Errorf("detached %q, want %q", got, c.moved)
+			}
+			if readBriefLine(t, h, c.to) != "[obor lead] look at x" && readBriefLine(t, h, c.to) != "[obor owner] look at x" {
+				t.Errorf("the brief was not recorded: %q", readBriefLine(t, h, c.to))
+			}
+		})
 	}
-	if in.partial {
-		if in.once {
-			in.partial = false
+	t.Run("git fails", func(t *testing.T) {
+		t.Parallel()
+		r := newAdmitRig(t, false)
+		h := r.h
+		r.git.detachErr = errors.New("no worktree")
+		if _, err := h.a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: h.root, CallID: "b1", Role: "lead"},
+			To: "pj-deep-dive", Text: "look at x"}); err == nil ||
+			!strings.Contains(err.Error(), "pj-deep-dive's worktree: no worktree") {
+			t.Fatalf("brief: %v, want refused naming the worktree", err)
 		}
-		return true, errors.New("broken pipe")
+		if got := readBriefLine(t, h, "pj-deep-dive"); got != "" {
+			t.Errorf("a refused brief was recorded: %q", got)
+		}
+	})
+}
+
+// T-794: obor brief --fresh is serve's: the brief is validated, admitted and recorded first, and only then does the
+// delivery stop the running role agent (serve's role stop) and start it fresh on the brief's line.
+
+// freshSpy is the agents, typer of a fresh brief's delivery: every stop and start in order, the starts, the lines
+// typed; stopErr fails each stop.
+type freshSpy struct {
+	events   []string
+	launches []port.Launch
+	typed    []string
+	stopErr  error
+}
+
+func (s *freshSpy) Launch(_ context.Context, l port.Launch) (port.Started, error) {
+	s.events = append(s.events, "start "+l.Agent+" "+l.Pane)
+	s.launches = append(s.launches, l)
+	return port.Started{Line: "STARTED " + l.Agent}, nil
+}
+
+func (s *freshSpy) Stop(_ context.Context, agent, pane string, force bool) (string, error) {
+	s.events = append(s.events, fmt.Sprintf("stop %s %s force=%t", agent, pane, force))
+	if s.stopErr != nil {
+		return "", s.stopErr
 	}
+	return "STOPPED " + agent, nil
+}
+
+func (s *freshSpy) Type(_ context.Context, _, text string, _ bool) (bool, error) {
+	s.typed = append(s.typed, text)
 	return true, nil
 }
 
-// recorded is Options.Inboxed: agent has an inbox record (naming no session).
-func (in *rigInbox) recorded(agent string) (string, bool) {
-	in.mu.Lock()
-	defer in.mu.Unlock()
-	return "", !in.none[agent]
-}
+// freshCfg names every role a brief may start fresh.
+const freshCfg = `{"name":"proj","prefix":"pj","roles":{"integrator":"","reviewer":"","deep_dive":"","advisor":"",` +
+	`"researcher":"","triage":""}}`
 
-func (in *rigInbox) unrecord(agent string) {
-	in.mu.Lock()
-	defer in.mu.Unlock()
-	if in.none == nil {
-		in.none = map[string]bool{}
+// freshApp is a merging project with every role, the lead's pane and agent's labelled pane w:role running kind
+// ("": at its shell) with status.
+func freshApp(t *testing.T, now *time.Time, agent, kind, status string) (*App, *proj) {
+	t.Helper()
+	root := lineRoot(t)
+	if err := os.WriteFile(filepath.Join(root, ".obor/config.json"), []byte(freshCfg), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	in.none[agent] = true
+	a, p := lineApp(t, root, now)
+	a.connect(context.Background(), port.Snapshot{Panes: []port.Pane{
+		{ID: "w:lead", Group: "proj", Cwd: root, Agent: "claude", Label: p.out.lead(), Status: "idle"},
+		{ID: "w:role", Group: "proj", Cwd: root, Agent: kind, Label: agent, Status: status},
+	}})
+	// An idle deep dive's brief moves its role worktree first (T-853).
+	a.opt.Loop = func(string) (*Loop, error) { return &Loop{Workflow: WorkflowOf(&reviewGitFake{head: "base1"})}, nil }
+	return a, p
 }
 
-func (in *rigInbox) record(agent string) {
-	in.mu.Lock()
-	defer in.mu.Unlock()
-	delete(in.none, agent)
-}
-
-// fail makes the next posts fail: partial false before a byte went out, true after one; ok ends both.
-func (in *rigInbox) fail(partial bool) {
-	in.mu.Lock()
-	defer in.mu.Unlock()
-	in.refused, in.partial, in.once = !partial, partial, false
-}
-
-// failOnce makes the next post alone fail (partial false before a byte went out, true after one): the posts after it
-// go out. A test that means to see one refusal before the failure rule counts three needs no race with the merge
-// loop's passes over the post (T-565).
-func (in *rigInbox) failOnce(partial bool) {
-	in.mu.Lock()
-	defer in.mu.Unlock()
-	in.refused, in.partial, in.once = !partial, partial, true
-}
-
-func (in *rigInbox) ok() {
-	in.mu.Lock()
-	defer in.mu.Unlock()
-	in.refused, in.partial, in.once = false, false, false
-}
-
-// cut makes the next post alone wait for serve's ctx and fail with its error before a byte went out: a delivery serve's
-// own stop cut (T-660).
-func (in *rigInbox) cut(on bool) {
-	in.mu.Lock()
-	defer in.mu.Unlock()
-	in.cutting = on
-}
-
-// count is how many posts of line to agent went out; tries how many were tried.
-func (in *rigInbox) count(agent, line string) int { return in.n(&in.posts, agent+": "+line) }
-func (in *rigInbox) tries(agent, line string) int { return in.n(&in.attempts, agent+": "+line) }
-
-func (in *rigInbox) n(list *[]string, s string) int {
-	in.mu.Lock()
-	defer in.mu.Unlock()
-	n := 0
-	for _, x := range *list {
-		if x == s {
-			n++
+// briefSeq is the seq of the last briefed fact to agent in p's log (0: none).
+func briefSeq(t *testing.T, p *proj, agent string) int64 {
+	t.Helper()
+	var seq int64
+	for _, rec := range readLog(t, p.root) {
+		if rec.Step == event.StepBriefed && strings.Contains(string(rec.Data), `"to":"`+agent+`"`) {
+			seq = rec.Seq
 		}
 	}
-	return n
+	return seq
 }
 
-// lineResults is the results of the project's line deliveries, in order (their data: sent, sent: <error>).
-func (r *loopRig) lineResults() []string {
-	var out []string
-	for _, rec := range r.records() {
-		if rec.Task == event.MsgTask && rec.Kind == event.KindResult && strings.HasPrefix(rec.Step, "deliver.") {
-			var v string
-			_ = json.Unmarshal(rec.Data, &v)
-			out = append(out, v)
+// freshNeeds is p's needs-you reason in force for its lines ("": none).
+func freshNeeds(a *App, p *proj) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for _, f := range p.folded.active[event.MsgTask] {
+		if f.Step == event.StepNeedsYou {
+			return f.Fact().Reason
 		}
 	}
-	return out
+	return ""
 }
 
-// lineRig is the loop rig with the lead pj-lead (w1:p5) and the reviewer pj-rev (w1:p6) in the project's workspace,
-// each in status lead / rev.
-func lineRig(t *testing.T, lead, rev string) *loopRig {
-	r := newLoopRig(t, noCheck())
-	for _, a := range []*herdrtest.Pane{r.f.Agent("w1:p5", "pj-lead", lead, r.p.Root), r.f.Agent("w1:p6", "pj-rev", rev, r.p.Root)} {
-		a.Label = a.Name // labelled by its launch
-	}
-	return r
-}
-
-// agentIs sets the status of the agent in pane and waits until the app sees it.
-func (r *loopRig) agentIs(pane, name, status string) {
-	r.t.Helper()
-	r.f.Set(pane, func(p *herdrtest.Pane) { p.Status = status })
-	r.waitFor(name+" "+status, func() bool {
-		for _, a := range r.app.Status().Project.Agents {
-			if a.Name == name && a.Status == status {
-				return true
-			}
-		}
-		r.push()
-		return false
-	})
-}
-
-// line is a send or brief request to the rig's serve from the lead (role lead, agent pj-lead).
-func (r *loopRig) line(callID string, c wire.Req) (string, error) {
-	e := c.Env()
-	e.Root, e.CallID = r.p.Root, callID
-	if e.Role == "" {
-		e.Role, e.Agent = "lead", "pj-lead"
-	}
-	return wire.Verdict(context.Background(), r.sock, c)
-}
-
-// typedTo is the prompts the fake herdr got for agent (its name, or its pane: typed lines address the pane id, the
-// line rig's role panes w1:p5 and w1:p6 count as pj-lead's and pj-rev's) with exactly text.
-func (r *loopRig) typedTo(agent, text string) int {
-	n := 0
-	for _, p := range r.prompts() {
-		if (p.to == agent || map[string]string{"w1:p5": "pj-lead", "w1:p6": "pj-rev"}[p.to] == agent) && p.text == text {
-			n++
-		}
-	}
-	return n
-}
-
-// msgFacts is the facts in force of the project's lines.
-func (r *loopRig) msgFacts() []event.Record {
-	var out []event.Record
-	for _, f := range r.app.Status().Project.Facts {
-		if f.Task == event.MsgTask {
-			out = append(out, f)
-		}
-	}
-	return out
-}
-
-// supersededLine is one undelivered brief line a newer brief ended: its seq and the newer brief's.
-type supersededLine struct {
-	Seq int64
-	By  int64
-}
-
-// supersededLines is the brief lines the project's briefed facts in the log supersede (T-580), in order.
-func (r *loopRig) supersededLines() []supersededLine {
-	var out []supersededLine
-	for _, rec := range r.records() {
-		if rec.Task == event.MsgTask && rec.Kind == event.KindFact && rec.Step == event.StepBriefed {
-			var m event.Message
-			_ = json.Unmarshal(rec.Data, &m)
-			for _, seq := range m.Supersedes {
-				out = append(out, supersededLine{Seq: seq, By: rec.Seq})
-			}
-		}
-	}
-	return out
-}
-
-// waitBriefDelivered waits until the one brief line is delivered: its result in the log and folded (nothing waiting).
-// The brief's age counts from that result's time, so the clock moves only after it; the fake inbox's or pane's count
-// of the line is earlier than the result record (T-702).
-func (r *loopRig) waitBriefDelivered() {
-	r.t.Helper()
-	r.waitFor("the brief's delivery recorded", func() bool { return len(r.lineResults()) >= 1 && len(r.waiting()) == 0 })
-}
-
-// waiting is the lines serve has not delivered yet (obor status).
-func (r *loopRig) waiting() []wire.MessageStatus { return r.app.Status().Project.Messages }
-
-// sentLine is the line obor send posts in the target project for text from the project from: the sender, the text, and
-// the reply in one command (T-466, T-646).
-func sentLine(from, text string) string {
-	return "[obor " + from + "] " + text + ` (reply: obor send ` + from + ` "…")`
-}
-
-// T-485: obor send's line is posted to the lead's Claude session at once, working or idle (no pane, no idle rule, no
-// quiet period), exactly once, as "[obor <sender>] <text> (reply: …)": nothing typed into the lead's pane, no keys; its
-// delivery result is sent; a repeated call id gets the stored reply and records nothing; a worker cannot send; text and
-// sender are required.
-func TestSendPostedOnceToTheLead(t *testing.T) {
+// Each role kind a fresh brief starts: running (working), it is stopped through serve's role stop and then started
+// fresh in its pane on the brief's line, nothing typed; stopped (its pane at its shell), it is started on the line, no
+// stop attempted, no error. Either way one start, and a second pass starts nothing more.
+func TestFreshBriefPerRole(t *testing.T) {
 	t.Parallel()
-	r := lineRig(t, "working", "idle")
-	r.start()
+	for _, c := range []struct{ role, agent string }{
+		{"reviewer", "pj-rev"}, {"deep_dive", "pj-deep-dive"}, {"advisor", "pj-advisor"},
+		{"researcher", "pj-researcher"}, {"triage", "pj-triage"},
+	} {
+		for _, running := range []bool{true, false} {
+			name := c.role + map[bool]string{true: "/running", false: "/stopped"}[running]
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+				now := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
+				kind, status := "", ""
+				if running {
+					kind, status = "claude", "working"
+				}
+				a, p := freshApp(t, &now, c.agent, kind, status)
+				a.mu.Lock()
+				w := a.whereIs(p, c.agent)
+				_, atShell := a.shellPane(p, c.agent)
+				a.mu.Unlock()
+				if running && (w.State != Identified || Ready(w.Pane.Status)) || !running && !atShell {
+					t.Fatalf("precondition: %s %+v, at its shell %v", c.agent, w, atShell)
+				}
+				reply, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1",
+					Role: "lead", Agent: "pj-lead"}, To: c.agent, Text: "look at x", Fresh: true})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !strings.HasPrefix(reply, "BRIEFED "+c.agent) || !strings.Contains(reply, "fresh") {
+					t.Errorf("reply %q", reply)
+				}
+				seq := briefSeq(t, p, c.agent)
+				if seq == 0 {
+					t.Fatal("no briefed fact")
+				}
+				s := &freshSpy{}
+				fx := &Loop{Agents: s, Typer: s}
+				a.deliver(context.Background(), p, fx)
+				want := []string{"start " + c.agent + " w:role"}
+				if running {
+					want = append([]string{"stop " + c.agent + " w:role force=false"}, want...)
+				}
+				if !slices.Equal(s.events, want) {
+					t.Errorf("events %q, want %q", s.events, want)
+				}
+				if len(s.launches) != 1 || s.launches[0] != (port.Launch{Agent: c.agent, Pane: "w:role", Fresh: true,
+					Prompt: "[obor pj-lead] look at x"}) {
+					t.Errorf("launches %+v, want %s fresh in w:role on the brief's line", s.launches, c.agent)
+				}
+				same(t, len(s.typed), 0, "lines typed")
+				key := event.Key{Task: event.MsgTask, Step: stepDeliver + fmt.Sprint(seq)}
+				same(t, resultOf(p, key), `"`+sentStart+`"`, "the line's delivery")
+				same(t, freshNeeds(a, p), "", "needs-you")
+				a.deliver(context.Background(), p, fx)
+				same(t, len(s.events), len(want), "stops and starts after a second pass")
+			})
+		}
+	}
+}
+
+// An older brief queued for a busy agent, then a fresh one: the fresh brief supersedes it when it is recorded, so
+// the stop and the fresh start carry the new text only, and the old line is never typed or started.
+func TestFreshBriefSupersedesQueued(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
+	a, p := freshApp(t, &now, "pj-advisor", "codex", "working")
+	if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead",
+		Agent: "pj-lead"}, To: "pj-advisor", Text: "old"}); err != nil {
+		t.Fatal(err)
+	}
+	s := &freshSpy{}
+	fx := &Loop{Agents: s, Typer: s}
+	a.deliver(context.Background(), p, fx) // busy: the old line waits
+	a.mu.Lock()
+	queued := len(p.queuedLines())
+	a.mu.Unlock()
+	if queued != 1 || len(s.events)+len(s.typed) != 0 {
+		t.Fatalf("precondition: %d lines queued, events %q, typed %q", queued, s.events, s.typed)
+	}
+	reply, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b2", Role: "lead",
+		Agent: "pj-lead"}, To: "pj-advisor", Text: "new", Fresh: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(reply, "replaces 1 undelivered brief") {
+		t.Errorf("reply %q, want it to replace the old brief", reply)
+	}
+	a.deliver(context.Background(), p, fx)
+	if want := []string{"stop pj-advisor w:role force=false", "start pj-advisor w:role"}; !slices.Equal(s.events, want) {
+		t.Errorf("events %q, want %q", s.events, want)
+	}
+	if len(s.launches) != 1 || s.launches[0].Prompt != "[obor pj-lead] new" {
+		t.Errorf("launches %+v, want one start on the new text only", s.launches)
+	}
+	same(t, len(s.typed), 0, "lines typed")
+	a.mu.Lock()
+	queued = len(p.queuedLines())
+	a.mu.Unlock()
+	same(t, queued, 0, "lines still queued")
+}
+
+// A refused brief --fresh changes nothing: not the lead or the owner, a worker or the integrator as the target, no
+// text — and a running agent is not stopped by the delivery that follows (nothing was recorded).
+func TestFreshBriefRefusedStopsNothing(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
+	a, p := freshApp(t, &now, "pj-advisor", "claude", "working")
 	for _, c := range []struct {
-		call wire.SendReq
+		name string
+		call wire.BriefReq
 		want string
 	}{
-		{wire.SendReq{Envelope: wire.Envelope{Role: "worker", Agent: "pj-l-01"}, Text: "x", From: "other"},
-			"a lead or the owner"},
-		{wire.SendReq{From: "other"}, "a text is required"},
-		{wire.SendReq{Text: "x"}, "the sender project is required"},
+		{"a worker calls", wire.BriefReq{To: "pj-advisor", Text: "x", Envelope: wire.Envelope{Role: "worker",
+			Agent: "pj-l-01"}}, "the lead or the owner briefs"},
+		{"the integrator", wire.BriefReq{To: "pj-int", Text: "x", Envelope: wire.Envelope{Role: "lead"}},
+			"no role agent serve starts fresh"},
+		{"no text", wire.BriefReq{To: "pj-advisor", Text: " ", Envelope: wire.Envelope{Role: "lead"}},
+			"--fresh takes a text"},
 	} {
-		if reply, err := r.line("bad", &c.call); err == nil || !strings.Contains(err.Error(), c.want) {
-			t.Errorf("send %+v: %q, %v; want refused: %s", c.call, reply, err, c.want)
+		c.call.Root, c.call.CallID, c.call.Fresh = p.root, "b-"+c.name, true
+		if _, err := a.briefCall(c.call); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v, want %q", c.name, err, c.want)
 		}
 	}
-	reply, err := r.line("s1", &wire.SendReq{Text: "release v0.12 is out", From: "other"})
-	if err != nil || reply != "SENT to pj-lead in proj (posted to its session)" {
-		t.Fatalf("send: %q, %v", reply, err)
+	same(t, briefSeq(t, p, "pj-advisor")+briefSeq(t, p, "pj-int"), int64(0), "briefed facts")
+	s := &freshSpy{}
+	a.deliver(context.Background(), p, &Loop{Agents: s, Typer: s})
+	same(t, len(s.events), 0, "stops and starts")
+	if w := a.whereIs(p, "pj-advisor"); w.State != Identified {
+		t.Errorf("pj-advisor %+v, want still running", w)
 	}
-	if reply, err := r.line("s1", &wire.SendReq{Text: "again", From: "other"}); err != nil || !strings.HasPrefix(reply,
-		"SENT") {
-		t.Errorf("the same call id: %q, %v; want the stored reply", reply, err)
+}
+
+// A brief --fresh to the idle deep dive whose worktree's move fails is refused, and the running deep dive is not
+// stopped: nothing is recorded, the delivery stops nothing.
+func TestFreshBriefMoveFailsStopsNothing(t *testing.T) {
+	t.Parallel()
+	r := newAdmitRig(t, false)
+	h, ctx := r.h, context.Background()
+	s := &freshSpy{}
+	r.fx.Agents = s
+	r.git.detachErr = errors.New("no worktree")
+	h.a.mu.Lock()
+	w := h.a.whereIs(h.a.p, "pj-deep-dive")
+	h.a.mu.Unlock()
+	if w.State != Identified {
+		t.Fatalf("precondition: pj-deep-dive %+v", w)
 	}
-	if n := r.taskStep(event.MsgTask, "fact message"); n != 1 {
-		t.Fatalf("message facts %d, want 1: %q", n, r.steps())
+	_, err := h.a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: h.root, CallID: "b1", Role: "lead",
+		Agent: "pj-lead"}, To: "pj-deep-dive", Text: "look at x", Fresh: true})
+	if err == nil || !strings.Contains(err.Error(), "pj-deep-dive's worktree: no worktree") {
+		t.Fatalf("brief --fresh with the move failing: %v, want refused naming the worktree", err)
 	}
-	line := sentLine("other", "release v0.12 is out")
-	r.waitFor("the line posted to the working lead", func() bool { return r.inbox.count("pj-lead", line) == 1 })
-	r.waitFor("its delivery result", func() bool { return len(r.waiting()) == 0 })
-	r.agentIs("w1:p5", "pj-lead", "idle")
-	r.passes()
-	r.passes()
-	if n := r.inbox.count("pj-lead", line); n != 1 {
-		t.Errorf("posted %d times, want once", n)
-	}
-	if got := r.lineResults(); len(got) != 1 || got[0] != "sent" {
-		t.Errorf("delivery results %q, want one sent", got)
-	}
-	if n := r.typedTo("pj-lead", line); n != 0 {
-		t.Errorf("typed %d times into the lead's pane, want 0", n)
-	}
-	for _, req := range r.srv.Requests() {
-		if req.Method == "agent.send_keys" {
-			t.Errorf("keys sent: %s", req.Params)
+	h.a.deliver(ctx, h.a.p, r.fx)
+	same(t, recSeq(t, h, event.MsgTask, event.StepBriefed, event.KindFact), int64(0), "briefed facts")
+	for _, e := range s.events {
+		if strings.Contains(e, "pj-deep-dive") {
+			t.Errorf("event %q after a refused brief --fresh, want pj-deep-dive untouched", e)
 		}
 	}
 }
 
-// T-485: with no inbox record for the lead, its line stays queued (obor status lists it, nothing is tried) and the
-// reply says how the lead registers; across a restart it stays queued; once the record exists it is posted once, and
-// a later restart posts it no more.
-func TestSendQueuedUntilTheLeadIsRecorded(t *testing.T) {
+// A stop that fails after the brief is recorded: nothing is started, the brief stays queued, a needs-you names the
+// agent at once; the next pass inside roleStopRetry does not stop again, a later delivery stops and starts it on the
+// brief, and the needs-you ends.
+func TestFreshBriefStopFails(t *testing.T) {
 	t.Parallel()
-	r := lineRig(t, "idle", "idle")
-	r.inbox.unrecord("pj-lead")
-	r.start()
-	reply, err := r.line("s1", &wire.SendReq{Text: "hello", From: "other"})
-	if want := "SENT to pj-lead in proj (queued: no session recorded for pj-lead; `obor restart pj-lead` once it is idle registers it, or quit it and run `obor lead`)"; err != nil || reply != want {
-		t.Fatalf("send: %q, %v; want %q", reply, err, want)
-	}
-	r.passes()
-	r.stop()
-	r.start()
-	r.passes()
-	if w := r.waiting(); len(w) != 1 || w[0].Line != sentLine("other", "hello") || r.inbox.count("pj-lead", sentLine("other", "hello")) != 0 {
-		t.Fatalf("after a restart with no record: waiting %+v, posted %d; want queued, untried", w,
-			r.inbox.count("pj-lead", sentLine("other", "hello")))
-	}
-	if n := r.taskStep(event.MsgTask, "intent deliver.1") + r.typedTo("pj-lead", sentLine("other", "hello")); n != 0 {
-		t.Fatalf("tried with no record: %q", r.steps())
-	}
-	r.inbox.record("pj-lead")
-	r.waitFor("the line posted once recorded", func() bool { return r.inbox.count("pj-lead", sentLine("other", "hello")) == 1 })
-	r.waitFor("no line waits", func() bool { return len(r.waiting()) == 0 })
-	r.stop()
-	r.start()
-	r.passes()
-	if n := r.inbox.count("pj-lead", sentLine("other", "hello")); n != 1 {
-		t.Errorf("posted %d times across restarts, want once", n)
-	}
-}
-
-// T-485: a post refused before a byte went out (a dead socket's dial) is fact failed and posted again on a later
-// pass, once; a post that began and then failed is "sent: <error>" and never posted again.
-func TestSendPostRefusedAndPartial(t *testing.T) {
-	t.Parallel()
-	r := lineRig(t, "idle", "idle")
-	r.inbox.fail(false)
-	r.start()
-	if _, err := r.line("s1", &wire.SendReq{Text: "one", From: "other"}); err != nil {
+	now := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
+	a, p := freshApp(t, &now, "pj-researcher", "claude", "working")
+	if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead",
+		Agent: "pj-lead"}, To: "pj-researcher", Text: "dig", Fresh: true}); err != nil {
 		t.Fatal(err)
 	}
-	r.waitFor("the refused post's failed fact", func() bool {
-		for _, rec := range r.records() { // deliver.<the message's seq>
-			s := rec.String()
-			if rec.Task == event.MsgTask && strings.HasPrefix(s, "failed{deliver.") && strings.HasSuffix(s, ": dial unix: connection refused}") {
-				return true
+	s := &freshSpy{stopErr: errors.New("pj-researcher still working 30s after Escape")}
+	fx := &Loop{Agents: s, Typer: s}
+	a.deliver(context.Background(), p, fx)
+	same(t, len(s.events), 1, "stops tried")
+	same(t, len(s.launches), 0, "starts after a failed stop")
+	a.mu.Lock()
+	queued := p.queuedLines()
+	a.mu.Unlock()
+	if len(queued) != 1 || queued[0].msg.Line != "[obor pj-lead] dig" {
+		t.Fatalf("queued %+v, want the fresh brief still pending", queued)
+	}
+	if got := freshNeeds(a, p); !strings.Contains(got, "fresh brief to pj-researcher") || !strings.Contains(got, "still working") {
+		t.Errorf("needs-you %q, want one naming pj-researcher and the stop's error", got)
+	}
+
+	now = now.Add(time.Second)
+	a.deliver(context.Background(), p, fx)
+	same(t, len(s.events), 1, "stops tried within roleStopRetry")
+
+	now = now.Add(roleStopRetry)
+	s.stopErr = nil
+	a.deliver(context.Background(), p, fx)
+	if len(s.launches) != 1 || s.launches[0].Prompt != "[obor pj-lead] dig" || !s.launches[0].Fresh {
+		t.Errorf("launches %+v, want the fresh start on the brief", s.launches)
+	}
+	same(t, len(s.typed), 0, "lines typed")
+	same(t, freshNeeds(a, p), "", "needs-you after the start")
+}
+
+// leadSends queues n obor send lines "[obor other] m<i>" for the lead.
+func leadSends(t *testing.T, a *App, p *proj, n int) {
+	t.Helper()
+	for i := 1; i <= n; i++ {
+		id := strconv.Itoa(i)
+		if _, err := a.sendCall(wire.SendReq{Envelope: wire.Envelope{Root: p.root, CallID: "s" + id, Role: "lead"},
+			From: "other", Text: "m" + id}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// delivered counts the delivery results recorded for the lead's lines in p's log.
+func deliveredResults(t *testing.T, p *proj) int {
+	t.Helper()
+	recs, err := event.ReadLog(p.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, r := range recs {
+		if r.Kind == event.KindResult && r.Task == event.MsgTask && strings.HasPrefix(r.Step, stepDeliver) {
+			n++
+		}
+	}
+	return n
+}
+
+// TestLeadLinesOnePost (T-651): the lines queued for the lead go out as one post, one per row in order, each with
+// its delivery fact; a worker's line stays its own post.
+func TestLeadLinesOnePost(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	a, p := lineApp(t, lineRoot(t), &now)
+	leadSends(t, a, p, 3)
+	if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead"},
+		To: "pj-rev", Text: "check"}); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(p.queuedLines()); n != 4 {
+		t.Fatalf("precondition: four lines queued, got %d", n)
+	}
+	l := &linerSpy{}
+	a.deliver(context.Background(), p, linerLoop(l))
+	if len(l.calls) != 2 || l.calls[1] != "w:rev: [obor owner] check" || !oneLeadPost(l.calls[0]) {
+		t.Errorf("posted %q, want one lead post of m1..m3 in order, then the brief", l.calls)
+	}
+	if n := len(p.queuedLines()); n != 0 {
+		t.Errorf("%d lines still queued", n)
+	}
+	if n := deliveredResults(t, p); n != 4 {
+		t.Errorf("%d delivery results, want 4 (three lead lines, one brief)", n)
+	}
+	a.deliver(context.Background(), p, linerLoop(l))
+	if len(l.calls) != 2 {
+		t.Errorf("delivered again: %q", l.calls)
+	}
+}
+
+// TestLeadLinesBatchReplay: a restart finds every line of the batch delivered.
+func TestLeadLinesBatchReplay(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	a, p := lineApp(t, lineRoot(t), &now)
+	leadSends(t, a, p, 3)
+	l := &linerSpy{}
+	a.deliver(context.Background(), p, linerLoop(l))
+	if len(l.calls) != 1 {
+		t.Fatalf("precondition: one post, got %q", l.calls)
+	}
+	b, q := lineReload(t, a, p, &now)
+	if n := len(q.queuedLines()); n != 0 {
+		t.Errorf("after replay %d lines queued, want none", n)
+	}
+	b.deliver(context.Background(), q, linerLoop(l))
+	if len(l.calls) != 1 {
+		t.Errorf("replay posted again: %q", l.calls)
+	}
+}
+
+// TestLeadLinesFailedPost: a post refused before a byte leaves all lines undelivered and the next pass posts them
+// as one.
+func TestLeadLinesFailedPost(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	a, p := lineApp(t, lineRoot(t), &now)
+	leadSends(t, a, p, 3)
+	l := &linerSpy{refuse: true}
+	a.deliver(context.Background(), p, linerLoop(l))
+	if len(l.calls) != 1 {
+		t.Fatalf("precondition: one refused post, got %q", l.calls)
+	}
+	if n := len(p.queuedLines()); n != 3 {
+		t.Fatalf("%d lines queued after a refused post, want 3", n)
+	}
+	if n := deliveredResults(t, p); n != 0 {
+		t.Errorf("%d delivery results after a refused post, want 0", n)
+	}
+	for _, q := range p.queuedLines() {
+		if q.state != lineWaiting {
+			t.Errorf("line %d still claimed after the refusal", q.seq)
+		}
+	}
+	l.refuse = false
+	a.deliver(context.Background(), p, linerLoop(l))
+	if len(l.calls) != 2 || !oneLeadPost(l.calls[1]) {
+		t.Errorf("retry posted %q, want the three lines as one", l.calls)
+	}
+	if n := len(p.queuedLines()); n != 0 {
+		t.Errorf("%d lines queued after the retry", n)
+	}
+}
+
+// oneLeadPost: call is one post to the lead of the lines m1, m2, m3 in order, one per row (a send line carries a
+// reply hint after its text).
+func oneLeadPost(call string) bool {
+	rows := strings.Split(strings.TrimPrefix(call, "pj-lead: "), "\n")
+	if !strings.HasPrefix(call, "pj-lead: ") || len(rows) != 3 {
+		return false
+	}
+	for i, row := range rows {
+		if !strings.HasPrefix(row, "[obor other] m"+strconv.Itoa(i+1)) {
+			return false
+		}
+	}
+	return true
+}
+
+// T-654 (RV-72 #1 #2): a post's intent names its members and its target; only its result settles them.
+
+// leadSend queues one obor send line "[obor other] <note>" for the lead (as it is now), and is its seq.
+func leadSend(t *testing.T, a *App, p *proj, note string) int64 {
+	t.Helper()
+	if _, err := a.sendCall(wire.SendReq{Envelope: wire.Envelope{Root: p.root, CallID: "s-" + note, Role: "lead"},
+		From: "other", Text: note}); err != nil {
+		t.Fatal(err)
+	}
+	qs := p.queuedLines()
+	return qs[len(qs)-1].seq
+}
+
+// deliveryResults counts the delivery results of p's log by their line's seq.
+func deliveryResults(t *testing.T, p *proj) map[int64]int {
+	t.Helper()
+	recs, err := event.ReadLog(p.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[int64]int{}
+	for _, r := range recs {
+		if r.Kind == event.KindResult && r.Task == event.MsgTask && strings.HasPrefix(r.Step, stepDeliver) {
+			seq, _ := strconv.ParseInt(strings.TrimPrefix(r.Step, stepDeliver), 10, 64)
+			out[seq]++
+		}
+	}
+	return out
+}
+
+// postOf: call is one post to target of exactly the lines notes, in order.
+func postOf(call, target string, notes ...string) bool {
+	rows := strings.Split(strings.TrimPrefix(call, target+": "), "\n")
+	if !strings.HasPrefix(call, target+": ") || len(rows) != len(notes) {
+		return false
+	}
+	for i, row := range rows {
+		if !strings.HasPrefix(row, "[obor other] "+notes[i]+" ") {
+			return false
+		}
+	}
+	return true
+}
+
+// lostLeadResult posts [A] with the result's append refused (kept in p.unwritten), and is A's seq.
+func lostLeadResult(t *testing.T, a *App, p *proj, l *linerSpy) int64 {
+	t.Helper()
+	seqA := leadSend(t, a, p, "A")
+	refuseOnce(p, stepDeliver+strconv.FormatInt(seqA, 10))
+	a.deliver(context.Background(), p, linerLoop(l))
+	if len(l.calls) != 1 || !postOf(l.calls[0], "pj-lead", "A") {
+		t.Fatalf("precondition: one post of A, got %q", l.calls)
+	}
+	if n := len(p.queuedLines()); n != 1 || deliveryResults(t, p)[seqA] != 0 {
+		t.Fatalf("precondition: A queued, its result not in the log (queued %d)", n)
+	}
+	return seqA
+}
+
+// TestLeadLateResultNewLine: [A]'s result append fails; B queues; the next pass writes A's kept result (nothing
+// transmitted for A) and posts B on its own; each delivered once.
+func TestLeadLateResultNewLine(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	a, p := lineApp(t, lineRoot(t), &now)
+	l := &linerSpy{}
+	seqA := lostLeadResult(t, a, p, l)
+	seqB := leadSend(t, a, p, "B")
+	a.deliver(context.Background(), p, linerLoop(l))
+	if len(l.calls) != 2 || !postOf(l.calls[1], "pj-lead", "B") {
+		t.Errorf("posted %q, want A's post, then B alone", l.calls)
+	}
+	if n := len(p.queuedLines()); n != 0 {
+		t.Errorf("%d lines still queued", n)
+	}
+	if got := deliveryResults(t, p); got[seqA] != 1 || got[seqB] != 1 || len(got) != 2 {
+		t.Errorf("delivery results %v, want one for A and one for B", got)
+	}
+	a.deliver(context.Background(), p, linerLoop(l))
+	if len(l.calls) != 2 {
+		t.Errorf("delivered again: %q", l.calls)
+	}
+}
+
+// TestLeadLateResultNewLineReplay: the same with a restart between: A's post (its intent pending, may have landed) goes
+// again with exactly its member, B on its own; each settled by one result, nothing queued, nothing posted again.
+func TestLeadLateResultNewLineReplay(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	a, p := lineApp(t, lineRoot(t), &now)
+	l := &linerSpy{}
+	seqA := lostLeadResult(t, a, p, l)
+	b, q := lineReload(t, a, p, &now)
+	seqB := leadSend(t, b, q, "B")
+	for range 3 {
+		b.deliver(context.Background(), q, linerLoop(l))
+	}
+	if len(l.calls) != 3 || !postOf(l.calls[1], "pj-lead", "A") || !postOf(l.calls[2], "pj-lead", "B") {
+		t.Errorf("posted %q, want A, A again alone (its result never reached the log), then B alone", l.calls)
+	}
+	if n := len(q.queuedLines()); n != 0 {
+		t.Errorf("%d lines still queued", n)
+	}
+	if got := deliveryResults(t, q); got[seqA] != 1 || got[seqB] != 1 || len(got) != 2 {
+		t.Errorf("delivery results %v, want one for A and one for B", got)
+	}
+	c, r := lineReload(t, b, q, &now)
+	c.deliver(context.Background(), r, linerLoop(l))
+	if n := len(r.queuedLines()); n != 0 || len(l.calls) != 3 {
+		t.Errorf("after a second replay: %d queued, posted %q", n, l.calls)
+	}
+}
+
+// TestLeadLinesTwoTargets: a line queued for the old lead and one for the new: two posts, each to its own target with
+// its own line.
+func TestLeadLinesTwoTargets(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	a, p := lineApp(t, lineRoot(t), &now)
+	seqA := leadSend(t, a, p, "A")
+	a.mu.Lock()
+	p.out.leadAgent = "pj-newlead"
+	a.mu.Unlock()
+	seqB := leadSend(t, a, p, "B")
+	if qs := p.queuedLines(); len(qs) != 2 || qs[0].msg.To != "pj-lead" || qs[1].msg.To != "pj-newlead" {
+		t.Fatalf("precondition: a line to each lead, got %d", len(qs))
+	}
+	l := &linerSpy{}
+	a.deliver(context.Background(), p, linerLoop(l))
+	if len(l.calls) != 2 || !postOf(l.calls[0], "pj-lead", "A") || !postOf(l.calls[1], "pj-newlead", "B") {
+		t.Errorf("posted %q, want A to pj-lead, B to pj-newlead", l.calls)
+	}
+	if got := deliveryResults(t, p); got[seqA] != 1 || got[seqB] != 1 || len(got) != 2 {
+		t.Errorf("delivery results %v, want one each", got)
+	}
+}
+
+// TestLeadLinesOldTargetNoInbox: the old lead has no inbox record: its line waits (the 24 h needs-you as before); the
+// new lead's line goes out.
+func TestLeadLinesOldTargetNoInbox(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	a, p := lineApp(t, lineRoot(t), &now)
+	a.opt.Inboxed = func(agent string) (string, bool) { return "", agent != "pj-lead" }
+	seqA := leadSend(t, a, p, "A")
+	a.mu.Lock()
+	p.out.leadAgent = "pj-newlead"
+	a.mu.Unlock()
+	seqB := leadSend(t, a, p, "B")
+	l := &linerSpy{}
+	a.deliver(context.Background(), p, linerLoop(l))
+	if len(l.calls) != 1 || !postOf(l.calls[0], "pj-newlead", "B") {
+		t.Errorf("posted %q, want only B to pj-newlead", l.calls)
+	}
+	if qs := p.queuedLines(); len(qs) != 1 || qs[0].seq != seqA {
+		t.Errorf("queued %d lines, want A alone", len(qs))
+	}
+	if got := deliveryResults(t, p); got[seqB] != 1 || len(got) != 1 {
+		t.Errorf("delivery results %v, want B's alone", got)
+	}
+	now = now.Add(msgWait + time.Minute)
+	a.deliver(context.Background(), p, linerLoop(l))
+	recs, err := event.ReadLog(p.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	needs := 0
+	for _, r := range recs {
+		if r.Task == event.MsgTask && r.Kind == event.KindFact && r.Step == event.StepNeedsYou &&
+			strings.Contains(r.Fact().Reason, "line to pj-lead from other") {
+			needs++
+		}
+	}
+	if needs != 1 || len(l.calls) != 1 {
+		t.Errorf("needs-you of A's line %d (want 1), posted %q", needs, l.calls)
+	}
+}
+
+// lineKinds are the three kinds of line: an obor send line to the lead, an obor brief text to the reviewer, and the
+// lead's finished line of a brief whose reviewer worked and is idle again.
+var lineKinds = []string{"send", "brief", "finished"}
+
+// lineTyped: calls is the line of kind typed once (a finished line's age aside; a brief typed into pj-rev's pane).
+func lineTyped(calls []string, kind string) bool {
+	want := map[string]string{"send": "pj-lead: " + sendLine("other", "hello"), "brief": "w:rev: [obor owner] verify finding 1",
+		"finished": "pj-lead: [obor] pj-rev finished (briefed "}[kind]
+	return len(calls) == 1 && strings.HasPrefix(calls[0], want)
+}
+
+// queuedAt is p's undelivered line of fact seq (nil: none), by its outbox's queuedLines.
+func (p *proj) queuedAt(seq int64) *queued {
+	for _, q := range p.queuedLines() {
+		if q.seq == seq {
+			return q
+		}
+	}
+	return nil
+}
+
+// TestRefusedLineReplay: a line refused before typing stays queued across a restart (orderly and SIGKILL) and is
+// typed once after it, for each kind of line (RV-50 #1).
+func TestRefusedLineReplay(t *testing.T) {
+	t.Parallel()
+	for _, kind := range lineKinds {
+		t.Run(kind+"/reload", func(t *testing.T) {
+			t.Parallel()
+			now := time.Now()
+			a, p := lineApp(t, lineRoot(t), &now)
+			queueLine(t, a, p, kind, now)
+			l := &linerSpy{refuse: true}
+			a.deliver(context.Background(), p, linerLoop(l))
+			if len(l.calls) != 1 || len(p.queuedLines()) != 1 {
+				t.Fatalf("precondition: one refused try of one queued line; calls %v, queued %d", l.calls, len(p.queuedLines()))
+			}
+			b, q := lineReload(t, a, p, &now)
+			if len(q.queuedLines()) != 1 {
+				t.Fatalf("the refused line is not queued after reload: %d", len(q.queuedLines()))
+			}
+			good := &linerSpy{}
+			b.deliver(context.Background(), q, linerLoop(good))
+			b.deliver(context.Background(), q, linerLoop(good))
+			if !lineTyped(good.calls, kind) || len(q.queuedLines()) != 0 {
+				t.Fatalf("after reload: want the %s line typed once, got %v (queued %d)", kind, good.calls, len(q.queuedLines()))
+			}
+			c, s := lineReload(t, b, q, &now)
+			c.deliver(context.Background(), s, linerLoop(good))
+			if len(good.calls) != 1 {
+				t.Fatalf("typed again after a second reload: %v", good.calls)
+			}
+		})
+		t.Run(kind+"/kill", func(t *testing.T) {
+			t.Parallel()
+			calls := killedLines(t, kind, "refused")
+			if !lineTyped(calls, kind) {
+				t.Fatalf("after SIGKILL: want the %s line typed once, got %v", kind, calls)
+			}
+		})
+	}
+}
+
+// TestRefusedLineRetryKilled: a refused line's retry cut by a SIGKILL once its typing began is delivered once more
+// after the restart (T-524: a line is never lost; it may reach its agent twice); a line queued without a delivery is
+// typed once (control).
+func TestRefusedLineRetryKilled(t *testing.T) {
+	t.Parallel()
+	for _, kind := range lineKinds {
+		t.Run(kind, func(t *testing.T) {
+			t.Parallel()
+			if calls := killedLines(t, kind, "retry"); !lineTyped(calls, kind) {
+				t.Fatalf("a retry cut while typing: want the %s line delivered once after the restart, got %v", kind,
+					calls)
+			}
+		})
+	}
+	t.Run("queued control", func(t *testing.T) {
+		t.Parallel()
+		if calls := killedLines(t, "send", "queued"); !lineTyped(calls, "send") {
+			t.Fatalf("a queued line: want one delivery, got %v", calls)
+		}
+	})
+}
+
+// killedLines runs TestRefusedLineKillChild for kind and mode, kills it with SIGKILL once it is ready, and is the lines
+// typed by two reloads after it (two deliver passes each).
+func killedLines(t *testing.T, kind, mode string) []string {
+	t.Helper()
+	root := lineRoot(t)
+	child := exec.Command(os.Args[0], "-test.run=^TestRefusedLineKillChild$")
+	child.Env = append(os.Environ(), "LINE_ROOT="+root, "LINE_KIND="+kind, "LINE_MODE="+mode)
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer child.Process.Kill()
+	ready := false
+	for end := time.Now().Add(10 * time.Second); time.Now().Before(end); time.Sleep(5 * time.Millisecond) {
+		if _, err := os.Stat(filepath.Join(root, "kill-ready")); err == nil {
+			ready = true
+			break
+		}
+	}
+	if !ready {
+		t.Fatal("the child did not get ready")
+	}
+	_ = child.Process.Kill()
+	_ = child.Wait()
+	if st := child.ProcessState.Sys().(syscall.WaitStatus); !st.Signaled() || st.Signal() != syscall.SIGKILL {
+		t.Fatalf("the child did not end by SIGKILL: %v", child.ProcessState)
+	}
+	now := time.Now()
+	l := &linerSpy{}
+	a, p := lineApp(t, root, &now)
+	if p.out.lead() != "pj-lead" {
+		t.Fatalf("precondition: lead pj-lead, got %s", p.out.lead())
+	}
+	a.deliver(context.Background(), p, linerLoop(l))
+	a.deliver(context.Background(), p, linerLoop(l))
+	b, q := lineReload(t, a, p, &now)
+	b.deliver(context.Background(), q, linerLoop(l))
+	b.deliver(context.Background(), q, linerLoop(l))
+	return l.calls
+}
+
+// TestRefusedLineKillChild is killedLines's child: it queues a line of LINE_KIND; refused: its delivery is refused; retry:
+// refused, then its retry hangs once typing began; queued: nothing delivered; worked (no line queued): a fresh
+// start's brief whose work a pass saw. Then it writes kill-ready and waits.
+func TestRefusedLineKillChild(t *testing.T) {
+	t.Parallel()
+	root := os.Getenv("LINE_ROOT")
+	if root == "" {
+		t.Skip("killedLines's child only")
+	}
+	now := time.Now()
+	a, p := lineApp(t, root, &now)
+	if os.Getenv("LINE_MODE") != "worked" {
+		queueLine(t, a, p, os.Getenv("LINE_KIND"), now)
+	}
+	ready := func() { _ = os.WriteFile(filepath.Join(root, "kill-ready"), []byte("ready"), 0o600) }
+	switch os.Getenv("LINE_MODE") {
+	case "refused":
+		a.deliver(context.Background(), p, linerLoop(&linerSpy{refuse: true}))
+	case "retry":
+		a.deliver(context.Background(), p, linerLoop(&linerSpy{refuse: true}))
+		a.deliver(context.Background(), p, linerLoop(&linerSpy{hang: ready}))
+	case "worked":
+		if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead"},
+			To: "pj-rev"}); err != nil {
+			t.Fatal(err)
+		}
+		lineStatus(a, "w:rev", "working", now)
+		a.deliver(context.Background(), p, linerLoop(&linerSpy{}))
+	}
+	ready()
+	park()
+}
+
+// TestBriefCompletionReplay: a brief whose work serve saw before a restart (orderly and SIGKILL) gets its
+// finished line when its agent is idle on reconnect, for a brief with a text and a fresh start's brief (RV-50 #3).
+func TestBriefCompletionReplay(t *testing.T) {
+	t.Parallel()
+	for _, note := range []string{"verify finding 1", ""} {
+		form := map[bool]string{true: "verify", false: "fresh"}[note != ""]
+		t.Run(form+"/reload", func(t *testing.T) {
+			t.Parallel()
+			now := time.Now()
+			a, p := lineApp(t, lineRoot(t), &now)
+			if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead"},
+				To: "pj-rev", Text: note}); err != nil {
+				t.Fatal(err)
+			}
+			l := &linerSpy{}
+			a.deliver(context.Background(), p, linerLoop(l))
+			lineStatus(a, "w:rev", "working", now)
+			a.deliver(context.Background(), p, linerLoop(l)) // the pass that records the work
+			lines := 0                                       // the brief's own line
+			if note != "" {
+				lines = 1
+			}
+			if !p.out.brief("pj-rev").worked || len(l.calls) != lines {
+				t.Fatalf("precondition: work seen, no finished line yet; worked %v, calls %v", p.out.brief("pj-rev").worked, l.calls)
+			}
+			b, q := lineReload(t, a, p, &now) // the reviewer idle on reconnect
+			if q.out.brief("pj-rev") == nil || !q.out.brief("pj-rev").worked {
+				t.Fatal("the brief's observed work is not replayed")
+			}
+			out := &linerSpy{}
+			b.deliver(context.Background(), q, linerLoop(out))
+			b.deliver(context.Background(), q, linerLoop(out))
+			if !lineTyped(out.calls, "finished") || q.briefCount() != 0 {
+				t.Fatalf("want one finished line after reload, got %v (open briefs %d)", out.calls, q.briefCount())
+			}
+		})
+	}
+	t.Run("fresh/kill", func(t *testing.T) {
+		t.Parallel()
+		calls := killedLines(t, "", "worked")
+		if !lineTyped(calls, "finished") {
+			t.Fatalf("want one finished line after SIGKILL, got %v", calls)
+		}
+	})
+}
+
+// TestWorkedNotNewerBrief: the recorded work of a brief does not arm a newer brief that replaced it.
+func TestWorkedNotNewerBrief(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	a, p := lineApp(t, lineRoot(t), &now)
+	l := &linerSpy{}
+	if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead"},
+		To: "pj-rev"}); err != nil {
+		t.Fatal(err)
+	}
+	lineStatus(a, "w:rev", "working", now)
+	a.deliver(context.Background(), p, linerLoop(l))
+	if !p.out.brief("pj-rev").worked {
+		t.Fatal("precondition: the first brief's work is seen")
+	}
+	if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b2", Role: "lead"},
+		To: "pj-rev", Text: "again"}); err != nil {
+		t.Fatal(err)
+	}
+	b, q := lineReload(t, a, p, &now)
+	if br := q.out.brief("pj-rev"); br == nil || br.worked {
+		t.Fatalf("the newer brief is armed by the older one's work: %+v", br)
+	}
+	b.deliver(context.Background(), q, linerLoop(l))
+	b.deliver(context.Background(), q, linerLoop(l))
+	if len(l.calls) != 1 || l.calls[0] != "w:rev: [obor owner] again" {
+		t.Fatalf("want only the newer brief's line, got %v", l.calls)
+	}
+}
+
+// TestBriefKeepsAStartedDelivery (T-575): a line whose delivery is in flight (its intent is pending: it may have
+// landed) is not superseded by a newer brief.
+func TestBriefKeepsAStartedDelivery(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	a, p := lineApp(t, lineRoot(t), &now)
+	lineStatus(a, "w:rev", "working", now) // the brief's line waits
+	if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead"},
+		To: "pj-rev", Text: "first"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.queuedLines()) != 1 {
+		t.Fatalf("precondition: one brief queued, got %d", len(p.queuedLines()))
+	}
+	q := p.queuedLines()[0]
+	a.record(p, event.Record{Task: event.MsgTask, Attempt: 1, Step: stepDeliver + strconv.FormatInt(q.seq, 10),
+		Kind: event.KindIntent, Class: event.ClassPrompt}, lineData{To: "pj-rev"})
+	if m := p.queuedAt(q.seq); m == nil || m.state != lineSending {
+		t.Fatalf("precondition: the delivery in flight; queued %+v", p.queuedLines())
+	}
+	reply, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b2", Role: "lead"},
+		To: "pj-rev", Text: "second"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(reply, "replaces") {
+		t.Errorf("reply %q says it replaced a line whose delivery may have landed", reply)
+	}
+	if m := p.queuedAt(q.seq); m == nil || m.state != lineSending {
+		t.Errorf("the in-flight line was superseded: queued %+v", p.queuedLines())
+	}
+	if n := len(p.queuedLines()); n != 2 {
+		t.Errorf("queued lines %d, want the in-flight one and the newer brief's", n)
+	}
+	recs, err := event.ReadLog(p.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rec := range recs {
+		var m event.Message
+		_ = json.Unmarshal(rec.Data, &m)
+		if rec.Task == event.MsgTask && rec.Step == event.StepBriefed && len(m.Supersedes) > 0 {
+			t.Errorf("a brief superseded the in-flight line: %+v", rec)
+		}
+	}
+}
+
+// TestBriefSupersededEndsNeedsYou (T-575): the 24 h needs-you of a brief line ends when a newer brief supersedes it;
+// the newer brief's own line waits as usual.
+func TestBriefSupersededEndsNeedsYou(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	a, p := lineApp(t, lineRoot(t), &now)
+	lineStatus(a, "w:rev", "working", now)
+	if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead"},
+		To: "pj-rev", Text: "first"}); err != nil {
+		t.Fatal(err)
+	}
+	l := &linerSpy{}
+	a.opt.Loop = func(string) (*Loop, error) { return &Loop{Typer: l, Inbox: l}, nil }
+	now = now.Add(25 * time.Hour)
+	a.advance(context.Background())
+	if len(p.folded.active[event.MsgTask]) != 1 {
+		t.Fatalf("precondition: the 25 h brief line's needs-you, got %d", len(p.folded.active[event.MsgTask]))
+	}
+	if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b2", Role: "lead"},
+		To: "pj-rev", Text: "second"}); err != nil {
+		t.Fatal(err)
+	}
+	a.advance(context.Background())
+	a.advance(context.Background())
+	if len(p.folded.active[event.MsgTask]) != 0 {
+		t.Errorf("the needs-you of the superseded line is still in force: %+v", p.folded.active[event.MsgTask])
+	}
+	if q := p.queuedLines(); len(q) != 1 || q[0].msg.Line != "[obor owner] second" || len(l.calls) != 0 {
+		t.Errorf("queued %v, typed %v; want the newer brief's line alone, waiting", q, l.calls)
+	}
+}
+
+// TestBriefSupersedeSurvivesACrash (RV-61 #2): a brief's supersede is its own fact: with the log refusing every
+// append after the new brief's, a restart right after it keeps the old line retired (never delivered), with a line
+// or a fresh start's brief; a retry of the new brief's call id gets the stored reply.
+func TestBriefSupersedeSurvivesACrash(t *testing.T) {
+	t.Parallel()
+	for _, note := range []string{"second", ""} {
+		t.Run("note="+note, func(t *testing.T) {
+			t.Parallel()
+			now := time.Now()
+			a, p := lineApp(t, lineRoot(t), &now)
+			lineStatus(a, "w:rev", "working", now) // brief A waits
+			if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead"},
+				To: "pj-rev", Text: "first"}); err != nil {
+				t.Fatal(err)
+			}
+			if len(p.queuedLines()) != 1 {
+				t.Fatalf("precondition: brief A queued, got %d", len(p.queuedLines()))
+			}
+			briefed := false
+			p.log.Refuse = func(r event.Record) error { // the crash cut: nothing after the new brief reaches the log
+				if briefed {
+					return errors.New("cut")
+				}
+				briefed = r.Step == event.StepBriefed
+				return nil
+			}
+			reply, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b2", Role: "lead"},
+				To: "pj-rev", Text: note})
+			if err != nil || !strings.HasSuffix(reply, "(replaces 1 undelivered brief)") {
+				t.Fatalf("brief B: %q, %v; want it recorded, replacing A", reply, err)
+			}
+			if !briefed {
+				t.Fatal("precondition: brief B's fact is in the log")
+			}
+			b, q := lineReload(t, a, p, &now)
+			for _, m := range q.queuedLines() {
+				if m.msg.Line == "[obor owner] first" {
+					t.Errorf("brief A is queued again after the restart: %+v", m)
+				}
+			}
+			again, err := b.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: q.root, CallID: "b2", Role: "lead"},
+				To: "pj-rev", Text: note})
+			if err != nil || again != reply {
+				t.Errorf("retry of b2: %q, %v; want the stored reply %q", again, err, reply)
+			}
+			l := &linerSpy{}
+			lineStatus(b, "w:rev", "idle", now)
+			b.deliver(context.Background(), q, linerLoop(l))
+			b.deliver(context.Background(), q, linerLoop(l))
+			want := []string{}
+			if note != "" {
+				want = []string{"w:rev: [obor owner] second"}
+			}
+			if strings.Join(l.calls, "|") != strings.Join(want, "|") {
+				t.Errorf("delivered %v, want %v: brief A never", l.calls, want)
+			}
+		})
+	}
+}
+
+// duringSpy is a linerSpy that runs during once inside its first delivery (the line's claim is set then).
+type duringSpy struct {
+	linerSpy
+	during func()
+}
+
+func (d *duringSpy) Type(ctx context.Context, agent, text string, x bool) (bool, error) {
+	if f := d.during; f != nil {
+		d.during = nil
+		f()
+	}
+	return d.linerSpy.Type(ctx, agent, text, x)
+}
+
+func (d *duringSpy) Post(ctx context.Context, _, agent, line string) (bool, error) {
+	return d.Type(ctx, agent, line, false)
+}
+
+// TestBriefRetiresARoutedLine (RV-61 #3): a line routed for delivery (no intent yet) that a newer brief supersedes
+// before its claim is not transmitted, and only the newer one is delivered; the inverse, a line claimed first, is
+// kept by the newer brief and delivered once, and the newer brief after it.
+func TestBriefRetiresARoutedLine(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	a, p := lineApp(t, lineRoot(t), &now)
+	lineStatus(a, "w:rev", "working", now)
+	if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead"},
+		To: "pj-rev", Text: "first"}); err != nil {
+		t.Fatal(err)
+	}
+	lineStatus(a, "w:rev", "idle", now)
+	q := *p.queuedLines()[0]
+	l := &linerSpy{}
+	fx := linerLoop(l)
+	a.mu.Lock()
+	post, target, ok := a.route(p, fx, q)
+	a.mu.Unlock()
+	if !ok {
+		t.Fatal("precondition: brief A routed")
+	}
+	if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b2", Role: "lead"},
+		To: "pj-rev", Text: "second"}); err != nil {
+		t.Fatal(err)
+	}
+	a.deliverLine(context.Background(), p, fx, q, post, target)
+	if len(l.calls) != 0 {
+		t.Errorf("the retired line was transmitted: %v", l.calls)
+	}
+	if _, written := p.log.Intent(event.Key{Task: event.MsgTask, Step: stepDeliver + strconv.FormatInt(q.seq, 10)}); written {
+		t.Errorf("an intent was written for the retired line")
+	}
+	a.deliver(context.Background(), p, fx)
+	a.deliver(context.Background(), p, fx)
+	if len(l.calls) != 1 || l.calls[0] != "w:rev: [obor owner] second" {
+		t.Errorf("delivered %v, want brief B alone", l.calls)
+	}
+
+	t.Run("claimed first", func(t *testing.T) {
+		t.Parallel()
+		now := time.Now()
+		a, p := lineApp(t, lineRoot(t), &now)
+		lineStatus(a, "w:rev", "working", now)
+		if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead"},
+			To: "pj-rev", Text: "first"}); err != nil {
+			t.Fatal(err)
+		}
+		lineStatus(a, "w:rev", "idle", now)
+		var reply string
+		d := &duringSpy{}
+		d.during = func() { // A's claim is set: B arrives now
+			var err error
+			if reply, err = a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b2", Role: "lead"},
+				To: "pj-rev", Text: "second"}); err != nil {
+				t.Error(err)
 			}
 		}
-		return false
+		fx := &Loop{Typer: d, Inbox: d}
+		a.deliver(context.Background(), p, fx)
+		if reply == "" || strings.Contains(reply, "replaces") {
+			t.Errorf("brief B during A's delivery: %q; want it recorded, replacing nothing", reply)
+		}
+		a.deliver(context.Background(), p, fx)
+		a.deliver(context.Background(), p, fx)
+		if got := strings.Join(d.calls, "|"); got != "w:rev: [obor owner] first|w:rev: [obor owner] second" {
+			t.Errorf("delivered %q, want A once, then B once", got)
+		}
 	})
-	if w := r.waiting(); len(w) != 1 {
-		t.Fatalf("a refused post: waiting %+v, want still queued", w)
-	}
-	r.inbox.fail(true)
-	r.inbox.ok()
-	r.waitFor("the retry posted", func() bool { return len(r.waiting()) == 0 })
-	if got := r.lineResults(); len(got) != 1 || got[0] != "sent" {
-		t.Errorf("delivery results %q, want one sent", got)
-	}
+}
 
-	r.inbox.fail(true)
-	if _, err := r.line("s2", &wire.SendReq{Text: "two", From: "other"}); err != nil {
+// TestBriefSupersedesSeveralLines (T-580): every undelivered brief line of the agent is retired by the one briefed
+// fact, live and on replay.
+func TestBriefSupersedesSeveralLines(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	a, p := lineApp(t, lineRoot(t), &now)
+	lineStatus(a, "w:rev", "working", now)
+	if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead"},
+		To: "pj-rev", Text: "first"}); err != nil {
 		t.Fatal(err)
 	}
-	r.waitFor("the partial post's result", func() bool { return len(r.lineResults()) == 2 })
-	r.passes()
-	r.passes()
-	if got := r.lineResults(); got[1] != "sent: broken pipe" {
-		t.Errorf("a post that began then failed: %q, want sent: broken pipe", got[1])
-	}
-	if n := r.inbox.tries("pj-lead", sentLine("other", "two")); n != 1 {
-		t.Errorf("the partial post tried %d times, want once", n)
-	}
-	if w := r.waiting(); len(w) != 0 {
-		t.Errorf("waiting %+v, want none", w)
-	}
-}
-
-// T-466: a line waiting longer than 24 h (here: the lead has no inbox record) is the project's needs-you (a
-// notification, obor status's needs-you with no command to answer it); posted at last, it ends (resumed).
-func TestSendWaitingADayNeedsYou(t *testing.T) {
-	t.Parallel()
-	r := lineRig(t, "idle", "idle")
-	r.inbox.unrecord("pj-lead")
-	r.start()
-	if _, err := r.line("s1", &wire.SendReq{Text: "hello", From: "other"}); err != nil {
+	first := p.queuedLines()[0].seq
+	step := stepDeliver + strconv.FormatInt(first, 10)
+	a.record(p, event.Record{Task: event.MsgTask, Attempt: 1, Step: step, Kind: event.KindIntent, Class: event.ClassPrompt}, lineData{To: "pj-rev"})
+	if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b2", Role: "lead"},
+		To: "pj-rev", Text: "second"}); err != nil {
 		t.Fatal(err)
 	}
-	r.later(23 * time.Hour)
-	want := "fact needs-you{line to pj-lead from other waiting over 1d for its delivery: " + sentLine("other", "hello") +
-		" (undelivered: no inbox recorded for pj-lead: its SessionStart hook records one)}" // why it waits (T-746)
-	if n := r.taskStep(event.MsgTask, want); n != 0 {
-		t.Fatalf("a needs-you before 24 h: %q", r.steps())
+	a.record(p, event.Record{Task: event.MsgTask, Step: event.StepFailed, Kind: event.KindFact}, // A's delivery refused: undelivered again
+		event.FactData{Machine: Machine, Reason: step + ": refused", Step: step})
+	if len(p.queuedLines()) != 2 || p.queuedAt(first) == nil || p.queuedAt(first).state != lineWaiting {
+		t.Fatalf("precondition: two undelivered brief lines, none claimed; queued %+v", p.queuedLines())
 	}
-	r.later(2 * time.Hour)
-	r.waitFor("the needs-you", func() bool { return r.taskStep(event.MsgTask, want) == 1 })
-	facts := r.msgFacts()
-	if len(facts) != 1 || facts[0].Step != event.StepNeedsYou || r.answerOf(facts[0]) != "" {
-		t.Errorf("facts %+v, want the line's needs-you", facts)
+	reply, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b3", Role: "lead"},
+		To: "pj-rev", Text: "third"})
+	if err != nil || !strings.HasSuffix(reply, "(replaces 2 undelivered briefs)") {
+		t.Fatalf("brief C: %q, %v", reply, err)
 	}
-	r.passes()
-	if n := r.taskStep(event.MsgTask, want); n != 1 {
-		t.Errorf("needs-you recorded %d times, want once", n)
-	}
-	r.inbox.record("pj-lead")
-	// The records the assertions below read: the line posted, the resumed fact in the log and folded out of the facts
-	// in force (the log and the status fold are not updated in one step).
-	r.waitFor("resumed", func() bool {
-		return r.taskStep(event.MsgTask, "fact resumed") == 1 && r.inbox.count("pj-lead", sentLine("other", "hello")) == 1 &&
-			len(r.msgFacts()) == 0
-	})
-	if r.inbox.count("pj-lead", sentLine("other", "hello")) != 1 || len(r.msgFacts()) != 0 {
-		t.Errorf("posted %d, facts %+v; want posted once, none in force", r.inbox.count("pj-lead", sentLine("other", "hello")),
-			r.msgFacts())
-	}
-}
-
-// T-466: obor brief types its line into the idle role pane (still through Liner, T-485); once that pane has worked
-// and is idle again, the lead gets "[obor] <agent> finished (briefed <age> ago)" posted once. Idle right after the
-// typing is no finish; the lead itself cannot be briefed.
-func TestBriefFinishedLineToTheLead(t *testing.T) {
-	t.Parallel()
-	r := lineRig(t, "idle", "idle")
-	r.start()
-	if _, err := r.line("b0", &wire.BriefReq{To: "pj-lead", Text: "x"}); err == nil || !strings.Contains(err.Error(),
-		"is the lead") {
-		t.Errorf("a brief of the lead: %v, want refused", err)
-	}
-	reply, err := r.line("b1", &wire.BriefReq{To: "pj-rev", Text: "verify finding 3"})
-	if err != nil || reply != "BRIEFED pj-rev (delivered when its pane is idle; the lead hears when it finishes)" {
-		t.Fatalf("brief: %q, %v", reply, err)
-	}
-	r.waitFor("the brief posted", func() bool { return r.inbox.count("pj-rev", "[obor pj-lead] verify finding 3") == 1 })
-	r.waitBriefDelivered()
-	r.passes()
-	r.passes()
-	if n := r.taskStep(event.MsgTask, "fact message"); n != 0 {
-		t.Fatalf("a finished line before the reviewer worked: %q", r.steps())
-	}
-	r.agentIs("w1:p6", "pj-rev", "working")
-	r.clock.Add(5 * time.Minute)
-	r.passes()
-	if n := r.taskStep(event.MsgTask, "fact message"); n != 0 {
-		t.Fatalf("a finished line while the reviewer works: %q", r.steps())
-	}
-	r.agentIs("w1:p6", "pj-rev", "idle")
-	const done = "[obor] pj-rev finished (briefed 5m ago)"
-	r.waitFor("the finished line posted", func() bool { return r.inbox.count("pj-lead", done) == 1 })
-	r.agentIs("w1:p6", "pj-rev", "working")
-	r.agentIs("w1:p6", "pj-rev", "idle")
-	r.passes()
-	if n := r.taskStep(event.MsgTask, "fact message"); n != 1 || r.inbox.count("pj-lead", done) != 1 {
-		t.Errorf("finished lines %d (posted %d), want one: the brief ended", n, r.inbox.count("pj-lead", done))
-	}
-	if typed := append(r.promptsTo("pj-rev"), r.promptsTo("pj-lead")...); len(typed) != 0 {
-		t.Errorf("typed %q, want the brief and the finished line posted, none typed (T-499)", typed)
-	}
-}
-
-// T-466: a brief without a line (a review's start carried it) is recorded while the agent already works on it;
-// idle → the lead's finished line.
-func TestBriefOfAFreshStart(t *testing.T) {
-	t.Parallel()
-	r := lineRig(t, "idle", "working")
-	r.start()
-	reply, err := r.line("b1", &wire.BriefReq{To: "pj-rev"})
-	if err != nil || reply != "BRIEF RECORDED for pj-rev (the lead hears when it finishes)" {
-		t.Fatalf("brief: %q, %v", reply, err)
-	}
-	r.agentIs("w1:p6", "pj-rev", "idle")
-	r.waitFor("the finished line recorded", func() bool { return r.taskStep(event.MsgTask, "fact message") == 1 })
-	r.waitFor("the finished line posted", func() bool {
-		return r.inbox.count("pj-lead", "[obor] pj-rev finished (briefed 0s ago)") == 1
-	})
-	for _, p := range r.prompts() {
-		if p.to == "pj-rev" {
-			t.Errorf("typed into pj-rev: %q (its start carried the brief)", p.text)
+	check := func(when string, p *proj) {
+		if q := p.queuedLines(); len(q) != 1 || q[0].msg.Line != "[obor owner] third" {
+			t.Errorf("%s: queued %+v, want brief C alone", when, q)
 		}
 	}
-}
-
-// T-475: a brief to an agent serve identifies no pane of (no label, session or start proves it) is still queued, and
-// the reply says so and how to start it; an identified pane's reply is the usual one. The lead's line needs no pane
-// (T-485): posted to its session.
-func TestLineToAnUnnamedPane(t *testing.T) {
-	t.Parallel()
-	r := newLoopRig(t, noCheck())
-	r.f.Agent("w1:p5", "", "idle", r.p.Root) // the lead's pane, unnamed
-	rev := r.f.Agent("w1:p6", "pj-rev", "working", r.p.Root)
-	rev.Label = "pj-rev"
-	r.start()
-	reply, err := r.line("s1", &wire.SendReq{Text: "hello", From: "other"})
-	if want := "SENT to pj-lead in proj (posted to its session)"; err != nil || reply != want {
-		t.Errorf("send: %q, %v; want %q", reply, err, want)
-	}
-	reply, err = r.line("b1", &wire.BriefReq{To: "pj-sol", Text: "look at x"})
-	if want := "BRIEFED pj-sol (queued: no pane runs pj-sol; `obor restart pj-sol` starts it)"; err != nil || reply != want {
-		t.Errorf("brief: %q, %v; want %q", reply, err, want)
-	}
-	reply, err = r.line("b2", &wire.BriefReq{To: "pj-rev", Text: "verify"})
-	if want := "BRIEFED pj-rev (delivered when its pane is idle; the lead hears when it finishes)"; err != nil || reply != want {
-		t.Errorf("brief of a named pane: %q, %v; want %q", reply, err, want)
-	}
-	r.waitFor("the lead's line posted", func() bool { return r.inbox.count("pj-lead", sentLine("other", "hello")) == 1 })
-	r.passes()
-	if w := r.waiting(); len(w) != 2 || w[0].To != "pj-sol" || w[1].To != "pj-rev" {
-		t.Errorf("lines waiting %+v, want pj-sol's (unnamed) and pj-rev's (working) still queued", w)
-	}
-}
-
-// Live 2026-10-28 (T-480): herdr dropped a role pane's agent name and kept its label. A brief to that agent finds the
-// pane by its label: its line is typed into the pane (by id: herdr has no name to address; a Codex pane, so typed,
-// T-499), its work and idle end the brief, and the lead gets the finished line.
-func TestBriefToALabelledPaneWithoutAName(t *testing.T) {
-	t.Parallel()
-	r := newLoopRig(t, noCheck())
-	r.f.Agent("w1:p5", "pj-lead", "idle", r.p.Root)
-	sol := r.f.Agent("w1:p6", "", "idle", r.p.Root)
-	sol.Label, sol.Kind = "pj-sol", "codex"
-	r.start()
-	reply, err := r.line("b1", &wire.BriefReq{To: "pj-sol", Text: "look at x"})
-	if err != nil || reply != "BRIEFED pj-sol (delivered when its pane is idle; the lead hears when it finishes)" {
-		t.Fatalf("brief of the labelled pane: %q, %v; want the named pane's reply", reply, err)
-	}
-	r.waitFor("the brief typed into w1:p6", func() bool { return r.typedTo("w1:p6", "[obor pj-lead] look at x") == 1 })
-	r.waitBriefDelivered()
-	r.f.Set("w1:p6", func(p *herdrtest.Pane) { p.Status = "working" })
-	r.srv.Push(herdr.EventStatus, map[string]any{"pane_id": "w1:p6", "agent_status": "working", "agent": "codex"})
-	r.waitFor("its work logged", func() bool { return r.taskStep(event.MsgTask, "fact worked") == 1 })
-	r.clock.Add(2 * time.Minute)
-	r.f.Set("w1:p6", func(p *herdrtest.Pane) { p.Status = "idle" })
-	r.srv.Push(herdr.EventStatus, map[string]any{"pane_id": "w1:p6", "agent_status": "idle", "agent": "codex"})
-	const done = "[obor] pj-sol finished (briefed 2m ago)"
-	r.waitFor("the finished line posted to the lead", func() bool { return r.inbox.count("pj-lead", done) == 1 })
-}
-
-// T-575: a role agent with no inbox: brief A waits, then a fresh start's brief B (no line: the start carried it) ends
-// A; the inbox's arrival delivers nothing for A, before or after a restart of serve.
-func TestBriefSupersedesAFreshStartsOldLine(t *testing.T) {
-	t.Parallel()
-	r := lineRig(t, "idle", "working")
-	r.inbox.unrecord("pj-rev")
-	r.start()
-	const a = "[obor pj-lead] first"
-	if _, err := r.line("b1", &wire.BriefReq{To: "pj-rev", Text: "first"}); err != nil {
+	check("live", p)
+	recs, err := event.ReadLog(p.root)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if w := r.waiting(); len(w) != 1 || w[0].Line != a {
-		t.Fatalf("waiting %+v, want the first brief's line alone", w)
-	}
-	reply, err := r.line("b2", &wire.BriefReq{To: "pj-rev"})
-	if err != nil || !strings.HasSuffix(reply, "(replaces 1 undelivered brief)") {
-		t.Fatalf("the fresh start's brief: %q, %v; want it to say it replaces the waiting one", reply, err)
-	}
-	if w := r.waiting(); len(w) != 0 {
-		t.Errorf("waiting %+v after the fresh start's brief, want none: the old line is superseded", w)
-	}
-	sup := r.supersededLines()
-	if len(sup) != 1 || sup[0].By == 0 || sup[0].Seq >= sup[0].By {
-		t.Fatalf("superseded lines %+v, want the old line replaced by the fresh start's brief", sup)
-	}
-	var by event.Message
-	for _, rec := range r.records() {
-		if rec.Seq == sup[0].By {
-			_ = json.Unmarshal(rec.Data, &by)
-		}
-	}
-	if by.Line != "" {
-		t.Errorf("the newer brief carried line %q, want none (its start carried it)", by.Line)
-	}
-	// The inbox appears: the old line is not delivered, before or after a restart.
-	r.inbox.record("pj-rev")
-	r.agentIs("w1:p6", "pj-rev", "idle")
-	r.passes()
-	r.stop()
-	r.start()
-	r.passes()
-	if n := r.inbox.count("pj-rev", a) + r.typedTo("pj-rev", a); n != 0 {
-		t.Errorf("the superseded line was delivered %d times, want none", n)
-	}
-	if n := len(r.supersededLines()); n != 1 {
-		t.Errorf("superseded lines after a restart: %d, want the one", n)
-	}
-}
-
-// T-575: brief A waits; obor brief B ends it and is delivered once, and A is never delivered.
-func TestBriefSupersedesAQueuedBrief(t *testing.T) {
-	t.Parallel()
-	r := lineRig(t, "idle", "working") // the reviewer is busy: brief A waits
-	r.start()
-	if _, err := r.line("b1", &wire.BriefReq{To: "pj-rev", Text: "first"}); err != nil {
-		t.Fatal(err)
-	}
-	const a = "[obor pj-lead] first"
-	r.waitFor("the first brief queued", func() bool { return len(r.waiting()) == 1 })
-	reply, err := r.line("b2", &wire.BriefReq{To: "pj-rev", Text: "second"})
-	if err != nil || !strings.HasSuffix(reply, "(replaces 1 undelivered brief)") {
-		t.Fatalf("the second brief: %q, %v", reply, err)
-	}
-	const b = "[obor pj-lead] second"
-	if w := r.waiting(); len(w) != 1 || w[0].Line != b {
-		t.Fatalf("waiting %+v, want the second brief's line alone", w)
-	}
-	r.agentIs("w1:p6", "pj-rev", "idle")
-	r.waitFor("the second brief delivered", func() bool { return r.inbox.count("pj-rev", b) == 1 })
-	r.passes()
-	if n := r.inbox.count("pj-rev", a) + r.typedTo("pj-rev", a); n != 0 {
-		t.Errorf("the superseded brief was delivered %d times, want none", n)
-	}
-	if n := r.inbox.count("pj-rev", b) + r.typedTo("pj-rev", b); n != 1 {
-		t.Errorf("the second brief delivered %d times, want once", n)
-	}
-}
-
-// T-575: the lead's lines are never superseded: a send to the lead and another brief's finished line stay queued
-// across a brief to a different role agent.
-func TestBriefLeavesLeadLinesQueued(t *testing.T) {
-	t.Parallel()
-	r := lineRig(t, "idle", "working")
-	sol := r.f.Agent("w1:p7", "pj-sol", "working", r.p.Root)
-	sol.Label = "pj-sol"
-	r.inbox.unrecord("pj-lead") // its lines wait
-	r.start()
-	if _, err := r.line("s1", &wire.BriefReq{To: "pj-sol"}); err != nil { // a fresh start's brief: sol works
-		t.Fatal(err)
-	}
-	r.agentIs("w1:p7", "pj-sol", "idle")
-	const done = "[obor] pj-sol finished (briefed 0s ago)"
-	r.waitFor("the finished line queued for the lead", func() bool {
-		for _, m := range r.waiting() {
-			if m.To == "pj-lead" && m.Line == done {
-				return true
+	facts := 0
+	for _, rec := range recs {
+		var m event.Message
+		_ = json.Unmarshal(rec.Data, &m)
+		if rec.Task == event.MsgTask && rec.Step == event.StepBriefed && len(m.Supersedes) > 0 {
+			facts++
+			if len(m.Supersedes) != 2 {
+				t.Errorf("briefed %+v supersedes %v, want both lines", rec, m.Supersedes)
 			}
 		}
-		return false
-	})
-	if _, err := r.line("x1", &wire.SendReq{Text: "hello", From: "other"}); err != nil {
-		t.Fatal(err)
 	}
-	if _, err := r.line("b1", &wire.BriefReq{To: "pj-rev", Text: "first"}); err != nil {
-		t.Fatal(err)
+	if facts != 1 {
+		t.Errorf("briefed facts that supersede: %d, want the one", facts)
 	}
-	if _, err := r.line("b2", &wire.BriefReq{To: "pj-rev", Text: "second"}); err != nil {
-		t.Fatal(err)
+	_, q := lineReload(t, a, p, &now)
+	check("replay", q)
+}
+
+// TestBriefWorkDurableAtOnce: the work a brief's agent is seen doing is in the log as soon as its caller (a herdr status
+// event, a snapshot, a fresh start's brief) returns, before any delivery pass: a restart right then still gets the
+// finished line once the agent is idle on reconnect, for a brief with a text and a fresh start's brief (RV-50 #3,
+// the retained observation → reload probes).
+func TestBriefWorkDurableAtOnce(t *testing.T) {
+	t.Parallel()
+	working := func(a *App, p *proj) {
+		pane := a.obs["w:rev"].pane
+		pane.Status = "working"
+		eventNow(a, port.Event{Kind: port.EventStatus, Pane: pane.ID, New: pane})
 	}
-	got := map[string]bool{}
-	for _, m := range r.waiting() {
-		got[m.Line] = true
+	snapshot := func(a *App, p *proj) {
+		lead, rev := a.obs["w:lead"].pane, a.obs["w:rev"].pane
+		rev.Status = "working"
+		a.connect(context.Background(), port.Snapshot{Panes: []port.Pane{lead, rev}})
 	}
-	for _, line := range []string{done, sentLine("other", "hello"), "[obor pj-lead] second"} {
-		if !got[line] {
-			t.Errorf("waiting %+v lacks %q", r.waiting(), line)
-		}
-	}
-	if got["[obor pj-lead] first"] {
-		t.Errorf("the superseded brief still waits: %+v", r.waiting())
-	}
-	if len(got) != 3 {
-		t.Errorf("waiting %d lines, want the two lead lines and the second brief", len(got))
+	for _, c := range []struct {
+		name string
+		note string
+		seen func(*App, *proj)
+	}{
+		{"verify/event", "verify finding 1", working},
+		{"fresh/event", "", working},
+		{"verify/snapshot", "verify finding 1", snapshot},
+		{"fresh/snapshot", "", snapshot},
+		{"fresh/brief", "", nil}, // the pane works already when the fresh start's brief is recorded
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			now := time.Now()
+			a, p := lineApp(t, lineRoot(t), &now)
+			if c.seen == nil {
+				lineStatus(a, "w:rev", "working", now)
+			}
+			if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead"},
+				To: "pj-rev", Text: c.note}); err != nil {
+				t.Fatal(err)
+			}
+			l := &linerSpy{}
+			if c.note != "" {
+				a.deliver(context.Background(), p, linerLoop(l)) // the brief's line typed
+				if len(l.calls) != 1 || p.out.brief("pj-rev").worked {
+					t.Fatalf("precondition: the line typed, no work seen yet; calls %v", l.calls)
+				}
+			}
+			if c.seen != nil {
+				c.seen(a, p)
+			}
+			if b := p.out.brief("pj-rev"); !b.worked || !b.logged {
+				t.Fatalf("the work seen is not in the log once its caller returns: %+v", *b)
+			}
+			b, q := lineReload(t, a, p, &now) // no pass since; the reviewer idle on reconnect
+			if q.out.brief("pj-rev") == nil || !q.out.brief("pj-rev").worked {
+				t.Fatal("the brief's observed work is not replayed")
+			}
+			out := &linerSpy{}
+			b.deliver(context.Background(), q, linerLoop(out))
+			b.deliver(context.Background(), q, linerLoop(out))
+			if !lineTyped(out.calls, "finished") || q.briefCount() != 0 {
+				t.Fatalf("want one finished line after reload, got %v (open briefs %d)", out.calls, q.briefCount())
+			}
+		})
 	}
 }
 
-// DD-v0.12 A3: obor send and obor brief to a project without a merge loop (no integrator role) are refused as obor
-// dispatch is: nothing there would ever deliver the line.
-func TestLinesRefusedWithoutAMergeLoop(t *testing.T) {
+// TestFinishedLineAgeFromTyping: a finished line's age counts from when the brief's line was typed, also across a
+// restart, not from when the brief was recorded (a brief queued for an hour is not "briefed 1h ago").
+func TestFinishedLineAgeFromTyping(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, noCheck())
-	r.setConfig("roles", map[string]any{"reviewer": ""})
-	r.start()
-	if st := r.app.Status().Project; st.Merging {
-		t.Fatalf("precondition: %s merges", st.Name)
+	now := time.Now()
+	a, p := lineApp(t, lineRoot(t), &now)
+	lineStatus(a, "w:rev", "working", now) // busy: the brief waits
+	if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead"},
+		To: "pj-rev", Text: "verify finding 1"}); err != nil {
+		t.Fatal(err)
 	}
-	for _, c := range []wire.Req{&wire.SendReq{Text: "hello", From: "other"}, &wire.BriefReq{To: "pj-rev",
-		Text: "verify"}} {
-		reply, err := r.line(c.Method()+"1", c)
-		if err == nil || err.Error() != "merge loop off for proj (no integrator role)" || reply != "" {
-			t.Errorf("%s: %q, %v; want the merge loop's refusal", c.Method(), reply, err)
+	l := &linerSpy{}
+	a.deliver(context.Background(), p, linerLoop(l))
+	if len(l.calls) != 0 {
+		t.Fatalf("precondition: the line waits for the working pane; typed %v", l.calls)
+	}
+	now = now.Add(time.Hour)
+	lineStatus(a, "w:rev", "idle", now)
+	a.deliver(context.Background(), p, linerLoop(l)) // typed an hour after the brief
+	if len(l.calls) != 1 {
+		t.Fatalf("precondition: the brief's line typed; calls %v", l.calls)
+	}
+	now = now.Add(2 * time.Minute)
+	pane := a.obs["w:rev"].pane
+	pane.Status = "working"
+	eventNow(a, port.Event{Kind: port.EventStatus, Pane: pane.ID, New: pane})
+	now = now.Add(time.Minute)
+	b, q := lineReload(t, a, p, &now) // idle on reconnect, 3 minutes after the typing
+	out := &linerSpy{}
+	b.deliver(context.Background(), q, linerLoop(out))
+	b.deliver(context.Background(), q, linerLoop(out))
+	if want := "pj-lead: [obor] pj-rev finished (briefed 3m ago)"; len(out.calls) != 1 || out.calls[0] != want {
+		t.Fatalf("want %q, got %v", want, out.calls)
+	}
+}
+
+// registerLead rewrites root's config with prefix: the lead is <prefix>-lead (obor setup rename's change, T-765: a
+// lead's agent name is its prefix's).
+func registerLead(t *testing.T, root, prefix string) {
+	t.Helper()
+	cfg := `{"name":"proj","prefix":"` + prefix + `","roles":{"lead":"","integrator":"","reviewer":""}}`
+	if err := os.WriteFile(filepath.Join(root, ".obor/config.json"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestQueuedLeadLineAfterRename: a lead line (a send, a finished line) queued for want of an inbox is
+// neither typed into the old lead's idle pane after the lead is renamed and serve restarts, nor lost: it is posted
+// once its inbox is recorded (V1).
+func TestQueuedLeadLineAfterRename(t *testing.T) {
+	t.Parallel()
+	for _, kind := range []string{"send", "finished"} {
+		t.Run(kind, func(t *testing.T) {
+			t.Parallel()
+			now := time.Now()
+			a, p := lineApp(t, lineRoot(t), &now)
+			a.opt.Inboxed = func(string) (string, bool) { return "", false }
+			queueLine(t, a, p, kind, now)
+			first := &linerSpy{}
+			a.deliver(context.Background(), p, &Loop{Typer: first, Inbox: &inboxSpy{}}) // records the finished line
+			if len(first.calls) != 0 || len(p.queuedLines()) != 1 || !p.queuedLines()[0].lead {
+				t.Fatalf("precondition: one lead line queued, nothing typed; typed %v, queued %d", first.calls, len(p.queuedLines()))
+			}
+
+			registerLead(t, p.root, "pj-new")
+			b, q := lineReload(t, a, p, &now)
+			if q.out.lead() != "pj-new-lead" || len(q.queuedLines()) != 1 {
+				t.Fatalf("precondition: renamed lead %q with one line queued, got %d", q.out.lead(), len(q.queuedLines()))
+			}
+			pane := b.obs["w:lead"].pane
+			pane.Label = "pj-lead" // the old lead's session still open and idle under its old name
+			eventNow(b, port.Event{Kind: port.EventStatus, Pane: pane.ID, New: pane})
+			if w := b.whereIs(q, "pj-lead"); w.State != Identified || !Ready(w.Pane.Status) {
+				t.Fatal("precondition: the old lead's pane is idle under its old name")
+			}
+
+			b.opt.Inboxed = func(string) (string, bool) { return "", false }
+			lines, posts := &linerSpy{}, &inboxSpy{}
+			b.deliver(context.Background(), q, &Loop{Typer: lines, Inbox: posts})
+			if len(lines.calls) != 0 || len(posts.calls) != 0 || len(q.queuedLines()) != 1 {
+				t.Fatalf("no inbox: typed %q, posted %q, queued %d; want nothing tried, still queued", lines.calls,
+					posts.calls, len(q.queuedLines()))
+			}
+
+			b.opt.Inboxed = func(string) (string, bool) { return "", true }
+			b.deliver(context.Background(), q, &Loop{Typer: lines, Inbox: posts})
+			b.deliver(context.Background(), q, &Loop{Typer: lines, Inbox: posts})
+			if len(lines.calls) != 0 || len(posts.calls) != 1 || !strings.HasPrefix(posts.calls[0], "pj-lead: [obor") ||
+				len(q.queuedLines()) != 0 {
+				t.Errorf("inbox recorded: typed %q, posted %q, queued %d; want posted once, never typed", lines.calls,
+					posts.calls, len(q.queuedLines()))
+			}
+		})
+	}
+}
+
+// TestRunningLeadHint: the queued send's reply names `obor restart <lead>` (obor lead starts nothing for a
+// running lead), and the upgrade guide and state-model row 47 say the same (V2).
+func TestRunningLeadHint(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	a, p := lineApp(t, lineRoot(t), &now)
+	a.opt.Inboxed = func(string) (string, bool) { return "", false }
+	reply, err := a.sendCall(wire.SendReq{Envelope: wire.Envelope{Root: p.root, CallID: "s1"}, From: "other",
+		Text: "hello"})
+	hint := "`obor restart pj-lead` once it is idle registers it, or quit it and run `obor lead`"
+	if err != nil || !strings.Contains(reply, hint) || strings.Contains(reply, "obor lead registers") {
+		t.Errorf("reply %q (%v); want it to name %s", reply, err, hint)
+	}
+	for file, want := range map[string]string{
+		"state-model.md": strings.ReplaceAll(hint, "pj-lead", "<lead>"),
+	} {
+		b, err := os.ReadFile(filepath.Join("..", "..", "docs", file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := strings.Join(strings.Fields(string(b)), " ") // the guide wraps its lines
+		if !strings.Contains(text, want) || strings.Contains(text, "obor lead registers it") ||
+			strings.Contains(text, "restarted once (`obor lead`)") {
+			t.Errorf("docs/%s: want %q, and no recipe that has obor lead register a running lead", file, want)
 		}
 	}
-	if n := len(r.waiting()); n != 0 || r.taskStep(event.MsgTask, "fact message")+r.taskStep(event.MsgTask, "fact briefed") != 0 {
-		t.Errorf("recorded while refused: %d lines, %q", n, r.steps())
+}
+
+// TestBriefStatus (T-664): the app's status lists a role agent's open brief: not delivered while its line is queued,
+// delivered once typed, worked on once its pane worked; none once it finished.
+func TestBriefStatus(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	a, p := lineApp(t, lineRoot(t), &now)
+	if got := a.Status().Project.Briefs; len(got) != 0 {
+		t.Fatalf("precondition: no brief, got %+v", got)
+	}
+	if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead"},
+		To: "pj-rev", Text: "verify 1"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := a.Status().Project.Briefs; len(got) != 1 || got[0].To != "pj-rev" || got[0].Delivered || got[0].Since == 0 {
+		t.Errorf("briefed, its line queued: %+v; want pj-rev, not delivered, its time", got)
+	}
+	l := &linerSpy{}
+	a.deliver(context.Background(), p, linerLoop(l))
+	if len(l.calls) != 1 {
+		t.Fatalf("precondition: the brief's line typed, got %v", l.calls)
+	}
+	if got := a.Status().Project.Briefs; len(got) != 1 || !got[0].Delivered || got[0].Worked {
+		t.Errorf("its line typed: %+v; want delivered, not worked on", got)
+	}
+	lineStatus(a, "w:rev", "working", now)
+	a.deliver(context.Background(), p, linerLoop(l))
+	if got := a.Status().Project.Briefs; len(got) != 1 || !got[0].Worked {
+		t.Errorf("its pane worked: %+v; want worked on", got)
+	}
+}
+
+// T-748 (RV-90): a queued line's delivery as explicit states. The case → test table: each state a line can be in
+// while queued (waiting, sending, sending with its question settled) × each event (delivered, a refusal before a byte,
+// an error after a byte, its question settled, its task dropped, replay), one subtest per row, run through the log's
+// records on T-1's answer to pj-l-01 (busyAnswered). Sent and retired lines leave the outbox: next names which.
+
+// answerSeq is the seq of h's one queued line (precondition: exactly one).
+func answerSeq(t *testing.T, h *harness) int64 {
+	t.Helper()
+	h.a.mu.Lock()
+	defer h.a.mu.Unlock()
+	qs := h.proj().queuedLines()
+	if len(qs) != 1 || !qs[0].answer {
+		t.Fatalf("precondition: one queued answer, got %d lines", len(qs))
+	}
+	return qs[0].seq
+}
+
+// lineAt is the state of line seq in p (ok false: it left the outbox).
+func lineAt(h *harness, p *proj, seq int64) (lineState, bool) {
+	h.a.mu.Lock()
+	defer h.a.mu.Unlock()
+	q := p.out.msgs[seq]
+	if q == nil {
+		return 0, false
+	}
+	return q.state, true
+}
+
+// deliverKey is line seq's delivery key step.
+func deliverKey(seq int64) string { return stepDeliver + strconv.FormatInt(seq, 10) }
+
+// lineRec records r with data in h's project (fatal when the log refuses it).
+func lineRec(t *testing.T, h *harness, r event.Record, data any) {
+	t.Helper()
+	if !h.a.record(h.proj(), r, data) {
+		t.Fatalf("%s not recorded", r.Step)
+	}
+}
+
+// claimIntent records line seq's delivery intent: its delivery began (sending).
+func claimIntent(t *testing.T, h *harness, seq int64) {
+	lineRec(t, h, event.Record{Task: event.MsgTask, Step: deliverKey(seq), Kind: event.KindIntent,
+		Class: event.ClassPrompt}, lineData{To: "pj-l-01"})
+}
+
+// submitT1 records T-1's submission: its question is settled another way.
+func submitT1(t *testing.T, h *harness) {
+	lineRec(t, h, event.Record{Task: "T-1", Attempt: 1, Step: event.StepSubmitted, Kind: event.KindFact},
+		event.FactData{Lane: "L-01", Agent: "pj-l-01", Merge: true})
+}
+
+// answerIn is busyAnswered's answer moved into state from, by the log's records.
+func answerIn(t *testing.T, from lineState) (*harness, int64) {
+	t.Helper()
+	h := busyAnswered(t)
+	seq := answerSeq(t, h)
+	if from != lineWaiting {
+		claimIntent(t, h, seq)
+	}
+	if from == lineSendingSettled {
+		submitT1(t, h)
+	}
+	if s, ok := lineAt(h, h.proj(), seq); !ok || s != from {
+		t.Fatalf("precondition: the answer in state %d (queued %v), want %d", s, ok, from)
+	}
+	return h, seq
+}
+
+func TestLineStateTable(t *testing.T) {
+	t.Parallel()
+	events := map[string]struct {
+		e  lineEvent // the event next sees ("replay": none)
+		do func(t *testing.T, h *harness, seq int64)
+	}{
+		"delivered": {lineDelivered, func(t *testing.T, h *harness, seq int64) {
+			lineRec(t, h, event.Record{Task: event.MsgTask, Step: deliverKey(seq), Kind: event.KindResult}, "sent")
+		}},
+		"refused before a byte": {lineRefused, func(t *testing.T, h *harness, seq int64) {
+			lineRec(t, h, event.Record{Task: event.MsgTask, Step: event.StepFailed, Kind: event.KindFact},
+				event.FactData{Machine: Machine, Reason: deliverKey(seq) + ": dial: connection refused", Step: deliverKey(seq),
+					Via: viaInbox})
+		}},
+		"error after a byte": {lineDelivered, func(t *testing.T, h *harness, seq int64) {
+			lineRec(t, h, event.Record{Task: event.MsgTask, Step: deliverKey(seq), Kind: event.KindResult},
+				"sent: broken pipe")
+		}},
+		"settled": {lineSettled, func(t *testing.T, h *harness, _ int64) { submitT1(t, h) }},
+		"dropped": {lineSettled, func(t *testing.T, h *harness, _ int64) {
+			lineRec(t, h, event.Record{Task: "T-1", Attempt: 1, Step: event.StepDropped, Kind: event.KindFact},
+				event.FactData{Lane: "L-01", Merge: true})
+		}},
+	}
+	const gone = lineState(255) // the line left the outbox (sent or retired: next says which)
+	for _, row := range []struct {
+		from  lineState
+		event string
+		want  lineState
+	}{
+		{lineWaiting, "delivered", lineSent},
+		{lineWaiting, "refused before a byte", lineWaiting},
+		{lineWaiting, "error after a byte", lineSent},
+		{lineWaiting, "settled", lineRetired},
+		{lineWaiting, "dropped", lineRetired},
+		{lineWaiting, "replay", lineWaiting},
+		{lineSending, "delivered", lineSent},
+		{lineSending, "refused before a byte", lineWaiting},
+		{lineSending, "error after a byte", lineSent},
+		{lineSending, "settled", lineSendingSettled},
+		{lineSending, "dropped", lineSendingSettled},
+		{lineSending, "replay", lineSending},
+		{lineSendingSettled, "delivered", lineSent},
+		{lineSendingSettled, "refused before a byte", lineRetired}, // RV-90 #1's race: settled, then refused
+		{lineSendingSettled, "error after a byte", lineSent},
+		{lineSendingSettled, "settled", lineSendingSettled},
+		{lineSendingSettled, "dropped", lineSendingSettled},
+		{lineSendingSettled, "replay", lineSendingSettled},
+	} {
+		name := []string{"waiting", "sending", "sending-settled"}[row.from] + "/" + row.event
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			h, seq := answerIn(t, row.from)
+			if row.event == "replay" {
+				s, live := lineAt(h, h.proj(), seq)
+				if r, ok := lineAt(h, replayed(t, h), seq); !live || !ok || s != row.want || r != row.want {
+					t.Errorf("live %d (queued %v), replayed %d (queued %v); want %d both", s, live, r, ok, row.want)
+				}
+				return
+			}
+			ev := events[row.event]
+			if got := row.from.next(ev.e); got != row.want {
+				t.Errorf("next: %d, want %d", got, row.want)
+			}
+			ev.do(t, h, seq)
+			want := row.want
+			if want == lineSent || want == lineRetired {
+				want = gone
+			}
+			check := func(when string, p *proj) {
+				got, ok := lineAt(h, p, seq)
+				if !ok {
+					got = gone
+				}
+				if got != want {
+					t.Errorf("%s: state %d, want %d (%d: left the outbox)", when, got, want, gone)
+				}
+			}
+			check("live", h.proj())
+			check("replay", replayed(t, h))
+		})
+	}
+}
+
+// Ended is ended: nothing moves a sent or retired line.
+func TestLineStateEndedStays(t *testing.T) {
+	t.Parallel()
+	for _, s := range []lineState{lineSent, lineRetired} {
+		for _, e := range []lineEvent{lineClaimed, lineDelivered, lineRefused, lineSettled, lineClosed} {
+			if got := s.next(e); got != s {
+				t.Errorf("%d on %d: %d, want it to stay", s, e, got)
+			}
+		}
+	}
+}
+
+// RV-90 #1 (probe TestRV90RefusedAndSettled): a post refused before a byte, then the question settled (task_done):
+// the answer retires, the next idle sends nothing, and replay keeps it retired.
+func TestRV90RefusedAndSettled(t *testing.T) {
+	t.Parallel()
+	h := staleHerdr(t)
+	in := &linerSpy{refuse: true}
+	fx := &Loop{Inbox: in, Typer: &linerSpy{}}
+	h.a.deliver(context.Background(), h.proj(), fx)
+	seq := answerSeq(t, h)
+	if s, _ := lineAt(h, h.proj(), seq); len(in.calls) != 1 || s != lineWaiting {
+		t.Fatalf("precondition: one refused post, the answer waiting; posts %q, state %d", in.calls, s)
+	}
+	submitT1(t, h)
+	if q := h.lines(); len(q) != 0 {
+		t.Errorf("queued %q after task_done; want the refused answer retired", q)
+	}
+	in.refuse = false
+	typer := &linerSpy{}
+	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Typer: typer})
+	if len(in.calls) != 1 || len(typer.calls) != 0 {
+		t.Errorf("posts %q, typed %q at the next idle; want the settled answer never sent", in.calls, typer.calls)
+	}
+	if _, ok := lineAt(h, replayed(t, h), seq); ok {
+		t.Error("replay brought the retired answer back")
+	}
+}
+
+// RV-90 #2 (probe TestRV90RefusedReason): a refused post keeps its reason (obor status, the needs-you), and the next
+// attempt to the idle identified worker types it instead of dialling the dead socket again.
+func TestRV90RefusedReason(t *testing.T) {
+	t.Parallel()
+	h := staleHerdr(t)
+	in := &linerSpy{refuse: true}
+	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in})
+	if len(in.calls) != 1 {
+		t.Fatalf("precondition: one refused post, got %q", in.calls)
+	}
+	const why = "its delivery was refused before a byte went out: agent_not_ready: no typing"
+	if ms := h.a.Status().Project.Messages; len(ms) != 1 || ms[0].Held != why {
+		t.Errorf("status lines %+v; want the answer held %q", ms, why)
+	}
+	h.now = h.now.Add(msgWait + time.Minute) // nothing types here: the post is tried again, refused again
+	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in})
+	var reasons []string
+	for _, f := range h.a.Status().Project.Facts {
+		if f.Task == event.MsgTask && f.Step == event.StepNeedsYou {
+			reasons = append(reasons, f.Fact().Reason)
+		}
+	}
+	if len(in.calls) != 2 || len(reasons) != 1 || !strings.HasSuffix(reasons[0], "(undelivered: "+why+")") {
+		t.Errorf("posts %q, needs-you %q; want a second refused post and the needs-you naming its refusal", in.calls,
+			reasons)
+	}
+	typer := &linerSpy{}
+	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Typer: typer})
+	if len(in.calls) != 2 || !slices.Equal(typer.calls, []string{"w1:p1: [obor answer] move the helpers down"}) ||
+		len(h.lines()) != 0 {
+		t.Errorf("posts %q, typed %q, queued %q; want the answer typed into w1:p1 after the refused post", in.calls,
+			typer.calls, h.lines())
+	}
+}
+
+// The typed fallback re-checks its target: after a refused post, a worker that is busy now gets nothing typed (held
+// busy); idle again, the line is typed; replay keeps the refusal, so the restarted pass types it too.
+func TestRefusedPostTypedOnlyWhenIdle(t *testing.T) {
+	t.Parallel()
+	h := staleHerdr(t)
+	in := &linerSpy{refuse: true}
+	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in})
+	seq := answerSeq(t, h)
+	r := replayed(t, h)
+	h.a.mu.Lock()
+	rq := r.out.msgs[seq]
+	h.a.mu.Unlock()
+	if rq == nil || !rq.refusedPost || rq.state != lineWaiting || !strings.Contains(rq.refused, "agent_not_ready") {
+		t.Errorf("replayed line %+v; want it waiting with its refused post and reason", rq)
+	}
+	h2 := staleHerdr(t)
+	in2 := &linerSpy{refuse: true}
+	h2.a.deliver(context.Background(), h2.proj(), &Loop{Inbox: in2})
+	h2.status("w1:p1", func(p *port.Pane) { p.Status = "working" })
+	typer := &linerSpy{}
+	h2.a.deliver(context.Background(), h2.proj(), &Loop{Inbox: in2, Typer: typer})
+	if len(in2.calls) != 1 || len(typer.calls) != 0 || len(h2.lines()) != 1 {
+		t.Fatalf("busy: posts %q, typed %q; want nothing sent to the working worker", in2.calls, typer.calls)
+	}
+	h2.status("w1:p1", func(p *port.Pane) { p.Status = "idle" })
+	h2.a.deliver(context.Background(), h2.proj(), &Loop{Inbox: in2, Typer: typer})
+	if len(in2.calls) != 1 || len(typer.calls) != 1 || len(h2.lines()) != 0 {
+		t.Errorf("idle: posts %q, typed %q, queued %q; want it typed once", in2.calls, typer.calls, h2.lines())
+	}
+}
+
+// A lead line's refused post keeps its reason too (obor status), and is posted again, never typed (T-748).
+func TestLeadLineRefusedReason(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	a, p := lineApp(t, lineRoot(t), &now)
+	leadSends(t, a, p, 1)
+	l := &linerSpy{refuse: true}
+	a.deliver(context.Background(), p, linerLoop(l))
+	if len(l.calls) != 1 {
+		t.Fatalf("precondition: one refused post, got %q", l.calls)
+	}
+	ms := a.Status().Project.Messages
+	if len(ms) != 1 || !strings.Contains(ms[0].Held, "refused before a byte went out: agent_not_ready") {
+		t.Errorf("status lines %+v; want the lead line held with its refusal", ms)
+	}
+	l.refuse = false
+	a.deliver(context.Background(), p, linerLoop(l))
+	if len(l.calls) != 2 || !strings.HasPrefix(l.calls[1], "pj-lead: ") || len(p.queuedLines()) != 0 {
+		t.Errorf("calls %q; want the lead line posted again to pj-lead (not typed into its pane)", l.calls)
+	}
+}
+
+// RV-90 #3 (probe TestRV90Drop): obor drop retires the task's undelivered answer; the lane's worker idle again gets
+// nothing. A reject retires it the same way.
+func TestRV90Drop(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		rec  event.Record
+		data any
+	}{
+		{"drop", event.Record{Task: "T-1", Attempt: 1, Step: event.StepDropped, Kind: event.KindFact},
+			event.FactData{Lane: "L-01", Merge: true}},
+		{"reject", event.Record{Task: "T-1", Attempt: 1, Step: "reject.r1", Kind: event.KindResult},
+			verdictResult{Job: "T-1/1/review", Reply: "REJECT T-1"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			h := busyAnswered(t)
+			lineRec(t, h, tc.rec, tc.data)
+			if q := h.lines(); len(q) != 0 {
+				t.Errorf("queued %q; want the answer retired", q)
+			}
+			h.status("w1:p1", func(p *port.Pane) { p.Status = "idle" })
+			in, typer := &kindSpy{}, &linerSpy{}
+			h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Typer: typer})
+			if len(in.calls) != 0 || len(typer.calls) != 0 {
+				t.Errorf("posted %q, typed %q; want nothing sent to the lane's worker", in.calls, typer.calls)
+			}
+		})
+	}
+}
+
+// blockingPoster posts nothing until release closes: started is closed once its first Post began (a delivery whose
+// effect is in flight).
+type blockingPoster struct {
+	started, release chan struct{}
+	once             sync.Once
+}
+
+func (b *blockingPoster) Post(context.Context, string, string, string) (bool, error) {
+	b.once.Do(func() { close(b.started) })
+	<-b.release
+	return true, nil
+}
+
+// closedUnsent: line seq's delivery has result retired in h's log, and no other result.
+func closedUnsent(h *harness, seq int64) (closed bool, others []string) {
+	for _, r := range h.records() {
+		if r.Kind != event.KindResult || r.Step != deliverKey(seq) {
+			continue
+		}
+		if strings.Contains(string(r.Data), retiredResult) {
+			closed = true
+		} else {
+			others = append(others, string(r.Data))
+		}
+	}
+	return closed, others
+}
+
+// msgNeeds is the needs-you facts of h's lines.
+func msgNeeds(h *harness) []string {
+	var out []string
+	for _, f := range h.a.Status().Project.Facts {
+		if f.Task == event.MsgTask && f.Step == event.StepNeedsYou {
+			out = append(out, f.Fact().Reason)
+		}
+	}
+	return out
+}
+
+// A line settled while its delivery was open (a crash cut it: its intent pending, no result) is never sent again:
+// the next pass closes its delivery unsent (result retired), whatever its worker's pane (T-749, RV-91 #1: idle,
+// working, not identified, two panes claiming it, its lane released), live and on replay; it leaves obor status and
+// raises no needs-you, even past msgWait.
+func TestSettledOpenDeliveryClosedUnsent(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		pane  func(h *harness) // the worker's pane before the pass
+		where string           // the precondition: pj-l-01's place in the identity table, as h.where says it (prefix)
+	}{
+		{"idle", func(h *harness) { h.status("w1:p1", func(p *port.Pane) { p.Status = "idle" }) }, "identified w1:p1"},
+		{"working", func(*harness) {}, "identified w1:p1"},
+		{"not identified", func(h *harness) { h.remove("w1:p1", port.EventClosed) }, "unavailable"},
+		{"ambiguous", func(h *harness) { // a second pane with the same proof (its session)
+			tw := h.twin()
+			tw.Session = h.pane("w1:p1").Session
+			h.add(tw)
+		}, "ambiguous"},
+		{"lane released", func(h *harness) {
+			h.freeLanes()
+			h.remove("w1:p1", port.EventExited)
+		}, "unavailable"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			h, seq := answerIn(t, lineSendingSettled)
+			tc.pane(h)
+			if w := h.where("pj-l-01"); !strings.HasPrefix(w, tc.where) {
+				t.Fatalf("precondition: pj-l-01 is %q, want %s", w, tc.where)
+			}
+			if ms := h.a.Status().Project.Messages; len(ms) != 1 {
+				t.Fatalf("precondition: status lines %+v, want the settled answer shown", ms)
+			}
+			h.now = h.now.Add(msgWait + time.Minute) // it would raise its needs-you if it stayed
+			in, typer := &kindSpy{}, &linerSpy{}
+			h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Typer: typer})
+			if len(in.calls) != 0 || len(typer.calls) != 0 {
+				t.Errorf("posted %q, typed %q; want the settled answer not sent again", in.calls, typer.calls)
+			}
+			if _, ok := lineAt(h, h.proj(), seq); ok {
+				t.Error("the settled line is still queued after the pass")
+			}
+			if ms := h.a.Status().Project.Messages; len(ms) != 0 {
+				t.Errorf("status lines %+v; want the closed answer gone", ms)
+			}
+			if n := msgNeeds(h); len(n) != 0 {
+				t.Errorf("needs-you of the lines %q; want none for a closed line", n)
+			}
+			if closed, others := closedUnsent(h, seq); !closed || len(others) != 0 {
+				t.Errorf("retired result %v, other results %q; want its delivery closed unsent only", closed, others)
+			}
+			if _, ok := lineAt(h, replayed(t, h), seq); ok {
+				t.Error("replay brought the closed line back")
+			}
+		})
+	}
+}
+
+// A serve restart replays the settled open delivery (sending, settled); the new serve's first pass closes it, its
+// worker still working, and a replay after that keeps it closed (T-749).
+func TestSettledOpenDeliveryClosedAfterReplay(t *testing.T) {
+	t.Parallel()
+	h, seq := answerIn(t, lineSendingSettled)
+	h.a.closeLog()
+	a := New(Options{Root: h.root, Now: func() time.Time { return h.now }}, h.panes, h.lanes)
+	p, err := a.load(h.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s, ok := lineAt(&harness{a: a}, p, seq); !ok || s != lineSendingSettled {
+		t.Fatalf("precondition: replayed line in state %d (queued %v), want sending settled", s, ok)
+	}
+	h.now = h.now.Add(msgWait + time.Minute)
+	in, typer := &kindSpy{}, &linerSpy{}
+	a.deliver(context.Background(), p, &Loop{Inbox: in, Typer: typer})
+	if len(in.calls) != 0 || len(typer.calls) != 0 {
+		t.Errorf("posted %q, typed %q; want nothing sent", in.calls, typer.calls)
+	}
+	if _, ok := lineAt(&harness{a: a}, p, seq); ok {
+		t.Error("the replayed settled line is still queued after the pass")
+	}
+	p.log.Close()
+	if closed, others := closedUnsent(h, seq); !closed || len(others) != 0 {
+		t.Errorf("retired result %v, other results %q; want its delivery closed unsent only", closed, others)
+	}
+	if _, ok := lineAt(h, replayed(t, h), seq); ok {
+		t.Error("a second replay brought the closed line back")
+	}
+}
+
+// A delivery whose effect is in flight (its post runs now) when its question is settled is left to its outcome: a
+// pass meanwhile closes nothing, and the post's result (sent) is what ends the line (T-749).
+func TestSettledInFlightDeliveryLeftAlone(t *testing.T) {
+	t.Parallel()
+	h := busyAnswered(t)
+	seq := answerSeq(t, h)
+	h.status("w1:p1", func(p *port.Pane) { p.Status = "idle" })
+	post := &blockingPoster{started: make(chan struct{}), release: make(chan struct{})}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: post, Typer: &linerSpy{}})
+	}()
+	<-post.started
+	submitT1(t, h)
+	if s, ok := lineAt(h, h.proj(), seq); !ok || s != lineSendingSettled {
+		t.Fatalf("precondition: the in-flight line in state %d (queued %v), want sending settled", s, ok)
+	}
+	h.status("w1:p1", func(p *port.Pane) { p.Status = "working" })
+	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: &kindSpy{}, Typer: &linerSpy{}})
+	if closed, others := closedUnsent(h, seq); closed || len(others) != 0 {
+		t.Errorf("retired result %v, other results %q while its post runs; want none", closed, others)
+	}
+	if s, ok := lineAt(h, h.proj(), seq); !ok || s != lineSendingSettled {
+		t.Errorf("the in-flight line in state %d (queued %v); want it left sending settled", s, ok)
+	}
+	close(post.release)
+	<-done
+	if closed, others := closedUnsent(h, seq); closed || len(others) != 1 || others[0] != `"sent"` {
+		t.Errorf("retired result %v, other results %q; want the post's result sent only", closed, others)
+	}
+	if _, ok := lineAt(h, h.proj(), seq); ok {
+		t.Error("the delivered line is still queued")
+	}
+}
+
+// Two passes logging a brief's seen work at once (the merge loop's and the watchdog's) record its fact worked once:
+// the brief is claimed under mu while its fact is recorded (T-615 attempt 3; the gate saw two).
+func TestLogWorkedTwoPassesAtOnceRecordOneFact(t *testing.T) {
+	t.Parallel()
+	root := logRoot(t)
+	db, err := store.OpenRW(event.DBFile(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	log, _, err := event.OpenLog(db)
+	if err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	a := &App{opt: Options{Now: func() time.Time { return logNow }, Out: io.Discard}}
+	p := &proj{name: "proj", log: log, folded: newFolded(), out: newOutbox("pj-lead", "")}
+	const rounds = 40
+	for i := range rounds {
+		agent := "pj-r" + string(rune('a'+i%26)) + string(rune('a'+i/26))
+		b := &brief{seq: int64(1000 + i), worked: true}
+		p.out.briefs[agent] = b
+		var wg sync.WaitGroup
+		for range 2 {
+			wg.Add(1)
+			go func() { defer wg.Done(); a.logWorked(p) }()
+		}
+		wg.Wait()
+		if !b.logged || b.logging {
+			t.Fatalf("round %d: brief logged %v, logging %v; want its fact folded and no claim left", i, b.logged, b.logging)
+		}
+	}
+	db.Close()
+
+	db, err = store.OpenRW(event.DBFile(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	_, recs, err := event.OpenLog(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	per := map[int64]int{}
+	for _, r := range recs {
+		if r.Task == event.MsgTask && r.Step == event.StepWorked {
+			var d workedData
+			_ = json.Unmarshal(r.Data, &d)
+			per[d.Brief]++
+		}
+	}
+	if len(per) != rounds {
+		t.Fatalf("worked facts for %d briefs, want %d: %v", len(per), rounds, per)
+	}
+	for seq, n := range per {
+		if n != 1 {
+			t.Errorf("brief %d: %d worked facts, want 1", seq, n)
+		}
 	}
 }

@@ -1,15 +1,22 @@
 package app
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"net"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/store"
-	"path/filepath"
-	"strings"
-	"testing"
-	"time"
+	"obor/internal/version"
 )
 
 // T-896, T-921: serve ships whether a task ended: the state table's ended column, not a list of state names its
@@ -297,5 +304,310 @@ func TestStatusCarriesTheSpecsRef(t *testing.T) {
 	}
 	if raw := seen["T-1"]; !strings.Contains(raw, `"ref":"JIRA-12"`) {
 		t.Errorf("T-1's status %s, want ref JIRA-12", raw)
+	}
+}
+
+// runAnswer runs cmd, one command of an answerPath, as the lead does: obor resume through its own parser (ResumeArgs)
+// with a one-word text for its placeholder (RV-54 #4), obor drop as its CLI calls serve (by task id, T-775).
+func runAnswer(h *harness, fact event.Record, cmd string) (string, error) {
+	id := wire.Envelope{Root: h.root, Agent: "pj-lead", Role: "lead", CallID: "c1"}
+	args := strings.Fields(regexp.MustCompile(`"<[a-z]+>"`).ReplaceAllString(cmd, "yes"))
+	switch {
+	case len(args) > 2 && args[1] == "resume":
+		rc, ok := wire.ResumeArgs(args[2:])
+		if !ok {
+			return "", &usageError{cmd}
+		}
+		rc.Envelope = id
+		return h.a.resume(rc)
+	case len(args) == 4 && args[1] == "drop" && args[2] == fact.Task:
+		return h.a.drop(wire.DropReq{Envelope: id, Task: args[2], Why: "not needed"})
+	}
+	return "", &usageError{cmd}
+}
+
+type usageError struct{ cmd string }
+
+func (e *usageError) Error() string { return "not an obor command: " + e.cmd }
+
+// RV-54 #2 (T-515), T-775: each cause's suggested commands are the ones its verbs take in the state the needs-you
+// leaves (resumeFits, mtask.may): the one obor resume form (its text where it needs one; the owner's choice of --regate
+// or --sendback where there is no default: red or sendbacks past K, a resolve rejected, a fix job not sent), no drop
+// for a merged task (after-merge failures), only drop for a reject; every command names the task, never the lane.
+// Each command, run on a fresh seed through obor resume's parser, is accepted.
+func TestAnswerPathEveryCause(t *testing.T) {
+	t.Parallel()
+	const drop, resume = ` | obor drop T-1 "<why>"`, "obor resume T-1"
+	const choice = resume + " --regate | " + resume + ` --sendback "<why>"`
+	for _, row := range []struct {
+		cause, state, job string
+		watch             bool
+		want              string
+	}{
+		{event.CauseHeld, stAwaiting, event.StepReview, false, `obor resume T-1 "<decision>"` + drop},
+		{causeRed, stRed, "", false, choice + drop},
+		{causeUndelivered, stAwaiting, event.StepReview, false, resume + drop},
+		{causeStalled, stAwaiting, event.StepReview, false, resume + drop},
+		{causeGate, stSubmitted, "", false, resume + drop},
+		{causePublish, stAccepted, "", false, resume + drop},
+		{causeSendbacks, stAwaiting, event.StepReview, false, choice + drop},
+		{causeResolveRejected, stResolving, event.StepResolve, false, choice + drop},
+		{causeFix, stWorking, "", false, choice + drop},
+		{causeLane, stDispatched, "", false, resume + drop},
+		{causeStart, stDispatched, "", false, resume + drop},
+		{causeNoPane, stDispatched, "", false, resume + drop},
+		{causeAfter, stWaiting, "", false, resume + drop}, // no lane: the drop just cancels it
+		{"submit" + failedSuffix, stSubmitted, "", false, resume + drop},
+		{"review" + failedSuffix, stAwaiting, event.StepReview, false, resume + drop},
+		{event.StepAfterMerge + failedSuffix, stMerged, "", false, resume},
+		{event.StepStop + failedSuffix, stMerged, "", false, resume},
+		{causeRejected, stRejected, "", false, `obor drop T-1 "<why>"`},
+		{"stalled", "", "", true, `its pane, or obor resume T-1 "<text>"` + drop}, // T-746
+		{"blocked", "", "", true, `its pane, or obor drop T-1 "<why>"`},
+		{"pane exited", "", "", true, `its pane, or obor drop T-1 "<why>"`},
+	} {
+		t.Run(row.cause, func(t *testing.T) {
+			t.Parallel()
+			h, p, fact := answerSeed(t, row.cause, row.state, row.job, row.watch)
+			h.a.mu.Lock()
+			path := p.answerPath(fact)
+			h.a.mu.Unlock()
+			if path != row.want {
+				t.Fatalf("suggested %q, want %q", path, row.want)
+			}
+			if got := h.a.Status().Project.Answers[fact.Seq]; got != path { // obor status shows serve's
+				t.Errorf("status answers %q, want %q", got, path)
+			}
+			for _, cmd := range strings.Split(strings.TrimPrefix(path, "its pane, or "), " | ") {
+				if cmd == "its pane" {
+					continue
+				}
+				h, _, fact := answerSeed(t, row.cause, row.state, row.job, row.watch)
+				// a drop answers DROPPED, or DROPPING for a task holding a lane (T-852)
+				if reply, err := runAnswer(h, fact, cmd); err != nil {
+					t.Errorf("%s: refused: %v", cmd, err)
+				} else if want := map[bool]string{true: "SENDBACK", false: map[string]string{"resume": "RESUMED",
+					"drop": "DROPP"}[strings.Fields(cmd)[1]]}[strings.Contains(cmd, "--sendback")]; !strings.Contains(reply, want) {
+					t.Errorf("%s: %q", cmd, reply)
+				}
+			}
+		})
+	}
+	for _, task := range []string{event.LoopTask, event.NightlyTask, event.MsgTask} { // a project's fact: fix what it names
+		if path := answerPath(nil, event.Record{Task: task, Step: event.StepNeedsYou, Kind: event.KindFact}, mtask{}); path != "" {
+			t.Errorf("%s: suggests %q, want none", task, path)
+		}
+	}
+}
+
+// T-826: a call names its binary's version, and a serve that runs another one names both versions in its refusal; a
+// call from a binary older than the field ("", no version) is "an older obor". A difference alone refuses nothing.
+
+// askApp sends one call to a's socket (Listen on an in-memory listener) and gives its answer.
+func askApp(t *testing.T, a *App) func(c wire.Req) wire.Answer {
+	t.Helper()
+	ln := newMemListener()
+	t.Cleanup(func() { ln.Close() })
+	go a.Listen(ln)
+	return func(c wire.Req) wire.Answer {
+		client := ln.sendRaw(t, c)
+		defer client.Close()
+		return read(t, client)
+	}
+}
+
+// callApp is a serving rootApp's app: its project loaded and its socket answering, its log in out.
+func callApp(t *testing.T, out *bytes.Buffer) func(c wire.Req) wire.Answer {
+	t.Helper()
+	a := rootApp(projectRoot(t), out)
+	a.loadProject()
+	t.Cleanup(a.closeLog)
+	if a.p == nil {
+		t.Fatal("precondition: project pj loaded")
+	}
+	return askApp(t, a)
+}
+
+func TestRefusalNamesVersionSkew(t *testing.T) {
+	t.Parallel()
+	ask := callApp(t, &bytes.Buffer{})
+	// job_next without a call id is refused before anything else: the ordinary refusal, unchanged at serve's version.
+	same := ask(&wire.JobNextReq{Envelope: wire.Envelope{Role: "worker", Agent: "pj-l-01", Version: version.Version}})
+	if want := "job_next: a call id is required"; same.Error != want {
+		t.Fatalf("same version: error %q, want %q", same.Error, want)
+	}
+	older := ask(&wire.JobNextReq{Envelope: wire.Envelope{Role: "worker", Agent: "pj-l-01", Version: "v0.1.0"}})
+	want := "job_next: a call id is required (caller pj-l-01 runs obor v0.1.0, serve " + version.Version + ")"
+	if older.Error != want {
+		t.Errorf("another version: error %q, want %q", older.Error, want)
+	}
+	none := ask(&wire.JobNextReq{Envelope: wire.Envelope{Role: "worker", Agent: "pj-l-01"}})
+	want = "job_next: a call id is required (caller pj-l-01 runs an older obor, serve " + version.Version + ")"
+	if none.Error != want {
+		t.Errorf("no version: error %q, want %q", none.Error, want)
+	}
+}
+
+// An accepted call is not refused for the mismatch: the caller wants its work done, not a version lecture.
+func TestAcceptedCallIsNotRefusedForSkew(t *testing.T) {
+	t.Parallel()
+	root := projectRoot(t)
+	var out bytes.Buffer
+	a := rootApp(root, &out)
+	a.loadProject()
+	t.Cleanup(a.closeLog)
+	ask := askApp(t, a)
+	ans := ask(&wire.JobNextReq{Envelope: wire.Envelope{Root: root, Role: "worker", Agent: "pj-l-02", CallID: "c1",
+		Version: "v0.1.0"}})
+	if ans.Error != "" || ans.Reply != `{"state":"none"}` {
+		t.Errorf("job_next at another version = %+v; want the ordinary none reply, refused nothing", ans)
+	}
+}
+
+// The line is one per (agent, version), not per call: two calls from one agent at one version log once; another agent
+// or another version logs its own.
+func TestSkewLoggedOncePerAgentAndVersion(t *testing.T) {
+	t.Parallel()
+	root := projectRoot(t)
+	var out bytes.Buffer
+	a := rootApp(root, &out)
+	a.loadProject()
+	t.Cleanup(a.closeLog)
+	ask := askApp(t, a)
+	if version.Version == "v0.1.0" || version.Version == "v0.2.0" {
+		t.Fatalf("precondition: the test versions differ from serve's %q", version.Version)
+	}
+	calls := []wire.JobNextReq{
+		{Envelope: wire.Envelope{Root: root, Role: "worker", Agent: "pj-l-01", CallID: "c1", Version: "v0.1.0"}},
+		{Envelope: wire.Envelope{Root: root, Role: "worker", Agent: "pj-l-01", CallID: "c2", Version: "v0.1.0"}},
+		{Envelope: wire.Envelope{Root: root, Role: "worker", Agent: "pj-l-02", CallID: "c3", Version: "v0.1.0"}},
+		{Envelope: wire.Envelope{Root: root, Role: "worker", Agent: "pj-l-01", CallID: "c4", Version: "v0.2.0"}},
+		{Envelope: wire.Envelope{Root: root, Role: "worker", Agent: "pj-l-01", CallID: "c5"}},
+	}
+	for _, c := range calls {
+		if ans := ask(&c); ans.Error != "" {
+			t.Fatalf("job_next %s at %q: %q", c.Agent, c.Version, ans.Error)
+		}
+	}
+	log := out.String()
+	for _, c := range []struct {
+		agent, skew string
+		want        int
+	}{
+		{"pj-l-01", "obor v0.1.0", 1},
+		{"pj-l-02", "obor v0.1.0", 1},
+		{"pj-l-01", "obor v0.2.0", 1},
+		{"pj-l-01", "an older obor", 1},
+	} {
+		line := "caller " + c.agent + " runs " + c.skew + ", serve " + version.Version
+		if got := strings.Count(log, line); got != c.want {
+			t.Errorf("log has %d %q lines, want %d:\n%s", got, line, c.want, log)
+		}
+	}
+	if got := strings.Count(log, "caller "); got != 4 {
+		t.Errorf("log has %d skew lines, want 4 (one per agent and version):\n%s", got, log)
+	}
+}
+
+// T-1055: Listen reads a request's envelope, then its method's request type. A request with no call (none, or null)
+// is refused as before the split, an unknown method is, and an old binary's line with keys of the union its method
+// does not use (task, patch on a pause) reaches the method's handler, those keys ignored.
+func TestListenDecodesTheMethodsRequest(t *testing.T) {
+	t.Parallel()
+	root := projectRoot(t)
+	a := rootApp(root, &bytes.Buffer{})
+	a.loadProject()
+	t.Cleanup(a.closeLog)
+	if a.p == nil {
+		t.Fatal("precondition: project pj loaded")
+	}
+	ln := newMemListener()
+	t.Cleanup(func() { ln.Close() })
+	go a.Listen(ln)
+	ask := func(line string) wire.Answer {
+		client, server := net.Pipe()
+		ln.conns <- server
+		go func() { _, _ = client.Write([]byte(line + "\n")) }()
+		defer client.Close()
+		return read(t, client)
+	}
+	envelope := `"root":` + strconv.Quote(root) + `,"agent":"pj-l-01","role":"worker","version":` +
+		strconv.Quote(version.Version) + `,"call_id":"p1"`
+	for _, c := range []struct{ name, line, want string }{
+		{"no call", `{"method":"pause"}`, "pause: no call"},
+		{"a null call", `{"method":"pause","call":null}`, "pause: no call"},
+		{"an unknown method", `{"method":"pauses","call":{` + envelope + `}}`, "unknown method pauses"},
+		{"a field of the wrong type", `{"method":"pause","call":{` + envelope + `,"until":"soon"}}`, "unreadable request"},
+		{"an old line", `{"method":"pause","call":{` + envelope + `,"task":"T-9","patch":"p","to":"x","note":"why"}}`,
+			"pause: the lead or the owner pauses, not pj-l-01 (role worker)"},
+	} {
+		if ans := ask(c.line); ans.Error != c.want || ans.Reply != "" {
+			t.Errorf("%s: %+v, want the error %q", c.name, ans, c.want)
+		}
+	}
+	// The handler got the old line's pause: the owner's (no role) is recorded with its why.
+	owner := `"root":` + strconv.Quote(root) + `,"agent":"","role":"","version":` + strconv.Quote(version.Version) +
+		`,"call_id":"p2"`
+	if ans := ask(`{"method":"pause","call":{` + owner + `,"task":"T-9","patch":"p","note":"lunch"}}`); ans.Error != "" ||
+		ans.Reply != "PAUSED until cleared" {
+		t.Errorf("the owner's old pause line: %+v, want PAUSED until cleared", ans)
+	}
+}
+
+// T-806: the herdr notice follows the server serve is connected to: each snapshot records its version and protocol,
+// a change is logged once, and the status note comes from that state.
+func TestHerdrNoteFollowsTheConnectedServer(t *testing.T) {
+	t.Parallel()
+	var out bytes.Buffer
+	a := rootApp(t.TempDir(), &out)
+	snap := func(version string, protocol int) port.Snapshot {
+		return port.Snapshot{Version: version, Protocol: protocol, Speaks: 22}
+	}
+	lines := func() int {
+		return strings.Count(out.String(), "herdr: ") - strings.Count(out.String(), "herdr: connected")
+	}
+	ctx := context.Background()
+
+	if n := a.Status().HerdrNote; n != "" || a.Status().Connected {
+		t.Fatalf("before any connect: note %q, connected %v; want none", n, a.Status().Connected)
+	}
+	// Serve started with herdr down; herdr comes up newer than obor's protocol.
+	a.connect(ctx, snap("0.9.4", 23))
+	want := "herdr 0.9.4, protocol 23 (newer than obor's 22)"
+	if n := a.Status().HerdrNote; n != want {
+		t.Errorf("note after herdr came up = %q, want %q", n, want)
+	}
+	if got := strings.Count(out.String(), "herdr: 0.9.4 protocol 23\n"); got != 1 {
+		t.Errorf("log names the first version %d times, want once:\n%s", got, &out)
+	}
+	// The same version again (a reconnect): no new line.
+	a.mu.Lock()
+	a.connected = false
+	a.mu.Unlock()
+	if n := a.Status().HerdrNote; n != "" {
+		t.Errorf("note while disconnected = %q, want none", n)
+	}
+	a.connect(ctx, snap("0.9.4", 23))
+	if got := strings.Count(out.String(), "herdr: 0.9.4 protocol 23\n"); got != 1 {
+		t.Errorf("a reconnect to the same version logged it %d times in all, want 1:\n%s", got, &out)
+	}
+	if lines() != 1 {
+		t.Errorf("version lines = %d, want 1:\n%s", lines(), &out)
+	}
+	// A different (newer) version: the note changes and the line is logged once.
+	a.connect(ctx, snap("0.9.5", 24))
+	if n, w := a.Status().HerdrNote, "herdr 0.9.5, protocol 24 (newer than obor's 22)"; n != w {
+		t.Errorf("note after the upgrade = %q, want %q", n, w)
+	}
+	if got := strings.Count(out.String(), "herdr: 0.9.5 protocol 24\n"); got != 1 {
+		t.Errorf("log names the upgraded version %d times, want once:\n%s", got, &out)
+	}
+	// Back to obor's own protocol: no note, and the change is logged.
+	a.connect(ctx, snap("0.8.0", 22))
+	if n := a.Status().HerdrNote; n != "" {
+		t.Errorf("note on obor's own protocol = %q, want none", n)
+	}
+	if got := strings.Count(out.String(), "herdr: 0.8.0 protocol 22\n"); got != 1 {
+		t.Errorf("log names the downgraded version %d times, want once:\n%s", got, &out)
 	}
 }

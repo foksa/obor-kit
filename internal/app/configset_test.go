@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"obor/internal/app/event"
-	"obor/internal/app/wire"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/store"
 )
@@ -138,21 +138,6 @@ func configRig(t *testing.T) (*harness, *fakeConfig) {
 	return h, f
 }
 
-// set is the owner's config_set of key to val (JSON) from the web.
-func (h *harness) set(callID, key, val string) (string, error) {
-	return h.a.configCall(wire.ConfigSetReq{Envelope: wire.Envelope{Root: h.root, CallID: callID}, Changes: changes(key,
-		val), Source: "web"})
-}
-
-// changes is key, value pairs (the value JSON) as a config_set call's changes.
-func changes(kv ...string) []wire.ConfigChange {
-	var out []wire.ConfigChange
-	for i := 0; i+1 < len(kv); i += 2 {
-		out = append(out, wire.ConfigChange{Key: kv[i], Value: json.RawMessage(kv[i+1])})
-	}
-	return out
-}
-
 // configFacts is the log's config.set facts' data.
 func configFacts(t *testing.T, h *harness) []event.ConfigSet {
 	t.Helper()
@@ -162,19 +147,6 @@ func configFacts(t *testing.T, h *harness) []event.ConfigSet {
 			var d event.ConfigSet
 			_ = json.Unmarshal(r.Data, &d)
 			out = append(out, d)
-		}
-	}
-	return out
-}
-
-// leadLines is the lines to the lead in the log.
-func leadLines(t *testing.T, h *harness) []string {
-	t.Helper()
-	var out []string
-	for _, r := range readLog(t, h.root) {
-		var m event.Message
-		if r.Step == event.StepMessage && json.Unmarshal(r.Data, &m) == nil && m.To == "pj-lead" {
-			out = append(out, m.Line)
 		}
 	}
 	return out
@@ -346,12 +318,6 @@ func TestConfigSetWaitsForPublish(t *testing.T) {
 	if got := f.messages(); len(got) != 1 || !strings.HasPrefix(got[0], "config: difficulty.hard") {
 		t.Errorf("commits %q, want the change's", got)
 	}
-}
-
-// callReply is a call's answer, for a call run in its own goroutine.
-type callReply struct {
-	reply string
-	err   error
 }
 
 // T-930: a repeated call id waits for the call in flight (configMu is taken before the stored-reply lookup): the second

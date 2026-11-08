@@ -2,68 +2,16 @@ package app
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
-	"obor/internal/app/event"
-	"obor/internal/app/wire"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"obor/internal/store"
 )
-
-func TestReady(t *testing.T) {
-	t.Parallel()
-	for status, want := range map[string]bool{"idle": true, "done": true, "working": false, "blocked": false, "unknown": false, "": false} {
-		if Ready(status) != want {
-			t.Errorf("Ready(%q) = %v, want %v", status, !want, want)
-		}
-	}
-}
-
-var logNow = time.Date(2026, 10, 24, 12, 0, 0, 0, time.FixedZone("x", 3600))
-
-// logRoot is a project root with an empty state dir: no database yet.
-func logRoot(t *testing.T) string {
-	t.Helper()
-	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, ".obor", "state"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	return root
-}
-
-// openLog opens root's database as serve does and replays it; closed when the test ends.
-func openLog(t *testing.T, root string) (*event.Log, []event.Record) {
-	t.Helper()
-	db, err := store.OpenRW(event.DBFile(root))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
-	l, recs, err := event.OpenLog(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return l, recs
-}
-
-func fact(t *testing.T, task, step, reason string) event.Record {
-	t.Helper()
-	r := event.Record{Task: task, Step: step, Kind: event.KindFact}
-	if reason != "" {
-		b, err := json.Marshal(event.FactData{Reason: reason})
-		if err != nil {
-			t.Fatal(err)
-		}
-		r.Data = b
-	}
-	return r
-}
 
 func TestLogAppendAndReplay(t *testing.T) {
 	t.Parallel()
@@ -117,121 +65,6 @@ func TestAppendInsertFailure(t *testing.T) {
 	}
 	if recs, err := event.ReadLog(root); err != nil || len(recs) != 1 || recs[0].Task != "T-2" {
 		t.Errorf("log = %+v, %v; want only T-2's record", recs, err)
-	}
-}
-
-func clock() time.Time { return logNow }
-
-// logDo is one effect under its key, the shape serve uses (App.do): Begin, the effect outside the log, Finish; a key
-// with a result gets it and runs nothing, a failed effect writes no result (the intent stays pending).
-func logDo(l *event.Log, in event.Intent, effect func(context.Context) (any, error)) (json.RawMessage, error) {
-	r, done, _, err := l.Begin(in, clock())
-	if err != nil {
-		return nil, err
-	}
-	if done {
-		return r.Data, nil
-	}
-	v, err := effect(context.Background())
-	if err != nil {
-		l.Finish(in.Key, nil, false, clock())
-		return nil, err
-	}
-	res, err := l.Finish(in.Key, v, true, clock())
-	return res.Data, err
-}
-
-func TestDoRunsOnceAndReturnsStoredResult(t *testing.T) {
-	t.Parallel()
-	root := logRoot(t)
-	l, _ := openLog(t, root)
-	runs := 0
-	effect := func(context.Context) (any, error) {
-		runs++
-		return map[string]string{"sha": "abc"}, nil
-	}
-	in := event.Intent{Key: event.Key{Task: "T-1", Attempt: 1, Step: "publish"}, Class: event.ClassGit, Data: map[string]string{"target": "main"}}
-	got, err := logDo(l, in, effect)
-	if err != nil || string(got) != `{"sha":"abc"}` || runs != 1 {
-		t.Fatalf("Do = %s, %v, runs %d", got, err, runs)
-	}
-	if got, err := logDo(l, in, effect); err != nil || string(got) != `{"sha":"abc"}` || runs != 1 {
-		t.Errorf("repeated Do = %s, %v, runs %d; want the stored result and no run", got, err, runs)
-	}
-
-	// After a restart the stored result still answers the key; nothing is pending.
-	l, recs := openLog(t, root)
-	if len(recs) != 2 || recs[0].Kind != event.KindIntent || recs[0].Class != event.ClassGit ||
-		string(recs[0].Data) != `{"target":"main"}` || recs[1].Kind != event.KindResult {
-		t.Fatalf("replay = %+v", recs)
-	}
-	if p := l.Pending(); len(p) != 0 {
-		t.Errorf("pending after a result = %+v", p)
-	}
-	if got, err := logDo(l, in, effect); err != nil || string(got) != `{"sha":"abc"}` || runs != 1 {
-		t.Errorf("Do after replay = %s, %v, runs %d; want the stored result and no run", got, err, runs)
-	}
-}
-
-// A failed effect writes no result: the intent is pending and a retry runs the effect again.
-func TestDoFailedEffectStaysPending(t *testing.T) {
-	t.Parallel()
-	l, _ := openLog(t, logRoot(t))
-	in := event.Intent{Key: event.Key{Task: "T-1", Attempt: 1, Step: "prompt"}, Class: event.ClassPrompt}
-	if _, err := logDo(l, in, func(context.Context) (any, error) { return nil, errors.New("herdr down") }); err == nil {
-		t.Fatal("a failed effect returned no error")
-	}
-	if p := l.Pending(); len(p) != 1 || p[0].Step != "prompt" || p[0].Class != event.ClassPrompt {
-		t.Errorf("pending = %+v", p)
-	}
-	runs := 0
-	if _, err := logDo(l, in, func(context.Context) (any, error) { runs++; return "sent", nil }); err != nil || runs != 1 {
-		t.Errorf("retry = %v, runs %d", err, runs)
-	}
-	if p := l.Pending(); len(p) != 0 {
-		t.Errorf("pending after the retry = %+v", p)
-	}
-}
-
-// A process killed after the effect and before its result: replay lists the intent as pending with its class.
-func TestDoCrashBetweenEffectAndResult(t *testing.T) {
-	t.Parallel()
-	if root := os.Getenv("OBOR_TEST_DO_CRASH"); root != "" {
-		db, err := store.OpenRW(event.DBFile(root))
-		if err != nil {
-			os.Exit(2)
-		}
-		l, _, err := event.OpenLog(db)
-		if err != nil {
-			os.Exit(2)
-		}
-		path := filepath.Join(root, "effect")
-		logDo(l, event.Intent{Key: event.Key{Task: "T-1", Attempt: 2, Step: "start"}, Class: event.ClassStart, Data: map[string]string{"pane": "w1:p1"}},
-			func(context.Context) (any, error) {
-				os.WriteFile(path, nil, 0o644)
-				os.Exit(3) // killed after the effect, before the result
-				return nil, nil
-			})
-		os.Exit(4)
-	}
-	root := logRoot(t)
-	cmd := exec.Command(os.Args[0], "-test.run=^TestDoCrashBetweenEffectAndResult$")
-	cmd.Env = append(os.Environ(), "OBOR_TEST_DO_CRASH="+root)
-	var ee *exec.ExitError
-	if err := cmd.Run(); !errors.As(err, &ee) || ee.ExitCode() != 3 {
-		t.Fatalf("child = %v, want exit 3 inside the effect", err)
-	}
-	if _, err := os.Stat(filepath.Join(root, "effect")); err != nil {
-		t.Fatalf("precondition: the effect ran: %v", err)
-	}
-	l, recs := openLog(t, root)
-	if len(recs) != 1 || recs[0].Kind != event.KindIntent {
-		t.Fatalf("replay = %+v; want the intent only", recs)
-	}
-	p := l.Pending()
-	if len(p) != 1 || p[0].Task != "T-1" || p[0].Attempt != 2 || p[0].Step != "start" || p[0].Class != event.ClassStart ||
-		string(p[0].Data) != `{"pane":"w1:p1"}` {
-		t.Errorf("pending = %+v", p)
 	}
 }
 
