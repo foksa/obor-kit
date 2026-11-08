@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"obor/internal/app/event"
+	"obor/internal/app/outbox"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
 )
@@ -244,9 +245,9 @@ func TestSettledAnswerInFlightOrOtherTaskStays(t *testing.T) {
 		t.Fatal("answer not recorded")
 	}
 	h.a.mu.Lock()
-	for _, q := range h.proj().out.msgs {
-		if q.msg.Task == "T-1" {
-			q.state = lineSending // its delivery claimed
+	for _, q := range h.proj().out.Queued() {
+		if q.Msg().Task == "T-1" {
+			h.proj().out.Move(q, outbox.Claimed) // its delivery claimed: sending
 		}
 	}
 	h.a.mu.Unlock()
@@ -293,16 +294,16 @@ func TestSettledAnswerEndsOnReplay(t *testing.T) {
 	lineStatus(a, "w:rev", "working", now)
 	a.record(p, event.Record{Task: event.MsgTask, Step: event.StepAnswered, Kind: event.KindFact},
 		event.Message{To: "pj-rev", From: "pj-lead", Line: "[obor answer] yes", Task: "T-1"})
-	if q := p.queuedLines(); len(q) != 1 {
+	if q := p.out.Queued(); len(q) != 1 {
 		t.Fatalf("precondition: queued %d lines, want the answer", len(q))
 	}
 	a.record(p, event.Record{Task: "T-1", Attempt: 1, Step: event.StepSubmitted, Kind: event.KindFact},
 		event.FactData{Merge: true})
-	if q := p.queuedLines(); len(q) != 0 {
+	if q := p.out.Queued(); len(q) != 0 {
 		t.Errorf("live: queued %d lines, want none", len(q))
 	}
 	_, r := lineReload(t, a, p, &now)
-	if q := r.queuedLines(); len(q) != 0 {
+	if q := r.out.Queued(); len(q) != 0 {
 		t.Errorf("replay: queued %+v, want none", q)
 	}
 }

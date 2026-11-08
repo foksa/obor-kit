@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"obor/internal/app/event"
+	"obor/internal/app/outbox"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"sort"
@@ -149,9 +150,7 @@ func (p *proj) foldWake(r event.Record) {
 	}
 	if r.Task == event.MsgTask {
 		_, agent, _ := strings.Cut(strings.TrimPrefix(r.Step, stepContinue), ".")
-		if b := p.out.brief(agent); b != nil && b.stop != nil && b.stop.woke.IsZero() && !event.RecordTime(r).Before(b.stop.at) {
-			b.stop.woke = event.RecordTime(r)
-		}
+		p.out.Woke(agent, event.RecordTime(r))
 		return
 	}
 	if p.folded.woke[r.Task].IsZero() {
@@ -184,12 +183,12 @@ func (a *App) roleTurns(ctx context.Context, p *proj) {
 	}
 	var reads []read
 	a.mu.Lock()
-	for agent, b := range p.out.allBriefs() {
+	for agent, b := range p.out.Briefs() {
 		w := a.whereIs(p, agent)
-		if agent == p.out.lead() || w.State != Identified || !turnsRead(w.Pane.Agent) {
+		if agent == p.out.Lead() || w.State != Identified || !turnsRead(w.Pane.Agent) {
 			continue
 		}
-		if (b.stop != nil && b.stop.turn != "") || (b.stop == nil && (b.followed || (b.worked && Ready(w.Pane.Status)))) {
+		if s := b.Stop(); (s != nil && s.Turn != "") || (s == nil && (b.Followed() || (b.Worked() && Ready(w.Pane.Status)))) {
 			reads = append(reads, read{agent, w.Pane, a.transcript(p, w.Pane)})
 		}
 	}
@@ -201,18 +200,20 @@ func (a *App) roleTurns(ctx context.Context, p *proj) {
 			continue
 		}
 		a.mu.Lock()
-		b := p.out.brief(rd.agent)
+		b := p.out.Brief(rd.agent)
 		var fact any
 		step := event.StepStopped
 		_, done := p.folded.calls[verdictStep(wire.MethodStopped, "turn."+t.ID)]
 		act := turnNone
-		if b != nil && (b.stop == nil || (b.stop.turn != "" && b.stop.turn != t.ID)) && counts(t, rd.pane.Status, done) {
-			act = turnDecide(turnCase{stopped: b.stop != nil, followed: b.followed, worked: b.worked, ended: t.Ended,
-				failed: t.Error != ""})
+		if b != nil {
+			if s := b.Stop(); (s == nil || (s.Turn != "" && s.Turn != t.ID)) && counts(t, rd.pane.Status, done) {
+				act = turnDecide(turnCase{stopped: s != nil, followed: b.Followed(), worked: b.Worked(), ended: t.Ended,
+					failed: t.Error != ""})
+			}
 		}
 		switch act {
 		case turnResume, turnFinish:
-			step, fact = event.StepTurned, turnedData{To: rd.agent, Brief: b.seq, Worked: act == turnFinish}
+			step, fact = event.StepTurned, outbox.Turned{To: rd.agent, Brief: b.Seq(), Worked: act == turnFinish}
 		case turnStop:
 			d, said := newStop(rd.agent, t.Error, t.Details, "turn."+t.ID)
 			a.roleStop(p, &d, said, rd.pane.Agent, t.Reset)
@@ -232,12 +233,12 @@ func (a *App) roleWakes(ctx context.Context, p *proj, fx *Loop) {
 	now := a.opt.Now()
 	var wakes []wakeTo
 	a.mu.Lock()
-	for agent, b := range p.out.allBriefs() {
-		s := b.stop
-		if s == nil || agent == p.out.lead() {
+	for agent, b := range p.out.Briefs() {
+		s := b.Stop()
+		if s == nil || agent == p.out.Lead() {
 			continue
 		}
-		if due, ok := wakeAt(s.reset, s.at, now); ok {
+		if due, ok := wakeAt(s.Reset, s.At, now); ok {
 			key := event.Key{Task: event.MsgTask, Step: stepContinue + strconv.FormatInt(due.Unix(), 10) + "." + agent}
 			if !p.log.Done(key) {
 				wakes = append(wakes, wakeTo{agent: agent, key: key, line: roleContinue})
@@ -264,35 +265,26 @@ const ruleStopAlarm = "stopalarm"
 func stopAlarmRule(_ context.Context, a *App, p *proj, _ *Loop, now time.Time) (int64, action, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if p.out.lead() == "" {
+	if p.out.Lead() == "" {
 		return 0, action{}, false
 	}
-	var s *roleStop
-	for agent, b := range p.out.allBriefs() {
-		st := b.stop
-		if st == nil || agent == p.out.lead() || st.alarmed || st.woke.IsZero() || now.Sub(st.woke) < wakeAlarm {
+	var s *outbox.RoleStop
+	for agent, b := range p.out.Briefs() {
+		st := b.Stop()
+		if st == nil || agent == p.out.Lead() || st.Alarmed || st.Woke.IsZero() || now.Sub(st.Woke) < wakeAlarm {
 			continue
 		}
-		if _, done := p.folded.did[event.Of{Kind: ruleStopAlarm, Seq: st.seq}]; done {
+		if _, done := p.folded.did[event.Of{Kind: ruleStopAlarm, Seq: st.Seq}]; done {
 			continue
 		}
-		if s == nil || st.seq < s.seq {
+		if s == nil || st.Seq < s.Seq {
 			s = st
 		}
 	}
 	if s == nil {
 		return 0, action{}, false
 	}
-	title, body := "obor: "+p.name+" needs you", strings.TrimPrefix(s.line, "[obor] ")+stillStopped
-	return s.seq, action{line: s.line + stillStopped,
+	title, body := "obor: "+p.name+" needs you", strings.TrimPrefix(s.Line, "[obor] ")+stillStopped
+	return s.Seq, action{line: s.Line + stillStopped,
 		after: func(ctx context.Context) { a.toast(ctx, title, body) }}, true
-}
-
-// roleAlarmed marks the role agent's stop seq as having its alarm line (a message fact's Stop; under mu, folded).
-func (p *proj) roleAlarmed(seq int64) {
-	for _, b := range p.out.allBriefs() {
-		if b.stop != nil && b.stop.seq == seq {
-			b.stop.alarmed = true
-		}
-	}
 }

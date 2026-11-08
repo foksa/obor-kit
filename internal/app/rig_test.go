@@ -29,6 +29,7 @@ import (
 	"obor/internal/agents"
 	"obor/internal/app/event"
 	"obor/internal/app/identity"
+	"obor/internal/app/outbox"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/store"
@@ -2053,8 +2054,8 @@ func (h *harness) brief(agent, line string) {
 func (h *harness) worked(agent string) bool {
 	h.a.mu.Lock()
 	defer h.a.mu.Unlock()
-	b := h.proj().out.brief(agent)
-	return b != nil && b.worked
+	b := h.proj().out.Brief(agent)
+	return b != nil && b.Worked()
 }
 
 // lines is the lines of pj not delivered yet, as "<to>: <line>".
@@ -2062,8 +2063,8 @@ func (h *harness) lines() []string {
 	h.a.mu.Lock()
 	defer h.a.mu.Unlock()
 	var out []string
-	for _, q := range h.proj().queuedLines() {
-		out = append(out, q.msg.To+": "+q.msg.Line)
+	for _, q := range h.proj().out.Queued() {
+		out = append(out, q.Msg().To+": "+q.Msg().Line)
 	}
 	return out
 }
@@ -2090,7 +2091,7 @@ func (h *harness) stopWith(ag port.Agents) (string, error) {
 func (h *harness) deliverIntents() int {
 	n := 0
 	for _, r := range h.records() {
-		if r.Kind == event.KindIntent && strings.HasPrefix(r.Step, stepDeliver) {
+		if r.Kind == event.KindIntent && strings.HasPrefix(r.Step, outbox.StepDeliver) {
 			n++
 		}
 	}
@@ -2194,8 +2195,8 @@ func restartRig(t *testing.T, h *harness) {
 	h.a.mu.Lock()
 	h.a.p = p
 	h.a.mu.Unlock()
-	if !p.merging || p.out.lead() != "pj-lead" {
-		t.Fatalf("precondition: after the restart merging %v, lead %q", p.merging, p.out.lead())
+	if !p.merging || p.out.Lead() != "pj-lead" {
+		t.Fatalf("precondition: after the restart merging %v, lead %q", p.merging, p.out.Lead())
 	}
 }
 
@@ -2262,7 +2263,7 @@ func lineApp(t *testing.T, root string, now *time.Time) (*App, *proj) {
 	a.p = p
 	t.Cleanup(func() { p.log.Close(); a.closeLog() })
 	a.connect(context.Background(), port.Snapshot{Panes: []port.Pane{
-		{ID: "w:lead", Group: "proj", Cwd: root, Agent: "claude", Label: p.out.lead(), Status: "idle"},
+		{ID: "w:lead", Group: "proj", Cwd: root, Agent: "claude", Label: p.out.Lead(), Status: "idle"},
 		{ID: "w:rev", Group: "proj", Cwd: root, Agent: "codex", Label: "pj-rev", Status: "idle"},
 	}})
 	return a, p
@@ -2308,7 +2309,7 @@ func queueLine(t *testing.T, a *App, p *proj, kind string, now time.Time) {
 // briefCount is the number of p's open briefs, by its outbox's allBriefs.
 func (p *proj) briefCount() int {
 	n := 0
-	for range p.out.allBriefs() {
+	for range p.out.Briefs() {
 		n++
 	}
 	return n
@@ -2509,7 +2510,7 @@ func blockProjAt(t *testing.T, root string) (*App, *proj) {
 	l, recs := openLog(t, root)
 	a := &App{opt: Options{Now: func() time.Time { return logNow }, Out: io.Discard}}
 	p := &proj{root: root, name: "pj", log: l, tasks: map[string]*watch{},
-		integrator: "pj-integrator", out: newOutbox("pj-lead", ""), merging: true, timers: map[string]*jobTimer{},
+		integrator: "pj-integrator", out: outbox.New("pj-lead", ""), merging: true, timers: map[string]*jobTimer{},
 		replies: map[string]string{}, nopane: map[string]time.Time{}, waitLine: map[string]waitRefusal{},
 		unwritten: map[event.Key]json.RawMessage{}, exec: map[event.Key]time.Time{}, scratch: make(chan struct{}, 1),
 		held: map[string]string{}, ended: map[string]bool{}, roleFail: map[string]time.Time{}, reg: identity.New(),
@@ -2998,7 +2999,7 @@ func (r *reviewRig) started() {
 	lineStatus(r.a, "w:rev", "working", r.now)
 	lineStatus(r.a, "w:rev", "idle", r.now)
 	r.a.deliver(context.Background(), r.p, &Loop{Inbox: &inboxSpy{}}) // records the finished line
-	if r.p.out.brief("pj-rev") != nil {
+	if r.p.out.Brief("pj-rev") != nil {
 		r.t.Fatal("precondition: the reviewer's brief is still open")
 	}
 }
@@ -3066,9 +3067,9 @@ func (r *reviewRig) dropped(task string) {
 // leadLines is the lines to the lead recorded so far.
 func (r *reviewRig) leadLines() []string {
 	var out []string
-	for _, q := range r.p.queuedLines() {
-		if q.msg.To == "pj-lead" {
-			out = append(out, q.msg.Line)
+	for _, q := range r.p.out.Queued() {
+		if q.Msg().To == "pj-lead" {
+			out = append(out, q.Msg().Line)
 		}
 	}
 	return out
@@ -3247,14 +3248,14 @@ func (r *reviewRig) working(on bool) {
 // that ends the brief recorded.
 func (r *reviewRig) finish() {
 	r.t.Helper()
-	if r.p.out.brief("pj-rev") == nil {
+	if r.p.out.Brief("pj-rev") == nil {
 		r.t.Fatal("precondition: the reviewer has no open brief to finish")
 	}
 	r.a.deliver(context.Background(), r.p, &Loop{Typer: &linerSpy{}})
 	r.working(true)
 	r.working(false)
 	r.a.deliver(context.Background(), r.p, &Loop{Typer: &linerSpy{}})
-	if r.p.out.brief("pj-rev") != nil {
+	if r.p.out.Brief("pj-rev") != nil {
 		r.t.Fatal("precondition: the reviewer's brief is still open after its work")
 	}
 }
@@ -3286,9 +3287,9 @@ func briefedVerify(t *testing.T) *reviewRig {
 	r.verifyPass()
 	r.a.deliver(context.Background(), r.p, &Loop{Typer: &linerSpy{}})
 	r.working(true)
-	if n := len(verifyBriefs(t, r.p.root)); n != 1 || r.p.out.brief("pj-rev") == nil || r.pending() != "T-a,T-b" {
+	if n := len(verifyBriefs(t, r.p.root)); n != 1 || r.p.out.Brief("pj-rev") == nil || r.pending() != "T-a,T-b" {
 		t.Fatalf("precondition: %d verify briefs, brief open %t, pending %q; want one open, T-a,T-b pending", n,
-			r.p.out.brief("pj-rev") != nil, r.pending())
+			r.p.out.Brief("pj-rev") != nil, r.pending())
 	}
 	return r
 }
@@ -3326,8 +3327,8 @@ func ruleHarness(t *testing.T) *harness {
 	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{}, nil }
 	h.connect()
 	t.Cleanup(func() { h.proj().log.Close(); h.a.closeLog() })
-	if p := h.proj(); !p.merging || p.out.lead() != "pj-lead" {
-		t.Fatalf("precondition: merging %v, lead %q", p.merging, p.out.lead())
+	if p := h.proj(); !p.merging || p.out.Lead() != "pj-lead" {
+		t.Fatalf("precondition: merging %v, lead %q", p.merging, p.out.Lead())
 	}
 	return h
 }

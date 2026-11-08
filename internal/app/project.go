@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"obor/internal/app/event"
 	"obor/internal/app/identity"
+	"obor/internal/app/outbox"
 	"obor/internal/app/port"
 	"path/filepath"
 	"strings"
@@ -35,7 +36,7 @@ func (a *App) load(root string) (*proj, error) {
 	rc, _ := cfg.Role("integrator")
 	p := &proj{root: root, name: name, log: log, tasks: map[string]*watch{},
 		integrator: cfg.AgentName("integrator", ""),
-		out:        newOutbox(cfg.AgentName("lead", ""), roleKind(cfg, "lead")),
+		out:        outbox.New(cfg.AgentName("lead", ""), roleKind(cfg, "lead")),
 		merging:    a.opt.Loop != nil && rc.Configured, timers: map[string]*jobTimer{}, replies: map[string]string{},
 		rules: map[string]ruleLive{}, nopane: map[string]time.Time{}, waitLine: map[string]waitRefusal{},
 		unwritten: map[event.Key]json.RawMessage{}, exec: map[event.Key]time.Time{}, scratch: make(chan struct{}, 1),

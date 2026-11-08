@@ -14,6 +14,7 @@ import (
 	"io"
 	"obor/internal/app/event"
 	"obor/internal/app/identity"
+	"obor/internal/app/outbox"
 	"obor/internal/app/port"
 	"sync"
 	"sync/atomic"
@@ -188,11 +189,11 @@ type proj struct {
 	ended map[string]bool
 	// roleFail: when a fresh brief's stop of a role agent last failed, by agent (rolestop.go, T-672, T-870). Under mu.
 	roleFail map[string]time.Time
-	// reg, out, night, prom: the identity table (package identity), the lines to the project's agents (messages.go, T-466,
-	// T-610), the nightly full check (nightly.go) and the promotion (promote.go, T-974): each folds its records itself
-	// and keeps live state beside them.
+	// reg, out, night, prom: the identity table (package identity), the lines to the project's agents (package outbox,
+	// T-466, T-610; delivered by messages.go), the nightly full check (nightly.go) and the promotion (promote.go,
+	// T-974): each folds its records itself and keeps live state beside them.
 	reg   identity.Registry
-	out   outbox
+	out   outbox.Outbox
 	night nightlyState
 	prom  promoteState
 	// wtAgents: the configured reviewer and deep dive as the config last loaded names them (wtAgentsNow): the role

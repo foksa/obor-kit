@@ -66,8 +66,8 @@ func TestReviewRequest(t *testing.T) {
 			if lines := r.leadLines(); len(lines) != 0 {
 				t.Errorf("lead lines %q, want none on a start (T-650)", lines)
 			}
-			if r.p.out.brief("pj-rev") == nil || r.p.folded.review != nil || r.facts(event.StepReviewStarted) != 1 {
-				t.Errorf("brief %v, request %v, started facts %d", r.p.out.brief("pj-rev"), r.p.folded.review, r.facts(event.StepReviewStarted))
+			if r.p.out.Brief("pj-rev") == nil || r.p.folded.review != nil || r.facts(event.StepReviewStarted) != 1 {
+				t.Errorf("brief %v, request %v, started facts %d", r.p.out.Brief("pj-rev"), r.p.folded.review, r.facts(event.StepReviewStarted))
 			}
 			rows, err := store.ReadPrompts(r.p.log.DB(), store.PromptQuery{Agent: "pj-rev"}, 10)
 			if err != nil || len(rows) != 1 || rows[0].Kind != store.PromptStart || rows[0].Text != l.Prompt ||

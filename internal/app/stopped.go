@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"obor/internal/app/event"
+	"obor/internal/app/outbox"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"time"
@@ -65,31 +66,6 @@ const (
 	causeStopped = "stopped" // a watchdog needs-you's cause: the worker's turn ended on an API error
 )
 
-// stoppedData is fact stopped's data: the agent, the error and its details, and, for a role agent, the lead's line
-// (Message: to the lead, the line, the brief it ends), with the call that recorded it and its reply. A worker's: its
-// open task (Message.Task) and the needs-you of it the fact puts in force (NeedsYou, a watchdog fact's data). A role
-// agent's usage limit with its brief open: the brief it stops (Brief, its seq), the transcript's turn (Turn, Codex)
-// and the reset (Reset, Unix seconds; 0: unknown).
-type stoppedData struct {
-	Agent    string          `json:"agent"`
-	Error    string          `json:"error"`
-	Details  string          `json:"details,omitempty"`
-	NeedsYou *event.FactData `json:"needs_you,omitempty"`
-	Brief    int64           `json:"brief,omitempty"`
-	Turn     string          `json:"turn,omitempty"`
-	Reset    int64           `json:"reset,omitempty"`
-	event.Message
-}
-
-// turnedData is fact turned's data: the role agent, the seq of its brief, and whether the evidence was the turn's end
-// (Worked: the brief's work is done, its finished line follows when idle; false: the turn has only begun, the stop in
-// force ended, the brief follows the turn until its end; turnDecide).
-type turnedData struct {
-	To     string `json:"to"`
-	Brief  int64  `json:"brief"`
-	Worked bool   `json:"worked,omitempty"`
-}
-
 // stoppedCall answers the socket's stopped request (the StopFailure hook of agent c.Agent). A call id is required and
 // a repeated one gets the stored reply. The lead's own stop (and a session of no role) is recorded, no line.
 func (a *App) stoppedCall(c wire.StoppedReq) (string, error) {
@@ -108,7 +84,7 @@ func (a *App) stoppedCall(c wire.StoppedReq) (string, error) {
 	if c.Role == "worker" {
 		task, w = p.stoppedTask(c.Lane, c.Agent)
 	}
-	role := c.Role != "worker" && c.Role != "lead" && c.Role != "none" && c.Role != "" && c.Agent != p.out.lead()
+	role := c.Role != "worker" && c.Role != "lead" && c.Role != "none" && c.Role != "" && c.Agent != p.out.Lead()
 	kind, pane := "", port.Pane{}
 	if role {
 		if wi := a.whereIs(p, c.Agent); wi.State == Identified {
@@ -141,7 +117,7 @@ func (a *App) stoppedCall(c wire.StoppedReq) (string, error) {
 
 // newStop is fact stopped's data for agent's error ("": unknown) and details, recorded by call id, and the stop as
 // its lines say it: "<agent> stopped: <error> (<details>)".
-func newStop(agent, errText, details, callID string) (stoppedData, string) {
+func newStop(agent, errText, details, callID string) (outbox.Stopped, string) {
 	if errText == "" {
 		errText = "unknown"
 	}
@@ -149,13 +125,13 @@ func newStop(agent, errText, details, callID string) (stoppedData, string) {
 	if details != "" {
 		said += " (" + details + ")"
 	}
-	return stoppedData{Agent: agent, Error: errText, Details: details,
+	return outbox.Stopped{Agent: agent, Error: errText, Details: details,
 		Message: event.Message{From: "obor", Call: callID, Reply: "STOPPED " + agent + " (recorded)"}}, said
 }
 
 // workerStop makes d the stop of the worker with open task task (its watch w, its agent in pane): the task, and the
 // needs-you of it that the fact puts in force (under mu).
-func (a *App) workerStop(p *proj, d *stoppedData, said, task string, w *watch, pane port.Pane) {
+func (a *App) workerStop(p *proj, d *outbox.Stopped, said, task string, w *watch, pane port.Pane) {
 	d.Task, d.Reply = task, "STOPPED "+d.Agent+" (needs-you "+task+")"
 	d.NeedsYou = &event.FactData{Lane: w.lane.Name, Machine: Machine, Group: pane.Group,
 		Pane: pane.ID, Agent: a.shownAs(p, pane), Reason: said, Cause: causeStopped}
@@ -165,10 +141,10 @@ func (a *App) workerStop(p *proj, d *stoppedData, said, task string, w *watch, p
 // transcript read turn (zero: none): the lead's line; with a brief open, a usage limit stops the brief (Brief, Reset:
 // it stays open, its agent woken after the reset), any other error ends it (no finished line for it; a verify's brief:
 // the verify rule briefs it again, T-924). Under mu.
-func (a *App) roleStop(p *proj, d *stoppedData, said, kind string, turn time.Time) {
-	d.To, d.Line = p.out.lead(), "[obor] "+said
+func (a *App) roleStop(p *proj, d *outbox.Stopped, said, kind string, turn time.Time) {
+	d.To, d.Line = p.out.Lead(), "[obor] "+said
 	d.Reply = "STOPPED " + d.Agent + " (the lead is told)"
-	b := p.out.brief(d.Agent)
+	b := p.out.Brief(d.Agent)
 	if b == nil {
 		return
 	}
@@ -177,7 +153,7 @@ func (a *App) roleStop(p *proj, d *stoppedData, said, kind string, turn time.Tim
 		d.Ends = d.Agent // the brief is over: this line, not a finished line
 		return
 	}
-	d.Brief, d.Reset = b.seq, reset
+	d.Brief, d.Reset = b.Seq(), reset
 }
 
 // limitOf reads an agent's stop on errText (details), seen at at, by its agent's kind (agents.Kind.Reset): limit,
@@ -294,7 +270,7 @@ func (a *App) turnStop(p *proj, task string, w *watch, ev map[string]*evidence) 
 // foldStop puts in force the worker's needs-you a stopped fact r with data d carries (foldMsg): a fact of d's task
 // with r's seq and time, unless the task has the same one in force or is closed (T-636: the task was picked before
 // its merge, drop or reject and the stop recorded after it).
-func (p *proj) foldStop(r event.Record, d stoppedData) {
+func (p *proj) foldStop(r event.Record, d outbox.Stopped) {
 	if d.Task == "" || d.NeedsYou == nil || p.has(d.Task, event.StepNeedsYou, d.NeedsYou.Reason) || p.closed(d.Task) {
 		return
 	}
@@ -338,11 +314,11 @@ func (a *App) turnCall(c wire.TurnReq) (string, error) {
 // the turn's end or its work), the turn's end finishes it (fact turned, worked: the finished line when idle), also when
 // the start was missed (RV-60 #3). Neither: nothing.
 func (a *App) roleTurn(p *proj, c wire.TurnReq) (string, error) {
-	b := p.out.brief(c.Agent)
+	b := p.out.Brief(c.Agent)
 	if b == nil {
 		return "TURN " + c.Agent + " (no stop)", nil
 	}
-	act := turnDecide(turnCase{stopped: b.stop != nil, followed: b.followed, worked: b.worked, ended: c.Ended})
+	act := turnDecide(turnCase{stopped: b.Stop() != nil, followed: b.Followed(), worked: b.Worked(), ended: c.Ended})
 	if act == turnNone {
 		return "TURN " + c.Agent + " (no stop)", nil
 	}
@@ -350,7 +326,7 @@ func (a *App) roleTurn(p *proj, c wire.TurnReq) (string, error) {
 	if act == turnFinish {
 		reply = "TURN " + c.Agent + " (its brief's turn ended)"
 	}
-	d := turnedData{To: c.Agent, Brief: b.seq, Worked: act == turnFinish}
+	d := outbox.Turned{To: c.Agent, Brief: b.Seq(), Worked: act == turnFinish}
 	a.mu.Unlock()
 	ok := a.record(p, event.Record{Task: event.MsgTask, Step: event.StepTurned, Kind: event.KindFact}, d)
 	a.mu.Lock()

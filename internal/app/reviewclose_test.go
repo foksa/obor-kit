@@ -263,9 +263,9 @@ func TestReviewCloseSnapshotStands(t *testing.T) {
 				r.merged("T-a")
 				r.merged("T-b")
 				r.verifyPass() // the verify of T-a, T-b at headSHA, open
-				if r.p.out.brief("pj-rev") == nil || r.pending() != "T-a,T-b" {
+				if r.p.out.Brief("pj-rev") == nil || r.pending() != "T-a,T-b" {
 					t.Fatalf("precondition: brief %v, pending %q; want the verify open, T-a, T-b pending",
-						r.p.out.brief("pj-rev"), r.pending())
+						r.p.out.Brief("pj-rev"), r.pending())
 				}
 				head, tasks, scope, finish = startHead, []string{"T-start"}, []string{"T-a", "T-b"}, r.finish
 			} else {

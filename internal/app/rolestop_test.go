@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"obor/internal/app/event"
+	"obor/internal/app/outbox"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
 )
@@ -260,7 +261,7 @@ func TestBriefToStoppedRoleAgent(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			a, p := lineApp(t, root, &now)
 			a.connect(context.Background(), port.Snapshot{Panes: []port.Pane{
-				{ID: "w:lead", Group: "proj", Cwd: root, Agent: "claude", Label: p.out.lead(), Status: "idle"},
+				{ID: "w:lead", Group: "proj", Cwd: root, Agent: "claude", Label: p.out.Lead(), Status: "idle"},
 				{ID: "w:adv", Group: "proj", Cwd: root, Agent: c.agent, Label: "pj-advisor", Status: "idle"},
 			}})
 			if w := a.whereIs(p, "pj-advisor"); (w.State == Identified) == c.started {
@@ -286,7 +287,7 @@ func TestBriefToStoppedRoleAgent(t *testing.T) {
 			f := &startJobFakes{concFakes: newConcFakes("")}
 			a.deliver(context.Background(), p, &Loop{Agents: f, Typer: f})
 			line := "[obor pj-lead] why X?"
-			key := event.Key{Task: event.MsgTask, Step: stepDeliver + fmt.Sprint(seq)}
+			key := event.Key{Task: event.MsgTask, Step: outbox.StepDeliver + fmt.Sprint(seq)}
 			if c.started {
 				if len(f.launches) != 1 || f.launches[0] != (port.Launch{Agent: "pj-advisor", Pane: "w:adv", Fresh: true,
 					Prompt: line}) {
@@ -316,7 +317,7 @@ func TestBriefReachesCustomRole(t *testing.T) {
 	now := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
 	a, p := lineApp(t, root, &now)
 	a.connect(context.Background(), port.Snapshot{Panes: []port.Pane{
-		{ID: "w:lead", Group: "proj", Cwd: root, Agent: "claude", Label: p.out.lead(), Status: "idle"},
+		{ID: "w:lead", Group: "proj", Cwd: root, Agent: "claude", Label: p.out.Lead(), Status: "idle"},
 		{ID: "w:ux", Group: "proj", Cwd: root, Label: "pj-ux-buddy", Status: "idle"},
 	}})
 	reply, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b-ux", Role: "lead",
@@ -395,7 +396,7 @@ func TestRoleStopReviewerRule(t *testing.T) {
 					Role: "lead", Agent: "pj-lead"}, To: "pj-rev", Text: "check X"}); err != nil {
 					t.Fatal(err)
 				}
-				if r.p.out.brief("pj-rev") == nil {
+				if r.p.out.Brief("pj-rev") == nil {
 					t.Fatal("precondition: the reviewer has no open brief")
 				}
 			}, pass}},
@@ -461,7 +462,7 @@ func TestBriefToStoppedWorkerStartsNothing(t *testing.T) {
 	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
 	a, p := lineApp(t, root, &now)
 	a.connect(context.Background(), port.Snapshot{Panes: []port.Pane{
-		{ID: "w:lead", Group: "proj", Cwd: root, Agent: "claude", Label: p.out.lead(), Status: "idle"},
+		{ID: "w:lead", Group: "proj", Cwd: root, Agent: "claude", Label: p.out.Lead(), Status: "idle"},
 		{ID: "w:o1", Group: "proj", Cwd: root, Agent: "", Label: "pj-l-01"},
 	}})
 	a.mu.Lock()
@@ -487,8 +488,8 @@ func TestBriefToStoppedWorkerStartsNothing(t *testing.T) {
 	same(t, len(f.typed), 0, "lines typed")
 	a.mu.Lock()
 	queued := 0
-	for _, q := range p.queuedLines() {
-		if q.msg.To == "pj-l-01" {
+	for _, q := range p.out.Queued() {
+		if q.Msg().To == "pj-l-01" {
 			queued++
 		}
 	}
@@ -523,7 +524,7 @@ func stoppedApp(t *testing.T, root string, panes ...port.Pane) (*App, *proj) {
 	}
 	a.p = p
 	t.Cleanup(func() { p.log.Close(); a.closeLog() })
-	all := append([]port.Pane{{ID: "w:lead", Group: "proj", Cwd: root, Agent: "claude", Label: p.out.lead(), Status: "idle"}},
+	all := append([]port.Pane{{ID: "w:lead", Group: "proj", Cwd: root, Agent: "claude", Label: p.out.Lead(), Status: "idle"}},
 		panes...)
 	a.connect(context.Background(), port.Snapshot{Panes: all})
 	return a, p

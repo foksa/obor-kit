@@ -51,7 +51,7 @@ func TestMergeDuringAReviewPublishesAtOnce(t *testing.T) {
 				h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Workflow: WorkflowOf(f), Agents: f, Typer: f}, nil }
 			}
 			h.a.mu.Lock()
-			briefed := c.to != "" && h.a.p.out.brief(c.to) != nil
+			briefed := c.to != "" && h.a.p.out.Brief(c.to) != nil
 			working := c.pane != "" && !h.a.roleIdle(h.a.p, map[string]string{"w1:rev": "pj-rev", "w1:dd": "pj-deep-dive"}[c.pane])
 			h.a.mu.Unlock()
 			if !briefed && !working {

@@ -163,7 +163,7 @@ func (a *App) configSet(ctx context.Context, p *proj, file ConfigFile, c wire.Co
 		return "", fmt.Errorf("config: committed %s, but the event log of %s refused its record", short(sha), p.name)
 	}
 	a.mu.Lock()
-	lead := p.out.lead()
+	lead := p.out.Lead()
 	a.mu.Unlock()
 	if lead != "" {
 		a.record(p, event.Record{Task: event.MsgTask, Step: event.StepMessage, Kind: event.KindFact},

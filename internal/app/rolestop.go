@@ -81,7 +81,7 @@ func reviewerStopRule(_ context.Context, a *App, p *proj, fx *Loop, _ time.Time)
 	}
 	a.mu.Lock()
 	w := a.whereIs(p, s.Agent)
-	stop := w.State == Identified && Ready(w.Pane.Status) && p.out.brief(s.Agent) == nil
+	stop := w.State == Identified && Ready(w.Pane.Status) && p.out.Brief(s.Agent) == nil
 	a.mu.Unlock()
 	if !stop {
 		return 0, action{}, false
@@ -192,7 +192,7 @@ func (p *proj) roleAgentOf(agent string) bool {
 // roleAgent: agent is a role agent of p's config on no lane, the integrator included: a role's or an agents entry's,
 // not the lead and not a lane's worker (under mu): the agents obor status may report stopped.
 func (p *proj) roleAgent(agent string) bool {
-	if agent == "" || agent == p.out.lead() {
+	if agent == "" || agent == p.out.Lead() {
 		return false
 	}
 	cfg, err := config.LoadDaemon(p.root)

@@ -199,7 +199,7 @@ func TestVerifyAgainAfterAStop(t *testing.T) {
 	t.Parallel()
 	r := briefedVerify(t)
 	r.stop("s1", "overloaded", "API overloaded")
-	if r.p.out.brief("pj-rev") != nil {
+	if r.p.out.Brief("pj-rev") != nil {
 		t.Fatal("precondition: the error stop left the reviewer's brief open")
 	}
 	r.verifyPass() // the line
@@ -222,7 +222,7 @@ func TestVerifyUsageLimitKeepsTheBrief(t *testing.T) {
 	r.working(false)
 	r.verifyPass()
 	r.verifyPass()
-	if b := r.p.out.brief("pj-rev"); b == nil || b.stop == nil {
+	if b := r.p.out.Brief("pj-rev"); b == nil || b.Stop() == nil {
 		t.Fatalf("the reviewer's brief %+v, want it open and stopped", b)
 	}
 	if n, l := len(verifyBriefs(t, r.p.root)), r.verifyLines(); n != 1 || len(l) != 0 || r.pending() != "T-a,T-b" {

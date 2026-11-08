@@ -207,7 +207,7 @@ func (a *App) driveAgain(p *proj, task string) (string, error) {
 // pickDriving is a driving task's step (under mu): the lead's line once a red gate, a sendback or a hold sent it back
 // (its why in line; message{drive: the attempt} marks it told), else nothing: the owner drives.
 func (a *App) pickDriving(p *proj, mt mtask) step {
-	lead := p.out.lead()
+	lead := p.out.Lead()
 	if mt.line == "" || mt.lined || lead == "" {
 		return nil
 	}
@@ -387,7 +387,7 @@ func (a *App) tellLeadCall(c wire.TellLeadReq) (string, error) {
 		return "", mergeOff(p)
 	}
 	a.mu.Lock()
-	lead, task, why := p.out.lead(), "", ""
+	lead, task, why := p.out.Lead(), "", ""
 	for _, t := range p.loopTasks() {
 		if m := p.folded.loop[t]; m.drive && m.lane == c.Lane && !states[m.state].ended {
 			task, why = t, driveAnswerable(*m)

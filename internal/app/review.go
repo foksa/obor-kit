@@ -326,7 +326,7 @@ func (a *App) reviewDueTick(_ context.Context, p *proj, fx *Loop) {
 func (a *App) reviewPass(ctx context.Context, p *proj, fx *Loop) {
 	a.mu.Lock()
 	q, started := p.folded.review, p.folded.rv.last()
-	run := q != nil && p.rv.what == "" && p.merging && p.out.lead() != "" && fx.Workflow != nil && fx.Agents != nil
+	run := q != nil && p.rv.what == "" && p.merging && p.out.Lead() != "" && fx.Workflow != nil && fx.Agents != nil
 	ready := run && p.reviewOutcome(q.after) == "" && len(p.reviewWaits(q.after)) == 0
 	a.mu.Unlock()
 	if !run {
@@ -364,7 +364,7 @@ func (a *App) reviewPass(ctx context.Context, p *proj, fx *Loop) {
 		hook()
 	}
 	if end != "" {
-		m := event.Message{To: p.out.lead(), From: "obor", Line: "[obor] review request ended: " + end, Review: q.seq}
+		m := event.Message{To: p.out.Lead(), From: "obor", Line: "[obor] review request ended: " + end, Review: q.seq}
 		a.record(p, event.Record{Task: event.MsgTask, Step: event.StepMessage, Kind: event.KindFact}, m)
 	} else if a.record(p, event.Record{Task: event.ReviewTask, Step: event.StepReviewFire, Kind: event.KindFact}, ReviewData{Request: q.seq}) {
 		a.fireReview(ctx, p, fx, q, setup, cfgErr)
@@ -379,7 +379,7 @@ func (a *App) reviewPass(ctx context.Context, p *proj, fx *Loop) {
 // two claiming it: not idle): the reviewer's for a review's start, the deep dive's for its worktree's move at a brief
 // (briefMove) (under mu).
 func (a *App) roleIdle(p *proj, agent string) bool {
-	if p.out.brief(agent) != nil {
+	if p.out.Brief(agent) != nil {
 		return false
 	}
 	switch w := a.whereIs(p, agent); w.State {

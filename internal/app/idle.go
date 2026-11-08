@@ -136,7 +136,7 @@ func (p *proj) idleNow() idle {
 	}
 	end = end.newer(merge).newer(p.folded.reviewIdleEnd)
 	for _, w := range p.wtAgentsNow() { // an open brief to the reviewer or the deep dive is work in flight
-		if p.out.briefs[w.agent] != nil {
+		if p.out.Brief(w.agent) != nil {
 			return idle{}
 		}
 		end = end.newer(p.folded.briefEnds[w.agent])
@@ -148,7 +148,7 @@ func (p *proj) idleNow() idle {
 // the project has a lead and no acknowledgement names its key.
 func (p *proj) idleOpen() (idle, bool) {
 	n := p.idleNow()
-	return n, n.ok && p.out.lead() != "" && p.folded.idleAck.Key != n.end
+	return n, n.ok && p.out.Lead() != "" && p.folded.idleAck.Key != n.end
 }
 
 // idleRule is the idle line's rule: the line once per key while the state is open.
