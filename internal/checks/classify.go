@@ -9,14 +9,18 @@ import (
 )
 
 // Class is a merge's check class (design "Change-based merge checks (v2.5)"): partial runs merge.guard plus each class's
-// checks (Names ["neutral"]: the guard only), full runs check (and baseline / gate at "merge").
+// checks (Names ["neutral"]: the guard only), full runs check (and baseline / gate at "merge") plus the checks of every
+// matched class marked with_full (T-1007).
 type Class struct {
 	Partial bool
-	Names   []string // partial: every matched class, in config order (one name per class; ["neutral"]: only neutral files)
-	Reason  string   // full: forced, no-guard, no-changes, unmatched <f>, full-class <name> (<f>)
+	// Names are every matched class, in config order (one name per class; ["neutral"]: only neutral files; full: those
+	// whose with_full checks run after check).
+	Names  []string
+	Reason string // full: forced, no-guard, no-changes, unmatched <f>, full-class <name> (<f>)
 }
 
-// String is the partial classes' names joined, config order ("go+release"). "" when full.
+// String is the classes' names joined, config order ("go+release"). "" when none matched (a forced, no-guard or
+// no-changes full).
 func (c Class) String() string { return strings.Join(c.Names, "+") }
 
 // Mode is how result lines name it: partial:<class> or full:<reason>.
@@ -32,6 +36,8 @@ func (c Class) Mode() string {
 // non-neutral file is in a class (told apart by entry, not name) that has checks and is not full; the names of every
 // matched class, config order, are the partial's (a class matched by several entries once, by name); only neutral files
 // → partial neutral. A class named neutral never counts as partial (it would read as guard-only).
+//
+// Full keeps the matched class names too (T-1007): runChecks runs the checks of those marked with_full after check.
 func Classify(m config.Merge, files []string, forced bool) Class {
 	full := func(format string, a ...any) Class { return Class{Reason: fmt.Sprintf(format, a...)} }
 	switch {
@@ -47,6 +53,7 @@ func Classify(m config.Merge, files []string, forced bool) Class {
 		neutral = []string{"docs/**"}
 	}
 	matched := make([]bool, len(m.Classes))
+	reason := "" // the first file that decides full: its class breaks it, or it has no class
 	for _, f := range files {
 		if matchAny(f, neutral) {
 			continue
@@ -59,11 +66,14 @@ func Classify(m config.Merge, files []string, forced bool) Class {
 			}
 		}
 		if idx < 0 {
-			return full("unmatched %s", f)
+			if reason == "" {
+				reason = fmt.Sprintf("unmatched %s", f)
+			}
+			continue
 		}
 		c := m.Classes[idx]
-		if c.Name == "neutral" || c.Full || len(c.Checks) == 0 {
-			return full("full-class %s (%s)", c.Name, f)
+		if reason == "" && (c.Name == "neutral" || c.Full || len(c.Checks) == 0) {
+			reason = fmt.Sprintf("full-class %s (%s)", c.Name, f)
 		}
 		matched[idx] = true
 	}
@@ -74,6 +84,9 @@ func Classify(m config.Merge, files []string, forced bool) Class {
 			seen[c.Name] = true
 			names = append(names, c.Name)
 		}
+	}
+	if reason != "" {
+		return Class{Names: names, Reason: reason}
 	}
 	if len(names) == 0 {
 		return Class{Partial: true, Names: []string{"neutral"}}
@@ -99,6 +112,21 @@ func classChecks(m config.Merge, name string) ([]string, bool) {
 		}
 	}
 	return found[0].Checks, true
+}
+
+// withFullChecks are the checks a full merge runs after check for the class name: exactly one class of that name, marked
+// with_full and not full (obor config validate refuses that pair); nil otherwise (T-1007).
+func withFullChecks(m config.Merge, name string) []string {
+	var found []config.MergeClass
+	for _, c := range m.Classes {
+		if c.Name == name {
+			found = append(found, c)
+		}
+	}
+	if len(found) != 1 || !found[0].WithFull || found[0].Full {
+		return nil
+	}
+	return found[0].Checks
 }
 
 func matchAny(path string, globs []string) bool {

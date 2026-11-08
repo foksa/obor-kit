@@ -290,7 +290,7 @@ func TestSeed(t *testing.T) {
 		"a": {Elapsed: 1.0},
 		"b": {Elapsed: 0.21},
 	}
-	f := seed(full, short)
+	f := seed(full, short, File{})
 	want := map[string]Budget{
 		"a": {ShortS: 1.5, FullS: 3.0, GitProcs: 5},
 		"b": {ShortS: 0.4, FullS: 1.6, GitProcs: 0},
@@ -305,6 +305,43 @@ func TestSeed(t *testing.T) {
 	}
 	if len(f.Tests) != 0 {
 		t.Errorf("seed set per-test caps %v; want none (they are hand-set)", f.Tests)
+	}
+}
+
+// T-1007: -seed carries the hand-set per-test caps and untagged_s of the tests/budget.json it finds over unchanged,
+// re-measuring only the packages; no file seeds the defaults.
+func TestSeededKeepsCaps(t *testing.T) {
+	full := map[string]Run{"a": {Elapsed: 2.0, Git: 2}}
+	short := map[string]Run{"a": {Elapsed: 1.0}}
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "tests"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prev := `{"untagged_s":2.5,"tests":{"a TestSlow":4},"packages":{"a":{"short_s":1,"full_s":1,"git_procs":0}}}`
+	if err := os.WriteFile(filepath.Join(root, "tests", "budget.json"), []byte(prev), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := seeded(root, full, short)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.UntaggedS != 2.5 {
+		t.Errorf("seeded untagged_s = %v; want the file's 2.5", f.UntaggedS)
+	}
+	if len(f.Tests) != 1 || f.Tests["a TestSlow"] != 4 {
+		t.Errorf("seeded tests = %v; want the file's a TestSlow 4", f.Tests)
+	}
+	if got, want := f.Packages["a"], (Budget{ShortS: 1.5, FullS: 3.0, GitProcs: 3}); got != want {
+		t.Errorf("seeded package a = %+v; want the measurement %+v", got, want)
+	}
+
+	g, err := seeded(t.TempDir(), full, short)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.UntaggedS != untaggedDefault || len(g.Tests) != 0 {
+		t.Errorf("seed with no file: untagged_s %v, tests %v; want the defaults",
+			g.UntaggedS, g.Tests)
 	}
 }
 

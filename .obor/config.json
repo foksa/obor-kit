@@ -129,7 +129,8 @@
         ],
         "checks": [
           "check_web"
-        ]
+        ],
+        "with_full": true
       },
       {
         "name": "go",
@@ -153,7 +154,8 @@
         ],
         "checks": [
           "check_release"
-        ]
+        ],
+        "with_full": true
       },
       {
         "name": "readers",

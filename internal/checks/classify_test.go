@@ -220,6 +220,26 @@ func TestOborKitConfig(t *testing.T) {
 			t.Errorf("%s beside Go files: %s (want a full merge)", f, c.Mode())
 		}
 	}
+	// A full merge keeps the classes it matched, and release and web mark themselves with_full (T-1007): the kit's own
+	// release or web files still run their checks beside an unmatched one; go's do not.
+	for _, c := range []struct{ files, name, checks string }{
+		{"Makefile go.mod", "release", "check_release"},
+		{"web/src/lib/format.ts go.mod", "web", "check_web"},
+		{"internal/app/loop.go go.mod", "go", ""},
+	} {
+		files := strings.Fields(c.files)
+		got := Classify(m, files, false)
+		if got.Partial || got.Mode() != "full:unmatched go.mod" {
+			t.Errorf("%v: %s (want full:unmatched go.mod)", files, got.Mode())
+			continue
+		}
+		if n := strings.Join(got.Names, "+"); n != c.name {
+			t.Errorf("%v: full names %q, want %q", files, n, c.name)
+		}
+		if cs := withFullChecks(m, c.name); strings.Join(cs, " ") != c.checks {
+			t.Errorf("%v: with_full checks %q, want %q", files, cs, c.checks)
+		}
+	}
 }
 
 // T-901: READER_PKGS in the Makefile is the survey of the packages whose Go files name a path the readers class maps to

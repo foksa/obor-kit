@@ -224,6 +224,12 @@ func TestValidate(t *testing.T) {
 				`FAIL .merge.classes[3].name: duplicate of .merge.classes[1].name ("b")`}},
 		{name: "distinct class names, same paths", edits: []edit{set("merge.classes", `[{"name": "core", "paths": ["src/**"], "full": true},
 			{"name": "ui", "paths": ["src/**"], "checks": ["ui"]}]`)}},
+		// T-1007: with_full runs a class's checks after check on a full merge; on a full class it is meaningless.
+		{name: "with_full on a checks class", edits: []edit{set("merge.classes", `[{"name": "ui", "paths": ["src/**"], "checks": ["ui"]},
+			{"name": "release", "paths": ["Makefile"], "checks": ["release"], "with_full": true}]`)}},
+		{name: "with_full on a full class", edits: []edit{set("merge.classes", `[{"name": "core", "paths": ["src/**"], "full": true},
+			{"name": "core2", "paths": ["lib/**"], "full": true, "with_full": true}]`)},
+			want: []string{"FAIL .merge.classes[1].with_full: meaningless with full: true: a full class already runs check"}},
 		// bash config.test.sh case_validate_roles_triage, case_validate_roles_deep_dive
 		{name: "roles.triage", edits: []edit{set("roles.triage", "opus")}},
 		{name: "roles.deep_dive", edits: []edit{set("roles.deep_dive", "opus:high")}},

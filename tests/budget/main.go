@@ -16,9 +16,10 @@
 // A missing entry for a package with tests is a breach too, so a new package is never unbudgeted. A green run prints
 // `budget OK: N packages` and exits 0; a breach exits 1 (the nightly records it as a red non-gating line).
 //
-// The budgets are seeded from one quiet machine's run x1.5: `go run ./tests/budget -seed` prints the file to stdout.
-// A budget is raised only by an owner line in docs/decisions.md and lowered by any task that gets under it (docs/plan/
-// test-suite-rework.md §3). Per-test caps are hand-set after a seed: they record a cost the project accepts.
+// The budgets are seeded from one quiet machine's run x1.5: `go run ./tests/budget -seed` prints the file to stdout,
+// keeping the per-test caps and untagged_s of the tests/budget.json it finds (T-1007). A budget is raised only by an
+// owner line in docs/decisions.md and lowered by any task that gets under it (docs/plan/test-suite-rework.md §3).
+// Per-test caps are hand-set after a seed: they record a cost the project accepts.
 package main
 
 import (
@@ -218,10 +219,14 @@ func parseRun(out []byte) Run {
 const untaggedDefault = 1.3
 
 // seed is the measured budgets x1.5, rounded up to a tenth of a second (git processes rounded up too): one quiet
-// machine's run with headroom for the nightly's noise. Per-test caps are not seeded: they record a cost the project
-// accepts, so they are set by hand on top of a seeded file.
-func seed(full, short map[string]Run) File {
-	f := File{UntaggedS: untaggedDefault, Packages: map[string]Budget{}}
+// machine's run with headroom for the nightly's noise. prev's per-test caps and untagged_s are carried over unchanged
+// (T-1007): they record a cost and a threshold a person set, so a re-measure never drops them. Per-test caps are never
+// derived from a measurement.
+func seed(full, short map[string]Run, prev File) File {
+	f := File{UntaggedS: untaggedDefault, Tests: prev.Tests, Packages: map[string]Budget{}}
+	if prev.UntaggedS > 0 {
+		f.UntaggedS = prev.UntaggedS
+	}
 	for pkg, r := range full {
 		f.Packages[pkg] = Budget{
 			ShortS:   math.Ceil(short[pkg].Elapsed*1.5*10) / 10,
@@ -230,6 +235,16 @@ func seed(full, short map[string]Run) File {
 		}
 	}
 	return f
+}
+
+// seeded is -seed's file: the measurement, with the caps and threshold of an existing tests/budget.json carried over
+// (T-1007); no file: seed's defaults.
+func seeded(root string, full, short map[string]Run) (File, error) {
+	prev, err := load(root)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return File{}, err
+	}
+	return seed(full, short, prev), nil
 }
 
 // runner runs the tiers in one module root with the counting git wrapper first on PATH and a private TMPDIR.
@@ -498,7 +513,10 @@ func run() int {
 	}
 
 	if *seedFlag {
-		f := seed(full, short)
+		f, err := seeded(root, full, short)
+		if err != nil {
+			return fail(err)
+		}
 		b, err := json.MarshalIndent(f, "", "  ")
 		if err != nil {
 			return fail(err)

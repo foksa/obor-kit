@@ -206,7 +206,8 @@ check-release:
 # "budget OK: N packages". The nightly runs it on a quiet machine, so its numbers are comparable; a budget is raised
 # only by an owner line in docs/decisions.md and lowered by any task that gets under it (docs/plan/test-suite-
 # rework.md §3); per-test caps are hand-set. Seed it with
-# `GO="$(GO)" $(GO) run ./tests/budget -seed > tests/budget.json`.
+# `GO="$(GO)" $(GO) run ./tests/budget -seed > tests/budget.json`: the seed keeps the per-test caps and untagged_s the
+# existing tests/budget.json carries (T-1007), so a re-measure never drops a cap set by hand.
 check-budget:
 	@$(GO_CACHE); \
 	GO="$(GO)" $(GO) run ./tests/budget

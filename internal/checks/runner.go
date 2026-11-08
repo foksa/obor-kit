@@ -384,9 +384,10 @@ func (r *runner) compile() *halt {
 }
 
 // runChecks runs the classes' checks: partial → merge.guard, then each class's checks (a missing command → fail; a
-// command two classes name runs once); full → check, then baseline and gate when their "at" is "merge" (default
-// "milestone"), the gate only when the merge (pre..HEAD: the candidate checked out in a lane, T-961) touches its paths
-// or OBOR_GATE=1. Every check runs: a run in a lane has nothing to reuse (T-966).
+// command two classes name runs once); full → check, then each matched class marked with_full's checks (T-1007),
+// then baseline and gate when their "at" is "merge" (default "milestone"), the gate only when the merge (pre..HEAD: the
+// candidate checked out in a lane, T-961) touches its paths or OBOR_GATE=1. Every check runs: a run in a lane has
+// nothing to reuse (T-966).
 func (r *runner) runChecks() *halt {
 	r.gate = ""
 	if r.class.Partial {
@@ -421,10 +422,33 @@ func (r *runner) runChecks() *halt {
 		return nil
 	}
 	r.check = "no check"
+	var counts []string
 	if o, ok, h := r.must("check"); h != nil {
 		return h
 	} else if ok {
-		r.check = r.counts(o)
+		counts = append(counts, r.counts(o))
+	}
+	// A matched class marked with_full runs its checks after check, config order, a command named twice once (T-1007: a
+	// full lane with release or web files still covers them).
+	seen := map[string]bool{"check": true}
+	for _, name := range r.class.Names {
+		for _, check := range withFullChecks(r.Cfg.Data.Merge, name) {
+			if seen[check] {
+				continue
+			}
+			seen[check] = true
+			o, ok, h := r.must(check)
+			if h != nil {
+				return h
+			}
+			if !ok {
+				return &halt{fail: fmt.Sprintf("commands.%s not configured (%s)", check, r.mode)}
+			}
+			counts = append(counts, check+" "+r.counts(o))
+		}
+	}
+	if len(counts) > 0 {
+		r.check = strings.Join(counts, ", ")
 	}
 	if r.atMerge("baseline") {
 		if dir := r.baselineDir(); dir != "" {

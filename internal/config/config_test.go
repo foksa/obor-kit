@@ -330,6 +330,7 @@ func TestLookupCollectionDefaults(t *testing.T) {
 		{".models.m.kind", `"claude"`, true},
 		{".merge.classes[0].full", "false", true},
 		{".merge.classes.0.full", "false", true},
+		{".merge.classes[0].with_full", "false", true},
 		{".commands.nope.heavy", "", false},
 		{".commands.check.nope", "", false},
 		{".kinds.codex.args", "", false},
