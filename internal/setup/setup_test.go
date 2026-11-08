@@ -172,7 +172,7 @@ func (x *fx) newSetup(t *testing.T) (*Setup, *bytes.Buffer) {
 }
 
 // reqs is the requests the fake herdr socket got since reset, each as req's one line, e.g. "pane.split cwd=/w
-// direction=right env={OBOR_AGENT=,OBOR_LANE=,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker,OPENCODE_CONFIG=} target_pane_id=w1:p1".
+// direction=right env={OBOR_AGENT=,OBOR_LANE=,OBOR_OPENCODE_MODEL=,OBOR_PANE=,OBOR_ROLE=worker,OPENCODE_CONFIG=} target_pane_id=w1:p1".
 func (x *fx) reqs() []string {
 	all := x.srv.Requests()
 	var out []string
@@ -494,12 +494,18 @@ func TestPaneSplitsTheTabAndStartsTheAgentInOrder(t *testing.T) {
 	if last(out) != "OK L-01: pj-l-01 in pane w1:n1" {
 		t.Errorf("last line %q", last(out))
 	}
+	// T-1037: the new pane's id is herdr's answer to the split, so its shell, once up, gets the env line with OBOR_PANE
+	// before the start.
 	want := []string{"agent.list", "pane.list", "pane.layout pane_id=w1:p1",
-		"pane.split cwd=" + lane + " direction=right env={GOFLAGS=-p=2 -trimpath,GOMAXPROCS=2,OBOR_AGENT=,OBOR_LANE=L-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker,OPENCODE_CONFIG=} target_pane_id=w1:p1",
+		"pane.split cwd=" + lane + " direction=right env={GOFLAGS=-p=2 -trimpath,GOMAXPROCS=2,OBOR_AGENT=,OBOR_LANE=L-01,OBOR_OPENCODE_MODEL=,OBOR_PANE=,OBOR_ROLE=worker,OPENCODE_CONFIG=} target_pane_id=w1:p1",
+		"pane.process_info pane_id=w1:n1", "pane.process_info pane_id=w1:n1",
+		"pane.send_input keys=[Enter] pane_id=w1:n1 text=cd " + lane + " && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG && export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:n1 GOFLAGS='-p=2 -trimpath' GOMAXPROCS=2 && echo obor-env-M || echo obor-env-M",
+		"pane.wait_for_output match={type=regex,value=obor-env-M|obor-env-M} pane_id=w1:n1 source=recent_unwrapped timeout_ms=20000",
 		"pane.rename label=pj-l-01 pane_id=w1:n1", "agent.get target=w1:n1",
 		"agent.start args=[" + laneArgs + " --session-id NEW] kind=claude name=pj-l-01 pane_id=w1:n1"}
-	if got := x.reqs(); named(strings.Join(got, "\n")) != strings.Join(want, "\n") {
-		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	marks := regexp.MustCompile(`obor-env-"?[0-9a-z]+"?`)
+	if got := marks.ReplaceAllString(named(strings.Join(x.reqs(), "\n")), "obor-env-M"); got != strings.Join(want, "\n") {
+		t.Errorf("calls:\n%s\nwant:\n%s", got, strings.Join(want, "\n"))
 	}
 }
 
@@ -536,7 +542,7 @@ func TestPaneSplitsTheLargestPane(t *testing.T) {
 			}
 			x.ok(t, "pane", "--start", "L-01", "--tab", "w1:t1")
 			has(t, strings.Join(x.reqs(), "\n"), "direction="+c.dir+
-				" env={GOFLAGS=-p=2 -trimpath,GOMAXPROCS=2,OBOR_AGENT=,OBOR_LANE=L-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker,OPENCODE_CONFIG=} "+
+				" env={GOFLAGS=-p=2 -trimpath,GOMAXPROCS=2,OBOR_AGENT=,OBOR_LANE=L-01,OBOR_OPENCODE_MODEL=,OBOR_PANE=,OBOR_ROLE=worker,OPENCODE_CONFIG=} "+
 				fmt.Sprintf("target_pane_id=w1:p%d", c.target), c.name)
 		})
 	}
@@ -663,7 +669,7 @@ func TestPaneRefusesUnknownLaneAndAmbiguousPlacement(t *testing.T) {
 	x.ok(t, "pane", "--start", "L-02") // not in a herdr pane: the project's tab with most panes, the first of equals (T-632)
 	has(t, strings.Join(x.reqs(), "\n"), "target_pane_id=w1:p1", "no caller: the project's first tab")
 	x.reset()
-	x.env = []string{"HERDR_PANE_ID=w1:q1"}
+	x.env = []string{"OBOR_PANE=w1:q1"}
 	x.ok(t, "pane", "--start", "L-01")
 	has(t, strings.Join(x.reqs(), "\n"), "target_pane_id=w1:q1", "no --tab: the caller's tab")
 }
@@ -691,8 +697,8 @@ func TestSetupPaneTypesTheEnvAtAReusedPane(t *testing.T) {
 	x.ok(t, "role", "integrator", "--pane", "w1:p1", "--start")
 	lines := x.envLines()
 	// T-853: the integrator's cwd is its role worktree.
-	if len(lines) != 1 || !strings.HasPrefix(lines[0], "cd "+x.LaneDir("integrator")+" && unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OPENCODE_CONFIG && export OBOR_ROLE=integrator && echo obor-env-") {
-		t.Fatalf("typed %q, want one env line: cd its role worktree, unset every registry var it does not set (a stale OBOR_AGENT, OBOR_LANE, another kind's), export integrator, then the marks", lines)
+	if len(lines) != 1 || !strings.HasPrefix(lines[0], "cd "+x.LaneDir("integrator")+" && unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OPENCODE_CONFIG && export OBOR_ROLE=integrator OBOR_PANE=w1:p1 && echo obor-env-") {
+		t.Fatalf("typed %q, want one env line: cd its role worktree, unset every registry var it does not set (a stale OBOR_AGENT, OBOR_LANE, another kind's), export integrator and its pane, then the marks", lines)
 	}
 	calls := strings.Join(x.reqs(), "\n")
 	if strings.Index(calls, "pane.send_input") > strings.Index(calls, "agent.start") || !strings.Contains(calls, "agent.start") {
@@ -704,17 +710,20 @@ func TestSetupPaneTypesTheEnvAtAReusedPane(t *testing.T) {
 	x.reset()
 	x.ok(t, "pane", "--start", "L-01", "--pane", "w1:p1")
 	lines = x.envLines()
-	if len(lines) != 1 || !strings.HasPrefix(lines[0], "cd "+x.LaneDir("L-01")+" && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG && export OBOR_ROLE=worker OBOR_LANE=L-01 GOFLAGS='-p=2 -trimpath' GOMAXPROCS=2 && echo obor-env-") {
-		t.Errorf("typed %q, want a lane's env: its worktree, worker, L-01 (no OBOR_AGENT)", lines)
+	if len(lines) != 1 || !strings.HasPrefix(lines[0], "cd "+x.LaneDir("L-01")+" && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG && export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:p1 GOFLAGS='-p=2 -trimpath' GOMAXPROCS=2 && echo obor-env-") {
+		t.Errorf("typed %q, want a lane's env: its worktree, worker, L-01, its pane (no OBOR_AGENT)", lines)
 	}
 
-	// a new pane gets its env from herdr at creation: nothing typed
+	// a new pane gets its env from herdr at creation (OBOR_PANE empty: its id is herdr's answer), then the env line
+	// with its id once its shell is up (T-1037)
 	x.noAgents()
 	x.h.Pane("w1:p1").Label = ""
 	x.reset()
-	x.ok(t, "pane", "--start", "L-01", "--tab", "w1:t2")
-	if lines := x.envLines(); len(lines) != 0 {
-		t.Errorf("a new pane got a typed env line: %q", lines)
+	out := x.ok(t, "pane", "--start", "L-01", "--tab", "w1:t2")
+	has(t, strings.Join(x.reqs(), "\n"), "OBOR_PANE=,", "precondition: a new pane, made without a pane id")
+	if lines := x.envLines(); len(lines) != 1 || !strings.Contains(lines[0], " OBOR_PANE=w1:n1 ") ||
+		!strings.Contains(last(out), "pane w1:n1") {
+		t.Errorf("a new pane (%s) got typed %q; want one env line exporting OBOR_PANE=w1:n1", last(out), lines)
 	}
 }
 
@@ -781,7 +790,7 @@ func TestRoleLeadNewTabGetsRoleEnv(t *testing.T) {
 		t.Errorf("last line %q", last(out))
 	}
 	calls := strings.Join(x.reqs(), "\n")
-	has(t, calls, "tab.create cwd="+x.Root+" env={OBOR_AGENT=,OBOR_LANE=,OBOR_OPENCODE_MODEL=,OBOR_ROLE=lead,OPENCODE_CONFIG=} focus=false label=lead", "env")
+	has(t, calls, "tab.create cwd="+x.Root+" env={OBOR_AGENT=,OBOR_LANE=,OBOR_OPENCODE_MODEL=,OBOR_PANE=,OBOR_ROLE=lead,OPENCODE_CONFIG=} focus=false label=lead", "env")
 	has(t, named(calls), "agent.start args=[--permission-mode auto --model opus --session-id NEW /obor:lead] kind=claude name=pj-lead pane_id=w1:n1", "the agent named by its derived name, no Remote Control default (T-280)")
 }
 
@@ -811,7 +820,7 @@ func TestRoleTriageRunsInTheRootWithItsRoleEnvAndCreatesBugsMd(t *testing.T) {
 		t.Errorf("last line %q", last(out))
 	}
 	calls := strings.Join(x.reqs(), "\n")
-	has(t, calls, "tab.create cwd="+x.Root+" env={OBOR_AGENT=,OBOR_LANE=,OBOR_OPENCODE_MODEL=,OBOR_ROLE=triage,OPENCODE_CONFIG=} focus=false label=triage", "the triage role env (T-796)")
+	has(t, calls, "tab.create cwd="+x.Root+" env={OBOR_AGENT=,OBOR_LANE=,OBOR_OPENCODE_MODEL=,OBOR_PANE=,OBOR_ROLE=triage,OPENCODE_CONFIG=} focus=false label=triage", "the triage role env (T-796)")
 	has(t, x.Read("docs/BUGS.md"), "Severity", "BUGS.md from the template")
 	x.Write("docs/BUGS.md", "mine\n")
 	x.noAgents()
@@ -835,7 +844,7 @@ func TestRoleCustomPlaced(t *testing.T) {
 		t.Errorf("last line %q", last(out))
 	}
 	calls := strings.Join(x.reqs(), "\n")
-	has(t, calls, "tab.create cwd="+x.Root+" env={OBOR_AGENT=,OBOR_LANE=,OBOR_OPENCODE_MODEL=,OBOR_ROLE=ux_buddy,OPENCODE_CONFIG=} focus=false label=ux", "the custom role's env")
+	has(t, calls, "tab.create cwd="+x.Root+" env={OBOR_AGENT=,OBOR_LANE=,OBOR_OPENCODE_MODEL=,OBOR_PANE=,OBOR_ROLE=ux_buddy,OPENCODE_CONFIG=} focus=false label=ux", "the custom role's env")
 	has(t, calls, "name=pj-ux-buddy", "the custom role's agent")
 	if x.Exists("docs/BUGS.md") || x.Exists("docs/ux") {
 		t.Error("a custom role seeded a file")
@@ -960,7 +969,7 @@ func TestSetupMCPDoctor(t *testing.T) {
 	if strings.Contains(out, "without the OBOR_NO_SELF_HOST pin") {
 		t.Errorf("a pinned claude manifest warns about the pin:\n%s", out)
 	}
-	has(t, out, `env_vars=["OBOR_ROLE","OBOR_LANE","HERDR_PANE_ID","OBOR_STATE_HOME"]`, "codex: forwarded variables")
+	has(t, out, `env_vars=["OBOR_ROLE","OBOR_LANE","OBOR_PANE","OBOR_STATE_HOME"]`, "codex: forwarded variables")
 	has(t, out, "mcp opencode: registered per start (OPENCODE_CONFIG", "opencode: its generated config (T-809)")
 	has(t, out, "MCP OK (", "the handshake line of obor mcp --check")
 	has(t, last(out), "OK mcp", "result")

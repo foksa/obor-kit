@@ -25,7 +25,7 @@
 //	         obor setup): the pane labelled <agent>, herdr agent start (agent_name_taken: cleared and retried once), a
 //	         look for a startup dialog. The start ends when its agent runs in the pane, not at herdr's own bound for an
 //	         agent ready for input (T-404). herdr's agent name is neither required nor renamed back (T-952).
-//	Self     the caller's own pane (HERDR_PANE_ID): scheduled, see self.go.
+//	Self     the caller's own pane (project.Pane): scheduled, see self.go.
 //
 // Every operation registers one op record (kind restart) for its whole run.
 package launch
@@ -732,9 +732,9 @@ func (l *Launcher) roleWorktree(ctx context.Context, t *target) error {
 }
 
 // envLine is the shell line that sets the agent's env (and cwd) as obor setup does, built by the one builder
-// (agents.StartVars, T-812): OBOR_ROLE, OBOR_LANE and the kind's vars exported, every other var of the registry
-// unset (a stale OBOR_AGENT, T-786; another kind's OBOR_OPENCODE_MODEL, T-707), so nothing of an earlier start in the
-// pane's shell survives. An agent the config does not know keeps the shell's OBOR_ROLE (obor cannot tell its role).
+// (agents.StartVars, T-812): OBOR_ROLE, OBOR_LANE, OBOR_PANE (the pane's id, T-1037) and the kind's vars exported,
+// every other var of the registry unset (a stale OBOR_AGENT, T-786; another kind's OBOR_OPENCODE_MODEL, T-707), so
+// nothing of an earlier start in the pane's shell survives. An agent the config does not know keeps the shell's OBOR_ROLE (obor cannot tell its role).
 func envLine(t *target) string {
 	role := t.info.Role
 	if r, ok := roles.Lookup(role); ok {
@@ -744,7 +744,7 @@ func envLine(t *target) string {
 	if !t.known && role == "" {
 		keep = []string{agents.RoleVar}
 	}
-	set, unset := agents.StartVars(role, t.info.Lane, t.env, keep...)
+	set, unset := agents.StartVars(role, t.info.Lane, t.pane, t.env, keep...)
 	line := "unset " + strings.Join(unset, " ")
 	if len(set) > 0 {
 		words := make([]string, len(set))

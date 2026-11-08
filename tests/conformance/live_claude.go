@@ -64,7 +64,7 @@ func claudeLive(l *lab, turn bool) {
 		report("FAIL", "CC-L1", "symlink: "+err.Error(), "deep dive §6")
 		return
 	}
-	paneEnv := map[string]string{"OBOR_ROLE": "worker", "OBOR_LANE": "L-01", "OBOR_CONF_PANE_ONLY": "1"}
+	paneEnv := map[string]string{"OBOR_ROLE": "worker", "OBOR_LANE": "L-01", agents.PaneVar: pane, "OBOR_CONF_PANE_ONLY": "1"}
 	if st, err := l.shell(pane, "cd "+shq(link)+" && "+exports(paneEnv), 10*time.Second); err != nil || st != 0 {
 		report("FAIL", "CC-L1", fmt.Sprintf("the env line failed (status %d, %v)", st, err), at(launchGo, "func envLine"))
 		return
@@ -294,7 +294,7 @@ func ccL1(l *lab, pane string, mcp []record, where string) {
 	}
 	r := mcp[0]
 	var bad []string
-	for k, v := range map[string]string{"OBOR_ROLE": "worker", "OBOR_LANE": "L-01", "HERDR_PANE_ID": pane, agents.Pin: "1"} {
+	for k, v := range map[string]string{"OBOR_ROLE": "worker", "OBOR_LANE": "L-01", agents.PaneVar: pane, agents.Pin: "1"} {
 		if r.Env[k] != v {
 			bad = append(bad, fmt.Sprintf("%s=%q (want %s)", k, r.Env[k], v))
 		}
@@ -307,7 +307,7 @@ func ccL1(l *lab, pane string, mcp []record, where string) {
 		report("FAIL", "CC-L1", "the obor server: "+strings.Join(bad, ", "), where)
 		return
 	}
-	report("PASS", "CC-L1", fmt.Sprintf("strict start: the obor server sees OBOR_ROLE, OBOR_LANE, HERDR_PANE_ID, %s and runs in the lane (cwd %s)", agents.Pin, r.Cwd), where)
+	report("PASS", "CC-L1", fmt.Sprintf("strict start: the obor server sees OBOR_ROLE, OBOR_LANE, OBOR_PANE, %s and runs in the lane (cwd %s)", agents.Pin, r.Cwd), where)
 }
 
 // ccL3: --settings env reaches the hooks and the MCP server.
@@ -560,7 +560,7 @@ func ccL9(l *lab, pane string, turn bool) {
 	}
 	files := map[string]string{
 		filepath.Join(real, ".claude-plugin", "plugin.json"): string(manifest),
-		filepath.Join(l.lane, ".claude", "settings.json"):     `{"enabledMcpjsonServers":["conf_proj"]}`,
+		filepath.Join(l.lane, ".claude", "settings.json"):    `{"enabledMcpjsonServers":["conf_proj"]}`,
 		filepath.Join(l.lane, ".mcp.json"): `{"mcpServers":{"conf_proj":{"command":` +
 			strconv.Quote(filepath.Join(l.kit, "bin", "obor")) + `,"args":["mcp","project"]}}}`,
 	}

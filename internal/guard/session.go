@@ -105,8 +105,9 @@ func SessionStart(input []byte, env project.Env, out io.Writer) (Began, bool) {
 		project.WritePluginMarker(repo.Root, w.Role.Lane, k.Name(), version)
 	}
 	record(repo.Root, agent, project.InboxSlot(cfg, w.Role), ev.SessionID, env)
+	pane, _ := project.Pane(env) // none: a session outside a pane, recorded without one
 	began := Began{Root: cfg.Root, Session: store.Session{Agent: agent, Kind: kind, ID: ev.SessionID,
-		Transcript: ev.TranscriptPath, Pane: env.Get("HERDR_PANE_ID"), Lane: w.Role.Lane, Source: "SessionStart hook"}}
+		Transcript: ev.TranscriptPath, Pane: pane, Lane: w.Role.Lane, Source: "SessionStart hook"}}
 	if w.State != nil {
 		began.Task = w.State.Task
 	}

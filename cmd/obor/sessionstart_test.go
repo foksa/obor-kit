@@ -53,7 +53,7 @@ func TestSessionStartHookReports(t *testing.T) {
 	lane := p.LaneDir("L-01")
 	state := t.TempDir()
 	env := []string{"OBOR_ROLE=worker", "OBOR_AGENT=pj-l-01", "OBOR_LANE=L-01", "OBOR_STATE_HOME=" + state,
-		"HERDR_PANE_ID=w1:p3"}
+		"OBOR_PANE=w1:p3"}
 	// The first call goes to a serve that is not there: with a short deadline it ends at once (T-685).
 	down := append(append([]string(nil), env...), callDown)
 	event, _ := json.Marshal(map[string]any{"hook_event_name": "SessionStart", "cwd": lane, "session_id": "sid-77",

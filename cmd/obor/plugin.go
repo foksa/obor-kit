@@ -23,10 +23,12 @@ func pluginCmd(args []string) int {
 		errf(help.Usage("plugin"))
 		return 2
 	}
-	// A plugin command can carry HERDR_PANE_ID (axis's old kick had the event's pane), but the hook is no process of that
-	// pane: a restart there would pass for the agent's own (launch: scheduled, T-301). Dropped for this run and its
-	// children.
-	os.Unsetenv("HERDR_PANE_ID")
+	// A plugin command can carry a pane's variables (axis's old kick had the event's pane), but the hook is no process
+	// of that pane: a restart there would pass for the agent's own (launch: scheduled, T-301). Every variable
+	// project.Pane reads is dropped for this run and its children.
+	for _, v := range project.PaneVars {
+		os.Unsetenv(v)
+	}
 	// herdr runs its plugins as children of its server: make sure `herdr` (HERDR_BIN_PATH) is on PATH for obor too.
 	if bin := os.Getenv("HERDR_BIN_PATH"); bin != "" {
 		os.Setenv("PATH", filepath.Dir(bin)+string(os.PathListSeparator)+os.Getenv("PATH"))

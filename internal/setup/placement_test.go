@@ -23,11 +23,11 @@ func TestPlacementFollowsTheProjectsWorkspace(t *testing.T) {
 	}
 	x.h.Pane("w5:p9").Cwd, x.h.Pane("w5:p9").Workspace = "/elsewhere/other", "w5"
 	x.h.Pane("wA:p1").Cwd, x.h.Pane("wA:p1").Workspace = lane, "wA"
-	x.env = []string{"HERDR_PANE_ID=w5:p9", "HERDR_WORKSPACE_ID=w5"}
+	x.env = []string{"OBOR_PANE=w5:p9", "HERDR_WORKSPACE_ID=w5"}
 
 	out := x.ok(t, "pane", "--start", "L-01")
 	calls := strings.Join(x.reqs(), "\n")
-	has(t, calls, "pane.split cwd="+lane+" direction=right env={GOFLAGS=-p=2 -trimpath,GOMAXPROCS=2,OBOR_AGENT=,OBOR_LANE=L-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker,OPENCODE_CONFIG=} target_pane_id=wA:p1",
+	has(t, calls, "pane.split cwd="+lane+" direction=right env={GOFLAGS=-p=2 -trimpath,GOMAXPROCS=2,OBOR_AGENT=,OBOR_LANE=L-01,OBOR_OPENCODE_MODEL=,OBOR_PANE=,OBOR_ROLE=worker,OPENCODE_CONFIG=} target_pane_id=wA:p1",
 		"the project's pane")
 	hasNot(t, calls, "target_pane_id=w5:p9", "never the caller's, another project's")
 	hasNot(t, out, "warning:", "a project workspace was found")
@@ -55,7 +55,7 @@ func TestPlacementTable(t *testing.T) {
 		x.h.Panes = nil
 		x.h.Tab("w5:t9", 200, 50, "w5:p9")
 		x.h.Pane("w5:p9").Cwd, x.h.Pane("w5:p9").Workspace = "/elsewhere/other", "w5"
-		x.env = []string{"HERDR_PANE_ID=w5:p9", "HERDR_WORKSPACE_ID=w5"}
+		x.env = []string{"OBOR_PANE=w5:p9", "HERDR_WORKSPACE_ID=w5"}
 		if len(x.h.Panes) != 1 || len(x.h.Workspaces) != 0 {
 			t.Fatalf("precondition: %d panes, %d workspaces; want 1, 0", len(x.h.Panes), len(x.h.Workspaces))
 		}
@@ -91,7 +91,7 @@ func TestPlacementTable(t *testing.T) {
 		x.h.Tab("wA:t1", 200, 50, "wA:p1")
 		x.h.Pane("w5:p9").Cwd, x.h.Pane("w5:p9").Workspace = "/elsewhere/other", "w5"
 		x.h.Pane("wA:p1").Cwd, x.h.Pane("wA:p1").Workspace = x.Root, "wA"
-		x.env = []string{"HERDR_PANE_ID=w5:p9", "HERDR_WORKSPACE_ID=w5"}
+		x.env = []string{"OBOR_PANE=w5:p9", "HERDR_WORKSPACE_ID=w5"}
 
 		out := x.ok(t, "pane", "--start", "L-01", "--new-tab", "workers")
 		calls := strings.Join(x.reqs(), "\n")
@@ -131,7 +131,7 @@ func TestPlacementTable(t *testing.T) {
 			x.h.Pane(id).Workspace, x.h.Pane(id).Cwd = "w5", "/elsewhere/other"
 		}
 		x.h.Pane("w5:p2").Cwd = x.Root
-		x.env = []string{"HERDR_PANE_ID=w5:p2", "HERDR_WORKSPACE_ID=w5"}
+		x.env = []string{"OBOR_PANE=w5:p2", "HERDR_WORKSPACE_ID=w5"}
 		if len(x.h.Panes) != 3 || len(x.h.Workspaces) != 0 {
 			t.Fatalf("precondition: %d panes, %d workspaces; want 3, 0", len(x.h.Panes), len(x.h.Workspaces))
 		}
@@ -154,7 +154,7 @@ func TestPlacementTable(t *testing.T) {
 		x.h.Pane("wA:p1").Cwd, x.h.Pane("wA:p1").Workspace = x.Root, "wA"
 		x.h.Pane("wA:q1").Workspace = "wA"
 		x.h.Pane("w5:p9").Cwd, x.h.Pane("w5:p9").Workspace = "/elsewhere/other", "w5"
-		x.env = []string{"HERDR_PANE_ID=w5:p9", "HERDR_WORKSPACE_ID=w5"}
+		x.env = []string{"OBOR_PANE=w5:p9", "HERDR_WORKSPACE_ID=w5"}
 		if x.h.Pane("wA:q1").Cwd != "" {
 			t.Fatal("precondition: wA:q1 has an unknown cwd")
 		}
@@ -173,7 +173,7 @@ func TestPlacementTable(t *testing.T) {
 		x.h.Tab("wA:t2", 200, 50, "wA:q1") // the caller's
 		x.h.Pane("wA:p1").Cwd, x.h.Pane("wA:p1").Workspace = x.Root, "wA"
 		x.h.Pane("wA:q1").Workspace = "wA"
-		x.env = []string{"HERDR_PANE_ID=wA:q1", "HERDR_WORKSPACE_ID=wA"}
+		x.env = []string{"OBOR_PANE=wA:q1", "HERDR_WORKSPACE_ID=wA"}
 
 		x.ok(t, "pane", "--start", "L-01")
 		calls := strings.Join(x.reqs(), "\n")
@@ -198,7 +198,7 @@ func TestPlacementTable(t *testing.T) {
 		if n := len(x.h.Panes); n != 4 {
 			t.Fatalf("precondition: %d panes, want the 4 scripted", n)
 		}
-		x.env = []string{"HERDR_PANE_ID=w5:p9", "HERDR_WORKSPACE_ID=w5"}
+		x.env = []string{"OBOR_PANE=w5:p9", "HERDR_WORKSPACE_ID=w5"}
 
 		x.ok(t, "pane", "--start", "L-01")
 		calls := strings.Join(x.reqs(), "\n")
@@ -250,7 +250,7 @@ func TestPlacementSkipsAnotherProjectsLeadTab(t *testing.T) {
 	x.h.Tab("wA:t9", 80, 50, "wA:p9")  // the caller's: another project's lead
 	x.h.Pane("wA:p1").Cwd, x.h.Pane("wA:p1").Workspace = lane, "wA"
 	x.h.Pane("wA:p9").Cwd, x.h.Pane("wA:p9").Workspace = "/elsewhere/other", "wA"
-	x.env = []string{"HERDR_PANE_ID=wA:p9", "HERDR_WORKSPACE_ID=wA"}
+	x.env = []string{"OBOR_PANE=wA:p9", "HERDR_WORKSPACE_ID=wA"}
 
 	x.ok(t, "pane", "--start", "L-01")
 	calls := strings.Join(x.reqs(), "\n")

@@ -23,17 +23,17 @@ func TestBackgroundBashCallRecorded(t *testing.T) {
 	if calls := project.BackgroundCalls(f.P); len(calls) != 0 {
 		t.Fatalf("precondition: no calls recorded yet, got %+v", calls)
 	}
-	if code, reason := runAs(f.Project, "worker w1", bgInput(f.L, "sleep 600", "wait", false), "HERDR_PANE_ID=p-9"); code != 0 {
+	if code, reason := runAs(f.Project, "worker w1", bgInput(f.L, "sleep 600", "wait", false), "OBOR_PANE=p-9"); code != 0 {
 		t.Fatalf("foreground call denied: %s", reason)
 	}
-	if code, _ := runAs(f.Project, "worker w1", bgInput(f.L, "pkill -f x", "kill", true), "HERDR_PANE_ID=p-9"); code != 2 {
+	if code, _ := runAs(f.Project, "worker w1", bgInput(f.L, "pkill -f x", "kill", true), "OBOR_PANE=p-9"); code != 2 {
 		t.Fatalf("precondition: pkill in the background is denied, got %d", code)
 	}
 	if calls := project.BackgroundCalls(f.P); len(calls) != 0 {
 		t.Fatalf("a foreground or denied call was recorded: %+v", calls)
 	}
 	if code, reason := runAs(f.Project, "worker w1", bgInput(f.L, "python convert.py --all", "convert maps", true),
-		"HERDR_PANE_ID=p-9"); code != 0 {
+		"OBOR_PANE=p-9"); code != 0 {
 		t.Fatalf("background call denied: %s", reason)
 	}
 	calls := project.BackgroundCalls(f.P)

@@ -271,14 +271,15 @@ const Pin = "OBOR_NO_SELF_HOST"
 
 // EnvVars are the variables `obor mcp` reads from the agent's session (internal/mcp); a CLI that starts MCP servers
 // with a stripped environment forwards them.
-var EnvVars = []string{"OBOR_ROLE", "OBOR_LANE", "HERDR_PANE_ID", "OBOR_STATE_HOME"}
+var EnvVars = []string{RoleVar, LaneVar, PaneVar, "OBOR_STATE_HOME"}
 
-// RoleVar and LaneVar are an agent's identity in its env (the role's env value, its lane); RetiredVars are variables an
-// older obor exported that no start sets any more (T-786: OBOR_AGENT, a name is derived, project.Self): every start
-// unsets them.
+// RoleVar, LaneVar and PaneVar are an agent's identity in its env (the role's env value, its lane, its terminal pane:
+// T-1037, project.Pane resolves it); RetiredVars are variables an older obor exported that no start sets any more
+// (T-786: OBOR_AGENT, a name is derived, project.Self): every start unsets them.
 const (
 	RoleVar = "OBOR_ROLE"
 	LaneVar = "OBOR_LANE"
+	PaneVar = "OBOR_PANE"
 )
 
 var RetiredVars = []string{"OBOR_AGENT"}
@@ -287,7 +288,7 @@ var RetiredVars = []string{"OBOR_AGENT"}
 // each kind's own (Kind.Vars), sorted. A start unsets every one it does not set, so no value of an earlier start in the
 // pane's shell survives into it, whatever the kinds.
 func Vars() []string {
-	out := append([]string{RoleVar, LaneVar}, RetiredVars...)
+	out := append([]string{RoleVar, LaneVar, PaneVar}, RetiredVars...)
 	for _, n := range Names() {
 		if k := lookup(n); k != nil {
 			out = append(out, k.Vars()...)
@@ -300,16 +301,20 @@ func Vars() []string {
 // EnvVar is one variable a start sets.
 type EnvVar struct{ Name, Value string }
 
-// StartVars is the one builder of a start's env (T-812): set, the role's env value ("": none), the lane ("": none) and
-// the kind's StartEnv vars (a "" value: none), in that order (a kind's sorted); unset, every registry var (Vars) the
+// StartVars is the one builder of a start's env (T-812): set, the role's env value ("": none), the lane ("": none), the
+// pane the agent starts in ("": not known yet, a pane being made; T-1037) and the kind's StartEnv vars (a "" value:
+// none), in that order (a kind's sorted); unset, every registry var (Vars) the
 // start does not set and keep does not name, sorted. keep is a var the caller leaves as the pane has it (an unknown
 // agent's OBOR_ROLE: obor cannot tell it).
-func StartVars(role, lane string, kind map[string]string, keep ...string) (set []EnvVar, unset []string) {
+func StartVars(role, lane, pane string, kind map[string]string, keep ...string) (set []EnvVar, unset []string) {
 	if role != "" {
 		set = append(set, EnvVar{RoleVar, role})
 	}
 	if lane != "" {
 		set = append(set, EnvVar{LaneVar, lane})
+	}
+	if pane != "" {
+		set = append(set, EnvVar{PaneVar, pane})
 	}
 	keys := make([]string, 0, len(kind))
 	for k := range kind {
@@ -317,7 +322,7 @@ func StartVars(role, lane string, kind map[string]string, keep ...string) (set [
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		if v := kind[k]; v != "" && k != RoleVar && k != LaneVar {
+		if v := kind[k]; v != "" && k != RoleVar && k != LaneVar && k != PaneVar {
 			set = append(set, EnvVar{k, v})
 		}
 	}

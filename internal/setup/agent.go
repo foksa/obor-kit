@@ -238,11 +238,12 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	}
 	// The one builder of a start's env (agents.StartVars, T-812), as the env line of a reused pane: herdr's pane env
 	// cannot unset, so every registry var the start does not set goes to herdr empty, none to obor (the pane may inherit
-	// setup's own env: an OpenCode agent running setup, T-703; a stale OBOR_AGENT, T-786).
+	// setup's own env: an OpenCode agent running setup, T-703; a stale OBOR_AGENT, T-786; the caller's OBOR_PANE: the
+	// new pane's id is herdr's answer, exported by the env line before a start, T-1037).
 	if a.lane != "" { // a lane's CPU budget (T-963)
 		vars = config.WithLaneEnv(vars, s.cfg, s.Env.Get("GOFLAGS"))
 	}
-	set, unset := agents.StartVars(a.role.EnvValue, a.lane, vars)
+	set, unset := agents.StartVars(a.role.EnvValue, a.lane, "", vars)
 	var env []string
 	for _, v := range set {
 		env = append(env, v.Name+"="+v.Value)
@@ -291,8 +292,11 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 		}
 	}
 	l := s.Starter(s.cfg)
+	setEnv := func() error {
+		return l.SetEnv(ctx, pane, port.AgentEnv{Agent: a.name, Role: a.role.Name, Lane: a.lane, Cwd: a.cwd, Vars: vars})
+	}
 	if w.pane != "" { // a reused pane: its shell may hold the env of the agent that ran there before
-		if err := l.SetEnv(ctx, pane, port.AgentEnv{Agent: a.name, Role: a.role.Name, Lane: a.lane, Cwd: a.cwd, Vars: vars}); err != nil {
+		if err := setEnv(); err != nil {
 			return err
 		}
 	}
@@ -319,6 +323,14 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	// A pane a new tab or a split made is a shell that may still be coming up: herdr answers agent_pane_busy until it
 	// is one (T-628, live 2026-10-31). It is used again only once herdr reports a shell there, within the bound.
 	deadline := time.Now().Add(s.shellWait())
+	if fresh { // its id is known now: the env line exports OBOR_PANE before the start (T-1037), once its shell is up
+		if !s.shellUp(ctx, pane, deadline) {
+			return s.notShell(pane, a.name, lt.Kind)
+		}
+		if err := setEnv(); err != nil {
+			return err
+		}
+	}
 	err = run()
 	for fresh && startCode(err) == "agent_pane_busy" && time.Now().Before(deadline) {
 		if !s.waitShell(ctx, pane, deadline) {
@@ -329,8 +341,7 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	var se *port.StartError
 	switch {
 	case fresh && startCode(err) == "agent_pane_busy":
-		return project.Failf("pane %s is not an available shell after %s: start the agent there by hand "+
-			"(herdr agent start %s --kind %s --pane %s)", pane, s.shellWait(), a.name, lt.Kind, pane)
+		return s.notShell(pane, a.name, lt.Kind)
 	case errors.As(err, &se) && se.NotReady:
 		return project.Failf("agent not ready: %s", se.Hint)
 	case errors.As(err, &se):
@@ -350,6 +361,20 @@ func startCode(err error) string {
 		return port.ErrorCode(se.Err)
 	}
 	return port.ErrorCode(err)
+}
+
+// notShell is the refusal for a new pane whose shell did not come up within the bound.
+func (s *Setup) notShell(pane, agent, kind string) error {
+	return project.Failf("pane %s is not an available shell after %s: start the agent there by hand "+
+		"(herdr agent start %s --kind %s --pane %s)", pane, s.shellWait(), agent, kind, pane)
+}
+
+// shellUp: herdr reports pane an available shell now, else within until (waitShell).
+func (s *Setup) shellUp(ctx context.Context, pane string, until time.Time) bool {
+	if pi, err := s.H.ProcessInfo(ctx, pane); err == nil && pi.AtShell() {
+		return true
+	}
+	return s.waitShell(ctx, pane, until)
 }
 
 // waitShell waits until herdr reports pane an available shell (its shell in the foreground), no longer than until;
@@ -479,7 +504,7 @@ func (s *Setup) defaultTab(panes []port.Pane) string {
 	if proj == "" {
 		return ""
 	}
-	if self := s.Env.Get("HERDR_PANE_ID"); self != "" {
+	if self, err := project.Pane(s.Env); err == nil {
 		for _, p := range panes {
 			if p.ID == self && p.Workspace == proj && s.projectTab(panes, p.Tab) {
 				return p.Tab

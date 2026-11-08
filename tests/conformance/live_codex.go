@@ -64,7 +64,8 @@ func codexLive(l *lab, turn bool) {
 		report("FAIL", "CX-L1", "no workspace in the throwaway session: "+err.Error(), "deep dive §6")
 		return
 	}
-	paneEnv := map[string]string{"CODEX_HOME": codexHome, "OBOR_ROLE": "worker", "OBOR_LANE": "L-01", "OBOR_CONF_PANE_ONLY": "1"}
+	paneEnv := map[string]string{"CODEX_HOME": codexHome, "OBOR_ROLE": "worker", "OBOR_LANE": "L-01", agents.PaneVar: pane,
+		"OBOR_CONF_PANE_ONLY": "1"}
 	if st, err := l.shell(pane, "cd "+shq(l.lane)+" && "+exports(paneEnv), 10*time.Second); err != nil || st != 0 {
 		report("FAIL", "CX-L1", fmt.Sprintf("the env line failed (status %d, %v)", st, err), at(launchGo, "func envLine"))
 		return
@@ -298,12 +299,12 @@ func (l *lab) codexStart(k agents.Kind, pane, mode string, args []string) (recor
 // process in the pane.
 func cxL1(l *lab, pane, mode string, r record, where string) {
 	var bad []string
-	for k, v := range map[string]string{"OBOR_ROLE": "worker", "OBOR_LANE": "L-01", "HERDR_PANE_ID": pane, agents.Pin: "1"} {
+	for k, v := range map[string]string{"OBOR_ROLE": "worker", "OBOR_LANE": "L-01", agents.PaneVar: pane, agents.Pin: "1"} {
 		if r.Env[k] != v {
 			bad = append(bad, fmt.Sprintf("%s=%q (want %s)", k, r.Env[k], v))
 		}
 	}
-	for _, k := range []string{"OBOR_CONF_PANE_ONLY", "HERDR_SOCKET_PATH"} {
+	for _, k := range []string{"OBOR_CONF_PANE_ONLY", "HERDR_SOCKET_PATH", "HERDR_PANE_ID"} {
 		if _, ok := r.Env[k]; ok {
 			bad = append(bad, k+" leaked (not forwarded)")
 		}
@@ -337,7 +338,7 @@ func cxL1(l *lab, pane, mode string, r record, where string) {
 		report("FAIL", "CX-L1", fact+": "+strings.Join(bad, "; "), where)
 		return
 	}
-	report("PASS", "CX-L1", fact+"; OBOR_ROLE, OBOR_LANE, HERDR_PANE_ID forwarded, pane-only vars not, cwd = lane", where)
+	report("PASS", "CX-L1", fact+"; OBOR_ROLE, OBOR_LANE, OBOR_PANE forwarded, pane-only vars (HERDR_PANE_ID too) not, cwd = lane", where)
 }
 
 // cxTurn (TURN=1): one prompt typed by herdr; a rollout appears and the codex process holds it open (reportRollout).

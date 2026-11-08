@@ -165,7 +165,7 @@ func TestLeadOwnPaneStartsOnceItExits(t *testing.T) {
 		x := newLeadFx(t)
 		x.f.Shell("w1:p1", "pj-lead", x.p.Root).Session = "old-sid"
 		x.p.Session("pj-lead", "old-sid") // T-813: the resume's source is the record, not herdr's session
-		x.env = []string{"HERDR_PANE_ID=w1:p1"}
+		x.env = []string{"OBOR_PANE=w1:p1"}
 		x.srv.Reply("pane.process_info", map[string]any{"type": "pane_process_info", "process_info": map[string]any{
 			"pane_id": "w1:p1", "shell_pid": 1, "foreground_process_group_id": 77,
 			"foreground_processes": []any{map[string]any{"pid": 77, "argv0": "obor"}}}}) // obor lead itself has the foreground
@@ -196,7 +196,8 @@ func TestLeadNoPaneSetsUp(t *testing.T) {
 	}
 	c := x.calls()
 	if !strings.Contains(c, `workspace.create {"cwd":"`+x.p.Root+`","focus":false,"label":"proj"}`) ||
-		!strings.Contains(c, `tab.create {"cwd":"`+x.p.Root+`","env":{"OBOR_AGENT":"","OBOR_LANE":"","OBOR_OPENCODE_MODEL":"","OBOR_ROLE":"lead","OPENCODE_CONFIG":""},"focus":false,"label":"lead","workspace_id":"wn1"}`) ||
+		!strings.Contains(c, `tab.create {"cwd":"`+x.p.Root+`","env":{"OBOR_AGENT":"","OBOR_LANE":"","OBOR_OPENCODE_MODEL":"","OBOR_PANE":"","OBOR_ROLE":"lead","OPENCODE_CONFIG":""},"focus":false,"label":"lead","workspace_id":"wn1"}`) ||
+		!strings.Contains(c, "export OBOR_ROLE=lead OBOR_PANE=wn1:n2 ") || // T-1037: the new pane's id, before the start
 		!strings.Contains(noSessionID(c), startCall("pj-lead", "wn1:n2", "--permission-mode", "auto", "--model", "opus", "--session-id", "NEW", "/obor:lead")) || strings.Contains(c, "--resume") {
 		t.Errorf("obor setup role lead --new-tab lead, fresh:\n%s", c)
 	}

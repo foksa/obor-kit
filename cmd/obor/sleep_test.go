@@ -266,7 +266,7 @@ func TestStopForceReadsAnOlderServesTaskAsOpen(t *testing.T) {
 	p, s, out, stops, f := sleepFx(t)
 	fk := p.Herdr()
 	fk.Agent("w1:p1", "pj-l-01", "working", p.Root).Label = "pj-l-01"
-	s.Env = p.Env("PATH="+os.Getenv("PATH"), "HERDR_PANE_ID=w1:p1")
+	s.Env = p.Env("PATH="+os.Getenv("PATH"), "OBOR_PANE=w1:p1")
 	s.Force = true
 	f.tasks = statusTasks(t, `{"project":{"tasks":[{"task":"T-02","lane":"L-01","state":"working"}]}}`)
 	if rc := s.stop(context.Background()); rc != 1 ||
@@ -319,7 +319,7 @@ func TestStopRefusesTheCallersLane(t *testing.T) {
 	fk := p.Herdr()
 	s.H = &herdr.Socket{Path: herdrtest.Serve(t, fk).Path}
 	fk.Agent("w1:p1", "pj-l-01", "working", p.Root).Label = "pj-l-01"
-	s.Env = p.Env("PATH="+os.Getenv("PATH"), "HERDR_PANE_ID=w1:p1")
+	s.Env = p.Env("PATH="+os.Getenv("PATH"), "OBOR_PANE=w1:p1")
 	s.Force = true
 	f.tasks = []wire.TaskStatus{{Task: "T-03", State: "waiting"}, {Task: "T-02", Lane: "L-01", State: "working"}}
 	if r := caller(s.Env, s.Cwd, s.Cfg); r.Role != "" {
@@ -533,11 +533,11 @@ func TestStopStepsAndStart(t *testing.T) {
 	fk.Agent("w1:p1", "pj-l-01", "idle", o1).Label = "pj-l-01"
 	fk.Agent("w1:p2", "pj-int", "working", p.Root).Label = "pj-int"
 	fk.Agent("w1:p3", "pj-lead", "idle", p.Root).Label = "pj-lead"               // the caller's agent (OBOR_AGENT)
-	fk.Agent("w1:p9", "pj-rev", "idle", p.Root).Label = "pj-rev"                 // the caller's own pane (HERDR_PANE_ID)
+	fk.Agent("w1:p9", "pj-rev", "idle", p.Root).Label = "pj-rev"                 // the caller's own pane (OBOR_PANE)
 	fk.Shell("w1:p4", "pj-advisor", p.Root)                                      // at its shell
 	fk.Agent("w1:p5", "someone", "idle", p.Root).Label = "someone"               // no agent of this project
 	fk.Agent("w1:p6", "pj-advisor2", "idle", t.TempDir()).Label = "pj-deep-dive" // another project's pane
-	s.Env = p.Env("PATH="+os.Getenv("PATH"), "HERDR_PANE_ID=w1:p9", "OBOR_AGENT=pj-lead", "OBOR_ROLE=lead")
+	s.Env = p.Env("PATH="+os.Getenv("PATH"), "OBOR_PANE=w1:p9", "OBOR_AGENT=pj-lead", "OBOR_ROLE=lead")
 	s.Force = true
 	f.tasks = []wire.TaskStatus{{Task: "T-02", Lane: "L-01", State: "gating"},
 		{Task: "T-01", Lane: "L-01", State: "merged", Ended: true}, {Task: "T-03", State: "waiting"}}
