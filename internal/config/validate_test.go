@@ -107,18 +107,6 @@ func TestValidate(t *testing.T) {
 		// (TestShapeErrorsFailTheLoad), the rest warn (TestRemovedKeysWithinTwoVersions).
 		{name: "removed keys warn", edits: []edit{set("paths.research", "docs/research"), set("paths.questions", "QUESTIONS.md")},
 			want: []string{"WARN paths.research: no longer used, remove it", "WARN paths.questions: no longer used, remove it"}},
-		// T-864: keys no project sets, and the two empty sections; each WARNs for two minors, never fails.
-		{name: "keys no project sets are removed", edits: []edit{
-			set("integrator_handoff_tokens", 0), set("stop_idle_workers", false),
-			set("merge.timeout_grep", "timed out"), set("merge.max_load", 10), set("merge.load_wait", 5),
-			set("merge.window_wait", 60),
-			set("slots.merge_block_max", 60), set("mcp", map[string]any{}), set("cache", map[string]any{})},
-			want: []string{"WARN integrator_handoff_tokens: no longer used, remove it",
-				"WARN stop_idle_workers: no longer used, remove it",
-				"WARN merge.timeout_grep: no longer used, remove it", "WARN merge.max_load: no longer used, remove it",
-				"WARN merge.load_wait: no longer used, remove it", "WARN merge.window_wait: no longer used, remove it",
-				"WARN slots.merge_block_max: no longer used, remove it", "WARN mcp: no longer used, remove it",
-				"WARN cache: no longer used, remove it"}},
 		// T-830: paths.status, paths.queue and paths.tasks are map entries, not keys with a field: past their window they
 		// load with no WARN (paths is free-form). paths.tasks is still read: internal/checks/legacySpecDir names the
 		// pre-T-521 spec dir for legacy merge evidence, so only status and queue are dead (T-842).
@@ -328,8 +316,9 @@ func TestShapeErrorsFailTheLoad(t *testing.T) {
 		{set("agents", map[string]any{"triage": map[string]any{"type": "opus"}}), `unknown field "agents"`},
 		{set("lane_types", map[string]any{"opus": map[string]any{"kind": "claude"}}), `unknown field "lane_types"`},
 		// T-830: a removed key past its two-minor window is an unknown key, as any key this binary does not know.
-		{set("mcp.jobs", false), "jobs"},
-		{set("cache.warn_tokens", 50000), "warn_tokens"},
+		// T-1062: the two empty v0.28 sections are past theirs too.
+		{set("mcp", map[string]any{}), `unknown field "mcp"`},
+		{set("cache", map[string]any{}), `unknown field "cache"`},
 		{set("heartbeat", map[string]any{"interval": 900}), "heartbeat"},
 		{set("stop_hook", map[string]any{"max_nudges": 2}), "stop_hook"},
 		{set("notify", map[string]any{"backends": []any{"herdr"}}), "notify"},
@@ -344,6 +333,8 @@ func TestShapeErrorsFailTheLoad(t *testing.T) {
 		{set("slots.cpus", 2.5), "cpus"},
 		{set("slots.lane_cpus", "3"), "lane_cpus"},
 		{set("checks.loadlimit", 20), `unknown field "loadlimit"`},
+		// T-1062: the nine v0.28 keys are past their two-minor window: each is an unknown key now.
+		{set("merge.max_load", 10), `unknown field "max_load"`},
 	} {
 		p.Config(c.edit)
 		if _, err := config.Load(p.Root); err == nil || !strings.Contains(err.Error(), c.want) {
@@ -400,16 +391,6 @@ func TestRemovedKeysWithinTwoVersions(t *testing.T) {
 	}{
 		{"paths.research", set("paths.research", `"docs/research"`), 0, 0},
 		{"paths.questions", set("paths.questions", `"QUESTIONS.md"`), 0, 0},
-		// T-864: v0.28 dropped the keys no project sets, and the two empty sections.
-		{"integrator_handoff_tokens", set("integrator_handoff_tokens", 0), 28, 30},
-		{"stop_idle_workers", set("stop_idle_workers", false), 28, 30},
-		{"merge.timeout_grep", set("merge.timeout_grep", "timed out"), 28, 30},
-		{"merge.max_load", set("merge.max_load", 10), 28, 30},
-		{"merge.load_wait", set("merge.load_wait", 5), 28, 30},
-		{"merge.window_wait", set("merge.window_wait", 60), 28, 30},
-		{"slots.merge_block_max", set("slots.merge_block_max", 60), 28, 30},
-		{"mcp", set("mcp", map[string]any{}), 28, 30},
-		{"cache", set("cache", map[string]any{}), 28, 30},
 		// T-962: v0.29 dropped checks.load_limit with the check slots' machine-load wait.
 		{"checks.load_limit", set("checks.load_limit", 12.5), 29, 31},
 		// T-966: v0.29 dropped merge.receipt_max_age with the test receipts.
