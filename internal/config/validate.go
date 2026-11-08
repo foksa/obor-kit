@@ -145,10 +145,14 @@ func (v *validator) nightlyCommands() {
 	}
 }
 
-// classes: merge.classes names are unique (RV-03 #3).
+// classes: merge.classes names are unique (RV-03 #3) and with_full is refused on a full class, which already runs
+// check (T-1007).
 func (v *validator) classes() {
 	seen := map[string]int{}
 	for i, class := range v.d.Merge.Classes {
+		if class.Full && class.WithFull {
+			v.fail(".merge.classes"+idx(i)+".with_full", "meaningless with full: true: a full class already runs check")
+		}
 		if j, dup := seen[class.Name]; dup {
 			v.fail(".merge.classes"+idx(i)+".name", "duplicate of .merge.classes"+idx(j)+".name ("+Compact(class.Name)+")")
 			continue

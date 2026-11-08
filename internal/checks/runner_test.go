@@ -62,6 +62,51 @@ func TestRunChecksMixedClass(t *testing.T) {
 	}
 }
 
+// T-1007 (RV-139 #1): a full lane (here an unmatched go.mod beside a class's file) runs check, then each matched
+// class marked with_full's checks, config order; a class without with_full adds nothing.
+func TestRunChecksFullWithFull(t *testing.T) {
+	x := newFx(t,
+		testkit.Set("merge.guard", "guard"),
+		testkit.Set("merge.classes", `[
+			{"name": "go", "paths": ["internal/**"], "checks": ["check_affected"]},
+			{"name": "release", "paths": ["Makefile"], "checks": ["check_release"], "with_full": true},
+			{"name": "web", "paths": ["web/src/**"], "checks": ["check_web"], "with_full": true}]`),
+		cmd("check", "echo 1 pass"), cmd("check_affected", "echo 1 pass"),
+		cmd("check_release", "echo 1 pass"), cmd("check_web", "echo 1 pass"))
+	o := x.opts()
+	for _, c := range []struct {
+		name, files, mode, checks string
+		want                      []string
+	}{
+		{"release and an unmatched path", "Makefile go.mod", "full:unmatched go.mod", "1 pass, check_release 1 pass",
+			[]string{"check", "", "check_release", ""}},
+		{"web and an unmatched path", "web/src/x.ts go.mod", "full:unmatched go.mod", "1 pass, check_web 1 pass",
+			[]string{"check", "", "check_web", ""}},
+		{"go and an unmatched path (go has no with_full)", "internal/app/x.go go.mod", "full:unmatched go.mod", "1 pass",
+			[]string{"check", ""}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r, ran := commandCalls(t, o, x.Root)
+			r.prio = "worker"
+			defer r.releaseSlot()
+			r.class = Classify(o.Cfg.Data.Merge, strings.Fields(c.files), false)
+			r.mode = r.class.Mode()
+			if r.class.Partial || r.mode != c.mode {
+				t.Fatalf("precondition: class %s, want %s", r.mode, c.mode)
+			}
+			if h := r.runChecks(); h != nil {
+				t.Fatalf("runChecks: %+v\noutput:\n%s", h, x.out.String())
+			}
+			if !slices.Equal(*ran, c.want) {
+				t.Errorf("ran %q, want %q", *ran, c.want)
+			}
+			if r.check != c.checks {
+				t.Errorf("checks %q, want %q", r.check, c.checks)
+			}
+		})
+	}
+}
+
 // T-673 (RV-75 #4): the runner tells serve's gate each command as it starts and "" as it ends, so obor status shows
 // the gate with no command between two — a finished command is never shown as running.
 func TestRunnerCommandEnds(t *testing.T) {

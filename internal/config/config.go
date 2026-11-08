@@ -282,6 +282,9 @@ type MergeClass struct {
 	Paths  []string `json:"paths"`
 	Checks []string `json:"checks,omitzero"`
 	Full   bool     `json:"full,omitempty"`
+	// WithFull runs this class's checks after check on a full merge too (T-1007): a lane with a file only this class
+	// covers, beside an unmatched one, still runs it. Meaningless with Full: obor config validate refuses the pair.
+	WithFull bool `json:"with_full,omitempty"`
 }
 
 type Slots struct {

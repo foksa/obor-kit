@@ -11,3 +11,7 @@
   obor binary says the restart goes "at once when idle …, else once it is, at the latest after 10 minutes". Proposed:
   "… at once when idle (no effect running, no nightly, no verdict call admitted), else at the first pass after the work
   ends, however long that takes; a pending restart holds nothing back (T-972)." No answer needed, just a doc line.
+- T-1007 (a full lane also runs the checks of release and web files): lead-owned `docs/design.md` §Change-based merge
+  checks lists `merge.classes`' keys as name/paths/checks/full. Proposed, added after the `full` key: "A class may set
+  `with_full: true` (T-1007): a full merge whose files matched it also runs its `checks` once after `check`, in config
+  order; `with_full` on a `full` class is an error (`obor config validate`)." No answer needed, just a doc line.
