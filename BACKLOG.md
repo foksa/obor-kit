@@ -234,6 +234,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   lane branch first.
 - (T-334) Two `sendback`s (the lead's lane form and the integrator's MCP verb): rename or drop the lane form.
 ## Concerns
+- (lead 11-08) **Serve fires waiting work on the old binary before its self-restart after a merge:** `obor review --after T-1059,T-1060` fired at 19:35:16Z on 77df169's serve and hit the very bug T-1059 fixed; serve restarted on the new binary ~30 s later. A fix to serve's own code is live only after that restart, so an --after request or dispatch that tests the fix should fire after it (restart first, then fire). Small; decide when it bites again.
 - (lead 11-07) `internal/affected/affected.go:~60`: the directory walk never stops at `/` for an absolute path (infinite loop; only reachable with a malformed changed-files list).
 - (lead 11-08) T-1056 merged with check-budget wall breaches at load 5-6 (config 4.2>3.9, view 3.7>3.6, web 5.5>5.5, setup 27.8>27.4, tests/budget 1.3>1.0; packages it does not touch): check the 11-09 02:00 nightly's budget; still over on a quiet run → a fix task, not a raise.
 - (lead 11-07) **A task parked on a needs-you keeps its lane**: T-982 and T-983 (gate timeouts, not their diffs) held L-04 and L-01 while the fixes for the timeouts (T-989, T-990) waited for a lane. Since T-961 a merge-loop task holds its lane for its lane test; a parked one could release it (its tree is in its branch and candidate pin) and take a lane again when resumed. Decide with the next merge-flow change.
