@@ -232,7 +232,7 @@ func Build(in Input) Project {
 	}
 	v.FullCheck = readFullCheck(p.Root, "last-full-check")
 	v.Promotion = readFullCheck(p.Root, checks.LastPromotionFile)
-	v.Queue = queue(&v, ps, p.Cfg.Data.Merge.NightlyAt, specs, dispatchedTasks(in.DB), in.Now)
+	v.Queue = queue(&v, ps, p.Cfg.Data.Merge.NightlyAt, specs, dispatchedTasks(in.DB), droppedSpecs(in.DB), in.Now)
 	v.Events = events(in.DB, in.Events, v.Serve)
 	return v
 }
