@@ -2,10 +2,13 @@ package main
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
+	"obor/internal/config"
 	"obor/internal/testkit"
 )
 
@@ -154,5 +157,46 @@ func TestWhoamiCanPush(t *testing.T) {
 		if rc != c.rc || stdout != "" || stderr != "" {
 			t.Errorf("%s: exit %d (want %d), stdout %q stderr %q", c.name, rc, c.rc, stdout, stderr)
 		}
+	}
+}
+
+// T-1054 (RV-150 #3): obor config validate asks OpenCode for its project warnings as it just described it, not the
+// registry's uncached kind: with no cache, an opencode.json overriding mcp.servers.obor is a WARN.
+func TestConfigValidateWarnsOfTheProjectFileWithoutACache(t *testing.T) {
+	t.Parallel()
+	p := testkit.NewPlain(t)
+	p.Config()
+	p.Write("opencode.json", `{"mcp":{"servers":{"obor":{"type":"local","command":["obor","mcp"]}}}}`+"\n")
+	if _, err := os.Stat(filepath.Join(p.Root, ".obor", "state", "kinds", "opencode.json")); !os.IsNotExist(err) {
+		t.Fatalf("precondition: no manifest cached (%v)", err)
+	}
+	// the bare config fails validate for its own reasons (no integrator): only the warning is this test's
+	rc, stdout, stderr := run(t, p.Root, nil, "config", "validate")
+	if want := "WARN opencode.json: mcp.servers.obor replaces obor's own server"; !strings.Contains(stdout+stderr, want) {
+		t.Errorf("config validate: exit %d, %q %q; want %q", rc, stdout, stderr, want)
+	}
+}
+
+// T-796: a triage session (OBOR_ROLE=triage, as setup and obor restart export it, in the main checkout) has the
+// derived identity: obor whoami says role triage, and a CLI call to serve is the triage agent's, not the owner's.
+func TestTriageWhoamiAndCaller(t *testing.T) {
+	t.Parallel()
+	p := triageProject(t)
+	cfg, err := config.LoadDaemon(p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := caller(p.Env(), p.Root, cfg); c.Role != "" || c.Agent != "" {
+		t.Fatalf("precondition: no OBOR_ROLE in the main checkout is the owner (no role, no name): %+v", c)
+	}
+	text, j := whoamiIn(t, p.Root, "OBOR_ROLE=triage")
+	if !strings.Contains(text, "role: triage\n") || !strings.Contains(text, "source: env\n") {
+		t.Errorf("whoami with OBOR_ROLE=triage: %q", text)
+	}
+	if j["role"] != "triage" {
+		t.Errorf("whoami --json role %v, want triage", j["role"])
+	}
+	if c := caller(p.Env("OBOR_ROLE=triage"), p.Root, cfg); c.Role != "triage" || c.Agent != "pj-triage" || c.Root != p.Root {
+		t.Errorf("triage's call: %+v; want role triage, agent pj-triage (not the owner)", c)
 	}
 }

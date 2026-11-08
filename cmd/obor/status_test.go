@@ -669,3 +669,41 @@ func TestStatusShowsKeepLaneAndItsQueue(t *testing.T) {
 		}
 	}
 }
+
+// bash status case_no_config_and_usage, the --lead flag of case_two_leads_filter and case_one_lead_unchanged.
+func TestStatusExitCodesAndLeadFlag(t *testing.T) {
+	t.Parallel()
+	p := testkit.NewPlain(t)
+	p.PlainLane("L-01", "task/T-01")
+	if rc, _, stderr := run(t, p.Root, nil, "status"); rc != 3 || !strings.Contains(stderr, "not an obor project") {
+		t.Errorf("no config: exit %d, %q; want 3, not an obor project", rc, stderr)
+	}
+	p.Config()
+	if rc, _, stderr := run(t, p.Root, nil, "status", "--bogus"); rc != 2 || !strings.Contains(stderr, "usage: obor status [--facts] [--json] [--short]") {
+		t.Errorf("obor status --bogus: exit %d, %q; want 2, the usage", rc, stderr)
+	}
+	for _, gone := range []string{"--herdr", "--lead"} {
+		if rc, _, _ := run(t, p.Root, nil, "status", gone); rc != 2 {
+			t.Errorf("obor status %s: exit %d; want 2 (removed, T-463)", gone, rc)
+		}
+	}
+}
+
+// T-803: obor status shows the idle state: unacknowledged with when it began, or the acknowledgement's why.
+func TestStatusShowsIdle(t *testing.T) {
+	t.Parallel()
+	p := testkit.NewPlain(t)
+	p.Config()
+	at := time.Date(2026, 11, 4, 9, 5, 0, 0, time.UTC)
+	ss := wire.Status{Project: &wire.ProjectStatus{Name: "proj", Root: p.Root, Merging: true,
+		Idle: &wire.IdleStatus{Since: at.Unix(), Last: "T-1 merged abc1234"}}}
+	_, text := statusOf(t, p, ss, nil, at.Add(time.Hour))
+	matchLine(t, text, `^idle, not acknowledged since `+at.Local().Format("Jan 2 15:04")+`$`, "the unacknowledged idle state")
+
+	ss.Project.Idle = &wire.IdleStatus{Since: at.Unix(), Last: "T-1 merged abc1234", Acked: true, Why: "nothing to dispatch"}
+	_, text = statusOf(t, p, ss, nil, at.Add(time.Hour))
+	matchLine(t, text, `^idle: nothing to dispatch$`, "the acknowledged idle state")
+	if strings.Contains(text, "not acknowledged") {
+		t.Errorf("an acknowledged idle state shows as unacknowledged:\n%s", text)
+	}
+}

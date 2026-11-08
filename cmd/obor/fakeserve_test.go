@@ -6,13 +6,10 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 
 	"obor/internal/app/wire"
-	"obor/internal/checks"
-	"obor/internal/herdr"
 	"obor/internal/store"
 	"obor/internal/testkit"
 )
@@ -124,45 +121,8 @@ func servedProject(t *testing.T, edits ...func(map[string]any)) *testkit.Project
 	return p
 }
 
-// T-408, removed by v0.10.0 and unknown since v0.12: a config that still sets dispatch.serve does not load, so obor
-// config validate FAILs on it and obor dispatch asks serve nothing.
-func TestDispatchObsoleteSwitch(t *testing.T) {
-	t.Parallel()
-	p := servedProject(t, testkit.Set("dispatch.serve", false))
-	home, serve := startFakeServe(t, p.Root, wire.Status{}, "DISPATCHED T-07 → L-01 (queued)", "")
-	env := []string{"OBOR_STATE_HOME=" + home}
-	if rc, _, stderr := run(t, p.Root, env, "config", "validate"); rc != 1 || !strings.Contains(stderr, `unknown field "dispatch"`) {
-		t.Errorf("validate: exit %d, stderr %q; want an unknown field FAIL", rc, stderr)
-	}
-	if rc, _, _ := run(t, p.Root, env, "dispatch", "T-07"); rc == 0 {
-		t.Errorf("dispatch: exit 0 with an unloadable config")
-	}
-	if calls, _ := serve.requests(); len(calls) != 0 {
-		t.Errorf("serve's requests %+v, want none", calls)
-	}
-}
-
-// serve's merge loop gets the workflow workflow.kind selects (T-1029: scratch-ff, the default) and the dispatch's spec
-// reader and kit; a kind serve has no implementation of fails the loop's construction.
-func TestMergeLoopWorkflowWiring(t *testing.T) {
-	t.Parallel()
-	p := servedProject(t)
-	for _, kind := range []string{"", "scratch-ff"} {
-		if kind != "" {
-			p.Config(testkit.Set("workflow.kind", kind))
-		}
-		l, err := mergeLoop(p.Env(), herdr.Panes{}, &serveEnd{stop: func() {}}, &kindCache{})(p.Root)
-		if err != nil {
-			t.Fatalf("kind %q: %v", kind, err)
-		}
-		wf, ok := l.Workflow.(checks.ScratchFF)
-		if !ok || wf.Review == nil || l.Specs == nil || l.Kit == "" {
-			t.Errorf("kind %q: Workflow %T, Specs %v, Kit %q; want scratch-ff with its review git", kind, l.Workflow, l.Specs, l.Kit)
-		}
-	}
-	p.Config(testkit.Set("workflow.kind", "x"))
-	if _, err := mergeLoop(p.Env(), herdr.Panes{}, &serveEnd{stop: func() {}}, &kindCache{})(p.Root); err == nil ||
-		!strings.Contains(err.Error(), "serve knows scratch-ff") {
-		t.Errorf("kind x: %v; want refused naming the known kinds", err)
-	}
+// triageProject is a served project with roles.triage configured (axis-alies' shape): its triage agent is pj-triage.
+func triageProject(t *testing.T) *testkit.Project {
+	t.Helper()
+	return servedProject(t, testkit.Set("roles.triage", "opus"))
 }

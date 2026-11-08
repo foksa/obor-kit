@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,7 +15,7 @@ import (
 	"time"
 
 	"obor/internal/app/wire"
-	"obor/internal/checks"
+	"obor/internal/config"
 	"obor/internal/herdr"
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/testkit"
@@ -127,35 +128,6 @@ func TestServeBinary(t *testing.T) {
 	}
 }
 
-// T-336, T-437: the lane table holds a lane's task open while its branch is not merged: working until its task_done is
-// in the event log, done after; it names the lane's worker and type.
-func TestLaneTable(t *testing.T) {
-	t.Parallel()
-	p := testkit.New(t)
-	lane := p.Lane("L-01", "task/T-01")
-	p.Config()
-	p.Commit(lane)
-	p.State("L-01", map[string]any{"lane": "L-01", "task": "T-01", "branch": "task/T-01", "agent": "pj-l-01",
-		"dispatched_at": time.Now().Unix() - 100})
-	for _, c := range []struct {
-		name, state string
-		prep        func()
-	}{
-		{"dispatched", "working", func() { p.Dispatched("L-01") }},
-		{"task_done in", "working", func() { p.Submit("L-01") }}, // T-788: no done (the task's phase is serve's)
-		{"dispatched anew", "working", func() { p.Dispatched("L-01") }},
-	} {
-		c.prep()
-		ls, err := checks.Lanes{}.Lanes(context.Background(), p.Root)
-		if err != nil || len(ls) != 1 {
-			t.Fatalf("%s: lanes %+v, %v", c.name, ls, err)
-		}
-		if l := ls[0]; l.Task != "T-01" || l.Agent != "pj-l-01" || l.State != c.state {
-			t.Errorf("%s: %+v; want T-01 of pj-l-01, %s", c.name, l, c.state)
-		}
-	}
-}
-
 // T-377: a config key this binary does not know (the config is newer than the running serve) does not stop serve:
 // it loads the project, reads its lanes, warns once for the key however many times the config is read, while
 // `obor config validate` still refuses it.
@@ -192,5 +164,65 @@ func TestServeToleratesUnknownConfigKey(t *testing.T) {
 		!strings.Contains(out.String(), "older than the config (restart serve)") ||
 		!strings.Contains(out.String(), "key was retired (obor config validate names it; delete it)") {
 		t.Errorf("warnings for the key: %d, want 1 naming both causes:\n%s", n, out.String())
+	}
+}
+
+// T-781: serve's merge loop (mergeLoop, built on every pass) has its nightly from merge.nightly_at as the config is
+// now: on and off, committed by serve's config writer (config_set's), count from the next build, no restart.
+func TestMergeLoopNightlyFollowsTheConfig(t *testing.T) {
+	t.Parallel()
+	p := servedGitProject(t)
+	p.Git(p.Root, "config", "user.name", "Owner")
+	p.Git(p.Root, "config", "user.email", "owner@example.com")
+	build := mergeLoop(p.Env(), herdr.Panes{}, &serveEnd{stop: func() {}}, &kindCache{})
+	at := func() string {
+		t.Helper()
+		l, err := build(p.Root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if l.Nightly == nil {
+			t.Fatalf("the merge loop has no nightly: off is At \"\" (T-782)")
+		}
+		if l.Nightly.Run == nil || l.Nightly.Last == nil {
+			t.Errorf("nightly at %s without Run or Last", l.Nightly.At)
+		}
+		if l.Nightly.At == "" {
+			return "off"
+		}
+		return l.Nightly.At
+	}
+	set := func(val string) {
+		t.Helper()
+		l, err := build(p.Root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		doc, refused, err := l.Config.Read(context.Background())
+		if err != nil || refused != "" {
+			t.Fatalf("precondition: the config is writable: %q, %v", refused, err)
+		}
+		cfg, err := config.LoadDaemon(p.Root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ch, err := cfg.Edit(doc, "merge.nightly_at", json.RawMessage(val))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := l.Config.Commit(context.Background(), ch.Doc, "config: merge.nightly_at"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := at(); got != "off" {
+		t.Fatalf("precondition: merge.nightly_at unset: nightly %s, want off", got)
+	}
+	set(`"03:00"`)
+	if got := at(); got != "03:00" {
+		t.Errorf("after on: nightly %s, want 03:00", got)
+	}
+	set(`null`)
+	if got := at(); got != "off" {
+		t.Errorf("after off: nightly %s, want off", got)
 	}
 }
