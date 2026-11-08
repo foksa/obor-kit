@@ -19,22 +19,21 @@ func waitSpec(task, level string, lines ...string) string {
 }
 
 // T-1030: the pass order's waiting part is the lane's pick order (a freed lane goes to the first waiting task there):
-// a high task before every ordinary one — its spec's `Priority: high`, or a Fixes: task of the open review the
-// promotion waits for — then the waiting fact's order (dispatch order). Its first is the task that starts on the next
-// free lane. T-2 waits before T-3, and status marks exactly the high ones.
+// a high task before every ordinary one — its spec's `Priority: high`, or a Fixes: task of the review the promotion
+// waits for (p.prom.waitRV) — then the waiting fact's order (dispatch order). Its first is the task that starts on the
+// next free lane. T-2 waits before T-3, and status marks exactly the high ones.
 func TestPassOrderPutsAHighWaitingTaskFirst(t *testing.T) {
 	t.Parallel()
 	plain2, plain3 := waitSpec("T-2", "medium"), waitSpec("T-3", "medium")
 	high2, high3 := waitSpec("T-2", "medium", "Priority: high"), waitSpec("T-3", "medium", "Priority: high")
 	fix3 := waitSpec("T-3", "medium", "Fixes: RV-1")
 	for _, c := range []struct {
-		name    string
-		specs   map[string]string // task → its spec
-		review  string            // the review the fold started and left open ("" none)
-		closed  bool              // the review is closed
-		promote bool              // branches.promote is set (the last pass read it)
-		want    []string
-		high    []string // the tasks obor status marks high
+		name   string
+		specs  map[string]string // task → its spec
+		open   string            // a review the fold has open ("" none)
+		waitRV string            // the review the promotion waits for ("" none: promotion off, or nothing promotes)
+		want   []string
+		high   []string // the tasks obor status marks high
 	}{
 		{name: "ordinary: the dispatch order", specs: map[string]string{"T-2": plain2, "T-3": plain3},
 			want: []string{"T-2", "T-3"}},
@@ -42,16 +41,13 @@ func TestPassOrderPutsAHighWaitingTaskFirst(t *testing.T) {
 			want: []string{"T-3", "T-2"}, high: []string{"T-3"}},
 		{name: "both high: the dispatch order", specs: map[string]string{"T-2": high2, "T-3": high3},
 			want: []string{"T-2", "T-3"}, high: []string{"T-2", "T-3"}},
-		{name: "a fix of the promotion's open review is high",
-			specs: map[string]string{"T-2": plain2, "T-3": fix3}, review: "RV-1", promote: true,
+		{name: "a fix of the review the promotion waits for is high",
+			specs: map[string]string{"T-2": plain2, "T-3": fix3}, open: "RV-1", waitRV: "RV-1",
 			want: []string{"T-3", "T-2"}, high: []string{"T-3"}},
-		{name: "the same fix with promotion off is ordinary",
-			specs: map[string]string{"T-2": plain2, "T-3": fix3}, review: "RV-1", want: []string{"T-2", "T-3"}},
+		{name: "a fix with an open review the promotion does not wait for is ordinary",
+			specs: map[string]string{"T-2": plain2, "T-3": fix3}, open: "RV-1", want: []string{"T-2", "T-3"}},
 		{name: "a fix of another review is ordinary",
-			specs: map[string]string{"T-2": plain2, "T-3": fix3}, review: "RV-2", promote: true,
-			want: []string{"T-2", "T-3"}},
-		{name: "a fix of a closed review is ordinary",
-			specs: map[string]string{"T-2": plain2, "T-3": fix3}, review: "RV-1", closed: true, promote: true,
+			specs: map[string]string{"T-2": plain2, "T-3": fix3}, open: "RV-2", waitRV: "RV-2",
 			want: []string{"T-2", "T-3"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -63,15 +59,12 @@ func TestPassOrderPutsAHighWaitingTaskFirst(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if c.review != "" {
-				reviewFact(t, a, p, event.StepReviewStarted, c.review)
+			if c.open != "" {
+				startReview(t, a, p, c.open)
 			}
-			if c.closed {
-				reviewFact(t, a, p, event.StepReviewClosed, c.review)
-			}
-			if c.promote {
+			if c.waitRV != "" {
 				a.mu.Lock()
-				p.prom.branch = "main"
+				p.prom.waitRV = c.waitRV // promoteHeads' record, T-977: a GREEN run waits for its close
 				a.mu.Unlock()
 			}
 			// The waiting facts in dispatch order: T-2's first.
@@ -91,12 +84,12 @@ func TestPassOrderPutsAHighWaitingTaskFirst(t *testing.T) {
 	}
 }
 
-// reviewFact records a review fact of step (review.started, review.closed) for id.
-func reviewFact(t *testing.T, a *App, p *proj, step, id string) {
+// startReview records a review's start for id: an open review in the fold.
+func startReview(t *testing.T, a *App, p *proj, id string) {
 	t.Helper()
-	if !a.record(p, event.Record{Task: event.ReviewTask, Step: step, Kind: event.KindFact},
+	if !a.record(p, event.Record{Task: event.ReviewTask, Step: event.StepReviewStarted, Kind: event.KindFact},
 		ReviewData{ID: id, Head: "h1"}) {
-		t.Fatalf("the log refused the review fact %s", step)
+		t.Fatalf("the log refused the review start %s", id)
 	}
 }
 

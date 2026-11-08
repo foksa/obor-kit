@@ -704,20 +704,16 @@ func (p *proj) waitHigh(task string) bool {
 	return err == nil && ok && highPriority(row.Spec, p.promReview())
 }
 
-// highPriority is whether spec's task is high (T-1030): its `Priority: high` line, or a Fixes: of rv, the open review
-// the promotion waits for ("" none, or promotion off).
+// highPriority is whether spec's task is high (T-1030): its `Priority: high` line, or a Fixes: of rv, the review the
+// promotion waits for ("" none).
 func highPriority(sp spec.Spec, rv string) bool {
 	return sp.Priority == spec.PriorityHigh || rv != "" && sp.FixesReview == rv
 }
 
-// promReview is the open review the promotion waits for (T-1030): the newest review's id while it is open and
-// promotion is on (p.prom.branch is the last promotion pass's); "" when promotion is off or no review is open. Under mu.
-func (p *proj) promReview() string {
-	if p.prom.branch == "" {
-		return ""
-	}
-	return p.folded.rv.last().open()
-}
+// promReview is the review the promotion waits for (T-1030): p.prom.waitRV, set while a GREEN run waits on its close
+// (promoteHeads, T-977: what obor status shows as the promotion's run and Review); "" when nothing waits, promotion
+// off or nothing to promote. Under mu.
+func (p *proj) promReview() string { return p.prom.waitRV }
 
 // pickWaiting is a waiting task's next step (under mu; readiness rule 1): nothing while a task it waits for is not
 // merged; one of them dropped or rejected: needs-you{after}; all merged: the dispatch (waitDispatch). A task it waits
