@@ -76,12 +76,13 @@ func (v *validator) pluginKind(k string) {
 }
 
 // projectFiles: the notes each agent kind has on the project's committed CLI config in the main checkout (T-1033,
-// agents.ProjectWarnings): a file that does not parse, a key that switches part of obor off. Never a failure.
+// agents.ProjectWarnings): a file that does not parse, a key that switches part of obor off. Never a failure. A plugin
+// kind pluginKind described answers as described (T-1054: the registry's has no manifest before a cache).
 func (v *validator) projectFiles() {
 	if v.c.Root == "" {
 		return
 	}
-	for _, w := range agents.ProjectWarnings(v.c.Root, os.ReadFile) {
+	for _, w := range agents.ProjectWarnings(v.c.Root, os.ReadFile, v.described) {
 		v.warns = append(v.warns, "WARN "+w)
 	}
 }

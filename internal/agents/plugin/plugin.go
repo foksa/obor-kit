@@ -1,9 +1,10 @@
 // Package plugin is a plugin kind (T-1036): an agents.Kind whose CLI-specific part is an executable, any language,
 // answering obor's kind protocol (docs/agents/kind-protocol.md): one JSON request on stdin, one JSON reply on stdout,
-// per run. A project names it as kinds.<name>.command; obor setup agents runs its describe and caches the reply (the
-// manifest) in the state dir. What the manifest answers (caps, stop, headless forms, the transcript glob, the inbox
-// record) is read from that cache, never by running the command: hooks and the guard load the config, and hook time
-// stays the binary's own. The calls that run it (start, not-ready, install, turn, deliver) first describe it again when
+// per run. A project names it as kinds.<name>.command; obor serve (at its start and when the command changes, Ensure),
+// obor init and obor setup agents run its describe and cache the reply (the manifest) in the state dir. What the
+// manifest answers (caps, stop, headless forms, the transcript glob, the inbox record) is read from that cache, never by
+// running the command: hooks and the guard load the config, and hook time stays the binary's own; without a cache the
+// guard denies the kind's program outright (T-1054). The calls that run it (start, not-ready, install, turn, deliver) first describe it again when
 // the command changed (its mtime, or another path) since the cache was written.
 package plugin
 
@@ -192,13 +193,36 @@ func New(name, command, stateDir string) *Kind {
 	return k
 }
 
-// Cache runs kind name's describe, writes its manifest to stateDir's cache and returns the kind (obor setup agents).
+// Cache runs kind name's describe, writes its manifest to stateDir's cache and returns the kind (obor setup agents,
+// obor init).
 func Cache(name, command, stateDir string) (*Kind, error) {
 	k := &Kind{name: name, command: command, stateDir: stateDir, local: Local[name]}
 	if err := k.describe(); err != nil {
 		return nil, err
 	}
 	return k, nil
+}
+
+// Ensure is Cache when kind name's cache in stateDir does not describe command as it is now (none, unreadable, another
+// command, another mtime: obor serve, T-1054); wrote says it described. A kind answered in process (Local) caches
+// nothing: it needs no cache.
+func Ensure(name, command, stateDir string) (wrote bool, err error) {
+	if Local[name] != nil {
+		return false, nil
+	}
+	if b, err := os.ReadFile(CacheFile(stateDir, name)); err == nil {
+		var c cache
+		fi, serr := os.Stat(command)
+		if json.Unmarshal(b, &c) == nil && serr == nil && c.Command == command && c.Mtime.Equal(fi.ModTime()) {
+			if _, err := parse(name, c.Manifest); err == nil {
+				return false, nil
+			}
+		}
+	}
+	if _, err := Cache(name, command, stateDir); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // describe runs describe and makes its manifest k's and the cache's. Called with k.mu held, or before k is shared.
@@ -322,6 +346,16 @@ func (loader) Check(name, command string) (agents.Kind, error) {
 }
 
 func (k *Kind) Name() string { return k.name }
+
+// Uncached (agents.Uncached) is why k has no manifest (nil: it has one).
+func (k *Kind) Uncached() error {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.m != nil {
+		return nil
+	}
+	return k.missing
+}
 
 // Caps are the manifest's: Status its status, Transcript whether it names a transcript glob.
 func (k *Kind) Caps() agents.Caps {

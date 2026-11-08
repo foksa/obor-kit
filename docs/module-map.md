@@ -38,7 +38,8 @@ gate runs it. Adapters never import each other: one that needs another goes thro
 - `agents/plugin` (T-1036): a plugin kind, an `agents.Kind` whose CLI-specific part is an executable answering the kind
   protocol (`docs/agents/kind-protocol.md`), run as a process group under a per-call timeout. `config` registers the
   kinds its `kinds.<name>.command` name through `agents.Plugins` (it cannot import this package) on every load, each with
-  the manifest `obor setup agents` cached (`plugin.Cache`, `.obor/state/kinds/<name>.json`): no process runs at load.
+  the manifest obor serve, `obor init` or `obor setup agents` cached (`plugin.Ensure`, `plugin.Cache`,
+  `.obor/state/kinds/<name>.json`): no process runs at load.
   Base, not bridge: it runs processes and writes the cache. `Local` (T-1046): a kind answered in process by its own Go
   handler instead of its command (testkit's OpenCode; empty in obor).
 - `help` (T-854): the one list of obor commands (`help.Commands`: name, usage, description, group), printed by

@@ -213,7 +213,7 @@ func TestSpecs(t *testing.T) {
 func TestDispatchTargetOffBranch(t *testing.T) {
 	t.Parallel()
 	p := servedGitProject(t)
-	l, err := mergeLoop(p.Env(), herdr.Panes{}, &serveEnd{stop: func() {}})(p.Root)
+	l, err := mergeLoop(p.Env(), herdr.Panes{}, &serveEnd{stop: func() {}}, &kindCache{})(p.Root)
 	if err != nil {
 		t.Fatal(err)
 	}

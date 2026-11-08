@@ -3,6 +3,8 @@
 package main
 
 import (
+	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -21,23 +23,7 @@ func TestInitEndToEnd(t *testing.T) {
 	testkit.Slow(t)
 	t.Parallel()
 	p := testkit.New(t)
-	x := herdrtest.New()
-	srv := herdrtest.Serve(t, x)
-	bin := t.TempDir()
-	log := filepath.Join(bin, "calls")
-	claude := "#!/bin/sh\necho \"claude $*\" >> " + log + "\ncase \"$*\" in \"plugin install \"*) mkdir -p .claude; " +
-		"printf '{\"enabledPlugins\":{\"%s\":true}}' \"$3\" > .claude/settings.json ;; esac\n"
-	launchctl := "#!/bin/sh\necho \"launchctl $*\" >> " + log + "\ncase \"$1\" in print) [ -f " + bin + "/loaded ] || exit 113; " +
-		"echo '\tpid = 999999' ;; bootstrap) : > " + bin + "/loaded ;; bootout) rm -f " + bin + "/loaded ;; esac\n"
-	for name, script := range map[string]string{"claude": claude, "launchctl": launchctl} {
-		if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	kit, _ := filepath.Abs(filepath.Join("..", ".."))
-	home := t.TempDir()
-	env := []string{"HERDR_SOCKET_PATH=" + srv.Path, "PATH=" + bin + ":/usr/bin:/bin", "HOME=" + home,
-		"OBOR_PLUGIN_ROOT=" + kit, "OBOR_STATE_HOME=" + t.TempDir(), "HERDR_PANE_ID=", "OBOR_PANE=", "HERDR_CONFIG_PATH="}
+	env, log, home := initEnv(t, nil)
 	rc, stdout, stderr := run(t, p.Root, env, "init")
 	if rc != 0 || !strings.Contains(stdout, "OK init proj (prefix proj); next: first task for the lead: set up the stack "+
 		"and `commands.check` (lane_setup, lane_ready); until then every gate stops on \"missing command\"\n") ||
@@ -69,4 +55,76 @@ func TestInitEndToEnd(t *testing.T) {
 	if strings.Count(string(again), "launchctl bootstrap") != 1 || strings.Count(string(again), "claude plugin install") != 1 {
 		t.Errorf("rerun bootstrapped or installed again:\n%s", again)
 	}
+}
+
+// initEnv is obor init's environment for a test (TestInitEndToEnd's doc): stub herdr on its socket, a fake claude and
+// a fake launchctl on PATH (their calls logged to log) with more, the scripts by name, HOME a temp dir.
+func initEnv(t *testing.T, more map[string]string) (env []string, log, home string) {
+	t.Helper()
+	x := herdrtest.New()
+	srv := herdrtest.Serve(t, x)
+	bin := t.TempDir()
+	log = filepath.Join(bin, "calls")
+	claude := "#!/bin/sh\necho \"claude $*\" >> " + log + "\ncase \"$*\" in \"plugin install \"*) mkdir -p .claude; " +
+		"printf '{\"enabledPlugins\":{\"%s\":true}}' \"$3\" > .claude/settings.json ;; esac\n"
+	launchctl := "#!/bin/sh\necho \"launchctl $*\" >> " + log + "\ncase \"$1\" in print) [ -f " + bin + "/loaded ] || exit 113; " +
+		"echo '\tpid = 999999' ;; bootstrap) : > " + bin + "/loaded ;; bootout) rm -f " + bin + "/loaded ;; esac\n"
+	scripts := map[string]string{"claude": claude, "launchctl": launchctl}
+	maps.Copy(scripts, more)
+	for name, script := range scripts {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	kit, _ := filepath.Abs(filepath.Join("..", ".."))
+	home = t.TempDir()
+	env = []string{"HERDR_SOCKET_PATH=" + srv.Path, "PATH=" + bin + ":/usr/bin:/bin", "HOME=" + home,
+		"OBOR_PLUGIN_ROOT=" + kit, "OBOR_STATE_HOME=" + t.TempDir(), "HERDR_PANE_ID=", "OBOR_PANE=", "HERDR_CONFIG_PATH="}
+	return env, log, home
+}
+
+// T-1054 (RV-150 #2): obor init in a clean project with the kit binary (the real obor-kind-opencode beside obor)
+// caches OpenCode's manifest before its panes, so obor setup mcp --model deepseek works with no hand step; init in a
+// project whose integrator is OpenCode's (its pane's start built from the manifest) succeeds, and so does its rerun.
+func TestInitCachesThePluginKinds(t *testing.T) {
+	testkit.Slow(t) // obor init three times (git, the lanes' worktrees) and a process per kind call
+	t.Parallel()
+	cacheOf := func(p *testkit.Project) string {
+		return filepath.Join(p.Root, ".obor", "state", "kinds", "opencode.json")
+	}
+	initIn := func(p *testkit.Project, env []string, what string) {
+		t.Helper()
+		if _, err := os.Stat(cacheOf(p)); !os.IsNotExist(err) {
+			t.Fatalf("%s: precondition: no manifest cached (%v)", what, err)
+		}
+		rc, stdout, stderr := run(t, p.Root, env, "init")
+		if rc != 0 || !strings.Contains(stdout, "  kinds      done     opencode: manifest cached") {
+			t.Fatalf("%s: exit %d\n%s%s", what, rc, stdout, stderr)
+		}
+		b, err := os.ReadFile(cacheOf(p))
+		var c struct{ Command string }
+		if err != nil || json.Unmarshal(b, &c) != nil || filepath.Base(c.Command) != "obor-kind-opencode" {
+			t.Fatalf("%s: cached %q (%v), want the kit's obor-kind-opencode", what, b, err)
+		}
+	}
+
+	clean := testkit.New(t)
+	env, _, _ := initEnv(t, nil)
+	initIn(clean, env, "obor init in a clean project")
+	if rc, stdout, stderr := run(t, clean.Root, env, "setup", "mcp", "--model", "deepseek"); rc != 0 {
+		t.Errorf("obor setup mcp --model deepseek: exit %d\n%s%s", rc, stdout, stderr)
+	}
+
+	oc := testkit.New(t)
+	oc.Config(testkit.Set("roles.integrator", "deepseek"))
+	// an opencode on PATH: else init sets the integrator to opus (no CLI to run it)
+	env, _, _ = initEnv(t, map[string]string{"opencode": "#!/bin/sh\necho 1.14.0\n"})
+	initIn(oc, env, "obor init with an OpenCode integrator")
+	if b, _ := os.ReadFile(filepath.Join(oc.Root, ".obor", "config.json")); !strings.Contains(string(b), `"integrator": "deepseek"`) {
+		t.Fatalf("precondition: the integrator stays OpenCode's deepseek:\n%s", b)
+	}
+	if err := os.Remove(cacheOf(oc)); err != nil { // the rerun caches it again itself
+		t.Fatal(err)
+	}
+	initIn(oc, env, "its rerun")
 }

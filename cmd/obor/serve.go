@@ -10,10 +10,12 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
 
+	"obor/internal/agents/plugin"
 	"obor/internal/app"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
@@ -81,13 +83,18 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 	}
 	defer lock.Unlock()
 	_ = os.Remove(sock) // a leftover of a serve that died: the lock says none runs
+	// The plugin kinds' manifests, before anything reads them (T-1054): the merge loop keeps them current.
+	kinds := &kindCache{}
+	if cfg, err := config.LoadDaemon(root); err == nil {
+		kinds.refresh(cfg, flushWriter{})
+	}
 	// The machine's list of obor projects by name (T-646): obor send and obor projects read it. A failure is one line,
 	// not the end of serve: naming a project is a convenience, serving it is not.
 	if _, err := project.Register(root, env); err != nil {
 		fmt.Fprintf(flushWriter{}, "obor serve: the machine's project list is not updated (%v)\n", err)
 	}
 	panes := herdr.Panes{S: herdrSocket(env)}
-	a := app.New(app.Options{Root: root, Out: flushWriter{}, Refresh: refreshed, Loop: mergeLoop(env, panes, end),
+	a := app.New(app.Options{Root: root, Out: flushWriter{}, Refresh: refreshed, Loop: mergeLoop(env, panes, end, kinds),
 		Inboxed: inboxed(root), Exit: stop, Binary: binaryWatch(env), Tick: serveTick, Follow: serveTick,
 		Restore: restorer(paneless(env))},
 		panes, checks.Lanes{})
@@ -146,8 +153,9 @@ type serveEnd struct {
 // change counts), launch for the integrator's start and the merged worker's stop, the herdr socket for the job
 // prompts and the lines it types (T-466), the session inbox for the lead's lines and for the lines and job wakes of a
 // kind with an inbox (T-485, T-499), and dispatch as state (dispatchLoop: obor serve is the only dispatcher, T-408).
-// end ends serve for its self-restart (T-656, T-719).
-func mergeLoop(env project.Env, panes herdr.Panes, end *serveEnd) func(root string) (*app.Loop, error) {
+// end ends serve for its self-restart (T-656, T-719). A plugin kind whose command changed is described again first
+// (kinds, T-1054).
+func mergeLoop(env project.Env, panes herdr.Panes, end *serveEnd, kinds *kindCache) func(root string) (*app.Loop, error) {
 	return func(root string) (*app.Loop, error) {
 		repo, err := project.Find(root)
 		if err != nil {
@@ -156,6 +164,11 @@ func mergeLoop(env project.Env, panes herdr.Panes, end *serveEnd) func(root stri
 		cfg, err := config.LoadDaemon(repo.Root)
 		if err != nil {
 			return nil, err
+		}
+		if kinds.refresh(cfg, flushWriter{}) { // the registry's plugin kinds carry the new manifest
+			if cfg, err = config.LoadDaemon(repo.Root); err != nil {
+				return nil, err
+			}
 		}
 		o := checks.Options{Cfg: cfg, Env: env, Environ: os.Environ(), Out: flushWriter{}, PID: os.Getpid()}
 		agents := &launch.Launcher{Cfg: cfg, Env: env, H: herdrSocket(env), Out: io.Discard,
@@ -174,6 +187,43 @@ func mergeLoop(env project.Env, panes herdr.Panes, end *serveEnd) func(root stri
 		l.Restart = serveRestarter(cfg, env, end)
 		return l, nil
 	}
+}
+
+// kindCache is serve's cache step (T-1054): each plugin kind of the project's config gets its manifest cached
+// (plugin.Ensure) at serve's start and again once its command changed (another path, a rebuilt binary), so the guard,
+// the starts, obor setup mcp and obor config validate read it with no hand step; hooks still never run a plugin. A
+// failure is said once per kind until it changes or heals: the guard denies that kind's program meanwhile.
+type kindCache struct {
+	mu   sync.Mutex
+	said map[string]string // kind → the failure last said
+}
+
+// refresh caches what cfg's plugin kinds lack, saying each cache written and each new failure on log; wrote says one
+// was written (a config load then registers the kinds with it).
+func (kc *kindCache) refresh(cfg *config.Config, log io.Writer) (wrote bool) {
+	kc.mu.Lock()
+	defer kc.mu.Unlock()
+	if kc.said == nil {
+		kc.said = map[string]string{}
+	}
+	for _, name := range cfg.PluginKinds() {
+		cmd := cfg.KindCommand(name)
+		w, err := plugin.Ensure(name, cmd, cfg.StateDir())
+		switch {
+		case err != nil && kc.said[name] != err.Error():
+			fmt.Fprintf(log, "obor serve: FAIL %v (the guard denies %s until its manifest is cached)\n", err, name)
+			kc.said[name] = err.Error()
+		case err != nil:
+		case w:
+			fmt.Fprintf(log, "obor serve: kind %s: manifest of %s cached (%s)\n", name, cmd,
+				plugin.CacheFile(cfg.StateDir(), name))
+			wrote = true
+			fallthrough
+		default:
+			delete(kc.said, name)
+		}
+	}
+	return wrote
 }
 
 // workflowOf is the git workflow workflow.kind selects (T-1029; obor config validate refuses another kind): scratch-ff,

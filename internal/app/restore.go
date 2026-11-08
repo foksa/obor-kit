@@ -22,7 +22,6 @@ import (
 type restoreState struct {
 	running bool // a run is in progress
 	again   bool // a reconnect came while it ran: one more run after it
-	runs    int  // runs started, for the tests to wait on
 }
 
 // restore starts the restore of the served project after a reconnect, or asks the run in progress for one more; wg
@@ -44,9 +43,6 @@ func (a *App) restore(ctx context.Context, wg *sync.WaitGroup) {
 	go func() {
 		defer wg.Done()
 		for {
-			a.mu.Lock()
-			a.rst.runs++
-			a.mu.Unlock()
 			a.logf("herdr: reconnected: restoring the project's labelled panes that run no agent")
 			a.opt.Restore.RestoreProject(ctx, a.opt.Root)
 			a.mu.Lock()

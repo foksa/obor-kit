@@ -675,6 +675,11 @@ loop:
 		s.sed(W, k)
 	default:
 		if kind, ok := agents.ByProgram(name); ok {
+			// a plugin kind with no manifest has no headless forms to check: its program is denied (T-1054)
+			if u, ok := kind.(agents.Uncached); ok && u.Uncached() != nil {
+				deny(name + " is the CLI of plugin kind " + kind.Name() + ", whose manifest is not cached, so its " +
+					"headless runs are unknown: run obor setup agents (obor serve caches it at its start)")
+			}
 			headless(kind.Headless(), name, W[k+1:])
 		}
 	}

@@ -18,7 +18,7 @@ func TestMergeLoopNightlyFollowsTheConfig(t *testing.T) {
 	p := servedGitProject(t)
 	p.Git(p.Root, "config", "user.name", "Owner")
 	p.Git(p.Root, "config", "user.email", "owner@example.com")
-	build := mergeLoop(p.Env(), herdr.Panes{}, &serveEnd{stop: func() {}})
+	build := mergeLoop(p.Env(), herdr.Panes{}, &serveEnd{stop: func() {}}, &kindCache{})
 	at := func() string {
 		t.Helper()
 		l, err := build(p.Root)

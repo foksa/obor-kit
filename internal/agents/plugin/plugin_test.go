@@ -320,6 +320,44 @@ func TestNoCache(t *testing.T) {
 	if _, err := agents.InstallOf(k, "/kit", nil); err == nil {
 		t.Error("install without a cache: no error")
 	}
+	if err := k.Uncached(); err == nil || !strings.Contains(err.Error(), "no manifest cached") {
+		t.Errorf("Uncached = %v, want the missing cache (the guard denies its program, T-1054)", err)
+	}
+}
+
+// TestEnsure (T-1054, obor serve's cache step): no cache → describe and cache it; a cache of the command as it is → no
+// process runs; the command changed (another mtime) → described again; a describe that fails is the error, and wrote
+// false. A kind New loads from what Ensure wrote has its manifest (Uncached nil).
+func TestEnsure(t *testing.T) {
+	count := filepath.Join(t.TempDir(), "describes")
+	runs := func() int { b, _ := os.ReadFile(count); return strings.Count(string(b), "x") }
+	stub(t, "echo x >>"+count+"; "+reply(manifest), reply(`{"version":1}`))
+	state := t.TempDir()
+	if _, err := os.Stat(plugin.CacheFile(state, "stub")); !os.IsNotExist(err) {
+		t.Fatalf("precondition: no cache (%v)", err)
+	}
+	if wrote, err := plugin.Ensure("stub", stubCmd, state); !wrote || err != nil || runs() != 1 {
+		t.Fatalf("no cache: wrote %v, %v, %d describes; want written by one describe", wrote, err, runs())
+	}
+	if err := plugin.New("stub", stubCmd, state).Uncached(); err != nil {
+		t.Errorf("the kind of Ensure's cache: Uncached = %v, want nil", err)
+	}
+	if wrote, err := plugin.Ensure("stub", stubCmd, state); wrote || err != nil || runs() != 1 {
+		t.Errorf("current cache: wrote %v, %v, %d describes; want nothing run", wrote, err, runs())
+	}
+	if err := os.Chtimes(stubCmd, time.Now(), time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if wrote, err := plugin.Ensure("stub", stubCmd, state); !wrote || err != nil || runs() != 2 {
+		t.Errorf("command changed: wrote %v, %v, %d describes; want described again", wrote, err, runs())
+	}
+	stub(t, "exit 1", reply(`{"version":1}`))
+	if err := os.Chtimes(stubCmd, time.Now(), time.Now().Add(2*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if wrote, err := plugin.Ensure("stub", stubCmd, state); wrote || err == nil || !strings.Contains(err.Error(), "kind stub: describe: exit 1") {
+		t.Errorf("describe fails: wrote %v, %v; want its error", wrote, err)
+	}
 }
 
 // TestManifestChecks: describe's reply is refused when it names another kind, version or status, or a bad pattern.

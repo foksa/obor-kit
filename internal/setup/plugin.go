@@ -191,7 +191,7 @@ func (s *Setup) agentsCmd(args []string) error {
 	if len(args) > 0 && !remove {
 		return errUsage
 	}
-	if err := s.cachePlugins(); err != nil {
+	if _, err := s.cachePlugins(); err != nil {
 		return err
 	}
 	for _, name := range agents.Names() {
@@ -219,32 +219,34 @@ func (s *Setup) agentsCmd(args []string) error {
 }
 
 // cachePlugins describes every plugin kind of the project around Dir (none outside a project, or with no config) and
-// caches its manifest, then reloads the config so the registry's plugin kinds carry it. A kit kind the config names no
-// command for (config.KitKinds: a config from before T-1046) gets kinds.<name>.command first, uncommitted.
-func (s *Setup) cachePlugins() error {
+// caches its manifest, then reloads the config so the registry's plugin kinds carry it; cached are their names (obor
+// setup agents; obor init's kinds step, T-1054). A kit kind the config names no command for (config.KitKinds: a config
+// from before T-1046) gets kinds.<name>.command first, uncommitted.
+func (s *Setup) cachePlugins() (cached []string, err error) {
 	if s.findRoot() != nil {
-		return nil
+		return nil, nil
 	}
 	cfg, err := config.Load(s.root)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	for _, name := range cfg.PluginKinds() {
 		if cfg.Data.Kinds.M[name].Command == "" {
 			if err := s.setKindCommand(name, config.KitKinds[name]); err != nil {
-				return err
+				return nil, err
 			}
 		}
 		cmd := cfg.KindCommand(name)
 		if _, err := plugin.Cache(name, cmd, cfg.StateDir()); err != nil {
-			return project.Failf("agents %s: %v", name, err)
+			return nil, project.Failf("agents %s: %v", name, err)
 		}
 		s.say("OK agents %s: manifest of %s cached (%s)", name, cmd, s.rel(plugin.CacheFile(cfg.StateDir(), name)))
+		cached = append(cached, name)
 	}
 	if _, err := config.Load(s.root); err != nil {
-		return project.Failf("%v", err)
+		return nil, project.Failf("%v", err)
 	}
-	return nil
+	return cached, nil
 }
 
 // setKindCommand sets kinds.<name>.command to cmd in .obor/config.json (not local.json), uncommitted.

@@ -175,6 +175,21 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 		add("commands", "already", "%s", s.commandsLine())
 	}
 
+	// kinds: each plugin kind's manifest cached (T-1054), before anything reads it: the guard, the agent starts of the
+	// panes step, obor setup mcp
+	kinds, err := s.cachePlugins()
+	if err != nil {
+		return err
+	}
+	if err := s.load(); err != nil {
+		return err
+	}
+	if len(kinds) == 0 {
+		add("kinds", "skipped", "no plugin kinds")
+	} else {
+		add("kinds", "done", "%s: manifest cached", strings.Join(kinds, ", "))
+	}
+
 	// lanes and role types
 	types, err := s.initRoleTypes()
 	if err != nil {

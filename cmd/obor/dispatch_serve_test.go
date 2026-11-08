@@ -121,7 +121,7 @@ func TestMergeLoopWorkflowWiring(t *testing.T) {
 		if kind != "" {
 			p.Config(testkit.Set("workflow.kind", kind))
 		}
-		l, err := mergeLoop(p.Env(), herdr.Panes{}, &serveEnd{stop: func() {}})(p.Root)
+		l, err := mergeLoop(p.Env(), herdr.Panes{}, &serveEnd{stop: func() {}}, &kindCache{})(p.Root)
 		if err != nil {
 			t.Fatalf("kind %q: %v", kind, err)
 		}
@@ -131,7 +131,7 @@ func TestMergeLoopWorkflowWiring(t *testing.T) {
 		}
 	}
 	p.Config(testkit.Set("workflow.kind", "x"))
-	if _, err := mergeLoop(p.Env(), herdr.Panes{}, &serveEnd{stop: func() {}})(p.Root); err == nil ||
+	if _, err := mergeLoop(p.Env(), herdr.Panes{}, &serveEnd{stop: func() {}}, &kindCache{})(p.Root); err == nil ||
 		!strings.Contains(err.Error(), "serve knows scratch-ff") {
 		t.Errorf("kind x: %v; want refused naming the known kinds", err)
 	}
