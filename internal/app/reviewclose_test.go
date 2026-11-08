@@ -256,6 +256,96 @@ func TestReviewCloseCrashBeforeFact(t *testing.T) {
 	})
 }
 
+// RV-144 #1 (T-1032): the close's snapshot (its reviewed head and covered tasks) is decided once and recorded before
+// the commit (fact review.closing): a verify finishing after the close, or between the snapshot and a fact recovered
+// from the commit after a crash, changes neither the closed head R nor what the review covered; the tasks of that
+// verify are the next review's scope. --force (the linked fixes' verify still running) and a normal close (a verify of
+// an unlinked fix), each without and with the crash cut.
+func TestReviewCloseSnapshotStands(t *testing.T) {
+	t.Parallel()
+	const h2 = "f1f1f1f2f1f1f1f2"
+	for _, c := range []struct {
+		name  string
+		force bool
+		crash bool
+	}{
+		{name: "force", force: true},
+		{name: "force, the verify finishing in the crash cut", force: true, crash: true},
+		{name: "normal"},
+		{name: "normal, the verify finishing in the crash cut", crash: true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			var r *reviewRig
+			var head string // the snapshot: the review's start head, its start's tasks; scope the verify's tasks
+			var tasks, scope []string
+			var finish func()
+			if c.force {
+				r = fixRig(t)
+				r.merged("T-a")
+				r.merged("T-b")
+				r.verifyPass() // the verify of T-a, T-b at headSHA, open
+				if r.p.out.brief("pj-rev") == nil || r.pending() != "T-a,T-b" {
+					t.Fatalf("precondition: brief %v, pending %q; want the verify open, T-a, T-b pending",
+						r.p.out.brief("pj-rev"), r.pending())
+				}
+				head, tasks, scope, finish = startHead, []string{"T-start"}, []string{"T-a", "T-b"}, r.finish
+			} else {
+				r = newReviewRig(t)
+				r.started() // RV-5 at headSHA, T-a and T-b in scope
+				openReviewFile(t, r.p.root)
+				r.mergedAt("T-fix", h2)
+				r.fact(event.MsgTask, event.StepBriefed, event.Message{To: "pj-rev", Line: "verify", Task: "T-fix",
+					Reviewed: h2})
+				head, tasks, scope = headSHA, []string{"T-a", "T-b"}, []string{"T-fix"}
+				finish = func() {
+					r.fact(event.MsgTask, event.StepMessage, event.Message{To: "pj-lead", From: "pj-rev",
+						Line: "finished", Ends: "pj-rev"})
+				}
+			}
+			if c.crash {
+				r.refuseStep(event.StepReviewClosed)
+			}
+			_, err := r.close("c1", "fixed", c.force)
+			if c.crash != (err != nil) {
+				t.Fatalf("close (crash %v): %v", c.crash, err)
+			}
+			if r.commits() != 1 || r.git.closes[0].Reviewed != head ||
+				!strings.Contains(r.git.closes[0].Body, "Covered: "+strings.Join(tasks, ", ")+"\n") {
+				t.Fatalf("precondition: commits %+v, want one at %s covering %q", r.git.closes, head, tasks)
+			}
+			finish() // the verify ends after the snapshot
+			r.a.mu.Lock()
+			open := r.p.folded.rv.open["pj-rev"]
+			r.a.mu.Unlock()
+			if open != nil {
+				t.Fatal("precondition: the verify is still open")
+			}
+			if c.crash {
+				r.p.log.Refuse = nil
+				r.reload()
+				r.a.reviewCloseRead(context.Background(), r.p, &Loop{Review: r.git, Agents: r.agents})
+			}
+			f := r.closedFacts()
+			if len(f) != 1 || f[0].Head != head || !slices.Equal(f[0].Tasks, tasks) {
+				t.Errorf("review.closed facts %+v, want one carrying the snapshot %s %q", f, head, tasks)
+			}
+			r.a.mu.Lock()
+			defer r.a.mu.Unlock()
+			l := &r.p.folded.rv
+			if got := l.closedHead(); got != head {
+				t.Errorf("the closed head R %q, want the close's %s", got, head)
+			}
+			if got := l.cur().cycle(); l.cur().closed == 0 || !slices.Equal(got, tasks) {
+				t.Errorf("RV-5 (closed %d) covered %q, want %q", l.cur().closed, got, tasks)
+			}
+			if got := tasksOf(l.scope()); !slices.Equal(got, scope) {
+				t.Errorf("the next review's scope %q, want the late verify's %q", got, scope)
+			}
+		})
+	}
+}
+
 // RV-126 #1: only the lead closes a review (the owner's call has no role): a reviewer or a worker is refused, plain and
 // with --force, before any effect (no commit, no fact, the review still open); the lead's close goes through.
 func TestReviewCloseLeadOnly(t *testing.T) {
