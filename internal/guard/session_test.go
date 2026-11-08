@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -18,7 +19,7 @@ import (
 func sessionFx(t *testing.T, armed bool) (f hfx, o1 string) {
 	t.Helper()
 	f = newHfx(t)
-	o1 = f.Lane("L-01", "task/T-05")
+	o1 = f.PlainLane("L-01", "task/T-05")
 	f.Config()
 	if armed {
 		f.Spec("T-05", "# T-05\n\n## Protected files this task may edit\n`docs/design.md`\n") // the store's (T-440)
@@ -379,8 +380,25 @@ func TestSessionWritesOpencodePluginMarker(t *testing.T) {
 	if f.Exists(o1 + "/.obor-plugin") {
 		t.Error("the lane worktree holds a marker")
 	}
-	if st := f.Git(o1, "status", "--porcelain"); st != "" {
-		t.Errorf("session-start dirtied the lane worktree:\n%s", st)
+	// The lane holds nothing but its own .git file and the settings every lane has: the state written is the main
+	// checkout's (a git status would say the same; a plain lane has no git to ask, T-1010).
+	var extra []string
+	err := filepath.WalkDir(o1, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		switch rel, _ := filepath.Rel(o1, p); rel {
+		case ".", ".git", ".claude", ".claude/settings.json":
+		default:
+			extra = append(extra, rel)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(extra) > 0 {
+		t.Errorf("session-start dirtied the lane worktree: %v", extra)
 	}
 	// The version, when the environment knows one.
 	contains(t, f.session(t, o1, "sid-2", "OPENCODE_VERSION=1.2.3"), "hook ran", "obor: role worker")

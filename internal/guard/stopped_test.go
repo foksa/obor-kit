@@ -14,7 +14,7 @@ import (
 func TestHooksStandDownInAStoppedProject(t *testing.T) {
 	t.Parallel()
 	f := newHfx(t)
-	o1 := f.Lane("L-01", "task/T-05")
+	o1 := f.PlainLane("L-01", "task/T-05")
 	f.Config()
 	f.state(ago(100))
 	f.Dispatched("L-01")

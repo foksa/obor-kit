@@ -63,6 +63,9 @@ type fx struct {
 	idle     time.Duration
 	waitZero bool
 	bound    time.Duration
+	// termGrace and killGrace are the launcher's ladder waits (0: ladderWait: a test asserts the signals, not the
+	// production 3 s and 2 s).
+	termGrace, killGrace time.Duration
 	// sessions: the recorded sessions the launcher reads (nil: serve's store); reported: the sessions it reported.
 	sessions map[string]store.Session
 	reported []store.Session
@@ -129,13 +132,36 @@ func (x *fx) runSearches() int {
 const (
 	bound     = 10 * time.Second
 	shortWait = 60 * time.Millisecond
+	// ladderWait is the ladder's SIGTERM and SIGKILL grace in a test: a test asserts the signals and their order, so
+	// the waits only have to let the fake's state change land (the production 3 s and 2 s are in Launcher).
+	ladderWait = 5 * time.Millisecond
 )
 
+// setup is a plain project laid out as files (testkit.NewPlain): the launch code under test reads the repository
+// (project.Find) but runs no git, so a git fixture would only build one. setupGit is for the test of a git call
+// (project.AddWorktree).
 func setup(t *testing.T, edits ...func(map[string]any)) *fx {
 	t.Helper()
-	p := testkit.New(t)
+	return newFx(t, false, edits...)
+}
+
+func setupGit(t *testing.T, edits ...func(map[string]any)) *fx {
+	t.Helper()
+	return newFx(t, true, edits...)
+}
+
+func newFx(t *testing.T, git bool, edits ...func(map[string]any)) *fx {
+	t.Helper()
+	p := testkit.NewPlain(t)
+	var lane string
+	if git {
+		p = testkit.New(t)
+		lane = p.Lane("L-01", "")
+	} else {
+		lane = p.PlainLane("L-01", "")
+	}
 	f := p.Herdr()
-	x := &fx{t: t, p: p, f: f, srv: herdrtest.Serve(t, f), lane: p.Lane("L-01", ""), claude: filepath.Join(p.Base, "claude"),
+	x := &fx{t: t, p: p, f: f, srv: herdrtest.Serve(t, f), lane: lane, claude: filepath.Join(p.Base, "claude"),
 		gone: map[string]bool{}, ps: func(...string) ([]byte, error) { return nil, nil }}
 	p.Config(append([]func(map[string]any){
 		testkit.Set("roles", `{"integrator":"opus","lead":"opus","reviewer":"luna"}`),
@@ -176,6 +202,13 @@ func (x *fx) launcher(out io.Writer) *launch.Launcher {
 	if rollout == 0 {
 		rollout = 20 * time.Millisecond
 	}
+	termGrace, killGrace := x.termGrace, x.killGrace
+	if termGrace == 0 {
+		termGrace = ladderWait
+	}
+	if killGrace == 0 {
+		killGrace = ladderWait
+	}
 	var background func(func())
 	switch {
 	case x.capture:
@@ -189,6 +222,7 @@ func (x *fx) launcher(out io.Writer) *launch.Launcher {
 	}
 	return &launch.Launcher{Cfg: cfg, Env: x.env(), Kit: "/kit", H: h, Out: out,
 		Wait: wait, Idle: idle, Up: up, Poll: poll, Rollout: rollout, Bound: x.bound, Background: background, Log: x,
+		TermGrace: termGrace, KillGrace: killGrace,
 		Kill: func(pgid int, sig syscall.Signal) error {
 			x.kills = append(x.kills, fmt.Sprintf("%d %s", pgid, sig))
 			if x.onKill != nil {
@@ -462,6 +496,7 @@ func TestRestartWho(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
 		name  string // bash restart.test.sh case
+		git   bool   // the test of a git call: the launcher adds the role worktree (project.AddWorktree)
 		edit  []func(map[string]any)
 		prep  func(x *fx)
 		req   launch.Request
@@ -522,6 +557,7 @@ func TestRestartWho(t *testing.T) {
 	}, {
 		// bash restart.test.sh case_role_agent_gets_role_env_and_type
 		name: "role agent: role env, its type, cwd its role worktree (T-853), OBOR_LANE unset",
+		git:  true, // the launcher adds the worktree: project.AddWorktree runs git
 		prep: func(x *fx) { x.sid("pj-int", "sid-i"); x.shell("w1:p5", "pj-int", "").Session = "sid-i" },
 		req:  launch.Request{Agent: "pj-int"},
 		env: func(x *fx) string {
@@ -566,6 +602,7 @@ func TestRestartWho(t *testing.T) {
 	}, {
 		// bash restart.test.sh case_deep_dive_gets_role_env_and_its_worktree; T-853: its role worktree again
 		name: "deep_dive role (T-179, T-853): its type, cwd its role worktree, OBOR_ROLE=deep_dive",
+		git:  true, // the launcher adds the worktree: project.AddWorktree runs git
 		edit: []func(map[string]any){
 			testkit.Set("roles", `{"lead":"opus","deep_dive":"opus"}`),
 		},
@@ -593,7 +630,7 @@ func TestRestartWho(t *testing.T) {
 	}} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			x := setup(t, c.edit...)
+			x := newFx(t, c.git, c.edit...)
 			c.prep(x)
 			if s := x.startCall(); s != "" {
 				t.Fatalf("precondition: nothing started, got %q", s)
@@ -784,10 +821,10 @@ func TestRestartOtherProjectsPane(t *testing.T) {
 	// axis's worktree.
 	fixtures := func(t *testing.T) (x *fx, axis *config.Config, axisWt string) {
 		x = setup(t)
-		x.p.Lane("L-02", "")
+		x.p.PlainLane("L-02", "")
 		x.p.Config(kitEdits...)
-		a := testkit.New(t)
-		axisWt = a.Lane("L-02", "")
+		a := testkit.NewPlain(t)
+		axisWt = a.PlainLane("L-02", "")
 		a.Config(testkit.Set("lanes", 2), testkit.Set("kinds.claude.args", `["--strict-mcp-config"]`),
 			testkit.Set("roles", `{"integrator":"opus"}`))
 		axis, err := config.Load(a.Root)
@@ -855,7 +892,7 @@ func TestRestartOtherProjectsPane(t *testing.T) {
 		t.Parallel()
 		x, _, _ := fixtures(t)
 		stable := filepath.Join(x.p.Base, "stable")
-		x.p.Git(x.p.Root, "worktree", "add", "-q", "--detach", stable, "main")
+		x.p.Worktree(stable, "")
 		x.f.Pane("w2:pF").Cwd = stable
 		out, ok := restart(x, nil)
 		if !ok || last(out) != "RESTARTED l-02 (pane w2:pF, session new)" {
@@ -1970,7 +2007,7 @@ func TestSessionResumeRule(t *testing.T) {
 		t.Parallel()
 		f := newRfx(t)
 		f.p.Config(testkit.Set("roles", `{"reviewer": "opus"}`))
-		rev := f.p.Lane("review", "review")
+		rev := f.p.PlainLane("review", "review")
 		f.shell("w1:p7", rev, "pj-rev")
 		f.pl.Restore(context.Background())
 		f.wantCalls(f.p.Root + " restart pj-rev --pane w1:p7 --fresh")
@@ -1980,8 +2017,7 @@ func TestSessionResumeRule(t *testing.T) {
 	t.Run("restore: a worker of a busy lane with no recorded session: fresh, as before", func(t *testing.T) {
 		t.Parallel()
 		f := newRfx(t)
-		lane := f.p.Lane("L-01", "task/T-01")
-		f.p.Commit(lane)
+		lane := f.p.PlainLane("L-01", "task/T-01")
 		f.p.Config()
 		f.shell("w1:p1", lane, "pj-l-01")
 		f.pl.Restore(context.Background())

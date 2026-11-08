@@ -15,7 +15,7 @@ import (
 func promptFx(t *testing.T, armed bool) (f hfx, o1 string) {
 	t.Helper()
 	f = newHfx(t)
-	o1 = f.Lane("L-01", "task/T-05")
+	o1 = f.PlainLane("L-01", "task/T-05")
 	f.Config()
 	if armed {
 		f.State("L-01", `{"lane":"L-01","task":"T-05","agent":"pj-l1"}`)
