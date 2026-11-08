@@ -41,7 +41,7 @@ func TestPromoteStatusOff(t *testing.T) {
 	t.Parallel()
 	r := newPromoteRig(t, false)
 	r.fx.Promote = nil // branches.promote unset
-	r.git.between("h0", "h1", "T-1")
+	r.between("h0", "h1", "T-1")
 	r.pass()
 	if st := r.a.Status().Project; st == nil || st.Promote != nil {
 		t.Fatalf("promotion off: status %+v, want a project with no promote", st)
@@ -57,7 +57,7 @@ func TestPromoteStatusWeightAndSuite(t *testing.T) {
 	r.busy()
 	r.spec("T-1", "simple")
 	r.spec("T-2", "medium")
-	r.git.between("h0", "h1", "T-1", "T-2")
+	r.between("h0", "h1", "T-1", "T-2")
 	r.pass()
 	if runs, _, _ := r.f.calls(); len(runs) != 0 {
 		t.Fatalf("precondition: weight 3 < 6 with the loop busy runs nothing: %q", runs)
@@ -79,7 +79,7 @@ func TestPromoteStatusWeightAndSuite(t *testing.T) {
 	// The third merge triggers; the suite runs (held) and the status says so.
 	r.spec("T-3", "hard")
 	r.git.set("staging", "h2")
-	r.git.between("h0", "h2", "T-1", "T-2", "T-3")
+	r.between("h0", "h2", "T-1", "T-2", "T-3")
 	r.f.block, r.f.began = true, make(chan struct{}, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	r.a.promotion(ctx, r.p, r.fx)
@@ -98,7 +98,7 @@ func TestPromoteStatusWeightAndSuite(t *testing.T) {
 func TestPromoteStatusWaitsForReview(t *testing.T) {
 	t.Parallel()
 	r := newPromoteRig(t, true)
-	r.git.between("h0", "h1", "T-1", "T-2")
+	r.between("h0", "h1", "T-1", "T-2")
 	r.pass() // due (idle): the review request, no suite (T-990)
 	r.pass()
 	st := r.a.Status().Project.Promote
@@ -128,7 +128,7 @@ func TestPromoteStatusWaitsForReview(t *testing.T) {
 func TestPromoteStatusRedThenPromoted(t *testing.T) {
 	t.Parallel()
 	r := newPromoteRig(t, false)
-	r.git.between("h0", "h1", "T-1", "T-2")
+	r.between("h0", "h1", "T-1", "T-2")
 	r.f.verdicts["h1"] = "RED"
 	r.pass()
 	r.pass()
@@ -144,7 +144,7 @@ func TestPromoteStatusRedThenPromoted(t *testing.T) {
 		t.Errorf("RED: run %+v, want none", st.Run)
 	}
 	r.git.set("staging", "h2")
-	r.git.between("h0", "h2", "T-1", "T-2", "T-3")
+	r.between("h0", "h2", "T-1", "T-2", "T-3")
 	r.pass() // the GREEN run at h2
 	r.pass() // its fast-forward
 	if got := r.needs(); len(got) != 0 {

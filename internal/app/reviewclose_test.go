@@ -17,13 +17,14 @@ import (
 // T-926: obor review close is a call to serve: serve checks the open review against its fold, commits the close in the
 // main checkout (ReviewGit.Close, admitted) and records fact review.closed, which every "is a review open" reads.
 
-// closedFacts is the log's review.closed facts' data, in order.
+// closedFacts is the log's review.closed facts' data since the seed, in order.
 func (r *reviewRig) closedFacts() []ReviewData {
 	r.t.Helper()
 	var out []ReviewData
 	for _, rec := range readLog(r.t, r.p.root) {
 		var d ReviewData
-		if rec.Task == event.ReviewTask && rec.Step == event.StepReviewClosed && json.Unmarshal(rec.Data, &d) == nil {
+		if rec.Task == event.ReviewTask && rec.Step == event.StepReviewClosed && rec.Seq > r.seeded &&
+			json.Unmarshal(rec.Data, &d) == nil {
 			out = append(out, d)
 		}
 	}
@@ -50,7 +51,7 @@ func TestReviewCloseRefusals(t *testing.T) {
 		{"no open review: no review file", func(r *reviewRig) { r.started() },
 			"no open review: no reviews/RV-5.md in "},
 		{"no review start in the log", func(r *reviewRig) { openReviewFile(r.t, r.p.root) },
-			"no review start for RV-5 in the log: nothing changed"},
+			"no open review (the last review is closed)"},
 		{"not on the branch", func(r *reviewRig) {
 			r.started()
 			openReviewFile(r.t, r.p.root)
@@ -85,9 +86,9 @@ func TestReviewCloseRefusals(t *testing.T) {
 			if err != nil || !strings.HasPrefix(reply, "CLOSED RV-5 closed · 1234567 · approved · forced") {
 				t.Errorf("--force: %q, %v; want CLOSED", reply, err)
 			}
-			if r.commits() != 1 || len(r.closedFacts()) != 1 || r.p.folded.reviewed.open() != "" {
+			if r.commits() != 1 || len(r.closedFacts()) != 1 || r.p.folded.rv.last().open() != "" {
 				t.Errorf("--force: %d commits, %d facts, open %q; want one, one, none", r.commits(), len(r.closedFacts()),
-					r.p.folded.reviewed.open())
+					r.p.folded.rv.last().open())
 			}
 		})
 	}
@@ -123,8 +124,8 @@ func TestReviewCloseCommitsAndRecords(t *testing.T) {
 	if len(f) != 1 || f[0].ID != "RV-5" || f[0].Reply != "CLOSED "+subject {
 		t.Errorf("review.closed facts %+v", f)
 	}
-	if r.p.folded.reviewed.open() != "" || r.p.folded.reviewed.closed == 0 {
-		t.Errorf("the fold %+v, want RV-5 closed", r.p.folded.reviewed)
+	if r.p.folded.rv.last().open() != "" || r.p.folded.rv.last().closed == 0 {
+		t.Errorf("the fold %+v, want RV-5 closed", r.p.folded.rv.last())
 	}
 	if again, err := r.close("c1", "fixed", false, "rare case"); err != nil || again != reply || r.commits() != 1 {
 		t.Errorf("the repeated call: %q, %v, %d commits; want the stored reply, one commit", again, err, r.commits())
@@ -190,79 +191,69 @@ func commitEqual(a, b ReviewCommit) bool {
 		a.Body == b.Body && slices.Equal(a.Accepts, b.Accepts)
 }
 
-// A crash between the close's commit and its fact (here: the log refuses the fact): the call says so; after a restart
-// the first pass's git read records the close once (a second read, and a second restart, add none), and the next
-// obor review starts RV-6 with the scope the close commit names (its start, its covered tasks left out).
+// The close's crash cut (kernel, T-1023): its commit is in and its fact is not (a crash, here a refused append). The
+// next pass after a restart records the close once from the commit (ReviewGit.Closed, the one read) and commits
+// nothing; a close call retried before any pass reads it too: refused, no second commit, the close recorded once.
+// Either way obor review then starts RV-6 with no merge in scope (RV-5 covered T-a and T-b).
 func TestReviewCloseCrashBeforeFact(t *testing.T) {
 	t.Parallel()
-	r := newReviewRig(t)
-	r.started()
-	openReviewFile(t, r.p.root)
-	r.refuseStep(event.StepReviewClosed)
-	if _, err := r.close("c1", "fixed", false); err == nil || !strings.Contains(err.Error(), "committed RV-5, but the event log") {
-		t.Fatalf("close with the fact refused: %v", err)
-	}
-	if r.commits() != 1 || len(r.closedFacts()) != 0 {
-		t.Fatalf("precondition: %d commits, %d facts; want the commit, no fact", r.commits(), len(r.closedFacts()))
-	}
-	read := func() { r.a.reviewCloseRead(context.Background(), r.p, &Loop{Review: r.git, Agents: r.agents}) }
-	for i := range 2 {
+	cut := func(t *testing.T) *reviewRig {
+		r := newReviewRig(t)
+		r.started()
+		openReviewFile(t, r.p.root)
+		r.refuseStep(event.StepReviewClosed)
+		if _, err := r.close("c1", "fixed", false); err == nil || !strings.Contains(err.Error(), "committed RV-5, but the event log") {
+			t.Fatalf("close with the fact refused: %v", err)
+		}
+		if r.commits() != 1 || len(r.closedFacts()) != 0 {
+			t.Fatalf("precondition: %d commits, %d facts; want the commit, no fact", r.commits(), len(r.closedFacts()))
+		}
+		r.p.log.Refuse = nil
 		r.reload()
-		if i == 0 && r.p.folded.reviewed.open() != "RV-5" {
-			t.Fatalf("precondition: RV-5 not open after the restart: %+v", r.p.folded.reviewed)
+		if r.p.folded.rv.last().open() != "RV-5" {
+			t.Fatalf("precondition: RV-5 not open after the restart: %+v", r.p.folded.rv.last())
 		}
+		return r
+	}
+	next := func(t *testing.T, r *reviewRig) {
+		t.Helper()
+		if r.commits() != 1 {
+			t.Errorf("%d close commits, want the one", r.commits())
+		}
+		if f := r.closedFacts(); len(f) != 1 || f[0].ID != "RV-5" || f[0].Reply != "CLOSED "+r.git.closes[0].Subject {
+			t.Fatalf("review.closed facts %+v, want RV-5's once, from its commit", f)
+		}
+		if r.p.folded.rv.last().open() != "" {
+			t.Fatal("RV-5 still open")
+		}
+		if got := r.mustCall("r2", nil, "", false); got != "REVIEW REQUESTED (now)" {
+			t.Fatalf("obor review after the close: %q", got)
+		}
+		r.pass()
+		if l := r.agents.launches; len(l) != 2 || !strings.HasPrefix(l[1].Prompt, "Review RV-6. ") ||
+			!strings.Contains(l[1].Prompt, "In scope: no merges;") ||
+			!strings.Contains(l[1].Prompt, "Previous review: RV-5 (its close commit: "+r.git.closes[0].Subject+";") {
+			t.Errorf("launches %+v; want RV-6, RV-5's covered tasks out of scope", l)
+		}
+	}
+	t.Run("the next pass", func(t *testing.T) {
+		t.Parallel()
+		r := cut(t)
+		read := func() { r.a.reviewCloseRead(context.Background(), r.p, &Loop{Review: r.git, Agents: r.agents}) }
 		read()
 		read()
-		if f := r.closedFacts(); len(f) != 1 || f[0].ID != "RV-5" {
-			t.Fatalf("restart %d: review.closed facts %+v, want RV-5's once, from its commit", i+1, f)
+		r.reload()
+		read()
+		next(t, r)
+	})
+	t.Run("a retried close", func(t *testing.T) {
+		t.Parallel()
+		r := cut(t)
+		if _, err := r.close("c2", "fixed", false); err == nil || !strings.HasPrefix(err.Error(), "no open review") {
+			t.Fatalf("the retried close: %v, want refused (RV-5 is closed by its commit)", err)
 		}
-		if r.p.folded.reviewed.open() != "" {
-			t.Fatalf("restart %d: RV-5 still open", i+1)
-		}
-	}
-	if got := r.mustCall("r2", nil, "", false); got != "REVIEW REQUESTED (now)" {
-		t.Fatalf("obor review after the close: %q", got)
-	}
-	r.pass()
-	if l := r.agents.launches; len(l) != 2 || !strings.HasPrefix(l[1].Prompt, "Review RV-6. ") ||
-		!strings.Contains(l[1].Prompt, "In scope: no merges;") || !strings.Contains(l[1].Prompt, "Previous review: RV-5 (") {
-		t.Errorf("launches %+v; want RV-6, its covered tasks out of scope", l)
-	}
-	if from := r.git.from[len(r.git.from)-1]; from != headSHA {
-		t.Errorf("RV-6's scope from %q, want RV-5's start %s", from, headSHA)
-	}
-}
-
-// An old store (T-926's upgrade): RV-5 started and closed by an older obor's commit, no fact. After the restart the
-// fold alone has it open; the merge loop's first pass reads the commit once and records the close, so no review
-// counts open and obor review starts RV-6.
-func TestReviewCloseOldStore(t *testing.T) {
-	t.Parallel()
-	r := newReviewRig(t)
-	r.started()
-	r.git.last, r.git.lastBody = "RV-5 closed · abcdef0 · approved · T-a", "Covered: T-a, T-b\nStart: "+headSHA
-	r.reload()
-	if r.p.folded.reviewed.open() != "RV-5" || len(r.closedFacts()) != 0 {
-		t.Fatalf("precondition: the old store's fold has RV-5 open, no close fact: %+v", r.p.folded.reviewed)
-	}
-	if _, err := r.call("r2", nil, "", false); err == nil || !strings.Contains(err.Error(), "RV-5 is open") {
-		t.Fatalf("precondition: before the first pass RV-5 counts open: %v", err)
-	}
-	r.a.advance(context.Background())
-	if f := r.closedFacts(); len(f) != 1 || r.p.folded.reviewed.open() != "" {
-		t.Fatalf("after the first pass: facts %+v, open %q; want RV-5 closed once", f, r.p.folded.reviewed.open())
-	}
-	r.a.advance(context.Background())
-	if n := len(r.closedFacts()); n != 1 {
-		t.Errorf("%d close facts after a second pass, want one", n)
-	}
-	if got := r.mustCall("r3", nil, "", false); got != "REVIEW REQUESTED (now)" {
-		t.Fatalf("obor review after the upgrade: %q", got)
-	}
-	r.pass()
-	if l := r.agents.launches; len(l) != 2 || !strings.HasPrefix(l[1].Prompt, "Review RV-6. ") {
-		t.Errorf("launches %+v; want RV-6", l)
-	}
+		next(t, r)
+	})
 }
 
 // RV-126 #1: only the lead closes a review (the owner's call has no role): a reviewer or a worker is refused, plain and
@@ -275,8 +266,8 @@ func TestReviewCloseLeadOnly(t *testing.T) {
 	r.verifyPass()
 	r.finish()
 	r.verifyPass()
-	if r.p.folded.reviewed.open() != "RV-5" {
-		t.Fatalf("precondition: %+v, want RV-5 open", r.p.folded.reviewed)
+	if r.p.folded.rv.last().open() != "RV-5" {
+		t.Fatalf("precondition: %+v, want RV-5 open", r.p.folded.rv.last())
 	}
 	for _, role := range []string{"reviewer", "worker"} {
 		for _, force := range []bool{false, true} {
@@ -287,9 +278,9 @@ func TestReviewCloseLeadOnly(t *testing.T) {
 			}
 		}
 	}
-	if r.commits() != 0 || len(r.closedFacts()) != 0 || r.p.folded.reviewed.open() != "RV-5" {
+	if r.commits() != 0 || len(r.closedFacts()) != 0 || r.p.folded.rv.last().open() != "RV-5" {
 		t.Fatalf("a refused close changed something: %d commits, %d facts, open %q", r.commits(), len(r.closedFacts()),
-			r.p.folded.reviewed.open())
+			r.p.folded.rv.last().open())
 	}
 	if reply, err := r.close("c1", "fixed", false); err != nil || !strings.HasPrefix(reply, "CLOSED RV-5 closed") {
 		t.Fatalf("the lead's close: %q, %v", reply, err)

@@ -92,7 +92,7 @@ func TestReviewOnMergeRule(t *testing.T) {
 	closeCommit := func(t *testing.T, r *reviewRig) { // a close commit alone: the request still waits (no git read)
 		t.Helper()
 		r.git.mu.Lock()
-		r.git.last = "RV-5 closed · abcdef0 · approved · T-a"
+		r.git.closes = append(r.git.closes, ReviewCommit{ID: "RV-5", Subject: "RV-5 closed · abcdef0 · approved · T-a"})
 		r.git.mu.Unlock()
 	}
 	closeFact := func(t *testing.T, r *reviewRig) {
@@ -101,7 +101,7 @@ func TestReviewOnMergeRule(t *testing.T) {
 			t.Fatalf("precondition: the rule's request is not waiting on RV-5 after its close commit: %+v, %d launches",
 				q, len(r.agents.launches))
 		}
-		r.closedBy("RV-5 closed · abcdef0 · approved · T-a")
+		r.closedBy("RV-5", "RV-5 closed · abcdef0 · approved · T-a")
 	}
 	startsRV6 := func(t *testing.T, r *reviewRig) {
 		t.Helper()

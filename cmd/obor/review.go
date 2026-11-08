@@ -47,6 +47,40 @@ func reviewCmd(args []string) int {
 	})
 }
 
+// reviewCloseCmd is `obor review close "<summary>" [--accept "<line>"]… [--force]`: one request to obor serve
+// (wire.MethodReviewClose). Serve's reply: CLOSED <subject>, the commit "RV-<n> closed · <reviewed sha> · approved ·
+// <summary>" (with --accept lines: "accepted <n>" in place of "approved", T-909) on the integration branch. FAIL:
+// serve down, its refusal (no open review, no review start for it in the log, the main checkout not on the
+// integration branch or dirty outside BACKLOG.md and the review's files, a linked fix not verified without --force) or
+// a usage error (exit 1).
+func reviewCloseCmd(args []string) int {
+	var summary string
+	var accepts []string
+	force := false
+	for i := 0; i < len(args); i++ {
+		switch a := args[i]; {
+		case a == "--force" && !force:
+			force = true
+		case a == "--accept" && i+1 < len(args) && strings.TrimSpace(args[i+1]) != "":
+			i++
+			accepts = append(accepts, strings.Join(strings.Fields(args[i]), " "))
+		case summary == "" && strings.TrimSpace(a) != "" && !strings.HasPrefix(a, "-"):
+			summary = strings.Join(strings.Fields(a), " ")
+		default:
+			fmt.Fprintln(out, "FAIL "+help.Usage("review close"))
+			return 1
+		}
+	}
+	if summary == "" {
+		fmt.Fprintln(out, "FAIL "+help.Usage("review close"))
+		return 1
+	}
+	return request(context.Background(), project.OSEnv, wire.MethodReviewClose, func(_ *config.Config, c *wire.Call) error {
+		c.Note, c.Accept, c.Force = summary, accepts, force
+		return nil
+	})
+}
+
 // reviewGit is app.ReviewGit on the project's main checkout: git -C <root>. locked runs Detach's checkout as serve's
 // own git calls run (checks.Scratch.Locked: a lock another git holds is waited for, T-872); nil: Detach fails.
 type reviewGit struct {
@@ -56,44 +90,9 @@ type reviewGit struct {
 
 var _ app.ReviewGit = reviewGit{}
 
-func (g reviewGit) Last(ctx context.Context, branch string) (app.ReviewClose, error) {
-	out, err := g.git(ctx, "log", "-1", "-E", "--grep="+app.CloseCommitGrep, "--format=%B", "--end-of-options", branch)
-	if err != nil {
-		return app.ReviewClose{}, err
-	}
-	return parseMessage(out), nil
-}
-
-// Closes is the close commits of from..to, newest first: each message after a record separator (%x1e).
-func (g reviewGit) Closes(ctx context.Context, from, to string) ([]app.ReviewClose, error) {
-	out, err := g.git(ctx, "log", "-E", "--grep="+app.CloseCommitGrep, "--format=%x1e%B", "--end-of-options",
-		span(from, to))
-	if err != nil {
-		return nil, err
-	}
-	var closes []app.ReviewClose
-	for _, msg := range strings.Split(out, "\x1e") {
-		if strings.TrimSpace(msg) != "" {
-			closes = append(closes, parseMessage(msg))
-		}
-	}
-	return closes, nil
-}
-
-// parseMessage is a commit message (%B) as a ReviewClose: its first line the subject, the rest the body.
-func parseMessage(msg string) app.ReviewClose {
-	subject, body, _ := strings.Cut(strings.TrimSpace(msg), "\n")
-	return app.ReviewClose{Subject: subject, Body: strings.TrimSpace(body)}
-}
-
 func (g reviewGit) Head(ctx context.Context, branch string) (string, error) {
 	out, err := g.git(ctx, "rev-parse", "--verify", "--end-of-options", branch+"^{commit}")
 	return strings.TrimSpace(out), err
-}
-
-func (g reviewGit) Merges(ctx context.Context, from, to string) ([]string, error) {
-	out, err := g.git(ctx, "log", "--reverse", "--first-parent", "--merges", "--format=%H %s", "--end-of-options", span(from, to))
-	return lines(out), err
 }
 
 func (g reviewGit) Files(ctx context.Context, from, to string) ([]string, error) {

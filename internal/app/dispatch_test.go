@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"obor/internal/app/event"
@@ -1000,23 +1001,34 @@ func TestDispatchOfAnEndedTask(t *testing.T) {
 	})
 }
 
-// lastClose is a review git whose newest close commit is RV-4's (the next review RV-5); the rest is unused.
+// lastClose is a review git with no close commit; what a review covered is the log's (T-1023: reviewsLog).
 type lastClose struct{}
 
-func (lastClose) Last(context.Context, string) (app.ReviewClose, error) {
-	return app.ReviewClose{Subject: "RV-4 closed · 1111111 · approved · T-9"}, nil
+func (lastClose) Head(context.Context, string) (string, error)                   { return "head1", nil }
+func (lastClose) Files(context.Context, string, string) ([]string, error)        { return nil, nil }
+func (lastClose) Detach(context.Context, string, string) error                   { return nil }
+func (lastClose) Close(context.Context, app.ReviewCommit) error                  { return nil }
+func (lastClose) Closed(context.Context, string, string, string) (string, error) { return "", nil }
+
+// reviewsLog writes the log of a stopped app: RV-4 started and closed, then each of open started (not closed).
+func (r *loopRig) reviewsLog(open ...string) {
+	r.t.Helper()
+	rec := func(step string, d app.ReviewData) event.Record {
+		raw, _ := json.Marshal(d)
+		return event.Record{Task: event.ReviewTask, Step: step, Kind: event.KindFact, Data: raw}
+	}
+	recs := []event.Record{rec(event.StepReviewStarted, app.ReviewData{ID: "RV-4", Head: "1111111"}),
+		rec(event.StepReviewClosed, app.ReviewData{ID: "RV-4"})}
+	for _, id := range open {
+		recs = append(recs, rec(event.StepReviewStarted, app.ReviewData{ID: id, Head: "head0"}))
+	}
+	if err := app.WriteLog(r.p.Root, time.Now(), recs...); err != nil {
+		r.t.Fatal(err)
+	}
 }
 
-func (lastClose) Closes(context.Context, string, string) ([]app.ReviewClose, error) { return nil, nil }
-
-func (lastClose) Head(context.Context, string) (string, error)             { return "head1", nil }
-func (lastClose) Merges(context.Context, string, string) ([]string, error) { return nil, nil }
-func (lastClose) Files(context.Context, string, string) ([]string, error)  { return nil, nil }
-func (lastClose) Detach(context.Context, string, string) error             { return nil }
-func (lastClose) Close(context.Context, app.ReviewCommit) error            { return nil }
-
-// T-924: a spec's Fixes: line must name the open review (RV-5 once its file is written), or obor dispatch refuses it
-// with nothing recorded; naming it, the dispatch goes on.
+// T-924: a spec's Fixes: line must name the open review (RV-5 once started and its file written), or obor dispatch
+// refuses it with nothing recorded; naming it, the dispatch goes on.
 func TestDispatchFixesLine(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -1034,7 +1046,10 @@ func TestDispatchFixesLine(t *testing.T) {
 			r := newLoopRig(t, dispatching(), withConfig(testkit.Set("roles.reviewer", ""), testkit.Set("paths.reviews", "docs/reviews")))
 			r.review = lastClose{}
 			if c.open {
+				r.reviewsLog("RV-5")
 				r.p.Write("docs/reviews/RV-5.md", "# RV-5\n")
+			} else {
+				r.reviewsLog()
 			}
 			r.start()
 			r.setSpec("s1", "# T-1 — Fix\n\nDifficulty: medium\n"+c.line+"\n\n## Do\nfix it\n")
@@ -1048,19 +1063,24 @@ func TestDispatchFixesLine(t *testing.T) {
 			if err == nil || err.Error() != c.want || reply != "" {
 				t.Fatalf("dispatch: %q, %v; want the refusal %q", reply, err, c.want)
 			}
-			if !slices.Equal(r.steps(), []string{"0 fact spec.set"}) { // the spec's receipt only (T-939)
+			want := []string{"0 fact review.started", "0 fact review.closed", "0 fact spec.set"} // reviewsLog's, the spec's receipt (T-939)
+			if c.open {
+				want = slices.Insert(want, 2, "0 fact review.started")
+			}
+			if !slices.Equal(r.steps(), want) {
 				t.Errorf("a refused dispatch recorded %q", r.steps())
 			}
 		})
 	}
 }
 
-// T-926: obor review close reaches serve through the socket (wire.MethodReviewClose): with RV-4 closed and no
+// T-926: obor review close reaches serve through the socket (wire.MethodReviewClose): with RV-5 started and no
 // docs/reviews/RV-5.md written, serve refuses it as no open review, nothing committed.
 func TestReviewCloseOnTheSocket(t *testing.T) {
 	t.Parallel()
 	r := newLoopRig(t, dispatching(), withConfig(testkit.Set("roles.reviewer", ""), testkit.Set("paths.reviews", "docs/reviews")))
 	r.review = lastClose{}
+	r.reviewsLog("RV-5")
 	r.start()
 	_, err := wire.Verdict(context.Background(), r.sock, wire.MethodReviewClose, wire.Call{Root: r.p.Root,
 		Agent: "pj-lead", Role: "lead", CallID: "c1", Note: "fixed"})

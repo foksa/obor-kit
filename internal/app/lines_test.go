@@ -629,45 +629,6 @@ func TestBriefSupersedesSeveralLines(t *testing.T) {
 	check("replay", q)
 }
 
-// TestLinesBehindCheckout: a main checkout off the target branch holds dispatch, not the lines: each kind of
-// line is typed into its idle pane, and a line waiting 25 h has its needs-you (RV-50 #2).
-func TestLinesBehindCheckout(t *testing.T) {
-	t.Parallel()
-	off := func(context.Context) error { return errors.New("main checkout is on release/v0.12, not main") }
-	for _, kind := range lineKinds {
-		t.Run(kind, func(t *testing.T) {
-			t.Parallel()
-			now := time.Now()
-			a, p := lineApp(t, lineRoot(t), &now)
-			queueLine(t, a, p, kind, now)
-			l := &linerSpy{}
-			a.opt.Loop = func(string) (*Loop, error) { return &Loop{Typer: l, Inbox: l, Checkout: off}, nil }
-			if !p.merging || !a.connected {
-				t.Fatal("precondition: a merging project, connected")
-			}
-			a.advance(context.Background())
-			if !lineTyped(l.calls, kind) {
-				t.Fatalf("want the %s line typed behind the checkout, got %v", kind, l.calls)
-			}
-		})
-	}
-	t.Run("needs-you", func(t *testing.T) {
-		t.Parallel()
-		now := time.Now()
-		a, p := lineApp(t, lineRoot(t), &now)
-		queueLine(t, a, p, "brief", now)
-		lineStatus(a, "w:rev", "working", now)
-		now = now.Add(25 * time.Hour)
-		l := &linerSpy{}
-		a.opt.Loop = func(string) (*Loop, error) { return &Loop{Typer: l, Inbox: l, Checkout: off}, nil }
-		a.advance(context.Background())
-		if len(l.calls) != 0 || len(p.folded.active[event.MsgTask]) != 1 {
-			t.Fatalf("want the working reviewer's 25 h line held with a needs-you: calls %v, needs-you %d", l.calls,
-				len(p.folded.active[event.MsgTask]))
-		}
-	})
-}
-
 // TestBriefWorkDurableAtOnce: the work a brief's agent is seen doing is in the log as soon as its caller (a herdr status
 // event, a snapshot, a fresh start's brief) returns, before any delivery pass: a restart right then still gets the
 // finished line once the agent is idle on reconnect, for a brief with a text and a fresh start's brief (RV-50 #3,

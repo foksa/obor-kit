@@ -14,12 +14,12 @@ import (
 	"obor/internal/project"
 )
 
-// dispatchLoop sets l up for dispatch as state: the lane adapter, the spec reader and the obor kit, and the pause
-// while the main checkout is off branches.main (T-425).
+// dispatchLoop sets l up for dispatch as state: the lane adapter, the spec reader and the obor kit. The merge loop no
+// longer pauses while the main checkout is off branches.main (T-1023: the review close, its last reader, refuses on
+// its own).
 func dispatchLoop(l *app.Loop, env project.Env, cfg *config.Config) {
 	l.Lane = checks.Lane{Cfg: cfg, Out: io.Discard}
 	l.Specs = specs{cfg: cfg, env: env}
-	l.Checkout = specs{cfg: cfg, env: env}.checkout
 	l.Kit = project.KitRoot(env)
 }
 
@@ -70,20 +70,4 @@ func (s specs) Target(ctx context.Context, task string) (string, bool, error) {
 // target is branches.main, whatever the main checkout has checked out (T-425).
 func (s specs) target(context.Context) (string, error) {
 	return s.cfg.Data.Branches.Main, nil
-}
-
-// checkout is nil while the main checkout is on branches.main, else why the merge loop pauses (app.Loop.Checkout).
-func (s specs) checkout(ctx context.Context) error {
-	b, err := project.GitCtx(ctx, s.cfg.Root, "branch", "--show-current")
-	if err != nil {
-		return fmt.Errorf("the branch of the main checkout %s: %w", s.cfg.Root, err)
-	}
-	main := s.cfg.Data.Branches.Main
-	switch b = strings.TrimSpace(b); b {
-	case main:
-		return nil
-	case "":
-		b = "a detached HEAD"
-	}
-	return fmt.Errorf("main checkout is on %s, not %s", b, main)
 }

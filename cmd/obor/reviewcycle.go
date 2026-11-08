@@ -6,54 +6,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
 	"obor/internal/app"
-	"obor/internal/app/wire"
-	"obor/internal/config"
-	"obor/internal/help"
-	"obor/internal/project"
 )
 
-// The review cycle's close (T-716; skills/lead/review-brief.md §5; T-926: a call to serve). obor review close sends
-// serve the summary, the accepted lines and --force; serve checks the open review against its log, commits the close
-// in the main checkout (reviewGit.Close, below) and records fact review.closed, which stops the reviewer
-// (internal/app/reviewclose.go).
-
-// reviewCloseCmd is `obor review close "<summary>" [--accept "<line>"]… [--force]`: one request to obor serve
-// (wire.MethodReviewClose). Serve's reply: CLOSED <subject>, the commit "RV-<n> closed · <reviewed sha> · approved ·
-// <summary>" (with --accept lines: "accepted <n>" in place of "approved", T-909) on the integration branch. FAIL:
-// serve down, its refusal (no open review, no review start for it in the log, the main checkout not on the
-// integration branch or dirty outside BACKLOG.md and the review's files, a linked fix not verified without --force) or
-// a usage error (exit 1).
-func reviewCloseCmd(args []string) int {
-	var summary string
-	var accepts []string
-	force := false
-	for i := 0; i < len(args); i++ {
-		switch a := args[i]; {
-		case a == "--force" && !force:
-			force = true
-		case a == "--accept" && i+1 < len(args) && strings.TrimSpace(args[i+1]) != "":
-			i++
-			accepts = append(accepts, strings.Join(strings.Fields(args[i]), " "))
-		case summary == "" && strings.TrimSpace(a) != "" && !strings.HasPrefix(a, "-"):
-			summary = strings.Join(strings.Fields(a), " ")
-		default:
-			fmt.Fprintln(out, "FAIL "+help.Usage("review close"))
-			return 1
-		}
-	}
-	if summary == "" {
-		fmt.Fprintln(out, "FAIL "+help.Usage("review close"))
-		return 1
-	}
-	return request(context.Background(), project.OSEnv, wire.MethodReviewClose, func(_ *config.Config, c *wire.Call) error {
-		c.Note, c.Accept, c.Force = summary, accepts, force
-		return nil
-	})
-}
+// The review close's commit plumbing (T-716, T-926, T-1023): serve checks the open review against its fold, renders
+// the close (internal/app/reviewclose.go) and commits it in the main checkout here (reviewGit.Close); reviewGit.Closed
+// is the close's crash cut, its one read.
 
 // Close is app.ReviewGit's close on the main checkout (serve calls it admitted, T-926): refused before any change when
 // the checkout is not on c.Branch, dirty outside BACKLOG.md and c's files, BACKLOG.md has no Open section for
@@ -94,7 +56,7 @@ func (g reviewGit) Close(ctx context.Context, c app.ReviewCommit) error {
 		if err != nil {
 			return fmt.Errorf("--accept: %v", err)
 		}
-		if backlog, err = acceptLines(string(b), c.ID, c.Accepts); err != nil {
+		if backlog, err = app.AcceptLines(string(b), c.ID, c.Accepts); err != nil {
 			return err
 		}
 	}
@@ -175,24 +137,18 @@ func porcelainLines(out string) []string {
 	return l
 }
 
-// acceptLines is backlog with one line "- (<id>, accepted) <line>" per accepted finding at the top of its "## Open"
-// section; no such section: an error.
-func acceptLines(backlog, id string, accepts []string) (string, error) {
-	ls := strings.SplitAfter(backlog, "\n")
-	for i, l := range ls {
-		if strings.TrimSpace(l) != "## Open" {
-			continue
+// Closed is the subject of review id's close commit on branch since from, newest first ("": none): app.ReviewGit's one
+// read of a close, the crash cut between its commit and its fact (reviewCloseRead). git's grep matches any line of a
+// message, so a commit that only quotes a close subject is skipped (app.ClosesReview).
+func (g reviewGit) Closed(ctx context.Context, branch, from, id string) (string, error) {
+	out, err := g.git(ctx, "log", "-E", "--grep=^"+regexp.QuoteMeta(id)+" closed · ", "--format=%s", "--end-of-options",
+		span(from, branch))
+	for _, s := range lines(out) {
+		if app.ClosesReview(s, id) {
+			return s, err
 		}
-		var add []string
-		for _, a := range accepts {
-			add = append(add, "- ("+id+", accepted) "+a+"\n")
-		}
-		if !strings.HasSuffix(l, "\n") {
-			ls[i] += "\n"
-		}
-		return strings.Join(ls[:i+1], "") + strings.Join(add, "") + strings.Join(ls[i+1:], ""), nil
 	}
-	return "", errors.New("--accept: BACKLOG.md has no \"## Open\" section: nothing changed")
+	return "", err
 }
 
 // fileThere: path is there.

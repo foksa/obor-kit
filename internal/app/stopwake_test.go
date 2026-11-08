@@ -2,7 +2,6 @@ package app_test
 
 import (
 	"encoding/json"
-	"errors"
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
 	"os"
@@ -432,113 +431,5 @@ func TestRoleWakeNotALimit(t *testing.T) {
 	if n := r.inbox.count("pj-rev", roleContinue); n != 0 || finishedLines(r) != 0 || notified(r, stillStopped) != 0 {
 		t.Errorf("billing_error: %d wakes, %d finished lines, %d alarms; want 0, 0, 0", n, finishedLines(r),
 			notified(r, stillStopped))
-	}
-}
-
-// RV-60 #2: a stopped worker's continue wake and its alarm do not wait for the main checkout: with it off the target
-// branch, or its check failing, they happen as on the target branch. A Claude worker (the wake posted to its inbox)
-// and a Codex worker (typed), each with the checkout held by a branch or by a failing check.
-func TestStopWakeBehindCheckout(t *testing.T) {
-	t.Parallel()
-	type stopRig struct {
-		*loopRig
-		wakes  func() int
-		reason string
-	}
-	// stopped is a rig with the worker stopped on a usage limit resetting in an hour (reset) or none known, the
-	// main checkout failing with checkErr from then on.
-	stopped := map[string]func(t *testing.T, reset bool, checkErr error) stopRig{
-		"claude": func(t *testing.T, reset bool, checkErr error) stopRig {
-			details := func(*loopRig) string { return "429 Too Many Requests" }
-			if reset {
-				details = resetIn(time.Hour)
-			}
-			r, reason := limitStopWith(t, "rate_limit", details, func(r *loopRig) { r.inbox.record("pj-l-01") })
-			r.setCheckout(t, checkErr)
-			return stopRig{r, func() int { return r.inbox.count("pj-l-01", continueLine) }, reason}
-		},
-		"codex": func(t *testing.T, reset bool, checkErr error) stopRig {
-			rollout := cdxLimited
-			if reset {
-				at := time.Date(2026, 10, 24, 13, 0, 0, 0, time.UTC) // the rig's clock starts at 12:00
-				rollout = `{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":100.0,` +
-					`"window_minutes":300,"resets_at":` + strconv.FormatInt(at.Unix(), 10) + `},"secondary":null}}}` + "\n" + cdxLimited
-			}
-			c := codexStoppedWith(t, rollout)
-			c.setCheckout(t, checkErr)
-			return stopRig{c.loopRig, c.wakes, c.reason}
-		},
-	}
-	checks := map[string]error{
-		"off the target branch": errors.New("main checkout is on side, not main"),
-		"a failing check":       errors.New("git: signal: killed"),
-	}
-	for kind, mk := range stopped {
-		for name, checkErr := range checks {
-			t.Run(kind+"/"+name, func(t *testing.T) {
-				t.Parallel()
-				t.Run("known reset", func(t *testing.T) {
-					t.Parallel()
-					r := mk(t, true, checkErr)
-					r.later(time.Hour + time.Minute)
-					if n := r.wakes(); n != 0 {
-						t.Fatalf("woken %d times before reset+2m", n)
-					}
-					r.later(time.Minute)
-					r.waitFor("the wake", func() bool { return r.wakes() == 1 })
-					r.later(30 * time.Minute)
-					r.waitFor("the alarm", func() bool { return r.stopIn(r.reason+stillStopped) == 1 && r.alarms() == 1 })
-					r.mustStillHold(checkErr)
-				})
-				if kind == "codex" { // its fixture limit names a time of day: no unknown reset
-					return
-				}
-				t.Run("unknown reset", func(t *testing.T) {
-					t.Parallel()
-					r := mk(t, false, checkErr)
-					r.later(29 * time.Minute)
-					if n := r.wakes(); n != 0 {
-						t.Fatalf("woken %d times before 30 min", n)
-					}
-					for want := 1; want <= 2; want++ {
-						r.later(time.Minute)
-						r.waitFor("a periodic wake", func() bool { return r.wakes() == want })
-						r.later(29 * time.Minute)
-					}
-					r.mustStillHold(checkErr)
-				})
-				t.Run("missed deadline", func(t *testing.T) {
-					t.Parallel()
-					r := mk(t, false, checkErr)
-					r.stop()
-					r.clock.Add(3 * time.Hour)
-					r.start()
-					r.push()
-					r.waitFor("the missed wake", func() bool { return r.wakes() == 1 })
-					r.later(time.Minute)
-					if n := r.wakes(); n != 1 {
-						t.Errorf("woken %d times, want once", n)
-					}
-					r.mustStillHold(checkErr)
-				})
-			})
-		}
-	}
-}
-
-// setCheckout makes the main checkout's check fail with err.
-func (r *loopRig) setCheckout(t *testing.T, err error) {
-	t.Helper()
-	r.mu.Lock()
-	r.checkoutErr = err
-	r.mu.Unlock()
-	r.waitStep("0 fact needs-you{loop: " + err.Error() + "}")
-}
-
-// mustStillHold fails unless the merge loop is still paused by err (so the wakes above went round it).
-func (r *loopRig) mustStillHold(err error) {
-	r.t.Helper()
-	if !r.hasPrefix("0 fact needs-you{loop: " + err.Error()) {
-		r.t.Fatalf("precondition: the loop's hold %q gone: %q", err, r.steps())
 	}
 }

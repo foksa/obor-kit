@@ -93,7 +93,6 @@ func (s *gatedScratch) Publish(_ context.Context, c port.Candidate) (port.Publis
 	}
 	s.git.mu.Lock()
 	s.git.head = c.SHA
-	s.git.merges = append(s.git.merges, c.SHA+" Merge "+c.Task+": x")
 	s.git.mu.Unlock()
 	return port.PublishOutcome{Kind: port.PublishMerged}, nil
 }
@@ -116,7 +115,7 @@ func newAdmitRig(t *testing.T, gated bool) *admitRig {
 		t.Fatal(err)
 	}
 	h.write(filepath.Join(h.root, "reviews", "RV-5.md"), "# RV-5\n")
-	r := &admitRig{h: h, git: &reviewGitFake{head: "base1", last: "RV-4 closed · 1111111 · approved · T-9"}, agents: &agentsSpy{}}
+	r := &admitRig{h: h, git: &reviewGitFake{head: "base1"}, agents: &agentsSpy{}}
 	r.s = &gatedScratch{schedScratch: f, git: r.git, began: make(chan string, 4)}
 	if gated {
 		r.s.release = make(chan struct{})

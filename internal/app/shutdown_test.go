@@ -63,7 +63,7 @@ func TestShutdownDeliveryNotRecorded(t *testing.T) {
 	}
 }
 
-// A pass cut by serve's stop (here the checkout reports context.Canceled as serve is cancelled: T-660's own
+// A pass cut by serve's stop (here the loop's adapters report context.Canceled as serve is cancelled: T-660's own
 // loop needs-you{loop: … context canceled}) records no loop needs-you and no resumed after it: serve's own
 // cancellation is not a failure of the loop. A real error still records as before (T-425).
 func TestShutdownLoopNotRecorded(t *testing.T) {
@@ -71,7 +71,7 @@ func TestShutdownLoopNotRecorded(t *testing.T) {
 	r := newLoopRig(t)
 	set := func(err error) {
 		r.mu.Lock()
-		r.checkoutErr = err
+		r.loopErr = err
 		r.mu.Unlock()
 	}
 	set(context.Canceled)
@@ -85,6 +85,6 @@ func TestShutdownLoopNotRecorded(t *testing.T) {
 		t.Errorf("the cut pass's not-recorded line is missing:\n%s", out)
 	}
 
-	set(errors.New("main checkout is on side, not main"))
-	r.waitStep("0 fact needs-you{loop: main checkout is on side, not main}")
+	set(errors.New("config: bad json"))
+	r.waitStep("0 fact needs-you{loop: config: bad json}")
 }
