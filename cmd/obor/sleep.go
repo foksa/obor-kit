@@ -349,7 +349,7 @@ func (s *sleeper) ownLane(ctx context.Context, busy []busyTask) (string, error) 
 		if p.ID != own {
 			continue
 		}
-		if info, ok := project.AgentLookup(s.Cfg, p.Label, ""); p.Label != "" && ok && lanes[info.Lane] {
+		if info, ok := s.Cfg.AgentLookup(p.Label, ""); p.Label != "" && ok && lanes[info.Lane] {
 			return info.Lane, nil
 		}
 		for _, l := range s.Cfg.Lanes() {
@@ -419,7 +419,7 @@ func (s *sleeper) stopAgents(ctx context.Context) error {
 		if p.Label == "" || p.Agent == "" || p.ID == ownPane || ownAgent != "" && p.Label == ownAgent {
 			continue
 		}
-		info, ok := project.AgentLookup(s.Cfg, p.Label, "")
+		info, ok := s.Cfg.AgentLookup(p.Label, "")
 		if !ok || !project.LabelOurs(s.Cfg, p.Label, p.Cwd, "") &&
 			(info.Cwd == "" || !project.LabelOurs(s.Cfg, p.Label, p.Cwd, info.Cwd)) {
 			continue

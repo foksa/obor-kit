@@ -129,9 +129,6 @@ func (d Detail) Task(task string) (TaskDetail, bool) {
 			if t.Lane == "" {
 				t.Lane = r.Lane
 			}
-			if t.Agent == "" {
-				t.Agent = r.Agent
-			}
 		}
 	}
 	recs, err := event.RecordsOf(db, task, detailRecords)

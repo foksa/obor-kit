@@ -126,8 +126,8 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 	if cfg.Data.Name != "proj" || cfg.Data.Prefix != "proj" {
 		t.Errorf("name %q prefix %q", cfg.Data.Name, cfg.Data.Prefix)
 	}
-	if cfg.Data.Lanes != 2 {
-		t.Errorf("lanes = %d, want 2 (T-765)", cfg.Data.Lanes)
+	if cfg.Data.Lanes.Count() != 2 {
+		t.Errorf("lanes = %d, want 2 (T-765)", cfg.Data.Lanes.Count())
 	}
 	// T-765: init writes the new shape: no lane types, no agents key, a lanes count, roles as model refs.
 	doc := x.Read(".obor/config.json")
@@ -447,8 +447,8 @@ func TestOborInitRerunKeepsTheLanes(t *testing.T) {
 	x.reset()
 	out := x.init(t)
 	cfg, err := config.Load(x.Root)
-	if err != nil || cfg.Data.Lanes != 2 {
-		t.Fatalf("lanes after the rerun: %d (%v)", cfg.Data.Lanes, err)
+	if err != nil || cfg.Data.Lanes.Count() != 2 {
+		t.Fatalf("lanes after the rerun: %d (%v)", cfg.Data.Lanes.Count(), err)
 	}
 	if stateOf(out, "lanes") != "already" || !strings.Contains(summary(out, "lanes"), "L-01, L-02") {
 		t.Errorf("lanes step %q", summary(out, "lanes"))
@@ -469,8 +469,8 @@ func TestOborInitRerunKeepsTheLanes(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(cfg.LanesDir(), "L-01", ".git")); err != nil || stateOf(out, "lanes") != "done" {
 		t.Errorf("worktree not recreated (%v), lanes %q", err, summary(out, "lanes"))
 	}
-	if cfg, _ := config.Load(x.Root); cfg.Data.Lanes != 2 {
-		t.Errorf("lanes after the recreation %d", cfg.Data.Lanes)
+	if cfg, _ := config.Load(x.Root); cfg.Data.Lanes.Count() != 2 {
+		t.Errorf("lanes after the recreation %d", cfg.Data.Lanes.Count())
 	}
 }
 

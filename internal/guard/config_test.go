@@ -128,8 +128,8 @@ func TestPromptConfigUnknownKeyAndUnreadable(t *testing.T) {
 		f.Config()
 		os.Remove(f.Path(".obor/local.json"))
 		f.Write(b.file, b.text)
-		if c := f.prompt(t, o1, "please fix the login bug", ""); !strings.Contains(c, guardLine) {
-			t.Errorf("%s: context %q, want the guard", b.name, c)
+		if c := f.prompt(t, o1, "please fix the login bug", ""); !strings.Contains(c, "I am worker L-01 on T-05. Did you mean to type here?") {
+			t.Errorf("%s: context %q, want the guard (no prefix to derive the agent from: the lane)", b.name, c)
 		}
 	}
 }

@@ -118,7 +118,7 @@ func leadOurs(cfg *config.Config, agent, cwd string) bool {
 	if cwd == "" || project.LabelOurs(cfg, agent, cwd, "") {
 		return true
 	}
-	if info, ok := project.AgentLookup(cfg, agent, ""); ok && info.Cwd != "" && project.LabelOurs(cfg, agent, cwd, info.Cwd) {
+	if info, ok := cfg.AgentLookup(agent, ""); ok && info.Cwd != "" && project.LabelOurs(cfg, agent, cwd, info.Cwd) {
 		return true
 	}
 	r, err := project.Find(cwd)

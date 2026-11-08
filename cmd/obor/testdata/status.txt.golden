@@ -2,7 +2,7 @@ serve: up
 running: nothing
 L-01    -        task/T-01       working        -  (T-01)  serve: dispatched (attempt 1)  effort: high  agent: pj-l-01 (working)
 L-02    -        task/T-02       publish  age  (T-02)  serve: accepted (attempt 2)  agent: pj-l-02
-L-03    -        -               free           -  (-)
+L-03    -        -               free           -  (-)  agent: pj-l-03
 task T-05 (L-09): needs-you (attempt 1)
 needs-you T-05 (L-09): asks: which file? → obor resume T-05 "<answer>"
 idle: done

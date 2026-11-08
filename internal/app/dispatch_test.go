@@ -873,31 +873,26 @@ func TestDispatchReplacedWaitStartsAfresh(t *testing.T) {
 	}
 }
 
-// T-494, RV-52 #2 (T-587, T-777): agent.start names the lane's worker by its lane row's agent when that is still one
-// of the lane's names (pj-l-01), else by the lane's derived name (<prefix>-<lane lower>: pj-l-01). A pane's label is
+// T-494, RV-52 #2 (T-587, T-777, T-1031): agent.start names the lane's worker by the lane's derived name (<prefix>-<lane
+// lower>: pj-l-01; no lane row stores one). A pane's label is
 // no name any more (the compact alias pj-l1 went with T-777), and herdr's live agent name never counts.
 func TestDispatchKeepsTheLaneAgentName(t *testing.T) {
 	t.Parallel()
 	for _, row := range []struct {
 		name         string
-		rowAgent     string // the lane row's agent
 		label, agent string // w1:p1's label and the agent running in it ("": a shell)
 		want         string
 	}{
-		{"lane row, a lane name", "pj-l-01", "", "", "pj-l-01"},
-		{"lane row, not a lane name (before a rename): the derived name", "hk-l1", "", "", "pj-l-01"},
-		{"lane row not a lane name, a pane labelled an old alias: the derived name", "hk-l1", "pj-l1", "", "pj-l-01"},
-		{"a pane labelled an old alias: the derived name", "", "pj-l1", "", "pj-l-01"},
-		{"live name and label conflict: the derived name", "", "pj-l1", "pj-l-01", "pj-l-01"},
-		{"label a lane name, a live name the old alias: the derived name", "", "pj-l-01", "pj-l1", "pj-l-01"},
-		{"a live name, no label: the derived name", "", "", "pj-l1", "pj-l-01"},
-		{"label not a lane name", "", "notes", "", "pj-l-01"},
-		{"neither", "", "", "", "pj-l-01"},
+		{"a pane labelled an old alias: the derived name", "pj-l1", "", "pj-l-01"},
+		{"live name and label conflict: the derived name", "pj-l1", "pj-l-01", "pj-l-01"},
+		{"label a lane name, a live name the old alias: the derived name", "pj-l-01", "pj-l1", "pj-l-01"},
+		{"a live name, no label: the derived name", "", "pj-l1", "pj-l-01"},
+		{"label not a lane name", "notes", "", "pj-l-01"},
+		{"neither", "", "", "pj-l-01"},
 	} {
 		t.Run(row.name, func(t *testing.T) {
 			t.Parallel()
 			r := newLoopRig(t, dispatching())
-			r.setLane(func(l *port.Lane) { l.Agent = row.rowAgent })
 			r.f.Set("w1:p1", func(p *herdrtest.Pane) {
 				p.Label, p.Name = row.label, row.agent
 				if row.agent == "" {
@@ -924,26 +919,6 @@ func TestDispatchKeepsTheLaneAgentName(t *testing.T) {
 				t.Errorf("agent.start launched %q in %q, want %q in w1:p1", launch.Agent, launch.Pane, row.want)
 			}
 		})
-	}
-}
-
-// T-587: serve restarted after `obor setup rename` replays a log whose dispatch fact names the old agent, so the lane's
-// row says hk-l1 again; the next dispatch still starts the worker by the lane's name under the config (pj-l-01).
-func TestDispatchAfterARenameIgnoresTheReplayedRowAgent(t *testing.T) {
-	t.Parallel()
-	r := newLoopRig(t, dispatching())
-	r.setLane(func(l *port.Lane) { l.Agent = "hk-l1" })
-	r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Label, p.Name, p.Kind, p.Status = "", "", "", "" }) // a shell
-	r.start()
-	r.stop()
-	r.start() // the replay
-	r.mustDispatch("d1")
-	r.waitFor("the start", func() bool { r.mu.Lock(); defer r.mu.Unlock(); return len(r.launches) > 0 })
-	r.mu.Lock()
-	got := r.launches[0].Agent
-	r.mu.Unlock()
-	if got != "pj-l-01" {
-		t.Errorf("agent.start launched %q, want pj-l-01 (the row's hk-l1 is no name of the lane)", got)
 	}
 }
 

@@ -190,7 +190,7 @@ func writeBackground(w io.Writer, bs []view.Background) {
 
 // laneLine is l's line: its lane, the model its dispatch runs ("-": none), branch, the state column (T-657), the task's
 // age and id, then serve's state of t (the task serve has on l, Project.TaskOn), the effort its dispatch named (T-695),
-// a dirty or warned worktree and the agent.
+// a dirty or warned worktree and the agent; a keep lane says so, with its queue (T-1031).
 func laneLine(l view.Lane, t view.Task) string {
 	ago := "-"
 	if l.DoneAge != nil {
@@ -221,6 +221,12 @@ func laneLine(l view.Lane, t view.Task) string {
 		line += "  agent: " + l.Agent
 		if l.AgentStatus != "" {
 			line += " (" + l.AgentStatus + ")"
+		}
+	}
+	if l.Mode == config.LaneKeep {
+		line += "  keep"
+		if len(l.Queue) > 0 {
+			line += " (queue: " + strings.Join(l.Queue, ", ") + ")"
 		}
 	}
 	return line
@@ -385,6 +391,9 @@ func waitLine(w view.WaitItem, t view.Task, now time.Time) string {
 			line += ": " + t.Title
 		}
 		return line
+	}
+	if w.Queue != "" { // T-1031: queued on a keep lane: "behind <task> on keep lane <lane>"
+		return cmp.Or(w.Why, "waiting for keep lane "+w.Queue)
 	}
 	if w.Level == "" {
 		return "waiting for a lane" + why(w.Why)

@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"obor/internal/config"
-	"obor/internal/project"
 	"obor/internal/spec"
 	"obor/internal/testkit"
 
@@ -51,8 +50,7 @@ func validate(t *testing.T, p *testkit.Project, edits ...edit) []string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	warns, fails := c.Validate(config.ValidateOptions{Overlap: spec.Overlap,
-		StateAgent: func(lane string) string { return project.LaneAgent(p.Root, lane) }})
+	warns, fails := c.Validate(config.ValidateOptions{Overlap: spec.Overlap})
 	return append(warns, fails...)
 }
 
@@ -432,16 +430,6 @@ func warnsKey(lines []string, key string) bool {
 	return false
 }
 
-// T-777: a lane row's agent is one of the lane's names; when it names a role's agent, that is a collision.
-func TestValidateLaneStateAgent(t *testing.T) {
-	p := newProject(t)
-	p.State("L-01", `{"lane":"L-01","agent":"pj-rev"}`)
-	got := validate(t, p, set("roles.reviewer", "opus"))
-	if want := []string{`FAIL .lanes: lane L-01's agent "pj-rev" collides with a role agent`}; !reflect.DeepEqual(got, want) {
-		t.Errorf("validate = %q, want %q", got, want)
-	}
-}
-
 // bash config.test.sh case_validate_ok_template_and_fixture: the template plus the local example validate. The kit's own
 // .obor/config.json is not a product invariant: the kit's guard runs `bin/obor config validate` on it (T-901).
 func TestValidateTemplates(t *testing.T) {
@@ -474,8 +462,8 @@ func TestValidateTemplates(t *testing.T) {
 	if rc, _ := c.Role("lead"); config.ModelRef(rc.Type, rc.Effort) != "opus:high" {
 		t.Errorf("template lead = %+v, want opus:high", rc)
 	}
-	if c.Data.Lanes != 2 || c.DifficultyList("hard")[0] != "opus:xhigh" {
-		t.Errorf("local example overrides the template: lanes %d, hard %q; want 2, opus:xhigh", c.Data.Lanes, c.DifficultyList("hard"))
+	if c.Data.Lanes.Count() != 2 || c.DifficultyList("hard")[0] != "opus:xhigh" {
+		t.Errorf("local example overrides the template: lanes %d, hard %q; want 2, opus:xhigh", c.Data.Lanes.Count(), c.DifficultyList("hard"))
 	}
 }
 
@@ -506,7 +494,7 @@ func TestModelRef(t *testing.T) {
 	if rc, _ := cfg.Role("lead"); rc.Type != "opus" || rc.Effort != "high" {
 		t.Errorf("Role(lead) = type %q effort %q, want opus, high", rc.Type, rc.Effort)
 	}
-	if info, ok := cfg.AgentLookup("pj-lead", "", nil); !ok || info.Type != "opus" || info.Effort != "high" {
+	if info, ok := cfg.AgentLookup("pj-lead", ""); !ok || info.Type != "opus" || info.Effort != "high" {
 		t.Errorf("AgentLookup(pj-lead) = %+v, %v; want type opus, effort high", info, ok)
 	}
 }

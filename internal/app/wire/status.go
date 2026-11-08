@@ -37,6 +37,8 @@ type ProjectStatus struct {
 	// warns before a lanes-count edit drops one not in it, and serve refuses that edit while a lane holds a task
 	// (T-896). Absent (an older serve): no lane free, so every dropped lane warns (T-921).
 	Free []string `json:"free"`
+	// Queues is each keep lane's queue: the tasks waiting for it, in dispatch order (T-1031; absent: none waits).
+	Queues map[string][]string `json:"queues,omitempty"`
 	// Watches is the lead's open watches (mergewatch.go), oldest first: obor status lists them (T-658).
 	Watches []WatchStatus `json:"watches,omitempty"`
 	// Idle is the project's idle state (T-803): the pipeline is empty and the lead was told; nil when it has work.
@@ -288,6 +290,7 @@ type TaskStatus struct {
 	Why   string   `json:"why,omitempty"`   // waiting, all it waits for merged: its dispatch's last refusal
 	Level string   `json:"level,omitempty"` // waiting: the difficulty level its models came from
 	Types []string `json:"types,omitempty"` // waiting: the models it takes (model refs, T-695, T-765)
+	Queue string   `json:"queue,omitempty"` // waiting: the keep lane it queues on (T-1031; "": none)
 	// Difficulty is a waiting task's spec Difficulty level (its dispatch's level, else its stored spec's line: a --model
 	// override; "": neither) and Model the model ref it will run on: its first of Types not paused (a --model
 	// override's or its level's; "": every one is paused) (T-977).

@@ -27,7 +27,7 @@ var (
 // removed key still set, a merge.neutral glob overlapping a class glob, an agent named like another lane).
 // Shapes (types, unknown keys) are checked by Load; these are the checks a typed decode cannot make.
 func (c *Config) Validate(o ValidateOptions) (warns, fails []string) {
-	v := &validator{c: c, d: &c.Data, stateAgent: o.StateAgent}
+	v := &validator{c: c, d: &c.Data}
 	v.top()
 	v.models()
 	v.lanes()
@@ -38,7 +38,7 @@ func (c *Config) Validate(o ValidateOptions) (warns, fails []string) {
 	v.customRoles()
 	v.roleDocs()
 	v.optional()
-	v.laneAgents()
+	v.laneNames()
 	v.trunk()
 	v.workflow()
 	return append(c.warnings(o), v.warns...), v.fails
@@ -47,16 +47,13 @@ func (c *Config) Validate(o ValidateOptions) (warns, fails []string) {
 // ValidateOptions are what Validate cannot know itself; a nil func skips its check.
 type ValidateOptions struct {
 	Overlap func(a, b string) bool // two path globs may match a common path (spec.Overlap)
-	// StateAgent is the agent a lane's row names (project.LaneAgent; nil: rows not looked at).
-	StateAgent func(lane string) string
 }
 
 type validator struct {
-	c          *Config
-	d          *Data
-	stateAgent func(lane string) string
-	warns      []string
-	fails      []string
+	c     *Config
+	d     *Data
+	warns []string
+	fails []string
 }
 
 func (v *validator) fail(path, why string) { v.fails = append(v.fails, "FAIL "+path+": "+why) }
@@ -82,12 +79,30 @@ func (v *validator) top() {
 	}
 }
 
-// lanes: the count is not negative (lanes are L-01 … L-NN: no name to collide with a role worktree).
+// lanes: a count is not negative; a list's names are unique and of the L-NN shape (T-1031: no name to collide with
+// a role worktree).
 func (v *validator) lanes() {
-	if v.d.Lanes < 0 {
-		v.fail(".lanes", fmt.Sprintf("must be a non-negative integer (how many lanes), got %d", v.d.Lanes))
+	if !v.d.Lanes.Listed() {
+		if v.d.Lanes.N < 0 {
+			v.fail(".lanes", fmt.Sprintf("must be a non-negative integer (how many lanes), got %d", v.d.Lanes.N))
+		}
+		return
+	}
+	seen := map[string]bool{}
+	for i, e := range v.d.Lanes.List {
+		at := fmt.Sprintf(".lanes[%d].name", i)
+		switch {
+		case !LaneNameRE.MatchString(e.Name):
+			v.fail(at, "must be a lane name L-NN (L-01, L-02 …), got "+Compact(e.Name))
+		case seen[e.Name]:
+			v.fail(at, "lane "+e.Name+" is listed twice")
+		}
+		seen[e.Name] = true
 	}
 }
+
+// LaneNameRE is a lane's name as LaneName writes it: L-01 … L-99, L-100 ….
+var LaneNameRE = regexp.MustCompile(`^L-(0[1-9]|[1-9][0-9]+)$`)
 
 // models: every models entry and kinds key names a kind with a bridge (agents.Lookup), no kinds args carry a bare
 // `--` (obor adds the first prompt after its own options, so a `--` would turn --settings and --resume into
@@ -357,8 +372,8 @@ func regularFile(p string) bool {
 	return err == nil && fi.Mode().IsRegular()
 }
 
-// laneAgents: no name of a lane's worker is a role's agent (T-189, T-191).
-func (v *validator) laneAgents() {
+// laneNames: no name of a lane's worker is a role's agent (T-189, T-191).
+func (v *validator) laneNames() {
 	names := []string{}
 	if rc, _ := v.c.Role("worker"); rc.Configured {
 		names = append(names, rc.Agent)
@@ -368,28 +383,21 @@ func (v *validator) laneAgents() {
 	}
 	roleAgents := Unique(names...)
 	for _, lane := range v.c.Lanes() {
-		state := ""
-		if v.stateAgent != nil {
-			state = v.stateAgent(lane.Name)
-		}
-		for _, alias := range v.c.LaneAgentAliases(lane.Name, state) {
+		for _, alias := range v.c.LaneAgentAliases(lane.Name) {
 			for _, agent := range roleAgents {
 				if alias == agent {
 					v.fail(".lanes", "lane "+lane.Name+"'s agent "+Compact(alias)+" collides with a role agent")
 				}
 			}
 		}
-		v.bareLaneName(lane.Name, state, roleAgents)
+		v.bareLaneName(lane.Name, roleAgents)
 	}
 }
 
 // bareLaneName: a role agent named like lane's lowercase name (l-02) is no name of lane (lookups take no bare lane
-// name, T-302) but reads like one: WARN. The lane's own row of that name is its real name.
-func (v *validator) bareLaneName(lane, state string, roleAgents []string) {
+// name, T-302) but reads like one: WARN.
+func (v *validator) bareLaneName(lane string, roleAgents []string) {
 	lower := strings.ToLower(lane)
-	if state == lower {
-		return
-	}
 	for _, agent := range roleAgents {
 		if agent == lower {
 			v.warns = append(v.warns, "WARN .lanes: agent "+Compact(agent)+" is named like lane "+lane+

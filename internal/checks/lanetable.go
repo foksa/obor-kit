@@ -70,7 +70,11 @@ func (p *LaneTable) States() []port.Lane {
 // recorded head), never in the main checkout; what serve does for its task is the task's phase (T-788). Unknown: git
 // or the store could not tell (Reason says why, T-871), never free.
 func (p *LaneTable) LaneState(l config.Lane) port.Lane {
-	s := port.Lane{Name: l.Name, Dir: l.Dir, State: port.LaneMissing}
+	// The agent is derived from the lane (T-1031: no row stores it); a keep lane says its mode (a fresh one none).
+	s := port.Lane{Name: l.Name, Dir: l.Dir, State: port.LaneMissing, Agent: p.Cfg.AgentName("worker", l.Name)}
+	if l.Mode == config.LaneKeep {
+		s.Mode = l.Mode
+	}
 	if !project.IsDir(l.Dir) {
 		return s
 	}
@@ -144,7 +148,7 @@ func (p *LaneTable) taskType(l config.Lane, s port.Lane) string {
 }
 
 // Lanes is port.Lanes from today's lane table (obor serve's app.Lanes): a lane's task is open while the lane works
-// (its row's task has not landed, T-1012); its agent is its row's (the lanes table, read-only). A lane whose git or store read failed is unknown, with
+// (its row's task has not landed, T-1012); its agent is derived from the lane (LaneState). A lane whose git or store read failed is unknown, with
 // its reason (T-871): dispatch never picks it.
 type Lanes struct{}
 
@@ -154,11 +158,10 @@ func (Lanes) Lanes(ctx context.Context, root string) ([]port.Lane, error) {
 		return nil, err
 	}
 	lp := NewLaneTable(ctx, cfg)
-	rows, _ := lp.Rows() // an unknown lane carries its store error in Reason
-	out := lp.States()   // this call's own table: its rows are changed in place
+	out := lp.States() // this call's own table: its rows are changed in place; an unknown lane carries its error
 	for i := range out {
 		l := &out[i]
-		l.Dir, l.Agent = project.Physical(l.Dir), rows[l.Name].Agent
+		l.Dir = project.Physical(l.Dir)
 		if l.State != port.LaneWorking {
 			l.Task = ""
 		}

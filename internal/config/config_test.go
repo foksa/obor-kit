@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -83,8 +84,8 @@ func TestLocalOverlay(t *testing.T) {
 	if k := c.Data.Kinds.M["claude"]; k.PromptExtra != "P" || !reflect.DeepEqual(k.Args, []string{"--y"}) {
 		t.Errorf("a kind merges key by key, its args replaced whole: %+v", k)
 	}
-	if c.Data.Lanes != 2 || len(c.Lanes()) != 2 {
-		t.Errorf("local.json's lanes count replaces config.json's: %d", c.Data.Lanes)
+	if c.Data.Lanes.Count() != 2 || len(c.Lanes()) != 2 {
+		t.Errorf("local.json's lanes count replaces config.json's: %d", c.Data.Lanes.Count())
 	}
 	if cmd, ok := c.Command("check"); !ok || cmd.Cmd != "make check" || cmd.Timeout != 90 || cmd.Dir != "sub" {
 		t.Errorf("a command merges: %+v", cmd)
@@ -229,26 +230,18 @@ func TestRolesAndAgentNames(t *testing.T) {
 func TestAgentLookupPrecedence(t *testing.T) {
 	root := writeProject(t, `{"prefix":"pj","lanes_dir":"../proj-wt","lanes":2,
 		"roles":{"lead":"opus:high","integrator":"sonnet","triage":"","deep_dive":"opus"}}`, "")
-	// The agent L-01's state file names (project.LaneAgent; config reads no state files).
-	state := func(lane string) string {
-		if lane == "L-01" {
-			return "bob"
-		}
-		return ""
-	}
 	c, err := Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := c.LaneAgentAliases("L-01", state("L-01")); !reflect.DeepEqual(got, []string{"bob", "pj-l-01"}) {
+	if got := c.LaneAgentAliases("L-01"); !reflect.DeepEqual(got, []string{"pj-l-01"}) { // derived only (T-1031)
 		t.Errorf("LaneAgentAliases = %#v", got)
 	}
-	if _, ok := c.AgentLookup("pj-advisor", "", state); ok {
+	if _, ok := c.AgentLookup("pj-advisor", ""); ok {
 		t.Error("an optional role that is not configured is known")
 	}
 	wt := filepath.Join(filepath.Dir(root), "proj-wt")
 	for name, want := range map[string]AgentInfo{
-		"bob":          {Role: "worker", Lane: "L-01", Cwd: wt + "/L-01"},
 		"pj-l-01":      {Role: "worker", Lane: "L-01", Cwd: wt + "/L-01"},
 		"pj-l-02":      {Role: "worker", Lane: "L-02", Cwd: wt + "/L-02"},
 		"pj-int":       {Role: "integrator", Type: "sonnet", Cwd: wt + "/integrator"}, // T-853: its role worktree
@@ -256,25 +249,22 @@ func TestAgentLookupPrecedence(t *testing.T) {
 		"pj-deep-dive": {Role: "deep_dive", Type: "opus", Cwd: wt + "/deep_dive"}, // T-853: its role worktree
 		"pj-triage":    {Role: "triage", Cwd: root},
 	} {
-		if got, ok := c.AgentLookup(name, "", state); !ok || got != want {
+		if got, ok := c.AgentLookup(name, ""); !ok || got != want {
 			t.Errorf("AgentLookup(%q) = %+v, %v; want %+v", name, got, ok, want)
 		}
 	}
-	if got, ok := c.AgentLookup("unknown", wt+"/L-02", state); !ok || got.Role != "worker" || got.Lane != "L-02" {
+	if got, ok := c.AgentLookup("unknown", wt+"/L-02"); !ok || got.Role != "worker" || got.Lane != "L-02" {
 		t.Errorf("cwd lane lookup = %+v, %v", got, ok)
 	}
-	if _, ok := c.AgentLookup("unknown", "", state); ok {
+	if _, ok := c.AgentLookup("unknown", ""); ok {
 		t.Error("unknown agent found")
 	}
 	// T-777: the removed forms resolve to nothing: the compact lane alias (pj-l1), an agents entry (adv) and the bare
 	// lane name (l-01).
 	for _, name := range []string{"pj-l1", "adv", "l-01"} {
-		if got, ok := c.AgentLookup(name, "", state); ok {
+		if got, ok := c.AgentLookup(name, ""); ok {
 			t.Errorf("AgentLookup(%q) = %+v; want unknown", name, got)
 		}
-	}
-	if _, ok := c.AgentLookup("bob", "", nil); ok {
-		t.Error("bob is known without the state agent")
 	}
 }
 
@@ -392,5 +382,79 @@ func TestLaneEnv(t *testing.T) {
 		if got := LaneEnv(c.cfg, c.goflags); !reflect.DeepEqual(got, c.want) {
 			t.Errorf("%s: LaneEnv = %q, want %q", c.name, got, c.want)
 		}
+	}
+}
+
+// T-1031: lanes is a count (sugar for that many fresh lanes) or a list of {name, keep_agent}; obor config validate
+// refuses a list with a repeated name or a name not of the L-NN shape, and a list member with an unknown key does not
+// load. The form the file has is the one written back.
+func TestLanesCountOrList(t *testing.T) {
+	type lane struct{ name, mode string }
+	for _, c := range []struct {
+		name, lanes string
+		want        []lane
+		fails       []string
+		loadErr     string
+	}{
+		{name: "a count: fresh lanes L-01 … L-NN", lanes: `2`,
+			want: []lane{{"L-01", LaneFresh}, {"L-02", LaneFresh}}},
+		{name: "no lanes", lanes: `0`},
+		{name: "a list: its names and modes, in its order", lanes: `[{"name": "L-02", "keep_agent": true}, {"name": "L-05"}]`,
+			want: []lane{{"L-02", LaneKeep}, {"L-05", LaneFresh}}},
+		{name: "duplicate names", lanes: `[{"name": "L-01", "keep_agent": true}, {"name": "L-01"}]`,
+			want:  []lane{{"L-01", LaneKeep}, {"L-01", LaneFresh}},
+			fails: []string{"FAIL .lanes[1].name: lane L-01 is listed twice"}},
+		{name: "bad names", lanes: `[{"name": "l-01"}, {"name": "L-1"}, {"name": "L-00"}, {"name": ""}]`,
+			want: []lane{{"l-01", LaneFresh}, {"L-1", LaneFresh}, {"L-00", LaneFresh}, {"", LaneFresh}},
+			fails: []string{`FAIL .lanes[0].name: must be a lane name L-NN (L-01, L-02 …), got "l-01"`,
+				`FAIL .lanes[1].name: must be a lane name L-NN (L-01, L-02 …), got "L-1"`,
+				`FAIL .lanes[2].name: must be a lane name L-NN (L-01, L-02 …), got "L-00"`,
+				`FAIL .lanes[3].name: must be a lane name L-NN (L-01, L-02 …), got ""`}},
+		{name: "a negative count", lanes: `-1`, fails: []string{"FAIL .lanes: must be a non-negative integer (how many lanes), got -1"}},
+		{name: "an unknown member key", lanes: `[{"name": "L-01", "keep": true}]`, loadErr: `unknown field "keep"`},
+		{name: "neither a count nor a list", lanes: `"two"`, loadErr: "lanes takes a count or a list"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			cfg, err := Load(writeProject(t, `{"prefix":"pj","lanes_dir":"../wt","lanes":`+c.lanes+`}`, ""))
+			if c.loadErr != "" {
+				if err == nil || !strings.Contains(err.Error(), c.loadErr) {
+					t.Fatalf("load: %v, want an error naming %q", err, c.loadErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got []lane
+			for _, l := range cfg.Lanes() {
+				got = append(got, lane{l.Name, l.Mode})
+				if l.Dir != cfg.LanesDir()+"/"+l.Name {
+					t.Errorf("%s's dir %q", l.Name, l.Dir)
+				}
+			}
+			if !slices.Equal(got, c.want) {
+				t.Errorf("lanes %v, want %v", got, c.want)
+			}
+			var fails []string
+			_, all := cfg.Validate(ValidateOptions{})
+			for _, f := range all {
+				if strings.HasPrefix(f, "FAIL .lanes") {
+					fails = append(fails, f)
+				}
+			}
+			if !slices.Equal(fails, c.fails) {
+				t.Errorf("validate %q, want %q", fails, c.fails)
+			}
+			// the form the file has is written back (Compact: obor config get, a config edit's old value)
+			if got, want := Compact(cfg.Data.Lanes), strings.ReplaceAll(c.lanes, " ", ""); got != want {
+				t.Errorf("written back as %s, want %s", got, want)
+			}
+		})
+	}
+	keep := load(t, `{"prefix":"pj","lanes":[{"name":"L-01","keep_agent":true},{"name":"L-02"}]}`, "")
+	if !keep.KeepLane("L-01") || keep.KeepLane("L-02") || keep.KeepLane("L-03") || !keep.HasLane("L-02") || keep.HasLane("L-03") {
+		t.Errorf("KeepLane/HasLane: L-01 keep, L-02 fresh, L-03 none; got %v %v %v / %v %v", keep.KeepLane("L-01"),
+			keep.KeepLane("L-02"), keep.KeepLane("L-03"), keep.HasLane("L-02"), keep.HasLane("L-03"))
 	}
 }

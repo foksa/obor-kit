@@ -2,7 +2,7 @@
 // start of a worker): the one launch path.
 //
 //	Who      a lane agent, a role agent (lead, integrator, reviewer, triage, deep_dive, advisor), an agents.<name>
-//	         entry (project.AgentLookup: the roles table, no second copy of the name rules), an agent whose pane has a
+//	         entry (config.AgentLookup: the roles table, no second copy of the name rules), an agent whose pane has a
 //	         lane worktree as cwd (that lane's agent), or any agent with a session recorded in serve's store. Env
 //	         OBOR_ROLE (the role's env value, triage too since T-796; an agents entry without a role: unset), OBOR_LANE (no lane:
 //	         unset), the kind's vars and the cwd as obor setup gives them, every other var of the registry unset (agents.StartVars,
@@ -263,7 +263,7 @@ type target struct {
 func (l *Launcher) resolve(ctx context.Context, agent, pane, typ string) (*target, error) {
 	t := &target{agent: agent}
 	if l.Cfg != nil {
-		t.info, t.known = project.AgentLookup(l.Cfg, agent, "")
+		t.info, t.known = l.Cfg.AgentLookup(agent, "")
 		if !t.known {
 			// An agent whose pane (--pane, else its labelled one) has a lane worktree as cwd: that lane's agent.
 			p := pane
@@ -271,7 +271,7 @@ func (l *Launcher) resolve(ctx context.Context, agent, pane, typ string) (*targe
 				p, _ = l.PaneOf(ctx, agent, "")
 			}
 			if cwd := l.paneCwd(ctx, p); cwd != "" {
-				if info, ok := project.AgentLookup(l.Cfg, agent, cwd); ok {
+				if info, ok := l.Cfg.AgentLookup(agent, cwd); ok {
 					t.info, t.known = info, true
 					l.say("lane %s (pane %s cwd)", info.Lane, p)
 				}

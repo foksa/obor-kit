@@ -133,7 +133,7 @@ func brief(ctx context.Context, cfg *config.Config, agent, text string, fresh bo
 // roleAgent: agent is an agent of cfg (a role's or an agents entry) that serve sends no jobs to: not the lead, the
 // integrator or a worker.
 func roleAgent(cfg *config.Config, agent string) bool {
-	info, ok := project.AgentLookup(cfg, agent, "")
+	info, ok := cfg.AgentLookup(agent, "")
 	return ok && info.Role != "lead" && info.Role != "integrator" && info.Role != "worker"
 }
 

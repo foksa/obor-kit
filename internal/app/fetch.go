@@ -171,7 +171,7 @@ func (a *App) callerJob(p *proj, c wire.Call) (mtask, event.Key, bool, error) {
 		if found == nil {
 			return mtask{}, event.Key{}, false, nil
 		}
-		if c.Agent == "" || c.Agent != found.agent && c.Agent != p.laneAgent(found.lane) {
+		if c.Agent == "" || c.Agent != found.agent && c.Agent != p.workerIn(found.lane) {
 			return mtask{}, event.Key{}, false, fmt.Errorf("job_next: not your job: %s is %s's in lane %s, not %s", JobID(key),
 				found.agent, found.lane, Dash(c.Agent))
 		}
@@ -269,8 +269,8 @@ func fixRead(p *proj, kit string) (string, error) {
 		" first.", nil
 }
 
-// laneAgent is the agent of lane as the lanes were last read (its row's, under mu).
-func (p *proj) laneAgent(lane string) string {
+// workerIn is the worker agent of lane as the lanes were last read (its derived name, T-1031; under mu).
+func (p *proj) workerIn(lane string) string {
 	for _, l := range p.lanes {
 		if l.Name == lane {
 			return l.Agent

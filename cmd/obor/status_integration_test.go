@@ -66,7 +66,7 @@ func TestStatusOverServe(t *testing.T) {
 		t.Errorf("first line %q, want %q", lines[0], want)
 	}
 	matchLine(t, text, `^L-01 +- +task/T-01 +needs-you +- +\(T-01\)  serve: working \(attempt 1\)  agent: pj-l1 \(idle\)$`, "L-01")
-	matchLine(t, text, `^L-02 +- +- +free +- +\(-\)$`, "L-02")
+	matchLine(t, text, `^L-02 +- +- +free +- +\(-\)  agent: pj-l-02$`, "L-02")
 	for _, want := range []string{
 		"task T-05 (L-09): needs-you (attempt 2)",
 		"queued T-09: waiting (after T-03): dispatch T-09: lane L-01 is working on T-01", // DD-v0.12 A1
@@ -135,7 +135,7 @@ func TestStatusServeDown(t *testing.T) {
 		`^running: nothing$`,
 		`^L-01 +- +task/T-01 +working +12m +\(T-01\)  agent: pj-l-01$`,
 		`^L-02 +- +task/T-02 +working +[0-9]+s +\(T-02\)  agent: pj-l-02$`,
-		`^L-03 +oc +task/T-03 +working +- +\(T-03\)  warning: no-plugin$`,
+		`^L-03 +oc +task/T-03 +working +- +\(T-03\)  warning: no-plugin  agent: pj-l-03$`,
 		`^nightly: off \(obor nightly on HH:MM\)$`, // merge.nightly_at unset (T-781)
 		`^full check: none yet$`}
 	if len(lines) != len(want) {
@@ -535,8 +535,8 @@ func TestStatusShowsEffortAndType(t *testing.T) {
 		st.Lanes[2].State != "free" {
 		t.Fatalf("precondition: L-01 and L-02 working, L-03 free; got %+v", st.Lanes)
 	}
-	matchLine(t, text, `^L-01 +sonnet .*serve: working \(attempt 1\)  effort: high$`, "L-01 of type sonnet at effort high")
-	matchLine(t, text, `^L-02 +- .*serve: working \(attempt 1\)$`, "L-02: no model, no effort")
+	matchLine(t, text, `^L-01 +sonnet .*serve: working \(attempt 1\)  effort: high  agent: pj-l-01$`, "L-01 of type sonnet at effort high")
+	matchLine(t, text, `^L-02 +- .*serve: working \(attempt 1\)  agent: pj-l-02$`, "L-02: no model, no effort")
 	matchLine(t, text, `^L-03 +- `, "L-03 free: no model")
 	b, err := json.Marshal(st)
 	if err != nil {
@@ -565,7 +565,7 @@ func TestStatusWarnsAClaudeLaneWithoutThePlugin(t *testing.T) {
 		t.Fatalf("precondition: L-02 had the settings file: %v", err)
 	}
 	_, text := statusOf(t, p, wire.Status{}, errors.New("obor serve is not running (dial: refused)"), time.Now())
-	matchLine(t, text, `^L-02 +- +task/T-02 +working +- +\(T-02\)  warning: no-plugin$`, "L-02 without the plugin")
+	matchLine(t, text, `^L-02 +- +task/T-02 +working +- +\(T-02\)  warning: no-plugin  agent: pj-l-02$`, "L-02 without the plugin")
 	if strings.Contains(text, "L-01 ") && strings.Contains(strings.SplitN(strings.SplitN(text, "L-01 ", 2)[1], "\n", 2)[0], "no-plugin") {
 		t.Errorf("L-01 (plugin enabled) warned:\n%s", text)
 	}

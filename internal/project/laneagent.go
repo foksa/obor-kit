@@ -6,18 +6,6 @@ import (
 	"obor/internal/store"
 )
 
-// LaneAgent is the agent lane's row names (the store's lanes table, serve's projection; "" when none or unreadable).
-func LaneAgent(root, lane string) string {
-	row, _, _ := store.ReadLaneAt(root, lane)
-	return row.Agent
-}
-
-// AgentLookup is config.AgentLookup with the agents of the lanes' rows (read once).
-func AgentLookup(cfg *config.Config, agent, at string) (config.AgentInfo, bool) {
-	rows, _ := store.ReadLanesAt(cfg.Root)
-	return cfg.AgentLookup(agent, at, func(lane string) string { return rows[lane].Agent })
-}
-
 // LaneModel is the model ref the lane's open dispatch runs (T-739, T-892): the lane row's Type, its effort kept, when
 // the row holds a task (T-765: a lane is a pool, the task's dispatch picks the model; T-865: a configured lane's row
 // always names its dispatch's type). One read of the row, no git: a free lane whose row keeps its last task answers

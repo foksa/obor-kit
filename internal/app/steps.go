@@ -65,7 +65,7 @@ const afterMergePromoted = "skipped: branches.promote is set (after_merge runs a
 // it (no lane reuse after a failed stop). after_merge (G) is the gate's; agent.stop (S) acts on the lane only while
 // its row holds the task (a crash, then the lane reused: its stop is skipped).
 func (a *App) afterStep(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
-	step := afterSteps[mt.after]
+	step := mt.afterList()[mt.after]
 	in := event.Intent{Key: event.Key{Task: mt.task, Attempt: mt.attempt, Step: step}, Class: event.ClassGit}
 	var effect func(context.Context) (any, error)
 	switch step {

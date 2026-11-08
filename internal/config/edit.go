@@ -18,7 +18,7 @@ import (
 //
 //	difficulty.<level>   the level's ordered list of model refs (<model>[:<effort>])
 //	roles.<role>         a configured role's model ref
-//	lanes                how many lanes (L-01 … L-NN)
+//	lanes                how many lanes (L-01 … L-NN; a count replaces a list, T-1031)
 //	kinds.<kind>.args    the args appended to every start of a kind
 //	merge.nightly_at     the nightly's switch: a local time "HH:MM" (on, every night then) or null (off)
 //
@@ -88,15 +88,19 @@ func (c *Config) editLevel(doc []byte, level string, val json.RawMessage) (Chang
 	return c.change("difficulty."+level, doc, []string{"difficulty", level}, refs, old, Compact(refs))
 }
 
-// editLanes sets the lanes count (a whole number, 0 or more): a lower count's dropped lanes are in Change.Dropped.
+// editLanes sets the lanes count (a whole number, 0 or more; it replaces a list, T-1031): the lanes it no longer has
+// are in Change.Dropped.
 func (c *Config) editLanes(doc []byte, val json.RawMessage) (Change, error) {
 	var n int
 	if err := json.Unmarshal(val, &n); err != nil || n < 0 {
 		return Change{}, fmt.Errorf("lanes takes a whole number (L-01 … L-NN)")
 	}
 	ch, err := c.change("lanes", doc, []string{"lanes"}, n, Compact(c.Data.Lanes), Compact(n))
-	for i := n + 1; i <= c.Data.Lanes; i++ {
-		ch.Dropped = append(ch.Dropped, LaneName(i))
+	kept := LaneList{N: n}.Entries()
+	for _, e := range c.Data.Lanes.Entries() {
+		if !slices.ContainsFunc(kept, func(k LaneEntry) bool { return k.Name == e.Name }) {
+			ch.Dropped = append(ch.Dropped, e.Name)
+		}
 	}
 	return ch, err
 }

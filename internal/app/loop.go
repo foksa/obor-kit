@@ -111,9 +111,19 @@ func resumeDefaultOf(cause string) string {
 	return resumeDefault[cause]
 }
 
-// afterSteps are a merged task's steps, in order. An older log's dispatch.next (the legacy queue dispatch, T-408) and
-// archive (the done file's, before T-437) are none of them: their results fold as no step's.
+// afterSteps are a merged task's steps, in order (a keep lane's task runs the first only: afterList). An older log's
+// dispatch.next (the legacy queue dispatch, T-408) and archive (the done file's, before T-437) are none of them: their
+// results fold as no step's.
 var afterSteps = []string{event.StepAfterMerge, event.StepStop}
+
+// afterList is mt's after-merge steps: a keep lane's task (its dispatch's Keep, T-1031) runs after_merge only, its
+// agent stays, idle, for the lane's next task; every other task's are afterSteps.
+func (m *mtask) afterList() []string {
+	if m.disp.Keep {
+		return afterSteps[:1]
+	}
+	return afterSteps
+}
 
 // tries is how many counted failures of one step make a needs-you (the failure rule: App.do).
 const tries = 3
@@ -833,7 +843,7 @@ func (a *App) pickJob(p *proj, mt mtask) step {
 
 // pickMerged runs the next after-merge step (rows 37–38).
 func (a *App) pickMerged(p *proj, mt mtask) step {
-	if mt.after >= len(afterSteps) {
+	if mt.after >= len(mt.afterList()) {
 		return nil // done (a step's needs-you: pick waits until obor resume)
 	}
 	return func(ctx context.Context, fx *Loop) bool { return a.afterStep(ctx, p, fx, mt) }

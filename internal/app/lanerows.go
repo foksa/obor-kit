@@ -51,7 +51,7 @@ func (p *proj) foldLanes(r event.Record) {
 				delete(p.folded.lr.rows, lane)
 			}
 		}
-		p.folded.lr.rows[d.Lane] = store.LaneRow{Lane: d.Lane, Task: r.Task, Agent: d.Agent}
+		p.folded.lr.rows[d.Lane] = store.LaneRow{Lane: d.Lane, Task: r.Task}
 	case r.Kind == event.KindResult:
 		step, _ := event.StepN(r.Step)
 		if step == event.StepSubmit {
@@ -73,7 +73,7 @@ func (p *proj) foldLanes(r event.Record) {
 			}
 		}
 		p.folded.lr.rows[mt.disp.Lane] = store.LaneRow{Lane: mt.disp.Lane, Task: r.Task, Branch: mt.disp.Branch,
-			Agent: mt.disp.Agent, Base: d.Base, DispatchedAt: mt.at.Unix(), Type: mt.disp.Type}
+			Base: d.Base, DispatchedAt: mt.at.Unix(), Type: mt.disp.Type}
 	}
 }
 

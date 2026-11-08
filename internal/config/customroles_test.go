@@ -36,7 +36,7 @@ func TestFoldedRolesFromStrings(t *testing.T) {
 			t.Errorf("Role(%s) = %+v, %v; want agent %s, model %s:%s, writes %q", w.role, rc, ok, w.agent, w.model,
 				w.effort, w.write)
 		}
-		if info, ok := c.AgentLookup(w.agent, "", nil); !ok || info.Role != w.role || info.Cwd != p.Root {
+		if info, ok := c.AgentLookup(w.agent, ""); !ok || info.Role != w.role || info.Cwd != p.Root {
 			t.Errorf("AgentLookup(%s) = %+v, %v; want role %s in the main checkout", w.agent, info, ok, w.role)
 		}
 		if c.Self(w.role, "") != w.agent {
@@ -101,7 +101,7 @@ func TestValidCustomRoles(t *testing.T) {
 	if want := []string{"lead", "integrator", "reviewer", "buddy", "ux_designer"}; !reflect.DeepEqual(names, want) {
 		t.Errorf("RoleAgents = %q, want %q", names, want)
 	}
-	if info, ok := c.AgentLookup("pj-ux-designer", "", nil); !ok || info.Role != "ux_designer" || info.Type != "opus" {
+	if info, ok := c.AgentLookup("pj-ux-designer", ""); !ok || info.Role != "ux_designer" || info.Type != "opus" {
 		t.Errorf("AgentLookup(pj-ux-designer) = %+v, %v", info, ok)
 	}
 	if c.RoleDoc("ux_designer") != "docs/agents/ux_designer.md" {
@@ -184,7 +184,7 @@ func TestCustomRoleRefusals(t *testing.T) {
 	if rc, ok := c.Role("rev"); ok {
 		t.Errorf("roles.rev = %+v, want no role", rc)
 	}
-	if info, ok := c.AgentLookup("pj-rev", "", nil); !ok || info.Role != "reviewer" {
+	if info, ok := c.AgentLookup("pj-rev", ""); !ok || info.Role != "reviewer" {
 		t.Errorf("pj-rev = %+v, %v; want the reviewer", info, ok)
 	}
 }
@@ -199,7 +199,7 @@ func TestRemovedCustomRoleRow(t *testing.T) {
 		t.Fatalf("precondition: with its row validate = %q, want OK", got)
 	}
 	c, _ := config.Load(p.Root)
-	if _, ok := c.AgentLookup("pj-buddy", "", nil); !ok {
+	if _, ok := c.AgentLookup("pj-buddy", ""); !ok {
 		t.Fatal("precondition: pj-buddy is a role agent")
 	}
 	got := validate(t, p)
@@ -214,7 +214,7 @@ func TestRemovedCustomRoleRow(t *testing.T) {
 	if c.Self("buddy", "") != "" {
 		t.Errorf("Self(buddy) = %q, want none", c.Self("buddy", ""))
 	}
-	if _, ok := c.AgentLookup("pj-buddy", "", nil); ok {
+	if _, ok := c.AgentLookup("pj-buddy", ""); ok {
 		t.Error("pj-buddy is still a role agent")
 	}
 	for _, rc := range c.RoleAgents() {

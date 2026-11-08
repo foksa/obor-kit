@@ -51,6 +51,7 @@
       "done_age": null,
       "dirty": false,
       "warning": null,
+      "agent": "pj-l-03",
       "free": true,
       "column": "free"
     }

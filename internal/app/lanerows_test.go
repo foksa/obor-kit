@@ -69,7 +69,7 @@ func TestLaneRowsProjectTheLog(t *testing.T) {
 	// An old prepare result still carrying "head" folds: the field is ignored (T-1017).
 	add("T-1", 1, event.StepPrepare, event.KindResult, map[string]string{"base": "b1", "head": "h1"})
 	at := event.RecordTime(disp).Unix()
-	row := store.LaneRow{Lane: "L-01", Task: "T-1", Branch: "task/T-1", Agent: "pj-l-01", Base: "b1", DispatchedAt: at}
+	row := store.LaneRow{Lane: "L-01", Task: "T-1", Branch: "task/T-1", Base: "b1", DispatchedAt: at}
 	table("prepared: awaits task_done, no head yet (T-1015)", row)
 
 	sub := add("T-1", 1, event.StepSubmitted, event.KindFact, submitData{Lane: "L-01", Agent: "pj-l-01", Report: "r"})
@@ -92,7 +92,7 @@ func TestLaneRowsProjectTheLog(t *testing.T) {
 		Branch: "task/T-2", Target: "b2", Effort: "high", Type: "opus:high"})
 	add("T-2", 1, event.StepPrepare, event.KindIntent, port.PrepareInput{})
 	add("T-2", 1, event.StepPrepare, event.KindResult, prepareOut{Base: "b2"})
-	row2 := store.LaneRow{Lane: "L-01", Task: "T-2", Branch: "task/T-2", Agent: "pj-l-01", Base: "b2",
+	row2 := store.LaneRow{Lane: "L-01", Task: "T-2", Branch: "task/T-2", Base: "b2",
 		DispatchedAt: h.now.Add(-2 * time.Minute).Unix(), Type: "opus:high"}
 	table("the lane re-dispatched", row2)
 

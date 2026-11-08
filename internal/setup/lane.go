@@ -22,8 +22,11 @@ func (s *Setup) lane(ctx context.Context, args []string) error {
 		return err
 	}
 	configured := s.cfg.HasLane(lane)
-	if next := config.LaneName(s.cfg.Data.Lanes + 1); !configured && lane != next {
-		return project.Failf("lanes are L-01 … L-NN in order (lanes: %d): the next one is %s", s.cfg.Data.Lanes, next)
+	if !configured && s.cfg.Data.Lanes.Listed() { // T-1031: a list is the owner's, a count edit would replace it
+		return project.Failf("lanes is a list in .obor/config.json: add {\"name\": \"%s\"} to it, then obor setup lane %s", lane, lane)
+	}
+	if next := config.LaneName(s.cfg.Data.Lanes.Count() + 1); !configured && lane != next {
+		return project.Failf("lanes are L-01 … L-NN in order (lanes: %d): the next one is %s", s.cfg.Data.Lanes.Count(), next)
 	}
 	dir := filepath.Join(s.cfg.LanesDir(), lane)
 	if err := s.ensureWorktree(dir); err != nil {
@@ -45,8 +48,8 @@ func (s *Setup) lane(ctx context.Context, args []string) error {
 		s.say("link %s → %s", link, src)
 	}
 	if configured {
-		s.say("skip config lanes (%s is lane %d of %d)", lane, s.laneIndex(lane), s.cfg.Data.Lanes)
-	} else if err := s.addLane(s.cfg.Data.Lanes + 1); err != nil {
+		s.say("skip config lanes (%s is lane %d of %d)", lane, s.laneIndex(lane), s.cfg.Data.Lanes.Count())
+	} else if err := s.addLane(s.cfg.Data.Lanes.Count() + 1); err != nil {
 		return err
 	}
 	if c, ok := run.Command(s.cfg, "lane_setup"); ok {

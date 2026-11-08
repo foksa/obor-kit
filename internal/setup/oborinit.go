@@ -640,7 +640,7 @@ func (s *Setup) initPanes(ctx context.Context, add func(name, state, format stri
 	role := func(name string) func([]string) error {
 		return func(w []string) error { return s.role(ctx, append([]string{name}, w...)) }
 	}
-	if err := place("L-01", s.laneAgent("L-01"), lane("L-01"), []string{"--new-tab", "workers"}); err != nil {
+	if err := place("L-01", s.laneWorker("L-01"), lane("L-01"), []string{"--new-tab", "workers"}); err != nil {
 		return nil, err
 	}
 	tab := s.projectTabOf(ctx, s.placed)
@@ -648,7 +648,7 @@ func (s *Setup) initPanes(ctx context.Context, add func(name, state, format stri
 	if tab != "" {
 		beside = []string{"--tab", tab}
 	}
-	if err := place("L-02", s.laneAgent("L-02"), lane("L-02"), beside); err != nil {
+	if err := place("L-02", s.laneWorker("L-02"), lane("L-02"), beside); err != nil {
 		return nil, err
 	}
 	integrator := beside
@@ -664,8 +664,8 @@ func (s *Setup) initPanes(ctx context.Context, add func(name, state, format stri
 	return waiting, nil
 }
 
-// laneAgent is the lane's worker agent name.
-func (s *Setup) laneAgent(lane string) string {
+// laneWorker is the lane's worker agent name (derived).
+func (s *Setup) laneWorker(lane string) string {
 	return s.cfg.AgentName("worker", lane)
 }
 

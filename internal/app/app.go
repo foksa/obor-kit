@@ -56,6 +56,9 @@ type Options struct {
 	Binary func() bool
 	// Follow is how often the binary watch asks Binary (30 s): its own timer, herdr connected or not (T-737).
 	Follow time.Duration
+	// Tokens is a session transcript's context size (the keep lane handoff rule, T-1031; ok false: none read). Nil:
+	// project.ContextTokens' read of the file.
+	Tokens func(transcript string) (int, bool)
 }
 
 // App is `obor serve`'s state. Make it with New, run it with Serve.

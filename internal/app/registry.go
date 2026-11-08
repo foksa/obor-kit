@@ -237,7 +237,7 @@ func namedAgents(root string) func(string) bool {
 		return func(string) bool { return true }
 	}
 	return func(agent string) bool {
-		_, ok := cfg.AgentLookup(agent, "", nil)
+		_, ok := cfg.AgentLookup(agent, "")
 		return ok
 	}
 }

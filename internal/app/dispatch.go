@@ -68,7 +68,11 @@ type (
 		Fix string `json:"fix,omitempty"`
 		// Stop: the worker the merge loop stops (with force) before the step that needs the lane (T-852): a move's (the
 		// redo's, before lane.prepare). "": none.
-		Stop   string `json:"stop,omitempty"`
+		Stop string `json:"stop,omitempty"`
+		// Keep: the lane is a keep lane (T-1031, config.LaneKeep), as the config said at the dispatch: the merged task's
+		// after-merge steps keep its agent (afterList), the start runs only when the lane has no live agent
+		// (nextDispatch), and a waiting one queues for its lane behind the older ones (queuedAhead).
+		Keep   bool   `json:"keep,omitempty"`
 		Caller string `json:"caller,omitempty"`
 		Call   string `json:"call,omitempty"`
 		Reply  string `json:"reply"`
@@ -141,10 +145,116 @@ func (a *App) dispatchCall(ctx context.Context, c wire.Call) (string, error) {
 	}
 	reply, err = a.dispatchTask(ctx, p, fx, c)
 	var nl noLaneError
-	if errors.As(err, &nl) {
+	var qe queueError
+	switch {
+	case errors.As(err, &nl):
 		reply, err = a.waitLane(p, c, nl)
+	case errors.As(err, &qe):
+		reply, err = a.waitQueue(p, c, qe)
 	}
 	return reply, err
+}
+
+// queueError is dispatchTask's answer to a dispatch naming a keep lane that is busy (T-1031): a task holds it (its
+// dispatch, or its work not landed yet), or an older dispatch waits for it; the task queues behind (waitQueue records
+// it waiting, waitDispatch tries again in dispatch order). Level and types are the request's, resolved; ls the lanes read.
+type queueError struct {
+	task, lane, behind string
+	level              string
+	types              []string
+	ls                 []port.Lane
+}
+
+func (e queueError) Error() string { return "dispatch " + e.task + ": " + e.why() }
+
+// why is the queued task's wait: "behind <task> on keep lane <lane>".
+func (e queueError) why() string { return "behind " + e.behind + " on keep lane " + e.lane }
+
+// waitQueue records fact waiting for c.Task's request (under a.verdicts) queued on the keep lane qe names: the reply
+// WAITING <task> (queued): behind <task> on keep lane <lane>. As waitLane's, it replaces a waiting fact of the task;
+// the merge loop dispatches it when the lane frees and no older dispatch waits for it (queuedAhead).
+func (a *App) waitQueue(p *proj, c wire.Call, qe queueError) (string, error) {
+	mt, held := a.held(p, c.Task)
+	if !mt.dispatchable() {
+		return "", fmt.Errorf("dispatch %s: %s is open in obor serve (%s): obor resume or obor drop it first", c.Task,
+			c.Task, mt.shown())
+	}
+	d := dispatchData{Force: c.Force, Level: qe.level, Types: qe.types, Keep: true, Caller: callerOf(c), Call: c.CallID}
+	d.Lane = qe.lane
+	d.Reply = fmt.Sprintf("WAITING %s (queued): %s", c.Task, qe.why()) + idleNote(qe.ls, "", held)
+	if !a.record(p, event.Record{Task: c.Task, Attempt: mt.nextAttempt(), Step: event.StepWaiting, Kind: event.KindFact}, d) {
+		return "", fmt.Errorf("dispatch: the event log of %s refused it", p.name)
+	}
+	a.mu.Lock()
+	p.waitLine[c.Task] = waitRefusal{line: qe.why(), since: a.opt.Now()} // obor status' why until the loop tries it
+	a.mu.Unlock()
+	a.wake()
+	return d.Reply, nil
+}
+
+// keepBusy is the task a dispatch of c naming keep lane c.Lane queues behind ("": the lane takes it now): an older
+// dispatch waiting for the lane (ahead, queuedAhead's), else the task whose dispatch holds it (held), else the task the
+// lane works on (its row's task not landed: submitted, in the gate, in review), unless that is c.Task itself, not
+// finished (a redo, pickLane's).
+func keepBusy(ls []port.Lane, c wire.Call, held map[string]string, finished bool, ahead string) string {
+	if ahead != "" {
+		return ahead
+	}
+	if t := held[c.Lane]; t != "" {
+		return t
+	}
+	for _, l := range ls {
+		if l.Name == c.Lane && l.State == port.LaneWorking && l.Task != "" && (l.Task != c.Task || finished) {
+			return l.Task
+		}
+	}
+	return ""
+}
+
+// queuedAhead is the oldest dispatch other than task's waiting for keep lane lane with nothing else to wait for (its
+// --after tasks merged), older than task's own wait when task waits too ("": none; under mu): the queue's order is the
+// dispatch order (T-1031).
+func (p *proj) queuedAhead(task, lane string) string {
+	var mine int64 = -1
+	if m := p.folded.loop[task]; m != nil && m.is(stWaiting) {
+		mine = m.dispSeq
+	}
+	best, seq := "", int64(0)
+	for t, m := range p.folded.loop {
+		if t == task || !m.is(stWaiting) || !m.disp.Keep || m.disp.Lane != lane || mine >= 0 && m.dispSeq > mine ||
+			!p.afterMerged(m) {
+			continue
+		}
+		if best == "" || m.dispSeq < seq {
+			best, seq = t, m.dispSeq
+		}
+	}
+	return best
+}
+
+// afterMerged: every task m waits for (--after) merged in the loop (under mu).
+func (p *proj) afterMerged(m *mtask) bool {
+	for _, dep := range m.disp.After {
+		if d := p.folded.loop[dep]; d == nil || d.state != stMerged {
+			return false
+		}
+	}
+	return true
+}
+
+// laneQueues is each keep lane's queue (under mu): the tasks waiting for it, in dispatch order (T-1031: obor status'
+// lane line and the view).
+func (p *proj) laneQueues() map[string][]string {
+	var out map[string][]string
+	for _, t := range p.passOrder() { // the waiting ones last, oldest dispatch first
+		if m := p.folded.loop[t]; m.state == stWaiting && m.disp.Keep && m.disp.Lane != "" {
+			if out == nil {
+				out = map[string][]string{}
+			}
+			out[m.disp.Lane] = append(out[m.disp.Lane], t)
+		}
+	}
+	return out
 }
 
 // noLaneError is dispatchTask's refusal of a level dispatch (c.Level) when none of the level's models gets a lane
@@ -317,8 +427,9 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Call) 
 	if err != nil {
 		return "", fmt.Errorf("dispatch: lanes of %s: %v", p.name, err)
 	}
+	keep := c.Lane != "" && cfg.KeepLane(c.Lane) // T-1031: a dispatch naming a busy keep lane queues
 	if len(c.After) > 0 {
-		if reply, err := a.waitTask(p, c, ls); err != nil || reply != "" {
+		if reply, err := a.waitTask(p, c, ls, keep); err != nil || reply != "" {
 			return reply, err
 		}
 	}
@@ -326,6 +437,14 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Call) 
 	a.mu.Lock()
 	finished := p.finishedIn(c.Task)
 	a.mu.Unlock()
+	if keep {
+		a.mu.Lock()
+		ahead := p.queuedAhead(c.Task, c.Lane)
+		a.mu.Unlock()
+		if behind := keepBusy(ls, c, held, finished, ahead); behind != "" {
+			return "", queueError{task: c.Task, lane: c.Lane, behind: behind, level: c.Level, types: c.Types, ls: ls}
+		}
+	}
 	paused := a.pausedModels(p, c.Types)
 	l, ref, why := pickLane(ls, c, held, paused, mt.disp.Type, finished)
 	if why != "" && c.Level != "" && c.Lane == "" {
@@ -363,15 +482,10 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Call) 
 		return "", fmt.Errorf("dispatch %s: %s is open in obor serve (%s): obor resume or obor drop it first", c.Task,
 			c.Task, mt.shown())
 	}
-	a.mu.Lock()
-	l.Agent = rowAgent(cfg, l.Name, l.Agent)
-	names := cfg.LaneAgentAliases(l.Name, "")
-	a.placement(p, l.Dir, append([]string{l.Agent}, names...)...)
-	a.mu.Unlock()
-	agent := laneAgent(l, cfg.AgentName("worker", l.Name))
+	agent := cfg.AgentName("worker", l.Name) // derived (T-777: a lane pane's old label is no name of the worker; T-1031)
 	caller := callerOf(c)
 	d := dispatchData{Lane: l.Name, Dir: l.Dir, Agent: agent, Branch: branch, Target: target, Redo: redo, Force: c.Force,
-		Level: c.Level, Types: c.Types, Effort: effort, Type: ref, Caller: caller, Call: c.CallID,
+		Level: c.Level, Types: c.Types, Effort: effort, Type: ref, Keep: cfg.KeepLane(l.Name), Caller: caller, Call: c.CallID,
 		Reply: fmt.Sprintf("DISPATCHED %s → %s (queued)", c.Task, l.Name) + typeNote(typ) + effortNote(effort) +
 			idleNote(ls, l.Name, held) + note}
 	if !a.record(p, event.Record{Task: c.Task, Attempt: mt.nextAttempt(), Step: event.StepDispatched, Kind: event.KindFact}, d) {
@@ -392,26 +506,6 @@ func unbridged(cfg *config.Config, typ string) string {
 		return Dash(lt.Kind)
 	}
 	return ""
-}
-
-// rowAgent is the agent a lane's row names when it is still one of the lane's names under cfg (a name the config gave
-// it; the rule a pane's label meets too), else "": serve rebuilds the rows from the log, whose old names (before an
-// obor setup rename) must not pick the worker.
-func rowAgent(cfg *config.Config, lane, agent string) string {
-	if agent != "" && slices.Contains(cfg.LaneAgentAliases(lane, ""), agent) {
-		return agent
-	}
-	return ""
-}
-
-// laneAgent is the name agent.start gives lane l's worker: the lane row's agent (rowAgent), else its derived name
-// (<prefix>-<lane lower>, T-777: a lane pane's old label is no name of the worker any more). herdr's live agent name is
-// never read (RV-52 #2).
-func laneAgent(l port.Lane, derived string) string {
-	if l.Agent != "" {
-		return l.Agent
-	}
-	return derived
 }
 
 // held is task's loop record (zero: none) and the lanes other tasks' open dispatches hold (lane → task).
@@ -618,7 +712,7 @@ func (p *proj) foldDispatch(r event.Record) {
 // merged (a plain dispatch). Refused: a task it names is itself, unknown (no spec and no loop record), dropped or
 // rejected, or waiting (itself or through the tasks it waits for) for this one (a cycle); an unknown lane; the task
 // open in the loop (as a dispatch).
-func (a *App) waitTask(p *proj, c wire.Call, ls []port.Lane) (string, error) {
+func (a *App) waitTask(p *proj, c wire.Call, ls []port.Lane, keep bool) (string, error) {
 	var open []string
 	for _, dep := range c.After {
 		_, spec, err := specOf(p, dep)
@@ -654,8 +748,8 @@ func (a *App) waitTask(p *proj, c wire.Call, ls []port.Lane) (string, error) {
 			c.Task, mt.shown())
 	}
 	caller := callerOf(c)
-	d := dispatchData{Lane: c.Lane, Force: c.Force, Level: c.Level, Types: c.Types, After: c.After, Caller: caller, Call: c.CallID,
-		Reply: fmt.Sprintf("WAITING %s after %s (queued)", c.Task, strings.Join(open, ", ")) + idleNote(ls, "", held)}
+	d := dispatchData{Lane: c.Lane, Force: c.Force, Level: c.Level, Types: c.Types, After: c.After, Keep: keep,
+		Caller: caller, Call: c.CallID, Reply: fmt.Sprintf("WAITING %s after %s (queued)", c.Task, strings.Join(open, ", ")) + idleNote(ls, "", held)}
 	if !a.record(p, event.Record{Task: c.Task, Attempt: mt.nextAttempt(), Step: event.StepWaiting, Kind: event.KindFact}, d) {
 		return "", fmt.Errorf("dispatch: the event log of %s refused it", p.name)
 	}
@@ -771,9 +865,13 @@ func (a *App) waitDispatch(ctx context.Context, p *proj, fx *Loop, mt mtask) boo
 	w, ok := p.waitLine[mt.task]
 	line := err.Error()
 	var nl noLaneError
+	var qe queueError
 	laneWait := errors.As(err, &nl)
-	if laneWait {
+	switch {
+	case laneWait:
 		line = nl.laneWait() // the status line reads it after the level (T-723)
+	case errors.As(err, &qe): // queued behind a keep lane's task (T-1031): the wait itself, as a busy lane's
+		line, laneWait = qe.why(), true
 	}
 	changed := !ok || w.line != line
 	if changed {
@@ -822,8 +920,9 @@ func (p *proj) waitsOn(task, target string, seen map[string]bool) bool {
 }
 
 // nextDispatch is a dispatched task's next step (under mu): a move's stop of the old worker (pickStop), prepare the
-// lane, start the worker, send the work job, then watch it until it is delivered. Nothing without the dispatch
-// adapters.
+// lane, start the worker, send the work job, then watch it until it is delivered. A keep lane with a live agent
+// (T-1031, keeplane.go) starts none: the work job's wake goes to that session, after the handoff rule stopped one past
+// handoff_tokens. Nothing without the dispatch adapters.
 func (a *App) nextDispatch(p *proj, mt mtask) step {
 	if !p.dispatching {
 		return nil
@@ -836,9 +935,11 @@ func (a *App) nextDispatch(p *proj, mt mtask) step {
 		return func(context.Context, *Loop) bool { return a.needsYou(p, &mt, mt.refusedCause(), mt.refused) }
 	case mt.base == "":
 		return func(ctx context.Context, fx *Loop) bool { return a.prepare(ctx, p, fx, mt) }
-	case !mt.started:
+	case !mt.started && mt.disp.Keep && mt.work == "" && a.keepWaits(p, mt):
+		return nil // the kept agent is past handoff_tokens: the handoff rule stops it, then it starts fresh (T-1031)
+	case !mt.started && !a.kept(p, mt):
 		return a.nextStart(p, mt)
-	case mt.work == "":
+	case mt.work == "": // started, or a keep lane's live agent: the wake typed into its session, no start (T-1031)
 		return func(ctx context.Context, fx *Loop) bool {
 			return a.sendWork(ctx, p, fx, mt, nth(event.StepWork, mt.works+1))
 		}
@@ -1004,7 +1105,7 @@ func otherAgent(root, label string, names []string) bool {
 	if err != nil {
 		return false
 	}
-	_, ok := cfg.AgentLookup(label, "", nil)
+	_, ok := cfg.AgentLookup(label, "")
 	return ok
 }
 

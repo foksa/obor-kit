@@ -63,12 +63,14 @@ export interface Lane {
   dirty: boolean;
   warning: string | null;
   op?: string;
+  mode?: string; // "keep": a keep lane, its agent kept between tasks (T-1031)
   agent?: string;
   agent_status?: string;
   free: boolean;
   column: string;
   since?: number;
   background?: Background[];
+  queue?: string[]; // a keep lane's queue, in dispatch order (T-1031)
 }
 
 export interface BriefStatus {
@@ -129,6 +131,7 @@ export interface TaskStatus {
   why?: string;
   level?: string;
   types?: string[];
+  queue?: string; // waiting: the keep lane it queues on (T-1031)
   difficulty?: string;
   model?: string;
   ref?: string; // its spec's Ref: an external tracker's id (T-1022)
@@ -192,6 +195,7 @@ export interface WaitItem {
   why?: string;
   level?: string;
   types?: string[];
+  queue?: string; // the keep lane it queues on (T-1031)
   difficulty?: string;
   model?: string;
   since?: number;

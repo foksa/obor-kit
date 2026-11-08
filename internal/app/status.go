@@ -86,6 +86,9 @@ func (a *App) Status() wire.Status {
 				if mt.is(stWaiting) {
 					ts.After, ts.Why = mt.disp.After, p.waitLine[mt.task].line
 					ts.Level, ts.Types = mt.disp.Level, mt.disp.Types
+					if mt.disp.Keep {
+						ts.Queue = mt.disp.Lane
+					}
 					ts.Difficulty, ts.Model = p.waitDifficulty(mt), p.firstUnpaused(mt.disp.Types, now)
 				}
 				key, open := mt.workerJob()
@@ -155,6 +158,7 @@ func (a *App) Status() wire.Status {
 				ps.Idle.Acked, ps.Idle.Why = true, ack.Why
 			}
 		}
+		ps.Queues = p.laneQueues()
 		sort.Slice(ps.Tasks, func(i, j int) bool { return ps.Tasks[i].Task < ps.Tasks[j].Task })
 		sort.Slice(ps.Facts, func(i, j int) bool { return ps.Facts[i].Seq < ps.Facts[j].Seq })
 		st.Project = &ps

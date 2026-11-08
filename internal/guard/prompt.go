@@ -69,7 +69,8 @@ func UserPromptSubmit(input []byte, env project.Env, out io.Writer) {
 		return
 	}
 	st, _, err := store.ReadLaneAt(cfg.Root, role.Lane) // unreadable: the guard still asks, without the task
-	agent, task, lane := st.Agent, st.Task, role.Lane
+	// The worker's name is derived from its lane (T-1031: no row stores it), the task is the row's.
+	agent, task, lane := cfg.AgentName("worker", role.Lane), st.Task, role.Lane
 	if agent == "" {
 		agent = env.Get("OBOR_LANE")
 	}

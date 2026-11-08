@@ -127,7 +127,7 @@ func TestDriveNewOnAFreeUntypedLane(t *testing.T) {
 		t.Errorf("T-1's spec %q (%v, %v), want the drive's", row.Text, ok, err)
 	}
 	lr, ok, err := store.ReadLaneAt(r.p.Root, "L-01")
-	if err != nil || !ok || lr.Task != "T-1" || lr.Agent != "pj-l-01-drive" || lr.Branch != "task/T-1" || lr.Base == "" ||
+	if err != nil || !ok || lr.Task != "T-1" || lr.Branch != "task/T-1" || lr.Base == "" ||
 		lr.Finished != 0 {
 		t.Errorf("L-01's lane row %+v (%v, %v): want T-1's drive, prepared, not finished", lr, ok, err)
 	}
@@ -504,7 +504,7 @@ func TestDriveReplayedAsDriving(t *testing.T) {
 	if len(r.records()) != n {
 		t.Errorf("the replay recorded more: %q", r.steps()[n:])
 	}
-	if lr, _, _ := store.ReadLaneAt(r.p.Root, "L-01"); lr.Task != "T-1" || lr.Agent != "pj-l-01-drive" || lr.Finished != 0 {
+	if lr, _, _ := store.ReadLaneAt(r.p.Root, "L-01"); lr.Task != "T-1" || lr.Finished != 0 {
 		t.Errorf("L-01's row after the replay: %+v", lr)
 	}
 	if reply, err := r.drive("v1", "web"); err != nil || !strings.HasPrefix(reply, "DRIVE T-1") {

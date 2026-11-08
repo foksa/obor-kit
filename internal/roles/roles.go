@@ -178,20 +178,11 @@ func (r Role) AgentName(prefix, lane string) string {
 	return prefix + "-" + suffix
 }
 
-// LaneAgentAliases returns every name that can identify a lane's worker, first match wins: the lane row's agent, then
-// <prefix>-<lane lower>; empty and repeated names dropped. The bare lane lower (o-01) is no name (T-302): agent names
-// are machine-wide, and another project's agent may be named like a lane here.
-func LaneAgentAliases(lane, prefix, stateAgent string) []string {
-	names := []string{stateAgent, prefix + "-" + strings.ToLower(lane)}
-	seen := make(map[string]bool)
-	unique := make([]string, 0, len(names))
-	for _, name := range names {
-		if name != "" && !seen[name] {
-			seen[name] = true
-			unique = append(unique, name)
-		}
-	}
-	return unique
+// LaneAgentAliases returns every name that can identify a lane's worker: <prefix>-<lane lower> (T-1031: the name is
+// derived, no lane row names one). The bare lane lower (o-01) is no name (T-302): agent names are machine-wide, and
+// another project's agent may be named like a lane here.
+func LaneAgentAliases(lane, prefix string) []string {
+	return []string{prefix + "-" + strings.ToLower(lane)}
 }
 
 // StartPrompt is the first prompt of a fresh start of kind in this role: only a kind that takes a plugin's slash

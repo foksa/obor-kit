@@ -53,6 +53,7 @@ type WaitItem struct {
 	WaitsOn    string   `json:"waits_on"`
 	After      []string `json:"after,omitempty"`
 	Why        string   `json:"why,omitempty"`
+	Queue      string   `json:"queue,omitempty"` // WaitsLane: the keep lane it queues on (T-1031; "": a free lane of its level)
 	Level      string   `json:"level,omitempty"`
 	Types      []string `json:"types,omitempty"`
 	Difficulty string   `json:"difficulty,omitempty"`
@@ -113,7 +114,7 @@ func queue(v *Project, ps wire.ProjectStatus, nightlyAt string, specs map[string
 			continue // ended (rejected, dropped): the tasks log lists it, the queue has nothing to wait for
 		}
 		if t.State == "waiting" {
-			w := WaitItem{Task: t.Task, WaitsOn: WaitsLane, Why: t.Why, Level: t.Level, Types: t.Types}
+			w := WaitItem{Task: t.Task, WaitsOn: WaitsLane, Why: t.Why, Level: t.Level, Types: t.Types, Queue: t.Queue}
 			if len(t.After) > 0 {
 				w = WaitItem{Task: t.Task, WaitsOn: WaitsAfter, After: t.After, Why: t.Why}
 			}

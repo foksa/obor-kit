@@ -37,7 +37,7 @@ func pluginRig(t *testing.T, dispatchedAt, at int64, now time.Time) (*checks.Lan
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.WriteLanes(db, []store.LaneRow{{Lane: "L-01", Task: "T-1", Agent: "pj-l-01", Branch: "task/T-1",
+	if err := store.WriteLanes(db, []store.LaneRow{{Lane: "L-01", Task: "T-1", Branch: "task/T-1",
 		DispatchedAt: dispatchedAt, Type: "ds"}}); err != nil {
 		t.Fatal(err)
 	}

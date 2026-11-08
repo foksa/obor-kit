@@ -103,7 +103,7 @@ func (p *proj) idleNow() idle {
 		mt := p.folded.loop[task]
 		switch mt.state {
 		case stMerged:
-			if mt.after < len(afterSteps) && !mt.needs.held() {
+			if mt.after < len(mt.afterList()) && !mt.needs.held() {
 				return idle{}
 			}
 			if e := (idleEnd{mt.mergedSeq, mt.endedAt}); e.seq > merge.seq {
