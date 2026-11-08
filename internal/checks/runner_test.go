@@ -3,6 +3,7 @@ package checks
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,6 +18,48 @@ func commandCalls(t *testing.T, opts Options, dir string) (*runner, *[]string) {
 	got := &[]string{}
 	r.onCommand = func(name string) { *got = append(*got, name) }
 	return &r, got
+}
+
+// T-1003 (RV-139 #1): a lane in two classes runs the guard once, then each class's checks once, in config order; a
+// command both classes name runs once. Only neutral files still run the guard alone.
+func TestRunChecksMixedClass(t *testing.T) {
+	x := newFx(t,
+		testkit.Set("merge.guard", "guard"),
+		testkit.Set("merge.classes", `[
+			{"name": "go", "paths": ["internal/**"], "checks": ["check_affected", "check_shared"]},
+			{"name": "release", "paths": ["Makefile"], "checks": ["check_release", "check_shared"]}]`),
+		cmd("guard", "echo 1 pass"), cmd("check_affected", "echo 1 pass"),
+		cmd("check_release", "echo 1 pass"), cmd("check_shared", "echo 1 pass"))
+	o := x.opts()
+	for _, c := range []struct {
+		name, files, mode, checks string
+		want                      []string
+	}{
+		{"two classes", "Makefile internal/app/loop.go", "partial:go+release",
+			"guard 1 pass, check_affected 1 pass, check_shared 1 pass, check_release 1 pass",
+			[]string{"guard", "", "check_affected", "", "check_shared", "", "check_release", ""}},
+		{"neutral", "docs/a.md", "partial:neutral", "guard 1 pass", []string{"guard", ""}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r, ran := commandCalls(t, o, x.Root)
+			r.prio = "worker"
+			defer r.releaseSlot()
+			r.class = Classify(o.Cfg.Data.Merge, strings.Fields(c.files), false)
+			r.mode = r.class.Mode()
+			if !r.class.Partial || r.mode != c.mode {
+				t.Fatalf("precondition: class %s, want %s", r.mode, c.mode)
+			}
+			if h := r.runChecks(); h != nil {
+				t.Fatalf("runChecks: %+v\noutput:\n%s", h, x.out.String())
+			}
+			if !slices.Equal(*ran, c.want) {
+				t.Errorf("ran %q, want %q", *ran, c.want)
+			}
+			if r.check != c.checks {
+				t.Errorf("checks %q, want %q", r.check, c.checks)
+			}
+		})
+	}
 }
 
 // T-673 (RV-75 #4): the runner tells serve's gate each command as it starts and "" as it ends, so obor status shows

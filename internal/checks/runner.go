@@ -383,23 +383,31 @@ func (r *runner) compile() *halt {
 	return nil
 }
 
-// runChecks runs the class's checks: partial → merge.guard, then the class's checks (a missing command → fail);
-// full → check, then baseline and gate when their "at" is "merge" (default "milestone"), the gate only when the merge
-// (pre..HEAD: the candidate checked out in a lane, T-961) touches its paths or OBOR_GATE=1. Every check runs: a run in
-// a lane has nothing to reuse (T-966).
+// runChecks runs the classes' checks: partial → merge.guard, then each class's checks (a missing command → fail; a
+// command two classes name runs once); full → check, then baseline and gate when their "at" is "merge" (default
+// "milestone"), the gate only when the merge (pre..HEAD: the candidate checked out in a lane, T-961) touches its paths
+// or OBOR_GATE=1. Every check runs: a run in a lane has nothing to reuse (T-966).
 func (r *runner) runChecks() *halt {
 	r.gate = ""
 	if r.class.Partial {
 		var checks []string
-		if r.class.Name != "neutral" {
-			var ok bool
-			if checks, ok = classChecks(r.Cfg.Data.Merge, r.class.Name); !ok {
-				return &halt{fail: fmt.Sprintf("class %s has no unique checks entry in merge.classes (obor config validate) (%s)",
-					r.class.Name, r.mode)}
+		if !(len(r.class.Names) == 1 && r.class.Names[0] == "neutral") { // all files neutral: the guard only
+			for _, name := range r.class.Names {
+				cs, ok := classChecks(r.Cfg.Data.Merge, name)
+				if !ok {
+					return &halt{fail: fmt.Sprintf("class %s has no unique checks entry in merge.classes (obor config validate) (%s)",
+						name, r.mode)}
+				}
+				checks = append(checks, cs...)
 			}
 		}
 		var counts []string
+		seen := map[string]bool{}
 		for _, name := range append([]string{r.Cfg.Data.Merge.Guard}, checks...) {
+			if seen[name] {
+				continue
+			}
+			seen[name] = true
 			o, ok, h := r.must(name)
 			if h != nil {
 				return h
