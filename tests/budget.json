@@ -21,11 +21,6 @@
       "full_s": 53.1,
       "git_procs": 1538
     },
-    "obor/internal/affected": {
-      "short_s": 0.7,
-      "full_s": 0.8,
-      "git_procs": 0
-    },
     "obor/internal/agents": {
       "short_s": 0.2,
       "full_s": 0.4,
@@ -179,6 +174,11 @@
     "obor/tests/upgrade": {
       "short_s": 0.3,
       "full_s": 0.4,
+      "git_procs": 0
+    },
+    "obor/tools/affected": {
+      "short_s": 0.8,
+      "full_s": 0.8,
       "git_procs": 0
     }
   }

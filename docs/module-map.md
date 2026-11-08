@@ -9,7 +9,9 @@ multi-machine itself is later, but no interface may assume local.
 
 ## Layers and import rules
 
-The layers are base, bridge, core, adapter, view, entry, test helpers and tools (probes under `tests/`). The enforced table
+The layers are base, bridge, core, adapter, view, entry, test helpers and tools (probes under `tests/`, the kit's own
+programs under `tools/`: `affected`, the Go packages a change can break, run by the Makefile's `check-affected`,
+T-1040). The enforced table
 (which package is in which layer, and who may import whom) is `layerOf` in `internal/checks/boundary_test.go`; the merge
 gate runs it. Adapters never import each other: one that needs another goes through an interface the core defines
 (e.g. `launch` gets panes via `app.PaneControl`, not `herdr`). A package with no layer fails the test: add it to
@@ -141,7 +143,6 @@ Adding a kind = one package + a config entry.
   starts agents through an `app.Starter` that `cmd/obor` injects); `obor init`
   (`oborinit.go`, P7-2: the steps chained with no questions; serve install through `Setup.Serve`, which `cmd/obor` wires
   to `service`).
-- `affected`: affected Go packages for a Go project's per-merge check (`obor affected go`).
 - `service`: the project's launchd agent (T-596; darwin only, elsewhere each verb says to run `obor serve` yourself):
   the plist `~/Library/LaunchAgents/obor.serve.<name>.plist` and `launchctl` bootstrap / bootout / kickstart / print
   for `obor serve install|uninstall|restart` and `obor status`' serve line.
@@ -174,7 +175,7 @@ socket: scripted panes and plugins, and every request a test's client sent).
 thin `app.Specs`, `Lanes`, `Poster` adapters and the review git (`reviewGit`, `port.Review`) live here; `workflowOf`
 picks the workflow by workflow.kind (and `configFile`, `app.ConfigFile` on the main checkout's git, T-753). The lead's chat commands are the same CLI (`status`, `dispatch`,
 `resume`, `drop`, `drive`, `land`, `spec`, `watch`, `pause`, `send`, `projects`, `brief`), beside `serve`, `mcp`,
-`setup`, `config` and the rest (`run`, `nightly`, `affected`, `flakes`, `restart`, `lead`, `plugin`,
+`setup`, `config` and the rest (`run`, `nightly`, `flakes`, `restart`, `lead`, `plugin`,
 `hook`, `whoami`).
 - `web` (`internal/web`, T-667): `obor web`'s HTTP server over the read model — the API (`/api/projects`,
   `/api/view`, `/api/setup`, `/api/task`, `/api/agent`, `/api/job`, `/api/events` with a long poll on the store's seq,

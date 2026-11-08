@@ -1,4 +1,4 @@
-package affected
+package main
 
 import (
 	"os"

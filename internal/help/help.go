@@ -81,7 +81,6 @@ var Commands = []Command{
 	{"mcp", "obor mcp [--check]", "the agents' MCP server of job tools (--check: one line on whether it answers)", "internals"},
 	{"plugin", "obor plugin restore [--now]", "the herdr plugin's restore command (herdr runs it)", "internals"},
 	{"has", "obor has <subcommand> [<sub-subcommand>]", "exit 0 when this binary implements it (the shim asks)", "internals"},
-	{"affected", "obor affected go [--direct] [--changed <file>]", "the Go packages the changed files can break (the gate's tier)", "internals"},
 }
 
 // Steps are the usage lines of a command's own steps: a subcommand with arguments of its own but no row of its own in

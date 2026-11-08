@@ -75,16 +75,16 @@ trim-go-cache:
 	  return sprintf("%d B", n) } BEGIN { printf "go cache: freed %s, %s left\n", size(f), size(l) }'
 
 # The merge gate (check: the full suite) and its per-merge tier (check-affected, commands.check_affected, T-347): check
-# runs every step; check-affected runs the dist/obor build (its affected go picks the packages) and then go test only, on
+# runs every step; check-affected runs the kit's tools/affected list (go run, T-1040) and then go test only, on
 # the packages $OBOR_CHANGED_FILES affects; any doubt runs the full suite. The slot's check-compile already ran build,
-# gofmt, vet and deadcode on the same commit (T-995), so the lane repeats none of them but the build the list needs.
+# gofmt, vet and deadcode on the same commit (T-995), so the lane repeats none of them.
 # check-affected also passes -short: the tests marked testkit.Slow (>= 1 s: cmd/obor, internal/checks, internal/setup,
 # T-957) run only in check, the nightly and releases; check does not pass it unless CHECK_SHORT=1.
 # CHECK_SHORT=1 adds -short to check, check-readers and check-web: serve's lane test sets it when branches.promote is
 # set (T-989, T-997), so a promoted lane runs the short tier whatever its class; the promotion's and the nightly's
 # runners and a release do not, so the full suite runs there. Without a promotion a lane runs the full class check, as
 # before T-989 (RV-138 #1).
-# CHECK_DIRECT=1 makes check-affected ask obor affected go --direct: the changed packages only, no importers. Serve's
+# CHECK_DIRECT=1 makes check-affected ask tools/affected --direct: the changed packages only, no importers. Serve's
 # lane test sets it when branches.promote is set (T-991): the merge slot's compile (check-compile) catches an importer's
 # build break and the promotion's full suite (commands.check) an importer's test break, so the lane need not run them.
 # Without a promotion nothing would catch those, so a lane runs the importers too, as before; the gate, the nightly and
@@ -93,9 +93,9 @@ trim-go-cache:
 # what serve's merge slot runs on each merge: build, gofmt, vet and deadcode, no go test. CHECK_CPUS (obor run and the
 # gates export it: cores / slots.max) is go test -p. check and check-release start with GO_GATE: GOCACHE falls back to
 # $TMPDIR when the default is not writable (a Codex sandbox, T-206), then build, gofmt and vet; every failure prints a
-# line fail_grep matches (^FAIL). GO_CACHE is that GOCACHE selection alone (shared with check-retest, T-976).
-# check-affected starts with GO_CACHE and the dist/obor build its affected list needs; check-readers and check-web start
-# with GO_CACHE only; none of them runs gofmt, go vet or deadcode: the slot compiled the commit (T-995).
+# line fail_grep matches (^FAIL). GO_CACHE is that GOCACHE selection alone (shared with check-retest and check-affected,
+# T-976, T-1040); check-readers and check-web start with GO_CACHE only; none of them runs gofmt, go vet or deadcode: the
+# slot compiled the commit (T-995).
 # The integration tag (T-1014, owner 11-08): tests that need real I/O (real git, herdr's fake socket, a built binary) go
 # in files with `//go:build integration`, and a worker's plain `go test ./<pkg>/...` leaves them out. Every check that
 # gates or measures (check, check-affected, check-retest, check-readers, check-web, check-release, vet, deadcode and
@@ -106,7 +106,7 @@ GO_CACHE = c=$$($(GO) env GOCACHE 2>/dev/null); \
 	  { GOCACHE="$${TMPDIR:-/tmp}/obor-go-build"; export GOCACHE; }
 GO_GATE = $(GO_CACHE); \
 	$(MAKE) -s build || { echo "FAIL make build"; exit 1; }; \
-	f=$$(gofmt -l cmd internal); test -z "$$f" || { echo "FAIL gofmt: $$(printf '%s\n' "$$f" | tr '\n' ' ')"; exit 1; }; \
+	f=$$(gofmt -l cmd internal tools); test -z "$$f" || { echo "FAIL gofmt: $$(printf '%s\n' "$$f" | tr '\n' ' ')"; exit 1; }; \
 	$(GO) vet -tags integration ./... || { echo "FAIL go vet"; exit 1; }
 check:
 	@$(GO_GATE); \
@@ -119,16 +119,15 @@ check:
 
 check-affected:
 	@$(GO_CACHE); \
-	$(MAKE) -s build || { echo "FAIL make build"; exit 1; }; \
 	pkgs=./...; \
 	direct=; if [ "$$CHECK_DIRECT" = 1 ]; then direct=--direct; fi; \
-	if a=$$(./dist/obor affected go $$direct); then \
+	if a=$$($(GO) run ./tools/affected $$direct); then \
 	  case "$$a" in \
 	    "full: "*) echo "affected: full suite ($${a#full: })" ;; \
 	    "") pkgs= ;; \
 	    *) pkgs=$$(printf '%s' "$$a" | tr '\n' ' '); echo "affected: $$(printf '%s\n' "$$a" | grep -c .) package(s): $$pkgs" ;; \
 	  esac; \
-	else echo "affected: full suite (obor affected go failed)"; fi; \
+	else echo "affected: full suite (tools/affected failed)"; fi; \
 	if [ -z "$$pkgs" ]; then echo "go test: 0 pass, 0 fail (no affected Go packages, go test skipped)"; else \
 	  rc=0; out=$$($(GO) test -count=1 -tags integration -short $${CHECK_CPUS:+-p $$CHECK_CPUS} $$pkgs 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
 	  n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \

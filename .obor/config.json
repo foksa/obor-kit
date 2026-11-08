@@ -136,7 +136,8 @@
         "name": "go",
         "paths": [
           "cmd/**",
-          "internal/**"
+          "internal/**",
+          "tools/**"
         ],
         "checks": [
           "check_affected"
