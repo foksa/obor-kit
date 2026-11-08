@@ -121,7 +121,7 @@ func TestNightly(t *testing.T) {
 			x.is(x.nightly(), Red, `^NIGHTLY RED [0-9a-f]{7} on main \(failed: lane_setup; lane_setup rc=2, [0-9]+s\) — lane_setup: log `)
 			x.gone(filepath.Join(x.Base, "ran"), "nothing after a lane_setup failure")
 			x.contains(x.out.String(), "boom", "its output")
-			y := newFx(t, cmd("check", map[string]any{"cmd": "sleep 8", "timeout": 1}))
+			y := newFx(t, cmd("check", map[string]any{"cmd": "sleep 1", "timeout": 1}))
 			y.is(y.nightly(), Red, `^NIGHTLY RED [0-9a-f]{7} on main \(failed: check; check timed out after 1 s, [0-9]+s\)`)
 		}},
 		// bash case_no_commands_green

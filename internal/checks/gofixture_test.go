@@ -17,7 +17,7 @@ const goA = "package a\n\nfunc A() int { return 1 }\n\n// one\n// two\n// three\
 // newGoSx is the scratch fixture on a Go module (m: packages a, b, d alone; c imports a) whose commands.compile (the
 // gate's one command, T-961) counts its runs in $TMP_DIR/compile-runs; lane L-01 on task/T-05 holds the module,
 // nothing else changed.
-func newGoSx(t *testing.T, edits ...func(map[string]any)) *sx {
+func newGoSx(t testing.TB, edits ...func(map[string]any)) *sx {
 	t.Helper()
 	y := newSx(t, append([]func(map[string]any){
 		cmd("compile", `echo run >> "$TMP_DIR/compile-runs"; echo 1 pass`),

@@ -3,7 +3,9 @@ package checks
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -19,48 +21,214 @@ import (
 	"obor/internal/testkit"
 )
 
-func TestMain(m *testing.M) { testkit.Main(m) }
+// tmpl is the base of the one fixture repo these tests copy (T-998): built in TestMain, removed after the run.
+var tmpl string
 
-const trailer = "Co-Authored-By: Test <test@example.invalid>"
+var (
+	tmplMu   sync.Mutex
+	tmplDirs []string // every template base built for the run, removed after it
+)
 
-// fx is the one fixture of these tests (bash merge.test.sh setup): .obor/state/ gitignored (the done file not), a
-// 10-line shared.txt, lane L-01 on task/T-05 with an uncommitted feature.txt and a leftover done file (never committed), an idle
-// lane L-02 on task/T-20, merge.trailer / summary_regex / fail_grep set, a per-test check slot dir. The scratch is the
-// default proj-wt/merge.
-type fx struct {
-	*testkit.Project
-	t                    *testing.T
-	lane, lane2, scratch string
-	slots                string
-	out                  syncBuffer
-	env                  []string       // project.Env (OBOR_GATE, OBOR_FULL)
-	environ              []string       // more command environment
-	windowWait           time.Duration  // > 0: the nightly lock's wait (T-864: no merge.window_wait key)
-	cand                 port.Candidate // the last green gate's (gate)
-	gated                string         // the last green gate's line (gate: the test's is its result's)
-	spec                 string         // the task's stored spec gate passes (GateInput.Spec; "": none)
-	sig                  chan int
+// keep notes d as a template base TestMain removes.
+func keep(d string) string {
+	tmplMu.Lock()
+	tmplDirs = append(tmplDirs, d)
+	tmplMu.Unlock()
+	return d
 }
 
-func newFx(t *testing.T, edits ...func(map[string]any)) *fx {
+func TestMain(m *testing.M) {
+	testkit.Isolate()
+	tmpl = keep(buildTemplate())
+	code := m.Run()
+	for _, d := range tmplDirs {
+		os.RemoveAll(d)
+	}
+	os.Exit(code)
+}
+
+// mainTB is a testing.TB for the templates built outside a test: failures panic and Cleanup removes nothing (TestMain
+// removes every template once, after the run).
+type mainTB struct{ testing.TB }
+
+func (mainTB) Helper()                           {}
+func (mainTB) Cleanup(func())                    {}
+func (mainTB) Log(...any)                        {}
+func (mainTB) Logf(string, ...any)               {}
+func (mainTB) Fatal(args ...any)                 { panic(fmt.Sprint(args...)) }
+func (mainTB) Fatalf(format string, args ...any) { panic(fmt.Sprintf(format, args...)) }
+func (mainTB) Errorf(format string, args ...any) { panic(fmt.Sprintf(format, args...)) }
+func (mainTB) Name() string                      { return "TestMain" }
+func (mainTB) TempDir() string {
+	d, err := os.MkdirTemp("", "hk-tmpl")
+	if err != nil {
+		panic(err)
+	}
+	return keep(d)
+}
+
+// shared is one fixture state built once, on first use, and copied per test: the conflict the specgate tests resolve, and
+// the checked resolutions the mismatch and replay tables move (T-G: one conflict fixture, not one per row).
+type shared struct {
+	once     sync.Once
+	base     string
+	sha, res string         // a resolved fixture's submitted sha and checked resolution
+	cand     port.Candidate // its green resolved candidate
+}
+
+// conflict is the default fixture with lane and main both editing shared.txt, the conflict open in serve's worktree.
+var conflict shared
+
+// resolvedFx are the Go fixtures after resolvedGreen: [0] extra=false, [1] extra=true.
+var resolvedFx [2]shared
+
+// openConflict copies the shared open conflict.
+func (s *shared) openConflict(t *testing.T) (*sx, string) {
 	t.Helper()
-	p := testkit.New(t)
+	s.once.Do(func() {
+		y := newSx(mainTB{}, cmd("check", "echo 1 pass"))
+		s.sha = y.conflicted()
+		s.base = y.Base
+	})
+	return copySx(t, s.base), s.sha
+}
+
+// resolved copies the Go fixture at resolvedGreen(extra): its submitted sha, checked resolution and green candidate.
+func (s *shared) resolved(t *testing.T, extra bool) (*sx, string, string, port.Candidate) {
+	t.Helper()
+	s.once.Do(func() {
+		y := newGoSx(mainTB{})
+		s.sha, s.res, s.cand = resolvedGreen(y, extra)
+		s.base = y.Base
+	})
+	return copySx(t, s.base), s.sha, s.res, s.cand
+}
+
+// resolvedTmpl is the shared fixture at resolvedGreen(extra).
+func resolvedTmpl(extra bool) *shared {
+	if extra {
+		return &resolvedFx[1]
+	}
+	return &resolvedFx[0]
+}
+
+// snapshot copies src's tree into a fresh temp dir of the test's and returns it.
+func snapshot(t testing.TB, src string) string {
+	t.Helper()
+	dst := testkit.Dir(t)
+	if out, err := exec.Command("cp", "-R", src+"/.", dst).CombinedOutput(); err != nil {
+		t.Fatalf("copy the fixture template: %v\n%s", err, out)
+	}
+	return dst
+}
+
+// copySx is a fresh sx at a copy of src's template in the test's own temp dir, its worktrees repaired.
+func copySx(t *testing.T, src string) *sx {
+	t.Helper()
+	base := snapshot(t, src)
+	p := testkit.Adopt(t, base)
+	x := &fx{Project: p, t: t, lane: p.LaneDir("L-01"), scratch: filepath.Join(base, "proj-wt", "merge"),
+		slots: filepath.Join(base, "slots"), sig: make(chan int, 1)}
+	repairWorktrees(t, p, base)
+	if err := os.MkdirAll(p.Path(".obor/state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	real, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &sx{fx: x, s: Scratch{x.opts()}, cut: filepath.Join(base, "cut"), serve: x.scratch, real: real}
+}
+
+// repairWorktrees points every copied worktree under proj-wt at base.
+func repairWorktrees(t testing.TB, p *testkit.Project, base string) {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join(base, "proj-wt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var paths []string
+	for _, e := range entries {
+		if e.IsDir() {
+			paths = append(paths, filepath.Join(base, "proj-wt", e.Name()))
+		}
+	}
+	if len(paths) > 0 {
+		p.Git(p.Root, append([]string{"worktree", "repair"}, paths...)...)
+	}
+}
+
+// fxConfig is the fixture's whole config: its defaults, then edits.
+func fxConfig(edits ...func(map[string]any)) []func(map[string]any) {
+	return append([]func(map[string]any){
+		testkit.Set("lanes", 2),
+		testkit.Set("merge", map[string]any{"trailer": trailer,
+			"summary_regex": "[0-9]+ pass|[0-9]+ fail", "fail_grep": "Expected"}),
+	}, edits...)
+}
+
+// buildTemplate builds the fixture repo once: the fixture commit, lane L-01 on task/T-05 with its uncommitted
+// feature.txt, and the config commit on main after it (so a lane forks before the config, as every test expects).
+func buildTemplate() string {
+	p := testkit.New(mainTB{})
 	p.Write(".gitignore", ".obor/state/\n")
 	p.Write("shared.txt", "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n")
 	p.Git(p.Root, "add", "-A")
 	p.Git(p.Root, "commit", "-q", "-m", "fixture")
-	x := &fx{Project: p, t: t, sig: make(chan int, 1)}
-	x.lane = p.Lane("L-01", "task/T-05")
-	x.lane2 = p.Lane("L-02", "task/T-20")
-	p.Config(append([]func(map[string]any){testkit.Set("merge", map[string]any{"trailer": trailer,
-		"summary_regex": "[0-9]+ pass|[0-9]+ fail", "fail_grep": "Expected"})}, edits...)...)
+	lane := p.Lane("L-01", "task/T-05")
+	p.Config(fxConfig()...)
+	p.Write(filepath.Join(lane, "feature.txt"), "feature\n")
+	return p.Base
+}
+
+const trailer = "Co-Authored-By: Test <test@example.invalid>"
+
+// fx is the fixture these tests copy from the template (T-998): .obor/state/ gitignored, a 10-line shared.txt, lane
+// L-01 on task/T-05 with an uncommitted feature.txt, merge.trailer / summary_regex / fail_grep set, a per-test check
+// slot dir. lane2 adds the idle lane L-02 on task/T-20 when a test uses it. The scratch is the default proj-wt/merge.
+type fx struct {
+	*testkit.Project
+	t          testing.TB
+	lane       string // the lane L-01 dir
+	lane2Dir   string // lane L-02's dir, once a test asks for it
+	scratch    string
+	slots      string
+	out        syncBuffer
+	env        []string       // project.Env (OBOR_GATE, OBOR_FULL)
+	environ    []string       // more command environment
+	windowWait time.Duration  // > 0: the nightly lock's wait (T-864: no merge.window_wait key)
+	cand       port.Candidate // the last green gate's (gate)
+	gated      string         // the last green gate's line (gate: the test's is its result's)
+	spec       string         // the task's stored spec gate passes (GateInput.Spec; "": none)
+	sig        chan int
+}
+
+// newFx copies the template into the test's own temp dir; edits (when any) are committed on main. L-01 is the copied
+// lane; a test that needs L-02 asks lane2, which adds it then.
+func newFx(t testing.TB, edits ...func(map[string]any)) *fx {
+	t.Helper()
+	base := snapshot(t, tmpl)
+	p := testkit.Adopt(t, base)
+	x := &fx{Project: p, t: t, lane: p.LaneDir("L-01"), sig: make(chan int, 1)}
+	repairWorktrees(t, p, base)
+	if len(edits) > 0 {
+		p.Config(fxConfig(edits...)...)
+	}
 	x.scratch = filepath.Join(p.Base, "proj-wt", "merge")
 	x.slots = filepath.Join(p.Base, "slots")
 	if err := os.MkdirAll(p.Path(".obor/state"), 0o755); err != nil { // serve's state dir (its database lives there)
 		t.Fatal(err)
 	}
-	p.Write(filepath.Join(x.lane, "feature.txt"), "feature\n")
 	return x
+}
+
+// lane2 is lane L-02 on task/T-20, made when a test first asks for it (most tests use L-01 alone).
+func (x *fx) lane2() string {
+	x.t.Helper()
+	if x.lane2Dir == "" {
+		x.lane2Dir = x.Lane("L-02", "task/T-20")
+	}
+	return x.lane2Dir
 }
 
 // cmd is a config edit: commands.<name> = v (a string or an object).

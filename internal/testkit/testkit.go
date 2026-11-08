@@ -104,13 +104,25 @@ func shortDir(t testing.TB) string {
 // New is a project with one commit on main: .gitignore (a leftover done file). No config yet.
 func New(t testing.TB) *Project {
 	t.Helper()
-	p := &Project{t: t, Base: shortDir(t)}
+	return NewAt(t, shortDir(t))
+}
+
+// NewAt is New at base (a test that wants it under t.TempDir): the caller owns base.
+func NewAt(t testing.TB, base string) *Project {
+	t.Helper()
+	p := &Project{t: t, Base: base}
 	p.Root = filepath.Join(p.Base, "proj")
 	p.Write(".gitignore", ".task-done.md\n")
 	p.Git(p.Base, "-c", "init.defaultBranch=main", "init", "-q", p.Root)
 	p.Git(p.Root, "add", "-A")
 	p.Git(p.Root, "commit", "-q", "-m", "initial")
 	return p
+}
+
+// Adopt is a project already at base (Root <Base>/proj), for a test that copied a built template into its own dir
+// (T-998): nothing is created and nothing is removed; base lives with the test's t.TempDir.
+func Adopt(t testing.TB, base string) *Project {
+	return &Project{t: t, Base: base, Root: filepath.Join(base, "proj")}
 }
 
 // NewDir is a plain project dir <Base>/proj with no git (T-996): for tests whose git side is a fake (internal/app's

@@ -86,7 +86,7 @@ func TestLaneStatesCanceled(t *testing.T) {
 	p := ltFixture(t, `,"lanes_dir":"../proj-wt"`, map[string]string{"L-01": "T-01"})
 	bin := t.TempDir()
 	started := filepath.Join(bin, "started")
-	script := "#!/bin/sh\ntouch " + strconv.Quote(started) + "\nsleep 30\n"
+	script := "#!/bin/sh\ntouch " + strconv.Quote(started) + "\nsleep 3\n"
 	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}

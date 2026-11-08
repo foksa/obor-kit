@@ -99,10 +99,43 @@ func TestGateCandidateIsTheTasksOwnDiff(t *testing.T) {
 	}
 }
 
+// The lane test's green paths: the class's check runs in the lane at the candidate with the lane worker's environment
+// and the task's files, and the lane is back on its branch; the CPU budget and the short tier are the lane's; a lane
+// test while branches.promote is set asks for the changed packages only; what the checks changed is discarded.
+func TestLaneTestGreenRestores(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		run  func(*testing.T)
+	}{
+		{"the class's check runs in the lane and the lane is restored", laneTestInTheLane},
+		{"the lane's CPU budget and the short tier", laneTestLaneEnv},
+		{"CHECK_DIRECT follows branches.promote", laneTestCheckDirect},
+		{"what the checks changed is discarded", laneTestDiscards},
+	} {
+		t.Run(c.name, c.run)
+	}
+}
+
+// The lane test's red paths: a red check is red with its failing test named and the lane is back on its branch; a cut
+// test is an error and restores the branch all the same, and a lane a crash left detached is tested again; a red test
+// reruns its failing tests once (commands.retest).
+func TestLaneTestRedRestores(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		run  func(*testing.T)
+	}{
+		{"a red check", laneTestRed},
+		{"a cut test", laneTestCut},
+		{"a red test reruns once", laneTestRetests},
+	} {
+		t.Run(c.name, c.run)
+	}
+}
+
 // The lane test checks the candidate out in the lane, runs the class's check there on a pool slot (worker priority,
 // not the merge marker) with the lane's CPU budget and the task's files, and checks the lane's branch out again: green
 // with the checks and the tree they ran on.
-func TestLaneTestRunsInTheLaneAndRestores(t *testing.T) {
+func laneTestInTheLane(t *testing.T) {
 	t.Parallel()
 	y := newSx(t, cmd("check", probe))
 	sha := y.submit()
@@ -140,7 +173,7 @@ func TestLaneTestRunsInTheLaneAndRestores(t *testing.T) {
 // T-967: the lane test's env is the lane workers' (config.LaneEnv): slots.lane_cpus and the inherited GOFLAGS' other
 // flags kept, CHECK_CPUS the same budget.
 // T-989: and CHECK_SHORT=1: a lane test always runs the short tier, whatever the class.
-func TestLaneTestLaneEnv(t *testing.T) {
+func laneTestLaneEnv(t *testing.T) {
 	t.Parallel()
 	y := newSxEnv(t, []string{"GOFLAGS=-mod=mod"}, testkit.Set("slots.lane_cpus", 1), cmd("check", probe))
 	if got := y.s.Cfg.LaneCPUs(); got != 1 {
@@ -164,7 +197,7 @@ func TestLaneTestLaneEnv(t *testing.T) {
 
 // T-991: with branches.promote set the lane test asks the affected list for the changed packages only (CHECK_DIRECT=1:
 // the slot's compile and the promotion's full suite cover the importers); without a promotion it does not.
-func TestLaneTestCheckDirect(t *testing.T) {
+func laneTestCheckDirect(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
 		name    string
@@ -216,7 +249,7 @@ func TestLaneTestRefusesDirtyLane(t *testing.T) {
 }
 
 // A red check is red, its failing test named; the lane is back on its branch.
-func TestLaneTestRedRestoresBranch(t *testing.T) {
+func laneTestRed(t *testing.T) {
 	t.Parallel()
 	y := newSx(t, cmd("check", "echo 'Expected 1, got 2'; echo '0 pass, 1 fail'; exit 1"))
 	sha := y.submit()
@@ -230,9 +263,9 @@ func TestLaneTestRedRestoresBranch(t *testing.T) {
 
 // A test cut by its ctx (serve stops) is an error, not an outcome, and the lane goes back to its branch all the same;
 // a lane left detached (a test cut before its restore) is tested again and restored to the dispatch's branch.
-func TestLaneTestCutRestoresBranch(t *testing.T) {
+func laneTestCut(t *testing.T) {
 	t.Parallel()
-	y := newSx(t, cmd("check", `touch "$TMP_DIR/check-began"; sleep 30`))
+	y := newSx(t, cmd("check", `touch "$TMP_DIR/check-began"; sleep 3`))
 	sha := y.submit()
 	c := y.green(lane(sha))
 	cut, cancel := context.WithCancel(ctx)
@@ -252,7 +285,7 @@ func TestLaneTestCutRestoresBranch(t *testing.T) {
 
 	y.Git(y.lane, "checkout", "-q", "--detach", c.SHA) // as a crash before the restore leaves it
 	y.Write(filepath.Join(y.Root, ".obor", "config.json"), strings.Replace(y.Read(filepath.Join(y.Root, ".obor", "config.json")),
-		`sleep 30`, `echo 1 pass`, 1))
+		`sleep 3`, `echo 1 pass`, 1))
 	opts := y.opts()
 	opts.Git = y.s.Git
 	y.s = Scratch{opts}
@@ -265,7 +298,7 @@ func TestLaneTestCutRestoresBranch(t *testing.T) {
 // T-964: a red lane test reruns the tests and packages it named once (commands.retest, OBOR_FAILED_TESTS/OBOR_FAILED_PKGS)
 // in the lane at the candidate. Green then is the step's green and the flake is logged retried and passed; still red is
 // the original red; a build failure and a project without commands.retest rerun nothing.
-func TestLaneTestRetestsRedOnce(t *testing.T) {
+func laneTestRetests(t *testing.T) {
 	t.Parallel()
 	const grep = `^--- FAIL|^FAIL\s`
 	const redOne = `echo "--- FAIL: TestAlpha (0.01s)"; echo "FAIL example.com/pkg 0.03s"; exit 1`
@@ -383,7 +416,7 @@ func TestLaneTestRetestsRedOnce(t *testing.T) {
 // A check that changes the lane (a tracked file, an untracked one) does not leave it so: the lane was clean when the
 // test began, so the test discards those changes and the lane is on its branch, clean; an ignored file (a build
 // output) stays.
-func TestLaneTestDiscardsWhatTheChecksChanged(t *testing.T) {
+func laneTestDiscards(t *testing.T) {
 	t.Parallel()
 	y := newSx(t, cmd("check", `echo changed >> shared.txt; echo new > untracked.txt; mkdir -p .obor/state; `+
 		`echo out > .obor/state/build.out; echo 1 pass`))

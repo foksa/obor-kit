@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"obor/internal/app/port"
-	"obor/internal/testkit"
 )
 
 // afterMergeFx is a fresh fixture with after_merge v (commands.after_merge) whose candidate is published: the fixture
@@ -69,7 +68,6 @@ func TestScratchAfterMerge(t *testing.T) {
 // The main checkout must be on a branch at the published merge: otherwise after_merge does not run and the result is
 // a WARN line, again on a second call (no merges.log keeps a record, T-525).
 func TestScratchAfterMergeMainNotAtMerge(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	y, cand := afterMergeFx(t, map[string]any{"cmd": "touch after.marker"})
 	for _, c := range []struct {
