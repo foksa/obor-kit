@@ -4,13 +4,11 @@ import (
 	"cmp"
 	"context"
 	"errors"
-	"fmt"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -22,42 +20,27 @@ import (
 // T-638: obor review records a request; a merge-loop pass starts the review once its --after tasks merged and the
 // reviewer is idle.
 
-// reviewGitFake is the tests' one ReviewGit (T-869, DD D4): last is the newest close commit's subject and lastBody its
-// body (T-822: the Covered and Start lines); head the integration branch's head ("": headSHA), which a gated publish
-// moves (admit_test.go); merges and files the fixed answers; detachErr fails the detach. from is every Merges call's
-// from, detached every Detach as <dir>@<sha>. onHead runs once, inside the next Head read. lasts counts the Last reads;
-// closes is every close committed (T-926: it becomes the newest close commit), closeErr refuses one; closeGate, when
-// set, holds a close until it is closed and closeBegan gets a value when one reaches it (T-930). mu guards every
-// field a method touches (a publish runs beside the admission tests' calls).
+// reviewGitFake is the tests' one ReviewGit (T-869, DD D4): head the integration branch's head ("": headSHA), which a
+// gated publish moves (admit_test.go); files the fixed answer; detachErr fails the detach, detached every Detach as
+// <dir>@<sha>. onHead runs once, inside the next Head read. closes is every close committed (T-926; Closed finds its
+// subject), closeErr refuses one; closeGate, when set, holds a close until it is closed and closeBegan gets a value
+// when one reaches it (T-930); reads counts the Closed reads, headReads the Head reads. What merged and what a review covered are the log's
+// (T-1023). mu guards every field a method touches (a publish runs beside the admission tests' calls).
 type reviewGitFake struct {
 	mu         sync.Mutex
 	head       string
-	last       string
-	lastBody   string
-	merges     []string
-	from       []string
 	files      []string
 	detachErr  error
 	detached   []string
 	onHead     func()
-	lasts      int
 	closes     []ReviewCommit
 	closeErr   error
 	closeGate  chan struct{}
 	closeBegan chan struct{}
+	closedRead int
+	headReads  int
 }
 
-func (g *reviewGitFake) Last(context.Context, string) (ReviewClose, error) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.lasts++
-	return ReviewClose{Subject: g.last, Body: g.lastBody}, nil
-}
-
-// Closes is no close commit: the promotion that reads it is promote_test.go's.
-func (g *reviewGitFake) Closes(context.Context, string, string) ([]ReviewClose, error) {
-	return nil, nil
-}
 func (g *reviewGitFake) Head(context.Context, string) (string, error) {
 	g.mu.Lock()
 	hook := g.onHead
@@ -68,13 +51,8 @@ func (g *reviewGitFake) Head(context.Context, string) (string, error) {
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	g.headReads++
 	return cmp.Or(g.head, "abcdef0123456789abcdef0123456789abcdef01"), nil
-}
-func (g *reviewGitFake) Merges(_ context.Context, from, _ string) ([]string, error) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.from = append(g.from, from)
-	return slices.Clone(g.merges), nil
 }
 func (g *reviewGitFake) Files(context.Context, string, string) ([]string, error) { return g.files, nil }
 func (g *reviewGitFake) Detach(_ context.Context, dir, sha string) error {
@@ -107,15 +85,27 @@ func (g *reviewGitFake) Close(ctx context.Context, c ReviewCommit) error {
 		return g.closeErr
 	}
 	g.closes = append(g.closes, c)
-	g.last, g.lastBody = c.Subject, c.Body
 	return nil
 }
 
-// reads is how many times Last was read.
+// Closed is the newest committed close of id (its subject; "": none).
+func (g *reviewGitFake) Closed(_ context.Context, _, _, id string) (string, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.closedRead++
+	for i := len(g.closes) - 1; i >= 0; i-- {
+		if g.closes[i].ID == id {
+			return g.closes[i].Subject, nil
+		}
+	}
+	return "", nil
+}
+
+// reads is how many times Closed was read.
 func (g *reviewGitFake) reads() int {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	return g.lasts
+	return g.closedRead
 }
 
 // detachedAt is every Detach so far, as <worktree base name>@<sha>.
@@ -146,9 +136,16 @@ type reviewRig struct {
 	now    time.Time
 	git    *reviewGitFake
 	agents *agentsSpy
+	// seeded is the seq of seed's last record (0: none); next the id the rig's first review starts as.
+	seeded int64
+	next   string
 }
 
-func newReviewRig(t *testing.T) *reviewRig {
+// newReviewRig is a review rig on its seeded log (seed: RV-4 closed, T-a and T-b merged since).
+func newReviewRig(t *testing.T) *reviewRig { return newReviewRigWith(t, true) }
+
+// newReviewRigWith is a review rig, its log seeded or empty (no review yet: the first is RV-1).
+func newReviewRigWith(t *testing.T, seed bool) *reviewRig {
 	t.Helper()
 	root := lineRoot(t)
 	cfg := `{"name":"proj","prefix":"pj","roles":{"integrator":"","reviewer":""},"paths":{"reviews":"reviews"}}`
@@ -156,12 +153,40 @@ func newReviewRig(t *testing.T) *reviewRig {
 		t.Fatal(err)
 	}
 	r := &reviewRig{t: t, now: time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC), git: &reviewGitFake{
-		last:   "RV-4 closed · 1111111 · approved · T-9",
-		merges: []string{"aaaaaaa1 Merge T-a: one", "bbbbbbb2 Merge T-b: two"},
-		files:  []string{"internal/app/x.go", "docs/y.md"}}, agents: &agentsSpy{}}
+		files: []string{"internal/app/x.go", "docs/y.md"}}, agents: &agentsSpy{}}
 	r.a, r.p = lineApp(t, root, &r.now)
 	r.wire()
+	r.next = "RV-1"
+	if seed {
+		r.seed()
+	}
 	return r
+}
+
+// seed is the rig's log before a test: RV-4 started at 1111111 (covering T-9) and closed, then T-a and T-b merged
+// (aaaaaaa1, bbbbbbb2): the next review is RV-5, its scope T-a and T-b.
+func (r *reviewRig) seed() {
+	r.t.Helper()
+	r.fact(event.ReviewTask, event.StepReviewStarted, ReviewData{ID: "RV-4", Head: "1111111", Tasks: []string{"T-9"}})
+	r.fact(event.ReviewTask, event.StepReviewClosed, ReviewData{ID: "RV-4", Reply: closedReply + "RV-4 closed · 1111111 · approved · T-9"})
+	r.mergedAt("T-a", "aaaaaaa1")
+	r.mergedAt("T-b", "bbbbbbb2")
+	recs := readLog(r.t, r.p.root)
+	r.seeded, r.next = recs[len(recs)-1].Seq, "RV-5"
+}
+
+// fact records a fact of task (fails when the log refuses it).
+func (r *reviewRig) fact(task, step string, d any) {
+	r.t.Helper()
+	if !r.a.record(r.p, event.Record{Task: task, Step: step, Kind: event.KindFact}, d) {
+		r.t.Fatalf("the log refused fact %s %s", task, step)
+	}
+}
+
+// mergedAt records task's merge by the merge kernel at sha (fact merged; no loop task needed).
+func (r *reviewRig) mergedAt(task, sha string) {
+	r.t.Helper()
+	r.fact(task, event.StepMerged, event.MergedData{Head: sha})
 }
 
 // wire gives obor review's call the rig's git (its open-review check reads the merge loop's).
@@ -175,13 +200,13 @@ func (r *reviewRig) reload() {
 	r.wire()
 }
 
-// started is RV-5 fired and started on request r1 (the reviewer's pane then works and is idle again: its brief ends).
+// started is RV-5 (RV-1 unseeded) fired and started on request r1 (the reviewer's pane then works and is idle again: its brief ends).
 func (r *reviewRig) started() {
 	r.t.Helper()
 	r.mustCall("r1", nil, "", false)
 	r.pass()
-	if len(r.agents.launches) != 1 || r.p.folded.reviewed.id != "RV-5" {
-		r.t.Fatalf("precondition: RV-5 not started: %+v", r.agents.launches)
+	if len(r.agents.launches) != 1 || r.p.folded.rv.last().id != r.next {
+		r.t.Fatalf("precondition: %s not started: %+v", r.next, r.agents.launches)
 	}
 	lineStatus(r.a, "w:rev", "working", r.now)
 	lineStatus(r.a, "w:rev", "idle", r.now)
@@ -191,18 +216,10 @@ func (r *reviewRig) started() {
 	}
 }
 
-// closedBy is a close as serve's close leaves it (T-926): subject the newest close commit in git and fact review.closed
-// recorded from it.
-func (r *reviewRig) closedBy(subject string) {
+// closedBy is a close as serve's close leaves it (T-926): fact review.closed of id, its reply naming subject.
+func (r *reviewRig) closedBy(id, subject string) {
 	r.t.Helper()
-	r.git.mu.Lock()
-	r.git.last = subject
-	r.git.mu.Unlock()
-	id, _, _, _, _ := parseCloseCommit(subject, "")
-	if !r.a.record(r.p, event.Record{Task: event.ReviewTask, Step: event.StepReviewClosed, Kind: event.KindFact},
-		ReviewData{ID: id}) {
-		r.t.Fatal("the log refused the close")
-	}
+	r.fact(event.ReviewTask, event.StepReviewClosed, ReviewData{ID: id, Reply: closedReply + subject})
 }
 
 // close is obor review close's call from the lead (call id id, the summary, its accepted lines, --force).
@@ -267,7 +284,7 @@ func (r *reviewRig) leadLines() []string {
 	return out
 }
 
-// facts is the log's review facts by step.
+// facts is the log's review facts by step since the seed.
 func (r *reviewRig) facts(step string) int {
 	recs, err := event.ReadLog(r.p.root)
 	if err != nil {
@@ -275,7 +292,7 @@ func (r *reviewRig) facts(step string) int {
 	}
 	n := 0
 	for _, rec := range recs {
-		if rec.Task == event.ReviewTask && rec.Kind == event.KindFact && rec.Step == step {
+		if rec.Task == event.ReviewTask && rec.Kind == event.KindFact && rec.Step == step && rec.Seq > r.seeded {
 			n++
 		}
 	}
@@ -316,7 +333,7 @@ func TestReviewRequest(t *testing.T) {
 				t.Fatalf("launches %+v, want one", r.agents.launches)
 			}
 			l := r.agents.launches[0]
-			if l.Agent != "pj-rev" || !l.Fresh || !strings.HasPrefix(l.Prompt, "Review RV-5. main is at abcdef0. In scope: T-a (aaaaaaa), T-b (bbbbbbb); files: internal/app/x.go, docs/y.md.") ||
+			if l.Agent != "pj-rev" || !l.Fresh || !strings.HasPrefix(l.Prompt, "Review RV-5. main is at abcdef0. In scope: T-a (ccccccc), T-b (ccccccc); files: internal/app/x.go, docs/y.md.") ||
 				!strings.Contains(l.Prompt, "Previous review: RV-4 (") || !strings.Contains(l.Prompt, "write only reviews/RV-5.md") ||
 				// T-716: real findings only; constructed ones a one-line list without a fix.
 				!strings.Contains(l.Prompt, " Report only findings a real config or workflow hits; ") ||
@@ -449,11 +466,11 @@ func TestReviewRequest(t *testing.T) {
 			if r.facts(event.StepReviewRequest) != 1 || r.p.folded.review != nil {
 				t.Errorf("request facts %d, request %v; want only r1, none open", r.facts(event.StepReviewRequest), r.p.folded.review)
 			}
-			r.git.last = "RV-5 closed · abcdef0 · approved" // a commit, no fact: still open, git is not read
+			r.git.closes = append(r.git.closes, ReviewCommit{ID: "RV-5", Subject: "RV-5 closed · abcdef0 · approved · x"})
 			if _, err := r.call("r5", nil, "", false); err == nil || err.Error() != "RV-5 is open (not closed): close it first" {
-				t.Errorf("request with a close commit and no close fact: %v", err)
+				t.Errorf("request with a close commit and no close fact: %v", err) // a commit, no fact: git is not read
 			}
-			r.closedBy("RV-5 closed · abcdef0 · approved")
+			r.closedBy("RV-5", "RV-5 closed · abcdef0 · approved")
 			if got := r.mustCall("r4", nil, "", false); got != "REVIEW REQUESTED (now)" {
 				t.Errorf("after RV-5 closed: %q", got)
 			}
@@ -461,8 +478,8 @@ func TestReviewRequest(t *testing.T) {
 		{"the open check survives a replay", func(t *testing.T, r *reviewRig) {
 			r.started()
 			r.reload()
-			if r.p.folded.reviewed.id != "RV-5" {
-				t.Fatalf("precondition: the replay lost RV-5's start: %+v", r.p.folded.reviewed)
+			if r.p.folded.rv.last().id != "RV-5" {
+				t.Fatalf("precondition: the replay lost RV-5's start: %+v", r.p.folded.rv.last())
 			}
 			if _, err := r.call("r2", nil, "", false); err == nil || err.Error() != "RV-5 is open (not closed): close it first" {
 				t.Errorf("request after a replay with RV-5 open: %v", err)
@@ -486,7 +503,7 @@ func TestReviewRequest(t *testing.T) {
 				q.Since == 0 || len(q.After) != 0 { // T-664: the request as data
 				t.Errorf("status review_request %+v; want held by RV-5, note next, by pj-lead, its time", q)
 			}
-			r.closedBy("RV-5 closed · abcdef0 · approved · T-7")
+			r.closedBy("RV-5", "RV-5 closed · abcdef0 · approved · T-7")
 			r.pass()
 			if len(r.agents.launches) != 2 || !strings.HasPrefix(r.agents.launches[1].Prompt, "Review RV-6. ") ||
 				!strings.HasSuffix(r.agents.launches[1].Prompt, "\nLead's note: next") {
@@ -568,15 +585,6 @@ func TestReviewRequest(t *testing.T) {
 				t.Errorf("needs-you %q", n)
 			}
 		}},
-		{"no previous RV is RV-1", func(t *testing.T, r *reviewRig) {
-			r.git.last = ""
-			r.mustCall("r1", nil, "", false)
-			r.pass()
-			if len(r.agents.launches) != 1 || !strings.HasPrefix(r.agents.launches[0].Prompt, "Review RV-1. ") ||
-				!strings.Contains(r.agents.launches[0].Prompt, "Previous review: none.") {
-				t.Errorf("launches %+v", r.agents.launches)
-			}
-		}},
 		{"a failing move is a needs-you, no restart", func(t *testing.T, r *reviewRig) {
 			r.git.detachErr = errors.New("git checkout: local changes")
 			r.mustCall("r1", nil, "", false)
@@ -596,43 +604,6 @@ func TestReviewRequest(t *testing.T) {
 				t.Errorf("needs-you %q after a new request, want ended", n)
 			}
 		}},
-		{"status says review due at 4 unreviewed merges, not at 3", func(t *testing.T, r *reviewRig) {
-			// The count is git's: the first-parent merges since the previous review (RV-4 closed · 1111111), read on a
-			// pass once a merge folded; the log's merges only say when to read it again.
-			merge := func(task string, merges int) {
-				r.submitted(task)
-				r.merged(task)
-				r.git.merges = nil
-				for i := range merges {
-					r.git.merges = append(r.git.merges, fmt.Sprintf("%07d Merge T-%d: x", i, i))
-				}
-				r.tick()
-			}
-			merge("T-1", 3)
-			if got := r.a.Status().Project.Review; got != "" || len(r.git.from) != 1 || r.git.from[0] != "1111111" {
-				t.Errorf("at 3 merges: %q (counted from %q; want since 1111111)", got, r.git.from)
-			}
-			merge("T-2", 4)
-			if got := r.a.Status().Project.Review; got != "review due: 4 merges since RV-4" {
-				t.Errorf("at 4 merges: %q", got)
-			}
-			r.mustCall("r1", nil, "", false)
-			r.pass()
-			merge("T-3", 2) // RV-5 started, not closed: counted from its head
-			if got, from := r.a.Status().Project.Review, r.git.from[len(r.git.from)-1]; got != "" ||
-				from != "abcdef0123456789abcdef0123456789abcdef01" {
-				t.Errorf("after RV-5 started: %q (counted from %q)", got, from)
-			}
-			merge("T-4", 4)
-			if got := r.a.Status().Project.Review; got != "review due: 4 merges since RV-5" {
-				t.Errorf("4 merges after RV-5: %q", got)
-			}
-			r.closedBy("RV-5 closed · 2222222 · approved")
-			merge("T-5", 1) // RV-5 closed: counted from its reviewed sha
-			if got, from := r.a.Status().Project.Review, r.git.from[len(r.git.from)-1]; got != "" || from != "2222222" {
-				t.Errorf("after RV-5 closed: %q (counted from %q)", got, from)
-			}
-		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -641,22 +612,9 @@ func TestReviewRequest(t *testing.T) {
 	}
 }
 
-// T-802, T-895: the merge subject's reader (parseMergeSubject) finds a resolved merge by its "Merge T-xx: <title>"
-// subject, and not git's default one.
-func TestMergeSubjectResolved(t *testing.T) {
-	t.Parallel()
-	if got := parseMergeSubject("Merge commit 'c73bfccc' into HEAD"); got != "" {
-		t.Fatalf("precondition: git's default subject is no merge of a task: %q", got)
-	}
-	if got := parseMergeSubject("Merge T-1470: Resolved title"); got != "T-1470" {
-		t.Errorf("parseMergeSubject on a resolved merge's subject: %q, want T-1470", got)
-	}
-}
-
-// T-895, T-909: the close commit's writer and parser agree, for its current subject and body, for the "accepted <n>"
-// verdict a close with --accept lines writes, and for an old close commit, whose body has neither a Covered nor a Start
-// line and whose verdict is "approved".
-func TestCloseCommitRoundTrip(t *testing.T) {
+// T-895, T-909: the close commit's writer: its subject and body (rendered from the fold's cycle, T-1023, read back by
+// no one but the crash cut's ClosesReview), and the "accepted <n>" verdict a close with --accept lines writes.
+func TestCloseCommitText(t *testing.T) {
 	t.Parallel()
 	subject, body := CloseCommit("RV-7", "abcdef0", "T-1, T-2 (fix)", []string{"T-1", "T-2"}, "1234567", 0)
 	if want := "RV-7 closed · abcdef0 · approved · T-1, T-2 (fix)"; subject != want {
@@ -665,29 +623,14 @@ func TestCloseCommitRoundTrip(t *testing.T) {
 	if want := "Covered: T-1, T-2\nStart: 1234567"; body != want {
 		t.Errorf("body %q, want %q", body, want)
 	}
-	id, sha, summary, covered, start := parseCloseCommit(subject, body)
-	if id != "RV-7" || sha != "abcdef0" || summary != "T-1, T-2 (fix)" ||
-		!slices.Equal(covered, []string{"T-1", "T-2"}) || start != "1234567" {
-		t.Errorf("parseCloseCommit(%q, %q) = %q %q %q %v %q", subject, body, id, sha, summary, covered, start)
-	}
-	if next, prev, gotSHA := PreviousReview(subject); next != 8 || prev != "RV-7" || gotSHA != "abcdef0" {
-		t.Errorf("PreviousReview(%q) = %d %q %q", subject, next, prev, gotSHA)
+	if !ClosesReview(subject, "RV-7") || ClosesReview(subject, "RV-70") || ClosesReview("RV-17 closed · x", "RV-7") {
+		t.Errorf("ClosesReview: %q is RV-7's close only", subject)
 	}
 
-	// an old close commit: no Covered line, so its scope stays the reviewed sha's range
-	id, sha, summary, covered, start = parseCloseCommit("RV-6 closed · 1111111 · approved · T-9", "")
-	if id != "RV-6" || sha != "1111111" || summary != "T-9" || len(covered) != 0 || start != "" {
-		t.Errorf("old close commit: %q %q %q %v %q", id, sha, summary, covered, start)
-	}
-
-	// T-909: a close with two accepted findings says so, and the parser reads it as it reads an approved subject
+	// T-909: a close with two accepted findings says so
 	subject, _ = CloseCommit("RV-8", "abcdef0", "T-9 (fix)", nil, "1234567", 2)
 	if want := "RV-8 closed · abcdef0 · accepted 2 · T-9 (fix)"; subject != want {
 		t.Fatalf("subject %q, want %q", subject, want)
-	}
-	id, sha, summary, _, _ = parseCloseCommit(subject, "")
-	if id != "RV-8" || sha != "abcdef0" || summary != "T-9 (fix)" {
-		t.Errorf("parseCloseCommit(%q) = %q %q %q, want RV-8 abcdef0 and its summary", subject, id, sha, summary)
 	}
 }
 
@@ -716,78 +659,13 @@ func TestReviewClaimIsInFlight(t *testing.T) {
 	}
 }
 
-// T-822: a review cycle covers task ids, not a sha range. The next review's scope is the merges since the previous
-// close's review start sha that its cycle did not cover, so a task merged while its verify ran is in; an old close
-// commit (no Covered line) keeps today's sha range.
-func TestReviewScopeCoversTasks(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name   string
-		body   string
-		from   string
-		scope  string
-		absent string
-	}{
-		{"a close commit with its Covered set: the cycle's tasks are left out",
-			"Covered: T-a, T-b\nStart: 3333333", "3333333", "T-c (ccccccc)", "T-b (bbbbbbb)"},
-		{"an old close commit: the range starts at the reviewed sha", "", "1111111", "T-a (aaaaaaa), T-b (bbbbbbb), T-c (ccccccc)", ""},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			r := newReviewRig(t)
-			r.git.last, r.git.lastBody = "RV-4 closed · 1111111 · approved · T-9", tc.body
-			r.git.merges = []string{"aaaaaaa1 Merge T-a: one", "bbbbbbb2 Merge T-b: two", "ccccccc3 Merge T-c: three"}
-			r.mustCall("r1", nil, "", false)
-			r.pass()
-			if len(r.agents.launches) != 1 {
-				t.Fatalf("launches %+v, want one", r.agents.launches)
-			}
-			if len(r.git.from) != 1 || r.git.from[0] != tc.from {
-				t.Errorf("the scope read from %q, want %q", r.git.from, tc.from)
-			}
-			brief := r.agents.launches[0].Prompt
-			if !strings.Contains(brief, "In scope: "+tc.scope+";") {
-				t.Errorf("the brief's scope %q, want %q", brief, tc.scope)
-			}
-			if tc.absent != "" && strings.Contains(brief, tc.absent) {
-				t.Errorf("the brief names a covered task: %q", brief)
-			}
-		})
-	}
-}
-
-// T-822: the "review due" count is the next review's scope: a merge its cycle covered is not counted (the same count
-// the release check makes).
-func TestReviewDueCountsUncovered(t *testing.T) {
-	t.Parallel()
-	r := newReviewRig(t)
-	r.git.last = "RV-4 closed · 1111111 · approved"
-	r.git.lastBody = "Covered: T-a, T-b\nStart: 3333333"
-	r.git.merges = []string{"aaaaaaa1 Merge T-a: one", "bbbbbbb2 Merge T-b: two", "ccccccc3 Merge T-c: three",
-		"ddddddd4 Merge T-d: four", "eeeeeee5 Merge T-e: five", "fffffff6 Merge T-f: six"}
-	r.submitted("T-x")
-	r.merged("T-x") // a merge folded: the pass reads the count again
-	r.tick()
-	if got, from := r.a.Status().Project.Review, r.git.from[len(r.git.from)-1]; got != "review due: 4 merges since RV-4" || from != "3333333" {
-		t.Errorf("4 uncovered merges: %q (counted from %q)", got, from)
-	}
-	r.now = r.now.Add(reviewDueEvery) // RV-5 closed: nothing folded since, so the count is read again
-	r.git.last = "RV-5 closed · 7777777 · approved"
-	r.git.lastBody = "Covered: T-c, T-d, T-e, T-f\nStart: 8888888"
-	r.tick()
-	if got := r.a.Status().Project.Review; got != "" {
-		t.Errorf("a cycle covered them: %q, want no review due", got)
-	}
-}
-
-// T-822: a verify of a task merged since the previous close's review start (here: during the previous verify,
-// so not after the sha its close names) is allowed: the verify's range is the next review's scope.
+// T-822: a verify of a task merged since the previous review's start (here: during the previous verify, so not in
+// RV-5's start scope) is allowed: the verify's range is the next review's scope, read from the fold (T-1023).
 func TestReviewVerifyOutsideScope(t *testing.T) {
 	t.Parallel()
 	r := newReviewRig(t)
-	r.git.last = "RV-4 closed · 2222222 · approved"
-	r.git.lastBody = "Covered: T-a, T-b\nStart: 3333333"
-	r.git.merges = []string{"ccccccc3 Merge T-c: three"}
+	r.mergedAt("T-c", "ccccccc3")
+	r.fact(event.ReviewTask, event.StepReviewStarted, ReviewData{ID: "RV-5", Head: "ddddddd4", Tasks: []string{"T-a", "T-b"}})
 	s, err := reviewConfig(r.p.root)
 	if err != nil {
 		t.Fatal(err)
@@ -798,7 +676,11 @@ func TestReviewVerifyOutsideScope(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(r.p.root, s.Reviews, "RV-5.md"), []byte("# RV-5\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	text, _, err := verifyText(context.Background(), r.git, r.p.root, s, "RV-5", []string{"T-c"}, nil)
+	if _, _, err := r.a.verifyText(context.Background(), r.p, r.git, s, "RV-5", []string{"T-z"}, nil); err == nil ||
+		err.Error() != "T-z has no merge on main since RV-4" {
+		t.Errorf("verify of a task the log never merged: %v", err)
+	}
+	text, _, err := r.a.verifyText(context.Background(), r.p, r.git, s, "RV-5", []string{"T-c"}, nil)
 	if err != nil {
 		t.Fatalf("verify of T-c, merged since the previous review started: %v", err)
 	}

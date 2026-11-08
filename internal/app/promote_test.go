@@ -24,51 +24,11 @@ import (
 // full suite's run, the fast-forward to exactly R, the last closed review's reviewed head (T-978), after_promote, RED's
 // needs-you, a restart mid-run, and after_merge off per publish.
 
-// promoteGit is a ReviewGit of named shas: heads by branch, the first-parent merges of "<from>..<to>" (none when not
-// set; from "" is all of to's, as git's: those of "h0..<to>", h0 being the rig's first commit with no merge before it)
-// and the newest close commit (last, lastBody); closes is the close commits by their hN sha (T-985), the history
-// linear. Head of a branch it has no sha for is an error.
+// promoteGit is a ReviewGit of named shas: heads by branch (the history linear: h0, h1, …). Head of a branch it has
+// no sha for is an error. What merged and what a review covered are the log's (T-1023): promoteRig.between, started.
 type promoteGit struct {
-	mu             sync.Mutex
-	heads          map[string]string
-	merges         map[string][]string
-	last, lastBody string
-	closes         map[string]ReviewClose
-}
-
-func (g *promoteGit) Last(context.Context, string) (ReviewClose, error) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return ReviewClose{Subject: g.last, Body: g.lastBody}, nil
-}
-
-// Closes is the close commits at hN with from < hN <= to (from "": all of to's), newest first.
-func (g *promoteGit) Closes(_ context.Context, from, to string) ([]ReviewClose, error) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	lo := -1
-	if from != "" {
-		lo = shaN(from)
-	}
-	var out []ReviewClose
-	for n := shaN(to); n > lo; n-- {
-		if c, ok := g.closes["h"+strconv.Itoa(n)]; ok {
-			out = append(out, c)
-		}
-	}
-	return out, nil
-}
-
-// closeCommit puts review id's close commit at sha (the newest close: Last's too), covering tasks since start.
-func (g *promoteGit) closeCommit(sha, id, verdict, start string, tasks ...string) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	c := ReviewClose{Subject: id + " closed · " + sha + " · " + verdict + " · batch",
-		Body: "Covered: " + strings.Join(tasks, ", ") + "\nStart: " + start}
-	if g.closes == nil {
-		g.closes = map[string]ReviewClose{}
-	}
-	g.closes[sha], g.last, g.lastBody = c, c.Subject, c.Body
+	mu    sync.Mutex
+	heads map[string]string
 }
 
 // shaN is hN's N (the rig's linear history).
@@ -87,33 +47,18 @@ func (g *promoteGit) Head(_ context.Context, branch string) (string, error) {
 	}
 	return "", errors.New("no branch " + branch)
 }
-func (g *promoteGit) Merges(_ context.Context, from, to string) ([]string, error) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if ms, ok := g.merges[from+".."+to]; ok || from != "" {
-		return slices.Clone(ms), nil
-	}
-	return slices.Clone(g.merges["h0.."+to]), nil
-}
 func (g *promoteGit) Files(context.Context, string, string) ([]string, error) { return nil, nil }
 func (g *promoteGit) Detach(context.Context, string, string) error            { return nil }
 func (g *promoteGit) Close(context.Context, ReviewCommit) error               { return nil }
+func (g *promoteGit) Closed(context.Context, string, string, string) (string, error) {
+	return "", nil
+}
 
-// set sets branch's head and the merges from..to (the merges' tasks as "Merge T-x: …" subjects).
+// set sets branch's head.
 func (g *promoteGit) set(branch, sha string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.heads[branch] = sha
-}
-
-func (g *promoteGit) between(from, to string, tasks ...string) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	var ms []string
-	for i, t := range tasks {
-		ms = append(ms, fmt.Sprintf("m%d%s Merge %s: work", i, to, t))
-	}
-	g.merges[from+".."+to] = ms
 }
 
 func (g *promoteGit) head(branch string) string {
@@ -229,7 +174,7 @@ func newPromoteRig(t *testing.T, reviews bool) *promoteRig {
 		}
 	}
 	r := &promoteRig{t: t, now: time.Date(2026, 11, 7, 12, 0, 0, 0, time.UTC),
-		git: &promoteGit{heads: map[string]string{"staging": "h1", "main": "h0"}, merges: map[string][]string{}}}
+		git: &promoteGit{heads: map[string]string{"staging": "h1", "main": "h0"}}}
 	r.f = &promoteFake{g: r.git, verdicts: map[string]string{}}
 	r.a, r.p = lineApp(t, root, &r.now)
 	r.wire()
@@ -321,7 +266,7 @@ func TestPromoteTriggerByWeight(t *testing.T) {
 			r.spec(task, "simple")
 			tasks = append(tasks, task)
 		}
-		r.git.between("h0", "h1", tasks...)
+		r.between("h0", "h1", tasks...)
 		r.pass()
 		r.pass()
 		if runs, _, _ := r.f.calls(); len(runs) != 0 || len(r.steps()) != 0 {
@@ -337,7 +282,7 @@ func TestPromoteTriggerByWeight(t *testing.T) {
 		r.busy()
 		r.spec("T-1", "hard")
 		r.spec("T-2", "hard")
-		r.git.between("h0", "h1", "T-1", "T-2")
+		r.between("h0", "h1", "T-1", "T-2")
 		r.pass()
 		runs, _, _ := r.f.calls()
 		if len(runs) != 1 || runs[0] != "h1" {
@@ -357,7 +302,7 @@ func TestPromoteTriggerByWeight(t *testing.T) {
 		r.spec("T-1", "medium")
 		r.spec("T-2", "medium")
 		r.spec("T-3", "hard")
-		r.git.between("h0", "h1", "T-1", "T-2")
+		r.between("h0", "h1", "T-1", "T-2")
 		r.pass()
 		if runs, _, _ := r.f.calls(); len(runs) != 0 {
 			t.Fatalf("2 medium (4 < 6): runs %q, want none", runs)
@@ -369,7 +314,7 @@ func TestPromoteTriggerByWeight(t *testing.T) {
 			t.Fatalf("the promotion touched a task in the merge loop: T-99 %s", state)
 		}
 		r.git.set("staging", "h2")
-		r.git.between("h0", "h2", "T-1", "T-2", "T-3")
+		r.between("h0", "h2", "T-1", "T-2", "T-3")
 		r.pass()
 		runs, _, _ := r.f.calls()
 		if len(runs) != 1 || runs[0] != "h2" {
@@ -385,7 +330,7 @@ func TestPromoteTriggerByWeight(t *testing.T) {
 		r.busy()
 		r.spec("T-1", "hard")
 		r.spec("T-2", "") // no Difficulty line
-		r.git.between("h0", "h1", "T-1", "T-2", "T-3")
+		r.between("h0", "h1", "T-1", "T-2", "T-3")
 		r.pass()
 		if in := r.intent("promote.1"); in.Weight != 7 {
 			t.Errorf("weight = %d, want 3 + 2 + 2 (no line, no spec: medium)", in.Weight)
@@ -397,7 +342,7 @@ func TestPromoteTriggerByIdle(t *testing.T) {
 	t.Parallel()
 	r := newPromoteRig(t, false)
 	r.spec("T-1", "simple")
-	r.git.between("h0", "h1", "T-1")
+	r.between("h0", "h1", "T-1")
 	r.a.mu.Lock()
 	idle := r.p.loopIdle()
 	r.a.mu.Unlock()
@@ -415,7 +360,7 @@ func TestPromoteTriggerByIdle(t *testing.T) {
 func TestPromoteGreenPromotes(t *testing.T) {
 	t.Parallel()
 	r := newPromoteRig(t, false)
-	r.git.between("h0", "h1", "T-1")
+	r.between("h0", "h1", "T-1")
 	r.pass() // the run
 	if got := r.git.head("main"); got != "h0" {
 		t.Fatalf("precondition: main moves only after the run's result: %s", got)
@@ -444,7 +389,7 @@ func TestPromoteGreenPromotes(t *testing.T) {
 func TestPromoteRedThenGreen(t *testing.T) {
 	t.Parallel()
 	r := newPromoteRig(t, false)
-	r.git.between("h0", "h1", "T-1", "T-2")
+	r.between("h0", "h1", "T-1", "T-2")
 	r.f.verdicts["h1"] = "RED"
 	r.pass()
 	r.pass()
@@ -458,7 +403,7 @@ func TestPromoteRedThenGreen(t *testing.T) {
 		t.Fatalf("needs-you = %q, want [%q]", got, want)
 	}
 	r.git.set("staging", "h2")
-	r.git.between("h0", "h2", "T-1", "T-2", "T-3")
+	r.between("h0", "h2", "T-1", "T-2", "T-3")
 	r.pass() // the run at h2
 	r.pass() // its fast-forward
 	if got := r.git.head("main"); got != "h2" {
@@ -476,7 +421,7 @@ func TestPromoteOffSettlesNeedsYou(t *testing.T) {
 	red := func(t *testing.T) *promoteRig {
 		t.Helper()
 		r := newPromoteRig(t, false)
-		r.git.between("h0", "h1", "T-1")
+		r.between("h0", "h1", "T-1")
 		r.f.verdicts["h1"] = "RED"
 		r.pass() // the run
 		r.pass() // its needs-you
@@ -520,7 +465,7 @@ func TestPromoteOffSettlesNeedsYou(t *testing.T) {
 func TestPromoteFailureCounted(t *testing.T) {
 	t.Parallel()
 	r := newPromoteRig(t, false)
-	r.git.between("h0", "h1", "T-1")
+	r.between("h0", "h1", "T-1")
 	r.f.verdicts["h1"] = "fail"
 	for i := 0; i < tries; i++ {
 		r.pass()
@@ -542,7 +487,7 @@ func TestPromoteFailureCounted(t *testing.T) {
 func TestPromoteRestartRunsRecordedHead(t *testing.T) {
 	t.Parallel()
 	r := newPromoteRig(t, false)
-	r.git.between("h0", "h1", "T-1")
+	r.between("h0", "h1", "T-1")
 	r.f.block, r.f.began = true, make(chan struct{}, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	r.a.promotion(ctx, r.p, r.fx)
@@ -556,7 +501,7 @@ func TestPromoteRestartRunsRecordedHead(t *testing.T) {
 	r.wire()
 	r.f.block = false
 	r.git.set("staging", "h2")
-	r.git.between("h0", "h2", "T-1", "T-2")
+	r.between("h0", "h2", "T-1", "T-2")
 	r.pass()
 	runs, _, _ := r.f.calls()
 	if len(runs) != 2 || runs[1] != "h1" {
@@ -571,7 +516,7 @@ func TestPromoteRestartRunsRecordedHead(t *testing.T) {
 func TestPromoteCrashAfterFastForward(t *testing.T) {
 	t.Parallel()
 	r := newPromoteRig(t, false)
-	r.git.between("h0", "h1", "T-1")
+	r.between("h0", "h1", "T-1")
 	r.pass() // GREEN at h1
 	r.git.set("main", "h1")
 	r.pass()
@@ -592,10 +537,41 @@ func (r *promoteRig) fact(task, step string, d any) {
 	}
 }
 
-// started starts review id at head (fact review.started).
-func (r *promoteRig) started(id, head string) {
+// started starts review id at head, its in-scope tasks (fact review.started).
+func (r *promoteRig) started(id, head string, tasks ...string) {
 	r.t.Helper()
-	r.fact(event.ReviewTask, event.StepReviewStarted, ReviewData{ID: id, Head: head})
+	r.fact(event.ReviewTask, event.StepReviewStarted, ReviewData{ID: id, Head: head, Tasks: tasks})
+}
+
+// between records the merges of tasks the log does not hold yet (fact merged, in order): the last at to, the others at
+// to's sha with a suffix (from is git's range start, for the reader: the log orders them).
+func (r *promoteRig) between(_, to string, tasks ...string) {
+	r.t.Helper()
+	var add []string
+	for _, task := range tasks {
+		if r.mergedSHA(task) == "" {
+			add = append(add, task)
+		}
+	}
+	for i, task := range add {
+		sha := to
+		if i < len(add)-1 {
+			sha = fmt.Sprintf("%s.%d", to, i)
+		}
+		r.fact(task, event.StepMerged, event.MergedData{Head: sha})
+	}
+}
+
+// mergedSHA is task's merge's head in the fold ("": none).
+func (r *promoteRig) mergedSHA(task string) string {
+	r.a.mu.Lock()
+	defer r.a.mu.Unlock()
+	for _, m := range r.p.folded.rv.merges {
+		if m.task == task {
+			return m.sha
+		}
+	}
+	return ""
 }
 
 // verified is a finished verify of tasks at head: the reviewer's verify brief, then its finished line.
@@ -619,7 +595,7 @@ func reviewedRig(t *testing.T) *promoteRig {
 	r.started("RV-4", "h0")
 	r.closed("RV-4")
 	r.a.mu.Lock()
-	head := r.p.folded.closedHead
+	head := r.p.folded.rv.closedHead()
 	r.a.mu.Unlock()
 	if head != "h0" {
 		t.Fatalf("precondition: RV-4's reviewed head = %q, want h0", head)
@@ -636,8 +612,8 @@ func TestPromoteReviewSuiteOnlyAtR(t *testing.T) {
 	r.busy()            // the weight triggers, never the idle loop
 	r.spec("T-1", "hard")
 	r.spec("T-2", "hard")
-	r.git.between("h0", "h1", "T-1", "T-2") // weight 6, the threshold
-	r.pass()                                // due: the review request, no suite
+	r.between("h0", "h1", "T-1", "T-2") // weight 6, the threshold
+	r.pass()                            // due: the review request, no suite
 	r.a.mu.Lock()
 	q := r.p.folded.review
 	r.a.mu.Unlock()
@@ -651,16 +627,16 @@ func TestPromoteReviewSuiteOnlyAtR(t *testing.T) {
 		t.Fatalf("review requested: status %+v, want the wait for the review and no run", st)
 	}
 	r.fact(event.ReviewTask, event.StepReviewFire, ReviewData{Request: q.seq})
-	r.started("RV-5", "h1")
+	r.started("RV-5", "h1", "T-1", "T-2")
 	r.pass()
 	// Two more merges while RV-5 is open: the weight is still reached, nothing runs.
 	r.spec("T-3", "hard")
 	r.spec("T-4", "hard")
 	r.git.set("staging", "h2")
-	r.git.between("h0", "h2", "T-1", "T-2", "T-3")
+	r.between("h0", "h2", "T-1", "T-2", "T-3")
 	r.pass()
 	r.git.set("staging", "h3")
-	r.git.between("h0", "h3", "T-1", "T-2", "T-3", "T-4")
+	r.between("h0", "h3", "T-1", "T-2", "T-3", "T-4")
 	r.pass()
 	if runs, ffs, _ := r.f.calls(); len(runs) != 0 || len(ffs) != 0 {
 		t.Fatalf("RV-5 open, two more merges: runs %q, ffs %q; want none", runs, ffs)
@@ -673,7 +649,6 @@ func TestPromoteReviewSuiteOnlyAtR(t *testing.T) {
 	}
 	// RV-5 closes at h1 (no fix): R = h1, the suite runs there once and main moves to it.
 	r.git.set("staging", "h4")
-	r.git.closeCommit("h4", "RV-5", "approved", "h1", "T-1", "T-2")
 	r.closed("RV-5")
 	r.pass() // the suite at R = h1
 	if runs, ffs, _ := r.f.calls(); !slices.Equal(runs, []string{"h1"}) || len(ffs) != 0 {
@@ -699,17 +674,17 @@ func TestPromoteReviewFixCycle(t *testing.T) {
 			r := reviewedRig(t)
 			r.spec("T-1", "simple")
 			r.spec("T-3", "simple")
-			r.git.between("h0", "h1", "T-1")
+			r.between("h0", "h1", "T-1")
 			r.pass() // idle: the review request, no suite (T-990)
 			r.pass()
 			if runs, ffs, _ := r.f.calls(); len(runs) != 0 || len(ffs) != 0 {
 				t.Fatalf("precondition: review requested, nothing run or promoted: runs %q, ffs %q", runs, ffs)
 			}
-			r.started("RV-5", "h1")
+			r.started("RV-5", "h1", "T-1")
 			// The review requests changes; the fix T-3 merges at h2 (weight 2 with the loop busy: no trigger).
 			r.busy()
 			r.git.set("staging", "h2")
-			r.git.between("h0", "h2", "T-1", "T-3")
+			r.between("h0", "h2", "T-1", "T-3")
 			r.pass()
 			if runs, ffs, _ := r.f.calls(); len(runs) != 0 || len(ffs) != 0 || r.git.head("main") != "h0" {
 				t.Fatalf("RV-5 open, fix merged: runs %q, ffs %q, main %s; want nothing run or promoted", runs, ffs,
@@ -720,7 +695,6 @@ func TestPromoteReviewFixCycle(t *testing.T) {
 			}
 			r.verified("h2", "T-3")
 			r.git.set("staging", "h3") // the close commit
-			r.git.closeCommit("h3", "RV-5", "accepted 1", "h1", "T-1", "T-3")
 			r.closed("RV-5")
 			r.pass() // the suite at R = h2
 			runs, ffs, _ := r.f.calls()
@@ -763,14 +737,13 @@ func TestPromoteAcceptedCloseRunsAtR(t *testing.T) {
 	r := reviewedRig(t)
 	r.busy()
 	r.spec("T-1", "simple")
-	r.git.between("h0", "h1", "T-1")
+	r.between("h0", "h1", "T-1")
 	r.pass()
 	if runs, _, _ := r.f.calls(); len(runs) != 0 {
 		t.Fatalf("precondition: weight 1, loop busy: runs %q, want none", runs)
 	}
-	r.started("RV-5", "h1")
+	r.started("RV-5", "h1", "T-1")
 	r.git.set("staging", "h2")
-	r.git.closeCommit("h2", "RV-5", "accepted 2", "h1", "T-1")
 	r.closed("RV-5")
 	r.pass()
 	r.pass()
@@ -818,7 +791,7 @@ func TestPromoteAfterMergePerPublish(t *testing.T) {
 		t.Run(fmt.Sprintf("promote set %v", set), func(t *testing.T) {
 			t.Parallel()
 			r := newPromoteRig(t, false)
-			r.git.between("h0", "h1", "T-1")
+			r.between("h0", "h1", "T-1")
 			spy := &afterSpy{}
 			r.fx.Scratch = spy
 			if !set {
@@ -888,15 +861,16 @@ func (r *promoteRig) nothingPending(what, at string) {
 	}
 }
 
-// closeAt starts and closes RV-5 at reviewed with the loop busy (no trigger) and staging at head past it.
-func (r *promoteRig) closeAt(reviewed, head string) {
+// closeAt starts and closes RV-5 at reviewed (its scope tasks) with the loop busy (no trigger) and staging at head past
+// it.
+func (r *promoteRig) closeAt(reviewed, head string, tasks ...string) {
 	r.t.Helper()
 	r.busy()
-	r.started("RV-5", reviewed)
+	r.started("RV-5", reviewed, tasks...)
 	r.git.set("staging", head)
 	r.closed("RV-5")
 	r.a.mu.Lock()
-	got := r.p.folded.closedHead
+	got := r.p.folded.rv.closedHead()
 	r.a.mu.Unlock()
 	if got != reviewed {
 		r.t.Fatalf("precondition: R = %q, want %s", got, reviewed)
@@ -928,9 +902,8 @@ func TestPromoteRPassedAlready(t *testing.T) {
 	t.Run("the switch past a GREEN at R: not fast-forwarded back, not promoted", func(t *testing.T) {
 		t.Parallel()
 		r := reviewedRig(t)
-		r.git.between("h0", "h1", "T-1")
-		r.closeAt("h1", "h2")
-		r.git.closeCommit("h2", "RV-5", "approved", "h1", "T-1")
+		r.between("h0", "h1", "T-1")
+		r.closeAt("h1", "h2", "T-1")
 		r.pass() // the suite at R h1, GREEN
 		r.a.mu.Lock()
 		ran := r.p.prom.ran["h1"]
@@ -1076,17 +1049,16 @@ func TestPromoteEveryMergeReviewed(t *testing.T) {
 		for _, task := range tasks {
 			r.spec(task, "simple")
 		}
-		r.git.between("h0", "h1", "T-1")
-		r.started("RV-5", "h1")
+		r.between("h0", "h1", "T-1")
+		r.started("RV-5", "h1", "T-1")
 		return r
 	}
 	t.Run("no fix, T-x merged after the start: R = h1 promoted, T-x waits", func(t *testing.T) {
 		t.Parallel()
 		r := rig(t, "T-1", "T-x")
-		r.git.between("h0", "h3", "T-1", "T-x") // T-x at h2, the close commit h3
-		r.git.between("h1", "h3", "T-x")
+		r.between("h0", "h3", "T-1", "T-x") // T-x at h2, the close commit h3
+		r.between("h1", "h3", "T-x")
 		r.git.set("staging", "h3")
-		r.git.closeCommit("h3", "RV-5", "approved", "h1", "T-1")
 		r.closed("RV-5")
 		r.pass() // the suite at h1
 		r.pass() // the fast-forward
@@ -1115,11 +1087,10 @@ func TestPromoteEveryMergeReviewed(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			r := rig(t, "T-1", "T-3")
-			r.git.between("h0", "h2", "T-1", "T-3")
+			r.between("h0", "h2", "T-1", "T-3")
 			r.git.set("staging", "h2")
 			r.verified("h2", "T-3")
 			r.git.set("staging", "h3")
-			r.git.closeCommit("h3", "RV-5", c.verdict, "h1", "T-1", "T-3")
 			r.closed("RV-5")
 			r.pass()
 			r.pass()
@@ -1138,15 +1109,14 @@ func TestPromoteEveryMergeReviewed(t *testing.T) {
 	t.Run("T-x merged before the verify: no promotion until the next review covers it", func(t *testing.T) {
 		t.Parallel()
 		r := rig(t, "T-1", "T-3", "T-x")
-		r.git.between("h0", "h3", "T-1", "T-3", "T-x") // T-3 at h2, T-x at h3
-		r.git.between("h0", "h4", "T-1", "T-3", "T-x") // h4: RV-5's close commit
+		r.between("h0", "h3", "T-1", "T-3", "T-x") // T-3 at h2, T-x at h3
+		r.between("h0", "h4", "T-1", "T-3", "T-x") // h4: RV-5's close commit
 		r.git.set("staging", "h3")
 		r.verified("h3", "T-3")
 		r.git.set("staging", "h4")
-		r.git.closeCommit("h4", "RV-5", "accepted 1", "h1", "T-1", "T-3")
 		r.closed("RV-5")
 		r.a.mu.Lock()
-		head := r.p.folded.closedHead
+		head := r.p.folded.rv.closedHead()
 		r.a.mu.Unlock()
 		if head != "h3" {
 			t.Fatalf("precondition: R = %q, want the verify's head h3", head)
@@ -1178,11 +1148,10 @@ func TestPromoteEveryMergeReviewed(t *testing.T) {
 		}
 		// RV-6 starts at h4 (its scope T-x), finds nothing and closes; its close commit h5 covers T-x: R = h4.
 		r.fact(event.ReviewTask, event.StepReviewFire, ReviewData{Request: q.seq})
-		r.started("RV-6", "h4")
+		r.started("RV-6", "h4", "T-x")
 		r.pass()
 		r.expect("RV-6 open", nil, nil, nil, nil)
 		r.git.set("staging", "h5")
-		r.git.closeCommit("h5", "RV-6", "approved", "h4", "T-x")
 		r.closed("RV-6")
 		r.pass() // the GREEN at h4 fast-forwards main
 		r.pass() // after_promote

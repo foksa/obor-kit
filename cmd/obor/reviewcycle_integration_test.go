@@ -165,8 +165,8 @@ func TestReviewGitClose(t *testing.T) {
 	if st := p.Git(p.Root, "status", "--porcelain", "--untracked-files=all"); st != "" {
 		t.Errorf("the main checkout is dirty after the close: %q", st)
 	}
-	if last, err := g.Last(ctx, "main"); err != nil || last.Subject != c.Subject || last.Body != c.Body {
-		t.Errorf("Last after the close: %+v, %v; want the close commit", last, err)
+	if s, err := g.Closed(ctx, "main", head, "RV-4"); err != nil || s != c.Subject {
+		t.Errorf("Closed after the close: %q, %v; want the close commit's subject", s, err)
 	}
 }
 

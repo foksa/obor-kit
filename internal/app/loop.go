@@ -40,9 +40,6 @@ type Loop struct {
 	Lane  port.LaneSetup
 	Specs Specs
 	Kit   string
-	// Checkout is nil while the main checkout is on the target branch, else why the project's pass pauses: a loop
-	// needs-you, nothing gated, published or dispatched until it is back (T-425; nil: never paused).
-	Checkout func(ctx context.Context) error
 	// Nightly is the project's nightly full check (merge.nightly_at; off is At "", T-464, T-782; nil: a Loop without
 	// one, tests).
 	Nightly *Nightly
@@ -326,11 +323,8 @@ func (a *App) advance(ctx context.Context) *Loop {
 	}
 	fx, err := a.opt.Loop(p.root)
 	if err == nil {
-		a.deliver(ctx, p, fx)   // lines need no checkout on the target branch (RV-50 #2)
-		a.stopWakes(ctx, p, fx) // so do a stopped worker's wake and alarm (RV-60 #2)
-	}
-	if err == nil && fx.Checkout != nil {
-		err = fx.Checkout(ctx)
+		a.deliver(ctx, p, fx)
+		a.stopWakes(ctx, p, fx)
 	}
 	a.loopStatus(ctx, p, &p.badLoop, err)
 	if err != nil {
@@ -350,13 +344,13 @@ func (a *App) advance(ctx context.Context) *Loop {
 	}
 	a.nightly(ctx, p, fx)
 	a.promotion(ctx, p, fx)
-	a.reviewCloseRead(ctx, p, fx) // once per process: a close commit the log does not record (T-926)
+	a.reviewCloseRead(ctx, p, fx) // once per process: the open review's close commit a crash cut from its fact (T-926)
 	a.reviewPass(ctx, p, fx)
 	if fx.Promote == nil { // T-974: a promotion requests its review itself; the "review due" count is off
 		a.reviewDueTick(ctx, p, fx)
 	} else {
 		a.mu.Lock()
-		p.due = reviewDueLine{}
+		p.due = ""
 		a.mu.Unlock()
 	}
 	return fx

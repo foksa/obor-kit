@@ -225,7 +225,7 @@ func TestVerifyRule(t *testing.T) {
 		{name: "the review closed (a forced close)", setup: func(r *reviewRig) {
 			r.fixTask("T-a", "Fixes: RV-5")
 			r.merged("T-a")
-			r.closedBy("RV-5 closed · 2222222 · approved · forced")
+			r.closedBy("RV-5", "RV-5 closed · 2222222 · approved · forced")
 		}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -290,7 +290,7 @@ func TestVerifyBriefsOnceAtTheHead(t *testing.T) {
 	}
 	b := briefs[0]
 	if b.Task != "T-a,T-b" || b.Reviewed != headSHA || !strings.HasPrefix(b.Line, "[obor obor] The RV-5 findings were"+
-		" fixed in T-a (aaaaaaa), T-b (bbbbbbb); main is at abcdef0") ||
+		" fixed in T-a (ccccccc), T-b (ccccccc); main is at abcdef0") ||
 		!strings.HasSuffix(b.Line, "Do not commit.\nLead's note: T-a: #1, #3 — re-run with an old status JSON") {
 		t.Errorf("the verify brief %+v", b)
 	}
@@ -404,7 +404,7 @@ func TestVerifyGitFailsRetried(t *testing.T) {
 	r.verifyPass()
 	want := "[obor] RV-5 verify of T-a,T-b failed: checkout: your local changes would be overwritten (serve tries again" +
 		" on its next pass)"
-	if l, tries := r.verifyLines(), len(r.git.from); len(l) != 1 || l[0] != want || tries != 2 {
+	if l, tries := r.verifyLines(), r.git.headReads; len(l) != 1 || l[0] != want || tries != 2 {
 		t.Fatalf("lines %q after %d tries; want the one line %q, two tries", l, tries, want)
 	}
 	if n := len(verifyBriefs(t, r.p.root)); n != 0 || r.pending() != "T-a,T-b" {

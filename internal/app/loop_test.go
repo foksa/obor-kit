@@ -48,7 +48,6 @@ type loopRig struct {
 	// onStart, onStop: an error a start or stop gives instead of acting (nil: none; under mu).
 	onStart, onStop func() error
 	loopErr         error // what the Loop adapters' constructor fails with (nil: none; under mu)
-	checkoutErr     error // what the Loop's Checkout says (nil: on the target branch; under mu)
 
 	disp  *dispatchFakes // the dispatch's adapters (nil: none, the loop has no dispatch)
 	tick  time.Duration  // the watchdogs' tick, each a merge-loop pass (0: 2 ms); set before start
@@ -320,12 +319,7 @@ func (r *loopRig) launch() {
 				night = r.nightOf()
 			}
 			fx := &app.Loop{Scratch: r.scratch, Agents: r, Typer: panes, Kit: "../..", Nightly: night, Disk: r.disk,
-				Inbox: r.inbox, Restart: r.restart, Config: r.config, Review: r.review,
-				Checkout: func(context.Context) error {
-					r.mu.Lock()
-					defer r.mu.Unlock()
-					return r.checkoutErr
-				}}
+				Inbox: r.inbox, Restart: r.restart, Config: r.config, Review: r.review}
 			if r.disp != nil {
 				r.disp.loop(fx, panes)
 			}
@@ -1005,37 +999,6 @@ func TestLoopErrorIsAFactOnceAndClears(t *testing.T) {
 	r.passes()
 	if n := r.count("0 fact resumed"); n != 2 { // one for the replaced error, one for the end
 		t.Errorf("resumed records = %d, want 2 (no more once the loop works): %q", n, r.steps())
-	}
-}
-
-// T-425: while the main checkout is off the target branch the project's pass pauses: one loop needs-you, the
-// task_done recorded (a request, T-437) but neither submitted nor gated; back on the branch the fact ends and the task gates.
-func TestLoopPausedOffTargetBranch(t *testing.T) {
-	t.Parallel()
-	r := newLoopRig(t)
-	set := func(err error) {
-		r.mu.Lock()
-		r.checkoutErr = err
-		r.mu.Unlock()
-	}
-	const fact = "0 fact needs-you{loop: main checkout is on side, not main}"
-	set(errors.New("main checkout is on side, not main"))
-	r.work("feature.txt", "feature\n")
-	r.start()
-	r.submit()
-	r.waitStep(fact)
-	for i := 0; i < 3; i++ {
-		r.passes()
-	}
-	if n := r.count(fact); n != 1 || !r.has("1 fact submitted") || r.scratch.Submits.Load() != 0 || r.scratch.Gates.Load() != 0 {
-		t.Errorf("paused: %d needs-you, submits %d, gates %d; want 1, 0, 0: %q", n, r.scratch.Submits.Load(),
-			r.scratch.Gates.Load(), r.steps())
-	}
-
-	set(nil)
-	r.waitJob("pj-int", "T-1/1/review")
-	if !r.has("0 fact resumed") || r.scratch.Gates.Load() != 1 {
-		t.Errorf("back on main: resumed %v, gates %d; want true, 1: %q", r.has("0 fact resumed"), r.scratch.Gates.Load(), r.steps())
 	}
 }
 

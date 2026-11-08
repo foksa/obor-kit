@@ -10,24 +10,27 @@ import (
 	"testing"
 	"time"
 
-	"obor/internal/app"
 	"obor/internal/checks"
 	"obor/internal/testkit"
 )
 
-// T-638: reviewGit on a fixture repo: the newest RV close, the head, the first-parent merges and files since a sha.
+// T-638, T-1023: reviewGit on a fixture repo: the head, the files since a sha, and Closed, a review's own close
+// commit since a sha (the close's crash cut): not a later review's whose number starts the same, not a commit that
+// only quotes a close subject in its body, none before the range.
 func TestReviewGit(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
 	g := reviewGit{root: p.Root}
 	ctx := context.Background()
-	if last, err := g.Last(ctx, "main"); err != nil || last != (app.ReviewClose{}) {
-		t.Fatalf("no close yet: %+v, %v", last, err)
+	if s, err := g.Closed(ctx, "main", "", "RV-4"); err != nil || s != "" {
+		t.Fatalf("no close yet: %q, %v", s, err)
 	}
-	p.Git(p.Root, "commit", "-q", "--allow-empty", "-m", "RV-3 closed · 0000000 · approved")
+	p.Git(p.Root, "commit", "-q", "--allow-empty", "-m", "RV-3 closed · 0000000 · approved · T-1")
 	base := p.Git(p.Root, "rev-parse", "HEAD")
-	p.Git(p.Root, "commit", "-q", "--allow-empty", "-m", "RV-4 closed · "+base[:7]+" · approved · T-8",
-		"-m", "Covered: T-5, T-6\nStart: "+base)
+	rv4 := "RV-4 closed · " + base[:7] + " · approved · T-8"
+	p.Git(p.Root, "commit", "-q", "--allow-empty", "-m", rv4, "-m", "Covered: T-5, T-6\nStart: "+base)
+	p.Git(p.Root, "commit", "-q", "--allow-empty", "-m", "RV-40 closed · "+base[:7]+" · approved · T-9")
+	p.Git(p.Root, "commit", "-q", "--allow-empty", "-m", "BACKLOG: notes", "-m", "RV-4 closed · 1111111 · quoted")
 	p.Git(p.Root, "checkout", "-q", "-b", "task/T-9")
 	p.Write("a.txt", "a\n")
 	p.Git(p.Root, "add", "a.txt")
@@ -35,27 +38,16 @@ func TestReviewGit(t *testing.T) {
 	p.Git(p.Root, "checkout", "-q", "main")
 	p.Git(p.Root, "merge", "-q", "--no-ff", "-m", "Merge T-9: a", "task/T-9")
 	head := p.Git(p.Root, "rev-parse", "HEAD")
-	if last, err := g.Last(ctx, "main"); err != nil || last.Subject != "RV-4 closed · "+base[:7]+" · approved · T-8" ||
-		last.Body != "Covered: T-5, T-6\nStart: "+base {
-		t.Errorf("last: %+v, %v", last, err)
-	}
-	// T-985: the close commits of a range, newest first, each its subject and body.
-	all, err := g.Closes(ctx, "", head)
-	if err != nil || len(all) != 2 || all[0].Subject != "RV-4 closed · "+base[:7]+" · approved · T-8" ||
-		all[0].Body != "Covered: T-5, T-6\nStart: "+base || all[1] != (app.ReviewClose{Subject: "RV-3 closed · 0000000 · approved"}) {
-		t.Errorf("closes of all of main: %+v, %v; want RV-4's then RV-3's", all, err)
-	}
-	if since, err := g.Closes(ctx, base, head); err != nil || len(since) != 1 || since[0].Subject != all[0].Subject {
-		t.Errorf("closes since RV-3's: %+v, %v; want RV-4's only", since, err)
-	}
-	if none, err := g.Closes(ctx, p.Git(p.Root, "rev-parse", "HEAD^"), head); err != nil || len(none) != 0 {
-		t.Errorf("closes of the merge alone: %+v, %v; want none", none, err)
+	for _, c := range []struct{ id, from, want string }{
+		{"RV-4", "", rv4}, {"RV-4", base, rv4}, {"RV-3", "", "RV-3 closed · 0000000 · approved · T-1"},
+		{"RV-3", base, ""}, {"RV-5", "", ""},
+	} {
+		if s, err := g.Closed(ctx, "main", c.from, c.id); err != nil || s != c.want {
+			t.Errorf("Closed(%s since %q) = %q, %v; want %q", c.id, c.from, s, err, c.want)
+		}
 	}
 	if h, err := g.Head(ctx, "main"); err != nil || h != head {
 		t.Errorf("head %q, %v; want %s", h, err, head)
-	}
-	if m, err := g.Merges(ctx, base[:7], head); err != nil || len(m) != 1 || m[0] != head+" Merge T-9: a" {
-		t.Errorf("merges %q, %v", m, err)
 	}
 	if f, err := g.Files(ctx, base[:7], head); err != nil || strings.Join(f, ",") != "a.txt" {
 		t.Errorf("files %q, %v", f, err)

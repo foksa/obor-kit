@@ -124,14 +124,14 @@ type proj struct {
 	scan       laneScan             // the lane table as last scanned: the watchdogs' cached observation (lanescan.go)
 	tasks      map[string]*watch    // the open tasks (a lane holds it, not in the merge loop), by task
 	diskAt     time.Time            // when the free space was last read (disk.go)
-	due        reviewDueLine        // obor status' "review due" line, counted in git on a pass (review.go)
+	due        string               // obor status' "review due" line, counted from the fold on each pass (review.go)
 	rv         reviewClaim          // a pass's claim of the open review request (review.go)
 	integrator string               // the project's integrator agent: the one caller of the verdicts
 	merging    bool                 // the merge loop runs for it (Options.Loop and an integrator role)
 	timers     map[string]*jobTimer // the work jobs' delivery timers, the integrator's jobs' timers, by task
 	// fixes: the open review's fix round as the verify rule last read it (obor status' review line); verifyDue: a
-	// verify is owed, which idle waits for (reviewverify.go, T-924); closeRead: this process read git once for a close
-	// commit the log does not record (reviewclose.go, T-926).
+	// verify is owed, which idle waits for (reviewverify.go, T-924); closeRead: this process read git once for the open
+	// review's close commit, the close's crash cut (reviewclose.go, T-926, T-1023).
 	fixes     fixState
 	verifyDue bool
 	closeRead bool
@@ -223,14 +223,10 @@ type folded struct {
 	// lr: the lanes table's projection (lanerows.go, T-439; its write state is live).
 	lr      laneRows
 	watches map[string]*mergeWatch // each set's last watch, open or closed (mergewatch.go; current state: openWatch)
-	// review: the open review request (review.go; nil: none; held is live); reviewed: the last review started.
-	review   *reviewReq
-	reviewed lastReview
-	// rv: the review cycle's starts and verify briefs, one fold (reviewverify.go, T-856, T-924).
+	// review: the open review request (review.go; nil: none; held is live).
+	review *reviewReq
+	// rv: the reviews (started, verified, closed) and the merges, one fold (reviewfold.go, T-856, T-924, T-1023).
 	rv reviewLog
-	// closedHead: the last closed review's reviewed head R, its start's or its last finished verify's (full sha; the
-	// promotion's one candidate, T-978); "": none closed, or its start not in the log.
-	closedHead string
 	// sessions: the agents' recorded sessions in log order (sessions.go, T-577).
 	sessions []store.Session
 	// did: the rules' lines by their key (rules.go, T-866: a lead line's Of) and when each was recorded.

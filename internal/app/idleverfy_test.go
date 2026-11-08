@@ -122,7 +122,7 @@ func TestIdleClosedRoundStopsCounting(t *testing.T) {
 	if !owed() {
 		t.Fatal("precondition: the verify that did not finish is not owed")
 	}
-	r.closedBy("RV-5 closed · 2222222 · approved · forced")
+	r.closedBy("RV-5", "RV-5 closed · 2222222 · approved · forced")
 	if owed() {
 		t.Error("a closed review owes a verify")
 	}

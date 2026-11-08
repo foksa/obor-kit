@@ -219,38 +219,29 @@ func TestSpecs(t *testing.T) {
 	}
 }
 
-// T-425: the merge loop's Checkout pauses it while the main checkout is off branches.main (another branch, a detached
-// HEAD) and not on it; the dispatch target stays branches.main's sha either way.
-func TestMergeLoopCheckoutPause(t *testing.T) {
+// T-425, T-1023: the dispatch target is branches.main's sha whatever the main checkout has checked out (another
+// branch, a detached HEAD); the merge loop no longer pauses off it (no Checkout).
+func TestDispatchTargetOffBranch(t *testing.T) {
 	t.Parallel()
 	p := servedGitProject(t)
 	l, err := mergeLoop(p.Env(), herdr.Panes{}, &serveEnd{stop: func() {}})(p.Root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if l.Checkout == nil {
-		t.Fatal("no Checkout wired")
-	}
 	ctx := t.Context()
 	main := p.Git(p.Root, "rev-parse", "main")
-	check := func(name, want string) {
+	check := func(name string) {
 		t.Helper()
-		err := l.Checkout(ctx)
-		if (want == "") != (err == nil) || (err != nil && err.Error() != want) {
-			t.Errorf("%s: Checkout %v; want %q", name, err, want)
-		}
 		if sha, _, err := l.Specs.Target(ctx, "T-1"); err != nil || sha != main {
 			t.Errorf("%s: Target %q %v; want main's %q", name, sha, err, main)
 		}
 	}
-	check("on main", "")
+	check("on main")
 	p.Git(p.Root, "switch", "-q", "-c", "side")
 	p.Commit(p.Root)
-	check("on side", "main checkout is on side, not main")
+	check("on side")
 	p.Git(p.Root, "switch", "-q", "--detach", "side")
-	check("detached", "main checkout is on a detached HEAD, not main")
-	p.Git(p.Root, "switch", "-q", "main")
-	check("back on main", "")
+	check("detached")
 }
 
 // servedGitProject is servedProject in a git project (testkit.New, lane L-01 a real worktree on task/T-01), for the

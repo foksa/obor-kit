@@ -199,7 +199,7 @@ func TestReplayStateText(t *testing.T) {
 	if again := replayState(recs, "pj-lead"); again != before {
 		t.Fatalf("the same records folded twice differ: %s", firstDiff(before, again))
 	}
-	if !strings.Contains(before, "p.folded.rv.startID = RV-5\n") || !strings.Contains(before, "p.folded.rv.open = map[0]\n") {
+	if !strings.Contains(before, "p.folded.rv.reviews[1].id = RV-5\n") || !strings.Contains(before, "p.folded.rv.open = map[0]\n") {
 		t.Fatalf("the review start is not in the state:\n%s", before)
 	}
 	for _, step := range []string{"review.fix", "review.verify.request"} {

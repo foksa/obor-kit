@@ -70,7 +70,7 @@ func reviewerStopRule(_ context.Context, a *App, p *proj, fx *Loop, _ time.Time)
 		return 0, action{}, false
 	}
 	a.mu.Lock()
-	closed := p.folded.reviewed.closed
+	closed := p.folded.rv.last().closed
 	a.mu.Unlock()
 	if closed == 0 {
 		return 0, action{}, false

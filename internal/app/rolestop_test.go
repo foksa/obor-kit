@@ -351,10 +351,10 @@ func (s *reviewStopSpy) Stop(_ context.Context, agent, pane string, force bool) 
 	return "STOPPED " + agent, nil
 }
 
-// reviewStopRig is a review rig (RV-4 closed, the reviewer pj-rev idle in w:rev) with a stop spy.
+// reviewStopRig is a review rig with no review yet (the reviewer pj-rev idle in w:rev) with a stop spy.
 func reviewStopRig(t *testing.T) (*reviewRig, *reviewStopSpy) {
 	t.Helper()
-	r := newReviewRig(t)
+	r := newReviewRigWith(t, false)
 	s := &reviewStopSpy{}
 	r.a.mu.Lock()
 	w := r.a.whereIs(r.p, "pj-rev")
@@ -380,7 +380,7 @@ func TestRoleStopReviewerRule(t *testing.T) {
 	}
 	started := func(t *testing.T, r *reviewRig, _ *reviewStopSpy) { r.started() }
 	closed := func(t *testing.T, r *reviewRig, _ *reviewStopSpy) {
-		r.closedBy("RV-5 closed · abcdef0 · approved · T-a")
+		r.closedBy("RV-1", "RV-1 closed · abcdef0 · approved · T-a")
 	}
 	status := func(status, agent string) step {
 		return func(t *testing.T, r *reviewRig, _ *reviewStopSpy) {
@@ -418,7 +418,7 @@ func TestRoleStopReviewerRule(t *testing.T) {
 		{name: "closed but it is at its shell: none",
 			steps: []step{started, closed, status("", ""), pass}},
 		{name: "closed and the pane at its shell after the stop: no second stop",
-			steps: []step{started, closed, pass, status("", ""), later(reviewDueEvery), pass},
+			steps: []step{started, closed, pass, status("", ""), later(3 * time.Minute), pass},
 			stops: []string{"pj-rev w:rev force=false"}},
 		{name: "open on a pass, then closed: stopped on the next pass, no poll interval",
 			steps: []step{started, pass, closed, pass},
@@ -445,7 +445,7 @@ func TestRoleStopReviewerFailuresAccumulate(t *testing.T) {
 	t.Parallel()
 	r, s := reviewStopRig(t)
 	r.started()
-	r.closedBy("RV-5 closed · abcdef0 · approved · T-a")
+	r.closedBy("RV-1", "RV-1 closed · abcdef0 · approved · T-a")
 	s.err = errors.New("herdr refused the stop")
 	reason := fmt.Sprintf("rule %s failed %d passes in a row (serve's log names the errors)", ruleReviewerStop, ruleFails)
 	for i := 1; i <= ruleFails; i++ {

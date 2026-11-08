@@ -297,7 +297,7 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Call) 
 		}
 		return "", fmt.Errorf("dispatch %s: %s", c.Task, why)
 	}
-	if err := fixesCheck(ctx, fx, p.root, c.Task, row.Spec); err != nil { // T-924: a fix links to the open review only
+	if err := a.fixesCheck(p, c.Task, row.Spec); err != nil { // T-924: a fix links to the open review only
 		return "", err
 	}
 	cfg, err := config.LoadDaemon(p.root)
