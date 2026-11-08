@@ -300,7 +300,6 @@ type TaskStatus struct {
 	Rank    int      `json:"rank,omitempty"`
 	Level   string   `json:"level,omitempty"` // waiting: the difficulty level its models came from
 	Types   []string `json:"types,omitempty"` // waiting: the models it takes (model refs, T-695, T-765)
-	Queue   string   `json:"queue,omitempty"` // waiting: the keep lane it queues on (T-1031; "": none)
 	// Difficulty is a waiting task's spec Difficulty level (its dispatch's level, else its stored spec's line: a --model
 	// override; "": neither) and Model the model ref it will run on: its first of Types not paused (a --model
 	// override's or its level's; "": every one is paused) (T-977).

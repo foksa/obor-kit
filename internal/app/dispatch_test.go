@@ -153,9 +153,13 @@ func (d *dispatchFakes) startWorker(ctx context.Context, req port.Launch) (port.
 		d.session++
 	}
 	transcript := "/s/" + string(rune('0'+d.session)) + ".jsonl"
+	sid := transcript // herdr's session id of the agent: what the start reports and the pane shows (T-1048)
+	if d.sessionless {
+		sid = ""
+	}
 	d.mu.Unlock()
 	d.r.f.Set("w1:p1", func(p *herdrtest.Pane) {
-		p.Kind, p.Name, p.Status, p.Transcript = "claude", "pj-l-01", "idle", transcript
+		p.Kind, p.Name, p.Status, p.Transcript, p.Session = "claude", "pj-l-01", "idle", transcript, sid
 	})
 	d.r.push()
 	d.mu.Lock()
@@ -171,12 +175,6 @@ func (d *dispatchFakes) startWorker(ctx context.Context, req port.Launch) (port.
 	if err := d.hold(ctx, "start", "after"); err != nil {
 		return port.Started{}, err
 	}
-	d.mu.Lock()
-	sid := transcript
-	if d.sessionless {
-		sid = ""
-	}
-	d.mu.Unlock()
 	return port.Started{Line: "STARTED pj-l-01", Pane: "w1:p1", Kind: "claude", Session: sid}, nil
 }
 
