@@ -18,7 +18,11 @@ import (
 
 type hfx struct{ *testkit.Project }
 
-func newHfx(t *testing.T) hfx { return hfx{testkit.New(t)} }
+// newHfx is a plain project laid out as files (testkit.NewPlain): the guard reads the repository (project.Find) but
+// runs no git. newGitHfx is for the test of a git read (the stop hook's lane change time, project.NewestChange).
+func newHfx(t *testing.T) hfx { return hfx{testkit.NewPlain(t)} }
+
+func newGitHfx(t *testing.T) hfx { return hfx{testkit.New(t)} }
 
 // result is one Stop hook run: its stdout (the verdict) and stderr.
 type result struct {
@@ -112,10 +116,9 @@ func ago(secs int64) int64 { return time.Now().Unix() - secs }
 
 func (f hfx) integrator() { f.Config(testkit.Set("roles", `{"integrator": "opus"}`)) }
 
-// doneLane: lane L-04 on task/T-04 with a commit and its task_done.
+// doneLane: lane L-04 on task/T-04 with its task_done (the commit a real lane has is no part of the row).
 func (f hfx) doneLane() string {
-	o4 := f.Lane("L-04", "task/T-04")
-	f.Commit(o4)
+	o4 := f.PlainLane("L-04", "task/T-04")
 	f.Submit("L-04")
 	return o4
 }
@@ -139,7 +142,7 @@ func session(sid, tr string) string {
 func TestStopAboveHandoffLimitNoBlock(t *testing.T) {
 	t.Parallel()
 	f := newHfx(t)
-	f.Lane("L-01", "task/T-01")
+	f.PlainLane("L-01", "task/T-01")
 	f.Config(testkit.Set("roles", `{"lead": {"handoff_tokens": 300000}, "integrator": {"type": "opus", "handoff_tokens": 300000}}`))
 	tr := transcript(f, f.Base+"/projects/p/s1.jsonl", 900000)
 	if ctx, _, _, ok := project.ContextTokens(tr); !ok || ctx != 900000 {
@@ -159,7 +162,7 @@ func TestStopAboveHandoffLimitNoBlock(t *testing.T) {
 // block); its task_done allows the stop, and a new dispatch blocks again.
 func TestStopWorkerBlockRows(t *testing.T) {
 	t.Parallel()
-	f := newHfx(t)
+	f := newGitHfx(t) // one case runs with a background task: the hook reads the lane's newest change (git)
 	o1 := f.Lane("L-01", "task/T-01")
 	f.Config()
 	f.state(ago(100))
@@ -199,7 +202,7 @@ func TestStopWorkerBlockRows(t *testing.T) {
 func TestStopWorkerNoTaskDoneBlocks(t *testing.T) {
 	t.Parallel()
 	f := newHfx(t)
-	o1 := f.Lane("L-01", "task/T-01")
+	o1 := f.PlainLane("L-01", "task/T-01")
 	f.Config()
 	f.state(ago(100))
 	f.Dispatched("L-01")
@@ -248,7 +251,7 @@ func TestStopWorkerBlockedRowRows(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			f := newHfx(t)
-			o1 := f.Lane("L-01", "task/T-01")
+			o1 := f.PlainLane("L-01", "task/T-01")
 			f.Config()
 			row := map[string]any{"task": "T-01", "branch": "task/T-01", "agent": "pj-l1", "base": "main",
 				"dispatched_at": ago(100), "blocked": c.blocked}
@@ -296,7 +299,7 @@ func (f hfx) appendFact(t *testing.T, task, step string, data any) {
 func TestStopWorkerNoServeTaskAllows(t *testing.T) {
 	t.Parallel()
 	f := newHfx(t)
-	o1 := f.Lane("L-01", "task/T-01")
+	o1 := f.PlainLane("L-01", "task/T-01")
 	f.Config()
 	f.Dispatched("L-01")
 	f.stop(t, "-", o1, "").block("precondition: the dispatched lane's row awaits task_done")
@@ -313,7 +316,7 @@ func TestStopWorkerNoServeTaskAllows(t *testing.T) {
 // bash stop case_worker_background_task_stale (T-167); T-437: once per stop loop, no ledger.
 func TestStopWorkerStaleBackgroundTasks(t *testing.T) {
 	t.Parallel()
-	f := newHfx(t)
+	f := newGitHfx(t) // the stale read is project.NewestChange: git log and ls-files
 	o1 := f.Lane("L-01", "task/T-01")
 	f.Config()
 	f.state(ago(100))
@@ -350,7 +353,7 @@ func TestStopWorkerStaleBackgroundTasks(t *testing.T) {
 func TestStopNoConfigOrOtherRolesAllow(t *testing.T) {
 	t.Parallel()
 	f := newHfx(t)
-	o1 := f.Lane("L-01", "task/T-01")
+	o1 := f.PlainLane("L-01", "task/T-01")
 	f.stop(t, "-", o1, "").allow("worker lane without config")
 	if r := f.stop(t, "integrator", f.Root, "").allow("integrator without config"); r.err != "" {
 		t.Errorf("stderr: %q", r.err)
@@ -367,7 +370,7 @@ func TestStopNoConfigOrOtherRolesAllow(t *testing.T) {
 func TestStopInternalErrorAllowsWithStderr(t *testing.T) {
 	t.Parallel()
 	f := newHfx(t)
-	f.Lane("L-01", "task/T-01")
+	f.PlainLane("L-01", "task/T-01")
 	f.Config()
 	f.Write(".obor/config.json", "{broken\n")
 	if r := f.stop(t, "integrator", f.Root, "").allow("broken config"); !strings.HasPrefix(r.err, "obor stop hook: internal error") ||
@@ -408,7 +411,7 @@ func (f hfx) allowsWithError(t *testing.T, n int, role, cwd, extra string) {
 func TestStopRoleErrorWorkerLogUnreadable(t *testing.T) {
 	t.Parallel()
 	f := newHfx(t)
-	o1 := f.Lane("L-01", "task/T-01")
+	o1 := f.PlainLane("L-01", "task/T-01")
 	f.Config()
 	f.state(ago(100))
 	f.Write(".obor/state/obor.db", "not a database\n")

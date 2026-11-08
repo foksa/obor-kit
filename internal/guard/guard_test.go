@@ -23,8 +23,8 @@ type fx struct {
 
 func fixture(t testing.TB) *fx {
 	t.Helper()
-	p := testkit.New(t)
-	f := &fx{Project: p, P: p.Root, L: p.Lane("L-01", "task/T-01"), S: p.Lane("S-01", "")}
+	p := testkit.NewPlain(t)
+	f := &fx{Project: p, P: p.Root, L: p.PlainLane("L-01", "task/T-01"), S: p.PlainLane("S-01", "")}
 	f.Config(testkit.Set("protected_files", `["src/core/types.ts"]`))
 	for _, d := range []string{f.P + "/src/core", f.L + "/src/core", f.L + "/src/a"} {
 		os.MkdirAll(d, 0o755)
@@ -550,9 +550,9 @@ func TestRoleCheckoutRows(t *testing.T) {
 	scratch := f.LaneDir("merge")
 	rev, deep, integ := f.LaneDir("reviewer"), f.LaneDir("deep_dive"), f.LaneDir("integrator")
 	for _, d := range []string{scratch, rev, deep, integ} {
-		f.Git(P, "worktree", "add", "-q", "--detach", d, "main")
+		f.Worktree(d, "")
 	}
-	sha := strings.TrimSpace(f.Git(P, "rev-parse", "main"))
+	const sha = "4b825dc642cb6eb9a060e54bf8d69288fbee4904" // a commit id: the guard classifies the operand, never git
 	const readOnly = "it runs git reads only"
 	verbs := []string{"checkout main", "switch main", "reset --hard", "rebase main", "merge main", "stash",
 		"cherry-pick abc", "revert HEAD", "am x.patch", "apply x.patch", "clean -fd"}
@@ -685,7 +685,7 @@ func TestRV40LeafSymlinkIntoMainAndRoleWorktree(t *testing.T) {
 	f := fixture(t)
 	P, L := f.P, f.L
 	role := f.Base + "/review"
-	f.Git(P, "worktree", "add", "-q", "--detach", role, "main")
+	f.Worktree(role, "")
 	f.Write(role+"/STATUS.md", "role worktree\n")
 	link(t, L+"/src/a/main.ts", P+"/STATUS.md")
 	link(t, L+"/src/a/role.ts", role+"/STATUS.md")
@@ -740,7 +740,7 @@ func TestWorkerEditsAnywhereInItsLaneOnly(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
 	P, L, S := f.P, f.L, f.S
-	other := testkit.New(t) // another obor project
+	other := testkit.NewPlain(t) // another obor project
 	other.Config()
 	os.MkdirAll(f.Base+"/outside", 0o755)
 	if !project.IsDir(other.Root + "/.obor") {
@@ -866,11 +866,9 @@ func TestProtectedUnlockReadsTheStoredSpec(t *testing.T) {
 	// Removed again → denied.
 	f.spec("`src/b.ts` — only this one")
 	check(t, f.Project, []tc{edit("-", L, "Edit", L+"/src/core/types.ts", "is a protected file")})
-	// A spec in git (committed on main, or the lane's own copy) counts for nothing; no git show at all.
+	// A spec file (in the main checkout, or the lane's own copy) counts for nothing; no git show at all.
 	unlocks := "## Protected files this task may edit\n`src/core/types.ts`\n"
 	f.Write("docs/tasks/T-01.md", unlocks)
-	f.Git(f.P, "add", "docs/tasks/T-01.md")
-	f.Git(f.P, "commit", "-q", "-m", "spec in git")
 	f.Write(L+"/docs/tasks/T-01.md", unlocks)
 	shows := gitShows(t, f)
 	check(t, f.Project, []tc{edit("-", L, "Edit", L+"/src/core/types.ts", "is a protected file"), edit("-", L, "Edit", L+"/src/b.ts", "")})
@@ -889,7 +887,7 @@ func TestProtectedFilesDeniedForNonLeads(t *testing.T) {
 	f := fixture(t)
 	P, L := f.P, f.L
 	other := f.Base + "/review"
-	f.Git(P, "worktree", "add", "-q", "--detach", other, "main")
+	f.Worktree(other, "")
 	os.MkdirAll(f.Base+"/outside", 0o755)
 	f.Write(f.Base+"/outside/types.ts", "")
 	check(t, f.Project, []tc{
@@ -1064,7 +1062,7 @@ func TestCdOptionsMoveTheCwd(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
 	P, R := f.P, f.Base+"/review"
-	f.Git(P, "worktree", "add", "-q", "--detach", R, "main")
+	f.Worktree(R, "")
 	os.MkdirAll(R+"/-sub", 0o755)
 	check(t, f.Project, []tc{
 		bash("integrator", R, "cd -- '"+P+"' && git commit -am x", "git commit -a in the main checkout"),
@@ -1083,7 +1081,7 @@ func TestCdScopedBySubshellPipelineAndNestedShell(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
 	P, R := f.P, f.Base+"/review"
-	f.Git(P, "worktree", "add", "-q", "--detach", R, "main")
+	f.Worktree(R, "")
 	check(t, f.Project, []tc{
 		bash("integrator", P, "(cd '"+R+"'); git commit -am x", "git commit -a in the main checkout"),
 		bash("integrator", P, "(cd "+R+") && git commit -am x", "commit -a"),
@@ -1147,8 +1145,8 @@ func TestCpChecksItsTargetNotItsSources(t *testing.T) {
 // bash case_no_config_allows_everything
 func TestNoConfigAllowsEverything(t *testing.T) {
 	t.Parallel()
-	p := testkit.New(t)
-	lane := p.Lane("L-01", "task/T-01")
+	p := testkit.NewPlain(t)
+	lane := p.PlainLane("L-01", "task/T-01")
 	if p.Exists(".obor/config.json") {
 		t.Fatal("precondition: no config")
 	}
@@ -1186,7 +1184,9 @@ func TestOtherToolsAndBadInputAllow(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
 	noCfg := f.Base + "/plain"
-	f.Git(f.Base, "init", "-q", noCfg)
+	if err := os.MkdirAll(noCfg+"/.git", 0o755); err != nil { // a repository, as files, without .obor/config.json
+		t.Fatal(err)
+	}
 	check(t, f.Project, []tc{bash("-", f.L, "git push", "git push is blocked")}) // precondition: the guard runs here
 	check(t, f.Project, []tc{
 		edit("-", f.L, "Read", f.L+"/src/core/types.ts", ""),
@@ -1274,7 +1274,7 @@ func TestReviewsWriteProfile(t *testing.T) {
 	// into its worktree's own.
 	for _, rv := range []string{"reviewer", "deep_dive"} {
 		wt := f.LaneDir(rv)
-		f.Git(P, "worktree", "add", "-q", "--detach", wt, "main")
+		f.Worktree(wt, "")
 		cases = append(cases,
 			edit(rv, wt, "Write", P+"/docs/reviews/R-01.md", ""),
 			bash(rv, wt, "echo x > "+P+"/docs/reviews/R-01.md", ""),

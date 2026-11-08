@@ -316,23 +316,24 @@ func (l *Launcher) same(before, now group, leaderGone bool, kind string) string 
 	return ""
 }
 
-// ladder ends process group pgid, never without proof: proven, SIGTERM, ≤ 3 s for it to be done; then, proven again,
-// SIGKILL once, ≤ 2 s more. proof reads the pane now: done (nothing left to end), else why ("" = proven) the group is
-// not the one to signal. sent: the last signal sent ("": none); why: the proof that stopped the next one; ok: done.
+// ladder ends process group pgid, never without proof: proven, SIGTERM, ≤ TermGrace for it to be done; then, proven
+// again, SIGKILL once, ≤ KillGrace more. proof reads the pane now: done (nothing left to end), else why ("" = proven)
+// the group is not the one to signal. sent: the last signal sent ("": none); why: the proof that stopped the next
+// one; ok: done.
 func (l *Launcher) ladder(ctx context.Context, pgid int, proof func() (done bool, why string)) (sent, why string, ok bool) {
 	done := func() bool { d, _ := proof(); return d }
 	if d, why := proof(); d || why != "" {
 		return "", why, d
 	}
 	_ = l.kill(pgid, syscall.SIGTERM)
-	if l.until(ctx, 3*time.Second, done) {
+	if l.until(ctx, l.termGrace(), done) {
 		return "SIGTERM", "", true
 	}
 	if d, why := proof(); d || why != "" {
 		return "SIGTERM", why, d
 	}
 	_ = l.kill(pgid, syscall.SIGKILL)
-	return "SIGKILL", "", l.until(ctx, 2*time.Second, done)
+	return "SIGKILL", "", l.until(ctx, l.killGrace(), done)
 }
 
 // terminate ends an agent of kind running (herdr's kind for the pane) that ignored the quit after the wait (force,

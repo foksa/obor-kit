@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"obor/internal/app/port"
 	"obor/internal/checks"
 	"obor/internal/config"
 	"obor/internal/herdr/herdrtest"
@@ -34,11 +35,29 @@ type rfx struct {
 
 func newRfx(t *testing.T) *rfx {
 	t.Helper()
-	f := &rfx{t: t, p: testkit.New(t), fail: map[string]bool{}}
+	return newRfxAt(t, false)
+}
+
+// newGitRfx is newRfx over a real repository: for the test of the lane state read (checks.LaneTable runs git).
+func newGitRfx(t *testing.T) *rfx {
+	t.Helper()
+	return newRfxAt(t, true)
+}
+
+func newRfxAt(t *testing.T, git bool) *rfx {
+	t.Helper()
+	p := testkit.NewPlain(t)
+	if git {
+		p = testkit.New(t)
+	}
+	f := &rfx{t: t, p: p, fail: map[string]bool{}}
 	f.h = f.p.Herdr()
 	f.srv = herdrtest.Serve(t, f.h)
 	f.pl = &launch.Restorer{Env: f.p.Env(), H: f.srv.Client(), Now: func() time.Time { return time.Unix(0, 0) },
 		LaneState: func(cfg *config.Config, l config.Lane) string {
+			if !git {
+				return port.LaneWorking // a lane with its task: the free-lane skip is newGitRfx's
+			}
 			return checks.NewLaneTable(context.Background(), cfg).LaneState(l).State
 		}}
 	f.pl.Restart = func(_ context.Context, cfg *config.Config, req launch.Request, w io.Writer) (string, error) {
@@ -85,14 +104,22 @@ func has(t *testing.T, s, sub, what string) {
 	}
 }
 
+// repoAt makes dir a repository without an obor config, as files: project.Find reads it, the restore finds no config
+// there and stays silent.
+func repoAt(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // bash restore.test.sh case_labelled_obor_panes_restarted_others_skipped
 func TestRestoreLabelledOborPanes(t *testing.T) {
 	f := newRfx(t)
-	lane := f.p.Lane("L-01", "task/T-01")
-	f.p.Commit(lane)
+	lane := f.p.PlainLane("L-01", "task/T-01")
 	f.p.Config()
 	other := filepath.Join(f.p.Base, "other")
-	f.p.Git(f.p.Base, "init", "-q", other)
+	repoAt(t, other)
 	f.shell("w1:p1", lane, "pj-l-01")
 	f.shell("w1:p2", f.p.Root, "pj-lead")
 	f.shell("w1:p3", f.p.Root, "")
@@ -120,7 +147,7 @@ func TestRestoreLabelledOborPanes(t *testing.T) {
 func TestRestoreOutsideOborSilent(t *testing.T) {
 	f := newRfx(t)
 	other := filepath.Join(f.p.Base, "other")
-	f.p.Git(f.p.Base, "init", "-q", other)
+	repoAt(t, other)
 	f.shell("w1:p1", other, "pj-l-01")
 	f.shell("w1:p2", f.p.Base, "pj-lead")
 	f.shell("w1:p3", filepath.Join(f.p.Base, "gone"), "pj-lead")
@@ -165,8 +192,7 @@ func TestRestoreIgnoresMonitorPane(t *testing.T) {
 // bash restore.test.sh case_backgrounded_and_failure_logged (the return at once is cmd/obor's detach)
 func TestRestoreFailureLoggedNextPaneRestarts(t *testing.T) {
 	f := newRfx(t)
-	lane := f.p.Lane("L-01", "task/T-01")
-	f.p.Commit(lane)
+	lane := f.p.PlainLane("L-01", "task/T-01")
 	f.p.Config()
 	f.shell("w1:p1", f.p.Root, "pj-lead")
 	f.shell("w1:p2", lane, "pj-l-01")
@@ -179,9 +205,7 @@ func TestRestoreFailureLoggedNextPaneRestarts(t *testing.T) {
 // bash restore.test.sh case_worker_without_session_fresh
 func TestRestoreWorkerWithoutSessionFresh(t *testing.T) {
 	f := newRfx(t)
-	o1, o2 := f.p.Lane("L-01", "task/T-01"), f.p.Lane("L-02", "task/T-02")
-	f.p.Commit(o1)
-	f.p.Commit(o2)
+	o1, o2 := f.p.PlainLane("L-01", "task/T-01"), f.p.PlainLane("L-02", "task/T-02")
 	f.p.Config()
 	f.shell("w1:p1", o1, "pj-l-01")
 	f.shell("w1:p2", o2, "l-02")
@@ -207,8 +231,7 @@ func TestRestoreWorkerWithoutSessionFresh(t *testing.T) {
 func TestRestoreWorkerRecordedSession(t *testing.T) {
 	t.Run("store-only Codex worker: resumed, no --fresh", func(t *testing.T) {
 		f := newRfx(t)
-		lane := f.p.Lane("L-01", "task/T-01")
-		f.p.Commit(lane)
+		lane := f.p.PlainLane("L-01", "task/T-01")
 		f.p.Config()
 		f.p.State("L-01", `{"task":"T-01","branch":"task/T-01","base":"main","agent":"pj-l-01","type":"luna"}`)
 		f.shell("w1:p1", lane, "pj-l-01")
@@ -219,8 +242,7 @@ func TestRestoreWorkerRecordedSession(t *testing.T) {
 	})
 	t.Run("Claude worker with a session in the store: resumed, no --fresh", func(t *testing.T) {
 		f := newRfx(t)
-		lane := f.p.Lane("L-01", "task/T-01")
-		f.p.Commit(lane)
+		lane := f.p.PlainLane("L-01", "task/T-01")
 		f.p.Config()
 		f.shell("w1:p1", lane, "pj-l-01")
 		recordSessions(t, f.p.Root, store.Session{Agent: "pj-l-01", Kind: "claude", ID: "sid-l-01", Started: time.Now().Unix()})
@@ -230,8 +252,7 @@ func TestRestoreWorkerRecordedSession(t *testing.T) {
 	})
 	t.Run("OpenCode worker: --fresh even with a recorded session", func(t *testing.T) {
 		f := newRfx(t)
-		lane := f.p.Lane("L-01", "task/T-01")
-		f.p.Commit(lane)
+		lane := f.p.PlainLane("L-01", "task/T-01")
 		f.p.Config()
 		f.p.State("L-01", `{"task":"T-01","branch":"task/T-01","base":"main","agent":"pj-l-01","type":"deepseek"}`)
 		f.shell("w1:p1", lane, "pj-l-01")
@@ -252,8 +273,7 @@ func TestRestorePoolLaneKindIsTheDispatchs(t *testing.T) {
 	} {
 		t.Run(c.kind, func(t *testing.T) {
 			f := newRfx(t)
-			lane := f.p.Lane("L-01", "task/T-01")
-			f.p.Commit(lane)
+			lane := f.p.PlainLane("L-01", "task/T-01")
 			f.p.Config()
 			cfg, err := config.Load(f.p.Root)
 			if err != nil || len(cfg.Lanes()) != 1 {
@@ -276,7 +296,7 @@ func TestRestorePoolLaneKindIsTheDispatchs(t *testing.T) {
 // bash restore.test.sh case_role_panes_restored_not_skipped; T-169: the free lane's worker is skipped (obor dispatch
 // would start it, so the restore skips it by default).
 func TestRestoreRolePanesNotSkipped(t *testing.T) {
-	f := newRfx(t)
+	f := newGitRfx(t) // the free lane is checks.LaneTable's answer: git
 	o1 := f.p.Lane("L-01", "task/T-01")
 	roles := testkit.Set("roles", `{"reviewer": "opus", "deep_dive": "opus"}`)
 	f.p.Config(roles)

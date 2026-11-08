@@ -68,6 +68,10 @@ type Launcher struct {
 	// Bound is the most a stop may take: its idle wait, its quit wait and the terminate together (default StopBound,
 	// port.StopBound). The quit wait is capped to it, whatever OBOR_RESTART_WAIT says (T-829).
 	Bound time.Duration
+	// TermGrace and KillGrace are how long a terminate waits for the process group to be done after SIGTERM and after
+	// SIGKILL (defaults 3 s and 2 s). A test sets them small: it asserts the ladder's signals, not its timing.
+	TermGrace time.Duration
+	KillGrace time.Duration
 	// Alive says whether process pid runs (an agent's exit is its leader gone); nil: project.PIDAlive.
 	Alive func(pid int) bool
 	// Kill sends sig to process group pgid (an exited agent's leftover MCP servers, or with force an agent that ignored
@@ -189,6 +193,21 @@ func (l *Launcher) bound() time.Duration {
 		return l.Bound
 	}
 	return StopBound
+}
+
+// termGrace and killGrace are the ladder's waits after SIGTERM and SIGKILL (defaults 3 s and 2 s).
+func (l *Launcher) termGrace() time.Duration {
+	if l.TermGrace > 0 {
+		return l.TermGrace
+	}
+	return 3 * time.Second
+}
+
+func (l *Launcher) killGrace() time.Duration {
+	if l.KillGrace > 0 {
+		return l.KillGrace
+	}
+	return 2 * time.Second
 }
 
 func (l *Launcher) upWait() time.Duration {

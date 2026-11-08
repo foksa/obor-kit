@@ -77,9 +77,9 @@
       "git_procs": 1355
     },
     "obor/internal/guard": {
-      "short_s": 13.5,
-      "full_s": 14,
-      "git_procs": 1691
+      "short_s": 2.3,
+      "full_s": 1.9,
+      "git_procs": 51
     },
     "obor/internal/herdr": {
       "short_s": 0.9,
@@ -92,9 +92,9 @@
       "git_procs": 0
     },
     "obor/internal/launch": {
-      "short_s": 56,
-      "full_s": 55.8,
-      "git_procs": 3062
+      "short_s": 5.9,
+      "full_s": 6.3,
+      "git_procs": 56
     },
     "obor/internal/mcp": {
       "short_s": 1.2,
