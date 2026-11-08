@@ -10,7 +10,7 @@ import (
 )
 
 // The lane projection (T-439): each lane's row in the store's lanes table, derived from the log alone. A successful
-// lane.prepare puts its task on the lane (and off any other lane), as does a submission from a lane whose row does not
+// lane.prepare puts its task on the lane (no head yet: each submit result sets it, T-1015) (and off any other lane), as does a submission from a lane whose row does not
 // hold its task (a task dispatched before serve dispatched: no branch or base known), a dropped fact takes it off; finished is when the
 // attempt's task_done was recorded. serve is the only writer: it writes the table after the load's replay and after
 // every record that changes a row (syncLanes), so hooks and CLIs read one row instead of folding the log. The table
@@ -54,6 +54,10 @@ func (p *proj) foldLanes(r event.Record) {
 		p.folded.lr.rows[d.Lane] = store.LaneRow{Lane: d.Lane, Task: r.Task, Agent: d.Agent}
 	case r.Kind == event.KindResult:
 		step, _ := event.StepN(r.Step)
+		if step == event.StepSubmit {
+			p.foldSubmitHead(r)
+			return
+		}
 		mt := p.folded.loop[r.Task]
 		if step != event.StepPrepare || mt == nil || mt.attempt != r.Attempt || !mt.is(stDispatched) && !mt.is(stDriving) {
 			return
@@ -69,7 +73,23 @@ func (p *proj) foldLanes(r event.Record) {
 			}
 		}
 		p.folded.lr.rows[mt.disp.Lane] = store.LaneRow{Lane: mt.disp.Lane, Task: r.Task, Branch: mt.disp.Branch,
-			Agent: mt.disp.Agent, Base: d.Base, Head: d.Head, DispatchedAt: mt.at.Unix(), Type: mt.disp.Type}
+			Agent: mt.disp.Agent, Base: d.Base, DispatchedAt: mt.at.Unix(), Type: mt.disp.Type}
+	}
+}
+
+// foldSubmitHead sets the head of the row holding r's task to the lane commit r's submit pinned (T-1015: the commit the
+// gate merges; a resubmission moves it): port.FreeState frees a landed lane only while its HEAD is that commit. A
+// refused submit pins none and changes nothing; a new prepare clears it.
+func (p *proj) foldSubmitHead(r event.Record) {
+	var d submitOut
+	if json.Unmarshal(r.Data, &d) != nil || d.SHA == "" {
+		return
+	}
+	for lane, row := range p.folded.lr.rows {
+		if row.Task == r.Task {
+			row.Head = d.SHA
+			p.folded.lr.rows[lane] = row
+		}
 	}
 }
 

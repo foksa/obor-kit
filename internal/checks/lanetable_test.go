@@ -58,9 +58,23 @@ func ltFixture(t *testing.T, extra string, lanes map[string]string) *LaneTable {
 	return NewLaneTable(context.Background(), c)
 }
 
-// ltSubmit puts task on lane's row and, done, its task_done age ago, and landed, its landed fact, as obor serve
-// projects its log (T-439, T-1012).
+// ltSubmit puts task on lane's row and, done, its task_done age ago with the lane's HEAD as its submitted head
+// (T-1015), and landed, its landed fact, as obor serve projects its log (T-439, T-1012).
 func ltSubmit(t *testing.T, root, lane, task string, done, landed bool, age time.Duration) {
+	t.Helper()
+	head := ""
+	if done {
+		out, err := project.Git(filepath.Join(filepath.Dir(root), "proj-wt", lane), "rev-parse", "HEAD")
+		if err != nil {
+			t.Fatal(err)
+		}
+		head = strings.TrimSpace(out)
+	}
+	ltRow(t, root, lane, task, head, done, landed, age)
+}
+
+// ltRow puts task on lane's row with head as its submitted head ("": none recorded), as ltSubmit.
+func ltRow(t *testing.T, root, lane, task, head string, done, landed bool, age time.Duration) {
 	t.Helper()
 	db, err := store.OpenRW(store.File(root))
 	if err != nil {
@@ -71,7 +85,7 @@ func ltSubmit(t *testing.T, root, lane, task string, done, landed bool, age time
 	if err != nil {
 		t.Fatal(err)
 	}
-	row := store.LaneRow{Lane: lane, Task: task, Branch: "task/" + task, Head: "fork-point", Landed: landed}
+	row := store.LaneRow{Lane: lane, Task: task, Branch: "task/" + task, Head: head, Landed: landed}
 	if done {
 		row.Finished = time.Now().Add(-age).Unix()
 	}
@@ -128,14 +142,16 @@ func ltCommit(t *testing.T, dir string) {
 	ltGit(t, dir, "commit", "-q", "-m", "work")
 }
 
-// TestLaneStates (T-470, T-1012): the lane table's states are the one free rule over the lane's row and its own
-// dirty status, whatever the main checkout's history says, and each lane's type (T-721, T-765: a working lane's type
+// TestLaneStates (T-470, T-1012, T-1015): the lane table's states are the one free rule over the lane's row, its HEAD
+// and its own dirty status, whatever the main checkout's history says (a landed task frees its lane only at the head
+// its submission pinned; with no recorded head, only at a HEAD on main), and each lane's type (T-721, T-765: a working lane's type
 // is the model its row's dispatch chose — a ref's model: sonnet:low is sonnet; a lane with no row has none, nor has
 // a free lane whatever its row says: a lane's model is its task's only while it holds it). Its git reads run in the
 // lane dirs only.
 func TestLaneStates(t *testing.T) {
 	p := ltFixture(t, `,"lanes_dir":"../proj-wt"`, map[string]string{"L-01": "T-01", "L-02": "T-02", "L-03": "T-03",
-		"L-04": "T-04", "L-05": "T-05", "L-06": "T-06", "L-07": "T-07", "L-08": "T-08"})
+		"L-04": "T-04", "L-05": "T-05", "L-06": "T-06", "L-07": "T-07", "L-08": "T-08", "L-09": "T-09", "L-10": "T-10",
+		"L-11": "T-11"})
 	dir := func(l string) string { return filepath.Join(filepath.Dir(p.Root), "proj-wt", l) }
 	os.WriteFile(filepath.Join(dir("L-02"), "scratch.txt"), []byte("x"), 0o644) // no row, dirty
 	ltSubmit(t, p.Root, "L-03", "T-03", true, true, 0)                          // landed: free
@@ -153,6 +169,17 @@ func TestLaneStates(t *testing.T) {
 	ltSubmit(t, p.Root, "L-07", "T-07", false, false, 0)
 	ltCommit(t, dir("L-08"))
 	ltSubmit(t, p.Root, "L-08", "T-08", true, true, 0)
+	// T-1015: L-09's task landed, then a further clean commit (a driver after obor land): its HEAD is not what landed.
+	ltCommit(t, dir("L-09"))
+	ltSubmit(t, p.Root, "L-09", "T-09", true, true, 0)
+	ltGit(t, dir("L-09"), "commit", "-q", "--allow-empty", "-m", "after the submit")
+	// No recorded head (a hand merge with no submission): L-10's HEAD is on main (free), L-11's is not (working).
+	ltRow(t, p.Root, "L-10", "T-10", "", true, true, 0)
+	ltCommit(t, dir("L-11"))
+	ltRow(t, p.Root, "L-11", "T-11", "", true, true, 0)
+	if row := p.rowOf(t, "L-09"); row.Head == "" || row.Head == ltHead(t, dir("L-09")) {
+		t.Fatalf("precondition: L-09's row has a submitted head %q that is not its HEAD", row.Head)
+	}
 	if _, err := project.Git(p.Root, "merge-base", "--is-ancestor", "task/T-07", "main"); err != nil {
 		t.Fatalf("precondition: L-07's HEAD is in main's history: %v", err)
 	}
@@ -180,15 +207,19 @@ func TestLaneStates(t *testing.T) {
 		"L-05": {"working", "T-05", "sonnet", ""},
 		"L-06": {"dirty-free", "T-06", "", ""},
 		"L-07": {"working", "T-07", "", ""},
-		"L-08": {"free", "T-08", "", ""},
+		"L-08": {"free", "T-08", "", ""}, // its HEAD is the submitted head
+		"L-09": {"working", "T-09", "", ""},
+		"L-10": {"free", "T-10", "", ""},
+		"L-11": {"working", "T-11", "", ""},
 	}
 	for l, w := range want {
 		if got[l] != w {
 			t.Errorf("%s: %+v, want %+v", l, got[l], w)
 		}
 	}
-	if len(dirs) != 2*len(want) {
-		t.Errorf("the table ran %d git reads, want 2 per lane (rev-parse, status): %v", len(dirs), dirs)
+	if len(dirs) != 2*len(want)+2 {
+		t.Errorf("the table ran %d git reads, want 2 per lane (rev-parse, status) and an ancestry read for each of "+
+			"L-10, L-11 (landed, no recorded head): %v", len(dirs), dirs)
 	}
 	for _, d := range dirs {
 		if d == p.Root || d == project.Physical(p.Root) {
@@ -197,8 +228,9 @@ func TestLaneStates(t *testing.T) {
 	}
 	// T-788: no done state (the task's phase is serve's); a submitted lane keeps its task_done's age.
 	for _, s := range p.States() {
-		if submitted := s.DoneAge != nil; submitted != slices.Contains([]string{"L-03", "L-04", "L-06", "L-08"}, s.Name) {
-			t.Errorf("%s: done age %v, want one only for the submitted L-03, L-04, L-06, L-08", s.Name, s.DoneAge)
+		submittedLanes := []string{"L-03", "L-04", "L-06", "L-08", "L-09", "L-10", "L-11"}
+		if submitted := s.DoneAge != nil; submitted != slices.Contains(submittedLanes, s.Name) {
+			t.Errorf("%s: done age %v, want one only for the submitted %v", s.Name, s.DoneAge, submittedLanes)
 		}
 	}
 	if evidence(p, "T-50") {
@@ -212,6 +244,26 @@ func TestLaneStates(t *testing.T) {
 	if ok, err := p.MergeEvidenceBy("T-50", func(...string) (string, error) { return "", errors.New("git I/O") }); ok || err == nil {
 		t.Errorf("MergeEvidenceBy with git failing = %v, %v; want false and the error", ok, err)
 	}
+}
+
+// rowOf is lane's row in p's lanes table.
+func (p *LaneTable) rowOf(t *testing.T, lane string) store.LaneRow {
+	t.Helper()
+	rows, err := store.ReadLanesAt(p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rows[lane]
+}
+
+// ltHead is dir's HEAD.
+func ltHead(t *testing.T, dir string) string {
+	t.Helper()
+	out, err := project.Git(dir, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(out)
 }
 
 // evidence is p.MergeEvidenceBy over the main checkout's HEAD (git: false).

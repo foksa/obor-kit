@@ -545,15 +545,17 @@ func (p *Project) State(lane string, v any) {
 	p.setRow(row)
 }
 
-// Landed sets lane's row landed (T-1012): its task merged, as obor serve projects the merged fact; the one free rule
-// (port.FreeState) then reads the lane free (dirty-free with uncommitted changes), whatever the main checkout's history.
+// Landed sets lane's row landed (T-1012) at the lane's HEAD: its task merged and the lane's HEAD the head its submission
+// pinned (T-1015), as obor serve projects the submit result and the merged fact; the one free rule (port.FreeState)
+// then reads the lane free (dirty-free with uncommitted changes) while its HEAD stays there, whatever the main
+// checkout's history.
 func (p *Project) Landed(lane string) {
 	p.t.Helper()
 	row, ok := p.rows()[lane]
 	if !ok {
 		p.t.Fatalf("Landed: lane %s has no row (Dispatched first)", lane)
 	}
-	row.Landed = true
+	row.Landed, row.Head = true, p.Git(p.LaneDir(lane), "rev-parse", "HEAD")
 	p.setRow(row)
 }
 

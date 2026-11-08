@@ -11,7 +11,8 @@ import (
 // the guard's protected unlocks, whoami, the session hooks, the worker Stop hook, obor status.
 
 // LaneRow is one lane's row: the task its last prepared dispatch put there (lane.prepare's branch, agent, base: the
-// target sha, head: merge-base(HEAD, target)) and when it was dispatched (unix seconds). Finished is when the attempt's
+// target sha) and when it was dispatched (unix seconds). Head is the lane commit the task's last submit pinned (T-1015:
+// what the gate merges; "": no submission since the prepare): port.FreeState frees a landed lane only at that HEAD. Finished is when the attempt's
 // task_done was recorded (unix seconds; 0: the task awaits it). Type is the model ref its dispatch chose,
 // `<model>[:<effort>]` (T-721; "": a dispatch recorded before T-721). Blocked is serve's answer whether the task's
 // worker has a question in force (its Blocked: report; T-894: the fold's, not a hook's own reading of the log).
