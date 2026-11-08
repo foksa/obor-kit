@@ -341,10 +341,15 @@ type codexRig struct {
 	inForce func() int
 }
 
-func codexStopped(t *testing.T) codexRig { return codexStoppedWith(t, cdxLimited) }
+func codexStopped(t *testing.T) codexRig {
+	return codexStoppedOn(t, cdxLimited, cdxReason)
+}
 
-// codexStoppedWith is codexStopped with limited the lines that end turn t1 on the usage limit.
-func codexStoppedWith(t *testing.T, limited string) codexRig {
+// cdxReason is the stop's reason on the usage limit (T-563).
+const cdxReason = "pj-l-01 stopped: usage_limit_exceeded (" + cdxLimitMsg + ")"
+
+// codexStoppedOn is codexStopped with limited the lines that end turn t1, so the stop in force says reason.
+func codexStoppedOn(t *testing.T, limited, reason string) codexRig {
 	r := fetchRig(t)
 	r.start()
 	r.mustDispatch("d1")
@@ -352,7 +357,7 @@ func codexStoppedWith(t *testing.T, limited string) codexRig {
 	r.workerNext("n1")
 	r.waitFor("working", func() bool { return r.taskState() == "working" })
 	rollout := filepath.Join(t.TempDir(), "rollout-2026-10-15T13-25-21-c1.jsonl")
-	c := codexRig{loopRig: r, reason: "pj-l-01 stopped: usage_limit_exceeded (" + cdxLimitMsg + ")"}
+	c := codexRig{loopRig: r, reason: reason}
 	c.append = func(s string) {
 		f, err := os.OpenFile(rollout, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 		if err != nil {
@@ -460,6 +465,38 @@ func TestStoppedCodexOncePerTurn(t *testing.T) {
 	if n := r.taskStep(event.MsgTask, "fact stopped"); n != 1 || r.inForce() != 0 {
 		t.Errorf("idle on the same turn after its stop ended: %d stopped facts, %d in force: %q; want 1, 0",
 			n, r.inForce(), r.steps())
+	}
+}
+
+// T-1049: a Codex worker's rollout ending its last turn on the code-mode host's handshake timeout names the likely
+// Gatekeeper dialog in one clause after the stop's error, in its needs-you (status and the lead's line); another
+// error's line has no clause (T-563's exact reason).
+func TestStoppedCodexGatekeeperHint(t *testing.T) {
+	t.Parallel()
+	const timeout = "timed out negotiating with the code-mode host"
+	const clause = "; a macOS Gatekeeper dialog for codex-code-mode-host may be open on this Mac's screen " +
+		"(docs/research/codex-quarantine.md)"
+	ended := `{"type":"event_msg","payload":{"type":"task_complete","turn_id":"t1","last_agent_message":null,"error":{"message":"` +
+		timeout + `","codex_error_info":"other"}}}` + "\n"
+	want := "pj-l-01 stopped: other (" + timeout + ")" + clause
+	r := codexStoppedOn(t, ended, want)
+	line := "[obor] needs-you T-1 (L-01): " + want
+	r.waitFor("the needs-you line with the dialog clause posted", func() bool {
+		for _, p := range r.inbox.posted() {
+			if strings.HasPrefix(p, "pj-lead: "+line) {
+				return true
+			}
+		}
+		return false
+	})
+	var got []string
+	for _, f := range r.app.Status().Project.Facts {
+		if f.Task == "T-1" && f.Step == event.StepNeedsYou && f.Fact().Cause == "stopped" {
+			got = append(got, f.Fact().Reason)
+		}
+	}
+	if len(got) != 1 || got[0] != want {
+		t.Errorf("the stop's needs-you %q, want %q", got, want)
 	}
 }
 

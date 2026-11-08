@@ -214,7 +214,7 @@ func (a *App) roleTurns(ctx context.Context, p *proj) {
 		case turnResume, turnFinish:
 			step, fact = event.StepTurned, turnedData{To: rd.agent, Brief: b.seq, Worked: act == turnFinish}
 		case turnStop:
-			d, said := newStop(rd.agent, t.Error, t.Details, "turn."+t.ID)
+			d, said := newStop(rd.agent, t.Error, t.Details, "turn."+t.ID, rd.pane.Agent)
 			a.roleStop(p, &d, said, rd.pane.Agent, t.Reset)
 			d.Turn = t.ID
 			fact = d

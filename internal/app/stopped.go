@@ -103,26 +103,30 @@ func (a *App) stoppedCall(c wire.Call) (string, error) {
 	case stored:
 		return reply, nil
 	}
-	d, said := newStop(c.Agent, c.Error, c.Details, c.CallID)
-
 	a.mu.Lock()
 	task, w := "", (*watch)(nil)
 	if c.Role == "worker" {
 		task, w = p.stoppedTask(c)
 	}
 	role := c.Role != "worker" && c.Role != "lead" && c.Role != "none" && c.Role != "" && c.Agent != p.out.lead()
+	kind, pane := "", port.Pane{}
 	if role {
-		kind := ""
-		if w := a.whereIs(p, c.Agent); w.State == Identified {
-			kind = w.Pane.Agent
+		if wi := a.whereIs(p, c.Agent); wi.State == Identified {
+			kind = wi.Pane.Agent
 		}
-		a.roleStop(p, &d, said, kind, time.Time{})
 	}
 	if w != nil {
-		pane := w.agent
+		pane = w.agent
 		if at, _ := a.agentOf(p, w.lane); at.State == Identified {
 			pane = at.Pane
 		}
+		kind = pane.Agent
+	}
+	d, said := newStop(c.Agent, c.Error, c.Details, c.CallID, kind)
+	if role {
+		a.roleStop(p, &d, said, kind, time.Time{})
+	}
+	if w != nil {
 		a.workerStop(p, &d, said, task, w, pane)
 		d.NeedsYou.Limit, d.NeedsYou.Reset = limitOf(pane.Agent, d.Error, c.Details, time.Time{}, a.opt.Now())
 	}
@@ -136,14 +140,18 @@ func (a *App) stoppedCall(c wire.Call) (string, error) {
 }
 
 // newStop is fact stopped's data for agent's error ("": unknown) and details, recorded by call id, and the stop as
-// its lines say it: "<agent> stopped: <error> (<details>)".
-func newStop(agent, errText, details, callID string) (stoppedData, string) {
+// its lines say it: "<agent> stopped: <error> (<details>)", then the kind's clause for that error (T-1049: a Codex tool
+// call's Gatekeeper timeout names the likely dialog).
+func newStop(agent, errText, details, callID, kind string) (stoppedData, string) {
 	if errText == "" {
 		errText = "unknown"
 	}
 	said := agent + " stopped: " + errText
 	if details != "" {
 		said += " (" + details + ")"
+	}
+	if h := agents.ErrorHint(kind, errText, details); h != "" {
+		said += "; " + h
 	}
 	return stoppedData{Agent: agent, Error: errText, Details: details,
 		Message: event.Message{From: "obor", Call: callID, Reply: "STOPPED " + agent + " (recorded)"}}, said
@@ -272,7 +280,7 @@ func (a *App) turnStop(p *proj, task string, w *watch, ev map[string]*evidence) 
 	if act != turnStop || stopped { // the stop in force ends (a new stop: the next check records it)
 		return a.fact(p, task, w, verdict{step: event.StepResumed, cause: causeStopped, pane: o})
 	}
-	d, said := newStop(cmp.Or(w.lane.Agent, a.shownAs(p, o)), e.turn.Error, e.turn.Details, callID)
+	d, said := newStop(cmp.Or(w.lane.Agent, a.shownAs(p, o)), e.turn.Error, e.turn.Details, callID, o.Agent)
 	a.workerStop(p, &d, said, task, w, o)
 	d.NeedsYou.Turn = e.turn.ID
 	d.NeedsYou.Limit, d.NeedsYou.Reset = limitOf(o.Agent, e.turn.Error, e.turn.Details, e.turn.Reset, a.opt.Now())

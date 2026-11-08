@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"obor/internal/agents"
@@ -241,7 +242,7 @@ func (s *Setup) mcpCmd(_ context.Context, args []string) error {
 }
 
 // installHost is this machine for agents.InstallChecker: the CLI looked up on the project env's PATH (an env without
-// one finds none), the quarantine flag read with macOS's xattr.
+// one finds none), the quarantine flags read with macOS's xattr.
 func (s *Setup) installHost() agents.InstallHost {
 	if s.Install != nil {
 		return s.Install()
@@ -250,13 +251,24 @@ func (s *Setup) installHost() agents.InstallHost {
 		GOOS:     runtime.GOOS,
 		LookPath: func(name string) (string, error) { return lookPath(name, s.Env.Get("PATH")) },
 		Resolve:  filepath.EvalSymlinks,
-		Quarantined: func(path string) bool {
+		Quarantine: func(path string) (uint32, bool) {
 			if _, err := os.Stat(path); err != nil {
-				return false
+				return 0, false
 			}
-			return exec.Command("xattr", "-p", "com.apple.quarantine", path).Run() == nil
+			out, err := exec.Command("xattr", "-p", "com.apple.quarantine", path).Output()
+			if err != nil {
+				return 0, false
+			}
+			return quarantineFlags(string(out))
 		},
 	}
+}
+
+// quarantineFlags is xattr's value of com.apple.quarantine as its flags: the hex number before its first (';').
+func quarantineFlags(out string) (flags uint32, ok bool) {
+	head, _, _ := strings.Cut(strings.TrimSpace(out), ";")
+	n, err := strconv.ParseUint(head, 16, 32)
+	return uint32(n), err == nil
 }
 
 // lookPath is name's first executable file in path's dirs.
