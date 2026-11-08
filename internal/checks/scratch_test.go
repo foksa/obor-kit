@@ -258,7 +258,7 @@ func TestScratchMovedGateConflict(t *testing.T) {
 // compiles and says so. A target move that changes the conflicted hunk differently is another preimage: a
 // conflict as today.
 func TestScratchRerereReplaysResolvedConflict(t *testing.T) {
-	testkit.Slow(t) // 1.12 s: two conflict fixtures, their resolutions and a moved gate (T-1004: the 2-core budget)
+	testkit.Slow(t) // 1.01 s: two conflict fixtures, their resolutions and a moved gate (T-1004: the 2-core budget)
 	t.Parallel()
 	y := newSx(t, cmd("compile", "echo 1 pass"))
 	sha := y.conflicted()
@@ -484,7 +484,7 @@ var cutSteps = []cutStep{
 // once per step and copied for every N (T-998: the setup's merges were rebuilt for every git call before; T-1000: the
 // read-only calls run uncut, so the cost grows with the writes, not with every call).
 func TestScratchCutTable(t *testing.T) {
-	testkit.Slow(t) // 32.5 s: its step subtests and their cut runs queue at 2 cores (T-1004: the 2-core budget)
+	testkit.Slow(t) // 31.3 s: its steps' copies and cut runs over the shim (T-1004: the 2-core budget)
 	t.Parallel()
 	for _, st := range cutSteps {
 		t.Run(st.name, func(t *testing.T) {
@@ -582,7 +582,7 @@ func cutCall(call string) (string, []string) {
 // A lane gate from any foreign state of serve's worktree (an open merge, a dirty tree, HEAD elsewhere, the worktree
 // removed) is green with the same candidate as from a clean one.
 func TestScratchGateForeignState(t *testing.T) {
-	testkit.Slow(t) // 1.09 s: a conflict fixture and three gates (T-1004: the 2-core budget)
+	testkit.Slow(t) // 1.01 s: a conflict fixture and three gates (T-1004: the 2-core budget)
 	t.Parallel()
 	y := newSx(t, cmd("check", "echo 1 pass"))
 	sha := y.submit()
@@ -621,7 +621,7 @@ func TestScratchGateForeignState(t *testing.T) {
 // A resolved gate after a red one, with the worktree reset by another gate meanwhile: reset to the pin, green, its
 // target the resolution's first parent.
 func TestScratchGateResolvedAfterRed(t *testing.T) {
-	testkit.Slow(t) // 1.14 s: a red gate and its resolved replay (T-1004: the 2-core budget)
+	testkit.Slow(t) // 1.03 s: a red gate and its resolved replay (T-1004: the 2-core budget)
 	t.Parallel()
 	y := newSx(t, cmd("compile", `test -f "$TMP_DIR/green" && echo 1 pass || { echo 0 pass; exit 1; }`))
 	input := y.conflicted()
@@ -769,7 +769,6 @@ func TestScratchTargetIsBranchesMain(t *testing.T) {
 // T-550 (RV-57 #1): an old spec commit on main — "T-05: spec" touching only the legacy spec dir — is no merge
 // evidence: work that lives only in the lane has not landed. The default legacy path and a configured paths.tasks.
 func TestLegacySpecIsNotLanded(t *testing.T) {
-	testkit.Slow(t) // 16.9 s: its cases' subtests queue at 2 cores (T-1004: the 2-core budget)
 	t.Parallel()
 	for _, c := range []struct {
 		name string
@@ -855,7 +854,7 @@ func TestSubmitPinReplay(t *testing.T) {
 // refuses, instead of pinning T-20's candidate for T-05; so does a merge of T-05's input onto something else. T-05's
 // own committed resolution is pinned, with its human edit.
 func TestResolvedPinsOwnMergeOnly(t *testing.T) {
-	testkit.Slow(t) // 1.26 s: two conflict fixtures and three refusals (T-1004: the 2-core budget)
+	testkit.Slow(t) // 1.69 s: two conflict fixtures and three refusals (T-1004: the 2-core budget)
 	t.Parallel()
 	y := newSx(t, cmd("check", "echo 1 pass"))
 	input := y.conflicted()

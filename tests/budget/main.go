@@ -34,7 +34,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // Budget is one package's caps: the wall seconds of its -short and full tiers (go test's package Elapsed) and the git
@@ -124,14 +123,15 @@ func (r Run) failure() string {
 }
 
 // parseRun reads one `go test -json` tier's output. Non-JSON lines (the go command's own, such as `? pkg [no test
-// files]` or a `go: downloading` note) are ignored. A top-level test's time is the span of its events' Time fields,
-// from its last `cont` (its `run` when it never paused) to the last `pass`/`fail` of it or one of its subtests: for a
-// test whose subtests call t.Parallel() go reports the parent's own pass Elapsed as 0 without the children's run
-// (RV-139 #2), and a parallel test's wait in the queue, between `pause` and `cont`, is not its time (rev 3).
+// files]` or a `go: downloading` note) are ignored. A top-level test's cost is its own pass Elapsed plus the Elapsed of
+// every subtest that paused: a parent's Elapsed excludes its parallel subtests (RV-139 #2: it reports 0 s for them),
+// Go's Elapsed already excludes a test's wait between `pause` and `cont`, and a subtest that never paused is already
+// inside its parent's Elapsed, so it is not added again.
 func parseRun(out []byte) Run {
 	r := Run{Slow: map[string]bool{}}
 	outputs := map[string]*strings.Builder{}
-	start, end := map[string]time.Time{}, map[string]time.Time{}
+	elapsed := map[string]float64{} // each test's own pass/fail Elapsed
+	paused := map[string]bool{}     // the tests that had a pause event (they called t.Parallel)
 	var pkgOut strings.Builder
 	sc := bufio.NewScanner(bytes.NewReader(out))
 	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
@@ -140,7 +140,6 @@ func parseRun(out []byte) Run {
 			Action  string
 			Test    string
 			Elapsed float64
-			Time    time.Time
 			Output  string
 		}
 		if json.Unmarshal(sc.Bytes(), &e) != nil {
@@ -157,19 +156,10 @@ func parseRun(out []byte) Run {
 				b.WriteString(e.Output)
 			}
 			switch e.Action {
-			case "run", "cont":
-				if top {
-					start[e.Test] = e.Time // the last cont wins over the run: the queue wait before it is not the test's
-				}
-			case "pass", "fail":
-				// The event's test, or the top-level test a subtest belongs to.
-				name := e.Test
-				if i := strings.IndexByte(name, '/'); i >= 0 {
-					name = name[:i]
-				}
-				if e.Time.After(end[name]) {
-					end[name] = e.Time
-				}
+			case "pause":
+				paused[e.Test] = true
+			case "pass", "fail", "skip":
+				elapsed[e.Test] = e.Elapsed
 			}
 			switch e.Action {
 			case "pass":
@@ -199,9 +189,13 @@ func parseRun(out []byte) Run {
 		}
 	}
 	for i, t := range r.Tests {
-		if s, ok := start[t.Name]; ok && !s.IsZero() {
-			r.Tests[i].Elapsed = end[t.Name].Sub(s).Seconds()
+		cost := elapsed[t.Name]
+		for name, sub := range elapsed {
+			if paused[name] && strings.HasPrefix(name, t.Name+"/") {
+				cost += sub
+			}
 		}
+		r.Tests[i].Elapsed = cost
 	}
 	r.note = lastLine(pkgOut.String())
 	slices.SortFunc(r.Tests, func(a, b Test) int { return strings.Compare(a.Name, b.Name) })

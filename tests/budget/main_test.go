@@ -118,74 +118,87 @@ func TestCheckBreaches(t *testing.T) {
 }
 
 // T-1002, T-1004: a Slow-marked test is the short tier's skipped test whose output carries testkit.Slow's message; a
-// top-level test's time runs from its last `cont` (its `run` when it never paused) to the last end event of it or a
-// subtest (RV-139 #2: a parent with parallel subtests reports 0 s in its own pass Elapsed); a parallel test's queue
-// wait between `pause` and `cont` is not its time (rev 3); the package's own verdict is the tier's wall time.
+// top-level test's cost is its own Elapsed plus the Elapsed of every subtest that paused (rev 4: Go's Elapsed excludes
+// a parallel test's wait between pause and cont, and a non-paused subtest is inside its parent's Elapsed); the
+// package's own verdict is the tier's wall time.
 func TestParseRun(t *testing.T) {
+	for _, c := range []struct {
+		name, stream string
+		want         []Test
+	}{
+		{"a plain test keeps its time", `{"Action":"run","Test":"TestPlain"}
+{"Action":"pass","Test":"TestPlain","Elapsed":1.2}
+{"Action":"pass","Package":"p","Elapsed":1.3}
+`, []Test{{Name: "TestPlain", Elapsed: 1.2}}},
+		{"a parent's own time plus its two paused subtests", `{"Action":"run","Test":"TestP"}
+{"Action":"run","Test":"TestP/a"}
+{"Action":"pause","Test":"TestP/a"}
+{"Action":"run","Test":"TestP/b"}
+{"Action":"pause","Test":"TestP/b"}
+{"Action":"cont","Test":"TestP/a"}
+{"Action":"pass","Test":"TestP/a","Elapsed":0.7}
+{"Action":"cont","Test":"TestP/b"}
+{"Action":"pass","Test":"TestP/b","Elapsed":0.7}
+{"Action":"pass","Test":"TestP","Elapsed":0}
+{"Action":"pass","Package":"p","Elapsed":1.5}
+`, []Test{{Name: "TestP", Elapsed: 1.4}}},
+		{"a parallel top-level test that waited 30 s in the queue", `{"Action":"run","Test":"TestQueued"}
+{"Action":"pause","Test":"TestQueued"}
+{"Action":"cont","Test":"TestQueued"}
+{"Action":"pass","Test":"TestQueued","Elapsed":0.2}
+{"Action":"pass","Package":"p","Elapsed":30.3}
+`, []Test{{Name: "TestQueued", Elapsed: 0.2}}},
+		{"a sequential subtest is already in its parent", `{"Action":"run","Test":"TestSeq"}
+{"Action":"run","Test":"TestSeq/s"}
+{"Action":"pass","Test":"TestSeq/s","Elapsed":0.4}
+{"Action":"pass","Test":"TestSeq","Elapsed":0.5}
+{"Action":"pass","Package":"p","Elapsed":0.6}
+`, []Test{{Name: "TestSeq", Elapsed: 0.5}}},
+		{"a paused subtest and its paused grandchild are added", `{"Action":"run","Test":"TestDeep"}
+{"Action":"run","Test":"TestDeep/s"}
+{"Action":"pause","Test":"TestDeep/s"}
+{"Action":"run","Test":"TestDeep/s/g"}
+{"Action":"pause","Test":"TestDeep/s/g"}
+{"Action":"pass","Test":"TestDeep/s/g","Elapsed":0.6}
+{"Action":"pass","Test":"TestDeep/s","Elapsed":0.3}
+{"Action":"pass","Test":"TestDeep","Elapsed":0.1}
+{"Action":"pass","Package":"p","Elapsed":1.1}
+`, []Test{{Name: "TestDeep", Elapsed: 1.0}}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r := parseRun([]byte(c.stream))
+			if !sameTests(r.Tests, c.want) {
+				t.Errorf("parseRun's top-level tests %v; want %v", r.Tests, c.want)
+			}
+		})
+	}
+
 	const passing = `{"Action":"start","Package":"p"}
-{"Action":"run","Test":"TestA","Time":"2024-01-02T15:04:05Z"}
+{"Action":"run","Test":"TestA"}
 {"Action":"output","Test":"TestA","Output":"=== RUN   TestA\n"}
-{"Action":"run","Test":"TestA/sub","Time":"2024-01-02T15:04:05.5Z"}
-{"Action":"pass","Test":"TestA/sub","Elapsed":0.5,"Time":"2024-01-02T15:04:06Z"}
-{"Action":"pass","Test":"TestA","Elapsed":1.3,"Time":"2024-01-02T15:04:06.3Z"}
-{"Action":"run","Test":"TestPlain","Time":"2024-01-02T15:04:06.3Z"}
-{"Action":"pass","Test":"TestPlain","Elapsed":0.4,"Time":"2024-01-02T15:04:06.7Z"}
-{"Action":"run","Test":"TestSlow","Time":"2024-01-02T15:04:06.7Z"}
+{"Action":"run","Test":"TestA/sub"}
+{"Action":"pass","Test":"TestA/sub","Elapsed":0.5}
+{"Action":"pass","Test":"TestA","Elapsed":1.3}
+{"Action":"run","Test":"TestSlow"}
 {"Action":"output","Test":"TestSlow","Output":"    p_test.go:10: slow: runs in make check\n"}
-{"Action":"skip","Test":"TestSlow","Elapsed":0,"Time":"2024-01-02T15:04:06.7Z"}
-{"Action":"run","Test":"TestOtherSkip","Time":"2024-01-02T15:04:06.7Z"}
+{"Action":"skip","Test":"TestSlow","Elapsed":0}
+{"Action":"run","Test":"TestOtherSkip"}
 {"Action":"output","Test":"TestOtherSkip","Output":"    p_test.go:12: needs the network\n"}
-{"Action":"skip","Test":"TestOtherSkip","Elapsed":0,"Time":"2024-01-02T15:04:06.7Z"}
+{"Action":"skip","Test":"TestOtherSkip","Elapsed":0}
 {"Action":"pass","Package":"p","Elapsed":4.2}
 `
 	r := parseRun([]byte(passing))
 	if !r.Passed || r.Elapsed != 4.2 {
 		t.Errorf("parseRun: passed %v elapsed %v; want true 4.2", r.Passed, r.Elapsed)
 	}
-	if want := []Test{{Name: "TestA", Elapsed: 1.3}, {Name: "TestPlain", Elapsed: 0.4}}; !slices.Equal(r.Tests, want) {
-		t.Errorf("parseRun's top-level tests %v; want %v (a plain test keeps its time; a subtest does not shorten its parent's)", r.Tests, want)
+	if want := []Test{{Name: "TestA", Elapsed: 1.3}}; !sameTests(r.Tests, want) {
+		t.Errorf("parseRun's top-level tests %v; want %v (a sequential subtest adds nothing)", r.Tests, want)
 	}
 	if want := map[string]bool{"TestSlow": true}; len(r.Slow) != len(want) || !r.Slow["TestSlow"] {
 		t.Errorf("parseRun's Slow marks %v; want only TestSlow (its skip message)", r.Slow)
 	}
 	if len(r.Failed) != 0 {
 		t.Errorf("parseRun reported failed tests %q on a passing run", r.Failed)
-	}
-
-	// T-1004: a parent whose two subtests call t.Parallel() passes with Elapsed 0 (its own body), the children end
-	// 1.4 s later; the parent's time is their span, not 0. The children pause and resume, which changes none of it.
-	const parallel = `{"Action":"start","Package":"p"}
-{"Action":"run","Test":"TestP","Time":"2024-01-02T15:04:05Z"}
-{"Action":"run","Test":"TestP/a","Time":"2024-01-02T15:04:05Z"}
-{"Action":"pause","Test":"TestP/a","Time":"2024-01-02T15:04:05.1Z"}
-{"Action":"run","Test":"TestP/b","Time":"2024-01-02T15:04:05Z"}
-{"Action":"pause","Test":"TestP/b","Time":"2024-01-02T15:04:05.1Z"}
-{"Action":"cont","Test":"TestP/a","Time":"2024-01-02T15:04:05.2Z"}
-{"Action":"cont","Test":"TestP/b","Time":"2024-01-02T15:04:05.2Z"}
-{"Action":"pass","Test":"TestP/a","Elapsed":1.2,"Time":"2024-01-02T15:04:06.4Z"}
-{"Action":"pass","Test":"TestP/b","Elapsed":1.2,"Time":"2024-01-02T15:04:06.4Z"}
-{"Action":"pass","Test":"TestP","Elapsed":0,"Time":"2024-01-02T15:04:06.4Z"}
-{"Action":"pass","Package":"p","Elapsed":1.5}
-`
-	r = parseRun([]byte(parallel))
-	if want := []Test{{Name: "TestP", Elapsed: 1.4}}; len(r.Tests) != 1 || r.Tests[0].Name != want[0].Name ||
-		math.Abs(r.Tests[0].Elapsed-want[0].Elapsed) > 1e-6 {
-		t.Errorf("parseRun's parallel parent %v; want %v (its subtests' span, not its own 0 s pass)", r.Tests, want)
-	}
-
-	// T-1004 rev 3: a parallel top-level test pauses for 30 s in the queue, resumes (`cont`) and ends 0.2 s later.
-	// The queue wait is not its time: the span runs from the last cont, not from the run event.
-	const queued = `{"Action":"start","Package":"p"}
-{"Action":"run","Test":"TestQueued","Time":"2024-01-02T15:04:05Z"}
-{"Action":"pause","Test":"TestQueued","Time":"2024-01-02T15:04:05.1Z"}
-{"Action":"cont","Test":"TestQueued","Time":"2024-01-02T15:04:35Z"}
-{"Action":"pass","Test":"TestQueued","Elapsed":0.2,"Time":"2024-01-02T15:04:35.2Z"}
-{"Action":"pass","Package":"p","Elapsed":30.3}
-`
-	r = parseRun([]byte(queued))
-	if want := []Test{{Name: "TestQueued", Elapsed: 0.2}}; len(r.Tests) != 1 || r.Tests[0].Name != want[0].Name ||
-		math.Abs(r.Tests[0].Elapsed-want[0].Elapsed) > 1e-6 {
-		t.Errorf("parseRun's queued test %v; want %v (its span from the last cont, not the 30 s queue wait)", r.Tests, want)
 	}
 
 	const buildFail = `{"Action":"build-output","Output":"# p\n./p_test.go:1:1: undefined: y\n"}
@@ -265,6 +278,19 @@ func TestSeed(t *testing.T) {
 			t.Errorf("seed(%s) = %+v; want %+v", pkg, got, w)
 		}
 	}
+}
+
+// sameTests compares two test lists, allowing the float noise of summed Elapsed values.
+func sameTests(got, want []Test) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i].Name != want[i].Name || math.Abs(got[i].Elapsed-want[i].Elapsed) > 1e-6 {
+			return false
+		}
+	}
+	return true
 }
 
 func readFile(t *testing.T, p string) string {

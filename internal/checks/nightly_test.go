@@ -24,7 +24,7 @@ func nightly(names ...any) func(map[string]any) {
 }
 
 func TestNightly(t *testing.T) {
-	testkit.Slow(t) // 16.9 s: its cases' subtests queue at 2 cores (T-1004: the 2-core budget)
+	testkit.Slow(t) // 6.65 s: its cases' nightly runs over fixture repos (T-1004: the 2-core budget)
 	t.Parallel()
 	for _, c := range []struct {
 		name string
@@ -215,7 +215,6 @@ func TestNightlyBackup(t *testing.T) {
 // T-817: merge.nightly_commands runs after the gating checks and the backup, in order, each non-gating: one report
 // line, never RED; a nonzero exit is a WARN line.
 func TestNightlyCommands(t *testing.T) {
-	testkit.Slow(t) // 13.7 s: its cases' subtests queue at 2 cores (T-1004: the 2-core budget)
 	t.Parallel()
 	for _, c := range []struct {
 		name string

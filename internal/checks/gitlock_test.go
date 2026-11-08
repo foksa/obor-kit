@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"obor/internal/project"
-	"obor/internal/testkit"
 )
 
 // T-382: git lock contention at serve's git boundary (docs/state-model.md "Crash classes").
@@ -35,7 +34,6 @@ func (x *fx) committed() bool {
 // (no git running) is removed once, logged; a stale one that comes back is not removed again, and its git call's error
 // is the step's.
 func TestSubmitLocks(t *testing.T) {
-	testkit.Slow(t) // 19.1 s: its cases' subtests queue at 2 cores (T-1004: the 2-core budget)
 	t.Parallel()
 	for _, c := range []struct {
 		name string
