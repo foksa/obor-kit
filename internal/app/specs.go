@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
+	"strconv"
 	"strings"
 
 	"obor/internal/config"
@@ -74,10 +75,7 @@ func (a *App) specSet(c wire.Call) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	reply = fmt.Sprintf("SET %s rev %d", c.Task, rev)
-	if !changed {
-		reply = fmt.Sprintf("UNCHANGED %s rev %d", c.Task, rev)
-	}
+	reply = specSetReply(c.Task, rev, changed)
 	// The receipt is a fact folded into folded.calls, so it outlives a restart. A crash between the store's commit and
 	// this append makes the retry re-apply its text: UNCHANGED if nothing changed the spec meanwhile, else the old text
 	// is written as a new rev (accepted, RV-131).
@@ -132,4 +130,29 @@ func (p *proj) foldSpecSet(r event.Record) {
 	if d.Call != "" {
 		p.folded.calls[verdictStep(wire.MethodSpecSet, d.Call)] = d.Reply
 	}
+	// A spec dropped before any dispatch (T-1016) is revived by a later rev (T-1026): the task is a spec stored and
+	// never dispatched again, with no loop record (queued, dispatchable, an --after on it waits).
+	if mt := p.folded.loop[r.Task]; mt != nil && mt.state == stDropped && mt.droppedRev > 0 &&
+		specSetRev(d.Reply) > mt.droppedRev {
+		delete(p.folded.loop, r.Task)
+	}
+}
+
+// specSetReply is spec_set's reply: SET <task> rev <n>, UNCHANGED <task> rev <n> when the text was the stored one.
+func specSetReply(task string, rev int, changed bool) string {
+	if !changed {
+		return fmt.Sprintf("UNCHANGED %s rev %d", task, rev)
+	}
+	return fmt.Sprintf("SET %s rev %d", task, rev)
+}
+
+// specSetRev is the rev a spec_set's reply (specSetReply) names; 0 when it names none. The fact carries no rev of its
+// own: its reply is the one record of it in every log since T-939.
+func specSetRev(reply string) int {
+	_, n, ok := strings.Cut(reply, " rev ")
+	rev, err := strconv.Atoi(n)
+	if !ok || err != nil {
+		return 0
+	}
+	return rev
 }

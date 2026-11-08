@@ -91,9 +91,6 @@ func (p *proj) foldJob(r event.Record) {
 		if d.Call != "" {
 			p.folded.calls[verdictStep(wire.MethodDrop, d.Call)] = dropReply(r.Task)
 		}
-		if d.Rev > 0 { // a spec stored and never dispatched: dropped at its rev (T-1016)
-			p.folded.dropped[r.Task] = droppedSpec{Rev: d.Rev, Why: d.Reason}
-		}
 	case r.Kind == event.KindFact && r.Step == event.StepDropping: // T-852: its DROPPING reply
 		var d dropData
 		_ = json.Unmarshal(r.Data, &d)
@@ -288,23 +285,17 @@ func holdReply(task, job string) string {
 
 func dropReply(task string) string { return "DROPPED " + task }
 
-// droppedSpec is a task's spec-only drop (T-1016): the spec rev its dropped fact recorded and the why. A later obor spec
-// set (a new rev) revives the task; until then a dispatch of it is refused.
-type droppedSpec struct {
-	Rev int
-	Why string
-}
-
-// specDropped is why a dispatch of task at spec rev is refused: its spec was dropped at that rev and no later set
-// replaced it (T-1016). "" none: no spec-only drop, or a newer spec set revived it.
-func (a *App) specDropped(p *proj, task string, rev int) string {
+// specDropped is why a dispatch of task is refused: its spec was dropped before any dispatch, at the rev the dropped
+// task carries, and no later spec set revived it (T-1016, T-1026: the task's outcome, foldLoop). "" none.
+func (a *App) specDropped(p *proj, task string) string {
 	a.mu.Lock()
-	d := p.folded.dropped[task]
-	a.mu.Unlock()
-	if d.Rev == 0 || rev > d.Rev {
+	defer a.mu.Unlock()
+	mt := p.folded.loop[task]
+	if mt == nil || mt.state != stDropped || mt.droppedRev == 0 {
 		return ""
 	}
-	return fmt.Sprintf("%s's spec rev %d was dropped (%s): obor spec set %s to dispatch it again", task, d.Rev, d.Why, task)
+	return fmt.Sprintf("%s's spec rev %d was dropped (%s): obor spec set %s to dispatch it again", task, mt.droppedRev,
+		mt.dropped, task)
 }
 
 // drop answers the lead's or the owner's drop of task c.Task (obor drop <T-xx>; c.Note: why) under a.verdicts: a

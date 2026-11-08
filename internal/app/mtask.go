@@ -22,8 +22,14 @@ func (p *proj) foldLoop(r event.Record) {
 	}
 	// A dropped fact is terminal for the task whatever attempt it names (RV-42-verify-2 #1: a submission decided
 	// before the drop may record the next attempt first): live fold and replay end the task, and every later record of
-	// it (submitted, a step result, a verdict) is ignored; only a new dispatch reopens it.
+	// it (submitted, a step result, a verdict) is ignored; only a new dispatch reopens it. A drop of a spec stored and
+	// never dispatched (its rev recorded, T-1016) is the task's outcome too (T-1026): a dropped task carrying the rev,
+	// which every outcome reader sees as any drop; a spec.set of a later rev revives it (foldSpecSet).
 	if r.Kind == event.KindFact && r.Step == event.StepDropped {
+		if d := r.Fact(); mt == nil && d.Rev > 0 {
+			mt = &mtask{task: r.Task, attempt: r.Attempt, droppedRev: d.Rev}
+			p.folded.loop[r.Task] = mt
+		}
 		if mt != nil {
 			mt.unblock()
 			mt.state, mt.dropped, mt.droppedSeq, mt.endedAt = stDropped, r.Fact().Reason, r.Seq, event.RecordTime(r)

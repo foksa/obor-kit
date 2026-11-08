@@ -153,6 +153,9 @@ type mtask struct {
 	dropped           string // stDropped: obor drop's why
 	droppedSeq        int64  // stDropped: the dropped fact's seq (the idle line's last end, T-803)
 	needs             block  // the needs-you on its phase (block.go; none: it goes on)
+	// droppedRev: stDropped of a spec stored and never dispatched (T-1016, T-1026): the spec rev the drop recorded; a
+	// spec.set of a later rev revives the task (foldSpecSet), a dispatch is refused until then. 0: a loop task's drop.
+	droppedRev int
 	// endedAt: stMerged, stDropped: its merged or dropped fact's time (the idle state's since, T-866); afterSeq,
 	// afterAt: stMerged: the last after-merge step's result record (T-868: an idle key).
 	endedAt  time.Time
