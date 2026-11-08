@@ -355,6 +355,67 @@ func TestPromoteTriggerByIdle(t *testing.T) {
 	}
 }
 
+// RV-144 #2 (T-1032): the promoted branch's head is one the log never named (main older than obor's merge records)
+// and two reviews started after T-1's merge (reviews since turned off): the batch starts at the log's first merge, so
+// the idle trigger runs it at h1, T-1 its merge and weight.
+func TestPromoteUnknownHeadRunsItsBatch(t *testing.T) {
+	t.Parallel()
+	r := newPromoteRig(t, false)
+	r.spec("T-1", "simple")
+	r.between("h0", "h1", "T-1")
+	r.started("RV-1", "h1", "T-1")
+	r.started("RV-2", "h1")
+	r.a.mu.Lock()
+	_, named := r.p.folded.rv.pos("h0")
+	base, idle := r.p.folded.rv.base(), r.p.loopIdle()
+	r.a.mu.Unlock()
+	if named || base <= 1 || !idle {
+		t.Fatalf("precondition: h0 named %v, base %d (want after T-1's merge), idle %v", named, base, idle)
+	}
+	r.pass()
+	if runs, _, _ := r.f.calls(); !slices.Equal(runs, []string{"h1"}) {
+		t.Fatalf("runs %q, want one at h1", runs)
+	}
+	if in := r.intent("promote.1"); !slices.Equal(in.Merges, []string{"T-1"}) || in.Weight != 1 || in.Since != "h0" {
+		t.Errorf("intent %+v, want T-1's batch since h0, weight 1", in)
+	}
+}
+
+// RV-144 #2 (T-1032): with reviews set up and main at a head the log never named (moved past R by hand), the review
+// request's batch note names every logged merge since: T-1 (before the review cutoff, RV-2's start) and T-2.
+func TestPromoteUnknownHeadBatchNote(t *testing.T) {
+	t.Parallel()
+	r := newPromoteRig(t, true)
+	r.spec("T-1", "simple")
+	r.spec("T-2", "simple")
+	r.between("h0", "h1", "T-1")
+	r.started("RV-1", "h1", "T-1")
+	r.closed("RV-1")
+	r.started("RV-2", "h1")
+	r.closed("RV-2")
+	r.between("h1", "h6", "T-2")
+	r.git.set("main", "h5")
+	r.git.set("staging", "h6")
+	r.a.mu.Lock()
+	_, named := r.p.folded.rv.pos("h5")
+	R := r.p.folded.rv.closedHead()
+	r.a.mu.Unlock()
+	if named || R != "h1" {
+		t.Fatalf("precondition: h5 named %v, R %q (want h1)", named, R)
+	}
+	r.pass()
+	r.a.mu.Lock()
+	q := r.p.folded.review
+	merges := r.p.prom.merges
+	r.a.mu.Unlock()
+	if q == nil || q.by != "obor" || q.note != "promotion batch h5..h6: T-1, T-2" {
+		t.Errorf("review request %+v, want obor's naming the batch h5..h6: T-1, T-2", q)
+	}
+	if merges != 2 {
+		t.Errorf("the batch's merges %d, want 2 (T-1, T-2)", merges)
+	}
+}
+
 // GREEN, no reviewer configured (covered): main fast-forwarded, fact promoted, after_promote once; the next passes
 // promote nothing more and status says main is at the promoted sha.
 func TestPromoteGreenPromotes(t *testing.T) {

@@ -103,7 +103,9 @@ const closedReply = "CLOSED "
 // cut from its fact is recorded now, and the call refused as no review is open), the fold's open review, its file in
 // the main checkout (openReview), its linked fixes verified (--force: closes anyway); then the main checkout commits
 // it (ReviewGit.Close: its own refusals, the branch named) and fact review.closed{id} is recorded, the reviewer's stop
-// rule woken at once. Any refusal changes nothing.
+// rule woken at once. Before the commit, fact review.closing{id, head, tasks} records its snapshot (T-1032): the head
+// and the tasks the commit names, the fact carries and the fold freezes the review at. Any refusal changes nothing
+// (a review.closing whose commit was refused is replaced by the next close's).
 func (a *App) reviewClose(ctx context.Context, p *proj, g ReviewGit, s ReviewSetup, c wire.Call, summary string) (string,
 	error) {
 	a.mu.Lock()
@@ -127,6 +129,13 @@ func (a *App) reviewClose(ctx context.Context, p *proj, g ReviewGit, s ReviewSet
 		return "", fmt.Errorf("%s's fixes are not verified: %s (open, or merged and its verify not finished; --force"+
 			" closes anyway): nothing changed", o.ID, strings.Join(cycle.pending, ", "))
 	}
+	// The snapshot, decided once: the commit, the fact and a fact recovered from the commit after a crash all carry it
+	// (T-1032: a verify ending after it changes nothing of the close).
+	snap := ReviewData{ID: o.ID, Head: cycle.reviewed, Tasks: cycle.covered}
+	if !a.record(p, event.Record{Task: event.ReviewTask, Step: event.StepReviewClosing, Kind: event.KindFact}, snap) {
+		return "", fmt.Errorf("review close: the event log of %s refused fact %s: nothing changed", p.name,
+			event.StepReviewClosing)
+	}
 	sha := short(cycle.reviewed) // the head the reviewer last finished (its start's or a done verify's, T-857)
 	subject, body := CloseCommit(o.ID, sha, summary, cycle.covered, cycle.start, len(c.Accept))
 	if err := g.Close(ctx, ReviewCommit{Branch: s.Branch, ID: o.ID, File: o.File, Reviewed: cycle.reviewed,
@@ -134,7 +143,7 @@ func (a *App) reviewClose(ctx context.Context, p *proj, g ReviewGit, s ReviewSet
 		return "", err
 	}
 	reply := closedReply + subject
-	d := ReviewData{ID: o.ID, Call: c.CallID, Reply: reply}
+	d := ReviewData{ID: o.ID, Call: c.CallID, Reply: reply, Head: snap.Head, Tasks: snap.Tasks}
 	if !a.record(p, event.Record{Task: event.ReviewTask, Step: event.StepReviewClosed, Kind: event.KindFact}, d) {
 		a.mu.Lock()
 		p.closeRead = false // the next pass records it from the commit (reviewCloseRead)
@@ -188,13 +197,16 @@ func (a *App) closeCommitted(ctx context.Context, p *proj, g ReviewGit, open las
 	if err != nil || !ClosesReview(subject, open.id) {
 		return err // open: no close commit for it
 	}
+	d := ReviewData{ID: open.id, Reply: closedReply + subject}
 	a.mu.Lock()
 	same := p.folded.rv.last() == open
+	if s := p.folded.rv.cur().closing; s != nil { // the snapshot the close recorded before its commit (T-1032)
+		d.Head, d.Tasks = s.head, s.tasks
+	}
 	a.mu.Unlock()
 	if !same {
 		return nil
 	}
-	d := ReviewData{ID: open.id, Reply: closedReply + subject}
 	if !a.record(p, event.Record{Task: event.ReviewTask, Step: event.StepReviewClosed, Kind: event.KindFact}, d) {
 		return errors.New("the event log refused fact " + event.StepReviewClosed)
 	}

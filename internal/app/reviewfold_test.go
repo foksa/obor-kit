@@ -44,6 +44,26 @@ func (f *foldLog) verify(head, why string, tasks ...string) *foldLog {
 	}
 	return f.add(event.MsgTask, event.StepMessage, event.KindFact, event.Message{To: "pj-lead", Ends: "pj-rev"})
 }
+
+// briefed is a verify brief of tasks at head, still open; ends is the finished line that ends it.
+func (f *foldLog) briefed(head string, tasks ...string) *foldLog {
+	return f.add(event.MsgTask, event.StepBriefed, event.KindFact, event.Message{To: "pj-rev",
+		Task: strings.Join(tasks, ","), Reviewed: head})
+}
+func (f *foldLog) ends() *foldLog {
+	return f.add(event.MsgTask, event.StepMessage, event.KindFact, event.Message{To: "pj-lead", Ends: "pj-rev"})
+}
+
+// closing is a close's snapshot before its commit (T-1032); closedAt a close fact carrying it, as serve's close
+// records it.
+func (f *foldLog) closing(id, head string, tasks ...string) *foldLog {
+	return f.add(event.ReviewTask, event.StepReviewClosing, event.KindFact, ReviewData{ID: id, Head: head, Tasks: tasks})
+}
+func (f *foldLog) closedAt(id, head string, tasks ...string) *foldLog {
+	return f.add(event.ReviewTask, event.StepReviewClosed, event.KindFact, ReviewData{ID: id, Head: head, Tasks: tasks,
+		Reply: closedReply + id + " closed · x · approved · s"})
+}
+
 func (f *foldLog) promoted(sha string) *foldLog {
 	return f.add(event.PromoteTask, event.StepPromoted, event.KindFact, promotedData{SHA: sha})
 }
@@ -67,6 +87,7 @@ func TestReviewFold(t *testing.T) {
 		unreviewed []string
 		rv         string
 		batch      []string // between(at, "")
+		cycle      []string // the newest review's covered tasks (nil: not checked)
 	}{
 		{name: "an empty log", log: &foldLog{}, next: "RV-1"},
 		{name: "merges, no review yet: every merge, the first is RV-1",
@@ -114,6 +135,25 @@ func TestReviewFold(t *testing.T) {
 			log: (&foldLog{}).merged("T-1", "m1").started("RV-4", "m1", "T-1").closed("RV-4").promoted("m1").
 				merged("T-2", "m2"),
 			scope: []string{"T-2"}, next: "RV-5", r: "m1", at: "m1", rv: "RV-4", batch: []string{"T-2"}},
+		// RV-144 #1 (T-1032): the close's snapshot stands; a verify finishing after it changes nothing.
+		{name: "a verify finishing after the close: R stays the close's h1, RV-1 covered T-1, T-fix is the next scope",
+			log: (&foldLog{}).merged("T-1", "h1").started("RV-1", "h1", "T-1").merged("T-fix", "h2").
+				briefed("h2", "T-fix").closing("RV-1", "h1", "T-1").closedAt("RV-1", "h1", "T-1").ends(),
+			scope: []string{"T-fix"}, next: "RV-2", r: "h1", at: "h1", rv: "RV-1", batch: []string{"T-fix"},
+			cycle: []string{"T-1"}},
+		{name: "a verify finishing between the snapshot and a close fact without one (a crash cut): the snapshot's",
+			log: (&foldLog{}).merged("T-1", "h1").started("RV-1", "h1", "T-1").merged("T-fix", "h2").
+				briefed("h2", "T-fix").closing("RV-1", "h1", "T-1").ends().closed("RV-1"),
+			scope: []string{"T-fix"}, next: "RV-2", r: "h1", at: "h1", rv: "RV-1", batch: []string{"T-fix"},
+			cycle: []string{"T-1"}},
+		{name: "a verify finished before the snapshot is in it: R its head, its fix covered",
+			log: (&foldLog{}).merged("T-1", "h1").started("RV-1", "h1", "T-1").merged("T-fix", "h2").
+				verify("h2", "", "T-fix").closing("RV-1", "h2", "T-1", "T-fix").closedAt("RV-1", "h2", "T-1", "T-fix"),
+			next: "RV-2", r: "h2", at: "h1", rv: "RV-1", batch: []string{"T-fix"}, cycle: []string{"T-1", "T-fix"}},
+		{name: "a snapshot for another review than the open one is not its",
+			log: (&foldLog{}).merged("T-1", "h1").started("RV-1", "h1", "T-1").merged("T-fix", "h2").
+				verify("h2", "", "T-fix").closing("RV-0", "h1", "T-1").closed("RV-1"),
+			next: "RV-2", r: "h2", at: "h1", rv: "RV-1", batch: []string{"T-fix"}, cycle: []string{"T-1", "T-fix"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -139,8 +179,64 @@ func TestReviewFold(t *testing.T) {
 			if got := tasksOf(l.between(c.at, "")); !slices.Equal(got, c.batch) {
 				t.Errorf("batch since %q: %q, want %q", c.at, got, c.batch)
 			}
+			if got := l.cur().cycle(); c.cycle != nil && !slices.Equal(got, c.cycle) {
+				t.Errorf("the newest review covered %q, want %q", got, c.cycle)
+			}
 		})
 	}
+}
+
+// RV-144 #2 (T-1032): a promoted head the log never named (a promoted branch older than obor's merge records) starts
+// promotion's range at the log's first merge, not at the review cutoff: the batch and unreviewed count every logged
+// merge (those a closed review covered stay covered); the review scope and a verify's merge keep their cutoff.
+func TestReviewFoldUnknownPromotedHead(t *testing.T) {
+	t.Parallel()
+	fold := func(f *foldLog) *reviewLog {
+		var l reviewLog
+		for _, r := range f.recs {
+			l.fold(r)
+		}
+		return &l
+	}
+	t.Run("T-1 merged, two review starts: between an unknown head and h1 is T-1", func(t *testing.T) {
+		t.Parallel()
+		l := fold((&foldLog{}).merged("T-1", "h1").started("RV-1", "h1", "T-1").started("RV-2", "h1"))
+		if l.base() <= l.merges[0].seq {
+			t.Fatalf("precondition: base %d not after T-1's merge %d", l.base(), l.merges[0].seq)
+		}
+		if got := tasksOf(l.between("unknown", "h1")); !slices.Equal(got, []string{"T-1"}) {
+			t.Errorf("between(unknown, h1) = %q, want [T-1]", got)
+		}
+		if got := tasksOf(l.between("", "h1")); len(got) != 0 {
+			t.Errorf("between(\"\", h1) = %q, want none (the review scope's cutoff)", got)
+		}
+	})
+	t.Run("unreviewed with an unknown base: every merge up to R less any closed review's; the scope unchanged",
+		func(t *testing.T) {
+			t.Parallel()
+			// T-x merged at h2 and no review covered it; RV-1 covered T-1; base is RV-2's start, after both merges.
+			l := fold((&foldLog{}).merged("T-1", "h1").merged("T-x", "h2").started("RV-1", "h2", "T-1").closed("RV-1").
+				started("RV-2", "h2").closed("RV-2").started("RV-3", "h2").closed("RV-3"))
+			if l.base() <= l.merges[1].seq || l.closedHead() != "h2" {
+				t.Fatalf("precondition: base %d, merges %+v, R %q", l.base(), l.merges, l.closedHead())
+			}
+			got, rv := l.unreviewed("old-main", "h2")
+			if !slices.Equal(got, []string{"T-x"}) || rv != "RV-3" {
+				t.Errorf("unreviewed(old-main, h2) = %q during %q, want [T-x] during RV-3 (T-1 covered by RV-1)", got, rv)
+			}
+			if got, _ := l.unreviewed("h2", "h2"); len(got) != 0 {
+				t.Errorf("unreviewed(h2, h2) = %q, want none (a known head keeps its range)", got)
+			}
+			if got := tasksOf(l.between("old-main", "")); !slices.Equal(got, []string{"T-1", "T-x"}) {
+				t.Errorf("the batch since old-main = %q, want [T-1 T-x]", got)
+			}
+			if got := tasksOf(l.scope()); len(got) != 0 {
+				t.Errorf("scope %q, want none: the review scope keeps its cutoff", got)
+			}
+			if m := l.mergeOf("T-x"); m.task != "" {
+				t.Errorf("mergeOf(T-x) = %+v, want none: a verify's merge keeps the cutoff", m)
+			}
+		})
 }
 
 // T-1023: obor status' "review due" line is the fold's scope, counted on every pass: at 3 merges none, at 4 "review

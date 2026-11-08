@@ -22,7 +22,8 @@ type mergeRec struct {
 // tasks its start named; fixes, the tasks its finished verifies covered (T-924); reviewed, the head the reviewer last
 // finished (the start's, then each finished verify's: T-857); closed, its review.closed fact's seq (its state; 0:
 // open) and subject, its close commit's subject as the close's reply names it ("": open, or a close recorded without
-// one).
+// one); closing, the snapshot its close recorded before the commit (fact review.closing, T-1032; nil: none). A closed
+// review is frozen at its close's snapshot: a verify ending after it changes nothing.
 type review struct {
 	seq      int64
 	id, head string
@@ -31,6 +32,23 @@ type review struct {
 	reviewed string
 	closed   int64
 	subject  string
+	closing  *closeSnap
+}
+
+// closeSnap is a close's snapshot: the reviewed head its commit names and the tasks it covers (T-1032).
+type closeSnap struct {
+	head  string
+	tasks []string
+}
+
+// freeze sets rv's reviewed head and coverage to s, the close's: its fixes are s's tasks beyond its start's.
+func (rv *review) freeze(s closeSnap) {
+	rv.reviewed, rv.fixes = s.head, nil
+	for _, t := range s.tasks {
+		if !slices.Contains(rv.covered, t) && !slices.Contains(rv.fixes, t) {
+			rv.fixes = append(rv.fixes, t)
+		}
+	}
 }
 
 // reviewLog is the reviews' and the merges' records folded (T-856, T-924, T-1023): every review the log started, in
@@ -51,8 +69,9 @@ type reviewLog struct {
 	failed  *verifyBrief
 }
 
-// fold folds r: a merge; a promotion's head; a review start (a new review); its close (closes the newest review when
-// it names it or a later one, the first close counting); a brief (a verify's, when it names tasks and a head; any brief
+// fold folds r: a merge; a promotion's head; a review start (a new review); its close's snapshot (review.closing,
+// T-1032); its close (closes the newest review when it names it or a later one, the first close counting, and freezes
+// it at the close's snapshot); a brief (a verify's, when it names tasks and a head; any brief
 // replaces the agent's open verify brief); the finished line that ends a brief; a stop that ends one. Records of an
 // older obor (review.fix, review.verify.request, a brief's verify_of) fold as nothing (T-924: a closed cycle needs
 // none of them).
@@ -88,6 +107,14 @@ func (l *reviewLog) fold(r event.Record) {
 			reviewed: d.Head})
 		l.head(d.Head, r.Seq)
 		l.failed = nil
+	case r.Task == event.ReviewTask && r.Step == event.StepReviewClosing:
+		var d ReviewData
+		if json.Unmarshal(r.Data, &d) != nil || d.Head == "" {
+			return
+		}
+		if cur := l.cur(); cur.seq != 0 && cur.closed == 0 && cur.id == d.ID {
+			cur.closing = &closeSnap{head: d.Head, tasks: slices.Clone(d.Tasks)}
+		}
 	case r.Task == event.ReviewTask && r.Step == event.StepReviewClosed:
 		var d ReviewData
 		_ = json.Unmarshal(r.Data, &d)
@@ -95,6 +122,12 @@ func (l *reviewLog) fold(r event.Record) {
 		n, ok := reviewNumber(d.ID)
 		if open, isID := reviewNumber(cur.id); cur.seq != 0 && cur.closed == 0 && ok && isID && n >= open {
 			cur.closed, cur.subject = r.Seq, strings.TrimPrefix(d.Reply, closedReply)
+			switch { // its snapshot: the fact's, else its review.closing's; neither (an older obor): as folded so far
+			case d.Head != "" && d.ID == cur.id:
+				cur.freeze(closeSnap{head: d.Head, tasks: d.Tasks})
+			case cur.closing != nil:
+				cur.freeze(*cur.closing)
+			}
 		}
 	case r.Task != event.MsgTask:
 	case r.Step == event.StepBriefed:
@@ -127,8 +160,8 @@ func (l *reviewLog) head(sha string, seq int64) {
 	}
 }
 
-// ended folds the end of agent's open verify brief, finished (why "": its tasks covered, its head reviewed) or not
-// (why: nothing of it counted, T-857).
+// ended folds the end of agent's open verify brief, finished (why "": its tasks covered, its head reviewed, unless
+// the review is closed: T-1032, its close's snapshot stands) or not (why: nothing of it counted, T-857).
 func (l *reviewLog) ended(agent, why string) {
 	v := l.open[agent]
 	delete(l.open, agent)
@@ -139,7 +172,7 @@ func (l *reviewLog) ended(agent, why string) {
 		v.why, l.failed = why, v
 		return
 	}
-	if cur := l.cur(); cur.seq != 0 && v.seq > cur.seq {
+	if cur := l.cur(); cur.seq != 0 && cur.closed == 0 && v.seq > cur.seq {
 		cur.fixes = append(cur.fixes, v.tasks...)
 		cur.reviewed = v.head
 	}
@@ -208,12 +241,16 @@ func (l *reviewLog) pos(sha string) (int64, bool) {
 	return seq, ok && sha != ""
 }
 
-// between is the merges after from and at or before to, oldest first: from "" or a head the log does not name starts
-// at base; to "" or unknown, every merge since.
+// between is the merges after from and at or before to, oldest first: from "" starts at base (the review scope's and
+// a verify's merge); a head the log does not name (a promoted branch older than the log's merges, T-1032) at the
+// log's first merge; to "" or unknown, every merge since.
 func (l *reviewLog) between(from, to string) []mergeRec {
 	lo, ok := l.pos(from)
-	if !ok {
+	switch {
+	case from == "":
 		lo = l.base()
+	case !ok:
+		lo = 0
 	}
 	hi, bounded := l.pos(to)
 	var out []mergeRec
@@ -257,12 +294,22 @@ func (l *reviewLog) mergeOf(task string) mergeRec {
 
 // unreviewed is the tasks merged after at (the promoted branch's head) and at or before r (the last closed review's
 // reviewed head) that no closed review since base covered, oldest first, each once (T-985: one merged during the
-// review, inside its verify's head); rv is the last closed review's id, the review they merged during ("the last
-// review": none closed).
+// review, inside its verify's head); at a head the log does not name (T-1032): every merge up to r, less those any
+// closed review covered. rv is the last closed review's id, the review they merged during ("the last review": none
+// closed).
 func (l *reviewLog) unreviewed(at, r string) (tasks []string, rv string) {
-	lo, ok := l.pos(at)
-	if !ok || lo < l.base() {
+	lo, known := l.pos(at)
+	covered := l.covered(true)
+	switch {
+	case at == "" || known && lo < l.base():
 		lo = l.base()
+	case !known:
+		lo, covered = 0, nil
+		for _, c := range l.reviews {
+			if c.closed != 0 {
+				covered = slices.Concat(covered, c.covered, c.fixes)
+			}
+		}
 	}
 	hi, ok := l.pos(r)
 	if !ok {
@@ -274,7 +321,7 @@ func (l *reviewLog) unreviewed(at, r string) (tasks []string, rv string) {
 			in = append(in, m)
 		}
 	}
-	for _, m := range uncovered(in, l.covered(true)) {
+	for _, m := range uncovered(in, covered) {
 		tasks = append(tasks, m.task)
 	}
 	rv = "the last review"
