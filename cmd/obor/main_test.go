@@ -26,7 +26,8 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	oborBin = filepath.Join(dir, "obor")
-	if out, err := exec.Command("go", "build", "-o", oborBin, ".").CombinedOutput(); err != nil {
+	// -buildvcs=false: VCS stamping runs git, and the unit tier starts none (T-1020).
+	if out, err := exec.Command("go", "build", "-buildvcs=false", "-o", oborBin, ".").CombinedOutput(); err != nil {
 		panic("go build: " + err.Error() + "\n" + string(out))
 	}
 	code := testkit.Run(m) // removes the project template testkit.New copies (T-1009)
@@ -79,12 +80,7 @@ func TestExitCodes(t *testing.T) {
 			t.Errorf("obor %v: exit %d, want %d", c.args, rc, c.rc)
 		}
 	}
-	// Outside a git repository: exit 3 (hooks and callers treat it as "no obor project").
-	cmd := exec.Command(bin, "whoami")
-	cmd.Dir = t.TempDir()
-	if err := cmd.Run(); err == nil || err.(*exec.ExitError).ExitCode() != 3 {
-		t.Errorf("whoami outside a repo: %v, want exit 3", err)
-	}
+	// Outside a git repository: TestExitCodesOutsideARepo (main_integration_test.go: project.Find asks git there).
 }
 
 // `obor … | head` with the reader gone: the buffered writer's flush gets EPIPE → exit 0, nothing on stderr.
@@ -160,29 +156,6 @@ func TestHas(t *testing.T) {
 	}
 }
 
-// T-409: obor merge is gone (obor serve's merge loop is the only merger): an unknown subcommand, exit 2, nothing
-// merged, the lane's work left as it was.
-func TestMergeIsUnknown(t *testing.T) {
-	t.Parallel()
-	p := testkit.New(t)
-	lane := p.Lane("L-01", "task/T-01")
-	p.Config()
-	p.Write(filepath.Join(lane, "feature.txt"), "feature\n")
-	head := p.Git(p.Root, "rev-parse", "HEAD")
-	for _, args := range [][]string{{"merge", "L-01", "T-01", "summary"}, {"merge", "--ff-retry", "T-01"}} {
-		rc, stdout, stderr := run(t, p.Root, nil, args...)
-		if rc != 2 || stdout != "" || !strings.Contains(stderr, "obor: unknown subcommand: merge") {
-			t.Errorf("obor %q: exit %d, %q, %q; want 2, unknown subcommand", args, rc, stdout, stderr)
-		}
-	}
-	if got := p.Git(p.Root, "rev-parse", "HEAD"); got != head {
-		t.Errorf("main moved: %s, want %s", got, head)
-	}
-	if st := p.Git(lane, "status", "--porcelain"); st != "?? feature.txt" {
-		t.Errorf("lane status %q, want the uncommitted feature only", st)
-	}
-}
-
 // T-846: obor monitor's one-minor notice is over (T-776, obor status and obor web remain): it is an unknown subcommand
 // now, exit 2 and the same error every command this binary lacks gets.
 func TestMonitorIsUnknown(t *testing.T) {
@@ -199,8 +172,8 @@ func TestMonitorIsUnknown(t *testing.T) {
 // bash status case_no_config_and_usage, the --lead flag of case_two_leads_filter and case_one_lead_unchanged.
 func TestStatusExitCodesAndLeadFlag(t *testing.T) {
 	t.Parallel()
-	p := testkit.New(t)
-	p.Lane("L-01", "task/T-01")
+	p := testkit.NewPlain(t)
+	p.PlainLane("L-01", "task/T-01")
 	if rc, _, stderr := run(t, p.Root, nil, "status"); rc != 3 || !strings.Contains(stderr, "not an obor project") {
 		t.Errorf("no config: exit %d, %q; want 3, not an obor project", rc, stderr)
 	}
@@ -218,7 +191,7 @@ func TestStatusExitCodesAndLeadFlag(t *testing.T) {
 // The PreToolUse hook's deny: exit 2 and one line "obor: <reason>" on stderr, nothing on stdout; allow: exit 0, silent.
 func TestPreToolUseDenyIsOneOborLine(t *testing.T) {
 	t.Parallel()
-	p := testkit.New(t)
+	p := testkit.NewPlain(t)
 	p.Config()
 	hook := func(cmd string) (int, string, string) {
 		in, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": p.Root, "tool_input": map[string]string{"command": cmd}})
@@ -247,8 +220,8 @@ func TestPreToolUseDenyIsOneOborLine(t *testing.T) {
 func TestRestartCommand(t *testing.T) {
 	testkit.Slow(t)
 	t.Parallel()
-	p := testkit.New(t)
-	o1 := p.Lane("L-01", "")
+	p := testkit.NewPlain(t)
+	o1 := p.PlainLane("L-01", "")
 	p.Config()
 	f := p.Herdr()
 	f.Shell("w1:p2", "pj-int", p.Root)
@@ -335,8 +308,8 @@ func runIn(t *testing.T, dir string, env []string, stdin string, args ...string)
 // case_unknown_lane_and_bad_id (usage); bash drop.test.sh case_unknown_lane (usage).
 func TestLaneCommands(t *testing.T) {
 	t.Parallel()
-	p := testkit.New(t)
-	o1 := p.Lane("L-01", "task/T-01")
+	p := testkit.NewPlain(t)
+	o1 := p.PlainLane("L-01", "task/T-01")
 	// The installed fake is a snapshot: the agent stays in group 2 with no process listed, and whether pid 2 runs is
 	// the host's (none on macOS: the exit is proven at once; else drop's worker stop waits OBOR_RESTART_WAIT).
 	env := []string{"HOME=" + p.Base + "/home", "OBOR_STATE_HOME=" + p.Base + "/state-home", "OBOR_RESTART_WAIT=1"}

@@ -26,9 +26,9 @@ import (
 // that is not a directory send nothing (FAIL, exit 1); serve's refusal is FAIL.
 func TestSendRequest(t *testing.T) {
 	t.Parallel()
-	p := testkit.New(t)
+	p := testkit.NewPlain(t)
 	p.Config()
-	q := testkit.New(t)
+	q := testkit.NewPlain(t)
 	q.Config(testkit.Set("name", "other"), testkit.Set("prefix", "ot"))
 	q.Write("sub/x.txt", "x\n")
 	_, own := startFakeServe(t, p.Root, wire.Status{}, "SENT (to the own project's serve)", "")
@@ -50,7 +50,7 @@ func TestSendRequest(t *testing.T) {
 		{[]string{"send", p.Root, "hi"}, "FAIL obor send goes to another project's lead, not this one"},
 		{[]string{"send", "other", "hi"}, unknownOther},
 		{[]string{"send", "lead@other", "hi"}, unknownOther},
-		{[]string{"send", p.Base, "hi"}, "FAIL " + p.Base + " is not in an obor project (no .obor/config.json)"},
+		// a path outside an obor project: TestSendRequestOutsideAProject (send_integration_test.go: project.Find asks git)
 		{[]string{"send", filepath.Join(p.Base, "nope"), "hi"},
 			"FAIL " + filepath.Join(p.Base, "nope") + " is not a directory: obor send takes a known project name " +
 				"(obor projects) or a path into the target project"},
@@ -105,9 +105,9 @@ func TestSendRequest(t *testing.T) {
 // target's root, and the target's serve loads its own config. By a known name and by a path into it.
 func TestSendToProjectWhoseConfigDoesNotLoad(t *testing.T) {
 	t.Parallel()
-	p := testkit.New(t)
+	p := testkit.NewPlain(t)
 	p.Config()
-	q := testkit.New(t)
+	q := testkit.NewPlain(t)
 	q.Config(testkit.Set("name", "other"), testkit.Set("prefix", "ot"))
 	q.Write("sub/x.txt", "x\n")
 	// The shape before T-765: this binary refuses it (lanes is a count here, an object of typed lanes there), a serve of
@@ -161,8 +161,8 @@ func writeProjects(t *testing.T, env project.Env, list map[string]string) {
 // integrator, a worker, nobody) or no text sends nothing.
 func TestBriefRequest(t *testing.T) {
 	t.Parallel()
-	p := testkit.New(t)
-	p.Lane("L-01", "")
+	p := testkit.NewPlain(t)
+	p.PlainLane("L-01", "")
 	p.Config(testkit.Set("roles.reviewer", ""))
 	home, serve := startFakeServe(t, p.Root, wire.Status{}, "BRIEFED pj-rev (typed when its pane is idle; the lead hears when it finishes)", "")
 	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
@@ -201,7 +201,7 @@ func TestBriefRequest(t *testing.T) {
 // still runs after the request, and a refused request leaves it running too. Without --fresh, fresh is not set.
 func TestBriefFresh(t *testing.T) {
 	t.Parallel()
-	p := testkit.New(t)
+	p := testkit.NewPlain(t)
 	p.Config(testkit.Set("roles.reviewer", "opus"), testkit.Set("roles.advisor", "opus"))
 	f := p.Herdr()
 	f.Agent("w1:p5", "pj-advisor", "working", p.Root).Label = "pj-advisor"
@@ -241,7 +241,7 @@ func TestBriefFresh(t *testing.T) {
 // T-794: a brief --fresh that serve refuses is FAIL with serve's reason, and the running agent is not stopped.
 func TestBriefFreshRefused(t *testing.T) {
 	t.Parallel()
-	p := testkit.New(t)
+	p := testkit.NewPlain(t)
 	p.Config(testkit.Set("roles.advisor", "opus"))
 	f := p.Herdr()
 	f.Agent("w1:p5", "pj-advisor", "working", p.Root).Label = "pj-advisor"
@@ -272,7 +272,7 @@ func TestPosterPostsToTheInbox(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
-	pj := testkit.New(t)
+	pj := testkit.NewPlain(t)
 	pj.Config()
 	sock := filepath.Join(dir, "s.sock")
 	ln, err := net.Listen("unix", sock)
@@ -353,8 +353,8 @@ func TestPosterUsesTheGivenKind(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
-	pj := testkit.New(t)
-	pj.Lane("L-01", "task/T-1")
+	pj := testkit.NewPlain(t)
+	pj.PlainLane("L-01", "task/T-1")
 	pj.Config()
 	sock := filepath.Join(dir, "s.sock")
 	ln, err := net.Listen("unix", sock)
@@ -419,7 +419,7 @@ func TestPosterKeepsProjectsWithOnePrefixApart(t *testing.T) {
 	}
 	var sides []side
 	for i, name := range []string{"one", "two"} {
-		pj := testkit.New(t)
+		pj := testkit.NewPlain(t)
 		pj.Config(testkit.Set("name", name)) // both keep the prefix pj
 		sock := filepath.Join(dir, strconv.Itoa(i)+".sock")
 		ln, err := net.Listen("unix", sock)

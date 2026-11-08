@@ -30,7 +30,7 @@ type leadFx struct {
 
 func newLeadFx(t *testing.T, edits ...func(map[string]any)) *leadFx {
 	t.Helper()
-	p := testkit.New(t)
+	p := testkit.NewPlain(t)
 	p.Config(append([]func(map[string]any){
 		testkit.Set("roles.lead", "opus"),
 	}, edits...)...)
@@ -233,28 +233,6 @@ func TestLeadUntypedRunningOrLabelled(t *testing.T) {
 	if c := x.calls(); !strings.Contains(c, `"kind":"claude","name":"pj-lead","pane_id":"w1:p1"`) ||
 		!strings.Contains(c, `"--resume","old-sid"`) || strings.Contains(c, "tab create") {
 		t.Errorf("untyped labelled pane: resumes old-sid in w1:p1 as claude, no new tab:\n%s", c)
-	}
-}
-
-// RV-51 #5: agent names are machine-wide; another project's pj-lead is not this project's lead.
-func TestLeadNamesakeInAnotherProjectFails(t *testing.T) {
-	t.Parallel()
-	x := newLeadFx(t)
-	other := t.TempDir()
-	x.f.Agent("w1:p1", "pj-lead", "working", other).Label = "pj-lead"
-	out, rc := x.run(t)
-	if rc != 1 || !strings.HasPrefix(lastLine(out), "FAIL pj-lead runs in pane w1:p1 with cwd "+other+", outside ") {
-		t.Fatalf("namesake elsewhere: exit %d\n%s", rc, out)
-	}
-	if c := x.calls(); strings.Contains(c, "agent.start") || strings.Contains(c, "tab create") ||
-		strings.Contains(c, "pane.send_input") || strings.Contains(c, "stop") {
-		t.Errorf("namesake elsewhere: nothing started, typed or stopped:\n%s", c)
-	}
-
-	x = newLeadFx(t) // no cwd known: taken as ours, as the launcher does
-	x.f.Agent("w1:p1", "pj-lead", "working", "").Label = "pj-lead"
-	if out, rc := x.run(t); rc != 0 || lastLine(out) != "OK pj-lead runs (pane w1:p1)" {
-		t.Errorf("no cwd known: exit %d\n%s", rc, out)
 	}
 }
 

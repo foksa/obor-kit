@@ -14,7 +14,7 @@ import (
 // serve down or its refusal are FAIL on stdout, exit 1 (T-520).
 func TestPauseRequest(t *testing.T) {
 	t.Parallel()
-	p := testkit.New(t)
+	p := testkit.NewPlain(t)
 	p.Config()
 	home, serve := startFakeServe(t, p.Root, wire.Status{}, "PAUSED until cleared", "")
 	env := func(role string) []string {

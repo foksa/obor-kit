@@ -13,7 +13,7 @@ import (
 // agent, its role and a worker's lane; serve's answer is the job, or none.
 func TestRestartJob(t *testing.T) {
 	t.Parallel()
-	p := testkit.New(t)
+	p := testkit.NewPlain(t)
 	var got wire.Call
 	job, err := resolveAgentJob(p.Root, "pj-l-01", "worker", "L-01", func(c wire.Call) (string, error) {
 		got = c
@@ -43,7 +43,7 @@ func TestRestartJob(t *testing.T) {
 // line (RV-133 #3). A lane with no task is the plain restart.
 func TestServeJobServeDown(t *testing.T) {
 	t.Parallel()
-	p := testkit.New(t)
+	p := testkit.NewPlain(t)
 	p.State("L-01", `{"task":"T-5","branch":"task/T-5","agent":"pj-l-01"}`)
 	down := func(wire.Call) (string, error) { return "", errors.New("i/o timeout") }
 	job, err := resolveAgentJob(p.Root, "pj-l-01", "worker", "L-01", down)

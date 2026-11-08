@@ -12,11 +12,11 @@ import (
 // stale entry left out (its root now holds another project); serve is up while the project's serve holds its lock.
 func TestProjectsListsKnownProjects(t *testing.T) {
 	t.Parallel()
-	p := testkit.New(t)
+	p := testkit.NewPlain(t)
 	p.Config()
-	q := testkit.New(t)
+	q := testkit.NewPlain(t)
 	q.Config(testkit.Set("name", "other"), testkit.Set("prefix", "ot"))
-	r := testkit.New(t)
+	r := testkit.NewPlain(t)
 	r.Config(testkit.Set("name", "gone"), testkit.Set("prefix", "gn"))
 	home := t.TempDir()
 	env := []string{"OBOR_STATE_HOME=" + home}
