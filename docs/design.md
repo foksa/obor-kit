@@ -499,15 +499,18 @@ A UI-only task shouldn't fail its merge on an engine/AI soak test. Skipping is a
 proves the skipped code can't depend on the changed code (e.g. an import-direction test: engine/AI never import UI).
 - Config `merge.classes`: ordered list `[{ "name": "ui", "paths": ["src/ui/**", "e2e/**", "*.md"], "checks":
   ["check_ui", "e2e_touched"] }, { "name": "core", "paths": ["src/engine/**", "src/ai/**"], "full": true }]`;
-  `merge.guard`: a command name (e.g. `check_imports`). Each changed file (`git diff --name-only <target>...<branch>`)
-  gets the first class whose glob matches. **Neutral** files (`merge.neutral` globs, default `["docs/**"]` (RV-07 #2: `*.md` would match nested product files; list root .md files explicitly);
+  `merge.guard`: a command name (e.g. `check_imports`). Each changed file of the candidate (the slot's merge of the task
+  onto the target: `git diff --no-renames --name-only <target>..<candidate>`, listed by the lane's test, T-961) gets the first class whose glob matches. **Neutral** files (`merge.neutral` globs, default `["docs/**"]` (RV-07 #2: `*.md` would match nested product files; list root .md files explicitly);
   2026-10-09 user) never decide the class: they only need the guard. **Partial** = every non-neutral file in one class
   that has `checks` and is not `full` (all files neutral → partial `neutral`, guard only)
   → run `guard`, then that class's `checks` (each a `commands.<name>`, with `OBOR_CHANGED_FILES` = path to a file
   listing the changed paths); baseline/gate skipped. Otherwise (**mixed**, any unmatched file, a `full` class, no
-  `merge.guard` configured, or `OBOR_FULL=1`) → today's full path (check + baseline + gate rules). The MERGED line
-  says `partial:<class>` or `full:<reason>` (the file that decided it). A failing guard → RED (never falls back).
-- `obor nightly`: full check + baseline + gate (forced) + `commands.e2e` if set, in its own nightly worktree
+  `merge.guard` configured, or `OBOR_FULL=1`) → the full path: `check`, then the checks of each matched class marked
+  `with_full` (T-1007), then `baseline` and `gate` when their `"at"` is `"merge"` (T-1007; the gate only when the merge
+  touches its paths or `OBOR_GATE=1`). The result says `partial:<class>` or `full:<reason>` (the file that decided
+  it). A failing guard → RED (never falls back). These checks run in the task's lane (see "Where tests run").
+- `obor nightly`: `check` (not while `branches.promote` is set: each promotion runs it, T-974) + `check_milestone` +
+  `baseline` + `gate` (forced) + `commands.e2e`, each skipped when unset, in its own nightly worktree
   (`<merge.scratch_dir>-nightly`, not the merge scratch) at the current branch head, under the merge window; it then
   backs the store up and runs `merge.nightly_commands` in order, after the gates (each a `commands.<name>` that is no
   gating command; T-817: non-gating, one report line — its last output line — never RED, a nonzero exit a `WARN` line,
@@ -520,55 +523,68 @@ proves the skipped code can't depend on the changed code (e.g. an import-directi
   check at HH:MM (in …)`, or `nightly: off (obor nightly on HH:MM)`) and the last full check and its age.
 
 ## Check tiers (v2.6, 2026-10-08 — user decision via axis-alies)
-Slow tests and long property gates run only at milestone end (+ an optional non-blocking nightly), never in per-task
-merge checks: fixing what they find later is cheaper than waiting on every merge.
-- `commands.check` = the per-merge check (fast tier). `commands.check_milestone` = the slow tier (slow suites,
-  property gates, soak). `commands.gate` and `commands.baseline` get `"at": "milestone"` by default; `"at": "merge"`
-  keeps today's per-merge behaviour (opt-in).
-- Serve's gate runs only per-merge commands (check, or the change-based partial set of v2.5; plus gate/baseline with
-  `at: merge`).
-- `obor nightly` (v2.5) runs the milestone tier: check + check_milestone + baseline + gate + e2e, then its
-  `merge.nightly_commands` (T-817: non-gating); **non-blocking**
-  (reports, never holds merges; serve's nightly run records `needs-you{full-check RED <sha7>}`, T-464).
-- The integrator runs `obor nightly` before the milestone merge into `main` (blocking:
-  the milestone merge waits for GREEN, or for a lead decision logged in `docs/decisions.md`).
+Long property gates and soak runs stay out of per-task merge checks: fixing what they find later is cheaper than
+waiting on every merge.
+- `commands.check` is the full suite; a class's `checks` (v2.5) are its per-merge tier. `commands.check_milestone` is
+  the long tier (property gates, soak; obor-kit: `make vulncheck`). `commands.gate` and `commands.baseline` get
+  `"at": "milestone"` by default; `"at": "merge"` runs them on every full merge (opt-in).
+- A task's lane test runs only per-merge commands: the change-based partial set of v2.5, or on a full merge `check`
+  plus the `with_full` classes' checks (plus gate/baseline with `at: merge`). `check_milestone` never runs there.
+- `obor nightly` (v2.5) runs the milestone tier: `check` + `check_milestone` + `baseline` + `gate` + `e2e`, then its
+  `merge.nightly_commands` (T-817: non-gating); **non-blocking** (reports, never holds merges; serve's nightly run
+  records `needs-you{full-check RED <sha7>}`, T-464).
 
-## Test tiers and receipts (T-349, 2026-10-25)
-- `obor run <command>` of a **heavy** command in a lane exports `OBOR_CHANGED_FILES` (state file
-  `.obor/state/run-changed-<lane>`): the lane's files against its merge base with the target, committed and uncommitted
-  (untracked too), the run marker not. It is computed from the lane's content tree, which is built
-  with a temporary index (`GIT_INDEX_FILE`, `add -A`): no write to the lane's index or history.
-- **Receipt.** A heavy run (no extra args) that ends green with the lane's tree unchanged writes
-  `.obor/state/receipts/<tree>-<check>`: `<tree> <check> <sha256 of the command text> <epoch> <lane> <secs>s`. A red,
-  timed-out or signalled run writes nothing; only `obor run` writes one.
-- **Reuse.** Serve's gate, per check they would run (`check`, a class's checks, `gate`; never the
-  guard, `baseline` or `nightly`): a receipt for (merge tree, check, command hash) younger than `merge.receipt_max_age`
-  (s, default 86400; 0: never) is not run again; its place in the result and `Candidate.Checks` reads `reused <lane>
-  <tree7>`. The merge tree equals the lane's only when the lane is based on the current target; a moved target, a
-  changed command or a later edit runs the check as before. A merge that reused a check is `partial` (fact `merged` without `full`, T-525).
-- **A moved target keeps a green result when nothing overlaps** (owner 2026-11-05, T-900): after a clean rebase onto a
-  moved target, the candidate is not gated again when the new commits change none of its files, their affected
-  packages and the candidate's share none, neither side is `full`, and its last gate was green on an ancestor of the
-  new target; the result reads `kept <base7>` and the merge is `partial`. The nightly full check covers what the
-  affected sets cannot see, including non-Go readers (`check-readers`, `check-web`, T-901): overlap is computed on Go
-  packages only (RV-122 design concern; owner's weaker contract). obor-kit's own config maps its non-Go files to the checks that read them (T-901).
-- **A clean move with shared packages re-runs only what compiles** (owner 2026-11-05, T-914;
-  docs/research/merge-without-regate.md: 165 moved re-gates in 12 days, 0 real reds): when the move overlaps only in
-  affected packages (no file both sides changed, neither side `full`, last gate green on an ancestor of the new
-  target), the gate runs the class's checks with `OBOR_MOVED=1` in their environment; a project's check may skip its
-  tests on it (obor-kit's `check-affected` keeps build, gofmt, vet and deadcode). The result line says `moved`, the
-  merge is `partial`. A shared file or a `full` side: the full re-gate as before. A red in a package the candidate did
-  not change points at the last `partial` merges first; a post-merge check of main comes only after a first break
-  that slips through.
-- **`CHECK_CPUS`** (`obor run` of a heavy command and the gates' commands): `slots.cpus` when set, else
-  `max(1, cores / slots.max)`. The project maps it (obor-kit: `go test -p`).
-- **Go projects: `obor affected go`** (T-351; research §2, §5). `obor affected go [--changed <file>]` (default
-  `$OBOR_CHANGED_FILES`, run from the module root) prints the affected package import paths one per line, none when no
-  package is affected, or one `full: <why>` line: a changed `go.mod`/`go.sum`, a file matching `merge.affected_full`
-  (globs, default none: build files and shared test support, e.g. `Makefile`, `internal/testkit/**`), a removed
-  package, an unreadable list or a failing `go list`. A project wires it in three steps: a `check_affected` command
-  whose `go test` takes that list (obor-kit's `make check-affected`), a `merge.classes` entry for its Go paths with
-  `checks: ["check_affected"]`, and `merge.guard` for the rest; `CHECK_CPUS` maps to `go test -p`.
+## Where tests run: the lane, the slot, the promotion, the nightly (T-349, reworked v0.31, 2026-11-08)
+A task's tests run in its own lane, not in serve's merge slot (T-961, T-995); nothing is reused from an earlier run
+(T-966), and tests have one split, not tiers (T-1014, T-1056).
+- **The slot compiles.** Serve's merge slot merges the task onto the target in its scratch worktree and runs
+  `commands.compile` only (obor-kit: `make check-compile`: build, gofmt, vet, deadcode; no `go test`), after
+  `lane_setup`. A red compile holds the merge; no check of the classes runs there.
+- **The lane tests.** Serve then checks the candidate out, detached, in the task's lane worktree (the lane must be
+  clean; its branch is checked out again afterwards, what the checks changed discarded). It lists the changed files
+  (`<target>..<candidate>`) into `.obor/state/lane-changed-files-<lane>` as `OBOR_CHANGED_FILES`, classifies them (v2.5),
+  runs `lane_setup`, then the guard and the class's checks (or `check` and the `with_full` checks on a full merge),
+  holding a pool slot at worker priority (`slots.max` bounds how many lanes test at once; never the merge marker).
+  A red that names its failing tests and packages is rerun once at the same commit by `commands.retest`
+  (T-964; `{tests}` joined by `merge.retest_join`, default `|`; the packages in `OBOR_FAILED_PKGS`); green then is the
+  step's green and the flake is logged as retried. The names come from `merge.fail_grep` lines read by
+  `merge.flake_regex` (T-1047; unset: no flake parsing).
+- **Lane env.** Every process in a lane gets `OBOR_LANE_CPUS` (`slots.lane_cpus`, default 2) and the project's
+  `slots.lane_env` (values with `{cpus}` replaced by that budget; T-1041). The lane test also exports
+  `CHECK_CPUS` = the lane's budget, and `OBOR_PROMOTION=1` when `branches.promote` is set: a fact the project maps to
+  policy. obor-kit's `slots.lane_env` sets `GOMAXPROCS` and `GOFLAGS=-p={cpus} -trimpath`.
+- **`obor run <heavy command>`** takes a check slot, exports `CHECK_SLOT_HELD`, `CHECK_CPUS` (`slots.cpus`, else
+  `max(1, cores / slots.max)`) and, in a lane, `OBOR_CHANGED_FILES` (state file `.obor/state/run-changed-<lane>`): the
+  lane's files against its merge base with the target, committed and uncommitted (untracked too), the run marker not,
+  computed from the lane's content tree built with a temporary index (`GIT_INDEX_FILE`, `add -A`): no write to the
+  lane's index or history. It writes no receipt.
+- **The promotion** (`branches.promote` set, T-974): serve runs `commands.check`, the full suite, at the head to promote
+  in its own worktree (`<merge.scratch_dir>-promote`), with the same one retest; GREEN moves the branch.
+  It covers what a lane's narrowed test leaves out: obor-kit's lane test maps `OBOR_PROMOTION=1` to `tools/affected
+  --direct` (changed packages only, T-991, T-997), the slot's compile catches an importer's build break and the
+  promotion an importer's test break. Without a promotion nothing else would, so the lane runs the class check with
+  importers (RV-138 #1).
+- **The nightly** runs the milestone tier (see "Check tiers") and `merge.nightly_commands`.
+- **A worker runs unit tests; the lane test, the promotion and the nightly run the rest** (owner 2026-11-08, T-1014,
+  T-1056). A worker's `go test ./<pkg>/...` is plain: it runs the unit tests of its package. A test that needs real git,
+  a real socket or a built binary sits in a file with `//go:build integration`; every check that gates or measures
+  (the lane test, the promotion, the nightly, `vet`, `deadcode`, the budget) passes `-tags integration`. The live
+  conformance tier (`make conformance TIER=live`, one throwaway session per kind) is run by hand; the nightly runs
+  the static tier and the budget (`make check-budget`, tests/budget: the size ratchet on wall time, git processes
+  and slow tests) from `merge.nightly_commands`. `-short` and `testkit.Slow` are gone: nothing skips a test in a lane.
+- **The generic mechanism, and obor-kit's mapping.** A class's `checks` name commands; a Go project narrows its test
+  to the affected packages. obor-kit's `check_affected` is `make check-affected`, which runs the kit tool
+  `tools/affected` (`go run ./tools/affected [--direct]`, T-1040) and then `go test`
+  on that list with `$CHECK_CPUS` as `-p`. The tool reads `$OBOR_CHANGED_FILES` and prints the affected package import
+  paths one per line (a changed file maps to the package of its nearest directory that holds one, and with the
+  packages that import it, except a `_test.go` file, which selects its own package only; `--direct`: the changed
+  packages only, which the Makefile asks for when `OBOR_PROMOTION=1`), none when no package is affected, or one
+  `full: <why>` line: a changed `go.mod`/`go.sum`, a file matching `merge.affected_full` (build files and shared test
+  support: obor-kit lists `Makefile`, `internal/testkit/**`, …), a removed package, or an unset or unreadable list.
+  When it cannot make a list, the Makefile runs the full suite. The `go` class (`cmd/**`, `internal/**`, `kinds/**`,
+  `tools/**`) has `checks: ["check_affected"]`; the other classes map the non-Go files to the checks that read them
+  (`check_web`, `check_release`, `check_readers`, T-901, T-902), and `merge.guard` covers the rest. The Go-specific
+  residue is the project's: `slots.lane_env`, `merge.flake_regex`, `commands.retest`, the Makefile.
 
 ## Stable channel (owner 2026-10-30, phase 7)
 Other projects never run obor from this repo's main checkout (every merge here would change their live tooling).
