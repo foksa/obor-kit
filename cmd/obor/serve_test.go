@@ -243,7 +243,7 @@ func TestServeToleratesUnknownConfigKey(t *testing.T) {
 	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
 		ss, err := wire.Ask(context.Background(), wire.SocketPath(p.Root)) // the CLI's own config read is strict
 		if err == nil && ss.Project != nil && len(ss.Project.Agents) == 1 &&
-			ss.Project.Agents[0].Name == "pj-l-01" && ss.Project.Agents[0].Task == "T-01" {
+			ss.Project.Agents[0].Name == "pj-l-01" && ss.Project.Agents[0].Lane == "L-01" { // T-1012: a lane serve never dispatched holds no task
 			break
 		}
 		if time.Now().After(deadline) {

@@ -114,9 +114,10 @@ type Lane struct {
 	Agent   string `json:"agent,omitempty"`
 }
 
-// The lane states Lane.State holds (checks.LaneTable.LaneState's doc): a lane is free once its branch is merged and
-// its work committed, dirty-free when it is merged with uncommitted changes, working otherwise, missing when its dir is
-// no worktree, unknown when git or the store cannot say. The page's free set (web/src/lib/format.ts) is the two free
+// The lane states Lane.State holds (FreeState's rule, T-1012; checks.LaneTable.LaneState's doc): a lane is free once
+// no task holds it (its row's task landed, or it has none) and nothing is uncommitted, dirty-free when no task holds
+// it but it has uncommitted changes, working while its row's task has not landed, missing when its dir is no worktree,
+// unknown when git or the store cannot say. The page's free set (web/src/lib/format.ts) is the two free
 // ones, and internal/web's TestTSStringSetsMatchGo keeps it so (T-885).
 const (
 	LaneFree      = "free"

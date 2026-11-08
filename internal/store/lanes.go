@@ -15,16 +15,21 @@ import (
 // task_done was recorded (unix seconds; 0: the task awaits it). Type is the model ref its dispatch chose,
 // `<model>[:<effort>]` (T-721; "": a dispatch recorded before T-721). Blocked is serve's answer whether the task's
 // worker has a question in force (its Blocked: report; T-894: the fold's, not a hook's own reading of the log).
+// Landed is serve's answer whether the row's task has landed (T-1012: merged, by the gate or by hand as serve's
+// merge-evidence read records it, or dropped): the one free rule, port.FreeState, reads it instead of the main
+// checkout's history.
 type LaneRow struct {
 	Lane, Task, Branch, Agent string
 	Base, Head                string
 	DispatchedAt, Finished    int64
 	Type                      string
 	Blocked                   bool
+	Landed                    bool
 }
 
 // laneCols is the select list of a lane row in db: a lanes table from before schema 9 (a serve not restarted since
-// T-721) has no type column, and one from before schema 12 (T-894) no blocked one; its rows read none and false.
+// T-721) has no type column, one from before schema 12 (T-894) no blocked one and one from before schema 13 (T-1012)
+// no landed one; its rows read none, false and false.
 func laneCols(db *sql.DB) (string, error) {
 	typ, err := laneCol(db, "type", "''")
 	if err != nil {
@@ -34,7 +39,11 @@ func laneCols(db *sql.DB) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return "lane, task, branch, agent, base, head, dispatched_at, finished, " + typ + ", " + blocked, nil
+	landed, err := laneCol(db, "landed", "0")
+	if err != nil {
+		return "", err
+	}
+	return "lane, task, branch, agent, base, head, dispatched_at, finished, " + typ + ", " + blocked + ", " + landed, nil
 }
 
 // laneCol is col, or missing when the lanes table does not have it.
@@ -52,7 +61,7 @@ func laneCol(db *sql.DB, col, missing string) (string, error) {
 // scanLane reads one row of laneCols' select list into r.
 func scanLane(scan func(...any) error, r *LaneRow) error {
 	return scan(&r.Lane, &r.Task, &r.Branch, &r.Agent, &r.Base, &r.Head, &r.DispatchedAt, &r.Finished, &r.Type,
-		&r.Blocked)
+		&r.Blocked, &r.Landed)
 }
 
 // ReadLanes is db's lane rows, by lane.
@@ -89,8 +98,8 @@ func WriteLanes(db *sql.DB, rows []LaneRow) error {
 	}
 	for _, r := range rows {
 		if _, err := tx.Exec(`INSERT INTO lanes (lane, task, branch, agent, base, head, dispatched_at, finished, type,
-			blocked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, r.Lane, r.Task, r.Branch, r.Agent, r.Base, r.Head,
-			r.DispatchedAt, r.Finished, r.Type, r.Blocked); err != nil {
+			blocked, landed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, r.Lane, r.Task, r.Branch, r.Agent, r.Base,
+			r.Head, r.DispatchedAt, r.Finished, r.Type, r.Blocked, r.Landed); err != nil {
 			return fmt.Errorf("lanes: row %s: %w", r.Lane, err)
 		}
 	}

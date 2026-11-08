@@ -2019,6 +2019,7 @@ func TestSessionResumeRule(t *testing.T) {
 		f := newRfx(t)
 		lane := f.p.PlainLane("L-01", "task/T-01")
 		f.p.Config()
+		f.p.State("L-01", `{"task":"T-01","branch":"task/T-01","agent":"pj-l-01"}`) // its row holds T-01, not landed: busy (T-1012)
 		f.shell("w1:p1", lane, "pj-l-01")
 		f.pl.Restore(context.Background())
 		f.wantCalls(f.p.Root + " restart pj-l-01 --pane w1:p1 --fresh")

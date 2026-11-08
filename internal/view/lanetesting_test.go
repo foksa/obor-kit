@@ -21,8 +21,9 @@ func TestLaneTestingShowsItsTaskAndBranch(t *testing.T) {
 	p.Config()
 	p.Commit(o1)
 	p.Dispatched("L-01")
-	p.State("L-02", map[string]any{"task": "T-02", "branch": "task/T-02"}) // a stale row: its task is not open
-	p.Git(o1, "checkout", "-q", "--detach", "main")                        // the lane test's checkout: detached, off the branch
+	// A stale row: its task is not open (dropped: landed, T-1012).
+	p.State("L-02", map[string]any{"task": "T-02", "branch": "task/T-02", "landed": true})
+	p.Git(o1, "checkout", "-q", "--detach", "main") // the lane test's checkout: detached, off the branch
 	p.Commit(o1, "candidate")
 	now := time.Now()
 	ss := wire.Status{Since: now.Add(-time.Hour).UTC().Format(time.RFC3339), Connected: true,
@@ -68,7 +69,7 @@ func TestLaneTestingShowsItsTaskAndBranch(t *testing.T) {
 		t.Errorf("--json lane %s; want branch task/T-01, task T-01, column testing", b)
 	}
 	if l2 := v.Lanes[1]; l2.Task != "" || l2.Branch != "" || l2.Column != "free" {
-		t.Errorf("unowned detached lane %+v; want no task, no branch, free (git's reading)", l2)
+		t.Errorf("unowned detached lane %+v; want no task, no branch, free (git's reading of the branch; its row's task landed)", l2)
 	}
 
 	// After the test's restore the lane is back on its branch and git names the task, as before T-969.

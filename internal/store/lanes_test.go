@@ -76,3 +76,60 @@ func TestOpenRWMigratesTheLaneBlocked(t *testing.T) {
 		t.Errorf("row after the migration = %+v, %v, %v; want %+v", r, ok, err, blocked)
 	}
 }
+
+// T-1012: a schema-12 lanes table has no landed column: a reader (a hook or obor status while serve is down) reads
+// its rows not landed, and OpenRW adds the column, keeps the rows and takes a landed one through both reads.
+func TestOpenRWMigratesTheLaneLanded(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	db, err := OpenRW(File(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		"DROP TABLE lanes",
+		`CREATE TABLE lanes (lane TEXT PRIMARY KEY, task TEXT NOT NULL, branch TEXT NOT NULL, agent TEXT NOT NULL,
+			base TEXT NOT NULL, head TEXT NOT NULL, dispatched_at INTEGER NOT NULL, finished INTEGER NOT NULL,
+			type TEXT NOT NULL DEFAULT '', blocked INTEGER NOT NULL DEFAULT 0)`,
+		"INSERT INTO lanes VALUES ('L-01', 'T-1', 'task/T-1', 'pj-l-01', 'b', 'h', 5, 7, 'opus:high', 1)",
+		"UPDATE meta SET value = '12' WHERE key = 'schema_version'",
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	db.Close()
+	old := LaneRow{Lane: "L-01", Task: "T-1", Branch: "task/T-1", Agent: "pj-l-01", Base: "b", Head: "h",
+		DispatchedAt: 5, Finished: 7, Type: "opus:high", Blocked: true}
+	if r, ok, err := ReadLaneAt(root, "L-01"); err != nil || !ok || r != old {
+		t.Errorf("ReadLaneAt on schema 12 = %+v, %v, %v; want %+v", r, ok, err, old)
+	}
+	if all, err := ReadLanesAt(root); err != nil || all["L-01"] != old {
+		t.Errorf("ReadLanesAt on schema 12 = %+v, %v; want L-01 %+v", all, err, old)
+	}
+
+	db, err = OpenRW(File(root))
+	if err != nil {
+		t.Fatalf("OpenRW on schema 12: %v", err)
+	}
+	defer db.Close()
+	var version string
+	if err := db.QueryRow("SELECT value FROM meta WHERE key = 'schema_version'").Scan(&version); err != nil ||
+		version != strconv.Itoa(SchemaVersion) || SchemaVersion < 13 {
+		t.Errorf("schema_version = %q, %v; want %d (13 or later) after the migration", version, err, SchemaVersion)
+	}
+	if r, ok, err := ReadLaneAt(root, "L-01"); err != nil || !ok || r != old {
+		t.Errorf("row kept by the migration = %+v, %v, %v; want %+v", r, ok, err, old)
+	}
+	landed := old
+	landed.Landed = true
+	if err := WriteLanes(db, []LaneRow{landed}); err != nil {
+		t.Fatalf("WriteLanes after the migration: %v", err)
+	}
+	if r, ok, err := ReadLaneAt(root, "L-01"); err != nil || !ok || r != landed {
+		t.Errorf("ReadLaneAt after the migration = %+v, %v, %v; want %+v", r, ok, err, landed)
+	}
+	if all, err := ReadLanesAt(root); err != nil || all["L-01"] != landed {
+		t.Errorf("ReadLanesAt after the migration = %+v, %v; want L-01 %+v", all, err, landed)
+	}
+}

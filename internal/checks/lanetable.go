@@ -2,8 +2,6 @@ package checks
 
 import (
 	"context"
-	"errors"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -65,58 +63,32 @@ func (p *LaneTable) States() []port.Lane {
 	return p.states
 }
 
-// LaneState is one lane's row:
-//
-//	missing     the lane dir is no worktree of its own
-//	free        its HEAD is in the main checkout's HEAD (merged) and nothing is uncommitted
-//	dirty-free  merged, with uncommitted changes (never free, T-196)
-//	working     anything else (what serve does for its task is the task's phase, T-788: git facts only here)
-//	unknown     git or the store could not tell (Reason says why, T-871): never free
-//
-// A lane whose row holds its task at its current HEAD is not merged until the task has merge evidence.
+// LaneState is one lane's row: missing when the lane dir is no worktree of its own, else the one free rule
+// (port.FreeState: free, dirty-free, working, unknown) over the store's row of the lane (its task, whether that task
+// landed: serve's projection, T-1012) and the lane's own uncommitted changes. Its git reads run in the lane dir only
+// (rev-parse, status), never in the main checkout; what serve does for its task is the task's phase (T-788). Unknown:
+// git or the store could not tell (Reason says why, T-871), never free.
 func (p *LaneTable) LaneState(l config.Lane) port.Lane {
 	s := port.Lane{Name: l.Name, Dir: l.Dir, State: port.LaneMissing}
 	if !project.IsDir(l.Dir) {
 		return s
 	}
-	out, err := p.git(l.Dir, "rev-parse", "--show-toplevel", "HEAD", "--symbolic-full-name", "HEAD")
+	out, err := p.git(l.Dir, "rev-parse", "--show-toplevel", "--symbolic-full-name", "HEAD")
 	if err != nil {
 		return unknown(s, "git rev-parse: "+err.Error())
 	}
 	f := strings.Split(strings.TrimSpace(out), "\n")
-	if len(f) != 3 || (f[0] != l.Dir && f[0] != project.Physical(l.Dir)) {
+	if len(f) != 2 || (f[0] != l.Dir && f[0] != project.Physical(l.Dir)) {
 		return s
 	}
-	head := f[1]
-	s.Branch, _ = strings.CutPrefix(f[2], "refs/heads/")
-	if s.Branch == f[2] {
+	s.Branch, _ = strings.CutPrefix(f[1], "refs/heads/")
+	if s.Branch == f[1] {
 		s.Branch = ""
 	}
 	s.Task = p.Cfg.TaskFromBranch(s.Branch)
-
-	var merged bool
-	var wg sync.WaitGroup
-	var mergedErr, statusErr error
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		_, err := p.git(p.Root, "merge-base", "--is-ancestor", head, "HEAD")
-		var exit *exec.ExitError
-		switch {
-		case err == nil:
-			merged = !(s.Task != "" && p.inFlight(l.Name, s.Task, head))
-		case errors.As(err, &exit) && exit.ExitCode() == 1: // not an ancestor: a reading, not a failed read
-		default:
-			mergedErr = err
-		}
-	}()
-	status, statusErr := p.git(l.Dir, "status", "--porcelain")
-	wg.Wait()
-	switch {
-	case mergedErr != nil:
-		return unknown(s, "git merge-base: "+mergedErr.Error())
-	case statusErr != nil:
-		return unknown(s, "git status: "+statusErr.Error())
+	status, err := p.git(l.Dir, "status", "--porcelain")
+	if err != nil {
+		return unknown(s, "git status: "+err.Error())
 	}
 	for _, line := range strings.Split(status, "\n") {
 		if len(line) > 3 {
@@ -124,30 +96,17 @@ func (p *LaneTable) LaneState(l config.Lane) port.Lane {
 			break
 		}
 	}
-	// A lane with uncommitted changes is never free (T-196): its HEAD inside the base proves nothing when its task has
-	// no merge evidence (a task branch fast-forwarded to the base by hand, the work still uncommitted): in flight.
-	if merged && s.Dirty && s.Task != "" && !p.MergeEvidence(s.Task) {
-		merged = false
-	}
-	// A lane that holds a task or looks merged needs its row (in flight at this head, its task's model and agent):
-	// an unreadable store cannot tell, so it is unknown, never free (T-871). A fresh project has no store, not an
-	// unreadable one: store.ReadLanesAt says so with no rows and no error.
-	if _, err := p.Rows(); err != nil && (s.Task != "" || merged) {
+	// An unreadable store cannot tell whether a task holds the lane: unknown, never free (T-871). A fresh project has
+	// no store, not an unreadable one: store.ReadLanesAt says so with no rows and no error.
+	rows, err := p.Rows()
+	if err != nil {
 		return unknown(s, "store: "+err.Error())
 	}
-
+	row := rows[l.Name]
+	s.State = port.FreeState(&row, row.Landed, s.Dirty)
 	if fin := p.finished(s.Task); fin != 0 {
 		age := max(p.Now-fin, 0)
 		s.DoneAge = &age
-	}
-
-	switch {
-	case merged && s.Dirty:
-		s.State = port.LaneDirtyFree
-	case merged:
-		s.State = port.LaneFree
-	default:
-		s.State = port.LaneWorking
 	}
 	s.Type = p.taskType(l, s)
 	return s
@@ -174,8 +133,8 @@ func (p *LaneTable) taskType(l config.Lane, s port.Lane) string {
 	return typ
 }
 
-// Lanes is port.Lanes from today's lane table (obor serve's app.Lanes): a lane's task is open while its branch is not
-// merged; its agent is its row's (the lanes table, read-only). A lane whose git or store read failed is unknown, with
+// Lanes is port.Lanes from today's lane table (obor serve's app.Lanes): a lane's task is open while the lane works
+// (its row's task has not landed, T-1012); its agent is its row's (the lanes table, read-only). A lane whose git or store read failed is unknown, with
 // its reason (T-871): dispatch never picks it.
 type Lanes struct{}
 
@@ -217,31 +176,13 @@ func (p *LaneTable) finished(task string) int64 {
 	return 0
 }
 
-// inFlight: the lane's row says it works on task — at head (the HEAD recorded at dispatch), or, without a recorded
-// head (a lane dispatched before heads were recorded), until the task has merge evidence.
-func (p *LaneTable) inFlight(lane, task, head string) bool {
-	rows, _ := p.Rows()
-	row, ok := rows[lane]
-	if !ok || row.Task != task {
-		return false
-	}
-	if row.Head == "" {
-		return !p.MergeEvidence(task)
-	}
-	return row.Head == head
-}
-
-// MergeEvidence (T-196, T-290, T-547, T-550): a commit reachable from HEAD whose subject is "Merge <id>: …" (the gate's
-// merge of the task) or starts with "<id>:" (a lane's squashed work), except a "<id>:" commit that changes only files in
-// the legacy spec dir (paths.tasks, else docs/tasks): an old "<id>: spec" commit is no evidence (T-290's exclusion,
-// kept while adopters' history still holds specs there, T-521 stopped writing them). One log with file names reads
-// both rules. Task branches are not looked at. A log git cannot read is no evidence.
-func (p *LaneTable) MergeEvidence(id string) bool {
-	ok, _ := p.MergeEvidenceBy(id, func(args ...string) (string, error) { return p.git(p.Root, args...) })
-	return ok
-}
-
-// MergeEvidenceBy is MergeEvidence with git run by git (git -C <root> args…): an error when git cannot read the log.
+// MergeEvidenceBy (T-196, T-290, T-547, T-550) reads, with git run by git (git -C <root> args…), whether HEAD's log
+// holds a commit whose subject is "Merge <id>: …" (the gate's merge of the task) or starts with "<id>:" (a lane's
+// squashed work), except a "<id>:" commit that changes only files in the legacy spec dir (paths.tasks, else
+// docs/tasks): an old "<id>: spec" commit is no evidence (T-290's exclusion, kept while adopters' history still holds
+// specs there, T-521 stopped writing them). One log with file names reads both rules; task branches are not looked
+// at. An error when git cannot read the log. Serve's Scratch.Landed reads it for a task merged by hand (the merged
+// fact that sets the lane row's landed, T-1012); the lane table itself never reads the main checkout.
 func (p *LaneTable) MergeEvidenceBy(id string, git func(args ...string) (string, error)) (bool, error) {
 	out, err := git("log", "-F", "--grep="+id+":", "--format=\x1e%s", "--name-only", "HEAD")
 	if err != nil {

@@ -1041,6 +1041,9 @@ func TestStatusWarnsAClaudeLaneWithoutThePlugin(t *testing.T) {
 	p.Config()
 	p.Commit(o1)
 	p.Commit(o2)
+	// The rows hold their tasks, not landed: working (T-1012); no agent recorded.
+	p.State("L-01", map[string]any{"task": "T-01", "branch": "task/T-01"})
+	p.State("L-02", map[string]any{"task": "T-02", "branch": "task/T-02"})
 	if err := os.Remove(filepath.Join(o2, ".claude", "settings.json")); err != nil {
 		t.Fatalf("precondition: L-02 had the settings file: %v", err)
 	}

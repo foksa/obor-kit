@@ -101,6 +101,7 @@ func (p *proj) laneTable() []store.LaneRow {
 			}
 		}
 		row.Blocked = p.asks(row.Task)
+		row.Landed = p.landedTask(row.Task)
 		out = append(out, row)
 	}
 	slices.SortFunc(out, func(a, b store.LaneRow) int {
@@ -113,6 +114,14 @@ func (p *proj) laneTable() []store.LaneRow {
 		return 0
 	})
 	return out
+}
+
+// landedTask: the fold ended task on its target or off it (T-1012), merged (by the gate, or by hand: drive's
+// merge-evidence read records the merged fact) or dropped, whatever a needs-you still holds; the lane row's landed
+// fact, which port.FreeState reads. A rejected task has not landed: its work is still only in its lane.
+func (p *proj) landedTask(task string) bool {
+	mt := p.folded.loop[task]
+	return mt != nil && (mt.state == stMerged || mt.state == stDropped)
 }
 
 // syncLanes writes p's rows when they differ from the table as last written (under mu); a failed write is kept in
