@@ -466,7 +466,7 @@ func TestOpenRWRefusesSchema8(t *testing.T) {
 	}
 	defer ro.Close()
 	rows, err := ReadLanes(ro)
-	wantRow := LaneRow{Lane: "L-01", Task: "T-1", Branch: "task/T-1", Agent: "pj-l-01", Base: "b", Head: "h",
+	wantRow := LaneRow{Lane: "L-01", Task: "T-1", Branch: "task/T-1", Base: "b", Head: "h",
 		DispatchedAt: 5}
 	if err != nil || len(rows) != 1 || rows[0] != wantRow {
 		t.Errorf("ReadLanes on schema 8 = %+v, %v; want %+v", rows, err, wantRow)

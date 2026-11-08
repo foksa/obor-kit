@@ -43,8 +43,9 @@ type Data struct {
 	LaneLinks        []string          `json:"lane_links"`
 	Guards           *Guards           `json:"guards,omitempty"`
 	ProtectedFiles   []string          `json:"protected_files"`
-	// Lanes is how many lanes the project has: L-01 … L-NN under lanes_dir, every one pooled (T-765).
-	Lanes int `json:"lanes"`
+	// Lanes is the project's lanes under lanes_dir, every one pooled (T-765): a count N (L-01 … L-NN, each fresh), or
+	// a list [{"name": "L-01", "keep_agent": true}, …] (T-1031: a keep lane's agent stays between its tasks).
+	Lanes LaneList `json:"lanes"`
 	// Kinds is kinds.<kind>: args appended to every start of the kind, and its work jobs' prompt_extra (T-765).
 	Kinds Ordered[KindEntry] `json:"kinds,omitzero"`
 	// Models is models.<name>: a model the built-in table (BuiltinModels) lacks, or a built-in one overridden.
@@ -643,9 +644,82 @@ func AbsUnder(root, p string) string {
 	return filepath.Clean(p)
 }
 
-// Lane is one configured lane: L-01 … L-NN, each pooled (it runs the model its dispatch picks, T-765).
+// Lane is one configured lane, pooled (it runs the model its dispatch picks, T-765), and its Mode (T-1031):
+// LaneFresh or LaneKeep.
 type Lane struct {
 	Name, Dir string
+	Mode      string
+}
+
+// The lane modes (Lane.Mode, T-1031): a fresh lane's agent is stopped once its task merged and every dispatch starts
+// a new one; a keep lane's agent stays at its shell between tasks, the next dispatch's job goes to the same session
+// (a start only when the lane has no live agent), and a dispatch naming it while it is busy queues behind its task.
+const (
+	LaneFresh = "fresh"
+	LaneKeep  = "keep"
+)
+
+// LaneEntry is one member of a lanes list: the lane's name (L-NN) and whether its agent is kept between tasks.
+type LaneEntry struct {
+	Name      string `json:"name"`
+	KeepAgent bool   `json:"keep_agent,omitempty"`
+}
+
+// LaneList is the lanes key: a count N (List nil: N fresh lanes L-01 … L-NN, sugar for that list) or a list
+// (List non-nil, N unused). It reads and writes back the form the file has.
+type LaneList struct {
+	N    int
+	List []LaneEntry
+}
+
+// Count is how many lanes l configures (a negative count: none; validate refuses it).
+func (l LaneList) Count() int {
+	if l.List != nil {
+		return len(l.List)
+	}
+	return max(l.N, 0)
+}
+
+// Listed: the lanes key is a list, not a count.
+func (l LaneList) Listed() bool { return l.List != nil }
+
+// Entries is l as a list: a count's lanes L-01 … L-NN, each fresh.
+func (l LaneList) Entries() []LaneEntry {
+	if l.List != nil {
+		return l.List
+	}
+	out := make([]LaneEntry, 0, l.Count())
+	for i := 1; i <= l.Count(); i++ {
+		out = append(out, LaneEntry{Name: LaneName(i)})
+	}
+	return out
+}
+
+func (l *LaneList) UnmarshalJSON(b []byte) error {
+	var list []LaneEntry
+	if strings.HasPrefix(strings.TrimSpace(string(b)), "[") {
+		if err := strict(b, &list); err != nil {
+			return fmt.Errorf("lanes: %w", err)
+		}
+		*l = LaneList{List: append([]LaneEntry{}, list...)}
+		return nil
+	}
+	var n *int
+	if err := json.Unmarshal(b, &n); err != nil {
+		return errors.New(`lanes takes a count or a list of {"name": "L-NN", "keep_agent": true}`)
+	}
+	*l = LaneList{}
+	if n != nil {
+		l.N = *n
+	}
+	return nil
+}
+
+func (l LaneList) MarshalJSON() ([]byte, error) {
+	if l.List != nil {
+		return json.Marshal(l.List)
+	}
+	return json.Marshal(l.N)
 }
 
 // Paths are the named project files (paths.<name>); Reviews is paths.reviews.
@@ -676,24 +750,53 @@ type AgentInfo struct {
 // LaneName is the name of the i-th lane (from 1): L-01 … L-99, L-100 ….
 func LaneName(i int) string { return fmt.Sprintf("L-%02d", i) }
 
-// Lanes is the configured lanes, L-01 … L-NN.
+// Lanes is the configured lanes in config order (a count's: L-01 … L-NN), each with its mode.
 func (c *Config) Lanes() []Lane {
 	dir := c.LanesDir()
-	out := make([]Lane, 0, max(c.Data.Lanes, 0))
-	for i := 1; i <= c.Data.Lanes; i++ {
-		out = append(out, Lane{Name: LaneName(i), Dir: dir + "/" + LaneName(i)})
+	entries := c.Data.Lanes.Entries()
+	out := make([]Lane, 0, len(entries))
+	for _, e := range entries {
+		mode := LaneFresh
+		if e.KeepAgent {
+			mode = LaneKeep
+		}
+		out = append(out, Lane{Name: e.Name, Dir: dir + "/" + e.Name, Mode: mode})
 	}
 	return out
 }
 
-// HasLane reports whether name is a configured lane.
-func (c *Config) HasLane(name string) bool {
-	for i := 1; i <= c.Data.Lanes; i++ {
-		if LaneName(i) == name {
-			return true
+// Lane is the configured lane name (ok false: none).
+func (c *Config) Lane(name string) (Lane, bool) {
+	for _, l := range c.Lanes() {
+		if l.Name == name {
+			return l, true
 		}
 	}
-	return false
+	return Lane{}, false
+}
+
+// HasLane reports whether name is a configured lane.
+func (c *Config) HasLane(name string) bool {
+	_, ok := c.Lane(name)
+	return ok
+}
+
+// KeepLane: name is a configured lane whose agent is kept between tasks (T-1031).
+func (c *Config) KeepLane(name string) bool {
+	l, ok := c.Lane(name)
+	return ok && l.Mode == LaneKeep
+}
+
+// DefaultHandoffTokens is handoff_tokens when the config sets none.
+const DefaultHandoffTokens = 500000
+
+// HandoffTokens is the handoff threshold (handoff_tokens, else DefaultHandoffTokens; 0: off): the lead's reminder
+// (T-175) and a keep lane's restart of its idle agent between tasks (T-1031).
+func (c *Config) HandoffTokens() int64 {
+	if n := c.Data.HandoffTokens; n != nil {
+		return *n
+	}
+	return DefaultHandoffTokens
 }
 
 // ProjectName is the name the project answers to: its config's name, else its root's base name ("" for no config).
@@ -970,21 +1073,16 @@ func (c *Config) RoleWriteDirs(r roles.Role) []string {
 // ScratchDir is the merge scratch, merge.scratch_dir, absolute.
 func (c *Config) ScratchDir() string { return AbsUnder(c.Root, c.Data.Merge.ScratchDir) }
 
-// LaneAgentAliases returns the names that identify this lane's worker; stateAgent is the agent its lane row names
-// ("" none: config reads no store; callers pass project.LaneAgent).
-func (c *Config) LaneAgentAliases(lane, stateAgent string) []string {
-	return roles.LaneAgentAliases(lane, c.Data.Prefix, stateAgent)
+// LaneAgentAliases returns the names that identify this lane's worker: its derived one (T-1031: no lane row names
+// one).
+func (c *Config) LaneAgentAliases(lane string) []string {
+	return roles.LaneAgentAliases(lane, c.Data.Prefix)
 }
 
-// AgentLookup follows lane → role precedence, then resolves an unmatched cwd at to a lane. stateAgent is the agent a
-// lane's row names (nil: none; project.AgentLookup passes project.LaneAgent).
-func (c *Config) AgentLookup(agent, at string, stateAgent func(lane string) string) (AgentInfo, bool) {
+// AgentLookup follows lane → role precedence, then resolves an unmatched cwd at to a lane.
+func (c *Config) AgentLookup(agent, at string) (AgentInfo, bool) {
 	for _, lane := range c.Lanes() {
-		state := ""
-		if stateAgent != nil {
-			state = stateAgent(lane.Name)
-		}
-		for _, name := range c.LaneAgentAliases(lane.Name, state) {
+		for _, name := range c.LaneAgentAliases(lane.Name) {
 			if agent == name {
 				return AgentInfo{Role: "worker", Lane: lane.Name, Cwd: lane.Dir}, true
 			}

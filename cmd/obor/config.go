@@ -35,8 +35,7 @@ func configCmd(args []string) int {
 			fmt.Fprintln(out, s)
 		}
 	case args[0] == "validate" && len(args) == 1:
-		warns, fails := cfg.Validate(config.ValidateOptions{Overlap: spec.Overlap,
-			StateAgent: func(lane string) string { return project.LaneAgent(cfg.Root, lane) }})
+		warns, fails := cfg.Validate(config.ValidateOptions{Overlap: spec.Overlap})
 		for _, line := range append(warns, fails...) {
 			fmt.Fprintln(out, line)
 		}

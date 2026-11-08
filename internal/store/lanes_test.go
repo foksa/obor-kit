@@ -14,8 +14,8 @@ func TestLaneRowKeepsItsTypeAndBlocked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows := []LaneRow{{Lane: "L-01", Task: "T-1", Branch: "task/T-1", Agent: "pj-l-01", Type: "opus:high",
-		Blocked: true}, {Lane: "L-02", Task: "T-2", Branch: "task/T-2", Agent: "pj-l-02"}}
+	rows := []LaneRow{{Lane: "L-01", Task: "T-1", Branch: "task/T-1", Type: "opus:high",
+		Blocked: true}, {Lane: "L-02", Task: "T-2", Branch: "task/T-2"}}
 	if err := WriteLanes(db, rows); err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestOpenRWMigratesTheLaneBlocked(t *testing.T) {
 		}
 	}
 	db.Close()
-	old := LaneRow{Lane: "L-01", Task: "T-1", Branch: "task/T-1", Agent: "pj-l-01", Base: "b", Head: "h",
+	old := LaneRow{Lane: "L-01", Task: "T-1", Branch: "task/T-1", Base: "b", Head: "h",
 		DispatchedAt: 5, Type: "opus:high"}
 	if r, ok, err := ReadLaneAt(root, "L-01"); err != nil || !ok || r != old {
 		t.Errorf("ReadLaneAt on schema 11 = %+v, %v, %v; want %+v", r, ok, err, old)
@@ -99,7 +99,7 @@ func TestOpenRWMigratesTheLaneLanded(t *testing.T) {
 		}
 	}
 	db.Close()
-	old := LaneRow{Lane: "L-01", Task: "T-1", Branch: "task/T-1", Agent: "pj-l-01", Base: "b", Head: "h",
+	old := LaneRow{Lane: "L-01", Task: "T-1", Branch: "task/T-1", Base: "b", Head: "h",
 		DispatchedAt: 5, Finished: 7, Type: "opus:high", Blocked: true}
 	if r, ok, err := ReadLaneAt(root, "L-01"); err != nil || !ok || r != old {
 		t.Errorf("ReadLaneAt on schema 12 = %+v, %v, %v; want %+v", r, ok, err, old)

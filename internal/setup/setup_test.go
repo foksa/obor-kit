@@ -419,8 +419,8 @@ func TestLaneTakesOnlyTheNextLNN(t *testing.T) {
 	x.lane(t, "L-01")
 	x.failing(t, "FAIL lanes are L-01 … L-NN in order (lanes: 1): the next one is L-02", "lane", "L-03")
 	x.lane(t, "L-02")
-	if cfg, _ := config.Load(x.Root); cfg.Data.Lanes != 2 {
-		t.Errorf("lanes = %d, want 2", cfg.Data.Lanes)
+	if cfg, _ := config.Load(x.Root); cfg.Data.Lanes.Count() != 2 {
+		t.Errorf("lanes = %d, want 2", cfg.Data.Lanes.Count())
 	}
 	for _, args := range [][]string{{"lane"}, {"lane", "L-03", "opus"}} {
 		if out, rc := x.run(t, args...); rc != 1 || !strings.Contains(last(out), "usage: obor setup lane <L-NN> |") {

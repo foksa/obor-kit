@@ -70,7 +70,7 @@ func TestRV52VerifyProjectionFailureDoesNotDuplicate(t *testing.T) {
 		t.Fatal("the needs-you was refused")
 	}
 	r := p.folded.active["T-1"][len(p.folded.active["T-1"])-1]
-	p.folded.lr.rows["L-01"] = store.LaneRow{Lane: "L-01", Task: "T-1", Agent: "pj-l-01"} // a row to write: the write fails
+	p.folded.lr.rows["L-01"] = store.LaneRow{Lane: "L-01", Task: "T-1"} // a row to write: the write fails
 	if _, err := p.log.DB().Exec(`CREATE TRIGGER lanes_fail BEFORE INSERT ON lanes BEGIN SELECT RAISE(ABORT, 'injected lane-row failure'); END`); err != nil {
 		t.Fatal(err)
 	}

@@ -112,6 +112,8 @@ type Lane struct {
 	// no task): the needs-you's fact, the gate or publish running on the task, the task_done's record (submitted), the
 	// lane row's dispatch (a task working). obor web's fleet page shows it (T-658).
 	Since *int64 `json:"since,omitempty"`
+	// Queue is a keep lane's queue: the tasks waiting for it, in dispatch order (T-1031; serve's Queues).
+	Queue []string `json:"queue,omitempty"`
 	// Background is the lane agent's long-running background processes (T-714; Input.Background).
 	Background []Background `json:"background,omitempty"`
 }
@@ -222,7 +224,7 @@ func Build(in Input) Project {
 	specs, starts := readSpecs(in.DB), startsOf(ps)
 	states := p.States()
 	rows, _ := p.Rows()
-	v.Tasks = tasks(ps, states, rows, specs)
+	v.Tasks = tasks(ps, states, specs)
 	for _, s := range states {
 		l := lane(p, s, &v, ps, rows[s.Name], starts)
 		if l.Agent != "" {
@@ -308,7 +310,7 @@ func pausesOf(v *Project, ps wire.ProjectStatus) {
 // (startsOf).
 func lane(p *checks.LaneTable, s port.Lane, v *Project, ps wire.ProjectStatus, row store.LaneRow,
 	starts map[string]int64) Lane {
-	l := Lane{Lane: s, Op: restartOp(p.Root, s.Name)}
+	l := Lane{Lane: s, Op: restartOp(p.Root, s.Name), Queue: ps.Queues[s.Name]}
 	// T-969: a lane serve owns shows the task its row records and the dispatch's branch, whatever git's HEAD says: a
 	// lane test checks the candidate out detached, so git names no branch. An unowned lane keeps git's reading.
 	if ts := laneTaskOn(ps, s.Name); ts != nil && row.Task == ts.Task {
@@ -320,7 +322,9 @@ func lane(p *checks.LaneTable, s port.Lane, v *Project, ps wire.ProjectStatus, r
 	if l.Warning == "" && s.State == port.LaneWorking && pluginMissing(p, s, starts) {
 		l.Warning = "no-plugin"
 	}
-	l.Agent, l.AgentStatus = laneAgent(ps, row, s.Name)
+	if a, ok := serveAgent(ps, s.Name); ok { // else the lane's derived agent (s.Agent), no status
+		l.Agent, l.AgentStatus = a.Name, a.Status
+	}
 	l.Column = l.State
 	if phase := v.TaskOn(l).Phase; phase != "" {
 		l.Column = phase

@@ -10,8 +10,7 @@ package setup
 //	           herdr agent runs in the root or the lanes dir (panes may stay)
 //	1 config   .obor/config.json and .obor/local.json: name and prefix (agent names are derived from them, T-765;
 //	           a derived name in guards.allow_push becomes its role, T-795)
-//	           (no store step: serve rebuilds the lane rows from the log, whose old agent names serve ignores once they
-//	           are no name of the lane under the config: internal/app rowAgent)
+//	           (no store step: a lane's agent is derived from the config, no lane row stores one: T-1031)
 //	3 files    each lane worktree's opencode.json with a path to another kit's bin/obor (an MCP server) pointing at this kit's bin/obor
 //	4 herdr    the workspace labelled with the old name is renamed (`herdr workspace rename`), and every pane of it
 //	           whose label follows the old prefix (mapAgent) is relabelled (`herdr pane rename`)
@@ -262,7 +261,7 @@ func (r *renamer) agentPairs(rows map[string]store.LaneRow) []agentPair {
 		out = append(out, agentPair{a, r.mapAgent(a)})
 	}
 	for _, l := range r.cfg.Lanes() {
-		old := r.cfg.LaneAgentAliases(l.Name, rows[l.Name].Agent)[0]
+		old := r.cfg.LaneAgentAliases(l.Name)[0]
 		next := r.mapAgent(old)
 		if next != old {
 			next = r.prefix + "-" + strings.ToLower(l.Name)

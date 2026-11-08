@@ -97,9 +97,9 @@ type Panes interface {
 // Lane is one lane of a project, the lane table's row (checks.LaneTable; obor status --json's lane, which view.Lane
 // embeds): its worktree, branch and the task id in it ("": detached, no task id), its state (the Lane* constants;
 // Reason says why it is unknown, T-871), the model it runs (Type: the dispatch's while it works, T-765, else none),
-// how long ago its task's task_done was recorded (nil: none), uncommitted changes, a live warning ("": none) and its
-// agent (the lane row's; the view's: serve's agent in it, else the row's). Lanes, the app's read of it, holds Task
-// only while the lane works and Dir as the physical path a pane's cwd reports.
+// how long ago its task's task_done was recorded (nil: none), uncommitted changes, a live warning ("": none), its
+// agent (derived from the lane, T-1031) and its mode (config.LaneKeep for a keep lane, "" a fresh one; T-1031). Lanes,
+// the app's read of it, holds Task only while the lane works and Dir as the physical path a pane's cwd reports.
 type Lane struct {
 	Name    string `json:"lane"`
 	Type    string `json:"type"`
@@ -112,6 +112,7 @@ type Lane struct {
 	Dirty   bool   `json:"dirty"`
 	Warning string `json:"warning"`
 	Agent   string `json:"agent,omitempty"`
+	Mode    string `json:"mode,omitempty"`
 }
 
 // The lane states Lane.State holds (FreeState's rule, T-1012; checks.LaneTable.LaneState's doc): a lane is free once

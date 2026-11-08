@@ -98,7 +98,7 @@ func (s *Setup) pane(ctx context.Context, args []string) error {
 		return s.start(ctx, agent{name: s.cfg.AgentName("worker", lane), cwd: l.Dir, role: worker, lane: lane,
 			noStart: !startNow}, w)
 	}
-	return project.Failf("unknown lane %s (lanes: %d; obor setup lane %s first)", lane, s.cfg.Data.Lanes, lane)
+	return project.Failf("unknown lane %s (lanes: %d; obor setup lane %s first)", lane, s.cfg.Data.Lanes.Count(), lane)
 }
 
 func (s *Setup) role(ctx context.Context, args []string) error {

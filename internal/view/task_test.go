@@ -94,7 +94,7 @@ func TestTaskCarriesItsRef(t *testing.T) {
 		{Task: "T-1", State: "working", Phase: wire.PhaseWorking, Ref: "JIRA-12"},
 		{Task: "T-2", State: "working", Phase: wire.PhaseWorking},
 	}}
-	got := tasks(ps, nil, nil, nil)
+	got := tasks(ps, nil, nil)
 	if tk, ok := got["T-1"]; !ok || tk.Ref != "JIRA-12" {
 		t.Errorf("T-1: %+v (found %v), want ref JIRA-12", tk, ok)
 	}

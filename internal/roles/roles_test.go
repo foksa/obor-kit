@@ -72,25 +72,23 @@ func TestRoleLookupAndDefaults(t *testing.T) {
 	}
 }
 
-// T-777: a lane's worker has two names: the one its lane row records and the derived <prefix>-<lane lower>. The
-// compact alias (pj-l1) and a configured name are no names any more.
+// T-777, T-1031: a lane's worker has one name, the derived <prefix>-<lane lower> (no lane row records one). The
+// compact alias (pj-l1), a configured name and the bare lane name are no names.
 func TestLaneAgentAliases(t *testing.T) {
 	for _, test := range []struct {
-		name, lane, state string
-		want              []string
+		name, lane string
+		want       []string
 	}{
-		{"the row's agent then the derived name", "L-01", "bob", []string{"bob", "pj-l-01"}},
-		{"no row: the derived name alone", "L-01", "", []string{"pj-l-01"}},
-		{"deduplicates", "L-01", "pj-l-01", []string{"pj-l-01"}},
-		{"the bare lane name only when the row names it", "L-01", "l-01", []string{"l-01", "pj-l-01"}},
+		{"the derived name", "L-01", []string{"pj-l-01"}},
+		{"another lane", "L-12", []string{"pj-l-12"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if got := LaneAgentAliases(test.lane, "pj", test.state); !reflect.DeepEqual(got, test.want) {
+			if got := LaneAgentAliases(test.lane, "pj"); !reflect.DeepEqual(got, test.want) {
 				t.Errorf("LaneAgentAliases = %#v, want %#v", got, test.want)
 			}
 		})
 	}
-	if names := LaneAgentAliases("L-01", "pj", ""); slices.Contains(names, "pj-l1") {
+	if names := LaneAgentAliases("L-01", "pj"); slices.Contains(names, "pj-l1") {
 		t.Errorf("LaneAgentAliases(%q) = %q has the removed compact alias", "L-01", names)
 	}
 }

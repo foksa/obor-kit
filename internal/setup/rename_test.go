@@ -71,8 +71,8 @@ func (x *fx) rename(t *testing.T) string {
 func TestRenameMapsConfigStoreFilesAndWorkspace(t *testing.T) {
 	x := renameProject(t)
 	dir := x.stubHerdr(t, "proj")
-	if row, _ := x.Row("L-01"); row.Agent != "pj-l-01" {
-		t.Fatalf("precondition: L-01's row agent = %q", row.Agent)
+	if row, ok := x.Row("L-01"); !ok || row.Task != "T-1" {
+		t.Fatalf("precondition: L-01's row = %+v, want T-1's", row)
 	}
 	out := x.rename(t)
 
@@ -100,11 +100,11 @@ func TestRenameMapsConfigStoreFilesAndWorkspace(t *testing.T) {
 		t.Errorf("local.json = %s, want pj-lead rewritten to lead, reviewer kept", got)
 	}
 
-	if row, _ := x.Row("L-01"); row.Agent != "pj-l-01" || row.Task != "T-1" {
+	if row, _ := x.Row("L-01"); row.Task != "T-1" {
 		t.Errorf("L-01 row = %+v, want it untouched (the store is serve's: it ignores the old name)", row)
 	}
-	if row, _ := x.Row("L-02"); row.Agent != "pj-l-02" {
-		t.Errorf("L-02 row agent = %q, want it untouched", row.Agent)
+	if _, ok := x.Row("L-02"); !ok {
+		t.Error("L-02's row is gone, want it untouched")
 	}
 
 	// DD-consolidation I4: no inbox copy step; the old global files stay as they were, none is added.
@@ -184,8 +184,8 @@ func TestRenameKeepsCustomNamesAndFailsWhileServeRuns(t *testing.T) {
 	if x.Read(".obor/config.json") != before {
 		t.Error("config.json changed although serve runs")
 	}
-	if row, _ := x.Row("L-01"); row.Agent != "pj-l-01" {
-		t.Errorf("L-01's agent = %q: the store changed although serve runs", row.Agent)
+	if row, _ := x.Row("L-01"); row.Task != "T-1" {
+		t.Errorf("L-01's row = %+v: the store changed although serve runs", row)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "herdr.log")); err == nil {
 		t.Error("herdr was called although serve runs")

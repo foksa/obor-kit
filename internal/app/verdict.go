@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -368,24 +369,18 @@ func (a *App) laneAdapters(p *proj) bool {
 	return err == nil && fx.Workflow != nil && fx.Specs != nil && fx.Agents != nil
 }
 
-// laneWorker is the agent a drop of mt stops in lane (T-773: that task's worker, nothing keeps it): the lane row's
-// agent while it is still one of the lane's names, else the lane's derived one, else the
-// task's ("": none known: nothing to stop).
+// laneWorker is the agent a drop of mt stops in lane (T-773: that task's worker, nothing keeps it): a drive's own agent
+// (T-751), none when the task names none (nothing to stop), else the lane's derived worker name (T-1031: the name it
+// runs under now, after an obor setup rename too; its dispatch's name otherwise).
 func (a *App) laneWorker(p *proj, lane string, mt mtask) (string, error) {
+	if mt.drive || mt.agent == "" {
+		return mt.agent, nil
+	}
 	cfg, err := config.LoadDaemon(p.root)
 	if err != nil {
 		return "", err
 	}
-	a.mu.Lock()
-	agent := rowAgent(cfg, lane, p.laneAgent(lane))
-	if row := rowAgent(cfg, lane, p.folded.lr.rows[lane].Agent); row != "" {
-		agent = row
-	}
-	a.mu.Unlock()
-	if agent == "" {
-		agent = mt.agent
-	}
-	return agent, nil
+	return cmp.Or(cfg.AgentName("worker", lane), mt.agent), nil
 }
 
 // dropDecide is drop's decision (under mu): the task to drop, marked ended and the spec rev the drop records (0: a task

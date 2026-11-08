@@ -166,7 +166,7 @@ func TestNewerUnknownKeyStillDropped(t *testing.T) {
 		t.Errorf("LoadReader: warn = %q, %v", warn, err)
 	}
 	c, err = LoadWith(root, []byte(`{"prefix":"pj","keep_warm":2,"lanes":2}`))
-	if err != nil || c == nil || c.Data.Lanes != 2 {
+	if err != nil || c == nil || c.Data.Lanes.Count() != 2 {
 		t.Errorf("LoadWith: %+v, %v; want the newer key dropped", c, err)
 	}
 	if _, err := Load(root); err == nil || !strings.Contains(err.Error(), `unknown field "keep_warm"`) {

@@ -613,3 +613,33 @@ func TestStatusQueueMarksHighWaitingFirst(t *testing.T) {
 		t.Errorf("queued lines %q, want T-3 (marked high) before T-2", queued)
 	}
 }
+
+// T-1031: a keep lane's line says keep, with its queue in dispatch order; a fresh lane's line says neither; a task
+// queued on a keep lane is the queue's line "queued <task>: behind <task> on keep lane <lane>".
+func TestStatusShowsKeepLaneAndItsQueue(t *testing.T) {
+	keep := laneLine(view.Lane{Lane: port.Lane{Name: "L-01", State: "working", Task: "T-1", Mode: config.LaneKeep,
+		Agent: "pj-l-01"}, Column: "working", Queue: []string{"T-2", "T-3"}}, view.Task{})
+	if !strings.HasSuffix(keep, "  agent: pj-l-01  keep (queue: T-2, T-3)") {
+		t.Errorf("keep lane line %q; want its agent, keep and its queue", keep)
+	}
+	if idle := laneLine(view.Lane{Lane: port.Lane{Name: "L-01", State: "free", Mode: config.LaneKeep}, Column: "free"},
+		view.Task{}); !strings.HasSuffix(idle, "  keep") {
+		t.Errorf("an idle keep lane's line %q; want keep, no queue", idle)
+	}
+	if fresh := laneLine(view.Lane{Lane: port.Lane{Name: "L-02", State: "free"}, Column: "free"}, view.Task{}); strings.Contains(fresh, "keep") {
+		t.Errorf("a fresh lane's line %q says keep", fresh)
+	}
+	now := time.Now()
+	for _, c := range []struct {
+		w    view.WaitItem
+		want string
+	}{
+		{view.WaitItem{Task: "T-3", WaitsOn: view.WaitsLane, Queue: "L-01", Why: "behind T-2 on keep lane L-01"},
+			"behind T-2 on keep lane L-01"},
+		{view.WaitItem{Task: "T-3", WaitsOn: view.WaitsLane, Queue: "L-01"}, "waiting for keep lane L-01"},
+	} {
+		if got := waitLine(c.w, view.Task{Task: c.w.Task}, now); got != c.want {
+			t.Errorf("%+v: %q, want %q", c.w, got, c.want)
+		}
+	}
+}

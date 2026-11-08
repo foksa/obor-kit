@@ -15,7 +15,8 @@ const (
 
 // Session is one agent session as obor recorded it: the agent, its kind, the session id and its transcript file
 // ("": not known), the pane, lane and task it started in, when it started (Unix seconds) and who reported it (the
-// SessionStart hook, launch's Codex rollout, OpenCode's plugin).
+// SessionStart hook, launch's Codex rollout, OpenCode's plugin). Task is the task it started on: a keep lane's session
+// spans several (T-1031), its current task is its lane row's (serve's agent status), never this record's.
 type Session struct {
 	Agent      string `json:"agent"`
 	Kind       string `json:"kind,omitempty"`

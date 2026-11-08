@@ -99,10 +99,7 @@ func handoffLimit(cfg *config.Config, role string) int64 {
 	if role == "integrator" {
 		return 150000
 	}
-	if n := cfg.Data.HandoffTokens; n != nil {
-		return *n
-	}
-	return 500000
+	return cfg.HandoffTokens()
 }
 
 // --- worker -----------------------------------------------------------------------------------------------------------

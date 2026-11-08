@@ -167,13 +167,8 @@ func (a *App) newDrive(ctx context.Context, p *proj, fx *Loop, c wire.Call) (str
 	if _, _, err := store.SetSpec(p.log.DB(), task, "# "+task+" — "+driveTitle+name+"\n", "", callerOf(c), a.opt.Now()); err != nil {
 		return "", fmt.Errorf("drive %s: %v", name, err)
 	}
-	a.mu.Lock()
 	l.Dir = filepath.Clean(l.Dir)
-	l.Agent = rowAgent(cfg, l.Name, l.Agent)
-	names := cfg.LaneAgentAliases(l.Name, "")
-	a.placement(p, l.Dir, append([]string{l.Agent}, names...)...)
-	a.mu.Unlock()
-	agent := roles.DriveAgent(laneAgent(l, cfg.AgentName("worker", l.Name)))
+	agent := roles.DriveAgent(cfg.AgentName("worker", l.Name))
 	d := dispatchData{Lane: l.Name, Dir: l.Dir, Agent: agent, Branch: branch, Target: target, Effort: effort, Type: ref,
 		Drive: true, Caller: callerOf(c), Call: c.CallID, Reply: driveReply(task, l.Name, agent, ref)}
 	if !a.record(p, event.Record{Task: task, Attempt: 1, Step: event.StepDispatched, Kind: event.KindFact}, d) {

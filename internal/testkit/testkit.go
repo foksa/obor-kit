@@ -515,17 +515,16 @@ func (p *Project) Commit(dir string, subject ...string) {
 
 // Dispatched records the dispatch of the task on lane's branch (task/<id>) in the project's store, as obor serve's
 // event log holds it (fact dispatch, attempt 1), and the lane's row as serve projects it: the task awaits its
-// task_done (finished 0; the row's agent kept, else the lane's first configured name).
+// task_done (finished 0) and its dispatch names the lane's derived agent (T-1031: no row stores it).
 func (p *Project) Dispatched(lane string) {
 	p.t.Helper()
 	task := p.laneTask(lane)
 	row := p.rows()[lane]
-	if cfg, err := config.Load(p.Root); err == nil && row.Agent == "" {
-		if names := cfg.LaneAgentAliases(lane, ""); len(names) > 0 {
-			row.Agent = names[0] // the lane's first name, as serve's dispatch records it
-		}
+	agent := ""
+	if cfg, err := config.Load(p.Root); err == nil {
+		agent = cfg.AgentName("worker", lane) // as serve's dispatch records it
 	}
-	p.event(task, "dispatch", map[string]any{"lane": lane, "dir": p.LaneDir(lane), "agent": row.Agent}, 0)
+	p.event(task, "dispatch", map[string]any{"lane": lane, "dir": p.LaneDir(lane), "agent": agent}, 0)
 	row.Lane, row.Task, row.Branch, row.Finished = lane, task, "task/"+task, 0
 	p.setRow(row)
 }
@@ -604,7 +603,6 @@ func (p *Project) State(lane string, v any) {
 	}
 	var j struct {
 		Task, Branch, Base, Head, Type string
-		Agent                          *string
 		DispatchedAt                   int64 `json:"dispatched_at"`
 		Finished                       int64
 		Blocked, Landed                bool
@@ -614,9 +612,6 @@ func (p *Project) State(lane string, v any) {
 	}
 	row := store.LaneRow{Lane: lane, Task: j.Task, Branch: j.Branch, Base: j.Base, Head: j.Head,
 		DispatchedAt: j.DispatchedAt, Finished: j.Finished, Type: j.Type, Blocked: j.Blocked, Landed: j.Landed}
-	if j.Agent != nil {
-		row.Agent = *j.Agent
-	}
 	p.setRow(row)
 }
 
@@ -688,7 +683,7 @@ func (p *Project) setRow(row store.LaneRow) {
 			rows = append(rows, r)
 		}
 	}
-	if row.Task != "" || row.Agent != "" || row.Branch != "" || row.Base != "" {
+	if row.Task != "" || row.Branch != "" || row.Base != "" {
 		rows = append(rows, row)
 	}
 	if err := store.WriteLanes(db, rows); err != nil {

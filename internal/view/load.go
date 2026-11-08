@@ -86,7 +86,7 @@ func (r reading) task(ctx context.Context, root string) (Detail, error) {
 	rows, _ := in.p.Rows()
 	v := Project{}
 	ps := serveOf(&v, in.ss, in.serr, in.p, nil)
-	v.Tasks = tasks(ps, rowLanes(rows), rows, readSpecs(in.db))
+	v.Tasks = tasks(ps, rowLanes(in.cfg, rows), readSpecs(in.db))
 	return Detail{Root: in.cfg.Root, Project: v}, nil
 }
 
@@ -138,10 +138,10 @@ func storeAt(root string) (*sql.DB, func()) {
 
 // rowLanes is the store's lanes rows as lane statuses: what the lanes table alone says of a lane (no git), for a read
 // that needs a task's lane and agent, not a lane's state or dirty worktree.
-func rowLanes(rows map[string]store.LaneRow) []port.Lane {
+func rowLanes(cfg *config.Config, rows map[string]store.LaneRow) []port.Lane {
 	out := make([]port.Lane, 0, len(rows))
 	for _, lane := range slices.Sorted(maps.Keys(rows)) {
-		out = append(out, port.Lane{Name: lane, Task: rows[lane].Task})
+		out = append(out, port.Lane{Name: lane, Task: rows[lane].Task, Agent: cfg.AgentName("worker", lane)})
 	}
 	return out
 }

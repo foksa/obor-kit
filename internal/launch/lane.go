@@ -41,7 +41,7 @@ func (l *Launcher) paneIn(panes []port.Pane, agent, dir string) (string, error) 
 	}
 	own := ""
 	if dir == "" {
-		info, ok := project.AgentLookup(l.Cfg, agent, "")
+		info, ok := l.Cfg.AgentLookup(agent, "")
 		if !ok {
 			return labelled[0], nil
 		}

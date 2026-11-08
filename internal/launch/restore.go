@@ -59,7 +59,7 @@ func (p *Restorer) stamp() string {
 
 // paneConfig is the loaded config of the obor project a pane with cwd belongs to: the main checkout of cwd's
 // repository (the cwd is no fallback; ok false otherwise). What the pane's label is made of is the caller's: an
-// agent's (project.AgentLookup).
+// agent's (config.AgentLookup).
 func paneConfig(cwd string) (cfg *config.Config, ok bool) {
 	if cwd == "" {
 		return nil, false
@@ -100,7 +100,7 @@ func (p *Restorer) Restore(ctx context.Context) {
 		if !ok {
 			continue
 		}
-		if _, ok := project.AgentLookup(cfg, pane.Label, ""); !ok {
+		if _, ok := cfg.AgentLookup(pane.Label, ""); !ok {
 			continue
 		}
 		appendLog(log, func(w io.Writer) {
@@ -115,7 +115,7 @@ func (p *Restorer) restoreOne(ctx context.Context, cfg *config.Config, pane port
 		fmt.Fprintf(w, "%s skip %s (pane %s): runs %s\n", now, agent, pane.ID, pane.Agent)
 		return
 	}
-	info, _ := project.AgentLookup(cfg, agent, "")
+	info, _ := cfg.AgentLookup(agent, "")
 	if lane := p.freeLane(cfg, info); lane != "" {
 		fmt.Fprintf(w, "%s skip %s (pane %s): lane %s is free (dispatch starts its worker)\n", now, agent, pane.ID, lane)
 		return

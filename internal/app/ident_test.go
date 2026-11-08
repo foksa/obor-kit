@@ -159,7 +159,7 @@ func (f *idAgents) Stop(_ context.Context, agent, pane string, _ bool) (string, 
 func (h *harness) stop(f *idAgents) (string, error) {
 	p := h.proj()
 	h.a.mu.Lock()
-	p.folded.lr.rows["L-01"] = store.LaneRow{Lane: "L-01", Task: "T-1", Agent: "pj-l-01"}
+	p.folded.lr.rows["L-01"] = store.LaneRow{Lane: "L-01", Task: "T-1"}
 	h.a.mu.Unlock()
 	return h.a.stopWorker(context.Background(), p, &Loop{Agents: f}, mtask{task: "T-1", attempt: 1, lane: "L-01",
 		agent: "pj-l-01"})
@@ -425,7 +425,7 @@ func TestIdentMoveThenStop(t *testing.T) {
 	h.move("w1:p1", "w1:p7")
 	p := h.proj()
 	h.a.mu.Lock()
-	p.folded.lr.rows["L-01"] = store.LaneRow{Lane: "L-01", Task: "T-1", Agent: "pj-l-01"}
+	p.folded.lr.rows["L-01"] = store.LaneRow{Lane: "L-01", Task: "T-1"}
 	h.a.mu.Unlock()
 	f := &idAgents{}
 	mt := mtask{task: "T-1", attempt: 1, lane: "L-01", agent: "pj-l-01", after: slices.Index(afterSteps, event.StepStop)}
@@ -779,7 +779,7 @@ func TestIdentStopWhileDisconnected(t *testing.T) {
 	h.a.record(p, event.Record{Task: "T-1", Attempt: 1, Step: event.StepSubmitted, Kind: event.KindFact},
 		submitData{Lane: "L-01", Agent: "pj-l-01"})
 	h.a.mu.Lock()
-	p.folded.lr.rows["L-01"] = store.LaneRow{Lane: "L-01", Task: "T-1", Agent: "pj-l-01"}
+	p.folded.lr.rows["L-01"] = store.LaneRow{Lane: "L-01", Task: "T-1"}
 	mt := p.folded.loop["T-1"]
 	mt.state = stPublished
 	mt.after = slices.Index(afterSteps, event.StepStop)
@@ -1055,7 +1055,7 @@ func (f *verifyStopRace) Stop(context.Context, string, string, bool) (string, er
 func (h *harness) stopWith(ag port.Agents) (string, error) {
 	p := h.proj()
 	h.a.mu.Lock()
-	p.folded.lr.rows["L-01"] = store.LaneRow{Lane: "L-01", Task: "T-1", Agent: "pj-l-01"}
+	p.folded.lr.rows["L-01"] = store.LaneRow{Lane: "L-01", Task: "T-1"}
 	h.a.mu.Unlock()
 	return h.a.stopWorker(context.Background(), p, &Loop{Agents: ag}, mtask{task: "T-1", attempt: 1, lane: "L-01",
 		agent: "pj-l-01"})

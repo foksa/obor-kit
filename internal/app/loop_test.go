@@ -64,6 +64,8 @@ type loopRig struct {
 	binary func() bool
 	// exit is Options.Exit, the socket's exit request (nil: none, T-711); set before start
 	exit func()
+	// tokens is Options.Tokens, a transcript's context size (nil: the file read, T-1031); set before start
+	tokens func(transcript string) (int, bool)
 	// inbox is the loop's Inbox: the lead's lines posted (T-485), kept across restarts. The worker pj-l-01 and the
 	// integrator pj-int start with no inbox record, so their job wakes are typed (T-499's fallback); a test of posted
 	// wakes records them (inbox.record).
@@ -304,7 +306,8 @@ func (r *loopRig) launch() {
 		tick = r.tick
 	}
 	r.app = app.New(app.Options{Root: r.p.Root, Tick: tick, Retry: 5 * time.Millisecond, RetryMax: 40 * time.Millisecond,
-		Now: r.clock.Now, Out: r.out, Inboxed: r.inbox.recorded, Exit: r.exit, Binary: r.binary, Follow: tick, Refresh: func(err error) bool {
+		Now: r.clock.Now, Out: r.out, Inboxed: r.inbox.recorded, Exit: r.exit, Binary: r.binary, Follow: tick, Tokens: r.tokens,
+		Refresh: func(err error) bool {
 			var e *herdr.Error
 			return errors.As(err, &e) && e.Code == "refresh"
 		}, Loop: func(string) (*app.Loop, error) {

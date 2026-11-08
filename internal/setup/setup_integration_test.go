@@ -38,7 +38,7 @@ func TestInitCreatesConfigDocsAndGitignoreUncommitted(t *testing.T) {
 		t.Errorf("config validates: %v", fails)
 	}
 	d := cfg.Data
-	if d.Name != "My Proj" || d.Prefix != "mp" || d.LanesDir != "../proj-wt" || d.Lanes != 0 {
+	if d.Name != "My Proj" || d.Prefix != "mp" || d.LanesDir != "../proj-wt" || d.Lanes.Count() != 0 {
 		t.Errorf("name, prefix, lanes_dir filled, no lanes: %q %q %q %v", d.Name, d.Prefix, d.LanesDir, d.Lanes)
 	}
 	if _, ok := cfg.Command("lane_setup"); ok || len(d.LaneLinks) != 0 {
@@ -175,7 +175,7 @@ func TestLaneAddsConfigWorktreeLinksAndRunsLaneSetup(t *testing.T) {
 	x.Write("ref/a", "")
 	x.Write("assets/img/b", "")
 	lane := x.LaneDir("L-01")
-	if pre, _ := config.Load(x.Root); x.Exists(lane) || pre.Data.Lanes != 0 {
+	if pre, _ := config.Load(x.Root); x.Exists(lane) || pre.Data.Lanes.Count() != 0 {
 		t.Fatal("precondition: no lane dir, no lanes")
 	}
 	out := x.ok(t, "lane", "L-01")
@@ -184,8 +184,8 @@ func TestLaneAddsConfigWorktreeLinksAndRunsLaneSetup(t *testing.T) {
 	}
 	has(t, out, "config lanes = 1 (uncommitted)", "the count raised")
 	cfg, _ := config.Load(x.Root)
-	if cfg.Data.Lanes != 1 || !cfg.HasLane("L-01") {
-		t.Errorf("lanes = %d", cfg.Data.Lanes)
+	if cfg.Data.Lanes.Count() != 1 || !cfg.HasLane("L-01") {
+		t.Errorf("lanes = %d", cfg.Data.Lanes.Count())
 	}
 	if !regexp.MustCompile(`(?m)^  "lanes": 1`).MatchString(x.Read(".obor/config.json")) {
 		t.Error("config kept at indent 2")
@@ -216,8 +216,8 @@ func TestLaneAddsConfigWorktreeLinksAndRunsLaneSetup(t *testing.T) {
 	if !x.Exists(lane + "/setup-ran") {
 		t.Error("lane_setup reruns")
 	}
-	if cfg, _ = config.Load(x.Root); cfg.Data.Lanes != 1 {
-		t.Errorf("lanes after rerun: %d", cfg.Data.Lanes)
+	if cfg, _ = config.Load(x.Root); cfg.Data.Lanes.Count() != 1 {
+		t.Errorf("lanes after rerun: %d", cfg.Data.Lanes.Count())
 	}
 }
 
@@ -269,7 +269,7 @@ func TestReviewerAndDeepDiveRunInTheirRoleWorktree(t *testing.T) {
 		if !x.Exists(reviews) {
 			t.Errorf("%s: no %s made for its start", c.role, reviews)
 		}
-		if cfg, _ := config.Load(x.Root); cfg.Data.Lanes != 0 {
+		if cfg, _ := config.Load(x.Root); cfg.Data.Lanes.Count() != 0 {
 			t.Errorf("%s: added to the lanes", c.role)
 		}
 	}

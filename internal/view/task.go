@@ -35,8 +35,7 @@ type Task struct {
 // tasks is every task the view knows, by id, built once: the stored specs (rev and title), the lanes' branches (their
 // lane and agent), serve's tasks (state, phase, attempt, running step, effort, job and lane) and the needs-you facts in
 // force (their lane, when nothing else names one). A project's loop error and its lines are no task.
-func tasks(ps wire.ProjectStatus, lanes []port.Lane, rows map[string]store.LaneRow,
-	specs map[string]store.SpecRow) map[string]Task {
+func tasks(ps wire.ProjectStatus, lanes []port.Lane, specs map[string]store.SpecRow) map[string]Task {
 	out := map[string]Task{}
 	get := func(id string) Task {
 		t := out[id]
@@ -50,7 +49,10 @@ func tasks(ps wire.ProjectStatus, lanes []port.Lane, rows map[string]store.LaneR
 	}
 	agents := map[string]string{}
 	for _, s := range lanes {
-		agents[s.Name], _ = laneAgent(ps, rows[s.Name], s.Name)
+		agents[s.Name] = s.Agent
+		if a, ok := serveAgent(ps, s.Name); ok {
+			agents[s.Name] = a.Name
+		}
 		if s.Task != "" {
 			t := get(s.Task)
 			t.Lane = s.Name
@@ -90,15 +92,15 @@ func tasks(ps wire.ProjectStatus, lanes []port.Lane, rows map[string]store.LaneR
 	return out
 }
 
-// laneAgent is the agent in lane and its pane's status: serve's agent there, else the lane row's (no status).
-func laneAgent(ps wire.ProjectStatus, row store.LaneRow, lane string) (string, string) {
-	name, status := row.Agent, ""
+// serveAgent is serve's agent in lane (its name and pane status; a drive's agent too); ok false: none, the lane's
+// derived agent (port.Lane.Agent, T-1031) is the one named.
+func serveAgent(ps wire.ProjectStatus, lane string) (wire.AgentStatus, bool) {
 	for _, a := range ps.Agents {
 		if a.Lane == lane {
-			name, status = a.Name, a.Status
+			return a, true
 		}
 	}
-	return name, status
+	return wire.AgentStatus{}, false
 }
 
 // TaskOn is the task serve has on l (zero: none): l's branch's task when serve puts it on l.

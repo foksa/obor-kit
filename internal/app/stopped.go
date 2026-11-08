@@ -403,7 +403,7 @@ func (p *proj) workerTask(c wire.Call) (task, lane string) {
 		if !mt.awaitsTaskDone() || mt.lane == "" {
 			continue
 		}
-		if (c.Lane != "" && mt.lane != c.Lane) || (c.Lane == "" && p.laneAgent(mt.lane) != c.Agent) {
+		if (c.Lane != "" && mt.lane != c.Lane) || (c.Lane == "" && p.workerIn(mt.lane) != c.Agent) {
 			continue
 		}
 		if task == "" || mt.dispSeq > newest {

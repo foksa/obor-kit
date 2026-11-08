@@ -18,8 +18,8 @@ func TestMergedTaskKeepsItsLaneAndAgent(t *testing.T) {
 	p.Spec("T-01", "# T-01 — a task title\n\nDifficulty: simple\n")
 	p.Submit("L-01")
 	row, ok := p.Row("L-01")
-	if !ok || row.Agent == "" {
-		t.Fatalf("precondition: the dispatch recorded an agent on L-01: %+v", row)
+	if !ok || row.Task != "T-01" {
+		t.Fatalf("precondition: the dispatch put T-01 on L-01: %+v", row)
 	}
 	p.MergedAt("T-01", "cafe1234", false, time.Now().Unix())
 	p.ClearState("L-01")
@@ -37,8 +37,8 @@ func TestMergedTaskKeepsItsLaneAndAgent(t *testing.T) {
 	if !ok {
 		t.Fatal("the merged task has no page")
 	}
-	if d.Lane != "L-01" || d.Agent != row.Agent {
-		t.Errorf("merged task: lane %q, agent %q; want L-01 and %q (its dispatch's)", d.Lane, d.Agent, row.Agent)
+	if d.Lane != "L-01" || d.Agent != "pj-l-01" {
+		t.Errorf("merged task: lane %q, agent %q; want L-01 and pj-l-01 (its dispatch's)", d.Lane, d.Agent)
 	}
 	if d.Spec != "# T-01 — a task title\n\nDifficulty: simple\n" || d.Title != "a task title" {
 		t.Errorf("spec %q, title %q; want the stored spec's text and title", d.Spec, d.Title)

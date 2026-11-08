@@ -11,14 +11,14 @@ import (
 	"obor/internal/testkit"
 )
 
-// promptFx: lane L-01 (task/T-05) whose state file names agent pj-l1 and task T-05 (armed = false: no state file).
+// promptFx: lane L-01 (task/T-05, its worker pj-l-01: derived, T-1031) whose row names task T-05 (armed = false: no row).
 func promptFx(t *testing.T, armed bool) (f hfx, o1 string) {
 	t.Helper()
 	f = newHfx(t)
 	o1 = f.PlainLane("L-01", "task/T-05")
 	f.Config()
 	if armed {
-		f.State("L-01", `{"lane":"L-01","task":"T-05","agent":"pj-l1"}`)
+		f.State("L-01", `{"lane":"L-01","task":"T-05"}`)
 	}
 	return f, o1
 }
@@ -47,7 +47,7 @@ func (f hfx) prompt(t *testing.T, cwd, prompt, extra string, env ...string) stri
 	return v.HookSpecificOutput.AdditionalContext
 }
 
-const guardLine = "I am worker pj-l1 on T-05. Did you mean to type here?"
+const guardLine = "I am worker pj-l-01 on T-05. Did you mean to type here?"
 
 // guarded: each prompt gets the wrong-tab context; quiet: none does.
 func (f hfx) guarded(t *testing.T, cwd, extra string, prompts ...string) {
@@ -164,12 +164,13 @@ func TestPromptGuardRows(t *testing.T) {
 	}
 }
 
-// bash user-prompt-submit case_no_state_file_uses_lane
+// bash user-prompt-submit case_no_state_file_uses_lane; T-1031: with no lane row the worker is still named by its derived
+// name (no row stores one), whatever OBOR_LANE says.
 func TestPromptNoStateFileUsesTheLane(t *testing.T) {
 	t.Parallel()
 	f, o1 := promptFx(t, false)
-	contains(t, f.prompt(t, o1, "hello", ""), "lane name", "I am worker L-01 on (no task).")
-	contains(t, f.prompt(t, o1, "hello", "", "OBOR_LANE=pj-x"), "OBOR_LANE", "I am worker pj-x on (no task).")
+	contains(t, f.prompt(t, o1, "hello", ""), "no row", "I am worker pj-l-01 on (no task).")
+	contains(t, f.prompt(t, o1, "hello", "", "OBOR_LANE=pj-x"), "OBOR_LANE", "I am worker pj-l-01 on (no task).")
 }
 
 // T-502: the UserPromptSubmit input Claude Code 2.1.312 gave a probe hook (testdata/prompt-*.json, paths redacted). It
@@ -266,7 +267,7 @@ var (
 		"the person is talking with you, ask them first."
 )
 
-// handoffFx: a project with lane L-01 (agent pj-l1, task T-05) and a transcript at ctx tokens.
+// handoffFx: a project with lane L-01 (agent pj-l-01, task T-05) and a transcript at ctx tokens.
 func handoffFx(t *testing.T, ctx int64) (f hfx, o1, tr string) {
 	t.Helper()
 	f, o1 = promptFx(t, true)

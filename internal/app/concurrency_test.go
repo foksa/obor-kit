@@ -460,7 +460,7 @@ func TestLaneRowWriteFailurePersistent(t *testing.T) {
 			dispatchT2(r)
 			p, f := r.proj("pj"), r.fakes["pj"]
 			if c.prev {
-				prev := []store.LaneRow{{Lane: "L-02", Task: "T-0", Branch: "task/T-0", Agent: "pj-l-02", Base: "b",
+				prev := []store.LaneRow{{Lane: "L-02", Task: "T-0", Branch: "task/T-0", Base: "b",
 					Head: "h", DispatchedAt: 1}}
 				if err := store.WriteLanes(p.log.DB(), prev); err != nil {
 					t.Fatal(err)

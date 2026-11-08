@@ -199,7 +199,7 @@ func (p *proj) roleAgent(agent string) bool {
 	if err != nil {
 		return false
 	}
-	info, ok := cfg.AgentLookup(agent, "", func(lane string) string { return p.folded.lr.rows[lane].Agent })
+	info, ok := cfg.AgentLookup(agent, "")
 	if !ok || info.Role == "lead" || info.Role == "worker" {
 		return false
 	}

@@ -515,21 +515,6 @@ func TestRestartWho(t *testing.T) {
 		start: "agent.start args=[" + laneMCP + settings + " --resume sid-1] kind=claude name=pj-l-01 pane_id=w1:p3",
 		line:  "RESTARTED pj-l-01 (pane w1:p3, session sid-1)",
 	}, {
-		// bash restart.test.sh case_lane_agent_named_lane_lower_with_null_state_agent; T-302: the bare lane name is
-		// the lane's only when its state file names it
-		name: "lane agent named <lane lower> by the lane state file: the lane",
-		prep: func(x *fx) {
-			x.p.State("L-01", `{"agent":"l-01"}`)
-			x.sid("l-01", "sid-1")
-			x.shell("w1:p3", "l-01", "")
-		},
-		req: launch.Request{Agent: "l-01"},
-		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=cd " + q(x.lane) + " && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG && export OBOR_ROLE=worker OBOR_LANE=L-01 GOFLAGS='-p=2 -trimpath' GOMAXPROCS=2"
-		},
-		start: "agent.start args=[" + laneMCP + settings + " --resume sid-1] kind=claude name=l-01 pane_id=w1:p3",
-		line:  "RESTARTED l-01 (pane w1:p3, session sid-1)",
-	}, {
 		// T-302: another project's agent may be named like a lane; no lane env, no lane settings
 		name: "agent named <lane lower>, lane state agent null: not the lane",
 		prep: func(x *fx) {
@@ -852,14 +837,17 @@ func TestRestartOtherProjectsPane(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// The kit's lane L-02 runs an agent named l-02 too (a real name since T-302: its state file says so).
-		x.p.State("L-02", `{"lane":"L-02","agent":"l-02"}`)
-		if info, ok := project.AgentLookup(kit, "l-02", ""); !ok || info.Lane != "L-02" {
-			t.Fatalf("precondition: the kit's config takes l-02 for its lane L-02: %+v %v", info, ok)
+		// axis's L-02 pane runs an agent named as the kit's lane L-02's worker (pj-l-02: derived in both, T-1031).
+		x.f.Set("w2:pF", func(p *herdrtest.Pane) { p.Name, p.Label = "pj-l-02", "pj-l-02" })
+		if info, ok := kit.AgentLookup("pj-l-02", ""); !ok || info.Lane != "L-02" {
+			t.Fatalf("precondition: the kit's config takes pj-l-02 for its lane L-02: %+v %v", info, ok)
 		}
-		out, ok := restart(x, nil)
+		var buf bytes.Buffer
+		line, err := x.launcher(&buf).Restart(context.Background(), launch.Request{Agent: "pj-l-02", Pane: "w2:pF",
+			Fresh: true, Force: true})
+		out, ok := result(x.t, &buf, line, err)
 		eq(t, failLine(out), "FAIL pane w2:pF is not this project's: its cwd "+axisWt+" is outside "+x.p.Root+
-			" (another project's agent? run obor restart l-02 in its own project)", "result")
+			" (another project's agent? run obor restart pj-l-02 in its own project)", "result")
 		contains(t, out, "pane screen", "evidence")
 		contains(t, x.p.Read(".obor/state/launch.log"), "pane w2:pF is not this project's", "evidence logged")
 		if ok || len(x.calls("pane.send_input")) > 0 || len(x.calls("pane.send_keys")) > 0 || x.startCall() != "" {
