@@ -48,8 +48,8 @@ func TestMcpCheck(t *testing.T) {
 // ends the server with exit 0. It runs as a lane worker's does: in the lane, no OBOR_AGENT.
 func TestMcpBinaryServes(t *testing.T) {
 	t.Parallel()
-	p := testkit.New(t)
-	lane := p.Lane("L-01", "")
+	p := testkit.NewPlain(t)
+	lane := p.PlainLane("L-01", "")
 	p.Config() // the caller's name derives from it (T-786, T-791)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()

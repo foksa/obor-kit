@@ -13,7 +13,7 @@ import (
 // sends nothing; those and serve's refusal are FAIL on stdout, exit 1.
 func TestWatchRequest(t *testing.T) {
 	t.Parallel()
-	p := testkit.New(t)
+	p := testkit.NewPlain(t)
 	p.Config()
 	home, serve := startFakeServe(t, p.Root, wire.Status{}, "WATCHING", "")
 	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
@@ -70,7 +70,7 @@ func TestWatchRequest(t *testing.T) {
 // takes a comma list; a bad id in a list sends nothing.
 func TestWatchSetRequest(t *testing.T) {
 	t.Parallel()
-	p := testkit.New(t)
+	p := testkit.NewPlain(t)
 	p.Config()
 	home, serve := startFakeServe(t, p.Root, wire.Status{}, "WATCHING", "")
 	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
@@ -101,7 +101,7 @@ func TestWatchSetRequest(t *testing.T) {
 // text or with --rm is a usage error, as is a note before a missing text; nothing is sent then.
 func TestWatchNoteFlag(t *testing.T) {
 	t.Parallel()
-	p := testkit.New(t)
+	p := testkit.NewPlain(t)
 	p.Config()
 	home, serve := startFakeServe(t, p.Root, wire.Status{}, "WATCHING", "")
 	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}

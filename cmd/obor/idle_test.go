@@ -13,7 +13,7 @@ import (
 // with none it asks for it; serve's reply is printed. A usage error sends nothing, serve's refusal is FAIL.
 func TestIdleRequest(t *testing.T) {
 	t.Parallel()
-	p := testkit.New(t)
+	p := testkit.NewPlain(t)
 	p.Config()
 	home, serve := startFakeServe(t, p.Root, wire.Status{}, "IDLE: nothing to dispatch", "")
 	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead"}
@@ -58,7 +58,7 @@ func TestIdleRequest(t *testing.T) {
 // T-803: obor status shows the idle state: unacknowledged with when it began, or the acknowledgement's why.
 func TestStatusShowsIdle(t *testing.T) {
 	t.Parallel()
-	p := testkit.New(t)
+	p := testkit.NewPlain(t)
 	p.Config()
 	at := time.Date(2026, 11, 4, 9, 5, 0, 0, time.UTC)
 	ss := wire.Status{Project: &wire.ProjectStatus{Name: "proj", Root: p.Root, Merging: true,

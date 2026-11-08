@@ -74,16 +74,7 @@ func TestStopFailureHook(t *testing.T) {
 	if rc, stdout, _, _ := shimRun(t, lane, string(event), env, oborBin, "hook", "stop-failure"); rc != 0 || stdout != "" {
 		t.Errorf("serve refusing: exit %d, stdout %q; want 0, nothing", rc, stdout)
 	}
-
-	outside := t.TempDir()
-	event, _ = json.Marshal(map[string]any{"cwd": outside, "error": "rate_limit"})
-	if rc, stdout, stderr, _ := shimRun(t, outside, string(event), env, oborBin, "hook", "stop-failure"); rc != 0 ||
-		stdout != "" || stderr != "" {
-		t.Errorf("outside an obor project: exit %d, %q, %q; want silent", rc, stdout, stderr)
-	}
-	if _, err := os.Stat(filepath.Join(outside, ".obor")); err == nil {
-		t.Error("outside an obor project: a .obor dir was written")
-	}
+	// Outside an obor project: TestStopFailureHookOutsideAProject (stopfailure_integration_test.go: project.Find asks git).
 }
 
 // T-540: a worker's UserPromptSubmit and Stop hooks each tell serve its next turn began or ended (one turn request

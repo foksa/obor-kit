@@ -15,8 +15,8 @@ import (
 // FAIL, exit 1. obor answer and obor sendback are gone. --reprompt is a text (RV-99 #5): with another, two texts.
 func TestResumeRequest(t *testing.T) {
 	t.Parallel()
-	p := testkit.New(t)
-	o1 := p.Lane("L-01", "task/T-01")
+	p := testkit.NewPlain(t)
+	o1 := p.PlainLane("L-01", "task/T-01")
 	p.Config()
 	home, serve := startFakeServe(t, p.Root, wire.Status{}, "ANSWERED T-01: obor serve sends pj-l-01 the answer", "")
 	env := func(role string) []string {

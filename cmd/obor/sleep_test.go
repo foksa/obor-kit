@@ -82,8 +82,8 @@ func (f *sleepServe) call(_ context.Context, method string, c wire.Call) (string
 // and whose herdr is a fake with no panes.
 func sleepFx(t *testing.T) (p *testkit.Project, s *sleeper, out *bytes.Buffer, stops *[]stopCall, f *sleepServe) {
 	t.Helper()
-	p = testkit.New(t)
-	p.Lane("L-01", "task/T-02")
+	p = testkit.NewPlain(t)
+	p.PlainLane("L-01", "task/T-02")
 	p.Config()
 	out, stops = &bytes.Buffer{}, &[]stopCall{}
 	cfg, warn, err := config.LoadReader(p.Root)
@@ -477,7 +477,7 @@ esac
 // internal/app TestWorkerStartAfterStopForce), not this fake's.
 func TestStopForceKeepsTasksOpen(t *testing.T) {
 	p, s, out, stops, f := sleepFx(t)
-	p.Lane("L-02", "task/T-03")
+	p.PlainLane("L-02", "task/T-03")
 	p.Config()
 	cfg, warn, err := config.LoadReader(p.Root)
 	if err != nil || warn != "" {
@@ -703,7 +703,7 @@ func TestStopAndStartRestoreATimedPause(t *testing.T) {
 // is lenient about the key, as the readers are: config.LoadDaemon, T-377; only obor config validate is strict.)
 func TestStoppedProjectWithANewerConfig(t *testing.T) {
 	t.Parallel()
-	p := testkit.New(t)
+	p := testkit.NewPlain(t)
 	p.Config(testkit.Set("zz_future", "")) // T-801: roles.<name> is a custom role now, no unknown key
 	env := []string{"HOME=" + p.Base + "/home", "OBOR_STATE_HOME=" + p.Base + "/state",
 		"HERDR_SOCKET_PATH=" + herdrtest.Serve(t, p.Herdr()).Path}
