@@ -2,6 +2,7 @@ package checks
 
 import (
 	"context"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -9,6 +10,16 @@ import (
 
 	"obor/internal/testkit"
 )
+
+// plainFx is the fixture's config (fxConfig plus edits) in a plain project (testkit.NewPlain): no git, for a runner test
+// whose commands run in the root and read no repository (T-1018: the unit tier runs no git).
+func plainFx(t *testing.T, edits ...func(map[string]any)) *fx {
+	t.Helper()
+	p := testkit.NewPlain(t)
+	p.Config(fxConfig(edits...)...)
+	return &fx{Project: p, t: t, scratch: filepath.Join(p.Base, "proj-wt", "merge"), slots: filepath.Join(p.Base, "slots"),
+		sig: make(chan int, 1)}
+}
 
 // commandCalls is a runner over dir whose onCommand trail the test reads: the command each start names and "" each end
 // reports.
@@ -23,7 +34,7 @@ func commandCalls(t *testing.T, opts Options, dir string) (*runner, *[]string) {
 // T-1003 (RV-139 #1): a lane in two classes runs the guard once, then each class's checks once, in config order; a
 // command both classes name runs once. Only neutral files still run the guard alone.
 func TestRunChecksMixedClass(t *testing.T) {
-	x := newFx(t,
+	x := plainFx(t,
 		testkit.Set("merge.guard", "guard"),
 		testkit.Set("merge.classes", `[
 			{"name": "go", "paths": ["internal/**"], "checks": ["check_affected", "check_shared"]},
@@ -65,7 +76,7 @@ func TestRunChecksMixedClass(t *testing.T) {
 // T-1007 (RV-139 #1): a full lane (here an unmatched go.mod beside a class's file) runs check, then each matched
 // class marked with_full's checks, config order; a class without with_full adds nothing.
 func TestRunChecksFullWithFull(t *testing.T) {
-	x := newFx(t,
+	x := plainFx(t,
 		testkit.Set("merge.guard", "guard"),
 		testkit.Set("merge.classes", `[
 			{"name": "go", "paths": ["internal/**"], "checks": ["check_affected"]},
@@ -110,7 +121,7 @@ func TestRunChecksFullWithFull(t *testing.T) {
 // T-1008 (RV-139 #2): OBOR_FULL=1 forces the merge full, but the scan still names the classes it matched, so release
 // and web files keep their with_full checks (before: the forced early return dropped them).
 func TestRunChecksForcedKeepsWithFull(t *testing.T) {
-	x := newFx(t,
+	x := plainFx(t,
 		testkit.Set("merge.guard", "guard"),
 		testkit.Set("merge.classes", `[
 			{"name": "release", "paths": ["Makefile"], "checks": ["check_release"], "with_full": true},
@@ -153,7 +164,7 @@ func TestRunChecksForcedKeepsWithFull(t *testing.T) {
 // T-673 (RV-75 #4): the runner tells serve's gate each command as it starts and "" as it ends, so obor status shows
 // the gate with no command between two — a finished command is never shown as running.
 func TestRunnerCommandEnds(t *testing.T) {
-	x := newFx(t, cmd("check", "true"))
+	x := plainFx(t, cmd("check", "true"))
 	o := x.opts()
 	r, got := commandCalls(t, o, x.Root)
 	if _, ok, h := r.exec("check"); !ok || h != nil {
@@ -172,7 +183,7 @@ func TestRunnerCommandEnds(t *testing.T) {
 // T-673: a command that times out, and one a signal cuts, end like any other: the runner reports no command running.
 func TestRunnerCommandEndsOnTimeoutAndInterrupt(t *testing.T) {
 	testkit.Slow(t) // 1 s: the command timeout under test
-	x := newFx(t, cmd("check", map[string]any{"cmd": "sleep 1", "timeout": 1}))
+	x := plainFx(t, cmd("check", map[string]any{"cmd": "sleep 1", "timeout": 1}))
 	o := x.opts()
 	r, got := commandCalls(t, o, x.Root)
 	out, ok, h := r.exec("check")
@@ -183,7 +194,7 @@ func TestRunnerCommandEndsOnTimeoutAndInterrupt(t *testing.T) {
 		t.Errorf("timed out: told %q; want %q", *got, want)
 	}
 
-	x2 := newFx(t, cmd("check", "sleep 1"))
+	x2 := plainFx(t, cmd("check", "sleep 1"))
 	o2 := x2.opts()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
