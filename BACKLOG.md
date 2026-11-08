@@ -64,6 +64,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (RV-140, accepted) (RV-140 design) internal/run TestRunRcArgsTimeout and TestExecuteLeavesNoGroup mix a real wait with quick assertions; split the quick cases out of the Slow tests when next touching them (plan step 2 covers run's tests)
 - (RV-139, accepted) (RV-139 verify 2, P2) OBOR_FULL=1 forced full returns before scanning files, so with_full release/web checks are skipped (classify.go:~43); fix in T-1008
 - (RV-139, accepted) (RV-139 verify 2, P1) the Makefile's -seed recipe redirects into tests/budget.json, truncating it before -seed reads its caps; fix in T-1008 (seed writes the file itself, atomically)
 - (RV-139, accepted) (RV-139 #3) restricted-PATH tests hide child git calls from the budget counter (already accepted)
