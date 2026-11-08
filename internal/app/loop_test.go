@@ -134,9 +134,9 @@ func newLoopRig(t *testing.T, opts ...rigOpt) *loopRig {
 	// and T-1's is its submission's.
 	p.Config(append(edits, o.edits...)...)
 	r.lanes.lanes = []port.Lane{{Name: "L-01", Dir: r.lane, Task: "T-1", Agent: "pj-l-01"}}
-	r.f.Workspaces = []herdr.Workspace{{ID: "w1", Label: "proj"}}
+	r.f.Group("w1", "proj")
 	w := r.f.Agent("w1:p1", "pj-l-01", "idle", r.lane)
-	w.Workspace, w.Label = "w1", "pj-l-01" // labelled by its launch: serve's identity of it (registry.go)
+	w.Label = "pj-l-01" // labelled by its launch: serve's identity of it (registry.go)
 	r.srv = herdrtest.Serve(t, r.f)
 	r.srv.Reply("notification.show", map[string]any{"type": "notification_show", "shown": true, "reason": "shown"})
 	r.srv.Reply("agent.prompt", prompted)
@@ -199,7 +199,7 @@ func (r *loopRig) Launch(ctx context.Context, req port.Launch) (port.Started, er
 		p.Kind, p.Name, p.Label, p.Status, p.Session = "claude", "pj-int", "pj-int", "idle", "int-1"
 	}) {
 		a := r.f.Agent("w1:p9", "pj-int", "idle", r.p.Root)
-		a.Workspace, a.Label, a.Session = "w1", "pj-int", "int-1" // launch labels the pane
+		a.Label, a.Session = "pj-int", "int-1" // launch labels the pane
 	}
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
 		if ctx.Err() != nil { // the app is shutting down: its main loop is gone, no snapshot will show the pane

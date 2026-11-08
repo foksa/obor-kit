@@ -21,7 +21,7 @@ import (
 	"obor/internal/store"
 )
 
-// Machine is the machine part of an agent's address (machine, workspace, pane); only the local one for now.
+// Machine is the machine part of an agent's address (machine, group, pane); only the local one for now.
 const Machine = "local"
 
 // Ready: an agent with this status is idle: it takes a prompt now (done is idle with an unviewed reply). It is
@@ -83,17 +83,16 @@ type App struct {
 	streams   int    // herdr streams connected (connect): a pass that saw one end ran on no snapshot of it
 	herdrVer  string // the server serve is connected to (or was last): its snapshot's version and protocol
 	herdrProt int
-	herdrOwn  int               // obor's own protocol, as that snapshot said
-	p         *proj             // Options.Root's project once loaded (loadProject); nil before
-	spaces    map[string]string // workspace id → label, from the last snapshot
-	obs       map[string]*seen  // by pane id: every pane of the last snapshot and the events since
-	skews     map[string]bool   // by agent and version: the wire callers whose obor differs from serve's and were logged (T-826)
-	stopped   bool              // Serve has ended: the socket takes no more requests
-	checks    int               // full checks done (a tick's, a connect's), for the tests to wait on
-	follows   int               // the binary watch's ticks (Options.Follow, follow.go), for it and the tests
-	passes    int               // merge loop passes done, for the tests to wait on
-	onStream  int               // of those, the passes that ran connected to one herdr stream (mergeLoop), for the tests to wait on
-	scratched int               // scratch effects started in their own goroutine, for the tests to wait on
+	herdrOwn  int              // obor's own protocol, as that snapshot said
+	p         *proj            // Options.Root's project once loaded (loadProject); nil before
+	obs       map[string]*seen // by pane id: every pane of the last snapshot and the events since
+	skews     map[string]bool  // by agent and version: the wire callers whose obor differs from serve's and were logged (T-826)
+	stopped   bool             // Serve has ended: the socket takes no more requests
+	checks    int              // full checks done (a tick's, a connect's), for the tests to wait on
+	follows   int              // the binary watch's ticks (Options.Follow, follow.go), for it and the tests
+	passes    int              // merge loop passes done, for the tests to wait on
+	onStream  int              // of those, the passes that ran connected to one herdr stream (mergeLoop), for the tests to wait on
+	scratched int              // scratch effects started in their own goroutine, for the tests to wait on
 
 	life     context.Context    // the daemon's lifetime: the socket requests' effects run under it
 	stop     context.CancelFunc // ends life (Serve's end)
@@ -113,8 +112,9 @@ type App struct {
 	hooked atomic.Pointer[func(string)] // a test's hook at the points App.hook names (nil: none; drive.go)
 }
 
-// proj is the served project: its herdr workspace is the one labelled Name. Its state is in two parts: folded, what a
-// replay of the event log alone rebuilds (written by foldRecord's folds), and the live state below it.
+// proj is the served project: its panes are the terminal's group named Name (herdr: the workspace labelled Name).
+// Its state is in two parts: folded, what a replay of the event log alone rebuilds (written by foldRecord's folds),
+// and the live state below it.
 type proj struct {
 	root, name string
 	log        *event.Log

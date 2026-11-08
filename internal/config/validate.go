@@ -41,6 +41,7 @@ func (c *Config) Validate(o ValidateOptions) (warns, fails []string) {
 	v.laneNames()
 	v.trunk()
 	v.workflow()
+	v.terminal()
 	v.projectFiles()
 	return append(c.warnings(o), v.warns...), v.fails
 }
@@ -257,6 +258,13 @@ func (v *validator) optional() {
 func (v *validator) workflow() {
 	if k := v.d.Workflow.Kind; k != "" && !slices.Contains(WorkflowKinds, k) {
 		v.fail(".workflow.kind", "must be one of "+strings.Join(WorkflowKinds, ", ")+", got "+Compact(k))
+	}
+}
+
+// terminal: terminal.kind names a terminal obor has an adapter for (T-1044).
+func (v *validator) terminal() {
+	if k := v.d.Terminal.Kind; k != "" && !slices.Contains(TerminalKinds, k) {
+		v.fail(".terminal.kind", "must be one of "+strings.Join(TerminalKinds, ", ")+", got "+Compact(k))
 	}
 }
 

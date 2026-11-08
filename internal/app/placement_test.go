@@ -38,7 +38,7 @@ func placed(h *harness, dir string, names ...string) string {
 
 // labelPane is a pane of pj's workspace at cwd, at its shell, labelled label ("" none).
 func labelPane(id, cwd, label string) port.Pane {
-	return port.Pane{ID: id, Workspace: "w1", Cwd: cwd, Label: label}
+	return port.Pane{ID: id, Group: "pj", Cwd: cwd, Label: label}
 }
 
 // T-783: the pane labelled for the lane's agent wins over a pane at its shell of a lower id, and over one that runs an
@@ -58,7 +58,7 @@ func TestPaneInRanksTheLabel(t *testing.T) {
 	t.Run("a labelled shell beats a lower-id pane running an agent", func(t *testing.T) {
 		t.Parallel()
 		h := labelRig(t, func(h *harness) []port.Pane {
-			return []port.Pane{{ID: "w1:p0", Workspace: "w1", Cwd: h.lane("L-01"), Agent: "claude", Status: "idle"},
+			return []port.Pane{{ID: "w1:p0", Group: "pj", Cwd: h.lane("L-01"), Agent: "claude", Status: "idle"},
 				labelPane("w1:p2", h.lane("L-01"), "pj-l-01")}
 		})
 		if got := placed(h, h.lane("L-01"), "pj-l-01"); got != "w1:p2" {
@@ -79,7 +79,7 @@ func TestPaneInRanksTheLabel(t *testing.T) {
 	t.Run("identified as the lane's agent but labelled another: none", func(t *testing.T) {
 		t.Parallel()
 		h := labelRig(t, func(h *harness) []port.Pane {
-			return []port.Pane{{ID: "w1:p1", Workspace: "w1", Cwd: h.lane("L-01"), Agent: "claude", Label: "pj-l-02",
+			return []port.Pane{{ID: "w1:p1", Group: "pj", Cwd: h.lane("L-01"), Agent: "claude", Label: "pj-l-02",
 				Status: "idle", Terminal: "t1"}}
 		}, func(h *harness) { h.started("pj-l-01", "w1:p1", "t1", "s1") })
 		if who := h.who("w1:p1"); who != "pj-l-01" {
@@ -94,9 +94,9 @@ func TestPaneInRanksTheLabel(t *testing.T) {
 		t.Parallel()
 		h := labelRig(t, func(h *harness) []port.Pane {
 			return []port.Pane{
-				{ID: "w1:p0", Workspace: "w1", Cwd: h.lane("L-01"), Agent: "claude", Label: "pj-l-01", Status: "idle",
+				{ID: "w1:p0", Group: "pj", Cwd: h.lane("L-01"), Agent: "claude", Label: "pj-l-01", Status: "idle",
 					Terminal: "t0"},
-				{ID: "w1:p1", Workspace: "w1", Cwd: h.lane("L-01"), Agent: "claude", Label: "pj-l-01", Status: "idle",
+				{ID: "w1:p1", Group: "pj", Cwd: h.lane("L-01"), Agent: "claude", Label: "pj-l-01", Status: "idle",
 					Terminal: "t1"}}
 		}, func(h *harness) { h.started("pj-l-01", "w1:p1", "t1", "s1") })
 		if who := h.who("w1:p0"); who != "" {

@@ -120,7 +120,7 @@ func TestIdleBlockers(t *testing.T) {
 		t.Parallel()
 		r := newLoopRig(t, withConfig(testkit.Set("roles.reviewer", "")))
 		rev := r.f.Agent("w1:p6", "pj-rev", "idle", r.p.Root)
-		rev.Workspace, rev.Label = "w1", "pj-rev"
+		rev.Label = "pj-rev"
 		r.start()
 		if reply, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-rev", Note: "review the wave"}); err != nil ||
 			!strings.HasPrefix(reply, "BRIEFED pj-rev") {
@@ -247,7 +247,7 @@ func TestIdleSettleReviewRequestTenSecondsLater(t *testing.T) {
 	// The reviewer busy: the request stays in flight (every workflow has a review git, T-1029: an idle reviewer would
 	// start the review at once).
 	rev := r.f.Agent("w1:p5", "pj-rev", "working", r.p.Root)
-	rev.Workspace, rev.Label = "w1", "pj-rev"
+	rev.Label = "pj-rev"
 	r.start()
 	r.mergedTask()
 	line := idleLineFor(r, "T-1")

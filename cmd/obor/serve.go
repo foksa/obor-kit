@@ -163,6 +163,9 @@ func mergeLoop(env project.Env, panes herdr.Panes, end *serveEnd) func(root stri
 		if err != nil {
 			return nil, err
 		}
+		if k := cfg.TerminalKind(); k != config.DefaultTerminal { // T-1044: herdr is the one terminal adapter
+			return nil, fmt.Errorf("terminal.kind %q: serve knows %s", k, strings.Join(config.TerminalKinds, ", "))
+		}
 		l := &app.Loop{Workflow: wf, Agents: agents, Typer: panes, Nightly: nightly(o), Disk: diskOf(repo.Root),
 			Inbox: poster{repo.Root}}
 		dispatchLoop(l, env, cfg)

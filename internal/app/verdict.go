@@ -450,7 +450,7 @@ func Dash(s string) string {
 }
 
 // startIntegrator starts the integrator of the project at root through agents unless it is identified in the
-// project's workspace (refused while two panes claim it) (docs/state-model.md row 36; the merge loop records it), with
+// project's group (refused while two panes claim it) (docs/state-model.md row 36; the merge loop records it), with
 // l's first prompt (a job's wake, "": none) and Force: the start (its line "running" when it runs already: nothing
 // started).
 // l.Fresh (a job's first start, T-602): a new session, also in place of one that runs.

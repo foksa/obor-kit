@@ -48,14 +48,15 @@ const (
 
 // FactData is a watchdog fact's data: where the agent is and why the fact fired.
 type FactData struct {
-	Lane        string `json:"lane,omitempty"`
-	Machine     string `json:"machine,omitempty"`
-	Workspace   string `json:"workspace,omitempty"` // its label
-	WorkspaceID string `json:"workspace_id,omitempty"`
-	Pane        string `json:"pane,omitempty"`
-	Agent       string `json:"agent,omitempty"`
-	Reason      string `json:"reason,omitempty"`
-	Merge       bool   `json:"merge,omitempty"` // a merge-loop fact, not a watchdog's
+	Lane    string `json:"lane,omitempty"`
+	Machine string `json:"machine,omitempty"`
+	// Group is the terminal's group of the agent's pane, by its name (herdr: the workspace's label; "workspace" in the
+	// log since before T-1044).
+	Group  string `json:"workspace,omitempty"`
+	Pane   string `json:"pane,omitempty"`
+	Agent  string `json:"agent,omitempty"`
+	Reason string `json:"reason,omitempty"`
+	Merge  bool   `json:"merge,omitempty"` // a merge-loop fact, not a watchdog's
 	// A merge-loop needs-you's cause (what obor resume does by default), an unblocked's too (of a watchdog's, only a
 	// worker's stop has one: causeStopped, T-532); Job is the integrator job
 	// it names, Call the call id of the hold or resume that recorded it, Step the key of the step a failed fact counts.

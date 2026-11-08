@@ -153,8 +153,8 @@ func newStop(agent, errText, details, callID string) (stoppedData, string) {
 // needs-you of it that the fact puts in force (under mu).
 func (a *App) workerStop(p *proj, d *stoppedData, said, task string, w *watch, pane port.Pane) {
 	d.Task, d.Reply = task, "STOPPED "+d.Agent+" (needs-you "+task+")"
-	d.NeedsYou = &event.FactData{Lane: w.lane.Name, Machine: Machine, Workspace: a.spaces[pane.Workspace],
-		WorkspaceID: pane.Workspace, Pane: pane.ID, Agent: a.shownAs(p, pane), Reason: said, Cause: causeStopped}
+	d.NeedsYou = &event.FactData{Lane: w.lane.Name, Machine: Machine, Group: pane.Group,
+		Pane: pane.ID, Agent: a.shownAs(p, pane), Reason: said, Cause: causeStopped}
 }
 
 // roleStop makes d the stop of role agent d.Agent (not the lead), its kind kind ("": the default), the reset its

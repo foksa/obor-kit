@@ -91,17 +91,17 @@ func TestPanesBusyUnknown(t *testing.T) {
 func TestPanesSubscribe(t *testing.T) {
 	t.Parallel()
 	f := fixture()
-	f.Workspaces = []herdr.Workspace{{ID: "w1", Label: "pj"}}
-	f.Pane("w1:p1").Workspace = "w1"
+	f.Group("w1", "pj")
 	srv := herdrtest.Serve(t, f)
 	st, err := herdr.Panes{S: srv.Client(), Home: t.TempDir()}.Subscribe(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	want := port.Pane{ID: "w1:p1", Workspace: "w1", Cwd: "/proj-wt/L-01", Agent: "claude", Name: "pj-l-01", Status: "idle",
-		Label: "pj-l-01", Session: "5e1d0c2b-aaaa", Seq: 1}
-	if st.Snapshot.Workspaces["w1"] != "pj" || len(st.Snapshot.Panes) != 3 || st.Snapshot.Panes[0] != want {
+	// The core sees workspace w1 by its label, as the pane's group (T-1044).
+	want := port.Pane{ID: "w1:p1", Group: "pj", Cwd: "/proj-wt/L-01", Agent: "claude", Name: "pj-l-01", Status: "idle",
+		Label: "pj-l-01", Session: "5e1d0c2b-aaaa"}
+	if len(st.Snapshot.Panes) != 3 || st.Snapshot.Panes[0] != want {
 		t.Fatalf("snapshot = %+v\nwant first pane %+v", st.Snapshot, want)
 	}
 	srv.WaitSubscribed(t, herdr.EventStatus, "w1:p1")

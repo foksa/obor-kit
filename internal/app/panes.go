@@ -14,7 +14,7 @@ import (
 // connect works from a fresh snapshot: every pane observed, the project's identity table reconciled, then the work
 // its owned panes show noted for their briefs (RV-53 #4: the first snapshot after a replay too), then a check. One that shares no pane id with the panes known is a new herdr session (herdr
 // restarted): nothing of the old one is evidence for it, so no pane of it "exited" and no lane "lost" its agent; the
-// lanes find their panes again by workspace label and cwd. Otherwise a known pane gone from it exited, and a pane
+// lanes find their panes again by group (the project's name) and cwd. Otherwise a known pane gone from it exited, and a pane
 // whose status and agent are unchanged keeps its timer.
 func (a *App) connect(ctx context.Context, snap port.Snapshot) {
 	now := a.opt.Now()
@@ -27,10 +27,6 @@ func (a *App) connect(ctx context.Context, snap port.Snapshot) {
 			}
 		}
 		a.logf("herdr: a new session (no pane id known): watching it afresh")
-	}
-	a.spaces = snap.Workspaces
-	if a.spaces == nil {
-		a.spaces = map[string]string{}
 	}
 	in := map[string]bool{}
 	for _, p := range snap.Panes {
@@ -157,13 +153,10 @@ func (a *App) event(ctx context.Context, ev port.Event) {
 	a.logWorked(p) // a brief's work this event showed is in the log at once (RV-50 #3)
 }
 
-// projectOf is the served project whose workspace holds pane (nil: none, the pane is ignored).
+// projectOf is the served project whose group (the terminal's, by name: herdr's workspace label) holds pane (nil:
+// none, the pane is ignored).
 func (a *App) projectOf(pane port.Pane) *proj {
-	label, ok := a.spaces[pane.Workspace]
-	if !ok {
-		return nil
-	}
-	if a.p != nil && a.p.name == label {
+	if a.p != nil && pane.Group != "" && a.p.name == pane.Group {
 		return a.p
 	}
 	return nil

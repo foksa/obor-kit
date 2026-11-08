@@ -21,10 +21,16 @@ func setupCmd(args []string) int {
 	cwd, _ := os.Getwd()
 	kit := project.KitRoot(project.OSEnv)
 	h := &herdr.Socket{Path: herdr.SocketPath(project.OSEnv)}
-	s := &setup.Setup{Kit: kit, Dir: cwd, Env: project.OSEnv, H: h, Out: out, McpCheck: mcp.Check,
+	s := &setup.Setup{Kit: kit, Dir: cwd, Env: project.OSEnv, T: terminalSetup(project.OSEnv, h), Out: out, McpCheck: mcp.Check,
 		Starter: launcherFor(project.OSEnv, kit, h, out, nil), Serve: serveInstaller(project.OSEnv),
 		Installed: serveInstalled(project.OSEnv)}
 	return s.Run(context.Background(), args)
+}
+
+// terminalSetup is setup's terminal (port.TerminalSetup, T-1044) over the herdr socket h: herdr is the one terminal
+// kind obor has an adapter for (config.TerminalKinds; obor config validate refuses another, serve's load too).
+func terminalSetup(env project.Env, h *herdr.Socket) port.TerminalSetup {
+	return &herdr.Setup{Socket: h, Env: env}
 }
 
 // initCmd is `obor init [--name N] [--prefix P]` (P7-2): the project set up with no questions

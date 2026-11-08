@@ -75,9 +75,9 @@ func atAgent(r *concRig) {
 func stopRig(t *testing.T) (*harness, *reviewStopSpy) {
 	t.Helper()
 	h := ruleHarness(t)
-	h.snap = port.Snapshot{Workspaces: map[string]string{"w1": "pj"}, Panes: []port.Pane{
-		{ID: "w1:lead", Workspace: "w1", Cwd: h.root, Agent: "claude", Label: "pj-lead", Status: "idle"},
-		{ID: "w1:int", Workspace: "w1", Cwd: h.root, Agent: "claude", Label: "pj-int", Status: "idle"},
+	h.snap = port.Snapshot{Panes: []port.Pane{
+		{ID: "w1:lead", Group: "pj", Cwd: h.root, Agent: "claude", Label: "pj-lead", Status: "idle"},
+		{ID: "w1:int", Group: "pj", Cwd: h.root, Agent: "claude", Label: "pj-int", Status: "idle"},
 	}}
 	h.a.connect(context.Background(), h.snap)
 	p := h.proj()
@@ -126,7 +126,7 @@ func TestRoleStopIntegratorRule(t *testing.T) {
 		}
 	}
 	secondPane := func(t *testing.T, h *harness, _ *reviewStopSpy) {
-		h.snap.Panes = append(h.snap.Panes, port.Pane{ID: "w1:int2", Workspace: "w1", Cwd: h.root,
+		h.snap.Panes = append(h.snap.Panes, port.Pane{ID: "w1:int2", Group: "pj", Cwd: h.root,
 			Agent: "claude", Label: "pj-int", Status: "idle"})
 		h.a.connect(context.Background(), h.snap)
 		h.a.mu.Lock()
@@ -257,9 +257,9 @@ func TestBriefToStoppedRoleAgent(t *testing.T) {
 	}{{"stopped", "", true}, {"running", "codex", false}} {
 		t.Run(c.name, func(t *testing.T) {
 			a, p := lineApp(t, root, &now)
-			a.connect(context.Background(), port.Snapshot{Workspaces: map[string]string{"w": "proj"}, Panes: []port.Pane{
-				{ID: "w:lead", Workspace: "w", Cwd: root, Agent: "claude", Label: p.out.lead(), Status: "idle"},
-				{ID: "w:adv", Workspace: "w", Cwd: root, Agent: c.agent, Label: "pj-advisor", Status: "idle"},
+			a.connect(context.Background(), port.Snapshot{Panes: []port.Pane{
+				{ID: "w:lead", Group: "proj", Cwd: root, Agent: "claude", Label: p.out.lead(), Status: "idle"},
+				{ID: "w:adv", Group: "proj", Cwd: root, Agent: c.agent, Label: "pj-advisor", Status: "idle"},
 			}})
 			if w := a.whereIs(p, "pj-advisor"); (w.State == Identified) == c.started {
 				t.Fatalf("precondition: pj-advisor %+v", w)
@@ -313,9 +313,9 @@ func TestBriefReachesCustomRole(t *testing.T) {
 	}
 	now := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
 	a, p := lineApp(t, root, &now)
-	a.connect(context.Background(), port.Snapshot{Workspaces: map[string]string{"w": "proj"}, Panes: []port.Pane{
-		{ID: "w:lead", Workspace: "w", Cwd: root, Agent: "claude", Label: p.out.lead(), Status: "idle"},
-		{ID: "w:ux", Workspace: "w", Cwd: root, Label: "pj-ux-buddy", Status: "idle"},
+	a.connect(context.Background(), port.Snapshot{Panes: []port.Pane{
+		{ID: "w:lead", Group: "proj", Cwd: root, Agent: "claude", Label: p.out.lead(), Status: "idle"},
+		{ID: "w:ux", Group: "proj", Cwd: root, Label: "pj-ux-buddy", Status: "idle"},
 	}})
 	reply, err := a.briefCall(wire.Call{Root: p.root, CallID: "b-ux", To: "pj-ux-buddy", Note: "review the flows",
 		Role: "lead", Agent: "pj-lead"})
@@ -483,9 +483,9 @@ func TestBriefToStoppedWorkerStartsNothing(t *testing.T) {
 	}
 	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
 	a, p := lineApp(t, root, &now)
-	a.connect(context.Background(), port.Snapshot{Workspaces: map[string]string{"w": "proj"}, Panes: []port.Pane{
-		{ID: "w:lead", Workspace: "w", Cwd: root, Agent: "claude", Label: p.out.lead(), Status: "idle"},
-		{ID: "w:o1", Workspace: "w", Cwd: root, Agent: "", Label: "pj-l-01"},
+	a.connect(context.Background(), port.Snapshot{Panes: []port.Pane{
+		{ID: "w:lead", Group: "proj", Cwd: root, Agent: "claude", Label: p.out.lead(), Status: "idle"},
+		{ID: "w:o1", Group: "proj", Cwd: root, Agent: "", Label: "pj-l-01"},
 	}})
 	a.mu.Lock()
 	w := a.whereIs(p, "pj-l-01")

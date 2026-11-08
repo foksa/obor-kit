@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"obor/internal/herdr"
+	"obor/internal/herdr/herdrtest"
 )
 
 const (
@@ -36,9 +37,38 @@ func herdrLive(l *lab, _ bool) {
 	hL5(l, pane)
 	hL9(l, pane)
 	hL1Timeout(l, pane)
+	hContract(l, pane, "conf")
 	report("SKIP", "H-L2", "runs in the claude session (KIND=claude): Claude's trust dialog is the known dialog it needs",
 		at(launchGo, "l.H.Wake(")+", F3.3")
 	hL6(l, pane)
+}
+
+// The contract's rows are herdr's live rows too, for the SKIP lines when herdr cannot run.
+func init() {
+	for _, row := range herdrtest.Contract {
+		liveIDs["herdr"] = append(liveIDs["herdr"], "H-C "+row.Name)
+	}
+}
+
+// hContract: the terminal contract (herdrtest.Contract, T-1044) against herdr's adapter on the throwaway session, one
+// H-C row each, on pane (a shell in the workspace labelled group). A row that starts an agent is the kind sessions'
+// (each proves a start there): SKIP here.
+func hContract(l *lab, pane, group string) {
+	where := "internal/herdr/herdrtest/contract.go (T-1044), the same rows as internal/herdr's TestTerminalContract"
+	s := &herdr.Socket{Path: l.sock, Timeout: 10 * time.Second}
+	t := herdrtest.Terminal{Control: s, Panes: herdr.Panes{S: s}, Group: group}
+	for _, row := range herdrtest.Contract {
+		id := "H-C " + row.Name
+		if row.Agent {
+			report("SKIP", id, "starts an agent CLI: the kind sessions (KIND=claude, codex, opencode) prove a start", where)
+			continue
+		}
+		if err := row.Run(l.ctx, t, pane); err != nil {
+			report("FAIL", id, err.Error(), where)
+			continue
+		}
+		report("PASS", id, "herdr's adapter keeps the row on a live session", where)
+	}
 }
 
 // hL7: herdr's injected HERDR_* in the pane's shell and in a child of it (the stub, as an MCP server would start).

@@ -42,7 +42,7 @@ func New(opt Options, panes port.Panes, lanes port.Lanes) *App {
 		opt.Refresh = func(error) bool { return false }
 	}
 	a := &App{opt: opt, panes: panes, lanes: lanes,
-		spaces: map[string]string{}, obs: map[string]*seen{}, kick: make(chan struct{}, 1), rescan: make(chan struct{}, 1),
+		obs: map[string]*seen{}, kick: make(chan struct{}, 1), rescan: make(chan struct{}, 1),
 		scanned: make(chan struct{}, 1), loaded: make(chan struct{})}
 	a.life, a.stop = context.WithCancel(context.Background())
 	a.since = opt.Now()

@@ -97,9 +97,11 @@ func New() *Fake {
 	return &Fake{}
 }
 
-// Agent adds a pane with an agent and returns it.
+// Agent adds a pane with an agent and returns it. A pane's workspace is its id's part before the colon ("w1:p1" is in
+// w1), as the fake's own new panes are.
 func (f *Fake) Agent(pane, name, status, cwd string) *Pane {
-	p := &Pane{Wire: herdr.Wire{ID: pane, Kind: "claude", Name: name, Status: status, Cwd: cwd, Seq: 1}}
+	p := &Pane{Wire: herdr.Wire{ID: pane, Workspace: spaceOf(pane), Kind: "claude", Name: name, Status: status, Cwd: cwd,
+		Seq: 1}}
 	f.mu.Lock()
 	f.Panes = append(f.Panes, p)
 	f.mu.Unlock()
@@ -108,7 +110,7 @@ func (f *Fake) Agent(pane, name, status, cwd string) *Pane {
 
 // Shell adds a pane with no agent and returns it.
 func (f *Fake) Shell(pane, label, cwd string) *Pane {
-	p := &Pane{Wire: herdr.Wire{ID: pane, Label: label, Cwd: cwd}}
+	p := &Pane{Wire: herdr.Wire{ID: pane, Workspace: spaceOf(pane), Label: label, Cwd: cwd}}
 	f.mu.Lock()
 	f.Panes = append(f.Panes, p)
 	f.mu.Unlock()
@@ -119,9 +121,45 @@ func (f *Fake) Shell(pane, label, cwd string) *Pane {
 func (f *Fake) Tab(tab string, w, h int, ids ...string) {
 	f.mu.Lock()
 	for _, id := range ids {
-		f.Panes = append(f.Panes, &Pane{Wire: herdr.Wire{ID: id, Tab: tab}, W: w, H: h})
+		f.Panes = append(f.Panes, &Pane{Wire: herdr.Wire{ID: id, Tab: tab, Workspace: spaceOf(id)}, W: w, H: h})
 	}
 	f.mu.Unlock()
+}
+
+// spaceOf is the workspace of pane id: its part before the colon ("" when none).
+func spaceOf(id string) string {
+	ws, _, ok := strings.Cut(id, ":")
+	if !ok {
+		return ""
+	}
+	return ws
+}
+
+// Group labels workspace id label (session.snapshot's workspaces): the group the core sees its panes in
+// (port.Pane.Group, T-1044). A workspace already listed is relabelled.
+func (f *Fake) Group(id, label string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := range f.Workspaces {
+		if f.Workspaces[i].ID == id {
+			f.Workspaces[i].Label = label
+			return
+		}
+	}
+	f.Workspaces = append(f.Workspaces, herdr.Workspace{ID: id, Label: label})
+}
+
+// Ungroup drops workspace id from session.snapshot's workspaces: its panes are in no group the core sees.
+func (f *Fake) Ungroup(id string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var kept []herdr.Workspace
+	for _, w := range f.Workspaces {
+		if w.ID != id {
+			kept = append(kept, w)
+		}
+	}
+	f.Workspaces = kept
 }
 
 // Pane is the pane id; nil when none.

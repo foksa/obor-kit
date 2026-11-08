@@ -92,8 +92,10 @@ Adding a kind = one package + a config entry.
   `resume.go`, `verdict.go`, `jobs.go`, `prompt.go`,
   `effects.go` (`JobID`), `describe.go` (`Describe`: a record as the readers word it, decoded with the types serve
   writes it with; the view's one reader of record data, T-893): one concern each.
-- `app/port` (core, a leaf below `app`; T-690): the ports and the types they exchange, with no logic: herdr's `Pane`,
-  `Snapshot`, `Event`, `Stream`, `Panes`; `Lane`, `Lanes`; and the effects (`Agents`, `Typer`, `PaneControl`, `Starter`,
+- `app/port` (core, a leaf below `app`; T-690): the ports and the types they exchange, with no logic: the terminal's `Pane`
+  (terminal-neutral, T-1044: its `Group`, no tab or workspace), `Snapshot`, `Event`, `Stream`, `Panes`; `Lane`, `Lanes`;
+  `TerminalSetup` (setup's terminal: `Agents`, `Place` a `Placement`, `Integrate`, `RenameProject`, T-1044); and the
+  effects (`Agents`, `Typer`, `PaneControl`, `Starter`,
   `Scratch`, `LaneSetup`, `Review` and their inputs and outcomes, and `Workflow`, the git workflow behind one
   interface: those three, the dispatch's `Target` and the `Promote`, T-1029). Adapters import it instead of `app`; `app` keeps type and const
   aliases of it until a later task removes them (`app/ports.go`).
@@ -121,7 +123,10 @@ Adding a kind = one package + a config entry.
 
 **adapters** — one outside system each.
 - `herdr`: herdr socket client (events.subscribe, session.snapshot, agent.prompt, pane.*). Implements `app.Panes`
-  and `app.Typer`; `herdr/herdrtest` is its fake (test helper).
+  and `app.Typer`, and `port.TerminalSetup` as `Setup` (`setup.go`, T-1044: the layout of setup's placements in tabs,
+  workspaces and splits, the obor.events plugin, the workspace rename); herdr's own `Pane` (tab and workspace ids) stays
+  here; `terminal.kind` `herdr` selects it; `herdr/herdrtest` is its fake (test helper) and holds the terminal contract
+  table (`contract.go`, run by `TestTerminalContract` and the live tier's H-C rows).
 - `checks`: git and the merge gate: lanes (`checks.Lane`, `LaneSetup`), serve's worktree `merge.scratch_dir` (submit,
   gate: merge and compile, resolved, publish, after_merge over pins under `refs/obor/`), the lane test of a candidate in
   the task's lane worktree (`lanetest.go`, `Scratch.Test`: the class's checks, T-961), nightly/milestone checks in their own worktree,
@@ -143,7 +148,8 @@ Adding a kind = one package + a config entry.
 - `guard`: the Claude Code hooks: PreToolUse (Bash parse, edit checks, the headless ban), Stop, StopFailure,
   SessionStart, UserPromptSubmit, whoami.
 - `setup`: make a project obor-ready (config, lanes, panes, roles, githooks, herdr/opencode plugin, MCP report; it
-  starts agents through an `app.Starter` that `cmd/obor` injects); `obor init`
+  starts agents through an `app.Starter` that `cmd/obor` injects, and asks the terminal for panes through
+  `port.TerminalSetup`, whose adapter lays them out, T-1044); `obor init`
   (`oborinit.go`, P7-2: the steps chained with no questions; serve install through `Setup.Serve`, which `cmd/obor` wires
   to `service`).
 - `service`: the project's launchd agent (T-596; darwin only, elsewhere each verb says to run `obor serve` yourself):
@@ -171,7 +177,7 @@ core and the adapters; only entry packages import it. **Every reader of project 
 appears in both; the narrow page reads share its mapping helpers, and there is no second Project builder.
 
 **test helpers** — `testkit` (fixture projects, the store helpers tests use, the workflow contract table) and `herdr/herdrtest` (the fake herdr
-socket: scripted panes and plugins, and every request a test's client sent).
+socket: scripted panes and plugins, and every request a test's client sent; the terminal contract table, T-1044).
 
 **entry** — `cmd/obor`: flags and wiring only; `obor status`' rendering of
 `view.Project` (rendering only: no state is joined there); the

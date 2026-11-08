@@ -21,10 +21,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -86,7 +84,7 @@ func (s *Setup) renameCmd(ctx context.Context, args []string) error {
 		run  func(context.Context) error
 	}{
 		{"0 stop", r.stop}, {"1 config", r.config}, {"3 files", r.files},
-		{"4 herdr", r.workspace}, {"5 finish", r.finish},
+		{"4 herdr", r.terminal}, {"5 finish", r.finish},
 	}
 	for _, st := range steps {
 		if err := st.run(ctx); err != nil {
@@ -120,7 +118,7 @@ func (r *renamer) stop(ctx context.Context) error {
 	if pid, _ := strconv.Atoi(l.Holder()); project.PIDAlive(pid) {
 		return project.Failf("%s names pid %d, which still runs: stop that serve, then run obor setup rename again", path, pid)
 	}
-	running, err := r.H.Agents(ctx)
+	running, err := r.T.Agents(ctx)
 	switch {
 	case port.NotRunning(err): // herdr is not running: no agent either
 	case err != nil:
@@ -322,98 +320,19 @@ func (r *renamer) kitPaths() ([]string, error) {
 
 // 4 ---------------------------------------------------------------------------------------------------------------
 
-func (r *renamer) workspace(ctx context.Context) error {
-	herdrBin, err := lookPath(r.Env.Get("PATH"), "herdr")
-	if err != nil {
-		r.say("WARN 4 herdr: herdr is not on PATH: rename the workspace %s to %s and relabel its panes by hand (herdr pane rename)", r.oldName, r.name)
-		return nil
-	}
-	call := func(args ...string) ([]byte, error) {
-		cmd := exec.CommandContext(ctx, herdrBin, args...)
-		cmd.Env = append(os.Environ(), "PATH="+r.Env.Get("PATH"))
-		return cmd.Output()
-	}
-	out, err := call("workspace", "list")
-	if err != nil { // herdr is not running: no workspace either
-		r.ok("4 herdr", true, "herdr lists no workspaces")
-		return nil
-	}
-	var list struct {
-		Result struct {
-			Workspaces []struct {
-				ID    string `json:"workspace_id"`
-				Label string `json:"label"`
-			} `json:"workspaces"`
-		} `json:"result"`
-	}
-	if err := json.Unmarshal(out, &list); err != nil {
-		return project.Failf("herdr workspace list: unreadable answer: %v", err)
-	}
-	var renamed []string
-	spaces := map[string]bool{} // the project's workspaces: labelled with the old name, or the new (a rerun, or only the prefix changes)
-	for _, w := range list.Result.Workspaces {
-		switch w.Label {
-		case r.name:
-			spaces[w.ID] = true
-		case r.oldName:
-			spaces[w.ID] = true
-			if _, err := call("workspace", "rename", w.ID, r.name); err != nil {
-				return project.Failf("herdr workspace rename %s %s failed: %v", w.ID, r.name, err)
-			}
-			renamed = append(renamed, w.ID)
-		}
-	}
-	relabelled, err := r.relabelPanes(call, spaces)
-	if err != nil {
+// terminal is step 4: the terminal's share of the rename (port.TerminalSetup.RenameProject; herdr: the workspace
+// labelled with the old name, and its panes' labels that follow the old prefix).
+func (r *renamer) terminal(ctx context.Context) error {
+	done, err := r.T.RenameProject(ctx, r.oldName, r.name, r.mapAgent)
+	switch {
+	case err != nil:
 		return err
-	}
-	var did []string
-	if len(renamed) > 0 {
-		did = append(did, fmt.Sprintf("workspace %s: %s → %s", strings.Join(renamed, ", "), r.oldName, r.name))
-	}
-	if len(relabelled) > 0 {
-		did = append(did, "pane labels "+strings.Join(relabelled, ", "))
-	}
-	if len(did) == 0 {
-		r.ok("4 herdr", true, "no workspace is labelled %s, no pane label follows the old prefix", r.oldName)
-	} else {
-		r.ok("4 herdr", false, "%s", strings.Join(did, "; "))
+	case done.Warn:
+		r.say("WARN 4 herdr: %s", done.Line)
+	default:
+		r.ok("4 herdr", done.Already, "%s", done.Line)
 	}
 	return nil
-}
-
-// relabelPanes renames each pane of the workspaces in spaces whose label mapAgent maps to a new name (herdr pane
-// rename), so a later start in it is not refused for "labelled pj-o-01, not ob-o-01"; the other labels stay. It
-// returns "<pane> <old> → <new>" for each.
-func (r *renamer) relabelPanes(call func(...string) ([]byte, error), spaces map[string]bool) ([]string, error) {
-	out, err := call("pane", "list")
-	if err != nil {
-		return nil, project.Failf("herdr pane list failed: %v", err)
-	}
-	var list struct {
-		Result struct {
-			Panes []struct {
-				ID    string `json:"pane_id"`
-				Space string `json:"workspace_id"`
-				Label string `json:"label"`
-			} `json:"panes"`
-		} `json:"result"`
-	}
-	if err := json.Unmarshal(out, &list); err != nil {
-		return nil, project.Failf("herdr pane list: unreadable answer: %v", err)
-	}
-	var done []string
-	for _, p := range list.Result.Panes {
-		next := r.mapAgent(p.Label)
-		if !spaces[p.Space] || next == p.Label {
-			continue
-		}
-		if _, err := call("pane", "rename", p.ID, next); err != nil {
-			return nil, project.Failf("herdr pane rename %s %s failed: %v", p.ID, next, err)
-		}
-		done = append(done, fmt.Sprintf("%s %s → %s", p.ID, p.Label, next))
-	}
-	return done, nil
 }
 
 // 5 ---------------------------------------------------------------------------------------------------------------

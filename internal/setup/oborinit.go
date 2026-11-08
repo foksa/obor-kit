@@ -78,11 +78,11 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	if r, err := project.Find(s.Dir); err == nil && project.Stopped(r.Root) {
 		return project.Failf("%s is stopped (obor stop): obor start wakes it", r.Root)
 	}
-	running, err := s.H.Agents(ctx)
+	running, err := s.T.Agents(ctx)
 	if err != nil {
 		return project.Failf("herdr is not reachable (%v): start herdr, then obor init again", err)
 	}
-	claude, err := lookPath(s.Env.Get("PATH"), agents.Default)
+	claude, err := project.LookPath(s.Env.Get("PATH"), agents.Default)
 	if err != nil {
 		return project.Failf("%s is not on PATH (the lead runs it): install it, then obor init again", agents.Default)
 	}
@@ -226,19 +226,12 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	}
 	add("plugin-links", state, "%s", what)
 
-	// events
-	mine, err := s.pluginDir()
+	// events: the terminal's integration (herdr: obor.events)
+	in, err := s.integrate(ctx)
 	if err != nil {
 		return err
 	}
-	plugins, err := s.H.Plugins(ctx)
-	if err != nil {
-		return project.Failf("cannot read herdr's plugin list: %v", err)
-	}
-	if err := s.events(ctx, mine, plugins); err != nil {
-		return err
-	}
-	add("events", doneOr(!eventsLinked(mine, plugins)), "obor.events linked in herdr (user-global)")
+	add("events", doneOr(in.Changed), "%s", in.What)
 
 	// panes
 	waiting, err := s.initPanes(ctx, add)
@@ -461,7 +454,7 @@ func (s *Setup) editConfig(key []string, val any) error {
 func (s *Setup) detectedLine() string {
 	var clis []string
 	for _, k := range agents.Names() {
-		if _, err := lookPath(s.Env.Get("PATH"), k); err == nil {
+		if _, err := project.LookPath(s.Env.Get("PATH"), k); err == nil {
 			clis = append(clis, k)
 		}
 	}
@@ -484,7 +477,7 @@ func (s *Setup) initRoleTypes() (string, error) {
 		rc, _ := s.cfg.Role(role)
 		lt, _ := s.cfg.Model(rc.Type)
 		if rc.Type != "" && lt.Kind != "" {
-			if _, err := lookPath(s.Env.Get("PATH"), lt.Kind); err == nil {
+			if _, err := project.LookPath(s.Env.Get("PATH"), lt.Kind); err == nil {
 				parts = append(parts, role+" "+config.ModelRef(rc.Type, rc.Effort))
 				continue
 			}
@@ -615,7 +608,7 @@ func exitText(err error) string {
 // through add, and the agents a trust dialog holds ("name (pane id)").
 func (s *Setup) initPanes(ctx context.Context, add func(name, state, format string, a ...any)) ([]string, error) {
 	var waiting []string
-	place := func(what, agent string, f func(w []string) error, w []string) error {
+	place := func(what, agent string, f func(w where) error, w where) error {
 		err := f(w)
 		switch {
 		case err != nil && strings.HasPrefix(err.Error(), "agent not ready"):
@@ -634,31 +627,29 @@ func (s *Setup) initPanes(ctx context.Context, add func(name, state, format stri
 		}
 		return nil
 	}
-	lane := func(name string) func([]string) error {
-		return func(w []string) error { return s.pane(ctx, append([]string{name}, w...)) }
+	lane := func(name string) func(where) error {
+		return func(w where) error { return s.lanePane(ctx, name, w, false) }
 	}
-	role := func(name string) func([]string) error {
-		return func(w []string) error { return s.role(ctx, append([]string{name}, w...)) }
+	role := func(name string) func(where) error {
+		return func(w where) error { return s.rolePane(ctx, name, w, false) }
 	}
-	if err := place("L-01", s.laneWorker("L-01"), lane("L-01"), []string{"--new-tab", "workers"}); err != nil {
+	// The layout is the terminal's (T-1044): L-01 in a group of its own, L-02 and the integrator beside it (the
+	// integrator by the caller's own pane when it has one), the reviewer in a group of its own.
+	if err := place("L-01", s.laneWorker("L-01"), lane("L-01"), where{own: true}); err != nil {
 		return nil, err
 	}
-	tab := s.projectTabOf(ctx, s.placed)
-	beside := []string{"--new-tab", "workers"}
-	if tab != "" {
-		beside = []string{"--tab", tab}
-	}
+	beside := where{beside: s.placed} // L-01's pane: every outcome of its step but an error placed one
 	if err := place("L-02", s.laneWorker("L-02"), lane("L-02"), beside); err != nil {
 		return nil, err
 	}
 	integrator := beside
 	if _, err := project.Pane(s.Env); err == nil {
-		integrator = nil // the default placement: the caller's tab when it is the project's (T-628)
+		integrator = where{} // the default placement: the caller's tab when it is the project's (T-628)
 	}
 	if err := place("integrator", s.cfg.AgentName("integrator", ""), role("integrator"), integrator); err != nil {
 		return nil, err
 	}
-	if err := place("reviewer", s.cfg.AgentName("reviewer", ""), role("reviewer"), []string{"--new-tab", "review"}); err != nil {
+	if err := place("reviewer", s.cfg.AgentName("reviewer", ""), role("reviewer"), where{own: true}); err != nil {
 		return nil, err
 	}
 	return waiting, nil
@@ -667,22 +658,6 @@ func (s *Setup) initPanes(ctx context.Context, add func(name, state, format stri
 // laneWorker is the lane's worker agent name (derived).
 func (s *Setup) laneWorker(lane string) string {
 	return s.cfg.AgentName("worker", lane)
-}
-
-// projectTabOf is the tab of pane when it is the project's (projectTab: every pane there has a known cwd in the
-// project), "" otherwise or when unknown: init never derives a tab for L-02 and the integrator that holds a foreign
-// or unknown-cwd pane, a new tab in the project's workspace then (T-634). A user's own --tab is not checked here.
-func (s *Setup) projectTabOf(ctx context.Context, pane string) string {
-	panes, err := s.H.Panes(ctx)
-	if err != nil {
-		return ""
-	}
-	for _, p := range panes {
-		if p.ID == pane && s.projectTab(panes, p.Tab) {
-			return p.Tab
-		}
-	}
-	return ""
 }
 
 // --- plugin reaches the lanes (T-705) ----------------------------------------------------------------------------

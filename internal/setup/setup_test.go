@@ -19,6 +19,7 @@ import (
 	"obor/internal/agents/claude"
 	"obor/internal/app/port"
 	"obor/internal/config"
+	"obor/internal/herdr"
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/launch"
 	"obor/internal/project"
@@ -111,7 +112,7 @@ func withHerdr(t *testing.T, p *testkit.Project) *fx {
 	h.Tab("w1:t2", 200, 50, "w1:q1")
 	x := &fx{Project: p, h: h, srv: herdrtest.Serve(t, h)}
 	for _, p := range h.Panes {
-		p.Workspace, p.Cwd = "w1", x.Root
+		p.Cwd = x.Root // in workspace w1, its id's
 	}
 	// A screen applies to every pane read, whatever pane it names (the fake's per-pane Screen is empty here).
 	x.srv.Before(func(r herdrtest.Request) {
@@ -165,7 +166,7 @@ func (x *fx) newSetup(t *testing.T) (*Setup, *bytes.Buffer) {
 		open = func([]int) []string { return nil }
 	}
 	env, h := x.Env(x.env...), x.srv.Client()
-	return &Setup{Kit: k, Env: env, H: h, Out: &out, McpCheck: check, ShellWait: x.shellWait,
+	return &Setup{Kit: k, Env: env, T: &herdr.Setup{Socket: h, Env: env}, Out: &out, McpCheck: check, ShellWait: x.shellWait,
 		Starter: func(cfg *config.Config) port.Starter {
 			return &launch.Launcher{Cfg: cfg, Env: env, Kit: k, H: h, Out: &out, Rollout: rollout, Open: open}
 		}, Serve: x.serve, Installed: x.installed}, &out
@@ -262,7 +263,7 @@ func (x *fx) projectStep(t *testing.T, name, prefix string) (string, error) {
 	if x.kit != "" {
 		k = x.kit
 	}
-	s := &Setup{Kit: k, Dir: x.Root, Env: x.Env(), H: x.srv.Client(), Out: &out}
+	s := &Setup{Kit: k, Dir: x.Root, Env: x.Env(), T: &herdr.Setup{Socket: x.srv.Client(), Env: x.Env()}, Out: &out}
 	if err := s.findRoot(); err != nil {
 		t.Fatal(err)
 	}

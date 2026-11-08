@@ -41,15 +41,15 @@ func stoppedApp(t *testing.T, root string, panes ...port.Pane) (*App, *proj) {
 	}
 	a.p = p
 	t.Cleanup(func() { p.log.Close(); a.closeLog() })
-	all := append([]port.Pane{{ID: "w:lead", Workspace: "w", Cwd: root, Agent: "claude", Label: p.out.lead(), Status: "idle"}},
+	all := append([]port.Pane{{ID: "w:lead", Group: "proj", Cwd: root, Agent: "claude", Label: p.out.lead(), Status: "idle"}},
 		panes...)
-	a.connect(context.Background(), port.Snapshot{Workspaces: map[string]string{"w": "proj"}, Panes: all})
+	a.connect(context.Background(), port.Snapshot{Panes: all})
 	return a, p
 }
 
 // shell is a pane labelled agent that runs no agent: the pane launch.Stop leaves, whether serve or the lead stopped it.
 func shell(root, id, agent string) port.Pane {
-	return port.Pane{ID: id, Workspace: "w", Cwd: root, Label: agent}
+	return port.Pane{ID: id, Group: "proj", Cwd: root, Label: agent}
 }
 
 // T-677: status calls a role agent stopped only when herdr shows exactly one labelled pane of it at its shell — whoever

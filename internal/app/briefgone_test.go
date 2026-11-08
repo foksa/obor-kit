@@ -120,8 +120,8 @@ func TestBriefUnderAStopStaysOpenWhenItsAgentIsGone(t *testing.T) {
 func TestReplayedWorkedBriefOfAGoneAgentEnds(t *testing.T) {
 	t.Parallel()
 	r := newLoopRig(t, noCheck())
-	r.f.Agent("w1:p5", "pj-lead", "idle", r.p.Root).Workspace = "w1"
-	r.f.Shell("w1:p6", "pj-rev", r.p.Root).Workspace = "w1" // its agent stopped
+	r.f.Agent("w1:p5", "pj-lead", "idle", r.p.Root)
+	r.f.Shell("w1:p6", "pj-rev", r.p.Root) // its agent stopped
 	at := r.clock.Now().Add(-2 * time.Hour)
 	brief, _ := json.Marshal(event.Message{To: "pj-rev", From: "pj-lead", Line: "[obor pj-lead] look at x"})
 	if err := app.WriteLog(r.p.Root, at, event.Record{Task: event.MsgTask, Step: event.StepBriefed,

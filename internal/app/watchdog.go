@@ -306,8 +306,8 @@ func (a *App) evidence(ctx context.Context, pane port.Pane) *evidence {
 // fact records v's step for task and folds it in (false: the log failed). A needs-you's line and toast go with the
 // next rule pass (rules.go, the needs rule).
 func (a *App) fact(p *proj, task string, w *watch, v verdict) bool {
-	data, _ := json.Marshal(event.FactData{Lane: w.lane.Name, Machine: Machine, Workspace: a.spaces[v.pane.Workspace],
-		WorkspaceID: v.pane.Workspace, Pane: v.pane.ID, Agent: a.shownAs(p, v.pane), Reason: v.reason,
+	data, _ := json.Marshal(event.FactData{Lane: w.lane.Name, Machine: Machine, Group: v.pane.Group,
+		Pane: v.pane.ID, Agent: a.shownAs(p, v.pane), Reason: v.reason,
 		Cause: v.cause}) // strings: cannot fail
 	now := a.opt.Now()
 	r, err := p.log.Append(event.Record{Task: task, Step: v.step, Kind: event.KindFact, Data: data}, now)

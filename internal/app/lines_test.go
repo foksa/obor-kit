@@ -71,9 +71,9 @@ func lineApp(t *testing.T, root string, now *time.Time) (*App, *proj) {
 	}
 	a.p = p
 	t.Cleanup(func() { p.log.Close(); a.closeLog() })
-	a.connect(context.Background(), port.Snapshot{Workspaces: map[string]string{"w": "proj"}, Panes: []port.Pane{
-		{ID: "w:lead", Workspace: "w", Cwd: root, Agent: "claude", Label: p.out.lead(), Status: "idle"},
-		{ID: "w:rev", Workspace: "w", Cwd: root, Agent: "codex", Label: "pj-rev", Status: "idle"},
+	a.connect(context.Background(), port.Snapshot{Panes: []port.Pane{
+		{ID: "w:lead", Group: "proj", Cwd: root, Agent: "claude", Label: p.out.lead(), Status: "idle"},
+		{ID: "w:rev", Group: "proj", Cwd: root, Agent: "codex", Label: "pj-rev", Status: "idle"},
 	}})
 	return a, p
 }
@@ -643,7 +643,7 @@ func TestBriefWorkDurableAtOnce(t *testing.T) {
 	snapshot := func(a *App, p *proj) {
 		lead, rev := a.obs["w:lead"].pane, a.obs["w:rev"].pane
 		rev.Status = "working"
-		a.connect(context.Background(), port.Snapshot{Workspaces: map[string]string{"w": "proj"}, Panes: []port.Pane{lead, rev}})
+		a.connect(context.Background(), port.Snapshot{Panes: []port.Pane{lead, rev}})
 	}
 	for _, c := range []struct {
 		name string

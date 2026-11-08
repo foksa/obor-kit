@@ -60,9 +60,9 @@ func freshApp(t *testing.T, now *time.Time, agent, kind, status string) (*App, *
 		t.Fatal(err)
 	}
 	a, p := lineApp(t, root, now)
-	a.connect(context.Background(), port.Snapshot{Workspaces: map[string]string{"w": "proj"}, Panes: []port.Pane{
-		{ID: "w:lead", Workspace: "w", Cwd: root, Agent: "claude", Label: p.out.lead(), Status: "idle"},
-		{ID: "w:role", Workspace: "w", Cwd: root, Agent: kind, Label: agent, Status: status},
+	a.connect(context.Background(), port.Snapshot{Panes: []port.Pane{
+		{ID: "w:lead", Group: "proj", Cwd: root, Agent: "claude", Label: p.out.lead(), Status: "idle"},
+		{ID: "w:role", Group: "proj", Cwd: root, Agent: kind, Label: agent, Status: status},
 	}})
 	// An idle deep dive's brief moves its role worktree first (T-853).
 	a.opt.Loop = func(string) (*Loop, error) { return &Loop{Workflow: WorkflowOf(&reviewGitFake{head: "base1"})}, nil }

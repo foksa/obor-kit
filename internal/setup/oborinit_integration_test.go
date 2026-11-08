@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"obor/internal/config"
+	"obor/internal/herdr"
 	"obor/internal/project"
 	"obor/internal/testkit"
 )
@@ -377,7 +378,8 @@ func TestOborInitRefusesAnUnbornRepositoryWithAUsersFile(t *testing.T) {
 // interrupted is the project step alone in dir (an init that stopped before its commit): init's untouched files.
 func (x *initFx) interrupted(t *testing.T, dir string) {
 	t.Helper()
-	s := &Setup{Kit: kit, Dir: dir, Env: x.Env(x.env...), H: x.srv.Client(), Out: &bytes.Buffer{}}
+	s := &Setup{Kit: kit, Dir: dir, Env: x.Env(x.env...), T: &herdr.Setup{Socket: x.srv.Client(), Env: x.Env(x.env...)},
+		Out: &bytes.Buffer{}}
 	if err := s.findRoot(); err != nil {
 		t.Fatal(err)
 	}
@@ -790,13 +792,13 @@ func TestOborInitRerunPutsS01InANewTabBesideAMixedO01Tab(t *testing.T) {
 	if o == "" || s == "" {
 		t.Fatalf("precondition: L-01 %q and L-02 %q placed", o, s)
 	}
-	otab, ows := x.h.Pane(o).Tab, x.h.Pane(o).Workspace
+	otab := x.h.Pane(o).Tab
+	ows, _, _ := strings.Cut(o, ":") // the fake's pane ids name their workspace
 	if x.h.Pane(s).Tab != otab || ows == "" {
 		t.Fatalf("precondition: L-02 beside L-01 in %s of a workspace (%q)", otab, ows)
 	}
 	x.h.Remove(s)
 	x.h.Tab(otab, 200, 50, ows+":zz") // a pane with an unknown cwd in L-01's tab
-	x.h.Pane(ows + ":zz").Workspace = ows
 	if x.h.Pane(ows+":zz").Cwd != "" || x.paneOf("proj-l-02") != "" {
 		t.Fatal("precondition: an unknown-cwd pane in L-01's tab, L-02 gone")
 	}

@@ -61,6 +61,8 @@ type Data struct {
 	Merge                   Merge `json:"merge"`
 	// Workflow is workflow: the git workflow serve runs (T-1029); absent: scratch-ff.
 	Workflow Workflow `json:"workflow,omitzero"`
+	// Terminal is terminal: the terminal adapter obor drives its panes through (T-1044); absent: herdr.
+	Terminal Terminal `json:"terminal,omitzero"`
 	// MCP and Cache are removed sections (v0.28, T-864): they hold no key, yet a config that sets one (even {})
 	// WARNs for two minors; a member inside one is an unknown key, as it is under an absent section.
 	MCP    *struct{} `json:"mcp,omitempty"`
@@ -118,6 +120,25 @@ func (c *Config) WorkflowKind() string {
 		return c.Data.Workflow.Kind
 	}
 	return DefaultWorkflow
+}
+
+// Terminal is terminal (T-1044): Kind selects the compiled-in terminal adapter (one of TerminalKinds; "":
+// DefaultTerminal).
+type Terminal struct {
+	Kind string `json:"kind,omitempty"`
+}
+
+// The terminal kinds obor has an adapter for (internal/herdr).
+const DefaultTerminal = "herdr"
+
+var TerminalKinds = []string{DefaultTerminal}
+
+// TerminalKind is terminal.kind, else DefaultTerminal.
+func (c *Config) TerminalKind() string {
+	if c != nil && c.Data.Terminal.Kind != "" {
+		return c.Data.Terminal.Kind
+	}
+	return DefaultTerminal
 }
 
 // Command is commands.<name>: a string is {cmd}, null or absent is unset. Name is the key.

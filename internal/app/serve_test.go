@@ -140,7 +140,7 @@ func (f *schedScratch) Landed(context.Context, string) (bool, error)            
 func (f *schedScratch) Unpin(context.Context, string) error                        { return nil }
 func (f *schedScratch) AfterMerge(context.Context, port.Candidate) (string, error) { return "ran", nil }
 func (f *schedScratch) Launch(context.Context, port.Launch) (port.Started, error) {
-	f.h.a.obs["w1:p9"] = &seen{pane: port.Pane{ID: "w1:p9", Workspace: "w1", Cwd: f.h.root, Label: "pj-int",
+	f.h.a.obs["w1:p9"] = &seen{pane: port.Pane{ID: "w1:p9", Group: "pj", Cwd: f.h.root, Label: "pj-int",
 		Agent: "claude", Status: "idle"}, since: f.h.now}
 	return port.Started{Line: "started", Pane: "w1:p9", Kind: "claude"}, nil
 }

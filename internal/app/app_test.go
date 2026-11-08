@@ -112,12 +112,13 @@ func newRig(t *testing.T) *rig {
 		t.Fatal(err)
 	}
 	write(t, filepath.Join(r.root, ".obor", "config.json"), `{"name":"pj"}`)
-	r.f.Workspaces = []herdr.Workspace{{ID: "w1", Label: "pj"}, {ID: "w2", Label: "other"}}
+	r.f.Group("w1", "pj")
+	r.f.Group("w2", "other")
 	for i, lane := range []string{"L-01", "L-02"} {
 		task := []string{"T-1", "T-2"}[i]
 		r.lanes.lanes = append(r.lanes.lanes, port.Lane{Name: lane, Dir: r.lane(lane), Task: task})
 		p := r.f.Agent("w1:p"+lane[3:], "pj-l-0"+lane[3:], "idle", r.lane(lane))
-		p.Workspace, p.Label = "w1", "pj-l-0"+lane[3:] // labelled by its launch: serve's identity of it
+		p.Label = "pj-l-0" + lane[3:] // labelled by its launch: serve's identity of it
 	}
 	r.srv = herdrtest.Serve(t, r.f)
 	r.srv.Reply("notification.show", map[string]any{"type": "notification_show", "shown": true, "reason": "shown"})
@@ -283,8 +284,8 @@ func TestIdleStallsThenNeedsYou(t *testing.T) {
 	r.clock.Add(2 * time.Minute)
 	r.waitFacts("T-1 stalled{idle}")
 	rec := r.records()[0]
-	if rec.Seq != 1 || rec.Kind != "fact" || rec.Fact() != (event.FactData{Lane: "L-01", Machine: "local", Workspace: "pj",
-		WorkspaceID: "w1", Pane: "w1:p1", Agent: "pj-l-01", Reason: "idle"}) {
+	if rec.Seq != 1 || rec.Kind != "fact" || rec.Fact() != (event.FactData{Lane: "L-01", Machine: "local", Group: "pj",
+		Pane: "w1:p1", Agent: "pj-l-01", Reason: "idle"}) {
 		t.Errorf("stalled record = %+v", rec)
 	}
 
@@ -496,15 +497,13 @@ func TestReplayAfterRestart(t *testing.T) {
 	}
 }
 
-func TestPaneInAnotherWorkspaceIgnored(t *testing.T) {
+func TestPaneInAnotherGroupIgnored(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
-	// A pane of workspace "other" in L-01's worktree, idle; L-01's own pane is working, L-02's idle.
+	// A pane of group "other" in L-01's worktree, idle; L-01's own pane is working, L-02's idle.
 	r.f.Pane("w1:p1").Status = "working"
-	p := r.f.Agent("w2:p1", "x-l-01", "idle", r.lane("L-01"))
-	p.Workspace = "w2"
-	stray := r.f.Agent("w9:p1", "y", "idle", r.lane("L-01")) // a workspace herdr did not list
-	stray.Workspace = "w9"
+	r.f.Agent("w2:p1", "x-l-01", "idle", r.lane("L-01"))
+	r.f.Agent("w9:p1", "y", "idle", r.lane("L-01")) // a group the terminal did not name
 	r.start()
 	r.clock.Add(11 * time.Minute)
 	r.waitFacts("T-2 stalled{idle}")
@@ -563,7 +562,7 @@ func TestStatusSocket(t *testing.T) {
 func TestRefreshSubscribesAgainQuietly(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
-	r.f.Workspaces = []herdr.Workspace{{ID: "w2", Label: "other"}} // pj's workspace w1 is not open yet
+	r.f.Ungroup("w1") // pj's workspace w1 is not open yet
 	r.f.Pane("w1:p2").Status = "working"
 	r.start()
 	if n := len(r.app.Status().Project.Agents); n != 0 {
@@ -571,7 +570,7 @@ func TestRefreshSubscribesAgainQuietly(t *testing.T) {
 	}
 	before := r.count("session.snapshot")
 	r.srv.WaitSubscribed(t, "workspace.created", "")
-	r.f.Workspaces = []herdr.Workspace{{ID: "w1", Label: "pj"}, {ID: "w2", Label: "other"}}
+	r.f.Group("w1", "pj")
 	r.srv.Push("workspace_created", map[string]any{"type": "workspace_created",
 		"workspace": map[string]any{"workspace_id": "w1", "label": "pj"}})
 	r.waitFor("a snapshot after the refresh", func() bool { return r.count("session.snapshot") > before })

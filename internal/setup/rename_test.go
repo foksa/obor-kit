@@ -68,7 +68,7 @@ func (x *fx) rename(t *testing.T) string {
 	return x.ok(t, "rename", "--name", "newp", "--prefix", "ob")
 }
 
-func TestRenameMapsConfigStoreFilesAndWorkspace(t *testing.T) {
+func TestRenameMapsConfigStoreFilesAndTerminal(t *testing.T) {
 	x := renameProject(t)
 	dir := x.stubHerdr(t, "proj")
 	if row, ok := x.Row("L-01"); !ok || row.Task != "T-1" {
