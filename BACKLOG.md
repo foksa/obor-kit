@@ -7,36 +7,31 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 
 ## Handoff (lead; rewrite at each handoff)
 Read `docs/observations.md` first (patterns from past sessions: where we went in circles, the load tax, traps).
-- 2026-11-08 ~12:10 (lead; previous Handoff: `git show 8ff591d1:BACKLOG.md`). Nothing in flight, every lane free,
-  promotion OFF (`branches: {main: staging}`). **v0.30.0 released and shipped** (tag pushed, GitHub release with four
-  assets); only `sh install.sh` on this machine is left (GitHub release downloads returned 504 for every repo at
-  ~09:30; the owner runs `! sh install.sh` when they work).
-  **Owner direction 11-08 (docs/decisions.md, top five entries):** core = agent automation; agent kinds and
-  integrations become out-of-process plugins, terminal and workflow compiled-in adapters chosen by config; workflow,
-  lane shape and gate configurable; standing data/architecture passes; **target architecture accepted:
-  `docs/plan/architecture-target.md`** (advisor; inputs `docs/research/architecture-inventory.md`,
-  `entity-model.md`), 14 steps. Workers run unit tests only: `//go:build integration` holds real git/sockets/binaries,
-  every gate passes the tag (T-1014); `docs/agents/worker.md` says so.
-  **Done today (plan steps 1-4 + test splits):** T-1009 template fixtures, T-1010 launch/guard without git, T-1011
-  Scratch decide/do split, T-1012 + T-1015 lane free by one rule at the submitted head, T-1013 promotion needs-you
-  settles when off, T-1014 integration tag, T-1016 `obor drop` of a never-dispatched spec, T-1017 prepare head gone,
-  T-1018 checks unit tier git-free, T-1019 template cleanup enforced, T-1020 cmd/obor split, T-1021 setup split.
-  RV-139..RV-142 closed.
-  **Measured (plain `go test` = what a worker runs, 2 cores, counting git wrapper):** internal/checks 22 s/1,935 git →
-  4 s/0; cmd/obor 40 s/1,440 → 18 s/0; internal/setup 23 s/1,589 → 2 s/0; launch 16 s/2,041 → 4 s/30; guard
-  5.7 s/1,127 → 1.2 s/31. Full budget run (with the tag): ≈14.4k git processes → ≈6.6k (11:16, before T-1018..T-1021).
-  Integration tiers: cmd/obor 36 s/1,025 git, setup 22 s/1,225.
-  **Next:** (1) `make check-budget` on a quiet machine, then lower caps the packages now run under (tests/budget.json;
-  the 11:16 run flagged app git 59 > 45, fixed by T-1019, and load-noise tests at 1.3-1.8 s). (2) cmd/obor's unit tier
-  is still 18 s with no git: find what it waits on. (3) Review due: T-1020, T-1021 (+ T-1016, T-1017 if not covered).
-  (4) Plan steps 5-6 (review state from the log; spec parsed once), then 7-8 (workflow interface; lane keep mode),
-  9-11 plugins in the owner's order. (5) Rewrite `docs/design.md` "Test tiers and receipts" (~line 536, protected,
-  lead-owned) to the unit/integration/e2e shape. (6) Release-from-worktree gap (Open: `make ship` needs `dist/` in the
-  main checkout and the checkout on main). (7) Task priority (Open, owner 11-07).
-  **Lessons today:** a measurement rule I wrote without reading how Go reports test time was wrong twice (T-1004:
-  read the tool's semantics first); `make release` from a scratch worktree loses `dist/` (I rebuilt it from tag^ plus
-  the uncommitted marketplace edit to match the checksums); a long private TMPDIR breaks the stub sockets in tests.
-  **Owner side:** `.obor/local.json` slots.max 4.
+- 2026-11-08 ~18:00 (lead; previous Handoff: `git show c710c2ae:BACKLOG.md`). Every lane free, nothing queued,
+  promotion OFF (`branches: {main: staging}`). v0.30.0 is the last release; 31 merges on staging since.
+  **Done this session (plan `docs/plan/architecture-target.md` steps 5-12, all merged and reviewed RV-143..RV-149):**
+  T-1022 spec parsed once (+`Ref:`), T-1023 review coverage from the log (+T-1032 close snapshot), T-1029
+  `port.Workflow`, T-1030 `Priority: high`, T-1031 keep lanes (+T-1048, T-1050), T-1033 agent start params give way to
+  the project's committed CLI files, T-1036 kind plugin protocol (+T-1042 one whole start), T-1046 OpenCode as the
+  second binary `dist/obor-kind-opencode`, T-1037 `OBOR_PANE`, T-1044 terminal-neutral ports + `terminal.kind`,
+  T-1051 restore on reconnect, T-1039 event feed + custom-role verbs, T-1040/T-1041/T-1047 gate residue out
+  (`tools/affected`, `slots.lane_env`, flake regex/retest in config), T-1035 release/ship from the main checkout on
+  staging, T-1027/T-1034 `-trimpath` everywhere + nightly empties the Go cache, T-1024/T-1025 budget, T-1026/T-1028
+  spec-only drop, T-1043 serve ships queue order, T-1038/T-1045/T-1049/T-1052 Codex live + quarantine.
+  **Owner decisions today** (docs/decisions.md top): nightly empties the Go cache; agent start params native files
+  first (rules approved, T-1033); reference kind plugin = second Go binary; Codex quarantine: warning only.
+  **In flight / next:** (1) RV-150 (serve opens it: on-merge reviews of T-1046 and T-1051) — triage it. (2) Plan step
+  13 (`wire.Call` per method, plan §6 table; now has a reason: the integration surface T-1039) and step 14 (tiers go:
+  measure the lane test step median from the event log first, plan §9 row 14). (3) A release: v0.31.0 carries a new
+  asset set (T-1046: `obor-kind-opencode-*`) and config changes other projects must know (T-1041 `slots.lane_env`:
+  Go projects lose GOMAXPROCS/-p without it; see docs/UPGRADE-*); run `obor review` + `make release` from the main
+  checkout on staging (T-1035), owner runs `! make ship`. (4) `docs/design.md` "Test tiers and receipts" (~line 536,
+  protected, lead-owned) still to rewrite to the unit/integration shape. (5) Accepted residuals in Open: RV-148
+  (keep-lane config rev), RV-149 (Codex lead restore), RV-145/146/147 design notes.
+  **Machine:** Codex 0.167.0 (Homebrew cask) quarantine cleared by the owner; after any `brew upgrade` of codex the
+  reviewer breaks again until `xattr -dr com.apple.quarantine /opt/homebrew/Caskroom/codex/<v>` (obor setup warns and a
+  Codex start is refused with that line since T-1052). `obor web` (pid 91304, since Nov 5) runs an old binary: the
+  owner restarts it in its shell. Owner said codex credits were restored after a usage-limit stop (~14:00).
 
 ## Owner decisions pending
 - (none; branching decided 11-07, docs/decisions.md)
@@ -67,7 +62,6 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
 - (RV-149, accepted) (RV-149 verify, unlikely: a Codex lead) an unattended restore (serve reconnect or the herdr plugin) of a Codex lead with a quarantined helper only logs the warning to the restore log and starts; fix when a project runs a Codex lead: restore refuses it and raises an owner-visible line (~30-70 lines)
 - (RV-148, accepted) (RV-148 verify 2, unlikely: a config edit during an in-progress worker start on a keep lane, then the same alias next) the start result records the config rev re-read after the launch (dispatch.go:1167), not the one the launcher used; fix: carry the launch's config rev through the launcher result (~20-40 lines) when keep lanes are in real use
 - (RV-147, accepted) (RV-147 verify design) plugin Start/StartEnv remain only to satisfy agents.Kind and could each run the plugin; drop them with plugin.Whole once agents.Kind has one combined start for every kind (with step 9b)
-- (lead 11-08, plan queue) Next specs once their blockers merge: **step 9b** OpenCode as the reference kind plugin (after T-1036's on-merge review closes; its package goes); **step 10b** herdr shapes out of `port` (`Rect`, `Plugin`, `Workspace`, `Tab` → adapter + setup's herdr interface; `terminal.kind` config; contract table vs herdrtest) after T-1037; **step 10c** restore on reconnect (serve runs it on Subscribe's reconnect; the herdr plugin optional); **step 12c** flake parser regex (`merge.flake_regex`) + retest `{tests}` after T-1041; then steps 13 (wire.Call per method) and 14 (tiers go).
 - (RV-146, accepted) (RV-146 design) a Claude lane that opts into project MCP servers starts non-strict, so it also loads the user's and plugins' MCP servers (CC-L9 listed many): document it in Customizing agents; revisit if Claude gains a narrower flag
 - (RV-145 design) the workflow contract table (T-1029) covers scratch, lane and target, not the review and promotion methods (tested on their own today): extend it with their portable outcomes before a second workflow implementation. Also `checks.ScratchFF` holds the config twice (`Scratch.Options.Cfg`, `Lane.Cfg`): one when next touched.
 - (RV-144, accepted) (RV-144 verify note) the fold keeps the review.closing pointer after the close although recovery no longer reads it (a retained copy of the frozen snapshot): clear it on close when next touching reviewfold.go

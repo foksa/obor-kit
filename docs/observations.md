@@ -11,6 +11,11 @@ live in `docs/decisions.md`, open work in `BACKLOG.md`, the lead's own working r
 - **Fix chains on rule code.** RV-119 → RV-120 → RV-121: each verify found a regression in the last fix, always a
   consumer of a new state the spec did not list (unknown lane → watchdog timers; reviewEnd → idle). The spec template
   now asks for every consumer of a new state; check it before dispatch.
+  11-08 again: keep lanes (T-1031 → T-1048 → T-1050 → accepted residual) — each verify found a new gap in the same
+  "may this agent be reused" check; the mode had no user yet. Build a mode when a project asks for it.
+- **Bridge tests pass, the caller breaks.** T-1036's plugin passed static conformance (one complete call) while launch
+  called it three times with partial inputs (RV-147 P1); T-1049's hint was unit-tested but unreachable (RV-149). Specs
+  for adapters ask for a test at the boundary callers use (record the requests a real launch makes).
 - **Size does not fall by itself.** v0.27.1 → v0.28.0: prod lines flat (+~100), tests +~2k. Coverage-based pruning
   lost scenarios (11-04: 4 restore rounds). What works: deleting a mechanism with its tests (T-866, T-870, T-877 −220).
   Ask every task for net prod lines; next milestone requires net-negative.
@@ -48,6 +53,11 @@ live in `docs/decisions.md`, open work in `BACKLOG.md`, the lead's own working r
   close line.
 
 ## Local traps
+- **External CLIs change under us.** Codex auto-upgraded (Homebrew cask 0.166 → 0.167) mid-day; its new helper was
+  quarantined and macOS 27 shows a Gatekeeper dialog per binary per version, so unattended starts time out
+  (docs/research/codex-quarantine.md). After a `brew upgrade`, check `codex --version` and the setup warning first.
+- The lead's uncommitted BACKLOG edit held a task's publish (T-1043: "main checkout has local changes"): commit
+  BACKLOG at once while any task in flight edits it.
 - `obor pause` did not hold serve's worker-start rule (fixed T-908); `obor lead` before `obor start` leaves an
   unregistered lead (T-911); `obor web` does not follow a new binary (restart it after a merge that changes the view or
   an upgrade); raising `lanes` on obor web leaves the lanes `missing` until `obor setup lane`/`pane`.
