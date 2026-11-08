@@ -2,10 +2,11 @@ package app
 
 import (
 	"encoding/json"
-	"obor/internal/app/event"
 	"slices"
 	"strings"
 	"testing"
+
+	"obor/internal/app/event"
 )
 
 // T-1023: what a review covered is the log's, one table over the fold (records → the next review's scope, which is
@@ -21,15 +22,19 @@ func (f *foldLog) add(task, step, kind string, data any) *foldLog {
 	f.recs = append(f.recs, event.Record{Seq: int64(len(f.recs) + 1), Task: task, Step: step, Kind: kind, Data: raw})
 	return f
 }
+
 func (f *foldLog) merged(task, sha string) *foldLog {
 	return f.add(task, event.StepMerged, event.KindFact, event.MergedData{Head: sha})
 }
+
 func (f *foldLog) outside(task string) *foldLog {
 	return f.add(task, event.StepMerged, event.KindFact, event.MergedData{Outside: true})
 }
+
 func (f *foldLog) started(id, head string, tasks ...string) *foldLog {
 	return f.add(event.ReviewTask, event.StepReviewStarted, event.KindFact, ReviewData{ID: id, Head: head, Tasks: tasks})
 }
+
 func (f *foldLog) closed(id string) *foldLog {
 	return f.add(event.ReviewTask, event.StepReviewClosed, event.KindFact, ReviewData{ID: id,
 		Reply: closedReply + id + " closed · x · approved · s"})
@@ -50,6 +55,7 @@ func (f *foldLog) briefed(head string, tasks ...string) *foldLog {
 	return f.add(event.MsgTask, event.StepBriefed, event.KindFact, event.Message{To: "pj-rev",
 		Task: strings.Join(tasks, ","), Reviewed: head})
 }
+
 func (f *foldLog) ends() *foldLog {
 	return f.add(event.MsgTask, event.StepMessage, event.KindFact, event.Message{To: "pj-lead", Ends: "pj-rev"})
 }
@@ -59,6 +65,7 @@ func (f *foldLog) ends() *foldLog {
 func (f *foldLog) closing(id, head string, tasks ...string) *foldLog {
 	return f.add(event.ReviewTask, event.StepReviewClosing, event.KindFact, ReviewData{ID: id, Head: head, Tasks: tasks})
 }
+
 func (f *foldLog) closedAt(id, head string, tasks ...string) *foldLog {
 	return f.add(event.ReviewTask, event.StepReviewClosed, event.KindFact, ReviewData{ID: id, Head: head, Tasks: tasks,
 		Reply: closedReply + id + " closed · x · approved · s"})
@@ -66,14 +73,6 @@ func (f *foldLog) closedAt(id, head string, tasks ...string) *foldLog {
 
 func (f *foldLog) promoted(sha string) *foldLog {
 	return f.add(event.PromoteTask, event.StepPromoted, event.KindFact, promotedData{SHA: sha})
-}
-
-func tasksOf(ms []mergeRec) []string {
-	var out []string
-	for _, m := range ms {
-		out = append(out, m.task)
-	}
-	return out
 }
 
 func TestReviewFold(t *testing.T) {

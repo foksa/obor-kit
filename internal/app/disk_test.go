@@ -1,80 +1,220 @@
-package app_test
+package app
 
 import (
-	"obor/internal/app/event"
+	"context"
+	"errors"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
-	"obor/internal/app"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 )
 
-// diskFake is a Loop's Disk: the free bytes scripted.
-type diskFake struct {
-	free atomic.Uint64
+// RV-59 #1: the free-space reading alone holds a gate or nightly; recording the needs-you is best effort, so a refused
+// append (a full disk) must not let either start.
+
+// diskCount is a Loop's Disk: the free bytes scripted, each reading counted (a test asserts the admission read it).
+type diskCount struct {
+	free  atomic.Uint64
+	calls atomic.Int32
 }
 
-func (f *diskFake) disk() *app.Disk {
-	return &app.Disk{Volume: "/vol/proj",
-		Free: func() (uint64, error) { return f.free.Load(), nil }}
+func (f *diskCount) disk() *Disk {
+	return &Disk{Volume: "/vol/pj", Free: func() (uint64, error) {
+		f.calls.Add(1)
+		return f.free.Load(), nil
+	}}
 }
 
-// diskFacts is the low-disk needs-you in force in r's status.
-func diskFacts(r *loopRig) []event.Record {
-	var out []event.Record
-	for _, f := range r.app.Status().Project.Facts {
-		if f.Task == event.DiskTask {
-			out = append(out, f)
-		}
-	}
-	return out
-}
-
-// T-564: free space below the bound is the project's needs-you naming the volume, above it ends it;
-// one record per transition, none per tick. A gate waits while it is low and runs after.
-func TestDiskLowIsANeedsYouAndHoldsTheGate(t *testing.T) {
+// RV-59 #1, direct: free 1 GiB with the needs-you append refused is still low and leaves no fact in force; the next
+// reading, appends working again, records the needs-you.
+func TestRV59DiskRecordFailure(t *testing.T) {
 	t.Parallel()
-	const gib = 1 << 30
-	f := &diskFake{}
-	f.free.Store(2 * gib)
-	r := newLoopRig(t)
-	r.disk = f.disk()
-	r.work("feature.txt", "feature\n")
-	r.start()
-	r.passes()
-	r.submit()
-	r.waitStep("1 intent submit")
-	r.waitStep("1 result submit")
+	const gib = uint64(1 << 30)
+	r := newConcRig(t)
+	p := r.proj("pj")
+	fx := r.concLoop("pj")
+	f := &diskCount{}
+	f.free.Store(gib)
+	fx.Disk = f.disk()
+	r.refuseLogs("pj", errors.New("database or disk is full"))
 
-	want := "disk low: 2.0 GiB free on /vol/proj"
-	r.waitFor("the disk needs-you", func() bool { return len(diskFacts(r)) == 1 })
-	if fs := diskFacts(r); fs[0].Step != event.StepNeedsYou || fs[0].Fact().Reason != want {
-		t.Fatalf("disk facts %+v, want needs-you %q", fs, want)
+	if !r.a.diskIsLow(p, fx) {
+		t.Errorf("free 1 GiB with the needs-you refused: not low; want low")
 	}
-	for i := 0; i < 3; i++ {
-		r.later(app.DiskEvery)
-	}
-	if r.has("1 intent gate") {
-		t.Fatalf("a gate started on a low disk: %q", r.steps())
-	}
-	if n := r.count("0 fact needs-you{" + want + "}"); n != 1 {
-		t.Errorf("needs-you records = %d, want 1 (none per tick): %q", n, r.steps())
+	if fs := r.diskFactsInForce("pj"); len(fs) != 0 {
+		t.Errorf("facts in force %+v with the append refused, want none", fs)
 	}
 
-	f.free.Store(40 * gib)
-	r.later(app.DiskEvery)
-	r.waitStep("1 result gate")
-	if fs := diskFacts(r); len(fs) != 0 {
-		t.Errorf("disk facts after space is back: %+v", fs)
+	r.refuseLogs("pj", nil)
+	if !r.a.diskIsLow(p, fx) {
+		t.Errorf("the next reading with appends working: not low; want low")
 	}
-	if n := r.count("0 fact resumed"); n != 1 {
-		t.Errorf("resumed records = %d, want 1: %q", n, r.steps())
+	fs := r.diskFactsInForce("pj")
+	if len(fs) != 1 || fs[0].Step != event.StepNeedsYou || !strings.HasPrefix(fs[0].Fact().Reason, "disk low: 1.0 GiB free on /vol/pj") {
+		t.Errorf("facts in force %+v, want the needs-you telling the volume and 1.0 GiB", fs)
 	}
+	if n := f.calls.Load(); n != 2 {
+		t.Errorf("free space read %d times, want 2 (the written record is not re-checked)", n)
+	}
+}
 
-	f.free.Store(1 * gib)
-	r.later(app.DiskEvery)
-	r.waitFor("low again", func() bool { return len(diskFacts(r)) == 1 })
-	if n := r.count("0 fact needs-you{disk low: 1.0 GiB free on /vol/proj}"); n != 1 {
-		t.Errorf("second low: needs-you records = %d, want 1: %q", n, strings.Join(r.steps(), "\n"))
+// RV-59 #1: a gate whose intent a crash or refused result left pending runs on the next pass; with every append
+// refused and free 1 GiB it does not, whether its step is a submitted lane's gate, a resolved merge's or a moved
+// target's (all pickGate). Once the log takes appends and space is back, the same pending gate runs and reuses its
+// intent.
+func TestRV59LowDiskPendingGate(t *testing.T) {
+	t.Parallel()
+	const gib = uint64(1 << 30)
+	for _, c := range []struct {
+		name  string
+		state string
+		kind  string
+		seed  func(r *concRig)
+	}{{
+		name: "submitted", state: stSubmitted, kind: port.InputLane,
+		seed: func(*concRig) {},
+	}, {
+		name: "resolved", state: stResolved, kind: port.InputResolved,
+		seed: func(r *concRig) {
+			r.add("pj", "T-1", event.StepGate, event.KindResult, gateOut{Outcome: outConflict,
+				Candidate: port.Candidate{Task: "T-1", SHA: "c", Target: "b", Patch: "p"}})
+			r.add("pj", "T-1", event.StepResolve, event.KindIntent, promptData{Agent: "pj-int", Job: "T-1/1/resolve", Patch: "p"})
+			r.add("pj", "T-1", wire.MethodResolved+".v1", event.KindResult,
+				verdictResult{Job: "T-1/1/resolve", Reply: "RESOLVED T-1", SHA: "rs"})
+		},
+	}, {
+		name: "moved", state: stMoved, kind: port.InputMoved,
+		seed: func(r *concRig) {
+			r.add("pj", "T-1", event.StepMoved, event.KindFact, event.FactData{Merge: true, Reason: "target moved"})
+		},
+	}} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			r := newConcRig(t)
+			r.fakes["pj"].hold = "" // the gate is not held: its result is what the test counts
+			p := r.proj("pj")
+			c.seed(r)
+			if got := r.state("pj", "T-1"); got != c.state {
+				t.Fatalf("precondition: T-1 is %s, want %s", got, c.state)
+			}
+			r.a.mu.Lock()
+			gates := p.folded.loop["T-1"].gates
+			r.a.mu.Unlock()
+			step := nth(event.StepGate, gates+1)
+			r.add("pj", "T-1", step, event.KindIntent, gateIn{Kind: c.kind, Lane: "L-01", Input: "s1"})
+
+			f := &diskCount{}
+			f.free.Store(gib)
+			fx := r.concLoop("pj")
+			fx.Disk = f.disk()
+			r.refuseLogs("pj", errors.New("database or disk is full"))
+
+			r.runStep("pj", "T-1")
+			if n := f.calls.Load(); n == 0 {
+				t.Fatalf("the gate's admission did not read the disk")
+			}
+			if n := r.fakes["pj"].count(r.fakes["pj"].gates, "T-1"); n != 0 {
+				t.Fatalf("the gate ran %d times with every append refused and free 1 GiB; want 0", n)
+			}
+			if n := r.count("pj", "T-1", event.KindResult, step); n != 0 {
+				t.Errorf("the refused gate left a result: %d", n)
+			}
+			if got := r.state("pj", "T-1"); got != c.state {
+				t.Errorf("state %s after the held gate, want %s", got, c.state)
+			}
+
+			// Space back and the log taking appends: the pending gate runs, its intent reused.
+			f.free.Store(40 << 30)
+			r.refuseLogs("pj", nil)
+			r.runStep("pj", "T-1")
+			if n := r.fakes["pj"].count(r.fakes["pj"].gates, "T-1"); n != 1 {
+				t.Fatalf("the gate ran %d times after recovery, want 1", n)
+			}
+			if n := r.count("pj", "T-1", event.KindIntent, step); n != 1 {
+				t.Errorf("gate intents = %d, want 1 (the pending one reused)", n)
+			}
+			if n := r.count("pj", "T-1", event.KindResult, step); n != 1 {
+				t.Errorf("gate results = %d, want 1", n)
+			}
+		})
+	}
+}
+
+// RV-59 #1: the nightly's admission is the same call. With every append refused and free 1 GiB neither a pending
+// nightly intent (a crash mid-run) nor a retry after a failed try starts the run; once appends work and space is back
+// it runs.
+func TestRV59LowDiskPendingNightly(t *testing.T) {
+	t.Parallel()
+	const gib = uint64(1 << 30)
+	const step = event.StepNightly + ".2026-10-25"
+	for _, c := range []struct {
+		name string
+		seed func(r *concRig, now time.Time)
+	}{{
+		name: "pending intent",
+		seed: func(r *concRig, now time.Time) {
+			r.addNightly(step, event.KindIntent, nil, now)
+		},
+	}, {
+		name: "retry",
+		seed: func(r *concRig, now time.Time) {
+			r.addNightly(step, event.KindIntent, nil, now)
+			a, p := r.app("pj"), r.proj("pj")
+			rec, err := p.log.Append(event.Record{Task: event.NightlyTask, Step: event.StepFailed, Kind: event.KindFact,
+				Data: mustJSON(event.FactData{Machine: Machine, Reason: step + ": a git lock", Step: step})},
+				now.Add(-nightlyRetry-time.Minute))
+			if err != nil {
+				r.t.Fatal(err)
+			}
+			a.mu.Lock()
+			p.foldRecord(rec)
+			a.mu.Unlock()
+		},
+	}} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			r := newConcRig(t)
+			c.seed(r, r.a.opt.Now())
+
+			var runs atomic.Int32
+			f := &diskCount{}
+			f.free.Store(gib)
+			fx := r.concLoop("pj")
+			fx.Disk = f.disk()
+			fx.Nightly = &Nightly{At: "13:00",
+				Run: func(context.Context) (NightlyOut, error) {
+					runs.Add(1)
+					return NightlyOut{SHA: "abc1234def", Verdict: "GREEN", Line: "NIGHTLY GREEN abc1234"}, nil
+				}}
+			r.refuseLogs("pj", errors.New("database or disk is full"))
+
+			p := r.proj("pj")
+			r.a.nightly(context.Background(), p, fx)
+			r.a.effects.Wait()
+			if n := f.calls.Load(); n == 0 {
+				t.Fatalf("the nightly's admission did not read the disk")
+			}
+			if n := runs.Load(); n != 0 {
+				t.Fatalf("the nightly ran %d times with every append refused and free 1 GiB; want 0", n)
+			}
+			if n := r.count("pj", event.NightlyTask, event.KindResult, step); n != 0 {
+				t.Errorf("a refused nightly left a result: %d", n)
+			}
+
+			f.free.Store(40 << 30)
+			r.refuseLogs("pj", nil)
+			r.a.nightly(context.Background(), p, fx)
+			r.a.effects.Wait()
+			if n := runs.Load(); n != 1 {
+				t.Fatalf("the nightly ran %d times after recovery, want 1", n)
+			}
+			if n := r.count("pj", event.NightlyTask, event.KindResult, step); n != 1 {
+				t.Errorf("nightly results = %d, want 1", n)
+			}
+		})
 	}
 }

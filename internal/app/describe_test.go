@@ -1,10 +1,5 @@
 package app
 
-// T-893 (DD-encapsulation E1): Describe words every record kind the readers show from the keys serve writes. Each case
-// is the data as a log holds it, so a renamed or retyped key in one record type fails here; the table must cover every
-// worded kind. T-688: a gate that is not green and a hold are bad; a green gate is not, even when its summary counts a
-// failure.
-
 import (
 	"encoding/json"
 	"reflect"

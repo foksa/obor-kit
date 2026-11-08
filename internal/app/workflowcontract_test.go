@@ -76,7 +76,8 @@ func (r *fakeRig) DirtyMain(file string, dirty bool) {
 }
 
 func (r *fakeRig) Resolve() string { return r.f.Resolve() }
-func (r *fakeRig) Head() string    { return r.f.TargetHead() }
+
+func (r *fakeRig) Head() string { return r.f.TargetHead() }
 
 func (r *fakeRig) Pins(task string) string {
 	var out []string

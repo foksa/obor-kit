@@ -2,9 +2,7 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"obor/internal/app/port"
 	"slices"
 	"strings"
 	"sync"
@@ -12,32 +10,9 @@ import (
 	"time"
 
 	"obor/internal/app/event"
+	"obor/internal/app/port"
 	"obor/internal/app/wire"
 )
-
-// T-926: obor review close is a call to serve: serve checks the open review against its fold, commits the close in the
-// main checkout (port.Review.Close, admitted) and records fact review.closed, which every "is a review open" reads.
-
-// closedFacts is the log's review.closed facts' data since the seed, in order.
-func (r *reviewRig) closedFacts() []ReviewData {
-	r.t.Helper()
-	var out []ReviewData
-	for _, rec := range readLog(r.t, r.p.root) {
-		var d ReviewData
-		if rec.Task == event.ReviewTask && rec.Step == event.StepReviewClosed && rec.Seq > r.seeded &&
-			json.Unmarshal(rec.Data, &d) == nil {
-			out = append(out, d)
-		}
-	}
-	return out
-}
-
-// commits is how many closes the main checkout committed.
-func (r *reviewRig) commits() int {
-	r.git.mu.Lock()
-	defer r.git.mu.Unlock()
-	return len(r.git.closes)
-}
 
 // The close's refusals, each before any change (no commit, no fact): no open review (no review file), no review start
 // for it in the log, the main checkout's own refusal (not on the branch, dirty outside the allowed files: its message

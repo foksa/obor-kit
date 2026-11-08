@@ -4,146 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
+	"testing"
+
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
-	"path/filepath"
-	"strings"
-	"testing"
 )
-
-// docs/state-model.md "Prompts" (the wake contract) and row 4's agent.start replay (T-371; RV-40 #2–#4). The first
-// action after the setup is the case's entry.
-
-// boxPrompter is a Typer whose agents never take a prompt by themselves: what is typed stays in the pane's box (box),
-// so a second typing on top of an unsent one shows. Each call takes the next scripted outcome (then: typed).
-type boxPrompter struct {
-	outcomes []boxOutcome
-	jobs     []string // the job of each call
-	clears   []bool   // its clear
-	box      map[string]string
-}
-
-type boxOutcome struct {
-	typed bool
-	err   error
-}
-
-func (f *boxPrompter) Type(_ context.Context, pane, text string, clear bool) (bool, error) {
-	job := jobOf(text)
-	f.jobs, f.clears = append(f.jobs, job), append(f.clears, clear)
-	o := boxOutcome{typed: true}
-	if len(f.outcomes) > 0 {
-		o, f.outcomes = f.outcomes[0], f.outcomes[1:]
-	}
-	if clear {
-		f.box[pane] = ""
-	}
-	if o.typed {
-		f.box[pane] += "[obor job " + job + "]"
-	}
-	return o.typed, o.err
-}
-
-// jobOf is the job id in a typed wake's [obor job <id>] tag ("": a line, no job tag).
-func jobOf(text string) string {
-	rest, ok := strings.CutPrefix(text, "[obor job ")
-	if !ok {
-		return ""
-	}
-	job, _, _ := strings.Cut(rest, "]")
-	return job
-}
-
-// startAgents is an Agents whose Launch puts a fresh session (sid, "": none known) into the pane it starts in (its
-// input's; lag: the snapshot does not show it yet).
-type startAgents struct {
-	h        *harness
-	restarts int
-	sid      string
-	lag      bool
-	pane     string // the pane of its last launch
-}
-
-func (f *startAgents) Launch(_ context.Context, in port.Launch) (port.Started, error) {
-	f.restarts, f.pane = f.restarts+1, in.Pane
-	if f.lag {
-		return port.Started{Line: "STARTED pj-l-01"}, nil
-	}
-	o := f.h.a.obs[in.Pane]
-	if o == nil {
-		f.h.t.Fatalf("launch in pane %s, which the snapshot does not have", in.Pane)
-	}
-	o.pane.Agent, o.pane.Session, o.pane.Transcript = "claude", f.sid, ""
-	return port.Started{Line: "STARTED pj-l-01"}, nil
-}
-func (f *startAgents) Stop(context.Context, string, string, bool) (string, error) {
-	return "STOPPED", nil
-}
-
-// promptRig is T-1 dispatched onto L-01 (lane prepared, rows removed; started: its worker started too), the switch
-// on, with a boxPrompter and startAgents. before, when given, acts on the harness's snapshot before the connect takes
-// it.
-func promptRig(t *testing.T, started bool, before ...func(h *harness)) (*harness, *Loop, *boxPrompter, *startAgents) {
-	h, s := seedSched(t, true, before...)
-	addRecord(t, h, "T-1", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"), Agent: "pj-l-01",
-		Target: "target", Branch: "task/T-1"})
-	addRecord(t, h, "T-1", event.StepPrepare, event.KindResult, prepareOut{Base: "target"})
-	if started {
-		addRecord(t, h, "T-1", event.StepStartWork, event.KindResult, startOut{Line: "STARTED", Pane: "w1:p1"})
-	}
-	h.a.p.dispatching = true
-	kit, _ := filepath.Abs("../..")
-	f := &boxPrompter{box: map[string]string{}}
-	ag := &startAgents{h: h, sid: "new-session"}
-	return h, &Loop{Workflow: WorkflowOf(s), Agents: ag, Typer: f, Kit: kit}, f, ag
-}
-
-// proj is pj now (a reload replaces it).
-func (h *harness) proj() *proj { return h.a.p }
-
-// step runs T-1's next dispatch step (false: none, or it waits).
-func (h *harness) step(t *testing.T, fx *Loop) bool {
-	t.Helper()
-	p := h.proj()
-	h.a.mu.Lock()
-	s := h.a.nextDispatch(p, *p.folded.loop["T-1"])
-	h.a.mu.Unlock()
-	return s != nil && s(context.Background(), fx)
-}
-
-// count is how many records of pj's log have kind and step (step "": any step with kind).
-func (h *harness) count(kind, step string) int {
-	n := 0
-	for _, r := range h.records() {
-		if r.Kind == kind && (step == "" || r.Step == step) {
-			n++
-		}
-	}
-	return n
-}
-
-// result is key's result data in pj's log ("": none).
-func (h *harness) result(step string) string {
-	for _, r := range h.records() {
-		if r.Kind == event.KindResult && r.Task == "T-1" && r.Step == step {
-			return string(r.Data)
-		}
-	}
-	return ""
-}
-
-// refuseOnce makes pj's log refuse the first append of a result of step.
-func refuseOnce(p *proj, step string) {
-	first := true
-	p.log.Refuse = func(r event.Record) error {
-		if first && r.Kind == event.KindResult && r.Step == step {
-			first = false
-			return errors.New("result append failed")
-		}
-		return nil
-	}
-}
 
 func TestPromptFreshDelivered(t *testing.T) {
 	t.Parallel()
@@ -275,12 +142,6 @@ func TestPromptReplayResends(t *testing.T) {
 	}
 }
 
-// mustJSON is v as JSON.
-func mustJSON(v any) json.RawMessage {
-	b, _ := json.Marshal(v)
-	return b
-}
-
 // The integrator's typed wakes go through the same helper: a resolve job (its start done) to an integrator whose box may hold another
 // task's unsent job is cleared first; its result lost, it is not typed again. The job goes to its pane (the registry's).
 func TestPromptIntegratorJob(t *testing.T) {
@@ -394,14 +255,4 @@ func TestStartResultLost(t *testing.T) {
 	if ag.restarts != 1 || !h.proj().folded.loop["T-1"].started {
 		t.Errorf("restarts %d, started %v; want one start, its result written", ag.restarts, h.proj().folded.loop["T-1"].started)
 	}
-}
-
-// has: a fact of pj's log contains s.
-func (h *harness) has(s string) bool {
-	for _, f := range h.facts(0) {
-		if strings.Contains(f, s) {
-			return true
-		}
-	}
-	return false
 }

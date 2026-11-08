@@ -4,175 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"obor/internal/app/event"
-	"obor/internal/app/wire"
-	"obor/internal/store"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"obor/internal/app/event"
 )
-
-// T-924: a fix task links itself to the open review with its spec's Fixes: line (derived, no record); the verify is a
-// rule: once every linked task merged (or ended unmerged) and the reviewer is idle, serve detaches the reviewer's
-// worktree at the integration head and briefs the verify in the same session; only the finished line covers the tasks.
-
-// headSHA is the rig's integration branch head (reviewGitFake.Head).
-const headSHA = "abcdef0123456789abcdef0123456789abcdef01"
-
-// startHead is the head the open review started at (startedReview).
-const startHead = "1234567890abcdef"
-
-// openReviewFile writes the open review's file (RV-5) in the rig's main checkout.
-func openReviewFile(t *testing.T, root string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Join(root, "reviews"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "reviews", "RV-5.md"), []byte("# RV-5\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// startedReview records the open review's start fact (RV-5 covers T-start at startHead; the verifies add to it).
-func startedReview(t *testing.T, r *reviewRig) {
-	t.Helper()
-	if !r.a.record(r.p, event.Record{Task: event.ReviewTask, Step: event.StepReviewStarted, Kind: event.KindFact},
-		ReviewData{ID: "RV-5", Head: startHead, Tasks: []string{"T-start"}}) {
-		t.Fatal("the log refused the review start")
-	}
-}
-
-// fixTask stores task's spec with line between its title and its first heading, then dispatches and submits it.
-func (r *reviewRig) fixTask(task, line string) {
-	r.t.Helper()
-	text := "# " + task + " — fix\n\nDifficulty: medium\n" + line + "\n\n## Do\nfix it\n"
-	if _, _, err := store.SetSpec(r.p.log.DB(), task, text, "", "pj-lead", r.now); err != nil {
-		r.t.Fatal(err)
-	}
-	if !r.a.record(r.p, event.Record{Task: task, Attempt: 1, Step: event.StepDispatched, Kind: event.KindFact},
-		dispatchData{}) {
-		r.t.Fatal("the log refused the dispatch")
-	}
-	r.submitted(task)
-}
-
-// fixRig is a rig with the open review RV-5 (its file written, RV-4 closed) started, and T-a, T-b dispatched with
-// Fixes: RV-5 lines (T-a's with a note).
-func fixRig(t *testing.T) *reviewRig {
-	t.Helper()
-	r := newReviewRig(t)
-	openReviewFile(t, r.p.root)
-	startedReview(t, r)
-	r.fixTask("T-a", "Fixes: RV-5 #1, #3 — re-run with an old status JSON")
-	r.fixTask("T-b", "Fixes: RV-5")
-	return r
-}
-
-// verifyPass is one rule pass of the verify rule alone.
-func (r *reviewRig) verifyPass() {
-	r.a.rulePass(context.Background(), []rule{{name: ruleVerify, when: verifyRule}}, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents})
-}
-
-// cycle is RV-5's cycle as serve's close reads it (the test fails on an error).
-func (r *reviewRig) cycle() reviewCycle {
-	r.t.Helper()
-	c, err := r.a.reviewCycle(r.p, "RV-5")
-	if err != nil {
-		r.t.Fatal(err)
-	}
-	return c
-}
-
-// pending is close's pending set for RV-5, comma-joined.
-func (r *reviewRig) pending() string { return strings.Join(r.cycle().pending, ",") }
-
-// verifyBriefs are the log's verify briefs of the reviewer (a brief naming tasks and a head), in order.
-func verifyBriefs(t *testing.T, root string) []event.Message {
-	t.Helper()
-	var out []event.Message
-	for _, r := range readLog(t, root) {
-		var m event.Message
-		if r.Task == event.MsgTask && r.Step == event.StepBriefed && json.Unmarshal(r.Data, &m) == nil &&
-			m.To == "pj-rev" && m.Task != "" && m.Reviewed != "" {
-			out = append(out, m)
-		}
-	}
-	return out
-}
-
-// verifyLines are the log's lead lines of the verify rule (its own and its git failure's), in order.
-func (r *reviewRig) verifyLines() []string {
-	r.t.Helper()
-	var out []string
-	for _, rec := range readLog(r.t, r.p.root) {
-		var m event.Message
-		if rec.Task == event.MsgTask && rec.Step == event.StepMessage && json.Unmarshal(rec.Data, &m) == nil &&
-			(m.Of.Kind == ruleVerify || m.Of.Kind == ruleVerifyGit) {
-			out = append(out, m.Line)
-		}
-	}
-	return out
-}
-
-// working sets the reviewer's pane working (true) or idle.
-func (r *reviewRig) working(on bool) {
-	status := "idle"
-	if on {
-		status = "working"
-	}
-	lineStatus(r.a, "w:rev", status, r.now)
-}
-
-// finish is the reviewer taking its open brief: its line delivered, its pane working, then idle; the finished line
-// that ends the brief recorded.
-func (r *reviewRig) finish() {
-	r.t.Helper()
-	if r.p.out.brief("pj-rev") == nil {
-		r.t.Fatal("precondition: the reviewer has no open brief to finish")
-	}
-	r.a.deliver(context.Background(), r.p, &Loop{Typer: &linerSpy{}})
-	r.working(true)
-	r.working(false)
-	r.a.deliver(context.Background(), r.p, &Loop{Typer: &linerSpy{}})
-	if r.p.out.brief("pj-rev") != nil {
-		r.t.Fatal("precondition: the reviewer's brief is still open after its work")
-	}
-}
-
-// leadBrief is the lead's brief to the reviewer (call id id).
-func (r *reviewRig) leadBrief(id string) {
-	r.t.Helper()
-	if _, err := r.a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: r.p.root, CallID: id, Role: "lead",
-		Agent: "pj-lead"}, To: "pj-rev", Text: "look at the flaky test"}); err != nil {
-		r.t.Fatal(err)
-	}
-}
-
-// stop is the reviewer's StopFailure hook (call id call) on errText (details).
-func (r *reviewRig) stop(call, errText, details string) {
-	r.t.Helper()
-	if _, err := r.a.stoppedCall(wire.StoppedReq{Envelope: wire.Envelope{Root: r.p.root, CallID: call, Agent: "pj-rev",
-		Role: "reviewer"}, Error: errText, Details: details}); err != nil {
-		r.t.Fatal(err)
-	}
-}
-
-// briefedVerify is fixRig's verify of T-a, T-b briefed, delivered and taken by the reviewer (its pane working).
-func briefedVerify(t *testing.T) *reviewRig {
-	t.Helper()
-	r := fixRig(t)
-	r.merged("T-a")
-	r.merged("T-b")
-	r.verifyPass()
-	r.a.deliver(context.Background(), r.p, &Loop{Typer: &linerSpy{}})
-	r.working(true)
-	if n := len(verifyBriefs(t, r.p.root)); n != 1 || r.p.out.brief("pj-rev") == nil || r.pending() != "T-a,T-b" {
-		t.Fatalf("precondition: %d verify briefs, brief open %t, pending %q; want one open, T-a,T-b pending", n,
-			r.p.out.brief("pj-rev") != nil, r.pending())
-	}
-	return r
-}
 
 // The rule's table (docs/design.md "Change rules" 6: condition → action).
 func TestVerifyRule(t *testing.T) {
@@ -487,4 +325,116 @@ func TestVerifyCrashBetweenDetachAndBrief(t *testing.T) {
 	if n := len(verifyBriefs(t, r.p.root)); n != 1 || len(r.git.detached) != 2 {
 		t.Errorf("after the restart: %d verify briefs, detached %q; want one brief, moved again", n, r.git.detached)
 	}
+}
+
+// T-942: the reviewer's finished line names its review file and the file's Result line; other roles keep
+// "[obor] <agent> finished (briefed <age> ago)" (messages_test.go TestBriefFinishedLineToTheLead and the advisor's).
+
+// finishedLines are the log's finished lines (messages that end an agent) of agent, in order.
+func finishedLines(t *testing.T, root, agent string) []string {
+	t.Helper()
+	var out []string
+	for _, rec := range readLog(t, root) {
+		var m event.Message
+		if rec.Task == event.MsgTask && rec.Step == event.StepMessage && json.Unmarshal(rec.Data, &m) == nil && m.Ends == agent {
+			out = append(out, m.Line)
+		}
+	}
+	return out
+}
+
+// writeReview writes reviews/name.md in the rig's main checkout.
+func writeReview(t *testing.T, root, name, text string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(root, "reviews"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "reviews", name+".md"), []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReviewerFinishedLineNamesReviewAndResult(t *testing.T) {
+	t.Parallel()
+	t.Run("a review file with a Result line", func(t *testing.T) {
+		t.Parallel()
+		r := newReviewRig(t)
+		writeReview(t, r.p.root, "RV-5", "# RV-5\n\nResult: **changes requested** · 2b3c4d5 · T-a,T-b\n\n## Findings\n")
+		r.started()
+		got := finishedLines(t, r.p.root, "pj-rev")
+		want := "[obor] pj-rev finished RV-5: reviews/RV-5.md — changes requested · 2b3c4d5 · T-a,T-b"
+		if len(got) != 1 || got[0] != want {
+			t.Errorf("finished lines %q, want [%q]", got, want)
+		}
+	})
+	t.Run("a verify file", func(t *testing.T) {
+		t.Parallel()
+		r := fixRig(t)
+		r.merged("T-a")
+		r.merged("T-b")
+		r.verifyPass()
+		if n := len(verifyBriefs(t, r.p.root)); n != 1 {
+			t.Fatalf("precondition: %d verify briefs, want 1", n)
+		}
+		writeReview(t, r.p.root, "RV-5-verify", "# RV-5 verify\n\n**Result:** approved · all fixed\n")
+		r.finish()
+		got := finishedLines(t, r.p.root, "pj-rev")
+		want := "[obor] pj-rev finished RV-5: reviews/RV-5-verify.md — approved · all fixed"
+		if len(got) != 1 || got[0] != want {
+			t.Errorf("finished lines %q, want [%q]", got, want)
+		}
+	})
+	t.Run("a verify file with Result mid-sentence", func(t *testing.T) {
+		t.Parallel()
+		r := fixRig(t)
+		r.merged("T-a")
+		r.merged("T-b")
+		r.verifyPass()
+		if n := len(verifyBriefs(t, r.p.root)); n != 1 {
+			t.Fatalf("precondition: %d verify briefs, want 1", n)
+		}
+		writeReview(t, r.p.root, "RV-5-verify", "# RV-5 verify\n\nReviewed `c579437`: T-944 fixed both found"+
+			" issues; Result: **changes requested**; #1 is incomplete, #2 is fixed.\n")
+		r.finish()
+		got := finishedLines(t, r.p.root, "pj-rev")
+		want := "[obor] pj-rev finished RV-5: reviews/RV-5-verify.md — changes requested; #1 is incomplete, #2 is fixed."
+		if len(got) != 1 || got[0] != want {
+			t.Errorf("finished lines %q, want [%q]", got, want)
+		}
+	})
+	t.Run("no file", func(t *testing.T) {
+		t.Parallel()
+		r := newReviewRig(t)
+		r.started()
+		got := finishedLines(t, r.p.root, "pj-rev")
+		want := "[obor] pj-rev finished RV-5: reviews/RV-5.md (no Result line)"
+		if len(got) != 1 || got[0] != want {
+			t.Errorf("finished lines %q, want [%q]", got, want)
+		}
+	})
+	t.Run("a file with no Result line", func(t *testing.T) {
+		t.Parallel()
+		r := newReviewRig(t)
+		writeReview(t, r.p.root, "RV-5", "# RV-5\n\nno result yet\n")
+		r.started()
+		got := finishedLines(t, r.p.root, "pj-rev")
+		want := "[obor] pj-rev finished RV-5: reviews/RV-5.md (no Result line)"
+		if len(got) != 1 || got[0] != want {
+			t.Errorf("finished lines %q, want [%q]", got, want)
+		}
+	})
+	t.Run("a long result is cut", func(t *testing.T) {
+		t.Parallel()
+		r := newReviewRig(t)
+		writeReview(t, r.p.root, "RV-5", "Result: **approved** "+strings.Repeat("x", 300)+"\n")
+		r.started()
+		got := finishedLines(t, r.p.root, "pj-rev")
+		if len(got) != 1 {
+			t.Fatalf("finished lines %q, want one", got)
+		}
+		_, res, ok := strings.Cut(got[0], " — ")
+		if !ok || !strings.HasPrefix(res, "approved xxx") || len([]rune(res)) > resultWidth+1 {
+			t.Errorf("result %q (%d runes), want it cut to about %d", res, len([]rune(res)), resultWidth)
+		}
+	})
 }

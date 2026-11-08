@@ -3,9 +3,6 @@ package app
 import (
 	"encoding/json"
 	"net"
-	"obor/internal/app/event"
-	"obor/internal/app/port"
-	"obor/internal/app/wire"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -13,43 +10,13 @@ import (
 	"testing"
 	"time"
 
-	"obor/internal/version"
-
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"obor/internal/project"
 	"obor/internal/store"
+	"obor/internal/version"
 )
-
-// session reports agent's session id (transcript tr, started at) to h's serve as the SessionStart hook does.
-func (h *harness) session(agent, id, tr string, at int64) string {
-	h.t.Helper()
-	reply, err := h.a.sessionCall(*wire.SessionRequest(h.root, store.Session{Agent: agent, Kind: "claude", ID: id, Transcript: tr,
-		Pane: "w1:p1", Lane: "L-01", Task: "T-1", Started: at, Source: "SessionStart hook"}))
-	if err != nil {
-		h.t.Fatal(err)
-	}
-	return reply
-}
-
-// sessions is pj's recorded sessions of agent, as "<id> <transcript>".
-func (h *harness) sessions(agent string) []string {
-	h.a.mu.Lock()
-	defer h.a.mu.Unlock()
-	var out []string
-	for _, s := range h.proj().folded.sessions {
-		if s.Agent == agent {
-			out = append(out, s.ID+" "+s.Transcript)
-		}
-	}
-	return out
-}
-
-// current is pj's current session of agent ("": none).
-func (h *harness) current(agent string) string {
-	h.a.mu.Lock()
-	defer h.a.mu.Unlock()
-	s, _ := h.proj().session(agent)
-	return s.ID
-}
 
 // T-577: a Claude start records one session fact with its id and transcript; a second start of the agent a second
 // fact, the newest its current one; a repeat of a session records none; a replay folds the same; the store's readers
@@ -210,28 +177,6 @@ func TestSessionConfirmation(t *testing.T) {
 			t.Errorf("store: %+v (%v), want the confirmation alone", ss, err)
 		}
 	})
-}
-
-// has fails when s lacks sub.
-func has(t *testing.T, s, sub, what string) {
-	t.Helper()
-	if !strings.Contains(s, sub) {
-		t.Errorf("%s: %q lacks %q", what, s, sub)
-	}
-}
-
-// refused reports agent's session id to h's serve: the error ("" none).
-func (h *harness) refused(agent, id string, at int64) string {
-	h.t.Helper()
-	_, err := h.a.sessionCall(*wire.SessionRequest(h.root, store.Session{Agent: agent, Kind: "codex", ID: id, Started: at,
-		Source: "codex transcript"}))
-	if err == nil {
-		return ""
-	}
-	if !strings.Contains(err.Error(), refusedMark) {
-		h.t.Fatalf("an error that is not a refusal: %v", err)
-	}
-	return err.Error()
 }
 
 // T-586: one session id belongs to one agent: an id that is another agent's current session is refused (nothing

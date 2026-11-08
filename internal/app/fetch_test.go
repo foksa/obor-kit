@@ -1,489 +1,861 @@
-package app_test
+package app
 
 import (
 	"context"
 	"encoding/json"
-	"obor/internal/app/event"
-	"obor/internal/app/port"
-	"obor/internal/app/wire"
+	"os"
+	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
-	"obor/internal/testkit"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
+	"obor/internal/config"
+	"obor/internal/store"
 )
 
-// Jobs by fetch (docs/state-model.md rows 5–8, 16–17) on the dispatch rig: every
-// job's prompt is its wake, the agent's job_next fetches the job (its first fetch is fact delivered via mcp, its only
-// delivery), and the worker's task_done, its report the argument, submits its task (T-437).
-
-// fetchRig is the dispatch rig (edits change the config further).
-func fetchRig(t *testing.T, edits ...func(map[string]any)) *loopRig {
-	t.Helper()
-	return newLoopRig(t, dispatching(), withConfig(edits...))
-}
-
-// task is serve's status of task (zero: none).
-func (r *loopRig) task(task string) wire.TaskStatus {
-	for _, t := range r.app.Status().Project.Tasks {
-		if t.Task == task {
-			return t
-		}
-	}
-	return wire.TaskStatus{}
-}
-
-// wake is the one line typed for job (the Prompter's tag, then the wake).
-func wake(job string) string { return "[obor job " + job + "] call the obor job_next tool" }
-
-// call is a job tool's socket request by agent (role, lane) with call id: job_next, or a verdict on T-1; job names the
-// job it answers ("": none).
-func (r *loopRig) call(method, agent, role, lane, callID, job string) (string, error) {
-	id := wire.Envelope{Root: r.p.Root, Agent: agent, Role: role, CallID: callID}
-	var c wire.Req = &wire.VerdictReq{Envelope: id, Verb: method, Task: "T-1", Job: job}
-	if method == wire.MethodJobNext {
-		c = &wire.JobNextReq{Envelope: id, Job: job, Lane: lane}
-	}
-	return wire.Verdict(context.Background(), r.sock, c)
-}
-
-// jobNext is job_next by agent with call id, its reply decoded.
-func (r *loopRig) jobNext(agent, role, lane, callID, job string) (wire.JobReply, string, error) {
-	r.t.Helper()
-	raw, err := r.call(wire.MethodJobNext, agent, role, lane, callID, job)
-	var jr wire.JobReply
-	if err == nil {
-		if err := json.Unmarshal([]byte(raw), &jr); err != nil {
-			r.t.Fatalf("job_next reply %q: %v", raw, err)
-		}
-	}
-	return jr, raw, err
-}
-
-// workerNext is pj-l-01's job_next from lane L-01.
-func (r *loopRig) workerNext(callID string) wire.JobReply {
-	r.t.Helper()
-	jr, _, err := r.jobNext("pj-l-01", "worker", "L-01", callID, "")
-	if err != nil {
-		r.t.Fatalf("job_next of pj-l-01: %v", err)
-	}
-	return jr
-}
-
-// promptsTo is the texts typed to agent, in order.
-func (r *loopRig) promptsTo(agent string) []string {
-	var out []string
-	for _, p := range r.prompts() {
-		if p.to == agent {
-			out = append(out, p.text)
-		}
-	}
-	return out
-}
-
-// deliveries is the log's delivered facts as "<job> <via>".
-func (r *loopRig) deliveries() []string {
-	var out []string
-	for _, rec := range r.records() {
-		if rec.Kind == event.KindFact && rec.Step == event.StepDelivered {
-			out = append(out, rec.Fact().Job+" "+rec.Fact().Via)
-		}
-	}
-	return out
-}
-
-// setConfig sets path in the project's config on disk (read at the app's next load).
-func (r *loopRig) setConfig(path string, v any) {
-	r.t.Helper()
-	var c map[string]any
-	if err := json.Unmarshal([]byte(r.p.Read(".obor/config.json")), &c); err != nil {
-		r.t.Fatal(err)
-	}
-	testkit.Set(path, v)(c)
-	b, _ := json.Marshal(c)
-	r.p.Write(".obor/config.json", string(b)+"\n")
-}
-
-// A dispatch with the switch on types nothing: the start carries the wake as its first prompt, the work job's result
-// is "sent (start prompt)" (T-387); the worker's status turning working is no delivery; its job_next is: the work job's text, fact delivered via mcp once, the task
-// working. A repeated call id gets the stored reply, a new one the same job with no second record, an older job id
-// superseded{current}; another agent's call is refused, another lane has none.
-func TestFetchWorkJob(t *testing.T) {
+// T-396: the worker's job is open before its start: a fetch and a task_done during the start are taken, and the
+// start's result after that keeps the submission (state submitted, the work step sent (start prompt), nothing typed).
+func TestEarlyTaskDone(t *testing.T) {
 	t.Parallel()
-	r := fetchRig(t)
-	r.start()
-	r.mustDispatch("d1")
-	r.waitStep("1 result work")
-	eq(t, r.promptsTo("pj-l-01"), []string(nil), "typed to pj-l-01")
-	same(t, r.result("work"), `"sent (start prompt)"`, "the work job's result")
-	r.mu.Lock()
-	launches := append([]port.Launch(nil), r.launches...)
-	r.mu.Unlock()
-	if len(launches) != 1 || launches[0].Agent != "pj-l-01" || launches[0].Prompt != wake("T-1/1/work") {
-		t.Errorf("launches %+v, want pj-l-01's fresh start with the wake as its first prompt", launches)
-	}
-	var intent event.Record
-	for _, rec := range r.records() {
-		if rec.Kind == event.KindIntent && rec.Step == "work" {
-			intent = rec
+	r := newConcRig(t)
+	p := r.proj("pj")
+	p.dispatching = true
+	lane := r.a.obs["w1:p2"].pane.Cwd
+	r.add("pj", "T-2", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-02", Dir: lane, Agent: "pj-l-02"})
+	r.add("pj", "T-2", event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
+	r.a.lanes.(*fakeLanes).lanes = []port.Lane{{Name: "L-02", Dir: lane, Task: "T-2", Agent: "pj-l-02"}}
+	f := &startJobFakes{concFakes: r.fakes["pj"]}
+	var fetched wire.JobReply
+	var doneErr error
+	var during string
+	f.start = func(port.Launch) {
+		raw, err := r.a.jobNext(wire.JobNextReq{Envelope: wire.Envelope{Root: p.root, Agent: "pj-l-02", Role: "worker",
+			CallID: "early"}, Lane: "L-02"})
+		if err != nil {
+			t.Fatal(err)
 		}
+		_ = json.Unmarshal([]byte(raw), &fetched)
+		_, doneErr = r.a.taskDone(wire.TaskDoneReq{Envelope: wire.Envelope{Root: p.root, Agent: "pj-l-02",
+			Role: "worker", CallID: "done"}, Lane: "L-02", Task: "T-2",
+			Report: "Summary: x\nSelf-check: x\nSkipped: x\nOpen questions: x"})
+		r.a.mu.Lock()
+		during = p.folded.loop["T-2"].state
+		r.a.mu.Unlock()
 	}
-	if string(intent.Data) != `{"agent":"pj-l-01","job":"T-1/1/work"}` {
-		t.Errorf("work intent %s, want {agent, job}", intent.Data)
+	r.a.mu.Lock()
+	step := r.a.next(p, p.folded.loop["T-2"])
+	r.a.mu.Unlock()
+	if step == nil {
+		t.Fatal("no step")
 	}
-
-	r.workerIs("working")
-	r.passes()
-	if r.has("1 fact delivered") || r.taskState() != "dispatched" {
-		t.Fatalf("delivered by the status with the switch on: %q (state %s)", r.steps(), r.taskState())
+	if !step(context.Background(), &Loop{Agents: f, Typer: f, Kit: r.kit}) {
+		t.Fatal("the start step failed")
 	}
-	if _, _, err := r.jobNext("pj-l-02", "worker", "L-01", "x1", ""); err == nil ||
-		!strings.Contains(err.Error(), "not your job: T-1/1/work is pj-l-01's in lane L-01, not pj-l-02") {
-		t.Errorf("another agent's job_next: %v", err)
+	if len(f.launches) != 1 || f.launches[0].Prompt != wakeLine("T-2/1/work") {
+		t.Fatalf("launches %+v, want one with the work job's wake", f.launches)
 	}
-	if jr, _, err := r.jobNext("pj-l-02", "worker", "L-02", "x2", ""); err != nil || jr.State != "none" {
-		t.Errorf("another lane's job_next: %+v, %v; want none", jr, err)
+	same(t, fetched.State+" "+fetched.Job, "job T-2/1/work", "job_next during the start")
+	if doneErr != nil {
+		t.Fatalf("task_done during the start: %v", doneErr)
 	}
-	if _, _, err := r.jobNext("pj-lead", "lead", "", "x3", ""); err == nil || !strings.Contains(err.Error(), "no jobs for the role lead") {
-		t.Errorf("the lead's job_next: %v", err)
-	}
-	if jr, _, err := r.jobNext("pj-int", "integrator", "", "x4", ""); err != nil || jr.State != "none" {
-		t.Errorf("the integrator's job_next with no job: %+v, %v; want none", jr, err)
-	}
-	r.f.Agent("w1:p5", "pj-x", "idle", r.p.Root)
-	r.push()
-	r.waitFor("pane w1:p5", func() bool { return len(r.app.Status().Project.Agents) == 2 })
-	if _, err := wire.Verdict(context.Background(), r.sock, &wire.JobNextReq{Envelope: wire.Envelope{Root: r.p.Root,
-		Agent: "pj-l-01", Role: "worker", CallID: "x5"}, Lane: "L-01", Pane: "w1:p5"}); err == nil ||
-		!strings.Contains(err.Error(), "pane w1:p5 is not in lane L-01") {
-		t.Errorf("job_next from a pane outside the lane: %v", err)
-	}
-	if n := len(r.deliveries()); n != 0 {
-		t.Fatalf("a refused or empty job_next recorded: %q", r.steps())
-	}
-	if ts := r.task("T-1"); ts.Job != "T-1/1/work" || ts.Delivered { // T-664: obor status' open job
-		t.Errorf("status before the fetch: job %q delivered %v; want T-1/1/work, not delivered", ts.Job, ts.Delivered)
-	}
-
-	jr, raw, err := r.jobNext("pj-l-01", "worker", "L-01", "n1", "")
-	if err != nil || jr.State != "job" || jr.Job != "T-1/1/work" || jr.Task != "T-1" || jr.Attempt != 1 || jr.Step != "work" ||
-		!strings.Contains(jr.Text, "implement the spec of T-1 exactly") {
-		t.Fatalf("job_next: %+v, %v", jr, err)
-	}
-	r.waitFor("working", func() bool { return r.taskState() == "working" })
-	eq(t, r.deliveries(), []string{"T-1/1/work mcp"}, "delivered facts")
-	if ts := r.task("T-1"); ts.Job != "T-1/1/work" || !ts.Delivered {
-		t.Errorf("status after the fetch: job %q delivered %v; want T-1/1/work, delivered", ts.Job, ts.Delivered)
-	}
-	if _, again, err := r.jobNext("pj-l-01", "worker", "L-01", "n1", ""); err != nil || again != raw {
-		t.Errorf("repeated call id: %q, %v; want the stored reply", again, err)
-	}
-	if jr := r.workerNext("n2"); jr.Job != "T-1/1/work" || jr.State != "job" {
-		t.Errorf("a second fetch: %+v, want the same job", jr)
-	}
-	if jr, _, err := r.jobNext("pj-l-01", "worker", "L-01", "n3", "T-1/0/work"); err != nil || jr.State != "superseded" ||
-		jr.Current != "T-1/1/work" || jr.Text != "" {
-		t.Errorf("an older job id: %+v, %v; want superseded{T-1/1/work}", jr, err)
-	}
-	r.passes()
-	eq(t, r.deliveries(), []string{"T-1/1/work mcp"}, "delivered facts after the repeats")
-	r.later(20 * time.Minute)
-	if r.has("1 intent retry.work") || r.hasPrefix("1 fact needs-you") || len(r.promptsTo("pj-l-01")) != 0 {
-		t.Errorf("a timer fired for a fetched job: %q", r.steps())
-	}
+	same(t, during, stSubmitted, "state after task_done")
+	r.a.mu.Lock()
+	after := p.folded.loop["T-2"].state
+	r.a.mu.Unlock()
+	same(t, after, stSubmitted, "state after the start")
+	same(t, resultOf(p, event.Key{Task: "T-2", Attempt: 1, Step: event.StepWork}), `"sent (start prompt)"`, "work result")
+	same(t, len(f.typed), 0, "Prompter calls")
 }
 
-// No fetch 5 min after the start's wake → the wake typed (retry.work, the line cleared first; the worker working is
-// no delivery); 5 more → needs-you{job not delivered}.
-func TestFetchUndelivered(t *testing.T) {
+// T-396: a work job open before a start that was refused stays the job: after obor resume the next start carries the
+// same job's wake (no work.2), and its result sends it.
+func TestStartAgainSameJob(t *testing.T) {
 	t.Parallel()
-	r := fetchRig(t)
-	r.start()
-	r.mustDispatch("d1")
-	r.waitStep("1 result work")
-	r.workerIs("working")
-	r.later(4*time.Minute + 59*time.Second)
-	if r.has("1 intent retry.work") {
-		t.Fatalf("retried before 5 min: %q", r.steps())
+	r := newConcRig(t)
+	p := r.proj("pj")
+	p.dispatching = true
+	lane := r.a.obs["w1:p2"].pane.Cwd
+	r.add("pj", "T-2", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-02", Dir: lane, Agent: "pj-l-02"})
+	r.add("pj", "T-2", event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
+	r.add("pj", "T-2", event.StepWork, event.KindIntent, promptData{Agent: "pj-l-02", Job: "T-2/1/work"})
+	r.add("pj", "T-2", event.StepStartWork, event.KindIntent, startData{Lane: "L-02", Agent: "pj-l-02", Pane: "w1:p2"})
+	r.add("pj", "T-2", event.StepStartWork, event.KindResult, startOut{Refused: "has background tasks"})
+	r.add("pj", "T-2", event.StepNeedsYou, event.KindFact, event.FactData{Merge: true, Cause: causeStart, Reason: "start: refused"})
+	r.add("pj", "T-2", event.StepUnblocked, event.KindFact, event.FactData{Merge: true, Reason: wire.ResumeRetry})
+	f := &startJobFakes{concFakes: r.fakes["pj"]}
+	r.a.mu.Lock()
+	step := r.a.next(p, p.folded.loop["T-2"])
+	r.a.mu.Unlock()
+	if step == nil {
+		t.Fatal("no step")
 	}
-	r.later(time.Second)
-	r.waitStep("1 result retry.work")
-	eq(t, r.promptsTo("pj-l-01"), []string{wake("T-1/1/work")}, "typed to pj-l-01")
-	if got := r.cleared("pj-l-01"); len(got) != 1 || !got[0] {
-		t.Errorf("input line cleared before prompts %v, want [true]", got)
+	if !step(context.Background(), &Loop{Agents: f, Typer: f, Kit: r.kit}) {
+		t.Fatal("the start step failed")
 	}
-	r.later(4*time.Minute + 59*time.Second)
-	if r.hasPrefix("1 fact needs-you") {
-		t.Fatalf("needs-you before 5 min after the retry: %q", r.steps())
+	if len(f.launches) != 1 || f.launches[0].Prompt != wakeLine("T-2/1/work") {
+		t.Fatalf("launches %+v, want one carrying T-2/1/work", f.launches)
 	}
-	r.later(time.Second)
-	r.waitStep("1 fact needs-you{job not delivered: T-1/1/work prompted twice to pj-l-01}")
-	if r.has("1 fact delivered") {
-		t.Errorf("delivered without a fetch: %q", r.steps())
-	}
+	same(t, resultOf(p, event.Key{Task: "T-2", Attempt: 1, Step: event.StepWork}), `"sent (start prompt)"`, "work result")
+	same(t, done(p, event.Key{Task: "T-2", Attempt: 1, Step: nth(event.StepWork, 2)}), false, "work.2 done")
+	same(t, len(f.typed), 0, "Prompter calls")
 }
 
-// fetched is the fetch rig with T-1 dispatched, its work job fetched and its task_done submitting it,
-// the integrator's review job out and fetched: the review job's text.
-func fetched(t *testing.T) (*loopRig, string) {
-	r := fetchRig(t)
-	r.work("feature.txt", "feature\n")
-	r.start()
-	r.mustDispatch("d1")
-	r.waitStep("1 result work")
-	r.workerNext("n1")
-	r.submit()
-	r.waitStep("1 fact submitted")
-	r.waitStep("1 result review")
-	eq(t, r.promptsTo("pj-int"), []string(nil), "typed to pj-int (its start carried the wake, T-393)")
-	same(t, r.result("review"), `"sent (start prompt)"`, "review result")
-	r.integratorIs("working")
-	r.passes()
-	if len(r.deliveries()) != 1 {
-		t.Fatalf("the review job delivered by the status: %q", r.steps())
+// runNext runs task's next step in p with f as its agents and typer: whether it ran and returned true.
+func runNext(r *concRig, p *proj, task string, f *startJobFakes) bool {
+	r.a.mu.Lock()
+	step := r.a.next(p, p.folded.loop[task])
+	r.a.mu.Unlock()
+	if step == nil {
+		r.t.Fatalf("%s: no step", task)
 	}
-	jr, _, err := r.jobNext("pj-int", "integrator", "", "i1", "")
-	if err != nil || jr.State != "job" || jr.Job != "T-1/1/review" || !strings.Contains(jr.Text, "Patch hash: ") {
-		t.Fatalf("the integrator's job_next: %+v, %v", jr, err)
-	}
-	r.waitFor("delivered", func() bool { return len(r.deliveries()) == 2 })
-	eq(t, r.deliveries(), []string{"T-1/1/work mcp", "T-1/1/review mcp"}, "delivered facts")
-	return r, jr.Text
+	return step(context.Background(), &Loop{Agents: f, Typer: f})
 }
 
-// The integrator's start carries its job's wake; its review job is a wake, fetched by job_next (no status rule), and
-// accepted as today.
-func TestFetchReviewJob(t *testing.T) {
+// setStatus puts the integrator's pane w1:p9 at status.
+func setStatus(r *concRig, status string) {
+	r.a.mu.Lock()
+	r.a.obs["w1:p9"].pane.Status = status
+	r.a.mu.Unlock()
+}
+
+func TestFreshIntegratorPerJob(t *testing.T) {
 	t.Parallel()
-	r, text := fetched(t)
-	r.mu.Lock()
-	var prompt string
-	for _, l := range r.launches {
-		if l.Agent == "pj-int" {
-			prompt = l.Prompt
-		}
+	r := newConcRig(t)
+	p := r.proj("pj")
+	ctx := context.Background()
+	if w := r.a.whereIs(p, p.integrator); w.State != Identified {
+		t.Fatalf("precondition: the integrator is not identified: %+v", w)
 	}
-	r.mu.Unlock()
-	if prompt != wake("T-1/1/review") {
-		t.Errorf("the integrator's start prompt %q, want the review job's wake", prompt)
+	f := &startJobFakes{concFakes: r.fakes["pj"]}
+	greenTask(r, "T-1", port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
+	if !runNext(r, p, "T-1", f) {
+		t.Fatal("T-1's review job not started")
 	}
-	if ts := r.task("T-1"); ts.Job != "T-1/1/review" || !ts.Delivered { // T-664: the integrator's job, fetched
-		t.Errorf("status with the review job fetched: job %q delivered %v; want T-1/1/review, delivered", ts.Job,
-			ts.Delivered)
-	}
-	r.accept("c1", r.patch(text))
-	r.waitStep("1 result agent.stop")
-	if r.mainMerges() != 1 {
-		t.Errorf("not merged: %q", r.steps())
-	}
-}
+	greenTask(r, "T-5", port.Candidate{Task: "T-5", SHA: "c5", Target: "b", Patch: "p5"})
 
-// After a sendback the fix job is a wake, fetched by job_next (its text the notes). task_done with a full report
-// submits the next attempt, its report and call id on the fact, and the next review job quotes the report; a repeated
-// call id gets the stored reply; once submitted, another task_done is refused. The guards: the caller's role and
-// agent, the report (empty, a section missing).
-func TestFetchFixAndTaskDone(t *testing.T) {
-	t.Parallel()
-	r, _ := fetched(t)
-	if reply, err := r.verdict(wire.MethodSendback, "s1", "", "add a test"); err != nil || !strings.HasPrefix(reply, "SENDBACK T-1") {
-		t.Fatalf("sendback: %q, %v", reply, err)
+	// T-1's job is out: T-5's job waits, nothing started, typed or recorded for it.
+	if runNext(r, p, "T-5", f) {
+		t.Error("T-5's job went on while T-1's job is out")
 	}
-	r.integratorStops() // it ends its turn after the verdict, and serve stops it: no job is left for it (T-672)
-	r.waitStep("2 result fix")
-	eq(t, r.promptsTo("pj-l-01"), []string{wake("T-1/2/fix")}, "typed to pj-l-01")
-	jr := r.workerNext("f1")
-	if jr.Job != "T-1/2/fix" || !strings.Contains(jr.Text, "T-1 is sent back to you (attempt 2): add a test") ||
-		!strings.Contains(jr.Text, "call task_done again") || strings.Contains(jr.Text, "done file") {
-		t.Fatalf("the fix job: %+v", jr)
-	}
-	r.waitFor("delivered", func() bool { return len(r.deliveries()) == 3 })
+	same(t, len(f.launches), 1, "starts while T-1's job is out")
+	same(t, p.log.Open(event.Key{Task: "T-5", Attempt: 1, Step: event.StepReview}) || done(p, event.Key{Task: "T-5", Attempt: 1, Step: event.StepReview}), false, "T-5's review recorded")
 
-	fixed := "Summary: added the test.\nSelf-check: ok.\nSkipped: none.\nOpen questions: none."
-	for _, row := range []struct{ name, agent, role, report, want string }{
-		{"another agent", "pj-l-02", "worker", fixed, "not your task (T-1 is pj-l-01's in lane L-01, not pj-l-02's)"},
-		{"the integrator", "pj-int", "integrator", fixed, "a worker submits its task, not pj-int"},
-		{"an empty report", "pj-l-01", "worker", "  \n", "the report is empty: pass your final report (Summary, " +
-			"Self-check, Skipped, Open questions) as report"},
-		{"a section missing", "pj-l-01", "worker", "Summary: x\nSelf-check: x\nSkipped: x", "the report has no section Open questions"},
-	} {
-		if _, err := r.callDone(row.agent, row.role, "t-"+row.name, row.report); err == nil ||
-			!strings.Contains(err.Error(), row.want) {
-			t.Errorf("%s: task_done %v, want %q", row.name, err, row.want)
-		}
-	}
-	r.passes()
-	if r.has("2 fact submitted") {
-		t.Fatalf("a refused task_done recorded: %q", r.steps())
-	}
-
-	if reply, err := r.callDone("pj-l-01", "worker", "t1", fixed); err != nil || reply != "submitted" {
-		t.Fatalf("task_done: %q, %v", reply, err)
-	}
-	if reply, err := r.callDone("pj-l-01", "worker", "t1", fixed); err != nil || reply != "submitted" {
-		t.Errorf("repeated call id: %q, %v; want the stored reply", reply, err)
-	}
-	if _, err := r.callDone("pj-l-01", "worker", "t2", fixed); err == nil ||
-		!strings.Contains(err.Error(), "not open for a submission") {
-		t.Errorf("a second task_done: %v", err)
-	}
-	review := r.waitJob("pj-int", "T-1/2/review")
-	if !strings.Contains(review, "The worker's report:\n"+fixed) {
-		t.Errorf("the review job does not quote the report:\n%s", review)
-	}
-	if n := r.count("2 fact submitted"); n != 1 {
-		t.Errorf("submitted facts of attempt 2: %d, want 1: %q", n, r.steps())
-	}
-	var d struct{ Call, Report string }
-	for _, rec := range r.records() {
-		if rec.Kind == event.KindFact && rec.Step == event.StepSubmitted && rec.Attempt == 2 {
-			_ = json.Unmarshal(rec.Data, &d)
-		}
-	}
-	if d.Call != "t1" || d.Report != fixed {
-		t.Errorf("the submitted fact's call id %q, report %q; want t1 and the report", d.Call, d.Report)
-	}
-}
-
-// A Blocked: report submits nothing: it records needs-you{asks: <what it needs>} (the task stays working), notifies
-// the owner and tells the worker to wait; no stall is added while the worker waits, and its activity does not clear it
-// (T-511: the Stop hook's turn after the report is no answer): obor answer (answer_test.go) or its submission does. A
-// full report then submits, and the question ends with it.
-func TestFetchBlockedAsks(t *testing.T) {
-	t.Parallel()
-	r := fetchRig(t)
-	r.start()
-	r.mustDispatch("d1")
-	r.waitStep("1 result work")
-	r.workerNext("n1")
-	r.waitFor("working", func() bool { return r.taskState() == "working" })
-	r.workerIs("working")
-	asks := "0 fact needs-you{asks: may I edit internal/x.go?}"
-	reply, err := r.callDone("pj-l-01", "worker", "b1", "Summary: half done\nBlocked: may I edit internal/x.go?\n")
-	if err != nil || !strings.Contains(reply, "the owner is told") || !strings.Contains(reply, "stop and wait") {
-		t.Fatalf("task_done Blocked: %q, %v", reply, err)
-	}
-	r.waitStep(asks)
-	r.waitFor("one notification", func() bool { return countReq(r.srv, "notification.show") == 1 })
-	if r.hasPrefix("1 fact submitted") || r.taskState() != "working" {
-		t.Fatalf("a Blocked: report submitted (%s): %q", r.taskState(), r.steps())
-	}
-	r.push()
-	r.passes() // still the asking turn: working is no answer
-	r.workerIs("idle")
-	r.later(25 * time.Minute)
-	r.push()
-	r.passes()
-	if r.hasPrefix("0 fact stalled") || r.hasPrefix("0 fact resumed") || r.count(asks) != 1 {
-		t.Fatalf("while the worker waits: %q, want only the asks fact", r.steps())
-	}
-	if f := r.app.Status().Project.Facts; len(f) != 1 {
-		t.Fatalf("facts in force %+v, want the asks fact", f)
-	}
-	r.workerIs("working") // the owner answered in its pane, or the Stop hook's turn
-	r.push()
-	r.passes()
-	if r.hasPrefix("0 fact resumed") || len(r.app.Status().Project.Facts) != 1 {
-		t.Fatalf("the worker's activity ended its question: %q", r.steps())
-	}
-	full := "Summary: done.\nSelf-check: ok.\nSkipped: none.\nOpen questions: none."
-	r.work("feature.txt", "feature\n") // its gate merges something: no needs-you of its own after the submission
-	if reply, err := r.callDone("pj-l-01", "worker", "t1", full); err != nil || reply != "submitted" {
-		t.Errorf("task_done after the answer: %q, %v", reply, err)
-	}
-	r.waitFor("the question ended by the submission", func() bool { return r.facts() == 0 })
-}
-
-// callDone is agent's task_done for T-1 (role, lane L-01) with call id and report.
-func (r *loopRig) callDone(agent, role, callID, report string) (string, error) {
-	return wire.Verdict(context.Background(), r.sock, &wire.TaskDoneReq{Envelope: wire.Envelope{Root: r.p.Root,
-		Agent: agent, Role: role, CallID: callID}, Lane: "L-01", Task: "T-1", Report: report})
-}
-
-// An unfetched fix job: its wake again after 5 min, the owner after 5 more; obor resume (its default: retry) sends it
-// anew as fix.2, whose fetch delivers it.
-func TestFetchFixUndelivered(t *testing.T) {
-	t.Parallel()
-	r, _ := fetched(t)
-	if _, err := r.verdict(wire.MethodSendback, "s1", "", "add a test"); err != nil {
+	if _, err := r.a.verdict(ctx, wire.VerdictReq{Envelope: wire.Envelope{Root: p.root, Agent: "pj-int",
+		Role: "integrator", CallID: "a1"}, Verb: wire.MethodAccept, Task: "T-1", Job: "T-1/1/review",
+		Patch: "p1"}); err != nil {
 		t.Fatal(err)
 	}
-	r.waitStep("2 result fix")
-	r.later(5 * time.Minute)
-	r.waitStep("2 result retry.fix")
-	r.later(5 * time.Minute)
-	r.waitStep("2 fact needs-you{job not delivered: T-1/2/fix prompted twice to pj-l-01}")
-	r.needsYouState()
-	r.mustResume("r1", "", "RESUMED T-1: retry (job not delivered)")
-	r.waitStep("2 result fix.2")
-	eq(t, r.promptsTo("pj-l-01"), []string{wake("T-1/2/fix"), wake("T-1/2/fix"), wake("T-1/2/fix.2")},
-		"typed to pj-l-01")
-	if jr := r.workerNext("f2"); jr.Job != "T-1/2/fix.2" {
-		t.Errorf("job_next after the resume: %+v, want T-1/2/fix.2", jr)
-	} else if !strings.Contains(jr.Text, "If this session did not get the work job (a fresh start), read ") ||
-		!strings.Contains(jr.Text, "templates/agents/worker.md") {
-		t.Errorf("the fix job names no role text for a worker started fresh:\n%s", jr.Text)
+	// Answered, but the integrator still ends its turn: not cut off.
+	setStatus(r, "working")
+	if runNext(r, p, "T-5", f) {
+		t.Error("T-5's job went on while the integrator works")
 	}
-	r.waitFor("delivered", func() bool { return len(r.deliveries()) == 3 })
-	r.later(20 * time.Minute)
-	if r.has("2 intent retry.fix.2") {
-		t.Errorf("a fetched fix job retried: %q", r.steps())
+	same(t, len(f.launches), 1, "starts while the integrator works")
+
+	setStatus(r, "idle")
+	if !runNext(r, p, "T-5", f) {
+		t.Fatal("T-5's review job not started after T-1's verdict")
 	}
+	for i, l := range f.launches {
+		job := []string{"T-1/1/review", "T-5/1/review"}[i]
+		if !l.Fresh || l.Force || l.Prompt != wakeLine(job) || l.Agent != "pj-int" {
+			t.Errorf("launch %d: %+v, want a fresh pj-int (no force) with the first prompt %q", i, l, wakeLine(job))
+		}
+	}
+	same(t, len(f.launches), 2, "starts (one per job)")
+	same(t, len(f.typed), 0, "typed wakes")
+	same(t, resultOf(p, event.Key{Task: "T-5", Attempt: 1, Step: event.StepReview}), `"sent (start prompt)"`, "T-5's review result")
 }
 
-// Replay with a wake pending: the crash came after the typing of the retry's wake began; the replay sends the wake once
-// more (T-524: harmless twice) and the worker's job_next gets the job.
-func TestFetchReplayWake(t *testing.T) {
+// The wait for an integrator that does not go idle after the last verdict is bounded (T-602): for Gone from the first
+// look the next job waits; past it the fresh start forces (stops the turn), with one log line.
+func TestFreshIntegratorIdleBound(t *testing.T) {
 	t.Parallel()
-	r := fetchRig(t)
-	r.start()
-	r.mustDispatch("d1")
-	r.waitStep("1 result work")
-	r.disp.set(func(d *dispatchFakes) { d.cut["prompt"] = "after" })
-	r.clock.Add(5 * time.Minute)
-	r.push()
-	r.waitFor("the wake typed", func() bool { return len(r.promptsTo("pj-l-01")) == 1 })
-	r.waitFor("the prompt cut", func() bool { r.disp.mu.Lock(); defer r.disp.mu.Unlock(); return r.disp.hit["prompt"] })
-	r.stop()
-	if !r.has("1 intent retry.work") || r.has("1 result retry.work") {
-		t.Fatalf("precondition: the wake's intent pending: %q", r.steps())
-	}
-	r.disp.set(func(d *dispatchFakes) { delete(d.cut, "prompt") })
-	r.start()
-	r.waitStep("1 result retry.work")
-	r.passes()
-	eq(t, r.promptsTo("pj-l-01"), []string{wake("T-1/1/work"), wake("T-1/1/work")}, "typed to pj-l-01 after the replay")
-	if jr := r.workerNext("n1"); jr.Job != "T-1/1/work" {
-		t.Errorf("job_next after the replay: %+v", jr)
-	}
-}
-
-// T-437: a Codex and an OpenCode worker (the rig's sonnet as that kind) finish as a Claude one does: the start carries the work job's wake, job_next
-// fetches it, task_done (its report) submits the task, and the merge loop takes it to merged.
-func TestFetchCodexOpenCodeFinishByTaskDone(t *testing.T) {
-	t.Parallel()
-	for _, kind := range []string{"codex", "opencode"} {
-		t.Run(kind, func(t *testing.T) {
-			t.Parallel()
-			r := fetchRig(t, testkit.Set("models.sonnet", map[string]any{"kind": kind, "model": "x"}))
-			r.work("feature.txt", "feature\n")
-			r.start()
-			r.mustDispatch("d1")
-			r.waitStep("1 result work")
-			r.mu.Lock()
-			prompt := r.launches[0].Prompt
-			r.mu.Unlock()
-			same(t, prompt, wake("T-1/1/work"), kind+"'s start prompt")
-			if jr := r.workerNext("n1"); jr.Job != "T-1/1/work" {
-				t.Fatalf("job_next: %+v, want the work job", jr)
+	r := newConcRig(t)
+	p := r.proj("pj")
+	now := r.a.opt.Now()
+	r.a.opt.Now = func() time.Time { return now }
+	var out strings.Builder
+	r.a.opt.Out = &out
+	f := &startJobFakes{concFakes: r.fakes["pj"]}
+	greenTask(r, "T-1", port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
+	for _, status := range []string{"working", "blocked"} {
+		t.Run(status, func(t *testing.T) {
+			f.launches = nil
+			setStatus(r, status)
+			r.a.mu.Lock()
+			p.idleWait = idleWait{}
+			r.a.mu.Unlock()
+			if runNext(r, p, "T-1", f) {
+				t.Fatalf("the job went on at once while the integrator is %s", status)
 			}
-			r.waitFor("working", func() bool { return r.taskState() == "working" })
-			r.submit()
-			r.waitStep("1 fact submitted")
-			r.accept("c1", r.patch(r.waitJob("pj-int", "T-1/1/review")))
-			r.waitStep("1 result agent.stop")
-			if r.mainMerges() != 1 {
-				t.Errorf("not merged: %q", r.steps())
+			now = now.Add(r.a.opt.Gone - time.Second)
+			if runNext(r, p, "T-1", f) || len(f.launches) != 0 {
+				t.Fatalf("the job went on before Gone (%s): launches %+v", r.a.opt.Gone, f.launches)
+			}
+			if status == "working" {
+				return // the blocked row starts it
+			}
+			now = now.Add(2 * time.Second)
+			if !runNext(r, p, "T-1", f) {
+				t.Fatal("the job not started past Gone")
+			}
+			if len(f.launches) != 1 || !f.launches[0].Fresh || !f.launches[0].Force ||
+				f.launches[0].Prompt != wakeLine("T-1/1/review") {
+				t.Errorf("launches %+v, want one fresh start with force and the job's wake", f.launches)
+			}
+			if n := strings.Count(out.String(), "started fresh with force"); n != 1 {
+				t.Errorf("force log lines %d, want 1:\n%s", n, out.String())
 			}
 		})
+	}
+}
+
+// T-606 (RV-65 #1): the idle wait is the integrator's pane's, not a job's. Two queued jobs alternating across Gone
+// share one busy interval, so one of them forces a fresh start after one Gone; the other waits for its verdict.
+func TestFreshIntegratorIdleBoundTwoJobs(t *testing.T) {
+	t.Parallel()
+	r := newConcRig(t)
+	p := r.proj("pj")
+	now := r.a.opt.Now()
+	r.a.opt.Now = func() time.Time { return now }
+	var out strings.Builder
+	r.a.opt.Out = &out
+	f := &startJobFakes{concFakes: r.fakes["pj"]}
+	setStatus(r, "working")
+	greenTask(r, "T-1", port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
+	greenTask(r, "T-5", port.Candidate{Task: "T-5", SHA: "c5", Target: "b", Patch: "p5"})
+
+	// Alternate both jobs while the clock is under Gone: neither starts, whichever job looked last.
+	step := r.a.opt.Gone / 5
+	for i := 0; i < 4; i++ {
+		for _, task := range []string{"T-1", "T-5"} {
+			if runNext(r, p, task, f) {
+				t.Fatalf("%s's job went on in pass %d, under Gone", task, i)
+			}
+		}
+		now = now.Add(step)
+	}
+	same(t, len(f.launches), 0, "starts before Gone")
+
+	// Past Gone from that first look, the first job in advance order forces; the other waits for its verdict.
+	now = now.Add(r.a.opt.Gone)
+	if !runNext(r, p, "T-1", f) {
+		t.Fatal("T-1's job did not start after Gone")
+	}
+	same(t, len(f.launches), 1, "starts after Gone")
+	if l := f.launches[0]; !l.Fresh || !l.Force || l.Prompt != wakeLine("T-1/1/review") || l.Agent != "pj-int" {
+		t.Errorf("launch %+v, want a fresh pj-int with force and T-1's wake", l)
+	}
+	same(t, len(f.typed), 0, "typed wakes")
+	if n := strings.Count(out.String(), "started fresh with force"); n != 1 {
+		t.Errorf("force log lines %d, want 1:\n%s", n, out.String())
+	}
+	if runNext(r, p, "T-5", f) {
+		t.Error("T-5's job went on while T-1's job is out")
+	}
+	same(t, len(f.launches), 1, "starts while T-1's job is out")
+	same(t, p.log.Open(event.Key{Task: "T-5", Attempt: 1, Step: event.StepReview}) || done(p, event.Key{Task: "T-5", Attempt: 1, Step: event.StepReview}), false,
+		"T-5's review recorded")
+
+	// T-1's verdict, then its turn's end: T-5 starts fresh, not forced.
+	if _, err := r.a.verdict(context.Background(), wire.VerdictReq{Envelope: wire.Envelope{Root: p.root,
+		Agent: "pj-int", Role: "integrator", CallID: "a1"}, Verb: wire.MethodAccept, Task: "T-1", Job: "T-1/1/review",
+		Patch: "p1"}); err != nil {
+		t.Fatal(err)
+	}
+	if runNext(r, p, "T-5", f) {
+		t.Error("T-5's job went on while the integrator works")
+	}
+	setStatus(r, "idle")
+	if !runNext(r, p, "T-5", f) {
+		t.Fatal("T-5's review job not started after T-1's verdict")
+	}
+	if len(f.launches) != 2 {
+		t.Fatalf("launches %+v, want two", f.launches)
+	}
+	if l := f.launches[1]; !l.Fresh || l.Force || l.Prompt != wakeLine("T-5/1/review") {
+		t.Errorf("launch %+v, want a fresh start (no force) with T-5's wake", l)
+	}
+}
+
+// job_next hands out the job the call names when it is open, else the oldest open one, never a held one (T-602): a
+// fresh session started for job B fetches B, also while an older job A is held (the T-598 resolve.2 shape).
+func TestJobNextNamedNotHeld(t *testing.T) {
+	t.Parallel()
+	r := newConcRig(t)
+	p := r.proj("pj")
+	greenTask(r, "T-1", port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
+	r.add("pj", "T-1", event.StepReview, event.KindIntent, promptData{Agent: "pj-int", Job: "T-1/1/review", Patch: "p1"})
+	r.add("pj", "T-1", event.StepReview, event.KindResult, "sent")
+	r.add("pj", "T-5", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "L-05", Input: "s5"})
+	r.add("pj", "T-5", event.StepGate, event.KindResult, gateOut{Outcome: outConflict, Candidate: port.Candidate{Task: "T-5", SHA: "c5",
+		Target: "b", Patch: "p5"}})
+	r.add("pj", "T-5", nth(event.StepResolve, 2), event.KindIntent, promptData{Agent: "pj-int", Job: "T-5/1/resolve.2", Patch: "p5"})
+	r.add("pj", "T-5", nth(event.StepResolve, 2), event.KindResult, "sent")
+	fetch := func(id, job string) wire.JobReply {
+		t.Helper()
+		raw, err := r.a.jobNext(wire.JobNextReq{Envelope: wire.Envelope{Root: p.root, Agent: p.integrator,
+			Role: "integrator", CallID: id}, Job: job})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var jr wire.JobReply
+		_ = json.Unmarshal([]byte(raw), &jr)
+		return jr
+	}
+	same(t, fetch("n1", "").Job, "T-1/1/review", "unnamed, nothing held: the oldest open job")
+	same(t, fetch("n2", "T-5/1/resolve.2").Job, "T-5/1/resolve.2", "named: that job, though an older one is open")
+
+	r.add("pj", "T-1", event.StepNeedsYou, event.KindFact, event.FactData{Merge: true, Cause: event.CauseHeld, Reason: "held: why"})
+	same(t, fetch("n3", "").Job, "T-5/1/resolve.2", "unnamed, the older job held: the open one not held")
+	same(t, fetch("n4", "T-5/1/resolve.2").Job, "T-5/1/resolve.2", "named, an older job held")
+	jr := fetch("n5", "T-1/1/review")
+	same(t, jr.State+" "+jr.Current, "superseded T-5/1/resolve.2", "the held job named: not handed out")
+}
+
+// T-606: the unnamed job_next hands out the oldest open job on every call. Two sent jobs have no pending intent, so
+// their order must be the log's, not the map's: each call ranges the loop afresh and must still name the first.
+func TestJobNextOldestNotTheMapsFirst(t *testing.T) {
+	t.Parallel()
+	r := newConcRig(t)
+	p := r.proj("pj")
+	for _, task := range []string{"T-1", "T-5"} {
+		greenTask(r, task, port.Candidate{Task: task, SHA: "c-" + task, Target: "b", Patch: "p-" + task})
+		r.add("pj", task, event.StepReview, event.KindIntent, promptData{Agent: "pj-int", Job: task + "/1/review",
+			Patch: "p-" + task})
+		r.add("pj", task, event.StepReview, event.KindResult, "sent")
+	}
+	for _, task := range []string{"T-1", "T-5"} {
+		mt := p.folded.loop[task]
+		if k, ok := mt.integratorJob(); !ok || JobID(k) != task+"/1/review" {
+			t.Fatalf("precondition: %s's review job is not open (%s, %v)", task, JobID(k), ok)
+		}
+	}
+	for i := 0; i < 20; i++ {
+		raw, err := r.a.jobNext(wire.JobNextReq{Envelope: wire.Envelope{Root: p.root, Agent: p.integrator,
+			Role: "integrator", CallID: "old" + strconv.Itoa(i)}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var jr wire.JobReply
+		_ = json.Unmarshal([]byte(raw), &jr)
+		if jr.Job != "T-1/1/review" {
+			t.Fatalf("call %d: the unnamed fetch got %q, want the oldest open job T-1/1/review", i, jr.Job)
+		}
+	}
+}
+
+// A crash after the job's intent and its start's intent, before their results: the replay starts nothing again (the
+// integrator runs: its wake typed), and a needs-you that left another task's job does not hold the next job.
+func TestFreshIntegratorReplay(t *testing.T) {
+	t.Parallel()
+	r := newConcRig(t)
+	p := r.proj("pj")
+	greenTask(r, "T-1", port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
+	r.add("pj", "T-1", event.StepReview, event.KindIntent, promptData{Agent: "pj-int", Job: "T-1/1/review", Patch: "p1"})
+	r.add("pj", "T-1", "start.review", event.KindIntent, startData{Agent: "pj-int"})
+	f := &startJobFakes{concFakes: r.fakes["pj"]}
+	if !runNext(r, p, "T-1", f) {
+		t.Fatal("the replayed job step failed")
+	}
+	same(t, len(f.launches), 0, "starts on the replay")
+	same(t, done(p, event.Key{Task: "T-1", Attempt: 1, Step: "start.review"}), true, "start.review done")
+	same(t, len(f.typed), 1, "typed wakes")
+	same(t, resultOf(p, event.Key{Task: "T-1", Attempt: 1, Step: event.StepReview}), `"sent"`, "T-1's review result")
+
+	r.add("pj", "T-1", event.StepNeedsYou, event.KindFact, event.FactData{Merge: true, Cause: event.CauseHeld, Reason: "held: why"})
+	greenTask(r, "T-5", port.Candidate{Task: "T-5", SHA: "c5", Target: "b", Patch: "p5"})
+	if !runNext(r, p, "T-5", f) {
+		t.Fatal("T-5's job held by T-1's needs-you")
+	}
+	if len(f.launches) != 1 || !f.launches[0].Fresh {
+		t.Errorf("launches %+v, want one fresh start for T-5", f.launches)
+	}
+}
+
+// A pending first start of an integrator job (a crash, or a failed start) starts fresh again only when the snapshot
+// shows the session its intent saw, or none: a new session there means the start ran (no second start: the wake
+// typed); an unknown session cannot tell (the same).
+func TestFreshIntegratorPendingStart(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name          string
+		at            startData // the start's intent
+		now           string    // the integrator pane's session now ("gone": no integrator)
+		start, forced bool
+	}{
+		{"the same session: start again", startData{Agent: "pj-int", Pane: "w1:p9", Ran: true, Session: "old"}, "old",
+			true, false},
+		{"none runs: start again", startData{Agent: "pj-int", Pane: "w1:p9", Ran: true, Session: "old"}, "gone",
+			true, false},
+		{"a new session: started", startData{Agent: "pj-int", Pane: "w1:p9", Ran: true, Session: "old"}, "new",
+			false, false},
+		{"none at the intent, one now: started", startData{Agent: "pj-int"}, "new", false, false},
+		{"unknown at the intent: cannot tell", startData{Agent: "pj-int", Pane: "w1:p9", Ran: true}, "old", false, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			r := newConcRig(t)
+			p := r.proj("pj")
+			greenTask(r, "T-1", port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
+			r.add("pj", "T-1", event.StepReview, event.KindIntent, promptData{Agent: "pj-int", Job: "T-1/1/review", Patch: "p1"})
+			r.add("pj", "T-1", "start.review", event.KindIntent, c.at)
+			r.a.mu.Lock()
+			if c.now == "gone" {
+				delete(r.a.obs, "w1:p9")
+			} else {
+				r.a.obs["w1:p9"].pane.Session = c.now
+			}
+			r.a.mu.Unlock()
+			f := &startJobFakes{concFakes: r.fakes["pj"]}
+			if !runNext(r, p, "T-1", f) {
+				t.Fatal("the pending job step failed")
+			}
+			if c.start {
+				if len(f.launches) != 1 || !f.launches[0].Fresh || f.launches[0].Prompt != wakeLine("T-1/1/review") {
+					t.Errorf("launches %+v, want one fresh start with the job's wake", f.launches)
+				}
+				same(t, len(f.typed), 0, "typed wakes")
+				return
+			}
+			same(t, len(f.launches), 0, "starts")
+			same(t, len(f.typed), 1, "typed wakes")
+		})
+	}
+}
+
+func TestWorkerJobNextTwoJobsInLaneTakesFirstTaskByName(t *testing.T) {
+	t.Parallel()
+	for range orderTries {
+		p := twoInLane()
+		if _, ok := p.folded.loop["T-2"].workerJob(); !ok {
+			t.Fatal("precondition: T-2 has a worker job open")
+		}
+		mt, k, ok, err := (&App{}).callerJob(p, wire.JobNextReq{Envelope: wire.Envelope{Role: "worker", Agent: "w1"},
+			Lane: "L1"})
+		if err != nil || !ok || mt.task != "T-1" || k != (event.Key{Task: "T-1", Attempt: 1, Step: event.StepWork}) {
+			t.Fatalf("callerJob = %s %v %v %v; want T-1's work job", mt.task, k, ok, err)
+		}
+	}
+}
+
+func TestIntegratorJobNextEqualSeqsTakesFirstTaskByName(t *testing.T) {
+	t.Parallel()
+	for range orderTries {
+		p := twoInLane()
+		p.integrator = "int"
+		for _, mt := range p.folded.loop {
+			mt.state, mt.job = stAwaiting, event.StepReview
+		}
+		if _, ok := p.folded.loop["T-2"].integratorJob(); !ok {
+			t.Fatal("precondition: T-2 has an integrator job open")
+		}
+		if _, ok := p.log.IntentOf(event.Key{Task: "T-2", Attempt: 1, Step: event.StepReview}); ok {
+			t.Fatal("precondition: no intent recorded (equal seqs)")
+		}
+		mt, k, ok, err := (&App{}).callerJob(p, wire.JobNextReq{Envelope: wire.Envelope{Role: "integrator",
+			Agent: "int"}})
+		if err != nil || !ok || mt.task != "T-1" || k != (event.Key{Task: "T-1", Attempt: 1, Step: event.StepReview}) {
+			t.Fatalf("callerJob = %s %v %v %v; want T-1's review job", mt.task, k, ok, err)
+		}
+	}
+}
+
+// RV-133 #1 (T-959): restart_job is callerJob's answer, never the status list's first review job. A held (earlier)
+// review and a later active one leave the integrator's restart with the active job — the one its job_next would hand
+// it — although the status list shows the held task first (by task name) with its job open.
+func TestRestartJobSkipsHeld(t *testing.T) {
+	t.Parallel()
+	r := newConcRig(t)
+	defer r.a.closeLog()
+	// T-6's review job goes out after T-4's: its intent is the newer one, so it is the integrator's oldest open job
+	// once T-4 is held.
+	r.add("pr", "T-6", event.StepSubmitted, event.KindFact, submitData{Lane: "L-06"})
+	r.add("pr", "T-6", event.StepSubmit, event.KindResult, submitOut{SHA: "s6"})
+	r.add("pr", "T-6", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "L-06", Input: "s6"})
+	r.add("pr", "T-6", event.StepGate, event.KindResult, gateOut{Outcome: outGreen, Candidate: port.Candidate{Task: "T-6",
+		SHA: "c-T-6", Target: "b", Patch: "p"}})
+	r.add("pr", "T-6", event.StepReview, event.KindIntent, promptData{Agent: "pr-int", Job: "T-6/1/review", Patch: "p"})
+	r.add("pr", "T-6", event.StepReview, event.KindResult, "sent")
+	a := r.app("pr")
+	if _, err := a.verdict(context.Background(), wire.VerdictReq{Envelope: wire.Envelope{Root: r.roots["pr"],
+		Agent: "pr-int", Role: "integrator", CallID: "h1"}, Verb: wire.MethodHold, Task: "T-4", Job: "T-4/1/review",
+		Note: "the owner decides"}); err != nil {
+		t.Fatalf("hold T-4: %v", err)
+	}
+	var shown []string
+	for _, ts := range r.status("pr").Tasks {
+		shown = append(shown, ts.Task+" "+ts.State+" "+ts.Job)
+	}
+	if want := []string{"T-4 needs-you T-4/1/review", "T-6 awaiting-accept T-6/1/review"}; !slices.Equal(shown, want) {
+		t.Fatalf("precondition: the status lists the held job first: %q, want %q", shown, want)
+	}
+	job, err := a.restartJob(wire.RestartJobReq{Envelope: wire.Envelope{Root: r.roots["pr"], Agent: "pr-int",
+		Role: "integrator"}})
+	if err != nil || job != "T-6/1/review" {
+		t.Errorf("the integrator's restart job: %q, %v; want the active T-6/1/review, not the held T-4's", job, err)
+	}
+	if job, err := r.app("pq").restartJob(wire.RestartJobReq{Envelope: wire.Envelope{Root: r.roots["pq"],
+		Agent: "pq-int", Role: "integrator"}}); job != "" || err != nil {
+		t.Errorf("no open job: %q, %v; want no wake", job, err)
+	}
+}
+
+func TestWorkTextCarriesBothRoleTexts(t *testing.T) {
+	t.Parallel()
+	p, kit := roleFixture(t, "# Role: worker\nkit rules\n", "# Worker here\nproject rules\n")
+	text, err := workText(p, mtask{task: "T-9", lane: "L-01"}, kit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Implement T-9 on main.", "# Role: worker\nkit rules", "# Worker here\nproject rules",
+		filepath.Join(kit, "templates", "agents", "worker.md"), filepath.Join(p.root, "doc/roles/worker.md")} {
+		if !strings.Contains(text, want) {
+			t.Errorf("work text has no %q:\n%s", want, text)
+		}
+	}
+	for _, no := range []string{"Read AGENTS.md and your role text", "Also read", "{{"} {
+		if strings.Contains(text, no) {
+			t.Errorf("work text carries %q (the roles are in the job, not a read line):\n%s", no, text)
+		}
+	}
+}
+
+func TestWorkTextSkipsAMissingProjectDoc(t *testing.T) {
+	t.Parallel()
+	p, kit := roleFixture(t, "# Role: worker\nkit rules\n", "")
+	text, err := workText(p, mtask{task: "T-9", lane: "L-01"}, kit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "kit rules") {
+		t.Errorf("the kit's role text is not in the job:\n%s", text)
+	}
+	if strings.Contains(text, filepath.Join(p.root, "doc/roles/worker.md")) || strings.Contains(text, "This project's") {
+		t.Errorf("a project worker doc the checkout lacks is in the job:\n%s", text)
+	}
+}
+
+func TestWorkTextNamesARoleTextTooLargeToCarry(t *testing.T) {
+	t.Parallel()
+	big := "# Role: worker\n" + strings.Repeat("K", roleTextMax)
+	p, kit := roleFixture(t, big, "# Worker here\nproject rules\n")
+	text, err := workText(p, mtask{task: "T-9", lane: "L-01"}, kit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(kit, "templates", "agents", "worker.md")
+	if !strings.Contains(text, "Read your role text before you act: "+path+" (too large to carry here).") {
+		t.Errorf("no read line naming the oversized role text %s:\n%s", path, text)
+	}
+	if strings.Contains(text, strings.Repeat("K", 64)) {
+		t.Error("a role text over roleTextMax is inlined")
+	}
+	if !strings.Contains(text, "project rules") {
+		t.Errorf("the role text under the cap is not inlined:\n%s", text)
+	}
+}
+
+func TestRoleTextAtTheCapIsInlined(t *testing.T) {
+	t.Parallel()
+	at := "# Role: worker\n" + strings.Repeat("K", roleTextMax-len("# Role: worker\n"))
+	p, kit := roleFixture(t, at, "")
+	text, err := workText(p, mtask{task: "T-9", lane: "L-01"}, kit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(text, "Read your role text") || !strings.Contains(text, strings.Repeat("K", 64)) {
+		t.Errorf("a role text of exactly roleTextMax bytes is not inlined:\n%s", text)
+	}
+}
+
+// T-721, T-765: the job's prompt_extra is the kind's of the model its dispatch chose (kinds.<kind>.prompt_extra); a
+// dispatch recorded before T-721 (no model) carries none.
+func TestWorkTextPromptExtraIsTheDispatchsModels(t *testing.T) {
+	t.Parallel()
+	p, kit := roleFixture(t, "# Role: worker\nkit rules\n", "")
+	cfg := `{"name":"pj","paths":{"agents":"doc/roles"},"lanes":1,"kinds":{
+		"claude":{"prompt_extra":"Claude extra."},"codex":{"prompt_extra":"Codex extra."}}}`
+	writeRoleFile(t, filepath.Join(p.root, ".obor", "config.json"), cfg)
+	text, err := workText(p, mtask{task: "T-9", lane: "L-01", disp: dispatchData{Lane: "L-01", Type: "luna:high"}}, kit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "Codex extra.") || strings.Contains(text, "Claude extra.") {
+		t.Errorf("a luna:high dispatch: want codex's prompt_extra only:\n%s", text)
+	}
+	text, err = workText(p, mtask{task: "T-9", lane: "L-01", disp: dispatchData{Lane: "L-01", Type: "opus"}}, kit)
+	if err != nil || !strings.Contains(text, "Claude extra.") || strings.Contains(text, "Codex extra.") {
+		t.Errorf("an opus dispatch: want claude's prompt_extra only (%v):\n%s", err, text)
+	}
+	text, err = workText(p, mtask{task: "T-9", lane: "L-01", disp: dispatchData{Lane: "L-01"}}, kit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(text, "Claude extra.") || strings.Contains(text, "Codex extra.") {
+		t.Errorf("a dispatch with no model: want no prompt_extra:\n%s", text)
+	}
+}
+
+// The kit's own prompt template names no role text: the job carries it.
+func TestWorkerPromptNamesNoRoleText(t *testing.T) {
+	t.Parallel()
+	kit, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompt, err := workerPrompt(config.Fallback(t.TempDir()), kit, "T-9", config.Model{PromptExtra: "Extra."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"implement the spec of T-9 exactly", "obor spec show T-9", "Extra."} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("the rendered prompt has no %q:\n%s", want, prompt)
+		}
+	}
+	for _, no := range []string{"worker.md", "Also read", "{{", "task_done", "commands.check", "Wrong-tab", "AGENTS.md"} {
+		if strings.Contains(prompt, no) {
+			t.Errorf("the rendered prompt carries %q:\n%s", no, prompt)
+		}
+	}
+}
+
+// T-674: only an empty "## This project" section is dropped from the job; a project's filled one is carried.
+func TestWorkTextDropsOnlyAnEmptyProjectSection(t *testing.T) {
+	t.Parallel()
+	kitRole := "# Role: worker\nkit rules\n\n## This project\n<!-- fill in: kit note -->\n"
+	doc := "# Worker here\nproject rules\n\n## This project\n- run make build\n"
+	p, kit := roleFixture(t, kitRole, doc)
+	text, err := workText(p, mtask{task: "T-9", lane: "L-01"}, kit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "- run make build") {
+		t.Errorf("the project's filled This project section is not in the job:\n%s", text)
+	}
+	if strings.Contains(text, "fill in") {
+		t.Errorf("the kit's empty This project section is in the job:\n%s", text)
+	}
+	if n := strings.Count(text, "## This project"); n != 1 {
+		t.Errorf("## This project appears %d times, want the project's one:\n%s", n, text)
+	}
+}
+
+// T-674: the work job of this kit (templates/worker-prompt.txt, templates/agents/worker.md and obor-kit's
+// docs/agents/worker.md) says each rule once, carries no empty "This project" section and does not tell a worker to
+// fetch the job it is reading.
+func TestWorkJobSaysEachRuleOnce(t *testing.T) {
+	t.Parallel()
+	kit, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".obor"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".obor", "config.json"),
+		[]byte(`{"name":"pj","paths":{"agents":"docs/agents"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := os.ReadFile(filepath.Join(kit, "docs", "agents", "worker.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeRoleFile(t, filepath.Join(root, "docs", "agents", "worker.md"), string(doc))
+	text, err := workText(&proj{root: root}, mtask{task: "T-9", lane: "L-01"}, kit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Precondition: the job carries the kit's role text and this project's doc, not an empty job.
+	for _, want := range []string{"# Role: worker", "obor run check_affected", "implement the spec of T-9 exactly"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("precondition: the work job has no %q:\n%s", want, text)
+		}
+	}
+	for _, rule := range []string{"Read AGENTS.md", "test cache on", "commands.check",
+		"call `task_done` with your final report", "wrong tab"} {
+		if n := strings.Count(text, rule); n != 1 {
+			t.Errorf("the rule %q appears %d times, want once:\n%s", rule, n, text)
+		}
+	}
+	for _, no := range []string{"fill in", "## This project", "before anything else", "your first prompt is a job tag",
+		"Call the `job_next` tool", "Finish by calling the obor task_done tool"} {
+		if strings.Contains(text, no) {
+			t.Errorf("the work job carries %q:\n%s", no, text)
+		}
+	}
+}
+
+// workJobText is the work job of a project whose .obor/config.json is cfg, from the kit's shipped templates: the test
+// fails when the prompt or the kit's role text is not in it (an empty job would pass every "names no" check below).
+func workJobText(t *testing.T, kit, cfg string) string {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".obor"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".obor", "config.json"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	text, err := workText(&proj{root: root}, mtask{task: "T-9", lane: "L-01"}, kit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"implement the spec of T-9 exactly", "# Role: worker"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("precondition: the work job has no %q:\n%s", want, text)
+		}
+	}
+	return text
+}
+
+// T-678: the work job names the project's configured done_file_sections once, not the defaults; with the default
+// config, it names the default labels once.
+func TestWorkJobNamesTheConfiguredReportSections(t *testing.T) {
+	t.Parallel()
+	kit, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ name, cfg, want, not string }{
+		{"configured", `{"name":"pj","done_file_sections":["Summary","Verification"]}`,
+			"Your final report has these sections: Summary, Verification.",
+			"Summary, Self-check, Skipped, Open questions"},
+		{"default", `{"name":"pj"}`,
+			"Your final report has these sections: Summary, Self-check, Skipped, Open questions.", ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			text := workJobText(t, kit, c.cfg)
+			if n := strings.Count(text, c.want); n != 1 {
+				t.Errorf("the job names the sections %d times, want once (%q):\n%s", n, c.want, text)
+			}
+			if c.not != "" && strings.Contains(text, c.not) {
+				t.Errorf("the job names %q, not the wanted sections:\n%s", c.not, text)
+			}
+		})
+	}
+}
+
+// The fix job names the role texts for a worker started fresh (T-603): the kit's and the project's when the checkout has
+// one, the kit's alone when it does not.
+func TestFixJobNamesBothRoleTexts(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name, doc string
+		want      func(p *proj, kit string) string
+		absent    bool // the checkout has no project doc to name
+	}{
+		{"both", "# Worker here\nproject rules\n", func(p *proj, kit string) string {
+			return "If this session did not get the work job (a fresh start), read " +
+				filepath.Join(kit, "templates", "agents", "worker.md") + " and " +
+				filepath.Join(p.root, "doc/roles/worker.md") + " first."
+		}, false},
+		{"kit alone", "", func(_ *proj, kit string) string {
+			return "read " + filepath.Join(kit, "templates", "agents", "worker.md") + " first."
+		}, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			p, kit := roleFixture(t, "# Role: worker\nkit\n", c.doc)
+			read, err := fixRead(p, kit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			text := fixText(mtask{task: "T-9", attempt: 2, attemptVars: attemptVars{line: "add a test"}}, store.SpecRow{}, read)
+			if !strings.Contains(text, c.want(p, kit)) {
+				t.Errorf("the fix job has no %q:\n%s", c.want(p, kit), text)
+			}
+			if c.absent && strings.Contains(text, p.root) {
+				t.Errorf("the fix job names a project doc the checkout lacks:\n%s", text)
+			}
+		})
+	}
+}
+
+// T-819: a fix job whose worker never had the spec's rev carries it (a change made while the task was not working);
+// at the rev it already has, it does not.
+func TestFixJobCarriesAChangedRevOnly(t *testing.T) {
+	t.Parallel()
+	row := store.SpecRow{Task: "T-9", Rev: 2, Text: "# T-9 — W\n\nDifficulty: medium\n"}
+	text := fixText(mtask{task: "T-9", attempt: 2, attemptVars: attemptVars{line: "add a test"}, specRev: 1}, row,
+		"read it.")
+	if !strings.Contains(text, "The spec of T-9 (rev 2") {
+		t.Errorf("a fix job of a worker at rev 1: %q; want the rev 2 spec", text)
+	}
+	if text := fixText(mtask{task: "T-9", attempt: 2, attemptVars: attemptVars{line: "add a test"}, specRev: 2}, row,
+		"read it."); strings.Contains(text, "The spec of T-9") {
+		t.Errorf("a fix job at the spec's rev repeats it: %q", text)
+	}
+}
+
+// integratorJobs is the review and resolve job texts of a rig project whose kit and project doc carry integrator role
+// texts (kitRole under the kit's templates/agents), and the paths of the two files.
+func integratorJobs(t *testing.T, kitRole string) (jobs map[string]string, kitPath, docPath string) {
+	t.Helper()
+	r := newConcRig(t)
+	p := r.proj("pj")
+	cfg, err := config.LoadDaemon(p.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kit := t.TempDir()
+	kitPath = filepath.Join(kit, "templates", "agents", "integrator.md")
+	docPath = filepath.Join(p.root, cfg.Data.Paths["agents"], "integrator.md")
+	writeRoleFile(t, kitPath, kitRole)
+	writeRoleFile(t, docPath, "# Integrator here\nproject integrator rules\n")
+	mt := *p.folded.loop["T-1"]
+	mt.cand = port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1", Stat: "stat-line"}
+	mt.line = "CONFLICT in /s: a.go"
+	review, err := r.a.reviewText(p, mt, kit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolve, err := resolveText(p, mt, kit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return map[string]string{"review": review, "resolve": resolve}, kitPath, docPath
+}
+
+func TestIntegratorJobsCarryBothRoleTexts(t *testing.T) {
+	t.Parallel()
+	jobs, kitPath, docPath := integratorJobs(t, "# Role: integrator\nkit integrator rules\n")
+	for name, text := range jobs {
+		if !strings.HasPrefix(text, map[string]string{"review": "Review T-1", "resolve": "Resolve T-1"}[name]) {
+			t.Fatalf("%s job is not the %s job:\n%s", name, name, text)
+		}
+		for _, want := range []string{"# Role: integrator\nkit integrator rules", "# Integrator here\nproject integrator rules",
+			"Your role text (" + kitPath + "):", "This project's integrator rules (" + docPath + "):"} {
+			if !strings.Contains(text, want) {
+				t.Errorf("%s job has no %q:\n%s", name, want, text)
+			}
+		}
+		if strings.Contains(text, "Read your role text") {
+			t.Errorf("%s job names a read:\n%s", name, text)
+		}
+	}
+}
+
+func TestIntegratorJobNamesARoleTextTooLargeToCarry(t *testing.T) {
+	t.Parallel()
+	jobs, kitPath, _ := integratorJobs(t, "# Role: integrator\n"+strings.Repeat("K", roleTextMax))
+	for name, text := range jobs {
+		if !strings.Contains(text, "Read your role text before you act: "+kitPath+" (too large to carry here).") {
+			t.Errorf("%s job has no read line naming %s:\n%s", name, kitPath, text)
+		}
+		if strings.Contains(text, strings.Repeat("K", 64)) {
+			t.Errorf("%s job inlines a role text over roleTextMax", name)
+		}
+		if !strings.Contains(text, "project integrator rules") {
+			t.Errorf("%s job lacks the project doc under the cap:\n%s", name, text)
+		}
 	}
 }
