@@ -3,19 +3,26 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"obor/internal/app"
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
+	"obor/internal/checks"
+	"obor/internal/config"
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/testkit"
+	"obor/internal/view"
 )
 
 // Serve up: its start and age, each lane with serve's task state and agent, serve's open tasks (not dropped) and agents
@@ -569,5 +576,167 @@ func TestStatusWarnsAClaudeLaneWithoutThePlugin(t *testing.T) {
 	matchLine(t, text, `^L-02 +- +task/T-02 +working +- +\(T-02\)  warning: no-plugin  agent: pj-l-02$`, "L-02 without the plugin")
 	if strings.Contains(text, "L-01 ") && strings.Contains(strings.SplitN(strings.SplitN(text, "L-01 ", 2)[1], "\n", 2)[0], "no-plugin") {
 		t.Errorf("L-01 (plugin enabled) warned:\n%s", text)
+	}
+}
+
+// backgroundView is a project with a lane agent running a recorded background call, a role agent running an unrecorded
+// long command (a foreground one, T-727) and the lead running a recorded one with no description, as view.Build joins
+// them.
+func backgroundView(t *testing.T) (view.Project, string, string) {
+	t.Helper()
+	p := testkit.New(t)
+	o1 := p.Lane("L-01", "task/T-01")
+	p.Config()
+	p.Commit(o1)
+	cfg, err := config.Load(p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lead, integ := cfg.AgentName("lead", ""), cfg.AgentName("integrator", "")
+	ss := wire.Status{Connected: true, Project: &wire.ProjectStatus{Name: "pj", Root: p.Root, Merging: true,
+		Agents: []wire.AgentStatus{{Pane: "w1:p1", Name: "pj-l1", Lane: "L-01", Status: "working"},
+			{Pane: "w1:p2", Name: integ, Status: "idle", Age: 60}, {Pane: "w1:p3", Name: lead, Status: "working", Age: 60}}}}
+	v := view.Build(view.Input{Status: ss, Lanes: checks.NewLaneTable(context.Background(), cfg), Now: time.Now(),
+		Background: map[string][]view.Background{
+			"pj-l1": {{PID: 42, Command: "python convert.py", Background: true, Label: "convert maps", Age: 900}},
+			integ:   {{PID: 43, Command: "make -s check", Age: 95}},
+			lead:    {{PID: 44, Command: "sleep 600", Background: true, Age: 45}}}})
+	return v, lead, integ
+}
+
+// T-714, T-727: obor status shows each agent's long processes on a line under its own — the lane's under the lane
+// line, a role's and the lead's under their agent line — by description, else command, with the age: bg for a
+// recorded background call, running for another.
+func TestStatusShowsBackground(t *testing.T) {
+	t.Parallel()
+	v, lead, integ := backgroundView(t)
+	var b bytes.Buffer
+	writeStatus(&b, v, time.Now())
+	text := b.String()
+	for _, pair := range [][2]string{{"L-01 ", "  bg: convert maps · 15m"}, {"agent " + integ + ":", "  running make -s check · 1m"},
+		{"agent " + lead + ":", "  bg: sleep 600 · 45s"}} {
+		i := strings.Index(text, pair[0])
+		if i < 0 {
+			t.Fatalf("precondition: no line %q in\n%s", pair[0], text)
+		}
+		rest := text[i:]
+		next := rest[strings.Index(rest, "\n")+1:]
+		if !strings.HasPrefix(next, pair[1]+"\n") {
+			t.Errorf("under %q: %q, want %q in\n%s", pair[0], strings.SplitN(next, "\n", 2)[0], pair[1], text)
+		}
+	}
+}
+
+// goldenStatus is a project with a task of every kind the view knows: one on a lane at work (T-01), one merging
+// (T-02), one waiting for a lane (T-03), one waiting --after (T-04), one needing you on no lane (T-05) and one only
+// specified (T-06), with serve's answer for it; and the view's JSON and text of it at an hour after now.
+func goldenStatus(t *testing.T) (string, string) {
+	t.Helper()
+	p := testkit.New(t)
+	o1 := p.Lane("L-01", "task/T-01")
+	o2 := p.Lane("L-02", "task/T-02")
+	p.Lane("L-03", "")
+	p.Config()
+	p.Commit(o1)
+	p.Dispatched("L-01")
+	p.Commit(o2)
+	p.Submit("L-02")
+	for _, id := range []string{"T-01", "T-02", "T-03", "T-04", "T-05", "T-06"} {
+		p.Spec(id, "# "+id+": the "+id+" title\n\nbody\n")
+	}
+	ss := wire.Status{Connected: true, Project: &wire.ProjectStatus{Name: "pj", Root: p.Root, Merging: true,
+		Agents: []wire.AgentStatus{{Pane: "w1:p1", Name: "pj-l-01", Agent: "claude", Lane: "L-01", Task: "T-01",
+			Status: "working"}},
+		Tasks: []wire.TaskStatus{
+			{Task: "T-01", Lane: "L-01", Attempt: 1, State: "dispatched", Phase: wire.PhaseWorking, Effort: "high",
+				Job: "T-01/1/work", Delivered: true},
+			{Task: "T-02", Lane: "L-02", Attempt: 2, State: "accepted", Phase: wire.PhasePublish,
+				Stage: wire.StagePublish, Job: "T-02/2/review"},
+			{Task: "T-03", State: "waiting", Waiting: true, Rank: 1, Phase: wire.PhaseWaiting, Level: "medium",
+				Types: []string{"opus"}, Why: app.LaneWaitFree},
+			{Task: "T-04", State: "waiting", Waiting: true, Rank: 2, Phase: wire.PhaseWaiting, After: []string{"T-02"}},
+			{Task: "T-05", Lane: "L-09", Attempt: 1, State: "needs-you", Phase: wire.PhaseNeedsYou},
+		},
+		ScratchQueue: []wire.ScratchWait{{Task: "T-02", WaitsOn: "T-01", Why: wire.ScratchHeld}},
+		Facts:        []event.Record{fact(t, 1, "T-05", event.FactData{Lane: "L-09", Reason: "asks: which file?"})},
+		Answers:      map[int64]string{1: `obor resume T-05 "<answer>"`},
+		Idle:         &wire.IdleStatus{Since: 100, Last: "T-00", Acked: true, Why: "done"},
+		ReviewRequest: &wire.ReviewRequestStatus{After: []string{"T-02"}, Waiting: []string{"T-02"}, Note: "after",
+			By: "pj-lead", Since: 200},
+	}}
+	now := time.Now().Add(time.Hour)
+	st, text := statusOf(t, p, ss, nil, now)
+	b, err := json.MarshalIndent(st, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return scrubGolden(string(b), p), scrubGolden(text, p)
+}
+
+// scrubGolden replaces p's paths and the clock's numbers and times in s with fixed words.
+func scrubGolden(s string, p *testkit.Project) string {
+	s = strings.ReplaceAll(s, p.Base, "$BASE")
+	s = strings.ReplaceAll(s, p.Root, "$ROOT")
+	s = regexp.MustCompile(`"(since|done_age|next|ts|at)": "?[0-9TZ:+-]+"?`).ReplaceAllString(s, `"$1": 0`)
+	s = regexp.MustCompile(`\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ`).ReplaceAllString(s, "TS")
+	s = regexp.MustCompile(` +\d+[smhd]  \(T-`).ReplaceAllString(s, "  age  (T-")
+	s = regexp.MustCompile(`in \d+[smhd]\)`).ReplaceAllString(s, "in N)")
+	s = regexp.MustCompile(`at \d\d:\d\d`).ReplaceAllString(s, "at HH:MM")
+	return s
+}
+
+// updateGolden is OBOR_UPDATE_GOLDEN set, read before TestMain's testkit.Isolate clears obor's environment.
+var updateGolden = os.Getenv("OBOR_UPDATE_GOLDEN") != ""
+
+// T-883: `obor status --json` and its text, against testdata/status.json.golden and status.txt.golden
+// (OBOR_UPDATE_GOLDEN=1 rewrites them).
+func TestStatusGolden(t *testing.T) {
+	js, text := goldenStatus(t)
+	for _, g := range []struct{ file, got string }{{"status.json.golden", js}, {"status.txt.golden", text}} {
+		path := filepath.Join("testdata", g.file)
+		if updateGolden {
+			if err := os.MkdirAll("testdata", 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(g.got), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		want, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal([]byte(g.got), want) {
+			t.Errorf("%s differs (OBOR_UPDATE_GOLDEN=1 rewrites it); got:\n%s", g.file, g.got)
+		}
+	}
+}
+
+// T-336, T-437: the lane table holds a lane's task open while its branch is not merged: working until its task_done is
+// in the event log, done after; it names the lane's worker and type.
+func TestLaneTable(t *testing.T) {
+	t.Parallel()
+	p := testkit.New(t)
+	lane := p.Lane("L-01", "task/T-01")
+	p.Config()
+	p.Commit(lane)
+	p.State("L-01", map[string]any{"lane": "L-01", "task": "T-01", "branch": "task/T-01", "agent": "pj-l-01",
+		"dispatched_at": time.Now().Unix() - 100})
+	for _, c := range []struct {
+		name, state string
+		prep        func()
+	}{
+		{"dispatched", "working", func() { p.Dispatched("L-01") }},
+		{"task_done in", "working", func() { p.Submit("L-01") }}, // T-788: no done (the task's phase is serve's)
+		{"dispatched anew", "working", func() { p.Dispatched("L-01") }},
+	} {
+		c.prep()
+		ls, err := checks.Lanes{}.Lanes(context.Background(), p.Root)
+		if err != nil || len(ls) != 1 {
+			t.Fatalf("%s: lanes %+v, %v", c.name, ls, err)
+		}
+		if l := ls[0]; l.Task != "T-01" || l.Agent != "pj-l-01" || l.State != c.state {
+			t.Errorf("%s: %+v; want T-01 of pj-l-01, %s", c.name, l, c.state)
+		}
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"obor/internal/app/event"
+	"obor/internal/checks"
 	"obor/internal/herdr"
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/store"
@@ -168,5 +169,30 @@ func TestServeAcceptsNewerHerdrProtocol(t *testing.T) {
 	waitNote(note(herdr.Protocol + 2))
 	if n := strings.Count(out.String(), line(herdr.Protocol+2)); n != 1 {
 		t.Errorf("serve's log names the upgraded herdr %d times, want once:\n%s", n, out.String())
+	}
+}
+
+// serve's merge loop gets the workflow workflow.kind selects (T-1029: scratch-ff, the default) and the dispatch's spec
+// reader and kit; a kind serve has no implementation of fails the loop's construction.
+func TestMergeLoopWorkflowWiring(t *testing.T) {
+	t.Parallel()
+	p := servedProject(t)
+	for _, kind := range []string{"", "scratch-ff"} {
+		if kind != "" {
+			p.Config(testkit.Set("workflow.kind", kind))
+		}
+		l, err := mergeLoop(p.Env(), herdr.Panes{}, &serveEnd{stop: func() {}}, &kindCache{})(p.Root)
+		if err != nil {
+			t.Fatalf("kind %q: %v", kind, err)
+		}
+		wf, ok := l.Workflow.(checks.ScratchFF)
+		if !ok || wf.Review == nil || l.Specs == nil || l.Kit == "" {
+			t.Errorf("kind %q: Workflow %T, Specs %v, Kit %q; want scratch-ff with its review git", kind, l.Workflow, l.Specs, l.Kit)
+		}
+	}
+	p.Config(testkit.Set("workflow.kind", "x"))
+	if _, err := mergeLoop(p.Env(), herdr.Panes{}, &serveEnd{stop: func() {}}, &kindCache{})(p.Root); err == nil ||
+		!strings.Contains(err.Error(), "serve knows scratch-ff") {
+		t.Errorf("kind x: %v; want refused naming the known kinds", err)
 	}
 }

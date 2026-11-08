@@ -2,10 +2,13 @@ package main
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
 	"obor/internal/app/wire"
+	"obor/internal/help"
+	"obor/internal/herdr/herdrtest"
 	"obor/internal/testkit"
 )
 
@@ -75,5 +78,69 @@ func TestServeJobServeDown(t *testing.T) {
 	}
 	if job, err := resolveAgentJob(p.Root, "pj-int", "integrator", "", up("T-5/2/review")); job != "T-5/2/review" || err != nil {
 		t.Errorf("serve up, review open: %q, %v; want its job", job, err)
+	}
+}
+
+// obor restart (internal/launch has the behaviour): the result line last, FAIL → exit 1 (a --stop that gives up
+// prints its evidence first).
+func TestRestartCommand(t *testing.T) {
+	t.Parallel()
+	p := testkit.NewPlain(t)
+	o1 := p.PlainLane("L-01", "")
+	p.Config()
+	f := p.Herdr()
+	f.Shell("w1:p2", "pj-int", p.Root)
+	a := f.Agent("w1:p1", "pj-l-01", "idle", o1)
+	a.Label = "pj-l-01"
+	// The agent's group leader is a live pid (this test's own), and herdr lists no process in its group (RV-24 #1:
+	// an empty list proves no exit), so the stop still times out.
+	a.Foreground, a.OnQuit = os.Getpid(), "stay" // the live fake would quit on /exit: this agent ignores it
+	srv := herdrtest.Serve(t, f)
+	env := []string{"HERDR_SOCKET_PATH=" + srv.Path, "HOME=" + p.Base + "/home",
+		"OBOR_STATE_HOME=" + p.Base + "/state", "OBOR_RESTART_WAIT=1", callDown}
+	for _, c := range []struct {
+		args []string
+		rc   int
+		last string
+	}{
+		{[]string{"restart"}, 1, "FAIL " + help.Usage("restart")},
+		{[]string{"restart", "a", "b"}, 1, "FAIL " + help.Usage("restart")},
+		{[]string{"restart", "pj-l-01", "--stop", "--fresh"}, 1, "FAIL --stop takes no --fresh"},
+		// T-466: --keep-inbox went with the inbox: an unknown flag.
+		{[]string{"restart", "pj-l-01", "--fresh", "--keep-inbox"}, 1, "FAIL " + help.Usage("restart")},
+		// T-864: the flags restart gave up are unknown flags now (T-785's one-minor notice is gone): the usage.
+		{[]string{"restart", "pj-l-01", "--prompt", "go"}, 1, "FAIL " + help.Usage("restart")},
+		{[]string{"restart", "pj-l-01", "--type", "luna"}, 1, "FAIL " + help.Usage("restart")},
+		{[]string{"restart", "pj-l-01", "--effort", "high"}, 1, "FAIL " + help.Usage("restart")},
+		{[]string{"restart", "pj-l-01", "--sid", "sid-9"}, 1, "FAIL " + help.Usage("restart")},
+		{[]string{"restart", "pj-l-01", "--type=luna"}, 1, "FAIL " + help.Usage("restart")},
+		{[]string{"restart", "nobody"}, 1, "FAIL unknown agent nobody (no lane, role, agents entry or recorded session)"},
+		// T-959: serve is down and may hold an open job for the integrator: refused, not restarted without a wake.
+		{[]string{"restart", "pj-int", "--fresh"}, 1, "FAIL restart pj-int: obor serve is not running; it may hold an " +
+			"open job for pj-int: start serve, then restart"},
+		{[]string{"restart", "pj-int", "--stop"}, 0, "STOPPED pj-int (pane w1:p2, already at a shell)"},
+	} {
+		rc, stdout, stderr := run(t, p.Root, env, c.args...)
+		lines := strings.Split(strings.TrimRight(stdout, "\n"), "\n")
+		if rc != c.rc || lines[len(lines)-1] != c.last || stderr != "" {
+			t.Errorf("obor %v: exit %d (want %d)\n%s---\n%s", c.args, rc, c.rc, stdout, stderr)
+		}
+	}
+	// A direct stop that gives up prints its evidence, then the one-line FAIL last (T-213).
+	rc, stdout, _ := run(t, p.Root, env, "restart", "pj-l-01", "--stop")
+	lines := strings.Split(strings.TrimRight(stdout, "\n"), "\n")
+	if rc != 1 || lines[len(lines)-1] != "FAIL pj-l-01 did not exit in 1s (pane w1:p1; the input was cleared; --force terminates it)" ||
+		!strings.Contains(stdout, "agent status:") || !strings.Contains(stdout, "pane processes:") ||
+		strings.Index(stdout, "agent status:") > strings.Index(stdout, "FAIL ") {
+		t.Errorf("obor restart --stop that cannot stop: evidence, then FAIL last: exit %d\n%s", rc, stdout)
+	}
+	var typed, started bool
+	for _, r := range srv.Requests() {
+		typed = typed || r.Method == "pane.send_input" && strings.Contains(string(r.Params), `"pane_id":"w1:p1"`) &&
+			strings.Contains(string(r.Params), `"text":"/exit"`)
+		started = started || r.Method == "agent.start"
+	}
+	if !typed || started {
+		t.Errorf("--stop typed /exit in the worker's pane, started nothing: typed %v, started %v: %+v", typed, started, srv.Requests())
 	}
 }

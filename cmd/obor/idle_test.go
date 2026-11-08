@@ -3,7 +3,6 @@ package main
 import (
 	"strings"
 	"testing"
-	"time"
 
 	"obor/internal/app/wire"
 	"obor/internal/testkit"
@@ -53,23 +52,4 @@ func TestIdleRequest(t *testing.T) {
 		t.Errorf("serve's refusal: exit %d, %q", rc, stdout)
 	}
 	refusing.stop()
-}
-
-// T-803: obor status shows the idle state: unacknowledged with when it began, or the acknowledgement's why.
-func TestStatusShowsIdle(t *testing.T) {
-	t.Parallel()
-	p := testkit.NewPlain(t)
-	p.Config()
-	at := time.Date(2026, 11, 4, 9, 5, 0, 0, time.UTC)
-	ss := wire.Status{Project: &wire.ProjectStatus{Name: "proj", Root: p.Root, Merging: true,
-		Idle: &wire.IdleStatus{Since: at.Unix(), Last: "T-1 merged abc1234"}}}
-	_, text := statusOf(t, p, ss, nil, at.Add(time.Hour))
-	matchLine(t, text, `^idle, not acknowledged since `+at.Local().Format("Jan 2 15:04")+`$`, "the unacknowledged idle state")
-
-	ss.Project.Idle = &wire.IdleStatus{Since: at.Unix(), Last: "T-1 merged abc1234", Acked: true, Why: "nothing to dispatch"}
-	_, text = statusOf(t, p, ss, nil, at.Add(time.Hour))
-	matchLine(t, text, `^idle: nothing to dispatch$`, "the acknowledged idle state")
-	if strings.Contains(text, "not acknowledged") {
-		t.Errorf("an acknowledged idle state shows as unacknowledged:\n%s", text)
-	}
 }
