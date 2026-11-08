@@ -23,7 +23,7 @@ var laneAt = time.Unix(1760000000, 0)
 // made: what a lane.prepare finds. target is main's HEAD (the dispatch fact's target).
 func laneFx(t *testing.T, edits ...func(map[string]any)) (*testkit.Project, string, string) {
 	t.Helper()
-	p := testkit.New(t)
+	p := testkit.NewAt(t, testkit.Dir(t))
 	p.Write(".gitignore", ".obor/state/\n.task-done.md\n")
 	p.Git(p.Root, "add", "-A")
 	p.Git(p.Root, "commit", "-q", "-m", "fixture")
@@ -170,7 +170,7 @@ func TestLanePrepareRepeats(t *testing.T) {
 // TestLanePrepareCanceledEndsSetup (T-873): a canceled prepare ends the configured setup check's process: the check
 // gets no output after the cancel (its sleep and its marker never happen) and Prepare returns at once with a refusal.
 func TestLanePrepareCanceledEndsSetup(t *testing.T) {
-	p, lane, target := laneFx(t, testkit.Set("commands.lane_ready", "touch ready-started; sleep 30; touch ready-done"))
+	p, lane, target := laneFx(t, testkit.Set("commands.lane_ready", "touch ready-started; sleep 3; touch ready-done"))
 	l := laneAdapter(t, p, "")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

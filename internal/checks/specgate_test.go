@@ -7,14 +7,12 @@ import (
 	"testing"
 
 	"obor/internal/app/port"
-	"obor/internal/testkit"
 )
 
 // T-521: the gate puts the stored spec (GateInput.Spec, SpecRev) into every lane candidate's merge message, after
 // its subject, and writes no spec file into the tree; a lane's own copy stays the task's change. No stored spec: the
 // subject alone. One scratch repo carries the rows (the lane's own copy, which leaves the file in the lane, last).
 func TestGateSpecInMessage(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	const stored = "# T-05 — Stored\n\nfeature.txt\n"
 	y := newSx(t, cmd("check", "echo 1 pass"))
@@ -76,11 +74,9 @@ func TestGateSpecInMessage(t *testing.T) {
 // the integrator's own, the spec, the rest of its message, the worker's summary; same parents and tree, the same
 // commit on a repeat. No title stored: the summary is the subject.
 func TestGateResolvedSpecInMessage(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	const spec = "# T-05 — Stored\n\nfeature.txt, shared.txt\n"
-	y := newSx(t, cmd("check", "echo 1 pass"))
-	input := y.conflicted()
+	y, input := conflict.openConflict(t)
 	y.Write(filepath.Join(y.serve, "shared.txt"), "both\n")
 	y.Git(y.serve, "add", "shared.txt")
 	y.Git(y.serve, "commit", "-qm", "Merge T-05: resolved\n\nkept both sides")
@@ -147,10 +143,8 @@ func TestMergeMessageSummaryBody(t *testing.T) {
 // T-802: a resolved merge that keeps git's own message ("Merge commit '<sha>' into HEAD", "# Conflicts:" lines) comes
 // out with the gate's subject and neither of them, and the readers of "Merge T-xx:" subjects find it.
 func TestGateResolvedGitDefaultMessage(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
-	y := newSx(t, cmd("check", "echo 1 pass"))
-	input := y.conflicted()
+	y, input := conflict.openConflict(t)
 	y.Write(filepath.Join(y.serve, "shared.txt"), "both\n")
 	y.Git(y.serve, "add", "shared.txt")
 	y.Git(y.serve, "commit", "-q", "--no-edit")

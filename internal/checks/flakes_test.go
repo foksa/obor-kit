@@ -196,7 +196,7 @@ type flakeFx struct {
 
 func newFlakeFx(t *testing.T) *flakeFx {
 	t.Helper()
-	p := testkit.New(t)
+	p := testkit.NewAt(t, testkit.Dir(t))
 	p.Write("internal/x/x.go", "package x\n")
 	p.Write("internal/x/x_test.go", "package x\n\nfunc TestLedger(t *testing.T) {}\n")
 	p.Write("shared.txt", "one\n")

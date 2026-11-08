@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"obor/internal/app/port"
-	"obor/internal/testkit"
 )
 
 // T-917 (RV-123 V1): a replay mismatch has no unmerged path, so the gate outcome carries the checked resolution and the
@@ -24,8 +23,7 @@ func TestReplayMismatchOutcomeNamesCheckedResolution(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			y := newGoSx(t)
-			sha, res, _ := resolvedGreen(y, true)
+			y, sha, res, _ := resolvedTmpl(true).resolved(t, true)
 			y.edit(y.Root, c.file, c.old, c.new)
 			in := moved(sha)
 			in.Resolved = res
@@ -43,7 +41,6 @@ func TestReplayMismatchOutcomeNamesCheckedResolution(t *testing.T) {
 
 // Real unmerged paths stay today's conflict: no mismatch.
 func TestUnmergedConflictHasNoMismatch(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	y := newGoSx(t)
 	y.edit(y.lane, "a/a.go", "return 1", "return 10")
@@ -63,10 +60,8 @@ func TestUnmergedConflictHasNoMismatch(t *testing.T) {
 
 // Committing the staged merge unchanged is refused; restoring the lost edit is accepted and gated.
 func TestResolvedRefusesMismatchUntilEditRestored(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
-	y := newGoSx(t)
-	sha, res, _ := resolvedGreen(y, true)
+	y, sha, res, _ := resolvedTmpl(true).resolved(t, true)
 	y.edit(y.Root, "d/d.go", "return 1", "return 20")
 	in := moved(sha)
 	in.Resolved = res
@@ -100,10 +95,8 @@ func TestResolvedRefusesMismatchUntilEditRestored(t *testing.T) {
 
 // An integrator who changed the file otherwise (not the replay's content) is not refused.
 func TestResolvedAcceptsOtherwiseChangedMismatchFile(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
-	y := newGoSx(t)
-	sha, res, _ := resolvedGreen(y, true)
+	y, sha, res, _ := resolvedTmpl(true).resolved(t, true)
 	y.edit(y.Root, "d/d.go", "return 1", "return 20")
 	in := moved(sha)
 	in.Resolved = res
