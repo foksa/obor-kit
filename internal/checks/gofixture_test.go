@@ -74,9 +74,9 @@ func moved(sha string) port.GateInput {
 }
 
 // resolvedGreen brings newGoSx to a checked resolution: the lane and main both change a/a.go's A, the lane gate
-// conflicts, the integrator resolves it (return 40) — extra, when set, also changes b/b.go outside the conflict — and
-// the resolved gate is green. The submitted sha, the resolution's sha, its green candidate.
-func resolvedGreen(y *sx, extra bool) (string, string, port.Candidate) {
+// conflicts, the integrator resolves it (return 40) and also changes b/b.go outside the conflict, and the resolved gate
+// is green. The submitted sha, the resolution's sha, its green candidate.
+func resolvedGreen(y *sx) (string, string, port.Candidate) {
 	y.t.Helper()
 	y.edit(y.lane, "a/a.go", "return 1", "return 10")
 	sha := y.submit()
@@ -85,9 +85,7 @@ func resolvedGreen(y *sx, extra bool) (string, string, port.Candidate) {
 		y.t.Fatalf("precondition: the lane gate conflicts in a/a.go, got %s %q", o.Kind, o.Line)
 	}
 	y.Write(filepath.Join(y.serve, "a/a.go"), strings.Replace(goA, "return 1", "return 40", 1))
-	if extra {
-		y.Write(filepath.Join(y.serve, "b/b.go"), "package b\n\nfunc B() int { return 40 }\n")
-	}
+	y.Write(filepath.Join(y.serve, "b/b.go"), "package b\n\nfunc B() int { return 40 }\n")
 	y.Git(y.serve, "add", "-A")
 	y.Git(y.serve, "commit", "-qm", "resolved")
 	res, err := y.s.Resolved(ctx, "T-05", sha, nil)

@@ -196,7 +196,7 @@ func listPackages(t *testing.T) map[string][]string {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, goBin, "list", "-deps", "-json", "./...")
+	cmd := exec.CommandContext(ctx, goBin, "list", "-buildvcs=false", "-deps", "-json", "./...") // no VCS stamp: no git (T-1018)
 	cmd.Dir = filepath.Join("..", "..")
 	out, err := cmd.Output()
 	if err != nil {

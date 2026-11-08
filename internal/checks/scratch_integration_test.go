@@ -410,7 +410,7 @@ func TestScratchGitScenarios(t *testing.T) {
 // b/b.go edit. Before T-915 the moved gate went green with that edit lost.
 func TestRV123RerereDropsOtherResolvedEdits(t *testing.T) {
 	t.Parallel()
-	y, sha, res, old := resolvedTmpl(true).resolved(t, true)
+	y, sha, res, old := resolvedFx.resolved(t)
 	y.eq(y.Git(y.Root, "show", old.SHA+":b/b.go"), "package b\n\nfunc B() int { return 40 }", "precondition: the checked resolution holds b's edit")
 	y.edit(y.Root, "d/d.go", "return 1", "return 20")
 	in := moved(sha)
@@ -433,7 +433,7 @@ func TestRV123RerereDropsOtherResolvedEdits(t *testing.T) {
 // Committing the staged merge unchanged is refused; restoring the lost edit is accepted and gated.
 func TestResolvedRefusesMismatchUntilEditRestored(t *testing.T) {
 	t.Parallel()
-	y, sha, res, _ := resolvedTmpl(true).resolved(t, true)
+	y, sha, res, _ := resolvedFx.resolved(t)
 	y.edit(y.Root, "d/d.go", "return 1", "return 20")
 	in := moved(sha)
 	in.Resolved = res

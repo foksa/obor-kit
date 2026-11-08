@@ -79,8 +79,8 @@ type shared struct {
 // conflict is the default fixture with lane and main both editing shared.txt, the conflict open in serve's worktree.
 var conflict shared
 
-// resolvedFx are the Go fixtures after resolvedGreen: [0] extra=false, [1] extra=true.
-var resolvedFx [2]shared
+// resolvedFx is the Go fixture after resolvedGreen.
+var resolvedFx shared
 
 // openConflict copies the shared open conflict.
 func (s *shared) openConflict(t *testing.T) (*sx, string) {
@@ -93,23 +93,15 @@ func (s *shared) openConflict(t *testing.T) (*sx, string) {
 	return copySx(t, s.base), s.sha
 }
 
-// resolved copies the Go fixture at resolvedGreen(extra): its submitted sha, checked resolution and green candidate.
-func (s *shared) resolved(t *testing.T, extra bool) (*sx, string, string, port.Candidate) {
+// resolved copies the Go fixture at resolvedGreen: its submitted sha, checked resolution and green candidate.
+func (s *shared) resolved(t *testing.T) (*sx, string, string, port.Candidate) {
 	t.Helper()
 	s.once.Do(func() {
 		y := newGoSx(mainTB{})
-		s.sha, s.res, s.cand = resolvedGreen(y, extra)
+		s.sha, s.res, s.cand = resolvedGreen(y)
 		s.base = y.Base
 	})
 	return copySx(t, s.base), s.sha, s.res, s.cand
-}
-
-// resolvedTmpl is the shared fixture at resolvedGreen(extra).
-func resolvedTmpl(extra bool) *shared {
-	if extra {
-		return &resolvedFx[1]
-	}
-	return &resolvedFx[0]
 }
 
 // snapshot copies src's tree into a fresh temp dir of the test's and returns it.
