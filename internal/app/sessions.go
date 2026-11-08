@@ -32,7 +32,7 @@ const refusedMark = "session already held by "
 // report of one session) records nothing and gets the same reply, except the confirmation of a session obor chose
 // before its start, which fills in its transcript (T-813). One session id belongs to one agent (T-586): an id that is
 // another agent's current session is refused, nothing recorded, the two agents logged.
-func (a *App) sessionCall(c wire.Call) (string, error) {
+func (a *App) sessionCall(c wire.SessionReq) (string, error) {
 	if c.Session == nil || c.Session.Agent == "" || c.Session.ID == "" {
 		return "", errors.New(wire.MethodSession + ": the agent and the session id are required")
 	}

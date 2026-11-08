@@ -202,11 +202,11 @@ func ReviewConfig(cfg *config.Config) (ReviewSetup, error) {
 // one was open; a task neither dispatched nor specified, a task of --after dropped or rejected already, no reviewer
 // configured, or a review open (lastReview.open): refused, nothing recorded. A pass's claim held (reviewClaim): --rm
 // and a request are refused.
-func (a *App) reviewCall(c wire.Call) (string, error) {
+func (a *App) reviewCall(c wire.ReviewReq) (string, error) {
 	if c.CallID == "" {
 		return "", errors.New(wire.MethodReview + ": a call id is required")
 	}
-	p, reply, stored := a.callProj(wire.MethodReview, c)
+	p, reply, stored := a.callProj(wire.MethodReview, c.Envelope)
 	switch {
 	case p == nil:
 		return "", fmt.Errorf("%s: no served project at %s", wire.MethodReview, c.Root)

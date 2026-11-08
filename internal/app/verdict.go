@@ -122,7 +122,8 @@ func (p *proj) foldJob(r event.Record) {
 // folded in one mu section (verdictRecord), and the merge loop woken. A refused call records nothing. A sendback past K sendbacks of the task is recorded and goes to the
 // owner (row 22). A resolved first pins the merge the integrator committed in the scratch (refused when there is
 // none): the verdict records its sha, the resolved gate's input.
-func (a *App) verdict(ctx context.Context, method string, c wire.Call) (string, error) {
+func (a *App) verdict(ctx context.Context, c wire.VerdictReq) (string, error) {
+	method := c.Method()
 	a.mu.Lock()
 	a.admitted++ // serve's restart on a new binary waits for it (follow.go)
 	a.mu.Unlock()
@@ -252,7 +253,7 @@ func (a *App) resolvedCheck(ctx context.Context, p *proj, fx *Loop, task, input 
 
 // hold records the integrator's hold of job j (under a.verdicts): one fact, needs-you{held: why}, which also stores
 // the reply under the call id. The job stays open: the integrator's verdict on it ends the hold, as obor resume does.
-func (a *App) hold(p *proj, c wire.Call, job event.Key) (string, error) {
+func (a *App) hold(p *proj, c wire.VerdictReq, job event.Key) (string, error) {
 	a.mu.Lock()
 	var lane string
 	held, drive := false, false
@@ -299,7 +300,7 @@ func (a *App) specDropped(p *proj, task string) string {
 		mt.dropped, task)
 }
 
-// drop answers the lead's or the owner's drop of task c.Task (obor drop <T-xx>; c.Note: why) under a.verdicts: a
+// drop answers the lead's or the owner's drop of task c.Task (obor drop <T-xx>; c.Why: why) under a.verdicts: a
 // repeated call id gets the stored reply; else dropDecide's refusals, and the task is marked ended (p.ended) in the
 // same mu section a selected step's start check takes (begin), so no step starts after it. A task whose lane row still
 // holds it (serve knows the lane: a waiting task holds none) in a loop with the lane adapters is dropping (T-852): one
@@ -307,7 +308,7 @@ func (a *App) specDropped(p *proj, task string) string {
 // frees its lane and records dropped (stopstep.go). The worker is a refused stop's recorded agent (a move's old
 // worker, with its force; T-855), else laneWorker's. Any other: one fact, dropped{why, by}: the task leaves the loop and
 // its lane row, its needs-you and timers end. The mark ends with the record (a failed write: the drop is refused).
-func (a *App) drop(c wire.Call) (string, error) {
+func (a *App) drop(c wire.DropReq) (string, error) {
 	if c.CallID == "" || c.Task == "" {
 		return "", errors.New("drop: a call id and a task are required")
 	}
@@ -338,7 +339,7 @@ func (a *App) drop(c wire.Call) (string, error) {
 	}
 	if lane == "" {
 		if !a.record(p, event.Record{Task: c.Task, Attempt: mt.attempt, Step: event.StepDropped, Kind: event.KindFact},
-			event.FactData{Lane: mt.lane, Machine: Machine, Agent: c.Agent, Reason: c.Note, Merge: true, Call: c.CallID,
+			event.FactData{Lane: mt.lane, Machine: Machine, Agent: c.Agent, Reason: c.Why, Merge: true, Call: c.CallID,
 				Rev: rev}) {
 			return "", fmt.Errorf("drop: the event log of %s refused it", p.name)
 		}
@@ -353,7 +354,7 @@ func (a *App) drop(c wire.Call) (string, error) {
 	if h := mt.halt; h.pending() { // a refused stop (busy refuses a running one): its recorded agent, never the lane row's (T-855)
 		worker, force = h.agent, force || h.force
 	}
-	d := dropData{Lane: lane, Worker: worker, Agent: c.Agent, Reason: c.Note, Force: force, Discard: c.Discard,
+	d := dropData{Lane: lane, Worker: worker, Agent: c.Agent, Reason: c.Why, Force: force, Discard: c.Discard,
 		Call: c.CallID}
 	d.Reply = dropReplyOf(c.Task, d)
 	if !a.record(p, event.Record{Task: c.Task, Attempt: mt.attempt, Step: event.StepDropping, Kind: event.KindFact}, d) {
@@ -387,7 +388,7 @@ func (a *App) laneWorker(p *proj, lane string, mt mtask) (string, error) {
 // of the loop's; a spec stored with no loop record: its rev, T-1016); mt.task "" with no error: the call id's reply is
 // stored. Refused: the merge loop off, a caller of another role, no why, no task of the loop and no spec, its state
 // takes no drop (mtask.may: merged, dropped), busy.
-func (a *App) dropDecide(p *proj, c wire.Call) (mtask, int, error) {
+func (a *App) dropDecide(p *proj, c wire.DropReq) (mtask, int, error) {
 	if p == nil {
 		return mtask{}, 0, fmt.Errorf("drop: no served project at %s", c.Root)
 	}
@@ -403,7 +404,7 @@ func (a *App) dropDecide(p *proj, c wire.Call) (mtask, int, error) {
 		return mtask{}, 0, mergeOff(p)
 	case c.Role != "" && c.Role != "lead":
 		return mtask{}, 0, fmt.Errorf("drop: the lead or the owner drops a task, not %s (role %s)", Dash(c.Agent), c.Role)
-	case strings.TrimSpace(c.Note) == "":
+	case strings.TrimSpace(c.Why) == "":
 		return mtask{}, 0, errors.New("drop: say why")
 	case mt.task == "": // a spec stored and never dispatched: dropped too, at its rev (T-1016)
 		row, ok, err := specOf(p, c.Task)

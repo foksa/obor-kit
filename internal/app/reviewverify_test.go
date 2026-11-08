@@ -143,8 +143,8 @@ func (r *reviewRig) finish() {
 // leadBrief is the lead's brief to the reviewer (call id id).
 func (r *reviewRig) leadBrief(id string) {
 	r.t.Helper()
-	if _, err := r.a.briefCall(wire.Call{Root: r.p.root, CallID: id, Role: "lead", Agent: "pj-lead", To: "pj-rev",
-		Note: "look at the flaky test"}); err != nil {
+	if _, err := r.a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: r.p.root, CallID: id, Role: "lead",
+		Agent: "pj-lead"}, To: "pj-rev", Text: "look at the flaky test"}); err != nil {
 		r.t.Fatal(err)
 	}
 }
@@ -152,8 +152,8 @@ func (r *reviewRig) leadBrief(id string) {
 // stop is the reviewer's StopFailure hook (call id call) on errText (details).
 func (r *reviewRig) stop(call, errText, details string) {
 	r.t.Helper()
-	if _, err := r.a.stoppedCall(wire.Call{Root: r.p.root, CallID: call, Agent: "pj-rev", Role: "reviewer", Error: errText,
-		Details: details}); err != nil {
+	if _, err := r.a.stoppedCall(wire.StoppedReq{Envelope: wire.Envelope{Root: r.p.root, CallID: call, Agent: "pj-rev",
+		Role: "reviewer"}, Error: errText, Details: details}); err != nil {
 		r.t.Fatal(err)
 	}
 }

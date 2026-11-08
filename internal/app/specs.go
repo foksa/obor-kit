@@ -23,7 +23,7 @@ import (
 
 // specSet answers a spec request: a call id is required and a repeated one gets the stored reply. A new rev wakes the
 // merge loop (a waiting task of it may dispatch now); the reply is SET <task> rev <n>.
-func (a *App) specSet(c wire.Call) (string, error) {
+func (a *App) specSet(c wire.SpecSetReq) (string, error) {
 	if c.CallID == "" || c.Task == "" {
 		return "", errors.New(wire.MethodSpecSet + ": a call id and a task are required")
 	}
@@ -47,7 +47,7 @@ func (a *App) specSet(c wire.Call) (string, error) {
 	}
 	// The owner (no role) too, as for dispatch (DD-v0.11 A3), and a custom role with the verb (T-1039); a worker never
 	// (T-238).
-	if err := leadOr(p.root, wire.MethodSpecSet, c, fmt.Sprintf("spec set: only the lead or the owner sets a spec, not %s (role %s)",
+	if err := leadOr(p.root, wire.MethodSpecSet, c.Envelope, fmt.Sprintf("spec set: only the lead or the owner sets a spec, not %s (role %s)",
 		Dash(c.Agent), c.Role)); err != nil {
 		return "", err
 	}
@@ -74,7 +74,7 @@ func (a *App) specSet(c wire.Call) (string, error) {
 	default: // the lead, a custom role (T-1039)
 		by = c.Role
 	}
-	rev, changed, err := store.SetSpec(p.log.DB(), c.Task, c.Spec, c.Note, by, a.opt.Now())
+	rev, changed, err := store.SetSpec(p.log.DB(), c.Task, c.Spec, c.Changed, by, a.opt.Now())
 	if err != nil {
 		return "", err
 	}

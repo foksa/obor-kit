@@ -54,8 +54,8 @@ func (a *App) reviewCycle(p *proj, id string) (reviewCycle, error) {
 // required, a repeated call id waits for the close in flight and gets its stored reply. The call takes configMu (one
 // main-checkout writer at a time) before its stored-reply lookup, and is admitted (admit, as config_set) before its
 // first check; the reply is CLOSED <the close commit's subject>.
-func (a *App) reviewCloseCall(c wire.Call) (string, error) {
-	summary := strings.Join(strings.Fields(c.Note), " ")
+func (a *App) reviewCloseCall(c wire.ReviewCloseReq) (string, error) {
+	summary := strings.Join(strings.Fields(c.Summary), " ")
 	if c.CallID == "" || summary == "" {
 		return "", errors.New(wire.MethodReviewClose + ": a call id and a summary are required")
 	}
@@ -65,7 +65,7 @@ func (a *App) reviewCloseCall(c wire.Call) (string, error) {
 	a.configMu.Lock() // one main-checkout writer at a time; a repeated call id waits for the close in flight before its
 	// stored-reply lookup (T-930)
 	defer a.configMu.Unlock()
-	p, reply, stored := a.callProj(wire.MethodReviewClose, c)
+	p, reply, stored := a.callProj(wire.MethodReviewClose, c.Envelope)
 	switch {
 	case p == nil:
 		return "", fmt.Errorf("%s: no served project at %s", wire.MethodReviewClose, c.Root)
@@ -107,7 +107,7 @@ const closedReply = "CLOSED "
 // rule woken at once. Before the commit, fact review.closing{id, head, tasks} records its snapshot (T-1032): the head
 // and the tasks the commit names, the fact carries and the fold freezes the review at. Any refusal changes nothing
 // (a review.closing whose commit was refused is replaced by the next close's).
-func (a *App) reviewClose(ctx context.Context, p *proj, g port.Review, s ReviewSetup, c wire.Call, summary string) (string,
+func (a *App) reviewClose(ctx context.Context, p *proj, g port.Review, s ReviewSetup, c wire.ReviewCloseReq, summary string) (string,
 	error) {
 	a.mu.Lock()
 	open := p.folded.rv.last()

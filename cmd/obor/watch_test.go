@@ -47,7 +47,7 @@ func TestWatchRequest(t *testing.T) {
 			t.Errorf("request %d: method %q, want %q", i+1, m, wire.MethodWatch)
 		}
 	}
-	for i, want := range []wire.Call{{Task: "T-1"}, {Task: "T-2"}, {}, {Task: "T-2", Clear: true}} {
+	for i, want := range []sentCall{{Task: "T-1"}, {Task: "T-2"}, {}, {Task: "T-2", Clear: true}} {
 		c := calls[i]
 		if c.Task != want.Task || c.Clear != want.Clear || c.Role != "lead" || c.Agent != "pj-lead" || c.Root != p.Root ||
 			c.CallID == "" {
@@ -90,7 +90,7 @@ func TestWatchSetRequest(t *testing.T) {
 	if len(calls) != 3 {
 		t.Fatalf("%d requests, want 3", len(calls))
 	}
-	for i, want := range []wire.Call{{Task: "T-1,T-2,T-3"}, {Task: "T-4"}, {Task: "T-1,T-2,T-3", Clear: true}} {
+	for i, want := range []sentCall{{Task: "T-1,T-2,T-3"}, {Task: "T-4"}, {Task: "T-1,T-2,T-3", Clear: true}} {
 		if c := calls[i]; c.Task != want.Task || c.Clear != want.Clear {
 			t.Errorf("request %d: task %q clear %v, want %q %v", i+1, c.Task, c.Clear, want.Task, want.Clear)
 		}

@@ -43,10 +43,11 @@ func NewCallID() string {
 	return hex.EncodeToString(b)
 }
 
-// Verdict sends the verdict call c (MethodAccept, …) to the app listening at path: its reply line, or the app's
-// refusal as the error. The call has its method's deadline (callDeadline) or ctx's, the earlier. A call its deadline
-// ends says serve may still be working on it (T-825).
-func Verdict(ctx context.Context, path, method string, c Call) (string, error) {
+// Verdict sends the request r (a VerdictReq, a DispatchReq, …) to the app listening at path, its envelope stamped
+// with this binary's version (T-826): its reply line, or the app's refusal as the error. The call has its method's deadline
+// (callDeadline) or ctx's, the earlier. A call its deadline ends says serve may still be working on it (T-825).
+func Verdict(ctx context.Context, path string, r Req) (string, error) {
+	method := r.Method()
 	d := callDeadline(method)
 	if dl, ok := ctx.Deadline(); ok { // ctx's earlier deadline is the one that ends the call
 		if left := time.Until(dl); left < d {
@@ -55,7 +56,13 @@ func Verdict(ctx context.Context, path, method string, c Call) (string, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, d)
 	defer cancel()
-	ans, err := verdictAsk(ctx, path, Request{Method: method, Call: &c})
+	// Every call names the binary that sent it (T-826): one place, so a serve that answers another version says so.
+	r.Env().Version = version.Version
+	b, err := json.Marshal(r)
+	if err != nil {
+		return "", fmt.Errorf("%s: %v", method, err)
+	}
+	ans, err := verdictAsk(ctx, path, Request{Method: method, Call: b})
 	if err != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) && cut(err) {
 			return "", fmt.Errorf("obor serve did not answer %s in %s: it may still be working on it (obor status shows whether it landed)",
@@ -159,10 +166,6 @@ func cut(err error) bool {
 
 // askOnce is one request on its own connection; see ask.
 func askOnce(ctx context.Context, path string, req Request) (Answer, error) {
-	// Every call names the binary that sent it (T-826): one place, so a serve that answers another version says so.
-	if req.Call != nil {
-		req.Call.Version = version.Version
-	}
 	// A caller with no deadline still has one; a caller's own (a verdict's table) is its own.
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc

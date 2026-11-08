@@ -281,7 +281,8 @@ func TestBackup(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if reply, err := h.a.backup(wire.Call{Root: h.root}); err != nil || !strings.HasSuffix(reply, "obor-2026-10-24.db") {
+	if reply,
+		err := h.a.backup(wire.BackupReq{Envelope: wire.Envelope{Root: h.root}}); err != nil || !strings.HasSuffix(reply, "obor-2026-10-24.db") {
 		t.Fatalf("serve's backup = %q, %v", reply, err)
 	}
 	if rows, err := store.ReadPrompts(h.a.p.log.DB(), store.PromptQuery{Task: "T-1"}, 10); err != nil || len(rows) != 1 ||
@@ -291,7 +292,7 @@ func TestBackup(t *testing.T) {
 	if recs, err := event.ReadLog(backupRoot(t, filepath.Join(wire.BackupDir(h.root), "obor-2026-10-24.db"))); err != nil || len(recs) == 0 {
 		t.Errorf("serve's backup log = %+v, %v; want its records", recs, err)
 	}
-	if _, err := h.a.backup(wire.Call{Root: logRoot(t)}); err == nil {
+	if _, err := h.a.backup(wire.BackupReq{Envelope: wire.Envelope{Root: logRoot(t)}}); err == nil {
 		t.Error("serve backed up a project it has not loaded")
 	}
 }

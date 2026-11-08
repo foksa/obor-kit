@@ -39,8 +39,8 @@ import (
 // rollout's later turn, roleTurns), and serve wakes it after the reset (stopwake.go). Its finished line comes after.
 //
 // A turn's start and its end are different evidence (T-571; RV-60 #1, #3). The evidence: a hook's turn request
-// (UserPromptSubmit: the start; Stop: the end, Call.Ended), or a transcript's last turn (Codex: task_started the start;
-// task_complete, turn_aborted the end, with its error; agents.Turn.Ended). What it does is decided in one place,
+// (UserPromptSubmit: the start; Stop: the end, TurnReq.Ended), or a transcript's last turn (Codex: task_started the
+// start; task_complete, turn_aborted the end, with its error; agents.Turn.Ended). What it does is decided in one place,
 // turnDecide, from the state it meets: a stop in force; for a role agent's open brief, a turn followed (one started
 // since the stop, its end not seen yet) and the brief's work seen (its pane working since its line):
 //
@@ -92,11 +92,11 @@ type turnedData struct {
 
 // stoppedCall answers the socket's stopped request (the StopFailure hook of agent c.Agent). A call id is required and
 // a repeated one gets the stored reply. The lead's own stop (and a session of no role) is recorded, no line.
-func (a *App) stoppedCall(c wire.Call) (string, error) {
+func (a *App) stoppedCall(c wire.StoppedReq) (string, error) {
 	if c.CallID == "" || c.Agent == "" {
 		return "", errors.New(wire.MethodStopped + ": a call id and the agent are required")
 	}
-	p, reply, stored := a.callProj(wire.MethodStopped, c)
+	p, reply, stored := a.callProj(wire.MethodStopped, c.Envelope)
 	switch {
 	case p == nil:
 		return "", fmt.Errorf("%s: no served project at %s", wire.MethodStopped, c.Root)
@@ -106,7 +106,7 @@ func (a *App) stoppedCall(c wire.Call) (string, error) {
 	a.mu.Lock()
 	task, w := "", (*watch)(nil)
 	if c.Role == "worker" {
-		task, w = p.stoppedTask(c)
+		task, w = p.stoppedTask(c.Lane, c.Agent)
 	}
 	role := c.Role != "worker" && c.Role != "lead" && c.Role != "none" && c.Role != "" && c.Agent != p.out.lead()
 	kind, pane := "", port.Pane{}
@@ -306,7 +306,7 @@ func (p *proj) foldStop(r event.Record, d stoppedData) {
 // turnCall answers the socket's turn request (a worker's UserPromptSubmit or Stop hook): a new turn of agent c.Agent
 // began or ended (c.Ended), so its task's stop, in force, ends (turnDecide): fact resumed (cause stopped). Nothing in
 // force (the usual case), or no open task: nothing recorded. A repeat finds the stop ended: no call id needed.
-func (a *App) turnCall(c wire.Call) (string, error) {
+func (a *App) turnCall(c wire.TurnReq) (string, error) {
 	if c.Agent == "" {
 		return "", errors.New(wire.MethodTurn + ": the agent is required")
 	}
@@ -319,7 +319,7 @@ func (a *App) turnCall(c wire.Call) (string, error) {
 	if c.Role != "worker" {
 		return a.roleTurn(p, c)
 	}
-	task, w := p.stoppedTask(c)
+	task, w := p.stoppedTask(c.Lane, c.Agent)
 	if w == nil || turnDecide(turnCase{stopped: p.stops(task), worked: true, ended: c.Ended}) == turnNone {
 		return "TURN " + c.Agent + " (no stop)", nil
 	}
@@ -337,7 +337,7 @@ func (a *App) turnCall(c wire.Call) (string, error) {
 // brief's stop in force ends at the turn's start (fact turned: the brief follows the turn, its finished line waits for
 // the turn's end or its work), the turn's end finishes it (fact turned, worked: the finished line when idle), also when
 // the start was missed (RV-60 #3). Neither: nothing.
-func (a *App) roleTurn(p *proj, c wire.Call) (string, error) {
+func (a *App) roleTurn(p *proj, c wire.TurnReq) (string, error) {
 	b := p.out.brief(c.Agent)
 	if b == nil {
 		return "TURN " + c.Agent + " (no stop)", nil
@@ -360,14 +360,14 @@ func (a *App) roleTurn(p *proj, c wire.Call) (string, error) {
 	return reply, nil
 }
 
-// stoppedTask is the open task of the worker c names (its lane, else the lane its agent works in) and its watch; ""
-// and nil when it has none (under mu). The loop decides which task that is (workerTask): a watch is used only if it is
-// that task's, and a watch of another task on its lane is stale (the lane's old task ended and this one was dispatched
+// stoppedTask is the open task of the worker a call names (its lane on, else the lane its agent works in) and its
+// watch; "" and nil when it has none (under mu). The loop decides which task that is (workerTask): a watch is used only
+// if it is that task's, and a watch of another task on its lane is stale (the lane's old task ended and this one was dispatched
 // since the watchdog's last look, T-617), dropped as the next check would. A task dispatched since that look has no
 // watch yet: one is installed as the check would (T-612: a worker may stop before that look). With no such loop task
-// the watch on c's lane stands.
-func (p *proj) stoppedTask(c wire.Call) (string, *watch) {
-	if task, lane := p.workerTask(c); task != "" {
+// the watch on the call's lane stands.
+func (p *proj) stoppedTask(on, agent string) (string, *watch) {
+	if task, lane := p.workerTask(on, agent); task != "" {
 		if w := p.tasks[task]; w != nil && w.lane.Name == lane {
 			return task, w
 		}
@@ -390,24 +390,24 @@ func (p *proj) stoppedTask(c wire.Call) (string, *watch) {
 	}
 	for _, task := range p.openTasks() {
 		w := p.tasks[task]
-		if (c.Lane != "" && w.lane.Name == c.Lane) || (c.Lane == "" && w.lane.Agent == c.Agent) {
+		if (on != "" && w.lane.Name == on) || (on == "" && w.lane.Agent == agent) {
 			return task, w
 		}
 	}
 	return "", nil
 }
 
-// workerTask is the current task of the worker c names and its lane, as the loop holds it (under mu): the task whose
-// attempt awaits its worker's task_done on c's lane, else on the lane its agent works in; "" when none does. Of two
-// such tasks the newest dispatch (highest dispSeq) is the current one, as T-615 settles a lane's task.
-func (p *proj) workerTask(c wire.Call) (task, lane string) {
+// workerTask is the current task of the worker a call names and its lane, as the loop holds it (under mu): the task
+// whose attempt awaits its worker's task_done on the call's lane on, else on the lane its agent works in; "" when none
+// does. Of two such tasks the newest dispatch (highest dispSeq) is the current one, as T-615 settles a lane's task.
+func (p *proj) workerTask(on, agent string) (task, lane string) {
 	var newest int64
 	for _, t := range p.loopTasks() {
 		mt := p.folded.loop[t]
 		if !mt.awaitsTaskDone() || mt.lane == "" {
 			continue
 		}
-		if (c.Lane != "" && mt.lane != c.Lane) || (c.Lane == "" && p.workerIn(mt.lane) != c.Agent) {
+		if (on != "" && mt.lane != on) || (on == "" && p.workerIn(mt.lane) != agent) {
 			continue
 		}
 		if task == "" || mt.dispSeq > newest {

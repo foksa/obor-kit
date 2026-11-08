@@ -117,7 +117,7 @@ type (
 // move.go): the move is recorded at once, and the merge loop stops the worker before the new model's start (T-852).
 // It decides and records under a.verdicts, a move under a.submitMu too (lock order a.verdicts, then a.submitMu:
 // task_done's lock).
-func (a *App) dispatchCall(ctx context.Context, c wire.Call) (string, error) {
+func (a *App) dispatchCall(ctx context.Context, c wire.DispatchReq) (string, error) {
 	a.verdicts.Lock()
 	defer a.verdicts.Unlock()
 	if c.CallID == "" || c.Task == "" {
@@ -137,7 +137,7 @@ func (a *App) dispatchCall(ctx context.Context, c wire.Call) (string, error) {
 	case stored:
 		return reply, nil
 	}
-	if err := leadOr(p.root, wire.MethodDispatch, c, fmt.Sprintf("dispatch: the lead or the owner dispatches, not %s (role %s)",
+	if err := leadOr(p.root, wire.MethodDispatch, c.Envelope, fmt.Sprintf("dispatch: the lead or the owner dispatches, not %s (role %s)",
 		Dash(c.Agent), c.Role)); err != nil {
 		return "", err
 	}
@@ -180,13 +180,13 @@ func (e queueError) why() string { return "behind " + e.behind + " on keep lane 
 // waitQueue records fact waiting for c.Task's request (under a.verdicts) queued on the keep lane qe names: the reply
 // WAITING <task> (queued): behind <task> on keep lane <lane>. As waitLane's, it replaces a waiting fact of the task;
 // the merge loop dispatches it when the lane frees and no wait the scheduler puts first is eligible for it (keepAhead).
-func (a *App) waitQueue(p *proj, c wire.Call, qe queueError) (string, error) {
+func (a *App) waitQueue(p *proj, c wire.DispatchReq, qe queueError) (string, error) {
 	mt, held := a.held(p, c.Task)
 	if !mt.dispatchable() {
 		return "", fmt.Errorf("dispatch %s: %s is open in obor serve (%s): obor resume or obor drop it first", c.Task,
 			c.Task, mt.shown())
 	}
-	d := dispatchData{Force: c.Force, Level: qe.level, Types: qe.types, Keep: true, Caller: callerOf(c), Call: c.CallID}
+	d := dispatchData{Force: c.Force, Level: qe.level, Types: qe.types, Keep: true, Caller: callerOf(c.Envelope), Call: c.CallID}
 	d.Lane = qe.lane
 	d.Reply = fmt.Sprintf("WAITING %s (queued): %s", c.Task, qe.why()) + idleNote(qe.ls, "", held)
 	if !a.record(p, event.Record{Task: c.Task, Attempt: mt.nextAttempt(), Step: event.StepWaiting, Kind: event.KindFact}, d) {
@@ -203,7 +203,7 @@ func (a *App) waitQueue(p *proj, c wire.Call, qe queueError) (string, error) {
 // waiting for the lane that the scheduler puts first (ahead, keepAhead's), else the task whose dispatch holds it
 // (held), else the task the lane works on (its row's task not landed: submitted, in the gate, in review), unless that
 // is c.Task itself, not finished (a redo, pickLane's).
-func keepBusy(ls []port.Lane, c wire.Call, held map[string]string, finished bool, ahead string) string {
+func keepBusy(ls []port.Lane, c wire.DispatchReq, held map[string]string, finished bool, ahead string) string {
 	if ahead != "" {
 		return ahead
 	}
@@ -284,7 +284,7 @@ func levelNote(level string, types []string) string {
 // resolveLevel gives c the model refs of its spec's difficulty level (c.Level, c.Types; the spec's `Model:` refs
 // first) when it names none (--model); else it leaves it (a waiting task's request carries its level and models). Why
 // not: no level in the spec, or neither a `Model:` ref nor a ref of the level names a model of the config.
-func resolveLevel(cfg *config.Config, c *wire.Call, sp spec.Spec) error {
+func resolveLevel(cfg *config.Config, c *wire.DispatchReq, sp spec.Spec) error {
 	if len(c.Types) > 0 {
 		return nil
 	}
@@ -330,13 +330,13 @@ func specFirst(cfg *config.Config, sp spec.Spec, refs []string) []string {
 // (nl): the reply WAITING <task> (queued): <why> (<level>: <models>) and the lanes still idle. It replaces a waiting
 // fact of the task (a new request: models, after). The merge loop dispatches it when a lane frees or a pause ends
 // (passOrder: a high task first, then oldest wait first, T-1030).
-func (a *App) waitLane(p *proj, c wire.Call, nl noLaneError) (string, error) {
+func (a *App) waitLane(p *proj, c wire.DispatchReq, nl noLaneError) (string, error) {
 	mt, held := a.held(p, c.Task)
 	if !mt.dispatchable() {
 		return "", fmt.Errorf("dispatch %s: %s is open in obor serve (%s): obor resume or obor drop it first", c.Task,
 			c.Task, mt.shown())
 	}
-	d := dispatchData{Force: c.Force, Level: nl.level, Types: nl.types, Caller: callerOf(c),
+	d := dispatchData{Force: c.Force, Level: nl.level, Types: nl.types, Caller: callerOf(c.Envelope),
 		Call: c.CallID, Reply: fmt.Sprintf("WAITING %s (queued): %s", c.Task, nl.laneWait()) + levelNote(nl.level, nl.types) + idleNote(nl.ls, "", held)}
 	if !a.record(p, event.Record{Task: c.Task, Attempt: mt.nextAttempt(), Step: event.StepWaiting, Kind: event.KindFact}, d) {
 		return "", fmt.Errorf("dispatch: the event log of %s refused it", p.name)
@@ -346,7 +346,7 @@ func (a *App) waitLane(p *proj, c wire.Call, nl noLaneError) (string, error) {
 }
 
 // callerOf is who made c's request: its agent, else the owner.
-func callerOf(c wire.Call) string {
+func callerOf(c wire.Envelope) string {
 	if c.Agent == "" {
 		return "owner"
 	}
@@ -356,7 +356,7 @@ func callerOf(c wire.Call) string {
 // dispatchTask passes c's refusals (under a.verdicts) and records fact dispatch for
 // it: the reply DISPATCHED <task> → <lane> (queued) and the lanes still idle (idleNote). With c.After not all merged
 // it records fact waiting instead (waitTask). A refusal records nothing.
-func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Call) (string, error) {
+func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.DispatchReq) (string, error) {
 	a.mu.Lock()
 	merging, pause := p.merging, p.paused(a.opt.Now())
 	a.mu.Unlock()
@@ -469,7 +469,7 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Call) 
 			c.Task, mt.shown())
 	}
 	agent := cfg.AgentName("worker", l.Name) // derived (T-777: a lane pane's old label is no name of the worker; T-1031)
-	caller := callerOf(c)
+	caller := callerOf(c.Envelope)
 	d := dispatchData{Lane: l.Name, Dir: l.Dir, Agent: agent, Branch: branch, Target: target, Redo: redo, Force: c.Force,
 		Level: c.Level, Types: c.Types, Effort: effort, Type: ref, Keep: cfg.KeepLane(l.Name), Stop: a.keepStop(p, cfg, l, agent, ref),
 		Caller: caller, Call: c.CallID,
@@ -570,7 +570,7 @@ func effortNote(effort string) string {
 // name another (c's first), else for each model of c in order, skipped while paused, the first lane in config order
 // that is free (dirty-free with force) and not held for another task's dispatch; else why not. A redo that changes the
 // model it runs is held to the new model's pause like a fresh dispatch of it (T-742).
-func pickLane(ls []port.Lane, c wire.Call, held map[string]string, paused map[string]string, ran string,
+func pickLane(ls []port.Lane, c wire.DispatchReq, held map[string]string, paused map[string]string, ran string,
 	finished bool) (port.Lane, string, string) {
 	first := ""
 	for _, t := range c.Types {
@@ -699,7 +699,7 @@ func (p *proj) foldDispatch(r event.Record) {
 // merged (a plain dispatch). Refused: a task it names is itself, unknown (no spec and no loop record), dropped or
 // rejected, or waiting (itself or through the tasks it waits for) for this one (a cycle); an unknown lane; the task
 // open in the loop (as a dispatch).
-func (a *App) waitTask(p *proj, c wire.Call, ls []port.Lane, keep bool) (string, error) {
+func (a *App) waitTask(p *proj, c wire.DispatchReq, ls []port.Lane, keep bool) (string, error) {
 	var open []string
 	for _, dep := range c.After {
 		_, spec, err := specOf(p, dep)
@@ -734,7 +734,7 @@ func (a *App) waitTask(p *proj, c wire.Call, ls []port.Lane, keep bool) (string,
 		return "", fmt.Errorf("dispatch %s: %s is open in obor serve (%s): obor resume or obor drop it first", c.Task,
 			c.Task, mt.shown())
 	}
-	caller := callerOf(c)
+	caller := callerOf(c.Envelope)
 	d := dispatchData{Lane: c.Lane, Force: c.Force, Level: c.Level, Types: c.Types, After: c.After, Keep: keep,
 		Caller: caller, Call: c.CallID, Reply: fmt.Sprintf("WAITING %s after %s (queued)", c.Task, strings.Join(open, ", ")) + idleNote(ls, "", held)}
 	if !a.record(p, event.Record{Task: c.Task, Attempt: mt.nextAttempt(), Step: event.StepWaiting, Kind: event.KindFact}, d) {
@@ -860,8 +860,8 @@ func (a *App) waitDispatch(ctx context.Context, p *proj, fx *Loop, mt mtask) boo
 	if !a.waitCurrent(p, mt) {
 		return false
 	}
-	_, err := a.dispatchTask(ctx, p, fx, wire.Call{Root: p.root, Agent: d.Caller, CallID: d.Call, Task: mt.task,
-		Lane: d.Lane, Level: d.Level, Types: d.Types, Force: d.Force})
+	_, err := a.dispatchTask(ctx, p, fx, wire.DispatchReq{Envelope: wire.Envelope{Root: p.root, Agent: d.Caller,
+		CallID: d.Call}, Task: mt.task, Lane: d.Lane, Level: d.Level, Types: d.Types, Force: d.Force})
 	if err == nil {
 		a.mu.Lock()
 		delete(p.waitLine, mt.task)

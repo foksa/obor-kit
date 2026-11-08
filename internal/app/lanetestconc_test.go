@@ -45,7 +45,8 @@ func TestLaneTestRunsBesideTheSlot(t *testing.T) {
 	if !listed {
 		t.Errorf("the running line %+v lists no test of T-1", ps.Running)
 	}
-	if _, _, err := r.a.dropDecide(r.proj("pj"), wire.Call{Task: "T-1", Note: "why", CallID: "d1"}); err == nil ||
+	if _, _, err := r.a.dropDecide(r.proj("pj"), wire.DropReq{Envelope: wire.Envelope{CallID: "d1"}, Task: "T-1",
+		Why: "why"}); err == nil ||
 		!strings.Contains(err.Error(), "T-1 has test running") {
 		t.Errorf("drop of T-1 while its test runs: %v; want refused", err)
 	}

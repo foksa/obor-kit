@@ -121,8 +121,8 @@ type stopOutcome struct {
 // worker.stop: done (the drop dropped), waiting, or refused (a needs-you, the task still dropping, its stop pending).
 func checkStop(t *testing.T, r *loopRig, want stopOutcome, before int) {
 	t.Helper()
-	reply, err := wire.Verdict(context.Background(), r.sock, wire.MethodDrop, wire.Call{Root: r.p.Root, Agent: "pj-lead",
-		Role: "lead", CallID: "x1", Task: "T-1", Note: "not needed"})
+	reply, err := wire.Verdict(context.Background(), r.sock, &wire.DropReq{Envelope: wire.Envelope{Root: r.p.Root,
+		Agent: "pj-lead", Role: "lead", CallID: "x1"}, Task: "T-1", Why: "not needed"})
 	if want := "DROPPING T-1 from L-01 (not needed; stopping pj-l-01)"; err != nil || reply != want {
 		t.Fatalf("drop: %q, %v; want %q", reply, err, want)
 	}

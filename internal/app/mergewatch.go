@@ -153,15 +153,15 @@ func (p *proj) waiting(set string) []string {
 }
 
 // watchCall answers the socket's watch request (the lead or the owner): a call id is required and a repeated one gets
-// the stored reply. A task or comma list: WATCHING <set> (fact watch, with Call.Note when the lead gave one, one
+// the stored reply. A task or comma list: WATCHING <set> (fact watch, with WatchReq.Note when the lead gave one, one
 // line); ended already (all merged, one dropped or rejected), its outcome at once and nothing recorded; a task
 // neither dispatched nor specified, refused. --rm: UNWATCHED <set> (fact unwatch), or NOT WATCHING <set>. No task:
 // the open watches (watchList; NO WATCHES).
-func (a *App) watchCall(c wire.Call) (string, error) {
+func (a *App) watchCall(c wire.WatchReq) (string, error) {
 	if c.CallID == "" {
 		return "", errors.New(wire.MethodWatch + ": a call id is required")
 	}
-	p, reply, stored := a.callProj(wire.MethodWatch, c)
+	p, reply, stored := a.callProj(wire.MethodWatch, c.Envelope)
 	switch {
 	case p == nil:
 		return "", fmt.Errorf("%s: no served project at %s", wire.MethodWatch, c.Root)
@@ -170,7 +170,7 @@ func (a *App) watchCall(c wire.Call) (string, error) {
 	case !a.merges(p):
 		return "", mergeOff(p)
 	}
-	if err := leadOr(p.root, wire.MethodWatch, c, fmt.Sprintf("watch: the lead or the owner watches, not %s (role %s)", Dash(c.Agent),
+	if err := leadOr(p.root, wire.MethodWatch, c.Envelope, fmt.Sprintf("watch: the lead or the owner watches, not %s (role %s)", Dash(c.Agent),
 		c.Role)); err != nil {
 		return "", err
 	}

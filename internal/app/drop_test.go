@@ -21,7 +21,8 @@ func dropGone(st string) bool { return st == stDropped || st == stDropping }
 
 // dropCall is the lead's obor drop of task in project name.
 func (r *concRig) dropCall(name, task, id string) (string, error) {
-	return r.app(name).drop(wire.Call{Root: r.roots[name], Agent: "lead", Role: "lead", CallID: id, Task: task, Note: "abandoned"})
+	return r.app(name).drop(wire.DropReq{Envelope: wire.Envelope{Root: r.roots[name], Agent: "lead", Role: "lead",
+		CallID: id}, Task: task, Why: "abandoned"})
 }
 
 // obor drop of a task serve holds (T-388): a needs-you with no job open ends in dropped, which survives a replay; the
@@ -38,12 +39,14 @@ func TestDropNeedsYouTask(t *testing.T) {
 		t.Fatalf("precondition: want one fact in force, got %d", facts())
 	}
 	for _, role := range []string{"worker", "integrator"} {
-		_, err := r.app("pq").drop(wire.Call{Root: r.roots["pq"], Agent: "pq-x", Role: role, CallID: "w-" + role, Task: "T-3", Note: "why"})
+		_, err := r.app("pq").drop(wire.DropReq{Envelope: wire.Envelope{Root: r.roots["pq"], Agent: "pq-x", Role: role,
+			CallID: "w-" + role}, Task: "T-3", Why: "why"})
 		if err == nil || !strings.Contains(err.Error(), "the lead or the owner drops a task") {
 			t.Errorf("drop by %s: %v", role, err)
 		}
 	}
-	if _, err := r.app("pq").drop(wire.Call{Root: r.roots["pq"], Role: "lead", CallID: "nw", Task: "T-3"}); err == nil ||
+	if _, err := r.app("pq").drop(wire.DropReq{Envelope: wire.Envelope{Root: r.roots["pq"], Role: "lead", CallID: "nw"},
+		Task: "T-3"}); err == nil ||
 		!strings.Contains(err.Error(), "say why") {
 		t.Errorf("drop without a why: %v", err)
 	}
@@ -107,8 +110,9 @@ func TestDropRefusedWhilePendingThenSupersedesTheJob(t *testing.T) {
 	}
 
 	// A publish in flight is refused the same way.
-	if _, err := r.app("pr").verdict(context.Background(), wire.MethodAccept, wire.Call{Root: r.roots["pr"], Task: "T-4", Role: "integrator",
-		Agent: "pr-int", CallID: "v1", Job: "T-4/1/review", Patch: "p"}); err != nil {
+	if _, err := r.app("pr").verdict(context.Background(), wire.VerdictReq{Envelope: wire.Envelope{Root: r.roots["pr"],
+		Role: "integrator", Agent: "pr-int", CallID: "v1"}, Verb: wire.MethodAccept, Task: "T-4", Job: "T-4/1/review",
+		Patch: "p"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := r.entered("pr"); got != "publish T-4" {
@@ -131,8 +135,9 @@ func TestDropRefusedWhilePendingThenSupersedesTheJob(t *testing.T) {
 		t.Fatalf("drop with the review job open: %q, %v", got, err)
 	}
 	r.waitFor("T-1 dropped", func() bool { return r.state("pj", "T-1") == stDropped })
-	_, err = r.a.verdict(context.Background(), wire.MethodAccept, wire.Call{Root: r.roots["pj"], Task: "T-1", Role: "integrator",
-		Agent: "pj-int", CallID: "v2", Job: "T-1/1/review", Patch: "p"})
+	_, err = r.a.verdict(context.Background(), wire.VerdictReq{Envelope: wire.Envelope{Root: r.roots["pj"],
+		Role: "integrator", Agent: "pj-int", CallID: "v2"}, Verb: wire.MethodAccept, Task: "T-1", Job: "T-1/1/review",
+		Patch: "p"})
 	if err == nil || !strings.Contains(err.Error(), "superseded: T-1 was dropped") {
 		t.Errorf("accept after the drop: %v", err)
 	}
@@ -158,8 +163,8 @@ func laneT2(t *testing.T) (*concRig, *proj, *concFakes) {
 // holds it (the running loop may be in T-2's dispatch steps: a drop then is refused, "retry when it settles").
 func dropT2(r *concRig, id string, force, discard bool) (reply string, err error) {
 	r.waitFor("a drop of T-2 not refused as busy", func() bool {
-		reply, err = r.a.drop(wire.Call{Root: r.roots["pj"], Agent: "lead", Role: "lead", CallID: id, Task: "T-2",
-			Note: "moving on", Discard: discard, Force: force})
+		reply, err = r.a.drop(wire.DropReq{Envelope: wire.Envelope{Root: r.roots["pj"], Agent: "lead", Role: "lead",
+			CallID: id}, Task: "T-2", Why: "moving on", Discard: discard, Force: force})
 		return err == nil || !strings.Contains(err.Error(), "retry when it settles")
 	})
 	return reply, err
@@ -352,7 +357,8 @@ func TestDropFreeFailsAfterTheRecord(t *testing.T) {
 				if st != stDropping || r.row(p) != "T-2" || r.count("pj", "T-2", event.KindFact, event.StepDropped) != 0 {
 					t.Errorf("held: T-2 %s, L-02's row %q; want dropping, the row its own, not dropped", st, r.row(p))
 				}
-				if reply, err := r.a.resume(wire.Call{Root: r.roots["pj"], Agent: "lead", Role: "lead", CallID: "r1",
+				if reply, err := r.a.resume(wire.ResumeReq{Envelope: wire.Envelope{Root: r.roots["pj"], Agent: "lead",
+					Role: "lead", CallID: "r1"},
 					Task: "T-2"}); err != nil || reply != "RESUMED T-2: retry (lane.free failed)" {
 					t.Fatalf("resume: %q, %v", reply, err)
 				}

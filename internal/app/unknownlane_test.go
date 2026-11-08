@@ -110,8 +110,8 @@ func TestUnknownLaneKeepsItsTasksFacts(t *testing.T) {
 						t.Fatalf("recovered: obor resume fits %q, %v; want %q", act, err, want)
 					}
 					if fact != "stopped" {
-						if _, err := h.a.resume(wire.Call{Root: h.root, Task: "T-1", Role: "lead", Agent: "pj-lead",
-							CallID: "a1", Note: "yes, edit x"}); err != nil {
+						if _, err := h.a.resume(wire.ResumeReq{Envelope: wire.Envelope{Root: h.root, Role: "lead",
+							Agent: "pj-lead", CallID: "a1"}, Task: "T-1", Text: "yes, edit x"}); err != nil {
 							t.Fatalf("recovered: obor resume refused: %v", err)
 						}
 						if p.asks("T-1") {

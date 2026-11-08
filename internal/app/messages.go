@@ -1125,11 +1125,11 @@ func sendLine(from, text string) string {
 
 // sendCall answers the socket's send request (a lead or the owner of another project): the line for this project's
 // lead, posted to its Claude session. A call id is required and a repeated one gets the stored reply.
-func (a *App) sendCall(c wire.Call) (string, error) {
+func (a *App) sendCall(c wire.SendReq) (string, error) {
 	if c.CallID == "" {
 		return "", errors.New(wire.MethodSend + ": a call id is required")
 	}
-	p, reply, stored := a.callProj(wire.MethodSend, c)
+	p, reply, stored := a.callProj(wire.MethodSend, c.Envelope)
 	switch {
 	case p == nil:
 		return "", fmt.Errorf("%s: no served project at %s", wire.MethodSend, c.Root)
@@ -1138,17 +1138,17 @@ func (a *App) sendCall(c wire.Call) (string, error) {
 	case !a.merges(p):
 		return "", mergeOff(p)
 	}
-	if err := leadOr(p.root, wire.MethodSend, c, fmt.Sprintf("send: a lead or the owner sends, not %s (role %s)", Dash(c.Agent),
+	if err := leadOr(p.root, wire.MethodSend, c.Envelope, fmt.Sprintf("send: a lead or the owner sends, not %s (role %s)", Dash(c.Agent),
 		c.Role)); err != nil {
 		return "", err
 	}
 	switch {
-	case strings.TrimSpace(c.Note) == "":
+	case strings.TrimSpace(c.Text) == "":
 		return "", errors.New("send: a text is required")
 	case c.From == "":
 		return "", errors.New("send: the sender project is required")
 	}
-	m := event.Message{To: p.out.leadAgent, Line: sendLine(c.From, c.Note), From: c.From, Call: c.CallID,
+	m := event.Message{To: p.out.leadAgent, Line: sendLine(c.From, c.Text), From: c.From, Call: c.CallID,
 		Reply: "SENT to " + p.out.leadAgent + " in " + p.name + " (posted to its session)"}
 	if !a.inboxed(p.out.leadAgent) {
 		m.Reply = "SENT to " + p.out.leadAgent + " in " + p.name + " (queued: no session recorded for " + p.out.leadAgent +
@@ -1161,19 +1161,19 @@ func (a *App) sendCall(c wire.Call) (string, error) {
 	return m.Reply, nil
 }
 
-// briefCall answers the socket's brief request (the lead or the owner): Call.To, a role agent, is briefed; with a
+// briefCall answers the socket's brief request (the lead or the owner): BriefReq.To, a role agent, is briefed; with a
 // text, its line is delivered to that agent when its pane is idle (posted or typed as its kind takes it, deliver).
 // The new brief ends the agent's undelivered brief lines (T-575; its fact's supersedes, T-580) and says so in its
 // reply. The lead hears once the agent has finished. A brief to an idle deep dive moves its worktree to the
 // integration branch's head first (briefMove, T-853; a publish running does not hold it, T-872); that git failing:
 // refused, nothing recorded.
-// Call.Fresh (obor brief --fresh, T-794): the brief, once recorded, starts the agent fresh with its line as the first
-// prompt, stopping it first when it runs (routeOf, deliverLine); a refused call stops nothing.
-func (a *App) briefCall(c wire.Call) (string, error) {
+// BriefReq.Fresh (obor brief --fresh, T-794): the brief, once recorded, starts the agent fresh with its line as the
+// first prompt, stopping it first when it runs (routeOf, deliverLine); a refused call stops nothing.
+func (a *App) briefCall(c wire.BriefReq) (string, error) {
 	if c.CallID == "" {
 		return "", errors.New(wire.MethodBrief + ": a call id is required")
 	}
-	p, reply, stored := a.callProj(wire.MethodBrief, c)
+	p, reply, stored := a.callProj(wire.MethodBrief, c.Envelope)
 	switch {
 	case p == nil:
 		return "", fmt.Errorf("%s: no served project at %s", wire.MethodBrief, c.Root)
@@ -1182,7 +1182,7 @@ func (a *App) briefCall(c wire.Call) (string, error) {
 	case !a.merges(p):
 		return "", mergeOff(p)
 	}
-	if err := leadOr(p.root, wire.MethodBrief, c, fmt.Sprintf("brief: the lead or the owner briefs, not %s (role %s)", Dash(c.Agent),
+	if err := leadOr(p.root, wire.MethodBrief, c.Envelope, fmt.Sprintf("brief: the lead or the owner briefs, not %s (role %s)", Dash(c.Agent),
 		c.Role)); err != nil {
 		return "", err
 	}
@@ -1191,7 +1191,7 @@ func (a *App) briefCall(c wire.Call) (string, error) {
 		return "", errors.New("brief: the role agent is required")
 	case c.To == p.out.leadAgent:
 		return "", fmt.Errorf("brief: %s is the lead: obor send reaches another project's lead", c.To)
-	case c.Fresh && strings.TrimSpace(c.Note) == "":
+	case c.Fresh && strings.TrimSpace(c.Text) == "":
 		return "", errors.New("brief: --fresh takes a text: the fresh session's first prompt")
 	}
 	from := c.Agent
@@ -1213,7 +1213,7 @@ func (a *App) briefCall(c wire.Call) (string, error) {
 		}
 	}
 
-	reply, ok := a.recordBrief(p, c.To, from, c.Note, c.CallID, c.Prompt, c.Fresh, nil)
+	reply, ok := a.recordBrief(p, c.To, from, c.Text, c.CallID, c.Prompt, c.Fresh, nil)
 	if !ok {
 		return "", fmt.Errorf("brief: the event log of %s refused it", p.name)
 	}
@@ -1315,7 +1315,7 @@ func (a *App) merges(p *proj) bool {
 }
 
 // callProj is the project at c.Root and the stored reply of c's call id for method, if any.
-func (a *App) callProj(method string, c wire.Call) (p *proj, reply string, stored bool) {
+func (a *App) callProj(method string, c wire.Envelope) (p *proj, reply string, stored bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	p = a.projAt(c.Root)

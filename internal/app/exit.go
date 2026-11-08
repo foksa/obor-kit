@@ -10,7 +10,7 @@ import (
 // exitCall answers the socket's exit request (obor stop, T-711): for the project this serve serves, from the lead or
 // the owner, serve ends gracefully (Options.Exit: its context cancelled, as a signal and the self-restart end it).
 // The reply goes out before serve is down: the caller confirms that by serve.flock and the socket.
-func (a *App) exitCall(c wire.Call) (string, error) {
+func (a *App) exitCall(c wire.ExitReq) (string, error) {
 	a.mu.Lock()
 	p := a.projAt(c.Root)
 	a.mu.Unlock()

@@ -11,8 +11,8 @@ import (
 
 // leadSendback is the lead's obor resume --sendback of task in project name (T-775: obor sendback is gone).
 func (r *concRig) leadSendback(name, task, id string) (string, error) {
-	return r.app(name).resume(wire.Call{Root: r.roots[name], Agent: "pq-lead", Role: "lead", CallID: id, Task: task,
-		To: wire.ResumeSendback, Note: "fix the edge case"})
+	return r.app(name).resume(wire.ResumeReq{Envelope: wire.Envelope{Root: r.roots[name], Agent: "pq-lead",
+		Role: "lead", CallID: id}, Task: task, Flag: wire.ResumeSendback, Text: "fix the edge case"})
 }
 
 // factsOf is how many facts obor serve's status shows in force for task of project name.
@@ -131,8 +131,9 @@ func TestLeadSendback(t *testing.T) {
 			if n := r.factsOf("pq", "T-6"); n != 0 {
 				t.Errorf("the needs-you is still in force: %d facts", n)
 			}
-			_, err = r.app("pq").verdict(context.Background(), wire.MethodAccept, wire.Call{Root: r.roots["pq"], Task: "T-6",
-				Role: "integrator", Agent: "pq-int", CallID: "v1", Job: "T-6/1/review", Patch: "p6"})
+			_, err = r.app("pq").verdict(context.Background(),
+				wire.VerdictReq{Envelope: wire.Envelope{Root: r.roots["pq"], Role: "integrator", Agent: "pq-int",
+					CallID: "v1"}, Verb: wire.MethodAccept, Task: "T-6", Job: "T-6/1/review", Patch: "p6"})
 			if err == nil {
 				t.Error("the old review is still accepted after the sendback")
 			}
@@ -185,8 +186,8 @@ func TestLeadSendbackFromNeedsYou(t *testing.T) {
 				t.Fatalf("precondition: T-1 %s (%s); want the %s needs-you", mt.state, mt.needs.fact.Fact().Cause, c.cause)
 			}
 			const why = "use the config store; drop the extra test"
-			reply, err := h.a.resume(wire.Call{Root: h.root, Agent: "pj-lead", Role: "lead", CallID: "s1", Task: "T-1",
-				To: wire.ResumeSendback, Note: why})
+			reply, err := h.a.resume(wire.ResumeReq{Envelope: wire.Envelope{Root: h.root, Agent: "pj-lead",
+				Role: "lead", CallID: "s1"}, Task: "T-1", Flag: wire.ResumeSendback, Text: why})
 			if err != nil || !strings.HasPrefix(reply, "SENDBACK T-1") {
 				t.Fatalf("sendback: %q, %v", reply, err)
 			}
@@ -227,8 +228,9 @@ func TestIntegratorSendbackStillCounts(t *testing.T) {
 			h.a.mu.Lock()
 			h.a.p.folded.loop["T-1"].sendbacks = c.sendbacks
 			h.a.mu.Unlock()
-			reply, err := h.a.verdict(context.Background(), wire.MethodSendback, wire.Call{Root: h.root, Agent: "pj-int",
-				Role: "integrator", CallID: "s1", Job: "T-1/1/review", Task: "T-1", Note: "fix it"})
+			reply, err := h.a.verdict(context.Background(), wire.VerdictReq{Envelope: wire.Envelope{Root: h.root,
+				Agent: "pj-int", Role: "integrator", CallID: "s1"}, Verb: wire.MethodSendback, Job: "T-1/1/review",
+				Task: "T-1", Note: "fix it"})
 			if err != nil || !strings.HasPrefix(reply, "SENDBACK T-1 (job T-1/1/review)") {
 				t.Fatalf("sendback: %q, %v", reply, err)
 			}
@@ -263,8 +265,9 @@ func TestLeadSendbackEndsTheReview(t *testing.T) {
 	a.mu.Lock()
 	p.setLanes([]port.Lane{{Name: "L-04", Task: "T-4", Agent: "pr-l-04", State: "working"}})
 	a.mu.Unlock()
-	_, err := r.app("pr").verdict(context.Background(), wire.MethodAccept, wire.Call{Root: r.roots["pr"], Task: "T-4", Agent: "pr-int",
-		Role: "integrator", CallID: "old-review", Job: "T-4/1/review", Patch: "p"})
+	_, err := r.app("pr").verdict(context.Background(), wire.VerdictReq{Envelope: wire.Envelope{Root: r.roots["pr"],
+		Agent: "pr-int", Role: "integrator", CallID: "old-review"}, Verb: wire.MethodAccept, Task: "T-4",
+		Job: "T-4/1/review", Patch: "p"})
 	if err == nil || !strings.Contains(err.Error(), "no job open for T-4") {
 		t.Errorf("accept of the old candidate after the sendback: %v; want refused", err)
 	}
@@ -295,8 +298,8 @@ func TestLeadSendbackRefusals(t *testing.T) {
 	if task := r.entered("pj"); task != "T-1" {
 		t.Fatalf("pj's first gate: %s", task)
 	}
-	_, err := r.a.resume(wire.Call{Root: r.roots["pj"], Agent: "pj-lead", Role: "lead", CallID: "g1", Task: "T-1",
-		To: wire.ResumeSendback, Note: "why"})
+	_, err := r.a.resume(wire.ResumeReq{Envelope: wire.Envelope{Root: r.roots["pj"], Agent: "pj-lead", Role: "lead",
+		CallID: "g1"}, Task: "T-1", Flag: wire.ResumeSendback, Text: "why"})
 	if err == nil || !strings.Contains(err.Error(), "retry when it settles") {
 		t.Errorf("sendback while the gate runs: %v", err)
 	}
@@ -312,19 +315,19 @@ func TestLeadSendbackRefusals(t *testing.T) {
 		p := a.p
 		return p.folded.loop["T-4"].state == stAwaiting && p.held["T-4"] == ""
 	})
-	_, err = r.app("pr").resume(wire.Call{Root: r.roots["pr"], Agent: "pr-l-04", Role: "worker", CallID: "w1", Task: "T-4",
-		To: wire.ResumeSendback, Note: "why"})
+	_, err = r.app("pr").resume(wire.ResumeReq{Envelope: wire.Envelope{Root: r.roots["pr"], Agent: "pr-l-04",
+		Role: "worker", CallID: "w1"}, Task: "T-4", Flag: wire.ResumeSendback, Text: "why"})
 	if err == nil || !strings.Contains(err.Error(), "the lead or the owner resumes a task") {
 		t.Errorf("sendback by a worker: %v", err)
 	}
-	_, err = r.app("pr").resume(wire.Call{Root: r.roots["pr"], Agent: "pr-lead", Role: "lead", CallID: "w2", Task: "T-4",
-		To: wire.ResumeSendback, Note: " "})
+	_, err = r.app("pr").resume(wire.ResumeReq{Envelope: wire.Envelope{Root: r.roots["pr"], Agent: "pr-lead",
+		Role: "lead", CallID: "w2"}, Task: "T-4", Flag: wire.ResumeSendback, Text: " "})
 	if err == nil || !strings.Contains(err.Error(), `say the text: obor resume T-4 "<text>" sends it back to its worker`) {
 		t.Errorf("sendback without a why: %v", err)
 	}
 	// the socket's sendback is the integrator's only (its MCP verb): the lead's is refused there
-	_, err = r.app("pr").verdict(context.Background(), wire.MethodSendback, wire.Call{Root: r.roots["pr"], Agent: "pr-lead",
-		Role: "lead", CallID: "w3", Task: "T-4", Note: "why"})
+	_, err = r.app("pr").verdict(context.Background(), wire.VerdictReq{Envelope: wire.Envelope{Root: r.roots["pr"],
+		Agent: "pr-lead", Role: "lead", CallID: "w3"}, Verb: wire.MethodSendback, Task: "T-4", Note: "why"})
 	if err == nil || !strings.Contains(err.Error(), "only the integrator (pr-int) gives verdicts") {
 		t.Errorf("the lead's socket sendback: %v; want the integrator's only", err)
 	}

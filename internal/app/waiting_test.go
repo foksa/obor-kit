@@ -57,8 +57,8 @@ const (
 
 // waitAfter is the lead's dispatch of T-1 onto L-01 after the tasks.
 func (r *loopRig) waitAfter(callID string, after ...string) (string, error) {
-	return r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: callID, Task: "T-1",
-		Lane: "L-01", After: after, Types: []string{"sonnet"}})
+	return r.dispatchCall(wire.DispatchReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-lead", Role: "lead",
+		CallID: callID}, Task: "T-1", Lane: "L-01", After: after, Types: []string{"sonnet"}})
 }
 
 // taskStatus is task's row in obor status --facts (Task "": not listed).
@@ -186,27 +186,28 @@ func TestWaitingRefusals(t *testing.T) {
 			t.Errorf("after %v: %q, %v; want %q", c.after, reply, err, c.want)
 		}
 	}
-	if _, err := r.dispatchCall(wire.Call{Root: r.p.Root, Role: "lead", CallID: "d0", Task: "T-1", Lane: "L-09",
-		After: []string{"T-2"}, Types: []string{"sonnet"}}); err == nil || !strings.Contains(err.Error(), "unknown lane L-09") {
+	if _, err := r.dispatchCall(wire.DispatchReq{Envelope: wire.Envelope{Root: r.p.Root, Role: "lead", CallID: "d0"},
+		Task: "T-1", Lane: "L-09", After: []string{"T-2"},
+		Types: []string{"sonnet"}}); err == nil || !strings.Contains(err.Error(), "unknown lane L-09") {
 		t.Errorf("an unknown lane: %v", err)
 	}
 	r.passes()
 	if n := r.taskStep("T-1", "fact waiting"); n != 0 {
 		t.Fatalf("a refusal recorded: %q", r.steps())
 	}
-	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Role: "lead",
-		CallID: "s3", Task: "T-3", Spec: "# T-3 — Other\n\nDifficulty: medium\n"}); err != nil {
+	if _, err := wire.Verdict(context.Background(), r.sock, &wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root,
+		Role: "lead", CallID: "s3"}, Task: "T-3", Spec: "# T-3 — Other\n\nDifficulty: medium\n"}); err != nil {
 		t.Fatal(err)
 	}
 	if reply, err := r.waitAfter("d3", "T-3"); err != nil || reply != waitingAfter3 {
 		t.Errorf("after T-3 (a spec, no loop record): %q, %v", reply, err)
 	}
-	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodDrop, wire.Call{Root: r.p.Root, Role: "lead",
-		CallID: "x1", Task: "T-1", Note: "redo"}); err != nil {
+	if _, err := wire.Verdict(context.Background(), r.sock, &wire.DropReq{Envelope: wire.Envelope{Root: r.p.Root,
+		Role: "lead", CallID: "x1"}, Task: "T-1", Why: "redo"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodDrop, wire.Call{Root: r.p.Root, Role: "lead",
-		CallID: "x3", Task: "T-2", Note: "gone"}); err != nil {
+	if _, err := wire.Verdict(context.Background(), r.sock, &wire.DropReq{Envelope: wire.Envelope{Root: r.p.Root,
+		Role: "lead", CallID: "x3"}, Task: "T-2", Why: "gone"}); err != nil {
 		t.Fatal(err)
 	}
 	// a task holding a lane is dropping until the merge loop stops its worker and frees its lane (T-852)
@@ -237,8 +238,8 @@ func TestWaitingDependencyDroppedLater(t *testing.T) {
 	if _, err := r.waitAfter("d1", "T-2"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodDrop, wire.Call{Root: r.p.Root, Role: "lead",
-		CallID: "x1", Task: "T-2", Note: "gone"}); err != nil {
+	if _, err := wire.Verdict(context.Background(), r.sock, &wire.DropReq{Envelope: wire.Envelope{Root: r.p.Root,
+		Role: "lead", CallID: "x1"}, Task: "T-2", Why: "gone"}); err != nil {
 		t.Fatal(err)
 	}
 	r.waitPrefix("1 fact needs-you{after: T-1 waits for T-2, which is dropped")
@@ -257,8 +258,8 @@ func TestWaitingDropped(t *testing.T) {
 	if _, err := r.waitAfter("d1", "T-2"); err != nil {
 		t.Fatal(err)
 	}
-	reply, err := wire.Verdict(context.Background(), r.sock, wire.MethodDrop, wire.Call{Root: r.p.Root, Role: "lead",
-		CallID: "x1", Task: "T-1", Note: "not needed"})
+	reply, err := wire.Verdict(context.Background(), r.sock, &wire.DropReq{Envelope: wire.Envelope{Root: r.p.Root,
+		Role: "lead", CallID: "x1"}, Task: "T-1", Why: "not needed"})
 	if err != nil || reply != "DROPPED T-1" {
 		t.Fatalf("drop of the waiting task: %q, %v", reply, err)
 	}
@@ -342,8 +343,8 @@ func TestWaitingRefusedSaysWhyThenNeedsYou(t *testing.T) {
 func TestWaitingForATaskMergedByHand(t *testing.T) {
 	t.Parallel()
 	r := startWithT2(t)
-	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Role: "lead",
-		CallID: "s3", Task: "T-3", Spec: "# T-3 — Other\n\nDifficulty: medium\n"}); err != nil {
+	if _, err := wire.Verdict(context.Background(), r.sock, &wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root,
+		Role: "lead", CallID: "s3"}, Task: "T-3", Spec: "# T-3 — Other\n\nDifficulty: medium\n"}); err != nil {
 		t.Fatal(err)
 	}
 	if reply, err := r.waitAfter("d1", "T-3"); err != nil || reply != waitingAfter3 {
@@ -367,16 +368,17 @@ func TestWaitingCycleRefused(t *testing.T) {
 	t.Parallel()
 	r := startWithT2(t)
 	for _, task := range []string{"T-3", "T-4"} {
-		if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Role: "lead",
-			CallID: "s-" + task, Task: task, Spec: "# " + task + " — Other\n\nDifficulty: medium\n"}); err != nil {
+		if _, err := wire.Verdict(context.Background(), r.sock, &wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root,
+			Role: "lead", CallID: "s-" + task}, Task: task,
+			Spec: "# " + task + " — Other\n\nDifficulty: medium\n"}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if _, err := r.waitAfter("d1", "T-3"); err != nil { // T-1 after T-3
 		t.Fatal(err)
 	}
-	if _, err := r.dispatchCall(wire.Call{Root: r.p.Root, Role: "lead", CallID: "d4", Task: "T-4", Lane: "L-01",
-		After: []string{"T-1"}}); err != nil { // T-4 after T-1
+	if _, err := r.dispatchCall(wire.DispatchReq{Envelope: wire.Envelope{Root: r.p.Root, Role: "lead", CallID: "d4"},
+		Task: "T-4", Lane: "L-01", After: []string{"T-1"}}); err != nil { // T-4 after T-1
 		t.Fatal(err)
 	}
 	for _, c := range []struct {
@@ -385,8 +387,8 @@ func TestWaitingCycleRefused(t *testing.T) {
 		{"d3", "T-1", "dispatch T-3: T-1 waits for T-3 itself: a cycle never dispatches"},
 		{"d3b", "T-4", "dispatch T-3: T-4 waits for T-3 itself: a cycle never dispatches"},
 	} {
-		reply, err := r.dispatchCall(wire.Call{Root: r.p.Root, Role: "lead", CallID: c.call, Task: "T-3", Lane: "L-01",
-			After: []string{c.after}})
+		reply, err := r.dispatchCall(wire.DispatchReq{Envelope: wire.Envelope{Root: r.p.Root, Role: "lead",
+			CallID: c.call}, Task: "T-3", Lane: "L-01", After: []string{c.after}})
 		if err == nil || err.Error() != c.want {
 			t.Errorf("T-3 after %s: %q, %v; want %q", c.after, reply, err, c.want)
 		}

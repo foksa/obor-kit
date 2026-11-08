@@ -18,8 +18,8 @@ import (
 
 // dropCall is obor drop of T-1 by the lead (its reply or refusal).
 func (r *loopRig) dropCall(callID, why string) (string, error) {
-	return wire.Verdict(context.Background(), r.sock, wire.MethodDrop, wire.Call{Root: r.p.Root, Role: "lead",
-		Agent: "pj-lead", CallID: callID, Task: "T-1", Note: why})
+	return wire.Verdict(context.Background(), r.sock, &wire.DropReq{Envelope: wire.Envelope{Root: r.p.Root,
+		Role: "lead", Agent: "pj-lead", CallID: callID}, Task: "T-1", Why: why})
 }
 
 // refusedWhileStopPending: verb's call (T-1, its stop pending, not running: cutStops) is refused busy, naming the

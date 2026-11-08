@@ -20,8 +20,8 @@ import (
 
 // moveTo is the lead's obor dispatch T-1 --model types.
 func (r *loopRig) moveTo(callID string, types ...string) (string, error) {
-	return r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: callID, Task: "T-1",
-		Types: types})
+	return r.dispatchCall(wire.DispatchReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-lead", Role: "lead",
+		CallID: callID}, Task: "T-1", Types: types})
 }
 
 // workerLaunches is the Agents.Launch calls of pj-l-01, in order.

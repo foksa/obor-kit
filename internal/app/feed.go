@@ -15,7 +15,7 @@ import (
 // one line each (wire.FeedSince: serve's down path reads the same), then wire.FeedEnd; with c.Follow it waits for the
 // next record written (event.Log.Changed) and streams on until the caller closes the connection or serve ends. Anyone
 // may read it, as status. It reads on its own read-only handle: serve's one connection stays the writer's.
-func (a *App) feed(conn net.Conn, c *wire.Call) {
+func (a *App) feed(conn net.Conn, c *wire.EventsReq) {
 	write := func(ans wire.Answer) bool {
 		b, _ := json.Marshal(ans)
 		_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))

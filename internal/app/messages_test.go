@@ -175,12 +175,13 @@ func (r *loopRig) agentIs(pane, name, status string) {
 }
 
 // line is a send or brief request to the rig's serve from the lead (role lead, agent pj-lead).
-func (r *loopRig) line(method, callID string, c wire.Call) (string, error) {
-	c.Root, c.CallID = r.p.Root, callID
-	if c.Role == "" {
-		c.Role, c.Agent = "lead", "pj-lead"
+func (r *loopRig) line(callID string, c wire.Req) (string, error) {
+	e := c.Env()
+	e.Root, e.CallID = r.p.Root, callID
+	if e.Role == "" {
+		e.Role, e.Agent = "lead", "pj-lead"
 	}
-	return wire.Verdict(context.Background(), r.sock, method, c)
+	return wire.Verdict(context.Background(), r.sock, c)
 }
 
 // typedTo is the prompts the fake herdr got for agent (its name, or its pane: typed lines address the pane id, the
@@ -253,22 +254,24 @@ func TestSendPostedOnceToTheLead(t *testing.T) {
 	r := lineRig(t, "working", "idle")
 	r.start()
 	for _, c := range []struct {
-		call wire.Call
+		call wire.SendReq
 		want string
 	}{
-		{wire.Call{Role: "worker", Agent: "pj-l-01", Note: "x", From: "other"}, "a lead or the owner"},
-		{wire.Call{From: "other"}, "a text is required"},
-		{wire.Call{Note: "x"}, "the sender project is required"},
+		{wire.SendReq{Envelope: wire.Envelope{Role: "worker", Agent: "pj-l-01"}, Text: "x", From: "other"},
+			"a lead or the owner"},
+		{wire.SendReq{From: "other"}, "a text is required"},
+		{wire.SendReq{Text: "x"}, "the sender project is required"},
 	} {
-		if reply, err := r.line(wire.MethodSend, "bad", c.call); err == nil || !strings.Contains(err.Error(), c.want) {
+		if reply, err := r.line("bad", &c.call); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("send %+v: %q, %v; want refused: %s", c.call, reply, err, c.want)
 		}
 	}
-	reply, err := r.line(wire.MethodSend, "s1", wire.Call{Note: "release v0.12 is out", From: "other"})
+	reply, err := r.line("s1", &wire.SendReq{Text: "release v0.12 is out", From: "other"})
 	if err != nil || reply != "SENT to pj-lead in proj (posted to its session)" {
 		t.Fatalf("send: %q, %v", reply, err)
 	}
-	if reply, err := r.line(wire.MethodSend, "s1", wire.Call{Note: "again", From: "other"}); err != nil || !strings.HasPrefix(reply, "SENT") {
+	if reply, err := r.line("s1", &wire.SendReq{Text: "again", From: "other"}); err != nil || !strings.HasPrefix(reply,
+		"SENT") {
 		t.Errorf("the same call id: %q, %v; want the stored reply", reply, err)
 	}
 	if n := r.taskStep(event.MsgTask, "fact message"); n != 1 {
@@ -304,7 +307,7 @@ func TestSendQueuedUntilTheLeadIsRecorded(t *testing.T) {
 	r := lineRig(t, "idle", "idle")
 	r.inbox.unrecord("pj-lead")
 	r.start()
-	reply, err := r.line(wire.MethodSend, "s1", wire.Call{Note: "hello", From: "other"})
+	reply, err := r.line("s1", &wire.SendReq{Text: "hello", From: "other"})
 	if want := "SENT to pj-lead in proj (queued: no session recorded for pj-lead; `obor restart pj-lead` once it is idle registers it, or quit it and run `obor lead`)"; err != nil || reply != want {
 		t.Fatalf("send: %q, %v; want %q", reply, err, want)
 	}
@@ -337,7 +340,7 @@ func TestSendPostRefusedAndPartial(t *testing.T) {
 	r := lineRig(t, "idle", "idle")
 	r.inbox.fail(false)
 	r.start()
-	if _, err := r.line(wire.MethodSend, "s1", wire.Call{Note: "one", From: "other"}); err != nil {
+	if _, err := r.line("s1", &wire.SendReq{Text: "one", From: "other"}); err != nil {
 		t.Fatal(err)
 	}
 	r.waitFor("the refused post's failed fact", func() bool {
@@ -360,7 +363,7 @@ func TestSendPostRefusedAndPartial(t *testing.T) {
 	}
 
 	r.inbox.fail(true)
-	if _, err := r.line(wire.MethodSend, "s2", wire.Call{Note: "two", From: "other"}); err != nil {
+	if _, err := r.line("s2", &wire.SendReq{Text: "two", From: "other"}); err != nil {
 		t.Fatal(err)
 	}
 	r.waitFor("the partial post's result", func() bool { return len(r.lineResults()) == 2 })
@@ -384,7 +387,7 @@ func TestSendWaitingADayNeedsYou(t *testing.T) {
 	r := lineRig(t, "idle", "idle")
 	r.inbox.unrecord("pj-lead")
 	r.start()
-	if _, err := r.line(wire.MethodSend, "s1", wire.Call{Note: "hello", From: "other"}); err != nil {
+	if _, err := r.line("s1", &wire.SendReq{Text: "hello", From: "other"}); err != nil {
 		t.Fatal(err)
 	}
 	r.later(23 * time.Hour)
@@ -423,10 +426,11 @@ func TestBriefFinishedLineToTheLead(t *testing.T) {
 	t.Parallel()
 	r := lineRig(t, "idle", "idle")
 	r.start()
-	if _, err := r.line(wire.MethodBrief, "b0", wire.Call{To: "pj-lead", Note: "x"}); err == nil || !strings.Contains(err.Error(), "is the lead") {
+	if _, err := r.line("b0", &wire.BriefReq{To: "pj-lead", Text: "x"}); err == nil || !strings.Contains(err.Error(),
+		"is the lead") {
 		t.Errorf("a brief of the lead: %v, want refused", err)
 	}
-	reply, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-rev", Note: "verify finding 3"})
+	reply, err := r.line("b1", &wire.BriefReq{To: "pj-rev", Text: "verify finding 3"})
 	if err != nil || reply != "BRIEFED pj-rev (delivered when its pane is idle; the lead hears when it finishes)" {
 		t.Fatalf("brief: %q, %v", reply, err)
 	}
@@ -463,7 +467,7 @@ func TestBriefOfAFreshStart(t *testing.T) {
 	t.Parallel()
 	r := lineRig(t, "idle", "working")
 	r.start()
-	reply, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-rev"})
+	reply, err := r.line("b1", &wire.BriefReq{To: "pj-rev"})
 	if err != nil || reply != "BRIEF RECORDED for pj-rev (the lead hears when it finishes)" {
 		t.Fatalf("brief: %q, %v", reply, err)
 	}
@@ -489,15 +493,15 @@ func TestLineToAnUnnamedPane(t *testing.T) {
 	rev := r.f.Agent("w1:p6", "pj-rev", "working", r.p.Root)
 	rev.Label = "pj-rev"
 	r.start()
-	reply, err := r.line(wire.MethodSend, "s1", wire.Call{Note: "hello", From: "other"})
+	reply, err := r.line("s1", &wire.SendReq{Text: "hello", From: "other"})
 	if want := "SENT to pj-lead in proj (posted to its session)"; err != nil || reply != want {
 		t.Errorf("send: %q, %v; want %q", reply, err, want)
 	}
-	reply, err = r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-sol", Note: "look at x"})
+	reply, err = r.line("b1", &wire.BriefReq{To: "pj-sol", Text: "look at x"})
 	if want := "BRIEFED pj-sol (queued: no pane runs pj-sol; `obor restart pj-sol` starts it)"; err != nil || reply != want {
 		t.Errorf("brief: %q, %v; want %q", reply, err, want)
 	}
-	reply, err = r.line(wire.MethodBrief, "b2", wire.Call{To: "pj-rev", Note: "verify"})
+	reply, err = r.line("b2", &wire.BriefReq{To: "pj-rev", Text: "verify"})
 	if want := "BRIEFED pj-rev (delivered when its pane is idle; the lead hears when it finishes)"; err != nil || reply != want {
 		t.Errorf("brief of a named pane: %q, %v; want %q", reply, err, want)
 	}
@@ -518,7 +522,7 @@ func TestBriefToALabelledPaneWithoutAName(t *testing.T) {
 	sol := r.f.Agent("w1:p6", "", "idle", r.p.Root)
 	sol.Label, sol.Kind = "pj-sol", "codex"
 	r.start()
-	reply, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-sol", Note: "look at x"})
+	reply, err := r.line("b1", &wire.BriefReq{To: "pj-sol", Text: "look at x"})
 	if err != nil || reply != "BRIEFED pj-sol (delivered when its pane is idle; the lead hears when it finishes)" {
 		t.Fatalf("brief of the labelled pane: %q, %v; want the named pane's reply", reply, err)
 	}
@@ -542,13 +546,13 @@ func TestBriefSupersedesAFreshStartsOldLine(t *testing.T) {
 	r.inbox.unrecord("pj-rev")
 	r.start()
 	const a = "[obor pj-lead] first"
-	if _, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-rev", Note: "first"}); err != nil {
+	if _, err := r.line("b1", &wire.BriefReq{To: "pj-rev", Text: "first"}); err != nil {
 		t.Fatal(err)
 	}
 	if w := r.waiting(); len(w) != 1 || w[0].Line != a {
 		t.Fatalf("waiting %+v, want the first brief's line alone", w)
 	}
-	reply, err := r.line(wire.MethodBrief, "b2", wire.Call{To: "pj-rev"})
+	reply, err := r.line("b2", &wire.BriefReq{To: "pj-rev"})
 	if err != nil || !strings.HasSuffix(reply, "(replaces 1 undelivered brief)") {
 		t.Fatalf("the fresh start's brief: %q, %v; want it to say it replaces the waiting one", reply, err)
 	}
@@ -588,12 +592,12 @@ func TestBriefSupersedesAQueuedBrief(t *testing.T) {
 	t.Parallel()
 	r := lineRig(t, "idle", "working") // the reviewer is busy: brief A waits
 	r.start()
-	if _, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-rev", Note: "first"}); err != nil {
+	if _, err := r.line("b1", &wire.BriefReq{To: "pj-rev", Text: "first"}); err != nil {
 		t.Fatal(err)
 	}
 	const a = "[obor pj-lead] first"
 	r.waitFor("the first brief queued", func() bool { return len(r.waiting()) == 1 })
-	reply, err := r.line(wire.MethodBrief, "b2", wire.Call{To: "pj-rev", Note: "second"})
+	reply, err := r.line("b2", &wire.BriefReq{To: "pj-rev", Text: "second"})
 	if err != nil || !strings.HasSuffix(reply, "(replaces 1 undelivered brief)") {
 		t.Fatalf("the second brief: %q, %v", reply, err)
 	}
@@ -621,7 +625,7 @@ func TestBriefLeavesLeadLinesQueued(t *testing.T) {
 	sol.Label = "pj-sol"
 	r.inbox.unrecord("pj-lead") // its lines wait
 	r.start()
-	if _, err := r.line(wire.MethodBrief, "s1", wire.Call{To: "pj-sol"}); err != nil { // a fresh start's brief: sol works
+	if _, err := r.line("s1", &wire.BriefReq{To: "pj-sol"}); err != nil { // a fresh start's brief: sol works
 		t.Fatal(err)
 	}
 	r.agentIs("w1:p7", "pj-sol", "idle")
@@ -634,13 +638,13 @@ func TestBriefLeavesLeadLinesQueued(t *testing.T) {
 		}
 		return false
 	})
-	if _, err := r.line(wire.MethodSend, "x1", wire.Call{Note: "hello", From: "other"}); err != nil {
+	if _, err := r.line("x1", &wire.SendReq{Text: "hello", From: "other"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-rev", Note: "first"}); err != nil {
+	if _, err := r.line("b1", &wire.BriefReq{To: "pj-rev", Text: "first"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.line(wire.MethodBrief, "b2", wire.Call{To: "pj-rev", Note: "second"}); err != nil {
+	if _, err := r.line("b2", &wire.BriefReq{To: "pj-rev", Text: "second"}); err != nil {
 		t.Fatal(err)
 	}
 	got := map[string]bool{}
@@ -670,16 +674,11 @@ func TestLinesRefusedWithoutAMergeLoop(t *testing.T) {
 	if st := r.app.Status().Project; st.Merging {
 		t.Fatalf("precondition: %s merges", st.Name)
 	}
-	for _, c := range []struct {
-		method string
-		call   wire.Call
-	}{
-		{wire.MethodSend, wire.Call{Note: "hello", From: "other"}},
-		{wire.MethodBrief, wire.Call{To: "pj-rev", Note: "verify"}},
-	} {
-		reply, err := r.line(c.method, c.method+"1", c.call)
+	for _, c := range []wire.Req{&wire.SendReq{Text: "hello", From: "other"}, &wire.BriefReq{To: "pj-rev",
+		Text: "verify"}} {
+		reply, err := r.line(c.Method()+"1", c)
 		if err == nil || err.Error() != "merge loop off for proj (no integrator role)" || reply != "" {
-			t.Errorf("%s: %q, %v; want the merge loop's refusal", c.method, reply, err)
+			t.Errorf("%s: %q, %v; want the merge loop's refusal", c.Method(), reply, err)
 		}
 	}
 	if n := len(r.waiting()); n != 0 || r.taskStep(event.MsgTask, "fact message")+r.taskStep(event.MsgTask, "fact briefed") != 0 {

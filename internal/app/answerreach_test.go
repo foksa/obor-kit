@@ -134,7 +134,8 @@ func TestResumeStalledWorker(t *testing.T) {
 		t.Fatalf("precondition: %+v; want the watchdog's needs-you{stalled}", fact)
 	}
 	call := func(id, to, note string) (string, error) {
-		return h.a.resume(wire.Call{Root: h.root, Agent: "pj-lead", Role: "lead", CallID: id, Task: "T-1", To: to, Note: note})
+		return h.a.resume(wire.ResumeReq{Envelope: wire.Envelope{Root: h.root, Agent: "pj-lead", Role: "lead",
+			CallID: id}, Task: "T-1", Flag: to, Text: note})
 	}
 	if _, err := call("c0", wire.ResumeRegate, "x"); err == nil || !strings.Contains(err.Error(), "--regate does not fit: obor resume T-1 sends the worker the line") {
 		t.Errorf("regate: %v; want refused", err)
@@ -265,8 +266,8 @@ func TestResumeStalledEndsOlderAnswer(t *testing.T) {
 	if got := h.lines(); !slices.Equal(got, []string{"pj-l-01: [obor answer] old"}) {
 		t.Fatalf("precondition: queued %q, want the old answer", got)
 	}
-	if _, err := h.a.resume(wire.Call{Root: h.root, Agent: "pj-lead", Role: "lead", CallID: "r1", Task: "T-1",
-		Note: "new decision"}); err != nil {
+	if _, err := h.a.resume(wire.ResumeReq{Envelope: wire.Envelope{Root: h.root, Agent: "pj-lead", Role: "lead",
+		CallID: "r1"}, Task: "T-1", Text: "new decision"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := h.lines(); !slices.Equal(got, []string{"pj-l-01: [obor answer] new decision"}) {

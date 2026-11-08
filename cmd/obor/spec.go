@@ -53,16 +53,15 @@ func specSetArgs(args []string) (task, path, note string, ok bool) {
 // a lane's cwd is a worker's whatever OBOR_ROLE says; none, the owner in a plain terminal, is sent as no role), and
 // serve refuses every role but the lead and the owner.
 func specSet(task, path, note string) int {
-	return request(context.Background(), project.OSEnv, wire.MethodSpecSet, func(cfg *config.Config, c *wire.Call) error {
+	return request(context.Background(), project.OSEnv, func(cfg *config.Config, id wire.Envelope) (wire.Req, error) {
 		if err := taskIDs(cfg, task); err != nil {
-			return err
+			return nil, err
 		}
 		b, err := os.ReadFile(path)
 		if err != nil {
-			return fmt.Errorf("cannot read %s: %v", path, err)
+			return nil, fmt.Errorf("cannot read %s: %v", path, err)
 		}
-		c.Task, c.Spec, c.Note = task, string(b), note
-		return nil
+		return &wire.SpecSetReq{Envelope: id, Task: task, Spec: string(b), Changed: note}, nil
 	})
 }
 

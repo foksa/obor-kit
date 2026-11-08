@@ -19,7 +19,7 @@ import (
 func briefWorked(t *testing.T) *loopRig {
 	r := lineRig(t, "idle", "idle")
 	r.start()
-	if _, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-rev", Note: "verify finding 3"}); err != nil {
+	if _, err := r.line("b1", &wire.BriefReq{To: "pj-rev", Text: "verify finding 3"}); err != nil {
 		t.Fatal(err)
 	}
 	r.waitBriefDelivered()
@@ -94,7 +94,7 @@ func TestBriefNotWorkedStaysOpenWhenItsAgentStops(t *testing.T) {
 	t.Parallel()
 	r := lineRig(t, "idle", "idle")
 	r.start()
-	if _, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-rev", Note: "verify finding 3"}); err != nil {
+	if _, err := r.line("b1", &wire.BriefReq{To: "pj-rev", Text: "verify finding 3"}); err != nil {
 		t.Fatal(err)
 	}
 	r.waitBriefDelivered()

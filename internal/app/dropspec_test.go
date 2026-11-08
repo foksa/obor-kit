@@ -12,8 +12,8 @@ import (
 // dropSpec is the lead's obor drop of task (a spec stored and never dispatched) with why; fatal unless DROPPED.
 func (r *loopRig) dropSpec(callID, task, why string) {
 	r.t.Helper()
-	reply, err := wire.Verdict(context.Background(), r.sock, wire.MethodDrop, wire.Call{Root: r.p.Root, Role: "lead",
-		CallID: callID, Task: task, Note: why})
+	reply, err := wire.Verdict(context.Background(), r.sock, &wire.DropReq{Envelope: wire.Envelope{Root: r.p.Root,
+		Role: "lead", CallID: callID}, Task: task, Why: why})
 	if err != nil || reply != "DROPPED "+task {
 		r.t.Fatalf("drop of %s: %q, %v; want DROPPED %s", task, reply, err, task)
 	}
@@ -33,8 +33,8 @@ func TestDropOfASpecOnlyTaskThenDispatchUntilANewRev(t *testing.T) {
 	if st := r.taskStatus("T-1"); st.Task != "" {
 		t.Fatalf("precondition: T-1 listed before the drop: %+v", st)
 	}
-	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodDrop, wire.Call{Root: r.p.Root, Role: "lead",
-		CallID: "x1", Task: "T-9", Note: "superseded on 11-07"}); err == nil ||
+	if _, err := wire.Verdict(context.Background(), r.sock, &wire.DropReq{Envelope: wire.Envelope{Root: r.p.Root,
+		Role: "lead", CallID: "x1"}, Task: "T-9", Why: "superseded on 11-07"}); err == nil ||
 		!strings.Contains(err.Error(), "T-9 is not open in obor serve") {
 		t.Errorf("drop of an unknown task: %v; want refused as before", err)
 	}
@@ -91,8 +91,8 @@ func TestSpecOnlyDropEndsAnAfterWait(t *testing.T) {
 	r.start()
 	r.setSpec("s1", "# T-1 — Stored\n\nDifficulty: medium\n")
 	after := func(callID, task string) (string, error) {
-		return r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: callID, Task: task,
-			Lane: "L-01", After: []string{"T-1"}, Types: []string{"sonnet"}})
+		return r.dispatchCall(wire.DispatchReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-lead", Role: "lead",
+			CallID: callID}, Task: task, Lane: "L-01", After: []string{"T-1"}, Types: []string{"sonnet"}})
 	}
 	if reply, err := after("d1", "T-2"); err != nil || !strings.HasPrefix(reply, "WAITING T-2 after T-1 (queued)") {
 		t.Fatalf("dispatch T-2 --after T-1: %q, %v; want waiting", reply, err)

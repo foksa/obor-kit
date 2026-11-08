@@ -401,8 +401,9 @@ func (r *loopRig) submit() {
 
 // taskDone is pj-l-01's task_done for T-1 with text as its report, under a new call id.
 func (r *loopRig) taskDone(text string) (string, error) {
-	return wire.Verdict(context.Background(), r.sock, wire.MethodTaskDone, wire.Call{Root: r.p.Root, Agent: "pj-l-01",
-		Role: "worker", Lane: "L-01", Task: "T-1", CallID: fmt.Sprintf("rig-%d", r.callIDs.Add(1)), Report: text})
+	return wire.Verdict(context.Background(), r.sock, &wire.TaskDoneReq{Envelope: wire.Envelope{Root: r.p.Root,
+		Agent: "pj-l-01", Role: "worker", CallID: fmt.Sprintf("rig-%d", r.callIDs.Add(1))}, Lane: "L-01", Task: "T-1",
+		Report: text})
 }
 
 // work writes path in the lane (uncommitted: the submit commits it).
@@ -541,8 +542,9 @@ func (r *loopRig) patch(text string) string {
 
 // verdict is pj-int's verdict on T-1 (no job id: the current job, as the CLI sends it).
 func (r *loopRig) verdict(method, callID, patch, note string) (string, error) {
-	return wire.Verdict(context.Background(), r.sock, method, wire.Call{Root: r.p.Root, Agent: "pj-int", Role: "integrator",
-		CallID: callID, Task: "T-1", Patch: patch, Note: note})
+	return wire.Verdict(context.Background(), r.sock, &wire.VerdictReq{Verb: method,
+		Envelope: wire.Envelope{Root: r.p.Root,
+			Agent: "pj-int", Role: "integrator", CallID: callID}, Task: "T-1", Patch: patch, Note: note})
 }
 
 func (r *loopRig) accept(callID, patch string) {
@@ -1055,8 +1057,8 @@ func TestCommitSubjectFromStoredSpec(t *testing.T) {
 // setSpec stores text as T-1's spec through serve's socket, as the lead (obor spec set).
 func (r *loopRig) setSpec(callID, text string) string {
 	r.t.Helper()
-	reply, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Agent: "lead",
-		Role: "lead", CallID: callID, Task: "T-1", Spec: text})
+	reply, err := wire.Verdict(context.Background(), r.sock, &wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root,
+		Agent: "lead", Role: "lead", CallID: callID}, Task: "T-1", Spec: text})
 	if err != nil {
 		r.t.Fatalf("spec set: %v", err)
 	}

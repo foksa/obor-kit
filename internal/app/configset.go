@@ -36,7 +36,7 @@ type ConfigFile interface {
 // are required, a repeated call id waits for the call in flight and gets its stored reply. The call takes configMu (one
 // main-checkout writer at a time) before its stored-reply lookup. The reply is "SET <key> <old> → <new>" per change,
 // joined by "; ", a role's with "(at its next start)".
-func (a *App) configCall(c wire.Call) (string, error) {
+func (a *App) configCall(c wire.ConfigSetReq) (string, error) {
 	if c.CallID == "" || len(c.Changes) == 0 {
 		return "", errors.New(wire.MethodConfig + ": a call id and a change are required")
 	}
@@ -48,7 +48,7 @@ func (a *App) configCall(c wire.Call) (string, error) {
 	a.configMu.Lock() // one main-checkout writer at a time: each reads the file the last one wrote, and a repeated call
 	// id waits for the call in flight before its stored-reply lookup (T-930)
 	defer a.configMu.Unlock()
-	p, reply, stored := a.callProj(wire.MethodConfig, c)
+	p, reply, stored := a.callProj(wire.MethodConfig, c.Envelope)
 	switch {
 	case p == nil:
 		return "", fmt.Errorf("%s: no served project at %s", wire.MethodConfig, c.Root)
@@ -79,7 +79,7 @@ func (a *App) configCall(c wire.Call) (string, error) {
 // configSet applies c's changes in order, each to the file the one before it wrote, validates the result, writes and
 // commits it once, then records the fact and the lead's line (admitted). Any change refused refuses them all: nothing
 // is written.
-func (a *App) configSet(ctx context.Context, p *proj, file ConfigFile, c wire.Call) (string, error) {
+func (a *App) configSet(ctx context.Context, p *proj, file ConfigFile, c wire.ConfigSetReq) (string, error) {
 	doc, refused, err := file.Read(ctx)
 	if err != nil {
 		return "", fmt.Errorf("config: %v", err)

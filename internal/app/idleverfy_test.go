@@ -165,8 +165,8 @@ func TestIdleKeyIsTheVerifyEnd(t *testing.T) {
 		t.Fatal("precondition: the merged fixes before a verify pass are idle")
 	}
 	// The lead acknowledges the state the merges left, before the verify is in flight.
-	if got, err := r.a.idleCall(wire.Call{Root: r.p.root, CallID: "i1", Role: "lead", Agent: "pj-lead",
-		Note: "the fixes are in"}); err != nil || got != "ACKED idle: the fixes are in" {
+	if got, err := r.a.idleCall(wire.IdleReq{Envelope: wire.Envelope{Root: r.p.root, CallID: "i1", Role: "lead",
+		Agent: "pj-lead"}, Why: "the fixes are in"}); err != nil || got != "ACKED idle: the fixes are in" {
 		t.Fatalf("obor idle: %q, %v", got, err)
 	}
 	r.working(true) // the reviewer works: the verify is owed, not briefed

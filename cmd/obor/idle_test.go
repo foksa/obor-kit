@@ -37,7 +37,7 @@ func TestIdleRequest(t *testing.T) {
 	if len(calls) != 2 {
 		t.Fatalf("%d requests, want 2", len(calls))
 	}
-	for i, want := range []wire.Call{{}, {Note: "nothing to dispatch"}} {
+	for i, want := range []sentCall{{}, {Note: "nothing to dispatch"}} {
 		if c := calls[i]; c.Note != want.Note || c.Role != "lead" || c.Root != p.Root || c.CallID == "" {
 			t.Errorf("request %d: %+v, want note %q", i+1, c, want.Note)
 		}

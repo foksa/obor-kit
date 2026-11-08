@@ -145,8 +145,8 @@ func TestIdleRules(t *testing.T) {
 		}
 	}
 	ack := func(t *testing.T, h *harness) {
-		if got, err := h.a.idleCall(wire.Call{Root: h.root, Role: "lead", Agent: "pj-lead", CallID: "a1",
-			Note: "waiting for the owner"}); err != nil || got != "ACKED idle: waiting for the owner" {
+		if got, err := h.a.idleCall(wire.IdleReq{Envelope: wire.Envelope{Root: h.root, Role: "lead", Agent: "pj-lead",
+			CallID: "a1"}, Why: "waiting for the owner"}); err != nil || got != "ACKED idle: waiting for the owner" {
 			t.Fatalf("obor idle: %q, %v", got, err)
 		}
 	}

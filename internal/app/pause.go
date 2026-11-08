@@ -82,7 +82,7 @@ func untilText(until int64) string {
 // the stored reply. Pause: PAUSED until HH:MM|cleared (a new pause replaces the one in force); clear: PAUSE CLEARED,
 // or NOT PAUSED when none holds (nothing recorded). With c.Model the same for that model's pause: PAUSED <model> …,
 // PAUSE CLEARED <model>, NOT PAUSED <model>; a model the config does not know is refused.
-func (a *App) pauseCall(c wire.Call) (string, error) {
+func (a *App) pauseCall(c wire.PauseReq) (string, error) {
 	if c.CallID == "" {
 		return "", errors.New(wire.MethodPause + ": a call id is required")
 	}
@@ -121,12 +121,12 @@ func (a *App) pauseCall(c wire.Call) (string, error) {
 		return "", fmt.Errorf("pause: the lead or the owner pauses, not %s (role %s)", Dash(c.Agent), c.Role)
 	case c.Clear && held == nil:
 		return "NOT PAUSED" + what, nil
-	case !c.Clear && c.Note == "":
+	case !c.Clear && c.Why == "":
 		return "", errors.New("pause: a reason is required")
 	case !c.Clear && c.Until != 0 && c.Until <= a.opt.Now().Unix():
 		return "", errors.New("pause: its end is not ahead")
 	}
-	d := event.Pause{Model: c.Model, Why: c.Note, Until: c.Until, Caller: c.Agent, Call: c.CallID,
+	d := event.Pause{Model: c.Model, Why: c.Why, Until: c.Until, Caller: c.Agent, Call: c.CallID,
 		Reply: "PAUSED" + what + " until " + untilText(c.Until)}
 	if d.Caller == "" {
 		d.Caller = "owner"

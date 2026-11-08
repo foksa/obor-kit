@@ -34,8 +34,9 @@ func TestSpecSet(t *testing.T) {
 		}
 	}
 	for _, role := range []string{"worker", "integrator"} {
-		reply, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root,
-			Agent: "pj-l-01", Role: role, CallID: "w-" + role, Task: "T-1", Spec: "# T-1 — widened by " + role + "\n"})
+		reply, err := wire.Verdict(context.Background(), r.sock,
+			&wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-l-01", Role: role, CallID: "w-" + role},
+				Task: "T-1", Spec: "# T-1 — widened by " + role + "\n"})
 		if err == nil || !strings.Contains(err.Error(), "only the lead or the owner sets a spec") {
 			t.Errorf("spec set by role %q: %q, %v; want refused", role, reply, err)
 		}
@@ -44,8 +45,8 @@ func TestSpecSet(t *testing.T) {
 	if err != nil || !ok || row.Rev != 2 || row.Text != "# T-1 — B\n\nDifficulty: medium\n" || row.SetBy != "lead" {
 		t.Errorf("stored spec %+v, %v, %v; want rev 2 \"B\" set by lead", row, ok, err)
 	}
-	reply, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root,
-		CallID: "o1", Task: "T-1", Spec: "# T-1 — by the owner\n\nDifficulty: medium\n"})
+	reply, err := wire.Verdict(context.Background(), r.sock, &wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root,
+		CallID: "o1"}, Task: "T-1", Spec: "# T-1 — by the owner\n\nDifficulty: medium\n"})
 	if err != nil || reply != "SET T-1 rev 3" {
 		t.Fatalf("spec set by the owner: %q, %v; want SET T-1 rev 3", reply, err)
 	}
@@ -64,8 +65,8 @@ func TestSpecSetRefusesASpecWithoutATitle(t *testing.T) {
 		{"u2", "# T-1:\n\nDifficulty: medium\n"},
 		{"u3", "Difficulty: medium\n"},
 	} {
-		_, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Role: "lead",
-			CallID: c.call, Task: "T-1", Spec: c.text})
+		_, err := wire.Verdict(context.Background(), r.sock, &wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root,
+			Role: "lead", CallID: c.call}, Task: "T-1", Spec: c.text})
 		if err == nil || !strings.Contains(err.Error(), "the spec needs a title: `# T-1 — <title>`") {
 			t.Errorf("spec set of %q: %v; want a refusal naming the title", c.text, err)
 		}
@@ -85,14 +86,15 @@ func TestSpecSetReviewOnMerge(t *testing.T) {
 	if got := r.setSpec("r1", good); got != "SET T-1 rev 1" {
 		t.Fatalf("spec set with \"Review: on merge\": %q, want SET T-1 rev 1", got)
 	}
-	_, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Role: "lead",
-		Agent: "lead", CallID: "r2", Task: "T-1", Spec: "# T-1 — B\n\nDifficulty: medium\nReview: now\n"})
+	_, err := wire.Verdict(context.Background(), r.sock, &wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root,
+		Role: "lead", Agent: "lead", CallID: "r2"}, Task: "T-1",
+		Spec: "# T-1 — B\n\nDifficulty: medium\nReview: now\n"})
 	if err == nil || !strings.Contains(err.Error(), `the "Review:" line takes one value: "on merge"`) {
 		t.Errorf("spec set with \"Review: now\": %v; want the refusal naming the one value", err)
 	}
 	// T-932: a fix spec carries Fixes: in the Review line's place; both is refused, and nothing is stored.
-	_, err = wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Role: "lead",
-		Agent: "lead", CallID: "r3", Task: "T-1",
+	_, err = wire.Verdict(context.Background(), r.sock, &wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root,
+		Role: "lead", Agent: "lead", CallID: "r3"}, Task: "T-1",
 		Spec: "# T-1 — C\n\nDifficulty: hard\nFixes: RV-12\nReview: on merge\n"})
 	if err == nil || !strings.Contains(err.Error(), "a fix (Fixes:) is reviewed by its verify; drop the Review: on merge line") {
 		t.Errorf("spec set with \"Fixes:\" and \"Review: on merge\": %v; want the refusal naming the pair", err)
@@ -112,8 +114,8 @@ func TestSpecSetRefusesAnEmptyRef(t *testing.T) {
 	t.Parallel()
 	r := newLoopRig(t)
 	r.start()
-	_, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Role: "lead",
-		CallID: "e1", Task: "T-1", Spec: "# T-1 — A\n\nDifficulty: medium\nRef:\n"})
+	_, err := wire.Verdict(context.Background(), r.sock, &wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root,
+		Role: "lead", CallID: "e1"}, Task: "T-1", Spec: "# T-1 — A\n\nDifficulty: medium\nRef:\n"})
 	if err == nil || !strings.Contains(err.Error(), `the "Ref:" line needs an id`) {
 		t.Errorf("spec set with an empty \"Ref:\": %v; want the refusal naming the id", err)
 	}
@@ -235,8 +237,9 @@ func TestSpecSetConcurrentRetriesShareReply(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			got, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root,
-				Role: "lead", CallID: "same", Task: "T-1", Spec: text})
+			got, err := wire.Verdict(context.Background(), r.sock,
+				&wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root, Role: "lead", CallID: "same"}, Task: "T-1",
+					Spec: text})
 			if err != nil || got != "SET T-1 rev 1" {
 				t.Errorf("concurrent retry: %q, %v; want the original SET T-1 rev 1", got, err)
 			}

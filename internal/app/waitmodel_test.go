@@ -21,7 +21,7 @@ func TestWaitingTaskCarriesDifficultyAndModel(t *testing.T) {
 
 	// The level: medium is sonnet, deepseek; sonnet paused, so deepseek.
 	r.specLevel("medium")
-	if reply, err := r.pause("lead", "p1", wire.Call{Model: "sonnet", Note: "quota"}); err != nil {
+	if reply, err := r.pause("lead", "p1", wire.PauseReq{Model: "sonnet", Why: "quota"}); err != nil {
 		t.Fatalf("pause sonnet: %q, %v", reply, err)
 	}
 	if reply, err := r.dispatchLevel("d1"); err != nil || !strings.HasPrefix(reply, "WAITING T-1") {
@@ -38,8 +38,9 @@ func TestWaitingTaskCarriesDifficultyAndModel(t *testing.T) {
 	// A --model override, after a task not merged: no level in the request, the spec's Difficulty; the override's model.
 	r.specOf("T-2", "# T-2 — First\n\nDifficulty: simple\n")
 	r.specOf("T-3", "# T-3 — Override\n\nDifficulty: hard\n")
-	if reply, err := r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: "d3", Task: "T-3",
-		Types: []string{"opus"}, After: []string{"T-2"}}); err != nil || !strings.HasPrefix(reply, "WAITING T-3") {
+	if reply, err := r.dispatchCall(wire.DispatchReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-lead",
+		Role: "lead", CallID: "d3"}, Task: "T-3", Types: []string{"opus"},
+		After: []string{"T-2"}}); err != nil || !strings.HasPrefix(reply, "WAITING T-3") {
 		t.Fatalf("--model opus --after T-2: %q, %v; want it waiting", reply, err)
 	}
 	st = r.taskStatus("T-3")

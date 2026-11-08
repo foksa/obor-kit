@@ -22,7 +22,7 @@ import (
 // session reports agent's session id (transcript tr, started at) to h's serve as the SessionStart hook does.
 func (h *harness) session(agent, id, tr string, at int64) string {
 	h.t.Helper()
-	reply, err := h.a.sessionCall(wire.SessionCall(h.root, store.Session{Agent: agent, Kind: "claude", ID: id, Transcript: tr,
+	reply, err := h.a.sessionCall(*wire.SessionRequest(h.root, store.Session{Agent: agent, Kind: "claude", ID: id, Transcript: tr,
 		Pane: "w1:p1", Lane: "L-01", Task: "T-1", Started: at, Source: "SessionStart hook"}))
 	if err != nil {
 		h.t.Fatal(err)
@@ -159,7 +159,7 @@ func TestSessionConfirmation(t *testing.T) {
 	// launch is serve's fact for the id obor chose (the launcher's session request before the start).
 	launch := func(h *harness, id string, at int64) {
 		h.t.Helper()
-		if _, err := h.a.sessionCall(wire.SessionCall(h.root, store.Session{Agent: "pj-l-01", Kind: "claude", ID: id,
+		if _, err := h.a.sessionCall(*wire.SessionRequest(h.root, store.Session{Agent: "pj-l-01", Kind: "claude", ID: id,
 			Pane: "w1:p1", Lane: "L-01", Started: at, Source: "launch"})); err != nil {
 			h.t.Fatal(err)
 		}
@@ -223,7 +223,7 @@ func has(t *testing.T, s, sub, what string) {
 // refused reports agent's session id to h's serve: the error ("" none).
 func (h *harness) refused(agent, id string, at int64) string {
 	h.t.Helper()
-	_, err := h.a.sessionCall(wire.SessionCall(h.root, store.Session{Agent: agent, Kind: "codex", ID: id, Started: at,
+	_, err := h.a.sessionCall(*wire.SessionRequest(h.root, store.Session{Agent: agent, Kind: "codex", ID: id, Started: at,
 		Source: "codex transcript"}))
 	if err == nil {
 		return ""
@@ -372,11 +372,11 @@ func TestSessionCallShapeSkewRefusedByVersion(t *testing.T) {
 		t.Errorf("an old hook's refused call recorded %v", got)
 	}
 
-	b, err := json.Marshal(wire.Request{Method: wire.MethodSession, Call: ptr(wire.SessionCall(h.root,
-		store.Session{Agent: "pj-l-01", ID: "sid-new", Kind: "claude"}))})
+	call, err := json.Marshal(wire.SessionRequest(h.root, store.Session{Agent: "pj-l-01", ID: "sid-new", Kind: "claude"}))
 	if err != nil {
 		t.Fatal(err)
 	}
+	b, _ := json.Marshal(wire.Request{Method: wire.MethodSession, Call: call})
 	var older struct { // the call as an obor before T-887 decodes it
 		Call struct {
 			Agent   string `json:"agent"`
@@ -391,5 +391,3 @@ func TestSessionCallShapeSkewRefusedByVersion(t *testing.T) {
 			older.Call.Agent, older.Call.Session)
 	}
 }
-
-func ptr[T any](v T) *T { return &v }

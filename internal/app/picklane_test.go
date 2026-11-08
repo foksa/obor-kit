@@ -27,7 +27,7 @@ func TestPickLaneTakesALandedCleanLane(t *testing.T) {
 		t.Fatalf("precondition: states %s, %s, %s; want working, dirty-free, free", ls[0].State, ls[1].State,
 			ls[2].State)
 	}
-	c := wire.Call{Task: "T-9", Types: []string{"sonnet"}}
+	c := wire.DispatchReq{Task: "T-9", Types: []string{"sonnet"}}
 	if l, ref, why := pickLane(ls, c, map[string]string{}, map[string]string{}, "", false); l.Name != "L-03" ||
 		ref != "sonnet" || why != "" {
 		t.Errorf("pickLane = %s, %q, %q; want L-03 (landed, clean) as sonnet", l.Name, ref, why)

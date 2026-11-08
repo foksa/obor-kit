@@ -323,8 +323,9 @@ func TestHeldGateBlocksNothingElse(t *testing.T) {
 			t.Errorf("T-2's %s: no result while T-1's gate is held", step)
 		}
 	}
-	if _, err := r.app("pr").verdict(context.Background(), wire.MethodAccept, wire.Call{Root: r.roots["pr"], Task: "T-4",
-		Role: "integrator", Agent: "pr-int", CallID: "v1", Job: "T-4/1/review", Patch: "p"}); err != nil {
+	if _, err := r.app("pr").verdict(context.Background(), wire.VerdictReq{Envelope: wire.Envelope{Root: r.roots["pr"],
+		Role: "integrator", Agent: "pr-int", CallID: "v1"}, Verb: wire.MethodAccept, Task: "T-4", Job: "T-4/1/review",
+		Patch: "p"}); err != nil {
 		t.Fatal(err)
 	}
 	r.waitFor("pr's T-4 published and merged", func() bool { return r.state("pr", "T-4") == stMerged })
@@ -552,14 +553,15 @@ func TestPauseWaitsForDispatchAdmission(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		reply, err := r.a.dispatchCall(context.Background(), wire.Call{Root: p.root, CallID: "d1", Task: "T-8", Lane: "L-02", Types: []string{"sonnet"}})
+		reply, err := r.a.dispatchCall(context.Background(), wire.DispatchReq{Envelope: wire.Envelope{Root: p.root,
+			CallID: "d1"}, Task: "T-8", Lane: "L-02", Types: []string{"sonnet"}})
 		done <- result{reply, err}
 	}()
 	<-entered
 
 	paused := make(chan result, 1)
 	go func() {
-		reply, err := r.a.pauseCall(wire.Call{Root: p.root, CallID: "p1", Note: "quota"})
+		reply, err := r.a.pauseCall(wire.PauseReq{Envelope: wire.Envelope{Root: p.root, CallID: "p1"}, Why: "quota"})
 		paused <- result{reply, err}
 	}()
 	select {
@@ -581,7 +583,8 @@ func TestPauseWaitsForDispatchAdmission(t *testing.T) {
 	}
 	t.Logf("pause replied %q after the admitted dispatch", pr.reply)
 
-	_, err := r.a.dispatchCall(context.Background(), wire.Call{Root: p.root, CallID: "d2", Task: "T-9", Lane: "L-02", Types: []string{"sonnet"}})
+	_, err := r.a.dispatchCall(context.Background(), wire.DispatchReq{Envelope: wire.Envelope{Root: p.root,
+		CallID: "d2"}, Task: "T-9", Lane: "L-02", Types: []string{"sonnet"}})
 	if err == nil || !strings.Contains(err.Error(), "paused: quota") {
 		t.Errorf("dispatch after PAUSED: %v, want refused with the reason", err)
 	}

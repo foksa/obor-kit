@@ -91,14 +91,14 @@ func launchResult(w io.Writer, line string, err error) int {
 func serveAgentJob(ctx context.Context, cfg *config.Config, agent, role, lane string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	return resolveAgentJob(cfg.Root, agent, role, lane, func(c wire.Call) (string, error) {
-		return wire.Verdict(ctx, wire.SocketPath(cfg.Root), wire.MethodRestartJob, c)
+	return resolveAgentJob(cfg.Root, agent, role, lane, func(c wire.RestartJobReq) (string, error) {
+		return wire.Verdict(ctx, wire.SocketPath(cfg.Root), &c)
 	})
 }
 
 // resolveAgentJob is serveAgentJob over ask (serve's restart_job).
-func resolveAgentJob(root, agent, role, lane string, ask func(wire.Call) (string, error)) (string, error) {
-	job, err := ask(wire.Call{Root: root, Agent: agent, Role: role, Lane: lane})
+func resolveAgentJob(root, agent, role, lane string, ask func(wire.RestartJobReq) (string, error)) (string, error) {
+	job, err := ask(wire.RestartJobReq{Envelope: wire.Envelope{Root: root, Agent: agent, Role: role}, Lane: lane})
 	if err == nil {
 		return job, nil
 	}

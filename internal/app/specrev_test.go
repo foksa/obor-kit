@@ -22,8 +22,8 @@ func specRevLine(task string, rev int, note string) string {
 
 // setSpecTask is the lead's obor spec set of task with note, text as its spec.
 func (r *loopRig) setSpecTask(callID, task, text, note string) (string, error) {
-	return wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Agent: "lead",
-		Role: "lead", CallID: callID, Task: task, Spec: text, Note: note})
+	return wire.Verdict(context.Background(), r.sock, &wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root,
+		Agent: "lead", Role: "lead", CallID: callID}, Task: task, Spec: text, Changed: note})
 }
 
 // setSpecT is setSpecTask of T-1, fatal on an error.

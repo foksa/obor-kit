@@ -26,17 +26,17 @@ import (
 // drive is obor drive's request by the owner (no role): a new drive named name (types: its --type), or a task's when
 // name is a task id.
 func (r *loopRig) drive(callID, name string, types ...string) (string, error) {
-	c := wire.Call{Root: r.p.Root, CallID: callID, Note: name, Types: types}
+	c := &wire.DriveReq{Envelope: wire.Envelope{Root: r.p.Root, CallID: callID}, Name: name, Types: types}
 	if strings.HasPrefix(name, "T-") {
-		c.Task, c.Note = name, ""
+		c.Task, c.Name = name, ""
 	}
-	return wire.Verdict(context.Background(), r.sock, wire.MethodDrive, c)
+	return wire.Verdict(context.Background(), r.sock, c)
 }
 
 // landDrive is obor land's request by the owner for task with summary.
 func (r *loopRig) landDrive(callID, task, summary string) (string, error) {
-	return wire.Verdict(context.Background(), r.sock, wire.MethodLand, wire.Call{Root: r.p.Root, CallID: callID, Task: task,
-		Report: summary})
+	return wire.Verdict(context.Background(), r.sock, &wire.LandReq{Envelope: wire.Envelope{Root: r.p.Root,
+		CallID: callID}, Task: task, Report: summary})
 }
 
 // stateOf is task's state in obor status --facts ("" when not listed).
@@ -188,8 +188,9 @@ func TestDriveModelHonoured(t *testing.T) {
 		port.Lane{Name: "L-03", Dir: r.p.Lane("L-03", ""), State: "free"})
 	r.disp.set(func(d *dispatchFakes) { d.cut["prepare"] = "before" })
 	r.start()
-	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Role: "lead",
-		Agent: "lead", CallID: "s2", Task: "T-2", Spec: "# T-2 — Other\n\nDifficulty: medium\n"}); err != nil {
+	if _, err := wire.Verdict(context.Background(), r.sock, &wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root,
+		Role: "lead", Agent: "lead", CallID: "s2"}, Task: "T-2",
+		Spec: "# T-2 — Other\n\nDifficulty: medium\n"}); err != nil {
 		t.Fatal(err)
 	}
 	reply, err := r.drive("v1", "tweak", "sonnet:high")
@@ -205,8 +206,9 @@ func TestDriveModelHonoured(t *testing.T) {
 	if d["type"] != "sonnet:high" || d["effort"] != "high" || d["drive"] != true {
 		t.Errorf("the drive's dispatch fact %v: want type sonnet:high, effort high, drive", d)
 	}
-	if reply, err := r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: "d2", Task: "T-2",
-		Types: []string{"sonnet"}}); err != nil || !strings.HasPrefix(reply, "DISPATCHED T-2 → L-02") {
+	if reply, err := r.dispatchCall(wire.DispatchReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-lead",
+		Role: "lead", CallID: "d2"}, Task: "T-2", Types: []string{"sonnet"}}); err != nil || !strings.HasPrefix(reply,
+		"DISPATCHED T-2 → L-02") {
 		t.Fatalf("T-2 of sonnet beside a sonnet drive: %q, %v; want dispatched", reply, err)
 	}
 	if reply, err := r.drive("v2", "second", "sonnet"); err != nil || !strings.HasPrefix(reply, "DRIVE T-4 → L-03 (") {
@@ -443,8 +445,8 @@ func TestDriveHeldReviewBackToDriving(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.waitJob("pj-int", "T-1/1/review")
-	reply, err := wire.Verdict(context.Background(), r.sock, wire.MethodHold, wire.Call{Root: r.p.Root, Agent: "pj-int",
-		Role: "integrator", CallID: "h1", Task: "T-1", Note: "which layout?"})
+	reply, err := wire.Verdict(context.Background(), r.sock, &wire.VerdictReq{Envelope: wire.Envelope{Root: r.p.Root,
+		Agent: "pj-int", Role: "integrator", CallID: "h1"}, Verb: wire.MethodHold, Task: "T-1", Note: "which layout?"})
 	if err != nil || !strings.Contains(reply, "back to its owner's drive") {
 		t.Fatalf("hold: %q, %v", reply, err)
 	}
@@ -470,8 +472,8 @@ func TestDriveDrop(t *testing.T) {
 	}
 	r.waitFor("T-1 driving", func() bool { return r.stateOf("T-1") == wire.TaskDriving })
 	r.driveAgentUp()
-	reply, err := wire.Verdict(context.Background(), r.sock, wire.MethodDrop, wire.Call{Root: r.p.Root, Agent: "pj-lead",
-		Role: "lead", CallID: "x1", Task: "T-1", Note: "not needed"})
+	reply, err := wire.Verdict(context.Background(), r.sock, &wire.DropReq{Envelope: wire.Envelope{Root: r.p.Root,
+		Agent: "pj-lead", Role: "lead", CallID: "x1"}, Task: "T-1", Why: "not needed"})
 	if want := "DROPPING T-1 from L-01 (not needed; stopping pj-l-01-drive)"; err != nil || reply != want {
 		t.Fatalf("drop: %q, %v", reply, err)
 	}

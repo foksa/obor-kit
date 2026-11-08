@@ -105,7 +105,8 @@ func TestDeliveryKeepsTheStartOwned(t *testing.T) {
 		t.Fatal("T-2's start never began")
 	}
 
-	raw, err := r.a.jobNext(wire.Call{Root: p.root, Agent: "pj-l-02", Role: "worker", Lane: "L-02", CallID: "fetched"})
+	raw, err := r.a.jobNext(wire.JobNextReq{Envelope: wire.Envelope{Root: p.root, Agent: "pj-l-02", Role: "worker",
+		CallID: "fetched"}, Lane: "L-02"})
 	var job wire.JobReply
 	_ = json.Unmarshal([]byte(raw), &job)
 	if err != nil || job.State != "job" || job.Job != "T-2/1/work" {

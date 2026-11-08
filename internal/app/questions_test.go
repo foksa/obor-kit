@@ -74,16 +74,18 @@ func fixStep(t *testing.T, h *harness, f *schedScratch) {
 // fixJob is the text of T-1's worker's open job (its job_next call).
 func fixJob(t *testing.T, h *harness) wire.JobReply {
 	t.Helper()
-	return nextJob(t, h, wire.Call{Root: h.root, Agent: "pj-l-01", Role: "worker", Lane: "L-01", CallID: "n1"})
+	return nextJob(t, h, wire.JobNextReq{Envelope: wire.Envelope{Root: h.root, Agent: "pj-l-01", Role: "worker",
+		CallID: "n1"}, Lane: "L-01"})
 }
 
 // reviewJob is the integrator's open job (its job_next call, under call id id).
 func reviewJob(t *testing.T, h *harness, id string) wire.JobReply {
 	t.Helper()
-	return nextJob(t, h, wire.Call{Root: h.root, Agent: "pj-int", Role: "integrator", CallID: id})
+	return nextJob(t, h, wire.JobNextReq{Envelope: wire.Envelope{Root: h.root, Agent: "pj-int", Role: "integrator",
+		CallID: id}})
 }
 
-func nextJob(t *testing.T, h *harness, c wire.Call) wire.JobReply {
+func nextJob(t *testing.T, h *harness, c wire.JobNextReq) wire.JobReply {
 	t.Helper()
 	raw, err := h.a.jobNext(c)
 	if err != nil {
@@ -179,17 +181,17 @@ func TestOpenQuestionsHoldReachesTheLead(t *testing.T) {
 			if jr := reviewJob(t, h, "j1"); jr.Job != "T-1/1/review" || !strings.Contains(jr.Text, questionsPart(q)) {
 				t.Fatalf("precondition: job %s does not carry the question:\n%s", jr.Job, jr.Text)
 			}
-			if _, err := h.a.verdict(context.Background(), wire.MethodHold, wire.Call{Root: h.root, Agent: "pj-int",
-				Role: "integrator", CallID: "h1", Task: "T-1", Job: "T-1/1/review",
-				Note: "the question changes the config contract"}); err != nil {
+			if _, err := h.a.verdict(context.Background(), wire.VerdictReq{Envelope: wire.Envelope{Root: h.root,
+				Agent: "pj-int", Role: "integrator", CallID: "h1"}, Verb: wire.MethodHold, Task: "T-1",
+				Job: "T-1/1/review", Note: "the question changes the config contract"}); err != nil {
 				t.Fatal(err)
 			}
 			if mt := h.a.p.folded.loop["T-1"]; !mt.onHold() || mt.needs.fact.Fact().Cause != event.CauseHeld {
 				t.Fatalf("after the hold: T-1 %s (%s); want the lead's held needs-you", mt.state, mt.needs.fact.Fact().Cause)
 			}
 			const decision = "keep the schema; add the field later"
-			reply, err := h.a.resume(wire.Call{Root: h.root, Agent: "pj-lead", Role: "lead", CallID: "r1", Task: "T-1",
-				Note: decision})
+			reply, err := h.a.resume(wire.ResumeReq{Envelope: wire.Envelope{Root: h.root, Agent: "pj-lead",
+				Role: "lead", CallID: "r1"}, Task: "T-1", Text: decision})
 			if err != nil || reply != "RESUMED T-1: reprompt (held)" {
 				t.Fatalf("resume: %q, %v; want the reprompt of the hold", reply, err)
 			}

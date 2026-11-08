@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -26,13 +27,31 @@ type callSpy struct {
 
 type spied struct {
 	root, method string
-	c            wire.Call
+	c            spiedCall
 }
 
-func (s *callSpy) call(_ context.Context, root, method string, c wire.Call) (string, error) {
+// spiedCall is a request as serve reads it off the socket: the keys of the web's two (wire.ConfigSetReq,
+// wire.PauseReq).
+type spiedCall struct {
+	wire.Envelope
+	Changes []wire.ConfigChange `json:"changes"`
+	Base    string              `json:"base"`
+	Source  string              `json:"source"`
+	Note    string              `json:"note"`
+	Until   int64               `json:"until"`
+	Model   string              `json:"model"`
+	Clear   bool                `json:"clear"`
+}
+
+func (s *callSpy) call(_ context.Context, root string, r wire.Req) (string, error) {
+	var c spiedCall
+	b, _ := json.Marshal(r)
+	if err := json.Unmarshal(b, &c); err != nil {
+		panic(err)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.calls = append(s.calls, spied{root, method, c})
+	s.calls = append(s.calls, spied{root, r.Method(), c})
 	return s.reply, s.err
 }
 
@@ -159,7 +178,7 @@ func TestPostServeDownIs503(t *testing.T) {
 		}
 	}
 	spy := &callSpy{err: errors.New("obor serve is not running (dial unix x: connect: connection refused)")}
-	s.Call = func(ctx context.Context, root, method string, c wire.Call) (string, error) {
+	s.Call = func(ctx context.Context, root string, r wire.Req) (string, error) {
 		return "", errors.Join(errServeDown, spy.err)
 	}
 	if w := post(s.Handler(), "/api/pause?project=pj", `{"clear":true}`, DefaultListen); w.Code != http.StatusServiceUnavailable {

@@ -260,7 +260,8 @@ func TestPausedScratchReservation(t *testing.T) {
 			if len(f.gated) != 0 {
 				t.Fatalf("paused: gated %v; want none (T-1 holds the scratch)", f.gated)
 			}
-			if _, err := h.a.resume(wire.Call{Root: h.root, Task: "T-1", Role: "lead", CallID: "r", Note: "go on"}); err != nil {
+			if _, err := h.a.resume(wire.ResumeReq{Envelope: wire.Envelope{Root: h.root, Role: "lead", CallID: "r"},
+				Task: "T-1", Text: "go on"}); err != nil {
 				t.Fatal(err)
 			}
 			h.pass(ctx)
@@ -268,8 +269,8 @@ func TestPausedScratchReservation(t *testing.T) {
 				t.Fatalf("resumed: T-1 %s, gated %v; want resolving, none", mt.state, f.gated)
 			}
 			job := JobID(p.folded.loop["T-1"].jobKey())
-			if _, err := h.a.verdict(ctx, wire.MethodResolved, wire.Call{Root: h.root, Task: "T-1", Role: "integrator", Agent: "pj-int",
-				CallID: "v", Job: job}); err != nil {
+			if _, err := h.a.verdict(ctx, wire.VerdictReq{Envelope: wire.Envelope{Root: h.root, Role: "integrator",
+				Agent: "pj-int", CallID: "v"}, Verb: wire.MethodResolved, Task: "T-1", Job: job}); err != nil {
 				t.Fatal(err)
 			}
 			if !slices.Equal(f.resolved, []string{"s1"}) {
@@ -306,12 +307,13 @@ func TestPausedScratchReleased(t *testing.T) {
 			}
 			switch release {
 			case "regate":
-				if _, err := h.a.resume(wire.Call{Root: h.root, Task: "T-1", Role: "lead", CallID: "r", To: wire.ResumeRegate}); err != nil {
+				if _, err := h.a.resume(wire.ResumeReq{Envelope: wire.Envelope{Root: h.root, Role: "lead", CallID: "r"},
+					Task: "T-1", Flag: wire.ResumeRegate}); err != nil {
 					t.Fatal(err)
 				}
 			case "reject":
-				if _, err := h.a.verdict(ctx, wire.MethodReject, wire.Call{Root: h.root, Task: "T-1", Role: "integrator",
-					Agent: "pj-int", CallID: "v", Note: "cannot"}); err != nil {
+				if _, err := h.a.verdict(ctx, wire.VerdictReq{Envelope: wire.Envelope{Root: h.root, Role: "integrator",
+					Agent: "pj-int", CallID: "v"}, Verb: wire.MethodReject, Task: "T-1", Note: "cannot"}); err != nil {
 					t.Fatal(err)
 				}
 			case "sendback":
@@ -375,18 +377,22 @@ func (l *memListener) Addr() net.Addr { return &net.UnixAddr{Name: "mem", Net: "
 
 // send writes one request line to the app listening on l and returns the connection to read the answer from: the
 // call carries this binary's version, as wire.Verdict's does (T-826).
-func (l *memListener) send(t *testing.T, method string, c wire.Call) net.Conn {
+func (l *memListener) send(t *testing.T, c wire.Req) net.Conn {
 	t.Helper()
-	c.Version = version.Version
-	return l.sendRaw(t, method, c)
+	c.Env().Version = version.Version
+	return l.sendRaw(t, c)
 }
 
 // sendRaw writes one request line as given: a test of the skew itself sends another version, or none (an older binary).
-func (l *memListener) sendRaw(t *testing.T, method string, c wire.Call) net.Conn {
+func (l *memListener) sendRaw(t *testing.T, c wire.Req) net.Conn {
 	t.Helper()
 	client, server := net.Pipe()
 	l.conns <- server
-	b, _ := json.Marshal(wire.Request{Method: method, Call: &c})
+	call, err := json.Marshal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(wire.Request{Method: c.Method(), Call: call})
 	go func() { _, _ = client.Write(append(b, '\n')) }()
 	return client
 }
@@ -407,12 +413,12 @@ func read(t *testing.T, client net.Conn) wire.Answer {
 }
 
 // listenMem starts the real socket dispatch (Listen) on an in-memory listener; call is one request and its answer.
-func listenMem(t *testing.T, h *harness) func(method string, c wire.Call) (string, error) {
+func listenMem(t *testing.T, h *harness) func(c wire.Req) (string, error) {
 	ln := newMemListener()
 	t.Cleanup(func() { ln.Close() })
 	go h.a.Listen(ln)
-	return func(method string, c wire.Call) (string, error) {
-		client := ln.send(t, method, c)
+	return func(c wire.Req) (string, error) {
+		client := ln.send(t, c)
 		defer client.Close()
 		ans := read(t, client)
 		if ans.Error != "" {
@@ -470,8 +476,8 @@ func TestSocketEffectEndsWithServe(t *testing.T) {
 		_ = h.a.Serve(ctx)
 	}()
 
-	client := ln.send(t, wire.MethodResolved, wire.Call{Root: h.root, Task: "T-1", Role: "integrator", Agent: "pj-int",
-		CallID: "v", Job: job})
+	client := ln.send(t, &wire.VerdictReq{Envelope: wire.Envelope{Root: h.root, Role: "integrator", Agent: "pj-int",
+		CallID: "v"}, Verb: wire.MethodResolved, Task: "T-1", Job: job})
 	defer client.Close()
 	answered := make(chan string, 1) // the answer is read as it comes: net.Pipe does not buffer the handler's write
 	go func() {
@@ -531,7 +537,8 @@ func TestLoadedAfterReplay(t *testing.T) {
 	defer ln.Close()
 	go a.Listen(ln)
 	start := time.Now()
-	c := ln.send(t, wire.MethodSpecSet, wire.Call{Root: root, CallID: "c1", Task: "T-1", Spec: "# T-1 — Other\n\nDifficulty: medium\n"})
+	c := ln.send(t, &wire.SpecSetReq{Envelope: wire.Envelope{Root: root, CallID: "c1"}, Task: "T-1",
+		Spec: "# T-1 — Other\n\nDifficulty: medium\n"})
 	defer c.Close()
 	if ans := read(t, c); !strings.Contains(ans.Error, "no served project") {
 		t.Errorf("a request before the load: %+v; want the refusal", ans)
@@ -585,16 +592,20 @@ func TestMergeLoopOffRefusesOldVerdict(t *testing.T) {
 	t.Parallel()
 	h, f, job := resolveJobHarness(t)
 	call := listenMem(t, h)
-	held := wire.Call{Root: h.root, Task: "T-1", Role: "integrator", Agent: "pj-int", CallID: "h1", Job: job, Note: "ask"}
-	want, err := call(wire.MethodHold, held)
+	held := &wire.VerdictReq{Verb: wire.MethodHold, Envelope: wire.Envelope{Root: h.root, Role: "integrator",
+		Agent: "pj-int", CallID: "h1"},
+		Task: "T-1", Job: job, Note: "ask"}
+	want, err := call(held)
 	if err != nil {
 		t.Fatalf("precondition: hold while on: %v", err)
 	}
 
 	p := serveHarness(t, h, false)
 	n := countRecords(t, h)
-	resolved := wire.Call{Root: h.root, Task: "T-1", Role: "integrator", Agent: "pj-int", CallID: "v", Job: job}
-	if reply, err := call(wire.MethodResolved, resolved); err == nil || err.Error() != mergeOffReply || reply != "" {
+	resolved := &wire.VerdictReq{Verb: wire.MethodResolved, Envelope: wire.Envelope{Root: h.root, Role: "integrator",
+		Agent:  "pj-int",
+		CallID: "v"}, Task: "T-1", Job: job}
+	if reply, err := call(resolved); err == nil || err.Error() != mergeOffReply || reply != "" {
 		t.Errorf("resolved while off: %q, %v; want the refusal %q", reply, err, mergeOffReply)
 	}
 	if len(f.resolved) != 0 {
@@ -607,12 +618,12 @@ func TestMergeLoopOffRefusesOldVerdict(t *testing.T) {
 		t.Errorf("T-1 while off: %s (held %v, open %v); want unchanged: held, its resolve job open", mt.state, mt.onHold(),
 			mt.openJob())
 	}
-	if reply, err := call(wire.MethodHold, held); err != nil || reply != want {
+	if reply, err := call(held); err != nil || reply != want {
 		t.Errorf("repeated hold h1 while off: %q, %v; want its stored reply %q", reply, err, want)
 	}
 
 	p = serveHarness(t, h, true)
-	reply, err := call(wire.MethodResolved, resolved)
+	reply, err := call(resolved)
 	if err != nil || !strings.HasPrefix(reply, "RESOLVED T-1") || len(f.resolved) != 1 {
 		t.Errorf("resolved on again: %q, %v, Resolved %v; want it answered", reply, err, f.resolved)
 	}
@@ -646,19 +657,21 @@ func TestMergeLoopOffRefusesAllCalls(t *testing.T) {
 				}
 				job = JobID(mt.jobKey())
 			}
-			c := wire.Call{Root: h.root, Task: "T-1", Role: "integrator", Agent: "pj-int", CallID: "c", Job: job, Note: "why",
-				Patch: "p"}
+			var c wire.Req = &wire.VerdictReq{Verb: method, Envelope: wire.Envelope{Root: h.root, Role: "integrator",
+				Agent:  "pj-int",
+				CallID: "c"}, Task: "T-1", Job: job, Note: "why", Patch: "p"}
 			if method == wire.MethodResume {
 				p := h.a.p
 				h.a.needsYou(p, p.folded.loop["T-1"], event.CauseHeld, "held")
-				c = wire.Call{Root: h.root, Task: "T-1", Role: "lead", CallID: "c", Note: "go on"}
+				c = &wire.ResumeReq{Envelope: wire.Envelope{Root: h.root, Role: "lead", CallID: "c"}, Task: "T-1",
+					Text: "go on"}
 			}
 			call := listenMem(t, h)
 
 			p := serveHarness(t, h, false)
 			n, gated := countRecords(t, h), len(f.gated)
 			before := *p.folded.loop["T-1"]
-			if reply, err := call(method, c); err == nil || err.Error() != mergeOffReply || reply != "" {
+			if reply, err := call(c); err == nil || err.Error() != mergeOffReply || reply != "" {
 				t.Errorf("%s while off: %q, %v; want the refusal %q", method, reply, err, mergeOffReply)
 			}
 			if len(f.resolved) != 0 || len(f.gated) != gated {
@@ -673,7 +686,7 @@ func TestMergeLoopOffRefusesAllCalls(t *testing.T) {
 			}
 
 			serveHarness(t, h, true)
-			if reply, err := call(method, c); err != nil || reply == "" {
+			if reply, err := call(c); err != nil || reply == "" {
 				t.Errorf("%s on again: %q, %v; want it answered", method, reply, err)
 			}
 		})

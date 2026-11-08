@@ -37,7 +37,7 @@ func limitStopWith(t *testing.T, errText string, details func(r *loopRig) string
 	r.waitFor("working", func() bool { return r.taskState() == "working" })
 	r.workerIs("working")
 	d := details(r)
-	if _, err := r.line(wire.MethodStopped, "s1", wire.Call{Agent: "pj-l-01", Role: "worker", Lane: "L-01",
+	if _, err := r.line("s1", &wire.StoppedReq{Envelope: wire.Envelope{Agent: "pj-l-01", Role: "worker"}, Lane: "L-01",
 		Error: errText, Details: d}); err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +279,7 @@ func TestRoleWakeCodexReviewer(t *testing.T) {
 	appendTo(cdxStarted)
 	r.f.Set("w1:p6", func(p *herdrtest.Pane) { p.Kind, p.Transcript = "codex", rollout })
 	r.start()
-	if _, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-rev", Note: "review T-1"}); err != nil {
+	if _, err := r.line("b1", &wire.BriefReq{To: "pj-rev", Text: "review T-1"}); err != nil {
 		t.Fatal(err)
 	}
 	r.waitFor("the brief typed", func() bool { return r.typedTo("pj-rev", "[obor pj-lead] review T-1") == 1 })
@@ -356,7 +356,7 @@ func claudeRoleStop(t *testing.T, brief bool, errText string, details func(r *lo
 	r := lineRig(t, "idle", "idle")
 	r.start()
 	if brief {
-		if _, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-rev", Note: "verify finding 3"}); err != nil {
+		if _, err := r.line("b1", &wire.BriefReq{To: "pj-rev", Text: "verify finding 3"}); err != nil {
 			t.Fatal(err)
 		}
 		r.waitFor("the brief posted", func() bool { return r.inbox.count("pj-rev", "[obor pj-lead] verify finding 3") == 1 })
@@ -364,7 +364,8 @@ func claudeRoleStop(t *testing.T, brief bool, errText string, details func(r *lo
 		r.passes()
 	}
 	d := details(r)
-	reply, err := r.line(wire.MethodStopped, "s1", wire.Call{Agent: "pj-rev", Role: "reviewer", Error: errText, Details: d})
+	reply, err := r.line("s1", &wire.StoppedReq{Envelope: wire.Envelope{Agent: "pj-rev", Role: "reviewer"},
+		Error: errText, Details: d})
 	if err != nil || reply != "STOPPED pj-rev (the lead is told)" {
 		t.Fatalf("stopped: %q, %v", reply, err)
 	}
@@ -388,7 +389,8 @@ func TestRoleWakeClaude(t *testing.T) {
 		}
 		r.later(time.Minute)
 		r.waitFor("the wake", func() bool { return r.inbox.count("pj-rev", roleContinue) == 1 })
-		reply, err := r.line(wire.MethodTurn, wire.NewCallID(), wire.Call{Agent: "pj-rev", Role: "reviewer"})
+		reply, err := r.line(wire.NewCallID(), &wire.TurnReq{Envelope: wire.Envelope{Agent: "pj-rev",
+			Role: "reviewer"}})
 		if err != nil || reply != "TURN pj-rev (the stop of its brief ended)" {
 			t.Fatalf("turn: %q, %v", reply, err)
 		}
@@ -413,7 +415,8 @@ func TestRoleWakeClaude(t *testing.T) {
 		if n := r.inbox.count("pj-rev", roleContinue); n != 0 {
 			t.Errorf("woken %d times with no brief open", n)
 		}
-		if reply, err := r.line(wire.MethodTurn, wire.NewCallID(), wire.Call{Agent: "pj-rev", Role: "reviewer"}); err != nil ||
+		if reply, err := r.line(wire.NewCallID(), &wire.TurnReq{Envelope: wire.Envelope{Agent: "pj-rev",
+			Role: "reviewer"}}); err != nil ||
 			reply != "TURN pj-rev (no stop)" {
 			t.Errorf("turn: %q, %v", reply, err)
 		}

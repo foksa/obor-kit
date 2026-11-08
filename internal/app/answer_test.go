@@ -13,8 +13,8 @@ import (
 
 // answer is the lead's obor resume of T-1 with call id and text (a question's answer).
 func (r *loopRig) answer(role, callID, text string) (string, error) {
-	return wire.Verdict(context.Background(), r.sock, wire.MethodResume, wire.Call{Root: r.p.Root, Agent: "pj-lead",
-		Role: role, CallID: callID, Task: "T-1", Note: text})
+	return wire.Verdict(context.Background(), r.sock, &wire.ResumeReq{Envelope: wire.Envelope{Root: r.p.Root,
+		Agent: "pj-lead", Role: role, CallID: callID}, Task: "T-1", Text: text})
 }
 
 // answerOf is the commands that answer the fact in force (obor status: serve's Answers; "": none).
@@ -56,9 +56,9 @@ func (r *loopRig) runPath(fact event.Record, verb, callID, text string) (string,
 		if args[2] != fact.Task {
 			r.t.Fatalf("%q names %s, not the task %s", path, args[2], fact.Task)
 		}
-		c := wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: callID, Task: args[2], Note: text}
+		id := wire.Envelope{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: callID}
 		if args[1] == "drop" {
-			return wire.Verdict(context.Background(), r.sock, wire.MethodDrop, c)
+			return wire.Verdict(context.Background(), r.sock, &wire.DropReq{Envelope: id, Task: args[2], Why: text})
 		}
 		rc, ok := wire.ResumeArgs(append(args[2:], text))
 		if text == "" {
@@ -67,8 +67,8 @@ func (r *loopRig) runPath(fact event.Record, verb, callID, text string) (string,
 		if !ok {
 			r.t.Fatalf("%q: obor resume's parser refuses it", cmd)
 		}
-		c.To, c.Note = rc.To, rc.Note
-		return wire.Verdict(context.Background(), r.sock, wire.MethodResume, c)
+		rc.Envelope = id
+		return wire.Verdict(context.Background(), r.sock, &rc)
 	}
 	r.t.Fatalf("answers %q suggest no obor %s", path, verb)
 	return "", nil
@@ -175,8 +175,9 @@ func TestNeedsYouAnswerPathsAreAccepted(t *testing.T) {
 	t.Parallel()
 	hold := func(r *loopRig) event.Record {
 		r.t.Helper()
-		if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodHold, wire.Call{Root: r.p.Root, Agent: "pj-int",
-			Role: "integrator", CallID: "h1", Task: "T-1", Note: "the owner decides on internal/x.go"}); err != nil {
+		if _, err := wire.Verdict(context.Background(), r.sock, &wire.VerdictReq{Envelope: wire.Envelope{Root: r.p.Root,
+			Agent: "pj-int", Role: "integrator", CallID: "h1"}, Verb: wire.MethodHold, Task: "T-1",
+			Note: "the owner decides on internal/x.go"}); err != nil {
 			r.t.Fatal(err)
 		}
 		r.waitFor("the hold in force", func() bool { return r.facts() == 1 })
@@ -242,8 +243,8 @@ func TestNeedsYouAnswerPathsAreAccepted(t *testing.T) {
 			{wire.ResumeSendback, "keep it out", "--sendback does not fit: obor resume T-1 sends the integrator its job anew"},
 			{wire.ResumeRegate, "", "--regate does not fit"},
 		} {
-			_, err := wire.Verdict(context.Background(), r.sock, wire.MethodResume, wire.Call{Root: r.p.Root, Agent: "pj-lead",
-				Role: "lead", CallID: "x" + c.to, Task: "T-1", To: c.to, Note: c.note})
+			_, err := wire.Verdict(context.Background(), r.sock, &wire.ResumeReq{Envelope: wire.Envelope{Root: r.p.Root,
+				Agent: "pj-lead", Role: "lead", CallID: "x" + c.to}, Task: "T-1", Flag: c.to, Text: c.note})
 			if err == nil || !strings.Contains(err.Error(), c.want) {
 				t.Errorf("resume --%s %q of a hold: %v; want refused %q", c.to, c.note, err, c.want)
 			}
@@ -261,8 +262,8 @@ func TestNeedsYouAnswerPathsAreAccepted(t *testing.T) {
 		}
 		r.passes()
 		r.waitFor("no step of T-1 running", func() bool { return app.Settled(r.app, r.p.Root, "T-1") })
-		_, err := wire.Verdict(context.Background(), r.sock, wire.MethodResume, wire.Call{Root: r.p.Root, Agent: "pj-lead",
-			Role: "lead", CallID: "x1", Task: "T-1", Note: "go"})
+		_, err := wire.Verdict(context.Background(), r.sock, &wire.ResumeReq{Envelope: wire.Envelope{Root: r.p.Root,
+			Agent: "pj-lead", Role: "lead", CallID: "x1"}, Task: "T-1", Text: "go"})
 		if err == nil || !strings.Contains(err.Error(), "say --regate or --sendback") {
 			t.Errorf("resume of red past K with no flag: %v; want refused naming both", err)
 		}

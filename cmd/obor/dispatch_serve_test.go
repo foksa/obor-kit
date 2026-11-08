@@ -13,14 +13,44 @@ import (
 	"obor/internal/app/wire"
 	"obor/internal/checks"
 	"obor/internal/herdr"
+	"obor/internal/store"
 	"obor/internal/testkit"
 )
+
+// sentCall is a request's call as the fake serve reads it off the socket: every key a CLI request sends (the
+// wire.*Req types share them, T-1055), one field per key, named as the key, so a test checks the bytes serve gets.
+type sentCall struct {
+	wire.Envelope
+	Task    string              `json:"task"`
+	Job     string              `json:"job"`
+	Note    string              `json:"note"`
+	To      string              `json:"to"`
+	Lane    string              `json:"lane"`
+	Types   []string            `json:"types"`
+	Force   bool                `json:"force"`
+	After   []string            `json:"after"`
+	Accept  []string            `json:"accept"`
+	Discard bool                `json:"discard"`
+	Report  string              `json:"report"`
+	Spec    string              `json:"spec"`
+	Changes []wire.ConfigChange `json:"changes"`
+	Until   int64               `json:"until"`
+	Model   string              `json:"model"`
+	Clear   bool                `json:"clear"`
+	From    string              `json:"from"`
+	Fresh   bool                `json:"fresh"`
+	Error   string              `json:"error"`
+	Details string              `json:"details"`
+	Ended   bool                `json:"ended"`
+	Session *store.Session      `json:"session_fact"`
+	Seq     int64               `json:"seq"`
+}
 
 // fakeServe answers a project's app socket (<root>/.obor/state/serve.sock): status with st, every other request with
 // reply (or err), and records the requests.
 type fakeServe struct {
 	mu      sync.Mutex
-	calls   []wire.Call
+	calls   []sentCall
 	methods []string // the method of each call
 	n       int      // requests of any method
 	ln      net.Listener
@@ -56,8 +86,8 @@ func startFakeServeAt(t *testing.T, sock string, st wire.Status, reply, errText 
 			}
 			b, _ := bufio.NewReader(c).ReadBytes('\n')
 			var req struct {
-				Method string     `json:"method"`
-				Call   *wire.Call `json:"call"`
+				Method string    `json:"method"`
+				Call   *sentCall `json:"call"`
 			}
 			_ = json.Unmarshal(b, &req)
 			f.mu.Lock()
@@ -78,10 +108,10 @@ func startFakeServeAt(t *testing.T, sock string, st wire.Status, reply, errText 
 	return f
 }
 
-func (f *fakeServe) requests() (calls []wire.Call, n int) {
+func (f *fakeServe) requests() (calls []sentCall, n int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return append([]wire.Call(nil), f.calls...), f.n
+	return append([]sentCall(nil), f.calls...), f.n
 }
 
 // servedProject is a project whose merge loop is obor serve's (an integrator role), with lane L-01; edits change the

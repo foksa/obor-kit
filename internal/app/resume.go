@@ -63,7 +63,7 @@ func answerReply(task, agent string) string {
 // taken under both locks (RV-99 #4): a task that moved meanwhile (a task_done decided before it: submitted) is refused
 // by its state as it is now, nothing recorded, and a task_done waiting on the lock decides on the state the resume
 // left (a --regate's submitted takes no submission), so a late submission never brings a gated task back.
-func (a *App) resume(c wire.Call) (string, error) {
+func (a *App) resume(c wire.ResumeReq) (string, error) {
 	a.verdicts.Lock()
 	defer a.verdicts.Unlock()
 	a.hook(hookResumeWaits)
@@ -83,7 +83,7 @@ func (a *App) resume(c wire.Call) (string, error) {
 	if err != nil || reply != "" {
 		return reply, err
 	}
-	c.Note = strings.TrimSpace(c.Note)
+	c.Text = strings.TrimSpace(c.Text)
 	switch act {
 	case actSendback:
 		return a.leadSendback(p, c, mt)
@@ -93,7 +93,7 @@ func (a *App) resume(c wire.Call) (string, error) {
 	d := mt.needs.fact.Fact()
 	if !a.record(p, event.Record{Task: c.Task, Attempt: mt.attempt, Step: event.StepUnblocked, Kind: event.KindFact},
 		event.FactData{Lane: mt.lane, Machine: Machine, Agent: c.Agent, Reason: act, Merge: true, Cause: d.Cause, Call: c.CallID,
-			Note: c.Note}) {
+			Note: c.Text}) {
 		return "", fmt.Errorf("resume: the event log of %s refused it", p.name)
 	}
 	a.wake()
@@ -103,7 +103,7 @@ func (a *App) resume(c wire.Call) (string, error) {
 // resumeDecide is resume's decision (under mu): the action and the task as it is now, or the stored reply of the call
 // id, or the refusal: the merge loop off, a caller of another role, the task not open, busy, no action that fits
 // (resumeAct), no text where its action needs one.
-func (a *App) resumeDecide(p *proj, c wire.Call) (string, mtask, string, error) {
+func (a *App) resumeDecide(p *proj, c wire.ResumeReq) (string, mtask, string, error) {
 	if p == nil {
 		return "", mtask{}, "", fmt.Errorf("resume: no served project at %s", c.Root)
 	}
@@ -127,11 +127,11 @@ func (a *App) resumeDecide(p *proj, c wire.Call) (string, mtask, string, error) 
 	if why := p.busy(c.Task); why != "" {
 		return "", mtask{}, "", busyErr("resume", c.Task, why)
 	}
-	act, err := p.resumeAct(mt, c.To)
+	act, err := p.resumeAct(mt, c.Flag)
 	if err != nil {
 		return "", mtask{}, "", err
 	}
-	if strings.TrimSpace(c.Note) == "" && p.resumeNeedsText(mt, act) {
+	if strings.TrimSpace(c.Text) == "" && p.resumeNeedsText(mt, act) {
 		return "", mtask{}, "", fmt.Errorf("resume %s: say the text: obor resume %s \"<text>\" %s", c.Task, c.Task,
 			resumeDoes(act))
 	}
@@ -258,7 +258,7 @@ func (mt mtask) repromptable() bool { return mt.job != "" || mt.state == stGreen
 // answered{to: the worker or the drive agent, line "[obor answer] <text>"}, whose fold ends the task's question and
 // watchdog facts (answered) and whose line deliver sends at the agent's next idle; a drive's lines are each their own
 // (a newer one ends no older), and a land or a drop closes an undelivered one unsent.
-func (a *App) resumeLine(p *proj, c wire.Call, mt mtask, act string) (string, error) {
+func (a *App) resumeLine(p *proj, c wire.ResumeReq, mt mtask, act string) (string, error) {
 	to := mt.agent
 	a.mu.Lock()
 	if w := p.tasks[c.Task]; w != nil && to == "" {
@@ -268,7 +268,7 @@ func (a *App) resumeLine(p *proj, c wire.Call, mt mtask, act string) (string, er
 	if to == "" {
 		return "", fmt.Errorf("resume: %s has no worker to send the line to", c.Task)
 	}
-	m := event.Message{To: to, From: cmp.Or(c.Agent, "owner"), Line: "[obor answer] " + c.Note, Call: c.CallID,
+	m := event.Message{To: to, From: cmp.Or(c.Agent, "owner"), Line: "[obor answer] " + c.Text, Call: c.CallID,
 		Task: c.Task, Driver: act == actDrive, Reply: answerReply(c.Task, to)}
 	if act == actLine {
 		m.Reply = resumeReply(c.Task, wire.ResumeReprompt, reasonStalled)
@@ -287,12 +287,12 @@ func (a *App) resumeLine(p *proj, c wire.Call, mt mtask, act string) (string, er
 	return m.Reply, nil
 }
 
-// leadSendback records the lead's or the owner's sendback of a task (obor resume's actSendback; c.Note: why; RV-45 #1),
+// leadSendback records the lead's or the owner's sendback of a task (obor resume's actSendback; c.Text: why; RV-45 #1),
 // under a.verdicts, the task held (p.held) since the decision: the integrator's sendback transition, from a green
 // candidate, an open job (awaiting-accept, resolving) or a needs-you of the owner's choice. The fold ends the job, the
 // candidate and the needs-you and starts the next attempt; the merge loop sends the worker its fix job. K is the
 // integrator's bound, not the lead's.
-func (a *App) leadSendback(p *proj, c wire.Call, mt mtask) (string, error) {
+func (a *App) leadSendback(p *proj, c wire.ResumeReq, mt mtask) (string, error) {
 	defer a.release(p, c.Task, actSendback)
 	method := wire.MethodSendback
 	job := ""
@@ -302,9 +302,9 @@ func (a *App) leadSendback(p *proj, c wire.Call, mt mtask) (string, error) {
 		reply = fmt.Sprintf("SENDBACK %s (job %s)", c.Task, job)
 	}
 	in := event.Intent{Key: event.Key{Task: c.Task, Attempt: mt.attempt, Step: verdictStep(method, c.CallID)},
-		Class: event.ClassFact, Data: verdictData{Job: job, Caller: c.Agent, Note: c.Note}}
+		Class: event.ClassFact, Data: verdictData{Job: job, Caller: c.Agent, Note: c.Text}}
 	a.mu.Lock()
-	r, err := a.verdictRecord(p, in, verdictResult{Job: job, Reply: reply, Note: c.Note, Lead: true})
+	r, err := a.verdictRecord(p, in, verdictResult{Job: job, Reply: reply, Note: c.Text, Lead: true})
 	if err != nil {
 		a.mu.Unlock()
 		return "", err

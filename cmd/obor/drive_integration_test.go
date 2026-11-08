@@ -23,7 +23,7 @@ func TestLandRequest(t *testing.T) {
 		Tasks: []wire.TaskStatus{{Task: "T-01", Lane: "L-01", State: wire.TaskDriving}, {Task: "T-02", Lane: "L-02", State: "working"}}}}
 	home, serve := startFakeServe(t, p.Root, st, "LANDED T-01: submitted (gate, review and merge follow)", "")
 	env := []string{"OBOR_STATE_HOME=" + home}
-	lands := func() []wire.Call {
+	lands := func() []sentCall {
 		calls, _ := serve.requests()
 		return calls
 	}

@@ -33,7 +33,7 @@ func TestShutdownDeliveryNotRecorded(t *testing.T) {
 	r.inbox.cut(true) // the next post alone waits for serve's ctx and fails as a cancellation
 	r.start()
 	line := sentLine("other", "hi")
-	if _, err := r.line(wire.MethodSend, "s1", wire.Call{Note: "hi", From: "other"}); err != nil {
+	if _, err := r.line("s1", &wire.SendReq{Text: "hi", From: "other"}); err != nil {
 		t.Fatal(err)
 	}
 	r.waitFor("the post tried", func() bool { return r.inbox.tries("pj-lead", line) == 1 })

@@ -56,17 +56,17 @@ func driveCmd(args []string) int {
 		return 1
 	}
 	cwd, _ := os.Getwd()
-	c := caller(project.OSEnv, cwd, cfg)
+	c := &wire.DriveReq{Envelope: caller(project.OSEnv, cwd, cfg)}
 	if cfg.TaskIDOK(name) {
 		c.Task = name
 	} else {
-		c.Note = name
+		c.Name = name
 	}
 	if ref != "" {
 		c.Types = []string{ref}
 	}
 	ctx := context.Background()
-	reply, err := wire.Verdict(ctx, wire.SocketPath(c.Root), wire.MethodDrive, c)
+	reply, err := wire.Verdict(ctx, wire.SocketPath(c.Root), c)
 	if err != nil {
 		fmt.Fprintf(out, "FAIL %v\n", err)
 		return 1
@@ -186,10 +186,10 @@ func landCmd(args []string) int {
 		return 1
 	}
 	ctx := context.Background()
-	return request(ctx, project.OSEnv, wire.MethodLand, func(cfg *config.Config, c *wire.Call) error {
+	return request(ctx, project.OSEnv, func(cfg *config.Config, id wire.Envelope) (wire.Req, error) {
 		task, lane, err := landTask(ctx, cfg, args[0])
 		if err != nil {
-			return err
+			return nil, err
 		}
 		dir := ""
 		for _, l := range cfg.Lanes() {
@@ -198,10 +198,10 @@ func landCmd(args []string) int {
 			}
 		}
 		if dir == "" {
-			return fmt.Errorf("%s's lane %s is not in the config's lanes", task, lane)
+			return nil, fmt.Errorf("%s's lane %s is not in the config's lanes", task, lane)
 		}
 		if dirty := dirtyPaths(dir); len(dirty) > 0 {
-			return fmt.Errorf("lane %s has uncommitted changes (obor land commits nothing: commit or discard them first): %s",
+			return nil, fmt.Errorf("lane %s has uncommitted changes (obor land commits nothing: commit or discard them first): %s",
 				lane, strings.Join(dirty, ", "))
 		}
 		summary := ""
@@ -211,15 +211,14 @@ func landCmd(args []string) int {
 		if summary == "" {
 			log, err := project.Git(dir, "log", "--reverse", "--format=%s", cfg.Data.Branches.Main+"..HEAD")
 			if err != nil {
-				return fmt.Errorf("the commits of lane %s: %v", lane, err)
+				return nil, fmt.Errorf("the commits of lane %s: %v", lane, err)
 			}
 			if summary = strings.TrimSpace(log); summary == "" {
-				return fmt.Errorf("%s has no commits on %s beyond %s: nothing to land", task, branchOf(cfg, task),
+				return nil, fmt.Errorf("%s has no commits on %s beyond %s: nothing to land", task, branchOf(cfg, task),
 					cfg.Data.Branches.Main)
 			}
 		}
-		c.Task, c.Report = task, summary
-		return nil
+		return &wire.LandReq{Envelope: id, Task: task, Report: summary}, nil
 	})
 }
 
@@ -275,10 +274,9 @@ func tellLeadCmd(args []string) int {
 		return 1
 	}
 	env := project.OSEnv
-	return request(context.Background(), env, wire.MethodTellLead, func(cfg *config.Config, c *wire.Call) error {
+	return request(context.Background(), env, func(cfg *config.Config, id wire.Envelope) (wire.Req, error) {
 		cwd, _ := os.Getwd()
 		repo, _ := project.Find(cwd)
-		c.Lane, c.Note = project.DetectRole(repo, cfg, env).Lane, args[0]
-		return nil
+		return &wire.TellLeadReq{Envelope: id, Lane: project.DetectRole(repo, cfg, env).Lane, Text: args[0]}, nil
 	})
 }

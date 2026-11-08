@@ -21,7 +21,8 @@ func (r *loopRig) stoppedCall(agent, role, lane, callID string) (string, error) 
 }
 
 func (r *loopRig) stoppedCallWith(agent, role, lane, callID, errText, details string) (string, error) {
-	return r.line(wire.MethodStopped, callID, wire.Call{Agent: agent, Role: role, Lane: lane, Error: errText, Details: details})
+	return r.line(callID, &wire.StoppedReq{Envelope: wire.Envelope{Agent: agent, Role: role}, Lane: lane,
+		Error: errText, Details: details})
 }
 
 // T-584: the plugin's exact StopFailure error shape reaches the OpenCode Reset through both stoppedCall paths:
@@ -46,7 +47,7 @@ func TestOpenCodeStoppedReset(t *testing.T) {
 				r = lineRig(t, "idle", "idle")
 				r.f.Set("w1:p6", func(p *herdrtest.Pane) { p.Kind = c.agentKind })
 				r.start()
-				if _, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-rev", Note: "review"}); err != nil {
+				if _, err := r.line("b1", &wire.BriefReq{To: "pj-rev", Text: "review"}); err != nil {
 					t.Fatal(err)
 				}
 				r.waitFor("role brief posted", func() bool { return r.typedTo("pj-rev", "[obor pj-lead] review") == 1 })
@@ -101,7 +102,7 @@ func TestStoppedRoleAgentLine(t *testing.T) {
 	t.Parallel()
 	r := lineRig(t, "idle", "idle")
 	r.start()
-	if _, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-rev", Note: "verify finding 3"}); err != nil {
+	if _, err := r.line("b1", &wire.BriefReq{To: "pj-rev", Text: "verify finding 3"}); err != nil {
 		t.Fatal(err)
 	}
 	r.waitFor("the brief posted", func() bool { return r.inbox.count("pj-rev", "[obor pj-lead] verify finding 3") == 1 })
@@ -133,7 +134,7 @@ func TestStoppedRoleAgentLine(t *testing.T) {
 	}
 
 	// The agent's next turn: a new brief, worked and idle → its finished line.
-	if _, err := r.line(wire.MethodBrief, "b2", wire.Call{To: "pj-rev", Note: "go on"}); err != nil {
+	if _, err := r.line("b2", &wire.BriefReq{To: "pj-rev", Text: "go on"}); err != nil {
 		t.Fatal(err)
 	}
 	r.waitFor("the second brief posted", func() bool { return r.inbox.count("pj-rev", "[obor pj-lead] go on") == 1 })
@@ -149,7 +150,8 @@ func TestStoppedRoleAgentLine(t *testing.T) {
 
 // turnCall is a worker's UserPromptSubmit or Stop hook telling serve its next turn began or ended (T-540).
 func (r *loopRig) turnCall() (string, error) {
-	return r.line(wire.MethodTurn, wire.NewCallID(), wire.Call{Agent: "pj-l-01", Role: "worker", Lane: "L-01"})
+	return r.line(wire.NewCallID(), &wire.TurnReq{Envelope: wire.Envelope{Agent: "pj-l-01", Role: "worker"},
+		Lane: "L-01"})
 }
 
 // stopReason is the worker's stop the rig's stoppedCall records.

@@ -193,11 +193,11 @@ func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 // idleCall answers the socket's idle request (the lead or the owner): with a text, it acknowledges the idle state in
 // force (fact idle.ack{key, why}); a call id is required and a repeated one gets the stored reply. With no text it
 // answers the state: IDLE …, or NOT IDLE. Nothing idle: NOT IDLE, nothing recorded.
-func (a *App) idleCall(c wire.Call) (string, error) {
+func (a *App) idleCall(c wire.IdleReq) (string, error) {
 	if c.CallID == "" {
 		return "", errors.New("idle: a call id is required")
 	}
-	p, reply, stored := a.callProj(wire.MethodIdle, c)
+	p, reply, stored := a.callProj(wire.MethodIdle, c.Envelope)
 	switch {
 	case p == nil:
 		return "", fmt.Errorf("%s: no served project at %s", wire.MethodIdle, c.Root)
@@ -208,7 +208,7 @@ func (a *App) idleCall(c wire.Call) (string, error) {
 	case c.Role != "" && c.Role != "lead":
 		return "", fmt.Errorf("idle: the lead or the owner answers it, not %s (role %s)", Dash(c.Agent), c.Role)
 	}
-	why := oneLine(c.Note)
+	why := oneLine(c.Why)
 	a.mu.Lock()
 	n := p.idleNow()
 	shown := p.idleText(n)

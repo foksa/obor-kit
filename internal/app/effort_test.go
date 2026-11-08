@@ -114,8 +114,9 @@ func TestEffortRefusals(t *testing.T) {
 		t.Errorf("a refused dispatch recorded %d dispatch facts", n)
 	}
 	set := func(callID, typ string) error {
-		_, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Role: "lead",
-			CallID: callID, Task: "T-2", Spec: "# T-2 — A\n\nDifficulty: medium\nModel: " + typ + "\n"})
+		_, err := wire.Verdict(context.Background(), r.sock, &wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root,
+			Role: "lead", CallID: callID}, Task: "T-2",
+			Spec: "# T-2 — A\n\nDifficulty: medium\nModel: " + typ + "\n"})
 		return err
 	}
 	if err := set("s1", "opus:turbo"); err == nil || !strings.Contains(err.Error(), `effort "turbo" is not one of claude's`) {

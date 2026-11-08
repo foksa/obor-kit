@@ -140,7 +140,8 @@ func configRig(t *testing.T) (*harness, *fakeConfig) {
 
 // set is the owner's config_set of key to val (JSON) from the web.
 func (h *harness) set(callID, key, val string) (string, error) {
-	return h.a.configCall(wire.Call{Root: h.root, CallID: callID, Changes: changes(key, val), Source: "web"})
+	return h.a.configCall(wire.ConfigSetReq{Envelope: wire.Envelope{Root: h.root, CallID: callID}, Changes: changes(key,
+		val), Source: "web"})
 }
 
 // changes is key, value pairs (the value JSON) as a config_set call's changes.
@@ -258,7 +259,8 @@ func TestConfigSetRefused(t *testing.T) {
 			t.Parallel()
 			h, f := configRig(t)
 			f.refused, f.failCommit = c.refused, c.failCommit
-			call := wire.Call{Root: h.root, CallID: "r1", Changes: changes(c.key, c.val), Role: c.role}
+			call := wire.ConfigSetReq{Envelope: wire.Envelope{Root: h.root, CallID: "r1", Role: c.role},
+				Changes: changes(c.key, c.val)}
 			if c.role != "" {
 				call.Agent = "pj-l-01"
 			}
@@ -397,9 +399,10 @@ func TestConfigSetSameCallWhileInFlight(t *testing.T) {
 func TestConfigSetBatchIsOneCommit(t *testing.T) {
 	t.Parallel()
 	h, f := configRig(t)
-	reply, err := h.a.configCall(wire.Call{Root: h.root, CallID: "b1", Source: "web", Changes: changes(
-		"difficulty.hard", `["fable"]`, "difficulty.hard", `["fable:high"]`, "lanes", `2`,
-		"roles.integrator", `"sonnet"`)})
+	reply, err := h.a.configCall(wire.ConfigSetReq{Envelope: wire.Envelope{Root: h.root, CallID: "b1"}, Source: "web",
+		Changes: changes(
+			"difficulty.hard", `["fable"]`, "difficulty.hard", `["fable:high"]`, "lanes", `2`,
+			"roles.integrator", `"sonnet"`)})
 	want := `SET difficulty.hard ["opus:high"] → ["fable"]; SET difficulty.hard ["fable"] → ["fable:high"]; ` +
 		`SET roles.integrator unset → "sonnet" (at its next start)`
 	if err != nil || reply != want {
@@ -426,7 +429,8 @@ func TestConfigSetBatchIsOneCommit(t *testing.T) {
 	if lines := leadLines(t, h); len(lines) != 1 || lines[0] != line {
 		t.Errorf("lines to the lead %q, want %q", lines, line)
 	}
-	if r, err := h.a.configCall(wire.Call{Root: h.root, CallID: "b2", Changes: changes("lanes", `2`)}); err != nil ||
+	if r, err := h.a.configCall(wire.ConfigSetReq{Envelope: wire.Envelope{Root: h.root, CallID: "b2"},
+		Changes: changes("lanes", `2`)}); err != nil ||
 		r != "UNCHANGED lanes" {
 		t.Errorf("a batch that changes nothing: %q, %v", r, err)
 	}
@@ -447,7 +451,8 @@ func TestConfigSetBatchAllOrNothing(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			h, f := configRig(t)
-			reply, err := h.a.configCall(wire.Call{Root: h.root, CallID: "x1", Changes: changes(c.kv...)})
+			reply, err := h.a.configCall(wire.ConfigSetReq{Envelope: wire.Envelope{Root: h.root, CallID: "x1"},
+				Changes: changes(c.kv...)})
 			if err == nil || !strings.Contains(err.Error(), c.want) {
 				t.Fatalf("batch: %q, %v; want refused with %q", reply, err, c.want)
 			}
@@ -467,10 +472,12 @@ func TestConfigSetBaseIsTheFileRead(t *testing.T) {
 	t.Parallel()
 	h, f := configRig(t)
 	base := config.Rev([]byte(configJSON))
-	if _, err := h.a.configCall(wire.Call{Root: h.root, CallID: "t1", Base: base, Changes: changes("lanes", `3`)}); err != nil {
+	if _, err := h.a.configCall(wire.ConfigSetReq{Envelope: wire.Envelope{Root: h.root, CallID: "t1"}, Base: base,
+		Changes: changes("lanes", `3`)}); err != nil {
 		t.Fatalf("the first tab's save: %v", err)
 	}
-	_, err := h.a.configCall(wire.Call{Root: h.root, CallID: "t2", Base: base, Changes: changes("lanes", `4`)})
+	_, err := h.a.configCall(wire.ConfigSetReq{Envelope: wire.Envelope{Root: h.root, CallID: "t2"}, Base: base,
+		Changes: changes("lanes", `4`)})
 	if err == nil || !strings.Contains(err.Error(), "changed since this page read it") {
 		t.Fatalf("the second tab's save on the old file: %v, want refused", err)
 	}
@@ -478,7 +485,8 @@ func TestConfigSetBaseIsTheFileRead(t *testing.T) {
 	if !strings.Contains(string(b), `"lanes": 3`) || len(f.messages()) != 1 {
 		t.Errorf("the stale save wrote or committed: %q\n%s", f.messages(), b)
 	}
-	if _, err := h.a.configCall(wire.Call{Root: h.root, CallID: "t3", Base: config.Rev(b), Changes: changes("lanes", `4`)}); err != nil {
+	if _, err := h.a.configCall(wire.ConfigSetReq{Envelope: wire.Envelope{Root: h.root, CallID: "t3"},
+		Base: config.Rev(b), Changes: changes("lanes", `4`)}); err != nil {
 		t.Errorf("a save on the current file: %v", err)
 	}
 }

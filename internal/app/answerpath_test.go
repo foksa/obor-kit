@@ -48,7 +48,7 @@ func answerSeed(t *testing.T, cause, state, job string, watch bool) (*harness, *
 // runAnswer runs cmd, one command of an answerPath, as the lead does: obor resume through its own parser (ResumeArgs)
 // with a one-word text for its placeholder (RV-54 #4), obor drop as its CLI calls serve (by task id, T-775).
 func runAnswer(h *harness, fact event.Record, cmd string) (string, error) {
-	c := wire.Call{Root: h.root, Agent: "pj-lead", Role: "lead", CallID: "c1"}
+	id := wire.Envelope{Root: h.root, Agent: "pj-lead", Role: "lead", CallID: "c1"}
 	args := strings.Fields(regexp.MustCompile(`"<[a-z]+>"`).ReplaceAllString(cmd, "yes"))
 	switch {
 	case len(args) > 2 && args[1] == "resume":
@@ -56,11 +56,10 @@ func runAnswer(h *harness, fact event.Record, cmd string) (string, error) {
 		if !ok {
 			return "", &usageError{cmd}
 		}
-		c.Task, c.To, c.Note = rc.Task, rc.To, rc.Note
-		return h.a.resume(c)
+		rc.Envelope = id
+		return h.a.resume(rc)
 	case len(args) == 4 && args[1] == "drop" && args[2] == fact.Task:
-		c.Task, c.Note = args[2], "not needed"
-		return h.a.drop(c)
+		return h.a.drop(wire.DropReq{Envelope: id, Task: args[2], Why: "not needed"})
 	}
 	return "", &usageError{cmd}
 }
@@ -180,7 +179,7 @@ func TestResumeArgs(t *testing.T) {
 		{nil, "", "", false},
 	} {
 		got, ok := wire.ResumeArgs(c.args)
-		if ok != c.ok || ok && (got.Task != c.args[0] || got.To != c.to || got.Note != c.note) {
+		if ok != c.ok || ok && (got.Task != c.args[0] || got.Flag != c.to || got.Text != c.note) {
 			t.Errorf("ResumeArgs(%q) = %+v, %v; want to %q, note %q, %v", c.args, got, ok, c.to, c.note, c.ok)
 		}
 	}

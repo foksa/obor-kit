@@ -147,7 +147,7 @@ func TestWaitingLineNeedsYouQueuesNoLine(t *testing.T) {
 	r := lineRig(t, "idle", "idle")
 	r.inbox.unrecord("pj-lead")
 	r.start()
-	if _, err := r.line(wire.MethodSend, "s1", wire.Call{Note: "hello", From: "other"}); err != nil {
+	if _, err := r.line("s1", &wire.SendReq{Text: "hello", From: "other"}); err != nil {
 		t.Fatal(err)
 	}
 	r.advance(25 * time.Hour)

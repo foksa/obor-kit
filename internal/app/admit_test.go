@@ -206,7 +206,8 @@ func TestBriefMovesAnIdleDeepDive(t *testing.T) {
 		{"working deep dive", "pj-deep-dive", "", func(r *admitRig) { r.h.work("w1:dd", true) }},
 		// The first brief (idle) moved it; the second, with that brief open, moves nothing more.
 		{"deep dive with a brief open", "pj-deep-dive", "deep_dive@base1", func(r *admitRig) {
-			if _, err := r.h.a.briefCall(wire.Call{Root: r.h.root, CallID: "b0", Role: "lead", To: "pj-deep-dive", Note: "first"}); err != nil {
+			if _, err := r.h.a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: r.h.root, CallID: "b0",
+				Role: "lead"}, To: "pj-deep-dive", Text: "first"}); err != nil {
 				r.h.t.Fatal(err)
 			}
 		}},
@@ -217,7 +218,8 @@ func TestBriefMovesAnIdleDeepDive(t *testing.T) {
 			r := newAdmitRig(t, false)
 			h := r.h
 			c.prep(r)
-			if _, err := h.a.briefCall(wire.Call{Root: h.root, CallID: "b1", Role: "lead", To: c.to, Note: "look at x"}); err != nil {
+			if _, err := h.a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: h.root, CallID: "b1", Role: "lead"},
+				To: c.to, Text: "look at x"}); err != nil {
 				t.Fatal(err)
 			}
 			if got := r.git.detachedAt(); got != c.moved {
@@ -233,7 +235,8 @@ func TestBriefMovesAnIdleDeepDive(t *testing.T) {
 		r := newAdmitRig(t, false)
 		h := r.h
 		r.git.detachErr = errors.New("no worktree")
-		if _, err := h.a.briefCall(wire.Call{Root: h.root, CallID: "b1", Role: "lead", To: "pj-deep-dive", Note: "look at x"}); err == nil ||
+		if _, err := h.a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: h.root, CallID: "b1", Role: "lead"},
+			To: "pj-deep-dive", Text: "look at x"}); err == nil ||
 			!strings.Contains(err.Error(), "pj-deep-dive's worktree: no worktree") {
 			t.Fatalf("brief: %v, want refused naming the worktree", err)
 		}
@@ -262,7 +265,8 @@ func TestMergeDuringAReviewPublishesAtOnce(t *testing.T) {
 				h.a.opt.Loop = func(string) (*Loop, error) {
 					return &Loop{Workflow: WorkflowOf(&schedScratch{h: h}, &reviewGitFake{head: "base1"}), Agents: &agentsSpy{}}, nil
 				}
-				if _, err := h.a.briefCall(wire.Call{Root: h.root, CallID: "b1", To: c.to, Note: "look", Role: "lead"}); err != nil {
+				if _, err := h.a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: h.root, CallID: "b1",
+					Role: "lead"}, To: c.to, Text: "look"}); err != nil {
 					t.Fatal(err)
 				}
 				f := &schedScratch{h: h}
@@ -366,7 +370,8 @@ func TestPublishDuringAReviewStart(t *testing.T) {
 	t.Parallel()
 	r := newAdmitRig(t, true)
 	h, ctx := r.h, context.Background()
-	if _, err := h.a.reviewCall(wire.Call{Root: h.root, CallID: "r1", Role: "lead", Agent: "pj-lead"}); err != nil {
+	if _, err := h.a.reviewCall(wire.ReviewReq{Envelope: wire.Envelope{Root: h.root, CallID: "r1", Role: "lead",
+		Agent: "pj-lead"}}); err != nil {
 		t.Fatal(err)
 	}
 	began := ""

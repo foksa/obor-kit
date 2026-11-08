@@ -15,7 +15,8 @@ func leadSends(t *testing.T, a *App, p *proj, n int) {
 	t.Helper()
 	for i := 1; i <= n; i++ {
 		id := strconv.Itoa(i)
-		if _, err := a.sendCall(wire.Call{Root: p.root, CallID: "s" + id, From: "other", Note: "m" + id, Role: "lead"}); err != nil {
+		if _, err := a.sendCall(wire.SendReq{Envelope: wire.Envelope{Root: p.root, CallID: "s" + id, Role: "lead"},
+			From: "other", Text: "m" + id}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -44,7 +45,8 @@ func TestLeadLinesOnePost(t *testing.T) {
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	leadSends(t, a, p, 3)
-	if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: "check", Role: "lead"}); err != nil {
+	if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead"},
+		To: "pj-rev", Text: "check"}); err != nil {
 		t.Fatal(err)
 	}
 	if n := len(p.queuedLines()); n != 4 {
@@ -141,7 +143,8 @@ func oneLeadPost(call string) bool {
 // leadSend queues one obor send line "[obor other] <note>" for the lead (as it is now), and is its seq.
 func leadSend(t *testing.T, a *App, p *proj, note string) int64 {
 	t.Helper()
-	if _, err := a.sendCall(wire.Call{Root: p.root, CallID: "s-" + note, From: "other", Note: note, Role: "lead"}); err != nil {
+	if _, err := a.sendCall(wire.SendReq{Envelope: wire.Envelope{Root: p.root, CallID: "s-" + note, Role: "lead"},
+		From: "other", Text: note}); err != nil {
 		t.Fatal(err)
 	}
 	qs := p.queuedLines()

@@ -59,13 +59,12 @@ func watchCmd(args []string) int {
 // watchRequest is one watch request: set's, a task or a comma list (none: the list), ended by --rm when rm, with the
 // lead's note when note is not "".
 func watchRequest(set string, rm bool, note string) int {
-	return request(context.Background(), project.OSEnv, wire.MethodWatch, func(cfg *config.Config, call *wire.Call) error {
+	return request(context.Background(), project.OSEnv, func(cfg *config.Config, id wire.Envelope) (wire.Req, error) {
 		if set != "" {
 			if err := taskIDs(cfg, strings.Split(set, ",")...); err != nil {
-				return err
+				return nil, err
 			}
 		}
-		call.Task, call.Clear, call.Note = set, rm, note
-		return nil
+		return &wire.WatchReq{Envelope: id, Task: set, Clear: rm, Note: note}, nil
 	})
 }

@@ -59,16 +59,16 @@ func TestLandSupersededByConcurrentDrop(t *testing.T) {
 					return
 				}
 				dropped = true
-				reply, err := h.a.drop(wire.Call{Root: h.root, Role: "lead", Agent: "pj-lead", CallID: "d1",
-					Task: "T-1", Note: "not needed"})
+				reply, err := h.a.drop(wire.DropReq{Envelope: wire.Envelope{Root: h.root, Role: "lead",
+					Agent: "pj-lead", CallID: "d1"}, Task: "T-1", Why: "not needed"})
 				if err != nil || !strings.HasPrefix(reply, c.dropReply) {
 					t.Errorf("drop: %q, %v; want %s", reply, err, c.dropReply)
 				}
 			}
 			h.a.hooked.Store(&hook)
 			defer func() { none := func(string) {}; h.a.hooked.Store(&none) }()
-			reply, err := h.a.landCall(wire.Call{Root: h.root, Role: "lead", Agent: "pj-lead", CallID: "l1",
-				Task: "T-1", Report: "done"})
+			reply, err := h.a.landCall(wire.LandReq{Envelope: wire.Envelope{Root: h.root, Role: "lead",
+				Agent: "pj-lead", CallID: "l1"}, Task: "T-1", Report: "done"})
 			if !dropped {
 				t.Fatal("precondition: the hook never ran before land's record")
 			}
@@ -93,8 +93,8 @@ func TestLandSupersededByConcurrentDrop(t *testing.T) {
 	t.Run("normal land still answers LANDED", func(t *testing.T) {
 		t.Parallel()
 		h, p := landSeed(t, true)
-		reply, err := h.a.landCall(wire.Call{Root: h.root, Role: "lead", Agent: "pj-lead", CallID: "l1",
-			Task: "T-1", Report: "done"})
+		reply, err := h.a.landCall(wire.LandReq{Envelope: wire.Envelope{Root: h.root, Role: "lead", Agent: "pj-lead",
+			CallID: "l1"}, Task: "T-1", Report: "done"})
 		if err != nil || reply != landReply("T-1") {
 			t.Fatalf("land: %q, %v; want the LANDED reply", reply, err)
 		}
