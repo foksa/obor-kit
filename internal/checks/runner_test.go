@@ -107,6 +107,49 @@ func TestRunChecksFullWithFull(t *testing.T) {
 	}
 }
 
+// T-1008 (RV-139 #2): OBOR_FULL=1 forces the merge full, but the scan still names the classes it matched, so release
+// and web files keep their with_full checks (before: the forced early return dropped them).
+func TestRunChecksForcedKeepsWithFull(t *testing.T) {
+	x := newFx(t,
+		testkit.Set("merge.guard", "guard"),
+		testkit.Set("merge.classes", `[
+			{"name": "release", "paths": ["Makefile"], "checks": ["check_release"], "with_full": true},
+			{"name": "web", "paths": ["web/src/**"], "checks": ["check_web"], "with_full": true}]`),
+		cmd("check", "echo 1 pass"), cmd("check_release", "echo 1 pass"), cmd("check_web", "echo 1 pass"))
+	x.env = append(x.env, "OBOR_FULL=1")
+	o := x.opts()
+	if o.Env.Get("OBOR_FULL") != "1" {
+		t.Fatal("precondition: the fixture hands OBOR_FULL=1 to the runner")
+	}
+	for _, c := range []struct {
+		name, files, checks string
+		want                []string
+	}{
+		{"a release file", "Makefile go.mod", "1 pass, check_release 1 pass", []string{"check", "", "check_release", ""}},
+		{"a web file", "web/src/x.ts go.mod", "1 pass, check_web 1 pass", []string{"check", "", "check_web", ""}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r, ran := commandCalls(t, o, x.Root)
+			r.prio = "worker"
+			defer r.releaseSlot()
+			r.class = Classify(o.Cfg.Data.Merge, strings.Fields(c.files), o.Env.Get("OBOR_FULL") == "1")
+			r.mode = r.class.Mode()
+			if r.class.Partial || r.mode != "full:forced" {
+				t.Fatalf("precondition: class %s, want full:forced", r.mode)
+			}
+			if h := r.runChecks(); h != nil {
+				t.Fatalf("runChecks: %+v\noutput:\n%s", h, x.out.String())
+			}
+			if !slices.Equal(*ran, c.want) {
+				t.Errorf("ran %q, want %q", *ran, c.want)
+			}
+			if r.check != c.checks {
+				t.Errorf("checks %q, want %q", r.check, c.checks)
+			}
+		})
+	}
+}
+
 // T-673 (RV-75 #4): the runner tells serve's gate each command as it starts and "" as it ends, so obor status shows
 // the gate with no command between two — a finished command is never shown as running.
 func TestRunnerCommandEnds(t *testing.T) {

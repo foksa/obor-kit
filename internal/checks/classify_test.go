@@ -103,6 +103,35 @@ func TestClassify(t *testing.T) {
 			t.Errorf("Classify(%q) = %q, want %q", c.files, got, c.want)
 		}
 	}
+	// T-1008 (RV-139 #2): a forced or no-guard full records its reason and still scans the files, so it carries every
+	// class it matched (their with_full checks run) and a later unmatched file does not replace the reason.
+	for _, c := range []struct {
+		name   string
+		edit   func(*config.Merge)
+		forced bool
+		files  string
+		reason string
+		names  string
+	}{
+		{"forced", nil, true, "src/ui/a.ts tools/x.sh", "forced", "ui+tools"},
+		{"no-guard", func(m *config.Merge) { m.Guard = "" }, false, "src/ui/a.ts tools/x.sh", "no-guard", "ui+tools"},
+		{"forced keeps its reason beside an unmatched file", nil, true, "src/ui/a.ts package.json", "forced", "ui"},
+		{"forced with no files", nil, true, "", "forced", ""},
+		{"no-changes", nil, false, "", "no-changes", ""},
+	} {
+		m := classes(t, "")
+		if c.edit != nil {
+			c.edit(&m)
+		}
+		got := Classify(m, strings.Fields(c.files), c.forced)
+		if got.Partial || got.Reason != c.reason {
+			t.Errorf("%s: %s (want full:%s)", c.name, got.Mode(), c.reason)
+		}
+		if n := strings.Join(got.Names, "+"); n != c.names {
+			t.Errorf("%s: names %q, want %q", c.name, n, c.names)
+		}
+	}
+
 	// a partial class's checks: exactly one entry of that name
 	m := classes(t, `[{"name": "same", "paths": ["a/**"], "checks": ["x"]}, {"name": "same", "paths": ["b/**"], "checks": ["y"]},
 		{"name": "one", "paths": ["c/**"], "checks": ["z", "w"]}, {"name": "empty", "paths": ["d/**"], "checks": [""]}]`)
