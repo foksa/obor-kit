@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
@@ -14,8 +15,8 @@ import (
 )
 
 // T-439: serve's lanes table is the projection of its fold: after a dispatch (its lane.prepare), a submission, a
-// merge, a re-dispatch of the lane and a drop the table equals the fold's rows and what the log says, and a replay
-// writes the same table. T-721: the row carries its dispatch's type reference; a dispatch recorded before T-721 has
+// merge (the row landed, T-1012), a re-dispatch of the lane (not landed) and a drop the table equals the fold's rows and
+// what the log says, and a replay writes the same table. T-721: the row carries its dispatch's type reference; a dispatch recorded before T-721 has
 // none, the next dispatch's row has its own.
 func TestLaneRowsProjectTheLog(t *testing.T) {
 	t.Parallel()
@@ -75,7 +76,8 @@ func TestLaneRowsProjectTheLog(t *testing.T) {
 	row.Finished = event.RecordTime(sub).Unix()
 	table("submitted: finished", row)
 	add("T-1", 1, event.StepMerged, event.KindFact, event.MergedData{})
-	table("merged: the row stays", row)
+	row.Landed = true // T-1012: the free rule's landed fact
+	table("merged: the row stays, landed", row)
 
 	add("T-2", 1, event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"), Agent: "pj-l-01",
 		Branch: "task/T-2", Target: "b2", Effort: "high", Type: "opus:high"})
@@ -174,5 +176,48 @@ func TestTaskDoneByLane(t *testing.T) {
 		Report: "Summary: x"})
 	if err == nil || err.Error() == "task_done: lane L-01 holds no task in obor serve" {
 		t.Errorf("L-01's row holds T-1: the call reaches the report check, got %v", err)
+	}
+}
+
+// T-1012: a task merged by hand, outside serve, lands its lane row too: drive's merge-evidence read (Scratch.Landed)
+// records the merged fact, and the row serve writes says landed; before it, the submitted task's row has not.
+func TestLaneRowLandedByAMergeOutside(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","lanes":2,"roles":{"integrator":""}}`)
+	h.connect()
+	a, p := h.a, h.proj()
+	add := func(step, kind string, d any) {
+		t.Helper()
+		h.now = h.now.Add(time.Minute)
+		raw, _ := json.Marshal(d)
+		r, err := p.log.Append(event.Record{Task: "T-1", Attempt: 1, Step: step, Kind: kind, Data: raw}, h.now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		a.mu.Lock()
+		p.foldRecord(r)
+		a.mu.Unlock()
+	}
+	add(event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"), Agent: "pj-l-01",
+		Branch: "task/T-1", Target: "b1"})
+	add(event.StepPrepare, event.KindResult, prepareOut{Base: "b1", Head: "h1"})
+	add(event.StepSubmitted, event.KindFact, submitData{Lane: "L-01", Agent: "pj-l-01", Report: "r"})
+	if row, ok, err := store.ReadLaneAt(h.root, "L-01"); err != nil || !ok || row.Task != "T-1" || row.Landed {
+		t.Fatalf("precondition: L-01's row %+v, %v, %v; want T-1 submitted, not landed", row, ok, err)
+	}
+	a.drive(context.Background(), p, &Loop{Scratch: landedScratch{}}, "T-1")
+	a.mu.Lock()
+	state := p.folded.loop["T-1"].state
+	a.mu.Unlock()
+	if state != stMerged {
+		t.Fatalf("after drive with merge evidence: T-1 %s, want merged (a merge outside)", state)
+	}
+	row, ok, err := store.ReadLaneAt(h.root, "L-01")
+	if err != nil || !ok || row.Task != "T-1" || !row.Landed {
+		t.Errorf("L-01's row %+v, %v, %v; want T-1 landed", row, ok, err)
+	}
+	if got := port.FreeState(&row, row.Landed, false); got != port.LaneFree {
+		t.Errorf("FreeState of the landed row = %q, want free", got)
 	}
 }

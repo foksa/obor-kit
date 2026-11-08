@@ -352,7 +352,6 @@ func TestLaneCommands(t *testing.T) {
 		}
 	}
 	p.Config()
-	p.Git(p.Root, "commit", "-q", "--allow-empty", "-m", "T-01: merged")
 	a := p.Herdr().Agent("w1:p1", "pj-l1", "idle", o1)
 	a.Label = "pj-l1"
 	env = append(env, "HERDR_SOCKET_PATH="+herdrtest.Serve(t, p.Herdr()).Path)

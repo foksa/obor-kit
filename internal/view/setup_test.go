@@ -74,7 +74,8 @@ func TestSetup(t *testing.T) {
 		testkit.Set("kinds", map[string]any{"codex": map[string]any{"args": []any{"--search"}},
 			"opencode": map[string]any{"prompt_extra": "quote summaries only"}}),
 	)
-	p.Commit(l1) // L-01's task branch has a commit: working
+	p.Commit(l1)
+	p.State("L-01", map[string]any{"task": "T-01", "branch": "task/T-01"}) // its row holds T-01, not landed: working
 	now := time.Now()
 	at := func(ago time.Duration) time.Time { return now.Add(-ago) }
 	// the level dispatch, the override, the pre-T-721 record, the waiting one and the dispatch that places it, a redo

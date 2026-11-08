@@ -659,6 +659,7 @@ func TestBackgroundOnOverviewAndAgentPage(t *testing.T) {
 	o1 := p.Lane("L-01", "task/T-01")
 	p.Config()
 	p.Commit(o1)
+	p.Dispatched("L-01") // its row holds T-01, not landed: busy (T-1012)
 	cfg, err := config.Load(p.Root)
 	if err != nil {
 		t.Fatal(err)

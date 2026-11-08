@@ -431,8 +431,8 @@ func (a *App) held(p *proj, task string) (mtask, map[string]string) {
 	return mt, held
 }
 
-// freeFor: lane l can take a new dispatch: git says it is free (force: dirty-free too) and no other task's dispatch
-// holds it (held, a.held's).
+// freeFor: lane l can take a new dispatch: the one free rule (port.FreeState, the lane table's state: its row's task
+// landed, T-1012) says it is free (force: dirty-free too) and no other task's dispatch holds it (held, a.held's).
 func freeFor(l port.Lane, held map[string]string, force bool) bool {
 	return held[l.Name] == "" && (l.State == port.LaneFree || force && l.State == port.LaneDirtyFree)
 }

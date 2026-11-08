@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -57,9 +58,9 @@ func ltFixture(t *testing.T, extra string, lanes map[string]string) *LaneTable {
 	return NewLaneTable(context.Background(), c)
 }
 
-// submit puts task on lane's row and, done, its task_done age ago, as obor serve projects its log (T-439); the row's
-// head is a fork point the lane has moved from (a lane at it is in flight).
-func ltSubmit(t *testing.T, root, lane, task string, done bool, age time.Duration) {
+// ltSubmit puts task on lane's row and, done, its task_done age ago, and landed, its landed fact, as obor serve
+// projects its log (T-439, T-1012).
+func ltSubmit(t *testing.T, root, lane, task string, done, landed bool, age time.Duration) {
 	t.Helper()
 	db, err := store.OpenRW(store.File(root))
 	if err != nil {
@@ -70,7 +71,7 @@ func ltSubmit(t *testing.T, root, lane, task string, done bool, age time.Duratio
 	if err != nil {
 		t.Fatal(err)
 	}
-	row := store.LaneRow{Lane: lane, Task: task, Branch: "task/" + task, Head: "fork-point"}
+	row := store.LaneRow{Lane: lane, Task: task, Branch: "task/" + task, Head: "fork-point", Landed: landed}
 	if done {
 		row.Finished = time.Now().Add(-age).Unix()
 	}
@@ -127,25 +128,45 @@ func ltCommit(t *testing.T, dir string) {
 	ltGit(t, dir, "commit", "-q", "-m", "work")
 }
 
-// TestLaneStates (T-470): the lane table's states and each lane's type (T-721, T-765: a working lane's type is the
-// model its row's dispatch chose — a ref's model: sonnet:low is sonnet; a lane with no row has none, nor has a free
-// lane whatever its row says: a lane's model is its task's only while it holds it).
+// TestLaneStates (T-470, T-1012): the lane table's states are the one free rule over the lane's row and its own
+// dirty status, whatever the main checkout's history says, and each lane's type (T-721, T-765: a working lane's type
+// is the model its row's dispatch chose — a ref's model: sonnet:low is sonnet; a lane with no row has none, nor has
+// a free lane whatever its row says: a lane's model is its task's only while it holds it). Its git reads run in the
+// lane dirs only.
 func TestLaneStates(t *testing.T) {
 	p := ltFixture(t, `,"lanes_dir":"../proj-wt"`, map[string]string{"L-01": "T-01", "L-02": "T-02", "L-03": "T-03",
-		"L-04": "T-04", "L-05": "T-05", "L-06": "T-06"})
+		"L-04": "T-04", "L-05": "T-05", "L-06": "T-06", "L-07": "T-07", "L-08": "T-08"})
 	dir := func(l string) string { return filepath.Join(filepath.Dir(p.Root), "proj-wt", l) }
-	os.WriteFile(filepath.Join(dir("L-02"), "scratch.txt"), []byte("x"), 0o644)
-	ltSubmit(t, p.Root, "L-03", "T-03", true, 0) // merged: free, whatever the log says
-	ltSetType(t, p.Root, "L-03", "sonnet")       // a free lane has no type, whatever its row says
+	os.WriteFile(filepath.Join(dir("L-02"), "scratch.txt"), []byte("x"), 0o644) // no row, dirty
+	ltSubmit(t, p.Root, "L-03", "T-03", true, true, 0)                          // landed: free
+	ltSetType(t, p.Root, "L-03", "sonnet")                                      // a free lane has no type, whatever its row says
 	ltCommit(t, dir("L-04"))
-	ltSubmit(t, p.Root, "L-04", "T-04", true, 0)
+	ltSubmit(t, p.Root, "L-04", "T-04", true, false, 0) // submitted, not landed
 	ltSetType(t, p.Root, "L-04", "sonnet:high")
 	ltCommit(t, dir("L-05"))
-	ltSubmit(t, p.Root, "L-05", "T-05", false, 0) // dispatched, no task_done yet
+	ltSubmit(t, p.Root, "L-05", "T-05", false, false, 0) // dispatched, no task_done yet
 	ltSetType(t, p.Root, "L-05", "sonnet:low")
-	// T-196: a dirty lane is free only when its task has merge evidence ("T-06:" commit reachable from HEAD).
 	os.WriteFile(filepath.Join(dir("L-06"), "scratch.txt"), []byte("x"), 0o644)
-	ltGit(t, p.Root, "commit", "-q", "--allow-empty", "-m", "T-06: merged work")
+	ltSubmit(t, p.Root, "L-06", "T-06", true, true, 0) // landed, dirty: never free (T-196)
+	// The main checkout's history is no input: L-07's HEAD is main's (its "merge" by ancestry) but its task has not
+	// landed; L-08's commit is not on main but its task landed (serve's fact).
+	ltSubmit(t, p.Root, "L-07", "T-07", false, false, 0)
+	ltCommit(t, dir("L-08"))
+	ltSubmit(t, p.Root, "L-08", "T-08", true, true, 0)
+	if _, err := project.Git(p.Root, "merge-base", "--is-ancestor", "task/T-07", "main"); err != nil {
+		t.Fatalf("precondition: L-07's HEAD is in main's history: %v", err)
+	}
+	if _, err := project.Git(p.Root, "merge-base", "--is-ancestor", "task/T-08", "main"); err == nil {
+		t.Fatal("precondition: L-08's commit is not on main")
+	}
+	var mu sync.Mutex
+	var dirs []string
+	p.Git = func(ctx context.Context, dir string, args ...string) (string, error) {
+		mu.Lock()
+		dirs = append(dirs, dir)
+		mu.Unlock()
+		return project.GitCtx(ctx, dir, args...)
+	}
 	type laneRow struct{ state, task, typ, warning string }
 	got := map[string]laneRow{}
 	for _, s := range p.States() {
@@ -153,34 +174,50 @@ func TestLaneStates(t *testing.T) {
 	}
 	want := map[string]laneRow{
 		"L-01": {"free", "T-01", "", ""},
-		"L-02": {"working", "T-02", "", ""}, // no row: no type
+		"L-02": {"dirty-free", "T-02", "", ""}, // no row: no task holds it, no type
 		"L-03": {"free", "T-03", "", ""},
 		"L-04": {"working", "T-04", "sonnet", ""},
 		"L-05": {"working", "T-05", "sonnet", ""},
 		"L-06": {"dirty-free", "T-06", "", ""},
+		"L-07": {"working", "T-07", "", ""},
+		"L-08": {"free", "T-08", "", ""},
 	}
 	for l, w := range want {
 		if got[l] != w {
 			t.Errorf("%s: %+v, want %+v", l, got[l], w)
 		}
 	}
-	// T-788: no done state (the task's phase is serve's); a submitted lane keeps its task_done's age.
-	for _, s := range p.States() {
-		if submitted := s.DoneAge != nil; submitted != (s.Name == "L-03" || s.Name == "L-04") {
-			t.Errorf("%s: done age %v, want one only for the submitted L-03, L-04", s.Name, s.DoneAge)
+	if len(dirs) != 2*len(want) {
+		t.Errorf("the table ran %d git reads, want 2 per lane (rev-parse, status): %v", len(dirs), dirs)
+	}
+	for _, d := range dirs {
+		if d == p.Root || d == project.Physical(p.Root) {
+			t.Errorf("the table read git in the main checkout %s", d)
 		}
 	}
-	if p.MergeEvidence("T-50") {
+	// T-788: no done state (the task's phase is serve's); a submitted lane keeps its task_done's age.
+	for _, s := range p.States() {
+		if submitted := s.DoneAge != nil; submitted != slices.Contains([]string{"L-03", "L-04", "L-06", "L-08"}, s.Name) {
+			t.Errorf("%s: done age %v, want one only for the submitted L-03, L-04, L-06, L-08", s.Name, s.DoneAge)
+		}
+	}
+	if evidence(p, "T-50") {
 		t.Error("no Merge T-50: commit yet, but evidence")
 	}
 	ltGit(t, p.Root, "commit", "-q", "--allow-empty", "-m", "Merge T-50: done")
-	if !p.MergeEvidence("T-50") {
+	if !evidence(p, "T-50") {
 		t.Error("a Merge T-50: commit is evidence")
 	}
 	// RV-38 #11: a log git cannot read is an error from MergeEvidenceBy, not "no evidence".
 	if ok, err := p.MergeEvidenceBy("T-50", func(...string) (string, error) { return "", errors.New("git I/O") }); ok || err == nil {
 		t.Errorf("MergeEvidenceBy with git failing = %v, %v; want false and the error", ok, err)
 	}
+}
+
+// evidence is p.MergeEvidenceBy over the main checkout's HEAD (git: false).
+func evidence(p *LaneTable, id string) bool {
+	ok, _ := p.MergeEvidenceBy(id, func(args ...string) (string, error) { return project.Git(p.Root, args...) })
+	return ok
 }
 
 // ltSetType sets lane's row's type to typ (the type reference its dispatch chose, T-721).
@@ -221,52 +258,52 @@ func TestMergeEvidenceSubjectRule(t *testing.T) {
 		ltGit(t, p.Root, "commit", "-q", "-m", subj)
 	}
 	p := ltFixture(t, `,"lanes_dir":"../proj-wt"`, nil)
-	if p.MergeEvidence("T-09") {
+	if evidence(p, "T-09") {
 		t.Fatal("precondition: a fresh fixture has no evidence for T-09")
 	}
 	// The default legacy path: a "<id>:" commit touching only docs/tasks is an old spec, not evidence.
 	add(p, "docs/tasks/T-09.md", "T-09: spec")
-	if p.MergeEvidence("T-09") {
+	if evidence(p, "T-09") {
 		t.Error("a T-09: commit touching only docs/tasks (the default legacy path) is no evidence")
 	}
 	// A "<id>:" commit touching a file outside the legacy path is evidence (the squash case).
 	add(p, "src/a.go", "T-09: fix")
-	if !p.MergeEvidence("T-09") {
+	if !evidence(p, "T-09") {
 		t.Error("a T-09: commit touching src/a.go is evidence (squash)")
 	}
 	// A configured paths.tasks names the excluded dir: only specs/T-09.md there is no evidence.
 	r := ltFixture(t, `,"lanes_dir":"../proj-wt","paths":{"tasks":"specs"}`, nil)
 	add(r, "specs/T-09.md", "T-09: spec")
-	if r.MergeEvidence("T-09") {
+	if evidence(r, "T-09") {
 		t.Error("with paths.tasks=specs, a T-09: commit touching only specs/T-09.md is no evidence")
 	}
 	add(r, "docs/tasks/T-09.md", "T-09: extra spec")
-	if !r.MergeEvidence("T-09") {
+	if !evidence(r, "T-09") {
 		t.Error("with paths.tasks=specs, a T-09: commit touching docs/tasks is evidence (outside specs)")
 	}
 	// A subject without the "<id>:" prefix is no evidence, even when it names the task.
 	q := ltFixture(t, `,"lanes_dir":"../proj-wt"`, nil)
 	add(q, "work.txt", "work for T-09: later")
-	if q.MergeEvidence("T-09") {
+	if evidence(q, "T-09") {
 		t.Error("a subject that does not start with T-09: is no evidence")
 	}
 	// An empty "<id>:" commit is evidence too (the other packages' fixtures dispatch lanes with such a commit).
 	e := ltFixture(t, `,"lanes_dir":"../proj-wt"`, nil)
 	ltGit(t, e.Root, "commit", "-q", "--allow-empty", "-m", "T-09: merged")
-	if !e.MergeEvidence("T-09") {
+	if !evidence(e, "T-09") {
 		t.Error("an empty T-09: commit is evidence")
 	}
 	// "Merge T-09:" is evidence (control: the gate's merge subject).
 	m := ltFixture(t, `,"lanes_dir":"../proj-wt"`, nil)
 	ltGit(t, m.Root, "commit", "-q", "--allow-empty", "-m", "Merge T-09: done")
-	if !m.MergeEvidence("T-09") {
+	if !evidence(m, "T-09") {
 		t.Error(`a "Merge T-09:" commit is evidence`)
 	}
 }
 
-// T-550 (RV-57 #1): an old spec commit on main is no merge evidence: a lane whose work lives only there is not merged,
-// for the default legacy path and a configured paths.tasks.
-func TestLaneWithLegacySpecOnMainIsNotMerged(t *testing.T) {
+// T-550 (RV-57 #1): an old spec commit on main is no merge evidence (the task's work lives only in its lane), for the
+// default legacy path and a configured paths.tasks.
+func TestLegacySpecOnMainIsNoEvidence(t *testing.T) {
 	for _, c := range []struct {
 		name, extra, file string
 	}{
@@ -289,15 +326,12 @@ func TestLaneWithLegacySpecOnMainIsNotMerged(t *testing.T) {
 			if _, err := project.Git(p.Root, "merge-base", "--is-ancestor", "task/T-01", "main"); err == nil {
 				t.Fatal("precondition: the lane's work is not on main")
 			}
-			if p.MergeEvidence("T-01") {
+			if evidence(p, "T-01") {
 				t.Error("an old T-01: spec commit on main is no merge evidence")
-			}
-			if s := stateOf(p, "L-01"); s.State != "working" {
-				t.Errorf("lane state = %q, want working (its work lives only in the lane)", s.State)
 			}
 			// Control: the squash rule still finds the task's work on main.
 			ltGit(t, p.Root, "commit", "-q", "--allow-empty", "-m", "T-01: work")
-			if !p.MergeEvidence("T-01") {
+			if !evidence(p, "T-01") {
 				t.Error("a T-01: work commit on main is evidence")
 			}
 		})
@@ -344,19 +378,6 @@ func TestLaneUnknownOnFailedRead(t *testing.T) {
 				t.Fatalf("precondition: the lane's git dir: %v", err)
 			}
 			os.WriteFile(filepath.Join(strings.TrimSpace(out), "index"), []byte("not an index"), 0o644)
-		}},
-		{name: "ancestry fails", want: "git merge-base:", breakIt: func(t *testing.T, p *LaneTable, dir string) {
-			bin, err := exec.LookPath("git")
-			if err != nil {
-				t.Skip("no git on PATH")
-			}
-			stub := t.TempDir()
-			script := "#!/bin/sh\nfor a in \"$@\"; do\n  if [ \"$a\" = merge-base ]; then\n" +
-				"    echo 'fatal: unable to read tree' >&2\n    exit 128\n  fi\ndone\nexec " + bin + " \"$@\"\n"
-			if err := os.WriteFile(filepath.Join(stub, "git"), []byte(script), 0o755); err != nil {
-				t.Fatal(err)
-			}
-			t.Setenv("PATH", stub+string(os.PathListSeparator)+os.Getenv("PATH"))
 		}},
 		{name: "rev-parse fails", want: "git rev-parse:", breakIt: func(t *testing.T, p *LaneTable, dir string) {
 			if err := os.WriteFile(filepath.Join(dir, ".git"), []byte("not a gitdir file"), 0o644); err != nil {
@@ -426,21 +447,21 @@ func stateOf(p *LaneTable, lane string) port.Lane {
 func TestMergeEvidenceSubjects(t *testing.T) {
 	p := ltFixture(t, "", nil)
 	ltGit(t, p.Root, "commit", "-q", "--allow-empty", "-m", "T-05 widened (lead: spec)")
-	if NewLaneTable(context.Background(), p.Cfg).MergeEvidence("T-05") {
+	if evidence(NewLaneTable(context.Background(), p.Cfg), "T-05") {
 		t.Fatal("a lead commit mentioning T-05 counts as merged")
 	}
 	ltGit(t, p.Root, "commit", "-q", "--allow-empty", "-m", "Merge T-05: work")
-	if !NewLaneTable(context.Background(), p.Cfg).MergeEvidence("T-05") {
+	if !evidence(NewLaneTable(context.Background(), p.Cfg), "T-05") {
 		t.Error("Merge T-05: commit → merged")
 	}
 	ltGit(t, p.Root, "commit", "-q", "--allow-empty", "-m",
 		"Merge commit 'abc' into HEAD\n\n# Conflicts:\n#\tshared.txt")
-	if NewLaneTable(context.Background(), p.Cfg).MergeEvidence("T-07") {
+	if evidence(NewLaneTable(context.Background(), p.Cfg), "T-07") {
 		t.Fatal("precondition: git's default merge subject counts as T-07's evidence")
 	}
 	ltGit(t, p.Root, "commit", "-q", "--allow-empty", "-m",
 		"Merge T-07: Resolved title\n\nSpec rev 1:\n\n# T-07 — Resolved title\n\nSummary: did it")
-	if !NewLaneTable(context.Background(), p.Cfg).MergeEvidence("T-07") {
+	if !evidence(NewLaneTable(context.Background(), p.Cfg), "T-07") {
 		t.Error("the resolved merge's subject is not evidence")
 	}
 }

@@ -101,8 +101,9 @@ type Lane struct {
 	port.Lane
 	Op          string `json:"op,omitempty"`
 	AgentStatus string `json:"agent_status,omitempty"`
-	// Free: no task holds the lane: git says its branch merged (free, dirty-free) and serve has no phase of a task on
-	// it (a free lane keeps its last branch's task).
+	// Free: no task holds the lane: its state column is the one free rule's free or dirty-free (port.FreeState: its
+	// row's task landed, T-1012, or it has none) and so serve has no phase of a task on it (a free lane keeps its last
+	// branch's task).
 	Free bool `json:"free"`
 	// Column is the state column of obor status (T-657): serve's phase of the task (T-788: computed once, by serve),
 	// else the lane's State (no task serve has: free, dirty-free, working, missing).
@@ -320,12 +321,11 @@ func lane(p *checks.LaneTable, s port.Lane, v *Project, ps wire.ProjectStatus, r
 		l.Warning = "no-plugin"
 	}
 	l.Agent, l.AgentStatus = laneAgent(ps, row, s.Name)
-	phase := v.TaskOn(l).Phase
-	l.Free = phase == "" && (l.State == port.LaneFree || l.State == port.LaneDirtyFree)
 	l.Column = l.State
-	if phase != "" {
+	if phase := v.TaskOn(l).Phase; phase != "" {
 		l.Column = phase
 	}
+	l.Free = l.Column == port.LaneFree || l.Column == port.LaneDirtyFree
 	l.Since = laneSince(l, v, p.Now, row.DispatchedAt)
 	return l
 }
