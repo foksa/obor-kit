@@ -57,3 +57,13 @@ describe("a queued item (T-986)", () => {
     expect(waitChips({})).toEqual([]);
   });
 });
+
+// T-1043: the queue's order is serve's (the view sends the waits in the scheduler's pass order): the page lists them as
+// sent — T-20, dispatched first, before T-10 — never by task id.
+describe("the queue's order (T-1043)", () => {
+  it("lists the waiting dispatches as serve sent them", () => {
+    const sent = { merge: [], waiting: [{ task: "T-20", waits_on: "lane" }, { task: "T-10", waits_on: "lane" }] };
+    expect(pipelineOf(sent, []).find((c) => c.name === "Waiting")?.tasks).toEqual(["T-20", "T-10"]);
+    expect(queuedForLane(sent.waiting, []).map((w) => w.task)).toEqual(["T-20", "T-10"]);
+  });
+});

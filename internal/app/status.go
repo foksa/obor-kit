@@ -65,11 +65,18 @@ func (a *App) Status() wire.Status {
 		intents := p.log.OpenIntents()
 		steps := p.stepPhases(intents)
 		rv := p.promReview() // T-1030: the review the promotion waits for
+		// T-1043: each task's place in the pass's order (passOrder), shipped so the view's queue lists the waiting
+		// dispatches in the order serve starts them instead of sorting them by id.
+		rank := make(map[string]int, len(p.folded.loop))
+		for i, task := range p.passOrder() {
+			rank[task] = i + 1
+		}
 		for _, mt := range p.folded.loop {
 			if mt.state != stMerged {
+				waiting := mt.is(stWaiting) // T-1043: the predicate the view's queue lists, never State
 				ts := wire.TaskStatus{Task: mt.task, Lane: mt.lane, Attempt: mt.attempt, State: mt.shown(),
 					Ended: states[mt.state].ended, Phase: a.phaseOf(p, mt, steps), Stage: a.stageOf(p, mt, steps),
-					Effort: mt.disp.Effort}
+					Effort: mt.disp.Effort, Waiting: waiting}
 				row, hasSpec, err := specOf(p, mt.task)
 				if err == nil && hasSpec { // T-1022: the spec's external id
 					ts.Ref = row.Spec.Ref
@@ -85,7 +92,8 @@ func (a *App) Status() wire.Status {
 				if mt.halt.pending() {
 					ts.Stopping = mt.halt.agent
 				}
-				if mt.is(stWaiting) {
+				if waiting {
+					ts.Rank = rank[mt.task]
 					ts.After, ts.Why = mt.disp.After, p.waitLine[mt.task].line
 					ts.Level, ts.Types = mt.disp.Level, mt.disp.Types
 					if mt.disp.Keep {

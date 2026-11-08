@@ -77,7 +77,7 @@ func TestQueueReadsAnOlderServesTaskAsOpen(t *testing.T) {
 
 	var ended wire.ProjectStatus
 	if err := json.Unmarshal([]byte(`{"tasks":[{"task":"T-1","state":"submitted","stage":"gating","ended":true},`+
-		`{"task":"T-2","state":"waiting","ended":true}]}`), &ended); err != nil {
+		`{"task":"T-2","state":"waiting","waiting":true,"rank":1,"ended":true}]}`), &ended); err != nil {
 		t.Fatal(err)
 	}
 	if len(ended.Tasks) != 2 || !ended.Tasks[0].Ended || !ended.Tasks[1].Ended {

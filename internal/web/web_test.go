@@ -59,8 +59,8 @@ func fixture(t *testing.T) (*testkit.Project, view.Project, *Server) {
 			Agents: []wire.AgentStatus{{Pane: "w1:p1", Name: "pj-l1", Agent: "claude", Lane: "L-01", Task: "T-01",
 				Status: "working", Session: "sid-1"}},
 			Tasks: []wire.TaskStatus{{Task: "T-01", Lane: "L-01", Attempt: 1, State: "working", Job: "T-01/1/work",
-				Delivered: true}, {Task: "T-02", Attempt: 1, State: "waiting", After: []string{"T-01"},
-				Why: "dispatch T-02: no free lane"}},
+				Delivered: true}, {Task: "T-02", Attempt: 1, State: "waiting", Waiting: true, Rank: 1,
+				After: []string{"T-01"}, Why: "dispatch T-02: no free lane"}},
 			Facts:   []event.Record{fact(t, 1, "T-01", event.FactData{Lane: "L-01", Reason: "asks: may I edit x.go?"})},
 			Answers: map[int64]string{1: `obor resume T-01 "<answer>"`}}}
 	cfg, err := config.Load(p.Root)

@@ -37,6 +37,35 @@ func TestStatusEndedIsTheStateTablesEnded(t *testing.T) {
 	}
 }
 
+// T-1043: serve ships the queue's order and its waiting predicate, so the view's queue lists the dispatched waits in
+// the order serve starts them instead of reconstructing both from the state string: a waiting dispatch is flagged
+// Waiting and ranked by passOrder — T-20, dispatched first, ranks before T-10.
+func TestStatusShipsTheWaitingRank(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+	a, p := lineApp(t, lineRoot(t), &now)
+	for _, task := range []string{"T-20", "T-10"} { // the reversed dispatch order: T-20's waiting fact first
+		if !a.record(p, event.Record{Task: task, Attempt: 1, Step: event.StepWaiting, Kind: event.KindFact},
+			dispatchData{Level: "medium", Types: []string{"sonnet"}}) {
+			t.Fatalf("the log refused %s's waiting fact", task)
+		}
+	}
+	ps := a.Status().Project
+	if ps == nil || len(ps.Tasks) != 2 {
+		t.Fatalf("precondition: serve has the two waiting tasks: %+v", ps)
+	}
+	rank := map[string]int{}
+	for _, ts := range ps.Tasks {
+		if !ts.Waiting {
+			t.Errorf("%s: Waiting false, want true: its dispatch waits for a lane", ts.Task)
+		}
+		rank[ts.Task] = ts.Rank
+	}
+	if rank["T-20"] == 0 || rank["T-10"] == 0 || rank["T-20"] >= rank["T-10"] {
+		t.Errorf("ranks %v, want T-20 before T-10: its dispatch came first", rank)
+	}
+}
+
 // T-896, T-921: serve ships the lanes its config-change rule would not refuse to drop (laneHolds), so obor web's
 // setup page warns without a list of lane states: a lane holding a task is not free, a free one is, and an ended task
 // frees its lane.

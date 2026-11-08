@@ -15,8 +15,9 @@ import (
 
 // Queue is what waits (T-664, the owner: "not only what is going on but also what is queued"), as typed arrays the
 // text renderers word: who holds serve's worktree (Scratch, serve's own word: T-669), the merge loop's tasks with their
-// stage and what each waits for (never which one goes next, T-673), the dispatches waiting and on what (a high one
-// first, T-1030), the review request, the lines and briefs not done, the pause and the next nightly run.
+// stage and what each waits for (never which one goes next, T-673), the dispatches waiting and on what (in serve's
+// order, T-1043: a high one first, then the oldest wait), the review request, the lines and briefs not done, the pause
+// and the next nightly run.
 type Queue struct {
 	Scratch *wire.ScratchStatus `json:"scratch"`
 	Merge   []MergeItem         `json:"merge"`
@@ -110,12 +111,14 @@ func queue(v *Project, ps wire.ProjectStatus, nightlyAt string, specs map[string
 		waits[w.Task] = w
 	}
 	known := map[string]bool{}
+	ranks := map[string]int{} // T-1043: serve's rank of a dispatched wait (its place in the pass's order)
 	for _, t := range ps.Tasks {
 		known[t.Task] = true
 		if t.Ended {
 			continue // ended (rejected, dropped): the tasks log lists it, the queue has nothing to wait for
 		}
-		if t.State == "waiting" {
+		if t.Waiting {
+			ranks[t.Task] = t.Rank
 			w := WaitItem{Task: t.Task, WaitsOn: WaitsLane, Why: t.Why, Level: t.Level, Types: t.Types, High: t.High,
 				Queue: t.Queue}
 			if len(t.After) > 0 {
@@ -144,11 +147,16 @@ func queue(v *Project, ps wire.ProjectStatus, nightlyAt string, specs map[string
 			q.Waiting = append(q.Waiting, w)
 		}
 	}
-	// T-1030: a high dispatch is listed before the ordinary ones (serve's order is the lane's pick order); within each,
-	// by task id.
+	// T-1043: the dispatched waits are listed in serve's order (each one's rank: the scheduler's pass order, a high
+	// one before every ordinary one, then the oldest wait); a spec never dispatched has no rank and keeps the id order
+	// below them (T-1028: listed only with serve's status).
 	sort.SliceStable(q.Waiting, func(i, j int) bool {
-		if q.Waiting[i].High != q.Waiting[j].High {
-			return q.Waiting[i].High
+		a, b := ranks[q.Waiting[i].Task], ranks[q.Waiting[j].Task]
+		if (a > 0) != (b > 0) {
+			return a > 0
+		}
+		if a != b {
+			return a < b
 		}
 		return lessTask(q.Waiting[i].Task, q.Waiting[j].Task)
 	})

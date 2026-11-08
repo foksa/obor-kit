@@ -589,18 +589,19 @@ func TestStatusPromotedLine(t *testing.T) {
 }
 
 // T-1030: the queue lists a high waiting dispatch first and marks it `high`: the order is serve's (the lane's pick
-// order), not the task id's.
+// order, T-1043: each wait's rank), not the task id's.
 func TestStatusQueueMarksHighWaitingFirst(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)
 	p.Config()
 	now := time.Now()
-	waiting := func(task string, high bool) wire.TaskStatus {
-		return wire.TaskStatus{Task: task, Attempt: 1, State: "waiting", Phase: wire.PhaseWaiting, High: high,
-			Level: "medium", Types: []string{"sonnet"}, Difficulty: "medium", Model: "sonnet"}
+	waiting := func(task string, high bool, rank int) wire.TaskStatus {
+		return wire.TaskStatus{Task: task, Attempt: 1, State: "waiting", Waiting: true, Rank: rank,
+			Phase: wire.PhaseWaiting, High: high, Level: "medium", Types: []string{"sonnet"}, Difficulty: "medium",
+			Model: "sonnet"}
 	}
 	ss := wire.Status{Connected: true, Project: &wire.ProjectStatus{Name: "pj", Root: p.Root,
-		Tasks: []wire.TaskStatus{waiting("T-2", false), waiting("T-3", true)}}}
+		Tasks: []wire.TaskStatus{waiting("T-2", false, 2), waiting("T-3", true, 1)}}}
 	_, text := statusOf(t, p, ss, nil, now)
 	var queued []string
 	for _, l := range strings.Split(text, "\n") {
@@ -611,6 +612,31 @@ func TestStatusQueueMarksHighWaitingFirst(t *testing.T) {
 	if len(queued) != 2 || !strings.HasPrefix(queued[0], "queued T-3 (high, medium, sonnet): ") ||
 		!strings.HasPrefix(queued[1], "queued T-2 (medium, sonnet): ") {
 		t.Errorf("queued lines %q, want T-3 (marked high) before T-2", queued)
+	}
+}
+
+// T-1043: the queue's text lists the dispatched waits in serve's order (each one's rank: the scheduler's pass order),
+// not by task id: T-20, its dispatch before T-10's, comes first although its id sorts second.
+func TestStatusQueueListsServeOrder(t *testing.T) {
+	t.Parallel()
+	p := testkit.NewPlain(t)
+	p.Config()
+	now := time.Now()
+	waiting := func(task string, rank int) wire.TaskStatus {
+		return wire.TaskStatus{Task: task, Attempt: 1, State: "waiting", Waiting: true, Rank: rank,
+			Phase: wire.PhaseWaiting, Level: "medium", Types: []string{"sonnet"}, Difficulty: "medium", Model: "sonnet"}
+	}
+	ss := wire.Status{Connected: true, Project: &wire.ProjectStatus{Name: "pj", Root: p.Root,
+		Tasks: []wire.TaskStatus{waiting("T-10", 2), waiting("T-20", 1)}}}
+	_, text := statusOf(t, p, ss, nil, now)
+	var queued []string
+	for _, l := range strings.Split(text, "\n") {
+		if strings.HasPrefix(l, "queued ") {
+			queued = append(queued, l)
+		}
+	}
+	if len(queued) != 2 || !strings.HasPrefix(queued[0], "queued T-20 ") || !strings.HasPrefix(queued[1], "queued T-10 ") {
+		t.Errorf("queued lines %q, want T-20 before T-10: serve's rank, not the id order", queued)
 	}
 }
 

@@ -42,8 +42,10 @@ func TestViewKeepLaneModeAndQueue(t *testing.T) {
 	defer db.Close()
 	ps := &wire.ProjectStatus{Name: "pj", Root: p.Root, Queues: map[string][]string{"L-01": {"T-2", "T-3"}},
 		Tasks: []wire.TaskStatus{
-			{Task: "T-2", Attempt: 1, State: "waiting", Queue: "L-01", Why: "behind T-1 on keep lane L-01"},
-			{Task: "T-3", Attempt: 1, State: "waiting", Queue: "L-01", Why: "behind T-2 on keep lane L-01"}}}
+			{Task: "T-2", Attempt: 1, State: "waiting", Waiting: true, Rank: 1, Queue: "L-01",
+				Why: "behind T-1 on keep lane L-01"},
+			{Task: "T-3", Attempt: 1, State: "waiting", Waiting: true, Rank: 2, Queue: "L-01",
+				Why: "behind T-2 on keep lane L-01"}}}
 	v := Build(Input{Status: wire.Status{Connected: true, Project: ps}, Lanes: checks.NewLaneTable(context.Background(), cfg),
 		DB: db, Now: time.Now()})
 	if len(v.Lanes) != 2 {
