@@ -874,12 +874,14 @@ func (c *Config) LaneCPUs() int {
 // LaneEnv is the env of every Go process in a lane (T-963): GOMAXPROCS and GOFLAGS with -p of the lane's CPU budget
 // (LaneCPUs), as NAME=value entries. goflags is the GOFLAGS the process would have otherwise: its other flags stay, in
 // front, and a -p in it gives way (an env line typed again in a pane that already holds the budget adds no second -p).
+// GOFLAGS also carries -trimpath (T-1027): without it Go puts the package's directory into a compile's cache key, so
+// every worktree caches its own copy of every package at every commit; -trimpath in it gives way too, added once.
 func LaneEnv(c *Config, goflags string) []string {
 	n := strconv.Itoa(c.LaneCPUs())
 	flags := slices.DeleteFunc(strings.Fields(goflags), func(f string) bool {
-		return f == "-p" || strings.HasPrefix(f, "-p=") || f == "--p" || strings.HasPrefix(f, "--p=")
+		return f == "-p" || strings.HasPrefix(f, "-p=") || f == "--p" || strings.HasPrefix(f, "--p=") || f == "-trimpath"
 	})
-	return []string{"GOMAXPROCS=" + n, "GOFLAGS=" + strings.Join(append(flags, "-p="+n), " ")}
+	return []string{"GOMAXPROCS=" + n, "GOFLAGS=" + strings.Join(append(flags, "-p="+n, "-trimpath"), " ")}
 }
 
 // WithLaneEnv is vars (a start's kind env, not changed) with LaneEnv added: a lane worker's start of any kind,

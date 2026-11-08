@@ -495,7 +495,7 @@ func TestPaneSplitsTheTabAndStartsTheAgentInOrder(t *testing.T) {
 		t.Errorf("last line %q", last(out))
 	}
 	want := []string{"agent.list", "pane.list", "pane.layout pane_id=w1:p1",
-		"pane.split cwd=" + lane + " direction=right env={GOFLAGS=-p=2,GOMAXPROCS=2,OBOR_AGENT=,OBOR_LANE=L-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker,OPENCODE_CONFIG=} target_pane_id=w1:p1",
+		"pane.split cwd=" + lane + " direction=right env={GOFLAGS=-p=2 -trimpath,GOMAXPROCS=2,OBOR_AGENT=,OBOR_LANE=L-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker,OPENCODE_CONFIG=} target_pane_id=w1:p1",
 		"pane.rename label=pj-l-01 pane_id=w1:n1", "agent.get target=w1:n1",
 		"agent.start args=[" + laneArgs + " --session-id NEW] kind=claude name=pj-l-01 pane_id=w1:n1"}
 	if got := x.reqs(); named(strings.Join(got, "\n")) != strings.Join(want, "\n") {
@@ -536,7 +536,7 @@ func TestPaneSplitsTheLargestPane(t *testing.T) {
 			}
 			x.ok(t, "pane", "--start", "L-01", "--tab", "w1:t1")
 			has(t, strings.Join(x.reqs(), "\n"), "direction="+c.dir+
-				" env={GOFLAGS=-p=2,GOMAXPROCS=2,OBOR_AGENT=,OBOR_LANE=L-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker,OPENCODE_CONFIG=} "+
+				" env={GOFLAGS=-p=2 -trimpath,GOMAXPROCS=2,OBOR_AGENT=,OBOR_LANE=L-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker,OPENCODE_CONFIG=} "+
 				fmt.Sprintf("target_pane_id=w1:p%d", c.target), c.name)
 		})
 	}
@@ -704,7 +704,7 @@ func TestSetupPaneTypesTheEnvAtAReusedPane(t *testing.T) {
 	x.reset()
 	x.ok(t, "pane", "--start", "L-01", "--pane", "w1:p1")
 	lines = x.envLines()
-	if len(lines) != 1 || !strings.HasPrefix(lines[0], "cd "+x.LaneDir("L-01")+" && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG && export OBOR_ROLE=worker OBOR_LANE=L-01 GOFLAGS=-p=2 GOMAXPROCS=2 && echo obor-env-") {
+	if len(lines) != 1 || !strings.HasPrefix(lines[0], "cd "+x.LaneDir("L-01")+" && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG && export OBOR_ROLE=worker OBOR_LANE=L-01 GOFLAGS='-p=2 -trimpath' GOMAXPROCS=2 && echo obor-env-") {
 		t.Errorf("typed %q, want a lane's env: its worktree, worker, L-01 (no OBOR_AGENT)", lines)
 	}
 

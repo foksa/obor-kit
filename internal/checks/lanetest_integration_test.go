@@ -154,7 +154,7 @@ func laneTestInTheLane(t *testing.T) {
 	y.eq(y.probed("head"), c.SHA, "on the candidate")
 	y.eq(y.probed("files"), "feature.txt", "OBOR_CHANGED_FILES: the task's files (target..candidate)")
 	env := y.probed("env")
-	for _, kv := range []string{"CHECK_PRIORITY=worker", "GOMAXPROCS=2", "GOFLAGS=-p=2", "CHECK_CPUS=2"} {
+	for _, kv := range []string{"CHECK_PRIORITY=worker", "GOMAXPROCS=2", "GOFLAGS=-p=2 -trimpath", "CHECK_CPUS=2"} {
 		if !strings.Contains("\n"+env+"\n", "\n"+kv+"\n") {
 			t.Errorf("the check's environment has no %s", kv)
 		}
@@ -189,7 +189,7 @@ func laneTestLaneEnv(t *testing.T) {
 		t.Fatalf("test: %+v %v\noutput:\n%s", o, err, y.out.String())
 	}
 	env := y.probed("env")
-	for _, kv := range []string{"GOMAXPROCS=1", "GOFLAGS=-mod=mod -p=1", "CHECK_CPUS=1"} {
+	for _, kv := range []string{"GOMAXPROCS=1", "GOFLAGS=-mod=mod -p=1 -trimpath", "CHECK_CPUS=1"} {
 		if !strings.Contains("\n"+env+"\n", "\n"+kv+"\n") {
 			t.Errorf("the check's environment has no %q:\n%s", kv, env)
 		}

@@ -457,11 +457,11 @@ func TestRestartLaneCPUBudget(t *testing.T) {
 		want                       string // the export's tail
 		none                       bool   // neither variable on the line
 	}{
-		{name: "lane, default", agent: "pj-l-01", pane: "w1:p3", want: "export OBOR_ROLE=worker OBOR_LANE=L-01 GOFLAGS=-p=2 GOMAXPROCS=2"},
+		{name: "lane, default", agent: "pj-l-01", pane: "w1:p3", want: "export OBOR_ROLE=worker OBOR_LANE=L-01 GOFLAGS='-p=2 -trimpath' GOMAXPROCS=2"},
 		{name: "lane, slots.lane_cpus 3", agent: "pj-l-01", pane: "w1:p3", edit: []func(map[string]any){testkit.Set("slots.lane_cpus", 3)},
-			want: "export OBOR_ROLE=worker OBOR_LANE=L-01 GOFLAGS=-p=3 GOMAXPROCS=3"},
+			want: "export OBOR_ROLE=worker OBOR_LANE=L-01 GOFLAGS='-p=3 -trimpath' GOMAXPROCS=3"},
 		{name: "lane, GOFLAGS=-mod=mod", agent: "pj-l-01", pane: "w1:p3", goflags: "-mod=mod",
-			want: "export OBOR_ROLE=worker OBOR_LANE=L-01 GOFLAGS='-mod=mod -p=2' GOMAXPROCS=2"},
+			want: "export OBOR_ROLE=worker OBOR_LANE=L-01 GOFLAGS='-mod=mod -p=2 -trimpath' GOMAXPROCS=2"},
 		{name: "role agent", agent: "pj-int", pane: "w1:p5", goflags: "-mod=mod", none: true, want: "export OBOR_ROLE=integrator"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -510,7 +510,7 @@ func TestRestartWho(t *testing.T) {
 		prep: func(x *fx) { x.sid("pj-l-01", "sid-1"); x.shell("w1:p3", "pj-l-01", "").Session = "sid-1" },
 		req:  launch.Request{Agent: "pj-l-01"},
 		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=cd " + q(x.lane) + " && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG && export OBOR_ROLE=worker OBOR_LANE=L-01 GOFLAGS=-p=2 GOMAXPROCS=2"
+			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=cd " + q(x.lane) + " && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG && export OBOR_ROLE=worker OBOR_LANE=L-01 GOFLAGS='-p=2 -trimpath' GOMAXPROCS=2"
 		},
 		start: "agent.start args=[" + laneMCP + settings + " --resume sid-1] kind=claude name=pj-l-01 pane_id=w1:p3",
 		line:  "RESTARTED pj-l-01 (pane w1:p3, session sid-1)",
@@ -525,7 +525,7 @@ func TestRestartWho(t *testing.T) {
 		},
 		req: launch.Request{Agent: "l-01"},
 		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=cd " + q(x.lane) + " && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG && export OBOR_ROLE=worker OBOR_LANE=L-01 GOFLAGS=-p=2 GOMAXPROCS=2"
+			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=cd " + q(x.lane) + " && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG && export OBOR_ROLE=worker OBOR_LANE=L-01 GOFLAGS='-p=2 -trimpath' GOMAXPROCS=2"
 		},
 		start: "agent.start args=[" + laneMCP + settings + " --resume sid-1] kind=claude name=l-01 pane_id=w1:p3",
 		line:  "RESTARTED l-01 (pane w1:p3, session sid-1)",
@@ -549,7 +549,7 @@ func TestRestartWho(t *testing.T) {
 		prep: func(x *fx) { x.sid("odd-name", "sid-1"); x.shell("w1:p3", "odd-name", x.lane) },
 		req:  launch.Request{Agent: "odd-name"},
 		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=cd " + q(x.lane) + " && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG && export OBOR_ROLE=worker OBOR_LANE=L-01 GOFLAGS=-p=2 GOMAXPROCS=2"
+			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=cd " + q(x.lane) + " && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG && export OBOR_ROLE=worker OBOR_LANE=L-01 GOFLAGS='-p=2 -trimpath' GOMAXPROCS=2"
 		},
 		start: "agent.start args=[" + laneMCP + settings + " --resume sid-1] kind=claude name=odd-name pane_id=w1:p3",
 		line:  "RESTARTED odd-name (pane w1:p3, session sid-1)",

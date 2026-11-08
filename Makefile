@@ -5,13 +5,18 @@
 # the two non-Go classes' checks (skills/templates/hooks and the page's Go side, T-901), `make check-release` → the
 # kit's own release tooling (the Makefile, scripts/, install.sh; tests/release, T-902),
 # `make check-budget` → the nightly test budget (tests/budget, T-1002),
-# `make trim-go-cache` → the Go build cache's entries unused for 48 h (commands.trim_go_cache, nightly, T-817),
+# `make trim-go-cache` → every entry of the Go build cache (commands.trim_go_cache, nightly, T-817, T-1027),
 # `make deadcode` → its dead-code check, `make deps` → a warm module cache for an offline machine, `make upgrade-check`
 # → the previous release upgraded to this build (tests/upgrade),
 # `make release V=x.y.z` → the whole release (scripts/release); `make ship` → the owner's push, publish and install
 # (scripts/ship); `make release` without V → only the local release files; `make publish` → the four of them to a
 # GitHub release (explicit, outward-facing).
 GO ?= go
+# GOFLAGS carries -trimpath for every Go command of every target (T-1027): without it Go puts the package's directory
+# into a compile's cache key, so each of the ~9 worktrees caches its own copy of every package at every commit. A
+# GOFLAGS from the environment (a lane's, config.LaneEnv's: -p and -trimpath) is kept, and -trimpath is added once.
+GOFLAGS := $(strip $(filter-out -trimpath,$(GOFLAGS)) -trimpath)
+export GOFLAGS
 # OUT is where build writes the binary: dist/obor in the kit as always, and another path for a build that runs outside the
 # kit (the promotion's after_merge builds in its own worktree into the main checkout's dist/obor, T-975).
 OUT ?= dist/obor
@@ -52,15 +57,17 @@ test:
 conformance:
 	@KIND="$(KIND)" TIER="$(TIER)" TURN="$(TURN)" $(GO) run -tags conformance ./tests/conformance
 
-# trim-go-cache (commands.trim_go_cache, T-817) deletes the Go build cache's files unused for 48 h (mtime: Go refreshes
-# an entry's when it uses it, at most hourly) and prints "go cache: freed <size>, <size> left". Go's own trim keeps them
-# five days, too long at four lanes' rate (the cache reached 53 GiB in about a day).
+# trim-go-cache (commands.trim_go_cache, T-817, T-1027) deletes every file in the Go build cache and prints
+# "go cache: freed <size>, <size> left". The owner's decision (2026-11-08): the nightly empties the cache, not by age —
+# at 18-25 GB every entry had been used within 48 h, so the 48 h trim freed nothing — and a slower first compile beats
+# gigabytes on disk; -trimpath keeps one entry per package, not one per worktree (GOFLAGS above). It deletes the entry
+# files, not the 00-ff directories or README: a Go command running beside it sees misses, not a missing cache directory.
 trim-go-cache:
 	@d=$$($(GO) env GOCACHE) || exit 1; \
 	if [ ! -d "$$d" ]; then echo "go cache: freed 0 B, 0 B left"; exit 0; fi; \
 	if stat -c %s "$$d" >/dev/null 2>&1; then st="stat -c %s"; else st="stat -f %z"; fi; \
-	freed=$$(find "$$d" -type f -mtime +1 -exec $$st {} + 2>/dev/null | awk '{s+=$$1} END {printf "%.0f", s+0}'); \
-	find "$$d" -type f -mtime +1 -exec rm -f {} +; \
+	freed=$$(find "$$d" -type f ! -name README -exec $$st {} + 2>/dev/null | awk '{s+=$$1} END {printf "%.0f", s+0}'); \
+	find "$$d" -type f ! -name README -exec rm -f {} +; \
 	left=$$(find "$$d" -type f -exec $$st {} + 2>/dev/null | awk '{s+=$$1} END {printf "%.0f", s+0}'); \
 	awk -v f="$$freed" -v l="$$left" 'function size(n) { if (n >= 1073741824) return sprintf("%.1f GiB", n/1073741824); \
 	  if (n >= 1048576) return sprintf("%.1f MiB", n/1048576); if (n >= 1024) return sprintf("%.1f KiB", n/1024); \
