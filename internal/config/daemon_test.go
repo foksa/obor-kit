@@ -107,6 +107,28 @@ func TestLoadDaemonUnknownPaths(t *testing.T) {
 	}
 }
 
+// RV-153 #1 (T-1063): the no-op unknown-key warning names both causes: this binary is older than the config, or the
+// key was retired (merge.max_load is one of the nine v0.28 keys, so restarting serve fixes nothing).
+func TestWarnUnknownNamesBothCauses(t *testing.T) {
+	root := writeProject(t, `{"merge":{"max_load":10}}`, "")
+	var out bytes.Buffer
+	defer func(w interface{ Write([]byte) (int, error) }) { Warn = w }(Warn)
+	Warn = &out
+	if _, err := LoadDaemon(root); err != nil {
+		t.Fatal(err)
+	}
+	warn := out.String()
+	if n := strings.Count(warn, "\n"); n != 1 {
+		t.Errorf("warnings: %d lines, want 1: %q", n, warn)
+	}
+	for _, want := range []string{`unknown key "merge.max_load"`, "older than the config (restart serve)",
+		"key was retired (obor config validate names it; delete it)"} {
+		if !strings.Contains(warn, want) {
+			t.Errorf("warn %q, want %q", warn, want)
+		}
+	}
+}
+
 // TestLoadDaemonTypeErrors: a wrong type is still an error next to an unknown member.
 func TestLoadDaemonTypeErrors(t *testing.T) {
 	root := writeProject(t, `{"merge":{"future":1,"nightly_at":5},"slots":{"future":2}}`, "")

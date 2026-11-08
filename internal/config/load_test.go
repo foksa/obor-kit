@@ -173,3 +173,22 @@ func TestNewerUnknownKeyStillDropped(t *testing.T) {
 		t.Errorf("Load: %v, want the strict reader still refusing it", err)
 	}
 }
+
+// T-1063 (RV-153 #1): LoadReader's warning names both causes too: this binary is older than the config, or the key was
+// retired (merge.max_load is one of the nine v0.28 keys, so restarting fixes nothing).
+func TestLoadReaderWarnNamesBothCauses(t *testing.T) {
+	root := writeProject(t, `{"merge":{"max_load":10}}`, "")
+	_, warn, err := LoadReader(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(warn, "WARN ") || strings.Contains(warn, "\n") {
+		t.Errorf("warn = %q, want one WARN line", warn)
+	}
+	for _, want := range []string{`unknown field "max_load"`, "older than the config (restart it)",
+		"key was retired (obor config validate names it; delete it)"} {
+		if !strings.Contains(warn, want) {
+			t.Errorf("warn %q, want %q", warn, want)
+		}
+	}
+}
