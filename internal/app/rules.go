@@ -81,7 +81,7 @@ func (a *App) rulePass(ctx context.Context, rs []rule, fx *Loop) {
 		of := event.Of{Kind: r.name, Seq: key}
 		_, did := p.folded.did[of]
 		due := ok && !did && now.Sub(live.since) >= r.settle
-		lead := p.out.lead()
+		lead := p.out.Lead()
 		a.mu.Unlock()
 		fails := 0
 		if due {
@@ -133,7 +133,7 @@ func (a *App) act(ctx context.Context, p *proj, lead string, of event.Of, act ac
 // lineLead is a rule's line to p's lead, recorded with the back-reference of (a rule's did key).
 func (a *App) lineLead(p *proj, of event.Of, line string) error {
 	a.mu.Lock()
-	lead := p.out.lead()
+	lead := p.out.Lead()
 	a.mu.Unlock()
 	return a.lineTo(p, lead, of, line)
 }

@@ -20,6 +20,7 @@ import (
 
 	"obor/internal/app/event"
 	"obor/internal/app/identity"
+	"obor/internal/app/outbox"
 	"obor/internal/app/port"
 	"obor/internal/store"
 )
@@ -154,7 +155,7 @@ func TestDoCrashBetweenEffectAndResult(t *testing.T) {
 // folded by foldRecord, written by stateText.
 func replayState(recs []event.Record, lead string) string {
 	p := &proj{root: "/replay", name: "replay", tasks: map[string]*watch{},
-		out: newOutbox(lead, "claude"), timers: map[string]*jobTimer{}, replies: map[string]string{},
+		out: outbox.New(lead, "claude"), timers: map[string]*jobTimer{}, replies: map[string]string{},
 		rules: map[string]ruleLive{}, nopane: map[string]time.Time{}, waitLine: map[string]waitRefusal{},
 		exec: map[event.Key]time.Time{}, held: map[string]string{}, ended: map[string]bool{},
 		roleFail: map[string]time.Time{}, reg: identity.New(), folded: newFolded()}

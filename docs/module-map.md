@@ -95,7 +95,7 @@ process (`plugin.Local`).
   unpin, fix), `jobstart.go` (job start, texts), `settle.go`; `registry.go` (agent identity: `reconcile` collects the proofs
   the `app/identity` table accepts; `whereIs` and the table's `WhoIs` the only lookups, never herdr's name; T-504);
   `lanerows.go` (the `lanes` table projection), `specs.go`, `prompts.go` (the `prompts` table's writes and prune,
-  T-665, T-670), `dispatch.go`, `drive.go` (the owner's drive and land: `obor drive`, `obor land`, the driving state, T-751), `messages.go`, `mergewatch.go`,
+  T-665, T-670), `dispatch.go`, `drive.go` (the owner's drive and land: `obor drive`, `obor land`, the driving state, T-751), `messages.go` (the lines' delivery over `app/outbox`'s state: `deliver`, `route`, `recordBrief`, `foldMsg` applying what `Fold` ended; T-1067), `mergewatch.go`,
   `rules.go` (the rule pass: rule-tier steps, T-866), `idle.go` (the idle rules and `obor idle`), `stopped.go`, `stopwake.go`, `rolestop.go` (the role stop rules: serve stops the integrator and the reviewer once done, and a fresh brief's stop; T-672, T-870), `workerstart.go` (the worker start rule: a lane's worker started again while its job is outstanding; T-874), `keeplane.go` (a keep lane's agent between its tasks: its live agent takes the next job, the handoff rule stops one past handoff_tokens; T-1031), `nightly.go`, `promote.go` (the promotion of branches.main to branches.promote, T-974),
   `configset.go` (the owner's setup edit from obor web, through the `ConfigFile` port, T-753),
   `verbs.go` (`leadOr`: the admission of a lead's and the owner's method, a custom role's by its `roles.<name>.verbs`, T-1039),
@@ -121,6 +121,14 @@ process (`plugin.Local`).
   terminal), `Proof`, `CrossCheck`, the lookups `WhoIs` and `Lookup` (`whereIs`'s one query), `TermOf`, `SameSession`.
   Its maps are unexported, so only it names them. No lock: under `App.mu`. It imports `app/port` only, never `app`;
   `whereIs`, `why`, `candidates` and the proof collection (`App.reconcile`) stay in `app`'s `registry.go`.
+- `app/outbox` (core, a leaf below `app`; T-1067): a project's lines to its agents, `Outbox`: the undelivered lines
+  (`Line`, its delivery `State` and `Next`), the open briefs (`Brief`, a role agent's `RoleStop`), the needs-you lines'
+  delivery times, the line and stop fact data (`Stopped`, `Turned`, `Worked`, `LineData`), and `Fold`: a record of the
+  lines folded, returning what it ended (`Ended`: a did key, a stored reply, a drive's or review's line, a worker's
+  stop, an answered question, a brief's end) for `app`'s `foldMsg` to apply in its fold order. Queries `Lead`, `Brief`,
+  `Briefs`, `Line`, `Queued`, `Waits`, `Delivered`, `Post`, `BriefStatus`, `MessageStatus`. Its maps are unexported, so
+  only it names them. No lock: under `App.mu`. It imports `app/event` and `app/wire` only, never `app`; delivery
+  stays in `app`'s `messages.go`.
 - `app/wire` (core, a leaf above `app/event`; T-692): the app socket's client half, what a caller can ask serve: every
   `Method*`, `Call`, `Request`/`Answer`, `Ask`, `Verdict` (with its retries and `OBOR_CALL_DEADLINE`), `SocketPath`,
   `NewCallID`, `JobReply`, `ResumeArgs` and `Resume*`, the status types (`Status`, `ProjectStatus`, `TaskStatus` …,

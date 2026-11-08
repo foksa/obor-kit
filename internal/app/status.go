@@ -124,7 +124,7 @@ func (a *App) Status() wire.Status {
 				ps.ModelPauses[m] = &c
 			}
 		}
-		ps.Messages = p.messageStatus(now)
+		ps.Messages = p.out.MessageStatus(now)
 		if s := p.reviewStatus(now); s != "" && p.folded.review != nil {
 			ps.Review = "review request " + s
 		} else {
@@ -137,7 +137,7 @@ func (a *App) Status() wire.Status {
 			ps.ReviewRequest = &wire.ReviewRequestStatus{After: q.after, Waiting: p.reviewWaits(q.after), Held: q.held,
 				Note: q.note, By: q.by, Since: q.at.Unix()}
 		}
-		ps.Briefs = p.briefStatus()
+		ps.Briefs = p.out.BriefStatus()
 		ps.Promote = p.promoteStatus()
 		ps.Stopped = a.stoppedRoles(p)
 		for _, f := range ps.Facts {

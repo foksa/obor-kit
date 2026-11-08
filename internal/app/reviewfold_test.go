@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"obor/internal/app/event"
+	"obor/internal/app/outbox"
 )
 
 // T-1023: what a review covered is the log's, one table over the fold (records → the next review's scope, which is
@@ -45,7 +46,7 @@ func (f *foldLog) verify(head, why string, tasks ...string) *foldLog {
 	f.add(event.MsgTask, event.StepBriefed, event.KindFact, event.Message{To: "pj-rev", Task: strings.Join(tasks, ","),
 		Reviewed: head})
 	if why != "" {
-		return f.add(event.MsgTask, event.StepStopped, event.KindFact, stoppedData{Ends: "pj-rev", Error: why})
+		return f.add(event.MsgTask, event.StepStopped, event.KindFact, outbox.Stopped{Ends: "pj-rev", Error: why})
 	}
 	return f.add(event.MsgTask, event.StepMessage, event.KindFact, event.Message{To: "pj-lead", Ends: "pj-rev"})
 }

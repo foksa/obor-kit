@@ -177,7 +177,7 @@ func newTurnRig(t *testing.T, kind string) *turnRig {
 		t.Fatal(err)
 	}
 	r.deliver()
-	if b := r.p.out.brief("pj-rev"); b == nil || b.stop == nil || r.stops() != 1 || r.finished() != 0 {
+	if b := r.p.out.Brief("pj-rev"); b == nil || b.Stop() == nil || r.stops() != 1 || r.finished() != 0 {
 		t.Fatalf("precondition: one stop on an open brief, no finished line: %+v, %d stops, %d finished",
 			b, r.stops(), r.finished())
 	}
@@ -232,18 +232,18 @@ func (r *turnRig) finished() int { return r.facts(event.StepMessage, "pj-rev fin
 
 // state is pj-rev's brief as the folds hold it: open, stopped (its turn), followed, worked.
 func (r *turnRig) state() string {
-	b := r.p.out.brief("pj-rev")
+	b := r.p.out.Brief("pj-rev")
 	if b == nil {
 		return "closed"
 	}
 	s := "open"
-	if b.stop != nil {
-		s += " stopped(" + b.stop.turn + ")"
+	if b.Stop() != nil {
+		s += " stopped(" + b.Stop().Turn + ")"
 	}
-	if b.followed {
+	if b.Followed() {
 		s += " followed"
 	}
-	if b.worked {
+	if b.Worked() {
 		s += " worked"
 	}
 	return s
@@ -364,7 +364,7 @@ func TestTurnClaudeMissedStart(t *testing.T) {
 	if reply := r.hook(true); reply != "TURN pj-rev (its brief's turn ended)" {
 		t.Fatalf("Stop hook: %q", reply)
 	}
-	if r.p.out.brief("pj-rev").stop != nil {
+	if r.p.out.Brief("pj-rev").Stop() != nil {
 		t.Fatal("the stop still in force after the Stop hook")
 	}
 	r.status("idle")

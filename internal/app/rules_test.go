@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"obor/internal/app/event"
+	"obor/internal/app/outbox"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/store"
@@ -276,9 +277,7 @@ func TestStopAlarmRule(t *testing.T) {
 		h.a.rulePass(context.Background(), []rule{alarm}, &Loop{})
 	}
 	stopped := func(h *harness) {
-		p := h.proj()
-		p.out.briefs["pj-rev"] = &brief{seq: 1, at: h.now.Add(-time.Hour), stop: &roleStop{seq: 9,
-			at: h.now.Add(-time.Hour), line: "[obor] pj-rev stopped: usage_limit_exceeded (try later)", woke: h.now.Add(-time.Hour)}}
+		stoppedBrief(h.proj(), "pj-rev", 1, 9, h.now.Add(-time.Hour))
 	}
 	t.Run("one toast and the lead's line", func(t *testing.T) {
 		t.Parallel()
@@ -323,10 +322,8 @@ func TestStopAlarmRule(t *testing.T) {
 		t.Parallel()
 		h := ruleHarness(t)
 		p := h.proj()
-		p.out.briefs["pj-rev"] = &brief{seq: 1, at: h.now.Add(-time.Hour), stop: &roleStop{seq: 9,
-			at: h.now.Add(-time.Hour), line: "[obor] pj-rev stopped: usage_limit_exceeded (try later)", woke: h.now.Add(-time.Hour)}}
-		p.out.briefs["pj-deep"] = &brief{seq: 2, at: h.now.Add(-time.Hour), stop: &roleStop{seq: 10,
-			at: h.now.Add(-time.Hour), line: "[obor] pj-deep stopped: usage_limit_exceeded (try later)", woke: h.now.Add(-time.Hour)}}
+		stoppedBrief(p, "pj-rev", 1, 9, h.now.Add(-time.Hour))
+		stoppedBrief(p, "pj-deep", 2, 10, h.now.Add(-time.Hour))
 		pass(h, 30*time.Minute)
 		pass(h, 0)
 		pass(h, 0)
@@ -343,20 +340,34 @@ func TestStopAlarmRule(t *testing.T) {
 	})
 }
 
+// stoppedBrief folds into p's outbox (not the log) agent's open brief of fact seq brief, stopped on a usage limit by fact
+// seq stop at at and woken at at: its stop's alarm is due wakeAlarm after at.
+func stoppedBrief(p *proj, agent string, brief, stop int64, at time.Time) {
+	fold := func(seq int64, step string, data any) {
+		d, _ := json.Marshal(data)
+		p.out.Fold(event.Record{Seq: seq, TS: at.Format(time.RFC3339Nano), Task: event.MsgTask, Step: step,
+			Kind: event.KindFact, Data: d}, p.oldLineOf)
+	}
+	fold(brief, event.StepBriefed, event.Message{To: agent})
+	fold(stop, event.StepStopped, outbox.Stopped{Agent: agent, Error: "usage_limit_exceeded", Brief: brief,
+		Message: event.Message{To: "pj-lead", Line: "[obor] " + agent + " stopped: usage_limit_exceeded (try later)"}})
+	p.out.Woke(agent, at)
+}
+
 // deliverLines is the delivery of every rule line waiting: its post's result recorded now.
 func deliverLines(t *testing.T, h *harness) {
 	p := h.proj()
 	var seqs []int64
-	for _, q := range p.queuedLines() {
-		if q.msg.Of.Kind != "" {
-			seqs = append(seqs, q.seq)
+	for _, q := range p.out.Queued() {
+		if q.Msg().Of.Kind != "" {
+			seqs = append(seqs, q.Seq())
 		}
 	}
 	if len(seqs) == 0 {
 		t.Fatal("precondition: no rule line waits to be delivered")
 	}
 	for _, seq := range seqs {
-		addRecord(t, h, event.MsgTask, stepDeliver+strconv.FormatInt(seq, 10), event.KindResult, "sent")
+		addRecord(t, h, event.MsgTask, outbox.StepDeliver+strconv.FormatInt(seq, 10), event.KindResult, "sent")
 	}
 }
 
@@ -572,8 +583,8 @@ func TestOldNotifyRecordsReplay(t *testing.T) {
 	)
 	h.connect()
 	p := h.proj()
-	if !p.merging || p.out.lead() == "" || len(p.needsYou()) != 1 {
-		t.Fatalf("precondition: merging %v, lead %q, needs-yous %d", p.merging, p.out.lead(), len(p.needsYou()))
+	if !p.merging || p.out.Lead() == "" || len(p.needsYou()) != 1 {
+		t.Fatalf("precondition: merging %v, lead %q, needs-yous %d", p.merging, p.out.Lead(), len(p.needsYou()))
 	}
 	h.a.rulePass(context.Background(), []rule{{name: ruleNeeds, when: needsRule}, {name: ruleStopAlarm, when: stopAlarmRule}}, &Loop{})
 	if notes := h.panes.notes; len(notes) != 0 {

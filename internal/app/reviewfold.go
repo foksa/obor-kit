@@ -8,6 +8,7 @@ package app
 import (
 	"encoding/json"
 	"obor/internal/app/event"
+	"obor/internal/app/outbox"
 	"slices"
 	"strings"
 )
@@ -146,7 +147,7 @@ func (l *reviewLog) fold(r event.Record) {
 			l.ended(m.Ends, "")
 		}
 	case r.Step == event.StepStopped:
-		var d stoppedData
+		var d outbox.Stopped
 		if json.Unmarshal(r.Data, &d) == nil && d.Ends != "" { // an error stop: no finished line follows
 			l.ended(d.Ends, "the reviewer stopped: "+d.Error)
 		}

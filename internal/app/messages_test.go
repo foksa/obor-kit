@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"obor/internal/app/event"
+	"obor/internal/app/outbox"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/store"
@@ -145,7 +146,7 @@ func freshApp(t *testing.T, now *time.Time, agent, kind, status string) (*App, *
 	}
 	a, p := lineApp(t, root, now)
 	a.connect(context.Background(), port.Snapshot{Panes: []port.Pane{
-		{ID: "w:lead", Group: "proj", Cwd: root, Agent: "claude", Label: p.out.lead(), Status: "idle"},
+		{ID: "w:lead", Group: "proj", Cwd: root, Agent: "claude", Label: p.out.Lead(), Status: "idle"},
 		{ID: "w:role", Group: "proj", Cwd: root, Agent: kind, Label: agent, Status: status},
 	}})
 	// An idle deep dive's brief moves its role worktree first (T-853).
@@ -230,7 +231,7 @@ func TestFreshBriefPerRole(t *testing.T) {
 					t.Errorf("launches %+v, want %s fresh in w:role on the brief's line", s.launches, c.agent)
 				}
 				same(t, len(s.typed), 0, "lines typed")
-				key := event.Key{Task: event.MsgTask, Step: stepDeliver + fmt.Sprint(seq)}
+				key := event.Key{Task: event.MsgTask, Step: outbox.StepDeliver + fmt.Sprint(seq)}
 				same(t, resultOf(p, key), `"`+sentStart+`"`, "the line's delivery")
 				same(t, freshNeeds(a, p), "", "needs-you")
 				a.deliver(context.Background(), p, fx)
@@ -254,7 +255,7 @@ func TestFreshBriefSupersedesQueued(t *testing.T) {
 	fx := &Loop{Agents: s, Typer: s}
 	a.deliver(context.Background(), p, fx) // busy: the old line waits
 	a.mu.Lock()
-	queued := len(p.queuedLines())
+	queued := len(p.out.Queued())
 	a.mu.Unlock()
 	if queued != 1 || len(s.events)+len(s.typed) != 0 {
 		t.Fatalf("precondition: %d lines queued, events %q, typed %q", queued, s.events, s.typed)
@@ -276,7 +277,7 @@ func TestFreshBriefSupersedesQueued(t *testing.T) {
 	}
 	same(t, len(s.typed), 0, "lines typed")
 	a.mu.Lock()
-	queued = len(p.queuedLines())
+	queued = len(p.out.Queued())
 	a.mu.Unlock()
 	same(t, queued, 0, "lines still queued")
 }
@@ -359,9 +360,9 @@ func TestFreshBriefStopFails(t *testing.T) {
 	same(t, len(s.events), 1, "stops tried")
 	same(t, len(s.launches), 0, "starts after a failed stop")
 	a.mu.Lock()
-	queued := p.queuedLines()
+	queued := p.out.Queued()
 	a.mu.Unlock()
-	if len(queued) != 1 || queued[0].msg.Line != "[obor pj-lead] dig" {
+	if len(queued) != 1 || queued[0].Msg().Line != "[obor pj-lead] dig" {
 		t.Fatalf("queued %+v, want the fresh brief still pending", queued)
 	}
 	if got := freshNeeds(a, p); !strings.Contains(got, "fresh brief to pj-researcher") || !strings.Contains(got, "still working") {
@@ -403,7 +404,7 @@ func deliveredResults(t *testing.T, p *proj) int {
 	}
 	n := 0
 	for _, r := range recs {
-		if r.Kind == event.KindResult && r.Task == event.MsgTask && strings.HasPrefix(r.Step, stepDeliver) {
+		if r.Kind == event.KindResult && r.Task == event.MsgTask && strings.HasPrefix(r.Step, outbox.StepDeliver) {
 			n++
 		}
 	}
@@ -421,7 +422,7 @@ func TestLeadLinesOnePost(t *testing.T) {
 		To: "pj-rev", Text: "check"}); err != nil {
 		t.Fatal(err)
 	}
-	if n := len(p.queuedLines()); n != 4 {
+	if n := len(p.out.Queued()); n != 4 {
 		t.Fatalf("precondition: four lines queued, got %d", n)
 	}
 	l := &linerSpy{}
@@ -429,7 +430,7 @@ func TestLeadLinesOnePost(t *testing.T) {
 	if len(l.calls) != 2 || l.calls[1] != "w:rev: [obor owner] check" || !oneLeadPost(l.calls[0]) {
 		t.Errorf("posted %q, want one lead post of m1..m3 in order, then the brief", l.calls)
 	}
-	if n := len(p.queuedLines()); n != 0 {
+	if n := len(p.out.Queued()); n != 0 {
 		t.Errorf("%d lines still queued", n)
 	}
 	if n := deliveredResults(t, p); n != 4 {
@@ -453,7 +454,7 @@ func TestLeadLinesBatchReplay(t *testing.T) {
 		t.Fatalf("precondition: one post, got %q", l.calls)
 	}
 	b, q := lineReload(t, a, p, &now)
-	if n := len(q.queuedLines()); n != 0 {
+	if n := len(q.out.Queued()); n != 0 {
 		t.Errorf("after replay %d lines queued, want none", n)
 	}
 	b.deliver(context.Background(), q, linerLoop(l))
@@ -474,15 +475,15 @@ func TestLeadLinesFailedPost(t *testing.T) {
 	if len(l.calls) != 1 {
 		t.Fatalf("precondition: one refused post, got %q", l.calls)
 	}
-	if n := len(p.queuedLines()); n != 3 {
+	if n := len(p.out.Queued()); n != 3 {
 		t.Fatalf("%d lines queued after a refused post, want 3", n)
 	}
 	if n := deliveredResults(t, p); n != 0 {
 		t.Errorf("%d delivery results after a refused post, want 0", n)
 	}
-	for _, q := range p.queuedLines() {
-		if q.state != lineWaiting {
-			t.Errorf("line %d still claimed after the refusal", q.seq)
+	for _, q := range p.out.Queued() {
+		if q.State() != outbox.Waiting {
+			t.Errorf("line %d still claimed after the refusal", q.Seq())
 		}
 	}
 	l.refuse = false
@@ -490,7 +491,7 @@ func TestLeadLinesFailedPost(t *testing.T) {
 	if len(l.calls) != 2 || !oneLeadPost(l.calls[1]) {
 		t.Errorf("retry posted %q, want the three lines as one", l.calls)
 	}
-	if n := len(p.queuedLines()); n != 0 {
+	if n := len(p.out.Queued()); n != 0 {
 		t.Errorf("%d lines queued after the retry", n)
 	}
 }
@@ -519,8 +520,8 @@ func leadSend(t *testing.T, a *App, p *proj, note string) int64 {
 		From: "other", Text: note}); err != nil {
 		t.Fatal(err)
 	}
-	qs := p.queuedLines()
-	return qs[len(qs)-1].seq
+	qs := p.out.Queued()
+	return qs[len(qs)-1].Seq()
 }
 
 // deliveryResults counts the delivery results of p's log by their line's seq.
@@ -532,8 +533,8 @@ func deliveryResults(t *testing.T, p *proj) map[int64]int {
 	}
 	out := map[int64]int{}
 	for _, r := range recs {
-		if r.Kind == event.KindResult && r.Task == event.MsgTask && strings.HasPrefix(r.Step, stepDeliver) {
-			seq, _ := strconv.ParseInt(strings.TrimPrefix(r.Step, stepDeliver), 10, 64)
+		if r.Kind == event.KindResult && r.Task == event.MsgTask && strings.HasPrefix(r.Step, outbox.StepDeliver) {
+			seq, _ := strconv.ParseInt(strings.TrimPrefix(r.Step, outbox.StepDeliver), 10, 64)
 			out[seq]++
 		}
 	}
@@ -558,12 +559,12 @@ func postOf(call, target string, notes ...string) bool {
 func lostLeadResult(t *testing.T, a *App, p *proj, l *linerSpy) int64 {
 	t.Helper()
 	seqA := leadSend(t, a, p, "A")
-	refuseOnce(p, stepDeliver+strconv.FormatInt(seqA, 10))
+	refuseOnce(p, outbox.StepDeliver+strconv.FormatInt(seqA, 10))
 	a.deliver(context.Background(), p, linerLoop(l))
 	if len(l.calls) != 1 || !postOf(l.calls[0], "pj-lead", "A") {
 		t.Fatalf("precondition: one post of A, got %q", l.calls)
 	}
-	if n := len(p.queuedLines()); n != 1 || deliveryResults(t, p)[seqA] != 0 {
+	if n := len(p.out.Queued()); n != 1 || deliveryResults(t, p)[seqA] != 0 {
 		t.Fatalf("precondition: A queued, its result not in the log (queued %d)", n)
 	}
 	return seqA
@@ -582,7 +583,7 @@ func TestLeadLateResultNewLine(t *testing.T) {
 	if len(l.calls) != 2 || !postOf(l.calls[1], "pj-lead", "B") {
 		t.Errorf("posted %q, want A's post, then B alone", l.calls)
 	}
-	if n := len(p.queuedLines()); n != 0 {
+	if n := len(p.out.Queued()); n != 0 {
 		t.Errorf("%d lines still queued", n)
 	}
 	if got := deliveryResults(t, p); got[seqA] != 1 || got[seqB] != 1 || len(got) != 2 {
@@ -610,7 +611,7 @@ func TestLeadLateResultNewLineReplay(t *testing.T) {
 	if len(l.calls) != 3 || !postOf(l.calls[1], "pj-lead", "A") || !postOf(l.calls[2], "pj-lead", "B") {
 		t.Errorf("posted %q, want A, A again alone (its result never reached the log), then B alone", l.calls)
 	}
-	if n := len(q.queuedLines()); n != 0 {
+	if n := len(q.out.Queued()); n != 0 {
 		t.Errorf("%d lines still queued", n)
 	}
 	if got := deliveryResults(t, q); got[seqA] != 1 || got[seqB] != 1 || len(got) != 2 {
@@ -618,7 +619,7 @@ func TestLeadLateResultNewLineReplay(t *testing.T) {
 	}
 	c, r := lineReload(t, b, q, &now)
 	c.deliver(context.Background(), r, linerLoop(l))
-	if n := len(r.queuedLines()); n != 0 || len(l.calls) != 3 {
+	if n := len(r.out.Queued()); n != 0 || len(l.calls) != 3 {
 		t.Errorf("after a second replay: %d queued, posted %q", n, l.calls)
 	}
 }
@@ -630,11 +631,9 @@ func TestLeadLinesTwoTargets(t *testing.T) {
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	seqA := leadSend(t, a, p, "A")
-	a.mu.Lock()
-	p.out.leadAgent = "pj-newlead"
-	a.mu.Unlock()
+	relead(t, a, p, "pj-newlead")
 	seqB := leadSend(t, a, p, "B")
-	if qs := p.queuedLines(); len(qs) != 2 || qs[0].msg.To != "pj-lead" || qs[1].msg.To != "pj-newlead" {
+	if qs := p.out.Queued(); len(qs) != 2 || qs[0].Msg().To != "pj-lead" || qs[1].Msg().To != "pj-newlead" {
 		t.Fatalf("precondition: a line to each lead, got %d", len(qs))
 	}
 	l := &linerSpy{}
@@ -655,16 +654,14 @@ func TestLeadLinesOldTargetNoInbox(t *testing.T) {
 	a, p := lineApp(t, lineRoot(t), &now)
 	a.opt.Inboxed = func(agent string) (string, bool) { return "", agent != "pj-lead" }
 	seqA := leadSend(t, a, p, "A")
-	a.mu.Lock()
-	p.out.leadAgent = "pj-newlead"
-	a.mu.Unlock()
+	relead(t, a, p, "pj-newlead")
 	seqB := leadSend(t, a, p, "B")
 	l := &linerSpy{}
 	a.deliver(context.Background(), p, linerLoop(l))
 	if len(l.calls) != 1 || !postOf(l.calls[0], "pj-newlead", "B") {
 		t.Errorf("posted %q, want only B to pj-newlead", l.calls)
 	}
-	if qs := p.queuedLines(); len(qs) != 1 || qs[0].seq != seqA {
+	if qs := p.out.Queued(); len(qs) != 1 || qs[0].Seq() != seqA {
 		t.Errorf("queued %d lines, want A alone", len(qs))
 	}
 	if got := deliveryResults(t, p); got[seqB] != 1 || len(got) != 1 {
@@ -700,9 +697,9 @@ func lineTyped(calls []string, kind string) bool {
 }
 
 // queuedAt is p's undelivered line of fact seq (nil: none), by its outbox's queuedLines.
-func (p *proj) queuedAt(seq int64) *queued {
-	for _, q := range p.queuedLines() {
-		if q.seq == seq {
+func (p *proj) queuedAt(seq int64) *outbox.Line {
+	for _, q := range p.out.Queued() {
+		if q.Seq() == seq {
 			return q
 		}
 	}
@@ -721,18 +718,18 @@ func TestRefusedLineReplay(t *testing.T) {
 			queueLine(t, a, p, kind, now)
 			l := &linerSpy{refuse: true}
 			a.deliver(context.Background(), p, linerLoop(l))
-			if len(l.calls) != 1 || len(p.queuedLines()) != 1 {
-				t.Fatalf("precondition: one refused try of one queued line; calls %v, queued %d", l.calls, len(p.queuedLines()))
+			if len(l.calls) != 1 || len(p.out.Queued()) != 1 {
+				t.Fatalf("precondition: one refused try of one queued line; calls %v, queued %d", l.calls, len(p.out.Queued()))
 			}
 			b, q := lineReload(t, a, p, &now)
-			if len(q.queuedLines()) != 1 {
-				t.Fatalf("the refused line is not queued after reload: %d", len(q.queuedLines()))
+			if len(q.out.Queued()) != 1 {
+				t.Fatalf("the refused line is not queued after reload: %d", len(q.out.Queued()))
 			}
 			good := &linerSpy{}
 			b.deliver(context.Background(), q, linerLoop(good))
 			b.deliver(context.Background(), q, linerLoop(good))
-			if !lineTyped(good.calls, kind) || len(q.queuedLines()) != 0 {
-				t.Fatalf("after reload: want the %s line typed once, got %v (queued %d)", kind, good.calls, len(q.queuedLines()))
+			if !lineTyped(good.calls, kind) || len(q.out.Queued()) != 0 {
+				t.Fatalf("after reload: want the %s line typed once, got %v (queued %d)", kind, good.calls, len(q.out.Queued()))
 			}
 			c, s := lineReload(t, b, q, &now)
 			c.deliver(context.Background(), s, linerLoop(good))
@@ -801,8 +798,8 @@ func killedLines(t *testing.T, kind, mode string) []string {
 	now := time.Now()
 	l := &linerSpy{}
 	a, p := lineApp(t, root, &now)
-	if p.out.lead() != "pj-lead" {
-		t.Fatalf("precondition: lead pj-lead, got %s", p.out.lead())
+	if p.out.Lead() != "pj-lead" {
+		t.Fatalf("precondition: lead pj-lead, got %s", p.out.Lead())
 	}
 	a.deliver(context.Background(), p, linerLoop(l))
 	a.deliver(context.Background(), p, linerLoop(l))
@@ -867,11 +864,11 @@ func TestBriefCompletionReplay(t *testing.T) {
 			if note != "" {
 				lines = 1
 			}
-			if !p.out.brief("pj-rev").worked || len(l.calls) != lines {
-				t.Fatalf("precondition: work seen, no finished line yet; worked %v, calls %v", p.out.brief("pj-rev").worked, l.calls)
+			if !p.out.Brief("pj-rev").Worked() || len(l.calls) != lines {
+				t.Fatalf("precondition: work seen, no finished line yet; worked %v, calls %v", p.out.Brief("pj-rev").Worked(), l.calls)
 			}
 			b, q := lineReload(t, a, p, &now) // the reviewer idle on reconnect
-			if q.out.brief("pj-rev") == nil || !q.out.brief("pj-rev").worked {
+			if q.out.Brief("pj-rev") == nil || !q.out.Brief("pj-rev").Worked() {
 				t.Fatal("the brief's observed work is not replayed")
 			}
 			out := &linerSpy{}
@@ -903,7 +900,7 @@ func TestWorkedNotNewerBrief(t *testing.T) {
 	}
 	lineStatus(a, "w:rev", "working", now)
 	a.deliver(context.Background(), p, linerLoop(l))
-	if !p.out.brief("pj-rev").worked {
+	if !p.out.Brief("pj-rev").Worked() {
 		t.Fatal("precondition: the first brief's work is seen")
 	}
 	if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b2", Role: "lead"},
@@ -911,7 +908,7 @@ func TestWorkedNotNewerBrief(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, q := lineReload(t, a, p, &now)
-	if br := q.out.brief("pj-rev"); br == nil || br.worked {
+	if br := q.out.Brief("pj-rev"); br == nil || br.Worked() {
 		t.Fatalf("the newer brief is armed by the older one's work: %+v", br)
 	}
 	b.deliver(context.Background(), q, linerLoop(l))
@@ -932,14 +929,14 @@ func TestBriefKeepsAStartedDelivery(t *testing.T) {
 		To: "pj-rev", Text: "first"}); err != nil {
 		t.Fatal(err)
 	}
-	if len(p.queuedLines()) != 1 {
-		t.Fatalf("precondition: one brief queued, got %d", len(p.queuedLines()))
+	if len(p.out.Queued()) != 1 {
+		t.Fatalf("precondition: one brief queued, got %d", len(p.out.Queued()))
 	}
-	q := p.queuedLines()[0]
-	a.record(p, event.Record{Task: event.MsgTask, Attempt: 1, Step: stepDeliver + strconv.FormatInt(q.seq, 10),
-		Kind: event.KindIntent, Class: event.ClassPrompt}, lineData{To: "pj-rev"})
-	if m := p.queuedAt(q.seq); m == nil || m.state != lineSending {
-		t.Fatalf("precondition: the delivery in flight; queued %+v", p.queuedLines())
+	q := p.out.Queued()[0]
+	a.record(p, event.Record{Task: event.MsgTask, Attempt: 1, Step: outbox.StepDeliver + strconv.FormatInt(q.Seq(), 10),
+		Kind: event.KindIntent, Class: event.ClassPrompt}, outbox.LineData{To: "pj-rev"})
+	if m := p.queuedAt(q.Seq()); m == nil || m.State() != outbox.Sending {
+		t.Fatalf("precondition: the delivery in flight; queued %+v", p.out.Queued())
 	}
 	reply, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b2", Role: "lead"},
 		To: "pj-rev", Text: "second"})
@@ -949,10 +946,10 @@ func TestBriefKeepsAStartedDelivery(t *testing.T) {
 	if strings.Contains(reply, "replaces") {
 		t.Errorf("reply %q says it replaced a line whose delivery may have landed", reply)
 	}
-	if m := p.queuedAt(q.seq); m == nil || m.state != lineSending {
-		t.Errorf("the in-flight line was superseded: queued %+v", p.queuedLines())
+	if m := p.queuedAt(q.Seq()); m == nil || m.State() != outbox.Sending {
+		t.Errorf("the in-flight line was superseded: queued %+v", p.out.Queued())
 	}
-	if n := len(p.queuedLines()); n != 2 {
+	if n := len(p.out.Queued()); n != 2 {
 		t.Errorf("queued lines %d, want the in-flight one and the newer brief's", n)
 	}
 	recs, err := event.ReadLog(p.root)
@@ -995,7 +992,7 @@ func TestBriefSupersededEndsNeedsYou(t *testing.T) {
 	if len(p.folded.active[event.MsgTask]) != 0 {
 		t.Errorf("the needs-you of the superseded line is still in force: %+v", p.folded.active[event.MsgTask])
 	}
-	if q := p.queuedLines(); len(q) != 1 || q[0].msg.Line != "[obor owner] second" || len(l.calls) != 0 {
+	if q := p.out.Queued(); len(q) != 1 || q[0].Msg().Line != "[obor owner] second" || len(l.calls) != 0 {
 		t.Errorf("queued %v, typed %v; want the newer brief's line alone, waiting", q, l.calls)
 	}
 }
@@ -1015,8 +1012,8 @@ func TestBriefSupersedeSurvivesACrash(t *testing.T) {
 				To: "pj-rev", Text: "first"}); err != nil {
 				t.Fatal(err)
 			}
-			if len(p.queuedLines()) != 1 {
-				t.Fatalf("precondition: brief A queued, got %d", len(p.queuedLines()))
+			if len(p.out.Queued()) != 1 {
+				t.Fatalf("precondition: brief A queued, got %d", len(p.out.Queued()))
 			}
 			briefed := false
 			p.log.Refuse = func(r event.Record) error { // the crash cut: nothing after the new brief reaches the log
@@ -1035,8 +1032,8 @@ func TestBriefSupersedeSurvivesACrash(t *testing.T) {
 				t.Fatal("precondition: brief B's fact is in the log")
 			}
 			b, q := lineReload(t, a, p, &now)
-			for _, m := range q.queuedLines() {
-				if m.msg.Line == "[obor owner] first" {
+			for _, m := range q.out.Queued() {
+				if m.Msg().Line == "[obor owner] first" {
 					t.Errorf("brief A is queued again after the restart: %+v", m)
 				}
 			}
@@ -1091,7 +1088,7 @@ func TestBriefRetiresARoutedLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	lineStatus(a, "w:rev", "idle", now)
-	q := *p.queuedLines()[0]
+	q := *p.out.Queued()[0]
 	l := &linerSpy{}
 	fx := linerLoop(l)
 	a.mu.Lock()
@@ -1108,7 +1105,7 @@ func TestBriefRetiresARoutedLine(t *testing.T) {
 	if len(l.calls) != 0 {
 		t.Errorf("the retired line was transmitted: %v", l.calls)
 	}
-	if _, written := p.log.Intent(event.Key{Task: event.MsgTask, Step: stepDeliver + strconv.FormatInt(q.seq, 10)}); written {
+	if _, written := p.log.Intent(event.Key{Task: event.MsgTask, Step: outbox.StepDeliver + strconv.FormatInt(q.Seq(), 10)}); written {
 		t.Errorf("an intent was written for the retired line")
 	}
 	a.deliver(context.Background(), p, fx)
@@ -1160,17 +1157,17 @@ func TestBriefSupersedesSeveralLines(t *testing.T) {
 		To: "pj-rev", Text: "first"}); err != nil {
 		t.Fatal(err)
 	}
-	first := p.queuedLines()[0].seq
-	step := stepDeliver + strconv.FormatInt(first, 10)
-	a.record(p, event.Record{Task: event.MsgTask, Attempt: 1, Step: step, Kind: event.KindIntent, Class: event.ClassPrompt}, lineData{To: "pj-rev"})
+	first := p.out.Queued()[0].Seq()
+	step := outbox.StepDeliver + strconv.FormatInt(first, 10)
+	a.record(p, event.Record{Task: event.MsgTask, Attempt: 1, Step: step, Kind: event.KindIntent, Class: event.ClassPrompt}, outbox.LineData{To: "pj-rev"})
 	if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b2", Role: "lead"},
 		To: "pj-rev", Text: "second"}); err != nil {
 		t.Fatal(err)
 	}
 	a.record(p, event.Record{Task: event.MsgTask, Step: event.StepFailed, Kind: event.KindFact}, // A's delivery refused: undelivered again
 		event.FactData{Machine: Machine, Reason: step + ": refused", Step: step})
-	if len(p.queuedLines()) != 2 || p.queuedAt(first) == nil || p.queuedAt(first).state != lineWaiting {
-		t.Fatalf("precondition: two undelivered brief lines, none claimed; queued %+v", p.queuedLines())
+	if len(p.out.Queued()) != 2 || p.queuedAt(first) == nil || p.queuedAt(first).State() != outbox.Waiting {
+		t.Fatalf("precondition: two undelivered brief lines, none claimed; queued %+v", p.out.Queued())
 	}
 	reply, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b3", Role: "lead"},
 		To: "pj-rev", Text: "third"})
@@ -1178,7 +1175,7 @@ func TestBriefSupersedesSeveralLines(t *testing.T) {
 		t.Fatalf("brief C: %q, %v", reply, err)
 	}
 	check := func(when string, p *proj) {
-		if q := p.queuedLines(); len(q) != 1 || q[0].msg.Line != "[obor owner] third" {
+		if q := p.out.Queued(); len(q) != 1 || q[0].Msg().Line != "[obor owner] third" {
 			t.Errorf("%s: queued %+v, want brief C alone", when, q)
 		}
 	}
@@ -1246,18 +1243,18 @@ func TestBriefWorkDurableAtOnce(t *testing.T) {
 			l := &linerSpy{}
 			if c.note != "" {
 				a.deliver(context.Background(), p, linerLoop(l)) // the brief's line typed
-				if len(l.calls) != 1 || p.out.brief("pj-rev").worked {
+				if len(l.calls) != 1 || p.out.Brief("pj-rev").Worked() {
 					t.Fatalf("precondition: the line typed, no work seen yet; calls %v", l.calls)
 				}
 			}
 			if c.seen != nil {
 				c.seen(a, p)
 			}
-			if b := p.out.brief("pj-rev"); !b.worked || !b.logged {
+			if b := p.out.Brief("pj-rev"); !b.Worked() || !b.Logged() {
 				t.Fatalf("the work seen is not in the log once its caller returns: %+v", *b)
 			}
 			b, q := lineReload(t, a, p, &now) // no pass since; the reviewer idle on reconnect
-			if q.out.brief("pj-rev") == nil || !q.out.brief("pj-rev").worked {
+			if q.out.Brief("pj-rev") == nil || !q.out.Brief("pj-rev").Worked() {
 				t.Fatal("the brief's observed work is not replayed")
 			}
 			out := &linerSpy{}
@@ -1330,14 +1327,14 @@ func TestQueuedLeadLineAfterRename(t *testing.T) {
 			queueLine(t, a, p, kind, now)
 			first := &linerSpy{}
 			a.deliver(context.Background(), p, &Loop{Typer: first, Inbox: &inboxSpy{}}) // records the finished line
-			if len(first.calls) != 0 || len(p.queuedLines()) != 1 || !p.queuedLines()[0].lead {
-				t.Fatalf("precondition: one lead line queued, nothing typed; typed %v, queued %d", first.calls, len(p.queuedLines()))
+			if len(first.calls) != 0 || len(p.out.Queued()) != 1 || !p.out.Queued()[0].IsLead() {
+				t.Fatalf("precondition: one lead line queued, nothing typed; typed %v, queued %d", first.calls, len(p.out.Queued()))
 			}
 
 			registerLead(t, p.root, "pj-new")
 			b, q := lineReload(t, a, p, &now)
-			if q.out.lead() != "pj-new-lead" || len(q.queuedLines()) != 1 {
-				t.Fatalf("precondition: renamed lead %q with one line queued, got %d", q.out.lead(), len(q.queuedLines()))
+			if q.out.Lead() != "pj-new-lead" || len(q.out.Queued()) != 1 {
+				t.Fatalf("precondition: renamed lead %q with one line queued, got %d", q.out.Lead(), len(q.out.Queued()))
 			}
 			pane := b.obs["w:lead"].pane
 			pane.Label = "pj-lead" // the old lead's session still open and idle under its old name
@@ -1349,18 +1346,18 @@ func TestQueuedLeadLineAfterRename(t *testing.T) {
 			b.opt.Inboxed = func(string) (string, bool) { return "", false }
 			lines, posts := &linerSpy{}, &inboxSpy{}
 			b.deliver(context.Background(), q, &Loop{Typer: lines, Inbox: posts})
-			if len(lines.calls) != 0 || len(posts.calls) != 0 || len(q.queuedLines()) != 1 {
+			if len(lines.calls) != 0 || len(posts.calls) != 0 || len(q.out.Queued()) != 1 {
 				t.Fatalf("no inbox: typed %q, posted %q, queued %d; want nothing tried, still queued", lines.calls,
-					posts.calls, len(q.queuedLines()))
+					posts.calls, len(q.out.Queued()))
 			}
 
 			b.opt.Inboxed = func(string) (string, bool) { return "", true }
 			b.deliver(context.Background(), q, &Loop{Typer: lines, Inbox: posts})
 			b.deliver(context.Background(), q, &Loop{Typer: lines, Inbox: posts})
 			if len(lines.calls) != 0 || len(posts.calls) != 1 || !strings.HasPrefix(posts.calls[0], "pj-lead: [obor") ||
-				len(q.queuedLines()) != 0 {
+				len(q.out.Queued()) != 0 {
 				t.Errorf("inbox recorded: typed %q, posted %q, queued %d; want posted once, never typed", lines.calls,
-					posts.calls, len(q.queuedLines()))
+					posts.calls, len(q.out.Queued()))
 			}
 		})
 	}
@@ -1435,26 +1432,26 @@ func answerSeq(t *testing.T, h *harness) int64 {
 	t.Helper()
 	h.a.mu.Lock()
 	defer h.a.mu.Unlock()
-	qs := h.proj().queuedLines()
-	if len(qs) != 1 || !qs[0].answer {
+	qs := h.proj().out.Queued()
+	if len(qs) != 1 || !qs[0].IsAnswer() {
 		t.Fatalf("precondition: one queued answer, got %d lines", len(qs))
 	}
-	return qs[0].seq
+	return qs[0].Seq()
 }
 
 // lineAt is the state of line seq in p (ok false: it left the outbox).
-func lineAt(h *harness, p *proj, seq int64) (lineState, bool) {
+func lineAt(h *harness, p *proj, seq int64) (outbox.State, bool) {
 	h.a.mu.Lock()
 	defer h.a.mu.Unlock()
-	q := p.out.msgs[seq]
+	q := p.out.Line(seq)
 	if q == nil {
 		return 0, false
 	}
-	return q.state, true
+	return q.State(), true
 }
 
 // deliverKey is line seq's delivery key step.
-func deliverKey(seq int64) string { return stepDeliver + strconv.FormatInt(seq, 10) }
+func deliverKey(seq int64) string { return outbox.StepDeliver + strconv.FormatInt(seq, 10) }
 
 // lineRec records r with data in h's project (fatal when the log refuses it).
 func lineRec(t *testing.T, h *harness, r event.Record, data any) {
@@ -1467,7 +1464,7 @@ func lineRec(t *testing.T, h *harness, r event.Record, data any) {
 // claimIntent records line seq's delivery intent: its delivery began (sending).
 func claimIntent(t *testing.T, h *harness, seq int64) {
 	lineRec(t, h, event.Record{Task: event.MsgTask, Step: deliverKey(seq), Kind: event.KindIntent,
-		Class: event.ClassPrompt}, lineData{To: "pj-l-01"})
+		Class: event.ClassPrompt}, outbox.LineData{To: "pj-l-01"})
 }
 
 // submitT1 records T-1's submission: its question is settled another way.
@@ -1477,14 +1474,14 @@ func submitT1(t *testing.T, h *harness) {
 }
 
 // answerIn is busyAnswered's answer moved into state from, by the log's records.
-func answerIn(t *testing.T, from lineState) (*harness, int64) {
+func answerIn(t *testing.T, from outbox.State) (*harness, int64) {
 	t.Helper()
 	h := busyAnswered(t)
 	seq := answerSeq(t, h)
-	if from != lineWaiting {
+	if from != outbox.Waiting {
 		claimIntent(t, h, seq)
 	}
-	if from == lineSendingSettled {
+	if from == outbox.SendingSettled {
 		submitT1(t, h)
 	}
 	if s, ok := lineAt(h, h.proj(), seq); !ok || s != from {
@@ -1496,51 +1493,51 @@ func answerIn(t *testing.T, from lineState) (*harness, int64) {
 func TestLineStateTable(t *testing.T) {
 	t.Parallel()
 	events := map[string]struct {
-		e  lineEvent // the event next sees ("replay": none)
+		e  outbox.Event // the event next sees ("replay": none)
 		do func(t *testing.T, h *harness, seq int64)
 	}{
-		"delivered": {lineDelivered, func(t *testing.T, h *harness, seq int64) {
+		"delivered": {outbox.Delivered, func(t *testing.T, h *harness, seq int64) {
 			lineRec(t, h, event.Record{Task: event.MsgTask, Step: deliverKey(seq), Kind: event.KindResult}, "sent")
 		}},
-		"refused before a byte": {lineRefused, func(t *testing.T, h *harness, seq int64) {
+		"refused before a byte": {outbox.Refused, func(t *testing.T, h *harness, seq int64) {
 			lineRec(t, h, event.Record{Task: event.MsgTask, Step: event.StepFailed, Kind: event.KindFact},
 				event.FactData{Machine: Machine, Reason: deliverKey(seq) + ": dial: connection refused", Step: deliverKey(seq),
-					Via: viaInbox})
+					Via: outbox.ViaInbox})
 		}},
-		"error after a byte": {lineDelivered, func(t *testing.T, h *harness, seq int64) {
+		"error after a byte": {outbox.Delivered, func(t *testing.T, h *harness, seq int64) {
 			lineRec(t, h, event.Record{Task: event.MsgTask, Step: deliverKey(seq), Kind: event.KindResult},
 				"sent: broken pipe")
 		}},
-		"settled": {lineSettled, func(t *testing.T, h *harness, _ int64) { submitT1(t, h) }},
-		"dropped": {lineSettled, func(t *testing.T, h *harness, _ int64) {
+		"settled": {outbox.Settled, func(t *testing.T, h *harness, _ int64) { submitT1(t, h) }},
+		"dropped": {outbox.Settled, func(t *testing.T, h *harness, _ int64) {
 			lineRec(t, h, event.Record{Task: "T-1", Attempt: 1, Step: event.StepDropped, Kind: event.KindFact},
 				event.FactData{Lane: "L-01", Merge: true})
 		}},
 	}
-	const gone = lineState(255) // the line left the outbox (sent or retired: next says which)
+	const gone = outbox.State(255) // the line left the outbox (sent or retired: next says which)
 	for _, row := range []struct {
-		from  lineState
+		from  outbox.State
 		event string
-		want  lineState
+		want  outbox.State
 	}{
-		{lineWaiting, "delivered", lineSent},
-		{lineWaiting, "refused before a byte", lineWaiting},
-		{lineWaiting, "error after a byte", lineSent},
-		{lineWaiting, "settled", lineRetired},
-		{lineWaiting, "dropped", lineRetired},
-		{lineWaiting, "replay", lineWaiting},
-		{lineSending, "delivered", lineSent},
-		{lineSending, "refused before a byte", lineWaiting},
-		{lineSending, "error after a byte", lineSent},
-		{lineSending, "settled", lineSendingSettled},
-		{lineSending, "dropped", lineSendingSettled},
-		{lineSending, "replay", lineSending},
-		{lineSendingSettled, "delivered", lineSent},
-		{lineSendingSettled, "refused before a byte", lineRetired}, // RV-90 #1's race: settled, then refused
-		{lineSendingSettled, "error after a byte", lineSent},
-		{lineSendingSettled, "settled", lineSendingSettled},
-		{lineSendingSettled, "dropped", lineSendingSettled},
-		{lineSendingSettled, "replay", lineSendingSettled},
+		{outbox.Waiting, "delivered", outbox.Sent},
+		{outbox.Waiting, "refused before a byte", outbox.Waiting},
+		{outbox.Waiting, "error after a byte", outbox.Sent},
+		{outbox.Waiting, "settled", outbox.Retired},
+		{outbox.Waiting, "dropped", outbox.Retired},
+		{outbox.Waiting, "replay", outbox.Waiting},
+		{outbox.Sending, "delivered", outbox.Sent},
+		{outbox.Sending, "refused before a byte", outbox.Waiting},
+		{outbox.Sending, "error after a byte", outbox.Sent},
+		{outbox.Sending, "settled", outbox.SendingSettled},
+		{outbox.Sending, "dropped", outbox.SendingSettled},
+		{outbox.Sending, "replay", outbox.Sending},
+		{outbox.SendingSettled, "delivered", outbox.Sent},
+		{outbox.SendingSettled, "refused before a byte", outbox.Retired}, // RV-90 #1's race: settled, then refused
+		{outbox.SendingSettled, "error after a byte", outbox.Sent},
+		{outbox.SendingSettled, "settled", outbox.SendingSettled},
+		{outbox.SendingSettled, "dropped", outbox.SendingSettled},
+		{outbox.SendingSettled, "replay", outbox.SendingSettled},
 	} {
 		name := []string{"waiting", "sending", "sending-settled"}[row.from] + "/" + row.event
 		t.Run(name, func(t *testing.T) {
@@ -1554,12 +1551,12 @@ func TestLineStateTable(t *testing.T) {
 				return
 			}
 			ev := events[row.event]
-			if got := row.from.next(ev.e); got != row.want {
+			if got := row.from.Next(ev.e); got != row.want {
 				t.Errorf("next: %d, want %d", got, row.want)
 			}
 			ev.do(t, h, seq)
 			want := row.want
-			if want == lineSent || want == lineRetired {
+			if want == outbox.Sent || want == outbox.Retired {
 				want = gone
 			}
 			check := func(when string, p *proj) {
@@ -1580,9 +1577,9 @@ func TestLineStateTable(t *testing.T) {
 // Ended is ended: nothing moves a sent or retired line.
 func TestLineStateEndedStays(t *testing.T) {
 	t.Parallel()
-	for _, s := range []lineState{lineSent, lineRetired} {
-		for _, e := range []lineEvent{lineClaimed, lineDelivered, lineRefused, lineSettled, lineClosed} {
-			if got := s.next(e); got != s {
+	for _, s := range []outbox.State{outbox.Sent, outbox.Retired} {
+		for _, e := range []outbox.Event{outbox.Claimed, outbox.Delivered, outbox.Refused, outbox.Settled, outbox.Closed} {
+			if got := s.Next(e); got != s {
 				t.Errorf("%d on %d: %d, want it to stay", s, e, got)
 			}
 		}
@@ -1598,7 +1595,7 @@ func TestRV90RefusedAndSettled(t *testing.T) {
 	fx := &Loop{Inbox: in, Typer: &linerSpy{}}
 	h.a.deliver(context.Background(), h.proj(), fx)
 	seq := answerSeq(t, h)
-	if s, _ := lineAt(h, h.proj(), seq); len(in.calls) != 1 || s != lineWaiting {
+	if s, _ := lineAt(h, h.proj(), seq); len(in.calls) != 1 || s != outbox.Waiting {
 		t.Fatalf("precondition: one refused post, the answer waiting; posts %q, state %d", in.calls, s)
 	}
 	submitT1(t, h)
@@ -1661,9 +1658,9 @@ func TestRefusedPostTypedOnlyWhenIdle(t *testing.T) {
 	seq := answerSeq(t, h)
 	r := replayed(t, h)
 	h.a.mu.Lock()
-	rq := r.out.msgs[seq]
+	rq := r.out.Line(seq)
 	h.a.mu.Unlock()
-	if rq == nil || !rq.refusedPost || rq.state != lineWaiting || !strings.Contains(rq.refused, "agent_not_ready") {
+	if rq == nil || !rq.RefusedPost() || rq.State() != outbox.Waiting || !strings.Contains(rq.Refused(), "agent_not_ready") {
 		t.Errorf("replayed line %+v; want it waiting with its refused post and reason", rq)
 	}
 	h2 := staleHerdr(t)
@@ -1699,7 +1696,7 @@ func TestLeadLineRefusedReason(t *testing.T) {
 	}
 	l.refuse = false
 	a.deliver(context.Background(), p, linerLoop(l))
-	if len(l.calls) != 2 || !strings.HasPrefix(l.calls[1], "pj-lead: ") || len(p.queuedLines()) != 0 {
+	if len(l.calls) != 2 || !strings.HasPrefix(l.calls[1], "pj-lead: ") || len(p.out.Queued()) != 0 {
 		t.Errorf("calls %q; want the lead line posted again to pj-lead (not typed into its pane)", l.calls)
 	}
 }
@@ -1754,7 +1751,7 @@ func closedUnsent(h *harness, seq int64) (closed bool, others []string) {
 		if r.Kind != event.KindResult || r.Step != deliverKey(seq) {
 			continue
 		}
-		if strings.Contains(string(r.Data), retiredResult) {
+		if strings.Contains(string(r.Data), outbox.RetiredResult) {
 			closed = true
 		} else {
 			others = append(others, string(r.Data))
@@ -1800,7 +1797,7 @@ func TestSettledOpenDeliveryClosedUnsent(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			h, seq := answerIn(t, lineSendingSettled)
+			h, seq := answerIn(t, outbox.SendingSettled)
 			tc.pane(h)
 			if w := h.where("pj-l-01"); !strings.HasPrefix(w, tc.where) {
 				t.Fatalf("precondition: pj-l-01 is %q, want %s", w, tc.where)
@@ -1837,14 +1834,14 @@ func TestSettledOpenDeliveryClosedUnsent(t *testing.T) {
 // worker still working, and a replay after that keeps it closed (T-749).
 func TestSettledOpenDeliveryClosedAfterReplay(t *testing.T) {
 	t.Parallel()
-	h, seq := answerIn(t, lineSendingSettled)
+	h, seq := answerIn(t, outbox.SendingSettled)
 	h.a.closeLog()
 	a := New(Options{Root: h.root, Now: func() time.Time { return h.now }}, h.panes, h.lanes)
 	p, err := a.load(h.root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s, ok := lineAt(&harness{a: a}, p, seq); !ok || s != lineSendingSettled {
+	if s, ok := lineAt(&harness{a: a}, p, seq); !ok || s != outbox.SendingSettled {
 		t.Fatalf("precondition: replayed line in state %d (queued %v), want sending settled", s, ok)
 	}
 	h.now = h.now.Add(msgWait + time.Minute)
@@ -1880,7 +1877,7 @@ func TestSettledInFlightDeliveryLeftAlone(t *testing.T) {
 	}()
 	<-post.started
 	submitT1(t, h)
-	if s, ok := lineAt(h, h.proj(), seq); !ok || s != lineSendingSettled {
+	if s, ok := lineAt(h, h.proj(), seq); !ok || s != outbox.SendingSettled {
 		t.Fatalf("precondition: the in-flight line in state %d (queued %v), want sending settled", s, ok)
 	}
 	h.status("w1:p1", func(p *port.Pane) { p.Status = "working" })
@@ -1888,7 +1885,7 @@ func TestSettledInFlightDeliveryLeftAlone(t *testing.T) {
 	if closed, others := closedUnsent(h, seq); closed || len(others) != 0 {
 		t.Errorf("retired result %v, other results %q while its post runs; want none", closed, others)
 	}
-	if s, ok := lineAt(h, h.proj(), seq); !ok || s != lineSendingSettled {
+	if s, ok := lineAt(h, h.proj(), seq); !ok || s != outbox.SendingSettled {
 		t.Errorf("the in-flight line in state %d (queued %v); want it left sending settled", s, ok)
 	}
 	close(post.release)
@@ -1916,20 +1913,26 @@ func TestLogWorkedTwoPassesAtOnceRecordOneFact(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := &App{opt: Options{Now: func() time.Time { return logNow }, Out: io.Discard}}
-	p := &proj{name: "proj", log: log, folded: newFolded(), out: newOutbox("pj-lead", "")}
+	p := &proj{name: "proj", log: log, folded: newFolded(), out: outbox.New("pj-lead", "")}
 	const rounds = 40
 	for i := range rounds {
 		agent := "pj-r" + string(rune('a'+i%26)) + string(rune('a'+i/26))
-		b := &brief{seq: int64(1000 + i), worked: true}
-		p.out.briefs[agent] = b
+		data, _ := json.Marshal(event.Message{To: agent}) // a brief without a line, its work seen
+		p.out.Fold(event.Record{Seq: int64(1000 + i), Task: event.MsgTask, Step: event.StepBriefed, Kind: event.KindFact,
+			Data: data}, p.oldLineOf)
+		p.out.SawWork(agent)
+		b := p.out.Brief(agent)
+		if b == nil || !b.Worked() || b.Logged() {
+			t.Fatalf("round %d: precondition: an open brief, its work seen, not logged; got %+v", i, b)
+		}
 		var wg sync.WaitGroup
 		for range 2 {
 			wg.Add(1)
 			go func() { defer wg.Done(); a.logWorked(p) }()
 		}
 		wg.Wait()
-		if !b.logged || b.logging {
-			t.Fatalf("round %d: brief logged %v, logging %v; want its fact folded and no claim left", i, b.logged, b.logging)
+		if !b.Logged() || b.Logging {
+			t.Fatalf("round %d: brief logged %v, logging %v; want its fact folded and no claim left", i, b.Logged(), b.Logging)
 		}
 	}
 	db.Close()
@@ -1946,7 +1949,7 @@ func TestLogWorkedTwoPassesAtOnceRecordOneFact(t *testing.T) {
 	per := map[int64]int{}
 	for _, r := range recs {
 		if r.Task == event.MsgTask && r.Step == event.StepWorked {
-			var d workedData
+			var d outbox.Worked
 			_ = json.Unmarshal(r.Data, &d)
 			per[d.Brief]++
 		}
@@ -1959,4 +1962,24 @@ func TestLogWorkedTwoPassesAtOnceRecordOneFact(t *testing.T) {
 			t.Errorf("brief %d: %d worked facts, want 1", seq, n)
 		}
 	}
+}
+
+// relead renames p's lead to lead as a restart with that config would: its outbox folded anew from the log's records
+// (the outbox's lead is its configured one; T-1067).
+func relead(t *testing.T, a *App, p *proj, lead string) {
+	t.Helper()
+	recs, err := event.ReadLog(p.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	o := outbox.New(lead, p.out.LeadKind())
+	for _, r := range recs {
+		if settles(r) {
+			o.RetireAnswers(r.Task, 0)
+		}
+		o.Fold(r, p.oldLineOf)
+	}
+	p.out = o
 }

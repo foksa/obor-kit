@@ -130,7 +130,7 @@ func configRig(t *testing.T) (*harness, *fakeConfig) {
 	h.lanes.lanes[0].Task = "" // L-01 free
 	h.connect()
 	h.a.mu.Lock()
-	lead := h.a.p.out.lead()
+	lead := h.a.p.out.Lead()
 	h.a.mu.Unlock()
 	if lead != "pj-lead" {
 		t.Fatalf("precondition: the lead is %q, want pj-lead", lead)

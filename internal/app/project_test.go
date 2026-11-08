@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"obor/internal/app/event"
+	"obor/internal/app/outbox"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
 )
@@ -120,7 +121,7 @@ func TestStopAfterCloseNoFact(t *testing.T) {
 			if c.end != "" {
 				r.closeTask(c.proj, c.task, c.end, c.live)
 			}
-			d := stoppedData{Agent: c.proj + "-o-0x", Error: "rate_limit",
+			d := outbox.Stopped{Agent: c.proj + "-o-0x", Error: "rate_limit",
 				NeedsYou: &event.FactData{Lane: "O-0x", Reason: "stopped: rate_limit"}, Message: event.Message{Task: c.task}}
 			if !a.record(p, event.Record{Task: event.MsgTask, Step: event.StepStopped, Kind: event.KindFact}, d) {
 				t.Fatal("the stop was not recorded")
@@ -170,7 +171,7 @@ func TestClosedTaskMergeNeedsYouLine(t *testing.T) {
 			t.Parallel()
 			r := newConcRig(t)
 			a, p := r.app(c.proj), r.proj(c.proj)
-			if p.out.leadAgent == "" || !p.merging {
+			if p.out.Lead() == "" || !p.merging {
 				t.Fatal("precondition: no lead agent or no merge loop: the needs rule lines nothing")
 			}
 			r.closeTask(c.proj, c.task, c.end, c.live)

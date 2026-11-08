@@ -259,7 +259,7 @@ const ruleWatch = "watch"
 func watchRule(_ context.Context, a *App, p *proj, _ *Loop, _ time.Time) (int64, action, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if p.out.lead() == "" {
+	if p.out.Lead() == "" {
 		return 0, action{}, false
 	}
 	for _, set := range p.openWatches() {
