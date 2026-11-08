@@ -234,6 +234,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   lane branch first.
 - (T-334) Two `sendback`s (the lead's lane form and the integrator's MCP verb): rename or drop the lane form.
 ## Concerns
+- (lead 11-08) **After T-1067 merges:** spec `dispatch.go`'s split by concern within `internal/app` (dispatch request, waiting queue, lane pick; owner decision 11-08 step 3), measured on the post-6/7 layout.
 - (lead 11-08) **axis-alies owes a v0.31 config line** (its serve was down at the release, `obor send` failed): when its serve is up, `obor send ~/Gamedev/axis-alies` the change — add `"command": "obor-kind-opencode"` to `kinds.opencode` (or `obor setup agents`), `obor config validate`, commit; without it the kit binary is used until v0.32.0 with a WARN. Bun project: lane_env/flake/retest don't apply; it sets none of the nine retired keys.
 - (lead 11-08) **Serve fires waiting work on the old binary before its self-restart after a merge:** `obor review --after T-1059,T-1060` fired at 19:35:16Z on 77df169's serve and hit the very bug T-1059 fixed; serve restarted on the new binary ~30 s later. A fix to serve's own code is live only after that restart, so an --after request or dispatch that tests the fix should fire after it (restart first, then fire). Small; decide when it bites again.
 - (lead 11-07) `internal/affected/affected.go:~60`: the directory walk never stops at `/` for an absolute path (infinite loop; only reachable with a malformed changed-files list).
