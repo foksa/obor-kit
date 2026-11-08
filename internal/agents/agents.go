@@ -140,6 +140,20 @@ func ProjectWarnings(dir string, read ReadFile) []string {
 	return out
 }
 
+// InstallHost is the machine a kind's CLI is installed on, the adapter's I/O handed to a pure check (T-1045).
+type InstallHost struct {
+	GOOS        string                            // runtime.GOOS
+	LookPath    func(name string) (string, error) // the CLI on the user's PATH
+	Resolve     func(path string) (string, error) // symlinks followed (filepath.EvalSymlinks)
+	Quarantined func(path string) bool            // the file carries macOS's com.apple.quarantine flag
+}
+
+// InstallChecker is a kind that checks its CLI's install: Warnings are `obor setup mcp`'s lines, one per problem,
+// each naming the file and the fix (obor applies none).
+type InstallChecker interface {
+	InstallWarnings(h InstallHost) []string
+}
+
 // Stop is a kind's quit recipe.
 type Stop struct {
 	Quit        string   // typed with Enter ("/exit", "/quit")
