@@ -160,6 +160,7 @@ func TestPromoteShaBehindThePromotedBranch(t *testing.T) {
 // A red check reruns its failing tests once (commands.retest): green then is GREEN, retried; red again is RED with the
 // failing test named.
 func TestPromoteRetestsRedOnce(t *testing.T) {
+	testkit.Slow(t) // 30.6 s: its retest cases' subtests queue at 2 cores (T-1004: the 2-core budget)
 	t.Parallel()
 	const grep = `^--- FAIL|^FAIL\s`
 	const redOne = `echo "--- FAIL: TestAlpha (0.01s)"; echo "FAIL example.com/pkg 0.03s"; exit 1`

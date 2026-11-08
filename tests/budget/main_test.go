@@ -118,8 +118,9 @@ func TestCheckBreaches(t *testing.T) {
 }
 
 // T-1002, T-1004: a Slow-marked test is the short tier's skipped test whose output carries testkit.Slow's message; a
-// top-level test's time spans its own `run` to the last end event of it or a subtest (RV-139 #2: a parent with parallel
-// subtests reports 0 s in its own pass Elapsed), and the package's own verdict is the tier's wall time.
+// top-level test's time runs from its last `cont` (its `run` when it never paused) to the last end event of it or a
+// subtest (RV-139 #2: a parent with parallel subtests reports 0 s in its own pass Elapsed); a parallel test's queue
+// wait between `pause` and `cont` is not its time (rev 3); the package's own verdict is the tier's wall time.
 func TestParseRun(t *testing.T) {
 	const passing = `{"Action":"start","Package":"p"}
 {"Action":"run","Test":"TestA","Time":"2024-01-02T15:04:05Z"}
@@ -152,13 +153,17 @@ func TestParseRun(t *testing.T) {
 	}
 
 	// T-1004: a parent whose two subtests call t.Parallel() passes with Elapsed 0 (its own body), the children end
-	// 1.4 s later; the parent's time is their span, not 0.
+	// 1.4 s later; the parent's time is their span, not 0. The children pause and resume, which changes none of it.
 	const parallel = `{"Action":"start","Package":"p"}
 {"Action":"run","Test":"TestP","Time":"2024-01-02T15:04:05Z"}
 {"Action":"run","Test":"TestP/a","Time":"2024-01-02T15:04:05Z"}
+{"Action":"pause","Test":"TestP/a","Time":"2024-01-02T15:04:05.1Z"}
 {"Action":"run","Test":"TestP/b","Time":"2024-01-02T15:04:05Z"}
-{"Action":"pass","Test":"TestP/a","Elapsed":1.4,"Time":"2024-01-02T15:04:06.4Z"}
-{"Action":"pass","Test":"TestP/b","Elapsed":1.4,"Time":"2024-01-02T15:04:06.4Z"}
+{"Action":"pause","Test":"TestP/b","Time":"2024-01-02T15:04:05.1Z"}
+{"Action":"cont","Test":"TestP/a","Time":"2024-01-02T15:04:05.2Z"}
+{"Action":"cont","Test":"TestP/b","Time":"2024-01-02T15:04:05.2Z"}
+{"Action":"pass","Test":"TestP/a","Elapsed":1.2,"Time":"2024-01-02T15:04:06.4Z"}
+{"Action":"pass","Test":"TestP/b","Elapsed":1.2,"Time":"2024-01-02T15:04:06.4Z"}
 {"Action":"pass","Test":"TestP","Elapsed":0,"Time":"2024-01-02T15:04:06.4Z"}
 {"Action":"pass","Package":"p","Elapsed":1.5}
 `
@@ -166,6 +171,21 @@ func TestParseRun(t *testing.T) {
 	if want := []Test{{Name: "TestP", Elapsed: 1.4}}; len(r.Tests) != 1 || r.Tests[0].Name != want[0].Name ||
 		math.Abs(r.Tests[0].Elapsed-want[0].Elapsed) > 1e-6 {
 		t.Errorf("parseRun's parallel parent %v; want %v (its subtests' span, not its own 0 s pass)", r.Tests, want)
+	}
+
+	// T-1004 rev 3: a parallel top-level test pauses for 30 s in the queue, resumes (`cont`) and ends 0.2 s later.
+	// The queue wait is not its time: the span runs from the last cont, not from the run event.
+	const queued = `{"Action":"start","Package":"p"}
+{"Action":"run","Test":"TestQueued","Time":"2024-01-02T15:04:05Z"}
+{"Action":"pause","Test":"TestQueued","Time":"2024-01-02T15:04:05.1Z"}
+{"Action":"cont","Test":"TestQueued","Time":"2024-01-02T15:04:35Z"}
+{"Action":"pass","Test":"TestQueued","Elapsed":0.2,"Time":"2024-01-02T15:04:35.2Z"}
+{"Action":"pass","Package":"p","Elapsed":30.3}
+`
+	r = parseRun([]byte(queued))
+	if want := []Test{{Name: "TestQueued", Elapsed: 0.2}}; len(r.Tests) != 1 || r.Tests[0].Name != want[0].Name ||
+		math.Abs(r.Tests[0].Elapsed-want[0].Elapsed) > 1e-6 {
+		t.Errorf("parseRun's queued test %v; want %v (its span from the last cont, not the 30 s queue wait)", r.Tests, want)
 	}
 
 	const buildFail = `{"Action":"build-output","Output":"# p\n./p_test.go:1:1: undefined: y\n"}

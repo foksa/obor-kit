@@ -125,8 +125,9 @@ func (r Run) failure() string {
 
 // parseRun reads one `go test -json` tier's output. Non-JSON lines (the go command's own, such as `? pkg [no test
 // files]` or a `go: downloading` note) are ignored. A top-level test's time is the span of its events' Time fields,
-// from its `run` to the last `pass`/`fail` of it or one of its subtests: for a test whose subtests call t.Parallel()
-// go reports the parent's own pass Elapsed as 0 without the children's run (RV-139 #2).
+// from its last `cont` (its `run` when it never paused) to the last `pass`/`fail` of it or one of its subtests: for a
+// test whose subtests call t.Parallel() go reports the parent's own pass Elapsed as 0 without the children's run
+// (RV-139 #2), and a parallel test's wait in the queue, between `pause` and `cont`, is not its time (rev 3).
 func parseRun(out []byte) Run {
 	r := Run{Slow: map[string]bool{}}
 	outputs := map[string]*strings.Builder{}
@@ -156,9 +157,9 @@ func parseRun(out []byte) Run {
 				b.WriteString(e.Output)
 			}
 			switch e.Action {
-			case "run":
+			case "run", "cont":
 				if top {
-					start[e.Test] = e.Time
+					start[e.Test] = e.Time // the last cont wins over the run: the queue wait before it is not the test's
 				}
 			case "pass", "fail":
 				// The event's test, or the top-level test a subtest belongs to.

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"obor/internal/app/port"
+	"obor/internal/testkit"
 )
 
 // T-917 (RV-123 V1): a replay mismatch has no unmerged path, so the gate outcome carries the checked resolution and the
@@ -15,6 +16,7 @@ import (
 
 // The review's fixture and each kind of move (a disjoint package, an importer, go.mod) reach the same mismatch.
 func TestReplayMismatchOutcomeNamesCheckedResolution(t *testing.T) {
+	testkit.Slow(t) // 16.1 s: its cases' subtests queue at 2 cores (T-1004: the 2-core budget)
 	t.Parallel()
 	for _, c := range []struct{ name, file, old, new string }{
 		{"a disjoint package", "d/d.go", "return 1", "return 20"},
@@ -60,6 +62,7 @@ func TestUnmergedConflictHasNoMismatch(t *testing.T) {
 
 // Committing the staged merge unchanged is refused; restoring the lost edit is accepted and gated.
 func TestResolvedRefusesMismatchUntilEditRestored(t *testing.T) {
+	testkit.Slow(t) // 1.26 s: a checked resolution and a restored edit (T-1004: the 2-core budget)
 	t.Parallel()
 	y, sha, res, _ := resolvedTmpl(true).resolved(t, true)
 	y.edit(y.Root, "d/d.go", "return 1", "return 20")

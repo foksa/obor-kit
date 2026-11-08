@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"obor/internal/app/port"
+	"obor/internal/testkit"
 )
 
 // afterMergeFx is a fresh fixture with after_merge v (commands.after_merge) whose candidate is published: the fixture
@@ -30,6 +31,7 @@ func afterMergeLog(cand port.Candidate) string {
 // (T-414: on 2026-10-25 a stale dist/obor after a merge had no trace). It keeps no record of its own (T-525: its intent
 // in the store is the once), so a second call runs it again.
 func TestScratchAfterMerge(t *testing.T) {
+	testkit.Slow(t) // 13.7 s: its three cases' subtests queue at 2 cores (T-1004: the 2-core budget)
 	t.Parallel()
 	t.Run("runs in the main checkout, its output in the log, again on a second call", func(t *testing.T) {
 		t.Parallel()

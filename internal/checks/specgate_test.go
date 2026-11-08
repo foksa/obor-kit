@@ -14,7 +14,7 @@ import (
 // its subject, and writes no spec file into the tree; a lane's own copy stays the task's change. No stored spec: the
 // subject alone. One scratch repo carries the rows (the lane's own copy, which leaves the file in the lane, last).
 func TestGateSpecInMessage(t *testing.T) {
-	testkit.Slow(t) // 1.09 s: three submits and gates over one scratch repo (the 11-08 budget line)
+	testkit.Slow(t) // 1.16 s: three submits and gates over one scratch repo (T-1004: the 2-core budget)
 	t.Parallel()
 	const stored = "# T-05 — Stored\n\nfeature.txt\n"
 	y := newSx(t, cmd("check", "echo 1 pass"))
@@ -113,6 +113,7 @@ func TestGateResolvedSpecInMessage(t *testing.T) {
 // path — the gate's own merge, a moved target, the integrator's resolved merge — while the no-title subject stays its
 // first line alone.
 func TestMergeMessageSummaryBody(t *testing.T) {
+	testkit.Slow(t) // 20.9 s: its case's subtests queue at 2 cores (T-1004: the 2-core budget)
 	t.Parallel()
 	const summary = "Cut the subject at 100."
 	const body = "Cut the subject at 100.\n" +

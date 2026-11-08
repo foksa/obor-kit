@@ -45,7 +45,6 @@ func resolvedGreen(y *sx, extra bool) (string, string, port.Candidate) {
 // The review's fixture: the resolution also changed b/b.go, main then moves in disjoint d/d.go; the replay drops the
 // b/b.go edit. Before T-915 the moved gate went green with that edit lost.
 func TestRV123RerereDropsOtherResolvedEdits(t *testing.T) {
-	testkit.Slow(t) // 1.01 s: a conflict fixture, its resolution and a moved gate (the 11-08 budget line)
 	t.Parallel()
 	y, sha, res, old := resolvedTmpl(true).resolved(t, true)
 	y.eq(y.Git(y.Root, "show", old.SHA+":b/b.go"), "package b\n\nfunc B() int { return 40 }", "precondition: the checked resolution holds b's edit")
@@ -68,6 +67,7 @@ func TestRV123RerereDropsOtherResolvedEdits(t *testing.T) {
 // checked resolution is clean: compiled and green, its message saying the resolution was reused; one that differs (the
 // resolution's extra b/b.go edit lost) is a conflict, nothing compiled.
 func TestReplayedResolutionCleanOnlyWhenEqual(t *testing.T) {
+	testkit.Slow(t) // 17.0 s: its six cases' subtests queue at 2 cores (T-1004: the 2-core budget)
 	t.Parallel()
 	for _, c := range []struct {
 		name string
