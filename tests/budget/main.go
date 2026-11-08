@@ -8,7 +8,9 @@
 //
 //	short_s / full_s   go test's package Elapsed against tests/budget.json (seconds)
 //	git_procs          git processes the full tier started, against git_procs
-//	test/<name>        a top-level test >= 1 s that is not testkit.Slow (the short tier's skip names the marked ones)
+//	test/<name>        a top-level test over its `tests` cap, or over `untagged_s` with neither a cap nor testkit.Slow
+//	                   (T-1004: a test's cost is its own Elapsed plus every paused subtest's; the -short tier's skip
+//	                   names the Slow-marked ones)
 //	tmp                entries left in the private TMPDIR after the runs
 //
 // A missing entry for a package with tests is a breach too, so a new package is never unbudgeted. A green run prints
@@ -16,7 +18,7 @@
 //
 // The budgets are seeded from one quiet machine's run x1.5: `go run ./tests/budget -seed` prints the file to stdout.
 // A budget is raised only by an owner line in docs/decisions.md and lowered by any task that gets under it (docs/plan/
-// test-suite-rework.md §3).
+// test-suite-rework.md §3). Per-test caps are hand-set after a seed: they record a cost the project accepts.
 package main
 
 import (
@@ -46,7 +48,9 @@ type Budget struct {
 
 // File is tests/budget.json.
 type File struct {
-	Packages map[string]Budget `json:"packages"`
+	UntaggedS float64            `json:"untagged_s"` // the cost at which a test with neither a cap nor testkit.Slow is reported
+	Tests     map[string]float64 `json:"tests"`      // "<pkg> <TestName>" -> the cost it may take (seconds)
+	Packages  map[string]Budget  `json:"packages"`
 }
 
 // Test is one top-level test's full-tier time.
@@ -71,10 +75,10 @@ type Run struct {
 const slowMark = "slow: runs in make check"
 
 // check returns one FAIL budget line per breach and the number of packages it compared.
-func check(budget map[string]Budget, pkgs []string, full, short map[string]Run, tmpLeft []string) (lines []string, n int) {
+func check(budget File, pkgs []string, full, short map[string]Run, tmpLeft []string) (lines []string, n int) {
 	n = len(pkgs)
 	for _, pkg := range pkgs {
-		b, ok := budget[pkg]
+		b, ok := budget.Packages[pkg]
 		if !ok {
 			lines = append(lines, "FAIL budget: "+pkg+" missing from tests/budget.json")
 			continue
@@ -96,8 +100,14 @@ func check(budget map[string]Budget, pkgs []string, full, short map[string]Run, 
 			lines = append(lines, fmt.Sprintf("FAIL budget: %s short_s %.1fs > %.1fs", pkg, s.Elapsed, b.ShortS))
 		}
 		for _, t := range f.Tests {
-			if t.Elapsed >= 1 && !s.Slow[t.Name] {
-				lines = append(lines, fmt.Sprintf("FAIL budget: %s test/%s %.2fs >= 1s without testkit.Slow", pkg, t.Name, t.Elapsed))
+			if limit, ok := budget.Tests[pkg+" "+t.Name]; ok {
+				if t.Elapsed > limit {
+					lines = append(lines, fmt.Sprintf("FAIL budget: %s test/%s %.2fs > %.1fs", pkg, t.Name, t.Elapsed, limit))
+				}
+				continue
+			}
+			if t.Elapsed >= budget.UntaggedS && !s.Slow[t.Name] {
+				lines = append(lines, fmt.Sprintf("FAIL budget: %s test/%s %.2fs >= %.1fs without testkit.Slow", pkg, t.Name, t.Elapsed, budget.UntaggedS))
 			}
 		}
 	}
@@ -203,10 +213,15 @@ func parseRun(out []byte) Run {
 	return r
 }
 
+// untaggedDefault is the tolerance a seeded file carries: a test without a cap or testkit.Slow is reported at this
+// cost, so a test that measures 0.74 s once and 1.03 s the next time does not flap (T-1004).
+const untaggedDefault = 1.3
+
 // seed is the measured budgets x1.5, rounded up to a tenth of a second (git processes rounded up too): one quiet
-// machine's run with headroom for the nightly's noise.
+// machine's run with headroom for the nightly's noise. Per-test caps are not seeded: they record a cost the project
+// accepts, so they are set by hand on top of a seeded file.
 func seed(full, short map[string]Run) File {
-	f := File{Packages: map[string]Budget{}}
+	f := File{UntaggedS: untaggedDefault, Packages: map[string]Budget{}}
 	for pkg, r := range full {
 		f.Packages[pkg] = Budget{
 			ShortS:   math.Ceil(short[pkg].Elapsed*1.5*10) / 10,
@@ -421,6 +436,9 @@ func load(root string) (File, error) {
 	if len(f.Packages) == 0 {
 		return f, errors.New("tests/budget.json: no packages")
 	}
+	if f.UntaggedS <= 0 {
+		return f, errors.New("tests/budget.json: no untagged_s")
+	}
 	return f, nil
 }
 
@@ -457,7 +475,7 @@ func run() int {
 	if err != nil {
 		return fail(err)
 	}
-	budget := File{Packages: map[string]Budget{}}
+	budget := File{}
 	if !*seedFlag {
 		if budget, err = load(root); err != nil {
 			return fail(err)
@@ -488,7 +506,7 @@ func run() int {
 		fmt.Println(string(b))
 		return 0
 	}
-	lines, n := check(budget.Packages, pkgs, full, short, r.leftovers())
+	lines, n := check(budget, pkgs, full, short, r.leftovers())
 	for _, line := range lines {
 		fmt.Println(line)
 	}

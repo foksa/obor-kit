@@ -209,7 +209,6 @@ func TestLanePrepareCanceledEndsSetup(t *testing.T) {
 // changed; --discard drops both; then the lane is detached at the target and the branch deleted, and freeing again
 // converges.
 func TestLaneFree(t *testing.T) {
-	testkit.Slow(t) // 1.41 s: its cases over fixture repos (T-1004: the 2-core budget)
 	t.Parallel()
 	for _, c := range []struct {
 		name           string
@@ -284,7 +283,6 @@ func TestLaneFree(t *testing.T) {
 // Calls 2–4 read the branch, ancestry and unmerged commits. None may turn a
 // read failure into permission to detach or delete, even with --discard.
 func TestLaneFreeHistoryFailurePreservesBranch(t *testing.T) {
-	testkit.Slow(t) // 2.96 s: three failure points over fixture repos (T-1004: the 2-core budget)
 	t.Parallel()
 	for _, failAt := range []int{2, 3, 4} {
 		for _, discard := range []bool{false, true} {

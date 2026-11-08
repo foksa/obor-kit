@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"obor/internal/app/port"
-	"obor/internal/testkit"
 )
 
 // T-915 (RV-123 #1): git rerere replays conflict hunks, not the whole resolution commit. A moved gate whose merge
@@ -45,7 +44,6 @@ func resolvedGreen(y *sx, extra bool) (string, string, port.Candidate) {
 // The review's fixture: the resolution also changed b/b.go, main then moves in disjoint d/d.go; the replay drops the
 // b/b.go edit. Before T-915 the moved gate went green with that edit lost.
 func TestRV123RerereDropsOtherResolvedEdits(t *testing.T) {
-	testkit.Slow(t) // 1.01 s: a conflict fixture, its resolution and a moved gate (T-1004: the 2-core budget)
 	t.Parallel()
 	y, sha, res, old := resolvedTmpl(true).resolved(t, true)
 	y.eq(y.Git(y.Root, "show", old.SHA+":b/b.go"), "package b\n\nfunc B() int { return 40 }", "precondition: the checked resolution holds b's edit")
@@ -68,7 +66,6 @@ func TestRV123RerereDropsOtherResolvedEdits(t *testing.T) {
 // checked resolution is clean: compiled and green, its message saying the resolution was reused; one that differs (the
 // resolution's extra b/b.go edit lost) is a conflict, nothing compiled.
 func TestReplayedResolutionCleanOnlyWhenEqual(t *testing.T) {
-	testkit.Slow(t) // 1.51 s: six replay cases over conflict fixtures (T-1004: the 2-core budget)
 	t.Parallel()
 	for _, c := range []struct {
 		name string
@@ -109,7 +106,6 @@ func TestReplayedResolutionCleanOnlyWhenEqual(t *testing.T) {
 // A replay with no checked resolution of this attempt (the cache entry is another task's, or another attempt's) is a
 // conflict, even when it would equal a resolution.
 func TestReplayWithoutCheckedResolutionConflicts(t *testing.T) {
-	testkit.Slow(t) // 1.09 s: a moved gate without a checked resolution (T-1004: the 2-core budget)
 	t.Parallel()
 	y, sha, _, _ := resolvedTmpl(false).resolved(t, false)
 	y.edit(y.Root, "d/d.go", "return 1", "return 20")

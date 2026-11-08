@@ -37,7 +37,6 @@ func (y *sx) test(c context.Context, cand port.Candidate) (port.TestOutcome, err
 // red; a lane_setup that fails before it is a fail, its rc named (T-996: internal/app's scripted "FAIL lane_setup"
 // gate holds on this); with no compile configured nothing runs (lane_setup neither) and the merge is green.
 func TestGateCompilesOnly(t *testing.T) {
-	testkit.Slow(t) // 1.13 s: its cases through the git-cut shim (T-1004: the 2-core budget)
 	t.Parallel()
 	for _, c := range []struct {
 		name, compile, want string
@@ -104,7 +103,6 @@ func TestGateCandidateIsTheTasksOwnDiff(t *testing.T) {
 // and the task's files, and the lane is back on its branch; the CPU budget is the lane's; a lane test while
 // branches.promote is set runs the short tier and asks for the changed packages only; what the checks changed is discarded.
 func TestLaneTestGreenRestores(t *testing.T) {
-	testkit.Slow(t) // 2.42 s: four lane-test paths through the git-cut shim (T-1004: the 2-core budget)
 	for _, c := range []struct {
 		name string
 		run  func(*testing.T)
@@ -122,7 +120,6 @@ func TestLaneTestGreenRestores(t *testing.T) {
 // test is an error and restores the branch all the same, and a lane a crash left detached is tested again; a red test
 // reruns its failing tests once (commands.retest).
 func TestLaneTestRedRestores(t *testing.T) {
-	testkit.Slow(t) // 3.83 s: three lane-test paths through the git-cut shim (T-1004: the 2-core budget)
 	for _, c := range []struct {
 		name string
 		run  func(*testing.T)

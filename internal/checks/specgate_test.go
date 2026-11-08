@@ -7,14 +7,12 @@ import (
 	"testing"
 
 	"obor/internal/app/port"
-	"obor/internal/testkit"
 )
 
 // T-521: the gate puts the stored spec (GateInput.Spec, SpecRev) into every lane candidate's merge message, after
 // its subject, and writes no spec file into the tree; a lane's own copy stays the task's change. No stored spec: the
 // subject alone. One scratch repo carries the rows (the lane's own copy, which leaves the file in the lane, last).
 func TestGateSpecInMessage(t *testing.T) {
-	testkit.Slow(t) // 1.15 s: three submits and gates over one scratch repo (T-1004: the 2-core budget)
 	t.Parallel()
 	const stored = "# T-05 — Stored\n\nfeature.txt\n"
 	y := newSx(t, cmd("check", "echo 1 pass"))

@@ -24,7 +24,6 @@ func nightly(names ...any) func(map[string]any) {
 }
 
 func TestNightly(t *testing.T) {
-	testkit.Slow(t) // 6.65 s: its cases' nightly runs over fixture repos (T-1004: the 2-core budget)
 	t.Parallel()
 	for _, c := range []struct {
 		name string

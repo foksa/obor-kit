@@ -10,10 +10,10 @@ import (
 	"testing"
 )
 
-// env is one check call's inputs: the budgets, the packages with tests, their two tiers and the private TMPDIR's
+// env is one check call's inputs: the budget file, the packages with tests, their two tiers and the private TMPDIR's
 // leftovers.
 type env struct {
-	budget      map[string]Budget
+	budget      File
 	pkgs        []string
 	full, short map[string]Run
 	tmp         []string
@@ -22,9 +22,12 @@ type env struct {
 // base is a green run: two packages, every metric under its budget, one 1.5 s test and its Slow mark.
 func base() env {
 	return env{
-		budget: map[string]Budget{
-			"a": {ShortS: 2, FullS: 4, GitProcs: 10},
-			"b": {ShortS: 5, FullS: 9, GitProcs: 100},
+		budget: File{
+			UntaggedS: 1.3,
+			Packages: map[string]Budget{
+				"a": {ShortS: 2, FullS: 4, GitProcs: 10},
+				"b": {ShortS: 5, FullS: 9, GitProcs: 100},
+			},
 		},
 		pkgs: []string{"a", "b"},
 		full: map[string]Run{
@@ -50,8 +53,9 @@ func TestCheckGreen(t *testing.T) {
 	}
 }
 
-// T-1002: one line per breach, in the shape `FAIL budget: <pkg> <metric> <got> > <max>` for a metric, and a line of its
-// own for a missing budget, a failed tier, an unmarked 1 s test and the TMPDIR's leftovers.
+// T-1002, T-1004: one line per breach, in the shape `FAIL budget: <pkg> <metric> <got> > <max>` for a metric, and a
+// line of its own for a missing budget, a failed tier, a test over its cap, an uncapped untagged test and the TMPDIR's
+// leftovers.
 func TestCheckBreaches(t *testing.T) {
 	if lines, _ := check(base().budget, base().pkgs, base().full, base().short, nil); len(lines) != 0 {
 		t.Fatalf("precondition: the base run is green, got %q", lines)
@@ -76,13 +80,30 @@ func TestCheckBreaches(t *testing.T) {
 			r.Git = 11
 			e.full["a"] = r
 		}, []string{"FAIL budget: a git_procs 11 > 10"}},
-		{"a test over 1 s without Slow", func(e *env) {
+		{"a capped test under its cap", func(e *env) {
 			r := e.full["a"]
-			r.Tests = []Test{{Name: "TestQuick", Elapsed: 1.2}}
+			r.Tests = []Test{{Name: "TestCapped", Elapsed: 1.5}}
 			e.full["a"] = r
-		}, []string{"FAIL budget: a test/TestQuick 1.20s >= 1s without testkit.Slow"}},
+			e.budget.Tests = map[string]float64{"a TestCapped": 2}
+		}, nil},
+		{"a capped test over its cap", func(e *env) {
+			r := e.full["a"]
+			r.Tests = []Test{{Name: "TestCapped", Elapsed: 2.5}}
+			e.full["a"] = r
+			e.budget.Tests = map[string]float64{"a TestCapped": 2}
+		}, []string{"FAIL budget: a test/TestCapped 2.50s > 2.0s"}},
+		{"an uncapped test at 1.2 s is under the untagged threshold", func(e *env) {
+			r := e.full["a"]
+			r.Tests = []Test{{Name: "TestUntagged", Elapsed: 1.2}}
+			e.full["a"] = r
+		}, nil},
+		{"an uncapped test at the untagged threshold", func(e *env) {
+			r := e.full["a"]
+			r.Tests = []Test{{Name: "TestUntagged", Elapsed: 1.3}}
+			e.full["a"] = r
+		}, []string{"FAIL budget: a test/TestUntagged 1.30s >= 1.3s without testkit.Slow"}},
 		{"no budget for a package with tests", func(e *env) {
-			delete(e.budget, "b")
+			delete(e.budget.Packages, "b")
 		}, []string{"FAIL budget: b missing from tests/budget.json"}},
 		{"a failed full tier", func(e *env) {
 			r := e.full["a"]
@@ -258,7 +279,8 @@ func TestGitWrapper(t *testing.T) {
 	}
 }
 
-// T-1002: the seed is each measured tier x1.5 and each git count x1.5, rounded up (a tenth of a second; one process).
+// T-1002, T-1004: the seed is each measured tier x1.5 and each git count x1.5, rounded up (a tenth of a second; one
+// process), with the untagged threshold and no per-test caps (they are hand-set).
 func TestSeed(t *testing.T) {
 	full := map[string]Run{
 		"a": {Elapsed: 2.0, Git: 3},
@@ -277,6 +299,27 @@ func TestSeed(t *testing.T) {
 		if got := f.Packages[pkg]; got != w {
 			t.Errorf("seed(%s) = %+v; want %+v", pkg, got, w)
 		}
+	}
+	if f.UntaggedS != untaggedDefault {
+		t.Errorf("seed's untagged_s = %v; want %v", f.UntaggedS, untaggedDefault)
+	}
+	if len(f.Tests) != 0 {
+		t.Errorf("seed set per-test caps %v; want none (they are hand-set)", f.Tests)
+	}
+}
+
+// T-1004: a budget file without untagged_s is an error, not a zero threshold (which would report every test).
+func TestLoadNeedsUntaggedS(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "tests"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"packages":{"a":{"short_s":1,"full_s":1,"git_procs":0}}}`
+	if err := os.WriteFile(filepath.Join(root, "tests", "budget.json"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := load(root); err == nil {
+		t.Error("load accepted a budget file without untagged_s; want an error")
 	}
 }
 

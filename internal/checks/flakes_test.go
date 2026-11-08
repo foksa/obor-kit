@@ -45,7 +45,6 @@ func (x *fx) flakes() []Flake {
 // T-350: the check runner appends one line per failing test to .obor/state/flakes.jsonl (a red run), and never on a
 // green run; a log it cannot write is a warning, never a red.
 func TestFlakeLog(t *testing.T) {
-	testkit.Slow(t) // 1.23 s: three flake-log runs through the fixture (T-1004: the 2-core budget)
 	t.Parallel()
 	// Two test failures and the package summary line: the two test names, not the package.
 	const twoFails = `echo "--- FAIL: TestAlpha (0.01s)"; echo "--- FAIL: TestBeta (0.02s)"; ` +
@@ -116,7 +115,6 @@ func (x *fx) eqList(got, want []string, what string) {
 
 // T-359 (RV-39 #3): every command of the full tier logs a red run, and the result is unchanged.
 func TestFlakeLogNightly(t *testing.T) {
-	testkit.Slow(t) // 1.55 s: three nightly flake-log runs (T-1004: the 2-core budget)
 	t.Parallel()
 	failing := func(name string) any { return `echo "--- FAIL: Test_` + name + ` (0.01s)"; exit 1` }
 	grep := testkit.Set("merge.fail_grep", `^--- FAIL|^FAIL\s`)
@@ -254,7 +252,6 @@ func flakyNames(got []Flaky) string {
 // the merge of a task whose spec title names the test; a red on an untouched file, after that merge, or a package name
 // still counts.
 func TestFlakyRule(t *testing.T) {
-	testkit.Slow(t) // 1.92 s: seven flake-rule cases over fixture repos (T-1004: the 2-core budget)
 	t.Parallel()
 	const test = "TestLedger"
 	now := time.Now()
