@@ -448,65 +448,94 @@ func TestPreToolUseHangingBinaryDenies(t *testing.T) {
 }
 
 // bash plugin.test.sh case_stop_no_binary_allows, case_user_prompt_submit_no_binary_allows,
+// otherHooks are the hooks other than the guards, each with the event it gets in cwd: with no usable binary they allow.
+var otherHooks = []struct {
+	hook  string
+	event func(cwd string) map[string]any
+}{
+	{"stop", func(cwd string) map[string]any {
+		return map[string]any{"session_id": "s1", "hook_event_name": "Stop", "cwd": cwd, "stop_hook_active": false}
+	}},
+	{"user-prompt-submit", func(cwd string) map[string]any { return map[string]any{"cwd": cwd, "prompt": "hi"} }},
+	{"stop-failure", func(cwd string) map[string]any {
+		return map[string]any{"hook_event_name": "StopFailure", "cwd": cwd, "error": "rate_limit"}
+	}},
+	{"session-start", func(cwd string) map[string]any {
+		return map[string]any{"hook_event_name": "SessionStart", "cwd": cwd}
+	}},
+}
+
+// allows runs hook with event through the kit's shim and checks it allowed: exit 0, no output, the hint once on stderr.
+func (k *noBinKit) allows(t *testing.T, hook, event, what string) time.Duration {
+	t.Helper()
+	rc, out, stderr, took := k.hook(t, hook, event)
+	if rc != 0 || out != "" || stderr != k.hint {
+		t.Errorf("%s: exit %d, stdout %q, stderr %q; want 0, nothing, the hint", what, rc, out, stderr)
+	}
+	return took
+}
+
+// runs runs hook with event through the kit's shim and checks the binary ran it, having been asked has first.
+func (k *noBinKit) runs(t *testing.T, hook, event, what string) {
+	t.Helper()
+	if rc, out, _, _ := k.hook(t, hook, event); rc != 0 || out != "go stub" {
+		t.Errorf("%s: exit %d, %q; want hook %s run by the binary", what, rc, out, hook)
+	}
+	if log := k.stubLog(); !strings.HasPrefix(log, "has hook "+hook+"\n") {
+		t.Errorf("%s: stub log %q, want has asked first", what, log)
+	}
+}
+
 // case_session_start_no_binary_allows (tests/lib/gostub.sh no_binary_allows, no_binary_outside): with no usable Go
-// binary (missing, stale, hanging) the other hooks allow (no output, exit 0) with the hint once on stderr; stale
-// and hanging binaries are never run, the hang is bounded and reaped; a good binary runs; no obor project → silent.
+// binary (missing, stale) the other hooks allow (no output, exit 0) with the hint once on stderr; a stale binary is never
+// run; a good binary runs; no obor project → silent. The shim's path is the same whatever the hook's name: the first
+// hook takes every step, each other hook the steps its name reaches (missing allows, good runs, asked by its name).
+// The hanging binary: TestOtherHooksHangingBinaryAllow.
 func TestOtherHooksNoBinaryAllow(t *testing.T) {
 	t.Parallel()
-	for _, c := range []struct {
-		hook  string
-		event func(cwd string) map[string]any
-	}{
-		{"stop", func(cwd string) map[string]any {
-			return map[string]any{"session_id": "s1", "hook_event_name": "Stop", "cwd": cwd, "stop_hook_active": false}
-		}},
-		{"user-prompt-submit", func(cwd string) map[string]any { return map[string]any{"cwd": cwd, "prompt": "hi"} }},
-		{"stop-failure", func(cwd string) map[string]any {
-			return map[string]any{"hook_event_name": "StopFailure", "cwd": cwd, "error": "rate_limit"}
-		}},
-		{"session-start", func(cwd string) map[string]any {
-			return map[string]any{"hook_event_name": "SessionStart", "cwd": cwd}
-		}},
-	} {
+	k := newNoBinKit(t)
+	dist := filepath.Join(k.dir, "dist/obor")
+	for i, c := range otherHooks {
+		event, _ := json.Marshal(c.event(k.lane))
+		os.Remove(dist)
+		k.allows(t, c.hook, string(event), c.hook+": missing binary")
+		k.stub(t, dist, "good")
+		k.runs(t, c.hook, string(event), c.hook+": good binary")
+		if i > 0 {
+			continue
+		}
+		k.stub(t, dist, "stale")
+		if rc, _, stderr, _ := shimRun(t, k.dir, "", nil, dist, "has", "hook", c.hook); rc != 2 ||
+			!strings.Contains(stderr, "usage: obor hook noop") {
+			t.Fatalf("precondition: the stale binary has no has: exit %d, %q", rc, stderr)
+		}
+		k.stub(t, dist, "stale")
+		k.allows(t, c.hook, string(event), c.hook+": stale binary")
+		if log := k.stubLog(); log != "has hook "+c.hook {
+			t.Errorf("%s: stale binary: stub log %q, want has asked, never run", c.hook, log)
+		}
+		os.Remove(dist)
+		outside, _ := json.Marshal(c.event(k.p.Base))
+		if rc, out, stderr, _ := k.hook(t, c.hook, string(outside)); rc != 0 || out != "" || stderr != "" {
+			t.Errorf("%s: outside an obor project: exit %d, %q, %q; want silent", c.hook, rc, out, stderr)
+		}
+	}
+}
+
+// case_session_start_no_binary_allows, the hanging binary (RV-22 #1): the other hooks allow with the hint, the hang is
+// bounded and reaped, the binary never runs the hook; rebuilt, it runs.
+// Slow: each hook waits out the shim's hang watchdog (OBOR_HOOK_TIMEOUT, 1 s here: whole seconds, bin/obor's sleep).
+func TestOtherHooksHangingBinaryAllow(t *testing.T) {
+	testkit.Slow(t)
+	t.Parallel()
+	for _, c := range otherHooks {
 		t.Run(c.hook, func(t *testing.T) {
 			t.Parallel()
 			k := newNoBinKit(t)
 			event, _ := json.Marshal(c.event(k.lane))
 			dist := filepath.Join(k.dir, "dist/obor")
-			allows := func(what string) time.Duration {
-				t.Helper()
-				rc, out, stderr, took := k.hook(t, c.hook, string(event))
-				if rc != 0 || out != "" || stderr != k.hint {
-					t.Errorf("%s: exit %d, stdout %q, stderr %q; want 0, nothing, the hint", what, rc, out, stderr)
-				}
-				return took
-			}
-			runs := func(what string) {
-				t.Helper()
-				if rc, out, _, _ := k.hook(t, c.hook, string(event)); rc != 0 || out != "go stub" {
-					t.Errorf("%s: exit %d, %q; want hook %s run by the binary", what, rc, out, c.hook)
-				}
-				if log := k.stubLog(); !strings.HasPrefix(log, "has hook "+c.hook+"\n") {
-					t.Errorf("%s: stub log %q, want has asked first", what, log)
-				}
-			}
-
-			allows("missing binary")
-			k.stub(t, dist, "stale")
-			if rc, _, stderr, _ := shimRun(t, k.dir, "", nil, dist, "has", "hook", c.hook); rc != 2 ||
-				!strings.Contains(stderr, "usage: obor hook noop") {
-				t.Fatalf("precondition: the stale binary has no has: exit %d, %q", rc, stderr)
-			}
-			k.stub(t, dist, "stale")
-			allows("stale binary")
-			if log := k.stubLog(); log != "has hook "+c.hook {
-				t.Errorf("stale binary: stub log %q, want has asked, never run", log)
-			}
-			k.stub(t, dist, "good")
-			runs("good binary")
-
 			k.stub(t, dist, "hang")
-			if took := allows("hanging binary"); took > hangBound {
+			if took := k.allows(t, c.hook, string(event), "hanging binary"); took > hangBound {
 				t.Errorf("a hanging has is bounded (%s): took %s", hookTimeout, took)
 			}
 			if log := k.stubLog(); log != "has hook "+c.hook {
@@ -514,13 +543,7 @@ func TestOtherHooksNoBinaryAllow(t *testing.T) {
 			}
 			k.reaped(t)
 			k.stub(t, dist, "good")
-			runs("rebuilt binary")
-
-			os.Remove(dist)
-			outside, _ := json.Marshal(c.event(k.p.Base))
-			if rc, out, stderr, _ := k.hook(t, c.hook, string(outside)); rc != 0 || out != "" || stderr != "" {
-				t.Errorf("outside an obor project: exit %d, %q, %q; want silent", rc, out, stderr)
-			}
+			k.runs(t, c.hook, string(event), "rebuilt binary")
 		})
 	}
 }

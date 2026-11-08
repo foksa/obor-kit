@@ -40,7 +40,7 @@ func keep(d string) string {
 func TestMain(m *testing.M) {
 	testkit.Isolate()
 	tmpl = keep(buildTemplate())
-	code := m.Run()
+	code := testkit.Run(m) // removes the project template testkit.New copies (T-1009)
 	for _, d := range tmplDirs {
 		os.RemoveAll(d)
 	}

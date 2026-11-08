@@ -280,7 +280,8 @@ func TestValidate(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			p := newProject(t)
+			// no git: the table is about the config's rules; the trunk check that reads git has TestValidateTrunkRef
+			p := newPlainProject(t)
 			got := validate(t, p, c.edits...)
 			if !reflect.DeepEqual(got, c.want) {
 				t.Errorf("validate = %q\nwant %q", got, c.want)

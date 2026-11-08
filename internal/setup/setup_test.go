@@ -32,7 +32,11 @@ func TestMain(m *testing.M) {
 		"GIT_COMMITTER_NAME": "obor test", "GIT_COMMITTER_EMAIL": "obor-test@example.invalid"} {
 		os.Setenv(k, v)
 	}
-	testkit.Main(m)
+	// A start reports its session to the project's serve, which no test here runs: the call ends in 0.2 s, not after
+	// retrying for the report's 2 s (T-685's knob; T-1009: 1.8 s per pane start).
+	testkit.Isolate() // before the Setenv: it clears OBOR_*
+	os.Setenv("OBOR_CALL_DEADLINE", "0.2")
+	os.Exit(testkit.Run(m))
 }
 
 // kit is this checkout: the templates, githooks and herdr-plugin setup reads.
@@ -1240,7 +1244,10 @@ func TestGithooksSetsChainsRemoves(t *testing.T) {
 // T-623: core.hooksPath is githooks/ (pre-commit, pre-push and the runner) unless there is something to chain: a
 // recorded obor.hooksChain, or a hook in .git/hooks the small set lacks. Then it is githooks/chain/ (every hook git
 // runs). A rerun moves between the two as that changes, and --remove works from either.
+// Slow: seven cases, each three obor setup githooks runs whose work is git config (the code under test runs git: no
+// fake), ≈1.8 s together at 2 cores (T-1009 measured).
 func TestGithooksPicksTheHooksDir(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	dir := filepath.Join(kit, "githooks")
 	chain := filepath.Join(dir, "chain")

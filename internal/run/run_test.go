@@ -79,13 +79,11 @@ func (f *fx) runErr(t *testing.T, dir string, env []string, interrupt <-chan int
 	return result{Run(o), out.String(), errOut.String()}
 }
 
-// bash run.test.sh case_rc_passthrough, case_rc_zero_and_unknown, case_timeout
-// Slow: its timeout case waits out config's whole-second 1 s timeout (T-1006).
-func TestRunRcArgsTimeout(t *testing.T) {
-	testkit.Slow(t)
+// bash run.test.sh case_rc_passthrough, case_rc_zero_and_unknown: the command's rc, run from the lane root with the
+// args appended; an unknown name is rc 2.
+func TestRunRcArgs(t *testing.T) {
 	t.Parallel()
-	f := setup(t, `{"t": "pwd -P > out.txt; bash tool.sh", "ok": {"cmd": "echo hi", "timeout": 5},
-		"slow": {"cmd": "sleep 5", "timeout": 1}}`)
+	f := setup(t, `{"t": "pwd -P > out.txt; bash tool.sh", "ok": {"cmd": "echo hi", "timeout": 5}}`)
 	f.p.Write(filepath.Join(f.lane, "tool.sh"), `printf "<%s>" "$@" >> out.txt; exit 7`+"\n")
 	os.Mkdir(filepath.Join(f.lane, "sub"), 0o755)
 	if r := f.run(t, filepath.Join(f.lane, "sub"), nil, nil, "t", "a b", "c"); r.rc != 7 {
@@ -100,6 +98,14 @@ func TestRunRcArgsTimeout(t *testing.T) {
 	if r := f.run(t, f.lane, nil, nil, "nope"); r.rc != 2 || r.out != "FAIL no commands.nope in the config\n" {
 		t.Errorf("unknown: %+v", r)
 	}
+}
+
+// bash run.test.sh case_timeout: a command over its timeout is rc 124 with a note, ended at the timeout.
+// Slow: it waits out config's whole-second 1 s timeout (T-1006).
+func TestRunTimeout(t *testing.T) {
+	testkit.Slow(t)
+	t.Parallel()
+	f := setup(t, `{"slow": {"cmd": "sleep 5", "timeout": 1}}`)
 	start := time.Now()
 	if r := f.run(t, f.lane, nil, nil, "slow"); r.rc != 124 || !strings.Contains(r.errOut, "slow timed out after 1 s") {
 		t.Errorf("timeout: %+v", r)
@@ -299,8 +305,8 @@ func gone(pid int) bool {
 	return false
 }
 
-// RV-26 #2: nothing of the command's group outlives Execute: a TERM-ignoring child at the timeout (KILLed after the
-// grace) and a descendant of a command that exited normally.
+// RV-26 #2: nothing of the command's group outlives Execute: a TERM-ignoring child at the timeout is KILLed after the
+// grace.
 // Slow: it waits a config command's 3 s timeout plus project.Grace before the KILL (T-1006).
 func TestExecuteLeavesNoGroup(t *testing.T) {
 	testkit.Slow(t)
@@ -322,13 +328,17 @@ until [ -s pid ]; do sleep 0.05; done; wait`
 	if d := time.Since(start); d > 3*time.Second+project.Grace+2*time.Second {
 		t.Errorf("KILL after the grace, took %v", d)
 	}
+}
 
-	os.Remove(filepath.Join(dir, "pid"))
+// RV-26 #2, RV-140: a descendant of a command that exited normally does not outlive Execute.
+func TestExecuteLeavesNoDescendant(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
 	survivor := `bash -c 'trap "" TERM; echo $$ > pid; exec sleep 30' > /dev/null 2>&1 &
 until [ -s pid ]; do sleep 0.05; done; echo done`
-	out.Reset()
-	rc, timedOut = Execute(context.Background(), config.Command{Name: "t", Cmd: survivor, Timeout: 10}, dir, nil, nil, &out, &out)
-	pid = childPID(t, filepath.Join(dir, "pid"))
+	var out bytes.Buffer
+	rc, timedOut := Execute(context.Background(), config.Command{Name: "t", Cmd: survivor, Timeout: 10}, dir, nil, nil, &out, &out)
+	pid := childPID(t, filepath.Join(dir, "pid"))
 	if rc != 0 || timedOut || out.String() != "done\n" {
 		t.Errorf("exited normally: rc %d timedOut %v %q", rc, timedOut, out.String())
 	}

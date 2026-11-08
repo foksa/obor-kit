@@ -29,7 +29,7 @@ func TestMain(m *testing.M) {
 	if out, err := exec.Command("go", "build", "-o", oborBin, ".").CombinedOutput(); err != nil {
 		panic("go build: " + err.Error() + "\n" + string(out))
 	}
-	code := m.Run()
+	code := testkit.Run(m) // removes the project template testkit.New copies (T-1009)
 	os.RemoveAll(dir)
 	os.Exit(code)
 }

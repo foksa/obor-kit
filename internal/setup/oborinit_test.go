@@ -12,6 +12,7 @@ import (
 
 	"obor/internal/config"
 	"obor/internal/project"
+	"obor/internal/testkit"
 )
 
 // initFx is a bare project (no config) for obor init: a fake `claude` (and, with codex, a fake `codex`) first on the
@@ -465,7 +466,10 @@ func TestOborInitRerunKeepsTheLanes(t *testing.T) {
 
 // T-613 #3: obor init's rerun is the repair path for a lane, and the last run's outcome decides: a failed lane_setup
 // runs again, a finished one is skipped, and a lane dir that is no worktree of the repo is a FAIL (never a skip).
+// Slow: seven cases, each two or three real obor init runs (its commit, its lanes' worktree adds: the code under test
+// runs git, so no fake), ≈0.35 s a case (T-1009).
 func TestOborInitLaneSetupOnARerun(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	for _, c := range []struct {
 		name string

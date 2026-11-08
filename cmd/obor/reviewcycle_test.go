@@ -239,7 +239,10 @@ func TestReviewFixGone(t *testing.T) {
 // RV-126 #2: a close whose commit fails (a rejecting pre-commit hook, a cancelled context) leaves the review's files and
 // BACKLOG.md (content and index) as they were before the call, and returns the error; a close that succeeds removes
 // the files only after the commit.
+// Slow: six cases, each a real commit through a pre-commit hook on a fixture of 14 git processes (the code under test
+// runs git), ≈0.45 s a case: 0.2 s the fixture, the rest the close's own git (T-1009 measured).
 func TestReviewGitCloseCommitFails(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	for _, hook := range []string{"reject", "cancel"} {
 		for _, backlog := range []string{"clean", "unstaged", "staged"} {

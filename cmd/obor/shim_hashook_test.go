@@ -17,21 +17,37 @@ import (
 )
 
 // bin/obor's has_hook (T-279): `obor hook pre-tool-use` through the shim of a kit copy whose dist/obor is a fake, run
-// without a process group of its own. A hanging `has` is bounded at OBOR_HOOK_TIMEOUT (1 s here) with no job control:
-// denied with exactly the hint, nothing else on stderr (no setpgid line), the fake killed and no watchdog sleep left
-// behind.
+// without a process group of its own: a stale binary is the hint only, a good one runs Go, and the watchdog's sleep is
+// never left behind. The hanging binary: TestShimHasHookHang.
 func TestShimHasHook(t *testing.T) {
 	t.Parallel()
-	cases := []struct {
-		name, has string // has: the fake's `has hook` body (the fast ones wait for the watchdog's sleep: see started)
-		code      int
-		hint      bool // stderr is exactly the hint; else empty
-		ran       bool // the fake's hook ran (stdout "go ran")
-	}{
-		{"hanging binary: hint after the 1 s watchdog, killed, no stray sleep", `echo $$ > "$dir/has.pid"; exec /bin/sleep 3`, 2, true, false},
+	shimHasHook(t, []hasCase{
 		{"stale binary: the hint only", started + `; exit 1`, 2, true, false},
 		{"good binary: runs Go", started + `; exit 0`, 0, false, true},
-	}
+	})
+}
+
+// T-279: a hanging `has` is bounded at OBOR_HOOK_TIMEOUT (1 s here) with no job control: denied with exactly the hint,
+// nothing else on stderr (no setpgid line), the fake killed and no watchdog sleep left behind.
+// Slow: it waits out the shim's hang watchdog (1 s: whole seconds, bin/obor's sleep).
+func TestShimHasHookHang(t *testing.T) {
+	testkit.Slow(t)
+	t.Parallel()
+	shimHasHook(t, []hasCase{
+		{"hanging binary: hint after the 1 s watchdog, killed, no stray sleep", `echo $$ > "$dir/has.pid"; exec /bin/sleep 3`, 2, true, false},
+	})
+}
+
+// hasCase is one fake binary's has_hook run through the shim.
+type hasCase struct {
+	name, has string // has: the fake's `has hook` body (the fast ones wait for the watchdog's sleep: see started)
+	code      int
+	hint      bool // stderr is exactly the hint; else empty
+	ran       bool // the fake's hook ran (stdout "go ran")
+}
+
+// shimHasHook runs each case as a parallel subtest: `obor hook pre-tool-use` through the shim with the case's fake.
+func shimHasHook(t *testing.T, cases []hasCase) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

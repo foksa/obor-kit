@@ -24,6 +24,9 @@ import (
 	"obor/internal/view"
 )
 
+// TestMain isolates the tests and removes the project template New copies (T-1009).
+func TestMain(m *testing.M) { testkit.Main(m) }
+
 // fixture is one project with a store and serve's answer, the view built from both (as obor status builds it) and a
 // server over that one project. The store holds: T-01's dispatch, submission (a report), spec and a green gate; a job's
 // prompt text; an agent's session (with a transcript file), a brief and a line; T-02 waits (a dispatch waiting after
