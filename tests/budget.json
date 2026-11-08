@@ -31,8 +31,8 @@
       "git_procs": 0
     },
     "obor/internal/app": {
-      "short_s": 23,
-      "full_s": 30.5,
+      "short_s": 19.5,
+      "full_s": 27.5,
       "git_procs": 45
     },
     "obor/internal/app/event": {
@@ -56,9 +56,9 @@
       "git_procs": 7295
     },
     "obor/internal/config": {
-      "short_s": 20.4,
-      "full_s": 20.4,
-      "git_procs": 2117
+      "short_s": 11.1,
+      "full_s": 10.7,
+      "git_procs": 1355
     },
     "obor/internal/guard": {
       "short_s": 13.5,
@@ -81,8 +81,8 @@
       "git_procs": 3062
     },
     "obor/internal/mcp": {
-      "short_s": 3,
-      "full_s": 3.2,
+      "short_s": 1.2,
+      "full_s": 1.4,
       "git_procs": 2
     },
     "obor/internal/project": {
@@ -96,7 +96,7 @@
       "git_procs": 0
     },
     "obor/internal/run": {
-      "short_s": 9.4,
+      "short_s": 2.3,
       "full_s": 9.6,
       "git_procs": 342
     },
@@ -106,8 +106,8 @@
       "git_procs": 0
     },
     "obor/internal/service": {
-      "short_s": 11.2,
-      "full_s": 11.7,
+      "short_s": 2.7,
+      "full_s": 3,
       "git_procs": 0
     },
     "obor/internal/setup": {

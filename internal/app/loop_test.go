@@ -201,6 +201,9 @@ func (r *loopRig) Launch(ctx context.Context, req port.Launch) (port.Started, er
 		a.Workspace, a.Label, a.Session = "w1", "pj-int", "int-1" // launch labels the pane
 	}
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		if ctx.Err() != nil { // the app is shutting down: its main loop is gone, no snapshot will show the pane
+			return port.Started{}, ctx.Err()
+		}
 		for _, a := range r.app.Status().Project.Agents {
 			if a.Name == "pj-int" {
 				return port.Started{Line: "STARTED pj-int", Pane: "w1:p9", Kind: "claude", Session: "int-1"}, nil
@@ -214,7 +217,7 @@ func (r *loopRig) Launch(ctx context.Context, req port.Launch) (port.Started, er
 
 // Stop is the worker's stop: the agent leaves its pane (""; the pane labelled agent) in the fake herdr and the app
 // sees it gone (a workspace event makes it read a new snapshot) before the stop returns.
-func (r *loopRig) Stop(_ context.Context, agent, pane string, _ bool) (string, error) {
+func (r *loopRig) Stop(ctx context.Context, agent, pane string, _ bool) (string, error) {
 	r.mu.Lock()
 	r.stops = append(r.stops, agent+" "+pane)
 	fail := r.onStop
@@ -235,6 +238,9 @@ func (r *loopRig) Stop(_ context.Context, agent, pane string, _ bool) (string, e
 	}
 	r.f.Set(pane, func(p *herdrtest.Pane) { p.Kind, p.Name, p.Status = "", "", "" })
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		if ctx.Err() != nil { // the app is shutting down: its main loop is gone, no snapshot will show the pane gone
+			return "", ctx.Err()
+		}
 		gone := true
 		for _, a := range r.app.Status().Project.Agents {
 			gone = gone && a.Name != agent

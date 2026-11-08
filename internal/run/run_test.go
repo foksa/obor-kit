@@ -80,7 +80,9 @@ func (f *fx) runErr(t *testing.T, dir string, env []string, interrupt <-chan int
 }
 
 // bash run.test.sh case_rc_passthrough, case_rc_zero_and_unknown, case_timeout
+// Slow: its timeout case waits out config's whole-second 1 s timeout (T-1006).
 func TestRunRcArgsTimeout(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	f := setup(t, `{"t": "pwd -P > out.txt; bash tool.sh", "ok": {"cmd": "echo hi", "timeout": 5},
 		"slow": {"cmd": "sleep 5", "timeout": 1}}`)
@@ -299,7 +301,9 @@ func gone(pid int) bool {
 
 // RV-26 #2: nothing of the command's group outlives Execute: a TERM-ignoring child at the timeout (KILLed after the
 // grace) and a descendant of a command that exited normally.
+// Slow: it waits a config command's 3 s timeout plus project.Grace before the KILL (T-1006).
 func TestExecuteLeavesNoGroup(t *testing.T) {
+	testkit.Slow(t)
 	t.Parallel()
 	dir := t.TempDir()
 	ignorer := `bash -c 'trap "" TERM; echo $$ > pid; while :; do sleep 0.1; done' &

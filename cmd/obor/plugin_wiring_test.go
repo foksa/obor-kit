@@ -401,8 +401,11 @@ func TestPreToolUseStaleBinaryDenies(t *testing.T) {
 		{"release with has → Go guard", "deny", "stale", "obor: go stub"},
 		{"dist/obor with has → Go guard", "", "deny", "obor: go stub"},
 	} {
-		os.Remove(k.release(t))
-		if c.release != "" {
+		// A rewrite keeps the release file's inode: only its first write here is a fresh file (T-1006: macOS charges
+		// the first exec of a new file, not of a rewritten one). The last case needs it absent.
+		if c.release == "" {
+			os.Remove(k.release(t))
+		} else {
 			k.stub(t, k.release(t), c.release)
 		}
 		k.stub(t, dist, c.dist)
@@ -421,7 +424,10 @@ func TestPreToolUseHangingBinaryDenies(t *testing.T) {
 	dist := filepath.Join(k.dir, "dist/obor")
 	event := bashEvent(k.lane, "git commit -m x")
 	k.stub(t, dist, "hang")
-	rc, _, stderr, took := k.hook(t, "pre-tool-use", event)
+	// 0.5 s: ample for the stub to start and write its pid before the watchdog's kill; the repair call below need not
+	// let the stub start at all, so 0.1 s keeps it from adding a second full bound (T-1006).
+	const pidTimeout, quietTimeout = "OBOR_HOOK_TIMEOUT=0.5", "OBOR_HOOK_TIMEOUT=0.1"
+	rc, _, stderr, took := k.hook(t, "pre-tool-use", event, pidTimeout)
 	if rc != 2 || stderr != k.hint {
 		t.Errorf("hanging dist/obor: exit %d, %q; want 2 with the hint", rc, stderr)
 	}
@@ -432,7 +438,7 @@ func TestPreToolUseHangingBinaryDenies(t *testing.T) {
 		t.Errorf("stub log %q: want has asked once, never run", got)
 	}
 	k.reaped(t)
-	if rc, _, stderr, _ := k.hook(t, "pre-tool-use", bashEvent(k.lane, "make -C "+k.dir+" build")); rc != 0 || stderr != "" {
+	if rc, _, stderr, _ := k.hook(t, "pre-tool-use", bashEvent(k.lane, "make -C "+k.dir+" build"), quietTimeout); rc != 0 || stderr != "" {
 		t.Errorf("make -C <kit> build: exit %d, %q; want allowed", rc, stderr)
 	}
 	k.stub(t, dist, "deny")

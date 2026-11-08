@@ -126,6 +126,8 @@ func TestValidCustomRoles(t *testing.T) {
 // the project or into .obor/, a missing role doc (naming the file to write), an allow_push listing a custom role, an
 // object for a table role and a roles.driver.
 func TestCustomRoleRefusals(t *testing.T) {
+	p := newPlainProject(t)
+	p.Write("docs/agents/buddy.md", "# Role: buddy\n")
 	for _, c := range []struct {
 		name  string
 		edits []edit
@@ -154,8 +156,6 @@ func TestCustomRoleRefusals(t *testing.T) {
 		{"bad model", []edit{set("roles.buddy", `{"model": "nosuch"}`)}, `FAIL .roles.buddy.model: "nosuch" is not a model`},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			p := newProject(t)
-			p.Write("docs/agents/buddy.md", "# Role: buddy\n")
 			got := validate(t, p, c.edits...)
 			if !slices.ContainsFunc(got, func(l string) bool { return strings.HasPrefix(l, c.want) }) {
 				t.Errorf("validate = %q, want a line starting %q", got, c.want)
@@ -165,7 +165,7 @@ func TestCustomRoleRefusals(t *testing.T) {
 
 	// The doc: a custom row without <paths.agents>/<name>.md fails naming the file; a default row needs none (the kit
 	// ships its text).
-	p := newProject(t)
+	p = newPlainProject(t)
 	got := validate(t, p, set("roles.designer", "opus"), set("roles.advisor", "opus"))
 	if want := []string{"FAIL .roles.designer: no role doc: write docs/agents/designer.md (what the role does, what it writes)"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("validate = %q, want %q", got, want)
