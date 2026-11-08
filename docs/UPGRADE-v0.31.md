@@ -18,7 +18,7 @@ validate` warns while it is missing. Re-run the installer, then in every project
 ```sh
 obor setup agents        # caches the manifest and writes kinds.opencode.command = "obor-kind-opencode" (uncommitted)
 obor config validate     # no WARN kinds.opencode.command
-git commit -m "kinds.opencode.command" .obor/config.json
+git add .obor/config.json && git commit -m "kinds.opencode.command" .obor/config.json
 ```
 
 The config line, if you write it by hand (`obor-kind-opencode` names the kit's binary beside obor, not a file in the
