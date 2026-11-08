@@ -31,12 +31,14 @@ type (
 // Codex self-update, or herdr says agent_not_ready. A failed pane label is a Fail (nothing started). A started fresh
 // start of a kind that reports its session records it (done).
 func (l *Launcher) Start(ctx context.Context, s Start) error {
-	_, err := l.start(ctx, s)
+	_, err := l.start(ctx, s, time.Time{})
 	return err
 }
 
 // start is Start; it returns the agent the start ran in s.Pane as herdr showed it (none when herdr named no agent).
-func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
+// shellBy (a restart's, T-1053; zero: none) bounds a start herdr answers agent_pane_busy for: the start waits for the
+// pane's shell and tries again until then, so a pane still reaping the old agent's exit is no failed start.
+func (l *Launcher) start(ctx context.Context, s Start, shellBy time.Time) (port.Pane, error) {
 	if s.Label != s.Agent {
 		if err := l.H.RenamePane(ctx, s.Pane, s.Agent); err != nil {
 			return port.Pane{}, project.Failf("herdr pane rename %s %s failed", s.Pane, s.Agent)
@@ -60,7 +62,20 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
 		shown = "none"
 	}
 	l.say("args (%s): %s", s.Kind, shown)
-	a, err := l.started(ctx, s)
+	// What the pane ran before the start: an agent already there is never taken for the new one, whatever herdr answers.
+	pre, _ := l.H.Agent(ctx, s.Pane)
+	a, err := l.started(ctx, s, pre)
+	said := false
+	for !shellBy.IsZero() && port.ErrorCode(err) == "agent_pane_busy" {
+		if !said {
+			l.say("pane %s is not an available shell yet (herdr: agent_pane_busy): waiting for it", s.Pane)
+			said = true
+		}
+		if !l.waitShell(ctx, s.Pane, shellBy) {
+			break
+		}
+		a, err = l.started(ctx, s, pre)
+	}
 	if port.ErrorCode(err) == "agent_name_taken" {
 		holder := ""
 		if a, gerr := l.H.Agent(ctx, s.Agent); gerr == nil {
@@ -77,7 +92,7 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
 				l.H.RenameAgent(ctx, s.Agent, "") != nil {
 				l.say("warning: herdr kept the name %s", s.Agent)
 			}
-			a, err = l.started(ctx, s)
+			a, err = l.started(ctx, s, pre)
 		}
 	}
 	if err == nil {
@@ -85,7 +100,7 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
 	}
 	l.say("%v", err)
 	if s.Prompt != "" && port.ErrorCode(err) != "agent_not_ready" {
-		if a, ok := l.busyStart(ctx, s); ok {
+		if a, ok := l.busyStart(ctx, s, pre); ok {
 			return l.done(ctx, s, a), nil
 		}
 	}
@@ -102,17 +117,16 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
 }
 
 // started runs herdr's agent start and returns once the agent runs in s.Pane (the start's done condition, T-404), or
-// herdr's answer: its error, or the agent it detected. A pending answer is no proof: herdr answers before
-// the agent runs (launch_pending, T-544: a command cut off at the shell left no agent, and the start said RESTARTED),
-// so it keeps the poll going, and no agent up within Up is an error. The call runs alongside the poll (T-387: an
-// agent busy on its first prompt is up although herdr may give up on it). started owns that call (T-405): before it
-// returns, the call is cancelled and joined, and its late answer is dropped.
-func (l *Launcher) started(ctx context.Context, s Start) (port.Pane, error) {
+// herdr's answer: its error, or the agent it detected. pre is what the pane ran before the start. A pending answer is
+// no proof: herdr answers before the agent runs (launch_pending, T-544: a command cut off at the shell left no agent,
+// and the start said RESTARTED), so it keeps the poll going, and no agent up within Up is an error. The call runs
+// alongside the poll (T-387: an agent busy on its first prompt is up although herdr may give up on it). started owns
+// that call (T-405): before it returns, the call is cancelled and joined, and its late answer is dropped.
+func (l *Launcher) started(ctx context.Context, s Start, pre port.Pane) (port.Pane, error) {
 	type answer struct {
 		a   port.Pane
 		err error
 	}
-	pre, _ := l.H.Agent(ctx, s.Pane) // what the pane ran before the start: none, after the stop
 	call, cancel := context.WithCancel(ctx)
 	res := make(chan answer, 1)
 	go func() {
@@ -177,10 +191,12 @@ func up(pre, a port.Pane, s Start) bool {
 // busyStart: a start that carried a first prompt failed, yet the agent of s.Kind runs in s.Pane and took it (working,
 // or idle/done after a short turn): started. herdr's start succeeds only once the agent is ready for input within its
 // 30 s bound, and an agent that works on its first prompt from the outset is not (T-387, live: Sonnet and Codex
-// workers busy on their wake at 30 s); herdr then keeps no name for it.
-func (l *Launcher) busyStart(ctx context.Context, s Start) (port.Pane, bool) {
+// workers busy on their wake at 30 s); herdr then keeps no name for it. The agent the pane ran before the start (pre)
+// is not the new one (up): a start herdr refused while the old agent was still listed (agent_pane_busy, T-1053) is no
+// start, however ready that old agent looks.
+func (l *Launcher) busyStart(ctx context.Context, s Start, pre port.Pane) (port.Pane, bool) {
 	a, err := l.H.Agent(ctx, s.Pane)
-	if err != nil || a.Agent != s.Kind || (!a.Ready() && a.Status != "working") {
+	if err != nil || !up(pre, a, s) {
 		return a, false
 	}
 	l.say("%s runs in %s (%s on its first prompt): started", s.Agent, s.Pane, a.Status)

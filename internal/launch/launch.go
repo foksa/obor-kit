@@ -21,6 +21,10 @@
 //	         (T-722): starts fresh, said.
 //	Stop     see Stop. A child the pane's shell stopped (Ctrl+Z: herdr then sees an idle shell) → FAIL with a hint, before
 //	         anything is stopped or typed: no fg resume.
+//	Shell    a restart whose pane ran an agent waits after the stop for the pane to be a shell again (ShellWait, T-1053:
+//	         herdr answers agent_pane_busy until the old agent's exit is reaped), and a start herdr answers
+//	         agent_pane_busy is retried like that within the same bound; past it, no start and a FAIL naming the pane.
+//	         RESTARTED only when the start succeeded and its agent is seen.
 //	Start    the env line typed at the shell (never into another program), then Start (the one start, shared with
 //	         obor setup): the pane labelled <agent>, herdr agent start (agent_name_taken: cleared and retried once), a
 //	         look for a startup dialog. The start ends when its agent runs in the pane, not at herdr's own bound for an
@@ -65,6 +69,10 @@ type Launcher struct {
 	Up   time.Duration // for a started agent to come up in its pane (default 30 s: herdr's own startup bound)
 	Idle time.Duration // Stop with force: for a working agent to go idle after Escape (default port.StopIdle)
 	Poll time.Duration // how often it looks (default 1 s)
+	// Shell is how long a restart waits after its stop for the pane to be a shell again, and retries a start herdr
+	// answered agent_pane_busy: herdr keeps the pane no available shell until the old agent's exit is reaped (default
+	// ShellWait, T-1053).
+	Shell time.Duration
 	// Bound is the most a stop may take: its idle wait, its quit wait and the terminate together (default StopBound,
 	// port.StopBound). The quit wait is capped to it, whatever OBOR_RESTART_WAIT says (T-829).
 	Bound time.Duration
@@ -218,6 +226,14 @@ func (l *Launcher) upWait() time.Duration {
 		return l.Up
 	}
 	return 30 * time.Second
+}
+
+// shellWait is how long a restart waits for the pane's shell (default ShellWait).
+func (l *Launcher) shellWait() time.Duration {
+	if l.Shell > 0 {
+		return l.Shell
+	}
+	return ShellWait
 }
 
 func (l *Launcher) poll() time.Duration {
@@ -584,6 +600,16 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	if err := l.stop(ctx, t, req.Force, false, "--force to restart anyway"); err != nil {
 		return port.Started{}, err
 	}
+	// The start runs only once the pane is a shell again (T-1053): until the old agent's exit is reaped, herdr answers
+	// agent.start with agent_pane_busy, and the env line would fail in a pane that still runs it. One bound covers this
+	// wait and the start retries below; past it, no start and a FAIL naming the pane. Only a pane that ran an agent is
+	// waited on: a pane at a shell, or one running a person's program, is setEnv's to refuse.
+	shellBy := time.Now().Add(l.shellWait())
+	if t.entry.Agent != "" {
+		if err := l.awaitShell(ctx, t, shellBy); err != nil {
+			return port.Started{}, err
+		}
+	}
 	if err := l.setEnv(ctx, t); err != nil {
 		return port.Started{}, err
 	}
@@ -591,11 +617,14 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 		l.say("resuming %s (from %s)", sid, src)
 	}
 	seen, err := l.start(ctx, Start{Agent: t.agent, Kind: t.kind, Pane: t.pane, Label: t.entry.Label, Args: args,
-		Resume: sid, Session: t.session, Prompt: prompt, Lane: t.info.Lane})
+		Resume: sid, Session: t.session, Prompt: prompt, Lane: t.info.Lane}, shellBy)
 	var se *StartError
 	switch {
 	case errors.As(err, &se) && se.NotReady:
 		return port.Started{}, l.giveUp(ctx, t, "start failed in %s (%s)", t.pane, se.Hint)
+	case errors.As(err, &se) && port.ErrorCode(se.Err) == "agent_pane_busy":
+		return port.Started{}, l.giveUp(ctx, t, "start failed in %s (herdr: the pane is not an available shell: the old "+
+			"agent has not left it; run obor restart %s --pane %s again or start it by hand)", t.pane, t.agent, t.pane)
 	case errors.As(err, &se):
 		return port.Started{}, l.giveUp(ctx, t, "start failed in %s (no agent runs there: the pane is at its shell, maybe mid-command: run obor restart %s --pane %s again or start it by hand)",
 			t.pane, t.agent, t.pane)
