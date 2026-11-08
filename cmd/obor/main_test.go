@@ -30,6 +30,12 @@ func TestMain(m *testing.M) {
 	if out, err := exec.Command("go", "build", "-buildvcs=false", "-o", oborBin, ".").CombinedOutput(); err != nil {
 		panic("go build: " + err.Error() + "\n" + string(out))
 	}
+	// beside it the OpenCode kind's binary, as make build lays them out (T-1046: obor runs a kit kind from its own
+	// executable's directory; config validate describes it)
+	kind := filepath.Join(dir, "obor-kind-opencode")
+	if out, err := exec.Command("go", "build", "-buildvcs=false", "-o", kind, "../../kinds/opencode").CombinedOutput(); err != nil {
+		panic("go build kinds/opencode: " + err.Error() + "\n" + string(out))
+	}
 	code := testkit.Run(m) // removes the project template testkit.New copies (T-1009)
 	os.RemoveAll(dir)
 	os.Exit(code)
