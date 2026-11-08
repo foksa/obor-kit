@@ -611,3 +611,15 @@ func TestHerdrNoteFollowsTheConnectedServer(t *testing.T) {
 		t.Errorf("log names the downgraded version %d times, want once:\n%s", got, &out)
 	}
 }
+
+// #4: a waiting task has no lane, so its needs-you names the task in the drop command, never <LANE>.
+func TestWaitingNeedsYouDropCommand(t *testing.T) {
+	t.Parallel()
+	raw, _ := json.Marshal(event.FactData{Merge: true, Cause: causeAfter, Reason: "after: T-8 waits for T-1, which is dropped"})
+	r := event.Record{Seq: 1, Task: "T-8", Step: event.StepNeedsYou, Data: raw}
+	path := answerPath(nil, r, mtask{task: "T-8", state: stWaiting, needs: block{fact: r}})
+	t.Log(path)
+	if strings.Contains(path, "<LANE>") {
+		t.Error("waiting task has no lane; advertised drop command cannot run")
+	}
+}
