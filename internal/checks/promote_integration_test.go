@@ -76,8 +76,8 @@ func TestPromoteRunsTheFullSuiteAndFastForwards(t *testing.T) {
 	}
 }
 
-// T-989: the lane test runs the short tier (CHECK_SHORT=1, lanetest.go); the promotion's check does not carry it, so the
-// full suite runs at the promotion.
+// T-989/T-1041: a lane test carries OBOR_PROMOTION=1 when branches.promote is set (a project's Makefile maps it to its
+// cheap tier); the promotion's own check does not carry it, so the full suite runs at the promotion.
 func TestPromoteRunsTheFullSuite(t *testing.T) {
 	t.Parallel()
 	x, h := promoteFx(t, cmd("check", `env > "$TMP_DIR/promote-env"; echo 1 pass`))
@@ -88,8 +88,8 @@ func TestPromoteRunsTheFullSuite(t *testing.T) {
 	if env == "" {
 		t.Fatal("precondition: the promotion's check recorded its environment")
 	}
-	if strings.Contains("\n"+env+"\n", "\nCHECK_SHORT=1\n") {
-		t.Errorf("the promotion's env carries CHECK_SHORT=1: the full suite must run there:\n%s", env)
+	if strings.Contains("\n"+env+"\n", "\nOBOR_PROMOTION=1\n") {
+		t.Errorf("the promotion's env carries OBOR_PROMOTION=1: the full suite must run there:\n%s", env)
 	}
 }
 

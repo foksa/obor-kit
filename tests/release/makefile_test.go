@@ -231,7 +231,7 @@ func TestMakeCheckGocacheFallback(t *testing.T) {
 }
 
 // makeCheckShort runs `make -s check` on a kit copy whose go logs each call and passes (writeKit) and whose gofmt passes,
-// with env added (an inherited CHECK_SHORT, this lane test's own, removed first); it returns the logged go calls.
+// with env added (an inherited OBOR_PROMOTION, this lane test's own, removed first); it returns the logged go calls.
 func makeCheckShort(t *testing.T, env ...string) []string {
 	t.Helper()
 	dir := testkit.Dir(t)
@@ -240,7 +240,7 @@ func makeCheckShort(t *testing.T, env ...string) []string {
 	writeExec(t, filepath.Join(dir, "stub", "gofmt"), "#!/bin/bash\nexit 0\n")
 	cmd := exec.Command("make", "-s", "-C", dir, "check", "GO="+filepath.Join(dir, "bin", "go"))
 	for _, kv := range plainMakeEnv() {
-		if !strings.HasPrefix(kv, "CHECK_SHORT=") {
+		if !strings.HasPrefix(kv, "OBOR_PROMOTION=") {
 			cmd.Env = append(cmd.Env, kv)
 		}
 	}
@@ -253,7 +253,7 @@ func makeCheckShort(t *testing.T, env ...string) []string {
 	return strings.Split(strings.TrimSpace(readFile(t, log)), "\n")
 }
 
-// T-989: CHECK_SHORT=1 makes check pass -short (a lane test runs the short tier whatever the class); without it, or with
+// T-989: OBOR_PROMOTION=1 makes check pass -short (a lane test runs the short tier whatever the class); without it, or with
 // another value, check runs the full suite, as the promotion, the nightly and a release do.
 func TestMakeCheckShort(t *testing.T) {
 	t.Parallel()
@@ -262,9 +262,9 @@ func TestMakeCheckShort(t *testing.T) {
 		env   []string
 		short bool
 	}{
-		{"CHECK_SHORT=1", []string{"CHECK_SHORT=1"}, true},
+		{"OBOR_PROMOTION=1", []string{"OBOR_PROMOTION=1"}, true},
 		{"unset", nil, false},
-		{"CHECK_SHORT=0", []string{"CHECK_SHORT=0"}, false},
+		{"OBOR_PROMOTION=0", []string{"OBOR_PROMOTION=0"}, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -288,7 +288,7 @@ func TestMakeCheckShort(t *testing.T) {
 // makeCheckTier runs `make -s <target>` on a kit copy whose go and gofmt log their argv to go.log; the fake go answers
 // `go run ./tools/affected` with one package (fx/a), as the kit's tool would. It returns the output, the logged go argv
 // lines and the affected list's call ("": the tool was not asked). env is appended to the make environment (an
-// inherited CHECK_DIRECT, this lane test's own, removed first).
+// inherited OBOR_PROMOTION, this lane test's own, removed first).
 func makeCheckTier(t *testing.T, target string, env ...string) (string, []string, string) {
 	t.Helper()
 	dir := testkit.Dir(t)
@@ -298,7 +298,7 @@ func makeCheckTier(t *testing.T, target string, env ...string) (string, []string
 	cmd := exec.Command("make", "-s", "-C", dir, target, "GO="+filepath.Join(dir, "bin", "go"))
 	var base []string
 	for _, kv := range plainMakeEnv() {
-		if !strings.HasPrefix(kv, "CHECK_DIRECT=") {
+		if !strings.HasPrefix(kv, "OBOR_PROMOTION=") {
 			base = append(base, kv)
 		}
 	}
@@ -552,7 +552,7 @@ func TestMakeCheckAffectedCatchesVetError(t *testing.T) {
 	}
 }
 
-// T-991: CHECK_DIRECT=1 makes check-affected ask tools/affected for the changed packages only (--direct; serve's lane
+// T-991: OBOR_PROMOTION=1 makes check-affected ask tools/affected for the changed packages only (--direct; serve's lane
 // test sets it when branches.promote is); without it, or with another value, the list keeps the importers' expansion.
 func TestMakeCheckAffectedDirect(t *testing.T) {
 	t.Parallel()
@@ -561,9 +561,9 @@ func TestMakeCheckAffectedDirect(t *testing.T) {
 		env  []string
 		want string
 	}{
-		{"CHECK_DIRECT=1", []string{"CHECK_DIRECT=1"}, "run ./tools/affected --direct"},
+		{"OBOR_PROMOTION=1", []string{"OBOR_PROMOTION=1"}, "run ./tools/affected --direct"},
 		{"unset", nil, "run ./tools/affected"},
-		{"CHECK_DIRECT=0", []string{"CHECK_DIRECT=0"}, "run ./tools/affected"},
+		{"OBOR_PROMOTION=0", []string{"OBOR_PROMOTION=0"}, "run ./tools/affected"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()

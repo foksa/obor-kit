@@ -102,16 +102,16 @@ func TestGateCandidateIsTheTasksOwnDiff(t *testing.T) {
 }
 
 // The lane test's green paths: the class's check runs in the lane at the candidate with the lane worker's environment
-// and the task's files, and the lane is back on its branch; the CPU budget is the lane's; a lane test while
-// branches.promote is set runs the short tier and asks for the changed packages only; what the checks changed is discarded.
+// and the task's files, and the lane is back on its branch; the env is the facts plus slots.lane_env; a lane test while
+// branches.promote is set carries OBOR_PROMOTION; what the checks changed is discarded.
 func TestLaneTestGreenRestores(t *testing.T) {
 	for _, c := range []struct {
 		name string
 		run  func(*testing.T)
 	}{
 		{"the class's check runs in the lane and the lane is restored", laneTestInTheLane},
-		{"the lane's CPU budget", laneTestLaneEnv},
-		{"CHECK_SHORT and CHECK_DIRECT follow branches.promote", laneTestPromotionEnv},
+		{"the lane's env: the facts and slots.lane_env", laneTestLaneEnv},
+		{"OBOR_PROMOTION follows branches.promote", laneTestPromotionEnv},
 		{"what the checks changed is discarded", laneTestDiscards},
 	} {
 		t.Run(c.name, c.run)
@@ -154,7 +154,7 @@ func laneTestInTheLane(t *testing.T) {
 	y.eq(y.probed("head"), c.SHA, "on the candidate")
 	y.eq(y.probed("files"), "feature.txt", "OBOR_CHANGED_FILES: the task's files (target..candidate)")
 	env := y.probed("env")
-	for _, kv := range []string{"CHECK_PRIORITY=worker", "GOMAXPROCS=2", "GOFLAGS=-p=2 -trimpath", "CHECK_CPUS=2"} {
+	for _, kv := range []string{"CHECK_PRIORITY=worker", "OBOR_LANE_CPUS=2", "CHECK_CPUS=2"} {
 		if !strings.Contains("\n"+env+"\n", "\n"+kv+"\n") {
 			t.Errorf("the check's environment has no %s", kv)
 		}
@@ -172,11 +172,13 @@ func laneTestInTheLane(t *testing.T) {
 	}
 }
 
-// T-967: the lane test's env is the lane workers' (config.LaneEnv): slots.lane_cpus and the inherited GOFLAGS' other
-// flags kept, CHECK_CPUS the same budget.
+// T-1041: the lane test's env is the lane workers' (config.LaneEnv): the fact OBOR_LANE_CPUS (slots.lane_cpus) and the
+// project's slots.lane_env with {cpus} replaced — a var the inherited env also had takes the config's value, no merge;
+// CHECK_CPUS the same budget.
 func laneTestLaneEnv(t *testing.T) {
 	t.Parallel()
-	y := newSxEnv(t, []string{"GOFLAGS=-mod=mod"}, testkit.Set("slots.lane_cpus", 1), cmd("check", probe))
+	y := newSxEnv(t, []string{"GOFLAGS=-mod=mod"}, testkit.Set("slots.lane_cpus", 1),
+		testkit.Set("slots.lane_env", `{"GOMAXPROCS": "{cpus}", "GOFLAGS": "-p={cpus} -trimpath"}`), cmd("check", probe))
 	if got := y.s.Cfg.LaneCPUs(); got != 1 {
 		t.Fatalf("precondition: slots.lane_cpus 1, got %d", got)
 	}
@@ -189,16 +191,15 @@ func laneTestLaneEnv(t *testing.T) {
 		t.Fatalf("test: %+v %v\noutput:\n%s", o, err, y.out.String())
 	}
 	env := y.probed("env")
-	for _, kv := range []string{"GOMAXPROCS=1", "GOFLAGS=-mod=mod -p=1 -trimpath", "CHECK_CPUS=1"} {
+	for _, kv := range []string{"OBOR_LANE_CPUS=1", "GOMAXPROCS=1", "GOFLAGS=-p=1 -trimpath", "CHECK_CPUS=1"} {
 		if !strings.Contains("\n"+env+"\n", "\n"+kv+"\n") {
 			t.Errorf("the check's environment has no %q:\n%s", kv, env)
 		}
 	}
 }
 
-// T-991/T-997: the lane test runs the short tier and only the changed packages' tests when branches.promote is set
-// (CHECK_SHORT=1, CHECK_DIRECT=1: the promotion's full suite and the nightly cover the slow tests and the importers,
-// the slot's compile an importer's build break); without a promotion it sets neither, so a class's checks run whole as
+// T-1041: a lane test carries the fact OBOR_PROMOTION=1 when branches.promote is set (a project's Makefile maps it to
+// its cheap tier: obor-kit's -short and --direct, T-991/T-997) and never without one, so a class's checks run whole as
 // before T-989.
 func laneTestPromotionEnv(t *testing.T) {
 	t.Parallel()
@@ -225,11 +226,10 @@ func laneTestPromotionEnv(t *testing.T) {
 				t.Fatalf("test: %+v %v\noutput:\n%s", o, err, y.out.String())
 			}
 			env := y.probed("env")
-			for _, kv := range []string{"CHECK_SHORT=1", "CHECK_DIRECT=1"} {
-				got := strings.Contains("\n"+env+"\n", "\n"+kv+"\n")
-				if got != c.promote {
-					t.Errorf("the check's environment carries %s %v, want %v:\n%s", kv, got, c.promote, env)
-				}
+			const kv = "OBOR_PROMOTION=1"
+			got := strings.Contains("\n"+env+"\n", "\n"+kv+"\n")
+			if got != c.promote {
+				t.Errorf("the check's environment carries %s %v, want %v:\n%s", kv, got, c.promote, env)
 			}
 		})
 	}
