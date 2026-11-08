@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,10 +10,10 @@ import (
 	"testing"
 )
 
-// env is one check call's inputs: the budgets, the packages with tests, their two tiers and the private TMPDIR's
+// env is one check call's inputs: the budget file, the packages with tests, their two tiers and the private TMPDIR's
 // leftovers.
 type env struct {
-	budget      map[string]Budget
+	budget      File
 	pkgs        []string
 	full, short map[string]Run
 	tmp         []string
@@ -21,9 +22,12 @@ type env struct {
 // base is a green run: two packages, every metric under its budget, one 1.5 s test and its Slow mark.
 func base() env {
 	return env{
-		budget: map[string]Budget{
-			"a": {ShortS: 2, FullS: 4, GitProcs: 10},
-			"b": {ShortS: 5, FullS: 9, GitProcs: 100},
+		budget: File{
+			UntaggedS: 1.3,
+			Packages: map[string]Budget{
+				"a": {ShortS: 2, FullS: 4, GitProcs: 10},
+				"b": {ShortS: 5, FullS: 9, GitProcs: 100},
+			},
 		},
 		pkgs: []string{"a", "b"},
 		full: map[string]Run{
@@ -49,8 +53,9 @@ func TestCheckGreen(t *testing.T) {
 	}
 }
 
-// T-1002: one line per breach, in the shape `FAIL budget: <pkg> <metric> <got> > <max>` for a metric, and a line of its
-// own for a missing budget, a failed tier, an unmarked 1 s test and the TMPDIR's leftovers.
+// T-1002, T-1004: one line per breach, in the shape `FAIL budget: <pkg> <metric> <got> > <max>` for a metric, and a
+// line of its own for a missing budget, a failed tier, a test over its cap, an uncapped untagged test and the TMPDIR's
+// leftovers.
 func TestCheckBreaches(t *testing.T) {
 	if lines, _ := check(base().budget, base().pkgs, base().full, base().short, nil); len(lines) != 0 {
 		t.Fatalf("precondition: the base run is green, got %q", lines)
@@ -75,13 +80,30 @@ func TestCheckBreaches(t *testing.T) {
 			r.Git = 11
 			e.full["a"] = r
 		}, []string{"FAIL budget: a git_procs 11 > 10"}},
-		{"a test over 1 s without Slow", func(e *env) {
+		{"a capped test under its cap", func(e *env) {
 			r := e.full["a"]
-			r.Tests = []Test{{Name: "TestQuick", Elapsed: 1.2}}
+			r.Tests = []Test{{Name: "TestCapped", Elapsed: 1.5}}
 			e.full["a"] = r
-		}, []string{"FAIL budget: a test/TestQuick 1.20s >= 1s without testkit.Slow"}},
+			e.budget.Tests = map[string]float64{"a TestCapped": 2}
+		}, nil},
+		{"a capped test over its cap", func(e *env) {
+			r := e.full["a"]
+			r.Tests = []Test{{Name: "TestCapped", Elapsed: 2.5}}
+			e.full["a"] = r
+			e.budget.Tests = map[string]float64{"a TestCapped": 2}
+		}, []string{"FAIL budget: a test/TestCapped 2.50s > 2.0s"}},
+		{"an uncapped test at 1.2 s is under the untagged threshold", func(e *env) {
+			r := e.full["a"]
+			r.Tests = []Test{{Name: "TestUntagged", Elapsed: 1.2}}
+			e.full["a"] = r
+		}, nil},
+		{"an uncapped test at the untagged threshold", func(e *env) {
+			r := e.full["a"]
+			r.Tests = []Test{{Name: "TestUntagged", Elapsed: 1.3}}
+			e.full["a"] = r
+		}, []string{"FAIL budget: a test/TestUntagged 1.30s >= 1.3s without testkit.Slow"}},
 		{"no budget for a package with tests", func(e *env) {
-			delete(e.budget, "b")
+			delete(e.budget.Packages, "b")
 		}, []string{"FAIL budget: b missing from tests/budget.json"}},
 		{"a failed full tier", func(e *env) {
 			r := e.full["a"]
@@ -116,15 +138,68 @@ func TestCheckBreaches(t *testing.T) {
 	}
 }
 
-// T-1002: a Slow-marked test is the short tier's skipped test whose output carries testkit.Slow's message; a top-level
-// test's time is the subtest-free pass event, and the package's own verdict is the tier's wall time.
+// T-1002, T-1004: a Slow-marked test is the short tier's skipped test whose output carries testkit.Slow's message; a
+// top-level test's cost is its own Elapsed plus the Elapsed of every subtest that paused (rev 4: Go's Elapsed excludes
+// a parallel test's wait between pause and cont, and a non-paused subtest is inside its parent's Elapsed); the
+// package's own verdict is the tier's wall time.
 func TestParseRun(t *testing.T) {
+	for _, c := range []struct {
+		name, stream string
+		want         []Test
+	}{
+		{"a plain test keeps its time", `{"Action":"run","Test":"TestPlain"}
+{"Action":"pass","Test":"TestPlain","Elapsed":1.2}
+{"Action":"pass","Package":"p","Elapsed":1.3}
+`, []Test{{Name: "TestPlain", Elapsed: 1.2}}},
+		{"a parent's own time plus its two paused subtests", `{"Action":"run","Test":"TestP"}
+{"Action":"run","Test":"TestP/a"}
+{"Action":"pause","Test":"TestP/a"}
+{"Action":"run","Test":"TestP/b"}
+{"Action":"pause","Test":"TestP/b"}
+{"Action":"cont","Test":"TestP/a"}
+{"Action":"pass","Test":"TestP/a","Elapsed":0.7}
+{"Action":"cont","Test":"TestP/b"}
+{"Action":"pass","Test":"TestP/b","Elapsed":0.7}
+{"Action":"pass","Test":"TestP","Elapsed":0}
+{"Action":"pass","Package":"p","Elapsed":1.5}
+`, []Test{{Name: "TestP", Elapsed: 1.4}}},
+		{"a parallel top-level test that waited 30 s in the queue", `{"Action":"run","Test":"TestQueued"}
+{"Action":"pause","Test":"TestQueued"}
+{"Action":"cont","Test":"TestQueued"}
+{"Action":"pass","Test":"TestQueued","Elapsed":0.2}
+{"Action":"pass","Package":"p","Elapsed":30.3}
+`, []Test{{Name: "TestQueued", Elapsed: 0.2}}},
+		{"a sequential subtest is already in its parent", `{"Action":"run","Test":"TestSeq"}
+{"Action":"run","Test":"TestSeq/s"}
+{"Action":"pass","Test":"TestSeq/s","Elapsed":0.4}
+{"Action":"pass","Test":"TestSeq","Elapsed":0.5}
+{"Action":"pass","Package":"p","Elapsed":0.6}
+`, []Test{{Name: "TestSeq", Elapsed: 0.5}}},
+		{"a paused subtest and its paused grandchild are added", `{"Action":"run","Test":"TestDeep"}
+{"Action":"run","Test":"TestDeep/s"}
+{"Action":"pause","Test":"TestDeep/s"}
+{"Action":"run","Test":"TestDeep/s/g"}
+{"Action":"pause","Test":"TestDeep/s/g"}
+{"Action":"pass","Test":"TestDeep/s/g","Elapsed":0.6}
+{"Action":"pass","Test":"TestDeep/s","Elapsed":0.3}
+{"Action":"pass","Test":"TestDeep","Elapsed":0.1}
+{"Action":"pass","Package":"p","Elapsed":1.1}
+`, []Test{{Name: "TestDeep", Elapsed: 1.0}}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r := parseRun([]byte(c.stream))
+			if !sameTests(r.Tests, c.want) {
+				t.Errorf("parseRun's top-level tests %v; want %v", r.Tests, c.want)
+			}
+		})
+	}
+
 	const passing = `{"Action":"start","Package":"p"}
 {"Action":"run","Test":"TestA"}
 {"Action":"output","Test":"TestA","Output":"=== RUN   TestA\n"}
-{"Action":"pass","Test":"TestA","Elapsed":1.3}
 {"Action":"run","Test":"TestA/sub"}
-{"Action":"pass","Test":"TestA/sub","Elapsed":2.5}
+{"Action":"pass","Test":"TestA/sub","Elapsed":0.5}
+{"Action":"pass","Test":"TestA","Elapsed":1.3}
 {"Action":"run","Test":"TestSlow"}
 {"Action":"output","Test":"TestSlow","Output":"    p_test.go:10: slow: runs in make check\n"}
 {"Action":"skip","Test":"TestSlow","Elapsed":0}
@@ -137,8 +212,8 @@ func TestParseRun(t *testing.T) {
 	if !r.Passed || r.Elapsed != 4.2 {
 		t.Errorf("parseRun: passed %v elapsed %v; want true 4.2", r.Passed, r.Elapsed)
 	}
-	if want := []Test{{Name: "TestA", Elapsed: 1.3}}; !slices.Equal(r.Tests, want) {
-		t.Errorf("parseRun's top-level tests %v; want %v (a subtest is its parent's)", r.Tests, want)
+	if want := []Test{{Name: "TestA", Elapsed: 1.3}}; !sameTests(r.Tests, want) {
+		t.Errorf("parseRun's top-level tests %v; want %v (a sequential subtest adds nothing)", r.Tests, want)
 	}
 	if want := map[string]bool{"TestSlow": true}; len(r.Slow) != len(want) || !r.Slow["TestSlow"] {
 		t.Errorf("parseRun's Slow marks %v; want only TestSlow (its skip message)", r.Slow)
@@ -204,7 +279,8 @@ func TestGitWrapper(t *testing.T) {
 	}
 }
 
-// T-1002: the seed is each measured tier x1.5 and each git count x1.5, rounded up (a tenth of a second; one process).
+// T-1002, T-1004: the seed is each measured tier x1.5 and each git count x1.5, rounded up (a tenth of a second; one
+// process), with the untagged threshold and no per-test caps (they are hand-set).
 func TestSeed(t *testing.T) {
 	full := map[string]Run{
 		"a": {Elapsed: 2.0, Git: 3},
@@ -224,6 +300,40 @@ func TestSeed(t *testing.T) {
 			t.Errorf("seed(%s) = %+v; want %+v", pkg, got, w)
 		}
 	}
+	if f.UntaggedS != untaggedDefault {
+		t.Errorf("seed's untagged_s = %v; want %v", f.UntaggedS, untaggedDefault)
+	}
+	if len(f.Tests) != 0 {
+		t.Errorf("seed set per-test caps %v; want none (they are hand-set)", f.Tests)
+	}
+}
+
+// T-1004: a budget file without untagged_s is an error, not a zero threshold (which would report every test).
+func TestLoadNeedsUntaggedS(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "tests"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"packages":{"a":{"short_s":1,"full_s":1,"git_procs":0}}}`
+	if err := os.WriteFile(filepath.Join(root, "tests", "budget.json"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := load(root); err == nil {
+		t.Error("load accepted a budget file without untagged_s; want an error")
+	}
+}
+
+// sameTests compares two test lists, allowing the float noise of summed Elapsed values.
+func sameTests(got, want []Test) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i].Name != want[i].Name || math.Abs(got[i].Elapsed-want[i].Elapsed) > 1e-6 {
+			return false
+		}
+	}
+	return true
 }
 
 func readFile(t *testing.T, p string) string {

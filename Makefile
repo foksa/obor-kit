@@ -200,10 +200,12 @@ check-release:
 
 # check-budget (commands.check_budget, the nightly's non-gating budget line, T-1002): every package with tests runs its
 # full and -short tiers at GOMAXPROCS=2 with a counting git wrapper first on PATH and a private TMPDIR (tests/budget),
-# and the two wall times, the full tier's git processes and any top-level test >= 1 s without testkit.Slow are compared
-# with tests/budget.json. One "FAIL budget: <pkg> <metric> <got> > <max>" per breach, else "budget OK: N packages". The
-# nightly runs it on a quiet machine, so its numbers are comparable; a budget is raised only by an owner line in
-# docs/decisions.md and lowered by any task that gets under it (docs/plan/test-suite-rework.md §3). Seed it with
+# and the two wall times, the full tier's git processes, any top-level test over its per-test cap and any uncapped test
+# at or over untagged_s without testkit.Slow are compared with tests/budget.json (T-1004: a test's cost is its own
+# Elapsed plus every paused subtest's). One "FAIL budget: <pkg> <metric> <got> > <max>" per breach, else
+# "budget OK: N packages". The nightly runs it on a quiet machine, so its numbers are comparable; a budget is raised
+# only by an owner line in docs/decisions.md and lowered by any task that gets under it (docs/plan/test-suite-
+# rework.md §3); per-test caps are hand-set. Seed it with
 # `GO="$(GO)" $(GO) run ./tests/budget -seed > tests/budget.json`.
 check-budget:
 	@$(GO_CACHE); \
