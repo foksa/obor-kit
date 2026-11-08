@@ -337,9 +337,9 @@ func TestProjectWarnings(t *testing.T) {
 	}
 }
 
-// T-1045: on darwin, the files beside the resolved codex (symlinks followed) that carry com.apple.quarantine make one
-// warning naming them and the fix on the package's version dir; none when nothing is quarantined, codex is not on the
-// PATH, or the machine is not a Mac.
+// T-1045, T-1049: on darwin, the files beside the resolved codex (symlinks followed) whose com.apple.quarantine lacks
+// the user-approved bit (0x0040) make one warning naming them and the fix on the package's version dir; an approved
+// file (0x01c1), none, codex not on the PATH, or a machine that is not a Mac: no warning.
 func TestInstallWarnings(t *testing.T) {
 	k, _ := agents.Lookup("codex")
 	c, ok := k.(agents.InstallChecker)
@@ -347,7 +347,7 @@ func TestInstallWarnings(t *testing.T) {
 		t.Fatal("precondition: codex is an InstallChecker")
 	}
 	const link, ver = "/opt/homebrew/bin/codex", "/opt/homebrew/Caskroom/codex/0.167.0"
-	host := func(goos string, found bool, quarantined ...string) agents.InstallHost {
+	host := func(goos string, found bool, flags map[string]uint32) agents.InstallHost {
 		return agents.InstallHost{
 			GOOS: goos,
 			LookPath: func(name string) (string, error) {
@@ -362,22 +362,28 @@ func TestInstallWarnings(t *testing.T) {
 				}
 				return p, nil
 			},
-			Quarantined: func(p string) bool { return slices.Contains(quarantined, p) },
+			Quarantine: func(p string) (uint32, bool) { f, ok := flags[p]; return f, ok },
 		}
 	}
-	fix := "fix: xattr -dr com.apple.quarantine " + ver + " (or brew reinstall --cask codex --no-quarantine)"
+	const hostBin = ver + "/bin/codex-code-mode-host"
+	fix := "fix: xattr -dr com.apple.quarantine " + ver
 	for _, tc := range []struct {
 		name string
 		h    agents.InstallHost
 		want string // "" no warning; else the files part of the one line
 	}{
-		{"the host quarantined", host("darwin", true, ver+"/bin/codex-code-mode-host"), ver + "/bin/codex-code-mode-host carry"},
-		{"all three", host("darwin", true, ver+"/bin/codex", ver+"/bin/codex-code-mode-host", ver+"/bin/codex-exec-server"),
-			ver + "/bin/codex, " + ver + "/bin/codex-code-mode-host, " + ver + "/bin/codex-exec-server carry"},
-		{"the symlink's own dir is not checked", host("darwin", true, "/opt/homebrew/bin/codex-code-mode-host"), ""},
-		{"nothing quarantined", host("darwin", true), ""},
-		{"no codex on the PATH", host("darwin", false, ver+"/bin/codex-code-mode-host"), ""},
-		{"not a Mac", host("linux", true, ver+"/bin/codex-code-mode-host"), ""},
+		{"the host quarantined", host("darwin", true, map[string]uint32{hostBin: 0x0181}), hostBin + " carry"},
+		{"the host the user approved", host("darwin", true, map[string]uint32{hostBin: 0x01c1}), ""},
+		{"a browser's flags", host("darwin", true, map[string]uint32{hostBin: 0x0083}), hostBin + " carry"},
+		{"all three", host("darwin", true, map[string]uint32{ver + "/bin/codex": 0x0181, hostBin: 0x0181,
+			ver + "/bin/codex-exec-server": 0x0181}),
+			ver + "/bin/codex, " + hostBin + ", " + ver + "/bin/codex-exec-server carry"},
+		{"one approved among them", host("darwin", true, map[string]uint32{ver + "/bin/codex": 0x01c1, hostBin: 0x0181}),
+			hostBin + " carry"},
+		{"the symlink's own dir is not checked", host("darwin", true, map[string]uint32{"/opt/homebrew/bin/codex-code-mode-host": 0x0181}), ""},
+		{"nothing quarantined", host("darwin", true, nil), ""},
+		{"no codex on the PATH", host("darwin", false, map[string]uint32{hostBin: 0x0181}), ""},
+		{"not a Mac", host("linux", true, map[string]uint32{hostBin: 0x0181}), ""},
 	} {
 		got := c.InstallWarnings(tc.h)
 		if tc.want == "" {
@@ -389,6 +395,33 @@ func TestInstallWarnings(t *testing.T) {
 		if len(got) != 1 || !strings.HasPrefix(got[0], tc.want+" com.apple.quarantine") || !strings.HasSuffix(got[0], fix) ||
 			!strings.Contains(got[0], "code-mode host") {
 			t.Errorf("%s: want one line %q … %q, got %q", tc.name, tc.want, fix, got)
+		}
+		if strings.Contains(strings.Join(got, ""), "--no-quarantine") {
+			t.Errorf("%s: the stale --no-quarantine fix is back: %q", tc.name, got)
+		}
+	}
+}
+
+// T-1049: a Codex failure that is the code-mode host's handshake timeout names the likely Gatekeeper dialog, in the
+// error or in its details; another error has no clause.
+func TestErrorHint(t *testing.T) {
+	k, _ := agents.Lookup("codex")
+	h, ok := k.(agents.ErrorHinter)
+	if !ok {
+		t.Fatal("precondition: codex is an ErrorHinter")
+	}
+	const clause = "a macOS Gatekeeper dialog for codex-code-mode-host may be open on this Mac's screen " +
+		"(docs/research/codex-quarantine.md)"
+	for _, tc := range []struct {
+		name, errText, details, want string
+	}{
+		{"the error text", "timed out negotiating with the code-mode host", "", clause},
+		{"in the details", "other", "tool call failed: timed out negotiating with the code-mode host", clause},
+		{"another error", "usage_limit_exceeded", "You've hit your usage limit", ""},
+		{"nothing", "", "", ""},
+	} {
+		if got := h.ErrorHint(tc.errText, tc.details); got != tc.want {
+			t.Errorf("%s: hint %q, want %q", tc.name, got, tc.want)
 		}
 	}
 }

@@ -207,7 +207,7 @@ func TestStopWakeCodexRateLimits(t *testing.T) {
 	reset := time.Date(2026, 10, 24, 13, 0, 0, 0, time.UTC) // the rig's clock starts at 12:00
 	full := `{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":100.0,` +
 		`"window_minutes":300,"resets_at":` + strconv.FormatInt(reset.Unix(), 10) + `},"secondary":null}}}` + "\n"
-	r := codexStoppedWith(t, full+cdxLimited)
+	r := codexStoppedOn(t, full+cdxLimited, cdxReason)
 	var got int64
 	for _, rec := range r.records() {
 		if rec.Kind == event.KindFact && rec.Step == event.StepStopped {

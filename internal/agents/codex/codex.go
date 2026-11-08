@@ -110,11 +110,16 @@ func (kind) ProjectWarnings(dir string, read agents.ReadFile) []string {
 // call (0.167) and the exec server for commands.
 var installFiles = []string{"codex", "codex-code-mode-host", "codex-exec-server"}
 
-// InstallWarnings (T-1045): on darwin, the files beside the resolved codex that carry com.apple.quarantine, one line.
+// userApproved is quarantine's user-approved bit (T-1049, docs/research/codex-quarantine.md §3: "0181" → "01c1" once
+// Gatekeeper's dialog was answered Open): such a file will not prompt again.
+const userApproved = 0x0040
+
+// InstallWarnings (T-1045, T-1049): on darwin, the files beside the resolved codex that carry com.apple.quarantine
+// without the user-approved bit, one line.
 // A quarantined codex-code-mode-host hangs at exec (macOS never approves it for a child process), so every tool call
 // of a 0.167 session fails "timed out negotiating with the code-mode host" while the TUI itself starts fine.
 func (kind) InstallWarnings(h agents.InstallHost) []string {
-	if h.GOOS != "darwin" || h.LookPath == nil || h.Quarantined == nil {
+	if h.GOOS != "darwin" || h.LookPath == nil || h.Quarantine == nil {
 		return nil
 	}
 	bin, err := h.LookPath("codex")
@@ -129,8 +134,8 @@ func (kind) InstallWarnings(h agents.InstallHost) []string {
 	dir := filepath.Dir(bin)
 	var q []string
 	for _, f := range installFiles {
-		if p := filepath.Join(dir, f); h.Quarantined(p) {
-			q = append(q, p)
+		if flags, ok := h.Quarantine(filepath.Join(dir, f)); ok && flags&userApproved == 0 {
+			q = append(q, filepath.Join(dir, f))
 		}
 	}
 	if len(q) == 0 {
@@ -141,8 +146,22 @@ func (kind) InstallWarnings(h agents.InstallHost) []string {
 		version = filepath.Dir(dir)
 	}
 	return []string{fmt.Sprintf("%s carry com.apple.quarantine: macOS may never start them, and every tool call then "+
-		"times out negotiating with the code-mode host (T-1045); fix: xattr -dr com.apple.quarantine %s "+
-		"(or brew reinstall --cask codex --no-quarantine)", strings.Join(q, ", "), version)}
+		"times out negotiating with the code-mode host (T-1045); fix: xattr -dr com.apple.quarantine %s",
+		strings.Join(q, ", "), version)}
+}
+
+// codeModeTimeout is the error a Codex tool call fails with while the quarantined codex-code-mode-host waits on an
+// unanswered Gatekeeper dialog (T-1049, docs/research/codex-quarantine.md §1).
+const codeModeTimeout = "timed out negotiating with the code-mode host"
+
+// ErrorHint: a stop on this error is most likely the Gatekeeper dialog for a quarantined codex-code-mode-host, open on
+// the Mac's screen while nobody answers it (an obor start runs unattended).
+func (kind) ErrorHint(errText, details string) string {
+	if !strings.Contains(errText, codeModeTimeout) && !strings.Contains(details, codeModeTimeout) {
+		return ""
+	}
+	return "a macOS Gatekeeper dialog for codex-code-mode-host may be open on this Mac's screen " +
+		"(docs/research/codex-quarantine.md)"
 }
 
 // tomlKey is a `key = value` line of TOML: the key bare or quoted, dotted parts allowed; the value after the `=`.

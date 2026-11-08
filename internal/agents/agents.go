@@ -142,16 +142,32 @@ func ProjectWarnings(dir string, read ReadFile) []string {
 
 // InstallHost is the machine a kind's CLI is installed on, the adapter's I/O handed to a pure check (T-1045).
 type InstallHost struct {
-	GOOS        string                            // runtime.GOOS
-	LookPath    func(name string) (string, error) // the CLI on the user's PATH
-	Resolve     func(path string) (string, error) // symlinks followed (filepath.EvalSymlinks)
-	Quarantined func(path string) bool            // the file carries macOS's com.apple.quarantine flag
+	GOOS     string                            // runtime.GOOS
+	LookPath func(name string) (string, error) // the CLI on the user's PATH
+	Resolve  func(path string) (string, error) // symlinks followed (filepath.EvalSymlinks)
+	// Quarantine is the file's com.apple.quarantine flags (xattr -p, "0181" → 0x0181); ok false: the flag is not set.
+	Quarantine func(path string) (flags uint32, ok bool)
 }
 
 // InstallChecker is a kind that checks its CLI's install: Warnings are `obor setup mcp`'s lines, one per problem,
 // each naming the file and the fix (obor applies none).
 type InstallChecker interface {
 	InstallWarnings(h InstallHost) []string
+}
+
+// ErrorHinter is a kind that explains an error obor reports as one of its agents' failures (T-1049): the clause
+// appended to the stop's line and its needs-you ("" when this kind has none for it).
+type ErrorHinter interface {
+	ErrorHint(errText, details string) string
+}
+
+// ErrorHint is the kind name's explanation of a stop's error (errText and details as the kind or the hook named them):
+// "" when it has none, or there is no such kind.
+func ErrorHint(kind, errText, details string) string {
+	if h, ok := lookup(kind).(ErrorHinter); ok {
+		return h.ErrorHint(errText, details)
+	}
+	return ""
 }
 
 // Stop is a kind's quit recipe.
