@@ -21,7 +21,7 @@ import (
 //     line's session_meta) and reports it (in serve after the start returned: its own goroutine);
 //   - OpenCode: none yet; the session request is kind-neutral, T-578's plugin is to send it.
 //
-// herdr's agent_session is a cross-check only: the identity (registry.go) and launch's resume read the recorded
+// herdr's agent_session is a cross-check only: the identity (registry.go, package identity) and launch's resume read the recorded
 // session first, and a herdr value that differs is logged, not adopted; a kind whose sessions obor names itself never
 // adopts it, not even with no record (T-813).
 
@@ -110,7 +110,7 @@ func (p *proj) session(agent string) (store.Session, bool) {
 // transcript is the recorded transcript of pane's agent (under mu): its current session's ("": none recorded; the
 // reader then takes the one herdr's session names).
 func (a *App) transcript(p *proj, pane port.Pane) string {
-	agent, ok := p.reg.whoIs(pane)
+	agent, ok := p.reg.WhoIs(pane)
 	if !ok {
 		return ""
 	}

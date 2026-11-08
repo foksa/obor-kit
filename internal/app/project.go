@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"encoding/json"
 	"obor/internal/app/event"
+	"obor/internal/app/identity"
 	"obor/internal/app/port"
 	"path/filepath"
 	"strings"
@@ -40,7 +41,7 @@ func (a *App) load(root string) (*proj, error) {
 		unwritten: map[event.Key]json.RawMessage{}, exec: map[event.Key]time.Time{}, scratch: make(chan struct{}, 1),
 		tests: map[string]event.Key{}, testCmd: map[string]string{},
 		held: map[string]string{}, ended: map[string]bool{}, roleFail: map[string]time.Time{},
-		reg: newRegistry(), folded: newFolded(), wtAgents: wtAgents(cfg)} // wtAgents: the last good set (wtAgentsNow)
+		reg: identity.New(), folded: newFolded(), wtAgents: wtAgents(cfg)} // wtAgents: the last good set (wtAgentsNow)
 	for _, r := range recs {
 		p.foldRecord(r)
 	}

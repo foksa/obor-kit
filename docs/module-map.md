@@ -92,8 +92,8 @@ process (`plugin.Local`).
   `watchdog.go`, `lanescan.go` (the lane table as a cached observation: scanned on the tick and by a refresher, never
   per pane event; T-879), `toast.go` (the owner's herdr toast, a rule action's best-effort after, T-949), `status.go` (the status snapshot and `Listen`: the socket's server half); the merge loop: `loop.go` (wake, advance, record, do, drive, the picks),
   `mtask.go` (loop state fold), `states.go` (the state table), `steps.go` (scratch/after steps, submit, gate, publish,
-  unpin, fix), `jobstart.go` (job start, texts), `settle.go`; `registry.go` (agent identity: `reconcile` derives the
-  project's agent ↔ terminal table from proofs; `whereIs`/`whoIs` the only lookups, never herdr's name; T-504);
+  unpin, fix), `jobstart.go` (job start, texts), `settle.go`; `registry.go` (agent identity: `reconcile` collects the proofs
+  the `app/identity` table accepts; `whereIs` and the table's `WhoIs` the only lookups, never herdr's name; T-504);
   `lanerows.go` (the `lanes` table projection), `specs.go`, `prompts.go` (the `prompts` table's writes and prune,
   T-665, T-670), `dispatch.go`, `drive.go` (the owner's drive and land: `obor drive`, `obor land`, the driving state, T-751), `messages.go`, `mergewatch.go`,
   `rules.go` (the rule pass: rule-tier steps, T-866), `idle.go` (the idle rules and `obor idle`), `stopped.go`, `stopwake.go`, `rolestop.go` (the role stop rules: serve stops the integrator and the reviewer once done, and a fresh brief's stop; T-672, T-870), `workerstart.go` (the worker start rule: a lane's worker started again while its job is outstanding; T-874), `keeplane.go` (a keep lane's agent between its tasks: its live agent takes the next job, the handoff rule stops one past handoff_tokens; T-1031), `nightly.go`, `promote.go` (the promotion of branches.main to branches.promote, T-974),
@@ -116,6 +116,11 @@ process (`plugin.Local`).
   types readers decode (`Pause`, `Message`, `MergedData`), `Log` (`OpenLog`, `Append`, `Do` …), the readers (`ReadLog`,
   `Dump`, `RecentEvents`, `RecordsOf`, `MessagesTo`, `Since`, `Facts`, `FactTasks`, `DBFile`: the view's queries, T-893) and `Merge`/`ReadMerges`, and `StepN`. It imports `store` only. `app` keeps type, var and const
   aliases of it until a later task removes them (`app/events.go`).
+- `app/identity` (core, a leaf below `app`; T-1066): a project's identity table, `Registry`, and its rules: the start
+  rows (`RecordStart`, `Start`), `Reconcile` (the tie rules over `Claims`, the strongest proof of each agent and
+  terminal), `Proof`, `CrossCheck`, the lookups `WhoIs` and `Lookup` (`whereIs`'s one query), `TermOf`, `SameSession`.
+  Its maps are unexported, so only it names them. No lock: under `App.mu`. It imports `app/port` only, never `app`;
+  `whereIs`, `why`, `candidates` and the proof collection (`App.reconcile`) stay in `app`'s `registry.go`.
 - `app/wire` (core, a leaf above `app/event`; T-692): the app socket's client half, what a caller can ask serve: every
   `Method*`, `Call`, `Request`/`Answer`, `Ask`, `Verdict` (with its retries and `OBOR_CALL_DEADLINE`), `SocketPath`,
   `NewCallID`, `JobReply`, `ResumeArgs` and `Resume*`, the status types (`Status`, `ProjectStatus`, `TaskStatus` …,

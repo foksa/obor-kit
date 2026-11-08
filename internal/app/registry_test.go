@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"obor/internal/app/event"
+	"obor/internal/app/identity"
 	"obor/internal/app/port"
 	"obor/internal/store"
 )
@@ -379,7 +380,7 @@ func TestIdentUnnamedStartRetired(t *testing.T) {
 	eqs(t, h.where("pj-l-01"), "identified w1:p1 label", "pj-l-01")
 	eqs(t, h.where("hk-h1"), "unavailable no proof", "hk-h1")
 	h.a.mu.Lock()
-	_, kept := h.proj().reg.start("hk-h1")
+	_, kept := h.proj().reg.Start("hk-h1")
 	h.a.mu.Unlock()
 	if kept {
 		t.Error("hk-h1's start row kept after the pass")
@@ -807,11 +808,11 @@ func TestIdentEqualProofStartClaim(t *testing.T) {
 	eqs(t, h.who("w1:p1"), "", "precondition: the tie")
 	// pj-advisor's start row (foldStart's) after the tie: one folded before it is retired by the lead's session.
 	h.a.mu.Lock()
-	h.proj().reg.recordStart("pj-advisor", startRow{Pane: "w1:p1", Terminal: "t1", Kind: "claude"})
+	h.proj().reg.RecordStart("pj-advisor", identity.StartRow{Pane: "w1:p1", Terminal: "t1", Kind: "claude"})
 	h.a.mu.Unlock()
 	h.connect()
 	h.a.mu.Lock()
-	_, kept := h.proj().reg.start("pj-advisor")
+	_, kept := h.proj().reg.Start("pj-advisor")
 	h.a.mu.Unlock()
 	if !kept {
 		t.Fatal("precondition: pj-advisor's start row")

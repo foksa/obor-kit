@@ -92,7 +92,7 @@ func (a *App) keepStop(p *proj, cfg *config.Config, l port.Lane, agent, ref stri
 // T-1050), a kind that reports no session id (it cannot prove the live agent is the start's, T-418), or herdr reporting
 // none for the pane now.
 func (p *proj) startFits(cfg *config.Config, agent string, pane port.Pane, ref string) bool {
-	row, ok := p.reg.start(agent)
+	row, ok := p.reg.Start(agent)
 	if !ok || row.Ref == "" || row.Session == "" || row.Config == "" || pane.Session != row.Session ||
 		row.Config != cfg.Rev() {
 		return false
