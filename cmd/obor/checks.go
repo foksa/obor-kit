@@ -38,9 +38,9 @@ func nightlySwitch(args []string) int {
 		b, _ := json.Marshal(args[1]) // a string: cannot fail
 		val, line = b, "NIGHTLY ON at "+args[1]
 	}
-	return requestReply(context.Background(), project.OSEnv, wire.MethodConfig, func(_ *config.Config, c *wire.Call) error {
-		c.Changes = []wire.ConfigChange{{Key: "merge.nightly_at", Value: val}}
-		return nil
+	nightly := []wire.ConfigChange{{Key: "merge.nightly_at", Value: val}}
+	return requestReply(context.Background(), project.OSEnv, func(_ *config.Config, id wire.Envelope) (wire.Req, error) {
+		return &wire.ConfigSetReq{Envelope: id, Changes: nightly}, nil
 	}, func(reply string) string {
 		if strings.HasPrefix(reply, "UNCHANGED ") {
 			return line + " already"

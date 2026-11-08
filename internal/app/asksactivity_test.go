@@ -77,8 +77,8 @@ func TestActivityKeepsAnUnansweredAsk(t *testing.T) {
 				h.a.closeLog()
 				p = reloadProj(t, h)
 				check("replay", p)
-				if _, err := h.a.resume(wire.Call{Root: h.root, Task: "T-1", Role: "lead",
-					Agent: "pj-lead", CallID: "a1", Note: "yes, edit x"}); err != nil {
+				if _, err := h.a.resume(wire.ResumeReq{Envelope: wire.Envelope{Root: h.root, Role: "lead",
+					Agent: "pj-lead", CallID: "a1"}, Task: "T-1", Text: "yes, edit x"}); err != nil {
 					t.Fatalf("obor answer refused: %v", err)
 				}
 				if p.asks("T-1") {

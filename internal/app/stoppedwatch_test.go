@@ -75,8 +75,8 @@ func TestStoppedCurrentTaskNotAnOldWatch(t *testing.T) {
 			if p.tasks[c.want] != keep || (p.tasks[stale] != nil) != staleWatch {
 				t.Fatalf("precondition: watches %+v; want the case's", p.tasks)
 			}
-			reply, err := h.a.stoppedCall(wire.Call{Root: h.root, Agent: "pj-l-01", Role: "worker", Lane: "L-01",
-				CallID: "s1", Error: "rate_limit", Details: "429 Too Many Requests"})
+			reply, err := h.a.stoppedCall(wire.StoppedReq{Envelope: wire.Envelope{Root: h.root, Agent: "pj-l-01",
+				Role: "worker", CallID: "s1"}, Lane: "L-01", Error: "rate_limit", Details: "429 Too Many Requests"})
 			if err != nil || reply != "STOPPED pj-l-01 (needs-you "+c.want+")" {
 				t.Fatalf("stopped: %q, %v; want %s's needs-you", reply, err, c.want)
 			}
@@ -96,7 +96,8 @@ func TestStoppedCurrentTaskNotAnOldWatch(t *testing.T) {
 			h.a.mu.Lock()
 			keep = c.watch(p)
 			h.a.mu.Unlock()
-			reply, err = h.a.turnCall(wire.Call{Root: h.root, Agent: "pj-l-01", Role: "worker", Lane: "L-01"})
+			reply, err = h.a.turnCall(wire.TurnReq{Envelope: wire.Envelope{Root: h.root, Agent: "pj-l-01",
+				Role: "worker"}, Lane: "L-01"})
 			if err != nil || reply != "TURN pj-l-01 (the stop of "+c.want+" ended)" {
 				t.Fatalf("turn: %q, %v; want %s's stop ended", reply, err, c.want)
 			}

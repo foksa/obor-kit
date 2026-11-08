@@ -291,9 +291,9 @@ func TestNightlySwitchCountsFromTheNextPass(t *testing.T) {
 	}
 	set := func(id, val string) string {
 		t.Helper()
-		reply, err := wire.Verdict(context.Background(), r.sock, wire.MethodConfig, wire.Call{Root: r.p.Root,
-			Agent: "pj-lead", Role: "lead", CallID: id,
-			Changes: []wire.ConfigChange{{Key: "merge.nightly_at", Value: json.RawMessage(val)}}})
+		reply, err := wire.Verdict(context.Background(), r.sock,
+			&wire.ConfigSetReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: id},
+				Changes: []wire.ConfigChange{{Key: "merge.nightly_at", Value: json.RawMessage(val)}}})
 		if err != nil {
 			t.Fatalf("config_set %s: %v", val, err)
 		}

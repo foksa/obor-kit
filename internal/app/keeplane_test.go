@@ -34,8 +34,8 @@ func keepRig(t *testing.T) (*loopRig, *atomic.Bool) {
 
 // dispatchTo is the lead's dispatch of task to lane, as sonnet.
 func (r *loopRig) dispatchTo(callID, task, lane string) (string, error) {
-	return r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: callID, Task: task, Lane: lane,
-		Types: []string{"sonnet"}})
+	return r.dispatchCall(wire.DispatchReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-lead", Role: "lead",
+		CallID: callID}, Task: task, Lane: lane, Types: []string{"sonnet"}})
 }
 
 // record is task's newest record of step and kind (ok false: none).
@@ -57,8 +57,8 @@ func (r *loopRig) runToMerge(task string, inReview func()) {
 	r.t.Helper()
 	r.work(strings.ToLower(task)+".txt", task+"\n")
 	r.waitFor(task+" working", func() bool { return r.stateOf(task) == "working" })
-	reply, err := wire.Verdict(context.Background(), r.sock, wire.MethodTaskDone, wire.Call{Root: r.p.Root,
-		Agent: "pj-l-01", Role: "worker", Lane: "L-01", Task: task, CallID: "done-" + task, Report: report})
+	reply, err := wire.Verdict(context.Background(), r.sock, &wire.TaskDoneReq{Envelope: wire.Envelope{Root: r.p.Root,
+		Agent: "pj-l-01", Role: "worker", CallID: "done-" + task}, Lane: "L-01", Task: task, Report: report})
 	if err != nil || reply != "submitted" {
 		r.t.Fatalf("%s's task_done: %q, %v", task, reply, err)
 	}
@@ -66,8 +66,9 @@ func (r *loopRig) runToMerge(task string, inReview func()) {
 	if inReview != nil {
 		inReview()
 	}
-	if reply, err := wire.Verdict(context.Background(), r.sock, wire.MethodAccept, wire.Call{Root: r.p.Root,
-		Agent: "pj-int", Role: "integrator", CallID: "accept-" + task, Task: task, Patch: r.patch(job)}); err != nil ||
+	if reply, err := wire.Verdict(context.Background(), r.sock, &wire.VerdictReq{Envelope: wire.Envelope{Root: r.p.Root,
+		Agent: "pj-int", Role: "integrator", CallID: "accept-" + task}, Verb: wire.MethodAccept, Task: task,
+		Patch: r.patch(job)}); err != nil ||
 		!strings.HasPrefix(reply, "ACCEPT "+task) {
 		r.t.Fatalf("%s's accept: %q, %v", task, reply, err)
 	}
@@ -196,7 +197,7 @@ func TestFreshLaneStillStopsAfterMerge(t *testing.T) {
 // keepSecond runs T-1 on the keep rig's L-01 as sonnet to its merge (its start: serve's own, sonnet), then setup and
 // the lead's dispatch c of T-2 to L-01, and waits until T-2's work job is pj-l-01's (T-1048). sessionless: the worker's
 // starts report no session id.
-func keepSecond(t *testing.T, sessionless bool, setup func(r *loopRig), c wire.Call) *loopRig {
+func keepSecond(t *testing.T, sessionless bool, setup func(r *loopRig), c wire.DispatchReq) *loopRig {
 	t.Helper()
 	r, _ := keepRig(t)
 	r.disp.mu.Lock()
@@ -230,7 +231,7 @@ func keepSecond(t *testing.T, sessionless bool, setup func(r *loopRig), c wire.C
 func TestKeepLaneReusesItsAgentOnlyForTheSameModel(t *testing.T) {
 	pause := func(model string) func(r *loopRig) {
 		return func(r *loopRig) {
-			if _, err := r.pause("", "p-"+model, wire.Call{Model: model, Note: "quota"}); err != nil {
+			if _, err := r.pause("", "p-"+model, wire.PauseReq{Model: model, Why: "quota"}); err != nil {
 				r.t.Fatal(err)
 			}
 		}
@@ -258,7 +259,7 @@ func TestKeepLaneReusesItsAgentOnlyForTheSameModel(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			r := keepSecond(t, c.sessionless, c.setup, wire.Call{Types: c.types})
+			r := keepSecond(t, c.sessionless, c.setup, wire.DispatchReq{Types: c.types})
 			launches := r.workerLaunches()
 			if len(launches) == 0 || launches[0].Prompt != "[obor job T-1/1/work] call the obor job_next tool" ||
 				launches[0].Type != "sonnet" {
@@ -320,7 +321,7 @@ func TestKeepLaneRestartsWhenTheConfigChangedSinceItsStart(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			r := keepSecond(t, false, c.change, wire.Call{Types: []string{"sonnet"}})
+			r := keepSecond(t, false, c.change, wire.DispatchReq{Types: []string{"sonnet"}})
 			launches := r.workerLaunches()
 			if len(launches) == 0 || launches[0].Prompt != "[obor job T-1/1/work] call the obor job_next tool" ||
 				launches[0].Type != "sonnet" {
@@ -392,14 +393,15 @@ func TestKeepLaneWaitOnAPausedModelDoesNotBlockTheNext(t *testing.T) {
 	if reply, err := r.dispatchTo("d1", "T-1", "L-01"); err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as sonnet" {
 		t.Fatalf("T-1: %q, %v", reply, err)
 	}
-	if reply, err := r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: "d2", Task: "T-2",
-		Lane: "L-01", Types: []string{"opus"}}); err != nil || reply != "WAITING T-2 (queued): behind T-1 on keep lane L-01" {
+	if reply, err := r.dispatchCall(wire.DispatchReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-lead",
+		Role: "lead", CallID: "d2"}, Task: "T-2", Lane: "L-01",
+		Types: []string{"opus"}}); err != nil || reply != "WAITING T-2 (queued): behind T-1 on keep lane L-01" {
 		t.Fatalf("T-2: %q, %v", reply, err)
 	}
 	if reply, err := r.dispatchTo("d3", "T-3", "L-01"); err != nil || reply != "WAITING T-3 (queued): behind T-2 on keep lane L-01" {
 		t.Fatalf("T-3: %q, %v (T-2 ahead while opus is not paused)", reply, err)
 	}
-	if _, err := r.pause("", "p-opus", wire.Call{Model: "opus", Note: "quota"}); err != nil {
+	if _, err := r.pause("", "p-opus", wire.PauseReq{Model: "opus", Why: "quota"}); err != nil {
 		t.Fatal(err)
 	}
 	r.waitJob("pj-l-01", "T-1/1/work")

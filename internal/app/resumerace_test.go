@@ -36,12 +36,12 @@ func TestResumeSerialisesWithTaskDone(t *testing.T) {
 			}
 			h.a.mu.Unlock()
 			resume := func() (string, error) {
-				return h.a.resume(wire.Call{Root: h.root, Role: "lead", Agent: "pj-lead", CallID: "r1", Task: "T-1",
-					To: wire.ResumeRegate})
+				return h.a.resume(wire.ResumeReq{Envelope: wire.Envelope{Root: h.root, Role: "lead", Agent: "pj-lead",
+					CallID: "r1"}, Task: "T-1", Flag: wire.ResumeRegate})
 			}
 			submit := func(id string) (string, error) {
-				return h.a.taskDone(wire.Call{Root: h.root, Role: "worker", Agent: "pj-l-01", Lane: "L-01", CallID: id,
-					Task: "T-1", Report: report})
+				return h.a.taskDone(wire.TaskDoneReq{Envelope: wire.Envelope{Root: h.root, Role: "worker",
+					Agent: "pj-l-01", CallID: id}, Lane: "L-01", Task: "T-1", Report: report})
 			}
 			from := h.lastSeq()
 			done := make(chan error, 1)
@@ -149,8 +149,9 @@ func TestTaskDoneCannotReopenConcurrentOutsideMerge(t *testing.T) {
 		}
 	}
 	h.a.hooked.Store(&hook)
-	_, err := h.a.taskDone(wire.Call{Root: h.root, Role: "worker", Agent: "pj-l-01", Lane: "L-01", Task: "T-1",
-		CallID: "late", Report: "Summary: done\nSelf-check: pass\nSkipped: none\nOpen questions: none"})
+	_, err := h.a.taskDone(wire.TaskDoneReq{Envelope: wire.Envelope{Root: h.root, Role: "worker", Agent: "pj-l-01",
+		CallID: "late"}, Lane: "L-01", Task: "T-1",
+		Report: "Summary: done\nSelf-check: pass\nSkipped: none\nOpen questions: none"})
 	if err == nil {
 		t.Error("late submission reported success after the task merged")
 	}

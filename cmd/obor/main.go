@@ -289,9 +289,9 @@ func stopFailure(input []byte, env project.Env) {
 	if !ok || s.Agent == "" {
 		return
 	}
-	c := wire.Call{Root: s.Root, Agent: s.Agent, Role: s.Role, Lane: s.Lane, CallID: wire.NewCallID(), Error: s.Error,
-		Details: s.Details}
-	if _, err := wire.Verdict(context.Background(), wire.SocketPath(s.Root), wire.MethodStopped, c); err != nil {
+	c := &wire.StoppedReq{Envelope: wire.Envelope{Root: s.Root, Agent: s.Agent, Role: s.Role, CallID: wire.NewCallID()},
+		Lane: s.Lane, Error: s.Error, Details: s.Details}
+	if _, err := wire.Verdict(context.Background(), wire.SocketPath(s.Root), c); err != nil {
 		fmt.Fprintln(os.Stderr, "obor stop-failure hook: serve not told:", err)
 	}
 }
@@ -305,8 +305,9 @@ func turn(input []byte, env project.Env, ended bool) {
 	if !ok {
 		return
 	}
-	c := wire.Call{Root: s.Root, Agent: s.Agent, Role: s.Role, Lane: s.Lane, CallID: wire.NewCallID(), Ended: ended}
-	_, _ = wire.Verdict(context.Background(), wire.SocketPath(s.Root), wire.MethodTurn, c)
+	c := &wire.TurnReq{Envelope: wire.Envelope{Root: s.Root, Agent: s.Agent, Role: s.Role, CallID: wire.NewCallID()},
+		Lane: s.Lane, Ended: ended}
+	_, _ = wire.Verdict(context.Background(), wire.SocketPath(s.Root), c)
 }
 
 // sessionBegan is the SessionStart hook telling the project's serve the agent's session began (wire.MethodSession,
@@ -316,7 +317,7 @@ func sessionBegan(b guard.Began, log io.Writer) {
 	ctx := context.Background() // the call's deadline is wire.Verdict's (8 s; T-659)
 	s := b.Session
 	s.Started = time.Now().Unix()
-	if _, err := wire.Verdict(ctx, wire.SocketPath(b.Root), wire.MethodSession, wire.SessionCall(b.Root, s)); err != nil {
+	if _, err := wire.Verdict(ctx, wire.SocketPath(b.Root), wire.SessionRequest(b.Root, s)); err != nil {
 		fmt.Fprintf(log, "obor: session %s of %s not recorded: %v (a restart resumes %s's last recorded session; obor restart %s --fresh starts a new one)\n",
 			b.ID, b.Agent, err, b.Agent, b.Agent)
 	}

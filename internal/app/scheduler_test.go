@@ -92,13 +92,15 @@ func TestScratchOwnedByAnOpenMerge(t *testing.T) {
 	if len(f.gated) != 0 {
 		t.Fatalf("held: gated %v; want none", f.gated)
 	}
-	if _, err := h.a.resume(wire.Call{Root: h.root, Task: "T-1", Role: "lead", CallID: "r", Note: "resolve it"}); err != nil {
+	if _, err := h.a.resume(wire.ResumeReq{Envelope: wire.Envelope{Root: h.root, Role: "lead", CallID: "r"},
+		Task: "T-1", Text: "resolve it"}); err != nil {
 		t.Fatal(err)
 	}
 	h.pass(ctx)
 	check(stResolving, wire.ScratchResolving, false)
-	if _, err := h.a.verdict(ctx, wire.MethodResolved, wire.Call{Root: h.root, Task: "T-1", Role: "integrator", Agent: "pj-int",
-		CallID: "v", Job: JobID(p.folded.loop["T-1"].jobKey())}); err != nil {
+	if _, err := h.a.verdict(ctx, wire.VerdictReq{Envelope: wire.Envelope{Root: h.root, Role: "integrator",
+		Agent: "pj-int", CallID: "v"}, Verb: wire.MethodResolved, Task: "T-1",
+		Job: JobID(p.folded.loop["T-1"].jobKey())}); err != nil {
 		t.Fatal(err)
 	}
 	check(stResolved, wire.ScratchResolved, true)

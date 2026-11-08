@@ -32,25 +32,29 @@ func TestBusyRefusesEveryVerb(t *testing.T) {
 	}
 	verbs := map[string]func(h *harness) error{
 		"resume": func(h *harness) error {
-			_, err := h.a.resume(wire.Call{Root: h.root, Role: "lead", CallID: "r1", Task: "T-1", Note: "go on"})
+			_, err := h.a.resume(wire.ResumeReq{Envelope: wire.Envelope{Root: h.root, Role: "lead", CallID: "r1"},
+				Task: "T-1", Text: "go on"})
 			return err
 		},
 		"drop": func(h *harness) error {
-			_, err := h.a.drop(wire.Call{Root: h.root, Role: "lead", CallID: "d1", Task: "T-1", Note: "why"})
+			_, err := h.a.drop(wire.DropReq{Envelope: wire.Envelope{Root: h.root, Role: "lead", CallID: "d1"},
+				Task: "T-1", Why: "why"})
 			return err
 		},
 		"move": func(h *harness) error {
-			_, err := h.a.dispatchCall(context.Background(), wire.Call{Root: h.root, Role: "lead", CallID: "m1", Task: "T-1",
-				Types: []string{"sonnet"}})
+			_, err := h.a.dispatchCall(context.Background(), wire.DispatchReq{Envelope: wire.Envelope{Root: h.root,
+				Role: "lead", CallID: "m1"}, Task: "T-1", Types: []string{"sonnet"}})
 			return err
 		},
 		"submit": func(h *harness) error {
-			_, err := h.a.taskDone(wire.Call{Root: h.root, Role: "worker", Agent: "pj-l-01", Lane: "L-01", CallID: "s1",
-				Task: "T-1", Report: "Summary: x\nSelf-check: x\nSkipped: x\nOpen questions: none."})
+			_, err := h.a.taskDone(wire.TaskDoneReq{Envelope: wire.Envelope{Root: h.root, Role: "worker",
+				Agent: "pj-l-01", CallID: "s1"}, Lane: "L-01", Task: "T-1",
+				Report: "Summary: x\nSelf-check: x\nSkipped: x\nOpen questions: none."})
 			return err
 		},
 		"land": func(h *harness) error {
-			_, err := h.a.landCall(wire.Call{Root: h.root, Role: "lead", CallID: "l1", Task: "T-1", Report: "done"})
+			_, err := h.a.landCall(wire.LandReq{Envelope: wire.Envelope{Root: h.root, Role: "lead", CallID: "l1"},
+				Task: "T-1", Report: "done"})
 			return err
 		},
 	}
@@ -110,7 +114,8 @@ func TestResumeRegateOfABlockedReport(t *testing.T) {
 		return h, p
 	}
 	resume := func(h *harness, id, to, note string) (string, error) {
-		return h.a.resume(wire.Call{Root: h.root, Role: "lead", Agent: "pj-lead", CallID: id, Task: "T-1", To: to, Note: note})
+		return h.a.resume(wire.ResumeReq{Envelope: wire.Envelope{Root: h.root, Role: "lead", Agent: "pj-lead",
+			CallID: id}, Task: "T-1", Flag: to, Text: note})
 	}
 	t.Run("--regate", func(t *testing.T) {
 		t.Parallel()
@@ -132,7 +137,8 @@ func TestResumeRegateOfABlockedReport(t *testing.T) {
 		if asks {
 			t.Error("the question is still in force after --regate")
 		}
-		if again, err := h.a.resume(wire.Call{Root: h.root, Role: "lead", CallID: "r1", Task: "T-1", To: wire.ResumeRegate}); err != nil ||
+		if again, err := h.a.resume(wire.ResumeReq{Envelope: wire.Envelope{Root: h.root, Role: "lead", CallID: "r1"},
+			Task: "T-1", Flag: wire.ResumeRegate}); err != nil ||
 			again != reply {
 			t.Errorf("a repeated call id: %q, %v; want the stored reply", again, err)
 		}

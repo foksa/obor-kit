@@ -47,7 +47,7 @@ type sleeper struct {
 	// Ask is serve's status, Call one request to serve (a pause; nil: the project's socket); Stop stops one agent
 	// (nil: launch.Launcher.Stop).
 	Ask  func(ctx context.Context) (wire.Status, error)
-	Call func(ctx context.Context, method string, c wire.Call) (string, error)
+	Call func(ctx context.Context, r wire.Req) (string, error)
 	Stop func(ctx context.Context, agent, pane string, force bool) (string, error)
 	Now  func() time.Time
 	// Wait bounds the wait for serve to go down (stop) or to answer (start); 0: 30 s.
@@ -153,9 +153,9 @@ func (s *sleeper) stop(ctx context.Context) int {
 		s.say("pause: %q in force (until %s): replaced by obor stop's, restored by obor start while it holds",
 			m.PauseWhy, untilLine(m.PauseUntil))
 	}
-	p := c
-	p.CallID, p.Note = wire.NewCallID(), stopPause
-	reply, err := s.call(ctx, wire.MethodPause, p)
+	p := &wire.PauseReq{Envelope: c, Why: stopPause}
+	p.CallID = wire.NewCallID()
+	reply, err := s.call(ctx, p)
 	if err != nil {
 		fmt.Fprintf(s.Out, "FAIL pause: %v\n", err)
 		return 1
@@ -296,11 +296,12 @@ func (s *sleeper) startPause(ctx context.Context, m project.StopMarker) bool {
 
 // endStopPause ends obor stop's pause in force: the pause m records restored (its why and end) while it has not
 // expired, else the pause cleared.
-func (s *sleeper) endStopPause(ctx context.Context, c wire.Call, m project.StopMarker) error {
+func (s *sleeper) endStopPause(ctx context.Context, id wire.Envelope, m project.StopMarker) error {
+	c := &wire.PauseReq{Envelope: id}
 	c.CallID = wire.NewCallID()
 	if m.PauseWhy != "" && (m.PauseUntil == 0 || m.PauseUntil > s.now().Unix()) {
-		c.Note, c.Until = m.PauseWhy, m.PauseUntil
-		reply, err := s.call(ctx, wire.MethodPause, c)
+		c.Why, c.Until = m.PauseWhy, m.PauseUntil
+		reply, err := s.call(ctx, c)
 		if err != nil {
 			return err
 		}
@@ -308,7 +309,7 @@ func (s *sleeper) endStopPause(ctx context.Context, c wire.Call, m project.StopM
 		return nil
 	}
 	c.Clear = true
-	reply, err := s.call(ctx, wire.MethodPause, c)
+	reply, err := s.call(ctx, c)
 	if err != nil {
 		return err
 	}
@@ -446,7 +447,7 @@ func (s *sleeper) stopAgents(ctx context.Context) error {
 // first (it ends launchd's serve, and no launchd serve takes over the lock); a serve that is not launchd's (in a pane,
 // or run by hand, on any OS) is then asked to exit over its socket (wire.MethodExit: its graceful exit, T-652's).
 // Down is serve.flock no longer held and serve.sock not answering, within Wait.
-func (s *sleeper) stopServe(ctx context.Context, c wire.Call) error {
+func (s *sleeper) stopServe(ctx context.Context, id wire.Envelope) error {
 	root := s.Cfg.Root
 	svc := serviceOf(s.Cfg, s.Env)
 	sctx, cancel := context.WithTimeout(ctx, service.Deadline)
@@ -464,8 +465,9 @@ func (s *sleeper) stopServe(ctx context.Context, c wire.Call) error {
 		}
 	}
 	if !launchd {
-		c.CallID, c.Note = wire.NewCallID(), "obor stop: "+s.Why
-		reply, err := s.call(ctx, wire.MethodExit, c)
+		c := &wire.ExitReq{Envelope: id, Why: "obor stop: " + s.Why}
+		c.CallID = wire.NewCallID()
+		reply, err := s.call(ctx, c)
 		if err != nil {
 			return fmt.Errorf("obor serve (pid %d) not ended: its exit: %v", pid, err)
 		}
@@ -508,11 +510,11 @@ func (s *sleeper) ask(ctx context.Context) (wire.Status, error) {
 	return wire.Ask(ctx, wire.SocketPath(s.Cfg.Root))
 }
 
-func (s *sleeper) call(ctx context.Context, method string, c wire.Call) (string, error) {
+func (s *sleeper) call(ctx context.Context, r wire.Req) (string, error) {
 	if s.Call != nil {
-		return s.Call(ctx, method, c)
+		return s.Call(ctx, r)
 	}
-	return wire.Verdict(ctx, wire.SocketPath(s.Cfg.Root), method, c)
+	return wire.Verdict(ctx, wire.SocketPath(s.Cfg.Root), r)
 }
 
 func (s *sleeper) wait() time.Duration {

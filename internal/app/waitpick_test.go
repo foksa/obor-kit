@@ -18,8 +18,8 @@ func TestHighWaitingTaskTakesTheNextFreeLane(t *testing.T) {
 	r.specOf("T-1", "# T-1 — Ordinary\n\nDifficulty: medium\n")
 	r.specOf("T-3", "# T-3 — High\n\nDifficulty: medium\nPriority: high\n")
 	for _, task := range []string{"T-1", "T-3"} {
-		reply, err := r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: "d-" + task,
-			Task: task, After: []string{"T-9"}})
+		reply, err := r.dispatchCall(wire.DispatchReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-lead",
+			Role: "lead", CallID: "d-" + task}, Task: task, After: []string{"T-9"}})
 		if err != nil || !strings.HasPrefix(reply, "WAITING "+task+" after T-9 (queued)") {
 			t.Fatalf("dispatch of %s after T-9: %q, %v; want WAITING after T-9", task, reply, err)
 		}
@@ -53,12 +53,14 @@ func TestHighWaitingTaskWithAnOpenAfterStillWaits(t *testing.T) {
 	r.specOf("T-9", "# T-9 — Dependency\n\nDifficulty: medium\n")
 	r.specOf("T-1", "# T-1 — Ordinary\n\nDifficulty: medium\n")
 	r.specOf("T-3", "# T-3 — High\n\nDifficulty: medium\nPriority: high\n")
-	if reply, err := r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: "d-T-3",
-		Task: "T-3", After: []string{"T-9"}}); err != nil || !strings.HasPrefix(reply, "WAITING T-3 after T-9") {
+	if reply, err := r.dispatchCall(wire.DispatchReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-lead",
+		Role: "lead", CallID: "d-T-3"}, Task: "T-3", After: []string{"T-9"}}); err != nil || !strings.HasPrefix(reply,
+		"WAITING T-3 after T-9") {
 		t.Fatalf("dispatch of the high task after T-9: %q, %v; want WAITING", reply, err)
 	}
-	if reply, err := r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: "d-T-1",
-		Task: "T-1"}); err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01") {
+	if reply, err := r.dispatchCall(wire.DispatchReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-lead",
+		Role: "lead", CallID: "d-T-1"}, Task: "T-1"}); err != nil || !strings.HasPrefix(reply,
+		"DISPATCHED T-1 → L-01") {
 		t.Fatalf("dispatch of the ready ordinary task: %q, %v; want DISPATCHED onto L-01", reply, err)
 	}
 	r.passes()
@@ -76,19 +78,20 @@ func TestHighWaitingTaskOnAPausedModelDoesNotBlockTheNext(t *testing.T) {
 	t.Parallel()
 	r := newLoopRig(t, dispatching())
 	r.start()
-	if _, err := r.pause("lead", "p1", wire.Call{Model: "opus", Note: "quota"}); err != nil {
+	if _, err := r.pause("lead", "p1", wire.PauseReq{Model: "opus", Why: "quota"}); err != nil {
 		t.Fatal(err)
 	}
 	r.specOf("T-9", "# T-9 — Dependency\n\nDifficulty: medium\n")
 	r.specOf("T-1", "# T-1 — Ordinary\n\nDifficulty: medium\n")
 	r.specOf("T-3", "# T-3 — High\n\nDifficulty: medium\nPriority: high\n")
-	if reply, err := r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: "d-T-1",
-		Task: "T-1", After: []string{"T-9"}}); err != nil || !strings.HasPrefix(reply, "WAITING T-1 after T-9") {
+	if reply, err := r.dispatchCall(wire.DispatchReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-lead",
+		Role: "lead", CallID: "d-T-1"}, Task: "T-1", After: []string{"T-9"}}); err != nil || !strings.HasPrefix(reply,
+		"WAITING T-1 after T-9") {
 		t.Fatalf("dispatch of T-1 after T-9: %q, %v; want WAITING", reply, err)
 	}
 	// --model opus: T-3's one model, paused: no other of its level is tried.
-	if reply, err := r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: "d-T-3",
-		Task: "T-3", Types: []string{"opus"}, After: []string{"T-9"}}); err != nil ||
+	if reply, err := r.dispatchCall(wire.DispatchReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-lead",
+		Role: "lead", CallID: "d-T-3"}, Task: "T-3", Types: []string{"opus"}, After: []string{"T-9"}}); err != nil ||
 		!strings.HasPrefix(reply, "WAITING T-3 after T-9") {
 		t.Fatalf("dispatch of T-3 --model opus after T-9: %q, %v; want WAITING", reply, err)
 	}

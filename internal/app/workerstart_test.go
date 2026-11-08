@@ -99,7 +99,8 @@ func (r *loopRig) ruleNeedsYou() bool {
 func TestWorkerStartAfterStopForce(t *testing.T) {
 	t.Parallel()
 	r := workingRig(t)
-	if reply, err := r.pause("lead", "p1", wire.Call{Note: wire.StopPause}); err != nil || reply != "PAUSED until cleared" {
+	if reply, err := r.pause("lead", "p1",
+		wire.PauseReq{Why: wire.StopPause}); err != nil || reply != "PAUSED until cleared" {
 		t.Fatalf("obor stop's pause: %q, %v", reply, err)
 	}
 	r.workerExits()
@@ -115,7 +116,7 @@ func TestWorkerStartAfterStopForce(t *testing.T) {
 	if n := len(r.ruleStarts()); n != 0 {
 		t.Fatalf("started %d times after the replay, the pause not cleared yet: %+v", n, r.ruleStarts())
 	}
-	if reply, err := r.pause("lead", "p2", wire.Call{Clear: true}); err != nil || reply != "PAUSE CLEARED" {
+	if reply, err := r.pause("lead", "p2", wire.PauseReq{Clear: true}); err != nil || reply != "PAUSE CLEARED" {
 		t.Fatalf("obor start's clear: %q, %v", reply, err)
 	}
 	r.pastSettle()

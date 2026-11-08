@@ -12,7 +12,7 @@ import (
 // integration's role; the verbs add rights, never remove one). Else refused, the method's own refusal line: for a
 // custom role followed by the verb it lacks and the config key that grants it. The config is read only for a custom
 // role's call.
-func leadOr(root, method string, c wire.Call, refused string) error {
+func leadOr(root, method string, c wire.Envelope, refused string) error {
 	if c.Role == "" || c.Role == "lead" {
 		return nil
 	}

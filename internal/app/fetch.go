@@ -59,7 +59,7 @@ func (mt *mtask) integratorJob() (event.Key, bool) { return mt.jobKey(), mt.open
 // (OBOR_LANE, when set, its lane; its pane, when herdr shows it, in the lane). The first fetch of a job is fact
 // delivered{job, via: mcp}; a repeat records nothing, and a repeated call id gets the stored reply. Every fetch keeps
 // its text in the prompts table: a refetch whose text changed adds a row (T-670).
-func (a *App) jobNext(c wire.Call) (string, error) {
+func (a *App) jobNext(c wire.JobNextReq) (string, error) {
 	a.verdicts.Lock() // two fetches never both record a delivery
 	defer a.verdicts.Unlock()
 	if c.CallID == "" {
@@ -125,7 +125,7 @@ func (a *App) jobNext(c wire.Call) (string, error) {
 }
 
 // callerJob is c's open job in p (under mu): its task and key, false when it has none; an error when the caller may not fetch it.
-func (a *App) callerJob(p *proj, c wire.Call) (mtask, event.Key, bool, error) {
+func (a *App) callerJob(p *proj, c wire.JobNextReq) (mtask, event.Key, bool, error) {
 	switch c.Role {
 	case "integrator":
 		if c.Agent == "" || c.Agent != p.integrator {
@@ -187,14 +187,14 @@ func (a *App) callerJob(p *proj, c wire.Call) (mtask, event.Key, bool, error) {
 // restartJob answers restart_job (T-959): the job obor restart of c's agent carries as its wake, by callerJob's own
 // predicate and order ("" none). A client parsing the status JSON's step strings could only guess: a task's job is
 // its worker's or its integrator's, and a held one is no job a restart may wake its agent on.
-func (a *App) restartJob(c wire.Call) (string, error) {
+func (a *App) restartJob(c wire.RestartJobReq) (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	p := a.projAt(c.Root)
 	if p == nil {
 		return "", fmt.Errorf("restart_job: no served project at %s", c.Root)
 	}
-	_, key, ok, err := a.callerJob(p, c)
+	_, key, ok, err := a.callerJob(p, wire.JobNextReq{Envelope: c.Envelope, Lane: c.Lane}) // no job named, no pane
 	switch {
 	case err != nil:
 		return "", err
@@ -299,7 +299,7 @@ func (p *proj) laneDir(mt mtask) string {
 // submits nothing: it records the watchdog fact needs-you{asks: <what it needs>} (row 16a; the task stays working, the
 // owner is notified) and is never refused for the rev. A repeated call id gets the stored reply, or the stored
 // refusal of an older rev (T-821).
-func (a *App) taskDone(c wire.Call) (string, error) {
+func (a *App) taskDone(c wire.TaskDoneReq) (string, error) {
 	a.hook(hookTaskDoneWaits)
 	a.submitMu.Lock() // one submission decision at a time
 	defer a.submitMu.Unlock()

@@ -23,8 +23,9 @@ func acceptAt(t *testing.T, h *harness, f *schedScratch, gate, kind string, rev 
 	if !h.a.job(ctx, p, &Loop{Agents: f, Typer: f}, mt, nth(event.StepReview, mt.reviews+1)) {
 		t.Fatal("precondition: the review job was not sent")
 	}
-	if _, err := h.a.verdict(ctx, wire.MethodAccept, wire.Call{Root: h.root, Task: "T-1", Agent: "pj-int", Role: "integrator",
-		CallID: "accept" + sha, Job: JobID(p.folded.loop["T-1"].jobKey()), Patch: "same-diff"}); err != nil {
+	if _, err := h.a.verdict(ctx, wire.VerdictReq{Envelope: wire.Envelope{Root: h.root, Agent: "pj-int",
+		Role: "integrator", CallID: "accept" + sha}, Verb: wire.MethodAccept, Task: "T-1",
+		Job: JobID(p.folded.loop["T-1"].jobKey()), Patch: "same-diff"}); err != nil {
 		t.Fatal(err)
 	}
 	if mt := p.folded.loop["T-1"]; mt.state != stAccepted || mt.accepted != "same-diff" || mt.gateRev != rev {

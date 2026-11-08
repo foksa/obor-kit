@@ -21,7 +21,7 @@ func reviewCmd(args []string) int {
 	if len(args) > 0 && args[0] == "close" {
 		return reviewCloseCmd(args[1:])
 	}
-	var c wire.Call
+	var c wire.ReviewReq
 	for i := 0; i < len(args); i++ {
 		switch a := args[i]; {
 		case a == "--rm" && len(args) == 1:
@@ -38,12 +38,12 @@ func reviewCmd(args []string) int {
 			return 1
 		}
 	}
-	return request(context.Background(), project.OSEnv, wire.MethodReview, func(cfg *config.Config, call *wire.Call) error {
+	return request(context.Background(), project.OSEnv, func(cfg *config.Config, id wire.Envelope) (wire.Req, error) {
 		if err := taskIDs(cfg, c.After...); err != nil {
-			return err
+			return nil, err
 		}
-		call.After, call.Note, call.Clear = c.After, c.Note, c.Clear
-		return nil
+		c.Envelope = id
+		return &c, nil
 	})
 }
 
@@ -75,9 +75,8 @@ func reviewCloseCmd(args []string) int {
 		fmt.Fprintln(out, "FAIL "+help.Usage("review close"))
 		return 1
 	}
-	return request(context.Background(), project.OSEnv, wire.MethodReviewClose, func(_ *config.Config, c *wire.Call) error {
-		c.Note, c.Accept, c.Force = summary, accepts, force
-		return nil
+	return request(context.Background(), project.OSEnv, func(_ *config.Config, id wire.Envelope) (wire.Req, error) {
+		return &wire.ReviewCloseReq{Envelope: id, Summary: summary, Accept: accepts, Force: force}, nil
 	})
 }
 

@@ -26,17 +26,17 @@ func TestDispatchServeRequest(t *testing.T) {
 	for _, c := range []struct {
 		name string
 		args []string
-		want wire.Call
+		want sentCall
 	}{
-		{"level", []string{"dispatch", "T-07"}, wire.Call{Task: "T-07"}},
-		{"level, force", []string{"dispatch", "T-07", "--force"}, wire.Call{Task: "T-07", Force: true}},
-		{"models", []string{"dispatch", "T-07", "--model", "sonnet,opus"}, wire.Call{Task: "T-07", Types: []string{"sonnet", "opus"}}},
+		{"level", []string{"dispatch", "T-07"}, sentCall{Task: "T-07"}},
+		{"level, force", []string{"dispatch", "T-07", "--force"}, sentCall{Task: "T-07", Force: true}},
+		{"models", []string{"dispatch", "T-07", "--model", "sonnet,opus"}, sentCall{Task: "T-07", Types: []string{"sonnet", "opus"}}},
 		{"models, force first", []string{"dispatch", "--force", "--model", "opus", "T-07"},
-			wire.Call{Task: "T-07", Types: []string{"opus"}, Force: true}},
+			sentCall{Task: "T-07", Types: []string{"opus"}, Force: true}},
 		{"level, after", []string{"dispatch", "T-07", "--after", "T-05,T-06"},
-			wire.Call{Task: "T-07", After: []string{"T-05", "T-06"}}},
+			sentCall{Task: "T-07", After: []string{"T-05", "T-06"}}},
 		{"models, after first", []string{"dispatch", "--after", "T-05", "T-07", "--model", "opus"},
-			wire.Call{Task: "T-07", Types: []string{"opus"}, After: []string{"T-05"}}},
+			sentCall{Task: "T-07", Types: []string{"opus"}, After: []string{"T-05"}}},
 	} {
 		before, _ := serve.requests()
 		rc, stdout, stderr := run(t, p.Root, env, c.args...)

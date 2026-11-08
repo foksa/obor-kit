@@ -230,8 +230,8 @@ func (r *reviewRig) closedBy(id, subject string) {
 
 // close is obor review close's call from the lead (call id id, the summary, its accepted lines, --force).
 func (r *reviewRig) close(id, summary string, force bool, accepts ...string) (string, error) {
-	return r.a.reviewCloseCall(wire.Call{Root: r.p.root, CallID: id, Role: "lead", Agent: "pj-lead", Note: summary,
-		Accept: accepts, Force: force})
+	return r.a.reviewCloseCall(wire.ReviewCloseReq{Envelope: wire.Envelope{Root: r.p.root, CallID: id, Role: "lead",
+		Agent: "pj-lead"}, Summary: summary, Accept: accepts, Force: force})
 }
 
 // refuseStep makes the event log refuse every fact of step (nil: none refused).
@@ -256,7 +256,8 @@ func (r *reviewRig) tick() {
 
 // call is an obor review request from the lead.
 func (r *reviewRig) call(id string, after []string, note string, rm bool) (string, error) {
-	return r.a.reviewCall(wire.Call{Root: r.p.root, CallID: id, Role: "lead", Agent: "pj-lead", After: after, Note: note, Clear: rm})
+	return r.a.reviewCall(wire.ReviewReq{Envelope: wire.Envelope{Root: r.p.root, CallID: id, Role: "lead",
+		Agent: "pj-lead"}, After: after, Note: note, Clear: rm})
 }
 
 func (r *reviewRig) mustCall(id string, after []string, note string, rm bool) string {

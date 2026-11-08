@@ -69,7 +69,7 @@ type Server struct {
 	Listen string
 	// Call is a request to the serve of the project at root (default: wire.Verdict on its socket; no socket:
 	// errServeDown).
-	Call func(ctx context.Context, root, method string, c wire.Call) (string, error)
+	Call func(ctx context.Context, root string, r wire.Req) (string, error)
 	// Kit is the kit's root, whose README.md /api/help reads ("": project.KitRoot).
 	Kit string
 }
@@ -411,7 +411,7 @@ func (s *Server) configAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	s.ask(w, r, p, wire.MethodConfig, wire.Call{Changes: b.Changes, Base: b.Base})
+	s.ask(w, r, p, &wire.ConfigSetReq{Changes: b.Changes, Base: b.Base, Source: "web"})
 }
 
 // pauseAPI is POST /api/pause?project=<name>: set the project's pause (a reason, an optional duration) or clear it,
@@ -425,10 +425,10 @@ func (s *Server) pauseAPI(w http.ResponseWriter, r *http.Request) {
 	if !readBody(w, r, &b) {
 		return
 	}
-	c := wire.Call{Clear: b.Clear, Model: strings.TrimSpace(b.Model)}
+	c := &wire.PauseReq{Clear: b.Clear, Model: strings.TrimSpace(b.Model)}
 	if !b.Clear {
-		c.Note = strings.TrimSpace(b.Reason)
-		if c.Note == "" {
+		c.Why = strings.TrimSpace(b.Reason)
+		if c.Why == "" {
 			fail(w, http.StatusBadRequest, "a pause needs a reason")
 			return
 		}
@@ -441,7 +441,7 @@ func (s *Server) pauseAPI(w http.ResponseWriter, r *http.Request) {
 			c.Until = time.Now().Add(d).Unix()
 		}
 	}
-	s.ask(w, r, p, wire.MethodPause, c)
+	s.ask(w, r, p, c)
 }
 
 // readBody decodes the request's JSON body into v (at most 64 KiB, unknown fields refused): false when the 400 is
@@ -458,15 +458,15 @@ func readBody(w http.ResponseWriter, r *http.Request, v any) bool {
 
 // ask sends c (the owner's, from the web: no agent, no role) to p's serve and writes its reply: 200 with the reply,
 // 503 when serve is not running, 400 with serve's refusal.
-func (s *Server) ask(w http.ResponseWriter, r *http.Request, p project.Project, method string, c wire.Call) {
-	c.Root, c.CallID, c.Source = p.Root, wire.NewCallID(), "web"
+func (s *Server) ask(w http.ResponseWriter, r *http.Request, p project.Project, c wire.Req) {
+	*c.Env() = wire.Envelope{Root: p.Root, CallID: wire.NewCallID()}
 	ctx, cancel := context.WithTimeout(r.Context(), callWait)
 	defer cancel()
 	call := s.Call
 	if call == nil {
 		call = serveCall
 	}
-	reply, err := call(ctx, p.Root, method, c)
+	reply, err := call(ctx, p.Root, c)
 	switch {
 	case err == nil:
 		writeJSON(w, http.StatusOK, replyBody{Reply: reply})
@@ -480,12 +480,12 @@ func (s *Server) ask(w http.ResponseWriter, r *http.Request, p project.Project, 
 
 // serveCall is Server.Call's default: wire.Verdict on the project's socket; no socket is errServeDown at once (no
 // retries for a serve that is not there).
-func serveCall(ctx context.Context, root, method string, c wire.Call) (string, error) {
+func serveCall(ctx context.Context, root string, c wire.Req) (string, error) {
 	sock := wire.SocketPath(root)
 	if _, err := os.Stat(sock); err != nil {
 		return "", fmt.Errorf("%w (no %s): obor start starts it", errServeDown, sock)
 	}
-	return wire.Verdict(ctx, sock, method, c)
+	return wire.Verdict(ctx, sock, c)
 }
 
 // detail is the request's project's Detail as read returns it and the value of param: ok false when the response is

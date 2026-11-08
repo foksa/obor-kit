@@ -225,12 +225,12 @@ func (r *loopRig) dispatch(callID, lane string, types ...string) (string, error)
 	if lane != "" && len(types) == 0 {
 		types = []string{"sonnet"}
 	}
-	return r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: callID, Task: "T-1",
-		Lane: lane, Types: types})
+	return r.dispatchCall(wire.DispatchReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-lead", Role: "lead",
+		CallID: callID}, Task: "T-1", Lane: lane, Types: types})
 }
 
-func (r *loopRig) dispatchCall(c wire.Call) (string, error) {
-	return wire.Verdict(context.Background(), r.sock, wire.MethodDispatch, c)
+func (r *loopRig) dispatchCall(c wire.DispatchReq) (string, error) {
+	return wire.Verdict(context.Background(), r.sock, &c)
 }
 
 func (r *loopRig) mustDispatch(callID string) {
@@ -521,11 +521,11 @@ func TestDispatchRefusals(t *testing.T) {
 	for _, row := range []struct {
 		name  string
 		setup func(r *loopRig)
-		call  func(c *wire.Call)
+		call  func(c *wire.DispatchReq)
 		want  string
 	}{
-		{name: "no call id", call: func(c *wire.Call) { c.CallID = "" }, want: "a call id and a task are required"},
-		{name: "a worker calls", call: func(c *wire.Call) { c.Role, c.Agent = "worker", "pj-l-02" },
+		{name: "no call id", call: func(c *wire.DispatchReq) { c.CallID = "" }, want: "a call id and a task are required"},
+		{name: "a worker calls", call: func(c *wire.DispatchReq) { c.Role, c.Agent = "worker", "pj-l-02" },
 			want: "the lead or the owner dispatches, not pj-l-02"},
 		{name: "no lane adapter", setup: func(r *loopRig) { r.disp.set(func(d *dispatchFakes) { d.on = false }) },
 			want: "dispatch off for proj (no lane adapter)"},
@@ -535,10 +535,10 @@ func TestDispatchRefusals(t *testing.T) {
 		{name: "spec not on the target", setup: func(r *loopRig) {
 			r.disp.set(func(d *dispatchFakes) { d.refuse["T-1"] = "no spec for T-1 in obor serve's store" })
 		}, want: "no spec for T-1 in obor serve's store"},
-		{name: "unknown lane", call: func(c *wire.Call) { c.Lane = "L-09" }, want: "unknown lane L-09"},
-		{name: "no level and no models", call: func(c *wire.Call) { c.Lane, c.Types = "", nil }, want: "no valid \"Difficulty: <level>\" line"},
+		{name: "unknown lane", call: func(c *wire.DispatchReq) { c.Lane = "L-09" }, want: "unknown lane L-09"},
+		{name: "no level and no models", call: func(c *wire.DispatchReq) { c.Lane, c.Types = "", nil }, want: "no valid \"Difficulty: <level>\" line"},
 		{name: "no free lane for the models", setup: func(r *loopRig) { r.setLane(func(l *port.Lane) { l.State, l.Task = "working", "T-9" }) },
-			call: func(c *wire.Call) { c.Lane, c.Types = "", []string{"opus"} }, want: "no free lane for the models opus"},
+			call: func(c *wire.DispatchReq) { c.Lane, c.Types = "", []string{"opus"} }, want: "no free lane for the models opus"},
 		{name: "dirty-free without force", setup: func(r *loopRig) { r.setLane(func(l *port.Lane) { l.State = "dirty-free" }) },
 			want: "lane L-01 is dirty-free (uncommitted changes; --force to dispatch anyway)"},
 		{name: "working on another task", setup: func(r *loopRig) {
@@ -552,14 +552,14 @@ func TestDispatchRefusals(t *testing.T) {
 		// T-871: a lane whose git or store read failed is unknown: never picked, and the refusal names it and why.
 		{name: "unknown lane state", setup: func(r *loopRig) {
 			r.setLane(func(l *port.Lane) { l.State, l.Reason = "unknown", "git status: exit status 1" })
-		}, call: func(c *wire.Call) { c.Lane, c.Types = "", []string{"sonnet"} },
+		}, call: func(c *wire.DispatchReq) { c.Lane, c.Types = "", []string{"sonnet"} },
 			want: "no free lane for the models sonnet; L-01 unknown: git status: exit status 1"},
 		{name: "named lane unknown", setup: func(r *loopRig) {
 			r.setLane(func(l *port.Lane) { l.State, l.Reason = "unknown", "store: no such table: lanes" })
 		}, want: "lane L-01 is unknown: store: no such table: lanes"},
 		// The CLI's shape: a task and its types, no lane (T-538); the branch's commits make only a redo legal (T-545).
 		{name: "task branch ahead", setup: func(r *loopRig) { r.disp.set(func(d *dispatchFakes) { d.ahead = true }) },
-			call: func(c *wire.Call) { c.Lane, c.Types = "", []string{"sonnet"} },
+			call: func(c *wire.DispatchReq) { c.Lane, c.Types = "", []string{"sonnet"} },
 			want: "task/T-1 exists with commits not in the target"},
 	} {
 		t.Run(row.name, func(t *testing.T) {
@@ -569,8 +569,9 @@ func TestDispatchRefusals(t *testing.T) {
 				row.setup(r)
 			}
 			r.start()
-			c := wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: "d1", Task: "T-1", Lane: "L-01",
-				Types: []string{"sonnet"}}
+			c := wire.DispatchReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: "d1"},
+				Task: "T-1",
+				Lane: "L-01", Types: []string{"sonnet"}}
 			if row.call != nil {
 				row.call(&c)
 			}
@@ -612,7 +613,9 @@ func TestDispatchRefusals(t *testing.T) {
 		r.start()
 		r.mustDispatch("d1")
 		r.waitStep("1 fact failed{lane.prepare: git I/O}")
-		c := wire.Call{Root: r.p.Root, Role: "lead", CallID: "d2", Task: "T-2", Lane: "L-01", Types: []string{"sonnet"}}
+		c := wire.DispatchReq{Envelope: wire.Envelope{Root: r.p.Root, Role: "lead", CallID: "d2"}, Task: "T-2",
+			Lane:  "L-01",
+			Types: []string{"sonnet"}}
 		if _, err := r.dispatchCall(c); err == nil || !strings.Contains(err.Error(), "lane L-01 is dispatched to T-1") {
 			t.Errorf("a dispatch onto the held lane: %v", err)
 		}
@@ -856,15 +859,15 @@ func TestDispatchReplacedWaitStartsAfresh(t *testing.T) {
 	var reply string
 	var err error
 	r.waitFor("the drop", func() bool {
-		reply, err = wire.Verdict(context.Background(), r.sock, wire.MethodDrop, wire.Call{Root: r.p.Root, Role: "lead",
-			CallID: "x1", Task: "T-1", Note: "requeue"})
+		reply, err = wire.Verdict(context.Background(), r.sock, &wire.DropReq{Envelope: wire.Envelope{Root: r.p.Root,
+			Role: "lead", CallID: "x1"}, Task: "T-1", Why: "requeue"})
 		return err == nil || !strings.Contains(err.Error(), "retry when it settles")
 	})
 	if err != nil || reply != "DROPPED T-1" {
 		t.Fatalf("drop: %q, %v", reply, err)
 	}
-	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Role: "lead",
-		CallID: "s3", Task: "T-3", Spec: "# T-3 — Other\n\nDifficulty: medium\n"}); err != nil {
+	if _, err := wire.Verdict(context.Background(), r.sock, &wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root,
+		Role: "lead", CallID: "s3"}, Task: "T-3", Spec: "# T-3 — Other\n\nDifficulty: medium\n"}); err != nil {
 		t.Fatal(err)
 	}
 	if reply, err := r.waitAfter("d2", "T-3"); err != nil || reply != "WAITING T-1 after T-3 (queued)" {
@@ -959,7 +962,7 @@ func TestDispatchOfAnEndedTask(t *testing.T) {
 		if r.count("1 fact merged") != 1 {
 			t.Fatalf("precondition: no merged fact in %q", r.steps())
 		}
-		for i, c := range []wire.Call{
+		for i, c := range []wire.DispatchReq{
 			{Task: "T-1"},
 			{Task: "T-1", Types: []string{"sonnet"}},
 			{Task: "T-1", Types: []string{"sonnet"}, Lane: "L-01"},
@@ -1076,8 +1079,8 @@ func TestReviewCloseOnTheSocket(t *testing.T) {
 	r.review = lastClose{}
 	r.reviewsLog("RV-5")
 	r.start()
-	_, err := wire.Verdict(context.Background(), r.sock, wire.MethodReviewClose, wire.Call{Root: r.p.Root,
-		Agent: "pj-lead", Role: "lead", CallID: "c1", Note: "fixed"})
+	_, err := wire.Verdict(context.Background(), r.sock, &wire.ReviewCloseReq{Envelope: wire.Envelope{Root: r.p.Root,
+		Agent: "pj-lead", Role: "lead", CallID: "c1"}, Summary: "fixed"})
 	if err == nil || !strings.HasPrefix(err.Error(), "no open review: no docs/reviews/RV-5.md in ") {
 		t.Errorf("review_close: %v; want serve's no-open-review refusal", err)
 	}

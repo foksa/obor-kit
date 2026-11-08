@@ -122,7 +122,7 @@ func TestIdleBlockers(t *testing.T) {
 		rev := r.f.Agent("w1:p6", "pj-rev", "idle", r.p.Root)
 		rev.Label = "pj-rev"
 		r.start()
-		if reply, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-rev", Note: "review the wave"}); err != nil ||
+		if reply, err := r.line("b1", &wire.BriefReq{To: "pj-rev", Text: "review the wave"}); err != nil ||
 			!strings.HasPrefix(reply, "BRIEFED pj-rev") {
 			t.Fatalf("brief: %q, %v", reply, err)
 		}
@@ -152,7 +152,7 @@ func TestIdleAckStopsThePing(t *testing.T) {
 	line := idleLineFor(r, "T-1")
 	r.settleIdle()
 	r.waitFor("the idle line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
-	if reply, err := r.line(wire.MethodIdle, "i1", wire.Call{Note: "nothing to dispatch"}); err != nil ||
+	if reply, err := r.line("i1", &wire.IdleReq{Why: "nothing to dispatch"}); err != nil ||
 		reply != "ACKED idle: nothing to dispatch" {
 		t.Fatalf("idle ack: %q, %v", reply, err)
 	}
@@ -168,7 +168,7 @@ func TestIdleAckStopsThePing(t *testing.T) {
 	if n := countReq(r.srv, "notification.show"); n != 0 {
 		t.Errorf("%d notifications after the ack, want none", n)
 	}
-	if reply, err := r.line(wire.MethodIdle, "i2", wire.Call{}); err != nil || reply != "IDLE: nothing to dispatch" {
+	if reply, err := r.line("i2", &wire.IdleReq{}); err != nil || reply != "IDLE: nothing to dispatch" {
 		t.Errorf("obor idle (the state): %q, %v", reply, err)
 	}
 }
@@ -210,7 +210,7 @@ func (r *loopRig) idleAcked() string {
 	line := idleLineFor(r, "T-1")
 	r.settleIdle()
 	r.waitFor("the idle line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
-	if reply, err := r.line(wire.MethodIdle, "i1", wire.Call{Note: "nothing to dispatch"}); err != nil ||
+	if reply, err := r.line("i1", &wire.IdleReq{Why: "nothing to dispatch"}); err != nil ||
 		reply != "ACKED idle: nothing to dispatch" {
 		r.t.Fatalf("idle ack: %q, %v", reply, err)
 	}
@@ -222,7 +222,7 @@ func TestCustomRoleBriefKeepsIdle(t *testing.T) {
 	t.Parallel()
 	r := newLoopRig(t, withConfig(testkit.Set("roles.researcher", "sonnet")))
 	line := r.idleAcked()
-	if reply, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-researcher", Note: "look at the docs"}); err != nil ||
+	if reply, err := r.line("b1", &wire.BriefReq{To: "pj-researcher", Text: "look at the docs"}); err != nil ||
 		!strings.HasPrefix(reply, "BRIEFED pj-researcher") {
 		t.Fatalf("brief of pj-researcher: %q, %v", reply, err)
 	}
@@ -230,7 +230,7 @@ func TestCustomRoleBriefKeepsIdle(t *testing.T) {
 	if st == nil || !st.Acked || st.Why != "nothing to dispatch" {
 		t.Fatalf("idle state %+v after a custom role's brief, want the acknowledged state", st)
 	}
-	if reply, err := r.line(wire.MethodIdle, "i2", wire.Call{}); err != nil || reply != "IDLE: nothing to dispatch" {
+	if reply, err := r.line("i2", &wire.IdleReq{}); err != nil || reply != "IDLE: nothing to dispatch" {
 		t.Errorf("obor idle (the state): %q, %v; want the acknowledged state", reply, err)
 	}
 	r.passes()
@@ -256,14 +256,14 @@ func TestIdleSettleReviewRequestTenSecondsLater(t *testing.T) {
 	if n := len(r.idlePosts()); n != 0 {
 		t.Fatalf("%d idle lines ten seconds in, want none", n)
 	}
-	if reply, err := r.line(wire.MethodReview, "r1", wire.Call{}); err != nil || reply != "REVIEW REQUESTED (now)" {
+	if reply, err := r.line("r1", &wire.ReviewReq{}); err != nil || reply != "REVIEW REQUESTED (now)" {
 		t.Fatalf("review: %q, %v", reply, err)
 	}
 	r.later(2 * idleSettle) // past the window: the request is work, and no line may go out
 	if n := len(r.idlePosts()); n != 0 {
 		t.Fatalf("%d idle lines while the review request is in flight, want none", n)
 	}
-	if reply, err := r.line(wire.MethodReview, "r2", wire.Call{Clear: true}); err != nil || reply != "REVIEW REQUEST ENDED" {
+	if reply, err := r.line("r2", &wire.ReviewReq{Clear: true}); err != nil || reply != "REVIEW REQUEST ENDED" {
 		t.Fatalf("review --rm: %q, %v", reply, err)
 	}
 	r.settleIdle()

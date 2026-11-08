@@ -34,21 +34,21 @@ type tracker struct {
 	handled    map[int64]int // feed seq → how often handled (once per cursor)
 }
 
-func (tr *tracker) call(method string, c wire.Call) (string, error) {
-	c.Root, c.Agent, c.Role, c.CallID = tr.root, "pj-tracker", "tracker", wire.NewCallID()
-	return wire.Verdict(context.Background(), tr.sock, method, c)
+func (tr *tracker) call(c wire.Req) (string, error) {
+	*c.Env() = wire.Envelope{Root: tr.root, Agent: "pj-tracker", Role: "tracker", CallID: wire.NewCallID()}
+	return wire.Verdict(context.Background(), tr.sock, c)
 }
 
 // take is a ticket into obor: its spec (with a Ref: line naming the ticket) and its dispatch.
 func (tr *tracker) take(tk *ticket) error {
 	spec := fmt.Sprintf("# %s — %s\n\nDifficulty: medium\nRef: %s\n", tk.Task, tk.Title, tk.ID)
-	if _, err := tr.call(wire.MethodSpecSet, wire.Call{Task: tk.Task, Spec: spec}); err != nil {
+	if _, err := tr.call(&wire.SpecSetReq{Task: tk.Task, Spec: spec}); err != nil {
 		return err
 	}
 	tr.mu.Lock()
 	tr.tickets[tk.ID] = tk
 	tr.mu.Unlock()
-	_, err := tr.call(wire.MethodDispatch, wire.Call{Task: tk.Task, Lane: "L-01", Types: []string{"sonnet"}})
+	_, err := tr.call(&wire.DispatchReq{Task: tk.Task, Lane: "L-01", Types: []string{"sonnet"}})
 	return err
 }
 
@@ -91,7 +91,7 @@ func TestSampleIntegrationTicketToMerged(t *testing.T) {
 		tr.cursor = start[len(start)-1].Seq
 	}
 	// Precondition: the tracker's verbs are spec_set and dispatch only: watch is refused.
-	if _, err := tr.call(wire.MethodWatch, wire.Call{Task: "T-1"}); err == nil {
+	if _, err := tr.call(&wire.WatchReq{Task: "T-1"}); err == nil {
 		t.Fatal("precondition: the tracker's watch was admitted, want it refused (no verb)")
 	}
 	ctx, cancel := context.WithCancel(context.Background())

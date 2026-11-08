@@ -14,8 +14,8 @@ import (
 func TestRestartJob(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)
-	var got wire.Call
-	job, err := resolveAgentJob(p.Root, "pj-l-01", "worker", "L-01", func(c wire.Call) (string, error) {
+	var got wire.RestartJobReq
+	job, err := resolveAgentJob(p.Root, "pj-l-01", "worker", "L-01", func(c wire.RestartJobReq) (string, error) {
 		got = c
 		return "T-5/2/fix", nil
 	})
@@ -25,12 +25,12 @@ func TestRestartJob(t *testing.T) {
 	if got.Root != p.Root || got.Agent != "pj-l-01" || got.Role != "worker" || got.Lane != "L-01" {
 		t.Errorf("the call %+v, want the lane's worker", got)
 	}
-	if job, err := resolveAgentJob(p.Root, "pj-int", "integrator", "", func(wire.Call) (string, error) {
+	if job, err := resolveAgentJob(p.Root, "pj-int", "integrator", "", func(wire.RestartJobReq) (string, error) {
 		return "T-5/2/review", nil
 	}); job != "T-5/2/review" || err != nil {
 		t.Errorf("integrator: %q, %v; want its job", job, err)
 	}
-	if job, err := resolveAgentJob(p.Root, "pj-int", "integrator", "", func(wire.Call) (string, error) {
+	if job, err := resolveAgentJob(p.Root, "pj-int", "integrator", "", func(wire.RestartJobReq) (string, error) {
 		return "", nil
 	}); job != "" || err != nil {
 		t.Errorf("no open job: %q, %v; want no wake", job, err)
@@ -45,7 +45,7 @@ func TestServeJobServeDown(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)
 	p.State("L-01", `{"task":"T-5","branch":"task/T-5","agent":"pj-l-01"}`)
-	down := func(wire.Call) (string, error) { return "", errors.New("i/o timeout") }
+	down := func(wire.RestartJobReq) (string, error) { return "", errors.New("i/o timeout") }
 	job, err := resolveAgentJob(p.Root, "pj-l-01", "worker", "L-01", down)
 	if err == nil || job != "" {
 		t.Fatalf("serve down, lane with a task: %q, %v; want an error", job, err)
@@ -67,8 +67,8 @@ func TestServeJobServeDown(t *testing.T) {
 	if job != "" || err == nil || err.Error() != want {
 		t.Errorf("serve down, integrator: %q, %v; want %q", job, err, want)
 	}
-	up := func(job string) func(wire.Call) (string, error) {
-		return func(wire.Call) (string, error) { return job, nil }
+	up := func(job string) func(wire.RestartJobReq) (string, error) {
+		return func(wire.RestartJobReq) (string, error) { return job, nil }
 	}
 	if job, err := resolveAgentJob(p.Root, "pj-l-01", "worker", "L-01", up("T-5/2/fix")); job != "T-5/2/fix" || err != nil {
 		t.Errorf("serve up: %q, %v; want its job", job, err)

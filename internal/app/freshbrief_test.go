@@ -119,8 +119,8 @@ func TestFreshBriefPerRole(t *testing.T) {
 				if running && (w.State != Identified || Ready(w.Pane.Status)) || !running && !atShell {
 					t.Fatalf("precondition: %s %+v, at its shell %v", c.agent, w, atShell)
 				}
-				reply, err := a.briefCall(wire.Call{Root: p.root, CallID: "b1", To: c.agent, Note: "look at x", Fresh: true,
-					Role: "lead", Agent: "pj-lead"})
+				reply, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1",
+					Role: "lead", Agent: "pj-lead"}, To: c.agent, Text: "look at x", Fresh: true})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -162,8 +162,8 @@ func TestFreshBriefSupersedesQueued(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
 	a, p := freshApp(t, &now, "pj-advisor", "codex", "working")
-	if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b1", To: "pj-advisor", Note: "old", Role: "lead",
-		Agent: "pj-lead"}); err != nil {
+	if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead",
+		Agent: "pj-lead"}, To: "pj-advisor", Text: "old"}); err != nil {
 		t.Fatal(err)
 	}
 	s := &freshSpy{}
@@ -175,8 +175,8 @@ func TestFreshBriefSupersedesQueued(t *testing.T) {
 	if queued != 1 || len(s.events)+len(s.typed) != 0 {
 		t.Fatalf("precondition: %d lines queued, events %q, typed %q", queued, s.events, s.typed)
 	}
-	reply, err := a.briefCall(wire.Call{Root: p.root, CallID: "b2", To: "pj-advisor", Note: "new", Fresh: true,
-		Role: "lead", Agent: "pj-lead"})
+	reply, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b2", Role: "lead",
+		Agent: "pj-lead"}, To: "pj-advisor", Text: "new", Fresh: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,12 +205,15 @@ func TestFreshBriefRefusedStopsNothing(t *testing.T) {
 	a, p := freshApp(t, &now, "pj-advisor", "claude", "working")
 	for _, c := range []struct {
 		name string
-		call wire.Call
+		call wire.BriefReq
 		want string
 	}{
-		{"a worker calls", wire.Call{To: "pj-advisor", Note: "x", Role: "worker", Agent: "pj-l-01"}, "the lead or the owner briefs"},
-		{"the integrator", wire.Call{To: "pj-int", Note: "x", Role: "lead"}, "no role agent serve starts fresh"},
-		{"no text", wire.Call{To: "pj-advisor", Note: " ", Role: "lead"}, "--fresh takes a text"},
+		{"a worker calls", wire.BriefReq{To: "pj-advisor", Text: "x", Envelope: wire.Envelope{Role: "worker",
+			Agent: "pj-l-01"}}, "the lead or the owner briefs"},
+		{"the integrator", wire.BriefReq{To: "pj-int", Text: "x", Envelope: wire.Envelope{Role: "lead"}},
+			"no role agent serve starts fresh"},
+		{"no text", wire.BriefReq{To: "pj-advisor", Text: " ", Envelope: wire.Envelope{Role: "lead"}},
+			"--fresh takes a text"},
 	} {
 		c.call.Root, c.call.CallID, c.call.Fresh = p.root, "b-"+c.name, true
 		if _, err := a.briefCall(c.call); err == nil || !strings.Contains(err.Error(), c.want) {
@@ -241,8 +244,8 @@ func TestFreshBriefMoveFailsStopsNothing(t *testing.T) {
 	if w.State != Identified {
 		t.Fatalf("precondition: pj-deep-dive %+v", w)
 	}
-	_, err := h.a.briefCall(wire.Call{Root: h.root, CallID: "b1", Role: "lead", Agent: "pj-lead", To: "pj-deep-dive",
-		Note: "look at x", Fresh: true})
+	_, err := h.a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: h.root, CallID: "b1", Role: "lead",
+		Agent: "pj-lead"}, To: "pj-deep-dive", Text: "look at x", Fresh: true})
 	if err == nil || !strings.Contains(err.Error(), "pj-deep-dive's worktree: no worktree") {
 		t.Fatalf("brief --fresh with the move failing: %v, want refused naming the worktree", err)
 	}
@@ -262,8 +265,8 @@ func TestFreshBriefStopFails(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
 	a, p := freshApp(t, &now, "pj-researcher", "claude", "working")
-	if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b1", To: "pj-researcher", Note: "dig", Fresh: true,
-		Role: "lead", Agent: "pj-lead"}); err != nil {
+	if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead",
+		Agent: "pj-lead"}, To: "pj-researcher", Text: "dig", Fresh: true}); err != nil {
 		t.Fatal(err)
 	}
 	s := &freshSpy{stopErr: errors.New("pj-researcher still working 30s after Escape")}

@@ -16,8 +16,8 @@ import (
 
 // tellLead is obor tell-lead's request from agent with role in lane.
 func (r *loopRig) tellLead(callID, agent, role, lane, text string) (string, error) {
-	return wire.Verdict(context.Background(), r.sock, wire.MethodTellLead, wire.Call{Root: r.p.Root, CallID: callID,
-		Agent: agent, Role: role, Lane: lane, Note: text})
+	return wire.Verdict(context.Background(), r.sock, &wire.TellLeadReq{Envelope: wire.Envelope{Root: r.p.Root,
+		CallID: callID, Agent: agent, Role: role}, Lane: lane, Text: text})
 }
 
 // driverTold is the facts message{driver} in the log (the drive's lines to the lead).
@@ -56,8 +56,8 @@ func (r *loopRig) driveStatus(status string) {
 
 // leadAnswer is the lead's obor answer on T-1.
 func (r *loopRig) leadAnswer(callID, text string) (string, error) {
-	return wire.Verdict(context.Background(), r.sock, wire.MethodResume, wire.Call{Root: r.p.Root, Agent: "pj-lead",
-		Role: "lead", CallID: callID, Task: "T-1", Note: text})
+	return wire.Verdict(context.Background(), r.sock, &wire.ResumeReq{Envelope: wire.Envelope{Root: r.p.Root,
+		Agent: "pj-lead", Role: "lead", CallID: callID}, Task: "T-1", Text: text})
 }
 
 // driving is the drive rig with T-1 a new drive on L-01, driving, its agent pj-l-01-drive up in w1:p5.
@@ -264,8 +264,9 @@ func TestAnswerToDriveClosedOnLandOrDrop(t *testing.T) {
 				}
 				r.waitStep("1 fact submitted")
 			case "drop":
-				if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodDrop, wire.Call{Root: r.p.Root,
-					Agent: "pj-lead", Role: "lead", CallID: "x1", Task: "T-1", Note: "not needed"}); err != nil {
+				if _, err := wire.Verdict(context.Background(), r.sock,
+					&wire.DropReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: "x1"},
+						Task: "T-1", Why: "not needed"}); err != nil {
 					t.Fatal(err)
 				}
 				r.waitFor("dropped", func() bool { return r.stateOf("T-1") == "dropped" })

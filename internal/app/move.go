@@ -17,7 +17,7 @@ import (
 // moving: c is obor dispatch's call with explicit models (--model; no --after, no lane: the CLI names none) of a task
 // open in the loop that no dispatch may redo (dispatchable false): a move, or a move's refusal by its state (gating,
 // merging, under review).
-func (a *App) moving(p *proj, c wire.Call) bool {
+func (a *App) moving(p *proj, c wire.DispatchReq) bool {
 	if len(c.Types) == 0 || c.Level != "" || len(c.After) > 0 || c.Lane != "" {
 		return false
 	}
@@ -39,7 +39,7 @@ func moveReply(task, lane, from, to, worker string) string {
 // branch and target with the new model, with the moved attempt's outstanding fix (a sendback's or red gate's text,
 // T-778). Refused, nothing recorded: gating, merging, under review or any other state of the merge loop (submitted
 // meanwhile included).
-func (a *App) moveTask(p *proj, fx *Loop, c wire.Call) (string, error) {
+func (a *App) moveTask(p *proj, fx *Loop, c wire.DispatchReq) (string, error) {
 	a.mu.Lock()
 	var mt mtask
 	if m := p.folded.loop[c.Task]; m != nil {
@@ -97,7 +97,7 @@ func (a *App) moveTask(p *proj, fx *Loop, c wire.Call) (string, error) {
 	}
 	attempt := mt.attempt + 1
 	d := dispatchData{Lane: mt.lane, Dir: dir, Agent: worker, Branch: mt.disp.Branch, Target: mt.disp.Target, Redo: true,
-		Force: c.Force, Types: c.Types, Effort: effort, Type: ref, Stop: worker, Caller: callerOf(c),
+		Force: c.Force, Types: c.Types, Effort: effort, Type: ref, Stop: worker, Caller: callerOf(c.Envelope),
 		Call: c.CallID, Reply: moveReply(c.Task, mt.lane, mt.disp.Type, ref, worker)}
 	if mt.is(stWorking) && mt.work == "" { // a sent-back attempt (sendback, red gate): its fix moves with it
 		d.Fix = mt.line

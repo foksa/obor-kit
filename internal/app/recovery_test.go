@@ -129,8 +129,8 @@ func (r *loopRig) fetch(agent, job string) (string, bool) {
 	if agent == "pj-int" {
 		role, lane = "integrator", ""
 	}
-	raw, err := wire.Verdict(context.Background(), r.sock, wire.MethodJobNext, wire.Call{Root: r.p.Root, Agent: agent,
-		Role: role, Lane: lane, CallID: fmt.Sprintf("rig-%d", r.callIDs.Add(1))})
+	raw, err := wire.Verdict(context.Background(), r.sock, &wire.JobNextReq{Envelope: wire.Envelope{Root: r.p.Root,
+		Agent: agent, Role: role, CallID: fmt.Sprintf("rig-%d", r.callIDs.Add(1))}, Lane: lane})
 	var jr wire.JobReply
 	if err != nil || json.Unmarshal([]byte(raw), &jr) != nil || jr.Job != job {
 		return "", false

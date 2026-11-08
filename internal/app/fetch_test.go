@@ -36,10 +36,15 @@ func (r *loopRig) task(task string) wire.TaskStatus {
 // wake is the one line typed for job (the Prompter's tag, then the wake).
 func wake(job string) string { return "[obor job " + job + "] call the obor job_next tool" }
 
-// call is a job tool's socket request by agent (role, lane) with call id; job names the job it answers ("": none).
+// call is a job tool's socket request by agent (role, lane) with call id: job_next, or a verdict on T-1; job names the
+// job it answers ("": none).
 func (r *loopRig) call(method, agent, role, lane, callID, job string) (string, error) {
-	return wire.Verdict(context.Background(), r.sock, method, wire.Call{Root: r.p.Root, Agent: agent, Role: role, Lane: lane,
-		CallID: callID, Task: "T-1", Job: job})
+	id := wire.Envelope{Root: r.p.Root, Agent: agent, Role: role, CallID: callID}
+	var c wire.Req = &wire.VerdictReq{Envelope: id, Verb: method, Task: "T-1", Job: job}
+	if method == wire.MethodJobNext {
+		c = &wire.JobNextReq{Envelope: id, Job: job, Lane: lane}
+	}
+	return wire.Verdict(context.Background(), r.sock, c)
 }
 
 // jobNext is job_next by agent with call id, its reply decoded.
@@ -148,8 +153,8 @@ func TestFetchWorkJob(t *testing.T) {
 	r.f.Agent("w1:p5", "pj-x", "idle", r.p.Root)
 	r.push()
 	r.waitFor("pane w1:p5", func() bool { return len(r.app.Status().Project.Agents) == 2 })
-	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodJobNext, wire.Call{Root: r.p.Root, Agent: "pj-l-01",
-		Role: "worker", Lane: "L-01", CallID: "x5", Pane: "w1:p5"}); err == nil ||
+	if _, err := wire.Verdict(context.Background(), r.sock, &wire.JobNextReq{Envelope: wire.Envelope{Root: r.p.Root,
+		Agent: "pj-l-01", Role: "worker", CallID: "x5"}, Lane: "L-01", Pane: "w1:p5"}); err == nil ||
 		!strings.Contains(err.Error(), "pane w1:p5 is not in lane L-01") {
 		t.Errorf("job_next from a pane outside the lane: %v", err)
 	}
@@ -390,8 +395,8 @@ func TestFetchBlockedAsks(t *testing.T) {
 
 // callDone is agent's task_done for T-1 (role, lane L-01) with call id and report.
 func (r *loopRig) callDone(agent, role, callID, report string) (string, error) {
-	return wire.Verdict(context.Background(), r.sock, wire.MethodTaskDone, wire.Call{Root: r.p.Root, Agent: agent, Role: role,
-		Lane: "L-01", CallID: callID, Task: "T-1", Report: report})
+	return wire.Verdict(context.Background(), r.sock, &wire.TaskDoneReq{Envelope: wire.Envelope{Root: r.p.Root,
+		Agent: agent, Role: role, CallID: callID}, Lane: "L-01", Task: "T-1", Report: report})
 }
 
 // An unfetched fix job: its wake again after 5 min, the owner after 5 more; obor resume (its default: retry) sends it

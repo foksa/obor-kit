@@ -9,7 +9,7 @@ import (
 )
 
 // backup is MethodBackup: the backup of a project this serve has loaded.
-func (a *App) backup(c wire.Call) (string, error) {
+func (a *App) backup(c wire.BackupReq) (string, error) {
 	root := filepath.Clean(c.Root)
 	a.mu.Lock()
 	p := a.projAt(root)

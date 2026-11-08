@@ -22,8 +22,9 @@ func (r *concRig) closeTask(name, task, end string, live bool) {
 	case end != stRejected:
 		r.add(name, task, end, event.KindFact, nil)
 	case live:
-		if _, err := a.verdict(context.Background(), wire.MethodReject, wire.Call{Root: p.root, Agent: p.integrator,
-			Role: "integrator", Task: task, Job: task + "/1/review", Patch: "p", Note: "why", CallID: "rj"}); err != nil {
+		if _, err := a.verdict(context.Background(), wire.VerdictReq{Envelope: wire.Envelope{Root: p.root,
+			Agent: p.integrator, Role: "integrator", CallID: "rj"}, Verb: wire.MethodReject, Task: task,
+			Job: task + "/1/review", Patch: "p", Note: "why"}); err != nil {
 			r.t.Fatalf("reject: %v", err)
 		}
 	default:

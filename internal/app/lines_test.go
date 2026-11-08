@@ -103,11 +103,14 @@ func queueLine(t *testing.T, a *App, p *proj, kind string, now time.Time) {
 	var err error
 	switch kind {
 	case "send":
-		_, err = a.sendCall(wire.Call{Root: p.root, CallID: "send1", From: "other", Note: "hello", Role: "lead"})
+		_, err = a.sendCall(wire.SendReq{Envelope: wire.Envelope{Root: p.root, CallID: "send1", Role: "lead"},
+			From: "other", Text: "hello"})
 	case "brief":
-		_, err = a.briefCall(wire.Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: "verify finding 1", Role: "lead"})
+		_, err = a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead"},
+			To: "pj-rev", Text: "verify finding 1"})
 	case "finished":
-		_, err = a.briefCall(wire.Call{Root: p.root, CallID: "b1", To: "pj-rev", Role: "lead"}) // a fresh start's brief
+		_, err = a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead"},
+			To: "pj-rev"}) // a fresh start's brief
 		lineStatus(a, "w:rev", "working", now)
 		lineStatus(a, "w:rev", "idle", now)
 	}
@@ -267,7 +270,8 @@ func TestRefusedLineKillChild(t *testing.T) {
 		a.deliver(context.Background(), p, linerLoop(&linerSpy{refuse: true}))
 		a.deliver(context.Background(), p, linerLoop(&linerSpy{hang: ready}))
 	case "worked":
-		if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b1", To: "pj-rev", Role: "lead"}); err != nil {
+		if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead"},
+			To: "pj-rev"}); err != nil {
 			t.Fatal(err)
 		}
 		lineStatus(a, "w:rev", "working", now)
@@ -296,7 +300,8 @@ func TestBriefCompletionReplay(t *testing.T) {
 			t.Parallel()
 			now := time.Now()
 			a, p := lineApp(t, lineRoot(t), &now)
-			if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: note, Role: "lead"}); err != nil {
+			if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead"},
+				To: "pj-rev", Text: note}); err != nil {
 				t.Fatal(err)
 			}
 			l := &linerSpy{}
@@ -337,7 +342,8 @@ func TestWorkedNotNewerBrief(t *testing.T) {
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	l := &linerSpy{}
-	if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b1", To: "pj-rev", Role: "lead"}); err != nil {
+	if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead"},
+		To: "pj-rev"}); err != nil {
 		t.Fatal(err)
 	}
 	lineStatus(a, "w:rev", "working", now)
@@ -345,7 +351,8 @@ func TestWorkedNotNewerBrief(t *testing.T) {
 	if !p.out.brief("pj-rev").worked {
 		t.Fatal("precondition: the first brief's work is seen")
 	}
-	if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b2", To: "pj-rev", Note: "again", Role: "lead"}); err != nil {
+	if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b2", Role: "lead"},
+		To: "pj-rev", Text: "again"}); err != nil {
 		t.Fatal(err)
 	}
 	b, q := lineReload(t, a, p, &now)
@@ -366,7 +373,8 @@ func TestBriefKeepsAStartedDelivery(t *testing.T) {
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	lineStatus(a, "w:rev", "working", now) // the brief's line waits
-	if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: "first", Role: "lead"}); err != nil {
+	if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead"},
+		To: "pj-rev", Text: "first"}); err != nil {
 		t.Fatal(err)
 	}
 	if len(p.queuedLines()) != 1 {
@@ -378,7 +386,8 @@ func TestBriefKeepsAStartedDelivery(t *testing.T) {
 	if m := p.queuedAt(q.seq); m == nil || m.state != lineSending {
 		t.Fatalf("precondition: the delivery in flight; queued %+v", p.queuedLines())
 	}
-	reply, err := a.briefCall(wire.Call{Root: p.root, CallID: "b2", To: "pj-rev", Note: "second", Role: "lead"})
+	reply, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b2", Role: "lead"},
+		To: "pj-rev", Text: "second"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -411,7 +420,8 @@ func TestBriefSupersededEndsNeedsYou(t *testing.T) {
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	lineStatus(a, "w:rev", "working", now)
-	if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: "first", Role: "lead"}); err != nil {
+	if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead"},
+		To: "pj-rev", Text: "first"}); err != nil {
 		t.Fatal(err)
 	}
 	l := &linerSpy{}
@@ -421,7 +431,8 @@ func TestBriefSupersededEndsNeedsYou(t *testing.T) {
 	if len(p.folded.active[event.MsgTask]) != 1 {
 		t.Fatalf("precondition: the 25 h brief line's needs-you, got %d", len(p.folded.active[event.MsgTask]))
 	}
-	if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b2", To: "pj-rev", Note: "second", Role: "lead"}); err != nil {
+	if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b2", Role: "lead"},
+		To: "pj-rev", Text: "second"}); err != nil {
 		t.Fatal(err)
 	}
 	a.advance(context.Background())
@@ -445,7 +456,8 @@ func TestBriefSupersedeSurvivesACrash(t *testing.T) {
 			now := time.Now()
 			a, p := lineApp(t, lineRoot(t), &now)
 			lineStatus(a, "w:rev", "working", now) // brief A waits
-			if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: "first", Role: "lead"}); err != nil {
+			if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead"},
+				To: "pj-rev", Text: "first"}); err != nil {
 				t.Fatal(err)
 			}
 			if len(p.queuedLines()) != 1 {
@@ -459,7 +471,8 @@ func TestBriefSupersedeSurvivesACrash(t *testing.T) {
 				briefed = r.Step == event.StepBriefed
 				return nil
 			}
-			reply, err := a.briefCall(wire.Call{Root: p.root, CallID: "b2", To: "pj-rev", Note: note, Role: "lead"})
+			reply, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b2", Role: "lead"},
+				To: "pj-rev", Text: note})
 			if err != nil || !strings.HasSuffix(reply, "(replaces 1 undelivered brief)") {
 				t.Fatalf("brief B: %q, %v; want it recorded, replacing A", reply, err)
 			}
@@ -472,7 +485,8 @@ func TestBriefSupersedeSurvivesACrash(t *testing.T) {
 					t.Errorf("brief A is queued again after the restart: %+v", m)
 				}
 			}
-			again, err := b.briefCall(wire.Call{Root: q.root, CallID: "b2", To: "pj-rev", Note: note, Role: "lead"})
+			again, err := b.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: q.root, CallID: "b2", Role: "lead"},
+				To: "pj-rev", Text: note})
 			if err != nil || again != reply {
 				t.Errorf("retry of b2: %q, %v; want the stored reply %q", again, err, reply)
 			}
@@ -517,7 +531,8 @@ func TestBriefRetiresARoutedLine(t *testing.T) {
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	lineStatus(a, "w:rev", "working", now)
-	if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: "first", Role: "lead"}); err != nil {
+	if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead"},
+		To: "pj-rev", Text: "first"}); err != nil {
 		t.Fatal(err)
 	}
 	lineStatus(a, "w:rev", "idle", now)
@@ -530,7 +545,8 @@ func TestBriefRetiresARoutedLine(t *testing.T) {
 	if !ok {
 		t.Fatal("precondition: brief A routed")
 	}
-	if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b2", To: "pj-rev", Note: "second", Role: "lead"}); err != nil {
+	if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b2", Role: "lead"},
+		To: "pj-rev", Text: "second"}); err != nil {
 		t.Fatal(err)
 	}
 	a.deliverLine(context.Background(), p, fx, q, post, target)
@@ -551,7 +567,8 @@ func TestBriefRetiresARoutedLine(t *testing.T) {
 		now := time.Now()
 		a, p := lineApp(t, lineRoot(t), &now)
 		lineStatus(a, "w:rev", "working", now)
-		if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: "first", Role: "lead"}); err != nil {
+		if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead"},
+			To: "pj-rev", Text: "first"}); err != nil {
 			t.Fatal(err)
 		}
 		lineStatus(a, "w:rev", "idle", now)
@@ -559,7 +576,8 @@ func TestBriefRetiresARoutedLine(t *testing.T) {
 		d := &duringSpy{}
 		d.during = func() { // A's claim is set: B arrives now
 			var err error
-			if reply, err = a.briefCall(wire.Call{Root: p.root, CallID: "b2", To: "pj-rev", Note: "second", Role: "lead"}); err != nil {
+			if reply, err = a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b2", Role: "lead"},
+				To: "pj-rev", Text: "second"}); err != nil {
 				t.Error(err)
 			}
 		}
@@ -583,13 +601,15 @@ func TestBriefSupersedesSeveralLines(t *testing.T) {
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	lineStatus(a, "w:rev", "working", now)
-	if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: "first", Role: "lead"}); err != nil {
+	if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead"},
+		To: "pj-rev", Text: "first"}); err != nil {
 		t.Fatal(err)
 	}
 	first := p.queuedLines()[0].seq
 	step := stepDeliver + strconv.FormatInt(first, 10)
 	a.record(p, event.Record{Task: event.MsgTask, Attempt: 1, Step: step, Kind: event.KindIntent, Class: event.ClassPrompt}, lineData{To: "pj-rev"})
-	if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b2", To: "pj-rev", Note: "second", Role: "lead"}); err != nil {
+	if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b2", Role: "lead"},
+		To: "pj-rev", Text: "second"}); err != nil {
 		t.Fatal(err)
 	}
 	a.record(p, event.Record{Task: event.MsgTask, Step: event.StepFailed, Kind: event.KindFact}, // A's delivery refused: undelivered again
@@ -597,7 +617,8 @@ func TestBriefSupersedesSeveralLines(t *testing.T) {
 	if len(p.queuedLines()) != 2 || p.queuedAt(first) == nil || p.queuedAt(first).state != lineWaiting {
 		t.Fatalf("precondition: two undelivered brief lines, none claimed; queued %+v", p.queuedLines())
 	}
-	reply, err := a.briefCall(wire.Call{Root: p.root, CallID: "b3", To: "pj-rev", Note: "third", Role: "lead"})
+	reply, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b3", Role: "lead"},
+		To: "pj-rev", Text: "third"})
 	if err != nil || !strings.HasSuffix(reply, "(replaces 2 undelivered briefs)") {
 		t.Fatalf("brief C: %q, %v", reply, err)
 	}
@@ -663,7 +684,8 @@ func TestBriefWorkDurableAtOnce(t *testing.T) {
 			if c.seen == nil {
 				lineStatus(a, "w:rev", "working", now)
 			}
-			if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: c.note, Role: "lead"}); err != nil {
+			if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead"},
+				To: "pj-rev", Text: c.note}); err != nil {
 				t.Fatal(err)
 			}
 			l := &linerSpy{}
@@ -700,7 +722,8 @@ func TestFinishedLineAgeFromTyping(t *testing.T) {
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	lineStatus(a, "w:rev", "working", now) // busy: the brief waits
-	if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: "verify finding 1", Role: "lead"}); err != nil {
+	if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead"},
+		To: "pj-rev", Text: "verify finding 1"}); err != nil {
 		t.Fatal(err)
 	}
 	l := &linerSpy{}
@@ -803,7 +826,8 @@ func TestRunningLeadHint(t *testing.T) {
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	a.opt.Inboxed = func(string) (string, bool) { return "", false }
-	reply, err := a.sendCall(wire.Call{Root: p.root, CallID: "s1", From: "other", Note: "hello"})
+	reply, err := a.sendCall(wire.SendReq{Envelope: wire.Envelope{Root: p.root, CallID: "s1"}, From: "other",
+		Text: "hello"})
 	hint := "`obor restart pj-lead` once it is idle registers it, or quit it and run `obor lead`"
 	if err != nil || !strings.Contains(reply, hint) || strings.Contains(reply, "obor lead registers") {
 		t.Errorf("reply %q (%v); want it to name %s", reply, err, hint)
@@ -832,7 +856,8 @@ func TestBriefStatus(t *testing.T) {
 	if got := a.Status().Project.Briefs; len(got) != 0 {
 		t.Fatalf("precondition: no brief, got %+v", got)
 	}
-	if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: "verify 1", Role: "lead"}); err != nil {
+	if _, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b1", Role: "lead"},
+		To: "pj-rev", Text: "verify 1"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := a.Status().Project.Briefs; len(got) != 1 || got[0].To != "pj-rev" || got[0].Delivered || got[0].Since == 0 {

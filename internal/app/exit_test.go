@@ -17,11 +17,11 @@ func TestExitEndsServe(t *testing.T) {
 	r := newLoopRig(t, dispatching())
 	r.start()
 	exit := func(role, root string) (string, error) {
-		c := wire.Call{Root: root, Role: role, CallID: "e1", Note: "obor stop"}
+		c := &wire.ExitReq{Envelope: wire.Envelope{Root: root, Role: role, CallID: "e1"}, Why: "obor stop"}
 		if role != "" {
 			c.Agent = "pj-" + role
 		}
-		return wire.Verdict(context.Background(), r.sock, wire.MethodExit, c)
+		return wire.Verdict(context.Background(), r.sock, c)
 	}
 	if _, err := exit("", r.p.Root); err == nil || !strings.Contains(err.Error(), "cannot end itself") {
 		t.Errorf("no Exit: %v, want refused", err)

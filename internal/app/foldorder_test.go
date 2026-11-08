@@ -29,12 +29,14 @@ func TestRecordFoldsInLogOrder(t *testing.T) {
 			return nil
 		}},
 		{"dropping vs submitted", stDropping, seedWorking, func(h *harness, p *proj) error {
-			_, err := h.a.drop(wire.Call{Root: h.root, Role: "lead", Agent: "pj-lead", CallID: "d1", Task: "T-1", Note: "not needed"})
+			_, err := h.a.drop(wire.DropReq{Envelope: wire.Envelope{Root: h.root, Role: "lead", Agent: "pj-lead",
+				CallID: "d1"}, Task: "T-1", Why: "not needed"})
 			return err
 		}},
 		{"reject verdict vs submitted", stRejected, seedHeldReview, func(h *harness, p *proj) error {
-			_, err := h.a.verdict(context.Background(), wire.MethodReject, wire.Call{Root: h.root, Role: "integrator",
-				Agent: "pj-int", CallID: "rj", Task: "T-1", Job: "T-1/1/review", Note: "wrong approach"})
+			_, err := h.a.verdict(context.Background(), wire.VerdictReq{Envelope: wire.Envelope{Root: h.root,
+				Role: "integrator", Agent: "pj-int", CallID: "rj"}, Verb: wire.MethodReject, Task: "T-1",
+				Job: "T-1/1/review", Note: "wrong approach"})
 			return err
 		}},
 	} {
@@ -104,8 +106,9 @@ func TestRecoveredStartVsSubmission(t *testing.T) {
 			return
 		}
 		armed = false
-		if _, err := h.a.taskDone(wire.Call{Root: h.root, Role: "worker", Agent: "pj-l-01", Lane: "L-01", CallID: "s1",
-			Task: "T-1", Report: "Summary: x\nSelf-check: x\nSkipped: x\nOpen questions: none."}); err != nil {
+		if _, err := h.a.taskDone(wire.TaskDoneReq{Envelope: wire.Envelope{Root: h.root, Role: "worker",
+			Agent: "pj-l-01", CallID: "s1"}, Lane: "L-01", Task: "T-1",
+			Report: "Summary: x\nSelf-check: x\nSkipped: x\nOpen questions: none."}); err != nil {
 			t.Errorf("task_done: %v", err)
 		}
 	}
@@ -151,8 +154,9 @@ func seedHeldReview(t *testing.T, h *harness, p *proj) {
 		Candidate: port.Candidate{Task: "T-1", SHA: "c", Target: "b", Patch: "p"}})
 	addRecord(t, h, "T-1", event.StepReview, event.KindIntent, promptData{Agent: "pj-int", Job: "T-1/1/review", Patch: "p"})
 	addRecord(t, h, "T-1", event.StepReview, event.KindResult, "sent")
-	if _, err := h.a.verdict(context.Background(), wire.MethodHold, wire.Call{Root: h.root, Role: "integrator",
-		Agent: "pj-int", CallID: "h1", Task: "T-1", Job: "T-1/1/review", Note: "owner decides"}); err != nil {
+	if _, err := h.a.verdict(context.Background(), wire.VerdictReq{Envelope: wire.Envelope{Root: h.root,
+		Role: "integrator", Agent: "pj-int", CallID: "h1"}, Verb: wire.MethodHold, Task: "T-1", Job: "T-1/1/review",
+		Note: "owner decides"}); err != nil {
 		t.Fatalf("precondition: hold: %v", err)
 	}
 	h.a.mu.Lock()
@@ -196,8 +200,9 @@ func raceSubmit(t *testing.T, h *harness, other func() error) (error, bool) {
 		}
 	}
 	h.a.hooked.Store(&hook)
-	_, err := h.a.taskDone(wire.Call{Root: h.root, Role: "worker", Agent: "pj-l-01", Lane: "L-01", CallID: "s1",
-		Task: "T-1", Report: "Summary: x\nSelf-check: x\nSkipped: x\nOpen questions: none."})
+	_, err := h.a.taskDone(wire.TaskDoneReq{Envelope: wire.Envelope{Root: h.root, Role: "worker", Agent: "pj-l-01",
+		CallID: "s1"}, Lane: "L-01", Task: "T-1",
+		Report: "Summary: x\nSelf-check: x\nSkipped: x\nOpen questions: none."})
 	close(answered)
 	select {
 	case e := <-otherErr:

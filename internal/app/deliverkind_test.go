@@ -190,7 +190,7 @@ func TestBriefByKind(t *testing.T) {
 			r.f.Set("w1:p6", func(p *herdrtest.Pane) { p.Kind = c.kind })
 			r.start()
 			const line = "[obor pj-lead] verify"
-			if _, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-rev", Note: "verify"}); err != nil {
+			if _, err := r.line("b1", &wire.BriefReq{To: "pj-rev", Text: "verify"}); err != nil {
 				t.Fatal(err)
 			}
 			r.waitFor("the brief delivered", func() bool {

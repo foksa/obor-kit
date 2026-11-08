@@ -270,7 +270,8 @@ func TestWatchNoteEndsWithItsLine(t *testing.T) {
 	const sha = "1111111aaaa"
 	watchAgain := func(callID string) string {
 		t.Helper()
-		reply, err := h.a.watchCall(wire.Call{Root: h.root, Role: "lead", Agent: "pj-lead", CallID: callID, Task: "T-1"})
+		reply, err := h.a.watchCall(wire.WatchReq{Envelope: wire.Envelope{Root: h.root, Role: "lead", Agent: "pj-lead",
+			CallID: callID}, Task: "T-1"})
 		if err != nil {
 			t.Fatalf("watch %s: %v", callID, err)
 		}

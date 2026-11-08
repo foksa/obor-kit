@@ -95,7 +95,8 @@ func TestStartJobIntegrator(t *testing.T) {
 			f := &startJobFakes{concFakes: r.fakes["pj"]}
 			var early wire.JobReply
 			f.start = func(port.Launch) {
-				raw, err := r.a.jobNext(wire.Call{Root: p.root, Agent: p.integrator, Role: "integrator", CallID: "early"})
+				raw, err := r.a.jobNext(wire.JobNextReq{Envelope: wire.Envelope{Root: p.root, Agent: p.integrator,
+					Role: "integrator", CallID: "early"}})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -134,7 +135,8 @@ func TestStartJobIntegrator(t *testing.T) {
 				same(t, mt.job+" "+mt.state, row.job+" "+mt.jobState(true), "the job out")
 				same(t, mt.delivered, true, "the job delivered (fetched during its start)")
 				// a later fetch is a repeat: the same job, nothing recorded
-				raw, err := r.a.jobNext(wire.Call{Root: p.root, Agent: p.integrator, Role: "integrator", CallID: "later"})
+				raw, err := r.a.jobNext(wire.JobNextReq{Envelope: wire.Envelope{Root: p.root, Agent: p.integrator,
+					Role: "integrator", CallID: "later"}})
 				var again wire.JobReply
 				_ = json.Unmarshal([]byte(raw), &again)
 				if err != nil || again.Job != job || deliveredOf(r, job) != 1 {
@@ -155,12 +157,14 @@ func TestStartJobOtherPatch(t *testing.T) {
 	r.add("pj", "T-1", event.StepGate, event.KindResult, gateOut{Outcome: outGreen, Candidate: port.Candidate{Task: "T-1", SHA: "c",
 		Target: "b", Patch: "p"}})
 	r.add("pj", "T-1", "start.review", event.KindIntent, startData{Agent: "pj-int"})
-	raw, err := r.a.jobNext(wire.Call{Root: p.root, Agent: p.integrator, Role: "integrator", CallID: "n1"})
+	raw, err := r.a.jobNext(wire.JobNextReq{Envelope: wire.Envelope{Root: p.root, Agent: p.integrator,
+		Role: "integrator", CallID: "n1"}})
 	if err != nil || raw != `{"state":"none"}` {
 		t.Fatalf("job_next with a start and no job intent: %s %v, want none", raw, err)
 	}
 	r.add("pj", "T-1", event.StepReview, event.KindIntent, promptData{Agent: "pj-int", Job: "T-1/1/review", Patch: "p"})
-	raw, err = r.a.jobNext(wire.Call{Root: p.root, Agent: p.integrator, Role: "integrator", CallID: "n3"})
+	raw, err = r.a.jobNext(wire.JobNextReq{Envelope: wire.Envelope{Root: p.root, Agent: p.integrator,
+		Role: "integrator", CallID: "n3"}})
 	var jr wire.JobReply
 	_ = json.Unmarshal([]byte(raw), &jr)
 	if err != nil || jr.Job != "T-1/1/review" {
@@ -242,7 +246,8 @@ func TestIntegratorJobFetchableDuringStart(t *testing.T) {
 			f := &startEffects{concFakes: r.fakes["pj"]}
 			var early wire.JobReply
 			f.start = func(l port.Launch) {
-				raw, err := r.a.jobNext(wire.Call{Root: p.root, Agent: p.integrator, Role: "integrator", CallID: "early"})
+				raw, err := r.a.jobNext(wire.JobNextReq{Envelope: wire.Envelope{Root: p.root, Agent: p.integrator,
+					Role: "integrator", CallID: "early"}})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -274,7 +279,8 @@ func TestWorkerEarlyFetchDuringStart(t *testing.T) {
 	r.add("pj", "T-2", event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
 	f := &startEffects{concFakes: r.fakes["pj"]}
 	f.start = func(port.Launch) {
-		raw, err := r.a.jobNext(wire.Call{Root: p.root, Agent: "pj-l-02", Role: "worker", Lane: "L-02", CallID: "early"})
+		raw, err := r.a.jobNext(wire.JobNextReq{Envelope: wire.Envelope{Root: p.root, Agent: "pj-l-02", Role: "worker",
+			CallID: "early"}, Lane: "L-02"})
 		if err != nil {
 			t.Fatal(err)
 		}

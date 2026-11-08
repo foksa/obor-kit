@@ -76,8 +76,9 @@ func TestVerdictDeadlineLine(t *testing.T) {
 		}
 	})
 	t.Setenv("OBOR_CALL_DEADLINE", "0.2")
-	for _, method := range []string{MethodDispatch, MethodDrop, MethodDrive} {
-		_, err := Verdict(context.Background(), sock, method, Call{})
+	for _, r := range []Req{&DispatchReq{}, &DropReq{}, &DriveReq{}} {
+		method := r.Method()
+		_, err := Verdict(context.Background(), sock, r)
 		if err == nil {
 			t.Fatalf("Verdict(%s) answered from a socket that never does", method)
 		}

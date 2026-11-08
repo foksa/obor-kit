@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"obor/internal/app/event"
@@ -360,10 +361,17 @@ func (a *App) Listen(ln net.Listener) {
 			}
 			var req wire.Request
 			var ans wire.Answer
+			var env *wire.Envelope // the caller, read first from any request that carries a call
 			unreadable := json.Unmarshal(b, &req) != nil
-			if !unreadable && req.Call != nil {
-				a.noteSkew(*req.Call)
+			if !unreadable && len(req.Call) > 0 && string(req.Call) != "null" { // null: no call, as before the split
+				env = &wire.Envelope{}
+				if unreadable = json.Unmarshal(req.Call, env) != nil; unreadable {
+					env = nil
+				} else {
+					a.noteSkew(*env)
+				}
 			}
+			do, known := a.handlers()[req.Method]
 			switch {
 			case unreadable:
 				ans.Error = "unreadable request"
@@ -371,80 +379,26 @@ func (a *App) Listen(ln net.Listener) {
 				st := a.Status()
 				ans.Status = &st
 			case req.Method == wire.MethodEvents: // a stream of lines, its own writes (T-1039)
-				a.feed(c, req.Call)
+				var r *wire.EventsReq
+				if env != nil {
+					r = &wire.EventsReq{}
+					_ = json.Unmarshal(req.Call, r) // its envelope read: its fields are numbers and a bool
+				}
+				a.feed(c, r)
 				return
-			case req.Method == wire.MethodSpecSet || req.Method == wire.MethodPause || req.Method == wire.MethodSend || req.Method == wire.MethodBrief ||
-				req.Method == wire.MethodWatch || req.Method == wire.MethodReview || req.Method == wire.MethodStopped || req.Method == wire.MethodTurn || req.Method == wire.MethodSession ||
-				req.Method == wire.MethodExit || req.Method == wire.MethodConfig || req.Method == wire.MethodTellLead || req.Method == wire.MethodIdle ||
-				req.Method == wire.MethodReviewClose:
-				if req.Call == nil {
-					ans.Error = req.Method + ": no call"
-					break
-				}
-				do := map[string]func(wire.Call) (string, error){wire.MethodSpecSet: a.specSet, wire.MethodPause: a.pauseCall,
-					wire.MethodSend: a.sendCall, wire.MethodBrief: a.briefCall, wire.MethodWatch: a.watchCall, wire.MethodReview: a.reviewCall,
-					wire.MethodStopped: a.stoppedCall, wire.MethodTurn: a.turnCall, wire.MethodSession: a.sessionCall,
-					wire.MethodExit: a.exitCall, wire.MethodConfig: a.configCall, wire.MethodTellLead: a.tellLeadCall,
-					wire.MethodIdle: a.idleCall, wire.MethodReviewClose: a.reviewCloseCall}[req.Method]
-				var err error
-				if ans.Reply, err = do(*req.Call); err != nil {
-					ans.Error = err.Error()
-				}
-			case req.Method == wire.MethodBackup:
-				if req.Call == nil {
-					ans.Error = req.Method + ": no call"
-					break
-				}
-				var err error
-				if ans.Reply, err = a.backup(*req.Call); err != nil {
-					ans.Error = err.Error()
-				}
-			case req.Method == wire.MethodAccept || req.Method == wire.MethodSendback || req.Method == wire.MethodReject ||
-				req.Method == wire.MethodResolved || req.Method == wire.MethodHold || req.Method == wire.MethodResume || req.Method == wire.MethodDrop ||
-				req.Method == wire.MethodDispatch || req.Method == wire.MethodJobNext || req.Method == wire.MethodTaskDone ||
-				req.Method == wire.MethodDrive || req.Method == wire.MethodLand || req.Method == wire.MethodRestartJob:
-				if req.Call == nil {
-					ans.Error = req.Method + ": no call"
-					break
-				}
-				var reply string
-				var err error
-				switch req.Method {
-				case wire.MethodResume:
-					reply, err = a.resume(*req.Call)
-				case wire.MethodDrop:
-					reply, err = a.drop(*req.Call)
-				case wire.MethodJobNext:
-					reply, err = a.jobNext(*req.Call)
-				case wire.MethodTaskDone:
-					reply, err = a.taskDone(*req.Call)
-				case wire.MethodDispatch:
-					ctx, cancel := context.WithTimeout(a.life, requestTimeout)
-					reply, err = a.dispatchCall(ctx, *req.Call)
-					cancel()
-				case wire.MethodDrive:
-					ctx, cancel := context.WithTimeout(a.life, requestTimeout)
-					reply, err = a.driveCall(ctx, *req.Call)
-					cancel()
-				case wire.MethodLand:
-					reply, err = a.landCall(*req.Call)
-				case wire.MethodRestartJob:
-					reply, err = a.restartJob(*req.Call)
-				default:
-					ctx, cancel := context.WithTimeout(a.life, requestTimeout)
-					reply, err = a.verdict(ctx, req.Method, *req.Call)
-					cancel()
-				}
-				if err != nil {
-					ans.Error = err.Error()
-				}
-				ans.Reply = reply
-			default:
+			case !known:
 				ans.Error = "unknown method " + req.Method
+			case env == nil:
+				ans.Error = req.Method + ": no call"
+			default:
+				var err error
+				if ans.Reply, err = do(req.Method, req.Call); err != nil {
+					ans.Error = err.Error()
+				}
 			}
-			if ans.Error != "" && req.Call != nil {
-				if skew := versionSkew(*req.Call); skew != "" {
-					ans.Error += fmt.Sprintf(" (caller %s runs %s, serve %s)", callerOf(*req.Call), skew, version.Version)
+			if ans.Error != "" && env != nil {
+				if skew := versionSkew(*env); skew != "" {
+					ans.Error += fmt.Sprintf(" (caller %s runs %s, serve %s)", callerOf(*env), skew, version.Version)
 				}
 			}
 			out, _ := json.Marshal(ans)
@@ -456,10 +410,78 @@ func (a *App) Listen(ln net.Listener) {
 	}
 }
 
+// handler answers one method's request: its call's JSON decoded into the method's request type (handle).
+type handler func(method string, call json.RawMessage) (string, error)
+
+// handlers is the socket's methods but status and events (Listen's own): each decodes the call into its request type
+// (T-1055) and answers it; dispatch, drive and the integrator's verdicts run under the daemon's lifetime and
+// requestTimeout.
+func (a *App) handlers() map[string]handler {
+	verdict := handle(func(c wire.VerdictReq) (string, error) {
+		ctx, cancel := context.WithTimeout(a.life, requestTimeout)
+		defer cancel()
+		return a.verdict(ctx, c)
+	})
+	return map[string]handler{
+		wire.MethodAccept:      verdict,
+		wire.MethodSendback:    verdict,
+		wire.MethodReject:      verdict,
+		wire.MethodResolved:    verdict,
+		wire.MethodHold:        verdict,
+		wire.MethodResume:      handle(a.resume),
+		wire.MethodDrop:        handle(a.drop),
+		wire.MethodJobNext:     handle(a.jobNext),
+		wire.MethodTaskDone:    handle(a.taskDone),
+		wire.MethodDispatch:    handle(timed(a, a.dispatchCall)),
+		wire.MethodDrive:       handle(timed(a, a.driveCall)),
+		wire.MethodLand:        handle(a.landCall),
+		wire.MethodRestartJob:  handle(a.restartJob),
+		wire.MethodSpecSet:     handle(a.specSet),
+		wire.MethodPause:       handle(a.pauseCall),
+		wire.MethodSend:        handle(a.sendCall),
+		wire.MethodBrief:       handle(a.briefCall),
+		wire.MethodWatch:       handle(a.watchCall),
+		wire.MethodReview:      handle(a.reviewCall),
+		wire.MethodStopped:     handle(a.stoppedCall),
+		wire.MethodTurn:        handle(a.turnCall),
+		wire.MethodSession:     handle(a.sessionCall),
+		wire.MethodExit:        handle(a.exitCall),
+		wire.MethodConfig:      handle(a.configCall),
+		wire.MethodTellLead:    handle(a.tellLeadCall),
+		wire.MethodIdle:        handle(a.idleCall),
+		wire.MethodReviewClose: handle(a.reviewCloseCall),
+		wire.MethodBackup:      handle(a.backup),
+	}
+}
+
+// handle is f as a handler: the call decoded into f's request type R; a VerdictReq's Verb is the method it came under.
+func handle[R any](f func(R) (string, error)) handler {
+	return func(method string, call json.RawMessage) (string, error) {
+		var r R
+		if err := json.Unmarshal(call, &r); err != nil {
+			return "", errors.New("unreadable request")
+		}
+		if v, ok := any(&r).(*wire.VerdictReq); ok {
+			v.Verb = method
+		}
+		return f(r)
+	}
+}
+
+// timed is f under the daemon's lifetime and requestTimeout: a dispatch's and a drive's effect outlives a caller that
+// stopped waiting.
+func timed[R any](a *App, f func(context.Context, R) (string, error)) func(R) (string, error) {
+	return func(r R) (string, error) {
+		ctx, cancel := context.WithTimeout(a.life, requestTimeout)
+		defer cancel()
+		return f(ctx, r)
+	}
+}
+
 // versionSkew is c's caller's obor as text when it differs from this serve's (T-826): its version, or "an older obor"
 // for a call that carried none (a binary before the field); "" when they match. A difference alone refuses nothing:
 // obor-kit's dev builds differ after every merge, so only a refusal names it and serve's log says it once.
-func versionSkew(c wire.Call) string {
+func versionSkew(c wire.Envelope) string {
 	switch {
 	case c.Version == version.Version:
 		return ""
@@ -471,7 +493,7 @@ func versionSkew(c wire.Call) string {
 
 // noteSkew writes serve's one log line for a call whose caller runs another obor: the first per (agent, version), not
 // each call (T-826).
-func (a *App) noteSkew(c wire.Call) {
+func (a *App) noteSkew(c wire.Envelope) {
 	skew := versionSkew(c)
 	if skew == "" {
 		return

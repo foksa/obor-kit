@@ -24,8 +24,7 @@ func idleCmd(args []string) int {
 	if len(args) == 1 {
 		why = args[0]
 	}
-	return request(context.Background(), project.OSEnv, wire.MethodIdle, func(cfg *config.Config, c *wire.Call) error {
-		c.Note = why
-		return nil
+	return request(context.Background(), project.OSEnv, func(_ *config.Config, id wire.Envelope) (wire.Req, error) {
+		return &wire.IdleReq{Envelope: id, Why: why}, nil
 	})
 }

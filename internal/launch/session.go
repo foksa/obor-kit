@@ -288,7 +288,7 @@ func (l *Launcher) report(ctx context.Context, s store.Session) error {
 	}
 	ctx, cancel := context.WithTimeout(ctx, reportWait)
 	defer cancel()
-	_, err := wire.Verdict(ctx, wire.SocketPath(l.Cfg.Root), wire.MethodSession, wire.SessionCall(l.Cfg.Root, s))
+	_, err := wire.Verdict(ctx, wire.SocketPath(l.Cfg.Root), wire.SessionRequest(l.Cfg.Root, s))
 	return err
 }
 

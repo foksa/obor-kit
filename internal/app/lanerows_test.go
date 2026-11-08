@@ -177,12 +177,13 @@ func TestTaskDoneByLane(t *testing.T) {
 	h.a.mu.Lock()
 	p.folded.lr.rows["L-01"] = store.LaneRow{Lane: "L-01", Task: "T-1"}
 	h.a.mu.Unlock()
-	if _, err := h.a.taskDone(wire.Call{Root: h.root, Role: "worker", Agent: "pj-l-01", Lane: "L-02", CallID: "c0",
+	if _, err := h.a.taskDone(wire.TaskDoneReq{Envelope: wire.Envelope{Root: h.root, Role: "worker", Agent: "pj-l-01",
+		CallID: "c0"}, Lane: "L-02",
 		Report: "Summary: x"}); err == nil || err.Error() != "task_done: lane L-02 holds no task in obor serve" {
 		t.Errorf("a lane with no row: %v", err)
 	}
-	_, err := h.a.taskDone(wire.Call{Root: h.root, Role: "worker", Agent: "pj-l-01", Lane: "L-01", CallID: "c1",
-		Report: "Summary: x"})
+	_, err := h.a.taskDone(wire.TaskDoneReq{Envelope: wire.Envelope{Root: h.root, Role: "worker", Agent: "pj-l-01",
+		CallID: "c1"}, Lane: "L-01", Report: "Summary: x"})
 	if err == nil || err.Error() == "task_done: lane L-01 holds no task in obor serve" {
 		t.Errorf("L-01's row holds T-1: the call reaches the report check, got %v", err)
 	}

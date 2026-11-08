@@ -51,30 +51,31 @@ func (f *sleepServe) ask(context.Context) (wire.Status, error) {
 	return wire.Status{Project: &wire.ProjectStatus{Root: f.root, Tasks: f.tasks, Paused: f.paused}}, nil
 }
 
-func (f *sleepServe) call(_ context.Context, method string, c wire.Call) (string, error) {
+func (f *sleepServe) call(_ context.Context, r wire.Req) (string, error) {
 	if !f.up {
 		return "", errors.New("serve down")
 	}
-	switch {
-	case method == wire.MethodPause && c.Clear:
-		f.calls = append(f.calls, "pause --clear")
-		f.paused = nil
-		return "PAUSE CLEARED", nil
-	case method == wire.MethodPause:
-		f.calls = append(f.calls, "pause "+c.Note)
-		f.paused = &event.Pause{Why: c.Note, Until: c.Until}
+	switch c := r.(type) {
+	case *wire.PauseReq:
+		if c.Clear {
+			f.calls = append(f.calls, "pause --clear")
+			f.paused = nil
+			return "PAUSE CLEARED", nil
+		}
+		f.calls = append(f.calls, "pause "+c.Why)
+		f.paused = &event.Pause{Why: c.Why, Until: c.Until}
 		if c.Until != 0 {
 			return "PAUSED until " + time.Unix(c.Until, 0).Format("15:04"), nil
 		}
 		return "PAUSED until cleared", nil
-	case method == wire.MethodExit:
+	case *wire.ExitReq:
 		f.calls = append(f.calls, "exit")
 		if f.onExit != nil {
 			f.onExit()
 		}
 		return "EXITING", nil
 	}
-	return "", errors.New("unexpected " + method)
+	return "", errors.New("unexpected " + r.Method())
 }
 
 // sleepFx is a project with lane L-01 registered in the machine's list (the test's state home), a sleeper on it run

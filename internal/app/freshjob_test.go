@@ -61,8 +61,9 @@ func TestFreshIntegratorPerJob(t *testing.T) {
 	same(t, len(f.launches), 1, "starts while T-1's job is out")
 	same(t, p.log.Open(event.Key{Task: "T-5", Attempt: 1, Step: event.StepReview}) || done(p, event.Key{Task: "T-5", Attempt: 1, Step: event.StepReview}), false, "T-5's review recorded")
 
-	if _, err := r.a.verdict(ctx, wire.MethodAccept, wire.Call{Root: p.root, Task: "T-1", Agent: "pj-int", Role: "integrator",
-		CallID: "a1", Job: "T-1/1/review", Patch: "p1"}); err != nil {
+	if _, err := r.a.verdict(ctx, wire.VerdictReq{Envelope: wire.Envelope{Root: p.root, Agent: "pj-int",
+		Role: "integrator", CallID: "a1"}, Verb: wire.MethodAccept, Task: "T-1", Job: "T-1/1/review",
+		Patch: "p1"}); err != nil {
 		t.Fatal(err)
 	}
 	// Answered, but the integrator still ends its turn: not cut off.
@@ -179,8 +180,9 @@ func TestFreshIntegratorIdleBoundTwoJobs(t *testing.T) {
 		"T-5's review recorded")
 
 	// T-1's verdict, then its turn's end: T-5 starts fresh, not forced.
-	if _, err := r.a.verdict(context.Background(), wire.MethodAccept, wire.Call{Root: p.root, Task: "T-1", Agent: "pj-int",
-		Role: "integrator", CallID: "a1", Job: "T-1/1/review", Patch: "p1"}); err != nil {
+	if _, err := r.a.verdict(context.Background(), wire.VerdictReq{Envelope: wire.Envelope{Root: p.root,
+		Agent: "pj-int", Role: "integrator", CallID: "a1"}, Verb: wire.MethodAccept, Task: "T-1", Job: "T-1/1/review",
+		Patch: "p1"}); err != nil {
 		t.Fatal(err)
 	}
 	if runNext(r, p, "T-5", f) {
@@ -214,7 +216,8 @@ func TestJobNextNamedNotHeld(t *testing.T) {
 	r.add("pj", "T-5", nth(event.StepResolve, 2), event.KindResult, "sent")
 	fetch := func(id, job string) wire.JobReply {
 		t.Helper()
-		raw, err := r.a.jobNext(wire.Call{Root: p.root, Agent: p.integrator, Role: "integrator", CallID: id, Job: job})
+		raw, err := r.a.jobNext(wire.JobNextReq{Envelope: wire.Envelope{Root: p.root, Agent: p.integrator,
+			Role: "integrator", CallID: id}, Job: job})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -251,8 +254,8 @@ func TestJobNextOldestNotTheMapsFirst(t *testing.T) {
 		}
 	}
 	for i := 0; i < 20; i++ {
-		raw, err := r.a.jobNext(wire.Call{Root: p.root, Agent: p.integrator, Role: "integrator",
-			CallID: "old" + strconv.Itoa(i)})
+		raw, err := r.a.jobNext(wire.JobNextReq{Envelope: wire.Envelope{Root: p.root, Agent: p.integrator,
+			Role: "integrator", CallID: "old" + strconv.Itoa(i)}})
 		if err != nil {
 			t.Fatal(err)
 		}

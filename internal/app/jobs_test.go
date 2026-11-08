@@ -176,8 +176,8 @@ func (r *loopRig) resume(callID, to string) (string, error) {
 
 // resumeWith is the lead's obor resume of T-1 with flag to and text note.
 func (r *loopRig) resumeWith(callID, to, note string) (string, error) {
-	return wire.Verdict(context.Background(), r.sock, wire.MethodResume, wire.Call{Root: r.p.Root, Agent: "pj-lead",
-		Role: "lead", CallID: callID, Task: "T-1", To: to, Note: note})
+	return wire.Verdict(context.Background(), r.sock, &wire.ResumeReq{Envelope: wire.Envelope{Root: r.p.Root,
+		Agent: "pj-lead", Role: "lead", CallID: callID}, Task: "T-1", Flag: to, Text: note})
 }
 
 // mustResume is resume with the reply it must give.
@@ -319,9 +319,9 @@ func TestJobStalled(t *testing.T) {
 			r.jobPrompts("T-1/1/review") != 1 || r.jobPrompts("T-1/1/review.2") != 1 {
 			t.Errorf("starts %d: want one start and one re-send under review.2: %q", r.starts.Load(), r.steps())
 		}
-		stale := wire.Call{Root: r.p.Root, Agent: "pj-int", Role: "integrator", CallID: "c1", Task: "T-1",
-			Job: "T-1/1/review", Patch: r.patch(job)}
-		if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodAccept, stale); err == nil ||
+		stale := &wire.VerdictReq{Verb: wire.MethodAccept, Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-int",
+			Role: "integrator", CallID: "c1"}, Task: "T-1", Job: "T-1/1/review", Patch: r.patch(job)}
+		if _, err := wire.Verdict(context.Background(), r.sock, stale); err == nil ||
 			!strings.Contains(err.Error(), "stale job T-1/1/review (T-1's job is T-1/1/review.2)") {
 			t.Errorf("accept of the lost job: %v", err)
 		}
@@ -438,8 +438,8 @@ func TestHoldAndResume(t *testing.T) {
 		t.Parallel()
 		r, _ := reviewed(t)
 		hold := func(agent, role, callID, note string) (string, error) {
-			return wire.Verdict(context.Background(), r.sock, wire.MethodHold, wire.Call{Root: r.p.Root, Agent: agent,
-				Role: role, CallID: callID, Task: "T-1", Note: note})
+			return wire.Verdict(context.Background(), r.sock, &wire.VerdictReq{Envelope: wire.Envelope{Root: r.p.Root,
+				Agent: agent, Role: role, CallID: callID}, Verb: wire.MethodHold, Task: "T-1", Note: note})
 		}
 		if _, err := hold("pj-l-01", "worker", "h0", "why"); err == nil ||
 			!strings.Contains(err.Error(), "only the integrator (pj-int) gives verdicts, not pj-l-01 (role worker)") {
@@ -466,8 +466,9 @@ func TestHoldAndResume(t *testing.T) {
 			t.Errorf("want one needs-you{held}, the task needs-you: %q", r.steps())
 		}
 
-		worker := wire.Call{Root: r.p.Root, Agent: "pj-l-01", Role: "worker", CallID: "r0", Task: "T-1"}
-		if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodResume, worker); err == nil ||
+		worker := &wire.ResumeReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-l-01", Role: "worker",
+			CallID: "r0"}, Task: "T-1"}
+		if _, err := wire.Verdict(context.Background(), r.sock, worker); err == nil ||
 			!strings.Contains(err.Error(), "the lead or the owner resumes a task, not pj-l-01 (role worker)") {
 			t.Errorf("resume by the worker: %v", err)
 		}
@@ -488,9 +489,9 @@ func TestHoldAndResume(t *testing.T) {
 			t.Errorf("resume with no needs-you: %v", err)
 		}
 		job := r.waitJob("pj-int", "T-1/1/review.2")
-		stale := wire.Call{Root: r.p.Root, Agent: "pj-int", Role: "integrator", CallID: "c1", Task: "T-1",
-			Job: "T-1/1/review", Patch: r.patch(job)}
-		if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodAccept, stale); err == nil ||
+		stale := &wire.VerdictReq{Verb: wire.MethodAccept, Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-int",
+			Role: "integrator", CallID: "c1"}, Task: "T-1", Job: "T-1/1/review", Patch: r.patch(job)}
+		if _, err := wire.Verdict(context.Background(), r.sock, stale); err == nil ||
 			!strings.Contains(err.Error(), "stale job T-1/1/review") {
 			t.Errorf("accept of the held job after the resume: %v", err)
 		}
@@ -503,8 +504,9 @@ func TestHoldAndResume(t *testing.T) {
 	t.Run("a verdict on the held job ends the hold", func(t *testing.T) {
 		t.Parallel()
 		r, job := reviewed(t)
-		if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodHold, wire.Call{Root: r.p.Root, Agent: "pj-int",
-			Role: "integrator", CallID: "h1", Task: "T-1", Note: "asking the owner"}); err != nil {
+		if _, err := wire.Verdict(context.Background(), r.sock, &wire.VerdictReq{Envelope: wire.Envelope{Root: r.p.Root,
+			Agent: "pj-int", Role: "integrator", CallID: "h1"}, Verb: wire.MethodHold, Task: "T-1",
+			Note: "asking the owner"}); err != nil {
 			t.Fatal(err)
 		}
 		r.waitFor("the hold in force", func() bool { return r.facts() == 1 })
@@ -637,8 +639,9 @@ func TestJobRecovery(t *testing.T) {
 	t.Run("unblocked refused", func(t *testing.T) {
 		t.Parallel()
 		r, _ := reviewed(t)
-		if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodHold, wire.Call{Root: r.p.Root, Agent: "pj-int",
-			Role: "integrator", CallID: "h1", Task: "T-1", Note: "owner"}); err != nil {
+		if _, err := wire.Verdict(context.Background(), r.sock, &wire.VerdictReq{Envelope: wire.Envelope{Root: r.p.Root,
+			Agent: "pj-int", Role: "integrator", CallID: "h1"}, Verb: wire.MethodHold, Task: "T-1",
+			Note: "owner"}); err != nil {
 			t.Fatal(err)
 		}
 		crashed := r.crashAt(event.KindFact, "unblocked")

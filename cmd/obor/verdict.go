@@ -22,13 +22,9 @@ func resumeCmd(args []string) int {
 		fmt.Fprintln(out, "FAIL "+help.Usage("resume"))
 		return 1
 	}
-	return request(context.Background(), project.OSEnv, wire.MethodResume, func(cfg *config.Config, id *wire.Call) error {
-		if err := taskIDs(cfg, args[0]); err != nil {
-			return err
-		}
-		c.Agent, c.Role, c.CallID, c.Root = id.Agent, id.Role, id.CallID, id.Root
-		*id = c
-		return nil
+	return request(context.Background(), project.OSEnv, func(cfg *config.Config, id wire.Envelope) (wire.Req, error) {
+		c.Envelope = id
+		return &c, taskIDs(cfg, args[0])
 	})
 }
 
@@ -37,25 +33,26 @@ func resumeCmd(args []string) int {
 // as no role) and its name derived from it (project.SelfAgent, T-786: never OBOR_AGENT), a new call id and the
 // project; cwd is the session's. Serve decides which callers each request takes:
 // the owner (no role), the lead, the integrator, a worker.
-func caller(env project.Env, cwd string, cfg *config.Config) wire.Call {
+func caller(env project.Env, cwd string, cfg *config.Config) wire.Envelope {
 	repo, _ := project.Find(cwd)
 	detected := project.DetectRole(repo, cfg, env)
 	role := detected.Role
 	if role == "none" {
 		role = ""
 	}
-	return wire.Call{Agent: project.SelfAgent(cfg, detected), Role: role, CallID: wire.NewCallID(), Root: cfg.Root}
+	return wire.Envelope{Agent: project.SelfAgent(cfg, detected), Role: role, CallID: wire.NewCallID(), Root: cfg.Root}
 }
 
-// request is every CLI request to obor serve: the config (load), the caller's identity (caller), the command's fields
-// (fill: its error is the FAIL line, nothing sent), sent to the serve holding the call's project (obor send's is
-// another project's). Serve's reply printed (exit 0), or FAIL: no config, serve down or its refusal (exit 1).
-func request(ctx context.Context, env project.Env, method string, fill func(*config.Config, *wire.Call) error) int {
-	return requestReply(ctx, env, method, fill, func(reply string) string { return reply })
+// request is every CLI request to obor serve: the config (load), the caller's identity (caller), the command's request
+// (build: the method's request with that envelope; its error is the FAIL line, nothing sent), sent to the serve holding
+// the request's project (obor send's is another project's). Serve's reply printed (exit 0), or FAIL: no config, serve
+// down or its refusal (exit 1).
+func request(ctx context.Context, env project.Env, build func(*config.Config, wire.Envelope) (wire.Req, error)) int {
+	return requestReply(ctx, env, build, func(reply string) string { return reply })
 }
 
 // requestReply is request with serve's reply printed as line makes it.
-func requestReply(ctx context.Context, env project.Env, method string, fill func(*config.Config, *wire.Call) error,
+func requestReply(ctx context.Context, env project.Env, build func(*config.Config, wire.Envelope) (wire.Req, error),
 	line func(reply string) string) int {
 	_, cfg, rc := load()
 	if rc != 0 {
@@ -63,12 +60,12 @@ func requestReply(ctx context.Context, env project.Env, method string, fill func
 		return 1
 	}
 	cwd, _ := os.Getwd()
-	c := caller(env, cwd, cfg)
-	if err := fill(cfg, &c); err != nil {
+	r, err := build(cfg, caller(env, cwd, cfg))
+	if err != nil {
 		fmt.Fprintf(out, "FAIL %v\n", err)
 		return 1
 	}
-	reply, err := wire.Verdict(ctx, wire.SocketPath(c.Root), method, c)
+	reply, err := wire.Verdict(ctx, wire.SocketPath(r.Env().Root), r)
 	if err != nil {
 		fmt.Fprintf(out, "FAIL %v\n", err)
 		return 1

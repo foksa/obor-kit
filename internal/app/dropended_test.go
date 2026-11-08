@@ -61,8 +61,9 @@ func raceDrop(t *testing.T, r *concRig) (sub, drop callAnswer) {
 	}()
 	submitted, dropped := make(chan callAnswer, 1), make(chan callAnswer, 1)
 	go func() {
-		reply, err := r.app("pq").taskDone(wire.Call{Root: p.root, Task: "T-7", Agent: "pq-l-07", Role: "worker", Lane: "L-07",
-			CallID: "done", Report: "Summary: fixed\nSelf-check: passed\nSkipped: none\nOpen questions: none"})
+		reply, err := r.app("pq").taskDone(wire.TaskDoneReq{Envelope: wire.Envelope{Root: p.root, Agent: "pq-l-07",
+			Role: "worker", CallID: "done"}, Task: "T-7", Lane: "L-07",
+			Report: "Summary: fixed\nSelf-check: passed\nSkipped: none\nOpen questions: none"})
 		submitted <- callAnswer{reply, err}
 	}()
 	wait := func(c chan struct{}, what string) {

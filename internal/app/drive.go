@@ -54,15 +54,15 @@ func (a *App) hook(point string) {
 }
 
 // driveCall answers the socket's drive request (the owner or the lead): a call id is required and a repeated one gets
-// the stored reply. Call.Task: that task, a drive already (driveAgain; any other task refused: a drive is new work
-// only, T-912); else a new drive named Call.Note (newDrive). A task already driving (or the open drive of that name)
-// whose drive agent is not running is started again (driveAgain: nothing recorded). The reply is DRIVE <task> → <lane>
+// the stored reply. DriveReq.Task: that task, a drive already (driveAgain; any other task refused: a drive is new work
+// only, T-912); else a new drive named DriveReq.Name (newDrive). A task already driving (or the open drive of that
+// name) whose drive agent is not running is started again (driveAgain: nothing recorded). The reply is DRIVE <task> → <lane>
 // (<drive agent>, <type ref>): the CLI starts the drive agent; DRIVING …: <agent> runs already: it runs.
 // It decides and records under a.verdicts.
-func (a *App) driveCall(ctx context.Context, c wire.Call) (string, error) {
+func (a *App) driveCall(ctx context.Context, c wire.DriveReq) (string, error) {
 	a.verdicts.Lock()
 	defer a.verdicts.Unlock()
-	if c.CallID == "" || c.Task == "" && strings.TrimSpace(c.Note) == "" {
+	if c.CallID == "" || c.Task == "" && strings.TrimSpace(c.Name) == "" {
 		return "", errors.New("drive: a call id and a name or a task are required")
 	}
 	a.mu.Lock()
@@ -107,13 +107,13 @@ func driveReply(task, lane, agent, ref string) string {
 	return fmt.Sprintf("DRIVE %s → %s (%s, %s)", task, lane, agent, Dash(ref))
 }
 
-// newDrive records a new drive named c.Note (under a.verdicts): the next task id, its spec "Owner drive: <name>", fact
+// newDrive records a new drive named c.Name (under a.verdicts): the next task id, its spec "Owner drive: <name>", fact
 // dispatch{drive} on the first free lane in config order (not held for another task's dispatch), its model c.Types[0]
 // (a model ref) or the hard level's first model. An open drive of that name is started again (driveAgain: its
 // recorded lane and model, c.Types ignored). Refused (nothing recorded): the model is unknown or its effort not taken,
 // no free lane (the lanes' states named; never a wait), the task branch has commits the target lacks.
-func (a *App) newDrive(ctx context.Context, p *proj, fx *Loop, c wire.Call) (string, error) {
-	name := strings.Join(strings.Fields(c.Note), " ")
+func (a *App) newDrive(ctx context.Context, p *proj, fx *Loop, c wire.DriveReq) (string, error) {
+	name := strings.Join(strings.Fields(c.Name), " ")
 	cfg, err := config.LoadDaemon(p.root)
 	if err != nil {
 		return "", err
@@ -164,13 +164,13 @@ func (a *App) newDrive(ctx context.Context, p *proj, fx *Loop, c wire.Call) (str
 	if ahead {
 		return "", fmt.Errorf("drive %s: %s exists with commits not in the target (merge or delete it first)", name, branch)
 	}
-	if _, _, err := store.SetSpec(p.log.DB(), task, "# "+task+" — "+driveTitle+name+"\n", "", callerOf(c), a.opt.Now()); err != nil {
+	if _, _, err := store.SetSpec(p.log.DB(), task, "# "+task+" — "+driveTitle+name+"\n", "", callerOf(c.Envelope), a.opt.Now()); err != nil {
 		return "", fmt.Errorf("drive %s: %v", name, err)
 	}
 	l.Dir = filepath.Clean(l.Dir)
 	agent := roles.DriveAgent(cfg.AgentName("worker", l.Name))
 	d := dispatchData{Lane: l.Name, Dir: l.Dir, Agent: agent, Branch: branch, Target: target, Effort: effort, Type: ref,
-		Drive: true, Caller: callerOf(c), Call: c.CallID, Reply: driveReply(task, l.Name, agent, ref)}
+		Drive: true, Caller: callerOf(c.Envelope), Call: c.CallID, Reply: driveReply(task, l.Name, agent, ref)}
 	if !a.record(p, event.Record{Task: task, Attempt: 1, Step: event.StepDispatched, Kind: event.KindFact}, d) {
 		return "", fmt.Errorf("drive: the event log of %s refused it", p.name)
 	}
@@ -234,7 +234,7 @@ func landReply(task string) string {
 // owner's behalf, c.Report (the summary) as its report: fact submitted{land}, then it is an ordinary submitted task. A
 // repeated call id gets the stored reply. Refused: not driving, no summary, a step of it running. The CLI refused a
 // dirty worktree before.
-func (a *App) landCall(c wire.Call) (string, error) {
+func (a *App) landCall(c wire.LandReq) (string, error) {
 	a.submitMu.Lock() // one submission decision at a time (task_done's lock)
 	defer a.submitMu.Unlock()
 	report := strings.TrimSpace(c.Report)
@@ -367,11 +367,11 @@ func tellLine(task, text string) string {
 // id is required and a repeated one gets the stored reply. Refused: any other caller (a worker, a reviewer, the lead,
 // the owner), no open drive on the lane, a drive the lead cannot answer (T-764: driveAnswerable, the predicate obor
 // resume uses: only while driving; else the line would advertise a reply that is refused), no text, no lead configured.
-func (a *App) tellLeadCall(c wire.Call) (string, error) {
+func (a *App) tellLeadCall(c wire.TellLeadReq) (string, error) {
 	if c.CallID == "" {
 		return "", errors.New("tell-lead: a call id is required")
 	}
-	p, reply, stored := a.callProj(wire.MethodTellLead, c)
+	p, reply, stored := a.callProj(wire.MethodTellLead, c.Envelope)
 	switch {
 	case p == nil:
 		return "", fmt.Errorf("tell-lead: no served project at %s", c.Root)
@@ -381,7 +381,7 @@ func (a *App) tellLeadCall(c wire.Call) (string, error) {
 		return "", fmt.Errorf("tell-lead: it is for a drive agent to tell its lead (obor tell-lead in an obor drive's pane), "+
 			"not %s (role %s); the lead answers with obor resume, workers ask with a Blocked: report", Dash(c.Agent),
 			Dash(c.Role))
-	case strings.TrimSpace(c.Note) == "":
+	case strings.TrimSpace(c.Text) == "":
 		return "", errors.New("tell-lead: a text is required")
 	case !a.merges(p):
 		return "", mergeOff(p)
@@ -402,7 +402,7 @@ func (a *App) tellLeadCall(c wire.Call) (string, error) {
 	case lead == "":
 		return "", errors.New("tell-lead: no lead configured (the config's prefix names it)")
 	}
-	m := event.Message{To: lead, From: cmp.Or(c.Agent, roles.Driver), Task: task, Line: tellLine(task, c.Note),
+	m := event.Message{To: lead, From: cmp.Or(c.Agent, roles.Driver), Task: task, Line: tellLine(task, c.Text),
 		Driver: true, Call: c.CallID, Reply: "TOLD " + lead + " (" + task + "; its answer arrives here as an [obor answer] line)"}
 	if !a.inboxed(lead) {
 		m.Reply = "TOLD " + lead + " (" + task + "; queued: no session recorded for " + lead + ")"

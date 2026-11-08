@@ -107,13 +107,12 @@ func (s *server) self(r *project.Repo) (name, missing string) {
 	return "", fmt.Sprintf("role %s (lane %q) names no agent in the config", role.Role, role.Lane)
 }
 
-// call is one tool call, the tool's name its app socket method: fill copies the arguments into the call, then the
-// caller's identity is derived and the app asked. Every refusal — a bad argument, no project, no identity, the app's
-// own, serve being down — is the error, the tool's error text; never a broken server.
-func (s *server) call(method string, fill func(*wire.Call) error) (string, error) {
-	pane, _ := project.Pane(s.env) // none: a call from no pane, which serve's own checks then answer
-	c := wire.Call{Role: s.role(), Lane: s.env.Get("OBOR_LANE"), Pane: pane, CallID: wire.NewCallID()}
-	if err := fill(&c); err != nil {
+// call is one tool call, the tool's name its app socket method: request builds the method's request from the
+// arguments, then the caller's identity is derived and the app asked. Every refusal — a bad argument, no project, no
+// identity, the app's own, serve being down — is the error, the tool's error text; never a broken server.
+func (s *server) call(method string, request func() (wire.Req, error)) (string, error) {
+	r, err := request()
+	if err != nil {
 		return "", fmt.Errorf("%s: %w", method, err)
 	}
 	root, err := project.Find(s.cwd)
@@ -124,11 +123,11 @@ func (s *server) call(method string, fill func(*wire.Call) error) (string, error
 	if agent == "" {
 		return "", errors.New(method + ": no caller identity: " + missing)
 	}
-	if method == wire.MethodTaskDone && c.Lane == "" {
+	if d, ok := r.(*wire.TaskDoneReq); ok && d.Lane == "" {
 		return "", errors.New(method + ": OBOR_LANE is not set: task_done is the worker's tool")
 	}
-	c.Agent, c.Root = agent, root.Root
-	reply, err := wire.Verdict(s.ctx, wire.SocketPath(root.Root), method, c)
+	*r.Env() = wire.Envelope{Root: root.Root, Agent: agent, Role: s.role(), CallID: wire.NewCallID()}
+	reply, err := wire.Verdict(s.ctx, wire.SocketPath(root.Root), r)
 	if err != nil {
 		return "", err
 	}

@@ -80,12 +80,25 @@ func (f *fixture) worker() project.Env {
 type fakeServe struct {
 	mu     sync.Mutex
 	reqs   []wireRequest
-	answer func(method string, c wire.Call) (string, string)
+	answer func(method string, c toolCall) (string, string)
 }
 
 type wireRequest struct {
-	Method string    `json:"method"`
-	Call   wire.Call `json:"call"`
+	Method string   `json:"method"`
+	Call   toolCall `json:"call"`
+}
+
+// toolCall is the call of any tool's request, every key the tools' request types send (wire.JobNextReq,
+// wire.TaskDoneReq, wire.VerdictReq), for the fake to answer and the tests to read.
+type toolCall struct {
+	wire.Envelope
+	Task   string `json:"task"`
+	Job    string `json:"job,omitempty"`
+	Patch  string `json:"patch,omitempty"`
+	Note   string `json:"note,omitempty"`
+	Lane   string `json:"lane,omitempty"`
+	Pane   string `json:"pane,omitempty"`
+	Report string `json:"report,omitempty"`
 }
 
 // serveFake listens at path and answers until the test ends.
@@ -302,7 +315,7 @@ func TestToolsListPerRole(t *testing.T) {
 func TestWorkerTools(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
-	a := &fakeServe{answer: func(method string, c wire.Call) (string, string) {
+	a := &fakeServe{answer: func(method string, c toolCall) (string, string) {
 		switch method {
 		case wire.MethodJobNext:
 			return `{"state":"job","job":"T-01/1/work","task":"T-01","attempt":1,"step":"work","text":"do the work"}`, ""
@@ -333,10 +346,12 @@ func TestWorkerTools(t *testing.T) {
 	if len(reqs) != 2 {
 		t.Fatalf("the app got %d requests; want 2: %+v", len(reqs), reqs)
 	}
-	for i, call := range []wire.Call{reqs[0].Call, reqs[1].Call} {
+	// job_next names the caller's pane; task_done does not (serve reads the pane from its lane's watch).
+	for i, call := range []toolCall{reqs[0].Call, reqs[1].Call} {
+		pane := []string{"w1:p1", ""}[i]
 		if call.Root != f.root || call.Agent != "pj-l-01" || call.Role != "worker" || call.Lane != "L-01" ||
-			call.Pane != "w1:p1" {
-			t.Errorf("call %d: %+v; want root %s, the agent, worker, L-01, w1:p1", i, call, f.root)
+			call.Pane != pane {
+			t.Errorf("call %d: %+v; want root %s, the agent, worker, L-01, pane %q", i, call, f.root, pane)
 		}
 		if len(call.CallID) != 16 {
 			t.Errorf("call %d: call id %q; want a fresh 16-hex id", i, call.CallID)
@@ -369,7 +384,7 @@ func TestJobNextStates(t *testing.T) {
 	}
 	var mu sync.Mutex
 	next := 0
-	a := &fakeServe{answer: func(string, wire.Call) (string, string) {
+	a := &fakeServe{answer: func(string, toolCall) (string, string) {
 		mu.Lock()
 		defer mu.Unlock()
 		if next >= len(cases) {
@@ -392,7 +407,7 @@ func TestJobNextStates(t *testing.T) {
 func TestIntegratorVerdicts(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
-	a := &fakeServe{answer: func(method string, c wire.Call) (string, string) {
+	a := &fakeServe{answer: func(method string, c toolCall) (string, string) {
 		if method == wire.MethodJobNext {
 			return `{"state":"job","job":"T-05/1/review","task":"T-05","attempt":1,"step":"review","text":"review it"}`, ""
 		}
@@ -437,7 +452,7 @@ func TestIntegratorVerdicts(t *testing.T) {
 		if got.Call.Task != "T-05" || got.Call.Job != "T-05/1/review" {
 			t.Errorf("%s: task %q, job %q; want the fetched job's T-05 and T-05/1/review", tc.tool, got.Call.Task, got.Call.Job)
 		}
-		if got.Call.Agent != "pj-int" || got.Call.Role != "integrator" || got.Call.Lane != "" || got.Call.Pane != "w1:p2" ||
+		if got.Call.Agent != "pj-int" || got.Call.Role != "integrator" || got.Call.Lane != "" || got.Call.Pane != "" ||
 			got.Call.Root != f.root {
 			t.Errorf("%s: %+v; want the integrator's identity", tc.tool, got.Call)
 		}
@@ -466,7 +481,7 @@ func TestToolErrorsAreResults(t *testing.T) {
 	}
 
 	// The app's refusal reaches the agent as the tool's error text, unchanged.
-	a := &fakeServe{answer: func(method string, c wire.Call) (string, string) {
+	a := &fakeServe{answer: func(method string, c toolCall) (string, string) {
 		switch method {
 		case wire.MethodJobNext:
 			return `{"state":"job","job":"T-05/1/review","task":"T-05","attempt":1,"step":"review"}`, ""
@@ -575,7 +590,7 @@ func TestJobNextPerKind(t *testing.T) {
 	f := newFixture(t)
 	lane := filepath.Join(filepath.Dir(f.root), "proj-wt", "L-01") // the default lanes_dir, ../<name>-wt
 	f.worktree(lane)
-	a := &fakeServe{answer: func(_ string, c wire.Call) (string, string) {
+	a := &fakeServe{answer: func(_ string, c toolCall) (string, string) {
 		if c.Agent != "pj-l-01" {
 			return "", "job_next: not your job: T-01/1/work is pj-l-01's in lane L-01, not " + c.Agent
 		}
@@ -620,7 +635,7 @@ func TestJobNextPerKind(t *testing.T) {
 func TestNoCallerIdentity(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
-	a := &fakeServe{answer: func(string, wire.Call) (string, string) { return "", "unexpected request" }}
+	a := &fakeServe{answer: func(string, toolCall) (string, string) { return "", "unexpected request" }}
 	serveFake(t, wire.SocketPath(f.root), a)
 	got := start(t, f.env("OBOR_ROLE=worker", "OBOR_PANE=w1:p2"), f.root).tool("job_next", nil)
 	want := "job_next: no caller identity: role worker without a lane: OBOR_LANE is not set and the cwd " + f.root +

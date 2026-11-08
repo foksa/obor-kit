@@ -64,8 +64,9 @@ func newTurnRig(t *testing.T, kind string) *turnRig {
 	if kind == "codex" {
 		r.turn = agents.Turn{ID: "old", Ended: true, Error: "usage_limit_exceeded", Details: "limit",
 			Reset: now.Add(time.Hour)}
-	} else if _, err := r.a.stoppedCall(wire.Call{Root: r.p.root, CallID: "limit", Agent: "pj-rev", Role: "reviewer",
-		Error: "rate_limit", Details: "limit|" + strconv.FormatInt(now.Add(time.Hour).Unix(), 10)}); err != nil {
+	} else if _, err := r.a.stoppedCall(wire.StoppedReq{Envelope: wire.Envelope{Root: r.p.root, CallID: "limit",
+		Agent: "pj-rev", Role: "reviewer"}, Error: "rate_limit",
+		Details: "limit|" + strconv.FormatInt(now.Add(time.Hour).Unix(), 10)}); err != nil {
 		t.Fatal(err)
 	}
 	r.deliver()
@@ -95,7 +96,8 @@ func (r *turnRig) status(s string) { lineStatus(r.a, "w:rev", s, *r.now) }
 
 // hook is pj-rev's turn request: its Stop hook's (ended), else its UserPromptSubmit's.
 func (r *turnRig) hook(ended bool) string {
-	reply, err := r.a.turnCall(wire.Call{Root: r.p.root, Agent: "pj-rev", Role: "reviewer", Ended: ended})
+	reply, err := r.a.turnCall(wire.TurnReq{Envelope: wire.Envelope{Root: r.p.root, Agent: "pj-rev", Role: "reviewer"},
+		Ended: ended})
 	if err != nil {
 		r.t.Fatal(err)
 	}
@@ -331,15 +333,16 @@ func TestTurnWorkerPhases(t *testing.T) {
 			h, _, _, _ := promptRig(t, true)
 			addRecord(t, h, "T-1", event.StepWork, event.KindIntent, promptData{Agent: "pj-l-01", Job: "T-1/1/work"})
 			h.connect()
-			if _, err := h.a.stoppedCall(wire.Call{Root: h.root, CallID: "limit", Agent: "pj-l-01", Role: "worker",
-				Lane: "L-01", Error: "rate_limit", Details: "429"}); err != nil {
+			if _, err := h.a.stoppedCall(wire.StoppedReq{Envelope: wire.Envelope{Root: h.root, CallID: "limit",
+				Agent: "pj-l-01", Role: "worker"}, Lane: "L-01", Error: "rate_limit", Details: "429"}); err != nil {
 				t.Fatal(err)
 			}
 			p := h.proj()
 			if !p.stops("T-1") {
 				t.Fatal("precondition: T-1 stopped")
 			}
-			reply, err := h.a.turnCall(wire.Call{Root: h.root, Agent: "pj-l-01", Role: "worker", Lane: "L-01", Ended: ended})
+			reply, err := h.a.turnCall(wire.TurnReq{Envelope: wire.Envelope{Root: h.root, Agent: "pj-l-01",
+				Role: "worker"}, Lane: "L-01", Ended: ended})
 			if err != nil || reply != "TURN pj-l-01 (the stop of T-1 ended)" || p.stops("T-1") || p.briefCount() != 0 {
 				t.Errorf("%s hook: %q, %v, stopped %v, %d briefs; want the stop ended, none", name, reply, err,
 					p.stops("T-1"), p.briefCount())

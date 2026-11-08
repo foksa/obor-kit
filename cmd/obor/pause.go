@@ -18,7 +18,7 @@ import (
 // skips it and a level's next model is used. <dur> is a Go duration (90m, 3h). Serve's reply (PAUSED until …, PAUSE
 // CLEARED, NOT PAUSED), or FAIL: serve down, its refusal or a usage error (exit 1).
 func pauseCmd(args []string) int {
-	var c wire.Call
+	var c wire.PauseReq
 	if len(args) >= 2 && args[0] == "--model" {
 		c.Model, args = args[1], args[2:]
 		if c.Model == "" || strings.HasPrefix(c.Model, "-") {
@@ -35,19 +35,19 @@ func pauseCmd(args []string) int {
 			fmt.Fprintln(out, "FAIL bad duration: "+args[1]+" ("+help.Usage("pause")+")")
 			return 1
 		}
-		c.Until, c.Note = time.Now().Add(d).Unix(), args[2]
+		c.Until, c.Why = time.Now().Add(d).Unix(), args[2]
 	case len(args) == 1:
-		c.Note = args[0]
+		c.Why = args[0]
 	default:
 		fmt.Fprintln(out, "FAIL "+help.Usage("pause"))
 		return 1
 	}
-	if !c.Clear && (c.Note == "" || strings.HasPrefix(c.Note, "--")) { // a mistyped flag (--stat), not a reason
+	if !c.Clear && (c.Why == "" || strings.HasPrefix(c.Why, "--")) { // a mistyped flag (--stat), not a reason
 		fmt.Fprintln(out, "FAIL "+help.Usage("pause"))
 		return 1
 	}
-	return request(context.Background(), project.OSEnv, wire.MethodPause, func(_ *config.Config, call *wire.Call) error {
-		call.Note, call.Until, call.Clear, call.Model = c.Note, c.Until, c.Clear, c.Model
-		return nil
+	return request(context.Background(), project.OSEnv, func(_ *config.Config, id wire.Envelope) (wire.Req, error) {
+		c.Envelope = id
+		return &c, nil
 	})
 }

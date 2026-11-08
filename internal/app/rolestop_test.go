@@ -48,8 +48,9 @@ func runJob(r *concRig, p *proj, task string, s *stopSpy) bool {
 // acceptJob is the integrator's accept of task's first review job (patch p).
 func acceptJob(r *concRig, p *proj, task, patch, callID string) {
 	r.t.Helper()
-	if _, err := r.a.verdict(context.Background(), wire.MethodAccept, wire.Call{Root: p.root, Task: task, Agent: "pj-int",
-		Role: "integrator", CallID: callID, Job: task + "/1/review", Patch: patch}); err != nil {
+	if _, err := r.a.verdict(context.Background(), wire.VerdictReq{Envelope: wire.Envelope{Root: p.root,
+		Agent: "pj-int", Role: "integrator", CallID: callID}, Verb: wire.MethodAccept, Task: task,
+		Job: task + "/1/review", Patch: patch}); err != nil {
 		r.t.Fatal(err)
 	}
 }
@@ -264,8 +265,8 @@ func TestBriefToStoppedRoleAgent(t *testing.T) {
 			if w := a.whereIs(p, "pj-advisor"); (w.State == Identified) == c.started {
 				t.Fatalf("precondition: pj-advisor %+v", w)
 			}
-			reply, err := a.briefCall(wire.Call{Root: p.root, CallID: "b-" + c.name, To: "pj-advisor", Note: "why X?",
-				Role: "lead", Agent: "pj-lead"})
+			reply, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b-" + c.name,
+				Role: "lead", Agent: "pj-lead"}, To: "pj-advisor", Text: "why X?"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -317,8 +318,8 @@ func TestBriefReachesCustomRole(t *testing.T) {
 		{ID: "w:lead", Group: "proj", Cwd: root, Agent: "claude", Label: p.out.lead(), Status: "idle"},
 		{ID: "w:ux", Group: "proj", Cwd: root, Label: "pj-ux-buddy", Status: "idle"},
 	}})
-	reply, err := a.briefCall(wire.Call{Root: p.root, CallID: "b-ux", To: "pj-ux-buddy", Note: "review the flows",
-		Role: "lead", Agent: "pj-lead"})
+	reply, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b-ux", Role: "lead",
+		Agent: "pj-lead"}, To: "pj-ux-buddy", Text: "review the flows"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -404,8 +405,8 @@ func TestRoleStopReviewerRule(t *testing.T) {
 			stops: []string{"pj-rev w:rev force=false"}},
 		{name: "closed with its brief open: none", steps: []step{started, closed,
 			func(t *testing.T, r *reviewRig, _ *reviewStopSpy) {
-				if _, err := r.a.briefCall(wire.Call{Root: r.p.root, CallID: "b2", To: "pj-rev", Note: "check X",
-					Role: "lead", Agent: "pj-lead"}); err != nil {
+				if _, err := r.a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: r.p.root, CallID: "b2",
+					Role: "lead", Agent: "pj-lead"}, To: "pj-rev", Text: "check X"}); err != nil {
 					t.Fatal(err)
 				}
 				if r.p.out.brief("pj-rev") == nil {
@@ -496,8 +497,8 @@ func TestBriefToStoppedWorkerStartsNothing(t *testing.T) {
 	if _, ok := a.obs["w:o1"]; !ok {
 		t.Fatal("precondition: the worker's labelled pane is not observed")
 	}
-	reply, err := a.briefCall(wire.Call{Root: p.root, CallID: "b-w", To: "pj-l-01", Note: "why X?", Role: "lead",
-		Agent: "pj-lead"})
+	reply, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b-w", Role: "lead",
+		Agent: "pj-lead"}, To: "pj-l-01", Text: "why X?"})
 	if err != nil {
 		t.Fatal(err)
 	}

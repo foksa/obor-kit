@@ -19,7 +19,8 @@ import (
 
 // dispatchLevel is the lead's dispatch of T-1 by its spec's level (no lane, no types).
 func (r *loopRig) dispatchLevel(callID string, types ...string) (string, error) {
-	return r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: callID, Task: "T-1", Types: types})
+	return r.dispatchCall(wire.DispatchReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-lead", Role: "lead",
+		CallID: callID}, Task: "T-1", Types: types})
 }
 
 func (r *loopRig) specLevel(level string) {
@@ -90,10 +91,12 @@ func TestDifficultySkipsAPausedModel(t *testing.T) {
 	r := newLoopRig(t, pooled())
 	r.start()
 	r.specLevel("medium") // sonnet, deepseek
-	if reply, err := r.pause("lead", "p0", wire.Call{Model: "gpt", Note: "x"}); err == nil || !strings.Contains(err.Error(), `gpt is not a model`) {
+	if reply, err := r.pause("lead", "p0", wire.PauseReq{Model: "gpt",
+		Why: "x"}); err == nil || !strings.Contains(err.Error(), `gpt is not a model`) {
 		t.Errorf("pause of an unknown model: %q, %v; want refused", reply, err)
 	}
-	if reply, err := r.pause("lead", "p1", wire.Call{Model: "sonnet", Note: "quota"}); err != nil || reply != "PAUSED sonnet until cleared" {
+	if reply, err := r.pause("lead", "p1", wire.PauseReq{Model: "sonnet",
+		Why: "quota"}); err != nil || reply != "PAUSED sonnet until cleared" {
 		t.Fatalf("pause sonnet: %q, %v", reply, err)
 	}
 	reply, err := r.dispatchLevel("d1")
@@ -101,10 +104,12 @@ func TestDifficultySkipsAPausedModel(t *testing.T) {
 		t.Fatalf("medium with sonnet paused: %q, %v; want deepseek", reply, err)
 	}
 	r.specOf("T-3", "# T-3 — Leveled\n\nDifficulty: medium\n")
-	if _, err := r.pause("lead", "p2", wire.Call{Model: "deepseek", Note: "down", Until: time.Now().Add(3 * time.Hour).Unix()}); err != nil {
+	if _, err := r.pause("lead", "p2", wire.PauseReq{Model: "deepseek", Why: "down",
+		Until: time.Now().Add(3 * time.Hour).Unix()}); err != nil {
 		t.Fatal(err)
 	}
-	reply, err = r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: "d3", Task: "T-3"})
+	reply, err = r.dispatchCall(wire.DispatchReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-lead", Role: "lead",
+		CallID: "d3"}, Task: "T-3"})
 	if err != nil || !strings.HasPrefix(reply, "WAITING T-3 (queued): sonnet paused: quota (until cleared), deepseek paused: down (until ") ||
 		!strings.Contains(reply, "(medium: sonnet, deepseek)") {
 		t.Fatalf("medium with both paused: %q, %v; want WAITING naming both pauses", reply, err)
@@ -118,7 +123,8 @@ func TestDifficultySkipsAPausedModel(t *testing.T) {
 		st.ModelPauses["deepseek"].Until == 0 {
 		t.Errorf("status pauses %+v, %+v; want sonnet's (quota, until cleared) and deepseek's (until set)", st.Paused, st.ModelPauses)
 	}
-	if reply, err := r.pause("lead", "c1", wire.Call{Model: "sonnet", Clear: true}); err != nil || reply != "PAUSE CLEARED sonnet" {
+	if reply, err := r.pause("lead", "c1", wire.PauseReq{Model: "sonnet",
+		Clear: true}); err != nil || reply != "PAUSE CLEARED sonnet" {
 		t.Fatalf("clear sonnet: %q, %v", reply, err)
 	}
 	r.waitFor("T-3's dispatch once sonnet's pause ends", func() bool { return r.taskStep("T-3", "fact dispatch") == 1 })
@@ -128,7 +134,8 @@ func TestDifficultySkipsAPausedModel(t *testing.T) {
 	if d := r.factData("T-3", event.StepDispatched); d["type"] != "sonnet" || d["lane"] != "L-02" {
 		t.Errorf("T-3's dispatch %v, want sonnet on L-02", d)
 	}
-	if reply, err := r.pause("lead", "c2", wire.Call{Model: "sonnet", Clear: true}); err != nil || reply != "NOT PAUSED sonnet" {
+	if reply, err := r.pause("lead", "c2", wire.PauseReq{Model: "sonnet",
+		Clear: true}); err != nil || reply != "NOT PAUSED sonnet" {
 		t.Errorf("clear sonnet again: %q, %v", reply, err)
 	}
 }
@@ -170,8 +177,8 @@ func TestDifficultySpecSetRefusesASpecWithoutALevel(t *testing.T) {
 	r := newLoopRig(t, pooled())
 	r.start()
 	for _, text := range []string{"# T-1 — A\n", "# T-1 — A\n\nDifficulty: easy\n", "# T-1 — A\n\nsome text\nDifficulty: hard\n"} {
-		_, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Role: "lead",
-			CallID: "s", Task: "T-1", Spec: text})
+		_, err := wire.Verdict(context.Background(), r.sock, &wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root,
+			Role: "lead", CallID: "s"}, Task: "T-1", Spec: text})
 		if err == nil || !strings.Contains(err.Error(), "hard, medium, simple") {
 			t.Errorf("spec set of %q: %v; want a refusal naming the levels", text, err)
 		}
@@ -181,8 +188,8 @@ func TestDifficultySpecSetRefusesASpecWithoutALevel(t *testing.T) {
 		"# T-1 — A\n\nDifficulty: hard\nModel: gpt\n":          `"Model: gpt": "gpt" is not a model`,
 		"# T-1 — A\n\nDifficulty: hard\nModel: luna:minimal\n": `effort "minimal" is not one of codex's (low, medium, high, xhigh, max, ultra)`,
 	} {
-		_, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Role: "lead",
-			CallID: "s-" + want, Task: "T-1", Spec: text})
+		_, err := wire.Verdict(context.Background(), r.sock, &wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root,
+			Role: "lead", CallID: "s-" + want}, Task: "T-1", Spec: text})
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("spec set of %q: %v; want %q", text, err, want)
 		}

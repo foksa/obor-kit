@@ -87,13 +87,15 @@ func TestEarlyVerdict(t *testing.T) {
 				if done(p, key) {
 					t.Errorf("precondition: %s has its result before the start returned", job)
 				}
-				raw, err := r.a.jobNext(wire.Call{Root: p.root, Agent: p.integrator, Role: "integrator", CallID: "early"})
+				raw, err := r.a.jobNext(wire.JobNextReq{Envelope: wire.Envelope{Root: p.root, Agent: p.integrator,
+					Role: "integrator", CallID: "early"}})
 				if err != nil {
 					t.Fatal(err)
 				}
 				_ = json.Unmarshal([]byte(raw), &fetched)
-				_, verdictErr = r.a.verdict(context.Background(), row.method, wire.Call{Root: p.root, Agent: p.integrator,
-					Role: "integrator", Task: fetched.Task, Job: fetched.Job, Patch: "p", Note: "why", CallID: "answer"})
+				_, verdictErr = r.a.verdict(context.Background(), wire.VerdictReq{Verb: row.method,
+					Envelope: wire.Envelope{Root: p.root, Agent: p.integrator, Role: "integrator", CallID: "answer"},
+					Task:     fetched.Task, Job: fetched.Job, Patch: "p", Note: "why"})
 				r.a.mu.Lock()
 				during = *p.folded.loop["T-1"]
 				r.a.mu.Unlock()
@@ -128,8 +130,9 @@ func TestEarlyVerdict(t *testing.T) {
 				t.Errorf("intent seq: %s %d, %s %d; want the job's first", row.job, j, stepStart+row.job, s)
 			}
 			// the job is answered: the same verdict again is refused (no job open, or another attempt)
-			if _, err := r.a.verdict(context.Background(), row.method, wire.Call{Root: p.root, Agent: p.integrator,
-				Role: "integrator", Task: "T-1", Job: job, Patch: "p", Note: "why", CallID: "later"}); err == nil &&
+			if _, err := r.a.verdict(context.Background(), wire.VerdictReq{Verb: row.method,
+				Envelope: wire.Envelope{Root: p.root, Agent: p.integrator, Role: "integrator", CallID: "later"},
+				Task:     "T-1", Job: job, Patch: "p", Note: "why"}); err == nil &&
 				row.method != wire.MethodHold {
 				t.Errorf("a second %s on %s was taken", row.method, job)
 			}
@@ -153,13 +156,15 @@ func TestEarlyTaskDone(t *testing.T) {
 	var doneErr error
 	var during string
 	f.start = func(port.Launch) {
-		raw, err := r.a.jobNext(wire.Call{Root: p.root, Agent: "pj-l-02", Role: "worker", Lane: "L-02", CallID: "early"})
+		raw, err := r.a.jobNext(wire.JobNextReq{Envelope: wire.Envelope{Root: p.root, Agent: "pj-l-02", Role: "worker",
+			CallID: "early"}, Lane: "L-02"})
 		if err != nil {
 			t.Fatal(err)
 		}
 		_ = json.Unmarshal([]byte(raw), &fetched)
-		_, doneErr = r.a.taskDone(wire.Call{Root: p.root, Agent: "pj-l-02", Role: "worker", Lane: "L-02", Task: "T-2",
-			CallID: "done", Report: "Summary: x\nSelf-check: x\nSkipped: x\nOpen questions: x"})
+		_, doneErr = r.a.taskDone(wire.TaskDoneReq{Envelope: wire.Envelope{Root: p.root, Agent: "pj-l-02",
+			Role: "worker", CallID: "done"}, Lane: "L-02", Task: "T-2",
+			Report: "Summary: x\nSelf-check: x\nSkipped: x\nOpen questions: x"})
 		r.a.mu.Lock()
 		during = p.folded.loop["T-2"].state
 		r.a.mu.Unlock()

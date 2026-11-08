@@ -46,7 +46,7 @@ func newStaleRig(t *testing.T) (*harness, *Loop) {
 }
 
 // waitCall is the lead's dispatch of T-1 that must wait.
-func (h *harness) waitCall(c wire.Call) {
+func (h *harness) waitCall(c wire.DispatchReq) {
 	h.t.Helper()
 	c.Root, c.Task, c.Role = h.root, "T-1", "lead"
 	if reply, err := h.a.dispatchCall(context.Background(), c); err != nil || !strings.HasPrefix(reply, "WAITING") {
@@ -86,12 +86,13 @@ func TestWaitStaleSelectionDispatchesNothing(t *testing.T) {
 	t.Parallel()
 	h, fx := newStaleRig(t)
 	defer h.a.closeLog()
-	h.waitCall(wire.Call{CallID: "d1"}) // level medium: waits for a sonnet or deepseek lane
+	h.waitCall(wire.DispatchReq{Envelope: wire.Envelope{CallID: "d1"}}) // level medium: waits for a sonnet or deepseek lane
 	stale := h.selected()
 	if stale == nil {
 		t.Fatal("no step selected for d1")
 	}
-	h.waitCall(wire.Call{CallID: "d2", Types: []string{"deepseek"}, After: []string{"T-2"}})
+	h.waitCall(wire.DispatchReq{Envelope: wire.Envelope{CallID: "d2"}, Types: []string{"deepseek"},
+		After: []string{"T-2"}})
 	if m := h.t1(); m.disp.Call != "d2" || m.attempt != 1 {
 		t.Fatalf("replacement not in force: %+v", m.disp)
 	}
@@ -122,14 +123,14 @@ func TestWaitStaleDependencyFailedRecordsNothing(t *testing.T) {
 	t.Parallel()
 	h, fx := newStaleRig(t)
 	defer h.a.closeLog()
-	h.waitCall(wire.Call{CallID: "d1", After: []string{"T-2"}})
+	h.waitCall(wire.DispatchReq{Envelope: wire.Envelope{CallID: "d1"}, After: []string{"T-2"}})
 	h.fact("T-2", event.StepSubmitted, map[string]string{"lane": "L-09"}) // T-2 in the loop, then dropped
 	h.fact("T-2", event.StepDropped, event.FactData{Reason: "gone"})
 	stale := h.selected() // needs-you{after: T-2 dropped}
 	if stale == nil {
 		t.Fatal("no step selected for d1 with T-2 dropped")
 	}
-	h.waitCall(wire.Call{CallID: "d2", After: []string{"T-3"}})
+	h.waitCall(wire.DispatchReq{Envelope: wire.Envelope{CallID: "d2"}, After: []string{"T-3"}})
 	if stale(context.Background(), fx) {
 		t.Error("the stale step reported progress")
 	}
@@ -145,14 +146,14 @@ func TestWaitStaleRefusalRecordsNothing(t *testing.T) {
 	t.Parallel()
 	h, fx := newStaleRig(t)
 	defer h.a.closeLog()
-	h.waitCall(wire.Call{CallID: "d1", Lane: "L-01", After: []string{"T-2"}})
+	h.waitCall(wire.DispatchReq{Envelope: wire.Envelope{CallID: "d1"}, Lane: "L-01", After: []string{"T-2"}})
 	h.fact("T-2", event.StepSubmitted, map[string]string{"lane": "L-09"}) // T-2 in the loop, then merged
 	h.fact("T-2", event.StepMerged, event.MergedData{Outside: true})
 	stale := h.selected() // waitDispatch: L-01 is working on T-9
 	if stale == nil {
 		t.Fatal("no step selected for d1 with T-2 merged")
 	}
-	h.waitCall(wire.Call{CallID: "d2", After: []string{"T-3"}})
+	h.waitCall(wire.DispatchReq{Envelope: wire.Envelope{CallID: "d2"}, After: []string{"T-3"}})
 	// The refusal d1 would meet has held for over an hour: a current step escalates it to needs-you.
 	held := waitRefusal{line: "dispatch T-1: lane L-01 is working on T-9", since: h.now.Add(-2 * time.Hour)}
 	h.a.mu.Lock()
@@ -176,7 +177,7 @@ func TestWaitSelectionNotReplacedDispatches(t *testing.T) {
 	t.Parallel()
 	h, fx := newStaleRig(t)
 	defer h.a.closeLog()
-	h.waitCall(wire.Call{CallID: "d1"})
+	h.waitCall(wire.DispatchReq{Envelope: wire.Envelope{CallID: "d1"}})
 	s := h.selected()
 	if s == nil {
 		t.Fatal("no step selected for d1")

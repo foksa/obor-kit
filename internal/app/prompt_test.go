@@ -156,7 +156,8 @@ func TestPromptFreshDelivered(t *testing.T) {
 			h.result(event.StepWork))
 	}
 	h.a.opt.Loop = func(string) (*Loop, error) { return fx, nil } // job_next renders the worker prompt from its kit
-	if _, err := h.a.jobNext(wire.Call{Root: h.proj().root, Agent: "pj-l-01", Role: "worker", CallID: "n1"}); err != nil {
+	if _, err := h.a.jobNext(wire.JobNextReq{Envelope: wire.Envelope{Root: h.proj().root, Agent: "pj-l-01",
+		Role: "worker", CallID: "n1"}}); err != nil {
 		t.Fatal(err) // delivered
 	}
 	if h.proj().folded.loop["T-1"].state != stWorking {
@@ -227,7 +228,8 @@ func TestPromptResumeClears(t *testing.T) {
 	h.step(t, fx) // retry.work
 	h.now = h.now.Add(deliveryWait)
 	h.step(t, fx) // needs-you{job not delivered}
-	if _, err := h.a.resume(wire.Call{Root: h.root, Task: "T-1", Role: "lead", CallID: "r1"}); err != nil {
+	if _, err := h.a.resume(wire.ResumeReq{Envelope: wire.Envelope{Root: h.root, Role: "lead", CallID: "r1"},
+		Task: "T-1"}); err != nil {
 		t.Fatal(err)
 	}
 	h.step(t, fx) // work.2
@@ -263,7 +265,8 @@ func TestPromptReplayResends(t *testing.T) {
 		t.Fatalf("prompts %v, result %s; want the wake sent once more, sent", f.jobs, h.result(event.StepWork))
 	}
 	h.a.opt.Loop = func(string) (*Loop, error) { return fx, nil }
-	if _, err := h.a.jobNext(wire.Call{Root: h.proj().root, Agent: "pj-l-01", Role: "worker", CallID: "n1"}); err != nil {
+	if _, err := h.a.jobNext(wire.JobNextReq{Envelope: wire.Envelope{Root: h.proj().root, Agent: "pj-l-01",
+		Role: "worker", CallID: "n1"}}); err != nil {
 		t.Fatal(err)
 	}
 	if st := h.proj().folded.loop["T-1"].state; st != stWorking || h.count(event.KindFact, event.StepDelivered) != 1 {

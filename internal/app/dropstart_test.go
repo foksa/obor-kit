@@ -161,8 +161,9 @@ var dropStartCases = []struct {
 }
 
 func acceptT4(r *concRig) {
-	if _, err := r.app("pr").verdict(context.Background(), wire.MethodAccept, wire.Call{Root: r.roots["pr"], Task: "T-4", Role: "integrator",
-		Agent: "pr-int", CallID: "accept", Job: "T-4/1/review", Patch: "p"}); err != nil {
+	if _, err := r.app("pr").verdict(context.Background(), wire.VerdictReq{Envelope: wire.Envelope{Root: r.roots["pr"],
+		Role: "integrator", Agent: "pr-int", CallID: "accept"}, Verb: wire.MethodAccept, Task: "T-4",
+		Job: "T-4/1/review", Patch: "p"}); err != nil {
 		r.t.Fatal(err)
 	}
 }
@@ -339,7 +340,8 @@ func TestDropDuringEarlyFetch(t *testing.T) {
 	f.start = func(port.Launch) {
 		close(entered)
 		<-fetch
-		reply, err := r.a.jobNext(wire.Call{Root: p.root, Agent: p.integrator, Role: "integrator", CallID: "early"})
+		reply, err := r.a.jobNext(wire.JobNextReq{Envelope: wire.Envelope{Root: p.root, Agent: p.integrator,
+			Role: "integrator", CallID: "early"}})
 		fetched <- callAnswer{reply, err}
 	}
 	r.a.mu.Lock()
@@ -391,8 +393,9 @@ func (r *concRig) pauseDrop(name string) (writing chan struct{}, release func())
 // submitT7 is pq-l-07's task_done for T-7 (lane L-07 holds it in the lane table).
 func submitT7(r *concRig) (string, error) {
 	r.app("pq").lanes = &fakeLanes{lanes: []port.Lane{{Name: "L-07", Task: "T-7", Agent: "pq-l-07"}}}
-	return r.app("pq").taskDone(wire.Call{Root: r.proj("pq").root, Task: "T-7", Agent: "pq-l-07", Role: "worker", Lane: "L-07",
-		CallID: "done", Report: "Summary: x\nSelf-check: x\nSkipped: x\nOpen questions: x"})
+	return r.app("pq").taskDone(wire.TaskDoneReq{Envelope: wire.Envelope{Root: r.proj("pq").root, Agent: "pq-l-07",
+		Role: "worker", CallID: "done"}, Task: "T-7", Lane: "L-07",
+		Report: "Summary: x\nSelf-check: x\nSkipped: x\nOpen questions: x"})
 }
 
 // Submission vs drop (both orders, no shared verb lock): while a drop is being recorded (the task marked ended) the

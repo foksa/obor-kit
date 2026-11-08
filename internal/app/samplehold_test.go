@@ -22,8 +22,9 @@ func TestJobSampleHoldsNoVerb(t *testing.T) {
 	defer release()
 	<-reached
 	r.clock.Add(10 * time.Minute) // the sample in flight comes back due: quiet with the job for Idle
-	if reply, err := wire.Verdict(context.Background(), r.sock, wire.MethodHold, wire.Call{Root: r.p.Root, Agent: "pj-int",
-		Role: "integrator", CallID: "h1", Task: "T-1", Note: "owner"}); err != nil {
+	if reply, err := wire.Verdict(context.Background(), r.sock, &wire.VerdictReq{Envelope: wire.Envelope{Root: r.p.Root,
+		Agent: "pj-int", Role: "integrator", CallID: "h1"}, Verb: wire.MethodHold, Task: "T-1",
+		Note: "owner"}); err != nil {
 		t.Fatalf("hold while the job is sampled: %q, %v", reply, err)
 	}
 	if reply, err := r.resumeWith("r1", "", "go on"); err != nil || reply != "RESUMED T-1: reprompt (held)" {

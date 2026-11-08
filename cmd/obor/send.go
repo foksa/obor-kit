@@ -30,19 +30,20 @@ func sendCmd(args []string) int {
 		return 1
 	}
 	ctx, env := context.Background(), project.OSEnv
-	return request(ctx, env, wire.MethodSend, func(cfg *config.Config, c *wire.Call) error {
+	return request(ctx, env, func(cfg *config.Config, id wire.Envelope) (wire.Req, error) {
 		root, err := sendTarget(args[0], env)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if project.Physical(root) == project.Physical(cfg.Root) {
-			return errors.New("obor send goes to another project's lead, not this one")
+			return nil, errors.New("obor send goes to another project's lead, not this one")
 		}
-		c.Root, c.Note, c.From = root, args[1], cfg.Data.Name
+		id.Root = root
+		c := &wire.SendReq{Envelope: id, Text: args[1], From: cfg.Data.Name}
 		if c.From == "" {
 			c.From = filepath.Base(cfg.Root)
 		}
-		return nil
+		return c, nil
 	})
 }
 
@@ -125,9 +126,8 @@ func briefCmd(args []string) int {
 // an agents entry …).
 func brief(ctx context.Context, cfg *config.Config, agent, text string, fresh bool, env project.Env) (string, error) {
 	cwd, _ := os.Getwd()
-	c := caller(env, cwd, cfg)
-	c.To, c.Note, c.Fresh = agent, text, fresh
-	return wire.Verdict(ctx, wire.SocketPath(cfg.Root), wire.MethodBrief, c)
+	r := &wire.BriefReq{Envelope: caller(env, cwd, cfg), To: agent, Text: text, Fresh: fresh}
+	return wire.Verdict(ctx, wire.SocketPath(cfg.Root), r)
 }
 
 // roleAgent: agent is an agent of cfg (a role's or an agents entry) that serve sends no jobs to: not the lead, the

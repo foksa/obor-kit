@@ -15,14 +15,14 @@ import (
 
 // watch is a watch request to the rig's serve from the lead (role lead, agent pj-lead).
 func (r *loopRig) watch(callID, task string, rm bool) (string, error) {
-	return wire.Verdict(context.Background(), r.sock, wire.MethodWatch, wire.Call{Root: r.p.Root, Role: "lead",
-		Agent: "pj-lead", CallID: callID, Task: task, Clear: rm})
+	return wire.Verdict(context.Background(), r.sock, &wire.WatchReq{Envelope: wire.Envelope{Root: r.p.Root,
+		Role: "lead", Agent: "pj-lead", CallID: callID}, Task: task, Clear: rm})
 }
 
 // watchNote is a watch request carrying the lead's note (T-666).
 func (r *loopRig) watchNote(callID, task, note string) (string, error) {
-	return wire.Verdict(context.Background(), r.sock, wire.MethodWatch, wire.Call{Root: r.p.Root, Role: "lead",
-		Agent: "pj-lead", CallID: callID, Task: task, Note: note})
+	return wire.Verdict(context.Background(), r.sock, &wire.WatchReq{Envelope: wire.Envelope{Root: r.p.Root,
+		Role: "lead", Agent: "pj-lead", CallID: callID}, Task: task, Note: note})
 }
 
 // watchFacts is the watch and unwatch facts of the project's log; watchLines the lead lines a watch recorded.
@@ -143,8 +143,8 @@ func TestWatchEndedOrUnknownTask(t *testing.T) {
 	if n := len(r.watchFacts()); n != 0 {
 		t.Errorf("%d watch facts recorded, want none", n)
 	}
-	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Role: "lead",
-		CallID: "s1", Task: "T-9", Spec: "# T-9 — Other\n\nDifficulty: medium\n"}); err != nil {
+	if _, err := wire.Verdict(context.Background(), r.sock, &wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root,
+		Role: "lead", CallID: "s1"}, Task: "T-9", Spec: "# T-9 — Other\n\nDifficulty: medium\n"}); err != nil {
 		t.Fatal(err)
 	}
 	for range 2 {
@@ -155,8 +155,8 @@ func TestWatchEndedOrUnknownTask(t *testing.T) {
 	if n := len(r.watchFacts()); n != 1 {
 		t.Errorf("%d watch facts, want 1 (a repeated call id records nothing)", n)
 	}
-	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodWatch, wire.Call{Root: r.p.Root, Role: "worker",
-		Agent: "pj-l-01", CallID: "w4", Task: "T-9"}); err == nil {
+	if _, err := wire.Verdict(context.Background(), r.sock, &wire.WatchReq{Envelope: wire.Envelope{Root: r.p.Root,
+		Role: "worker", Agent: "pj-l-01", CallID: "w4"}, Task: "T-9"}); err == nil {
 		t.Error("a worker's watch accepted")
 	}
 }
@@ -416,8 +416,8 @@ func (r *loopRig) dropSettled(task, note string) {
 	var reply string
 	var err error
 	r.waitFor("the drop of "+task+" accepted", func() bool {
-		reply, err = wire.Verdict(context.Background(), r.sock, wire.MethodDrop, wire.Call{Root: r.p.Root, Role: "lead",
-			CallID: "x1", Task: task, Note: note})
+		reply, err = wire.Verdict(context.Background(), r.sock, &wire.DropReq{Envelope: wire.Envelope{Root: r.p.Root,
+			Role: "lead", CallID: "x1"}, Task: task, Why: note})
 		return err == nil || !strings.Contains(err.Error(), "retry when it settles")
 	})
 	if err != nil || reply != "DROPPED "+task {

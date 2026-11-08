@@ -75,7 +75,7 @@ func TestPromptsOfABriefAndAStart(t *testing.T) {
 	r := lineRig(t, "idle", "idle")
 	r.start()
 
-	if reply, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-rev", Note: "verify finding 3"}); err != nil ||
+	if reply, err := r.line("b1", &wire.BriefReq{To: "pj-rev", Text: "verify finding 3"}); err != nil ||
 		!strings.HasPrefix(reply, "BRIEFED pj-rev") {
 		t.Fatalf("brief: %q, %v", reply, err)
 	}
@@ -88,7 +88,7 @@ func TestPromptsOfABriefAndAStart(t *testing.T) {
 		t.Errorf("the brief's row seq %d, want its briefed fact %d", rows[0].Seq, seq)
 	}
 
-	if reply, err := r.line(wire.MethodBrief, "s1", wire.Call{To: "pj-rev", Prompt: "Review the module map"}); err != nil ||
+	if reply, err := r.line("s1", &wire.BriefReq{To: "pj-rev", Prompt: "Review the module map"}); err != nil ||
 		!strings.HasPrefix(reply, "BRIEF RECORDED for pj-rev") {
 		t.Fatalf("--prompt start: %q, %v", reply, err)
 	}
@@ -160,8 +160,8 @@ const (
 // spec sets spec as T-1's spec, by the lead with call id.
 func (r *loopRig) spec(callID, text string) string {
 	r.t.Helper()
-	reply, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Agent: "pj-lead",
-		Role: "lead", CallID: callID, Task: "T-1", Spec: text})
+	reply, err := wire.Verdict(context.Background(), r.sock, &wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root,
+		Agent: "pj-lead", Role: "lead", CallID: callID}, Task: "T-1", Spec: text})
 	if err != nil {
 		r.t.Fatalf("spec set %s: %v", callID, err)
 	}

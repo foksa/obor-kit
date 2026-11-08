@@ -55,12 +55,13 @@ func (r *rig) listen() string {
 	return sock
 }
 
-// call is an integrator call on T-1 from pj-int; edit changes it.
-func (r *rig) call(id string, edit ...func(*wire.Call)) wire.Call {
-	c := wire.Call{Root: r.root, Agent: "pj-int", Role: "integrator", CallID: id, Task: "T-1", Job: "T-1/2/review",
-		Patch: "p1", Note: "why"}
+// call is an integrator's verdict verb on T-1 from pj-int; edit changes it.
+func (r *rig) call(verb, id string, edit ...func(*wire.VerdictReq)) *wire.VerdictReq {
+	c := &wire.VerdictReq{Verb: verb, Envelope: wire.Envelope{Root: r.root, Agent: "pj-int", Role: "integrator",
+		CallID: id},
+		Task: "T-1", Job: "T-1/2/review", Patch: "p1", Note: "why"}
 	for _, e := range edit {
-		e(&c)
+		e(c)
 	}
 	return c
 }
@@ -91,28 +92,28 @@ func TestVerdictRefusals(t *testing.T) {
 	r, sock := verdictRig(t)
 	ctx := context.Background()
 	for _, c := range []struct {
-		name, method string
-		call         wire.Call
-		want         string
+		name string
+		call *wire.VerdictReq
+		want string
 	}{
-		{"a worker", wire.MethodAccept, r.call("c1", func(c *wire.Call) { c.Agent, c.Role = "pj-l-01", "worker" }),
+		{"a worker", r.call(wire.MethodAccept, "c1", func(c *wire.VerdictReq) { c.Agent, c.Role = "pj-l-01", "worker" }),
 			"only the integrator (pj-int) gives verdicts, not pj-l-01 (role worker)"},
-		{"the integrator's role with another name", wire.MethodAccept, r.call("c1", func(c *wire.Call) { c.Agent = "pj-lead" }),
+		{"the integrator's role with another name", r.call(wire.MethodAccept, "c1", func(c *wire.VerdictReq) { c.Agent = "pj-lead" }),
 			"only the integrator"},
-		{"no role", wire.MethodReject, r.call("c1", func(c *wire.Call) { c.Role = "" }), "only the integrator"},
-		{"a stale job", wire.MethodAccept, r.call("c1", func(c *wire.Call) { c.Job = "T-1/1/review" }),
+		{"no role", r.call(wire.MethodReject, "c1", func(c *wire.VerdictReq) { c.Role = "" }), "only the integrator"},
+		{"a stale job", r.call(wire.MethodAccept, "c1", func(c *wire.VerdictReq) { c.Job = "T-1/1/review" }),
 			"accept: stale job T-1/1/review (T-1's job is T-1/2/review)"},
-		{"a task with no job", wire.MethodSendback, r.call("c1", func(c *wire.Call) { c.Task, c.Job = "T-2", "" }),
+		{"a task with no job", r.call(wire.MethodSendback, "c1", func(c *wire.VerdictReq) { c.Task, c.Job = "T-2", "" }),
 			"sendback: no job open for T-2"},
-		{"a stale patch", wire.MethodAccept, r.call("c1", func(c *wire.Call) { c.Patch = "p0" }),
+		{"a stale patch", r.call(wire.MethodAccept, "c1", func(c *wire.VerdictReq) { c.Patch = "p0" }),
 			"stale: re-read the candidate (T-1's patch is p1, not p0)"},
-		{"resolved on a review job", wire.MethodResolved, r.call("c1"), "is a review job"},
-		{"a sendback without why", wire.MethodSendback, r.call("c1", func(c *wire.Call) { c.Note = " " }), "say why"},
-		{"no call id", wire.MethodAccept, r.call(""), "a call id and a task are required"},
-		{"another project", wire.MethodAccept, r.call("c1", func(c *wire.Call) { c.Root = "/elsewhere" }),
+		{"resolved on a review job", r.call(wire.MethodResolved, "c1"), "is a review job"},
+		{"a sendback without why", r.call(wire.MethodSendback, "c1", func(c *wire.VerdictReq) { c.Note = " " }), "say why"},
+		{"no call id", r.call(wire.MethodAccept, ""), "a call id and a task are required"},
+		{"another project", r.call(wire.MethodAccept, "c1", func(c *wire.VerdictReq) { c.Root = "/elsewhere" }),
 			"no served project at /elsewhere"},
 	} {
-		reply, err := wire.Verdict(ctx, sock, c.method, c.call)
+		reply, err := wire.Verdict(ctx, sock, c.call)
 		if err == nil || !strings.Contains(err.Error(), c.want) || reply != "" {
 			t.Errorf("%s: %q, %v; want the error %q", c.name, reply, err, c.want)
 		}
@@ -120,7 +121,7 @@ func TestVerdictRefusals(t *testing.T) {
 	eq(t, r.verdicts(), nil, "verdict records after refusals")
 
 	// The refused call id c1 is not taken: the integrator's own call with it is answered.
-	reply, err := wire.Verdict(ctx, sock, wire.MethodAccept, r.call("c1"))
+	reply, err := wire.Verdict(ctx, sock, r.call(wire.MethodAccept, "c1"))
 	if err != nil || reply != "ACCEPT T-1 (job T-1/2/review)" {
 		t.Fatalf("accept after refusals: %q, %v", reply, err)
 	}
@@ -130,7 +131,7 @@ func TestVerdictRepeatedCallIDGetsStoredReply(t *testing.T) {
 	t.Parallel()
 	r, sock := verdictRig(t)
 	ctx := context.Background()
-	reply, err := wire.Verdict(ctx, sock, wire.MethodSendback, r.call("c7", func(c *wire.Call) { c.Job = "" }))
+	reply, err := wire.Verdict(ctx, sock, r.call(wire.MethodSendback, "c7", func(c *wire.VerdictReq) { c.Job = "" }))
 	if err != nil || reply != "SENDBACK T-1 (job T-1/2/review)" {
 		t.Fatalf("sendback (the current job): %q, %v", reply, err)
 	}
@@ -143,11 +144,11 @@ func TestVerdictRepeatedCallIDGetsStoredReply(t *testing.T) {
 	}
 
 	// The job is answered: the same call again gets the stored reply and records nothing; a new call id is refused.
-	reply, err = wire.Verdict(ctx, sock, wire.MethodSendback, r.call("c7"))
+	reply, err = wire.Verdict(ctx, sock, r.call(wire.MethodSendback, "c7"))
 	if err != nil || reply != "SENDBACK T-1 (job T-1/2/review)" {
 		t.Errorf("repeated call id: %q, %v; want the stored reply", reply, err)
 	}
-	if _, err := wire.Verdict(ctx, sock, wire.MethodAccept, r.call("c8")); err == nil ||
+	if _, err := wire.Verdict(ctx, sock, r.call(wire.MethodAccept, "c8")); err == nil ||
 		!strings.Contains(err.Error(), "no job open for T-1") {
 		t.Errorf("a second verdict on the answered job: %v", err)
 	}
@@ -157,11 +158,11 @@ func TestVerdictRepeatedCallIDGetsStoredReply(t *testing.T) {
 	r.stop()
 	r.start()
 	sock = r.listen()
-	reply, err = wire.Verdict(ctx, sock, wire.MethodSendback, r.call("c7"))
+	reply, err = wire.Verdict(ctx, sock, r.call(wire.MethodSendback, "c7"))
 	if err != nil || reply != "SENDBACK T-1 (job T-1/2/review)" {
 		t.Errorf("repeated call id after replay: %q, %v", reply, err)
 	}
-	if _, err := wire.Verdict(ctx, sock, wire.MethodReject, r.call("c9")); err == nil ||
+	if _, err := wire.Verdict(ctx, sock, r.call(wire.MethodReject, "c9")); err == nil ||
 		!strings.Contains(err.Error(), "no job open for T-1") {
 		t.Errorf("a verdict on a job answered before the restart: %v", err)
 	}
@@ -171,7 +172,7 @@ func TestVerdictServeNotRunning(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	_, err := wire.Verdict(ctx, filepath.Join(t.TempDir(), "none.sock"), wire.MethodAccept, wire.Call{})
+	_, err := wire.Verdict(ctx, filepath.Join(t.TempDir(), "none.sock"), &wire.VerdictReq{Verb: wire.MethodAccept})
 	if err == nil || !strings.Contains(err.Error(), "obor serve is not running") {
 		t.Errorf("verdict without obor serve: %v", err)
 	}

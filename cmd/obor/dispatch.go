@@ -24,13 +24,14 @@ const noConfig = "FAIL no usable .obor/config.json (obor config validate)"
 // on <LANE>: <old> → <new> (stopping <worker>), at once: serve's merge loop stops the worker, then starts the new model
 // (T-852). Serve down: FAIL obor serve is not running.
 func dispatchCmd(args []string) int {
-	return request(context.Background(), project.OSEnv, wire.MethodDispatch, func(cfg *config.Config, c *wire.Call) error {
-		return dispatchArgs(args, cfg, c)
+	return request(context.Background(), project.OSEnv, func(cfg *config.Config, id wire.Envelope) (wire.Req, error) {
+		c := &wire.DispatchReq{Envelope: id}
+		return c, dispatchArgs(args, cfg, c)
 	})
 }
 
 // dispatchArgs is obor dispatch's arguments as the request's fields.
-func dispatchArgs(args []string, cfg *config.Config, c *wire.Call) error {
+func dispatchArgs(args []string, cfg *config.Config, c *wire.DispatchReq) error {
 	usage := errors.New(help.Usage("dispatch"))
 	var pos []string
 	for i := 0; i < len(args); i++ {
@@ -72,7 +73,7 @@ func dispatchArgs(args []string, cfg *config.Config, c *wire.Call) error {
 // retry. A task that holds no lane (a waiting one, T-462): DROPPED <task>. Its refusal: FAIL; serve down: FAIL, nothing
 // touched.
 func dropCmd(args []string) int {
-	var c wire.Call
+	var c wire.DropReq
 	usage := func() int {
 		fmt.Fprintln(out, "FAIL "+help.Usage("drop"))
 		return 1
@@ -87,21 +88,17 @@ func dropCmd(args []string) int {
 			return usage()
 		case c.Task == "":
 			c.Task = a
-		case c.Note == "":
-			c.Note = a
+		case c.Why == "":
+			c.Why = a
 		default:
 			return usage()
 		}
 	}
-	if c.Task == "" || c.Note == "" {
+	if c.Task == "" || c.Why == "" {
 		return usage()
 	}
-	return request(context.Background(), project.OSEnv, wire.MethodDrop, func(cfg *config.Config, id *wire.Call) error {
-		if err := taskIDs(cfg, c.Task); err != nil {
-			return err
-		}
-		c.Agent, c.Role, c.CallID, c.Root = id.Agent, id.Role, id.CallID, id.Root
-		*id = c
-		return nil
+	return request(context.Background(), project.OSEnv, func(cfg *config.Config, id wire.Envelope) (wire.Req, error) {
+		c.Envelope = id
+		return &c, taskIDs(cfg, c.Task)
 	})
 }

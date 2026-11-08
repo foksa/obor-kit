@@ -78,7 +78,9 @@ func Feed(ctx context.Context, path, root string, seq int64, follow bool, each f
 	defer c.Close()
 	stop := context.AfterFunc(ctx, func() { c.Close() })
 	defer stop()
-	b, _ := json.Marshal(Request{Method: MethodEvents, Call: &Call{Root: root, Seq: seq, Follow: follow, Version: version.Version}})
+	call, _ := json.Marshal(EventsReq{Envelope: Envelope{Root: root, Version: version.Version}, Seq: seq,
+		Follow: follow})
+	b, _ := json.Marshal(Request{Method: MethodEvents, Call: call}) // strings and numbers: cannot fail
 	if _, err := c.Write(append(b, '\n')); err != nil {
 		return seq, err
 	}

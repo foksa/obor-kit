@@ -20,15 +20,16 @@ import (
 // specOf stores task's spec (obor spec set).
 func (r *loopRig) specOf(task, text string) {
 	r.t.Helper()
-	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Agent: "lead",
-		Role: "lead", CallID: "s-" + task, Task: task, Spec: text}); err != nil {
+	if _, err := wire.Verdict(context.Background(), r.sock, &wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root,
+		Agent: "lead", Role: "lead", CallID: "s-" + task}, Task: task, Spec: text}); err != nil {
 		r.t.Fatalf("spec set %s: %v", task, err)
 	}
 }
 
 // dispatchOf is the lead's dispatch of task by its spec's level.
 func (r *loopRig) dispatchOf(task string) (string, error) {
-	return r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: "d-" + task, Task: task})
+	return r.dispatchCall(wire.DispatchReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-lead", Role: "lead",
+		CallID: "d-" + task}, Task: task})
 }
 
 // redoRig is the pool rig whose lane table reads L-01 as serve's own adapter does once T-1's work is committed there:
@@ -80,8 +81,8 @@ func (r *loopRig) redoTypes() []any {
 func TestRedoViaTheRealLaneTableKeepsItsTypeAndEffort(t *testing.T) {
 	t.Parallel()
 	r := redoRig(t)
-	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodPause, wire.Call{Root: r.p.Root, CallID: "p1",
-		Model: "opus", Note: "quota"}); err != nil {
+	if _, err := wire.Verdict(context.Background(), r.sock, &wire.PauseReq{Envelope: wire.Envelope{Root: r.p.Root,
+		CallID: "p1"}, Model: "opus", Why: "quota"}); err != nil {
 		t.Fatal(err)
 	}
 	if reply, err := r.dispatchOf("T-1"); err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01 (queued) as opus effort high") {
@@ -97,16 +98,17 @@ func TestRedoViaTheRealLaneTableKeepsItsTypeAndEffort(t *testing.T) {
 func TestRedoWithExplicitTypesRunsThem(t *testing.T) {
 	t.Parallel()
 	r := redoRig(t)
-	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodPause, wire.Call{Root: r.p.Root, CallID: "p1",
-		Model: "haiku", Note: "quota"}); err != nil {
+	if _, err := wire.Verdict(context.Background(), r.sock, &wire.PauseReq{Envelope: wire.Envelope{Root: r.p.Root,
+		CallID: "p1"}, Model: "haiku", Why: "quota"}); err != nil {
 		t.Fatal(err)
 	}
-	if reply, err := r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: "d-T-1h", Task: "T-1",
+	if reply, err := r.dispatchCall(wire.DispatchReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-lead",
+		Role: "lead", CallID: "d-T-1h"}, Task: "T-1",
 		Types: []string{"haiku"}}); err == nil || !strings.Contains(err.Error(), "haiku paused: quota") {
 		t.Fatalf("redo of T-1 --model haiku while haiku is paused: %q, %v; want refused naming the pause", reply, err)
 	}
-	reply, err := r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: "d-T-1", Task: "T-1",
-		Types: []string{"sonnet"}})
+	reply, err := r.dispatchCall(wire.DispatchReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-lead",
+		Role: "lead", CallID: "d-T-1"}, Task: "T-1", Types: []string{"sonnet"}})
 	if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01 (queued) as sonnet") {
 		t.Fatalf("redo of T-1 --model sonnet: %q, %v; want L-01 as sonnet", reply, err)
 	}
@@ -134,8 +136,8 @@ func TestUnknownExplicitTypeIsRefused(t *testing.T) {
 			r.start()
 			r.specOf("T-9", "# T-9 — First\n\nDifficulty: medium\n")
 			r.specOf("T-1", "# T-1 — Typed\n\nDifficulty: medium\n")
-			reply, err := r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: "d-T-1",
-				Task: "T-1", Types: c.types, After: c.after})
+			reply, err := r.dispatchCall(wire.DispatchReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-lead",
+				Role: "lead", CallID: "d-T-1"}, Task: "T-1", Types: c.types, After: c.after})
 			if err == nil || !strings.Contains(err.Error(), `"lunna" is not a model (models: `) {
 				t.Fatalf("dispatch --model %v: %q, %v; want refused naming lunna", c.types, reply, err)
 			}
@@ -145,8 +147,8 @@ func TestUnknownExplicitTypeIsRefused(t *testing.T) {
 				}
 			}
 			// The same project takes a known model: the refusal is the model's.
-			if reply, err := r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: "d-T-1b",
-				Task: "T-1", Types: []string{"sonnet"}, After: c.after}); err != nil ||
+			if reply, err := r.dispatchCall(wire.DispatchReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-lead",
+				Role: "lead", CallID: "d-T-1b"}, Task: "T-1", Types: []string{"sonnet"}, After: c.after}); err != nil ||
 				!strings.HasPrefix(reply, "DISPATCHED T-1") && !strings.HasPrefix(reply, "WAITING T-1") {
 				t.Errorf("dispatch --model sonnet: %q, %v; want it taken", reply, err)
 			}
