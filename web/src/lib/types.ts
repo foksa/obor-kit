@@ -130,6 +130,8 @@ export interface TaskStatus {
   after?: string[];
   why?: string;
   high?: boolean; // its dispatch goes first for the next free lane when it waits (T-1030)
+  waiting?: boolean; // the merge loop's waiting predicate (T-1043): the view's queue lists it
+  rank?: number; // waiting: its place in serve's pass order, the queue's order (T-1043; absent: not a waiting dispatch)
   level?: string;
   types?: string[];
   queue?: string; // waiting: the keep lane it queues on (T-1031)

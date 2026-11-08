@@ -144,21 +144,24 @@ func TestQueueListsStoredSpecsWithServeStatus(t *testing.T) {
 	}
 }
 
-// T-1030: the queue lists serve's high waiting dispatches before the ordinary ones (serve's order is the lane's pick
-// order) and carries the flag; its order is serve's status's alone, the view never reads a spec (a spec never
-// dispatched is ordinary).
+// T-1030, T-1043: the queue lists serve's high waiting dispatches before the ordinary ones, each in the pass's order
+// (the rank serve ships: T-4 dispatched before T-3), and carries the flag; a spec never dispatched is ordinary and
+// follows them. The order is serve's status's alone, the view never reads a spec.
 func TestQueueListsHighWaitingTasksFirst(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewDir(t)
 	p.Config()
 	now := time.Now()
 	storeSpec(t, p, "T-8", "a spec never dispatched")
-	waiting := func(task string, high bool, after ...string) wire.TaskStatus {
-		return wire.TaskStatus{Task: task, Attempt: 1, State: "waiting", Phase: wire.PhaseWaiting, High: high,
-			After: after, Level: "medium", Types: []string{"sonnet"}, Difficulty: "medium", Model: "sonnet"}
+	waiting := func(task string, high bool, rank int, after ...string) wire.TaskStatus {
+		return wire.TaskStatus{Task: task, Attempt: 1, State: "waiting", Waiting: true, Rank: rank,
+			Phase: wire.PhaseWaiting, High: high, After: after, Level: "medium", Types: []string{"sonnet"},
+			Difficulty: "medium", Model: "sonnet"}
 	}
+	// serve's list is by task id; its ranks say the pass's order: the high T-4 dispatched before the high T-3, then
+	// the ordinary T-2.
 	ss := wire.Status{Connected: true, Project: &wire.ProjectStatus{Name: "proj", Root: p.Root,
-		Tasks: []wire.TaskStatus{waiting("T-2", false), waiting("T-4", true), waiting("T-3", true, "T-5")}}}
+		Tasks: []wire.TaskStatus{waiting("T-2", false, 3), waiting("T-3", true, 2, "T-5"), waiting("T-4", true, 1)}}}
 	v := queueOf(t, p, ss, nil, now)
 	if !v.Serve.Project {
 		t.Fatalf("precondition: serve has this project: %+v", v.Serve)
@@ -168,10 +171,40 @@ func TestQueueListsHighWaitingTasksFirst(t *testing.T) {
 	for _, w := range v.Queue.Waiting {
 		got, high = append(got, w.Task), append(high, w.High)
 	}
-	if want := []string{"T-3", "T-4", "T-2", "T-8"}; !slices.Equal(got, want) {
-		t.Fatalf("waiting %v, want %v: the high ones first, then by task id", got, want)
+	if want := []string{"T-4", "T-3", "T-2", "T-8"}; !slices.Equal(got, want) {
+		t.Fatalf("waiting %v, want %v: the high ones first, then serve's rank", got, want)
 	}
 	if want := []bool{true, true, false, false}; !slices.Equal(high, want) {
 		t.Errorf("waiting high flags %v, want %v: the flag is serve's", high, want)
+	}
+}
+
+// T-1043: the queue lists the dispatched waits in serve's order — each one's rank, the scheduler's pass order — not by
+// task id: T-20, dispatched before T-10, is listed first. A status whose state string says waiting but whose predicate
+// serve does not set is no wait: the flag is serve's, the view never reads the string.
+func TestQueueListsWaitingTasksInServeOrder(t *testing.T) {
+	t.Parallel()
+	p := testkit.NewDir(t)
+	p.Config()
+	now := time.Now()
+	storeSpec(t, p, "T-20", "the task dispatched first")
+	storeSpec(t, p, "T-10", "the task dispatched second")
+	waiting := func(task string, rank int) wire.TaskStatus {
+		return wire.TaskStatus{Task: task, Attempt: 1, State: "waiting", Waiting: true, Rank: rank,
+			Phase: wire.PhaseWaiting, Level: "medium", Types: []string{"sonnet"}}
+	}
+	ss := wire.Status{Connected: true, Project: &wire.ProjectStatus{Name: "proj", Root: p.Root,
+		Tasks: []wire.TaskStatus{waiting("T-10", 2), waiting("T-20", 1),
+			{Task: "T-30", Attempt: 1, State: "waiting", Phase: wire.PhaseWaiting}}}}
+	v := queueOf(t, p, ss, nil, now)
+	if !v.Serve.Project {
+		t.Fatalf("precondition: serve has this project: %+v", v.Serve)
+	}
+	var got []string
+	for _, w := range v.Queue.Waiting {
+		got = append(got, w.Task)
+	}
+	if want := []string{"T-20", "T-10"}; !slices.Equal(got, want) {
+		t.Errorf("waiting %v, want %v: serve's rank, not the id order", got, want)
 	}
 }

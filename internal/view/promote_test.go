@@ -16,10 +16,10 @@ func TestViewPromoteOnAndOff(t *testing.T) {
 	p := testkit.New(t)
 	p.Config()
 	now := time.Now()
-	waiting := []wire.TaskStatus{{Task: "T-5", State: "waiting", Phase: wire.PhaseWaiting, Level: "medium",
-		Types: []string{"sonnet", "deepseek"}, Difficulty: "medium", Model: "deepseek"},
-		{Task: "T-6", State: "waiting", Phase: wire.PhaseWaiting, After: []string{"T-5"}, Difficulty: "hard",
-			Model: "opus"}}
+	waiting := []wire.TaskStatus{{Task: "T-5", State: "waiting", Waiting: true, Rank: 1, Phase: wire.PhaseWaiting,
+		Level: "medium", Types: []string{"sonnet", "deepseek"}, Difficulty: "medium", Model: "deepseek"},
+		{Task: "T-6", State: "waiting", Waiting: true, Rank: 2, Phase: wire.PhaseWaiting, After: []string{"T-5"},
+			Difficulty: "hard", Model: "opus"}}
 	read := func(promote *wire.PromoteStatus) (Project, map[string]json.RawMessage) {
 		t.Helper()
 		ss := wire.Status{Since: now.Add(-time.Hour).UTC().Format(time.RFC3339), Connected: true,
