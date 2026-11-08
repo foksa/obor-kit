@@ -116,5 +116,6 @@ that does not compile, and one without its named group; a `merge.fail_grep` line
 
 `integrator_handoff_tokens`, `stop_idle_workers`, `merge.timeout_grep`, `merge.max_load`, `merge.load_wait`,
 `merge.window_wait`, `slots.merge_block_max`, `mcp` and `cache` warned for two versions after v0.28 removed them; they
-are now refused as unknown keys by `obor config validate` and serve. Delete them from the config if it still sets one.
+are now unknown keys: `obor config validate` refuses a config that still sets one; serve and the readers (`obor
+status`, obor web) ignore it and warn once. Run `obor config validate` after the upgrade and delete any it names.
 
