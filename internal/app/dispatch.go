@@ -131,8 +131,10 @@ func (a *App) dispatchCall(ctx context.Context, c wire.Call) (string, error) {
 		return "", fmt.Errorf("dispatch: no served project at %s", c.Root)
 	case stored:
 		return reply, nil
-	case c.Role != "" && c.Role != "lead":
-		return "", fmt.Errorf("dispatch: the lead or the owner dispatches, not %s (role %s)", Dash(c.Agent), c.Role)
+	}
+	if err := leadOr(p.root, wire.MethodDispatch, c, fmt.Sprintf("dispatch: the lead or the owner dispatches, not %s (role %s)",
+		Dash(c.Agent), c.Role)); err != nil {
+		return "", err
 	}
 	fx, err := a.loopOf(p)
 	if err != nil {

@@ -66,6 +66,10 @@ const (
 	// accepted findings' lines, Call.Force closes with fixes pending. Serve commits the close on the integration branch
 	// and records fact review.closed; the reply is CLOSED <subject>.
 	MethodReviewClose = "review_close"
+	// MethodEvents (anyone's, as status is; obor events, T-1039): the event feed, the records after Call.Seq in seq
+	// order, one Answer{Record} line each, then Answer{Reply: FeedEnd}; Call.Follow keeps the connection and streams
+	// each new record until the caller or serve closes it (feed.go).
+	MethodEvents = "events"
 )
 
 // The MCP job tools' socket methods: `obor mcp` sends each tool call as one request with a Call (Agent, Role, Root from
@@ -148,6 +152,10 @@ type Call struct {
 	// call). Its key is not the flat "session" id of the obor before it: a serve of either side reads the other's call
 	// and refuses it with both versions named (no session), never as an unreadable request.
 	Session *store.Session `json:"session_fact,omitempty"`
+	// events' (T-1039): the cursor, the last seq the caller has (0: from the first record), and whether the feed
+	// streams on after the records there are.
+	Seq    int64 `json:"seq,omitempty"`
+	Follow bool  `json:"follow,omitempty"`
 }
 
 // SessionCall is the session request reporting s, began in the project at root: its caller is s's agent.
@@ -202,9 +210,10 @@ type Request struct {
 }
 
 type Answer struct {
-	Status *Status `json:"status,omitempty"`
-	Reply  string  `json:"reply,omitempty"`
-	Error  string  `json:"error,omitempty"`
+	Status *Status     `json:"status,omitempty"`
+	Reply  string      `json:"reply,omitempty"`
+	Error  string      `json:"error,omitempty"`
+	Record *FeedRecord `json:"record,omitempty"` // one record of the events feed (MethodEvents)
 }
 
 // ConfigChange is one change of a config_set call: an editable key (config.EditKeys) and its new value as JSON.

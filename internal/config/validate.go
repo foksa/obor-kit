@@ -341,6 +341,8 @@ func (v *validator) customRoles() {
 			switch {
 			case r.Name == roles.Driver:
 				v.fail(path, "the drive agent's role is not configured: obor drive starts it")
+			case len(e.Verbs) > 0:
+				v.fail(path+".verbs", "a built-in role's rights are its own: verbs are a custom role's (T-1039)")
 			case e.Object:
 				v.fail(path, "a built-in role takes a model ref string, not an object")
 			}
@@ -355,12 +357,28 @@ func (v *validator) customRoles() {
 				v.fail(path+".write"+idx(i), why+", got "+Compact(w))
 			}
 		}
+		v.verbs(path, e.Verbs)
 		if _, isDefault := roles.DefaultRow(k); isDefault {
 			continue
 		}
 		if doc := v.c.RoleDoc(k); !regularFile(filepath.Join(v.c.Root, doc)) {
 			v.fail(path, "no role doc: write "+doc+" (what the role does, what it writes)")
 		}
+	}
+}
+
+// verbs: each of a custom role's verbs (roles.<name>.verbs, T-1039) is a wire method a role may be granted
+// (roles.Verbs), named once.
+func (v *validator) verbs(path string, verbs []string) {
+	seen := map[string]bool{}
+	for i, m := range verbs {
+		switch {
+		case !slices.Contains(roles.Verbs, m):
+			v.fail(path+".verbs"+idx(i), "unknown wire method "+Compact(m)+": a verb is one of "+strings.Join(roles.Verbs, ", "))
+		case seen[m]:
+			v.fail(path+".verbs"+idx(i), m+" is listed twice")
+		}
+		seen[m] = true
 	}
 }
 

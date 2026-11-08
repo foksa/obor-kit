@@ -125,6 +125,7 @@ type Log struct {
 	pending  map[Key]Record   // intents without a result, by key
 	intents  map[Key]Record   // every intent, with or without its result (its seq orders open jobs), by key
 	inflight map[Key]struct{} // keys whose effect runs now
+	changed  chan struct{}    // closed (and replaced) by each record written: the feed's wait (Changed)
 }
 
 // DB is the log's database: the lanes, specs and prompts tables share it with the events table.
@@ -366,7 +367,22 @@ func (l *Log) write(r Record, now time.Time) (Record, error) {
 		return r, fmt.Errorf("event log: %w", err)
 	}
 	l.index(r)
+	if l.changed != nil {
+		close(l.changed)
+	}
+	l.changed = make(chan struct{})
 	return r, nil
+}
+
+// Changed is closed by the next record written (T-1039: the event feed waits on it). Take it before reading the
+// records after a cursor: a record written between the read and the wait still closes it.
+func (l *Log) Changed() <-chan struct{} {
+	l.Mu.Lock()
+	defer l.Mu.Unlock()
+	if l.changed == nil {
+		l.changed = make(chan struct{})
+	}
+	return l.changed
 }
 
 // Intent is an outside effect about to happen: its key, crash class and data (the effect's inputs replay needs).

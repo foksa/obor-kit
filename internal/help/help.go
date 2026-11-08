@@ -64,6 +64,8 @@ var Commands = []Command{
 		"the obor projects this machine knows, with serve up or down", "project"},
 	{"config", "obor config [get <path> | validate]", "print the effective config, one value, or check it", "project"},
 	{"run", "obor run <command-name> [args…]", "run a configured command (commands.<name>) under its timeout (obor run <name> --help: its configured line, runs nothing)", "project"},
+	{"events", "obor events [--follow] [--after <seq>] [--json]",
+		"the event log after a seq, one line per record (--follow: new ones as serve writes them; --json: an integration's JSON lines)", "project"},
 	{"flakes", "obor flakes", "the flaky Go tests of the last 7 days (reads `--- FAIL:` / `FAIL <pkg>`)", "project"},
 	{"nightly", "obor nightly [on HH:MM | off]", "run the nightly checks now, or schedule or unschedule them", "project"},
 	{"version", "obor version", "this binary's version and where it came from", "project"},

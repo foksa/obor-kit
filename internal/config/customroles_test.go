@@ -264,3 +264,50 @@ func TestEditCustomRoleModel(t *testing.T) {
 		t.Errorf("an unnamed default row: %v, want refused naming the configured roles", err)
 	}
 }
+
+// T-1039: roles.<name>.verbs are the wire methods serve admits a custom role to (roles.Verbs): a custom row's and a kit
+// default row's validate and reach Role (its HasVerb, nothing else granted, the effective config keeps them); validate
+// refuses an unknown method, one listed twice and verbs on a built-in role.
+func TestCustomRoleVerbs(t *testing.T) {
+	p := newPlainProject(t)
+	p.Write("docs/agents/tracker.md", "# Role: tracker\n")
+	if got := validate(t, p, set("roles.tracker", `{"verbs": ["spec_set", "dispatch"]}`),
+		set("roles.triage", `{"model": "sonnet", "verbs": ["send"]}`)); len(got) != 0 {
+		t.Fatalf("validate = %q, want OK", got)
+	}
+	c, _ := config.Load(p.Root)
+	tr, ok := c.Role("tracker")
+	if !ok || !tr.Configured || !tr.Role.Custom || !reflect.DeepEqual(tr.Role.Verbs, []string{"spec_set", "dispatch"}) ||
+		!tr.Role.HasVerb("spec_set") || !tr.Role.HasVerb("dispatch") || tr.Role.HasVerb("send") || tr.Role.WritePaths != nil {
+		t.Errorf("tracker = %+v, %v; want a custom role with verbs spec_set, dispatch, writing nothing", tr, ok)
+	}
+	if triage, _ := c.Role("triage"); !reflect.DeepEqual(triage.Role.Verbs, []string{"send"}) ||
+		!reflect.DeepEqual(triage.Role.WritePaths, []string{"docs/BUGS.md"}) {
+		t.Errorf("triage = %+v; want verbs send and the default row's writes", triage.Role)
+	}
+	if lead, _ := c.Role("lead"); lead.Role.Verbs != nil || lead.Role.HasVerb("spec_set") {
+		t.Errorf("lead = %+v; want no verbs (a built-in role's rights are its own)", lead.Role)
+	}
+	if v, ok := c.Raw("roles.tracker.verbs"); !ok || strings.Join(strings.Fields(v), "") != `["spec_set","dispatch"]` {
+		t.Errorf("config get roles.tracker.verbs = %q, %v", v, ok)
+	}
+
+	for _, cc := range []struct {
+		name string
+		edit edit
+		want string
+	}{
+		{"unknown method", set("roles.tracker", `{"verbs": ["spec_set", "nope"]}`),
+			`FAIL .roles.tracker.verbs[1]: unknown wire method "nope": a verb is one of spec_set, dispatch, watch, send, brief`},
+		{"a method no role is granted", set("roles.tracker", `{"verbs": ["accept"]}`),
+			`FAIL .roles.tracker.verbs[0]: unknown wire method "accept"`},
+		{"twice", set("roles.tracker", `{"verbs": ["dispatch", "dispatch"]}`), "FAIL .roles.tracker.verbs[1]: dispatch is listed twice"},
+		{"built-in role", set("roles.reviewer", `{"model": "opus", "verbs": ["spec_set"]}`),
+			"FAIL .roles.reviewer.verbs: a built-in role's rights are its own: verbs are a custom role's"},
+	} {
+		got := validate(t, p, cc.edit)
+		if !slices.ContainsFunc(got, func(l string) bool { return strings.HasPrefix(l, cc.want) }) {
+			t.Errorf("%s: validate = %q, want a line starting %q", cc.name, got, cc.want)
+		}
+	}
+}

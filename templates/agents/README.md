@@ -19,10 +19,11 @@ roles (`obor: role text: …`); the work job carries them; `/obor:role <name>` r
 Who runs now, and in which lane: `obor status` (or obor web); there is no hand-kept roster.
 
 Advisor, researcher and triage are the kit's default custom roles (T-801): a project adds its own role the same way,
-with one `roles.<name>` row in `.obor/config.json` (a model ref, or `{"model": …, "write": ["<dir>/", "<file>"]}`) and
+with one `roles.<name>` row in `.obor/config.json` (a model ref, or `{"model": …, "write": ["<dir>/", "<file>"], "verbs": […]}`) and
 its doc `docs/agents/<name>.md` (what it does, what it writes). A custom role runs in the main checkout, reads git
 only, writes only its `write` list, never pushes; the lead places it with `obor setup role <name>` and briefs it with
-`obor brief`.
+`obor brief`. Its `verbs` (T-1039) are the lead's calls serve admits it to (`spec_set`, `dispatch`, `watch`, `send`,
+`brief`): an integration's role (the kit's `docs/agents/integrations.md`).
 
 ## Communication
 ```

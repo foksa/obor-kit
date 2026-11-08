@@ -68,6 +68,23 @@ func TestSetupShowLevelLines(t *testing.T) {
 	}
 }
 
+// T-1039: the roles line lists a custom role's verbs after its model ("": none named); a role without verbs shows none.
+func TestSetupShowListsVerbs(t *testing.T) {
+	t.Parallel()
+	x := newFx(t, testkit.Set("roles", `{"lead": "opus", "tracker": {"model": "sonnet", "verbs": ["spec_set", "dispatch"]},
+		"scout": {"verbs": ["watch"]}}`))
+	out := x.ok(t, "show")
+	for _, want := range []string{"lead opus (claude opus), ", "tracker sonnet (claude sonnet) [verbs spec_set dispatch]",
+		"scout - (no model named) [verbs watch]"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("obor setup show lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "lead opus (claude opus) [verbs") {
+		t.Errorf("the lead shows verbs:\n%s", out)
+	}
+}
+
 // T-979: obor setup show marks a paused model in each level's list with its end ("cleared" for none), and stops
 // marking it once serve records the clear.
 func TestSetupShowMarksPausedModels(t *testing.T) {

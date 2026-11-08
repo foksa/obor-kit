@@ -192,11 +192,13 @@ func (r *Roles) entry(name string) (RoleEntry, bool) {
 }
 
 // RoleEntry is roles.<name> (T-801): a model ref string ("": configured, no model named), or a custom role's object
-// {"model": "<ref>", "write": ["<dir>/", "<file>"]} (Object). Write is nil when the entry names no write list (a
-// string, or an object without write: a kit default row keeps its own).
+// {"model": "<ref>", "write": ["<dir>/", "<file>"], "verbs": ["spec_set", …]} (Object). Write is nil when the entry
+// names no write list (a string, or an object without write: a kit default row keeps its own). Verbs are the wire
+// methods serve admits the role to (T-1039, roles.Verbs; a built-in role has none: validate fails them).
 type RoleEntry struct {
 	Model  string   `json:"model"`
 	Write  []string `json:"write,omitzero"`
+	Verbs  []string `json:"verbs,omitzero"`
 	Object bool     `json:"-"`
 }
 
@@ -208,11 +210,12 @@ func (e *RoleEntry) UnmarshalJSON(b []byte) error {
 	var o struct {
 		Model string    `json:"model"`
 		Write *[]string `json:"write"`
+		Verbs []string  `json:"verbs"`
 	}
 	if err := strict(b, &o); err != nil {
 		return err
 	}
-	e.Model, e.Object = o.Model, true
+	e.Model, e.Object, e.Verbs = o.Model, true, o.Verbs
 	if o.Write != nil {
 		e.Write = append([]string{}, *o.Write...)
 	}
@@ -842,6 +845,7 @@ func (c *Config) Role(name string) (RoleConfig, bool) {
 		case e.Write != nil: // an object replaces a default row's write list
 			role.WritePaths = e.Write
 		}
+		role.Verbs = e.Verbs
 	}
 	rc := RoleConfig{Role: role}
 	if role.Name != "worker" {

@@ -1137,8 +1137,12 @@ func (a *App) sendCall(c wire.Call) (string, error) {
 		return reply, nil
 	case !a.merges(p):
 		return "", mergeOff(p)
-	case c.Role != "" && c.Role != "lead":
-		return "", fmt.Errorf("send: a lead or the owner sends, not %s (role %s)", Dash(c.Agent), c.Role)
+	}
+	if err := leadOr(p.root, wire.MethodSend, c, fmt.Sprintf("send: a lead or the owner sends, not %s (role %s)", Dash(c.Agent),
+		c.Role)); err != nil {
+		return "", err
+	}
+	switch {
 	case strings.TrimSpace(c.Note) == "":
 		return "", errors.New("send: a text is required")
 	case c.From == "":
@@ -1177,8 +1181,12 @@ func (a *App) briefCall(c wire.Call) (string, error) {
 		return reply, nil
 	case !a.merges(p):
 		return "", mergeOff(p)
-	case c.Role != "" && c.Role != "lead":
-		return "", fmt.Errorf("brief: the lead or the owner briefs, not %s (role %s)", Dash(c.Agent), c.Role)
+	}
+	if err := leadOr(p.root, wire.MethodBrief, c, fmt.Sprintf("brief: the lead or the owner briefs, not %s (role %s)", Dash(c.Agent),
+		c.Role)); err != nil {
+		return "", err
+	}
+	switch {
 	case c.To == "":
 		return "", errors.New("brief: the role agent is required")
 	case c.To == p.out.leadAgent:

@@ -44,9 +44,12 @@ func (a *App) specSet(c wire.Call) (string, error) {
 		return "", fmt.Errorf("%s: no served project at %s", wire.MethodSpecSet, c.Root)
 	case stored:
 		return reply, nil
-	case c.Role != "" && c.Role != "lead": // the owner (no role) too, as for dispatch (DD-v0.11 A3); a worker never (T-238)
-		return "", fmt.Errorf("spec set: only the lead or the owner sets a spec, not %s (role %s)", Dash(c.Agent),
-			c.Role)
+	}
+	// The owner (no role) too, as for dispatch (DD-v0.11 A3), and a custom role with the verb (T-1039); a worker never
+	// (T-238).
+	if err := leadOr(p.root, wire.MethodSpecSet, c, fmt.Sprintf("spec set: only the lead or the owner sets a spec, not %s (role %s)",
+		Dash(c.Agent), c.Role)); err != nil {
+		return "", err
 	}
 	sp := spec.Parse(c.Spec)
 	if err := spec.Validate(c.Task, sp); err != nil {
@@ -68,8 +71,8 @@ func (a *App) specSet(c wire.Call) (string, error) {
 	case by != "":
 	case c.Role == "":
 		by = "owner"
-	default:
-		by = "lead"
+	default: // the lead, a custom role (T-1039)
+		by = c.Role
 	}
 	rev, changed, err := store.SetSpec(p.log.DB(), c.Task, c.Spec, c.Note, by, a.opt.Now())
 	if err != nil {
