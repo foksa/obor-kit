@@ -389,6 +389,11 @@ to `git rev-parse` (`project/project.go:48-52`); `NewDir` writes `.obor/config.j
 measurement: the budget's counting wrapper per package (`tests/budget/main.go:325-330`); target fixture share under
 10%, total under 7k, and the caps lowered by the task that gets under them (the budget rule).
 
+**Workers run unit tests only (owner 11-08).** Integration tests live in files with `//go:build integration`; a
+plain `go test` runs only unit tests (what an agent runs while it works); every gating or measuring check passes
+`-tags integration` (T-1014); end-to-end and live tiers stay where they are. Each step that splits a package (3, and
+the packages of 1-2 and 4) tags its integration files.
+
 **How this replaces the slow/fast tiers.** Fact: the tiers exist because tests are slow for I/O reasons: `-short`
 skips `Slow` tests (`testkit.go:32-38`), the lane runs `-short` of the affected packages and the nightly runs
 everything (decision 11-08 lead). Opinion: once unit tests have no I/O and integration tests are a few per port
@@ -458,7 +463,7 @@ owner picks, the lead writes them.
 | 11 | **Integration surface** (third axis): `obor events --follow --after N`; role verbs; a sample integration under `tests/` or `examples/` | nothing | ~200 lines | an integration role's write rights (the guard already holds custom roles to a list) | the sample takes a fake ticket → `spec_set` + `dispatch` → `merged` event → ticket updated, in e2e |
 | 12 | **Gate residue out** (§5): generic env facts, `slots.lane_env`, `affected` as a kit tool, flake and retest regexes in config | ~700 lines from `internal/` and `cmd/obor` | config keys in obor-kit's `.obor/config.json`, Makefile lines | a lane's Go env missing when the config forgets it (the kit's config is the one that carries it) | `rg -i 'go test|GOFLAGS|GOMAXPROCS|--- FAIL' internal cmd` = 0 outside tests |
 | 13 | **`wire.Call` per method** (with 11) ; `Message`/`FactData` by rule conversions and census | the 33-field union as the request shape | an envelope + 28 small types | one-release wire window | the entity probe's field count per union; `Note` has one meaning |
-| 14 | **Tiers go**: `-short`, `Slow`, `CHECK_SHORT` deleted when the full affected run fits a lane | the two-tier mechanism and its tests | nothing | the measurement must come first | lane test step median ≤ 90 s at 2 cores (from the event log); `make check-budget` green with the per-test section empty |
+| 14 | **Tiers go**: `-short`, `Slow`, `CHECK_SHORT` deleted when the full affected run fits a lane; the `integration` tag is the one split left | the two-tier mechanism and its tests | nothing | the measurement must come first | lane test step median ≤ 90 s at 2 cores (from the event log); `make check-budget` green with the per-test section empty |
 
 Order notes (opinion): 1-2 are independent of every design choice and cut cost at once; 3-6 remove the mixed pieces
 the workflow interface would otherwise wrap; 7-8 are the configurability the owner asked for; 9-11 are the three
