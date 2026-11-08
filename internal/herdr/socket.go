@@ -1048,7 +1048,7 @@ func observed(snap Snapshot) map[string]Pane {
 
 func paneAgent(p Pane) Pane {
 	return Pane{Pane: port.Pane{ID: p.ID, Status: p.Status, Cwd: p.Cwd, Agent: p.Agent, Session: p.Session,
-		Transcript: p.Transcript, Label: p.Label}, Workspace: p.Workspace}
+		Transcript: p.Transcript, Label: p.Label, Launched: p.Launched}, Workspace: p.Workspace}
 }
 
 // same: a and b differ in nothing obor watches (herdr's state_change_seq is not read: it grows with every change, even
@@ -1105,6 +1105,10 @@ type Wire struct {
 	Kind         string        `json:"agent"`         // the agent kind (claude, codex…); "" for a pane with no agent
 	AgentSession *AgentSession `json:"agent_session"` // nil: herdr reports no session for the agent
 	Seq          int64         `json:"state_change_seq"`
+	// LaunchPending: herdr accepted an agent.start in the pane and its agent is not up yet; InteractiveReady: the
+	// launched agent takes input. herdr 0.9.5 leaves a false one out (live H-L12, T-1058).
+	LaunchPending    bool `json:"launch_pending,omitempty"`
+	InteractiveReady bool `json:"interactive_ready,omitempty"`
 }
 
 // AgentSession is herdr's agent_session: the agent's session, Kind "id" with the id as Value or "path" with the
@@ -1145,7 +1149,8 @@ func (w Wire) transcript() string {
 // pane is a herdr pane as the adapter reads it: herdr's pane and agent answers share this Wire.
 func (w Wire) pane() Pane {
 	return Pane{Pane: port.Pane{ID: w.ID, Terminal: w.Terminal, Cwd: trimSlash(w.Cwd), Label: w.Label, Agent: w.Kind,
-		Name: w.Name, Status: w.Status, Transcript: w.transcript(), Session: w.session()},
+		Name: w.Name, Status: w.Status, Transcript: w.transcript(), Session: w.session(),
+		Launched: !w.LaunchPending || w.InteractiveReady},
 		Workspace: w.Workspace, Tab: w.Tab}
 }
 

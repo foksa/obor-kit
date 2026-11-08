@@ -1392,45 +1392,73 @@ func envWords(t *testing.T, line string) (ok, bad string) {
 	return "obor-env-" + m[1], "obor-env-" + m[2]
 }
 
-// T-404: herdr's agent start answers only once the agent is ready for input (30 s), which an agent busy on its first
-// prompt never is: a start ends with its agent up while herdr's answer is still pending (T-405: the start owns herdr's
-// call, cancelled before it returns). T-952: an agent herdr left unnamed is a start; nothing renames it back.
-func TestStartEndsWithTheAgentUp(t *testing.T) {
+// T-1058: a listing read before herdr answered the start is no proof (it cannot tell the old agent from the new): with
+// herdr's answer held while its state already shows the agent up, the start waits for the answer and is started only
+// by it (T-952: herdr left the agent unnamed; nothing renames it back); held past the bound, it fails, and the call it
+// owns has ended before it returns (T-405).
+func TestStartWaitsForHerdrsAnswer(t *testing.T) {
 	t.Parallel()
-	x := setup(t)
-	release, ended := make(chan struct{}), make(chan struct{})
-	defer close(release) // herdr's answer comes after the test's checks
-	x.pendingStart(release, ended)
-	x.shell("w1:p3", "pj-l-01", "").OnStart = "unnamed"
-	var out bytes.Buffer
-	done := make(chan struct {
-		line string
-		err  error
-	}, 1)
-	go func() {
-		line, err := x.launcher(&out).Restart(context.Background(), launch.Request{Agent: "pj-l-01", Fresh: true})
-		done <- struct {
-			line string
-			err  error
-		}{line, err}
-	}()
-	select {
-	case got := <-done:
-		if got.err != nil {
-			t.Fatalf("the start: %v\n%s", got.err, out.String())
+	t.Run("held, the agent up meanwhile: started by the answer", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		release := make(chan struct{})
+		x.pendingStart(release, nil)
+		pane := x.shell("w1:p3", "pj-l-01", "")
+		pane.OnStart = "unnamed"
+		var out bytes.Buffer
+		done := make(chan error, 1)
+		go func() {
+			_, err := x.launcher(&out).Restart(context.Background(), launch.Request{Agent: "pj-l-01", Fresh: true})
+			done <- err
+		}()
+		up := func() bool {
+			var ok bool
+			x.f.Locked(func() { ok = pane.Kind == "claude" && pane.InteractiveReady })
+			return ok
 		}
-		eq(t, got.line, "RESTARTED pj-l-01 (pane w1:p3, session new)", "result")
-	case <-time.After(10 * time.Second):
-		t.Fatal("the start waited for herdr's answer")
-	}
-	select { // T-405: the start owns herdr's call: ended (cancelled) before the start returns
-	case <-ended:
-	default:
-		t.Error("herdr's agent start call still runs after the start returned")
-	}
-	lacks(t, out.String(), "(timeout)", "herdr's answer is not waited for")
-	eqInt(t, len(x.calls("agent.rename")), 0, "nothing renamed")
-	eq(t, x.f.Pane("w1:p3").Name, "", "herdr kept no name, and the start stands")
+		for deadline := time.Now().Add(time.Second); !up() && time.Now().Before(deadline); {
+			time.Sleep(time.Millisecond)
+		}
+		if !up() {
+			t.Fatal("precondition: herdr's state shows the agent up while its answer is held")
+		}
+		select {
+		case err := <-done:
+			t.Fatalf("the start ended before herdr's answer: %v\n%s", err, out.String())
+		case <-time.After(100 * time.Millisecond):
+		}
+		close(release)
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("the start: %v\n%s", err, out.String())
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("the start did not end with herdr's answer")
+		}
+		eqInt(t, len(x.calls("agent.rename")), 0, "nothing renamed")
+		eq(t, x.f.Pane("w1:p3").Name, "", "herdr kept no name, and the start stands")
+	})
+	t.Run("held past the bound: failed, herdr's call ended first", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.up = shortWait
+		release, ended := make(chan struct{}), make(chan struct{})
+		defer close(release)
+		x.pendingStart(release, ended)
+		x.shell("w1:p3", "pj-l-01", "")
+		var out bytes.Buffer
+		err := x.launcher(&out).Start(context.Background(), launch.Start{Agent: "pj-l-01", Kind: "claude", Pane: "w1:p3"})
+		if err == nil {
+			t.Fatalf("started with no answer from herdr:\n%s", out.String())
+		}
+		contains(t, err.Error(), "no claude agent came up in w1:p3 within 60ms", "why")
+		select { // T-405: the start owns herdr's call: ended (cancelled) before the start returns
+		case <-ended:
+		default:
+			t.Error("herdr's agent start call still runs after the start returned")
+		}
+	})
 }
 
 // T-404: a start is its own agent. An agent of the kind already in the pane (herdr lost its name) is not taken for the

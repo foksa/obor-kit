@@ -1,11 +1,13 @@
 package launch
 
 import (
+	"context"
 	"os"
 	"slices"
 
 	"obor/internal/agents"
 	"obor/internal/agents/claude"
+	"obor/internal/app/port"
 )
 
 // StartArgs is a kind's start over launch args, as a launch's build runs it (a compiled kind's agents.StartOf second
@@ -36,3 +38,6 @@ func MCPArgs(kind, kit string, args []string) []string {
 	}
 	return nil
 }
+
+// StartSeen is Start with the agent the start ended with (T-1058: the case table asserts the observation returned).
+func (l *Launcher) StartSeen(ctx context.Context, s Start) (port.Pane, error) { return l.start(ctx, s) }
