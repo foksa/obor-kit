@@ -57,6 +57,10 @@
       "timeout": 1200,
       "heavy": true
     },
+    "release_tests": {
+      "cmd": "make -s check-release",
+      "timeout": 1200
+    },
     "guard": {
       "cmd": "set -e; n=0; while IFS= read -r f; do case \"$f\" in *.sh|bin/obor|githooks/*) if [ -f \"$f\" ]; then /bin/bash -n \"$f\"; n=$((n + 1)); fi ;; esac; done < \"$OBOR_CHANGED_FILES\"; /bin/bash bin/obor config validate; jq -e . .claude-plugin/plugin.json .claude-plugin/marketplace.json hooks/hooks.json > /dev/null; echo \"guard OK: bash -n on $n changed script(s), obor config validate, plugin JSON\"",
       "timeout": 120
@@ -108,6 +112,7 @@
     "nightly_at": "02:00",
     "nightly_commands": [
       "conformance",
+      "release_tests",
       "trim_go_cache"
     ],
     "classes": [

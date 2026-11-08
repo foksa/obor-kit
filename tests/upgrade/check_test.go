@@ -1,7 +1,8 @@
 // Package upgrade is the release's upgrade check (T-772, `make upgrade-check`): a project made by the previous release
 // must survive the new build installed over it. The check is a test because it drives herdr's stub
 // (internal/herdr/herdrtest), which only test code may import; TestUpgradeCheck is the release's run (OBOR_UPGRADE_CHECK=1,
-// skipped otherwise), the other tests run the check on fixed fixtures.
+// skipped otherwise), the other tests hold the guide's steps, the previous release and the refusal of an old one on
+// fixed fixtures (T-1001: the two frozen-binary runs went; `make upgrade-check` is the real check at each release).
 package upgrade
 
 import (

@@ -1,3 +1,5 @@
+//go:build release
+
 package release
 
 import (
@@ -372,9 +374,9 @@ func TestMakeCheckAffectedDirect(t *testing.T) {
 	}
 }
 
-// T-991 lane fix: go test's per-package timeout is above Go's 10-minute default (a loaded 2-core lane made tests/release
-// a false RED at 600 s with no failing test); the check's own commands.check budget still bounds the run.
-func TestMakeCheckGoTestTimeout(t *testing.T) {
+// T-1001: go test runs with Go's own 10-minute per-package timeout (T-991's TEST_TIMEOUT ?= 20m is gone); the check's
+// own commands.check budget still bounds the run.
+func TestMakeCheckGoTestNoTimeout(t *testing.T) {
 	t.Parallel()
 	for _, target := range []string{"check-affected", "check-release"} {
 		t.Run(target, func(t *testing.T) {
@@ -389,10 +391,8 @@ func TestMakeCheckGoTestTimeout(t *testing.T) {
 			if test == "" {
 				t.Fatalf("precondition: %s runs go test: %q", target, calls)
 			}
-			f := strings.Fields(test)
-			i := slices.Index(f, "-timeout")
-			if i < 0 || i+1 == len(f) || f[i+1] != "20m" {
-				t.Errorf("%s: go test %q, want -timeout 20m", target, test)
+			if slices.Contains(strings.Fields(test), "-timeout") {
+				t.Errorf("%s: go test %q passes -timeout; want Go's 10-minute default", target, test)
 			}
 		})
 	}

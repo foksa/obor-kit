@@ -98,21 +98,6 @@ func supported(prev string) error {
 	return nil
 }
 
-// offline is the check of prev → next with both release binaries from the cache (no fetch: the gate has no network);
-// skipped when either is not cached.
-func offline(t *testing.T, prev, next string) check {
-	t.Helper()
-	kit := kitRoot(t)
-	c, err := newCheck(t, kit, prev, next, false)
-	if err == nil {
-		c.newBin, err = release(kit, next, false)
-	}
-	if err != nil {
-		t.Skipf("v%s → v%s needs both release binaries cached (make upgrade-check fetches them): %v", prev, next, err)
-	}
-	return c
-}
-
 // T-778: a previous release below v0.23.0 (PREV=0.22.0) is refused before anything is fetched or run, naming the
 // supported range; v0.23.0 and later pass the range check.
 func TestUpgradeCheckRefusesOldPrev(t *testing.T) {
@@ -134,68 +119,6 @@ func TestUpgradeCheckRefusesOldPrev(t *testing.T) {
 	if err := supported("0.9.9"); err == nil {
 		t.Error("PREV=0.9.9 supported")
 	}
-}
-
-// T-772: a project made by v0.23.0 survives v0.23.1 installed over it (both release binaries, the kit's guide).
-func TestUpgradeV0230ToV0231(t *testing.T) {
-	t.Parallel()
-	c := offline(t, "0.23.0", "0.23.1")
-	if err := c.run(t); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// T-772: a new build that refuses the old config until the guide's steps ran fails the check at step 3 (its serve is
-// not up, with the refusal in the output) when the guide says no steps, and passes once the guide's v0.23.1 block runs
-// them.
-func TestUpgradeBrokenBuild(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name, guide string
-		fails       bool
-	}{
-		{"no steps in the guide: step 3 fails", "## v0.23.1\nNothing to do.\n", true},
-		{"the guide's steps: passes", "## v0.23.1\n```sh\ntouch .obor/upgraded\n```\n", false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			c := offline(t, "0.23.0", "0.23.1")
-			c.newBin, c.guide = refusing(t, c.newBin), tc.guide
-			err := c.run(t)
-			if !tc.fails {
-				if err != nil {
-					t.Fatalf("the guide's steps ran, want a pass: %v", err)
-				}
-				return
-			}
-			var se *stepErr
-			if !errors.As(err, &se) {
-				t.Fatalf("want a step's failure, got %v", err)
-			}
-			msg := err.Error()
-			if se.step != 3 || !strings.HasPrefix(msg, "step 3: serve of alpha on the new binary is not up") ||
-				!strings.Contains(msg, refusal) {
-				t.Fatalf("want step 3: serve of alpha not up, with the build's refusal in the output; got:\n%s", msg)
-			}
-			t.Logf("the check's failure:\n%s", msg)
-		})
-	}
-}
-
-// refusal is what refusing's build says to a project whose upgrade steps did not run.
-const refusal = "FAIL this config is older than this obor: run the upgrade steps"
-
-// refusing is a build over bin that refuses every command but its hooks in a project without .obor/upgraded (what
-// the guide's steps leave).
-func refusing(t *testing.T, bin string) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "obor")
-	script := "#!/bin/sh\ncase $1 in hook|version) ;; *) [ -f .obor/upgraded ] || { echo '" + refusal + "' >&2; exit 1; } ;; esac\n" +
-		"exec '" + bin + "' \"$@\"\n"
-	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	return path
 }
 
 // T-772: the guide's steps of an upgrade are the sh blocks under its version headings above the previous release up to
