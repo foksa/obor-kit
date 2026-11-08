@@ -501,10 +501,11 @@ proves the skipped code can't depend on the changed code (e.g. an import-directi
   ["check_ui", "e2e_touched"] }, { "name": "core", "paths": ["src/engine/**", "src/ai/**"], "full": true }]`;
   `merge.guard`: a command name (e.g. `check_imports`). Each changed file of the candidate (the slot's merge of the task
   onto the target: `git diff --no-renames --name-only <target>..<candidate>`, listed by the lane's test, T-961) gets the first class whose glob matches. **Neutral** files (`merge.neutral` globs, default `["docs/**"]` (RV-07 #2: `*.md` would match nested product files; list root .md files explicitly);
-  2026-10-09 user) never decide the class: they only need the guard. **Partial** = every non-neutral file in one class
-  that has `checks` and is not `full` (all files neutral → partial `neutral`, guard only)
-  → run `guard`, then that class's `checks` (each a `commands.<name>`, with `OBOR_CHANGED_FILES` = path to a file
-  listing the changed paths); baseline/gate skipped. Otherwise (**mixed**, any unmatched file, a `full` class, no
+  2026-10-09 user) never decide the class: they only need the guard. **Partial** = every non-neutral file matches a class
+  that has `checks` and is not `full`, whether one class or several (all files neutral → partial `neutral`, guard
+  only) → run `guard` once, then the `checks` of the distinct matched classes in config order, a command two classes
+  name once (each a `commands.<name>`, with `OBOR_CHANGED_FILES` = path to a file listing the changed paths);
+  baseline/gate skipped. Otherwise (any unmatched file, a matched `full` class or one without `checks`, no
   `merge.guard` configured, or `OBOR_FULL=1`) → the full path: `check`, then the checks of each matched class marked
   `with_full` (T-1007), then `baseline` and `gate` when their `"at"` is `"merge"` (T-1007; the gate only when the merge
   touches its paths or `OBOR_GATE=1`). The result says `partial:<class>` or `full:<reason>` (the file that decided
@@ -528,11 +529,10 @@ waiting on every merge.
 - `commands.check` is the full suite; a class's `checks` (v2.5) are its per-merge tier. `commands.check_milestone` is
   the long tier (property gates, soak; obor-kit: `make vulncheck`). `commands.gate` and `commands.baseline` get
   `"at": "milestone"` by default; `"at": "merge"` runs them on every full merge (opt-in).
-- A task's lane test runs only per-merge commands: the change-based partial set of v2.5, or on a full merge `check`
-  plus the `with_full` classes' checks (plus gate/baseline with `at: merge`). `check_milestone` never runs there.
-- `obor nightly` (v2.5) runs the milestone tier: `check` + `check_milestone` + `baseline` + `gate` + `e2e`, then its
-  `merge.nightly_commands` (T-817: non-gating); **non-blocking** (reports, never holds merges; serve's nightly run
-  records `needs-you{full-check RED <sha7>}`, T-464).
+- A task's lane test runs only per-merge commands, as "Change-based merge checks" lists them. `check_milestone` never
+  runs there.
+- `obor nightly` runs the milestone tier, as "Change-based merge checks" lists it; **non-blocking** (reports, never
+  holds merges; serve's nightly run records `needs-you{full-check RED <sha7>}`, T-464).
 
 ## Where tests run: the lane, the slot, the promotion, the nightly (T-349, reworked v0.31, 2026-11-08)
 A task's tests run in its own lane, not in serve's merge slot (T-961, T-995); nothing is reused from an earlier run
@@ -543,8 +543,9 @@ A task's tests run in its own lane, not in serve's merge slot (T-961, T-995); no
 - **The lane tests.** Serve then checks the candidate out, detached, in the task's lane worktree (the lane must be
   clean; its branch is checked out again afterwards, what the checks changed discarded). It lists the changed files
   (`<target>..<candidate>`) into `.obor/state/lane-changed-files-<lane>` as `OBOR_CHANGED_FILES`, classifies them (v2.5),
-  runs `lane_setup`, then the guard and the class's checks (or `check` and the `with_full` checks on a full merge),
-  holding a pool slot at worker priority (`slots.max` bounds how many lanes test at once; never the merge marker).
+  runs `lane_setup`, then the checks "Change-based merge checks" names for the result. `lane_setup` holds no slot: each
+  check command takes a pool slot at worker priority when it starts and `slots.max` bounds how many check commands run
+  at once, not setup (the slot's compile, the promotion's and the nightly's setup likewise); never the merge marker.
   A red that names its failing tests and packages is rerun once at the same commit by `commands.retest`
   (T-964; `{tests}` joined by `merge.retest_join`, default `|`; the packages in `OBOR_FAILED_PKGS`); green then is the
   step's green and the flake is logged as retried. The names come from `merge.fail_grep` lines read by
@@ -564,7 +565,7 @@ A task's tests run in its own lane, not in serve's merge slot (T-961, T-995); no
   --direct` (changed packages only, T-991, T-997), the slot's compile catches an importer's build break and the
   promotion an importer's test break. Without a promotion nothing else would, so the lane runs the class check with
   importers (RV-138 #1).
-- **The nightly** runs the milestone tier (see "Check tiers") and `merge.nightly_commands`.
+- **The nightly** runs what "Change-based merge checks" lists (it skips `check` while `branches.promote` is set).
 - **A worker runs unit tests; the lane test, the promotion and the nightly run the rest** (owner 2026-11-08, T-1014,
   T-1056). A worker's `go test ./<pkg>/...` is plain: it runs the unit tests of its package. A test that needs real git,
   a real socket or a built binary sits in a file with `//go:build integration`; every check that gates or measures
