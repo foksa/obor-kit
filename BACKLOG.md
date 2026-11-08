@@ -20,7 +20,11 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   spec-only drop, T-1043 serve ships queue order, T-1038/T-1045/T-1049/T-1052 Codex live + quarantine.
   **Owner decisions today** (docs/decisions.md top): nightly empties the Go cache; agent start params native files
   first (rules approved, T-1033); reference kind plugin = second Go binary; Codex quarantine: warning only.
-  **In flight / next:** (1) RV-150 (serve opens it: on-merge reviews of T-1046 and T-1051) — triage it. (2) Plan step
+  **After the first handoff (18:00-18:30):** the handoff restart left no lead (`obor restart` started before the old
+  claude exited, then printed RESTARTED anyway): fixed by T-1053 (on-merge review RV-151 comes). RV-150 closed: T-1054
+  makes serve start and init write the plugin manifest cache (obor-kit needed a hand `obor setup agents`; committed
+  `kinds.opencode.command`).
+  **In flight / next:** (1) RV-151 (T-1053, on merge) — triage it. (2) Plan step
   13 (`wire.Call` per method, plan §6 table; now has a reason: the integration surface T-1039) and step 14 (tiers go:
   measure the lane test step median from the event log first, plan §9 row 14). (3) A release: v0.31.0 carries a new
   asset set (T-1046: `obor-kind-opencode-*`) and config changes other projects must know (T-1041 `slots.lane_env`:
