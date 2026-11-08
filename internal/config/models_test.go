@@ -67,9 +67,9 @@ func TestModelEffortPerKind(t *testing.T) {
 		}
 	}
 	ds, _ := c.Model("deepseek")
-	env, err := ds.StartEnv(agents.Start{Effort: "high"})
-	if err != nil || env["OBOR_OPENCODE_MODEL"] != "opencode-go/deepseek-v4.1-flash#high" {
-		t.Errorf("deepseek at high: env %v, %v; want the model's #high variant", env, err)
+	l, err := ds.Launch("lead", agents.Start{Effort: "high"})
+	if env := l.Env; err != nil || env["OBOR_OPENCODE_MODEL"] != "opencode-go/deepseek-v4.1-flash#high" {
+		t.Errorf("deepseek at high: env %v, %v; want the model's #high variant", l.Env, err)
 	}
 	for ref, refusal := range map[string]string{
 		"opus:minimal": `effort "minimal" is not one of claude's`,
@@ -206,12 +206,13 @@ func TestLanesCount(t *testing.T) {
 	}
 }
 
-// launchArgs is m.LaunchArgs with no dir or write dirs; an error fails the test (a compiled kind's start has none).
+// launchArgs is m.Launch's args of a start with no kit, dir, write dirs or prompt (the type's launch args); an error
+// fails the test (a compiled kind's start has none).
 func launchArgs(t *testing.T, m Model, role, effort string) []string {
 	t.Helper()
-	args, err := m.LaunchArgs(role, effort, "", nil)
+	l, err := m.Launch(role, agents.Start{Effort: effort})
 	if err != nil {
-		t.Fatalf("LaunchArgs(%s, %s): %v", role, effort, err)
+		t.Fatalf("Launch(%s, %s): %v", role, effort, err)
 	}
-	return args
+	return l.Args
 }

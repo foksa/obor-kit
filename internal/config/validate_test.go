@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"obor/internal/agents"
+	"obor/internal/agents/plugin"
 	"obor/internal/config"
 	"obor/internal/spec"
 	"obor/internal/testkit"
@@ -598,5 +599,60 @@ func TestPluginKind(t *testing.T) {
 	validate(t, p) // a load without kinds.<name>.command: no plugin kind left
 	if _, ok := agents.Lookup("mine"); ok {
 		t.Error("a config without kinds.mine: the last load's plugin kind is still registered")
+	}
+}
+
+// TestPluginKindEffortsFromDescribe (T-1042, RV-147 #3): validate checks a role's and a difficulty level's effort on a
+// plugin kind against the manifest its describe just answered: with no cached manifest (before obor setup agents), and
+// with a stale one (the command since added the effort), the effort is taken; one the manifest lacks still fails.
+// obor spec set, dispatch and drive keep reading the cache (CheckModelRef: the stale cache refuses the effort).
+func TestPluginKindEffortsFromDescribe(t *testing.T) {
+	p := newPlainProject(t)
+	cmd := filepath.Join(p.Root, "kinds", "obor-kind-mine")
+	if err := os.MkdirAll(filepath.Dir(cmd), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	answer := func(efforts string) {
+		t.Helper()
+		script := "#!/bin/sh\ncat >/dev/null\necho '{\"version\":1,\"name\":\"mine\",\"status\":\"hooks\"," +
+			"\"efforts\":" + efforts + ",\"stop\":{\"quit\":\"/q\"}}'\n"
+		if err := os.WriteFile(cmd, []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mine := []edit{set("kinds.mine", map[string]any{"command": "kinds/obor-kind-mine"}),
+		set("models.m1", map[string]any{"kind": "mine", "model": ""}), set("roles.reviewer", "m1:high"),
+		set("difficulty", map[string]any{"hard": []any{"m1:high"}})}
+	answer(`["low","high"]`)
+	state := filepath.Join(p.Root, ".obor", "state")
+	if _, err := os.Stat(plugin.CacheFile(state, "mine")); err == nil {
+		t.Fatal("precondition: no cached manifest")
+	}
+	if got := validate(t, p, mine...); len(got) != 0 {
+		t.Errorf("no cached manifest: %q, want the effort taken (the describe declares high)", got)
+	}
+	if err := agents.CheckEffort("mine", "high"); err == nil {
+		t.Error("precondition: with no cache the registry's kind declares no effort")
+	}
+
+	answer(`["low"]`) // the cache setup wrote before the command added high
+	if _, err := plugin.Cache("mine", cmd, state); err != nil {
+		t.Fatal(err)
+	}
+	answer(`["low","high"]`)
+	if got := validate(t, p, mine...); len(got) != 0 {
+		t.Errorf("a stale cached manifest: %q, want the effort taken", got)
+	}
+	c, err := config.Load(p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.CheckModelRef("m1:high"); err == nil || !strings.Contains(err.Error(), `effort "high" is not one of mine's (low)`) {
+		t.Errorf("CheckModelRef(m1:high) on the stale cache = %v, want the cache's refusal (obor spec set's path)", err)
+	}
+
+	got := validate(t, p, append(mine, set("roles.reviewer", "m1:max"))...)
+	if want := `FAIL .roles.reviewer: m1:max: effort "max" is not one of mine's (low, high)`; len(got) != 1 || got[0] != want {
+		t.Errorf("an effort the describe lacks: %q, want %q", got, want)
 	}
 }

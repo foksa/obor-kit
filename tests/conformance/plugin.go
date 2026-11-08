@@ -61,16 +61,15 @@ func pluginStatic() {
 		fmt.Sprintf("caps %+v, cache %v", c, cacheErr), where("func (k *Kind) run"))
 
 	in := agents.Start{Kit: "/kit", Prompt: "hello", Args: []string{"--x"}}
-	args, err := k.StartErr(in)
+	l, err := agents.StartOf(k, in)
 	conf := filepath.Join(state, "shell-kind.json")
 	written, _ := os.ReadFile(conf)
 	check("P-S2", "start: argv with the written file's path substituted, the file in the state dir",
-		err == nil && strings.Join(args, " ") == "--config "+conf+" --prompt hello" && string(written) == `{"mcp":"/kit/bin/obor mcp"}`,
-		fmt.Sprintf("args %q, file %q, err %v", args, written, err), where("func (k *Kind) start"))
-	env, err := k.StartEnv(in)
-	check("P-S2", "start: env of the manifest's vars, the file's path substituted",
-		err == nil && env["SHELL_KIND_CONFIG"] == conf && len(env) == 1, fmt.Sprintf("env %v, err %v", env, err),
-		where("func (k *Kind) StartEnv"))
+		err == nil && strings.Join(l.Args, " ") == "--config "+conf+" --prompt hello" && string(written) == `{"mcp":"/kit/bin/obor mcp"}`,
+		fmt.Sprintf("args %q, file %q, err %v", l.Args, written, err), where("func (k *Kind) start"))
+	check("P-S2", "start: env of the manifest's vars, the file's path substituted, from the same call",
+		err == nil && l.Env["SHELL_KIND_CONFIG"] == conf && len(l.Env) == 1, fmt.Sprintf("env %v, err %v", l.Env, err),
+		where("func (k *Kind) StartWhole"))
 
 	check("P-S3", "not-ready: the reason on an updating screen, none on a ready one",
 		k.NotReady("Updating to 2.0") == "is updating itself" && k.NotReady("> ") == "",
@@ -108,7 +107,7 @@ func pluginStatic() {
 			transcript == "/home/u/.shell-kind/s-1.jsonl" &&
 			string(h.InboxRecord(func(string) string { return "/s" })) == `{"SHELL_KIND_INBOX":"/s"}`,
 		fmt.Sprintf("caps %+v, stop %+v, transcript %q", h.Caps(), h.Stop(), transcript), at("internal/agents/plugin/plugin.go", "func New"))
-	_, err = h.StartErr(in)
+	_, err = agents.StartOf(h, in)
 	check("P-S7", "a call that runs the command fails naming the kind and the call once the command is gone",
 		err != nil && strings.HasPrefix(err.Error(), "kind shell: describe: "), fmt.Sprint(err),
 		at("internal/agents/plugin/plugin.go", "func (k *Kind) manifest"))

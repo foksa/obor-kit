@@ -46,7 +46,8 @@ func (c *Config) Validate(o ValidateOptions) (warns, fails []string) {
 }
 
 // pluginKind: kinds.<k>.command names no compiled kind, is executable and its describe answers with k's manifest
-// (agents.PluginLoader.Check, T-1036: it runs the command once).
+// (agents.PluginLoader.Check, T-1036: it runs the command once). The kind as it answered is the one the rest of the
+// validation checks efforts against (T-1042: no cache needed, a stale one not read).
 func (v *validator) pluginKind(k string) {
 	path := ".kinds" + key(k) + ".command"
 	switch {
@@ -59,9 +60,15 @@ func (v *validator) pluginKind(k string) {
 		}
 		fallthrough
 	default:
-		if err := agents.Plugins.Check(k, v.c.KindCommand(k)); err != nil {
+		kind, err := agents.Plugins.Check(k, v.c.KindCommand(k))
+		if err != nil {
 			v.fail(path, err.Error())
+			return
 		}
+		if v.described == nil {
+			v.described = map[string]agents.Kind{}
+		}
+		v.described[k] = kind
 	}
 }
 
@@ -86,6 +93,8 @@ type validator struct {
 	d     *Data
 	warns []string
 	fails []string
+	// described are the plugin kinds as their describe answered (pluginKind), for the model refs' efforts
+	described map[string]agents.Kind
 }
 
 func (v *validator) fail(path, why string) { v.fails = append(v.fails, "FAIL "+path+": "+why) }
@@ -544,12 +553,12 @@ func (v *validator) difficulty() {
 }
 
 // modelRef: a model ref `<model>[:<effort>]` at path names a model of the config and, with an effort, one its kind
-// takes (CheckModelRef); "" passes unless required.
+// takes (CheckModelRef, a plugin kind's efforts as its describe answered); "" passes unless required.
 func (v *validator) modelRef(path, ref string, required bool) {
 	if ref == "" && !required {
 		return
 	}
-	if err := v.c.CheckModelRef(ref); err != nil {
+	if err := v.c.checkModelRef(ref, v.described); err != nil {
 		v.fail(path, err.Error())
 	}
 }

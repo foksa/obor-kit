@@ -285,13 +285,19 @@ func (s *Setup) mcpLane(name string) error {
 	}
 	m := in.MCP
 	// a lane's start: a lane never is the lead, the settings default applies, and a lane's agent starts strict (T-770)
-	// unless the project's committed CLI config opts out (T-1033: the main checkout's copy stands for a lane's)
-	args, err := lt.LaunchArgs("worker", "", s.cfg.Root, nil)
+	// unless the project's committed CLI config opts out (T-1033: the main checkout's copy stands for a lane's). A kind
+	// whose start is one call (a plugin kind, T-1042) gets the complete start, the kit too; a compiled kind's Lane reads
+	// the type's launch args, before the start registers obor's server for the kit.
+	start := agents.Start{Dir: s.cfg.Root, Read: os.ReadFile, Env: s.Env.Get, WriteState: project.StateWriter(s.cfg.Root)}
+	if _, whole := k.(agents.Whole); whole {
+		start.Kit = s.Kit
+	}
+	built, err := lt.Launch("worker", start)
 	if err != nil {
 		s.say("WARN mcp model %s (%s): %v", name, lt.Kind, err)
 		return project.Failf("mcp model %s", name)
 	}
-	how, registered, static := m.Lane(args, os.ReadFile)
+	how, registered, static := m.Lane(built.Args, os.ReadFile)
 
 	switch {
 	case !static && registered:

@@ -372,7 +372,7 @@ func ocL6(l *lab, pane string, xdg map[string]string, st agents.Stop) {
 	})
 	if err != nil || start.env[opencode.ConfigVar] == "" {
 		report("FAIL", "OC-L6", fmt.Sprintf("the launch of %s names no generated config (%v, %v)", model, start.env, err),
-			at("internal/config/models.go", "func (m Model) LaunchArgs")+", T-910")
+			at("internal/config/models.go", "func (m Model) Launch")+", T-910")
 		return
 	}
 	paneEnv := map[string]string{"OBOR_ROLE": "worker", "OBOR_LANE": "L-01", agents.PaneVar: pane}

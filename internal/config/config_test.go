@@ -296,7 +296,7 @@ func TestLaunchArgs(t *testing.T) {
 		}
 	}
 	if len(opus.Args) != 4 {
-		t.Errorf("LaunchArgs changed the model's args: %q", opus.Args)
+		t.Errorf("Launch changed the model's args: %q", opus.Args)
 	}
 }
 

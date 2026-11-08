@@ -155,7 +155,7 @@ type cache struct {
 // CacheFile is kind name's cached manifest in stateDir.
 func CacheFile(stateDir, name string) string { return filepath.Join(stateDir, "kinds", name+".json") }
 
-// Kind is a plugin kind: agents.Kind (and agents.Fallible) by running its command.
+// Kind is a plugin kind: agents.Kind (and agents.Whole, agents.Fallible) by running its command.
 type Kind struct {
 	name, command, stateDir string
 
@@ -262,20 +262,24 @@ type loader struct{}
 
 func (loader) Kind(name, command, stateDir string) agents.Kind { return New(name, command, stateDir) }
 
-// Check: command is executable and its describe answers with a manifest of kind name (nothing is cached).
-func (loader) Check(name, command string) error {
-	if _, err := executable(command); err != nil {
-		return err
+// Check: command is executable and its describe answers with a manifest of kind name; the kind with that manifest
+// (nothing is cached: the cache stays setup's).
+func (loader) Check(name, command string) (agents.Kind, error) {
+	fi, err := executable(command)
+	if err != nil {
+		return nil, err
 	}
 	var raw json.RawMessage
 	k := &Kind{name: name, command: command}
 	if err := k.run("describe", nil, &raw); err != nil {
-		return err
+		return nil, err
 	}
-	if _, err := parse(name, raw); err != nil {
-		return fmt.Errorf("kind %s: describe: %v", name, err)
+	m, err := parse(name, raw)
+	if err != nil {
+		return nil, fmt.Errorf("kind %s: describe: %v", name, err)
 	}
-	return nil
+	k.m, k.cmdAt, k.mtimeAt = m, command, fi.ModTime()
+	return k, nil
 }
 
 func (k *Kind) Name() string { return k.name }

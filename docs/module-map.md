@@ -67,11 +67,12 @@ transcript begins with: Codex's `session_meta`, T-577), `Deliver(text, record) (
 vs inbox post), `Caps()` (hooks transport — the plugin marker is `Caps().Hooks == HooksPlugin` —, inbox, resume,
 transcript, a named session: `NamedSession`, obor chooses the id of a fresh start, T-813; `Status`, where the status and
 turns come from: `terminal`, `hooks`, `transcript`, T-1036). Registry: the compiled kinds register from their init; a
-config load replaces the plugin kinds (`SetPlugins`); a plugin kind's start and install can fail (`agents.StartArgs`,
-`InstallOf`). `Install` and `Transcript`
+config load replaces the plugin kinds (`SetPlugins`); a start is built once at the launch boundary from the complete
+`agents.Start` (`agents.StartOf`: a plugin kind's one start call, `Whole`, its argv, env and files together, T-1042), and
+a plugin kind's start and install can fail (`StartOf`, `InstallOf`). `Install` and `Transcript`
 take the environment (config dirs: `XDG_CONFIG_HOME`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`). Registry: `agents.Lookup`, `Names`,
 `Default`. All I/O stays in the adapters, which ask the kind what differs; non-lead default settings stay in
-`config.LaneType.LaunchArgs`, which asks the kind to render them. No kind name outside the bridges (boundary test).
+`config.Model.Launch`, which asks the kind to render them. No kind name outside the bridges (boundary test).
 Adding a kind = one package + a config entry.
 
 **core** — `app`: the only place with obor logic. Files by concern: `app.go` (types, options), `serve.go` (New, Serve,

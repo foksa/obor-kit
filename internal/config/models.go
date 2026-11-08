@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -155,9 +154,13 @@ func (c *Config) ModelNames() []string {
 	return out
 }
 
-// CheckModelRef is why ref names no model of this config, or an effort its kind does not take (agents.CheckEffort);
-// nil when it is fine.
-func (c *Config) CheckModelRef(ref string) error {
+// CheckModelRef is why ref names no model of this config, or an effort its kind does not take (agents.CheckEffort:
+// a plugin kind's cached manifest, T-1036); nil when it is fine.
+func (c *Config) CheckModelRef(ref string) error { return c.checkModelRef(ref, nil) }
+
+// checkModelRef is CheckModelRef with the kinds of described in place of the registry's (obor config validate: the
+// plugin kinds as their describe just answered, not their cached manifests, T-1042).
+func (c *Config) checkModelRef(ref string, described map[string]agents.Kind) error {
 	name, effort := ParseModelRef(ref)
 	m, ok := c.Model(name)
 	if !ok {
@@ -166,42 +169,33 @@ func (c *Config) CheckModelRef(ref string) error {
 	if strings.HasSuffix(ref, ":") {
 		return fmt.Errorf("%s names no effort after the colon", Compact(ref))
 	}
-	if err := agents.CheckEffortArgs(m.Kind, m.Args, effort); err != nil {
+	check := func() error { return agents.CheckEffortArgs(m.Kind, m.Args, effort) }
+	if k, ok := described[m.Kind]; ok {
+		check = func() error { return agents.CheckEffortOf(k, effort) }
+	}
+	if err := check(); err != nil {
 		return fmt.Errorf("%s: %v", ref, err)
 	}
 	return nil
 }
 
-// LaunchArgs are the model's launch args: args (with effort: the kind sets it, T-695), then the settings as its kind
-// takes them (agents.Kind.Start: Claude's --settings <settings>; a kind obor has no bridge for: args alone; an error: a
-// plugin kind's start failed, agents.StartArgs, T-1036), and a lane's
-// agent starts strict (its obor MCP server alone, T-770). Every agent but a lead starts with
-// {"remoteControlAtStartup":false,"autoMemoryEnabled":false} (only the lead on the phone, T-280, and only the lead keeps
-// auto memory, T-471). role is the agent's (roles.Role.Name; "": none); dir its start dir, the cwd whose committed CLI
-// config the kind's policy flags give way to (agents.Start.Dir, T-1033; "": none read); writeDirs the dirs outside its
-// cwd it writes (RoleWriteDirs: a sandboxed kind's start lets it, T-853).
-func (m Model) LaunchArgs(role, effort, dir string, writeDirs []string) ([]string, error) {
-	var settings map[string]any
+// Launch is a start of this model as its kind builds it (agents.StartOf, T-1042: one call of a plugin kind): in, the
+// launch boundary's complete start (kit, effort, dir, write dirs, resume or first prompt, session, env, readers and
+// writer), with the model's args, the settings and a lane's strictness. The args with effort: the kind sets it
+// (T-695); the settings as the kind takes them (Claude's --settings <settings>); a lane's agent starts strict (its obor
+// MCP server alone, T-770). Every agent but a lead starts with {"remoteControlAtStartup":false,"autoMemoryEnabled":false}
+// (only the lead on the phone, T-280, and only the lead keeps auto memory, T-471). role is the agent's
+// (roles.Role.Name; "": none). A kind obor has no bridge for: the args alone, no env. What the env does not set the
+// start unsets (agents.StartVars, T-812): an earlier OpenCode start's model never carries into another kind's (RV-83
+// #4, T-707). An error: the start cannot carry the effort, or a plugin kind's start failed (T-1036).
+func (m Model) Launch(role string, in agents.Start) (agents.Launch, error) {
+	k, ok := agents.Lookup(m.Kind)
+	if !ok {
+		return agents.Launch{Args: append([]string(nil), m.Args...)}, nil
+	}
+	in.Args, in.Settings, in.StrictMCP = m.Args, nil, roles.LaneBound(role)
 	if role != "lead" {
-		settings = map[string]any{"remoteControlAtStartup": false, "autoMemoryEnabled": false}
+		in.Settings = map[string]any{"remoteControlAtStartup": false, "autoMemoryEnabled": false}
 	}
-	k, ok := agents.Lookup(m.Kind)
-	if !ok {
-		return append([]string(nil), m.Args...), nil
-	}
-	return agents.StartArgs(k, agents.Start{Args: m.Args, Settings: settings, Effort: effort,
-		StrictMCP: roles.LaneBound(role), WriteDirs: writeDirs, Dir: dir, Read: os.ReadFile})
-}
-
-// StartEnv is the environment a start of this model needs beyond the pane's (agents.Kind.StartEnv: OpenCode's model
-// and effort, T-703), in a start's Effort, Read and Env (its Args are the model's); a kind obor has no bridge for: none.
-// What it does not set the start unsets (agents.StartVars, T-812): an earlier OpenCode start's model never carries into
-// another kind's (RV-83 #4, T-707).
-func (m Model) StartEnv(in agents.Start) (map[string]string, error) {
-	k, ok := agents.Lookup(m.Kind)
-	if !ok {
-		return nil, nil
-	}
-	in.Args = m.Args
-	return k.StartEnv(in)
+	return agents.StartOf(k, in)
 }
