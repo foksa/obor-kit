@@ -20,7 +20,7 @@ import (
 // T-638: obor review records a request; a merge-loop pass starts the review once its --after tasks merged and the
 // reviewer is idle.
 
-// reviewGitFake is the tests' one ReviewGit (T-869, DD D4): head the integration branch's head ("": headSHA), which a
+// reviewGitFake is the tests' one port.Review (T-869, DD D4): head the integration branch's head ("": headSHA), which a
 // gated publish moves (admit_test.go); files the fixed answer; detachErr fails the detach, detached every Detach as
 // <dir>@<sha>. onHead runs once, inside the next Head read. closes is every close committed (T-926; Closed finds its
 // subject), closeErr refuses one; closeGate, when set, holds a close until it is closed and closeBegan gets a value
@@ -33,7 +33,7 @@ type reviewGitFake struct {
 	detachErr  error
 	detached   []string
 	onHead     func()
-	closes     []ReviewCommit
+	closes     []port.ReviewCommit
 	closeErr   error
 	closeGate  chan struct{}
 	closeBegan chan struct{}
@@ -65,7 +65,7 @@ func (g *reviewGitFake) Detach(_ context.Context, dir, sha string) error {
 	return nil
 }
 
-func (g *reviewGitFake) Close(ctx context.Context, c ReviewCommit) error {
+func (g *reviewGitFake) Close(ctx context.Context, c port.ReviewCommit) error {
 	g.mu.Lock()
 	gate, began := g.closeGate, g.closeBegan
 	g.mu.Unlock()
@@ -191,7 +191,7 @@ func (r *reviewRig) mergedAt(task, sha string) {
 
 // wire gives obor review's call the rig's git (its open-review check reads the merge loop's).
 func (r *reviewRig) wire() {
-	r.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Review: r.git, Agents: r.agents}, nil }
+	r.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents}, nil }
 }
 
 // reload is a restart: the log replayed.
@@ -240,12 +240,12 @@ func (r *reviewRig) refuseStep(step string) {
 
 // pass is one review pass.
 func (r *reviewRig) pass() {
-	r.a.reviewPass(context.Background(), r.p, &Loop{Review: r.git, Agents: r.agents})
+	r.a.reviewPass(context.Background(), r.p, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents})
 }
 
 // tick is one "review due" count.
 func (r *reviewRig) tick() {
-	r.a.reviewDueTick(context.Background(), r.p, &Loop{Review: r.git, Agents: r.agents})
+	r.a.reviewDueTick(context.Background(), r.p, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents})
 }
 
 // call is an obor review request from the lead.
@@ -466,7 +466,7 @@ func TestReviewRequest(t *testing.T) {
 			if r.facts(event.StepReviewRequest) != 1 || r.p.folded.review != nil {
 				t.Errorf("request facts %d, request %v; want only r1, none open", r.facts(event.StepReviewRequest), r.p.folded.review)
 			}
-			r.git.closes = append(r.git.closes, ReviewCommit{ID: "RV-5", Subject: "RV-5 closed · abcdef0 · approved · x"})
+			r.git.closes = append(r.git.closes, port.ReviewCommit{ID: "RV-5", Subject: "RV-5 closed · abcdef0 · approved · x"})
 			if _, err := r.call("r5", nil, "", false); err == nil || err.Error() != "RV-5 is open (not closed): close it first" {
 				t.Errorf("request with a close commit and no close fact: %v", err) // a commit, no fact: git is not read
 			}

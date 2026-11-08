@@ -17,7 +17,7 @@ var statePhase = map[string]string{
 	stDriving: wire.PhaseDriving, stSubmitted: wire.PhaseSubmitted, stCandidate: wire.PhaseTesting, stRed: wire.PhaseGating,
 	stResolved: wire.PhaseGating, stMoved: wire.PhaseGating, stGreen: wire.PhaseReview, stConflict: wire.PhaseReview,
 	stAwaiting: wire.PhaseReviewing, stResolving: wire.PhaseReviewing, stAccepted: wire.PhasePublish,
-	stPublished: wire.PhasePublish, stMerged: wire.PhaseMerged, stRejected: wire.PhaseRejected, stDropped: wire.PhaseDropped,
+	stPublished: wire.PhasePublish, stPending: wire.PhasePublish, stMerged: wire.PhaseMerged, stRejected: wire.PhaseRejected, stDropped: wire.PhaseDropped,
 	stDropping: wire.PhaseDropping,
 }
 

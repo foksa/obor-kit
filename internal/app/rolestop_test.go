@@ -332,7 +332,7 @@ func TestBriefReachesCustomRole(t *testing.T) {
 	}
 	s := &reviewStopSpy{}
 	now = now.Add(time.Hour)
-	a.rulePass(context.Background(), rules, &Loop{Agents: s, Review: &reviewGitFake{}})
+	a.rulePass(context.Background(), rules, &Loop{Agents: s, Workflow: WorkflowOf(&reviewGitFake{})})
 	same(t, len(s.stops), 0, "serve's stops of the custom role")
 }
 
@@ -373,7 +373,7 @@ func TestRoleStopReviewerRule(t *testing.T) {
 	type step func(t *testing.T, r *reviewRig, s *reviewStopSpy)
 	pass := func(t *testing.T, r *reviewRig, s *reviewStopSpy) {
 		reads := r.git.reads()
-		r.a.rulePass(context.Background(), rules, &Loop{Review: r.git, Agents: s})
+		r.a.rulePass(context.Background(), rules, &Loop{Workflow: WorkflowOf(r.git), Agents: s})
 		if n := r.git.reads() - reads; n != 0 {
 			t.Errorf("the rule pass read git %d times, want none (T-926: the close is a fact)", n)
 		}
@@ -449,7 +449,7 @@ func TestRoleStopReviewerFailuresAccumulate(t *testing.T) {
 	s.err = errors.New("herdr refused the stop")
 	reason := fmt.Sprintf("rule %s failed %d passes in a row (serve's log names the errors)", ruleReviewerStop, ruleFails)
 	for i := 1; i <= ruleFails; i++ {
-		r.a.rulePass(context.Background(), rules, &Loop{Review: r.git, Agents: s})
+		r.a.rulePass(context.Background(), rules, &Loop{Workflow: WorkflowOf(r.git), Agents: s})
 		if len(s.stops) != i {
 			t.Fatalf("after pass %d: %d stop attempts, want %d (the closed review was not eligible again)", i, len(s.stops), i)
 		}

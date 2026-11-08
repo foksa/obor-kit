@@ -92,7 +92,7 @@ func TestReviewOnMergeRule(t *testing.T) {
 	closeCommit := func(t *testing.T, r *reviewRig) { // a close commit alone: the request still waits (no git read)
 		t.Helper()
 		r.git.mu.Lock()
-		r.git.closes = append(r.git.closes, ReviewCommit{ID: "RV-5", Subject: "RV-5 closed · abcdef0 · approved · T-a"})
+		r.git.closes = append(r.git.closes, port.ReviewCommit{ID: "RV-5", Subject: "RV-5 closed · abcdef0 · approved · T-a"})
 		r.git.mu.Unlock()
 	}
 	closeFact := func(t *testing.T, r *reviewRig) {

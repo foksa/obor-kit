@@ -58,6 +58,8 @@ type Data struct {
 	Roles                   Roles `json:"roles"`
 	Setup                   Setup `json:"setup,omitzero"`
 	Merge                   Merge `json:"merge"`
+	// Workflow is workflow: the git workflow serve runs (T-1029); absent: scratch-ff.
+	Workflow Workflow `json:"workflow,omitzero"`
 	// MCP and Cache are removed sections (v0.28, T-864): they hold no key, yet a config that sets one (even {})
 	// WARNs for two minors; a member inside one is an unknown key, as it is under an absent section.
 	MCP    *struct{} `json:"mcp,omitempty"`
@@ -95,6 +97,26 @@ type Branches struct {
 	// Promote is the branch serve promotes the target (Main) to once the full suite is GREEN on it and a closed review
 	// covers it (T-974, docs/state-model.md row 50): e.g. main while Main is staging. "": no promotion (today's flow).
 	Promote string `json:"promote,omitempty"`
+}
+
+// Workflow is workflow (T-1029): Kind selects the git workflow's implementation at serve start (one of WorkflowKinds;
+// "": DefaultWorkflow). Its branches stay branches.main and branches.promote.
+type Workflow struct {
+	Kind string `json:"kind,omitempty"`
+}
+
+// The workflow kinds serve has an implementation of (internal/checks' ScratchFF: the merge slot, the lane test, the
+// fast-forward publish).
+const DefaultWorkflow = "scratch-ff"
+
+var WorkflowKinds = []string{DefaultWorkflow}
+
+// WorkflowKind is workflow.kind, else DefaultWorkflow.
+func (c *Config) WorkflowKind() string {
+	if c != nil && c.Data.Workflow.Kind != "" {
+		return c.Data.Workflow.Kind
+	}
+	return DefaultWorkflow
 }
 
 // Command is commands.<name>: a string is {cmd}, null or absent is unset. Name is the key.

@@ -71,8 +71,8 @@ func (a *App) afterStep(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 	switch step {
 	case event.StepAfterMerge:
 		in.Data = mt.cand
-		effect = func(ctx context.Context) (any, error) { return fx.Scratch.AfterMerge(ctx, mt.cand) }
-		if fx.Promote != nil { // T-974, row 37: after_merge runs after a GREEN promotion (after_promote), not here
+		effect = func(ctx context.Context) (any, error) { return fx.Workflow.AfterMerge(ctx, mt.cand) }
+		if fx.promotion() != nil { // T-974, row 37: after_merge runs after a GREEN promotion (after_promote), not here
 			effect = func(context.Context) (any, error) { return afterMergePromoted, nil }
 		}
 	case event.StepStop:
@@ -192,7 +192,7 @@ func (a *App) submit(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 		if err != nil {
 			return nil, err
 		}
-		sha, err := fx.Scratch.Submit(ctx, mt.task, submitID(mt.attempt, in.Step), mt.lane,
+		sha, err := fx.Workflow.Submit(ctx, mt.task, submitID(mt.attempt, in.Step), mt.lane,
 			subjectOf(title, mt.report), mt.agent)
 		var refused port.Refused
 		if errors.As(err, &refused) { // final: the owner decides
@@ -237,7 +237,7 @@ func (a *App) gate(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 		g.Spec, g.SpecRev = row.Text, row.Rev
 		// the merge's subject and body (T-802, T-807)
 		g.Title, g.Summary, g.Body = row.Spec.Title, summaryOf(mt.report), summarySection(mt.report)
-		o, err := fx.Scratch.Gate(ctx, g)
+		o, err := fx.Workflow.Gate(ctx, g)
 		if err != nil {
 			return nil, err
 		}
@@ -312,7 +312,7 @@ func (a *App) test(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 		a.mu.Unlock()
 	}
 	_, err := a.do(ctx, p, in, func(ctx context.Context) (any, error) {
-		o, err := fx.Scratch.Test(ctx, ti)
+		o, err := fx.Workflow.Test(ctx, ti)
 		if err != nil {
 			return nil, err
 		}
@@ -338,11 +338,12 @@ func testResult(task string, o port.TestOutcome) testOut {
 }
 
 // publish fast-forwards the target to the accepted candidate (row 33): merged, already in the target (a crash after
-// the fast-forward), moved (re-gate) or held (the main checkout has local changes to the merge's files: the owner).
+// the fast-forward), moved (re-gate), held (the main checkout has local changes to the merge's files: the owner) or
+// pending (the merge asked for, not done yet: the Landed rule looks again each pass, T-1029).
 func (a *App) publish(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 	in := event.Intent{Key: event.Key{Task: mt.task, Attempt: mt.attempt, Step: nth(event.StepPublish, mt.pubs+1)}, Class: event.ClassGit, Data: mt.cand}
 	_, err := a.do(ctx, p, in, func(ctx context.Context) (any, error) {
-		o, err := fx.Scratch.Publish(ctx, mt.cand)
+		o, err := fx.Workflow.Publish(ctx, mt.cand)
 		if err != nil {
 			return nil, err
 		}
@@ -354,6 +355,8 @@ func (a *App) publish(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 		case port.PublishMoved:
 			return gateOut{Outcome: outMoved, Line: fmt.Sprintf("MOVED %s: the target is at %s, not %s", mt.task, o.Head,
 				mt.cand.Target)}, nil
+		case port.PublishPending:
+			return gateOut{Outcome: outPending, Line: "PENDING " + mt.task + ": the merge is asked for, not done yet"}, nil
 		case port.PublishHold:
 			return gateOut{Outcome: outHold, Line: fmt.Sprintf("HOLD %s: the main checkout has local changes to %s",
 				mt.task, strings.Join(o.Files, ", "))}, nil
@@ -377,7 +380,7 @@ func (a *App) publish(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 func (a *App) unpin(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 	in := event.Intent{Key: event.Key{Task: mt.task, Attempt: mt.attempt, Step: event.StepUnpin}, Class: event.ClassGit}
 	if _, err := a.do(ctx, p, in, func(ctx context.Context) (any, error) {
-		return "unpinned", fx.Scratch.Unpin(ctx, mt.task)
+		return "unpinned", fx.Workflow.Unpin(ctx, mt.task)
 	}); err != nil {
 		return a.failed(ctx, p, mt, in.Step, err)
 	}

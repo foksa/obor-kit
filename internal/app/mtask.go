@@ -222,6 +222,8 @@ func (p *proj) foldLoop(r event.Record) {
 				mt.state = stPublished
 			case outMoved:
 				mt.state = stMoved
+			case outPending:
+				mt.state = stPending
 			default:
 				mt.block(block{cause: causePublish, why: "publish: " + g.Line})
 			}
@@ -245,6 +247,7 @@ const (
 	outMerged   = "merged"
 	outMoved    = "moved"
 	outHold     = "hold"
+	outPending  = "pending"
 )
 
 // sendback starts the next attempt: the worker fixes what note says.

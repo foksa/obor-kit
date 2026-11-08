@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"obor/internal/app"
+	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/testkit"
 )
@@ -76,9 +77,9 @@ func TestReviewCloseCall(t *testing.T) {
 }
 
 // closeOf is RV-4's close on the fixture: its review file, the reviewed head, the commit CloseCommit writes.
-func closeOf(p *testkit.Project, reviewed string, accepts ...string) app.ReviewCommit {
+func closeOf(p *testkit.Project, reviewed string, accepts ...string) port.ReviewCommit {
 	subject, body := app.CloseCommit("RV-4", reviewed[:7], "T-5 (fix)", []string{"T-5"}, reviewed, len(accepts))
-	return app.ReviewCommit{Branch: "main", ID: "RV-4", File: p.Path("docs/reviews/RV-4.md"), Reviewed: reviewed,
+	return port.ReviewCommit{Branch: "main", ID: "RV-4", File: p.Path("docs/reviews/RV-4.md"), Reviewed: reviewed,
 		Subject: subject, Body: body, Accepts: accepts}
 }
 

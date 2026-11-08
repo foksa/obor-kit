@@ -29,7 +29,7 @@ import (
 // the work job's wake (job <task>/<attempt>/work: the start's first prompt, else typed; prompt.go). The worker's job_next is fact delivered: the task is working, and its task_done then
 // submits it. Undelivered 5 min: retry.work, 5 more: needs-you{job not delivered}. A
 // step's final refusal (Prepare's or the launch's) or its third counted failure is a needs-you that obor resume
-// retries. obor serve is the only dispatcher (T-408); a loop without the dispatch adapters (Loop.Lane, Loop.Specs)
+// retries. obor serve is the only dispatcher (T-408); a loop without the dispatch adapters (Loop.Workflow, Loop.Specs)
 // refuses the request and ignores a dispatched task until its task_done submits it.
 
 // The causes of the dispatch's needs-you; obor resume retries each (the step runs again, a refused one under its next
@@ -41,13 +41,12 @@ const (
 	causeAfter  = "after"
 )
 
-// Specs is what a dispatch reads of the project's task ids and git (wired by obor serve).
+// Specs is what a dispatch reads of the project's task ids (wired by obor serve); the target it reads is the
+// workflow's (port.Workflow.Target, T-1029).
 type Specs interface {
 	// Check is why task cannot be dispatched by its id or its spec ("" when it can): a bad task id, no stored spec
 	// (text "": the store has none, T-440). An error: it cannot tell.
 	Check(ctx context.Context, task, text string) (refusal string, err error)
-	// Target is the target branch's sha now, and whether task's branch has commits the target lacks.
-	Target(ctx context.Context, task string) (sha string, ahead bool, err error)
 }
 
 // Records' data.
@@ -270,7 +269,7 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Call) 
 		return "", mergeOff(p)
 	case pause != nil:
 		return "", pausedErr(c.Task, pause)
-	case fx.Lane == nil || fx.Specs == nil:
+	case fx.Workflow == nil || fx.Specs == nil:
 		return "", fmt.Errorf("dispatch off for %s (no lane adapter)", p.name)
 	}
 	// A merged task takes no new attempt, whatever flags the request has (T-792); a rejected or dropped one may.
@@ -351,7 +350,7 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Call) 
 	case l.State != port.LaneFree && l.State != port.LaneDirtyFree:
 		return "", fmt.Errorf("dispatch %s: lane %s is %s", c.Task, l.Name, laneWhy(l))
 	}
-	target, ahead, err := fx.Specs.Target(ctx, c.Task)
+	target, ahead, err := fx.Workflow.Target(ctx, c.Task)
 	if err != nil {
 		return "", fmt.Errorf("dispatch %s: %v", c.Task, err)
 	}
@@ -724,10 +723,10 @@ func (a *App) pickWaiting(p *proj, mt mtask) step {
 	}
 	return func(ctx context.Context, fx *Loop) bool {
 		for _, dep := range unheld {
-			if fx.Scratch == nil {
+			if fx.Workflow == nil {
 				return false
 			}
-			if landed, err := fx.Scratch.Landed(ctx, dep); err != nil || !landed {
+			if landed, err := fx.Workflow.Landed(ctx, dep); err != nil || !landed {
 				if err != nil {
 					a.logf("merge loop of %s: %s waits for %s: %v", p.name, mt.task, dep, err)
 				}
@@ -855,7 +854,7 @@ func (a *App) prepare(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 	in := event.Intent{Key: event.Key{Task: mt.task, Attempt: mt.attempt, Step: nth(event.StepPrepare, mt.prepares+1)}, Class: event.ClassGit,
 		Data: port.PrepareInput{Task: mt.task, Dispatch: mt.disp.Dispatch, At: mt.at}}
 	if _, err := a.do(ctx, p, in, func(ctx context.Context) (any, error) {
-		out, err := fx.Lane.Prepare(ctx, in.Data.(port.PrepareInput))
+		out, err := fx.Workflow.Prepare(ctx, in.Data.(port.PrepareInput))
 		var refused port.Refused
 		if errors.As(err, &refused) {
 			return prepareOut{Refused: refused.Line}, nil

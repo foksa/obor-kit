@@ -93,7 +93,7 @@ func (a *App) driveCall(ctx context.Context, c wire.Call) (string, error) {
 		return "", mergeOff(p)
 	case pause != nil:
 		return "", pausedErr(Dash(c.Task), pause)
-	case fx.Lane == nil || fx.Specs == nil || fx.Agents == nil:
+	case fx.Workflow == nil || fx.Specs == nil || fx.Agents == nil:
 		return "", fmt.Errorf("drive off for %s (no lane adapter)", p.name)
 	}
 	if c.Task != "" {
@@ -156,7 +156,7 @@ func (a *App) newDrive(ctx context.Context, p *proj, fx *Loop, c wire.Call) (str
 	if err != nil {
 		return "", fmt.Errorf("drive %s: %v", name, err)
 	}
-	target, ahead, err := fx.Specs.Target(ctx, task)
+	target, ahead, err := fx.Workflow.Target(ctx, task)
 	if err != nil {
 		return "", fmt.Errorf("drive %s: %v", name, err)
 	}

@@ -161,7 +161,7 @@ func seedSched(t *testing.T, serve bool, before ...func(h *harness)) (*harness, 
 	}
 	h.write(filepath.Join(h.root, ".obor", "config.json"), cfg)
 	f := &schedScratch{h: h}
-	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Scratch: f, Agents: f, Typer: f}, nil }
+	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Workflow: WorkflowOf(f), Agents: f, Typer: f}, nil }
 	if err := os.MkdirAll(h.lanes.lanes[0].Dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -457,7 +457,7 @@ func TestSocketEffectEndsWithServe(t *testing.T) {
 	t.Parallel()
 	h, f, job := resolveJobHarness(t)
 	b := &blockScratch{schedScratch: f, entered: make(chan context.Context, 1)}
-	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Scratch: b, Agents: f, Typer: f}, nil }
+	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Workflow: WorkflowOf(b), Agents: f, Typer: f}, nil }
 	h.a.opt.Retry = time.Millisecond // Serve's subscribe fails on fakePanes: it retries until canceled
 	ln := newMemListener()
 	defer ln.Close()

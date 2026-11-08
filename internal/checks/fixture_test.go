@@ -67,8 +67,8 @@ func (mainTB) TempDir() string {
 	return keep(d)
 }
 
-// shared is one fixture state built once, on first use, and copied per test: the conflict the specgate tests resolve, and
-// the checked resolutions the mismatch and replay tables move (T-G: one conflict fixture, not one per row).
+// shared is one fixture state built once, on first use, and copied per test: the checked resolutions the mismatch and
+// replay tables move (T-G: one conflict fixture, not one per row).
 type shared struct {
 	once     sync.Once
 	base     string
@@ -76,22 +76,8 @@ type shared struct {
 	cand     port.Candidate // its green resolved candidate
 }
 
-// conflict is the default fixture with lane and main both editing shared.txt, the conflict open in serve's worktree.
-var conflict shared
-
 // resolvedFx is the Go fixture after resolvedGreen.
 var resolvedFx shared
-
-// openConflict copies the shared open conflict.
-func (s *shared) openConflict(t *testing.T) (*sx, string) {
-	t.Helper()
-	s.once.Do(func() {
-		y := newSx(mainTB{}, cmd("check", "echo 1 pass"))
-		s.sha = y.conflicted()
-		s.base = y.Base
-	})
-	return copySx(t, s.base), s.sha
-}
 
 // resolved copies the Go fixture at resolvedGreen: its submitted sha, checked resolution and green candidate.
 func (s *shared) resolved(t *testing.T) (*sx, string, string, port.Candidate) {

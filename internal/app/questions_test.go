@@ -23,7 +23,9 @@ func seedQuestions(t *testing.T, report string) (*harness, *schedScratch) {
 	h := newHarness(t)
 	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","roles":{"integrator":""}}`)
 	f := &schedScratch{h: h}
-	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Scratch: f, Agents: f, Typer: f, Kit: "../.."}, nil }
+	h.a.opt.Loop = func(string) (*Loop, error) {
+		return &Loop{Workflow: WorkflowOf(f), Agents: f, Typer: f, Kit: "../.."}, nil
+	}
 	if err := os.MkdirAll(h.lanes.lanes[0].Dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +66,7 @@ func fixStep(t *testing.T, h *harness, f *schedScratch) {
 	h.a.mu.Lock()
 	s := h.a.pickWorking(p, *p.folded.loop["T-1"])
 	h.a.mu.Unlock()
-	if s == nil || !s(context.Background(), &Loop{Scratch: f, Agents: f, Typer: f}) {
+	if s == nil || !s(context.Background(), &Loop{Workflow: WorkflowOf(f), Agents: f, Typer: f}) {
 		t.Fatal("pickWorking: no step, or it failed")
 	}
 }

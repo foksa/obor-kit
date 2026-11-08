@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"obor/internal/app/event"
+	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/store"
 	"strings"
@@ -78,8 +79,8 @@ func (a *App) reviewCloseCall(c wire.Call) (string, error) {
 		return "", err
 	}
 	fx, err := a.loopOf(p)
-	if err == nil && fx.Review == nil {
-		err = errors.New("the merge loop has no review git")
+	if err == nil && fx.Workflow == nil {
+		err = errors.New("the merge loop has no workflow")
 	}
 	if err != nil {
 		return "", fmt.Errorf("review close: %v", err)
@@ -93,7 +94,7 @@ func (a *App) reviewCloseCall(c wire.Call) (string, error) {
 	defer release()
 	ctx, cancel := context.WithTimeout(a.life, requestTimeout)
 	defer cancel()
-	return a.reviewClose(ctx, p, fx.Review, s, c, summary)
+	return a.reviewClose(ctx, p, fx.Workflow, s, c, summary)
 }
 
 // closedReply starts a close's reply, CLOSED <the close commit's subject>: the fold reads the subject back from it.
@@ -102,11 +103,11 @@ const closedReply = "CLOSED "
 // reviewClose checks the open review (admitted): its own close commit not in git already (closeCommitted: one a crash
 // cut from its fact is recorded now, and the call refused as no review is open), the fold's open review, its file in
 // the main checkout (openReview), its linked fixes verified (--force: closes anyway); then the main checkout commits
-// it (ReviewGit.Close: its own refusals, the branch named) and fact review.closed{id} is recorded, the reviewer's stop
+// it (port.Review.Close: its own refusals, the branch named) and fact review.closed{id} is recorded, the reviewer's stop
 // rule woken at once. Before the commit, fact review.closing{id, head, tasks} records its snapshot (T-1032): the head
 // and the tasks the commit names, the fact carries and the fold freezes the review at. Any refusal changes nothing
 // (a review.closing whose commit was refused is replaced by the next close's).
-func (a *App) reviewClose(ctx context.Context, p *proj, g ReviewGit, s ReviewSetup, c wire.Call, summary string) (string,
+func (a *App) reviewClose(ctx context.Context, p *proj, g port.Review, s ReviewSetup, c wire.Call, summary string) (string,
 	error) {
 	a.mu.Lock()
 	open := p.folded.rv.last()
@@ -138,7 +139,7 @@ func (a *App) reviewClose(ctx context.Context, p *proj, g ReviewGit, s ReviewSet
 	}
 	sha := short(cycle.reviewed) // the head the reviewer last finished (its start's or a done verify's, T-857)
 	subject, body := CloseCommit(o.ID, sha, summary, cycle.covered, cycle.start, len(c.Accept))
-	if err := g.Close(ctx, ReviewCommit{Branch: s.Branch, ID: o.ID, File: o.File, Reviewed: cycle.reviewed,
+	if err := g.Close(ctx, port.ReviewCommit{Branch: s.Branch, ID: o.ID, File: o.File, Reviewed: cycle.reviewed,
 		Subject: subject, Body: body, Accepts: c.Accept}); err != nil {
 		return "", err
 	}
@@ -158,7 +159,7 @@ func (a *App) reviewClose(ctx context.Context, p *proj, g ReviewGit, s ReviewSet
 
 // reviewCloseRead is the close's crash cut (kernel: its commit and its fact exactly once): once per process
 // (closeRead) while the fold shows a review open, the one git read of a close: review id's own close commit on the
-// integration branch since its start (ReviewGit.Closed). Found, fact review.closed is recorded from it: a crash (or a
+// integration branch since its start (port.Review.Closed). Found, fact review.closed is recorded from it: a crash (or a
 // refused append) between the close's commit and its fact. It decides only whether that close happened, never what
 // the review covered (the fold's cycle). It takes configMu (a close call in flight holds it: this pass skips and the
 // next reads again) and records only while the fold still shows the same review open.
@@ -166,14 +167,14 @@ func (a *App) reviewCloseRead(ctx context.Context, p *proj, fx *Loop) {
 	a.mu.Lock()
 	open, done := p.folded.rv.last(), p.closeRead
 	a.mu.Unlock()
-	if done || fx == nil || fx.Review == nil {
+	if done || fx == nil || fx.Workflow == nil {
 		return
 	}
 	if !a.configMu.TryLock() {
 		return
 	}
 	defer a.configMu.Unlock()
-	if err := a.closeCommitted(ctx, p, fx.Review, open); err != nil {
+	if err := a.closeCommitted(ctx, p, fx.Workflow, open); err != nil {
 		a.logf("%s: is %s closed in git: %v", p.name, open.id, err)
 		return
 	}
@@ -183,7 +184,7 @@ func (a *App) reviewCloseRead(ctx context.Context, p *proj, fx *Loop) {
 }
 
 // closeCommitted records fact review.closed from open's own close commit when there is one (under configMu).
-func (a *App) closeCommitted(ctx context.Context, p *proj, g ReviewGit, open lastReview) error {
+func (a *App) closeCommitted(ctx context.Context, p *proj, g port.Review, open lastReview) error {
 	if open.open() == "" {
 		return nil
 	}
@@ -215,13 +216,13 @@ func (a *App) closeCommitted(ctx context.Context, p *proj, g ReviewGit, open las
 	return nil
 }
 
-// ClosesReview: subject is review id's close commit's (CloseCommit's "<id> closed · …"; ReviewGit.Closed's filter).
+// ClosesReview: subject is review id's close commit's (CloseCommit's "<id> closed · …"; port.Review.Closed's filter).
 func ClosesReview(subject, id string) bool {
 	return strings.HasPrefix(subject, id+" closed · ")
 }
 
 // AcceptLines is backlog with one line "- (<id>, accepted) <line>" per accepted finding at the top of its "## Open"
-// section (the close's BACKLOG lines, rendered here and committed by ReviewGit.Close); no such section: an error.
+// section (the close's BACKLOG lines, rendered here and committed by port.Review.Close); no such section: an error.
 func AcceptLines(backlog, id string, accepts []string) (string, error) {
 	ls := strings.SplitAfter(backlog, "\n")
 	for i, l := range ls {

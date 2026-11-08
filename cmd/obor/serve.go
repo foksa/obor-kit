@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -158,14 +159,29 @@ func mergeLoop(env project.Env, panes herdr.Panes, end *serveEnd) func(root stri
 		o := checks.Options{Cfg: cfg, Env: env, Environ: os.Environ(), Out: flushWriter{}, PID: os.Getpid()}
 		agents := &launch.Launcher{Cfg: cfg, Env: env, H: herdrSocket(env), Out: io.Discard,
 			Background: func(search func()) { go search() }, Log: flushWriter{}}
-		scratch := checks.Scratch{Options: o}
-		l := &app.Loop{Scratch: scratch, Agents: agents, Typer: panes, Nightly: nightly(o), Promote: promotion(o),
-			Disk: diskOf(repo.Root), Inbox: poster{repo.Root}}
+		wf, err := workflowOf(o)
+		if err != nil {
+			return nil, err
+		}
+		l := &app.Loop{Workflow: wf, Agents: agents, Typer: panes, Nightly: nightly(o), Disk: diskOf(repo.Root),
+			Inbox: poster{repo.Root}}
 		dispatchLoop(l, env, cfg)
-		l.Review = reviewGit{root: repo.Root, locked: scratch.Locked}
 		l.Config = configFile{root: repo.Root, main: cfg.Data.Branches.Main}
 		l.Restart = serveRestarter(cfg, env, end)
 		return l, nil
+	}
+}
+
+// workflowOf is the git workflow workflow.kind selects (T-1029; obor config validate refuses another kind): scratch-ff,
+// serve's scratch on o's config, its lanes, the review git on the main checkout and the promotion.
+func workflowOf(o checks.Options) (port.Workflow, error) {
+	switch k := o.Cfg.WorkflowKind(); k {
+	case config.DefaultWorkflow:
+		scratch := checks.Scratch{Options: o}
+		return checks.ScratchFF{Scratch: scratch, Lane: checks.Lane{Cfg: o.Cfg, Out: io.Discard},
+			Review: reviewGit{root: o.Cfg.Root, locked: scratch.Locked}, Promote: promotion(o)}, nil
+	default:
+		return nil, fmt.Errorf("workflow.kind %q: serve knows %s", k, strings.Join(config.WorkflowKinds, ", "))
 	}
 }
 
@@ -223,12 +239,12 @@ func nightly(o checks.Options) *app.Nightly {
 // promotion is the merge loop's promotion of o's project (T-974): branches.main promoted to branches.promote by the full
 // suite (checks.Promote), the fast-forward (checks.PromoteFF) and after_merge in the promotion worktree
 // (checks.AfterPromote). Nil while branches.promote is unset: no promotion, after_merge after each publish.
-func promotion(o checks.Options) *app.Promote {
+func promotion(o checks.Options) *port.Promote {
 	cfg := o.Cfg
 	if cfg.Data.Branches.Promote == "" {
 		return nil
 	}
-	return &app.Promote{Branch: cfg.Data.Branches.Promote, Target: cfg.Data.Branches.Main, Weight: cfg.PromoteWeight(),
+	return &port.Promote{Branch: cfg.Data.Branches.Promote, Target: cfg.Data.Branches.Main, Weight: cfg.PromoteWeight(),
 		Weigh:  cfg.MergeWeight,
 		Run:    func(ctx context.Context, sha string) (port.PromoteOut, error) { return checks.Promote(ctx, o, sha) },
 		Passed: func(ctx context.Context, sha string) (bool, error) { return checks.PromotePassed(ctx, o, sha) },

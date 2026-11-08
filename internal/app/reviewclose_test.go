@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"obor/internal/app/port"
 	"slices"
 	"strings"
 	"sync"
@@ -15,7 +16,7 @@ import (
 )
 
 // T-926: obor review close is a call to serve: serve checks the open review against its fold, commits the close in the
-// main checkout (ReviewGit.Close, admitted) and records fact review.closed, which every "is a review open" reads.
+// main checkout (port.Review.Close, admitted) and records fact review.closed, which every "is a review open" reads.
 
 // closedFacts is the log's review.closed facts' data since the seed, in order.
 func (r *reviewRig) closedFacts() []ReviewData {
@@ -115,7 +116,7 @@ func TestReviewCloseCommitsAndRecords(t *testing.T) {
 	if err != nil || reply != "CLOSED "+subject {
 		t.Fatalf("close: %q, %v", reply, err)
 	}
-	want := ReviewCommit{Branch: "main", ID: "RV-5", File: r.p.root + "/reviews/RV-5.md", Reviewed: headSHA,
+	want := port.ReviewCommit{Branch: "main", ID: "RV-5", File: r.p.root + "/reviews/RV-5.md", Reviewed: headSHA,
 		Subject: subject, Body: "Covered: T-start, T-a, T-b\nStart: " + startHead, Accepts: []string{"rare case"}}
 	if r.commits() != 1 || !commitEqual(r.git.closes[0], want) {
 		t.Errorf("committed %+v, want %+v", r.git.closes, want)
@@ -133,7 +134,7 @@ func TestReviewCloseCommitsAndRecords(t *testing.T) {
 
 	s := &reviewStopSpy{}
 	reads := r.git.reads()
-	r.a.rulePass(context.Background(), rules, &Loop{Review: r.git, Agents: s})
+	r.a.rulePass(context.Background(), rules, &Loop{Workflow: WorkflowOf(r.git), Agents: s})
 	if !slices.Equal(s.stops, []string{"pj-rev w:rev force=false"}) {
 		t.Errorf("stops %q after the close, want the reviewer stopped on the next pass", s.stops)
 	}
@@ -186,13 +187,13 @@ func TestReviewCloseSameCallWhileInFlight(t *testing.T) {
 }
 
 // commitEqual: a and b are the same close.
-func commitEqual(a, b ReviewCommit) bool {
+func commitEqual(a, b port.ReviewCommit) bool {
 	return a.Branch == b.Branch && a.ID == b.ID && a.File == b.File && a.Reviewed == b.Reviewed && a.Subject == b.Subject &&
 		a.Body == b.Body && slices.Equal(a.Accepts, b.Accepts)
 }
 
 // The close's crash cut (kernel, T-1023): its commit is in and its fact is not (a crash, here a refused append). The
-// next pass after a restart records the close once from the commit (ReviewGit.Closed, the one read) and commits
+// next pass after a restart records the close once from the commit (port.Review.Closed, the one read) and commits
 // nothing; a close call retried before any pass reads it too: refused, no second commit, the close recorded once.
 // Either way obor review then starts RV-6 with no merge in scope (RV-5 covered T-a and T-b).
 func TestReviewCloseCrashBeforeFact(t *testing.T) {
@@ -239,7 +240,9 @@ func TestReviewCloseCrashBeforeFact(t *testing.T) {
 	t.Run("the next pass", func(t *testing.T) {
 		t.Parallel()
 		r := cut(t)
-		read := func() { r.a.reviewCloseRead(context.Background(), r.p, &Loop{Review: r.git, Agents: r.agents}) }
+		read := func() {
+			r.a.reviewCloseRead(context.Background(), r.p, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents})
+		}
 		read()
 		read()
 		r.reload()
@@ -324,7 +327,7 @@ func TestReviewCloseSnapshotStands(t *testing.T) {
 			if c.crash {
 				r.p.log.Refuse = nil
 				r.reload()
-				r.a.reviewCloseRead(context.Background(), r.p, &Loop{Review: r.git, Agents: r.agents})
+				r.a.reviewCloseRead(context.Background(), r.p, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents})
 			}
 			f := r.closedFacts()
 			if len(f) != 1 || f[0].Head != head || !slices.Equal(f[0].Tasks, tasks) {

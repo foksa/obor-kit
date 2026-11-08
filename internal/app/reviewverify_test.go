@@ -71,7 +71,7 @@ func fixRig(t *testing.T) *reviewRig {
 
 // verifyPass is one rule pass of the verify rule alone.
 func (r *reviewRig) verifyPass() {
-	r.a.rulePass(context.Background(), []rule{{name: ruleVerify, when: verifyRule}}, &Loop{Review: r.git, Agents: r.agents})
+	r.a.rulePass(context.Background(), []rule{{name: ruleVerify, when: verifyRule}}, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents})
 }
 
 // cycle is RV-5's cycle as serve's close reads it (the test fails on an error).
@@ -234,7 +234,7 @@ func TestVerifyRule(t *testing.T) {
 			openReviewFile(t, r.p.root)
 			startedReview(t, r)
 			c.setup(r)
-			key, act, ok := verifyRule(context.Background(), r.a, r.p, &Loop{Review: r.git, Agents: r.agents}, r.now)
+			key, act, ok := verifyRule(context.Background(), r.a, r.p, &Loop{Workflow: WorkflowOf(r.git), Agents: r.agents}, r.now)
 			switch {
 			case c.want == "":
 				if ok {

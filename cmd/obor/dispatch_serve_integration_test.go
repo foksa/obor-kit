@@ -168,8 +168,8 @@ func TestDropServeRequest(t *testing.T) {
 }
 
 // specs: Check wants a task id and a stored spec (T-440: the text the app read from the store, "" none; a spec in
-// git counts for nothing; T-496: a files section is no longer needed); Target is the target's sha and whether the task
-// branch is ahead of it.
+// git counts for nothing; T-496: a files section is no longer needed). The target is the workflow's (T-1029: the
+// contract table, testkit.WorkflowContract).
 func TestSpecs(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
@@ -206,17 +206,6 @@ func TestSpecs(t *testing.T) {
 		}
 	}
 
-	head := p.Git(p.Root, "rev-parse", "main")
-	if sha, ahead, err := s.Target(ctx, "T-1"); err != nil || sha != head || ahead {
-		t.Errorf("Target, no branch: %q %v %v; want %q, not ahead", sha, ahead, err, head)
-	}
-	if sha, ahead, err := s.Target(ctx, "T-01"); err != nil || sha != head || ahead { // L-01's branch task/T-01 = main
-		t.Errorf("Target, branch at main: %q %v %v; want not ahead", sha, ahead, err)
-	}
-	p.Commit(p.LaneDir("L-01"))
-	if _, ahead, err := s.Target(ctx, "T-01"); err != nil || !ahead {
-		t.Errorf("Target, branch with a commit: ahead %v, %v; want ahead", ahead, err)
-	}
 }
 
 // T-425, T-1023: the dispatch target is branches.main's sha whatever the main checkout has checked out (another
@@ -232,7 +221,7 @@ func TestDispatchTargetOffBranch(t *testing.T) {
 	main := p.Git(p.Root, "rev-parse", "main")
 	check := func(name string) {
 		t.Helper()
-		if sha, _, err := l.Specs.Target(ctx, "T-1"); err != nil || sha != main {
+		if sha, _, err := l.Workflow.Target(ctx, "T-1"); err != nil || sha != main {
 			t.Errorf("%s: Target %q %v; want main's %q", name, sha, err, main)
 		}
 	}

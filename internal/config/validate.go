@@ -40,6 +40,7 @@ func (c *Config) Validate(o ValidateOptions) (warns, fails []string) {
 	v.optional()
 	v.laneAgents()
 	v.trunk()
+	v.workflow()
 	return append(c.warnings(o), v.warns...), v.fails
 }
 
@@ -189,6 +190,13 @@ func (v *validator) optional() {
 	}
 	if s := v.d.Slots; s != nil && s.LaneCPUs != nil && *s.LaneCPUs < 1 {
 		v.fail(".slots.lane_cpus", fmt.Sprintf("must be a positive integer, got %d", *s.LaneCPUs))
+	}
+}
+
+// workflow: workflow.kind names a kind serve has an implementation of (T-1029).
+func (v *validator) workflow() {
+	if k := v.d.Workflow.Kind; k != "" && !slices.Contains(WorkflowKinds, k) {
+		v.fail(".workflow.kind", "must be one of "+strings.Join(WorkflowKinds, ", ")+", got "+Compact(k))
 	}
 }
 

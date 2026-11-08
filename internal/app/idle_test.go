@@ -19,7 +19,7 @@ import (
 // idleLine is the idle line after task's merge (idleLineFor) or a drop.
 func idleLineFor(r *loopRig, task string) string {
 	r.t.Helper()
-	sha := r.scratch.Head()[:7]
+	sha := r.scratch.TargetHead()[:7]
 	return idleLineText(task + " merged " + sha)
 }
 
@@ -182,7 +182,7 @@ func TestIdleLineAfterTheWatchLine(t *testing.T) {
 		t.Fatalf("watch: %q, %v", reply, err)
 	}
 	r.mergedTask()
-	sha := r.scratch.Head()[:7]
+	sha := r.scratch.TargetHead()[:7]
 	watch, idle := "[obor] T-1 merged "+sha, idleLineText("T-1 merged "+sha)
 	r.settleIdle()
 	r.waitFor("both lines posted", func() bool {
@@ -244,6 +244,10 @@ func TestCustomRoleBriefKeepsIdle(t *testing.T) {
 func TestIdleSettleReviewRequestTenSecondsLater(t *testing.T) {
 	t.Parallel()
 	r := newLoopRig(t, withConfig(testkit.Set("roles.reviewer", "")))
+	// The reviewer busy: the request stays in flight (every workflow has a review git, T-1029: an idle reviewer would
+	// start the review at once).
+	rev := r.f.Agent("w1:p5", "pj-rev", "working", r.p.Root)
+	rev.Workspace, rev.Label = "w1", "pj-rev"
 	r.start()
 	r.mergedTask()
 	line := idleLineFor(r, "T-1")

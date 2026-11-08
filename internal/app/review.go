@@ -21,9 +21,9 @@ import (
 // call replaces it, `obor review --rm` ends it (fact review.rm). A merge-loop pass fires the open request once every
 // --after task merged and the reviewer role agent is idle (no open brief, its pane idle or not running): fact
 // review.fire{request: its seq} first (its fold ends the request, so a replay never fires it again), then the facts
-// (the fold, T-1023: the next id and the merges no review covered; ReviewGit: the integration branch's head and the
+// (the fold, T-1023: the next id and the merges no review covered; port.Review: the integration branch's head and the
 // files since the previous review's start),
-// the reviewer's role worktree detached at the head (ReviewGit.Detach, T-853: merges never wait for the reviewer), and
+// the reviewer's role worktree detached at the head (port.Review.Detach, T-853: merges never wait for the reviewer), and
 // the reviewer's fresh start with the brief as its first prompt (the same path as obor brief's fresh start, its brief
 // recorded the same way: briefed with no line). Then fact review.started{id, head, tasks}: no line to the lead (T-650;
 // obor status counts from its head), and the brief. Any step
@@ -60,33 +60,6 @@ type ReviewData struct {
 	Tasks   []string `json:"tasks,omitempty"`
 	Call    string   `json:"call,omitempty"`
 	Reply   string   `json:"reply,omitempty"`
-}
-
-// ReviewGit is the git a review's start and close do on the project (cmd/obor implements it on the main checkout). No
-// method decides what a review covered: that is the fold's (reviewfold.go, T-1023).
-type ReviewGit interface {
-	// Head is branch's sha.
-	Head(ctx context.Context, branch string) (string, error)
-	// Files is the files changed from from to to (from "": every file of to).
-	Files(ctx context.Context, from, to string) ([]string, error)
-	// Detach puts the role worktree at dir on sha, detached, adding it when it is missing (T-853).
-	Detach(ctx context.Context, dir, sha string) error
-	// Close commits c in the main checkout (T-926; serve calls it admitted, reviewclose.go). Refused, an error ending
-	// "nothing changed": the checkout not on c.Branch, dirty outside BACKLOG.md and c's files, no "## Open" section
-	// in BACKLOG.md for c.Accepts, or c.Reviewed no commit. Else c's files deleted, c.Accepts at the top of
-	// BACKLOG.md's Open section and the commit, BACKLOG.md with it.
-	Close(ctx context.Context, c ReviewCommit) error
-	// Closed is the subject of review id's close commit on branch since from (its start's head; "": all of branch),
-	// newest first ("": none): the close's crash cut, its one read (reviewCloseRead).
-	Closed(ctx context.Context, branch, from, id string) (string, error)
-}
-
-// ReviewCommit is a review's close as the main checkout takes it: the integration branch, the review's id and its
-// review file (absolute; its verify file <id>-verify.md beside it goes too when there), the accepted findings' lines
-// for BACKLOG.md, the head the reviewer last finished (full sha) and the commit's subject and body (CloseCommit).
-type ReviewCommit struct {
-	Branch, ID, File, Reviewed, Subject, Body string
-	Accepts                                   []string
 }
 
 // reviewReq is the open review request: its fact's seq and time, its tasks, note and asker, and the open review it
@@ -332,7 +305,7 @@ func (p *proj) reviewStatus(now time.Time) string {
 // the last one started, the tasks no review since covered). More than reviewDue: obor status' line "review due: N
 // merges since <the last review>". Reviews not set up: no line.
 func (a *App) reviewDueTick(_ context.Context, p *proj, fx *Loop) {
-	if fx.Review == nil {
+	if fx.Workflow == nil {
 		return
 	}
 	_, err := reviewConfig(p.root)
@@ -353,7 +326,7 @@ func (a *App) reviewDueTick(_ context.Context, p *proj, fx *Loop) {
 func (a *App) reviewPass(ctx context.Context, p *proj, fx *Loop) {
 	a.mu.Lock()
 	q, started := p.folded.review, p.folded.rv.last()
-	run := q != nil && p.rv.what == "" && p.merging && p.out.lead() != "" && fx.Review != nil && fx.Agents != nil
+	run := q != nil && p.rv.what == "" && p.merging && p.out.lead() != "" && fx.Workflow != nil && fx.Agents != nil
 	ready := run && p.reviewOutcome(q.after) == "" && len(p.reviewWaits(q.after)) == 0
 	a.mu.Unlock()
 	if !run {
@@ -423,7 +396,7 @@ func (a *App) roleIdle(p *proj, agent string) bool {
 // <error>} (RV-69 #2: the review runs, serve does not know it). The lead gets no line (T-650): obor status counts the
 // merges since the review's head.
 func (a *App) fireReview(ctx context.Context, p *proj, fx *Loop, q *reviewReq, s ReviewSetup, cfgErr error) {
-	id, brief, tasks, head, err := a.prepareReview(ctx, p, fx.Review, q, s, cfgErr)
+	id, brief, tasks, head, err := a.prepareReview(ctx, p, fx.Workflow, q, s, cfgErr)
 	if err == nil {
 		_, err = fx.Agents.Launch(ctx, port.Launch{Agent: s.Agent, Fresh: true, Prompt: brief})
 	}
@@ -491,10 +464,10 @@ func CloseCommit(id, sha, summary string, covered []string, start string, accept
 
 // prepareReview collects a review's facts in order (from the fold: the next id, the previous review and the merges
 // no review covered; then git: the head, the files since the previous review's start) and detaches the reviewer's
-// role worktree at the head (ReviewGit.Detach, T-853): the id, the brief, the in-scope tasks and the head; an error
+// role worktree at the head (port.Review.Detach, T-853): the id, the brief, the in-scope tasks and the head; an error
 // from the first step that fails (id "" when the id is not known yet). The fold is read before the head: every merge
 // it names is in the head (its fact follows its publish), so a review never covers a merge it does not hold.
-func (a *App) prepareReview(ctx context.Context, p *proj, g ReviewGit, q *reviewReq, s ReviewSetup, cfgErr error) (id,
+func (a *App) prepareReview(ctx context.Context, p *proj, g port.Review, q *reviewReq, s ReviewSetup, cfgErr error) (id,
 	brief string, tasks []string, head string, err error) {
 	a.mu.Lock()
 	l := &p.folded.rv

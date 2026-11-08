@@ -16,7 +16,7 @@ func answerSeed(t *testing.T, cause, state, job string, watch bool) (*harness, *
 	h, _ := newIdentHarness(t)
 	h.withLead()
 	f := newConcFakes("")
-	fx := &Loop{Lane: f, Specs: f, Agents: f}
+	fx := &Loop{Workflow: WorkflowOf(f), Specs: f, Agents: f}
 	h.a.opt.Loop = func(string) (*Loop, error) { return fx, nil }
 	h.connect()
 	p := h.proj()

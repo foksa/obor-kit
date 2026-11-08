@@ -187,14 +187,14 @@ func (a *App) freeStep(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 	in := event.Intent{Key: event.Key{Task: mt.task, Attempt: mt.attempt, Step: nth(event.StepFree, mt.frees+1)},
 		Class: event.ClassGit, Data: port.FreeInput{Dispatch: port.Dispatch{Lane: d.Lane}, Discard: d.Discard}}
 	if _, err := a.do(ctx, p, in, func(ctx context.Context) (any, error) {
-		if fx.Lane == nil || fx.Specs == nil {
+		if fx.Workflow == nil || fx.Specs == nil {
 			return nil, fmt.Errorf("lane adapters off for %s", p.name)
 		}
 		cfg, err := config.LoadDaemon(p.root)
 		if err != nil {
 			return nil, err
 		}
-		target, _, err := fx.Specs.Target(ctx, mt.task)
+		target, _, err := fx.Workflow.Target(ctx, mt.task)
 		if err != nil {
 			return nil, err
 		}
@@ -205,7 +205,7 @@ func (a *App) freeStep(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 				fin.Dir = l.Dir
 			}
 		}
-		line, err := fx.Lane.Free(ctx, fin)
+		line, err := fx.Workflow.Free(ctx, fin)
 		var refused port.Refused
 		if errors.As(err, &refused) {
 			return freeOut{Refused: refused.Line}, nil

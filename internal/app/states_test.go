@@ -93,7 +93,8 @@ func closedOf(cause string) block {
 func TestStatesOneRowPerState(t *testing.T) {
 	t.Parallel()
 	want := []string{stSubmitted, stCandidate, stGreen, stAwaiting, stRed, stConflict, stResolving, stResolved, stAccepted,
-		stMoved, stPublished, stMerged, stRejected, stDropped, stWaiting, stDispatched, stWorking, stDriving, stDropping}
+		stMoved, stPublished, stPending, stMerged, stRejected, stDropped, stWaiting, stDispatched, stWorking, stDriving,
+		stDropping}
 	var got []string
 	for st := range states {
 		got = append(got, st)
@@ -101,7 +102,7 @@ func TestStatesOneRowPerState(t *testing.T) {
 	slices.Sort(got)
 	slices.Sort(want)
 	if !slices.Equal(got, want) {
-		t.Fatalf("states %v, want the 19 of loop.go %v", got, want)
+		t.Fatalf("states %v, want the 20 of loop.go %v", got, want)
 	}
 }
 
@@ -195,6 +196,13 @@ func TestStatePublishedRow34(t *testing.T) {
 	t.Parallel()
 	checkRow(t, rowWant{verbs: vDrop, mt: mtask{state: stPublished}, name: "a step (published)",
 		refuse: "T-1 is published; retry when it settles"})
+}
+
+// T-1029: a pending publish has no step of its own; drive's Landed rule ends it (landed).
+func TestStatePendingRow34(t *testing.T) {
+	t.Parallel()
+	checkRow(t, rowWant{verbs: vDrop, mt: mtask{state: stPending}, waits: true, name: "a step (pending)",
+		refuse: "T-1 is pending", landed: true})
 }
 
 func TestStateMergedRow38(t *testing.T) {

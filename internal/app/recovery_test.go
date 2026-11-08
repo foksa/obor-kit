@@ -19,7 +19,7 @@ import (
 )
 
 // Recovery (T-338, RV-37): obor serve dies at any point of a merge-loop step, before its effect or after it with the
-// result lost, and the restart takes the task on from there with the in-memory Scratch (app.FakeScratch: an effect
+// result lost, and the restart takes the task on from there with the in-memory Scratch (app.FakeWorkflow: an effect
 // that ran is in it, as it would be in git).
 
 // crashAt makes the app's log refuse the record kind/step and every record after it, and ends the app there (the

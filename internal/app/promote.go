@@ -61,25 +61,6 @@ const promoteRetry = 10 * time.Minute
 // promoteRedPrefix starts the reason of a RED promotion's needs-you.
 const promoteRedPrefix = "promotion RED "
 
-// Promote is a project's promotion (branches.promote set; Loop.Promote nil: off, today's flow).
-type Promote struct {
-	Branch string                 // branches.promote: the promoted branch (main)
-	Target string                 // branches.main: the branch tasks merge into (staging)
-	Weight int                    // merge.promote_weight: the merged weight that triggers a promotion
-	Weigh  func(level string) int // merge.weights: a difficulty level's weight
-	// Run runs the full suite at sha in the promotion worktree: GREEN or RED (the promoted branch at sha or past it:
-	// GREEN, nothing run); an error: it ended neither (tried again).
-	Run func(ctx context.Context, sha string) (port.PromoteOut, error)
-	// Passed: the promoted branch is at sha or past it (T-984): nothing to promote there.
-	Passed func(ctx context.Context, sha string) (bool, error)
-	// FF fast-forwards the promoted branch to sha, decided by ancestry (T-984): moved, already (at sha or past it) or
-	// refused (diverged); an error: git.
-	FF func(ctx context.Context, sha string) (port.FFOut, error)
-	// After runs commands.after_merge in the promotion worktree at sha, OBOR_ROOT set; since is the sha promoted before
-	// ("": none), for its when paths. ran | skipped | WARN …; an error: tried again.
-	After func(ctx context.Context, sha, since string) (string, error)
-}
-
 // PromoteOut is port.PromoteOut, the promotion run's one result type (T-978), by its name in package app (the
 // readers' describe.go decodes a result with it).
 type PromoteOut = port.PromoteOut
@@ -217,7 +198,7 @@ func (p *proj) loopIdle() bool {
 	for _, mt := range p.folded.loop {
 		switch mt.state {
 		case stSubmitted, stCandidate, stGreen, stAwaiting, stConflict, stResolving, stResolved, stAccepted, stMoved,
-			stPublished:
+			stPublished, stPending:
 			return false
 		}
 	}
@@ -225,15 +206,12 @@ func (p *proj) loopIdle() bool {
 }
 
 // promotion is the pass's promotion step (see the top of this file): settle, a pending run, a GREEN run's
-// fast-forward, after_promote, then the trigger. Off (no Loop.Promote): the promotion's open needs-you ends (T-1013);
-// no review git: nothing.
+// fast-forward, after_promote, then the trigger. Off (no workflow, or its Promotion nil): the promotion's open
+// needs-you ends (T-1013).
 func (a *App) promotion(ctx context.Context, p *proj, fx *Loop) {
-	pr := fx.Promote
+	pr := fx.promotion()
 	if pr == nil {
 		a.settleNeeds(p, event.PromoteTask, "") // T-1013: promotion off, no promotion needs-you stays open
-		return
-	}
-	if fx.Review == nil {
 		return
 	}
 	a.mu.Lock()
@@ -254,10 +232,10 @@ func (a *App) promotion(ctx context.Context, p *proj, fx *Loop) {
 		}
 		return
 	}
-	head, err := fx.Review.Head(ctx, pr.Target)
+	head, err := fx.Workflow.Head(ctx, pr.Target)
 	if err == nil {
 		var at string
-		if at, err = fx.Review.Head(ctx, pr.Branch); err == nil {
+		if at, err = fx.Workflow.Head(ctx, pr.Branch); err == nil {
 			a.promoteHeads(ctx, p, fx, pr, st, head, at, idle, restarting, now)
 			return
 		}
@@ -266,7 +244,7 @@ func (a *App) promotion(ctx context.Context, p *proj, fx *Loop) {
 }
 
 // promoteHeads is promotion's part once it read the target's head and the promoted branch's sha (at).
-func (a *App) promoteHeads(ctx context.Context, p *proj, fx *Loop, pr *Promote, st promoteState, head, at string,
+func (a *App) promoteHeads(ctx context.Context, p *proj, fx *Loop, pr *port.Promote, st promoteState, head, at string,
 	idle, restarting bool, now time.Time) {
 	wait, waitRV, waitRun := "", "", ""
 	var waiting []string // the tasks merged up to R that no closed review covered (T-985)
@@ -431,7 +409,7 @@ func (a *App) setBatch(p *proj, in promoteIn) {
 
 // promoteBatch is the promotion intent for head: the tasks merged since at (the fold's merges, oldest first,
 // reviewLog.between) and their weight (each its spec's Difficulty level's weight; no spec or no line: medium's).
-func (a *App) promoteBatch(p *proj, pr *Promote, at, head string) (promoteIn, error) {
+func (a *App) promoteBatch(p *proj, pr *port.Promote, at, head string) (promoteIn, error) {
 	a.mu.Lock()
 	merges := p.folded.rv.between(at, head)
 	a.mu.Unlock()
@@ -502,7 +480,7 @@ func (a *App) goPromote(ctx context.Context, p *proj, fn func(context.Context)) 
 
 // runPromote runs the full suite at in.SHA under step's intent, then settles a RED result (its needs-you) or counts
 // the failure; a GREEN one is the next pass's fast-forward.
-func (a *App) runPromote(ctx context.Context, p *proj, pr *Promote, step string, in promoteIn) {
+func (a *App) runPromote(ctx context.Context, p *proj, pr *port.Promote, step string, in promoteIn) {
 	key := event.Intent{Key: event.Key{Task: event.PromoteTask, Step: step}, Class: event.ClassGit, Data: in}
 	raw, err := a.do(ctx, p, key, func(ctx context.Context) (any, error) {
 		out, err := pr.Run(ctx, in.SHA)
@@ -522,7 +500,7 @@ func (a *App) runPromote(ctx context.Context, p *proj, pr *Promote, step string,
 }
 
 // promotePassed: the promoted branch is at sha or past it (a git error: not, logged).
-func (a *App) promotePassed(ctx context.Context, p *proj, pr *Promote, sha string) bool {
+func (a *App) promotePassed(ctx context.Context, p *proj, pr *port.Promote, sha string) bool {
 	passed, err := pr.Passed(ctx, sha)
 	if err != nil {
 		a.logf("promotion of %s: %s passed: %v", p.name, short(sha), err)
@@ -533,7 +511,7 @@ func (a *App) promotePassed(ctx context.Context, p *proj, pr *Promote, sha strin
 // promoteFF fast-forwards the promoted branch to sha (since: where it was); moved, it records fact promoted{sha}.
 // Already (the branch moved past sha meanwhile, T-984) records nothing; refused (diverged) and an error are counted
 // under key.
-func (a *App) promoteFF(ctx context.Context, p *proj, pr *Promote, sha, since, key string) {
+func (a *App) promoteFF(ctx context.Context, p *proj, pr *port.Promote, sha, since, key string) {
 	out, err := pr.FF(ctx, sha)
 	switch {
 	case err != nil:
@@ -549,7 +527,7 @@ func (a *App) promoteFF(ctx context.Context, p *proj, pr *Promote, sha, since, k
 
 // recordPromoted records fact promoted{sha} (since: the promoted branch's sha before), which ends a RED promotion's
 // needs-you and starts after_promote.
-func (a *App) recordPromoted(p *proj, pr *Promote, sha, since string) {
+func (a *App) recordPromoted(p *proj, pr *port.Promote, sha, since string) {
 	if a.record(p, event.Record{Task: event.PromoteTask, Step: event.StepPromoted, Kind: event.KindFact},
 		promotedData{SHA: sha, Since: since, Branch: pr.Branch}) {
 		a.settleNeeds(p, event.PromoteTask, "")
@@ -557,7 +535,7 @@ func (a *App) recordPromoted(p *proj, pr *Promote, sha, since string) {
 }
 
 // afterPromote runs commands.after_merge for the promoted d.SHA under step's intent (row 51).
-func (a *App) afterPromote(ctx context.Context, p *proj, pr *Promote, step string, d promotedData) {
+func (a *App) afterPromote(ctx context.Context, p *proj, pr *port.Promote, step string, d promotedData) {
 	in := event.Intent{Key: event.Key{Task: event.PromoteTask, Step: step}, Class: event.ClassGit, Data: d}
 	if _, err := a.do(ctx, p, in, func(ctx context.Context) (any, error) { return pr.After(ctx, d.SHA, d.Since) }); err != nil {
 		a.promoteFailed(ctx, p, step, err)

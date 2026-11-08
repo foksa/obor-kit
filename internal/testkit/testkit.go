@@ -297,7 +297,7 @@ func Adopt(t testing.TB, base string) *Project {
 }
 
 // NewDir is a plain project dir <Base>/proj with no git (T-996): for tests whose git side is a fake (internal/app's
-// FakeScratch). Config writes .obor/config.json there; Lane makes a plain lane dir; Git fails the test.
+// FakeWorkflow). Config writes .obor/config.json there; Lane makes a plain lane dir; Git fails the test.
 func NewDir(t testing.TB) *Project {
 	t.Helper()
 	p := &Project{t: t, Base: shortDir(t), plain: true, branches: map[string]string{}}

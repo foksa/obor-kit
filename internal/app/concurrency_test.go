@@ -21,11 +21,11 @@ import (
 // merge loop goes on with every other step meanwhile. The fakes below are safe for the loop goroutine, the gate's
 // goroutine and the test at once.
 
-// concFakes is one project's adapters: its Scratch the package's one fake (FakeScratch: gates green, a held gate,
+// concFakes is one project's adapters: its Scratch the package's one fake (FakeWorkflow: gates green, a held gate,
 // publish, resolved check or lane test waits for its release), its Agents, Typer, LaneSetup and Specs.
 type concFakes struct {
-	*FakeScratch
-	restarts int // under the FakeScratch's mu
+	*FakeWorkflow
+	restarts int // under the FakeWorkflow's mu
 	// obor drop by lane (T-439): the stops (agent, force) and Free inputs; refuse: Free's refusal ("": frees).
 	stops  []string
 	frees  []port.FreeInput
@@ -41,9 +41,9 @@ type concFakes struct {
 // newConcFakes is a project's adapters whose gate of hold waits for release; the target is at "b", and a candidate
 // has no Base unless the test says so (unbased false: a lane test follows its gate, T-961).
 func newConcFakes(hold string) *concFakes {
-	s := NewFakeScratch("b")
+	s := NewFakeWorkflow("b")
 	s.hold, s.release, s.entered, s.unbased, s.Checks = hold, make(chan struct{}), make(chan string, 16), true, "check 1 pass"
-	return &concFakes{FakeScratch: s}
+	return &concFakes{FakeWorkflow: s}
 }
 
 func (f *concFakes) Launch(context.Context, port.Launch) (port.Started, error) {
@@ -122,9 +122,9 @@ func newConcRig(t *testing.T) *concRig {
 		r.roots[name] = root
 		f := newConcFakes("")
 		r.fakes[name] = f
-		fx := &Loop{Scratch: f, Agents: f, Typer: f, Kit: r.kit}
+		fx := &Loop{Workflow: WorkflowOf(f), Agents: f, Typer: f, Kit: r.kit}
 		if name == "pj" {
-			fx.Lane, fx.Specs = f, f
+			fx.Specs = f
 		}
 		a := New(Options{Root: root, Now: func() time.Time { return now }}, &fakePanes{}, &fakeLanes{})
 		a.opt.Loop = func(string) (*Loop, error) { return fx, nil }
@@ -503,7 +503,7 @@ func TestLaneRowWriteFailurePersistent(t *testing.T) {
 }
 
 func (f *concFakes) loopWithSpecs(kit string) *Loop {
-	return &Loop{Scratch: f, Agents: f, Typer: f, Lane: f, Specs: f, Kit: kit}
+	return &Loop{Workflow: WorkflowOf(f), Agents: f, Typer: f, Specs: f, Kit: kit}
 }
 
 // pauseSpecs is the spec check of a dispatch: it holds the admission at pause.
