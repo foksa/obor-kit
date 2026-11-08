@@ -7,23 +7,36 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 
 ## Handoff (lead; rewrite at each handoff)
 Read `docs/observations.md` first (patterns from past sessions: where we went in circles, the load tax, traps).
-- 2026-11-06 ~14:00 (lead; owner: near the weekly limit, done for today; previous Handoff: `git show 0869e040:BACKLOG.md`).
-  **Release v0.29.0 tagged** (56697472, checksums 8e2f5c9b) after T-937 (the outer release's `OBOR_RELEASE_LOGGED` leaked
-  into tests/release's nested release) and RV-130. **The owner runs `! make ship`** (push, publish, install, one
-  `obor send` per project); then serves follow the new binary. If `git ls-remote --tags origin v0.29.0` shows nothing,
-  ship has not run yet.
-  **Done today:** RV-124..RV-129 all closed. Waves G (verify as a rule + `Fixes:` line, T-924), H (needs-you/watch
-  rules, T-927), I (close through serve, T-926/T-928), J1a (four locks → one `mu` section, T-931); J1b (T-933)
-  reverted by T-936 after two regressions (the dispatch-class locks order verbs across git reads: they stay); J2
-  dropped (DD-wave-j: +130). Also T-930/T-934 (restart never cuts a main-checkout writer), T-935 (restart_serve gone),
-  T-932 (hard tasks reviewed on merge, `Fixes:` never), T-925 (Go cache probe gone). Net since c82ae3a: prod −152,
-  tests +424.
-  **Next:** (1) finish the release. (2) Compat census (docs/design.md change rule 5, never run): count old record
-  shapes per registered store, delete branches with none; T-924/T-927 added two marked "until v0.29". (3) Model pause
-  in `obor status` (Open below). (4) Re-measure re-gates on a busy day (11-06 sample too small: 4 moves in 12
-  publishes; no compile-only re-gate seen yet). Owner prefers tasks that remove a step or a mechanism over refactors
-  (observations).
-  **Owner side:** obor web on the tailnet (`tailscale serve --bg 8787`); herdr 0.9.5 idle CPU.
+- 2026-11-08 ~06:30 (lead; previous Handoff: `git show 577e5b80:BACKLOG.md`). **Test-suite rework done**
+  (docs/plan/test-suite-rework.md; owner 11-07: "full and proper fix of test"). Nothing in flight; every lane free;
+  serve on staging's head; `branches.promote` OFF (config: `"branches": {"main": "staging"}`).
+  **Where tests run now** (AGENTS.md Tests, docs/decisions.md 11-08): slot = merge + `make check-compile`; lane =
+  class checks (Go: `check-affected`, `go test -short` on changed pkgs + importers; several classes → each class's
+  check; full lane → `make check` + `with_full` classes release/web); nightly = full `make check`, `check_budget`.
+  Budget: `tests/budget.json` (per-package caps at 2 cores, git counts, per-test caps for merge-path tests that stay in
+  `-short`, `untagged_s` 1.3). **`make check-budget` 11-08 06:23 (after every fix; 449 s, load 2.9 → 2.5):** no
+  package over its wall or git cap; 17 untagged tests >= 1.3 s, now visible because parallel subtests' work counts
+  (T-1004): launch TestStopForceTerminates 20.9 s, TestStopLeftoverMCP 12.3, TestStopUnprovenLeftovers 10.0,
+  TestStopEveryKind 2.3, TestScheduledWaitsThenDecidesFresh 2.1, TestSameAgentAfterScheduledWait 1.9; setup
+  TestPlacementTable 17.2, TestPaneSplitsTheLargestPane 5.8, TestCodexSetupStartRecordsItsSession 3.8,
+  TestOborInitLaneSetupOnARerun 2.8, TestNewPaneShellIsWaitedFor 2.6, TestSetupNonOpencodePaneDropsTheInheritedModel
+  2.2, TestSetupPaneStopsWhenTheEnvLineFailed 2.0; config TestValidate 10.3; cmd/obor TestOtherHooksNoBinaryAllow 6.2,
+  TestReviewGitCloseCommitFails 3.2, TestShimHasHook 2.1. Most look like waited-out grace periods and sleeps (stop,
+  scheduled wait). Next task: same shape as T-1006 (faster first; inject the wait; Slow only with a real why).
+  **Measured** (2 cores, quiet): internal/app -short 60.9 → 12.8 s (git 10,292 → 30); internal/checks -short 99.4 →
+  ~40 s; cmd/obor -short 41.5 → 26.5 s; full suite 20+ min → ~145 s; a lane's check-affected for one internal/app file
+  67.4 → 27.7 s. Causes found 11-07: git storms (25–33k per run), fseventsd overload + 14k leaked temp dirs, an editor
+  watching worktrees, full suites in lanes, speculative promotion runs.
+  **Merged 11-08:** T-995 (lane: go test only), T-1001 (release tests behind a tag), T-1002 (budget), T-1003 (multi-class
+  lanes), T-1004 (budget counts parallel work; 4 revs — my rule was wrong twice: read how Go reports before writing a
+  measure), T-1005, T-1006 (13 slow tests fast or marked), T-1007 (`with_full`), T-1008. RV-139 closed (3 accepted).
+  **Next:** (0) the 17-test task above (spec like T-1006, `.obor/drafts/T-1006.md`). (1) rewrite `docs/design.md` "Test tiers and receipts" (~line 536; lead-owned, protected): most of it
+  describes the pre-T-961 gate (receipts, kept/moved re-gates, OBOR_MOVED); check the code for what still exists, then
+  rewrite to the tiers above. (2) Task priority (Open, owner 11-07). (3) Decide promotion: it stays off until the
+  generic test-time flow (Later) and serve following staging vs main (Open) are settled; its stale needs-you repeats
+  hourly until then (Concerns). (4) `TestScratchCutTable` speed-up (31 s of work, capped). (5) T-993/T-994 are stored
+  specs only, both superseded (status lists them as queued; nothing to drop). (6) Review due counts from RV-139's close.
+  **Owner side:** `.obor/local.json` slots.max 4 (was 1; backup in the 11-07 lead's scratchpad).
 
 ## Owner decisions pending
 - (none; branching decided 11-07, docs/decisions.md)
