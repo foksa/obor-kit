@@ -503,6 +503,10 @@ func (a *App) prepareReview(ctx context.Context, p *proj, g port.Review, q *revi
 const copiedLine = "Does it add a field or type that copies data another type already holds? Name the owner type." +
 	" Does a client decide something from a state string that serve knows? Then serve ships the predicate."
 
+// resultLine is the review file's first line, in every review and verify brief (T-1072): the reviewer's role text
+// carries the rule too, but two reviews came back without the line when only the role text said it.
+const resultLine = "The file's first line is `Result: approved | changes requested · <sha reviewed> · <scope>`."
+
 // redundantLine is docs/design.md "Change rules" rule 6, in every review and verify brief (T-869): what the change
 // made redundant, then (T-884) whether it copied data another type owns.
 const redundantLine = "What did this make redundant? Name it or confirm it is gone. On rule-tier steps a crash or" +
@@ -546,7 +550,7 @@ func reviewBrief(id string, s ReviewSetup, short, from, prev, last string, scope
 		" Extent line: every other entry point / branch that shares the root cause, each marked checked or unchecked."+
 		" A finding only a constructed case hits goes in a short \"Not reported (constructed)\" list instead: one line"+
 		" each, no fix proposal. "+redundantLine+" Your worktree is at %s (check out any commit there); write only %s/%s.md in the main"+
-		" checkout %s. Do not commit.", short, s.Reviews, id, s.Root)
+		" checkout %s. "+resultLine+" Do not commit.", short, s.Reviews, id, s.Root)
 	if note = strings.TrimSpace(note); note != "" {
 		b.WriteString("\nLead's note: " + note)
 	}
