@@ -615,7 +615,14 @@ func TestLoopHappyPath(t *testing.T) {
 		t.Fatalf("precondition: before the task_done only T-1's dispatch: %q", got)
 	}
 
-	r.submit()
+	// T-1005: the captured GateInput's body is the report's whole Summary section, bullets and all (RV-139 #4).
+	body := "done.\n" +
+		"- internal/app/steps.go: the whole Summary into GateInput.Body\n" +
+		"- internal/app/loop_test.go: this assertion"
+	rep := "Summary: " + body + "\nSelf-check: ok.\nSkipped: none.\nOpen questions: none."
+	if reply, err := r.taskDone(rep); err != nil || reply != "submitted" {
+		t.Fatalf("task_done: %q, %v; records:\n%s", reply, err, strings.Join(r.steps(), "\n"))
+	}
 	job := r.waitJob("pj-int", "T-1/1/review")
 	if got := r.scratch.Tests.Load(); got != 1 {
 		t.Errorf("lane tests %d before the review, want 1 (T-961: gate, candidate, test, then the review)", got)
@@ -627,7 +634,7 @@ func TestLoopHappyPath(t *testing.T) {
 		t.Errorf("integrator starts = %d, want 1 (it did not run)", r.starts.Load())
 	}
 	for _, want := range []string{"Review T-1 for obor serve (attempt 1, lane L-01): the slot compiled it (no commands.compile) " +
-		"and its lane test is green (rc=0)", "No spec is stored for T-1.\n", "feature.txt", "The worker's report:\n" + report,
+		"and its lane test is green (rc=0)", "No spec is stored for T-1.\n", "feature.txt", "The worker's report:\n" + rep,
 		"Patch hash: ", "the task's own diff"} {
 		if !strings.Contains(job, want) {
 			t.Errorf("review job has no %q:\n%s", want, job)
@@ -659,8 +666,8 @@ func TestLoopHappyPath(t *testing.T) {
 		"1 fact delivered", "1 intent accept.c1", "1 result accept.c1", "1 intent publish", "1 result publish",
 		"1 fact merged", "1 intent after_merge", "1 result after_merge", "1 intent agent.stop", "1 result agent.stop"},
 		"records")
-	if in := r.scratch.Inputs(); len(in) != 1 || in[0].Summary != "done." || in[0].Title != "" {
-		t.Errorf("gate inputs %+v, want one with the report's summary and no title (the merge's subject)", in)
+	if in := r.scratch.Inputs(); len(in) != 1 || in[0].Summary != "done." || in[0].Title != "" || in[0].Body != body {
+		t.Errorf("gate inputs %+v, want one with the report's summary, the whole Summary section as its body and no title (the merge's subject)", in)
 	}
 	if r.scratch.AfterMerges.Load() != 1 || r.scratch.Publishes.Load() != 1 {
 		t.Errorf("after_merge runs %d, publishes %d; want 1, 1", r.scratch.AfterMerges.Load(), r.scratch.Publishes.Load())
