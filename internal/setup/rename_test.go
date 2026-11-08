@@ -19,8 +19,8 @@ import (
 func renameProject(t *testing.T) *fx {
 	t.Helper()
 	x := newFx(t, testkit.Set("guards", `{"allow_push": ["lead", "integrator"]}`))
-	x.Lane("L-01", "task/T-1")
-	x.Lane("L-02", "task/T-2")
+	x.PlainLane("L-01", "task/T-1")
+	x.PlainLane("L-02", "task/T-2")
 	x.Config(testkit.Set("guards", `{"allow_push": ["lead", "integrator"]}`))
 	x.Write(".obor/local.json", `{"guards": {"allow_push": ["reviewer", "pj-lead"]}}`+"\n")
 	x.Dispatched("L-01")

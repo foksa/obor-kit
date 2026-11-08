@@ -6,16 +6,14 @@ import (
 	"time"
 
 	"obor/internal/herdr/herdrtest"
-	"obor/internal/testkit"
 )
 
 // A run's panes go to the project's herdr workspace — the one whose panes work in the project — never to the workspace
 // of the pane obor was run from when that is another project's (T-628, live: axis-maps' panes landed in obor-kit's w5).
 func TestPlacementFollowsTheProjectsWorkspace(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	x := newFx(t)
-	x.ok(t, "lane", "L-01")
+	x.lane(t, "L-01")
 	lane := x.LaneDir("L-01")
 	x.h.Panes = nil
 	x.h.Tab("w5:t9", 200, 50, "w5:p9") // the caller's: another project's pane
@@ -52,8 +50,8 @@ func TestPlacementTable(t *testing.T) {
 	t.Run("no project pane, caller in another project's workspace: a new workspace, both lanes there", func(t *testing.T) {
 		t.Parallel()
 		x := newFx(t)
-		x.ok(t, "lane", "L-01")
-		x.ok(t, "lane", "L-02")
+		x.lane(t, "L-01")
+		x.lane(t, "L-02")
 		x.h.Panes = nil
 		x.h.Tab("w5:t9", 200, 50, "w5:p9")
 		x.h.Pane("w5:p9").Cwd, x.h.Pane("w5:p9").Workspace = "/elsewhere/other", "w5"
@@ -87,7 +85,7 @@ func TestPlacementTable(t *testing.T) {
 	t.Run("a project pane in wA: wA, no workspace made", func(t *testing.T) {
 		t.Parallel()
 		x := newFx(t)
-		x.ok(t, "lane", "L-01")
+		x.lane(t, "L-01")
 		x.h.Panes = nil
 		x.h.Tab("w5:t9", 200, 50, "w5:p9")
 		x.h.Tab("wA:t1", 200, 50, "wA:p1")
@@ -104,7 +102,7 @@ func TestPlacementTable(t *testing.T) {
 	t.Run("one project pane and two unknown-cwd panes: that tab is not split, a new tab", func(t *testing.T) {
 		t.Parallel()
 		x := newFx(t)
-		x.ok(t, "lane", "L-01")
+		x.lane(t, "L-01")
 		lane := x.LaneDir("L-01")
 		x.h.Panes = nil
 		x.h.Tab("wA:t1", 200, 50, "wA:p1", "wA:p2", "wA:p3")
@@ -125,7 +123,7 @@ func TestPlacementTable(t *testing.T) {
 	t.Run("caller cd'd into the root in another project's workspace: a new workspace (T-634)", func(t *testing.T) {
 		t.Parallel()
 		x := newFx(t)
-		x.ok(t, "lane", "L-01")
+		x.lane(t, "L-01")
 		x.h.Panes = nil
 		x.h.Tab("w5:t1", 200, 50, "w5:p1", "w5:p2") // another project's lead, and the caller cd'd into this root
 		x.h.Tab("w5:t2", 200, 50, "w5:p3")          // another of that project's panes
@@ -148,7 +146,7 @@ func TestPlacementTable(t *testing.T) {
 	t.Run("only project panes and unknown-cwd ones: that workspace (T-634)", func(t *testing.T) {
 		t.Parallel()
 		x := newFx(t)
-		x.ok(t, "lane", "L-01")
+		x.lane(t, "L-01")
 		x.h.Panes = nil
 		x.h.Tab("wA:t1", 200, 50, "wA:p1")
 		x.h.Tab("wA:t2", 200, 50, "wA:q1") // unknown cwd
@@ -169,7 +167,7 @@ func TestPlacementTable(t *testing.T) {
 	t.Run("caller with an unknown cwd: not its tab", func(t *testing.T) {
 		t.Parallel()
 		x := newFx(t)
-		x.ok(t, "lane", "L-01")
+		x.lane(t, "L-01")
 		x.h.Panes = nil
 		x.h.Tab("wA:t1", 200, 50, "wA:p1")
 		x.h.Tab("wA:t2", 200, 50, "wA:q1") // the caller's
@@ -185,7 +183,7 @@ func TestPlacementTable(t *testing.T) {
 	t.Run("several workspaces hold project panes: the one with most is the project's", func(t *testing.T) {
 		t.Parallel()
 		x := newFx(t)
-		x.ok(t, "lane", "L-01")
+		x.lane(t, "L-01")
 		lane := x.LaneDir("L-01")
 		x.h.Panes = nil
 		x.h.Tab("wA:t1", 200, 50, "wA:p1")
@@ -211,7 +209,7 @@ func TestPlacementTable(t *testing.T) {
 	t.Run("an explicit --tab into a mixed tab (a project pane, one with an unknown cwd): a split there", func(t *testing.T) {
 		t.Parallel()
 		x := newFx(t)
-		x.ok(t, "lane", "L-01")
+		x.lane(t, "L-01")
 		x.h.Panes = nil
 		x.h.Tab("wA:t1", 200, 50, "wA:p1", "wA:p2")
 		x.h.Tab("wA:t2", 200, 50, "wA:p3")
@@ -243,10 +241,9 @@ func TestPlacementTable(t *testing.T) {
 // The caller's tab holds another project's lead, in the workspace of this project's pane: that pane is never split
 // (T-628), and the workspace is not the project's (T-634: another project's pane there): a workspace of its own.
 func TestPlacementSkipsAnotherProjectsLeadTab(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	x := newFx(t)
-	x.ok(t, "lane", "L-01")
+	x.lane(t, "L-01")
 	lane := x.LaneDir("L-01")
 	x.h.Panes = nil
 	x.h.Tab("wA:t1", 200, 50, "wA:p1") // the project's: one pane
@@ -270,7 +267,7 @@ func TestNewPaneShellIsWaitedFor(t *testing.T) {
 	t.Run("busy 0.3 s: the start waits and succeeds", func(t *testing.T) {
 		t.Parallel()
 		x := newFx(t)
-		x.ok(t, "lane", "L-01")
+		x.lane(t, "L-01")
 		x.State("L-01", map[string]any{"task": "T-1", "type": "luna"})
 		x.h.NewPaneBusy = 300 * time.Millisecond // three of the start's 100 ms looks: a wait, not a real 2 s (T-1009)
 		begin := time.Now()
@@ -288,7 +285,7 @@ func TestNewPaneShellIsWaitedFor(t *testing.T) {
 	t.Run("busy 15 s: FAIL with the hint", func(t *testing.T) {
 		t.Parallel()
 		x := newFx(t)
-		x.ok(t, "lane", "L-01")
+		x.lane(t, "L-01")
 		x.State("L-01", map[string]any{"task": "T-1", "type": "luna"})
 		x.h.NewPaneBusy = 15 * time.Second
 		// The 10 s bound would make this test take 10 s: the same comparison (busy outlasts the bound), shorter.

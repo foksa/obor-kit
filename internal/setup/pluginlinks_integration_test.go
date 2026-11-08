@@ -1,3 +1,7 @@
+//go:build integration
+
+// T-705 on real git (T-1021): whether git tracks .claude/settings.json decides the lane link.
+
 package setup
 
 import (
@@ -13,7 +17,7 @@ import (
 // nothing.
 func TestOborInitLinksThePluginIntoTheLanes(t *testing.T) {
 	t.Parallel()
-	x := newInitFx(t, false)
+	x := newGitInitFx(t, false)
 	out := x.init(t)
 	cfg, err := config.Load(x.Root)
 	if err != nil {
@@ -51,7 +55,7 @@ func TestOborInitLinksThePluginIntoTheLanes(t *testing.T) {
 // A settings file git tracks reaches every worktree by itself: init adds no link for it.
 func TestOborInitLeavesATrackedSettingsFileToGit(t *testing.T) {
 	t.Parallel()
-	x := newInitFx(t, false)
+	x := newGitInitFx(t, false)
 	x.Write(filepath.Join(x.Root, ".claude", "settings.json"), `{"enabledPlugins":{"obor@obor-kit":true}}`+"\n")
 	x.Git(x.Root, "add", ".claude/settings.json")
 	x.Git(x.Root, "commit", "-q", "-m", "settings")
@@ -69,7 +73,7 @@ func TestOborInitLeavesATrackedSettingsFileToGit(t *testing.T) {
 // before this).
 func TestSetupLaneLinksAnUntrackedPluginSettings(t *testing.T) {
 	t.Parallel()
-	x := newFx(t)
+	x := newGitFx(t)
 	x.Write(filepath.Join(x.Root, ".claude", "settings.json"), `{"enabledPlugins":{"obor@obor-kit":true}}`+"\n")
 	x.ok(t, "lane", "L-01")
 	if !config.PluginEnabledIn(x.LaneDir("L-01")) {

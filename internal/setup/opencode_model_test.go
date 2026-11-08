@@ -29,7 +29,7 @@ func TestSetupOpencodePaneEnvCarriesTheModel(t *testing.T) {
 			x.env = append(x.env, "OBOR_OPENCODE_MODEL=inherited/m#max", "XDG_STATE_HOME=/mine/state")
 			args := []string{"role", "reviewer", "--tab", "w1:t1", "--start"}
 			if c.role == "" {
-				x.ok(t, "lane", "L-01")
+				x.lane(t, "L-01")
 				x.State("L-01", map[string]any{"task": "T-1", "type": "bare"})
 				args = []string{"pane", "--start", "L-01", "--tab", "w1:t1"}
 			}

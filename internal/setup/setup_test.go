@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -65,7 +64,9 @@ type fx struct {
 
 // newFx is a project with a config (prefix pj, lanes_dir ../proj-wt, the built-in models; edits on top) and a fake
 // herdr: tab w1:t1 with pane w1:p1, tab w1:t2 with w1:q1 (200×50 each),
-// both shells of this project (workspace w1, cwd the root: the project's own tabs, T-632).
+// both shells of this project (workspace w1, cwd the root: the project's own tabs, T-632). The project is plain
+// (testkit.NewPlain, T-1021): its role worktrees are laid out as files and no git process runs, so a lane comes from
+// x.lane; a test of what git does with what setup installs uses newGitFx.
 func newFx(t *testing.T, edits ...func(map[string]any)) *fx {
 	t.Helper()
 	x := bare(t)
@@ -73,13 +74,42 @@ func newFx(t *testing.T, edits ...func(map[string]any)) *fx {
 	return x
 }
 
+// newGitFx is newFx in a git repository (testkit.New): for the integration tests, whose subject is the git state setup
+// leaves (lane worktrees, core.hooksPath, obor init's commit).
+func newGitFx(t *testing.T, edits ...func(map[string]any)) *fx {
+	t.Helper()
+	x := bareGit(t)
+	x.Config(edits...)
+	return x
+}
+
 // bare is newFx without a config.
 func bare(t *testing.T) *fx {
+	t.Helper()
+	return withHerdr(t, testkit.NewPlain(t))
+}
+
+// bareGit is newGitFx without a config.
+func bareGit(t *testing.T) *fx {
+	t.Helper()
+	return withHerdr(t, testkit.New(t))
+}
+
+// lane is `obor setup lane <name>` in a plain project: the lane's worktree is laid out as files first
+// (testkit.PlainLane), so setup finds it and runs no git; the config edit, links and lane_setup are setup's.
+func (x *fx) lane(t *testing.T, name string) string {
+	t.Helper()
+	x.PlainLane(name, "")
+	return x.ok(t, "lane", name)
+}
+
+// withHerdr is p with the fake herdr of newFx.
+func withHerdr(t *testing.T, p *testkit.Project) *fx {
 	t.Helper()
 	h := herdrtest.New()
 	h.Tab("w1:t1", 200, 50, "w1:p1")
 	h.Tab("w1:t2", 200, 50, "w1:q1")
-	x := &fx{Project: testkit.New(t), h: h, srv: herdrtest.Serve(t, h)}
+	x := &fx{Project: p, h: h, srv: herdrtest.Serve(t, h)}
 	for _, p := range h.Panes {
 		p.Workspace, p.Cwd = "w1", x.Root
 	}
@@ -297,113 +327,6 @@ func count(text, line string) int {
 
 // --- init -------------------------------------------------------------------------------------------------------------
 
-// bash setup.test.sh case_init_creates_config_docs_and_gitignore_uncommitted
-func TestInitCreatesConfigDocsAndGitignoreUncommitted(t *testing.T) {
-	t.Parallel()
-	x := bare(t)
-	head := x.Git(x.Root, "rev-parse", "HEAD")
-	if x.Exists(".obor/config.json") || x.Exists("docs/agents") || x.Exists("docs/tasks") {
-		t.Fatal("precondition: no config, no agents docs, no tasks dir")
-	}
-	out, err := x.projectStep(t, "My Proj", "mp")
-	if err != nil {
-		t.Fatalf("project step: %v\n%s", err, out)
-	}
-	cfg, err := config.Load(x.Root)
-	if err != nil {
-		t.Fatalf("config loads: %v", err)
-	}
-	if _, fails := cfg.Validate(config.ValidateOptions{}); len(fails) > 0 {
-		t.Errorf("config validates: %v", fails)
-	}
-	d := cfg.Data
-	if d.Name != "My Proj" || d.Prefix != "mp" || d.LanesDir != "../proj-wt" || d.Lanes != 0 {
-		t.Errorf("name, prefix, lanes_dir filled, no lanes: %q %q %q %v", d.Name, d.Prefix, d.LanesDir, d.Lanes)
-	}
-	if _, ok := cfg.Command("lane_setup"); ok || len(d.LaneLinks) != 0 {
-		t.Errorf("the example's lane_setup and lane_links cleared: %v", d.LaneLinks)
-	}
-	if !regexp.MustCompile(`(?m)^  "lanes": 0,`).MatchString(x.Read(".obor/config.json")) {
-		t.Errorf("config at indent 2:\n%s", x.Read(".obor/config.json"))
-	}
-	// T-470: BACKLOG.md and docs/decisions.md instead of a STATUS file (paths.status is gone).
-	for _, h := range []string{"## Handoff", "## Owner decisions pending", "## Open", "## Concerns", "## Ideas"} {
-		has(t, x.Read("BACKLOG.md"), "\n"+h+"\n", "BACKLOG.md section "+h)
-	}
-	has(t, x.Read("docs/decisions.md"), "## Decisions on record", "docs/decisions.md copied")
-	if x.Exists("docs/STATUS.md") || strings.Contains(out, "STATUS") {
-		t.Errorf("init wrote a STATUS file:\n%s", out)
-	}
-	// T-547: paths.tasks is deprecated and nothing writes specs there: init creates no tasks dir.
-	if x.Exists("docs/tasks") {
-		t.Error("init created docs/tasks")
-	}
-	has(t, out, "created .obor/config.json (name My Proj, prefix mp, no lanes)", "the config said")
-
-	// T-204: role texts stay in the kit; the project gets short stubs (title, pointer, "This project" prompts).
-	texts, _ := filepath.Glob(filepath.Join(kit, "templates", "agents", "*.md"))
-	n := 0
-	for _, f := range texts {
-		name := filepath.Base(f)
-		if name == "README.md" {
-			continue
-		}
-		n++
-		b, _ := os.ReadFile(f)
-		title, _, _ := strings.Cut(string(b), "\n")
-		doc := x.Read("docs/agents/" + name)
-		if first, _, _ := strings.Cut(doc, "\n"); first != title+" — My Proj specifics" {
-			t.Errorf("%s: the kit title, project filled: %q", name, first)
-		}
-		has(t, doc, "Role text: `templates/agents/"+name+"` in the obor kit, read in place", name+" pointer")
-		has(t, doc, "## This project", name+": the kit's This project section")
-		if len(doc) >= 1500 || len(doc) >= len(b) {
-			t.Errorf("%s is a short stub: %d chars (kit %d)", name, len(doc), len(b))
-		}
-	}
-	if n < 5 {
-		t.Errorf("precondition: role texts found: %d", n)
-	}
-	hasNot(t, x.Read("docs/agents/worker.md"), "## Rules", "worker stub: no copy of the kit's rules")
-	has(t, x.Read("docs/agents/triage.md"), "mp-triage", "prefix filled in a stub")
-	if x.Exists("docs/agents/README.md") {
-		t.Error("the kit README is read in place, not copied")
-	}
-	has(t, x.Read("docs/agents/task-spec.md"), "## Protected files this task may edit", "the task spec template copied")
-	hasNot(t, x.Read("docs/agents/task-spec.md"), "Files you may touch", "no files section (T-496)")
-	if x.Exists("docs/agents/roster.md") { // T-774: the rosters are gone; obor status and obor web show who runs
-		t.Error("init copied docs/agents/roster.md")
-	}
-	filepath.Walk(x.Path("docs"), func(p string, fi os.FileInfo, _ error) error {
-		if b, _ := os.ReadFile(p); !fi.IsDir() && strings.Contains(string(b), "{{") {
-			t.Errorf("placeholder left in %s", p)
-		}
-		return nil
-	})
-	gi := x.Read(".gitignore")
-	for _, l := range []string{".obor/state/", ".obor/drafts/", ".obor/local.json"} {
-		if count(gi, l) != 1 {
-			t.Errorf(".gitignore has %s once:\n%s", l, gi)
-		}
-	}
-	if count(gi, ".obor/pause") != 0 { // T-465: the pause is serve's fact, no file
-		t.Errorf(".gitignore has no .obor/pause:\n%s", gi)
-	}
-	// T-459: no queue lock any more (the queue is the store); the fixture's own .task-done.md line is left alone.
-	if count(gi, "QUEUE.md.lock") != 0 {
-		t.Errorf(".gitignore has no QUEUE.md.lock:\n%s", gi)
-	}
-	if got := x.Git(x.Root, "rev-parse", "HEAD"); got != head {
-		t.Error("something committed")
-	}
-	if strings.Contains(out, "QUEUE.md") {
-		t.Errorf("init does not say to commit a queue file:\n%s", out)
-	}
-	st := x.Git(x.Root, "status", "--porcelain")
-	has(t, st, "?? .obor/", "config left untracked")
-	has(t, st, "M .gitignore", ".gitignore left modified")
-}
-
 // bash setup.test.sh case_init_never_overwrites_and_is_idempotent
 func TestInitNeverOverwritesAndIsIdempotent(t *testing.T) {
 	t.Parallel()
@@ -448,47 +371,6 @@ func TestInitNeverOverwritesAndIsIdempotent(t *testing.T) {
 	hasNot(t, out, "created", "nothing created on rerun")
 }
 
-// T-731: init ignores the reviews dir (paths.reviews, default docs/reviews): a broad `git add -A` stages no open
-// review, which `obor review close` would refuse.
-func TestInitGitignoresTheReviewsDir(t *testing.T) {
-	t.Parallel()
-	for _, c := range []struct {
-		name, reviews string
-		fresh         bool
-	}{
-		{"default path", "", true},
-		{"custom path", "notes/rv", false},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			var x *fx
-			if c.fresh {
-				x = bare(t)
-			} else {
-				x = newFx(t, testkit.Set("paths.reviews", c.reviews))
-			}
-			want := "docs/reviews/"
-			if c.reviews != "" {
-				want = c.reviews + "/"
-			}
-			if count(x.Read(".gitignore"), strings.TrimSuffix(want, "/")) != 0 {
-				t.Fatalf("precondition: %s not ignored:\n%s", want, x.Read(".gitignore"))
-			}
-			out, err := x.projectStep(t, "", "")
-			if err != nil {
-				t.Fatalf("project step: %v\n%s", err, out)
-			}
-			has(t, out, ".gitignore += "+want, "the reviews dir said")
-			if count(x.Read(".gitignore"), want) != 1 {
-				t.Errorf("%s once:\n%s", want, x.Read(".gitignore"))
-			}
-			if _, err := gitIn(x.Root, "check-ignore", "-q", strings.TrimSuffix(want, "/")+"/RV-1.md"); err != nil {
-				t.Errorf("a review file is ignored (%v):\n%s", err, x.Read(".gitignore"))
-			}
-		})
-	}
-}
-
 // bash setup.test.sh case_init_refuses_a_bad_prefix
 func TestInitRefusesABadPrefix(t *testing.T) {
 	t.Parallel()
@@ -523,61 +405,6 @@ func TestSetupUsageNamesNoInit(t *testing.T) {
 
 // --- lane -------------------------------------------------------------------------------------------------------------
 
-// bash setup.test.sh case_lane_adds_config_entry_worktree_links_and_runs_lane_setup; T-765: the lane is the next
-// L-NN and raises lanes by one.
-func TestLaneAddsConfigWorktreeLinksAndRunsLaneSetup(t *testing.T) {
-	t.Parallel()
-	x := newFx(t, testkit.Set("lane_links", []any{"ref", "assets/img", "missing"}),
-		testkit.Set("commands.lane_setup", "pwd > setup-ran"))
-	x.Write("ref/a", "")
-	x.Write("assets/img/b", "")
-	lane := x.LaneDir("L-01")
-	if pre, _ := config.Load(x.Root); x.Exists(lane) || pre.Data.Lanes != 0 {
-		t.Fatal("precondition: no lane dir, no lanes")
-	}
-	out := x.ok(t, "lane", "L-01")
-	if want := "OK lane L-01 at " + lane; last(out) != want {
-		t.Errorf("last line %q, want %q", last(out), want)
-	}
-	has(t, out, "config lanes = 1 (uncommitted)", "the count raised")
-	cfg, _ := config.Load(x.Root)
-	if cfg.Data.Lanes != 1 || !cfg.HasLane("L-01") {
-		t.Errorf("lanes = %d", cfg.Data.Lanes)
-	}
-	if !regexp.MustCompile(`(?m)^  "lanes": 1`).MatchString(x.Read(".obor/config.json")) {
-		t.Error("config kept at indent 2")
-	}
-	if x.Git(lane, "rev-parse", "HEAD") != x.Git(x.Root, "rev-parse", "main") {
-		t.Error("worktree at main")
-	}
-	if x.Git(lane, "branch", "--show-current") != "" {
-		t.Error("worktree detached")
-	}
-	for _, l := range []string{"ref", "assets/img"} {
-		if got, _ := os.Readlink(filepath.Join(lane, l)); got != x.Path(l) {
-			t.Errorf("link %s: %q", l, got)
-		}
-	}
-	has(t, out, "warning: lane_links missing", "a missing link source said")
-	if x.Read(lane+"/setup-ran") != lane+"\n" {
-		t.Error("lane_setup ran in the lane")
-	}
-	has(t, x.Git(x.Root, "status", "--porcelain"), "M .obor/config.json", "config edit left uncommitted")
-
-	os.Remove(lane + "/setup-ran")
-	out = x.ok(t, "lane", "L-01")
-	for _, want := range []string{"skip worktree " + lane + " (exists)", "skip link ref (exists)",
-		"skip config lanes (L-01 is lane 1 of 1)"} {
-		has(t, out, want, "rerun")
-	}
-	if !x.Exists(lane + "/setup-ran") {
-		t.Error("lane_setup reruns")
-	}
-	if cfg, _ = config.Load(x.Root); cfg.Data.Lanes != 1 {
-		t.Errorf("lanes after rerun: %d", cfg.Data.Lanes)
-	}
-}
-
 // T-765: lanes are L-01 … L-NN in order: setup lane takes a configured lane or the next one, nothing else, and one
 // name only (no type).
 func TestLaneTakesOnlyTheNextLNN(t *testing.T) {
@@ -589,9 +416,9 @@ func TestLaneTakesOnlyTheNextLNN(t *testing.T) {
 			t.Errorf("worktree %s made", name)
 		}
 	}
-	x.ok(t, "lane", "L-01")
+	x.lane(t, "L-01")
 	x.failing(t, "FAIL lanes are L-01 … L-NN in order (lanes: 1): the next one is L-02", "lane", "L-03")
-	x.ok(t, "lane", "L-02")
+	x.lane(t, "L-02")
 	if cfg, _ := config.Load(x.Root); cfg.Data.Lanes != 2 {
 		t.Errorf("lanes = %d, want 2", cfg.Data.Lanes)
 	}
@@ -605,10 +432,9 @@ func TestLaneTakesOnlyTheNextLNN(t *testing.T) {
 // T-765: a lane pane without --start is labelled and starts nothing; with --start it runs the default kind with no
 // model (no dispatch names one), as obor restart does.
 func TestPaneOnALaneStartsTheDefaultKindWithoutADispatch(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	x := newFx(t)
-	x.ok(t, "lane", "L-01")
+	x.lane(t, "L-01")
 	x.reset()
 	out := x.ok(t, "pane", "L-01", "--tab", "w1:t1")
 	has(t, out, "no agent started", "a pane without --start")
@@ -626,10 +452,9 @@ func TestPaneOnALaneStartsTheDefaultKindWithoutADispatch(t *testing.T) {
 // T-770: the owner's drive agent (role driver) is a lane's agent too: its Claude start is strict — obor's MCP server
 // alone, the user's MCP servers out of its context on every job.
 func TestDriveStartIsStrict(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	x := newFx(t)
-	x.ok(t, "lane", "L-01")
+	x.lane(t, "L-01")
 	x.reset()
 	s, out := x.newSetup(t)
 	s.Dir = x.Root
@@ -646,6 +471,7 @@ func TestDriveStartIsStrict(t *testing.T) {
 func TestLaneRefusesAFailingSetup(t *testing.T) {
 	t.Parallel()
 	x := newFx(t, testkit.Set("commands.lane_setup", "echo boom; exit 3"))
+	x.PlainLane("L-01", "") // the worktree is git's (TestLaneAddsConfigWorktreeLinksAndRunsLaneSetup): here, files
 	out := x.failing(t, "FAIL lane_setup exited 3 in "+x.LaneDir("L-01")+": echo boom; exit 3", "lane", "L-01")
 	has(t, out, "boom", "setup output shown")
 }
@@ -660,10 +486,9 @@ var laneArgs = "--mcp-config " + claude.MCPConfig(kit) + " --strict-mcp-config "
 
 // bash setup.test.sh case_pane_splits_the_tab_and_starts_the_agent_in_order
 func TestPaneSplitsTheTabAndStartsTheAgentInOrder(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	x := newFx(t)
-	x.ok(t, "lane", "L-01")
+	x.lane(t, "L-01")
 	lane := x.LaneDir("L-01")
 	out := x.ok(t, "pane", "--start", "L-01", "--tab", "w1:t1")
 	if last(out) != "OK L-01: pj-l-01 in pane w1:n1" {
@@ -695,7 +520,7 @@ func TestPaneSplitsTheLargestPane(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			x := newFx(t)
-			x.ok(t, "lane", "L-01")
+			x.lane(t, "L-01")
 			x.h.Panes = nil
 			for _, p := range c.panes {
 				x.h.Tab("w1:t1", p[0], p[1], fmt.Sprintf("w1:p%d", p[2]))
@@ -719,10 +544,9 @@ func TestPaneSplitsTheLargestPane(t *testing.T) {
 
 // bash setup.test.sh case_pane_refuses_a_full_tab
 func TestPaneRefusesAFullTab(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	x := newFx(t, testkit.Set("limits.max_panes_per_tab", 3))
-	x.ok(t, "lane", "L-01")
+	x.lane(t, "L-01")
 	x.h.Tab("w1:t1", 200, 50, "w1:p2")
 	x.ok(t, "pane", "--start", "L-01", "--tab", "w1:t1")
 	has(t, strings.Join(x.reqs(), "\n"), "pane.split ", "precondition: 2 of 3 panes is not full")
@@ -740,10 +564,9 @@ func TestPaneRefusesAFullTab(t *testing.T) {
 // for another agent → FAIL before any split or start; a failing rename → FAIL, no start.
 // bash setup.test.sh case_pane_label_set_and_refused
 func TestPaneLabelSetAndRefused(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	x := newFx(t)
-	x.ok(t, "lane", "L-01")
+	x.lane(t, "L-01")
 	out := x.ok(t, "pane", "--start", "L-01", "--pane", "w1:p1")
 	has(t, out, "labelled pane w1:p1 pj-l-01", "said")
 	if x.h.Pane("w1:p1").Label != "pj-l-01" {
@@ -782,7 +605,7 @@ func TestPaneLabelSetAndRefused(t *testing.T) {
 func TestPaneSkipsALaneWhoseAgentRuns(t *testing.T) {
 	t.Parallel()
 	x := newFx(t)
-	x.ok(t, "lane", "L-01")
+	x.lane(t, "L-01")
 	x.running([2]string{"someone", x.LaneDir("L-01")})
 	out := x.ok(t, "pane", "--start", "L-01", "--tab", "w1:t1")
 	if last(out) != "OK L-01: someone already running" {
@@ -813,7 +636,7 @@ func TestPaneNotReadyHints(t *testing.T) {
 		{"$ \n", exited, "FAIL herdr agent start pj-l-01 failed (pane w1:n1)"},
 	} {
 		x := newFx(t)
-		x.ok(t, "lane", "L-01")
+		x.lane(t, "L-01")
 		x.State("L-01", map[string]any{"task": "T-1", "type": "luna"})
 		x.screen = c.screen
 		x.srv.Fail("agent.start", c.fail.Code, c.fail.Message)
@@ -822,7 +645,7 @@ func TestPaneNotReadyHints(t *testing.T) {
 		has(t, out, "("+c.fail.Code+")", "herdr's error printed")
 	}
 	x := newFx(t)
-	x.ok(t, "lane", "L-01")
+	x.lane(t, "L-01")
 	x.State("L-01", map[string]any{"task": "T-1", "type": "luna"})
 	x.screen = "Trust this folder?"
 	x.ok(t, "pane", "--start", "L-01", "--tab", "w1:t1")
@@ -831,13 +654,12 @@ func TestPaneNotReadyHints(t *testing.T) {
 
 // bash setup.test.sh case_pane_refuses_an_unknown_lane_and_ambiguous_placement
 func TestPaneRefusesUnknownLaneAndAmbiguousPlacement(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	x := newFx(t)
 	x.failing(t, "FAIL unknown lane L-09 (lanes: 0; obor setup lane L-09 first)", "pane", "L-09", "--tab", "w1:t1")
-	x.ok(t, "lane", "L-01")
+	x.lane(t, "L-01")
 	x.failing(t, "FAIL pass at most one of --tab, --new-tab, --pane", "pane", "--start", "L-01", "--tab", "w1:t1", "--new-tab", "x")
-	x.ok(t, "lane", "L-02")
+	x.lane(t, "L-02")
 	x.ok(t, "pane", "--start", "L-02") // not in a herdr pane: the project's tab with most panes, the first of equals (T-632)
 	has(t, strings.Join(x.reqs(), "\n"), "target_pane_id=w1:p1", "no caller: the project's first tab")
 	x.reset()
@@ -847,113 +669,6 @@ func TestPaneRefusesUnknownLaneAndAmbiguousPlacement(t *testing.T) {
 }
 
 // --- role -------------------------------------------------------------------------------------------------------------
-
-// T-853: the reviewer and the deep dive run in their role worktree <lanes_dir>/<role> (T-718 had them in the main
-// checkout): setup role adds it detached when missing, keeps one that is there, refuses a dir that is no worktree of
-// the repo, and leaves a leftover of the old names (review, deep-dive) alone. No lane is added.
-func TestReviewerAndDeepDiveRunInTheirRoleWorktree(t *testing.T) {
-	testkit.Slow(t)
-	t.Parallel()
-	for _, c := range []struct {
-		role, old, agent, line, env string
-		there                       bool // the role worktree is there before setup role
-		edit                        func(map[string]any)
-	}{
-		{"reviewer", "review", "pj-rev", "OK reviewer: pj-rev in pane w1:n1", "{OBOR_AGENT=,OBOR_LANE=,OBOR_OPENCODE_MODEL=,OBOR_ROLE=reviewer,OPENCODE_CONFIG=}",
-			false, testkit.Set("roles", `{"reviewer": "luna"}`)},
-		{"reviewer", "review", "pj-rev", "OK reviewer: pj-rev in pane w1:n1", "{OBOR_AGENT=,OBOR_LANE=,OBOR_OPENCODE_MODEL=,OBOR_ROLE=reviewer,OPENCODE_CONFIG=}",
-			true, testkit.Set("roles", `{"reviewer": "luna"}`)},
-		{"deep_dive", "deep-dive", "pj-deep-dive", "OK deep_dive: pj-deep-dive in pane w1:n1", "{OBOR_AGENT=,OBOR_LANE=,OBOR_OPENCODE_MODEL=,OBOR_ROLE=deep_dive,OPENCODE_CONFIG=}",
-			false, testkit.Set("roles", `{"deep_dive": "luna"}`)},
-	} {
-		x := newFx(t, c.edit)
-		wt, old := x.LaneDir(c.role), x.LaneDir(c.old)
-		x.Git(x.Root, "worktree", "add", "-q", "--detach", old, "main") // a leftover of before T-718
-		if c.there {
-			x.Git(x.Root, "worktree", "add", "-q", "--detach", wt, "main")
-		}
-		if x.Exists(wt) != c.there {
-			t.Fatalf("precondition: %s there = %v, want %v", wt, x.Exists(wt), c.there)
-		}
-		out := x.ok(t, "role", c.role, "--tab", "w1:t1", "--start")
-		if last(out) != c.line {
-			t.Errorf("%s: last line %q", c.role, last(out))
-		}
-		if top := strings.TrimSpace(x.Git(wt, "rev-parse", "--show-toplevel")); project.Physical(top) != project.Physical(wt) {
-			t.Errorf("%s: %s is no worktree after setup role (toplevel %q)", c.role, wt, top)
-		}
-		if b := strings.TrimSpace(x.Git(wt, "rev-parse", "--abbrev-ref", "HEAD")); b != "HEAD" {
-			t.Errorf("%s: its worktree is on %q, want detached", c.role, b)
-		}
-		if !x.Exists(old) {
-			t.Errorf("%s: the leftover %s was removed", c.role, old)
-		}
-		has(t, strings.Join(x.reqs(), "\n"), "pane.split cwd="+wt+" direction=right env="+c.env+" target_pane_id=w1:p1", c.role)
-		// Codex writes its cwd only: the start adds the main checkout's reviews dir, made when missing.
-		reviews := filepath.Join(x.Root, "docs", "reviews")
-		has(t, strings.Join(x.reqs(), "\n"), "agent.start args=[-s workspace-write -a never --no-daemon -m gpt-6-luna --add-dir "+reviews+" ", c.role+" start")
-		has(t, strings.Join(x.reqs(), "\n"), "kind=codex name="+c.agent+" pane_id=w1:n1", c.role+" start: the agent")
-		if !x.Exists(reviews) {
-			t.Errorf("%s: no %s made for its start", c.role, reviews)
-		}
-		if cfg, _ := config.Load(x.Root); cfg.Data.Lanes != 0 {
-			t.Errorf("%s: added to the lanes", c.role)
-		}
-	}
-	// Another role's Codex start adds no dir.
-	y := newFx(t, testkit.Set("roles", `{"integrator": "luna"}`))
-	y.ok(t, "role", "integrator", "--tab", "w1:t1", "--start")
-	if calls := strings.Join(y.reqs(), "\n"); !strings.Contains(calls, "agent.start args=[-s workspace-write") || strings.Contains(calls, "--add-dir") {
-		t.Errorf("the integrator's codex start:\n%s", calls)
-	}
-
-	x := newFx(t, testkit.Set("roles", `{"reviewer": "luna"}`))
-	x.Write(x.LaneDir("reviewer")+"/notes.txt", "not a worktree\n")
-	x.failing(t, "FAIL "+x.LaneDir("reviewer")+" exists and is not a worktree of "+x.Root, "role", "reviewer", "--tab", "w1:t1", "--start")
-}
-
-// bash setup.test.sh case_role_integrator_starts_in_the_root_and_needs_a_type; T-853: in its role worktree
-// <lanes_dir>/integrator (not the merge scratch, where gates run), added detached when missing.
-func TestRoleIntegratorStartsInItsWorktreeAndNeedsAType(t *testing.T) {
-	testkit.Slow(t)
-	t.Parallel()
-	x := newFx(t)
-	x.h.Tab("w1:t1", 200, 50, "w1:p3")
-	x.failing(t, `FAIL roles.integrator is not set (a model ref, e.g. "opus:high")`, "role", "integrator", "--pane", "w1:p3", "--start")
-	x.Config(testkit.Set("roles", `{"integrator": "opus"}`))
-	x.reset()
-	out := x.ok(t, "role", "integrator", "--pane", "w1:p3", "--start")
-	if last(out) != "OK integrator: pj-int in pane w1:p3" {
-		t.Errorf("last line %q", last(out))
-	}
-	want := []string{"agent.list", "pane.list", "pane.process_info pane_id=w1:p3", "<env line>",
-		"<env wait>", "pane.rename label=pj-int pane_id=w1:p3",
-		"agent.get target=w1:p3",
-		"agent.start args=[--permission-mode auto --model opus " + settings + " --session-id NEW] kind=claude name=pj-int pane_id=w1:p3"}
-	got := x.reqs()
-	for i, r := range got {
-		switch {
-		case strings.HasPrefix(r, "pane.send_input"):
-			got[i] = "<env line>"
-		case strings.HasPrefix(r, "pane.wait_for_output"):
-			got[i] = "<env wait>"
-		}
-	}
-	if named(strings.Join(got, "\n")) != strings.Join(want, "\n") {
-		t.Errorf("calls:\n%s", strings.Join(got, "\n"))
-	}
-	wt := x.LaneDir("integrator")
-	if top := strings.TrimSpace(x.Git(wt, "rev-parse", "--show-toplevel")); project.Physical(top) != project.Physical(wt) {
-		t.Errorf("the integrator's worktree %s is no worktree after setup role (toplevel %q)", wt, top)
-	}
-	if lines := x.envLines(); len(lines) != 1 || !strings.HasPrefix(lines[0], "cd "+wt+" && ") {
-		t.Errorf("typed %q, want the env line to cd the integrator's worktree", lines)
-	}
-	if x.Exists(x.LaneDir("merge")) {
-		t.Errorf("setup role made the merge scratch: it is serve's")
-	}
-
-}
 
 // envLines is the text typed at a shell since reset (pane.send_input), one per line.
 func (x *fx) envLines() []string {
@@ -969,10 +684,9 @@ func (x *fx) envLines() []string {
 // A reused pane (--pane) gets the env line a restart types, so a shell that holds the env of the agent that ran there
 // before (a stale OBOR_AGENT, OBOR_LANE) starts the new agent with its own: cd, exports and unsets, before the start.
 func TestSetupPaneTypesTheEnvAtAReusedPane(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	x := newFx(t, testkit.Set("roles", `{"integrator": "opus"}`))
-	x.ok(t, "lane", "L-01")
+	x.lane(t, "L-01")
 	x.reset()
 	x.ok(t, "role", "integrator", "--pane", "w1:p1", "--start")
 	lines := x.envLines()
@@ -1061,7 +775,6 @@ func envWords(t *testing.T, line string) (ok, bad string) {
 
 // bash setup.test.sh case_role_lead_new_tab_gets_role_and_agent_env
 func TestRoleLeadNewTabGetsRoleEnv(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	x := newFx(t, testkit.Set("roles", `{"lead": "opus"}`))
 	if out := x.ok(t, "role", "lead", "--new-tab", "lead", "--start"); last(out) != "OK lead: pj-lead in pane w1:n1" {
@@ -1074,7 +787,6 @@ func TestRoleLeadNewTabGetsRoleEnv(t *testing.T) {
 
 // T-280: a lead of a type without settings keeps Remote Control; a worker does not. (Setup role lead, the one lead.)
 func TestLeadKeepsRemoteControl(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	x := newFx(t, testkit.Set("roles", `{"lead": "opus"}`))
 	if out := x.ok(t, "role", "lead", "--new-tab", "lead", "--start"); last(out) != "OK lead: pj-lead in pane w1:n1" {
@@ -1088,7 +800,6 @@ func TestLeadKeepsRemoteControl(t *testing.T) {
 // bash setup.test.sh case_role_triage_runs_in_the_root_with_agent_env_only_and_creates_bugs_md; T-796: OBOR_ROLE=triage,
 // so its identity is derived like every other role's.
 func TestRoleTriageRunsInTheRootWithItsRoleEnvAndCreatesBugsMd(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	x := newFx(t)
 	x.failing(t, `FAIL roles.triage is not set (a model ref, e.g. "opus:high")`, "role", "triage", "--new-tab", "triage", "--start")
@@ -1115,7 +826,6 @@ func TestRoleTriageRunsInTheRootWithItsRoleEnvAndCreatesBugsMd(t *testing.T) {
 // OBOR_ROLE=<name>, its agent <prefix>-<name, _ → ->; it seeds nothing (only a default row with Seeds does); a name with
 // no row is the usage line.
 func TestRoleCustomPlaced(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	x := newFx(t)
 	x.failing(t, "FAIL "+Usage(), "role", "ux_buddy", "--new-tab", "ux", "--start")
@@ -1135,166 +845,8 @@ func TestRoleCustomPlaced(t *testing.T) {
 	}
 }
 
-// T-731, T-843: obor setup role reviewer and deep_dive add paths.reviews to an existing project's .gitignore, once: an
-// init made before the line was ignored leaves it out (init's own case is TestInitGitignoresTheReviewsDir).
-func TestRoleSetupGitignoresTheReviewsDir(t *testing.T) {
-	t.Parallel()
-	x := newFx(t, testkit.Set("roles", `{"reviewer": "opus", "deep_dive": "opus"}`))
-	if count(x.Read(".gitignore"), "docs/reviews") != 0 {
-		t.Fatalf("precondition: the reviews dir not ignored:\n%s", x.Read(".gitignore"))
-	}
-	out := x.ok(t, "role", "reviewer", "--new-tab", "review")
-	has(t, out, ".gitignore += docs/reviews/", "the reviewer's setup said")
-	if count(x.Read(".gitignore"), "docs/reviews/") != 1 {
-		t.Errorf("docs/reviews/ once:\n%s", x.Read(".gitignore"))
-	}
-	if _, err := gitIn(x.Root, "check-ignore", "-q", "docs/reviews/RV-1.md"); err != nil {
-		t.Errorf("a review file is ignored (%v):\n%s", err, x.Read(".gitignore"))
-	}
-	gi := x.Read(".gitignore")
-	out = x.ok(t, "role", "deep_dive", "--new-tab", "deep-dive")
-	hasNot(t, out, ".gitignore +=", "the deep dive adds nothing")
-	if x.Read(".gitignore") != gi {
-		t.Errorf("gitignore unchanged:\n%s", x.Read(".gitignore"))
-	}
-}
-
-// T-731, T-843: a reviews line already there, with or without its trailing slash, is left alone (the line is git's
-// either way): setup role reviewer adds no second line.
-func TestRoleSetupLeavesAnExistingReviewsLineAlone(t *testing.T) {
-	t.Parallel()
-	for _, line := range []string{"docs/reviews/", "docs/reviews"} {
-		t.Run(line, func(t *testing.T) {
-			t.Parallel()
-			x := newFx(t, testkit.Set("roles", `{"reviewer": "opus"}`))
-			x.Write(".gitignore", x.Read(".gitignore")+line+"\n")
-			gi := x.Read(".gitignore")
-			if count(gi, line) != 1 {
-				t.Fatalf("precondition: %s there once:\n%s", line, gi)
-			}
-			out := x.ok(t, "role", "reviewer", "--new-tab", "review")
-			hasNot(t, out, ".gitignore +=", "an existing line is not added again")
-			if x.Read(".gitignore") != gi {
-				t.Errorf("gitignore unchanged:\n%s", x.Read(".gitignore"))
-			}
-			if _, err := gitIn(x.Root, "check-ignore", "-q", "docs/reviews/RV-1.md"); err != nil {
-				t.Errorf("a review file is ignored (%v):\n%s", err, x.Read(".gitignore"))
-			}
-		})
-	}
-}
-
 // --- githooks ---------------------------------------------------------------------------------------------------------
-
-// tests/githooks.test.sh case_setup_githooks_sets_chains_removes (T-620)
-func TestGithooksSetsChainsRemoves(t *testing.T) {
-	t.Parallel()
-	x := newFx(t)
-	hooks := filepath.Join(kit, "githooks")
-	chain := filepath.Join(hooks, "chain")
-	if out := x.ok(t, "githooks"); out != "OK githooks: core.hooksPath = "+hooks+"\n" {
-		t.Errorf("set: %q", out)
-	}
-	if got := x.Git(x.Root, "config", "--local", "--get", "core.hooksPath"); got != hooks {
-		t.Errorf("hooksPath %q", got)
-	}
-	if got, err := gitIn(x.Root, "config", "--local", "--get", "obor.hooksChain"); got != "" || err == nil {
-		t.Errorf("no chain for a repo without its own hooks: %q (%v)", got, err)
-	}
-	has(t, x.ok(t, "githooks"), "OK githooks: core.hooksPath already", "rerun")
-	x.ok(t, "githooks", "--remove")
-	if got, _ := gitIn(x.Root, "config", "--local", "--get", "core.hooksPath"); got != "" {
-		t.Errorf("removed: %q", got)
-	}
-	// The project's own hooksPath is chained, not refused (T-620): recorded, then obor's full set (T-623).
-	x.Git(x.Root, "config", "core.hooksPath", ".githooks")
-	if out := x.ok(t, "githooks"); out != "OK githooks: core.hooksPath = "+chain+", chaining .githooks\n" {
-		t.Errorf("own hooksPath: %q", out)
-	}
-	if got := x.Git(x.Root, "config", "--local", "--get", "obor.hooksChain"); got != ".githooks" {
-		t.Errorf("obor.hooksChain %q", got)
-	}
-	if got := x.Git(x.Root, "config", "--local", "--get", "core.hooksPath"); got != chain {
-		t.Errorf("chained hooksPath %q", got)
-	}
-	has(t, x.ok(t, "githooks"), "OK githooks: core.hooksPath already", "rerun chained")
-	x.ok(t, "githooks", "--remove")
-	if got := x.Git(x.Root, "config", "--local", "--get", "core.hooksPath"); got != ".githooks" {
-		t.Errorf("restored hooksPath %q", got)
-	}
-	if got, err := gitIn(x.Root, "config", "--local", "--get", "obor.hooksChain"); got != "" || err == nil {
-		t.Errorf("chain unset: %q (%v)", got, err)
-	}
-	// An absolute chainsPath is recorded as it is.
-	x.Git(x.Root, "config", "core.hooksPath", "/elsewhere")
-	if out := x.ok(t, "githooks"); out != "OK githooks: core.hooksPath = "+chain+", chaining /elsewhere\n" {
-		t.Errorf("absolute hooksPath: %q", out)
-	}
-	x.ok(t, "githooks", "--remove")
-	if got := x.Git(x.Root, "config", "--get", "core.hooksPath"); got != "/elsewhere" {
-		t.Errorf("absolute restored: %q", got)
-	}
-	// Not obor's: --remove leaves it alone.
-	x.failing(t, "FAIL core.hooksPath is /elsewhere (not obor's "+hooks+"): left alone", "githooks", "--remove")
-	if got := x.Git(x.Root, "config", "--get", "core.hooksPath"); got != "/elsewhere" {
-		t.Errorf("someone else's hooksPath kept: %q", got)
-	}
-}
-
-// T-623: core.hooksPath is githooks/ (pre-commit, pre-push and the runner) unless there is something to chain: a
-// recorded obor.hooksChain, or a hook in .git/hooks the small set lacks. Then it is githooks/chain/ (every hook git
-// runs). A rerun moves between the two as that changes, and --remove works from either.
-// Slow: seven cases, each three obor setup githooks runs whose work is git config (the code under test runs git: no
-// fake), ≈1.8 s together at 2 cores (T-1009 measured).
-func TestGithooksPicksTheHooksDir(t *testing.T) {
-	testkit.Slow(t)
-	t.Parallel()
-	dir := filepath.Join(kit, "githooks")
-	chain := filepath.Join(dir, "chain")
-	hook := func(x *fx, name string, mode os.FileMode) {
-		os.MkdirAll(filepath.Join(x.Root, ".git", "hooks"), 0o755)
-		os.Chmod(x.Write(filepath.Join(".git", "hooks", name), "#!/bin/sh\n"), mode)
-	}
-	for _, c := range []struct {
-		name    string
-		setup   func(t *testing.T, x *fx)
-		want    string
-		removed string // core.hooksPath after --remove ("" unset)
-	}{
-		{"no chain, no .git/hooks hook: githooks/", func(*testing.T, *fx) {}, dir, ""},
-		{"a chain recorded: chain/", func(t *testing.T, x *fx) {
-			x.Git(x.Root, "config", "obor.hooksChain", ".githooks")
-		}, chain, ".githooks"},
-		{"a .git/hooks/post-merge: chain/", func(t *testing.T, x *fx) { hook(x, "post-merge", 0o755) }, chain, ""},
-		{"only .git/hooks/pre-commit: githooks/", func(t *testing.T, x *fx) { hook(x, "pre-commit", 0o755) }, dir, ""},
-		{"a .git/hooks/post-merge.sample: githooks/", func(t *testing.T, x *fx) {
-			hook(x, "post-merge.sample", 0o755)
-		}, dir, ""},
-		{"a non-executable .git/hooks/post-merge: githooks/", func(t *testing.T, x *fx) {
-			hook(x, "post-merge", 0o644)
-		}, dir, ""},
-		{"the chain removed: back to githooks/", func(t *testing.T, x *fx) {
-			x.Git(x.Root, "config", "core.hooksPath", ".githooks")
-			has(t, x.ok(t, "githooks"), "core.hooksPath = "+chain, "a chain moves to the full set")
-			x.Git(x.Root, "config", "--local", "--unset", "obor.hooksChain")
-		}, dir, ""},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			x := newFx(t)
-			c.setup(t, x)
-			has(t, x.ok(t, "githooks"), "core.hooksPath = "+c.want, "hooksPath")
-			if got := x.Git(x.Root, "config", "--local", "--get", "core.hooksPath"); got != c.want {
-				t.Errorf("core.hooksPath = %q, want %q", got, c.want)
-			}
-			has(t, x.ok(t, "githooks"), "already "+c.want, "rerun")
-			x.ok(t, "githooks", "--remove")
-			if got, _ := gitIn(x.Root, "config", "--local", "--get", "core.hooksPath"); got != c.removed {
-				t.Errorf("--remove: core.hooksPath = %q, want %q", got, c.removed)
-			}
-		})
-	}
-}
+// githooks_integration_test.go: what setup githooks leaves in git config, and the hooks git runs (T-1021).
 
 // --- herdr-plugin (R-28 §3) -------------------------------------------------------------------------------------------
 
@@ -1393,12 +945,6 @@ func TestHerdrPluginRelinksAnotherKitsPlugin(t *testing.T) {
 	}
 }
 
-// gitIn is git -C dir args…: its trimmed stdout and error (testkit's Git fails the test instead).
-func gitIn(dir string, args ...string) (string, error) {
-	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).Output()
-	return strings.TrimSpace(string(out)), err
-}
-
 // --- agents (T-306, DD-v0.13 B1, T-809) -----------------------------------------------------------------------------
 
 // `obor setup mcp` says per kind whether the server is registered, then runs the handshake: all OK, a broken handshake
@@ -1480,7 +1026,7 @@ func TestCodexSetupStartRecordsItsSession(t *testing.T) {
 			x := newFx(t, c.edit)
 			x.rollout = 10 * time.Second
 			if c.args[0] == "pane" {
-				x.ok(t, "lane", c.wt)
+				x.lane(t, c.wt)
 				x.State(c.wt, map[string]any{"task": "T-1", "type": "luna"})
 			}
 			cwd := x.LaneDir(c.wt)
@@ -1508,43 +1054,5 @@ func TestCodexSetupStartRecordsItsSession(t *testing.T) {
 				t.Errorf("a .sid file written\n%s", out)
 			}
 		})
-	}
-}
-
-// A githooks path of another obor kit (a checkout whose plugin.json names obor, or one that is gone) is re-pointed at
-// this kit's; anyone else's hooks dir is the project's own: chained, not refused (T-620), so obor's full set runs
-// (T-623).
-func TestGithooksRepointsAnotherOborKitsHooksAndChainsOthers(t *testing.T) {
-	x := newFx(t)
-	mine := filepath.Join(kit, "githooks")
-	chain := filepath.Join(mine, "chain")
-	// an obor kit's githooks (its plugin.json names obor): re-pointed
-	old := filepath.Join(x.Base, "obor-kit-stable")
-	x.Write(old+"/.claude-plugin/plugin.json", `{"name": "obor"}`)
-	x.Git(x.Root, "config", "--local", "core.hooksPath", old+"/githooks")
-	out := x.ok(t, "githooks")
-	has(t, out, "core.hooksPath = "+mine, "output")
-	if got := x.Git(x.Root, "config", "--local", "core.hooksPath"); got != mine {
-		t.Errorf("core.hooksPath = %s, want %s", got, mine)
-	}
-	// an obor kit's chain set is re-pointed too (T-623)
-	x.Git(x.Root, "config", "--local", "core.hooksPath", old+"/githooks/chain")
-	has(t, x.ok(t, "githooks"), "core.hooksPath = "+mine, "a kit's chain set re-pointed")
-	if got := x.Git(x.Root, "config", "--local", "core.hooksPath"); got != mine {
-		t.Errorf("a kit's chain set: core.hooksPath = %s, want %s", got, mine)
-	}
-	// a kit that is gone, named like one: re-pointed
-	x.Git(x.Root, "config", "--local", "core.hooksPath", "/nowhere/obor-kit/githooks")
-	x.ok(t, "githooks")
-	// anyone else's hooks dir is the project's own: chained, not refused
-	for _, other := range []string{"/nowhere/husky/githooks", "/usr/local/hooks", x.Base + "/githooks"} {
-		x.Git(x.Root, "config", "--local", "core.hooksPath", other)
-		has(t, x.ok(t, "githooks"), "chaining "+other, "chained hooks "+other)
-		if got := x.Git(x.Root, "config", "--local", "--get", "obor.hooksChain"); got != other {
-			t.Errorf("obor.hooksChain = %s, want %s", got, other)
-		}
-		if got := x.Git(x.Root, "config", "--local", "core.hooksPath"); got != chain {
-			t.Errorf("core.hooksPath %s changed to %s, want %s", other, got, chain)
-		}
 	}
 }

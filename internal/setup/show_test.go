@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"obor/internal/app/event"
-	"obor/internal/config"
 	"obor/internal/store"
 	"obor/internal/testkit"
 )
@@ -66,40 +65,6 @@ func TestSetupShowLevelLines(t *testing.T) {
 	}
 	if strings.Contains(out, "starting point") {
 		t.Errorf("a confirmed setup prints the starting point line:\n%s", out)
-	}
-}
-
-// T-647: obor init writes setup.confirmed: false when the config has no such key, and a rerun keeps the owner's true.
-func TestOborInitRecordsTheSetupAnswer(t *testing.T) {
-	testkit.Slow(t)
-	t.Parallel()
-	x := newInitFx(t, true)
-	out := x.init(t)
-	cfg, err := config.Load(x.Root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Data.Setup.Confirmed == nil || *cfg.Data.Setup.Confirmed {
-		t.Fatalf("a new project's setup.confirmed = %v, want false", cfg.Data.Setup.Confirmed)
-	}
-	if stateOf(out, "setup") != "done" || !strings.Contains(summary(out, "setup"), "the lead asks the owner") {
-		t.Errorf("setup step %q", summary(out, "setup"))
-	}
-	// The owner answers at the first session: a rerun keeps that answer.
-	doc, err := config.EditJSON([]byte(x.Read(".obor/config.json")), []string{"setup", "confirmed"}, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	x.Write(".obor/config.json", string(doc))
-	out = x.init(t)
-	if cfg, err = config.Load(x.Root); err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Data.Setup.Confirmed == nil || !*cfg.Data.Setup.Confirmed {
-		t.Errorf("a rerun changed setup.confirmed to %v, want the owner's true", cfg.Data.Setup.Confirmed)
-	}
-	if stateOf(out, "setup") != "already" || !strings.HasSuffix(summary(out, "setup"), "confirmed by the owner") {
-		t.Errorf("setup step after the answer: %q", summary(out, "setup"))
 	}
 }
 
@@ -166,55 +131,5 @@ func pauseStep(t *testing.T, p *testkit.Project, step string, d event.Pause) {
 	if _, err := l.Append(event.Record{Task: event.PauseTask, Step: step, Kind: event.KindFact, Data: data},
 		time.Now()); err != nil {
 		t.Fatal(err)
-	}
-}
-
-// T-647: an existing config without the setup key (written before the table) gets confirmed: false on init: nothing
-// there says the owner saw the table.
-func TestOborInitAddsTheMissingSetupAnswer(t *testing.T) {
-	testkit.Slow(t)
-	t.Parallel()
-	x := newInitFx(t, true)
-	x.init(t)
-	doc, err := config.EditJSON([]byte(x.Read(".obor/config.json")), []string{"setup"}, map[string]any{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	x.Write(".obor/config.json", string(doc))
-	out := x.init(t)
-	cfg, err := config.Load(x.Root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Data.Setup.Confirmed == nil || *cfg.Data.Setup.Confirmed {
-		t.Errorf("setup.confirmed = %v, want false (init restores it when the key is absent)", cfg.Data.Setup.Confirmed)
-	}
-	if stateOf(out, "setup") != "done" {
-		t.Errorf("setup step %q", summary(out, "setup"))
-	}
-}
-
-// T-647, T-724, RV-88 #1: obor init's output ends with the setup table, after the OK line; no deepseek (OpenCode is not opted in).
-func TestOborInitEndsWithTheSetupTable(t *testing.T) {
-	t.Parallel()
-	x := newInitFx(t, true)
-	out := x.init(t)
-	tail := strings.Join([]string{
-		"",
-		"models and effort per difficulty (config difficulty; a spec's Difficulty: line picks the level, dispatch its first free model):",
-		"  hard   → opus:high (claude opus, effort high)",
-		"  medium → sonnet (claude sonnet)",
-		"  simple → sonnet (claude sonnet) | haiku (claude haiku)",
-		"lanes: 2 (L-01, L-02; each runs the model its dispatch picks)",
-		"roles: lead opus:high (claude opus, effort high), integrator opus (claude opus), reviewer sol:high (codex gpt-6.1-sol, effort high)",
-		"confirmed: no",
-		"starting point: the lead goes through it with you at its first session",
-		"",
-	}, "\n")
-	if !strings.HasSuffix(out, tail) {
-		t.Errorf("obor init's output does not end with the setup table:\n%s", out)
-	}
-	if i, j := strings.Index(out, "OK init "), strings.Index(out, "models and effort"); i < 0 || j < i {
-		t.Errorf("the OK line does not come before the table:\n%s", out)
 	}
 }
