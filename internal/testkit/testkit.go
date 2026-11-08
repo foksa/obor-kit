@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -33,14 +34,19 @@ func Main(m *testing.M) {
 }
 
 // Run is m.Run followed by the removal of the project template New copies (T-1009), for a TestMain that does more than
-// Main: it returns m.Run's code.
+// Main: it returns m.Run's code. It also arms New (T-1019): only a TestMain that calls it removes the template.
 func Run(m *testing.M) int {
+	hooked.Store(true)
 	code := m.Run()
 	if tmpl.base != "" {
 		os.RemoveAll(tmpl.base)
 	}
 	return code
 }
+
+// hooked is Run's: this binary's TestMain removes the template. template checks it before it builds (T-1019), so the
+// next package that calls New without Main/Run fails at once instead of leaving an hk-tmpl* dir in TMPDIR per run.
+var hooked atomic.Bool
 
 // tmpl is the project every New copies (T-1009): <base>/proj with its one commit on main, built once per test binary on
 // first use and removed by Run. builds counts the builds (a test checks it is one).
@@ -54,6 +60,11 @@ var tmpl struct {
 // template is the template's proj dir, built on first use: git init, add and commit of the .gitignore (a leftover done
 // file), the only git processes a New costs, once per binary.
 func template() (string, error) {
+	if !hooked.Load() {
+		return "", fmt.Errorf("testkit: New in a test binary whose TestMain does not call testkit.Main or testkit.Run, " +
+			"so their cleanup would never remove the project template (T-1019); add " +
+			"`func TestMain(m *testing.M) { testkit.Main(m) }` (testkit.Run(m) for a TestMain that does more)")
+	}
 	tmpl.once.Do(func() {
 		tmpl.builds++
 		tmpl.base, tmpl.err = os.MkdirTemp("", "hk-tmpl")

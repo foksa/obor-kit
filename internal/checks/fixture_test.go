@@ -21,8 +21,9 @@ import (
 	"obor/internal/testkit"
 )
 
-// tmpl is the base of the one fixture repo these tests copy (T-998): built in TestMain, removed after the run.
-var tmpl string
+// tmpl is the base of the one fixture repo these tests copy (T-998): built on first use, after testkit.Run armed New
+// (T-1019), and removed after the run.
+var tmpl = sync.OnceValue(buildTemplate)
 
 var (
 	tmplMu   sync.Mutex
@@ -39,7 +40,6 @@ func keep(d string) string {
 
 func TestMain(m *testing.M) {
 	testkit.Isolate()
-	tmpl = keep(buildTemplate())
 	code := testkit.Run(m) // removes the project template testkit.New copies (T-1009)
 	for _, d := range tmplDirs {
 		os.RemoveAll(d)
@@ -207,7 +207,7 @@ type fx struct {
 // lane; a test that needs L-02 asks lane2, which adds it then.
 func newFx(t testing.TB, edits ...func(map[string]any)) *fx {
 	t.Helper()
-	base := snapshot(t, tmpl)
+	base := snapshot(t, tmpl())
 	p := testkit.Adopt(t, base)
 	x := &fx{Project: p, t: t, lane: p.LaneDir("L-01"), sig: make(chan int, 1)}
 	repairWorktrees(t, p, base)

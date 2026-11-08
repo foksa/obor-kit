@@ -1,7 +1,9 @@
 package testkit
 
 import (
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -69,5 +71,76 @@ func TestNewCopiesOneTemplate(t *testing.T) {
 	}
 	if tmpl.builds != 1 {
 		t.Errorf("template built %d times, want 1", tmpl.builds)
+	}
+}
+
+// noHookTB is the test as New sees it with the hook off: New's t.Fatal is a panic here, so the test can read the
+// message it would have stopped with.
+type noHookTB struct{ testing.TB }
+
+func (noHookTB) Helper() {}
+
+func (noHookTB) Fatal(args ...any)                 { panic(fmt.Sprint(args...)) }
+func (noHookTB) Fatalf(format string, args ...any) { panic(fmt.Sprintf(format, args...)) }
+
+// New in a test binary whose TestMain did not call Main/Run fails at the template's first use (T-1019), naming the fix:
+// nothing would remove the template then, and a silent build leaks an hk-tmpl* dir per run (RV-142 #1).
+func TestNewWithoutTheHookFails(t *testing.T) {
+	hooked.Store(false)
+	defer hooked.Store(true)
+	var got string
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				got = fmt.Sprint(r)
+			}
+		}()
+		New(noHookTB{t})
+	}()
+	if got == "" {
+		t.Fatal("New succeeded without a TestMain that calls testkit.Main or testkit.Run")
+	}
+	for _, want := range []string{"TestMain", "testkit.Main"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("New failed with %q, want the message to name %q", got, want)
+		}
+	}
+}
+
+// Run removes the template New copies: a child test binary runs one test that builds it and writes its base down, and
+// after the child exits nothing is left there (T-1019). This package's own run cannot show it: its template must live
+// for its tests.
+func TestRunRemovesTheTemplate(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "base")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestTemplateChild$")
+	cmd.Env = append(os.Environ(), "TESTKIT_TEMPLATE_CHILD="+out)
+	if b, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("child: %v\n%s", err, b)
+	}
+	b, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := strings.TrimSpace(string(b))
+	if base == "" {
+		t.Fatal("child wrote no template base")
+	}
+	if _, err := os.Stat(base); !os.IsNotExist(err) {
+		t.Errorf("the child's template %s is still there after its run (stat: %v); Run must remove it", base, err)
+	}
+}
+
+// TestTemplateChild is TestRunRemovesTheTemplate's child: it builds the template once and writes where.
+func TestTemplateChild(t *testing.T) {
+	out := os.Getenv("TESTKIT_TEMPLATE_CHILD")
+	if out == "" {
+		t.Skip("the child of TestRunRemovesTheTemplate")
+	}
+	New(t)
+	if tmpl.builds != 1 {
+		t.Fatalf("template built %d times, want 1", tmpl.builds)
+	}
+	if err := os.WriteFile(out, []byte(tmpl.base+"\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
