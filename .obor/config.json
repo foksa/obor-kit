@@ -35,7 +35,7 @@
     },
     "check_affected": {
       "cmd": "make -s check-affected",
-      "timeout": 1200,
+      "timeout": 900,
       "heavy": true
     },
     "check_readers": {

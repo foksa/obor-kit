@@ -312,17 +312,24 @@ func makeCheckTier(t *testing.T, target string, env ...string) (string, []string
 	return string(out), strings.Split(strings.TrimSpace(readFile(t, log)), "\n"), strings.TrimSpace(string(affected))
 }
 
-// T-961: check-compile (commands.compile, the merge slot's tier) runs the compile steps only — build, gofmt, vet and
-// deadcode — with no go test (nor the affected list it would test); check-affected (the lane step's tier) runs the
-// same steps and the affected packages' tests.
-func TestMakeCheckCompileAndAffected(t *testing.T) {
+// T-961/T-995: check-compile (commands.compile, the merge slot's tier) runs the compile steps only — build, gofmt, vet
+// and deadcode — with no go test (nor the affected list it would test). The lane's class checks run go test and nothing
+// else of the compile tier: check-affected builds dist/obor first (its affected list needs the binary) but runs no
+// gofmt, vet or deadcode, and check-readers and check-web skip the build too — the slot compiled the same commit.
+func TestMakeCheckTiers(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
-		target string
-		test   bool
+		target   string
+		build    bool
+		gate     bool // gofmt and go vet
+		deadcode bool
+		test     bool
+		affected bool
 	}{
-		{"check-compile", false},
-		{"check-affected", true},
+		{"check-compile", true, true, true, false, false},
+		{"check-affected", true, false, false, true, true},
+		{"check-readers", false, false, false, true, false},
+		{"check-web", false, false, false, true, false},
 	} {
 		t.Run(c.target, func(t *testing.T) {
 			t.Parallel()
@@ -330,24 +337,84 @@ func TestMakeCheckCompileAndAffected(t *testing.T) {
 			ran := func(prefix string) bool {
 				return slices.ContainsFunc(calls, func(c string) bool { return strings.HasPrefix(c, prefix) })
 			}
-			for _, step := range []string{"build ", "vet ", "gofmt -l cmd internal", "run golang.org/x/tools/cmd/deadcode"} {
-				if !ran(step) {
-					t.Errorf("the tier runs %q too: %q", step, calls)
+			if got := ran("build "); got != c.build {
+				t.Errorf("the tier runs go build %v; want %v: %q", got, c.build, calls)
+			}
+			for _, step := range []string{"vet ", "gofmt -l cmd internal"} {
+				if got := ran(step); got != c.gate {
+					t.Errorf("the tier runs %q %v; want %v: %q", step, got, c.gate, calls)
 				}
 			}
-			if got := ran("test "); got != c.test {
+			if got := ran("run golang.org/x/tools/cmd/deadcode"); got != c.deadcode {
+				t.Errorf("the tier runs deadcode %v; want %v: %q", got, c.deadcode, calls)
+			}
+			var test string
+			for _, call := range calls {
+				if strings.HasPrefix(call, "test ") {
+					test = call
+				}
+			}
+			if got := test != ""; got != c.test {
 				t.Errorf("go test ran %v; want %v (calls %q)", got, c.test, calls)
 			}
-			if got := affected != ""; got != c.test {
-				t.Errorf("the affected list was asked %v; want %v (the compile tier: no tests, no list)", got, c.test)
+			if c.target == "check-affected" {
+				for _, flag := range []string{"-short", "-count=1"} {
+					if !slices.Contains(strings.Fields(test), flag) {
+						t.Errorf("check-affected's go test %q passes no %s", test, flag)
+					}
+				}
+			}
+			if got := affected != ""; got != c.affected {
+				t.Errorf("the affected list was asked %v; want %v (only check-affected asks it)", got, c.affected)
 			}
 			if got := strings.Contains(out, "go test: 0 pass, 0 fail"); got != c.test {
 				t.Errorf("the tests' summary printed %v; want %v:\n%s", got, c.test, out)
 			}
-			if got := strings.Contains(out, "compile: build, gofmt, vet, deadcode OK"); got != !c.test {
-				t.Errorf("the compile tier's line printed %v; want %v:\n%s", got, !c.test, out)
+			if got := strings.Contains(out, "compile: build, gofmt, vet, deadcode OK"); got != c.gate {
+				t.Errorf("the compile tier's line printed %v; want %v:\n%s", got, c.gate, out)
 			}
 		})
+	}
+}
+
+// T-995: check-affected builds dist/obor (the affected list needs it) and drops the rest of GO_GATE, but the lane still
+// catches a vet error: go test runs vet's high-confidence subset (printf here) on the packages it builds, so a changed
+// file with a format mistake fails the tier. The fixture's dist/obor is a real build whose binary prints the changed
+// package.
+func TestMakeCheckAffectedCatchesVetError(t *testing.T) {
+	t.Parallel()
+	goBin, err := exec.LookPath("go")
+	if err != nil {
+		t.Skipf("no go on PATH: %v", err)
+	}
+	dir := testkit.Dir(t)
+	writeFile(t, filepath.Join(dir, "Makefile"), string(treeFile(t, "Makefile")))
+	writeFile(t, filepath.Join(dir, "VERSION"), "1.2.3\n")
+	writeFile(t, filepath.Join(dir, "go.mod"), "module obor\n\ngo 1.21\n")
+	writeFile(t, filepath.Join(dir, "internal", "version", "version.go"),
+		"package version\n\nvar Version = \"dev\"\n") // the build's -X target
+	writeFile(t, filepath.Join(dir, "cmd", "obor", "main.go"),
+		"package main\n\nimport \"fmt\"\n\nfunc main() { fmt.Println(\"obor/bad\") }\n") // the affected-list stub
+	writeFile(t, filepath.Join(dir, "bad", "bad.go"),
+		"package bad\n\nimport \"fmt\"\n\nfunc Wrong() { fmt.Printf(\"%d\\n\", \"not a number\") }\n")
+	if err := os.MkdirAll(filepath.Join(dir, "dist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("make", "-s", "-C", dir, "check-affected", "GO="+goBin)
+	cmd.Env = plainMakeEnv()
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("check-affected passed a changed file with a printf error:\n%s", out)
+	}
+	for _, want := range []string{"affected: 1 package(s): obor/bad", "fmt.Printf", "go test: 0 pass, 1 fail"} {
+		if !strings.Contains(string(out), want) {
+			t.Errorf("the vet failure does not print %q:\n%s", want, out)
+		}
+	}
+	for _, gate := range []string{"FAIL make build", "FAIL gofmt", "FAIL go vet"} {
+		if strings.Contains(string(out), gate) {
+			t.Errorf("check-affected ran the compile gate (%q):\n%s", gate, out)
+		}
 	}
 }
 
