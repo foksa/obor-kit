@@ -357,7 +357,7 @@ func (a *App) verifyText(ctx context.Context, p *proj, g port.Review, s ReviewSe
 func verifyBriefText(id string, s ReviewSetup, short string, fixed, notes []string) string {
 	text := fmt.Sprintf("The %s findings were fixed in %s; %s is at %s (your worktree too). Re-run your probes for every"+
 		" finding and report fixed / incomplete / regressed per finding. %s Write %s/%s-verify.md in the main checkout %s."+
-		" Do not commit.", id, strings.Join(fixed, ", "), s.Branch, short, redundantLine, s.Reviews, id, s.Root)
+		" %s Do not commit.", id, strings.Join(fixed, ", "), s.Branch, short, redundantLine, s.Reviews, id, s.Root, resultLine)
 	for _, n := range notes {
 		text += "\nLead's note: " + n
 	}

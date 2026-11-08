@@ -59,8 +59,12 @@ func TestReviewRequest(t *testing.T) {
 				t.Errorf("detached %q, want the reviewer's worktree %s at the head", r.git.detached, wt)
 			}
 			if !strings.Contains(l.Prompt, "Your worktree is at abcdef0 (check out any commit there); write only"+
-				" reviews/RV-5.md in the main checkout "+r.p.root+". Do not commit.") {
+				" reviews/RV-5.md in the main checkout "+r.p.root+". "+resultLine+" Do not commit.") {
 				t.Errorf("the brief does not name the worktree and the main checkout: %q", l.Prompt)
+			}
+			// T-1072: the brief itself, not only the role text, asks for the file's Result first line.
+			if !strings.Contains(l.Prompt, "Result: approved | changes requested · <sha reviewed> · <scope>") {
+				t.Errorf("the brief does not ask for the Result line: %q", l.Prompt)
 			}
 
 			if lines := r.leadLines(); len(lines) != 0 {

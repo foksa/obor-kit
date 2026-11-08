@@ -129,8 +129,12 @@ func TestVerifyBriefsOnceAtTheHead(t *testing.T) {
 	b := briefs[0]
 	if b.Task != "T-a,T-b" || b.Reviewed != headSHA || !strings.HasPrefix(b.Line, "[obor obor] The RV-5 findings were"+
 		" fixed in T-a (ccccccc), T-b (ccccccc); main is at abcdef0") ||
-		!strings.HasSuffix(b.Line, "Do not commit.\nLead's note: T-a: #1, #3 — re-run with an old status JSON") {
+		!strings.HasSuffix(b.Line, resultLine+" Do not commit.\nLead's note: T-a: #1, #3 — re-run with an old status JSON") {
 		t.Errorf("the verify brief %+v", b)
+	}
+	// T-1072: the verify brief itself, not only the role text, asks for the file's Result first line.
+	if !strings.Contains(b.Line, "Result: approved | changes requested · <sha reviewed> · <scope>") {
+		t.Errorf("the verify brief does not ask for the Result line: %q", b.Line)
 	}
 	if got := r.pending(); got != "T-a,T-b" { // briefed, not finished
 		t.Errorf("briefed, not finished: pending %q, want T-a,T-b", got)
