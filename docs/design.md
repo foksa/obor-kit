@@ -544,10 +544,11 @@ A task's tests run in its own lane, not in serve's merge slot (T-961, T-995); no
   clean; its branch is checked out again afterwards, what the checks changed discarded). It lists the changed files
   (`<target>..<candidate>`) into `.obor/state/lane-changed-files-<lane>` as `OBOR_CHANGED_FILES`, classifies them (v2.5),
   runs `lane_setup`, then the checks "Change-based merge checks" names for the result. `lane_setup` runs first and
-  holds no slot: the sequence's first check command acquires a worker-priority pool slot, kept through the guard, the
-  class checks and the retest and released after them, so `slots.max` bounds how many lanes are in their check sequence
-  at once, not setup; the slot's compile, the promotion and the nightly hold their runner slot the same way, from their
-  first check to its explicit release (their setup exempt); never the merge marker.
+  holds no slot: the sequence's first check command acquires a worker-priority pool slot (never the merge marker),
+  kept through the guard, the class checks and the retest and released after them, so `slots.max` bounds how many lanes
+  are in their check sequence at once, not setup. The promotion holds a worker-priority slot the same way; the slot's
+  compile and the nightly run at merge priority (they claim the merge marker); each keeps its slot from its first check
+  to its explicit release, its setup exempt.
   A red that names its failing tests and packages is rerun once at the same commit by `commands.retest`
   (T-964; `{tests}` joined by `merge.retest_join`, default `|`; the packages in `OBOR_FAILED_PKGS`); green then is the
   step's green and the flake is logged as retried. The names come from `merge.fail_grep` lines read by
