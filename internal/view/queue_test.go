@@ -25,9 +25,9 @@ func addFact(t *testing.T, db *sql.DB, at time.Time, task, step string, d any) {
 	}
 }
 
-// T-1016: a drop of a spec stored and never dispatched records the spec's rev with its why, and the queue leaves the
-// task out until a later obor spec set (a new rev) revives it; a drop of a task the merge loop held records no rev and
-// hides nothing.
+// T-1016, T-1026: a spec stored and never dispatched, then dropped, is serve's dropped task (ended) until a later
+// obor spec set revives it: the queue reads serve's tasks alone (no second reading of the log's drops), so it leaves the
+// task out while serve lists it and lists it as never dispatched once serve no longer does.
 func TestQueueSkipsADroppedSpecUntilANewRev(t *testing.T) {
 	t.Parallel()
 	db, err := store.OpenRW(store.File(t.TempDir()))
@@ -41,25 +41,19 @@ func TestQueueSkipsADroppedSpecUntilANewRev(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, _, err := store.SetSpec(db, "T-3", "# T-3 — B\n\nDifficulty: medium\n", "", "lead", now); err != nil {
-		t.Fatal(err)
-	}
 	addFact(t, db, now, "T-1", event.StepDropped, event.FactData{Reason: "superseded on 11-07", Merge: true, Rev: 1})
-	addFact(t, db, now, "T-3", event.StepDropped, event.FactData{Reason: "abandoned", Merge: true}) // a loop drop: rev 0
-	if got := droppedSpecs(db); len(got) != 1 || got["T-1"] != 1 {
-		t.Fatalf("droppedSpecs %+v, want T-1 at rev 1 alone", got)
-	}
 	specs, dispatched := readSpecs(db), dispatchedTasks(db)
-	q := queue(&Project{}, wire.ProjectStatus{}, "", specs, dispatched, droppedSpecs(db), now)
-	if len(q.Waiting) != 2 || q.Waiting[0].Task != "T-2" || q.Waiting[1].Task != "T-3" {
-		t.Errorf("waiting %+v, want T-2 and T-3: T-1 dropped at its rev, T-3's loop drop hides nothing", q.Waiting)
+	if len(specs) != 2 || dispatched["T-1"] {
+		t.Fatalf("specs %+v, dispatched %+v: want T-1 and T-2 stored, neither dispatched", specs, dispatched)
 	}
-	// A later spec set is the next rev: the task is queued again.
-	if _, _, err := store.SetSpec(db, "T-1", "# T-1 — A, widened\n\nDifficulty: medium\n", "", "lead", now); err != nil {
-		t.Fatal(err)
+	dropped := wire.ProjectStatus{Tasks: []wire.TaskStatus{{Task: "T-1", State: "dropped", Ended: true}}}
+	q := queue(&Project{}, dropped, "", specs, dispatched, now)
+	if len(q.Waiting) != 1 || q.Waiting[0].Task != "T-2" {
+		t.Errorf("waiting %+v, want T-2 alone: serve lists T-1 dropped", q.Waiting)
 	}
-	q = queue(&Project{}, wire.ProjectStatus{}, "", readSpecs(db), dispatched, droppedSpecs(db), now)
-	if len(q.Waiting) != 3 || q.Waiting[0].Task != "T-1" || q.Waiting[0].WaitsOn != WaitsNever {
-		t.Errorf("waiting %+v, want T-1 queued again after rev 2, T-2 and T-3", q.Waiting)
+	// A later spec set revives it: serve lists it no more, and the queue lists it as never dispatched.
+	q = queue(&Project{}, wire.ProjectStatus{}, "", specs, dispatched, now)
+	if len(q.Waiting) != 2 || q.Waiting[0].Task != "T-1" || q.Waiting[0].WaitsOn != WaitsNever {
+		t.Errorf("waiting %+v, want T-1 queued again (never dispatched) and T-2", q.Waiting)
 	}
 }

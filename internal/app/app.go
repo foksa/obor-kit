@@ -212,10 +212,7 @@ type folded struct {
 	// (spec.seen, T-821), refused again on a retry.
 	refusals map[string]string
 	loop     map[string]*mtask // the merge loop's tasks, by task
-	// dropped: each task's spec-only drop (T-1016): the rev it recorded and its why; a later obor spec set (a new
-	// rev) revives it. A task the loop dropped records rev 0 and is not here: its dispatch reopens it.
-	dropped map[string]droppedSpec
-	pause   *event.Pause // the project's last pause fact (pause.go; nil: none or cleared)
+	pause    *event.Pause      // the project's last pause fact (pause.go; nil: none or cleared)
 	// starts: each task's newest agent.start record time, intent or result (foldStart; wire.TaskStatus.Started).
 	starts map[string]time.Time
 	// models: each model's last pause fact (obor pause --model, T-765; a cleared one is gone).
@@ -255,7 +252,6 @@ type folded struct {
 func newFolded() folded {
 	return folded{active: map[string][]event.Record{}, woke: map[string]time.Time{}, calls: map[string]string{},
 		refusals: map[string]string{}, loop: map[string]*mtask{}, starts: map[string]time.Time{}, delivered: map[string]idleEnd{}, watches: map[string]*mergeWatch{}, did: map[event.Of]time.Time{},
-		dropped:   map[string]droppedSpec{},
 		briefEnds: map[string]idleEnd{}, lr: laneRows{rows: map[string]store.LaneRow{}, submitted: map[string]int64{}}}
 }
 
