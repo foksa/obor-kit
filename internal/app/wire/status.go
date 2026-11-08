@@ -293,6 +293,7 @@ type TaskStatus struct {
 	// override's or its level's; "": every one is paused) (T-977).
 	Difficulty string `json:"difficulty,omitempty"`
 	Model      string `json:"model,omitempty"`
+	Ref        string `json:"ref,omitempty"`    // its spec's Ref: an external tracker's id (T-1022)
 	Effort     string `json:"effort,omitempty"` // dispatched: the effort its lane's agent starts with ("": the kind's; T-695)
 	// Job is its open job (a worker's work or fix job, the integrator's review or resolve job: <task>/<attempt>/<step>)
 	// and Delivered whether its agent's job_next fetched it (T-664; "": no job open).

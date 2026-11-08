@@ -5,6 +5,7 @@ import (
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
+	"obor/internal/store"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -224,5 +225,48 @@ func TestPendingStepsWaitForTheirEffect(t *testing.T) {
 	}
 	if got := p.pendingSteps(open); len(got) != len(want)-1 || got[0] != want[1] {
 		t.Errorf("pending steps %+v, want after_merge gone and the rest", got)
+	}
+}
+
+// T-1022: a task's status carries its spec's Ref: line as ref (obor status --json only); a task whose spec has none
+// ships no ref key at all.
+func TestStatusCarriesTheSpecsRef(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj"}`)
+	h.connect()
+	for _, task := range []string{"T-1", "T-2"} {
+		addRecord(t, h, task, event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"),
+			Agent: "pj-l-01", Branch: "task/" + task, Target: "b1"})
+	}
+	if _, _, err := store.SetSpec(h.a.p.log.DB(), "T-1", "# T-1 — A\n\nDifficulty: medium\nRef: JIRA-12\n", "", "lead",
+		h.now); err != nil {
+		t.Fatalf("precondition: set T-1's spec: %v", err)
+	}
+	seen := map[string]string{}
+	for _, ts := range h.a.Status().Project.Tasks {
+		raw, err := json.Marshal(ts)
+		if err != nil {
+			t.Fatalf("marshal %s: %v", ts.Task, err)
+		}
+		seen[ts.Task] = string(raw)
+	}
+	for _, c := range []struct {
+		task string
+		ref  bool
+	}{
+		{"T-1", true},
+		{"T-2", false},
+	} {
+		raw, ok := seen[c.task]
+		if !ok {
+			t.Fatalf("precondition: %s is not in the status", c.task)
+		}
+		if got := strings.Contains(raw, `"ref":`); got != c.ref {
+			t.Errorf("%s's status has a ref key %v, want %v: %s", c.task, got, c.ref, raw)
+		}
+	}
+	if raw := seen["T-1"]; !strings.Contains(raw, `"ref":"JIRA-12"`) {
+		t.Errorf("T-1's status %s, want ref JIRA-12", raw)
 	}
 }

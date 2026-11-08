@@ -189,21 +189,20 @@ func levelNote(level string, types []string) string {
 // resolveLevel gives c the model refs of its spec's difficulty level (c.Level, c.Types; the spec's `Model:` refs
 // first) when it names none (--model); else it leaves it (a waiting task's request carries its level and models). Why
 // not: no level in the spec, or neither a `Model:` ref nor a ref of the level names a model of the config.
-func resolveLevel(cfg *config.Config, c *wire.Call, text string) error {
+func resolveLevel(cfg *config.Config, c *wire.Call, sp spec.Spec) error {
 	if len(c.Types) > 0 {
 		return nil
 	}
-	level, ok := spec.Difficulty(text)
-	if !ok {
+	if !sp.LevelKnown {
 		return fmt.Errorf("the spec has no valid %q line under its title (%s): add it and obor spec set %s, or dispatch "+
 			"with --model a,b", "Difficulty: <level>", strings.Join(spec.Levels, ", "), c.Task)
 	}
-	all := specFirst(cfg, text, knownModels(cfg, cfg.DifficultyList(level)))
+	all := specFirst(cfg, sp, knownModels(cfg, cfg.DifficultyList(sp.Level)))
 	if len(all) == 0 {
 		return fmt.Errorf("no model of level %s is known to this project (obor config get difficulty): dispatch with "+
-			"--model a,b", level)
+			"--model a,b", sp.Level)
 	}
-	c.Level, c.Types = level, all
+	c.Level, c.Types = sp.Level, all
 	return nil
 }
 
@@ -222,8 +221,8 @@ func knownModels(cfg *config.Config, refs []string) []string {
 
 // specFirst is refs with the spec's `Model:` refs in front (those naming a model of cfg): a named model wins, else
 // the level's first unpaused one (T-689).
-func specFirst(cfg *config.Config, text string, refs []string) []string {
-	out := knownModels(cfg, spec.Models(text))
+func specFirst(cfg *config.Config, sp spec.Spec, refs []string) []string {
+	out := knownModels(cfg, sp.Models)
 	for _, t := range refs {
 		if !slices.Contains(out, t) {
 			out = append(out, t)
@@ -298,14 +297,14 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Call) 
 		}
 		return "", fmt.Errorf("dispatch %s: %s", c.Task, why)
 	}
-	if err := fixesCheck(ctx, fx, p.root, c.Task, row.Text); err != nil { // T-924: a fix links to the open review only
+	if err := fixesCheck(ctx, fx, p.root, c.Task, row.Spec); err != nil { // T-924: a fix links to the open review only
 		return "", err
 	}
 	cfg, err := config.LoadDaemon(p.root)
 	if err != nil {
 		return "", err
 	}
-	if err := resolveLevel(cfg, &c, row.Text); err != nil {
+	if err := resolveLevel(cfg, &c, row.Spec); err != nil {
 		return "", fmt.Errorf("dispatch %s: %v", c.Task, err)
 	}
 	// Refused before a lane is picked (nothing recorded): a model ref naming no model of this config, or an effort

@@ -47,6 +47,7 @@ export interface Task {
   attempt?: number;
   running?: string;
   effort?: string;
+  ref?: string; // its spec's Ref: an external tracker's id (T-1022)
   job?: Job;
 }
 
@@ -130,6 +131,7 @@ export interface TaskStatus {
   types?: string[];
   difficulty?: string;
   model?: string;
+  ref?: string; // its spec's Ref: an external tracker's id (T-1022)
   effort?: string;
   job?: string;
   delivered?: boolean;
@@ -281,6 +283,7 @@ export interface LaneDot {
   attempt?: number;
   running?: string;
   effort?: string;
+  ref?: string; // its spec's Ref: an external tracker's id (T-1022)
   job?: Job;
 }
 
@@ -365,6 +368,7 @@ export interface TaskDetail {
   attempt?: number;
   running?: string;
   effort?: string;
+  ref?: string; // its spec's Ref: an external tracker's id (T-1022)
   job?: Job;
   dispatched_at?: number;
   spec?: string;

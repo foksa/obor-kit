@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"obor/internal/app/port"
-	"obor/internal/spec"
 )
 
 // The promotion (T-974; docs/state-model.md rows 50, 51; owner 11-07: one staging branch promoted by serve). With
@@ -480,8 +479,8 @@ func (a *App) promoteBatch(ctx context.Context, p *proj, fx *Loop, pr *Promote, 
 		if err != nil {
 			return promoteIn{}, err
 		}
-		if l, known := spec.Difficulty(row.Text); ok && known {
-			level = l
+		if row.Spec.LevelKnown && ok {
+			level = row.Spec.Level
 		}
 		in.Merges = append(in.Merges, task)
 		in.Weight += pr.Weigh(level)

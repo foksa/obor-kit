@@ -11,7 +11,8 @@ there is none) asks for the same review on a medium or simple task that is judge
 fix of a review's findings: the line `Fixes: RV-<n>[ <what to check>]` in its place, never with `Review: on merge`
 (its verify is the review; T-924, T-928; `obor spec set` refuses the pair, T-932), links the task to that open
 review (obor dispatch refuses another review); serve verifies once the linked tasks merged, the free text the
-reviewer's note. Delete this comment. -->
+reviewer's note. Optional: a line `Ref: <id>` names the task in an external tracker (a Jira or Linear id, e.g.
+`Ref: JIRA-12`); `obor status --json` carries it as the task's `ref`. Delete this comment. -->
 
 <1–3 sentences: why, and the source of truth — design doc section, review finding R-xx #n, file:line.>
 

@@ -15,7 +15,6 @@ import (
 	"obor/internal/mcp"
 	"obor/internal/project"
 	"obor/internal/setup"
-	"obor/internal/spec"
 	"obor/internal/store"
 )
 
@@ -242,7 +241,7 @@ func landTask(ctx context.Context, cfg *config.Config, arg string) (task, lane s
 		if t.Task == arg {
 			return t.Task, t.Lane, nil
 		}
-		if row, ok, err := store.ReadSpecAt(cfg.Root, t.Task); err == nil && ok && spec.Title(row.Text) == driveTitle+arg {
+		if row, ok, err := store.ReadSpecAt(cfg.Root, t.Task); err == nil && ok && row.Spec.Title == driveTitle+arg {
 			return t.Task, t.Lane, nil
 		}
 	}
