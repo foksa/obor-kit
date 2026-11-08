@@ -41,7 +41,19 @@ func (c *Config) Validate(o ValidateOptions) (warns, fails []string) {
 	v.laneAgents()
 	v.trunk()
 	v.workflow()
+	v.projectFiles()
 	return append(c.warnings(o), v.warns...), v.fails
+}
+
+// projectFiles: the notes each agent kind has on the project's committed CLI config in the main checkout (T-1033,
+// agents.ProjectWarnings): a file that does not parse, a key that switches part of obor off. Never a failure.
+func (v *validator) projectFiles() {
+	if v.c.Root == "" {
+		return
+	}
+	for _, w := range agents.ProjectWarnings(v.c.Root, os.ReadFile) {
+		v.warns = append(v.warns, "WARN "+w)
+	}
 }
 
 // ValidateOptions are what Validate cannot know itself; a nil func skips its check.

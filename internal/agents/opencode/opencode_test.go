@@ -3,6 +3,7 @@ package opencode_test
 import (
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"slices"
 	"strings"
 	"testing"
@@ -193,5 +194,48 @@ func TestStartEnvNamesTheGeneratedConfig(t *testing.T) {
 	if _, err := k.StartEnv(agents.Start{Kit: "/kit", WriteState: func(string, []byte) (string, error) { return "", errors.New("disk full") }}); err == nil ||
 		!strings.Contains(err.Error(), "disk full") {
 		t.Errorf("a failed write: %v; want the start's error", err)
+	}
+}
+
+// T-1033: config validate notes a project file (any of the four OpenCode reads) defining mcp.servers.obor, JSONC
+// comments and trailing commas read, and one that does not parse; none for a clean project.
+func TestProjectWarnings(t *testing.T) {
+	k, _ := agents.Lookup("opencode")
+	pc, ok := k.(agents.ProjectChecker)
+	if !ok {
+		t.Fatal("opencode reads no project file")
+	}
+	read := func(files map[string]string) agents.ReadFile {
+		return func(path string) ([]byte, error) {
+			if s, ok := files[strings.TrimPrefix(path, "/p/")]; ok {
+				return []byte(s), nil
+			}
+			return nil, fs.ErrNotExist
+		}
+	}
+	const jsonc = "{\n // mine\n \"mcp\": {\"servers\": {\"obor\": {\"type\": \"local\", \"command\": [\"x // y\"],},}, /* z */ },\n}\n"
+	for _, c := range []struct {
+		name  string
+		files map[string]string
+		want  []string
+	}{
+		{"none", nil, nil},
+		{"clean", map[string]string{"opencode.json": `{"model":"m","mcp":{"servers":{"mine":{}}}}`}, nil},
+		{"obor in opencode.json", map[string]string{"opencode.json": `{"mcp":{"servers":{"obor":{}}}}`},
+			[]string{"opencode.json: mcp.servers.obor"}},
+		{"obor in .opencode/opencode.jsonc, comments and trailing commas", map[string]string{".opencode/opencode.jsonc": jsonc},
+			[]string{".opencode/opencode.jsonc: mcp.servers.obor"}},
+		{"does not parse", map[string]string{"opencode.jsonc": `{"mcp": `}, []string{"opencode.jsonc: does not parse"}},
+	} {
+		got := pc.ProjectWarnings("/p", read(c.files))
+		if len(got) != len(c.want) {
+			t.Errorf("%s: warnings %q, want %q", c.name, got, c.want)
+			continue
+		}
+		for i := range got {
+			if !strings.HasPrefix(got[i], c.want[i]) {
+				t.Errorf("%s: warning %q, want %q…", c.name, got[i], c.want[i])
+			}
+		}
 	}
 }

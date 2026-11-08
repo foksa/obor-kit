@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -146,6 +147,7 @@ func claudeLive(l *lab, turn bool) {
 		l.stopAgent(pane)
 	}
 	ccL7(l, pane, turn)
+	ccL9(l, pane, turn)
 	out.note("claude: ~/.claude.json keeps a trust entry for " + link + " (" + l.lane + "); Claude's trust dialog writes it (known leftover, deep dive §6)")
 }
 
@@ -528,5 +530,106 @@ func ccResume(l *lab, k agents.Kind, pane string, base []string, settings map[st
 		report("FAIL", "CC-L1", "the resume ran no obor MCP server with the settings env", where)
 	default:
 		report("PASS", "CC-L1", "--resume keeps --settings (SessionStart source resume, its env) and --mcp-config (the obor server runs)", where)
+	}
+}
+
+// ccL9 (T-1033): a lane whose committed .claude/settings.json opts into its .mcp.json servers (enabledMcpjsonServers)
+// starts without --strict-mcp-config and obor's --mcp-config, so obor's server is the plugin manifest's (the repository's
+// own manifest, loaded from the real kit with --plugin-dir in place of the project's enabledPlugins): obor's job_next
+// result reaches the transcript, the project's .mcp.json server (the stub, `mcp project`) starts beside it, and the
+// session lists one obor server's tools, not two.
+func ccL9(l *lab, pane string, turn bool) {
+	where := at(claudeGo, "func (s settings) mcpOptIn") + ", " + at(claudeGo, "func (kind) Start") + ", T-1033"
+	if !turn {
+		report("SKIP", "CC-L9", "needs TURN=1 (a model call that uses the tool)", where)
+		return
+	}
+	real, err := l.realKit()
+	if err != nil {
+		report("FAIL", "CC-L9", "the repository's own obor is not built: "+err.Error(), where)
+		return
+	}
+	if err := l.startStubServe(); err != nil {
+		report("FAIL", "CC-L9", err.Error(), where)
+		return
+	}
+	manifest, err := os.ReadFile(filepath.Join(".claude-plugin", "plugin.json"))
+	if err != nil {
+		report("FAIL", "CC-L9", "the plugin manifest: "+err.Error(), where)
+		return
+	}
+	files := map[string]string{
+		filepath.Join(real, ".claude-plugin", "plugin.json"): string(manifest),
+		filepath.Join(l.lane, ".claude", "settings.json"):     `{"enabledMcpjsonServers":["conf_proj"]}`,
+		filepath.Join(l.lane, ".mcp.json"): `{"mcpServers":{"conf_proj":{"command":` +
+			strconv.Quote(filepath.Join(l.kit, "bin", "obor")) + `,"args":["mcp","project"]}}}`,
+	}
+	for path, body := range files {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err == nil {
+			err = os.WriteFile(path, []byte(body), 0o644)
+		}
+		if err != nil {
+			report("FAIL", "CC-L9", err.Error(), where)
+			return
+		}
+	}
+	defer func() {
+		_ = os.RemoveAll(filepath.Join(l.lane, ".claude"))
+		_ = os.Remove(filepath.Join(l.lane, ".mcp.json"))
+	}()
+	k := kindOf("claude")
+	model, _ := liveModel("claude")
+	start, err := l.launchOf("claude", model, real, nil)
+	if err != nil {
+		report("FAIL", "CC-L9", "the launch of "+model+" cannot be built: "+err.Error(), where)
+		return
+	}
+	if slices.Contains(start.args, "--strict-mcp-config") {
+		report("FAIL", "CC-L9", "the lane's enabledMcpjsonServers left --strict-mcp-config in the launch: "+strings.Join(start.args, " "), where)
+		return
+	}
+	sid := uuid()
+	argv := k.Start(agents.Start{Kit: real, Args: append(start.args, "--plugin-dir", real), Session: sid, Dir: l.lane,
+		Read: os.ReadFile})
+	if slices.Contains(argv, "--mcp-config") {
+		report("FAIL", "CC-L9", "a non-strict start still names obor's --mcp-config: "+strings.Join(argv, " "), where)
+		return
+	}
+	l.fresh()
+	t0 := time.Now()
+	s := l.start("conf-claude-proj", "claude", pane, argv, 30*time.Second)
+	if l.readyAfter(s, t0, "idle") == 0 {
+		report("FAIL", "CC-L9", "claude did not come up: "+tail(l.visible(pane), 6), where)
+		l.stopAgent(pane)
+		return
+	}
+	path := k.Transcript(l.envOf, sid)
+	if _, err := l.call("agent.prompt", map[string]any{"target": pane, "text": mcpPrompt}, 15*time.Second); err != nil {
+		report("FAIL", "CC-L9", "agent.prompt: "+err.Error(), where)
+		l.stopAgent(pane)
+		return
+	}
+	text, ok := waitTranscript(180*time.Second, func() string { return transcripts(path) }, mcpJobHead, mcpMarker)
+	proj := len(l.waitRecords("mcp", "project", 20*time.Second)) > 0
+	st := k.Stop()
+	if code, err := l.quit(pane, st.Quit, st.SecondEnter); err != nil || code != 0 {
+		l.stopAgent(pane)
+	}
+	var jobNext, projTools []string
+	for _, n := range mcpToolNames(text) {
+		if strings.HasSuffix(n, "__job_next") {
+			jobNext = append(jobNext, n)
+		}
+		if strings.Contains(n, "conf_proj") {
+			projTools = append(projTools, n)
+		}
+	}
+	fact := l.mcpFact(fmt.Sprintf("non-strict start (argv: no --strict-mcp-config, no --mcp-config); obor's job_next "+
+		"result in the transcript: %v; the .mcp.json server started: %v; job_next tools: %s; conf_proj tools: %s",
+		ok, proj, orNone(strings.Join(jobNext, " ")), orNone(strings.Join(projTools, " "))), text, ok)
+	if ok && proj && len(jobNext) == 1 && len(projTools) > 0 {
+		report("PASS", "CC-L9", fact, where)
+	} else {
+		report("FAIL", "CC-L9", fact, where)
 	}
 }

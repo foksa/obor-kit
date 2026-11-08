@@ -42,13 +42,20 @@ func MCPConfig(kit string) string {
 // --mcp-config pair spliced in before the strict flag (the flag stops --mcp-config's variadic value), then one `--`
 // when a config flag could take the prompt, then the prompt. The prompt is positional, never a config value; a
 // resume carries none. The only `--` is obor's own (config validate refuses one in the args).
+//
+// The project's committed .claude/settings.json in in.Dir (T-1033) outranks obor's policy: a project that opts into its
+// .mcp.json servers (enableAllProjectMcpServers true, or a non-empty enabledMcpjsonServers, which also approves them,
+// so an unattended lane does not sit on the approval prompt) starts without the strict flag, obor's server then the
+// plugin manifest's as for a role; a settings key the file sets is left out of --settings (no --settings when it sets
+// all). A file that does not parse counts as absent (config validate warns).
 func (kind) Start(in agents.Start) []string {
+	proj, _ := projectSettings(in)
 	args := withEffort(in.Args, in.Effort)
-	if in.StrictMCP {
+	if in.StrictMCP && !proj.mcpOptIn() {
 		args = withStrict(args)
 	}
-	if in.Settings != nil {
-		args = append(args, "--settings", compact(in.Settings))
+	if settings := proj.unset(in.Settings); len(settings) > 0 {
+		args = append(args, "--settings", compact(settings))
 	}
 	prompt := in.Prompt
 	if in.Resume != "" {
@@ -74,6 +81,61 @@ func (kind) Start(in agents.Start) []string {
 		out = append(out, prompt)
 	}
 	return out
+}
+
+// SettingsFile is the project's committed settings file, relative to the start dir.
+const SettingsFile = ".claude/settings.json"
+
+// settings are the keys of a project's settings file (nil: no file, or one that does not parse).
+type settings map[string]json.RawMessage
+
+// projectSettings is the start dir's SettingsFile; err: it is there but does not read or parse (nil settings then).
+func projectSettings(in agents.Start) (settings, error) {
+	b, found, err := agents.ProjectFile(in, SettingsFile)
+	if !found || err != nil {
+		return nil, err
+	}
+	var s settings
+	if err := json.Unmarshal(b, &s); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// mcpOptIn: the project opts into its .mcp.json servers and approves them (enableAllProjectMcpServers true, or a
+// non-empty enabledMcpjsonServers).
+func (s settings) mcpOptIn() bool {
+	var all bool
+	if json.Unmarshal(s["enableAllProjectMcpServers"], &all) == nil && all {
+		return true
+	}
+	var names []json.RawMessage
+	return json.Unmarshal(s["enabledMcpjsonServers"], &names) == nil && len(names) > 0
+}
+
+// unset is want without the keys s sets.
+func (s settings) unset(want map[string]any) map[string]any {
+	out := make(map[string]any, len(want))
+	for k, v := range want {
+		if _, set := s[k]; !set {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// ProjectWarnings: a settings file that does not parse (obor's start flags then apply as without it), and
+// disableAllHooks true (it turns off the plugin's hooks, obor's guards among them).
+func (kind) ProjectWarnings(dir string, read agents.ReadFile) []string {
+	s, err := projectSettings(agents.Start{Dir: dir, Read: read})
+	if err != nil {
+		return []string{SettingsFile + ": does not parse (" + err.Error() + "): obor's start flags apply as if it were absent"}
+	}
+	var off bool
+	if json.Unmarshal(s["disableAllHooks"], &off) == nil && off {
+		return []string{SettingsFile + ": disableAllHooks is true: it turns off obor's guard hooks (the plugin's hooks)"}
+	}
+	return nil
 }
 
 // efforts are Claude Code's --effort values, as `claude --help` lists them (2.x, 2026-11-02: "Effort level for the

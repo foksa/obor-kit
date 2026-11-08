@@ -13,7 +13,7 @@ import (
 // it joins the args (T-444: herdr refuses an agent.start argument with a newline).
 func startArgs(k agents.Kind, s Start, kit, session string) []string {
 	return k.Start(agents.Start{Kit: kit, Args: s.Args, Resume: s.Resume, Session: session, Prompt: oneLine(s.Prompt),
-		Read: os.ReadFile})
+		Read: os.ReadFile, Dir: s.Dir})
 }
 
 // oneLine is text with every run of newlines (and \r) one space: herdr refuses an agent.start argument with a newline

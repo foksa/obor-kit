@@ -529,3 +529,35 @@ func TestDifficultyList(t *testing.T) {
 		t.Errorf("DifficultyList(easy) = %v, want none", got)
 	}
 }
+
+// T-1033: the project's committed CLI config, notes only (never a FAIL): a .claude/settings.json with disableAllHooks
+// true, an opencode.json defining mcp.servers.obor; none for a clean project.
+func TestValidateProjectFiles(t *testing.T) {
+	p := newPlainProject(t)
+	write := func(rel, content string) {
+		t.Helper()
+		path := filepath.Join(p.Root, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(".claude/settings.json", `{"enabledMcpjsonServers":["mine"],"autoMemoryEnabled":true}`)
+	write("opencode.json", `{"mcp":{"servers":{"mine":{}}}}`)
+	write(".codex/config.toml", "sandbox_mode = \"read-only\"\n")
+	if got := validate(t, p); len(got) != 0 {
+		t.Fatalf("clean project: %q, want nothing", got)
+	}
+	write(".claude/settings.json", `{"disableAllHooks":true}`)
+	write("opencode.json", `{"mcp":{"servers":{"obor":{"type":"local"}}}}`)
+	got := validate(t, p)
+	want := []string{
+		"WARN .claude/settings.json: disableAllHooks is true: it turns off obor's guard hooks (the plugin's hooks)",
+		"WARN opencode.json: mcp.servers.obor replaces obor's own server (the project's config wins): remove it",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("validate = %q, want %q", got, want)
+	}
+}

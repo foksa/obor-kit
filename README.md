@@ -68,6 +68,26 @@ After that:
 obor lead       # starts the lead in its own tab; run /obor:lead in it
 ```
 
+## Customizing agents
+
+Agents read the project's own committed CLI config in their start dir (a lane worktree, or the main checkout for a
+role), as they do outside obor. obor starts each one with a few policy flags; a key the project file sets wins over
+the flag for it:
+
+| CLI | Project file | Key it sets | obor then leaves out |
+| --- | --- | --- | --- |
+| Claude | `.claude/settings.json` | `enableAllProjectMcpServers: true` or a non-empty `enabledMcpjsonServers` | `--strict-mcp-config` on a lane's agent: the project's `.mcp.json` servers load (the list also approves them, so no prompt waits) |
+| Claude | `.claude/settings.json` | `remoteControlAtStartup`, `autoMemoryEnabled` | that key of `--settings` (non-lead roles) |
+| Codex | `.codex/config.toml`, top-level (before any `[table]`) | `sandbox_mode` | `-s workspace-write` |
+| Codex | same | `check_for_update_on_startup` | `-c check_for_update_on_startup=false` |
+
+obor's MCP server, the session id, the prompt, the model and effort a type names, Claude's `--permission-mode auto`
+and Codex's `-a never` stay (change those in `.obor/config.json`: `models`, `kinds.<kind>.args`). Codex reads a
+project's `.codex/` only when the project is trusted in `~/.codex/config.toml`. A file that does not parse counts as
+absent. `obor config validate` warns on such a file, on `disableAllHooks: true` in `.claude/settings.json` (it turns
+off obor's guard hooks) and on an OpenCode project config (`opencode.json[c]`, `.opencode/opencode.json[c]`) that
+defines `mcp.servers.obor` (it replaces obor's server).
+
 ## Everyday commands
 
 `obor help` (or obor web's Help page) lists every command, its usage and what it does.

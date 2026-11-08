@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 
@@ -143,9 +144,10 @@ func (c *Config) CheckModelRef(ref string) error {
 // takes them (agents.Kind.Start: Claude's --settings <settings>; a kind obor has no bridge for: args alone), and a lane's
 // agent starts strict (its obor MCP server alone, T-770). Every agent but a lead starts with
 // {"remoteControlAtStartup":false,"autoMemoryEnabled":false} (only the lead on the phone, T-280, and only the lead keeps
-// auto memory, T-471). role is the agent's (roles.Role.Name; "": none); writeDirs the dirs outside its cwd it writes
-// (RoleWriteDirs: a sandboxed kind's start lets it, T-853).
-func (m Model) LaunchArgs(role, effort string, writeDirs []string) []string {
+// auto memory, T-471). role is the agent's (roles.Role.Name; "": none); dir its start dir, the cwd whose committed CLI
+// config the kind's policy flags give way to (agents.Start.Dir, T-1033; "": none read); writeDirs the dirs outside its
+// cwd it writes (RoleWriteDirs: a sandboxed kind's start lets it, T-853).
+func (m Model) LaunchArgs(role, effort, dir string, writeDirs []string) []string {
 	var settings map[string]any
 	if role != "lead" {
 		settings = map[string]any{"remoteControlAtStartup": false, "autoMemoryEnabled": false}
@@ -155,7 +157,7 @@ func (m Model) LaunchArgs(role, effort string, writeDirs []string) []string {
 		return append([]string(nil), m.Args...)
 	}
 	return k.Start(agents.Start{Args: m.Args, Settings: settings, Effort: effort, StrictMCP: roles.LaneBound(role),
-		WriteDirs: writeDirs})
+		WriteDirs: writeDirs, Dir: dir, Read: os.ReadFile})
 }
 
 // StartEnv is the environment a start of this model needs beyond the pane's (agents.Kind.StartEnv: OpenCode's model

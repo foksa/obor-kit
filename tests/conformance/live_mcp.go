@@ -91,7 +91,8 @@ type liveStart struct {
 	env  map[string]string
 }
 
-// launchOf builds a worker's start of model in the lab's project, the two calls internal/launch makes. Each kind's
+// launchOf builds a worker's start of model in the lab's project, the two calls internal/launch makes, its start dir
+// the lab's lane (T-1033: the project's CLI config there counts). Each kind's
 // real-server case starts from this, so it runs the shipped launch instead of a copy of its arguments that could drift
 // from it (RV-122 #1, T-910); model is a built-in model of the lab config's table (liveModel).
 func (l *lab) launchOf(kind, model, kit string, writeState func(string, []byte) (string, error)) (liveStart, error) {
@@ -110,7 +111,7 @@ func (l *lab) launchOf(kind, model, kit string, writeState func(string, []byte) 
 	if err != nil {
 		return liveStart{}, err
 	}
-	return liveStart{args: m.LaunchArgs("worker", "", nil), env: vars}, nil
+	return liveStart{args: m.LaunchArgs("worker", "", l.lane, nil), env: vars}, nil
 }
 
 // liveModel is the model a kind's real-server case starts: the kind's first built-in model (config.BuiltinModels:

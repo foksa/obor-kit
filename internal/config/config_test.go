@@ -301,7 +301,7 @@ func TestLaunchArgs(t *testing.T) {
 		{"codex worker: its kind's start, strict means nothing to it", luna, "worker",
 			"-s workspace-write -a never --no-daemon -m gpt-6-luna -c check_for_update_on_startup=false"},
 	} {
-		if got := strings.Join(tc.m.LaunchArgs(tc.role, "", nil), " "); got != tc.want {
+		if got := strings.Join(tc.m.LaunchArgs(tc.role, "", "", nil), " "); got != tc.want {
 			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
 		}
 	}

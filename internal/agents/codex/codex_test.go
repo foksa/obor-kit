@@ -1,6 +1,7 @@
 package codex_test
 
 import (
+	"io/fs"
 	"slices"
 	"testing"
 	"time"
@@ -264,5 +265,73 @@ func TestStartWriteDirs(t *testing.T) {
 	}
 	if got := k.Start(agents.Start{Args: args}); slices.Contains(got, "--add-dir") {
 		t.Errorf("no write dirs: %q", got)
+	}
+}
+
+// projectFS is a reader of one start dir /lane holding .codex/config.toml with content ("": the dir holds nothing).
+func projectFS(content string) agents.ReadFile {
+	return func(path string) ([]byte, error) {
+		if content != "" && path == "/lane/"+codex.ConfigFile {
+			return []byte(content), nil
+		}
+		return nil, fs.ErrNotExist
+	}
+}
+
+// T-1033: the start dir's committed .codex/config.toml outranks obor's policy flags: a top-level sandbox_mode drops
+// the base -s workspace-write, a top-level check_for_update_on_startup drops obor's -c; a key under a [table], a
+// file that does not parse, or no file: the flags as before.
+func TestStartProjectConfig(t *testing.T) {
+	k, _ := agents.Lookup("codex")
+	base := []string{"-s", "workspace-write", "-a", "never", "--no-daemon"}
+	update := []string{"-c", "check_for_update_on_startup=false"}
+	all := append(append([]string(nil), base...), update...)
+	noSandbox := append([]string{"-a", "never", "--no-daemon"}, update...)
+	for _, c := range []struct {
+		name, file string
+		want       []string
+	}{
+		{"absent", "", all},
+		{"sets neither key", "model = \"gpt-6\"\n", all},
+		{"sets sandbox_mode: no -s", "# mine\nsandbox_mode = \"read-only\"\n", noSandbox},
+		{"sets check_for_update_on_startup: no -c", "check_for_update_on_startup = true\n", base},
+		{"sets both", "sandbox_mode = 'danger-full-access'\n\"check_for_update_on_startup\" = true\n",
+			[]string{"-a", "never", "--no-daemon"}},
+		{"a multi-line value before the key", "notify = [\n  \"a]\",\n  [\"b\"],\n]\nsandbox_mode = \"read-only\" # c\n", noSandbox},
+		{"a multi-line string before the key", "x = \"\"\"\nsandbox_mode = 1\n\"\"\"\ncheck_for_update_on_startup = true\n", base},
+		{"the keys under a table: not top-level", "model = \"m\"\n[profiles.x]\nsandbox_mode = \"read-only\"\ncheck_for_update_on_startup = true\n", all},
+		{"does not parse: as absent", "sandbox_mode \"read-only\"\n", all},
+		{"an open value: as absent", "check_for_update_on_startup = true\nx = [1,\n", all},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got := k.Start(agents.Start{Args: base, Dir: "/lane", Read: projectFS(c.file)})
+			if !slices.Equal(got, c.want) {
+				t.Errorf("Start =\n %q\nwant\n %q", got, c.want)
+			}
+		})
+	}
+	// No start dir: the file is never read.
+	if got := k.Start(agents.Start{Args: base, Read: projectFS("sandbox_mode = \"x\"\n")}); !slices.Equal(got, all) {
+		t.Errorf("no dir: %q", got)
+	}
+	// The type's own update-check option still wins over the default (T-570), with a project file there too.
+	typed := append(append([]string(nil), base...), "-c", "check_for_update_on_startup=true")
+	if got := k.Start(agents.Start{Args: typed, Dir: "/lane", Read: projectFS("sandbox_mode = \"x\"\n")}); !slices.Equal(got,
+		[]string{"-a", "never", "--no-daemon", "-c", "check_for_update_on_startup=true"}) {
+		t.Errorf("type args set the update check: %q", got)
+	}
+}
+
+// T-1033: config validate notes a config file that does not parse; none for a clean or absent one.
+func TestProjectWarnings(t *testing.T) {
+	k, _ := agents.Lookup("codex")
+	pc, ok := k.(agents.ProjectChecker)
+	if !ok {
+		t.Fatal("codex reads no project file")
+	}
+	for file, want := range map[string]int{"": 0, "sandbox_mode = \"x\"\n[t]\nwhat ever\n": 0, "what ever\n": 1} {
+		if got := pc.ProjectWarnings("/lane", projectFS(file)); len(got) != want {
+			t.Errorf("%q: warnings %q, want %d", file, got, want)
+		}
 	}
 }

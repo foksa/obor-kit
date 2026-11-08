@@ -59,10 +59,10 @@ func TestModelEffortPerKind(t *testing.T) {
 		if err := c.CheckModelRef(tc.model + ":" + tc.effort); err != nil {
 			t.Errorf("%s:%s refused: %v", tc.model, tc.effort, err)
 		}
-		if got := strings.Join(m.LaunchArgs("lead", tc.effort, nil), " "); !strings.Contains(got, tc.inArgs) {
+		if got := strings.Join(m.LaunchArgs("lead", tc.effort, "", nil), " "); !strings.Contains(got, tc.inArgs) {
 			t.Errorf("%s at %s: args %q, want %q in them", tc.model, tc.effort, got, tc.inArgs)
 		}
-		if got := strings.Join(m.LaunchArgs("lead", "", nil), " "); strings.Contains(got, "effort") {
+		if got := strings.Join(m.LaunchArgs("lead", "", "", nil), " "); strings.Contains(got, "effort") {
 			t.Errorf("%s with no effort: args %q set one (the kind's default stands)", tc.model, got)
 		}
 	}
@@ -117,7 +117,7 @@ func TestCodexStartsWithNoDaemon(t *testing.T) {
 			t.Fatalf("Model(%s) is not known", name)
 		}
 		for _, role := range []string{"worker", "reviewer"} {
-			args := m.LaunchArgs(role, "", nil)
+			args := m.LaunchArgs(role, "", "", nil)
 			if n := strings.Count(" "+strings.Join(args, " ")+" ", " --no-daemon "); n != 1 {
 				t.Errorf("%s for %s: args %q carry --no-daemon %d times, want once", name, role, args, n)
 				continue
@@ -130,7 +130,7 @@ func TestCodexStartsWithNoDaemon(t *testing.T) {
 	}
 	for _, name := range []string{"opus", "deepseek"} {
 		m, _ := c.Model(name)
-		if slices.Contains(m.LaunchArgs("reviewer", "", nil), "--no-daemon") {
+		if slices.Contains(m.LaunchArgs("reviewer", "", "", nil), "--no-daemon") {
 			t.Errorf("%s: args %q carry Codex's --no-daemon", name, m.Args)
 		}
 	}

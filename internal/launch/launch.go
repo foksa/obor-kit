@@ -579,7 +579,7 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 		}
 	}
 	seen, err := l.start(ctx, Start{Agent: t.agent, Kind: t.kind, Pane: t.pane, Label: t.entry.Label, Args: args,
-		Resume: sid, Prompt: prompt, Lane: t.info.Lane})
+		Resume: sid, Prompt: prompt, Lane: t.info.Lane, Dir: t.info.Cwd})
 	var se *StartError
 	switch {
 	case errors.As(err, &se) && se.NotReady:
@@ -821,7 +821,7 @@ func (l *Launcher) args(t *target, effort string) ([]string, error) {
 			return nil, project.Failf("%s: %v", t.agent, err)
 		}
 	}
-	return lt.LaunchArgs(t.info.Role, effort, dirs), nil
+	return lt.LaunchArgs(t.info.Role, effort, t.info.Cwd, dirs), nil
 }
 
 func (l *Launcher) kill(pgid int, sig syscall.Signal) error {

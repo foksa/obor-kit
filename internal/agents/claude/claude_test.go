@@ -2,6 +2,7 @@ package claude_test
 
 import (
 	"errors"
+	"io/fs"
 	"slices"
 	"strings"
 	"testing"
@@ -241,5 +242,92 @@ func TestStartEffort(t *testing.T) {
 	}
 	if !slices.Equal(k.Efforts(), []string{"low", "medium", "high", "xhigh", "max"}) {
 		t.Errorf("Efforts = %q", k.Efforts())
+	}
+}
+
+// projectFS is a reader of one start dir /lane holding rel with content (nil content: the dir holds nothing).
+func projectFS(rel string, content []byte) agents.ReadFile {
+	return func(path string) ([]byte, error) {
+		if content != nil && path == "/lane/"+rel {
+			return content, nil
+		}
+		return nil, fs.ErrNotExist
+	}
+}
+
+// T-1033: the start dir's committed .claude/settings.json outranks obor's policy flags: an MCP opt-in (either key)
+// drops the strict flag (and obor's --mcp-config with it: the plugin's server serves, as for a role), a settings key
+// the file sets leaves --settings (no --settings when it sets both); a file that does not parse, or one setting none
+// of the keys, starts as without it.
+func TestStartProjectSettings(t *testing.T) {
+	k := kind(t)
+	ours := claude.MCPConfig("/kit")
+	both := map[string]any{"remoteControlAtStartup": false, "autoMemoryEnabled": false}
+	const bothJSON = `{"autoMemoryEnabled":false,"remoteControlAtStartup":false}`
+	strict := []string{"--mcp-config", ours, "--strict-mcp-config", "--settings", bothJSON, "--", "go"}
+	for _, c := range []struct {
+		name, file string // file "": absent
+		want       []string
+	}{
+		{"absent: strict, both settings", "", strict},
+		{"sets no key of obor's", `{"model":"opus","permissions":{"allow":["Bash(ls)"]}}`, strict},
+		{"does not parse: as absent", `{"enabledMcpjsonServers":["x"],`, strict},
+		{"enabledMcpjsonServers: not strict, no --mcp-config", `{"enabledMcpjsonServers":["mine"]}`,
+			[]string{"--settings", bothJSON, "go"}},
+		{"enableAllProjectMcpServers: not strict", `{"enableAllProjectMcpServers":true}`,
+			[]string{"--settings", bothJSON, "go"}},
+		{"enableAllProjectMcpServers false: strict", `{"enableAllProjectMcpServers":false}`, strict},
+		{"empty enabledMcpjsonServers: strict", `{"enabledMcpjsonServers":[]}`, strict},
+		{"sets autoMemoryEnabled: only the other key", `{"autoMemoryEnabled":true}`,
+			[]string{"--mcp-config", ours, "--strict-mcp-config", "--settings", `{"remoteControlAtStartup":false}`, "--", "go"}},
+		{"sets remoteControlAtStartup: only the other key", `{"remoteControlAtStartup":true}`,
+			[]string{"--mcp-config", ours, "--strict-mcp-config", "--settings", `{"autoMemoryEnabled":false}`, "--", "go"}},
+		{"sets both: no --settings", `{"remoteControlAtStartup":true,"autoMemoryEnabled":true}`,
+			[]string{"--mcp-config", ours, "--strict-mcp-config", "--", "go"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var content []byte
+			if c.file != "" {
+				content = []byte(c.file)
+			}
+			got := k.Start(agents.Start{Kit: "/kit", Settings: both, StrictMCP: true, Prompt: "go", Dir: "/lane",
+				Read: projectFS(claude.SettingsFile, content)})
+			if !slices.Equal(got, c.want) {
+				t.Errorf("Start =\n %q\nwant\n %q", got, c.want)
+			}
+		})
+	}
+	// No start dir: the file is never read, the flags as before.
+	got := k.Start(agents.Start{Kit: "/kit", Settings: both, StrictMCP: true, Prompt: "go",
+		Read: projectFS(claude.SettingsFile, []byte(`{"enableAllProjectMcpServers":true}`))})
+	if !slices.Equal(got, strict) {
+		t.Errorf("no dir: %q", got)
+	}
+}
+
+// T-1033: config validate's notes on the settings file: disableAllHooks true, a file that does not parse; none for a
+// clean or absent one.
+func TestProjectWarnings(t *testing.T) {
+	pc, ok := kind(t).(agents.ProjectChecker)
+	if !ok {
+		t.Fatal("claude reads no project file")
+	}
+	for _, c := range []struct{ file, want string }{
+		{"", ""},
+		{`{"model":"opus","disableAllHooks":false}`, ""},
+		{`{"disableAllHooks":true}`, ".claude/settings.json: disableAllHooks is true"},
+		{`{"model":`, ".claude/settings.json: does not parse"},
+	} {
+		var content []byte
+		if c.file != "" {
+			content = []byte(c.file)
+		}
+		got := pc.ProjectWarnings("/lane", projectFS(claude.SettingsFile, content))
+		switch {
+		case c.want == "" && len(got) != 0:
+			t.Errorf("%s: warnings %q, want none", c.file, got)
+		case c.want != "" && (len(got) != 1 || !strings.HasPrefix(got[0], c.want)):
+			t.Errorf("%s: warnings %q, want one starting %q", c.file, got, c.want)
+		}
 	}
 }
