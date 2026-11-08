@@ -30,7 +30,7 @@ func TestLaneStartRunsTheBinary(t *testing.T) {
 	delete(plugin.Local, kind.Name) // testkit answers OpenCode in process: this test runs the binary
 	dir := t.TempDir()
 	real := filepath.Join(dir, "real")
-	if out, err := exec.Command("go", "build", "-o", real, ".").CombinedOutput(); err != nil {
+	if out, err := exec.Command("go", "build", "-buildvcs=false", "-o", real, ".").CombinedOutput(); err != nil {
 		t.Fatalf("go build: %v\n%s", err, out)
 	}
 	rec := filepath.Join(dir, "requests")
