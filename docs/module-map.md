@@ -111,7 +111,9 @@ Adding a kind = one package + a config entry.
   the promotion's full suite, fast-forward and after_merge in `<merge.scratch_dir>-promote` (`promote.go`, T-974),
   flakes, and the lane table (`LaneTable`: worktree facts for `obor status` and `app.Lanes`, merge evidence; `Lanes` is serve's
   `app.Lanes` adapter, each lane's configured type, T-738).
-  Implements `app.Scratch`.
+  Implements `app.Scratch`. `Scratch` decides over git's answers; its git goes through `gitReader`/`gitWriter`
+  (`gitio.go`: `realGit`, the one adapter over real git), so its decision tests run on `fakegit_test.go`'s fake and its real-git scenario table is behind `//go:build
+  integration` (`scratch_integration_test.go`, `gitlock_test.go`; T-1011).
 - `launch`: start, stop (the kill sequence) and restart an agent CLI in its pane (`Launcher`, panes via
   `app.PaneControl`; implements `app.Agents` and `app.Starter`); the per-lane restart lock (`restartlock.go`:
   `RestartLock`, T-500); the herdr plugin's restore (`Restorer`); `session.go`: the id obor names a fresh Claude

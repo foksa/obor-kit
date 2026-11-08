@@ -291,7 +291,7 @@ func laneTestCut(t *testing.T) {
 		`sleep 3`, `echo 1 pass`, 1))
 	opts := y.opts()
 	opts.Git = y.s.Git
-	y.s = Scratch{opts}
+	y.s = Scratch{Options: opts}
 	if o, err := y.test(ctx, c); err != nil || o.Kind != port.OutcomeGreen {
 		t.Fatalf("the test again on the detached lane: %+v %v", o, err)
 	}

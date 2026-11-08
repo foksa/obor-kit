@@ -1,3 +1,5 @@
+//go:build integration
+
 package checks
 
 import (
@@ -21,7 +23,7 @@ func lockFx(t *testing.T) (*fx, Scratch, string) {
 	t.Helper()
 	x := newFx(t)
 	lock := x.Git(x.lane, "rev-parse", "--path-format=absolute", "--git-path", "index.lock")
-	return x, Scratch{x.opts()}, lock
+	return x, Scratch{Options: x.opts()}, lock
 }
 
 func (x *fx) committed() bool {
