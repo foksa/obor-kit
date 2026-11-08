@@ -26,8 +26,9 @@ import (
 var tmpl = sync.OnceValue(buildTemplate)
 
 var (
-	tmplMu   sync.Mutex
-	tmplDirs []string // every template base built for the run, removed after it
+	tmplMu       sync.Mutex
+	tmplDirs     []string // every template base built for the run, removed after it
+	mainCleanups []func() // mainTB's Cleanups: the temp dirs testkit's fixtures made, removed after the run
 )
 
 // keep notes d as a template base TestMain removes.
@@ -44,17 +45,26 @@ func TestMain(m *testing.M) {
 	for _, d := range tmplDirs {
 		os.RemoveAll(d)
 	}
+	for i := len(mainCleanups) - 1; i >= 0; i-- {
+		mainCleanups[i]()
+	}
 	os.Exit(code)
 }
 
-// mainTB is a testing.TB for the templates built outside a test: failures panic and Cleanup removes nothing (TestMain
-// removes every template once, after the run).
+// mainTB is a testing.TB for the templates built outside a test: failures panic, and Cleanup's work (testkit's short
+// temp dirs) runs after the run, as a test's would at its end: the fixture must outlive every test that copies it
+// (T-1024: before, Cleanup was a no-op and each fixture's hk<digits> dir stayed in TMPDIR).
 type mainTB struct{ testing.TB }
 
-func (mainTB) Helper()                           {}
-func (mainTB) Cleanup(func())                    {}
-func (mainTB) Log(...any)                        {}
-func (mainTB) Logf(string, ...any)               {}
+func (mainTB) Helper()             {}
+func (mainTB) Log(...any)          {}
+func (mainTB) Logf(string, ...any) {}
+
+func (mainTB) Cleanup(f func()) {
+	tmplMu.Lock()
+	mainCleanups = append(mainCleanups, f)
+	tmplMu.Unlock()
+}
 func (mainTB) Fatal(args ...any)                 { panic(fmt.Sprint(args...)) }
 func (mainTB) Fatalf(format string, args ...any) { panic(fmt.Sprintf(format, args...)) }
 func (mainTB) Errorf(format string, args ...any) { panic(fmt.Sprintf(format, args...)) }

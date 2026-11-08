@@ -40,7 +40,8 @@ func TestMain(m *testing.M) { Main(m) }
 
 // New copies the binary's one template (T-1009): two projects are independent copies, each with the template's commit
 // on main, a commit in one is not in the other, and the template was built once for both. Refs and objects are read
-// from the files (a fresh repo's are loose), not by git: the package's git budget.
+// from the files (a fresh repo's are loose), not by git: the package's git budget. The commit is the one git process
+// (commit -a of a tracked file; T-1024).
 func TestNewCopiesOneTemplate(t *testing.T) {
 	a, b := New(t), New(t)
 	if a.Root == b.Root {
@@ -54,7 +55,8 @@ func TestNewCopiesOneTemplate(t *testing.T) {
 	if got := strings.TrimSpace(b.Read(ref)); got != initial {
 		t.Fatalf("b's main %q, want the template's %s", got, initial)
 	}
-	a.Commit(a.Root)
+	a.Write(".gitignore", ".task-done.md\nwork\n") // tracked, so one `git commit -a` is a commit
+	a.Git(a.Root, "commit", "-q", "-am", "work")
 	head := strings.TrimSpace(a.Read(ref))
 	object := filepath.Join(".git", "objects", head[:2], head[2:])
 	if head == initial || !a.Exists(object) {
@@ -66,8 +68,8 @@ func TestNewCopiesOneTemplate(t *testing.T) {
 	if b.Exists(object) {
 		t.Errorf("a's commit %s is in b's objects", head)
 	}
-	if b.Exists("work.txt") {
-		t.Error("a's work.txt is in b")
+	if got, want := b.Read(".gitignore"), ".task-done.md\n"; got != want {
+		t.Errorf("b's .gitignore = %q after a's commit, want the template's %q", got, want)
 	}
 	if tmpl.builds != 1 {
 		t.Errorf("template built %d times, want 1", tmpl.builds)
@@ -107,9 +109,10 @@ func TestNewWithoutTheHookFails(t *testing.T) {
 	}
 }
 
-// Run removes the template New copies: a child test binary runs one test that builds it and writes its base down, and
-// after the child exits nothing is left there (T-1019). This package's own run cannot show it: its template must live
-// for its tests.
+// Run removes the template New copies: a child test binary gives the binary a template base (a dir of the template's
+// shape) and writes it down, and after the child exits nothing is left there (T-1019). This package's own run cannot
+// show it: its template must live for its tests. The child builds no template, so the check starts no git (T-1024);
+// that New builds it once is TestNewCopiesOneTemplate's.
 func TestRunRemovesTheTemplate(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "base")
 	cmd := exec.Command(os.Args[0], "-test.run=^TestTemplateChild$")
@@ -130,17 +133,26 @@ func TestRunRemovesTheTemplate(t *testing.T) {
 	}
 }
 
-// TestTemplateChild is TestRunRemovesTheTemplate's child: it builds the template once and writes where.
+// TestTemplateChild is TestRunRemovesTheTemplate's child: it sets the template base (a dir with the template's proj
+// and its .gitignore, no git) and writes where; the TestMain's Run removes it after the test.
 func TestTemplateChild(t *testing.T) {
 	out := os.Getenv("TESTKIT_TEMPLATE_CHILD")
 	if out == "" {
 		t.Skip("the child of TestRunRemovesTheTemplate")
 	}
-	New(t)
-	if tmpl.builds != 1 {
-		t.Fatalf("template built %d times, want 1", tmpl.builds)
+	base, err := os.MkdirTemp("", "hk-tmpl")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := os.WriteFile(out, []byte(tmpl.base+"\n"), 0o644); err != nil {
+	proj := filepath.Join(base, "proj")
+	if err := os.MkdirAll(proj, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(proj, ".gitignore"), []byte(".task-done.md\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tmpl.base = base
+	if err := os.WriteFile(out, []byte(base+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }

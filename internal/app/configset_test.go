@@ -21,11 +21,17 @@ import (
 // them together, writes and commits that one file once (ConfigFile), records fact config.set and sends the lead one
 // line; any change refused refuses them all.
 
-// configJSON is the edit tests' config.json: an opencode model a level names with an effort, a kind's args, two lanes.
+// configJSON is the edit tests' config.json: an opencode model a level names with an effort, a kind's args, two lanes,
+// and no trunk (branches.main ""): these edits test the config_set mechanism, not validate's trunk check (config's
+// TestValidateTrunkRef), and this plain dir has no repository for that check to read, so it starts no git process here
+// (T-1024: the app package's tests run no git).
 const configJSON = `{
   "version": 1,
   "name": "pj",
   "prefix": "pj",
+  "branches": {
+    "main": ""
+  },
   "difficulty": {
     "hard": [
       "opus:high"
@@ -315,8 +321,8 @@ func TestConfigSetWaitsForPublish(t *testing.T) {
 	r := newAdmitRig(t, true)
 	h, ctx := r.h, context.Background()
 	path := filepath.Join(h.root, ".obor", "config.json")
-	h.write(path, `{"version":1,"name":"pj","prefix":"pj","roles":{"integrator":"","reviewer":"","deep_dive":""},`+
-		`"paths":{"reviews":"reviews"},"lanes":1}`)
+	h.write(path, `{"version":1,"name":"pj","prefix":"pj","branches":{"main":""},`+
+		`"roles":{"integrator":"","reviewer":"","deep_dive":""},"paths":{"reviews":"reviews"},"lanes":1}`)
 	f := &fakeConfig{path: path}
 	r.fx.Config = f
 	r.publishing(ctx)

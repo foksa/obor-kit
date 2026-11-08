@@ -16,6 +16,7 @@ import (
 
 	"obor/internal/app"
 	"obor/internal/config"
+	"obor/internal/testkit"
 )
 
 // nightlyFake is a Loop's Nightly: the last full check's verdict and each run's outcome scripted, the runs counted.
@@ -275,7 +276,9 @@ func (c *configWriter) count() int {
 func TestNightlySwitchCountsFromTheNextPass(t *testing.T) {
 	t.Parallel()
 	f := &nightlyFake{outs: []app.NightlyOut{green}}
-	r := newLoopRig(t)
+	// No trunk (branches.main ""): this plain dir has no repository, so validate starts no git process for the
+	// config_set (T-1024; the trunk check is config's TestValidateTrunkRef).
+	r := newLoopRig(t, withConfig(testkit.Set("branches.main", "")))
 	r.clock.t = time.Date(2026, 11, 10, 12, 0, 0, 0, time.Local)
 	w := &configWriter{path: filepath.Join(r.p.Root, ".obor", "config.json")}
 	r.config = w

@@ -92,6 +92,22 @@ func TestCheckBreaches(t *testing.T) {
 			e.full["a"] = r
 			e.budget.Tests = map[string]float64{"a TestCapped": 2}
 		}, []string{"FAIL budget: a test/TestCapped 2.50s > 2.0s"}},
+		// T-1024: a cap under a second is the size of go test's own noise, so the floor answers, not the cap.
+		{"a wall under the floor over a tiny cap is green", func(e *env) {
+			e.budget.Packages["a"] = Budget{ShortS: 0.3, FullS: 0.6, GitProcs: 10}
+			e.full["a"] = Run{Passed: true, Elapsed: 0.9, Git: 10}
+			e.short["a"] = Run{Passed: true, Elapsed: 0.5}
+		}, nil},
+		{"a wall over the floor over a tiny cap", func(e *env) {
+			e.budget.Packages["a"] = Budget{ShortS: 0.3, FullS: 0.6, GitProcs: 10}
+			e.full["a"] = Run{Passed: true, Elapsed: 1.1, Git: 10}
+			e.short["a"] = Run{Passed: true, Elapsed: 0.5}
+		}, []string{"FAIL budget: a full_s 1.1s > 1.0s"}},
+		{"a cap over the floor stays the cap", func(e *env) {
+			e.budget.Packages["a"] = Budget{ShortS: 1.5, FullS: 1.5, GitProcs: 10}
+			e.full["a"] = Run{Passed: true, Elapsed: 1.6, Git: 10}
+			e.short["a"] = Run{Passed: true, Elapsed: 0.5}
+		}, []string{"FAIL budget: a full_s 1.6s > 1.5s"}},
 		{"an uncapped test at 1.2 s is under the untagged threshold", func(e *env) {
 			r := e.full["a"]
 			r.Tests = []Test{{Name: "TestUntagged", Elapsed: 1.2}}
