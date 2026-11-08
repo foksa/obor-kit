@@ -580,6 +580,7 @@ func TestViewOfANewerConfigWarns(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
 	p.Config(testkit.Set("zz_future", "")) // T-801: roles.<name> is a custom role now, no unknown key
+	p.Spec("T-01", "# T-01 — stored, never dispatched\n\nDifficulty: simple\n")
 	if _, err := config.Load(p.Root); err == nil {
 		t.Fatal("precondition: config.Load refuses the unknown key")
 	}
@@ -596,6 +597,11 @@ func TestViewOfANewerConfigWarns(t *testing.T) {
 	if len(v.Notes) != 2 || !strings.HasPrefix(v.Notes[0], "WARN ") || !strings.Contains(v.Notes[0], `"zz_future"`) ||
 		v.Notes[1] != project.StoppedLine {
 		t.Errorf("notes %q, want the unknown key's warning and the stopped line", v.Notes)
+	}
+	// T-1028: the page's view is view.Build's (view.Load), and serve is down: T-01's stored spec is not listed as never
+	// dispatched.
+	if len(v.Queue.Waiting) != 0 {
+		t.Errorf("queue %+v, want none with serve down: a stored-only spec is not listed", v.Queue.Waiting)
 	}
 	var entries []ProjectsEntry
 	decode(t, get(t, h, "/api/projects"), &entries)

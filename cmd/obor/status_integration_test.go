@@ -159,6 +159,7 @@ func TestStatusJSON(t *testing.T) {
 	p.Config()
 	p.Commit(o1)
 	p.Submit("L-01")
+	p.Spec("T-09", "# T-09 — stored, never dispatched\n\nDifficulty: simple\n")
 	p.Write(".obor/pause", "-\nhold\n") // T-465: no reader; serve (down here) holds the pause
 	rc, stdout, stderr := run(t, p.Root, nil, "status", "--json")
 	if rc != 0 || !strings.HasPrefix(stdout, "{\n  \"serve\": {") {
@@ -176,6 +177,10 @@ func TestStatusJSON(t *testing.T) {
 		} `json:"paused"`
 		NeedsYou []any `json:"needs_you"`
 		Messages []any `json:"messages"`
+		Queue    struct {
+			Merge   []map[string]any `json:"merge"`
+			Waiting []map[string]any `json:"waiting"`
+		} `json:"queue"`
 	}
 	if err := json.Unmarshal([]byte(stdout), &st); err != nil {
 		t.Fatal(err)
@@ -190,6 +195,11 @@ func TestStatusJSON(t *testing.T) {
 	}
 	if st.Ready != nil || strings.Contains(stdout, `"ready"`) {
 		t.Errorf("ready: %v; want no ready field (T-470)", st.Ready)
+	}
+	// T-1028: serve is down, so the CLI lists no stored spec as never dispatched — it takes view.Build's empty-status
+	// path (T-09's spec is stored and was never dispatched).
+	if len(st.Queue.Waiting) != 0 || len(st.Queue.Merge) != 0 {
+		t.Errorf("queue %+v, want none with serve down", st.Queue)
 	}
 	if st.Pause != nil {
 		t.Errorf("paused %+v; want none (serve down; .obor/pause is not read)", st.Pause)
