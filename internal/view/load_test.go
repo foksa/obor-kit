@@ -11,6 +11,9 @@ import (
 	"obor/internal/testkit"
 )
 
+// TestMain isolates the tests and removes the project template New copies (T-1009).
+func TestMain(m *testing.M) { testkit.Main(m) }
+
 // T-667: Load builds one project's view as obor status does — serve down is its error in the view, not an error — from
 // the lane table and the store alone (the lane's spec rev and its events are there).
 func TestLoadWithoutServe(t *testing.T) {

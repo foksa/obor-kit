@@ -6,10 +6,12 @@ package testkit
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -23,10 +25,101 @@ import (
 	"obor/internal/store"
 )
 
-// Main runs a package's tests isolated (Isolate). Call it from TestMain.
+// Main runs a package's tests isolated (Isolate) and removes the project template after them (Run). Call it from
+// TestMain.
 func Main(m *testing.M) {
 	Isolate()
-	os.Exit(m.Run())
+	os.Exit(Run(m))
+}
+
+// Run is m.Run followed by the removal of the project template New copies (T-1009), for a TestMain that does more than
+// Main: it returns m.Run's code.
+func Run(m *testing.M) int {
+	code := m.Run()
+	if tmpl.base != "" {
+		os.RemoveAll(tmpl.base)
+	}
+	return code
+}
+
+// tmpl is the project every New copies (T-1009): <base>/proj with its one commit on main, built once per test binary on
+// first use and removed by Run. builds counts the builds (a test checks it is one).
+var tmpl struct {
+	once   sync.Once
+	base   string
+	err    error
+	builds int
+}
+
+// template is the template's proj dir, built on first use: git init, add and commit of the .gitignore (a leftover done
+// file), the only git processes a New costs, once per binary.
+func template() (string, error) {
+	tmpl.once.Do(func() {
+		tmpl.builds++
+		tmpl.base, tmpl.err = os.MkdirTemp("", "hk-tmpl")
+		if tmpl.err != nil {
+			return
+		}
+		root := filepath.Join(tmpl.base, "proj")
+		if tmpl.err = os.MkdirAll(root, 0o755); tmpl.err != nil {
+			return
+		}
+		if tmpl.err = os.WriteFile(filepath.Join(root, ".gitignore"), []byte(".task-done.md\n"), 0o644); tmpl.err != nil {
+			return
+		}
+		for _, args := range [][]string{{"-c", "init.defaultBranch=main", "init", "-q"}, {"add", "-A"},
+			{"commit", "-q", "-m", "initial"}} {
+			cmd := exec.Command("git", append([]string{"-C", root, "-c", "user.name=obor test",
+				"-c", "user.email=obor-test@example.invalid", "-c", "commit.gpgsign=false"}, args...)...)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				tmpl.err = fmt.Errorf("git %v: %v\n%s", args, err, out)
+				return
+			}
+		}
+	})
+	if tmpl.err != nil {
+		return "", fmt.Errorf("testkit: build the project template: %w", tmpl.err)
+	}
+	return filepath.Join(tmpl.base, "proj"), nil
+}
+
+// copyTree copies the tree at src to dst (which must not exist) in process: dirs, regular files (mode and mtime kept,
+// so the copied index still matches the copied files' mtimes) and symlinks.
+func copyTree(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		to := filepath.Join(dst, rel)
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		switch {
+		case d.IsDir():
+			return os.MkdirAll(to, info.Mode().Perm()|0o700)
+		case info.Mode()&fs.ModeSymlink != 0:
+			link, err := os.Readlink(path)
+			if err != nil {
+				return err
+			}
+			return os.Symlink(link, to)
+		case info.Mode().IsRegular():
+			b, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			if err := os.WriteFile(to, b, info.Mode().Perm()); err != nil {
+				return err
+			}
+			return os.Chtimes(to, info.ModTime(), info.ModTime())
+		}
+		return fmt.Errorf("copy %s: not a dir, file or symlink", path)
+	})
 }
 
 // Slow marks a test that takes a second or more: the per-merge gate's fast tier (go test -short, T-957) skips it, and
@@ -107,15 +200,19 @@ func New(t testing.TB) *Project {
 	return NewAt(t, shortDir(t))
 }
 
-// NewAt is New at base (a test that wants it under t.TempDir): the caller owns base.
+// NewAt is New at base (a test that wants it under t.TempDir): the caller owns base. The project is a private copy of
+// the binary's template (T-1009): no git process here.
 func NewAt(t testing.TB, base string) *Project {
 	t.Helper()
 	p := &Project{t: t, Base: base}
 	p.Root = filepath.Join(p.Base, "proj")
-	p.Write(".gitignore", ".task-done.md\n")
-	p.Git(p.Base, "-c", "init.defaultBranch=main", "init", "-q", p.Root)
-	p.Git(p.Root, "add", "-A")
-	p.Git(p.Root, "commit", "-q", "-m", "initial")
+	src, err := template()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := copyTree(src, p.Root); err != nil {
+		t.Fatalf("testkit: copy the project template: %v", err)
+	}
 	return p
 }
 

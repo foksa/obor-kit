@@ -17,9 +17,9 @@
   },
   "packages": {
     "obor/cmd/obor": {
-      "short_s": 39.5,
+      "short_s": 34.0,
       "full_s": 61.4,
-      "git_procs": 3020
+      "git_procs": 2250
     },
     "obor/internal/affected": {
       "short_s": 0.7,
@@ -72,9 +72,9 @@
       "git_procs": 7295
     },
     "obor/internal/config": {
-      "short_s": 11.1,
-      "full_s": 10.7,
-      "git_procs": 1355
+      "short_s": 4.0,
+      "full_s": 5.0,
+      "git_procs": 330
     },
     "obor/internal/guard": {
       "short_s": 2.3,
@@ -113,8 +113,8 @@
     },
     "obor/internal/run": {
       "short_s": 2.3,
-      "full_s": 9.6,
-      "git_procs": 342
+      "full_s": 8.7,
+      "git_procs": 285
     },
     "obor/internal/selfexec": {
       "short_s": 1,
@@ -127,9 +127,9 @@
       "git_procs": 0
     },
     "obor/internal/setup": {
-      "short_s": 40.1,
-      "full_s": 84.7,
-      "git_procs": 3036
+      "short_s": 19.0,
+      "full_s": 35.0,
+      "git_procs": 2400
     },
     "obor/internal/spec": {
       "short_s": 0.2,
@@ -154,12 +154,12 @@
     "obor/internal/view": {
       "short_s": 4.1,
       "full_s": 4.2,
-      "git_procs": 305
+      "git_procs": 245
     },
     "obor/internal/web": {
       "short_s": 6.1,
       "full_s": 6.4,
-      "git_procs": 491
+      "git_procs": 415
     },
     "obor/tests/budget": {
       "short_s": 0.8,

@@ -2,6 +2,8 @@ package testkit
 
 import (
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -29,5 +31,43 @@ func TestIsolate(t *testing.T) {
 	p := New(t)
 	if got := p.Git(p.Root, "config", "--get", "maintenance.auto"); got != "false" {
 		t.Errorf("maintenance.auto = %q, want false", got)
+	}
+}
+
+func TestMain(m *testing.M) { Main(m) }
+
+// New copies the binary's one template (T-1009): two projects are independent copies, each with the template's commit
+// on main, a commit in one is not in the other, and the template was built once for both. Refs and objects are read
+// from the files (a fresh repo's are loose), not by git: the package's git budget.
+func TestNewCopiesOneTemplate(t *testing.T) {
+	a, b := New(t), New(t)
+	if a.Root == b.Root {
+		t.Fatalf("precondition: two projects share %s", a.Root)
+	}
+	ref := filepath.Join(".git", "refs", "heads", "main")
+	initial := strings.TrimSpace(a.Read(ref))
+	if len(initial) != 40 {
+		t.Fatalf("precondition: a's main %q, want the template's commit", initial)
+	}
+	if got := strings.TrimSpace(b.Read(ref)); got != initial {
+		t.Fatalf("b's main %q, want the template's %s", got, initial)
+	}
+	a.Commit(a.Root)
+	head := strings.TrimSpace(a.Read(ref))
+	object := filepath.Join(".git", "objects", head[:2], head[2:])
+	if head == initial || !a.Exists(object) {
+		t.Fatalf("precondition: the commit in a moved its main to %q with its object", head)
+	}
+	if got := strings.TrimSpace(b.Read(ref)); got != initial {
+		t.Errorf("b's main %q after a commit in a, want %s", got, initial)
+	}
+	if b.Exists(object) {
+		t.Errorf("a's commit %s is in b's objects", head)
+	}
+	if b.Exists("work.txt") {
+		t.Error("a's work.txt is in b")
+	}
+	if tmpl.builds != 1 {
+		t.Errorf("template built %d times, want 1", tmpl.builds)
 	}
 }

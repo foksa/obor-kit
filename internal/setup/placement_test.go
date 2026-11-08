@@ -267,12 +267,12 @@ func TestPlacementSkipsAnotherProjectsLeadTab(t *testing.T) {
 // not an available shell (agent_pane_busy)"): the start waits for herdr to report a shell there, within the bound.
 func TestNewPaneShellIsWaitedFor(t *testing.T) {
 	t.Parallel()
-	t.Run("busy 2 s: the start waits and succeeds", func(t *testing.T) {
+	t.Run("busy 0.3 s: the start waits and succeeds", func(t *testing.T) {
 		t.Parallel()
 		x := newFx(t)
 		x.ok(t, "lane", "L-01")
 		x.State("L-01", map[string]any{"task": "T-1", "type": "luna"})
-		x.h.NewPaneBusy = 2 * time.Second
+		x.h.NewPaneBusy = 300 * time.Millisecond // three of the start's 100 ms looks: a wait, not a real 2 s (T-1009)
 		begin := time.Now()
 		out := x.ok(t, "pane", "--start", "L-01", "--new-tab", "workers")
 		if d := time.Since(begin); d < x.h.NewPaneBusy {

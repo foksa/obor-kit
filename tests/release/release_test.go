@@ -15,6 +15,9 @@ import (
 	"obor/internal/testkit"
 )
 
+// TestMain isolates the tests and removes the project template New copies (T-1009).
+func TestMain(m *testing.M) { testkit.Main(m) }
+
 // Tests for T-640: `make release V=x.y.z` (scripts/release) and `make ship` (scripts/ship). The fixtures are kit copies
 // in a temp repo with a fake go that writes its -o file, so `make check` and `make release` are fast and observable.
 
