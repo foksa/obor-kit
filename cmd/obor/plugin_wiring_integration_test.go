@@ -160,7 +160,6 @@ func TestOtherHooksNoBinaryAllow(t *testing.T) {
 // bounded and reaped, the binary never runs the hook; rebuilt, it runs.
 // Slow: each hook waits out the shim's hang watchdog (OBOR_HOOK_TIMEOUT, 1 s here: whole seconds, bin/obor's sleep).
 func TestOtherHooksHangingBinaryAllow(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	for _, c := range otherHooks {
 		t.Run(c.hook, func(t *testing.T) {

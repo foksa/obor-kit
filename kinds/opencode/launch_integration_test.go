@@ -17,7 +17,6 @@ import (
 	"obor/internal/app/port"
 	"obor/internal/config"
 	"obor/internal/launch"
-	"obor/internal/testkit"
 	"obor/kinds/opencode/kind"
 )
 
@@ -28,7 +27,6 @@ import (
 // kind gave it (--auto --standalone, the model gone, --prompt; OBOR_OPENCODE_MODEL model#effort, OPENCODE_CONFIG the
 // file in the state dir holding the kit's mcp server and plugin).
 func TestLaneStartRunsTheBinary(t *testing.T) {
-	testkit.Slow(t)                 // a go build of the kind (~1 s cached, more cold) and a process per call
 	delete(plugin.Local, kind.Name) // testkit answers OpenCode in process: this test runs the binary
 	dir := t.TempDir()
 	real := filepath.Join(dir, "real")

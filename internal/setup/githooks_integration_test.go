@@ -229,7 +229,6 @@ func (x *hx) binary(script string) {
 // TestGithooksSetsRefusesRemoves. The binary is a stub (hx.binary) at each case, never a build: the real binary's
 // whoami --can-push answers are cmd/obor's TestWhoamiCanPush.
 func TestGithooks(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	const lane = "obor: no commits in a lane"
 	const unknown = "obor: cannot tell whether this is a lane"
@@ -655,7 +654,6 @@ func TestGithooksSetsChainsRemoves(t *testing.T) {
 // Slow: seven cases, each three obor setup githooks runs whose work is git config (the code under test runs git: no
 // fake), ≈1.8 s together at 2 cores (T-1009 measured).
 func TestGithooksPicksTheHooksDir(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	dir := filepath.Join(kit, "githooks")
 	chain := filepath.Join(dir, "chain")

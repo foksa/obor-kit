@@ -20,7 +20,6 @@ import (
 // obor lead; a rerun leaves the loaded agent alone (no second bootstrap). Off darwin the serve step is skipped with
 // the run-it-yourself line and init still succeeds.
 func TestInitEndToEnd(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	p := testkit.New(t)
 	env, log, home := initEnv(t, nil)
@@ -87,7 +86,6 @@ func initEnv(t *testing.T, more map[string]string) (env []string, log, home stri
 // caches OpenCode's manifest before its panes, so obor setup mcp --model deepseek works with no hand step; init in a
 // project whose integrator is OpenCode's (its pane's start built from the manifest) succeeds, and so does its rerun.
 func TestInitCachesThePluginKinds(t *testing.T) {
-	testkit.Slow(t) // obor init three times (git, the lanes' worktrees) and a process per kind call
 	t.Parallel()
 	cacheOf := func(p *testkit.Project) string {
 		return filepath.Join(p.Root, ".obor", "state", "kinds", "opencode.json")

@@ -17,12 +17,10 @@ import (
 	"obor/internal/config"
 	"obor/internal/herdr"
 	"obor/internal/project"
-	"obor/internal/testkit"
 )
 
 // T-647: obor init writes setup.confirmed: false when the config has no such key, and a rerun keeps the owner's true.
 func TestOborInitRecordsTheSetupAnswer(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	x := newGitInitFx(t, true)
 	out := x.init(t)
@@ -57,7 +55,6 @@ func TestOborInitRecordsTheSetupAnswer(t *testing.T) {
 // T-647: an existing config without the setup key (written before the table) gets confirmed: false on init: nothing
 // there says the owner saw the table.
 func TestOborInitAddsTheMissingSetupAnswer(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	x := newGitInitFx(t, true)
 	x.init(t)
@@ -481,7 +478,6 @@ func TestOborInitRerunKeepsTheLanes(t *testing.T) {
 // Slow: seven cases, each two or three real obor init runs (its commit, its lanes' worktree adds: the code under test
 // runs git, so no fake), ≈0.35 s a case (T-1009).
 func TestOborInitLaneSetupOnARerun(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	for _, c := range []struct {
 		name string

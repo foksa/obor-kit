@@ -103,7 +103,6 @@ func TestRunRcArgs(t *testing.T) {
 // bash run.test.sh case_timeout: a command over its timeout is rc 124 with a note, ended at the timeout.
 // Slow: it waits out config's whole-second 1 s timeout (T-1006).
 func TestRunTimeout(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	f := setup(t, `{"slow": {"cmd": "sleep 5", "timeout": 1}}`)
 	start := time.Now()
@@ -309,7 +308,6 @@ func gone(pid int) bool {
 // grace.
 // Slow: it waits a config command's 3 s timeout plus project.Grace before the KILL (T-1006).
 func TestExecuteLeavesNoGroup(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	dir := t.TempDir()
 	ignorer := `bash -c 'trap "" TERM; echo $$ > pid; while :; do sleep 0.1; done' &

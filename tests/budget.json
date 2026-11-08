@@ -1,188 +1,142 @@
 {
-  "untagged_s": 1.3,
-  "tests": {
-    "obor/internal/app TestLoopRecovery": 2.5,
-    "obor/internal/checks TestFlakeLog": 2.5,
-    "obor/internal/checks TestFlakeLogNightly": 2.5,
-    "obor/internal/checks TestFlakyRule": 3.0,
-    "obor/internal/checks TestGateCompilesOnly": 2.0,
-    "obor/internal/checks TestLaneFree": 2.5,
-    "obor/internal/checks TestLaneFreeHistoryFailurePreservesBranch": 4.5,
-    "obor/internal/checks TestLaneTestGreenRestores": 4.0,
-    "obor/internal/checks TestLaneTestRedRestores": 6.0,
-    "obor/internal/checks TestNightly": 10.0,
-    "obor/internal/checks TestResolvedRefusesMismatchUntilEditRestored": 2.5,
-    "obor/internal/checks TestScratchGitScenarios": 5.5,
-    "obor/internal/checks TestScratchRerereReplaysResolvedConflict": 2.0
-  },
   "packages": {
     "obor/cmd/obor": {
-      "short_s": 20.3,
       "full_s": 53.1,
       "git_procs": 1538
     },
     "obor/internal/agents": {
-      "short_s": 0.2,
       "full_s": 0.4,
       "git_procs": 0
     },
     "obor/internal/agents/claude": {
-      "short_s": 0.2,
       "full_s": 0.4,
       "git_procs": 0
     },
     "obor/internal/agents/codex": {
-      "short_s": 0.2,
       "full_s": 0.4,
       "git_procs": 0
     },
+    "obor/internal/agents/plugin": {
+      "full_s": 2.7,
+      "git_procs": 0
+    },
     "obor/internal/app": {
-      "short_s": 19.5,
       "full_s": 27.5,
       "git_procs": 0
     },
     "obor/internal/app/event": {
-      "short_s": 0.2,
       "full_s": 0.4,
       "git_procs": 0
     },
     "obor/internal/app/port": {
-      "short_s": 0.2,
       "full_s": 0.4,
       "git_procs": 0
     },
     "obor/internal/app/wire": {
-      "short_s": 1.1,
       "full_s": 1.3,
       "git_procs": 0
     },
     "obor/internal/checks": {
-      "short_s": 35.6,
       "full_s": 38.3,
       "git_procs": 3020
     },
     "obor/internal/config": {
-      "short_s": 3.6,
       "full_s": 3.9,
       "git_procs": 321
     },
     "obor/internal/guard": {
-      "short_s": 1.7,
       "full_s": 1.9,
       "git_procs": 47
     },
     "obor/internal/herdr": {
-      "short_s": 0.9,
       "full_s": 1.1,
       "git_procs": 0
     },
     "obor/internal/herdr/herdrtest": {
-      "short_s": 0.2,
       "full_s": 0.4,
       "git_procs": 0
     },
     "obor/internal/launch": {
-      "short_s": 5.8,
       "full_s": 6,
       "git_procs": 45
     },
     "obor/internal/mcp": {
-      "short_s": 1.2,
       "full_s": 1.4,
       "git_procs": 2
     },
     "obor/internal/project": {
-      "short_s": 1.9,
       "full_s": 2.2,
       "git_procs": 38
     },
     "obor/internal/roles": {
-      "short_s": 0.2,
       "full_s": 0.4,
       "git_procs": 0
     },
     "obor/internal/run": {
-      "short_s": 2.3,
       "full_s": 8.6,
       "git_procs": 282
     },
     "obor/internal/selfexec": {
-      "short_s": 1,
       "full_s": 1.1,
       "git_procs": 0
     },
     "obor/internal/service": {
-      "short_s": 2.7,
       "full_s": 3,
       "git_procs": 0
     },
     "obor/internal/setup": {
-      "short_s": 8.4,
       "full_s": 27.4,
       "git_procs": 1838
     },
     "obor/internal/spec": {
-      "short_s": 0.2,
       "full_s": 0.4,
       "git_procs": 0
     },
     "obor/internal/store": {
-      "short_s": 0.5,
       "full_s": 0.7,
       "git_procs": 0
     },
     "obor/internal/testkit": {
-      "short_s": 0.3,
       "full_s": 0.5,
       "git_procs": 6
     },
     "obor/internal/version": {
-      "short_s": 0.2,
       "full_s": 0.4,
       "git_procs": 0
     },
     "obor/internal/view": {
-      "short_s": 3.7,
       "full_s": 3.6,
       "git_procs": 245
     },
     "obor/internal/web": {
-      "short_s": 5.3,
       "full_s": 5.5,
       "git_procs": 362
     },
     "obor/kinds/opencode": {
-      "short_s": 0.2,
       "full_s": 4.0,
-      "git_procs": 0
+      "git_procs": 11
     },
     "obor/kinds/opencode/kind": {
-      "short_s": 0.2,
       "full_s": 0.4,
       "git_procs": 0
     },
     "obor/tests/budget": {
-      "short_s": 0.8,
       "full_s": 0.9,
       "git_procs": 0
     },
     "obor/tests/conformance": {
-      "short_s": 0.2,
       "full_s": 0.4,
       "git_procs": 0
     },
     "obor/tests/conformance/stubmcp": {
-      "short_s": 0.2,
       "full_s": 0.4,
       "git_procs": 0
     },
     "obor/tests/upgrade": {
-      "short_s": 0.3,
       "full_s": 0.4,
       "git_procs": 0
     },
     "obor/tools/affected": {
-      "short_s": 0.8,
       "full_s": 0.8,
       "git_procs": 0
     }

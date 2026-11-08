@@ -88,15 +88,14 @@ trim-go-cache:
 # runs every step; check-affected runs the kit's tools/affected list (go run, T-1040) and then go test only, on
 # the packages $OBOR_CHANGED_FILES affects; any doubt runs the full suite. The slot's check-compile already ran build,
 # gofmt, vet and deadcode on the same commit (T-995), so the lane repeats none of them.
-# check-affected also passes -short: the tests marked testkit.Slow (>= 1 s: cmd/obor, internal/checks, internal/setup,
-# T-957) run only in check, the nightly and releases; check does not pass it unless OBOR_PROMOTION=1.
-# OBOR_PROMOTION=1 (serve's fact: the project has branches.promote set, so a promotion runs the full suite on every
-# promoted head and the nightly the slow tests) adds -short to check, check-readers and check-web and makes
-# check-affected ask tools/affected --direct: the changed packages only, no importers (T-989, T-991, T-997). The merge
+# One test split, not two tiers (T-1014, T-1056): a test that needs real I/O sits in a file with `//go:build
+# integration`, and every gating or measuring check passes -tags integration, so a lane runs the whole suite of the
+# affected packages. `-short` and testkit.Slow are gone: nothing skips a test in a lane.
+# OBOR_PROMOTION=1 (serve's fact: the project has branches.promote set) makes
+# check-affected ask tools/affected --direct: the changed packages only, no importers (T-991, T-997). The merge
 # slot's compile (check-compile) catches an importer's build break and the promotion's full suite (commands.check) an
-# importer's test break, so a lane need not run them; the promotion's and the nightly's runners and a release do not set
-# it, so the full suite runs there. Without a promotion nothing would catch those, so a lane runs the full class check,
-# importers included, as before (RV-138 #1).
+# importer's test break, so such a lane need not run them; without a promotion nothing else would, so a lane runs the
+# full class check, importers included (RV-138 #1).
 # Serve's lane step runs the class's tier in the task's lane (T-961). check-compile (commands.compile, T-961) is
 # what serve's merge slot runs on each merge: build, gofmt, vet and deadcode, no go test. CHECK_CPUS (obor run and the
 # gates export it: cores / slots.max) is go test -p. check and check-release start with GO_GATE: GOCACHE falls back to
@@ -108,7 +107,7 @@ trim-go-cache:
 # in files with `//go:build integration`, and a worker's plain `go test ./<pkg>/...` leaves them out. Every check that
 # gates or measures (check, check-affected, check-retest, check-readers, check-web, check-release, vet, deadcode and
 # tests/budget) passes -tags integration, so a tagged test keeps running wherever it gates. `make test` stays plain: it
-# is the unit tier a worker runs; the tag moves no test until T-1011 tags its package.
+# is the unit tests a worker runs; the tag moves no test until T-1011 tags its package.
 GO_CACHE = c=$$($(GO) env GOCACHE 2>/dev/null); \
 	{ mkdir -p "$$c" && : > "$$c/.obor-probe" && rm -f "$$c/.obor-probe"; } 2>/dev/null || \
 	  { GOCACHE="$${TMPDIR:-/tmp}/obor-go-build"; export GOCACHE; }
@@ -118,9 +117,7 @@ GO_GATE = $(GO_CACHE); \
 	$(GO) vet -tags integration ./... || { echo "FAIL go vet"; exit 1; }
 check:
 	@$(GO_GATE); \
-	short=; \
-	if [ "$$OBOR_PROMOTION" = 1 ]; then short=-short; fi; \
-	rc=0; out=$$($(GO) test -count=1 -tags integration $${CHECK_CPUS:+-p $$CHECK_CPUS} $${short:+$$short} ./... 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
+	rc=0; out=$$($(GO) test -count=1 -tags integration $${CHECK_CPUS:+-p $$CHECK_CPUS} ./... 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
 	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"; \
 	$(MAKE) -s deadcode || { echo "FAIL deadcode"; exit 1; }
@@ -137,7 +134,7 @@ check-affected:
 	  esac; \
 	else echo "affected: full suite (tools/affected failed)"; fi; \
 	if [ -z "$$pkgs" ]; then echo "go test: 0 pass, 0 fail (no affected Go packages, go test skipped)"; else \
-	  rc=0; out=$$($(GO) test -count=1 -tags integration -short $${CHECK_CPUS:+-p $$CHECK_CPUS} $$pkgs 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
+	  rc=0; out=$$($(GO) test -count=1 -tags integration $${CHECK_CPUS:+-p $$CHECK_CPUS} $$pkgs 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
 	  n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	  echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"; \
 	fi
@@ -150,8 +147,7 @@ check-compile:
 # check-retest (commands.retest, T-964, T-976, T-1047): a red lane test's failing tests once more on the same tree, not
 # the check's whole package tier: go test -run of $TESTS (the tests the run named, `^(A|B)$` — obor fills commands.retest's
 # {tests}) on $OBOR_FAILED_PKGS (the packages it named), with GO_CACHE (an unwritable default cache falls back as the
-# checks do), CHECK_CPUS as -p. No -short: a test that failed ran, so the retry runs it as it ran (a testkit.Slow test
-# would otherwise SKIP and turn a real failure green, RV-135 #1); the retry still skips build, gofmt and vet. Green →
+# checks do), CHECK_CPUS as -p. The retry runs a test as it ran and still skips build, gofmt and vet. Green →
 # the red was a flake; anything else (and a run with no names: no retest at all, the lane step) is red.
 check-retest:
 	@$(GO_CACHE); \
@@ -189,8 +185,7 @@ check-retest:
 READER_PKGS := ./cmd/obor ./internal/agents ./internal/agents/claude ./internal/agents/plugin ./internal/app ./internal/checks ./internal/config ./internal/guard ./internal/setup
 check-readers:
 	@$(GO_CACHE); \
-	short=; if [ "$$OBOR_PROMOTION" = 1 ]; then short=-short; fi; \
-	rc=0; out=$$($(GO) test -count=1 -tags integration $${CHECK_CPUS:+-p $$CHECK_CPUS} $${short:+$$short} $(READER_PKGS) 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
+	rc=0; out=$$($(GO) test -count=1 -tags integration $${CHECK_CPUS:+-p $$CHECK_CPUS} $(READER_PKGS) 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
 	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"
 
@@ -203,8 +198,7 @@ check-readers:
 # the build of web/ as committed.
 check-web:
 	@$(GO_CACHE); \
-	short=; if [ "$$OBOR_PROMOTION" = 1 ]; then short=-short; fi; \
-	rc=0; out=$$($(GO) test -count=1 -tags integration $${CHECK_CPUS:+-p $$CHECK_CPUS} $${short:+$$short} ./internal/web 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
+	rc=0; out=$$($(GO) test -count=1 -tags integration $${CHECK_CPUS:+-p $$CHECK_CPUS} ./internal/web 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
 	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"
 
@@ -221,17 +215,13 @@ check-release:
 	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"
 
-# check-budget (commands.check_budget, the nightly's non-gating budget line, T-1002): every package with tests runs its
-# full and -short tiers at GOMAXPROCS=2 with a counting git wrapper first on PATH and a private TMPDIR (tests/budget),
-# and the two wall times, the full tier's git processes, any top-level test over its per-test cap and any uncapped test
-# at or over untagged_s without testkit.Slow are compared with tests/budget.json (T-1004: a test's cost is its own
-# Elapsed plus every paused subtest's). One "FAIL budget: <pkg> <metric> <got> > <max>" per breach, else
+# check-budget (commands.check_budget, the nightly's non-gating budget line, T-1002): every package with tests runs once
+# at GOMAXPROCS=2 with a counting git wrapper first on PATH and a private TMPDIR (tests/budget), and its wall time and
+# git processes are compared with tests/budget.json. One "FAIL budget: <pkg> <metric> <got> > <max>" per breach, else
 # "budget OK: N packages". The nightly runs it on a quiet machine, so its numbers are comparable; a budget is raised
 # only by an owner line in docs/decisions.md and lowered by any task that gets under it (docs/plan/test-suite-
-# rework.md §3); per-test caps are hand-set. Seed it with
-# `GO="$(GO)" $(GO) run ./tests/budget -seed`: the seed writes tests/budget.json itself (T-1008: a shell redirect would
-# truncate it before -seed read the caps) and keeps the per-test caps and untagged_s the existing file carries (T-1007),
-# so a re-measure never drops a cap set by hand.
+# rework.md §3). Seed it with `GO="$(GO)" $(GO) run ./tests/budget -seed`: the seed writes tests/budget.json itself
+# (T-1008: a shell redirect would truncate it before -seed read the caps).
 check-budget:
 	@$(GO_CACHE); \
 	GO="$(GO)" $(GO) run ./tests/budget

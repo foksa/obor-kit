@@ -33,7 +33,6 @@ func TestShimHasHook(t *testing.T) {
 // nothing else on stderr (no setpgid line), the fake killed and no watchdog sleep left behind.
 // Slow: it waits out the shim's hang watchdog (1 s: whole seconds, bin/obor's sleep).
 func TestShimHasHookHang(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	shimHasHook(t, []hasCase{
 		{"hanging binary: hint after the 1 s watchdog, killed, no stray sleep", `echo $$ > "$dir/has.pid"; exec /bin/sleep 3`, 2, true, false},

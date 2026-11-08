@@ -65,7 +65,6 @@ func gitRun(t *testing.T, dir string, env []string, args ...string) (int, string
 // commit is refused with the lane line, a push is refused for a role not in guards.allow_push and allowed for one in
 // it.
 func TestGithooksRealBinary(t *testing.T) {
-	testkit.Slow(t)
 	p := testkit.New(t)
 	lane := p.Lane("L-01", "task/T-1")
 	p.Config(func(c map[string]any) { c["guards"] = map[string]any{"allow_push": []string{"lead"}} })

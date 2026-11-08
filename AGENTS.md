@@ -45,19 +45,19 @@ checks placement against `docs/module-map.md` at accept).
 ## Tests
 - Where tests run (T-961, T-995): the merge slot runs `make check-compile` (build, gofmt, vet, deadcode; no `go test`);
   the task's lane runs its class's check, for Go `make check-affected` (`make -s build` for the `dist/obor` that picks
-  the packages, then `go test -short` on the changed packages and their importers); the full `make check` (every test,
-  no `-short`) runs at `obor nightly` and before a release; `tests/release` only under `-tags release`
+  the packages, then `go test` on the changed packages and their importers); the full `make check` (every test) runs at
+  `obor nightly` and before a release; `tests/release` only under `-tags release`
   (`make check-release`, T-1001).
-- The suite has a budget (T-1002): `tests/budget.json` caps each package's full and `-short` wall time at 2 cores, its
-  git processes and its untagged >= 1 s tests; the nightly's `make check-budget` prints `FAIL budget: …` per breach. A
-  budget is raised only by an owner line in `docs/decisions.md`; a task that gets under it lowers it.
+- One split, not two tiers (T-1014, T-1056): a test that needs real I/O (real git, herdr's socket, a built binary) goes
+  in a file with `//go:build integration`, a plain `go test` runs the unit tests, and every gating or measuring check
+  passes `-tags integration` so the tagged tests still gate. `-short` and `testkit.Slow` are gone.
+- The suite has a budget (T-1002, T-1056): `tests/budget.json` caps each package's full wall time at 2 cores and its
+  git processes; the nightly's `make check-budget` prints `FAIL budget: …` per breach. A budget is raised only by an
+  owner line in `docs/decisions.md`; a task that gets under it lowers it.
 - Test rules (test rework, `docs/plan/test-suite-rework.md`):
   - Real git only in `internal/checks`, the CLI tests (`cmd/obor`) and `internal/setup`'s githook tests (hooks that
     git itself runs): the code that runs git. Anywhere else a test uses the package's fake (a `FakeScratch`, a stub
     runner), not a fixture repo.
-  - A test of >= 1 s of work starts with `testkit.Slow(t)` and a comment on why it cannot be faster; `-short` skips it.
-    A merge-path test the lane must keep running (`internal/checks`' gate and cut tables) gets a cap in
-    `tests/budget.json` instead (T-1004): it stays in `-short`, and growing past its cap is a budget failure.
   - A task that replaces a mechanism deletes the old mechanism's tests with it; a new test per behaviour, not per
     call path already covered.
   - A spec names its expected test change (added, changed, deleted; `templates/task-spec.md`): a task that adds
