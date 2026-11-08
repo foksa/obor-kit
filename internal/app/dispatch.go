@@ -1086,7 +1086,7 @@ func (a *App) paneIn(p *proj, panes []port.Pane, dir string, names ...string) *p
 			continue
 		}
 		r := 1
-		agent, identified := p.reg.whoIs(panes[i])
+		agent, identified := p.reg.WhoIs(panes[i])
 		switch {
 		case identified && agent != "" && slices.Contains(names, agent):
 			r = 4

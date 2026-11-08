@@ -47,7 +47,7 @@ func (a *App) Status() wire.Status {
 			if l, ok := p.laneOf(o.pane.Cwd); ok {
 				as.Lane, as.Task = l.Name, l.Task
 			}
-			if agent, ok := p.reg.whoIs(o.pane); ok {
+			if agent, ok := p.reg.WhoIs(o.pane); ok {
 				if s, ok := p.session(agent); ok {
 					as.SetSession(s)
 				}

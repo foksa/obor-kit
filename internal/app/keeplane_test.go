@@ -43,7 +43,7 @@ func TestStartFitsNeedsTheRecordedConfigRev(t *testing.T) {
 	pane := port.Pane{ID: "w1:p1", Session: "new-session"}
 	h.a.mu.Lock()
 	p := h.proj()
-	row, ok := p.reg.start("pj-l-01")
+	row, ok := p.reg.Start("pj-l-01")
 	fits := p.startFits(cfg, "pj-l-01", pane, "sonnet")
 	h.a.mu.Unlock()
 	if !ok || row.Ref != "sonnet" || row.Kind != "claude" || row.Session != "new-session" || row.Config != "" {
@@ -54,7 +54,7 @@ func TestStartFitsNeedsTheRecordedConfigRev(t *testing.T) {
 	}
 	startReported(t, h, cfg.Rev())
 	h.a.mu.Lock()
-	row, _ = p.reg.start("pj-l-01")
+	row, _ = p.reg.Start("pj-l-01")
 	fits = p.startFits(cfg, "pj-l-01", pane, "sonnet")
 	h.a.mu.Unlock()
 	if row.Config != cfg.Rev() || !fits {
@@ -88,7 +88,7 @@ func TestStartRowKeepsItsConfigRevAcrossAReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.a.mu.Lock()
-	row, ok := p.reg.start("pj-l-01")
+	row, ok := p.reg.Start("pj-l-01")
 	fits := p.startFits(cfgB, "pj-l-01", port.Pane{ID: "w1:p1", Session: "new-session"}, "sonnet")
 	h.a.mu.Unlock()
 	if !ok || row.Config != cfgA.Rev() {

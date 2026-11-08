@@ -190,7 +190,7 @@ func (a *App) agentOf(p *proj, l port.Lane) (Where, int) {
 			continue
 		}
 		n++
-		if agent, ok := p.reg.whoIs(o.pane); ok && !slices.Contains(names, agent) {
+		if agent, ok := p.reg.WhoIs(o.pane); ok && !slices.Contains(names, agent) {
 			names, ids = append(names, agent), append(ids, o.pane.ID)
 		}
 	}

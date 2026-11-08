@@ -51,7 +51,7 @@ func integratorStopRule(_ context.Context, a *App, p *proj, fx *Loop, _ time.Tim
 	}
 	a.mu.Lock()
 	w := a.whereIs(p, p.integrator)
-	row, _ := p.reg.start(p.integrator)
+	row, _ := p.reg.Start(p.integrator)
 	verdicts := p.folded.verdicts
 	stop := w.State == Identified && Ready(w.Pane.Status) && !p.integratorBusy() && verdicts > row.Verdicts
 	a.mu.Unlock()

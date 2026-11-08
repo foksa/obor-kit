@@ -3,10 +3,11 @@ package app
 import (
 	"encoding/json"
 	"obor/internal/app/event"
+	"obor/internal/app/identity"
 	"strings"
 )
 
-// foldStart folds a start's result into p's identity table (registry.recordStart): the agent it placed in its pane,
+// foldStart folds a start's result into p's identity table (identity's RecordStart): the agent it placed in its pane,
 // that pane's terminal id, the kind and the session id herdr reported for it, the config revision the start was
 // launched under (T-1050), and for agent.start the model ref it ran (its attempt's dispatch's, T-1048). agent.start's
 // (the lane's worker) and start.<job>'s (the integrator) results carry it; a refused start, the integrator's "running",
@@ -28,10 +29,10 @@ func (p *proj) foldStart(r event.Record) {
 	if json.Unmarshal(r.Data, &out) != nil || out.Refused != "" || out.Agent == "" || out.Pane == "" {
 		return
 	}
-	row := startRow{Pane: out.Pane, Terminal: out.Terminal, Kind: out.Kind, Session: out.Session, Config: out.Config,
+	row := identity.StartRow{Pane: out.Pane, Terminal: out.Terminal, Kind: out.Kind, Session: out.Session, Config: out.Config,
 		Verdicts: p.folded.verdicts}
 	if mt := p.folded.loop[r.Task]; step == event.StepStartWork && mt != nil && mt.attempt == r.Attempt {
 		row.Ref = mt.disp.Type // the model ref the start ran (startWorker's launch: the dispatch's, T-722)
 	}
-	p.reg.recordStart(out.Agent, row)
+	p.reg.RecordStart(out.Agent, row)
 }

@@ -28,6 +28,7 @@ import (
 
 	"obor/internal/agents"
 	"obor/internal/app/event"
+	"obor/internal/app/identity"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/store"
@@ -1965,7 +1966,7 @@ func (h *harness) who(id string) string {
 	if o == nil {
 		return ""
 	}
-	agent, _ := h.proj().reg.whoIs(o.pane)
+	agent, _ := h.proj().reg.WhoIs(o.pane)
 	return agent
 }
 
@@ -2511,7 +2512,7 @@ func blockProjAt(t *testing.T, root string) (*App, *proj) {
 		integrator: "pj-integrator", out: newOutbox("pj-lead", ""), merging: true, timers: map[string]*jobTimer{},
 		replies: map[string]string{}, nopane: map[string]time.Time{}, waitLine: map[string]waitRefusal{},
 		unwritten: map[event.Key]json.RawMessage{}, exec: map[event.Key]time.Time{}, scratch: make(chan struct{}, 1),
-		held: map[string]string{}, ended: map[string]bool{}, roleFail: map[string]time.Time{}, reg: newRegistry(),
+		held: map[string]string{}, ended: map[string]bool{}, roleFail: map[string]time.Time{}, reg: identity.New(),
 		folded: newFolded()}
 	for _, r := range recs {
 		p.foldRecord(r)

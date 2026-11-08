@@ -8,6 +8,7 @@ import (
 	"iter"
 	"maps"
 	"obor/internal/app/event"
+	"obor/internal/app/identity"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"sort"
@@ -437,7 +438,7 @@ func (p *proj) settleLine(q *queued, r event.Record) {
 // sawWork notes pane's status for an open brief of the agent whoIs finds in it (no label read, RV-53 #4): working
 // after the brief's line was delivered (or with no line) is the work the brief asked for (under mu, after reconcile).
 func (a *App) sawWork(p *proj, pane port.Pane) {
-	agent, ok := p.reg.whoIs(pane)
+	agent, ok := p.reg.WhoIs(pane)
 	b := p.out.briefs[agent]
 	if !ok || b == nil || pane.Agent == "" || Ready(pane.Status) {
 		return
@@ -598,7 +599,7 @@ const goneAfter = time.Minute
 func (a *App) gone(p *proj, agent string, b *brief, w Where, now time.Time) bool {
 	switch {
 	case w.State == Identified:
-		b.term, b.paneID, b.lost = termOf(w.Pane), w.Pane.ID, time.Time{}
+		b.term, b.paneID, b.lost = identity.TermOf(w.Pane), w.Pane.ID, time.Time{}
 		return false
 	case w.State == Ambiguous || w.Why == notConnected:
 		b.lost = time.Time{}
@@ -743,7 +744,7 @@ func (a *App) inboxedAt(p *proj, agent string, w Where) bool {
 		return ok
 	}
 	live := p.liveSession(agent, w.Pane)
-	return live == "" || sameSession(live, session)
+	return live == "" || identity.SameSession(live, session)
 }
 
 // liveSession is the session running in pane, agent's (under mu; T-746): its recorded current session when that

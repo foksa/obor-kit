@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"io"
 	"obor/internal/app/event"
+	"obor/internal/app/identity"
 	"obor/internal/app/port"
 	"sync"
 	"sync/atomic"
@@ -187,10 +188,10 @@ type proj struct {
 	ended map[string]bool
 	// roleFail: when a fresh brief's stop of a role agent last failed, by agent (rolestop.go, T-672, T-870). Under mu.
 	roleFail map[string]time.Time
-	// reg, out, night, prom: the identity table (registry.go), the lines to the project's agents (messages.go, T-466,
+	// reg, out, night, prom: the identity table (package identity), the lines to the project's agents (messages.go, T-466,
 	// T-610), the nightly full check (nightly.go) and the promotion (promote.go, T-974): each folds its records itself
 	// and keeps live state beside them.
-	reg   registry
+	reg   identity.Registry
 	out   outbox
 	night nightlyState
 	prom  promoteState
@@ -206,7 +207,7 @@ type proj struct {
 
 // folded is a project's state that a replay of its event log alone rebuilds (T-615): foldRecord's folds write it, live
 // code reads it. Two exceptions, both named where they live: a lanes read ends the watchdog facts (active, woke) of a
-// task no lane holds (setLanes: nothing recorded), and lr carries a live claim (its write state). The identity table (registry), the lines (outbox) and the nightly check (nightlyState) hold folded parts of
+// task no lane holds (setLanes: nothing recorded), and lr carries a live claim (its write state). The identity table (identity.Registry), the lines (outbox) and the nightly check (nightlyState) hold folded parts of
 // their own beside their live state.
 type folded struct {
 	active map[string][]event.Record // task → its watchdog facts since the last resumed
