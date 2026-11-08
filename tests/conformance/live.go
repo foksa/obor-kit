@@ -29,6 +29,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"obor/internal/agents"
 )
 
 // liveKinds is each kind's live tier.
@@ -857,19 +859,34 @@ func same(a, b string) bool {
 	return err1 == nil && err2 == nil && ra == rb
 }
 
-// quit runs the kind's quit recipe (agents.Stop: Quit with Enter, a second Enter when the popup took the first) and
-// returns the agent's exit status, as the shell prints it.
-func (l *lab) quit(pane, quit string, secondEnter bool) (int, error) {
-	if err := l.typeLine(pane, quit); err != nil {
+// quit runs the kind's whole quit recipe as internal/launch/stop.go does (agents.Stop: the input cleared first, then
+// Quit with Enter, a second Enter when the popup took the first) and returns the agent's exit status, as the shell
+// prints it. The clear is the recipe's too, not a courtesy: a quit appended to text already in the input is submitted
+// as a prompt, not run — codex kept a draft and read "/quit" as the rest of it, so the agent ran another turn and never
+// exited (T-1038), while obor's own stop never sends a quit into a dirty input (T-712).
+func (l *lab) quit(pane string, r agents.Stop) (int, error) {
+	for _, k := range r.ClearInput {
+		_ = l.keys(pane, k)
+	}
+	if err := l.typeLine(pane, r.Quit); err != nil {
 		return -1, err
 	}
-	if secondEnter && !l.waitShell(pane, 2*time.Second) {
+	if r.SecondEnter && !l.waitShell(pane, 2*time.Second) {
 		_ = l.keys(pane, "enter")
 	}
 	if !l.waitShell(pane, 20*time.Second) {
-		return -1, fmt.Errorf("still running 20 s after %s; screen: %s", quit, tail(l.visible(pane), 4))
+		return -1, fmt.Errorf("still running 20 s after %s (after the recipe's input clear: %s); screen: %s",
+			r.Quit, orNone(strings.Join(r.ClearInput, ", ")), tail(l.visible(pane), 4))
 	}
 	return l.status(pane, 10*time.Second)
+}
+
+// recipeFact is a quit recipe for a fact line ("ctrl+u, then /quit").
+func recipeFact(r agents.Stop) string {
+	if len(r.ClearInput) == 0 {
+		return r.Quit
+	}
+	return strings.Join(r.ClearInput, ", ") + ", then " + r.Quit
 }
 
 // stopAgent ends whatever runs in pane (Ctrl+C twice, then the shell's own exit is not used): for a check that failed

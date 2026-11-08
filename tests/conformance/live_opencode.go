@@ -83,11 +83,11 @@ func opencodeLive(l *lab, turn bool) {
 		ocL1(l, pane, mcp)
 		ocL3(l.serverLabels(), where3)
 		ocL4(l, filepath.Join(xdg["XDG_CONFIG_HOME"], "opencode", "plugins", "obor.js"), where4)
-		if code, err := l.quit(pane, st.Quit, st.SecondEnter); err != nil || code != 0 {
+		if code, err := l.quit(pane, st); err != nil || code != 0 {
 			report("FAIL", "OC-L5", fmt.Sprintf("%s + a second Enter: exit status %d (%v)", st.Quit, code, orOK(err)), where5)
 			l.stopAgent(pane)
 		} else {
-			report("PASS", "OC-L5", st.Quit+" + a second Enter exits with status 0", where5)
+			report("PASS", "OC-L5", recipeFact(st)+" + a second Enter exits with status 0", where5)
 		}
 	}
 
@@ -290,7 +290,7 @@ func ocTurn(l *lab, pane string, argv []string, xdg map[string]string, st agents
 		report("PASS", "OC-L5", "session.execution.* reach obor.js (hooks "+strings.Join(slices.Compact(seen), " ")+")", where5)
 		report("SKIP", "OC-L5", "the model switch ("+opencode.ModelVar+") is not read back: the turn's answer does not name the model it ran on", where5)
 	}
-	if _, err := l.quit(pane, st.Quit, st.SecondEnter); err != nil {
+	if _, err := l.quit(pane, st); err != nil {
 		l.stopAgent(pane)
 	}
 }
@@ -408,7 +408,7 @@ func ocL6(l *lab, pane string, xdg map[string]string, st agents.Stop) {
 		return s
 	}, mcpJobHead, mcpMarker)
 	poll(60*time.Second, func() bool { a, err := l.agent(pane); return err == nil && a.Status == "idle" })
-	if code, err := l.quit(pane, st.Quit, st.SecondEnter); err != nil || code != 0 {
+	if code, err := l.quit(pane, st); err != nil || code != 0 {
 		l.stopAgent(pane)
 	}
 	fact := l.mcpFact("the real `obor mcp`'s job_next result reached opencode's session database", text, ok)

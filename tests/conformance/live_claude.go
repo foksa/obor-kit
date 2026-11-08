@@ -116,11 +116,11 @@ func claudeLive(l *lab, turn bool) {
 
 	st := k.Stop()
 	where5 := at(claudeGo, "func (kind) Stop") + ", CAP §2.6"
-	if code, err := l.quit(pane, st.Quit, st.SecondEnter); err != nil || code != 0 {
+	if code, err := l.quit(pane, st); err != nil || code != 0 {
 		report("FAIL", "CC-L5", fmt.Sprintf("%s + the recipe: exit status %d (%v)", st.Quit, code, orOK(err)), where5)
 		l.stopAgent(pane)
 	} else {
-		report("PASS", "CC-L5", st.Quit+" (a second Enter after a poll) exits with status 0", where5)
+		report("PASS", "CC-L5", recipeFact(st)+" (a second Enter after a poll) exits with status 0", where5)
 	}
 
 	ccResume(l, k, pane, base, settings, sid, turn)
@@ -143,7 +143,7 @@ func claudeLive(l *lab, turn bool) {
 	default:
 		report("PASS", "CC-L1", "--strict-mcp-config hides the plugin manifest's server (a start without it runs it)", where)
 	}
-	if code, err := l.quit(pane, st.Quit, st.SecondEnter); err != nil || code != 0 {
+	if code, err := l.quit(pane, st); err != nil || code != 0 {
 		l.stopAgent(pane)
 	}
 	ccL7(l, pane, turn)
@@ -202,7 +202,7 @@ func ccL7(l *lab, pane string, turn bool) {
 	}
 	text, ok := waitTranscript(180*time.Second, func() string { return transcripts(path) }, mcpJobHead, mcpMarker)
 	st := k.Stop()
-	if code, err := l.quit(pane, st.Quit, st.SecondEnter); err != nil || code != 0 {
+	if code, err := l.quit(pane, st); err != nil || code != 0 {
 		l.stopAgent(pane)
 	}
 	fact := l.mcpFact("the real `obor mcp`'s job_next result reached the session transcript under "+filepath.Dir(path), text, ok)
@@ -516,7 +516,7 @@ func ccResume(l *lab, k agents.Kind, pane string, base []string, settings map[st
 	mcp := l.waitRecords("mcp", "", 20*time.Second)
 	st := k.Stop()
 	defer func() {
-		if _, err := l.quit(pane, st.Quit, st.SecondEnter); err != nil {
+		if _, err := l.quit(pane, st); err != nil {
 			l.stopAgent(pane)
 		}
 	}()
@@ -612,7 +612,7 @@ func ccL9(l *lab, pane string, turn bool) {
 	text, ok := waitTranscript(180*time.Second, func() string { return transcripts(path) }, mcpJobHead, mcpMarker)
 	proj := len(l.waitRecords("mcp", "project", 20*time.Second)) > 0
 	st := k.Stop()
-	if code, err := l.quit(pane, st.Quit, st.SecondEnter); err != nil || code != 0 {
+	if code, err := l.quit(pane, st); err != nil || code != 0 {
 		l.stopAgent(pane)
 	}
 	var jobNext, projTools []string

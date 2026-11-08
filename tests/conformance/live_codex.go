@@ -74,7 +74,7 @@ func codexLive(l *lab, turn bool) {
 	where2 := at(codexGo, "func (kind) NotReady") + ", " + at(codexGo, "func (kind) Stop") + ", CAP §3.6"
 	whereT := at("internal/launch/session.go", "func") + ", F4.5"
 	quit := func(report2 bool) {
-		code, err := l.quit(pane, st.Quit, st.SecondEnter)
+		code, err := l.quit(pane, st)
 		switch {
 		case err != nil || code != 0:
 			if report2 {
@@ -82,7 +82,7 @@ func codexLive(l *lab, turn bool) {
 			}
 			l.stopAgent(pane)
 		case report2:
-			report("PASS", "CX-L2", st.Quit+" exits with status 0", where2)
+			report("PASS", "CX-L2", recipeFact(st)+" exits with status 0", where2)
 		}
 	}
 
@@ -166,7 +166,7 @@ func cxL4(l *lab, pane, codexHome string, turn bool) {
 	}
 	text, ok := waitTranscript(180*time.Second, func() string { return rollouts(codexHome) }, mcpJobHead, mcpMarker)
 	st := k.Stop()
-	if code, err := l.quit(pane, st.Quit, st.SecondEnter); err != nil || code != 0 {
+	if code, err := l.quit(pane, st); err != nil || code != 0 {
 		l.stopAgent(pane)
 	}
 	fact := l.mcpFact("the real `obor mcp`'s job_next result reached a rollout under "+codexHome, text, ok)
@@ -248,7 +248,7 @@ func hL11Start(l *lab, k agents.Kind, pane, codexHome, src string, turn bool) {
 	}
 	report("PASS", "H-L11", fact, where)
 	st := k.Stop()
-	if code, err := l.quit(pane, st.Quit, st.SecondEnter); err != nil || code != 0 {
+	if code, err := l.quit(pane, st); err != nil || code != 0 {
 		l.stopAgent(pane)
 	}
 }
