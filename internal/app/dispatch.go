@@ -1072,7 +1072,7 @@ func (a *App) waitPane(p *proj, mt mtask) step {
 	}
 }
 
-// placement is paneIn over the snapshot (under mu): the pane of p's workspace to start the lane at dir's agent in; nil:
+// placement is paneIn over the snapshot (under mu): the pane of p's group to start the lane at dir's agent in; nil:
 // none. A place to launch into (Launch stops what runs there), never an identity: who runs in a pane is whoIs's.
 func (a *App) placement(p *proj, dir string, names ...string) *seen {
 	panes := make([]port.Pane, 0, len(a.obs))

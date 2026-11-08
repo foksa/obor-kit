@@ -139,7 +139,7 @@ func startDrive(ctx context.Context, cfg *config.Config, d drive, env project.En
 		return fmt.Errorf("lane %s runs no model: obor drop %s, then obor drive <name> --model <model>", d.lane, d.task)
 	}
 	cwd, _ := os.Getwd()
-	s := &setup.Setup{Kit: kit, Dir: cwd, Env: env, H: h, Out: out, McpCheck: mcp.Check,
+	s := &setup.Setup{Kit: kit, Dir: cwd, Env: env, T: terminalSetup(env, h), Out: out, McpCheck: mcp.Check,
 		Starter: launcherFor(env, kit, h, out, nil)}
 	return s.StartDrive(ctx, setup.Drive{Agent: d.agent, Lane: d.lane, Cwd: dir, Type: typ, Effort: effort,
 		Prompt: drivePrompt(cfg, d)})

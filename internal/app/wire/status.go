@@ -322,15 +322,15 @@ type TaskStatus struct {
 
 // AgentStatus is one observed agent: its address, lane and task (when its cwd is a lane) and status for Age seconds.
 type AgentStatus struct {
-	Machine   string `json:"machine"`
-	Workspace string `json:"workspace"`
-	Pane      string `json:"pane"`
-	Name      string `json:"name,omitempty"`
-	Agent     string `json:"agent"`
-	Lane      string `json:"lane,omitempty"`
-	Task      string `json:"task,omitempty"`
-	Status    string `json:"status"`
-	Age       int64  `json:"age"`
+	Machine string `json:"machine"`
+	Group   string `json:"workspace"` // the terminal's group of its pane, by name (herdr: the workspace's label)
+	Pane    string `json:"pane"`
+	Name    string `json:"name,omitempty"`
+	Agent   string `json:"agent"`
+	Lane    string `json:"lane,omitempty"`
+	Task    string `json:"task,omitempty"`
+	Status  string `json:"status"`
+	Age     int64  `json:"age"`
 	// The agent's current recorded session (sessions.go, T-577): its id, transcript file and start (Unix seconds);
 	// none while the pane's agent is not identified or has none recorded.
 	Session    string `json:"session,omitempty"`

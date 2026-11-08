@@ -1,6 +1,6 @@
 // Package port holds the ports of obor's core (docs/module-map.md): the interfaces the core drives its adapters
 // through and the plain types they exchange. It is a leaf below package app, so an adapter reaches the core's contract
-// without importing the core: herdr's events and snapshot (Pane, Snapshot, Event, Stream, Panes), the lane table (Lane,
+// without importing the core: the terminal's events and snapshot (Pane, Snapshot, Event, Stream, Panes), the lane table (Lane,
 // Lanes) and the effects of effects.go (Agents, Typer, PaneControl, Starter, Scratch, LaneSetup and their types).
 package port
 
@@ -11,27 +11,31 @@ import (
 	"obor/internal/agents"
 )
 
-// Pane is one herdr pane as the app sees it: the pane's own fields and those of the agent that runs in it (none: the
-// agent fields are empty). It is the one shape herdr's agent and pane answers, its snapshot and its stream's events
-// use (T-888).
+// Pane is one terminal pane as the core sees it: the pane's own fields and those of the agent that runs in it (none:
+// the agent fields are empty). It is the one shape the terminal adapter's agent and pane answers, its snapshot and its
+// stream's events use (T-888), in terminal-neutral terms (T-1044: the herdr adapter keeps herdr's own tab and workspace
+// ids to itself).
 type Pane struct {
-	ID, Tab   string
-	Workspace string // herdr's workspace id
-	Cwd       string
-	Label     string // the pane's label (obor's agent name, set by its launch); kept when an event has none
-	Agent     string // the agent's kind ("" when none runs)
-	// Name is herdr's agent name, "" when it has none (it exited, or a restore dropped it); the app never
-	// identifies a pane by it (registry.go).
+	ID string
+	// Group is the group the terminal shows the pane in, by the name a person reads (herdr: its workspace's label):
+	// the app serves a pane whose group is its project's name. Set by Panes' snapshot and stream; "" in PaneControl's
+	// answers and when the terminal reports none.
+	Group string
+	Cwd   string
+	Label string // the pane's label (obor's agent name, set by its launch); kept when an event has none
+	Agent string // the agent's kind ("" when none runs)
+	// Name is the name the terminal runs the agent under (PaneControl.Start's name, Agent's target), "" when it has
+	// none (it exited, or a restore dropped it): launch and setup find a running agent by it; the app never identifies
+	// a pane by it (registry.go).
 	Name       string
 	Status     string // idle, working, blocked, done, unknown
-	Transcript string // the agent's transcript file when herdr reports one, else ""
-	// Session is herdr's raw agent session (agent_session: an id, or a path), "" when herdr reports none: the
-	// session's identity, independent of whether its transcript file is found.
+	Transcript string // the agent's transcript file when the terminal reports one, else ""
+	// Session is the agent's raw session as the terminal reports it (an id, or a path), "" when none: the session's
+	// identity, independent of whether its transcript file is found.
 	Session string
-	// Terminal is herdr's terminal_id of the pane: kept across pane.move, the identity table's key (registry.go); ""
-	// when herdr reports none. Kept when an event has none.
+	// Terminal is the terminal's own id of what runs in the pane, kept when the pane moves (herdr: terminal_id): the
+	// identity table's key (registry.go); "" when the terminal reports none. Kept when an event has none.
 	Terminal string
-	Seq      int64 // state_change_seq: grows with each status change
 }
 
 // Ready: the pane's agent is idle: it takes a prompt now (done is idle with an unviewed reply).
@@ -40,13 +44,12 @@ func (p Pane) Ready() bool { return p.Status == "idle" || p.Status == "done" }
 // Busy: the pane's agent works or waits on a person (working, blocked).
 func (p Pane) Busy() bool { return p.Status == "working" || p.Status == "blocked" }
 
-// Snapshot is herdr's session at one moment: the workspace labels by id and every pane.
+// Snapshot is the terminal's session at one moment: every pane.
 type Snapshot struct {
-	Version    string // herdr's version and protocol as the snapshot said (Protocol 0: not read)
-	Protocol   int
-	Speaks     int // the protocol obor itself speaks: Protocol above it is a newer herdr
-	Workspaces map[string]string
-	Panes      []Pane
+	Version  string // the terminal's version and protocol as the snapshot said (Protocol 0: not read)
+	Protocol int
+	Speaks   int // the protocol obor itself speaks: Protocol above it is a newer terminal
+	Panes    []Pane
 }
 
 // Event kinds.
@@ -57,7 +60,7 @@ const (
 	EventExited  = "exited"  // Pane's shell exited and herdr removed it
 )
 
-// Event is one herdr event. New is the whole pane as herdr reported it after the event (status, created): it replaces
+// Event is one terminal event. New is the whole pane as herdr reported it after the event (status, created): it replaces
 // what the app knew of the pane, metadata too. An event without it (New.ID "") carries Status and Agent only.
 type Event struct {
 	Kind, Pane    string
@@ -74,7 +77,7 @@ type Stream struct {
 	Close    func()
 }
 
-// Panes is herdr, as the core uses it.
+// Panes is the terminal (the herdr adapter), as the core uses it.
 type Panes interface {
 	Subscribe(ctx context.Context) (*Stream, error)
 	// Snapshot reads herdr's session now: one session.snapshot, the same source Subscribe's Snapshot is built from.

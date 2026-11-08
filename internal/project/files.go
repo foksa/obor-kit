@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -200,6 +201,17 @@ func WriteAtomic(path string, data []byte) error {
 		os.Remove(tmp.Name())
 	}
 	return err
+}
+
+// LookPath finds name in the directories of the PATH value path (an Env's PATH, not the process's).
+func LookPath(path, name string) (string, error) {
+	for _, dir := range filepath.SplitList(path) {
+		p := filepath.Join(dir, name)
+		if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() && fi.Mode()&0o111 != 0 {
+			return p, nil
+		}
+	}
+	return "", exec.ErrNotFound
 }
 
 // IsDir: p resolves to a directory.

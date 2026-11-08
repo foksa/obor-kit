@@ -203,7 +203,8 @@ func TestWireIsOne(t *testing.T) {
 		t.Errorf("herdr.Wire does not survive JSON, so a tag is wrong in one direction: got %+v, want %+v", got, want)
 	}
 
-	// The fake fills that struct, and the client reads every field of it.
+	// The fake fills that struct, and the client reads every field of it but state_change_seq (no decision reads it,
+	// T-1044: the stream compares panes without it).
 	f := herdrtest.New()
 	p := f.Agent("w1:p1", "pj-l-01", "idle", "/proj-wt/L-01")
 	p.Tab, p.Terminal, p.Workspace, p.Label, p.Seq = "w1:t1", "t1", "w1", "pj-l-01", 7
@@ -215,8 +216,8 @@ func TestWireIsOne(t *testing.T) {
 	if len(snap.Panes) != 1 {
 		t.Fatalf("the fake's snapshot has %d panes, want 1", len(snap.Panes))
 	}
-	wantPane := port.Pane{ID: "w1:p1", Tab: "w1:t1", Terminal: "t1", Workspace: "w1", Label: "pj-l-01",
-		Cwd: "/proj-wt/L-01", Agent: "claude", Name: "pj-l-01", Status: "idle", Session: "5e1d0c2b-aaaa", Seq: 7}
+	wantPane := herdr.Pane{Pane: port.Pane{ID: "w1:p1", Terminal: "t1", Label: "pj-l-01", Cwd: "/proj-wt/L-01",
+		Agent: "claude", Name: "pj-l-01", Status: "idle", Session: "5e1d0c2b-aaaa"}, Workspace: "w1", Tab: "w1:t1"}
 	if got := snap.Panes[0]; got != wantPane {
 		t.Errorf("the fake's pane = %+v, want the scripted %+v", got, wantPane)
 	}

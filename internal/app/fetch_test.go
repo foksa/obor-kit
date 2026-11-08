@@ -145,7 +145,7 @@ func TestFetchWorkJob(t *testing.T) {
 	if jr, _, err := r.jobNext("pj-int", "integrator", "", "x4", ""); err != nil || jr.State != "none" {
 		t.Errorf("the integrator's job_next with no job: %+v, %v; want none", jr, err)
 	}
-	r.f.Agent("w1:p5", "pj-x", "idle", r.p.Root).Workspace = "w1"
+	r.f.Agent("w1:p5", "pj-x", "idle", r.p.Root)
 	r.push()
 	r.waitFor("pane w1:p5", func() bool { return len(r.app.Status().Project.Agents) == 2 })
 	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodJobNext, wire.Call{Root: r.p.Root, Agent: "pj-l-01",

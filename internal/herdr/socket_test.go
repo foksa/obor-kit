@@ -117,14 +117,18 @@ func TestSocketSnapshotAndAgents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snap.Protocol != herdr.Protocol || len(snap.Panes) != 3 || snap.Panes[1] != (port.Pane{ID: "w1:p2", Label: "pj-l-02", Cwd: "/proj-wt/L-02"}) {
+	if snap.Protocol != herdr.Protocol || len(snap.Panes) != 3 || snap.Panes[1] != (herdr.Pane{Pane: port.Pane{ID: "w1:p2", Label: "pj-l-02", Cwd: "/proj-wt/L-02"}, Workspace: "w1"}) {
 		t.Errorf("Snapshot = %+v", snap)
 	}
 	want := []port.Pane{
-		{Name: "pj-l-01", ID: "w1:p1", Status: "idle", Cwd: "/proj-wt/L-01", Agent: "claude", Session: "5e1d0c2b-aaaa", Seq: 1},
-		{ID: "w1:p3", Status: "working", Cwd: "/elsewhere", Agent: "claude", Seq: 1},
+		{Name: "pj-l-01", ID: "w1:p1", Status: "idle", Cwd: "/proj-wt/L-01", Agent: "claude", Session: "5e1d0c2b-aaaa"},
+		{ID: "w1:p3", Status: "working", Cwd: "/elsewhere", Agent: "claude"},
 	}
-	if !reflect.DeepEqual(snap.Agents, want) {
+	var got []port.Pane
+	for _, a := range snap.Agents {
+		got = append(got, a.Pane)
+	}
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Snapshot agents = %+v\nwant %+v", snap.Agents, want)
 	}
 	agents, err := c.Agents(ctx)
@@ -141,8 +145,8 @@ func TestSocketSnapshotAndAgents(t *testing.T) {
 
 	// A pane's workspace and transcript path, from the snapshot.
 	f := fixture()
-	f.Workspaces = []herdr.Workspace{{ID: "w1", Label: "pj"}}
-	f.Pane("w1:p1").Workspace, f.Pane("w1:p1").Transcript = "w1", "/t/s.jsonl"
+	f.Group("w1", "pj")
+	f.Pane("w1:p1").Transcript = "/t/s.jsonl"
 	snap, err = herdrtest.Serve(t, f).Client().Snapshot(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -428,7 +432,7 @@ func TestSubscribeEvents(t *testing.T) {
 	// a new pane (underscored, as herdr sends lifecycle events) gets its own status subscription
 	f.Shell("w1:p4", "new", "/tmp")
 	srv.Push("pane_created", map[string]any{"type": "pane_created", "pane": map[string]any{"pane_id": "w1:p4", "label": "new", "cwd": "/tmp"}})
-	if ev := next(t, st); ev.Kind != herdr.EventCreated || ev.Pane != "w1:p4" || ev.New != (port.Pane{ID: "w1:p4", Label: "new", Cwd: "/tmp"}) {
+	if ev := next(t, st); ev.Kind != herdr.EventCreated || ev.Pane != "w1:p4" || ev.New.Pane != (port.Pane{ID: "w1:p4", Label: "new", Cwd: "/tmp"}) {
 		t.Errorf("created event = %+v", ev)
 	}
 	srv.WaitSubscribed(t, "pane.agent_status_changed", "w1:p4")
@@ -580,7 +584,7 @@ func pushLive(srv *herdrtest.Server, typ, pane, event string, data map[string]an
 func agentOf(snap herdr.Snapshot, pane string) port.Pane {
 	for _, a := range snap.Agents {
 		if a.ID == pane {
-			return a
+			return a.Pane
 		}
 	}
 	return port.Pane{}
@@ -816,7 +820,7 @@ func TestStreamRefreshesPaneMetadata(t *testing.T) {
 			if ev != (herdr.Event{Kind: herdr.EventExited, Pane: "w1:p2"}) {
 				t.Errorf("%s: event = %+v, want none before w1:p2 exited", tc.name, ev)
 			}
-		} else if ev.Kind != herdr.EventStatus || ev.Pane != tc.pane || ev.Agent != ev.Now.Agent || !tc.want(ev.Now) {
+		} else if ev.Kind != herdr.EventStatus || ev.Pane != tc.pane || ev.Agent != ev.Now.Agent || !tc.want(ev.Now.Pane) {
 			t.Errorf("%s: event = %+v", tc.name, ev)
 		}
 		st.Close()

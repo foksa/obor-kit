@@ -23,7 +23,7 @@ func noPane(h *harness) {
 
 // freshPane is a pane of pj's workspace as a fresh read of herdr's panes lists it (fn: any other field the read's).
 func freshPane(h *harness, id, cwd string, fn func(p *port.Pane)) port.Pane {
-	p := port.Pane{ID: id, Workspace: "w1", Cwd: cwd, Agent: "claude", Label: "pj-l-01", Status: "idle"}
+	p := port.Pane{ID: id, Group: "pj", Cwd: cwd, Agent: "claude", Label: "pj-l-01", Status: "idle"}
 	if fn != nil {
 		fn(&p)
 	}
@@ -182,7 +182,7 @@ func TestRereadDoesNotResurrectAClosedPane(t *testing.T) {
 func TestRereadUpdatesOnlyThePanesCwd(t *testing.T) {
 	t.Parallel()
 	h, fx, _, _ := promptRig(t, false, noPane)
-	other := port.Pane{ID: "w1:p3", Workspace: "w1", Cwd: h.root, Agent: "claude", Label: "pj-l-03", Status: "idle"}
+	other := port.Pane{ID: "w1:p3", Group: "pj", Cwd: h.root, Agent: "claude", Label: "pj-l-03", Status: "idle"}
 	h.snap.Panes = append(h.snap.Panes, other)
 	eventNow(h.a, port.Event{Kind: port.EventCreated, Pane: "w1:p3", New: other})
 	if h.step(t, fx) {

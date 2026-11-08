@@ -49,7 +49,7 @@ func (r *loopRig) stateOf(task string) string { return r.task(task).State }
 func (r *loopRig) driveAgentUp() {
 	r.t.Helper()
 	r.f.Agent("w1:p5", "pj-l-01-drive", "idle", r.lane)
-	r.f.Set("w1:p5", func(p *herdrtest.Pane) { p.Workspace, p.Label = "w1", "pj-l-01-drive" })
+	r.f.Set("w1:p5", func(p *herdrtest.Pane) { p.Label = "pj-l-01-drive" })
 	r.waitFor("pj-l-01-drive identified", func() bool {
 		if app.IsIdentified(r.app, r.p.Root, "pj-l-01-drive") {
 			return true

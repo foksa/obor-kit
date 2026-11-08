@@ -41,7 +41,7 @@ func (a *App) Status() wire.Status {
 			if o.pane.Agent == "" || a.projectOf(o.pane) != p {
 				continue
 			}
-			as := wire.AgentStatus{Machine: Machine, Workspace: a.spaces[o.pane.Workspace], Pane: o.pane.ID, Name: a.shownAs(p, o.pane),
+			as := wire.AgentStatus{Machine: Machine, Group: o.pane.Group, Pane: o.pane.ID, Name: a.shownAs(p, o.pane),
 				Agent: o.pane.Agent, Status: o.pane.Status, Age: int64(now.Sub(o.since) / time.Second)}
 			if l, ok := p.laneOf(o.pane.Cwd); ok {
 				as.Lane, as.Task = l.Name, l.Task

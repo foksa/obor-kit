@@ -192,7 +192,7 @@ func TestStartIntegrator(t *testing.T) {
 	r, _ := verdictRig(t)
 	ag := &agents{}
 	p := r.f.Agent("w1:p9", "pj-int", "idle", r.root)
-	p.Workspace, p.Label = "w1", "pj-int"
+	p.Label = "pj-int"
 	r.stop()
 	r.start() // its snapshot has the integrator
 	if n := len(r.app.Status().Project.Agents); n != 3 {

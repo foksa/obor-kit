@@ -1,12 +1,10 @@
 package setup
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"obor/internal/agents"
@@ -154,116 +152,31 @@ func hooksLine(root string) string {
 	return line
 }
 
+// herdrPlugin is `obor setup herdr-plugin`: the terminal's integration (port.TerminalSetup.Integrate; herdr: the
+// obor.events plugin linked from the kit), its lines, then its hint.
 func (s *Setup) herdrPlugin(ctx context.Context, args []string) error {
 	if len(args) > 0 {
 		return errUsage
 	}
-	mine, err := s.pluginDir()
-	if err != nil {
-		return err
-	}
-	plugins, err := s.H.Plugins(ctx)
-	if err != nil {
-		return project.Failf("cannot read herdr's plugin list: %v", err)
-	}
-	if err := s.events(ctx, mine, plugins); err != nil {
+	if _, err := s.integrate(ctx); err != nil {
 		return err
 	}
 	s.say("OK herdr-plugin")
 	return nil
 }
 
-// pluginDir is this kit's herdr-plugin: FAIL, after a WARN, when the kit has none.
-func (s *Setup) pluginDir() (string, error) {
-	mine := filepath.Join(s.Kit, "herdr-plugin")
-	if fi, err := os.Stat(filepath.Join(mine, "herdr-plugin.toml")); err != nil || !fi.Mode().IsRegular() {
-		s.say("WARN herdr-plugin: no herdr plugin in %s", mine)
-		return "", project.Failf("herdr-plugin")
+// integrate installs the terminal's integration (user-global, once per user) and says its lines; its hint goes to
+// obor init's summary when init runs, else it is said after them, also when the install failed.
+func (s *Setup) integrate(ctx context.Context) (port.Integration, error) {
+	in, err := s.T.Integrate(ctx, s.Kit, func(line string) { s.say("%s", line) })
+	switch {
+	case in.Hint == "":
+	case s.hints != nil:
+		*s.hints = append(*s.hints, in.Hint)
+	default:
+		s.say("%s", in.Hint)
 	}
-	return mine, nil
-}
-
-// events: obor.events in herdr, linked from mine (<kit>/herdr-plugin) directly (herdr keeps the path resolved at link
-// time, so a symlink in between buys nothing): not linked → link; another kit's copy → re-link. Then herdr's resume
-// setting. plugins is herdr's plugin list, read once by the caller (T-613 #4: a list error is the step's error, never
-// "linked"); the caller checked the kit has the plugin.
-func (s *Setup) events(ctx context.Context, mine string, plugins []port.Plugin) error {
-	defer s.resumeHint()
-	if eventsLinked(mine, plugins) {
-		s.say("herdr-plugin: obor.events linked (%s)", mine)
-		return nil
-	}
-	root, linked := "", false
-	for _, p := range plugins {
-		if p.ID == "obor.events" {
-			root, linked = p.Root, true
-		}
-	}
-	if linked {
-		if err := s.H.UnlinkPlugin(ctx, "obor.events"); err != nil {
-			s.say("WARN herdr-plugin: %v", err)
-			return project.Failf("herdr-plugin")
-		}
-	}
-	if err := s.H.LinkPlugin(ctx, mine); err != nil {
-		s.say("WARN herdr-plugin: %v", err)
-		return project.Failf("herdr-plugin")
-	}
-	if linked {
-		s.say("herdr-plugin: obor.events re-linked to %s (was %s; user-global: every project's restores run it)", mine, root)
-	} else {
-		s.say("herdr-plugin: obor.events linked to %s (user-global: obor restarts its panes after a herdr session restore)", mine)
-	}
-	return nil
-}
-
-// eventsLinked: herdr runs this kit's obor.events (mine is its herdr-plugin dir; a plugin with no root counts: herdr
-// did not say where it is).
-func eventsLinked(mine string, plugins []port.Plugin) bool {
-	physical := project.Physical(mine)
-	for _, p := range plugins {
-		if p.ID == "obor.events" && (p.Root == "" || project.Physical(p.Root) == physical) {
-			return true
-		}
-	}
-	return false
-}
-
-var resumeRE = regexp.MustCompile(`^\s*resume_agents_on_restore\s*=\s*([^#\s]*)`)
-
-// resumeHint: obor's startup hook restarts obor panes itself, so herdr must not resume agents on a restore (R-28 §1,
-// T-159). Unless herdr's config.toml ($HERDR_CONFIG_PATH, else ~/.config/herdr/config.toml) sets `[session]
-// resume_agents_on_restore = false`: the one line to add, saying it is user-global (RV-18 #3). Never edited.
-func (s *Setup) resumeHint() {
-	path := s.Env.Get("HERDR_CONFIG_PATH")
-	if path == "" {
-		path = filepath.Join(s.Env.Get("HOME"), ".config", "herdr", "config.toml")
-	}
-	value := ""
-	if f, err := os.Open(path); err == nil {
-		section := ""
-		sc := bufio.NewScanner(f)
-		for sc.Scan() {
-			line := strings.TrimSpace(sc.Text())
-			if strings.HasPrefix(line, "[") {
-				head, _, _ := strings.Cut(line, "]")
-				section = strings.TrimSpace(strings.TrimPrefix(head, "["))
-			} else if m := resumeRE.FindStringSubmatch(line); m != nil && section == "session" {
-				value = m[1]
-			}
-		}
-		f.Close()
-	}
-	if value == "false" {
-		return
-	}
-	line := "hint: obor restarts its panes after a herdr restart: set resume_agents_on_restore = false under [session] in " +
-		path + " (user-global: affects every herdr pane, not only obor's; those come back as shells)"
-	if s.hints != nil {
-		*s.hints = append(*s.hints, line)
-		return
-	}
-	s.say("%s", line)
+	return in, err
 }
 
 // agentsCmd is `obor setup agents [--remove]` (user-global, once per user): for every kind, what its bridge says to

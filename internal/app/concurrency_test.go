@@ -134,13 +134,12 @@ func newConcRig(t *testing.T) *concRig {
 	r.a = r.apps["pj"]
 	r.fakes["pj"].hold = "T-1"
 	for _, a := range r.apps { // one herdr session: each app watches its own workspace
-		a.connect(context.Background(), port.Snapshot{Workspaces: map[string]string{"w1": "pj", "w2": "pq", "w3": "pr"},
-			Panes: []port.Pane{
-				{ID: "w1:p9", Workspace: "w1", Cwd: r.roots["pj"], Agent: "claude", Label: "pj-int", Status: "idle"},
-				{ID: "w2:p9", Workspace: "w2", Cwd: r.roots["pq"], Agent: "claude", Label: "pq-int", Status: "idle"},
-				{ID: "w3:p9", Workspace: "w3", Cwd: r.roots["pr"], Agent: "claude", Label: "pr-int", Status: "idle"},
-				{ID: "w1:p2", Workspace: "w1", Cwd: lane, Agent: "claude", Label: "pj-l-02", Status: "idle", Session: "s"},
-			}})
+		a.connect(context.Background(), port.Snapshot{Panes: []port.Pane{
+			{ID: "w1:p9", Group: "pj", Cwd: r.roots["pj"], Agent: "claude", Label: "pj-int", Status: "idle"},
+			{ID: "w2:p9", Group: "pq", Cwd: r.roots["pq"], Agent: "claude", Label: "pq-int", Status: "idle"},
+			{ID: "w3:p9", Group: "pr", Cwd: r.roots["pr"], Agent: "claude", Label: "pr-int", Status: "idle"},
+			{ID: "w1:p2", Group: "pj", Cwd: lane, Agent: "claude", Label: "pj-l-02", Status: "idle", Session: "s"},
+		}})
 	}
 
 	r.add("pj", "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "L-01"})

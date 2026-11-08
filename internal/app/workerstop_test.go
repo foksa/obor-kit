@@ -51,7 +51,7 @@ func TestWorkerStopByIdentity(t *testing.T) {
 			var transcript string
 			r.f.Set("w1:p1", func(p *herdrtest.Pane) { transcript = p.Transcript })
 			r.f.Agent("w1:p3", "pj-l-01", "idle", r.lane)
-			r.f.Set("w1:p3", func(p *herdrtest.Pane) { p.Workspace, p.Label, p.Transcript = "w1", "pj-l-01", transcript })
+			r.f.Set("w1:p3", func(p *herdrtest.Pane) { p.Label, p.Transcript = "pj-l-01", transcript })
 			r.paneCreated("w1:p3", "pj-l-01")
 		},
 		want: outcome{why: "pj-l-01 not stopped: not identified: panes w1:p1 and w1:p3 run pj-l-01"},

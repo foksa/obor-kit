@@ -155,7 +155,7 @@ func (r *loopRig) foreign() string {
 	r.p.State("L-02", map[string]any{"lane": "L-02", "task": "T-20", "branch": "task/T-20", "agent": "pj-l-02",
 		"base": "main", "dispatched_at": 1})
 	w := r.f.Agent("w1:p2", "pj-l-02", "idle", lane)
-	w.Workspace, w.Label = "w1", "pj-l-02" // labelled by its launch
+	w.Label = "pj-l-02" // labelled by its launch
 	return lane
 }
 

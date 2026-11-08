@@ -25,7 +25,7 @@ func TestStartReplayStartsInThePaneChosenAgain(t *testing.T) {
 	t.Parallel()
 	h, fx, _, ag := promptRig(t, false, func(h *harness) {
 		// The snapshot has no w1:p1 at all: that tab was closed. w1:p3 is the new pane, labelled for the lane's agent.
-		h.snap.Panes = []port.Pane{{ID: "w1:p3", Workspace: "w1", Cwd: h.lane("L-01"), Label: "pj-l-01"}}
+		h.snap.Panes = []port.Pane{{ID: "w1:p3", Group: "pj", Cwd: h.lane("L-01"), Label: "pj-l-01"}}
 	})
 	pendingStart(t, h, "w1:p1")
 	if got := known(h, "w1:p1"); got.ID != "" {
@@ -79,7 +79,7 @@ func TestStartReplayWithNoPaneLeftWaits(t *testing.T) {
 func TestStartReplayIntoAPaneRunningAnAgentCannotTell(t *testing.T) {
 	t.Parallel()
 	h, fx, _, ag := promptRig(t, false, func(h *harness) {
-		h.snap.Panes = []port.Pane{{ID: "w1:p3", Workspace: "w1", Cwd: h.lane("L-01"), Label: "pj-l-01",
+		h.snap.Panes = []port.Pane{{ID: "w1:p3", Group: "pj", Cwd: h.lane("L-01"), Label: "pj-l-01",
 			Agent: "claude", Session: "new-session", Status: "working"}}
 	})
 	pendingStart(t, h, "w1:p1")

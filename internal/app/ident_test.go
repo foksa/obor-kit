@@ -30,7 +30,7 @@ func newIdentHarness(t *testing.T) (*harness, *bytes.Buffer) {
 	h.lanes.lanes[0].Agent = "pj-l-01"
 	p := h.pane("w1:p1")
 	p.Label, p.Terminal, p.Session = "pj-l-01", "t1", "s1"
-	h.snap.Panes = append(h.snap.Panes, port.Pane{ID: "w1:p2", Workspace: "w1", Cwd: h.root, Terminal: "t2"})
+	h.snap.Panes = append(h.snap.Panes, port.Pane{ID: "w1:p2", Group: "pj", Cwd: h.root, Terminal: "t2"})
 	out := &bytes.Buffer{}
 	h.a.opt.Out = out
 	return h, out
@@ -133,7 +133,7 @@ func (h *harness) add(pane port.Pane) {
 
 // twin is a second pane labelled pj-l-01 (w1:p3, terminal t3), no session.
 func (h *harness) twin() port.Pane {
-	return port.Pane{ID: "w1:p3", Workspace: "w1", Cwd: h.root, Agent: "claude", Status: "idle", Label: "pj-l-01",
+	return port.Pane{ID: "w1:p3", Group: "pj", Cwd: h.root, Agent: "claude", Status: "idle", Label: "pj-l-01",
 		Terminal: "t3"}
 }
 
@@ -276,7 +276,7 @@ func TestIdentHerdrRestartRestore(t *testing.T) {
 			if kind == "opencode" {
 				sess, src = "", "label"
 			}
-			h.snap = port.Snapshot{Workspaces: map[string]string{"w9": "pj"}, Panes: []port.Pane{{ID: "w9:p1", Workspace: "w9",
+			h.snap = port.Snapshot{Panes: []port.Pane{{ID: "w9:p1", Group: "pj",
 				Cwd: h.lane("L-01"), Agent: kind, Status: "idle", Label: "pj-l-01", Terminal: "t9", Session: sess}}}
 			h.connect()
 			eqs(t, h.where("pj-l-01"), "identified w9:p1 "+src, "where")
@@ -317,7 +317,7 @@ func TestIdentPaneReopened(t *testing.T) {
 	h.connect()
 	h.remove("w1:p1", port.EventClosed)
 	eqs(t, h.where("pj-l-01"), "unavailable exited", "after the close")
-	h.add(port.Pane{ID: "w1:p5", Workspace: "w1", Cwd: h.lane("L-01"), Agent: "claude", Status: "idle", Label: "pj-l-01",
+	h.add(port.Pane{ID: "w1:p5", Group: "pj", Cwd: h.lane("L-01"), Agent: "claude", Status: "idle", Label: "pj-l-01",
 		Terminal: "t5", Session: "s5"})
 	eqs(t, h.where("pj-l-01"), "identified w1:p5 label", "the new pane")
 	st := h.a.Status()
@@ -449,7 +449,7 @@ func TestIdentMoveAddressReused(t *testing.T) {
 	h.connect()
 	h.pane("w1:p1").Label = "notes"
 	h.move("w1:p1", "w1:p7")
-	h.add(port.Pane{ID: "w1:p1", Workspace: "w1", Cwd: h.lane("L-01"), Agent: "claude", Status: "idle", Terminal: "t8",
+	h.add(port.Pane{ID: "w1:p1", Group: "pj", Cwd: h.lane("L-01"), Agent: "claude", Status: "idle", Terminal: "t8",
 		Session: "s8"})
 	eqs(t, h.where("pj-l-01"), "identified w1:p7 session", "where")
 	eqs(t, h.who("w1:p1"), "", "the unrelated agent")
@@ -695,8 +695,8 @@ func TestIdentLeadTwoPanes(t *testing.T) {
 	h, _ := newIdentHarness(t)
 	h.withLead()
 	h.snap.Panes = append(h.snap.Panes,
-		port.Pane{ID: "w1:p8", Workspace: "w1", Cwd: h.root, Agent: "claude", Status: "idle", Label: "pj-lead", Terminal: "t8"},
-		port.Pane{ID: "w1:p9", Workspace: "w1", Cwd: h.root, Agent: "claude", Status: "idle", Label: "pj-lead", Terminal: "t9"})
+		port.Pane{ID: "w1:p8", Group: "pj", Cwd: h.root, Agent: "claude", Status: "idle", Label: "pj-lead", Terminal: "t8"},
+		port.Pane{ID: "w1:p9", Group: "pj", Cwd: h.root, Agent: "claude", Status: "idle", Label: "pj-lead", Terminal: "t9"})
 	h.connect()
 	eqs(t, h.where("pj-lead"), "ambiguous w1:p8 w1:p9", "the lead")
 	h.a.opt.Inboxed = func(string) (string, bool) { return "", true }
@@ -744,10 +744,10 @@ func TestIdentOrderIndependent(t *testing.T) {
 		h.sids(map[string]string{"pj-lead": "s1"})
 		h.started("pj-l-01", "w1:p4", "t4", "")
 		h.snap.Panes = append(h.snap.Panes,
-			port.Pane{ID: "w1:p4", Workspace: "w1", Cwd: h.lane("L-01"), Agent: "claude", Status: "idle", Terminal: "t4"},
-			port.Pane{ID: "w1:p5", Workspace: "w1", Cwd: h.root, Agent: "claude", Status: "idle", Label: "pj-l-02", Terminal: "t5"},
-			port.Pane{ID: "w1:p6", Workspace: "w1", Cwd: h.root, Agent: "claude", Status: "idle", Label: "pj-l-02", Terminal: "t6"},
-			port.Pane{ID: "w1:p7", Workspace: "w1", Cwd: h.root, Agent: "claude", Status: "idle", Label: "pj-l-01", Terminal: "t7"})
+			port.Pane{ID: "w1:p4", Group: "pj", Cwd: h.lane("L-01"), Agent: "claude", Status: "idle", Terminal: "t4"},
+			port.Pane{ID: "w1:p5", Group: "pj", Cwd: h.root, Agent: "claude", Status: "idle", Label: "pj-l-02", Terminal: "t5"},
+			port.Pane{ID: "w1:p6", Group: "pj", Cwd: h.root, Agent: "claude", Status: "idle", Label: "pj-l-02", Terminal: "t6"},
+			port.Pane{ID: "w1:p7", Group: "pj", Cwd: h.root, Agent: "claude", Status: "idle", Label: "pj-l-01", Terminal: "t7"})
 		rand.New(rand.NewSource(int64(i))).Shuffle(len(h.snap.Panes), func(a, b int) {
 			h.snap.Panes[a], h.snap.Panes[b] = h.snap.Panes[b], h.snap.Panes[a]
 		})
@@ -860,7 +860,7 @@ func TestIdentSessionUnknown(t *testing.T) {
 			t.Parallel()
 			h, _ := newIdentHarness(t)
 			h.withLead()
-			h.snap.Panes = append(h.snap.Panes, port.Pane{ID: "w1:p8", Workspace: "w1", Cwd: h.root, Agent: "claude",
+			h.snap.Panes = append(h.snap.Panes, port.Pane{ID: "w1:p8", Group: "pj", Cwd: h.root, Agent: "claude",
 				Status: "idle", Label: "pj-lead", Terminal: "t8", Session: tc.pane})
 			h.pane("w1:p1").Session = tc.pane
 			h.connect()
@@ -903,7 +903,7 @@ func TestIdentSessionUnknown(t *testing.T) {
 func TestIdentPlacementPrefersTheLaneAgent(t *testing.T) {
 	t.Parallel()
 	h, _ := newIdentHarness(t)
-	h.snap.Panes = append(h.snap.Panes, port.Pane{ID: "w1:p0", Workspace: "w1", Cwd: h.lane("L-01"), Agent: "claude",
+	h.snap.Panes = append(h.snap.Panes, port.Pane{ID: "w1:p0", Group: "pj", Cwd: h.lane("L-01"), Agent: "claude",
 		Status: "idle", Terminal: "t0"})
 	h.connect()
 	eqs(t, h.where("pj-l-01"), "identified w1:p1 label", "where")

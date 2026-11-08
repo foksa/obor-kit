@@ -154,7 +154,7 @@ func (r *loopRig) lineResults() []string {
 func lineRig(t *testing.T, lead, rev string) *loopRig {
 	r := newLoopRig(t, noCheck())
 	for _, a := range []*herdrtest.Pane{r.f.Agent("w1:p5", "pj-lead", lead, r.p.Root), r.f.Agent("w1:p6", "pj-rev", rev, r.p.Root)} {
-		a.Workspace, a.Label = "w1", a.Name // labelled by its launch
+		a.Label = a.Name // labelled by its launch
 	}
 	return r
 }
@@ -485,9 +485,9 @@ func TestBriefOfAFreshStart(t *testing.T) {
 func TestLineToAnUnnamedPane(t *testing.T) {
 	t.Parallel()
 	r := newLoopRig(t, noCheck())
-	r.f.Agent("w1:p5", "", "idle", r.p.Root).Workspace = "w1" // the lead's pane, unnamed
+	r.f.Agent("w1:p5", "", "idle", r.p.Root) // the lead's pane, unnamed
 	rev := r.f.Agent("w1:p6", "pj-rev", "working", r.p.Root)
-	rev.Workspace, rev.Label = "w1", "pj-rev"
+	rev.Label = "pj-rev"
 	r.start()
 	reply, err := r.line(wire.MethodSend, "s1", wire.Call{Note: "hello", From: "other"})
 	if want := "SENT to pj-lead in proj (posted to its session)"; err != nil || reply != want {
@@ -514,9 +514,9 @@ func TestLineToAnUnnamedPane(t *testing.T) {
 func TestBriefToALabelledPaneWithoutAName(t *testing.T) {
 	t.Parallel()
 	r := newLoopRig(t, noCheck())
-	r.f.Agent("w1:p5", "pj-lead", "idle", r.p.Root).Workspace = "w1"
+	r.f.Agent("w1:p5", "pj-lead", "idle", r.p.Root)
 	sol := r.f.Agent("w1:p6", "", "idle", r.p.Root)
-	sol.Workspace, sol.Label, sol.Kind = "w1", "pj-sol", "codex"
+	sol.Label, sol.Kind = "pj-sol", "codex"
 	r.start()
 	reply, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-sol", Note: "look at x"})
 	if err != nil || reply != "BRIEFED pj-sol (delivered when its pane is idle; the lead hears when it finishes)" {
@@ -618,7 +618,7 @@ func TestBriefLeavesLeadLinesQueued(t *testing.T) {
 	t.Parallel()
 	r := lineRig(t, "idle", "working")
 	sol := r.f.Agent("w1:p7", "pj-sol", "working", r.p.Root)
-	sol.Workspace, sol.Label = "w1", "pj-sol"
+	sol.Label = "pj-sol"
 	r.inbox.unrecord("pj-lead") // its lines wait
 	r.start()
 	if _, err := r.line(wire.MethodBrief, "s1", wire.Call{To: "pj-sol"}); err != nil { // a fresh start's brief: sol works

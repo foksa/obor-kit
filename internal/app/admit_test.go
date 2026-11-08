@@ -31,8 +31,8 @@ func seedRoles(t *testing.T) (*harness, *schedScratch) {
 	h.write(filepath.Join(h.root, ".obor", "config.json"),
 		`{"name":"pj","prefix":"pj","roles":{"integrator":"","reviewer":"","deep_dive":""}}`)
 	h.snap.Panes = append(h.snap.Panes,
-		port.Pane{ID: "w1:rev", Workspace: "w1", Cwd: filepath.Join(h.wt, "reviewer"), Agent: "claude", Label: "pj-rev", Status: "idle"},
-		port.Pane{ID: "w1:dd", Workspace: "w1", Cwd: filepath.Join(h.wt, "deep_dive"), Agent: "claude", Label: "pj-deep-dive", Status: "idle"})
+		port.Pane{ID: "w1:rev", Group: "pj", Cwd: filepath.Join(h.wt, "reviewer"), Agent: "claude", Label: "pj-rev", Status: "idle"},
+		port.Pane{ID: "w1:dd", Group: "pj", Cwd: filepath.Join(h.wt, "deep_dive"), Agent: "claude", Label: "pj-deep-dive", Status: "idle"})
 	f := &schedScratch{h: h}
 	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Workflow: WorkflowOf(f), Agents: f, Typer: f}, nil }
 	if err := os.MkdirAll(h.lanes.lanes[0].Dir, 0o755); err != nil {

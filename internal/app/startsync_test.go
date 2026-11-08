@@ -46,7 +46,7 @@ func (f *heldStart) Launch(ctx context.Context, l port.Launch) (port.Started, er
 	<-f.release
 	if strings.HasSuffix(l.Agent, "-int") {
 		f.a.mu.Lock()
-		f.a.obs["w1:p9"] = &seen{pane: port.Pane{ID: "w1:p9", Workspace: "w1", Cwd: f.root, Label: l.Agent, Agent: "claude",
+		f.a.obs["w1:p9"] = &seen{pane: port.Pane{ID: "w1:p9", Group: "pj", Cwd: f.root, Label: l.Agent, Agent: "claude",
 			Status: "idle"}, since: f.a.opt.Now()}
 		f.a.mu.Unlock()
 	}

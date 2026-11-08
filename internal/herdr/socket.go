@@ -268,12 +268,44 @@ type Snapshot struct {
 	Version    string
 	Protocol   int
 	Workspaces []Workspace
-	Panes      []port.Pane
-	Agents     []port.Pane
+	Panes      []Pane
+	Agents     []Pane
+}
+
+// Pane is a pane as herdr reports it: the core's Pane and herdr's own place of it, its workspace and tab ids. They
+// stay in the adapter (T-1044): the core sees the workspace's label as the pane's Group, setup never sees a tab.
+type Pane struct {
+	port.Pane
+	Workspace, Tab string
+}
+
+// labelled is p as the core sees it, its Group the label of its workspace in labels (workspace id → label).
+func (p Pane) labelled(labels map[string]string) port.Pane {
+	out := p.Pane
+	out.Group = labels[p.Workspace]
+	return out
+}
+
+// corePanes is ps as PaneControl answers them: no Group (PaneControl's answers carry none).
+func corePanes(ps []Pane) []port.Pane {
+	out := make([]port.Pane, 0, len(ps))
+	for _, p := range ps {
+		out = append(out, p.Pane)
+	}
+	return out
 }
 
 // Workspace is one herdr workspace: its id and the label it shows.
 type Workspace struct{ ID, Label string }
+
+// labels is the snapshot's workspace labels by id.
+func (s Snapshot) labels() map[string]string {
+	out := map[string]string{}
+	for _, w := range s.Workspaces {
+		out[w.ID] = w.Label
+	}
+	return out
+}
 
 // Snapshot is session.snapshot; a server on an older protocol is an error.
 func (s *Socket) Snapshot(ctx context.Context) (Snapshot, error) {
@@ -321,27 +353,33 @@ func (s *Socket) Agents(ctx context.Context) ([]port.Pane, error) {
 	}
 	out := make([]port.Pane, 0, len(r.Agents))
 	for _, w := range r.Agents {
-		out = append(out, w.pane())
+		out = append(out, w.pane().Pane)
 	}
 	return out, nil
 }
 
 // agentResult is the answer of agent.get, agent.prompt and agent.start: the agent as herdr sees it after the call.
-func (s *Socket) agentResult(ctx context.Context, timeout time.Duration, method string, params any) (port.Pane, error) {
+func (s *Socket) agentResult(ctx context.Context, timeout time.Duration, method string, params any) (Pane, error) {
 	var r struct {
 		Agent *Wire `json:"agent"`
 	}
 	if err := s.call(ctx, timeout, &r, method, params); err != nil {
-		return port.Pane{}, err
+		return Pane{}, err
 	}
 	if r.Agent == nil {
-		return port.Pane{}, &Error{Kind: BadAnswer, Op: method, Msg: "no agent in the answer", reached: true}
+		return Pane{}, &Error{Kind: BadAnswer, Op: method, Msg: "no agent in the answer", reached: true}
 	}
 	return r.Agent.pane(), nil
 }
 
 // Agent is agent.get (target: an agent name or the pane id hosting it).
 func (s *Socket) Agent(ctx context.Context, target string) (port.Pane, error) {
+	a, err := s.agentAt(ctx, target)
+	return a.Pane, err
+}
+
+// agentAt is agent.get with herdr's own fields.
+func (s *Socket) agentAt(ctx context.Context, target string) (Pane, error) {
 	return s.agentResult(ctx, 0, "agent.get", map[string]any{"target": target})
 }
 
@@ -359,14 +397,20 @@ func (s *Socket) Wait(ctx context.Context, target string, until []string, timeou
 
 // Pane is pane.get.
 func (s *Socket) Pane(ctx context.Context, id string) (port.Pane, error) {
+	p, err := s.paneAt(ctx, id)
+	return p.Pane, err
+}
+
+// paneAt is pane.get with herdr's own fields.
+func (s *Socket) paneAt(ctx context.Context, id string) (Pane, error) {
 	var r struct {
 		Pane *Wire `json:"pane"`
 	}
 	if err := s.call(ctx, 0, &r, "pane.get", map[string]any{"pane_id": id}); err != nil {
-		return port.Pane{}, err
+		return Pane{}, err
 	}
 	if r.Pane == nil {
-		return port.Pane{}, &Error{Kind: BadAnswer, Op: "pane.get", Msg: "no pane in the answer"}
+		return Pane{}, &Error{Kind: BadAnswer, Op: "pane.get", Msg: "no pane in the answer"}
 	}
 	return r.Pane.pane(), nil
 }
@@ -374,7 +418,8 @@ func (s *Socket) Pane(ctx context.Context, id string) (port.Pane, error) {
 // Prompt is agent.prompt without a wait: the agent right after herdr typed the text. A blocked agent is refused before
 // any input (*Error, Code agent_blocked); a working one queues it.
 func (s *Socket) Prompt(ctx context.Context, target, text string) (port.Pane, error) {
-	return s.agentResult(ctx, 0, "agent.prompt", map[string]any{"target": target, "text": text})
+	a, err := s.agentResult(ctx, 0, "agent.prompt", map[string]any{"target": target, "text": text})
+	return a.Pane, err
 }
 
 // Wake is Prompt for a caller that wants no answer: the text typed into the agent in pane, refused when it is blocked.
@@ -463,18 +508,25 @@ func (s *Socket) Start(ctx context.Context, name, kind, pane string, args ...str
 	if len(args) > 0 {
 		p["args"] = args
 	}
-	return s.agentResult(ctx, 0, "agent.start", p)
+	a, err := s.agentResult(ctx, 0, "agent.start", p)
+	return a.Pane, err
 }
 
 // Panes is pane.list.
 func (s *Socket) Panes(ctx context.Context) ([]port.Pane, error) {
+	ps, err := s.panesAt(ctx)
+	return corePanes(ps), err
+}
+
+// panesAt is pane.list with herdr's own fields.
+func (s *Socket) panesAt(ctx context.Context) ([]Pane, error) {
 	var r struct {
 		Panes []Wire `json:"panes"`
 	}
 	if err := s.call(ctx, 0, &r, "pane.list", nil); err != nil {
 		return nil, err
 	}
-	out := make([]port.Pane, 0, len(r.Panes))
+	out := make([]Pane, 0, len(r.Panes))
 	for _, w := range r.Panes {
 		out = append(out, w.pane())
 	}
@@ -641,12 +693,12 @@ const (
 type Event struct {
 	Kind   string // one of the Event* kinds
 	Pane   string
-	Status string    // EventStatus: the new status (Now's)
-	Agent  string    // EventStatus: the agent kind (claude, codex…), "" when none (Now's)
-	New    port.Pane // EventCreated: the new pane, its agent fields as Now has them
+	Status string // EventStatus: the new status (Now's)
+	Agent  string // EventStatus: the agent kind (claude, codex…), "" when none (Now's)
+	New    Pane   // EventCreated: the new pane, its agent fields as Now has them
 	// Now is the pane as herdr reported it when it was read again after the event (EventStatus, EventCreated): its
 	// agent entry (Name, Agent, Status, Cwd, Session, Workspace, Transcript), or the pane's fields when no agent runs.
-	Now port.Pane
+	Now Pane
 }
 
 // eventName is herdr's event name in the dotted form: lifecycle events arrive as pane_created, status events as
@@ -683,7 +735,7 @@ type Stream struct {
 	subscribed map[string]bool // panes with a status subscription
 	err        error
 
-	seen map[string]port.Pane // pump's: each live pane as the Snapshot or C last said
+	seen map[string]Pane // pump's: each live pane as the Snapshot or C last said
 }
 
 type subLine struct {
@@ -734,7 +786,7 @@ func (s *Socket) Subscribe(ctx context.Context) (*Stream, error) {
 }
 
 // missing is the ids of panes without a status subscription.
-func (st *Stream) missing(panes []port.Pane) []string {
+func (st *Stream) missing(panes []Pane) []string {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	var ids []string
@@ -871,7 +923,7 @@ func (st *Stream) pump() {
 
 // event decodes one event line, with what its payload says about the pane (hint; nil: nothing); false for a line
 // that is no event obor uses.
-func (st *Stream) event(sl subLine) (Event, *port.Pane, bool) {
+func (st *Stream) event(sl subLine) (Event, *Pane, bool) {
 	var d struct {
 		Pane   string  `json:"pane_id"`
 		Status string  `json:"agent_status"`
@@ -882,10 +934,10 @@ func (st *Stream) event(sl subLine) (Event, *port.Pane, bool) {
 		return Event{}, nil, false
 	}
 	ev := Event{Kind: eventName(sl.l.Event), Pane: d.Pane}
-	var hint *port.Pane
+	var hint *Pane
 	switch ev.Kind {
 	case EventStatus:
-		hint = &port.Pane{ID: d.Pane, Status: d.Status, Agent: str(d.Agent)}
+		hint = &Pane{Pane: port.Pane{ID: d.Pane, Status: d.Status, Agent: str(d.Agent)}}
 	case EventCreated, eventUpdated:
 		if d.New == nil || d.New.ID == "" {
 			return Event{}, nil, false
@@ -901,7 +953,7 @@ func (st *Stream) event(sl subLine) (Event, *port.Pane, bool) {
 
 // settle is what C gets for ev, false for nothing (see Stream). hint is what ev's payload says about the pane: when
 // it matches what C last said, nothing changed that obor watches, and the pane is not read again.
-func (st *Stream) settle(ev Event, hint *port.Pane) (Event, bool, error) {
+func (st *Stream) settle(ev Event, hint *Pane) (Event, bool, error) {
 	last, known := st.seen[ev.Pane]
 	switch ev.Kind {
 	case EventCreated:
@@ -909,7 +961,7 @@ func (st *Stream) settle(ev Event, hint *port.Pane) (Event, bool, error) {
 			return ev, false, nil
 		}
 		// Subscribed first, then read: a change in between is in the read, a later one arrives as an event.
-		if err := st.subscribePanes(st.missing([]port.Pane{ev.New})); err != nil {
+		if err := st.subscribePanes(st.missing([]Pane{ev.New})); err != nil {
 			return ev, false, gone(err)
 		}
 		now, err := st.reread(ev.Pane)
@@ -952,19 +1004,19 @@ func gone(err error) error {
 }
 
 // merge is last with what a status event's hint says: its status and agent kind.
-func merge(hint, last port.Pane) port.Pane {
+func merge(hint, last Pane) Pane {
 	last.Status, last.Agent = hint.Status, hint.Agent
 	return last
 }
 
 // reread is pane as herdr reports it now: its agent entry, or the pane when no agent runs there, with the pane's
 // label (an agent entry has none; pane.rename emits no event, so a reread is where a relabel is seen).
-func (st *Stream) reread(pane string) (port.Pane, error) {
-	a, err := st.s.Agent(st.ctx, pane)
+func (st *Stream) reread(pane string) (Pane, error) {
+	a, err := st.s.agentAt(st.ctx, pane)
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		return a, err
 	}
-	p, perr := st.s.Pane(st.ctx, pane)
+	p, perr := st.s.paneAt(st.ctx, pane)
 	if errors.Is(err, ErrNotFound) {
 		return paneAgent(p), perr
 	}
@@ -977,12 +1029,12 @@ func (st *Stream) reread(pane string) (port.Pane, error) {
 
 // observed is each pane of snap as herdr reports it: its agent entry when one runs there (the pane's workspace and
 // cwd where the entry has none), else the pane.
-func observed(snap Snapshot) map[string]port.Pane {
-	agents := map[string]port.Pane{}
+func observed(snap Snapshot) map[string]Pane {
+	agents := map[string]Pane{}
 	for _, a := range snap.Agents {
 		agents[a.ID] = a
 	}
-	out := map[string]port.Pane{}
+	out := map[string]Pane{}
 	for _, p := range snap.Panes {
 		a, ok := agents[p.ID]
 		if !ok {
@@ -994,16 +1046,14 @@ func observed(snap Snapshot) map[string]port.Pane {
 	return out
 }
 
-func paneAgent(p port.Pane) port.Pane {
-	return port.Pane{ID: p.ID, Status: p.Status, Cwd: p.Cwd, Agent: p.Agent, Session: p.Session, Workspace: p.Workspace,
-		Transcript: p.Transcript, Label: p.Label}
+func paneAgent(p Pane) Pane {
+	return Pane{Pane: port.Pane{ID: p.ID, Status: p.Status, Cwd: p.Cwd, Agent: p.Agent, Session: p.Session,
+		Transcript: p.Transcript, Label: p.Label}, Workspace: p.Workspace}
 }
 
-// same: a and b differ in nothing obor watches (Seq grows with every change, even one undone since).
-func same(a, b port.Pane) bool {
-	a.Seq, b.Seq = 0, 0
-	return a == b
-}
+// same: a and b differ in nothing obor watches (herdr's state_change_seq is not read: it grows with every change, even
+// one undone since).
+func same(a, b Pane) bool { return a == b }
 
 // end stops the stream once with err: closes every connection; pump then closes C.
 func (st *Stream) end(err error) {
@@ -1092,11 +1142,11 @@ func (w Wire) transcript() string {
 	return w.session()
 }
 
-// pane is a herdr pane as the core's Pane: herdr's pane and agent answers share this Wire.
-func (w Wire) pane() port.Pane {
-	return port.Pane{ID: w.ID, Tab: w.Tab, Terminal: w.Terminal, Workspace: w.Workspace, Cwd: trimSlash(w.Cwd),
-		Label: w.Label, Agent: w.Kind, Name: w.Name, Status: w.Status, Transcript: w.transcript(),
-		Session: w.session(), Seq: w.Seq}
+// pane is a herdr pane as the adapter reads it: herdr's pane and agent answers share this Wire.
+func (w Wire) pane() Pane {
+	return Pane{Pane: port.Pane{ID: w.ID, Terminal: w.Terminal, Cwd: trimSlash(w.Cwd), Label: w.Label, Agent: w.Kind,
+		Name: w.Name, Status: w.Status, Transcript: w.transcript(), Session: w.session()},
+		Workspace: w.Workspace, Tab: w.Tab}
 }
 
 func trimSlash(p string) string {
@@ -1106,11 +1156,14 @@ func trimSlash(p string) string {
 	return p
 }
 
-// Rect and Plugin are the core's types (pane.layout, plugin.list), so setup need not import herdr.
-type (
-	Rect   = port.Rect
-	Plugin = port.Plugin
-)
+// Rect is a pane's size on screen in cells (pane.layout).
+type Rect struct {
+	Pane string
+	W, H int
+}
+
+// Plugin is one linked herdr plugin (plugin.list): its id and the directory it runs from.
+type Plugin struct{ ID, Root string }
 
 // layoutAnswer is herdr's answer to pane.layout.
 type layoutAnswer struct {

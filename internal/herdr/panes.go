@@ -36,7 +36,9 @@ var _ port.Panes = Panes{}
 
 // Subscribe is a Stream as the core sees it: lifecycle and status events.
 // It pings first: a herdr on another protocol is refused with a clear error. An EventStatus carries the pane as read
-// after the event in New (name, workspace, cwd and transcript too), like an EventCreated.
+// after the event in New (name, group, cwd and transcript too), like an EventCreated. A pane's Group is its workspace's
+// label as the stream's snapshot listed it: a new or renamed workspace ends the stream (Code refresh), so the labels
+// hold for the stream's life.
 func (p Panes) Subscribe(ctx context.Context) (*port.Stream, error) {
 	s, err := Dial(ctx, p.S.Path)
 	if err != nil {
@@ -49,11 +51,12 @@ func (p Panes) Subscribe(ctx context.Context) (*port.Stream, error) {
 	}
 	c, done := make(chan port.Event), make(chan struct{})
 	var once sync.Once
+	labels := st.Snapshot.labels()
 	go func() {
 		defer close(c)
 		for ev := range st.C {
 			select {
-			case c <- p.appEvent(ev):
+			case c <- p.appEvent(ev, labels):
 			case <-done:
 				return
 			}
@@ -63,12 +66,13 @@ func (p Panes) Subscribe(ctx context.Context) (*port.Stream, error) {
 		Close: func() { once.Do(func() { close(done); st.Close() }) }}, nil
 }
 
-func (p Panes) appEvent(ev Event) port.Event {
+func (p Panes) appEvent(ev Event, labels map[string]string) port.Event {
 	switch ev.Kind {
 	case EventStatus:
-		return port.Event{Kind: port.EventStatus, Pane: ev.Pane, Status: ev.Status, Agent: ev.Agent, New: p.appPane(ev.Now)}
+		return port.Event{Kind: port.EventStatus, Pane: ev.Pane, Status: ev.Status, Agent: ev.Agent,
+			New: p.appPane(ev.Now.labelled(labels))}
 	case EventCreated:
-		pane := p.appPane(ev.Now)
+		pane := p.appPane(ev.Now.labelled(labels))
 		pane.Label, pane.Terminal = ev.New.Label, ev.New.Terminal
 		return port.Event{Kind: port.EventCreated, Pane: ev.Pane, New: pane}
 	case EventClosed:
@@ -86,13 +90,11 @@ func (p Panes) appPane(a port.Pane) port.Pane {
 }
 
 func (p Panes) appSnapshot(s Snapshot) port.Snapshot {
-	out := port.Snapshot{Workspaces: map[string]string{}, Version: s.Version, Protocol: s.Protocol, Speaks: Protocol}
-	for _, w := range s.Workspaces {
-		out.Workspaces[w.ID] = w.Label
-	}
+	out := port.Snapshot{Version: s.Version, Protocol: s.Protocol, Speaks: Protocol}
+	labels := s.labels()
 	seen := observed(s)
 	for _, pane := range s.Panes {
-		ap := p.appPane(seen[pane.ID])
+		ap := p.appPane(seen[pane.ID].labelled(labels))
 		ap.Label, ap.Terminal = pane.Label, pane.Terminal
 		out.Panes = append(out.Panes, ap)
 	}

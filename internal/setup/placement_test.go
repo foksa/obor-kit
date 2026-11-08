@@ -10,7 +10,7 @@ import (
 
 // A run's panes go to the project's herdr workspace — the one whose panes work in the project — never to the workspace
 // of the pane obor was run from when that is another project's (T-628, live: axis-maps' panes landed in obor-kit's w5).
-func TestPlacementFollowsTheProjectsWorkspace(t *testing.T) {
+func TestPlacementFollowsTheProjectsGroup(t *testing.T) {
 	t.Parallel()
 	x := newFx(t)
 	x.lane(t, "L-01")
@@ -21,8 +21,8 @@ func TestPlacementFollowsTheProjectsWorkspace(t *testing.T) {
 	if len(x.h.Panes) != 2 {
 		t.Fatalf("precondition: %d scripted panes, want 2", len(x.h.Panes))
 	}
-	x.h.Pane("w5:p9").Cwd, x.h.Pane("w5:p9").Workspace = "/elsewhere/other", "w5"
-	x.h.Pane("wA:p1").Cwd, x.h.Pane("wA:p1").Workspace = lane, "wA"
+	x.h.Pane("w5:p9").Cwd = "/elsewhere/other"
+	x.h.Pane("wA:p1").Cwd = lane
 	x.env = []string{"OBOR_PANE=w5:p9", "HERDR_WORKSPACE_ID=w5"}
 
 	out := x.ok(t, "pane", "--start", "L-01")
@@ -54,10 +54,10 @@ func TestPlacementTable(t *testing.T) {
 		x.lane(t, "L-02")
 		x.h.Panes = nil
 		x.h.Tab("w5:t9", 200, 50, "w5:p9")
-		x.h.Pane("w5:p9").Cwd, x.h.Pane("w5:p9").Workspace = "/elsewhere/other", "w5"
+		x.h.Pane("w5:p9").Cwd = "/elsewhere/other"
 		x.env = []string{"OBOR_PANE=w5:p9", "HERDR_WORKSPACE_ID=w5"}
-		if len(x.h.Panes) != 1 || len(x.h.Workspaces) != 0 {
-			t.Fatalf("precondition: %d panes, %d workspaces; want 1, 0", len(x.h.Panes), len(x.h.Workspaces))
+		if len(x.h.Panes) != 1 {
+			t.Fatalf("precondition: %d panes, want 1 (no workspace of the project)", len(x.h.Panes))
 		}
 
 		out := x.ok(t, "pane", "--start", "L-01", "--new-tab", "workers")
@@ -77,7 +77,7 @@ func TestPlacementTable(t *testing.T) {
 					at = p
 				}
 			}
-			if at == nil || at.Workspace != "wn1" {
+			if at == nil || !strings.HasPrefix(at.ID, "wn1:") {
 				t.Errorf("%s: pane %+v, want one in the new workspace wn1", name, at)
 			}
 		}
@@ -89,8 +89,8 @@ func TestPlacementTable(t *testing.T) {
 		x.h.Panes = nil
 		x.h.Tab("w5:t9", 200, 50, "w5:p9")
 		x.h.Tab("wA:t1", 200, 50, "wA:p1")
-		x.h.Pane("w5:p9").Cwd, x.h.Pane("w5:p9").Workspace = "/elsewhere/other", "w5"
-		x.h.Pane("wA:p1").Cwd, x.h.Pane("wA:p1").Workspace = x.Root, "wA"
+		x.h.Pane("w5:p9").Cwd = "/elsewhere/other"
+		x.h.Pane("wA:p1").Cwd = x.Root
 		x.env = []string{"OBOR_PANE=w5:p9", "HERDR_WORKSPACE_ID=w5"}
 
 		out := x.ok(t, "pane", "--start", "L-01", "--new-tab", "workers")
@@ -106,9 +106,6 @@ func TestPlacementTable(t *testing.T) {
 		lane := x.LaneDir("L-01")
 		x.h.Panes = nil
 		x.h.Tab("wA:t1", 200, 50, "wA:p1", "wA:p2", "wA:p3")
-		for _, id := range []string{"wA:p1", "wA:p2", "wA:p3"} {
-			x.h.Pane(id).Workspace = "wA"
-		}
 		x.h.Pane("wA:p1").Cwd = lane
 		if x.h.Pane("wA:p2").Cwd != "" || x.h.Pane("wA:p3").Cwd != "" {
 			t.Fatal("precondition: two panes with an unknown cwd")
@@ -128,12 +125,12 @@ func TestPlacementTable(t *testing.T) {
 		x.h.Tab("w5:t1", 200, 50, "w5:p1", "w5:p2") // another project's lead, and the caller cd'd into this root
 		x.h.Tab("w5:t2", 200, 50, "w5:p3")          // another of that project's panes
 		for _, id := range []string{"w5:p1", "w5:p2", "w5:p3"} {
-			x.h.Pane(id).Workspace, x.h.Pane(id).Cwd = "w5", "/elsewhere/other"
+			x.h.Pane(id).Cwd = "/elsewhere/other"
 		}
 		x.h.Pane("w5:p2").Cwd = x.Root
 		x.env = []string{"OBOR_PANE=w5:p2", "HERDR_WORKSPACE_ID=w5"}
-		if len(x.h.Panes) != 3 || len(x.h.Workspaces) != 0 {
-			t.Fatalf("precondition: %d panes, %d workspaces; want 3, 0", len(x.h.Panes), len(x.h.Workspaces))
+		if len(x.h.Panes) != 3 {
+			t.Fatalf("precondition: %d panes, want 3 (all another project's)", len(x.h.Panes))
 		}
 
 		x.ok(t, "pane", "--start", "L-01")
@@ -151,9 +148,8 @@ func TestPlacementTable(t *testing.T) {
 		x.h.Tab("wA:t1", 200, 50, "wA:p1")
 		x.h.Tab("wA:t2", 200, 50, "wA:q1") // unknown cwd
 		x.h.Tab("w5:t9", 200, 50, "w5:p9") // another project's, the caller
-		x.h.Pane("wA:p1").Cwd, x.h.Pane("wA:p1").Workspace = x.Root, "wA"
-		x.h.Pane("wA:q1").Workspace = "wA"
-		x.h.Pane("w5:p9").Cwd, x.h.Pane("w5:p9").Workspace = "/elsewhere/other", "w5"
+		x.h.Pane("wA:p1").Cwd = x.Root
+		x.h.Pane("w5:p9").Cwd = "/elsewhere/other"
 		x.env = []string{"OBOR_PANE=w5:p9", "HERDR_WORKSPACE_ID=w5"}
 		if x.h.Pane("wA:q1").Cwd != "" {
 			t.Fatal("precondition: wA:q1 has an unknown cwd")
@@ -171,8 +167,7 @@ func TestPlacementTable(t *testing.T) {
 		x.h.Panes = nil
 		x.h.Tab("wA:t1", 200, 50, "wA:p1")
 		x.h.Tab("wA:t2", 200, 50, "wA:q1") // the caller's
-		x.h.Pane("wA:p1").Cwd, x.h.Pane("wA:p1").Workspace = x.Root, "wA"
-		x.h.Pane("wA:q1").Workspace = "wA"
+		x.h.Pane("wA:p1").Cwd = x.Root
 		x.env = []string{"OBOR_PANE=wA:q1", "HERDR_WORKSPACE_ID=wA"}
 
 		x.ok(t, "pane", "--start", "L-01")
@@ -189,11 +184,8 @@ func TestPlacementTable(t *testing.T) {
 		x.h.Tab("wA:t1", 200, 50, "wA:p1")
 		x.h.Tab("wB:t2", 200, 50, "wB:p1", "wB:p2")
 		x.h.Tab("w5:t9", 200, 50, "w5:p9")
-		for id, v := range map[string][2]string{
-			"wA:p1": {"wA", lane}, "wB:p1": {"wB", lane}, "wB:p2": {"wB", x.Root}, "w5:p9": {"w5", "/elsewhere"},
-		} {
-			p := x.h.Pane(id)
-			p.Workspace, p.Cwd = v[0], v[1]
+		for id, cwd := range map[string]string{"wA:p1": lane, "wB:p1": lane, "wB:p2": x.Root, "w5:p9": "/elsewhere"} {
+			x.h.Pane(id).Cwd = cwd
 		}
 		if n := len(x.h.Panes); n != 4 {
 			t.Fatalf("precondition: %d panes, want the 4 scripted", n)
@@ -213,9 +205,6 @@ func TestPlacementTable(t *testing.T) {
 		x.h.Panes = nil
 		x.h.Tab("wA:t1", 200, 50, "wA:p1", "wA:p2")
 		x.h.Tab("wA:t2", 200, 50, "wA:p3")
-		for _, id := range []string{"wA:p1", "wA:p2", "wA:p3"} {
-			x.h.Pane(id).Workspace = "wA"
-		}
 		x.h.Pane("wA:p1").Cwd, x.h.Pane("wA:p3").Cwd = x.Root, x.Root
 		if x.h.Pane("wA:p2").Cwd != "" {
 			t.Fatal("precondition: wA:p2 has an unknown cwd")
@@ -248,8 +237,8 @@ func TestPlacementSkipsAnotherProjectsLeadTab(t *testing.T) {
 	x.h.Panes = nil
 	x.h.Tab("wA:t1", 200, 50, "wA:p1") // the project's: one pane
 	x.h.Tab("wA:t9", 80, 50, "wA:p9")  // the caller's: another project's lead
-	x.h.Pane("wA:p1").Cwd, x.h.Pane("wA:p1").Workspace = lane, "wA"
-	x.h.Pane("wA:p9").Cwd, x.h.Pane("wA:p9").Workspace = "/elsewhere/other", "wA"
+	x.h.Pane("wA:p1").Cwd = lane
+	x.h.Pane("wA:p9").Cwd = "/elsewhere/other"
 	x.env = []string{"OBOR_PANE=wA:p9", "HERDR_WORKSPACE_ID=wA"}
 
 	x.ok(t, "pane", "--start", "L-01")

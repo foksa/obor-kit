@@ -121,8 +121,7 @@ func newHarness(t *testing.T) *harness {
 	}
 	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj"}`)
 	h.lanes.lanes = []port.Lane{{Name: "L-01", Dir: h.lane("L-01"), Task: "T-1"}}
-	h.snap = port.Snapshot{Workspaces: map[string]string{"w1": "pj", "w2": "other"},
-		Panes: []port.Pane{{ID: "w1:p1", Workspace: "w1", Cwd: h.lane("L-01"), Agent: "claude", Label: "pj-l-01", Status: "idle"}}}
+	h.snap = port.Snapshot{Panes: []port.Pane{{ID: "w1:p1", Group: "pj", Cwd: h.lane("L-01"), Agent: "claude", Label: "pj-l-01", Status: "idle"}}}
 	h.a = New(Options{Root: h.root, Now: func() time.Time { return h.now }}, h.panes, h.lanes)
 	return h
 }
@@ -316,8 +315,8 @@ var rows = []row{
 	{name: "row 10, #5: idle 10 min, no child, no transcript known: quiet (Busy is evidence) → stalled",
 		event: tick(11 * minute), facts: []string{"T-1 stalled{idle}"},
 		check: func(t *testing.T, h *harness) {
-			if f := h.records()[0].Fact(); f != (event.FactData{Lane: "L-01", Machine: "local", Workspace: "pj",
-				WorkspaceID: "w1", Pane: "w1:p1", Agent: "pj-l-01", Reason: "idle"}) {
+			if f := h.records()[0].Fact(); f != (event.FactData{Lane: "L-01", Machine: "local", Group: "pj",
+				Pane: "w1:p1", Agent: "pj-l-01", Reason: "idle"}) {
 				t.Errorf("stalled data = %+v", f)
 			}
 		}},
@@ -335,8 +334,8 @@ var rows = []row{
 		event: func(h *harness) { h.remove("w1:p1", port.EventClosed) }, facts: []string{"T-1 needs-you{pane exited}"}},
 	{name: "row 15: pane exited (shell gone) → needs-you{pane exited}", setup: connect,
 		event: func(h *harness) { h.remove("w1:p1", port.EventExited) }, facts: []string{"T-1 needs-you{pane exited}"}},
-	{name: "a pane of another workspace in the lane's worktree is not watched",
-		setup: func(h *harness) { h.pane("w1:p1").Workspace = "w2"; h.connect() }, event: tick(30 * minute),
+	{name: "a pane of another group in the lane's worktree is not watched",
+		setup: func(h *harness) { h.pane("w1:p1").Group = "other"; h.connect() }, event: tick(30 * minute),
 		check: func(t *testing.T, h *harness) {
 			if len(h.panes.asked) != 0 {
 				t.Errorf("Busy asked of %v", h.panes.asked)
@@ -374,17 +373,17 @@ var rows = []row{
 				t.Errorf("stalled names agent %q, want pj-new", f.Agent)
 			}
 		}},
-	{name: "#4 a workspace opened after the connect: the refresh snapshot registers its panes",
+	{name: "#4 a group opened after the connect: the refresh snapshot registers its panes",
 		setup: func(h *harness) {
-			delete(h.snap.Workspaces, "w1")
+			h.pane("w1:p1").Group = "" // its workspace not listed yet: no group
 			h.connect()
 			h.tick(11 * minute)
-			h.snap.Workspaces["w1"] = "pj"
+			h.pane("w1:p1").Group = "pj"
 		},
 		event: connect, then: tick(11 * minute), later: []string{"T-1 stalled{idle}"}},
 	{name: "#4 a moved pane (new id in the refresh snapshot): the new id is watched, the old one is no alarm",
 		setup: func(h *harness) {
-			h.snap.Panes = append(h.snap.Panes, port.Pane{ID: "w2:p9", Workspace: "w2", Cwd: "/x"})
+			h.snap.Panes = append(h.snap.Panes, port.Pane{ID: "w2:p9", Group: "other", Cwd: "/x"})
 			h.connect()
 			h.pane("w1:p1").ID = "w1:p5"
 		},
@@ -558,7 +557,7 @@ var rows = []row{
 		event: func(h *harness) { h.remove("w1:p1", port.EventClosed) }},
 	{name: "#7 reconnect without the pane after its done file: no alarm",
 		setup: func(h *harness) {
-			h.snap.Panes = append(h.snap.Panes, port.Pane{ID: "w2:p9", Workspace: "w2", Cwd: "/x"})
+			h.snap.Panes = append(h.snap.Panes, port.Pane{ID: "w2:p9", Group: "other", Cwd: "/x"})
 			h.connect()
 			h.setLane("T-1", true)
 			h.snap.Panes = h.snap.Panes[1:]
@@ -632,26 +631,24 @@ var rows = []row{
 		setup: func(h *harness) {
 			h.connect()
 			h.tick(5 * minute)
-			h.snap = port.Snapshot{Workspaces: map[string]string{"w3": "pj"},
-				Panes: []port.Pane{{ID: "w3:p7", Workspace: "w3", Cwd: h.lane("L-01"), Agent: "claude", Label: "pj-l-01",
-					Status: "idle"}}}
+			h.snap = port.Snapshot{Panes: []port.Pane{{ID: "w3:p7", Group: "pj", Cwd: h.lane("L-01"), Agent: "claude", Label: "pj-l-01",
+				Status: "idle"}}}
 		},
 		event: connect, then: tick(11 * minute), later: []string{"T-1 stalled{idle}"},
 		check: func(t *testing.T, h *harness) {
-			if f := h.records()[0].Fact(); f.Pane != "w3:p7" || f.Workspace != "pj" {
+			if f := h.records()[0].Fact(); f.Pane != "w3:p7" || f.Group != "pj" {
 				t.Errorf("stalled names %+v, want pane w3:p7 in pj", f)
 			}
 		}},
 	{name: "A2 herdr restarted, the lane's agent did not come back: no alarm",
 		setup: func(h *harness) {
 			h.connect()
-			h.snap = port.Snapshot{Workspaces: map[string]string{"w3": "pj"},
-				Panes: []port.Pane{{ID: "w3:p7", Workspace: "w3", Cwd: h.lane("L-01")}}}
+			h.snap = port.Snapshot{Panes: []port.Pane{{ID: "w3:p7", Group: "pj", Cwd: h.lane("L-01")}}}
 		},
 		event: connect, then: tick(5 * minute)},
 	{name: "A2 contrast: a reconnect to the same session without the lane's pane → needs-you{pane exited}",
 		setup: func(h *harness) {
-			h.snap.Panes = append(h.snap.Panes, port.Pane{ID: "w2:p9", Workspace: "w2", Cwd: "/x"})
+			h.snap.Panes = append(h.snap.Panes, port.Pane{ID: "w2:p9", Group: "other", Cwd: "/x"})
 			h.connect()
 			h.snap.Panes = h.snap.Panes[1:]
 		},

@@ -17,8 +17,13 @@ import (
 	"obor/internal/roles"
 )
 
-// where is the placement of a new agent: at most one of --tab, --new-tab, --pane.
-type where struct{ tab, newTab, pane string }
+// where is the placement of a new agent: at most one of --tab, --new-tab, --pane (the user's), or obor init's own
+// (a group of the role's own, beside a pane). The terminal adapter lays out all but --pane (port.Placement).
+type where struct {
+	tab, newTab, pane string
+	own               bool   // in a group of the role's own
+	beside            string // beside this pane when its group is the project's
+}
 
 func parseWhere(args []string) (where, error) {
 	var w where
@@ -79,11 +84,15 @@ func (s *Setup) pane(ctx context.Context, args []string) error {
 	if len(args) == 0 || args[0] == "" {
 		return errUsage
 	}
-	lane := args[0]
 	w, err := parseWhere(args[1:])
 	if err != nil {
 		return err
 	}
+	return s.lanePane(ctx, args[0], w, startNow)
+}
+
+// lanePane places lane's worker pane where w says, starting the worker when startNow.
+func (s *Setup) lanePane(ctx context.Context, lane string, w where, startNow bool) error {
 	if err := s.load(); err != nil {
 		return err
 	}
@@ -110,10 +119,15 @@ func (s *Setup) role(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	return s.rolePane(ctx, args[0], w, startNow)
+}
+
+// rolePane places the role name's pane where w says, starting its agent when startNow.
+func (s *Setup) rolePane(ctx context.Context, name string, w where, startNow bool) error {
 	if err := s.load(); err != nil {
 		return err
 	}
-	rc, ok := s.cfg.Role(strings.ReplaceAll(args[0], "-", "_")) // a table role or a custom one (T-801)
+	rc, ok := s.cfg.Role(strings.ReplaceAll(name, "-", "_")) // a table role or a custom one (T-801)
 	role := rc.Role
 	if !ok || role.Name == "worker" || role.Name == roles.Driver { // a driver is obor drive's (T-751)
 		return errUsage
@@ -186,7 +200,7 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	if what == "" {
 		what = a.role.Name
 	}
-	running, err := s.H.Agents(ctx)
+	running, err := s.T.Agents(ctx)
 	if err != nil {
 		return project.Failf("herdr agent list failed (is herdr running?)")
 	}
@@ -203,7 +217,7 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 			return nil
 		}
 	}
-	panes, err := s.H.Panes(ctx)
+	panes, err := s.T.Panes(ctx)
 	if err != nil {
 		return project.Failf("herdr pane list failed")
 	}
@@ -260,33 +274,13 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 		env = append(env, v+"=")
 	}
 	pane := w.pane
-	fresh := false
-	switch {
-	case pane != "":
+	fresh := pane == ""
+	if fresh {
+		if pane, err = s.T.Place(ctx, s.placement(a, w, env)); err != nil {
+			return err
+		}
+	} else {
 		s.say("pane %s (existing)", pane)
-	case w.newTab != "":
-		if pane, err = s.newTab(ctx, panes, w.newTab, a.cwd, env); err != nil {
-			return err
-		}
-		fresh = true
-	default:
-		tab := w.tab
-		if tab == "" {
-			tab = s.defaultTab(panes)
-		}
-		if tab == "" { // no tab of the project to split: a new one in its workspace (T-632)
-			label := a.role.Name
-			if a.lane != "" {
-				label = "workers"
-			}
-			pane, err = s.newTab(ctx, panes, label, a.cwd, env)
-		} else {
-			pane, err = s.split(ctx, panes, tab, a.cwd, env)
-		}
-		if err != nil {
-			return err
-		}
-		fresh = true
 	}
 
 	s.placed = pane
@@ -300,7 +294,7 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	}
 	if a.noStart {
 		if label != a.name {
-			if err := s.H.RenamePane(ctx, pane, a.name); err != nil {
+			if err := s.T.RenamePane(ctx, pane, a.name); err != nil {
 				return project.Failf("herdr pane rename %s %s failed", pane, a.name)
 			}
 			s.say("labelled pane %s %s", pane, a.name)
@@ -365,7 +359,7 @@ func (s *Setup) notShell(pane, agent, kind string) error {
 
 // shellUp: herdr reports pane an available shell now, else within until (waitShell).
 func (s *Setup) shellUp(ctx context.Context, pane string, until time.Time) bool {
-	if pi, err := s.H.ProcessInfo(ctx, pane); err == nil && pi.AtShell() {
+	if pi, err := s.T.ProcessInfo(ctx, pane); err == nil && pi.AtShell() {
 		return true
 	}
 	return s.waitShell(ctx, pane, until)
@@ -385,7 +379,7 @@ func (s *Setup) waitShell(ctx context.Context, pane string, until time.Time) boo
 			return false
 		case <-time.After(min(shellPoll, left)):
 		}
-		if pi, err := s.H.ProcessInfo(ctx, pane); err == nil && pi.AtShell() {
+		if pi, err := s.T.ProcessInfo(ctx, pane); err == nil && pi.AtShell() {
 			return true
 		}
 	}
@@ -407,181 +401,21 @@ func (s *Setup) shellWait() time.Duration {
 	return shellWait
 }
 
-// projectWorkspace is the herdr workspace of this project ("" when none): one with a pane whose cwd is the project
-// root or under its lanes dir and no pane with a known cwd elsewhere (T-634: a shell of another project's workspace
-// that cd's into this one does not make that workspace the project's); an unknown cwd counts neither way. Several:
-// the one with most project panes, the first of equals in herdr's order. Placement follows it, never the caller's
-// workspace when that is another project's (T-628, live: obor init from obor-kit's lead pane put axis-maps' panes in
-// obor-kit's w5).
-func (s *Setup) projectWorkspace(panes []port.Pane) string {
-	count, foreign := map[string]int{}, map[string]bool{}
-	for _, p := range panes {
-		switch {
-		case p.Workspace == "" || p.Cwd == "":
-		case s.inProject(p.Cwd):
-			count[p.Workspace]++
-		default:
-			foreign[p.Workspace] = true
-		}
-	}
-	ws, most := "", 0
-	for _, p := range panes { // in herdr's order: the first of equals
-		if c := count[p.Workspace]; c > most && !foreign[p.Workspace] {
-			ws, most = p.Workspace, c
-		}
-	}
-	return ws
-}
-
-// splittable: a split of a named tab (--tab) may use p. Its cwd is unknown, or in this project: never another
-// project's pane (T-628).
-func (s *Setup) splittable(p port.Pane) bool { return p.Cwd == "" || s.inProject(p.Cwd) }
-
-// projectTab: every pane of tab has a known cwd in this project, so placement may pick it on its own (T-632). A pane
-// with an unknown cwd may be another project's.
-func (s *Setup) projectTab(panes []port.Pane, tab string) bool {
-	n := 0
-	for _, p := range panes {
-		if p.Tab != tab {
-			continue
-		}
-		if !s.inProject(p.Cwd) {
-			return false
-		}
-		n++
-	}
-	return n > 0
-}
-
-// workspace is where this run's new tabs go: the project's workspace; none (no herdr workspace holds a pane of the
-// project) → a new workspace named after the project, its first pane a shell in the root, made once a run (T-632).
-// The caller's or herdr's active workspace is never a fallback: it may be another project's.
-func (s *Setup) workspace(ctx context.Context, panes []port.Pane) (string, error) {
-	if ws := s.projectWorkspace(panes); ws != "" {
-		return ws, nil
-	}
-	if s.madeWS != "" {
-		return s.madeWS, nil
+// placement is a's new pane as the terminal is asked for it: whose it is, its cwd and env, where w says, and the
+// project it is for (T-1044: the layout is the adapter's). A tab holds limits.max_panes_per_tab panes (default 4).
+func (s *Setup) placement(a agent, w where, env []string) port.Placement {
+	limit := 4
+	if l := s.cfg.Data.Limits; l != nil && l.MaxPanesPerTab != nil {
+		limit = *l.MaxPanesPerTab
 	}
 	name := s.cfg.Data.Name
 	if name == "" {
 		name = filepath.Base(s.root)
 	}
-	ws, err := s.H.NewWorkspace(ctx, name, s.root)
-	if err != nil {
-		return "", project.Failf("herdr workspace create failed: %v", err)
-	}
-	s.madeWS = ws
-	s.say("workspace %s created for %s", ws, name)
-	return ws, nil
-}
-
-// newTab makes a tab labelled label in the project's workspace (made first when there is none), its pane in cwd with
-// env; the pane's id.
-func (s *Setup) newTab(ctx context.Context, panes []port.Pane, label, cwd string, env []string) (string, error) {
-	ws, err := s.workspace(ctx, panes)
-	if err != nil {
-		return "", err
-	}
-	pane, err := s.H.NewTab(ctx, ws, label, cwd, env...)
-	if err != nil {
-		return "", project.Failf("herdr tab create failed: %v", err)
-	}
-	s.say("tab %s: pane %s", label, pane)
-	return pane, nil
-}
-
-// defaultTab is the tab a split without --tab goes to: the caller's when it is a project tab in the project's
-// workspace, else that workspace's project tab with most panes; "" when none (a new tab then, T-632).
-func (s *Setup) defaultTab(panes []port.Pane) string {
-	proj := s.projectWorkspace(panes)
-	if proj == "" {
-		return ""
-	}
-	if self, err := project.Pane(s.Env); err == nil {
-		for _, p := range panes {
-			if p.ID == self && p.Workspace == proj && s.projectTab(panes, p.Tab) {
-				return p.Tab
-			}
-		}
-	}
-	return s.busiestTab(panes, proj)
-}
-
-// busiestTab is the project tab of ws with the most panes ("" when none).
-func (s *Setup) busiestTab(panes []port.Pane, ws string) string {
-	count := map[string]int{}
-	for _, p := range panes {
-		if p.Workspace == ws {
-			count[p.Tab]++
-		}
-	}
-	tab, most := "", 0
-	for _, p := range panes { // in herdr's order: the first of equals
-		if c := count[p.Tab]; p.Workspace == ws && c > most && s.projectTab(panes, p.Tab) {
-			tab, most = p.Tab, c
-		}
-	}
-	return tab
-}
-
-// split splits the largest pane of tab a split may use for a new pane with cwd and env: to the right when it is wider
-// than tall on screen (a cell is about twice as tall as wide), else down. Another project's pane is never split.
-func (s *Setup) split(ctx context.Context, panes []port.Pane, tab, cwd string, env []string) (string, error) {
-	var in []string
-	n := 0
-	for _, p := range panes {
-		if p.Tab != tab {
-			continue
-		}
-		n++
-		if s.splittable(p) {
-			in = append(in, p.ID)
-		}
-	}
-	if n == 0 {
-		return "", project.Failf("no panes in tab %s", tab)
-	}
-	if len(in) == 0 {
-		return "", project.Failf("tab %s holds no pane of this project: pass --new-tab <label> (or --pane <id>)", tab)
-	}
-	limit := 4
-	if l := s.cfg.Data.Limits; l != nil && l.MaxPanesPerTab != nil {
-		limit = *l.MaxPanesPerTab
-	}
-	if n >= limit {
-		return "", project.Failf("tab %s is full (%d of %d panes; --new-tab <label>)", tab, n, limit)
-	}
-	layout, err := s.H.Layout(ctx, in[0])
-	if err != nil {
-		return "", project.Failf("herdr pane layout failed: %v", err)
-	}
-	may := map[string]bool{}
-	for _, id := range in {
-		may[id] = true
-	}
-	target, w, h := "", 0, 0
-	for _, p := range layout {
-		if !may[p.Pane] {
-			continue
-		}
-		if p.W*p.H >= w*h { // the last of equals: the newest
-			target, w, h = p.Pane, p.W, p.H
-		}
-	}
-	if target == "" {
-		return "", project.Failf("herdr pane layout of tab %s lists no panes", tab)
-	}
-	dir := "down"
-	if w > 2*h {
-		dir = "right"
-	}
-	pane, err := s.H.Split(ctx, target, dir, cwd, env...)
-	if err != nil {
-		return "", project.Failf("herdr pane split %s failed: %v", target, err)
-	}
-	s.say("split %s in tab %s: pane %s", target, tab, pane)
-	return pane, nil
+	self, _ := project.Pane(s.Env) // "" when the caller has no pane
+	return port.Placement{Role: a.role.Name, Lane: a.lane, Cwd: a.cwd, Env: env, Own: w.own, Group: w.newTab, In: w.tab,
+		Beside: w.beside, Say: func(line string) { s.say("%s", line) },
+		Project: port.PlaceProject{Name: name, Root: s.root, Self: self, MaxPanes: limit, Has: s.inProject}}
 }
 
 // withoutFlag is args without the bare flag, and whether it was there.

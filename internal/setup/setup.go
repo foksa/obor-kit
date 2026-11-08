@@ -7,7 +7,7 @@
 //	        only while that marker names the lane_setup configured now).
 //	pane <LANE> [--tab <tab-id> | --new-tab <label> | --pane <pane-id>] [--start]  a pane for the lane's worker, labelled and
 //	        with its env typed but no agent in it unless --start (T-705: dispatch starts a fresh worker anyway) (agent
-//	        <prefix>-<lane lower>): split the largest pane of --tab (default: the caller's tab
+//	        <prefix>-<lane lower>; the placement is the terminal adapter's, herdr.Setup.Place, T-1044): split the largest pane of --tab (default: the caller's tab
 //	        when it is the project's, else the project's busiest tab, T-628; a tab is the project's only when every
 //	        pane in it has a known cwd in the project, and with none a new tab, T-632), or a new tab in the project's
 //	        workspace (the one with most panes in the project), or an existing shell pane; without a pane of the
@@ -59,7 +59,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -70,27 +69,14 @@ import (
 	"obor/internal/roles"
 )
 
-// Herdr is what setup asks of herdr: the pane operations launch needs (port.PaneControl) and the ones setup makes
-// itself, the agents, a new tab or workspace, a tab's layout, a split, and the plugin registry; the herdr socket
-// client is it.
-type Herdr interface {
-	port.PaneControl
-	Agents(ctx context.Context) ([]port.Pane, error)
-	Layout(ctx context.Context, pane string) ([]port.Rect, error)
-	Split(ctx context.Context, pane, dir, cwd string, env ...string) (string, error)
-	NewTab(ctx context.Context, workspace, label, cwd string, env ...string) (string, error)
-	NewWorkspace(ctx context.Context, label, cwd string) (string, error)
-	Plugins(ctx context.Context) ([]port.Plugin, error)
-	LinkPlugin(ctx context.Context, dir string) error
-	UnlinkPlugin(ctx context.Context, id string) error
-}
-
 // Setup runs `obor setup` subcommands for the project around Dir.
 type Setup struct {
 	Kit string // the obor kit: templates/, githooks/, herdr-plugin/
 	Dir string // the caller's cwd
 	Env project.Env
-	H   Herdr
+	// T is the terminal, in neutral terms (port.TerminalSetup, T-1044): setup says whose pane and near what, the
+	// terminal adapter (herdr.Setup) lays it out.
+	T   port.TerminalSetup
 	Out io.Writer
 	// McpCheck is `obor mcp --check` (the doctor's handshake against the server itself; internal/mcp is an adapter,
 	// so cmd/obor passes it in).
@@ -107,10 +93,9 @@ type Setup struct {
 	// ShellWait bounds the wait for a pane a new tab or a split made to be an available shell (T-628; 0: 10 s).
 	ShellWait time.Duration
 
-	root   string // the main checkout, once found
-	cfg    *config.Config
-	wrote  bool   // init: a file was created or appended to
-	madeWS string // the herdr workspace this run created for the project (T-632), "" when none
+	root  string // the main checkout, once found
+	cfg   *config.Config
+	wrote bool // init: a file was created or appended to
 	// start's last placement (obor init): the pane, and whether the agent was running already
 	placed  string
 	running bool
@@ -207,17 +192,6 @@ func (s *Setup) inProject(cwd string) bool {
 	c := project.Physical(cwd)
 	in := func(d string) bool { d = project.Physical(d); return c == d || strings.HasPrefix(c, d+"/") }
 	return in(s.root) || in(config.AbsUnder(s.root, s.cfg.Data.LanesDir))
-}
-
-// lookPath finds name in the directories of the PATH value path.
-func lookPath(path, name string) (string, error) {
-	for _, dir := range filepath.SplitList(path) {
-		p := filepath.Join(dir, name)
-		if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() && fi.Mode()&0o111 != 0 {
-			return p, nil
-		}
-	}
-	return "", exec.ErrNotFound
 }
 
 // findRoot sets the main checkout of the project around Dir.

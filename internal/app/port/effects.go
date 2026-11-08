@@ -116,14 +116,67 @@ func NotRunning(err error) bool {
 	return errors.As(err, &e) && e.Unavailable()
 }
 
-// Rect is a pane's size on screen in cells (pane.layout).
-type Rect struct {
-	Pane string
-	W, H int
+// TerminalSetup is what obor setup and obor init ask of the terminal (T-1044), in terminal-neutral terms: the pane
+// operations launch needs, the agents running now, a new pane for an agent placed by the adapter's own layout, the
+// terminal's integration for obor, and a project rename's share. The herdr adapter (herdr.Setup) implements it; setup
+// decides whose pane and near what, never a tab, a workspace or a split.
+type TerminalSetup interface {
+	PaneControl
+	// Agents is every agent the terminal runs now.
+	Agents(ctx context.Context) ([]Pane, error)
+	// Place makes a new pane for an agent where p says and returns its id; the layout is the adapter's. Its refusals
+	// and failures are the lines setup prints after FAIL.
+	Place(ctx context.Context, p Placement) (string, error)
+	// Integrate installs, once per user and idempotent, what the terminal needs to bring obor's agents back after it
+	// restarts (herdr: the obor.events plugin of the kit's herdr-plugin dir); its progress lines go to say.
+	Integrate(ctx context.Context, kit string, say func(line string)) (Integration, error)
+	// RenameProject renames the terminal's group of the project from old to name (herdr: the workspace labelled old)
+	// and relabels each pane of it whose label relabel maps to another label.
+	RenameProject(ctx context.Context, old, name string, relabel func(label string) string) (Renamed, error)
 }
 
-// Plugin is one linked multiplexer plugin (plugin.list): its id and the directory it runs from.
-type Plugin struct{ ID, Root string }
+// Placement is a new agent pane setup asks the terminal for (obor setup pane / role, obor drive, obor init): whose
+// pane it is, its cwd and env, and near what. At most one of Own, Group, In, Beside; none: beside the caller's pane
+// when its group is the project's, else in the project's busiest group, else in a group of the role's own. The
+// terminal adapter decides the layout (which group, a split or a new one, its label).
+type Placement struct {
+	Role, Lane string   // whose pane: its role ("worker" for a lane's) and lane ("" for none)
+	Cwd        string   // the new pane's cwd
+	Env        []string // NAME=VALUE for the new pane's shell ("NAME=": set empty)
+	Own        bool     // in a new group of the role's own (obor init's first worker and its reviewer)
+	Group      string   // in a new group labelled Group (obor setup --new-tab)
+	In         string   // in the group the terminal knows by this id (obor setup --tab), whoever's it is
+	// Beside: in the group of this pane when that group is the project's, else in a new group of the role's own (obor
+	// init: L-02 and the integrator beside L-01).
+	Beside  string
+	Project PlaceProject
+	Say     func(line string) // the placement's progress lines (a new group, a split)
+}
+
+// PlaceProject is the project a placement is for: its name (a group of its own is named after it), root (that
+// group's first pane works there), the caller's pane ("": none), how many panes a group may hold, and which cwds are
+// the project's (Has: the main checkout or under its lanes dir).
+type PlaceProject struct {
+	Name, Root string
+	Self       string
+	MaxPanes   int
+	Has        func(cwd string) bool
+}
+
+// Integration is Integrate's outcome: whether anything was installed or replaced, the step's summary for obor init,
+// and a hint for the user ("": none) about a setting of the terminal's own that obor never edits.
+type Integration struct {
+	Changed bool
+	What    string
+	Hint    string
+}
+
+// Renamed is RenameProject's outcome: the step's line, Already when nothing was left to do, and Warn when the terminal
+// could not be asked (Line says what to do by hand).
+type Renamed struct {
+	Line          string
+	Already, Warn bool
+}
 
 // AgentEnv is whose env and cwd a pane's shell is set to: the agent's name, its role (a role name; "" for none), its
 // lane ("" for none) and the directory it works in ("" keeps the shell's); Vars the start's own variables

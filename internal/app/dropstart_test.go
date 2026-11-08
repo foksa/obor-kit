@@ -86,13 +86,12 @@ func (f *dropFx) loop(kit string) *Loop {
 	return &Loop{Workflow: WorkflowOf(f), Agents: f, Typer: f, Specs: f, Kit: kit}
 }
 
-// worker puts an idle claude pane labelled agent into proj's workspace and reconciles its identity table.
+// worker puts an idle claude pane labelled agent into proj's group and reconciles its identity table.
 func (r *concRig) worker(proj, id, agent string) {
 	a, p := r.app(proj), r.proj(proj)
-	ws := map[string]string{"pj": "w1", "pq": "w2", "pr": "w3"}[proj]
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.obs[id] = &seen{pane: port.Pane{ID: id, Workspace: ws, Cwd: r.roots[proj], Agent: "claude", Label: agent,
+	a.obs[id] = &seen{pane: port.Pane{ID: id, Group: proj, Cwd: r.roots[proj], Agent: "claude", Label: agent,
 		Status: "idle"}}
 	a.reconcile(p)
 }
