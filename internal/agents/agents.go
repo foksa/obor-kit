@@ -126,11 +126,17 @@ type ProjectChecker interface {
 	ProjectWarnings(dir string, read ReadFile) []string
 }
 
-// ProjectWarnings are every registered kind's ProjectChecker warnings on dir's files, kinds in name order.
-func ProjectWarnings(dir string, read ReadFile) []string {
+// ProjectWarnings are every registered kind's ProjectChecker warnings on dir's files, kinds in name order; a kind in
+// described (a plugin kind obor config validate just described, T-1054) answers in place of the registry's, whose
+// manifest may not be cached.
+func ProjectWarnings(dir string, read ReadFile, described map[string]Kind) []string {
 	var out []string
 	for _, n := range Names() {
-		if c, ok := lookup(n).(ProjectChecker); ok {
+		k := lookup(n)
+		if d := described[n]; d != nil {
+			k = d
+		}
+		if c, ok := k.(ProjectChecker); ok {
 			out = append(out, c.ProjectWarnings(dir, read)...)
 		}
 	}
@@ -429,6 +435,12 @@ func IsPlugin(name string) bool {
 	mu.RLock()
 	defer mu.RUnlock()
 	return plugins[name]
+}
+
+// Uncached is a plugin kind that may have no manifest at hand (T-1054): Uncached is why (nil: it has one). Without one
+// its Headless is empty, so the guard denies its program outright rather than let a headless run through.
+type Uncached interface {
+	Uncached() error
 }
 
 // Fallible is a kind whose install can fail (a plugin kind runs a process, T-1036): Install with its error. Its

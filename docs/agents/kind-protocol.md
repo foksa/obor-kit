@@ -26,12 +26,14 @@ its hook transport. A test binary answers it in process (`plugin.Local`, testkit
   the same (`config.KitKinds`); `obor setup agents` writes the line into `.obor/config.json` (uncommitted) and
   `obor config validate` warns while it is missing in a config that uses OpenCode. v0.32.0 drops the default.
 - `obor config validate` checks the file is executable and that its `describe` answers with a manifest of `<name>`.
-- `obor setup agents` runs `describe` and caches the reply (the **manifest**) as `.obor/state/kinds/<name>.json`, then
-  runs `install` and applies what it returns. Run it again after changing the command; obor also describes it again
-  by itself at the next call that runs it once the command's mtime (or its path) differs from the cached one.
+- obor serve runs `describe` and caches the reply (the **manifest**) as `.obor/state/kinds/<name>.json` at its start
+  and again once the command's mtime (or its path) differs from the cached one (T-1054); `obor init` and
+  `obor setup agents` cache it too (setup agents then runs `install` and applies what it returns). A call that runs
+  the command describes it again by itself, too, once the command changed.
 - What the manifest answers is read from the cache, never by running the command: hooks and the guard load the config
-  and stay as fast as for a compiled kind. A kind with no cache has no answers, and every call that would run it fails
-  with `kind <name>: no manifest cached (…): run obor setup agents`.
+  and stay as fast as for a compiled kind. A kind with no cache has no answers: every call that would run it fails
+  with `kind <name>: no manifest cached (…): run obor setup agents`, and the guard denies every command that runs its
+  program (its headless forms are unknown).
 
 ## One call
 

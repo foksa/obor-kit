@@ -8,8 +8,9 @@ OpenCode is now a plugin kind (`docs/agents/kind-protocol.md`): the kit ships it
 env, generated config (`OPENCODE_CONFIG`), model switch and quit; `opencode/obor.js` is still its hook transport.
 
 What obor knows about OpenCode without running it (its stop recipe, the `opencode run` the guard denies, its efforts,
-its env vars) is the binary's manifest, cached per project. **Until a project caches it, OpenCode agents cannot start
-there** (`kind opencode: no manifest cached (…): run obor setup agents`) and the guard does not know `opencode run`.
+its env vars) is the binary's manifest, cached per project. obor serve caches it at its start (and again once the
+binary changes), and `obor init` does too: no hand step. Until a project has it, OpenCode agents cannot start there
+(`kind opencode: no manifest cached (…): run obor setup agents`) and the guard denies every `opencode` command.
 
 A config needs `kinds.opencode.command`; one without it still runs the kit's binary until v0.32.0, and `obor config
 validate` warns while it is missing. Re-run the installer, then in every project:
