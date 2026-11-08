@@ -504,3 +504,19 @@ func TestLanesCountOrList(t *testing.T) {
 			keep.KeepLane("L-02"), keep.KeepLane("L-03"), keep.HasLane("L-02"), keep.HasLane("L-03"))
 	}
 }
+
+// T-1050: a config's revision (Config.Rev) is its effective JSON's, so a rewrite that leaves what runs alone keeps it,
+// while an edit in .obor/local.json — where a model's id or a kind's args may live — changes it: either file counts,
+// not only the committed one.
+func TestRevIsTheEffectiveConfig(t *testing.T) {
+	one := load(t, `{"name":"pj","prefix":"pj"}`, "")
+	same := load(t, "{\n  \"name\": \"pj\",\n  \"prefix\": \"pj\"\n}\n", "")
+	if len(one.json) == 0 || one.Rev() != same.Rev() {
+		t.Errorf("rev %s of a rewritten config.json, want %s: the same effective config", same.Rev(), one.Rev())
+	}
+	local := load(t, `{"name":"pj","prefix":"pj"}`, `{"models":{"sonnet":{"kind":"claude","model":"sonnet-4-6"}}}`)
+	if local.Rev() == one.Rev() {
+		t.Errorf("rev %s with local.json's model, want another than %s: a changed model id behind an alias counts",
+			local.Rev(), one.Rev())
+	}
+}

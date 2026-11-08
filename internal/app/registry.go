@@ -94,10 +94,11 @@ func (r *registry) start(agent string) (startRow, bool) {
 // agent in, that pane's terminal id ("": a result from before T-504, until its pane is seen), the kind, the session,
 // the verdicts folded at its start ("a verdict came since its start", rolestop.go T-870) and Ref, the model ref an
 // agent.start ran: its attempt's dispatch's (dispatchData.Type, read at the fold, not stored again; "": start.<job>'s,
-// or unknown), what a keep lane's reuse checks (startFits, T-1048).
+// or unknown), and Config, the config revision the start was launched under (startOut.Config, T-1050; "": a start.<job>
+// or a record from before T-1050), what a keep lane's reuse checks (startFits, T-1048, T-1050).
 type startRow struct {
-	Pane, Terminal, Kind, Session, Ref string
-	Verdicts                           int
+	Pane, Terminal, Kind, Session, Ref, Config string
+	Verdicts                                   int
 }
 
 // owner is the agent a terminal runs by the last reconcile, its proof and the pane id it was seen at.

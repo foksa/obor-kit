@@ -1,7 +1,8 @@
 // keeplane.go: a keep lane's agent between its tasks (T-1031, config.LaneKeep). A keep lane's merged task stops no
 // agent (afterList); its next dispatch prepares the lane (clean: lane.prepare requires it) and sends the work job's wake
-// to the live agent (nextDispatch: no agent.start) when its recorded start runs the dispatch's model (startFits, T-1048;
-// else the dispatch stops it first, keepStop), or starts one as a fresh lane does when the lane has none. The
+// to the live agent (nextDispatch: no agent.start) when its recorded start runs the dispatch's model under the same
+// config revision (startFits, T-1048, T-1050; else the dispatch stops it first, keepStop), or starts one as a fresh
+// lane does when the lane has none. The
 // handoff rule stops a kept agent that is idle between tasks with its session past handoff_tokens; the next dispatch's
 // agent.start is its fresh start (one starter per lane: a rule's start can never race a dispatch's).
 package app
@@ -85,18 +86,31 @@ func (a *App) keepStop(p *proj, cfg *config.Config, l port.Lane, agent, ref stri
 // startFits: agent, live in pane, runs model ref ref as serve's own start of it recorded (under mu; T-1048): its start
 // row (agent.start's result, foldStart) names the model ref the start ran (its dispatch's) with ref's model and effort,
 // the kind of ref's model, and a session that is pane's now (the agent the start launched, not one started since by
-// hand). Unknown or unprovable is no fit: no start row (an agent serve did not start), no ref (the integrator's, a
-// start before T-1048), a kind that reports no session id (it cannot prove the live agent is the start's, T-418), or
-// herdr reporting none for the pane now.
+// hand), and the config revision the start was launched under is the config's now (T-1050: a model's id or a kind's
+// args edited since would make a new start of ref another launch). Unknown or unprovable is no fit: no start row (an
+// agent serve did not start), no ref (the integrator's, a start before T-1048), no config revision (a start before
+// T-1050), a kind that reports no session id (it cannot prove the live agent is the start's, T-418), or herdr reporting
+// none for the pane now.
 func (p *proj) startFits(cfg *config.Config, agent string, pane port.Pane, ref string) bool {
 	row, ok := p.reg.start(agent)
-	if !ok || row.Ref == "" || row.Session == "" || pane.Session != row.Session {
+	if !ok || row.Ref == "" || row.Session == "" || row.Config == "" || pane.Session != row.Session ||
+		row.Config != cfg.Rev() {
 		return false
 	}
 	typ, effort := config.ParseModelRef(ref)
 	ran, ranEffort := config.ParseModelRef(row.Ref)
 	lt, ok := cfg.Model(typ)
 	return ok && typ != "" && typ == ran && effort == ranEffort && lt.Kind != "" && lt.Kind == row.Kind
+}
+
+// configRev is p's config revision now (config.Config.Rev, T-1050): what a start records, and what a keep lane's reuse
+// compares. "": the config does not load (a start then records none, and no reuse is a fit).
+func (p *proj) configRev() string {
+	cfg, err := config.LoadDaemon(p.root)
+	if err != nil {
+		return ""
+	}
+	return cfg.Rev()
 }
 
 // pastHandoff: the session of the agent in pane is larger than the project's handoff_tokens (under mu; 0: off). Its

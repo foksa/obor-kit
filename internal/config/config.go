@@ -397,6 +397,13 @@ type Config struct {
 	unknownErr error  // Load's error when read dropped an unknown key
 }
 
+// Rev is the revision of the config as it runs (Rev of its effective JSON: config.json with .obor/local.json merged
+// and the defaults filled, T-1050). Unlike the file's own revision it changes when an edit in either file changes what
+// runs — a model's id in local.json too — so a start can record it and a keep lane reuse its agent only while it is
+// the same (startFits). An edit that leaves the effective config alone (a rewrite, a key set to its own value) does
+// not change it.
+func (c *Config) Rev() string { return Rev(c.json) }
+
 // Load builds the effective config of the project whose main checkout is root (absolute, physical): config.json and
 // local.json merged as JSON (merge), decoded once over the defaults, then the derived keys. An unknown key is an error.
 func Load(root string) (*Config, error) {

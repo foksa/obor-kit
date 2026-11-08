@@ -97,7 +97,9 @@ type (
 	// startOut is agent.start's result, and the integrator's start.<job> (not "running"): not refused, its job's
 	// delivery (startJob). Agent, Pane, Terminal, Kind, Session: the agent started there, the pane's terminal id, its
 	// kind and herdr's session id of it ("": none reported, or a replay that saw it in the snapshot): the start row of
-	// the identity table (foldStart).
+	// the identity table (foldStart). Config is the config revision the start was launched under (config.Config.Rev,
+	// T-1050): the start's row keeps it, so a keep lane reuses the agent only while the config is that same config
+	// (startFits). agent.start's alone: the integrator's start.<job>, and a record from before T-1050, carry none.
 	startOut struct {
 		Line     string `json:"line,omitempty"`
 		Agent    string `json:"agent,omitempty"`
@@ -105,6 +107,7 @@ type (
 		Terminal string `json:"terminal,omitempty"`
 		Kind     string `json:"kind,omitempty"`
 		Session  string `json:"sid,omitempty"`
+		Config   string `json:"config,omitempty"`
 		Refused  string `json:"refused,omitempty"`
 	}
 )
@@ -1161,7 +1164,8 @@ func (a *App) startWorker(ctx context.Context, p *proj, fx *Loop, mt mtask, key 
 		case err != nil:
 			return nil, err
 		}
-		return startOut{Line: s.Line, Agent: d.Agent, Pane: d.Pane, Terminal: s.Terminal, Kind: s.Kind, Session: s.Session}, nil
+		return startOut{Line: s.Line, Agent: d.Agent, Pane: d.Pane, Terminal: s.Terminal, Kind: s.Kind, Session: s.Session,
+			Config: p.configRev()}, nil
 	})
 }
 

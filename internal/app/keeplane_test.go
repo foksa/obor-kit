@@ -296,6 +296,60 @@ func TestKeepLaneReusesItsAgentOnlyForTheSameModel(t *testing.T) {
 	}
 }
 
+// T-1050 (RV-148 verify #1): the reuse also requires the config revision the kept agent's start recorded to be the
+// config's now. An alias is mutable config: another models.<model>.model (another model id behind the same ref) or
+// another kinds.<kind>.args between the tasks makes a new start of the same ref another launch, so pj-l-01 is stopped
+// and started fresh (the dispatch's stop, then its start). A config written back as it was (other bytes, the same
+// effective config) changes nothing: T-2's wake typed, no stop, no start.
+func TestKeepLaneRestartsWhenTheConfigChangedSinceItsStart(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name    string
+		change  func(r *loopRig)
+		restart bool
+	}{
+		{name: "another model id for sonnet (models.sonnet.model)", restart: true, change: func(r *loopRig) {
+			r.setConfig("models.sonnet", map[string]any{"kind": "claude", "model": "sonnet-4-6"})
+		}},
+		{name: "another kind's args (kinds.claude.args)", restart: true, change: func(r *loopRig) {
+			r.setConfig("kinds.claude.args", []string{"--fallback-model", "haiku"})
+		}},
+		{name: "nothing changed (the same config written back)", change: func(r *loopRig) {
+			r.setConfig("name", "proj")
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			r := keepSecond(t, false, c.change, wire.Call{Types: []string{"sonnet"}})
+			launches := r.workerLaunches()
+			if len(launches) == 0 || launches[0].Prompt != "[obor job T-1/1/work] call the obor job_next tool" ||
+				launches[0].Type != "sonnet" {
+				t.Fatalf("precondition: T-1's start of sonnet first: %+v", launches)
+			}
+			_, stopped := r.record("T-2", event.KindResult, event.StepWorkerStop)
+			_, started := r.record("T-2", event.KindResult, event.StepStartWork)
+			typed := slices.ContainsFunc(r.prompts(), func(s sent) bool {
+				return s.to == "pj-l-01" && s.text == "[obor job T-2/1/work] call the obor job_next tool"
+			})
+			if !c.restart {
+				if stopped || started || !typed || len(launches) != 1 {
+					t.Errorf("T-2 stopped %v, started %v, its wake typed %v, launches %+v; want T-1's agent reused",
+						stopped, started, typed, launches)
+				}
+				return
+			}
+			if !stopped || !started || typed {
+				t.Errorf("T-2 stopped %v, started %v, its wake typed %v; want pj-l-01 stopped, then started fresh",
+					stopped, started, typed)
+			}
+			if len(launches) != 2 || !launches[1].Fresh || launches[1].Type != "sonnet" ||
+				launches[1].Prompt != "[obor job T-2/1/work] call the obor job_next tool" {
+				t.Errorf("launches %+v; want T-2's fresh start of sonnet carrying its wake", launches)
+			}
+		})
+	}
+}
+
 // T-1048 (RV-148 #2): a busy keep lane's next task is the scheduler's choice (passOrder): with an ordinary T-2 and then
 // a high T-3 waiting behind T-1, obor status lists T-3 first and T-3 takes the lane when T-1 merges, T-2 queued behind
 // it.
