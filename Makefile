@@ -65,10 +65,12 @@ trim-go-cache:
 	  if (n >= 1048576) return sprintf("%.1f MiB", n/1048576); if (n >= 1024) return sprintf("%.1f KiB", n/1024); \
 	  return sprintf("%d B", n) } BEGIN { printf "go cache: freed %s, %s left\n", size(f), size(l) }'
 
-# The merge gate (check: the full suite) and its per-merge tier (check-affected, commands.check_affected, T-347): the
-# same steps, but go test only on the packages $OBOR_CHANGED_FILES affects (obor affected go); any doubt runs the full
-# suite. check-affected also passes -short: the tests marked testkit.Slow (>= 1 s: cmd/obor, internal/checks,
-# internal/setup, T-957) run only in check, the nightly and releases; check does not pass it unless CHECK_SHORT=1.
+# The merge gate (check: the full suite) and its per-merge tier (check-affected, commands.check_affected, T-347): check
+# runs every step; check-affected runs go test only, on the packages $OBOR_CHANGED_FILES affects (obor affected go); any
+# doubt runs the full suite. The slot's check-compile already ran build, gofmt, vet and deadcode on the same commit
+# (T-995), so the lane does not repeat them. check-affected also passes -short: the tests marked testkit.Slow (>= 1 s:
+# cmd/obor, internal/checks, internal/setup, T-957) run only in check, the nightly and releases; check does not pass it
+# unless CHECK_SHORT=1.
 # CHECK_SHORT=1 adds -short to check, check-readers and check-web: serve's lane test sets it when branches.promote is
 # set (T-989, T-997), so a promoted lane runs the short tier whatever its class; the promotion's and the nightly's
 # runners and a release do not, so the full suite runs there. Without a promotion a lane runs the full class check, as
@@ -80,10 +82,10 @@ trim-go-cache:
 # a release never set it.
 # Serve's lane step runs the class's tier in the task's lane (T-961). check-compile (commands.compile, T-961) is
 # what serve's merge slot runs on each merge: build, gofmt, vet and deadcode, no go test. CHECK_CPUS (obor run and the
-# gates export it: cores / slots.max) is go test -p. Every class check starts with
-# GO_GATE: GOCACHE falls back to $TMPDIR when the default is not writable (a Codex sandbox, T-206), then build, gofmt and
-# vet; every failure prints a line fail_grep matches (^FAIL). GO_CACHE is that GOCACHE selection alone, shared with
-# check-retest (T-976).
+# gates export it: cores / slots.max) is go test -p. check and check-release start with GO_GATE: GOCACHE falls back to
+# $TMPDIR when the default is not writable (a Codex sandbox, T-206), then build, gofmt and vet; every failure prints a
+# line fail_grep matches (^FAIL). The lane's checks (check-affected, check-readers, check-web) start with GO_CACHE only,
+# that GOCACHE selection alone (shared with check-retest, T-976): the slot compiled the commit (T-995).
 GO_CACHE = c=$$($(GO) env GOCACHE 2>/dev/null); \
 	{ mkdir -p "$$c" && : > "$$c/.obor-probe" && rm -f "$$c/.obor-probe"; } 2>/dev/null || \
 	  { GOCACHE="$${TMPDIR:-/tmp}/obor-go-build"; export GOCACHE; }
@@ -91,27 +93,32 @@ GO_GATE = $(GO_CACHE); \
 	$(MAKE) -s build || { echo "FAIL make build"; exit 1; }; \
 	f=$$(gofmt -l cmd internal); test -z "$$f" || { echo "FAIL gofmt: $$(printf '%s\n' "$$f" | tr '\n' ' ')"; exit 1; }; \
 	$(GO) vet ./... || { echo "FAIL go vet"; exit 1; }
-check check-affected:
+check:
 	@$(GO_GATE); \
-	pkgs=./...; short=; \
-	if [ "$@" = check-affected ]; then \
-	  short=-short; \
-	  direct=; if [ "$$CHECK_DIRECT" = 1 ]; then direct=--direct; fi; \
-	  if a=$$(./dist/obor affected go $$direct); then \
-	    case "$$a" in \
-	      "full: "*) echo "affected: full suite ($${a#full: })" ;; \
-	      "") pkgs= ;; \
-	      *) pkgs=$$(printf '%s' "$$a" | tr '\n' ' '); echo "affected: $$(printf '%s\n' "$$a" | grep -c .) package(s): $$pkgs" ;; \
-	    esac; \
-	  else echo "affected: full suite (obor affected go failed)"; fi; \
-	fi; \
+	short=; \
 	if [ "$$CHECK_SHORT" = 1 ]; then short=-short; fi; \
+	rc=0; out=$$($(GO) test -count=1 $${CHECK_CPUS:+-p $$CHECK_CPUS} $${short:+$$short} ./... 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
+	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
+	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"; \
+	$(MAKE) -s deadcode || { echo "FAIL deadcode"; exit 1; }
+
+check-affected:
+	@$(GO_CACHE); \
+	pkgs=./...; \
+	direct=; if [ "$$CHECK_DIRECT" = 1 ]; then direct=--direct; fi; \
+	if a=$$(./dist/obor affected go $$direct); then \
+	  case "$$a" in \
+	    "full: "*) echo "affected: full suite ($${a#full: })" ;; \
+	    "") pkgs= ;; \
+	    *) pkgs=$$(printf '%s' "$$a" | tr '\n' ' '); echo "affected: $$(printf '%s\n' "$$a" | grep -c .) package(s): $$pkgs" ;; \
+	  esac; \
+	else echo "affected: full suite (obor affected go failed)"; fi; \
 	if [ -z "$$pkgs" ]; then echo "go test: 0 pass, 0 fail (no affected Go packages, go test skipped)"; else \
-	  rc=0; out=$$($(GO) test -count=1 $${CHECK_CPUS:+-p $$CHECK_CPUS} $${short:+$$short} $$pkgs 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
+	  rc=0; out=$$($(GO) test -count=1 -short $${CHECK_CPUS:+-p $$CHECK_CPUS} $$pkgs 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
 	  n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	  echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"; \
-	fi; \
-	$(MAKE) -s deadcode || { echo "FAIL deadcode"; exit 1; }
+	fi
+
 check-compile:
 	@$(GO_GATE); \
 	$(MAKE) -s deadcode || { echo "FAIL deadcode"; exit 1; }; \
@@ -143,8 +150,9 @@ check-retest:
 #   internal/checks  matches only through the classification table and a fixture that name paths without reading them:
 #                    listed so the survey needs no per-file exception; its tests run beside cmd/obor's and internal/app's,
 #                    so the extra package costs little wall time.
-# tests/conformance reads hooks/hooks.json too, but that suite is `make conformance`, nightly. No deadcode step: a changed
-# skill or template moves no package's API. Left as they are: docs/** is merge.neutral (guard only, unchanged) — the
+# tests/conformance reads hooks/hooks.json too, but that suite is `make conformance`, nightly. No compile step (the slot's
+# check-compile compiled the commit, T-995) and no deadcode: a changed skill or template moves no package's API. Left as
+# they are: docs/** is merge.neutral (guard only, unchanged) — the
 # reader list above leaves docs out, so docs/agents/*.md, read by cmd/obor (skills_test.go) and internal/app
 # (worktext_test.go), keeps today's hole; root README.md is read by cmd/obor (skills_test.go) but stays unmatched (the
 # full check, safe), and bin/obor, githooks/** and web/package.json match no class and run the full check too (the
@@ -154,20 +162,21 @@ check-retest:
 # .claude-plugin/**), since the first class whose glob matches owns the file.
 READER_PKGS := ./cmd/obor ./internal/agents/claude ./internal/app ./internal/checks ./internal/config ./internal/guard ./internal/setup
 check-readers:
-	@$(GO_GATE); \
+	@$(GO_CACHE); \
 	short=; if [ "$$CHECK_SHORT" = 1 ]; then short=-short; fi; \
 	rc=0; out=$$($(GO) test -count=1 $${CHECK_CPUS:+-p $$CHECK_CPUS} $${short:+$$short} $(READER_PKGS) 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
 	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"
 
-# check-web: the Go side of the page (merge.classes "web", T-901), on the same prologue. `go test ./internal/web` is
+# check-web: the Go side of the page (merge.classes "web", T-901), with GO_CACHE as the other lane checks (the slot's
+# check-compile compiled the commit, T-995). `go test ./internal/web` is
 # TestDistFresh (the committed internal/web/dist was built from web/ as it is now), types_test (web/src/lib/types.ts
 # against the JSON the page reads) and TestPageIsEmbedded (the embedded build). The page's own suite — make web-test:
 # svelte-check and Vitest — needs web/node_modules, which only `make web` (npm ci, network) creates and no gate worktree
 # has: a lane that touches web/ runs `make web` (that suite runs there, and dist is rebuilt) and the gate proves dist is
 # the build of web/ as committed.
 check-web:
-	@$(GO_GATE); \
+	@$(GO_CACHE); \
 	short=; if [ "$$CHECK_SHORT" = 1 ]; then short=-short; fi; \
 	rc=0; out=$$($(GO) test -count=1 $${CHECK_CPUS:+-p $$CHECK_CPUS} $${short:+$$short} ./internal/web 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
 	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
