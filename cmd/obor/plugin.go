@@ -43,15 +43,32 @@ func pluginCmd(args []string) int {
 		}
 		return 0
 	}
-	ctx := context.Background()
-	p := &launch.Restorer{Env: project.OSEnv, H: herdrSocket(project.OSEnv),
-		LaneState: func(cfg *config.Config, l config.Lane) string {
-			return checks.NewLaneTable(ctx, cfg).LaneState(l).State
-		}}
-	p.Restart = func(ctx context.Context, cfg *config.Config, req launch.Request, w io.Writer) (string, error) {
-		l := &launch.Launcher{Cfg: cfg, Env: project.OSEnv, H: herdrSocket(project.OSEnv), Out: w}
-		return l.Restart(ctx, req)
-	}
-	p.Restore(ctx)
+	restorer(project.OSEnv).Restore(context.Background())
 	return 0
+}
+
+// restorer is the restore over env's herdr with obor restart's launch: the plugin's (every project) and serve's after
+// its terminal connection came back (its own project, T-1051). env must name no pane: the restore is no process of one.
+func restorer(env project.Env) *launch.Restorer {
+	return &launch.Restorer{Env: env, H: herdrSocket(env),
+		LaneState: func(cfg *config.Config, l config.Lane) string {
+			return checks.NewLaneTable(context.Background(), cfg).LaneState(l).State
+		},
+		Restart: func(ctx context.Context, cfg *config.Config, req launch.Request, w io.Writer) (string, error) {
+			l := &launch.Launcher{Cfg: cfg, Env: env, H: herdrSocket(env), Out: w}
+			return l.Restart(ctx, req)
+		}}
+}
+
+// paneless is env without the variables project.Pane reads: serve may run in a pane, but its restore restarts other
+// agents' panes, and a restart there would pass for the agent's own (launch: scheduled, T-301).
+func paneless(env project.Env) project.Env {
+	return func(key string) (string, bool) {
+		for _, v := range project.PaneVars {
+			if key == v {
+				return "", false
+			}
+		}
+		return env(key)
+	}
 }
