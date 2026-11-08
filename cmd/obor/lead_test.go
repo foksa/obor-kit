@@ -196,7 +196,8 @@ func TestLeadNoPaneSetsUp(t *testing.T) {
 	}
 	c := x.calls()
 	if !strings.Contains(c, `workspace.create {"cwd":"`+x.p.Root+`","focus":false,"label":"proj"}`) ||
-		!strings.Contains(c, `tab.create {"cwd":"`+x.p.Root+`","env":{"OBOR_AGENT":"","OBOR_LANE":"","OBOR_OPENCODE_MODEL":"","OBOR_ROLE":"lead","OPENCODE_CONFIG":""},"focus":false,"label":"lead","workspace_id":"wn1"}`) ||
+		!strings.Contains(c, `tab.create {"cwd":"`+x.p.Root+`","env":{"OBOR_AGENT":"","OBOR_LANE":"","OBOR_OPENCODE_MODEL":"","OBOR_PANE":"","OBOR_ROLE":"lead","OPENCODE_CONFIG":""},"focus":false,"label":"lead","workspace_id":"wn1"}`) ||
+		!strings.Contains(c, "export OBOR_ROLE=lead OBOR_PANE=wn1:n2 ") || // T-1037: the new pane's id, before the start
 		!strings.Contains(noSessionID(c), startCall("pj-lead", "wn1:n2", "--permission-mode", "auto", "--model", "opus", "--session-id", "NEW", "/obor:lead")) || strings.Contains(c, "--resume") {
 		t.Errorf("obor setup role lead --new-tab lead, fresh:\n%s", c)
 	}
