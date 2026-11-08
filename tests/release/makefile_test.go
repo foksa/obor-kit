@@ -1034,8 +1034,10 @@ func TestMakePublish(t *testing.T) {
 	})
 }
 
-// T-817: commands.trim_go_cache runs make trim-go-cache, which deletes the Go build cache's entries unused for 48 h
-// and prints "go cache: freed <size>, <size> left". GOCACHE names a throwaway cache: a test never trims the machine's.
+// T-817, T-1027: commands.trim_go_cache runs make trim-go-cache, which deletes every file in the Go build cache — however
+// recently used (the owner's 11-08 decision: the nightly empties it; at 18-25 GB a 48 h trim freed nothing) — and
+// prints "go cache: freed <size>, <size> left". It keeps the 00-ff directories and README: a Go command running beside
+// it sees misses, not a missing cache directory. GOCACHE names a throwaway cache: a test never trims the machine's.
 // (Moved here from internal/checks, T-902: it tests the kit's Makefile, not obor.)
 func TestOborKitTrimGoCache(t *testing.T) {
 	t.Parallel()
@@ -1052,7 +1054,7 @@ func TestOborKitTrimGoCache(t *testing.T) {
 	if want := cache; strings.TrimSpace(string(got)) != want {
 		t.Fatalf("precondition: go env GOCACHE = %q, want the test's %q", got, want)
 	}
-	// cacheFile is a cache entry of size bytes, unused for age.
+	// cacheFile is a cache entry of size bytes, last used age ago.
 	cacheFile := func(name string, size int64, age time.Duration) string {
 		t.Helper()
 		path := filepath.Join(cache, name)
@@ -1072,8 +1074,9 @@ func TestOborKitTrimGoCache(t *testing.T) {
 		return path
 	}
 	old := cacheFile("aa/aa-1-a", 3<<20, 72*time.Hour)
-	fresh := cacheFile("bb/bb-1-a", 2<<20, time.Hour)
-	for _, p := range []string{old, fresh} {
+	fresh := cacheFile("bb/bb-1-b", 2<<20, time.Hour)
+	readme := cacheFile("README", 100, time.Hour)
+	for _, p := range []string{old, fresh, readme} {
 		if _, err := os.Stat(p); err != nil {
 			t.Fatalf("precondition: %v", err)
 		}
@@ -1084,13 +1087,77 @@ func TestOborKitTrimGoCache(t *testing.T) {
 	if err != nil {
 		t.Fatalf("make trim-go-cache: %v\n%s", err, out)
 	}
-	if _, err := os.Stat(old); !os.IsNotExist(err) {
-		t.Errorf("an entry unused for 72 h is still there (%v)", err)
+	for _, p := range []string{old, fresh} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Errorf("the entry %s is still there (%v): every entry goes, however recently used", p, err)
+		}
 	}
-	if _, err := os.Stat(fresh); err != nil {
-		t.Errorf("an entry unused for an hour is gone: %v", err)
+	for _, d := range []string{filepath.Join(cache, "aa"), filepath.Join(cache, "bb")} {
+		if fi, err := os.Stat(d); err != nil || !fi.IsDir() {
+			t.Errorf("the cache's directory %s is gone (%v): a Go command beside the trim sees misses, not a missing cache", d, err)
+		}
 	}
-	if want := "go cache: freed 3.0 MiB, 2.0 MiB left"; !strings.Contains(string(out), want) {
+	if _, err := os.Stat(readme); err != nil {
+		t.Errorf("README is gone (%v): the trim deletes the entries, not the cache's own file", err)
+	}
+	if want := "go cache: freed 5.0 MiB, 100 B left"; !strings.Contains(string(out), want) {
 		t.Errorf("output %q lacks %q", out, want)
+	}
+}
+
+// T-1027: the Makefile exports GOFLAGS with -trimpath for every target's Go command, keeping a GOFLAGS from the
+// environment (a lane's: config.LaneEnv sets -p and -trimpath) and adding -trimpath once, never twice. The go the target
+// runs is a stub that records the GOFLAGS it got; trim-go-cache is the cheapest target that calls go.
+func TestOborKitGoFlagsTrimpath(t *testing.T) {
+	t.Parallel()
+	repo, _ := filepath.Abs("../..")
+	for _, c := range []struct {
+		name    string
+		goflags string // GOFLAGS in the environment
+		want    string
+	}{
+		{"none", "", "-trimpath"},
+		{"a lane's -p kept", "-p=2", "-p=2 -trimpath"},
+		{"already there: not doubled", "-p=2 -trimpath", "-p=2 -trimpath"},
+		{"other flags kept in front", "-mod=mod", "-mod=mod -trimpath"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			record, stub := filepath.Join(dir, "goflags"), filepath.Join(dir, "go")
+			missing := filepath.Join(dir, "no-cache")
+			writeExec(t, stub, `#!/bin/sh
+printf '%s' "$GOFLAGS" > "`+record+`"
+echo "`+missing+`"
+`)
+			// Precondition: the stub names a cache that does not exist, so the target stops after `go env GOCACHE` and the
+			// only go call is the stub's; and the record is absent until it writes it.
+			if _, err := os.Stat(missing); !os.IsNotExist(err) {
+				t.Fatalf("precondition: the stub's cache exists: %v", err)
+			}
+			if _, err := os.Stat(record); !os.IsNotExist(err) {
+				t.Fatalf("precondition: %s exists before make: %v", record, err)
+			}
+			var env []string
+			for _, kv := range os.Environ() {
+				if !strings.HasPrefix(kv, "GOFLAGS=") {
+					env = append(env, kv)
+				}
+			}
+			env = append(env, "GOFLAGS="+c.goflags)
+			cmd := exec.Command("make", "-s", "-C", repo, "trim-go-cache", "GO="+stub)
+			cmd.Env = env
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("make trim-go-cache: %v\n%s", err, out)
+			}
+			b, err := os.ReadFile(record)
+			if err != nil {
+				t.Fatalf("the Makefile ran no go command: %v\n%s", err, out)
+			}
+			if got := string(b); got != c.want {
+				t.Errorf("GOFLAGS=%q, want %q", got, c.want)
+			}
+		})
 	}
 }

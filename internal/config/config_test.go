@@ -368,7 +368,7 @@ func TestTaskFromBranch(t *testing.T) {
 }
 
 // T-963: a lane's Go processes run on slots.lane_cpus (default 2): GOMAXPROCS and GOFLAGS -p, a GOFLAGS' other flags
-// kept in front, an earlier -p replaced.
+// kept in front, an earlier -p replaced. T-1027: GOFLAGS carries -trimpath too, added once whatever the env had.
 func TestLaneEnv(t *testing.T) {
 	def := load(t, `{}`, "")
 	if def.Data.Slots != nil && def.Data.Slots.LaneCPUs != nil {
@@ -381,11 +381,13 @@ func TestLaneEnv(t *testing.T) {
 		goflags string
 		want    []string
 	}{
-		{"default", def, "", []string{"GOMAXPROCS=2", "GOFLAGS=-p=2"}},
-		{"lane_cpus 3", three, "", []string{"GOMAXPROCS=3", "GOFLAGS=-p=3"}},
-		{"other flags kept", def, "-mod=mod", []string{"GOMAXPROCS=2", "GOFLAGS=-mod=mod -p=2"}},
-		{"earlier -p replaced", three, "-mod=mod -p=2 -count=1", []string{"GOMAXPROCS=3", "GOFLAGS=-mod=mod -count=1 -p=3"}},
-		{"nil config", nil, "", []string{"GOMAXPROCS=2", "GOFLAGS=-p=2"}},
+		{"default", def, "", []string{"GOMAXPROCS=2", "GOFLAGS=-p=2 -trimpath"}},
+		{"lane_cpus 3", three, "", []string{"GOMAXPROCS=3", "GOFLAGS=-p=3 -trimpath"}},
+		{"other flags kept", def, "-mod=mod", []string{"GOMAXPROCS=2", "GOFLAGS=-mod=mod -p=2 -trimpath"}},
+		{"earlier -p replaced", three, "-mod=mod -p=2 -count=1", []string{"GOMAXPROCS=3", "GOFLAGS=-mod=mod -count=1 -p=3 -trimpath"}},
+		{"trimpath already there, not doubled", def, "-trimpath", []string{"GOMAXPROCS=2", "GOFLAGS=-p=2 -trimpath"}},
+		{"trimpath among other flags", three, "-mod=mod -trimpath -count=1", []string{"GOMAXPROCS=3", "GOFLAGS=-mod=mod -count=1 -p=3 -trimpath"}},
+		{"nil config", nil, "", []string{"GOMAXPROCS=2", "GOFLAGS=-p=2 -trimpath"}},
 	} {
 		if got := LaneEnv(c.cfg, c.goflags); !reflect.DeepEqual(got, c.want) {
 			t.Errorf("%s: LaneEnv = %q, want %q", c.name, got, c.want)
