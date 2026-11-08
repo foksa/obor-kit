@@ -4,6 +4,7 @@
 # (commands.retest, T-964), `make check-readers` / `make check-web` →
 # the two non-Go classes' checks (skills/templates/hooks and the page's Go side, T-901), `make check-release` → the
 # kit's own release tooling (the Makefile, scripts/, install.sh; tests/release, T-902),
+# `make check-budget` → the nightly test budget (tests/budget, T-1002),
 # `make trim-go-cache` → the Go build cache's entries unused for 48 h (commands.trim_go_cache, nightly, T-817),
 # `make deadcode` → its dead-code check, `make deps` → a warm module cache for an offline machine, `make upgrade-check`
 # → the previous release upgraded to this build (tests/upgrade),
@@ -34,7 +35,7 @@ endif
 GOOS_LIST := darwin linux
 GOARCH_LIST := arm64 amd64
 
-.PHONY: build test conformance trim-go-cache check check-affected check-compile check-retest check-readers check-web check-release deadcode deps upgrade-check release ship publish clean web web-dev web-test
+.PHONY: build test conformance trim-go-cache check check-affected check-compile check-retest check-readers check-web check-release check-budget deadcode deps upgrade-check release ship publish clean web web-dev web-test
 
 build:
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags "-s -w -X obor/internal/version.Version=$(BUILD_VERSION)" -o $(OUT) ./cmd/obor
@@ -196,6 +197,17 @@ check-release:
 	rc=0; out=$$($(GO) test -count=1 -tags release $${CHECK_CPUS:+-p $$CHECK_CPUS} ./tests/release 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
 	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"
+
+# check-budget (commands.check_budget, the nightly's non-gating budget line, T-1002): every package with tests runs its
+# full and -short tiers at GOMAXPROCS=2 with a counting git wrapper first on PATH and a private TMPDIR (tests/budget),
+# and the two wall times, the full tier's git processes and any top-level test >= 1 s without testkit.Slow are compared
+# with tests/budget.json. One "FAIL budget: <pkg> <metric> <got> > <max>" per breach, else "budget OK: N packages". The
+# nightly runs it on a quiet machine, so its numbers are comparable; a budget is raised only by an owner line in
+# docs/decisions.md and lowered by any task that gets under it (docs/plan/test-suite-rework.md §3). Seed it with
+# `GO="$(GO)" $(GO) run ./tests/budget -seed > tests/budget.json`.
+check-budget:
+	@$(GO_CACHE); \
+	GO="$(GO)" $(GO) run ./tests/budget
 
 # Pinned; the module cache comes before the proxy, so a warm cache needs no network (a Codex sandbox has none).
 # Test support (herdrtest, testkit) is excepted. The prompts table's path readers stay for the hooks and CLIs of T-665

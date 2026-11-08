@@ -1,0 +1,169 @@
+{
+  "packages": {
+    "obor/cmd/obor": {
+      "short_s": 39.5,
+      "full_s": 61.4,
+      "git_procs": 3020
+    },
+    "obor/internal/affected": {
+      "short_s": 0.7,
+      "full_s": 0.8,
+      "git_procs": 0
+    },
+    "obor/internal/agents": {
+      "short_s": 0.2,
+      "full_s": 0.4,
+      "git_procs": 0
+    },
+    "obor/internal/agents/claude": {
+      "short_s": 0.2,
+      "full_s": 0.4,
+      "git_procs": 0
+    },
+    "obor/internal/agents/codex": {
+      "short_s": 0.2,
+      "full_s": 0.4,
+      "git_procs": 0
+    },
+    "obor/internal/agents/opencode": {
+      "short_s": 0.2,
+      "full_s": 0.4,
+      "git_procs": 0
+    },
+    "obor/internal/app": {
+      "short_s": 23,
+      "full_s": 30.5,
+      "git_procs": 45
+    },
+    "obor/internal/app/event": {
+      "short_s": 0.2,
+      "full_s": 0.4,
+      "git_procs": 0
+    },
+    "obor/internal/app/port": {
+      "short_s": 0.2,
+      "full_s": 0.4,
+      "git_procs": 0
+    },
+    "obor/internal/app/wire": {
+      "short_s": 1.1,
+      "full_s": 1.3,
+      "git_procs": 0
+    },
+    "obor/internal/checks": {
+      "short_s": 64.9,
+      "full_s": 74.9,
+      "git_procs": 7295
+    },
+    "obor/internal/config": {
+      "short_s": 20.4,
+      "full_s": 20.4,
+      "git_procs": 2117
+    },
+    "obor/internal/guard": {
+      "short_s": 13.5,
+      "full_s": 14,
+      "git_procs": 1691
+    },
+    "obor/internal/herdr": {
+      "short_s": 0.9,
+      "full_s": 1.1,
+      "git_procs": 0
+    },
+    "obor/internal/herdr/herdrtest": {
+      "short_s": 0.2,
+      "full_s": 0.4,
+      "git_procs": 0
+    },
+    "obor/internal/launch": {
+      "short_s": 56,
+      "full_s": 55.8,
+      "git_procs": 3062
+    },
+    "obor/internal/mcp": {
+      "short_s": 3,
+      "full_s": 3.2,
+      "git_procs": 2
+    },
+    "obor/internal/project": {
+      "short_s": 1.9,
+      "full_s": 2.3,
+      "git_procs": 38
+    },
+    "obor/internal/roles": {
+      "short_s": 0.2,
+      "full_s": 0.4,
+      "git_procs": 0
+    },
+    "obor/internal/run": {
+      "short_s": 9.4,
+      "full_s": 9.6,
+      "git_procs": 342
+    },
+    "obor/internal/selfexec": {
+      "short_s": 1,
+      "full_s": 1.1,
+      "git_procs": 0
+    },
+    "obor/internal/service": {
+      "short_s": 11.2,
+      "full_s": 11.7,
+      "git_procs": 0
+    },
+    "obor/internal/setup": {
+      "short_s": 40.1,
+      "full_s": 84.7,
+      "git_procs": 3036
+    },
+    "obor/internal/spec": {
+      "short_s": 0.2,
+      "full_s": 0.4,
+      "git_procs": 0
+    },
+    "obor/internal/store": {
+      "short_s": 0.5,
+      "full_s": 0.7,
+      "git_procs": 0
+    },
+    "obor/internal/testkit": {
+      "short_s": 0.3,
+      "full_s": 0.5,
+      "git_procs": 6
+    },
+    "obor/internal/version": {
+      "short_s": 0.2,
+      "full_s": 0.4,
+      "git_procs": 0
+    },
+    "obor/internal/view": {
+      "short_s": 4.1,
+      "full_s": 4.2,
+      "git_procs": 305
+    },
+    "obor/internal/web": {
+      "short_s": 6.1,
+      "full_s": 6.4,
+      "git_procs": 491
+    },
+    "obor/tests/budget": {
+      "short_s": 0.8,
+      "full_s": 0.9,
+      "git_procs": 0
+    },
+    "obor/tests/conformance": {
+      "short_s": 0.2,
+      "full_s": 0.4,
+      "git_procs": 0
+    },
+    "obor/tests/conformance/stubmcp": {
+      "short_s": 0.2,
+      "full_s": 0.4,
+      "git_procs": 0
+    },
+    "obor/tests/upgrade": {
+      "short_s": 0.3,
+      "full_s": 0.4,
+      "git_procs": 0
+    }
+  }
+}
