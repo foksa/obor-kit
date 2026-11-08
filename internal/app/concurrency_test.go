@@ -69,7 +69,7 @@ func (f *concFakes) Type(context.Context, string, string, bool) (bool, error) {
 	return true, nil
 }
 func (f *concFakes) Prepare(context.Context, port.PrepareInput) (port.Prepared, error) {
-	return port.Prepared{Base: "target", Head: "target"}, nil
+	return port.Prepared{Base: "target"}, nil
 }
 func (f *concFakes) Free(_ context.Context, in port.FreeInput) (string, error) {
 	f.mu.Lock()

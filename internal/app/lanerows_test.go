@@ -66,7 +66,8 @@ func TestLaneRowsProjectTheLog(t *testing.T) {
 		Branch: "task/T-1", Target: "b1"})
 	table("dispatched, not prepared")
 	add("T-1", 1, event.StepPrepare, event.KindIntent, port.PrepareInput{})
-	add("T-1", 1, event.StepPrepare, event.KindResult, prepareOut{Base: "b1", Head: "h1"})
+	// An old prepare result still carrying "head" folds: the field is ignored (T-1017).
+	add("T-1", 1, event.StepPrepare, event.KindResult, map[string]string{"base": "b1", "head": "h1"})
 	at := event.RecordTime(disp).Unix()
 	row := store.LaneRow{Lane: "L-01", Task: "T-1", Branch: "task/T-1", Agent: "pj-l-01", Base: "b1", DispatchedAt: at}
 	table("prepared: awaits task_done, no head yet (T-1015)", row)
@@ -90,7 +91,7 @@ func TestLaneRowsProjectTheLog(t *testing.T) {
 	add("T-2", 1, event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"), Agent: "pj-l-01",
 		Branch: "task/T-2", Target: "b2", Effort: "high", Type: "opus:high"})
 	add("T-2", 1, event.StepPrepare, event.KindIntent, port.PrepareInput{})
-	add("T-2", 1, event.StepPrepare, event.KindResult, prepareOut{Base: "b2", Head: "b2"})
+	add("T-2", 1, event.StepPrepare, event.KindResult, prepareOut{Base: "b2"})
 	row2 := store.LaneRow{Lane: "L-01", Task: "T-2", Branch: "task/T-2", Agent: "pj-l-01", Base: "b2",
 		DispatchedAt: h.now.Add(-2 * time.Minute).Unix(), Type: "opus:high"}
 	table("the lane re-dispatched", row2)
@@ -141,7 +142,7 @@ func TestLaneRowsBlockedFollowsTheFold(t *testing.T) {
 	}
 	add("T-1", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"),
 		Agent: "pj-l-01", Branch: "task/T-1", Target: "b1"})
-	add("T-1", event.StepPrepare, event.KindResult, prepareOut{Base: "b1", Head: "h1"})
+	add("T-1", event.StepPrepare, event.KindResult, prepareOut{Base: "b1"})
 	blocked("no question", false)
 	add("T-1", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "L-01", Reason: reasonAsks + "may I?"})
 	blocked("a question in force", true)
@@ -209,7 +210,7 @@ func TestLaneRowLandedByAMergeOutside(t *testing.T) {
 	}
 	add(event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"), Agent: "pj-l-01",
 		Branch: "task/T-1", Target: "b1"})
-	add(event.StepPrepare, event.KindResult, prepareOut{Base: "b1", Head: "h1"})
+	add(event.StepPrepare, event.KindResult, prepareOut{Base: "b1"})
 	add(event.StepSubmitted, event.KindFact, submitData{Lane: "L-01", Agent: "pj-l-01", Report: "r"})
 	if row, ok, err := store.ReadLaneAt(h.root, "L-01"); err != nil || !ok || row.Task != "T-1" || row.Landed {
 		t.Fatalf("precondition: L-01's row %+v, %v, %v; want T-1 submitted, not landed", row, ok, err)

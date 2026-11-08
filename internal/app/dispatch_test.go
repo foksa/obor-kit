@@ -118,7 +118,7 @@ func (d *dispatchFakes) Prepare(ctx context.Context, in port.PrepareInput) (port
 	if err := d.hold(ctx, "prepare", "after"); err != nil {
 		return port.Prepared{}, err
 	}
-	return port.Prepared{Base: "base-" + in.Target, Head: "head-" + in.Target}, nil
+	return port.Prepared{Base: "base-" + in.Target}, nil
 }
 
 // Free is the lane given back by a drop: noted, nothing refused.

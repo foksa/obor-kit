@@ -76,7 +76,6 @@ type (
 	}
 	prepareOut struct {
 		Base    string `json:"base,omitempty"`
-		Head    string `json:"head,omitempty"` // "": a result from before T-439
 		Refused string `json:"refused,omitempty"`
 	}
 	// startData is agent.start's intent: the lane's pane and the agent in it at intent time (Ran; Session herdr's
@@ -865,7 +864,7 @@ func (a *App) prepare(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 		if err != nil {
 			return nil, err
 		}
-		return prepareOut{Base: out.Base, Head: out.Head}, nil
+		return prepareOut{Base: out.Base}, nil
 	}); err != nil {
 		return a.failed(ctx, p, mt, in.Step, err)
 	}

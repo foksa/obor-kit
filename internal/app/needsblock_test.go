@@ -63,7 +63,7 @@ func (b *blockLog) copy() *blockLog { return &blockLog{recs: slices.Clone(b.recs
 func dispatched() *blockLog {
 	b := &blockLog{}
 	b.fact(1, event.StepDispatched, dispatchData{Lane: "L-01", Agent: "pj-w1", Reply: "DISPATCHED"})
-	b.result(1, event.StepPrepare, nil, prepareOut{Base: "base", Head: "base"})
+	b.result(1, event.StepPrepare, nil, prepareOut{Base: "base"})
 	b.result(1, event.StepStartWork, nil, startOut{Agent: "pj-w1"})
 	b.add(1, event.StepWork, event.KindIntent, nil)
 	b.fact(1, event.StepDelivered, event.FactData{Job: JobID(event.Key{Task: blockTask, Attempt: 1, Step: event.StepWork})})
