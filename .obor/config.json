@@ -57,6 +57,10 @@
       "timeout": 1200,
       "heavy": true
     },
+    "check_budget": {
+      "cmd": "make -s check-budget",
+      "timeout": 1800
+    },
     "release_tests": {
       "cmd": "make -s check-release",
       "timeout": 1200
@@ -113,6 +117,7 @@
     "nightly_commands": [
       "conformance",
       "release_tests",
+      "check_budget",
       "trim_go_cache"
     ],
     "classes": [
