@@ -68,13 +68,21 @@ func TestLaneRowsProjectTheLog(t *testing.T) {
 	add("T-1", 1, event.StepPrepare, event.KindIntent, port.PrepareInput{})
 	add("T-1", 1, event.StepPrepare, event.KindResult, prepareOut{Base: "b1", Head: "h1"})
 	at := event.RecordTime(disp).Unix()
-	row := store.LaneRow{Lane: "L-01", Task: "T-1", Branch: "task/T-1", Agent: "pj-l-01", Base: "b1", Head: "h1",
-		DispatchedAt: at}
-	table("prepared: awaits task_done", row)
+	row := store.LaneRow{Lane: "L-01", Task: "T-1", Branch: "task/T-1", Agent: "pj-l-01", Base: "b1", DispatchedAt: at}
+	table("prepared: awaits task_done, no head yet (T-1015)", row)
 
 	sub := add("T-1", 1, event.StepSubmitted, event.KindFact, submitData{Lane: "L-01", Agent: "pj-l-01", Report: "r"})
 	row.Finished = event.RecordTime(sub).Unix()
 	table("submitted: finished", row)
+	// T-1015: the submit result's pinned lane commit is the row's head; a resubmission moves it, a refusal does not.
+	add("T-1", 1, nth(event.StepSubmit, 1), event.KindResult, submitOut{SHA: "s1"})
+	row.Head = "s1"
+	table("submit pinned s1", row)
+	add("T-1", 1, nth(event.StepSubmit, 2), event.KindResult, submitOut{SHA: "s2"})
+	row.Head = "s2"
+	table("resubmit pinned s2", row)
+	add("T-1", 1, nth(event.StepSubmit, 3), event.KindResult, submitOut{Refused: "no"})
+	table("a refused submit keeps s2", row)
 	add("T-1", 1, event.StepMerged, event.KindFact, event.MergedData{})
 	row.Landed = true // T-1012: the free rule's landed fact
 	table("merged: the row stays, landed", row)
@@ -83,7 +91,7 @@ func TestLaneRowsProjectTheLog(t *testing.T) {
 		Branch: "task/T-2", Target: "b2", Effort: "high", Type: "opus:high"})
 	add("T-2", 1, event.StepPrepare, event.KindIntent, port.PrepareInput{})
 	add("T-2", 1, event.StepPrepare, event.KindResult, prepareOut{Base: "b2", Head: "b2"})
-	row2 := store.LaneRow{Lane: "L-01", Task: "T-2", Branch: "task/T-2", Agent: "pj-l-01", Base: "b2", Head: "b2",
+	row2 := store.LaneRow{Lane: "L-01", Task: "T-2", Branch: "task/T-2", Agent: "pj-l-01", Base: "b2",
 		DispatchedAt: h.now.Add(-2 * time.Minute).Unix(), Type: "opus:high"}
 	table("the lane re-dispatched", row2)
 
@@ -217,7 +225,14 @@ func TestLaneRowLandedByAMergeOutside(t *testing.T) {
 	if err != nil || !ok || row.Task != "T-1" || !row.Landed {
 		t.Errorf("L-01's row %+v, %v, %v; want T-1 landed", row, ok, err)
 	}
-	if got := port.FreeState(&row, row.Landed, false); got != port.LaneFree {
-		t.Errorf("FreeState of the landed row = %q, want free", got)
+	// T-1015: no submit result recorded a head: free only when the merge evidence proves the lane's HEAD merged.
+	if row.Head != "" {
+		t.Fatalf("precondition: L-01's row has head %q with no submit result, want none", row.Head)
+	}
+	if got := port.FreeState(&row, "h9", false, func() bool { return true }); got != port.LaneFree {
+		t.Errorf("FreeState of the landed row, HEAD merged = %q, want free", got)
+	}
+	if got := port.FreeState(&row, "h9", false, func() bool { return false }); got != port.LaneWorking {
+		t.Errorf("FreeState of the landed row, HEAD not merged = %q, want working", got)
 	}
 }

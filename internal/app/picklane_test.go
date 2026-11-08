@@ -16,12 +16,12 @@ func TestPickLaneTakesALandedCleanLane(t *testing.T) {
 	t.Parallel()
 	lane := func(name string, row store.LaneRow, dirty bool) port.Lane {
 		return port.Lane{Name: name, Dir: "/wt/" + name, Task: row.Task, Dirty: dirty,
-			State: port.FreeState(&row, row.Landed, dirty)}
+			State: port.FreeState(&row, "h", dirty, nil)} // each lane's HEAD its submitted head h
 	}
 	ls := []port.Lane{
-		lane("L-01", store.LaneRow{Lane: "L-01", Task: "T-1"}, false),               // not landed: working
-		lane("L-02", store.LaneRow{Lane: "L-02", Task: "T-2", Landed: true}, true),  // landed, dirty
-		lane("L-03", store.LaneRow{Lane: "L-03", Task: "T-3", Landed: true}, false), // landed, clean
+		lane("L-01", store.LaneRow{Lane: "L-01", Task: "T-1", Head: "h"}, false),               // not landed: working
+		lane("L-02", store.LaneRow{Lane: "L-02", Task: "T-2", Head: "h", Landed: true}, true),  // landed, dirty
+		lane("L-03", store.LaneRow{Lane: "L-03", Task: "T-3", Head: "h", Landed: true}, false), // landed, clean
 	}
 	if ls[0].State != port.LaneWorking || ls[1].State != port.LaneDirtyFree || ls[2].State != port.LaneFree {
 		t.Fatalf("precondition: states %s, %s, %s; want working, dirty-free, free", ls[0].State, ls[1].State,

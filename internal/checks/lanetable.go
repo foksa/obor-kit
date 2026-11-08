@@ -65,24 +65,27 @@ func (p *LaneTable) States() []port.Lane {
 
 // LaneState is one lane's row: missing when the lane dir is no worktree of its own, else the one free rule
 // (port.FreeState: free, dirty-free, working, unknown) over the store's row of the lane (its task, whether that task
-// landed: serve's projection, T-1012) and the lane's own uncommitted changes. Its git reads run in the lane dir only
-// (rev-parse, status), never in the main checkout; what serve does for its task is the task's phase (T-788). Unknown:
-// git or the store could not tell (Reason says why, T-871), never free.
+// landed: serve's projection, T-1012; the head its submission pinned, T-1015), the lane's HEAD and its own uncommitted
+// changes. Its git reads run in the lane dir only (rev-parse, status; headMerged's only for a landed row with no
+// recorded head), never in the main checkout; what serve does for its task is the task's phase (T-788). Unknown: git
+// or the store could not tell (Reason says why, T-871), never free.
 func (p *LaneTable) LaneState(l config.Lane) port.Lane {
 	s := port.Lane{Name: l.Name, Dir: l.Dir, State: port.LaneMissing}
 	if !project.IsDir(l.Dir) {
 		return s
 	}
-	out, err := p.git(l.Dir, "rev-parse", "--show-toplevel", "--symbolic-full-name", "HEAD")
+	// --symbolic-full-name applies to the names after it: HEAD's sha first, then its ref.
+	out, err := p.git(l.Dir, "rev-parse", "--show-toplevel", "HEAD", "--symbolic-full-name", "HEAD")
 	if err != nil {
 		return unknown(s, "git rev-parse: "+err.Error())
 	}
 	f := strings.Split(strings.TrimSpace(out), "\n")
-	if len(f) != 2 || (f[0] != l.Dir && f[0] != project.Physical(l.Dir)) {
+	if len(f) != 3 || (f[0] != l.Dir && f[0] != project.Physical(l.Dir)) {
 		return s
 	}
-	s.Branch, _ = strings.CutPrefix(f[1], "refs/heads/")
-	if s.Branch == f[1] {
+	head := f[1]
+	s.Branch, _ = strings.CutPrefix(f[2], "refs/heads/")
+	if s.Branch == f[2] {
 		s.Branch = ""
 	}
 	s.Task = p.Cfg.TaskFromBranch(s.Branch)
@@ -103,13 +106,20 @@ func (p *LaneTable) LaneState(l config.Lane) port.Lane {
 		return unknown(s, "store: "+err.Error())
 	}
 	row := rows[l.Name]
-	s.State = port.FreeState(&row, row.Landed, s.Dirty)
+	s.State = port.FreeState(&row, head, s.Dirty, func() bool { return p.headMerged(l.Dir) })
 	if fin := p.finished(s.Task); fin != 0 {
 		age := max(p.Now-fin, 0)
 		s.DoneAge = &age
 	}
 	s.Type = p.taskType(l, s)
 	return s
+}
+
+// headMerged: the lane's HEAD is in the target branch's history (branches.main), read in the lane dir (T-1015: the
+// merge evidence of a landed row with no recorded head, a hand merge with no submission); git failing proves nothing.
+func (p *LaneTable) headMerged(dir string) bool {
+	_, err := p.git(dir, "merge-base", "--is-ancestor", "HEAD", "refs/heads/"+p.Cfg.Data.Branches.Main)
+	return err == nil
 }
 
 // unknown is s as a lane whose read failed: state unknown, why a git or store error (T-871). Its branch and task, when
