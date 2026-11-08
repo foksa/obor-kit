@@ -182,3 +182,100 @@ func TestEveryEntryPointStartsThroughTheOneStart(t *testing.T) {
 		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new)", "result")
 	})
 }
+
+// T-1058 (RV-151 #1): every entry point's start is up only on herdr's word that its launch is no longer pending. The
+// review's sequence through herdr: the old Claude still listed after its exit (linger), the first start answers
+// agent_pane_busy, the second is accepted at once with launch_pending, and for three reads the pane lists the start's
+// kind with a stale idle, still pending; then the new agent is up (interactive_ready). Each start waits through the
+// pending reads; with no replacement ever up it fails.
+func TestEveryEntryPointWaitsForTheLaunch(t *testing.T) {
+	t.Parallel()
+	const wake = "[obor job T-1/1/work] call the obor job_next tool"
+	pending := func(p *herdrtest.Pane, reads int) *herdrtest.Pane {
+		p.OnQuit, p.StartBusy, p.StartPending = "linger", 1, reads
+		return p
+	}
+	// waited: the start was accepted pending and read the pane through every pending read (the transition happened).
+	waited := func(t *testing.T, x *fx, p *herdrtest.Pane, pane string) {
+		t.Helper()
+		calls := x.srv.Calls()
+		reads := 0
+		for i := len(calls) - 1; i >= 0 && !strings.HasPrefix(calls[i], "agent.start "); i-- {
+			if hasParts(calls[i], "agent.get target="+pane) {
+				reads++
+			}
+		}
+		x.f.Locked(func() {
+			if p.StartPending != 0 || p.LaunchPending || !p.InteractiveReady {
+				t.Errorf("pending reads left %d, launch_pending %t, interactive_ready %t: want the launch read until up",
+					p.StartPending, p.LaunchPending, p.InteractiveReady)
+			}
+		})
+		if reads < 4 {
+			t.Errorf("%d reads of %s after the accepted start: want the 3 pending ones and the one up", reads, pane)
+		}
+	}
+	t.Run("obor restart: RESTARTED once the new agent is up", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		p := pending(x.agent("w1:p6", "pj-lead", "claude", "idle"), 3)
+		out, ok := x.restart(launch.Request{Agent: "pj-lead", Fresh: true})
+		eqInt(t, len(x.calls("agent.start")), 2, "precondition: busy, then the start herdr accepted")
+		if !ok {
+			t.Fatalf("restart failed:\n%s", out)
+		}
+		eq(t, last(out), "RESTARTED pj-lead (pane w1:p6, session new)", "result")
+		waited(t, x, p, "w1:p6")
+	})
+	t.Run("obor restart, the replacement never up: FAIL, no RESTARTED", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.up = shortWait
+		pending(x.agent("w1:p6", "pj-lead", "claude", "idle"), 1<<30)
+		out, ok := x.restart(launch.Request{Agent: "pj-lead", Fresh: true})
+		eqInt(t, len(x.calls("agent.start")), 2, "precondition: busy, then the start herdr accepted")
+		if ok || strings.Contains(out, "RESTARTED") {
+			t.Fatalf("a start whose agent never came up said RESTARTED:\n%s", out)
+		}
+		contains(t, out, "no claude agent came up in w1:p6 within 60ms", "why")
+	})
+	t.Run("the detached handoff restart: RESTARTED once the new agent is up", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		p := pending(x.agent("w1:p6", "pj-lead", "claude", "idle"), 3)
+		out, ok, spawns := x.self("w1:p6", true, launch.Request{Agent: "pj-lead", Fresh: true, Prompt: wake}, false, nil)
+		if !ok || len(spawns) != 0 {
+			t.Fatalf("the detached run: %v\n%s", spawns, out)
+		}
+		eq(t, last(out), "RESTARTED pj-lead (pane w1:p6, session new)", "result")
+		waited(t, x, p, "w1:p6")
+	})
+	t.Run("serve's worker start with its job's wake: RESTARTED once the new agent is up", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		p := pending(x.agent("w1:p3", "pj-l-01", "claude", "idle"), 3)
+		var out bytes.Buffer
+		l := x.launcher(&out)
+		l.Job = func(context.Context, string, string) (string, error) { return "T-1/1/work", nil }
+		line, err := l.Restart(context.Background(), launch.Request{Agent: "pj-l-01", Fresh: true})
+		got, ok := result(t, &out, line, err)
+		contains(t, x.startCall(), "T-1/1/work", "precondition: the job's wake is the first prompt")
+		if !ok {
+			t.Fatalf("restart failed:\n%s", got)
+		}
+		eq(t, last(got), "RESTARTED pj-l-01 (pane w1:p3, session new)", "result")
+		waited(t, x, p, "w1:p3")
+	})
+	t.Run("restore's restart of a labelled pane without an agent: RESTARTED once the new agent is up", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		p := x.shell("w1:p3", "pj-l-01", "")
+		p.StartBusy, p.StartPending = 1, 3
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01", Pane: "w1:p3", Fresh: true})
+		if !ok {
+			t.Fatalf("restart failed:\n%s", out)
+		}
+		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new)", "result")
+		waited(t, x, p, "w1:p3")
+	})
+}

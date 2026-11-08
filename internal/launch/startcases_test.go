@@ -25,13 +25,14 @@ func (e codeErr) ErrorCode() string { return string(e) }
 // interface): the start makes none.
 type memPane struct {
 	port.PaneControl
-	mu     sync.Mutex
-	listed port.Pane // the pane's agent as the listing shows it (Agent "" : no agent, an error)
-	shell  bool
-	starts int
-	looks  int                                        // Agent calls so far
-	start  func(m *memPane, n int) (port.Pane, error) // the nth start's answer (1-based), under mu
-	onLook func(m *memPane)                           // after each look, under mu (nil: nothing)
+	mu       sync.Mutex
+	listed   port.Pane // the pane's agent as the listing shows it (Agent "" : no agent, an error)
+	shell    bool
+	starts   int
+	looks    int                                        // Agent calls so far
+	accepted int                                        // looks before the accepted start (pendingThen)
+	start    func(m *memPane, n int) (port.Pane, error) // the nth start's answer (1-based), under mu
+	onLook   func(m *memPane)                           // after each look, under mu (nil: nothing)
 }
 
 const memID = "w1:p3"
@@ -70,79 +71,89 @@ func (m *memPane) Start(context.Context, string, string, string, ...string) (por
 	return m.start(m, m.starts)
 }
 
-// claudeIn is a claude in the pane with status st, as the listing shows it.
-func claudeIn(st string) port.Pane { return port.Pane{ID: memID, Agent: "claude", Status: st} }
+// claudeIn is a claude in the pane with status st as the listing shows it, launched (the terminal's word that no
+// launch is pending) or not, under herdr name name ("old", "new": which agent a row returned).
+func claudeIn(st string, launched bool, name string) port.Pane {
+	return port.Pane{ID: memID, Agent: "claude", Status: st, Launched: launched, Name: name}
+}
 
-const pending = "unknown" // herdr's launch_pending answer: the start made, no agent yet
+// pendingAnswer is herdr 0.9.5's at-once answer to an accepted start (live H-L1, H-L12): the launch pending, no kind.
+var pendingAnswer = port.Pane{ID: memID, Status: "unknown"}
 
-// T-1057 (RV-151 #1): the one start decides when the new agent is up by the evidence rule: a listing of the requested
-// kind counts as the new agent only after a start the terminal accepted, or in a pane that listed no agent of the kind
-// before the attempt. Each row through Launcher.Start with a restart's shell bound (busy retries) and a first prompt
-// where it says so.
+// T-1058 (RV-151 #1): a start is up only on the terminal's own word, read after it accepted the start: its launch no
+// longer pending (Launched) on a listing of the kind that is up. A listing alone (kind and status) never is: while the
+// launch is pending the old agent's stale idle may show, and a launch whose CLI exits leaves no agent. Each row
+// through the one start with a restart's shell bound (busy retries) and a first prompt where it says so; a started row
+// checks the observation returned and that the scripted transition happened, not only the result.
 func TestStartCases(t *testing.T) {
 	t.Parallel()
 	const wake = "[obor job T-1/1/work] call the obor job_next tool"
+	// pendingThen: the accepted start's listing is the stale old claude, still pending, for looks reads; then next.
+	pendingThen := func(m *memPane, looks int, next port.Pane) {
+		m.listed, m.accepted = claudeIn("idle", false, "old"), m.looks
+		m.onLook = func(m *memPane) {
+			if m.looks-m.accepted > looks {
+				m.listed = next
+			}
+		}
+	}
+	busyFirst := func(then func(m *memPane) (port.Pane, error)) func(*memPane, int) (port.Pane, error) {
+		return func(m *memPane, n int) (port.Pane, error) {
+			if n == 1 {
+				return port.Pane{}, codeErr("agent_pane_busy")
+			}
+			return then(m)
+		}
+	}
 	for _, c := range []struct {
 		name   string
 		prompt string
 		up     time.Duration // the launcher's bound on an agent coming up (0: bound)
 		pane   *memPane
 		ok     bool
-		starts int    // agent start calls the start made
+		want   string // a started row's returned agent: its herdr name ("new": the replacement)
+		looks  int    // a started row: at least this many looks after the acceptance
+		starts int    // agent start calls the start made (-1: retried, at least 2)
 		said   string // a line the start said ("": none checked)
+		end    port.Pane
 	}{
-		{name: "old exited, shell back, listing current → start accepted → new up: started",
+		{name: "busy, accepted pending, the old idle listed 3 looks, then the new agent ready: started with the ready one",
+			pane: &memPane{shell: true, listed: claudeIn("idle", true, "old"), start: busyFirst(func(m *memPane) (port.Pane, error) {
+				pendingThen(m, 3, claudeIn("idle", true, "new"))
+				return pendingAnswer, nil
+			})},
+			ok: true, want: "new", looks: 3, starts: 2},
+		{name: "busy, accepted pending, the replacement never comes up (pending past the bound): failed",
+			up: shortWait,
+			pane: &memPane{shell: true, listed: claudeIn("idle", true, "old"), start: busyFirst(func(m *memPane) (port.Pane, error) {
+				pendingThen(m, 1<<30, port.Pane{})
+				return pendingAnswer, nil
+			})},
+			ok: false, starts: 2, said: "no claude agent came up in w1:p3 within 60ms", end: claudeIn("idle", false, "old")},
+		{name: "accepted, not pending, the new agent ready at once: started with herdr's answer",
 			pane: &memPane{shell: true, start: func(m *memPane, _ int) (port.Pane, error) {
-				m.listed = claudeIn("idle")
-				return port.Pane{ID: memID, Status: pending}, nil
+				m.listed = claudeIn("idle", true, "new")
+				return m.listed, nil
 			}},
-			ok: true, starts: 1},
+			ok: true, want: "new", starts: 1},
+		{name: "first-prompt start: busy, then herdr's coded timeout, the new agent working: started with the working one",
+			prompt: wake,
+			pane: &memPane{shell: true, listed: claudeIn("idle", true, "old"), start: busyFirst(func(m *memPane) (port.Pane, error) {
+				m.listed = claudeIn("working", true, "new")
+				return port.Pane{}, codeErr("timeout")
+			})},
+			ok: true, want: "new", starts: 2, said: "pj-l-01 runs in w1:p3 (working on its first prompt): started"},
 		{name: "old still running, busy until the bound: failed, never started (T-1053)", prompt: wake,
-			pane: &memPane{shell: true, listed: claudeIn("idle"), start: func(*memPane, int) (port.Pane, error) {
+			pane: &memPane{shell: true, listed: claudeIn("idle", true, "old"), start: func(*memPane, int) (port.Pane, error) {
 				return port.Pane{}, codeErr("agent_pane_busy")
 			}},
-			ok: false, starts: -1, said: "is not an available shell yet (herdr: agent_pane_busy)"},
-		{name: "busy, then accepted; the listing shows the old kind a while, then the new one working (RV-151): started",
-			prompt: wake,
-			pane: &memPane{shell: true, listed: claudeIn("idle"), start: func(m *memPane, n int) (port.Pane, error) {
-				if n == 1 {
-					return port.Pane{}, codeErr("agent_pane_busy")
-				}
-				left := 3
-				m.onLook = func(m *memPane) {
-					if left--; left < 0 {
-						m.listed = claudeIn("working")
-					}
-				}
-				return port.Pane{ID: memID, Status: pending}, nil
-			}},
-			ok: true, starts: 2},
-		{name: "accepted but pending (herdr answers before the agent is up), then detected: started",
+			ok: false, starts: -1, said: "is not an available shell yet (herdr: agent_pane_busy)", end: claudeIn("idle", true, "old")},
+		{name: "accepted pending, the CLI exits (the pending launch ends, no agent): failed", up: shortWait,
 			pane: &memPane{shell: true, start: func(m *memPane, _ int) (port.Pane, error) {
-				left := 3
-				m.onLook = func(m *memPane) {
-					if left--; left < 0 {
-						m.listed = claudeIn("idle")
-					}
-				}
-				return port.Pane{ID: memID, Status: pending}, nil
+				pendingThen(m, 2, port.Pane{})
+				return pendingAnswer, nil
 			}},
-			ok: true, starts: 1},
-		{name: "first-prompt start: busy, then accepted with the first-prompt timeout, new agent working: started",
-			prompt: wake,
-			pane: &memPane{shell: true, listed: claudeIn("idle"), start: func(m *memPane, n int) (port.Pane, error) {
-				if n == 1 {
-					return port.Pane{}, codeErr("agent_pane_busy")
-				}
-				m.listed = claudeIn("working")
-				return port.Pane{}, codeErr("timeout")
-			}},
-			ok: true, starts: 2, said: "pj-l-01 runs in w1:p3 (working on its first prompt): started"},
-		{name: "accepted, never detected within the bound: failed", up: shortWait,
-			pane: &memPane{shell: true, start: func(*memPane, int) (port.Pane, error) {
-				return port.Pane{ID: memID, Status: pending}, nil
-			}},
-			ok: false, starts: 1, said: "no claude agent came up in w1:p3 within 60ms"},
+			ok: false, starts: 1, said: "no claude agent came up in w1:p3 within 60ms", end: port.Pane{}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -158,10 +169,10 @@ func TestStartCases(t *testing.T) {
 			if !c.ok {
 				shell = shortWait // a failing row waits its bound out
 			}
-			err := l.Start(context.Background(), launch.Start{Agent: "pj-l-01", Kind: "claude", Pane: memID,
+			a, err := l.StartSeen(context.Background(), launch.Start{Agent: "pj-l-01", Kind: "claude", Pane: memID,
 				Label: "pj-l-01", Prompt: c.prompt, Shell: shell})
 			m.mu.Lock()
-			starts := m.starts
+			starts, after, listed := m.starts, m.looks-m.accepted, m.listed
 			m.mu.Unlock()
 			switch {
 			case c.starts > 0:
@@ -176,14 +187,24 @@ func TestStartCases(t *testing.T) {
 				if err != nil {
 					t.Fatalf("not started: %v\n%s", err, out.String())
 				}
+				eq(t, a.Name, c.want, "the agent the start returned (its herdr name)")
+				if !a.Launched || a.Agent != "claude" {
+					t.Errorf("returned %+v: want the launched claude", a)
+				}
+				if after < c.looks {
+					t.Errorf("%d looks after the acceptance: want at least %d (the scripted pending looks)", after, c.looks)
+				}
 				return
 			}
 			var se *launch.StartError
 			if !errors.As(err, &se) {
-				t.Fatalf("started, or no StartError: %v\n%s", err, out.String())
+				t.Fatalf("started, or no StartError: %v (returned %+v)\n%s", err, a, out.String())
 			}
 			if strings.Contains(out.String(), "): started") {
 				t.Errorf("a failed start was said started:\n%s", out.String())
+			}
+			if listed != c.end {
+				t.Errorf("the listing at the end = %+v, want %+v (the scripted transition)", listed, c.end)
 			}
 		})
 	}

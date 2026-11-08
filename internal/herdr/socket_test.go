@@ -117,12 +117,12 @@ func TestSocketSnapshotAndAgents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snap.Protocol != herdr.Protocol || len(snap.Panes) != 3 || snap.Panes[1] != (herdr.Pane{Pane: port.Pane{ID: "w1:p2", Label: "pj-l-02", Cwd: "/proj-wt/L-02"}, Workspace: "w1"}) {
+	if snap.Protocol != herdr.Protocol || len(snap.Panes) != 3 || snap.Panes[1] != (herdr.Pane{Pane: port.Pane{ID: "w1:p2", Label: "pj-l-02", Cwd: "/proj-wt/L-02", Launched: true}, Workspace: "w1"}) {
 		t.Errorf("Snapshot = %+v", snap)
 	}
 	want := []port.Pane{
-		{Name: "pj-l-01", ID: "w1:p1", Status: "idle", Cwd: "/proj-wt/L-01", Agent: "claude", Session: "5e1d0c2b-aaaa"},
-		{ID: "w1:p3", Status: "working", Cwd: "/elsewhere", Agent: "claude"},
+		{Name: "pj-l-01", ID: "w1:p1", Status: "idle", Cwd: "/proj-wt/L-01", Agent: "claude", Session: "5e1d0c2b-aaaa", Launched: true},
+		{ID: "w1:p3", Status: "working", Cwd: "/elsewhere", Agent: "claude", Launched: true},
 	}
 	var got []port.Pane
 	for _, a := range snap.Agents {
@@ -432,7 +432,7 @@ func TestSubscribeEvents(t *testing.T) {
 	// a new pane (underscored, as herdr sends lifecycle events) gets its own status subscription
 	f.Shell("w1:p4", "new", "/tmp")
 	srv.Push("pane_created", map[string]any{"type": "pane_created", "pane": map[string]any{"pane_id": "w1:p4", "label": "new", "cwd": "/tmp"}})
-	if ev := next(t, st); ev.Kind != herdr.EventCreated || ev.Pane != "w1:p4" || ev.New.Pane != (port.Pane{ID: "w1:p4", Label: "new", Cwd: "/tmp"}) {
+	if ev := next(t, st); ev.Kind != herdr.EventCreated || ev.Pane != "w1:p4" || ev.New.Pane != (port.Pane{ID: "w1:p4", Label: "new", Cwd: "/tmp", Launched: true}) {
 		t.Errorf("created event = %+v", ev)
 	}
 	srv.WaitSubscribed(t, "pane.agent_status_changed", "w1:p4")
@@ -901,7 +901,7 @@ func TestSocketPanesLayoutTabs(t *testing.T) {
 	c := srv.Client()
 
 	panes, err := c.Panes(ctx)
-	if err != nil || len(panes) != 5 || panes[1] != (port.Pane{ID: "w1:p2", Label: "pj-l-02", Cwd: "/proj-wt/L-02"}) {
+	if err != nil || len(panes) != 5 || panes[1] != (port.Pane{ID: "w1:p2", Label: "pj-l-02", Cwd: "/proj-wt/L-02", Launched: true}) {
 		t.Errorf("Panes = %+v, %v", panes, err)
 	}
 	if lastParams(t, srv, "pane.list") != "{}" {
@@ -1095,5 +1095,57 @@ func TestNotifyReadsShownAndReason(t *testing.T) {
 	srv.Reply("notification.show", map[string]any{"type": "notification_show", "shown": true, "reason": "shown"})
 	if err := c.Notify(ctx, "obor", "T-1 needs you"); err != nil {
 		t.Errorf("shown: %v", err)
+	}
+}
+
+// T-1058: the adapter reads herdr's launch fact into port.Pane.Launched from the answers herdr 0.9.5 sends (live
+// H-L12, verbatim but the scratch cwd): pending while launch_pending is true (whatever its kind and status show), up
+// once launch_pending is gone and interactive_ready is true; herdr leaves a false one out, which reads not pending.
+func TestAgentLaunchFact(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name, method, answer string
+		launched             bool
+		agent, status        string
+	}{
+		{"agent.start's at-once answer: pending", "agent.start",
+			`{"type":"agent_started","agent":{"terminal_id":"term_65fc7944662481","name":"conf-ready-128","agent_status":"unknown","workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:p1","focused":true,"launch_pending":true,"state_change_seq":2,"cwd":"/s/proj-wt/L-01","foreground_cwd":"/s/proj-wt/L-01","revision":2}}`,
+			false, "", "unknown"},
+		{"pending, the kind already listed: still pending", "agent.get",
+			`{"type":"agent_info","agent":{"terminal_id":"term_65fc7944662481","name":"conf-ready-128","agent":"claude","terminal_title":"✳ Claude Code","terminal_title_stripped":"Claude Code","agent_status":"unknown","agent_session":{"source":"herdr:claude","agent":"claude","kind":"id","value":"51ef0f4d-fa2f-4a99-89b5-89c2c73a6f03"},"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:p1","focused":true,"launch_pending":true,"state_change_seq":2,"cwd":"/s/proj-wt/L-01","foreground_cwd":"/s/proj-wt/L-01","revision":3}}`,
+			false, "claude", "unknown"},
+		{"up: launch_pending gone, interactive_ready", "agent.get",
+			`{"type":"agent_info","agent":{"terminal_id":"term_65fc7944662481","name":"conf-ready-128","agent":"claude","terminal_title":"✳ Claude Code","terminal_title_stripped":"Claude Code","agent_status":"idle","agent_session":{"source":"herdr:claude","agent":"claude","kind":"id","value":"51ef0f4d-fa2f-4a99-89b5-89c2c73a6f03"},"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:p1","focused":true,"interactive_ready":true,"state_change_seq":3,"cwd":"/s/proj-wt/L-01","foreground_cwd":"/s/proj-wt/L-01","revision":3}}`,
+			true, "claude", "idle"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			f := herdrtest.New()
+			f.Shell("w1:p1", "", "/s/proj-wt/L-01")
+			srv := herdrtest.Serve(t, f)
+			var m map[string]any
+			if err := json.Unmarshal([]byte(c.answer), &m); err != nil {
+				t.Fatal(err)
+			}
+			srv.Reply(c.method, m)
+			c0 := srv.Client()
+			var a port.Pane
+			var err error
+			if c.method == "agent.start" {
+				a, err = c0.Start(ctx, "conf-ready-128", "claude", "w1:p1")
+			} else {
+				a, err = c0.Agent(ctx, "w1:p1")
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Precondition: the scripted answer is the one decoded.
+			if a.ID != "w1:p1" || a.Agent != c.agent || a.Status != c.status {
+				t.Fatalf("%s = %+v, want pane w1:p1 kind %q status %q", c.method, a, c.agent, c.status)
+			}
+			if a.Launched != c.launched {
+				t.Errorf("%s Launched = %t, want %t", c.method, a.Launched, c.launched)
+			}
+		})
 	}
 }

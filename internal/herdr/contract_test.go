@@ -174,7 +174,7 @@ func TestWireIsOne(t *testing.T) {
 	}
 	want := herdr.Wire{
 		Name: "pj-l-01", ID: "w1:p1", Tab: "w1:t1", Terminal: "t1", Workspace: "w1", Label: "pj-l-01",
-		Status: "idle", Cwd: "/proj-wt/L-01", Kind: "claude", Seq: 7,
+		Status: "idle", Cwd: "/proj-wt/L-01", Kind: "claude", Seq: 7, LaunchPending: true, InteractiveReady: true,
 		AgentSession: &herdr.AgentSession{Agent: "claude", Kind: "id", Value: "5e1d0c2b-aaaa"},
 	}
 	// Precondition: the literal fills every field, so a field added to Wire cannot go untested here.
@@ -209,6 +209,7 @@ func TestWireIsOne(t *testing.T) {
 	p := f.Agent("w1:p1", "pj-l-01", "idle", "/proj-wt/L-01")
 	p.Tab, p.Terminal, p.Workspace, p.Label, p.Seq = "w1:t1", "t1", "w1", "pj-l-01", 7
 	p.Session = "5e1d0c2b-aaaa"
+	p.LaunchPending = true // read: Launched false below (interactive_ready: TestAgentLaunchFact)
 	snap, err := herdrtest.Serve(t, f).Client().Snapshot(ctx)
 	if err != nil {
 		t.Fatal(err)

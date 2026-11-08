@@ -64,6 +64,8 @@ type fx struct {
 	install func() agents.InstallHost
 	// shellWait is Setup.ShellWait (0: 10 s), for tests that count on the bound
 	shellWait time.Duration
+	// poll and up are the launcher's Poll and Up (0: its defaults, 1 s and 30 s), for a start that polls (T-1058)
+	poll, up time.Duration
 }
 
 // newFx is a project with a config (prefix pj, lanes_dir ../proj-wt, the built-in models; edits on top) and a fake
@@ -175,7 +177,7 @@ func (x *fx) newSetup(t *testing.T) (*Setup, *bytes.Buffer) {
 	env, h := x.Env(x.env...), x.srv.Client()
 	return &Setup{Kit: k, Env: env, T: &herdr.Setup{Socket: h, Env: env}, Out: &out, McpCheck: check, ShellWait: x.shellWait,
 		Starter: func(cfg *config.Config) port.Starter {
-			return &launch.Launcher{Cfg: cfg, Env: env, Kit: k, H: h, Out: &out, Rollout: rollout, Open: open}
+			return &launch.Launcher{Cfg: cfg, Env: env, Kit: k, H: h, Out: &out, Rollout: rollout, Open: open, Poll: x.poll, Up: x.up}
 		}, Serve: x.serve, Installed: x.installed, Install: install}, &out
 }
 
@@ -509,7 +511,7 @@ func TestPaneSplitsTheTabAndStartsTheAgentInOrder(t *testing.T) {
 		"pane.process_info pane_id=w1:n1", "pane.process_info pane_id=w1:n1",
 		"pane.send_input keys=[Enter] pane_id=w1:n1 text=cd " + lane + " && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG && export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:n1 OBOR_LANE_CPUS=2 && echo obor-env-M || echo obor-env-M",
 		"pane.wait_for_output match={type=regex,value=obor-env-M|obor-env-M} pane_id=w1:n1 source=recent_unwrapped timeout_ms=20000",
-		"pane.rename label=pj-l-01 pane_id=w1:n1", "agent.get target=w1:n1",
+		"pane.rename label=pj-l-01 pane_id=w1:n1",
 		"agent.start args=[" + laneArgs + " --session-id NEW] kind=claude name=pj-l-01 pane_id=w1:n1"}
 	marks := regexp.MustCompile(`obor-env-"?[0-9a-z]+"?`)
 	if got := marks.ReplaceAllString(named(strings.Join(x.reqs(), "\n")), "obor-env-M"); got != strings.Join(want, "\n") {
@@ -601,7 +603,7 @@ func TestPaneLabelSetAndRefused(t *testing.T) {
 	if x.h.Pane("w1:p1").Label != "pj-l-01" {
 		t.Error("label set in herdr")
 	}
-	has(t, named(strings.Join(x.reqs(), "\n")), "pane.rename label=pj-l-01 pane_id=w1:p1\nagent.get target=w1:p1\nagent.start args=["+laneArgs+" --session-id NEW] kind=claude name=pj-l-01 pane_id=w1:p1",
+	has(t, named(strings.Join(x.reqs(), "\n")), "pane.rename label=pj-l-01 pane_id=w1:p1\nagent.start args=["+laneArgs+" --session-id NEW] kind=claude name=pj-l-01 pane_id=w1:p1",
 		"rename, then the start")
 
 	x.noAgents()
@@ -1084,6 +1086,53 @@ func TestCodexSetupStartRecordsItsSession(t *testing.T) {
 			has(t, out, "session cx-new of "+c.agent+" not recorded", "serve down: said, nothing recorded")
 			if _, err := os.Stat(filepath.Join(x.Env().Get("OBOR_STATE_HOME"), "agents", c.agent+".sid")); err == nil {
 				t.Errorf("a .sid file written\n%s", out)
+			}
+		})
+	}
+}
+
+// T-1058 (RV-151 #1): setup's direct starter goes through the one start: herdr accepts it at once with launch_pending
+// and lists the start's kind with a stale idle, still pending, for three reads: OK only once the new agent is up
+// (interactive_ready); a replacement never up is a FAIL, not OK.
+func TestSetupStartWaitsForTheLaunch(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name  string
+		reads int
+		ok    bool
+	}{
+		{"up after three pending reads: OK", 3, true},
+		{"pending past the bound: FAIL", 1 << 30, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			x := newFx(t)
+			x.poll, x.up = time.Millisecond, 100*time.Millisecond
+			x.lane(t, "L-01")
+			x.h.Set("w1:p1", func(p *herdrtest.Pane) { p.StartPending = c.reads })
+			x.reset()
+			out, rc := x.run(t, "pane", "--start", "L-01", "--pane", "w1:p1")
+			reqs := named(strings.Join(x.reqs(), "\n"))
+			has(t, reqs, "agent.start ", "precondition: the start was sent")
+			reads := strings.Count(reqs[strings.LastIndex(reqs, "agent.start "):], "agent.get target=w1:p1")
+			if !c.ok {
+				if rc == 0 || strings.HasPrefix(last(out), "OK ") {
+					t.Fatalf("a start whose agent never came up said OK (exit %d):\n%s", rc, out)
+				}
+				has(t, out, "no claude agent came up in w1:p1 within 100ms", "why")
+				return
+			}
+			if rc != 0 || last(out) != "OK L-01: pj-l-01 in pane w1:p1" {
+				t.Fatalf("exit %d:\n%s", rc, out)
+			}
+			p := x.h.Pane("w1:p1")
+			x.h.Locked(func() {
+				if p.StartPending != 0 || !p.InteractiveReady {
+					t.Errorf("pending reads left %d, interactive_ready %t: want the launch read until up", p.StartPending, p.InteractiveReady)
+				}
+			})
+			if reads < 4 {
+				t.Errorf("%d reads of w1:p1 after the start: want the 3 pending ones and the one up", reads)
 			}
 		})
 	}

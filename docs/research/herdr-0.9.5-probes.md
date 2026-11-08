@@ -145,11 +145,34 @@ instead of the lsof search" is killed as written — the value is not there when
 it is a session id, not the rollout path obor pins. A later fallback (after the agent's first prompt, e.g. at its first
 `job_next`) could still use it, but that is a different change and it depends on codex's user-global hook trust.
 
+## H-L12, H-L13 (T-1058): agent.get carries the launch fact; obor's start waits for it
+
+```
+$ make conformance TIER=live KIND=herdr   (2026-11-08)
+PASS H-L12 first start: answer status unknown, launch_pending true, interactive_ready false; agent.get 0.0s none/unknown
+pending=true ready=false, 0.4s claude/unknown pending=true ready=false, 3.8s claude/idle pending=false ready=true; after
+its exit (status 0, ok): agent.get 0.0s none/idle pending=false ready=true, 0.3s agent.get agent_not_found; second start
+right after the exit: answer status unknown, launch_pending true, interactive_ready false; agent.get 0.0s none/unknown
+pending=true ready=false, 0.2s claude/unknown pending=true ready=false, 3.5s claude/idle pending=false ready=true; …
+PASS H-L13 start 1 (a shell): returned ok after 4.2s; agent.get then claude/idle pending=false ready=true (ok); start 2
+(right after the exit): returned ok after 4.0s; agent.get then claude/idle pending=false ready=true (ok): obor's start
+returned only once herdr's launch was over
+```
+
+`agent.get` (not only the start's answer) carries `launch_pending: true` from the moment herdr accepts a start (the
+pane's record is reset then: `none/unknown`, later the kind with status `unknown`) until the agent takes input, when
+`launch_pending` is gone and `interactive_ready` is `true`. herdr leaves a false field out of the JSON. Just after an
+agent exits, the pane briefly reads the old agent (`claude/idle`, `interactive_ready: true`, another run `none/idle`)
+without `launch_pending`, then `agent_not_found`: a listing from before the start's acceptance is no proof, one after it
+is judged by `launch_pending`. The decode is `port.Pane.Launched` (`internal/herdr/socket.go`); the rule is
+`attempt.counts` (`internal/launch/start.go`). Each kind's H-L1 `readyAfter` (TURN=1 runs of claude, codex and
+opencode, same day) waits for `launch_pending` to leave, and it did for every kind.
+
 ## Limits
 
 - One machine, one day, one run per kind; the timings above are a sample, not bounds.
-- `completion_seq`'s reset on a herdr *server* restart, and whether it is per pane or server-wide, were not probed;
-  `interactive_ready` was read in the at-once answer only (false), not after the agent came up.
+- `completion_seq`'s reset on a herdr *server* restart, and whether it is per pane or server-wide, were not probed; H-L12
+  (T-1058) read `interactive_ready` after the agent came up too: true.
 - H-L11's answer is one machine's codex 0.166 with herdr's integration installed; without that integration (or with
   hooks disabled) `agent_session` is never filled.
 - The TURN=1 runs make one or two short model calls per kind ("Reply with exactly OK"), as the tier's TURN gate allows;

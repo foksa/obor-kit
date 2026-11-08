@@ -58,6 +58,10 @@ type Pane struct {
 	// status OnStart (T-387). "never": herdr answers agent_started (launch_pending, as protocol 22 does at once) but no
 	// agent ever comes up: the pane stays at its shell (T-544: the command typed while the shell was busy, cut off).
 	OnStart string
+	// StartPending: agent start answers at once with launch_pending, as herdr 0.9.5 does (live H-L1, H-L12, T-1058): the
+	// pane then lists the start's kind with a stale idle status and launch_pending for this many agent.get reads of it,
+	// after which the agent is up (idle, interactive_ready). Ahead of OnStart while > 0.
+	StartPending int
 	// StartBusy is how many agent start calls yet answer agent_pane_busy: herdr has not noticed the pane's old agent
 	// leave, though pane.process_info may already show its shell (T-1053: the exit not yet reaped). Each call spends
 	// one.
@@ -238,6 +242,7 @@ func (p *Pane) atShell() bool {
 // exit: the agent quit; herdr drops it and its name, the pane is at its shell.
 func (p *Pane) exit() {
 	p.Kind, p.Name, p.Status, p.Foreground, p.Screen, p.Input = "", "", "", 0, "", ""
+	p.LaunchPending, p.InteractiveReady = false, false
 }
 
 const exitDialog = " Background tasks are running\n ❯ 1. Exit and stop tasks\n   2. Move to background\n   3. Stay\n"

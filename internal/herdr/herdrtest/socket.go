@@ -543,7 +543,13 @@ func (s *Server) answer(c *conn, method string, params json.RawMessage) (map[str
 		if a == nil {
 			return fail("agent_not_found", "agent target "+p.Target+" not found"), nil
 		}
-		return ok(map[string]any{"type": "agent_info", "agent": a.agentJSON()}), nil
+		w := a.agentJSON()
+		if a.LaunchPending { // StartPending: one read of the pending launch spent
+			if a.StartPending--; a.StartPending <= 0 {
+				a.LaunchPending, a.InteractiveReady = false, true
+			}
+		}
+		return ok(map[string]any{"type": "agent_info", "agent": w}), nil
 	case "agent.wait":
 		// herdr's server-side wait: the status now, then again until until or timeout_ms; an agent that leaves the
 		// pane ends it with agent_not_running. The fake polls, as herdr's events would wake it.
@@ -814,11 +820,17 @@ func (s *Server) answer(c *conn, method string, params json.RawMessage) (map[str
 				return fail("agent_name_taken", "agent name "+p.Name+" is taken by pane "+o.ID), nil
 			}
 		}
+		if t.StartPending > 0 {
+			t.Kind, t.Name, t.Status, t.Seq, t.Foreground = p.Kind, p.Name, "idle", t.Seq+1, 0
+			t.LaunchPending, t.InteractiveReady = true, false
+			return ok(map[string]any{"type": "agent_started", "agent": t.agentJSON()}), nil
+		}
 		if t.OnStart == "never" {
 			return ok(map[string]any{"type": "agent_started", "agent": map[string]any{"name": p.Name, "pane_id": t.ID,
 				"agent_status": "unknown", "launch_pending": true}}), nil
 		}
 		t.Kind, t.Name, t.Status, t.Seq, t.Foreground = p.Kind, p.Name, "idle", t.Seq+1, 0
+		t.LaunchPending, t.InteractiveReady = false, t.OnStart == "" || t.OnStart == "unnamed"
 		if t.OnStart == "unnamed" {
 			t.Name = ""
 		} else if t.OnStart != "" {

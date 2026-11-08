@@ -41,7 +41,7 @@ var liveKinds = map[string]func(l *lab, turn bool){"herdr": herdrLive, "claude":
 
 // liveIDs are each kind's live rows, for the SKIP lines when the kind cannot run.
 var liveIDs = map[string][]string{
-	"herdr":    {"H-L1", "H-L2", "H-L3", "H-L4", "H-L5", "H-L6", "H-L7", "H-L8", "H-L9"},
+	"herdr":    {"H-L1", "H-L2", "H-L3", "H-L4", "H-L5", "H-L6", "H-L7", "H-L8", "H-L9", "H-L12", "H-L13"},
 	"claude":   {"CC-L1", "CC-L2", "CC-L3", "CC-L4", "CC-L5", "CC-L6", "CC-L7", "CC-L8", "CC-L9"},
 	"codex":    {"CX-L1", "CX-L2", "CX-L3", "CX-L4", "H-L11"},
 	"opencode": {"OC-L1", "OC-L2", "OC-L3", "OC-L4", "OC-L5", "OC-L6"},

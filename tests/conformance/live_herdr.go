@@ -12,8 +12,11 @@ import (
 	"strings"
 	"time"
 
+	"bytes"
+	"obor/internal/agents"
 	"obor/internal/herdr"
 	"obor/internal/herdr/herdrtest"
+	"obor/internal/launch"
 )
 
 const (
@@ -21,7 +24,7 @@ const (
 	launchGo = "internal/launch/launch.go"
 )
 
-// herdrLive: H-L8, H-L7, H-L4, H-L3, H-L5, H-L9, H-L1 (timeout), H-L6 last (it restarts the session). H-L2 needs a
+// herdrLive: H-L8, H-L7, H-L4, H-L3, H-L5, H-L9, H-L1 (timeout), the contract (H-C), H-L12, H-L13, H-L6 last (it restarts the session). H-L2 needs a
 // known dialog: it runs in the claude session (Claude's trust dialog); H-L1's answer timing is measured on each agent
 // kind's start.
 func herdrLive(l *lab, _ bool) {
@@ -38,6 +41,8 @@ func herdrLive(l *lab, _ bool) {
 	hL9(l, pane)
 	hL1Timeout(l, pane)
 	hContract(l, pane, "conf")
+	hL12(l, pane)
+	hL13(l, pane)
 	report("SKIP", "H-L2", "runs in the claude session (KIND=claude): Claude's trust dialog is the known dialog it needs",
 		at(launchGo, "l.H.Wake(")+", F3.3")
 	hL6(l, pane)
@@ -588,4 +593,136 @@ func hL8(l *lab) {
 	default:
 		report("PASS", "H-L8", fact, where)
 	}
+}
+
+// hL12 (T-1058, RV-151 #1): does agent.get say when the launched process is the one listed? A claude start in pane
+// (agent.get sampled every 200 ms from the start until it is ready), its exit (sampled for 3 s after the pane is its
+// shell again), and a second start right after that exit (sampled until ready): each change of status,
+// launch_pending and interactive_ready, with the raw agent.get answer while the second start was pending. The start
+// rule (internal/launch/start.go) reads launch_pending/interactive_ready only if they are there and change.
+func hL12(l *lab, pane string) {
+	where := at("internal/launch/start.go", "func (l *Launcher) started") + ", " + at(socketGo, "func (w Wire) pane") + ", H6"
+	if _, err := exec.LookPath("claude"); err != nil {
+		report("SKIP", "H-L12", "agent.get across a start: claude is not installed", where)
+		return
+	}
+	trusted, fact0 := false, ""
+	// follow samples agent.get on pane until done holds or d passes: the transitions, and the raw answer at each (none: an error).
+	follow := func(t0 time.Time, d time.Duration, done func(agentInfo, error) bool) (seen, raws []string, sawPending, sawReady, readyAfterPending bool) {
+		last := ""
+		poll(d, func() bool {
+			r, err := l.call("agent.get", map[string]any{"target": pane}, 10*time.Second)
+			var a agentInfo
+			if err == nil {
+				get(r, "agent", &a)
+			}
+			cur := "agent.get " + orNone(errCode(err))
+			if err == nil {
+				cur = fmt.Sprintf("%s/%s pending=%t ready=%t", orNone(a.Agent), orNone(a.Status), a.LaunchPending, a.Ready)
+			}
+			if cur != last {
+				seen = append(seen, fmt.Sprintf("%.1fs %s", time.Since(t0).Seconds(), cur))
+				raws = append(raws, string(r))
+				last = cur
+			}
+			sawPending = sawPending || err == nil && a.LaunchPending
+			sawReady = sawReady || err == nil && a.Ready
+			readyAfterPending = readyAfterPending || sawPending && err == nil && !a.LaunchPending && a.Ready
+			if !trusted && strings.Contains(strings.ToLower(l.visible(pane)), "trust") {
+				fact0 = "trust dialog: " + tail(l.visible(pane), 6)
+				_, kerr := l.call("pane.send_input", map[string]any{"pane_id": pane, "keys": []string{"down", "enter"}}, 10*time.Second)
+				trusted = kerr == nil // down, enter: "Yes, I trust this folder" (the default is "No, exit"); once per scratch dir
+			}
+			return done(a, err)
+		})
+		return
+	}
+	upNow := func(a agentInfo, err error) bool {
+		return err == nil && !a.LaunchPending && a.Ready && a.Status == "idle"
+	}
+	args := []string{"--model", "haiku"}
+
+	t0 := time.Now()
+	s := l.start("conf-ready", "claude", pane, args, 30*time.Second)
+	first, _, p1, r1, ok1 := follow(t0, 40*time.Second, upNow)
+	fact := "first start: answer " + answer(s) + "; agent.get " + strings.Join(first, ", ")
+
+	k := kindOf("claude")
+	code, qerr := l.quit(pane, k.Stop())
+	t1 := time.Now()
+	exited, exitRaws, _, _, _ := follow(t1, 3*time.Second, func(agentInfo, error) bool { return false })
+	fact += fmt.Sprintf("; after its exit (status %d, %s): agent.get %s", code, orOK(qerr), strings.Join(exited, ", "))
+
+	t2 := time.Now()
+	s2 := l.start("conf-ready", "claude", pane, args, 30*time.Second)
+	second, raws, p2, r2, ok2 := follow(t2, 40*time.Second, upNow)
+	fact += "; second start right after the exit: answer " + answer(s2) + "; agent.get " + strings.Join(second, ", ")
+	fact += "; agent.get answers after the exit: " + strings.Join(exitRaws, " | ") + "; agent.get answers of the second start: " + strings.Join(raws, " | ")
+	if !ok2 {
+		fact += "; screen: " + tail(l.visible(pane), 6)
+	}
+	if fact0 != "" {
+		fact += "; " + fact0
+	}
+	if _, err := l.quit(pane, k.Stop()); err != nil {
+		l.stopAgent(pane)
+	}
+	switch {
+	case !p1 && !p2:
+		report("FAIL", "H-L12", fact+": agent.get never carried launch_pending true", where)
+	case !r1 && !r2:
+		report("FAIL", "H-L12", fact+": agent.get never carried interactive_ready true", where)
+	case !ok1 || !ok2:
+		report("FAIL", "H-L12", fact+": a start did not go from pending to ready in agent.get", where)
+	default:
+		report("PASS", "H-L12", fact+": agent.get's launch_pending leaves and interactive_ready turns true when the launched agent is up", where)
+	}
+}
+
+// hL13 (T-1058): obor's own start (launch.Launcher.Start, the one start of restart, serve and setup) of claude in pane
+// on the live session, then a second right after that agent's exit (the pane waited for, as a restart does): each
+// must return only once herdr says the launch is over (agent.get: launch_pending gone, interactive_ready), never on
+// the pending listing herdr answers at once. Run after H-L12 (the scratch dir is trusted by then).
+func hL13(l *lab, pane string) {
+	where := at("internal/launch/start.go", "func (t attempt) counts") + ", " + at(socketGo, "Launched: !w.LaunchPending")
+	if _, err := exec.LookPath("claude"); err != nil {
+		report("SKIP", "H-L13", "obor's start: claude is not installed", where)
+		return
+	}
+	var out bytes.Buffer
+	ln := &launch.Launcher{H: &herdr.Socket{Path: l.sock, Timeout: 10 * time.Second}, Out: &out, Poll: 200 * time.Millisecond,
+		Up: 30 * time.Second, Install: func() agents.InstallHost { return agents.InstallHost{} }}
+	k := kindOf("claude")
+	var facts []string
+	ok := true
+	for i, await := range []bool{false, true} {
+		if i > 0 {
+			if code, err := l.quit(pane, k.Stop()); err != nil {
+				report("FAIL", "H-L13", fmt.Sprintf("the first agent did not exit (%d, %v): %s", code, err, strings.Join(facts, "; ")), where)
+				l.stopAgent(pane)
+				return
+			}
+		}
+		t0 := time.Now()
+		err := ln.Start(l.ctx, launch.Start{Agent: fmt.Sprintf("conf-obor-%d", l.seq.Add(1)), Kind: "claude", Pane: pane,
+			Label: "conf-obor", Args: []string{"--model", "haiku"}, Shell: 20 * time.Second, Await: await})
+		took := time.Since(t0)
+		a, gerr := l.agent(pane)
+		fact := fmt.Sprintf("start %d (%s): returned %s after %.1fs; agent.get then %s/%s pending=%t ready=%t (%s)",
+			i+1, map[bool]string{false: "a shell", true: "right after the exit"}[await], orOK(err), took.Seconds(),
+			orNone(a.Agent), orNone(a.Status), a.LaunchPending, a.Ready, orOK(gerr))
+		facts = append(facts, fact)
+		if err != nil || gerr != nil || a.LaunchPending || !a.Ready || a.Agent != "claude" {
+			ok = false
+		}
+	}
+	if _, err := l.quit(pane, k.Stop()); err != nil {
+		l.stopAgent(pane)
+	}
+	fact := strings.Join(facts, "; ")
+	if !ok {
+		report("FAIL", "H-L13", fact+"; obor said: "+tail(out.String(), 6), where)
+		return
+	}
+	report("PASS", "H-L13", fact+": obor's start returned only once herdr's launch was over", where)
 }
