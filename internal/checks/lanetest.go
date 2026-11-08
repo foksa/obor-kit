@@ -74,17 +74,17 @@ func (s Scratch) Test(ctx context.Context, in port.TestInput) (out port.TestOutc
 
 	r := newRunner(ctx, &s.Options, dir, in.Task, "lane-changed-files-"+in.Lane)
 	r.prio, r.pre, r.onCommand, r.retest = "worker", in.Target, in.Command, true
-	// The lane's CPU budget (T-967): slots.lane_cpus as the lane workers' launch has it (config.LaneEnv, the GOFLAGS
-	// inherited's other flags kept) and CHECK_CPUS the same, never the gate's cores / slots.max.
-	r.env = append(r.env, config.LaneEnv(s.Cfg, s.Env.Get("GOFLAGS"))...)
+	// The lane's env (T-1041): the generic facts and the project's slots.lane_env, and CHECK_CPUS the lane's CPU budget,
+	// never the gate's cores / slots.max.
+	r.env = append(r.env, config.LaneEnv(s.Cfg)...)
 	r.env = append(r.env, "CHECK_CPUS="+strconv.Itoa(s.Cfg.LaneCPUs()))
-	// With promotion on, the lane runs the short tier and only the changed packages' tests (T-989, T-991, T-997): the
-	// full suite runs at the promotion and the nightly (T-986's lane that ran it timed out on it twice at 1200 s), the
-	// promotion's full suite covers an importer's test break, and the slot's compile an importer's build break.
-	// Without a promotion nothing runs those later, so the lane runs the full class check, importers included, as
-	// before T-989 (RV-138 #1).
+	// With promotion on, a lane's test is the cheap tier: a project's Makefile maps the fact OBOR_PROMOTION=1 to it
+	// (obor-kit's runs -short and the changed packages only, T-989, T-991, T-997: the full suite runs at the promotion
+	// and the nightly (T-986's lane that ran it timed out on it twice at 1200 s), the promotion's full suite covers an
+	// importer's test break, and the slot's compile an importer's build break). Without a promotion nothing runs those
+	// later, so a lane runs the full class check, importers included, as before T-989 (RV-138 #1).
 	if s.Cfg.Data.Branches.Promote != "" {
-		r.env = append(r.env, "CHECK_SHORT=1", "CHECK_DIRECT=1")
+		r.env = append(r.env, "OBOR_PROMOTION=1")
 	}
 	defer r.releaseSlot()
 	for _, h := range []func() *halt{

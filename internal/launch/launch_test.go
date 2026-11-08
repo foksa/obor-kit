@@ -59,7 +59,7 @@ type fx struct {
 	// exit wait for the idle wait alone, waitZero leaves the launcher's Wait unset (the env's or the default's wait),
 	// bound is the launcher's stop bound (0: port.StopBound).
 	waitEnv  string
-	goflags  string // GOFLAGS in the launcher's env ("" none, T-963)
+	goflags  string // GOFLAGS in the launcher's env ("" none, T-1041: a lane's config value wins, no merge)
 	idle     time.Duration
 	waitZero bool
 	bound    time.Duration
@@ -447,21 +447,29 @@ func eq(t *testing.T, got, want, what string) {
 // envMarksRE is the env line's two words as typed (T-601): its success word, then its failure word.
 var envMarksRE = regexp.MustCompile(` && echo obor-env-"([0-9a-z]+)" \|\| echo obor-env-"([0-9a-z]+)"$`)
 
-// T-963: a lane worker's env line carries the lane's CPU budget (slots.lane_cpus, default 2) as GOMAXPROCS and
-// GOFLAGS -p, a GOFLAGS of the launcher's env keeping its other flags; a role agent's line carries neither.
-func TestRestartLaneCPUBudget(t *testing.T) {
+// T-1041: a lane worker's env line carries the generic fact OBOR_LANE_CPUS (slots.lane_cpus, default 2) and the
+// project's slots.lane_env with {cpus} replaced; a var the launcher's env had is the config's, never merged; a role
+// agent's line carries none of it.
+func TestRestartLaneEnv(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
 		name, goflags, agent, pane string
 		edit                       []func(map[string]any)
 		want                       string // the export's tail
-		none                       bool   // neither variable on the line
+		none                       bool   // no lane env on the line
 	}{
-		{name: "lane, default", agent: "pj-l-01", pane: "w1:p3", want: "export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:p3 GOFLAGS='-p=2 -trimpath' GOMAXPROCS=2"},
-		{name: "lane, slots.lane_cpus 3", agent: "pj-l-01", pane: "w1:p3", edit: []func(map[string]any){testkit.Set("slots.lane_cpus", 3)},
-			want: "export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:p3 GOFLAGS='-p=3 -trimpath' GOMAXPROCS=3"},
-		{name: "lane, GOFLAGS=-mod=mod", agent: "pj-l-01", pane: "w1:p3", goflags: "-mod=mod",
-			want: "export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:p3 GOFLAGS='-mod=mod -p=2 -trimpath' GOMAXPROCS=2"},
+		{name: "lane, no lane_env: the fact alone", agent: "pj-l-01", pane: "w1:p3",
+			want: "export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:p3 OBOR_LANE_CPUS=2"},
+		{name: "lane, slots.lane_env", agent: "pj-l-01", pane: "w1:p3",
+			edit: []func(map[string]any){testkit.Set("slots.lane_env",
+				`{"GOMAXPROCS": "{cpus}", "GOFLAGS": "-p={cpus} -trimpath"}`)},
+			want: "export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:p3 GOFLAGS='-p=2 -trimpath' GOMAXPROCS=2 OBOR_LANE_CPUS=2"},
+		{name: "lane, slots.lane_cpus 3", agent: "pj-l-01", pane: "w1:p3",
+			edit: []func(map[string]any){testkit.Set("slots.lane_cpus", 3), testkit.Set("slots.lane_env", `{"GOMAXPROCS": "{cpus}"}`)},
+			want: "export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:p3 GOMAXPROCS=3 OBOR_LANE_CPUS=3"},
+		{name: "lane, a GOFLAGS in the launcher's env: the config's wins, no merge", agent: "pj-l-01", pane: "w1:p3", goflags: "-mod=mod",
+			edit: []func(map[string]any){testkit.Set("slots.lane_env", `{"GOFLAGS": "-p={cpus}"}`)},
+			want: "export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:p3 GOFLAGS=-p=2 OBOR_LANE_CPUS=2"},
 		{name: "role agent", agent: "pj-int", pane: "w1:p5", goflags: "-mod=mod", none: true, want: "export OBOR_ROLE=integrator OBOR_PANE=w1:p5"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -484,8 +492,8 @@ func TestRestartLaneCPUBudget(t *testing.T) {
 			if !strings.HasSuffix(line, c.want) {
 				t.Errorf("env line %q, want it to end in %q", line, c.want)
 			}
-			if has := strings.Contains(line, "GOMAXPROCS") || strings.Contains(line, "GOFLAGS"); has == c.none {
-				t.Errorf("env line %q: GOMAXPROCS/GOFLAGS present %v, want %v", line, has, !c.none)
+			if has := strings.Contains(line, "OBOR_LANE_CPUS"); has == c.none {
+				t.Errorf("env line %q: OBOR_LANE_CPUS present %v, want %v", line, has, !c.none)
 			}
 		})
 	}
@@ -510,7 +518,7 @@ func TestRestartWho(t *testing.T) {
 		prep: func(x *fx) { x.sid("pj-l-01", "sid-1"); x.shell("w1:p3", "pj-l-01", "").Session = "sid-1" },
 		req:  launch.Request{Agent: "pj-l-01"},
 		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=cd " + q(x.lane) + " && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG && export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:p3 GOFLAGS='-p=2 -trimpath' GOMAXPROCS=2"
+			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=cd " + q(x.lane) + " && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG && export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:p3 OBOR_LANE_CPUS=2"
 		},
 		start: "agent.start args=[" + laneMCP + settings + " --resume sid-1] kind=claude name=pj-l-01 pane_id=w1:p3",
 		line:  "RESTARTED pj-l-01 (pane w1:p3, session sid-1)",
@@ -534,7 +542,7 @@ func TestRestartWho(t *testing.T) {
 		prep: func(x *fx) { x.sid("odd-name", "sid-1"); x.shell("w1:p3", "odd-name", x.lane) },
 		req:  launch.Request{Agent: "odd-name"},
 		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=cd " + q(x.lane) + " && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG && export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:p3 GOFLAGS='-p=2 -trimpath' GOMAXPROCS=2"
+			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=cd " + q(x.lane) + " && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG && export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:p3 OBOR_LANE_CPUS=2"
 		},
 		start: "agent.start args=[" + laneMCP + settings + " --resume sid-1] kind=claude name=odd-name pane_id=w1:p3",
 		line:  "RESTARTED odd-name (pane w1:p3, session sid-1)",

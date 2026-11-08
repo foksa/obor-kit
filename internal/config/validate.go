@@ -41,6 +41,7 @@ func (c *Config) Validate(o ValidateOptions) (warns, fails []string) {
 	v.laneNames()
 	v.trunk()
 	v.workflow()
+	v.laneEnv()
 	v.projectFiles()
 	return append(c.warnings(o), v.warns...), v.fails
 }
@@ -252,6 +253,34 @@ func (v *validator) optional() {
 		v.fail(".slots.lane_cpus", fmt.Sprintf("must be a positive integer, got %d", *s.LaneCPUs))
 	}
 }
+
+// laneEnv: slots.lane_env's names are env names and its values' one placeholder is {cpus} (T-1041): a value's other
+// {…} is a typo, and obor substitutes nothing else.
+func (v *validator) laneEnv() {
+	s := v.d.Slots
+	if s == nil {
+		return
+	}
+	keys := make([]string, 0, len(s.LaneEnv))
+	for k := range s.LaneEnv {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		path := ".slots.lane_env" + key(k)
+		if !simpleKey.MatchString(k) {
+			v.fail(path, "is no env name: letters, digits and _ only, not starting with a digit, got "+Compact(k))
+		}
+		for _, ph := range laneEnvPlaceholder.FindAllString(s.LaneEnv[k], -1) {
+			if ph != LaneCPUsPlaceholder {
+				v.fail(path, "unknown placeholder "+ph+": the one placeholder is "+LaneCPUsPlaceholder+" (slots.lane_cpus)")
+			}
+		}
+	}
+}
+
+// laneEnvPlaceholder is a {…} in a slots.lane_env value; {cpus} is the one validate takes (LaneCPUsPlaceholder).
+var laneEnvPlaceholder = regexp.MustCompile(`\{[^}]*\}`)
 
 // workflow: workflow.kind names a kind serve has an implementation of (T-1029).
 func (v *validator) workflow() {

@@ -210,7 +210,11 @@
   },
   "slots": {
     "max": 4,
-    "cpus": 4
+    "cpus": 4,
+    "lane_env": {
+      "GOMAXPROCS": "{cpus}",
+      "GOFLAGS": "-p={cpus} -trimpath"
+    }
   },
   "setup": {
     "confirmed": true

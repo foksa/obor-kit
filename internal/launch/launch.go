@@ -568,8 +568,8 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	if err != nil {
 		return port.Started{}, err
 	}
-	if t.info.Lane != "" { // a lane's CPU budget (T-963): its worker's env line carries GOMAXPROCS and GOFLAGS -p
-		t.env = config.WithLaneEnv(t.env, l.Cfg, l.envOrOS().Get("GOFLAGS"))
+	if t.info.Lane != "" { // a lane's env (T-1041): the generic facts and the project's slots.lane_env
+		t.env = config.WithLaneEnv(t.env, l.Cfg)
 	}
 	if err := l.stop(ctx, t, req.Force, false, "--force to restart anyway"); err != nil {
 		return port.Started{}, err

@@ -15,7 +15,8 @@
 GO ?= go
 # GOFLAGS carries -trimpath for every Go command of every target (T-1027): without it Go puts the package's directory
 # into a compile's cache key, so each of the ~9 worktrees caches its own copy of every package at every commit. A
-# GOFLAGS from the environment (a lane's, config.LaneEnv's: -p and -trimpath) is kept, and -trimpath is added once.
+# GOFLAGS from the environment (a lane's, from this project's slots.lane_env: -p and -trimpath) is kept, and -trimpath
+# is added once.
 GOFLAGS := $(strip $(filter-out -trimpath,$(GOFLAGS)) -trimpath)
 export GOFLAGS
 # OUT is where build writes the binary: dist/obor in the kit as always, and another path for a build that runs outside the
@@ -79,16 +80,14 @@ trim-go-cache:
 # the packages $OBOR_CHANGED_FILES affects; any doubt runs the full suite. The slot's check-compile already ran build,
 # gofmt, vet and deadcode on the same commit (T-995), so the lane repeats none of them.
 # check-affected also passes -short: the tests marked testkit.Slow (>= 1 s: cmd/obor, internal/checks, internal/setup,
-# T-957) run only in check, the nightly and releases; check does not pass it unless CHECK_SHORT=1.
-# CHECK_SHORT=1 adds -short to check, check-readers and check-web: serve's lane test sets it when branches.promote is
-# set (T-989, T-997), so a promoted lane runs the short tier whatever its class; the promotion's and the nightly's
-# runners and a release do not, so the full suite runs there. Without a promotion a lane runs the full class check, as
-# before T-989 (RV-138 #1).
-# CHECK_DIRECT=1 makes check-affected ask tools/affected --direct: the changed packages only, no importers. Serve's
-# lane test sets it when branches.promote is set (T-991): the merge slot's compile (check-compile) catches an importer's
-# build break and the promotion's full suite (commands.check) an importer's test break, so the lane need not run them.
-# Without a promotion nothing would catch those, so a lane runs the importers too, as before; the gate, the nightly and
-# a release never set it.
+# T-957) run only in check, the nightly and releases; check does not pass it unless OBOR_PROMOTION=1.
+# OBOR_PROMOTION=1 (serve's fact: the project has branches.promote set, so a promotion runs the full suite on every
+# promoted head and the nightly the slow tests) adds -short to check, check-readers and check-web and makes
+# check-affected ask tools/affected --direct: the changed packages only, no importers (T-989, T-991, T-997). The merge
+# slot's compile (check-compile) catches an importer's build break and the promotion's full suite (commands.check) an
+# importer's test break, so a lane need not run them; the promotion's and the nightly's runners and a release do not set
+# it, so the full suite runs there. Without a promotion nothing would catch those, so a lane runs the full class check,
+# importers included, as before (RV-138 #1).
 # Serve's lane step runs the class's tier in the task's lane (T-961). check-compile (commands.compile, T-961) is
 # what serve's merge slot runs on each merge: build, gofmt, vet and deadcode, no go test. CHECK_CPUS (obor run and the
 # gates export it: cores / slots.max) is go test -p. check and check-release start with GO_GATE: GOCACHE falls back to
@@ -111,7 +110,7 @@ GO_GATE = $(GO_CACHE); \
 check:
 	@$(GO_GATE); \
 	short=; \
-	if [ "$$CHECK_SHORT" = 1 ]; then short=-short; fi; \
+	if [ "$$OBOR_PROMOTION" = 1 ]; then short=-short; fi; \
 	rc=0; out=$$($(GO) test -count=1 -tags integration $${CHECK_CPUS:+-p $$CHECK_CPUS} $${short:+$$short} ./... 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
 	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"; \
@@ -120,7 +119,7 @@ check:
 check-affected:
 	@$(GO_CACHE); \
 	pkgs=./...; \
-	direct=; if [ "$$CHECK_DIRECT" = 1 ]; then direct=--direct; fi; \
+	direct=; if [ "$$OBOR_PROMOTION" = 1 ]; then direct=--direct; fi; \
 	if a=$$($(GO) run ./tools/affected $$direct); then \
 	  case "$$a" in \
 	    "full: "*) echo "affected: full suite ($${a#full: })" ;; \
@@ -181,7 +180,7 @@ check-retest:
 READER_PKGS := ./cmd/obor ./internal/agents ./internal/agents/claude ./internal/agents/plugin ./internal/app ./internal/checks ./internal/config ./internal/guard ./internal/setup
 check-readers:
 	@$(GO_CACHE); \
-	short=; if [ "$$CHECK_SHORT" = 1 ]; then short=-short; fi; \
+	short=; if [ "$$OBOR_PROMOTION" = 1 ]; then short=-short; fi; \
 	rc=0; out=$$($(GO) test -count=1 -tags integration $${CHECK_CPUS:+-p $$CHECK_CPUS} $${short:+$$short} $(READER_PKGS) 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
 	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"
@@ -195,7 +194,7 @@ check-readers:
 # the build of web/ as committed.
 check-web:
 	@$(GO_CACHE); \
-	short=; if [ "$$CHECK_SHORT" = 1 ]; then short=-short; fi; \
+	short=; if [ "$$OBOR_PROMOTION" = 1 ]; then short=-short; fi; \
 	rc=0; out=$$($(GO) test -count=1 -tags integration $${CHECK_CPUS:+-p $$CHECK_CPUS} $${short:+$$short} ./internal/web 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
 	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"

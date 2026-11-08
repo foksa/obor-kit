@@ -14,6 +14,7 @@ import (
 	"reflect"
 	"regexp"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -318,9 +319,12 @@ type Slots struct {
 	Dir  string `json:"dir,omitempty"`
 	Max  *int   `json:"max,omitempty"`
 	CPUs *int   `json:"cpus,omitempty"` // CHECK_CPUS: the CPUs one check may use (default cores / max, at least 1)
-	// LaneCPUs is the CPU budget of every Go process in a lane (T-963, default 2): a lane worker's env and serve's
-	// checks in a lane carry GOMAXPROCS and GOFLAGS -p of it (LaneEnv).
+	// LaneCPUs is a lane's CPU budget (default 2): every process in a lane gets it as OBOR_LANE_CPUS, and it is what
+	// LaneEnv's {cpus} placeholder stands for (T-1041).
 	LaneCPUs *int `json:"lane_cpus,omitempty"`
+	// LaneEnv is the env every process in a lane gets beside the generic facts, NAME: value (T-1041): the project's
+	// own policy, its values templated with {cpus} (LaneEnv). Unset: only the facts.
+	LaneEnv map[string]string `json:"lane_env,omitempty"`
 	// MergeBlockMax is a removed key (v0.28, T-864): the merge marker's cap is the constant 900 s. It WARNs for two
 	// minors.
 	MergeBlockMax any `json:"merge_block_max,omitempty"`
@@ -1002,27 +1006,44 @@ func (c *Config) LaneCPUs() int {
 	return DefaultLaneCPUs
 }
 
-// LaneEnv is the env of every Go process in a lane (T-963): GOMAXPROCS and GOFLAGS with -p of the lane's CPU budget
-// (LaneCPUs), as NAME=value entries. goflags is the GOFLAGS the process would have otherwise: its other flags stay, in
-// front, and a -p in it gives way (an env line typed again in a pane that already holds the budget adds no second -p).
-// GOFLAGS also carries -trimpath (T-1027): without it Go puts the package's directory into a compile's cache key, so
-// every worktree caches its own copy of every package at every commit; -trimpath in it gives way too, added once.
-func LaneEnv(c *Config, goflags string) []string {
+// LaneEnv is a lane's env (T-1041), as NAME=value entries: the generic facts obor exports — OBOR_LANE_CPUS, the lane's
+// CPU budget (slots.lane_cpus) — then slots.lane_env, its values with {cpus} replaced by that budget, names in order.
+// What the env means (a Go build's -p, a test tier) is the project's config line, never obor's code.
+func LaneEnv(c *Config) []string {
 	n := strconv.Itoa(c.LaneCPUs())
-	flags := slices.DeleteFunc(strings.Fields(goflags), func(f string) bool {
-		return f == "-p" || strings.HasPrefix(f, "-p=") || f == "--p" || strings.HasPrefix(f, "--p=") || f == "-trimpath"
-	})
-	return []string{"GOMAXPROCS=" + n, "GOFLAGS=" + strings.Join(append(flags, "-p="+n, "-trimpath"), " ")}
+	out := []string{"OBOR_LANE_CPUS=" + n}
+	m := c.LaneEnvMap()
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		out = append(out, k+"="+strings.ReplaceAll(m[k], LaneCPUsPlaceholder, n))
+	}
+	return out
 }
 
-// WithLaneEnv is vars (a start's kind env, not changed) with LaneEnv added: a lane worker's start of any kind,
-// launch's env line and obor setup's pane (T-963).
-func WithLaneEnv(vars map[string]string, c *Config, goflags string) map[string]string {
+// LaneCPUsPlaceholder is the one placeholder slots.lane_env's values may carry: slots.lane_cpus.
+const LaneCPUsPlaceholder = "{cpus}"
+
+// LaneEnvMap is slots.lane_env (nil: none).
+func (c *Config) LaneEnvMap() map[string]string {
+	if c == nil || c.Data.Slots == nil {
+		return nil
+	}
+	return c.Data.Slots.LaneEnv
+}
+
+// WithLaneEnv is vars (a start's kind env, not changed) with LaneEnv added (T-1041): a lane worker's start of any kind,
+// launch's env line and obor setup's pane. A var the config names replaces the one vars had: the config line is the
+// policy, obor merges nothing into it.
+func WithLaneEnv(vars map[string]string, c *Config) map[string]string {
 	out := make(map[string]string, len(vars)+2)
 	for k, v := range vars {
 		out[k] = v
 	}
-	for _, kv := range LaneEnv(c, goflags) {
+	for _, kv := range LaneEnv(c) {
 		k, v, _ := strings.Cut(kv, "=")
 		out[k] = v
 	}

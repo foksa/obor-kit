@@ -357,31 +357,77 @@ func TestTaskFromBranch(t *testing.T) {
 	}
 }
 
-// T-963: a lane's Go processes run on slots.lane_cpus (default 2): GOMAXPROCS and GOFLAGS -p, a GOFLAGS' other flags
-// kept in front, an earlier -p replaced. T-1027: GOFLAGS carries -trimpath too, added once whatever the env had.
+// T-1041: a lane's env is the generic fact OBOR_LANE_CPUS (slots.lane_cpus) and the project's slots.lane_env, its
+// {cpus} replaced by that budget, names in order; a project without lane_env gets the fact alone (no Go names), and a
+// value with no placeholder is kept as it is.
 func TestLaneEnv(t *testing.T) {
-	def := load(t, `{}`, "")
-	if def.Data.Slots != nil && def.Data.Slots.LaneCPUs != nil {
-		t.Fatalf("precondition: lane_cpus unset, got %d", *def.Data.Slots.LaneCPUs)
-	}
-	three := load(t, `{"slots": {"lane_cpus": 3}}`, "")
 	for _, c := range []struct {
-		name    string
-		cfg     *Config
-		goflags string
-		want    []string
+		name, config string
+		want         []string
 	}{
-		{"default", def, "", []string{"GOMAXPROCS=2", "GOFLAGS=-p=2 -trimpath"}},
-		{"lane_cpus 3", three, "", []string{"GOMAXPROCS=3", "GOFLAGS=-p=3 -trimpath"}},
-		{"other flags kept", def, "-mod=mod", []string{"GOMAXPROCS=2", "GOFLAGS=-mod=mod -p=2 -trimpath"}},
-		{"earlier -p replaced", three, "-mod=mod -p=2 -count=1", []string{"GOMAXPROCS=3", "GOFLAGS=-mod=mod -count=1 -p=3 -trimpath"}},
-		{"trimpath already there, not doubled", def, "-trimpath", []string{"GOMAXPROCS=2", "GOFLAGS=-p=2 -trimpath"}},
-		{"trimpath among other flags", three, "-mod=mod -trimpath -count=1", []string{"GOMAXPROCS=3", "GOFLAGS=-mod=mod -count=1 -p=3 -trimpath"}},
-		{"nil config", nil, "", []string{"GOMAXPROCS=2", "GOFLAGS=-p=2 -trimpath"}},
+		{"no lane_env: the fact alone", `{}`, []string{"OBOR_LANE_CPUS=2"}},
+		{"lane_cpus 3", `{"slots": {"lane_cpus": 3}}`, []string{"OBOR_LANE_CPUS=3"}},
+		{"a template", `{"slots": {"lane_env": {"GOFLAGS": "-p={cpus} -trimpath", "GOMAXPROCS": "{cpus}"}}}`,
+			[]string{"OBOR_LANE_CPUS=2", "GOFLAGS=-p=2 -trimpath", "GOMAXPROCS=2"}},
+		{"a template on lane_cpus 3", `{"slots": {"lane_cpus": 3, "lane_env": {"X": "-p={cpus}"}}}`,
+			[]string{"OBOR_LANE_CPUS=3", "X=-p=3"}},
+		{"no placeholder: kept as it is", `{"slots": {"lane_env": {"CGO_ENABLED": "0"}}}`,
+			[]string{"OBOR_LANE_CPUS=2", "CGO_ENABLED=0"}},
+		{"the placeholder twice", `{"slots": {"lane_env": {"X": "{cpus}/{cpus}"}}}`,
+			[]string{"OBOR_LANE_CPUS=2", "X=2/2"}},
 	} {
-		if got := LaneEnv(c.cfg, c.goflags); !reflect.DeepEqual(got, c.want) {
+		if got := LaneEnv(load(t, c.config, "")); !reflect.DeepEqual(got, c.want) {
 			t.Errorf("%s: LaneEnv = %q, want %q", c.name, got, c.want)
 		}
+	}
+	if got := LaneEnv(nil); !reflect.DeepEqual(got, []string{"OBOR_LANE_CPUS=2"}) {
+		t.Errorf("nil config: LaneEnv = %q, want the fact alone", got)
+	}
+}
+
+// T-1041: a var of the start's kind env that slots.lane_env also names takes the config's value: obor merges nothing
+// into it (the config line is the policy).
+func TestWithLaneEnv(t *testing.T) {
+	cfg := load(t, `{"slots": {"lane_env": {"GOFLAGS": "-p={cpus}"}}}`, "")
+	got := WithLaneEnv(map[string]string{"GOFLAGS": "-mod=mod", "KEEP": "1"}, cfg)
+	want := map[string]string{"GOFLAGS": "-p=2", "KEEP": "1", "OBOR_LANE_CPUS": "2"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("WithLaneEnv = %q, want %q", got, want)
+	}
+	if vars := map[string]string{"GOFLAGS": "-mod=mod"}; WithLaneEnv(vars, nil)["GOFLAGS"] != "-mod=mod" {
+		t.Error("no config: the kind env's own var stays")
+	}
+}
+
+// T-1041: slots.lane_env's names are env names and {cpus} its one placeholder: an unknown {…} or a name that is no env
+// name fails validate, a value with no placeholder is fine.
+func TestLaneEnvValidate(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		env   string
+		fails []string
+	}{
+		{name: "the template", env: `{"GOMAXPROCS": "{cpus}", "GOFLAGS": "-p={cpus} -trimpath"}`},
+		{name: "no placeholder", env: `{"CGO_ENABLED": "0"}`},
+		{name: "an unknown placeholder", env: `{"GOFLAGS": "-p={tests}"}`,
+			fails: []string{`FAIL .slots.lane_env.GOFLAGS: unknown placeholder {tests}: the one placeholder is {cpus} (slots.lane_cpus)`}},
+		{name: "a name that is no env name", env: `{"GO FLAGS": "-p={cpus}"}`,
+			fails: []string{`FAIL .slots.lane_env["GO FLAGS"]: is no env name: letters, digits and _ only, not starting with a digit, got "GO FLAGS"`}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := load(t, `{"prefix":"pj","slots":{"lane_env":`+c.env+`}}`, "")
+			_, all := cfg.Validate(ValidateOptions{})
+			var fails []string
+			for _, f := range all {
+				if strings.HasPrefix(f, "FAIL .slots.lane_env") {
+					fails = append(fails, f)
+				}
+			}
+			if !slices.Equal(fails, c.fails) {
+				t.Errorf("validate = %q, want %q", fails, c.fails)
+			}
+		})
 	}
 }
 

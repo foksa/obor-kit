@@ -248,8 +248,8 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	// cannot unset, so every registry var the start does not set goes to herdr empty, none to obor (the pane may inherit
 	// setup's own env: an OpenCode agent running setup, T-703; a stale OBOR_AGENT, T-786; the caller's OBOR_PANE: the
 	// new pane's id is herdr's answer, exported by the env line before a start, T-1037).
-	if a.lane != "" { // a lane's CPU budget (T-963)
-		vars = config.WithLaneEnv(vars, s.cfg, s.Env.Get("GOFLAGS"))
+	if a.lane != "" { // a lane's env (T-1041): the generic facts and the project's slots.lane_env
+		vars = config.WithLaneEnv(vars, s.cfg)
 	}
 	set, unset := agents.StartVars(a.role.EnvValue, a.lane, "", vars)
 	var env []string

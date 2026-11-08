@@ -497,9 +497,9 @@ func TestPaneSplitsTheTabAndStartsTheAgentInOrder(t *testing.T) {
 	// T-1037: the new pane's id is herdr's answer to the split, so its shell, once up, gets the env line with OBOR_PANE
 	// before the start.
 	want := []string{"agent.list", "pane.list", "pane.layout pane_id=w1:p1",
-		"pane.split cwd=" + lane + " direction=right env={GOFLAGS=-p=2 -trimpath,GOMAXPROCS=2,OBOR_AGENT=,OBOR_LANE=L-01,OBOR_OPENCODE_MODEL=,OBOR_PANE=,OBOR_ROLE=worker,OPENCODE_CONFIG=} target_pane_id=w1:p1",
+		"pane.split cwd=" + lane + " direction=right env={OBOR_AGENT=,OBOR_LANE=L-01,OBOR_LANE_CPUS=2,OBOR_OPENCODE_MODEL=,OBOR_PANE=,OBOR_ROLE=worker,OPENCODE_CONFIG=} target_pane_id=w1:p1",
 		"pane.process_info pane_id=w1:n1", "pane.process_info pane_id=w1:n1",
-		"pane.send_input keys=[Enter] pane_id=w1:n1 text=cd " + lane + " && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG && export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:n1 GOFLAGS='-p=2 -trimpath' GOMAXPROCS=2 && echo obor-env-M || echo obor-env-M",
+		"pane.send_input keys=[Enter] pane_id=w1:n1 text=cd " + lane + " && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG && export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:n1 OBOR_LANE_CPUS=2 && echo obor-env-M || echo obor-env-M",
 		"pane.wait_for_output match={type=regex,value=obor-env-M|obor-env-M} pane_id=w1:n1 source=recent_unwrapped timeout_ms=20000",
 		"pane.rename label=pj-l-01 pane_id=w1:n1", "agent.get target=w1:n1",
 		"agent.start args=[" + laneArgs + " --session-id NEW] kind=claude name=pj-l-01 pane_id=w1:n1"}
@@ -507,6 +507,21 @@ func TestPaneSplitsTheTabAndStartsTheAgentInOrder(t *testing.T) {
 	if got := marks.ReplaceAllString(named(strings.Join(x.reqs(), "\n")), "obor-env-M"); got != strings.Join(want, "\n") {
 		t.Errorf("calls:\n%s\nwant:\n%s", got, strings.Join(want, "\n"))
 	}
+}
+
+// T-1041: a lane's pane gets the generic fact OBOR_LANE_CPUS (slots.lane_cpus) and the project's slots.lane_env, its
+// {cpus} replaced, in the split's env and the env line (setup is one of the three consumers of config.LaneEnv).
+func TestPaneLaneEnv(t *testing.T) {
+	t.Parallel()
+	x := newFx(t, testkit.Set("slots.lane_cpus", 3), testkit.Set("slots.lane_env",
+		`{"GOMAXPROCS": "{cpus}", "GOFLAGS": "-p={cpus} -trimpath"}`))
+	x.lane(t, "L-01")
+	x.ok(t, "pane", "--start", "L-01", "--tab", "w1:t1")
+	calls := strings.Join(x.reqs(), "\n")
+	has(t, calls, "env={GOFLAGS=-p=3 -trimpath,GOMAXPROCS=3,OBOR_AGENT=,OBOR_LANE=L-01,OBOR_LANE_CPUS=3,"+
+		"OBOR_OPENCODE_MODEL=,OBOR_PANE=,OBOR_ROLE=worker,OPENCODE_CONFIG=}", "the split's env")
+	has(t, calls, "export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:n1 GOFLAGS='-p=3 -trimpath' GOMAXPROCS=3 "+
+		"OBOR_LANE_CPUS=3", "the env line")
 }
 
 // STATUS 2026-10-13: hk-int got a 1-line pane: the largest pane is split (not the last), right when wide, else down.
@@ -542,7 +557,7 @@ func TestPaneSplitsTheLargestPane(t *testing.T) {
 			}
 			x.ok(t, "pane", "--start", "L-01", "--tab", "w1:t1")
 			has(t, strings.Join(x.reqs(), "\n"), "direction="+c.dir+
-				" env={GOFLAGS=-p=2 -trimpath,GOMAXPROCS=2,OBOR_AGENT=,OBOR_LANE=L-01,OBOR_OPENCODE_MODEL=,OBOR_PANE=,OBOR_ROLE=worker,OPENCODE_CONFIG=} "+
+				" env={OBOR_AGENT=,OBOR_LANE=L-01,OBOR_LANE_CPUS=2,OBOR_OPENCODE_MODEL=,OBOR_PANE=,OBOR_ROLE=worker,OPENCODE_CONFIG=} "+
 				fmt.Sprintf("target_pane_id=w1:p%d", c.target), c.name)
 		})
 	}
@@ -710,7 +725,7 @@ func TestSetupPaneTypesTheEnvAtAReusedPane(t *testing.T) {
 	x.reset()
 	x.ok(t, "pane", "--start", "L-01", "--pane", "w1:p1")
 	lines = x.envLines()
-	if len(lines) != 1 || !strings.HasPrefix(lines[0], "cd "+x.LaneDir("L-01")+" && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG && export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:p1 GOFLAGS='-p=2 -trimpath' GOMAXPROCS=2 && echo obor-env-") {
+	if len(lines) != 1 || !strings.HasPrefix(lines[0], "cd "+x.LaneDir("L-01")+" && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG && export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:p1 OBOR_LANE_CPUS=2 && echo obor-env-") {
 		t.Errorf("typed %q, want a lane's env: its worktree, worker, L-01, its pane (no OBOR_AGENT)", lines)
 	}
 
