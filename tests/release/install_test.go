@@ -55,18 +55,23 @@ func treePath(t *testing.T, rel string) string {
 }
 
 // commitVersion writes a kit at version v into the source repo and tags it: the tree's shim and command list, VERSION v,
-// a file:// release URL, and the checksum line for a fake release binary it places in the download dir.
+// a file:// release URL, and the checksum lines for a fake release binary and a fake OpenCode kind binary (T-1046) it
+// places in the download dir.
 func (f *installFixture) commitVersion(t *testing.T, v string) {
 	t.Helper()
 	asset := shimAsset(v)
 	bin := filepath.Join(f.download, asset)
 	writeExec(t, bin, "#!/bin/bash\necho \"release binary $*\"\n")
 	sum := sha256.Sum256([]byte(readFile(t, bin)))
+	kind := kindAsset(v)
+	writeExec(t, filepath.Join(f.download, kind), "#!/bin/sh\necho kind "+v+"\n")
+	kindSum := sha256.Sum256([]byte(readFile(t, filepath.Join(f.download, kind))))
 	writeExec(t, filepath.Join(f.src, "bin", "obor"), string(treeFile(t, "bin/obor")))
 	writeFile(t, filepath.Join(f.src, "bin", "go-commands"), string(treeFile(t, "bin/go-commands")))
 	writeFile(t, filepath.Join(f.src, "VERSION"), v+"\n")
 	writeFile(t, filepath.Join(f.src, "bin", "release-url"), "file://"+f.download+"/obor-%VERSION%-%OS%-%ARCH%\n")
-	writeFile(t, filepath.Join(f.src, "bin", "checksums.txt"), fmt.Sprintf("%s  %s\n", hex.EncodeToString(sum[:]), asset))
+	writeFile(t, filepath.Join(f.src, "bin", "checksums.txt"), fmt.Sprintf("%s  %s\n%s  dist/%s\n", hex.EncodeToString(sum[:]),
+		asset, hex.EncodeToString(kindSum[:]), kind))
 	f.Git(f.src, "add", "-A")
 	f.Git(f.src, "commit", "-q", "-m", "release v"+v)
 	f.Git(f.src, "tag", "v"+v)
@@ -133,6 +138,10 @@ func TestInstallFresh(t *testing.T) {
 	}
 	if !f.Exists(filepath.Join(f.home, ".obor", "bin", shimAsset("0.2.0"))) {
 		t.Errorf("the v0.2.0 release binary was not fetched into ~/.obor/bin")
+	}
+	// T-1046: the kind binary the catalog lists lands beside it, checksum-checked, from the same release dir
+	if got := readFile(t, filepath.Join(f.home, ".obor", "bin", kindAsset("0.2.0"))); got != "#!/bin/sh\necho kind 0.2.0\n" {
+		t.Errorf("the v0.2.0 OpenCode kind binary beside obor's: %q", got)
 	}
 }
 

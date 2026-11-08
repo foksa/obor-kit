@@ -73,7 +73,8 @@ func newReleaseFixture(t *testing.T) *releaseFixture {
 	}
 	writeFile(t, filepath.Join(dir, "bin", "checksums.txt"), catalog)
 	// A go that logs its argv and writes the -o path; `go test` fails while go-fail exists (a red make check), and a
-	// release build (-o dist/obor-<v>-…) while build-fail exists (a red make release in the scratch worktree).
+	// release build (-o dist/obor-<v>-… or a kind's dist/obor-kind-<kind>-<v>-…) while build-fail exists (a red make
+	// release in the scratch worktree).
 	writeExec(t, filepath.Join(dir, "stub", "go"), `#!/bin/bash
 echo "$*" >> "`+f.log+`"
 out=
@@ -86,7 +87,7 @@ if [ -n "$out" ]; then
   mkdir -p "$(dirname "$out")"
   printf '%s/%s\n' "$GOOS" "$GOARCH" > "$out"
 fi
-case $out in dist/obor-*) [ ! -f "`+filepath.Join(p.Base, "build-fail")+`" ] || exit 1 ;; esac
+case $out in dist/obor-[0-9]*|dist/obor-kind-*-[0-9]*) [ ! -f "`+filepath.Join(p.Base, "build-fail")+`" ] || exit 1 ;; esac
 # go-fail-once: the first go test fails with the file's text as its output and removes the file (a flaky package);
 # go-fail: every go test fails with the file's text (a red package); go-vet-fail: go vet fails; upgrade-fail: the upgrade
 # check's go test (./tests/upgrade, make upgrade-check) fails with the file's text; check-release-fail: check-release's
@@ -434,8 +435,13 @@ func TestMakeReleaseFullRun(t *testing.T) {
 	}
 	catalog := f.Git(f.Root, "show", "v1.2.4:bin/checksums.txt")
 	main := strings.Split(strings.TrimSpace(catalog), "\n")
-	if len(main) != 8 {
-		t.Errorf("the tag's catalog has %d lines, want 4 old and 4 new:\n%s", len(main), catalog)
+	if len(main) != 12 {
+		t.Errorf("the tag's catalog has %d lines, want 4 old and 8 new (obor and the OpenCode kind):\n%s", len(main), catalog)
+	}
+	for _, a := range releaseAssets("1.2.4") {
+		if !strings.Contains(catalog, "  dist/"+a+"\n") && !strings.HasSuffix(catalog, "  dist/"+a) {
+			t.Errorf("the tag's catalog has no line for %s:\n%s", a, catalog)
+		}
 	}
 	for _, pl := range publishPlatforms {
 		if !strings.Contains(catalog, "dist/obor-1.2.2-"+pl) {
@@ -450,7 +456,7 @@ func TestMakeReleaseFullRun(t *testing.T) {
 		if len(fields) != 2 {
 			t.Fatalf("catalog line %q", line)
 		}
-		if !strings.Contains(fields[1], "dist/obor-1.2.4-") {
+		if !strings.Contains(fields[1], "-1.2.4-") {
 			continue // the older version's files are not built here, only kept
 		}
 		if got := fileSum(t, filepath.Join(f.Root, fields[1])); got != fields[0] {
@@ -571,7 +577,7 @@ func TestMakeReleaseDryRun(t *testing.T) {
 		t.Fatalf("the dry run failed:\n%s", out)
 	}
 	for _, want := range []string{"would: set VERSION", "would: make check", "would: git commit", "would: git worktree add",
-		"would: copy the four dist", "next (owner): make ship"} {
+		"would: copy the 8 dist", "next (owner): make ship"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the dry run does not print %q:\n%s", want, out)
 		}

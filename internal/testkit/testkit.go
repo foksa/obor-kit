@@ -19,15 +19,23 @@ import (
 	"time"
 
 	// every agent kind obor has a bridge for, as cmd/obor registers them
+	"obor/internal/agents"
 	_ "obor/internal/agents/claude"
 	_ "obor/internal/agents/codex"
-	_ "obor/internal/agents/opencode"
-	_ "obor/internal/agents/plugin" // the plugin kinds a config names (kinds.<name>.command, T-1036)
+	"obor/internal/agents/plugin" // the plugin kinds a config names (kinds.<name>.command, T-1036)
 	"obor/internal/config"
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/project"
 	"obor/internal/store"
+	ockind "obor/kinds/opencode/kind"
 )
+
+// OpenCode is a plugin kind (T-1046): a test binary has no built obor-kind-opencode, so its kind answers in process
+// (plugin.Local) with the handler the binary runs, registered from the start as a config load registers it.
+func init() {
+	plugin.Local[ockind.Name] = ockind.Handle
+	agents.SetPlugins([]agents.Kind{agents.Plugins.Kind(ockind.Name, config.KitKinds[ockind.Name], "")})
+}
 
 // Main runs a package's tests isolated (Isolate) and removes the project template after them (Run). Call it from
 // TestMain.
@@ -387,8 +395,9 @@ func (p *Project) Lane(name, branch string) string {
 // LaneDir is <Base>/proj-wt/<name>.
 func (p *Project) LaneDir(name string) string { return filepath.Join(p.Base, "proj-wt", name) }
 
-// Config is fx_config: the default config (prefix pj, lanes: the highest L-NN under proj-wt, T-765), changed by edit,
-// written to .obor/config.json and committed on main (projects commit it; a plain project's stays uncommitted).
+// Config is fx_config: the default config (prefix pj, lanes: the highest L-NN under proj-wt, T-765; OpenCode the kit's
+// plugin kind, as obor init writes it, T-1046), changed by edit, written to .obor/config.json and committed on main
+// (projects commit it; a plain project's stays uncommitted).
 func (p *Project) Config(edit ...func(c map[string]any)) {
 	p.t.Helper()
 	lanes := 0
@@ -411,6 +420,7 @@ func (p *Project) Config(edit ...func(c map[string]any)) {
 		"lane_links":      []any{},
 		"protected_files": []any{},
 		"lanes":           lanes,
+		"kinds":           map[string]any{"opencode": map[string]any{"command": config.KitKinds["opencode"]}},
 	}
 	for _, e := range edit {
 		e(c)

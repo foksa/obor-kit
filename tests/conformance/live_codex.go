@@ -150,7 +150,7 @@ func cxL4(l *lab, pane, codexHome string, turn bool) {
 		report("FAIL", "CX-L4", "the launch of "+model+" cannot be built: "+err.Error(), at("internal/config/models.go", "func (m Model) Launch")+", T-910")
 		return
 	}
-	argv := k.Start(agents.Start{Kit: real, Args: start.args})
+	argv := k.(agents.Split).Start(agents.Start{Kit: real, Args: start.args})
 	l.fresh()
 	t0 := time.Now()
 	s := l.start("conf-codex-mcp", "codex", pane, argv, 30*time.Second)
@@ -209,7 +209,7 @@ func hL11Start(l *lab, k agents.Kind, pane, codexHome, src string, turn bool) {
 		return
 	}
 	defer func() { _ = os.Remove(hooksPath) }()
-	argv := k.Start(agents.Start{Kit: l.kit, Args: []string{"--strict-config", "--no-daemon", "--enable", "hooks",
+	argv := k.(agents.Split).Start(agents.Start{Kit: l.kit, Args: []string{"--strict-config", "--no-daemon", "--enable", "hooks",
 		"--dangerously-bypass-hook-trust"}})
 	t0 := time.Now()
 	s := l.start("conf-codex-session", "codex", pane, argv, 30*time.Second)
@@ -256,7 +256,7 @@ func hL11Start(l *lab, k agents.Kind, pane, codexHome, src string, turn bool) {
 // codexUp starts codex in pane with the driver's argv for args (H-L1 per start): the screen once it is up;
 // ok false when it did not come up, the screen then herdr's answer and the last lines.
 func (l *lab) codexUp(k agents.Kind, pane, mode string, args []string) (string, bool) {
-	argv := k.Start(agents.Start{Kit: l.kit, Args: args})
+	argv := k.(agents.Split).Start(agents.Start{Kit: l.kit, Args: args})
 	t0 := time.Now()
 	s := l.start("conf-codex", "codex", pane, argv, 30*time.Second)
 	ready := l.readyAfter(s, t0, "idle", "blocked")

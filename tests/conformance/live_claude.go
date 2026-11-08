@@ -83,7 +83,7 @@ func claudeLive(l *lab, turn bool) {
 		},
 	}
 	base := []string{"--model", "haiku", "--permission-mode", "auto", "--plugin-dir", plugin}
-	argv := k.Start(agents.Start{Kit: l.kit, Args: base, Session: sid, Settings: settings, StrictMCP: true})
+	argv := k.(agents.Split).Start(agents.Start{Kit: l.kit, Args: base, Session: sid, Settings: settings, StrictMCP: true})
 	where1 := at(claudeGo, "func (kind) Start") + ", " + at(claudeGo, "func MCPConfig") + ", F1.1, CAP §2.2"
 
 	t0 := time.Now()
@@ -127,7 +127,7 @@ func claudeLive(l *lab, turn bool) {
 
 	// The control: without --strict-mcp-config the --plugin-dir manifest's server starts; with it (above) it did not.
 	l.fresh()
-	argv = k.Start(agents.Start{Kit: l.kit, Args: base, Settings: settings})
+	argv = k.(agents.Split).Start(agents.Start{Kit: l.kit, Args: base, Settings: settings})
 	t0 = time.Now()
 	s = l.start("conf-claude2", "claude", pane, argv, 30*time.Second)
 	ready = l.readyAfter(s, t0, "idle")
@@ -182,7 +182,7 @@ func ccL7(l *lab, pane string, turn bool) {
 		return
 	}
 	sid := uuid()
-	argv := k.Start(agents.Start{Kit: real, Args: start.args, Session: sid})
+	argv := k.(agents.Split).Start(agents.Start{Kit: real, Args: start.args, Session: sid})
 	l.fresh()
 	t0 := time.Now()
 	s := l.start("conf-claude-mcp", "claude", pane, argv, 30*time.Second)
@@ -501,7 +501,7 @@ func post(path string, lines []string) error {
 // its first turn) the resume runs and its SessionStart (source resume) and MCP server are seen.
 func ccResume(l *lab, k agents.Kind, pane string, base []string, settings map[string]any, sid string, turn bool) {
 	where := at(claudeGo, "func (kind) Start") + ", F1.1"
-	argv := k.Start(agents.Start{Kit: l.kit, Args: base, Settings: settings, StrictMCP: true, Resume: sid})
+	argv := k.(agents.Split).Start(agents.Start{Kit: l.kit, Args: base, Settings: settings, StrictMCP: true, Resume: sid})
 	if !slices.Contains(argv, "--settings") || !slices.Contains(argv, "--mcp-config") || !slices.Contains(argv, "--resume") {
 		report("FAIL", "CC-L1", "the resume argv drops --settings or --mcp-config: "+strings.Join(argv, " "), where)
 		return
@@ -589,7 +589,7 @@ func ccL9(l *lab, pane string, turn bool) {
 		return
 	}
 	sid := uuid()
-	argv := k.Start(agents.Start{Kit: real, Args: append(start.args, "--plugin-dir", real), Session: sid, Dir: l.lane,
+	argv := k.(agents.Split).Start(agents.Start{Kit: real, Args: append(start.args, "--plugin-dir", real), Session: sid, Dir: l.lane,
 		Read: os.ReadFile})
 	if slices.Contains(argv, "--mcp-config") {
 		report("FAIL", "CC-L9", "a non-strict start still names obor's --mcp-config: "+strings.Join(argv, " "), where)

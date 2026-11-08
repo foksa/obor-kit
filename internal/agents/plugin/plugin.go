@@ -47,6 +47,8 @@ type Manifest struct {
 	NotReady    *NotReady `json:"not_ready,omitempty"` // nil: a start is ready once the agent runs
 	Typed       bool      `json:"typed,omitempty"`     // every line is typed into the pane: no deliver call
 	MCPLane     MCPLane   `json:"mcp_lane"`
+	// ProjectWarnings: the kind answers project-warnings (obor config validate's notes on the project's CLI files).
+	ProjectWarnings bool `json:"project_warnings,omitempty"`
 }
 
 // Caps are agents.Caps as the manifest spells them; Status and Transcript come from the manifest's status and
@@ -93,7 +95,8 @@ type NotReady struct {
 	Call    bool   `json:"call,omitempty"`
 }
 
-// MCPLane is closure 3 as data (agents.MCPRegistration.Lane): how a lane's start gets obor's MCP server.
+// MCPLane is closure 3 as data (agents.MCPRegistration.Lane): how a lane's start gets obor's MCP server ({kit} in how:
+// the kit install names).
 type MCPLane struct {
 	How        string `json:"how"`
 	Registered bool   `json:"registered,omitempty"`
@@ -155,9 +158,11 @@ type cache struct {
 // CacheFile is kind name's cached manifest in stateDir.
 func CacheFile(stateDir, name string) string { return filepath.Join(stateDir, "kinds", name+".json") }
 
-// Kind is a plugin kind: agents.Kind (and agents.Whole, agents.Fallible) by running its command.
+// Kind is a plugin kind: agents.Kind (and agents.Whole, agents.Fallible, agents.ArgsChecker, agents.ProjectChecker) by
+// running its command.
 type Kind struct {
 	name, command, stateDir string
+	local                   Handler // non-nil: the kind answers in process (Local), no command runs
 
 	mu      sync.Mutex
 	m       *manifest // nil: no usable cache (missing says why)
@@ -189,7 +194,7 @@ func New(name, command, stateDir string) *Kind {
 
 // Cache runs kind name's describe, writes its manifest to stateDir's cache and returns the kind (obor setup agents).
 func Cache(name, command, stateDir string) (*Kind, error) {
-	k := &Kind{name: name, command: command, stateDir: stateDir}
+	k := &Kind{name: name, command: command, stateDir: stateDir, local: Local[name]}
 	if err := k.describe(); err != nil {
 		return nil, err
 	}
@@ -198,9 +203,13 @@ func Cache(name, command, stateDir string) (*Kind, error) {
 
 // describe runs describe and makes its manifest k's and the cache's. Called with k.mu held, or before k is shared.
 func (k *Kind) describe() error {
-	fi, err := executable(k.command)
-	if err != nil {
-		return fmt.Errorf("kind %s: describe: %v", k.name, err)
+	var mtime time.Time // a Local kind's: none
+	if k.local == nil {
+		fi, err := executable(k.command)
+		if err != nil {
+			return fmt.Errorf("kind %s: describe: %v", k.name, err)
+		}
+		mtime = fi.ModTime()
 	}
 	var raw json.RawMessage
 	if err := k.run("describe", nil, &raw); err != nil {
@@ -210,7 +219,7 @@ func (k *Kind) describe() error {
 	if err != nil {
 		return fmt.Errorf("kind %s: describe: %v", k.name, err)
 	}
-	b, _ := json.MarshalIndent(cache{Command: k.command, Mtime: fi.ModTime(), Manifest: raw}, "", "  ")
+	b, _ := json.MarshalIndent(cache{Command: k.command, Mtime: mtime, Manifest: raw}, "", "  ")
 	file := CacheFile(k.stateDir, k.name)
 	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
 		return fmt.Errorf("kind %s: describe: %v", k.name, err)
@@ -218,7 +227,7 @@ func (k *Kind) describe() error {
 	if err := project.WriteAtomic(file, append(b, '\n')); err != nil {
 		return fmt.Errorf("kind %s: describe: %v", k.name, err)
 	}
-	k.m, k.missing, k.cmdAt, k.mtimeAt = m, nil, k.command, fi.ModTime()
+	k.m, k.missing, k.cmdAt, k.mtimeAt = m, nil, k.command, mtime
 	return nil
 }
 
@@ -239,8 +248,8 @@ func executable(command string) (os.FileInfo, error) {
 func (k *Kind) manifest() (*manifest, error) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	if k.m == nil {
-		return nil, k.missing
+	if k.m == nil || k.local != nil {
+		return k.m, k.missing
 	}
 	if fi, err := os.Stat(k.command); err != nil || k.cmdAt != k.command || !fi.ModTime().Equal(k.mtimeAt) {
 		if err := k.describe(); err != nil {
@@ -257,14 +266,44 @@ func (k *Kind) cached() *manifest {
 	return k.m
 }
 
+// Handler is a kind answering in process: call's reply to the request req, as its binary would print it (an error: the
+// binary's non-zero exit).
+type Handler func(call string, req []byte) ([]byte, error)
+
+// Local are the kinds this binary answers in process, by name, in place of their command: a test binary has no built
+// kind binary, so testkit puts OpenCode's own handler here (kinds/opencode/kind.Handle). Empty in obor.
+var Local = map[string]Handler{}
+
+// local is kind name answered by h: its manifest from h's describe, nothing cached; a describe that fails leaves it
+// without a manifest (missing says why).
+func local(name, stateDir string, h Handler) *Kind {
+	k := &Kind{name: name, stateDir: stateDir, local: h}
+	var raw json.RawMessage
+	err := k.run("describe", nil, &raw)
+	if err == nil {
+		k.m, err = parse(name, raw)
+	}
+	k.missing = err
+	return k
+}
+
 // loader is the binary's agents.PluginLoader.
 type loader struct{}
 
-func (loader) Kind(name, command, stateDir string) agents.Kind { return New(name, command, stateDir) }
+func (loader) Kind(name, command, stateDir string) agents.Kind {
+	if h := Local[name]; h != nil {
+		return local(name, stateDir, h)
+	}
+	return New(name, command, stateDir)
+}
 
 // Check: command is executable and its describe answers with a manifest of kind name; the kind with that manifest
 // (nothing is cached: the cache stays setup's).
 func (loader) Check(name, command string) (agents.Kind, error) {
+	if h := Local[name]; h != nil {
+		k := local(name, "", h)
+		return k, k.missing
+	}
 	fi, err := executable(command)
 	if err != nil {
 		return nil, err

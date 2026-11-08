@@ -19,6 +19,7 @@
       "when": [
         "cmd/**",
         "internal/**",
+        "kinds/**",
         "go.mod",
         "go.sum",
         "Makefile"
@@ -137,6 +138,7 @@
         "paths": [
           "cmd/**",
           "internal/**",
+          "kinds/**",
           "tools/**"
         ],
         "checks": [

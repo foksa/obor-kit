@@ -1,9 +1,15 @@
 # The kind protocol
 
-An agent kind is the part of obor that differs per agent CLI (`agents.Kind`, `internal/agents/agents.go`). Three are
-compiled in (claude, codex, opencode). A **plugin kind** (T-1036) is an executable, in any language, that answers this
+An agent kind is the part of obor that differs per agent CLI (`agents.Kind`, `internal/agents/agents.go`). Two are
+compiled in (claude, codex). A **plugin kind** (T-1036) is an executable, in any language, that answers this
 protocol; obor's `internal/agents/plugin` package implements `agents.Kind` by running it, so nothing above the bridge
 changes (`docs/plan/architecture-target.md` §2a).
+
+**OpenCode is the reference plugin kind** (T-1046): `kinds/opencode/` in the kit, a Go binary of its own
+(`kinds/opencode/main.go`; the kind itself is package `kinds/opencode/kind`, standard library and obor's `agents` only).
+`make build` writes it as `dist/obor-kind-opencode` beside `dist/obor`; a release ships it beside obor's binary
+(`obor-kind-opencode-<v>-<os>-<arch>`, fetched by `bin/obor` into `~/.obor/bin` with obor's). `opencode/obor.js` stays
+its hook transport. A test binary answers it in process (`plugin.Local`, testkit), with the handler the binary runs.
 
 ## Register one
 
@@ -12,7 +18,13 @@ changes (`docs/plan/architecture-target.md` §2a).
 ```
 
 - `kinds.<name>.command`: the executable (relative: to the project root). `<name>` is the kind's name everywhere
-  (`models.<model>.kind`, herdr's `--kind`); it may not be a compiled kind's.
+  (`models.<model>.kind`, herdr's `--kind`); it may not be a compiled kind's. The name of a binary the kit ships
+  (`obor-kind-opencode`, `config.KitKinds`) is that binary beside the running obor (`config.KitKind`: `dist/obor`'s
+  `dist/obor-kind-opencode`, a release binary's same-suffixed file in `~/.obor/bin`). `obor init` writes
+  `"opencode": {"command": "obor-kind-opencode"}`.
+- **Compat until v0.32.0:** a config with no `kinds.opencode.command` (written before T-1046) runs the kit's binary all
+  the same (`config.KitKinds`); `obor setup agents` writes the line into `.obor/config.json` (uncommitted) and
+  `obor config validate` warns while it is missing in a config that uses OpenCode. v0.32.0 drops the default.
 - `obor config validate` checks the file is executable and that its `describe` answers with a manifest of `<name>`.
 - `obor setup agents` runs `describe` and caches the reply (the **manifest**) as `.obor/state/kinds/<name>.json`, then
   runs `install` and applies what it returns. Run it again after changing the command; obor also describes it again
@@ -40,11 +52,12 @@ obor runs `<command> <call>` with one JSON object on stdin and reads one JSON ob
 | Call | Request fields | Reply | Replaces (`agents.Kind`) | When |
 |---|---|---|---|---|
 | `describe` | — | the manifest (below) | `Name`, `Caps`, `Efforts`, `Vars`, `Stop`, `Headless`, `Transcript`, `InboxRecord`, `MCPRegistration.Lane` | `obor setup agents`, `obor config validate`, a changed command |
-| `start` | `env`, `kit`, `args`, `settings`, `resume`, `prompt`, `effort`, `strict_mcp`, `session`, `write_dirs`, `dir` | `args` (argv after the binary), `env` (variable → value, "" unsets), `files: [{name, bytes}]` | `StartWhole` (`Start`, `StartEnv`) | once per agent start, with every field of the start: its argv, env and files applied together (T-1042) |
+| `start` | `env`, `kit`, `args`, `settings`, `resume`, `prompt`, `effort`, `strict_mcp`, `session`, `write_dirs`, `dir` | `args` (argv after the binary), `env` (variable → value, "" unsets), `files: [{name, bytes}]` | `StartWhole` (a compiled kind's `Start` and `StartEnv`, `agents.Split`) | once per agent start, with every field of the start: its argv, env and files applied together (T-1042); also obor config validate's effort check (`args` and `effort` alone, its files not written: `agents.ArgsChecker`) |
 | `not-ready` | `screen` | `why` ("" ready) | `NotReady` | per poll during a start, when the manifest says `not_ready: {call: true}` |
 | `install` | `kit`, `env` | `mcp: {where, path, alt_path, key, entry, unpinned}`, `plugin: {from, to}` or null | `Install` | `obor setup agents`, `obor setup mcp` |
 | `turn` | `what: last` + `tail`; `what: session` + `first`; `what: reset` + `error`, `details`, `at` | last: `ok`, `turn: {id, error, details, ended, reset}`; session: `ok`, `session: {id, cwd, started}`; reset: `limited`, `reset` | `LastTurn`, `Session`, `Reset` | per transcript poll (status `transcript`), a launch finding a session, a stop on an error |
 | `deliver` | `text`, `record` | `ok`, `delivery: {typed, socket, lines}` | `Deliver` | per line delivered, unless the manifest says `typed: true` |
+| `project-warnings` | `dir` | `warnings: ["<file>: <why>", …]` | `agents.ProjectChecker` | `obor config validate`, when the manifest says `project_warnings: true` (the kind reads the project's CLI files in `dir` itself, T-1033) |
 
 Times are RFC 3339 strings ("" none).
 
@@ -81,7 +94,8 @@ it does not set).
   "inbox_record": ["MYKIND_INBOX"],
   "not_ready": {"pattern": "Updating", "why": "is updating itself"},
   "typed": true,
-  "mcp_lane": {"how": "MYKIND_CONFIG (the start's generated config)", "registered": true, "static": false}
+  "mcp_lane": {"how": "MYKIND_CONFIG (the start's generated config: {kit}/bin/obor mcp)", "registered": true, "static": false},
+  "project_warnings": false
 }
 ```
 
@@ -98,7 +112,8 @@ it does not set).
 | `inbox_record` | the variables whose values, as a JSON object, are a session's inbox record (written by the SessionStart hook, given back to `deliver` as `record`); one empty: no record |
 | `not_ready` | `{pattern, why}`: a regular expression on the start's screen, `why` the reason; `{call: true}`: run `not-ready` per poll; absent: ready once started |
 | `typed` | every line is typed into the pane: `deliver` is never called |
-| `mcp_lane` | `obor setup mcp --model`'s answer for a lane's start: how, registered, static (served by an installed file setup checks) |
+| `mcp_lane` | `obor setup mcp --model`'s answer for a lane's start: how (`{kit}` the kit install names), registered, static (served by an installed file setup checks) |
+| `project_warnings` | the kind answers `project-warnings` |
 
 ## Where the core branches on status
 
@@ -106,11 +121,13 @@ it does not set).
 `internal/herdr/panes.go` (`Panes.Turn`: a pane's last turn is read from its transcript) and `internal/app/stopped.go`
 (`turnsRead`: a worker's or role agent's stop and its end are read from the transcript). `terminal` and `hooks` change
 nothing yet: herdr's agent detection still gives every pane its status. The compiled kinds: claude `terminal`, codex
-`transcript`, opencode `terminal`.
+`transcript`; the OpenCode plugin kind `terminal`.
 
 ## Not covered
 
-- A model name in the args (`agents.ModelEditor`): a plugin kind's model id goes on as `--model <id>`.
-- Project-file warnings (`agents.ProjectChecker`) and an effort that depends on the args (`agents.ArgsChecker`).
-- Live conformance: a plugin kind has the static tier, `make conformance TIER=static KIND=plugin`, run against
-  `tests/conformance/kindplugin/obor-kind-shell`, a shell-script kind answering every call.
+- A model name in the args (`agents.ModelEditor`): a plugin kind's model id goes on as `--model <id>` (appended to the
+  kind's base args, `config.Model`).
+- Live conformance of a plugin kind of a project's own: the static tier, `make conformance TIER=static KIND=plugin`,
+  runs against `tests/conformance/kindplugin/obor-kind-shell`, a shell-script kind answering every call. The kit's
+  OpenCode keeps its live tier (`make conformance TIER=live KIND=opencode`), run against `kinds/opencode` built into
+  the scratch dir and called through obor's plugin package.

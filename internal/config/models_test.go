@@ -8,7 +8,6 @@ import (
 	"obor/internal/agents"
 	_ "obor/internal/agents/claude"
 	_ "obor/internal/agents/codex"
-	_ "obor/internal/agents/opencode"
 )
 
 // T-765: each built-in model resolves to its kind, its model id and its kind's base args, the model as the kind takes
@@ -44,7 +43,7 @@ func TestBuiltinModelsResolve(t *testing.T) {
 }
 
 // T-765: the effort of a model ref is its kind's own flag at start (claude --effort, codex -c
-// model_reasoning_effort=, opencode the model's #variant in the plugin's env), each kind's own values.
+// model_reasoning_effort=), each kind's own values (OpenCode's, a plugin kind: TestOpencodeModelEffort).
 func TestModelEffortPerKind(t *testing.T) {
 	c := load(t, `{"prefix":"pj"}`, "")
 	for _, tc := range []struct {
@@ -66,15 +65,9 @@ func TestModelEffortPerKind(t *testing.T) {
 			t.Errorf("%s with no effort: args %q set one (the kind's default stands)", tc.model, got)
 		}
 	}
-	ds, _ := c.Model("deepseek")
-	l, err := ds.Launch("lead", agents.Start{Effort: "high"})
-	if env := l.Env; err != nil || env["OBOR_OPENCODE_MODEL"] != "opencode-go/deepseek-v4.1-flash#high" {
-		t.Errorf("deepseek at high: env %v, %v; want the model's #high variant", l.Env, err)
-	}
 	for ref, refusal := range map[string]string{
 		"opus:minimal": `effort "minimal" is not one of claude's`,
 		"luna:minimal": `effort "minimal" is not one of codex's (low, medium, high, xhigh, max, ultra)`,
-		"deepseek:big": `effort "big" is not one of opencode's`,
 	} {
 		if err := c.CheckModelRef(ref); err == nil || !strings.Contains(err.Error(), refusal) {
 			t.Errorf("CheckModelRef(%s) = %v, want %q", ref, err, refusal)
@@ -170,7 +163,6 @@ func TestUnknownModelRefused(t *testing.T) {
 		"gpt":       `"gpt" is not a model (models: opus, sonnet, haiku, fable, deepseek, terra, sol, luna, muse)`,
 		"gpt:high":  `"gpt" is not a model`,
 		"opus:":     "names no effort after the colon",
-		"muse:high": "effort high needs a model",
 		"sol:turbo": `effort "turbo" is not one of codex's (low, medium, high, xhigh, max, ultra)`,
 	} {
 		if err := c.CheckModelRef(ref); err == nil || !strings.Contains(err.Error(), refusal) {

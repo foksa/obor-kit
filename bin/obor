@@ -1,6 +1,7 @@
 #!/bin/bash
 # obor <subcommand> [args…] — the kit's one bash file: finds the obor Go binary (the dev build dist/obor, else the
-# pinned release in ~/.obor/bin, fetched and checksum-verified on first use) and execs it with the subcommand. Hooks
+# pinned release in ~/.obor/bin, fetched and checksum-verified on first use with the kind binaries beside it) and execs
+# it with the subcommand. Hooks
 # (`obor hook <name>`, hooks/hooks.json) never fetch: without a usable binary the no-binary rule below applies.
 set -euo pipefail
 
@@ -76,9 +77,26 @@ run() {
   OBOR_VERSION_SOURCE="$src" exec "$binary" "$@"
 }
 
-# fetch: the release binary for this platform into ~/.obor/bin (curl, then its line in bin/checksums.txt must match).
+# kind_assets: the kind binaries the catalog lists for this version and platform (obor-kind-<name>-<ver>-<os>-<arch>,
+# T-1046: obor runs them from beside its own binary), one per line.
+kind_assets() {
+  [ -f "$OBOR_PLUGIN_ROOT/bin/checksums.txt" ] || return 0
+  awk -v tail="-$ver-$os-$arch" '{ n = $2; sub(/^dist\//, "", n) }
+    index(n, "obor-kind-") == 1 && length(n) > length(tail) && substr(n, length(n) - length(tail) + 1) == tail { print n }' \
+    "$OBOR_PLUGIN_ROOT/bin/checksums.txt"
+}
+
+# fetched: the release binary and each kind binary of this platform are in ~/.obor/bin.
+fetched() {
+  local kind
+  [ -x "$binary" ] || return 1
+  for kind in $(kind_assets); do [ -x "$(dirname "$binary")/$kind" ] || return 1; done
+}
+
+# fetch: the release binary for this platform, then each kind binary the catalog lists beside it, into ~/.obor/bin
+# (curl, then each one's line in bin/checksums.txt must match). One already there is kept.
 fetch() {
-  local root=$OBOR_PLUGIN_ROOT url expected actual tmp
+  local root=$OBOR_PLUGIN_ROOT url kind
   # OBOR_NO_FETCH=1 (git hooks: no network) turns a missing binary into a failure.
   [ -z "${OBOR_NO_FETCH:-}" ] || fail "no obor binary: make -C $root build"
   [ -f "$root/bin/release-url" ] || fail "missing release URL"
@@ -86,16 +104,26 @@ fetch() {
   command -v curl > /dev/null 2>&1 || fail "curl not found: install it or put the binary at $binary"
   url=$(sed -e "s/%VERSION%/$ver/g" -e "s/%OS%/$os/g" -e "s/%ARCH%/$arch/g" "$root/bin/release-url")
   mkdir -p "$(dirname "$binary")" || fail "cannot create binary directory"
-  tmp="$binary.tmp.$$"
+  [ -x "$binary" ] || fetch_one "$asset" "$url" "$binary"
+  # a kind's asset sits in the same release directory as obor's
+  for kind in $(kind_assets); do
+    [ -x "$(dirname "$binary")/$kind" ] || fetch_one "$kind" "${url%/*}/$kind" "$(dirname "$binary")/$kind"
+  done
+}
+
+# fetch_one <asset> <url> <path>: the asset from url to path, once its checksum line matches.
+fetch_one() {
+  local name=$1 from=$2 to=$3 expected actual tmp
+  tmp="$to.tmp.$$"
   trap 'rm -f "$tmp"' EXIT HUP INT TERM
-  curl -fsSL "$url" -o "$tmp" || fail "cannot fetch $asset from $url"
-  expected=$(awk -v name="$asset" '$2 == name || $2 == "dist/" name { print $1; exit }' "$root/bin/checksums.txt")
-  [ -n "$expected" ] || fail "no checksum for $asset"
+  curl -fsSL "$from" -o "$tmp" || fail "cannot fetch $name from $from"
+  expected=$(awk -v name="$name" '$2 == name || $2 == "dist/" name { print $1; exit }' "$OBOR_PLUGIN_ROOT/bin/checksums.txt")
+  [ -n "$expected" ] || fail "no checksum for $name"
   if command -v shasum > /dev/null 2>&1; then actual=$(shasum -a 256 "$tmp" | awk '{print $1}')
   else actual=$(sha256sum "$tmp" | awk '{print $1}'); fi
-  [ "$actual" = "$expected" ] || fail "checksum mismatch for $asset"
+  [ "$actual" = "$expected" ] || fail "checksum mismatch for $name"
   chmod 755 "$tmp"
-  mv "$tmp" "$binary"
+  mv "$tmp" "$to"
   trap - EXIT HUP INT TERM
 }
 
@@ -201,5 +229,5 @@ fi
 [ ! -x "$OBOR_PLUGIN_ROOT/dist/obor" ] || run "$OBOR_PLUGIN_ROOT/dist/obor" "dev build" "$sub" "$@"
 platform || fail "unsupported platform: $(uname -s) $(uname -m)"
 binary="${HOME:-}/.obor/bin/$asset"
-[ -x "$binary" ] || fetch
+fetched || fetch
 run "$binary" "$source" "$sub" "$@"

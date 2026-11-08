@@ -22,13 +22,12 @@ import (
 	"obor/internal/agents"
 	_ "obor/internal/agents/claude"
 	_ "obor/internal/agents/codex"
-	_ "obor/internal/agents/opencode"
 )
 
 const (
 	claudeGo   = "internal/agents/claude/claude.go"
 	codexGo    = "internal/agents/codex/codex.go"
-	opencodeGo = "internal/agents/opencode/opencode.go"
+	opencodeGo = "kinds/opencode/kind/kind.go" // a plugin kind's binary (T-1046)
 )
 
 // kindOf is the registered agents.Kind name (the driver under test).
@@ -431,7 +430,7 @@ func cxS3(sessions, where string) {
 
 func opencodeStatic() {
 	ids := map[string]string{
-		"OC-S1": at(opencodeGo, "func (kind) Start") + ", " + at(opencodeGo, "func (kind) Headless") + ", CAP §4.1",
+		"OC-S1": at(opencodeGo, "func start(") + ", " + at(opencodeGo, `"headless"`) + ", CAP §4.1",
 		"OC-S2": "opencode/obor.js, CAP §4.3",
 	}
 	path, _, ok := tool("opencode", ids)
@@ -464,12 +463,12 @@ func ocS1(help, where string) {
 	} else {
 		report("PASS", "OC-S1", "opencode --help lists --standalone, --auto, --prompt, --session and run", where)
 	}
-	where = at(opencodeGo, "func (k kind) StartEnv") + ", CAP §4.1"
+	where = at(opencodeGo, "func start(") + ", CAP §4.1"
 	if hasOption(flags, "--model") || hasOption(flags, "-m") {
-		report("WARN", "OC-S1", "the TUI command takes --model now: StartEnv's plugin path for the model can retire", where)
+		report("WARN", "OC-S1", "the TUI command takes --model now: the start env's plugin path for the model can retire", where)
 		return
 	}
-	report("PASS", "OC-S1", "the TUI command still takes no --model (the model goes through StartEnv and obor.js)", where)
+	report("PASS", "OC-S1", "the TUI command still takes no --model (the model goes through the start's env and obor.js)", where)
 }
 
 // ocS2: node parses obor.js and its unit tests pass.

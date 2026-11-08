@@ -234,12 +234,12 @@ func tagWithoutNotes(t *testing.T, f *releaseFixture, v string) {
 		strings.Replace(plugin, `"version":"1.2.3"`, `"version":"`+v+`"`, 1))
 	f.Git(f.Root, "add", "-A")
 	f.Git(f.Root, "commit", "-q", "-m", "obor v"+v+": VERSION, plugin version")
-	// The four files and their catalog lines: dist/ is ignored, so main stays clean.
+	// The eight files and their catalog lines: dist/ is ignored, so main stays clean.
 	var fresh string
-	for _, pl := range publishPlatforms {
-		path := filepath.Join(f.Root, "dist", "obor-"+v+"-"+pl)
-		writeFile(t, path, "binary "+v+" "+pl)
-		fresh += fileSum(t, path) + "  dist/obor-" + v + "-" + pl + "\n"
+	for _, a := range releaseAssets(v) {
+		path := filepath.Join(f.Root, "dist", a)
+		writeFile(t, path, "binary "+a)
+		fresh += fileSum(t, path) + "  dist/" + a + "\n"
 	}
 	// The tag's own commit: the marketplace name flipped and the catalog (tag_neutral), nothing else.
 	w := filepath.Join(f.Base, "tag-edit")

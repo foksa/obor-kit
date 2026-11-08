@@ -15,7 +15,7 @@ import (
 // unless resumed), its self-update screen, /quit, the headless forms, the per-start registration, rollout transcripts,
 // typed delivery. T-570: the startup update check is off unless the type's args set it.
 func TestKind(t *testing.T) {
-	k, ok := agents.Lookup("codex")
+	k, ok := split()
 	if !ok || k.Name() != "codex" {
 		t.Fatalf("codex not registered: %v", agents.Names())
 	}
@@ -126,7 +126,7 @@ func sameTurn(a, b agents.Turn) bool {
 // the error's line cut short (no newline yet) is none; a tail with no turn event says nothing. Each says its phase
 // (T-571): task_complete and turn_aborted are the turn's end (Ended), task_started its start.
 func TestLastTurn(t *testing.T) {
-	k, _ := agents.Lookup("codex")
+	k, _ := split()
 	for _, c := range []struct {
 		name string
 		tail string
@@ -163,7 +163,7 @@ func tokenLimits(primary, secondary string) string {
 // window's resets_at; both full: the later; a later count of another limit with no windows passed over), else from
 // the message's clock time, else none; a full window of an earlier turn is not this turn's.
 func TestLastTurnReset(t *testing.T) {
-	k, _ := agents.Lookup("codex")
+	k, _ := split()
 	full := `{"used_percent":100.0,"window_minutes":300,"resets_at":1793206840}`
 	part := `{"used_percent":21.0,"window_minutes":10080,"resets_at":1793775605}`
 	fullWeek := `{"used_percent":100.0,"window_minutes":10080,"resets_at":1793775605}`
@@ -193,7 +193,7 @@ func TestLastTurnReset(t *testing.T) {
 
 // T-568: usage_limit_exceeded is a limit, its message's clock time its reset; another error is no limit.
 func TestReset(t *testing.T) {
-	k, _ := agents.Lookup("codex")
+	k, _ := split()
 	at := time.Date(2026, 10, 30, 14, 0, 0, 0, time.UTC)
 	if r, ok := k.Reset("usage_limit_exceeded", limitMsg, at); !ok || !r.Equal(time.Date(2026, 10, 30, 18, 30, 0, 0, time.UTC)) {
 		t.Errorf("usage limit: %v, %v; want 18:30 that day, limited", r, ok)
@@ -206,7 +206,7 @@ func TestReset(t *testing.T) {
 // T-577: a rollout's first line, its session_meta, names the session: its id, cwd and start (the payload's
 // timestamp, else the line's); any other line names none.
 func TestSessionMeta(t *testing.T) {
-	k, _ := agents.Lookup("codex")
+	k, _ := split()
 	if !k.Caps().Sessions {
 		t.Error("Caps.Sessions: launch reports a fresh start's rollout")
 	}
@@ -230,7 +230,7 @@ func TestSessionMeta(t *testing.T) {
 // T-695: Start with an effort sets -c model_reasoning_effort=<effort> once, in place of the args' own (each spelling);
 // without one the args are as given.
 func TestStartEffort(t *testing.T) {
-	k, _ := agents.Lookup("codex")
+	k, _ := split()
 	for _, args := range [][]string{
 		{"-m", "luna", "-c", "model_reasoning_effort=high", "-s", "workspace-write"},
 		{"-m", "luna", "--config", "model_reasoning_effort = high", "-s", "workspace-write"},
@@ -253,7 +253,7 @@ func TestStartEffort(t *testing.T) {
 // T-853: a start with WriteDirs (a reviewer's or deep dive's reviews dir in the main checkout) adds one --add-dir per
 // dir after the args, on a resume too; none: no --add-dir.
 func TestStartWriteDirs(t *testing.T) {
-	k, _ := agents.Lookup("codex")
+	k, _ := split()
 	args := []string{"-s", "workspace-write", "-m", "terra"}
 	dirs := []string{"/p/docs/reviews", "/p/docs/research"}
 	want := []string{"-s", "workspace-write", "-m", "terra", "--add-dir", "/p/docs/reviews", "--add-dir", "/p/docs/research",
@@ -283,7 +283,7 @@ func projectFS(content string) agents.ReadFile {
 // the base -s workspace-write, a top-level check_for_update_on_startup drops obor's -c; a key under a [table], a
 // file that does not parse, or no file: the flags as before.
 func TestStartProjectConfig(t *testing.T) {
-	k, _ := agents.Lookup("codex")
+	k, _ := split()
 	base := []string{"-s", "workspace-write", "-a", "never", "--no-daemon"}
 	update := []string{"-c", "check_for_update_on_startup=false"}
 	all := append(append([]string(nil), base...), update...)
@@ -325,7 +325,7 @@ func TestStartProjectConfig(t *testing.T) {
 
 // T-1033: config validate notes a config file that does not parse; none for a clean or absent one.
 func TestProjectWarnings(t *testing.T) {
-	k, _ := agents.Lookup("codex")
+	k, _ := split()
 	pc, ok := k.(agents.ProjectChecker)
 	if !ok {
 		t.Fatal("codex reads no project file")
@@ -341,7 +341,7 @@ func TestProjectWarnings(t *testing.T) {
 // the user-approved bit (0x0040) make one warning naming them and the fix on the package's version dir; an approved
 // file (0x01c1), none, codex not on the PATH, or a machine that is not a Mac: no warning.
 func TestInstallWarnings(t *testing.T) {
-	k, _ := agents.Lookup("codex")
+	k, _ := split()
 	c, ok := k.(agents.InstallChecker)
 	if !ok {
 		t.Fatal("precondition: codex is an InstallChecker")
@@ -424,4 +424,11 @@ func TestErrorHint(t *testing.T) {
 			t.Errorf("%s: hint %q, want %q", tc.name, got, tc.want)
 		}
 	}
+}
+
+// split is the registered codex kind with its two start methods (agents.Split); ok false: none registered.
+func split() (agents.Split, bool) {
+	k, ok := agents.Lookup("codex")
+	s, _ := k.(agents.Split)
+	return s, ok
 }

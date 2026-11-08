@@ -183,8 +183,9 @@ func (s *Setup) integrate(ctx context.Context) (port.Integration, error) {
 // install (agents.Install): its plugin link (Plugin), then the obor entry of its user config (a Config registration,
 // configMCP). A link to another kit's copy is re-linked; a file there that is no link, or links elsewhere, is left
 // alone. --remove deletes only that link and that entry. Nothing else is touched; a kind with neither is said once.
-// In a project, each plugin kind its config names (kinds.<name>.command, T-1036) is described first and its manifest
-// cached in the state dir (plugin.Cache), what hooks and the guard read; a plugin kind's install failing is a FAIL.
+// In a project, each plugin kind its config names (kinds.<name>.command, T-1036; the kit's OpenCode, T-1046) is described
+// first and its manifest cached in the state dir (plugin.Cache), what hooks and the guard read; a plugin kind's install
+// failing is a FAIL.
 func (s *Setup) agentsCmd(args []string) error {
 	remove := len(args) == 1 && args[0] == "--remove"
 	if len(args) > 0 && !remove {
@@ -218,7 +219,8 @@ func (s *Setup) agentsCmd(args []string) error {
 }
 
 // cachePlugins describes every plugin kind of the project around Dir (none outside a project, or with no config) and
-// caches its manifest, then reloads the config so the registry's plugin kinds carry it.
+// caches its manifest, then reloads the config so the registry's plugin kinds carry it. A kit kind the config names no
+// command for (config.KitKinds: a config from before T-1046) gets kinds.<name>.command first, uncommitted.
 func (s *Setup) cachePlugins() error {
 	if s.findRoot() != nil {
 		return nil
@@ -227,23 +229,36 @@ func (s *Setup) cachePlugins() error {
 	if err != nil {
 		return nil
 	}
-	cached := false
-	for _, name := range cfg.Data.Kinds.Keys {
-		cmd := cfg.KindCommand(name)
-		if cmd == "" {
-			continue
+	for _, name := range cfg.PluginKinds() {
+		if cfg.Data.Kinds.M[name].Command == "" {
+			if err := s.setKindCommand(name, config.KitKinds[name]); err != nil {
+				return err
+			}
 		}
+		cmd := cfg.KindCommand(name)
 		if _, err := plugin.Cache(name, cmd, cfg.StateDir()); err != nil {
 			return project.Failf("agents %s: %v", name, err)
 		}
 		s.say("OK agents %s: manifest of %s cached (%s)", name, cmd, s.rel(plugin.CacheFile(cfg.StateDir(), name)))
-		cached = true
 	}
-	if cached {
-		if _, err := config.Load(s.root); err != nil {
-			return project.Failf("%v", err)
-		}
+	if _, err := config.Load(s.root); err != nil {
+		return project.Failf("%v", err)
 	}
+	return nil
+}
+
+// setKindCommand sets kinds.<name>.command to cmd in .obor/config.json (not local.json), uncommitted.
+func (s *Setup) setKindCommand(name, cmd string) error {
+	path := filepath.Join(s.root, ".obor", "config.json")
+	doc, err := os.ReadFile(path)
+	if err != nil {
+		return project.Failf("cannot read %s", path)
+	}
+	doc, err = config.EditJSON(doc, []string{"kinds", name, "command"}, cmd)
+	if err != nil || writeJSON(path, doc) != nil {
+		return project.Failf("cannot update %s", path)
+	}
+	s.say("config kinds.%s.command = %s (uncommitted: the kit's binary)", name, cmd)
 	return nil
 }
 

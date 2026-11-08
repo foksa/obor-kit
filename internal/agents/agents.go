@@ -1,8 +1,9 @@
 // Package agents is the bridge layer (docs/module-map.md): what differs per agent CLI obor drives, as data and pure
 // functions over strings and bytes. No herdr, no sockets, no exec, no file I/O: the adapters (launch, setup, guard,
-// herdr, inbox) do that and ask the kind what differs. A kind is one package (agents/claude, agents/codex,
-// agents/opencode) that registers itself from its init; cmd/obor and testkit import all of them. Adding a kind = one
-// package implementing Kind + a config entry.
+// herdr, inbox) do that and ask the kind what differs. A compiled kind is one package (agents/claude, agents/codex)
+// that registers itself from its init; cmd/obor and testkit import all of them. A plugin kind is an executable answering
+// obor's kind protocol (agents/plugin, docs/agents/kind-protocol.md; OpenCode, kinds/opencode, T-1046), registered by
+// the config that names it.
 package agents
 
 import (
@@ -23,17 +24,13 @@ import (
 type Kind interface {
 	Name() string // herdr's --kind and models.<name>.kind
 
-	// Start is the argv after the binary: the type's args, the kind's settings and MCP registration (none without a
-	// kit), then the resume form or the first prompt (never both).
-	Start(in Start) []string
+	// A kind's start is Split's two methods (a compiled kind) or Whole's one call (a plugin kind, T-1046): StartOf.
+
 	// NotReady is why a just-started agent cannot take a prompt yet, from its screen ("": nothing of this kind's).
 	NotReady(screen string) string
 	// Efforts are the effort values Start.Effort takes, from the CLI's own help (T-695); nil: this kind takes none.
 	Efforts() []string
-	// StartEnv is the environment a start needs beyond the pane's (variable → value; "" unsets it): OpenCode's model
-	// and effort reach obor's plugin this way (T-703). An error: the start cannot carry in.Effort (it says why).
-	StartEnv(in Start) (map[string]string, error)
-	// Vars are every variable StartEnv may set: the kind's part of the registry (agents.Vars, T-812).
+	// Vars are every variable a start's env may set: the kind's part of the registry (agents.Vars, T-812).
 	Vars() []string
 
 	// Stop is the quit recipe; launch runs it (the group proofs and the terminate ladder stay in launch).
@@ -454,21 +451,37 @@ type Whole interface {
 	StartWhole(in Start) (Launch, error)
 }
 
+// Split is a compiled kind's start: its argv and its env by two methods (RV-147: a plugin kind is Whole and has
+// neither, T-1046).
+type Split interface {
+	Kind
+	// Start is the argv after the binary: the type's args, the kind's settings and MCP registration (none without a
+	// kit), then the resume form or the first prompt (never both).
+	Start(in Start) []string
+	// StartEnv is the environment a start needs beyond the pane's (variable → value; "" unsets it). An error: the
+	// start cannot carry in.Effort (it says why).
+	StartEnv(in Start) (map[string]string, error)
+}
+
 // StartOf is k's start of in, a complete Start built once at the launch boundary (T-1042): a Whole kind's one call;
-// a compiled kind's env (StartEnv) and its argv in two passes of Start, as before: the type's launch args (Args with
+// a Split kind's env (StartEnv) and its argv in two passes of Start, as before: the type's launch args (Args with
 // Settings, Effort, StrictMCP, WriteDirs), then the start over them (Kit, Resume, Session, Prompt), Dir and Read in
-// both. An error: the start cannot carry in.Effort, or a plugin kind's start failed.
+// both. An error: the start cannot carry in.Effort, a plugin kind's start failed, or k has no start.
 func StartOf(k Kind, in Start) (Launch, error) {
 	if w, ok := k.(Whole); ok {
 		return w.StartWhole(in)
 	}
-	env, err := k.StartEnv(in)
+	s, ok := k.(Split)
+	if !ok {
+		return Launch{}, fmt.Errorf("kind %s has no start", k.Name())
+	}
+	env, err := s.StartEnv(in)
 	if err != nil {
 		return Launch{}, err
 	}
-	args := k.Start(Start{Args: in.Args, Settings: in.Settings, Effort: in.Effort, StrictMCP: in.StrictMCP,
+	args := s.Start(Start{Args: in.Args, Settings: in.Settings, Effort: in.Effort, StrictMCP: in.StrictMCP,
 		WriteDirs: in.WriteDirs, Dir: in.Dir, Read: in.Read})
-	args = k.Start(Start{Kit: in.Kit, Args: args, Resume: in.Resume, Session: in.Session, Prompt: in.Prompt,
+	args = s.Start(Start{Kit: in.Kit, Args: args, Resume: in.Resume, Session: in.Session, Prompt: in.Prompt,
 		Dir: in.Dir, Read: in.Read})
 	return Launch{Args: args, Env: env}, nil
 }
@@ -526,7 +539,8 @@ func CheckEffort(kind, effort string) error {
 	return checkEffort(k, effort)
 }
 
-// ArgsChecker is a kind whose effort also depends on the type's args (OpenCode: --model, T-697).
+// ArgsChecker is a kind whose effort also depends on the type's args (OpenCode: --model, T-697; a plugin kind asks its
+// start).
 type ArgsChecker interface {
 	CheckEffort(args []string, effort string) error
 }
@@ -536,19 +550,22 @@ func CheckEffortArgs(kind string, args []string, effort string) error {
 	if err := CheckEffort(kind, effort); err != nil || effort == "" {
 		return err
 	}
-	if c, ok := lookup(kind).(ArgsChecker); ok {
-		return c.CheckEffort(args, effort)
-	}
-	return nil
+	return CheckEffortOf(lookup(kind), args, effort)
 }
 
-// CheckEffortOf is CheckEffort for a kind at hand (obor config validate's plugin kind as its describe just answered,
-// T-1042), not the registry's.
-func CheckEffortOf(k Kind, effort string) error {
+// CheckEffortOf is CheckEffortArgs for a kind at hand (obor config validate's plugin kind as its describe just
+// answered, T-1042), not the registry's.
+func CheckEffortOf(k Kind, args []string, effort string) error {
 	if effort == "" {
 		return nil
 	}
-	return checkEffort(k, effort)
+	if err := checkEffort(k, effort); err != nil {
+		return err
+	}
+	if c, ok := k.(ArgsChecker); ok {
+		return c.CheckEffort(args, effort)
+	}
+	return nil
 }
 
 // ModelEditor is a kind that names its model in the args (config.Model, T-765): WithModel is args with model in place

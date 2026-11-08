@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"maps"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -48,19 +50,70 @@ type KindEntry struct {
 	Command     string   `json:"command,omitempty"`
 }
 
-// KindCommand is kinds.<name>.command as a path ("": name is no plugin kind of this config).
+// KitKinds are the plugin kinds the kit ships, by name: the binary each runs as (T-1046), beside obor's own (KitKind).
+// A config naming no kinds.<name>.command for one runs the kit's: the compat of a config written before OpenCode left
+// the obor binary, which obor setup agents fills in and obor config validate warns about until v0.32.0 drops it.
+var KitKinds = map[string]string{"opencode": "obor-kind-opencode"}
+
+// KindCommand is kinds.<name>.command as a path ("": name is no plugin kind of this config): the name of a binary the
+// kit ships (a KitKinds value) is that binary (KitKind), any other relative path relative to the project root. A kit
+// kind with no command is the kit's (KitKinds).
 func (c *Config) KindCommand(name string) string {
 	cmd := c.Data.Kinds.M[name].Command
-	if cmd == "" || filepath.IsAbs(cmd) {
+	if cmd == "" {
+		cmd = KitKinds[name]
+	}
+	switch {
+	case cmd == "" || filepath.IsAbs(cmd):
 		return cmd
+	case slices.Contains(slices.Collect(maps.Values(KitKinds)), cmd):
+		return KitKind(cmd)
 	}
 	return filepath.Join(c.Root, cmd)
+}
+
+// KitKind is the path of the kind binary name the kit ships beside this obor's executable (T-1046): dist/obor's
+// dist/<name>, a release binary obor-<v>-<os>-<arch>'s <name>-<v>-<os>-<arch> in the same directory. An executable obor
+// cannot find leaves name as it is (the kind's describe then fails naming it).
+func KitKind(name string) string {
+	exe, err := os.Executable()
+	if err != nil {
+		return name
+	}
+	if real, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = real
+	}
+	base := filepath.Base(exe)
+	suffix := ""
+	if strings.HasPrefix(base, "obor-") {
+		suffix = strings.TrimPrefix(base, "obor")
+	}
+	return filepath.Join(filepath.Dir(exe), name+suffix)
+}
+
+// PluginKinds are this config's plugin kinds: each kinds.<name> with a command, in config order, then each kit kind
+// it names no command for (KitKinds, sorted).
+func (c *Config) PluginKinds() []string {
+	var out []string
+	for _, name := range c.Data.Kinds.Keys {
+		if c.Data.Kinds.M[name].Command != "" {
+			out = append(out, name)
+		}
+	}
+	var kit []string
+	for name := range KitKinds {
+		if !slices.Contains(out, name) {
+			kit = append(kit, name)
+		}
+	}
+	slices.Sort(kit)
+	return append(out, kit...)
 }
 
 // StateDir is the project's state dir (project.StateDir: config cannot import project).
 func (c *Config) StateDir() string { return filepath.Join(c.Root, ".obor", "state") }
 
-// registerPlugins makes this config's plugin kinds (kinds.<name>.command) the registry's (agents.SetPlugins), each
+// registerPlugins makes this config's plugin kinds (PluginKinds) the registry's (agents.SetPlugins), each
 // with the manifest obor setup agents cached: no process runs (every load, hooks included). A binary without the
 // plugin package registers none.
 func (c *Config) registerPlugins() {
@@ -68,10 +121,8 @@ func (c *Config) registerPlugins() {
 		return
 	}
 	var ks []agents.Kind
-	for _, name := range c.Data.Kinds.Keys {
-		if cmd := c.KindCommand(name); cmd != "" {
-			ks = append(ks, agents.Plugins.Kind(name, cmd, c.StateDir()))
-		}
+	for _, name := range c.PluginKinds() {
+		ks = append(ks, agents.Plugins.Kind(name, c.KindCommand(name), c.StateDir()))
 	}
 	agents.SetPlugins(ks)
 }
@@ -171,7 +222,7 @@ func (c *Config) checkModelRef(ref string, described map[string]agents.Kind) err
 	}
 	check := func() error { return agents.CheckEffortArgs(m.Kind, m.Args, effort) }
 	if k, ok := described[m.Kind]; ok {
-		check = func() error { return agents.CheckEffortOf(k, effort) }
+		check = func() error { return agents.CheckEffortOf(k, m.Args, effort) }
 	}
 	if err := check(); err != nil {
 		return fmt.Errorf("%s: %v", ref, err)

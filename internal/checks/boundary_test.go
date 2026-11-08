@@ -32,6 +32,7 @@ const (
 	entry    = "entry"   // cmd/obor: wiring and flags only
 	testhelp = "test"    // test helpers
 	tool     = "tool"    // standalone programs (probes, spikes)
+	kindbin  = "kind"    // a plugin kind's own binary (kinds/<name>, T-1046): the bridge and its own tree only
 	legacy   = "legacy"  // to be moved or deleted (module map table); nothing outside legacy may import it
 )
 
@@ -65,6 +66,7 @@ var layerPrefixes = []struct{ prefix, layer string }{
 	{"tests/", tool},
 	{"spikes/", tool},
 	{"tools/", tool},
+	{"kinds/", kindbin},
 }
 
 func layer(pkg string) string {
@@ -94,6 +96,9 @@ func allowed(fromPkg, from, toPkg, to string) bool {
 	switch from {
 	case entry, testhelp, legacy:
 		return true
+	case kindbin:
+		root := strings.Join(strings.SplitN(fromPkg, "/", 3)[:2], "/")
+		return toPkg == root || strings.HasPrefix(toPkg, root+"/")
 	case base, tool:
 		return to == base
 	case core:
@@ -137,7 +142,11 @@ func TestBoundaryRules(t *testing.T) {
 		{"internal/agents/claude", "internal/agents", true},
 		{"internal/agents/claude", "internal/agents/codex", false},
 		{"internal/agents", "internal/config", false},
-		{"internal/agents/opencode", "internal/project", false},
+		{"kinds/opencode", "kinds/opencode/kind", true},
+		{"kinds/opencode/kind", "internal/agents", true},
+		{"kinds/opencode/kind", "internal/project", false},
+		{"kinds/opencode", "kinds/other", false},
+		{"internal/testkit", "kinds/opencode/kind", true},
 		{"internal/config", "internal/agents", true},
 		{"internal/launch", "internal/agents/claude", true},
 		{"internal/app", "internal/agents", true},
@@ -238,9 +247,11 @@ func listPackages(t *testing.T) map[string][]string {
 	return pkgs
 }
 
-// kindLiteralFree are the trees that may name an agent kind as a string literal: the bridges, the test fakes, and the
-// built-in model table with each kind's base args (T-765: one table in internal/config, data only).
-var kindLiteralFree = []string{"internal/agents/", "internal/herdr/herdrtest/", "internal/testkit/", "internal/config/models.go"}
+// kindLiteralFree are the trees that may name an agent kind as a string literal: the bridges, a plugin kind's own binary
+// (kinds/<name>, T-1046), the test fakes, and the built-in model table with each kind's base args (T-765: one table in
+// internal/config, data only).
+var kindLiteralFree = []string{"internal/agents/", "kinds/", "internal/herdr/herdrtest/", "internal/testkit/",
+	"internal/config/models.go"}
 
 // TestNoKindLiterals (T-495): per-kind behaviour lives in the bridges (docs/module-map.md "bridge"), so no Go file
 // outside them, the fakes and tests holds a registered kind's name as a string literal: an adapter asks agents.Lookup

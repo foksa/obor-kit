@@ -1,4 +1,4 @@
-# obor (Go). `make build` → dist/obor (OUT elsewhere, T-975), `make test` → go test ./..., `make check` → the merge gate (commands.check),
+# obor (Go). `make build` → dist/obor and the kind binaries beside it (OUT elsewhere, T-975, T-1046), `make test` → go test ./..., `make check` → the merge gate (commands.check),
 # `make check-affected` → its per-merge tier (commands.check_affected), `make check-compile` → the merge slot's
 # compile tier (commands.compile, T-961), `make check-retest` → a red lane test's failing tests once more
 # (commands.retest, T-964), `make check-readers` / `make check-web` →
@@ -10,7 +10,7 @@
 # `make deadcode` → its dead-code check, `make deps` → a warm module cache for an offline machine, `make upgrade-check`
 # → the previous release upgraded to this build (tests/upgrade),
 # `make release V=x.y.z` → the whole release (scripts/release); `make ship` → the owner's push, publish and install
-# (scripts/ship); `make release` without V → only the local release files; `make publish` → the four of them to a
+# (scripts/ship); `make release` without V → only the local release files; `make publish` → the eight of them to a
 # GitHub release (explicit, outward-facing).
 GO ?= go
 # GOFLAGS carries -trimpath for every Go command of every target (T-1027): without it Go puts the package's directory
@@ -41,11 +41,20 @@ BUILD_VERSION := v$(shell cat $(VERSION_FILE))
 endif
 GOOS_LIST := darwin linux
 GOARCH_LIST := arm64 amd64
+# KINDS are the plugin kinds the kit ships as their own binaries (kinds/<kind>, T-1046): built beside obor, released
+# beside it (obor-kind-<kind>-<version>-<os>-<arch>; scripts/release-lib.sh's binaries names them too).
+KINDS := opencode
+RELEASE_BINARIES := obor $(KINDS:%=obor-kind-%)
 
 .PHONY: build test conformance trim-go-cache check check-affected check-compile check-retest check-readers check-web check-release check-budget vulncheck deadcode deps upgrade-check release ship publish clean web web-dev web-test
 
+# build writes OUT and, beside it, each kind binary the kit ships (KINDS: kinds/<kind> -> obor-kind-<kind>, T-1046; obor
+# runs a kit kind from the directory of its own executable, config.KitKind).
 build:
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags "-s -w -X obor/internal/version.Version=$(BUILD_VERSION)" -o $(OUT) ./cmd/obor
+	@for k in $(KINDS); do \
+	  CGO_ENABLED=0 $(GO) build -trimpath -ldflags "-s -w" -o "$(dir $(OUT))obor-kind-$$k" ./kinds/$$k || exit $$?; \
+	done
 
 test:
 	$(GO) test ./...
@@ -105,7 +114,7 @@ GO_CACHE = c=$$($(GO) env GOCACHE 2>/dev/null); \
 	  { GOCACHE="$${TMPDIR:-/tmp}/obor-go-build"; export GOCACHE; }
 GO_GATE = $(GO_CACHE); \
 	$(MAKE) -s build || { echo "FAIL make build"; exit 1; }; \
-	f=$$(gofmt -l cmd internal tools); test -z "$$f" || { echo "FAIL gofmt: $$(printf '%s\n' "$$f" | tr '\n' ' ')"; exit 1; }; \
+	f=$$(gofmt -l cmd internal tools kinds); test -z "$$f" || { echo "FAIL gofmt: $$(printf '%s\n' "$$f" | tr '\n' ' ')"; exit 1; }; \
 	$(GO) vet -tags integration ./... || { echo "FAIL go vet"; exit 1; }
 check:
 	@$(GO_GATE); \
@@ -260,7 +269,7 @@ deps:
 	$(GO) mod download
 
 # release: with V=x.y.z the lead's one command (scripts/release: the version commit and full check on the loop's branch,
-# the scratch worktree with marketplace obor-kit and the four binaries, the tag, the catalog committed on the branch and
+# the scratch worktree with marketplace obor-kit and the eight binaries (obor and each kind, per platform), the tag, the catalog committed on the branch and
 # main fast-forwarded to it); without V only the local release files, as before. DRY=1 (with V) prints the steps and
 # changes nothing. The owner's next command: ship.
 release:
@@ -271,14 +280,18 @@ ifeq ($(strip $(V)),)
 	  exit 1; }
 	mkdir -p dist bin
 	: > dist/checksums.tmp
-	for goos in $(GOOS_LIST); do \
-	  for goarch in $(GOARCH_LIST); do \
-	    name="obor-$(VERSION)-$$goos-$$goarch"; \
-	    CGO_ENABLED=0 GOOS=$$goos GOARCH=$$goarch $(GO) build -trimpath -ldflags "-s -w -X obor/internal/version.Version=v$(VERSION)" -o "dist/$$name" ./cmd/obor || exit $$?; \
-	    shasum -a 256 "dist/$$name" >> dist/checksums.tmp || exit $$?; \
+	for bin in $(RELEASE_BINARIES); do \
+	  case $$bin in obor) pkg=./cmd/obor ;; *) pkg=./kinds/$${bin#obor-kind-} ;; esac; \
+	  for goos in $(GOOS_LIST); do \
+	    for goarch in $(GOARCH_LIST); do \
+	      name="$$bin-$(VERSION)-$$goos-$$goarch"; \
+	      CGO_ENABLED=0 GOOS=$$goos GOARCH=$$goarch $(GO) build -trimpath -ldflags "-s -w -X obor/internal/version.Version=v$(VERSION)" -o "dist/$$name" $$pkg || exit $$?; \
+	      shasum -a 256 "dist/$$name" >> dist/checksums.tmp || exit $$?; \
+	    done; \
 	  done; \
 	done
-	awk -v version="$(VERSION)" 'index($$2, "dist/obor-" version "-") != 1' bin/checksums.txt > dist/checksums.old.tmp
+	awk -v version="$(VERSION)" -v bins="$(RELEASE_BINARIES)" 'BEGIN { n = split(bins, b, " ") } \
+	  { for (i = 1; i <= n; i++) if (index($$2, "dist/" b[i] "-" version "-") == 1) next; print }' bin/checksums.txt > dist/checksums.old.tmp
 	cat dist/checksums.old.tmp dist/checksums.tmp | LC_ALL=C sort -k2,2 > dist/checksums.sorted.tmp
 	mv dist/checksums.sorted.tmp bin/checksums.txt
 	rm -f dist/checksums.tmp dist/checksums.old.tmp
@@ -293,7 +306,7 @@ ship:
 	@sh scripts/ship "$(VERSION)"
 
 # publish is outward-facing and explicit: after `make release`, committing bin/checksums.txt and tagging, `make publish`
-# uploads exactly the four binaries of v$(VERSION), each checked against the tag's catalog (scripts/publish; --verify-tag:
+# uploads exactly the eight binaries of v$(VERSION) (obor and each kind, per platform), each checked against the tag's catalog (scripts/publish; --verify-tag:
 # no tag, no upload). The platform list there is literal, so GOOS_LIST/GOARCH_LIST overrides do not change it.
 publish:
 	@sh scripts/publish "$(VERSION)"

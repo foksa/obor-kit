@@ -21,6 +21,11 @@ import (
 // shimAsset is the release asset name of version v on this platform (bin/obor's uname mapping is Go's GOOS/GOARCH).
 func shimAsset(v string) string { return "obor-" + v + "-" + runtime.GOOS + "-" + runtime.GOARCH }
 
+// kindAsset is the OpenCode kind's release asset for this platform (T-1046), fetched beside shimAsset.
+func kindAsset(v string) string {
+	return "obor-kind-opencode-" + v + "-" + runtime.GOOS + "-" + runtime.GOARCH
+}
+
 // treeFile is a file of the kit checkout these tests run in (this package sits two levels down, like cmd/obor).
 func treeFile(t *testing.T, rel string) []byte {
 	t.Helper()

@@ -2,6 +2,7 @@ package setup
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -276,6 +277,31 @@ func TestSetupAgentsPluginKind(t *testing.T) {
 		t.Fatal(err)
 	}
 	x.failing(t, "FAIL agents mine: kind mine: install: exit 2: nope", "agents")
+}
+
+// T-1046: obor setup agents on a config from before OpenCode's binary (no kinds.opencode.command) writes the line into
+// .obor/config.json (uncommitted) and caches the kit kind's manifest; a second run, the line there, writes nothing.
+func TestSetupAgentsWritesTheKitKind(t *testing.T) {
+	t.Parallel()
+	x := newFx(t, func(c map[string]any) { delete(c, "kinds") })
+	path := filepath.Join(x.Root, ".obor", "config.json")
+	cache := filepath.Join(x.Root, ".obor", "state", "kinds", "opencode.json")
+	if b, _ := os.ReadFile(path); strings.Contains(string(b), `"kinds"`) || x.Exists(cache) {
+		t.Fatalf("precondition: no kinds in the config, no cache: %s", b)
+	}
+	out := x.ok(t, "agents")
+	has(t, out, "config kinds.opencode.command = obor-kind-opencode (uncommitted: the kit's binary)", "the line written")
+	has(t, out, "OK agents opencode: manifest of ", "the kit kind's manifest cached")
+	var doc struct {
+		Kinds map[string]struct{ Command string } `json:"kinds"`
+	}
+	if b, err := os.ReadFile(path); err != nil || json.Unmarshal(b, &doc) != nil || doc.Kinds["opencode"].Command != "obor-kind-opencode" {
+		t.Errorf("config after setup agents: %s, %v", b, err)
+	}
+	if b, err := os.ReadFile(cache); err != nil || !strings.Contains(string(b), `"name": "opencode"`) {
+		t.Errorf("cache %s: %s, %v", cache, b, err)
+	}
+	hasNot(t, x.ok(t, "agents"), "config kinds.opencode.command", "a config that names it is left alone")
 }
 
 // T-1045: the doctor prints a used kind's install warnings (codex: quarantined files beside its binary) as WARN lines

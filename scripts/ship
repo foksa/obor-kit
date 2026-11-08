@@ -3,7 +3,7 @@
 # whatever branch that checkout has (staging when the loop merges there, T-1035): release already fast-forwarded
 # refs/heads/main to the release commit, so no checkout of main is needed and this script never switches or resets the
 # checkout's branch or working tree. Before anything leaves this machine the tag must be this release's (scripts/publish
-# --check: its contents and the four dist files' bytes) and not predate code in the release (scripts/release-lib.sh).
+# --check: its contents and the eight dist files' bytes) and not predate code in the release (scripts/release-lib.sh).
 # The release is the tag plus its `checksums: v<version>` commit on main (the newest with that subject on main's
 # first-parent line, T-661): ship pushes main up to that commit, never main's tip, so merges after `make release` wait
 # for the next release. Then three steps, each skipped when its done evidence holds and proven by it after it runs
@@ -11,7 +11,7 @@
 #   push     done: origin has tag v<version> (the same object) and origin's main contains the checksums commit
 #            run: git push origin <checksums commit>:refs/heads/main and/or the tag, whichever origin lacks
 #            (OBOR_ALLOW_PUSH=1)                                  fail: stop
-#   publish  done: the GitHub release is not a draft and has the four assets
+#   publish  done: the GitHub release is not a draft and has its eight assets (obor and the OpenCode kind, T-1046)
 #            run: scripts/publish (no release), or scripts/publish --upload of the missing assets only (its byte
 #            checks first)                                       fail: stop with the repair command
 #   install  done: `obor version` is v<version>     run: install.sh     fail: stop
@@ -27,7 +27,6 @@ if [ -z "$v" ]; then v=$(tr -d '[:space:]' < VERSION); fi
 printf '%s\n' "$v" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || usage
 
 tag="v$v"
-platforms="darwin-arm64 darwin-amd64 linux-arm64 linux-amd64"
 
 fail() { echo "FAIL $*" >&2; exit 1; }
 say() { echo "ship: $*"; }
@@ -50,12 +49,13 @@ rel=$(git log --first-parent --format='%H %s' refs/heads/main |
   fail "no 'checksums: $tag' commit on main's first-parent history: run make release V=$v (it commits the catalog on main)"
 relshort=$(git rev-parse --short "$rel")
 tagcat=$(git show "$tag:bin/checksums.txt" 2> /dev/null) || fail "no bin/checksums.txt at $tag: run make release V=$v first"
-tagv=$(printf '%s\n' "$tagcat" | grep -F "dist/obor-$v-" || true)
-[ "$(printf '%s\n' "$tagv" | grep -c . || true)" = 4 ] || fail "bin/checksums.txt at $tag has no four lines for $v"
-havev=$(git show "$rel:bin/checksums.txt" 2> /dev/null | grep -F "dist/obor-$v-" || true)
+tagv=$(printf '%s\n' "$tagcat" | version_lines "$v")
+[ "$(printf '%s\n' "$tagv" | grep -c . || true)" = "$(asset_count)" ] ||
+  fail "bin/checksums.txt at $tag lacks lines for $v's $(asset_count) files"
+havev=$(git show "$rel:bin/checksums.txt" 2> /dev/null | version_lines "$v")
 [ "$havev" = "$tagv" ] ||
   fail "bin/checksums.txt at $relshort (checksums: $tag) is not $tag's catalog: make release V=$v commits it"
-# The tag's own checks (scripts/publish's: contents and the four files' bytes) run before it leaves this machine.
+# The tag's own checks (scripts/publish's: contents and the files' bytes) run before it leaves this machine.
 sh scripts/publish "$v" --check || fail "$tag is not a finished release (above): a pushed tag never moves"
 require_fresh_tag "$rel"
 
@@ -94,26 +94,26 @@ fi
 
 # --- publish
 command -v gh > /dev/null 2>&1 || fail "gh not found: install GitHub's CLI to publish the release"
-# read_release: whether the GitHub release exists (has), is a draft (draft) and which of the four assets it lacks
-# (missing, as platforms).
+# read_release: whether the GitHub release exists (has), is a draft (draft) and which of its assets it lacks (missing,
+# by name).
 read_release() {
   has=0 draft= missing=
   assets=$(gh release view "$tag" --json assets --jq '.assets[].name' 2> /dev/null) || return 0
   has=1
   draft=$(gh release view "$tag" --json isDraft --jq .isDraft 2> /dev/null) || draft=unknown
-  for pl in $platforms; do
-    printf '%s\n' "$assets" | grep -qxF "obor-$v-$pl" || missing="${missing:+$missing }$pl"
+  for a in $(release_assets "$v"); do
+    printf '%s\n' "$assets" | grep -qxF "$a" || missing="${missing:+$missing }$a"
   done
 }
 read_release
 if [ "$has" = 1 ] && [ "$draft" = false ] && [ -z "$missing" ]; then
-  say "the GitHub release for $tag is published with its four assets: publish skipped"
+  say "the GitHub release for $tag is published with its assets: publish skipped"
 else
   if [ "$has" = 0 ]; then
     sh scripts/publish "$v" || fail "scripts/publish $v failed: re-run make ship"
     say "published $tag"
   elif [ -n "$missing" ]; then
-    # shellcheck disable=SC2086 # platform names, no spaces
+    # shellcheck disable=SC2086 # asset names, no spaces
     sh scripts/publish "$v" --upload $missing || fail "uploading $missing failed: sh scripts/publish $v --upload $missing"
     say "uploaded the missing assets of $tag: $missing"
   fi

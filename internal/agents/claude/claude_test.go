@@ -12,13 +12,13 @@ import (
 	"obor/internal/agents/claude"
 )
 
-func kind(t *testing.T) agents.Kind {
+func kind(t *testing.T) agents.Split {
 	t.Helper()
 	k, ok := agents.Lookup("claude")
 	if !ok || k.Name() != "claude" {
 		t.Fatalf("claude not registered: %v", agents.Names())
 	}
-	return k
+	return k.(agents.Split)
 }
 
 // T-495: Claude's start argv, fresh, resumed and strict: the settings after the args, obor's --mcp-config right before

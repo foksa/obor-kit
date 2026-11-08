@@ -1,6 +1,7 @@
 #!/bin/sh
 # obor install: clone (or update) the kit into ~/.obor/kit at the newest release tag, link ~/.local/bin/obor, then run
-# `obor version` once so the release binary is fetched and checksum-checked. Re-running this script is the upgrade.
+# `obor version` once so the release binary, and beside it each kind binary the release ships (obor-kind-opencode,
+# T-1046), is fetched and checksum-checked. Re-running this script is the upgrade.
 #
 #   curl -fsSL https://raw.githubusercontent.com/foksa/obor-kit/main/install.sh | sh
 #
@@ -41,7 +42,7 @@ case ":$PATH:" in
   *) echo "export PATH=\"$bindir:\$PATH\"" ;;
 esac
 
-# One `obor version` from inside the kit: the shim fetches the release binary and checks its checksum. Its failure (its
-# message on stderr) fails the install.
+# One `obor version` from inside the kit: the shim fetches the release binary and the kind binaries into ~/.obor/bin and
+# checks their checksums. Its failure (its message on stderr) fails the install.
 installed=$(cd "$kit" && "$bindir/obor" version) || fail "obor version failed"
 echo "obor installed: $installed (kit $kit at $tag)"

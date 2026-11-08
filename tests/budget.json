@@ -36,11 +36,6 @@
       "full_s": 0.4,
       "git_procs": 0
     },
-    "obor/internal/agents/opencode": {
-      "short_s": 0.2,
-      "full_s": 0.4,
-      "git_procs": 0
-    },
     "obor/internal/app": {
       "short_s": 19.5,
       "full_s": 27.5,
@@ -155,6 +150,16 @@
       "short_s": 5.3,
       "full_s": 5.5,
       "git_procs": 362
+    },
+    "obor/kinds/opencode": {
+      "short_s": 0.2,
+      "full_s": 4.0,
+      "git_procs": 0
+    },
+    "obor/kinds/opencode/kind": {
+      "short_s": 0.2,
+      "full_s": 0.4,
+      "git_procs": 0
     },
     "obor/tests/budget": {
       "short_s": 0.8,
