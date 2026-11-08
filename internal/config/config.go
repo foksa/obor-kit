@@ -269,6 +269,13 @@ type Merge struct {
 	Trailer      string `json:"trailer,omitempty"`
 	SummaryRegex string `json:"summary_regex,omitempty"`
 	FailGrep     string `json:"fail_grep,omitempty"`
+	// FlakeRegex is the pair of regexps that read a red run's failing tests and packages from its fail_grep lines
+	// (T-1047): the failed-test line (the name in its group test) and the failed-package line (the name in its group
+	// package). Unset: no flake parsing, no error (a project whose checks print no such lines).
+	FlakeRegex []string `json:"flake_regex,omitzero"`
+	// RetestJoin is what commands.retest's {tests} joins the failing tests with (default "|", a regexp's
+	// alternatives; T-1047).
+	RetestJoin string `json:"retest_join,omitempty"`
 	// TimeoutGrep is a removed key (v0.28, T-864): the red-under-load re-run is gone. It WARNs for two minors.
 	TimeoutGrep any `json:"timeout_grep,omitempty"`
 	// MaxLoad, LoadWait and WindowWait are removed keys (v0.28, T-864): the nightly lock's default is a constant
@@ -303,6 +310,18 @@ const DefaultPromoteWeight = 6
 
 // DefaultWeights is merge.weights' default: a merged task weighs its spec's Difficulty level (T-974).
 var DefaultWeights = map[string]int{"simple": 1, "medium": 2, "hard": 3}
+
+// DefaultRetestJoin is merge.retest_join's default: a regexp's alternatives separator, the form a retest's -run
+// takes.
+const DefaultRetestJoin = "|"
+
+// RetestJoin is merge.retest_join, else DefaultRetestJoin.
+func (c *Config) RetestJoin() string {
+	if c != nil && c.Data.Merge.RetestJoin != "" {
+		return c.Data.Merge.RetestJoin
+	}
+	return DefaultRetestJoin
+}
 
 // PromoteWeight is merge.promote_weight, else DefaultPromoteWeight.
 func (c *Config) PromoteWeight() int {

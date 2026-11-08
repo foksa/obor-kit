@@ -112,10 +112,19 @@ func (r *runner) exec(name string, dir ...string) (output, bool, *halt) {
 	if !ok {
 		return output{}, false, nil
 	}
+	o, h := r.execCommand(c, dir...)
+	return o, true, h
+}
+
+// execCommand runs c in dir (the runner's unless given) under its timeout, under the name c.Name: every command but
+// lane_setup holds the check slot. A halt when the slot cannot be taken or a signal came. It keeps the command's full
+// output in writeLog's log, in any dir (after_merge's included). exec is this for commands.<name>; retestOnRed is this
+// for commands.retest with its {tests} filled.
+func (r *runner) execCommand(c config.Command, dir ...string) (output, *halt) {
 	environ := append(append([]string(nil), r.Environ...), "OBOR_MERGE=1", run.CPUsEnv(r.Cfg, r.Env))
-	if name != "lane_setup" && len(dir) == 0 {
+	if c.Name != "lane_setup" && len(dir) == 0 {
 		if h := r.takeSlot(); h != nil {
-			return output{}, true, h
+			return output{}, h
 		}
 		environ = append(environ, "CHECK_PRIORITY="+r.priority(), "CHECK_SLOT_HELD="+r.slot)
 	}
@@ -125,7 +134,7 @@ func (r *runner) exec(name string, dir ...string) (output, bool, *halt) {
 		wd = dir[0]
 	}
 	if r.onCommand != nil {
-		r.onCommand(name)
+		r.onCommand(c.Name)
 	}
 	var buf bytes.Buffer
 	rc, timedOut := run.Execute(r.ctx, c, wd, nil, environ, &buf, &buf)
@@ -135,13 +144,12 @@ func (r *runner) exec(name string, dir ...string) (output, bool, *halt) {
 		r.onCommand("")
 	}
 	if code := r.interrupted(); code != 0 {
-		return output{}, true, interrupt(code)
+		return output{}, interrupt(code)
 	}
 	if timedOut {
 		rc = 124
 	}
-	o := output{name: name, text: buf.String(), rc: rc, timeout: c.Timeout, log: r.writeLog(name, buf.Bytes())}
-	return o, true, nil
+	return output{name: c.Name, text: buf.String(), rc: rc, timeout: c.Timeout, log: r.writeLog(c.Name, buf.Bytes())}, nil
 }
 
 // logMaxAge is how long a check log stays in .obor/state/logs.
@@ -511,20 +519,25 @@ func (r *runner) must(name string) (output, bool, *halt) {
 }
 
 // retestOnRed runs a red lane test's failures once more (T-964, one retest, never more): the tests and packages the run
-// named, commands.retest in the same dir at the same commit, OBOR_FAILED_TESTS (a -run regexp of the names) and
-// OBOR_FAILED_PKGS, the runner's CPU budget. green: the retest passed and ran at least one test (a run that tested
-// nothing, "0 pass, 0 fail", is not green, T-976); ran false: none ran (no name or package, a build failure, no
-// commands.retest), so the red stands as before.
+// named, commands.retest in the same dir at the same commit — its {tests} the failing tests joined by
+// merge.retest_join, OBOR_FAILED_PKGS the failing packages — the runner's CPU budget. green: the retest passed and ran
+// at least one test (a run that tested nothing, "0 pass, 0 fail", is not green, T-976); ran false: none ran (no name or
+// package, no commands.retest), so the red stands as before.
 func (r *runner) retestOnRed(red output) (out output, green, ran bool) {
-	tests, pkgs, built := r.failingTests(red)
-	if built || len(tests) == 0 || len(pkgs) == 0 {
+	_, tests, pkgs := r.flakeParse(red)
+	if len(tests) == 0 || len(pkgs) == 0 {
 		return output{}, false, false
 	}
+	c, ok := r.command("retest")
+	if !ok {
+		return output{}, false, false
+	}
+	c = r.retestCommand(c, tests)
 	n := len(r.env)
-	r.env = append(r.env, "OBOR_FAILED_TESTS="+testRegexp(tests), "OBOR_FAILED_PKGS="+strings.Join(pkgs, " "))
-	o, ok, h := r.exec("retest")
+	r.env = append(r.env, "OBOR_FAILED_PKGS="+strings.Join(pkgs, " "))
+	o, h := r.execCommand(c)
 	r.env = r.env[:n]
-	if h != nil || !ok {
+	if h != nil {
 		return output{}, false, false
 	}
 	return o, o.rc == 0 && ranTests(r.counts(o)), true
@@ -546,18 +559,14 @@ func ranTests(counts string) bool {
 	return len(nums) == 0
 }
 
-// testRegexp is go test -run's regexp for tests: every name quoted and anchored, joined by |. -run reads a "/" as the
-// per-level pattern of a subtest, so a name's levels are anchored one by one.
-func testRegexp(tests []string) string {
-	parts := make([]string, 0, len(tests))
-	for _, t := range tests {
-		levels := strings.Split(t, "/")
-		for i, l := range levels {
-			levels[i] = "^" + regexp.QuoteMeta(l) + "$"
-		}
-		parts = append(parts, strings.Join(levels, "/"))
-	}
-	return strings.Join(parts, "|")
+// retestPlaceholder is commands.retest's placeholder for the failing tests (T-1047), joined by merge.retest_join.
+const retestPlaceholder = "{tests}"
+
+// retestCommand is c with retestPlaceholder filled: the failing tests joined by merge.retest_join (default "|"), in
+// the order the run named them. A command with no placeholder runs as it is.
+func (r *runner) retestCommand(c config.Command, tests []string) config.Command {
+	c.Cmd = strings.ReplaceAll(c.Cmd, retestPlaceholder, strings.Join(tests, r.Cfg.RetestJoin()))
+	return c
 }
 
 // redLine is a red run's result-line parts: what failed (counts or the timeout, and the class) and its evidence (" —

@@ -138,15 +138,15 @@ check-compile:
 	$(MAKE) -s deadcode || { echo "FAIL deadcode"; exit 1; }; \
 	echo "compile: build, gofmt, vet, deadcode OK"
 
-# check-retest (commands.retest, T-964, T-976): a red lane test's failing tests once more on the same tree, not the
-# check's whole package tier: go test -run "$OBOR_FAILED_TESTS" on $OBOR_FAILED_PKGS (the run named them both), with
-# GO_CACHE (an unwritable default cache falls back as the checks do), CHECK_CPUS as -p. No -short: a test that failed
-# ran, so the retry runs it as it ran (a testkit.Slow test would otherwise SKIP and turn a real failure green, RV-135
-# #1); the retry still skips build, gofmt and vet. Green → the red was a flake; anything else (and a run with no names:
-# no retest at all, the lane step) is red.
+# check-retest (commands.retest, T-964, T-976, T-1047): a red lane test's failing tests once more on the same tree, not
+# the check's whole package tier: go test -run of $TESTS (the tests the run named, `^(A|B)$` — obor fills commands.retest's
+# {tests}) on $OBOR_FAILED_PKGS (the packages it named), with GO_CACHE (an unwritable default cache falls back as the
+# checks do), CHECK_CPUS as -p. No -short: a test that failed ran, so the retry runs it as it ran (a testkit.Slow test
+# would otherwise SKIP and turn a real failure green, RV-135 #1); the retry still skips build, gofmt and vet. Green →
+# the red was a flake; anything else (and a run with no names: no retest at all, the lane step) is red.
 check-retest:
 	@$(GO_CACHE); \
-	rc=0; out=$$($(GO) test -count=1 -tags integration $${CHECK_CPUS:+-p $$CHECK_CPUS} -run "$$OBOR_FAILED_TESTS" $$OBOR_FAILED_PKGS 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
+	rc=0; out=$$($(GO) test -count=1 -tags integration $${CHECK_CPUS:+-p $$CHECK_CPUS} -run "$$TESTS" $$OBOR_FAILED_PKGS 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
 	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"
 

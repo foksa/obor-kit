@@ -33,6 +33,7 @@ func (c *Config) Validate(o ValidateOptions) (warns, fails []string) {
 	v.lanes()
 	v.difficulty()
 	v.classes()
+	v.flakeRegex()
 	v.nightlyCommands()
 	v.integrator()
 	v.customRoles()
@@ -221,6 +222,31 @@ func (v *validator) classes() {
 			continue
 		}
 		seen[class.Name] = i
+	}
+}
+
+// flakeRegex: merge.flake_regex is a pair — the failed-test line, then the failed-package line — and each compiles and
+// captures its name in the group named for it (T-1047). Unset is fine: no flake parsing.
+func (v *validator) flakeRegex() {
+	pair := v.d.Merge.FlakeRegex
+	switch len(pair) {
+	case 0:
+		return
+	case 2:
+	default:
+		v.fail(".merge.flake_regex", fmt.Sprintf("must be a pair (the failed-test line, then the failed-package line), got %d", len(pair)))
+		return
+	}
+	for i, group := range []string{"test", "package"} {
+		at := ".merge.flake_regex" + idx(i)
+		re, err := regexp.Compile(pair[i])
+		if err != nil {
+			v.fail(at, "is no regexp: "+err.Error())
+			continue
+		}
+		if re.SubexpIndex(group) < 0 {
+			v.fail(at, "has no (?P<"+group+">…) named group: the name to read from the line")
+		}
 	}
 }
 

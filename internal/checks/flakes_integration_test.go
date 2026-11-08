@@ -51,11 +51,9 @@ func TestFlakeLog(t *testing.T) {
 	// Two test failures and the package summary line: the two test names, not the package.
 	const twoFails = `echo "--- FAIL: TestAlpha (0.01s)"; echo "--- FAIL: TestBeta (0.02s)"; ` +
 		`echo "FAIL example.com/pkg 0.03s"; exit 1`
-	const failGrep = `^--- FAIL|^FAIL\s`
-
 	t.Run("red run: one line per failing test with the run's task and sha", func(t *testing.T) {
 		t.Parallel()
-		x := newFx(t, cmd("check", twoFails), testkit.Set("merge.fail_grep", failGrep))
+		x := newFx(t, cmd("check", twoFails), goLines())
 		x.is(x.gate("L-01", "T-05", "red"), Red, `^RED check `)
 		base := x.cand.SHA // T-961: the lane test runs on the candidate, the slot's merge commit
 		got := x.flakes()
@@ -85,7 +83,7 @@ func TestFlakeLog(t *testing.T) {
 
 	t.Run("unwritable flake log: a warning line, the check result unchanged", func(t *testing.T) {
 		t.Parallel()
-		x := newFx(t, cmd("check", twoFails), testkit.Set("merge.fail_grep", failGrep))
+		x := newFx(t, cmd("check", twoFails), goLines())
 		if err := os.MkdirAll(filepath.Join(x.Root, ".obor/state/flakes.jsonl"), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -119,10 +117,9 @@ func (x *fx) eqList(got, want []string, what string) {
 func TestFlakeLogNightly(t *testing.T) {
 	t.Parallel()
 	failing := func(name string) any { return `echo "--- FAIL: Test_` + name + ` (0.01s)"; exit 1` }
-	grep := testkit.Set("merge.fail_grep", `^--- FAIL|^FAIL\s`)
 	t.Run("NIGHTLY: check, check_milestone, baseline, gate and e2e", func(t *testing.T) {
 		t.Parallel()
-		x := newFx(t, grep, cmd("check", failing("check")), cmd("check_milestone", failing("milestone")),
+		x := newFx(t, goLines(), cmd("check", failing("check")), cmd("check_milestone", failing("milestone")),
 			cmd("baseline", map[string]any{"cmd": failing("baseline"), "dir": "base"}),
 			cmd("gate", failing("gate")), cmd("e2e", failing("e2e")))
 		os.Mkdir(x.Path("base"), 0o755)
@@ -141,7 +138,7 @@ func TestFlakeLogNightly(t *testing.T) {
 
 	t.Run("lane_setup timeout: logged, the rest not run", func(t *testing.T) {
 		t.Parallel()
-		x := newFx(t, grep, cmd("lane_setup", map[string]any{"cmd": `echo "--- FAIL: Test_setup (0.01s)"; sleep 5`, "timeout": 1}),
+		x := newFx(t, goLines(), cmd("lane_setup", map[string]any{"cmd": `echo "--- FAIL: Test_setup (0.01s)"; sleep 5`, "timeout": 1}),
 			cmd("check", "echo 1 pass"))
 		x.is(x.nightly(), Red, `^NIGHTLY RED .*failed: lane_setup;`)
 		x.eqList(x.logged(), []string{"Test_setup/lane_setup/false/false"}, "log")
@@ -149,43 +146,36 @@ func TestFlakeLogNightly(t *testing.T) {
 
 	t.Run("green nightly: no log", func(t *testing.T) {
 		t.Parallel()
-		x := newFx(t, grep, cmd("check", "echo 1 pass"))
+		x := newFx(t, goLines(), cmd("check", "echo 1 pass"))
 		x.is(x.nightly(), OK, `^NIGHTLY GREEN `)
 		x.gone(".obor/state/flakes.jsonl", "no flake log")
 	})
 }
 
-// T-359 (RV-39 #4): an independent FAIL <pkg> line is logged unless a --- FAIL: name of that package covers it.
-func TestFailingNames(t *testing.T) {
+// T-359 (RV-39 #4): an independent FAIL <pkg> line is logged unless a --- FAIL: name of that package covers it: a
+// merge's mixed output names the test and the package that did not build.
+func TestFlakeLogMixed(t *testing.T) {
 	t.Parallel()
-	opt := &Options{}
-	opt.Cfg = &config.Config{}
-	opt.Cfg.Data.Merge.FailGrep = `^--- FAIL|^FAIL\s`
-	for _, c := range []struct{ name, out, want string }{
-		{"tests only: their names, not the package", "--- FAIL: TestA (0.01s)\n--- FAIL: TestB (0.01s)\nFAIL example.com/a 0.03s\nFAIL\n", "TestA TestB"},
-		{"packages only: the packages", "FAIL example.com/a [build failed]\nFAIL example.com/b 1s\nFAIL\n", "example.com/a example.com/b"},
-		{"a test and a build failure of another package: both", "--- FAIL: TestUnit (0.01s)\nFAIL example.com/unit 0.02s\nFAIL example.com/build [build failed]\n", "TestUnit example.com/build"},
-		{"a test and a panic or timeout of another package: both", "--- FAIL: TestUnit (0.01s)\nFAIL example.com/unit 0.02s\nFAIL example.com/hang 60s\n", "TestUnit example.com/hang"},
-		{"a package with no test line first: its package, then the next package's test", "FAIL example.com/build [build failed]\n--- FAIL: TestUnit (0.01s)\nFAIL example.com/unit 0.02s\n", "example.com/build TestUnit"},
-		{"two packages with tests: no package", "--- FAIL: TestA (0s)\nFAIL example.com/a 1s\n--- FAIL: TestB (0s)\nFAIL example.com/b 1s\n", "TestA TestB"},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			got := strings.Join(opt.failingNames(output{text: c.out}), " ")
-			if got != c.want {
-				t.Errorf("got %q, want %q", got, c.want)
-			}
-		})
-	}
+	const mixed = `echo "--- FAIL: TestUnit timed out (0.01s)"; echo "FAIL example.com/unit 0.02s"; ` +
+		`echo "FAIL example.com/build [build failed]"; exit 1`
+	x := newFx(t, goLines(), cmd("check", mixed))
+	x.is(x.gate("L-01", "T-05", "red"), Red, `^RED check `)
+	x.eqList(x.logged(), []string{"TestUnit/check/false/false", "example.com/build/check/false/false"}, "red")
+}
 
-	t.Run("a merge's mixed output: test names, a build failure", func(t *testing.T) {
-		t.Parallel()
-		const mixed = `echo "--- FAIL: TestUnit timed out (0.01s)"; echo "FAIL example.com/unit 0.02s"; ` +
-			`echo "FAIL example.com/build [build failed]"; exit 1`
-		x := newFx(t, testkit.Set("merge", map[string]any{"fail_grep": `^--- FAIL|^FAIL\s`}), cmd("check", mixed))
-		x.is(x.gate("L-01", "T-05", "red"), Red, `^RED check `)
-		x.eqList(x.logged(), []string{"TestUnit/check/false/false", "example.com/build/check/false/false"}, "red")
-	})
+// T-1047: a project with no merge.flake_regex parses no flake names: fail_grep still picks the failing lines for the
+// red's report, but no name is logged, with no error.
+func TestFlakeLogNoRegex(t *testing.T) {
+	t.Parallel()
+	x := newFx(t, testkit.Set("merge.fail_grep", goFailGrep),
+		cmd("check", `echo "--- FAIL: TestAlpha (0.01s)"; echo "FAIL example.com/pkg 0.03s"; exit 1`))
+	cfg, err := config.Load(x.Root)
+	if err != nil || len(cfg.Data.Merge.FlakeRegex) != 0 { // precondition: no flake_regex
+		t.Fatalf("precondition: flake_regex %v, %v; want none", cfg, err)
+	}
+	x.is(x.gate("L-01", "T-05", "red"), Red, `^RED check `)
+	x.contains(x.out.String(), "--- FAIL: TestAlpha", "fail_grep still named the failing line")
+	x.gone(".obor/state/flakes.jsonl", "no flake parsing without the regex")
 }
 
 // flakeFx is a project whose internal/x/x_test.go defines TestLedger — the test a red can be explained by — with the

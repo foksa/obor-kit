@@ -412,7 +412,7 @@ func TestMakeChecksPassIntegrationTag(t *testing.T) {
 	}{
 		{target: "check", test: true, vet: true, dead: true},
 		{target: "check-affected", test: true},
-		{target: "check-retest", env: []string{"OBOR_FAILED_TESTS=^TestX$", "OBOR_FAILED_PKGS=example.com/pkg"}, test: true},
+		{target: "check-retest", env: []string{"TESTS=^(TestX)$", "OBOR_FAILED_PKGS=example.com/pkg"}, test: true},
 		{target: "check-readers", test: true},
 		{target: "check-web", test: true},
 		{target: "check-release", test: true, vet: true},
@@ -599,8 +599,9 @@ func TestMakeCheckGoTestNoTimeout(t *testing.T) {
 	}
 }
 
-// T-964/T-976: check-retest (commands.retest, a red lane test's one rerun) tests only what the red named: the -run
-// regexp of OBOR_FAILED_TESTS and the packages of OBOR_FAILED_PKGS, CHECK_CPUS as -p, the other tiers' summary line.
+// T-964/T-976/T-1047: check-retest (commands.retest, a red lane test's one rerun) tests only what the red named: the
+// -run regexp of TESTS (obor fills commands.retest's {tests}) and the packages of OBOR_FAILED_PKGS, CHECK_CPUS as -p,
+// the other tiers' summary line.
 // No -short (a test that failed ran, so the retry runs it as it ran) and no build, gofmt or vet.
 func TestMakeCheckRetest(t *testing.T) {
 	t.Parallel()
@@ -611,22 +612,22 @@ func TestMakeCheckRetest(t *testing.T) {
 	fake := filepath.Join(dir, "fake-go")
 	writeExec(t, fake, "#!/bin/bash\necho \"$*\" >> \""+log+"\"\ncase \"$1\" in env) echo \""+dir+"/cache\" ;; esac\n"+
 		"echo \"ok example.com/pkg 0.01s\"\n") // go env GOCACHE: a writable cache, so GO_CACHE keeps go's default
-	var env []string // the test's own: an inherited OBOR_FAILED_* or CHECK_CPUS must not win over the ones set here
+	var env []string // the test's own: an inherited TESTS, OBOR_FAILED_* or CHECK_CPUS must not win over the ones set here
 	for _, kv := range plainMakeEnv() {
 		name, _, _ := strings.Cut(kv, "=")
-		if !strings.HasPrefix(name, "OBOR_FAILED_") && name != "CHECK_CPUS" {
+		if !strings.HasPrefix(name, "OBOR_FAILED_") && name != "TESTS" && name != "CHECK_CPUS" {
 			env = append(env, kv)
 		}
 	}
 	cmd := exec.Command("make", "-s", "-C", dir, "check-retest", "GO="+fake)
-	cmd.Env = append(env, "OBOR_FAILED_TESTS=^TestAlpha$|^TestBeta$",
+	cmd.Env = append(env, "TESTS=^(TestAlpha|TestBeta)$",
 		"OBOR_FAILED_PKGS=example.com/pkg example.com/other", "CHECK_CPUS=3")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("make check-retest: %v\n%s", err, out)
 	}
 	calls := strings.Split(strings.TrimSpace(readFile(t, log)), "\n")
-	want := "test -count=1 -tags integration -p 3 -run ^TestAlpha$|^TestBeta$ example.com/pkg example.com/other"
+	want := "test -count=1 -tags integration -p 3 -run ^(TestAlpha|TestBeta)$ example.com/pkg example.com/other"
 	if got := calls[len(calls)-1]; got != want {
 		t.Errorf("go test: %q, want %q", got, want)
 	}
@@ -676,7 +677,7 @@ func checkRetest(t *testing.T, dir string, env ...string) (string, bool) {
 		t.Skipf("no go on PATH: %v", err)
 	}
 	cmd := exec.Command("make", "-s", "-C", dir, "check-retest", "GO="+goBin,
-		"OBOR_FAILED_TESTS=^TestSlow$", "OBOR_FAILED_PKGS=example.com/slow/slow")
+		"TESTS=^(TestSlow)$", "OBOR_FAILED_PKGS=example.com/slow/slow")
 	cmd.Env = append(plainMakeEnv(), env...)
 	out, err := cmd.CombinedOutput()
 	return string(out), err != nil

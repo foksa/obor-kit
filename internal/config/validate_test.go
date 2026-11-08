@@ -659,3 +659,69 @@ func TestPluginKindEffortsFromDescribe(t *testing.T) {
 		t.Errorf("an effort the describe lacks: %q, want %q", got, want)
 	}
 }
+
+// T-1047: merge.flake_regex is a pair — the failed-test line, then the failed-package line — and each compiles and has
+// its named group (test, package); no pair is fine (a project whose checks print no such lines).
+func TestValidateFlakeRegex(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		merge string
+		fails []string // prefixes: a compile error carries regexp's own text
+	}{
+		{name: "the Go pair", merge: `{"flake_regex": ["^--- FAIL: (?P<test>\\S+)", "^FAIL\\s+(?P<package>[^\\s./][^\\s]*[./][^\\s]*)"]}`},
+		{name: "no pair", merge: `{"fail_grep": "^--- FAIL"}`},
+		{name: "one line only", merge: `{"flake_regex": ["^--- FAIL: (?P<test>\\S+)"]}`,
+			fails: []string{"FAIL .merge.flake_regex: must be a pair (the failed-test line, then the failed-package line), got 1"}},
+		{name: "a bad regexp", merge: `{"flake_regex": ["^--- FAIL: (?P<test>\\S+)", "["]}`,
+			fails: []string{"FAIL .merge.flake_regex[1]: is no regexp: error parsing regexp"}},
+		{name: "no named group", merge: `{"flake_regex": ["^--- FAIL: \\S+", "^FAIL\\s+(?P<package>\\S+)"]}`,
+			fails: []string{"FAIL .merge.flake_regex[0]: has no (?P<test>…) named group: the name to read from the line"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			p := testkit.New(t)
+			p.Write(".obor/config.json", `{"version":1,"prefix":"pj","merge":`+c.merge+`}`)
+			cfg, err := config.Load(p.Root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, all := cfg.Validate(config.ValidateOptions{})
+			var fails []string
+			for _, f := range all {
+				if strings.HasPrefix(f, "FAIL .merge.flake_regex") {
+					fails = append(fails, f)
+				}
+			}
+			if len(fails) != len(c.fails) {
+				t.Fatalf("validate = %q, want %q", fails, c.fails)
+			}
+			for i, want := range c.fails {
+				if !strings.HasPrefix(fails[i], want) {
+					t.Errorf("validate[%d] = %q, want %q", i, fails[i], want)
+				}
+			}
+		})
+	}
+}
+
+// T-1047: merge.retest_join is the separator commands.retest's {tests} joins the failing tests with, default "|".
+func TestRetestJoin(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct{ cfg, want string }{
+		{`{"prefix":"pj"}`, "|"},
+		{`{"prefix":"pj","merge":{"retest_join":","}}`, ","},
+	} {
+		p := testkit.New(t)
+		p.Write(".obor/config.json", c.cfg)
+		cfg, err := config.Load(p.Root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := cfg.RetestJoin(); got != c.want {
+			t.Errorf("RetestJoin(%s) = %q, want %q", c.cfg, got, c.want)
+		}
+	}
+	if got := (*config.Config)(nil).RetestJoin(); got != "|" {
+		t.Errorf("nil config: RetestJoin() = %q, want |", got)
+	}
+}
