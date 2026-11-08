@@ -137,7 +137,7 @@ func copySx(t *testing.T, src string) *sx {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &sx{fx: x, s: Scratch{x.opts()}, cut: filepath.Join(base, "cut"), serve: x.scratch, real: real}
+	return &sx{fx: x, s: Scratch{Options: x.opts()}, cut: filepath.Join(base, "cut"), serve: x.scratch, real: real}
 }
 
 // repairWorktrees points every copied worktree under proj-wt at base.
@@ -281,7 +281,7 @@ func (x *fx) gate(lane, task, summary string) Result {
 // gateCtx is gate whose Gate ends with ctx.
 func (x *fx) gateCtx(ctx context.Context, lane, task, summary string) Result {
 	x.out.Reset()
-	s := Scratch{x.opts()}
+	s := Scratch{Options: x.opts()}
 	sha, err := s.Submit(context.Background(), task, "1", lane, summary, "worker")
 	if err != nil {
 		return Result{Code: Fail, Line: err.Error()}

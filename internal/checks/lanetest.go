@@ -38,19 +38,20 @@ func (s Scratch) Test(ctx context.Context, in port.TestInput) (out port.TestOutc
 	if s.Out == nil {
 		s.Out = io.Discard
 	}
+	g := s.gio()
 	dir := s.laneDir(in.Lane)
 	if dir == "" {
 		return port.TestOutcome{Kind: port.OutcomeFail, Line: "FAIL no lane " + in.Lane}, nil
 	}
-	st, err := s.call(dir, "status", "--porcelain")
+	st, err := g.Status(dir)
 	if err != nil {
 		return port.TestOutcome{}, err
 	}
-	if st != "" {
+	if len(st) > 0 {
 		return port.TestOutcome{}, fmt.Errorf("lane %s dirty (%d uncommitted path(s)): its test runs once it is clean",
-			in.Lane, len(lines(st)))
+			in.Lane, len(st))
 	}
-	branch, err := s.call(dir, "branch", "--show-current")
+	branch, err := g.Branch(dir)
 	if err != nil {
 		return port.TestOutcome{}, err
 	}
@@ -61,7 +62,7 @@ func (s Scratch) Test(ctx context.Context, in port.TestInput) (out port.TestOutc
 		return port.TestOutcome{Kind: port.OutcomeFail,
 			Line: fmt.Sprintf("FAIL lane %s is detached and its dispatch names no branch", in.Lane)}, nil
 	}
-	if _, err := s.call(dir, "checkout", "-q", "--detach", in.SHA); err != nil {
+	if err := g.Detach(dir, in.SHA); err != nil {
 		return port.TestOutcome{}, err
 	}
 	defer func() {
@@ -119,12 +120,14 @@ func (s Scratch) restore(ctx context.Context, dir, branch string) error {
 		defer cancel()
 		s.gitCtx = c
 	}
-	for _, args := range [][]string{{"reset", "-q", "--hard"}, {"clean", "-fdq"}, {"checkout", "-q", branch}} {
-		if _, err := s.call(dir, args...); err != nil {
-			return err
-		}
+	g := s.gio() // after the ctx above
+	if err := g.Reset(dir, ""); err != nil {
+		return err
 	}
-	return nil
+	if err := g.Clean(dir); err != nil {
+		return err
+	}
+	return g.Switch(dir, branch)
 }
 
 // laneDir is the configured lane's worktree ("": no such lane, or its dir is no directory).

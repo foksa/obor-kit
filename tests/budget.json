@@ -9,10 +9,7 @@
     "obor/internal/checks TestLaneTestGreenRestores": 4.0,
     "obor/internal/checks TestLaneTestRedRestores": 6.0,
     "obor/internal/checks TestNightly": 10.0,
-    "obor/internal/checks TestReplayedResolutionCleanOnlyWhenEqual": 2.5,
-    "obor/internal/checks TestResolvedPinsOwnMergeOnly": 3.0,
-    "obor/internal/checks TestScratchAfterMerge": 2.5,
-    "obor/internal/checks TestScratchCutTable": 47.0,
+    "obor/internal/checks TestScratchGitScenarios": 5.5,
     "obor/internal/checks TestScratchRerereReplaysResolvedConflict": 2.0
   },
   "packages": {
@@ -67,9 +64,9 @@
       "git_procs": 0
     },
     "obor/internal/checks": {
-      "short_s": 64.9,
-      "full_s": 74.9,
-      "git_procs": 7295
+      "short_s": 38.3,
+      "full_s": 38.3,
+      "git_procs": 3020
     },
     "obor/internal/config": {
       "short_s": 11.1,

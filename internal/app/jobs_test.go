@@ -555,7 +555,7 @@ func TestResumeRegate(t *testing.T) {
 		t.Parallel()
 		r, job := reviewed(t)
 		// an untracked feature.txt in the main checkout's way: the fast-forward would overwrite it (git's refusal:
-		// internal/checks' TestScratchPublish)
+		// internal/checks' TestPublishDecisions, on real git TestScratchGitScenarios)
 		r.scratch.Script("Publish", "T-1", port.PublishHold+" feature.txt")
 		r.accept("c1", r.patch(job))
 		r.waitPrefix("1 fact needs-you{publish: ")

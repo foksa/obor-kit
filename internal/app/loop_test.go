@@ -1042,7 +1042,7 @@ func TestLoopPausedOffTargetBranch(t *testing.T) {
 // T-360 (RV-39 #6), T-440, T-521: the lane's commit and its merge take the task's title from the stored spec; the
 // title in the main checkout's spec file changes neither. The review job carries the gated spec rev's text; the gate
 // gets that rev and its text for the merge's message (the message itself, and that the gate writes no spec file, are
-// internal/checks': TestGateSpecInMessage).
+// internal/checks': TestGateDecisions).
 func TestCommitSubjectFromStoredSpec(t *testing.T) {
 	t.Parallel()
 	r := newLoopRig(t)
