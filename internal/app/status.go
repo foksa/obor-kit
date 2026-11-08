@@ -365,6 +365,9 @@ func (a *App) Listen(ln net.Listener) {
 			case req.Method == "status":
 				st := a.Status()
 				ans.Status = &st
+			case req.Method == wire.MethodEvents: // a stream of lines, its own writes (T-1039)
+				a.feed(c, req.Call)
+				return
 			case req.Method == wire.MethodSpecSet || req.Method == wire.MethodPause || req.Method == wire.MethodSend || req.Method == wire.MethodBrief ||
 				req.Method == wire.MethodWatch || req.Method == wire.MethodReview || req.Method == wire.MethodStopped || req.Method == wire.MethodTurn || req.Method == wire.MethodSession ||
 				req.Method == wire.MethodExit || req.Method == wire.MethodConfig || req.Method == wire.MethodTellLead || req.Method == wire.MethodIdle ||

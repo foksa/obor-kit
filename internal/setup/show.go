@@ -129,14 +129,26 @@ func (s *Setup) rolesLine() string {
 	}
 	for _, role := range config.Unique(names...) {
 		rc, _ := s.cfg.Role(role)
-		if rc.Type == "" {
-			parts = append(parts, role+" - (roles."+role+" not set)")
-			continue
+		part := role + " - (roles." + role + " not set)"
+		switch {
+		case rc.Type == "" && rc.Role.Custom: // listed only when its row is set (RoleAgents)
+			part = role + " - (no model named)"
+		case rc.Type != "":
+			ref := config.ModelRef(rc.Type, rc.Effort)
+			part = role + " " + ref + s.modelDetail(ref)
 		}
-		ref := config.ModelRef(rc.Type, rc.Effort)
-		parts = append(parts, role+" "+ref+s.modelDetail(ref))
+		parts = append(parts, part+verbsDetail(rc.Role.Verbs))
 	}
 	return strings.Join(parts, ", ")
+}
+
+// verbsDetail is a custom role's verbs as the roles line shows them after its model (T-1039): " [verbs spec_set
+// dispatch]", "" for none.
+func verbsDetail(verbs []string) string {
+	if len(verbs) == 0 {
+		return ""
+	}
+	return " [verbs " + strings.Join(verbs, " ") + "]"
 }
 
 // initConfirmed records setup.confirmed: false when the config has no such key (T-647): the lead goes through the

@@ -81,6 +81,8 @@ Adding a kind = one package + a config entry.
   T-665, T-670), `dispatch.go`, `drive.go` (the owner's drive and land: `obor drive`, `obor land`, the driving state, T-751), `messages.go`, `mergewatch.go`,
   `rules.go` (the rule pass: rule-tier steps, T-866), `idle.go` (the idle rules and `obor idle`), `stopped.go`, `stopwake.go`, `rolestop.go` (the role stop rules: serve stops the integrator and the reviewer once done, and a fresh brief's stop; T-672, T-870), `workerstart.go` (the worker start rule: a lane's worker started again while its job is outstanding; T-874), `keeplane.go` (a keep lane's agent between its tasks: its live agent takes the next job, the handoff rule stops one past handoff_tokens; T-1031), `nightly.go`, `promote.go` (the promotion of branches.main to branches.promote, T-974),
   `configset.go` (the owner's setup edit from obor web, through the `ConfigFile` port, T-753),
+  `verbs.go` (`leadOr`: the admission of a lead's and the owner's method, a custom role's by its `roles.<name>.verbs`, T-1039),
+  `feed.go` (the socket's `events` request: the event feed after a seq, streamed with `--follow`, T-1039),
   `pause.go`, `exit.go` (the socket's exit request: serve ends gracefully, obor stop, T-711), `sessions.go` (the agents' recorded sessions, T-577),
   `resume.go`, `verdict.go`, `jobs.go`, `prompt.go`,
   `effects.go` (`JobID`), `describe.go` (`Describe`: a record as the readers word it, decoded with the types serve
@@ -98,7 +100,8 @@ Adding a kind = one package + a config entry.
 - `app/wire` (core, a leaf above `app/event`; T-692): the app socket's client half, what a caller can ask serve: every
   `Method*`, `Call`, `Request`/`Answer`, `Ask`, `Verdict` (with its retries and `OBOR_CALL_DEADLINE`), `SocketPath`,
   `NewCallID`, `JobReply`, `ResumeArgs` and `Resume*`, the status types (`Status`, `ProjectStatus`, `TaskStatus` …,
-  `Scratch*`) and the `Backup` client. It imports `app/event`, `store` and `project`, never `app`; `mcp`, `launch`,
+  `Scratch*`) and the `Backup` client. The event feed (`feed.go`, T-1039): `FeedRecord` (a record and its task's spec `Ref`), `FeedSince` (the
+  one read of it: serve's and `obor events`' while serve is down) and the `Feed` client. It imports `app/event`, `store` and `project`, never `app`; `mcp`, `launch`,
   `checks`, `view` and `web` import it instead of `app`. `app` keeps type, var and const aliases of it until a later task
   removes them (`app/wire.go`). `Listen` and the handlers stay in `app`.
 - Task state and the per-project event log (the `events` table of `.obor/state/obor.db`; intent before an effect,

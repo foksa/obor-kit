@@ -20,6 +20,7 @@ projects
 brief
 spec
 flakes
+events
 affected
 nightly
 plugin

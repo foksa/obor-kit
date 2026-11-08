@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"obor/internal/agents"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -43,6 +44,10 @@ type Role struct {
 	Custom bool
 	// WritePaths are a custom role's writes, relative to the root: "dir/" a directory, anything else one file.
 	WritePaths []string
+	// Verbs are a custom role's wire methods serve admits it to as it admits the lead and the owner (T-1039:
+	// roles.<name>.verbs, each one of Verbs): an integration's role takes a task and briefs the lead. They add rights,
+	// never remove one; a built-in role has none.
+	Verbs []string
 	// Seeds are the files setup role copies for a custom role when missing: a write path → its kit template under
 	// templates/ (triage's docs/BUGS.md).
 	Seeds map[string]string
@@ -99,6 +104,17 @@ func DefaultRows() []Role { return append([]Role(nil), defaultRows...) }
 func Custom(name string, write []string) Role {
 	return Role{Name: name, EnvValue: name, AgentSuffix: strings.ReplaceAll(name, "_", "-"), Cwd: CwdProject,
 		Write: WriteList, WritePaths: write, Optional: true, GitReadOnly: true, Custom: true}
+}
+
+// Verbs are the wire methods a custom role's roles.<name>.verbs may name (T-1039): the lead's and the owner's calls an
+// integration needs to take a task (spec_set, dispatch), follow it (watch) and brief the lead or a role agent (send,
+// brief). The names are internal/app/wire's Method* (its test keeps the two alike); serve's admission of each reads
+// HasVerb.
+var Verbs = []string{"spec_set", "dispatch", "watch", "send", "brief"}
+
+// HasVerb: r is a custom role whose verbs name method.
+func (r Role) HasVerb(method string) bool {
+	return r.Custom && slices.Contains(r.Verbs, method)
 }
 
 // CustomNameRE is what a custom role's name must match.

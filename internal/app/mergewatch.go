@@ -169,8 +169,12 @@ func (a *App) watchCall(c wire.Call) (string, error) {
 		return reply, nil
 	case !a.merges(p):
 		return "", mergeOff(p)
-	case c.Role != "" && c.Role != "lead":
-		return "", fmt.Errorf("watch: the lead or the owner watches, not %s (role %s)", Dash(c.Agent), c.Role)
+	}
+	if err := leadOr(p.root, wire.MethodWatch, c, fmt.Sprintf("watch: the lead or the owner watches, not %s (role %s)", Dash(c.Agent),
+		c.Role)); err != nil {
+		return "", err
+	}
+	switch {
 	case c.Task == "" && c.Clear:
 		return "", errors.New("watch: --rm needs a task")
 	case c.Task == "":
