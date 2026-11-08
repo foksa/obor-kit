@@ -117,7 +117,6 @@ func TestLeadRunningTouchesNothing(t *testing.T) {
 // T-553: `obor lead` starts fresh; --resume continues the recorded session (--fresh was removed, T-774). A fresh
 // start names its session itself, and herdr's session is no source of a Claude resume (T-813).
 func TestLeadLabelledPaneSession(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	for _, c := range []struct {
 		args   []string
@@ -186,7 +185,6 @@ func TestLeadOwnPaneStartsOnceItExits(t *testing.T) {
 }
 
 func TestLeadNoPaneSetsUp(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	x := newLeadFx(t)
 	out, rc := x.run(t)
@@ -275,7 +273,6 @@ func TestLeadPromptOnlyForAFreshClaudeLead(t *testing.T) {
 // the project registered), then the lead starts; a start that fails ends obor lead with its error at once and starts
 // no lead; a running project runs no start at all.
 func TestLeadWakesAStoppedProjectFirst(t *testing.T) {
-	testkit.Slow(t)
 	t.Run("stopped", func(t *testing.T) {
 		fakeLaunchctl(t) // the start installs serve (darwin); no t.Parallel: it sets PATH
 		x := newLeadFx(t)

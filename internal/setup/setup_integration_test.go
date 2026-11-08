@@ -225,7 +225,6 @@ func TestLaneAddsConfigWorktreeLinksAndRunsLaneSetup(t *testing.T) {
 // checkout): setup role adds it detached when missing, keeps one that is there, refuses a dir that is no worktree of
 // the repo, and leaves a leftover of the old names (review, deep-dive) alone. No lane is added.
 func TestReviewerAndDeepDiveRunInTheirRoleWorktree(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	for _, c := range []struct {
 		role, old, agent, line, env string
@@ -288,7 +287,6 @@ func TestReviewerAndDeepDiveRunInTheirRoleWorktree(t *testing.T) {
 // bash setup.test.sh case_role_integrator_starts_in_the_root_and_needs_a_type; T-853: in its role worktree
 // <lanes_dir>/integrator (not the merge scratch, where gates run), added detached when missing.
 func TestRoleIntegratorStartsInItsWorktreeAndNeedsAType(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	x := newGitFx(t)
 	x.h.Tab("w1:t1", 200, 50, "w1:p3")

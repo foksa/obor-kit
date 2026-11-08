@@ -253,38 +253,6 @@ func makeCheckShort(t *testing.T, env ...string) []string {
 	return strings.Split(strings.TrimSpace(readFile(t, log)), "\n")
 }
 
-// T-989: OBOR_PROMOTION=1 makes check pass -short (a lane test runs the short tier whatever the class); without it, or with
-// another value, check runs the full suite, as the promotion, the nightly and a release do.
-func TestMakeCheckShort(t *testing.T) {
-	t.Parallel()
-	for _, c := range []struct {
-		name  string
-		env   []string
-		short bool
-	}{
-		{"OBOR_PROMOTION=1", []string{"OBOR_PROMOTION=1"}, true},
-		{"unset", nil, false},
-		{"OBOR_PROMOTION=0", []string{"OBOR_PROMOTION=0"}, false},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			calls := makeCheckShort(t, c.env...)
-			var test string
-			for _, call := range calls {
-				if strings.HasPrefix(call, "test ") {
-					test = call
-				}
-			}
-			if test == "" {
-				t.Fatalf("precondition: make check runs go test: %q", calls)
-			}
-			if got := slices.Contains(strings.Fields(test), "-short"); got != c.short {
-				t.Errorf("go test %q passes -short %v, want %v", test, got, c.short)
-			}
-		})
-	}
-}
-
 // makeCheckTier runs `make -s <target>` on a kit copy whose go and gofmt log their argv to go.log; the fake go answers
 // `go run ./tools/affected` with one package (fx/a), as the kit's tool would. It returns the output, the logged go argv
 // lines and the affected list's call ("": the tool was not asked). env is appended to the make environment (an
@@ -358,10 +326,11 @@ func TestMakeCheckTiers(t *testing.T) {
 				t.Errorf("go test ran %v; want %v (calls %q)", got, c.test, calls)
 			}
 			if c.target == "check-affected" {
-				for _, flag := range []string{"-short", "-count=1"} {
-					if !slices.Contains(strings.Fields(test), flag) {
-						t.Errorf("check-affected's go test %q passes no %s", test, flag)
-					}
+				if !slices.Contains(strings.Fields(test), "-count=1") {
+					t.Errorf("check-affected's go test %q passes no -count=1", test)
+				}
+				if slices.Contains(strings.Fields(test), "-short") {
+					t.Errorf("check-affected's go test %q passes -short; want the whole suite", test)
 				}
 			}
 			if got := affected != ""; got != c.affected {
@@ -602,7 +571,7 @@ func TestMakeCheckGoTestNoTimeout(t *testing.T) {
 // T-964/T-976/T-1047: check-retest (commands.retest, a red lane test's one rerun) tests only what the red named: the
 // -run regexp of TESTS (obor fills commands.retest's {tests}) and the packages of OBOR_FAILED_PKGS, CHECK_CPUS as -p,
 // the other tiers' summary line.
-// No -short (a test that failed ran, so the retry runs it as it ran) and no build, gofmt or vet.
+// No build, gofmt or vet.
 func TestMakeCheckRetest(t *testing.T) {
 	t.Parallel()
 	dir := testkit.Dir(t)
@@ -641,26 +610,23 @@ func TestMakeCheckRetest(t *testing.T) {
 	}
 }
 
-// slowKit is a kit copy (the tree's Makefile and VERSION) beside one dependency-free module, example.com/slow/slow:
-// TestSlow skips under -short, as testkit.Slow does, and fails while SLOW_FAILS=1.
-func slowKit(t *testing.T) string {
+// retestKit is a kit copy (the tree's Makefile and VERSION) beside one dependency-free module, example.com/retest:
+// TestFlaky fails while FLAKY_FAILS=1.
+func retestKit(t *testing.T) string {
 	t.Helper()
 	dir := testkit.Dir(t)
 	writeFile(t, filepath.Join(dir, "Makefile"), string(treeFile(t, "Makefile")))
 	writeFile(t, filepath.Join(dir, "VERSION"), "1.2.3\n")
-	writeFile(t, filepath.Join(dir, "go.mod"), "module example.com/slow\n\ngo 1.21\n")
-	writeFile(t, filepath.Join(dir, "slow", "slow_test.go"), `package slow
+	writeFile(t, filepath.Join(dir, "go.mod"), "module example.com/retest\n\ngo 1.21\n")
+	writeFile(t, filepath.Join(dir, "retest", "retest_test.go"), `package retest
 
 import (
 	"os"
 	"testing"
 )
 
-func TestSlow(t *testing.T) {
-	if testing.Short() {
-		t.Skip("slow: runs in make check")
-	}
-	if os.Getenv("SLOW_FAILS") == "1" {
+func TestFlaky(t *testing.T) {
+	if os.Getenv("FLAKY_FAILS") == "1" {
 		t.Fatal("the failure the retry must see")
 	}
 }
@@ -668,7 +634,7 @@ func TestSlow(t *testing.T) {
 	return dir
 }
 
-// checkRetest runs `make -s check-retest` on the slowKit at dir for its TestSlow with the real go, env added; it
+// checkRetest runs `make -s check-retest` on the retestKit at dir for its TestFlaky with the real go, env added; it
 // returns the output and whether make failed.
 func checkRetest(t *testing.T, dir string, env ...string) (string, bool) {
 	t.Helper()
@@ -677,28 +643,24 @@ func checkRetest(t *testing.T, dir string, env ...string) (string, bool) {
 		t.Skipf("no go on PATH: %v", err)
 	}
 	cmd := exec.Command("make", "-s", "-C", dir, "check-retest", "GO="+goBin,
-		"TESTS=^(TestSlow)$", "OBOR_FAILED_PKGS=example.com/slow/slow")
+		"TESTS=^(TestFlaky)$", "OBOR_FAILED_PKGS=example.com/retest/retest")
 	cmd.Env = append(plainMakeEnv(), env...)
 	out, err := cmd.CombinedOutput()
 	return string(out), err != nil
 }
 
-// T-976 (RV-135 #1): a failed testkit.Slow test is rerun for real — check-retest passes no -short, so it runs instead
-// of skipping; still failing is red, and passing then is green.
-func TestMakeCheckRetestRunsSlowTests(t *testing.T) {
+// T-976 (RV-135 #1): check-retest reruns the test the red run named: still failing is red, and passing then is green.
+func TestMakeCheckRetestRedAndGreen(t *testing.T) {
 	t.Parallel()
-	dir := slowKit(t)
-	out, failed := checkRetest(t, dir, "SLOW_FAILS=1")
+	dir := retestKit(t)
+	out, failed := checkRetest(t, dir, "FLAKY_FAILS=1")
 	if !failed {
-		t.Fatalf("a Slow test that still fails passed the retry (skipped?):\n%s", out)
+		t.Fatalf("a test that still fails passed the retry:\n%s", out)
 	}
-	if !strings.Contains(out, "--- FAIL: TestSlow") {
-		t.Errorf("the retry ran the Slow test and failed it:\n%s", out)
+	if !strings.Contains(out, "--- FAIL: TestFlaky") {
+		t.Errorf("the retry ran the test and failed it:\n%s", out)
 	}
-	if strings.Contains(out, "--- SKIP") {
-		t.Errorf("the retry skipped the Slow test:\n%s", out)
-	}
-	out, failed = checkRetest(t, dir, "SLOW_FAILS=")
+	out, failed = checkRetest(t, dir, "FLAKY_FAILS=")
 	if failed {
 		t.Fatalf("the passing retry is green:\n%s", out)
 	}
@@ -711,7 +673,7 @@ func TestMakeCheckRetestRunsSlowTests(t *testing.T) {
 // (/dev/null here) uses the $TMPDIR fallback and runs instead of failing before any test.
 func TestMakeCheckRetestGocacheFallback(t *testing.T) {
 	t.Parallel()
-	dir := slowKit(t)
+	dir := retestKit(t)
 	tmp := filepath.Join(dir, "tmp") // not dir itself: go ignores a go.mod in the system temp root
 	writeFile(t, filepath.Join(tmp, ".keep"), "")
 	out, failed := checkRetest(t, dir, "GOCACHE=/dev/null", "TMPDIR="+tmp)

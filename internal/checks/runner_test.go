@@ -182,7 +182,6 @@ func TestRunnerCommandEnds(t *testing.T) {
 
 // T-673: a command that times out, and one a signal cuts, end like any other: the runner reports no command running.
 func TestRunnerCommandEndsOnTimeoutAndInterrupt(t *testing.T) {
-	testkit.Slow(t) // 1 s: the command timeout under test
 	x := plainFx(t, cmd("check", map[string]any{"cmd": "sleep 1", "timeout": 1}))
 	o := x.opts()
 	r, got := commandCalls(t, o, x.Root)

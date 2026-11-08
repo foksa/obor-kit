@@ -230,7 +230,6 @@ exit 1
 
 // bash tests/bin.test.sh case_self_host, case_lane_uses_main_bin, case_opt_out_and_no_loop, case_needs_obor_manifest
 func TestShimSelfHost(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	f := newShimFixture(t)
 	stable, own := filepath.Join(f.stable, "bin", "obor"), filepath.Join(f.Root, "bin", "obor")

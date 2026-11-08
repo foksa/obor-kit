@@ -629,7 +629,6 @@ func TestStartClearsOnlyTheStopsPause(t *testing.T) {
 // up, completes it: the owner's pause restored while it has not expired, cleared once it has; the marker gone, and a
 // third start sends nothing.
 func TestStopAndStartRestoreATimedPause(t *testing.T) {
-	testkit.Slow(t)
 	now := time.Now()
 	for _, c := range []struct {
 		name    string

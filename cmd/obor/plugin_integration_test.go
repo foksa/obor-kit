@@ -17,7 +17,6 @@ import (
 // work detached, herdr reached over its socket alone (behaviour: internal/launch).
 // bash restore.test.sh case_backgrounded_and_failure_logged
 func TestPluginBinary(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	p := testkit.New(t)
 	lane := p.Lane("L-01", "task/T-01")

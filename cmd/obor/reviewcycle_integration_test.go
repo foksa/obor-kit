@@ -89,7 +89,6 @@ func closeOf(p *testkit.Project, reviewed string, accepts ...string) port.Review
 // the top of BACKLOG.md's Open section naming the review and commits the subject and body as one commit on main's head
 // with BACKLOG.md; the checkout is clean after it.
 func TestReviewGitClose(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	p, head := reviewFixture(t)
 	g := reviewGit{root: p.Root}
@@ -245,7 +244,6 @@ func TestReviewFixGone(t *testing.T) {
 // Slow: six cases, each a real commit through a pre-commit hook on a fixture of 14 git processes (the code under test
 // runs git), ≈0.45 s a case: 0.2 s the fixture, the rest the close's own git (T-1009 measured).
 func TestReviewGitCloseCommitFails(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	for _, hook := range []string{"reject", "cancel"} {
 		for _, backlog := range []string{"clean", "unstaged", "staged"} {

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net"
 	"obor/internal/app/wire"
-	"obor/internal/testkit"
 	"os"
 	"path/filepath"
 	"strings"
@@ -94,7 +93,6 @@ func TestAskRetriesLostReplyWithSameCallID(t *testing.T) {
 // A serve that crashes after recording the call and restarts seconds later: the client keeps the same call id through
 // the refusals and gets the reply the restarted serve replays from its store (docs/state-model.md, class F, N3).
 func TestAskSurvivesServeRestart(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	dir, err := os.MkdirTemp("", "ask") // short: a unix socket path is limited
 	if err != nil {
@@ -482,7 +480,6 @@ func (s *storingApp) counts() (int, map[string]int, []string) {
 // T-659: a verdict made while serve restarts (no socket until the new serve has loaded) is retried inside its 15 s
 // and lands once: one connection, one record.
 func TestVerdictLandsAfterRestartOnce(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	sock := filepath.Join(sockDir(t), "serve.sock")
 	s := serveStoring(t, sock, 3*time.Second, false)
@@ -501,7 +498,6 @@ func TestVerdictLandsAfterRestartOnce(t *testing.T) {
 
 // T-659: the StopFailure hook's call (5 s) survives a serve back at 4 s: a retry near its deadline lands.
 func TestStopFailureLandsNearItsDeadline(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	sock := filepath.Join(sockDir(t), "serve.sock")
 	s := serveStoring(t, sock, 4*time.Second, false)

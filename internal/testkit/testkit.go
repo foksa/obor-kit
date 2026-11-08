@@ -158,15 +158,6 @@ func copyTree(src, dst string) error {
 	})
 }
 
-// Slow marks a test that takes a second or more: the per-merge gate's fast tier (go test -short, T-957) skips it, and
-// make check, the nightly and releases (no -short) run it. It is the first line of the test.
-func Slow(t testing.TB) {
-	t.Helper()
-	if testing.Short() {
-		t.Skip("slow: runs in make check")
-	}
-}
-
 // Script writes body as the executable dir/name and returns its path: a test's fake launchctl, a stub obor. It is one
 // copy per body per test binary, hardlinked into dir (T-1025): macOS scans a fresh executable before its first exec
 // (100+ ms for a small script), so a launcher written in each test paid that scan per test. Bodies that differ in a

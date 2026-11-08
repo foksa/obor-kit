@@ -76,7 +76,6 @@ func serveStatusAfter(t *testing.T, root string, d time.Duration) {
 // T-862: restart returns once the new serve answers, not when launchd has started it: a big replay binds its socket
 // after that (T-659). Here the old socket is gone and the new one answers 1.5 s in.
 func TestServeRestartWaitsForServe(t *testing.T) {
-	testkit.Slow(t)
 	if runtime.GOOS != "darwin" {
 		t.Skip("launchd: darwin only")
 	}

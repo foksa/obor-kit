@@ -224,7 +224,6 @@ func TestPreToolUseDenyIsOneOborLine(t *testing.T) {
 // obor restart (internal/launch has the behaviour): the result line last, FAIL → exit 1 (a --stop that gives up
 // prints its evidence first).
 func TestRestartCommand(t *testing.T) {
-	testkit.Slow(t)
 	t.Parallel()
 	p := testkit.NewPlain(t)
 	o1 := p.PlainLane("L-01", "")

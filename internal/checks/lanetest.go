@@ -78,8 +78,8 @@ func (s Scratch) Test(ctx context.Context, in port.TestInput) (out port.TestOutc
 	// never the gate's cores / slots.max.
 	r.env = append(r.env, config.LaneEnv(s.Cfg)...)
 	r.env = append(r.env, "CHECK_CPUS="+strconv.Itoa(s.Cfg.LaneCPUs()))
-	// With promotion on, a lane's test is the cheap tier: a project's Makefile maps the fact OBOR_PROMOTION=1 to it
-	// (obor-kit's runs -short and the changed packages only, T-989, T-991, T-997: the full suite runs at the promotion
+	// With promotion on, a lane's test asks for the changed packages only: a project's Makefile maps the fact
+	// OBOR_PROMOTION=1 to that (obor-kit's tools/affected --direct, T-991, T-997: the full suite runs at the promotion
 	// and the nightly (T-986's lane that ran it timed out on it twice at 1200 s), the promotion's full suite covers an
 	// importer's test break, and the slot's compile an importer's build break). Without a promotion nothing runs those
 	// later, so a lane runs the full class check, importers included, as before T-989 (RV-138 #1).

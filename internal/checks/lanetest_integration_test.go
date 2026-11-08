@@ -199,7 +199,7 @@ func laneTestLaneEnv(t *testing.T) {
 }
 
 // T-1041: a lane test carries the fact OBOR_PROMOTION=1 when branches.promote is set (a project's Makefile maps it to
-// its cheap tier: obor-kit's -short and --direct, T-991/T-997) and never without one, so a class's checks run whole as
+// the changed packages only: obor-kit's --direct, T-991/T-997) and never without one, so a class's checks run whole as
 // before T-989.
 func laneTestPromotionEnv(t *testing.T) {
 	t.Parallel()
