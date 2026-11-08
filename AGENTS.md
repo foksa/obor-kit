@@ -45,9 +45,9 @@ checks placement against `docs/module-map.md` at accept).
 - The merge gate is `make check` (`commands.check`, heavy): `make build`, gofmt, `go vet`, `go test ./...`,
   `make deadcode` (pinned; `herdrtest`/`testkit` excepted), on a `$TMPDIR` GOCACHE when the default is not writable.
 - Two tiers (T-347): a merge of only `cmd/**`/`internal/**` (plus neutral docs) runs `make check-affected`
-  (`commands.check_affected`): `go test` only, on the changed packages and their importers (`cmd/affected`) — the
-  slot's `check-compile` ran build, gofmt, vet and deadcode on the same commit (T-995); every other merge, and
-  `obor nightly`, run the full `make check`.
+  (`commands.check_affected`): `make -s build` (it builds the `dist/obor` that picks the affected packages) and `go
+  test` on the changed packages and their importers (`cmd/affected`) — no gofmt, vet or deadcode, the slot's
+  `check-compile` ran them on the same commit (T-995); every other merge, and `obor nightly`, run the full `make check`.
 - No load runs (T-543): one plain `go test <pkgs>` at a time — `-count` > 1, `-race` and two test commands at once
   (`&`, `xargs -P`, `parallel`) are denied by the guard for every role; the gate and nightly run the rest.
 - Tests are Go only (`go test ./...`; no bash suite). Tests build fixture repos in a temp dir and put a stub `herdr`

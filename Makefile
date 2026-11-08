@@ -66,11 +66,11 @@ trim-go-cache:
 	  return sprintf("%d B", n) } BEGIN { printf "go cache: freed %s, %s left\n", size(f), size(l) }'
 
 # The merge gate (check: the full suite) and its per-merge tier (check-affected, commands.check_affected, T-347): check
-# runs every step; check-affected runs go test only, on the packages $OBOR_CHANGED_FILES affects (obor affected go); any
-# doubt runs the full suite. The slot's check-compile already ran build, gofmt, vet and deadcode on the same commit
-# (T-995), so the lane does not repeat them. check-affected also passes -short: the tests marked testkit.Slow (>= 1 s:
-# cmd/obor, internal/checks, internal/setup, T-957) run only in check, the nightly and releases; check does not pass it
-# unless CHECK_SHORT=1.
+# runs every step; check-affected runs the dist/obor build (its affected go picks the packages) and then go test only, on
+# the packages $OBOR_CHANGED_FILES affects; any doubt runs the full suite. The slot's check-compile already ran build,
+# gofmt, vet and deadcode on the same commit (T-995), so the lane repeats none of them but the build the list needs.
+# check-affected also passes -short: the tests marked testkit.Slow (>= 1 s: cmd/obor, internal/checks, internal/setup,
+# T-957) run only in check, the nightly and releases; check does not pass it unless CHECK_SHORT=1.
 # CHECK_SHORT=1 adds -short to check, check-readers and check-web: serve's lane test sets it when branches.promote is
 # set (T-989, T-997), so a promoted lane runs the short tier whatever its class; the promotion's and the nightly's
 # runners and a release do not, so the full suite runs there. Without a promotion a lane runs the full class check, as
@@ -84,8 +84,9 @@ trim-go-cache:
 # what serve's merge slot runs on each merge: build, gofmt, vet and deadcode, no go test. CHECK_CPUS (obor run and the
 # gates export it: cores / slots.max) is go test -p. check and check-release start with GO_GATE: GOCACHE falls back to
 # $TMPDIR when the default is not writable (a Codex sandbox, T-206), then build, gofmt and vet; every failure prints a
-# line fail_grep matches (^FAIL). The lane's checks (check-affected, check-readers, check-web) start with GO_CACHE only,
-# that GOCACHE selection alone (shared with check-retest, T-976): the slot compiled the commit (T-995).
+# line fail_grep matches (^FAIL). GO_CACHE is that GOCACHE selection alone (shared with check-retest, T-976).
+# check-affected starts with GO_CACHE and the dist/obor build its affected list needs; check-readers and check-web start
+# with GO_CACHE only; none of them runs gofmt, go vet or deadcode: the slot compiled the commit (T-995).
 GO_CACHE = c=$$($(GO) env GOCACHE 2>/dev/null); \
 	{ mkdir -p "$$c" && : > "$$c/.obor-probe" && rm -f "$$c/.obor-probe"; } 2>/dev/null || \
 	  { GOCACHE="$${TMPDIR:-/tmp}/obor-go-build"; export GOCACHE; }
@@ -104,6 +105,7 @@ check:
 
 check-affected:
 	@$(GO_CACHE); \
+	$(MAKE) -s build || { echo "FAIL make build"; exit 1; }; \
 	pkgs=./...; \
 	direct=; if [ "$$CHECK_DIRECT" = 1 ]; then direct=--direct; fi; \
 	if a=$$(./dist/obor affected go $$direct); then \
