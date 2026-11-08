@@ -103,6 +103,7 @@ func TestGateCandidateIsTheTasksOwnDiff(t *testing.T) {
 // and the task's files, and the lane is back on its branch; the CPU budget is the lane's; a lane test while
 // branches.promote is set runs the short tier and asks for the changed packages only; what the checks changed is discarded.
 func TestLaneTestGreenRestores(t *testing.T) {
+	testkit.Slow(t) // 1.1 s: four lane-test paths through the git-cut shim (T-1004: 1.12 s at 2 cores)
 	for _, c := range []struct {
 		name string
 		run  func(*testing.T)
@@ -120,6 +121,7 @@ func TestLaneTestGreenRestores(t *testing.T) {
 // test is an error and restores the branch all the same, and a lane a crash left detached is tested again; a red test
 // reruns its failing tests once (commands.retest).
 func TestLaneTestRedRestores(t *testing.T) {
+	testkit.Slow(t) // 1.5 s: three lane-test paths through the git-cut shim (T-1004: 1.45 s at 2 cores)
 	for _, c := range []struct {
 		name string
 		run  func(*testing.T)

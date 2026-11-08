@@ -258,6 +258,7 @@ func TestScratchMovedGateConflict(t *testing.T) {
 // compiles and says so. A target move that changes the conflicted hunk differently is another preimage: a
 // conflict as today.
 func TestScratchRerereReplaysResolvedConflict(t *testing.T) {
+	testkit.Slow(t) // 1.02 s: two conflict fixtures, their resolutions and a moved gate (the 11-08 budget line)
 	t.Parallel()
 	y := newSx(t, cmd("compile", "echo 1 pass"))
 	sha := y.conflicted()
@@ -483,6 +484,7 @@ var cutSteps = []cutStep{
 // once per step and copied for every N (T-998: the setup's merges were rebuilt for every git call before; T-1000: the
 // read-only calls run uncut, so the cost grows with the writes, not with every call).
 func TestScratchCutTable(t *testing.T) {
+	testkit.Slow(t) // 35.8 s at 2 cores on a loaded lane: the steps' copies and git-cut calls (RV-139 #2 named it)
 	t.Parallel()
 	for _, st := range cutSteps {
 		t.Run(st.name, func(t *testing.T) {
@@ -850,6 +852,7 @@ func TestSubmitPinReplay(t *testing.T) {
 // refuses, instead of pinning T-20's candidate for T-05; so does a merge of T-05's input onto something else. T-05's
 // own committed resolution is pinned, with its human edit.
 func TestResolvedPinsOwnMergeOnly(t *testing.T) {
+	testkit.Slow(t) // 1.14 s: two conflict fixtures and three refusals (the 11-08 budget line)
 	t.Parallel()
 	y := newSx(t, cmd("check", "echo 1 pass"))
 	input := y.conflicted()

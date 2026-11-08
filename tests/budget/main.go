@@ -34,6 +34,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Budget is one package's caps: the wall seconds of its -short and full tiers (go test's package Elapsed) and the git
@@ -123,10 +124,13 @@ func (r Run) failure() string {
 }
 
 // parseRun reads one `go test -json` tier's output. Non-JSON lines (the go command's own, such as `? pkg [no test
-// files]` or a `go: downloading` note) are ignored.
+// files]` or a `go: downloading` note) are ignored. A top-level test's time is the span of its events' Time fields,
+// from its `run` to the last `pass`/`fail` of it or one of its subtests: for a test whose subtests call t.Parallel()
+// go reports the parent's own pass Elapsed as 0 without the children's run (RV-139 #2).
 func parseRun(out []byte) Run {
 	r := Run{Slow: map[string]bool{}}
 	outputs := map[string]*strings.Builder{}
+	start, end := map[string]time.Time{}, map[string]time.Time{}
 	var pkgOut strings.Builder
 	sc := bufio.NewScanner(bytes.NewReader(out))
 	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
@@ -135,6 +139,7 @@ func parseRun(out []byte) Run {
 			Action  string
 			Test    string
 			Elapsed float64
+			Time    time.Time
 			Output  string
 		}
 		if json.Unmarshal(sc.Bytes(), &e) != nil {
@@ -151,9 +156,24 @@ func parseRun(out []byte) Run {
 				b.WriteString(e.Output)
 			}
 			switch e.Action {
+			case "run":
+				if top {
+					start[e.Test] = e.Time
+				}
+			case "pass", "fail":
+				// The event's test, or the top-level test a subtest belongs to.
+				name := e.Test
+				if i := strings.IndexByte(name, '/'); i >= 0 {
+					name = name[:i]
+				}
+				if e.Time.After(end[name]) {
+					end[name] = e.Time
+				}
+			}
+			switch e.Action {
 			case "pass":
 				if top {
-					r.Tests = append(r.Tests, Test{Name: e.Test, Elapsed: e.Elapsed})
+					r.Tests = append(r.Tests, Test{Name: e.Test})
 				}
 			case "fail":
 				if top {
@@ -175,6 +195,11 @@ func parseRun(out []byte) Run {
 			r.Passed = false
 		case "build-output", "output":
 			pkgOut.WriteString(e.Output)
+		}
+	}
+	for i, t := range r.Tests {
+		if s, ok := start[t.Name]; ok && !s.IsZero() {
+			r.Tests[i].Elapsed = end[t.Name].Sub(s).Seconds()
 		}
 	}
 	r.note = lastLine(pkgOut.String())

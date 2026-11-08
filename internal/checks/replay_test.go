@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"obor/internal/app/port"
+	"obor/internal/testkit"
 )
 
 // T-915 (RV-123 #1): git rerere replays conflict hunks, not the whole resolution commit. A moved gate whose merge
@@ -44,6 +45,7 @@ func resolvedGreen(y *sx, extra bool) (string, string, port.Candidate) {
 // The review's fixture: the resolution also changed b/b.go, main then moves in disjoint d/d.go; the replay drops the
 // b/b.go edit. Before T-915 the moved gate went green with that edit lost.
 func TestRV123RerereDropsOtherResolvedEdits(t *testing.T) {
+	testkit.Slow(t) // 1.01 s: a conflict fixture, its resolution and a moved gate (the 11-08 budget line)
 	t.Parallel()
 	y, sha, res, old := resolvedTmpl(true).resolved(t, true)
 	y.eq(y.Git(y.Root, "show", old.SHA+":b/b.go"), "package b\n\nfunc B() int { return 40 }", "precondition: the checked resolution holds b's edit")

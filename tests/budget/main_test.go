@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -116,35 +117,55 @@ func TestCheckBreaches(t *testing.T) {
 	}
 }
 
-// T-1002: a Slow-marked test is the short tier's skipped test whose output carries testkit.Slow's message; a top-level
-// test's time is the subtest-free pass event, and the package's own verdict is the tier's wall time.
+// T-1002, T-1004: a Slow-marked test is the short tier's skipped test whose output carries testkit.Slow's message; a
+// top-level test's time spans its own `run` to the last end event of it or a subtest (RV-139 #2: a parent with parallel
+// subtests reports 0 s in its own pass Elapsed), and the package's own verdict is the tier's wall time.
 func TestParseRun(t *testing.T) {
 	const passing = `{"Action":"start","Package":"p"}
-{"Action":"run","Test":"TestA"}
+{"Action":"run","Test":"TestA","Time":"2024-01-02T15:04:05Z"}
 {"Action":"output","Test":"TestA","Output":"=== RUN   TestA\n"}
-{"Action":"pass","Test":"TestA","Elapsed":1.3}
-{"Action":"run","Test":"TestA/sub"}
-{"Action":"pass","Test":"TestA/sub","Elapsed":2.5}
-{"Action":"run","Test":"TestSlow"}
+{"Action":"run","Test":"TestA/sub","Time":"2024-01-02T15:04:05.5Z"}
+{"Action":"pass","Test":"TestA/sub","Elapsed":0.5,"Time":"2024-01-02T15:04:06Z"}
+{"Action":"pass","Test":"TestA","Elapsed":1.3,"Time":"2024-01-02T15:04:06.3Z"}
+{"Action":"run","Test":"TestPlain","Time":"2024-01-02T15:04:06.3Z"}
+{"Action":"pass","Test":"TestPlain","Elapsed":0.4,"Time":"2024-01-02T15:04:06.7Z"}
+{"Action":"run","Test":"TestSlow","Time":"2024-01-02T15:04:06.7Z"}
 {"Action":"output","Test":"TestSlow","Output":"    p_test.go:10: slow: runs in make check\n"}
-{"Action":"skip","Test":"TestSlow","Elapsed":0}
-{"Action":"run","Test":"TestOtherSkip"}
+{"Action":"skip","Test":"TestSlow","Elapsed":0,"Time":"2024-01-02T15:04:06.7Z"}
+{"Action":"run","Test":"TestOtherSkip","Time":"2024-01-02T15:04:06.7Z"}
 {"Action":"output","Test":"TestOtherSkip","Output":"    p_test.go:12: needs the network\n"}
-{"Action":"skip","Test":"TestOtherSkip","Elapsed":0}
+{"Action":"skip","Test":"TestOtherSkip","Elapsed":0,"Time":"2024-01-02T15:04:06.7Z"}
 {"Action":"pass","Package":"p","Elapsed":4.2}
 `
 	r := parseRun([]byte(passing))
 	if !r.Passed || r.Elapsed != 4.2 {
 		t.Errorf("parseRun: passed %v elapsed %v; want true 4.2", r.Passed, r.Elapsed)
 	}
-	if want := []Test{{Name: "TestA", Elapsed: 1.3}}; !slices.Equal(r.Tests, want) {
-		t.Errorf("parseRun's top-level tests %v; want %v (a subtest is its parent's)", r.Tests, want)
+	if want := []Test{{Name: "TestA", Elapsed: 1.3}, {Name: "TestPlain", Elapsed: 0.4}}; !slices.Equal(r.Tests, want) {
+		t.Errorf("parseRun's top-level tests %v; want %v (a plain test keeps its time; a subtest does not shorten its parent's)", r.Tests, want)
 	}
 	if want := map[string]bool{"TestSlow": true}; len(r.Slow) != len(want) || !r.Slow["TestSlow"] {
 		t.Errorf("parseRun's Slow marks %v; want only TestSlow (its skip message)", r.Slow)
 	}
 	if len(r.Failed) != 0 {
 		t.Errorf("parseRun reported failed tests %q on a passing run", r.Failed)
+	}
+
+	// T-1004: a parent whose two subtests call t.Parallel() passes with Elapsed 0 (its own body), the children end
+	// 1.4 s later; the parent's time is their span, not 0.
+	const parallel = `{"Action":"start","Package":"p"}
+{"Action":"run","Test":"TestP","Time":"2024-01-02T15:04:05Z"}
+{"Action":"run","Test":"TestP/a","Time":"2024-01-02T15:04:05Z"}
+{"Action":"run","Test":"TestP/b","Time":"2024-01-02T15:04:05Z"}
+{"Action":"pass","Test":"TestP/a","Elapsed":1.4,"Time":"2024-01-02T15:04:06.4Z"}
+{"Action":"pass","Test":"TestP/b","Elapsed":1.4,"Time":"2024-01-02T15:04:06.4Z"}
+{"Action":"pass","Test":"TestP","Elapsed":0,"Time":"2024-01-02T15:04:06.4Z"}
+{"Action":"pass","Package":"p","Elapsed":1.5}
+`
+	r = parseRun([]byte(parallel))
+	if want := []Test{{Name: "TestP", Elapsed: 1.4}}; len(r.Tests) != 1 || r.Tests[0].Name != want[0].Name ||
+		math.Abs(r.Tests[0].Elapsed-want[0].Elapsed) > 1e-6 {
+		t.Errorf("parseRun's parallel parent %v; want %v (its subtests' span, not its own 0 s pass)", r.Tests, want)
 	}
 
 	const buildFail = `{"Action":"build-output","Output":"# p\n./p_test.go:1:1: undefined: y\n"}
