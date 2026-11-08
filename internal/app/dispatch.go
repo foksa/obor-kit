@@ -1219,10 +1219,12 @@ func (a *App) runsIn(pane string) string {
 	return o.pane.Agent + " (" + strings.Join(of, ", ") + ")"
 }
 
-// startRefused: the launch refused for good: the agent has background tasks (no force), or its name is held by
-// another pane.
+// startRefused: the launch refused for good: the agent has background tasks (no force), its name is held by another
+// pane, or the start check refused it (a quarantined Codex install, T-1052: a needs-you, not a counted failure).
 func startRefused(err error) bool {
-	return port.ErrorCode(err) == "agent_name_taken" || strings.Contains(err.Error(), "has background tasks")
+	var refused port.Refused
+	return errors.As(err, &refused) || port.ErrorCode(err) == "agent_name_taken" ||
+		strings.Contains(err.Error(), "has background tasks")
 }
 
 // sendWork sends the worker its work job's wake (row 5) under step (work, work.N), job <task>/<attempt>/<step>: a job

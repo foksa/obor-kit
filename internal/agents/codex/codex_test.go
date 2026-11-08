@@ -402,26 +402,57 @@ func TestInstallWarnings(t *testing.T) {
 	}
 }
 
-// T-1049: a Codex failure that is the code-mode host's handshake timeout names the likely Gatekeeper dialog, in the
-// error or in its details; another error has no clause.
-func TestErrorHint(t *testing.T) {
+// T-1052: the start check refuses on darwin for the files beside the resolved codex whose com.apple.quarantine lacks
+// the user-approved bit (0x0040), naming them and the fix; an approved file, none, no codex, or another OS: no refusal.
+// It is the same read of the install as TestInstallWarnings, and it runs no process.
+func TestStartRefusal(t *testing.T) {
 	k, _ := agents.Lookup("codex")
-	h, ok := k.(agents.ErrorHinter)
+	c, ok := k.(agents.StartChecker)
 	if !ok {
-		t.Fatal("precondition: codex is an ErrorHinter")
+		t.Fatal("precondition: codex is a StartChecker")
 	}
-	const clause = "a macOS Gatekeeper dialog for codex-code-mode-host may be open on this Mac's screen " +
-		"(docs/research/codex-quarantine.md)"
+	const link, ver = "/opt/homebrew/bin/codex", "/opt/homebrew/Caskroom/codex/0.167.0"
+	host := func(goos string, found bool, flags map[string]uint32) agents.InstallHost {
+		return agents.InstallHost{
+			GOOS: goos,
+			LookPath: func(name string) (string, error) {
+				if !found || name != "codex" {
+					return "", fs.ErrNotExist
+				}
+				return link, nil
+			},
+			Resolve: func(p string) (string, error) {
+				if p == link {
+					return ver + "/bin/codex", nil
+				}
+				return p, nil
+			},
+			Quarantine: func(p string) (uint32, bool) { f, ok := flags[p]; return f, ok },
+		}
+	}
+	const hostBin = ver + "/bin/codex-code-mode-host"
+	fix := "xattr -dr com.apple.quarantine " + ver
 	for _, tc := range []struct {
-		name, errText, details, want string
+		name string
+		h    agents.InstallHost
+		want string // "" no refusal; else the files part of the line
 	}{
-		{"the error text", "timed out negotiating with the code-mode host", "", clause},
-		{"in the details", "other", "tool call failed: timed out negotiating with the code-mode host", clause},
-		{"another error", "usage_limit_exceeded", "You've hit your usage limit", ""},
-		{"nothing", "", "", ""},
+		{"the host quarantined", host("darwin", true, map[string]uint32{hostBin: 0x0181}), hostBin},
+		{"the host the user approved", host("darwin", true, map[string]uint32{hostBin: 0x01c1}), ""},
+		{"nothing quarantined", host("darwin", true, nil), ""},
+		{"no codex on the PATH", host("darwin", false, map[string]uint32{hostBin: 0x0181}), ""},
+		{"not a Mac", host("linux", true, map[string]uint32{hostBin: 0x0181}), ""},
 	} {
-		if got := h.ErrorHint(tc.errText, tc.details); got != tc.want {
-			t.Errorf("%s: hint %q, want %q", tc.name, got, tc.want)
+		got := c.StartRefusal(tc.h)
+		if tc.want == "" {
+			if got != "" {
+				t.Errorf("%s: want no refusal, got %q", tc.name, got)
+			}
+			continue
+		}
+		if !strings.Contains(got, tc.want+" carry com.apple.quarantine") || !strings.Contains(got, fix) ||
+			!strings.Contains(got, "refused") {
+			t.Errorf("%s: want a refusal naming %q and the fix %q, got %q", tc.name, tc.want, fix, got)
 		}
 	}
 }

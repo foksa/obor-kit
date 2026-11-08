@@ -468,38 +468,6 @@ func TestStoppedCodexOncePerTurn(t *testing.T) {
 	}
 }
 
-// T-1049: a Codex worker's rollout ending its last turn on the code-mode host's handshake timeout names the likely
-// Gatekeeper dialog in one clause after the stop's error, in its needs-you (status and the lead's line); another
-// error's line has no clause (T-563's exact reason).
-func TestStoppedCodexGatekeeperHint(t *testing.T) {
-	t.Parallel()
-	const timeout = "timed out negotiating with the code-mode host"
-	const clause = "; a macOS Gatekeeper dialog for codex-code-mode-host may be open on this Mac's screen " +
-		"(docs/research/codex-quarantine.md)"
-	ended := `{"type":"event_msg","payload":{"type":"task_complete","turn_id":"t1","last_agent_message":null,"error":{"message":"` +
-		timeout + `","codex_error_info":"other"}}}` + "\n"
-	want := "pj-l-01 stopped: other (" + timeout + ")" + clause
-	r := codexStoppedOn(t, ended, want)
-	line := "[obor] needs-you T-1 (L-01): " + want
-	r.waitFor("the needs-you line with the dialog clause posted", func() bool {
-		for _, p := range r.inbox.posted() {
-			if strings.HasPrefix(p, "pj-lead: "+line) {
-				return true
-			}
-		}
-		return false
-	})
-	var got []string
-	for _, f := range r.app.Status().Project.Facts {
-		if f.Task == "T-1" && f.Step == event.StepNeedsYou && f.Fact().Cause == "stopped" {
-			got = append(got, f.Fact().Reason)
-		}
-	}
-	if len(got) != 1 || got[0] != want {
-		t.Errorf("the stop's needs-you %q, want %q", got, want)
-	}
-}
-
 // RV-59 #2: the Codex worker's next turn starts, then writes more than the adapter's first read (one 300 KiB output)
 // while serve is down (a replay) or its herdr connection is lost (a reconnect): the stop still ends on that start.
 func TestStoppedCodexNextTurnPastTheTail(t *testing.T) {

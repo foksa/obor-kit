@@ -119,11 +119,17 @@ func (g *reviewGitFake) detachedAt() string {
 	return strings.Join(out, ",")
 }
 
-// agentsSpy is an Agents that records every Launch and starts nothing.
-type agentsSpy struct{ launches []port.Launch }
+// agentsSpy is an Agents that records every Launch and starts nothing; launchErr fails each launch.
+type agentsSpy struct {
+	launches  []port.Launch
+	launchErr error
+}
 
 func (s *agentsSpy) Launch(_ context.Context, l port.Launch) (port.Started, error) {
 	s.launches = append(s.launches, l)
+	if s.launchErr != nil {
+		return port.Started{}, s.launchErr
+	}
 	return port.Started{Line: "RESTARTED " + l.Agent}, nil
 }
 func (s *agentsSpy) Stop(context.Context, string, string, bool) (string, error) { return "", nil }
@@ -609,6 +615,31 @@ func TestReviewRequest(t *testing.T) {
 			t.Parallel()
 			tc.run(t, newReviewRig(t))
 		})
+	}
+}
+
+// T-1052: a reviewer start the launch refuses (a quarantined Codex install: port.Refused) starts nothing, records the
+// review's needs-you naming the files and the fix, and ends the request; the lead's line is that reason (needsRule
+// copies it verbatim), so the owner sees the fix without a tool call of the agent that never ran.
+func TestReviewStartRefusedNamesTheFix(t *testing.T) {
+	t.Parallel()
+	r := newReviewRig(t)
+	line := "codex is quarantined: /c/0.167.0/bin/codex-code-mode-host carry com.apple.quarantine; a Codex start is " +
+		"refused until the owner clears the flag: xattr -dr com.apple.quarantine /c/0.167.0 (obor applies no fix)"
+	r.agents.launchErr = port.Refused{Line: line}
+	r.mustCall("r1", nil, "", false)
+	r.pass()
+	if n := r.facts(event.StepReviewStarted); n != 0 {
+		t.Errorf("review started facts %d, want none", n)
+	}
+	if n := r.needs(); len(n) != 1 || n[0] != r.next+": "+line {
+		t.Errorf("needs-you %q, want one naming the refusal", n)
+	}
+	if _, act, ok := needsRule(context.Background(), r.a, r.p, nil, r.now); !ok || !strings.Contains(act.line, line) {
+		t.Errorf("the lead's line %q (ok %v), want it to name the fix %q", act.line, ok, line)
+	}
+	if r.p.folded.review != nil {
+		t.Errorf("request %+v still open, want it ended by the refused start", r.p.folded.review)
 	}
 }
 

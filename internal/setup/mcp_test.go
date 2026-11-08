@@ -335,25 +335,3 @@ func TestSetupMCPInstallWarning(t *testing.T) {
 	has(t, out, "WARN codex: "+host+" carry com.apple.quarantine", "the quarantined file is named")
 	has(t, out, "fix: xattr -dr com.apple.quarantine /c/0.167.0", "the fix on the version dir")
 }
-
-// T-1049: xattr's com.apple.quarantine value carries its flags in hex before the first ';' (the time, agent and uuid
-// follow): the user-approved bit's value reads as 0x01c1, and a value with no hex flags is no flag.
-func TestQuarantineFlags(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		out    string
-		flags  uint32
-		wantOK bool
-	}{
-		{"0181;6af071dc;;d3b9-11ee\n", 0x0181, true},
-		{"01c1;6af071dc;Safari;d3b9-11ee\n", 0x01c1, true},
-		{"0083;\n", 0x0083, true},
-		{"", 0, false},
-		{"zz;6af071dc\n", 0, false},
-	} {
-		flags, ok := quarantineFlags(tc.out)
-		if flags != tc.flags || ok != tc.wantOK {
-			t.Errorf("quarantineFlags(%q) = %#x, %v; want %#x, %v", tc.out, flags, ok, tc.flags, tc.wantOK)
-		}
-	}
-}

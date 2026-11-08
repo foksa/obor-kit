@@ -106,6 +106,9 @@ type Launcher struct {
 	// running and may hold one of its jobs (T-959; that error is already restart's whole FAIL line). nil: none asked
 	// (obor serve's own starts carry their job's wake).
 	Job func(ctx context.Context, role, lane string) (string, error)
+	// Install is the machine a kind's start check reads (agents.StartChecker, T-1052); nil: project.InstallHost of
+	// this launcher's Env.
+	Install func() agents.InstallHost
 }
 
 // Request is one `obor restart` (the core's port.Launch: Launcher is an port.Agents).
@@ -452,6 +455,13 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	if err != nil {
 		return port.Started{}, err
 	}
+	if why, lead := l.quarantined(t); why != "" {
+		if lead { // the owner is at the lead's screen: the Gatekeeper dialog can be answered there
+			l.say("warning: " + why)
+		} else {
+			return port.Started{}, port.Refused{Line: why}
+		}
+	}
 	if waited {
 		if err := l.sameAgent(ctx, t); err != nil {
 			return port.Started{}, err
@@ -607,6 +617,22 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	}
 	return port.Started{Line: fmt.Sprintf("RESTARTED %s (pane %s, session %s)", t.agent, t.pane, sid), Pane: t.pane,
 		Terminal: t.entry.Terminal, Kind: t.kind, Session: seen.Session}, nil
+}
+
+// quarantined is why t's kind may not start on this machine (agents.StartRefusal, T-1052), and whether the start may
+// still be made with a warning: the lead, whose owner is at its screen and can answer Gatekeeper's dialog. A worker's
+// or role's start is refused (the line names the files and the fix), so no unattended pane waits on it.
+func (l *Launcher) quarantined(t *target) (why string, lead bool) {
+	why = agents.StartRefusal(t.kind, l.installHost())
+	return why, why != "" && t.info.Role == "lead"
+}
+
+// installHost is the machine the kind checks read (Install; else project.InstallHost of this launcher's env).
+func (l *Launcher) installHost() agents.InstallHost {
+	if l.Install != nil {
+		return l.Install()
+	}
+	return project.InstallHost(l.envOrOS())
 }
 
 // checkTranscript: what a recorded session needs to resume. For a kind whose sessions obor names itself (T-813:

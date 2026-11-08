@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -203,7 +204,9 @@ func WriteAtomic(path string, data []byte) error {
 	return err
 }
 
-// LookPath finds name in the directories of the PATH value path (an Env's PATH, not the process's).
+// LookPath finds name in the directories of the PATH value path (an Env's PATH, not the process's), as exec.LookPath
+// does: dirs in order, an empty component is the cwd, and only a regular file with an execute bit matches (a directory
+// named like it, or a file without one, is passed over). The one PATH search setup and launch share (T-1052).
 func LookPath(path, name string) (string, error) {
 	for _, dir := range filepath.SplitList(path) {
 		p := filepath.Join(dir, name)
@@ -212,6 +215,38 @@ func LookPath(path, name string) (string, error) {
 		}
 	}
 	return "", exec.ErrNotFound
+}
+
+// InstallHost is the machine a kind's CLI is installed on, as the install checks read it (agents.InstallHost, T-1045):
+// the CLI on env's PATH (project.LookPath), its symlinks followed, and com.apple.quarantine read with macOS's xattr.
+// The check itself runs nothing of the CLI (T-1052).
+func InstallHost(env Env) agents.InstallHost {
+	if env == nil {
+		env = OSEnv
+	}
+	path, _ := env("PATH")
+	return agents.InstallHost{
+		GOOS:     runtime.GOOS,
+		LookPath: func(name string) (string, error) { return LookPath(path, name) },
+		Resolve:  filepath.EvalSymlinks,
+		Quarantine: func(p string) (uint32, bool) {
+			if _, err := os.Stat(p); err != nil {
+				return 0, false
+			}
+			out, err := exec.Command("xattr", "-p", "com.apple.quarantine", p).Output()
+			if err != nil {
+				return 0, false
+			}
+			return QuarantineFlags(string(out))
+		},
+	}
+}
+
+// QuarantineFlags is xattr's value of com.apple.quarantine as its flags: the hex number before its first (';').
+func QuarantineFlags(out string) (flags uint32, ok bool) {
+	head, _, _ := strings.Cut(strings.TrimSpace(out), ";")
+	n, err := strconv.ParseUint(head, 16, 32)
+	return uint32(n), err == nil
 }
 
 // IsDir: p resolves to a directory.
