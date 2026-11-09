@@ -170,8 +170,9 @@ overrides both.
   a free lane (<level>: <models>)`, or, every model paused, `WAITING T-xx (queued): <model> paused: <why> (until …), …`
   (also in `obor status`): serve dispatches it when a lane frees or a pause ends. `--after` adds `WAITING T-xx after
   T-yy (queued)`.
-- `obor dispatch <T-xx> --model a,b` — overrides the level (smoke tests, Haiku, which is in no level); no free lane is
-  a refusal, not a wait.
+- `obor dispatch <T-xx> --model a,b` — overrides the level (a smoke test's model); no free lane is
+  a refusal, not a wait. A level's models are the config's `difficulty` entry for it, else the built-in default: hard
+  `opus:high`, medium `sonnet, deepseek`, simple `deepseek, sonnet, haiku`; `obor setup show` prints them.
 - `obor pause --model <name> [--for 3h] "<why>"` — dispatch skips that model (a quota, an outage) and a level's next
   one runs; `obor pause --model <name> --clear` ends it. A redo keeps its own model even while it is paused.
 - Effort: any model named here (`Model:`, `--model`, config `difficulty`, `roles.<role>`) may be `<model>:<effort>`

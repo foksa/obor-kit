@@ -27,7 +27,7 @@ Nothing else edited, nothing committed (the hooks deny git writes and protected 
 - Review only what's in scope; list excluded tasks explicitly.
 - Every finding needs evidence: a probe script (in a temp dir), a test, or a cited line.
 - Probes and the tests its findings name; on a verify round, the fix's tests. No suite run, no `-count`/`-race` loop
-  (the merge's gate ran the suite; one review once spent 20 of 28 min on re-runs).
+  (the merge's gate ran the suite).
 - A new review starts in a fresh session (`obor brief <reviewer> --fresh "…"`): one long session over several reviews
   re-read its context at full price and burned the plan's limits. Only that review's verify rounds continue in it —
   it keeps its probes.
