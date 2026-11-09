@@ -228,8 +228,8 @@ func TestFixedCommands(t *testing.T) {
 	}
 }
 
-// T-1124: the setup writes write shape 2 (a shape-1 file is reshaped first, never mixed); rename and the push list keep
-// a file's shape, so a shape-1 local.json is edited where it has the key.
+// T-1124: the setup writes write shape 2 (a shape-1 file is refused, never reshaped alone: RV-167 #1, T-1125); rename
+// and the push list keep a file's shape, so a shape-1 local.json is edited where it has the key.
 func TestSetupWritesShape2(t *testing.T) {
 	w, err := SetCommand([]byte(`{"version":2,"lanes":{"count":1}}`), "lane_setup", "make deps")
 	if err != nil || w.Key != "lanes.setup" || !sameJSON(t, w.Doc, []byte(`{"version":2,"lanes":{"count":1,"setup":"make deps"}}`)) {
@@ -239,10 +239,10 @@ func TestSetupWritesShape2(t *testing.T) {
 	if err != nil || w.Key != "commands.lint" || !sameJSON(t, w.Doc, []byte(`{"version":2,"commands":{"lint":"make lint"}}`)) {
 		t.Errorf("SetCommand lint: %s %q %v", w.Doc, w.Key, err)
 	}
-	w, err = SetLanes([]byte(`{"version":1,"lanes":[{"name":"L-01"}],"prefix":"pj"}`), 2)
+	w, err = SetLanes([]byte(`{"version":2,"lanes":{"list":[{"name":"L-01"}]},"project":{"agent_prefix":"pj"}}`), 2)
 	if err != nil || w.Key != "lanes.count" ||
 		!sameJSON(t, w.Doc, []byte(`{"version":2,"project":{"agent_prefix":"pj"},"lanes":{"count":2}}`)) {
-		t.Errorf("SetLanes on shape 1: %s %q %v; want the file reshaped, the count replacing the list", w.Doc, w.Key, err)
+		t.Errorf("SetLanes: %s %q %v; want the count replacing the list", w.Doc, w.Key, err)
 	}
 	for _, c := range []struct{ name, doc, want string }{
 		{"shape 2", `{"version":2,"project":{"name":"a","agent_prefix":"a"}}`,

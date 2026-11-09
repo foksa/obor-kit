@@ -1,16 +1,21 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"obor/internal/config"
+	"obor/internal/project"
 	"obor/internal/spec"
+	"obor/internal/version"
 )
 
 // The setup edit (T-753, T-760): the owner changes setup values from obor web's Setup page (config.Edit names the
@@ -86,6 +91,9 @@ func (a *App) configSet(ctx context.Context, p *proj, file ConfigFile, c wire.Co
 	}
 	if refused != "" {
 		return "", fmt.Errorf("config: %s", refused)
+	}
+	if config.ShapeOf(doc) < config.ShapeVersion { // an edit would mix the shapes: the rewrite comes first (T-1125)
+		return "", fmt.Errorf("config: %s", config.Shape1Refusal(p.root))
 	}
 	if c.Base != "" && config.Rev(doc) != c.Base {
 		return "", errors.New("config: .obor/config.json changed since this page read it (another tab, the lead or a " +
@@ -242,4 +250,125 @@ func (p *proj) laneHolds(lane string) string {
 		return task
 	}
 	return ""
+}
+
+// Config shape 2's one rewrite (T-1125, docs/research/config-shape.md §4.2 steps 2-3): serve's first pass on a
+// config.json of shape 1 (configShape) and obor config migrate (RewriteShape) reshape it (config.Reshape), commit it on
+// the main branch through the setup edit's ConfigFile (subject "config: shape 2 (obor <version>)", the dropped keys in
+// the body) and rewrite .obor/local.json in place (untracked). A refusal of ConfigFile.Read (uncommitted changes, the
+// main checkout on another branch) writes nothing: the project runs on the load's in-memory reshape, and serve's
+// refusal (or failure: a commit a hook refused) is a needs-you (task ConfigTask) until a pass rewrites the file.
+
+// RewriteShape rewrites the config.json of the project at root, of shape 1, as shape 2 through file; by is who does it
+// (the commit and the line name it). line is the [obor] line's text without its prefix; "" with no refusal when the
+// file is shape 2 already (nothing written). refused is ConfigFile.Read's refusal (nothing written). A failed commit
+// puts local.json back.
+func RewriteShape(ctx context.Context, root string, file ConfigFile, by string) (line, refused string, err error) {
+	disk, err := os.ReadFile(filepath.Join(root, ".obor", "config.json"))
+	if err != nil {
+		return "", "", err
+	}
+	if config.ShapeOf(disk) >= config.ShapeVersion { // read without git: a pass of a rewritten project stops here
+		return "", "", nil
+	}
+	doc, refused, err := file.Read(ctx)
+	if err != nil || refused != "" || config.ShapeOf(doc) >= config.ShapeVersion {
+		return "", refused, err
+	}
+	next, err := config.Reshape(doc)
+	if err != nil {
+		return "", "", fmt.Errorf(".obor/config.json: cannot reshape it: %v", err)
+	}
+	localPath := filepath.Join(root, ".obor", "local.json")
+	local, err := os.ReadFile(localPath)
+	var nextLocal []byte
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+	case err != nil:
+		return "", "", err
+	default:
+		r, err := config.Reshape(local)
+		if err != nil {
+			return "", "", fmt.Errorf(".obor/local.json: cannot reshape it: %v", err)
+		}
+		if !sameCompact(r, local) {
+			nextLocal = []byte(config.Pretty(json.RawMessage(r)))
+		}
+	}
+	dropped := "none"
+	if keys := config.ShapeDropped(doc); len(keys) > 0 {
+		dropped = strings.Join(keys, ", ")
+	}
+	if nextLocal != nil {
+		if err := project.WriteAtomic(localPath, nextLocal); err != nil {
+			return "", "", err
+		}
+	}
+	msg := fmt.Sprintf("config: shape 2 (obor %s)\n\nRewritten from config shape 1 by %s.\nDropped (no home in shape 2): %s",
+		version.Version, by, dropped)
+	sha, err := file.Commit(ctx, []byte(config.Pretty(json.RawMessage(next))), msg)
+	if err != nil {
+		if nextLocal != nil {
+			_ = project.WriteAtomic(localPath, local) // nothing half done
+		}
+		return "", "", err
+	}
+	line = fmt.Sprintf("config: .obor/config.json rewritten as config shape 2 by %s (commit %s; dropped: %s)", by,
+		short(sha), dropped)
+	if nextLocal != nil {
+		line += "; .obor/local.json rewritten in place"
+	}
+	return line, "", nil
+}
+
+// sameCompact: a and b are the same JSON text but for white space.
+func sameCompact(a, b []byte) bool {
+	var x, y bytes.Buffer
+	return json.Compact(&x, a) == nil && json.Compact(&y, b) == nil && bytes.Equal(x.Bytes(), y.Bytes())
+}
+
+// configShape is serve's rewrite on a pass (fx.Config set), until this process finds the file of shape 2 or rewrote
+// it (p.shaped): one commit and one line to the lead; a refusal is the project's needs-you (settled once a pass
+// rewrites it). It takes configMu (a setup edit in flight: the next pass) and an admission (a publish running: the next
+// pass), as a setup edit does.
+func (a *App) configShape(ctx context.Context, p *proj, fx *Loop) {
+	a.mu.Lock()
+	done := p.shaped
+	a.mu.Unlock()
+	if done || fx == nil || fx.Config == nil || !a.configMu.TryLock() {
+		return
+	}
+	defer a.configMu.Unlock()
+	now, cancel := context.WithCancel(ctx)
+	cancel() // no wait: a publish running defers the rewrite to a later pass
+	release, err := a.admit(now, p)
+	if err != nil {
+		return
+	}
+	defer release()
+	line, refused, err := RewriteShape(ctx, p.root, fx.Config, "obor serve")
+	switch {
+	case ctx.Err() != nil: // serve stops: the next start tries again
+		return
+	case err != nil: // a commit a hook refused, say: the owner's, as a refusal is
+		refused = err.Error()
+		fallthrough
+	case refused != "":
+		a.settleNeeds(p, event.ConfigTask, "config shape 1 not rewritten: "+refused+
+			" (serve tries again on its next pass; it runs reshaped meanwhile)")
+		return
+	}
+	a.settleNeeds(p, event.ConfigTask, "")
+	a.mu.Lock()
+	p.shaped = true
+	lead := p.out.Lead()
+	a.mu.Unlock()
+	if line == "" {
+		return
+	}
+	a.logf("%s: %s", p.name, line)
+	if lead != "" {
+		a.record(p, event.Record{Task: event.MsgTask, Step: event.StepMessage, Kind: event.KindFact},
+			event.Message{To: lead, From: "obor", Line: "[obor] " + line})
+	}
 }

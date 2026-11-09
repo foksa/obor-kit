@@ -438,6 +438,16 @@ func Shape1Warning(root string) string {
 		"rewrites it at its start (obor config migrate by hand)", filepath.Join(root, ".obor", "config.json"))
 }
 
+// Shape1Refusal is a config writer's refusal of a config.json of shape 1 (config_set, obor setup lane, obor init on an
+// existing config): it would mix the shapes; the rewrite comes first.
+func Shape1Refusal(root string) string {
+	return filepath.Join(root, ".obor", "config.json") + " " + shape1Hint
+}
+
+// shape1Hint is what a writer's refusal of a shape-1 config.json says after the file's name.
+const shape1Hint = "is config shape 1: obor config migrate rewrites it as shape 2 (obor serve does at its start), then" +
+	" try again"
+
 // Rev is the revision of the config as it runs (Rev of its effective JSON: config.json with .obor/local.json merged
 // and the defaults filled, T-1050). Unlike the file's own revision it changes when an edit in either file changes what
 // runs — a model's id in local.json too — so a start can record it and a keep lane reuse its agent only while it is

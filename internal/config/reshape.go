@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 )
 
 // The one-release window of config shape 2 (decisions 2026-11-09 "Config shape 2", docs/research/config-shape.md §4):
@@ -304,4 +305,27 @@ func ShapeOf(doc []byte) int {
 		return 1
 	}
 	return *v.Version
+}
+
+// ShapeDropped are the keys of doc, a file of shape 1, that Reshape drops (shapeGone, and the free-form paths map's
+// members other than agents and reviews), as dotted paths in the table's order: what serve's rewrite commit names.
+func ShapeDropped(doc []byte) []string {
+	var out []string
+	for _, path := range shapeGone {
+		v, _ := MemberAt(doc, path)
+		if v == nil {
+			continue
+		}
+		if !slices.Equal(path, p("paths")) {
+			out = append(out, strings.Join(path, "."))
+			continue
+		}
+		ms, _ := object(v)
+		for _, m := range ms {
+			if m.Key != "agents" && m.Key != "reviews" {
+				out = append(out, "paths."+m.Key)
+			}
+		}
+	}
+	return out
 }

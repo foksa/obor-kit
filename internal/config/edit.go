@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -361,14 +362,12 @@ type Write struct {
 	Key, Val string
 }
 
-// write sets path to v in doc; key is how the caller's line names it. A doc of shape 1 is reshaped first (Reshape):
-// a setup write never mixes the shapes.
+// write sets path to v in doc; key is how the caller's line names it. A doc of shape 1 is refused with the migrate
+// hint (RV-167 #1, T-1125): only the migration changes a config's shape, and it rewrites config.json and local.json
+// together; a setup write that reshaped config.json alone would leave local.json's keys unknown.
 func write(key string, doc []byte, path []string, v any) (Write, error) {
 	if ShapeOf(doc) < ShapeVersion {
-		var err error
-		if doc, err = Reshape(doc); err != nil {
-			return Write{}, err
-		}
+		return Write{}, errors.New(".obor/config.json " + shape1Hint)
 	}
 	out, err := EditJSON(doc, path, v)
 	return Write{Doc: out, Key: key, Val: fmt.Sprintf("%v", v)}, err
