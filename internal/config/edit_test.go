@@ -49,7 +49,7 @@ const editDoc = `{
 }
 `
 
-// editShape1 is a config.json of shape 1, one line: the one-release window's file (T-1124), which an edit keeps.
+// editShape1 is a config.json of shape 1, one line: the one-release window's file (T-1124), which an edit refuses.
 const editShape1 = `{"version":1,"name":"pj","prefix":"pj","difficulty":{"hard":["opus:high"]},"lanes":2,` +
 	`"roles":{"lead":"opus:high"},"kinds":{"codex":{"args":["-c","x=1"]}}}`
 
@@ -126,28 +126,14 @@ func TestEditSetsEachField(t *testing.T) {
 	}
 }
 
-// T-1126: a file of shape 1 keeps its shape: the edit of a shape-2 key writes the member shape 1 had for it (a mixed
-// file would not load), and the result still loads with the new value.
-func TestEditKeepsShape1(t *testing.T) {
-	cfg := load(t, editShape1, "")
-	for _, c := range []struct{ key, val, want, absent string }{
-		{"agents.difficulty.hard", `["sonnet"]`, `"difficulty":{"hard":["sonnet"]}`, `"agents"`},
-		{"agents.roles.lead", `"sonnet"`, `"roles":{"lead":"sonnet"}`, `"agents"`},
-		{"lanes.count", `3`, `"lanes":3`, `"count"`},
-		{"agents.kinds.codex.args", `["--y"]`, `"kinds":{"codex":{"args":["--y"]}}`, `"agents"`},
-		{"nightly.at", `"02:00"`, `"merge":{"nightly_at":"02:00"}`, `"nightly"`},
-	} {
-		ch, err := cfg.Edit([]byte(editShape1), c.key, json.RawMessage(c.val))
-		if err != nil {
-			t.Errorf("%s = %s: %v", c.key, c.val, err)
-			continue
-		}
-		if !strings.Contains(string(ch.Doc), c.want) || strings.Contains(string(ch.Doc), c.absent) {
-			t.Errorf("%s = %s: %s, want %s and no %s", c.key, c.val, ch.Doc, c.want, c.absent)
-		}
-		if _, err := LoadWith(cfg.Root, ch.Doc); err != nil {
-			t.Errorf("%s = %s: the result does not load: %v", c.key, c.val, err)
-		}
+// T-1140: a shape-1 doc reaching change is refused with the migrate hint, not reshaped: configSet and every setup
+// write refuse it before here (T-1125).
+func TestChangeRefusesShape1(t *testing.T) {
+	cfg := editProject(t)
+	_, err := cfg.change("lanes.count", []byte(editShape1), []string{"lanes", "count"}, []string{"lanes", "list"},
+		3, "2", "3")
+	if err == nil || !strings.Contains(err.Error(), "obor config migrate") {
+		t.Errorf("change of a shape-1 doc: %v; want the migrate hint", err)
 	}
 }
 
