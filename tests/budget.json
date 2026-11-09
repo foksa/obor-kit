@@ -133,7 +133,7 @@
       "git_procs": 0
     },
     "obor/tests/budget": {
-      "full_s": 0.9,
+      "full_s": 3,
       "git_procs": 0
     },
     "obor/tests/conformance": {

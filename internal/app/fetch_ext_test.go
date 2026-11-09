@@ -68,8 +68,31 @@ func fakeApp(t *testing.T, reply func(n int) string) (sock string, seen func() [
 	return sock, seen
 }
 
+// TestWireRetryDeadlines runs the tests of the socket's retries (T-659) with the deadline table (T-1144): testkit.Run
+// sets OBOR_CALL_DEADLINE=0.2 for every call in the binary, and these wait out a serve restart over seconds. The
+// variable is the process's, so this test sets it and is not parallel; its subtests, which do not set it, run parallel
+// as before (a test that set it itself would have to run alone).
+func TestWireRetryDeadlines(t *testing.T) {
+	t.Setenv("OBOR_CALL_DEADLINE", "")
+	for _, c := range []struct {
+		name string
+		test func(*testing.T)
+	}{
+		{"AskRetriesLostReplyWithSameCallID", testAskRetriesLostReplyWithSameCallID},
+		{"AskSurvivesServeRestart", testAskSurvivesServeRestart},
+		{"AskVerdictWaitsForServe", testAskVerdictWaitsForServe},
+		{"AskRetriesStopAtCallerDeadline", testAskRetriesStopAtCallerDeadline},
+		{"VerdictLandsAfterRestartOnce", testVerdictLandsAfterRestartOnce},
+		{"StopFailureLandsNearItsDeadline", testStopFailureLandsNearItsDeadline},
+		{"TurnFailsAtItsDeadline", testTurnFailsAtItsDeadline},
+		{"LostReplyAnsweredFromStore", testLostReplyAnsweredFromStore},
+	} {
+		t.Run(c.name, c.test)
+	}
+}
+
 // A reply lost to a crash after the app recorded the verdict: the retry carries the same call id and gets the stored reply.
-func TestAskRetriesLostReplyWithSameCallID(t *testing.T) {
+func testAskRetriesLostReplyWithSameCallID(t *testing.T) {
 	t.Parallel()
 	sock, seen := fakeApp(t, func(n int) string {
 		if n == 1 {
@@ -88,7 +111,7 @@ func TestAskRetriesLostReplyWithSameCallID(t *testing.T) {
 
 // A serve that crashes after recording the call and restarts seconds later: the client keeps the same call id through
 // the refusals and gets the reply the restarted serve replays from its store (docs/state-model.md, class F, N3).
-func TestAskSurvivesServeRestart(t *testing.T) {
+func testAskSurvivesServeRestart(t *testing.T) {
 	t.Parallel()
 	dir, err := os.MkdirTemp("", "ask") // short: a unix socket path is limited
 	if err != nil {
@@ -180,7 +203,7 @@ func TestAskSurvivesServeRestart(t *testing.T) {
 
 // T-656: a verdict waits out a serve that is not there yet (a restart: the socket file of the old serve refused or
 // gone) until the new one answers. `obor status`, a read, fails at once instead.
-func TestAskVerdictWaitsForServe(t *testing.T) {
+func testAskVerdictWaitsForServe(t *testing.T) {
 	t.Parallel()
 	const delay = 300 * time.Millisecond
 	for _, c := range []struct {
@@ -298,7 +321,7 @@ func refused(t *testing.T, sock string) {
 }
 
 // The retries stop at the caller's deadline.
-func TestAskRetriesStopAtCallerDeadline(t *testing.T) {
+func testAskRetriesStopAtCallerDeadline(t *testing.T) {
 	t.Parallel()
 	sock, seen := fakeApp(t, func(int) string { return "" }) // every connection is dropped unanswered
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)

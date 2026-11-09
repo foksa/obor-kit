@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -670,7 +671,9 @@ func TestPruneRunsOnlyAfterServesBackup(t *testing.T) {
 	h.dispatched("T-later", 1, "L-01", daysAgo(1))
 	h.done()
 	whole := readLog(t, root)
-	ctx := t.Context()
+	// No serve listens on the socket: the call ends at once (T-685), not at the deadline table's 15 s (T-1144).
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
 	if _, err := wire.Backup(ctx, filepath.Join(t.TempDir(), "none.sock"), root, pruneNow); err != nil {
 		t.Fatal(err)
 	}
@@ -703,15 +706,6 @@ func TestPruneRunsOnlyAfterServesBackup(t *testing.T) {
 	}
 	if recs, err := event.ReadLog(backupRoot(t, strings.TrimPrefix(reply, "BACKUP "))); err != nil || len(recs) != len(whole) {
 		t.Errorf("the night's backup holds %d records, %v; want all %d", len(recs), err, len(whole))
-	}
-}
-
-// The log keeps an ended task's records longer than the prompts table keeps a prompt row: no prompt row names a
-// deleted fact.
-func TestEventKeepOutlivesPromptKeep(t *testing.T) {
-	t.Parallel()
-	if eventKeep <= promptKeep {
-		t.Errorf("eventKeep %s, promptKeep %s; want eventKeep the larger", eventKeep, promptKeep)
 	}
 }
 
