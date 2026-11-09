@@ -71,24 +71,14 @@ func (f *foldLog) closedAt(id, head string, tasks ...string) *foldLog {
 		Reply: closedReply + id + " closed · x · approved · s"})
 }
 
-// closedHead is the last closed review's reviewed head R, its start's or its last finished verify's ("": none closed).
-func closedHead(l *reviewLog) string {
-	for i := len(l.reviews) - 1; i >= 0; i-- {
-		if l.reviews[i].closed != 0 {
-			return l.reviews[i].reviewed
-		}
-	}
-	return ""
-}
-
 func TestReviewFold(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
-		name    string
-		log     *foldLog
-		scope   []string // the next review's in-scope tasks (more than reviewDue: review due)
-		next, r string   // the next review's id; R, the closed head
-		cycle   []string // the newest review's covered tasks (nil: not checked)
+		name  string
+		log   *foldLog
+		scope []string // the next review's in-scope tasks (more than reviewDue: review due)
+		next  string   // the next review's id
+		cycle []string // the newest review's covered tasks (nil: not checked)
 	}{
 		{name: "an empty log", log: &foldLog{}, next: "RV-1"},
 		{name: "merges, no review yet: every merge, the first is RV-1",
@@ -97,59 +87,58 @@ func TestReviewFold(t *testing.T) {
 		{name: "a merge outside the app (by hand in git) is no review's: a by-hand twin",
 			log:   (&foldLog{}).merged("T-1", "m1").outside("T-2"),
 			scope: []string{"T-1"}, next: "RV-1"},
-		{name: "RV-4 closed covering T-1, T-2: T-3 merged since is the scope, R its head",
+		{name: "RV-4 closed covering T-1, T-2: T-3 merged since is the scope",
 			log: (&foldLog{}).merged("T-1", "m1").merged("T-2", "m2").started("RV-4", "m2", "T-1", "T-2").
 				merged("T-3", "m3").closed("RV-4"),
-			scope: []string{"T-3"}, next: "RV-5", r: "m2"},
+			scope: []string{"T-3"}, next: "RV-5"},
 		{name: "a merge recorded between a start's head read and its fact: no review covered it, the next one's scope",
 			log: (&foldLog{}).merged("T-1", "m1").started("RV-4", "m1", "T-1").closed("RV-4").
 				merged("T-2", "m2").merged("T-3", "m3").started("RV-5", "m2", "T-2").closed("RV-5"),
-			scope: []string{"T-3"}, next: "RV-6", r: "m2"},
+			scope: []string{"T-3"}, next: "RV-6"},
 		{name: "a re-merged task is in scope once, at its last merge",
 			log:   (&foldLog{}).merged("T-1", "m1").merged("T-2", "m2").merged("T-1", "m3"),
 			scope: []string{"T-2", "T-1"}, next: "RV-1"},
-		{name: "RV-5 open, its fix verified: the fix covered, a merge during it not; R is still RV-4's",
+		{name: "RV-5 open, its fix verified: the fix covered, a merge during it not",
 			log: (&foldLog{}).merged("T-1", "m1").started("RV-4", "m1", "T-1").closed("RV-4").
 				merged("T-2", "m2").started("RV-5", "m2", "T-2").merged("T-fix", "m3").merged("T-x", "m4").
 				verify("m3", "", "T-fix"),
-			scope: []string{"T-x"}, next: "RV-6", r: "m1"},
-		{name: "RV-5 closed at its verify's head: R = m4; T-x merged before the verify, not covered, holds R",
+			scope: []string{"T-x"}, next: "RV-6"},
+		{name: "RV-5 closed at its verify's head: T-x merged before the verify, not covered, is the next scope",
 			log: (&foldLog{}).merged("T-1", "m1").started("RV-4", "m1", "T-1").closed("RV-4").
 				merged("T-2", "m2").started("RV-5", "m2", "T-2").merged("T-x", "m3").merged("T-fix", "m4").
 				verify("m4", "", "T-fix").closed("RV-5"),
-			scope: []string{"T-x"}, next: "RV-6", r: "m4"},
-		{name: "a merge after R does not hold it",
+			scope: []string{"T-x"}, next: "RV-6"},
+		{name: "a merge after a closed review is in the next scope",
 			log: (&foldLog{}).merged("T-1", "m1").started("RV-4", "m1", "T-1").closed("RV-4").
 				merged("T-2", "m2").started("RV-5", "m2", "T-2").closed("RV-5").merged("T-3", "m3"),
-			scope: []string{"T-3"}, next: "RV-6", r: "m2"},
-		{name: "a verify that did not finish covers nothing and moves no head",
+			scope: []string{"T-3"}, next: "RV-6"},
+		{name: "a verify that did not finish covers nothing",
 			log: (&foldLog{}).merged("T-1", "m1").started("RV-4", "m1", "T-1").merged("T-fix", "m2").
 				verify("m2", "herdr gone", "T-fix").closed("RV-4"),
-			scope: []string{"T-fix"}, next: "RV-5", r: "m1"},
+			scope: []string{"T-fix"}, next: "RV-5"},
 		{name: "a close naming an earlier review closes nothing; one naming a later review closes the open one",
 			log:   (&foldLog{}).started("RV-4", "h4").closed("RV-3").started("RV-5", "h5").closed("RV-6"),
 			next:  "RV-6",
-			r:     "h5",
 			scope: nil},
 		// RV-144 #1 (T-1032): the close's snapshot stands; a verify finishing after it changes nothing.
-		{name: "a verify finishing after the close: R stays the close's h1, RV-1 covered T-1, T-fix is the next scope",
+		{name: "a verify finishing after the close: RV-1 covered T-1, T-fix is the next scope",
 			log: (&foldLog{}).merged("T-1", "h1").started("RV-1", "h1", "T-1").merged("T-fix", "h2").
 				briefed("h2", "T-fix").closing("RV-1", "h1", "T-1").closedAt("RV-1", "h1", "T-1").ends(),
-			scope: []string{"T-fix"}, next: "RV-2", r: "h1",
+			scope: []string{"T-fix"}, next: "RV-2",
 			cycle: []string{"T-1"}},
 		{name: "a verify finishing between the snapshot and a close fact without one (a crash cut): the snapshot's",
 			log: (&foldLog{}).merged("T-1", "h1").started("RV-1", "h1", "T-1").merged("T-fix", "h2").
 				briefed("h2", "T-fix").closing("RV-1", "h1", "T-1").ends().closed("RV-1"),
-			scope: []string{"T-fix"}, next: "RV-2", r: "h1",
+			scope: []string{"T-fix"}, next: "RV-2",
 			cycle: []string{"T-1"}},
-		{name: "a verify finished before the snapshot is in it: R its head, its fix covered",
+		{name: "a verify finished before the snapshot is in it: its fix covered",
 			log: (&foldLog{}).merged("T-1", "h1").started("RV-1", "h1", "T-1").merged("T-fix", "h2").
 				verify("h2", "", "T-fix").closing("RV-1", "h2", "T-1", "T-fix").closedAt("RV-1", "h2", "T-1", "T-fix"),
-			next: "RV-2", r: "h2", cycle: []string{"T-1", "T-fix"}},
+			next: "RV-2", cycle: []string{"T-1", "T-fix"}},
 		{name: "a snapshot for another review than the open one is not its",
 			log: (&foldLog{}).merged("T-1", "h1").started("RV-1", "h1", "T-1").merged("T-fix", "h2").
 				verify("h2", "", "T-fix").closing("RV-0", "h1", "T-1").closed("RV-1"),
-			next: "RV-2", r: "h2", cycle: []string{"T-1", "T-fix"}},
+			next: "RV-2", cycle: []string{"T-1", "T-fix"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -162,9 +151,6 @@ func TestReviewFold(t *testing.T) {
 			}
 			if got := l.nextID(); got != c.next {
 				t.Errorf("next id %q, want %q", got, c.next)
-			}
-			if got := closedHead(&l); got != c.r {
-				t.Errorf("R %q, want %q", got, c.r)
 			}
 			if got := l.cur().cycle(); c.cycle != nil && !slices.Equal(got, c.cycle) {
 				t.Errorf("the newest review covered %q, want %q", got, c.cycle)

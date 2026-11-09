@@ -182,12 +182,11 @@ func (l *reviewLog) nextID() string {
 	return reviewID(n + 1)
 }
 
-// covered is the tasks the reviews since base covered (their starts' and finished verifies'); closedOnly: the closed
-// reviews' only.
-func (l *reviewLog) covered(closedOnly bool) []string {
+// covered is the tasks the reviews since base covered (their starts' and finished verifies').
+func (l *reviewLog) covered() []string {
 	var out []string
 	for _, rv := range l.reviews {
-		if rv.seq >= l.base() && (!closedOnly || rv.closed != 0) {
+		if rv.seq >= l.base() {
 			out = append(out, rv.covered...)
 			out = append(out, rv.fixes...)
 		}
@@ -222,7 +221,7 @@ func uncovered(merges []mergeRec, covered []string) []mergeRec {
 // scope is the next review's merges: those since base that no review since base covered (the newest included, open
 // or closed), each task once, oldest first. The review due count, the brief's in-scope tasks.
 func (l *reviewLog) scope() []mergeRec {
-	return uncovered(l.sinceBase(), l.covered(false))
+	return uncovered(l.sinceBase(), l.covered())
 }
 
 // mergeOf is task's last merge since base ({}: none): a verify's fix, merged during the review.

@@ -236,9 +236,9 @@ func TestReviewCloseCrashBeforeFact(t *testing.T) {
 
 // RV-144 #1 (T-1032): the close's snapshot (its reviewed head and covered tasks) is decided once and recorded before
 // the commit (fact review.closing): a verify finishing after the close, or between the snapshot and a fact recovered
-// from the commit after a crash, changes neither the closed head R nor what the review covered; the tasks of that
-// verify are the next review's scope. --force (the linked fixes' verify still running) and a normal close (a verify of
-// an unlinked fix), each without and with the crash cut.
+// from the commit after a crash, changes neither what the review covered nor the next review's scope. --force (the
+// linked fixes' verify still running) and a normal close (a verify of an unlinked fix), each without and with the
+// crash cut.
 func TestReviewCloseSnapshotStands(t *testing.T) {
 	t.Parallel()
 	const h2 = "f1f1f1f2f1f1f1f2"
@@ -311,9 +311,6 @@ func TestReviewCloseSnapshotStands(t *testing.T) {
 			r.a.mu.Lock()
 			defer r.a.mu.Unlock()
 			l := &r.p.folded.rv
-			if got := closedHead(l); got != head {
-				t.Errorf("the closed head R %q, want the close's %s", got, head)
-			}
 			if got := l.cur().cycle(); l.cur().closed == 0 || !slices.Equal(got, tasks) {
 				t.Errorf("RV-5 (closed %d) covered %q, want %q", l.cur().closed, got, tasks)
 			}
