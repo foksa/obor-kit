@@ -7,6 +7,7 @@ import (
 
 	"obor/internal/app"
 	"obor/internal/app/event"
+	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/store"
 )
@@ -30,14 +31,15 @@ type TaskDetail struct {
 	GatedRev     int          `json:"gated_rev,omitempty"`     // the rev the last gate checked
 	Report       string       `json:"report,omitempty"`        // the last submission's report
 	GateLine     string       `json:"gate_line,omitempty"`     // the last gate's result line
+	GatePass     bool         `json:"gate_pass,omitempty"`     // the last gate's pass: its outcome is green (T-1105: the page reads this, never the line's wording)
 	NeedsYou     []NeedsYou   `json:"needs_you"`
 	Records      []TaskRecord `json:"records"` // newest first
 	Jobs         []Prompt     `json:"jobs"`    // the task's job prompts, newest first
 }
 
 // TaskRecord is one record of a task's timeline: its seq, time, step and kind, the worded line when the view words
-// it (an intent or a result the event list does not show has none), and a gate's outcome (green, red …; T-893: the
-// page reads it, never the line's wording).
+// it (an intent or a result the event list does not show has none), a gate's outcome (green, red …; T-893: the
+// page reads it, never the line's wording), and a gate's pass (T-1105: the outcome as the page's yes or no).
 type TaskRecord struct {
 	Seq     int64  `json:"seq"`
 	TS      string `json:"ts"`
@@ -45,6 +47,7 @@ type TaskRecord struct {
 	Kind    string `json:"kind"`
 	Line    string `json:"line,omitempty"`
 	Outcome string `json:"outcome,omitempty"`
+	Pass    bool   `json:"pass,omitempty"`
 }
 
 // Prompt is one row of the prompts table as a page shows it (T-665): what serve sent an agent, the job id (jobs only),
@@ -137,14 +140,14 @@ func (d Detail) Task(task string) (TaskDetail, bool) {
 	for _, r := range recs { // newest first: the last submission and gate win
 		d := app.Describe(r)
 		t.Records, found = append(t.Records, TaskRecord{Seq: r.Seq, TS: r.TS, Step: r.Step, Kind: r.Kind, Line: d.Line,
-			Outcome: d.Outcome}), true
+			Outcome: d.Outcome, Pass: d.Kind == app.KindGate && d.Outcome == port.OutcomeGreen}), true
 		reached = max(reached, recordStep(r, d))
 		base, _ := event.StepN(r.Step)
 		switch {
 		case r.Kind == event.KindFact && r.Step == event.StepSubmitted && t.Report == "":
 			t.Report = d.Report
 		case r.Kind == event.KindResult && base == event.StepGate && t.GateLine == "":
-			t.GateLine, t.GatedRev = d.Text, d.SpecRev
+			t.GateLine, t.GatedRev, t.GatePass = d.Text, d.SpecRev, d.Outcome == port.OutcomeGreen
 		case r.Kind == event.KindFact && r.Step == event.StepDispatched && t.Lane == "" && t.Agent == "":
 			// The lane was freed (the task merged, its row cleared): where its newest dispatch put it.
 			t.Lane, t.Agent = d.Lane, d.Agent

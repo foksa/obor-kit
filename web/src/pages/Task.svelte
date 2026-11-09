@@ -7,7 +7,7 @@
   import { api } from "../lib/api";
   import { href } from "../lib/route";
   import { clock, human, unixOf } from "../lib/format";
-  import { milestone, stageOf } from "../lib/stages";
+  import { gateOf, milestone, stageOf } from "../lib/stages";
   import { md } from "../lib/md";
   import type { TaskDetail } from "../lib/types";
   import Pill from "../ui/Pill.svelte";
@@ -39,7 +39,7 @@
   let tab = $state("");
   const shown = $derived(tabs.some(([k]) => k === tab) ? tab : tabs[0]?.[0]);
   const taskHref = (x: string) => href.task(project, x);
-  const green = $derived(/^GREEN/.test(t?.gate_line || ""));
+  const gate = $derived(gateOf(t));
 </script>
 
 <div class="page">
@@ -116,10 +116,10 @@
           <div class="kv"><span>Attempt</span><span>{t.attempt || "—"}</span></div>
           <div class="kv"><span>Spec</span><span>{t.spec_rev ? "r" + t.spec_rev : "—"}</span></div>
         </section>
-        {#if t.gate_line}
+        {#if gate.line}
           <section class="card pad gate" aria-label="Last gate">
-            <div class="gh"><h2 class="lbl">Last gate</h2><Pill state={green ? "green" : "fail"} text={green ? "pass" : "fail"} /></div>
-            <p class="mono gl">{human(t.gate_line)}</p>
+            <div class="gh"><h2 class="lbl">Last gate</h2><Pill state={gate.pass ? "green" : "fail"} text={gate.pass ? "pass" : "fail"} /></div>
+            <p class="mono gl">{human(gate.line)}</p>
             {#if t.gated_rev}
               <p class="muted small">checked spec r{t.gated_rev}{#if t.spec_rev && t.spec_rev !== t.gated_rev}<span class="warn"> · spec is r{t.spec_rev} now</span>{/if}</p>
             {/if}

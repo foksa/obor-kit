@@ -318,6 +318,7 @@ export interface TaskRecord {
   kind: string;
   line?: string;
   outcome?: string; // a gate's: green, red, conflict, fail (T-893)
+  pass?: boolean; // a gate's pass, the outcome as a yes or no (T-1105)
 }
 
 export interface Prompt {
@@ -351,6 +352,7 @@ export interface TaskDetail {
   gated_rev?: number;
   report?: string;
   gate_line?: string;
+  gate_pass?: boolean; // the last gate's pass, from serve (T-1105: never the line's wording)
   needs_you: NeedsYou[];
   records: TaskRecord[];
   jobs: Prompt[];
