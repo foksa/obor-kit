@@ -148,6 +148,9 @@ type proj struct {
 	fixes     fixState
 	verifyDue bool
 	closeRead bool
+	// lastBefore: the newest record's time when the replay ended, before this serve's start-up appended any (zero: no
+	// record, or its time unreadable): serve's first connect compares the terminal's start with it (restore.go, T-1136).
+	lastBefore time.Time
 	// replies: the stored replies of the calls no fact records (job_next, spec set), by <method>.<call id>; a restart
 	// forgets them (folded.calls holds the recorded calls').
 	replies map[string]string

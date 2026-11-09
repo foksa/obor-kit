@@ -46,6 +46,9 @@ func (a *App) load(root string) (*proj, error) {
 	for _, r := range recs {
 		p.foldRecord(r)
 	}
+	if len(recs) > 0 { // the replay's last activity, before the settlements below or the first connect append (T-1136)
+		p.lastBefore, _ = time.Parse(time.RFC3339, recs[len(recs)-1].TS)
+	}
 	// A task the log folds as ended keeps no step logs (T-1104): the ones an upgrade or a serve down at its end left
 	// (T-1094, T-1098). A task it does not know is not guessed at: its logs stay. One read of the logs dir for all of
 	// them (T-1132).
