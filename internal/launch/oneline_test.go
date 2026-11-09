@@ -19,7 +19,7 @@ func TestStartPromptIsOneLine(t *testing.T) {
 	const prompt = "You are a worker.\n\nRead AGENTS.md.\r\n\r\nGo.\nMore."
 	const one = "You are a worker. Read AGENTS.md. Go. More."
 	const plain = "  a b\tc  `d` \"e\" $f & g;  " // no line break: unchanged
-	const models = `{"oc":{"kind":"opencode","model":""}}`
+	const models = `{"oc":{"kind":"opencode","id":""}}`
 	settings := " --settings " + config.Compact(map[string]any{"remoteControlAtStartup": false, "autoMemoryEnabled": false})
 	for _, c := range []struct {
 		name, typ, kind string
@@ -34,7 +34,7 @@ func TestStartPromptIsOneLine(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			x := setup(t, testkit.Set("models", models), testkit.Set("roles", `{"reviewer":"`+c.typ+`"}`))
+			x := setup(t, testkit.Set("agents.models", models), testkit.Set("agents.roles", `{"reviewer":"`+c.typ+`"}`))
 			x.shell("w1:p7", "pj-rev", "")
 			out, ok := x.restart(launch.Request{Agent: "pj-rev", Fresh: true, Prompt: c.prompt})
 			if !ok {
@@ -53,8 +53,8 @@ func TestStartPromptIsOneLine(t *testing.T) {
 // config validate refuse such a model; no degraded start with its args alone).
 func TestStartWithoutBridgeRefused(t *testing.T) {
 	t.Parallel()
-	x := setup(t, testkit.Set("models", `{"cur":{"kind":"cursor","model":"x"}}`),
-		testkit.Set("roles", `{"reviewer":"cur"}`))
+	x := setup(t, testkit.Set("agents.models", `{"cur":{"kind":"cursor","id":"x"}}`),
+		testkit.Set("agents.roles", `{"reviewer":"cur"}`))
 	x.shell("w1:p7", "pj-rev", "")
 	out, ok := x.restart(launch.Request{Agent: "pj-rev", Fresh: true, Prompt: "go"})
 	if ok {

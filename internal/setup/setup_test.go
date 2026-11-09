@@ -480,7 +480,7 @@ func TestDriveStartIsStrict(t *testing.T) {
 // bash setup.test.sh case_lane_refuses_unknown_type_type_change_and_failing_setup: a failing lane_setup fails the lane.
 func TestLaneRefusesAFailingSetup(t *testing.T) {
 	t.Parallel()
-	x := newFx(t, testkit.Set("commands.lane_setup", "echo boom; exit 3"))
+	x := newFx(t, testkit.Set("lanes.setup", "echo boom; exit 3"))
 	x.PlainLane("L-01", "") // the worktree is git's (TestLaneAddsConfigWorktreeLinksAndRunsLaneSetup): here, files
 	out := x.failing(t, "FAIL lane_setup exited 3 in "+x.LaneDir("L-01")+": echo boom; exit 3", "lane", "L-01")
 	has(t, out, "boom", "setup output shown")
@@ -519,11 +519,11 @@ func TestPaneSplitsTheTabAndStartsTheAgentInOrder(t *testing.T) {
 	}
 }
 
-// T-1041: a lane's pane gets the generic fact OBOR_LANE_CPUS (slots.lane_cpus) and the project's slots.lane_env, its
+// T-1041: a lane's pane gets the generic fact OBOR_LANE_CPUS (lanes.cpus) and the project's lanes.env, its
 // {cpus} replaced, in the split's env and the env line (setup is one of the three consumers of config.LaneEnv).
 func TestPaneLaneEnv(t *testing.T) {
 	t.Parallel()
-	x := newFx(t, testkit.Set("slots.lane_cpus", 3), testkit.Set("slots.lane_env",
+	x := newFx(t, testkit.Set("lanes.cpus", 3), testkit.Set("lanes.env",
 		`{"GOMAXPROCS": "{cpus}", "GOFLAGS": "-p={cpus} -trimpath"}`))
 	x.lane(t, "L-01")
 	x.ok(t, "pane", "--start", "L-01", "--tab", "w1:t1")
@@ -716,7 +716,7 @@ func (x *fx) envLines() []string {
 // before (a stale OBOR_AGENT, OBOR_LANE) starts the new agent with its own: cd, exports and unsets, before the start.
 func TestSetupPaneTypesTheEnvAtAReusedPane(t *testing.T) {
 	t.Parallel()
-	x := newFx(t, testkit.Set("roles", `{"integrator": "opus"}`))
+	x := newFx(t, testkit.Set("agents.roles", `{"integrator": "opus"}`))
 	x.lane(t, "L-01")
 	x.reset()
 	x.ok(t, "role", "integrator", "--pane", "w1:p1", "--start")
@@ -758,7 +758,7 @@ func TestSetupPaneStopsWhenTheEnvLineFailed(t *testing.T) {
 	t.Parallel()
 	t.Run("cd fails: the failure mark, no start, FAIL", func(t *testing.T) {
 		t.Parallel()
-		x := newFx(t, testkit.Set("roles", `{"integrator": "opus"}`))
+		x := newFx(t, testkit.Set("agents.roles", `{"integrator": "opus"}`))
 		x.h.Tab("w1:t1", 200, 50, "w1:p3")
 		pane := x.h.Pane("w1:p3")
 		pane.OnRun = "fail"
@@ -775,7 +775,7 @@ func TestSetupPaneStopsWhenTheEnvLineFailed(t *testing.T) {
 	})
 	t.Run("the line runs: the success mark, the agent starts", func(t *testing.T) {
 		t.Parallel()
-		x := newFx(t, testkit.Set("roles", `{"integrator": "opus"}`))
+		x := newFx(t, testkit.Set("agents.roles", `{"integrator": "opus"}`))
 		x.h.Tab("w1:t1", 200, 50, "w1:p3")
 		pane := x.h.Pane("w1:p3")
 		if out := x.ok(t, "role", "integrator", "--pane", "w1:p3", "--start"); last(out) != "OK integrator: pj-int in pane w1:p3" {
@@ -810,7 +810,7 @@ func envWords(t *testing.T, line string) (ok, bad string) {
 // bash setup.test.sh case_role_lead_new_tab_gets_role_and_agent_env
 func TestRoleLeadNewTabGetsRoleEnv(t *testing.T) {
 	t.Parallel()
-	x := newFx(t, testkit.Set("roles", `{"lead": "opus"}`))
+	x := newFx(t, testkit.Set("agents.roles", `{"lead": "opus"}`))
 	if out := x.ok(t, "role", "lead", "--new-tab", "lead", "--start"); last(out) != "OK lead: pj-lead in pane w1:n1" {
 		t.Errorf("last line %q", last(out))
 	}
@@ -822,7 +822,7 @@ func TestRoleLeadNewTabGetsRoleEnv(t *testing.T) {
 // T-280: a lead of a type without settings keeps Remote Control; a worker does not. (Setup role lead, the one lead.)
 func TestLeadKeepsRemoteControl(t *testing.T) {
 	t.Parallel()
-	x := newFx(t, testkit.Set("roles", `{"lead": "opus"}`))
+	x := newFx(t, testkit.Set("agents.roles", `{"lead": "opus"}`))
 	if out := x.ok(t, "role", "lead", "--new-tab", "lead", "--start"); last(out) != "OK lead: pj-lead in pane w1:n1" {
 		t.Fatalf("setup role lead: %q", out)
 	}
@@ -840,7 +840,7 @@ func TestRoleTriageRunsInTheRootWithItsRoleEnvAndCreatesBugsMd(t *testing.T) {
 	if x.Exists("docs/BUGS.md") {
 		t.Fatal("precondition: no BUGS.md after the FAIL")
 	}
-	x.Config(testkit.Set("roles", `{"triage": "opus"}`))
+	x.Config(testkit.Set("agents.roles", `{"triage": "opus"}`))
 	if out := x.ok(t, "role", "triage", "--new-tab", "triage", "--start"); last(out) != "OK triage: pj-triage in pane w1:n1" {
 		t.Errorf("last line %q", last(out))
 	}
@@ -864,7 +864,7 @@ func TestRoleCustomPlaced(t *testing.T) {
 	x := newFx(t)
 	x.failing(t, "FAIL "+Usage(), "role", "ux_buddy", "--new-tab", "ux", "--start")
 	x.Write("docs/agents/ux_buddy.md", "# Role: ux_buddy\n")
-	x.Config(testkit.Set("roles", `{"ux_buddy": {"model": "opus", "write": ["docs/ux/"]}}`))
+	x.Config(testkit.Set("agents.roles", `{"ux_buddy": {"model": "opus", "write": ["docs/ux/"]}}`))
 	if out := x.ok(t, "role", "ux-buddy", "--new-tab", "ux", "--start"); last(out) != "OK ux_buddy: pj-ux-buddy in pane w1:n1" {
 		t.Errorf("last line %q", last(out))
 	}
@@ -1026,7 +1026,7 @@ func TestCodexSetupStartRecordsItsSession(t *testing.T) {
 	}{
 		{"setup pane", "pj-l-01", "L-01", []string{"pane", "--start", "L-01", "--tab", "w1:t1"}, func(map[string]any) {}},
 		{"setup role", "pj-rev", "review", []string{"role", "reviewer", "--tab", "w1:t1", "--start"},
-			testkit.Set("roles", `{"reviewer": "luna"}`)},
+			testkit.Set("agents.roles", `{"reviewer": "luna"}`)},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()

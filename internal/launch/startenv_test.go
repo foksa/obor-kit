@@ -51,7 +51,7 @@ func TestEveryStartPathTypesTheRegistryEnv(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			x := setup(t, testkit.Set("models", `{"oc":{"kind":"opencode","model":"go/ds"}}`))
+			x := setup(t, testkit.Set("agents.models", `{"oc":{"kind":"opencode","id":"go/ds"}}`))
 			x.shell("w1:p3", "pj-l-01", "")
 			x.shell("w1:p4", "", "")
 			x.shell("w1:p5", "", "")
@@ -89,8 +89,8 @@ func TestEveryStartPathTypesTheRegistryEnv(t *testing.T) {
 // names none.
 func TestOpencodeStartNamesItsGeneratedConfig(t *testing.T) {
 	t.Parallel()
-	x := setup(t, testkit.Set("models", `{"oc":{"kind":"opencode","model":"go/ds"}}`),
-		testkit.Set("roles", `{"reviewer":"oc","integrator":"opus"}`))
+	x := setup(t, testkit.Set("agents.models", `{"oc":{"kind":"opencode","id":"go/ds"}}`),
+		testkit.Set("agents.roles", `{"reviewer":"oc","integrator":"opus"}`))
 	file := filepath.Join(x.p.Root, ".obor", "state", "opencode.json")
 	if _, err := os.Stat(file); err == nil {
 		t.Fatal("precondition: no generated config yet")

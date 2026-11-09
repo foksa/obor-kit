@@ -76,8 +76,8 @@ func TestPluginKindStartsOnce(t *testing.T) {
 	if err := os.WriteFile(cmd, []byte(strings.ReplaceAll(stubKind, "LOG", logFile)), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	x := newFx(t, testkit.Set("kinds", `{"stub":{"command":"`+cmd+`","args":["--base"]}}`),
-		testkit.Set("models", `{"st":{"kind":"stub","model":""}}`), testkit.Set("roles", `{"reviewer":"st:high"}`))
+	x := newFx(t, testkit.Set("agents.kinds", `{"stub":{"plugin":"`+cmd+`","args":["--base"]}}`),
+		testkit.Set("agents.models", `{"st":{"kind":"stub","id":""}}`), testkit.Set("agents.roles", `{"reviewer":"st:high"}`))
 	state := filepath.Join(x.Root, ".obor", "state")
 	if _, err := plugin.Cache("stub", cmd, state); err != nil { // obor setup agents' cache
 		t.Fatal(err)

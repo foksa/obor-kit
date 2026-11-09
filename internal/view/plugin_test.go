@@ -76,7 +76,7 @@ func TestBuildNoPluginWaitsForTheLastStart(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			p := testkit.New(t)
 			o1 := p.Lane("L-01", "task/T-01")
-			p.Config(testkit.Set("models.ds", `{"kind":"opencode","model":"opencode-go/deepseek"}`))
+			p.Config(testkit.Set("agents.models.ds", `{"kind":"opencode","id":"opencode-go/deepseek"}`))
 			p.Commit(o1)
 			p.Dispatched("L-01")
 			p.State("L-01", map[string]any{"lane": "L-01", "task": "T-01", "branch": "task/T-01", "agent": "pj-l-01",

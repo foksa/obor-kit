@@ -15,7 +15,7 @@ import (
 // names none.
 func TestStartEffort(t *testing.T) {
 	t.Parallel()
-	const models = `{"oc":{"kind":"opencode","model":"go/ds"},"bare":{"kind":"opencode","model":""}}`
+	const models = `{"oc":{"kind":"opencode","id":"go/ds"},"bare":{"kind":"opencode","id":""}}`
 	for _, c := range []struct {
 		name, role, effort string   // the role's model ref (a role agent), the request's effort
 		row, typ           string   // the lane row's type, the request's type (a lane worker)
@@ -45,8 +45,8 @@ func TestStartEffort(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			x := setup(t, testkit.Set("models", models), testkit.Set("roles", `{"reviewer":"`+c.role+`"}`),
-				testkit.Set("kinds", `{"claude":{"args":["--effort","medium"]},"codex":{"args":["-c","model_reasoning_effort=high"]}}`))
+			x := setup(t, testkit.Set("agents.models", models), testkit.Set("agents.roles", `{"reviewer":"`+c.role+`"}`),
+				testkit.Set("agents.kinds", `{"claude":{"args":["--effort","medium"]},"codex":{"args":["-c","model_reasoning_effort=high"]}}`))
 			// a role's model ref: the reviewer's start; a lane row's: lane L-01's worker.
 			agent, pane := "pj-rev", "w1:p7"
 			if c.role == "" {
@@ -95,13 +95,13 @@ func TestStartEffort(t *testing.T) {
 // before anything is stopped or typed.
 func TestStartEffortRefused(t *testing.T) {
 	t.Parallel()
-	const models = `{"bare":{"kind":"opencode","model":""}}`
+	const models = `{"bare":{"kind":"opencode","id":""}}`
 	for _, c := range []struct{ role, effort, want string }{
 		{"opus", "turbo", `effort "turbo" is not one of claude's`},
 		{"bare", "high", "needs a model"},
 	} {
 		// the fixture's HOME is a temp dir: no opencode config or state names a model
-		x := setup(t, testkit.Set("models", models), testkit.Set("roles", `{"reviewer":"`+c.role+`"}`))
+		x := setup(t, testkit.Set("agents.models", models), testkit.Set("agents.roles", `{"reviewer":"`+c.role+`"}`))
 		x.agent("w1:p7", "pj-rev", "claude", "idle")
 		out, ok := x.restart(launch.Request{Agent: "pj-rev", Fresh: true, Effort: c.effort})
 		if ok || !strings.Contains(out, c.want) {

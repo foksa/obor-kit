@@ -153,7 +153,7 @@ func TestInitGitignoresTheReviewsDir(t *testing.T) {
 			if c.fresh {
 				x = bareGit(t)
 			} else {
-				x = newGitFx(t, testkit.Set("paths.reviews", c.reviews))
+				x = newGitFx(t, testkit.Set("reviews.dir", c.reviews))
 			}
 			want := "docs/reviews/"
 			if c.reviews != "" {
@@ -181,8 +181,8 @@ func TestInitGitignoresTheReviewsDir(t *testing.T) {
 // L-NN and raises lanes by one.
 func TestLaneAddsConfigWorktreeLinksAndRunsLaneSetup(t *testing.T) {
 	t.Parallel()
-	x := newGitFx(t, testkit.Set("lane_links", []any{"ref", "assets/img", "missing"}),
-		testkit.Set("commands.lane_setup", "pwd > setup-ran"))
+	x := newGitFx(t, testkit.Set("lanes.links", []any{"ref", "assets/img", "missing"}),
+		testkit.Set("lanes.setup", "pwd > setup-ran"))
 	x.Write("ref/a", "")
 	x.Write("assets/img/b", "")
 	lane := x.LaneDir("L-01")
@@ -243,11 +243,11 @@ func TestReviewerAndDeepDiveRunInTheirRoleWorktree(t *testing.T) {
 		edit                        func(map[string]any)
 	}{
 		{"reviewer", "review", "pj-rev", "OK reviewer: pj-rev in pane w1:n1", "{OBOR_AGENT=,OBOR_LANE=,OBOR_OPENCODE_MODEL=,OBOR_PANE=,OBOR_ROLE=reviewer,OPENCODE_CONFIG=}",
-			false, testkit.Set("roles", `{"reviewer": "luna"}`)},
+			false, testkit.Set("agents.roles", `{"reviewer": "luna"}`)},
 		{"reviewer", "review", "pj-rev", "OK reviewer: pj-rev in pane w1:n1", "{OBOR_AGENT=,OBOR_LANE=,OBOR_OPENCODE_MODEL=,OBOR_PANE=,OBOR_ROLE=reviewer,OPENCODE_CONFIG=}",
-			true, testkit.Set("roles", `{"reviewer": "luna"}`)},
+			true, testkit.Set("agents.roles", `{"reviewer": "luna"}`)},
 		{"deep_dive", "deep-dive", "pj-deep-dive", "OK deep_dive: pj-deep-dive in pane w1:n1", "{OBOR_AGENT=,OBOR_LANE=,OBOR_OPENCODE_MODEL=,OBOR_PANE=,OBOR_ROLE=deep_dive,OPENCODE_CONFIG=}",
-			false, testkit.Set("roles", `{"deep_dive": "luna"}`)},
+			false, testkit.Set("agents.roles", `{"deep_dive": "luna"}`)},
 	} {
 		x := newGitFx(t, c.edit)
 		wt, old := x.LaneDir(c.role), x.LaneDir(c.old)
@@ -284,13 +284,13 @@ func TestReviewerAndDeepDiveRunInTheirRoleWorktree(t *testing.T) {
 		}
 	}
 	// Another role's Codex start adds no dir.
-	y := newGitFx(t, testkit.Set("roles", `{"integrator": "luna"}`))
+	y := newGitFx(t, testkit.Set("agents.roles", `{"integrator": "luna"}`))
 	y.ok(t, "role", "integrator", "--tab", "w1:t1", "--start")
 	if calls := strings.Join(y.reqs(), "\n"); !strings.Contains(calls, "agent.start args=[-s workspace-write") || strings.Contains(calls, "--add-dir") {
 		t.Errorf("the integrator's codex start:\n%s", calls)
 	}
 
-	x := newGitFx(t, testkit.Set("roles", `{"reviewer": "luna"}`))
+	x := newGitFx(t, testkit.Set("agents.roles", `{"reviewer": "luna"}`))
 	x.Write(x.LaneDir("reviewer")+"/notes.txt", "not a worktree\n")
 	x.failing(t, "FAIL "+x.LaneDir("reviewer")+" exists and is not a worktree of "+x.Root, "role", "reviewer", "--tab", "w1:t1", "--start")
 }
@@ -302,7 +302,7 @@ func TestRoleIntegratorStartsInItsWorktreeAndNeedsAType(t *testing.T) {
 	x := newGitFx(t)
 	x.h.Tab("w1:t1", 200, 50, "w1:p3")
 	x.failing(t, `FAIL roles.integrator is not set (a model ref, e.g. <model>[:<effort>])`, "role", "integrator", "--pane", "w1:p3", "--start")
-	x.Config(testkit.Set("roles", `{"integrator": "opus"}`))
+	x.Config(testkit.Set("agents.roles", `{"integrator": "opus"}`))
 	x.reset()
 	out := x.ok(t, "role", "integrator", "--pane", "w1:p3", "--start")
 	if last(out) != "OK integrator: pj-int in pane w1:p3" {
@@ -340,7 +340,7 @@ func TestRoleIntegratorStartsInItsWorktreeAndNeedsAType(t *testing.T) {
 // init made before the line was ignored leaves it out (init's own case is TestInitGitignoresTheReviewsDir).
 func TestRoleSetupGitignoresTheReviewsDir(t *testing.T) {
 	t.Parallel()
-	x := newGitFx(t, testkit.Set("roles", `{"reviewer": "opus", "deep_dive": "opus"}`))
+	x := newGitFx(t, testkit.Set("agents.roles", `{"reviewer": "opus", "deep_dive": "opus"}`))
 	if count(x.Read(".gitignore"), "docs/reviews") != 0 {
 		t.Fatalf("precondition: the reviews dir not ignored:\n%s", x.Read(".gitignore"))
 	}
@@ -367,7 +367,7 @@ func TestRoleSetupLeavesAnExistingReviewsLineAlone(t *testing.T) {
 	for _, line := range []string{"docs/reviews/", "docs/reviews"} {
 		t.Run(line, func(t *testing.T) {
 			t.Parallel()
-			x := newGitFx(t, testkit.Set("roles", `{"reviewer": "opus"}`))
+			x := newGitFx(t, testkit.Set("agents.roles", `{"reviewer": "opus"}`))
 			x.Write(".gitignore", x.Read(".gitignore")+line+"\n")
 			gi := x.Read(".gitignore")
 			if count(gi, line) != 1 {

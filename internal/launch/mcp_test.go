@@ -109,7 +109,7 @@ func TestRV47StartVariadicConfig(t *testing.T) {
 	const otherEntry = `{"mcpServers":{"other":{"command":"/bin/other"}}}`
 	const wake = "[obor job T-1/1/work] call the obor job_next tool"
 	kindArgs := `["--strict-mcp-config","--mcp-config",` + jsonStr(otherEntry) + `,` + jsonStr(oborEntry) + `]`
-	x := setup(t, testkit.Set("kinds.claude.args", kindArgs), testkit.Set("roles", `{"reviewer":"opus"}`))
+	x := setup(t, testkit.Set("agents.kinds.claude.args", kindArgs), testkit.Set("agents.roles", `{"reviewer":"opus"}`))
 	x.shell("w1:p7", "pj-rev", "")
 	out, ok := x.restart(launch.Request{Agent: "pj-rev", Fresh: true, Prompt: wake})
 	if !ok {

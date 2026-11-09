@@ -114,7 +114,7 @@ func (f hfx) state(at int64) {
 
 func ago(secs int64) int64 { return time.Now().Unix() - secs }
 
-func (f hfx) integrator() { f.Config(testkit.Set("roles", `{"integrator": "opus"}`)) }
+func (f hfx) integrator() { f.Config(testkit.Set("agents.roles", `{"integrator": "opus"}`)) }
 
 // doneLane: lane L-04 on task/T-04 with its task_done (the commit a real lane has is no part of the row).
 func (f hfx) doneLane() string {
@@ -142,7 +142,7 @@ func TestStopAboveHandoffLimitNoBlock(t *testing.T) {
 	t.Parallel()
 	f := newHfx(t)
 	f.PlainLane("L-01", "task/T-01")
-	f.Config(testkit.Set("handoff_tokens", 300000))
+	f.Config(testkit.Set("agents.handoff_tokens", 300000))
 	tr := transcript(f, f.Base+"/projects/p/s1.jsonl", 900000)
 	if ctx, _, _, ok := project.ContextTokens(tr); !ok || ctx != 900000 {
 		t.Fatalf("precondition: transcript context %d %v, want 900000", ctx, ok)

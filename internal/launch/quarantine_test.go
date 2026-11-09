@@ -104,7 +104,7 @@ func TestLaunchRefusesQuarantinedCodex(t *testing.T) {
 // warns with the same line and starts, for `obor lead` (setup's Start, the owner's own start) and for a restart.
 func TestLaunchLeadWarnsQuarantinedCodex(t *testing.T) {
 	t.Parallel()
-	x := setup(t, testkit.Set("roles", `{"integrator":"opus","lead":"luna","reviewer":"luna"}`))
+	x := setup(t, testkit.Set("agents.roles", `{"integrator":"opus","lead":"luna","reviewer":"luna"}`))
 	x.install = quarantineHost("darwin", 0x0181)
 	const fix = "xattr -dr com.apple.quarantine /c/0.167.0"
 
@@ -119,7 +119,7 @@ func TestLaunchLeadWarnsQuarantinedCodex(t *testing.T) {
 	}
 
 	// obor restart pj-lead: the same warning, the start made.
-	x2 := setup(t, testkit.Set("roles", `{"integrator":"opus","lead":"luna","reviewer":"luna"}`))
+	x2 := setup(t, testkit.Set("agents.roles", `{"integrator":"opus","lead":"luna","reviewer":"luna"}`))
 	x2.install = quarantineHost("darwin", 0x0181)
 	x2.shell("w1:p8", "pj-lead", "")
 	restarted, ok := x2.restart(launch.Request{Agent: "pj-lead", Pane: "w1:p8", Fresh: true})

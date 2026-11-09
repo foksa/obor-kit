@@ -152,7 +152,7 @@ func TestSessionDenyCommandCount(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			f, _ := sessionFx(t, true)
-			f.Config(testkit.Set("guards.deny_commands", c.rules))
+			f.Config(testkit.Set("rules.deny_commands", c.rules))
 			contains(t, f.session(t, f.Root, "", "OBOR_ROLE=lead"), c.name, c.want)
 		})
 	}
@@ -170,7 +170,7 @@ func TestSessionRoleTextRows(t *testing.T) {
 	// custom is the T-801 fixture: a custom role's doc and a kit default row's model.
 	custom := func() {
 		f.Write("docs/agents/ux_buddy.md", "# Role: ux_buddy\n")
-		f.Config(testkit.Set("roles.ux_buddy", `{"model": "opus", "write": ["docs/ux/"]}`), testkit.Set("roles.researcher", "sonnet"))
+		f.Config(testkit.Set("agents.roles.ux_buddy", `{"model": "opus", "write": ["docs/ux/"]}`), testkit.Set("agents.roles.researcher", "sonnet"))
 	}
 	for _, c := range []struct {
 		name            string
@@ -199,7 +199,7 @@ func TestSessionRoleTextRows(t *testing.T) {
 			[]string{"read it before acting"}},
 		{"a reviewer with paths.agents", func() {
 			f.Write("doc/roles/reviewer.md", "# reviewer here\n")
-			f.Config(testkit.Set("paths.agents", "doc/roles"))
+			f.Config(testkit.Set("agents.docs_dir", "doc/roles"))
 		}, "reviewer", "root",
 			[]string{"obor: role reviewer", kit + "/templates/agents/reviewer.md, project: doc/roles/reviewer.md — read it before acting"}, nil},
 		{"the lead", nil, "lead", "root",
@@ -218,7 +218,7 @@ func TestSessionRoleTextRows(t *testing.T) {
 			[]string{"obor: role text: " + kit + "/templates/agents/researcher.md, project: docs/agents/researcher.md — read it before acting"}, nil},
 		{"a role the config does not know", func() {
 			f.Write("docs/agents/ux_buddy.md", "# Role: ux_buddy\n")
-			f.Config(testkit.Set("roles.researcher", "sonnet")) // the ux_buddy row removed: its doc stays, no role text
+			f.Config(testkit.Set("agents.roles.researcher", "sonnet")) // the ux_buddy row removed: its doc stays, no role text
 		}, "ux_buddy", "root",
 			[]string{"obor: role ux_buddy"}, []string{"obor: role text"}},
 	} {
@@ -449,7 +449,7 @@ func TestSessionKindIsTheDispatchs(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			f, o1 := sessionFx(t, false)
-			f.Config(testkit.Set("models.oc", `{"kind":"opencode","model":"go/x"}`))
+			f.Config(testkit.Set("agents.models.oc", `{"kind":"opencode","id":"go/x"}`))
 			if c.armed {
 				f.State("L-01", `{"task":"T-05","branch":"task/T-05","base":"main","type":"`+c.rowType+`"}`)
 			}

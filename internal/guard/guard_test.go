@@ -25,7 +25,7 @@ func fixture(t testing.TB) *fx {
 	t.Helper()
 	p := testkit.NewPlain(t)
 	f := &fx{Project: p, P: p.Root, L: p.PlainLane("L-01", "task/T-01"), S: p.PlainLane("S-01", "")}
-	f.Config(testkit.Set("protected_files", `["src/core/types.ts"]`))
+	f.Config(testkit.Set("rules.protected_files", `["src/core/types.ts"]`))
 	for _, d := range []string{f.P + "/src/core", f.L + "/src/core", f.L + "/src/a"} {
 		os.MkdirAll(d, 0o755)
 	}
@@ -138,7 +138,7 @@ func TestAllowPushListedNonWorkerOnly(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
 	P, L := f.P, f.L
-	f.Config(testkit.Set("protected_files", `["src/core/types.ts"]`), testkit.Set("guards.allow_push", `["lead", "worker"]`))
+	f.Config(testkit.Set("rules.protected_files", `["src/core/types.ts"]`), testkit.Set("rules.may_push", `["lead", "worker"]`))
 	check(t, f.Project, []tc{
 		bash("lead", P, "git push", ""),
 		bash("lead", P, "git -C "+L+" push origin main", ""),
@@ -175,9 +175,9 @@ func TestAllowPushListedNonWorkerOnly(t *testing.T) {
 	})
 	// No guards.allow_push, or an entry that names no role (an agent's derived name too, T-1111) → everyone denied.
 	for _, list := range []string{"", `["pj-boss"]`, `["pj-lead"]`} {
-		edits := []func(map[string]any){testkit.Set("protected_files", `["src/core/types.ts"]`)}
+		edits := []func(map[string]any){testkit.Set("rules.protected_files", `["src/core/types.ts"]`)}
 		if list != "" {
-			edits = append(edits, testkit.Set("guards.allow_push", list))
+			edits = append(edits, testkit.Set("rules.may_push", list))
 		}
 		f.Config(edits...)
 		check(t, f.Project, []tc{
@@ -477,7 +477,7 @@ func TestDenyCommands(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			f := fixture(t)
-			f.Config(testkit.Set("guards.deny_commands", c.rules))
+			f.Config(testkit.Set("rules.deny_commands", c.rules))
 			check(t, f.Project, c.cases(f.P, f.L))
 		})
 	}
@@ -1008,7 +1008,7 @@ func TestProtectedExactEntryUnlocksOnlyARegularFile(t *testing.T) {
 	// #4: protected src/core and src/core/**; the spec lists the existing directory src/core → no unlock for its children
 	// or for the directory itself.
 	os.Remove(L + "/src/core/types.ts")
-	f.Config(testkit.Set("protected_files", `["src/core", "src/core/**"]`))
+	f.Config(testkit.Set("rules.protected_files", `["src/core", "src/core/**"]`))
 	f.spec("`src/core`")
 	check(t, f.Project, []tc{
 		bash("-", L, "rm -rf src/core", "protected"),
@@ -1016,7 +1016,7 @@ func TestProtectedExactEntryUnlocksOnlyARegularFile(t *testing.T) {
 		edit("-", L, "Edit", L+"/src/core/types.ts", "protected"),
 	})
 	// Kept: a regular file listed exactly → Edit and redirection allowed; a path not created yet → Write allowed.
-	f.Config(testkit.Set("protected_files", `["src/core/types.ts"]`))
+	f.Config(testkit.Set("rules.protected_files", `["src/core/types.ts"]`))
 	f.spec("`src/core/types.ts`")
 	os.Remove(L + "/src/core/types.ts")
 	check(t, f.Project, []tc{edit("-", L, "Write", L+"/src/core/types.ts", "")})
@@ -1254,7 +1254,7 @@ func TestReviewsWriteProfile(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
 	P, S := f.P, f.S
-	f.Config(testkit.Set("protected_files", `["src/core/types.ts"]`))
+	f.Config(testkit.Set("rules.protected_files", `["src/core/types.ts"]`))
 	var cases []tc
 	for _, rv := range []string{"reviewer", "deep_dive"} {
 		cases = append(cases,
@@ -1286,7 +1286,7 @@ func TestReviewsWriteProfile(t *testing.T) {
 		edit("integrator", P, "Edit", P+"/src/a/x.ts", ""),
 		edit("advisor", P, "Edit", P+"/src/a/x.ts", "src/a/x.ts is outside the advisor write profile"), // T-801
 	))
-	f.Config(testkit.Set("paths.reviews", "notes/rv"))
+	f.Config(testkit.Set("reviews.dir", "notes/rv"))
 	check(t, f.Project, []tc{
 		edit("reviewer", P, "Write", P+"/notes/rv/R-02.md", ""),
 		edit("reviewer", P, "Write", P+"/docs/reviews/R-02.md", "writes only under notes/rv"),
@@ -1299,7 +1299,7 @@ func TestResearcherWriteProfile(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
 	P := f.P
-	f.Config(testkit.Set("roles.researcher", "sonnet"), testkit.Set("roles.advisor", "opus")) // a string: the default rows
+	f.Config(testkit.Set("agents.roles.researcher", "sonnet"), testkit.Set("agents.roles.advisor", "opus")) // a string: the default rows
 	check(t, f.Project, []tc{
 		edit("researcher", P, "Write", P+"/docs/research/x.md", ""),
 		edit("researcher", P, "Edit", P+"/docs/research/sub/y.md", ""),
@@ -1321,7 +1321,7 @@ func TestResearcherWriteProfile(t *testing.T) {
 		edit("advisor", P, "Write", P+"/docs/plan/milestone.md", ""),
 		edit("advisor", P, "Edit", P+"/internal/x.go", "internal/x.go is outside the advisor write profile — an advisor writes only docs/research/, docs/plan/"),
 	})
-	f.Config(testkit.Set("roles.researcher", `{"model": "sonnet", "write": ["notes/res/"]}`))
+	f.Config(testkit.Set("agents.roles.researcher", `{"model": "sonnet", "write": ["notes/res/"]}`))
 	check(t, f.Project, []tc{
 		edit("researcher", P, "Write", P+"/notes/res/x.md", ""),
 		edit("researcher", P, "Write", P+"/docs/research/x.md", "writes only notes/res/"),
@@ -1337,9 +1337,9 @@ func TestCustomRoleGuard(t *testing.T) {
 	P := f.P
 	f.Write("docs/agents/designer.md", "# Role: designer\n")
 	f.Write("docs/agents/buddy.md", "# Role: buddy\n")
-	f.Config(testkit.Set("protected_files", `["src/core/types.ts"]`),
-		testkit.Set("roles.designer", `{"model": "opus", "write": ["docs/design/", "STYLE.md"]}`),
-		testkit.Set("roles.buddy", "sonnet"), testkit.Set("guards.allow_push", `["designer"]`))
+	f.Config(testkit.Set("rules.protected_files", `["src/core/types.ts"]`),
+		testkit.Set("agents.roles.designer", `{"model": "opus", "write": ["docs/design/", "STYLE.md"]}`),
+		testkit.Set("agents.roles.buddy", "sonnet"), testkit.Set("rules.may_push", `["designer"]`))
 	check(t, f.Project, []tc{
 		edit("designer", P, "Write", P+"/docs/design/a.md", ""),
 		edit("designer", P, "Edit", P+"/docs/design/sub/b.md", ""),
@@ -1370,15 +1370,15 @@ func TestRemovedCustomRoleFailsClosed(t *testing.T) {
 	f := fixture(t)
 	P, L := f.P, f.L
 	f.Write("docs/agents/ux_buddy.md", "# Role: ux_buddy\n")
-	f.Config(testkit.Set("protected_files", `["src/core/types.ts"]`),
-		testkit.Set("roles.ux_buddy", `{"model": "opus", "write": ["docs/ux/"]}`))
+	f.Config(testkit.Set("rules.protected_files", `["src/core/types.ts"]`),
+		testkit.Set("agents.roles.ux_buddy", `{"model": "opus", "write": ["docs/ux/"]}`))
 	// Precondition: with its row the role writes its list and reads git, so the denials below come from the removal.
 	check(t, f.Project, []tc{
 		edit("ux_buddy", P, "Write", P+"/docs/ux/a.md", ""),
 		bash("ux_buddy", P, "git add docs/ux/a.md", "an ux_buddy doesn't run git add"),
 		bash("ux_buddy", P, "git status", ""),
 	})
-	f.Config(testkit.Set("protected_files", `["src/core/types.ts"]`)) // the row removed while the agent runs
+	f.Config(testkit.Set("rules.protected_files", `["src/core/types.ts"]`)) // the row removed while the agent runs
 	check(t, f.Project, []tc{
 		edit("ux_buddy", P, "Edit", P+"/internal/x.go", why),
 		edit("ux_buddy", P, "Write", P+"/docs/ux/a.md", why),
@@ -1626,7 +1626,7 @@ func TestRV83WriteProfileOnEveryRoute(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
 	P := f.P
-	f.Config(testkit.Set("protected_files", `["src/core/types.ts"]`))
+	f.Config(testkit.Set("rules.protected_files", `["src/core/types.ts"]`))
 	f.Write(P+"/internal/a.go", "package a\n")
 	for _, d := range []string{"docs/research", "docs/reviews"} {
 		os.MkdirAll(P+"/"+d, 0o755)
@@ -1737,7 +1737,7 @@ func TestDriverLaneBoundCommitsNoPush(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
 	P, L := f.P, f.L
-	f.Config(testkit.Set("protected_files", `["src/core/types.ts"]`), testkit.Set("guards.allow_push", `["driver"]`))
+	f.Config(testkit.Set("rules.protected_files", `["src/core/types.ts"]`), testkit.Set("rules.may_push", `["driver"]`))
 	f.Write(L+"/src/core/types.ts", "protected\n")
 	check(t, f.Project, []tc{
 		edit("driver pj-l-01-drive", L, "Write", L+"/src/a/page.ts", ""),
@@ -1756,7 +1756,7 @@ func TestTriageRoleGuard(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
 	P := f.P
-	f.Config(testkit.Set("protected_files", `["src/core/types.ts"]`))
+	f.Config(testkit.Set("rules.protected_files", `["src/core/types.ts"]`))
 	cfg, err := config.Load(f.Root)
 	if err != nil {
 		t.Fatal(err)

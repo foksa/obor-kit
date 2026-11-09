@@ -168,7 +168,7 @@ func newFx(t *testing.T, git bool, edits ...func(map[string]any)) *fx {
 	x := &fx{t: t, p: p, f: f, srv: herdrtest.Serve(t, f), lane: lane, claude: filepath.Join(p.Base, "claude"),
 		gone: map[string]bool{}, ps: func(...string) ([]byte, error) { return nil, nil }}
 	p.Config(append([]func(map[string]any){
-		testkit.Set("roles", `{"integrator":"opus","lead":"opus","reviewer":"luna"}`),
+		testkit.Set("agents.roles", `{"integrator":"opus","lead":"opus","reviewer":"luna"}`),
 	}, edits...)...)
 	return x
 }
@@ -452,8 +452,8 @@ func eq(t *testing.T, got, want, what string) {
 // envMarksRE is the env line's two words as typed (T-601): its success word, then its failure word.
 var envMarksRE = regexp.MustCompile(` && echo obor-env-"([0-9a-z]+)" \|\| echo obor-env-"([0-9a-z]+)"$`)
 
-// T-1041: a lane worker's env line carries the generic fact OBOR_LANE_CPUS (slots.lane_cpus, default 2) and the
-// project's slots.lane_env with {cpus} replaced; a var the launcher's env had is the config's, never merged; a role
+// T-1041: a lane worker's env line carries the generic fact OBOR_LANE_CPUS (lanes.cpus, default 2) and the
+// project's lanes.env with {cpus} replaced; a var the launcher's env had is the config's, never merged; a role
 // agent's line carries none of it.
 func TestRestartLaneEnv(t *testing.T) {
 	t.Parallel()
@@ -465,15 +465,15 @@ func TestRestartLaneEnv(t *testing.T) {
 	}{
 		{name: "lane, no lane_env: the fact alone", agent: "pj-l-01", pane: "w1:p3",
 			want: "export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:p3 OBOR_LANE_CPUS=2"},
-		{name: "lane, slots.lane_env", agent: "pj-l-01", pane: "w1:p3",
-			edit: []func(map[string]any){testkit.Set("slots.lane_env",
+		{name: "lane, lanes.env", agent: "pj-l-01", pane: "w1:p3",
+			edit: []func(map[string]any){testkit.Set("lanes.count", 1), testkit.Set("lanes.env",
 				`{"GOMAXPROCS": "{cpus}", "GOFLAGS": "-p={cpus} -trimpath"}`)},
 			want: "export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:p3 GOFLAGS='-p=2 -trimpath' GOMAXPROCS=2 OBOR_LANE_CPUS=2"},
-		{name: "lane, slots.lane_cpus 3", agent: "pj-l-01", pane: "w1:p3",
-			edit: []func(map[string]any){testkit.Set("slots.lane_cpus", 3), testkit.Set("slots.lane_env", `{"GOMAXPROCS": "{cpus}"}`)},
+		{name: "lane, lanes.cpus 3", agent: "pj-l-01", pane: "w1:p3",
+			edit: []func(map[string]any){testkit.Set("lanes.count", 1), testkit.Set("lanes.cpus", 3), testkit.Set("lanes.env", `{"GOMAXPROCS": "{cpus}"}`)},
 			want: "export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:p3 GOMAXPROCS=3 OBOR_LANE_CPUS=3"},
 		{name: "lane, a GOFLAGS in the launcher's env: the config's wins, no merge", agent: "pj-l-01", pane: "w1:p3", goflags: "-mod=mod",
-			edit: []func(map[string]any){testkit.Set("slots.lane_env", `{"GOFLAGS": "-p={cpus}"}`)},
+			edit: []func(map[string]any){testkit.Set("lanes.count", 1), testkit.Set("lanes.env", `{"GOFLAGS": "-p={cpus}"}`)},
 			want: "export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:p3 GOFLAGS=-p=2 OBOR_LANE_CPUS=2"},
 		{name: "role agent", agent: "pj-int", pane: "w1:p5", goflags: "-mod=mod", none: true, want: "export OBOR_ROLE=integrator OBOR_PANE=w1:p5"},
 	} {
@@ -589,7 +589,7 @@ func TestRestartWho(t *testing.T) {
 	}, {
 		// bash restart.test.sh case_triage_gets_obor_agent_only; T-796: OBOR_ROLE=triage like every other role
 		name: "triage role: its type, cwd root, OBOR_ROLE=triage (no OBOR_AGENT)",
-		edit: []func(map[string]any){testkit.Set("roles", `{"lead":"opus","triage":"opus"}`)},
+		edit: []func(map[string]any){testkit.Set("agents.roles", `{"lead":"opus","triage":"opus"}`)},
 		prep: func(x *fx) { x.shell("w1:p6", "", "") },
 		req:  launch.Request{Agent: "pj-triage", Pane: "w1:p6", Fresh: true},
 		env: func(x *fx) string {
@@ -602,7 +602,7 @@ func TestRestartWho(t *testing.T) {
 		name: "deep_dive role (T-179, T-853): its type, cwd its role worktree, OBOR_ROLE=deep_dive",
 		git:  true, // the launcher adds the worktree: project.AddWorktree runs git
 		edit: []func(map[string]any){
-			testkit.Set("roles", `{"lead":"opus","deep_dive":"opus"}`),
+			testkit.Set("agents.roles", `{"lead":"opus","deep_dive":"opus"}`),
 		},
 		prep: func(x *fx) { x.shell("w1:p6", "", "") },
 		req:  launch.Request{Agent: "pj-deep-dive", Pane: "w1:p6", Fresh: true},
@@ -616,7 +616,7 @@ func TestRestartWho(t *testing.T) {
 	}, {
 		// bash restart.test.sh case_lead_type_from_leads_entry_or_none (pj-lead)
 		name: "a lead without a model: no args",
-		edit: []func(map[string]any){testkit.Set("roles", `{"lead":""}`)},
+		edit: []func(map[string]any){testkit.Set("agents.roles", `{"lead":""}`)},
 		prep: func(x *fx) { x.shell("w1:p6", "", "") },
 		req:  launch.Request{Agent: "pj-lead", Pane: "w1:p6", Fresh: true},
 		env: func(x *fx) string {
@@ -814,7 +814,7 @@ func TestRestartWhereRefusals(t *testing.T) {
 // more; the pane's lane cwd is what makes it axis's.
 func TestRestartOtherProjectsPane(t *testing.T) {
 	t.Parallel()
-	kitEdits := []func(map[string]any){testkit.Set("roles", `{"integrator":"opus"}`)}
+	kitEdits := []func(map[string]any){testkit.Set("agents.roles", `{"integrator":"opus"}`)}
 	// fixtures: the kit (x, lanes L-01 and L-02), axis (its lane L-02 in <axis>-wt/L-02) and its worker's pane w2:pF in
 	// axis's worktree.
 	fixtures := func(t *testing.T) (x *fx, axis *config.Config, axisWt string) {
@@ -823,8 +823,8 @@ func TestRestartOtherProjectsPane(t *testing.T) {
 		x.p.Config(kitEdits...)
 		a := testkit.NewPlain(t)
 		axisWt = a.PlainLane("L-02", "")
-		a.Config(testkit.Set("lanes", 2), testkit.Set("kinds.claude.args", `["--strict-mcp-config"]`),
-			testkit.Set("roles", `{"integrator":"opus"}`))
+		a.Config(testkit.Set("lanes.count", 2), testkit.Set("agents.kinds.claude.args", `["--strict-mcp-config"]`),
+			testkit.Set("agents.roles", `{"integrator":"opus"}`))
 		axis, err := config.Load(a.Root)
 		if err != nil {
 			t.Fatal(err)
@@ -2077,7 +2077,7 @@ func TestSessionResumeRule(t *testing.T) {
 	t.Run("restore: a role with no recorded session: fresh, said", func(t *testing.T) {
 		t.Parallel()
 		f := newRfx(t)
-		f.p.Config(testkit.Set("roles", `{"reviewer": "opus"}`))
+		f.p.Config(testkit.Set("agents.roles", `{"reviewer": "opus"}`))
 		rev := f.p.PlainLane("review", "review")
 		f.shell("w1:p7", rev, "pj-rev")
 		f.pl.RestoreProject(context.Background(), f.p.Root)
@@ -3490,7 +3490,7 @@ func TestUntypedRoleLaunchDefaults(t *testing.T) {
 	for _, c := range []struct{ role, agent string }{{"integrator", "pj-int"}, {"reviewer", "pj-rev"}, {"lead", "pj-lead"}} {
 		t.Run(c.role, func(t *testing.T) {
 			t.Parallel()
-			x := setup(t, testkit.Set("roles."+c.role, ""))
+			x := setup(t, testkit.Set("agents.roles."+c.role, ""))
 			x.shell("w1:p1", c.agent, x.p.Root)
 			if out, ok := x.restart(launch.Request{Agent: c.agent, Fresh: true}); !ok {
 				t.Fatal(out)
@@ -3552,7 +3552,7 @@ func TestFreshStartRolePrompt(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			x := setup(t, testkit.Set("roles", `{"lead":"`+c.typ+`","reviewer":"`+c.typ+`"}`))
+			x := setup(t, testkit.Set("agents.roles", `{"lead":"`+c.typ+`","reviewer":"`+c.typ+`"}`))
 			a := x.agent("w1:p7", c.agent, c.kind, "idle")
 			a.Session = "sid-1"
 			if c.resume {

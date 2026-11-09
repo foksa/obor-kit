@@ -20,7 +20,7 @@ import (
 func TestSetupMCPDoctorUsedKinds(t *testing.T) {
 	t.Parallel()
 	x := bare(t)
-	claudeOnly := testkit.Set("difficulty", `{"hard": ["opus"], "medium": ["sonnet"], "simple": ["haiku"]}`)
+	claudeOnly := testkit.Set("agents.difficulty", `{"hard": ["opus"], "medium": ["sonnet"], "simple": ["haiku"]}`)
 	x.Config(claudeOnly)
 	conf := filepath.Join(x.Base, "xdg")
 	x.env = []string{"XDG_CONFIG_HOME=" + conf}
@@ -39,7 +39,7 @@ func TestSetupMCPDoctorUsedKinds(t *testing.T) {
 	has(t, out, "mcp codex: not used", "codex is listed, not checked")
 	hasNot(t, out, "WARN", "no warning for a kind the project does not run")
 
-	x.Config(claudeOnly, testkit.Set("models", `{"muse": {"kind": "opencode", "model": "x"}}`), testkit.Set("roles.reviewer", "muse"))
+	x.Config(claudeOnly, testkit.Set("agents.models", `{"muse": {"kind": "opencode", "id": "x"}}`), testkit.Set("agents.roles.reviewer", "muse"))
 	out, rc = x.run(t, "mcp")
 	if rc != 0 || last(out) != "OK mcp" {
 		t.Errorf("an opencode reviewer, no opencode entry: exit %d, last %q\n%s", rc, last(out), out)
@@ -51,12 +51,12 @@ func TestSetupMCPDoctorUsedKinds(t *testing.T) {
 
 // T-445, T-765: `obor setup mcp --model <name>` says whether a start of that model gives its agent obor's server, from
 // its effective start args alone (no agent started, no `claude -p`): a Claude start with --strict-mcp-config (in
-// kinds.claude.args) gets obor's --mcp-config (an explicit obor entry there wins), one without it the plugin manifest,
-// Codex the launch args, OpenCode its generated config (T-809); a kind obor registers nothing for fails, as does an unknown
-// model.
+// agents.kinds.claude.args) gets obor's --mcp-config (an explicit obor entry there wins), one without it the plugin
+// manifest, Codex the launch args, OpenCode its generated config (T-809); a kind obor registers nothing for fails, as
+// does an unknown model.
 func TestSetupMCPLane(t *testing.T) {
 	t.Parallel()
-	x := newFx(t, testkit.Set("models", `{"muse": {"kind": "opencode", "model": "x"}, "cur": {"kind": "cursor", "model": "c"}}`))
+	x := newFx(t, testkit.Set("agents.models", `{"muse": {"kind": "opencode", "id": "x"}, "cur": {"kind": "cursor", "id": "c"}}`))
 	conf := filepath.Join(x.Base, "xdg")
 	x.env = []string{"XDG_CONFIG_HOME=" + conf}
 
@@ -65,12 +65,12 @@ func TestSetupMCPLane(t *testing.T) {
 		"mcp model opus (claude): registered per start (--strict-mcp-config hides the plugin manifest's server; obor adds --mcp-config "+
 			claude.MCPConfig(kit)+")", "a lane's start: strict, obor adds --mcp-config")
 	// With the flag in the args, the same: it is there once.
-	strict := newFx(t, testkit.Set("kinds.claude.args", `["--strict-mcp-config"]`))
+	strict := newFx(t, testkit.Set("agents.kinds.claude.args", `["--strict-mcp-config"]`))
 	has(t, strict.ok(t, "mcp", "--model", "opus"),
 		"mcp model opus (claude): registered per start (--strict-mcp-config hides the plugin manifest's server; obor adds --mcp-config "+
 			claude.MCPConfig(kit)+")", "strict flag: obor adds --mcp-config")
 	// An explicit obor entry in the args wins: no second one.
-	mine := newFx(t, testkit.Set("kinds.claude.args", `["--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{\"obor\":{\"command\":\"/x/bin/obor\"}}}"]`))
+	mine := newFx(t, testkit.Set("agents.kinds.claude.args", `["--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{\"obor\":{\"command\":\"/x/bin/obor\"}}}"]`))
 	has(t, mine.ok(t, "mcp", "--model", "opus"),
 		"mcp model opus (claude): registered per start (the type's args name an obor server in --mcp-config)", "explicit entry")
 	// Codex gets it from the launch args.
@@ -109,13 +109,13 @@ func TestRV47SetupMCPLaneVariadic(t *testing.T) {
 		"later":    `["--strict-mcp-config", "--mcp-config", ` + jsonStr(otherEntry) + `, ` + jsonStr(oborEntry) + `]`,
 		"repeated": `["--strict-mcp-config", "--mcp-config", ` + jsonStr(otherEntry) + `, "--mcp-config", ` + jsonStr(oborEntry) + `]`,
 	} {
-		x := newFx(t, testkit.Set("kinds.claude.args", args))
+		x := newFx(t, testkit.Set("agents.kinds.claude.args", args))
 		x.env = []string{"XDG_CONFIG_HOME=" + filepath.Join(x.Base, "xdg")}
 		has(t, x.ok(t, "mcp", "--model", "opus"),
 			"mcp model opus (claude): registered per start (the type's args name an obor server in --mcp-config)", name)
 	}
 	// The control: no obor value, so obor adds its own --mcp-config.
-	x := newFx(t, testkit.Set("kinds.claude.args", `["--strict-mcp-config", "--mcp-config", `+jsonStr(otherEntry)+`]`))
+	x := newFx(t, testkit.Set("agents.kinds.claude.args", `["--strict-mcp-config", "--mcp-config", `+jsonStr(otherEntry)+`]`))
 	x.env = []string{"XDG_CONFIG_HOME=" + filepath.Join(x.Base, "xdg")}
 	has(t, x.ok(t, "mcp", "--model", "opus"),
 		"mcp model opus (claude): registered per start (--strict-mcp-config hides the plugin manifest's server; obor adds --mcp-config "+
@@ -144,7 +144,7 @@ func TestSetupAgentsEveryKind(t *testing.T) {
 // the state dir and installs what its install call returns; an install that fails is a FAIL naming the kind and the
 // call. Not parallel: the load registers the plugin kind in the process's registry.
 func TestSetupAgentsPluginKind(t *testing.T) {
-	x := newFx(t, testkit.Set("kinds.mine", map[string]any{"command": "obor-kind-mine"}))
+	x := newFx(t, testkit.Set("agents.kinds.mine", map[string]any{"plugin": "obor-kind-mine"}))
 	t.Cleanup(func() { agents.SetPlugins(nil) }) // the parallel tests after this one load no config
 	cmd := filepath.Join(x.Root, "obor-kind-mine")
 	manifest := `{"version":1,"name":"mine","status":"terminal"}`
@@ -250,7 +250,7 @@ func TestSetupAgentsKeepsUnknownKeys(t *testing.T) {
 func TestSetupMCPInstallWarning(t *testing.T) {
 	t.Parallel()
 	x := bare(t)
-	claudeOnly := testkit.Set("difficulty", `{"hard": ["opus"], "medium": ["sonnet"], "simple": ["haiku"]}`)
+	claudeOnly := testkit.Set("agents.difficulty", `{"hard": ["opus"], "medium": ["sonnet"], "simple": ["haiku"]}`)
 	const host = "/c/0.167.0/bin/codex-code-mode-host"
 	asked := 0
 	x.install = func() agents.InstallHost {
@@ -265,7 +265,7 @@ func TestSetupMCPInstallWarning(t *testing.T) {
 	}
 	hasNot(t, out, "WARN codex", "an unused kind's install is not checked")
 
-	x.Config(claudeOnly, testkit.Set("roles.reviewer", "luna"))
+	x.Config(claudeOnly, testkit.Set("agents.roles.reviewer", "luna"))
 	out, rc = x.run(t, "mcp")
 	if asked == 0 {
 		t.Fatalf("precondition: a codex reviewer makes codex used\n%s", out)
