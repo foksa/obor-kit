@@ -20,7 +20,7 @@ var brokenConfigs = []struct {
 
 // unknownKey adds keys this binary does not know (keep_warm is one T-501 removed) to the fixture's config.
 func unknownKey(f *testkit.Project, protected string) {
-	f.Config(testkit.Set("protected_files", protected), testkit.Set("keep_warm", `{"lanes": 1}`),
+	f.Config(testkit.Set("rules.protected_files", protected), testkit.Set("keep_warm", `{"lanes": 1}`),
 		testkit.Set("merge.future", 1))
 }
 
@@ -50,7 +50,7 @@ func TestConfigUnreadableFailsClosed(t *testing.T) {
 
 	for _, b := range brokenConfigs {
 		t.Run(b.name, func(t *testing.T) {
-			f.Config(testkit.Set("protected_files", `["src/core/types.ts"]`))
+			f.Config(testkit.Set("rules.protected_files", `["src/core/types.ts"]`))
 			os.Remove(f.Path(".obor/local.json"))
 			f.Write(b.file, b.text)
 			check(t, f.Project, []tc{

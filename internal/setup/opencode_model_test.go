@@ -11,11 +11,11 @@ import (
 // T-703: the env obor setup hands herdr for a new OpenCode pane carries the start's model and effort for obor's plugin
 // (OBOR_OPENCODE_MODEL provider/model#effort), and nothing of the T-696 workaround (no XDG_STATE_HOME, no
 // OPENCODE_CONFIG_CONTENT), and OPENCODE_CONFIG naming the start's generated config (T-809). A type without a model hands the variable empty, so a value the pane would inherit from
-// setup's own env (an OpenCode agent running setup) is none to the plugin. (A model without a model id: models.bare.) A
-// new pane's shell is typed at once: the env line that exports its pane id (T-1037).
+// setup's own env (an OpenCode agent running setup) is none to the plugin. (A model without a model id:
+// agents.models.bare.) A new pane's shell is typed at once: the env line that exports its pane id (T-1037).
 func TestSetupOpencodePaneEnvCarriesTheModel(t *testing.T) {
 	t.Parallel()
-	const models = `{"oc":{"kind":"opencode","model":"go/ds"},"bare":{"kind":"opencode","model":""}}`
+	const models = `{"oc":{"kind":"opencode","id":"go/ds"},"bare":{"kind":"opencode","id":""}}`
 	for _, c := range []struct {
 		name, role string // role "": lane L-01 whose dispatch runs bare, else the reviewer of that model ref
 		want       string // in the split's env
@@ -26,7 +26,7 @@ func TestSetupOpencodePaneEnvCarriesTheModel(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			x := newFx(t, testkit.Set("models", models), testkit.Set("roles", `{"reviewer":"`+c.role+`"}`))
+			x := newFx(t, testkit.Set("agents.models", models), testkit.Set("agents.roles", `{"reviewer":"`+c.role+`"}`))
 			x.env = append(x.env, "OBOR_OPENCODE_MODEL=inherited/m#max", "XDG_STATE_HOME=/mine/state")
 			args := []string{"role", "reviewer", "--tab", "w1:t1", "--start"}
 			if c.role == "" {
@@ -61,7 +61,7 @@ func TestSetupOpencodePaneEnvCarriesTheModel(t *testing.T) {
 // gets it empty (none to obor's plugin) over a value setup's own env holds, and nothing else of the OpenCode kind's.
 func TestSetupNonOpencodePaneDropsTheInheritedModel(t *testing.T) {
 	t.Parallel()
-	const models = `{"oc":{"kind":"opencode","model":"go/ds"}}`
+	const models = `{"oc":{"kind":"opencode","id":"go/ds"}}`
 	for _, c := range []struct{ name, role, kind, want string }{
 		{"claude", "opus", "kind=claude", "OBOR_OPENCODE_MODEL=,"},
 		{"codex", "luna", "kind=codex", "OBOR_OPENCODE_MODEL=,"},
@@ -69,7 +69,7 @@ func TestSetupNonOpencodePaneDropsTheInheritedModel(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			x := newFx(t, testkit.Set("models", models), testkit.Set("roles", `{"reviewer":"`+c.role+`"}`))
+			x := newFx(t, testkit.Set("agents.models", models), testkit.Set("agents.roles", `{"reviewer":"`+c.role+`"}`))
 			x.env = append(x.env, "OBOR_OPENCODE_MODEL=inherited/m#max")
 			x.reset()
 			x.ok(t, "role", "reviewer", "--tab", "w1:t1", "--start")

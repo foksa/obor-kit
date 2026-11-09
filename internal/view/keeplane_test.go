@@ -20,7 +20,7 @@ func TestViewKeepLaneModeAndQueue(t *testing.T) {
 	p := testkit.New(t)
 	p.Lane("L-01", "task/T-01")
 	p.Lane("L-02", "")
-	p.Config(testkit.Set("lanes", `[{"name": "L-01", "keep_agent": true}, {"name": "L-02"}]`))
+	p.Config(testkit.Set("lanes.list", `[{"name": "L-01", "keep_agent": true}, {"name": "L-02"}]`))
 	cfg, err := config.Load(p.Root)
 	if err != nil {
 		t.Fatal(err)

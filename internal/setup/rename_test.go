@@ -18,10 +18,10 @@ import (
 
 func renameProject(t *testing.T) *fx {
 	t.Helper()
-	x := newFx(t, testkit.Set("guards", `{"allow_push": ["lead", "integrator"]}`))
+	x := newFx(t, testkit.Set("rules", `{"may_push": ["lead", "integrator"]}`))
 	x.PlainLane("L-01", "task/T-1")
 	x.PlainLane("L-02", "task/T-2")
-	x.Config(testkit.Set("guards", `{"allow_push": ["lead", "integrator"]}`))
+	x.Config(testkit.Set("rules", `{"may_push": ["lead", "integrator"]}`))
 	x.Write(".obor/local.json", `{"rules": {"may_push": ["reviewer", "pj-lead"]}}`+"\n") // shape 2, as config.json (T-1124)
 	x.Dispatched("L-01")
 	x.Dispatched("L-02")
@@ -142,7 +142,7 @@ func TestRenameKeepsAllowPushWorking(t *testing.T) {
 			x.stubHerdr(t, "proj")
 			entries := `["pj-lead", "integrator", "bob", "pj-nobody"]`
 			if file == "config.json" {
-				x.Config(testkit.Set("guards", `{"allow_push": `+entries+`}`))
+				x.Config(testkit.Set("rules", `{"may_push": `+entries+`}`))
 				x.Write(".obor/local.json", "{}\n")
 			} else {
 				x.Write(".obor/local.json", `{"rules": {"may_push": `+entries+`}}`+"\n")

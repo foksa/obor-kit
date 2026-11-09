@@ -302,11 +302,11 @@ func TestPromptLeadHandoffLimits(t *testing.T) {
 	if c := f.prompt(t, f.Root, "hi", ev, "OBOR_ROLE=lead"); c != "" {
 		t.Errorf("400k under the default 500k: %q", c)
 	}
-	f.Config(testkit.Set("handoff_tokens", 300000))
+	f.Config(testkit.Set("agents.handoff_tokens", 300000))
 	if c := f.prompt(t, f.Root, "hi", ev, "OBOR_ROLE=lead"); c != "obor (lead): context is 400k (> 300k). "+leadWhen {
 		t.Errorf("roles.lead.handoff_tokens 300000: %q", c)
 	}
-	f.Config(testkit.Set("handoff_tokens", 0))
+	f.Config(testkit.Set("agents.handoff_tokens", 0))
 	transcript(f, tr, 900000)
 	if c := f.prompt(t, f.Root, "hi", ev, "OBOR_ROLE=lead"); c != "" {
 		t.Errorf("handoff_tokens 0 → off, even at 900k: %q", c)
@@ -318,7 +318,7 @@ func TestPromptLeadHandoffLimits(t *testing.T) {
 func TestPromptHandoffOnlyForTheLead(t *testing.T) {
 	t.Parallel()
 	f, o1, tr := handoffFx(t, 900000)
-	f.Config(testkit.Set("handoff_tokens", 1000))
+	f.Config(testkit.Set("agents.handoff_tokens", 1000))
 	ev := session("w1", tr)
 	if c := f.prompt(t, o1, "please fix the login bug", ev); !strings.Contains(c, guardLine) || strings.Contains(c, "context is") {
 		t.Errorf("worker, person's prompt: %q, want the guard only", c)

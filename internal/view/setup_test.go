@@ -66,13 +66,13 @@ func TestSetup(t *testing.T) {
 	l1 := p.Lane("L-01", "task/T-01")
 	p.Lane("L-02", "") // detached at main: free
 	p.Config(
-		testkit.Set("models.kimi", map[string]any{"kind": "opencode", "model": "opencode-go/kimi"}),
-		testkit.Set("difficulty", map[string]any{"hard": []any{"opus:high", "opus"},
+		testkit.Set("agents.models.kimi", map[string]any{"kind": "opencode", "id": "opencode-go/kimi"}),
+		testkit.Set("agents.difficulty", map[string]any{"hard": []any{"opus:high", "opus"},
 			"medium": []any{"sonnet", "kimi:high"}, "simple": []any{"opus"}}),
-		testkit.Set("roles.reviewer", "opus"),
-		testkit.Set("roles.deep_dive", "deepseek"),
-		testkit.Set("kinds", map[string]any{"codex": map[string]any{"args": []any{"--search"}},
-			"opencode": map[string]any{"prompt_extra": "quote summaries only"}}),
+		testkit.Set("agents.roles.reviewer", "opus"),
+		testkit.Set("agents.roles.deep_dive", "deepseek"),
+		testkit.Set("agents.kinds", map[string]any{"codex": map[string]any{"args": []any{"--search"}},
+			"opencode": map[string]any{"job_note": "quote summaries only"}}),
 	)
 	p.Commit(l1)
 	p.State("L-01", map[string]any{"task": "T-01", "branch": "task/T-01"}) // its row holds T-01, not landed: working
@@ -260,8 +260,8 @@ func dispatchRecord(t *testing.T, root, task, step string, data any, at time.Tim
 func TestCustomRolesListed(t *testing.T) {
 	p := testkit.New(t)
 	p.Write("docs/agents/designer.md", "# Role: designer\n")
-	p.Config(testkit.Set("roles.integrator", "opus"), testkit.Set("roles.researcher", "sonnet:medium"),
-		testkit.Set("roles.designer", map[string]any{"model": "opus:high", "write": []any{"docs/design/"}}))
+	p.Config(testkit.Set("agents.roles.integrator", "opus"), testkit.Set("agents.roles.researcher", "sonnet:medium"),
+		testkit.Set("agents.roles.designer", map[string]any{"model": "opus:high", "write": []any{"docs/design/"}}))
 	now := time.Now()
 	ss := wire.Status{Since: now.Add(-time.Hour).UTC().Format(time.RFC3339), Connected: true,
 		Project: &wire.ProjectStatus{Name: "proj", Root: p.Root,
@@ -308,7 +308,7 @@ func TestCustomRolesListed(t *testing.T) {
 		t.Errorf("setup lists the unnamed advisor: %+v", setup)
 	}
 
-	p.Config(testkit.Set("roles.integrator", "opus"), testkit.Set("roles.researcher", "sonnet:medium"))
+	p.Config(testkit.Set("agents.roles.integrator", "opus"), testkit.Set("agents.roles.researcher", "sonnet:medium"))
 	view, setup = rows()
 	if _, ok := view["designer"]; ok {
 		t.Errorf("view still lists the removed designer: %+v", view)

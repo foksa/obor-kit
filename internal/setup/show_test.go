@@ -17,10 +17,10 @@ import (
 func TestSetupShowPrintsTheTable(t *testing.T) {
 	t.Parallel()
 	x := newFx(t,
-		testkit.Set("lanes", 2),
-		testkit.Set("roles", `{"lead": "opus:high", "integrator": "opus",
+		testkit.Set("lanes.count", 2),
+		testkit.Set("agents.roles", `{"lead": "opus:high", "integrator": "opus",
 			"reviewer": "terra:xhigh", "deep_dive": "opus:max"}`),
-		testkit.Set("setup", `{"confirmed": false}`))
+		testkit.Set("agents.confirmed", false))
 	before := x.Read(".obor/config.json")
 	out := x.ok(t, "show")
 	want := strings.Join([]string{
@@ -42,14 +42,14 @@ func TestSetupShowPrintsTheTable(t *testing.T) {
 	}
 }
 
-// T-765: a level's own list in its order; a model from models (its own id, or none: its kind alone); a ref naming no
-// model marked; no lanes is "0"; a role not set says so; a confirmed setup prints no starting point.
+// T-765: a level's own list in its order; a model from agents.models (its own id, or none: its kind alone); a ref
+// naming no model marked; no lanes is "0"; a role not set says so; a confirmed setup prints no starting point.
 func TestSetupShowLevelLines(t *testing.T) {
 	t.Parallel()
 	x := newFx(t,
-		testkit.Set("models", `{"kimi": {"kind": "opencode", "model": "opencode-go/kimi"}, "muse": {"kind": "opencode", "model": ""}}`),
-		testkit.Set("difficulty", `{"hard": ["kimi:high", "opus"], "medium": ["muse"], "simple": ["ghost"]}`),
-		testkit.Set("setup", `{"confirmed": true}`))
+		testkit.Set("agents.models", `{"kimi": {"kind": "opencode", "id": "opencode-go/kimi"}, "muse": {"kind": "opencode", "id": ""}}`),
+		testkit.Set("agents.difficulty", `{"hard": ["kimi:high", "opus"], "medium": ["muse"], "simple": ["ghost"]}`),
+		testkit.Set("agents.confirmed", true))
 	out := x.ok(t, "show")
 	for _, want := range []string{
 		"  hard   → kimi:high (opencode opencode-go/kimi, effort high) | opus (claude opus)\n",
@@ -71,7 +71,7 @@ func TestSetupShowLevelLines(t *testing.T) {
 // T-1039: the roles line lists a custom role's verbs after its model ("": none named); a role without verbs shows none.
 func TestSetupShowListsVerbs(t *testing.T) {
 	t.Parallel()
-	x := newFx(t, testkit.Set("roles", `{"lead": "opus", "tracker": {"model": "sonnet", "verbs": ["spec_set", "dispatch"]},
+	x := newFx(t, testkit.Set("agents.roles", `{"lead": "opus", "tracker": {"model": "sonnet", "verbs": ["spec_set", "dispatch"]},
 		"scout": {"verbs": ["watch"]}}`))
 	out := x.ok(t, "show")
 	for _, want := range []string{"lead opus (claude opus), ", "tracker sonnet (claude sonnet) [verbs spec_set dispatch]",
@@ -89,7 +89,7 @@ func TestSetupShowListsVerbs(t *testing.T) {
 // marking it once serve records the clear.
 func TestSetupShowMarksPausedModels(t *testing.T) {
 	t.Parallel()
-	x := newFx(t, testkit.Set("setup", `{"confirmed": true}`))
+	x := newFx(t, testkit.Set("agents.confirmed", true))
 	pauseFact(t, x.Project, "sonnet", "quota", 0)
 	until := time.Now().Add(2 * time.Hour).Unix()
 	pauseFact(t, x.Project, "deepseek", "down", until)

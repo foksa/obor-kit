@@ -302,7 +302,7 @@ func TestRestorePoolLaneKindIsTheDispatchs(t *testing.T) {
 func TestRestoreRolePanesNotSkipped(t *testing.T) {
 	f := newGitRfx(t) // the free lane is checks.LaneTable's answer: git
 	o1 := f.p.Lane("L-01", "task/T-01")
-	roles := testkit.Set("roles", `{"reviewer": "opus", "deep_dive": "opus"}`)
+	roles := testkit.Set("agents.roles", `{"reviewer": "opus", "deep_dive": "opus"}`)
 	f.p.Config(roles)
 	rev, dd := f.p.Lane("review", "review"), f.p.Lane("deep-dive", "deep-dive")
 	f.shell("w1:p1", o1, "pj-l-01")

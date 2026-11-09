@@ -330,8 +330,8 @@ func TestJobTextNeedsNoView(t *testing.T) {
 // status keep precedence.
 func TestAgentPageOfRoles(t *testing.T) {
 	p, _, s := fixture(t)
-	p.Config(testkit.Set("roles.reviewer", "opus"),
-		testkit.Set("roles.advisor", "opus"))
+	p.Config(testkit.Set("agents.roles.reviewer", "opus"),
+		testkit.Set("agents.roles.advisor", "opus"))
 	// the reviewer was sent a line (its history); the advisor has none.
 	addEvent(t, p.Root, event.MsgTask, event.StepMessage, event.KindFact, event.ClassFact, event.Message{
 		To: "pj-rev", From: "pj-lead", Line: "[obor pj-lead] review T-01"})
@@ -579,7 +579,7 @@ func TestListenLocalhostOnly(t *testing.T) {
 func TestViewOfANewerConfigWarns(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	p.Config(testkit.Set("zz_future", "")) // T-801: roles.<name> is a custom role now, no unknown key
+	p.Config(testkit.Set("zz_future", "")) // T-801: agents.roles.<name> is a custom role now, no unknown key
 	p.Spec("T-01", "# T-01 — stored, never dispatched\n\nDifficulty: simple\n")
 	if _, unknown, err := config.LoadForValidate(p.Root); err != nil || len(unknown) != 1 {
 		t.Fatalf("precondition: the strict validate load refuses the unknown key: %q, %v", unknown, err)
@@ -616,9 +616,9 @@ func TestViewOfANewerConfigWarns(t *testing.T) {
 func TestOverviewShowsWorkingRoles(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	p.Config(testkit.Set("roles.deep_dive", "opus"),
-		testkit.Set("roles.reviewer", "opus"),
-		testkit.Set("roles.advisor", "opus"))
+	p.Config(testkit.Set("agents.roles.deep_dive", "opus"),
+		testkit.Set("agents.roles.reviewer", "opus"),
+		testkit.Set("agents.roles.advisor", "opus"))
 	cfg, err := config.Load(p.Root)
 	if err != nil {
 		t.Fatal(err)

@@ -137,7 +137,7 @@ func writeRollout(x *fx, id, cwd string, at time.Time) string {
 // in between recorded the new process's rollout as the agent's).
 func TestCodexSearchPidReusedWhileTheFilesAreRead(t *testing.T) {
 	t.Parallel()
-	x := setup(t, testkit.Set("roles", `{"integrator":"luna"}`))
+	x := setup(t, testkit.Set("agents.roles", `{"integrator":"luna"}`))
 	x.background, x.rollout, x.reports = true, time.Minute, make(chan store.Session, 2)
 	var gen atomic.Int32
 	x.ps = func(args ...string) ([]byte, error) {
@@ -223,7 +223,7 @@ func TestCodexSessionsOfTwoStartsInOneCwd(t *testing.T) {
 	for _, order := range []string{"first start's rollout first", "second start's rollout first"} {
 		t.Run(order, func(t *testing.T) {
 			t.Parallel()
-			x := setup(t, testkit.Set("roles", `{"integrator":"luna","lead":"luna"}`))
+			x := setup(t, testkit.Set("agents.roles", `{"integrator":"luna","lead":"luna"}`))
 			x.background, x.rollout, x.reports = true, time.Minute, make(chan store.Session, 4)
 			pid := map[string]int{"pj-int": 205, "pj-lead": 206}
 			x.wrap = func(h port.PaneControl) port.PaneControl {
@@ -387,7 +387,7 @@ func TestCodexSearchPinnedToStartedProcess(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			x := setup(t, testkit.Set("roles", `{"integrator":"luna"}`))
+			x := setup(t, testkit.Set("agents.roles", `{"integrator":"luna"}`))
 			x.capture, x.rollout, x.reports = true, time.Minute, make(chan store.Session, 2)
 			var gen atomic.Int32
 			x.ps = func(args ...string) ([]byte, error) {

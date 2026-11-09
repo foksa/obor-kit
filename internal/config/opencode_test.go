@@ -14,7 +14,7 @@ import (
 // a start of the args and effort: agents.ArgsChecker).
 func TestOpencodeModelEffort(t *testing.T) {
 	p := testkit.NewDir(t)
-	p.Config(testkit.Set("models", map[string]any{"muse": map[string]any{"kind": "opencode", "model": ""}}))
+	p.Config(testkit.Set("agents.models", map[string]any{"muse": map[string]any{"kind": "opencode", "id": ""}}))
 	c, err := config.Load(p.Root)
 	if err != nil {
 		t.Fatal(err)

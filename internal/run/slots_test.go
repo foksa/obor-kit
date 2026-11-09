@@ -78,22 +78,22 @@ func at(dir, name string) string { return filepath.Join(dir, name) }
 func TestCPUs(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
-		name  string
-		slots map[string]any
-		env   []string
-		cores int
-		want  int
+		name   string
+		checks map[string]any
+		env    []string
+		cores  int
+		want   int
 	}{
-		{"slots.cpus set", map[string]any{"max": 2, "cpus": 3}, nil, 16, 3},
-		{"unset: cores / slots.max", map[string]any{"max": 2}, nil, 16, 8},
-		{"unset: the default slots.max is 2", nil, nil, 10, 5},
-		{"at least 1", map[string]any{"max": 4}, nil, 2, 1},
-		{"slots.max 0 does not divide by zero", map[string]any{"max": 0}, nil, 6, 6},
-		{"CHECK_SLOTS counts like slots.max", map[string]any{"max": 2}, []string{"CHECK_SLOTS=4"}, 16, 4},
+		{"cpus_per_check set", map[string]any{"heavy_at_once": 2, "cpus_per_check": 3}, nil, 16, 3},
+		{"unset: cores / heavy_at_once", map[string]any{"heavy_at_once": 2}, nil, 16, 8},
+		{"unset: the default heavy_at_once is 2", nil, nil, 10, 5},
+		{"at least 1", map[string]any{"heavy_at_once": 4}, nil, 2, 1},
+		{"heavy_at_once 0 does not divide by zero", map[string]any{"heavy_at_once": 0}, nil, 6, 6},
+		{"CHECK_SLOTS counts like heavy_at_once", map[string]any{"heavy_at_once": 2}, []string{"CHECK_SLOTS=4"}, 16, 4},
 	} {
 		p := testkit.New(t)
-		if tc.slots != nil {
-			p.Config(testkit.Set("slots", tc.slots))
+		if tc.checks != nil {
+			p.Config(testkit.Set("checks", tc.checks))
 		} else {
 			p.Config()
 		}
