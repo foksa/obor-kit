@@ -176,8 +176,8 @@ func laneTestInTheLane(t *testing.T) {
 // CHECK_CPUS the same budget.
 func laneTestLaneEnv(t *testing.T) {
 	t.Parallel()
-	y := newSxEnv(t, []string{"GOFLAGS=-mod=mod"}, testkit.Set("slots.lane_cpus", 1),
-		testkit.Set("slots.lane_env", `{"GOMAXPROCS": "{cpus}", "GOFLAGS": "-p={cpus} -trimpath"}`), cmd("check", probe))
+	y := newSxEnv(t, []string{"GOFLAGS=-mod=mod"}, testkit.Set("lanes.cpus", 1),
+		testkit.Set("lanes.env", `{"GOMAXPROCS": "{cpus}", "GOFLAGS": "-p={cpus} -trimpath"}`), cmd("check", probe))
 	if got := y.s.Cfg.LaneCPUs(); got != 1 {
 		t.Fatalf("precondition: slots.lane_cpus 1, got %d", got)
 	}
