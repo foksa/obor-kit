@@ -44,6 +44,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (RV-162, accepted) (RV-162, accepted, constructed) pruning an integrator's only old verdict can change its verdicts > StartRow.Verdicts stop predicate on replay; needs an idle integrator running 30 days despite the stop rule
 - (RV-161, accepted) (RV-161, accepted) an unparseable per-lane name (run-changed-<not a lane>) is removed though the spec said it stays; no writer makes such a name (likelihood: none today)
 - (RV-158, accepted) (RV-158 redundancy) review.freeze sets rv.reviewed after the close (internal/app/reviewfold.go:46) though its only reader is guarded by cur.closed == 0 (reviewclose.go:39-42): drop the closed-review assignment on the next touch of reviewfold.go
 - (RV-155, accepted) RV-155 redundancy: test helper proj.queuedAt (internal/app/messages_test.go ~700) duplicates p.out.Line(seq); swap its three call sites at the next touch of that file (no behaviour)
