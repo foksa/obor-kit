@@ -490,9 +490,10 @@ obor-kit uses its own slot dir.
 `lead` is the one self-chosen skill: a lead must find its way back after `/clear` and a handoff. Workers, the
 integrator and reviewers are always started by obor, so their text comes from the kit (`templates/agents/<role>.md`)
 through the dispatch prompt and the SessionStart role-text line — one source per role, and Codex lanes (which read no
-Claude skills) get the same text. Rarely needed lead procedures are side files of the lead skill. `setup` and `role`
-carry `disable-model-invocation: true`: only a person starts them (`/obor:setup`, `/obor:role`); a lead uses the CLI
-(`obor setup …`) instead. User decision 2026-10-13.
+Claude skills) get the same text. Rarely needed lead procedures are side files of the lead skill. `setup`
+carries `disable-model-invocation: true`: only a person starts it (`/obor:setup`); a lead uses the CLI
+(`obor setup …`) instead. A role runs only under obor (`obor setup role <name>`, or `obor restart <agent>`, then
+`obor brief`): no skill puts a running session into one (T-1137). User decision 2026-10-13.
 
 ## Change-based merge checks (v2.5, 2026-10-08 — user + axis-alies T-375)
 A UI-only task shouldn't fail its merge on an engine/AI soak test. Skipping is allowed only when a project guard

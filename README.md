@@ -102,7 +102,7 @@ The lead's full playbook is `skills/lead/SKILL.md`; the role texts are in `templ
 ```
 bin/obor           the CLI shim: finds or downloads the Go binary and runs it
 cmd/obor, internal Go source (make build → dist/obor; make check → the merge gate)
-skills/            Claude Code skills: lead, setup, role
+skills/            Claude Code skills: lead, setup
 hooks/             Claude Code hook wiring (every hook is `obor hook <name>`)
 templates/         role texts, task spec, BACKLOG/decisions templates, config examples
 docs/              design (design.md, state-model.md, module-map.md), plans, decisions, upgrade guides
