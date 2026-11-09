@@ -696,16 +696,6 @@ func lineTyped(calls []string, kind string) bool {
 	return len(calls) == 1 && strings.HasPrefix(calls[0], want)
 }
 
-// queuedAt is p's undelivered line of fact seq (nil: none), by its outbox's queuedLines.
-func (p *proj) queuedAt(seq int64) *outbox.Line {
-	for _, q := range p.out.Queued() {
-		if q.Seq() == seq {
-			return q
-		}
-	}
-	return nil
-}
-
 // TestRefusedLineReplay: a line refused before typing stays queued across a restart (orderly and SIGKILL) and is
 // typed once after it, for each kind of line (RV-50 #1).
 func TestRefusedLineReplay(t *testing.T) {
@@ -935,7 +925,7 @@ func TestBriefKeepsAStartedDelivery(t *testing.T) {
 	q := p.out.Queued()[0]
 	a.record(p, event.Record{Task: event.MsgTask, Attempt: 1, Step: outbox.StepDeliver + strconv.FormatInt(q.Seq(), 10),
 		Kind: event.KindIntent, Class: event.ClassPrompt}, outbox.LineData{To: "pj-rev"})
-	if m := p.queuedAt(q.Seq()); m == nil || m.State() != outbox.Sending {
+	if m := p.out.Line(q.Seq()); m == nil || m.State() != outbox.Sending {
 		t.Fatalf("precondition: the delivery in flight; queued %+v", p.out.Queued())
 	}
 	reply, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b2", Role: "lead"},
@@ -946,7 +936,7 @@ func TestBriefKeepsAStartedDelivery(t *testing.T) {
 	if strings.Contains(reply, "replaces") {
 		t.Errorf("reply %q says it replaced a line whose delivery may have landed", reply)
 	}
-	if m := p.queuedAt(q.Seq()); m == nil || m.State() != outbox.Sending {
+	if m := p.out.Line(q.Seq()); m == nil || m.State() != outbox.Sending {
 		t.Errorf("the in-flight line was superseded: queued %+v", p.out.Queued())
 	}
 	if n := len(p.out.Queued()); n != 2 {
@@ -1166,7 +1156,7 @@ func TestBriefSupersedesSeveralLines(t *testing.T) {
 	}
 	a.record(p, event.Record{Task: event.MsgTask, Step: event.StepFailed, Kind: event.KindFact}, // A's delivery refused: undelivered again
 		event.FactData{Machine: Machine, Reason: step + ": refused", Step: step})
-	if len(p.out.Queued()) != 2 || p.queuedAt(first) == nil || p.queuedAt(first).State() != outbox.Waiting {
+	if len(p.out.Queued()) != 2 || p.out.Line(first) == nil || p.out.Line(first).State() != outbox.Waiting {
 		t.Fatalf("precondition: two undelivered brief lines, none claimed; queued %+v", p.out.Queued())
 	}
 	reply, err := a.briefCall(wire.BriefReq{Envelope: wire.Envelope{Root: p.root, CallID: "b3", Role: "lead"},
