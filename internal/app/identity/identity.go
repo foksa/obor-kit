@@ -164,7 +164,8 @@ func (cs Claims) Add(agent string, pane port.Pane, src string) {
 // ambiguous and takes none; two agents with equal proof of one terminal take it neither, and no weaker claim takes it
 // in this pass (RV-53-verify V1: it is owned again once the tie ends). The result does
 // not depend on any iteration order. A start row whose terminal another agent now owns is retired, as is the row of an
-// agent the config does not name. Each change is logged once.
+// agent the config does not name (that retirement is silent: T-1099, nothing acts on it and it repeats at every
+// start). Each change is logged once.
 func (r *Registry) Reconcile(best Claims, named func(string) bool, log func(string)) {
 	owners, agents, ambiguous := map[string]owner{}, map[string]string{}, map[string][]string{}
 	done, contested := map[string]bool{}, map[string]bool{} // contested: equal proofs tied on it, unowned this pass
@@ -202,7 +203,6 @@ func (r *Registry) Reconcile(best Claims, named func(string) bool, log func(stri
 	for agent, row := range r.starts {
 		if !named(agent) {
 			delete(r.starts, agent)
-			log(fmt.Sprintf("%s's start row retired: the config names no such agent", agent))
 			continue
 		}
 		t := row.Terminal

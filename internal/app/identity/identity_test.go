@@ -178,7 +178,7 @@ func TestStartRows(t *testing.T) {
 	}
 	log := strings.Join(lines, "\n")
 	for _, want := range []string{"b's start row retired: pane w1:p7 runs a now (session)",
-		"c's start row retired: the config names no such agent", "agent a identified at pane w1:p7 (session)"} {
+		"agent a identified at pane w1:p7 (session)"} {
 		if !strings.Contains(log, want) {
 			t.Errorf("log %q lacks %q", log, want)
 		}
