@@ -101,7 +101,10 @@ Read the verify file there. Incomplete or regressed → a new fix task; second f
 invariant → the two-strike rule in the lead skill.
 
 ## 5. Close the cycle
-When a verify approves (or the review found nothing): `obor review close "<summary>" [--accept "<line>"]…
+An approved review or verify whose notes, redundancy or design concerns you turn into a task has not "found
+nothing": dispatch that task with `Fixes: RV-xx` and close only after its verify (owner 11-09: the reviewer stays
+alive while a fix it asked for is open; closing first stops it, and an unlinked task is never verified).
+When a verify approves with nothing left to do (or the review found nothing): `obor review close "<summary>" [--accept "<line>"]…
 [--force]`. It is a call to serve (T-926: serve must be up), which
 deletes `<RV-xx>.md` and `<RV-xx>-verify.md` from the main checkout, adds each `--accept` line to `BACKLOG.md`'s Open
 section as `- (<RV-xx>, accepted) <line>`, commits `RV-xx closed · <reviewed sha> · approved · <summary>` on the
