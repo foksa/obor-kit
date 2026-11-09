@@ -1375,6 +1375,10 @@ func (c *Config) DifficultyList(level string) []string {
 // HasDifficulty: the config sets agents.difficulty at all (else every level's built-in default applies).
 func (c *Config) HasDifficulty() bool { return c.Data.Agents.Difficulty != nil }
 
+// KindCommandSet: agents.kinds.<name>.plugin is set in the config (KindCommand falls back to the kit's binary for a
+// kit kind; obor setup fills the fallback in).
+func (c *Config) KindCommandSet(name string) bool { return c.Data.Agents.Kinds.M[name].Plugin != "" }
+
 // PluginEnabledIn: dir's .claude/settings.json enables an obor plugin (enabledPlugins "obor@<marketplace>": true). A
 // lane is a worktree, so an untracked settings file of the main checkout is not there unless it is linked (T-705).
 func PluginEnabledIn(dir string) bool {

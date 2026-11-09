@@ -100,12 +100,9 @@ func TestValidate(t *testing.T) {
 			want: []string{`WARN agents.models.oc: opencode model without a model id (opencode's own default may not work, and an effort needs one): set its "id", e.g. "opencode-go/deepseek-v4.1-flash"`}},
 		{name: "an unused opencode model without a model id is fine", edits: []edit{
 			set("agents.models.oc", map[string]any{"kind": "opencode", "id": ""})}},
-		// T-1153: v0.33.0 drops the kit kind's default binary: a config that uses OpenCode (the default levels'
-		// deepseek) must name agents.kinds.opencode.plugin; one that uses no OpenCode model needs no line.
-		{name: "no agents.kinds.opencode.plugin, OpenCode used: the line required", edits: []edit{del("agents.kinds")},
-			want: []string{`FAIL .agents.kinds.opencode.plugin: set "plugin": "obor-kind-opencode" (obor setup agents sets it)`}},
-		{name: "no agents.kinds.opencode.plugin, OpenCode unused: nothing", edits: []edit{del("agents.kinds"),
-			set("agents.difficulty", map[string]any{"hard": []any{"opus"}, "medium": []any{"sonnet"}, "simple": []any{"haiku"}})}},
+		// T-1155: a kit kind's binary is the default again (T-1153's FAIL is gone): a config that uses OpenCode (the
+		// default levels' deepseek) with no agents.kinds.opencode.plugin validates clean.
+		{name: "no agents.kinds.opencode.plugin, OpenCode used: the kit's binary, clean", edits: []edit{del("agents.kinds")}},
 		{name: "a new model needs its kind", edits: []edit{set("agents.models.cur", map[string]any{"id": "x"})},
 			want: []string{"FAIL .agents.models.cur.kind: required (claude, codex, opencode)"}},
 		{name: "a built-in's override may keep its kind", edits: []edit{set("agents.models.opus", map[string]any{"id": "claude-opus-5-5"})}},

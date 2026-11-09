@@ -43,9 +43,7 @@ A project that ran the promotion may delete what it left behind: its worktree (`
 <merge.scratch_dir>-promote`, obor-kit's `../obor-kit-wt/merge-promote`), `.obor/state/last-promotion` and
 `.obor/state/logs/promote-check.log`.
 
-## v0.32.0 (`kinds.opencode.command` stays optional until v0.33)
+## v0.32.0 (`kinds.opencode.command` stays optional)
 
 v0.31 said a config without `kinds.opencode.command` would stop running the kit's OpenCode binary in v0.32. It still
-runs it in v0.32; v0.33.0 drops that default. A project whose `obor config validate` prints `WARN
-kinds.opencode.command` runs `obor setup agents` (it writes `kinds.opencode.command = "obor-kind-opencode"`,
-uncommitted) and commits `.obor/config.json`.
+runs it, and the kit's binary stays the default (T-1155): a config with no `kinds.opencode.command` needs no change.
