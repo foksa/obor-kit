@@ -13,7 +13,7 @@ import (
 
 // An agent's sessions (T-577): obor records each session an agent starts itself, as fact session{agent, kind, id,
 // transcript, pane, lane, task, started} on task key store.SessionTask, one per (agent, id); the history stays (the
-// UI's list), the agent's current session is its newest (store.Current). The sources, per kind:
+// UI's list), the agent's current session is its newest (the fold's Current). The sources, per kind:
 //   - Claude: launch records the id it chose before the start (T-813: --session-id), and the SessionStart hook
 //     confirms it with its transcript_path (T-577; a different id is the session's, recorded with one log line; serve
 //     down: the session is not recorded, said on the hook's log line);
@@ -68,43 +68,32 @@ func (a *App) sessionCall(c wire.SessionReq) (string, error) {
 	return reply, nil
 }
 
-// foldSession folds r, a session fact, when store.Admits it (T-586: one session id belongs to one agent; a log that
-// holds a duplicate has one owner on replay, the earlier — except the confirmation of the id obor chose, which takes
-// its record's place with the transcript it reports, T-813).
+// foldSession folds r, a session fact, when the ownership rule admits it (T-586: one session id belongs to one agent; a
+// log that holds a duplicate has one owner on replay, the earlier — except the confirmation of the id obor chose,
+// which takes its record's place with the transcript it reports, T-813). T-1088: the fold keeps its index, so a replay
+// is one pass over the log, not one rebuild per fact.
 func (p *proj) foldSession(r event.Record) {
 	if r.Task != store.SessionTask || r.Kind != event.KindFact || r.Step != store.StepSession {
 		return
 	}
 	var s store.Session
-	if json.Unmarshal(r.Data, &s) != nil || !store.Admits(p.folded.sessions, s) {
-		return
+	if json.Unmarshal(r.Data, &s) == nil {
+		p.folded.sessions.Add(s)
 	}
-	for i := range p.folded.sessions {
-		if p.folded.sessions[i].Agent == s.Agent && p.folded.sessions[i].ID == s.ID {
-			p.folded.sessions[i] = s
-			return
-		}
-	}
-	p.folded.sessions = append(p.folded.sessions, s)
 }
 
 // recordedTranscript is the transcript p records for agent's session id ("" when none: a session recorded but not
 // confirmed by its SessionStart hook yet).
 func (p *proj) recordedTranscript(agent, id string) string {
-	for _, s := range p.folded.sessions {
-		if s.Agent == agent && s.ID == id {
-			return s.Transcript
-		}
-	}
-	return ""
+	return p.folded.sessions.Transcript(agent, id)
 }
 
 // holder is the agent other than agent whose current session is id ("": none; under mu).
-func (p *proj) holder(agent, id string) string { return store.Holder(p.folded.sessions, agent, id) }
+func (p *proj) holder(agent, id string) string { return p.folded.sessions.Holder(agent, id) }
 
 // session is agent's current session in p (under mu; ok false: none recorded).
 func (p *proj) session(agent string) (store.Session, bool) {
-	return store.Current(p.folded.sessions, agent)
+	return p.folded.sessions.Current(agent)
 }
 
 // transcript is the recorded transcript of pane's agent (under mu): its current session's ("": none recorded; the

@@ -235,8 +235,8 @@ type folded struct {
 	review *reviewReq
 	// rv: the reviews (started, verified, closed) and the merges, one fold (reviewfold.go, T-856, T-924, T-1023).
 	rv reviewLog
-	// sessions: the agents' recorded sessions in log order (sessions.go, T-577).
-	sessions []store.Session
+	// sessions: the agents' recorded sessions as one fold in log order (sessions.go, T-577, T-1088).
+	sessions store.SessionFold
 	// did: the rules' lines by their key (rules.go, T-866: a lead line's Of) and when each was recorded.
 	did map[event.Of]time.Time
 	// idleAck: the lead's last acknowledgement of an idle state (idle.go, T-803, T-866; zero: none).
