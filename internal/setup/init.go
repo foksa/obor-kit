@@ -6,11 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
-	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 
@@ -37,25 +35,9 @@ func initArgs(args []string) (name, prefix string, err error) {
 	return name, prefix, nil
 }
 
-// agentsDir is paths.agents (default docs/agents).
-func (s *Setup) agentsDir() string {
-	if a := s.cfg.Paths().Get("agents"); a != "" {
-		return a
-	}
-	return "docs/agents"
-}
-
-// reviewsDir is paths.reviews (default docs/reviews): where the reviewer writes its open reviews (T-731).
-func (s *Setup) reviewsDir() string {
-	if r := s.cfg.Paths().Reviews; r != "" {
-		return r
-	}
-	return "docs/reviews"
-}
-
 // reviewsIgnore is the .gitignore line for the reviews dir, a directory line: a broad `git add -A` never stages an open
 // review, which `obor review close` refuses (T-731).
-func (s *Setup) reviewsIgnore() string { return strings.Trim(s.reviewsDir(), "/") + "/" }
+func (s *Setup) reviewsIgnore() string { return s.cfg.ReviewsDir() + "/" }
 
 // initProject writes what init writes (config, .gitignore lines, the docs; each only when missing) and loads the
 // config. name "": the root's base; prefix "": defaultPrefix of the name.
@@ -95,7 +77,7 @@ type initTemplate struct {
 // initTemplates are the docs init copies: BACKLOG.md, docs/decisions.md and the agents dir's (README.md is the kit's
 // overview, read in place).
 func (s *Setup) initTemplates() []initTemplate {
-	agents := s.agentsDir()
+	agents := s.cfg.AgentsDir()
 	tpl := filepath.Join(s.Kit, "templates")
 	var out []initTemplate
 	for _, c := range [][2]string{{"BACKLOG.md", "BACKLOG.md"}, {"decisions.md", "docs/decisions.md"},
@@ -156,29 +138,9 @@ func (s *Setup) configJSON(name, prefix string) ([]byte, error) {
 	if err != nil {
 		return nil, project.Failf("cannot read %s", filepath.Join(s.Kit, "templates", "config.example.json"))
 	}
-	str := func(v string) json.RawMessage { b, _ := json.Marshal(v); return b }
-	for _, kv := range []struct {
-		key string
-		val json.RawMessage
-	}{
-		{"name", str(name)}, {"prefix", str(prefix)}, {"lanes_dir", str("../" + filepath.Base(s.root) + "-wt")},
-		{"lanes", json.RawMessage(`0`)},
-		{"commands", json.RawMessage(`{"lane_setup":null,"check":null,"check_milestone":null}`)},
-		{"lane_links", json.RawMessage(`[]`)}, {"protected_files", json.RawMessage(`[]`)},
-	} {
-		if example, err = config.EditJSON(example, []string{kv.key}, kv.val); err != nil {
-			return nil, project.Failf("cannot read templates/config.example.json: %v", err)
-		}
-	}
-	for _, key := range []string{"difficulty", "kinds"} {
-		if example, err = config.EditJSON(example, []string{key}, nil); err != nil {
-			return nil, project.Failf("cannot read templates/config.example.json: %v", err)
-		}
-	}
-	for _, name := range slices.Sorted(maps.Keys(config.KitKinds)) {
-		if example, err = config.EditJSON(example, []string{"kinds", name, "command"}, config.KitKinds[name]); err != nil {
-			return nil, project.Failf("cannot read templates/config.example.json: %v", err)
-		}
+	example, err = config.ProjectDoc(example, name, prefix, "../"+filepath.Base(s.root)+"-wt")
+	if err != nil {
+		return nil, project.Failf("cannot read templates/config.example.json: %v", err)
 	}
 	doc, err := indentJSON(example)
 	if err != nil {
@@ -227,13 +189,13 @@ func (s *Setup) ignoreLines(lines ...string) error {
 // gitignoreLines are the lines init puts in .gitignore.
 func (s *Setup) gitignoreLines() []string {
 	return append([]string{".obor/state/", ".obor/drafts/", ".obor/local.json", ".task-run", s.reviewsIgnore()},
-		s.cfg.Data.LaneLinks...)
+		s.cfg.LaneLinks()...)
 }
 
 // initBranch is the branch gitInit makes: branches.main from a config in dir, else main.
 func (s *Setup) initBranch() string {
-	if cfg, err := config.Load(s.Dir); err == nil && cfg.Data.Branches.Main != "" {
-		return cfg.Data.Branches.Main
+	if cfg, err := config.Load(s.Dir); err == nil {
+		return cfg.MainBranch()
 	}
 	return "main"
 }
@@ -290,7 +252,7 @@ func (s *Setup) initFiles() (map[string][]byte, error) {
 		return want, nil // not init's config: a user's file
 	}
 	s.cfg = cfg
-	if want[".obor/config.json"], err = s.configJSON(cfg.Data.Name, cfg.Data.Prefix); err != nil {
+	if want[".obor/config.json"], err = s.configJSON(cfg.Name(), cfg.Prefix()); err != nil {
 		return nil, err
 	}
 	want[".gitignore"] = []byte(strings.Join(s.gitignoreLines(), "\n") + "\n")
@@ -422,8 +384,8 @@ func (s *Setup) renderTemplate(src string, stub bool) ([]byte, error) {
 			"` in the obor kit, read in place (the session start names its path). This file\nholds only what differs " +
 			"in this project.\n\n" + section(text, "## This project")
 	}
-	d := s.cfg.Data
-	text = strings.NewReplacer("{{project}}", d.Name, "{{prefix}}", d.Prefix, "{{lanes_dir}}", d.LanesDir).Replace(text)
+	d := s.cfg
+	text = strings.NewReplacer("{{project}}", d.Name(), "{{prefix}}", d.Prefix(), "{{lanes_dir}}", d.LanesDirSetting()).Replace(text)
 	return []byte(strings.TrimRight(text, "\n") + "\n"), nil
 }
 

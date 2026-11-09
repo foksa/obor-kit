@@ -217,7 +217,7 @@ func (s *Setup) cachePlugins() (cached []string, err error) {
 		return nil, nil
 	}
 	for _, name := range cfg.PluginKinds() {
-		if cfg.Data.Kinds.M[name].Command == "" {
+		if !cfg.KindCommandSet(name) {
 			if err := s.setKindCommand(name, config.KitKinds[name]); err != nil {
 				return nil, err
 			}
@@ -237,15 +237,7 @@ func (s *Setup) cachePlugins() (cached []string, err error) {
 
 // setKindCommand sets kinds.<name>.command to cmd in .obor/config.json (not local.json), uncommitted.
 func (s *Setup) setKindCommand(name, cmd string) error {
-	path := filepath.Join(s.root, ".obor", "config.json")
-	doc, err := os.ReadFile(path)
-	if err != nil {
-		return project.Failf("cannot read %s", path)
-	}
-	doc, err = config.EditJSON(doc, []string{"kinds", name, "command"}, cmd)
-	if err != nil || writeJSON(path, doc) != nil {
-		return project.Failf("cannot update %s", path)
-	}
-	s.say("config kinds.%s.command = %s (uncommitted: the kit's binary)", name, cmd)
-	return nil
+	return s.editConfig(func(doc []byte) (config.Write, error) {
+		return config.SetKindCommand(doc, name, cmd)
+	}, ": the kit's binary")
 }

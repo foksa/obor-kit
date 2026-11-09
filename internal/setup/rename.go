@@ -77,7 +77,7 @@ func (s *Setup) renameCmd(ctx context.Context, args []string) error {
 			return project.Failf("the serve LaunchAgent %s is installed under the old name: run `obor serve uninstall` first, then obor setup rename again", plist)
 		}
 	}
-	r := &renamer{Setup: s, name: name, prefix: prefix, oldName: s.cfg.Data.Name, oldPrefix: s.cfg.Data.Prefix}
+	r := &renamer{Setup: s, name: name, prefix: prefix, oldName: s.cfg.Name(), oldPrefix: s.cfg.Prefix()}
 	r.oldLead = s.cfg.AgentName("lead", "")
 	steps := []struct {
 		name string
@@ -172,21 +172,12 @@ func (r *renamer) config(context.Context) error {
 // ones it overrides). A changed file is written indented (EditJSON leaves what it edits compact).
 func (r *renamer) renameDoc(doc []byte, forceNames bool) ([]byte, error) {
 	out := doc
-	set := func(path []string, v any) error {
-		var err error
-		out, err = config.EditJSON(out, path, v)
-		return err
-	}
-	if err := r.pushRoles(&out, set); err != nil {
+	if err := r.pushRoles(&out); err != nil {
 		return nil, err
 	}
-	for _, kv := range [][2]string{{"name", r.name}, {"prefix", r.prefix}} {
-		cur, ok := stringAt(out, kv[0])
-		if (ok || forceNames) && cur != kv[1] {
-			if err := set([]string{kv[0]}, kv[1]); err != nil {
-				return nil, err
-			}
-		}
+	out, err := config.RenameProject(out, r.name, r.prefix, forceNames)
+	if err != nil {
+		return nil, err
 	}
 	if bytes.Equal(out, doc) {
 		return doc, nil
@@ -201,13 +192,9 @@ func (r *renamer) renameDoc(doc []byte, forceNames bool) ([]byte, error) {
 // pushRoles rewrites each guards.allow_push entry that is a role's derived name under the old prefix ("ob-lead", as a
 // config before T-786 wrote it) to the role ("lead"): the derived name would resolve against the new prefix and name
 // no role. Role entries and unrelated entries stay. It runs before the prefix changes.
-func (r *renamer) pushRoles(out *[]byte, set func([]string, any) error) error {
-	raw, err := config.MemberAt(*out, []string{"guards", "allow_push"})
-	if err != nil || raw == nil {
-		return nil
-	}
-	var entries []string
-	if json.Unmarshal(raw, &entries) != nil {
+func (r *renamer) pushRoles(out *[]byte) error {
+	entries := config.PushEntries(*out)
+	if entries == nil {
 		return nil
 	}
 	changed := false
@@ -225,20 +212,9 @@ func (r *renamer) pushRoles(out *[]byte, set func([]string, any) error) error {
 	if !changed {
 		return nil
 	}
-	return set([]string{"guards", "allow_push"}, entries)
-}
-
-// stringAt is the string member of doc at path; ok false when there is none or it is no string.
-func stringAt(doc []byte, path ...string) (string, bool) {
-	raw, err := config.MemberAt(doc, path)
-	if err != nil || raw == nil {
-		return "", false
-	}
-	var s string
-	if json.Unmarshal(raw, &s) != nil {
-		return "", false
-	}
-	return s, true
+	doc, err := config.SetPushEntries(*out, entries)
+	*out = doc
+	return err
 }
 
 // roleAgents is the agent name of every role that counts (config.RoleAgents).
@@ -346,7 +322,7 @@ func (r *renamer) finish(context.Context) error {
 			r.say("  %s → %s", p.old, p.new)
 		}
 	}
-	if lanes := config.AbsUnder(r.root, r.cfg.Data.LanesDir); r.oldName != r.name && r.oldName != "" &&
+	if lanes := r.cfg.LanesDir(); r.oldName != r.name && r.oldName != "" &&
 		strings.Contains(filepath.Base(lanes), r.oldName) {
 		to := filepath.Join(filepath.Dir(lanes), strings.Replace(filepath.Base(lanes), r.oldName, r.name, 1))
 		r.say("lanes_dir %s has the old name; by hand (the lanes' worktrees move with it):", lanes)

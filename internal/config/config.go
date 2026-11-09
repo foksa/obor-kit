@@ -85,6 +85,17 @@ type Branches struct {
 	Task string `json:"task"`
 }
 
+// DefaultMainBranch is branches.main when the file sets none.
+const DefaultMainBranch = "main"
+
+// MainBranch is branches.main, the branch tasks merge into (DefaultMainBranch when the file sets none).
+func (c *Config) MainBranch() string {
+	if c.Data.Branches.Main != "" {
+		return c.Data.Branches.Main
+	}
+	return DefaultMainBranch
+}
+
 // Workflow is workflow (T-1029): Kind selects the git workflow's implementation at serve start (one of WorkflowKinds;
 // "": DefaultWorkflow). Its target stays branches.main.
 type Workflow struct {
@@ -238,6 +249,9 @@ type Setup struct {
 func (c *Config) SetupConfirmed() bool {
 	return c.Data.Setup.Confirmed != nil && *c.Data.Setup.Confirmed
 }
+
+// SetupConfirmedSet: the config has setup.confirmed at all (false is an answer; absent is not).
+func (c *Config) SetupConfirmedSet() bool { return c.Data.Setup.Confirmed != nil }
 
 type Merge struct {
 	SummaryRegex string `json:"summary_regex,omitempty"`
@@ -624,6 +638,19 @@ func (c *Config) Raw(path string) (string, bool) {
 // LanesDir is the absolute, lexically normalised lanes dir.
 func (c *Config) LanesDir() string { return AbsUnder(c.Root, c.Data.LanesDir) }
 
+// LanesDirSetting is lanes_dir as the config file stores it (relative to the root, or absolute): the template
+// placeholder's value; LanesDir is the absolute form.
+func (c *Config) LanesDirSetting() string { return c.Data.LanesDir }
+
+// LaneCount is how many lanes the config has: a count, or a list's length (T-1031).
+func (c *Config) LaneCount() int { return c.Data.Lanes.Count() }
+
+// LanesListed: lanes is a list the owner wrote, not a count.
+func (c *Config) LanesListed() bool { return c.Data.Lanes.Listed() }
+
+// LaneLinks is lane_links: the paths symlinked from the main checkout into every lane.
+func (c *Config) LaneLinks() []string { return c.Data.LaneLinks }
+
 // AbsUnder is p if absolute, else root/p, lexically normalised (obor_path_norm).
 func AbsUnder(root, p string) string {
 	if !strings.HasPrefix(p, "/") {
@@ -797,6 +824,12 @@ func (c *Config) ProjectName() string {
 	}
 	return filepath.Base(c.Root)
 }
+
+// Name is the name the config stores ("" when it sets none); ProjectName is the one to show.
+func (c *Config) Name() string { return c.Data.Name }
+
+// Prefix is the agent prefix the config stores ("" when it sets none).
+func (c *Config) Prefix() string { return c.Data.Prefix }
 
 // Command is commands.<name>; ok false when unset (absent, null or no cmd).
 func (c *Config) Command(name string) (Command, bool) {
@@ -1027,15 +1060,19 @@ func (c *Config) RoleWorktrees() []string {
 	return out
 }
 
+// ReviewsDir is paths.reviews (default docs/reviews): where the reviewer writes an open review (T-731).
+func (c *Config) ReviewsDir() string {
+	if r := strings.Trim(c.Data.Paths["reviews"], "/"); r != "" {
+		return r
+	}
+	return "docs/reviews"
+}
+
 // ReviewWriteDirs are the dirs a WriteReviewsOnly role (the reviewer, the deep dive) writes in the main checkout,
 // relative to the root: paths.reviews (default docs/reviews). The guard's write profile and the start's writable dirs
 // (RoleWriteDirs) are both these.
 func (c *Config) ReviewWriteDirs() []string {
-	reviews := strings.Trim(c.Paths().Reviews, "/")
-	if reviews == "" {
-		reviews = "docs/reviews"
-	}
-	return []string{reviews}
+	return []string{c.ReviewsDir()}
 }
 
 // RoleWriteDirs are the dirs outside its cwd an agent of role r writes, absolute (T-853): the reviewer and the deep
@@ -1150,6 +1187,13 @@ func (c *Config) DifficultyList(level string) []string {
 	}
 	return listed
 }
+
+// HasDifficulty: the config sets difficulty at all (else every level's built-in default applies).
+func (c *Config) HasDifficulty() bool { return c.Data.Difficulty != nil }
+
+// KindCommandSet: kinds.<name>.command is set in the config (KindCommand falls back to the kit's binary for a kit
+// kind; obor setup fills the fallback in).
+func (c *Config) KindCommandSet(name string) bool { return c.Data.Kinds.M[name].Command != "" }
 
 // PluginEnabledIn: dir's .claude/settings.json enables an obor plugin (enabledPlugins "obor@<marketplace>": true). A
 // lane is a worktree, so an untracked settings file of the main checkout is not there unless it is linked (T-705).

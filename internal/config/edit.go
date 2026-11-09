@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -319,4 +320,136 @@ func NewFails(before, after []string) []string {
 		}
 	}
 	return out
+}
+
+// The setup writes (T-1121): obor setup changes .obor/config.json through these functions, never by a key path of its
+// own, so the shape changes in this package (docs/research/config-shape.md §4.4, P1).
+
+// Write is one setup write to a config document: the new document, the key it set (a dotted path) and its value, as
+// the caller's "config <key> = <value> (uncommitted)" line says them.
+type Write struct {
+	Doc      []byte
+	Key, Val string
+}
+
+// write sets path to v in doc; key is how the caller's line names it.
+func write(key string, doc []byte, path []string, v any) (Write, error) {
+	out, err := EditJSON(doc, path, v)
+	return Write{Doc: out, Key: key, Val: fmt.Sprintf("%v", v)}, err
+}
+
+// ProjectDoc is doc (the kit's config example) as obor init writes a new project's config: name, prefix and lanesDir
+// set, no lanes, commands, lane links or protected files; the example's difficulty and kinds go, but for each kit
+// kind's command (KitKinds).
+func ProjectDoc(doc []byte, name, prefix, lanesDir string) ([]byte, error) {
+	for _, kv := range []struct {
+		path []string
+		val  any
+	}{
+		{[]string{"name"}, name}, {[]string{"prefix"}, prefix}, {[]string{"lanes_dir"}, lanesDir},
+		{[]string{"lanes"}, 0},
+		{[]string{"commands"}, json.RawMessage(`{"lane_setup":null,"check":null,"check_milestone":null}`)},
+		{[]string{"lane_links"}, []string{}}, {[]string{"protected_files"}, []string{}},
+	} {
+		var err error
+		if doc, err = EditJSON(doc, kv.path, kv.val); err != nil {
+			return nil, err
+		}
+	}
+	for _, key := range []string{"difficulty", "kinds"} {
+		var err error
+		if doc, err = EditJSON(doc, []string{key}, nil); err != nil {
+			return nil, err
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(KitKinds)) {
+		var err error
+		if doc, err = EditJSON(doc, []string{"kinds", name, "command"}, KitKinds[name]); err != nil {
+			return nil, err
+		}
+	}
+	return doc, nil
+}
+
+// SetCommand returns doc with commands.<name> = cmd.
+func SetCommand(doc []byte, name, cmd string) (Write, error) {
+	return write("commands."+name, doc, []string{"commands", name}, cmd)
+}
+
+// SetRoleModel returns doc with roles.<role> = ref.
+func SetRoleModel(doc []byte, role, ref string) (Write, error) {
+	return write("roles."+role, doc, []string{"roles", role}, ref)
+}
+
+// SetDifficulty returns doc with difficulty = levels.
+func SetDifficulty(doc []byte, levels map[string][]string) (Write, error) {
+	return write("difficulty", doc, []string{"difficulty"}, levels)
+}
+
+// SetLanes returns doc with lanes = n (a count; it replaces a list, T-1031).
+func SetLanes(doc []byte, n int) (Write, error) {
+	return write("lanes", doc, []string{"lanes"}, n)
+}
+
+// SetLaneLinks returns doc with lane_links = links.
+func SetLaneLinks(doc []byte, links []string) (Write, error) {
+	return write("lane_links", doc, []string{"lane_links"}, links)
+}
+
+// SetSetupConfirmed returns doc with setup.confirmed = confirmed.
+func SetSetupConfirmed(doc []byte, confirmed bool) (Write, error) {
+	return write("setup.confirmed", doc, []string{"setup", "confirmed"}, confirmed)
+}
+
+// SetKindCommand returns doc with kinds.<kind>.command = cmd.
+func SetKindCommand(doc []byte, kind, cmd string) (Write, error) {
+	return write("kinds."+kind+".command", doc, []string{"kinds", kind, "command"}, cmd)
+}
+
+// RenameProject returns doc with name and prefix set to the new ones: each only when the file has it, or always with
+// force (config.json; a local.json changes only what it overrides). obor setup rename's step 1.
+func RenameProject(doc []byte, name, prefix string, force bool) ([]byte, error) {
+	out := doc
+	for _, kv := range [][2]string{{"name", name}, {"prefix", prefix}} {
+		cur, ok := stringAt(out, kv[0])
+		if cur == kv[1] || (!ok && !force) {
+			continue
+		}
+		var err error
+		if out, err = EditJSON(out, []string{kv[0]}, kv[1]); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// stringAt is the string member of doc at path; ok false when there is none or it is no string.
+func stringAt(doc []byte, path ...string) (string, bool) {
+	raw, err := MemberAt(doc, path)
+	if err != nil || raw == nil {
+		return "", false
+	}
+	var s string
+	if json.Unmarshal(raw, &s) != nil {
+		return "", false
+	}
+	return s, true
+}
+
+// PushEntries is guards.allow_push in doc (nil when the file has none, or it is no string list).
+func PushEntries(doc []byte) []string {
+	raw, err := MemberAt(doc, []string{"guards", "allow_push"})
+	if err != nil || raw == nil {
+		return nil
+	}
+	var entries []string
+	if json.Unmarshal(raw, &entries) != nil {
+		return nil
+	}
+	return entries
+}
+
+// SetPushEntries returns doc with guards.allow_push = entries.
+func SetPushEntries(doc []byte, entries []string) ([]byte, error) {
+	return EditJSON(doc, []string{"guards", "allow_push"}, entries)
 }
