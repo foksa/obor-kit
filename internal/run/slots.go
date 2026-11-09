@@ -49,15 +49,10 @@ const DefaultBlockMax = 900 * time.Second
 // name, else /tmp/obor-check-slots, 2, "default" (a project name with / or white space is "default" too). The merge
 // marker's cap is 900 s (T-864: slots.merge_block_max is gone).
 func SlotsFor(cfg *config.Config, env project.Env) Slots {
-	var cs config.Slots
-	if cfg.Data.Slots != nil {
-		cs = *cfg.Data.Slots
-	}
-	num := func(n *int) string {
-		if n == nil {
-			return ""
-		}
-		return strconv.Itoa(*n)
+	heavy, heavySet := cfg.HeavyAtOnce()
+	maxSetting := ""
+	if heavySet {
+		maxSetting = strconv.Itoa(heavy)
 	}
 	setting := func(envKey, v string) string {
 		if e := env.Get(envKey); e != "" {
@@ -71,12 +66,12 @@ func SlotsFor(cfg *config.Config, env project.Env) Slots {
 		}
 		return def
 	}
-	s := Slots{Dir: setting("CHECK_SLOT_DIR", cs.Dir), Max: count(setting("CHECK_SLOTS", num(cs.Max)), 2),
+	s := Slots{Dir: setting("CHECK_SLOT_DIR", cfg.CheckSlotDir()), Max: count(setting("CHECK_SLOTS", maxSetting), 2),
 		BlockMax: DefaultBlockMax, Held: env.Get("CHECK_SLOT_HELD")}
 	if s.Dir == "" {
 		s.Dir = "/tmp/obor-check-slots"
 	}
-	name := setting("CHECK_PROJECT", cfg.Data.Name)
+	name := setting("CHECK_PROJECT", cfg.Name())
 	if name == "" || strings.ContainsAny(name, "/ \t\n\r\v\f") {
 		name = "default"
 	}
@@ -269,8 +264,8 @@ func Release(path string, pid int) {
 // CPUs is CHECK_CPUS: slots.cpus when set, else cores / slots.max (CHECK_SLOTS), at least 1. Two checks at Go's default
 // parallelism put twice the cores' jobs on the machine; the project maps it (go test -p).
 func CPUs(cfg *config.Config, env project.Env, cores int) int {
-	if s := cfg.Data.Slots; s != nil && s.CPUs != nil {
-		return *s.CPUs
+	if n, ok := cfg.CPUsPerCheck(); ok {
+		return n
 	}
 	return max(1, cores/max(1, SlotsFor(cfg, env).Max))
 }

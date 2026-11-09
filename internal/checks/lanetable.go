@@ -122,7 +122,7 @@ func (p *LaneTable) LaneState(l config.Lane) port.Lane {
 // headMerged: the lane's HEAD is in the target branch's history (branches.main), read in the lane dir (T-1015: the
 // merge evidence of a landed row with no recorded head, a hand merge with no submission); git failing proves nothing.
 func (p *LaneTable) headMerged(dir string) bool {
-	_, err := p.git(dir, "merge-base", "--is-ancestor", "HEAD", "refs/heads/"+p.Cfg.Data.Branches.Main)
+	_, err := p.git(dir, "merge-base", "--is-ancestor", "HEAD", "refs/heads/"+p.Cfg.MainBranch())
 	return err == nil
 }
 
