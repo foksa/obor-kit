@@ -29,7 +29,7 @@ func TestSendRequest(t *testing.T) {
 	p := testkit.NewPlain(t)
 	p.Config()
 	q := testkit.NewPlain(t)
-	q.Config(testkit.Set("name", "other"), testkit.Set("prefix", "ot"))
+	q.Config(testkit.Set("project.name", "other"), testkit.Set("project.agent_prefix", "ot"))
 	q.Write("sub/x.txt", "x\n")
 	_, own := startFakeServe(t, p.Root, wire.Status{}, "SENT (to the own project's serve)", "")
 	home, err := os.MkdirTemp("", "hs") // short: a unix socket path is limited
@@ -108,7 +108,7 @@ func TestSendToProjectWhoseConfigDoesNotLoad(t *testing.T) {
 	p := testkit.NewPlain(t)
 	p.Config()
 	q := testkit.NewPlain(t)
-	q.Config(testkit.Set("name", "other"), testkit.Set("prefix", "ot"))
+	q.Config(testkit.Set("project.name", "other"), testkit.Set("project.agent_prefix", "ot"))
 	q.Write("sub/x.txt", "x\n")
 	// The shape before v0.23: this binary refuses it (its lane_types table is retired, T-847), a serve of the version
 	// that wrote it does not.
@@ -163,7 +163,7 @@ func TestBriefRequest(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)
 	p.PlainLane("L-01", "")
-	p.Config(testkit.Set("roles.reviewer", ""))
+	p.Config(testkit.Set("agents.roles.reviewer", ""))
 	home, serve := startFakeServe(t, p.Root, wire.Status{}, "BRIEFED pj-rev (typed when its pane is idle; the lead hears when it finishes)", "")
 	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
 	for _, c := range []struct {
@@ -202,7 +202,7 @@ func TestBriefRequest(t *testing.T) {
 func TestBriefFresh(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)
-	p.Config(testkit.Set("roles.reviewer", "opus"), testkit.Set("roles.advisor", "opus"))
+	p.Config(testkit.Set("agents.roles.reviewer", "opus"), testkit.Set("agents.roles.advisor", "opus"))
 	f := p.Herdr()
 	f.Agent("w1:p5", "pj-advisor", "working", p.Root).Label = "pj-advisor"
 	srv := herdrtest.Serve(t, f)
@@ -242,7 +242,7 @@ func TestBriefFresh(t *testing.T) {
 func TestBriefFreshRefused(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)
-	p.Config(testkit.Set("roles.advisor", "opus"))
+	p.Config(testkit.Set("agents.roles.advisor", "opus"))
 	f := p.Herdr()
 	f.Agent("w1:p5", "pj-advisor", "working", p.Root).Label = "pj-advisor"
 	srv := herdrtest.Serve(t, f)
@@ -420,7 +420,7 @@ func TestPosterKeepsProjectsWithOnePrefixApart(t *testing.T) {
 	var sides []side
 	for i, name := range []string{"one", "two"} {
 		pj := testkit.NewPlain(t)
-		pj.Config(testkit.Set("name", name)) // both keep the prefix pj
+		pj.Config(testkit.Set("project.name", name)) // both keep the prefix pj
 		sock := filepath.Join(dir, strconv.Itoa(i)+".sock")
 		ln, err := net.Listen("unix", sock)
 		if err != nil {

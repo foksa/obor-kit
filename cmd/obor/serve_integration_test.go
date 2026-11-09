@@ -224,7 +224,7 @@ func TestServeRunsWithARemovedPromotionKey(t *testing.T) {
 	p := testkit.New(t)
 	lane := p.Lane("L-01", "task/T-01")
 	keys := []string{"branches.promote", "merge.promote_weight", "merge.weights"}
-	p.Config(testkit.Set("roles.integrator", ""), // an integrator configured: the merge loop runs (servedGitProject's)
+	p.Config(testkit.Set("agents.roles.integrator", ""), // an integrator configured: the merge loop runs (servedGitProject's)
 		testkit.Set(keys[0], "prod"), testkit.Set(keys[1], 4), testkit.Set(keys[2], map[string]any{"hard": 5}))
 	p.Commit(lane)
 	if _, unknown, err := config.LoadHook(p.Root); err != nil || len(unknown) != len(keys) {

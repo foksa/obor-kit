@@ -32,7 +32,7 @@ func newLeadFx(t *testing.T, edits ...func(map[string]any)) *leadFx {
 	t.Helper()
 	p := testkit.NewPlain(t)
 	p.Config(append([]func(map[string]any){
-		testkit.Set("roles.lead", "opus"),
+		testkit.Set("agents.roles.lead", "opus"),
 	}, edits...)...)
 	f := herdrtest.New()
 	return &leadFx{p: p, f: f, srv: herdrtest.Serve(t, f)}
@@ -204,7 +204,7 @@ func TestLeadNoPaneSetsUp(t *testing.T) {
 // RV-51 #4: only a new pane needs roles.lead.
 func TestLeadNoRoleTypeFailsOnlyForANewPane(t *testing.T) {
 	t.Parallel()
-	x := newLeadFx(t, testkit.Set("roles.lead", ""))
+	x := newLeadFx(t, testkit.Set("agents.roles.lead", ""))
 	out, rc := x.run(t)
 	if rc != 1 || !strings.HasPrefix(lastLine(out), "FAIL roles.lead is not set") {
 		t.Errorf("no roles.lead, no pane: exit %d\n%s", rc, out)
@@ -216,13 +216,13 @@ func TestLeadNoRoleTypeFailsOnlyForANewPane(t *testing.T) {
 
 func TestLeadUntypedRunningOrLabelled(t *testing.T) {
 	t.Parallel()
-	x := newLeadFx(t, testkit.Set("roles.lead", ""))
+	x := newLeadFx(t, testkit.Set("agents.roles.lead", ""))
 	x.f.Agent("w1:p1", "pj-lead", "working", x.p.Root).Label = "pj-lead"
 	if out, rc := x.run(t); rc != 0 || lastLine(out) != "OK pj-lead runs (pane w1:p1)" {
 		t.Errorf("untyped running lead: exit %d\n%s", rc, out)
 	}
 
-	x = newLeadFx(t, testkit.Set("roles.lead", ""))
+	x = newLeadFx(t, testkit.Set("agents.roles.lead", ""))
 	x.f.Shell("w1:p1", "pj-lead", x.p.Root).Session = "old-sid"
 	x.p.Session("pj-lead", "old-sid") // T-813: a resume reads the record, never herdr's session
 	out, rc := x.run(t, "--resume")
@@ -251,7 +251,7 @@ func TestLeadUsage(t *testing.T) {
 // T-594: only a Claude lead gets the skill as its first prompt, in a labelled pane and in a new tab; --resume none.
 func TestLeadPromptOnlyForAFreshClaudeLead(t *testing.T) {
 	t.Parallel()
-	x := newLeadFx(t, testkit.Set("roles.lead", "luna"))
+	x := newLeadFx(t, testkit.Set("agents.roles.lead", "luna"))
 	x.f.Shell("w1:p1", "pj-lead", x.p.Root)
 	if out, rc := x.run(t); rc != 0 || !strings.HasPrefix(lastLine(out), "RESTARTED pj-lead") {
 		t.Fatalf("codex lead, labelled pane: exit %d\n%s", rc, out)
@@ -260,7 +260,7 @@ func TestLeadPromptOnlyForAFreshClaudeLead(t *testing.T) {
 		t.Errorf("codex lead, labelled pane: started with no /obor:lead:\n%s", c)
 	}
 
-	x = newLeadFx(t, testkit.Set("roles.lead", "luna"))
+	x = newLeadFx(t, testkit.Set("agents.roles.lead", "luna"))
 	if out, rc := x.run(t); rc != 0 || lastLine(out) != "OK lead: pj-lead in pane wn1:n2" { // its own workspace, T-632
 		t.Fatalf("codex lead, new tab: exit %d\n%s", rc, out)
 	}

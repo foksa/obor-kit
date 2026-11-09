@@ -67,7 +67,7 @@ func gitRun(t *testing.T, dir string, env []string, args ...string) (int, string
 func TestGithooksRealBinary(t *testing.T) {
 	p := testkit.New(t)
 	lane := p.Lane("L-01", "task/T-1")
-	p.Config(func(c map[string]any) { c["guards"] = map[string]any{"allow_push": []string{"lead"}} })
+	p.Config(func(c map[string]any) { c["rules"] = map[string]any{"may_push": []string{"lead"}} })
 	kit := testkit.Dir(t)
 	kitWithHooks(t, kit, build(t))
 	p.Git(p.Root, "config", "--local", "core.hooksPath", filepath.Join(kit, "githooks"))

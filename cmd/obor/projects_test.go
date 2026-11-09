@@ -15,9 +15,9 @@ func TestProjectsListsKnownProjects(t *testing.T) {
 	p := testkit.NewPlain(t)
 	p.Config()
 	q := testkit.NewPlain(t)
-	q.Config(testkit.Set("name", "other"), testkit.Set("prefix", "ot"))
+	q.Config(testkit.Set("project.name", "other"), testkit.Set("project.agent_prefix", "ot"))
 	r := testkit.NewPlain(t)
-	r.Config(testkit.Set("name", "gone"), testkit.Set("prefix", "gn"))
+	r.Config(testkit.Set("project.name", "gone"), testkit.Set("project.agent_prefix", "gn"))
 	home := t.TempDir()
 	env := []string{"OBOR_STATE_HOME=" + home}
 	penv := p.Env("OBOR_STATE_HOME=" + home)
@@ -31,7 +31,7 @@ func TestProjectsListsKnownProjects(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	r.Config(testkit.Set("name", "another")) // the root is there, its project is not the "gone" the list names
+	r.Config(testkit.Set("project.name", "another")) // the root is there, its project is not the "gone" the list names
 	if rc, stdout, _ := run(t, p.Root, env, "projects", "extra"); rc != 1 ||
 		stdout != "FAIL usage: obor projects\n" {
 		t.Errorf("obor projects with an argument: exit %d, %q", rc, stdout)

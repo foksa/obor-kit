@@ -25,7 +25,7 @@ func TestResumeAndNoVerdictVerbs(t *testing.T) {
 	p := testkit.New(t)
 	lane := p.Lane("L-01", "task/T-01")
 	// the merge loop on: a project without an integrator role refuses every verdict (T-352)
-	p.Config(testkit.Set("roles.integrator", ""))
+	p.Config(testkit.Set("agents.roles.integrator", ""))
 	p.Commit(lane)
 	home, err := os.MkdirTemp("", "hs") // short: the serve socket lives here
 	if err != nil {

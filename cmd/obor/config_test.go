@@ -109,7 +109,7 @@ func TestWhoamiDeepDiveAndLead(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)
 	lane := p.PlainLane("L-01", "task/T-02")
-	p.Config(testkit.Set("roles.deep_dive", "opus"))
+	p.Config(testkit.Set("agents.roles.deep_dive", "opus"))
 	text, j := whoamiIn(t, p.Root, "OBOR_ROLE=lead", "OBOR_AGENT=lead-mp")
 	if !strings.Contains(text, "role: lead\n") || !strings.Contains(text, "source: env\nlane row: none\n") {
 		t.Errorf("lead: %q", text)
@@ -144,7 +144,7 @@ func TestWhoamiCanPush(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)
 	lane := p.PlainLane("L-01", "task/T-02")
-	p.Config(func(c map[string]any) { c["guards"] = map[string]any{"allow_push": []string{"lead", "worker"}} })
+	p.Config(func(c map[string]any) { c["rules"] = map[string]any{"may_push": []string{"lead", "worker"}} })
 	for _, c := range []struct {
 		name string
 		dir  string
