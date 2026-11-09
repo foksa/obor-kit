@@ -57,6 +57,9 @@ func TestNightly(t *testing.T) {
 			x.eq(x.Git(x.nightlyDir(), "status", "--porcelain"), "", "worktree clean")
 			x.gone(x.scratch, "serve's worktree not created")
 			x.eq(x.Git(x.Root, "status", "--porcelain"), "", "main checkout untouched")
+			for _, name := range []string{"lane_setup", "check", "check_milestone"} {
+				x.gone(x.Path(".obor/state/logs/nightly-"+name+".log"), "no log for a passing "+name)
+			}
 		}},
 		// bash case_red_runs_everything; new: failing tests and log paths in the RED line
 		{"RED keeps running the rest, details per failed command, failing tests and logs named, RED state file, exit 3", func(t *testing.T) {

@@ -2,6 +2,7 @@ package checks
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -25,7 +26,7 @@ func plainFx(t *testing.T, edits ...func(map[string]any)) *fx {
 // reports.
 func commandCalls(t *testing.T, opts Options, dir string) (*runner, *[]string) {
 	t.Helper()
-	r := newRunner(context.Background(), &opts, dir, "T-5", "serve-changed-files")
+	r := newRunner(context.Background(), &opts, dir, "T-5")
 	got := &[]string{}
 	r.onCommand = func(name string) { *got = append(*got, name) }
 	return &r, got
@@ -197,7 +198,7 @@ func TestRunnerCommandEndsOnTimeoutAndInterrupt(t *testing.T) {
 	o2 := x2.opts()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	r2 := newRunner(ctx, &o2, x2.Root, "T-5", "serve-changed-files")
+	r2 := newRunner(ctx, &o2, x2.Root, "T-5")
 	var calls []string
 	started := make(chan struct{})
 	r2.onCommand = func(name string) {
@@ -216,5 +217,35 @@ func TestRunnerCommandEndsOnTimeoutAndInterrupt(t *testing.T) {
 	}
 	if want := []string{"check", ""}; !slices.Equal(calls, want) {
 		t.Errorf("interrupted: told %q; want %q", calls, want)
+	}
+}
+
+// T-1094: only a failed command keeps a log. A red run writes its log, and the green run of the same name that
+// follows it leaves none: the pass removes it.
+func TestGreenRunRemovesRedLog(t *testing.T) {
+	x := plainFx(t, cmd("check", `if [ -e "$TMP_DIR/ran" ]; then echo 2 pass; else : > "$TMP_DIR/ran"; echo 1 fail; exit 1; fi`))
+	o := x.opts()
+	r, _ := commandCalls(t, o, x.Root)
+	defer r.releaseSlot()
+	red, ok, h := r.exec("check")
+	if !ok || h != nil || red.rc != 1 {
+		t.Fatalf("precondition: the first run is red (rc 1), got ok %v, rc %d, halt %+v", ok, red.rc, h)
+	}
+	path := filepath.Join(".obor", "state", "logs", "T-5-check.log")
+	if red.log != x.Path(path) {
+		t.Fatalf("the red run's log %q, want %q", red.log, x.Path(path))
+	}
+	if _, err := os.Stat(red.log); err != nil {
+		t.Fatalf("precondition: the red run's log is there: %v", err)
+	}
+	green, ok, h := r.exec("check")
+	if !ok || h != nil || green.rc != 0 {
+		t.Fatalf("the second run is green (rc 0), got ok %v, rc %d, halt %+v", ok, green.rc, h)
+	}
+	if green.log != "" {
+		t.Errorf("the passing run's log %q, want none", green.log)
+	}
+	if _, err := os.Stat(red.log); !os.IsNotExist(err) {
+		t.Errorf("the red run's log stays after a pass: %v", err)
 	}
 }
