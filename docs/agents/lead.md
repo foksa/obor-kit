@@ -12,7 +12,7 @@ Role text: the `obor:lead` skill (`/obor:lead`). This file holds only what diffe
 - Main checkout `~/Work/obor-kit` (branch `main`); lanes `~/Work/obor-kit-wt/<LANE>`; who runs where:
   `obor status` (or obor web). The `obor` on PATH is the stable checkout: in obor-kit use `./bin/obor` for main's code.
 - Milestone end: tag `m<n>-<name>` after the deep dive's easy findings are fixed and verified.
-- Integrator: ob-int (`roles.integrator`) since 2026-10-13. The lead never merges by hand (user: "why are you doing
+- Integrator: ob-int (`agents.roles.integrator`) since 2026-10-13. The lead never merges by hand (user: "why are you doing
   integrators job?" after finished lanes sat unmerged); `obor serve` gates a finished lane and sends ob-int its review
   job (`obor status --facts` shows the task move through gate → review).
 - A merge-loop needs-you of obor serve (`obor status --facts`: held, job not delivered/stalled, red past K, publish,
@@ -51,16 +51,16 @@ panes per tab. No per-model caps (owner 2026-11-03, T-765): a model out of quota
   crash/replay, concurrency, a cross-package redesign. Wide but mechanical (a rename with a script), one function with
   a full test table, or a probe plus a mapping onto existing calls is medium, however risky its deployment: the
   lead carries the deploy risk, not the lane's model.
-- Effort beside the model (T-695, T-765): wherever a model is named (spec `Model:`, `--model`, `difficulty`,
-  `roles.<role>`), `opus:high` is opus at effort high (the lead and deep dive run on `opus:high`). The config names
-  models directly (built-in table in `internal/config/models.go`; `models.<name>` adds one); lanes are a count.
+- Effort beside the model (T-695, T-765): wherever a model is named (spec `Model:`, `--model`, `agents.difficulty`,
+  `agents.roles.<role>`), `opus:high` is opus at effort high (the lead and deep dive run on `opus:high`). The config names
+  models directly (built-in table in `internal/config/models.go`; `agents.models.<name>` adds one); lanes are a count.
 
-## Merge classes
+## Merge rules
 - Before committing `.obor/config.json` on main: `./bin/obor config validate` (a merge's guard runs it too; a direct
-  merge-class commit once broke main), or send the change through a lane.
-- A spec that adds a script or test lists `.obor/config.json` in its files and adds its own merge-class entry + check
-  (the classify audit fails otherwise; committing the class on main ahead of the merge names a test that doesn't
-  exist yet and turns every other merge RED).
+  `merge.by_path.rules` commit once broke main), or send the change through a lane.
+- A spec that adds a script or test lists `.obor/config.json` in its files and adds its own `merge.by_path.rules`
+  entry + check (the classify audit fails otherwise; committing the rule on main ahead of the merge names a test that
+  doesn't exist yet and turns every other merge RED).
 
 - No "Files you may touch" enforcement (T-496): no guard deny, no gate FAIL, a spec without the section dispatches; a protected file a task must edit goes under "Protected files this task may edit" (exact paths).
 - `obor serve` is the only dispatcher: `obor dispatch` is a request to it (`DISPATCHED … (queued)`; `obor resume`

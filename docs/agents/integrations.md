@@ -7,19 +7,21 @@ follow what happens, and a spec's **`Ref:` line** to tie a task to the external 
 
 ## The role and its verbs
 
-The integration runs as a custom role (T-801): a `roles.<name>` row with a doc `docs/agents/<name>.md`, and
+The integration runs as a custom role (T-801): an `agents.roles.<name>` row with a doc `docs/agents/<name>.md`, and
 `OBOR_ROLE=<name>` in its environment. Its `verbs` are the wire methods serve admits it to as it admits the lead and
 the owner:
 
 ```json
-"roles": {
-  "tracker": {"verbs": ["spec_set", "dispatch"]}
+"agents": {
+  "roles": {
+    "tracker": {"verbs": ["spec_set", "dispatch"]}
+  }
 }
 ```
 
 | Verb | The CLI that sends it | What it lets the role do |
 |---|---|---|
-| `spec_set` | `obor spec set <T-xx> <path>` | store a task's spec (set by `<prefix>-<name>`) |
+| `spec_set` | `obor spec set <T-xx> <path>` | store a task's spec (set by `<project.agent_prefix>-<name>`) |
 | `dispatch` | `obor dispatch <T-xx> …` | run a task, or queue it |
 | `watch` | `obor watch <T-xx>` | a line to the lead when tasks merge |
 | `send` | `obor send <project> "<text>"` | a line to another project's lead (that project's config grants it) |
@@ -32,7 +34,7 @@ the owner:
   dispatch]`).
 - A call the role has no verb for is refused with the method's own refusal, then the verb and the key that grants it:
   `dispatch: the lead or the owner dispatches, not pj-tracker (role tracker): role tracker has no verb dispatch (add
-  it to roles.tracker.verbs)`.
+  it to agents.roles.tracker.verbs)`.
 - The role is otherwise a custom role: no pane or lane of its own unless someone places one (`obor setup role`), git
   reads only, writes only its `write` list, never pushes. The feed and `obor status` need no verb.
 

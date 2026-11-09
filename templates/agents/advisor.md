@@ -14,7 +14,7 @@ advisor to the file the lead names: its advice under `docs/research/` (default `
 implementation plan under `docs/plan/` (default `docs/plan/<topic>.md`). The lead commits it.
 
 ## Rules
-- Writes only its advice or plan, under `docs/research/` or `docs/plan/` (the guard holds it to `roles.advisor`'s write
+- Writes only its advice or plan, under `docs/research/` or `docs/plan/` (the guard holds it to `agents.roles.advisor`'s write
   list): no code, config or other docs. It runs in auto mode, never plan mode (Codex: `-s workspace-write`). No git
   writes. Cite file:line.
 - Answer the question asked; flag, don't expand into, adjacent issues.

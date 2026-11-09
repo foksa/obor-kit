@@ -1,7 +1,7 @@
 # T-xx — <title: one goal>
 
 Difficulty: <hard | medium | simple>
-<!-- Obor picks the model from this line (config `difficulty`); `obor spec set` refuses a spec without it.
+<!-- Obor picks the model from this line (config `agents.difficulty`); `obor spec set` refuses a spec without it.
 hard: state machines, crash/replay, concurrency, cross-package redesign. medium: a specified feature or fix in one or
 two packages. simple: mechanical with a full oracle. Optional: a line `Model: <model>[, <model>…]` directly under
 Difficulty tries those models first, then the level's. Any model may name an effort, `<model>:<effort>`: the agent
@@ -34,7 +34,7 @@ that reads the field it appears in, and what each does with it (a test per consu
 - Identity, MCP or launch tasks: the project's live agent check, if it has one, summary lines in the report. Delete this line otherwise.
 
 ## Protected files this task may edit
-<!-- Optional: delete it when the task edits no protected file (protected_files in .obor/config.json). One exact path
+<!-- Optional: delete it when the task edits no protected file (rules.protected_files in .obor/config.json). One exact path
 per backtick span, no globs: the worker's guard lets the lane edit these for this task only. Which files a task owns
 may still be said in prose above, for planning: nothing reads it. -->
 `<exact/path>`

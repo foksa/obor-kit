@@ -6,8 +6,8 @@ A review, from its request to its close: `obor review` builds and sends the brie
 
 ## 1. What serve collects
 `obor review` (§2) gathers these facts itself when the review starts; they are listed so you can read them back:
-- **Reviews dir**: `obor config get .paths.reviews`, in the main checkout (the reviewer writes there from its role
-  worktree `<lanes_dir>/reviewer`, T-853) and gitignored: review files never enter the integration branch (owner 2026-10-30). The **previous review** is the newest `RV-xx closed · <sha>` commit
+- **Reviews dir**: `obor config get .reviews.dir`, in the main checkout (the reviewer writes there from its role
+  worktree `<lanes.dir>/reviewer`, T-853) and gitignored: review files never enter the integration branch (owner 2026-10-30). The **previous review** is the newest `RV-xx closed · <sha>` commit
   (`git log --grep='^RV-[0-9]* closed' -1 --format=%s`); `<prev-sha>` is the sha it names, and, since T-822, its body
   names the tasks its cycle **Covered** and the sha its review **Start**ed at.
 - **Next id**: the previous id + 1 (e.g. `RV-55.md`; none yet: `RV-1`).

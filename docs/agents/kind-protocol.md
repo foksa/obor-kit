@@ -14,17 +14,17 @@ its hook transport. A test binary answers it in process (`plugin.Local`, testkit
 ## Register one
 
 ```json
-"kinds": { "mykind": { "command": "tools/obor-kind-mykind", "args": ["--auto"] } }
+"agents": { "kinds": { "mykind": { "plugin": "tools/obor-kind-mykind", "args": ["--auto"] } } }
 ```
 
-- `kinds.<name>.command`: the executable (relative: to the project root). `<name>` is the kind's name everywhere
-  (`models.<model>.kind`, herdr's `--kind`); it may not be a compiled kind's. The name of a binary the kit ships
+- `agents.kinds.<name>.plugin`: the executable (relative: to the project root). `<name>` is the kind's name everywhere
+  (`agents.models.<model>.kind`, herdr's `--kind`); it may not be a compiled kind's. The name of a binary the kit ships
   (`obor-kind-opencode`, `config.KitKinds`) is that binary beside the running obor (`config.KitKind`: `dist/obor`'s
   `dist/obor-kind-opencode`, a release binary's same-suffixed file in `~/.obor/bin`). `obor init` writes
-  `"opencode": {"command": "obor-kind-opencode"}`.
-- **Compat until v0.32.0:** a config with no `kinds.opencode.command` (written before T-1046) runs the kit's binary all
+  `"opencode": {"plugin": "obor-kind-opencode"}`.
+- **Compat until v0.33.0:** a config with no `agents.kinds.opencode.plugin` (written before T-1046) runs the kit's binary all
   the same (`config.KitKinds`); `obor setup agents` writes the line into `.obor/config.json` (uncommitted) and
-  `obor config validate` warns while it is missing in a config that uses OpenCode. v0.32.0 drops the default.
+  `obor config validate` warns while it is missing in a config that uses OpenCode. v0.33.0 drops the default.
 - `obor config validate` checks the file is executable and that its `describe` answers with a manifest of `<name>`.
 - obor serve runs `describe` and caches the reply (the **manifest**) as `.obor/state/kinds/<name>.json` at its start
   and again once the command's mtime (or its path) differs from the cached one (T-1054); `obor init` and

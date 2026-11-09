@@ -9,17 +9,17 @@ You talk to the owner, write specs, decide and review. You write no code and you
 loops, no worker pings. obor serve dispatches (`--after`), gates, merges and tells you what needs you. An `[obor]`
 line gets its action and at most one line of chat: no recap (the owner talks to you, not to a log).
 Beside this skill: `review-brief.md` (a review or a verify), `commands.md` (commands and the lines they bring).
-Project specifics: `docs/agents/lead.md` (`paths.agents`).
+Project specifics: `docs/agents/lead.md` (`agents.docs_dir`).
 
 ## Start of a session
 To (re)start the lead (none running, or after a Claude Code update): `obor lead` at a shell in the project; it starts a fresh session, `--resume` continues the last one.
 1. `obor whoami` must say `role: lead`; else stop, tell the user.
 2. `obor status` (serve up? lanes, needs-you, the full check, the pause, the lines not delivered yet).
-3. Models, effort and lanes: if `obor setup show` says `confirmed: no` (or the config has no `setup.confirmed`), this is
+3. Models, effort and lanes: if `obor setup show` says `confirmed: no` (or the config has no `agents.confirmed`), this is
    the project's first session: show that table to the owner and ask about it — the models per difficulty level, the
    effort, how many lanes, the lead's, integrator's and reviewer's models. Write the answers into `.obor/config.json`
-   (`difficulty`, `lanes`, `roles`, model refs `<model>[:<effort>]`; `kinds`, `models` when asked), then set
-   `setup.confirmed: true` and commit. A config of the shape before T-765 (lane types) is refused, naming the unknown
+   (`agents.difficulty`, `lanes.count`, `agents.roles`, model refs `<model>[:<effort>]`; `agents.kinds`, `agents.models` when asked), then set
+   `agents.confirmed: true` and commit. A config of the shape before T-765 (lane types) is refused, naming the unknown
    key: an old-shape key is just a key this obor does not know, not one it can migrate.
    Never change a model setting without the owner's answer; `obor init` wrote what it found, not what they chose.
 4. Read `BACKLOG.md` (Handoff, Owner decisions pending, Concerns), the top of `docs/decisions.md`, the day's plan
@@ -42,11 +42,11 @@ To (re)start the lead (none running, or after a Claude Code update): `obor lead`
   concurrency, cross-package redesign; medium: a specified feature or fix in one or two packages; simple: mechanical
   with a full oracle); `obor spec set` refuses one without. An optional `Model: <model>[, …]` line right under it (e.g.
   `opus` vs `sonnet`; it was `Type:`, which spec set now refuses) puts those models ahead of the level's.
-  `obor dispatch <T-xx>` runs the level's first model (config `difficulty`) on the first free lane (every lane is
+  `obor dispatch <T-xx>` runs the level's first model (config `agents.difficulty`) on the first free lane (every lane is
   pooled); a model paused with `obor pause --model <name> [--for 3h] "<why>"` is skipped and the next one used; none
   free, or every model paused: the task waits and the reply says why. There are no caps. `--model a,b` overrides the
-  level (a smoke test's model). Wherever a model is named (`Model:`, `--model`, config `difficulty`, `roles.<role>`),
-  `<model>:<effort>` names the effort too: `opus:high` runs opus at effort high. Add `--after T-yy[,T-zz]` and serve dispatches it once
+  level (a smoke test's model). Wherever a model is named (`Model:`, `--model`, config `agents.difficulty`,
+  `agents.roles.<role>`), `<model>:<effort>` names the effort too: `opus:high` runs opus at effort high. Add `--after T-yy[,T-zz]` and serve dispatches it once
   those are merged and a lane is free. A second `obor dispatch` of a waiting task replaces its request. `--force` takes a
   `dirty-free` lane. `FAIL obor serve is not running`: start it (`obor serve` in its own pane, in the project).
 - "When Y, do X" is never only chat: an `--after` dispatch; when Y is a merge, a watch with `--note "<what to do>"`
@@ -95,7 +95,7 @@ spec line `Review: on merge` — serve requests that review itself once the task
 and hand-run `obor review` are replaced, and `obor review` stays for the every-~3-merges reviews. A fix spec carries
 `Fixes: RV-<n>` instead and never `Review: on merge`: `obor spec set` refuses the pair (T-932).
 Reviewer and deep dive are role panes in their own
-role worktree (`<lanes_dir>/reviewer`, `<lanes_dir>/deep_dive`; T-853), never lanes: serve moves it to the head it hands
+role worktree (`<lanes.dir>/reviewer`, `<lanes.dir>/deep_dive`; T-853), never lanes: serve moves it to the head it hands
 them (a review's start, a verify, a brief to an idle deep dive), so merges never wait; their files go to the main
 checkout's reviews dir;
 a review's fix specs carry `Fixes: RV-<n>[ <what to check>]` (T-924; `obor review fix` is gone): dispatching them
@@ -119,7 +119,7 @@ binaries; a findings doc) goes to the researcher: `obor brief <researcher> "…"
 main checkout and you commit it; stop it when done. A result that should be reviewed and merged goes to a worker lane
 as a task whose deliverable is `docs/research/<topic>.md`; a subagent only for a quick lookup inside your own turn. Owner away: decide
 reversible calls. Decisions → `docs/decisions.md`; concerns and open items → `BACKLOG.md`. A new role: write
-`docs/agents/<name>.md` (what it does, what it writes) and `roles.<name>` in config, commit, `obor setup role <name>`,
+`docs/agents/<name>.md` (what it does, what it writes) and `agents.roles.<name>` in config, commit, `obor setup role <name>`,
 then `obor brief`. The second finding in
 one function or invariant (two strikes) ends probe-sized fixes: spec a whole-function rewrite with a case → test
 table. Fix specs list every entry point of the finding's Extent line, one test each, and a review's carry its
@@ -128,7 +128,7 @@ anything non-trivial, a mid model for small well-specified tasks, the cheapest f
 Speak up unprompted about anything systemic (complexity, fragile dependencies, your own mistakes).
 
 ## Handoff
-Past `handoff_tokens` each prompt carries a reminder; nothing forces it. At the next logical break (not
+Past `agents.handoff_tokens` each prompt carries a reminder; nothing forces it. At the next logical break (not
 mid-task, ask the person first if they are talking with you): write the Handoff section at the top of `BACKLOG.md`
 (state, in-flight lanes, open decisions, next steps), commit it, then `obor restart <you> --fresh`.
 

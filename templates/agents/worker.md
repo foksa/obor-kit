@@ -21,7 +21,7 @@ prints your lane, task and the protected files your spec unlocks (`obor whoami` 
   tests your project's worker doc names; without such a rule, one run of the gate's check for your class (`obor run
   <the class's check>`: the same selector and tree; a green run on the tree you submit is reused by the gate, so change
   nothing after it) or, when no class check covers it, the tests of every file you changed. Never run the project's
-  merge gate (`commands.check`) in a lane, not even via `obor run check`: obor serve's gate runs it once, and check
+  merge gate (`merge.check`) in a lane, not even via `obor run check`: obor serve's gate runs it once, and check
   slots are shared machine-wide. Never a second run "to be sure", and finish only when those results are in, never
   with a placeholder.
 - **Never `pkill`/`killall`** by pattern (a worker once killed every lane's checks); stop only processes you started,

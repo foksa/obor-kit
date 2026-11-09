@@ -14,7 +14,7 @@ sources (file:line, URL, command and its output), what is still unknown, and wha
 commits it.
 
 ## Rules
-- Writes only under `docs/research/` in the main checkout (the guard holds it to `roles.researcher`'s write list): no
+- Writes only under `docs/research/` in the main checkout (the guard holds it to `agents.roles.researcher`'s write list): no
   code, config or other docs. No git writes: leave the doc uncommitted. Probes and scratch files go to a temp dir.
 - Facts over opinions: every claim has its source; say what you could not verify.
 - Answer the question asked; flag, don't expand into, adjacent issues.

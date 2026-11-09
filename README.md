@@ -63,7 +63,7 @@ obor init       # the plugin, the git hooks, .obor/config.json, lane worktrees, 
 machine with `claude` on PATH. With no pane of the project open yet, init creates a herdr workspace for it.
 
 obor commits with `--no-verify`, so your own pre-commit and commit-msg hooks never run on its lane and merge commits:
-put formatting and secret scans in `commands.check` (the merge check) instead.
+put formatting and secret scans in `merge.check` (the merge check) instead.
 
 After that:
 
@@ -85,7 +85,7 @@ the flag for it:
 | Codex | same | `check_for_update_on_startup` | `-c check_for_update_on_startup=false` |
 
 obor's MCP server, the session id, the prompt, the model and effort a type names, Claude's `--permission-mode auto`
-and Codex's `-a never` stay (change those in `.obor/config.json`: `models`, `kinds.<kind>.args`). Codex reads a
+and Codex's `-a never` stay (change those in `.obor/config.json`: `agents.models`, `agents.kinds.<kind>.args`). Codex reads a
 project's `.codex/` only when the project is trusted in `~/.codex/config.toml`. A file that does not parse counts as
 absent. `obor config validate` warns on such a file, on `disableAllHooks: true` in `.claude/settings.json` (it turns
 off obor's guard hooks) and on an OpenCode project config (`opencode.json[c]`, `.opencode/opencode.json[c]`) that
