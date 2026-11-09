@@ -44,9 +44,10 @@ import (
 //     with the new obor first on PATH while the old serves run; then each serve is stopped.
 //  3. Each serve starts on the new binary and answers on its socket; obor projects lists both; obor status and obor
 //     setup show load; the dispatch still waits with its spec's model first; each lead, started now under its current
-//     name (its SessionStart hook records its inbox), gets the line held for it; obor send works both ways. Serve's
-//     first pass rewrites the previous release's shape-1 config.json and commits it (subject "config: shape 2"), and
-//     the guide's herdr-plugin step has unlinked the obor.events plugin an older obor linked.
+//     name (its SessionStart hook records its inbox), gets the line held for it; obor send works both ways. When the
+//     upgrade crosses v0.33 (crossesV033), serve's first pass rewrites the previous release's shape-1 config.json and
+//     commits it (subject "config: shape 2"), and the guide's herdr-plugin step has unlinked the obor.events plugin an
+//     older obor linked; a project of v0.33.0 or later already has a shape-2 config and no plugin.
 //
 // The Model: assertion needs a previous release of v0.23.0 or later (before, a spec named a lane type: Type:): an
 // older PREV is refused before the check runs (supported, T-778).
@@ -239,13 +240,15 @@ func (w *world) step1() error {
 		}
 		w.projs = append(w.projs, p)
 	}
-	// The previous release's init links its obor.events plugin (plugin.link): step 3's guide unlinks it, so the check
-	// asserts it was there to unlink.
-	var plugins []herdrtest.Plugin
-	w.fake.Locked(func() { plugins = append(plugins, w.fake.Plugins...) })
-	if !slices.ContainsFunc(plugins, func(pl herdrtest.Plugin) bool { return pl.ID == oborEvents }) {
-		return fail(1, fmt.Sprintf("herdr plugins: %+v", plugins),
-			"v%s obor init of alpha and beta linked no %s plugin: step 3's unlink would be vacuous", w.c.prev, oborEvents)
+	// Crossing v0.33, the previous release's init links its obor.events plugin (plugin.link): step 3's guide unlinks
+	// it, so the check asserts it was there to unlink.
+	if w.c.crossesV033() {
+		var plugins []herdrtest.Plugin
+		w.fake.Locked(func() { plugins = append(plugins, w.fake.Plugins...) })
+		if !slices.ContainsFunc(plugins, func(pl herdrtest.Plugin) bool { return pl.ID == oborEvents }) {
+			return fail(1, fmt.Sprintf("herdr plugins: %+v", plugins),
+				"v%s obor init of alpha and beta linked no %s plugin: step 3's unlink would be vacuous", w.c.prev, oborEvents)
+		}
 	}
 	for _, p := range w.projs {
 		s, err := w.startServe(p)
@@ -328,13 +331,17 @@ func (w *world) step3() error {
 			return fail(3, s.output(), "serve of %s on the new binary is not up: %v", p.name, err)
 		}
 	}
-	for _, p := range w.projs {
-		if err := w.rewrite(p); err != nil {
-			return fail(3, p.serve.output(), "%v", err)
+	// v0.33's expectations hold only for a project from before it: its shape-1 config.json is rewritten and its
+	// obor.events plugin is unlinked by the guide. A project of v0.33.0 or later has neither.
+	if w.c.crossesV033() {
+		for _, p := range w.projs {
+			if err := w.rewrite(p); err != nil {
+				return fail(3, p.serve.output(), "%v", err)
+			}
 		}
-	}
-	if err := w.unlinked(); err != nil {
-		return fail(3, "", "%v", err)
+		if err := w.unlinked(); err != nil {
+			return fail(3, "", "%v", err)
+		}
 	}
 	for _, p := range w.projs {
 		if _, err := w.ask(p); err != nil {
@@ -395,6 +402,22 @@ func (w *world) step3() error {
 
 // oborEvents is the herdr plugin an obor before T-1117 linked, which v0.33's guide unlinks.
 const oborEvents = "obor.events"
+
+// v033 is the first release whose projects have no obor.events plugin and a shape-2 config.json.
+var v033 = [3]int{0, 33, 0}
+
+// crossesV033 is whether the upgrade from prev to next crosses v0.33: the previous release is below 0.33.0 and the new
+// one is not. The harness's v0.33 expectations (step 1's plugin precondition, step 3's rewrite and unlink assertions)
+// hold only on that transition: release-specific expectations stay scoped to their transition, so a project from
+// v0.33.0 on is not asked for a plugin it never had or a rewrite that already happened.
+func crossesV033(prev, next string) bool {
+	p, ok1 := parseVersion(prev)
+	n, ok2 := parseVersion(next)
+	return ok1 && ok2 && less(p, v033) && !less(n, v033)
+}
+
+// crossesV033 is this check's upgrade crossing v0.33.
+func (c check) crossesV033() bool { return crossesV033(c.prev, c.next) }
 
 // rewrite is serve's shape-2 rewrite of p's config.json (T-1125, T-1148): the previous release's config is shape 1,
 // and the new serve's first pass rewrites and commits it. It waits for that commit (serve's pass; lineWait), then
