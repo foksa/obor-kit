@@ -228,7 +228,8 @@ func (o *Outbox) Move(q *Line, e Event) {
 // worked), its agent's stop on a usage limit in force (nil: none; T-569), and whether a turn that ended that stop is
 // followed (its start seen, its end not yet: T-571, app's stopped.go turnDecide). Those are the fold's (worked also
 // SawWork's). Logging (app's logWorked records its fact worked now: its claim, not folded) and where its agent was
-// last seen (Term, PaneID, Lost; T-732, app's gone) are the delivery's, live.
+// last seen (Term, PaneID, Lost; T-732, app's gone) are the delivery's, live. bg: the lead was told this turn ended
+// with a background call still running (T-1142): the brief waits for the agent's next turn, its finished line then.
 type Brief struct {
 	seq      int64
 	at       time.Time
@@ -236,6 +237,7 @@ type Brief struct {
 	logged   bool
 	stop     *RoleStop
 	followed bool
+	bg       bool
 
 	Logging bool
 	Term    string    // the terminal (identity.TermOf) its agent was last identified in ("": not seen since replay)
@@ -257,6 +259,13 @@ func (b *Brief) Logged() bool { return b.logged }
 
 // Followed: a turn that ended the brief's stop is followed (its start seen, its end not yet).
 func (b *Brief) Followed() bool { return b.followed }
+
+// Bg: the lead was told this brief's turn ended with a background call still running (T-1142).
+func (b *Brief) Bg() bool { return b.bg }
+
+// SetBg marks that (app's deliver, after the idle-with-background line is recorded): the brief's finished line waits
+// for the agent's next turn.
+func (b *Brief) SetBg(v bool) { b.bg = v }
 
 // Stop is a copy of the brief's agent's stop in force (nil: none).
 func (b *Brief) Stop() *RoleStop {
@@ -281,12 +290,14 @@ type RoleStop struct {
 }
 
 // SawWork notes the work seen of agent's open brief: working after the brief's line was delivered (or with no line)
-// is the work the brief asked for (app's sawWork decides it is its agent's pane, working).
+// is the work the brief asked for (app's sawWork decides it is its agent's pane, working). It also ends a turn told as
+// idle with a background run still going (T-1142: this is the next turn, whose finished line follows).
 func (o *Outbox) SawWork(agent string) {
 	b := o.briefs[agent]
 	if b == nil {
 		return
 	}
+	b.bg = false
 	if q := o.msgs[b.seq]; q == nil || q.state != Waiting {
 		b.worked = true
 	}
@@ -426,7 +437,7 @@ func (o *Outbox) Fold(r event.Record, oldOf func(json.RawMessage) event.Of) Ende
 		if b := o.briefs[d.Agent]; b != nil && d.Brief != 0 && b.seq == d.Brief { // a usage limit: the brief stays
 			// open, stopped; the work before the stop is not its finish
 			b.stop = &RoleStop{Seq: r.Seq, At: e.At, Line: d.Line, Turn: d.Turn, Reset: d.Reset}
-			b.worked, b.logged, b.followed = false, false, false
+			b.worked, b.logged, b.followed, b.bg = false, false, false, false
 		}
 	case r.Kind == event.KindFact && r.Step == event.StepTurned:
 		var d Turned
@@ -434,6 +445,7 @@ func (o *Outbox) Fold(r event.Record, oldOf func(json.RawMessage) event.Of) Ende
 		if b := o.briefs[d.To]; b != nil && b.seq == d.Brief { // the turn's start: followed, its work not seen yet
 			// (a lingering status of the stopped turn is not); its end: the work done
 			b.stop = nil
+			b.bg = false // a turn since the idle-with-background line (T-1142)
 			b.worked, b.logged, b.followed = d.Worked, d.Worked, !d.Worked
 		}
 	case r.Kind == event.KindFact && r.Step == event.StepAnswered:

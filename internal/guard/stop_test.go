@@ -2,6 +2,7 @@ package guard
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"obor/internal/background"
 	"obor/internal/project"
 	"obor/internal/store"
 	"obor/internal/testkit"
@@ -345,6 +347,78 @@ func TestStopWorkerStaleBackgroundTasks(t *testing.T) {
 	f.stop(t, "-", o1, strings.TrimSuffix(bg, "}")+`,"stop_hook_active":true}`).allow("the same loop again")
 	testkit.Age(t, o1+"/work.txt", 0)
 	f.stop(t, "-", o1, bg).allow("a fresh lane change")
+}
+
+// T-1142: while a background Bash call recorded for this session still runs (its process in the table, project's
+// record), every agent's stop — the worker's, a role agent's, the lead's — is blocked with the call's description, and
+// stop_hook_active blocks too: the agent is waiting, and the block ends with the call. Its process ended, another
+// session's or another agent's call, no record, and an unreadable record file allow the stop.
+func TestStopBackgroundRunStillGoing(t *testing.T) {
+	f := newHfx(t)
+	o1 := f.PlainLane("L-01", "task/T-01")
+	f.Config()
+	old := stopProcs
+	t.Cleanup(func() { stopProcs = old })
+	procs := func(table ...background.Proc) {
+		stopProcs = func(context.Context) ([]background.Proc, error) { return table, nil }
+	}
+	record := func(c project.BackgroundCall) {
+		os.Remove(project.BackgroundFile(f.Root))
+		if c.Command != "" {
+			project.AppendBackground(f.Root, c)
+		}
+	}
+	call := project.BackgroundCall{At: ago(6), Agent: "pj-l-01", Session: "s1", Pane: "w1:p1",
+		Description: "bench the build", Command: "go test -bench . ./..."}
+	live := background.Proc{PID: 900, PPID: 1, Age: 6 * time.Second, Command: "go test -bench . ./..."}
+
+	record(project.BackgroundCall{})
+	procs(live)
+	f.stop(t, "-", o1, "").allow("no background record")
+
+	record(call)
+	f.stop(t, "-", o1, "").block("a live recorded call").has("reason", "a background run you started is still running",
+		"bench the build", "started ", " ago", "wait for it in this turn")
+	f.stop(t, "-", o1, `{"stop_hook_active":true}`).block("the same loop again: the agent is waiting").
+		has("reason", "bench the build")
+
+	procs()
+	f.stop(t, "-", o1, "").allow("the call's process ended")
+
+	procs(live)
+	other := call
+	other.Session = "s2"
+	record(other)
+	f.stop(t, "-", o1, "").allow("another session's call")
+	other = call
+	other.Agent = "pj-l2"
+	record(other)
+	f.stop(t, "-", o1, "").allow("another agent's call")
+
+	other = call
+	other.Agent = "" // recorded in the session's pane: still this session's
+	record(other)
+	f.stop(t, "-", o1, "", "OBOR_PANE=w1:p1").block("a call recorded without an agent in our pane").
+		has("reason", "bench the build")
+
+	record(call)
+	procs(live)
+	if os.Geteuid() != 0 { // root ignores the mode: the file reads as a live record
+		if err := os.Chmod(project.BackgroundFile(f.Root), 0o000); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.Chmod(project.BackgroundFile(f.Root), 0o644) })
+		f.stop(t, "-", o1, "").allow("the record file unreadable")
+	}
+
+	record(project.BackgroundCall{At: ago(6), Agent: "pj-int", Session: "s1", Description: "run the gate",
+		Command: "make check"})
+	procs(background.Proc{PID: 901, PPID: 1, Age: 6 * time.Second, Command: "make check"})
+	f.stop(t, "integrator", f.Root, "").block("a role agent's live call").has("reason", "run the gate")
+	record(project.BackgroundCall{At: ago(6), Agent: "pj-lead", Session: "s1", Description: "read the logs",
+		Command: "tail -f serve.log"})
+	procs(background.Proc{PID: 902, PPID: 1, Age: 6 * time.Second, Command: "tail -f serve.log"})
+	f.stop(t, "lead", f.Root, "").block("the lead's live call").has("reason", "read the logs")
 }
 
 // bash stop case_no_config, case_other_roles

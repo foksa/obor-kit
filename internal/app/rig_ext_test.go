@@ -24,6 +24,7 @@ import (
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
+	"obor/internal/background"
 	"obor/internal/config"
 	"obor/internal/herdr"
 	"obor/internal/herdr/herdrtest"
@@ -1614,6 +1615,8 @@ type loopRig struct {
 	exit func()
 	// tokens is Options.Tokens, a transcript's context size (nil: the file read, T-1031); set before start
 	tokens func(transcript string) (int, bool)
+	// procs is the machine's process table Options.Procs reads (nil: none, so a pass never runs the real ps; T-1142)
+	procs func(ctx context.Context) ([]background.Proc, error)
 	// inbox is the loop's Inbox: the lead's lines posted (T-485), kept across restarts. The worker pj-l-01 and the
 	// integrator pj-int start with no inbox record, so their job wakes are typed (T-499's fallback); a test of posted
 	// wakes records them (inbox.record).
@@ -1851,6 +1854,15 @@ func (r *loopRig) launch() {
 	}
 	r.app = app.New(app.Options{Root: r.p.Root, Tick: tick, Retry: 5 * time.Millisecond, RetryMax: 40 * time.Millisecond,
 		Now: r.clock.Now, Out: r.out, Inboxed: r.inbox.recorded, Exit: r.exit, Binary: r.binary, Follow: tick, Tokens: r.tokens,
+		Procs: func(ctx context.Context) ([]background.Proc, error) {
+			r.mu.Lock()
+			f := r.procs
+			r.mu.Unlock()
+			if f == nil {
+				return nil, nil
+			}
+			return f(ctx)
+		},
 		Refresh: func(err error) bool {
 			var e *herdr.Error
 			return errors.As(err, &e) && e.Code == "refresh"

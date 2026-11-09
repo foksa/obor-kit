@@ -16,48 +16,29 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-714: ps's lines (pid ppid etime command) parse into rows, every etime form included; a header or a broken line is
-// skipped.
-func TestParseProcs(t *testing.T) {
-	out := "  PID  PPID ELAPSED COMMAND\n" +
-		"  100     1   1-02:03:04 /usr/local/bin/claude --resume x\n" +
-		"  101   100    01:02:03 /bin/zsh -c   eval 'sleep 600'\n" +
-		"  102   101       00:45 sleep 600\n" +
-		"  103   101      bad sleep\n"
-	got := ParseProcs(out)
-	want := []Proc{{100, 1, 26*time.Hour + 3*time.Minute + 4*time.Second, "/usr/local/bin/claude --resume x"},
-		{101, 100, time.Hour + 2*time.Minute + 3*time.Second, "/bin/zsh -c eval 'sleep 600'"},
-		{102, 101, 45 * time.Second, "sleep 600"}}
-	if len(got) != len(want) {
-		t.Fatalf("procs %+v, want %+v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("proc %d = %+v, want %+v", i, got[i], want[i])
-		}
-	}
-}
-
 // fakeTable is an agent (pid 100, up an hour) with: an MCP server started with it, and that server's own long child, a
 // shell-wrapped MCP server started with it, a caffeinate it started later (helpers: left out); obor's MCP server
 // restarted later (left out); a background Bash shell running a long python
 // (shown, the shell passed through); a shell running a short sleep (too young); a long process that is no descendant.
 func fakeTable() []Proc {
 	s := time.Second
+	proc := func(pid, ppid int, age time.Duration, command string) Proc {
+		return Proc{PID: pid, PPID: ppid, Age: age, Command: command}
+	}
 	return []Proc{
-		{1, 0, 7200 * s, "/sbin/launchd"},
-		{100, 1, 3600 * s, "claude"},
-		{101, 100, 3598 * s, "node /opt/mcp/server.js"},
-		{107, 100, 120 * s, "caffeinate -i -t 300"},
-		{108, 100, 3599 * s, "/bin/sh -c npx some-mcp"},
-		{109, 108, 3599 * s, "node some-mcp"},
-		{110, 101, 3000 * s, "node /opt/mcp/worker.js"},
-		{102, 100, 1000 * s, "/bin/bash /kit/bin/obor mcp"},
-		{103, 100, 900 * s, `/bin/zsh -c -l source /tmp/snap.sh && eval 'python convert.py --name '\''a b'\''' < /dev/null`},
-		{104, 103, 899 * s, "python3 convert.py --name a b"},
-		{105, 100, 10 * s, "/bin/zsh -c eval 'sleep 5'"},
-		{106, 105, 10 * s, "sleep 5"},
-		{200, 1, 5000 * s, "python convert.py --name a b"},
+		proc(1, 0, 7200*s, "/sbin/launchd"),
+		proc(100, 1, 3600*s, "claude"),
+		proc(101, 100, 3598*s, "node /opt/mcp/server.js"),
+		proc(107, 100, 120*s, "caffeinate -i -t 300"),
+		proc(108, 100, 3599*s, "/bin/sh -c npx some-mcp"),
+		proc(109, 108, 3599*s, "node some-mcp"),
+		proc(110, 101, 3000*s, "node /opt/mcp/worker.js"),
+		proc(102, 100, 1000*s, "/bin/bash /kit/bin/obor mcp"),
+		proc(103, 100, 900*s, `/bin/zsh -c -l source /tmp/snap.sh && eval 'python convert.py --name '\''a b'\''' < /dev/null`),
+		proc(104, 103, 899*s, "python3 convert.py --name a b"),
+		proc(105, 100, 10*s, "/bin/zsh -c eval 'sleep 5'"),
+		proc(106, 105, 10*s, "sleep 5"),
+		proc(200, 1, 5000*s, "python convert.py --name a b"),
 	}
 }
 
@@ -115,9 +96,9 @@ func TestBackgroundOf(t *testing.T) {
 	// w4 has a long command of its own, so two agents reach the process index.
 	s := time.Second
 	table := append(fakeTable(),
-		Proc{300, 1, 3600 * s, "claude"},
-		Proc{301, 300, 100 * s, "/bin/zsh -c eval 'go test ./...'"},
-		Proc{302, 301, 99 * s, "go test ./..."})
+		Proc{PID: 300, PPID: 1, Age: 3600 * s, Command: "claude"},
+		Proc{PID: 301, PPID: 300, Age: 100 * s, Command: "/bin/zsh -c eval 'go test ./...'"},
+		Proc{PID: 302, PPID: 301, Age: 99 * s, Command: "go test ./..."})
 	before := indexBuilds.Load()
 	got := BackgroundOf(context.Background(), root, agents, table, info)
 	// T-727: one scan builds one process index, whatever the number of agents.
@@ -193,17 +174,6 @@ func TestBackgroundOfMatchesTheStartingCall(t *testing.T) {
 	}
 	if b := run(project.BackgroundCall{At: start - 3, Session: "s1", Description: "d"}); b.Background || b.Label != "" {
 		t.Errorf("a previous session's record: %+v, want running", b)
-	}
-}
-
-// T-714: a long command is cut with an ellipsis, its argv0 without its path.
-func TestShorten(t *testing.T) {
-	if got := shorten("/usr/bin/python3   x.py"); got != "python3 x.py" {
-		t.Errorf("shorten = %q", got)
-	}
-	long := shorten("go " + strings.Repeat("x", 100))
-	if r := []rune(long); len(r) != commandMax || !strings.HasSuffix(long, "…") {
-		t.Errorf("long: %q (%d runes), want %d with an ellipsis", long, len(r), commandMax)
 	}
 }
 

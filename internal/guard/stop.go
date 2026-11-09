@@ -2,9 +2,11 @@ package guard
 
 // The Stop, SessionStart and UserPromptSubmit hooks (`obor hook stop|session-start|user-prompt-submit`, run through
 // bin/obor; T-470: package stop moved here): the worker's task_done, the session's obor context, the handoff reminder
-// and the wrong-tab guard. The lead and the integrator stop when they like (T-465: no nudges, no ledger).
+// and the wrong-tab guard. The lead and the integrator stop when they like (T-465: no nudges, no ledger) — except for a
+// background run they started, which blocks every agent's stop (T-1142, background).
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"obor/internal/background"
 	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/store"
@@ -49,6 +52,7 @@ type stopHook struct {
 	ev   stopEvent
 	env  project.Env
 	cfg  *config.Config
+	root string
 	now  int64 // epoch seconds
 	role project.Role
 
@@ -57,6 +61,9 @@ type stopHook struct {
 
 // staleBg is how long nothing in a worker's lane may change before its running background tasks look stale (T-167).
 const staleBg = 1200
+
+// stopProcs is the process table the background check reads (a test's fake; internal/background's one ps).
+var stopProcs = background.ReadProcs
 
 func runStop(input []byte, env project.Env) (reason string, err error) {
 	h := &stopHook{env: env}
@@ -75,6 +82,7 @@ func runStop(input []byte, env project.Env) (reason string, err error) {
 		return "", err
 	}
 	h.cfg = cfg
+	h.root = repo.Root
 	h.role = project.DetectRole(repo, cfg, env)
 	h.now = time.Now().Unix()
 	for _, t := range h.ev.BackgroundTasks {
@@ -83,12 +91,46 @@ func runStop(input []byte, env project.Env) (reason string, err error) {
 		}
 	}
 
+	// A background run this session started and that still runs blocks any agent's stop (T-1142): the turn it ended is
+	// not over, and obor would read the silence as finished work. First, so the reason is the run, not the task.
+	if reason := h.background(); reason != "" {
+		return reason, nil
+	}
+
 	// The role's verdict: a block reason, or "" (allow). Only a worker's (its task_done); no block for context size
 	// (T-232): the handoff reminder rides on each prompt (handoffReminder).
 	if h.role.Role == "worker" {
 		return h.workerDone()
 	}
 	return "", nil
+}
+
+// background: a background Bash call recorded for this hook's session (the PreToolUse record, project.BackgroundCalls)
+// whose process still runs blocks the stop, the call's description and age named (T-1142). Every agent's, the lead's
+// too; stop_hook_active allows nothing here — a repeated block means the agent is waiting, and the block ends with the
+// call's process. Best-effort: no session, no record, an unreadable file or no process table allows the stop.
+func (h *stopHook) background() string {
+	if h.ev.SessionID == "" || h.root == "" {
+		return ""
+	}
+	pane, _ := project.Pane(h.env) // "" when this session has none: a call that names no agent is then not its own
+	calls := background.Mine(project.BackgroundCalls(h.root), project.SelfAgent(h.cfg, h.role), h.ev.SessionID, pane)
+	if len(calls) == 0 {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	procs, err := stopProcs(ctx)
+	if err != nil {
+		return ""
+	}
+	c, ok := background.Live(calls, procs, time.Unix(h.now, 0))
+	if !ok {
+		return ""
+	}
+	return fmt.Sprintf("a background run you started is still running: %s (started %s ago); wait for it in this turn "+
+		"(e.g. an until-loop on its output), or stop it; a turn that ends now looks finished to obor and its result "+
+		"reaches nobody", background.Text(c), time.Duration(h.now-c.At)*time.Second)
 }
 
 // --- worker -----------------------------------------------------------------------------------------------------------
