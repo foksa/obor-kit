@@ -104,10 +104,8 @@ warns on the keys that no longer do anything.
   "commands": {                               // string = {"cmd": s, "timeout": 600}; null/absent = skipped
     "lane_setup": "bun install --frozen-lockfile",          // reserved: run in new lanes and the scratch worktree
     "check": { "cmd": "bun run check", "timeout": 900 },     // reserved: merge check
-    "baseline": { "cmd": "bun run baseline diff \"$OBOR_BASELINE\"", "dir": "../axis-alies-baseline/m8",
-                  "timeout": 600 },                          // reserved: runs only if dir exists; dir → $OBOR_BASELINE
-    "gate": { "cmd": "bun run gate", "timeout": 900, "paths": ["src/ai/**"] },  // reserved: runs if the merge touches paths, or OBOR_GATE=1
-    "check_fast": "bun run check:fast", "e2e": "bun run e2e"  // any other key: `obor run <key>`, named in prompts
+    "check_milestone": { "cmd": "bun run check:slow", "timeout": 3600 },  // reserved: the nightly's long tier
+    "lint": "bun run lint"                                   // any other key: `obor run <key>`, named in prompts
   },
   "lane_links": ["reference", "public/assets"],  // symlinked from the root into new lanes and the scratch
   "protected_files": ["src/engine/types.ts"],    // lead-only; globs
@@ -124,8 +122,8 @@ warns on the keys that no longer do anything.
              "fail_grep": "error|FAIL|Expected|Received" }
 }
 ```
-`.obor/local.json` (per machine, never committed): `lanes_dir` override, `limits` (`max_panes_per_tab`), baseline `dir`
-overrides, and any key above (an object merges key by key; a list or scalar replaces).
+`.obor/local.json` (per machine, never committed): `lanes_dir` override, `limits` (`max_panes_per_tab`),
+and any key above (an object merges key by key; a list or scalar replaces).
 
 **Models (T-765):** the config names models with their effort directly: a model ref is `<model>[:<effort>]`
 (`opus:high`), in `difficulty` levels, `roles.<role>` and a spec's `Model:` line. The built-in
@@ -328,7 +326,7 @@ Serve dispatches waiting tasks (`obor dispatch … --after`), gates, merges, run
 full check and the pause.
 - **merge** (Go `internal/checks`, run by obor serve's gate; `obor nightly` and the after-merge commands share its runner):
   scratch worktree detached at the target; `--no-ff --no-commit`; `lane_links` symlinked into the scratch;
-  `lane_setup`, `check`, `baseline` (dir exists), `gate` (paths/`OBOR_GATE=1`) each under its timeout. The outcome is one
+  `lane_setup`, `check` each under its timeout. The outcome is one
   line: `MERGED … | CONFLICT in <scratch>: … | RED … | HOLD … | FAIL …`. Counts (`merge.summary_regex`, each alternative
   summed over a chained command's parts) and seconds go in the MERGED line; a RED names the `merge.fail_grep` matches and
   the log. Commit messages carry the worker label and `merge.trailer`. Every command's full output is kept in
@@ -505,13 +503,11 @@ proves the skipped code can't depend on the changed code (e.g. an import-directi
   that has `checks` and is not `full`, whether one class or several (all files neutral → partial `neutral`, guard
   only) → run `guard` once, then the `checks` of the distinct matched classes in config order, a command two classes
   name once (each a `commands.<name>`, with `OBOR_CHANGED_FILES` = path to a file listing the changed paths);
-  baseline/gate skipped. Otherwise (any unmatched file, a matched `full` class or one without `checks`, no
+  Otherwise (any unmatched file, a matched `full` class or one without `checks`, no
   `merge.guard` configured, or `OBOR_FULL=1`) → the full path: `check`, then the checks of each matched class marked
-  `with_full` (T-1007), then `baseline` and `gate` when their `"at"` is `"merge"` (T-1007; the gate only when the merge
-  touches its paths or `OBOR_GATE=1`). The result says `partial:<class>` or `full:<reason>` (the file that decided
+  `with_full` (T-1007). The result says `partial:<class>` or `full:<reason>` (the file that decided
   it). A failing guard → RED (never falls back). These checks run in the task's lane (see "Where tests run").
-- `obor nightly`: `check` + `check_milestone` +
-  `baseline` + `gate` (forced) + `commands.e2e`, each skipped when unset, in its own nightly worktree
+- `obor nightly`: `check` + `check_milestone`, each skipped when unset, in its own nightly worktree
   (`<merge.scratch_dir>-nightly`, not the merge scratch) at the current branch head, under the merge window; it then
   backs the store up and runs `merge.nightly_commands` in order, after the gates (each a `commands.<name>` that is no
   gating command; T-817: non-gating, one report line — its last output line — never RED, a nonzero exit a `WARN` line,
@@ -529,8 +525,8 @@ waiting on every merge.
 - `commands.check` is the merge check: what every merge must pass, kept to a few minutes at a lane's CPU budget
   (an adopter without classes runs it in every lane; what is slower goes in `check_milestone`). A project with
   classes (obor-kit) runs it only on a full lane and at night; a class's `checks` (v2.5) are its per-merge tier. `commands.check_milestone` is
-  the long tier (property gates, soak; obor-kit: `make vulncheck`). `commands.gate` and `commands.baseline` get
-  `"at": "milestone"` by default; `"at": "merge"` runs them on every full merge (opt-in).
+  the long tier (property gates, soak; obor-kit: `make vulncheck`); a slow test that must run per merge is a class's
+  `checks` command. (`commands.baseline`, `gate` and `e2e` were deleted 11-09, T-1083.)
 - A task's lane test runs only per-merge commands, as "Change-based merge checks" lists them. `check_milestone` never
   runs there.
 - `obor nightly` runs the milestone tier, as "Change-based merge checks" lists it; **non-blocking** (reports, never

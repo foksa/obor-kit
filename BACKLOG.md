@@ -32,7 +32,6 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
 - (none; branching decided 11-07, docs/decisions.md)
 
 ## Later candidates
-- **`baseline`, `gate` (`paths`, `at`, `OBOR_GATE`) and `e2e` commands** (advisor 11-09, docs/research/adopter-test-flow-advice.md): neither project sets one; `check_milestone` and `merge.nightly_commands` do the same job. Deletion candidate (internal/checks/runner.go ~335-345, ~461-487; nightly.go ~83-97; init writes two as null): size it, then the owner decides.
 - **Un-defer `job_next`** (chatter census proposal 2, 11-07): skipped as a Claude-only launch flag (an integrator job's first call is ~42k on a near-empty context, ~10% of a job; a global tool-search switch would load every MCP tool). The agent-neutral variant (a fresh session's first prompt carries the job, herdr events as the delivery proof) went to the advisor: docs/research/job-in-first-prompt-advice.md.
 - **Log snapshot at upgrade** (parked 11-05, docs/research/log-snapshot.md): build when compat branches pass ~300
   prod lines or a record-shape change needs it.
@@ -224,6 +223,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   lane branch first.
 - (T-334) Two `sendback`s (the lead's lane form and the integrator's MCP verb): rename or drop the lane form.
 ## Concerns
+- (DD-v0.32, lead 11-09) The deep dive's role guard denies `git init` even in the scratchpad, while its role text says "probes in a scratch dir"; it used `go test -overlay` on tests/upgrade instead (a good probe). Decide: allow read-only roles git outside the project, or name the overlay route in the deep-dive role text. Also: give tests/upgrade's alpha project every config key the new minor removed (would have caught DD-v0.32 #1).
 - (lead 11-08) **axis-alies owes a v0.31 config line** (its serve was down at the release, `obor send` failed): when its serve is up, `obor send ~/Gamedev/axis-alies` the change — add `"command": "obor-kind-opencode"` to `kinds.opencode` (or `obor setup agents`), `obor config validate`, commit; without it the kit binary is used until v0.32.0 with a WARN. Bun project: lane_env/flake/retest don't apply; it sets none of the nine retired keys.
 - (lead 11-08) **Serve fires waiting work on the old binary before its self-restart after a merge:** `obor review --after T-1059,T-1060` fired at 19:35:16Z on 77df169's serve and hit the very bug T-1059 fixed; serve restarted on the new binary ~30 s later. A fix to serve's own code is live only after that restart, so an --after request or dispatch that tests the fix should fire after it (restart first, then fire). Small; decide when it bites again.
 - (lead 11-07) `internal/affected/affected.go:~60`: the directory walk never stops at `/` for an absolute path (infinite loop; only reachable with a malformed changed-files list).

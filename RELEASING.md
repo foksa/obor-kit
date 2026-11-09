@@ -18,6 +18,8 @@ of `main`, no separate worktree):
    user-facing Markdown, a summary line, then `- **Name:** what changed` bullets, then an optional `Upgrading:` line,
    no task ids. `scripts/publish` titles the release `obor <x.y.z>`, publishes this file (as tagged) and appends the
    Full Changelog link. Commit both on the loop's branch.
+   Before writing it, `git grep -n 'v0\.<y>' -- internal cmd docs/UPGRADE-*` lists every promise that falls due at
+   this release (a default dropped, a removed key's WARN ending, a schema change): keep or move each (DD-v0.32 #3, #5).
 2. `make release V=x.y.z` (`DRY=1` prints the steps and changes nothing). It refuses on a detached HEAD, on a dirty tree,
    when `V` is not above `VERSION`, when the guide has no `v<x.y.z>` heading, when `docs/releases/v<x.y.z>.md` is missing
    or empty, or when a merge after the last `RV-<n> closed` commit changes anything but docs (`docs/` or a `.md` file):
