@@ -1,24 +1,66 @@
 {
-  "version": 1,
-  "name": "obor-kit",
-  "prefix": "ob",
-  "lanes_dir": "../obor-kit-wt",
-  "paths": {
-    "reviews": "docs/reviews"
+  "version": 2,
+  "project": {
+    "name": "obor-kit",
+    "agent_prefix": "ob"
   },
-  "commands": {
-    "after_merge": {
-      "cmd": "make build",
-      "timeout": 300,
-      "when": [
-        "cmd/**",
-        "internal/**",
-        "kinds/**",
-        "go.mod",
-        "go.sum",
-        "Makefile"
+  "lanes": {
+    "count": 4,
+    "dir": "../obor-kit-wt",
+    "env": {
+      "GOMAXPROCS": "{cpus}",
+      "GOFLAGS": "-p={cpus} -trimpath"
+    }
+  },
+  "agents": {
+    "roles": {
+      "reviewer": "terra:xhigh",
+      "lead": "opus:high",
+      "deep_dive": "opus:high",
+      "integrator": "opus:medium",
+      "researcher": "sonnet:medium"
+    },
+    "difficulty": {
+      "medium": [
+        "deepseek",
+        "sonnet:medium",
+        "opus:medium"
+      ],
+      "simple": [
+        "deepseek",
+        "sonnet:medium",
+        "opus:medium"
       ]
     },
+    "kinds": {
+      "opencode": {
+        "job_note": "You run in opencode, not sandboxed: obor's opencode plugin, not hooks, enforces the role text's denials. Quote summary lines and failures only.",
+        "plugin": "obor-kind-opencode"
+      }
+    },
+    "confirmed": true
+  },
+  "rules": {
+    "may_push": [
+      "lead"
+    ],
+    "protected_files": [
+      "docs/design.md"
+    ],
+    "deny_commands": [
+      {
+        "match": "^(?:go(?: (?:-C [^ ]+|--?[^ ]+))* test|[^ ]*\\.test)(?: [^ ]+)* (?:--?(?:test\\.)?count[= ](?:[2-9]|[1-9][0-9]+)(?: |$)|--?(?:test\\.)?race(?: |$|=f(?: |$)|=fa(?: |$)|=fal(?: |$)|=fals(?: |$)|=false[^ ][^ ]*(?: |$)|=f[^a ][^ ]*(?: |$)|=fa[^l ][^ ]*(?: |$)|=fal[^s ][^ ]*(?: |$)|=fals[^e ][^ ]*(?: |$)|=0[^ ][^ ]*(?: |$)|=[^f0 ][^ ]*(?: |$)|=(?: |$)))",
+        "alone": true,
+        "message": "a load run of tests (`-count` > 1, `-race`) is denied — one plain `go test <pkgs>` run; the gate and nightly run the rest"
+      },
+      {
+        "match": "^(?:go(?: (?:-C [^ ]+|--?[^ ]+))* test|[^ ]*\\.test)(?: |$)",
+        "message": "two or more test commands at once (a background &, xargs -P, parallel) are a load run — one plain `go test <pkgs>` run; the gate and nightly run the rest"
+      }
+    ]
+  },
+  "merge": {
+    "target_branch": "staging",
     "compile": {
       "cmd": "make -s check-compile",
       "timeout": 600
@@ -28,6 +70,101 @@
       "timeout": 1200,
       "heavy": true
     },
+    "by_path": {
+      "guard": "guard",
+      "no_check": [
+        "docs/**",
+        "AGENTS.md",
+        "BACKLOG.md",
+        "CLAUDE.md",
+        "QUESTIONS.md",
+        ".gitignore"
+      ],
+      "rules": [
+        {
+          "name": "web",
+          "paths": [
+            "web/src/**",
+            "internal/web/dist/**"
+          ],
+          "run": [
+            "check_web"
+          ],
+          "also_on_full": true
+        },
+        {
+          "name": "go",
+          "paths": [
+            "cmd/**",
+            "internal/**",
+            "kinds/**",
+            "tools/**"
+          ],
+          "run": [
+            "check_affected"
+          ]
+        },
+        {
+          "name": "release",
+          "paths": [
+            "Makefile",
+            "scripts/**",
+            "install.sh",
+            "RELEASING.md",
+            ".claude-plugin/marketplace.json",
+            "tests/release/**"
+          ],
+          "run": [
+            "check_release"
+          ],
+          "also_on_full": true
+        },
+        {
+          "name": "readers",
+          "paths": [
+            "skills/**",
+            "templates/**",
+            "hooks/**",
+            "bin/go-commands",
+            ".claude-plugin/**"
+          ],
+          "run": [
+            "check_readers"
+          ]
+        }
+      ]
+    },
+    "retest": {
+      "cmd": "make -s check-retest TESTS='^({tests})$'",
+      "timeout": 600
+    },
+    "after": {
+      "cmd": "make build",
+      "timeout": 300,
+      "when_changed": [
+        "cmd/**",
+        "internal/**",
+        "kinds/**",
+        "go.mod",
+        "go.sum",
+        "Makefile"
+      ]
+    }
+  },
+  "nightly": {
+    "at": "02:00",
+    "slow_check": {
+      "cmd": "make -s vulncheck",
+      "timeout": 600
+    },
+    "also_run": [
+      "conformance",
+      "release_tests",
+      "check_budget",
+      "trim_go_cache"
+    ]
+  },
+  "commands": {
     "check_affected": {
       "cmd": "make -s check-affected",
       "timeout": 900,
@@ -37,10 +174,6 @@
       "cmd": "make -s check-readers",
       "timeout": 1200,
       "heavy": true
-    },
-    "retest": {
-      "cmd": "make -s check-retest TESTS='^({tests})$'",
-      "timeout": 600
     },
     "check_web": {
       "cmd": "make -s check-web",
@@ -64,10 +197,6 @@
       "cmd": "set -e; n=0; while IFS= read -r f; do case \"$f\" in *.sh|bin/obor|githooks/*) if [ -f \"$f\" ]; then /bin/bash -n \"$f\"; n=$((n + 1)); fi ;; esac; done < \"$OBOR_CHANGED_FILES\"; /bin/bash bin/obor config validate; jq -e . .claude-plugin/plugin.json .claude-plugin/marketplace.json hooks/hooks.json > /dev/null; echo \"guard OK: bash -n on $n changed script(s), obor config validate, plugin JSON\"",
       "timeout": 120
     },
-    "check_milestone": {
-      "cmd": "make -s vulncheck",
-      "timeout": 600
-    },
     "conformance": {
       "cmd": "make -s conformance TIER=static",
       "timeout": 300
@@ -77,139 +206,16 @@
       "timeout": 600
     }
   },
-  "difficulty": {
-    "medium": [
-      "deepseek",
-      "sonnet:medium",
-      "opus:medium"
-    ],
-    "simple": [
-      "deepseek",
-      "sonnet:medium",
-      "opus:medium"
-    ]
-  },
-  "protected_files": [
-    "docs/design.md"
-  ],
-  "lanes": 4,
-  "roles": {
-    "reviewer": "terra:xhigh",
-    "lead": "opus:high",
-    "deep_dive": "opus:high",
-    "integrator": "opus:medium",
-    "researcher": "sonnet:medium"
-  },
-  "branches": {
-    "main": "staging"
-  },
-  "merge": {
-    "guard": "guard",
-    "nightly_at": "02:00",
-    "nightly_commands": [
-      "conformance",
-      "release_tests",
-      "check_budget",
-      "trim_go_cache"
-    ],
-    "classes": [
-      {
-        "name": "web",
-        "paths": [
-          "web/src/**",
-          "internal/web/dist/**"
-        ],
-        "checks": [
-          "check_web"
-        ],
-        "with_full": true
-      },
-      {
-        "name": "go",
-        "paths": [
-          "cmd/**",
-          "internal/**",
-          "kinds/**",
-          "tools/**"
-        ],
-        "checks": [
-          "check_affected"
-        ]
-      },
-      {
-        "name": "release",
-        "paths": [
-          "Makefile",
-          "scripts/**",
-          "install.sh",
-          "RELEASING.md",
-          ".claude-plugin/marketplace.json",
-          "tests/release/**"
-        ],
-        "checks": [
-          "check_release"
-        ],
-        "with_full": true
-      },
-      {
-        "name": "readers",
-        "paths": [
-          "skills/**",
-          "templates/**",
-          "hooks/**",
-          "bin/go-commands",
-          ".claude-plugin/**"
-        ],
-        "checks": [
-          "check_readers"
-        ]
-      }
-    ],
-    "neutral": [
-      "docs/**",
-      "AGENTS.md",
-      "BACKLOG.md",
-      "CLAUDE.md",
-      "QUESTIONS.md",
-      ".gitignore"
-    ],
-    "fail_grep": "^--- FAIL|^FAIL\\s",
-    "flake_regex": [
-      "^--- FAIL: (?P<test>\\S+)",
-      "^FAIL\\s+(?P<package>[^\\s./][^\\s]*[./][^\\s]*)"
-    ]
-  },
-  "guards": {
-    "allow_push": [
-      "lead"
-    ],
-    "deny_commands": [
-      {
-        "match": "^(?:go(?: (?:-C [^ ]+|--?[^ ]+))* test|[^ ]*\\.test)(?: [^ ]+)* (?:--?(?:test\\.)?count[= ](?:[2-9]|[1-9][0-9]+)(?: |$)|--?(?:test\\.)?race(?: |$|=f(?: |$)|=fa(?: |$)|=fal(?: |$)|=fals(?: |$)|=false[^ ][^ ]*(?: |$)|=f[^a ][^ ]*(?: |$)|=fa[^l ][^ ]*(?: |$)|=fal[^s ][^ ]*(?: |$)|=fals[^e ][^ ]*(?: |$)|=0[^ ][^ ]*(?: |$)|=[^f0 ][^ ]*(?: |$)|=(?: |$)))",
-        "alone": true,
-        "message": "a load run of tests (`-count` > 1, `-race`) is denied — one plain `go test <pkgs>` run; the gate and nightly run the rest"
-      },
-      {
-        "match": "^(?:go(?: (?:-C [^ ]+|--?[^ ]+))* test|[^ ]*\\.test)(?: |$)",
-        "message": "two or more test commands at once (a background &, xargs -P, parallel) are a load run — one plain `go test <pkgs>` run; the gate and nightly run the rest"
-      }
-    ]
-  },
-  "slots": {
-    "max": 4,
-    "cpus": 4,
-    "lane_env": {
-      "GOMAXPROCS": "{cpus}",
-      "GOFLAGS": "-p={cpus} -trimpath"
+  "checks": {
+    "heavy_at_once": 4,
+    "cpus_per_check": 4,
+    "output": {
+      "failure": "^--- FAIL|^FAIL\\s",
+      "failed_test": "^--- FAIL: (?P<test>\\S+)",
+      "failed_package": "^FAIL\\s+(?P<package>[^\\s./][^\\s]*[./][^\\s]*)"
     }
   },
-  "setup": {
-    "confirmed": true
-  },
-  "kinds": {
-    "opencode": {
-      "prompt_extra": "You run in opencode, not sandboxed: obor's opencode plugin, not hooks, enforces the role text's denials. Quote summary lines and failures only.",
-      "command": "obor-kind-opencode"
-    }
+  "reviews": {
+    "dir": "docs/reviews"
   }
 }
