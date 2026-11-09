@@ -42,11 +42,8 @@ func TestReviewRequest(t *testing.T) {
 				// T-716: real findings only; constructed ones a one-line list without a fix.
 				!strings.Contains(l.Prompt, " Report only findings a real config or workflow hits; ") ||
 				!strings.Contains(l.Prompt, `goes in a short "Not reported (constructed)" list instead: one line each, no fix proposal.`) ||
-				// T-869: design.md "Change rules" rule 6.
-				!strings.Contains(l.Prompt, " What did this make redundant? Name it or confirm it is gone. On rule-tier steps a"+
-					" crash or interleaving finding counts only when a kernel guarantee breaks. ") ||
-				// T-884: rule 6's second question, about copied data.
-				!strings.Contains(l.Prompt, " "+copiedLine+" ") ||
+				// T-869/T-1118: design.md "Change rules" rule 6; only the generic half stays in serve's brief.
+				!strings.Contains(l.Prompt, " "+redundantLine+" ") ||
 				!strings.HasSuffix(l.Prompt, "\nLead's note: skip docs") ||
 				!strings.Contains(l.Prompt, " Previous review: RV-4 (its close commit: RV-4 closed · 1111111 · approved · T-9; its accepted"+
 					" findings are the BACKLOG lines that name RV-4) — don't repeat them. ") || strings.Contains(l.Prompt, ".md, or the file") {
@@ -66,6 +63,8 @@ func TestReviewRequest(t *testing.T) {
 			if !strings.Contains(l.Prompt, "Result: approved | changes requested · <sha reviewed> · <scope>") {
 				t.Errorf("the brief does not ask for the Result line: %q", l.Prompt)
 			}
+			// T-1118: obor-kit's own three sentences left serve's brief for its docs/agents/reviewer.md.
+			assertNoKitVocabulary(t, l.Prompt)
 
 			if lines := r.leadLines(); len(lines) != 0 {
 				t.Errorf("lead lines %q, want none on a start (T-650)", lines)
@@ -392,6 +391,21 @@ func TestReviewClaimIsInFlight(t *testing.T) {
 	}
 }
 
+// assertNoKitVocabulary fails when a brief carries obor-kit's own review vocabulary, which lives in its
+// docs/agents/reviewer.md, not in the brief every project's reviewer gets (T-1118).
+func assertNoKitVocabulary(t *testing.T, text string) {
+	t.Helper()
+	for _, sentence := range []string{
+		"On rule-tier steps a crash or interleaving finding counts only when a kernel guarantee breaks.",
+		"Does it add a field or type that copies data another type already holds? Name the owner type.",
+		"Does a client decide something from a state string that serve knows? Then serve ships the predicate.",
+	} {
+		if strings.Contains(text, sentence) {
+			t.Errorf("the brief carries obor-kit's %q", sentence)
+		}
+	}
+}
+
 // T-822: a verify of a task merged since the previous review's start (here: during the previous verify, so not in
 // RV-5's start scope) is allowed: the verify's range is the next review's scope, read from the fold (T-1023).
 func TestReviewVerifyOutsideScope(t *testing.T) {
@@ -418,9 +432,9 @@ func TestReviewVerifyOutsideScope(t *testing.T) {
 		t.Fatalf("verify of T-c, merged since the previous review started: %v", err)
 	}
 	if !strings.Contains(text, "fixed in T-c (ccccccc)") || !strings.Contains(text, " every finding ") ||
-		!strings.Contains(text, " "+redundantLine+" ") || // T-869: design.md "Change rules" rule 6
-		!strings.Contains(text, " "+copiedLine+" ") { // T-884: rule 6's second question, about copied data
+		!strings.Contains(text, " "+redundantLine+" ") { // T-869: design.md "Change rules" rule 6
 
 		t.Errorf("the brief: %q", text)
 	}
+	assertNoKitVocabulary(t, text) // T-1118: the kit's three sentences are not serve's
 }

@@ -10,3 +10,7 @@ Role text: `templates/agents/reviewer.md` in the obor kit (the session start nam
   jq is missing; idiomatic Go in the ports.
 - Tiers (T-350): probes and the tests a finding names (a verify re-runs the fix's tests only); no suite run, no
   `-count` loop.
+- `docs/design.md` "Change rules" rule 6, the part that is obor-kit's own (T-1118: serve's brief keeps only "What did
+  this make redundant?"): On rule-tier steps a crash or interleaving finding counts only when a kernel guarantee
+  breaks. Does it add a field or type that copies data another type already holds? Name the owner type. Does a client
+  decide something from a state string that serve knows? Then serve ships the predicate.

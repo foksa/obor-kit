@@ -47,8 +47,7 @@ Previous review: <RV-prev> (its close commit: <subject>; its accepted findings a
 likelihood (the real config or workflow that hits it), file:line, probe/evidence, suggested fix and its cost in
 added code, and an Extent line: every other entry point / branch that shares the root cause, each marked checked
 or unchecked. A finding only a constructed case hits goes in a short "Not reported (constructed)" list instead:
-one line each, no fix proposal. What did this make redundant? Name it or confirm it is gone. On rule-tier steps a
-crash or interleaving finding counts only when a kernel guarantee breaks. Does it add a field or type that copies data another type already holds? Name the owner type. Does a client decide something from a state string that serve knows? Then serve ships the predicate. Your worktree is at <sha> (check out any
+one line each, no fix proposal. What did this make redundant? Name it or confirm it is gone. Your worktree is at <sha> (check out any
 commit there); write only <reviews>/<RV-xx>.md in the main checkout <root>. The file's first line is
 `Result: approved | changes requested · <sha reviewed> · <scope>`. Do not commit.
 Lead's note: <your --note>
@@ -93,7 +92,7 @@ twice, or one pass late. The brief (each task's `Fixes:` free text as one line o
 ```
 The <RV-xx> findings were fixed in <T-x (<sha>), …>; <branch> is at <sha> (your worktree too). Re-run your probes for
 every finding and report fixed / incomplete / regressed per finding. What did this make redundant? Name it or confirm
-it is gone. On rule-tier steps a crash or interleaving finding counts only when a kernel guarantee breaks. Does it add a field or type that copies data another type already holds? Name the owner type. Does a client decide something from a state string that serve knows? Then serve ships the predicate. Write
+it is gone. Write
 <reviews>/<RV-xx>-verify.md in the main checkout <root>. The file's first line is
 `Result: approved | changes requested · <sha reviewed> · <scope>`. Do not commit.
 Lead's note: <T-x>: <its Fixes: text>
