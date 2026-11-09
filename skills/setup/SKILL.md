@@ -50,4 +50,4 @@ Stop hook, so nothing nudges a missing `task_done`) from each start's generated 
 opencode registration on the machine, remove it by hand: the `mcp.servers.obor` entry of
 `~/.config/opencode/opencode.json` and the `plugins/obor.js` link there (`$XDG_CONFIG_HOME` respected); restart
 opencode agents after it.
-Optional: offer a bug-triage agent (`roles.triage` = a model ref, e.g. `opus:high`, then `obor setup role triage --new-tab triage`): the person reports bugs to it, it keeps `docs/BUGS.md` and hands fixes to the project's lead (`agents/triage.md`).
+Optional: offer a bug-triage agent (`roles.triage` = a model ref like `<model>[:<effort>]`, then `obor setup role triage --new-tab triage`): the person reports bugs to it, it keeps `docs/BUGS.md` and hands fixes to the project's lead (`agents/triage.md`).

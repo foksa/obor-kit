@@ -133,7 +133,7 @@ func (s *Setup) rolePane(ctx context.Context, name string, w where, startNow boo
 		return errUsage
 	}
 	if rc.Type == "" {
-		return project.Failf("roles.%s is not set (a model ref, e.g. \"opus:high\")", role.Name)
+		return project.Failf("roles.%s is not set (a model ref, e.g. <model>[:<effort>])", role.Name)
 	}
 	a := agent{name: s.cfg.AgentName(role.Name, ""), typ: rc.Type, effort: rc.Effort, cwd: s.cfg.RoleDir(role), role: role,
 		noStart: !startNow}
