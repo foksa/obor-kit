@@ -1,5 +1,9 @@
 {
   "enabledPlugins": {
     "obor@obor-kit-dev": true
+  },
+  "attribution": {
+    "commit": "",
+    "pr": ""
   }
 }
