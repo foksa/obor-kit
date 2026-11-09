@@ -522,6 +522,72 @@ func TestShimFetchesKindBinaries(t *testing.T) {
 	}
 }
 
+// shimVersionFiles writes version v's release and OpenCode kind binaries for this platform into dir, with mtime when
+// (a fetched file's mtime is its fetch time, which ranks versions for pruning).
+func shimVersionFiles(t *testing.T, dir, v string, when time.Time) {
+	t.Helper()
+	for _, name := range []string{shimAsset(v), "obor-kind-opencode-" + v + "-" + runtime.GOOS + "-" + runtime.GOARCH} {
+		path := filepath.Join(dir, name)
+		writeExec(t, path, "#!/bin/sh\necho "+v+"\n")
+		if err := os.Chtimes(path, when, when); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// T-1093 (stored-data audit §5 row E): a successful fetch removes the release and kind binaries of every version but
+// the kit's and the one fetched before it (the previous kit, kept for a rollback); a file that is not one of those
+// stays.
+func TestShimFetchPrunesOldBinaries(t *testing.T) {
+	t.Parallel()
+	f := newShimFixture(t)
+	os.Remove(filepath.Join(f.Root, "dist", "obor"))
+	f.Write("VERSION", "0.9.1\n")
+	asset := shimAsset("0.9.1")
+	download := filepath.Join(f.Base, "download")
+	fakeGo(t, filepath.Join(download, asset))
+	sum := sha256.Sum256([]byte(readFile(t, filepath.Join(download, asset))))
+	f.Write("bin/release-url", "file://"+download+"/obor-%VERSION%-%OS%-%ARCH%\n")
+	f.Write("bin/checksums.txt", fmt.Sprintf("%s  %s\n", hex.EncodeToString(sum[:]), asset))
+	bin := filepath.Join(f.home, ".obor", "bin")
+	// Three older versions, the last fetched (and so the previous kit) most recently: 0.8.1 stays.
+	now := time.Now()
+	for i, v := range []string{"0.6.0", "0.7.0", "0.8.1"} {
+		shimVersionFiles(t, bin, v, now.Add(time.Duration(i-3)*time.Hour))
+	}
+	writeFile(t, filepath.Join(bin, "notes.txt"), "not a binary\n")
+	if f.Exists(filepath.Join(bin, asset)) {
+		t.Fatal("precondition: cold cache")
+	}
+	rc, stdout, stderr := f.shim(t, f.Root, noSelfHost, filepath.Join(f.Root, "bin", "obor"), "version")
+	if want := "argv: <version> source=kit default root=" + f.Root + "\n"; rc != 0 || stdout != want {
+		t.Fatalf("the fetch runs the release: exit %d, %q (stderr %q); want %q", rc, stdout, stderr, want)
+	}
+	want := []string{
+		asset,
+		shimAsset("0.8.1"),
+		"obor-kind-opencode-0.8.1-" + runtime.GOOS + "-" + runtime.GOARCH,
+		"notes.txt",
+	}
+	entries, err := os.ReadDir(bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make([]string, 0, len(entries))
+	for _, e := range entries {
+		got = append(got, e.Name())
+	}
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("~/.obor/bin after the fetch = %q; want the kit's asset, the previous version's release and kind binaries, and the file that is not one: %q",
+			got, want)
+	}
+	if body := readFile(t, filepath.Join(bin, "notes.txt")); body != "not a binary\n" {
+		t.Errorf("a file that is not an obor binary was changed: %q", body)
+	}
+}
+
 // bash tests/bin.test.sh case_missing_hook_never_fetches_but_command_fails, case_missing_curl_fails_with_install_hint
 func TestShimNoBinary(t *testing.T) {
 	t.Parallel()
