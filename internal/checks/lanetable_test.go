@@ -20,8 +20,8 @@ func TestMissingLane(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Data.Lanes.Count() != 1 {
-		t.Fatalf("precondition: lanes %d, want 1", c.Data.Lanes.Count())
+	if c.LaneCount() != 1 {
+		t.Fatalf("precondition: lanes %d, want 1", c.LaneCount())
 	}
 	s := NewLaneTable(context.Background(), c).States()
 	if len(s) != 1 || s[0].Name != "L-01" || s[0].State != "missing" || s[0].Branch != "" || s[0].Type != "" {

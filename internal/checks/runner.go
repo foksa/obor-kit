@@ -344,7 +344,7 @@ func (r *runner) changed(task, rev string) *halt {
 	if err != nil {
 		return &halt{err: fmt.Errorf("cannot list the changed files into %s", path)}
 	}
-	r.class = Classify(r.Cfg.Merge(), files, r.Env.Get("OBOR_FULL") == "1")
+	r.class = Classify(r.Cfg.ByPath(), files, r.Env.Get("OBOR_FULL") == "1")
 	r.mode = r.class.Mode()
 	r.env = append(r.env, "OBOR_CHANGED_FILES="+path)
 	return nil
@@ -385,9 +385,9 @@ func (r *runner) runChecks() *halt {
 		var checks []string
 		if !(len(r.class.Names) == 1 && r.class.Names[0] == "neutral") { // all files neutral: the guard only
 			for _, name := range r.class.Names {
-				cs, ok := classChecks(r.Cfg.Merge(), name)
+				cs, ok := classChecks(r.Cfg.ByPath(), name)
 				if !ok {
-					return &halt{fail: fmt.Sprintf("class %s has no unique checks entry in merge.classes (obor config validate) (%s)",
+					return &halt{fail: fmt.Sprintf("class %s has no unique run entry in merge.by_path.rules (obor config validate) (%s)",
 						name, r.mode)}
 				}
 				checks = append(checks, cs...)
@@ -423,7 +423,7 @@ func (r *runner) runChecks() *halt {
 	// full lane with release or web files still covers them).
 	seen := map[string]bool{"check": true}
 	for _, name := range r.class.Names {
-		for _, check := range withFullChecks(r.Cfg.Merge(), name) {
+		for _, check := range withFullChecks(r.Cfg.ByPath(), name) {
 			if seen[check] {
 				continue
 			}

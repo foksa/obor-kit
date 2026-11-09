@@ -23,14 +23,14 @@ func TestConfigFileCommitsOnlyTheConfig(t *testing.T) {
 	f := configFile{root: p.Root, main: "main"}
 	ctx := context.Background()
 	doc, refused, err := f.Read(ctx)
-	if err != nil || refused != "" || !strings.Contains(string(doc), `"prefix": "pj"`) {
+	if err != nil || refused != "" || !strings.Contains(string(doc), `"agent_prefix": "pj"`) {
 		t.Fatalf("Read of a clean config: %q, %v (%d bytes)", refused, err, len(doc))
 	}
 
 	p.Write("other.txt", "staged\n")
 	p.Git(p.Root, "add", "other.txt")
-	next := strings.Replace(string(doc), `"prefix": "pj"`, `"prefix": "pj",
-  "handoff_tokens": 400000`, 1)
+	next := strings.Replace(string(doc), `"agent_prefix": "pj"`, `"agent_prefix": "pj",
+    "terminal": "herdr"`, 1)
 	sha, err := f.Commit(ctx, []byte(next), "config: x → y (owner, web)")
 	if err != nil {
 		t.Fatalf("Commit: %v", err)

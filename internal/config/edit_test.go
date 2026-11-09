@@ -83,8 +83,8 @@ func TestEditSetsEachField(t *testing.T) {
 			rc, _ := n.Role("deep_dive")
 			return rc.Type == "kimi" && rc.Effort == "high"
 		}},
-		{"merge.nightly_at", `"03:00"`, "", `"03:00"`, func(n *Config) bool { return n.Data.Merge.NightlyAt == "03:00" }},
-		{"merge.nightly_at", `null`, "", "", func(n *Config) bool { return n.Data.Merge.NightlyAt == "" }},
+		{"merge.nightly_at", `"03:00"`, "", `"03:00"`, func(n *Config) bool { return n.Data.Nightly.At == "03:00" }},
+		{"merge.nightly_at", `null`, "", "", func(n *Config) bool { return n.Data.Nightly.At == "" }},
 	} {
 		cfg := editProject(t)
 		ch, err := cfg.Edit([]byte(editDoc), c.key, json.RawMessage(c.val))
@@ -129,7 +129,7 @@ func TestEditNightlyAtOnOff(t *testing.T) {
 		t.Fatalf("on: %v\n%s", err, on.Doc)
 	}
 	onCfg, err := LoadWith(cfg.Root, on.Doc)
-	if err != nil || onCfg.Data.Merge.NightlyAt != "02:30" {
+	if err != nil || onCfg.Data.Nightly.At != "02:30" {
 		t.Fatalf("precondition: on loads with 02:30: %v", err)
 	}
 	off, err := onCfg.Edit(on.Doc, "merge.nightly_at", json.RawMessage(`null`))
@@ -137,7 +137,7 @@ func TestEditNightlyAtOnOff(t *testing.T) {
 		t.Fatalf("off: old %q new %q, %v; want \"02:30\" → unset, the key gone:\n%s", off.Old, off.New, err, off.Doc)
 	}
 	offCfg, err := LoadWith(cfg.Root, off.Doc)
-	if err != nil || offCfg.Data.Merge.NightlyAt != "" {
+	if err != nil || offCfg.Data.Nightly.At != "" {
 		t.Fatalf("off does not load unset: %v\n%s", err, off.Doc)
 	}
 	again, err := offCfg.Edit(off.Doc, "merge.nightly_at", json.RawMessage(`null`))
@@ -211,14 +211,16 @@ func TestEditRefuses(t *testing.T) {
 	}
 }
 
-// T-754: a key .obor/local.json sets is refused before anything is written: the committed value would not count.
+// T-754: a key .obor/local.json sets is refused before anything is written: the committed value would not count. The
+// refusal names local.json's member in shape 2 (a shape-1 local.json is read reshaped, and serve rewrites it).
 func TestEditRefusesLocalOverride(t *testing.T) {
 	for _, c := range []struct{ name, local, key, val, at string }{
-		{"a kind's args", `{"kinds":{"codex":{"args":["-c","x=1"]}}}`, "kinds.codex.args", `["y"]`, "kinds.codex.args"},
-		{"a kind local.json replaces", `{"kinds":{"codex":null}}`, "kinds.codex.args", `["y"]`, "kinds.codex"},
-		{"a level", `{"difficulty":{"hard":["sonnet"]}}`, "difficulty.hard", `["opus:high"]`, "difficulty.hard"},
-		{"a role", `{"roles":{"lead":"sonnet"}}`, "roles.lead", `"opus:high"`, "roles.lead"},
-		{"the lanes", `{"lanes":3}`, "lanes", `4`, "lanes"},
+		{"a kind's args", `{"kinds":{"codex":{"args":["-c","x=1"]}}}`, "kinds.codex.args", `["y"]`, "agents.kinds.codex.args"},
+		{"a kind local.json replaces", `{"kinds":{"codex":null}}`, "kinds.codex.args", `["y"]`, "agents.kinds.codex"},
+		{"a level", `{"difficulty":{"hard":["sonnet"]}}`, "difficulty.hard", `["opus:high"]`, "agents.difficulty.hard"},
+		{"a role", `{"roles":{"lead":"sonnet"}}`, "roles.lead", `"opus:high"`, "agents.roles.lead"},
+		{"the lanes", `{"lanes":3}`, "lanes", `4`, "lanes.count"},
+		{"a lane list", `{"lanes":[{"name":"L-01"}]}`, "lanes", `4`, "lanes.list"},
 	} {
 		cfg, doc := localProject(t, c.local)
 		ch, err := cfg.Edit(doc, c.key, json.RawMessage(c.val))
@@ -244,7 +246,9 @@ func TestEditIgnoresLocalElsewhere(t *testing.T) {
 		{"another level", `{"difficulty":{"simple":["sonnet"]}}`, "difficulty.hard", `["opus"]`, "simple",
 			func(_ []byte, n *Config) bool { return slices.Equal(n.DifficultyList("hard"), []string{"opus"}) }},
 		{"another kind", `{"kinds":{"claude":{"args":["--strict-mcp-config"]}}}`, "kinds.codex.args", `["--y"]`, "strict",
-			func(_ []byte, n *Config) bool { return slices.Equal(n.Data.Kinds.M["codex"].Args, []string{"--y"}) }},
+			func(_ []byte, n *Config) bool {
+				return slices.Equal(n.Data.Agents.Kinds.M["codex"].Args, []string{"--y"})
+			}},
 	} {
 		cfg, doc := localProject(t, c.local)
 		ch, err := cfg.Edit(doc, c.key, json.RawMessage(c.val))

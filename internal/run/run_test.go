@@ -172,8 +172,8 @@ func TestRunHeavyHoldsSlot(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(f.slots, "slot-0")); err == nil {
 		t.Error("slot not released")
 	}
-	f.cfg.Data.Slots.CPUs = new(int)
-	*f.cfg.Data.Slots.CPUs = 3
+	f.cfg.Data.Checks.CPUsPerCheck = new(int)
+	*f.cfg.Data.Checks.CPUsPerCheck = 3
 	if r := f.run(t, f.lane, env, nil, "heavy"); r.rc != 0 ||
 		!strings.Contains(f.p.Read(filepath.Join(f.lane, "seen.txt")), "cpus=3\n") {
 		t.Errorf("heavy, slots.cpus 3: %+v %q", r, f.p.Read(filepath.Join(f.lane, "seen.txt")))

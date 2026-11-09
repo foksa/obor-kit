@@ -35,7 +35,7 @@ func TestOborInitLinksThePluginIntoTheLanes(t *testing.T) {
 			t.Errorf("lane %s's worktree does not see the enabled plugin", lane)
 		}
 	}
-	if got := cfg.Data.LaneLinks; len(got) != 1 || got[0] != ".claude/settings.json" {
+	if got := cfg.Data.Lanes.Links; len(got) != 1 || got[0] != ".claude/settings.json" {
 		t.Errorf("lane_links = %q, want [.claude/settings.json]", got)
 	}
 	if !strings.Contains(x.Read(".gitignore"), "\n.claude/settings.json\n") {
@@ -61,8 +61,8 @@ func TestOborInitLeavesATrackedSettingsFileToGit(t *testing.T) {
 	x.Git(x.Root, "commit", "-q", "-m", "settings")
 	out := x.init(t)
 	cfg, _ := config.Load(x.Root)
-	if len(cfg.Data.LaneLinks) != 0 || stateOf(out, "plugin-links") != "already" {
-		t.Errorf("lane_links %q, plugin-links %q; want none, already", cfg.Data.LaneLinks, summary(out, "plugin-links"))
+	if len(cfg.Data.Lanes.Links) != 0 || stateOf(out, "plugin-links") != "already" {
+		t.Errorf("lane_links %q, plugin-links %q; want none, already", cfg.Data.Lanes.Links, summary(out, "plugin-links"))
 	}
 	if !config.PluginEnabledIn(filepath.Join(cfg.LanesDir(), "L-01")) {
 		t.Error("L-01 does not get the tracked file from git")

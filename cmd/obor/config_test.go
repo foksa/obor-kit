@@ -26,16 +26,18 @@ func TestConfigPrintAndGet(t *testing.T) {
 	}
 	lane := p.PlainLane("L-01", "task/T-01")
 	p.Config()
-	p.Write(".obor/local.json", `{"merge": {"nightly_at": "02:30"}}`)
+	p.Write(".obor/local.json", `{"nightly": {"at": "02:30"}}`)
 
 	rc, stdout, _ := run(t, p.Root, nil, "config")
 	var eff struct {
-		Prefix string `json:"prefix"`
-		Merge  struct {
-			NightlyAt string `json:"nightly_at"`
-		} `json:"merge"`
+		Project struct {
+			Prefix string `json:"agent_prefix"`
+		} `json:"project"`
+		Nightly struct {
+			At string `json:"at"`
+		} `json:"nightly"`
 	}
-	if err := json.Unmarshal([]byte(stdout), &eff); rc != 0 || err != nil || eff.Prefix != "pj" || eff.Merge.NightlyAt != "02:30" {
+	if err := json.Unmarshal([]byte(stdout), &eff); rc != 0 || err != nil || eff.Project.Prefix != "pj" || eff.Nightly.At != "02:30" {
 		t.Errorf("config: exit %d, %v\n%s", rc, err, stdout)
 	}
 	if !strings.Contains(stdout, `"task_id_pattern": "T-[0-9]+[a-z]?"`) {
@@ -47,17 +49,17 @@ func TestConfigPrintAndGet(t *testing.T) {
 		rc   int
 		out  string
 	}{
-		{p.Root, []string{"config", "get", ".prefix"}, 0, "pj\n"},
-		{lane, []string{"config", "get", ".merge.nightly_at"}, 0, "02:30\n"},
+		{p.Root, []string{"config", "get", ".project.agent_prefix"}, 0, "pj\n"},
+		{lane, []string{"config", "get", ".nightly.at"}, 0, "02:30\n"},
 		{p.Root, []string{"config", "get", ".notify"}, 1, ""}, // removed (T-830): an unknown key now
 		{p.Root, []string{"config", "get", ".nosuch"}, 1, ""},
 		{p.Root, []string{"config", "get", ".mcp.jobs"}, 1, ""}, // removed (T-830): an unknown key now
 		{p.Root, []string{"config", "get", ".mcp.nope"}, 1, ""},
-		{p.Root, []string{"config", "get", ".lanes"}, 0, "1\n"},
+		{p.Root, []string{"config", "get", ".lanes.count"}, 0, "1\n"},
 		{p.Root, []string{"config", "get"}, 2, ""},
 		{p.Root, []string{"config", "bogus"}, 2, ""},
 		{p.Root, []string{"config", "validate", "--roles"}, 2, ""},
-		{p.Root, []string{"config", "get", ".prefix.x"}, 1, ""},
+		{p.Root, []string{"config", "get", ".project.agent_prefix.x"}, 1, ""},
 	} {
 		if rc, stdout, stderr := run(t, c.dir, nil, c.args...); rc != c.rc || stdout != c.out {
 			t.Errorf("obor %q: exit %d, %q (%s); want %d, %q", c.args, rc, stdout, stderr, c.rc, c.out)

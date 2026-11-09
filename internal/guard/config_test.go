@@ -15,7 +15,7 @@ var brokenConfigs = []struct {
 }{
 	{"a syntax error in config.json", ".obor/config.json", `{"version": 1,`},
 	{"a syntax error in local.json", ".obor/local.json", `{"lanes_dir": `},
-	{"a type error", ".obor/local.json", `{"merge": {"nightly_at": 5}}`},
+	{"a type error", ".obor/local.json", `{"nightly": {"at": 5}}`}, // shape 2, as the fixture's config.json (T-1124)
 }
 
 // unknownKey adds keys this binary does not know (keep_warm is one T-501 removed) to the fixture's config.

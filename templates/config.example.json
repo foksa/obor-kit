@@ -1,36 +1,44 @@
 {
-  "version": 1,
-  "name": "myproject",
-  "prefix": "mp",
-  "lanes_dir": "../myproject-wt",
-  "branches": { "main": "main", "task": "task/{id}" },
-  "task_id_pattern": "T-[0-9]+[a-z]?",
-  "paths": {
-    "reviews": "docs/reviews"
+  "version": 2,
+  "project": {
+    "name": "myproject",
+    "agent_prefix": "mp",
+    "task_id_pattern": "T-[0-9]+[a-z]?"
+  },
+  "lanes": {
+    "count": 3,
+    "dir": "../myproject-wt",
+    "task_branch": "task/{id}",
+    "links": ["fixtures"],
+    "setup": "bun install --frozen-lockfile",
+    "ready": "test -d node_modules"
+  },
+  "agents": {
+    "roles": { "lead": "opus:high", "integrator": "opus", "reviewer": "sol:high" },
+    "kinds": { "opencode": { "plugin": "obor-kind-opencode" } },
+    "confirmed": false
+  },
+  "rules": {
+    "protected_files": ["src/types.ts"]
+  },
+  "merge": {
+    "target_branch": "main",
+    "check": { "cmd": "bun run check", "timeout": 900 }
+  },
+  "nightly": {
+    "at": "02:00",
+    "slow_check": "bun run check:slow"
   },
   "commands": {
-    "lane_setup": "bun install --frozen-lockfile",
-    "lane_ready": "test -d node_modules",
-    "check": { "cmd": "bun run check", "timeout": 900 },
-    "check_milestone": "bun run check:slow",
     "lint": "bun run lint"
   },
-  "lane_links": ["fixtures"],
-  "protected_files": ["src/types.ts"],
-  "lanes": 3,
-  "difficulty": { "hard": ["opus:high"], "medium": ["sonnet:medium", "deepseek"], "simple": ["deepseek", "haiku"] },
-  "roles": { "lead": "opus:high", "integrator": "opus", "reviewer": "sol:high" },
-  "kinds": {
-    "opencode": {
-      "command": "obor-kind-opencode",
-      "prompt_extra": "You run in opencode, not sandboxed; obor's opencode plugin guards your tools (git writes and files outside your lane are denied): no git commands, no installs, stay in this directory. Checks: the focused tests of the files you touched (never the whole suite). Quote summary lines and failures only."
-    },
-    "codex": { "prompt_extra": "Network is unavailable; deps are installed." }
+  "checks": {
+    "output": {
+      "summary": "[0-9]+ pass|[0-9]+ fail",
+      "failure": "error|FAIL|Expected|Received"
+    }
   },
-  "setup": { "confirmed": false },
-  "merge": {
-    "nightly_at": "02:00",
-    "summary_regex": "[0-9]+ pass|[0-9]+ fail",
-    "fail_grep": "error|FAIL|Expected|Received"
+  "reviews": {
+    "dir": "docs/reviews"
   }
 }

@@ -806,7 +806,7 @@ func integratorJobs(t *testing.T, kitRole string) (jobs map[string]string, kitPa
 	}
 	kit := t.TempDir()
 	kitPath = filepath.Join(kit, "templates", "agents", "integrator.md")
-	docPath = filepath.Join(p.root, cfg.Data.Paths["agents"], "integrator.md")
+	docPath = filepath.Join(p.root, cfg.AgentsDir(), "integrator.md")
 	writeRoleFile(t, kitPath, kitRole)
 	writeRoleFile(t, docPath, "# Integrator here\nproject integrator rules\n")
 	mt := *p.folded.loop["T-1"]

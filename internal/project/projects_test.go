@@ -91,16 +91,16 @@ func TestProjectsKeepsWhatItsEntriesName(t *testing.T) {
 	dir := t.TempDir()
 	old, broken, moved, renamed, gone, kit := filepath.Join(dir, "axis-alies"), filepath.Join(dir, "obor-kit"),
 		filepath.Join(dir, "moved"), filepath.Join(dir, "renamed"), filepath.Join(dir, "gone"), filepath.Join(dir, "kit")
-	// The shape before T-765: this binary refuses it (lanes is a count here, an object of typed lanes there), and its
-	// name still counts.
-	configBytesAt(t, old, `{"name":"axis-alies","prefix":"ax","lanes":{"L-01":{"type":"opus"}}}`+"\n")
+	// The shape before v0.23: this binary refuses it (its lane_types table is retired, T-847), and its name still
+	// counts.
+	configBytesAt(t, old, `{"name":"axis-alies","prefix":"ax","lane_types":{"opus":{"kind":"claude"}}}`+"\n")
 	configBytesAt(t, broken, `{"name": "obor-kit",`+"\n")
 	configAt(t, moved, "moved")
 	configAt(t, renamed, "renamed")
 	configAt(t, gone, "gone")
 	configAt(t, kit, "kit")
 	if _, err := config.Load(old); err == nil {
-		t.Fatal("precondition: the pre-T-765 config loads")
+		t.Fatal("precondition: the pre-v0.23 config loads")
 	}
 	if _, err := config.Load(broken); err == nil {
 		t.Fatal("precondition: the unparsable config loads")
@@ -184,6 +184,23 @@ func TestProjectsRegisterAtOnce(t *testing.T) {
 			if got[i] != want[i] {
 				t.Errorf("Projects[%d] = %+v; want %+v", i, got[i], want[i])
 			}
+		}
+	}
+}
+
+// T-1124: NameAt reads the name in either config shape (project.name in shape 2, name in shape 1), else the root's.
+func TestNameAtEitherShape(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	for _, c := range []struct{ root, config, want string }{
+		{"two", `{"version":2,"project":{"name":"shape-two","agent_prefix":"st"}}`, "shape-two"},
+		{"one", `{"version":1,"name":"shape-one","prefix":"so"}`, "shape-one"},
+		{"none", `{"version":2,"project":{"agent_prefix":"nn"}}`, "none"},
+	} {
+		root := filepath.Join(dir, c.root)
+		configBytesAt(t, root, c.config+"\n")
+		if got, ok := NameAt(root); !ok || got != c.want {
+			t.Errorf("NameAt(%s) = %q, %v; want %q", c.config, got, ok, c.want)
 		}
 	}
 }

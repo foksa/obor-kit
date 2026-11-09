@@ -282,7 +282,7 @@ func TestNightlySwitchCountsFromTheNextPass(t *testing.T) {
 		if err != nil {
 			return nil
 		}
-		return f.nightly(cfg.Data.Merge.NightlyAt)
+		return f.nightly(cfg.Data.Nightly.At)
 	}
 	set := func(id, val string) string {
 		t.Helper()

@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -383,8 +384,10 @@ func (p *Project) Lane(name, branch string) string {
 func (p *Project) LaneDir(name string) string { return filepath.Join(p.Base, "proj-wt", name) }
 
 // Config is fx_config: the default config (prefix pj, lanes: the highest L-NN under proj-wt, T-765; OpenCode the kit's
-// plugin kind, as obor init writes it, T-1046), changed by edit, written to .obor/config.json and committed on main
-// (projects commit it; a plain project's stays uncommitted).
+// plugin kind, as obor init writes it, T-1046), changed by edit, written to .obor/config.json in config shape 2 and
+// committed on main (projects commit it; a plain project's stays uncommitted). The default and an edit may name a key
+// by its shape-1 path or its shape-2 one: the map goes through config.Reshape before it is written (the one-release
+// window, docs/research/config-shape.md §4.3; a shape-2 path set wins).
 func (p *Project) Config(edit ...func(c map[string]any)) {
 	p.t.Helper()
 	lanes := 0
@@ -412,11 +415,14 @@ func (p *Project) Config(edit ...func(c map[string]any)) {
 	for _, e := range edit {
 		e(c)
 	}
-	b, err := json.MarshalIndent(c, "", "  ")
+	b, err := json.Marshal(c)
 	if err != nil {
 		p.t.Fatal(err)
 	}
-	p.Write(".obor/config.json", string(b)+"\n")
+	if b, err = config.Reshape(b); err != nil {
+		p.t.Fatal(err)
+	}
+	p.Write(".obor/config.json", config.Pretty(json.RawMessage(b)))
 	if p.plain {
 		return
 	}
@@ -441,6 +447,68 @@ func Set(path string, v any) func(map[string]any) {
 		}
 		c[keys[len(keys)-1]] = JSON(v)
 	}
+}
+
+// SetShape2 is Set for a config already written in shape 2 (a test that edits the file the test kit wrote): path and
+// v may name shape 1's key, and the value lands at that key's shape-2 home (config.Reshape), replacing what is there
+// (a key shape 2 drops is set as it is). The one-release window's twin of Config's pass-through (T-1124).
+func SetShape2(path string, v any) func(map[string]any) {
+	return func(c map[string]any) {
+		at := shape2Path(path, v)
+		patch := map[string]any{}
+		Set(path, v)(patch)
+		b, err := json.Marshal(patch)
+		if err == nil {
+			b, err = config.Reshape(b)
+		}
+		if err != nil {
+			panic("testkit.SetShape2: " + err.Error())
+		}
+		raw, _ := config.MemberAt(b, at)
+		var val any
+		if raw == nil {
+			at, val = strings.Split(path, "."), JSON(v)
+		} else if err := json.Unmarshal(raw, &val); err != nil {
+			panic("testkit.SetShape2: " + err.Error())
+		}
+		Set(strings.Join(at, "."), val)(c)
+	}
+}
+
+// shape2Path is where config.Reshape puts the shape-1 key path (lanes: lanes.count, or lanes.list for a list).
+func shape2Path(path string, v any) []string {
+	if _, list := JSON(v).([]any); path == "lanes" && list {
+		return []string{"lanes", "list"}
+	}
+	const marker = "\x00testkit"
+	probe := map[string]any{}
+	Set(path, marker)(probe)
+	b, _ := json.Marshal(probe)
+	b, err := config.Reshape(b)
+	var doc any
+	if err != nil || json.Unmarshal(b, &doc) != nil {
+		return strings.Split(path, ".")
+	}
+	var find func(v any, at []string) []string
+	find = func(v any, at []string) []string {
+		switch x := v.(type) {
+		case string:
+			if x == marker {
+				return at
+			}
+		case map[string]any:
+			for k, m := range x {
+				if p := find(m, append(slices.Clone(at), k)); p != nil {
+					return p
+				}
+			}
+		}
+		return nil
+	}
+	if at := find(doc, nil); at != nil {
+		return at
+	}
+	return strings.Split(path, ".")
 }
 
 // JSON decodes v when it is a string holding a JSON object or array; anything else is returned as is.

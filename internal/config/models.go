@@ -41,28 +41,28 @@ var KindBaseArgs = map[string][]string{
 	"opencode": {"--auto", "--standalone"},
 }
 
-// KindEntry is kinds.<kind>: args appended to every start of the kind, and the prompt_extra its work jobs carry.
-// Command makes it a plugin kind (T-1036): the executable answering obor's kind protocol (docs/agents/kind-protocol.md),
-// a path (relative: to the project root; KindCommand).
+// KindEntry is agents.kinds.<kind>: Args are extra args for every start of that CLI, JobNote the text added to every
+// work job an agent of that kind gets. Plugin makes it a plugin kind (T-1036): the executable answering obor's kind
+// protocol (docs/agents/kind-protocol.md), a path (relative: to the project root; KindCommand).
 type KindEntry struct {
-	Args        []string `json:"args,omitzero"`
-	PromptExtra string   `json:"prompt_extra,omitempty"`
-	Command     string   `json:"command,omitempty"`
+	Args    []string `json:"args,omitzero"`
+	JobNote string   `json:"job_note,omitempty"`
+	Plugin  string   `json:"plugin,omitempty"`
 }
 
-// Kind is kinds.<name> (the zero entry when the config does not name it): its args and its work jobs' prompt extra.
-func (c *Config) Kind(name string) KindEntry { return c.Data.Kinds.M[name] }
+// Kind is agents.kinds.<name> (the zero entry when the config does not name it): its args and its work jobs' note.
+func (c *Config) Kind(name string) KindEntry { return c.Data.Agents.Kinds.M[name] }
 
 // KitKinds are the plugin kinds the kit ships, by name: the binary each runs as (T-1046), beside obor's own (KitKind).
-// A config naming no kinds.<name>.command for one runs the kit's: the compat of a config written before OpenCode left
-// the obor binary, which obor setup agents fills in and obor config validate warns about until v0.33.0 drops it.
+// A config naming no agents.kinds.<name>.plugin for one runs the kit's: the compat of a config written before OpenCode
+// left the obor binary, which obor setup agents fills in and obor config validate warns about until v0.33.0 drops it.
 var KitKinds = map[string]string{"opencode": "obor-kind-opencode"}
 
-// KindCommand is kinds.<name>.command as a path ("": name is no plugin kind of this config): the name of a binary the
-// kit ships (a KitKinds value) is that binary (KitKind), any other relative path relative to the project root. A kit
-// kind with no command is the kit's (KitKinds).
+// KindCommand is agents.kinds.<name>.plugin as a path ("": name is no plugin kind of this config): the name of a
+// binary the kit ships (a KitKinds value) is that binary (KitKind), any other relative path relative to the project
+// root. A kit kind with no plugin is the kit's (KitKinds).
 func (c *Config) KindCommand(name string) string {
-	cmd := c.Data.Kinds.M[name].Command
+	cmd := c.Data.Agents.Kinds.M[name].Plugin
 	if cmd == "" {
 		cmd = KitKinds[name]
 	}
@@ -94,12 +94,12 @@ func KitKind(name string) string {
 	return filepath.Join(filepath.Dir(exe), name+suffix)
 }
 
-// PluginKinds are this config's plugin kinds: each kinds.<name> with a command, in config order, then each kit kind
-// it names no command for (KitKinds, sorted).
+// PluginKinds are this config's plugin kinds: each agents.kinds.<name> with a plugin, in config order, then each kit
+// kind it names no plugin for (KitKinds, sorted).
 func (c *Config) PluginKinds() []string {
 	var out []string
-	for _, name := range c.Data.Kinds.Keys {
-		if c.Data.Kinds.M[name].Command != "" {
+	for _, name := range c.Data.Agents.Kinds.Keys {
+		if c.Data.Agents.Kinds.M[name].Plugin != "" {
 			out = append(out, name)
 		}
 	}
@@ -130,15 +130,17 @@ func (c *Config) registerPlugins() {
 	agents.SetPlugins(ks)
 }
 
-// ModelEntry is models.<name>: a model the built-in table lacks, or a built-in one overridden. Kind may be left out
-// for a built-in name (its built-in kind); Model "" starts the kind without a model (its own choice).
+// ModelEntry is agents.models.<name>: a model the built-in table lacks, or a built-in one overridden. Kind may be left
+// out for a built-in name (its built-in kind); ID is the model id the kind takes, "" starts the kind without a model
+// (its own choice).
 type ModelEntry struct {
-	Kind  string `json:"kind,omitempty"`
-	Model string `json:"model"`
+	Kind string `json:"kind,omitempty"`
+	ID   string `json:"id"`
 }
 
 // Model is a resolved model: what starts an agent of it. Name is the model's name in the config, ID the model id the
-// kind starts ("": the kind's own choice), Args the full launch args (base, model, kinds.<kind>.args).
+// kind starts ("": the kind's own choice), Args the full launch args (base, model, agents.kinds.<kind>.args),
+// PromptExtra the kind's job_note.
 type Model struct {
 	Name, Kind, ID string
 	Args           []string
@@ -172,8 +174,8 @@ func BuiltinModelNamed(name string) (BuiltinModel, bool) {
 func (c *Config) Model(name string) (Model, bool) {
 	b, isBuiltin := BuiltinModelNamed(name)
 	m := Model{Name: name, Kind: b.Kind, ID: b.ID}
-	if e, ok := c.Data.Models.M[name]; ok {
-		m.ID = e.Model
+	if e, ok := c.Data.Agents.Models.M[name]; ok {
+		m.ID = e.ID
 		if e.Kind != "" {
 			m.Kind = e.Kind
 		}
@@ -188,9 +190,9 @@ func (c *Config) Model(name string) (Model, bool) {
 			args = append(args, "--model", m.ID)
 		}
 	}
-	k := c.Data.Kinds.M[m.Kind]
+	k := c.Data.Agents.Kinds.M[m.Kind]
 	m.Args = append(args, k.Args...)
-	m.PromptExtra = k.PromptExtra
+	m.PromptExtra = k.JobNote
 	return m, true
 }
 
@@ -200,7 +202,7 @@ func (c *Config) ModelNames() []string {
 	for _, b := range BuiltinModels {
 		out = append(out, b.Name)
 	}
-	for _, k := range c.Data.Models.Keys {
+	for _, k := range c.Data.Agents.Models.Keys {
 		if !slices.Contains(out, k) {
 			out = append(out, k)
 		}

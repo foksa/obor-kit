@@ -161,7 +161,7 @@ func TestRestartLoadsAConfigWithUnknownKeys(t *testing.T) {
 	if rc != 0 || lastLine(stdout) != "STOPPED pj-int (pane w1:p2, already at a shell)" {
 		t.Errorf("restart --stop: exit %d, %q (%s); want the stop", rc, stdout, stderr)
 	}
-	for _, k := range []string{"branches.promote", "merge.weights"} {
+	for _, k := range []string{"branches", "merge.weights"} { // branches: shape 1's, left with promote alone (T-1124)
 		if !strings.Contains(stderr, `unknown key "`+k+`" ignored`) {
 			t.Errorf("restart: no warning naming %s in %q", k, stderr)
 		}

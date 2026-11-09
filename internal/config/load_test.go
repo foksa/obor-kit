@@ -10,7 +10,8 @@ import (
 )
 
 // TestOverlayMatchesJq: each case's effective value is what the Bash loader's `jq -s '.[0] * .[1]'` gives (a null
-// left by the merge is unset in the effective config: a derived default, or absent).
+// left by the merge is unset in the effective config: a derived default, or absent). Both files are shape 1's: the
+// reshape keeps a null where the table moves its key.
 func TestOverlayMatchesJq(t *testing.T) {
 	cfg := `{"prefix":"pj","merge":{"summary_regex":"T"},
 		"kinds":{"claude":{"args":["a","b"],"prompt_extra":"P"}},
@@ -20,12 +21,13 @@ func TestOverlayMatchesJq(t *testing.T) {
 		"commands":{"check":{"heavy":null}},"slots":{"max":null}}`
 	c := load(t, cfg, local)
 	for _, tc := range []struct{ name, path, want string }{
-		{"a sibling of a null key is kept", ".merge.summary_regex", `"T"`},
-		{"null heavy clears it", ".commands.check", `{"cmd":"x","timeout":5}`},
-		{"null slots.max clears it", ".slots", `{"dir":"/s"}`},
-		{"null prompt_extra clears it", ".kinds.claude.prompt_extra", ``},
-		{"a list is replaced", ".kinds.claude.args", `["c"]`},
-		{"flat overlay", ".prefix", `"qq"`},
+		{"a sibling of a null key is kept", ".checks.output.summary", `"T"`},
+		{"null heavy clears it", ".merge.check", `{"cmd":"x","timeout":5}`},
+		{"null slots.max clears it", ".checks.heavy_at_once", ``},
+		{"its sibling is kept", ".checks.slot_dir", `"/s"`},
+		{"null prompt_extra clears it", ".agents.kinds.claude.job_note", ``},
+		{"a list is replaced", ".agents.kinds.claude.args", `["c"]`},
+		{"flat overlay", ".project.agent_prefix", `"qq"`},
 	} {
 		got, ok := c.Get(tc.path)
 		if tc.want == "" {
@@ -45,8 +47,8 @@ func TestOverlayMatchesJq(t *testing.T) {
 	if m, _ := c.Model("opus"); m.PromptExtra != "" || !reflect.DeepEqual(m.Args, []string{"--permission-mode", "auto", "--model", "opus", "c"}) {
 		t.Errorf("typed model after a null prompt_extra: %+v", m)
 	}
-	if c.Data.Slots == nil || c.Data.Slots.Max != nil || c.Data.Slots.Dir != "/s" {
-		t.Errorf("typed slots after a null max: %+v", c.Data.Slots)
+	if c.Data.Checks.HeavyAtOnce != nil || c.Data.Checks.SlotDir != "/s" {
+		t.Errorf("typed checks after a null heavy_at_once: %+v", c.Data.Checks)
 	}
 }
 
@@ -78,14 +80,14 @@ func TestLoadHook(t *testing.T) {
 		{name: "clean", cfg: `{"prefix":"pj"}`},
 		{name: "unknown keys", cfg: `{"prefix":"pj","keep_warm":{"x":1}}`, local: `{"merge":{"future":1}}`,
 			unknown: []string{"keep_warm", "merge.future"}},
-		{name: "unknown key and a type error", cfg: `{"keep_warm":1,"merge":{"nightly_at":5}}`, err: "nightly_at"},
+		{name: "unknown key and a type error", cfg: `{"keep_warm":1,"merge":{"nightly_at":5}}`, err: "nightly.at"},
 		{name: "syntax error", cfg: `{"prefix":`, err: "not valid JSON"},
 		{name: "syntax error in local.json", cfg: `{"keep_warm":1}`, local: `{`, err: "local.json is not valid JSON"},
 		{name: "no config", err: "no "},
 	} {
 		c, unknown, err := LoadHook(writeProject(t, tc.cfg, tc.local))
 		switch {
-		case tc.err == "" && (err != nil || c == nil || c.Data.Prefix != "pj"):
+		case tc.err == "" && (err != nil || c == nil || c.Prefix() != "pj"):
 			t.Errorf("%s: %+v, %v; want the config", tc.name, c, err)
 		case tc.err != "" && (err == nil || c != nil || !strings.Contains(err.Error(), tc.err)):
 			t.Errorf("%s: %v, %v; want error %q and no config", tc.name, c, err, tc.err)
@@ -96,7 +98,7 @@ func TestLoadHook(t *testing.T) {
 	if warn.Len() != 0 {
 		t.Errorf("Warn got %q, want nothing (the hooks report unknown keys)", warn.String())
 	}
-	if c := Fallback("/x/proj"); c.LanesDir() != "/x/proj-wt" || c.Data.Branches.Main != "main" {
+	if c := Fallback("/x/proj"); c.LanesDir() != "/x/proj-wt" || c.Data.Merge.TargetBranch != "main" {
 		t.Errorf("Fallback = %+v", c.Data)
 	}
 }
@@ -152,7 +154,7 @@ func TestNewerUnknownKeyStillDropped(t *testing.T) {
 	defer func(w io.Writer) { Warn = w }(Warn)
 	Warn = &out
 	c, err := Load(root)
-	if err != nil || c == nil || c.Data.Prefix != "pj" {
+	if err != nil || c == nil || c.Prefix() != "pj" {
 		t.Fatalf("Load: %+v, %v; want the config", c, err)
 	}
 	if !strings.Contains(out.String(), `unknown key "keep_warm" ignored`) {
@@ -168,7 +170,7 @@ func TestNewerUnknownKeyStillDropped(t *testing.T) {
 		t.Errorf("LoadReader: warn = %q, %v", warn, err)
 	}
 	c, err = LoadWith(root, []byte(`{"prefix":"pj","keep_warm":2,"lanes":2}`))
-	if err != nil || c == nil || c.Data.Lanes.Count() != 2 {
+	if err != nil || c == nil || c.LaneCount() != 2 {
 		t.Errorf("LoadWith: %+v, %v; want the newer key dropped", c, err)
 	}
 	if _, fails, err := LoadForValidate(root); err != nil || len(fails) != 1 || !strings.HasPrefix(fails[0], "FAIL .keep_warm: ") {
@@ -197,24 +199,26 @@ func TestLoadReaderWarnNamesBothCauses(t *testing.T) {
 
 // T-1081 (DD-v0.32 #1): the keys T-1076 deleted (the promotion's), v0.29's two removed keys and T-1103's merge.trailer
 // never stop Load, the load of every command: each is ignored with one warning naming it; only LoadForValidate fails,
-// one line per key.
+// one line per key. The configs are shape 2's (a shape-1 file adds the shape's own warning, and its reshape drops
+// merge.trailer).
 func TestRetiredKeysWarnOnLoadFailValidate(t *testing.T) {
 	for _, tc := range []struct{ name, cfg string }{
-		{"the promotion's keys", `{"prefix":"pj","branches":{"main":"main","promote":"release"},` +
-			`"merge":{"promote_weight":2,"weights":{"core":3}}}`},
-		{"v0.29's removed keys", `{"prefix":"pj","merge":{"receipt_max_age":60},"checks":{"load_limit":12.5}}`},
-		{"T-1103's removed key", `{"prefix":"pj","merge":{"trailer":"Co-Authored-By: x"}}`},
+		{"the promotion's keys", `{"version":2,"project":{"agent_prefix":"pj"},"merge":{"target_branch":"main",` +
+			`"promote":"release","promote_weight":2,"weights":{"core":3}}}`},
+		{"v0.29's removed keys", `{"version":2,"project":{"agent_prefix":"pj"},"merge":{"receipt_max_age":60},` +
+			`"checks":{"load_limit":12.5}}`},
+		{"T-1103's removed key", `{"version":2,"project":{"agent_prefix":"pj"},"merge":{"trailer":"Co-Authored-By: x"}}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := writeProject(t, tc.cfg, "")
-			keys := map[string][]string{"the promotion's keys": {"branches.promote", "merge.promote_weight", "merge.weights"},
-				"v0.29's removed keys": {"merge.receipt_max_age", "checks"},
+			keys := map[string][]string{"the promotion's keys": {"merge.promote", "merge.promote_weight", "merge.weights"},
+				"v0.29's removed keys": {"merge.receipt_max_age", "checks.load_limit"},
 				"T-1103's removed key": {"merge.trailer"}}[tc.name]
 			var out strings.Builder
 			defer func(w io.Writer) { Warn = w }(Warn)
 			Warn = &out
 			c, err := Load(root)
-			if err != nil || c == nil || c.Data.Prefix != "pj" || c.Data.Branches.Main != "main" {
+			if err != nil || c == nil || c.Prefix() != "pj" || c.MainBranch() != "main" {
 				t.Fatalf("Load: %+v, %v; want the config", c, err)
 			}
 			if n := strings.Count(out.String(), "\n"); n != len(keys) {

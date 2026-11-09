@@ -253,7 +253,8 @@ func TestServeRunsWithARemovedPromotionKey(t *testing.T) {
 	}
 	_ = cmd.Process.Signal(syscall.SIGTERM)
 	_ = cmd.Wait()
-	for _, k := range keys {
+	// branches.promote is warned of as branches: shape 1's branches, left with promote alone (T-1124)
+	for _, k := range []string{"branches", keys[1], keys[2]} {
 		if n := strings.Count(out.String(), `unknown key "`+k+`" ignored`); n != 1 {
 			t.Errorf("warnings for %s: %d, want 1:\n%s", k, n, out.String())
 		}

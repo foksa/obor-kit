@@ -38,23 +38,24 @@ func TestInitCreatesConfigDocsAndGitignoreUncommitted(t *testing.T) {
 		t.Errorf("config validates: %v", fails)
 	}
 	d := cfg.Data
-	if d.Name != "My Proj" || d.Prefix != "mp" || d.LanesDir != "../proj-wt" || d.Lanes.Count() != 0 {
-		t.Errorf("name, prefix, lanes_dir filled, no lanes: %q %q %q %v", d.Name, d.Prefix, d.LanesDir, d.Lanes)
+	if d.Project.Name != "My Proj" || d.Project.AgentPrefix != "mp" || d.Lanes.Dir != "../proj-wt" || cfg.LaneCount() != 0 {
+		t.Errorf("name, prefix, lanes.dir filled, no lanes: %q %q %q %v", d.Project.Name, d.Project.AgentPrefix,
+			d.Lanes.Dir, d.Lanes)
 	}
-	if _, ok := cfg.Command("lane_setup"); ok || len(d.LaneLinks) != 0 {
-		t.Errorf("the example's lane_setup and lane_links cleared: %v", d.LaneLinks)
+	if _, ok := cfg.Command("lane_setup"); ok || len(d.Lanes.Links) != 0 {
+		t.Errorf("the example's lanes.setup and lanes.links cleared: %v", d.Lanes.Links)
 	}
-	// T-1075: an adopter's default is two clocks: a nightly on main's head, with check_milestone left null.
-	if d.Merge.NightlyAt != "02:00" {
-		t.Errorf("merge.nightly_at %q, want 02:00", d.Merge.NightlyAt)
+	// T-1075: an adopter's default is two clocks: a nightly on main's head, with nightly.slow_check left null.
+	if d.Nightly.At != "02:00" {
+		t.Errorf("nightly.at %q, want 02:00", d.Nightly.At)
 	}
 	if c, ok := cfg.Command("check_milestone"); ok {
-		t.Errorf("commands.check_milestone %+v, want null", c)
+		t.Errorf("nightly.slow_check %+v, want null", c)
 	}
-	if !strings.Contains(x.Read(".obor/config.json"), `"check_milestone": null`) {
-		t.Errorf("config has no commands.check_milestone: null:\n%s", x.Read(".obor/config.json"))
+	if !strings.Contains(x.Read(".obor/config.json"), `"slow_check": null`) {
+		t.Errorf("config has no nightly.slow_check: null:\n%s", x.Read(".obor/config.json"))
 	}
-	if !regexp.MustCompile(`(?m)^  "lanes": 0,`).MatchString(x.Read(".obor/config.json")) {
+	if !regexp.MustCompile(`(?m)^  "lanes": \{`).MatchString(x.Read(".obor/config.json")) {
 		t.Errorf("config at indent 2:\n%s", x.Read(".obor/config.json"))
 	}
 	// T-470: BACKLOG.md and docs/decisions.md instead of a STATUS file (paths.status is gone).
@@ -185,19 +186,19 @@ func TestLaneAddsConfigWorktreeLinksAndRunsLaneSetup(t *testing.T) {
 	x.Write("ref/a", "")
 	x.Write("assets/img/b", "")
 	lane := x.LaneDir("L-01")
-	if pre, _ := config.Load(x.Root); x.Exists(lane) || pre.Data.Lanes.Count() != 0 {
+	if pre, _ := config.Load(x.Root); x.Exists(lane) || pre.LaneCount() != 0 {
 		t.Fatal("precondition: no lane dir, no lanes")
 	}
 	out := x.ok(t, "lane", "L-01")
 	if want := "OK lane L-01 at " + lane; last(out) != want {
 		t.Errorf("last line %q, want %q", last(out), want)
 	}
-	has(t, out, "config lanes = 1 (uncommitted)", "the count raised")
+	has(t, out, "config lanes.count = 1 (uncommitted)", "the count raised")
 	cfg, _ := config.Load(x.Root)
-	if cfg.Data.Lanes.Count() != 1 || !cfg.HasLane("L-01") {
-		t.Errorf("lanes = %d", cfg.Data.Lanes.Count())
+	if cfg.LaneCount() != 1 || !cfg.HasLane("L-01") {
+		t.Errorf("lanes = %d", cfg.LaneCount())
 	}
-	if !regexp.MustCompile(`(?m)^  "lanes": 1`).MatchString(x.Read(".obor/config.json")) {
+	if !regexp.MustCompile(`(?m)^    "count": 1,?$`).MatchString(x.Read(".obor/config.json")) {
 		t.Error("config kept at indent 2")
 	}
 	if x.Git(lane, "rev-parse", "HEAD") != x.Git(x.Root, "rev-parse", "main") {
@@ -226,8 +227,8 @@ func TestLaneAddsConfigWorktreeLinksAndRunsLaneSetup(t *testing.T) {
 	if !x.Exists(lane + "/setup-ran") {
 		t.Error("lane_setup reruns")
 	}
-	if cfg, _ = config.Load(x.Root); cfg.Data.Lanes.Count() != 1 {
-		t.Errorf("lanes after rerun: %d", cfg.Data.Lanes.Count())
+	if cfg, _ = config.Load(x.Root); cfg.LaneCount() != 1 {
+		t.Errorf("lanes after rerun: %d", cfg.LaneCount())
 	}
 }
 
@@ -278,7 +279,7 @@ func TestReviewerAndDeepDiveRunInTheirRoleWorktree(t *testing.T) {
 		if !x.Exists(reviews) {
 			t.Errorf("%s: no %s made for its start", c.role, reviews)
 		}
-		if cfg, _ := config.Load(x.Root); cfg.Data.Lanes.Count() != 0 {
+		if cfg, _ := config.Load(x.Root); cfg.LaneCount() != 0 {
 			t.Errorf("%s: added to the lanes", c.role)
 		}
 	}

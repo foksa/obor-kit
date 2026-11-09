@@ -1,5 +1,3 @@
 {
-  "lanes_dir": "../myproject-wt",
-  "lanes": 2,
-  "difficulty": { "hard": ["opus:xhigh"] }
+  "lanes": { "dir": "../myproject-wt", "count": 2 }
 }
