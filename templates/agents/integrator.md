@@ -79,4 +79,4 @@ the app tells the owner what needs them.
   After a clear or `--fresh`: this text, then your next job.
 
 ## This project
-<!-- fill in: which checks run on merge (check / baseline / gate), who gets the reports, protected files. -->
+<!-- fill in: which checks run on merge (compile and the class's checks), who gets the reports, protected files. -->

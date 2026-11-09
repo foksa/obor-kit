@@ -29,14 +29,13 @@ type runner struct {
 	logName     string     // log file prefix: the task, nightly, milestone
 	changedFile string     // the OBOR_CHANGED_FILES file under state
 	slot        string
-	env         []string // extra command environment (OBOR_CHANGED_FILES, OBOR_BASELINE, OBOR_GATE, a lane test's CPU budget)
+	env         []string // extra command environment (OBOR_CHANGED_FILES, a lane test's CPU budget)
 	prio        string   // the check slot's priority: "merge" (the merge marker; "" too) or "worker" (a pool slot: a lane test, T-961)
 	retest      bool     // a lane test: a red run's failing tests are rerun once (commands.retest, T-964)
 	pre         string   // the target side of the merge
 	class       Class
 	mode        string            // class.Mode() once classified
 	check       string            // the checks' counts
-	gate        string            // ", gate <counts>" when the gate ran
 	pruned      bool              // the old logs were removed (once per run)
 	onCommand   func(name string) // told each command as it starts and "" as it ends (serve's gate: obor status' running line, T-669, T-673)
 }
@@ -331,19 +330,6 @@ func (opt *Options) printLines(ls []string) {
 	}
 }
 
-// baselineDir is commands.baseline.dir made absolute, "" when unset or not a directory.
-func (r *runner) baselineDir() string {
-	c, ok := r.command("baseline")
-	if !ok || c.Dir == "" {
-		return ""
-	}
-	dir := config.AbsUnder(r.root, c.Dir)
-	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
-		return ""
-	}
-	return dir
-}
-
 // changed lists the files changed in rev (a range, or the merge base: against the worktree) into
 // .obor/state/<changedFile> (exported as OBOR_CHANGED_FILES) and classifies the merge.
 func (r *runner) changed(task, rev string) *halt {
@@ -391,12 +377,9 @@ func (r *runner) compile() *halt {
 }
 
 // runChecks runs the classes' checks: partial → merge.guard, then each class's checks (a missing command → fail; a
-// command two classes name runs once); full → check, then each matched class marked with_full's checks (T-1007),
-// then baseline and gate when their "at" is "merge" (default "milestone"), the gate only when the merge (pre..HEAD: the
-// candidate checked out in a lane, T-961) touches its paths or OBOR_GATE=1. Every check runs: a run in a lane has
-// nothing to reuse (T-966).
+// command two classes name runs once); full → check, then each matched class marked with_full's checks (T-1007).
+// Every check runs: a run in a lane has nothing to reuse (T-966).
 func (r *runner) runChecks() *halt {
-	r.gate = ""
 	if r.class.Partial {
 		var checks []string
 		if !(len(r.class.Names) == 1 && r.class.Names[0] == "neutral") { // all files neutral: the guard only
@@ -457,39 +440,7 @@ func (r *runner) runChecks() *halt {
 	if len(counts) > 0 {
 		r.check = strings.Join(counts, ", ")
 	}
-	if r.atMerge("baseline") {
-		if dir := r.baselineDir(); dir != "" {
-			r.env = append(r.env, "OBOR_BASELINE="+dir)
-			if _, _, h := r.must("baseline"); h != nil {
-				return h
-			}
-		}
-	}
-	if gate, ok := r.command("gate"); ok && r.atMerge("gate") {
-		run := r.Env.Get("OBOR_GATE") == "1"
-		if !run {
-			out, err := r.git(r.dir, "diff", "--name-only", r.pre, "HEAD")
-			if err != nil {
-				return &halt{err: fmt.Errorf("cannot list the files the gate checks in %s", r.dir)}
-			}
-			for _, f := range lines(out) {
-				run = run || matchAny(f, gate.Paths)
-			}
-		}
-		if run {
-			o, _, h := r.must("gate")
-			if h != nil {
-				return h
-			}
-			r.gate = ", gate " + r.counts(o)
-		}
-	}
 	return nil
-}
-
-func (r *runner) atMerge(name string) bool {
-	c, ok := r.command(name)
-	return ok && c.At == "merge"
 }
 
 // must runs commands.<name>; a failure is red. ok false: not configured. Every red run's failing tests go to the flake

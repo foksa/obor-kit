@@ -197,7 +197,7 @@ func (v *validator) models() {
 
 // gatingCommands are the commands a merge or the nightly gates on, a merge class's checks beside them:
 // merge.nightly_commands must name none of them (T-817).
-var gatingCommands = []string{"lane_setup", "compile", "check", "check_milestone", "baseline", "gate", "e2e", "guard"}
+var gatingCommands = []string{"lane_setup", "compile", "check", "check_milestone", "guard"}
 
 // nightlyCommands: every merge.nightly_commands entry is a defined commands.<name> and no gating command — nightly
 // runs it non-gating, after its gates (T-817).
@@ -216,6 +216,20 @@ func (v *validator) nightlyCommands() {
 			v.fail(path, Compact(name)+" is a gating command: nightly runs it as a gate, never non-gating")
 		}
 	}
+}
+
+// commandStillRuns: a merge class's checks, merge.guard or merge.nightly_commands names name, so it runs there even
+// though obor no longer runs it by its own name (T-1083).
+func (c *Config) commandStillRuns(name string) bool {
+	if c.Data.Merge.Guard == name || slices.Contains(c.Data.Merge.NightlyCommands, name) {
+		return true
+	}
+	for _, class := range c.Data.Merge.Classes {
+		if slices.Contains(class.Checks, name) {
+			return true
+		}
+	}
+	return false
 }
 
 // classes: merge.classes names are unique (RV-03 #3) and with_full is refused on a full class, which already runs
@@ -519,8 +533,9 @@ func (v *validator) trunk() {
 }
 
 // warnings: merge.neutral globs that may share a path with a class glob (that class's files would merge guard-only,
-// T-92), removed keys still set. Each removed key WARNs for two minor versions after its removal, then is an unknown
-// key (validate_test.go: TestRemovedKeysWithinTwoVersions, its window read from VERSION).
+// T-92), removed keys still set, commands obor no longer runs by name (T-1083). Each removed key WARNs for two minor
+// versions after its removal, then is an unknown key (validate_test.go: TestRemovedKeysWithinTwoVersions, its window
+// read from VERSION).
 func (c *Config) warnings(o ValidateOptions) []string {
 	var out []string
 	neutral := c.Data.Merge.Neutral
@@ -543,6 +558,14 @@ func (c *Config) warnings(o ValidateOptions) []string {
 	}
 	removed("paths.research", c.Data.Paths["research"] != "")
 	removed("paths.questions", c.Data.Paths["questions"] != "")
+	// T-1083: baseline, gate and e2e are free command names again; a config that sets one loses its run silently unless
+	// it is named where a merge or the nightly still runs it.
+	for _, name := range []string{"baseline", "gate", "e2e"} {
+		if _, set := c.Command(name); set && !c.commandStillRuns(name) {
+			out = append(out, "WARN commands."+name+": obor no longer runs it at merge or nightly (v0.32); delete it, "+
+				"or name it in merge.classes checks or merge.nightly_commands")
+		}
+	}
 	for _, name := range c.ModelNames() { // T-705: opencode's own default model may refuse requests, and effort needs one (T-703)
 		m, _ := c.Model(name)
 		if kd, known := agents.Lookup(m.Kind); known && kd.Caps().ModelArg && m.ID == "" && c.modelUsed(name) {

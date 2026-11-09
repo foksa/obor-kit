@@ -117,18 +117,15 @@ func (x *fx) eqList(got, want []string, what string) {
 func TestFlakeLogNightly(t *testing.T) {
 	t.Parallel()
 	failing := func(name string) any { return `echo "--- FAIL: Test_` + name + ` (0.01s)"; exit 1` }
-	t.Run("NIGHTLY: check, check_milestone, baseline, gate and e2e", func(t *testing.T) {
+	t.Run("NIGHTLY: check and check_milestone", func(t *testing.T) {
 		t.Parallel()
-		x := newFx(t, goLines(), cmd("check", failing("check")), cmd("check_milestone", failing("milestone")),
-			cmd("baseline", map[string]any{"cmd": failing("baseline"), "dir": "base"}),
-			cmd("gate", failing("gate")), cmd("e2e", failing("e2e")))
-		os.Mkdir(x.Path("base"), 0o755)
-		x.is(x.nightly(), Red, `^NIGHTLY RED .*failed: check, check_milestone, baseline, gate, e2e;`)
+		x := newFx(t, goLines(), cmd("check", failing("check")), cmd("check_milestone", failing("milestone")))
+		x.is(x.nightly(), Red, `^NIGHTLY RED .*failed: check, check_milestone;`)
 		got := x.flakes()
-		if len(got) != 5 {
-			t.Fatalf("flake lines %d, want 5: %+v", len(got), got)
+		if len(got) != 2 {
+			t.Fatalf("flake lines %d, want 2: %+v", len(got), got)
 		}
-		for i, name := range []string{"check", "check_milestone", "baseline", "gate", "e2e"} {
+		for i, name := range []string{"check", "check_milestone"} {
 			x.eq(got[i].Test, "Test_"+strings.TrimPrefix(name, "check_"), "test")
 			x.eq(got[i].Check, name, "check")
 			x.eq(got[i].Task, "nightly", "task")
