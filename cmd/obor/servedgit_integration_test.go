@@ -14,6 +14,6 @@ func servedGitProject(t *testing.T, edits ...func(map[string]any)) *testkit.Proj
 	t.Helper()
 	p := testkit.New(t)
 	p.Lane("L-01", "task/T-01")
-	p.Config(append([]func(map[string]any){testkit.Set("roles.integrator", "")}, edits...)...)
+	p.Config(append([]func(map[string]any){testkit.Set("agents.roles.integrator", "")}, edits...)...)
 	return p
 }

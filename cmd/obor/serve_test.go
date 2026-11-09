@@ -179,7 +179,7 @@ func TestMergeLoopWorkflowWiring(t *testing.T) {
 	p := servedProject(t)
 	for _, kind := range []string{"", "scratch-ff"} {
 		if kind != "" {
-			p.Config(testkit.Set("workflow.kind", kind))
+			p.Config(testkit.Set("merge.workflow", kind))
 		}
 		l, err := mergeLoop(p.Env(), herdr.Panes{}, &serveEnd{stop: func() {}}, &kindCache{})(p.Root)
 		if err != nil {
@@ -190,7 +190,7 @@ func TestMergeLoopWorkflowWiring(t *testing.T) {
 			t.Errorf("kind %q: Workflow %T, Specs %v, Kit %q; want scratch-ff with its review git", kind, l.Workflow, l.Specs, l.Kit)
 		}
 	}
-	p.Config(testkit.Set("workflow.kind", "x"))
+	p.Config(testkit.Set("merge.workflow", "x"))
 	if _, err := mergeLoop(p.Env(), herdr.Panes{}, &serveEnd{stop: func() {}}, &kindCache{})(p.Root); err == nil ||
 		!strings.Contains(err.Error(), "serve knows scratch-ff") {
 		t.Errorf("kind x: %v; want refused naming the known kinds", err)

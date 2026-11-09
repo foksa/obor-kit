@@ -29,7 +29,7 @@ import (
 func TestEventsCommand(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)
-	p.Config(testkit.Set("roles.tracker", `{"verbs": ["spec_set"]}`))
+	p.Config(testkit.Set("agents.roles.tracker", `{"verbs": ["spec_set"]}`))
 	p.Write("docs/agents/tracker.md", "# Role: tracker\n")
 	f := herdrtest.New()
 	f.Workspaces = []herdr.Workspace{{ID: "w1", Label: "proj"}}

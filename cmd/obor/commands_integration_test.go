@@ -17,7 +17,7 @@ func TestSmallCommandsBinary(t *testing.T) {
 	p := testkit.New(t)
 	lane := p.Lane("L-01", "task/T-01")
 	p.Config(testkit.Set("commands", `{"t": {"cmd": "echo ran", "timeout": 5, "heavy": true}}`),
-		testkit.Set("slots", map[string]any{"dir": p.Base + "/slots"}))
+		testkit.Set("checks", map[string]any{"slot_dir": p.Base + "/slots"}))
 	p.Herdr().Agent("w1:p1", "l-01", "idle", p.Root)
 	env := []string{"HERDR_SOCKET_PATH=" + herdrtest.Serve(t, p.Herdr()).Path}
 	for _, c := range []struct {

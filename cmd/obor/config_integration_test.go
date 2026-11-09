@@ -31,11 +31,11 @@ func TestConfigValidateBinary(t *testing.T) {
 		{[]func(map[string]any){testkit.Set("merge.receipt_max_age", 60)}, 1,
 			"FAIL .merge.receipt_max_age: unknown to this obor (retired, or newer than this binary): delete it (.obor/config.json)\n"},
 		// T-428: serve dispatches and merges nothing without roles.integrator, so validate FAILs.
-		{[]func(map[string]any){func(c map[string]any) { delete(c, "roles") }}, 1,
+		{[]func(map[string]any){func(c map[string]any) { delete(c, "agents") }}, 1,
 			"FAIL .agents.roles.integrator: required: serve dispatches and merges nothing without an integrator\n"},
 	} {
 		// The fixture carries the integrator serve needs (T-428); these cases are about the other lines.
-		p.Config(append([]func(map[string]any){testkit.Set("roles.integrator", "")}, c.edits...)...)
+		p.Config(append([]func(map[string]any){testkit.Set("agents.roles.integrator", "")}, c.edits...)...)
 		if rc, stdout, stderr := run(t, p.Root, nil, "config", "validate"); rc != c.rc || stdout != c.out {
 			t.Errorf("validate: exit %d, %q (%s); want %d, %q", rc, stdout, stderr, c.rc, c.out)
 		}
@@ -105,8 +105,8 @@ func TestWhoamiCustomRole(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
 	p.Write("docs/agents/ux_buddy.md", "# Role: ux_buddy\n")
-	p.Config(testkit.Set("roles.integrator", "opus"), testkit.Set("roles.ux_buddy", `{"model": "opus", "write": ["docs/ux/"]}`),
-		testkit.Set("roles.researcher", "sonnet"))
+	p.Config(testkit.Set("agents.roles.integrator", "opus"), testkit.Set("agents.roles.ux_buddy", `{"model": "opus", "write": ["docs/ux/"]}`),
+		testkit.Set("agents.roles.researcher", "sonnet"))
 	text, j := whoamiIn(t, p.Root, "OBOR_ROLE=ux_buddy")
 	if text != "role: ux_buddy\nagent: pj-ux-buddy\nsource: env\nlane row: none\n" || j["agent"] != "pj-ux-buddy" || j["role"] != "ux_buddy" {
 		t.Errorf("custom role: %q %v", text, j)
@@ -118,15 +118,15 @@ func TestWhoamiCustomRole(t *testing.T) {
 		t.Errorf("config validate: exit %d, %q", rc, out)
 	}
 	// No push for a custom role, even with an allow_push naming it (validate fails that; the pre-push hook asks this).
-	p.Config(testkit.Set("roles.integrator", "opus"), testkit.Set("roles.ux_buddy", `{"model": "opus", "write": ["docs/ux/"]}`),
-		testkit.Set("roles.researcher", "sonnet"), testkit.Set("guards.allow_push", `["lead", "ux_buddy"]`))
+	p.Config(testkit.Set("agents.roles.integrator", "opus"), testkit.Set("agents.roles.ux_buddy", `{"model": "opus", "write": ["docs/ux/"]}`),
+		testkit.Set("agents.roles.researcher", "sonnet"), testkit.Set("rules.may_push", `["lead", "ux_buddy"]`))
 	if rc, _, _ := run(t, p.Root, []string{"OBOR_ROLE=lead"}, "whoami", "--can-push"); rc != 0 {
 		t.Errorf("precondition: the listed lead may push: exit %d", rc)
 	}
 	if rc, _, _ := run(t, p.Root, []string{"OBOR_ROLE=ux_buddy"}, "whoami", "--can-push"); rc != 1 {
 		t.Errorf("a custom role listed in allow_push: whoami --can-push exit %d, want 1", rc)
 	}
-	p.Config(testkit.Set("roles.integrator", "opus"), testkit.Set("roles.researcher", "sonnet"))
+	p.Config(testkit.Set("agents.roles.integrator", "opus"), testkit.Set("agents.roles.researcher", "sonnet"))
 	if text, _ := whoamiIn(t, p.Root, "OBOR_ROLE=ux_buddy"); strings.Contains(text, "agent:") {
 		t.Errorf("row removed: %q, want no agent line", text)
 	}

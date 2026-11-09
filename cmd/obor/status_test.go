@@ -240,7 +240,7 @@ func TestStatusServeLine(t *testing.T) {
 // self-restart, and `running: nothing` when none is open.
 func TestStatusRunningLine(t *testing.T) {
 	p := testkit.NewPlain(t)
-	p.Config(testkit.Set("commands.check", "make -s check"), testkit.Set("commands.after_merge", "make build"),
+	p.Config(testkit.Set("merge.check", "make -s check"), testkit.Set("merge.after", "make build"),
 		testkit.Set("commands.check_affected", "make -s check-affected"))
 	now := time.Now().Truncate(time.Second)
 	for _, c := range []struct {
@@ -404,7 +404,7 @@ func TestStatusStoppedRole(t *testing.T) {
 func TestStatusStoppedRoleTextJSON(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)
-	p.Config(testkit.Set("roles.advisor", ""))
+	p.Config(testkit.Set("agents.roles.advisor", ""))
 	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
 	ss := wire.Status{Since: now.Add(-time.Hour).Format(time.RFC3339), Connected: true, Project: &wire.ProjectStatus{
 		Name: "proj", Root: p.Root, Merging: true, Agents: []wire.AgentStatus{}, Tasks: []wire.TaskStatus{},
@@ -513,7 +513,7 @@ func TestStatusAndStopCustomRole(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)
 	p.Write("docs/agents/designer.md", "# Role: designer\n")
-	p.Config(testkit.Set("roles.integrator", "opus"), testkit.Set("roles.designer", `{"model": "opus", "write": ["docs/design/"]}`))
+	p.Config(testkit.Set("agents.roles.integrator", "opus"), testkit.Set("agents.roles.designer", `{"model": "opus", "write": ["docs/design/"]}`))
 	now := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
 	ss := wire.Status{Since: now.Add(-time.Hour).Format(time.RFC3339), Connected: true, Project: &wire.ProjectStatus{
 		Name: "proj", Root: p.Root, Agents: []wire.AgentStatus{{Name: "pj-designer", Status: "working"}},
@@ -534,7 +534,7 @@ func TestStatusAndStopCustomRole(t *testing.T) {
 		t.Errorf("restart pj-designer --stop: exit %d\n%s---\n%s", rc, stdout, stderr)
 	}
 
-	p.Config(testkit.Set("roles.integrator", "opus")) // the row removed
+	p.Config(testkit.Set("agents.roles.integrator", "opus")) // the row removed
 	st, _ = statusOf(t, p, ss, nil, now)
 	if r := roleRowOf(t, st, "pj-designer"); r != nil {
 		t.Errorf("a removed custom role still has a row: %+v", r)

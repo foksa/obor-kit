@@ -146,7 +146,7 @@ func TestInitCachesThePluginKinds(t *testing.T) {
 	}
 
 	oc := testkit.New(t)
-	oc.Config(testkit.Set("roles.integrator", "deepseek"))
+	oc.Config(testkit.Set("agents.roles.integrator", "deepseek"))
 	// an opencode on PATH: else init sets the integrator to opus (no CLI to run it)
 	env, _, _ = initEnv(t, map[string]string{"opencode": "#!/bin/sh\necho 1.14.0\n"})
 	initIn(oc, env, "obor init with an OpenCode integrator")

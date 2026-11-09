@@ -117,12 +117,12 @@ func servedProject(t *testing.T, edits ...func(map[string]any)) *testkit.Project
 	t.Helper()
 	p := testkit.NewPlain(t)
 	p.PlainLane("L-01", "task/T-01")
-	p.Config(append([]func(map[string]any){testkit.Set("roles.integrator", "")}, edits...)...)
+	p.Config(append([]func(map[string]any){testkit.Set("agents.roles.integrator", "")}, edits...)...)
 	return p
 }
 
 // triageProject is a served project with roles.triage configured (axis-alies' shape): its triage agent is pj-triage.
 func triageProject(t *testing.T) *testkit.Project {
 	t.Helper()
-	return servedProject(t, testkit.Set("roles.triage", "opus"))
+	return servedProject(t, testkit.Set("agents.roles.triage", "opus"))
 }

@@ -23,7 +23,7 @@ import (
 func reviewFixture(t *testing.T) (p *testkit.Project, head string) {
 	t.Helper()
 	p = testkit.New(t)
-	p.Config(testkit.Set("roles.reviewer", ""))
+	p.Config(testkit.Set("agents.roles.reviewer", ""))
 	p.Write("BACKLOG.md", "# Backlog\n\n## Open\n- old line\n\n## Concerns\n")
 	p.Write(".gitignore", ".obor/state/\n")
 	p.Git(p.Root, "add", "BACKLOG.md", ".gitignore")
