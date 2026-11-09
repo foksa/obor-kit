@@ -136,10 +136,7 @@ type Command struct {
 	Cmd     string   `json:"cmd"`
 	Timeout int      `json:"timeout,omitempty"`
 	Heavy   bool     `json:"heavy,omitempty"` // takes a machine-wide check slot (obor run)
-	Dir     string   `json:"dir,omitempty"`
-	Paths   []string `json:"paths,omitzero"`
 	When    []string `json:"when,omitzero"`
-	At      string   `json:"at,omitempty"`
 }
 
 type command Command // Command without its JSON methods

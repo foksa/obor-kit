@@ -89,7 +89,7 @@ func (s Scratch) Test(ctx context.Context, in port.TestInput) (out port.TestOutc
 		}
 	}
 	r.releaseSlot()
-	checks := r.check + r.gate
+	checks := r.check
 	return port.TestOutcome{Kind: port.OutcomeGreen, Checks: checks,
 		Line: fmt.Sprintf("GREEN %s (%s, %s)", in.Task, checks, r.mode)}, nil
 }

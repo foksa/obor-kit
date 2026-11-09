@@ -185,6 +185,18 @@ func TestValidate(t *testing.T) {
 		// T-817: merge.nightly_commands names defined, non-gating commands.
 		{name: "nightly_commands fine", edits: []edit{set("commands.trim_cache", "true"),
 			set("merge.nightly_commands", []any{"trim_cache"})}},
+		// T-1083: baseline, gate and e2e are free command names again: set and not named where they still run, one WARN;
+		// named in merge.nightly_commands, none (nightly runs it there, T-817).
+		{name: "commands.e2e alone warns", edits: []edit{set("commands.e2e", "bun run e2e")},
+			want: []string{"WARN commands.e2e: obor no longer runs it at merge or nightly (v0.32); delete it, or name it in merge.classes checks or merge.nightly_commands"}},
+		{name: "commands.baseline alone warns", edits: []edit{set("commands.baseline", "bun run baseline")},
+			want: []string{"WARN commands.baseline: obor no longer runs it at merge or nightly (v0.32); delete it, or name it in merge.classes checks or merge.nightly_commands"}},
+		{name: "e2e in merge.nightly_commands does not warn", edits: []edit{set("commands.e2e", "bun run e2e"),
+			set("merge.nightly_commands", []any{"e2e"})}},
+		{name: "baseline in a class's checks does not warn", edits: []edit{set("commands.baseline", "bun run baseline"),
+			set("merge.classes", []any{map[string]any{"name": "ui", "paths": []any{"src/ui/**"}, "checks": []any{"baseline"}}})}},
+		{name: "gate as merge.guard does not warn", edits: []edit{set("commands.gate", "bun run gate"),
+			set("merge.guard", "gate")}},
 		{name: "nightly_commands empty", edits: []edit{set("merge.nightly_commands", []any{})}},
 		{name: "nightly_commands an unknown name", edits: []edit{set("merge.nightly_commands", []any{"ghost"})},
 			want: []string{"FAIL .merge.nightly_commands[0]: no commands.ghost: define it, or remove it"}},
@@ -395,6 +407,8 @@ func TestRemovedKeysWithinTwoVersions(t *testing.T) {
 	}{
 		{"paths.research", set("paths.research", `"docs/research"`), 0, 0},
 		{"paths.questions", set("paths.questions", `"QUESTIONS.md"`), 0, 0},
+		// T-1083: the three commands obor no longer runs by name.
+		{"commands.e2e", set("commands.e2e", `"bun run e2e"`), 32, 34},
 	} {
 		if r.removed > 0 {
 			if r.keepUntil != r.removed+2 {

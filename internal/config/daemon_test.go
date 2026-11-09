@@ -47,6 +47,17 @@ func TestLoadUnknownPaths(t *testing.T) {
 			},
 		},
 		{
+			// T-1083: dir, paths and at went with baseline and gate; a command keeps its cmd, the field is an unknown key.
+			name: "a removed command field under a free command name",
+			cfg:  `{"commands":{"gate":{"cmd":"x","paths":["src/**"]}}}`,
+			warn: []string{"commands.gate.paths"},
+			check: func(t *testing.T, c *Config) {
+				if cmd, ok := c.Command("gate"); !ok || cmd.Cmd != "x" {
+					t.Errorf("commands.gate = %+v, %v; want its cmd kept", cmd, ok)
+				}
+			},
+		},
+		{
 			name: "the same name in two models",
 			cfg:  `{"models":{"x":{"kind":"claude","bar":1},"y":{"kind":"codex","bar":2}}}`,
 			warn: []string{"models.x.bar", "models.y.bar"},

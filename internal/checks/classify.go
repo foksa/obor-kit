@@ -9,7 +9,7 @@ import (
 )
 
 // Class is a merge's check class (design "Change-based merge checks (v2.5)"): partial runs merge.guard plus each class's
-// checks (Names ["neutral"]: the guard only), full runs check (and baseline / gate at "merge") plus the checks of every
+// checks (Names ["neutral"]: the guard only), full runs check plus the checks of every
 // matched class marked with_full (T-1007).
 type Class struct {
 	Partial bool

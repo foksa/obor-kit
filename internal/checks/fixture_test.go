@@ -198,7 +198,7 @@ type fx struct {
 	scratch    string
 	slots      string
 	out        syncBuffer
-	env        []string       // project.Env (OBOR_GATE, OBOR_FULL)
+	env        []string       // project.Env (OBOR_FULL)
 	environ    []string       // more command environment
 	windowWait time.Duration  // > 0: the nightly lock's wait (T-864: no merge.window_wait key)
 	cand       port.Candidate // the last green gate's (gate)
@@ -246,10 +246,10 @@ func (x *fx) opts() Options {
 	if err != nil {
 		x.t.Fatal(err)
 	}
-	// Without what an obor merge running this test exports (CHECK_PRIORITY, CHECK_SLOT_HELD, OBOR_MERGE, OBOR_GATE):
+	// Without what an obor merge running this test exports (CHECK_PRIORITY, CHECK_SLOT_HELD, OBOR_MERGE):
 	// the fixture's commands would see the outer merge's.
 	environ := slices.DeleteFunc(os.Environ(), func(kv string) bool {
-		for _, k := range []string{"CHECK_PRIORITY=", "CHECK_SLOT_HELD=", "OBOR_MERGE=", "OBOR_GATE="} {
+		for _, k := range []string{"CHECK_PRIORITY=", "CHECK_SLOT_HELD=", "OBOR_MERGE="} {
 			if strings.HasPrefix(kv, k) {
 				return true
 			}

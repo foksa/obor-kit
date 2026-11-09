@@ -74,7 +74,7 @@ func TestLocalOverlay(t *testing.T) {
 		"commands":{"check":{"cmd":"make check","timeout":90}},
 		"merge":{"nightly_at":"03:00","classes":[{"name":"a","paths":["src/a/**"]}]}}`,
 		`{"merge":{"nightly_at":"02:00","classes":[{"name":"b","paths":["src/b/**"]}]},"done_file_sections":["X"],
-		"kinds":{"claude":{"args":["--y"]}},"lanes":2,"commands":{"check":{"dir":"sub"}},"lanes_dir":"/wt"}`)
+		"kinds":{"claude":{"args":["--y"]}},"lanes":2,"commands":{"check":{"heavy":true}},"lanes_dir":"/wt"}`)
 	if m := c.Data.Merge; m.NightlyAt != "02:00" {
 		t.Errorf("merge: objects merge key by key, got %+v", m)
 	}
@@ -87,7 +87,7 @@ func TestLocalOverlay(t *testing.T) {
 	if c.Data.Lanes.Count() != 2 || len(c.Lanes()) != 2 {
 		t.Errorf("local.json's lanes count replaces config.json's: %d", c.Data.Lanes.Count())
 	}
-	if cmd, ok := c.Command("check"); !ok || cmd.Cmd != "make check" || cmd.Timeout != 90 || cmd.Dir != "sub" {
+	if cmd, ok := c.Command("check"); !ok || cmd.Cmd != "make check" || cmd.Timeout != 90 || !cmd.Heavy {
 		t.Errorf("a command merges: %+v", cmd)
 	}
 	if got := c.Data.Merge.Classes; !reflect.DeepEqual(got, List[MergeClass]{{Name: "b", Paths: []string{"src/b/**"}}}) {

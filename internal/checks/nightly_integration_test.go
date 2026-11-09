@@ -15,9 +15,9 @@ import (
 	"time"
 )
 
-// logged is a command that logs "<name> <scratch HEAD> <CHECK_PRIORITY> <OBOR_GATE>" to <Base>/ran, then runs then.
+// logged is a command that logs "<name> <scratch HEAD> <CHECK_PRIORITY>" to <Base>/ran, then runs then.
 func logged(name, then string) string {
-	return fmt.Sprintf(`echo "%s $(git rev-parse HEAD) ${CHECK_PRIORITY:-none} ${OBOR_GATE:-0}" >> "$TMP_DIR/ran"; %s`, name, then)
+	return fmt.Sprintf(`echo "%s $(git rev-parse HEAD) ${CHECK_PRIORITY:-none}" >> "$TMP_DIR/ran"; %s`, name, then)
 }
 
 // nightly is a config edit: merge.nightly_commands is names, in order (T-817).
@@ -32,21 +32,17 @@ func TestNightly(t *testing.T) {
 		test func(t *testing.T)
 	}{
 		// bash nightly.test.sh case_green_all_commands
-		{"GREEN runs lane_setup, check, check_milestone, baseline, gate (forced), e2e at the head; state file; lock/slot released", func(t *testing.T) {
+		{"GREEN runs lane_setup, check, check_milestone at the head; state file; lock/slot released", func(t *testing.T) {
 			x := newFx(t, cmd("lane_setup", logged("lane_setup", "true")),
 				cmd("check", map[string]any{"cmd": logged("check", "echo 7 pass; echo 0 fail"), "timeout": 10}),
-				cmd("check_milestone", logged("check_milestone", "echo 30 pass")),
-				cmd("baseline", map[string]any{"cmd": logged("baseline", `test -d "$OBOR_BASELINE"`), "dir": "base"}),
-				cmd("gate", map[string]any{"cmd": logged("gate", "true"), "paths": []any{"src/ai/**"}}),
-				cmd("e2e", logged("e2e", "true")))
-			os.Mkdir(x.Path("base"), 0o755)
+				cmd("check_milestone", logged("check_milestone", "echo 30 pass")))
 			head := x.head(x.Root)
 			x.gone(x.nightlyDir(), "precondition: no worktree yet")
-			x.is(x.nightly(), OK, `^NIGHTLY GREEN `+head[:7]+` on main \(lane_setup rc=0, check 7 pass, 0 fail, check_milestone 30 pass, baseline rc=0, gate rc=0, e2e rc=0, [0-9]+s\)$`)
-			x.eq(x.Read(filepath.Join(x.Base, "ran")), strings.ReplaceAll("lane_setup H none 0\ncheck H merge 0\ncheck_milestone H merge 0\n"+
-				"baseline H merge 0\ngate H merge 1\ne2e H merge 0\n", "H", head), "every command once, in order, at the head; the gate forced")
+			x.is(x.nightly(), OK, `^NIGHTLY GREEN `+head[:7]+` on main \(lane_setup rc=0, check 7 pass, 0 fail, check_milestone 30 pass, [0-9]+s\)$`)
+			x.eq(x.Read(filepath.Join(x.Base, "ran")), strings.ReplaceAll("lane_setup H none\ncheck H merge\ncheck_milestone H merge\n", "H", head),
+				"every command once, in order, at the head")
 			state := x.Read(".obor/state/last-full-check")
-			x.match(state, `^`+head+` [0-9]+ GREEN lane_setup rc=0, check 7 pass, 0 fail, check_milestone 30 pass, baseline rc=0, gate rc=0, e2e rc=0, [0-9]+s\n$`, "state file")
+			x.match(state, `^`+head+` [0-9]+ GREEN lane_setup rc=0, check 7 pass, 0 fail, check_milestone 30 pass, [0-9]+s\n$`, "state file")
 			var epoch int64
 			fmt.Sscan(strings.Fields(state)[1], &epoch)
 			if time.Now().Unix()-epoch > 60 {
@@ -63,20 +59,20 @@ func TestNightly(t *testing.T) {
 		// bash case_red_runs_everything; new: failing tests and log paths in the RED line
 		{"RED keeps running the rest, details per failed command, failing tests and logs named, RED state file, exit 3", func(t *testing.T) {
 			x := newFx(t, cmd("check", logged("check", "echo 1 pass; echo 2 fail; echo Expected: 4; echo Received; exit 1")),
-				cmd("gate", logged("gate", "true")), cmd("e2e", logged("e2e", "seq 1 20; exit 5")))
+				cmd("check_milestone", logged("check_milestone", "seq 1 20; exit 5")))
 			head := x.head(x.Root)
 			logs := x.Path(".obor/state/logs/nightly-")
-			x.is(x.nightly(), Red, `^NIGHTLY RED `+head[:7]+` on main \(failed: check, e2e; check 1 pass, 2 fail, gate rc=0, e2e rc=5, [0-9]+s\) — `+
-				`check: failing: Expected: 4; log `+q(logs)+`check\.log \| e2e: log `+q(logs)+`e2e\.log$`)
+			x.is(x.nightly(), Red, `^NIGHTLY RED `+head[:7]+` on main \(failed: check, check_milestone; check 1 pass, 2 fail, check_milestone rc=5, [0-9]+s\) — `+
+				`check: failing: Expected: 4; log `+q(logs)+`check\.log \| check_milestone: log `+q(logs)+`check_milestone\.log$`)
 			ran := x.Read(filepath.Join(x.Base, "ran"))
-			x.eq(fmt.Sprint(strings.Count(ran, "\n")), "3", "non-blocking: all three ran")
+			x.eq(fmt.Sprint(strings.Count(ran, "\n")), "2", "non-blocking: both ran")
 			out := x.out.String()
 			x.contains(out, "--- check (rc 1)\nExpected: 4\n", "check details")
 			x.lacks(out, "Received", "only fail_grep lines")
-			x.contains(out, "--- e2e (rc 5)\n6\n7\n", "e2e: its last 15 lines")
-			x.lacks(out, "\n5\n", "e2e: not more")
+			x.contains(out, "--- check_milestone (rc 5)\n6\n7\n", "check_milestone: its last 15 lines")
+			x.lacks(out, "\n5\n", "check_milestone: not more")
 			x.contains(x.Read(logs+"check.log"), "Received", "full log kept")
-			x.match(x.Read(".obor/state/last-full-check"), `^`+head+` [0-9]+ RED failed: check, e2e; check 1 pass, 2 fail, gate rc=0, e2e rc=5, [0-9]+s\n$`, "state file")
+			x.match(x.Read(".obor/state/last-full-check"), `^`+head+` [0-9]+ RED failed: check, check_milestone; check 1 pass, 2 fail, check_milestone rc=5, [0-9]+s\n$`, "state file")
 			x.gone(x.window(), "lock released")
 		}},
 		// T-805: a passing conformance run's skips and warns are in the report (RV-103 #1: herdr missing from
@@ -143,7 +139,7 @@ func TestNightly(t *testing.T) {
 			x.Git(x.Root, "commit", "-q", "-m", "milestone work")
 			head := x.head(x.Root)
 			x.is(x.nightly(), OK, `^NIGHTLY GREEN `+head[:7]+` on ms/m1 `)
-			x.eq(x.Read(filepath.Join(x.Base, "ran")), "check "+head+" merge 0\n", "ran at the head, junk cleaned")
+			x.eq(x.Read(filepath.Join(x.Base, "ran")), "check "+head+" merge\n", "ran at the head, junk cleaned")
 		}},
 		// bash case_live_lock_waits_then_fails
 		{"a live nightly lock → waits (line), FAIL after its wait, nothing run", func(t *testing.T) {
@@ -180,7 +176,7 @@ func TestNightly(t *testing.T) {
 			held := x.head(x.scratch)
 			head := x.head(x.Root)
 			x.is(x.nightly(), OK, `^NIGHTLY GREEN `+head[:7]+` on main `)
-			x.eq(x.Read(filepath.Join(x.Base, "ran")), "check "+head+" merge 0\n", "ran at the head")
+			x.eq(x.Read(filepath.Join(x.Base, "ran")), "check "+head+" merge\n", "ran at the head")
 			x.eq(x.head(x.scratch), held, "serve's worktree untouched")
 			x.eq(x.head(x.nightlyDir()), head, "nightly's worktree reset")
 		}},
@@ -227,7 +223,7 @@ func TestNightlyCommands(t *testing.T) {
 				cmd("slow_b", logged("slow_b", `echo "FAIL b-1 a method is gone"; echo "0 pass, 1 fail"; exit 1`)))
 			head := x.head(x.Root)
 			x.is(x.nightly(), OK, `^NIGHTLY GREEN `+head[:7]+` on main \(slow_a \(non-gating\) 2 pass, WARN slow_b \(rc 1, non-gating\): 0 pass, 1 fail, [0-9]+s\)$`)
-			x.eq(x.Read(filepath.Join(x.Base, "ran")), strings.ReplaceAll("slow_a H merge 0\nslow_b H merge 0\n", "H", head),
+			x.eq(x.Read(filepath.Join(x.Base, "ran")), strings.ReplaceAll("slow_a H merge\nslow_b H merge\n", "H", head),
 				"both ran once, in order, at the head, under the check slot")
 			x.contains(x.out.String(), "--- slow_a (non-gating)\nSKIP S-1 herdr is not installed\nWARN S-2 herdr is newer\n", "slow_a's notes")
 			x.contains(x.out.String(), "--- slow_b (non-gating)\nFAIL b-1 a method is gone\n", "slow_b's notes")

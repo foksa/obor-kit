@@ -37,7 +37,7 @@ const (
 // Options is what a run needs from its caller.
 type Options struct {
 	Cfg         *config.Config
-	Env         project.Env // OBOR_GATE, OBOR_FULL, the slot settings
+	Env         project.Env // OBOR_FULL, the slot settings
 	Environ     []string    // the base environment of git and the commands
 	Out         io.Writer   // progress and detail lines (the result line is the caller's to print)
 	PID         int         // this process (lock, slot and op record holder)
