@@ -273,6 +273,10 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	s.say("detected: %s", s.detectedLine())
 	s.say("commands.check is what every merge must pass, keep it to a few minutes; slower tests go in check_milestone " +
 		"(the nightly), and obor nightly off if CI on main already does that")
+	// T-1115: obor's lane and merge commits pass --no-verify (internal/checks/gitio.go:Commit), so an adopter's hooks
+	// never run on them.
+	s.say("obor commits with --no-verify: your pre-commit and commit-msg hooks do not run on them; put formatting " +
+		"and secret scans in commands.check (the merge check)")
 	s.say("change any of it in .obor/config.json (then obor init again, or obor setup lane / pane / role)")
 	if len(waiting) > 0 {
 		s.say("waiting on a \"Trust this folder?\" dialog: %s: press Enter in each, then obor init again",

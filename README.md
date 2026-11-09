@@ -62,6 +62,9 @@ obor init       # the plugin, the git hooks, .obor/config.json, lane worktrees, 
 `obor serve` launchd agent, then prints each step and the file to change (`.obor/config.json`). Run it once on a
 machine with `claude` on PATH. With no pane of the project open yet, init creates a herdr workspace for it.
 
+obor commits with `--no-verify`, so your own pre-commit and commit-msg hooks never run on its lane and merge commits:
+put formatting and secret scans in `commands.check` (the merge check) instead.
+
 After that:
 
 ```sh
