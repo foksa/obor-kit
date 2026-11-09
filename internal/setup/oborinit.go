@@ -29,8 +29,8 @@ package setup
 //	plugin     claude plugin marketplace add <kit>, claude plugin install obor@<the kit's marketplace> --scope
 //	           project (exit codes only, under a timeout); skipped when the project's settings enable it. Before the
 //	           panes: an agent started without the plugin runs without obor's hooks and MCP tools.
-//	events     obor.events linked in herdr (setup herdr-plugin, no question); herdr's plugin list read once, and a
-//	           list error fails the step with herdr's error.
+//	events     gone (T-1117): obor serve restarts its own panes, so init only removes the obor.events plugin an older
+//	           obor linked in herdr (setup herdr-plugin, once): a list error is a WARN, not a step, and never a FAIL.
 //	panes      L-01 in a new tab "workers", L-02 and the integrator beside it (the integrator in the caller's tab when
 //	           that is the project's, T-628), the reviewer in a new tab "review". A pane held by a trust dialog is
 //	           listed, not fatal: Enter there, then obor init again.
@@ -241,12 +241,11 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	}
 	add("plugin-links", state, "%s", what)
 
-	// events: the terminal's integration (herdr: obor.events)
-	in, err := s.integrate(ctx)
-	if err != nil {
-		return err
+	// The obor.events plugin an older obor linked is gone (T-1117: serve restarts its own panes): one removal, best
+	// effort, so a herdr that cannot list its plugins never fails the project's setup; its hint goes to the summary.
+	if _, err := s.removeIntegration(ctx); err != nil {
+		s.say("WARN events: %v", err)
 	}
-	add("events", doneOr(in.Changed), "%s", in.What)
 
 	// panes
 	waiting, err := s.initPanes(ctx, add)

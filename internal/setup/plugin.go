@@ -152,23 +152,27 @@ func hooksLine(root string) string {
 	return line
 }
 
-// herdrPlugin is `obor setup herdr-plugin`: the terminal's integration (port.TerminalSetup.Integrate; herdr: the
-// obor.events plugin linked from the kit), its lines, then its hint.
+// herdrPlugin is `obor setup herdr-plugin`: removes the obor.events plugin an older obor linked (T-1117:
+// port.TerminalSetup.RemoveIntegration; obor serve restarts its own panes), its lines, then its hint.
 func (s *Setup) herdrPlugin(ctx context.Context, args []string) error {
 	if len(args) > 0 {
 		return errUsage
 	}
-	if _, err := s.integrate(ctx); err != nil {
+	in, err := s.removeIntegration(ctx)
+	if err != nil {
 		return err
+	}
+	if !in.Changed {
+		s.say("herdr-plugin: %s", in.What)
 	}
 	s.say("OK herdr-plugin")
 	return nil
 }
 
-// integrate installs the terminal's integration (user-global, once per user) and says its lines; its hint goes to
-// obor init's summary when init runs, else it is said after them, also when the install failed.
-func (s *Setup) integrate(ctx context.Context) (port.Integration, error) {
-	in, err := s.T.Integrate(ctx, s.Kit, func(line string) { s.say("%s", line) })
+// removeIntegration removes what an older obor installed in the terminal (user-global, once per user) and says its
+// lines; its hint goes to obor init's summary when init runs, else it is said after them, also when the removal failed.
+func (s *Setup) removeIntegration(ctx context.Context) (port.Integration, error) {
+	in, err := s.T.RemoveIntegration(ctx, func(line string) { s.say("%s", line) })
 	switch {
 	case in.Hint == "":
 	case s.hints != nil:

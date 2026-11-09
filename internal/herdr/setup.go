@@ -1,8 +1,8 @@
 package herdr
 
 // setup.go: port.TerminalSetup over herdr (T-1044). What obor setup and obor init ask of the terminal in neutral terms
-// (a pane for a role near something, the terminal's integration, a project rename) is laid out here in herdr's: tabs,
-// workspaces, splits, the obor.events plugin and the workspace label.
+// (a pane for a role near something, the removal of an older obor's integration, a project rename) is laid out here in
+// herdr's: tabs, workspaces, splits, the workspace label, and the unlink of the obor.events plugin (T-1117).
 
 import (
 	"bufio"
@@ -278,78 +278,45 @@ func (h *Setup) split(ctx context.Context, panes []Pane, p port.Placement, tab s
 	return pane, nil
 }
 
-// --- integration: the obor.events plugin (R-28 §3) ---------------------------------------------------------------
+// --- integration removed: the obor.events plugin (R-28 §3, T-1117) ----------------------------------------------
 
-// oborPlugin is the id of obor's herdr plugin.
+// oborPlugin is the id of the herdr plugin an obor before T-1117 linked to restore panes after a herdr restart.
 const oborPlugin = "obor.events"
 
-// Integrate is obor.events in herdr (user-global, once per user), linked from <kit>/herdr-plugin directly (herdr keeps
-// the path resolved at link time, so a symlink in between buys nothing): not linked → link; another kit's copy →
-// re-link. herdr's plugin list is read once (T-613 #4: a list error is the step's error, never "linked"). Then herdr's
-// resume setting: Hint is the one line to add unless herdr's config sets it, also when the link failed.
-func (h *Setup) Integrate(ctx context.Context, kit string, out func(string)) (port.Integration, error) {
-	mine := filepath.Join(kit, "herdr-plugin")
-	if fi, err := os.Stat(filepath.Join(mine, "herdr-plugin.toml")); err != nil || !fi.Mode().IsRegular() {
-		out("WARN herdr-plugin: no herdr plugin in " + mine)
-		return port.Integration{}, project.Failf("herdr-plugin")
-	}
+// RemoveIntegration removes the obor.events plugin from herdr (user-global, once per user): obor serve restarts its
+// own panes since T-1051, so the plugin is a second restore path no more. herdr's plugin list is read once (T-613 #4:
+// a list error is the call's error, never "not linked"); a listed plugin → unlink. Then herdr's resume setting: Hint
+// is the one line to add unless herdr's config sets it, also when the unlink failed.
+func (h *Setup) RemoveIntegration(ctx context.Context, out func(string)) (port.Integration, error) {
+	in := port.Integration{Hint: h.resumeHint()}
 	plugins, err := h.Plugins(ctx)
 	if err != nil {
-		return port.Integration{}, project.Failf("cannot read herdr's plugin list: %v", err)
+		return in, project.Failf("cannot read herdr's plugin list: %v", err)
 	}
-	in := port.Integration{Changed: !eventsLinked(mine, plugins), What: oborPlugin + " linked in herdr (user-global)"}
-	err = h.link(ctx, mine, plugins, out)
-	in.Hint = h.resumeHint()
-	return in, err
-}
-
-// link links mine as obor.events unless herdr runs it already; another kit's copy is unlinked first.
-func (h *Setup) link(ctx context.Context, mine string, plugins []Plugin, out func(string)) error {
-	if eventsLinked(mine, plugins) {
-		out("herdr-plugin: " + oborPlugin + " linked (" + mine + ")")
-		return nil
-	}
-	root, linked := "", false
 	for _, p := range plugins {
-		if p.ID == oborPlugin {
-			root, linked = p.Root, true
+		if p.ID != oborPlugin {
+			continue
 		}
-	}
-	if linked {
 		if err := h.UnlinkPlugin(ctx, oborPlugin); err != nil {
 			out(fmt.Sprintf("WARN herdr-plugin: %v", err))
-			return project.Failf("herdr-plugin")
+			return in, project.Failf("herdr-plugin")
 		}
-	}
-	if err := h.LinkPlugin(ctx, mine); err != nil {
-		out(fmt.Sprintf("WARN herdr-plugin: %v", err))
-		return project.Failf("herdr-plugin")
-	}
-	if linked {
-		out(fmt.Sprintf("herdr-plugin: %s re-linked to %s (was %s; user-global: every project's restores run it)",
-			oborPlugin, mine, root))
-	} else {
-		out(fmt.Sprintf("herdr-plugin: %s linked to %s (user-global: obor restarts its panes after a herdr session restore)",
-			oborPlugin, mine))
-	}
-	return nil
-}
-
-// eventsLinked: herdr runs this kit's obor.events (mine is its herdr-plugin dir; a plugin with no root counts: herdr
-// did not say where it is).
-func eventsLinked(mine string, plugins []Plugin) bool {
-	physical := project.Physical(mine)
-	for _, p := range plugins {
-		if p.ID == oborPlugin && (p.Root == "" || project.Physical(p.Root) == physical) {
-			return true
+		root := p.Root
+		if root == "" {
+			root = "an unknown directory"
 		}
+		in.Changed = true
+		in.What = fmt.Sprintf("%s unlinked (was %s; obor serve restarts its own panes now)", oborPlugin, root)
+		out("herdr-plugin: " + in.What)
+		return in, nil
 	}
-	return false
+	in.What = oborPlugin + " is not linked"
+	return in, nil
 }
 
 var resumeRE = regexp.MustCompile(`^\s*resume_agents_on_restore\s*=\s*([^#\s]*)`)
 
-// resumeHint: obor's startup hook restarts obor panes itself, so herdr must not resume agents on a restore (R-28 §1,
+// resumeHint: obor serve restarts obor's panes itself, so herdr must not resume agents on a restore (R-28 §1,
 // T-159). Unless herdr's config.toml ($HERDR_CONFIG_PATH, else ~/.config/herdr/config.toml) sets `[session]
 // resume_agents_on_restore = false`: the one line to add, saying it is user-global (RV-18 #3); "" when it is set.
 // Never edited.

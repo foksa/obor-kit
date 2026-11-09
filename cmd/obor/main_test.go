@@ -53,6 +53,17 @@ func TestMain(m *testing.M) {
 
 func build(t *testing.T) string { return oborBin }
 
+// waitFor polls cond for up to a minute. Detached commands and herdr over a socket are slow on a loaded machine: the
+// gate's parallel packages took one past 15 s (T-960's check).
+func waitFor(cond func() bool) bool {
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		if cond() {
+			return true
+		}
+	}
+	return cond()
+}
+
 // callDown is the environment of a call to a serve that is not running: every deadline is 0.2 s, so the call's
 // retries end at once (T-685), not after the deadline table's 15 s.
 const callDown = "OBOR_CALL_DEADLINE=0.2"
@@ -152,6 +163,7 @@ func TestHas(t *testing.T) {
 		{[]string{"has", "send"}, 0}, {[]string{"has", "brief"}, 0}, {[]string{"has", "tell"}, 1}, {[]string{"has", "inbox"}, 1},
 		{[]string{"has", "flakes"}, 0},
 		{[]string{"has", "monitor"}, 1}, {[]string{"has", "setup", "monitor"}, 1}, // T-846: obor monitor is unknown now; the setup step went with T-776
+		{[]string{"has", "plugin"}, 1}, {[]string{"has", "plugin", "restore"}, 1}, // T-1117: the herdr plugin's command went
 		{[]string{"has", "setup", "migrate"}, 1}, // T-789: the one-time migration code lived one release
 		{[]string{"has", "merge"}, 1},            // T-409: obor serve merges
 		{[]string{"has", "hook", "no-such"}, 1}, {[]string{"has", "no-such"}, 1}, {[]string{"has", "status", "x"}, 1},

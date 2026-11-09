@@ -16,6 +16,7 @@ import (
 
 	"obor/internal/config"
 	"obor/internal/herdr"
+	"obor/internal/herdr/herdrtest"
 	"obor/internal/project"
 )
 
@@ -103,8 +104,8 @@ func TestOborInitEndsWithTheSetupTable(t *testing.T) {
 
 // One run sets the whole project up: config (name, prefix), L-01 opus and L-02 sonnet with worktrees, the lead and the
 // integrator opus and (codex on PATH) the example's Codex reviewer, the plugin installed from the kit's marketplace,
-// obor.events linked, four agents in their tabs, serve installed; the summary says each step done, then next: obor
-// lead.
+// no herdr plugin linked (T-1117), four agents in their tabs, serve installed; the summary says each step done, then
+// next: obor lead.
 func TestOborInitSetsUpTheProject(t *testing.T) {
 	t.Parallel()
 	x := newGitInitFx(t, true)
@@ -165,8 +166,13 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 	if got := x.claudeCalls(); got != want {
 		t.Errorf("claude calls:\n%s\nwant:\n%s", got, want)
 	}
-	if len(x.h.Plugins) != 1 || x.h.Plugins[0].ID != "obor.events" {
-		t.Errorf("herdr plugins: %+v", x.h.Plugins)
+	if len(x.h.Plugins) != 0 {
+		t.Errorf("herdr plugins: %+v, want none (T-1117: serve restarts the panes)", x.h.Plugins)
+	}
+	for _, q := range x.reqs() {
+		if strings.HasPrefix(q, "plugin.link") {
+			t.Errorf("init linked a herdr plugin: %s", q)
+		}
 	}
 	// The fake numbers a new tab's pane n<k> and the tab t<k>.
 	// T-705: the worker lanes' panes are labelled and hold no agent (dispatch starts one); role panes run theirs.
@@ -221,15 +227,18 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 		t.Errorf("init touched a monitor pane:\n%s", reqs)
 	}
 	if n := strings.Count(strings.Join(x.reqs(), "\n"), "plugin.list"); n != 1 {
-		t.Errorf("plugin.list read %d times, want once for the events step (T-613)", n)
+		t.Errorf("plugin.list read %d times, want once for the old plugin's removal (T-1117)", n)
 	}
 	if x.serves != 1 {
 		t.Errorf("serve install called %d times", x.serves)
 	}
-	for _, st := range []string{"project", "lanes", "plugin", "events", "L-01", "L-02", "integrator", "reviewer", "serve"} {
+	for _, st := range []string{"project", "lanes", "plugin", "L-01", "L-02", "integrator", "reviewer", "serve"} {
 		if stateOf(out, st) != "done" {
 			t.Errorf("step %s: %q, want done\n%s", st, summary(out, st), out)
 		}
+	}
+	if summary(out, "events") != "" {
+		t.Errorf("events step %q, want none (T-1117: it only removes the old plugin, without a step)", summary(out, "events"))
 	}
 	if stateOf(out, "commands") != "skipped" {
 		t.Errorf("commands with no build files: %q", summary(out, "commands"))
@@ -606,30 +615,53 @@ func (x *initFx) editConfig(t *testing.T, key []string, val any) {
 	x.Write(".obor/config.json", string(doc))
 }
 
-// T-613 #4: herdr cannot list its plugins: the events step fails with herdr's error (never "linked"), it reads the list
-// once, and init stops before the panes.
-func TestOborInitFailsWhenHerdrCannotListPlugins(t *testing.T) {
+// T-613 #4, T-1117: herdr cannot list its plugins. The removal of the obor.events plugin an older obor linked is best
+// effort: init reads the list once, says a WARN and sets the project up all the same, linking and unlinking nothing.
+func TestOborInitWarnsWhenHerdrCannotListPlugins(t *testing.T) {
 	t.Parallel()
 	x := newGitInitFx(t, true)
+	old := x.Path("old-kit/herdr-plugin")
+	x.h.Plugins = []herdrtest.Plugin{{ID: "obor.events", Root: old}}
 	x.srv.Fail("plugin.list", "internal", "boom")
-	x.failing(t, "FAIL cannot read herdr's plugin list: herdr plugin.list: failed: boom (internal)", "obor-init")
+	out := x.init(t)
+	has(t, out, "WARN events: cannot read herdr's plugin list: herdr plugin.list: failed: boom (internal)", "the list error said")
 	var lists int
 	for _, r := range x.reqs() {
 		if strings.HasPrefix(r, "plugin.list") {
 			lists++
 		}
-		for _, m := range []string{"agent.start", "pane.split", "tab.create", "plugin.link", "plugin.unlink"} {
+		for _, m := range []string{"plugin.link", "plugin.unlink"} {
 			if strings.HasPrefix(r, m) {
-				t.Errorf("init sent %s after the FAIL", r)
+				t.Errorf("init sent %s although it could not list herdr's plugins", r)
 			}
 		}
 	}
 	if lists != 1 {
 		t.Errorf("plugin.list read %d times, want once", lists)
 	}
-	if len(x.h.Plugins) != 0 || x.serves != 0 {
-		t.Errorf("plugins %v, serve installs %d after the FAIL", x.h.Plugins, x.serves)
+	if len(x.h.Plugins) != 1 || x.h.Plugins[0].ID != "obor.events" {
+		t.Errorf("plugins %v after the WARN, want the old link left", x.h.Plugins)
 	}
+	if x.serves != 1 || len(x.agents(t)) != 0 {
+		t.Errorf("the project is set up (serve installs %d, agents %v) despite the WARN", x.serves, x.agents(t))
+	}
+	has(t, out, "hint: obor restarts its panes after a herdr restart: set resume_agents_on_restore = false", "the herdr hint")
+}
+
+// T-1117: the obor.events plugin an older obor linked is removed by the init that upgrades the project: one unlink,
+// never a link.
+func TestOborInitRemovesTheOldHerdrPlugin(t *testing.T) {
+	t.Parallel()
+	x := newGitInitFx(t, true)
+	old := x.Path("old-kit/herdr-plugin")
+	x.h.Plugins = []herdrtest.Plugin{{ID: "obor.events", Root: old}}
+	out := x.init(t)
+	has(t, strings.Join(x.reqs(), "\n"), "plugin.unlink plugin_id=obor.events", "the old plugin unlinked")
+	has(t, out, "herdr-plugin: obor.events unlinked (was "+old+"; obor serve restarts its own panes now)", "unlinked said")
+	if len(x.h.Plugins) != 0 {
+		t.Errorf("herdr plugins after init: %+v, want none", x.h.Plugins)
+	}
+	hasNot(t, strings.Join(x.reqs(), "\n"), "plugin.link", "init never links it")
 }
 
 // no codex on PATH: the reviewer is opus (the example's reviewer is a Codex type), the summary says so.

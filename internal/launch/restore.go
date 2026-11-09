@@ -1,16 +1,14 @@
 package launch
 
-// The restore after the terminal restarts, two triggers (T-1051): obor serve, once its subscription is back from a
-// lost terminal connection (port.Restorer: its own project), and the obor.events herdr plugin where it is linked, a
-// faster trigger (`obor plugin restore`: every project; design "herdr integration"; T-470: package plugin moved
-// here). herdr runs the manifest's command from the plugin directory; the command backgrounds the work at once
-// (cmd/obor), so herdr never waits on it. It acts only on panes whose label is an agent of an obor project (R-28 §2:
-// obor setup and obor restart label the pane): the main checkout of the pane cwd's repository, when its config knows
-// the label. Anything else (no label, no git, no .obor/config.json, a label the project has no agent for) is silent.
+// The restore after the terminal restarts (T-1051): obor serve, once its subscription is back from a lost terminal
+// connection, restarts its project's panes (port.Restorer). It acts only on panes whose label is an agent of the obor
+// project they work in (R-28 §2: obor setup and obor restart label the pane): the main checkout of the pane cwd's
+// repository, when its config knows the label. Anything else (no label, no git, no .obor/config.json, a label the
+// project has no agent for, another project's pane) is silent.
 //
 // After herdr restores a session (with [session] resume_agents_on_restore = false obor panes come back as shells):
 // each labelled obor pane that runs no agent is restarted with obor restart, one at a time (a project's under its
-// restore lock: the two triggers' runs restart a pane at most once), each bounded by
+// restore lock, so a reconnect during a run restarts a pane at most once), each bounded by
 // OBOR_RESTORE_TIMEOUT (s, default 120). Skipped, with a log line: a pane that runs an agent, and the worker of a free
 // (or dirty-free) lane (obor dispatch starts it, T-169). A pane with no recorded
 // session (serve's store, T-583) or a kind that resumes nothing starts --fresh (RV-18 #3, T-627: a role pane started
@@ -41,7 +39,7 @@ const restoreKeep = 200
 // panesTimeout bounds the hook's one pane list.
 const panesTimeout = 5 * time.Second
 
-// Restorer is the restore hook's world: the environment, the panes and the clock.
+// Restorer is serve's restore's world: the environment, the panes and the clock.
 type Restorer struct {
 	Env project.Env
 	H   port.PaneControl // only its Panes
@@ -82,48 +80,38 @@ func RestoreLog(env project.Env) string {
 	return filepath.Join(project.StateHome(env), "restore.log")
 }
 
-// Restore restarts the labelled obor panes herdr's pane list shows without an agent, every project's (the plugin's
-// run): project by project, in the order the list first shows each.
-func (p *Restorer) Restore(ctx context.Context) { p.restore(ctx, "") }
-
-var _ port.Restorer = (*Restorer)(nil)
-
-// RestoreProject is Restore for the project at root alone (serve's run after its terminal connection came back,
-// T-1051).
+// RestoreProject restarts the labelled panes of the obor project at root that herdr's pane list shows without an
+// agent (serve's run after its terminal connection came back, T-1051). Another project's panes are its serve's.
 func (p *Restorer) RestoreProject(ctx context.Context, root string) {
-	p.restore(ctx, filepath.Clean(root))
-}
-
-// RestoreLock is a project's restore lock, <state>/restore.lock: held while one run restores the project's panes, so
-// a second trigger's run (the plugin's and serve's after one herdr restart) waits, then reads the panes again and
-// finds each restarted pane running its agent (skipped): no pane is restarted twice.
-func RestoreLock(root string) *project.Lock {
-	return project.NewLock(filepath.Join(project.StateDir(root), "restore.lock"))
-}
-
-// restore is Restore over the projects whose root is only ("": every project).
-func (p *Restorer) restore(ctx context.Context, only string) {
+	root = filepath.Clean(root)
 	panes, ok := p.panes(ctx)
 	if !ok {
 		return
 	}
-	var roots []string
-	seen := map[string]bool{}
+	found := false
 	for _, pane := range panes {
-		cfg, ok := oborPane(pane)
-		if !ok || only != "" && filepath.Clean(cfg.Root) != only || seen[cfg.Root] {
-			continue
+		if cfg, ok := oborPane(pane); ok && filepath.Clean(cfg.Root) == root {
+			found = true
+			break
 		}
-		seen[cfg.Root] = true
-		roots = append(roots, cfg.Root)
+	}
+	if !found {
+		return
 	}
 	limit := 120 * time.Second
 	if n, err := strconv.Atoi(p.Env.Get("OBOR_RESTORE_TIMEOUT")); err == nil && n > 0 {
 		limit = time.Duration(n) * time.Second
 	}
-	for _, root := range roots {
-		p.restoreRoot(ctx, root, limit)
-	}
+	p.restoreRoot(ctx, root, limit)
+}
+
+var _ port.Restorer = (*Restorer)(nil)
+
+// RestoreLock is a project's restore lock, <state>/restore.lock: held while one run restores the project's panes, so
+// a reconnect's run that starts meanwhile waits, then reads the panes again and finds each restarted pane running its
+// agent (skipped): no pane is restarted twice.
+func RestoreLock(root string) *project.Lock {
+	return project.NewLock(filepath.Join(project.StateDir(root), "restore.lock"))
 }
 
 // restoreRoot restores the project at root's panes under its restore lock, from a pane list read once the lock is
