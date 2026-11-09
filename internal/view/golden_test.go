@@ -111,9 +111,10 @@ func TestWordedRecordsGolden(t *testing.T) {
 	if !ok {
 		t.Fatal("T-1 has no page")
 	}
-	fmt.Fprintf(&b, "lane %q agent %q report %q gate %q rev %d\n", td.Lane, td.Agent, td.Report, td.GateLine, td.GatedRev)
+	fmt.Fprintf(&b, "lane %q agent %q report %q gate %q pass %v rev %d\n", td.Lane, td.Agent, td.Report, td.GateLine,
+		td.GatePass, td.GatedRev)
 	for _, r := range td.Records {
-		fmt.Fprintf(&b, "%d %s %s %q\n", r.Seq, r.Kind, r.Step, r.Line)
+		fmt.Fprintf(&b, "%d %s %s pass=%v %q\n", r.Seq, r.Kind, r.Step, r.Pass, r.Line)
 	}
 	b.WriteString("# agent pj-l-01\n")
 	ad, ok := Detail{Root: root}.Agent("pj-l-01")

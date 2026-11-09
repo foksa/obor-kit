@@ -29,6 +29,12 @@ export function stageOf(t: { phase?: string; step?: number } | undefined, record
   return { i: t?.step ?? 0, tone: st ? tone(st) : "idle", state: st || (records.length ? "ended" : "") };
 }
 
+// gateOf is a task's last gate as its card shows it (T-1105): the view's gate_pass and gate_line, never the line's
+// wording.
+export function gateOf(t: { gate_pass?: boolean; gate_line?: string } | null | undefined): { pass: boolean; line: string } {
+  return { pass: t?.gate_pass === true, line: t?.gate_line || "" };
+}
+
 // milestone is a record as one line of the task's timeline (null: bookkeeping a person need not read).
 export function milestone(rec: TaskRecord): { tone: Tone; line: string } | null {
   const base = rec.step.replace(/\.\d+$/, "");
@@ -48,7 +54,7 @@ export function milestone(rec: TaskRecord): { tone: Tone; line: string } | null 
     return rec.line ? m("idle", rec.line) : null;
   }
   if (rec.kind !== "result") return null;
-  if (base === "gate") return m(rec.outcome === "green" ? "ok" : "bad", rec.line || "gate");
+  if (base === "gate") return m(rec.pass ? "ok" : "bad", rec.line || "gate");
   if (method === "accept") return m("ok", "accepted");
   if (method === "sendback") return m("wait", rec.line || "sent back");
   if (base === "review" || base === "resolve") return m("idle", base === "review" ? "review job sent" : "resolve job sent");

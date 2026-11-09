@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { milestone, stageOf, taskOf } from "./stages";
+import { gateOf, milestone, stageOf, taskOf } from "./stages";
 
-const rec = (step: string, kind: string, line = "", outcome = "") => ({ seq: 1, ts: "", step, kind, line, outcome });
+const rec = (step: string, kind: string, line = "", outcome = "", pass = false) =>
+  ({ seq: 1, ts: "", step, kind, line, outcome, pass });
 
 describe("a task's stage", () => {
   // T-883: the view places the task (Task.step, wire.PhaseStep of serve's phase, T-788); the stepper shows that step.
@@ -34,8 +35,16 @@ describe("a task's stage", () => {
   });
   it("words records for the timeline and skips bookkeeping", () => {
     expect(milestone(rec("delivered", "fact"))?.line).toBe("job fetched by its agent");
-    expect(milestone(rec("gate.2", "result", "gate T-1 pass (GREEN)", "green"))?.tone).toBe("ok");
-    expect(milestone(rec("gate.2", "result", "gate T-1 fail (passes 3 pass )", "red"))?.tone).toBe("bad"); // the outcome, never the wording
+    expect(milestone(rec("gate.2", "result", "gate T-1 pass (GREEN)", "green", true))?.tone).toBe("ok");
+    expect(milestone(rec("gate.2", "result", "gate T-1 fail (passes 3 pass )", "red"))?.tone).toBe("bad"); // the view's pass, never the wording
+    expect(milestone(rec("gate.2", "result", "check 3 pass, 1 fail"))?.tone).toBe("bad"); // nor the outcome's
     expect(milestone(rec("work.1", "intent"))).toBeNull();
+  });
+  // T-1105: the last gate's card follows the view's gate_pass, even when its line does not start with GREEN.
+  it("shows the last gate from the view's gate_pass, with a line that does not start with GREEN", () => {
+    const line = "check 25 pass, 0 fail";
+    expect(gateOf({ gate_pass: true, gate_line: line })).toEqual({ pass: true, line });
+    expect(gateOf({ gate_pass: false, gate_line: line })).toEqual({ pass: false, line });
+    expect(gateOf(undefined)).toEqual({ pass: false, line: "" });
   });
 });
