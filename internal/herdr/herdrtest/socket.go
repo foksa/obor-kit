@@ -23,7 +23,7 @@ import (
 // pane.wait_for_output, pane.layout and pane.read from F's panes, plays agent.prompt and agent.send_keys on them
 // (Pane.OnPrompt, Prompts, Draft, Submitted, OnEnter; a "fail-typed" prompt is typed, then its connection drops
 // unanswered; OnEnter "fail" refuses an Enter), pane.send_input, pane.send_keys, pane.rename, agent.rename,
-// agent.start, pane.split, tab.create, tab.list, plugin.list, plugin.link and plugin.unlink on F's Plugins,
+// agent.start, pane.split, tab.create, tab.list, plugin.list and plugin.unlink on F's Plugins,
 // notification.show, and takes events.subscribe (a pane_id that F has not is pane_not_found); every other method
 // answers what Reply, Fail or Once scripted (a scripted failure comes first, then a scripted answer).
 // Push sends an event to the connections subscribed to it, PushError an error line to every subscribed connection.
@@ -897,18 +897,13 @@ func (s *Server) answer(c *conn, method string, params json.RawMessage) (map[str
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		return ok(map[string]any{"type": "plugin_list", "plugins": f.pluginList()}), nil
-	case "plugin.link", "plugin.unlink":
+	case "plugin.unlink":
 		var p struct {
-			Path string `json:"path"`
-			ID   string `json:"plugin_id"`
+			ID string `json:"plugin_id"`
 		}
 		_ = json.Unmarshal(params, &p)
 		f.mu.Lock()
 		defer f.mu.Unlock()
-		if method == "plugin.link" {
-			f.link(p.Path)
-			return ok(map[string]any{"type": "plugin_linked"}), nil
-		}
 		f.unlink(p.ID)
 		return ok(map[string]any{"type": "plugin_unlinked", "removed": true}), nil
 	case "notification.show":

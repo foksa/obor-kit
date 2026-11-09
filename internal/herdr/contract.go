@@ -28,7 +28,6 @@ var Sent = map[string][]string{
 	"tab.create":           {"workspace_id", "label", "cwd", "focus", "env"},
 	"workspace.create":     {"label", "cwd", "focus"},
 	"plugin.list":          nil,
-	"plugin.link":          {"path"},
 	"plugin.unlink":        {"plugin_id"},
 	"notification.show":    {"title", "body"},
 	"events.subscribe":     {"subscriptions"},

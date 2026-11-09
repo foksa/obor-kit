@@ -962,19 +962,13 @@ func TestSocketPanesLayoutTabs(t *testing.T) {
 func TestSocketPlugins(t *testing.T) {
 	t.Parallel()
 	f := fixture()
-	f.Plugins = []herdrtest.Plugin{{ID: "other", Root: "/o"}}
+	f.Plugins = []herdrtest.Plugin{{ID: "other", Root: "/o"}, {ID: "obor.events", Root: "/kit/plugin"}}
 	srv := herdrtest.Serve(t, f)
 	c := srv.Client()
 
-	if err := c.LinkPlugin(ctx, "/kit/plugin"); err != nil {
-		t.Fatal(err)
-	}
-	if got := lastParams(t, srv, "plugin.link"); got != `{"path":"/kit/plugin"}` {
-		t.Errorf("plugin.link params = %s", got)
-	}
-	plugins, err := c.Plugins(ctx)
-	if want := []herdr.Plugin{{ID: "other", Root: "/o"}, {ID: "obor.events", Root: "/kit/plugin"}}; err != nil || !reflect.DeepEqual(plugins, want) {
-		t.Errorf("Plugins after a link = %+v, %v; want %+v", plugins, err, want)
+	if plugins, err := c.Plugins(ctx); err != nil ||
+		!reflect.DeepEqual(plugins, []herdr.Plugin{{ID: "other", Root: "/o"}, {ID: "obor.events", Root: "/kit/plugin"}}) {
+		t.Errorf("Plugins = %+v, %v; want the fixture's two", plugins, err)
 	}
 	if err := c.UnlinkPlugin(ctx, "obor.events"); err != nil {
 		t.Fatal(err)

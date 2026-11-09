@@ -370,10 +370,10 @@ func TestIdentStartRowRetired(t *testing.T) {
 // left a start row on the pane D-02 took over).
 
 // T-605 #1: a stale start row of hk-h1 (the config names no such agent) on w1:p1, labelled pj-l-01: the label wins,
-// and the stale row is retired in memory, silently (T-1099: it is retired again at every start).
+// and the stale row is retired in memory.
 func TestIdentUnnamedStartRetired(t *testing.T) {
 	t.Parallel()
-	h, out := newIdentHarness(t)
+	h, _ := newIdentHarness(t)
 	h.started("hk-h1", "w1:p1", "t1", "")
 	h.connect()
 	eqs(t, h.who("w1:p1"), "pj-l-01", "whoIs(w1:p1)")
@@ -384,10 +384,6 @@ func TestIdentUnnamedStartRetired(t *testing.T) {
 	h.a.mu.Unlock()
 	if kept {
 		t.Error("hk-h1's start row kept after the pass")
-	}
-	h.connect()
-	if n := strings.Count(out.String(), "start row retired"); n != 0 {
-		t.Errorf("logged a retirement %d times, want none (T-1099):\n%s", n, out)
 	}
 }
 

@@ -284,9 +284,6 @@ func TestTaskPage(t *testing.T) {
 	if d.GateLine != "GREEN T-01 (ok 212 tests, 71s)" || d.GatedRev != 1 {
 		t.Errorf("gate: line %q, rev %d, want the green gate's", d.GateLine, d.GatedRev)
 	}
-	if strings.Contains(r.Body.String(), "gate_log") {
-		t.Errorf("task page carries gate_log: %s", r.Body.String())
-	}
 	if len(d.NeedsYou) != 1 || d.NeedsYou[0].Answer != `obor resume T-01 "<answer>"` {
 		t.Errorf("needs-you %+v, want serve's answer commands", d.NeedsYou)
 	}

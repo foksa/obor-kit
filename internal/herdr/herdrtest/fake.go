@@ -426,9 +426,6 @@ func (f *Fake) pluginList() []any {
 	return plugins
 }
 
-// link links the plugin in dir, as obor.events.
-func (f *Fake) link(dir string) { f.Plugins = append(f.Plugins, Plugin{ID: "obor.events", Root: dir}) }
-
 // unlink drops plugin id (no such plugin: nothing changes).
 func (f *Fake) unlink(id string) {
 	var kept []Plugin
