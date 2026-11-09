@@ -531,7 +531,8 @@ func TestPruneKeepsTheNewestRow(t *testing.T) {
 	t.Parallel()
 	root := pruneRoot(t)
 	h := newHistory(t, root)
-	h.merged("T-m", "L-09", daysAgo(31), true) // a lane gone from the config: no row names T-m
+	h.dispatched("T-open", 1, "L-01", daysAgo(40)) // in flight: no idle key pins T-m (T-1101)
+	h.merged("T-m", "L-09", daysAgo(31), true)     // a lane gone from the config: no row names T-m
 	h.done()
 	r := pruneOracle(t, root, pruneBatch)
 	last := r.recs[len(r.recs)-1]
@@ -697,5 +698,112 @@ func TestEventKeepOutlivesPromptKeep(t *testing.T) {
 	t.Parallel()
 	if eventKeep <= promptKeep {
 		t.Errorf("eventKeep %s, promptKeep %s; want eventKeep the larger", eventKeep, promptKeep)
+	}
+}
+
+// idleOld is T-old merged 40 days ago on a lane gone from the config (no row names it), its after-merge steps done,
+// then later (records after it: newer seqs) what extra writes; ack: the lead's idle.ack names T-old's last after-merge
+// record (its idle key) when no end follows.
+func idleOld(t *testing.T, extra func(h *history), ack bool) (string, int64) {
+	t.Helper()
+	root := pruneRoot(t)
+	h := newHistory(t, root)
+	h.merged("T-old", "L-09", daysAgo(40), true)
+	key := h.l.LastSeq()
+	if extra != nil {
+		extra(h)
+	}
+	if ack {
+		h.add(daysAgo(39), event.IdleTask, 0, event.StepIdleAck, event.KindFact, idleAck{Key: key, Why: "nothing next", By: "pj-lead"})
+	}
+	h.done()
+	return root, key
+}
+
+// idleOf is p's idleNow answer and whether the idle rule would post its line now (under mu).
+func idleOf(a *App, p *proj) (idle, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return p.idleOpen()
+}
+
+// T-1101 (RV-162 #1): an idle project whose last merged task, 40 days old, holds the idle key the lead acknowledged:
+// the prune keeps it whole, the key is the same after the prune and a restart, and the idle line does not come again.
+func TestPruneKeepsTheIdleKeysTask(t *testing.T) {
+	t.Parallel()
+	root, key := idleOld(t, nil, true)
+	r := pruneOracle(t, root, pruneBatch)
+	n1, open1 := idleOf(r.a1, r.before)
+	if !n1.ok || n1.end != key || open1 || r.before.out.Lead() == "" || r.before.folded.idleAck.Key != key {
+		t.Fatalf("precondition: idle %+v (open %t, lead %q, ack %d); want idle at key %d, acknowledged", n1, open1,
+			r.before.out.Lead(), r.before.folded.idleAck.Key, key)
+	}
+	if len(r.tasks) != 0 || rowsOf(r.kept, "T-old") != rowsOf(r.recs, "T-old") {
+		t.Errorf("pruned %v (T-old keeps %d of %d rows), want T-old whole", r.tasks, rowsOf(r.kept, "T-old"), rowsOf(r.recs, "T-old"))
+	}
+	n2, open2 := idleOf(r.a2, r.then)
+	if n2.end != n1.end || !n2.ok {
+		t.Errorf("idle key after the prune and replay %+v, want %d", n2, n1.end)
+	}
+	if _, _, ok := idleRule(t.Context(), r.a2, r.then, nil, pruneNow); ok || open2 {
+		t.Errorf("the idle rule would post a new line after the prune (key %d, ack %d)", n2.end, r.then.folded.idleAck.Key)
+	}
+}
+
+// T-1101: a later end the prune keeps supersedes T-old's: T-old is pruned to its merged fact and the idle key is
+// the same before and after.
+func TestPruneIdleKeySuperseded(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name  string
+		extra func(h *history)
+	}{
+		{"a newer merge", func(h *history) { h.merged("T-new", "L-01", daysAgo(2), true) }},
+		{"a drop", func(h *history) { h.dropped("T-new", "L-01", daysAgo(2)) }},
+		{"a review request's end", func(h *history) {
+			h.add(daysAgo(3), event.ReviewTask, 0, event.StepReviewRequest, event.KindFact, ReviewData{By: "pj-lead"})
+			h.add(daysAgo(2), event.ReviewTask, 0, event.StepReviewRm, event.KindFact, ReviewData{By: "pj-lead"})
+		}},
+		{"a brief's end", func(h *history) {
+			h.add(daysAgo(2), event.MsgTask, 0, event.StepMessage, event.KindFact,
+				event.Message{To: "pj-lead", From: "obor", Ends: "pj-rev", Line: "[obor] pj-rev finished"})
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			root, key := idleOld(t, c.extra, false)
+			r := pruneOracle(t, root, pruneBatch)
+			n1, _ := idleOf(r.a1, r.before)
+			if !n1.ok || n1.end <= key {
+				t.Fatalf("precondition: idle %+v; want idle at a key newer than T-old's %d", n1, key)
+			}
+			if !r.tasks["T-old"] || !onlyTerminal(r.kept, "T-old", event.StepMerged) {
+				t.Errorf("pruned %v (T-old keeps %d rows), want T-old pruned to its merged fact", r.tasks, rowsOf(r.kept, "T-old"))
+			}
+			if n2, _ := idleOf(r.a2, r.then); n2.end != n1.end || !n2.ok {
+				t.Errorf("idle key after the prune and replay %+v, want %d", n2, n1.end)
+			}
+		})
+	}
+}
+
+// T-1101: after the first case's prune, a pass of the idle rule and an hour: the ping rule does not fire (no line went
+// out on a moved key, so none is due again).
+func TestPruneIdleNoPing(t *testing.T) {
+	t.Parallel()
+	root, key := idleOld(t, nil, true)
+	r := pruneOracle(t, root, pruneBatch)
+	if n, open := idleOf(r.a1, r.before); !n.ok || n.end != key || open {
+		t.Fatalf("precondition: idle %+v (open %t) before the prune; want idle at key %d, acknowledged", n, open, key)
+	}
+	r.a2.rulePass(t.Context(), []rule{{name: ruleIdle, when: idleRule}}, &Loop{})
+	r.a2.mu.Lock()
+	dids := len(r.then.folded.did)
+	r.a2.mu.Unlock()
+	if dids != 0 {
+		t.Errorf("the idle rule posted %d lines after the prune, want none", dids)
+	}
+	if _, act, ok := idlePingRule(t.Context(), r.a2, r.then, nil, pruneNow.Add(time.Hour)); ok {
+		t.Errorf("the ping fired after the prune: %q", act.line)
 	}
 }

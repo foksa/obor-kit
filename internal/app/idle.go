@@ -98,7 +98,6 @@ func (p *proj) foldIdle(r event.Record) {
 func (p *proj) idleNow() idle {
 	var last string
 	var merge idleEnd // the newest merge or drop: what the line names
-	var end idleEnd   // the newest record that ended what the pipeline waited on
 	for _, task := range p.loopTasks() {
 		mt := p.folded.loop[task]
 		switch mt.state {
@@ -109,7 +108,6 @@ func (p *proj) idleNow() idle {
 			if e := (idleEnd{mt.mergedSeq, mt.endedAt}); e.seq > merge.seq {
 				merge, last = e, idleMerged(mt)
 			}
-			end = end.newer(idleEnd{mt.afterSeq, mt.afterAt})
 		case stDropped:
 			if e := (idleEnd{mt.droppedSeq, mt.endedAt}); e.seq > merge.seq {
 				merge, last = e, task+" dropped: "+oneLine(mt.dropped)
@@ -134,14 +132,40 @@ func (p *proj) idleNow() idle {
 	if merge.seq == 0 || slices.ContainsFunc(p.needsYou(), func(r event.Record) bool { return r.Task != event.RuleTask }) {
 		return idle{}
 	}
-	end = end.newer(merge).newer(p.folded.reviewIdleEnd)
 	for _, w := range p.wtAgentsNow() { // an open brief to the reviewer or the deep dive is work in flight
 		if p.out.Brief(w.agent) != nil {
 			return idle{}
 		}
-		end = end.newer(p.folded.briefEnds[w.agent])
 	}
+	end, _ := p.idleEnd()
 	return idle{last: last, end: end.seq, at: end.at, ok: true}
+}
+
+// idleEnd is the newest record that ended what the pipeline waited on (under mu): idleNow's key once nothing is in
+// flight, whether or not it is now; and the task whose record it is ("": a review request's or a brief's end, or
+// none). The prune keeps that task whole (T-1101): its pruned replay would move the key back to its merged fact.
+func (p *proj) idleEnd() (idleEnd, string) {
+	var end idleEnd
+	by := ""
+	newer := func(e idleEnd, task string) {
+		if e.seq > end.seq {
+			end, by = e, task
+		}
+	}
+	for task, mt := range p.folded.loop {
+		switch mt.state {
+		case stMerged:
+			newer(idleEnd{mt.mergedSeq, mt.endedAt}, task)
+			newer(idleEnd{mt.afterSeq, mt.afterAt}, task)
+		case stDropped:
+			newer(idleEnd{mt.droppedSeq, mt.endedAt}, task)
+		}
+	}
+	newer(p.folded.reviewIdleEnd, "")
+	for _, w := range p.wtAgentsNow() {
+		newer(p.folded.briefEnds[w.agent], "")
+	}
+	return end, by
 }
 
 // idleOpen is the idle state the lead has not acknowledged (under mu): idleNow's answer, ok when nothing is in flight,
