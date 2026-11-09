@@ -251,7 +251,6 @@ func (c *Config) SetupConfirmed() bool {
 
 type Merge struct {
 	ScratchDir   string `json:"scratch_dir"`
-	Trailer      string `json:"trailer,omitempty"`
 	SummaryRegex string `json:"summary_regex,omitempty"`
 	FailGrep     string `json:"fail_grep,omitempty"`
 	// FlakeRegex is the pair of regexps that read a red run's failing tests and packages from its fail_grep lines

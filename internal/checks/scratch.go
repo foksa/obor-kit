@@ -78,7 +78,7 @@ func (s Scratch) Submit(ctx context.Context, task, id, lane, summary, worker str
 		if err := g.AddAll(dir); err != nil {
 			return "", err
 		}
-		if err := g.Commit(dir, submitMessage(task, summary, worker)+s.trailer(), ""); err != nil {
+		if err := g.Commit(dir, submitMessage(task, summary, worker), ""); err != nil {
 			return "", err
 		}
 	}
@@ -104,7 +104,7 @@ func (s Scratch) Submit(ctx context.Context, task, id, lane, summary, worker str
 	return head, nil
 }
 
-// submitMessage is the lane commit's message, before the trailer: "<task>: <summary>" and who did what.
+// submitMessage is the lane commit's message: "<task>: <summary>" and who did what.
 func submitMessage(task, summary, worker string) string {
 	return task + ": " + summary + "\n\nImplemented by " + worker + ", reviewed by integrator."
 }
@@ -184,7 +184,7 @@ func (s Scratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutcome,
 	r.releaseSlot()
 
 	if in.Kind != port.InputResolved {
-		msg := mergeMessage(in, movedBody(in, branch, target, reused), "") + s.trailer()
+		msg := mergeMessage(in, movedBody(in, branch, target, reused), "")
 		if c.SHA, err = s.commit(g, dir, msg, target, in.Input); err != nil {
 			return port.GateOutcome{}, err
 		}
@@ -787,11 +787,4 @@ func (s Scratch) target(g gitReader) (branch, head string, err error) {
 	branch = s.Cfg.Data.Branches.Main
 	head, err = g.Rev(s.Cfg.Root, "refs/heads/"+branch)
 	return branch, head, err
-}
-
-func (s Scratch) trailer() string {
-	if t := s.Cfg.Data.Merge.Trailer; t != "" {
-		return "\n\n" + t
-	}
-	return ""
 }

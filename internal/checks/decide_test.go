@@ -20,7 +20,7 @@ import (
 func (k *fk) norm(s string) string { return strings.ReplaceAll(s, k.Base, "$BASE") }
 
 // laneMsg is the submit commit's message for summary by pj-l1.
-const laneMsg = "T-05: feature\n\nImplemented by pj-l1, reviewed by integrator.\n\n" + trailer
+const laneMsg = "T-05: feature\n\nImplemented by pj-l1, reviewed by integrator."
 
 // fakeStep is one Scratch step of the cut table: setup brings a fresh fixture to the step's start, call runs the
 // step (its outcome comparable across fixtures, or its error), end asserts the spec'd end state after it.
@@ -348,7 +348,7 @@ func TestGateDecisions(t *testing.T) {
 		k.g.calls = nil
 		o := k.gate(lane(sha))
 		c := o.Candidate
-		msg := "Merge T-05: feature\n\n" + trailer
+		msg := "Merge T-05: feature"
 		k.eq(strings.Join(k.g.writeCalls(), "|"), "AddWorktree "+k.serve()+" main0|Reset "+k.serve()+" main0|Clean "+k.serve()+
 			"|Merge "+k.serve()+" "+sha+"|Commit "+k.serve()+" "+msg+" @300 +0000|UpdateRef "+candidateRefs+"T-05 "+c.SHA, "the writes")
 		k.eq(o.Line, "GREEN T-05 (merged, no commands.compile)", "the line")
@@ -447,7 +447,7 @@ func TestGateDecisions(t *testing.T) {
 		}
 		k.eq(k.Read(filepath.Join(k.Base, "compile-runs")), "run\n", "compiled")
 		k.eq(k.g.msgs[o.Candidate.SHA], "Merge T-05: feature\n\nMerged onto the moved main at "+o.Candidate.Target+
-			"\n\n(conflict resolution reused)\n\n"+trailer, "the message says the resolution was reused")
+			"\n\n(conflict resolution reused)", "the message says the resolution was reused")
 		k.eq(k.g.parents[o.Candidate.SHA][1], sha, "the merge of the submitted sha")
 	})
 	t.Run("a replay that differs: a conflict naming the files, the mismatch, nothing compiled", func(t *testing.T) {
@@ -486,7 +486,7 @@ func TestGateDecisions(t *testing.T) {
 		k.eq(c.Target, target, "the moved target")
 		k.eq(strings.Join(k.g.parents[c.SHA], " "), target+" "+sha, "the submitted sha merged, not the old candidate")
 		k.eq(k.g.msgs[c.SHA], "Merge T-05: Expected spec title\n\nMerged onto the moved main at "+target+
-			"\n\nSummary: worker words\n\n"+trailer, "the message")
+			"\n\nSummary: worker words", "the message")
 		k.eq(c.Patch+" "+c.Base, old.Patch+" main0", "the patch and base kept")
 	})
 	t.Run("the stored spec in a lane merge's message, none without one", func(t *testing.T) {
@@ -494,10 +494,10 @@ func TestGateDecisions(t *testing.T) {
 		k := newFk(t)
 		in := lane(k.submit())
 		in.Spec, in.SpecRev, in.Title = "# T-05 — Stored\n\nfeature.txt\n", 3, "Stored"
-		k.eq(k.g.msgs[k.green(in).SHA], "Merge T-05: Stored\n\nSpec rev 3:\n\n# T-05 — Stored\n\nfeature.txt\n\nSummary: feature\n\n"+
-			trailer, "with a stored spec (the trailer last)")
+		k.eq(k.g.msgs[k.green(in).SHA], "Merge T-05: Stored\n\nSpec rev 3:\n\n# T-05 — Stored\n\nfeature.txt\n\nSummary: feature",
+			"with a stored spec")
 		in.Spec = ""
-		k.eq(k.g.msgs[k.green(in).SHA], "Merge T-05: Stored\n\nSummary: feature\n\n"+trailer, "without")
+		k.eq(k.g.msgs[k.green(in).SHA], "Merge T-05: Stored\n\nSummary: feature", "without")
 	})
 	t.Run("resolved: reset to the resolution, amended with the gate's message, the same commit on a repeat", func(t *testing.T) {
 		t.Parallel()

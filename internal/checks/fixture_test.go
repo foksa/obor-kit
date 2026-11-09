@@ -150,7 +150,7 @@ func repairWorktrees(t testing.TB, p *testkit.Project, base string) {
 func fxConfig(edits ...func(map[string]any)) []func(map[string]any) {
 	return append([]func(map[string]any){
 		testkit.Set("lanes", 2),
-		testkit.Set("merge", map[string]any{"trailer": trailer,
+		testkit.Set("merge", map[string]any{
 			"summary_regex": "[0-9]+ pass|[0-9]+ fail", "fail_grep": "Expected"}),
 	}, edits...)
 }
@@ -185,10 +185,8 @@ func buildTemplate() string {
 	return p.Base
 }
 
-const trailer = "Co-Authored-By: Test <test@example.invalid>"
-
 // fx is the fixture these tests copy from the template (T-998): .obor/state/ gitignored, a 10-line shared.txt, lane
-// L-01 on task/T-05 with an uncommitted feature.txt, merge.trailer / summary_regex / fail_grep set, a per-test check
+// L-01 on task/T-05 with an uncommitted feature.txt, summary_regex / fail_grep set, a per-test check
 // slot dir. lane2 adds the idle lane L-02 on task/T-20 when a test uses it. The scratch is the default proj-wt/merge.
 type fx struct {
 	*testkit.Project

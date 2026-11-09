@@ -32,7 +32,6 @@
   "merge": {
     "scratch_dir": null,
     "nightly_at": "02:00",
-    "trailer": "Co-Authored-By: Claude <noreply@anthropic.com>",
     "summary_regex": "[0-9]+ pass|[0-9]+ fail",
     "fail_grep": "error|FAIL|Expected|Received"
   }
