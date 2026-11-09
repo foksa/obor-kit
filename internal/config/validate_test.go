@@ -113,11 +113,10 @@ func TestValidate(t *testing.T) {
 		// (TestShapeErrorsFailTheLoad), the rest warn (TestRemovedKeysWithinTwoVersions).
 		{name: "removed keys warn", edits: []edit{set("paths.research", "docs/research"), set("paths.questions", "QUESTIONS.md")},
 			want: []string{"WARN paths.research: no longer used, remove it", "WARN paths.questions: no longer used, remove it"}},
-		// T-830: paths.status, paths.queue and paths.tasks are map entries, not keys with a field: past their window they
-		// load with no WARN (paths is free-form). paths.tasks is still read: internal/checks/legacySpecDir names the
-		// pre-T-521 spec dir for legacy merge evidence, so only status and queue are dead (T-842).
+		// T-830: paths.status and paths.queue are map entries, not keys with a field: past their window they load with
+		// no WARN (paths is free-form).
 		{name: "removed paths keys load silently", edits: []edit{set("paths.status", "STATUS.md"),
-			set("paths.queue", "docs/QUEUE.md"), set("paths.tasks", "docs/tasks")}},
+			set("paths.queue", "docs/QUEUE.md")}},
 		// T-428: owner decision 2026-10-24 — an integrator for every task; serve dispatches and merges for no project
 		// without one, so the config is invalid without the entry and unchanged with it.
 		{name: "no roles.integrator", edits: []edit{del("roles.integrator")},

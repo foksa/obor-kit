@@ -299,9 +299,7 @@ func ltSetType(t *testing.T, root, lane, typ string) {
 	}
 }
 
-// T-547, T-550: a "<id>:" subject is evidence whatever files it changes, except a commit that changes only files in the
-// legacy spec dir (paths.tasks, else docs/tasks): an upgrade's old "<id>: spec" commit is no evidence (T-290's
-// exclusion, kept for the deprecation period). "Merge <id>:" stays evidence.
+// T-547, T-550: a "<id>:" subject is evidence whatever files it changes; "Merge <id>:" stays evidence.
 func TestMergeEvidenceSubjectRule(t *testing.T) {
 	add := func(p *LaneTable, file, subj string) {
 		path := filepath.Join(p.Root, file)
@@ -314,25 +312,10 @@ func TestMergeEvidenceSubjectRule(t *testing.T) {
 	if evidence(p, "T-09") {
 		t.Fatal("precondition: a fresh fixture has no evidence for T-09")
 	}
-	// The default legacy path: a "<id>:" commit touching only docs/tasks is an old spec, not evidence.
-	add(p, "docs/tasks/T-09.md", "T-09: spec")
-	if evidence(p, "T-09") {
-		t.Error("a T-09: commit touching only docs/tasks (the default legacy path) is no evidence")
-	}
-	// A "<id>:" commit touching a file outside the legacy path is evidence (the squash case).
+	// A "<id>:" commit is evidence whatever files it changes (the squash case).
 	add(p, "src/a.go", "T-09: fix")
 	if !evidence(p, "T-09") {
 		t.Error("a T-09: commit touching src/a.go is evidence (squash)")
-	}
-	// A configured paths.tasks names the excluded dir: only specs/T-09.md there is no evidence.
-	r := ltFixture(t, `,"lanes_dir":"../proj-wt","paths":{"tasks":"specs"}`, nil)
-	add(r, "specs/T-09.md", "T-09: spec")
-	if evidence(r, "T-09") {
-		t.Error("with paths.tasks=specs, a T-09: commit touching only specs/T-09.md is no evidence")
-	}
-	add(r, "docs/tasks/T-09.md", "T-09: extra spec")
-	if !evidence(r, "T-09") {
-		t.Error("with paths.tasks=specs, a T-09: commit touching docs/tasks is evidence (outside specs)")
 	}
 	// A subject without the "<id>:" prefix is no evidence, even when it names the task.
 	q := ltFixture(t, `,"lanes_dir":"../proj-wt"`, nil)
@@ -351,43 +334,6 @@ func TestMergeEvidenceSubjectRule(t *testing.T) {
 	ltGit(t, m.Root, "commit", "-q", "--allow-empty", "-m", "Merge T-09: done")
 	if !evidence(m, "T-09") {
 		t.Error(`a "Merge T-09:" commit is evidence`)
-	}
-}
-
-// T-550 (RV-57 #1): an old spec commit on main is no merge evidence (the task's work lives only in its lane), for the
-// default legacy path and a configured paths.tasks.
-func TestLegacySpecOnMainIsNoEvidence(t *testing.T) {
-	for _, c := range []struct {
-		name, extra, file string
-	}{
-		{"default legacy path", `,"lanes_dir":"../proj-wt"`, "docs/tasks/T-01.md"},
-		{"configured paths.tasks", `,"lanes_dir":"../proj-wt","paths":{"tasks":"specs"}`, "specs/T-01.md"},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			p := ltFixture(t, c.extra, map[string]string{"L-01": "T-01"})
-			dir := filepath.Join(filepath.Dir(p.Root), "proj-wt", "L-01")
-			ltCommit(t, dir)
-			path := filepath.Join(p.Root, c.file)
-			os.MkdirAll(filepath.Dir(path), 0o755)
-			os.WriteFile(path, []byte("spec\n"), 0o644)
-			ltGit(t, p.Root, "add", c.file)
-			ltGit(t, p.Root, "commit", "-q", "-m", "T-01: spec")
-			// Preconditions: the spec is main's newest commit and the lane's work is not on main.
-			if subj, _ := project.Git(p.Root, "log", "-1", "--format=%s"); strings.TrimSpace(subj) != "T-01: spec" {
-				t.Fatalf("precondition: main's newest subject %q", strings.TrimSpace(subj))
-			}
-			if _, err := project.Git(p.Root, "merge-base", "--is-ancestor", "task/T-01", "main"); err == nil {
-				t.Fatal("precondition: the lane's work is not on main")
-			}
-			if evidence(p, "T-01") {
-				t.Error("an old T-01: spec commit on main is no merge evidence")
-			}
-			// Control: the squash rule still finds the task's work on main.
-			ltGit(t, p.Root, "commit", "-q", "--allow-empty", "-m", "T-01: work")
-			if !evidence(p, "T-01") {
-				t.Error("a T-01: work commit on main is evidence")
-			}
-		})
 	}
 }
 
