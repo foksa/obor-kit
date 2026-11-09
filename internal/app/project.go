@@ -20,7 +20,7 @@ import (
 // load is the served project: its config's name and its replayed log (obor serve holds its serve.flock). Replay folds the facts into the active ones
 // per task; their timers restart now (docs/state-model.md "Not recorded").
 func (a *App) load(root string) (*proj, error) {
-	cfg, err := config.LoadDaemon(root)
+	cfg, err := config.Load(root)
 	if err != nil {
 		return nil, err
 	}

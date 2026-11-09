@@ -182,7 +182,7 @@ func TestConfigValidateWarnsOfTheProjectFileWithoutACache(t *testing.T) {
 func TestTriageWhoamiAndCaller(t *testing.T) {
 	t.Parallel()
 	p := triageProject(t)
-	cfg, err := config.LoadDaemon(p.Root)
+	cfg, err := config.Load(p.Root)
 	if err != nil {
 		t.Fatal(err)
 	}

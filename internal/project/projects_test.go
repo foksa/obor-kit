@@ -99,10 +99,10 @@ func TestProjectsKeepsWhatItsEntriesName(t *testing.T) {
 	configAt(t, renamed, "renamed")
 	configAt(t, gone, "gone")
 	configAt(t, kit, "kit")
-	if _, err := config.LoadDaemon(old); err == nil {
+	if _, err := config.Load(old); err == nil {
 		t.Fatal("precondition: the pre-T-765 config loads")
 	}
-	if _, err := config.LoadDaemon(broken); err == nil {
+	if _, err := config.Load(broken); err == nil {
 		t.Fatal("precondition: the unparsable config loads")
 	}
 	for _, root := range []string{old, broken, moved, renamed, gone} {

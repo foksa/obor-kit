@@ -352,9 +352,6 @@ func Load(root string) (*Config, error) {
 	return c, err
 }
 
-// LoadDaemon is Load (T-1081: one rule for running; the name stays for serve's many callers).
-func LoadDaemon(root string) (*Config, error) { return Load(root) }
-
 // LoadForValidate is Load for obor config validate (and the merge guard that runs it), the one strict place (T-710,
 // T-1081): unknown are its FAIL lines, one per key this binary does not know, naming it and its file; cfg is the
 // config without them, for the other checks. Nothing goes to Warn. Every other error is Load's.

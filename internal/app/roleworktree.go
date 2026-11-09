@@ -37,11 +37,11 @@ func wtAgents(cfg *config.Config) []wtAgent {
 	return out
 }
 
-// wtAgentsNow is the role worktree agents by the current config (config.LoadDaemon, the load reconcile's names use),
+// wtAgentsNow is the role worktree agents by the current config (config.Load, the load reconcile's names use),
 // kept in p.wtAgents: a role renamed, added or removed while serve runs counts at the next check; a config that does
 // not load keeps the last good set (T-730; under mu).
 func (p *proj) wtAgentsNow() []wtAgent {
-	if cfg, err := config.LoadDaemon(p.root); err == nil {
+	if cfg, err := config.Load(p.root); err == nil {
 		p.wtAgents = wtAgents(cfg)
 	}
 	return p.wtAgents
@@ -67,7 +67,7 @@ func (a *App) briefMove(ctx context.Context, p *proj, role, agent string) error 
 	if role != "deep_dive" || !idle {
 		return nil
 	}
-	cfg, err := config.LoadDaemon(p.root)
+	cfg, err := config.Load(p.root)
 	if err != nil {
 		return err
 	}

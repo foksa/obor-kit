@@ -113,7 +113,7 @@ func TestSendToProjectWhoseConfigDoesNotLoad(t *testing.T) {
 	// The shape before T-765: this binary refuses it (lanes is a count here, an object of typed lanes there), a serve of
 	// the version that wrote it does not.
 	q.Write(".obor/config.json", `{"name":"other","prefix":"ot","lanes":{"L-01":{"type":"opus"}}}`+"\n")
-	if _, err := config.LoadDaemon(q.Root); err == nil {
+	if _, err := config.Load(q.Root); err == nil {
 		t.Fatal("precondition: the target's old-shape config loads")
 	}
 	home, target := startFakeServe(t, q.Root, wire.Status{}, "SENT to ot-lead in other (posted to its session)", "")

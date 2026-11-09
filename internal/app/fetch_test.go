@@ -802,7 +802,7 @@ func integratorJobs(t *testing.T, kitRole string) (jobs map[string]string, kitPa
 	t.Helper()
 	r := newConcRig(t)
 	p := r.proj("pj")
-	cfg, err := config.LoadDaemon(p.root)
+	cfg, err := config.Load(p.root)
 	if err != nil {
 		t.Fatal(err)
 	}

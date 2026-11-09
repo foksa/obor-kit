@@ -394,7 +394,7 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Dispat
 	if err := a.fixesCheck(p, c.Task, row.Spec); err != nil { // T-924: a fix links to the open review only
 		return "", err
 	}
-	cfg, err := config.LoadDaemon(p.root)
+	cfg, err := config.Load(p.root)
 	if err != nil {
 		return "", err
 	}

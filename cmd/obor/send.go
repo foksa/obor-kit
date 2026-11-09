@@ -191,7 +191,7 @@ func (p poster) Post(ctx context.Context, kind, agent, line string) (began bool,
 // slotOf is the slot agent holds in the project at root, its inbox record's key (project.AgentSlot under the config as
 // it is now: a rename moves no record); an error when agent holds none there.
 func slotOf(root, agent string) (string, error) {
-	cfg, err := config.LoadDaemon(root)
+	cfg, err := config.Load(root)
 	if err != nil {
 		return "", err
 	}

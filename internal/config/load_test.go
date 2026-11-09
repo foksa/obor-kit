@@ -131,8 +131,6 @@ func TestRetiredShapeKeysRefusedByEveryReader(t *testing.T) {
 				if fails != nil {
 					t.Errorf("LoadForValidate: FAIL lines %q, want the error alone", fails)
 				}
-				c, err = LoadDaemon(root)
-				refused("LoadDaemon", c, err)
 				c, unknown, err := LoadHook(root)
 				refused("LoadHook (fails closed)", c, err)
 				if unknown != nil {

@@ -153,7 +153,7 @@ func (p *LaneTable) taskType(l config.Lane, s port.Lane) string {
 type Lanes struct{}
 
 func (Lanes) Lanes(ctx context.Context, root string) ([]port.Lane, error) {
-	cfg, err := config.LoadDaemon(root)
+	cfg, err := config.Load(root)
 	if err != nil {
 		return nil, err
 	}

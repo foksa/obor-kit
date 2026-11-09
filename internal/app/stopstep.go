@@ -190,7 +190,7 @@ func (a *App) freeStep(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 		if fx.Workflow == nil || fx.Specs == nil {
 			return nil, fmt.Errorf("lane adapters off for %s", p.name)
 		}
-		cfg, err := config.LoadDaemon(p.root)
+		cfg, err := config.Load(p.root)
 		if err != nil {
 			return nil, err
 		}

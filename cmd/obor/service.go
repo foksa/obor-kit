@@ -36,7 +36,7 @@ func serveService(verb, cwd string, env project.Env) int {
 		errf("FAIL obor serve %s: %s is not in an obor project (no .obor/config.json): run it in the project", verb, cwd)
 		return 1
 	}
-	cfg, err := config.LoadDaemon(repo.Root)
+	cfg, err := config.Load(repo.Root)
 	if err != nil {
 		errf("FAIL obor serve %s: %v", verb, err)
 		return 1

@@ -278,7 +278,7 @@ func TestNightlySwitchCountsFromTheNextPass(t *testing.T) {
 	w := &configWriter{path: filepath.Join(r.p.Root, ".obor", "config.json")}
 	r.config = w
 	r.nightOf = func() *app.Nightly { // serve's nightly(): merge.nightly_at as the config has it now ("" is off, T-782)
-		cfg, err := config.LoadDaemon(r.p.Root)
+		cfg, err := config.Load(r.p.Root)
 		if err != nil {
 			return nil
 		}

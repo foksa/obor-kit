@@ -135,7 +135,7 @@ func TestWarnUnknownNamesBothCauses(t *testing.T) {
 	var out bytes.Buffer
 	defer func(w interface{ Write([]byte) (int, error) }) { Warn = w }(Warn)
 	Warn = &out
-	if _, err := LoadDaemon(root); err != nil {
+	if _, err := Load(root); err != nil {
 		t.Fatal(err)
 	}
 	warn := out.String()
@@ -150,13 +150,13 @@ func TestWarnUnknownNamesBothCauses(t *testing.T) {
 	}
 }
 
-// TestLoadDaemonTypeErrors: a wrong type is still an error next to an unknown member.
-func TestLoadDaemonTypeErrors(t *testing.T) {
+// TestLoadTypeErrors: a wrong type is still an error next to an unknown member.
+func TestLoadTypeErrors(t *testing.T) {
 	root := writeProject(t, `{"merge":{"future":1,"nightly_at":5},"slots":{"future":2}}`, "")
 	var out bytes.Buffer
 	defer func(w interface{ Write([]byte) (int, error) }) { Warn = w }(Warn)
 	Warn = &out
-	if _, err := LoadDaemon(root); err == nil || !strings.Contains(err.Error(), "nightly_at") {
-		t.Errorf("LoadDaemon: %v, want the nightly_at type error", err)
+	if _, err := Load(root); err == nil || !strings.Contains(err.Error(), "nightly_at") {
+		t.Errorf("Load: %v, want the nightly_at type error", err)
 	}
 }

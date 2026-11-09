@@ -256,7 +256,7 @@ func movedFix(mt mtask) string {
 // fixRead is the fix job's line for a worker started fresh (T-603): the work job carried the role texts, so only a
 // session that did not get it needs the paths. The project's worker doc only when the main checkout has one.
 func fixRead(p *proj, kit string) (string, error) {
-	cfg, err := config.LoadDaemon(p.root)
+	cfg, err := config.Load(p.root)
 	if err != nil {
 		return "", err
 	}
@@ -332,7 +332,7 @@ func (a *App) taskDone(c wire.TaskDoneReq) (string, error) {
 	case c.Role != "worker":
 		return "", fmt.Errorf("task_done: a worker submits its task, not %s (role %s)", Dash(c.Agent), Dash(c.Role))
 	}
-	cfg, err := config.LoadDaemon(p.root)
+	cfg, err := config.Load(p.root)
 	if err != nil {
 		return "", fmt.Errorf("task_done: %v", err)
 	}

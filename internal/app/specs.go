@@ -56,7 +56,7 @@ func (a *App) specSet(c wire.SpecSetReq) (string, error) {
 		return "", fmt.Errorf("spec set %s: %w", c.Task, err)
 	}
 	if len(sp.Models) > 0 {
-		cfg, err := config.LoadDaemon(p.root)
+		cfg, err := config.Load(p.root)
 		if err != nil {
 			return "", fmt.Errorf("spec set %s: %v", c.Task, err)
 		}

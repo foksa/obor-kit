@@ -25,7 +25,7 @@ func ProjectsFile(env Env) string { return filepath.Join(StateHome(env), "projec
 func ConfigFile(root string) string { return filepath.Join(root, ".obor", "config.json") }
 
 // Configured is whether root holds an obor config file, whatever its shape: a project this binary cannot load is still
-// a project (T-767). obor send needs nothing more of its target; obor serve and obor init load it (config.LoadDaemon).
+// a project (T-767). obor send needs nothing more of its target; obor serve and obor init load it (config.Load).
 func Configured(root string) bool {
 	_, err := os.Stat(ConfigFile(root))
 	return err == nil
