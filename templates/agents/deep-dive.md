@@ -15,6 +15,8 @@ section. The lead turns findings into tasks.
 
 ## Rules
 - Read-only on source; probes in a scratch dir. Fewer, verified findings beat many guesses. No subagents.
+  The guard denies git that writes (`git init`, `commit`) even there: probe a changed source with `go test -overlay`
+  (an overlay JSON mapping the file to a scratch copy), never a scratch repo.
 - Runs in its own role pane in its own worktree `<lanes_dir>/deep_dive` (`obor setup role deep_dive`,
   `OBOR_ROLE=deep_dive`), never a worker lane: obor never stops it as idle and `obor dispatch` refuses it. A brief while
   it is idle moves that worktree to the integration branch's head; while it works nothing moves under it, and merges

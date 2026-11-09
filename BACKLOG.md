@@ -18,8 +18,8 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   budget entry and `-seed <pkg>` seeds one (T-1073, T-1077). Reviews RV-156..RV-160 closed; DD-v0.32 + verify approved.
   **Next steps:** (1) Check the 11-10 02:00 nightly GREEN (first on v0.32; the budget line should be OK now).
   (2) The owner picks the next work. Verified not done: `obor doctor` (check first that stale panes still happen).
-  The `job_next` saving left is Claude-only (`alwaysLoad`), parked under the agent-neutral rule. Concerns: the deep
-  dive's role guard denies `git init` in the scratchpad (decide: allow, or name the overlay route in its role text).
+  The `job_next` saving left is Claude-only (`alwaysLoad`), parked under the agent-neutral rule. Deep-dive `git init` concern: decided 11-09, overlay route
+  named in its role text.
 ## Owner decisions pending
 - (none; branching decided 11-07, docs/decisions.md)
 
@@ -214,7 +214,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   lane branch first.
 - (T-334) Two `sendback`s (the lead's lane form and the integrator's MCP verb): rename or drop the lane form.
 ## Concerns
-- (DD-v0.32, lead 11-09) The deep dive's role guard denies `git init` even in the scratchpad, while its role text says "probes in a scratch dir"; it used `go test -overlay` on tests/upgrade instead (a good probe). Decide: allow read-only roles git outside the project, or name the overlay route in the deep-dive role text. Also: give tests/upgrade's alpha project every config key the new minor removed (would have caught DD-v0.32 #1).
+- (DD-v0.32, lead 11-09) The deep dive's role guard denies `git init` even in the scratchpad, while its role text says "probes in a scratch dir"; it used `go test -overlay` on tests/upgrade instead (a good probe). Decided 11-09 (owner): overlay route, named in templates/agents/deep-dive.md. Open: give tests/upgrade's alpha project every config key the new minor removed (would have caught DD-v0.32 #1).
 - (lead 11-08) **Serve fires waiting work on the old binary before its self-restart after a merge:** `obor review --after T-1059,T-1060` fired at 19:35:16Z on 77df169's serve and hit the very bug T-1059 fixed; serve restarted on the new binary ~30 s later. A fix to serve's own code is live only after that restart, so an --after request or dispatch that tests the fix should fire after it (restart first, then fire). Small; decide when it bites again.
 - (lead 11-07) `internal/affected/affected.go:~60`: the directory walk never stops at `/` for an absolute path (infinite loop; only reachable with a malformed changed-files list).
 - (lead 11-07) **A task parked on a needs-you keeps its lane**: T-982 and T-983 (gate timeouts, not their diffs) held L-04 and L-01 while the fixes for the timeouts (T-989, T-990) waited for a lane. Since T-961 a merge-loop task holds its lane for its lane test; a parked one could release it (its tree is in its branch and candidate pin) and take a lane again when resumed. Decide with the next merge-flow change.
