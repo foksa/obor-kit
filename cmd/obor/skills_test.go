@@ -13,10 +13,10 @@ import (
 const pluginRoot = "../.."
 
 var (
-	// Skills of the kit (T-204): only lead is model-discoverable; setup and role are user-invoked only.
+	// Skills of the kit (T-204): only lead is model-discoverable; setup is user-invoked only.
 	selfChosenSkills  = []string{"lead"}
-	userInvokedSkills = []string{"setup", "role"}
-	removedSkills     = []string{"worker", "integrator", "review-brief", "night-shift"}
+	userInvokedSkills = []string{"setup"}
+	removedSkills     = []string{"worker", "integrator", "review-brief", "night-shift", "role"}
 
 	oborMentionRe = regexp.MustCompile(`(^|[^A-Za-z0-9_/:.-])obor ([a-z][a-z0-9-]*)`)
 	skillFileRe   = regexp.MustCompile(`^[a-z][a-z0-9-]*\.md$`)
@@ -265,9 +265,9 @@ func contains(list []string, s string) bool {
 	return false
 }
 
-// bash tests/skills.test.sh skills are exactly lead, setup and role; the removed ones are gone
-func TestSkillsAreExactlyLeadSetupAndRole(t *testing.T) {
-	eqStrings(t, []string{"lead", "role", "setup"}, skillDirs(t), "skill dirs")
+// bash tests/skills.test.sh skills are exactly lead and setup; the removed ones are gone
+func TestSkillsAreExactlyLeadAndSetup(t *testing.T) {
+	eqStrings(t, []string{"lead", "setup"}, skillDirs(t), "skill dirs")
 	for _, s := range removedSkills {
 		if _, err := os.Stat(filepath.Join(pluginRoot, "skills", s)); err == nil {
 			t.Errorf("removed skill %s still exists", s)
@@ -399,14 +399,8 @@ var (
 	readmeRowRe  = regexp.MustCompile(`\]\(([a-z][a-z0-9-]*\.md)\)`)
 )
 
-// bash tests/skills.test.sh role skill names /obor:role, and every referenced role doc exists
-func TestRoleSkillNamesSlashRoleAndEveryReferencedRoleDocExists(t *testing.T) {
-	md := skillMD(t, "role")
-	for _, want := range []string{"/obor:role <name>", "templates/agents/<name>.md"} {
-		if !strings.Contains(md, want) {
-			t.Errorf("role skill lacks %q", want)
-		}
-	}
+// bash tests/skills.test.sh every referenced role doc exists
+func TestEveryReferencedRoleDocExists(t *testing.T) {
 	for _, f := range []string{"advisor.md", "triage.md"} {
 		if _, err := os.Stat(filepath.Join(pluginRoot, "templates/agents", f)); err != nil {
 			t.Errorf("%s stub missing", f)
