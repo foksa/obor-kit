@@ -625,11 +625,6 @@ func (s *Socket) Plugins(ctx context.Context) ([]Plugin, error) {
 	return r.plugins("plugin.list")
 }
 
-// LinkPlugin is plugin.link (herdr keeps the path as resolved now).
-func (s *Socket) LinkPlugin(ctx context.Context, dir string) error {
-	return s.call(ctx, 0, nil, "plugin.link", map[string]any{"path": dir})
-}
-
 // UnlinkPlugin is plugin.unlink.
 func (s *Socket) UnlinkPlugin(ctx context.Context, id string) error {
 	return s.call(ctx, 0, nil, "plugin.unlink", map[string]any{"plugin_id": id})

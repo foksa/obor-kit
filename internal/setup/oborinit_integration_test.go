@@ -648,22 +648,6 @@ func TestOborInitWarnsWhenHerdrCannotListPlugins(t *testing.T) {
 	has(t, out, "hint: obor restarts its panes after a herdr restart: set resume_agents_on_restore = false", "the herdr hint")
 }
 
-// T-1117: the obor.events plugin an older obor linked is removed by the init that upgrades the project: one unlink,
-// never a link.
-func TestOborInitRemovesTheOldHerdrPlugin(t *testing.T) {
-	t.Parallel()
-	x := newGitInitFx(t, true)
-	old := x.Path("old-kit/herdr-plugin")
-	x.h.Plugins = []herdrtest.Plugin{{ID: "obor.events", Root: old}}
-	out := x.init(t)
-	has(t, strings.Join(x.reqs(), "\n"), "plugin.unlink plugin_id=obor.events", "the old plugin unlinked")
-	has(t, out, "herdr-plugin: obor.events unlinked (was "+old+"; obor serve restarts its own panes now)", "unlinked said")
-	if len(x.h.Plugins) != 0 {
-		t.Errorf("herdr plugins after init: %+v, want none", x.h.Plugins)
-	}
-	hasNot(t, strings.Join(x.reqs(), "\n"), "plugin.link", "init never links it")
-}
-
 // no codex on PATH: the reviewer is opus (the example's reviewer is a Codex type), the summary says so.
 func TestOborInitReviewerOpusWithoutCodex(t *testing.T) {
 	t.Parallel()

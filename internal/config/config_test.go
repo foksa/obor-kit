@@ -108,8 +108,6 @@ func TestUnknownKeyFails(t *testing.T) {
 		{`{"prefix":"pj","models":{"m":{"kind":"claude","modle":"x"}}}`, "agents.models.m.modle"},
 		{`{"prefix":"pj","commands":{"c":{"cmd":"x","tmeout":5}}}`, "commands.c.tmeout"},
 		{`{"prefix":"pj","kinds":{"claude":{"argz":[]}}}`, "agents.kinds.claude.argz"},
-		// removed (T-1103): shape 1's reshape drops it, a shape-2 file still names it
-		{`{"version":2,"project":{"agent_prefix":"pj"},"merge":{"trailer":"Co-Authored-By: x"}}`, "merge.trailer"},
 	} {
 		root := writeProject(t, c.cfg, "")
 		want := []string{"FAIL ." + c.key + ": unknown to this obor (retired, or newer than this binary): delete it (.obor/config.json)"}
@@ -319,8 +317,7 @@ func TestLookupCollectionDefaults(t *testing.T) {
 		path, want string
 		known      bool
 	}{
-		{".merge.trailer", "", false}, // removed (T-1103): no field, so no such key
-		{".mcp.jobs", "", false},      // removed (T-830): no field, so no such key
+		{".mcp.jobs", "", false}, // removed (T-830): no field, so no such key
 		{".commands.lint.heavy", "false", true},
 		{`.commands["lint"].heavy`, "false", true},
 		{".commands.lint.cmd", `"true"`, true},

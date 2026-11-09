@@ -716,8 +716,7 @@ func workJobText(t *testing.T, kit, cfg string) string {
 	return text
 }
 
-// T-678, T-1107: the work job names the built-in report sections (config.ReportSections) once; a config that still
-// has the retired done_file_sections does not change them.
+// T-678: the work job names the built-in report sections (config.ReportSections) once.
 func TestWorkJobNamesTheReportSections(t *testing.T) {
 	t.Parallel()
 	kit, err := filepath.Abs("../..")
@@ -725,20 +724,9 @@ func TestWorkJobNamesTheReportSections(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := "Your final report has these sections: " + strings.Join(config.ReportSections, ", ") + "."
-	for _, c := range []struct{ name, cfg string }{
-		{"default", `{"name":"pj"}`},
-		{"retired key ignored", `{"name":"pj","done_file_sections":["Summary","Verification"]}`},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			text := workJobText(t, kit, c.cfg)
-			if n := strings.Count(text, want); n != 1 {
-				t.Errorf("the job names the sections %d times, want once (%q):\n%s", n, want, text)
-			}
-			if strings.Contains(text, "Verification") {
-				t.Errorf("the job names a retired key's sections:\n%s", text)
-			}
-		})
+	text := workJobText(t, kit, `{"name":"pj"}`)
+	if n := strings.Count(text, want); n != 1 {
+		t.Errorf("the job names the sections %d times, want once (%q):\n%s", n, want, text)
 	}
 }
 

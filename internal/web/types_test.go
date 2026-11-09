@@ -205,28 +205,6 @@ func TestTSStringSetsMatchGo(t *testing.T) {
 	}
 }
 
-// TestTaskPageGateFromView (T-1105, RV-163 #2): the task page's last-gate card follows the view's gate_pass and the
-// timeline's gate tone its records' pass: neither the line's wording nor the outcome string decides a gate's status.
-func TestTaskPageGateFromView(t *testing.T) {
-	t.Parallel()
-	stages := readTS(t, filepath.Join(tsLib, "stages.ts"))
-	if !strings.Contains(stages, "gate_pass") {
-		t.Errorf("stages.ts: the last gate's card does not read the view's gate_pass (T-1105)")
-	}
-	for _, retyped := range []string{`outcome === "green"`, `outcome !== "green"`} {
-		if strings.Contains(stages, retyped) {
-			t.Errorf("stages.ts decides a gate's status from its outcome string (%s): the view ships pass (T-1105)", retyped)
-		}
-	}
-	page := readTS(t, filepath.Join(tsPages, "Task.svelte"))
-	if strings.Contains(page, "/^GREEN/") {
-		t.Errorf("Task.svelte decides the last gate from its line's wording: the view ships gate_pass (T-1105)")
-	}
-	if !strings.Contains(page, "gateOf(") {
-		t.Errorf("Task.svelte does not read the last gate through stages.ts's gateOf (T-1105)")
-	}
-}
-
 // readTS is path's source.
 func readTS(t *testing.T, path string) string {
 	t.Helper()

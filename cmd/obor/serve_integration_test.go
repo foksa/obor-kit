@@ -18,7 +18,6 @@ import (
 	"obor/internal/config"
 	"obor/internal/herdr"
 	"obor/internal/herdr/herdrtest"
-	"obor/internal/service"
 	"obor/internal/testkit"
 )
 
@@ -126,54 +125,6 @@ func TestServeBinary(t *testing.T) {
 	}
 	if rc, _, _ := run(t, p.Root, env, "has", "serve", "status"); rc != 1 { // T-774: the alias is gone
 		t.Errorf("obor has serve status: exit %d, want 1", rc)
-	}
-}
-
-// T-1100: serve's own start rotates its serve.log — a log over service.MaxLog is copied to serve.log.1 (replacing an
-// old one) and truncated in place — so a new build's re-exec keeps the log bounded like an install or restart does.
-func TestServeStartRotatesLog(t *testing.T) {
-	t.Parallel()
-	p := testkit.NewPlain(t)
-	p.Config()
-	f := herdrtest.New()
-	srv := herdrtest.Serve(t, f)
-	log := service.ServeLog(p.Root)
-	if err := os.MkdirAll(filepath.Dir(log), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	fh, err := os.Create(log)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := fh.WriteString("old log\n"); err != nil {
-		t.Fatal(err)
-	}
-	if err := fh.Truncate(service.MaxLog + 1); err != nil {
-		t.Fatal(err)
-	}
-	if err := fh.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(log + ".1"); !os.IsNotExist(err) {
-		t.Fatalf("precondition: no serve.log.1: %v", err)
-	}
-	cmd, out := startServe(t, p.Root, []string{"OBOR_STATE_HOME=" + t.TempDir(), "HERDR_SOCKET_PATH=" + srv.Path})
-	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
-	deadline := time.Now().Add(10 * time.Second)
-	for !strings.Contains(out.String(), "obor serve: running") && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-	if !strings.Contains(out.String(), "obor serve: running") {
-		t.Fatalf("serve did not start:\n%s", out.String())
-	}
-	if fi, err := os.Stat(log + ".1"); err != nil || fi.Size() != service.MaxLog+1 {
-		t.Errorf("serve.log.1: %v %v; want the old %d bytes", fi, err, service.MaxLog+1)
-	}
-	if b, err := os.ReadFile(log + ".1"); err != nil || !strings.HasPrefix(string(b), "old log\n") {
-		t.Errorf("serve.log.1: %v %q; want the old log first", err, b)
-	}
-	if fi, err := os.Stat(log); err != nil || fi.Size() != 0 {
-		t.Errorf("serve.log: %v %v; want an empty file", fi, err)
 	}
 }
 

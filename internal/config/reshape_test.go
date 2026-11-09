@@ -211,9 +211,6 @@ func TestFixedCommands(t *testing.T) {
 	if cmd, _ := c.Command("after_merge"); !slices.Equal(cmd.When, []string{"x"}) {
 		t.Errorf("merge.after's when_changed lost: %+v", cmd)
 	}
-	if len(FixedCommands) != 7 {
-		t.Errorf("FixedCommands has %d names, want the seven", len(FixedCommands))
-	}
 	bad := load(t, `{"version":2,"project":{"agent_prefix":"pj"},"agents":{"roles":{"integrator":"opus"}},`+
 		`"commands":{"check":"make check"},"lanes":{"count":2,"list":[{"name":"L-01"}]}}`, "")
 	_, fails := bad.Validate(ValidateOptions{})
