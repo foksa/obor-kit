@@ -128,7 +128,7 @@ func TestKind(t *testing.T) {
 		t.Errorf("Headless = %+v", h)
 	}
 	m := k.Install("/kit", nil).MCP
-	if m.Where != agents.Manifest || m.Path != "/kit/.claude-plugin/plugin.json" || k.Install("/kit", nil).Plugin != nil {
+	if m.Where != agents.Manifest || m.Path != "/kit/.claude-plugin/plugin.json" {
 		t.Errorf("Install = %+v", k.Install("/kit", nil))
 	}
 	for _, c := range []struct {

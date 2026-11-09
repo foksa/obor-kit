@@ -258,20 +258,17 @@ func (k *Kind) NotReady(screen string) string {
 	return r.Why
 }
 
-// installReply is install's reply: the MCP registration and the plugin link as data; setup applies them.
+// installReply is install's reply: the MCP registration as data; setup checks it. A reply that still carries the
+// removed user-config install path (mcp.where "config", a plugin link under ~/) is refused (T-1119).
 type installReply struct {
 	MCP struct {
 		Where    string         `json:"where"`
 		Path     string         `json:"path"`
-		AltPath  string         `json:"alt_path"`
 		Key      []string       `json:"key"`
 		Entry    map[string]any `json:"entry"`
 		Unpinned map[string]any `json:"unpinned"`
 	} `json:"mcp"`
-	Plugin *struct {
-		From string `json:"from"`
-		To   string `json:"to"`
-	} `json:"plugin"`
+	Plugin json.RawMessage `json:"plugin"` // removed (T-1119): any non-null value is refused
 }
 
 // InstallErr runs install; the registration's Lane is the manifest's mcp_lane (closure 3 as data).
@@ -284,19 +281,28 @@ func (k *Kind) InstallErr(kit string, env func(string) string) (agents.Install, 
 	if err := k.run("install", map[string]any{"kit": kit, "env": snapshot(m, env)}, &r); err != nil {
 		return failedInstall(err), err
 	}
-	if !slices.Contains([]string{agents.Manifest, agents.PerStart, agents.Config}, r.MCP.Where) {
-		err := fmt.Errorf("kind %s: install: mcp.where %q is none of %s, %s, %s", k.name, r.MCP.Where, agents.Manifest,
-			agents.PerStart, agents.Config)
+	var removed error
+	switch {
+	case r.MCP.Where == "config":
+		removed = fmt.Errorf("kind %s: install: mcp.where %q is no longer supported: the user-config install path was "+
+			"removed (T-1119); a kind registers per launch or through the project's files", k.name, r.MCP.Where)
+	case len(r.Plugin) > 0 && string(r.Plugin) != "null":
+		removed = fmt.Errorf("kind %s: install: the plugin link is no longer supported: the user-config install path was "+
+			"removed (T-1119); a kind installs nothing under ~/", k.name)
+	}
+	if removed != nil {
+		return failedInstall(removed), removed
+	}
+	if !slices.Contains([]string{agents.Manifest, agents.PerStart}, r.MCP.Where) {
+		err := fmt.Errorf("kind %s: install: mcp.where %q is none of %s, %s", k.name, r.MCP.Where, agents.Manifest,
+			agents.PerStart)
 		return failedInstall(err), err
 	}
 	lane := m.MCPLane
 	how := strings.ReplaceAll(lane.How, "{kit}", kit)
-	in := agents.Install{MCP: agents.MCPRegistration{Where: r.MCP.Where, Path: r.MCP.Path, AltPath: r.MCP.AltPath,
+	in := agents.Install{MCP: agents.MCPRegistration{Where: r.MCP.Where, Path: r.MCP.Path,
 		Key: r.MCP.Key, Entry: r.MCP.Entry, Unpinned: r.MCP.Unpinned,
 		Lane: func([]string, agents.ReadFile) (string, bool, bool) { return how, lane.Registered, lane.Static }}}
-	if r.Plugin != nil {
-		in.Plugin = &agents.Link{From: r.Plugin.From, To: r.Plugin.To}
-	}
 	return in, nil
 }
 

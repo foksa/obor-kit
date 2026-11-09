@@ -93,7 +93,7 @@ func Handle(call string, req []byte) ([]byte, error) {
 	case "start":
 		reply = start(in)
 	case "install":
-		reply = map[string]any{"mcp": map[string]any{"where": "start"}, "plugin": nil}
+		reply = map[string]any{"mcp": map[string]any{"where": "start"}}
 	case "turn":
 		reply = turn(in)
 	case "deliver":

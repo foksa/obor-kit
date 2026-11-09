@@ -70,7 +70,7 @@ gate runs it. Adapters never import each other: one that needs another goes thro
 **bridge** — `agents` and one package per compiled agent kind (`agents/claude`, `agents/codex`; phase 5,
 T-495): **what** differs per agent CLI, as data and pure functions; standard library only,
 imports no obor package (every other layer may import it). `agents.Kind`: `Name`, `NotReady(screen)`, `Stop() Stop` (quit recipe), `Headless() Headless` (argv forms the guard denies), `Install(kit, env)
-Install` (MCP registration, plugin link), `Transcript(env, sid)` (a glob: the file of that session id, no cwd — a
+Install` (MCP registration), `Transcript(env, sid)` (a glob: the file of that session id, no cwd — a
 kind's directory for it is the kind's own, T-813), `Session(first line)` (the session a
 transcript begins with: Codex's `session_meta`, T-577), `Deliver(text, record) (Delivery, bool)` (typed
 vs inbox post), `Caps()` (hooks transport — the plugin marker is `Caps().Hooks == HooksPlugin` —, inbox, resume,

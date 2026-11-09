@@ -80,7 +80,7 @@ func pluginStatic() {
 		how, registered, static = inst.MCP.Lane(nil, nil)
 	}
 	check("P-S4", "install: registered per start, the lane rule the manifest's mcp_lane",
-		err == nil && inst.MCP.Where == agents.PerStart && inst.Plugin == nil && registered && !static &&
+		err == nil && inst.MCP.Where == agents.PerStart && registered && !static &&
 			strings.HasPrefix(how, "SHELL_KIND_CONFIG"),
 		fmt.Sprintf("%+v %q %v %v, err %v", inst.MCP, how, registered, static, err), where("func (k *Kind) InstallErr"))
 

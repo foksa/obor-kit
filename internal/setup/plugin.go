@@ -179,16 +179,12 @@ func (s *Setup) integrate(ctx context.Context) (port.Integration, error) {
 	return in, err
 }
 
-// agentsCmd is `obor setup agents [--remove]` (user-global, once per user): for every kind, what its bridge says to
-// install (agents.Install): its plugin link (Plugin), then the obor entry of its user config (a Config registration,
-// configMCP). A link to another kit's copy is re-linked; a file there that is no link, or links elsewhere, is left
-// alone. --remove deletes only that link and that entry. Nothing else is touched; a kind with neither is said once.
-// In a project, each plugin kind its config names (kinds.<name>.command, T-1036; the kit's OpenCode, T-1046) is described
-// first and its manifest cached in the state dir (plugin.Cache), what hooks and the guard read; a plugin kind's install
-// failing is a FAIL.
+// agentsCmd is `obor setup agents` (once per user): in a project, each plugin kind its config names
+// (kinds.<name>.command, T-1036; the kit's OpenCode, T-1046) is described first and its manifest cached in the state dir
+// (plugin.Cache), what hooks and the guard read; then every kind's install is run (its answer is obor setup mcp's) and
+// a failure is a FAIL. A kind installs nothing user-global (T-1119), so each is said once.
 func (s *Setup) agentsCmd(args []string) error {
-	remove := len(args) == 1 && args[0] == "--remove"
-	if len(args) > 0 && !remove {
+	if len(args) > 0 {
 		return errUsage
 	}
 	if _, err := s.cachePlugins(); err != nil {
@@ -196,24 +192,10 @@ func (s *Setup) agentsCmd(args []string) error {
 	}
 	for _, name := range agents.Names() {
 		k, _ := agents.Lookup(name)
-		in, err := agents.InstallOf(k, s.Kit, s.Env.Get)
-		if err != nil {
+		if _, err := agents.InstallOf(k, s.Kit, s.Env.Get); err != nil {
 			return project.Failf("agents %s: %v", name, err)
 		}
-		if in.Plugin == nil && in.MCP.Where != agents.Config {
-			s.say("agents %s: nothing to install", name)
-			continue
-		}
-		if in.Plugin != nil {
-			if err := s.pluginLink(name, *in.Plugin, remove); err != nil {
-				return err
-			}
-		}
-		if in.MCP.Where == agents.Config {
-			if err := s.configMCP(name, in.MCP, remove); err != nil {
-				return err
-			}
-		}
+		s.say("agents %s: nothing to install", name)
 	}
 	return nil
 }
@@ -261,57 +243,5 @@ func (s *Setup) setKindCommand(name, cmd string) error {
 		return project.Failf("cannot update %s", path)
 	}
 	s.say("config kinds.%s.command = %s (uncommitted: the kit's binary)", name, cmd)
-	return nil
-}
-
-// kitCopy: target is another obor kit's copy of mine (a file of the same name in a dir of the same name).
-func kitCopy(target, mine string) bool {
-	return filepath.Base(target) == filepath.Base(mine) && filepath.Base(filepath.Dir(target)) == filepath.Base(filepath.Dir(mine))
-}
-
-// pluginLink links kind's l.To to l.From (remove: deletes the link); a link to a file of the same name in a dir of the
-// same name (another kit's copy) is ours.
-func (s *Setup) pluginLink(kind string, l agents.Link, remove bool) error {
-	mine, link := l.From, l.To
-	if fi, err := os.Stat(mine); !remove && (err != nil || !fi.Mode().IsRegular()) {
-		return project.Failf("agents %s: no %s", kind, mine)
-	}
-	target, err := os.Readlink(link)
-	exists := err == nil
-	if _, lerr := os.Lstat(link); lerr == nil && !exists {
-		return project.Failf("agents %s: %s is not a link: left alone", kind, link)
-	}
-	ours := exists && kitCopy(target, mine)
-	switch {
-	case exists && !ours:
-		return project.Failf("agents %s: %s links to %s (not an obor kit's %s): left alone", kind, link, target,
-			filepath.Join(filepath.Base(filepath.Dir(mine)), filepath.Base(mine)))
-	case remove && !exists:
-		s.say("OK agents %s: %s not linked", kind, link)
-		return nil
-	case remove:
-		if err := os.Remove(link); err != nil {
-			return project.Failf("agents %s: %v", kind, err)
-		}
-		s.say("OK agents %s: plugin removed (%s; restart %s)", kind, link, kind)
-		return nil
-	case target == mine:
-		s.say("OK agents %s: %s already links to %s", kind, link, mine)
-		return nil
-	case exists:
-		if err := os.Remove(link); err != nil {
-			return project.Failf("agents %s: %v", kind, err)
-		}
-	}
-	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
-		return project.Failf("agents %s: %v", kind, err)
-	}
-	if err := os.Symlink(mine, link); err != nil {
-		return project.Failf("agents %s: %v", kind, err)
-	}
-	if exists {
-		s.say("agents %s: re-linked %s to %s (was %s)", kind, link, mine, target)
-	}
-	s.say("OK agents %s: %s → %s (user-global; restart %s to load it)", kind, link, mine, kind)
 	return nil
 }
