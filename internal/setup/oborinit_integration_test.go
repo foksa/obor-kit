@@ -768,6 +768,9 @@ func TestOborInitWritesDetectedCommandsOnce(t *testing.T) {
 	// T-1075: the summary says what commands.check is for, so an adopter keeps it to a few minutes.
 	has(t, out, "commands.check is what every merge must pass, keep it to a few minutes; slower tests go in "+
 		"check_milestone (the nightly), and obor nightly off if CI on main already does that", "the check line")
+	// T-1115: obor's commits pass --no-verify, so the summary says an adopter's hooks never run on them.
+	has(t, out, "obor commits with --no-verify: your pre-commit and commit-msg hooks do not run on them; put "+
+		"formatting and secret scans in commands.check (the merge check)", "the hooks line")
 	has(t, out, "go.mod", "detected line")
 	doc, _ := config.EditJSON([]byte(x.Read(".obor/config.json")), []string{"commands", "check"}, "make mine")
 	x.Write(".obor/config.json", string(doc))
