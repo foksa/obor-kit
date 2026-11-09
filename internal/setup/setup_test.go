@@ -836,7 +836,7 @@ func TestLeadKeepsRemoteControl(t *testing.T) {
 func TestRoleTriageRunsInTheRootWithItsRoleEnvAndCreatesBugsMd(t *testing.T) {
 	t.Parallel()
 	x := newFx(t)
-	x.failing(t, `FAIL roles.triage is not set (a model ref, e.g. "opus:high")`, "role", "triage", "--new-tab", "triage", "--start")
+	x.failing(t, `FAIL roles.triage is not set (a model ref, e.g. <model>[:<effort>])`, "role", "triage", "--new-tab", "triage", "--start")
 	if x.Exists("docs/BUGS.md") {
 		t.Fatal("precondition: no BUGS.md after the FAIL")
 	}

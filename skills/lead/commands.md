@@ -73,7 +73,7 @@ review request that follows the last merge is work, not idle), it posts one line
 The owner may change the setup on obor web's Setup page instead of editing `.obor/config.json`: a difficulty level's
 model refs, a role's model ref, the lanes count, a kind's args, and the pause. The page stages the edits and
 the owner commits them together (T-760): serve writes them as one commit on main itself and tells you in one line:
-- `[obor] config: <key> <old> → <new>; <key> <old> → <new> (owner, web)` — e.g. `[obor] config: difficulty.hard ["opus:high"] → ["sonnet","opus:high"] (owner, web)`.
+- `[obor] config: <key> <old> → <new>; <key> <old> → <new> (owner, web)` — e.g. `[obor] config: difficulty.hard ["<model>"] → ["<model>:<effort>","<model>"] (owner, web)`.
 
 A save made on a config that changed since the owner's page read it (your hand edit, say) is refused, nothing written:
 the owner reviews it against yours.
@@ -175,9 +175,9 @@ overrides both.
   `opus:high`, medium `sonnet, deepseek`, simple `deepseek, sonnet, haiku`; `obor setup show` prints them.
 - `obor pause --model <name> [--for 3h] "<why>"` — dispatch skips that model (a quota, an outage) and a level's next
   one runs; `obor pause --model <name> --clear` ends it. A redo keeps its own model even while it is paused.
-- Effort: any model named here (`Model:`, `--model`, config `difficulty`, `roles.<role>`) may be `<model>:<effort>`
-  (`opus:high`, `luna:xhigh`): the agent starts at that effort, shown in the reply (`DISPATCHED T-xx → L-01 (queued)
-  as opus effort high`) and `obor status`; an effort the kind lacks is refused.
+- Effort: any model named here (`Model:`, `--model`, config `difficulty`, `roles.<role>`) may be `<model>:<effort>`:
+  the agent starts at that effort, shown in the reply (`DISPATCHED T-xx → L-01 (queued)
+  as <model> effort <effort>`) and `obor status`; an effort the kind lacks is refused.
 - A spec with no level and no `--model`: `FAIL`, naming the fix. The `<LANE> <T-xx>` form is gone.
 - A second `obor dispatch` of a waiting task replaces its request (new `--model`, `--after`); its watches stay.
   `obor drop <T-xx> "<why>"` cancels it (`DROPPED T-xx`; a watch on it ends with `dropped: <why>`).

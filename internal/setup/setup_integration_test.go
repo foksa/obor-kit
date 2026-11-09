@@ -300,7 +300,7 @@ func TestRoleIntegratorStartsInItsWorktreeAndNeedsAType(t *testing.T) {
 	t.Parallel()
 	x := newGitFx(t)
 	x.h.Tab("w1:t1", 200, 50, "w1:p3")
-	x.failing(t, `FAIL roles.integrator is not set (a model ref, e.g. "opus:high")`, "role", "integrator", "--pane", "w1:p3", "--start")
+	x.failing(t, `FAIL roles.integrator is not set (a model ref, e.g. <model>[:<effort>])`, "role", "integrator", "--pane", "w1:p3", "--start")
 	x.Config(testkit.Set("roles", `{"integrator": "opus"}`))
 	x.reset()
 	out := x.ok(t, "role", "integrator", "--pane", "w1:p3", "--start")
