@@ -35,10 +35,15 @@ describe("the pipeline (T-986)", () => {
 });
 
 describe("the counts never take a task twice (T-986)", () => {
-  it("queues only the dispatches with no lane yet", () => {
+  it("queues only the dispatches waiting for a lane", () => {
     expect(queuedForLane(q.waiting, busy).map((w) => w.task)).toEqual(["T-5"]); // not T-2/T-3, not never-dispatched
-    expect(queuedForLane([{ task: "T-1", waits_on: "after" }], busy)).toEqual([]); // its task holds a lane
+    expect(queuedForLane([{ task: "T-1", waits_on: "after" }], busy)).toEqual([]); // waits for its tasks, not a lane
     expect(queuedForLane(undefined, busy)).toEqual([]);
+  });
+  it("counts an --after dispatch only once it waits for a lane (T-1162)", () => {
+    expect(queuedForLane([{ task: "T-7", waits_on: "after" }], []).map((w) => w.task)).toEqual([]);
+    expect(queuedForLane([{ task: "T-8", waits_on: "lane" }], []).map((w) => w.task)).toEqual(["T-8"]);
+    expect(queuedForLane([{ task: "T-9", waits_on: "never dispatched" }], []).map((w) => w.task)).toEqual([]);
   });
   it("says each busy lane's step from serve's phase", () => {
     expect(laneSteps(busy)).toBe("2 working · 1 testing · 1 review");
