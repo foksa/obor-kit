@@ -32,18 +32,17 @@ var ErrNoConfig = errors.New("no config")
 // Data is the config file's shape, and its field comments are the reference for each key. A key it does not name
 // fails the load.
 type Data struct {
-	Version          *int              `json:"version,omitempty"`
-	Name             string            `json:"name,omitempty"`
-	Prefix           string            `json:"prefix,omitempty"`
-	LanesDir         string            `json:"lanes_dir"`
-	Branches         Branches          `json:"branches"`
-	TaskIDPattern    string            `json:"task_id_pattern"`
-	Paths            map[string]string `json:"paths"`
-	DoneFileSections []string          `json:"done_file_sections"`
-	Commands         Ordered[Command]  `json:"commands"`
-	LaneLinks        []string          `json:"lane_links"`
-	Guards           *Guards           `json:"guards,omitempty"`
-	ProtectedFiles   []string          `json:"protected_files"`
+	Version        *int              `json:"version,omitempty"`
+	Name           string            `json:"name,omitempty"`
+	Prefix         string            `json:"prefix,omitempty"`
+	LanesDir       string            `json:"lanes_dir"`
+	Branches       Branches          `json:"branches"`
+	TaskIDPattern  string            `json:"task_id_pattern"`
+	Paths          map[string]string `json:"paths"`
+	Commands       Ordered[Command]  `json:"commands"`
+	LaneLinks      []string          `json:"lane_links"`
+	Guards         *Guards           `json:"guards,omitempty"`
+	ProtectedFiles []string          `json:"protected_files"`
 	// Lanes is the project's lanes under lanes_dir, every one pooled (T-765): a count N (L-01 … L-NN, each fresh), or
 	// a list [{"name": "L-01", "keep_agent": true}, …] (T-1031: a keep lane's agent stays between its tasks).
 	Lanes LaneList `json:"lanes"`
@@ -309,15 +308,18 @@ type Slots struct {
 	LaneEnv map[string]string `json:"lane_env,omitempty"`
 }
 
+// ReportSections are the sections a worker's task_done report must have, each a `Name:` label (T-1107): built in, the
+// done_file_sections key they came from is retired.
+var ReportSections = []string{"Summary", "Self-check", "Skipped", "Open questions"}
+
 // Defaults is a fresh copy each call: decoding reuses a slice's backing array. A null in the files leaves a default.
 func Defaults() Data {
 	return Data{
-		Branches:         Branches{Main: "main", Task: "task/{id}"},
-		TaskIDPattern:    "T-[0-9]+[a-z]?",
-		Paths:            map[string]string{"agents": "docs/agents"},
-		DoneFileSections: []string{"Summary", "Self-check", "Skipped", "Open questions"},
-		LaneLinks:        []string{},
-		ProtectedFiles:   []string{},
+		Branches:       Branches{Main: "main", Task: "task/{id}"},
+		TaskIDPattern:  "T-[0-9]+[a-z]?",
+		Paths:          map[string]string{"agents": "docs/agents"},
+		LaneLinks:      []string{},
+		ProtectedFiles: []string{},
 	}
 }
 

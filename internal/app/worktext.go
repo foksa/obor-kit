@@ -140,7 +140,7 @@ func (a *App) watchWork(p *proj, mt mtask) step {
 // own. The worker's role texts follow it (workText). {{base}} is the target branch (branches.main). Placeholders:
 //
 //	{{task}} {{base}}
-//	{{done_sections}}  done_file_sections, comma-separated: the sections task_done's report must have
+//	{{done_sections}}  config.ReportSections, comma-separated: the sections task_done's report must have
 func workerPrompt(cfg *config.Config, kit, task string, lt config.Model) (string, error) {
 	file := filepath.Join(kit, "templates", "worker-prompt.txt")
 	b, err := os.ReadFile(file)
@@ -148,7 +148,7 @@ func workerPrompt(cfg *config.Config, kit, task string, lt config.Model) (string
 		return "", fmt.Errorf("cannot read the worker prompt %s", file)
 	}
 	fill := strings.NewReplacer("{{task}}", task, "{{base}}", cfg.Data.Branches.Main,
-		"{{done_sections}}", strings.Join(cfg.Data.DoneFileSections, ", "))
+		"{{done_sections}}", strings.Join(config.ReportSections, ", "))
 	var parts []string
 	for _, line := range strings.Split(string(b), "\n") {
 		if strings.TrimSpace(line) == "" {

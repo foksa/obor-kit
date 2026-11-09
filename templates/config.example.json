@@ -8,7 +8,6 @@
   "paths": {
     "reviews": "docs/reviews"
   },
-  "done_file_sections": ["Summary", "Self-check", "Skipped", "Open questions"],
   "commands": {
     "lane_setup": "bun install --frozen-lockfile",
     "lane_ready": "test -d node_modules",

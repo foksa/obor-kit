@@ -332,13 +332,12 @@ func (a *App) taskDone(c wire.TaskDoneReq) (string, error) {
 	case c.Role != "worker":
 		return "", fmt.Errorf("task_done: a worker submits its task, not %s (role %s)", Dash(c.Agent), Dash(c.Role))
 	}
-	cfg, err := config.Load(p.root)
-	if err != nil {
+	if _, err := config.Load(p.root); err != nil { // a project whose config no longer reads takes no submission
 		return "", fmt.Errorf("task_done: %v", err)
 	}
 	report := strings.TrimSpace(c.Report)
 	asks, blocked := blockedAsk(report)
-	if why := reportRefusal(report, cfg.Data.DoneFileSections); why != "" && !blocked {
+	if why := reportRefusal(report, config.ReportSections); why != "" && !blocked {
 		return "", fmt.Errorf("task_done: %s", why)
 	}
 	ctx, cancel := context.WithTimeout(a.life, requestTimeout)
@@ -516,11 +515,10 @@ func headingPattern(q string) string {
 	return `^\s*(?:#{1,6}\s+` + q + `|\*\*` + q + `:?\*\*|` + q + `\s*:)`
 }
 
-// reportSections are the headings a report's section ends at: the report's own sections (the worker template's list,
-// one place: config's default done-file sections), and Blocked and Concerns, which a worker writes but a submitted
-// report's section list does not name (T-808). Concerns is optional, so the template spells it "Concerns (optional):"
-// too.
-var reportSections = append(config.Defaults().DoneFileSections, "Blocked", "Concerns", "Concerns (optional)")
+// reportSections are the headings a report's section ends at: the report's own sections (config.ReportSections, the
+// worker template's list, one place), and Blocked and Concerns, which a worker writes but a submitted report's section
+// list does not name (T-808). Concerns is optional, so the template spells it "Concerns (optional):" too.
+var reportSections = slices.Concat(config.ReportSections, []string{"Blocked", "Concerns", "Concerns (optional)"})
 
 // reportHeadingRe is the heading of any of reportSections, in headingRe's forms: a Name: label, a ## Name or **Name**
 // heading at the start of a line, any case.

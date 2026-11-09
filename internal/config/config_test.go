@@ -46,12 +46,11 @@ func raw(c *Config, path string) (string, bool) {
 func TestDefaultsAndDerivedKeys(t *testing.T) {
 	c := load(t, `{"version":1,"prefix":"pj","models":{"cx":{"kind":"codex","model":"gpt-x"}}}`, "")
 	for path, want := range map[string]string{
-		".branches.main":      "main",
-		".branches.task":      "task/{id}",
-		".task_id_pattern":    "T-[0-9]+[a-z]?",
-		".done_file_sections": "[\n  \"Summary\",\n  \"Self-check\",\n  \"Skipped\",\n  \"Open questions\"\n]",
-		".lanes_dir":          "../proj-wt",
-		".merge.scratch_dir":  "../proj-wt/merge",
+		".branches.main":     "main",
+		".branches.task":     "task/{id}",
+		".task_id_pattern":   "T-[0-9]+[a-z]?",
+		".lanes_dir":         "../proj-wt",
+		".merge.scratch_dir": "../proj-wt/merge",
 	} {
 		if got, ok := raw(c, path); !ok || got != want {
 			t.Errorf("%s = %q (exists %v), want %q", path, got, ok, want)
@@ -69,17 +68,17 @@ func TestDefaultsAndDerivedKeys(t *testing.T) {
 }
 
 func TestLocalOverlay(t *testing.T) {
-	c := load(t, `{"prefix":"pj","merge":{"nightly_at":"03:00"},"done_file_sections":["A","B","C"],
+	c := load(t, `{"prefix":"pj","merge":{"nightly_at":"03:00"},"lane_links":["A","B","C"],
 		"kinds":{"claude":{"args":["--x"],"prompt_extra":"P"}},"lanes":4,
 		"commands":{"check":{"cmd":"make check","timeout":90}},
 		"merge":{"nightly_at":"03:00","classes":[{"name":"a","paths":["src/a/**"]}]}}`,
-		`{"merge":{"nightly_at":"02:00","classes":[{"name":"b","paths":["src/b/**"]}]},"done_file_sections":["X"],
+		`{"merge":{"nightly_at":"02:00","classes":[{"name":"b","paths":["src/b/**"]}]},"lane_links":["X"],
 		"kinds":{"claude":{"args":["--y"]}},"lanes":2,"commands":{"check":{"heavy":true}},"lanes_dir":"/wt"}`)
 	if m := c.Data.Merge; m.NightlyAt != "02:00" {
 		t.Errorf("merge: objects merge key by key, got %+v", m)
 	}
-	if !reflect.DeepEqual(c.Data.DoneFileSections, []string{"X"}) {
-		t.Errorf("a list is replaced whole: %q", c.Data.DoneFileSections)
+	if !reflect.DeepEqual(c.Data.LaneLinks, []string{"X"}) {
+		t.Errorf("a list is replaced whole: %q", c.Data.LaneLinks)
 	}
 	if k := c.Data.Kinds.M["claude"]; k.PromptExtra != "P" || !reflect.DeepEqual(k.Args, []string{"--y"}) {
 		t.Errorf("a kind merges key by key, its args replaced whole: %+v", k)
@@ -95,10 +94,6 @@ func TestLocalOverlay(t *testing.T) {
 	}
 	if c.LanesDir() != "/wt" || c.Data.Merge.ScratchDir != "/wt/merge" {
 		t.Errorf("derived after the overlay: %s %s", c.LanesDir(), c.Data.Merge.ScratchDir)
-	}
-	// Defaults are a fresh copy per load: the overlay above did not write into them.
-	if d := load(t, `{"prefix":"pj"}`, ""); len(d.Data.DoneFileSections) != 4 || d.Data.DoneFileSections[0] != "Summary" {
-		t.Errorf("defaults changed by an earlier load: %q", d.Data.DoneFileSections)
 	}
 }
 

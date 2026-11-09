@@ -100,7 +100,6 @@ warns on the keys that no longer do anything.
   "branches": { "main": "main", "task": "task/{id}" },
   "task_id_pattern": "T-[0-9]+[a-z]?",        // ERE
   "paths": { "tasks": "docs/tasks", "reviews": "docs/reviews" },
-  "done_file_sections": ["Summary", "Self-check"],
   "commands": {                               // string = {"cmd": s, "timeout": 600}; null/absent = skipped
     "lane_setup": "bun install --frozen-lockfile",          // reserved: run in new lanes and the scratch worktree
     "check": { "cmd": "bun run check", "timeout": 900 },     // reserved: merge check
@@ -302,8 +301,9 @@ allows silently.
      and `specs` tables (read-only, the current rev; `docs/state-model.md` "The log"); a store it cannot read unlocks
      nothing.
 3. **Stop - worker: `task_done` required.** The hook reads the lane's row read-only: while the lane's task awaits its
-   `task_done` it blocks once per stop loop with the hint (call `task_done` with the report, the sections being
-   `done_file_sections`; or, to ask, a `Blocked:` report naming what you need: `docs/state-model.md` row 16a). No done file, no block count.
+   `task_done` it blocks once per stop loop with the hint (call `task_done` with the report, the sections being the four
+   built-in ones — Summary, Self-check, Skipped, Open questions; or, to ask, a `Blocked:` report naming what you need:
+   `docs/state-model.md` row 16a). No done file, no block count.
    The row and the finish: `docs/state-model.md` ("The log", the `lanes` bullet, and its last paragraph, the worker
    Stop hook).
 4. **SessionStart** (`guard.SessionStart`): prints the `obor: role …, lane …, task …` line, the protected files the

@@ -177,7 +177,7 @@ func TestOborKitConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := cfg.Data.Merge
-	if got := Classify(m, []string{"docs/tasks/T-75.md", "AGENTS.md", "BACKLOG.md"}, false).Mode(); got != "partial:neutral" {
+	if got := Classify(m, []string{"docs/tasks/T-75.md", "CLAUDE.md", "AGENTS.md", "BACKLOG.md"}, false).Mode(); got != "partial:neutral" {
 		t.Errorf("docs-only merge: %s", got)
 	}
 	for _, c := range []struct {
