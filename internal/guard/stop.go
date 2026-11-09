@@ -135,7 +135,7 @@ func (h *stopHook) workerDone() (string, error) {
 	}
 	return "obor (worker " + lane + "): not done yet — no task_done for " + row.Task + " yet.\n" + stale +
 		"Before stopping, call the obor task_done tool with your final report as its report argument (" +
-		strings.Join(h.cfg.Data.DoneFileSections, ", ") + ": a `Name:` label each).\n" +
+		strings.Join(config.ReportSections, ", ") + ": a `Name:` label each).\n" +
 		"If you cannot finish, call task_done with a Blocked: report naming what you need, then stop and wait. Already sent one? Stop again.", nil
 }
 

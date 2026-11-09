@@ -3,12 +3,6 @@
   "name": "obor-kit",
   "prefix": "ob",
   "lanes_dir": "../obor-kit-wt",
-  "done_file_sections": [
-    "Summary",
-    "Self-check",
-    "Skipped",
-    "Open questions"
-  ],
   "paths": {
     "reviews": "docs/reviews"
   },

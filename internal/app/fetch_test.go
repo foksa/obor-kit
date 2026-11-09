@@ -716,29 +716,27 @@ func workJobText(t *testing.T, kit, cfg string) string {
 	return text
 }
 
-// T-678: the work job names the project's configured done_file_sections once, not the defaults; with the default
-// config, it names the default labels once.
-func TestWorkJobNamesTheConfiguredReportSections(t *testing.T) {
+// T-678, T-1107: the work job names the built-in report sections (config.ReportSections) once; a config that still
+// has the retired done_file_sections does not change them.
+func TestWorkJobNamesTheReportSections(t *testing.T) {
 	t.Parallel()
 	kit, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, c := range []struct{ name, cfg, want, not string }{
-		{"configured", `{"name":"pj","done_file_sections":["Summary","Verification"]}`,
-			"Your final report has these sections: Summary, Verification.",
-			"Summary, Self-check, Skipped, Open questions"},
-		{"default", `{"name":"pj"}`,
-			"Your final report has these sections: Summary, Self-check, Skipped, Open questions.", ""},
+	want := "Your final report has these sections: " + strings.Join(config.ReportSections, ", ") + "."
+	for _, c := range []struct{ name, cfg string }{
+		{"default", `{"name":"pj"}`},
+		{"retired key ignored", `{"name":"pj","done_file_sections":["Summary","Verification"]}`},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			text := workJobText(t, kit, c.cfg)
-			if n := strings.Count(text, c.want); n != 1 {
-				t.Errorf("the job names the sections %d times, want once (%q):\n%s", n, c.want, text)
+			if n := strings.Count(text, want); n != 1 {
+				t.Errorf("the job names the sections %d times, want once (%q):\n%s", n, want, text)
 			}
-			if c.not != "" && strings.Contains(text, c.not) {
-				t.Errorf("the job names %q, not the wanted sections:\n%s", c.not, text)
+			if strings.Contains(text, "Verification") {
+				t.Errorf("the job names a retired key's sections:\n%s", text)
 			}
 		})
 	}

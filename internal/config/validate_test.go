@@ -336,6 +336,8 @@ func TestShapeErrorsFailTheLoad(t *testing.T) {
 		{set("inbox", map[string]any{"only": []any{"pj-lead"}}), "inbox"},
 		{set("merge.full_every", 86400), "full_every"},
 		{set("done_file", ".task-done.md"), "done_file"},
+		// T-1107: done_file_sections went; the four report sections are built in.
+		{set("done_file_sections", []any{"Summary", "Self-check"}), "done_file_sections"},
 		{set("leads", map[string]any{"cross_ttl": 3600}), "leads"},
 		{set("spec", map[string]any{"files_heading": "Files"}), "spec"},
 		{set("roles", `{"leads": [{"name": "mp"}]}`), "leads"},
