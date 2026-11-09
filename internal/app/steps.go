@@ -57,6 +57,11 @@ func (a *App) scratchStep(ctx context.Context, p *proj, mt mtask, step string, e
 	return false
 }
 
+// candInOf is c's identity as a publish's and an after_merge's intent (T-1091): its diff and stat are not stored.
+func candInOf(c port.Candidate) candIn {
+	return candIn{Task: c.Task, Lane: c.Lane, SHA: c.SHA, Target: c.Target}
+}
+
 // afterStep runs mt's next after-merge step (rows 37–38); one that fails stays pending and no later one runs before
 // it (no lane reuse after a failed stop). after_merge (G) is the gate's; agent.stop (S) acts on the lane only while
 // its row holds the task (a crash, then the lane reused: its stop is skipped).
@@ -66,7 +71,7 @@ func (a *App) afterStep(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 	var effect func(context.Context) (any, error)
 	switch step {
 	case event.StepAfterMerge:
-		in.Data = mt.cand
+		in.Data = candInOf(mt.cand)
 		effect = func(ctx context.Context) (any, error) { return fx.Workflow.AfterMerge(ctx, mt.cand) }
 	case event.StepStop:
 		in.Class, in.Data = event.ClassStart, stopData{Lane: mt.lane, Agent: mt.agent}
@@ -334,7 +339,7 @@ func testResult(task string, o port.TestOutcome) testOut {
 // the fast-forward), moved (re-gate), held (the main checkout has local changes to the merge's files: the owner) or
 // pending (the merge asked for, not done yet: the Landed rule looks again each pass, T-1029).
 func (a *App) publish(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
-	in := event.Intent{Key: event.Key{Task: mt.task, Attempt: mt.attempt, Step: nth(event.StepPublish, mt.pubs+1)}, Class: event.ClassGit, Data: mt.cand}
+	in := event.Intent{Key: event.Key{Task: mt.task, Attempt: mt.attempt, Step: nth(event.StepPublish, mt.pubs+1)}, Class: event.ClassGit, Data: candInOf(mt.cand)}
 	_, err := a.do(ctx, p, in, func(ctx context.Context) (any, error) {
 		o, err := fx.Workflow.Publish(ctx, mt.cand)
 		if err != nil {
