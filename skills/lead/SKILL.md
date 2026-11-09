@@ -45,7 +45,7 @@ To (re)start the lead (none running, or after a Claude Code update): `obor lead`
   `obor dispatch <T-xx>` runs the level's first model (config `difficulty`) on the first free lane (every lane is
   pooled); a model paused with `obor pause --model <name> [--for 3h] "<why>"` is skipped and the next one used; none
   free, or every model paused: the task waits and the reply says why. There are no caps. `--model a,b` overrides the
-  level (smoke tests, Haiku). Wherever a model is named (`Model:`, `--model`, config `difficulty`, `roles.<role>`),
+  level (a smoke test's model). Wherever a model is named (`Model:`, `--model`, config `difficulty`, `roles.<role>`),
   `<model>:<effort>` names the effort too: `opus:high` runs opus at effort high. Add `--after T-yy[,T-zz]` and serve dispatches it once
   those are merged and a lane is free. A second `obor dispatch` of a waiting task replaces its request. `--force` takes a
   `dirty-free` lane. `FAIL obor serve is not running`: start it (`obor serve` in its own pane, in the project).
@@ -87,8 +87,9 @@ one line once all merged (or the first dropped). `obor watch` lists them with th
 
 ## Reviews
 Before a release, `obor review` and close it.
-Every ~3 merges (never > ~5 unreviewed; `obor status` says `review due`): `obor review [--after T-a,T-b] [--note
-"<out of scope, contracts>"]`, serve starts it (`review-brief.md`). A `Difficulty: hard` spec is reviewed on merge
+Every ~3 merges (`obor status` says `review due: N merges since <the last review>` once more than 3 merged; nothing
+enforces a maximum): `obor review [--after T-a,T-b] [--note "<out of scope, contracts>"]`, serve starts it
+(`review-brief.md`). A `Difficulty: hard` spec is reviewed on merge
 without any line (T-932); a medium or simple task that is judgement-heavy (identity, MCP, launch) gets there with the
 spec line `Review: on merge` — serve requests that review itself once the task merges (T-878). Either way your watch
 and hand-run `obor review` are replaced, and `obor review` stays for the every-~3-merges reviews. A fix spec carries

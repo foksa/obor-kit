@@ -33,7 +33,7 @@ otherwise.
   panel, send `esc` first — only while the agent is idle: Esc interrupts a working turn.
 - TaskStop on a background shell can leave its child script running → check by script path, kill by PID.
 - Claude panes except leads start with `--settings '{"autoMemoryEnabled":false,"remoteControlAtStartup":false}'` (only the lead
-  on the phone and with auto memory); the lane type's `settings` overlay those keys.
+  on the phone and with auto memory); `kinds.claude.args` adds args to every Claude start.
 - Ctrl+Z suspends Claude Code (2026-10-10) → type `fg` in the pane. `obor restart` no longer resumes it: it refuses a
   stopped job, so `fg` and `/exit` it (or end it), then `obor restart <agent> --fresh`.
 - After a usage-limit reset Claude Code resumes the session by itself ("Your claude.ai usage limit has reset. Continue
@@ -55,7 +55,7 @@ otherwise.
 - An idle pane is free, but its next prompt after cache expiry re-reads the whole context at full price → keep
   sessions short: every dispatch starts a fresh worker, the reviewer gets a fresh session per review
   (`obor brief <reviewer> --fresh "…"`), `/clear` the integrator when it holds no job and advisors per topic.
-- Above `roles.lead.handoff_tokens` (default 500k) each prompt reminds the lead to hand off; nothing forces it, the
+- Above `handoff_tokens` (default 500k) each prompt reminds the lead to hand off; nothing forces it, the
   lead picks the next logical break, writes the Handoff and restarts itself fresh (`obor restart <lead> --fresh`).
 
 ## bash

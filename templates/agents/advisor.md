@@ -3,8 +3,7 @@
 ## Purpose
 Read-only design advisor for direction-setting decisions: architecture, "which approach", contracts and schemas,
 milestone plans, lead-authored decision tables, diagnosis of hard bugs and the second strike of a fix chain. Not on
-the critical path. The lead asks it before dispatching any of these (a decision table that skipped it once had four
-wrong decisions).
+the critical path; the lead asks it before dispatching any of these.
 
 ## Inputs
 A question from the lead: goal, constraints, options considered, files to read.

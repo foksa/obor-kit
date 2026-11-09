@@ -13,10 +13,13 @@ path when they agree.
 
 ## Add a lane
 ```
-obor setup lane O-01 opus
+obor setup lane L-02
 ```
-Adds `lanes.O-01` to the config, `git worktree add --detach <lanes_dir>/O-01 <current branch>`, symlinks
-`lane_links`, runs `commands.lane_setup` there. A `FAIL lane_setup …` shows the command's output: fix with the user.
+Takes the next lane name (`L-01` … `L-NN`, in order) or one already configured (a rerun). It raises the config's
+`lanes` count (a `lanes` list names the lanes: add `{"name": "L-02"}` by hand), adds a worktree detached at the main
+checkout's branch under `<lanes_dir>`, symlinks `lane_links`, runs `commands.lane_setup` there. A `FAIL lane_setup …`
+shows the command's output: fix with the user. A lane has no model: the task's `Difficulty:` level picks it at dispatch
+(`obor setup show` prints the levels).
 
 ## Add a pane or a role agent
 Spawning panes can be blocked by the auto-mode classifier: ask the user to approve, or to run the command.
