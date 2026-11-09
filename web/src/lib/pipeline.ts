@@ -7,6 +7,10 @@ import type { Lane, MergeItem, Queue, WaitItem } from "./types";
 // WAITS_NEVER is WaitItem.waits_on of a stored spec never dispatched (view.WaitsNever): no dispatch, so not queued.
 export const WAITS_NEVER = "never dispatched";
 
+// WAITS_LANE is WaitItem.waits_on of a dispatch waiting for a free lane of its level (view.WaitsLane): the only wait
+// that queues for a lane (an --after dispatch waits for its tasks, T-1162).
+export const WAITS_LANE = "lane";
+
 export type Col = { name: string; tone: string; tasks: string[] };
 
 // pipelineOf is the pipeline's blocks: the dispatches waiting, the lanes at work (a lane whose task is in the merge loop
@@ -28,10 +32,12 @@ export function pipelineOf(q: Pick<Queue, "merge" | "waiting"> | null | undefine
   return cols;
 }
 
-// queuedForLane is the dispatches that wait with no lane yet: a waiting dispatch whose task holds no busy lane (a
-// task in the merge loop holds its lane and is the lanes' count, never the queue's).
+// queuedForLane is the dispatches that wait with no lane yet: a waiting dispatch whose waits_on is WAITS_LANE (a spec
+// never dispatched, WAITS_NEVER, and an --after dispatch, which waits for its tasks instead, wait for no lane, T-1162)
+// and whose task holds no busy lane (a task in the merge loop holds its lane and is the lanes' count, never the
+// queue's).
 export function queuedForLane(waiting: WaitItem[] | null | undefined, busy: Lane[]): WaitItem[] {
-  return (waiting || []).filter((w) => w.waits_on !== WAITS_NEVER && !busy.some((l) => l.task === w.task));
+  return (waiting || []).filter((w) => w.waits_on === WAITS_LANE && !busy.some((l) => l.task === w.task));
 }
 
 // laneSteps is the busy lanes by their task's step, in the order the lanes list them: "2 working · 1 testing".
