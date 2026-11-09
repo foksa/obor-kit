@@ -28,8 +28,8 @@ type Flake struct {
 	PassedOnRetry bool   `json:"passed_on_retry"` // and the test passed then
 }
 
-// flakeWindow is how far back obor flakes looks.
-const flakeWindow = 7 * 24 * time.Hour
+// flakeWindow is how far back obor flakes looks: the window the nightly sweep prunes flakes.jsonl with (T-1098).
+const flakeWindow = project.FlakeKeep
 
 // flakeRegexp compiles merge.flake_regex: the failed-test line and the failed-package line (T-1047). A nil entry is
 // no regex configured, or one that does not compile (validate refuses that): that line is not parsed.

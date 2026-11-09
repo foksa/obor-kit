@@ -276,7 +276,8 @@ copyback_done() {
 
 # The whole run goes to the terminal and to .obor/state/logs/release-<version>.log (T-717): the script runs itself again
 # with stdout and stderr in one pipe to tee, and passes its exit status on (a plain pipe would lose it). A re-run
-# appends, so an earlier failed run's log stays. OBOR_RELEASE_LOGGED marks the inner run.
+# appends, so an earlier failed run's log stays; a release that succeeds removes the log (T-1098: its FAIL lines, the
+# reason to keep one, are a failed run's). OBOR_RELEASE_LOGGED marks the inner run.
 if [ "$dry" = 0 ]; then
   log=".obor/state/logs/release-$v.log"
   if [ -z "${OBOR_RELEASE_LOGGED:-}" ]; then
@@ -541,6 +542,12 @@ else
   else
     fail "refs/heads/main ($atshort) has commits the release ($relshort) lacks: a release never rewinds main"
   fi
+fi
+
+# A release that got here succeeded: its log went with the FAIL lines it existed to name (T-1098). A refused release
+# exits at fail above, before this, so its log stays; a --dry-run has none. A removal that fails is no failure.
+if [ "$dry" = 0 ]; then
+  rm -f "$log" || true
 fi
 
 echo "next (owner): make ship"

@@ -108,7 +108,7 @@ func (p *proj) pruneCandidates(cutoff time.Time) map[string]mtask {
 	out := map[string]mtask{}
 	for task, mt := range p.folded.loop {
 		switch {
-		case mt.state != stDropped && (mt.state != stMerged || mt.after < len(afterSteps)):
+		case !mt.ended():
 		case mt.needs.due() || mt.needs.held():
 		case mt.endedAt.IsZero() || !mt.endedAt.Before(cutoff):
 		case pinned[task] || p.held[task] != "" || p.ended[task]:

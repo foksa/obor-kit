@@ -1,7 +1,7 @@
 package project
 
 import (
-	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,15 +9,8 @@ import (
 	"time"
 
 	"obor/internal/config"
+	"obor/internal/store"
 )
-
-// sweepMerged is a Merges of these merged facts in order (a test's event log).
-func sweepMerged(ms ...Merge) Merges {
-	return func(string) ([]Merge, error) { return ms, nil }
-}
-
-// sweepNoStore is a Merges of a project serve never made a store for (checks' sweepMerges).
-func sweepNoStore(string) ([]Merge, error) { return nil, errors.New("no store") }
 
 // sweepCfg is a temp project root whose config names lanes L-01..L-02 and the default roles.
 func sweepCfg(t *testing.T) *config.Config {
@@ -34,6 +27,19 @@ func sweepCfg(t *testing.T) *config.Config {
 		t.Fatal(err)
 	}
 	return cfg
+}
+
+// sweepStore writes the project's lane rows: the tasks the sweep reads as open.
+func sweepStore(t *testing.T, cfg *config.Config, rows ...store.LaneRow) {
+	t.Helper()
+	db, err := store.OpenRW(store.File(cfg.Root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := store.WriteLanes(db, rows); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // sweepFile writes path ("x\n") with mtime now-age, creating its directory.
@@ -56,7 +62,7 @@ func sweepDay(day int) string {
 	return time.Date(2026, 10, day, 3, 0, 0, 0, time.UTC).Format("obor-2006-01-02.db.gz")
 }
 
-// TestSweep is the nightly sweep's table (T-1085), one case per row of the task's test table.
+// TestSweep is the nightly sweep's table (T-1085, T-1098), one case per rule of its tests.
 func TestSweep(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 11, 9, 2, 0, 0, 0, time.UTC)
@@ -78,7 +84,7 @@ func TestSweep(t *testing.T) {
 				sweepFile(t, now, p, 2*24*time.Hour)
 			}
 			sweepFile(t, now, freshTmp, time.Hour)
-			if lines := Sweep(cfg, now, true, sweepMerged()); len(lines) != 0 {
+			if lines := Sweep(cfg, now, true); len(lines) != 0 {
 				t.Fatalf("Sweep = %q, want no lines", lines)
 			}
 			for day := 1; day <= 2; day++ { // older than the newest 7
@@ -120,7 +126,7 @@ func TestSweep(t *testing.T) {
 			for _, p := range append(append(live, dead...), unparsed) {
 				sweepFile(t, now, p, time.Hour)
 			}
-			if lines := Sweep(cfg, now, false, sweepMerged()); len(lines) != 0 {
+			if lines := Sweep(cfg, now, false); len(lines) != 0 {
 				t.Fatalf("Sweep = %q, want no lines", lines)
 			}
 			for _, p := range live {
@@ -134,22 +140,26 @@ func TestSweep(t *testing.T) {
 		{"retired state files go", func(t *testing.T, cfg *config.Config, now time.Time) {
 			state := StateDir(cfg.Root)
 			for _, p := range []string{filepath.Join(state, "receipts", "x"), filepath.Join(state, "merges.log"),
-				filepath.Join(state, "merge-changed-files")} {
+				filepath.Join(state, "merge-changed-files"), filepath.Join(state, "serve-changed-files"),
+				filepath.Join(state, "conformance.json"), filepath.Join(cfg.Root, ".obor", "cache", "x")} {
 				sweepFile(t, now, p, time.Hour)
 			}
-			if lines := Sweep(cfg, now, false, sweepMerged()); len(lines) != 0 {
+			if lines := Sweep(cfg, now, false); len(lines) != 0 {
 				t.Fatalf("Sweep = %q, want no lines", lines)
 			}
 			gone(t, filepath.Join(state, "receipts"))
 			gone(t, filepath.Join(state, "merges.log"))
 			gone(t, filepath.Join(state, "merge-changed-files"))
+			gone(t, filepath.Join(state, "serve-changed-files"))
+			gone(t, filepath.Join(state, "conformance.json"))
+			gone(t, filepath.Join(cfg.Root, ".obor", "cache"))
 		}},
 		{"drafts: 15 days old goes, 13 days old stays", func(t *testing.T, cfg *config.Config, now time.Time) {
 			dir := filepath.Join(cfg.Root, ".obor", "drafts")
 			old, fresh := filepath.Join(dir, "T-01.md"), filepath.Join(dir, "T-02.md")
 			sweepFile(t, now, old, 15*24*time.Hour)
 			sweepFile(t, now, fresh, 13*24*time.Hour)
-			if lines := Sweep(cfg, now, false, sweepMerged()); len(lines) != 0 {
+			if lines := Sweep(cfg, now, false); len(lines) != 0 {
 				t.Fatalf("Sweep = %q, want no lines", lines)
 			}
 			gone(t, old)
@@ -157,20 +167,19 @@ func TestSweep(t *testing.T) {
 		}},
 		{"every never-touched name stays, and the stop-failure log keeps only its fresh entries", func(t *testing.T, cfg *config.Config, now time.Time) {
 			state := StateDir(cfg.Root)
+			db, err := store.OpenRW(store.File(cfg.Root)) // a real store: the logs step reads its lane rows
+			if err != nil {
+				t.Fatal(err)
+			}
+			db.Close()
 			kept := []string{
-				filepath.Join(state, "obor.db"),
-				filepath.Join(state, "obor.db-wal"),
-				filepath.Join(state, "obor.db-shm"),
 				filepath.Join(state, "serve.flock"),
 				filepath.Join(state, "serve.log"),
 				filepath.Join(state, "logs", "nightly-check.log"),
 				filepath.Join(state, "kinds", "opencode.json"),
 				filepath.Join(state, "opencode.json"),
-				filepath.Join(state, "conformance.json"),
 				filepath.Join(state, "last-full-check"),
-				filepath.Join(state, "flakes.jsonl"),
 				filepath.Join(state, "background.jsonl"),
-				filepath.Join(state, "launch.log"),
 			}
 			for _, p := range kept {
 				sweepFile(t, now, p, 2*365*24*time.Hour)
@@ -180,9 +189,10 @@ func TestSweep(t *testing.T) {
 				"{\"at\":\"2026-11-01T00:00:00Z\",\"error\":\"fresh\"}\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if lines := Sweep(cfg, now, false, sweepMerged()); len(lines) != 0 {
+			if lines := Sweep(cfg, now, false); len(lines) != 0 {
 				t.Fatalf("Sweep = %q, want no lines", lines)
 			}
+			there(t, store.File(cfg.Root))
 			for _, p := range kept {
 				there(t, p)
 			}
@@ -194,77 +204,81 @@ func TestSweep(t *testing.T) {
 				t.Errorf("stop-failure log = %q, want only the fresh entry", b)
 			}
 		}},
-		// T-1090: a merged task's step logs go 3 days after its merge.
-		{"T-1 merged 4 days ago, T-2 merged 2 days ago, T-3 dropped, T-4 never merged: only T-1's logs go", func(t *testing.T, cfg *config.Config, now time.Time) {
+		{"logs: a closed task's go, an open task's and the writers' own stay (exact id)", func(t *testing.T, cfg *config.Config, now time.Time) {
+			sweepStore(t, cfg,
+				store.LaneRow{Lane: "L-01", Task: "T-1", Landed: true}, // merged: closed
+				store.LaneRow{Lane: "L-02", Task: "T-2"},               // working: open
+				store.LaneRow{Lane: "L-03", Task: "T-100"},             // open, next to a closed T-10
+			)
 			logs := filepath.Join(StateDir(cfg.Root), "logs")
-			var paths []string
-			for _, id := range []string{"T-1", "T-2", "T-3", "T-4"} {
-				for _, step := range []string{"after_merge", "guard", "check"} {
-					p := filepath.Join(logs, id+"-"+step+".log")
-					sweepFile(t, now, p, time.Hour) // its mtime is no merge time: this step reads the event log
-					paths = append(paths, p)
-				}
+			closed := []string{
+				filepath.Join(logs, "T-1-check.log"),
+				filepath.Join(logs, "T-10-check.log"),
+				filepath.Join(logs, "milestone-check.log"),
+				filepath.Join(logs, "promote-retest-check.log"),
+				filepath.Join(logs, "conformance-turn-1.log"),
 			}
-			merged := sweepMerged(Merge{Task: "T-1", At: now.Add(-4 * 24 * time.Hour)},
-				Merge{Task: "T-2", At: now.Add(-2 * 24 * time.Hour)})
-			if lines := Sweep(cfg, now, false, merged); len(lines) != 0 {
-				t.Fatalf("Sweep = %q, want no lines", lines)
+			kept := []string{
+				filepath.Join(logs, "T-2-check.log"),
+				filepath.Join(logs, "T-100-check.log"),
+				filepath.Join(logs, "nightly-check.log"), // its next pass removes it (T-1094)
+				filepath.Join(logs, "serve.log"),
+				filepath.Join(logs, "release-0.32.0.log"),
 			}
-			for _, p := range paths {
-				if strings.HasPrefix(filepath.Base(p), "T-1-") {
-					gone(t, p)
-					continue
-				}
-				there(t, p) // a recent merge, a dropped task, a task that never merged
-			}
-		}},
-		{"T-10 and T-100 logs, T-10 merged 4 days ago: T-100's stay (exact id match)", func(t *testing.T, cfg *config.Config, now time.Time) {
-			logs := filepath.Join(StateDir(cfg.Root), "logs")
-			t10, t100 := filepath.Join(logs, "T-10-check.log"), filepath.Join(logs, "T-100-check.log")
-			for _, p := range []string{t10, t100} {
+			for _, p := range append(closed, kept...) {
 				sweepFile(t, now, p, time.Hour)
 			}
-			if lines := Sweep(cfg, now, false, sweepMerged(Merge{Task: "T-10", At: now.Add(-4 * 24 * time.Hour)})); len(lines) != 0 {
+			if lines := Sweep(cfg, now, false); len(lines) != 0 {
 				t.Fatalf("Sweep = %q, want no lines", lines)
 			}
-			gone(t, t10)
-			there(t, t100)
-		}},
-		{"a task merged twice, last merge 2 days ago: its logs stay", func(t *testing.T, cfg *config.Config, now time.Time) {
-			log := filepath.Join(StateDir(cfg.Root), "logs", "T-5-guard.log")
-			sweepFile(t, now, log, time.Hour)
-			merged := sweepMerged(Merge{Task: "T-5", At: now.Add(-4 * 24 * time.Hour)},
-				Merge{Task: "T-5", At: now.Add(-2 * 24 * time.Hour)})
-			if lines := Sweep(cfg, now, false, merged); len(lines) != 0 {
-				t.Fatalf("Sweep = %q, want no lines", lines)
-			}
-			there(t, log)
-		}},
-		{"no obor.db: no log removed, one line", func(t *testing.T, cfg *config.Config, now time.Time) {
-			log := filepath.Join(StateDir(cfg.Root), "logs", "T-1-check.log")
-			sweepFile(t, now, log, time.Hour)
-			lines := Sweep(cfg, now, false, sweepNoStore)
-			if len(lines) != 1 || !strings.Contains(lines[0], "no store") {
-				t.Fatalf("Sweep = %q, want one line naming the missing store", lines)
-			}
-			there(t, log)
-		}},
-		{"nightly-check.log, release-0.32.0.log, serve.log: stay", func(t *testing.T, cfg *config.Config, now time.Time) {
-			state := StateDir(cfg.Root)
-			kept := []string{
-				filepath.Join(state, "logs", "nightly-check.log"),
-				filepath.Join(state, "logs", "release-0.32.0.log"),
-				filepath.Join(state, "serve.log"),
-			}
-			for _, p := range kept {
-				sweepFile(t, now, p, 30*24*time.Hour) // past the 14 days too: this step is not what removes them
-			}
-			merged := sweepMerged(Merge{Task: "T-1", At: now.Add(-4 * 24 * time.Hour)}) // the step runs
-			if lines := Sweep(cfg, now, false, merged); len(lines) != 0 {
-				t.Fatalf("Sweep = %q, want no lines", lines)
+			for _, p := range closed {
+				gone(t, p)
 			}
 			for _, p := range kept {
 				there(t, p)
+			}
+		}},
+		{"logs: an unreadable store removes no task's log, one line", func(t *testing.T, cfg *config.Config, now time.Time) {
+			log := filepath.Join(StateDir(cfg.Root), "logs", "T-1-check.log")
+			sweepFile(t, now, log, time.Hour)
+			if err := os.WriteFile(store.File(cfg.Root), []byte("not a database\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			lines := Sweep(cfg, now, false)
+			if len(lines) != 1 || !strings.Contains(lines[0], "sweep logs") {
+				t.Fatalf("Sweep = %q, want one line naming the logs step's read", lines)
+			}
+			there(t, log)
+		}},
+		{"logs: flakes 8 days old go, 6 days old stay; launch.log and an old restart log go", func(t *testing.T, cfg *config.Config, now time.Time) {
+			state := StateDir(cfg.Root)
+			flakes := filepath.Join(state, "flakes.jsonl")
+			if err := os.MkdirAll(state, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			body := fmt.Sprintf("{\"time\":%d,\"test\":\"TestOld\"}\n{\"time\":%d,\"test\":\"TestRecent\"}\n",
+				now.Add(-8*24*time.Hour).Unix(), now.Add(-6*24*time.Hour).Unix())
+			if err := os.WriteFile(flakes, []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			launch := filepath.Join(state, "launch.log")
+			oldRestart := filepath.Join(state, "restart-pj-l-01.log")
+			freshRestart := filepath.Join(state, "restart-pj-lead.log")
+			sweepFile(t, now, launch, 15*24*time.Hour)
+			sweepFile(t, now, oldRestart, 15*24*time.Hour)
+			sweepFile(t, now, freshRestart, 13*24*time.Hour)
+			if lines := Sweep(cfg, now, false); len(lines) != 0 {
+				t.Fatalf("Sweep = %q, want no lines", lines)
+			}
+			gone(t, launch)
+			gone(t, oldRestart)
+			there(t, freshRestart)
+			b, err := os.ReadFile(flakes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(b), "TestOld") || !strings.Contains(string(b), "TestRecent") {
+				t.Errorf("flakes.jsonl = %q, want only the 6-day-old entry", b)
 			}
 		}},
 	} {
@@ -290,7 +304,7 @@ func TestSweepNoPrefixFailsClosed(t *testing.T) {
 	now := time.Date(2026, 11, 9, 2, 0, 0, 0, time.UTC)
 	file := filepath.Join(StateDir(root), "restart-hk-int.log")
 	sweepFile(t, now, file, time.Hour)
-	lines := Sweep(cfg, now, false, sweepMerged())
+	lines := Sweep(cfg, now, false)
 	if len(lines) == 0 || !strings.Contains(lines[0], "prefix") {
 		t.Fatalf("Sweep = %q, want a line naming the missing prefix", lines)
 	}

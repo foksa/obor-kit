@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"obor/internal/app/event"
 	"obor/internal/app/wire"
 	"obor/internal/project"
 )
@@ -100,7 +99,7 @@ func (s *session) nightly() *Result {
 	}
 	// The nightly sweep (T-1085): after the backup, both the serve path and the direct one; a removal it could not
 	// make is a line, never a failure. Its backup step runs only when the backup above succeeded (T-1086).
-	details = append(details, project.Sweep(s.Cfg, time.Now(), backedUp, sweepMerges)...)
+	details = append(details, project.Sweep(s.Cfg, time.Now(), backedUp)...)
 	// merge.nightly_commands (T-817): after the gating checks and the backup, in order, each non-gating.
 	for _, name := range s.Cfg.Data.Merge.NightlyCommands {
 		o, ok, h := s.run(name)
@@ -144,23 +143,6 @@ func (s *session) nightly() *Result {
 	}
 	return result(Red, "NIGHTLY RED %s on %s (%s) — %s", sha[:min(7, len(sha))], s.target, summary,
 		strings.Join(evidence, " | "))
-}
-
-// sweepMerges is the nightly sweep's merged facts (T-1090): every merge in seq order, as event.ReadMerges reads them.
-// A project serve never made a store for is an error: the sweep's merged-task log step removes nothing and says so.
-func sweepMerges(root string) ([]project.Merge, error) {
-	if _, err := os.Stat(event.DBFile(root)); err != nil {
-		return nil, fmt.Errorf("no store (%s)", event.DBFile(root))
-	}
-	ms, err := event.ReadMerges(root)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]project.Merge, 0, len(ms))
-	for _, m := range ms {
-		out = append(out, project.Merge{Task: m.Task, At: m.At})
-	}
-	return out, nil
 }
 
 // lastLine is text's last non-blank line, trimmed ("" when it printed none).
