@@ -30,6 +30,7 @@ func pluginRig(t *testing.T, dispatchedAt, at int64, now time.Time) (*checks.Lan
 	}
 	cfgFile := filepath.Join(root, ".obor", "config.json")
 	if err := os.WriteFile(cfgFile, []byte(`{"name":"pj","prefix":"pj","lanes":1,`+
+		`"kinds":{"opencode":{"command":"obor-kind-opencode"}},`+
 		`"models":{"ds":{"kind":"opencode","model":"opencode-go/deepseek"}}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}

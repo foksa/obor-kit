@@ -72,7 +72,7 @@ func TestSetup(t *testing.T) {
 		testkit.Set("agents.roles.reviewer", "opus"),
 		testkit.Set("agents.roles.deep_dive", "deepseek"),
 		testkit.Set("agents.kinds", map[string]any{"codex": map[string]any{"args": []any{"--search"}},
-			"opencode": map[string]any{"job_note": "quote summaries only"}}),
+			"opencode": map[string]any{"plugin": "obor-kind-opencode", "job_note": "quote summaries only"}}),
 	)
 	p.Commit(l1)
 	p.State("L-01", map[string]any{"task": "T-01", "branch": "task/T-01"}) // its row holds T-01, not landed: working
