@@ -1,10 +1,13 @@
 package store
 
 import (
+	"database/sql"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // T-577: an agent's current session is its newest by start (of two at one second, the later recorded); none: ok
@@ -279,5 +282,101 @@ func TestFoldKeepsItsIndex(t *testing.T) {
 		t.Errorf("folding %d facts allocated %.1f objects per fact, want under 20: the index is not built once", n, per)
 	} else {
 		t.Logf("folding %d facts: %.1f objects per fact", n, per)
+	}
+}
+
+// putSessions writes ss as session facts, seq 1… in order, the i-th at ts[i] (T-1089's prune tests).
+func putSessions(t *testing.T, db *sql.DB, ss []Session, ts []time.Time) {
+	t.Helper()
+	for i, s := range ss {
+		b, _ := json.Marshal(s)
+		if _, err := db.Exec("INSERT INTO events (seq, ts, task, attempt, step, kind, class, data) VALUES (?, ?, ?, 0, ?, 'fact', '', ?)",
+			i+1, ts[i].UTC().Format(time.RFC3339), SessionTask, StepSession, string(b)); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// sessionSeqs is the seqs of db's session facts, in order.
+func sessionSeqs(t *testing.T, db *sql.DB) []int64 {
+	t.Helper()
+	rows, err := db.Query("SELECT seq FROM events WHERE task = ? ORDER BY seq", SessionTask)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var seq int64
+		if err := rows.Scan(&seq); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, seq)
+	}
+	return out
+}
+
+// T-1089: the prune deletes an old session id no agent's current session is, all its records; a current session
+// keeps its start and its confirmation however old; a session written since the cutoff stays, and so does an old one
+// at the horizon (the table's newest row). A second prune deletes nothing.
+func TestPruneSessions(t *testing.T) {
+	t.Parallel()
+	db, err := OpenRW(newPath(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	cutoff := time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC)
+	old, recent := cutoff.Add(-24*time.Hour), cutoff.Add(24*time.Hour)
+	putSessions(t, db, []Session{
+		{Agent: "a", ID: "s1", Started: 10},
+		{Agent: "a", ID: "s2", Started: 20},
+		{Agent: "a", ID: "s2", Transcript: "/t/s2.jsonl", Started: 20},
+		{Agent: "b", ID: "s3", Started: 30},
+		{Agent: "c", ID: "s5", Started: 50},
+		{Agent: "c", ID: "s4", Started: 40}, // not c's current, old, but the table's newest row
+	}, []time.Time{old, old, old, recent, old, old})
+	n, err := PruneSessions(db, cutoff, 6)
+	if err != nil || n != 1 {
+		t.Fatalf("PruneSessions = %d, %v; want s1's record", n, err)
+	}
+	if got := sessionSeqs(t, db); !slices.Equal(got, []int64{2, 3, 4, 5, 6}) {
+		t.Errorf("session facts kept %v, want a's current s2 (both), b's s3, c's s5 and s4 (at the horizon)", got)
+	}
+	if _, err := db.Exec("INSERT INTO events (seq, ts, task, attempt, step, kind, class) VALUES (7, ?, 'T-1', 1, 'x', 'fact', '')",
+		recent.Format(time.RFC3339)); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := PruneSessions(db, cutoff, 7); err != nil || n != 1 {
+		t.Errorf("with a newer row PruneSessions = %d, %v; want s4's record", n, err)
+	}
+	if n, err := PruneSessions(db, cutoff, 7); err != nil || n != 0 {
+		t.Errorf("a second prune = %d, %v; want nothing", n, err)
+	}
+}
+
+// T-1089: when the sessions left would fold differently (a's old session y, gone, was its current one when b's w was
+// admitted; without it a's w holds w again and b's would be refused), nothing is deleted and that is the error.
+func TestPruneSessionsKeepsTheFold(t *testing.T) {
+	t.Parallel()
+	db, err := OpenRW(newPath(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	cutoff := time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC)
+	old, recent := cutoff.Add(-24*time.Hour), cutoff.Add(24*time.Hour)
+	ss := []Session{{Agent: "a", ID: "w", Started: 100}, {Agent: "a", ID: "y", Started: 200}, {Agent: "b", ID: "w", Started: 250},
+		{Agent: "a", ID: "z", Started: 300}}
+	putSessions(t, db, ss, []time.Time{old, old, recent, recent})
+	if got := Owned(ss); len(got) != 4 {
+		t.Fatalf("precondition: owned %+v, want all four", got)
+	}
+	n, err := PruneSessions(db, cutoff, 10)
+	if err == nil || n != 0 || !strings.Contains(err.Error(), "would fold differently") {
+		t.Errorf("PruneSessions = %d, %v; want refused", n, err)
+	}
+	if got := sessionSeqs(t, db); len(got) != 4 {
+		t.Errorf("session facts %v, want all four kept", got)
 	}
 }

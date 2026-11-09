@@ -22,12 +22,13 @@ func (p *proj) foldLoop(r event.Record) {
 	}
 	// A dropped fact is terminal for the task whatever attempt it names (RV-42-verify-2 #1: a submission decided
 	// before the drop may record the next attempt first): live fold and replay end the task, and every later record of
-	// it (submitted, a step result, a verdict) is ignored; only a new dispatch reopens it. A drop of a spec stored and
-	// never dispatched (its rev recorded, T-1016) is the task's outcome too (T-1026): a dropped task carrying the rev,
-	// which every outcome reader sees as any drop; a spec.set of a later rev revives it (foldSpecSet).
+	// it (submitted, a step result, a verdict) is ignored; only a new dispatch reopens it. A drop of a task the fold
+	// does not know is the task's outcome too: a spec stored and never dispatched (its rev recorded, T-1016, T-1026: a
+	// dropped task carrying the rev, which every outcome reader sees as any drop; a spec.set of a later rev revives it,
+	// foldSpecSet), or a task whose records the nightly prune deleted but this fact (T-1089), whatever its rev.
 	if r.Kind == event.KindFact && r.Step == event.StepDropped {
-		if d := r.Fact(); mt == nil && d.Rev > 0 {
-			mt = &mtask{task: r.Task, attempt: r.Attempt, droppedRev: d.Rev}
+		if mt == nil {
+			mt = &mtask{task: r.Task, attempt: r.Attempt, droppedRev: r.Fact().Rev}
 			p.folded.loop[r.Task] = mt
 		}
 		if mt != nil {
@@ -59,6 +60,12 @@ func (p *proj) foldLoop(r event.Record) {
 		}
 		p.folded.loop[r.Task] = next
 		return
+	}
+	// A merged fact of a task the fold does not know is a task the nightly prune kept only this fact of (T-1089): it
+	// makes the task, merged at the fact's attempt, its after-merge steps done (as a merge outside the app's).
+	if r.Kind == event.KindFact && r.Step == event.StepMerged && mt == nil {
+		mt = &mtask{task: r.Task, attempt: r.Attempt, after: len(afterSteps)}
+		p.folded.loop[r.Task] = mt
 	}
 	if mt == nil || r.Attempt != mt.attempt || mt.state == stDropped {
 		return // another attempt's record, or the task is dropped

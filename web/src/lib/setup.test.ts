@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  addRef, body, busyDropped, chip, current, efforts, inUse, joinRef, move, NO_MODEL, roleModelOptions, pauseBody, show, splitRef, stage, usedBy, value,
+  addRef, body, busyDropped, chip, current, DIST_RANGES, distCount, efforts, inUse, joinRef, move, NO_MODEL, roleModelOptions, pauseBody, show, splitRef, stage, usedBy, value,
 } from "./setup";
 import type { Setup } from "./types";
 
@@ -116,5 +116,14 @@ describe("a role's model select", () => {
     const opts = roleModelOptions(["opus", "sonnet"], "opus");
     expect(opts.map((o) => o.value)).toEqual(["opus", "sonnet"]);
     expect(opts.some((o) => o.value === "" || o.label === NO_MODEL)).toBe(false);
+  });
+});
+
+describe("the distribution's ranges (T-1089)", () => {
+  it("labels the long range by what it counts: the dispatches the log still keeps, not every one ever made", () => {
+    expect(DIST_RANGES).toEqual(["7 days", "kept"]);
+    const c = { level: "hard", type: "opus:high", recent: 2, all: 5 };
+    expect(distCount(c, "7 days")).toBe(2);
+    expect(distCount(c, "kept")).toBe(5);
   });
 });

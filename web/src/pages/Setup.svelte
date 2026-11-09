@@ -9,8 +9,8 @@
   import { api, post } from "../lib/api";
   import { roleName } from "../lib/format";
   import {
-    addRef, body, busyDropped, chip, current, efforts, inUse, joinRef, model, move, pauseBody, roleModelOptions, show, splitRef, stage,
-    usedBy, value, type Staged, type Value,
+    addRef, body, busyDropped, chip, current, DIST_RANGES, distCount, efforts, inUse, joinRef, model, move, pauseBody, roleModelOptions,
+    show, splitRef, stage, usedBy, value, type Staged, type Value,
   } from "../lib/setup";
   import type { Setup } from "../lib/types";
   import Pill from "../ui/Pill.svelte";
@@ -121,7 +121,7 @@
   const lanes = $derived((val("lanes") as number) ?? 0);
   const dropsBusy = $derived(s ? busyDropped(s, lanes) : []);
 
-  let distRange = $state("7 days");
+  let distRange = $state(DIST_RANGES[0]);
   const dist = $derived.by(() => {
     const cells = s?.distribution || [];
     const rows: string[] = [], cols: string[] = [];
@@ -132,7 +132,7 @@
     cols.sort((a, b) => (a === "" ? 1 : b === "" ? -1 : a.localeCompare(b)));
     const n = (l: string, t: string) => {
       const c = cells.find((x) => x.level === l && x.type === t);
-      return c ? (distRange === "all" ? c.all : c.recent) : 0;
+      return c ? distCount(c, distRange) : 0;
     };
     const max = Math.max(1, ...rows.flatMap((l) => cols.map((t) => n(l, t))));
     return { rows, cols, n, max };
@@ -347,8 +347,8 @@
       </div>
     </div>
 
-    <Section title="Distribution" sub="dispatches by difficulty and the model ref that ran them">
-      {#snippet actions()}<Segmented label="Range" options={["7 days", "all"]} bind:value={distRange} />{/snippet}
+    <Section title="Distribution" sub="dispatches by difficulty and the model ref that ran them; kept: every dispatch the log still holds (an ended task's records go 30 days after its end)">
+      {#snippet actions()}<Segmented label="Range" options={DIST_RANGES} bind:value={distRange} />{/snippet}
       <div class="card heat">
         {#if dist.rows.length}
           <div class="hgrid" style="grid-template-columns: 110px repeat({dist.cols.length}, minmax(90px, 1fr)) 70px">

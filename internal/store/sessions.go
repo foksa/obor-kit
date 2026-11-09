@@ -1,8 +1,11 @@
 package store
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
+	"slices"
+	"time"
 )
 
 // An agent's sessions (T-577): serve records fact session{…} on task key SessionTask for each session an agent
@@ -251,4 +254,90 @@ func TranscriptAt(root, id string) string {
 		}
 	}
 	return ""
+}
+
+// PruneSessions deletes, in one transaction, the session facts of every session id that no agent's current session is
+// and whose records were all written before cutoff and below horizon (T-1089: serve's nightly prune, 30 days on;
+// horizon is the log's last seq when the prune began, so the table's newest row stays). An id goes with all its
+// records or none: a current session keeps its start and its T-813 confirmation. The fold of what stays must admit
+// every kept record as the whole log did (the ownership rule asks other agents' current sessions); when it would not,
+// nothing is deleted and that is the error. The count of rows deleted.
+func PruneSessions(db *sql.DB, cutoff time.Time, horizon int64) (int64, error) {
+	tx, err := db.Begin()
+	if err != nil {
+		return 0, fmt.Errorf("sessions: prune: %w", err)
+	}
+	defer tx.Rollback()
+	type fact struct {
+		seq int64
+		old bool // written before cutoff and below horizon
+		s   Session
+		ok  bool // its data reads as a session
+	}
+	rows, err := tx.Query("SELECT seq, ts, data FROM events WHERE task = ? AND kind = 'fact' AND step = ? ORDER BY seq",
+		SessionTask, StepSession)
+	if err != nil {
+		return 0, fmt.Errorf("sessions: prune: %w", err)
+	}
+	var facts []fact
+	for rows.Next() {
+		var f fact
+		var ts string
+		var data []byte
+		if err := rows.Scan(&f.seq, &ts, &data); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("sessions: prune: %w", err)
+		}
+		at, err := time.Parse(time.RFC3339, ts)
+		f.old = err == nil && at.Before(cutoff) && f.seq < horizon
+		f.ok = json.Unmarshal(data, &f.s) == nil
+		facts = append(facts, f)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("sessions: prune: %w", err)
+	}
+	var ss []Session
+	for _, f := range facts {
+		if f.ok {
+			ss = append(ss, f.s)
+		}
+	}
+	whole := FoldSessions(ss)
+	kept := map[string]bool{} // the session ids that stay
+	for _, i := range whole.cur {
+		kept[whole.all[i].ID] = true
+	}
+	for _, f := range facts {
+		if f.ok && !f.old {
+			kept[f.s.ID] = true
+		}
+	}
+	var gone []int64
+	var rest []Session
+	for _, f := range facts {
+		switch {
+		case !f.ok: // not a session's record: not this rule's to delete
+		case kept[f.s.ID]:
+			rest = append(rest, f.s)
+		default:
+			gone = append(gone, f.seq)
+		}
+	}
+	if len(gone) == 0 {
+		return 0, nil
+	}
+	want := slices.DeleteFunc(slices.Clone(whole.All()), func(s Session) bool { return !kept[s.ID] })
+	if !slices.Equal(FoldSessions(rest).All(), want) {
+		return 0, fmt.Errorf("sessions: prune: the sessions left would fold differently; %d records kept", len(gone))
+	}
+	for _, seq := range gone {
+		if _, err := tx.Exec("DELETE FROM events WHERE seq = ?", seq); err != nil {
+			return 0, fmt.Errorf("sessions: prune: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("sessions: prune: %w", err)
+	}
+	return int64(len(gone)), nil
 }

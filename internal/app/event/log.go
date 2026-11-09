@@ -215,6 +215,24 @@ func Facts(db *sql.DB, step string) ([]Record, error) {
 	return queryRecords(db, recordQuery+" WHERE kind = ? AND step = ? ORDER BY seq", KindFact, step)
 }
 
+// ResultsUnder is every result whose step is one of bases or a step under it (<base>.N, <base>.<job>), in seq order
+// (the nightly prune's start results, T-1089).
+func ResultsUnder(db *sql.DB, bases ...string) ([]Record, error) {
+	if len(bases) == 0 {
+		return nil, nil
+	}
+	q := recordQuery + " WHERE kind = ? AND ("
+	args := []any{KindResult}
+	for i, b := range bases {
+		if i > 0 {
+			q += " OR "
+		}
+		q += "step = ? OR step LIKE ?"
+		args = append(args, b, b+".%")
+	}
+	return queryRecords(db, q+") ORDER BY seq", args...)
+}
+
 // ModelPauses is the model pauses in force in db at now (obor pause --model, T-765), by model name: the newest pause
 // fact per model, one cleared or past its end dropped (T-979: obor setup show marks them).
 func ModelPauses(db *sql.DB, now time.Time) (map[string]*Pause, error) {
@@ -261,6 +279,37 @@ func FactTasks(db *sql.DB, steps ...string) (map[string]bool, error) {
 		out[task] = true
 	}
 	return out, rows.Err()
+}
+
+// PruneTasks deletes, in one transaction, every record of each task in keep whose seq is below horizon, except the
+// one keep names for it (T-1089: the nightly prune of the tasks that ended 30 days ago; a task's kept record is its
+// last terminal fact). horizon is the log's last seq when the tasks were chosen: a record written since stays, and so
+// does the table's newest row, so the next record's seq never reuses a deleted one. Each task goes whole or, with the
+// transaction, not at all; a second run deletes nothing. The count of rows deleted.
+func PruneTasks(db *sql.DB, horizon int64, keep map[string]int64) (int64, error) {
+	tx, err := db.Begin()
+	if err != nil {
+		return 0, fmt.Errorf("event log: prune: %w", err)
+	}
+	tasks := make([]string, 0, len(keep))
+	for task := range keep {
+		tasks = append(tasks, task)
+	}
+	sort.Strings(tasks)
+	var n int64
+	for _, task := range tasks {
+		res, err := tx.Exec("DELETE FROM events WHERE task = ? AND seq < ? AND seq <> ?", task, horizon, keep[task])
+		if err != nil {
+			tx.Rollback()
+			return 0, fmt.Errorf("event log: prune %s: %w", task, err)
+		}
+		k, _ := res.RowsAffected()
+		n += k
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("event log: prune: %w", err)
+	}
+	return n, nil
 }
 
 // recordQuery is every column of the events table, in Record's order: the prefix of a reader's query.
@@ -344,6 +393,13 @@ func (l *Log) append(r Record, now time.Time) (Record, error) {
 	r, err := l.write(r, now)
 	l.err = err
 	return r, err
+}
+
+// LastSeq is the last record's seq in the table (0: none): the nightly prune's horizon (T-1089).
+func (l *Log) LastSeq() int64 {
+	l.Mu.Lock()
+	defer l.Mu.Unlock()
+	return l.seq
 }
 
 // Err is the last append's error: nil once an append succeeded after it.

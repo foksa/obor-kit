@@ -3060,6 +3060,12 @@ func (r *reviewRig) mustCall(id string, after []string, note string, rm bool) st
 
 // submitted opens task (attempt 1 on a lane); merged and dropped end it.
 func (r *reviewRig) submitted(task string) {
+	// T-1089: the seed's merged facts (no dispatch) are merged loop tasks, and a submission never reopens an ended
+	// task: one the seed merged is dispatched again first, as a real log has it.
+	if mt := r.p.folded.loop[task]; mt != nil && mt.dispSeq == 0 && states[mt.state].ended {
+		r.a.record(r.p, event.Record{Task: task, Attempt: 1, Step: event.StepDispatched, Kind: event.KindFact},
+			dispatchData{Dispatch: port.Dispatch{Lane: "L-01"}})
+	}
 	r.a.record(r.p, event.Record{Task: task, Attempt: 1, Step: event.StepSubmitted, Kind: event.KindFact}, submitData{Lane: "L-01"})
 }
 
