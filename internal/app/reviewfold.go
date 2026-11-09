@@ -20,10 +20,11 @@ type mergeRec struct {
 
 // review is one review the log started, one value (plan §6): its start's seq, id and head; covered, the in-scope
 // tasks its start named; fixes, the tasks its finished verifies covered (T-924); reviewed, the head the reviewer last
-// finished (the start's, then each finished verify's: T-857); closed, its review.closed fact's seq (its state; 0:
-// open) and subject, its close commit's subject as the close's reply names it ("": open, or a close recorded without
-// one); closing, the snapshot its close recorded before the commit (fact review.closing, T-1032; nil: none). A closed
-// review is frozen at its close's snapshot: a verify ending after it changes nothing.
+// finished (the start's, then each finished verify's: T-857; an open review's only, RV-158); closed, its review.closed
+// fact's seq (its state; 0: open) and subject, its close commit's subject as the close's reply names it ("": open, or
+// a close recorded without one); closing, the snapshot its close recorded before the commit (fact review.closing,
+// T-1032; nil: none, and once closed). A closed review is frozen at its close's snapshot: a verify ending after it
+// changes nothing.
 type review struct {
 	seq      int64
 	id, head string
@@ -41,9 +42,10 @@ type closeSnap struct {
 	tasks []string
 }
 
-// freeze sets rv's reviewed head and coverage to s, the close's: its fixes are s's tasks beyond its start's.
+// freeze sets rv's coverage to s, the close's: its fixes are s's tasks beyond its start's. Its reviewed head is not
+// set: only an open review's is read (reviewclose.go's reviewCycle), and a close ends that (RV-158).
 func (rv *review) freeze(s closeSnap) {
-	rv.reviewed, rv.fixes = s.head, nil
+	rv.fixes = nil
 	for _, t := range s.tasks {
 		if !slices.Contains(rv.covered, t) && !slices.Contains(rv.fixes, t) {
 			rv.fixes = append(rv.fixes, t)
@@ -108,6 +110,7 @@ func (l *reviewLog) fold(r event.Record) {
 			case cur.closing != nil:
 				cur.freeze(*cur.closing)
 			}
+			cur.closing = nil // recovery reads it only while the review is open (RV-144, T-1032)
 		}
 	case r.Task != event.MsgTask:
 	case r.Step == event.StepBriefed:
