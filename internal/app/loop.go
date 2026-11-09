@@ -256,14 +256,6 @@ type (
 		// Mismatch: a conflict whose replayed resolution lost edits of the checked one (T-917)
 		Mismatch *port.Mismatch `json:"mismatch,omitempty"`
 	}
-	// candIn is a publish's and an after_merge's intent (T-1091): the candidate's identity only, never its diff or stat
-	// (4.48 MB of the log no reader reads there; the review job reads the gate result's).
-	candIn struct {
-		Task   string `json:"task"`
-		Lane   string `json:"lane"`
-		SHA    string `json:"sha"`
-		Target string `json:"target"`
-	}
 	// testIn is a lane test's intent (T-961, row 18b): the candidate it tests, the target it was merged onto, the lane.
 	testIn struct {
 		Candidate string `json:"candidate"`
