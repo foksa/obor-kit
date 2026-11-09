@@ -88,14 +88,13 @@ func (s *session) nightly() *Result {
 	if ctx == nil {
 		ctx = s.ctx // an interrupted nightly does not wait out the call's deadline on a backup
 	}
-	backedUp := false
-	switch reply, err := wire.Backup(ctx, sock, s.Cfg.Root, time.Now()); {
-	case err != nil:
+	line, failure, backedUp := backupOutcome(wire.Backup(ctx, sock, s.Cfg.Root, time.Now()))
+	if failure != "" {
 		failed = append(failed, "backup")
-		evidence = append(evidence, "backup: "+err.Error())
-	case reply != "":
-		backedUp = true
-		results = append(results, "backup "+filepath.Base(strings.TrimPrefix(reply, "BACKUP ")))
+		evidence = append(evidence, failure)
+	}
+	if line != "" {
+		results = append(results, line)
 	}
 	// The nightly sweep (T-1085): after the backup, both the serve path and the direct one; a removal it could not
 	// make is a line, never a failure. Its backup step runs only when the backup above succeeded (T-1086).
@@ -143,6 +142,19 @@ func (s *session) nightly() *Result {
 	}
 	return result(Red, "NIGHTLY RED %s on %s (%s) — %s", sha[:min(7, len(sha))], s.target, summary,
 		strings.Join(evidence, " | "))
+}
+
+// backupOutcome is nightly's backup step's answer for wire.Backup's reply and error (T-1145: a unit test, no nightly):
+// line is the step's result line, failure the evidence line of a backup that could not be made, and backedUp whether
+// the sweep may prune days: only a nonempty reply says a backup landed (T-1086).
+func backupOutcome(reply string, err error) (line, failure string, backedUp bool) {
+	switch {
+	case err != nil:
+		return "", "backup: " + err.Error(), false
+	case reply != "":
+		return "backup " + filepath.Base(strings.TrimPrefix(reply, "BACKUP ")), "", true
+	}
+	return "", "", false
 }
 
 // lastLine is text's last non-blank line, trimmed ("" when it printed none).
