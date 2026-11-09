@@ -114,8 +114,12 @@ func (p *proj) foldRecord(r event.Record) {
 }
 
 // fold folds a watchdog fact (a merge-loop needs-you is the loop's: foldLoop); one of a closed task is discarded
-// (T-636: recorded after its end, as a stop picked before it; a new dispatch reopens the task).
+// (T-636: recorded after its end, as a stop picked before it; a new dispatch reopens the task), and so is one of the
+// promotion T-1076 deleted (T-1082: nothing runs or answers it, so its needs-you ends here rather than at each pass).
 func (p *proj) fold(r event.Record) {
+	if r.Task == event.PromoteTask {
+		return
+	}
 	switch r.Step {
 	case event.StepStalled, event.StepNeedsYou:
 		if !r.Fact().Merge && !p.closed(r.Task) {
