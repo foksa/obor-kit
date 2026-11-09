@@ -581,8 +581,8 @@ func TestViewOfANewerConfigWarns(t *testing.T) {
 	p := testkit.New(t)
 	p.Config(testkit.Set("zz_future", "")) // T-801: roles.<name> is a custom role now, no unknown key
 	p.Spec("T-01", "# T-01 — stored, never dispatched\n\nDifficulty: simple\n")
-	if _, err := config.Load(p.Root); err == nil {
-		t.Fatal("precondition: config.Load refuses the unknown key")
+	if _, unknown, err := config.LoadForValidate(p.Root); err != nil || len(unknown) != 1 {
+		t.Fatalf("precondition: the strict validate load refuses the unknown key: %q, %v", unknown, err)
 	}
 	if err := project.WriteStopMarker(p.Root, project.StopMarker{At: time.Now(), Why: "test"}); err != nil {
 		t.Fatal(err)
