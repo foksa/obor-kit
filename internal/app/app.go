@@ -16,6 +16,7 @@ import (
 	"obor/internal/app/identity"
 	"obor/internal/app/outbox"
 	"obor/internal/app/port"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -64,6 +65,9 @@ type Options struct {
 	// Restore restarts the project's labelled panes that run no agent, after the terminal connection came back
 	// (restore.go, T-1051; nil: never).
 	Restore port.Restorer
+	// ReadDir is how load reads the state's logs dir once for the tasks it folds as ended (logs.go, T-1132;
+	// nil: os.ReadDir).
+	ReadDir func(dir string) ([]os.DirEntry, error)
 }
 
 // App is `obor serve`'s state. Make it with New, run it with Serve.

@@ -47,10 +47,9 @@ func (a *App) load(root string) (*proj, error) {
 		p.foldRecord(r)
 	}
 	// A task the log folds as ended keeps no step logs (T-1104): the ones an upgrade or a serve down at its end left
-	// (T-1094, T-1098). A task it does not know is not guessed at: its logs stay.
-	for _, task := range p.loopTasks() {
-		a.endTaskLogs(p, task, false)
-	}
+	// (T-1094, T-1098). A task it does not know is not guessed at: its logs stay. One read of the logs dir for all of
+	// them (T-1132).
+	a.endTaskLogsAtLoad(p)
 	p.dropLaneRows(cfg) // the rows of lanes the config no longer names (T-865)
 	p.folded.lr.live = true
 	if err := p.syncLanes(); err != nil {
