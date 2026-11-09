@@ -22,9 +22,9 @@ func logged(name, then string) string {
 	return fmt.Sprintf(`echo "%s $(git rev-parse HEAD) ${CHECK_PRIORITY:-none}" >> "$TMP_DIR/ran"; %s`, name, then)
 }
 
-// nightly is a config edit: merge.nightly_commands is names, in order (T-817).
+// nightly is a config edit: nightly.also_run is names, in order (T-817).
 func nightly(names ...any) func(map[string]any) {
-	return testkit.Set("merge.nightly_commands", names)
+	return testkit.Set("nightly.also_run", names)
 }
 
 func TestNightly(t *testing.T) {

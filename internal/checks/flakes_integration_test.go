@@ -160,11 +160,11 @@ func TestFlakeLogMixed(t *testing.T) {
 	x.eqList(x.logged(), []string{"TestUnit/check/false/false", "example.com/build/check/false/false"}, "red")
 }
 
-// T-1047: a project with no merge.flake_regex parses no flake names: fail_grep still picks the failing lines for the
-// red's report, but no name is logged, with no error.
+// T-1047: a project with no checks.output.failed_test parses no flake names: failure still picks the failing lines for
+// the red's report, but no name is logged, with no error.
 func TestFlakeLogNoRegex(t *testing.T) {
 	t.Parallel()
-	x := newFx(t, testkit.Set("merge.fail_grep", goFailGrep),
+	x := newFx(t, testkit.Set("checks.output.failure", goFailGrep),
 		cmd("check", `echo "--- FAIL: TestAlpha (0.01s)"; echo "FAIL example.com/pkg 0.03s"; exit 1`))
 	cfg, err := config.Load(x.Root)
 	if err != nil || len(cfg.MergeFlakeRegex()) != 0 { // precondition: no flake_regex

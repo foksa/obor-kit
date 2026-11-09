@@ -149,19 +149,20 @@ func repairWorktrees(t testing.TB, p *testkit.Project, base string) {
 // fxConfig is the fixture's whole config: its defaults, then edits.
 func fxConfig(edits ...func(map[string]any)) []func(map[string]any) {
 	return append([]func(map[string]any){
-		testkit.Set("lanes", 2),
-		testkit.Set("merge", map[string]any{
-			"summary_regex": "[0-9]+ pass|[0-9]+ fail", "fail_grep": "Expected"}),
+		testkit.Set("lanes.count", 2),
+		testkit.Set("checks.output", map[string]any{
+			"summary": "[0-9]+ pass|[0-9]+ fail", "failure": "Expected"}),
 	}, edits...)
 }
 
-// goLines is a project whose checks print `go test` output, with obor-kit's failing lines (T-1047): fail_grep picks
-// them, merge.flake_regex names the test and the package on them.
+// goLines is a project whose checks print `go test` output, with obor-kit's failing lines (T-1047): failure picks
+// them, checks.output.failed_test and failed_package name the test and the package on them.
 func goLines() func(map[string]any) {
 	return func(c map[string]any) {
-		m := c["merge"].(map[string]any) // fxConfig's
-		m["fail_grep"] = goFailGrep
-		m["flake_regex"] = []any{goTestLine, goPkgLine}
+		m := c["checks"].(map[string]any)["output"].(map[string]any) // fxConfig's
+		m["failure"] = goFailGrep
+		m["failed_test"] = goTestLine
+		m["failed_package"] = goPkgLine
 	}
 }
 
@@ -186,7 +187,7 @@ func buildTemplate() string {
 }
 
 // fx is the fixture these tests copy from the template (T-998): .obor/state/ gitignored, a 10-line shared.txt, lane
-// L-01 on task/T-05 with an uncommitted feature.txt, summary_regex / fail_grep set, a per-test check
+// L-01 on task/T-05 with an uncommitted feature.txt, checks.output's summary / failure set, a per-test check
 // slot dir. lane2 adds the idle lane L-02 on task/T-20 when a test uses it. The scratch is the default proj-wt/merge.
 type fx struct {
 	*testkit.Project

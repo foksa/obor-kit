@@ -104,15 +104,15 @@ func TestLanePrepareRefused(t *testing.T) {
 	}{
 		{"no lane dir", nil, true, "no lane dir"},
 		{"lane_setup red", []func(map[string]any){
-			testkit.Set("commands.lane_ready", "test -f ready"),
-			testkit.Set("commands.lane_setup", "echo install broke; exit 3")}, false,
+			testkit.Set("lanes.ready", "test -f ready"),
+			testkit.Set("lanes.setup", "echo install broke; exit 3")}, false,
 			"lane_setup in L-01: rc 3: install broke"},
 		{"lane_ready still red", []func(map[string]any){
-			testkit.Set("commands.lane_ready", "test -f ready"),
-			testkit.Set("commands.lane_setup", "true")}, false,
+			testkit.Set("lanes.ready", "test -f ready"),
+			testkit.Set("lanes.setup", "true")}, false,
 			"lane_setup in L-01: ran, but commands.lane_ready still fails"},
 		{"lane_ready red, no lane_setup", []func(map[string]any){
-			testkit.Set("commands.lane_ready", "false")}, false,
+			testkit.Set("lanes.ready", "false")}, false,
 			"commands.lane_setup is not set"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -166,7 +166,7 @@ func TestLanePrepareRepeats(t *testing.T) {
 // TestLanePrepareCanceledEndsSetup (T-873): a canceled prepare ends the configured setup check's process: the check
 // gets no output after the cancel (its sleep and its marker never happen) and Prepare returns at once with a refusal.
 func TestLanePrepareCanceledEndsSetup(t *testing.T) {
-	p, lane, target := laneFx(t, testkit.Set("commands.lane_ready", "touch ready-started; sleep 3; touch ready-done"))
+	p, lane, target := laneFx(t, testkit.Set("lanes.ready", "touch ready-started; sleep 3; touch ready-done"))
 	l := laneAdapter(t, p, "")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

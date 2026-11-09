@@ -15,7 +15,7 @@ import (
 // table never asks git about a lane that is not there.
 func TestMissingLane(t *testing.T) {
 	p := testkit.NewPlain(t)
-	p.Config(testkit.Set("lanes", 1))
+	p.Config(testkit.Set("lanes.count", 1))
 	c, err := config.Load(p.Root)
 	if err != nil {
 		t.Fatal(err)

@@ -36,10 +36,10 @@ func commandCalls(t *testing.T, opts Options, dir string) (*runner, *[]string) {
 // command both classes name runs once. Only neutral files still run the guard alone.
 func TestRunChecksMixedClass(t *testing.T) {
 	x := plainFx(t,
-		testkit.Set("merge.guard", "guard"),
-		testkit.Set("merge.classes", `[
-			{"name": "go", "paths": ["internal/**"], "checks": ["check_affected", "check_shared"]},
-			{"name": "release", "paths": ["Makefile"], "checks": ["check_release", "check_shared"]}]`),
+		testkit.Set("merge.by_path.guard", "guard"),
+		testkit.Set("merge.by_path.rules", `[
+			{"name": "go", "paths": ["internal/**"], "run": ["check_affected", "check_shared"]},
+			{"name": "release", "paths": ["Makefile"], "run": ["check_release", "check_shared"]}]`),
 		cmd("guard", "echo 1 pass"), cmd("check_affected", "echo 1 pass"),
 		cmd("check_release", "echo 1 pass"), cmd("check_shared", "echo 1 pass"))
 	o := x.opts()
@@ -75,14 +75,14 @@ func TestRunChecksMixedClass(t *testing.T) {
 }
 
 // T-1007 (RV-139 #1): a full lane (here an unmatched go.mod beside a class's file) runs check, then each matched
-// class marked with_full's checks, config order; a class without with_full adds nothing.
+// class marked also_on_full's commands, config order; a class without also_on_full adds nothing.
 func TestRunChecksFullWithFull(t *testing.T) {
 	x := plainFx(t,
-		testkit.Set("merge.guard", "guard"),
-		testkit.Set("merge.classes", `[
-			{"name": "go", "paths": ["internal/**"], "checks": ["check_affected"]},
-			{"name": "release", "paths": ["Makefile"], "checks": ["check_release"], "with_full": true},
-			{"name": "web", "paths": ["web/src/**"], "checks": ["check_web"], "with_full": true}]`),
+		testkit.Set("merge.by_path.guard", "guard"),
+		testkit.Set("merge.by_path.rules", `[
+			{"name": "go", "paths": ["internal/**"], "run": ["check_affected"]},
+			{"name": "release", "paths": ["Makefile"], "run": ["check_release"], "also_on_full": true},
+			{"name": "web", "paths": ["web/src/**"], "run": ["check_web"], "also_on_full": true}]`),
 		cmd("check", "echo 1 pass"), cmd("check_affected", "echo 1 pass"),
 		cmd("check_release", "echo 1 pass"), cmd("check_web", "echo 1 pass"))
 	o := x.opts()
@@ -120,13 +120,13 @@ func TestRunChecksFullWithFull(t *testing.T) {
 }
 
 // T-1008 (RV-139 #2): OBOR_FULL=1 forces the merge full, but the scan still names the classes it matched, so release
-// and web files keep their with_full checks (before: the forced early return dropped them).
+// and web files keep their also_on_full commands (before: the forced early return dropped them).
 func TestRunChecksForcedKeepsWithFull(t *testing.T) {
 	x := plainFx(t,
-		testkit.Set("merge.guard", "guard"),
-		testkit.Set("merge.classes", `[
-			{"name": "release", "paths": ["Makefile"], "checks": ["check_release"], "with_full": true},
-			{"name": "web", "paths": ["web/src/**"], "checks": ["check_web"], "with_full": true}]`),
+		testkit.Set("merge.by_path.guard", "guard"),
+		testkit.Set("merge.by_path.rules", `[
+			{"name": "release", "paths": ["Makefile"], "run": ["check_release"], "also_on_full": true},
+			{"name": "web", "paths": ["web/src/**"], "run": ["check_web"], "also_on_full": true}]`),
 		cmd("check", "echo 1 pass"), cmd("check_release", "echo 1 pass"), cmd("check_web", "echo 1 pass"))
 	x.env = append(x.env, "OBOR_FULL=1")
 	o := x.opts()
