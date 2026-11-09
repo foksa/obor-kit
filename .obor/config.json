@@ -3,12 +3,6 @@
   "name": "obor-kit",
   "prefix": "ob",
   "lanes_dir": "../obor-kit-wt",
-  "done_file_sections": [
-    "Summary",
-    "Self-check",
-    "Skipped",
-    "Open questions"
-  ],
   "paths": {
     "reviews": "docs/reviews"
   },
@@ -110,7 +104,6 @@
     "main": "staging"
   },
   "merge": {
-    "summary_regex": "[0-9]+ pass|[0-9]+ fail",
     "guard": "guard",
     "nightly_at": "02:00",
     "nightly_commands": [
@@ -174,29 +167,23 @@
     ],
     "neutral": [
       "docs/**",
-      "ADOPTION-*.md",
       "AGENTS.md",
       "BACKLOG.md",
-      "BRIEF.md",
       "CLAUDE.md",
       "QUESTIONS.md",
-      "STATUS.md",
       ".gitignore"
     ],
     "affected_full": [
       "Makefile",
       "internal/testkit/**",
-      "internal/herdrtest/**",
       "internal/herdr/herdrtest/**"
     ],
     "fail_grep": "^--- FAIL|^FAIL\\s",
     "flake_regex": [
       "^--- FAIL: (?P<test>\\S+)",
       "^FAIL\\s+(?P<package>[^\\s./][^\\s]*[./][^\\s]*)"
-    ],
-    "retest_join": "|"
+    ]
   },
-  "task_id_pattern": "(T|R)-[0-9]+[a-z]?",
   "guards": {
     "allow_push": [
       "lead"
@@ -224,7 +211,6 @@
   "setup": {
     "confirmed": true
   },
-  "handoff_tokens": 500000,
   "kinds": {
     "opencode": {
       "prompt_extra": "You run in opencode, not sandboxed: obor's opencode plugin, not hooks, enforces the role text's denials. Quote summary lines and failures only.",
