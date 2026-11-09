@@ -35,6 +35,9 @@ live in `docs/decisions.md`, open work in `BACKLOG.md`, the lead's own working r
   needed; the worker relaxed the test to fit and the review flagged both (RV-152). State the property that matters
   ("every key a server reads is sent, every old line decodes") and test exactly that.
 
+- **Token figures from transcripts: `cache_creation_input_tokens` is everything new to the cache, not one attachment.**
+  11-09: "42k because of job_next" was the context size at the job_next call; the lead then put the skill listing at
+  12k, `/context` priced it at 7.7k. Price a part with `/context` before proposing a saving.
 - **BACKLOG candidates go stale.** 11-09: three "next work" picks offered to the owner were already shipped (task
   priority v0.31, integrator role text T-941, job_next follow-ups T-959/T-960). Grep git log before offering one.
 - **A deletion's upgrade path needs its own look.** T-1076's spec said "removed keys WARN"; reviews passed; only the
