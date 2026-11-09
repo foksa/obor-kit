@@ -448,8 +448,8 @@ A second layer that doesn't depend on agent hooks (also covers Codex/opencode la
   rollback counts as much as an upgrade (no version order); a kit checked out at a new tag before its binary is fetched
   names a missing file: no trigger until it is there. Serve asks on its own 30 s timer, herdr connected or not (T-737:
   the watchdogs' tick counts only while it is), and takes the self-restart above: at
-  once when idle (no effect running, no nightly, no verdict call admitted), else once it is, at the latest after
-  10 minutes, but never while a main-checkout writer (`config_set`, `review close`) is admitted, and none is admitted
+  once when idle (no effect running, no nightly, no verdict call admitted), else at the first pass after the work
+  ends, however long that takes (a pending restart holds nothing back, T-972), but never while a main-checkout writer (`config_set`, `review close`) is admitted, and none is admitted
   once the restart is decided (T-934); `obor status` shows `restarting serve` meanwhile, and a failed restart is a needs-you
   `serve restart on the new obor binary failed: <err>` (key `serve`), not tried again by that serve. A serve launchd
   does not run execs `<kit>/bin/obor serve` after it has ended: same pid, same pane; Go's files are close-on-exec, so
@@ -623,8 +623,8 @@ writes in, and nothing else goes to a chat agent but a job's wake. State in `doc
 - **Briefs:** `obor brief <role-agent> "<text>"` records fact `briefed` with a line `[obor <caller>] <text>`
   delivered to the role agent once its pane is idle (a verify into the running session); a stopped one (its labelled
   pane at a shell, T-672) is started fresh in that pane with the line as its first prompt. A brief to the reviewer or
-  the deep dive is admitted first (T-730, T-734): serve moves its role worktree to the head it hands it (T-853) before
-  the brief is recorded; a brief to any other role agent (advisor, researcher …) is not admitted first (T-737). The reviewer and the deep dive take their first prompt this way only: `obor restart … --fresh --prompt` is
+  the deep dive moves an idle deep dive's role worktree to the integration branch's head (T-853) before the brief is
+  recorded; nothing waits for a publish in flight (T-872). The reviewer and the deep dive take their first prompt this way only: `obor restart … --fresh --prompt` is
   refused for them, and a running one starts fresh as `obor restart <role-agent> --stop`, then `obor brief`. Any other
   role agent may also take its first prompt as a start's, `obor restart <role-agent>
   --fresh --prompt "<brief>"` (the start carries the brief), recording the same fact once the restart succeeded
