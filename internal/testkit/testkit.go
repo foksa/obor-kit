@@ -12,7 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -383,11 +383,12 @@ func (p *Project) Lane(name, branch string) string {
 // LaneDir is <Base>/proj-wt/<name>.
 func (p *Project) LaneDir(name string) string { return filepath.Join(p.Base, "proj-wt", name) }
 
-// Config is fx_config: the default config (prefix pj, lanes: the highest L-NN under proj-wt, T-765; OpenCode the kit's
-// plugin kind, as obor init writes it, T-1046), changed by edit, written to .obor/config.json in config shape 2 and
-// committed on main (projects commit it; a plain project's stays uncommitted). The default and an edit may name a key
-// by its shape-1 path or its shape-2 one: the map goes through config.Reshape before it is written (the one-release
-// window, docs/research/config-shape.md §4.3; a shape-2 path set wins).
+// Config is fx_config: the default config in shape 2 (project pj, lanes: the highest L-NN under proj-wt, T-765; the
+// kit's OpenCode plugin kind, as obor init writes it, T-1046), changed by edit, written to .obor/config.json and
+// committed on main (projects commit it; a plain project's stays uncommitted). An edit names shape 2's paths: the map
+// goes through config.Reshape before it is written (the one-release window, docs/research/config-shape.md §4.3), and
+// an edit that names a shape-1 path fails the test, so P7 can delete the pass-through. A test of the window itself
+// marks its shape-1 edit with Shape1.
 func (p *Project) Config(edit ...func(c map[string]any)) {
 	p.t.Helper()
 	lanes := 0
@@ -399,30 +400,33 @@ func (p *Project) Config(edit ...func(c map[string]any)) {
 		}
 	}
 	c := map[string]any{
-		"version":         1,
-		"name":            "proj",
-		"prefix":          "pj",
-		"lanes_dir":       "../proj-wt",
-		"branches":        map[string]any{"task": "task/{id}", "main": "main"},
-		"task_id_pattern": "T-[0-9]+[a-z]?",
-		"paths":           map[string]any{"reviews": "docs/reviews"},
-		"commands":        map[string]any{},
-		"lane_links":      []any{},
-		"protected_files": []any{},
-		"lanes":           lanes,
-		"kinds":           map[string]any{"opencode": map[string]any{"command": config.KitKinds["opencode"]}},
+		"version":  2,
+		"project":  map[string]any{"name": "proj", "agent_prefix": "pj", "task_id_pattern": "T-[0-9]+[a-z]?"},
+		"lanes":    map[string]any{"count": lanes, "dir": "../proj-wt", "task_branch": "task/{id}", "links": []any{}},
+		"agents":   map[string]any{"kinds": map[string]any{"opencode": map[string]any{"plugin": config.KitKinds["opencode"]}}},
+		"rules":    map[string]any{"protected_files": []any{}},
+		"merge":    map[string]any{"target_branch": "main"},
+		"commands": map[string]any{},
+		"reviews":  map[string]any{"dir": "docs/reviews"},
 	}
 	for _, e := range edit {
 		e(c)
 	}
+	shape1 := c[shape1Mark] != nil
+	delete(c, shape1Mark)
 	b, err := json.Marshal(c)
 	if err != nil {
 		p.t.Fatal(err)
 	}
-	if b, err = config.Reshape(b); err != nil {
+	reshaped, err := config.Reshape(b)
+	if err != nil {
 		p.t.Fatal(err)
 	}
-	p.Write(".obor/config.json", config.Pretty(json.RawMessage(b)))
+	if !shape1 && !sameJSON(b, reshaped) {
+		p.t.Errorf("testkit.Config: an edit names a shape-1 path, which config.Reshape moved: name shape 2's path " +
+			"(a test of the window marks its shape-1 edits with testkit.Shape1)")
+	}
+	p.Write(".obor/config.json", config.Pretty(json.RawMessage(reshaped)))
 	if p.plain {
 		return
 	}
@@ -449,66 +453,24 @@ func Set(path string, v any) func(map[string]any) {
 	}
 }
 
-// SetShape2 is Set for a config already written in shape 2 (a test that edits the file the test kit wrote): path and
-// v may name shape 1's key, and the value lands at that key's shape-2 home (config.Reshape), replacing what is there
-// (a key shape 2 drops is set as it is). The one-release window's twin of Config's pass-through (T-1124).
-func SetShape2(path string, v any) func(map[string]any) {
+// shape1Mark is Shape1's marker in an edit's map: Config reads it and does not write it.
+const shape1Mark = "\x00testkit-shape1"
+
+// Shape1 wraps an edit that deliberately names shape 1 (a test of the one-release window, docs/research/config-shape.md
+// §4.3): Config reshapes it as it reshapes every edit, without the shape-1 report.
+func Shape1(edits ...func(map[string]any)) func(map[string]any) {
 	return func(c map[string]any) {
-		at := shape2Path(path, v)
-		patch := map[string]any{}
-		Set(path, v)(patch)
-		b, err := json.Marshal(patch)
-		if err == nil {
-			b, err = config.Reshape(b)
+		c[shape1Mark] = true
+		for _, e := range edits {
+			e(c)
 		}
-		if err != nil {
-			panic("testkit.SetShape2: " + err.Error())
-		}
-		raw, _ := config.MemberAt(b, at)
-		var val any
-		if raw == nil {
-			at, val = strings.Split(path, "."), JSON(v)
-		} else if err := json.Unmarshal(raw, &val); err != nil {
-			panic("testkit.SetShape2: " + err.Error())
-		}
-		Set(strings.Join(at, "."), val)(c)
 	}
 }
 
-// shape2Path is where config.Reshape puts the shape-1 key path (lanes: lanes.count, or lanes.list for a list).
-func shape2Path(path string, v any) []string {
-	if _, list := JSON(v).([]any); path == "lanes" && list {
-		return []string{"lanes", "list"}
-	}
-	const marker = "\x00testkit"
-	probe := map[string]any{}
-	Set(path, marker)(probe)
-	b, _ := json.Marshal(probe)
-	b, err := config.Reshape(b)
-	var doc any
-	if err != nil || json.Unmarshal(b, &doc) != nil {
-		return strings.Split(path, ".")
-	}
-	var find func(v any, at []string) []string
-	find = func(v any, at []string) []string {
-		switch x := v.(type) {
-		case string:
-			if x == marker {
-				return at
-			}
-		case map[string]any:
-			for k, m := range x {
-				if p := find(m, append(slices.Clone(at), k)); p != nil {
-					return p
-				}
-			}
-		}
-		return nil
-	}
-	if at := find(doc, nil); at != nil {
-		return at
-	}
-	return strings.Split(path, ".")
+// sameJSON: a and b are the same JSON document (the groups' order and the spacing do not count).
+func sameJSON(a, b []byte) bool {
+	var x, y any
+	return json.Unmarshal(a, &x) == nil && json.Unmarshal(b, &y) == nil && reflect.DeepEqual(x, y)
 }
 
 // JSON decodes v when it is a string holding a JSON object or array; anything else is returned as is.

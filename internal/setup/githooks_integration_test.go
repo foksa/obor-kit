@@ -256,9 +256,9 @@ func TestGithooks(t *testing.T) {
 		}},
 		// T-793: the hook asks the binary (whoami --can-push) and obeys its answer for a role: a listed role passes, a
 		// role not listed and a lane-bound one refuse. T-1116: no OBOR_ROLE is not asked (the stub would refuse it).
-		// The decision itself (guards.allow_push, the lane row) is the real binary's, in cmd/obor's TestWhoamiCanPush.
+		// The decision itself (rules.may_push, the lane row) is the real binary's, in cmd/obor's TestWhoamiCanPush.
 		{"pre-push obeys whoami --can-push: a listed role passes, a role not listed and a lane-bound one refuse", func(t *testing.T, x *hx) {
-			x.Config(func(c map[string]any) { c["guards"] = map[string]any{"allow_push": []string{"lead", "worker"}} })
+			x.Config(func(c map[string]any) { c["rules"] = map[string]any{"may_push": []string{"lead", "worker"}} })
 			x.binary("#!/bin/bash\n[ \"$OBOR_ROLE\" = lead ] && exit 0\nexit 1\n")
 			remote := x.remote()
 			pushes := func(dir, branch string, env []string, rc int, what string) {
@@ -282,7 +282,7 @@ func TestGithooks(t *testing.T) {
 			pushes(x.Root, "ownerbranch", x.gitEnv(), 0, "no OBOR_ROLE (the binary would refuse it)")
 		}},
 		{"pre-push refuses without a usable binary (none, stale, hanging)", func(t *testing.T, x *hx) {
-			x.Config(func(c map[string]any) { c["guards"] = map[string]any{"allow_push": []string{"lead"}} })
+			x.Config(func(c map[string]any) { c["rules"] = map[string]any{"may_push": []string{"lead"}} })
 			remote := x.remote()
 			env, _ := x.cold(t)
 			env = append(env, "OBOR_ROLE=lead")

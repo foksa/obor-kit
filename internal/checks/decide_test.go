@@ -127,7 +127,7 @@ var fakeSteps = []fakeStep{
 	{
 		name: "after_merge",
 		edits: []func(map[string]any){cmd("after_merge",
-			map[string]any{"cmd": `echo ran >> "$TMP_DIR/after.ran"`, "when": []any{"*.txt"}})},
+			map[string]any{"cmd": `echo ran >> "$TMP_DIR/after.ran"`, "when_changed": []any{"*.txt"}})},
 		setup: func(k *fk) cutIn {
 			c := k.published()
 			k.g.answers["Changed "+c.Target+" "+c.SHA] = "feature.txt"
@@ -781,7 +781,7 @@ func TestAfterMergeDecisions(t *testing.T) {
 	})
 	t.Run("a when glob that does not match skips it; one that does runs it", func(t *testing.T) {
 		t.Parallel()
-		k, c := setup(t, map[string]any{"cmd": "touch after.marker", "when": []any{"cmd/**"}})
+		k, c := setup(t, map[string]any{"cmd": "touch after.marker", "when_changed": []any{"cmd/**"}})
 		line, err := k.s.AfterMerge(ctx, c)
 		k.eq(fmt.Sprintf("%s %v", line, err), "skipped <nil>", "after_merge skipped")
 		k.gone(k.Path("after.marker"), "not run")

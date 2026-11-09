@@ -38,7 +38,7 @@ func ltFixture(t *testing.T, extra string, lanes map[string]string) *LaneTable {
 	base := project.Physical(t.TempDir())
 	root := filepath.Join(base, "proj")
 	os.MkdirAll(filepath.Join(root, ".obor"), 0o755)
-	cfg := `{"version":1,"prefix":"pj","lanes":` + strconv.Itoa(len(lanes)) + extra + `}`
+	cfg := `{"version":2,"project":{"agent_prefix":"pj"},"lanes":{"count":` + strconv.Itoa(len(lanes)) + extra + "}}"
 	os.WriteFile(filepath.Join(root, ".obor", "config.json"), []byte(cfg), 0o644)
 	os.WriteFile(filepath.Join(root, ".gitignore"), []byte(".task-done.md\n"), 0o644)
 	ltGit(t, base, "-c", "init.defaultBranch=main", "init", "-q", root)
@@ -99,7 +99,7 @@ func ltRow(t *testing.T, root, lane, task, head string, done, landed bool, age t
 // TestLaneStatesCanceled (T-873): a canceled ctx ends the lane table's git reads: a git that hangs is killed, States
 // returns at once, and the lane is unknown (never free), with the cancellation as its reason.
 func TestLaneStatesCanceled(t *testing.T) {
-	p := ltFixture(t, `,"lanes_dir":"../proj-wt"`, map[string]string{"L-01": "T-01"})
+	p := ltFixture(t, `,"dir":"../proj-wt"`, map[string]string{"L-01": "T-01"})
 	bin := t.TempDir()
 	started := filepath.Join(bin, "started")
 	script := "#!/bin/sh\ntouch " + strconv.Quote(started) + "\nsleep 3\n"
@@ -150,7 +150,7 @@ func ltCommit(t *testing.T, dir string) {
 // a free lane whatever its row says: a lane's model is its task's only while it holds it). Its git reads run in the
 // lane dirs only.
 func TestLaneStates(t *testing.T) {
-	p := ltFixture(t, `,"lanes_dir":"../proj-wt"`, map[string]string{"L-01": "T-01", "L-02": "T-02", "L-03": "T-03",
+	p := ltFixture(t, `,"dir":"../proj-wt"`, map[string]string{"L-01": "T-01", "L-02": "T-02", "L-03": "T-03",
 		"L-04": "T-04", "L-05": "T-05", "L-06": "T-06", "L-07": "T-07", "L-08": "T-08", "L-09": "T-09", "L-10": "T-10",
 		"L-11": "T-11"})
 	dir := func(l string) string { return filepath.Join(filepath.Dir(p.Root), "proj-wt", l) }
@@ -308,7 +308,7 @@ func TestMergeEvidenceSubjectRule(t *testing.T) {
 		ltGit(t, p.Root, "add", file)
 		ltGit(t, p.Root, "commit", "-q", "-m", subj)
 	}
-	p := ltFixture(t, `,"lanes_dir":"../proj-wt"`, nil)
+	p := ltFixture(t, `,"dir":"../proj-wt"`, nil)
 	if evidence(p, "T-09") {
 		t.Fatal("precondition: a fresh fixture has no evidence for T-09")
 	}
@@ -318,19 +318,19 @@ func TestMergeEvidenceSubjectRule(t *testing.T) {
 		t.Error("a T-09: commit touching src/a.go is evidence (squash)")
 	}
 	// A subject without the "<id>:" prefix is no evidence, even when it names the task.
-	q := ltFixture(t, `,"lanes_dir":"../proj-wt"`, nil)
+	q := ltFixture(t, `,"dir":"../proj-wt"`, nil)
 	add(q, "work.txt", "work for T-09: later")
 	if evidence(q, "T-09") {
 		t.Error("a subject that does not start with T-09: is no evidence")
 	}
 	// An empty "<id>:" commit is evidence too (the other packages' fixtures dispatch lanes with such a commit).
-	e := ltFixture(t, `,"lanes_dir":"../proj-wt"`, nil)
+	e := ltFixture(t, `,"dir":"../proj-wt"`, nil)
 	ltGit(t, e.Root, "commit", "-q", "--allow-empty", "-m", "T-09: merged")
 	if !evidence(e, "T-09") {
 		t.Error("an empty T-09: commit is evidence")
 	}
 	// "Merge T-09:" is evidence (control: the gate's merge subject).
-	m := ltFixture(t, `,"lanes_dir":"../proj-wt"`, nil)
+	m := ltFixture(t, `,"dir":"../proj-wt"`, nil)
 	ltGit(t, m.Root, "commit", "-q", "--allow-empty", "-m", "Merge T-09: done")
 	if !evidence(m, "T-09") {
 		t.Error(`a "Merge T-09:" commit is evidence`)
@@ -369,7 +369,7 @@ func TestLaneUnknownOnFailedRead(t *testing.T) {
 		}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			p := ltFixture(t, `,"lanes_dir":"../proj-wt"`, map[string]string{"L-01": "T-01"})
+			p := ltFixture(t, `,"dir":"../proj-wt"`, map[string]string{"L-01": "T-01"})
 			dir := filepath.Join(filepath.Dir(p.Root), "proj-wt", "L-01")
 			c.breakIt(t, p, dir)
 			s := stateOf(p, "L-01")
@@ -390,7 +390,7 @@ func TestLaneUnknownOnFailedRead(t *testing.T) {
 		})
 	}
 	t.Run("no store yet", func(t *testing.T) {
-		p := ltFixture(t, `,"lanes_dir":"../proj-wt"`, map[string]string{"L-01": "T-01"})
+		p := ltFixture(t, `,"dir":"../proj-wt"`, map[string]string{"L-01": "T-01"})
 		if _, err := store.ReadLanesAt(p.Root); err != nil {
 			t.Fatal(err) // precondition: a fresh project has no store, not an unreadable one
 		}

@@ -169,11 +169,11 @@ func TestSetupAgentsPluginKind(t *testing.T) {
 	x.failing(t, "FAIL agents mine: kind mine: install: exit 2: nope", "agents")
 }
 
-// T-1046: obor setup agents on a config from before OpenCode's binary (no kinds.opencode.command) writes the line into
-// .obor/config.json (uncommitted) and caches the kit kind's manifest; a second run, the line there, writes nothing.
+// T-1046: obor setup agents on a config from before OpenCode's binary (no agents.kinds.opencode.plugin) writes the line
+// into .obor/config.json (uncommitted) and caches the kit kind's manifest; a second run, the line there, writes nothing.
 func TestSetupAgentsWritesTheKitKind(t *testing.T) {
 	t.Parallel()
-	x := newFx(t, func(c map[string]any) { delete(c, "kinds") })
+	x := newFx(t, func(c map[string]any) { delete(c["agents"].(map[string]any), "kinds") })
 	path := filepath.Join(x.Root, ".obor", "config.json")
 	cache := filepath.Join(x.Root, ".obor", "state", "kinds", "opencode.json")
 	if b, _ := os.ReadFile(path); strings.Contains(string(b), `"kinds"`) || x.Exists(cache) {
@@ -197,11 +197,11 @@ func TestSetupAgentsWritesTheKitKind(t *testing.T) {
 }
 
 // T-1081 (DD-v0.32 #1): on a config that still names keys this obor does not know (the promotion's, T-1076), obor
-// setup agents still writes kinds.opencode.command and caches the manifest (it used to skip both without a word), and
-// the file keeps those keys' bytes.
+// setup agents still writes agents.kinds.opencode.plugin and caches the manifest (it used to skip both without a
+// word), and the file keeps those keys' bytes.
 func TestSetupAgentsKeepsUnknownKeys(t *testing.T) {
 	t.Parallel()
-	x := newFx(t, func(c map[string]any) { delete(c, "kinds") }, testkit.Set("branches.promote", "release"),
+	x := newFx(t, func(c map[string]any) { delete(c["agents"].(map[string]any), "kinds") }, testkit.Set("branches.promote", "release"),
 		testkit.Set("merge.promote_weight", 2), testkit.Set("merge.weights", map[string]any{"core": 3}))
 	path := filepath.Join(x.Root, ".obor", "config.json")
 	cache := filepath.Join(x.Root, ".obor", "state", "kinds", "opencode.json")

@@ -385,7 +385,7 @@ func TestDispatchRefusals(t *testing.T) {
 // RV-167 #2: a level none of whose models the config knows names the shape-2 config path in its hint.
 func TestNoModelOfLevelNamesShape2Path(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, dispatching(), withConfig(testkit.Set("difficulty.hard", []string{})))
+	r := newLoopRig(t, dispatching(), withConfig(testkit.Set("agents.difficulty.hard", []string{})))
 	r.start()
 	r.specOf("T-1", "# T-1 — Leveled\n\nDifficulty: hard\n")
 	reply, err := r.dispatchCall(wire.DispatchReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-lead",
