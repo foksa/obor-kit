@@ -82,7 +82,7 @@ func (a *App) pruneLogIn(p *proj, now time.Time, batch int) {
 
 // pruneCandidates is p's tasks the prune may delete at cutoff (under mu), each as the fold holds it now: dropped, or
 // merged with its after-merge steps done, no needs-you held or due, its end before cutoff; no lanes row names it, no
-// agent's start row was recorded by it, its record is not the key of the idle state in force (idleEnd, T-1101), no step of it runs or drop
+// agent's start row was recorded by it, its record is not the idle key (idleEnd, T-1101), idle or not now (T-1102), no step of it runs or drop
 // of it is decided, and with a review open it was not dispatched after the review started (fixCandidates would link
 // it). A rejected task is not ended for this: the owner
 // still owes it a drop.
@@ -96,10 +96,10 @@ func (p *proj) pruneCandidates(cutoff time.Time) map[string]mtask {
 			pinned[row.Task] = true
 		}
 	}
-	if p.idleNow().ok { // the task whose record is the idle key (T-1101)
-		if _, task := p.idleEnd(); task != "" {
-			pinned[task] = true
-		}
+	// The task whose record is the idle key (T-1101), idle or not now: a needs-you that suppresses idle keeps its end
+	// (T-1102); a retained newer end supersedes it.
+	if _, task := p.idleEnd(); task != "" {
+		pinned[task] = true
 	}
 	review := int64(-1) // the open review's start seq (-1: none open)
 	if last := p.folded.rv.last(); last.open() != "" {

@@ -111,6 +111,13 @@ func (h *history) merge(task string, attempt int, at time.Time, done bool) {
 	}
 }
 
+// supersedeIdleKey is a review request withdrawn at at: a retained end newer than every task's end before it, so none
+// of those tasks holds the idle key the prune keeps whole (T-1101, T-1102).
+func (h *history) supersedeIdleKey(at time.Time) {
+	h.add(at, event.ReviewTask, 0, event.StepReviewRequest, event.KindFact, ReviewData{By: "pj-lead"})
+	h.add(at, event.ReviewTask, 0, event.StepReviewRm, event.KindFact, ReviewData{By: "pj-lead"})
+}
+
 // dropped is task dispatched and submitted at attempt 1 on lane, dropped at at.
 func (h *history) dropped(task, lane string, at time.Time) {
 	h.dispatched(task, 1, lane, at.Add(-2*time.Hour))
@@ -373,6 +380,7 @@ func TestPruneKeepsTheLastTerminalFact(t *testing.T) {
 	h.dispatched("T-x", 2, "L-01", daysAgo(32))
 	h.submitted("T-x", 2, "L-01", daysAgo(31.5))
 	h.merge("T-x", 2, daysAgo(31), true)
+	h.supersedeIdleKey(daysAgo(2))
 	h.dispatched("T-later", 1, "L-01", daysAgo(1)) // the lane's row is another task's
 	h.done()
 	r := pruneOracle(t, root, pruneBatch)
@@ -418,6 +426,7 @@ func TestPrunedAnswerStaysSettled(t *testing.T) {
 		event.Message{To: "pj-l-01", Line: "[obor] lead: left", From: "pj-lead", Task: "T-q", Call: "a1", Reply: "ANSWERED"})
 	h.submitted("T-q", 1, "L-01", daysAgo(33))
 	h.merge("T-q", 1, daysAgo(32), true)
+	h.supersedeIdleKey(daysAgo(2))
 	h.dispatched("T-later", 1, "L-01", daysAgo(1))
 	h.done()
 	r := pruneOracle(t, root, pruneBatch)
@@ -442,6 +451,7 @@ func TestPrunedTasksOutcomes(t *testing.T) {
 	h.dispatched("T-d", 1, "L-01", daysAgo(34))
 	h.dispatched("T-d", 2, "L-01", daysAgo(33))
 	h.drop("T-d", 2, daysAgo(32))
+	h.supersedeIdleKey(daysAgo(2))
 	h.dispatched("T-later", 1, "L-01", daysAgo(1))
 	h.done()
 	r := pruneOracle(t, root, pruneBatch)
@@ -526,13 +536,15 @@ func TestPruneKeepsAStartThatDisplacedARow(t *testing.T) {
 }
 
 // The newest rows of the table are the pruned task's: the newest stays, and the next record's seq is the old maximum
-// plus one (no seq is handed out again).
+// plus one (no seq is handed out again). T-m's end is not the idle key (T-1101, T-1102: that task is kept whole): a
+// review request's end supersedes it, and the newest row is the receipt of a later spec_set on T-m.
 func TestPruneKeepsTheNewestRow(t *testing.T) {
 	t.Parallel()
 	root := pruneRoot(t)
 	h := newHistory(t, root)
-	h.dispatched("T-open", 1, "L-01", daysAgo(40)) // in flight: no idle key pins T-m (T-1101)
-	h.merged("T-m", "L-09", daysAgo(31), true)     // a lane gone from the config: no row names T-m
+	h.merged("T-m", "L-09", daysAgo(33), true) // a lane gone from the config: no row names T-m
+	h.supersedeIdleKey(daysAgo(32))
+	h.add(daysAgo(31), "T-m", 0, event.StepSpecSet, event.KindFact, event.SpecSet{Call: "c-m", Reply: "SET T-m rev 2"})
 	h.done()
 	r := pruneOracle(t, root, pruneBatch)
 	last := r.recs[len(r.recs)-1]
@@ -554,6 +566,7 @@ func TestPruneSparesLaterRecordsAndRunsOnce(t *testing.T) {
 	root := pruneRoot(t)
 	h := newHistory(t, root)
 	h.merged("T-m", "L-01", daysAgo(31), true)
+	h.supersedeIdleKey(daysAgo(2))
 	h.dispatched("T-later", 1, "L-01", daysAgo(1))
 	h.done()
 	a, p := pruneApp(t, root)
@@ -653,6 +666,7 @@ func TestPruneRunsOnlyAfterServesBackup(t *testing.T) {
 	root := pruneRoot(t)
 	h := newHistory(t, root)
 	h.merged("T-m", "L-01", daysAgo(31), true)
+	h.supersedeIdleKey(daysAgo(2))
 	h.dispatched("T-later", 1, "L-01", daysAgo(1))
 	h.done()
 	whole := readLog(t, root)
@@ -805,5 +819,50 @@ func TestPruneIdleNoPing(t *testing.T) {
 	}
 	if _, act, ok := idlePingRule(t.Context(), r.a2, r.then, nil, pruneNow.Add(time.Hour)); ok {
 		t.Errorf("the ping fired after the prune: %q", act.line)
+	}
+}
+
+// T-1102 (RV-162 verify): a project needs-you held at the prune suppresses idle but does not end the acknowledged
+// idle period: T-old, whose record is its key, stays whole, and once the needs-you is cleared (its resumed fact is no
+// idle end) the key is the acknowledged one, the same after a reload.
+func TestPruneIdleKeyHeldThroughNeedsYou(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name, task, reason string
+		clear              func(a *App, p *proj) bool
+	}{
+		{"a nightly RED cleared by GREEN", event.NightlyTask, "full-check RED abc123",
+			func(a *App, p *proj) bool { return a.settleNeeds(p, event.NightlyTask, "") }},
+		{"a loop error cleared by a passing pass", event.LoopTask, "loop: lanes: boom",
+			func(a *App, p *proj) bool { a.loopStatus(t.Context(), p, &p.badLoop, nil); return true }},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			root, key := idleOld(t, nil, true)
+			h := newHistory(t, root)
+			h.add(daysAgo(1), c.task, 0, event.StepNeedsYou, event.KindFact, event.FactData{Reason: c.reason})
+			h.done()
+			recs := readLog(t, root)
+			a, p := pruneApp(t, root)
+			if n, _ := idleOf(a, p); n.ok || len(p.folded.active[c.task]) == 0 || p.folded.idleAck.Key != key {
+				t.Fatalf("precondition: idle %+v, %s needs-you %v, ack %d; want idle suppressed by the needs-you, ack %d",
+					n, c.task, p.folded.active[c.task], p.folded.idleAck.Key, key)
+			}
+			a.pruneLog(p, pruneNow)
+			if kept := readLog(t, root); rowsOf(kept, "T-old") != rowsOf(recs, "T-old") {
+				t.Errorf("T-old keeps %d of %d rows after the prune, want it whole", rowsOf(kept, "T-old"), rowsOf(recs, "T-old"))
+			}
+			if !c.clear(a, p) {
+				t.Fatal("the needs-you was not cleared")
+			}
+			n1, open1 := idleOf(a, p)
+			if !n1.ok || n1.end != key || open1 {
+				t.Fatalf("precondition: after the clear idle %+v (open %t); want idle at the acknowledged key %d", n1, open1, key)
+			}
+			a2, q := pruneApp(t, root)
+			if n2, open2 := idleOf(a2, q); !n2.ok || n2.end != key || open2 {
+				t.Errorf("idle after the reload %+v (open %t), want the acknowledged key %d", n2, open2, key)
+			}
+		})
 	}
 }
