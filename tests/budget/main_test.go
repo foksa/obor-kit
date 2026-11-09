@@ -3,10 +3,12 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -164,15 +166,7 @@ func TestMissingExitGreen(t *testing.T) {
 func runMissing(t *testing.T, pkgs []string, budget string) int {
 	t.Helper()
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/x\n\ngo 1.27\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(dir, "tests"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "tests", "budget.json"), []byte(budget), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeModule(t, dir, budget)
 	var list strings.Builder
 	list.WriteString("#!/bin/sh\nprintf '")
 	for _, pkg := range pkgs {
@@ -499,4 +493,142 @@ func TestListPackagesTagsIntegration(t *testing.T) {
 	if call := readFile(t, log); !strings.Contains(call, "-tags integration") {
 		t.Errorf("go list ran without -tags integration: %q", call)
 	}
+}
+
+// T-1077 (RV-156 #1): -seed ./rel/pkg measures the package and writes its entry under the import path the listing and
+// -missing key by, not under the raw argument.
+func TestSeedWritesImportPathKey(t *testing.T) {
+	root := t.TempDir()
+	writeModule(t, root, `{"packages":{}}`)
+	goBin := goStub(t, map[string]string{
+		"./internal/newpkg": "example.com/x/internal/newpkg 1 0\\n",
+	})
+	if status := runSeed(t, root, goBin, "-seed", "./internal/newpkg"); status != 0 {
+		t.Fatalf("-seed ./internal/newpkg exited %d; want 0", status)
+	}
+	f, err := load(root)
+	if err != nil {
+		t.Fatalf("the seeded file does not load: %v", err)
+	}
+	if _, ok := f.Packages["./internal/newpkg"]; ok {
+		t.Errorf("the seed wrote the raw argument as a key: %v", f.Packages)
+	}
+	if got, ok := f.Packages["example.com/x/internal/newpkg"]; !ok || got != (Budget{FullS: 1.5, GitProcs: 0}) {
+		t.Errorf("seeded packages = %v; want example.com/x/internal/newpkg measured at 1.5s", f.Packages)
+	}
+}
+
+// T-1077: -seed resolves each argument through go list: a pattern expands to its packages with tests, two arguments
+// keep their order, and an import path is kept as given.
+func TestResolvePackages(t *testing.T) {
+	goBin := goStub(t, map[string]string{
+		"./internal/...":             "example.com/x/internal/a 1 0\\nexample.com/x/internal/b 0 1\\nexample.com/x/internal/notests 0 0\\n",
+		"./internal/newpkg":          "example.com/x/internal/newpkg 1 0\\n",
+		"example.com/x/internal/foo": "example.com/x/internal/foo 2 0\\n",
+	})
+	for _, c := range []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{"a pattern is its packages with tests", []string{"./internal/..."}, []string{"example.com/x/internal/a", "example.com/x/internal/b"}},
+		{"two arguments keep their order", []string{"./internal/newpkg", "example.com/x/internal/foo"}, []string{"example.com/x/internal/newpkg", "example.com/x/internal/foo"}},
+		{"an import path is kept as given", []string{"example.com/x/internal/foo"}, []string{"example.com/x/internal/foo"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := resolvePackages(t.TempDir(), goBin, os.Environ(), c.args)
+			if err != nil {
+				t.Fatalf("resolvePackages(%q): %v", c.args, err)
+			}
+			if !slices.Equal(got, c.want) {
+				t.Errorf("resolvePackages(%q) = %q; want %q", c.args, got, c.want)
+			}
+		})
+	}
+}
+
+// T-1077: an argument that resolves to no package with tests is an error naming it (a path that matches nothing, and a
+// package whose tests are all gone), so the seed can be corrected.
+func TestResolvePackagesNoTests(t *testing.T) {
+	goBin := goStub(t, map[string]string{
+		"./internal/newpkg":  "example.com/x/internal/newpkg 1 0\\n",
+		"./internal/notests": "example.com/x/internal/notests 0 0\\n",
+	})
+	for _, arg := range []string{"./internal/nope", "./internal/notests"} {
+		got, err := resolvePackages(t.TempDir(), goBin, os.Environ(), []string{"./internal/newpkg", arg})
+		if err == nil {
+			t.Fatalf("resolvePackages(%q) = %q; want an error", arg, got)
+		}
+		if !strings.Contains(err.Error(), arg) {
+			t.Errorf("resolvePackages(%q) error %q; want it to name the argument", arg, err)
+		}
+	}
+}
+
+// T-1077: -seed with an argument that resolves to no package with tests fails before measuring: tests/budget.json stays
+// byte for byte.
+func TestSeedUnresolvedArgWritesNothing(t *testing.T) {
+	root := t.TempDir()
+	prev := `{"packages":{"example.com/x/old":{"full_s":1,"git_procs":0}}}`
+	writeModule(t, root, prev)
+	goBin := goStub(t, map[string]string{
+		"./internal/newpkg": "example.com/x/internal/newpkg 1 0\\n",
+	})
+	if status := runSeed(t, root, goBin, "-seed", "./internal/nope"); status != 2 {
+		t.Fatalf("-seed ./internal/nope exited %d; want 2", status)
+	}
+	if after := readFile(t, filepath.Join(root, "tests", "budget.json")); after != prev {
+		t.Errorf("-seed with an unresolved argument rewrote tests/budget.json:\n%s", after)
+	}
+}
+
+// runSeed calls the tool once with args in root, GO as goBin: one call per test (run registers its flags on
+// flag.CommandLine).
+func runSeed(t *testing.T, root, goBin string, args ...string) int {
+	t.Helper()
+	t.Setenv("GO", goBin)
+	t.Chdir(root)
+	savedFlags, savedArgs := flag.CommandLine, os.Args
+	flag.CommandLine = flag.NewFlagSet("budget", flag.ContinueOnError)
+	os.Args = append([]string{"budget"}, args...)
+	t.Cleanup(func() { flag.CommandLine, os.Args = savedFlags, savedArgs })
+	return run()
+}
+
+// writeModule makes dir a module with tests/budget.json holding budget.
+func writeModule(t *testing.T, dir, budget string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/x\n\ngo 1.27\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "tests"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "tests", "budget.json"), []byte(budget), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// goStub writes a `go` for one test: a `test` call passes with Elapsed 1.0, and a `list` call answers from cases, keyed
+// by its last argument (the package or pattern) with what go list would print for it. An argument that is no key prints
+// nothing, like a pattern that matches no packages.
+func goStub(t *testing.T, cases map[string]string) string {
+	t.Helper()
+	keys := make([]string, 0, len(cases))
+	for k := range cases {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	b.WriteString("#!/bin/sh\nif [ \"$1\" = test ]; then\n  printf '{\"Action\":\"pass\",\"Package\":\"p\",\"Elapsed\":1.0}\\n'\n  exit 0\nfi\n")
+	b.WriteString("for last; do :; done\ncase \"$last\" in\n")
+	for _, k := range keys {
+		fmt.Fprintf(&b, "  %s) printf '%s' ;;\n", quote(k), cases[k])
+	}
+	b.WriteString("esac\n")
+	goBin := filepath.Join(t.TempDir(), "go")
+	if err := os.WriteFile(goBin, []byte(b.String()), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return goBin
 }

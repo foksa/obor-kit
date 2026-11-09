@@ -21,7 +21,8 @@
 //
 // The budgets are seeded from one quiet machine's run x1.5: `go run ./tests/budget -seed <pkg>...` measures the named
 // packages and writes their entries into tests/budget.json, every other entry unchanged, so the task that adds a
-// package seeds it alone; `-seed` with no arguments re-measures the whole file (T-1007, T-1008, T-1073). A budget is
+// package seeds it alone; `-seed` with no arguments re-measures the whole file (T-1007, T-1008, T-1073). Its arguments
+// are resolved through go list to import paths, so a relative path or a pattern works (RV-156). A budget is
 // raised only by an owner line in docs/decisions.md and lowered by any task that gets under it
 // (docs/plan/test-suite-rework.md §3).
 package main
@@ -446,11 +447,15 @@ func findRoot() (string, error) {
 	}
 }
 
-// listPackages names the module's packages that have tests, in the order go list gives them. The tag is passed too, so
-// a package whose tests are all behind `//go:build integration` still counts (T-1014: an unmeasured package is a
-// breach).
-func listPackages(root, goBin string, env []string) ([]string, error) {
-	cmd := exec.Command(goBin, "list", "-tags", "integration", "-f", "{{.ImportPath}} {{len .TestGoFiles}} {{len .XTestGoFiles}}", "./...")
+// listPackages names the packages with tests that patterns match (the whole module when there are none), in the order
+// go list gives them. The tag is passed too, so a package whose tests are all behind `//go:build integration` still
+// counts (T-1014: an unmeasured package is a breach).
+func listPackages(root, goBin string, env []string, patterns ...string) ([]string, error) {
+	if len(patterns) == 0 {
+		patterns = []string{"./..."}
+	}
+	args := append([]string{"list", "-tags", "integration", "-f", "{{.ImportPath}} {{len .TestGoFiles}} {{len .XTestGoFiles}}"}, patterns...)
+	cmd := exec.Command(goBin, args...)
 	cmd.Dir = root
 	cmd.Env = env
 	out, err := cmd.CombinedOutput()
@@ -468,6 +473,25 @@ func listPackages(root, goBin string, env []string) ([]string, error) {
 		if err1 == nil && err2 == nil && a+b > 0 {
 			pkgs = append(pkgs, f[0])
 		}
+	}
+	return pkgs, nil
+}
+
+// resolvePackages is -seed's arguments as the import paths tests/budget.json is keyed by (RV-156 #1): each argument is
+// listed by the tool's own go list, tags included, so a relative path, an import path and a pattern all land on the keys
+// -missing and check compare. An argument that names no package with tests is an error naming it: the file must not get
+// a key no package answers to.
+func resolvePackages(root, goBin string, env []string, args []string) ([]string, error) {
+	var pkgs []string
+	for _, arg := range args {
+		found, err := listPackages(root, goBin, env, arg)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %v", arg, err)
+		}
+		if len(found) == 0 {
+			return nil, fmt.Errorf("%s: no package with tests", arg)
+		}
+		pkgs = append(pkgs, found...)
 	}
 	return pkgs, nil
 }
@@ -539,6 +563,12 @@ func run() int {
 	named := flag.Args()
 	var pkgs []string
 	if *seedFlag && len(named) > 0 {
+		// RV-156 #1: -seed's arguments are import paths before anything is measured or written; the listing and -missing
+		// key by import path, so a raw ./internal/newpkg would be a missing entry and a stale one at the next gate.
+		named, err = resolvePackages(root, goBin, r.env(), named)
+		if err != nil {
+			return fail(err)
+		}
 		pkgs = named // -seed <pkg>...: measure only these, and merge them into the file (T-1073)
 	} else {
 		pkgs, err = listPackages(root, goBin, r.env())

@@ -224,7 +224,8 @@ check-release:
 # "budget OK: N packages". The nightly runs it on a quiet machine, so its numbers are comparable; a budget is raised
 # only by an owner line in docs/decisions.md and lowered by any task that gets under it (docs/plan/test-suite-
 # rework.md §3). Seed it with `GO="$(GO)" $(GO) run ./tests/budget -seed` for the whole file, or
-# `GO="$(GO)" $(GO) run ./tests/budget -seed <pkg>...` for the entries it names, every other entry unchanged (T-1073:
+# `GO="$(GO)" $(GO) run ./tests/budget -seed <pkg>...` for the entries it names (an import path, a relative path or a
+# pattern: -seed resolves them through go list, RV-156), every other entry unchanged (T-1073:
 # the task that adds a package seeds that package alone). The seed writes tests/budget.json itself (T-1008: a shell
 # redirect would truncate it before -seed read the caps).
 check-budget:
