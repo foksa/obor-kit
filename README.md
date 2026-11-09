@@ -8,23 +8,35 @@ dispatches tasks, runs the merge checks, merges and tells the lead what needs a 
 It ships as a Claude Code plugin (`obor`: the lead skill, role texts, guard hooks, an MCP server) plus one Go binary.
 Workers can be Claude Code, Codex or OpenCode.
 
-> **Status:** early (v0.16), built and used daily by one person on two projects. Expect rough edges and breaking
-> changes between minor versions; each release has an upgrade guide in `docs/UPGRADE-v<x.y>.md`. macOS and Linux.
+> **Status:** early: built and used daily by one person on two projects. Expect rough edges and breaking changes
+> between minor versions; each release has an upgrade guide in `docs/UPGRADE-v<x.y>.md`. macOS and Linux.
 
 ## How it works
 
 ```
 you ─── lead (Claude Code) ── writes a spec ── obor spec set T-12 / obor dispatch T-12
                                                         │
-              obor serve ── picks a free lane of the right model tier, cuts task/T-12 from main
-                  │
-                  ├─ worker (lane O-01, its own worktree) ── implements, runs the checks, task_done
-                  ├─ merge checks (your project's commands) ── integrator reviews ── merge into main
-                  └─ "needs-you" lines to the lead: a question, a hold, a failed check
+        obor serve ── picks the first free model of the spec's difficulty on the first free lane,
+            │         cuts task/T-12 from the target branch
+            │
+            ├─ worker (lane L-01, its own worktree) ── implements, runs the task's checks, task_done
+            ├─ merge slot ── integrator reviews ── compiles onto the target branch ── merge
+            └─ "needs-you" lines to the lead: a question, a hold, a failed check
 ```
 
-- **Lanes** are fixed worktrees (`../<repo>-wt/O-01`, `S-01`, …), each with a model type. A spec says
-  `Difficulty: hard | medium | simple`, and serve picks a lane of the matching tier.
+- **Lanes** are a pool of identical worktrees (`../<repo>-wt/L-01`, …; `lanes.count` of them). A spec says
+  `Difficulty: hard | medium | simple`; each level has a list of models (`agents.difficulty`), and dispatch runs the
+  first free model of the list on the first free lane. A `Model:` line in the spec or `obor dispatch --model` overrides
+  it; a model that is paused (`obor pause --model`) is skipped.
+- **The target branch** is `merge.target_branch` (`main` unless you set another; obor-kit itself uses `staging`). Tasks
+  are cut from it and merged into it.
+- **Tests run in three places.** The task's checks run in its lane before the worker submits. The merge slot compiles
+  the merge onto the target branch (`merge.compile`) and runs `merge.check`, or a smaller check your `merge.by_path`
+  rules pick for the changed files. The nightly (`nightly.at`, a local time such as `02:00`) runs `merge.check`, then
+  `nightly.slow_check`, then the commands in `nightly.also_run`, and goes red as a needs-you line.
+- **Reviews.** When a few merges have piled up (`obor status` says "review due") the lead asks for one; a hard task
+  gets one when it merges. The reviewer, from another model family, reviews the merged work; its findings become fix
+  tasks, and it verifies them.
 - **Guards** (Claude Code hooks, an OpenCode plugin) keep a worker inside its lane: no pushes, no edits outside its
   worktree, no edits to protected files unless its spec allows them.
 - **The lead never merges and never polls.** serve sends it one line when something needs it, and the lead answers
@@ -34,7 +46,7 @@ you ─── lead (Claude Code) ── writes a spec ── obor spec set T-12 
 
 ## Requirements
 
-- [herdr](https://github.com/herdrdev/herdr) (0.9 or later), the terminal workspace the agents run in
+- [herdr](https://github.com/herdrdev/herdr) (0.9.5 or later), the terminal workspace the agents run in
 - [Claude Code](https://claude.com/claude-code) for the lead and the integrator; optionally Codex and OpenCode for workers
   and the reviewer
 - git, jq, curl; macOS `/bin/bash` 3.2 is enough (no Go needed: the binary is downloaded)
@@ -46,8 +58,8 @@ curl -fsSL https://raw.githubusercontent.com/foksa/obor-kit/main/install.sh | sh
 ```
 
 This clones the kit into `~/.obor/kit` at the newest release, links `~/.local/bin/obor` (it prints the `PATH` line if
-needed), then downloads the release binary for your platform and checks its checksum. To upgrade, run the same line
-again.
+needed), then downloads the release binary for your platform and the OpenCode kind binary (`obor-kind-opencode`) beside
+it, and checks their checksums. To upgrade, run the same line again.
 
 ## Set up a project
 
@@ -58,9 +70,11 @@ from a shell in a herdr workspace of its own or one where none of another projec
 obor init       # the plugin, the git hooks, .obor/config.json, lane worktrees, agent panes, obor serve
 ```
 
-`obor init` detects the check commands, picks the lanes and role types, installs the plugin and the git hooks and its
-`obor serve` launchd agent, then prints each step and the file to change (`.obor/config.json`). Run it once on a
-machine with `claude` on PATH. With no pane of the project open yet, init creates a herdr workspace for it.
+`obor init` detects the check commands and the agent CLIs on your machine, writes the lane count and the models of each
+difficulty level it found, installs the plugin and the git hooks and its `obor serve` launchd agent, then prints each
+step and the file to change (`.obor/config.json`). Run it once on a machine with `claude` on PATH. With no pane of the
+project open yet, init creates a herdr workspace for it. The lead's first session shows the lane count and the models
+and asks you to confirm them (`agents.confirmed`).
 
 obor commits with `--no-verify`, so your own pre-commit and commit-msg hooks never run on its lane and merge commits:
 put formatting and secret scans in `merge.check` (the merge check) instead.
@@ -84,16 +98,24 @@ the flag for it:
 | Codex | `.codex/config.toml`, top-level (before any `[table]`) | `sandbox_mode` | `-s workspace-write` |
 | Codex | same | `check_for_update_on_startup` | `-c check_for_update_on_startup=false` |
 
-obor's MCP server, the session id, the prompt, the model and effort a type names, Claude's `--permission-mode auto`
-and Codex's `-a never` stay (change those in `.obor/config.json`: `agents.models`, `agents.kinds.<kind>.args`). Codex reads a
-project's `.codex/` only when the project is trusted in `~/.codex/config.toml`. A file that does not parse counts as
+obor's MCP server, the session id, the prompt, the model ref each role and difficulty level names (`<model>[:<effort>]`,
+e.g. `opus:high`), Claude's `--permission-mode auto` and Codex's `-a never` stay (change those in `.obor/config.json`:
+`agents.roles`, `agents.difficulty`, `agents.kinds.<kind>.args`). Codex reads a project's `.codex/` only when the
+project is trusted in `~/.codex/config.toml`. A file that does not parse counts as
 absent. `obor config validate` warns on such a file, on `disableAllHooks: true` in `.claude/settings.json` (it turns
 off obor's guard hooks) and on an OpenCode project config (`opencode.json[c]`, `.opencode/opencode.json[c]`) that
 defines `mcp.servers.obor` (it replaces obor's server).
 
 ## Everyday commands
 
-`obor help` (or obor web's Help page) lists every command, its usage and what it does.
+`obor help` (or obor web's Help page) lists every command, its usage and what it does. The ones you meet first:
+
+- `obor lead`: start the lead in its own tab
+- `obor status`: serve, lanes, agents, what needs you, the last full check
+- `obor web`: a localhost page for every project on this machine
+- `obor dispatch T-12`: run a task on the first free lane of its difficulty
+- `obor resume T-12 "<text>"`: answer a task's needs-you, send it back or re-run its gate
+- `obor drop T-12 "<why>"`: stop a task's worker and free its lane
 
 The lead's full playbook is `skills/lead/SKILL.md`; the role texts are in `templates/agents/`.
 
@@ -101,7 +123,9 @@ The lead's full playbook is `skills/lead/SKILL.md`; the role texts are in `templ
 
 ```
 bin/obor           the CLI shim: finds or downloads the Go binary and runs it
-cmd/obor, internal Go source (make build → dist/obor; make check → the merge gate)
+cmd/obor, internal Go source (make build → dist/obor; make check → the full suite: nightly, before a release)
+kinds/             the OpenCode kind plugin, its own Go binary (obor-kind-opencode)
+opencode/          the OpenCode guard plugin
 skills/            Claude Code skills: lead, setup
 hooks/             Claude Code hook wiring (every hook is `obor hook <name>`)
 templates/         role texts, task spec, BACKLOG/decisions templates, config examples
