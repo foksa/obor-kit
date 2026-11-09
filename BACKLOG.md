@@ -32,7 +32,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
 - (none; branching decided 11-07, docs/decisions.md)
 
 ## Later candidates
-- **Un-defer `job_next`** (chatter census proposal 2, 11-07): skipped as a Claude-only launch flag (an integrator job's first call is ~42k on a near-empty context, ~10% of a job; a global tool-search switch would load every MCP tool). The agent-neutral variant (a fresh session's first prompt carries the job, herdr events as the delivery proof) went to the advisor: docs/research/job-in-first-prompt-advice.md.
+- **Un-defer `job_next`** (chatter census proposal 2; advisor 11-07 docs/research/job-in-first-prompt-advice.md: no job-in-prompt; T-959/T-960/T-941 did the kind-neutral parts). Left: `alwaysLoad: true` on obor's MCP entry, Claude-only, so parked under the owner's agent-neutral rule (11-07); revisit if another kind gets the same deferral.
 - **Log snapshot at upgrade** (parked 11-05, docs/research/log-snapshot.md): build when compat branches pass ~300
   prod lines or a record-shape change needs it.
 - (RV-63 #4, accepted by rule) `scripts/publish` checks the local tag only, not that it is the remote one: a moved
