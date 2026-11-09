@@ -31,7 +31,7 @@ func TestConfigValidateBinary(t *testing.T) {
 		{[]func(map[string]any){testkit.Set("merge.receipt_max_age", 60)}, 1,
 			"FAIL .merge.receipt_max_age: unknown to this obor (retired, or newer than this binary): delete it (.obor/config.json)\n"},
 		// T-428: serve dispatches and merges nothing without roles.integrator, so validate FAILs.
-		{[]func(map[string]any){func(c map[string]any) { delete(c, "agents") }}, 1,
+		{[]func(map[string]any){func(c map[string]any) { delete(c["agents"].(map[string]any), "roles") }}, 1,
 			"FAIL .agents.roles.integrator: required: serve dispatches and merges nothing without an integrator\n"},
 	} {
 		// The fixture carries the integrator serve needs (T-428); these cases are about the other lines.
