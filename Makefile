@@ -87,7 +87,8 @@ trim-go-cache:
 # The merge gate (check: the full suite) and its per-merge tier (check-affected, commands.check_affected, T-347): check
 # runs every step; check-affected runs tests/budget -missing first (T-1073: a package with tests and no budget entry fails
 # the lane with the -seed command that writes it, and an entry whose package is gone with the line to remove it; no test
-# runs), then the kit's tools/affected list (go run, T-1040) and then go test only, on
+# runs), then the kit's tools/affected list (go run, T-1040; T-1120: its -full globs, the files whose change forces the
+# full suite, are the Makefile's) and then go test only, on
 # the packages $OBOR_CHANGED_FILES affects; any doubt runs the full suite. The slot's check-compile already ran build,
 # gofmt, vet and deadcode on the same commit (T-995), so the lane repeats none of them.
 # One test split, not two tiers (T-1014, T-1056): a test that needs real I/O sits in a file with `//go:build
@@ -124,7 +125,7 @@ check-affected:
 	@$(GO_CACHE); \
 	GO="$(GO)" $(GO) run ./tests/budget -missing || exit 1; \
 	pkgs=./...; \
-	if a=$$($(GO) run ./tools/affected); then \
+	if a=$$($(GO) run ./tools/affected -full Makefile -full 'internal/testkit/**' -full 'internal/herdr/herdrtest/**'); then \
 	  case "$$a" in \
 	    "full: "*) echo "affected: full suite ($${a#full: })" ;; \
 	    "") pkgs= ;; \

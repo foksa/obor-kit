@@ -202,7 +202,6 @@ func TestDefaults(t *testing.T) {
 		def, val  any
 	}{
 		{"merge.nightly_commands", `"merge":{"nightly_commands":["trim"]}`, func(c *Config) any { return len(c.Data.Merge.NightlyCommands) }, 0, 1},
-		{"merge.affected_full", `"merge":{"affected_full":["Makefile"]}`, func(c *Config) any { return len(c.Data.Merge.AffectedFull) }, 0, 1},
 		{"paths.agents", `"paths":{"agents":"doc/roles"}`, func(c *Config) any { return c.Data.Paths["agents"] }, "docs/agents", "doc/roles"},
 	} {
 		if got := tc.get(load(t, `{"prefix":"pj"}`, "")); got != tc.def {
