@@ -126,9 +126,9 @@ func TestRV47SetupMCPLaneVariadic(t *testing.T) {
 func jsonStr(s string) string { return config.Compact(s) }
 
 // T-1119: obor setup agents names each kind; a kind installs nothing user-global, so each has nothing to install.
+// Not parallel: the config load registers its plugin kinds (OpenCode's) in the process registry.
 func TestSetupAgentsEveryKind(t *testing.T) {
-	t.Parallel()
-	x := bare(t)
+	x := newFx(t)
 	x.env = []string{"XDG_CONFIG_HOME=" + filepath.Join(x.Base, "xdg")}
 	out := x.ok(t, "agents")
 	has(t, out, "agents claude: nothing to install", "claude: the manifest ships with the kit")

@@ -52,6 +52,9 @@ const configJSON = `{
         "args": [
           "--x"
         ]
+      },
+      "opencode": {
+        "plugin": "obor-kind-opencode"
       }
     },
     "models": {

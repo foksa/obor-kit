@@ -957,8 +957,7 @@ func TestHerdrPluginRemovalFailures(t *testing.T) {
 // `obor setup mcp` says per kind whether the server is registered, then runs the handshake: all OK, a broken handshake
 // a WARN and a FAIL.
 func TestSetupMCPDoctor(t *testing.T) {
-	t.Parallel()
-	x := bare(t)
+	x := newFx(t, testkit.Set("agents.roles.reviewer", "luna"))
 	x.env = []string{"XDG_CONFIG_HOME=" + filepath.Join(x.Base, "xdg")}
 	out := x.ok(t, "mcp")
 	has(t, out, "mcp claude: registered", "claude: the kit's plugin.json")

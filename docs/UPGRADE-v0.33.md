@@ -17,6 +17,9 @@ shape 2.
 obor setup herdr-plugin
 ```
 
+If `obor config validate` says `agents.kinds.opencode.plugin` is not set, run `obor setup agents`: it writes
+`"plugin": "obor-kind-opencode"` (uncommitted), which a config that uses OpenCode now must name.
+
 ## v0.33.0 (config shape 2: ten top-level keys, nine groups, and one automatic rewrite)
 
 `.obor/config.json` is **shape 2** (`version: 2`): ten top-level keys — `project`,

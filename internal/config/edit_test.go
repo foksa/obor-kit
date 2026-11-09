@@ -37,6 +37,9 @@ const editDoc = `{
           "-c",
           "sandbox_workspace_write.network_access=true"
         ]
+      },
+      "opencode": {
+        "plugin": "obor-kind-opencode"
       }
     },
     "models": {

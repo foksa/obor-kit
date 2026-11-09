@@ -54,18 +54,15 @@ type KindEntry struct {
 func (c *Config) Kind(name string) KindEntry { return c.Data.Agents.Kinds.M[name] }
 
 // KitKinds are the plugin kinds the kit ships, by name: the binary each runs as (T-1046), beside obor's own (KitKind).
-// A config naming no agents.kinds.<name>.plugin for one runs the kit's: the compat of a config written before OpenCode
-// left the obor binary, which obor setup agents fills in and obor config validate warns about until v0.33.0 drops it.
+// A config that uses one names it in agents.kinds.<name>.plugin (obor config validate fails without the line, T-1153);
+// a plugin naming a KitKinds value resolves to that binary.
 var KitKinds = map[string]string{"opencode": "obor-kind-opencode"}
 
 // KindCommand is agents.kinds.<name>.plugin as a path ("": name is no plugin kind of this config): the name of a
 // binary the kit ships (a KitKinds value) is that binary (KitKind), any other relative path relative to the project
-// root. A kit kind with no plugin is the kit's (KitKinds).
+// root.
 func (c *Config) KindCommand(name string) string {
 	cmd := c.Data.Agents.Kinds.M[name].Plugin
-	if cmd == "" {
-		cmd = KitKinds[name]
-	}
 	switch {
 	case cmd == "" || filepath.IsAbs(cmd):
 		return cmd
@@ -73,6 +70,17 @@ func (c *Config) KindCommand(name string) string {
 		return KitKind(cmd)
 	}
 	return filepath.Join(c.Root, cmd)
+}
+
+// KindPluginMissing is why kind cannot start: name is a kit kind (KitKinds) this config uses and names no
+// agents.kinds.<name>.plugin for (missing false: fine). The text names the value the line takes; obor config validate
+// fails with it and a start of the kind is refused with it (T-1153).
+func (c *Config) KindPluginMissing(name string) (why string, missing bool) {
+	plugin, kit := KitKinds[name]
+	if !kit || c.Data.Agents.Kinds.M[name].Plugin != "" || !c.namesKind(name) {
+		return "", false
+	}
+	return fmt.Sprintf(`set "plugin": %q (obor setup agents sets it)`, plugin), true
 }
 
 // KitKind is the path of the kind binary name the kit ships beside this obor's executable (T-1046): dist/obor's
@@ -94,8 +102,7 @@ func KitKind(name string) string {
 	return filepath.Join(filepath.Dir(exe), name+suffix)
 }
 
-// PluginKinds are this config's plugin kinds: each agents.kinds.<name> with a plugin, in config order, then each kit
-// kind it names no plugin for (KitKinds, sorted).
+// PluginKinds are this config's plugin kinds: each agents.kinds.<name> with a plugin, in config order.
 func (c *Config) PluginKinds() []string {
 	var out []string
 	for _, name := range c.Data.Agents.Kinds.Keys {
@@ -103,14 +110,7 @@ func (c *Config) PluginKinds() []string {
 			out = append(out, name)
 		}
 	}
-	var kit []string
-	for name := range KitKinds {
-		if !slices.Contains(out, name) {
-			kit = append(kit, name)
-		}
-	}
-	slices.Sort(kit)
-	return append(out, kit...)
+	return out
 }
 
 // StateDir is the project's state dir (project.StateDir: config cannot import project).

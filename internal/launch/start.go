@@ -59,6 +59,11 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
 		}
 		l.say("labelled pane %s %s", s.Pane, s.Agent)
 	}
+	if l.Cfg != nil {
+		if why, missing := l.Cfg.KindPluginMissing(s.Kind); missing {
+			return port.Pane{}, project.Failf("%s: kind %s: %s", s.Agent, s.Kind, why)
+		}
+	}
 	if _, ok := agents.Lookup(s.Kind); !ok { // dispatch and obor config validate refuse such a model's kind (DD-v0.13 D1)
 		return port.Pane{}, project.Failf("%s: kind %s has no bridge (obor config validate)", s.Agent, s.Kind)
 	}
