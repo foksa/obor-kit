@@ -1,4 +1,4 @@
-// logs.go: a task's step logs go when the task ends (T-1098).
+// logs.go: a task's step logs go when the task ends (T-1098, T-1104).
 package app
 
 import (
@@ -9,28 +9,16 @@ import (
 	"obor/internal/project"
 )
 
-// endTaskLogs removes task's step logs (.obor/state/logs/<task>-*.log) once the fold has it ended (mtask.ended): merged
-// with its after-merge steps done, or dropped; a rejected task is not ended. The id is the name's prefix, so T-10's
-// logs are never T-100's. A log is for a person, never a step: a failed removal is one serve line, and the log stays
-// for the night's sweep (project.Sweep). Once per end (the marker is the end's record), so a task dispatched again and
-// ended again has its new logs removed too. An end a crash cut or serve was down for is the sweep's (T-1098). Under
-// mu, as its callers are.
-func (a *App) endTaskLogs(p *proj, task string) {
-	mt := p.folded.loop[task]
-	if mt == nil || !mt.ended() {
+// endTaskLogs removes task's step logs (.obor/state/logs/<task>-*.log) when the fold has just ended it (mtask.ended):
+// merged with its after-merge steps done, or dropped; a rejected task is not ended. was is the task's ended state
+// before the fold, so a task still running its after-merge steps keeps its failed step's log and the transition is what
+// removes it (T-1104: no per-task marker). The id is the name's prefix, so T-10's logs are never T-100's. A log is for a
+// person, never a step: a failed removal is one serve line, and the next start's load tries again. A task the fold does
+// not know keeps its logs (nothing says it ended). Under mu, as its callers are.
+func (a *App) endTaskLogs(p *proj, task string, was bool) {
+	if was || !p.taskEnded(task) {
 		return
 	}
-	end := mt.mergedSeq
-	if mt.state == stDropped {
-		end = mt.droppedSeq
-	}
-	if prev, seen := p.logsGone[task]; seen && prev == end {
-		return
-	}
-	if p.logsGone == nil {
-		p.logsGone = map[string]int64{}
-	}
-	p.logsGone[task] = end
 	dir := filepath.Join(project.StateDir(p.root), "logs")
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {

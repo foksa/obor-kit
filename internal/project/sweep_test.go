@@ -29,19 +29,6 @@ func sweepCfg(t *testing.T) *config.Config {
 	return cfg
 }
 
-// sweepStore writes the project's lane rows: the tasks the sweep reads as open.
-func sweepStore(t *testing.T, cfg *config.Config, rows ...store.LaneRow) {
-	t.Helper()
-	db, err := store.OpenRW(store.File(cfg.Root))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	if err := store.WriteLanes(db, rows); err != nil {
-		t.Fatal(err)
-	}
-}
-
 // sweepFile writes path ("x\n") with mtime now-age, creating its directory.
 func sweepFile(t *testing.T, now time.Time, path string, age time.Duration) {
 	t.Helper()
@@ -167,7 +154,7 @@ func TestSweep(t *testing.T) {
 		}},
 		{"every never-touched name stays, and the stop-failure log keeps only its fresh entries", func(t *testing.T, cfg *config.Config, now time.Time) {
 			state := StateDir(cfg.Root)
-			db, err := store.OpenRW(store.File(cfg.Root)) // a real store: the logs step reads its lane rows
+			db, err := store.OpenRW(store.File(cfg.Root)) // the project's store: the sweep never touches it
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -204,51 +191,33 @@ func TestSweep(t *testing.T) {
 				t.Errorf("stop-failure log = %q, want only the fresh entry", b)
 			}
 		}},
-		{"logs: a closed task's go, an open task's and the writers' own stay (exact id)", func(t *testing.T, cfg *config.Config, now time.Time) {
-			sweepStore(t, cfg,
-				store.LaneRow{Lane: "L-01", Task: "T-1", Landed: true}, // merged: closed
-				store.LaneRow{Lane: "L-02", Task: "T-2"},               // working: open
-				store.LaneRow{Lane: "L-03", Task: "T-100"},             // open, next to a closed T-10
-			)
+		{"logs: a task's step logs are serve's, never the sweep's; the retired names go", func(t *testing.T, cfg *config.Config, now time.Time) {
 			logs := filepath.Join(StateDir(cfg.Root), "logs")
-			closed := []string{
-				filepath.Join(logs, "T-1-check.log"),
-				filepath.Join(logs, "T-10-check.log"),
-				filepath.Join(logs, "milestone-check.log"),
-				filepath.Join(logs, "promote-retest-check.log"),
-				filepath.Join(logs, "conformance-turn-1.log"),
-			}
 			kept := []string{
-				filepath.Join(logs, "T-2-check.log"),
+				filepath.Join(logs, "T-1-check.log"), // a landed task still running its after-merge steps
+				filepath.Join(logs, "T-1-after_merge.log"),
 				filepath.Join(logs, "T-100-check.log"),
 				filepath.Join(logs, "nightly-check.log"), // its next pass removes it (T-1094)
 				filepath.Join(logs, "serve.log"),
 				filepath.Join(logs, "release-0.32.0.log"),
 			}
-			for _, p := range append(closed, kept...) {
+			retired := []string{
+				filepath.Join(logs, "milestone-check.log"),
+				filepath.Join(logs, "promote-retest-check.log"),
+				filepath.Join(logs, "conformance-turn-1.log"),
+			}
+			for _, p := range append(kept, retired...) {
 				sweepFile(t, now, p, time.Hour)
 			}
 			if lines := Sweep(cfg, now, false); len(lines) != 0 {
 				t.Fatalf("Sweep = %q, want no lines", lines)
 			}
-			for _, p := range closed {
-				gone(t, p)
-			}
 			for _, p := range kept {
 				there(t, p)
 			}
-		}},
-		{"logs: an unreadable store removes no task's log, one line", func(t *testing.T, cfg *config.Config, now time.Time) {
-			log := filepath.Join(StateDir(cfg.Root), "logs", "T-1-check.log")
-			sweepFile(t, now, log, time.Hour)
-			if err := os.WriteFile(store.File(cfg.Root), []byte("not a database\n"), 0o644); err != nil {
-				t.Fatal(err)
+			for _, p := range retired {
+				gone(t, p)
 			}
-			lines := Sweep(cfg, now, false)
-			if len(lines) != 1 || !strings.Contains(lines[0], "sweep logs") {
-				t.Fatalf("Sweep = %q, want one line naming the logs step's read", lines)
-			}
-			there(t, log)
 		}},
 		{"logs: flakes 8 days old go, 6 days old stay; launch.log and an old restart log go", func(t *testing.T, cfg *config.Config, now time.Time) {
 			state := StateDir(cfg.Root)
