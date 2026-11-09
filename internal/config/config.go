@@ -329,8 +329,8 @@ func Defaults() Data {
 type Config struct {
 	Root       string
 	Data       Data
-	json       []byte // Data as JSON, for Get
-	local      []byte // .obor/local.json's bytes (nil: none), for Edit's override check (T-754)
+	json       []byte   // Data as JSON, for Get
+	local      []byte   // .obor/local.json's bytes (nil: none), for Edit's override check (T-754)
 	unknownErr error    // LoadReader's warning when read dropped an unknown key
 	unknownIn  []string // the unknown keys config.json itself has (the others are local.json's), for LoadForValidate
 }
