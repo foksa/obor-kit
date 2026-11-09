@@ -136,21 +136,19 @@ func session(sid, tr string) string {
 	return `{"session_id":"` + sid + `","transcript_path":"` + tr + `"}`
 }
 
-// T-232 (replaces T-175's case_lead_handoff_* and T-215's integrator handoff blocks): no Stop block for context size;
-// the reminder rides on each prompt (prompt_test.go). Above the limit the lead and integrator stop freely, and their
-// nothing is written.
+// T-232 (replaces T-175's case_lead_handoff_*): no Stop block for context size; the reminder rides on each prompt
+// (prompt_test.go). Above the limit the lead stops freely, and nothing is written.
 func TestStopAboveHandoffLimitNoBlock(t *testing.T) {
 	t.Parallel()
 	f := newHfx(t)
 	f.PlainLane("L-01", "task/T-01")
-	f.Config(testkit.Set("roles", `{"lead": {"handoff_tokens": 300000}, "integrator": {"type": "opus", "handoff_tokens": 300000}}`))
+	f.Config(testkit.Set("handoff_tokens", 300000))
 	tr := transcript(f, f.Base+"/projects/p/s1.jsonl", 900000)
 	if ctx, _, _, ok := project.ContextTokens(tr); !ok || ctx != 900000 {
 		t.Fatalf("precondition: transcript context %d %v, want 900000", ctx, ok)
 	}
 	f.stop(t, "lead", f.Root, session("s1", tr)).allow("a lead at 900k > 300k")
 	f.stop(t, "lead", f.Root, session("s2", tr), "OBOR_AGENT=pj-lead").allow("another lead session at 900k")
-	f.stop(t, "integrator", f.Root, session("i1", tr)).allow("the integrator at 900k > 300k")
 	if f.Exists(f.nudges()) {
 		t.Error("a nudge ledger written")
 	}
@@ -418,8 +416,8 @@ func TestStopRoleErrorWorkerLogUnreadable(t *testing.T) {
 	f.allowsWithError(t, 2, "-", o1, "")
 }
 
-// T-409, T-465: the lead and the integrator stop freely: a done lane (serve's), above the handoff
-// limit, with or without an integrator configured, serve down (no socket); nothing is written.
+// T-409, T-465: the lead and the integrator stop freely: a done lane (serve's), with or without an integrator
+// configured, serve down (no socket); nothing is written.
 func TestStopLeadAndIntegratorNeverBlock(t *testing.T) {
 	t.Parallel()
 	for _, withInt := range []bool{false, true} {

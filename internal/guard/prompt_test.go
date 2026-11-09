@@ -260,12 +260,7 @@ func leadWhenOf(agent string) string {
 		agent + " --fresh` (scheduled: it waits until you are idle). If the person is talking with you, ask them first."
 }
 
-var (
-	leadWhen = leadWhenOf("pj-lead")
-	intWhen  = "Hand off at the next logical break, not in the middle of work: when the merge in hand is finished or " +
-		"reported (nothing half-done), run `obor restart pj-int --fresh` (scheduled: it waits until you are idle). If " +
-		"the person is talking with you, ask them first."
-)
+var leadWhen = leadWhenOf("pj-lead")
 
 // handoffFx: a project with lane L-01 (agent pj-l-01, task T-05) and a transcript at ctx tokens.
 func handoffFx(t *testing.T, ctx int64) (f hfx, o1, tr string) {
@@ -318,30 +313,9 @@ func TestPromptLeadHandoffLimits(t *testing.T) {
 	}
 }
 
-// T-232 (T-215): the integrator's own limit (default 150k) and text; a lead at the same context keeps its 500k.
-func TestPromptIntegratorHandoffReminder(t *testing.T) {
-	t.Parallel()
-	f, _, tr := handoffFx(t, 140000)
-	f.integrator()
-	ev := session("i1", tr)
-	if c := f.prompt(t, f.Root, "[obor pj-lead] merge L-01", ev, "OBOR_ROLE=integrator"); c != "" {
-		t.Errorf("140k under the default 150k: %q", c)
-	}
-	transcript(f, tr, 200000)
-	c := f.prompt(t, f.Root, "[obor pj-lead] merge L-01", ev, "OBOR_ROLE=integrator")
-	if c != "obor (integrator): context is 200k (> 150k). "+intWhen {
-		t.Errorf("200k > default 150k: %q", c)
-	}
-	if strings.Contains(c, "BACKLOG") {
-		t.Error("the integrator has no Handoff section to write")
-	}
-	if c := f.prompt(t, f.Root, "hi", ev, "OBOR_ROLE=lead"); c != "" {
-		t.Errorf("a lead at 200k: roles.integrator's limit is not its own: %q", c)
-	}
-}
-
-// T-232: a worker above any limit gets only the wrong-tab guard (a person's prompt) or nothing (obor's).
-func TestPromptHandoffNotForWorkers(t *testing.T) {
+// T-232, T-1108: only the lead gets the handoff reminder; a worker above any limit gets only the wrong-tab guard (a
+// person's prompt) or nothing (obor's), and the integrator nothing.
+func TestPromptHandoffOnlyForTheLead(t *testing.T) {
 	t.Parallel()
 	f, o1, tr := handoffFx(t, 900000)
 	f.Config(testkit.Set("handoff_tokens", 1000))
@@ -351,6 +325,9 @@ func TestPromptHandoffNotForWorkers(t *testing.T) {
 	}
 	if c := f.prompt(t, o1, "[obor pj-lead] go", ev); c != "" {
 		t.Errorf("worker, obor's prompt: %q", c)
+	}
+	if c := f.prompt(t, f.Root, "hi", ev, "OBOR_ROLE=integrator"); c != "" {
+		t.Errorf("integrator at 900k (handoff_tokens 1000): %q, want no reminder", c)
 	}
 	if c := f.prompt(t, f.Root, "hi", ev, "OBOR_ROLE=lead"); c == "" {
 		t.Fatal("precondition: the lead at 900k gets the reminder")
