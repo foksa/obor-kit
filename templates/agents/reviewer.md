@@ -2,7 +2,7 @@
 
 ## Purpose
 Reviews a batch of merged tasks and finds correctness bugs the integrator's diff check missed; later verifies the fixes
-in the same session. A role pane in its own worktree `<lanes_dir>/reviewer` (`obor setup role reviewer`), never a worker
+in the same session. A role pane in its own worktree `<lanes.dir>/reviewer` (`obor setup role reviewer`), never a worker
 lane; runs in the background, never on the critical path.
 
 ## Inputs

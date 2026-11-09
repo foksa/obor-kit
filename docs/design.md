@@ -23,7 +23,7 @@ read in place from the kit (T-204; projects keep only short `docs/agents/<role>.
 - Hooks only cover Claude Code panes. Codex/opencode lanes rely on their sandbox + the worker prompt; the integrator's
   review at accept (placement against `docs/module-map.md`) is the real control for every lane. The Edit/Write guard is
   a backstop, not a sandbox.
-- No `git push`, ever, from any obor script (agents: only leads listed in `guards.allow_push`, T-105).
+- No `git push`, ever, from any obor script (agents: only leads listed in `rules.may_push`, T-105).
 
 ## Change rules (owner 2026-11-05; docs/research/architecture-advice-fable.md, docs/reviews/DD-architecture.md)
 1. **Nothing depends on an agent remembering.** Every step of a procedure has one guarantee:
@@ -82,57 +82,90 @@ or reviewed task, a merge-loop needs-you's regate, reprompt or retry; a flag onl
 ## Paths
 - **Project root** = the main checkout = `dirname "$(git rev-parse --path-format=absolute --git-common-dir)"`, from
   any worktree. Scripts always read the **main checkout's** `.obor/config.json` (a lane's copy can be a stale snapshot).
-- Lane dir = `<root>/<lanes_dir>/<LANE>` (lanes_dir relative to the root). Scratch merge worktree =
-  `<lanes_dir>/merge` (derived, not a key).
+- Lane dir = `<root>/<lanes.dir>/<LANE>` (`lanes.dir` relative to the root). Scratch merge worktree =
+  `<lanes.dir>/merge` (derived, not a key).
 - State dir = `<root>/.obor/state/` (gitignored).
 
 ## Config
 `.obor/config.json` (committed) deep-merged with `.obor/local.json` (gitignored; overrides) by the Go loader
 (`config.Load`). Defaults live in the loader so most projects omit most fields. The reference for each key is the
 field comments of `config.Data` (`internal/config/config.go`); `obor config validate` checks it (`validate.go`), and
-warns on the keys that no longer do anything.
+warns on the keys that no longer do anything. The file is **shape 2**: ten
+top-level keys — nine groups by what they are about, and `version` — in this order.
 ```jsonc
 {
-  "version": 1,
-  "name": "axis-alies",                       // display name
-  "prefix": "aa",                             // agent names: aa-l-01, aa-int; tab names
-  "lanes_dir": "../axis-alies-wt",
-  "branches": { "main": "main", "task": "task/{id}" },
-  "task_id_pattern": "T-[0-9]+[a-z]?",        // ERE
-  "paths": { "tasks": "docs/tasks", "reviews": "docs/reviews" },
-  "commands": {                               // string = {"cmd": s, "timeout": 600}; null/absent = skipped
-    "lane_setup": "bun install --frozen-lockfile",          // reserved: run in new lanes and the scratch worktree
-    "check": { "cmd": "bun run check", "timeout": 900 },     // reserved: merge check
-    "check_milestone": { "cmd": "bun run check:slow", "timeout": 3600 },  // reserved: the nightly's long tier
-    "lint": "bun run lint"                                   // any other key: `obor run <key>`, named in prompts
+  "version": 2,
+  "project": {
+    "name": "axis-alies",                       // display name
+    "agent_prefix": "aa",                       // agent names: aa-l-01, aa-int; tab names
+    "task_id_pattern": "T-[0-9]+[a-z]?"         // ERE
   },
-  "lane_links": ["reference", "public/assets"],  // symlinked from the root into new lanes and the scratch
-  "protected_files": ["src/engine/types.ts"],    // lead-only; globs
-  "lanes": 3,                                    // L-01 … L-03 under lanes_dir, every one pooled (T-765)
-  "difficulty": { "hard": ["opus:high"], "medium": ["sonnet:medium", "deepseek"], "simple": ["deepseek"] },
-  "roles": { "lead": "opus:high", "integrator": "opus", "reviewer": "sol:high" },  // model refs
-  "kinds": {                                     // per kind: args after the model, the work jobs' prompt_extra
-    "codex": { "args": ["-c", "sandbox_workspace_write.network_access=true"],
-               "prompt_extra": "Network is unavailable; deps are installed." }
+  "lanes": {
+    "count": 3,                                 // L-01 … L-03, every one pooled (T-765); "list" names them instead
+    "dir": "../axis-alies-wt",                  // lane worktrees; the merge scratch is <dir>/merge
+    "task_branch": "task/{id}",
+    "links": ["reference", "public/assets"],    // symlinked from the root into new lanes and the scratch
+    "setup": "bun install --frozen-lockfile"    // run in new lanes and the scratch worktree
   },
-  "models": { "muse": { "kind": "opencode", "model": "" } },  // a model the built-in table lacks, or an override
-  "handoff_tokens": 500000,                      // the lead's handoff reminder threshold
-  "merge": { "summary_regex": "[0-9]+ pass|[0-9]+ fail",
-             "fail_grep": "error|FAIL|Expected|Received" }
+  "agents": {
+    "roles": { "lead": "opus:high", "integrator": "opus", "reviewer": "sol:high" },  // model refs
+    "difficulty": { "hard": ["opus:high"], "medium": ["sonnet:medium", "deepseek"], "simple": ["deepseek"] },
+    "kinds": {                                  // per kind: args after the model, the work jobs' job_note
+      "codex": { "args": ["-c", "sandbox_workspace_write.network_access=true"],
+                 "job_note": "Network is unavailable; deps are installed." }
+    },
+    "models": { "muse": { "kind": "opencode", "id": "" } },  // a model the built-in table lacks, or an override
+    "handoff_tokens": 500000                    // the lead's handoff reminder threshold
+  },
+  "rules": {
+    "protected_files": ["src/engine/types.ts"]  // lead-only; globs ("may_push", "deny_commands" sit here too)
+  },
+  "merge": {
+    "target_branch": "main",
+    "check": { "cmd": "bun run check", "timeout": 900 }  // what every merge must pass
+  },
+  "nightly": {
+    "slow_check": { "cmd": "bun run check:slow", "timeout": 3600 }  // the nightly's long tier; "at" switches it on
+  },
+  "commands": {                                 // the project's own: `obor run <name>`, named in merge/nightly keys
+    "lint": "bun run lint"                      // string = {"cmd": s, "timeout": 600}; null/absent = skipped
+  },
+  "checks": {
+    "output": { "summary": "[0-9]+ pass|[0-9]+ fail",
+                "failure": "error|FAIL|Expected|Received" }
+  },
+  "reviews": { "dir": "docs/reviews" }
 }
 ```
-`.obor/local.json` (per machine, never committed): any key of the config, `lanes_dir` included (an object merges key
+`.obor/local.json` (per machine, never committed): any key of the config, `lanes.dir` included (an object merges key
 by key; a list or scalar replaces). A tab holds four panes: a constant, not a key (T-1111).
 
+**The seven fixed commands** keep the names typed at a prompt and written in logs, steps and role texts
+(`obor run check`, `lane_setup`, `after_merge`, `check_milestone`, `<task>-check.log`); each lives in the group that
+runs it, and `Config.Command` (`internal/config/config.go`) maps the name to it: `lane_setup` → `lanes.setup`,
+`lane_ready` → `lanes.ready`, `compile`, `check`, `retest` and `after_merge` → `merge`, `check_milestone` →
+`nightly.slow_check`. Every other name is a `commands.<name>`.
+
+**Shape 1** — the file before this release (24 top-level keys, the fixed commands in `commands`) — is read for one
+minor release: `readWith` reshapes it in memory before the decode (`config.Reshape`), so every command, hook and
+serve works from the first start of the new binary, with one warning; `local.json` follows it. `obor serve`'s first
+start on the new version rewrites `config.json` and commits it on the target branch (subject `config: shape 2 (obor
+<version>)`, the dropped keys in the body) and rewrites `local.json` in place; `obor config migrate` does the same by
+hand. A writer (`config_set`, `obor setup lane`, `obor init`) refuses a shape-1 file until then, and the release after
+refuses shape 1 as it refuses a pre-v0.23 config ("migrate it with obor <N>, then upgrade"). Old and new keys side by
+side, and the upgrade steps: `docs/UPGRADE-v0.33.md`.
+
 **Models (T-765):** the config names models with their effort directly: a model ref is `<model>[:<effort>]`
-(`opus:high`), in `difficulty` levels, `roles.<role>` and a spec's `Model:` line. The built-in
+(`opus:high`), in `agents.difficulty` levels, `agents.roles.<role>` and a spec's `Model:` line. The built-in
 models (one table, `internal/config/models.go`): opus, sonnet, haiku, fable → claude `--model <name>`; deepseek →
 opencode `opencode-go/deepseek-v4.1-flash`; terra → codex `gpt-6.1-terra`, sol → `gpt-6.1-sol`, luna → `gpt-6-luna`.
-`models.<name>` adds one or overrides a built-in (`kind`, `model`; `""`: the kind's own choice). A start is its kind's
-base args (claude `--permission-mode auto`; codex `-s workspace-write -a never --no-daemon`; opencode `--auto --standalone`), the
-model, then `kinds.<kind>.args`; the effort is the kind's own flag (T-695), refused when the kind does not take it.
-`lanes` is a count: L-01 … L-NN, every lane pooled (it runs the model its dispatch picks). There are no caps. The
-shape before T-765 (`lane_types`, `lanes` as an object of typed lanes, `roles.<role>` objects, the `agents` key) is
+`agents.models.<name>` adds one or overrides a built-in (`kind`, `id`; `""`: the kind's own choice). A start is its
+kind's base args (claude `--permission-mode auto`; codex `-s workspace-write -a never --no-daemon`; opencode
+`--auto --standalone`), the model, then `agents.kinds.<kind>.args`; the effort is the kind's own flag (T-695),
+refused when the kind does not take it.
+`lanes.count` is a count: L-01 … L-NN, every lane pooled (it runs the model its dispatch picks); `lanes.list` names
+the lanes instead (each `{name, keep_agent}`). There are no caps. The
+shape before T-765 (`lane_types`, `lanes` as an object of typed lanes, role objects) is
 just invalid: `obor config validate` names the unknown key and says "this config predates v0.23: migrate it with obor
 v0.24 (`obor setup migrate`), then upgrade" — the one-time migration code lived one release and is gone (T-789).
 
@@ -143,7 +176,7 @@ so the user's own MCP servers cost no context on a job; the lead and the role ag
 Permission mode and posted lines (T-499): a Claude lane's job wakes and a Claude role agent's briefs are posted to its
 session's inbox, not typed. A session in `--permission-mode bypassPermissions` holds a posted message for its 5-minute
 dialog and drops it while serve records `sent` (phase-5 advice §8); the delivery timers re-wake a worker, a brief is
-not retried. Claude starts run in `auto` (its base args); a `bypassPermissions` in `kinds.claude.args` is at its own
+not retried. Claude starts run in `auto` (its base args); a `bypassPermissions` in `agents.kinds.claude.args` is at its own
 risk.
 Dispatch launches a fresh process per task (R-28, T-157).
 
@@ -180,7 +213,7 @@ Resolution (`obor whoami`, `project.DetectRole`):
 1. `OBOR_ROLE` if set (`lead | integrator | worker | reviewer | deep_dive | driver` or a custom role's name: every role
    has one, so the derived name, its session and inbox records and the caller identity cover it), set at pane creation with
    `herdr pane split --env OBOR_ROLE=… --env OBOR_LANE=…`.
-2. Else cwd-derived: the toplevel is a linked worktree (`git-dir` ≠ `git-common-dir`) under `lanes_dir` → `worker`,
+2. Else cwd-derived: the toplevel is a linked worktree (`git-dir` ≠ `git-common-dir`) under `lanes.dir` → `worker`,
    `OBOR_LANE` = basename.
 3. Else `none`.
 **Worker restrictions apply if either env or cwd says worker** (most restrictive wins). **Universal guards don't
@@ -189,14 +222,14 @@ session context, plus `obor: role text: <kit>/templates/agents/<role>.md[, proje
 before acting` (lead: `run /obor:lead`; T-204).
 
 **Custom roles** (T-801, owner 2026-11-04). The built-in table (`internal/roles`) keeps only the roles serve treats
-specially: lead, integrator, worker, reviewer, deep_dive, driver. Any other role is a config row: `roles.<name>` is a
-model ref string (the role writes nothing) or `{"model": "<ref>", "write": ["<dir>/", "<file>"]}` (paths relative to
-the root, a trailing `/` a directory), plus its doc `<paths.agents>/<name>.md` (what it does, what it writes). The name
+specially: lead, integrator, worker, reviewer, deep_dive, driver. Any other role is a config row: `agents.roles.<name>`
+is a model ref string (the role writes nothing) or `{"model": "<ref>", "write": ["<dir>/", "<file>"]}` (paths relative
+to the root, a trailing `/` a directory), plus its doc `<agents.docs_dir>/<name>.md` (what it does, what it writes). The name
 matches `[a-z][a-z0-9_]{0,23}`, is no table role's name or agent suffix (nor `none`, `leads`); the agent is
-`<prefix>-<name, _ → ->`, `OBOR_ROLE=<name>`. `obor config validate` refuses a bad name, a collision, a write path
-outside the project or into `.obor/`, a missing doc (naming the file to write) and a `guards.allow_push` that lists a
-custom role; it warns of a role doc (`# Role:` first line) of a custom name whose row is missing (not a kit default
-row's: `obor init` stubs those). A custom role works like the advisor:
+`<project.agent_prefix>-<name, _ → ->`, `OBOR_ROLE=<name>`. `obor config validate` refuses a bad name, a collision, a
+write path outside the project or into `.obor/`, a missing doc (naming the file to write) and a `rules.may_push` that
+lists a custom role; it warns of a role doc (`# Role:` first line) of a custom name whose row is missing (not a kit
+default row's: `obor init` stubs those). A custom role works like the advisor:
 main checkout, git reads only, never lane-bound or dispatchable, no push, no MCP tools; the lead places
 it with `obor setup role <name>`, briefs it with `obor brief`, stops it with `obor restart --stop`. Its writes are
 exactly its `write` list (the guard). `config.Role` is the one lookup of table and custom roles (identity, guard,
@@ -206,7 +239,8 @@ The kit ships three default rows: **advisor** (`write: ["docs/research/", "docs/
 (`["docs/research/"]`) and **triage** (`["docs/BUGS.md"]`; `obor setup role triage` copies `templates/BUGS.md`). Each
 counts only when the config names it: a string sets its model, an object replaces its `write`. A default row's doc is
 the project's `docs/agents/<name>.md` if present, else the kit's `templates/agents/<name>.md`; the role-text line names
-the kit's text and the project's doc as for a table role. Agent names stay `<prefix>-advisor|researcher|triage`.
+the kit's text and the project's doc as for a table role. Agent names stay
+`<project.agent_prefix>-advisor|researcher|triage`.
 
 **Role agents are stopped once done** (T-672, owner 2026-11-01: idle role agents hold memory). Nothing of a stopped
 role agent is resumed: its next use starts fresh. A stop is `launch.Stop` (`obor restart <agent> --stop`): the agent
@@ -228,7 +262,7 @@ the repair path. Placement (T-628, T-632, T-634): a workspace or tab is the proj
 known cwd is in the project; none: init creates a workspace. Run init from a shell in the project's own workspace:
 a workspace whose only pane is a shell `cd`'d into the project counts as the project's (RV-67-verify-2, accepted). `obor setup` keeps the single steps for changes later: `lane`, `pane`, `role`, `githooks`, `herdr-plugin` (it only unlinks the plugin an older obor linked), `agents`, `mcp`, `show`, `rename`; each idempotent, ending in `OK …` / `FAIL …` (the
 contract is the package doc). Role names, env values and cwd rules come from `internal/roles` (T-853: the reviewer, the deep
-dive and the integrator run in a role worktree serve owns, `<lanes_dir>/<role>`; `obor setup role`, serve's starts and
+dive and the integrator run in a role worktree serve owns, `<lanes.dir>/<role>`; `obor setup role`, serve's starts and
 `obor restart` add it when it is missing). `pane --tab`
 splits the tab's largest pane (right when it is wider than tall on screen, else down), not the last one. `githooks`
 points `core.hooksPath` at `<kit>/githooks`. `herdr-plugin` unlinks the obor.events plugin an older obor linked (T-1117). Every herdr call
@@ -246,8 +280,8 @@ lane, serve's tasks on no lane, needs-you with the commands that answer them, th
 
 ## obor web's write path (T-753, T-760)
 `obor web` reads the read model like `obor status` and has two verbs, the Setup page's edits: `POST /api/config`
-(`{changes: [{key, value}], base}`: a list of changes, each `difficulty.<level>`, `roles.<role>`, `lanes` (the
-count) or `kinds.<kind>.args` (T-765), and `base`, the `.obor/config.json` revision the page read, `config.Rev`: the
+(`{changes: [{key, value}], base}`: a list of changes, each `agents.difficulty.<level>`, `agents.roles.<role>`,
+`lanes.count` or `agents.kinds.<kind>.args` (T-765), and `base`, the `.obor/config.json` revision the page read, `config.Rev`: the
 setup's `config_rev`) and `POST /api/pause` (set with a reason and an optional duration, or clear). Web writes nothing:
 each is a request on the project's app socket (`config_set`, `pause`), so serve stays the one writer; serve down is
 503. A POST is taken only on those two routes, only with the page's own Origin, the listen address as Host (no DNS
@@ -260,8 +294,8 @@ base (another tab, the lead or a hand edit changed it since the page read it: th
 uncommitted changes to the config (a hand edit is never committed under the owner's), a key `.obor/local.json`
 overrides (named), a lower lanes count while a lane it drops has a task, a name the config lacks. Fact `config.set` records the changes (one record)
 and the lead gets one line listing them (`[obor] config: <key> <old> → <new>; … (owner, web)`); serve reads the config
-per call, so they count from the next dispatch or start. `models`, a kind's prompt_extra and other keys stay
-`obor setup`'s or a hand edit's. The page (T-760) is a Svelte app in `web/`, built by `make web` into
+per call, so they count from the next dispatch or start. `agents.models`, a kind's `agents.kinds.<kind>.job_note` and
+other keys stay `obor setup`'s or a hand edit's. The page (T-760) is a Svelte app in `web/`, built by `make web` into
 `internal/web/dist` and committed (the gate never builds it: `TestDistFresh` fails on a stale build); it stages the
 edits and sends them as one POST.
 
@@ -280,13 +314,13 @@ allows silently.
 2. **PreToolUse guards** (matcher `Bash|Edit|Write|MultiEdit|NotebookEdit`; deny = exit 2 + reason on stderr, or the
    `permissionDecision: deny` JSON):
    - universal (Bash): `git push` and pushing `gh` commands (`gh pr create`, `gh repo create … --push`, `gh repo sync
-     <repo>`) — except for a role listed in `guards.allow_push` that is not a worker (T-105, user 2026-10-10: a lead
+     <repo>`) — except for a role listed in `rules.may_push` that is not a worker (T-105, user 2026-10-10: a lead
      that cannot push cannot advance a milestone; T-786: entries are roles, `["lead"]`, a derived name `ob-lead` read as
      its slot; an accident guard, not a security boundary);
      `pkill`/`killall` by pattern (`pkill -f`, `pkill <name>`, `killall`); `git commit` with `-a`/`--all`/`-am` when cwd
      is the main checkout; an agent CLI run headless — `codex exec`, `claude -p`/`--print`, `opencode run` — for every
      role, the lead included (T-470, owner 2026-10-27: agents run in herdr panes); a command the project's
-     `guards.deny_commands` matches (regex on the resolved command; `alone`: also two matching at once via `&`,
+     `rules.deny_commands` matches (regex on the resolved command; `alone`: also two matching at once via `&`,
      `xargs -P`, `parallel`, background units) — for every role (T-905, owner 2026-11-05; obor-kit's config carries
      T-543's Go load-run rule: `go test -count>1`/`-race`, `*.test -test.count>1`/`-test.race`, two test commands at once).
    - worker (Bash): git writes (`commit`, `merge`, `rebase`, `reset --hard`, `checkout`/`switch` to another branch,
@@ -297,7 +331,7 @@ allows silently.
      allow, any file (T-496, owner 2026-10-28: no "Files you may touch"; placement is checked at accept, only contracts
      are locked), unless a final symlink resolves out of it. Inside another worktree of this repo (main checkout, other
      lanes) or another obor project (a directory with `.obor/config.json`) -> deny. Elsewhere (temp dirs) -> allow.
-   - every non-lead role: `protected_files` → deny. Exception (T-238, user 2026-10-14): a worker in its own lane may
+   - every non-lead role: `rules.protected_files` → deny. Exception (T-238, user 2026-10-14): a worker in its own lane may
      write a protected file that its task's stored spec names as an exact path (no glob) under "Protected files this
      task may edit" — the spec is the lead's authorization for that task. The guard reads it from the store's `lanes`
      and `specs` tables (read-only, the current rev; `docs/state-model.md` "The log"); a store it cannot read unlocks
@@ -324,13 +358,13 @@ allows silently.
 
 ## Serve's work: merge and dispatch
 Serve dispatches waiting tasks (`obor dispatch … --after`), gates, merges, runs the nightly full check
-(`merge.nightly_at`) and notifies each needs-you through herdr; `obor status` shows needs-you, serve up/down, the last
+(`nightly.at`) and notifies each needs-you through herdr; `obor status` shows needs-you, serve up/down, the last
 full check and the pause.
 - **merge** (Go `internal/checks`, run by obor serve's gate; `obor nightly` and the after-merge commands share its runner):
-  scratch worktree detached at the target; `--no-ff --no-commit`; `lane_links` symlinked into the scratch;
+  scratch worktree detached at the target; `--no-ff --no-commit`; `lanes.links` symlinked into the scratch;
   `lane_setup`, `check` each under its timeout. The outcome is one
-  line: `MERGED … | CONFLICT in <scratch>: … | RED … | HOLD … | FAIL …`. Counts (`merge.summary_regex`, each alternative
-  summed over a chained command's parts) and seconds go in the MERGED line; a RED names the `merge.fail_grep` matches and
+  line: `MERGED … | CONFLICT in <scratch>: … | RED … | HOLD … | FAIL …`. Counts (`checks.output.summary`, each alternative
+  summed over a chained command's parts) and seconds go in the MERGED line; a RED names the `checks.output.failure` matches and
   the log. Commit messages carry the worker label. Every command's full output is kept in
   `.obor/state/logs/<task|nightly|milestone>-<name>.log`, so a RED can be triaged without a re-run.
 - **dispatch** (obor serve, `internal/app`): branch from the root's current branch; refuse unless the lane is `free`
@@ -356,11 +390,11 @@ full check and the pause.
   own line (a newer one ends no older); a land or a drop closes an undelivered one unsent. The drive agent's first
   prompt names both.
 - **Role worktrees** (T-853, owner 2026-11-05; replaces T-718's merge hold): the reviewer and the deep dive run in their
-  own worktree `<lanes_dir>/<role>`, detached at the head serve marks reviewed (`refs/obor/reviewed`); serve moves it
+  own worktree `<lanes.dir>/<role>`, detached at the head serve marks reviewed (`refs/obor/reviewed`); serve moves it
   there at a review's start, at each verify and at a brief to an idle deep dive, so it is never stale, and merges go on
   while they work. They may check out any commit there; their review files are written to the main checkout's
-  `docs/reviews/`. The integrator has its own worktree `<lanes_dir>/integrator` for its review jobs; its resolve jobs
-  work in the scratch (`<lanes_dir>/merge`). Only the lead works in the main checkout among the merge-loop roles.
+  `docs/reviews/`. The integrator has its own worktree `<lanes.dir>/integrator` for its review jobs; its resolve jobs
+  work in the scratch (`<lanes.dir>/merge`). Only the lead works in the main checkout among the merge-loop roles.
   A review's close commit names its reviewed sha, its covered tasks (`Covered:`) and its start sha (`Start:`, T-822);
   the scope, `review due` and the release check read those. A fix task's spec line `Fixes: RV-<n>` (T-924, rule
   tier; replaces T-850's `obor review fix`) links it to that review: the link is read from the dispatched tasks' stored
@@ -397,8 +431,8 @@ When the user types into a worker's pane by mistake, the worker must not act on 
   tag; an untagged one cannot be told from typing and is guarded. Otherwise inject context instructing the agent to reply exactly with the question above (agent
   name from the store's `lanes` row or `OBOR_LANE`, task from that row) and not to run any tool until the user
   confirms in the next message. Accident guard, not a security boundary (the tag is not secret).
-- Handoff reminder (T-232): the same hook, for a lead or integrator whose session context is above its
-  `handoff_tokens` (the lead's; the integrator's `integrator_handoff_tokens`; `0` = off), adds a reminder to every prompt: hand off at the next logical break, not
+- Handoff reminder (T-232): the same hook, for the lead whose session context is above
+  `agents.handoff_tokens` (`0` = off), adds a reminder to every prompt: hand off at the next logical break, not
   mid-work. It is a reminder, not a block: the agent picks the break, writes the Handoff section of `BACKLOG.md` and
   commits it (the lead; the integrator hands off after the merge in hand), then runs `obor restart <you> --fresh`,
   which from its own pane is scheduled: a detached run waits until the agent is idle and restarts it fresh.
@@ -417,19 +451,19 @@ A second layer that doesn't depend on agent hooks (also covers Codex/opencode la
   git uses one (not for the post-* hooks). Then obor's rule, for `pre-commit` and `pre-push` only. Without
   `.obor/config.json` a hook only chains.
 - serve's own commits (submit, the gate's merge commit, the amend) pass `--no-verify`: the project's checking step is
-  `commands.check`, not its commit hooks; git still runs `prepare-commit-msg` (T-622).
+  `merge.check`, not its commit hooks; git still runs `prepare-commit-msg` (T-622).
 - `pre-push`: a shell with no `OBOR_ROLE` (a person) pushes; the block is for agents (T-1116; every supported agent
   start sets `OBOR_ROLE`, T-1137). A caller with a role asks the binary (`obor whoami --can-push`, hidden, exit 0/1:
-  `config.MayPush`, a role that is not lane-bound and is in `guards.allow_push`, the rule the agent guard's
+  `config.MayPush`, a role that is not lane-bound and is in `rules.may_push`, the rule the agent guard's
   `checkPush` uses; T-793). For a role it fails closed: no binary, a stale one or a hang past the watchdog refuses,
-  naming `guards.allow_push`.
+  naming `rules.may_push`.
 - `pre-commit`: refuses in a lane worktree unless `OBOR_MERGE=1` (set by serve's gate for its
   commands and scratch commits); in the main checkout git can't tell a `commit -a` from a normal commit, so nothing is
   checked there (the agent guard covers `commit -a`).
 - obor has no rule of its own in `post-merge` / `post-commit` (serve dispatches the waiting tasks, `--after`, and runs
-  `commands.after_merge` in the main checkout after a merge); a project's own still run through the chain.
-- Self-restart (T-652; graceful exit T-656; since T-935 only on a new binary, below: `commands.after_merge.restart_serve`
-  is gone, a build in `after_merge` reaches serve through binary following): serve ends itself the way a signal does — it cancels its context, running gates end their process groups as at any
+  `merge.after` in the main checkout after a merge); a project's own still run through the chain.
+- Self-restart (T-652; graceful exit T-656; since T-935 only on a new binary, below: `after_merge` restarting serve is
+  gone, a build in `after_merge` reaches serve through binary following): serve ends itself the way a signal does — it cancels its context, running gates end their process groups as at any
   shutdown, and it exits 0 — and launchd's `KeepAlive` starts the new build, which replays a done step (no second merge
   or command; work in flight folds as at any restart). No `launchctl kickstart -k` on itself: that signal is not known
   to be a TERM, and a SIGKILL would orphan a gate's process groups; `obor serve restart` keeps kickstart for a restart
@@ -462,8 +496,8 @@ A second layer that doesn't depend on agent hooks (also covers Codex/opencode la
 
 ## Machine-wide check slots (v2.4, 2026-10-08 — axis-alies lead + user; protocol from axis-alies T-373)
 Both workspaces share one machine, so heavy test runs take a slot from one **machine-wide** slot dir shared with
-axis-alies: `slots.dir` (kit default `/tmp/obor-check-slots`; env `CHECK_SLOT_DIR` overrides; machines shared with
-axis-alies set `/tmp/axis-check-slots` in `.obor/local.json`), `slots.max` (default 2,
+axis-alies: `checks.slot_dir` (kit default `/tmp/obor-check-slots`; env `CHECK_SLOT_DIR` overrides; machines shared with
+axis-alies set `/tmp/axis-check-slots` in `.obor/local.json`), `checks.heavy_at_once` (default 2,
 env `CHECK_SLOTS`). `obor run <heavy command>` acquires a slot before running (waits with a line every 30 s; stale
 slots with a dead PID are reclaimed; released on exit incl. signals) and also waits while the `merge-running` marker
 exists; serve's gate runs its checks with `CHECK_PRIORITY=merge` (reserved slot, never waits on worker slots,
@@ -476,10 +510,10 @@ release only if the file still holds our PID. Workers don't start while a live `
 is serialised per path by an atomic `mkdir <path>.reclaim` guard: inside the guard re-read the holder, unlink only if
 it is still the same dead PID, create the file, then `rmdir` the guard. A guard older than 10 s is stale and may be
 removed. Normal acquisition (no stale file) is unchanged. axis-alies ports the identical rule to checkSlots.ts.
-**Per-project merge marker + block cap (agreed with axis-alies lead-mp 2026-10-08):** the marker is per project, `merge-running-<project>` (`<project>` = config `name`, env `CHECK_PROJECT` overrides;
+**Per-project merge marker + block cap (agreed with axis-alies lead-mp 2026-10-08):** the marker is per project, `merge-running-<project>` (`<project>` = config `project.name`, env `CHECK_PROJECT` overrides;
 content unchanged). A worker check waits only for its **own** project's live marker; **every** live marker of any
-project counts as one occupied slot toward `slots.max` for everyone (load stays machine-wide). A merge waits only for
-its own project's live marker. Cap: a marker older than `slots.merge_block_max` (default 900 s; its epoch ms field)
+project counts as one occupied slot toward `checks.heavy_at_once` for everyone (load stays machine-wide). A merge waits only for
+its own project's live marker. Cap: a marker older than 900 s (its epoch ms field; T-864: the key is gone)
 stops blocking its project's workers (it still counts as a slot). A legacy `merge-running` (no suffix) is read as a
 marker of an unknown project. axis-alies has the same rule in checkSlots.ts with project `axis-alies`.
 **Slot handed to the command (T-121, 2026-10-10 lead-mp report):** `obor run` for a heavy command exports
@@ -499,24 +533,24 @@ carries `disable-model-invocation: true`: only a person starts it (`/obor:setup`
 ## Change-based merge checks (v2.5, 2026-10-08 — user + axis-alies T-375)
 A UI-only task shouldn't fail its merge on an engine/AI soak test. Skipping is allowed only when a project guard
 proves the skipped code can't depend on the changed code (e.g. an import-direction test: engine/AI never import UI).
-- Config `merge.classes`: ordered list `[{ "name": "ui", "paths": ["src/ui/**", "e2e/**", "*.md"], "checks":
+- Config `merge.by_path.rules`: ordered list `[{ "name": "ui", "paths": ["src/ui/**", "e2e/**", "*.md"], "run":
   ["check_ui", "e2e_touched"] }, { "name": "core", "paths": ["src/engine/**", "src/ai/**"], "full": true }]`;
-  `merge.guard`: a command name (e.g. `check_imports`). Each changed file of the candidate (the slot's merge of the task
-  onto the target: `git diff --no-renames --name-only <target>..<candidate>`, listed by the lane's test, T-961) gets the first class whose glob matches. **Neutral** files (`merge.neutral` globs, default `["docs/**"]` (RV-07 #2: `*.md` would match nested product files; list root .md files explicitly);
+  `merge.by_path.guard`: a command name (e.g. `check_imports`). Each changed file of the candidate (the slot's merge of the task
+  onto the target: `git diff --no-renames --name-only <target>..<candidate>`, listed by the lane's test, T-961) gets the first class whose glob matches. **Neutral** files (`merge.by_path.no_check` globs, default `["docs/**"]` (RV-07 #2: `*.md` would match nested product files; list root .md files explicitly);
   2026-10-09 user) never decide the class: they only need the guard. **Partial** = every non-neutral file matches a class
-  that has `checks` and is not `full`, whether one class or several (all files neutral → partial `neutral`, guard
-  only) → run `guard` once, then the `checks` of the distinct matched classes in config order, a command two classes
+  that has `run` and is not `full`, whether one class or several (all files neutral → partial `neutral`, guard
+  only) → run `guard` once, then the `run` of the distinct matched classes in config order, a command two classes
   name once (each a `commands.<name>`, with `OBOR_CHANGED_FILES` = path to a file listing the changed paths);
-  Otherwise (any unmatched file, a matched `full` class or one without `checks`, no
-  `merge.guard` configured, or `OBOR_FULL=1`) → the full path: `check`, then the checks of each matched class marked
-  `with_full` (T-1007). The result says `partial:<class>` or `full:<reason>` (the file that decided
+  Otherwise (any unmatched file, a matched `full` class or one without `run`, no
+  `merge.by_path.guard` configured, or `OBOR_FULL=1`) → the full path: `check`, then the run of each matched class marked
+  `also_on_full` (T-1007). The result says `partial:<class>` or `full:<reason>` (the file that decided
   it). A failing guard → RED (never falls back). These checks run in the task's lane (see "Where tests run").
 - `obor nightly`: `check` + `check_milestone`, each skipped when unset, in its own nightly worktree
-  (`<lanes_dir>/merge-nightly`, not the merge scratch) at the current branch head, under the merge window; it then
-  backs the store up and runs `merge.nightly_commands` in order, after the gates (each a `commands.<name>` that is no
+  (`<lanes.dir>/merge-nightly`, not the merge scratch) at the current branch head, under the merge window; it then
+  backs the store up and runs `nightly.also_run` in order, after the gates (each a `commands.<name>` that is no
   gating command; T-817: non-gating, one report line — its last output line — never RED, a nonzero exit a `WARN` line,
   and every `WARN`/`SKIP`/`FAIL` line it printed below it); writes `state/last-full-check`
-  (`<sha> <epoch> GREEN|RED <summary>`); prints `NIGHTLY GREEN …` / `NIGHTLY RED …` last. `merge.nightly_at` is its
+  (`<sha> <epoch> GREEN|RED <summary>`); prints `NIGHTLY GREEN …` / `NIGHTLY RED …` last. `nightly.at` is its
   switch (T-781): set (`"HH:MM"`), serve runs it every night at that time, whatever merged since (it runs more than
   the merge gate); unset, never. The lead or the owner switches it with `obor nightly on HH:MM` / `obor nightly off`
   (serve's `config_set`: one commit on main; counts from serve's next pass, no restart; a run in progress is not
@@ -526,11 +560,11 @@ proves the skipped code can't depend on the changed code (e.g. an import-directi
 ## Check tiers (v2.6, 2026-10-08 — user decision via axis-alies)
 Long property gates and soak runs stay out of per-task merge checks: fixing what they find later is cheaper than
 waiting on every merge.
-- `commands.check` is the merge check: what every merge must pass, kept to a few minutes at a lane's CPU budget
+- `merge.check` is the merge check: what every merge must pass, kept to a few minutes at a lane's CPU budget
   (an adopter without classes runs it in every lane; what is slower goes in `check_milestone`). A project with
-  classes (obor-kit) runs it only on a full lane and at night; a class's `checks` (v2.5) are its per-merge tier. `commands.check_milestone` is
-  the long tier (property gates, soak; obor-kit: `make vulncheck`); a slow test that must run per merge is a class's
-  `checks` command. (`commands.baseline`, `gate` and `e2e` were deleted 11-09, T-1083.)
+  classes (obor-kit) runs it only on a full lane and at night; a class's `run` commands (v2.5) are its per-merge tier.
+  `nightly.slow_check` is the long tier (property gates, soak; obor-kit: `make vulncheck`); a slow test that must run
+  per merge is a class's `run` command. (`commands.baseline`, `gate` and `e2e` were deleted 11-09, T-1083.)
 - A task's lane test runs only per-merge commands, as "Change-based merge checks" lists them. `check_milestone` never
   runs there.
 - `obor nightly` runs the milestone tier, as "Change-based merge checks" lists it; **non-blocking** (reports, never
@@ -540,26 +574,26 @@ waiting on every merge.
 A task's tests run in its own lane, not in serve's merge slot (T-961, T-995); nothing is reused from an earlier run
 (T-966), and tests have one split, not tiers (T-1014, T-1056).
 - **The slot compiles.** Serve's merge slot merges the task onto the target in its scratch worktree and runs
-  `commands.compile` only (obor-kit: `make check-compile`: build, gofmt, vet, deadcode; no `go test`), after
+  `merge.compile` only (obor-kit: `make check-compile`: build, gofmt, vet, deadcode; no `go test`), after
   `lane_setup`. A red compile holds the merge; no check of the classes runs there.
 - **The lane tests.** Serve then checks the candidate out, detached, in the task's lane worktree (the lane must be
   clean; its branch is checked out again afterwards, what the checks changed discarded). It lists the changed files
   (`<target>..<candidate>`) into `.obor/state/lane-changed-files-<lane>` as `OBOR_CHANGED_FILES`, classifies them (v2.5),
   runs `lane_setup`, then the checks "Change-based merge checks" names for the result. `lane_setup` runs first and
   holds no slot: the sequence's first check command acquires a worker-priority pool slot (never the merge marker),
-  kept through the guard, the class checks and the retest and released after them, so `slots.max` bounds how many lanes
+  kept through the guard, the class checks and the retest and released after them, so `checks.heavy_at_once` bounds how many lanes
   are in their check sequence at once, not setup. The slot's
   compile and the nightly run at merge priority (they claim the merge marker); each keeps its slot from its first check
   to its explicit release, its setup exempt.
-  A red that names its failing tests and packages is rerun once at the same commit by `commands.retest`
-  (T-964; `{tests}` joined by `merge.retest_join`, default `|`; the packages in `OBOR_FAILED_PKGS`); green then is the
-  step's green and the flake is logged as retried. The names come from `merge.fail_grep` lines read by
-  `merge.flake_regex` (T-1047; unset: no flake parsing).
-- **Lane env.** Every process in a lane gets `OBOR_LANE_CPUS` (`slots.lane_cpus`, default 2) and the project's
-  `slots.lane_env` (values with `{cpus}` replaced by that budget; T-1041). The lane test also exports
-  `CHECK_CPUS` = the lane's budget. obor-kit's `slots.lane_env` sets `GOMAXPROCS` and `GOFLAGS=-p={cpus} -trimpath`.
-- **`obor run <heavy command>`** takes a check slot, exports `CHECK_SLOT_HELD`, `CHECK_CPUS` (`slots.cpus`, else
-  `max(1, cores / slots.max)`) and, in a lane, `OBOR_CHANGED_FILES` (state file `.obor/state/run-changed-<lane>`): the
+  A red that names its failing tests and packages is rerun once at the same commit by `merge.retest`
+  (T-964; `{tests}` joined by `merge.retest.join`, default `|`; the packages in `OBOR_FAILED_PKGS`); green then is the
+  step's green and the flake is logged as retried. The names come from `checks.output.failure` lines read by
+  `checks.output.failed_test`/`failed_package` (T-1047; unset: no flake parsing).
+- **Lane env.** Every process in a lane gets `OBOR_LANE_CPUS` (`lanes.cpus`, default 2) and the project's
+  `lanes.env` (values with `{cpus}` replaced by that budget; T-1041). The lane test also exports
+  `CHECK_CPUS` = the lane's budget. obor-kit's `lanes.env` sets `GOMAXPROCS` and `GOFLAGS=-p={cpus} -trimpath`.
+- **`obor run <heavy command>`** takes a check slot, exports `CHECK_SLOT_HELD`, `CHECK_CPUS` (`checks.cpus_per_check`, else
+  `max(1, cores / checks.heavy_at_once)`) and, in a lane, `OBOR_CHANGED_FILES` (state file `.obor/state/run-changed-<lane>`): the
   lane's files against its merge base with the target, committed and uncommitted (untracked too), the run marker not,
   computed from the lane's content tree built with a temporary index (`GIT_INDEX_FILE`, `add -A`): no write to the
   lane's index or history. It writes no receipt.
@@ -573,8 +607,8 @@ A task's tests run in its own lane, not in serve's merge slot (T-961, T-995); no
   (the lane test, the nightly, `vet`, `deadcode`, the budget) passes `-tags integration`. The live
   conformance tier (`make conformance TIER=live`, one throwaway session per kind) is run by hand; the nightly runs
   the static tier and the budget (`make check-budget`, tests/budget: the size ratchet on wall time, git processes
-  and slow tests) from `merge.nightly_commands`. `-short` and `testkit.Slow` are gone: nothing skips a test in a lane.
-- **The generic mechanism, and obor-kit's mapping.** A class's `checks` name commands; a Go project narrows its test
+  and slow tests) from `nightly.also_run`. `-short` and `testkit.Slow` are gone: nothing skips a test in a lane.
+- **The generic mechanism, and obor-kit's mapping.** A class's `run` names commands; a Go project narrows its test
   to the affected packages. obor-kit's `check_affected` is `make check-affected`, which runs the kit tool
   `tools/affected` (`go run ./tools/affected`, T-1040) and then `go test`
   on that list with `$CHECK_CPUS` as `-p`. The tool reads `$OBOR_CHANGED_FILES` and prints the affected package import
@@ -584,9 +618,10 @@ A task's tests run in its own lane, not in serve's merge slot (T-961, T-995); no
   and shared test support: obor-kit lists `Makefile`, `internal/testkit/**`, …), a removed package, or an unset or
   unreadable list.
   When it cannot make a list, the Makefile runs the full suite. The `go` class (`cmd/**`, `internal/**`, `kinds/**`,
-  `tools/**`) has `checks: ["check_affected"]`; the other classes map the non-Go files to the checks that read them
-  (`check_web`, `check_release`, `check_readers`, T-901, T-902), and `merge.guard` covers the rest. The Go-specific
-  residue is the project's: `slots.lane_env`, `merge.flake_regex`, `commands.retest`, the Makefile.
+  `tools/**`) has `run: ["check_affected"]`; the other classes map the non-Go files to the checks that read them
+  (`check_web`, `check_release`, `check_readers`, T-901, T-902), and `merge.by_path.guard` covers the rest. The
+  Go-specific residue is the project's: `lanes.env`, `checks.output.failed_test`/`failed_package`, `merge.retest`,
+  the Makefile.
 
 ## Stable channel (owner 2026-10-30, phase 7)
 Other projects never run obor from this repo's main checkout (every merge here would change their live tooling).
@@ -612,7 +647,7 @@ agent state; obor does no Claude/Codex screen parsing of its own beyond what exi
 API. obor ships no herdr plugin (T-1117): serve restores its panes itself ("After a herdr restart" above).
 
 ## Lines to the lead (T-466, 2026-10-27 — owner decision, phase 4)
-Serve posts two kinds of lines to the lead (`<prefix>-lead`) into its Claude session, and delivers a brief to a role
+Serve posts two kinds of lines to the lead (`<project.agent_prefix>-lead`) into its Claude session, and delivers a brief to a role
 agent (posted to a Claude session, typed into another kind's pane, T-499); nothing is typed into the pane the owner
 writes in, and nothing else goes to a chat agent but a job's wake. State in `docs/state-model.md` row 47.
 - **`obor send <project> "<text>"`** (a lead or the owner): `<project>` is a path into an obor project. One `obor serve`

@@ -17,9 +17,9 @@ Files written once; after that the project owns them.
 ## Placeholders
 | Placeholder | Config source | Meaning |
 |---|---|---|
-| `{{project}}` | `name` | Display name of the project |
-| `{{prefix}}` | `prefix` | Agent-name / tab prefix (`{{prefix}}-o1`) |
-| `{{lanes_dir}}` | `lanes_dir` | Directory holding the lane worktrees |
+| `{{project}}` | `project.name` | Display name of the project |
+| `{{prefix}}` | `project.agent_prefix` | Agent-name / tab prefix (`{{prefix}}-o1`) |
+| `{{lanes_dir}}` | `lanes.dir` | Directory holding the lane worktrees |
 
-Anything else is literal: `docs/reviews/`, `docs/research/` and `AGENTS.md` appear as the defaults (`paths.reviews`
+Anything else is literal: `docs/reviews/`, `docs/research/` and `AGENTS.md` appear as the defaults (`reviews.dir`
 can differ; edit the copied docs if so).

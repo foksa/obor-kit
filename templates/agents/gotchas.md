@@ -13,7 +13,7 @@ otherwise.
 - A pane only shows the tail of long answers → Codex: read the last message from
   `~/.codex/sessions/**/rollout-*.jsonl`; Claude: ask for the full answer in one message or a file.
 - A split pane inherits the neighbour's cwd → pass `--cwd` (and `--env OBOR_ROLE=…`) to `herdr pane split`.
-- Agent names are global across workspaces → always use the project prefix (`<prefix>-…`).
+- Agent names are global across workspaces → always use the project prefix (`<project.agent_prefix>-…`).
 - After a herdr restart, obor's startup hook restarts obor panes (`obor restart`, log `~/.obor/restore.log`); set
   `resume_agents_on_restore = false` under `[session]` in herdr's config.toml, else herdr resumes them without obor's env.
 - A pane labelled an obor agent without its env (herdr resume on, a hand start) → SessionStart warns "run obor restart
@@ -33,7 +33,7 @@ otherwise.
   panel, send `esc` first — only while the agent is idle: Esc interrupts a working turn.
 - TaskStop on a background shell can leave its child script running → check by script path, kill by PID.
 - Claude panes except leads start with `--settings '{"autoMemoryEnabled":false,"remoteControlAtStartup":false}'` (only the lead
-  on the phone and with auto memory); `kinds.claude.args` adds args to every Claude start.
+  on the phone and with auto memory); `agents.kinds.claude.args` adds args to every Claude start.
 - Ctrl+Z suspends Claude Code (2026-10-10) → type `fg` in the pane. `obor restart` no longer resumes it: it refuses a
   stopped job, so `fg` and `/exit` it (or end it), then `obor restart <agent> --fresh`.
 - After a usage-limit reset Claude Code resumes the session by itself ("Your claude.ai usage limit has reset. Continue
@@ -55,7 +55,7 @@ otherwise.
 - An idle pane is free, but its next prompt after cache expiry re-reads the whole context at full price → keep
   sessions short: every dispatch starts a fresh worker, the reviewer gets a fresh session per review
   (`obor brief <reviewer> --fresh "…"`), `/clear` the integrator when it holds no job and advisors per topic.
-- Above `handoff_tokens` (default 500k) each prompt reminds the lead to hand off; nothing forces it, the
+- Above `agents.handoff_tokens` (default 500k) each prompt reminds the lead to hand off; nothing forces it, the
   lead picks the next logical break, writes the Handoff and restarts itself fresh (`obor restart <lead> --fresh`).
 
 ## bash

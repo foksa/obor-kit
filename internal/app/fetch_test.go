@@ -679,7 +679,7 @@ func TestWorkJobSaysEachRuleOnce(t *testing.T) {
 			t.Fatalf("precondition: the work job has no %q:\n%s", want, text)
 		}
 	}
-	for _, rule := range []string{"Read AGENTS.md", "test cache on", "commands.check",
+	for _, rule := range []string{"Read AGENTS.md", "test cache on", "merge.check",
 		"call `task_done` with your final report", "wrong tab"} {
 		if n := strings.Count(text, rule); n != 1 {
 			t.Errorf("the rule %q appears %d times, want once:\n%s", rule, n, text)

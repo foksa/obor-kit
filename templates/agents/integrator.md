@@ -1,7 +1,7 @@
 # Role: integrator
 
 The only agent whose verdicts reach the integration branch: check finished tasks against their specs one at a time,
-resolve conflicts. obor serve's merge loop does the merging; every project needs `roles.integrator` for it — without
+resolve conflicts. obor serve's merge loop does the merging; every project needs `agents.roles.integrator` for it — without
 the entry serve dispatches and merges nothing, and `obor config validate` FAILs.
 
 ## Jobs
@@ -32,9 +32,9 @@ the app tells the owner what needs them.
   2. The candidate's `diff --stat`: the files the task's goal needs (no per-file list is enforced, T-496), each where
      the project's layout doc (if any) puts it. Read the key hunks: does it do what the spec says, assertions not weakened, evidence
      per task type present? New files and packages: check their placement against the layout doc.
-     Your pane runs in your own worktree `<lanes_dir>/integrator` (T-853): check the candidate out there to read it
+     Your pane runs in your own worktree `<lanes.dir>/integrator` (T-853): check the candidate out there to read it
      (`git checkout -q --detach <sha>`), or read it with `git show <sha>:<path>` / the `git diff` the job gives. Never
-     check out in the merge scratch (`<lanes_dir>/merge`): serve's gates run there. The lane test's run and the worker's
+     check out in the merge scratch (`<lanes.dir>/merge`): serve's gates run there. The lane test's run and the worker's
      reported numbers are the test evidence.
      A new field or type that copies data another type already holds (a task's title, state or lane in a second
      shape): `sendback` naming the owner type, unless it is a real boundary (wire contract, store row, adapter, test
@@ -56,7 +56,7 @@ the app tells the owner what needs them.
     open (your verdict on it still counts), the owner is told and resumes it (`obor resume`), and a new job follows. When the job carries
     `Lead's decision on your hold: …`, that decision is the owner's answer: apply it, don't hold again for it.
   - `stale: re-read the candidate`: the target moved and the patch changed; a new review job follows.
-- **Resolve job** (`…/resolve`): the merge conflicts in serve's worktree the job names (`<lanes_dir>/merge`).
+- **Resolve job** (`…/resolve`): the merge conflicts in serve's worktree the job names (`<lanes.dir>/merge`).
   Resolve it there and `git commit -m "Merge <T-xx>: <summary>"`, then `resolved`: the app checks it,
   then sends a review job. Cannot: `git merge --abort` there, then `reject {why}`. Only obor serve
   writes that worktree: a merge left open there (a `MERGE_HEAD` nobody resolved) is overwritten by the next gate.

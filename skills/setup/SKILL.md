@@ -18,8 +18,8 @@ A default `obor init` makes L-01 and L-02, so its next lane is L-03: take the ne
 obor setup lane L-03
 ```
 Takes the next lane name (`L-01` … `L-NN`, in order) or one already configured (a rerun). It raises the config's
-`lanes` count (a `lanes` list names the lanes: add `{"name": "L-03"}` to the list by hand first, then run it), adds a
-worktree detached at the main checkout's branch under `<lanes_dir>`, symlinks `lane_links`, runs `commands.lane_setup`
+`lanes.count` (a `lanes.list` names the lanes: add `{"name": "L-03"}` to the list by hand first, then run it), adds a
+worktree detached at the main checkout's branch under `<lanes.dir>`, symlinks `lanes.links`, runs `lanes.setup`
 there. A `FAIL lane_setup …` shows the command's output: fix with the user. A lane has no model: the task spec's
 `Model:` line tries those models first, its `Difficulty:` level picks the rest at dispatch, and
 `obor dispatch <task> --model <model>[,<model>…]` overrides both (`obor setup show` prints the levels).
@@ -30,15 +30,14 @@ Spawning panes can be blocked by the auto-mode classifier: ask the user to appro
 obor setup pane L-03 --new-tab workers        # a new lane: a new tab
 obor setup pane L-04 --tab <tab-id>           # more lanes: split that tab (herdr tab list)
 obor setup role integrator --tab <tab-id>     # lead | integrator | reviewer
-obor setup role reviewer --new-tab review     # reviewer gets <lanes_dir>/<roles.reviewer.worktree>
-obor setup role triage --tab <tab-id>         # optional bug inbox: <prefix>-triage in the main checkout, docs/BUGS.md
+obor setup role reviewer --new-tab review     # reviewer gets <lanes.dir>/reviewer
+obor setup role triage --tab <tab-id>         # optional bug inbox: <project.agent_prefix>-triage in the main checkout, docs/BUGS.md
 ```
 Without `--tab` / `--new-tab` the current pane's tab is split; `--pane <id>` uses an existing shell pane. `obor setup pane` labels the pane and types the env but starts no agent (dispatch starts a fresh worker anyway); add `--start` to start it now. `obor init` and `obor setup role` likewise label their panes and start no agent (each starts on first use: a job, a review, a brief); `--start` starts it now. Panes get
-`--cwd` the lane and `OBOR_ROLE` / `OBOR_LANE`; agents are named `<prefix>-<lane lower>` (`<prefix>-int`,
-`<prefix>-rev`, `<prefix>-lead`); Claude agents except leads start with `--settings '{"autoMemoryEnabled":false,"remoteControlAtStartup":false}'`
-(a lead keeps Remote Control and auto memory; lane-type settings overlay those keys).
+`--cwd` the lane and `OBOR_ROLE` / `OBOR_LANE`; agents are named `<project.agent_prefix>-<lane lower>` (`<project.agent_prefix>-int`,
+`<project.agent_prefix>-rev`, `<project.agent_prefix>-lead`); Claude agents except leads start with `--settings '{"autoMemoryEnabled":false,"remoteControlAtStartup":false}'`
+(a lead keeps Remote Control and auto memory).
 - `FAIL tab … is full` → use `--new-tab` (a tab holds 4 panes).
-- `FAIL lane type … is at its max` → ask the user: retire an agent or raise `max`.
 - `FAIL agent not ready: … Trust this folder? …` → ask the user to answer the dialog in that pane (Enter = trust,
   once per repo). `… updated itself and exited …` → rerun the `herdr agent start` the hint prints.
 Rerunning `obor setup pane` for a lane whose agent runs is a no-op (`OK … already running`).
@@ -50,4 +49,4 @@ Stop hook, so nothing nudges a missing `task_done`) from each start's generated 
 opencode registration on the machine, remove it by hand: the `mcp.servers.obor` entry of
 `~/.config/opencode/opencode.json` and the `plugins/obor.js` link there (`$XDG_CONFIG_HOME` respected); restart
 opencode agents after it.
-Optional: offer a bug-triage agent (`roles.triage` = a model ref like `<model>[:<effort>]`, then `obor setup role triage --new-tab triage`): the person reports bugs to it, it keeps `docs/BUGS.md` and hands fixes to the project's lead (`agents/triage.md`).
+Optional: offer a bug-triage agent (`agents.roles.triage` = a model ref like `<model>[:<effort>]`, then `obor setup role triage --new-tab triage`): the person reports bugs to it, it keeps `docs/BUGS.md` and hands fixes to the project's lead (`agents/triage.md`).

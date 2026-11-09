@@ -1,7 +1,7 @@
 # Agent swarm — how it works
 
 The role texts of an obor swarm. They ship with the kit and are read in place: a project's own `docs/agents/<role>.md`
-(`paths.agents`) holds only what differs there, under a pointer line. The session start prints both paths for obor
+(`agents.docs_dir`) holds only what differs there, under a pointer line. The session start prints both paths for obor
 roles (`obor: role text: …`); the work job carries them. A role runs only under obor: `obor setup role <name>` (or
 `obor restart <agent>`), then `obor brief`.
 
@@ -9,7 +9,7 @@ roles (`obor: role text: …`); the work job carries them. A role runs only unde
 |---|---|---|
 | the `obor:lead` skill ([lead.md](lead.md) points there) | Specs, dispatch, decisions, reviews, user contact | strongest Claude |
 | [integrator.md](integrator.md) | Answers serve's review and resolve jobs: checks finished lanes against their specs, resolves conflicts (serve merges and publishes) | Claude pane |
-| [worker.md](worker.md) | Implements one task in its own worktree (lane) | any lane type from the config |
+| [worker.md](worker.md) | Implements one task in its own worktree (lane) | a model from `agents.difficulty` |
 | [triage.md](triage.md) | Bug inbox: records, dedupes, sorts, probes and hands bugs to the project's lead (optional; writes `docs/BUGS.md`) | Claude pane |
 | [reviewer.md](reviewer.md) | Batch code review + verification in the same session; a role pane in its own worktree, never a lane | a different model family if possible |
 | [advisor.md](advisor.md) | Design advisor: writes its advice or plan under `docs/research/` or `docs/plan/` (optional) | strongest available |
@@ -20,7 +20,7 @@ roles (`obor: role text: …`); the work job carries them. A role runs only unde
 Who runs now, and in which lane: `obor status` (or obor web); there is no hand-kept roster.
 
 Advisor, researcher and triage are the kit's default custom roles (T-801): a project adds its own role the same way,
-with one `roles.<name>` row in `.obor/config.json` (a model ref, or `{"model": …, "write": ["<dir>/", "<file>"], "verbs": […]}`) and
+with one `agents.roles.<name>` row in `.obor/config.json` (a model ref, or `{"model": …, "write": ["<dir>/", "<file>"], "verbs": […]}`) and
 its doc `docs/agents/<name>.md` (what it does, what it writes). A custom role runs in the main checkout, reads git
 only, writes only its `write` list, never pushes; the lead places it with `obor setup role <name>` and briefs it with
 `obor brief`. Its `verbs` (T-1039) are the lead's calls serve admits it to (`spec_set`, `dispatch`, `watch`, `send`,
@@ -38,13 +38,13 @@ user ──► lead ──spec──► worker (lane) ──task_done──►  
   docs by explicit path.
 - Shared state lives in files: `BACKLOG.md`, `docs/decisions.md`, the reviews and research dirs. Machine state (the
   lane rows, the open tasks' specs, the pause) is in `.obor/state/obor.db`; read it with `obor status`.
-- Agent names are `<prefix>-<id>`: herdr agent names are global across workspaces.
+- Agent names are `<project.agent_prefix>-<id>`: herdr agent names are global across workspaces.
 
 ## What the hooks enforce (expect the denials)
 - Everyone: `git push`, `pkill`/`killall` by pattern, `git commit -a` in the main checkout.
 - Workers: git writes, Edit/Write outside their own lane (another worktree, the main checkout, another obor project).
 - Every non-lead role: protected files.
-- A custom role (advisor, researcher, triage, the project's own): writes only its `roles.<name>.write` list, git reads
+- A custom role (advisor, researcher, triage, the project's own): writes only its `agents.roles.<name>.write` list, git reads
   only.
 - Workers can't stop without `task_done` (once per stop: asking works); the lead and the integrator stop freely (no
   nudges). `obor pause "<why>"` holds obor serve's dispatches (`--clear` ends it).
