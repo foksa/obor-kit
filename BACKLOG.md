@@ -33,7 +33,6 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
 
 ## Later candidates
 - **`baseline`, `gate` (`paths`, `at`, `OBOR_GATE`) and `e2e` commands** (advisor 11-09, docs/research/adopter-test-flow-advice.md): neither project sets one; `check_milestone` and `merge.nightly_commands` do the same job. Deletion candidate (internal/checks/runner.go ~335-345, ~461-487; nightly.go ~83-97; init writes two as null): size it, then the owner decides.
-- (RV-135 design) The web derives event kinds from line wording (`format.ts` eventKind); serve knows step and outcome (`app.Describe`): ship a semantic kind with each event and drop the client regexes. Next touch of view/events.
 - **Un-defer `job_next`** (chatter census proposal 2, 11-07): skipped as a Claude-only launch flag (an integrator job's first call is ~42k on a near-empty context, ~10% of a job; a global tool-search switch would load every MCP tool). The agent-neutral variant (a fresh session's first prompt carries the job, herdr events as the delivery proof) went to the advisor: docs/research/job-in-first-prompt-advice.md.
 - **Log snapshot at upgrade** (parked 11-05, docs/research/log-snapshot.md): build when compat branches pass ~300
   prod lines or a record-shape change needs it.
