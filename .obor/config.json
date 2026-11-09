@@ -173,11 +173,6 @@
       "QUESTIONS.md",
       ".gitignore"
     ],
-    "affected_full": [
-      "Makefile",
-      "internal/testkit/**",
-      "internal/herdr/herdrtest/**"
-    ],
     "fail_grep": "^--- FAIL|^FAIL\\s",
     "flake_regex": [
       "^--- FAIL: (?P<test>\\S+)",
