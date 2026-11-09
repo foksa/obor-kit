@@ -3,7 +3,7 @@
 // nothing). They are made on the config revision the page read when the first was staged (base): serve refuses them
 // once config.json is another file, so a tab never overwrites what another tab, the lead or a hand edit saved
 // meanwhile.
-import type { Setup, SetupModel } from "./types";
+import type { DispatchCount, Setup, SetupModel } from "./types";
 
 export type Value = string | number | string[];
 export type Staged = Record<string, Value>;
@@ -110,3 +110,8 @@ export const busyDropped = (s: Setup, n: number) => s.lanes.slice(Math.max(0, n)
 export function pauseBody(model: string, clear: boolean, reason = "", dur = "") {
   return clear ? { model, clear: true } : { model, reason: reason.trim(), for: dur === "until cleared" ? "" : dur };
 }
+
+// The distribution's ranges (T-1089): the last 7 days, and "kept", every dispatch the log still holds (serve's nightly
+// prune deletes an ended task's records 30 days after its end, so it is no longer every dispatch ever made).
+export const DIST_RANGES = ["7 days", "kept"];
+export const distCount = (c: DispatchCount, range: string) => (range === "kept" ? c.all : c.recent);

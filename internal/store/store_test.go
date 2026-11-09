@@ -559,3 +559,46 @@ func TestOpenRWAddsTheReadIndexes(t *testing.T) {
 		}
 	}
 }
+
+// T-1089: schema 14 adds no table, only the version: a store at 13 is opened and becomes 14 with its rows as they
+// were; a binary that knows 13 refuses a store at 14 (it may be pruned: an older fold reads a lone merged fact as
+// nothing).
+func TestSchema14(t *testing.T) {
+	t.Parallel()
+	if SchemaVersion != 14 {
+		t.Fatalf("SchemaVersion %d, want 14", SchemaVersion)
+	}
+	path := newPath(t)
+	db, err := OpenRW(path)
+	if err != nil {
+		t.Fatalf("OpenRW: %v", err)
+	}
+	for _, q := range []string{
+		"INSERT INTO events (seq, ts, task, attempt, step, kind, class) VALUES (1, '2026-11-09T00:00:00Z', 'T-1', 1, 'merged', 'fact', '')",
+		"UPDATE meta SET value = '13' WHERE key = 'schema_version'",
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatalf("precondition: %s: %v", q, err)
+		}
+	}
+	db.Close()
+	db, err = OpenRW(path)
+	if err != nil {
+		t.Fatalf("OpenRW on schema 13: %v", err)
+	}
+	defer db.Close()
+	var version string
+	var n int
+	if err := db.QueryRow("SELECT value FROM meta WHERE key = 'schema_version'").Scan(&version); err != nil || version != "14" {
+		t.Errorf("schema_version = %q, %v; want 14", version, err)
+	}
+	if err := db.QueryRow("SELECT count(*) FROM events").Scan(&n); err != nil || n != 1 {
+		t.Errorf("events after the upgrade: %d, %v; want the one row", n, err)
+	}
+	if err := versionErr(14, 13); err == nil || !strings.Contains(err.Error(), "schema version 14 is newer than this obor (13)") {
+		t.Errorf("a binary at 13 on a store at 14: %v; want refused", err)
+	}
+	if err := versionErr(13, 14); err != nil {
+		t.Errorf("this binary on a store at 13: %v; want opened", err)
+	}
+}

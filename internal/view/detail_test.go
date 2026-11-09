@@ -5,6 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"obor/internal/app/event"
+	"obor/internal/app/wire"
+	"obor/internal/store"
 	"obor/internal/testkit"
 )
 
@@ -42,5 +45,40 @@ func TestMergedTaskKeepsItsLaneAndAgent(t *testing.T) {
 	}
 	if d.Spec != "# T-01 — a task title\n\nDifficulty: simple\n" || d.Title != "a task title" {
 		t.Errorf("spec %q, title %q; want the stored spec's text and title", d.Spec, d.Title)
+	}
+}
+
+// T-1089: a task the nightly prune left with its merged fact alone: its page shows its outcome (serve's state) and its
+// spec, with the one record and no error.
+func TestPrunedTaskPage(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	db, err := store.OpenRW(store.File(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := "# T-01 — a task title\n\nDifficulty: simple\n"
+	if _, _, err := store.SetSpec(db, "T-01", spec, "", "lead", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	l, _, err := event.OpenLog(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.Append(event.Record{Task: "T-01", Attempt: 1, Step: event.StepMerged, Kind: event.KindFact,
+		Data: []byte(`{"head":"cafe1234"}`)}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	l.Close()
+	v := Project{Tasks: map[string]Task{"T-01": {Task: "T-01", Title: "a task title", TaskState: "merged", Phase: wire.PhaseMerged}}}
+	d, ok := Detail{Root: root, Project: v}.Task("T-01")
+	if !ok {
+		t.Fatal("the pruned task has no page")
+	}
+	if d.TaskState != "merged" || d.Spec != spec {
+		t.Errorf("state %q, spec %q; want merged and the stored spec", d.TaskState, d.Spec)
+	}
+	if len(d.Records) != 1 || d.Records[0].Step != event.StepMerged {
+		t.Errorf("records %+v, want the merged fact alone", d.Records)
 	}
 }

@@ -114,7 +114,8 @@ func (p *proj) foldMsg(r event.Record) {
 }
 
 // settles: r settles its task's question another way (T-746, T-748): the worker submitted or asked again, the task
-// was unblocked, dropped or rejected.
+// was unblocked, dropped, rejected or merged (T-1089: a pruned task keeps only its merged fact, which ends the question
+// a lead's answer to it would otherwise reopen).
 func settles(r event.Record) bool {
 	if r.Task == event.MsgTask {
 		return false
@@ -124,7 +125,7 @@ func settles(r event.Record) bool {
 		return m == wire.MethodReject
 	}
 	return r.Kind == event.KindFact && (r.Step == event.StepSubmitted || r.Step == event.StepUnblocked ||
-		r.Step == event.StepDropped || isAsk(r))
+		r.Step == event.StepDropped || r.Step == event.StepMerged || isAsk(r))
 }
 
 // sawWork notes pane's status for an open brief of the agent whoIs finds in it (no label read, RV-53 #4): working

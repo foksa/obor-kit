@@ -23,5 +23,6 @@ func (a *App) backup(c wire.BackupReq) (string, error) {
 		return "", err
 	}
 	a.prunePrompts(p, now)
+	a.pruneLog(p, now) // T-1089: after the backup, so the night's backup holds every row it deletes
 	return "BACKUP " + path, nil
 }

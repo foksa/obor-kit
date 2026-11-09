@@ -23,8 +23,8 @@ import (
 
 const (
 	// SchemaVersion is the schema this binary knows. OpenRW refuses a newer one: the database is per project, and a
-	// obor that wrote it may be newer than this binary. 7: prompts (T-665); 8: the prompts table's own key (T-670); 9: the lane row's type (T-721); 10: the spec row's note (T-819); 11: the read indexes (T-881); 12: the lane row's blocked (T-894); 13: the lane row's landed (T-1012).
-	SchemaVersion = 13
+	// obor that wrote it may be newer than this binary. 7: prompts (T-665); 8: the prompts table's own key (T-670); 9: the lane row's type (T-721); 10: the spec row's note (T-819); 11: the read indexes (T-881); 12: the lane row's blocked (T-894); 13: the lane row's landed (T-1012); 14: serve's nightly prune of the events table (T-1089: no DDL; a binary at 13 refuses a store that may be pruned, as it would fold a task's lone merged fact to nothing).
+	SchemaVersion = 14
 	// upgradeFrom is the oldest schema OpenRW opens: a store from before v0.22 (schema 2–8) is refused, and upgrades
 	// through v0.24.0 first. A store this opens is migrated to SchemaVersion (initSchema: its tables are all created
 	// IF NOT EXISTS, so the version is what a migration updates).
@@ -185,6 +185,19 @@ var schema = []string{
 	"CREATE INDEX IF NOT EXISTS prompts_job ON prompts(job)",
 }
 
+// versionErr is a binary's refusal of a database at schema got, the binary knowing schema binary (nil: it opens it):
+// newer than the binary (a store an older obor must not fold: 14's pruned log, T-1089), or older than upgradeFrom.
+func versionErr(got, binary int) error {
+	switch {
+	case got > binary:
+		return fmt.Errorf("store: schema version %d is newer than this obor (%d): upgrade obor", got, binary)
+	case got < upgradeFrom:
+		return fmt.Errorf("store: schema version %d is older than this obor (%d): upgrade through v0.24.0 first",
+			got, binary)
+	}
+	return nil
+}
+
 // initSchema checks an existing database's schema version before it changes anything (a refused database is left
 // exactly as it was: a version older than upgradeFrom or newer than SchemaVersion), then creates the tables and
 // indexes and records the version on a new database, all in one transaction. An accepted older database is migrated:
@@ -213,14 +226,11 @@ func initSchema(db *sql.DB) error {
 	got := SchemaVersion
 	if found {
 		got, err = strconv.Atoi(known)
-		switch {
-		case err != nil:
+		if err != nil {
 			return fmt.Errorf("store: schema version %q is not a number", known)
-		case got > SchemaVersion:
-			return fmt.Errorf("store: schema version %d is newer than this obor (%d): upgrade obor", got, SchemaVersion)
-		case got < upgradeFrom:
-			return fmt.Errorf("store: schema version %d is older than this obor (%d): upgrade through v0.24.0 first",
-				got, SchemaVersion)
+		}
+		if err := versionErr(got, SchemaVersion); err != nil {
+			return err
 		}
 	}
 	for _, ddl := range schema {
@@ -256,6 +266,8 @@ func initSchema(db *sql.DB) error {
 			return err
 		}
 	}
+	// Version 14 changes no table (T-1089): serve's nightly backup prunes ended tasks' records and old sessions, which
+	// a binary at 13 would fold wrong, so only the version moves.
 	switch {
 	case !found:
 		if _, err := tx.ExecContext(ctx, "INSERT INTO meta (key, value) VALUES ('schema_version', ?)",

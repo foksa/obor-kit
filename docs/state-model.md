@@ -14,6 +14,15 @@ it runs in (a lane worktree's is its main checkout's); `obor send` dials the tar
 - One append-only table per project: `events` in the project's SQLite database `.obor/state/obor.db` (T-435,
   `internal/store`). One row per record, inserted in its own transaction (`synchronous=FULL`: on disk before the
   effect starts); a failed insert rolls back, so no partial record exists. Replay reads the rows in `seq` order.
+- Pruned, never rewritten (T-1089, schema 14): serve's nightly backup request, after the backup is written, deletes
+  every record of a task that ended (dropped, or merged with its after-merge steps done) over 30 days ago except its
+  last terminal fact, which alone folds to the ended task (a lone `merged` or `dropped` fact makes it), and the session
+  facts as old that are no agent's current session. A task stays whole while a lanes row or an agent's start row
+  names it, while an open review could link it, when its terminal fact alone would fold to another state, or when
+  the agents' start rows folded without its start results would differ (a start of it displaced another agent's
+  row). Only rows below the log's last seq go (no seq is handed out again); serve's memory keeps what it folded until
+  its next start. Nothing else prunes (a backup made read-only with serve down deletes nothing), and the project's own
+  records (lines, reviews, watches) stay whole (`internal/app/prune.go`).
 - A result folds as the log wrote it, seq and time included, live and on replay (`App.do` folds the stored record, never one
   it built itself).
 - A dispatch that waits is `obor dispatch … --after`, or one with no free lane of its level (row 2a).

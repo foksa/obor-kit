@@ -88,10 +88,12 @@ func (r *Registry) StartedAgents() []string {
 // session, the verdicts folded at its start ("a verdict came since its start", rolestop.go T-870) and Ref, the model
 // ref an agent.start ran: its attempt's dispatch's (dispatchData.Type, read at the fold, not stored again; "":
 // start.<job>'s, or unknown), and Config, the config revision the start was launched under (startOut.Config, T-1050;
-// "": a start.<job> or a record from before T-1050), what a keep lane's reuse checks (startFits, T-1048, T-1050).
+// "": a start.<job> or a record from before T-1050), what a keep lane's reuse checks (startFits, T-1048, T-1050), and
+// Task, the task key of the record it was folded from: the nightly prune keeps that task whole while the row is its
+// agent's (T-1089: deleting the record would drop the agent's identity proof).
 type StartRow struct {
-	Pane, Terminal, Kind, Session, Ref, Config string
-	Verdicts                                   int
+	Pane, Terminal, Kind, Session, Ref, Config, Task string
+	Verdicts                                         int
 }
 
 // owner is the agent a terminal runs by the last Reconcile, its proof and the pane id it was seen at.

@@ -30,7 +30,7 @@ func (p *proj) foldStart(r event.Record) {
 		return
 	}
 	row := identity.StartRow{Pane: out.Pane, Terminal: out.Terminal, Kind: out.Kind, Session: out.Session, Config: out.Config,
-		Verdicts: p.folded.verdicts}
+		Task: r.Task, Verdicts: p.folded.verdicts}
 	if mt := p.folded.loop[r.Task]; step == event.StepStartWork && mt != nil && mt.attempt == r.Attempt {
 		row.Ref = mt.disp.Type // the model ref the start ran (startWorker's launch: the dispatch's, T-722)
 	}

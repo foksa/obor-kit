@@ -44,6 +44,7 @@ const (
 	hookDoBegin       = "do.begin"        // a do's first section ended (its append and fold), before its effect or its stored result returns
 	hookAppended      = "record.appended" // a record or a verdict's result is in the log, before its fold (under mu)
 	hookDropDecided   = "drop.decided"    // obor drop holds a.verdicts, the task marked ended, before its record
+	hookPruneSelected = "prune.selected"  // the nightly prune chose its tasks (mu released), before its check and deletes
 )
 
 // hook runs the test's hook at point (none outside the tests).

@@ -93,7 +93,8 @@ type SetupRole struct {
 }
 
 // DispatchCount is the dispatches that placed a task on a lane, by the difficulty level they chose by and the type
-// reference they placed: Recent are those of the last 7 days, All those of every record. Level is OverrideLevel for a
+// reference they placed: Recent are those of the last 7 days, All those the log still holds (the page's "kept": serve's
+// nightly prune deletes an ended task's records 30 days after its end, T-1089). Level is OverrideLevel for a
 // dispatch with --model and no level ("" is neither), Type "" a dispatch the store names no model for: a record from
 // before T-721 (the page labels it "unknown"; T-752, T-865).
 type DispatchCount struct {
@@ -230,7 +231,8 @@ func setupType(cfg *config.Config, ref string) (SetupType, bool) {
 	return SetupType{Ref: ref, Name: name, Kind: m.Kind, Model: m.ID, Effort: effort}, true
 }
 
-// distribution is db's dispatch records counted by level and chosen model, for the last 7 days and for every record.
+// distribution is db's dispatch records counted by level and chosen model, for the last 7 days and for every record
+// the log still holds (T-1089: an ended task's go 30 days after its end).
 // Only a dispatch that placed a task on a lane counts: a waiting dispatch places nothing, and the dispatch that
 // places it later counts once; a redo is a dispatch of its own. A record with no type (a dispatch from before T-721)
 // is unknown (T-752, T-865: a lane row or a later record of a lane gone from the config names nothing for it).
