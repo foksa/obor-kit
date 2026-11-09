@@ -242,6 +242,36 @@ func TestShape1LocalBesideShape2Config(t *testing.T) {
 	}
 }
 
+// T-1151 (DD-v0.33-verify): LocalShape1 reads shape 1's markers off Reshape's own tables, so a local.json whose only
+// shape-1 content is a top-level protected_files or one of merge's shape-1 members is detected and reshaped, and a
+// shape-2 local.json is left as shape 2.
+func TestLocalShape1FromReshapeTables(t *testing.T) {
+	for _, c := range []struct{ name, in, want string }{
+		{"only protected_files", `{"protected_files":["d"]}`, `{"rules":{"protected_files":["d"]}}`},
+		{"only merge.nightly_at", `{"merge":{"nightly_at":"03:00"}}`, `{"nightly":{"at":"03:00"}}`},
+		{"only merge.neutral", `{"merge":{"neutral":["docs/**"]}}`, `{"merge":{"by_path":{"no_check":["docs/**"]}}}`},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if !LocalShape1([]byte(c.in)) {
+				t.Fatalf("LocalShape1(%s) = false, want shape 1", c.in)
+			}
+			got, err := Reshape([]byte(c.in))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !sameJSON(t, got, []byte(c.want)) {
+				t.Errorf("Reshape(%s) = %s, want %s", c.in, got, c.want)
+			}
+			if LocalShape1(got) {
+				t.Errorf("LocalShape1(%s) = true, want shape 2 after the reshape", got)
+			}
+		})
+	}
+	if LocalShape1(fixture(t, "obor-kit.want.local.json")) {
+		t.Error("the shape-2 local.json is detected as shape 1")
+	}
+}
+
 // T-1124: Config.Command finds the seven commands obor runs by a fixed name in their groups, and the project's own in
 // commands; validate fails a fixed name under commands (it would never run) and a count beside a lanes list.
 func TestFixedCommands(t *testing.T) {
