@@ -15,8 +15,9 @@ import (
 )
 
 // T-1098: a task's step logs go when the task ends (logs.go): merged with its after-merge steps done, or dropped; a
-// rejected task is not ended, a merged one still running its after-merge steps is not either. The sweep's leftovers
-// are internal/project's tests; these are serve's own ends.
+// rejected task is not ended, a merged one still running its after-merge steps is not either. T-1104: the end's
+// transition removes them, and serve's load removes the leftovers of every task it folds as ended. The sweep's
+// leftovers are internal/project's tests; these are serve's own ends.
 
 // logsHarness is a merging pj with serve's lines captured (a failed log removal's one line).
 func logsHarness(t *testing.T) (*harness, *bytes.Buffer) {
@@ -91,7 +92,7 @@ func TestTaskLogsGoWhenTheTaskEnds(t *testing.T) {
 		logGone(t, check)
 		logGone(t, after)
 	})
-	t.Run("merged, after_merge failed: its logs stay", func(t *testing.T) {
+	t.Run("merged, after_merge failed: its logs stay until the stop completes the end", func(t *testing.T) {
 		t.Parallel()
 		h, _ := logsHarness(t)
 		mergedFacts(t, h, "T-2")
@@ -108,6 +109,25 @@ func TestTaskLogsGoWhenTheTaskEnds(t *testing.T) {
 		}
 		logThere(t, check)
 		logThere(t, after)
+		runAfter(t, h, "T-2", event.StepStop) // the end's last step: the held task ends and its logs go
+		logGone(t, check)
+		logGone(t, after)
+	})
+	t.Run("a lane reused by a new task while the former task's steps are pending: its logs stay", func(t *testing.T) {
+		t.Parallel()
+		h, _ := logsHarness(t)
+		mergedFacts(t, h, "T-8")
+		former := logFile(t, h, "T-8", "check")
+		addRecord(t, h, "T-9", event.StepDispatched, event.KindFact,
+			dispatchData{Dispatch: port.Dispatch{Lane: "L-01", Agent: "pj-l-01", Branch: "task/T-9"}})
+		if mt := h.proj().folded.loop["T-8"]; mt == nil || mt.ended() {
+			t.Fatalf("precondition: T-8 reads ended (%+v) after L-01 took T-9", mt)
+		}
+		logThere(t, former) // T-9's dispatch says nothing about T-8's end
+		for _, step := range afterSteps {
+			runAfter(t, h, "T-8", step)
+		}
+		logGone(t, former)
 	})
 	t.Run("dropped: its logs go", func(t *testing.T) {
 		t.Parallel()
@@ -193,4 +213,42 @@ func TestTaskLogsGoWhenTheTaskEnds(t *testing.T) {
 		}
 		logThere(t, blocked)
 	})
+}
+
+// TestTaskLogsGoAtLoad: serve's load removes the logs of every task the replayed log folds as ended (T-1104: what an
+// upgrade or a serve down at its end left); an open task's logs and a task the log does not know keep theirs.
+func TestTaskLogsGoAtLoad(t *testing.T) {
+	t.Parallel()
+	h, _ := logsHarness(t)
+	for _, task := range []string{"T-1", "T-2", "T-3"} {
+		if _, ok := h.a.recordSeq(h.proj(), event.Record{Task: task, Attempt: 1, Step: event.StepDropped, Kind: event.KindFact},
+			event.FactData{Reason: "not needed"}); !ok {
+			t.Fatalf("the drop of %s was not recorded", task)
+		}
+	}
+	addRecord(t, h, "T-4", event.StepDispatched, event.KindFact,
+		dispatchData{Dispatch: port.Dispatch{Lane: "L-01", Agent: "pj-l-01", Branch: "task/T-4"}})
+	addRecord(t, h, "T-4", event.StepSubmitted, event.KindFact, submitData{Lane: "L-01", Agent: "pj-l-01"})
+	endedLogs := []string{
+		logFile(t, h, "T-1", "check"),
+		logFile(t, h, "T-2", "after_merge"),
+		logFile(t, h, "T-3", "stop"),
+	}
+	open, unknown := logFile(t, h, "T-4", "check"), logFile(t, h, "T-5", "check") // T-5: no record at all
+	p := reloadProj(t, h)
+	for _, task := range []string{"T-1", "T-2", "T-3"} {
+		if mt := p.folded.loop[task]; mt == nil || !mt.ended() {
+			t.Fatalf("precondition: the replayed %s is not ended (%+v)", task, p.folded.loop)
+		}
+	}
+	for _, task := range []string{"T-4", "T-5"} {
+		if mt := p.folded.loop[task]; mt != nil && mt.ended() {
+			t.Fatalf("precondition: the replayed %s reads ended (%+v)", task, mt)
+		}
+	}
+	for _, path := range endedLogs {
+		logGone(t, path)
+	}
+	logThere(t, open)
+	logThere(t, unknown)
 }

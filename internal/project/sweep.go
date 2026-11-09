@@ -13,7 +13,6 @@ import (
 
 	"obor/internal/config"
 	"obor/internal/roles"
-	"obor/internal/store"
 )
 
 // The sweep's retentions (T-1085): the newest daily backups, and how long drafts, stop-failure entries and a leftover
@@ -43,9 +42,9 @@ var staleLogs = []string{"milestone-", "promote-retest", "conformance-turn"}
 // longer names (run-changed-<lane>, lane-changed-files-<lane>, lanes/<lane>.plugin, lanes/<lane>.setup, inbox/<slot>,
 // restart-<agent>.log, restart-<lane|agent>.lock), the retired state files (receipts/, merges.log,
 // merge-changed-files, serve-changed-files, conformance.json, .obor/cache), drafts not modified for draftKeep, the
-// logs nothing needs (logs/<task>-*.log of a task no lane holds open, the names no code writes, and launch.log and
-// restart-<agent>.log unwritten for staleLogKeep), stop-failure entries older than stopFailureKeep and flakes.jsonl's
-// entries older than flakeKeep.
+// logs nothing needs (the logs/ names no code writes any more, and launch.log and restart-<agent>.log unwritten for
+// staleLogKeep), stop-failure entries older than stopFailureKeep and flakes.jsonl's entries older than flakeKeep. A
+// task's step logs are serve's to remove at its end (T-1104): the sweep leaves them, a task's or an unknown one's.
 // backedUp says this nightly's backup succeeded with a nonempty reply: only then is the backup step run (RV-161 #1: a
 // failed or empty backup must not remove the days an upgraded project still has). Every other step runs regardless. It
 // never touches obor.db*, serve.*, serve.log, nightly's and a release's logs (their writers end them, T-1094, T-1098),
@@ -78,7 +77,7 @@ func Sweep(cfg *config.Config, now time.Time, backedUp bool) []string {
 			}, nil
 		}},
 		{"drafts", func() ([]string, error) { return sweepDrafts(filepath.Join(cfg.Root, ".obor", "drafts"), now) }},
-		{"logs", func() ([]string, error) { return sweepLogs(cfg, state, now) }},
+		{"logs", func() ([]string, error) { return sweepLogs(state, now) }},
 	}
 	var out []string
 	for _, step := range steps {
@@ -275,14 +274,12 @@ func sweepDir(dir string, gone func(name string) bool) ([]string, error) {
 	return out, nil
 }
 
-// sweepLogs is the state's logs nothing needs any more (T-1098): in logs/, the files of staleLogs' names and the step
-// logs (<task>-<step>.log) of a task no lane row holds open (serve removes a task's logs when it ends; this catches
-// what a serve down at that moment left), and in state, launch.log and restart-<agent>.log unwritten for staleLogKeep.
-// The open tasks are one read of the store's lane rows: a read that fails removes no task's log and is this step's one
-// line. A pass's own log stays: nightly's next pass removes it (T-1094), and the release script its own (T-1098).
-func sweepLogs(cfg *config.Config, state string, now time.Time) ([]string, error) {
+// sweepLogs is the state's logs nothing needs any more (T-1098, T-1104): in logs/, the files of staleLogs' names, and
+// in state, launch.log and restart-<agent>.log unwritten for staleLogKeep. A task's step logs are serve's to remove at
+// its end (mtask.ended), never the sweep's: it cannot tell a landed task still running its after-merge steps from a
+// closed one. A pass's own log stays: nightly's next pass removes it (T-1094), and the release script its own (T-1098).
+func sweepLogs(state string, now time.Time) ([]string, error) {
 	logs := filepath.Join(state, "logs")
-	open, openErr := openTasks(cfg.Root)
 	entries, err := os.ReadDir(logs)
 	if err != nil && !os.IsNotExist(err) {
 		return nil, err
@@ -291,13 +288,6 @@ func sweepLogs(cfg *config.Config, state string, now time.Time) ([]string, error
 	for _, e := range entries {
 		name := e.Name()
 		if staleLog(name) {
-			out = append(out, filepath.Join(logs, name))
-			continue
-		}
-		if openErr != nil {
-			continue
-		}
-		if task, ok := taskLog(cfg, name); ok && !open[task] {
 			out = append(out, filepath.Join(logs, name))
 		}
 	}
@@ -315,7 +305,7 @@ func sweepLogs(cfg *config.Config, state string, now time.Time) ([]string, error
 			out = append(out, filepath.Join(state, name))
 		}
 	}
-	return out, openErr
+	return out, nil
 }
 
 // staleLog: name is a logs/ file no current code writes (staleLogs).
@@ -326,38 +316,6 @@ func staleLog(name string) bool {
 		}
 	}
 	return false
-}
-
-// taskLog is name's task when name is a step log, <task>-<step>.log, and the task: the longest prefix at a dash that is
-// a task id, so T-10's log is never T-100's. A name neither shape has (nightly's, serve's, a release's) is no task log.
-func taskLog(cfg *config.Config, name string) (string, bool) {
-	stem, ok := strings.CutSuffix(name, ".log")
-	if !ok {
-		return "", false
-	}
-	for i := len(stem) - 1; i > 0; i-- {
-		if stem[i] == '-' && cfg.TaskIDOK(stem[:i]) {
-			return stem[:i], true
-		}
-	}
-	return "", false
-}
-
-// openTasks is the tasks the project's lane rows hold now and that have not landed (store.ReadLanesAt, one read): the
-// tasks whose step logs stay. No store is no open task (a project serve never loaded has run no gate); an error is no
-// read at all.
-func openTasks(root string) (map[string]bool, error) {
-	rows, err := store.ReadLanesAt(root)
-	if err != nil {
-		return nil, err
-	}
-	open := make(map[string]bool, len(rows))
-	for _, row := range rows {
-		if row.Task != "" && !row.Landed {
-			open[row.Task] = true
-		}
-	}
-	return open, nil
 }
 
 // pruneFlakes drops flakes.jsonl's entries older than flakeKeep; the file stays, and an entry that does not parse

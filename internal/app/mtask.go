@@ -263,6 +263,13 @@ func (mt *mtask) ended() bool {
 	return mt.state == stDropped || mt.state == stMerged && mt.after >= len(afterSteps)
 }
 
+// taskEnded: the fold has the task ended now (mtask.ended); a task it does not know is not ended (T-1104: its logs are
+// nobody's to remove).
+func (p *proj) taskEnded(task string) bool {
+	mt := p.folded.loop[task]
+	return mt != nil && mt.ended()
+}
+
 // sendback starts the next attempt: the worker fixes what note says.
 func (mt *mtask) sendback(note string) {
 	mt.sendbacks++
