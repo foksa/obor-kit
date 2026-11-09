@@ -17,7 +17,7 @@
     dispatch: ["DP", "idle"], message: ["→", "accent"], drive: ["DR", "accent"], problem: ["!", "bad"],
     serve: ["SV", "idle"], promotion: ["PR", "done"], other: ["·", "idle"],
   };
-  const rows = $derived(events.map((e) => ({ e, k: eventKind(e.line, e.bad, e.kind), to: lineTo(e.line) }))
+  const rows = $derived(events.map((e) => ({ e, k: eventKind(e.kind, e.bad), to: lineTo(e.line) }))
     .filter((r) => EVENT_FILTERS[filter]?.(r.k, r.e.bad) ?? true));
   let open = $state<Record<string, boolean>>({});
   const key = (e: Row) => `${e.project}:${e.seq}:${e.ts}`;

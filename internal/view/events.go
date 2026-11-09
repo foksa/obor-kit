@@ -11,14 +11,14 @@ import (
 
 // Event is one record of the log as the view words it: its seq (a UI's cursor: "changed since seq X"; 0 for serve's
 // own start, which is no record), its time, its task, its line, whether that line is bad news (T-688), and its kind
-// when serve names one (app.KindPromotion, T-977; "": the page reads the line).
+// (app.Kind*, T-1074: the page's filter and icon).
 type Event struct {
 	Seq  int64     `json:"seq"`
 	TS   string    `json:"ts"`
 	Task string    `json:"task,omitempty"`
 	Line string    `json:"line"`
 	Bad  bool      `json:"bad,omitempty"`
-	Kind string    `json:"kind,omitempty"`
+	Kind string    `json:"kind"`
 	At   time.Time `json:"-"` // TS, parsed
 }
 
@@ -41,7 +41,7 @@ func events(db *sql.DB, n int, s Serve) []Event {
 		}
 	}
 	if s.Up && !s.SinceTime.IsZero() {
-		out = append(out, Event{TS: s.Since, Line: "serve restarted", At: s.SinceTime})
+		out = append(out, Event{TS: s.Since, Line: "serve restarted", Kind: app.KindServe, At: s.SinceTime})
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].At.After(out[j].At) })
 	return out[:min(n, len(out))]

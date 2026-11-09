@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EVENT_FILTERS, dur, eventKind, human, lineTo, parts, relText, splitTasks, tone } from "./format";
+import { EVENT_FILTERS, EVENT_KINDS, dur, eventKind, human, lineTo, parts, relText, splitTasks, tone } from "./format";
 
 describe("wording", () => {
   it("says durations as a person does", () => {
@@ -31,30 +31,24 @@ describe("wording", () => {
     expect(tone("test pending")).toBe("wait");
     expect(tone("gating")).toBe("info");
   });
-  it("sorts events by kind", () => {
-    expect(eventKind("merged T-1 abc")).toBe("merge");
-    expect(eventKind("gate T-1 pass (GREEN)")).toBe("gate");
-    expect(eventKind("line to aa-rev: verify")).toBe("message");
-    expect(eventKind("dispatched T-1 (D-02)")).toBe("dispatch");
-    expect(eventKind("anything", true)).toBe("problem");
+  // T-1074: serve names every event's kind (app.Kind*); the page no longer reads it from the line's wording.
+  it("takes each event's kind from serve", () => {
+    expect(EVENT_KINDS.map((k) => eventKind(k))).toEqual([...EVENT_KINDS]);
+    expect(eventKind("promotion", true)).toBe("promotion"); // bad news keeps its kind
+    expect(eventKind("gate", true)).toBe("gate");
+    expect(eventKind("what", false)).toBe("other");
+    expect(eventKind("", true)).toBe("problem"); // no kind (older page's cache): bad still lands in Problems
+  });
+  // T-688, T-1074: the Problems filter shows bad news of any kind, and a problem that is not bad.
+  it("shows bad news of any kind in Problems", () => {
+    for (const k of EVENT_KINDS) expect(EVENT_FILTERS.Problems(k, true)).toBe(true);
+    for (const k of EVENT_KINDS) expect(EVENT_FILTERS.Problems(k, false)).toBe(k === "problem");
+    expect(EVENT_FILTERS.Problems("gate", false)).toBe(false);
+    expect(EVENT_FILTERS.Problems("promotion", true)).toBe(true);
+    expect(EVENT_FILTERS.Flow("promotion")).toBe(true);
+  });
+  it("reads a line to an agent as its agent and text", () => {
     expect(lineTo("line to aa-rev: verify RV-4")).toEqual({ agent: "aa-rev", text: "verify RV-4" });
     expect(lineTo("merged T-1")).toBeNull();
-  });
-  // T-971: the lane test's lines are the gate's other half (T-961), and a pass's count ("0 fail") is no problem.
-  it("reads a lane test's line as the gate's, with a count no problem", () => {
-    expect(eventKind("test T-1 pass (GREEN T-1 (33 pass, 0 fail))")).toBe("gate");
-    expect(eventKind("test T-1 red (RED T-1 (1 fail))", true)).toBe("problem");
-    expect(eventKind("gate T-1 pass (GREEN T-1 (33 pass, 0 fail))")).toBe("gate");
-    expect(eventKind("check 33 pass, 0 fail")).toBe("other");
-  });
-  // T-977: a promotion's events are serve's kind, never read from their wording; a RED one is still a problem.
-  it("takes the promotion's kind from serve", () => {
-    expect(eventKind("promotion started: full suite on abc1234 (T-1)", false, "promotion")).toBe("promotion");
-    expect(eventKind("promotion RED abc1234: check 1 failed", true, "promotion")).toBe("promotion");
-    expect(eventKind("promoted main → abc1234", false, "promotion")).toBe("promotion");
-    expect(eventKind("promotion RED abc1234: check 1 failed", true)).toBe("problem"); // no kind: as before
-    expect(EVENT_FILTERS.Problems("promotion", true)).toBe(true);
-    expect(EVENT_FILTERS.Problems("promotion", false)).toBe(false);
-    expect(EVENT_FILTERS.Flow("promotion")).toBe(true);
   });
 });

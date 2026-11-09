@@ -189,9 +189,14 @@ func TestTSStringSetsMatchGo(t *testing.T) {
 	}
 
 	format := readTS(t, filepath.Join(tsLib, "format.ts"))
-	// T-977: the event kinds serve names and a promotion run's steps are Go's.
-	if kinds, ok := tsStringSet(format, "export const SERVE_KINDS = [", "]"); !ok || !slices.Equal(kinds, []string{app.KindPromotion}) {
-		t.Errorf("format.ts: SERVE_KINDS %v (parsed %v), want [%s] (app.Kind*)", kinds, ok, app.KindPromotion)
+	// T-1074: every event kind serve names is Go's app.Kind*, and EventKind is their union, not a retyped list.
+	wantKinds := []string{app.KindMerge, app.KindGate, app.KindAccept, app.KindSubmit, app.KindDispatch, app.KindDrive,
+		app.KindMessage, app.KindServe, app.KindPromotion, app.KindProblem, app.KindOther}
+	if kinds, ok := tsStringSet(format, "export const EVENT_KINDS = [", "]"); !ok || !slices.Equal(kinds, wantKinds) {
+		t.Errorf("format.ts: EVENT_KINDS %v (parsed %v), want %v (app.Kind*)", kinds, ok, wantKinds)
+	}
+	if !strings.Contains(format, "export type EventKind = (typeof EVENT_KINDS)[number];") {
+		t.Errorf("format.ts: EventKind is not the union of EVENT_KINDS (app.Kind*)")
 	}
 	promotion := readTS(t, filepath.Join(tsLib, "promotion.ts"))
 	if steps, ok := tsStringSet(promotion, "export const PROMOTE_STEPS = [", "]"); !ok ||
