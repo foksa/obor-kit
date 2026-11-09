@@ -41,7 +41,7 @@ func (a *App) load(root string) (*proj, error) {
 		rules: map[string]ruleLive{}, nopane: map[string]time.Time{}, waitLine: map[string]waitRefusal{},
 		unwritten: map[event.Key]json.RawMessage{}, exec: map[event.Key]time.Time{}, scratch: make(chan struct{}, 1),
 		tests: map[string]event.Key{}, testCmd: map[string]string{},
-		held: map[string]string{}, ended: map[string]bool{}, roleFail: map[string]time.Time{},
+		held: map[string]string{}, ended: map[string]bool{}, logsGone: map[string]int64{}, roleFail: map[string]time.Time{},
 		reg: identity.New(), folded: newFolded(), wtAgents: wtAgents(cfg)} // wtAgents: the last good set (wtAgentsNow)
 	for _, r := range recs {
 		p.foldRecord(r)

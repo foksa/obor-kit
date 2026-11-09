@@ -396,6 +396,7 @@ func (a *App) recordIn(p *proj, r event.Record, data any) (int64, bool) {
 	}
 	a.hook(hookAppended)
 	p.foldRecord(r)
+	a.endTaskLogs(p, r.Task) // a merged or dropped fact, or an outside merge that needs none, ends it (T-1098)
 	if r.Kind == event.KindFact && (r.Step == event.StepMerged || r.Step == event.StepDropped) {
 		a.settleEnded(p, r.Task) // the task ended: its pending intents never run
 	}
@@ -444,7 +445,8 @@ func (a *App) do(ctx context.Context, p *proj, in event.Intent, effect func(cont
 		if r, err = a.doFinish(p, in, v, err); err != nil {
 			return nil, err
 		}
-		p.foldRecord(r) // its append and this fold are one section: the live fold order is the log's
+		p.foldRecord(r)          // its append and this fold are one section: the live fold order is the log's
+		a.endTaskLogs(p, r.Task) // the last after-merge step's result ends a merged task (T-1098)
 	}
 	if err := p.laneRowsErr(); err != nil { // the result is in the log: the next pass finds it done and proceeds once the rows are written
 		a.logf("%s %s %s: lane rows: %v", p.name, in.Task, in.Step, err)
@@ -465,7 +467,8 @@ func (a *App) doBegin(p *proj, in event.Intent) (event.Record, bool, error) {
 			return r, false, err
 		}
 		delete(p.unwritten, in.Key)
-		p.foldRecord(r) // here, not after do's next lock: a record appended meanwhile folds after it (T-955)
+		p.foldRecord(r)          // here, not after do's next lock: a record appended meanwhile folds after it (T-955)
+		a.endTaskLogs(p, r.Task) // a stored after-merge result ends a merged task too (T-1098)
 		if err := p.laneRowsErr(); err != nil {
 			a.logf("%s %s %s: lane rows: %v", p.name, in.Task, in.Step, err)
 			return r, false, err

@@ -103,6 +103,7 @@ func TestMakeReleaseVetFailureIsRefusedWithoutRerun(t *testing.T) {
 	}
 }
 
+// T-717, T-1098: a refused release keeps its full log (its FAIL lines name it); a release that succeeds removes it.
 func TestMakeReleaseKeepsItsFullLog(t *testing.T) {
 	t.Parallel()
 	f := newReleaseFixture(t)
@@ -124,14 +125,14 @@ func TestMakeReleaseKeepsItsFullLog(t *testing.T) {
 	if !strings.Contains(out, "(full log: "+logRel+")") {
 		t.Errorf("the FAIL line does not name the log:\n%s", out)
 	}
-	// A re-run appends: the first run's text stays.
+	// The re-run appends while it goes, then removes the log: a release that succeeds has nothing left to read.
 	if err := os.Remove(filepath.Join(f.Base, "go-fail")); err != nil {
 		t.Fatal(err)
 	}
 	if out, failed := f.release(t, "V=1.2.4"); failed {
 		t.Fatalf("resume failed:\n%s", out)
 	}
-	if again := f.Read(logRel); !strings.Contains(again, "--- FAIL: TestRace") || !strings.Contains(again, "next (owner): make ship") {
-		t.Errorf("the re-run did not append to the log:\n%s", again)
+	if f.Exists(logRel) {
+		t.Errorf("a successful release left its log:\n%s", f.Read(logRel))
 	}
 }

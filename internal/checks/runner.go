@@ -10,7 +10,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"obor/internal/config"
 	"obor/internal/project"
@@ -36,7 +35,6 @@ type runner struct {
 	class       Class
 	mode        string            // class.Mode() once classified
 	check       string            // the checks' counts
-	pruned      bool              // the old logs were removed (once per run, at its first command)
 	onCommand   func(name string) // told each command as it starts and "" as it ends (serve's gate: obor status' running line, T-669, T-673)
 }
 
@@ -131,7 +129,6 @@ func (r *runner) execCommand(c config.Command, dir ...string) (output, *halt) {
 	if len(dir) > 0 {
 		wd = dir[0]
 	}
-	r.pruneOnce()
 	if r.onCommand != nil {
 		r.onCommand(c.Name)
 	}
@@ -155,19 +152,6 @@ func (r *runner) execCommand(c config.Command, dir ...string) (output, *halt) {
 		o.log = r.writeLog(c.Name, buf.Bytes())
 	}
 	return o, nil
-}
-
-// logMaxAge is how long a check log stays in .obor/state/logs.
-const logMaxAge = 14 * 24 * time.Hour
-
-// pruneOnce removes the logs older than logMaxAge, once per run, at its first command: an all-green run writes no log
-// and still prunes.
-func (r *runner) pruneOnce() {
-	if r.pruned {
-		return
-	}
-	r.pruned = true
-	run.PruneOlder(filepath.Join(r.state, "logs"), time.Now().Add(-logMaxAge))
 }
 
 // logPath is where a failed command's full output is kept: .obor/state/logs/<logName>-<name>.log.

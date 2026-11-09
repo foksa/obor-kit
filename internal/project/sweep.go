@@ -13,6 +13,7 @@ import (
 
 	"obor/internal/config"
 	"obor/internal/roles"
+	"obor/internal/store"
 )
 
 // The sweep's retentions (T-1085): the newest daily backups, and how long drafts, stop-failure entries and a leftover
@@ -24,35 +25,33 @@ const (
 	backupTempKeep  = 24 * time.Hour
 )
 
-// mergedLogKeep is how long a merged task's step logs stay after its last merge (T-1090): they are rarely read after
-// the merge, whose gate results and report are in the event log. Every other log keeps PruneOlder's 14 days.
-const mergedLogKeep = 3 * 24 * time.Hour
+// staleLogKeep is how long a state file with no writer but a person's reader stays unwritten before it goes (T-1098:
+// launch.log, restart-<agent>.log: their failure output is worth a fortnight).
+const staleLogKeep = 14 * 24 * time.Hour
 
-// Merge is one of a project's merged facts as the sweep's merged-task log step reads them (event.ReadMerges): the task
-// and when it merged.
-type Merge struct {
-	Task string
-	At   time.Time
-}
+// FlakeKeep is how far back obor flakes reads flakes.jsonl: the sweep drops an older entry (T-1098). The checks
+// package cannot be imported here, so its reader (flakeWindow) takes this window from here.
+const FlakeKeep = 7 * 24 * time.Hour
 
-// Merges reads the project at root's merged facts, oldest first (event.ReadMerges, read-only). An error means they
-// could not be read (a project without a store, for one): the merged-task log step then removes nothing and the sweep
-// has one line saying why (T-1090).
-type Merges func(root string) ([]Merge, error)
+// staleLogs are the logs/ names no current code writes (T-1098): an old milestone run, promotion or conformance
+// turn.
+var staleLogs = []string{"milestone-", "promote-retest", "conformance-turn"}
 
 // Sweep removes what the project at cfg.Root no longer needs, right after obor nightly's backup: daily backups past
 // the newest backupKeep dates (either format, T-1086: gzip'd days count together with the older uncompressed ones;
 // every other entry of state/backup/ but a temp file younger than a day), files keyed by a lane or agent the config no
 // longer names (run-changed-<lane>, lane-changed-files-<lane>, lanes/<lane>.plugin, lanes/<lane>.setup, inbox/<slot>,
 // restart-<agent>.log, restart-<lane|agent>.lock), the retired state files (receipts/, merges.log,
-// merge-changed-files), drafts not modified for draftKeep, the step logs of tasks merged more than mergedLogKeep ago
-// (merges, T-1090) and stop-failure entries older than stopFailureKeep.
+// merge-changed-files, serve-changed-files, conformance.json, .obor/cache), drafts not modified for draftKeep, the
+// logs nothing needs (logs/<task>-*.log of a task no lane holds open, the names no code writes, and launch.log and
+// restart-<agent>.log unwritten for staleLogKeep), stop-failure entries older than stopFailureKeep and flakes.jsonl's
+// entries older than flakeKeep.
 // backedUp says this nightly's backup succeeded with a nonempty reply: only then is the backup step run (RV-161 #1: a
 // failed or empty backup must not remove the days an upgraded project still has). Every other step runs regardless. It
-// never touches obor.db*, serve.*, the other logs/ files, kinds/, opencode.json, conformance.json, last-full-check,
-// flakes.jsonl, background.jsonl or launch.log. Every removal is best-effort: a failure is one line naming its path
-// and the sweep goes on (a removal it misses is only disk).
-func Sweep(cfg *config.Config, now time.Time, backedUp bool, merges Merges) []string {
+// never touches obor.db*, serve.*, serve.log, nightly's and a release's logs (their writers end them, T-1094, T-1098),
+// kinds/, opencode.json, last-full-check or background.jsonl. Every removal is best-effort: a failure is one line
+// naming its path and the sweep goes on (a removal it misses is only disk).
+func Sweep(cfg *config.Config, now time.Time, backedUp bool) []string {
 	if cfg == nil {
 		return []string{"sweep: no config"}
 	}
@@ -73,19 +72,13 @@ func Sweep(cfg *config.Config, now time.Time, backedUp bool, merges Merges) []st
 				filepath.Join(state, "receipts"),
 				filepath.Join(state, "merges.log"),
 				filepath.Join(state, "merge-changed-files"),
+				filepath.Join(state, "serve-changed-files"),
+				filepath.Join(state, "conformance.json"),
+				filepath.Join(cfg.Root, ".obor", "cache"),
 			}, nil
 		}},
 		{"drafts", func() ([]string, error) { return sweepDrafts(filepath.Join(cfg.Root, ".obor", "drafts"), now) }},
-		{"merged logs", func() ([]string, error) {
-			if merges == nil {
-				return nil, fmt.Errorf("no merge reader")
-			}
-			ms, err := merges(cfg.Root)
-			if err != nil {
-				return nil, err
-			}
-			return sweepMergedLogs(filepath.Join(state, "logs"), ms, now)
-		}},
+		{"logs", func() ([]string, error) { return sweepLogs(cfg, state, now) }},
 	}
 	var out []string
 	for _, step := range steps {
@@ -99,9 +92,13 @@ func Sweep(cfg *config.Config, now time.Time, backedUp bool, merges Merges) []st
 			}
 		}
 	}
-	// The stop-failure log's file stays; its entries keep the check logs' 14-day retention.
+	// The stop-failure log's file stays; its entries keep their own 14-day retention. flakes.jsonl's file stays
+	// too: the entries obor flakes cannot read (7 days) go.
 	if err := pruneStopFailure(filepath.Join(state, StopFailureLog), now); err != nil {
 		out = append(out, fmt.Sprintf("sweep stop-failure log: %v", err))
+	}
+	if err := pruneFlakes(filepath.Join(state, "flakes.jsonl"), now); err != nil {
+		out = append(out, fmt.Sprintf("sweep flakes: %v", err))
 	}
 	return out
 }
@@ -278,34 +275,122 @@ func sweepDir(dir string, gone func(name string) bool) ([]string, error) {
 	return out, nil
 }
 
-// sweepMergedLogs is logs's step logs (a task's <id>-<step>.log) to remove (T-1090): those of a task whose last merge in
-// merges is older than mergedLogKeep. merges is in seq order, so a task merged twice keeps its last merge; an
-// unreadable merge time is no merge time, and the logs stay (PruneOlder's 14 days still ends them).
-func sweepMergedLogs(logs string, merges []Merge, now time.Time) ([]string, error) {
-	last := map[string]time.Time{}
-	for _, m := range merges {
-		last[m.Task] = m.At
+// sweepLogs is the state's logs nothing needs any more (T-1098): in logs/, the files of staleLogs' names and the step
+// logs (<task>-<step>.log) of a task no lane row holds open (serve removes a task's logs when it ends; this catches
+// what a serve down at that moment left), and in state, launch.log and restart-<agent>.log unwritten for staleLogKeep.
+// The open tasks are one read of the store's lane rows: a read that fails removes no task's log and is this step's one
+// line. A pass's own log stays: nightly's next pass removes it (T-1094), and the release script its own (T-1098).
+func sweepLogs(cfg *config.Config, state string, now time.Time) ([]string, error) {
+	logs := filepath.Join(state, "logs")
+	open, openErr := openTasks(cfg.Root)
+	entries, err := os.ReadDir(logs)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
 	}
-	cutoff := now.Add(-mergedLogKeep)
-	return sweepDir(logs, func(name string) bool { return mergedLog(name, last, cutoff) })
-}
-
-// mergedLog: name is a step log, "<task>-<step>.log", of a task in last merged before cutoff. The longest prefix that is
-// a task wins, so T-100's log is never T-10's.
-func mergedLog(name string, last map[string]time.Time, cutoff time.Time) bool {
-	stem, ok := strings.CutSuffix(name, ".log")
-	if !ok {
-		return false
-	}
-	for i := len(stem) - 1; i > 0; i-- {
-		if stem[i] != '-' {
+	var out []string
+	for _, e := range entries {
+		name := e.Name()
+		if staleLog(name) {
+			out = append(out, filepath.Join(logs, name))
 			continue
 		}
-		if at, ok := last[stem[:i]]; ok {
-			return !at.IsZero() && at.Before(cutoff)
+		if openErr != nil {
+			continue
+		}
+		if task, ok := taskLog(cfg, name); ok && !open[task] {
+			out = append(out, filepath.Join(logs, name))
+		}
+	}
+	cutoff := now.Add(-staleLogKeep)
+	entries, err = os.ReadDir(state)
+	if err != nil && !os.IsNotExist(err) {
+		return out, err
+	}
+	for _, e := range entries { // the state's own logs: the names are fixed, so this loop is the age rule alone
+		name := e.Name()
+		if e.IsDir() || name != "launch.log" && !(strings.HasPrefix(name, "restart-") && strings.HasSuffix(name, ".log")) {
+			continue
+		}
+		if fi, err := e.Info(); err == nil && fi.ModTime().Before(cutoff) {
+			out = append(out, filepath.Join(state, name))
+		}
+	}
+	return out, openErr
+}
+
+// staleLog: name is a logs/ file no current code writes (staleLogs).
+func staleLog(name string) bool {
+	for _, pre := range staleLogs {
+		if strings.HasPrefix(name, pre) {
+			return true
 		}
 	}
 	return false
+}
+
+// taskLog is name's task when name is a step log, <task>-<step>.log, and the task: the longest prefix at a dash that is
+// a task id, so T-10's log is never T-100's. A name neither shape has (nightly's, serve's, a release's) is no task log.
+func taskLog(cfg *config.Config, name string) (string, bool) {
+	stem, ok := strings.CutSuffix(name, ".log")
+	if !ok {
+		return "", false
+	}
+	for i := len(stem) - 1; i > 0; i-- {
+		if stem[i] == '-' && cfg.TaskIDOK(stem[:i]) {
+			return stem[:i], true
+		}
+	}
+	return "", false
+}
+
+// openTasks is the tasks the project's lane rows hold now and that have not landed (store.ReadLanesAt, one read): the
+// tasks whose step logs stay. No store is no open task (a project serve never loaded has run no gate); an error is no
+// read at all.
+func openTasks(root string) (map[string]bool, error) {
+	rows, err := store.ReadLanesAt(root)
+	if err != nil {
+		return nil, err
+	}
+	open := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		if row.Task != "" && !row.Landed {
+			open[row.Task] = true
+		}
+	}
+	return open, nil
+}
+
+// pruneFlakes drops flakes.jsonl's entries older than flakeKeep; the file stays, and an entry that does not parse
+// stays (a crash left half of one, and its readers skip it).
+func pruneFlakes(path string, now time.Time) error {
+	b, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	cutoff := now.Add(-FlakeKeep).Unix()
+	var kept bytes.Buffer
+	dropped := false
+	for _, line := range bytes.Split(b, []byte("\n")) {
+		if len(line) == 0 {
+			continue
+		}
+		var entry struct {
+			Time int64 `json:"time"`
+		}
+		if json.Unmarshal(line, &entry) == nil && entry.Time < cutoff {
+			dropped = true
+			continue
+		}
+		kept.Write(line)
+		kept.WriteByte('\n')
+	}
+	if !dropped {
+		return nil
+	}
+	return os.WriteFile(path, kept.Bytes(), 0o644)
 }
 
 // sweepDrafts is .obor/drafts' files not modified for draftKeep.
@@ -330,7 +415,7 @@ func sweepDrafts(dir string, now time.Time) ([]string, error) {
 	return out, nil
 }
 
-// pruneStopFailure drops the stop-failure log's entries older than stopFailureKeep (T-1085: the check logs' 14-day
+// pruneStopFailure drops the stop-failure log's entries older than stopFailureKeep (T-1085: its own 14-day
 // retention, moved into the sweep); the file stays.
 func pruneStopFailure(path string, now time.Time) error {
 	b, err := os.ReadFile(path)

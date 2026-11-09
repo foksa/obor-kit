@@ -218,16 +218,6 @@ func ChangedFiles(dir, base, tree string) ([]string, error) {
 	return files, nil
 }
 
-// PruneOlder removes the files in dir last modified before cutoff (a dot file is a write in flight).
-func PruneOlder(dir string, cutoff time.Time) {
-	ents, _ := os.ReadDir(dir)
-	for _, e := range ents {
-		if info, err := e.Info(); err == nil && !strings.HasPrefix(e.Name(), ".") && info.Mode().IsRegular() && info.ModTime().Before(cutoff) {
-			os.Remove(filepath.Join(dir, e.Name()))
-		}
-	}
-}
-
 // Execute runs the command with bash in its own process group (project.Group: TERM on a timeout or a signal, KILL
 // after project.Grace, and nothing of the group outlives the return): its exit code, and whether it timed out. obor run
 // and internal/checks use it.

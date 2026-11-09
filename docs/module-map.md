@@ -30,8 +30,9 @@ gate runs it. Adapters never import each other: one that needs another goes thro
   project (`stopped.go`, T-709, T-711: `Stopped`, `WriteStopMarker` (the pause stop replaced), `BeginStart`/`EndStart`, `Unregister`: obor stop / obor start);
   `sweep.go` (T-1085): the nightly sweep of `.obor` (daily backups past the newest 7 dates, gzip'd or the older
   uncompressed ones, and only after a successful backup (T-1086); files of lanes and agents the config no longer
-  names, the retired state names, old drafts, and a merged task's step logs 3 days after its last merge (T-1090, from
-  the `merged` facts: `Sweep` takes its `Merges` reader, a base package cannot import the core's `event`)).
+  names, the retired state names, old drafts, the logs nothing needs (a task's gone when serve ends it (`app/logs.go`,
+  T-1098), an ended task's left by a serve down then, names no code writes, and `launch.log`/`restart-<agent>.log` 14
+  days unwritten), `flakes.jsonl`'s entries older than the 7 days `obor flakes` reads, and stop-failure entries).
 - `config`: effective config. `config.Load(root) (*Config, error)` (every command's, serve's: an unknown key is ignored
   with a warning, T-1081); `LoadReader` (obor status, obor stop/start, web: the warning returned, T-709);
   `LoadForValidate` (obor config validate, the one strict place: a FAIL line per unknown key); `Validate` (removed keys
@@ -103,7 +104,9 @@ process (`plugin.Local`).
   the `app/identity` table accepts; `whereIs` and the table's `WhoIs` the only lookups, never herdr's name; T-504);
   `lanerows.go` (the `lanes` table projection), `specs.go`, `prompts.go` (the `prompts` table's writes and prune,
   T-665, T-670), `prune.go` (the nightly prune of ended tasks' records and old sessions, 30 days on: which tasks; the
-  rows' SQL is `event.PruneTasks` and `store.PruneSessions`, T-1089), `dispatch.go`, `drive.go` (the owner's drive and land: `obor drive`, `obor land`, the driving state, T-751), `messages.go` (the lines' delivery over `app/outbox`'s state: `deliver`, `route`, `recordBrief`, `foldMsg` applying what `Fold` ended; T-1067), `mergewatch.go`,
+  rows' SQL is `event.PruneTasks` and `store.PruneSessions`; `mtask.ended` is the end both it and the logs' removal
+  read, T-1089, T-1098), `logs.go` (a task's step logs go when it ends: merged with its after-merge steps done, or
+  dropped, T-1098), `dispatch.go`, `drive.go` (the owner's drive and land: `obor drive`, `obor land`, the driving state, T-751), `messages.go` (the lines' delivery over `app/outbox`'s state: `deliver`, `route`, `recordBrief`, `foldMsg` applying what `Fold` ended; T-1067), `mergewatch.go`,
   `rules.go` (the rule pass: rule-tier steps, T-866), `idle.go` (the idle rules and `obor idle`), `stopped.go`, `stopwake.go`, `rolestop.go` (the role stop rules: serve stops the integrator and the reviewer once done, and a fresh brief's stop; T-672, T-870), `workerstart.go` (the worker start rule: a lane's worker started again while its job is outstanding; T-874), `keeplane.go` (a keep lane's agent between its tasks: its live agent takes the next job, the handoff rule stops one past handoff_tokens; T-1031), `nightly.go`,
   `configset.go` (the owner's setup edit from obor web, through the `ConfigFile` port, T-753),
   `verbs.go` (`leadOr`: the admission of a lead's and the owner's method, a custom role's by its `roles.<name>.verbs`, T-1039),

@@ -187,6 +187,9 @@ type proj struct {
 	// step's name; ended: the tasks whose drop is decided and being recorded (App.drop). Both under mu.
 	held  map[string]string
 	ended map[string]bool
+	// logsGone: each task whose step logs were removed at its end, by the end's record (T-1098: a task dispatched
+	// again and ended again removes the new ones). Under mu.
+	logsGone map[string]int64
 	// roleFail: when a fresh brief's stop of a role agent last failed, by agent (rolestop.go, T-672, T-870). Under mu.
 	roleFail map[string]time.Time
 	// reg, out, night: the identity table (package identity), the lines to the project's agents (package outbox,

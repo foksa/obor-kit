@@ -257,6 +257,12 @@ const (
 	outPending  = "pending"
 )
 
+// ended: the task is over (T-1089's prune, T-1098's logs): dropped, or merged with its after-merge steps done. A
+// rejected task is not ended (the owner still owes it a drop), nor is a merged one still running its steps.
+func (mt *mtask) ended() bool {
+	return mt.state == stDropped || mt.state == stMerged && mt.after >= len(afterSteps)
+}
+
 // sendback starts the next attempt: the worker fixes what note says.
 func (mt *mtask) sendback(note string) {
 	mt.sendbacks++
