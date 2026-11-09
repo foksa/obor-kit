@@ -129,7 +129,7 @@ func (a *App) newDrive(ctx context.Context, p *proj, fx *Loop, c wire.DriveReq) 
 		ref = refs[0]
 	}
 	if ref == "" {
-		return "", fmt.Errorf("drive %s: no model for level hard (obor config get difficulty): pass --model <model>", name)
+		return "", fmt.Errorf("drive %s: no model for level hard (obor config get .agents.difficulty): pass --model <model>", name)
 	}
 	if err := cfg.CheckModelRef(ref); err != nil {
 		return "", fmt.Errorf("drive %s: %v", name, err)

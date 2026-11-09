@@ -382,6 +382,19 @@ func TestDispatchRefusals(t *testing.T) {
 	})
 }
 
+// RV-167 #2: a level none of whose models the config knows names the shape-2 config path in its hint.
+func TestNoModelOfLevelNamesShape2Path(t *testing.T) {
+	t.Parallel()
+	r := newLoopRig(t, dispatching(), withConfig(testkit.Set("difficulty.hard", []string{})))
+	r.start()
+	r.specOf("T-1", "# T-1 — Leveled\n\nDifficulty: hard\n")
+	reply, err := r.dispatchCall(wire.DispatchReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-lead",
+		Role: "lead", CallID: "d1"}, Task: "T-1", Lane: "L-01"})
+	if err == nil || !strings.Contains(err.Error(), "no model of level hard is known to this project (obor config get .agents.difficulty)") || reply != "" {
+		t.Fatalf("dispatch with no hard model: %q, %v; want the shape-2 config path", reply, err)
+	}
+}
+
 // A crash at each step (before its effect, or after it with its result lost: the effect is cut off by obor serve's
 // stop and the result never written) replays to one effect and the same final state. lane.prepare (G) runs again and
 // converges; agent.start (S) reads the snapshot: a new session in the pane is the start, the same one
