@@ -69,7 +69,6 @@ func live(kinds []string, turn bool) {
 				version = versionOf(o)
 			}
 		}
-		out.begin(kind, version)
 		switch {
 		case err != nil:
 			skipAll(kind, "herdr is not installed")

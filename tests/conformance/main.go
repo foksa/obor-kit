@@ -6,7 +6,6 @@
 // against a shell-script kind, static only, T-1036). Each check prints one line,
 // `PASS|FAIL|SKIP|WARN <id> <fact> (<driver file:line>, CAP §x)`, and the last line sums them. The exit status is 1
 // when any check FAILs. A tool that is not installed, or a check that cannot run (no auth, no TURN), SKIPs with why.
-// Every run records the versions it checked in .obor/state/conformance.json (report.go).
 //
 // Tiers: static (static.go and herdrStatic here: schema, help text, binary strings, files; no session, no model) and
 // live (live.go: one throwaway herdr session per kind, the agents started interactively in its panes; model calls only
@@ -23,7 +22,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"obor/internal/herdr"
 )
@@ -93,9 +91,6 @@ func main() {
 		report("SKIP", "tier", "no tier "+tier+" (tiers: static, live)", "tests/conformance")
 	}
 	fmt.Println(out.summary())
-	if err := out.save(versionsFile, tier, time.Now()); err != nil {
-		fmt.Fprintln(os.Stderr, "conformance: versions file not written:", err)
-	}
 	if out.failed() {
 		os.Exit(1)
 	}
@@ -164,13 +159,11 @@ func herdrStatic() {
 	const sock = "internal/herdr/socket.go"
 	path, err := exec.LookPath("herdr")
 	if err != nil {
-		out.begin("herdr", "")
 		report("SKIP", "H-S1", "herdr is not installed", sock+", CAP §5.1")
 		report("SKIP", "H-S2", "herdr is not installed", at(sock, "func checkProtocol")+", CAP §5.1")
 		return
 	}
 	version := herdrVersion(path)
-	out.begin("herdr", version)
 	var stdout, stderr bytes.Buffer
 	cmd := exec.Command(path, "api", "schema", "--json")
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr

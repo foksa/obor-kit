@@ -23,7 +23,6 @@ const (
 // pluginStatic is the plugin kind's static tier: P-S1 describe and its cache, P-S2 start, P-S3 not-ready, P-S4
 // install, P-S5 turn, P-S6 deliver, P-S7 the cached manifest answering with the command gone (hook time).
 func pluginStatic() {
-	out.begin("plugin", fmt.Sprintf("protocol %d", plugin.Version))
 	where := func(needle string) string { return at(pluginGo, needle) + ", kind-protocol.md" }
 	check := func(id, fact string, ok bool, why string, w string) {
 		if ok {
