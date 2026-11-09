@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -24,14 +25,17 @@ const (
 )
 
 // Sweep removes what the project at cfg.Root no longer needs, right after obor nightly's backup: daily backups past
-// the newest backupKeep (gzip'd days; every other entry of state/backup/ but a temp file younger than a day), files
-// keyed by a lane or agent the config no longer names (run-changed-<lane>, lane-changed-files-<lane>,
-// lanes/<lane>.plugin, lanes/<lane>.setup, inbox/<slot>, restart-<agent>.log, restart-<lane|agent>.lock), the retired
-// state files (receipts/, merges.log, merge-changed-files), drafts not modified for draftKeep and stop-failure entries
-// older than stopFailureKeep. It never touches obor.db*, serve.*, logs/, kinds/, opencode.json, conformance.json,
-// last-full-check, flakes.jsonl, background.jsonl or launch.log. Every removal is best-effort: a failure is one line
-// naming its path and the sweep goes on (a removal it misses is only disk).
-func Sweep(cfg *config.Config, now time.Time) []string {
+// the newest backupKeep dates (either format, T-1086: gzip'd days count together with the older uncompressed ones;
+// every other entry of state/backup/ but a temp file younger than a day), files keyed by a lane or agent the config no
+// longer names (run-changed-<lane>, lane-changed-files-<lane>, lanes/<lane>.plugin, lanes/<lane>.setup, inbox/<slot>,
+// restart-<agent>.log, restart-<lane|agent>.lock), the retired state files (receipts/, merges.log,
+// merge-changed-files), drafts not modified for draftKeep and stop-failure entries older than stopFailureKeep.
+// backedUp says this nightly's backup succeeded with a nonempty reply: only then is the backup step run (RV-161 #1: a
+// failed or empty backup must not remove the days an upgraded project still has). Every other step runs regardless. It
+// never touches obor.db*, serve.*, logs/, kinds/, opencode.json, conformance.json, last-full-check, flakes.jsonl,
+// background.jsonl or launch.log. Every removal is best-effort: a failure is one line naming its path and the sweep
+// goes on (a removal it misses is only disk).
+func Sweep(cfg *config.Config, now time.Time, backedUp bool) []string {
 	if cfg == nil {
 		return []string{"sweep: no config"}
 	}
@@ -40,7 +44,12 @@ func Sweep(cfg *config.Config, now time.Time) []string {
 		what  string
 		paths func() ([]string, error)
 	}{
-		{"backup", func() ([]string, error) { return sweepBackups(filepath.Join(state, "backup"), now) }},
+		{"backup", func() ([]string, error) {
+			if !backedUp {
+				return nil, nil
+			}
+			return sweepBackups(filepath.Join(state, "backup"), now)
+		}},
 		{"lanes and agents", func() ([]string, error) { return sweepNames(cfg, state) }},
 		{"retired", func() ([]string, error) {
 			return []string{
@@ -70,8 +79,9 @@ func Sweep(cfg *config.Config, now time.Time) []string {
 	return out
 }
 
-// sweepBackups is state/backup's entries to remove: every daily backup but the newest backupKeep, and every other
-// entry (an old uncompressed obor-*.db, herd-*.db, an unknown leftover) but a temp file younger than a day.
+// sweepBackups is state/backup's entries to remove: the daily backups outside the newest backupKeep dates (a date
+// keeps every format it has, T-1086), and every other entry (herd-*.db, an unknown leftover) but a temp file younger
+// than a day.
 func sweepBackups(dir string, now time.Time) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
@@ -80,20 +90,20 @@ func sweepBackups(dir string, now time.Time) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	var days []string
+	var dates []string
 	for _, e := range entries {
-		if !e.IsDir() && dailyBackup(e.Name()) {
-			days = append(days, e.Name())
+		if date, ok := dailyBackup(e.Name()); ok && !slices.Contains(dates, date) {
+			dates = append(dates, date)
 		}
 	}
-	sort.Strings(days) // by date: the name's only variable part
+	sort.Strings(dates) // by date: the name's only variable part
 	keep := map[string]bool{}
-	for i := len(days) - 1; i >= 0 && len(keep) < backupKeep; i-- {
-		keep[days[i]] = true
+	for i := len(dates) - 1; i >= 0 && len(keep) < backupKeep; i-- {
+		keep[dates[i]] = true
 	}
 	var out []string
 	for _, e := range entries {
-		if keep[e.Name()] {
+		if date, ok := dailyBackup(e.Name()); ok && keep[date] {
 			continue
 		}
 		if isBackupTemp(e.Name()) {
@@ -106,18 +116,24 @@ func sweepBackups(dir string, now time.Time) ([]string, error) {
 	return out, nil
 }
 
-// dailyBackup: name is a daily backup, obor-<YYYY-MM-DD>.db.gz.
-func dailyBackup(name string) bool {
+// dailyBackup: name is a daily backup, obor-<YYYY-MM-DD>.db.gz, or the older uncompressed obor-<YYYY-MM-DD>.db
+// (before T-1085), and its date.
+func dailyBackup(name string) (string, bool) {
 	date, ok := strings.CutPrefix(name, "obor-")
 	if !ok {
-		return false
+		return "", false
 	}
 	date, ok = strings.CutSuffix(date, ".db.gz")
 	if !ok {
-		return false
+		date, ok = strings.CutSuffix(date, ".db")
+		if !ok {
+			return "", false
+		}
 	}
-	_, err := time.Parse("2006-01-02", date)
-	return err == nil
+	if _, err := time.Parse("2006-01-02", date); err != nil {
+		return "", false
+	}
+	return date, true
 }
 
 // isBackupTemp: name is a backup's temporary file (BackupDaily's .tmp and .raw).

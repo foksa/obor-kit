@@ -28,7 +28,8 @@ gate runs it. Adapters never import each other: one that needs another goes thro
   never import each other),
   the machine's list of obor projects by name (`projects.go`, T-646: `Register`, `Projects`, `RootOf`); a stopped
   project (`stopped.go`, T-709, T-711: `Stopped`, `WriteStopMarker` (the pause stop replaced), `BeginStart`/`EndStart`, `Unregister`: obor stop / obor start);
-  `sweep.go` (T-1085): the nightly sweep of `.obor` (old gzip backups, files of lanes and agents the config no longer
+  `sweep.go` (T-1085): the nightly sweep of `.obor` (daily backups past the newest 7 dates, gzip'd or the older
+  uncompressed ones, and only after a successful backup (T-1086); files of lanes and agents the config no longer
   names, the retired state names and old drafts).
 - `config`: effective config. `config.Load(root) (*Config, error)` (every command's, serve's: an unknown key is ignored
   with a warning, T-1081); `LoadReader` (obor status, obor stop/start, web: the warning returned, T-709);

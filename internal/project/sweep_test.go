@@ -69,7 +69,7 @@ func TestSweep(t *testing.T) {
 				sweepFile(t, now, p, 2*24*time.Hour)
 			}
 			sweepFile(t, now, freshTmp, time.Hour)
-			if lines := Sweep(cfg, now); len(lines) != 0 {
+			if lines := Sweep(cfg, now, true); len(lines) != 0 {
 				t.Fatalf("Sweep = %q, want no lines", lines)
 			}
 			for day := 1; day <= 2; day++ { // older than the newest 7
@@ -111,7 +111,7 @@ func TestSweep(t *testing.T) {
 			for _, p := range append(append(live, dead...), unparsed) {
 				sweepFile(t, now, p, time.Hour)
 			}
-			if lines := Sweep(cfg, now); len(lines) != 0 {
+			if lines := Sweep(cfg, now, false); len(lines) != 0 {
 				t.Fatalf("Sweep = %q, want no lines", lines)
 			}
 			for _, p := range live {
@@ -128,7 +128,7 @@ func TestSweep(t *testing.T) {
 				filepath.Join(state, "merge-changed-files")} {
 				sweepFile(t, now, p, time.Hour)
 			}
-			if lines := Sweep(cfg, now); len(lines) != 0 {
+			if lines := Sweep(cfg, now, false); len(lines) != 0 {
 				t.Fatalf("Sweep = %q, want no lines", lines)
 			}
 			gone(t, filepath.Join(state, "receipts"))
@@ -140,7 +140,7 @@ func TestSweep(t *testing.T) {
 			old, fresh := filepath.Join(dir, "T-01.md"), filepath.Join(dir, "T-02.md")
 			sweepFile(t, now, old, 15*24*time.Hour)
 			sweepFile(t, now, fresh, 13*24*time.Hour)
-			if lines := Sweep(cfg, now); len(lines) != 0 {
+			if lines := Sweep(cfg, now, false); len(lines) != 0 {
 				t.Fatalf("Sweep = %q, want no lines", lines)
 			}
 			gone(t, old)
@@ -171,7 +171,7 @@ func TestSweep(t *testing.T) {
 				"{\"at\":\"2026-11-01T00:00:00Z\",\"error\":\"fresh\"}\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if lines := Sweep(cfg, now); len(lines) != 0 {
+			if lines := Sweep(cfg, now, false); len(lines) != 0 {
 				t.Fatalf("Sweep = %q, want no lines", lines)
 			}
 			for _, p := range kept {
@@ -208,7 +208,7 @@ func TestSweepNoPrefixFailsClosed(t *testing.T) {
 	now := time.Date(2026, 11, 9, 2, 0, 0, 0, time.UTC)
 	file := filepath.Join(StateDir(root), "restart-hk-int.log")
 	sweepFile(t, now, file, time.Hour)
-	lines := Sweep(cfg, now)
+	lines := Sweep(cfg, now, false)
 	if len(lines) == 0 || !strings.Contains(lines[0], "prefix") {
 		t.Fatalf("Sweep = %q, want a line naming the missing prefix", lines)
 	}

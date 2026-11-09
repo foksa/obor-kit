@@ -3,7 +3,9 @@
 package checks
 
 import (
+	"bufio"
 	"fmt"
+	"net"
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
 	"obor/internal/store"
@@ -226,23 +228,134 @@ func TestNightlySweep(t *testing.T) {
 func TestNightlySweepFailure(t *testing.T) {
 	t.Parallel()
 	x := newFx(t, cmd("check", "true"))
+	db, err := store.OpenRW(event.DBFile(x.Root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
 	dir := filepath.Join(x.Root, ".obor", "state", "backup")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	old := filepath.Join(dir, "herd-2026-01-01.db")
-	x.Write(old, "x\n")
-	if err := os.Chmod(dir, 0o555); err != nil {
+	old := filepath.Join(dir, "herd-2026-01-01.db") // a directory: its removal needs write on it
+	x.Write(filepath.Join(old, "x"), "x\n")
+	if err := os.Chmod(old, 0o555); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.Chmod(dir, 0o755) })
-	if f, err := os.Create(filepath.Join(dir, ".probe")); err == nil { // root ignores the mode
+	t.Cleanup(func() { os.Chmod(old, 0o755) })
+	if f, err := os.Create(filepath.Join(old, ".probe")); err == nil { // root ignores the mode
 		f.Close()
-		os.Remove(filepath.Join(dir, ".probe"))
 		t.Skip("running as root: modes are not enforced")
 	}
-	x.is(x.nightly(), OK, `^NIGHTLY GREEN [0-9a-f]{7} on main \(check rc=0, [0-9]+s\)$`)
+	x.is(x.nightly(), OK, `^NIGHTLY GREEN [0-9a-f]{7} on main \(check rc=0, backup obor-[0-9]{4}-[0-9]{2}-[0-9]{2}\.db\.gz, [0-9]+s\)$`)
 	x.contains(x.out.String(), filepath.Base(old), "the failed removal's line")
+}
+
+// T-1086: the sweep prunes backups only after a backup succeeded with a nonempty reply (RV-161 #1), and an older
+// uncompressed obor-<day>.db is a day for the newest 7 like the gzip'd ones.
+func TestNightlyBackupPrune(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name string
+		test func(t *testing.T)
+	}{
+		{"7 old .db days, the serve-backed backup errors: all 7 stay, the other sweep steps ran", func(t *testing.T) {
+			x := newFx(t)
+			dbs := x.oldDays(7)
+			x.brokenDB()
+			x.serveErrors()
+			goneFile := x.Path(".obor/state/run-changed-O-03")
+			x.Write(goneFile, "x\n")
+			x.is(x.nightly(), Red, `^NIGHTLY RED [0-9a-f]{7} on main \(failed: backup; no commands, [0-9]+s\) — backup: `)
+			for _, db := range dbs {
+				x.there(db, "an old uncompressed day")
+			}
+			x.gone(goneFile, "a gone lane's changed-files file")
+		}},
+		{"7 old .db days, the direct read-only backup errors: all 7 stay", func(t *testing.T) {
+			x := newFx(t)
+			dbs := x.oldDays(7)
+			x.brokenDB()
+			x.is(x.nightly(), Red, `^NIGHTLY RED [0-9a-f]{7} on main \(failed: backup; no commands, [0-9]+s\) — backup: `)
+			for _, db := range dbs {
+				x.there(db, "an old uncompressed day")
+			}
+		}},
+		{"7 old .db days, no database (empty reply): all 7 stay, the nightly is GREEN as before", func(t *testing.T) {
+			x := newFx(t)
+			dbs := x.oldDays(7)
+			x.is(x.nightly(), OK, `^NIGHTLY GREEN [0-9a-f]{7} on main \(no commands, [0-9]+s\)$`)
+			for _, db := range dbs {
+				x.there(db, "an old uncompressed day")
+			}
+		}},
+		{"7 old .db days and a successful backup today: today's .gz and the newest 6 .db stay, the oldest goes", func(t *testing.T) {
+			x := newFx(t)
+			dbs := x.oldDays(7)
+			db, err := store.OpenRW(event.DBFile(x.Root))
+			if err != nil {
+				t.Fatal(err)
+			}
+			db.Close()
+			x.is(x.nightly(), OK, `^NIGHTLY GREEN [0-9a-f]{7} on main \(backup obor-[0-9]{4}-[0-9]{2}-[0-9]{2}\.db\.gz, [0-9]+s\)$`)
+			if got, _ := filepath.Glob(filepath.Join(wire.BackupDir(x.Root), "obor-*.db.gz")); len(got) != 1 {
+				t.Errorf("today's backups = %v, want one .db.gz", got)
+			}
+			x.gone(dbs[0], "the oldest uncompressed day")
+			for _, db := range dbs[1:] {
+				x.there(db, "a .db day among the newest 7 dates")
+			}
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) { t.Parallel(); c.test(t) })
+	}
+}
+
+// oldDays writes n old uncompressed daily backups, oldest first: obor-<n days ago>.db … obor-<yesterday>.db.
+func (x *fx) oldDays(n int) []string {
+	x.t.Helper()
+	var out []string
+	for i := n; i >= 1; i-- {
+		name := "obor-" + time.Now().AddDate(0, 0, -i).Format("2006-01-02") + ".db"
+		out = append(out, x.Write(filepath.Join(wire.BackupDir(x.Root), name), "x\n"))
+	}
+	return out
+}
+
+// brokenDB is a database file store cannot back up: not a database at all, so the direct read-only path errors too.
+func (x *fx) brokenDB() {
+	x.t.Helper()
+	x.Write(event.DBFile(x.Root), "not a database\n")
+}
+
+// serveErrors answers every request at the project's socket with an error, as a serve refusing a backup does.
+func (x *fx) serveErrors() {
+	x.t.Helper()
+	dir, err := os.MkdirTemp("", "obor-sock")
+	if err != nil {
+		x.t.Fatal(err)
+	}
+	// The socket's real path is short (a unix socket's path is bounded); the project's long one is a symlink to it.
+	short := filepath.Join(dir, "serve.sock")
+	l, err := net.Listen("unix", short)
+	if err != nil {
+		x.t.Fatal(err)
+	}
+	x.t.Cleanup(func() { l.Close(); os.RemoveAll(dir) })
+	if err := os.Symlink(short, wire.SocketPath(x.Root)); err != nil {
+		x.t.Fatal(err)
+	}
+	go func() {
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				return
+			}
+			_, _ = bufio.NewReader(c).ReadString('\n')
+			_, _ = c.Write([]byte("{\"error\":\"backup failed\"}\n"))
+			_ = c.Close()
+		}
+	}()
 }
 
 // T-817: merge.nightly_commands runs after the gating checks and the backup, in order, each non-gating: one report
