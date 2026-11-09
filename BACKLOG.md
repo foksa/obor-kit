@@ -45,6 +45,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (RV-166, accepted) (RV-166 verify 2, accepted) design.md's pre-push paragraph fixed by the lead after the first verify (e224c5ee), not re-verified; also accepted (constructed): no merge.neutral plus a class overlapping docs/** gets no validate warning
 - (T-1135, lead 11-09) Serve tells a herdr restart by the herdr socket file's mtime (`.obor/state/herdr-instance`): herdr's API has no pid, start time or instance id (protocol 22 pong, SessionSnapshot). Undocumented: if `herdr update --handoff` recreates the socket, serve restores once (stopped role agents restart once, as the old plugin did at every herdr start). Owner action when convenient: ask herdr upstream for an instance id in pong/snapshot (with discussion #5684); then switch to it.
 - (RV-164 verify note) `internal/spec/spec.go:~273` and `internal/checks/scratch.go:~370` comments say no model names reach commits; narrow to "no metadata Model: line" (content is not redacted, decisions 11-09) on the next touch.
 - (RV-162, accepted) (RV-162, accepted, constructed) pruning an integrator's only old verdict can change its verdicts > StartRow.Verdicts stop predicate on replay; needs an idle integrator running 30 days despite the stop rule
