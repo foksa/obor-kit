@@ -64,7 +64,7 @@ func (a *App) moveTask(p *proj, fx *Loop, c wire.DispatchReq) (string, error) {
 	case busy != "":
 		return "", busyErr("dispatch", c.Task, busy)
 	}
-	cfg, err := config.LoadDaemon(p.root)
+	cfg, err := config.Load(p.root)
 	if err != nil {
 		return "", err
 	}

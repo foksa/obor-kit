@@ -36,7 +36,7 @@ func TestStartFitsNeedsTheRecordedConfigRev(t *testing.T) {
 	h, _ := seedSched(t, false)
 	dispatchSonnet(t, h)
 	startReported(t, h, "")
-	cfg, err := config.LoadDaemon(h.root)
+	cfg, err := config.Load(h.root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestStartFitsNeedsTheRecordedConfigRev(t *testing.T) {
 func TestStartRowKeepsItsConfigRevAcrossAReplay(t *testing.T) {
 	t.Parallel()
 	h, _ := seedSched(t, false)
-	cfgA, err := config.LoadDaemon(h.root)
+	cfgA, err := config.Load(h.root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestStartRowKeepsItsConfigRevAcrossAReplay(t *testing.T) {
 	startReported(t, h, cfgA.Rev())
 	h.write(filepath.Join(h.root, ".obor", "config.json"),
 		`{"name":"pj","prefix":"pj","models":{"sonnet":{"kind":"claude","model":"sonnet-4-6"}}}`)
-	cfgB, err := config.LoadDaemon(h.root)
+	cfgB, err := config.Load(h.root)
 	if err != nil {
 		t.Fatal(err)
 	}

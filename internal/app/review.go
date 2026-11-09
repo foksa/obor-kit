@@ -171,7 +171,7 @@ type ReviewSetup struct {
 
 // reviewConfig is ReviewConfig of the project at root.
 func reviewConfig(root string) (ReviewSetup, error) {
-	cfg, err := config.LoadDaemon(root)
+	cfg, err := config.Load(root)
 	if err != nil {
 		return ReviewSetup{}, err
 	}

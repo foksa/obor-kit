@@ -91,7 +91,7 @@ func (a *App) configSet(ctx context.Context, p *proj, file ConfigFile, c wire.Co
 		return "", errors.New("config: .obor/config.json changed since this page read it (another tab, the lead or a " +
 			"hand edit): nothing was saved; read the setup again and redo the changes")
 	}
-	cfg, err := config.LoadDaemon(p.root)
+	cfg, err := config.Load(p.root)
 	if err != nil {
 		return "", fmt.Errorf("config: %v", err)
 	}

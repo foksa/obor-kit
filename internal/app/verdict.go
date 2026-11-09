@@ -377,7 +377,7 @@ func (a *App) laneWorker(p *proj, lane string, mt mtask) (string, error) {
 	if mt.drive || mt.agent == "" {
 		return mt.agent, nil
 	}
-	cfg, err := config.LoadDaemon(p.root)
+	cfg, err := config.Load(p.root)
 	if err != nil {
 		return "", err
 	}
@@ -473,7 +473,7 @@ func (a *App) startIntegrator(ctx context.Context, agents port.Agents, root stri
 	case w.State == Ambiguous:
 		return port.Started{}, fmt.Errorf("integrator %s", notIdentified(p.integrator, w))
 	}
-	cfg, err := config.LoadDaemon(p.root)
+	cfg, err := config.Load(p.root)
 	if err != nil {
 		return port.Started{}, err
 	}

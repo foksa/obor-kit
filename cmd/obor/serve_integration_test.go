@@ -246,7 +246,7 @@ func TestMergeLoopNightlyFollowsTheConfig(t *testing.T) {
 		if err != nil || refused != "" {
 			t.Fatalf("precondition: the config is writable: %q, %v", refused, err)
 		}
-		cfg, err := config.LoadDaemon(p.Root)
+		cfg, err := config.Load(p.Root)
 		if err != nil {
 			t.Fatal(err)
 		}

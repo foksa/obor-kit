@@ -135,7 +135,7 @@ func TestServeRestarter(t *testing.T) {
 		t.Skip("launchd: darwin only (TestServeRestarterOffLaunchd covers the exec path everywhere)")
 	}
 	p := servedProject(t)
-	cfg, err := config.LoadDaemon(p.Root)
+	cfg, err := config.Load(p.Root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ func TestServeRestarter(t *testing.T) {
 // kit's shim; a kit without bin/obor is an error and serve goes on.
 func TestServeRestarterOffLaunchd(t *testing.T) {
 	p := servedProject(t)
-	cfg, err := config.LoadDaemon(p.Root)
+	cfg, err := config.Load(p.Root)
 	if err != nil {
 		t.Fatal(err)
 	}

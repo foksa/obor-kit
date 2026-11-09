@@ -133,11 +133,11 @@ func (a *App) reconcile(p *proj) {
 	p.reg.Reconcile(best, names, logp)
 }
 
-// namedAgents is whether the current config names an agent (config.LoadDaemon, as serve reads it elsewhere): a lead,
+// namedAgents is whether the current config names an agent (config.Load, as serve reads it elsewhere): a lead,
 // integrator, role or lane agent, by the name rules launch resolves (AgentLookup). A config that does not load names
 // every agent: a broken file drops no proof.
 func namedAgents(root string) func(string) bool {
-	cfg, err := config.LoadDaemon(root)
+	cfg, err := config.Load(root)
 	if err != nil {
 		return func(string) bool { return true }
 	}

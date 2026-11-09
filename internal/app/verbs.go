@@ -16,7 +16,7 @@ func leadOr(root, method string, c wire.Envelope, refused string) error {
 	if c.Role == "" || c.Role == "lead" {
 		return nil
 	}
-	cfg, err := config.LoadDaemon(root)
+	cfg, err := config.Load(root)
 	if err != nil {
 		return fmt.Errorf("%s (the config, for its verbs: %v)", refused, err)
 	}

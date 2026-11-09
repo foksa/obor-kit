@@ -46,7 +46,7 @@ func (a *App) keptPane(p *proj, mt mtask) (port.Pane, bool) {
 	if !ok {
 		return port.Pane{}, false
 	}
-	cfg, err := config.LoadDaemon(p.root)
+	cfg, err := config.Load(p.root)
 	if err != nil || !p.startFits(cfg, mt.agent, pane, mt.disp.Type) {
 		return port.Pane{}, false
 	}
@@ -106,7 +106,7 @@ func (p *proj) startFits(cfg *config.Config, agent string, pane port.Pane, ref s
 // configRev is p's config revision now (config.Config.Rev, T-1050): what a start records, and what a keep lane's reuse
 // compares. "": the config does not load (a start then records none, and no reuse is a fit).
 func (p *proj) configRev() string {
-	cfg, err := config.LoadDaemon(p.root)
+	cfg, err := config.Load(p.root)
 	if err != nil {
 		return ""
 	}
@@ -116,7 +116,7 @@ func (p *proj) configRev() string {
 // pastHandoff: the session of the agent in pane is larger than the project's handoff_tokens (under mu; 0: off). Its
 // transcript is the recorded session's, else the one herdr names; none readable is not past.
 func (a *App) pastHandoff(p *proj, pane port.Pane) bool {
-	cfg, err := config.LoadDaemon(p.root)
+	cfg, err := config.Load(p.root)
 	if err != nil {
 		return false
 	}
@@ -172,7 +172,7 @@ func handoffRule(_ context.Context, a *App, p *proj, fx *Loop, now time.Time) (i
 	if fx == nil || fx.Agents == nil {
 		return 0, action{}, false
 	}
-	cfg, err := config.LoadDaemon(p.root)
+	cfg, err := config.Load(p.root)
 	if err != nil {
 		return 0, action{}, false
 	}

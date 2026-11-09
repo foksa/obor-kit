@@ -85,7 +85,7 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 	_ = os.Remove(sock) // a leftover of a serve that died: the lock says none runs
 	// The plugin kinds' manifests, before anything reads them (T-1054): the merge loop keeps them current.
 	kinds := &kindCache{}
-	if cfg, err := config.LoadDaemon(root); err == nil {
+	if cfg, err := config.Load(root); err == nil {
 		kinds.refresh(cfg, flushWriter{})
 	}
 	// The machine's list of obor projects by name (T-646): obor send and obor projects read it. A failure is one line,
@@ -161,12 +161,12 @@ func mergeLoop(env project.Env, panes herdr.Panes, end *serveEnd, kinds *kindCac
 		if err != nil {
 			return nil, err
 		}
-		cfg, err := config.LoadDaemon(repo.Root)
+		cfg, err := config.Load(repo.Root)
 		if err != nil {
 			return nil, err
 		}
 		if kinds.refresh(cfg, flushWriter{}) { // the registry's plugin kinds carry the new manifest
-			if cfg, err = config.LoadDaemon(repo.Root); err != nil {
+			if cfg, err = config.Load(repo.Root); err != nil {
 				return nil, err
 			}
 		}
@@ -298,7 +298,7 @@ func refreshed(err error) bool {
 
 // configured: root has an obor config.
 func configured(root string) bool {
-	_, err := config.LoadDaemon(root)
+	_, err := config.Load(root)
 	return err == nil
 }
 

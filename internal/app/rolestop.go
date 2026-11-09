@@ -195,7 +195,7 @@ func (p *proj) roleAgent(agent string) bool {
 	if agent == "" || agent == p.out.Lead() {
 		return false
 	}
-	cfg, err := config.LoadDaemon(p.root)
+	cfg, err := config.Load(p.root)
 	if err != nil {
 		return false
 	}

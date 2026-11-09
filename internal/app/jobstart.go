@@ -207,7 +207,7 @@ func (a *App) reviewText(p *proj, mt mtask, kit string) (string, error) {
 // integratorRoles is the integrator job's text with the integrator's role texts after it (T-941: one fresh session
 // per job, so a Bash read of them per job is a call saved).
 func integratorRoles(p *proj, text, kit string) (string, error) {
-	cfg, err := config.LoadDaemon(p.root)
+	cfg, err := config.Load(p.root)
 	if err != nil {
 		return "", err
 	}

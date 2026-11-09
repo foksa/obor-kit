@@ -250,7 +250,7 @@ func otherAgent(root, label string, names []string) bool {
 	if label == "" || slices.Contains(names, label) {
 		return false
 	}
-	cfg, err := config.LoadDaemon(root)
+	cfg, err := config.Load(root)
 	if err != nil {
 		return false
 	}
