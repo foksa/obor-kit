@@ -204,18 +204,15 @@ func (s *Setup) agentsCmd(args []string) error {
 	return nil
 }
 
-// cachePlugins describes every plugin kind of the project around Dir (none outside a project, or with no config) and
-// caches its manifest, then reloads the config so the registry's plugin kinds carry it; cached are their names (obor
-// setup agents; obor init's kinds step, T-1054). A kit kind the config names no plugin for (config.KitKinds: the
-// kit's binary is the default, T-1155) is cached as that default and the config is left as it is (RV-171: a value
-// obor derives needs no edit).
+// cachePlugins describes every plugin kind of the project around Dir (none outside a project, or with no config; a
+// config that fails to load is its own error, T-1163) and caches its manifest, then reloads the config so the
+// registry's plugin kinds carry it; cached are their names (obor setup agents; obor init's kinds step, T-1054). A kit
+// kind the config names no plugin for (config.KitKinds: the kit's binary is the default, T-1155) is cached as that
+// default and the config is left as it is (RV-171: a value obor derives needs no edit).
 func (s *Setup) cachePlugins() (cached []string, err error) {
-	if s.findRoot() != nil {
-		return nil, nil
-	}
-	cfg, err := config.Load(s.root)
-	if err != nil {
-		return nil, nil
+	cfg, err := s.projectConfig()
+	if err != nil || cfg == nil {
+		return nil, err
 	}
 	for _, name := range cfg.PluginKinds() {
 		cmd := cfg.KindCommand(name)

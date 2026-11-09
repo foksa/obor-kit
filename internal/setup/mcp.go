@@ -84,7 +84,10 @@ func (s *Setup) mcpCmd(_ context.Context, args []string) error {
 	if lane != "" {
 		return s.mcpLane(lane)
 	}
-	used := s.usedKinds()
+	used, err := s.usedKinds()
+	if err != nil {
+		return err
+	}
 	bad := false
 	for _, name := range agents.Names() {
 		if used != nil && !used[name] {
@@ -149,11 +152,14 @@ func (s *Setup) installHost() agents.InstallHost {
 }
 
 // usedKinds are the kinds the project runs: every used model's (a level's, a role's, an agent's), and agents.Default
-// for a role with no model, as launch starts it; nil when the config does not load (check every kind).
-func (s *Setup) usedKinds() map[string]bool {
-	if s.load() != nil {
-		return nil
+// for a role with no model, as launch starts it; nil when there is no project config (check every kind), and a config
+// that fails to load is its own error (T-1163: the command fails with it).
+func (s *Setup) usedKinds() (map[string]bool, error) {
+	cfg, err := s.projectConfig()
+	if err != nil || cfg == nil {
+		return nil, err
 	}
+	s.cfg = cfg
 	used := map[string]bool{}
 	for _, name := range s.cfg.UsedModels() {
 		if m, ok := s.cfg.Model(name); ok {
@@ -167,7 +173,7 @@ func (s *Setup) usedKinds() map[string]bool {
 			used[agents.Default] = true
 		}
 	}
-	return used
+	return used, nil
 }
 
 // mcpLane is `obor setup mcp --model <name>`: whether a start of that model gives its agent obor's server, read from
