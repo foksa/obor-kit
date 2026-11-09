@@ -99,8 +99,12 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	default:
 		root = r.Root
 	}
-	if shape1(root) { // before any write: init edits the config it finds (T-1125)
-		return project.Fail(config.Shape1Refusal(root))
+	if _, err := os.Stat(filepath.Join(root, ".obor", "config.json")); err == nil {
+		// Before any write (T-1125): init edits the config it finds, so one this obor cannot read refuses here, with
+		// the load's own error (a config of shape 1 names the release that rewrites it).
+		if _, err := config.Load(root); err != nil {
+			return project.Fail(strings.TrimPrefix(err.Error(), "obor: "))
+		}
 	}
 	auto, err := s.autoCommit(root, repo)
 	if err != nil {
@@ -340,13 +344,6 @@ func (s *Setup) configExists() bool {
 	return err == nil
 }
 
-// shape1: the config.json of the project at root is of config shape 1 (config.ShapeOf), which a setup write refuses
-// (T-1125).
-func shape1(root string) bool {
-	doc, err := os.ReadFile(filepath.Join(root, ".obor", "config.json"))
-	return err == nil && config.ShapeOf(doc) < config.ShapeVersion
-}
-
 // uniquePrefix is p, else p2 … p9, the first no running agent's name starts with (<prefix>-): another project's
 // agents keep theirs.
 func uniquePrefix(p string, running []port.Pane) string {
@@ -476,7 +473,7 @@ func (s *Setup) editConfig(edit func([]byte) (config.Write, error), note ...stri
 		return project.Failf("cannot read %s", path)
 	}
 	w, err := edit(doc)
-	if err != nil { // a config of shape 1 among them: the edit's refusal names the migration (T-1125)
+	if err != nil {
 		return project.Failf("cannot update %s: %v", path, err)
 	}
 	if writeJSON(path, w.Doc) != nil {

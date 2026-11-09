@@ -35,7 +35,7 @@ func pruneRoot(t *testing.T) string {
 	if err := os.MkdirAll(filepath.Join(root, ".obor", "state"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cfg := `{"name":"proj","prefix":"pj","lanes":2,"roles":{"integrator":"","reviewer":""}}`
+	cfg := `{"version":2,"project":{"name":"proj","agent_prefix":"pj"},"lanes":{"count":2},"agents":{"roles":{"integrator":"","reviewer":""}}}`
 	if err := os.WriteFile(filepath.Join(root, ".obor", "config.json"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}

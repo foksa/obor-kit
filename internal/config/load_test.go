@@ -3,22 +3,20 @@ package config
 import (
 	"encoding/json"
 	"io"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 )
 
 // TestOverlayMatchesJq: each case's effective value is what the Bash loader's `jq -s '.[0] * .[1]'` gives (a null
-// left by the merge is unset in the effective config: a derived default, or absent). Both files are shape 1's: the
-// reshape keeps a null where the table moves its key.
+// left by the merge is unset in the effective config: a derived default, or absent).
 func TestOverlayMatchesJq(t *testing.T) {
-	cfg := `{"prefix":"pj","merge":{"summary_regex":"T"},
-		"kinds":{"claude":{"args":["a","b"],"prompt_extra":"P"}},
-		"commands":{"check":{"cmd":"x","heavy":true,"timeout":5}},"slots":{"max":4,"dir":"/s"}}`
-	local := `{"prefix":"qq",
-		"kinds":{"claude":{"args":["c"],"prompt_extra":null}},
-		"commands":{"check":{"heavy":null}},"slots":{"max":null}}`
+	cfg := `{"version":2,"project":{"agent_prefix":"pj"},"checks":{"output":{"summary":"T"},"heavy_at_once":4,"slot_dir":"/s"},
+		"agents":{"kinds":{"claude":{"args":["a","b"],"job_note":"P"}}},
+		"merge":{"check":{"cmd":"x","heavy":true,"timeout":5}}}`
+	local := `{"project":{"agent_prefix":"qq"},
+		"agents":{"kinds":{"claude":{"args":["c"],"job_note":null}}},
+		"merge":{"check":{"heavy":null}},"checks":{"heavy_at_once":null}}`
 	c := load(t, cfg, local)
 	for _, tc := range []struct{ name, path, want string }{
 		{"a sibling of a null key is kept", ".checks.output.summary", `"T"`},
@@ -77,12 +75,12 @@ func TestLoadHook(t *testing.T) {
 		unknown          []string
 		err              string
 	}{
-		{name: "clean", cfg: `{"prefix":"pj"}`},
-		{name: "unknown keys", cfg: `{"prefix":"pj","keep_warm":{"x":1}}`, local: `{"merge":{"future":1}}`,
+		{name: "clean", cfg: `{"version":2,"project":{"agent_prefix":"pj"}}`},
+		{name: "unknown keys", cfg: `{"version":2,"project":{"agent_prefix":"pj"},"keep_warm":{"x":1}}`, local: `{"merge":{"future":1}}`,
 			unknown: []string{"keep_warm", "merge.future"}},
-		{name: "unknown key and a type error", cfg: `{"keep_warm":1,"merge":{"nightly_at":5}}`, err: "nightly.at"},
-		{name: "syntax error", cfg: `{"prefix":`, err: "not valid JSON"},
-		{name: "syntax error in local.json", cfg: `{"keep_warm":1}`, local: `{`, err: "local.json is not valid JSON"},
+		{name: "unknown key and a type error", cfg: `{"version":2,"project":{"agent_prefix":"pj"},"keep_warm":1,"nightly":{"at":5}}`, err: "nightly.at"},
+		{name: "syntax error", cfg: `{"version":2,"project":{"agent_prefix":`, err: "not valid JSON"},
+		{name: "syntax error in local.json", cfg: `{"version":2,"project":{"agent_prefix":"pj"},"keep_warm":1}`, local: `{`, err: "local.json is not valid JSON"},
 		{name: "no config", err: "no "},
 	} {
 		c, unknown, err := LoadHook(writeProject(t, tc.cfg, tc.local))
@@ -103,53 +101,10 @@ func TestLoadHook(t *testing.T) {
 	}
 }
 
-// T-847: a key of the config shape before v0.23 (`agents`, `lane_types`) is refused by every reader, not just the strict
-// one: the ordinary unknown-field error naming its file, so serve, the hooks and the readers never run such a config on
-// the defaults.
-func TestRetiredShapeKeysRefusedByEveryReader(t *testing.T) {
-	for _, key := range []string{"agents", "lane_types"} {
-		for _, where := range []string{"config.json", "local.json"} {
-			t.Run(key+"/"+where, func(t *testing.T) {
-				cfg, doc, local := `{"prefix":"pj"}`, `{"prefix":"pj"}`, ""
-				if where == "local.json" {
-					local = `{"` + key + `":{"x":1}}`
-				} else {
-					cfg = `{"prefix":"pj","` + key + `":{"x":1}}`
-					doc = cfg
-				}
-				root := writeProject(t, cfg, local)
-				want := filepath.Join(root, ".obor", where) + `: unknown field "` + key + `"`
-				refused := func(reader string, c *Config, err error) {
-					t.Helper()
-					if c != nil || err == nil || !strings.Contains(err.Error(), want) {
-						t.Errorf("%s: %+v, %v; want no config and an error naming %q", reader, c, err, want)
-					}
-				}
-				c, err := Load(root)
-				refused("Load", c, err)
-				c, fails, err := LoadForValidate(root)
-				refused("LoadForValidate", c, err)
-				if fails != nil {
-					t.Errorf("LoadForValidate: FAIL lines %q, want the error alone", fails)
-				}
-				c, unknown, err := LoadHook(root)
-				refused("LoadHook (fails closed)", c, err)
-				if unknown != nil {
-					t.Errorf("LoadHook: unknown = %q, want none", unknown)
-				}
-				c, _, err = LoadReader(root)
-				refused("LoadReader", c, err)
-				c, err = LoadWith(root, []byte(doc))
-				refused("LoadWith", c, err)
-			})
-		}
-	}
-}
-
-// T-847 keeps T-377's contract: a key this binary does not know that is no retired shape (a newer config) is still
-// dropped by every reader, with its warning, and only LoadForValidate refuses it (T-1081).
+// T-377's contract: a key this binary does not know (a newer config) is dropped by every reader, with its warning,
+// and only LoadForValidate refuses it (T-1081).
 func TestNewerUnknownKeyStillDropped(t *testing.T) {
-	root := writeProject(t, `{"prefix":"pj","keep_warm":1}`, "")
+	root := writeProject(t, `{"version":2,"project":{"agent_prefix":"pj"},"keep_warm":1}`, "")
 	var out strings.Builder
 	defer func(w io.Writer) { Warn = w }(Warn)
 	Warn = &out
@@ -169,7 +124,7 @@ func TestNewerUnknownKeyStillDropped(t *testing.T) {
 	if err != nil || !strings.Contains(warn, `unknown field "keep_warm" ignored`) {
 		t.Errorf("LoadReader: warn = %q, %v", warn, err)
 	}
-	c, err = LoadWith(root, []byte(`{"prefix":"pj","keep_warm":2,"lanes":2}`))
+	c, err = LoadWith(root, []byte(`{"version":2,"project":{"agent_prefix":"pj"},"keep_warm":2,"lanes":{"count":2}}`))
 	if err != nil || c == nil || c.LaneCount() != 2 {
 		t.Errorf("LoadWith: %+v, %v; want the newer key dropped", c, err)
 	}
@@ -181,7 +136,7 @@ func TestNewerUnknownKeyStillDropped(t *testing.T) {
 // T-1063 (RV-153 #1): LoadReader's warning names both causes too: this binary is older than the config, or the key was
 // retired (merge.max_load is one of the nine v0.28 keys, so restarting fixes nothing).
 func TestLoadReaderWarnNamesBothCauses(t *testing.T) {
-	root := writeProject(t, `{"merge":{"max_load":10}}`, "")
+	root := writeProject(t, `{"version":2,"project":{"agent_prefix":"pj"},"merge":{"max_load":10}}`, "")
 	_, warn, err := LoadReader(root)
 	if err != nil {
 		t.Fatal(err)
@@ -199,8 +154,7 @@ func TestLoadReaderWarnNamesBothCauses(t *testing.T) {
 
 // T-1081 (DD-v0.32 #1): the keys T-1076 deleted (the promotion's), v0.29's two removed keys and T-1103's merge.trailer
 // never stop Load, the load of every command: each is ignored with one warning naming it; only LoadForValidate fails,
-// one line per key. The configs are shape 2's (a shape-1 file adds the shape's own warning, and its reshape drops
-// merge.trailer).
+// one line per key.
 func TestRetiredKeysWarnOnLoadFailValidate(t *testing.T) {
 	for _, tc := range []struct{ name, cfg string }{
 		{"the promotion's keys", `{"version":2,"project":{"agent_prefix":"pj"},"merge":{"target_branch":"main",` +

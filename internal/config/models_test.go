@@ -14,7 +14,7 @@ import (
 // T-765: each built-in model resolves to its kind, its model id and its kind's base args, the model as the kind takes
 // it (claude --model, codex -m, opencode --model).
 func TestBuiltinModelsResolve(t *testing.T) {
-	c := load(t, `{"prefix":"pj"}`, "")
+	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"}}`, "")
 	want := map[string]struct {
 		kind, id string
 		args     []string
@@ -46,7 +46,7 @@ func TestBuiltinModelsResolve(t *testing.T) {
 // T-765: the effort of a model ref is its kind's own flag at start (claude --effort, codex -c
 // model_reasoning_effort=), each kind's own values (OpenCode's, a plugin kind: TestOpencodeModelEffort).
 func TestModelEffortPerKind(t *testing.T) {
-	c := load(t, `{"prefix":"pj"}`, "")
+	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"}}`, "")
 	for _, tc := range []struct {
 		model, effort, inArgs string
 	}{
@@ -79,8 +79,9 @@ func TestModelEffortPerKind(t *testing.T) {
 // T-765: kinds.<kind>.args are appended after the model, to every model of the kind and no other; kinds.<kind>
 // .prompt_extra is the work job's for each model of the kind.
 func TestKindsArgsAppended(t *testing.T) {
-	c := load(t, `{"prefix":"pj","kinds":{"claude":{"args":["--strict-mcp-config"],"prompt_extra":"Quote failures only."},
-		"codex":{"args":["-c","sandbox_workspace_write.network_access=true"]}}}`, "")
+	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"},
+		"agents":{"kinds":{"claude":{"args":["--strict-mcp-config"],"job_note":"Quote failures only."},
+		"codex":{"args":["-c","sandbox_workspace_write.network_access=true"]}}}}`, "")
 	opus, _ := c.Model("opus")
 	if want := []string{"--permission-mode", "auto", "--model", "opus", "--strict-mcp-config"}; !slices.Equal(opus.Args, want) {
 		t.Errorf("opus args = %q, want %q", opus.Args, want)
@@ -104,7 +105,8 @@ func TestKindsArgsAppended(t *testing.T) {
 // server and hooks the daemon's env and cwd). Workers and the reviewer get it the same way, and
 // kinds.codex.args still follow it.
 func TestCodexStartsWithNoDaemon(t *testing.T) {
-	c := load(t, `{"prefix":"pj","kinds":{"codex":{"args":["-c","sandbox_workspace_write.network_access=true"]}}}`, "")
+	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"},`+
+		`"agents":{"kinds":{"codex":{"args":["-c","sandbox_workspace_write.network_access=true"]}}}}`, "")
 	for _, name := range []string{"terra", "sol", "luna"} {
 		m, ok := c.Model(name)
 		if !ok {
@@ -133,8 +135,9 @@ func TestCodexStartsWithNoDaemon(t *testing.T) {
 // T-765: models.<name> adds a model or overrides a built-in one (its kind kept when the entry names none; model ""
 // starts the kind without a model).
 func TestModelsOverride(t *testing.T) {
-	c := load(t, `{"prefix":"pj","models":{"opus":{"model":"claude-opus-5-5"},"muse":{"kind":"opencode","model":""},
-		"deepseek":{"kind":"opencode","model":"opencode-go/kimi"},"gem":{"kind":"codex","model":"gpt-x"}}}`, "")
+	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"},
+		"agents":{"models":{"opus":{"id":"claude-opus-5-5"},"muse":{"kind":"opencode","id":""},
+		"deepseek":{"kind":"opencode","id":"opencode-go/kimi"},"gem":{"kind":"codex","id":"gpt-x"}}}}`, "")
 	for _, tc := range []struct {
 		name, kind, id string
 		args           []string
@@ -156,7 +159,7 @@ func TestModelsOverride(t *testing.T) {
 
 // T-765: a ref naming no model, or an effort its kind rejects, is refused with the known names.
 func TestUnknownModelRefused(t *testing.T) {
-	c := load(t, `{"prefix":"pj","models":{"muse":{"kind":"opencode","model":""}}}`, "")
+	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"},"agents":{"models":{"muse":{"kind":"opencode","id":""}}}}`, "")
 	if _, ok := c.Model("gpt"); ok {
 		t.Error("Model(gpt) is known")
 	}
@@ -174,7 +177,7 @@ func TestUnknownModelRefused(t *testing.T) {
 
 // T-765: lanes is a count: L-01 … L-NN under lanes_dir, nothing else is a lane.
 func TestLanesCount(t *testing.T) {
-	c := load(t, `{"prefix":"pj","lanes":3}`, "")
+	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"},"lanes":{"count":3}}`, "")
 	var names []string
 	for _, l := range c.Lanes() {
 		names = append(names, l.Name)
@@ -191,7 +194,7 @@ func TestLanesCount(t *testing.T) {
 	if got := c.AgentName("worker", "L-02"); got != "pj-l-02" {
 		t.Errorf("L-02's agent = %q, want pj-l-02", got)
 	}
-	if none := load(t, `{"prefix":"pj"}`, ""); len(none.Lanes()) != 0 {
+	if none := load(t, `{"version":2,"project":{"agent_prefix":"pj"}}`, ""); len(none.Lanes()) != 0 {
 		t.Errorf("no lanes key: %d lanes", len(none.Lanes()))
 	}
 	if LaneName(12) != "L-12" || LaneName(100) != "L-100" {
@@ -202,7 +205,7 @@ func TestLanesCount(t *testing.T) {
 // T-1155: a kit kind (OpenCode) with no agents.kinds.<name>.plugin runs the kit's binary, as before T-1153, and is a
 // plugin kind of the config; a set plugin still overrides it.
 func TestKitKindDefaultCommand(t *testing.T) {
-	c := load(t, `{"prefix":"pj"}`, "")
+	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"}}`, "")
 	if want := KitKind("obor-kind-opencode"); c.KindCommand("opencode") != want {
 		t.Errorf("KindCommand(opencode) with no plugin = %q, want the kit's binary %q", c.KindCommand("opencode"), want)
 	}
@@ -212,7 +215,7 @@ func TestKitKindDefaultCommand(t *testing.T) {
 	if got := c.KindCommand("claude"); got != "" {
 		t.Errorf("KindCommand(claude) = %q, want none (a compiled kind is no plugin kind)", got)
 	}
-	own := load(t, `{"prefix":"pj","kinds":{"opencode":{"plugin":"tools/oc"}}}`, "")
+	own := load(t, `{"version":2,"project":{"agent_prefix":"pj"},"agents":{"kinds":{"opencode":{"plugin":"tools/oc"}}}}`, "")
 	if want := filepath.Join(own.Root, "tools", "oc"); own.KindCommand("opencode") != want {
 		t.Errorf("KindCommand(opencode) = %q, want the set plugin %q", own.KindCommand("opencode"), want)
 	}

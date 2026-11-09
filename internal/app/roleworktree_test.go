@@ -76,9 +76,9 @@ func TestWorktreeAgentsFollowTheConfig(t *testing.T) {
 		name, from, to, agent string
 		before, after         string // the agent's role worktree role before and after the change
 	}{
-		{"deep dive added", `{"name":"pj","prefix":"pj","roles":{"integrator":"","reviewer":""}}`, admitCfg,
+		{"deep dive added", `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{"roles":{"integrator":"","reviewer":""}}}`, admitCfg,
 			"pj-deep-dive", "", "deep_dive"},
-		{"role removed", admitCfg, `{"name":"pj","prefix":"pj","roles":{"integrator":"","deep_dive":""}}`,
+		{"role removed", admitCfg, `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{"roles":{"integrator":"","deep_dive":""}}}`,
 			"pj-rev", "reviewer", ""},
 		{"config broken", admitCfg, `{"name":`, "pj-rev", "reviewer", "reviewer"},
 	}

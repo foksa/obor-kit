@@ -92,8 +92,7 @@ func TestMakeBuildOut(t *testing.T) {
 	})
 }
 
-// afterMergeCmd is the tree's after_merge command (T-1079: `make build`): merge.after.cmd in config shape 2,
-// commands.after_merge.cmd in shape 1 (T-1124: serve rewrites the kit's file, not the task that lands the shape).
+// afterMergeCmd is the tree's after_merge command (T-1079: `make build`): merge.after.cmd in config shape 2.
 func afterMergeCmd(t *testing.T) string {
 	t.Helper()
 	type command struct {
@@ -103,19 +102,13 @@ func afterMergeCmd(t *testing.T) string {
 		Merge struct {
 			After command `json:"after"`
 		} `json:"merge"`
-		Commands struct {
-			AfterMerge command `json:"after_merge"`
-		} `json:"commands"`
 	}
 	if err := json.Unmarshal(treeFile(t, ".obor/config.json"), &cfg); err != nil {
 		t.Fatalf(".obor/config.json: %v", err)
 	}
 	cmd := cfg.Merge.After.Cmd
 	if cmd == "" {
-		cmd = cfg.Commands.AfterMerge.Cmd
-	}
-	if cmd == "" {
-		t.Fatal("precondition: .obor/config.json sets merge.after.cmd (shape 1: commands.after_merge.cmd)")
+		t.Fatal("precondition: .obor/config.json sets merge.after.cmd")
 	}
 	return cmd
 }

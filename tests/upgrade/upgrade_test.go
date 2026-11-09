@@ -180,29 +180,6 @@ func TestGuideV023(t *testing.T) {
 	}
 }
 
-// T-1152: the harness's v0.33 expectations (step 1's plugin precondition, step 3's rewrite commit wait and unlink)
-// run only for an upgrade that crosses v0.33: a previous release below 0.33.0 upgraded to one at or above it.
-func TestCrossesV033(t *testing.T) {
-	for _, tc := range []struct {
-		prev, next string
-		want       bool
-	}{
-		{"0.32.0", "0.33.0", true},
-		{"0.32.9", "0.34.1", true},
-		{"0.23.0", "0.33.0", true},
-		{"0.33.0", "0.33.1", false},
-		{"0.33.1", "0.34.0", false},
-		{"0.33.0", "0.33.0", false},
-	} {
-		if got := crossesV033(tc.prev, tc.next); got != tc.want {
-			t.Errorf("crossesV033(%s, %s) = %v, want %v", tc.prev, tc.next, got, tc.want)
-		}
-	}
-	if crossesV033("0.32", "0.33.0") {
-		t.Error("crossesV033(0.32, 0.33.0) = true, want false: not x.y.z")
-	}
-}
-
 // T-772: the previous release is the catalog's newest x.y.z below the new version (dev builds are no release).
 func TestPrevious(t *testing.T) {
 	catalog := "aa  dist/obor-0.6.4-dev-darwin-arm64\nbb  dist/obor-0.23.0-darwin-arm64\ncc  dist/obor-0.22.0-linux-amd64\n" +

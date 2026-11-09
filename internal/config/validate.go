@@ -24,8 +24,7 @@ var (
 )
 
 // Validate is `obor config validate`: "FAIL <path>: <why>" per problem, and "WARN …" notes that are no failure (a
-// removed key still set, a merge.by_path.no_check glob overlapping a rule's glob, an agent named like another lane, a
-// config of shape 1).
+// removed key still set, a merge.by_path.no_check glob overlapping a rule's glob, an agent named like another lane).
 // Shapes are checked by the load (types by Load, unknown keys by LoadForValidate); these are the checks a typed decode cannot make.
 func (c *Config) Validate(o ValidateOptions) (warns, fails []string) {
 	v := &validator{c: c, d: &c.Data}
@@ -115,14 +114,9 @@ func key(k string) string {
 
 func idx(i int) string { return "[" + strconv.Itoa(i) + "]" }
 
-// top: the version is the shape this obor reads (a file of shape 1 is one WARN, not a FAIL: it runs reshaped until
-// serve rewrites it, and the merge guard runs validate in between), and the agent prefix is set.
+// top: the version is the shape this obor reads, and the agent prefix is set.
 func (v *validator) top() {
-	switch {
-	case v.c.Shape1():
-		v.warns = append(v.warns, "WARN .version: config shape 1, read as shape 2 for this release and refused by the"+
-			" next: serve rewrites it at its start (obor config migrate by hand)")
-	case v.d.Version == nil || *v.d.Version != ShapeVersion:
+	if v.d.Version == nil || *v.d.Version != ShapeVersion {
 		v.fail(".version", fmt.Sprintf("must be %d, got %s", ShapeVersion, Compact(v.d.Version)))
 	}
 	if p := v.d.Project.AgentPrefix; p == "" {

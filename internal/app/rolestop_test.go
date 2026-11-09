@@ -248,7 +248,7 @@ func TestRoleStopNextJobStartsFresh(t *testing.T) {
 func TestBriefToStoppedRoleAgent(t *testing.T) {
 	t.Parallel()
 	root := lineRoot(t)
-	cfg := `{"name":"proj","prefix":"pj","roles":{"integrator":"","advisor":""}}`
+	cfg := `{"version":2,"project":{"name":"proj","agent_prefix":"pj"},"agents":{"roles":{"integrator":"","advisor":""}}}`
 	if err := os.WriteFile(filepath.Join(root, ".obor/config.json"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -310,7 +310,7 @@ func TestBriefToStoppedRoleAgent(t *testing.T) {
 func TestBriefReachesCustomRole(t *testing.T) {
 	t.Parallel()
 	root := lineRoot(t)
-	cfg := `{"name":"proj","prefix":"pj","roles":{"integrator":"","ux_buddy":{"model":"","write":["docs/ux/"]}}}`
+	cfg := `{"version":2,"project":{"name":"proj","agent_prefix":"pj"},"agents":{"roles":{"integrator":"","ux_buddy":{"model":"","write":["docs/ux/"]}}}}`
 	if err := os.WriteFile(filepath.Join(root, ".obor/config.json"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -455,7 +455,7 @@ func TestRoleStopReviewerFailuresAccumulate(t *testing.T) {
 func TestBriefToStoppedWorkerStartsNothing(t *testing.T) {
 	t.Parallel()
 	root := lineRoot(t)
-	cfg := `{"name":"proj","prefix":"pj","roles":{"integrator":"","advisor":""},"lanes":1}`
+	cfg := `{"version":2,"project":{"name":"proj","agent_prefix":"pj"},"lanes":{"count":1},"agents":{"roles":{"integrator":"","advisor":""}}}`
 	if err := os.WriteFile(filepath.Join(root, ".obor/config.json"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -505,7 +505,7 @@ func stoppedRoot(t *testing.T) string {
 	if err := os.MkdirAll(filepath.Join(root, ".obor"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cfg := `{"name":"proj","prefix":"pj","roles":{"integrator":"","reviewer":"","advisor":"","deep_dive":""}}`
+	cfg := `{"version":2,"project":{"name":"proj","agent_prefix":"pj"},"agents":{"roles":{"integrator":"","reviewer":"","advisor":"","deep_dive":""}}}`
 	if err := os.WriteFile(filepath.Join(root, ".obor", "config.json"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}

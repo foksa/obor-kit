@@ -366,9 +366,9 @@ func TestLoadedAfterReplay(t *testing.T) {
 // restart).
 func serveHarness(t *testing.T, h *harness, on bool) *proj {
 	t.Helper()
-	cfg := `{"name":"pj","prefix":"pj","roles":{"integrator":""}}`
+	cfg := `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{"roles":{"integrator":""}}}`
 	if !on {
-		cfg = `{"name":"pj","prefix":"pj"}`
+		cfg = `{"version":2,"project":{"name":"pj","agent_prefix":"pj"}}`
 	}
 	h.write(filepath.Join(h.root, ".obor", "config.json"), cfg)
 	p := reloadProj(t, h)
@@ -538,7 +538,7 @@ func (g *groupGate) Gate(ctx context.Context, in port.GateInput) (port.GateOutco
 func gateGroupHarness(t *testing.T, dir string) (*harness, *groupGate) {
 	t.Helper()
 	h := newHarness(t)
-	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","roles":{"integrator":""}}`)
+	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{"roles":{"integrator":""}}}`)
 	h.a = New(Options{Root: h.root, Now: func() time.Time { return h.now }, Tick: 20 * time.Millisecond,
 		Retry: 5 * time.Millisecond}, &openPanes{fakePanes: h.panes, snap: h.snap}, h.lanes)
 	g := &groupGate{schedScratch: &schedScratch{h: h}, dir: dir}

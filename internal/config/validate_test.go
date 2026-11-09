@@ -106,10 +106,6 @@ func TestValidate(t *testing.T) {
 		{name: "a new model needs its kind", edits: []edit{set("agents.models.cur", map[string]any{"id": "x"})},
 			want: []string{"FAIL .agents.models.cur.kind: required (claude, codex, opencode)"}},
 		{name: "a built-in's override may keep its kind", edits: []edit{set("agents.models.opus", map[string]any{"id": "claude-opus-5-5"})}},
-		// T-830: paths.status and paths.queue are map entries, not keys with a field: a shape-1 file's dropped paths
-		// load with no WARN (paths is free-form); a test of the window, so its shape-1 edit is marked (T-1141).
-		{name: "removed paths keys load silently", edits: []edit{testkit.Shape1(set("paths.status", "STATUS.md"),
-			set("paths.queue", "docs/QUEUE.md"))}},
 		// T-428: owner decision 2026-10-24 — an integrator for every task; serve dispatches and merges for no project
 		// without one, so the config is invalid without the entry and unchanged with it.
 		{name: "no roles.integrator", edits: []edit{del("agents.roles.integrator")},
@@ -117,10 +113,7 @@ func TestValidate(t *testing.T) {
 		{name: "roles.integrator configured", edits: []edit{set("agents.roles.integrator", "sonnet:high")}},
 		{name: "roles.integrator with no model", edits: []edit{set("agents.roles.integrator", "")}},
 		// bash config.test.sh case_validate_one_fail_per_broken_field
-		// config shape 2 (T-1124): the test kit writes version 2; a file with no version (or 1) is shape 1, one WARN
 		{name: "version 3", edits: []edit{set("version", 3)}, want: []string{"FAIL .version: must be 2, got 3"}},
-		{name: "no version: shape 1", edits: []edit{del("version")}, want: []string{"WARN .version: config shape 1, " +
-			"read as shape 2 for this release and refused by the next: serve rewrites it at its start (obor config migrate by hand)"}},
 		{name: "no prefix", edits: []edit{del("project.agent_prefix")}, want: []string{"FAIL .project.agent_prefix: required string, got null"}},
 		{name: "prefix Bad", edits: []edit{set("project.agent_prefix", "Bad")},
 			want: []string{`FAIL .project.agent_prefix: must match ^[a-z][a-z0-9-]{0,7}$, got "Bad"`}},
@@ -170,8 +163,9 @@ func TestValidate(t *testing.T) {
 			want: []string{unknownFail("merge.receipt_max_age")}},
 		{name: "the promotion's keys are unknown", edits: []edit{set("branches.promote", "release"),
 			set("merge.promote_weight", 2), set("merge.weights", map[string]any{"core": 3})},
-			// branches is no group of shape 2: the promotion's member makes the whole key the unknown one
-			want: []string{unknownFail("merge.promote_weight"), unknownFail("merge.weights"), unknownFail("branches")}},
+			// branches is no group of shape 2: the promotion's member makes the whole key the unknown one (the map
+			// writes its keys sorted)
+			want: []string{unknownFail("branches"), unknownFail("merge.promote_weight"), unknownFail("merge.weights")}},
 		{name: "nightly_at fine", edits: []edit{set("nightly.at", "02:00")}},
 		{name: "nightly_at no time", edits: []edit{set("nightly.at", "2am")},
 			want: []string{`FAIL .nightly.at: must be a local time HH:MM (00:00 to 23:59), got "2am"`}},
@@ -298,8 +292,7 @@ func TestValidate(t *testing.T) {
 }
 
 // Shapes are the load's: a wrong type fails config.Load, an unknown key LoadForValidate (T-1081), each with the key
-// named; validate never sees it. The edits name shape 1's paths; the test kit writes them in shape 2 (T-1124), so the
-// keys are named by their shape-2 paths.
+// named; validate never sees it.
 func TestShapeErrorsFailTheLoad(t *testing.T) {
 	p := newPlainProject(t)
 	for _, c := range []struct {
@@ -322,7 +315,7 @@ func TestShapeErrorsFailTheLoad(t *testing.T) {
 		{set("rules", `{"may_push": "pj-lead"}`), "may_push"},
 		{set("merge.clases", []any{}), ".merge.clases: unknown"},
 		// T-846: the shape before v0.23 is no special case past its two-minor window: its keys are unknown keys (in a
-		// file of shape 2 agents is a group; a shape-1 file's refusal is TestRetiredShapeKeysRefusedByEveryReader's).
+		// file of shape 2 agents is a group).
 		{set("agents", map[string]any{"triage": map[string]any{"type": "opus"}}), ".agents.triage: unknown"},
 		{set("lane_types", map[string]any{"opus": map[string]any{"kind": "claude"}}), ".lane_types: unknown"},
 		// T-830: a removed key past its two-minor window is an unknown key, as any key this binary does not know.
@@ -471,8 +464,8 @@ func TestValidateTemplates(t *testing.T) {
 		t.Errorf("local example overrides the template: lanes %d, dir %q; want 2, ../myproject-wt", c.LaneCount(),
 			c.LanesDirSetting())
 	}
-	if c.Shape1() || c.HasDifficulty() {
-		t.Errorf("the templates are shape 2 (%v) without a difficulty block (%v)", !c.Shape1(), c.HasDifficulty())
+	if c.HasDifficulty() {
+		t.Error("the templates have a difficulty block: the built-in levels are the starting point")
 	}
 }
 
@@ -709,14 +702,13 @@ func TestValidateFlakeRegex(t *testing.T) {
 	}
 }
 
-// T-1047: merge.retest.join is the separator merge.retest's {tests} joins the failing tests with, default "|" (shape
-// 1's merge.retest_join, reshaped).
+// T-1047: merge.retest.join is the separator merge.retest's {tests} joins the failing tests with, default "|".
 func TestRetestJoin(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct{ cfg, want string }{
-		{`{"prefix":"pj"}`, "|"},
-		{`{"prefix":"pj","merge":{"retest_join":","}}`, ","},
-		{`{"prefix":"pj","commands":{"retest":"make retest"},"merge":{"retest_join":","}}`, ","},
+		{`{"version":2,"project":{"agent_prefix":"pj"}}`, "|"},
+		{`{"version":2,"project":{"agent_prefix":"pj"},"merge":{"retest":{"join":","}}}`, ","},
+		{`{"version":2,"project":{"agent_prefix":"pj"},"merge":{"retest":{"cmd":"make retest","join":","}}}`, ","},
 		{`{"version":2,"project":{"agent_prefix":"pj"},"merge":{"retest":{"cmd":"x","join":" "}}}`, " "},
 	} {
 		p := testkit.New(t)

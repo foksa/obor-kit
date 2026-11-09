@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -24,8 +23,7 @@ import (
 //	agents.kinds.<kind>.args    the args appended to every start of a kind
 //	nightly.at                  the nightly's switch: a local time "HH:MM" (on, every night then) or null (off)
 //
-// Any other key stays obor setup's or a hand edit's. A key names one member of shape 2, and so does the write: a file
-// of shape 1 is refused with the migrate hint (T-1140).
+// Any other key stays obor setup's or a hand edit's. A key names one member of shape 2, and so does the write.
 //
 // A key .obor/local.json overrides (the key itself, a member of it, or an ancestor local.json replaces) is refused:
 // writing it to config.json would report success and change nothing that runs (T-754).
@@ -189,13 +187,9 @@ func (c *Config) editRole(doc []byte, role string, val json.RawMessage) (Change,
 
 // change is c's edit of key: doc with the member at path set to v (nil deletes it) and, when drop is not nil, the
 // member at drop deleted too (lanes.count replacing lanes.list, T-1031), laid out as doc is, with the value's old and
-// new lines. A doc of shape 1 is refused with the migrate hint (T-1140: configSet and every setup write refuse it
-// first, T-1125). It refuses a member .obor/local.json overrides (localRefusal) and one the merged config does not take
+// new lines. It refuses a member .obor/local.json overrides (localRefusal) and one the merged config does not take
 // up: either way the file would be written and what runs would not change.
 func (c *Config) change(key string, doc []byte, path, drop []string, v any, old, new string) (Change, error) {
-	if ShapeOf(doc) < ShapeVersion {
-		return Change{}, errors.New(".obor/config.json " + shape1Hint)
-	}
 	if at := c.localShadow(path); at != "" {
 		return Change{}, localRefusal(key, at)
 	}
@@ -350,13 +344,8 @@ type Write struct {
 	Key, Val string
 }
 
-// write sets path to v in doc; key is how the caller's line names it. A doc of shape 1 is refused with the migrate
-// hint (RV-167 #1, T-1125): only the migration changes a config's shape, and it rewrites config.json and local.json
-// together; a setup write that reshaped config.json alone would leave local.json's keys unknown.
+// write sets path to v in doc; key is how the caller's line names it.
 func write(key string, doc []byte, path []string, v any) (Write, error) {
-	if ShapeOf(doc) < ShapeVersion {
-		return Write{}, errors.New(".obor/config.json " + shape1Hint)
-	}
 	out, err := EditJSON(doc, path, v)
 	return Write{Doc: out, Key: key, Val: fmt.Sprintf("%v", v)}, err
 }
@@ -437,36 +426,22 @@ func SetSetupConfirmed(doc []byte, confirmed bool) (Write, error) {
 
 // RenameProject returns doc with project.name and project.agent_prefix set to the new ones: each only when the file
 // has it, or always with force (config.json; a local.json changes only what it overrides). obor setup rename's step 1.
-// A file of shape 1 (or the local.json beside one) keeps its shape: name and prefix there.
 func RenameProject(doc []byte, name, prefix string, force bool) ([]byte, error) {
 	out := doc
 	for _, kv := range []struct {
-		at, old []string
-		val     string
-	}{{p("project", "name"), p("name"), name}, {p("project", "agent_prefix"), p("prefix"), prefix}} {
-		at := shapedPath(out, kv.at, kv.old)
-		cur, ok := stringAt(out, at...)
+		at  []string
+		val string
+	}{{p("project", "name"), name}, {p("project", "agent_prefix"), prefix}} {
+		cur, ok := stringAt(out, kv.at...)
 		if cur == kv.val || (!ok && !force) {
 			continue
 		}
 		var err error
-		if out, err = EditJSON(out, at, kv.val); err != nil {
+		if out, err = EditJSON(out, kv.at, kv.val); err != nil {
 			return nil, err
 		}
 	}
 	return out, nil
-}
-
-// shapedPath is where a setup edit of doc finds and writes a key: at (shape 2's path) when doc has it, old (shape 1's)
-// when doc has that, else at for a file of shape 2 and old for one of shape 1 (ShapeOf).
-func shapedPath(doc []byte, at, old []string) []string {
-	if v, _ := MemberAt(doc, at); v != nil {
-		return at
-	}
-	if v, _ := MemberAt(doc, old); v != nil || ShapeOf(doc) < ShapeVersion {
-		return old
-	}
-	return at
 }
 
 // stringAt is the string member of doc at path; ok false when there is none or it is no string.
@@ -482,9 +457,9 @@ func stringAt(doc []byte, path ...string) (string, bool) {
 	return s, true
 }
 
-// pushPath is rules.may_push in doc's shape (shapedPath; guards.allow_push in shape 1).
+// pushPath is rules.may_push in doc.
 func pushPath(doc []byte) []string {
-	return shapedPath(doc, p("rules", "may_push"), p("guards", "allow_push"))
+	return p("rules", "may_push")
 }
 
 // PushEntries is rules.may_push in doc (nil when the file has none, or it is no string list).

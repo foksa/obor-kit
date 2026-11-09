@@ -146,14 +146,9 @@ runs it, and `Config.Command` (`internal/config/config.go`) maps the name to it:
 `lane_ready` → `lanes.ready`, `compile`, `check`, `retest` and `after_merge` → `merge`, `check_milestone` →
 `nightly.slow_check`. Every other name is a `commands.<name>`.
 
-**Shape 1** — the file before this release (24 top-level keys, the fixed commands in `commands`) — is read for one
-minor release: `readWith` reshapes it in memory before the decode (`config.Reshape`), so every command, hook and
-serve works from the first start of the new binary, with one warning; `local.json` follows it. `obor serve`'s first
-start on the new version rewrites `config.json` and commits it on the target branch (subject `config: shape 2 (obor
-<version>)`, the dropped keys in the body) and rewrites `local.json` in place; `obor config migrate` does the same by
-hand. A writer (`config_set`, `obor setup lane`, `obor init`) refuses a shape-1 file until then, and the release after
-refuses shape 1 as it refuses a pre-v0.23 config ("migrate it with obor <N>, then upgrade"). Old and new keys side by
-side, and the upgrade steps: `docs/UPGRADE-v0.33.md`.
+**Shape 1** — the file before v0.33 (24 top-level keys, the fixed commands in `commands`) — was read and rewritten by
+v0.33 alone (`obor config migrate`, or serve's first start). From v0.34 a load refuses it: one error naming the file
+and the way out ("migrate it with obor v0.33, then upgrade", `docs/UPGRADE-v0.33.md` has the old and new keys).
 
 **Models (T-765):** the config names models with their effort directly: a model ref is `<model>[:<effort>]`
 (`opus:high`), in `agents.difficulty` levels, `agents.roles.<role>` and a spec's `Model:` line. The built-in

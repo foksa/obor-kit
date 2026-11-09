@@ -166,18 +166,19 @@ func TestDetectCommands(t *testing.T) {
 	}
 }
 
-// T-1125: obor init on an existing config.json of config shape 1 is refused with the hint before it writes anything
-// (it would edit the config in place, mixing the shapes): the file as it was, no init file, claude not called.
-func TestOborInitRefusesAShape1Config(t *testing.T) {
+// T-1125, T-1157: obor init on an existing config.json this obor cannot load (shape 1: no longer read) is refused with
+// the load's own error before it writes anything (it would edit the config in place): the file as it was, no init file,
+// claude not called.
+func TestOborInitRefusesAnUnloadableConfig(t *testing.T) {
 	t.Parallel()
 	x := newInitFx(t, true)
 	shape1 := `{"version":1,"name":"proj","prefix":"pj","lanes":0}` + "\n"
 	x.Write(".obor/config.json", shape1)
 	out, rc := x.run(t, "obor-init")
-	if rc != 1 || !strings.HasPrefix(last(out), "FAIL ") ||
-		!strings.HasSuffix(last(out), "/.obor/config.json is config shape 1: obor config migrate rewrites it as shape 2"+
-			" (obor serve does at its start), then try again") {
-		t.Fatalf("exit %d, last line %q, want the shape-1 FAIL\n%s", rc, last(out), out)
+	want := "/.obor/config.json: config shape 1, which this obor no longer reads: run obor config migrate with obor " +
+		"v0.33, then upgrade (docs/UPGRADE-v0.33.md lists old and new keys)"
+	if rc != 1 || !strings.HasPrefix(last(out), "FAIL ") || !strings.HasSuffix(last(out), want) {
+		t.Fatalf("exit %d, last line %q, want the load's shape-1 FAIL\n%s", rc, last(out), out)
 	}
 	if x.Read(".obor/config.json") != shape1 || x.Exists("BACKLOG.md") || x.claudeCalls() != "" {
 		t.Errorf("wrote or called claude before the FAIL:\n%s", out)

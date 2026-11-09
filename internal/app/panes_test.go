@@ -193,8 +193,8 @@ func TestRereadUpdatesOnlyThePanesCwd(t *testing.T) {
 func relabelRig(t *testing.T, lanes int) (*harness, *Loop, *startAgents) {
 	t.Helper()
 	h, fx, _, ag := promptRig(t, false, func(h *harness) {
-		h.write(filepath.Join(h.root, ".obor", "config.json"), fmt.Sprintf(`{"name":"pj","prefix":"pj","lanes":%d,`+
-			`"roles":{"integrator":""}}`, lanes))
+		h.write(filepath.Join(h.root, ".obor", "config.json"), fmt.Sprintf(`{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"lanes":{"count":%d},`+
+			`"agents":{"roles":{"integrator":""}}}`, lanes))
 		h.pane("w1:p1").Label = "pj-l-02"
 	})
 	if h.step(t, fx) {

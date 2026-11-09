@@ -52,10 +52,6 @@ const editDoc = `{
 }
 `
 
-// editShape1 is a config.json of shape 1, one line: the one-release window's file (T-1124), which an edit refuses.
-const editShape1 = `{"version":1,"name":"pj","prefix":"pj","difficulty":{"hard":["opus:high"]},"lanes":2,` +
-	`"roles":{"lead":"opus:high"},"kinds":{"codex":{"args":["-c","x=1"]}}}`
-
 // editProject is a project whose config.json is editDoc, loaded.
 func editProject(t *testing.T) *Config {
 	t.Helper()
@@ -129,17 +125,6 @@ func TestEditSetsEachField(t *testing.T) {
 	}
 }
 
-// T-1140: a shape-1 doc reaching change is refused with the migrate hint, not reshaped: configSet and every setup
-// write refuse it before here (T-1125).
-func TestChangeRefusesShape1(t *testing.T) {
-	cfg := editProject(t)
-	_, err := cfg.change("lanes.count", []byte(editShape1), []string{"lanes", "count"}, []string{"lanes", "list"},
-		3, "2", "3")
-	if err == nil || !strings.Contains(err.Error(), "obor config migrate") {
-		t.Errorf("change of a shape-1 doc: %v; want the migrate hint", err)
-	}
-}
-
 // T-781: nightly.at is the nightly's switch: a time sets it (on), null deletes it (off), the change naming the
 // value before; off when off is no change of the file.
 func TestEditNightlyAtOnOff(t *testing.T) {
@@ -188,8 +173,7 @@ func diffLines(a, b string) int {
 }
 
 // T-753: a value the key does not take, a key that is not editable and a name the config does not have are refused,
-// naming why. T-1126: the keys are shape 2's names; shape 1's key names and the `roles.<role>.type` alias are not
-// editable.
+// naming why. T-1126: the keys are shape 2's names; the `roles.<role>.type` alias is not editable.
 func TestEditRefuses(t *testing.T) {
 	cfg := editProject(t)
 	for _, c := range []struct{ key, val, want string }{
@@ -224,7 +208,7 @@ func TestEditRefuses(t *testing.T) {
 		{"nightly.at", `""`, "nightly.at takes a local time HH:MM"},
 		{"nightly.at", `300`, "nightly.at takes a local time HH:MM"},
 		{"nightly.at", ``, "nightly.at takes a local time HH:MM"},
-		// shape 1's names and the Setup page's old alias are no keys now (T-1126)
+		// the Setup page's old alias is no key now (T-1126)
 		{"difficulty.hard", `["opus"]`, "is not an editable key"},
 		{"roles.lead", `"opus"`, "is not an editable key"},
 		{"roles.deep_dive.type", `"kimi:high"`, "is not an editable key"},
@@ -240,7 +224,7 @@ func TestEditRefuses(t *testing.T) {
 }
 
 // T-754: a key .obor/local.json sets is refused before anything is written: the committed value would not count. The
-// refusal names local.json's member as the config has it (shape 2: local.json is reshaped with a shape-1 config.json).
+// refusal names local.json's member as the config has it.
 func TestEditRefusesLocalOverride(t *testing.T) {
 	for _, c := range []struct{ name, local, key, val, at string }{
 		{"a kind's args", `{"agents":{"kinds":{"codex":{"args":["-c","x=1"]}}}}`, "agents.kinds.codex.args", `["y"]`, "agents.kinds.codex.args"},

@@ -75,7 +75,7 @@ func TestStartRowKeepsItsConfigRevAcrossAReplay(t *testing.T) {
 	dispatchSonnet(t, h)
 	startReported(t, h, cfgA.Rev())
 	h.write(filepath.Join(h.root, ".obor", "config.json"),
-		`{"name":"pj","prefix":"pj","models":{"sonnet":{"kind":"claude","model":"sonnet-4-6"}}}`)
+		`{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{"models":{"sonnet":{"kind":"claude","id":"sonnet-4-6"}}}}`)
 	cfgB, err := config.Load(h.root)
 	if err != nil {
 		t.Fatal(err)

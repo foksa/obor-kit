@@ -170,15 +170,13 @@ func TestSetupAgentsPluginKind(t *testing.T) {
 }
 
 // RV-171 (T-1156): obor setup agents caches the kit kind's manifest as the command the config resolves to
-// (config.KindCommand: the kit's binary, T-1155's default) and writes nothing to .obor/config.json — a shape-1 file
-// is not offered a write it would refuse, and a shape-2 one gets no unneeded uncommitted edit. A file holding a key
-// this obor does not know (T-1081) keeps its bytes too.
+// (config.KindCommand: the kit's binary, T-1155's default) and writes nothing to .obor/config.json — a shape-2 file
+// gets no unneeded uncommitted edit. A file holding a key this obor does not know (T-1081) keeps its bytes too.
 func TestSetupAgentsCachesTheKitKindWithoutWriting(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		doc  string
 	}{
-		{"shape 1", `{"version": 1, "name": "proj", "prefix": "pj", "lanes": 0}` + "\n"},
 		{"shape 2", `{"version": 2, "project": {"name": "proj", "agent_prefix": "pj"},` +
 			` "branches": {"promote": "release"}}` + "\n"},
 	} {

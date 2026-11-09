@@ -1,4 +1,0 @@
-{
-  "agents": { "roles": { "advisor": "fable" } },
-  "checks": { "slot_dir": "/tmp/herd-check-slots", "heavy_at_once": 4 }
-}

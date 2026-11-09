@@ -97,7 +97,7 @@ func resolveFetched(t *testing.T, out gateOut) (string, string) {
 		result(1, event.StepGate, gateIn{Kind: port.InputLane, Lane: "L-01"}, out).
 		add(1, event.StepResolve, event.KindIntent, JobData{Patch: "patch"})
 	a, p := blockProj(t, l.recs)
-	writeRoleFile(t, filepath.Join(p.root, ".obor", "config.json"), `{"name":"pj"}`)
+	writeRoleFile(t, filepath.Join(p.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj"}}`)
 	kit, _ := filepath.Abs("../..")
 	a.opt.Loop = func(string) (*Loop, error) { return &Loop{Kit: kit}, nil }
 	mt := p.folded.loop[blockTask]

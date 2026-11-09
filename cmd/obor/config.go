@@ -1,10 +1,8 @@
 package main
 
 import (
-	"context"
 	"fmt"
 
-	"obor/internal/app"
 	"obor/internal/config"
 	"obor/internal/guard"
 	"obor/internal/help"
@@ -12,15 +10,12 @@ import (
 	"obor/internal/spec"
 )
 
-// configCmd is `obor config [get <path> | validate | migrate]`: the effective config (config.json * local.json *
-// defaults), one value (a string raw, anything else as JSON, null → nothing; FAIL on stderr and exit 1 when there is no such key), or the checks: WARN lines, then a FAIL line per
-// problem (exit 1) or OK. Exit 3 without .obor/config.json. validate is the one strict reader (T-1081): a key this obor
-// does not know is a FAIL line naming it (config.LoadForValidate), where every other command ignores it with a warning.
-// migrate is config shape 2's rewrite by hand (configMigrate).
+// configCmd is `obor config [get <path> | validate]`: the effective config (config.json * local.json * defaults), one
+// value (a string raw, anything else as JSON, null → nothing; FAIL on stderr and exit 1 when there is no such key), or
+// the checks: WARN lines, then a FAIL line per problem (exit 1) or OK. Exit 3 without .obor/config.json. validate is
+// the one strict reader (T-1081): a key this obor does not know is a FAIL line naming it (config.LoadForValidate),
+// where every other command ignores it with a warning.
 func configCmd(args []string) int {
-	if len(args) == 1 && args[0] == "migrate" {
-		return configMigrate()
-	}
 	validate := len(args) == 1 && args[0] == "validate"
 	var unknown []string
 	load := load
@@ -65,37 +60,6 @@ func configCmd(args []string) int {
 	default:
 		return bad()
 	}
-	return 0
-}
-
-// configMigrate is `obor config migrate` (T-1125, docs/research/config-shape.md §4.2 step 3): serve's one rewrite of a
-// config.json of shape 1 by hand, for a project whose serve is not running (app.RewriteShape through configFile): the
-// commit on the main branch and local.json in place (or local.json alone, beside a config.json of shape 2: T-1149), then
-// "OK <the line serve posts to the lead>"; "OK … already" when neither file is left to rewrite (nothing written, so a
-// second run changes nothing); FAIL with the refusal (uncommitted changes, the main checkout on another branch: nothing
-// written), exit 1. The load is the hooks' (no shape-1 warning: this is the rewrite it points to).
-func configMigrate() int {
-	_, cfg, rc := loadWith(func(root string) (*config.Config, error) {
-		c, _, err := config.LoadHook(root)
-		return c, err
-	})
-	if rc != 0 {
-		return rc
-	}
-	file := configFile{root: cfg.Root, main: cfg.MainBranch()}
-	line, refused, err := app.RewriteShape(context.Background(), cfg.Root, file, "obor config migrate")
-	switch {
-	case err != nil:
-		errf("FAIL obor config migrate: %v", err)
-		return 1
-	case refused != "":
-		errf("FAIL obor config migrate: %s: nothing written", refused)
-		return 1
-	case line == "":
-		fmt.Fprintf(out, "OK %s is config shape %d already\n", configPath, config.ShapeVersion)
-		return 0
-	}
-	fmt.Fprintf(out, "OK %s\n", line)
 	return 0
 }
 

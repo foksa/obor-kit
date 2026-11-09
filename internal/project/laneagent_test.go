@@ -17,8 +17,8 @@ func TestLaneModelAndRunningKind(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, ".obor"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cfgJSON := `{"prefix":"pj","lanes_dir":"../wt","lanes":2,` +
-		`"models":{"ds":{"kind":"opencode","model":"go/deepseek"}}}`
+	cfgJSON := `{"version":2,"project":{"agent_prefix":"pj"},"lanes":{"dir":"../wt","count":2},` +
+		`"agents":{"models":{"ds":{"kind":"opencode","id":"go/deepseek"}}}}`
 	if err := os.WriteFile(filepath.Join(root, ".obor", "config.json"), []byte(cfgJSON), 0o644); err != nil {
 		t.Fatal(err)
 	}

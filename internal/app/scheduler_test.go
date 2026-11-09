@@ -34,7 +34,7 @@ func schedStatus(t *testing.T, h *harness) (string, []wire.ScratchWait) {
 func TestScratchQueuePredictsNothing(t *testing.T) {
 	t.Parallel()
 	h, f := seedSched(t, false)
-	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","roles":{"integrator":""}}`)
+	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{"roles":{"integrator":""}}}`)
 	h.a.opt.Loop = func(string) (*Loop, error) {
 		return &Loop{Workflow: WorkflowOf(f), Agents: f, Typer: f,
 			Disk: &Disk{Volume: "/vol/pj", Free: func() (uint64, error) { return 1 << 30, nil }}}, nil
@@ -135,7 +135,7 @@ func (f *cmdScratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutc
 func TestRunningGateCommand(t *testing.T) {
 	t.Parallel()
 	h, sf := seedSched(t, false)
-	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","roles":{"integrator":""}}`)
+	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{"roles":{"integrator":""}}}`)
 	f := &cmdScratch{schedScratch: sf, started: make(chan struct{}), blank: make(chan struct{}),
 		blanked: make(chan struct{}), release: make(chan struct{})}
 	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Workflow: WorkflowOf(f), Agents: f, Typer: f}, nil }

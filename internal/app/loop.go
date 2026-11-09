@@ -344,7 +344,6 @@ func (a *App) advance(ctx context.Context) *Loop {
 	tasks := p.passOrder()
 	a.mu.Unlock()
 	a.diskTick(p, fx)
-	a.configShape(ctx, p, fx) // a config of shape 1: its one rewrite (T-1125)
 	for _, task := range tasks {
 		if ctx.Err() != nil {
 			return nil

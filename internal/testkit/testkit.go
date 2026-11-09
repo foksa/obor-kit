@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -390,9 +389,7 @@ func (p *Project) LaneDir(name string) string { return filepath.Join(p.Base, "pr
 // Config is fx_config: the default config in shape 2 (project pj, lanes: the highest L-NN under proj-wt, T-765; the
 // kit's OpenCode plugin kind, as obor init writes it, T-1046), changed by edit, written to .obor/config.json and
 // committed on main (projects commit it; a plain project's stays uncommitted). An edit names shape 2's paths: the map
-// goes through config.Reshape before it is written (the one-release window, docs/research/config-shape.md §4.3), and
-// an edit that names a shape-1 path fails the test, so P7 can delete the pass-through. A test of the window itself
-// marks its shape-1 edit with Shape1.
+// is written as it is.
 func (p *Project) Config(edit ...func(c map[string]any)) {
 	p.t.Helper()
 	lanes := 0
@@ -416,21 +413,11 @@ func (p *Project) Config(edit ...func(c map[string]any)) {
 	for _, e := range edit {
 		e(c)
 	}
-	shape1 := c[shape1Mark] != nil
-	delete(c, shape1Mark)
 	b, err := json.Marshal(c)
 	if err != nil {
 		p.t.Fatal(err)
 	}
-	reshaped, err := config.Reshape(b)
-	if err != nil {
-		p.t.Fatal(err)
-	}
-	if !shape1 && !sameJSON(b, reshaped) {
-		p.t.Errorf("testkit.Config: an edit names a shape-1 path, which config.Reshape moved: name shape 2's path " +
-			"(a test of the window marks its shape-1 edits with testkit.Shape1)")
-	}
-	p.Write(".obor/config.json", config.Pretty(json.RawMessage(reshaped)))
+	p.Write(".obor/config.json", config.Pretty(json.RawMessage(b)))
 	if p.plain {
 		return
 	}
@@ -440,7 +427,7 @@ func (p *Project) Config(edit ...func(c map[string]any)) {
 	}
 }
 
-// Set is a config edit: the value at a dotted path ("roles.lead"), creating objects on the way. v may be a JSON text
+// Set is a config edit: the value at a dotted path ("agents.roles.lead"), creating objects on the way. v may be a JSON text
 // (a string starting with { or [) or any value.
 func Set(path string, v any) func(map[string]any) {
 	return func(c map[string]any) {
@@ -455,26 +442,6 @@ func Set(path string, v any) func(map[string]any) {
 		}
 		c[keys[len(keys)-1]] = JSON(v)
 	}
-}
-
-// shape1Mark is Shape1's marker in an edit's map: Config reads it and does not write it.
-const shape1Mark = "\x00testkit-shape1"
-
-// Shape1 wraps an edit that deliberately names shape 1 (a test of the one-release window, docs/research/config-shape.md
-// §4.3): Config reshapes it as it reshapes every edit, without the shape-1 report.
-func Shape1(edits ...func(map[string]any)) func(map[string]any) {
-	return func(c map[string]any) {
-		c[shape1Mark] = true
-		for _, e := range edits {
-			e(c)
-		}
-	}
-}
-
-// sameJSON: a and b are the same JSON document (the groups' order and the spacing do not count).
-func sameJSON(a, b []byte) bool {
-	var x, y any
-	return json.Unmarshal(a, &x) == nil && json.Unmarshal(b, &y) == nil && reflect.DeepEqual(x, y)
 }
 
 // JSON decodes v when it is a string holding a JSON object or array; anything else is returned as is.

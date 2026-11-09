@@ -49,7 +49,7 @@ func newFixture(t *testing.T) *fixture {
 			t.Fatal(err)
 		}
 	}
-	f.write(f.root+"/.obor/config.json", `{"prefix": "pj", "lanes": 1}`) // the callers' names derive from it (T-786)
+	f.write(f.root+"/.obor/config.json", `{"version": 2, "project": {"agent_prefix": "pj"}, "lanes": {"count": 1}}`) // the callers' names derive from it (T-786)
 	return f
 }
 
