@@ -13,9 +13,9 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-975: `make build` writes OUT (dist/obor by default), so an after_merge run in another worktree (OBOR_ROOT set; the
-// deleted promotion's, T-1076) still lands the binary serve follows in the main checkout's dist/obor. The kit's own
-// commands.after_merge.cmd is run as written (bash -c, as internal/run does), with and without OBOR_ROOT.
+// after_merge runs only per publish in the main checkout (T-1076 deleted the promotion), so the kit's own
+// commands.after_merge.cmd — plain `make build` (T-1079) — is run as written (bash -c, as internal/run does) and must
+// leave the binary serve follows in this checkout's dist/obor.
 
 // outKit makes dir a kit copy for `make build`: the tree's Makefile, VERSION 1.2.3 and a fake go at dir/bin/go that
 // logs its argv and writes the -o path, so a test can see both the argument and what the build left behind.
@@ -92,7 +92,7 @@ func TestMakeBuildOut(t *testing.T) {
 	})
 }
 
-// afterMergeCmd is the tree's commands.after_merge.cmd (T-975: `make build OUT=${OBOR_ROOT:-.}/dist/obor`).
+// afterMergeCmd is the tree's commands.after_merge.cmd (T-1079: `make build`).
 func afterMergeCmd(t *testing.T) string {
 	t.Helper()
 	var cfg struct {
@@ -111,54 +111,28 @@ func afterMergeCmd(t *testing.T) string {
 	return cfg.Commands.AfterMerge.Cmd
 }
 
-// runAfterMerge runs the kit's commands.after_merge.cmd in dir (the checkout the merge landed in) with dir's fake go
-// first on PATH and OBOR_ROOT set only when root is not empty; it returns the output.
-func runAfterMerge(t *testing.T, dir, root string) string {
+// runAfterMerge runs the kit's commands.after_merge.cmd in dir (the main checkout the merge landed in) with dir's fake
+// go first on PATH; it returns the output.
+func runAfterMerge(t *testing.T, dir string) string {
 	t.Helper()
-	var env []string
-	for _, kv := range plainMakeEnv() {
-		name, _, _ := strings.Cut(kv, "=")
-		if name != "OBOR_ROOT" { // the caller sets it, or must not inherit one
-			env = append(env, kv)
-		}
-	}
-	env = append(env, "PATH="+filepath.Join(dir, "bin")+string(os.PathListSeparator)+os.Getenv("PATH"))
-	if root != "" {
-		env = append(env, "OBOR_ROOT="+root)
-	}
+	env := append(plainMakeEnv(), "PATH="+filepath.Join(dir, "bin")+string(os.PathListSeparator)+os.Getenv("PATH"))
 	cmd := exec.Command("bash", "-c", afterMergeCmd(t))
 	cmd.Dir, cmd.Env = dir, env
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("commands.after_merge in %s (OBOR_ROOT=%q): %v\n%s", dir, root, err, out)
+		t.Fatalf("commands.after_merge in %s: %v\n%s", dir, err, out)
 	}
 	return string(out)
 }
 
-// TestAfterMergeBuildsIntoRoot: the per-publish after_merge (no OBOR_ROOT) builds in the main checkout; one run in
-// another worktree with OBOR_ROOT set still leaves the binary in the root's dist/obor.
+// TestAfterMergeBuildsIntoRoot: the per-publish after_merge builds in the main checkout and leaves the binary serve
+// follows at its dist/obor.
 func TestAfterMergeBuildsIntoRoot(t *testing.T) {
 	t.Parallel()
-	t.Run("no OBOR_ROOT: the main checkout", func(t *testing.T) {
-		t.Parallel()
-		root := testkit.Dir(t)
-		outKit(t, root)
-		runAfterMerge(t, root, "")
-		if got := readFile(t, filepath.Join(root, "dist", "obor")); got != "binary\n" {
-			t.Errorf("after_merge without OBOR_ROOT left %q at dist/obor, want the built binary", got)
-		}
-	})
-	t.Run("OBOR_ROOT set: the root's dist/obor, from the worktree", func(t *testing.T) {
-		t.Parallel()
-		worktree := testkit.Dir(t) // another worktree: the build runs here
-		outKit(t, worktree)
-		root := t.TempDir() // the main checkout: no dist/ until the build writes it
-		runAfterMerge(t, worktree, root)
-		if got := readFile(t, filepath.Join(root, "dist", "obor")); got != "binary\n" {
-			t.Errorf("after_merge with OBOR_ROOT=%s left %q at the root's dist/obor, want the built binary", root, got)
-		}
-		if _, err := os.Stat(filepath.Join(worktree, "dist", "obor")); !os.IsNotExist(err) {
-			t.Errorf("after_merge with OBOR_ROOT also wrote the worktree's dist/obor (%v)", err)
-		}
-	})
+	root := testkit.Dir(t)
+	outKit(t, root)
+	runAfterMerge(t, root)
+	if got := readFile(t, filepath.Join(root, "dist", "obor")); got != "binary\n" {
+		t.Errorf("after_merge left %q at dist/obor, want the built binary", got)
+	}
 }
