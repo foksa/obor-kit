@@ -48,7 +48,10 @@ it runs in (a lane worktree's is its main checkout's); `obor send` dials the tar
 - `obor serve dump [<root>]` prints the table as JSONL (read-only, serve may be down). `obor nightly` backs the database up to
   `.obor/state/backup/obor-<YYYY-MM-DD>.db.gz` (gzip; through the running serve, else directly), keeping the newest 7
   dates (an older uncompressed `obor-<YYYY-MM-DD>.db` day counts too, and a failed or empty backup prunes nothing,
-  T-1086); restoring one is `gunzip -c <file> > .obor/state/obor.db` with serve stopped.
+  T-1086). Restore with serve stopped, removing the old database's `obor.db-wal` and `obor.db-shm` first if present: a
+  `.db.gz` backup `gunzip -c <file> > obor.db.restore && mv obor.db.restore .obor/state/obor.db`; an uncompressed
+  `.db` one `cp <file> obor.db.restore && mv obor.db.restore .obor/state/obor.db` (a failed gunzip or copy leaves
+  `obor.db` intact).
 - One writer: the serve holding the project's `serve.flock`. A failed append (disk full, read-only) is kept in memory
   as the project's `log_error` until an append succeeds: `obor status` prints it (T-424). That reason is not a record: while the log fails, no
   step, needs-you included, can be recorded.
