@@ -7,27 +7,22 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 
 ## Handoff (lead; rewrite at each handoff)
 Read `docs/observations.md` first (patterns from past sessions: where we went in circles, the load tax, traps).
-- 2026-11-08 ~22:05 (lead; previous Handoff: `git show 23fe075c:BACKLOG.md`). Owner stopped for the day. Every lane free,
-  nothing queued, no review open, promotion OFF (`branches: {main: staging}`).
-  **Released and shipped v0.31.0** (owner ran `make ship`; tag 2f951f45). In it: architecture plan steps 1-14 all done
-  (13: `wire.Call` → per-method request types, T-1055/T-1060, the socket JSON compatible both ways, not byte-identical;
-  14: `-short`/`testkit.Slow` gone, T-1056, lane test median 40.5 s without them); the start-evidence chain T-1053 →
-  T-1057 → T-1058 → T-1059 (a start counts only on herdr's `launch_pending`/`interactive_ready`, and first-prompt starts
-  poll alongside the call again; live H-L14 for claude, codex, opencode); v0.28's nine retired config keys deleted
-  (T-1062, T-1063). Reviews RV-151..RV-155 closed.
-  **After the release (owner decision 11-08, docs/decisions.md): internal/app organized.** Tests beside their code
-  (T-1065; cmd/obor T-1068), `internal/app/identity` (T-1066, app-split step 7), `internal/app/outbox` (T-1067, step 6),
-  `dispatch.go` split by concern into dispatch/lanepick/waiting/workerstart/worktext (T-1071). Package root 210 → 150
-  files. design.md's test/check sections rewritten true to the code (T-1064, T-1069, T-1070, lead's last sentence).
-  Briefs carry the Result line (T-1072).
-  **Unreviewed:** T-1071, T-1072 (2 merges since RV-155): the next `obor review` takes them.
-  **Next steps:** (1) Check the 11-09 02:00 nightly: GREEN, and `make check-budget`'s wall breaches on a quiet run
-  (Concerns line from T-1056; still over → a fix task, not a raise). (2) axis-alies owes `kinds.opencode.command`
-  (Concerns line): `obor send ~/Gamedev/axis-alies` once its serve is up. (3) The owner picks the next work from
-  "Later candidates"; lead's recommendation: the generic test flow for adopters (restate it without `-short`), then
-  semantic event kinds from serve (small).
-  **Machine:** Codex 0.167.0, quarantine clear; codex quota at 18:4x: 14 % of 5 h, 10 % weekly. `obor web` may still
-  run an old binary (restart it in its shell).
+- 2026-11-09 ~09:40 (lead; previous Handoff: `git show f541e819:BACKLOG.md`). Owner stopped for the day. Every lane
+  free, nothing queued, no review open, no watch.
+  **Released and shipped v0.32.0** (owner ran `make ship`; tag at f27d7edc; axis-alies confirmed no upgrade steps and
+  committed `kinds.opencode.command`, b09493eb). In it: promotion deleted (T-1076, T-1078, T-1079; owner 11-09), the
+  adopter test flow = merge check + nightly, promotion unset (advisor option A; T-1075 init writes `nightly_at`),
+  `commands.baseline/gate/e2e` deleted with a validate WARN until v0.34 (T-1083; sizing T-1080), an unknown config key
+  is a WARN for every loader and only `obor config validate` is strict (T-1081, T-1084; DD-v0.32 #1), an open promote
+  needs-you ends on upgrade (T-1082), serve names every event's kind (T-1074), the gate fails a test package with no
+  budget entry and `-seed <pkg>` seeds one (T-1073, T-1077). Reviews RV-156..RV-160 closed; DD-v0.32 + verify approved.
+  **Leftover to remove (my `git worktree remove` was denied by the auto-mode classifier; owner may run it):**
+  `git worktree remove --force ../obor-kit-wt/merge-promote && rm .obor/state/last-promotion
+  .obor/state/logs/promote-check.log` (clean detached worktree at 3c5bf79f; harmless if left).
+  **Next steps:** (1) Check the 11-10 02:00 nightly GREEN (first on v0.32; the budget line should be OK now).
+  (2) The owner picks the next work. Verified not done: `obor doctor` (check first that stale panes still happen).
+  The `job_next` saving left is Claude-only (`alwaysLoad`), parked under the agent-neutral rule. Concerns: the deep
+  dive's role guard denies `git init` in the scratchpad (decide: allow, or name the overlay route in its role text).
 ## Owner decisions pending
 - (none; branching decided 11-07, docs/decisions.md)
 

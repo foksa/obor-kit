@@ -35,6 +35,13 @@ live in `docs/decisions.md`, open work in `BACKLOG.md`, the lead's own working r
   needed; the worker relaxed the test to fit and the review flagged both (RV-152). State the property that matters
   ("every key a server reads is sent, every old line decodes") and test exactly that.
 
+- **BACKLOG candidates go stale.** 11-09: three "next work" picks offered to the owner were already shipped (task
+  priority v0.31, integrator role text T-941, job_next follow-ups T-959/T-960). Grep git log before offering one.
+- **A deletion's upgrade path needs its own look.** T-1076's spec said "removed keys WARN"; reviews passed; only the
+  pre-release deep dive (upgrade probes through tests/upgrade with `go test -overlay`) found the lead's commands
+  failing on a stale key and an unclearable needs-you. Before a release that deletes config or state, brief the deep
+  dive on upgrade safety.
+
 ## Local traps
 - **External CLIs change under us.** Codex auto-upgraded (Homebrew cask 0.166 → 0.167) mid-day; its new helper was
   quarantined and macOS 27 shows a Gatekeeper dialog per binary per version, so unattended starts time out
