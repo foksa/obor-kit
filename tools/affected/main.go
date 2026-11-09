@@ -6,13 +6,12 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -22,19 +21,24 @@ func main() {
 	os.Exit(run(".", os.Args[1:], os.Getenv, os.Stdout))
 }
 
-// run is the tool: root is the module root (whose .obor/config.json carries merge.affected_full), getenv the
-// environment (OBOR_CHANGED_FILES, the changed files one repo-relative path per line), out where the import paths, or
-// the one "full: <why>" line, go. It returns 1 when the list cannot be made (the Makefile then runs the full suite) and
-// 2 on a bad flag.
+// run is the tool: root is the module root, args its flags (-full, repeatable: the globs whose change forces the full
+// suite, which the Makefile passes; T-1120), getenv the environment (OBOR_CHANGED_FILES, the changed files one
+// repo-relative path per line), out where the import paths, or the one "full: <why>" line, go. It returns 1 when the
+// list cannot be made (the Makefile then runs the full suite) and 2 on a bad flag.
 func run(root string, args []string, getenv func(string) string, out io.Writer) int {
-	if len(args) > 0 {
-		fmt.Fprintln(os.Stderr, "usage: affected (changed files: $OBOR_CHANGED_FILES)")
+	var fullGlobs globs
+	fs := flag.NewFlagSet("affected", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	fs.Var(&fullGlobs, "full", "a glob of a file whose change forces the full suite (repeatable)")
+	fs.Usage = func() {
+		fmt.Fprintln(os.Stderr, "usage: affected -full <glob> [-full <glob>]... (changed files: $OBOR_CHANGED_FILES)")
+	}
+	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	fullGlobs, err := affectedFull(root)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "affected: %v\n", err)
-		return 1
+	if fs.NArg() > 0 {
+		fs.Usage()
+		return 2
 	}
 	changed := getenv("OBOR_CHANGED_FILES")
 	if changed == "" {
@@ -67,21 +71,14 @@ func run(root string, args []string, getenv func(string) string, out io.Writer) 
 	return 0
 }
 
-// affectedFull is merge.affected_full, the globs whose change forces the full suite, from root's .obor/config.json.
-func affectedFull(root string) ([]string, error) {
-	data, err := os.ReadFile(filepath.Join(root, ".obor", "config.json"))
-	if err != nil {
-		return nil, err
-	}
-	var cfg struct {
-		Merge struct {
-			AffectedFull []string `json:"affected_full"`
-		} `json:"merge"`
-	}
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf(".obor/config.json: %v", err)
-	}
-	return cfg.Merge.AffectedFull, nil
+// globs is the -full flag's value: each occurrence adds one glob.
+type globs []string
+
+func (g *globs) String() string { return strings.Join(*g, " ") }
+
+func (g *globs) Set(v string) error {
+	*g = append(*g, v)
+	return nil
 }
 
 // Result is what to test: Full non-empty means the whole suite (the reason), else Pkgs (sorted import paths; none: no
@@ -92,7 +89,7 @@ type Result struct {
 }
 
 // Go returns the packages the changed files (repo-relative, as in OBOR_CHANGED_FILES) affect in the module at root. A
-// changed go.mod, go.sum or file matching one of fullGlobs (merge.affected_full) forces the full suite. A file maps to
+// changed go.mod, go.sum or file matching one of fullGlobs (the -full flag) forces the full suite. A file maps to
 // the package of its nearest directory that holds one (a testdata/ or embedded file selects its package); a file under
 // no package selects nothing, except a .go file (a removed package), which forces full. A changed _test.go file selects
 // its directory's package only, never the packages that import it: a test binary is built from that directory alone.

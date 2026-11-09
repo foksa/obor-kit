@@ -513,13 +513,17 @@ func TestMakeCheckAffectedCatchesVetError(t *testing.T) {
 }
 
 // T-1076: check-affected asks tools/affected for the changed packages and their importers, always: an OBOR_PROMOTION=1
-// (an older serve's lane env; the promotion and its --direct switch are deleted) changes nothing.
+// (an older serve's lane env; the promotion and its --direct switch are deleted) changes nothing. T-1120: it passes the
+// full-suite globs as -full flags.
 func TestMakeCheckAffectedAsksImporters(t *testing.T) {
 	t.Parallel()
 	for _, env := range [][]string{nil, {"OBOR_PROMOTION=1"}} {
 		_, _, affected := makeCheckTier(t, "check-affected", env...)
-		if affected != "run ./tools/affected" {
-			t.Errorf("env %q: check-affected asked %q, want %q", env, affected, "run ./tools/affected")
+		if !strings.HasPrefix(affected, "run ./tools/affected") {
+			t.Errorf("env %q: check-affected asked %q, want the affected list", env, affected)
+		}
+		if !strings.Contains(affected, "-full Makefile") {
+			t.Errorf("env %q: check-affected passed no -full globs: %q", env, affected)
 		}
 	}
 }

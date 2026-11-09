@@ -251,10 +251,7 @@ type Merge struct {
 	RetestJoin string           `json:"retest_join,omitempty"`
 	Classes    List[MergeClass] `json:"classes,omitzero"`
 	Neutral    []string         `json:"neutral,omitzero"`
-	// AffectedFull are globs of files whose change makes a project's affected-packages list answer "full" (build and
-	// test support; obor-kit's list is tools/affected, T-1040).
-	AffectedFull []string `json:"affected_full,omitzero"`
-	Guard        string   `json:"guard,omitempty"`
+	Guard      string           `json:"guard,omitempty"`
 	// NightlyAt is when obor serve runs the nightly full check ("HH:MM" local time; "": never, T-464).
 	NightlyAt string `json:"nightly_at,omitempty"`
 	// NightlyCommands are commands.<name> keys `obor nightly` runs after its gating checks and the backup, in order,

@@ -9,7 +9,7 @@ import (
 
 // fixture module fx: top → mid → leaf; tester imports leaf from its tests only; other stands alone (with an embedded
 // file); leaf has a testdata/ file; cmd/app is a main package with a test.
-// fixtureFull is the fixture's merge.affected_full: a build file and the shared test-support packages.
+// fixtureFull is the fixture's -full globs (the Makefile's): a build file and the shared test-support packages.
 var fixtureFull = []string{"Makefile", "internal/testkit/**", "internal/herdrtest/**"}
 
 func fixture(t *testing.T) string {
@@ -69,7 +69,7 @@ func TestGoFixture(t *testing.T) {
 		{"internal/testkit/nested/tk.go", "", "changed internal/testkit/nested/tk.go", fixtureFull}, // a path under a full glob, no package lookup
 		{"internal/other/x.go", "", "no package for internal/other/x.go", fixtureFull},
 		{"gone/gone.go", "", "no package for gone/gone.go", fixtureFull}, // a removed package
-		// T-351: merge.affected_full is the project's list; with none configured a testkit change selects its own
+		// T-351/T-1120: the -full globs are the project's list; with none the testkit change selects its own
 		// package, while go.mod stays full.
 		{"internal/testkit/tk.go", "fx/internal/testkit", "", nil},
 		{"leaf/leaf.go", "", "changed leaf/leaf.go", []string{"leaf/*.go"}},
