@@ -400,7 +400,6 @@ func (a *App) recordIn(p *proj, r event.Record, data any) (int64, bool) {
 		a.settleEnded(p, r.Task) // the task ended: its pending intents never run
 	}
 	err = p.laneRowsErr()
-	a.logf("%s %s %s (attempt %d)", p.name, r.Task, r, r.Attempt)
 	if err != nil {
 		a.logf("FAIL lane rows of %s: %v", p.name, err)
 		return 0, false
