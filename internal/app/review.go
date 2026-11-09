@@ -498,19 +498,14 @@ func (a *App) prepareReview(ctx context.Context, p *proj, g port.Review, q *revi
 	return id, reviewBrief(id, s, short(head), prev.head, prev.id, last, scope, files, q.note), tasks, head, nil
 }
 
-// copiedLine is rule 6's second question (T-884): data another type already owns, copied instead of named, and a
-// client deciding from a state string serve knows.
-const copiedLine = "Does it add a field or type that copies data another type already holds? Name the owner type." +
-	" Does a client decide something from a state string that serve knows? Then serve ships the predicate."
-
 // resultLine is the review file's first line, in every review and verify brief (T-1072): the reviewer's role text
 // carries the rule too, but two reviews came back without the line when only the role text said it.
 const resultLine = "The file's first line is `Result: approved | changes requested · <sha reviewed> · <scope>`."
 
 // redundantLine is docs/design.md "Change rules" rule 6, in every review and verify brief (T-869): what the change
-// made redundant, then (T-884) whether it copied data another type owns.
-const redundantLine = "What did this make redundant? Name it or confirm it is gone. On rule-tier steps a crash or" +
-	" interleaving finding counts only when a kernel guarantee breaks. " + copiedLine
+// made redundant. Rule 6's kit vocabulary (rule-tier steps, the owner type, serve's predicate) is obor-kit's own and
+// lives in its docs/agents/reviewer.md (T-1118): every project's reviewer read it here.
+const redundantLine = "What did this make redundant? Name it or confirm it is gone."
 
 // reviewBrief is the reviewer's first prompt: skills/lead/review-brief.md §2's template with the facts filled in, the
 // redundancy question (redundantLine) and the lead's note appended (its out of scope and contracts). prev is the
