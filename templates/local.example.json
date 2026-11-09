@@ -1,6 +1,5 @@
 {
-  "lanes_dir": "../axis-alies-wt",
-  "limits": { "max_panes_per_tab": 4 },
+  "lanes_dir": "../myproject-wt",
   "lanes": 2,
   "difficulty": { "hard": ["opus:xhigh"] }
 }

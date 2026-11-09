@@ -132,8 +132,9 @@ func TestRenameMapsConfigStoreFilesAndTerminal(t *testing.T) {
 	}
 }
 
-// T-795: PushAllowed("lead") holds before and after, whichever file holds the entry; a literal role entry and an unknown
-// entry are kept as written.
+// T-795: a rename rewrites an allow_push entry that was the old prefix's derived name ("pj-lead") to its role
+// ("lead"), so it allows the push again (T-1111: such an entry alone allows nothing); a literal role entry and an
+// unknown entry are kept as written.
 func TestRenameKeepsAllowPushWorking(t *testing.T) {
 	for _, file := range []string{"config.json", "local.json"} {
 		t.Run(file, func(t *testing.T) {
@@ -150,8 +151,8 @@ func TestRenameKeepsAllowPushWorking(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !before.PushAllowed("lead") || before.PushAllowed("reviewer") {
-				t.Fatalf("precondition: lead allowed, reviewer not: %v", before.Data.Guards.AllowPush)
+			if before.PushAllowed("lead") || before.PushAllowed("reviewer") {
+				t.Fatalf("precondition: the derived name allows no push, reviewer never: %v", before.Data.Guards.AllowPush)
 			}
 			x.rename(t)
 			after, err := config.Load(x.Root)

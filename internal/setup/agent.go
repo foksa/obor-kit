@@ -359,13 +359,12 @@ func (s *Setup) shellWait() time.Duration {
 	return shellWait
 }
 
+// maxPanesPerTab is how many panes a tab holds: a constant, not a key (T-1111; limits.max_panes_per_tab is retired).
+const maxPanesPerTab = 4
+
 // placement is a's new pane as the terminal is asked for it: whose it is, its cwd and env, where w says, and the
-// project it is for (T-1044: the layout is the adapter's). A tab holds limits.max_panes_per_tab panes (default 4).
+// project it is for (T-1044: the layout is the adapter's). A tab holds maxPanesPerTab panes.
 func (s *Setup) placement(a agent, w where, env []string) port.Placement {
-	limit := 4
-	if l := s.cfg.Data.Limits; l != nil && l.MaxPanesPerTab != nil {
-		limit = *l.MaxPanesPerTab
-	}
 	name := s.cfg.Data.Name
 	if name == "" {
 		name = filepath.Base(s.root)
@@ -373,7 +372,7 @@ func (s *Setup) placement(a agent, w where, env []string) port.Placement {
 	self, _ := project.Pane(s.Env) // "" when the caller has no pane
 	return port.Placement{Role: a.role.Name, Lane: a.lane, Cwd: a.cwd, Env: env, Own: w.own, Group: w.newTab, In: w.tab,
 		Beside: w.beside, Say: func(line string) { s.say("%s", line) },
-		Project: port.PlaceProject{Name: name, Root: s.root, Self: self, MaxPanes: limit, Has: s.inProject}}
+		Project: port.PlaceProject{Name: name, Root: s.root, Self: self, MaxPanes: maxPanesPerTab, Has: s.inProject}}
 }
 
 // withoutFlag is args without the bare flag, and whether it was there.

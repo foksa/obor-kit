@@ -4,7 +4,7 @@
 // mvdan.cc/sh/v3/syntax (shell.go); a command the project's guards.deny_commands matches is denied for every role
 // (T-905: obor-kit's config carries T-543's Go load-run rule); writes — the editor tools and the Bash write targets
 // alike (checkWrite, RV-83) — are checked against protected_files and the role's write profile (config.Role: a
-// reviewer or deep_dive writes only under the main checkout's paths.reviews / paths.research, never in its own role
+// reviewer or deep_dive writes only under the main checkout's paths.reviews, never in its own role
 // worktree, T-853; a custom role — advisor, researcher, triage, a project's own — only its write list, T-801; a role
 // whose roles.<name> row was removed while its agent runs writes nothing and reads git only, T-814; a final symlink at
 // its destination too), and an editor tool of a worker against its lane's boundary: no other worktree of this repo
@@ -458,9 +458,9 @@ func (g *guard) checkWrite(p string) {
 }
 
 // profileDenial is the deny reason of the write profile wp for the physical path p, "" when allowed. Inside this repo's
-// worktrees a reviewer / deep_dive writes only under the main checkout's paths.reviews (default docs/reviews) and
-// paths.research (T-853: it runs in its role worktree, its files go to the main checkout), a custom role (advisor,
-// researcher, triage …) only its write list (T-801). Outside the repo (/tmp) is not limited.
+// worktrees a reviewer / deep_dive writes only under the main checkout's paths.reviews (default docs/reviews; T-853: it
+// runs in its role worktree, its files go to the main checkout), a custom role (advisor, researcher, triage …) only its
+// write list (T-801). Outside the repo (/tmp) is not limited.
 func (g *guard) profileDenial(wp roles.WriteProfile, p string) string {
 	wt := g.wtOf(p)
 	if wt == "" {

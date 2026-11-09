@@ -109,11 +109,7 @@ func TestValidate(t *testing.T) {
 		{name: "a new model needs its kind", edits: []edit{set("models.cur", map[string]any{"model": "x"})},
 			want: []string{"FAIL .models.cur.kind: required (claude, codex, opencode)"}},
 		{name: "a built-in's override may keep its kind", edits: []edit{set("models.opus", map[string]any{"model": "claude-opus-5-5"})}},
-		// bash config.test.sh case_validate_removed_keys_warn; a key past its two-minor window is an unknown key
-		// (TestShapeErrorsFailTheLoad), the rest warn (TestRemovedKeysWithinTwoVersions).
-		{name: "removed keys warn", edits: []edit{set("paths.research", "docs/research"), set("paths.questions", "QUESTIONS.md")},
-			want: []string{"WARN paths.research: no longer used, remove it", "WARN paths.questions: no longer used, remove it"}},
-		// T-830: paths.status and paths.queue are map entries, not keys with a field: past their window they load with
+		// T-830: paths.status and paths.queue are map entries, not keys with a field: they load with
 		// no WARN (paths is free-form).
 		{name: "removed paths keys load silently", edits: []edit{set("paths.status", "STATUS.md"),
 			set("paths.queue", "docs/QUEUE.md")}},
@@ -258,9 +254,9 @@ func TestValidate(t *testing.T) {
 		{name: "handoff_tokens negative", edits: []edit{set("handoff_tokens", -1)},
 			want: []string{"FAIL .handoff_tokens: must be a non-negative integer, got -1"}},
 		// bash config.test.sh case_validate_allow_push
-		{name: "allow_push a role and a derived name", edits: []edit{set("guards", `{"allow_push": ["lead", "pj-lead"]}`)}},
+		{name: "allow_push a role", edits: []edit{set("guards", `{"allow_push": ["lead", "integrator"]}`)}},
 		{name: "allow_push no role", edits: []edit{set("guards", `{"allow_push": ["lead-mp"]}`)},
-			want: []string{`WARN .guards.allow_push: "lead-mp" is no role (nor a role's agent name): it allows no push`}},
+			want: []string{`WARN .guards.allow_push: "lead-mp" is no role: it allows no push`}},
 		{name: "allow_push empty", edits: []edit{set("guards", `{"allow_push": []}`)}},
 		{name: "allow_push an empty name", edits: []edit{set("guards", `{"allow_push": [""]}`)},
 			want: []string{`FAIL .guards.allow_push: must be a list of roles (e.g. ["lead"])`}},
@@ -276,7 +272,9 @@ func TestValidate(t *testing.T) {
 		{name: "deny_commands no message", edits: []edit{set("guards", `{"deny_commands": [{"match": "^x"}]}`)},
 			want: []string{"FAIL .guards.deny_commands[0].message: required: the text the guard denies with"}},
 		// bash config.test.sh case_validate_neutral_overlap
-		{name: "default neutral disjoint", edits: []edit{set("merge", neutralBase)}},
+		// T-1111: validate has no copy of merge.neutral's default (the one default is Classify's): with no neutral glob
+		// set it checks none, even where docs/** would overlap.
+		{name: "no neutral set", edits: []edit{set("merge", `{"guard": "g", "classes": [{"name": "docs", "paths": ["docs/**"], "checks": ["c"]}]}`)}},
 		{name: "*.md crosses /", edits: []edit{set("merge", neutralBase), set("merge.neutral", []any{"docs/**", "*.md"})},
 			want: []string{"WARN merge.neutral glob *.md overlaps class skills glob skills/**",
 				"WARN merge.neutral glob *.md overlaps class ui glob src/ui/**"}},
@@ -339,6 +337,7 @@ func TestShapeErrorsFailTheLoad(t *testing.T) {
 		{set("done_file_sections", []any{"Summary", "Self-check"}), "done_file_sections"},
 		{set("leads", map[string]any{"cross_ttl": 3600}), "leads"},
 		{set("spec", map[string]any{"files_heading": "Files"}), "spec"},
+		// T-1111: roles.leads is no special case: the old row is a shape the load refuses, naming the key.
 		{set("roles", `{"leads": [{"name": "mp"}]}`), "leads"},
 		{set("obor", map[string]any{"version": "0.7.0"}), "obor"},
 		{set("slots.cpus", "4"), "cpus"},
@@ -396,7 +395,7 @@ func releaseMinor(t *testing.T) int {
 }
 
 // TestRemovedKeysWithinTwoVersions: each versioned removed key still WARNs, and the test fails once VERSION is past the
-// key's two versions. paths.research and paths.questions have no recorded removal version, so they have no window.
+// key's two versions.
 func TestRemovedKeysWithinTwoVersions(t *testing.T) {
 	minor := releaseMinor(t)
 	p := newPlainProject(t)
@@ -406,8 +405,6 @@ func TestRemovedKeysWithinTwoVersions(t *testing.T) {
 		removed   int // v0.<removed>.0 removed it; 0: no recorded version
 		keepUntil int // the last minor that still WARNs: removed + 2
 	}{
-		{"paths.research", set("paths.research", `"docs/research"`), 0, 0},
-		{"paths.questions", set("paths.questions", `"QUESTIONS.md"`), 0, 0},
 		// T-1083: the three commands obor no longer runs by name.
 		{"commands.e2e", set("commands.e2e", `"bun run e2e"`), 32, 34},
 	} {

@@ -12,15 +12,14 @@ import (
 // TestOverlayMatchesJq: each case's effective value is what the Bash loader's `jq -s '.[0] * .[1]'` gives (a null
 // left by the merge is unset in the effective config: a derived default, or absent).
 func TestOverlayMatchesJq(t *testing.T) {
-	cfg := `{"prefix":"pj","merge":{"scratch_dir":"../custom-scratch","summary_regex":"T"},
+	cfg := `{"prefix":"pj","merge":{"summary_regex":"T"},
 		"kinds":{"claude":{"args":["a","b"],"prompt_extra":"P"}},
 		"commands":{"check":{"cmd":"x","heavy":true,"timeout":5}},"slots":{"max":4,"dir":"/s"}}`
-	local := `{"prefix":"qq","merge":{"scratch_dir":null},
+	local := `{"prefix":"qq",
 		"kinds":{"claude":{"args":["c"],"prompt_extra":null}},
 		"commands":{"check":{"heavy":null}},"slots":{"max":null}}`
 	c := load(t, cfg, local)
 	for _, tc := range []struct{ name, path, want string }{
-		{"null scratch_dir resets to the derived default", ".merge.scratch_dir", `"../proj-wt/merge"`},
 		{"a sibling of a null key is kept", ".merge.summary_regex", `"T"`},
 		{"null heavy clears it", ".commands.check", `{"cmd":"x","timeout":5}`},
 		{"null slots.max clears it", ".slots", `{"dir":"/s"}`},

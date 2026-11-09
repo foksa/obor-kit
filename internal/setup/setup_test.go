@@ -576,16 +576,16 @@ func TestPaneSplitsTheLargestPane(t *testing.T) {
 // bash setup.test.sh case_pane_refuses_a_full_tab
 func TestPaneRefusesAFullTab(t *testing.T) {
 	t.Parallel()
-	x := newFx(t, testkit.Set("limits.max_panes_per_tab", 3))
+	x := newFx(t)
 	x.lane(t, "L-01")
-	x.h.Tab("w1:t1", 200, 50, "w1:p2")
+	x.h.Tab("w1:t1", 200, 50, "w1:p2", "w1:p3")
 	x.ok(t, "pane", "--start", "L-01", "--tab", "w1:t1")
-	has(t, strings.Join(x.reqs(), "\n"), "pane.split ", "precondition: 2 of 3 panes is not full")
+	has(t, strings.Join(x.reqs(), "\n"), "pane.split ", "precondition: 3 of 4 panes is not full")
 
 	x.noAgents()
 	x.h.Pane("w1:n1").Label = ""
 	x.reset()
-	x.failing(t, "FAIL tab w1:t1 is full (3 of 3 panes; --new-tab <label>)", "pane", "--start", "L-01", "--tab", "w1:t1")
+	x.failing(t, "FAIL tab w1:t1 is full (4 of 4 panes; --new-tab <label>)", "pane", "--start", "L-01", "--tab", "w1:t1")
 	calls := strings.Join(x.reqs(), "\n")
 	hasNot(t, calls, "pane.split", "no split")
 	hasNot(t, calls, "agent.start", "no agent start")

@@ -176,17 +176,12 @@ func Pretty(v any) string {
 	return b.String() + "\n"
 }
 
-// valueTyper is implemented by Ordered: the type of its values and whether it knows a member's key, for the schema
-// walk (a member an Ordered of roles does not know is unknown, not a role).
+// valueTyper is implemented by Ordered: the type of its values, for the schema walk.
 type valueTyper interface {
 	valueType() reflect.Type
-	knows(key string) bool
 }
 
 func (Ordered[V]) valueType() reflect.Type { return reflect.TypeFor[V]() }
-
-// knows: every key is a member of an Ordered.
-func (Ordered[V]) knows(string) bool { return true }
 
 // dropUnknown is b without the object members the destination type t does not know, and their dotted paths (list
 // elements as name[i]). It walks b against the type, so two members of one name are told apart by where they sit. A
@@ -196,7 +191,7 @@ func dropUnknown(b json.RawMessage, t reflect.Type, path string) (json.RawMessag
 		t = t.Elem()
 	}
 	if vt, ok := reflect.Zero(t).Interface().(valueTyper); ok {
-		return dropInMembers(b, path, func(key string) (reflect.Type, bool) { return vt.valueType(), vt.knows(key) })
+		return dropInMembers(b, path, func(string) (reflect.Type, bool) { return vt.valueType(), true })
 	}
 	switch t.Kind() {
 	case reflect.Struct:

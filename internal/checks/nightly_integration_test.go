@@ -170,7 +170,8 @@ func TestNightly(t *testing.T) {
 			x.is(x.nightly(), OK, `^NIGHTLY GREEN `)
 			x.lacks(x.out.String(), "waiting", "a dead holder's lock is not waited for")
 		}},
-		// T-409: nightly runs in its own worktree; serve's (merge.scratch_dir), an open merge in it and all, is not touched.
+		// T-409: nightly runs in its own worktree; serve's (<lanes_dir>/merge), an open merge in it and all, is not
+		// touched.
 		{"serve's worktree holding a merge is untouched; nightly's own worktree with a commit not in the target is reset", func(t *testing.T) {
 			x := newFx(t, cmd("check", logged("check", "test ! -e held.txt")))
 			for _, dir := range []string{x.scratch, x.nightlyDir()} {

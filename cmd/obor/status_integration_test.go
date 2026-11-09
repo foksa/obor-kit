@@ -158,7 +158,7 @@ func TestStatusServeDown(t *testing.T) {
 }
 
 // --json (the binary, serve down): indented, serve.up false, lanes[].lane, task, state, paused.reason, messages [];
-// no ready rows (T-470: the queue went); a removed roles.leads changes nothing.
+// no ready rows (T-470: the queue went).
 func TestStatusJSON(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
@@ -214,13 +214,6 @@ func TestStatusJSON(t *testing.T) {
 	}
 	if _, text, _ := run(t, p.Root, nil, "status"); strings.Contains(text, "ready:") {
 		t.Errorf("a ready line in the text:\n%s", text)
-	}
-
-	p.Config(testkit.Set("roles", `{"leads": [{"name": "mp", "agent": "lead-mp", "lanes": ["L-01"]}]}`))
-	_, stdout, _ = run(t, p.Root, nil, "status", "--json")
-	st.Lanes = nil
-	if err := json.Unmarshal([]byte(stdout), &st); err != nil || len(st.Lanes) != 2 {
-		t.Errorf("removed roles.leads: lanes %v (%v)", st.Lanes, err)
 	}
 }
 

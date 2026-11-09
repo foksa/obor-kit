@@ -37,7 +37,7 @@ Without `--tab` / `--new-tab` the current pane's tab is split; `--pane <id>` use
 `--cwd` the lane and `OBOR_ROLE` / `OBOR_LANE`; agents are named `<prefix>-<lane lower>` (`<prefix>-int`,
 `<prefix>-rev`, `<prefix>-lead`); Claude agents except leads start with `--settings '{"autoMemoryEnabled":false,"remoteControlAtStartup":false}'`
 (a lead keeps Remote Control and auto memory; lane-type settings overlay those keys).
-- `FAIL tab … is full` → use `--new-tab` (max `limits.max_panes_per_tab` panes per tab).
+- `FAIL tab … is full` → use `--new-tab` (a tab holds 4 panes).
 - `FAIL lane type … is at its max` → ask the user: retire an agent or raise `max`.
 - `FAIL agent not ready: … Trust this folder? …` → ask the user to answer the dialog in that pane (Enter = trust,
   once per repo). `… updated itself and exited …` → rerun the `herdr agent start` the hint prints.
