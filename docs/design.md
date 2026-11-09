@@ -418,10 +418,11 @@ A second layer that doesn't depend on agent hooks (also covers Codex/opencode la
   `.obor/config.json` a hook only chains.
 - serve's own commits (submit, the gate's merge commit, the amend) pass `--no-verify`: the project's checking step is
   `commands.check`, not its commit hooks; git still runs `prepare-commit-msg` (T-622).
-- `pre-push`: refuses unless `OBOR_ALLOW_PUSH=1` (the owner by hand) or the binary says the caller may push
-  (`obor whoami --can-push`, hidden, exit 0/1: `config.MayPush`, a role that is not lane-bound and is in
-  `guards.allow_push`, the rule the agent guard's `checkPush` uses; T-793). Fails closed: no binary, a stale one or a
-  hang past the watchdog refuses, naming `guards.allow_push` and `OBOR_ALLOW_PUSH=1`.
+- `pre-push`: a shell with no `OBOR_ROLE` (a person) pushes; the block is for agents (T-1116; every supported agent
+  start sets `OBOR_ROLE`, T-1137). A caller with a role asks the binary (`obor whoami --can-push`, hidden, exit 0/1:
+  `config.MayPush`, a role that is not lane-bound and is in `guards.allow_push`, the rule the agent guard's
+  `checkPush` uses; T-793). For a role it fails closed: no binary, a stale one or a hang past the watchdog refuses,
+  naming `guards.allow_push`.
 - `pre-commit`: refuses in a lane worktree unless `OBOR_MERGE=1` (set by serve's gate for its
   commands and scratch commits); in the main checkout git can't tell a `commit -a` from a normal commit, so nothing is
   checked there (the agent guard covers `commit -a`).
