@@ -111,12 +111,13 @@ obor_pre_commit() {
   return 1
 }
 
-# obor_pre_push: OBOR_ALLOW_PUSH=1 passes (the owner by hand); else the binary decides (`obor whoami --can-push`, T-793):
-# a role that is not lane-bound and is listed in guards.allow_push may push, the same rule as the agent guard. Fails
-# closed: no binary, a stale one, a hang or an answer other than "yes" refuses.
+# obor_pre_push: the block is for agents, so a person's shell (no OBOR_ROLE) passes (T-1116). An agent's role is the
+# binary's answer (`obor whoami --can-push`, T-793): a role that is not lane-bound and is listed in guards.allow_push
+# may push, the same rule as the agent guard. Fails closed: no binary, a stale one, a hang or an answer other than "yes"
+# refuses.
 obor_pre_push() {
   local kit out rc=1
-  [ "${OBOR_ALLOW_PUSH:-}" = 1 ] && return 0
+  [ -n "${OBOR_ROLE:-}" ] || return 0
   kit=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
   out=$(mktemp "${TMPDIR:-/tmp}/obor-prepush.XXXXXX") || out=
   if [ -n "$out" ]; then
@@ -124,6 +125,6 @@ obor_pre_push() {
     rm -f "$out"
   fi
   [ "$rc" = 0 ] && return 0
-  echo "obor: this role may not push: list it in guards.allow_push, or set OBOR_ALLOW_PUSH=1 to push by hand" >&2
+  echo "obor: this role may not push: list it in guards.allow_push" >&2
   return 1
 }

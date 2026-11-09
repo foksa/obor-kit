@@ -136,7 +136,8 @@ func TestWhoamiDeepDiveAndLead(t *testing.T) {
 }
 
 // T-793: `whoami --can-push` (hidden; the pre-push hook's question) exits 0 for a non-lane-bound role in
-// guards.allow_push and 1 otherwise, printing nothing.
+// guards.allow_push and 1 otherwise, printing nothing. A caller with no role is answered by the hook itself (T-1116:
+// a person's shell pushes), so "no role" stays 1 here: config.MayPush is a role's rule.
 func TestWhoamiCanPush(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)

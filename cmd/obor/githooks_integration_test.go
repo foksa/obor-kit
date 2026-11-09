@@ -85,8 +85,9 @@ func TestGithooksRealBinary(t *testing.T) {
 		t.Errorf("the refused commit moved the lane's HEAD %s -> %s", before, after)
 	}
 
-	// pre-push: whoami --can-push decides. A reviewer (not in guards.allow_push) is refused and nothing reaches the
-	// remote; a lead (listed, not lane-bound) pushes.
+	// pre-push: a role is whoami --can-push's (MayPush); a person's shell (no OBOR_ROLE) passes without asking it
+	// (T-1116). A reviewer (not in guards.allow_push) is refused and nothing reaches the remote; a shell with no role
+	// and a lead (listed, not lane-bound) push.
 	remote := filepath.Join(p.Base, "remote.git")
 	p.Git(p.Base, "init", "-q", "--bare", remote)
 	p.Git(p.Root, "remote", "add", "origin", remote)
@@ -98,10 +99,17 @@ func TestGithooksRealBinary(t *testing.T) {
 	if got := p.Git(remote, "branch", "--list", "main"); got != "" {
 		t.Errorf("the refused push reached the remote: %q", got)
 	}
-	if rc, errOut := gitRun(t, p.Root, with("OBOR_ROLE=lead"), "push", "-q", "origin", "main"); rc != 0 || errOut != "" {
-		t.Errorf("lead push: exit %d, stderr %q; want 0", rc, errOut)
+	if rc, errOut := gitRun(t, p.Root, env, "push", "-q", "origin", "main"); rc != 0 || errOut != "" {
+		t.Errorf("a person's push (no OBOR_ROLE): exit %d, stderr %q; want 0", rc, errOut)
 	}
 	if got, want := p.Git(remote, "rev-parse", "main"), p.Git(p.Root, "rev-parse", "main"); got != want {
 		t.Errorf("the remote's main %s, want the main checkout's %s", got, want)
+	}
+	p.Git(p.Root, "branch", "-f", "leadbranch", "HEAD")
+	if rc, errOut := gitRun(t, p.Root, with("OBOR_ROLE=lead"), "push", "-q", "origin", "leadbranch"); rc != 0 || errOut != "" {
+		t.Errorf("lead push: exit %d, stderr %q; want 0", rc, errOut)
+	}
+	if got, want := p.Git(remote, "rev-parse", "leadbranch"), p.Git(p.Root, "rev-parse", "leadbranch"); got != want {
+		t.Errorf("the remote's leadbranch %s, want the main checkout's %s", got, want)
 	}
 }

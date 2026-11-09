@@ -10,7 +10,7 @@
 # (T-643):
 #   push     done: origin has tag v<version> (the same object) and origin's main contains the checksums commit
 #            run: git push origin <checksums commit>:refs/heads/main and/or the tag, whichever origin lacks
-#            (OBOR_ALLOW_PUSH=1)                                  fail: stop
+#            fail: stop
 #   publish  done: the GitHub release is not a draft and has its eight assets (obor and the OpenCode kind, T-1046)
 #            run: scripts/publish (no release), or scripts/publish --upload of the missing assets only (its byte
 #            checks first)                                       fail: stop with the repair command
@@ -85,7 +85,7 @@ else
   pushed=
   main_landed || { set -- "$lmain:refs/heads/main"; pushed=$upto; }
   [ "$rtag" = "$ltag" ] || { set -- "$@" "$tag"; pushed="${pushed:+$pushed and }$tag"; }
-  OBOR_ALLOW_PUSH=1 git push origin "$@" || fail "git push origin $* failed"
+  git push origin "$@" || fail "git push origin $* failed"
   read_remote
   [ "$rtag" = "$ltag" ] && main_landed ||
     fail "after git push origin $*, origin has main '${rmain:-none}' and $tag '${rtag:-none}', not one containing $lmain and $ltag"

@@ -910,9 +910,10 @@ func (c *Config) Self(role, lane string) string {
 	return c.AgentName(role, "")
 }
 
-// MayPush is the one rule for "this caller may push" (the agent guard's checkPush and the git pre-push hook through
-// `obor whoami --can-push`, T-793): a role that is not lane-bound (never a worker's or a driver's, T-751) and is
-// listed in guards.allow_push. A custom role never pushes (T-801; validate fails an allow_push that lists one).
+// MayPush is the one rule for "this role may push" (the agent guard's checkPush and, for a role, the git pre-push hook
+// through `obor whoami --can-push`, T-793): a role that is not lane-bound (never a worker's or a driver's, T-751) and
+// is listed in guards.allow_push. A custom role never pushes (T-801; validate fails an allow_push that lists one). A
+// caller with no role is not an agent: the pre-push hook lets it push without asking (T-1116).
 func (c *Config) MayPush(role string) bool {
 	rc, _ := c.Role(role)
 	return !roles.LaneBound(role) && !rc.Role.Custom && c.PushAllowed(role)
