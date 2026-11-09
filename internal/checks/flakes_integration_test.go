@@ -347,7 +347,8 @@ func TestFlakyRule(t *testing.T) {
 	})
 }
 
-// A check run removes the logs older than 14 days from .obor/state/logs and keeps a younger one and its own.
+// A check run removes the logs older than 14 days from .obor/state/logs and keeps a younger one; an all-green run
+// (which writes no log of its own, T-1094) still prunes.
 func TestRunPrunesOldLogs(t *testing.T) {
 	t.Parallel()
 	x := newFx(t, cmd("check", "echo 2 pass"))
@@ -379,7 +380,7 @@ func TestRunPrunesOldLogs(t *testing.T) {
 	if _, err := os.Stat(young); err != nil {
 		t.Errorf("the 1-day-old log is gone: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "T-05-check.log")); err != nil {
-		t.Errorf("the run's own log is gone: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, "T-05-check.log")); !os.IsNotExist(err) {
+		t.Errorf("the passing run wrote a log: %v", err)
 	}
 }

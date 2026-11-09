@@ -72,7 +72,8 @@ func (s Scratch) Test(ctx context.Context, in port.TestInput) (out port.TestOutc
 	}()
 	linkLaneLinks(s.Cfg, s.Cfg.Root, dir)
 
-	r := newRunner(ctx, &s.Options, dir, in.Task, "lane-changed-files-"+in.Lane)
+	r := newRunner(ctx, &s.Options, dir, in.Task)
+	r.changedFile = "lane-changed-files-" + in.Lane
 	r.prio, r.pre, r.onCommand, r.retest = "worker", in.Target, in.Command, true
 	// The lane's env (T-1041): the generic facts and the project's slots.lane_env, and CHECK_CPUS the lane's CPU budget,
 	// never the gate's cores / slots.max.

@@ -735,10 +735,10 @@ func TestPublishDecisions(t *testing.T) {
 }
 
 // after_merge runs commands.after_merge in the main checkout (the directory publish fast-forwards), never in serve's
-// worktree; its when globs decide; its full output goes to .obor/state/logs/<task>-after_merge.log, a green run too
-// (T-414: on 2026-10-25 a stale dist/obor after a merge had no trace). It keeps no record of its own (T-525: its intent
-// in the store is the once), so a second call runs it again. The main checkout must be on a branch at the published
-// merge, else a WARN line, again on a second call.
+// worktree; its when globs decide; a failed run's full output goes to .obor/state/logs/<task>-after_merge.log, a
+// passing one writes no log (T-414: on 2026-10-25 a stale dist/obor after a merge had no trace; T-1094: a pass has
+// nothing to trace). It keeps no record of its own (T-525: its intent in the store is the once), so a second call runs
+// it again. The main checkout must be on a branch at the published merge, else a WARN line, again on a second call.
 func TestAfterMergeDecisions(t *testing.T) {
 	t.Parallel()
 	setup := func(t *testing.T, v any) (*fk, port.Candidate) {
@@ -753,7 +753,7 @@ func TestAfterMergeDecisions(t *testing.T) {
 		return k, c
 	}
 	log := func(c port.Candidate) string { return filepath.Join(".obor/state/logs", c.Task+"-after_merge.log") }
-	t.Run("runs in the main checkout, its output in the log, again on a second call", func(t *testing.T) {
+	t.Run("runs in the main checkout, a pass writes no log, again on a second call", func(t *testing.T) {
 		t.Parallel()
 		k, c := setup(t, map[string]any{"cmd": `echo after-merge-ran; echo ran >> after.ran; touch after.marker`})
 		for i := 1; i <= 2; i++ {
@@ -762,7 +762,7 @@ func TestAfterMergeDecisions(t *testing.T) {
 		}
 		k.eq(k.Read("after.ran"), "ran\nran\n", "both calls ran it")
 		k.gone(filepath.Join(k.serve(), "after.marker"), "marker in serve's worktree")
-		k.eq(k.Read(log(c)), "after-merge-ran\n", "the run's output in the log")
+		k.gone(k.Path(log(c)), "no log for a passing run")
 		k.gone(k.Path(".obor/state/merges.log"), "no merges.log")
 	})
 	t.Run("no commands.after_merge: skipped, no git", func(t *testing.T) {

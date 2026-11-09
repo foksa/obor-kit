@@ -170,7 +170,7 @@ func (s Scratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutcome,
 		}
 	}
 
-	r := newRunner(ctx, &s.Options, dir, in.Task, "serve-changed-files")
+	r := newRunner(ctx, &s.Options, dir, in.Task)
 	r.onCommand = in.Command // obor status' running line names the command while it runs, none between two (T-669, T-673)
 	defer r.releaseSlot()
 	if _, ok := s.command("compile"); ok {
@@ -632,9 +632,9 @@ func statusPaths(st []string) []string {
 }
 
 // AfterMerge runs commands.after_merge in the main checkout for the published c when its "when" globs match the
-// merged files (none: always). The run's full output goes to .obor/state/logs/<task>-after_merge.log (green or failed,
-// T-414). A failing command is the WARN line. Its intent (G) is the once: a cut before its result runs it again
-// (after_merge is idempotent, T-525).
+// merged files (none: always). A failed run's full output goes to .obor/state/logs/<task>-after_merge.log; a passing
+// one writes none (T-414 kept the log for a failure's trace). A failing command is the WARN line. Its intent (G) is the
+// once: a cut before its result runs it again (after_merge is idempotent, T-525).
 func (s Scratch) AfterMerge(ctx context.Context, c port.Candidate) (string, error) {
 	s.gitCtx = ctx
 	if s.Out == nil {
@@ -686,7 +686,7 @@ func (s Scratch) afterMergeRun(ctx context.Context, g gitReader, c port.Candidat
 		fmt.Fprintln(s.Out, line)
 		return line, nil
 	}
-	r := newRunner(ctx, &s.Options, s.Cfg.Root, c.Task, "serve-changed-files")
+	r := newRunner(ctx, &s.Options, s.Cfg.Root, c.Task)
 	o, _, h := r.run("after_merge", s.Cfg.Root)
 	if h != nil {
 		return "", fmt.Errorf("after_merge interrupted (exit %d)", h.code)

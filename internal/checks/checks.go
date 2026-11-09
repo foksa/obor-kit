@@ -1,10 +1,11 @@
 // Package checks is obor serve's merge gate over git (Scratch, scratch.go), the lane steps (lane.go) and `obor nightly`
 // (design "Machine load (v2.1)", "Machine-wide check slots (v2.4)", "Change-based merge
 // checks (v2.5)", "Check tiers (v2.6)"). Every command but lane_setup runs holding the machine-wide
-// merge-running-<project> check slot (internal/run) with CHECK_PRIORITY=merge and CHECK_SLOT_HELD=<its path>. Each
+// merge-running-<project> check slot (internal/run) with CHECK_PRIORITY=merge and CHECK_SLOT_HELD=<its path>. A failed
 // command's full output goes to .obor/state/logs/<log name>-<name>.log, the log name the task (after_merge's runs
-// included) or nightly. A failing check names that log and its failing tests (merge.fail_grep matches) in
-// the result line; a failed after_merge names it in its WARN line.
+// included) or nightly; a command that passes writes no log (and removes an earlier one of its name). A failing check
+// names that log and its failing tests (merge.fail_grep matches) in the result line; a failed after_merge names it in
+// its WARN line.
 //
 // nightly runs in its own worktree, <merge.scratch_dir>-nightly, one at a time per project
 // (.obor/state/nightly.flock). Result line (printed last) and exit code: NIGHTLY GREEN 0 | RED 3 | FAIL 1. A signal
@@ -90,7 +91,7 @@ func open(ctx context.Context, o Options, name string) (*session, *Result) {
 	s.scratch = o.Cfg.ScratchDir() + "-" + name
 	ctx, s.cancel = context.WithCancel(ctx)
 	s.Options.gitCtx = ctx // a signal kills a running git too
-	s.runner = newRunner(ctx, &s.Options, s.scratch, name, "flakes-changed-files")
+	s.runner = newRunner(ctx, &s.Options, s.scratch, name)
 	s.sigDone = make(chan struct{})
 	s.sigCode = func() int { <-s.sigDone; return s.signal }
 	go func() {

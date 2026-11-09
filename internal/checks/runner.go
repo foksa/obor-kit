@@ -27,7 +27,7 @@ type runner struct {
 	root, state string     // the main checkout and its .obor/state
 	dir         string     // where the commands run: the scratch, or a lane (a lane test)
 	logName     string     // log file prefix: the task, nightly, milestone
-	changedFile string     // the OBOR_CHANGED_FILES file under state
+	changedFile string     // the OBOR_CHANGED_FILES file under state (a lane test's)
 	slot        string
 	env         []string // extra command environment (OBOR_CHANGED_FILES, a lane test's CPU budget)
 	prio        string   // the check slot's priority: "merge" (the merge marker; "" too) or "worker" (a pool slot: a lane test, T-961)
@@ -36,13 +36,12 @@ type runner struct {
 	class       Class
 	mode        string            // class.Mode() once classified
 	check       string            // the checks' counts
-	pruned      bool              // the old logs were removed (once per run)
+	pruned      bool              // the old logs were removed (once per run, at its first command)
 	onCommand   func(name string) // told each command as it starts and "" as it ends (serve's gate: obor status' running line, T-669, T-673)
 }
 
-func newRunner(ctx context.Context, o *Options, dir, logName, changedFile string) runner {
-	return runner{Options: o, ctx: ctx, root: o.Cfg.Root, state: project.StateDir(o.Cfg.Root), dir: dir, logName: logName,
-		changedFile: changedFile}
+func newRunner(ctx context.Context, o *Options, dir, logName string) runner {
+	return runner{Options: o, ctx: ctx, root: o.Cfg.Root, state: project.StateDir(o.Cfg.Root), dir: dir, logName: logName}
 }
 
 // interrupted is the signal's exit code once ctx ended, 0 while it runs.
@@ -103,8 +102,8 @@ func (r *runner) run(name string, dir ...string) (output, bool, *halt) {
 }
 
 // exec runs commands.<name> in dir (the runner's unless given) under its timeout: every command but lane_setup holds
-// the check slot. ok false when not configured; a halt when the slot cannot be taken or a signal came. It keeps the
-// run's full output in writeLog's log, in any dir (after_merge's included); must logs a red run's tests.
+// the check slot. ok false when not configured; a halt when the slot cannot be taken or a signal came. A failed run's
+// full output goes to writeLog's log, in any dir (after_merge's included); must logs a red run's tests.
 func (r *runner) exec(name string, dir ...string) (output, bool, *halt) {
 	c, ok := r.command(name)
 	if !ok {
@@ -115,9 +114,10 @@ func (r *runner) exec(name string, dir ...string) (output, bool, *halt) {
 }
 
 // execCommand runs c in dir (the runner's unless given) under its timeout, under the name c.Name: every command but
-// lane_setup holds the check slot. A halt when the slot cannot be taken or a signal came. It keeps the command's full
-// output in writeLog's log, in any dir (after_merge's included). exec is this for commands.<name>; retestOnRed is this
-// for commands.retest with its {tests} filled.
+// lane_setup holds the check slot. A halt when the slot cannot be taken or a signal came. A failed command's full
+// output goes to writeLog's log, in any dir (after_merge's included); a command that passes writes none and removes an
+// earlier log of the same name. exec is this for commands.<name>; retestOnRed is this for commands.retest with its
+// {tests} filled.
 func (r *runner) execCommand(c config.Command, dir ...string) (output, *halt) {
 	environ := append(append([]string(nil), r.Environ...), "OBOR_MERGE=1", run.CPUsEnv(r.Cfg, r.Env))
 	if c.Name != "lane_setup" && len(dir) == 0 {
@@ -131,6 +131,7 @@ func (r *runner) execCommand(c config.Command, dir ...string) (output, *halt) {
 	if len(dir) > 0 {
 		wd = dir[0]
 	}
+	r.pruneOnce()
 	if r.onCommand != nil {
 		r.onCommand(c.Name)
 	}
@@ -147,22 +148,38 @@ func (r *runner) execCommand(c config.Command, dir ...string) (output, *halt) {
 	if timedOut {
 		rc = 124
 	}
-	return output{name: c.Name, text: buf.String(), rc: rc, timeout: c.Timeout, log: r.writeLog(c.Name, buf.Bytes())}, nil
+	o := output{name: c.Name, text: buf.String(), rc: rc, timeout: c.Timeout}
+	if o.rc == 0 {
+		os.Remove(r.logPath(c.Name))
+	} else {
+		o.log = r.writeLog(c.Name, buf.Bytes())
+	}
+	return o, nil
 }
 
 // logMaxAge is how long a check log stays in .obor/state/logs.
 const logMaxAge = 14 * 24 * time.Hour
 
-// writeLog keeps a command's full output in .obor/state/logs/<logName>-<name>.log; "" when it cannot.
-func (r *runner) writeLog(name string, b []byte) string {
-	dir := filepath.Join(r.state, "logs")
-	path := filepath.Join(dir, r.logName+"-"+name+".log")
-	if os.MkdirAll(dir, 0o755) != nil || os.WriteFile(path, b, 0o644) != nil {
-		return ""
+// pruneOnce removes the logs older than logMaxAge, once per run, at its first command: an all-green run writes no log
+// and still prunes.
+func (r *runner) pruneOnce() {
+	if r.pruned {
+		return
 	}
-	if !r.pruned {
-		r.pruned = true
-		run.PruneOlder(dir, time.Now().Add(-logMaxAge))
+	r.pruned = true
+	run.PruneOlder(filepath.Join(r.state, "logs"), time.Now().Add(-logMaxAge))
+}
+
+// logPath is where a failed command's full output is kept: .obor/state/logs/<logName>-<name>.log.
+func (r *runner) logPath(name string) string {
+	return filepath.Join(r.state, "logs", r.logName+"-"+name+".log")
+}
+
+// writeLog keeps a failed command's full output in logPath; "" when it cannot.
+func (r *runner) writeLog(name string, b []byte) string {
+	path := r.logPath(name)
+	if os.MkdirAll(filepath.Dir(path), 0o755) != nil || os.WriteFile(path, b, 0o644) != nil {
+		return ""
 	}
 	return path
 }
