@@ -12,7 +12,7 @@ import (
 // fetched again after its text changed (a new spec rev, a re-gate) gets another row, so a job may have several, its
 // newest first. Serve is its only writer (WritePrompt); hooks and CLIs read it read-only (ReadPromptsAt). A payload,
 // not state: never folded or replayed, so the log's replay never carries it. A line (a message fact) carries its text
-// already and has no row here. Rows older than 14 days are pruned with the daily backup (PrunePrompts).
+// already and has no row here. Rows older than 3 days are pruned with the daily backup (PrunePrompts).
 
 // Prompt kinds: a job's text (job_next's reply), a brief's line, a fresh start's first prompt.
 const (
@@ -104,7 +104,7 @@ func ReadPromptsAt(root string, q PromptQuery, limit int) ([]PromptRow, error) {
 	return ReadPrompts(db, q, limit)
 }
 
-// PrunePrompts deletes the rows recorded before before (serve's nightly backup keeps 14 days): how many it deleted.
+// PrunePrompts deletes the rows recorded before before (serve's nightly backup keeps 3 days): how many it deleted.
 func PrunePrompts(db *sql.DB, before time.Time) (int64, error) {
 	res, err := db.Exec("DELETE FROM prompts WHERE ts < ?", before.UTC().Format(time.RFC3339))
 	if err != nil {

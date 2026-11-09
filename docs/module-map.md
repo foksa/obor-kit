@@ -61,7 +61,7 @@ gate runs it. Adapters never import each other: one that needs another goes thro
   `store.ReadSpecAt` / `ReadSpecsAt`; the gate puts the current rev into every merge's message, T-521), `prompts`
   (T-665, T-670: the text of every job, brief and start prompt serve sent, by the seq of the fact it belongs to and
   its own id, one row per distinct text a job's fetch returned; serve writes it, readers use `store.ReadPromptsAt` /
-  `ReadPrompts`, pruned to 14 days at the nightly backup; `store.OpenAt` is the read-only handle a reader that runs
+  `ReadPrompts`, pruned to 3 days at the nightly backup; `store.OpenAt` is the read-only handle a reader that runs
   several queries holds, as obor web's event poll does). The agents'
   sessions (T-577) are `events` facts on task key `session` (`sessions.go`: `store.Session`, readers
   `ReadSessionsAt` / `CurrentAt` / `TranscriptAt` for launch and the hooks).

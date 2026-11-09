@@ -11,8 +11,9 @@ import (
 // payload, not state: never folded or replayed, so a restart keeps only what the log carries. A failed write is logged
 // and never fails the job or brief it belongs to.
 
-// promptKeep is how long the prompts table keeps a row: serve's nightly backup prunes the rest (T-665).
-const promptKeep = 14 * 24 * time.Hour
+// promptKeep is how long the prompts table keeps a row: serve's nightly backup prunes the rest (T-665; 3 days since
+// T-1092: the table grew 1.4 MB a day and only three web pages read it).
+const promptKeep = 3 * 24 * time.Hour
 
 // prompt records text, sent to agent for fact seq, in the project's prompts table (kind store.PromptJob,
 // store.PromptBrief or store.PromptStart; job: the job id, jobs only; task: a job's, "" for a brief or a start; rev:
@@ -39,7 +40,7 @@ func (a *App) prompt(p *proj, seq int64, kind, agent, job, task, text string, re
 	}
 }
 
-// prunePrompts drops the prompts older than promptKeep, now's 14 days (serve's nightly backup): a failed prune is
+// prunePrompts drops the prompts older than promptKeep, now's 3 days (serve's nightly backup): a failed prune is
 // logged, the backup stands.
 func (a *App) prunePrompts(p *proj, now time.Time) {
 	n, err := store.PrunePrompts(p.log.DB(), now.Add(-promptKeep))
