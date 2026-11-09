@@ -29,7 +29,7 @@ func nightlyCmd(args []string) int {
 }
 
 // nightlySwitch is `obor nightly on HH:MM | off` (T-781), the lead's or the owner's switch of serve's nightly: a
-// config_set of merge.nightly_at to the time (on: every night at it) or null (off), one commit on main; serve checks
+// config_set of nightly.at to the time (on: every night at it) or null (off), one commit on main; serve checks
 // the time (config.Edit) and the caller. NIGHTLY ON at HH:MM | NIGHTLY OFF, "… already" when it was so (no commit),
 // or FAIL: serve down or its refusal (exit 1).
 func nightlySwitch(args []string) int {
@@ -38,7 +38,7 @@ func nightlySwitch(args []string) int {
 		b, _ := json.Marshal(args[1]) // a string: cannot fail
 		val, line = b, "NIGHTLY ON at "+args[1]
 	}
-	nightly := []wire.ConfigChange{{Key: "merge.nightly_at", Value: val}}
+	nightly := []wire.ConfigChange{{Key: "nightly.at", Value: val}}
 	return requestReply(context.Background(), project.OSEnv, func(_ *config.Config, id wire.Envelope) (wire.Req, error) {
 		return &wire.ConfigSetReq{Envelope: id, Changes: nightly}, nil
 	}, func(reply string) string {

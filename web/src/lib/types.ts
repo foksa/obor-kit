@@ -414,11 +414,11 @@ export interface SetupModel {
   paused: Pause | null;
 }
 
-// SetupKind is an agent kind: the args its starts get and whether it has a prompt_extra (T-766).
+// SetupKind is an agent kind: the args its starts get and whether it has a job_note (T-766).
 export interface SetupKind {
   name: string;
   args: string[];
-  prompt_extra: boolean;
+  job_note: boolean;
 }
 
 export interface SetupLane {

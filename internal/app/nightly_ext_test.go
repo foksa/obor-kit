@@ -288,7 +288,7 @@ func TestNightlySwitchCountsFromTheNextPass(t *testing.T) {
 		t.Helper()
 		reply, err := wire.Verdict(context.Background(), r.sock,
 			&wire.ConfigSetReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: id},
-				Changes: []wire.ConfigChange{{Key: "merge.nightly_at", Value: json.RawMessage(val)}}})
+				Changes: []wire.ConfigChange{{Key: "nightly.at", Value: json.RawMessage(val)}}})
 		if err != nil {
 			t.Fatalf("config_set %s: %v", val, err)
 		}
@@ -299,14 +299,14 @@ func TestNightlySwitchCountsFromTheNextPass(t *testing.T) {
 	if n := f.count(); n != 0 {
 		t.Fatalf("precondition: off, no run: %d", n)
 	}
-	if reply := set("on", `"11:00"`); reply != `SET merge.nightly_at unset → "11:00"` {
+	if reply := set("on", `"11:00"`); reply != `SET nightly.at unset → "11:00"` {
 		t.Errorf("on: %q", reply)
 	}
 	r.waitStep("0 result nightly.2026-11-10")
 	if n, c := f.count(), w.count(); n != 1 || c != 1 {
 		t.Errorf("after on: runs %d, commits %d; want 1, 1", n, c)
 	}
-	if reply := set("off", `null`); reply != `SET merge.nightly_at "11:00" → unset` {
+	if reply := set("off", `null`); reply != `SET nightly.at "11:00" → unset` {
 		t.Errorf("off: %q", reply)
 	}
 	// The switch counts from the next pass (T-781). Let a pass built after the commit finish before the fake clock jumps
@@ -317,7 +317,7 @@ func TestNightlySwitchCountsFromTheNextPass(t *testing.T) {
 	if n := f.count(); n != 1 || r.has("0 intent nightly.2026-11-11") {
 		t.Errorf("off on 2026-11-11: runs %d, want still 1: %q", n, r.steps())
 	}
-	if reply := set("off-again", `null`); reply != "UNCHANGED merge.nightly_at" || w.count() != 2 {
+	if reply := set("off-again", `null`); reply != "UNCHANGED nightly.at" || w.count() != 2 {
 		t.Errorf("off when off: %q, commits %d; want UNCHANGED, still 2", reply, w.count())
 	}
 	if reply := set("on-again", `"11:00"`); !strings.HasPrefix(reply, "SET ") {

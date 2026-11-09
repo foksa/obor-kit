@@ -101,8 +101,8 @@
   });
 
   // level chains: a ref's chips, and the pick (model, effort) a level's add control holds
-  const chain = (level: string) => ((val("difficulty." + level) as string[]) || []);
-  const setChain = (level: string, list: string[]) => set("difficulty." + level, list);
+  const chain = (level: string) => ((val("agents.difficulty." + level) as string[]) || []);
+  const setChain = (level: string, list: string[]) => set("agents.difficulty." + level, list);
   let pick = $state<Record<string, { m: string; e: string }>>({});
   function add(level: string) {
     const p = pick[level];
@@ -114,11 +114,11 @@
   // a role's model change keeps its effort only when the new model's kind takes it
   function setRole(role: string, m: string, e: string) {
     if (!s) return;
-    set("roles." + role, joinRef(m, efforts(s, m).includes(e) ? e : ""));
+    set("agents.roles." + role, joinRef(m, efforts(s, m).includes(e) ? e : ""));
   }
 
   // lanes: the count, and the lanes a lower count would drop that hold a task (serve refuses it)
-  const lanes = $derived((val("lanes") as number) ?? 0);
+  const lanes = $derived((val("lanes.count") as number) ?? 0);
   const dropsBusy = $derived(s ? busyDropped(s, lanes) : []);
 
   let distRange = $state(DIST_RANGES[0]);
@@ -186,7 +186,7 @@
       <div class="card">
         {#each s.difficulty as d (d.level)}
           {@const list = chain(d.level)}
-          {@const key = "difficulty." + d.level}
+          {@const key = "agents.difficulty." + d.level}
           {@const p = pick[d.level] || { m: "", e: "" }}
           <div class="lvl" class:changed={isStaged(key)}>
             <div class="lname"><strong>{d.level}</strong><span class="muted small">{recent[d.level] || 0} dispatches · 7 d</span></div>
@@ -270,10 +270,10 @@
 
         <Section title="Lanes" sub="every lane runs any model; a lane is removed from the end">
           {#snippet actions()}
-            <div class="stepper" class:st={isStaged("lanes")}>
-              <button class="btn sm" aria-label="Fewer lanes" disabled={busy || lanes <= 0} onclick={() => set("lanes", Math.max(0, lanes - 1))}>−</button>
+            <div class="stepper" class:st={isStaged("lanes.count")}>
+              <button class="btn sm" aria-label="Fewer lanes" disabled={busy || lanes <= 0} onclick={() => set("lanes.count", Math.max(0, lanes - 1))}>−</button>
               <span class="mono num">{lanes} lane{lanes === 1 ? "" : "s"}</span>
-              <button class="btn sm" aria-label="More lanes" disabled={busy} onclick={() => set("lanes", lanes + 1)}>+</button>
+              <button class="btn sm" aria-label="More lanes" disabled={busy} onclick={() => set("lanes.count", lanes + 1)}>+</button>
             </div>
           {/snippet}
           {#if dropsBusy.length}
@@ -306,7 +306,7 @@
               <thead><tr><th>Role</th><th>Model</th><th>Effort</th></tr></thead>
               <tbody>
                 {#each s.roles as r (r.role)}
-                  {@const k = "roles." + r.role}
+                  {@const k = "agents.roles." + r.role}
                   {@const [rm, re] = splitRef((val(k) as string) || "")}
                   <tr>
                     <td><span class="rname"><Dot state={r.status || "idle"} title={r.status || "no pane"} /> {roleName(r.role)}</span><span class="small"><AgentLink {project} agent={r.agent} /></span></td>
@@ -331,13 +331,13 @@
         <Section title="Kinds" sub="what each agent kind's starts get (obor setup or a hand edit sets it)">
           <div class="card tw">
             <table>
-              <thead><tr><th>Kind</th><th>Args</th><th>Prompt extra</th></tr></thead>
+              <thead><tr><th>Kind</th><th>Args</th><th>Job note</th></tr></thead>
               <tbody>
                 {#each s.kinds as k (k.name)}
                   <tr>
                     <td><span class="kind k-{k.name}">{k.name}</span></td>
                     <td class="mono small">{k.args.length ? k.args.join(" ") : "—"}</td>
-                    <td class="small">{k.prompt_extra ? "set" : "—"}</td>
+                    <td class="small">{k.job_note ? "set" : "—"}</td>
                   </tr>
                 {/each}
               </tbody>
