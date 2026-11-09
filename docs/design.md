@@ -155,8 +155,12 @@ the MCP server and every CLI call to serve; no `OBOR_AGENT` is exported, and one
 copy went stale on every rename). The CLI finds an agent's pane by label (`launch.Launcher.PaneOf`); serve finds it by
 proofs ("Finding the pane" below); `obor hook` under opencode has no env and derives the name from the cwd alone (see
 "opencode lanes").
-After a herdr restart, obor's `[[startup]]` hook (`obor plugin restore`) runs `obor restart` for each labelled
-obor pane (herdr `resume_agents_on_restore = false`). The store's `session` facts record each agent's sessions
+After a herdr restart (herdr `resume_agents_on_restore = false`), serve restarts its project's labelled panes
+(`launch.Restorer`): when its terminal connection comes back during its lifetime (T-1051), and at its first connect
+when herdr restarted while serve was down — told by the herdr socket file's mtime against the instance serve last
+restored for (`.obor/state/herdr-instance`; herdr exposes no instance id, T-1135). A serve restart or re-exec with
+the same herdr restores nothing, so a role agent stopped on purpose stays stopped. The herdr plugin `obor.events`
+is gone (T-1117). The store's `session` facts record each agent's sessions
 (`docs/state-model.md` row 51), for resuming after a kill.
 
 ## State (`.obor/state/obor.db`)
@@ -218,18 +222,16 @@ row 53.
 ## Setup (`obor init`, `obor setup`; Go `internal/setup` since T-250)
 `obor init [--name] [--prefix]` (T-608) sets a project up with no questions: herdr reachable (else FAIL first),
 config with the detected commands, lanes for the CLIs on PATH, the git hooks layer (T-623), panes and roles, the plugin (`claude plugin
-marketplace add <kit>` + `install obor@<kit marketplace> --scope project`), obor.events, `obor serve install`, then a
+marketplace add <kit>` + `install obor@<kit marketplace> --scope project`), `obor serve install`, then a
 summary (panes waiting on a trust dialog, the file to change, next: `obor lead`). Every step is idempotent: a rerun is
 the repair path. Placement (T-628, T-632, T-634): a workspace or tab is the project's when every pane in it with a
 known cwd is in the project; none: init creates a workspace. Run init from a shell in the project's own workspace:
-a workspace whose only pane is a shell `cd`'d into the project counts as the project's (RV-67-verify-2, accepted). `obor setup` keeps the single steps for changes later: `lane`, `pane`, `role`, `githooks`, `herdr-plugin`, `agents`, `mcp`, `show`, `rename`; each idempotent, ending in `OK …` / `FAIL …` (the
+a workspace whose only pane is a shell `cd`'d into the project counts as the project's (RV-67-verify-2, accepted). `obor setup` keeps the single steps for changes later: `lane`, `pane`, `role`, `githooks`, `herdr-plugin` (it only unlinks the plugin an older obor linked), `agents`, `mcp`, `show`, `rename`; each idempotent, ending in `OK …` / `FAIL …` (the
 contract is the package doc). Role names, env values and cwd rules come from `internal/roles` (T-853: the reviewer, the deep
 dive and the integrator run in a role worktree serve owns, `<lanes_dir>/<role>`; `obor setup role`, serve's starts and
 `obor restart` add it when it is missing). `pane --tab`
 splits the tab's largest pane (right when it is wider than tall on screen, else down), not the last one. `githooks`
-points `core.hooksPath` at `<kit>/githooks`. `herdr-plugin` links obor.events in herdr from `<kit>/herdr-plugin`
-directly, re-linking it when herdr runs another kit's copy: herdr stores the path resolved at link time (a symlink in
-between buys nothing), so a kit at a new path needs a re-link; `init` only reports the link state. Every herdr call
+points `core.hooksPath` at `<kit>/githooks`. `herdr-plugin` unlinks the obor.events plugin an older obor linked (T-1117). Every herdr call
 goes through `internal/herdr` (T-256), and `pane` / `role` start the agent through `launch.Launcher.Start`, the one
 start `obor restart` uses too.
 
@@ -604,11 +606,7 @@ verified; adopting leads hear of it by `obor send`. A project's serve picks a ne
 ## herdr integration (2026-10-09 — user direction)
 obor should be as simple and as integrated as possible: herdr (which maintains agent detection) is the source of
 agent state; obor does no Claude/Codex screen parsing of its own beyond what exists, and removes it as herdr grows the
-API. The herdr plugin (`herdr-plugin/` in this repo, linked with `herdr plugin link`) hooks only `[[startup]]`:
-after a herdr session restore, `obor plugin restore` restarts obor's labelled panes. The manifest's command runs the
-Go binary through the kit's `bin/obor` (`launch.Restorer`); it starts itself detached and returns at once.
-Everything file- or git-based stays in the Go binary: plugins have no timers or storage, so the herdr plugin only
-starts `bin/obor`.
+API. obor ships no herdr plugin (T-1117): serve restores its panes itself ("After a herdr restart" above).
 
 ## Lines to the lead (T-466, 2026-10-27 — owner decision, phase 4)
 Serve posts two kinds of lines to the lead (`<prefix>-lead`) into its Claude session, and delivers a brief to a role
