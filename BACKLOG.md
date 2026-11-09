@@ -24,6 +24,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
 - (none; branching decided 11-07, docs/decisions.md)
 
 ## Later candidates
+- **Config shape 2, step P7** (docs/research/config-shape.md §4.4): in the release after the one that ships T-1124/T-1125, delete `Reshape`, the one-release window, the test kit's pass-through and the fixtures; a shape-1 config is refused with the hint. Also the lead removes `merge.affected_full` from `.obor/config.json` once T-1120 merges.
 - **Un-defer `job_next`** (chatter census proposal 2; advisor 11-07 docs/research/job-in-first-prompt-advice.md: no job-in-prompt; T-959/T-960/T-941 did the kind-neutral parts). Left: `alwaysLoad: true` on obor's MCP entry, Claude-only, so parked under the owner's agent-neutral rule (11-07); revisit if another kind gets the same deferral.
 - **Log snapshot at upgrade** (parked 11-05, docs/research/log-snapshot.md): build when compat branches pass ~300
   prod lines or a record-shape change needs it.
