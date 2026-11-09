@@ -163,7 +163,7 @@ func (s *Setup) configJSON(name, prefix string) ([]byte, error) {
 	}{
 		{"name", str(name)}, {"prefix", str(prefix)}, {"lanes_dir", str("../" + filepath.Base(s.root) + "-wt")},
 		{"lanes", json.RawMessage(`0`)},
-		{"commands", json.RawMessage(`{"lane_setup":null,"check":null,"baseline":null,"gate":null}`)},
+		{"commands", json.RawMessage(`{"lane_setup":null,"check":null,"check_milestone":null,"baseline":null,"gate":null}`)},
 		{"lane_links", json.RawMessage(`[]`)}, {"protected_files", json.RawMessage(`[]`)},
 	} {
 		if example, err = config.EditJSON(example, []string{kv.key}, kv.val); err != nil {

@@ -44,6 +44,16 @@ func TestInitCreatesConfigDocsAndGitignoreUncommitted(t *testing.T) {
 	if _, ok := cfg.Command("lane_setup"); ok || len(d.LaneLinks) != 0 {
 		t.Errorf("the example's lane_setup and lane_links cleared: %v", d.LaneLinks)
 	}
+	// T-1075: an adopter's default is two clocks: a nightly on main's head, with check_milestone left null.
+	if d.Merge.NightlyAt != "02:00" {
+		t.Errorf("merge.nightly_at %q, want 02:00", d.Merge.NightlyAt)
+	}
+	if c, ok := cfg.Command("check_milestone"); ok {
+		t.Errorf("commands.check_milestone %+v, want null", c)
+	}
+	if !strings.Contains(x.Read(".obor/config.json"), `"check_milestone": null`) {
+		t.Errorf("config has no commands.check_milestone: null:\n%s", x.Read(".obor/config.json"))
+	}
 	if !regexp.MustCompile(`(?m)^  "lanes": 0,`).MatchString(x.Read(".obor/config.json")) {
 		t.Errorf("config at indent 2:\n%s", x.Read(".obor/config.json"))
 	}
