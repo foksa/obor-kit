@@ -6,19 +6,19 @@ package view
 // scan's agents; each agent serve sees with a pane is its pane's foreground leader (herdr process-info, as stop takes
 // it), and its descendants that have run longer than BackgroundMin, the agent's own helpers left out, are its long
 // processes. Only one that runs a recorded background Bash call (run_in_background, obor's PreToolUse hook) is
-// background work (`bg`); any other is a long foreground command (`running`).
+// background work (`bg`); any other is a long foreground command (`running`). The process table and the call's matching
+// are internal/background's (T-1142: the hook and serve check a call's liveness with them too).
 
 import (
 	"context"
-	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
 
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
+	"obor/internal/background"
 	"obor/internal/herdr"
 	"obor/internal/project"
 )
@@ -30,19 +30,8 @@ const BackgroundMin = 30 * time.Second
 // MCP servers, its language servers): such a child and its descendants are helpers, never shown.
 const helperSlack = 10 * time.Second
 
-// startWindow is how long before a process's start its background call may have been recorded (the hook records at
-// PreToolUse, the shell starts the process a moment later); startAfter is the slack the other way (ps's etime counts
-// whole seconds, the record's time too).
-const (
-	startWindow = 10 * time.Second
-	startAfter  = 2 * time.Second
-)
-
 // now is the clock BackgroundOf takes the processes' start from (a test sets it).
 var now = time.Now
-
-// commandMax is how many characters of a command the views show.
-const commandMax = 60
 
 // Background is one long-running process of an agent: its pid, its command (shortened), whether it runs a background
 // Bash call obor's hook recorded (T-727: false is a long foreground command), that call's description ("" otherwise)
@@ -73,68 +62,7 @@ func (b Background) Line(age string) string {
 }
 
 // Proc is one row of the process table: pid, parent, how long it has run and its full command.
-type Proc struct {
-	PID, PPID int
-	Age       time.Duration
-	Command   string
-}
-
-// psArgs is the one ps call (macOS and Linux alike): every process, full width, no header.
-var psArgs = []string{"-A", "-ww", "-o", "pid=,ppid=,etime=,command="}
-
-// ReadProcs is the machine's process table, by one ps under ctx.
-func ReadProcs(ctx context.Context) ([]Proc, error) {
-	out, err := exec.CommandContext(ctx, "ps", psArgs...).Output()
-	if err != nil {
-		return nil, err
-	}
-	return ParseProcs(string(out)), nil
-}
-
-// ParseProcs is ps's output (pid ppid etime command, one process per line) as rows; a line that does not parse is
-// skipped.
-func ParseProcs(out string) []Proc {
-	var procs []Proc
-	for _, line := range strings.Split(out, "\n") {
-		f := strings.Fields(line)
-		if len(f) < 4 {
-			continue
-		}
-		pid, err1 := strconv.Atoi(f[0])
-		ppid, err2 := strconv.Atoi(f[1])
-		age, ok := parseEtime(f[2])
-		if err1 != nil || err2 != nil || !ok {
-			continue
-		}
-		procs = append(procs, Proc{PID: pid, PPID: ppid, Age: age, Command: strings.Join(f[3:], " ")})
-	}
-	return procs
-}
-
-// parseEtime is ps's elapsed time, [[dd-]hh:]mm:ss.
-func parseEtime(s string) (time.Duration, bool) {
-	days := 0
-	if d, rest, ok := strings.Cut(s, "-"); ok {
-		n, err := strconv.Atoi(d)
-		if err != nil {
-			return 0, false
-		}
-		days, s = n, rest
-	}
-	secs := 0
-	parts := strings.Split(s, ":")
-	if len(parts) < 2 || len(parts) > 3 {
-		return 0, false
-	}
-	for _, p := range parts {
-		n, err := strconv.Atoi(p)
-		if err != nil {
-			return 0, false
-		}
-		secs = secs*60 + n
-	}
-	return time.Duration(days*86400+secs) * time.Second, true
-}
+type Proc = background.Proc
 
 // shells are the programs a command runs in: a shell with children is passed through, its children are the processes
 // shown (an agent's Bash tool wraps every command in one).
@@ -188,13 +116,13 @@ func NewProcIndex(procs []Proc) *ProcIndex {
 // Code's caffeinate per turn), a direct child that started with the agent (within helperSlack of its own start: an MCP
 // server wrapped in a shell) and obor's own MCP server anywhere. Each entry's ancestors up to the agent (the shell that
 // wraps a Bash tool call) come with it, to match a recorded call against. None when agent is not in procs.
-func (x *ProcIndex) Descendants(agent int, min time.Duration) []Found {
+func (x *ProcIndex) Descendants(agent int, min time.Duration) []background.Found {
 	self, ok := x.byPID[agent]
 	if !ok || agent <= 1 {
 		return nil
 	}
 	kids := x.kids
-	var out []Found
+	var out []background.Found
 	var walk func(pid int, chain []string)
 	walk = func(pid int, chain []string) {
 		for _, c := range kids[pid] {
@@ -207,62 +135,12 @@ func (x *ProcIndex) Descendants(agent int, min time.Duration) []Found {
 				continue
 			}
 			if c.Age > min {
-				out = append(out, Found{Proc: c, Chain: chain})
+				out = append(out, background.Found{Proc: c, Chain: chain})
 			}
 		}
 	}
 	walk(agent, nil)
 	return out
-}
-
-// Found is a long-running process and the commands of the shells between it and the agent.
-type Found struct {
-	Proc
-	Chain []string
-}
-
-// match is the newest call in calls that f started: recorded within startWindow before f's start (at, now less its age)
-// and whose command f runs: the call's command (whitespace folded) is in f's command or
-// in a shell's that wraps it (Claude's shell quotes it: a ' as '\”), or f's command is in the call's (a call of several
-// commands). ok is false when none matches: f is no recorded background call.
-func match(f Found, calls []project.BackgroundCall, at time.Time) (call project.BackgroundCall, ok bool) {
-	cmd := fold(f.Command)
-	start := at.Add(-f.Age)
-	for i := len(calls) - 1; i >= 0; i-- {
-		if rec := time.Unix(calls[i].At, 0); rec.Before(start.Add(-startWindow)) || rec.After(start.Add(startAfter)) {
-			continue
-		}
-		want := fold(calls[i].Command)
-		if want == "" {
-			continue
-		}
-		if strings.Contains(cmd, want) || len(cmd) >= 8 && strings.Contains(want, cmd) {
-			return calls[i], true
-		}
-		for _, sh := range f.Chain {
-			if strings.Contains(fold(strings.ReplaceAll(sh, `'\''`, `'`)), want) {
-				return calls[i], true
-			}
-		}
-	}
-	return project.BackgroundCall{}, false
-}
-
-// fold is s with its whitespace runs as one space.
-func fold(s string) string { return strings.Join(strings.Fields(s), " ") }
-
-// shorten is a command as the views show it: argv0 without its path, whitespace folded, cut at commandMax characters.
-func shorten(command string) string {
-	f := strings.Fields(command)
-	if len(f) == 0 {
-		return ""
-	}
-	f[0] = filepath.Base(f[0])
-	s := strings.Join(f, " ")
-	if r := []rune(s); len(r) > commandMax {
-		s = string(r[:commandMax-1]) + "…"
-	}
-	return s
 }
 
 // AgentPID is the agent's process in pane: the leader of the pane's foreground group (herdr process-info, as obor stop
@@ -276,9 +154,10 @@ func AgentPID(pi port.ProcessInfo) int {
 
 // BackgroundOf is each agent's long-running processes, by agent name: for every agent with a pane, its pane's process
 // info (info) and its descendants in procs (one ProcIndex for all the agents), matched against root's recorded
-// background calls of that agent's current session (or, with no agent name recorded, of its pane): one that started the
-// process, by command and by time (match), makes it background, with the call's description; a later foreground run
-// of the same command, or an earlier session's call, is `running` (RV-85 verify #3). An agent with none is not in the map.
+// background calls of that agent (Mine's: its session's, or its name's when it records no session): one that started the
+// process, by command and by time (background.Match), makes it background, with the call's description; a later
+// foreground run of the same command, or an earlier session's call, is `running` (RV-85 verify #3). An agent with none
+// is not in the map.
 func BackgroundOf(ctx context.Context, root string, agents []wire.AgentStatus, procs []Proc,
 	info func(context.Context, string) (port.ProcessInfo, error)) map[string][]Background {
 	out := map[string][]Background{}
@@ -307,18 +186,12 @@ func BackgroundOf(ctx context.Context, root string, agents []wire.AgentStatus, p
 		if !read {
 			calls, read = project.BackgroundCalls(root), true
 		}
-		var mine []project.BackgroundCall
-		for _, c := range calls {
-			if a.Session != "" && c.Session == a.Session &&
-				(c.Agent == a.Name || c.Agent == "" && c.Pane == a.Pane) {
-				mine = append(mine, c)
-			}
-		}
+		mine := background.Mine(calls, a.Name, a.Session, a.Pane)
 		at := now()
 		for _, f := range found {
-			c, bg := match(f, mine, at)
-			out[a.Name] = append(out[a.Name], Background{PID: f.PID, Command: shorten(f.Command), Background: bg,
-				Label: c.Description, Age: int64(f.Age / time.Second)})
+			c, bg := background.Match(f, mine, at)
+			out[a.Name] = append(out[a.Name], Background{PID: f.PID, Command: background.Shorten(f.Command),
+				Background: bg, Label: c.Description, Age: int64(f.Age / time.Second)})
 		}
 	}
 	return out
@@ -373,15 +246,15 @@ func (v Project) BackgroundCount() int {
 // with one ps and herdr's process info per agent pane over its socket (env's). Any failure is no processes: the
 // readers show the rest.
 func ScanBackground(ctx context.Context, root string, ss wire.Status, err error, env project.Env) map[string][]Background {
-	return scanBackground(ctx, root, ss, err, env, ReadProcs)
+	return scanBackground(ctx, root, ss, err, env, background.ReadProcs)
 }
 
-// background is ScanBackground with ps read by r.procs (ReadProcs when nil): the agents' long-running processes of
-// serve's answer for root (none: serve down or another project's).
+// background is ScanBackground with ps read by r.procs (background.ReadProcs when nil): the agents' long-running
+// processes of serve's answer for root (none: serve down or another project's).
 func (r reading) background(ctx context.Context, root string, ss wire.Status, err error) map[string][]Background {
 	procs := r.procs
 	if procs == nil {
-		procs = ReadProcs
+		procs = background.ReadProcs
 	}
 	return scanBackground(ctx, root, ss, err, project.OSEnv, procs)
 }

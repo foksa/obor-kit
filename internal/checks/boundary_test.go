@@ -39,7 +39,7 @@ const (
 var layerOf = map[string]string{
 	"internal/project": base, "internal/config": base, "internal/roles": base, "internal/spec": base,
 	"internal/run": base, "internal/version": base, "internal/store": base, "internal/selfexec": base,
-	"internal/help": base,
+	"internal/help": base, "internal/background": base,
 	// a plugin kind (T-1036) runs its command as a process group (project.Group) and caches its manifest: no bridge
 	// (data and pure functions); the config registers it through agents.Plugins, setup caches it
 	"internal/agents/plugin": base,

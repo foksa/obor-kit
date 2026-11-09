@@ -39,6 +39,10 @@ gate runs it. Adapters never import each other: one that needs another goes thro
   WARN), `TaskIDOK` /
   `TaskFromBranch` / `TaskBranch`; `edit.go` (T-753): `Edit`, the one setup change obor web may make, applied to config.json's bytes
   in their own layout, and `LoadWith` (what it would load as).
+- `background` (T-714, T-1142): the agents' live processes, the one check of them — the machine's process table
+  (`ReadProcs`, `ParseProcs`, `Proc`), a recorded background Bash call matched to the process it started
+  (`Match` by command and time; `Live`, the newest call still running; `Mine`, an agent's calls; `Text`). The view's
+  background scan, serve's idle-with-background line and the Stop hook's block all read it (T-1142).
 - `roles`: role names and defaults. `spec`: a spec text's title, sections and globs (the text is the store's).
 - `run`: commands under a timeout as a process group; machine-wide check slots. `run.Group`, `run.Slots`.
 - `version`: build version line.
@@ -182,8 +186,8 @@ process (`plugin.Local`).
   open (a Codex rollout, T-588), both reported to serve.
 - `mcp`: stdio shim from an agent to the app's socket; typed tools per role: the worker's `job_next`/`task_done`, the
   integrator's jobs and verdicts. The lead gets no tools: its chat work goes through the CLI, one request path.
-- `guard`: the Claude Code hooks: PreToolUse (Bash parse, edit checks, the headless ban), Stop, StopFailure,
-  SessionStart, UserPromptSubmit, whoami.
+- `guard`: the Claude Code hooks: PreToolUse (Bash parse, edit checks, the headless ban), Stop (the worker's
+  task_done, and every agent's live background run, T-1142), StopFailure, SessionStart, UserPromptSubmit, whoami.
 - `setup`: make a project obor-ready (config, lanes, panes, roles, githooks, herdr/opencode plugin, MCP report; it
   starts agents through an `app.Starter` that `cmd/obor` injects, and asks the terminal for panes through
   `port.TerminalSetup`, whose adapter lays them out, T-1044); `obor init`
@@ -203,7 +207,8 @@ project at a root (serve's answer, the lane table, the store), as `obor web` bui
 `background.go` (T-714) is the agents' long-running background processes (`Input.Background`, by agent name;
 `ScanBackground`: one `ps` per build, each agent pane's foreground leader from herdr process-info, its descendants
 running > 30 s through its shells, helpers left out), labelled from the PreToolUse hook's records
-(`project.AppendBackground` / `BackgroundCalls`, `.obor/state/background.jsonl`).
+(`project.AppendBackground` / `BackgroundCalls`, `.obor/state/background.jsonl`); the process table and the call's
+matching are `internal/background`'s (T-1142).
 `view.Detail` is the drill-down the API serves and nothing else: a task's state, spec, report, gate line and log,
 needs-you, records and jobs; an agent's sessions (a transcript path and last write, never contents), briefs, lines and
 jobs; a job's text (a `prompts` row). The pages read narrow (T-880): `view.LoadTask`, `view.LoadAgent` and

@@ -21,6 +21,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"obor/internal/background"
 	"obor/internal/store"
 )
 
@@ -62,6 +63,9 @@ type Options struct {
 	// Tokens is a session transcript's context size (the keep lane handoff rule, T-1031; ok false: none read). Nil:
 	// project.ContextTokens' read of the file.
 	Tokens func(transcript string) (int, bool)
+	// Procs is the machine's process table, for the live background calls a finished brief checks (T-1142; nil:
+	// background.ReadProcs' one ps, read only when an agent has a recorded background call).
+	Procs func(ctx context.Context) ([]background.Proc, error)
 	// Restore restarts the project's labelled panes that run no agent, after the terminal connection came back
 	// (restore.go, T-1051; nil: never).
 	Restore port.Restorer
