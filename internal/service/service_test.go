@@ -314,17 +314,6 @@ func TestCurrent(t *testing.T) {
 // the agent; a smaller or missing log is left; a failed rename returns the error and launchctl is not called to
 // start anything.
 func TestRotateLog(t *testing.T) {
-	big := func(t *testing.T, path string, size int64) {
-		t.Helper()
-		f, err := os.Create(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer f.Close()
-		if err := f.Truncate(size); err != nil {
-			t.Fatal(err)
-		}
-	}
 	for _, verb := range []string{"install", "restart"} {
 		run := func(s Service) error {
 			var err error
@@ -356,7 +345,7 @@ func TestRotateLog(t *testing.T) {
 		}
 		t.Run(verb+"/over the limit is renamed and the old .1 replaced", func(t *testing.T) {
 			s, _ := prep(t)
-			big(t, s.LogPath(), MaxLog+1)
+			bigLog(t, s.LogPath(), MaxLog+1)
 			if err := os.WriteFile(s.LogPath()+".1", []byte("old"), 0o644); err != nil {
 				t.Fatal(err)
 			}
@@ -372,7 +361,7 @@ func TestRotateLog(t *testing.T) {
 		})
 		t.Run(verb+"/at the limit is kept", func(t *testing.T) {
 			s, _ := prep(t)
-			big(t, s.LogPath(), MaxLog)
+			bigLog(t, s.LogPath(), MaxLog)
 			if err := run(s); err != nil {
 				t.Fatal(err)
 			}
@@ -394,7 +383,7 @@ func TestRotateLog(t *testing.T) {
 		})
 		t.Run(verb+"/rename error is returned and nothing is started", func(t *testing.T) {
 			s, log := prep(t)
-			big(t, s.LogPath(), MaxLog+1)
+			bigLog(t, s.LogPath(), MaxLog+1)
 			// a non-empty directory at .1 cannot be replaced by a file
 			if err := os.MkdirAll(filepath.Join(s.LogPath()+".1", "x"), 0o755); err != nil {
 				t.Fatal(err)
@@ -424,6 +413,111 @@ func TestRotateLog(t *testing.T) {
 			}
 		})
 	}
+}
+
+// bigLog makes path a sparse log of size bytes.
+func bigLog(t *testing.T, path string, size int64) {
+	t.Helper()
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if err := f.Truncate(size); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// T-1100: serve's own start copies a serve.log over MaxLog to serve.log.1 (replacing an old one) and truncates
+// serve.log in place, so the append-mode fd launchd holds keeps writing the same file at offset 0; a log at the limit
+// or a missing one is left.
+func TestRotateServeLog(t *testing.T) {
+	const keep = "the old log\n"
+	// setup is a project root with a serve.log of size bytes, its first bytes keep.
+	setup := func(t *testing.T, size int64) (root, log, old string) {
+		t.Helper()
+		root = t.TempDir()
+		log = ServeLog(root)
+		if err := os.MkdirAll(filepath.Dir(log), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		bigLog(t, log, size)
+		f, err := os.OpenFile(log, os.O_WRONLY, 0o644)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		if _, err := f.WriteString(keep); err != nil {
+			t.Fatal(err)
+		}
+		return root, log, keep + strings.Repeat("\x00", int(size)-len(keep))
+	}
+	t.Run("over the limit is copied and truncated in place", func(t *testing.T) {
+		root, log, old := setup(t, MaxLog+int64(len(keep)))
+		if _, err := os.Stat(log + ".1"); !os.IsNotExist(err) {
+			t.Fatalf("precondition: no .1: %v", err)
+		}
+		if err := os.WriteFile(log+".1", []byte("stale"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := RotateServeLog(root); err != nil {
+			t.Fatal(err)
+		}
+		if b, err := os.ReadFile(log + ".1"); err != nil || string(b) != old {
+			t.Errorf("serve.log.1: %v, %d bytes; want the old log, %d bytes", err, len(b), len(old))
+		}
+		if fi, err := os.Stat(log); err != nil || fi.Size() != 0 {
+			t.Fatalf("serve.log: %v %v; want an empty file", fi, err)
+		}
+		// launchd's fd is in O_APPEND: its next write is the file's first byte, not the old offset.
+		f, err := os.OpenFile(log, os.O_APPEND|os.O_WRONLY, 0o644)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.WriteString("after\n"); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if b, err := os.ReadFile(log); err != nil || string(b) != "after\n" {
+			t.Errorf("serve.log after an append: %v %q; want %q", err, b, "after\n")
+		}
+	})
+	t.Run("at the limit is untouched", func(t *testing.T) {
+		root, log, old := setup(t, MaxLog)
+		if err := RotateServeLog(root); err != nil {
+			t.Fatal(err)
+		}
+		if b, err := os.ReadFile(log); err != nil || string(b) != old {
+			t.Errorf("serve.log changed: %v, %d bytes; want %d", err, len(b), len(old))
+		}
+		if _, err := os.Stat(log + ".1"); !os.IsNotExist(err) {
+			t.Errorf("serve.log.1 made: %v", err)
+		}
+	})
+	t.Run("a failed copy keeps the log", func(t *testing.T) {
+		root, log, old := setup(t, MaxLog+int64(len(keep)))
+		// a non-empty directory at .1 cannot be replaced by a file
+		if err := os.MkdirAll(filepath.Join(log+".1", "x"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := RotateServeLog(root); err == nil {
+			t.Fatal("no error")
+		}
+		if b, err := os.ReadFile(log); err != nil || string(b) != old {
+			t.Errorf("serve.log changed: %v, %d bytes; want the old %d", err, len(b), len(old))
+		}
+	})
+	t.Run("missing does nothing", func(t *testing.T) {
+		root := t.TempDir()
+		if err := RotateServeLog(root); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(ServeLog(root) + ".1"); !os.IsNotExist(err) {
+			t.Errorf("serve.log.1 made: %v", err)
+		}
+	})
 }
 
 // fast shortens the waits for a test: stopTimeout 3s, settle 500ms read every 50ms. callTimeout keeps its 10s: a

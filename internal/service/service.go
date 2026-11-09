@@ -9,6 +9,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -44,30 +45,70 @@ func (s Service) PlistPath() string {
 	return filepath.Join(s.Home, "Library", "LaunchAgents", s.Label()+".plist")
 }
 
-// LogPath is where the agent's serve writes (stdout and stderr): .obor/state/logs/serve.log, by the check logs.
-func (s Service) LogPath() string {
-	return filepath.Join(s.Root, ".obor", "state", "logs", "serve.log")
+// ServeLog is the project's serve log (its stdout and stderr): .obor/state/logs/serve.log, by the check logs.
+func ServeLog(root string) string {
+	return filepath.Join(root, ".obor", "state", "logs", "serve.log")
 }
 
-// MaxLog is the size over which Install and Restart move serve.log aside.
+// LogPath is where the agent's serve writes (stdout and stderr): .obor/state/logs/serve.log, by the check logs.
+func (s Service) LogPath() string { return ServeLog(s.Root) }
+
+// MaxLog is the size over which a serve.log is moved aside: Install and Restart rename it, serve's own start copies
+// it and truncates it in place (T-1100).
 const MaxLog = 5 << 20
 
-// rotateLog moves serve.log to serve.log.1 (replacing an old one) when it is over MaxLog: launchd opens the log path
-// at each spawn, so serve cannot rotate the file it was given. Missing or small: nothing. Called before an agent is
-// started (Install, Restart); a crash respawn by launchd is not rotated.
+// logOver is path's size over MaxLog (a missing log is not).
+func logOver(path string) (bool, error) {
+	fi, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return fi.Size() > MaxLog, nil
+}
+
+// rotateLog moves serve.log to serve.log.1 (replacing an old one) when it is over MaxLog. Install and Restart run
+// outside serve and launchd's next spawn opens the new path, so they rename; serve's own start cannot (RotateServeLog).
+// Missing or small: nothing. A crash respawn by launchd is not rotated.
 func (s Service) rotateLog() error {
 	log := s.LogPath()
-	fi, err := os.Stat(log)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
+	over, err := logOver(log)
+	if err != nil || !over {
+		return err
+	}
+	return os.Rename(log, log+".1")
+}
+
+// RotateServeLog is the rotation serve itself does at its start, re-execs included (T-1100): a serve.log over MaxLog
+// is copied to serve.log.1 (replacing an old one) and truncated in place. launchd keeps the fd it opened for serve —
+// with O_APPEND — across a serve's respawn, and the re-exec keeps the same process's fds, so a rename here would leave
+// launchd writing the moved file while a fresh serve.log stayed empty; truncating keeps that fd on the same, now
+// empty, file, and its next write lands at offset 0. Missing or small: nothing.
+func RotateServeLog(root string) error {
+	log := ServeLog(root)
+	over, err := logOver(log)
+	if err != nil || !over {
+		return err
+	}
+	src, err := os.Open(log)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+	dst, err := os.Create(log + ".1")
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(dst, src)
+	if cerr := dst.Close(); err == nil {
+		err = cerr
 	}
 	if err != nil {
 		return err
 	}
-	if fi.Size() <= MaxLog {
-		return nil
-	}
-	return os.Rename(log, log+".1")
+	return os.Truncate(log, 0)
 }
 
 func (s Service) target() string { return fmt.Sprintf("gui/%d/%s", s.UID, s.Label()) }

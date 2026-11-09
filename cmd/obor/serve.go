@@ -27,6 +27,7 @@ import (
 	"obor/internal/launch"
 	"obor/internal/project"
 	"obor/internal/selfexec"
+	"obor/internal/service"
 )
 
 // serveCmd is `obor serve` (T-323: the app; T-522: one per project, run in it; T-336: the merge loop), `obor serve
@@ -82,6 +83,12 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 		return 1
 	}
 	defer lock.Unlock()
+	// serve's own rotation, so a new build's re-exec counts as much as an install or restart (T-1100). launchd's fd
+	// is opened with O_APPEND: the truncate keeps it on this file and its next write lands at 0. A failure is one
+	// line, not the end of serve: serving the project is not the rotation's to refuse.
+	if err := service.RotateServeLog(root); err != nil {
+		fmt.Fprintf(flushWriter{}, "obor serve: serve.log not rotated (%v)\n", err)
+	}
 	_ = os.Remove(sock) // a leftover of a serve that died: the lock says none runs
 	// The plugin kinds' manifests, before anything reads them (T-1054): the merge loop keeps them current.
 	kinds := &kindCache{}
