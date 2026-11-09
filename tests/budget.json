@@ -28,6 +28,14 @@
       "full_s": 0.4,
       "git_procs": 0
     },
+    "obor/internal/app/identity": {
+      "full_s": 0.2,
+      "git_procs": 0
+    },
+    "obor/internal/app/outbox": {
+      "full_s": 0.2,
+      "git_procs": 0
+    },
     "obor/internal/app/port": {
       "full_s": 0.4,
       "git_procs": 0

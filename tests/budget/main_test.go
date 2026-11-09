@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"flag"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -117,6 +119,80 @@ func TestCheckBreaches(t *testing.T) {
 	}
 }
 
+// T-1073: -missing names every package with tests and no entry, with the seed command that writes it, and every entry
+// whose package is gone, and says nothing when the two match.
+func TestMissing(t *testing.T) {
+	matched := File{Packages: map[string]Budget{"a": {}, "b": {}}}
+	if lines := missing([]string{"a", "b"}, matched); len(lines) != 0 {
+		t.Errorf("a matched file printed %q; want nothing", lines)
+	}
+
+	got := missing([]string{"a", "c", "d"}, File{Packages: map[string]Budget{"a": {}, "gone": {}}})
+	want := []string{
+		"FAIL budget: c missing from tests/budget.json — run: go run ./tests/budget -seed c",
+		"FAIL budget: d missing from tests/budget.json — run: go run ./tests/budget -seed d",
+		"FAIL budget: gone in tests/budget.json has no package with tests — delete its entry",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("missing printed %q; want %q", got, want)
+	}
+}
+
+// T-1073: -missing exits 1 when a package with tests has no entry, and 0 when the file matches: the gate reads the
+// status, not the text.
+func TestMissingExitRed(t *testing.T) {
+	got := runMissing(t,
+		[]string{"example.com/x", "example.com/y"},
+		`{"packages":{"example.com/x":{"full_s":1,"git_procs":0}}}`)
+	if got != 1 {
+		t.Errorf("-missing exited %d with example.com/y unmeasured; want 1", got)
+	}
+}
+
+func TestMissingExitGreen(t *testing.T) {
+	got := runMissing(t,
+		[]string{"example.com/x"},
+		`{"packages":{"example.com/x":{"full_s":1,"git_procs":0}}}`)
+	if got != 0 {
+		t.Errorf("-missing exited %d with every package measured; want 0", got)
+	}
+}
+
+// runMissing calls the tool's -missing once: in a scratch module whose `go list` (a stub named by GO) names pkgs, against
+// a tests/budget.json holding budget. It returns the exit status. One call per test: run registers its flags on
+// flag.CommandLine.
+func runMissing(t *testing.T, pkgs []string, budget string) int {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/x\n\ngo 1.27\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "tests"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "tests", "budget.json"), []byte(budget), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var list strings.Builder
+	list.WriteString("#!/bin/sh\nprintf '")
+	for _, pkg := range pkgs {
+		list.WriteString(pkg + " 1 0\\n")
+	}
+	list.WriteString("'\n")
+	goBin := filepath.Join(dir, "go")
+	if err := os.WriteFile(goBin, []byte(list.String()), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GO", goBin)
+	t.Chdir(dir)
+
+	savedFlags, savedArgs := flag.CommandLine, os.Args
+	flag.CommandLine = flag.NewFlagSet("budget", flag.ContinueOnError)
+	os.Args = []string{"budget", "-missing"}
+	t.Cleanup(func() { flag.CommandLine, os.Args = savedFlags, savedArgs })
+	return run()
+}
+
 // T-1002: the package's own verdict is the run's wall time, and its failed top-level tests are named.
 func TestParseRun(t *testing.T) {
 	const passing = `{"Action":"start","Package":"p"}
@@ -226,19 +302,27 @@ func TestSeededKeepsCaps(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "tests", "budget.json"), []byte(prev), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	f, err := seeded(root, runs)
+	b, err := seeded(root, nil, runs)
 	if err != nil {
 		t.Fatal(err)
+	}
+	var f File
+	if err := json.Unmarshal(b, &f); err != nil {
+		t.Fatalf("seeded: %v", err)
 	}
 	if got, want := f.Packages["a"], (Budget{FullS: 3.0, GitProcs: 3}); got != want {
 		t.Errorf("seeded package a = %+v; want the measurement %+v", got, want)
 	}
 
-	g, err := seeded(t.TempDir(), runs)
+	g, err := seeded(t.TempDir(), nil, runs)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := g.Packages["a"], (Budget{FullS: 3.0, GitProcs: 3}); got != want {
+	var noFile File
+	if err := json.Unmarshal(g, &noFile); err != nil {
+		t.Fatalf("seeded with no file: %v", err)
+	}
+	if got, want := noFile.Packages["a"], (Budget{FullS: 3.0, GitProcs: 3}); got != want {
 		t.Errorf("seed with no file: package a = %+v; want the measurement %+v", got, want)
 	}
 }
@@ -256,7 +340,7 @@ func TestSeedWritesFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	runs := map[string]Run{"a": {Passed: true, Elapsed: 2.0, Git: 2}, "b": {Passed: true, Elapsed: 1.0}}
-	if err := seedFile(root, []string{"a", "b"}, runs); err != nil {
+	if err := seedFile(root, nil, runs); err != nil {
 		t.Fatalf("seedFile: %v", err)
 	}
 	got, err := load(root)
@@ -279,12 +363,96 @@ func TestSeedWritesFile(t *testing.T) {
 
 	before := readFile(t, path)
 	bad := map[string]Run{"a": {Passed: true, Elapsed: 2.0, Git: 2}, "b": {Passed: false, Elapsed: 1.0}}
-	if err := seedFile(root, []string{"a", "b"}, bad); err == nil {
+	if err := seedFile(root, nil, bad); err == nil {
 		t.Fatal("seedFile seeded a failed run; want an error")
 	}
 	if after := readFile(t, path); after != before {
 		t.Errorf("a failed measurement changed tests/budget.json:\n%s", after)
 	}
+}
+
+// T-1073: -seed with package arguments merges: the named packages get their new measurement, every other entry stays
+// byte for byte (even a hand-formatted 4.0, which re-marshalling the whole file would rewrite as 4).
+func TestSeedMerges(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "tests"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prev := `{
+  "packages": {
+    "a": {
+      "full_s": 4.0,
+      "git_procs": 1
+    },
+    "b": {
+      "full_s": 1.0,
+      "git_procs": 1
+    }
+  }
+}
+`
+	path := filepath.Join(root, "tests", "budget.json")
+	if err := os.WriteFile(path, []byte(prev), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := seedFile(root, []string{"b"}, map[string]Run{"b": {Passed: true, Elapsed: 4.0, Git: 3}}); err != nil {
+		t.Fatalf("seedFile (b only): %v", err)
+	}
+	after := readFile(t, path)
+	f, err := load(root)
+	if err != nil {
+		t.Fatalf("the merged file does not load: %v", err)
+	}
+	if got, want := f.Packages["b"], (Budget{FullS: 6.0, GitProcs: 5}); got != want {
+		t.Errorf("seeded package b = %+v; want the new measurement %+v", got, want)
+	}
+	if got, want := f.Packages["a"], (Budget{FullS: 4.0, GitProcs: 1}); got != want {
+		t.Errorf("seeding b changed package a to %+v; want %+v", got, want)
+	}
+	if got, want := entry(t, after, "a"), entry(t, prev, "a"); got != want {
+		t.Errorf("seeding b rewrote package a: %s; want %s (byte for byte)", got, want)
+	}
+}
+
+// T-1073: -seed with no arguments is today's behaviour, the whole measurement: an entry no run measured (its package
+// moved or was deleted) is dropped rather than kept.
+func TestSeedWholeFile(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "tests"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := seedFile(root, nil, map[string]Run{
+		"a": {Passed: true, Elapsed: 2.0, Git: 2},
+		"b": {Passed: true, Elapsed: 1.0, Git: 1},
+	}); err != nil {
+		t.Fatalf("seedFile: %v", err)
+	}
+	if err := seedFile(root, nil, map[string]Run{"a": {Passed: true, Elapsed: 2.0, Git: 2}}); err != nil {
+		t.Fatalf("seedFile: %v", err)
+	}
+	f, err := load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := f.Packages["b"]; ok {
+		t.Errorf("a whole-file seed kept package b, which no run measured: %v", f.Packages)
+	}
+	if _, ok := f.Packages["a"]; !ok {
+		t.Errorf("a whole-file seed dropped the measured package a: %v", f.Packages)
+	}
+}
+
+// entry is one package's entry in a tests/budget.json file, raw: a merge must leave the entries it did not measure
+// byte for byte.
+func entry(t *testing.T, file, pkg string) string {
+	t.Helper()
+	var f struct {
+		Packages map[string]json.RawMessage
+	}
+	if err := json.Unmarshal([]byte(file), &f); err != nil {
+		t.Fatalf("tests/budget.json: %v", err)
+	}
+	return string(f.Packages[pkg])
 }
 
 func readFile(t *testing.T, p string) string {
