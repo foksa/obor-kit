@@ -62,7 +62,7 @@ var Commands = []Command{
 	{"start", "obor start", "wake a stopped project", "project"},
 	{"projects", "obor projects",
 		"the obor projects this machine knows, with serve up or down", "project"},
-	{"config", "obor config [get <path> | validate | migrate]", "print the effective config, one value, check it, or rewrite a config of shape 1", "project"},
+	{"config", "obor config [get <path> | validate]", "print the effective config, one value, or check it", "project"},
 	{"run", "obor run <command-name> [args…]", "run a configured command (commands.<name>) under its timeout (obor run <name> --help: its configured line, runs nothing)", "project"},
 	{"events", "obor events [--follow] [--after <seq>] [--json]",
 		"the event log after a seq, one line per record (--follow: new ones as serve writes them; --json: an integration's JSON lines)", "project"},

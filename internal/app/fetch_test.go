@@ -580,8 +580,8 @@ func TestRoleTextAtTheCapIsInlined(t *testing.T) {
 func TestWorkTextPromptExtraIsTheDispatchsModels(t *testing.T) {
 	t.Parallel()
 	p, kit := roleFixture(t, "# Role: worker\nkit rules\n", "")
-	cfg := `{"name":"pj","paths":{"agents":"doc/roles"},"lanes":1,"kinds":{
-		"claude":{"prompt_extra":"Claude extra."},"codex":{"prompt_extra":"Codex extra."}}}`
+	cfg := `{"version":2,"project":{"name":"pj"},"lanes":{"count":1},"agents":{"docs_dir":"doc/roles","kinds":{
+		"claude":{"job_note":"Claude extra."},"codex":{"job_note":"Codex extra."}}}}`
 	writeRoleFile(t, filepath.Join(p.root, ".obor", "config.json"), cfg)
 	text, err := workText(p, mtask{task: "T-9", lane: "L-01", disp: dispatchData{Lane: "L-01", Type: "luna:high"}}, kit)
 	if err != nil {
@@ -661,7 +661,7 @@ func TestWorkJobSaysEachRuleOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, ".obor", "config.json"),
-		[]byte(`{"name":"pj","paths":{"agents":"docs/agents"}}`), 0o644); err != nil {
+		[]byte(`{"version":2,"project":{"name":"pj"},"agents":{"docs_dir":"docs/agents"}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	doc, err := os.ReadFile(filepath.Join(kit, "docs", "agents", "worker.md"))
@@ -724,7 +724,7 @@ func TestWorkJobNamesTheReportSections(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := "Your final report has these sections: " + strings.Join(config.ReportSections, ", ") + "."
-	text := workJobText(t, kit, `{"name":"pj"}`)
+	text := workJobText(t, kit, `{"version":2,"project":{"name":"pj"}}`)
 	if n := strings.Count(text, want); n != 1 {
 		t.Errorf("the job names the sections %d times, want once (%q):\n%s", n, want, text)
 	}

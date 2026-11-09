@@ -60,7 +60,7 @@ func role(t *testing.T, dir string) Role {
 }
 
 func TestFindFromALaneGivesTheMainCheckout(t *testing.T) {
-	root, wt := fixture(t, `{"prefix":"pj"}`)
+	root, wt := fixture(t, `{"version":2,"project":{"agent_prefix":"pj"}}`)
 	r, err := Find(filepath.Join(wt, "L-01"))
 	if err != nil {
 		t.Fatal(err)
@@ -314,7 +314,7 @@ func TestProjectLockWaitContextAndHolderLine(t *testing.T) {
 }
 
 func TestDetectRoleCwdEnvAndLanes(t *testing.T) {
-	root, wt := fixture(t, `{"prefix":"pj","roles":{"reviewer":"opus","deep_dive":"opus"}}`)
+	root, wt := fixture(t, `{"version":2,"project":{"agent_prefix":"pj"},"agents":{"roles":{"reviewer":"opus","deep_dive":"opus"}}}`)
 	if got := role(t, filepath.Join(wt, "L-01")); got != (Role{"worker", "L-01", "cwd"}) {
 		t.Errorf("lane: %+v", got)
 	}
@@ -371,7 +371,7 @@ func TestDetectRoleCwdEnvAndLanes(t *testing.T) {
 // worker (env or none: OpenCode's shared hook process), the drive agent, each role; a stale OBOR_AGENT is never read;
 // a prefix change applies at once (nothing stored).
 func TestSelfDerivesTheName(t *testing.T) {
-	root, wt := fixture(t, `{"prefix":"pj","roles":{"reviewer":"opus","deep_dive":"opus","advisor":"opus"}}`)
+	root, wt := fixture(t, `{"version":2,"project":{"agent_prefix":"pj"},"agents":{"roles":{"reviewer":"opus","deep_dive":"opus","advisor":"opus"}}}`)
 	lane := filepath.Join(wt, "L-01")
 	self := func(dir string, env map[string]string) string {
 		t.Helper()
@@ -411,7 +411,7 @@ func TestSelfDerivesTheName(t *testing.T) {
 		}
 	}
 	// A rename is the config's: the next call derives the new name (no stored copy to go stale).
-	os.WriteFile(filepath.Join(root, ".obor", "config.json"), []byte(`{"prefix":"nx"}`), 0o644)
+	os.WriteFile(filepath.Join(root, ".obor", "config.json"), []byte(`{"version":2,"project":{"agent_prefix":"nx"}}`), 0o644)
 	if got := self(root, map[string]string{"OBOR_ROLE": "lead", "OBOR_AGENT": "pj-lead"}); got != "nx-lead" {
 		t.Errorf("after a prefix change: Self = %q, want nx-lead", got)
 	}

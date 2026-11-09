@@ -91,8 +91,7 @@ func TestProjectsKeepsWhatItsEntriesName(t *testing.T) {
 	dir := t.TempDir()
 	old, broken, moved, renamed, gone, kit := filepath.Join(dir, "axis-alies"), filepath.Join(dir, "obor-kit"),
 		filepath.Join(dir, "moved"), filepath.Join(dir, "renamed"), filepath.Join(dir, "gone"), filepath.Join(dir, "kit")
-	// The shape before v0.23: this binary refuses it (its lane_types table is retired, T-847), and its name still
-	// counts.
+	// The shape before v0.23: this binary refuses it at the load (T-1157), and its name still counts.
 	configBytesAt(t, old, `{"name":"axis-alies","prefix":"ax","lane_types":{"opus":{"kind":"claude"}}}`+"\n")
 	configBytesAt(t, broken, `{"name": "obor-kit",`+"\n")
 	configAt(t, moved, "moved")

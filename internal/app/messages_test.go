@@ -133,8 +133,8 @@ func (s *freshSpy) Type(_ context.Context, _, text string, _ bool) (bool, error)
 }
 
 // freshCfg names every role a brief may start fresh.
-const freshCfg = `{"name":"proj","prefix":"pj","roles":{"integrator":"","reviewer":"","deep_dive":"","advisor":"",` +
-	`"researcher":"","triage":""}}`
+const freshCfg = `{"version":2,"project":{"name":"proj","agent_prefix":"pj"},"agents":{"roles":` +
+	`{"integrator":"","reviewer":"","deep_dive":"","advisor":"","researcher":"","triage":""}}}`
 
 // freshApp is a merging project with every role, the lead's pane and agent's labelled pane w:role running kind
 // ("": at its shell) with status.
@@ -1307,7 +1307,7 @@ func TestFinishedLineAgeFromTyping(t *testing.T) {
 // lead's agent name is its prefix's).
 func registerLead(t *testing.T, root, prefix string) {
 	t.Helper()
-	cfg := `{"name":"proj","prefix":"` + prefix + `","roles":{"lead":"","integrator":"","reviewer":""}}`
+	cfg := `{"version":2,"project":{"name":"proj","agent_prefix":"` + prefix + `"},"agents":{"roles":{"lead":"","integrator":"","reviewer":""}}}`
 	if err := os.WriteFile(filepath.Join(root, ".obor/config.json"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}

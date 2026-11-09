@@ -19,7 +19,7 @@ func sweepCfg(t *testing.T) *config.Config {
 	if err := os.MkdirAll(filepath.Join(root, ".obor"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, ".obor", "config.json"), []byte(`{"prefix":"pj","lanes":2}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, ".obor", "config.json"), []byte(`{"version":2,"project":{"agent_prefix":"pj"},"lanes":{"count":2}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := config.Load(root)
@@ -321,7 +321,7 @@ func TestSweepNoPrefixFailsClosed(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, ".obor"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, ".obor", "config.json"), []byte(`{"lanes":2}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, ".obor", "config.json"), []byte(`{"version":2,"lanes":{"count":2}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := config.Load(root)

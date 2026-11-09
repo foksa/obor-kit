@@ -465,22 +465,3 @@ func TestConfigSetBaseIsTheFileRead(t *testing.T) {
 		t.Errorf("a save on the current file: %v", err)
 	}
 }
-
-// T-1125: a config.json of shape 1 refuses config_set with the hint (the rewrite comes first: an edit would mix the
-// shapes): nothing written, committed, recorded or told.
-func TestConfigSetRefusesShape1(t *testing.T) {
-	t.Parallel()
-	h, f := configRig(t)
-	shape1 := `{"version":1,"name":"pj","prefix":"pj","branches":{"main":""},"lanes":2}` + "\n"
-	h.write(f.path, shape1)
-	reply, err := h.set("s1", "lanes.count", `3`)
-	if err == nil || !strings.Contains(err.Error(), "is config shape 1: obor config migrate rewrites it") {
-		t.Fatalf("config_set on shape 1: %q, %v; want refused with the hint", reply, err)
-	}
-	if b, _ := os.ReadFile(f.path); string(b) != shape1 {
-		t.Errorf("the file changed:\n%s", b)
-	}
-	if len(f.messages()) != 0 || len(configFacts(t, h)) != 0 || len(leadLines(t, h)) != 0 {
-		t.Errorf("a refused edit committed %q, recorded %+v, told %q", f.messages(), configFacts(t, h), leadLines(t, h))
-	}
-}

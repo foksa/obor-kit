@@ -27,7 +27,6 @@ import (
 	"testing"
 	"time"
 
-	"obor/internal/app/event"
 	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/herdr/herdrtest"
@@ -44,10 +43,7 @@ import (
 //     with the new obor first on PATH while the old serves run; then each serve is stopped.
 //  3. Each serve starts on the new binary and answers on its socket; obor projects lists both; obor status and obor
 //     setup show load; the dispatch still waits with its spec's model first; each lead, started now under its current
-//     name (its SessionStart hook records its inbox), gets the line held for it; obor send works both ways. When the
-//     upgrade crosses v0.33 (crossesV033), serve's first pass rewrites the previous release's shape-1 config.json and
-//     commits it (subject "config: shape 2"), and the guide's herdr-plugin step has unlinked the obor.events plugin an
-//     older obor linked; a project of v0.33.0 or later already has a shape-2 config and no plugin.
+//     name (its SessionStart hook records its inbox), gets the line held for it; obor send works both ways.
 //
 // The Model: assertion needs a previous release of v0.23.0 or later (before, a spec named a lane type: Type:): an
 // older PREV is refused before the check runs (supported, T-778).
@@ -230,25 +226,14 @@ func (w *world) step1() error {
 		if out, ok := w.obor(p.root, "init", "--name", p.name, "--prefix", p.prefix); !ok {
 			return fail(1, out, "v%s obor init of %s", w.c.prev, p.name)
 		}
-		// The previous release's init leaves its files uncommitted in a repository that had a commit, and serve's
-		// shape-2 rewrite refuses a config.json with uncommitted changes (T-1125): an adopter commits them, so step 3
-		// sees the rewrite's own commit as the head.
+		// The previous release's init leaves its files uncommitted in a repository that had a commit: an adopter
+		// commits them.
 		for _, args := range [][]string{{"add", "-A"}, {"commit", "-q", "-m", "obor init"}} {
 			if out, ok := w.cmd(p.root, "git", args...); !ok {
 				return fail(1, out, "commit obor init's files in %s", p.name)
 			}
 		}
 		w.projs = append(w.projs, p)
-	}
-	// Crossing v0.33, the previous release's init links its obor.events plugin (plugin.link): step 3's guide unlinks
-	// it, so the check asserts it was there to unlink.
-	if w.c.crossesV033() {
-		var plugins []herdrtest.Plugin
-		w.fake.Locked(func() { plugins = append(plugins, w.fake.Plugins...) })
-		if !slices.ContainsFunc(plugins, func(pl herdrtest.Plugin) bool { return pl.ID == oborEvents }) {
-			return fail(1, fmt.Sprintf("herdr plugins: %+v", plugins),
-				"v%s obor init of alpha and beta linked no %s plugin: step 3's unlink would be vacuous", w.c.prev, oborEvents)
-		}
 	}
 	for _, p := range w.projs {
 		s, err := w.startServe(p)
@@ -331,18 +316,6 @@ func (w *world) step3() error {
 			return fail(3, s.output(), "serve of %s on the new binary is not up: %v", p.name, err)
 		}
 	}
-	// v0.33's expectations hold only for a project from before it: its shape-1 config.json is rewritten and its
-	// obor.events plugin is unlinked by the guide. A project of v0.33.0 or later has neither.
-	if w.c.crossesV033() {
-		for _, p := range w.projs {
-			if err := w.rewrite(p); err != nil {
-				return fail(3, p.serve.output(), "%v", err)
-			}
-		}
-		if err := w.unlinked(); err != nil {
-			return fail(3, "", "%v", err)
-		}
-	}
 	for _, p := range w.projs {
 		if _, err := w.ask(p); err != nil {
 			return fail(3, p.serve.output(), "%v", err)
@@ -397,98 +370,6 @@ func (w *world) step3() error {
 		}
 	}
 	w.c.log("step 3: both serves on the new binary, projects, status, setup show, held lines, T-2 waiting, send both ways")
-	return nil
-}
-
-// oborEvents is the herdr plugin an obor before T-1117 linked, which v0.33's guide unlinks.
-const oborEvents = "obor.events"
-
-// v033 is the first release whose projects have no obor.events plugin and a shape-2 config.json.
-var v033 = [3]int{0, 33, 0}
-
-// crossesV033 is whether the upgrade from prev to next crosses v0.33: the previous release is below 0.33.0 and the new
-// one is not. The harness's v0.33 expectations (step 1's plugin precondition, step 3's rewrite and unlink assertions)
-// hold only on that transition: release-specific expectations stay scoped to their transition, so a project from
-// v0.33.0 on is not asked for a plugin it never had or a rewrite that already happened.
-func crossesV033(prev, next string) bool {
-	p, ok1 := parseVersion(prev)
-	n, ok2 := parseVersion(next)
-	return ok1 && ok2 && less(p, v033) && !less(n, v033)
-}
-
-// crossesV033 is this check's upgrade crossing v0.33.
-func (c check) crossesV033() bool { return crossesV033(c.prev, c.next) }
-
-// rewrite is serve's shape-2 rewrite of p's config.json (T-1125, T-1148): the previous release's config is shape 1,
-// and the new serve's first pass rewrites and commits it. It waits for that commit (serve's pass; lineWait), then
-// asserts the head commit, the file's shape and that no config needs-you (a refusal) is in force.
-func (w *world) rewrite(p *proj) error {
-	var (
-		subj    string
-		headErr error
-	)
-	deadline := time.Now().Add(lineWait)
-	for {
-		if subj, headErr = w.headSubject(p); headErr == nil && strings.HasPrefix(subj, "config: shape 2") {
-			break
-		}
-		st, err := w.ask(p)
-		if err != nil {
-			return err
-		}
-		if why := configNeeds(st); why != "" {
-			return fmt.Errorf("%s: the config shape-2 rewrite is a needs-you: %s", p.name, why)
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("%s: no config: shape 2 commit within %s (head %q, %v)", p.name, lineWait, subj, headErr)
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-	doc, err := os.ReadFile(filepath.Join(p.root, ".obor", "config.json"))
-	if err != nil {
-		return fmt.Errorf("the config.json of %s: %v", p.name, err)
-	}
-	if got := config.ShapeOf(doc); got != config.ShapeVersion {
-		return fmt.Errorf("%s: config.json is shape %d, want %d (\"version\": 2)", p.name, got, config.ShapeVersion)
-	}
-	if st, err := w.ask(p); err != nil {
-		return err
-	} else if why := configNeeds(st); why != "" {
-		return fmt.Errorf("%s: the config shape-2 rewrite is a needs-you: %s", p.name, why)
-	}
-	return nil
-}
-
-// configNeeds is why st holds a needs-you of the config shape-2 rewrite (the config task), "" when none.
-func configNeeds(st wire.Status) string {
-	for _, f := range st.Project.Facts {
-		if f.Task == event.ConfigTask && f.Step == event.StepNeedsYou {
-			return f.Fact().Reason
-		}
-	}
-	return ""
-}
-
-// headSubject is the subject of the head commit in p's main checkout.
-func (w *world) headSubject(p *proj) (string, error) {
-	out, ok := w.cmd(p.root, "git", "log", "-1", "--format=%s")
-	if !ok {
-		return "", fmt.Errorf("git log in %s:\n%s", p.root, out)
-	}
-	if lines := strings.SplitN(strings.TrimRight(out, "\n"), "\n", 2); len(lines) == 2 {
-		return strings.TrimSpace(lines[1]), nil
-	}
-	return "", fmt.Errorf("git log in %s printed no subject:\n%s", p.root, out)
-}
-
-// unlinked is the guide's herdr-plugin step (v0.33): the fake herdr's plugin list no longer holds oborEvents (the
-// plugin is user-global, so one project's step removes it for both).
-func (w *world) unlinked() error {
-	var plugins []herdrtest.Plugin
-	w.fake.Locked(func() { plugins = append(plugins, w.fake.Plugins...) })
-	if slices.ContainsFunc(plugins, func(pl herdrtest.Plugin) bool { return pl.ID == oborEvents }) {
-		return fmt.Errorf("herdr still lists %s (plugins %+v); v0.33's guide step unlinks it", oborEvents, plugins)
-	}
 	return nil
 }
 

@@ -613,7 +613,7 @@ func (c *countPoster) Type(context.Context, string, string, bool) (bool, error) 
 func TestRV52VerifyProjectionFailureDoesNotDuplicate(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
-	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","roles":{"integrator":""}}`)
+	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{"roles":{"integrator":""}}}`)
 	in := &countPoster{}
 	fx := &Loop{Inbox: in, Typer: in}
 	h.a.opt.Loop = func(string) (*Loop, error) { return fx, nil }

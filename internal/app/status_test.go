@@ -25,7 +25,7 @@ import (
 func TestStatusEndedIsTheStateTablesEnded(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
-	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj"}`)
+	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"}}`)
 	h.connect()
 	for _, task := range []string{"T-1", "T-2"} {
 		addRecord(t, h, task, event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"),
@@ -79,7 +79,7 @@ func TestStatusShipsTheWaitingRank(t *testing.T) {
 func TestStatusFreeLanesFollowLaneHolds(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
-	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj"}`)
+	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"}}`)
 	h.lanes.lanes = []port.Lane{{Name: "L-01", Dir: h.lane("L-01")}, {Name: "L-02", Dir: h.lane("L-02")}}
 	h.connect()
 	if ps := h.a.Status().Project; ps == nil {
@@ -269,7 +269,7 @@ func TestPendingStepsWaitForTheirEffect(t *testing.T) {
 func TestStatusCarriesTheSpecsRef(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
-	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj"}`)
+	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"}}`)
 	h.connect()
 	for _, task := range []string{"T-1", "T-2"} {
 		addRecord(t, h, task, event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"),

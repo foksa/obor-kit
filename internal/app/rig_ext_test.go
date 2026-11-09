@@ -184,7 +184,7 @@ func newRig(t *testing.T) *rig {
 	if err := os.MkdirAll(filepath.Join(r.root, ".obor"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(r.root, ".obor", "config.json"), `{"name":"pj"}`)
+	write(t, filepath.Join(r.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj"}}`)
 	r.f.Group("w1", "pj")
 	r.f.Group("w2", "other")
 	for i, lane := range []string{"L-01", "L-02"} {
@@ -1071,7 +1071,7 @@ func (r *loopRig) deliveries() []string {
 }
 
 // setConfig sets path in the project's config on disk (read at the app's next load). The file is shape 2, so path is
-// one of its names (not shape 1's: the test kit's pass-through, T-1124, would map it).
+// one of its names.
 func (r *loopRig) setConfig(path string, v any) {
 	r.t.Helper()
 	var c map[string]any

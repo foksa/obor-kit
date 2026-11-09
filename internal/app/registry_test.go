@@ -393,7 +393,7 @@ func TestIdentNamedStartBeatsLabel(t *testing.T) {
 	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.write(filepath.Join(h.root, ".obor", "config.json"),
-		`{"name":"pj","prefix":"pj","lanes":2}`)
+		`{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"lanes":{"count":2}}`)
 	h.pane("w1:p1").Label = "pj-l-02"
 	h.started("pj-l-01", "w1:p1", "t1", "")
 	h.connect()
@@ -727,8 +727,8 @@ func TestIdentPlacementPrefersTheLaneAgent(t *testing.T) {
 func TestIdentIntegratorWithoutBridge(t *testing.T) {
 	t.Parallel()
 	h, _ := newIdentHarness(t)
-	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj",`+
-		`"roles":{"integrator":"cur","lead":""},"models":{"cur":{"kind":"pi","model":"x"}}}`)
+	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},`+
+		`"agents":{"roles":{"integrator":"cur","lead":""},"models":{"cur":{"kind":"pi","id":"x"}}}}`)
 	h.connect()
 	if h.proj().integrator != "pj-int" {
 		t.Fatalf("precondition: integrator %q", h.proj().integrator)
@@ -1020,7 +1020,7 @@ func TestIdentRelabelledPane(t *testing.T) {
 func labelRig(t *testing.T, panes func(h *harness) []port.Pane, before ...func(h *harness)) *harness {
 	t.Helper()
 	h := newHarness(t)
-	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","lanes":2}`)
+	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"lanes":{"count":2}}`)
 	h.lanes.lanes[0].Agent = "pj-l-01"
 	h.snap.Panes = panes(h)
 	for _, fn := range before {
@@ -1121,8 +1121,8 @@ func TestPaneInRanksTheLabel(t *testing.T) {
 func TestLabelOfAnotherAgentWaitsForItsOwnPane(t *testing.T) {
 	t.Parallel()
 	h, fx, _, ag := promptRig(t, false, func(h *harness) { // pj-l-02 names lane L-02's worker
-		h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","lanes":2,`+
-			`"roles":{"integrator":""}}`)
+		h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"lanes":{"count":2},`+
+			`"agents":{"roles":{"integrator":""}}}`)
 		h.pane("w1:p1").Label = "pj-l-02"
 	})
 	if h.step(t, fx) {

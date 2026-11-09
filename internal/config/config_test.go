@@ -44,7 +44,7 @@ func raw(c *Config, path string) (string, bool) {
 }
 
 func TestDefaultsAndDerivedKeys(t *testing.T) {
-	c := load(t, `{"version":1,"prefix":"pj","models":{"cx":{"kind":"codex","model":"gpt-x"}}}`, "")
+	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"},"agents":{"models":{"cx":{"kind":"codex","id":"gpt-x"}}}}`, "")
 	for path, want := range map[string]string{
 		".merge.target_branch":     "main",
 		".lanes.task_branch":       "task/{id}",
@@ -70,12 +70,14 @@ func TestDefaultsAndDerivedKeys(t *testing.T) {
 }
 
 func TestLocalOverlay(t *testing.T) {
-	c := load(t, `{"prefix":"pj","merge":{"nightly_at":"03:00"},"lane_links":["A","B","C"],
-		"kinds":{"claude":{"args":["--x"],"prompt_extra":"P"}},"lanes":4,
-		"commands":{"check":{"cmd":"make check","timeout":90}},
-		"merge":{"nightly_at":"03:00","classes":[{"name":"a","paths":["src/a/**"]}]}}`,
-		`{"merge":{"nightly_at":"02:00","classes":[{"name":"b","paths":["src/b/**"]}]},"lane_links":["X"],
-		"kinds":{"claude":{"args":["--y"]}},"lanes":2,"commands":{"check":{"heavy":true}},"lanes_dir":"/wt"}`)
+	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"},"nightly":{"at":"03:00"},
+		"lanes":{"links":["A","B","C"],"count":4},
+		"agents":{"kinds":{"claude":{"args":["--x"],"job_note":"P"}}},
+		"merge":{"check":{"cmd":"make check","timeout":90},
+		"by_path":{"rules":[{"name":"a","paths":["src/a/**"]}]}}}`,
+		`{"nightly":{"at":"02:00"},"lanes":{"links":["X"],"count":2,"dir":"/wt"},
+		"agents":{"kinds":{"claude":{"args":["--y"]}}},
+		"merge":{"check":{"heavy":true},"by_path":{"rules":[{"name":"b","paths":["src/b/**"]}]}}}`)
 	if n := c.Data.Nightly; n.At != "02:00" {
 		t.Errorf("nightly: objects merge key by key, got %+v", n)
 	}
@@ -103,11 +105,11 @@ func TestLocalOverlay(t *testing.T) {
 // Load (every command's) ignores it (T-1081).
 func TestUnknownKeyFails(t *testing.T) {
 	for _, c := range []struct{ cfg, key string }{
-		{`{"prefix":"pj","typo_key":1}`, "typo_key"},
-		{`{"prefix":"pj","roles":{"mystery":{"model":"opus","writes":[]}}}`, "agents.roles.mystery.writes"},
-		{`{"prefix":"pj","models":{"m":{"kind":"claude","modle":"x"}}}`, "agents.models.m.modle"},
-		{`{"prefix":"pj","commands":{"c":{"cmd":"x","tmeout":5}}}`, "commands.c.tmeout"},
-		{`{"prefix":"pj","kinds":{"claude":{"argz":[]}}}`, "agents.kinds.claude.argz"},
+		{`{"version":2,"project":{"agent_prefix":"pj"},"typo_key":1}`, "typo_key"},
+		{`{"version":2,"project":{"agent_prefix":"pj"},"agents":{"roles":{"mystery":{"model":"opus","writes":[]}}}}`, "agents.roles.mystery.writes"},
+		{`{"version":2,"project":{"agent_prefix":"pj"},"agents":{"models":{"m":{"kind":"claude","modle":"x"}}}}`, "agents.models.m.modle"},
+		{`{"version":2,"project":{"agent_prefix":"pj"},"commands":{"c":{"cmd":"x","tmeout":5}}}`, "commands.c.tmeout"},
+		{`{"version":2,"project":{"agent_prefix":"pj"},"agents":{"kinds":{"claude":{"argz":[]}}}}`, "agents.kinds.claude.argz"},
 	} {
 		root := writeProject(t, c.cfg, "")
 		want := []string{"FAIL ." + c.key + ": unknown to this obor (retired, or newer than this binary): delete it (.obor/config.json)"}
@@ -118,13 +120,13 @@ func TestUnknownKeyFails(t *testing.T) {
 			t.Errorf("%s: Load %v, want the key ignored", c.cfg, err)
 		}
 	}
-	// shape 1: the reshape keeps a group it moves nothing out of where it is, so the group is the unknown key
-	_, fails, err := LoadForValidate(writeProject(t, `{"prefix":"pj"}`, `{"slots":{"maxx":1}}`))
+	// local.json has no shape of its own: a shape-1 key in it is an unknown key like any other (T-1081).
+	_, fails, err := LoadForValidate(writeProject(t, `{"version":2,"project":{"agent_prefix":"pj"}}`, `{"slots":{"maxx":1}}`))
 	if err != nil || len(fails) != 1 || !strings.HasPrefix(fails[0], "FAIL .slots: ") || !strings.HasSuffix(fails[0], "(.obor/local.json)") {
 		t.Errorf("local.json unknown key: %q, %v", fails, err)
 	}
 	// A key the shape still types: a wrong type fails, as a removed key (an `any`) no longer does (T-864).
-	if _, err := Load(writeProject(t, `{"prefix":"pj","handoff_tokens":"no"}`, "")); err == nil ||
+	if _, err := Load(writeProject(t, `{"version":2,"project":{"agent_prefix":"pj"},"agents":{"handoff_tokens":"no"}}`, "")); err == nil ||
 		!strings.Contains(err.Error(), "handoff_tokens") {
 		t.Errorf("wrong type: %v", err)
 	}
@@ -146,10 +148,11 @@ func TestLoadErrors(t *testing.T) {
 }
 
 func TestOrderedMapsKeepOrder(t *testing.T) {
-	c := load(t, `{"prefix":"pj","models":{"z":{"kind":"codex","model":"z1"},"a":{"kind":"codex","model":"a1"}},
-		"kinds":{"opencode":{"args":["--o"]},"claude":{"args":["--c"]}},
+	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"},
+		"agents":{"models":{"z":{"kind":"codex","id":"z1"},"a":{"kind":"codex","id":"a1"}},
+		"kinds":{"opencode":{"args":["--o"]},"claude":{"args":["--c"]}}},
 		"commands":{"zz":"z","aa":null,"mm":{"cmd":"m","timeout":5}}}`,
-		`{"models":{"b":{"kind":"codex","model":"b1"},"z":{"kind":"codex","model":"z2"}}}`)
+		`{"agents":{"models":{"b":{"kind":"codex","id":"b1"},"z":{"kind":"codex","id":"z2"}}}}`)
 	for _, k := range []struct {
 		got, want []string
 	}{{c.Data.Agents.Models.Keys, []string{"z", "a", "b"}}, {c.Data.Agents.Kinds.Keys, []string{"opencode", "claude"}},
@@ -171,7 +174,8 @@ func TestOrderedMapsKeepOrder(t *testing.T) {
 }
 
 func TestGet(t *testing.T) {
-	c := load(t, `{"prefix":"pj","lanes":2,"roles":{"integrator":"opus:high"},"handoff_tokens":0}`, "")
+	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"},"lanes":{"count":2},`+
+		`"agents":{"roles":{"integrator":"opus:high"},"handoff_tokens":0}}`, "")
 	for _, tc := range []struct {
 		path, want string
 		ok         bool
@@ -189,7 +193,7 @@ func TestGet(t *testing.T) {
 			t.Errorf("get %s = %q, %v; want %q, %v", tc.path, got, ok, tc.want, tc.ok)
 		}
 	}
-	if all, ok := c.Raw("."); !ok || !strings.HasPrefix(all, "{\n  \"project\"") {
+	if all, ok := c.Raw("."); !ok || !strings.HasPrefix(all, "{\n  \"version\"") {
 		t.Errorf("get . = %.40q", all)
 	}
 }
@@ -201,20 +205,21 @@ func TestDefaults(t *testing.T) {
 		get       func(*Config) any
 		def, val  any
 	}{
-		{"nightly.also_run", `"merge":{"nightly_commands":["trim"]}`, func(c *Config) any { return len(c.Data.Nightly.AlsoRun) }, 0, 1},
-		{"agents.docs_dir", `"paths":{"agents":"doc/roles"}`, func(c *Config) any { return c.Data.Agents.DocsDir }, "docs/agents", "doc/roles"},
+		{"nightly.also_run", `"nightly":{"also_run":["trim"]}`, func(c *Config) any { return len(c.Data.Nightly.AlsoRun) }, 0, 1},
+		{"agents.docs_dir", `"agents":{"docs_dir":"doc/roles"}`, func(c *Config) any { return c.Data.Agents.DocsDir }, "docs/agents", "doc/roles"},
 	} {
-		if got := tc.get(load(t, `{"prefix":"pj"}`, "")); got != tc.def {
+		if got := tc.get(load(t, `{"version":2}`, "")); got != tc.def {
 			t.Errorf("%s unset = %v, want the default %v", tc.name, got, tc.def)
 		}
-		if got := tc.get(load(t, `{"prefix":"pj",`+tc.set+`}`, "")); got != tc.val {
+		if got := tc.get(load(t, `{"version":2,`+tc.set+`}`, "")); got != tc.val {
 			t.Errorf("%s set = %v, want %v", tc.name, got, tc.val)
 		}
 	}
 }
 
 func TestRolesAndAgentNames(t *testing.T) {
-	c := load(t, `{"prefix":"pj","lanes":1,"roles":{"reviewer":"opus","deep_dive":"sonnet:high","integrator":"opus"}}`, "")
+	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"},"lanes":{"count":1},`+
+		`"agents":{"roles":{"reviewer":"opus","deep_dive":"sonnet:high","integrator":"opus"}}}`, "")
 	for _, tc := range []struct{ role, lane, want string }{
 		{"worker", "L-01", "pj-l-01"}, {"reviewer", "", "pj-rev"}, {"lead", "", "pj-lead"}, {"integrator", "", "pj-int"},
 		{"nobody", "", ""},
@@ -235,8 +240,9 @@ func TestRolesAndAgentNames(t *testing.T) {
 }
 
 func TestAgentLookupPrecedence(t *testing.T) {
-	root := writeProject(t, `{"prefix":"pj","lanes_dir":"../proj-wt","lanes":2,
-		"roles":{"lead":"opus:high","integrator":"sonnet","triage":"","deep_dive":"opus"}}`, "")
+	root := writeProject(t, `{"version":2,"project":{"agent_prefix":"pj"},
+		"lanes":{"dir":"../proj-wt","count":2},
+		"agents":{"roles":{"lead":"opus:high","integrator":"sonnet","triage":"","deep_dive":"opus"}}}`, "")
 	c, err := Load(root)
 	if err != nil {
 		t.Fatal(err)
@@ -278,7 +284,7 @@ func TestAgentLookupPrecedence(t *testing.T) {
 // T-280, T-770: Remote Control off and auto memory off for every claude agent but a lead; a lane's agent (a worker, the
 // owner's drive agent) starts with --strict-mcp-config, obor's MCP server alone.
 func TestLaunchArgs(t *testing.T) {
-	c := load(t, `{"prefix":"pj"}`, "")
+	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"}}`, "")
 	opus, _ := c.Model("opus")
 	luna, _ := c.Model("luna")
 	for _, tc := range []struct {
@@ -350,7 +356,8 @@ func TestLookupCollectionDefaults(t *testing.T) {
 // TaskIDOK and TaskFromBranch (T-470: from package lanes) follow project.task_id_pattern and lanes.task_branch; TaskBranch is
 // TaskFromBranch's inverse (T-896).
 func TestTaskFromBranch(t *testing.T) {
-	c := load(t, `{"prefix":"pj","task_id_pattern":"TK[0-9]+","branches":{"task":"wip/{id}-lane"}}`, "")
+	c := load(t, `{"version":2,"project":{"agent_prefix":"pj","task_id_pattern":"TK[0-9]+"},`+
+		`"lanes":{"task_branch":"wip/{id}-lane"}}`, "")
 	if c.TaskFromBranch("wip/TK12-lane") != "TK12" || c.TaskFromBranch("wip/T-12-lane") != "" ||
 		c.TaskFromBranch("task/TK12") != "" {
 		t.Error("TaskFromBranch")
@@ -361,7 +368,7 @@ func TestTaskFromBranch(t *testing.T) {
 	if !c.TaskIDOK("TK1") || c.TaskIDOK("TK1x") || c.TaskIDOK("xTK1") || c.TaskIDOK("TK1\n") {
 		t.Error("TaskIDOK matches a whole id only")
 	}
-	if bad := load(t, `{"prefix":"pj","task_id_pattern":"("}`, ""); bad.TaskIDOK("(") {
+	if bad := load(t, `{"version":2,"project":{"agent_prefix":"pj","task_id_pattern":"("}}`, ""); bad.TaskIDOK("(") {
 		t.Error("a pattern that does not compile matches nothing")
 	}
 }
@@ -374,15 +381,15 @@ func TestLaneEnv(t *testing.T) {
 		name, config string
 		want         []string
 	}{
-		{"no lane_env: the fact alone", `{}`, []string{"OBOR_LANE_CPUS=2"}},
-		{"lane_cpus 3", `{"slots": {"lane_cpus": 3}}`, []string{"OBOR_LANE_CPUS=3"}},
-		{"a template", `{"slots": {"lane_env": {"GOFLAGS": "-p={cpus} -trimpath", "GOMAXPROCS": "{cpus}"}}}`,
+		{"no lane_env: the fact alone", `{"version":2}`, []string{"OBOR_LANE_CPUS=2"}},
+		{"lane_cpus 3", `{"version":2,"lanes":{"cpus":3}}`, []string{"OBOR_LANE_CPUS=3"}},
+		{"a template", `{"version":2,"lanes":{"env":{"GOFLAGS":"-p={cpus} -trimpath","GOMAXPROCS":"{cpus}"}}}`,
 			[]string{"OBOR_LANE_CPUS=2", "GOFLAGS=-p=2 -trimpath", "GOMAXPROCS=2"}},
-		{"a template on lane_cpus 3", `{"slots": {"lane_cpus": 3, "lane_env": {"X": "-p={cpus}"}}}`,
+		{"a template on lane_cpus 3", `{"version":2,"lanes":{"cpus":3,"env":{"X":"-p={cpus}"}}}`,
 			[]string{"OBOR_LANE_CPUS=3", "X=-p=3"}},
-		{"no placeholder: kept as it is", `{"slots": {"lane_env": {"CGO_ENABLED": "0"}}}`,
+		{"no placeholder: kept as it is", `{"version":2,"lanes":{"env":{"CGO_ENABLED":"0"}}}`,
 			[]string{"OBOR_LANE_CPUS=2", "CGO_ENABLED=0"}},
-		{"the placeholder twice", `{"slots": {"lane_env": {"X": "{cpus}/{cpus}"}}}`,
+		{"the placeholder twice", `{"version":2,"lanes":{"env":{"X":"{cpus}/{cpus}"}}}`,
 			[]string{"OBOR_LANE_CPUS=2", "X=2/2"}},
 	} {
 		if got := LaneEnv(load(t, c.config, "")); !reflect.DeepEqual(got, c.want) {
@@ -397,7 +404,7 @@ func TestLaneEnv(t *testing.T) {
 // T-1041: a var of the start's kind env that slots.lane_env also names takes the config's value: obor merges nothing
 // into it (the config line is the policy).
 func TestWithLaneEnv(t *testing.T) {
-	cfg := load(t, `{"slots": {"lane_env": {"GOFLAGS": "-p={cpus}"}}}`, "")
+	cfg := load(t, `{"version":2,"lanes":{"env":{"GOFLAGS":"-p={cpus}"}}}`, "")
 	got := WithLaneEnv(map[string]string{"GOFLAGS": "-mod=mod", "KEEP": "1"}, cfg)
 	want := map[string]string{"GOFLAGS": "-p=2", "KEEP": "1", "OBOR_LANE_CPUS": "2"}
 	if !reflect.DeepEqual(got, want) {
@@ -425,7 +432,7 @@ func TestLaneEnvValidate(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			cfg := load(t, `{"prefix":"pj","slots":{"lane_env":`+c.env+`}}`, "")
+			cfg := load(t, `{"version":2,"project":{"agent_prefix":"pj"},"lanes":{"env":`+c.env+`}}`, "")
 			_, all := cfg.Validate(ValidateOptions{})
 			var fails []string
 			for _, f := range all {
@@ -442,37 +449,40 @@ func TestLaneEnvValidate(t *testing.T) {
 
 // T-1031: lanes is a count (sugar for that many fresh lanes) or a list of {name, keep_agent}; obor config validate
 // refuses a list with a repeated name or a name not of the L-NN shape; a list member's unknown key is dropped as any
-// unknown key is (T-1081). The form the file has is the one written back. The cases are shape 1's lanes (a count or a
-// list): the reshape puts them in lanes.count and lanes.list.
+// unknown key is (T-1081). The form the file has is the one written back.
 func TestLanesCountOrList(t *testing.T) {
 	type lane struct{ name, mode string }
 	for _, c := range []struct {
-		name, lanes string
-		want        []lane
-		fails       []string
-		loadErr     string
+		name, lanes, written string
+		want                 []lane
+		fails                []string
+		loadErr              string
 	}{
-		{name: "a count: fresh lanes L-01 … L-NN", lanes: `2`,
+		{name: "a count: fresh lanes L-01 … L-NN", lanes: `"count":2`, written: "2",
 			want: []lane{{"L-01", LaneFresh}, {"L-02", LaneFresh}}},
-		{name: "no lanes", lanes: `0`},
-		{name: "a list: its names and modes, in its order", lanes: `[{"name": "L-02", "keep_agent": true}, {"name": "L-05"}]`,
-			want: []lane{{"L-02", LaneKeep}, {"L-05", LaneFresh}}},
-		{name: "duplicate names", lanes: `[{"name": "L-01", "keep_agent": true}, {"name": "L-01"}]`,
-			want:  []lane{{"L-01", LaneKeep}, {"L-01", LaneFresh}},
-			fails: []string{"FAIL .lanes.list[1].name: lane L-01 is listed twice"}},
-		{name: "bad names", lanes: `[{"name": "l-01"}, {"name": "L-1"}, {"name": "L-00"}, {"name": ""}]`,
-			want: []lane{{"l-01", LaneFresh}, {"L-1", LaneFresh}, {"L-00", LaneFresh}, {"", LaneFresh}},
+		{name: "no lanes", lanes: `"count":0`, written: "0"},
+		{name: "a list: its names and modes, in its order", lanes: `"list":[{"name": "L-02", "keep_agent": true}, {"name": "L-05"}]`,
+			written: `[{"name":"L-02","keep_agent":true},{"name":"L-05"}]`,
+			want:    []lane{{"L-02", LaneKeep}, {"L-05", LaneFresh}}},
+		{name: "duplicate names", lanes: `"list":[{"name": "L-01", "keep_agent": true}, {"name": "L-01"}]`,
+			written: `[{"name":"L-01","keep_agent":true},{"name":"L-01"}]`,
+			want:    []lane{{"L-01", LaneKeep}, {"L-01", LaneFresh}},
+			fails:   []string{"FAIL .lanes.list[1].name: lane L-01 is listed twice"}},
+		{name: "bad names", lanes: `"list":[{"name": "l-01"}, {"name": "L-1"}, {"name": "L-00"}, {"name": ""}]`,
+			written: `[{"name":"l-01"},{"name":"L-1"},{"name":"L-00"},{"name":""}]`,
+			want:    []lane{{"l-01", LaneFresh}, {"L-1", LaneFresh}, {"L-00", LaneFresh}, {"", LaneFresh}},
 			fails: []string{`FAIL .lanes.list[0].name: must be a lane name L-NN (L-01, L-02 …), got "l-01"`,
 				`FAIL .lanes.list[1].name: must be a lane name L-NN (L-01, L-02 …), got "L-1"`,
 				`FAIL .lanes.list[2].name: must be a lane name L-NN (L-01, L-02 …), got "L-00"`,
 				`FAIL .lanes.list[3].name: must be a lane name L-NN (L-01, L-02 …), got ""`}},
-		{name: "a negative count", lanes: `-1`, fails: []string{"FAIL .lanes.count: must be a non-negative integer (how many lanes), got -1"}},
-		{name: "an unknown member key: dropped", lanes: `[{"name": "L-01", "keep": true}]`, want: []lane{{"L-01", LaneFresh}}},
-		{name: "neither a count nor a list", lanes: `"two"`, loadErr: "lanes.count"},
+		{name: "a negative count", lanes: `"count":-1`, written: "-1", fails: []string{"FAIL .lanes.count: must be a non-negative integer (how many lanes), got -1"}},
+		{name: "an unknown member key: dropped", lanes: `"list":[{"name": "L-01", "keep": true}]`, written: `[{"name":"L-01"}]`,
+			want: []lane{{"L-01", LaneFresh}}},
+		{name: "neither a count nor a list", lanes: `"count":"two"`, loadErr: "lanes.count"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			cfg, err := Load(writeProject(t, `{"prefix":"pj","lanes_dir":"../wt","lanes":`+c.lanes+`}`, ""))
+			cfg, err := Load(writeProject(t, `{"version":2,"project":{"agent_prefix":"pj"},"lanes":{"dir":"../wt",`+c.lanes+`}}`, ""))
 			if c.loadErr != "" {
 				if err == nil || !strings.Contains(err.Error(), c.loadErr) {
 					t.Fatalf("load: %v, want an error naming %q", err, c.loadErr)
@@ -507,12 +517,12 @@ func TestLanesCountOrList(t *testing.T) {
 			if cfg.LanesListed() {
 				written = Compact(cfg.Data.Lanes.List)
 			}
-			if want := strings.ReplaceAll(c.lanes, " ", ""); written != want && c.name != "an unknown member key: dropped" {
-				t.Errorf("written back as %s, want %s", written, want)
+			if written != c.written {
+				t.Errorf("written back as %s, want %s", written, c.written)
 			}
 		})
 	}
-	keep := load(t, `{"prefix":"pj","lanes":[{"name":"L-01","keep_agent":true},{"name":"L-02"}]}`, "")
+	keep := load(t, `{"version":2,"project":{"agent_prefix":"pj"},"lanes":{"list":[{"name":"L-01","keep_agent":true},{"name":"L-02"}]}}`, "")
 	if !keep.KeepLane("L-01") || keep.KeepLane("L-02") || keep.KeepLane("L-03") || !keep.HasLane("L-02") || keep.HasLane("L-03") {
 		t.Errorf("KeepLane/HasLane: L-01 keep, L-02 fresh, L-03 none; got %v %v %v / %v %v", keep.KeepLane("L-01"),
 			keep.KeepLane("L-02"), keep.KeepLane("L-03"), keep.HasLane("L-02"), keep.HasLane("L-03"))
@@ -523,12 +533,13 @@ func TestLanesCountOrList(t *testing.T) {
 // while an edit in .obor/local.json — where a model's id or a kind's args may live — changes it: either file counts,
 // not only the committed one.
 func TestRevIsTheEffectiveConfig(t *testing.T) {
-	one := load(t, `{"name":"pj","prefix":"pj"}`, "")
-	same := load(t, "{\n  \"name\": \"pj\",\n  \"prefix\": \"pj\"\n}\n", "")
+	one := load(t, `{"version":2,"project":{"name":"pj","agent_prefix":"pj"}}`, "")
+	same := load(t, "{\n  \"version\": 2,\n  \"project\": {\n    \"name\": \"pj\",\n    \"agent_prefix\": \"pj\"\n  }\n}\n", "")
 	if len(one.json) == 0 || one.Rev() != same.Rev() {
 		t.Errorf("rev %s of a rewritten config.json, want %s: the same effective config", same.Rev(), one.Rev())
 	}
-	local := load(t, `{"name":"pj","prefix":"pj"}`, `{"models":{"sonnet":{"kind":"claude","model":"sonnet-4-6"}}}`)
+	local := load(t, `{"version":2,"project":{"name":"pj","agent_prefix":"pj"}}`,
+		`{"agents":{"models":{"sonnet":{"kind":"claude","id":"sonnet-4-6"}}}}`)
 	if local.Rev() == one.Rev() {
 		t.Errorf("rev %s with local.json's model, want another than %s: a changed model id behind an alias counts",
 			local.Rev(), one.Rev())

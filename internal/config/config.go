@@ -1,6 +1,6 @@
 // Package config loads a project's effective config: .obor/local.json merged into .obor/config.json as JSON (objects
 // merge key by key; null, lists and scalars are replaced: jq's *), decoded over the defaults, then the derived keys
-// (lanes.dir, the merge scratch, claude settings). A file of config shape 1 is reshaped first (Reshape).
+// (lanes.dir, the merge scratch, claude settings). A config.json of config shape 1 is refused by the load.
 package config
 
 import (
@@ -31,7 +31,7 @@ var ErrNoConfig = errors.New("no config")
 
 // Data is the config file's shape, version 2 (docs/research/config-shape.md §2): ten top-level keys, nine groups by
 // what they are about and the version. Its field comments are the reference for each key. A key it does not name
-// fails the load. A file of shape 1 is reshaped to it on load (Reshape) for one minor release.
+// fails the load, and so does a file of an older shape.
 type Data struct {
 	// Version is the shape of this file: 2.
 	Version *int    `json:"version,omitempty"`
@@ -49,8 +49,23 @@ type Data struct {
 	Reviews  Reviews          `json:"reviews,omitzero"`
 }
 
-// ShapeVersion is the config shape this obor reads: Data's. A file of an older version is reshaped on load.
+// ShapeVersion is the config shape this obor reads: Data's. A file of an older version fails the load.
 const ShapeVersion = 2
+
+// p is a path: one key per step.
+func p(keys ...string) []string { return keys }
+
+// ShapeOf is the shape of a config.json: its version when it is 2 or more, else 1 (a file with no version, or 1, is
+// shape 1).
+func ShapeOf(doc []byte) int {
+	var v struct {
+		Version *int `json:"version"`
+	}
+	if json.Unmarshal(doc, &v) != nil || v.Version == nil || *v.Version < ShapeVersion {
+		return 1
+	}
+	return *v.Version
+}
 
 // Project is `project`: what the project is called and what its ids look like.
 type Project struct {
@@ -425,28 +440,7 @@ type Config struct {
 	local      []byte   // .obor/local.json's bytes (nil: none), for Edit's override check (T-754)
 	unknownErr error    // LoadReader's warning when read dropped an unknown key
 	unknownIn  []string // the unknown keys config.json itself has (the others are local.json's), for LoadForValidate
-	shape1     bool     // config.json is of shape 1, reshaped in memory (Reshape)
 }
-
-// Shape1: config.json is of shape 1 and runs reshaped in memory (Reshape), until serve or obor config migrate
-// rewrites it; the release after refuses it.
-func (c *Config) Shape1() bool { return c != nil && c.shape1 }
-
-// Shape1Warning is the one line a load of a shape-1 config.json warns with.
-func Shape1Warning(root string) string {
-	return fmt.Sprintf("obor: %s: config shape 1: read as shape 2 for this release, refused by the next; serve "+
-		"rewrites it at its start (obor config migrate by hand)", filepath.Join(root, ".obor", "config.json"))
-}
-
-// Shape1Refusal is a config writer's refusal of a config.json of shape 1 (config_set, obor setup lane, obor init on an
-// existing config): it would mix the shapes; the rewrite comes first.
-func Shape1Refusal(root string) string {
-	return filepath.Join(root, ".obor", "config.json") + " " + shape1Hint
-}
-
-// shape1Hint is what a writer's refusal of a shape-1 config.json says after the file's name.
-const shape1Hint = "is config shape 1: obor config migrate rewrites it as shape 2 (obor serve does at its start), then" +
-	" try again"
 
 // Rev is the revision of the config as it runs (Rev of its effective JSON: config.json with .obor/local.json merged
 // and the defaults filled, T-1050). Unlike the file's own revision it changes when an edit in either file changes what
@@ -459,22 +453,18 @@ func (c *Config) Rev() string { return Rev(c.json) }
 // local.json merged as JSON (merge), decoded once over the defaults, then the derived keys. A key this binary does not
 // know (the config is newer than the binary, or the key was retired) is ignored with one warning per key and process
 // on Warn (T-377), for every command, hook, reader and serve alike (T-1081): only obor config validate
-// (LoadForValidate) refuses one. A retired pre-v0.23 shape key (retiredKeys) and every other error stay errors.
+// (LoadForValidate) refuses one. A config.json of shape 1 fails the load, as every other error does.
 func Load(root string) (*Config, error) {
 	c, unknown, err := read(root)
 	for _, key := range unknown {
 		warnUnknown(root, key)
-	}
-	if c.Shape1() {
-		warnOnce(root+": shape 1", Shape1Warning(root))
 	}
 	return c, err
 }
 
 // LoadForValidate is Load for obor config validate (and the merge guard that runs it), the one strict place (T-710,
 // T-1081): unknown are its FAIL lines, one per key this binary does not know, naming it and its file; cfg is the
-// config without them, for the other checks. Nothing goes to Warn (a shape-1 file is Validate's WARN). Every other
-// error is Load's.
+// config without them, for the other checks. Nothing goes to Warn. Every other error is Load's.
 func LoadForValidate(root string) (cfg *Config, unknown []string, err error) {
 	c, keys, err := read(root)
 	if err != nil {
@@ -492,8 +482,8 @@ func LoadForValidate(root string) (cfg *Config, unknown []string, err error) {
 }
 
 // LoadHook is Load for the hooks (DD-v0.13 A1): a key this binary does not know is ignored, as Load does, but
-// returned in unknown instead of warned of on Warn (the SessionStart hook names them; the others say nothing; a
-// shape-1 file is read reshaped without a word). Every other error is Load's: the hooks then fail closed (Fallback).
+// returned in unknown instead of warned of on Warn (the SessionStart hook names them; the others say nothing). Every
+// other error is Load's: the hooks then fail closed (Fallback).
 func LoadHook(root string) (*Config, []string, error) { return read(root) }
 
 // LoadReader is Load for the readers (obor status, obor stop/start, obor web; T-709): a key this binary does not know (a
@@ -511,9 +501,6 @@ func LoadReader(root string) (cfg *Config, warn string, err error) {
 			" ignored: this obor does not know it — either this binary is older than the config (restart it) or the"+
 			" key was retired (obor config validate names it; delete it)")
 	}
-	if c.Shape1() {
-		warns = append(warns, "WARN "+strings.TrimPrefix(Shape1Warning(root), "obor: "))
-	}
 	return c, strings.Join(warns, "; "), nil
 }
 
@@ -527,34 +514,6 @@ func warnOnce(id, line string) {
 	if _, dup := warned.LoadOrStore(id, true); !dup {
 		fmt.Fprintln(Warn, line)
 	}
-}
-
-// retiredKeys are top-level keys the config shape before v0.23 had (a lane_types table, an agents table). They are
-// retired, not an unknown key of a newer binary: every reader refuses one in a file of shape 1, as a pre-v0.23 config
-// runs on no defaults (T-847). In shape 2, agents is a group.
-var retiredKeys = []string{"agents", "lane_types"}
-
-// retiredKey is the first top-level member of b retiredKeys names ("" when none). An agents object whose members are
-// all shape 2's agents group's (a file with no version written in shape 2) is that group, not the old table.
-func retiredKey(b json.RawMessage) string {
-	ms, _ := object(b)
-	for _, m := range ms {
-		if slices.Contains(retiredKeys, m.Key) && !(m.Key == "agents" && agentsGroup(m.Val)) {
-			return m.Key
-		}
-	}
-	return ""
-}
-
-// agentsGroup: v is an object of shape 2's agents members only.
-func agentsGroup(v json.RawMessage) bool {
-	ms, ok := object(v)
-	for _, m := range ms {
-		if _, known := fieldOf(reflect.TypeFor[Agents](), m.Key); !known {
-			return false
-		}
-	}
-	return ok
 }
 
 // unknownKey names an unknown key (a dotted path), named as encoding/json names an unknown field.
@@ -579,9 +538,10 @@ func LoadWith(root string, doc []byte) (*Config, error) {
 	return c, err
 }
 
-// readWith is read with doc as config.json's bytes (nil: the file's). A config.json of shape 1 (ShapeOf) is reshaped
-// before the merge; local.json has no version and follows the load's rule — config.json is shape 1, or the file itself
-// is (LocalShape1: a shape-1 local.json beside a shape-2 config.json is reshaped too, T-1149); one struct, one decode.
+// readWith is read with doc as config.json's bytes (nil: the file's): one struct, one decode. A config.json of shape 1
+// fails it (ShapeOf): shape 1 was read and rewritten by v0.33 alone, and the way out is that release. local.json has
+// no version and no shape test: a shape-1 key in it is an unknown key like any other (WARN for readers, refused by
+// validate, decision 2026-11-09 T-1081).
 func readWith(root string, doc []byte) (*Config, []string, error) {
 	names := []string{"config.json", "local.json"}
 	var files [2][]byte
@@ -606,31 +566,16 @@ func readWith(root string, doc []byte) (*Config, []string, error) {
 		}
 		files[i] = b
 	}
-	shape1 := ShapeOf(files[0]) < ShapeVersion
-	for i, name := range names {
-		old := shape1
-		if i == 1 && !old { // local.json has no version: its own test (T-1149)
-			old = LocalShape1(files[i])
-		}
-		if !old || files[i] == nil {
-			continue
-		}
-		path := filepath.Join(root, ".obor", name)
-		// A retired shape key is refused before the merge can hide it and before a lenient reader drops it (T-847).
-		if key := retiredKey(files[i]); key != "" {
-			return nil, nil, unknownKey{path, key}
-		}
-		b, err := Reshape(files[i])
-		if err != nil {
-			return nil, nil, fmt.Errorf("obor: %s: cannot read it as config shape 2: %v", path, err)
-		}
-		files[i] = b
+	if ShapeOf(files[0]) < ShapeVersion {
+		return nil, nil, fmt.Errorf("obor: %s: config shape 1, which this obor no longer reads: run obor config migrate "+
+			"with obor v0.33, then upgrade (docs/UPGRADE-v0.33.md lists old and new keys)",
+			filepath.Join(root, ".obor", "config.json"))
 	}
 	merged := files[0]
 	if files[1] != nil {
 		merged = merge(files[0], files[1])
 	}
-	c := &Config{Root: root, Data: Defaults(), local: files[1], shape1: shape1}
+	c := &Config{Root: root, Data: Defaults(), local: files[1]}
 	merged, unknown := dropUnknown(merged, reflect.TypeOf(c.Data), "")
 	if err := strict(merged, &c.Data); err != nil {
 		// Name the file at fault: config.json when it fails alone, else local.json.

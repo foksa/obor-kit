@@ -22,7 +22,7 @@ import (
 func TestLaneRowsProjectTheLog(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
-	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","lanes":2,"roles":{"integrator":""}}`)
+	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"lanes":{"count":2},"agents":{"roles":{"integrator":""}}}`)
 	h.connect()
 	a, p := h.a, h.proj()
 	add := func(task string, attempt int, step, kind string, d any) event.Record {
@@ -119,7 +119,7 @@ func TestLaneRowsProjectTheLog(t *testing.T) {
 func TestLaneRowsBlockedFollowsTheFold(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
-	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","lanes":2,"roles":{"integrator":""}}`)
+	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"lanes":{"count":2},"agents":{"roles":{"integrator":""}}}`)
 	h.connect()
 	a, p := h.a, h.proj()
 	add := func(task, step, kind string, d any) {
@@ -171,7 +171,7 @@ func TestLaneRowsBlockedFollowsTheFold(t *testing.T) {
 func TestTaskDoneByLane(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
-	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","roles":{"integrator":""}}`)
+	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{"roles":{"integrator":""}}}`)
 	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{}, nil }
 	h.connect()
 	p := h.proj()
@@ -195,7 +195,7 @@ func TestTaskDoneByLane(t *testing.T) {
 func TestLaneRowLandedByAMergeOutside(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
-	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","lanes":2,"roles":{"integrator":""}}`)
+	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"lanes":{"count":2},"agents":{"roles":{"integrator":""}}}`)
 	h.connect()
 	a, p := h.a, h.proj()
 	add := func(step, kind string, d any) {
@@ -386,7 +386,7 @@ func TestOldLaneIntentsFoldTheSame(t *testing.T) {
 	t.Parallel()
 	fold := func(prepare, free string) (mtask, map[string]store.LaneRow) {
 		h := newHarness(t)
-		h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","lanes":1,"roles":{"integrator":""}}`)
+		h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"lanes":{"count":1},"agents":{"roles":{"integrator":""}}}`)
 		h.connect()
 		p := h.proj()
 		add := func(step, kind string, raw string) {

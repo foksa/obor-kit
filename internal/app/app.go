@@ -148,9 +148,6 @@ type proj struct {
 	fixes     fixState
 	verifyDue bool
 	closeRead bool
-	// shaped: this process found .obor/config.json of config shape 2, or rewrote it (configShape, T-1125): the pass
-	// reads the file no more.
-	shaped bool
 	// lastBefore: the newest record's time when the replay ended, before this serve's start-up appended any (zero: no
 	// record, or its time unreadable): serve's first connect compares the terminal's start with it (restore.go, T-1136).
 	lastBefore time.Time

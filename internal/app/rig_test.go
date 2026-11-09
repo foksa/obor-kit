@@ -83,7 +83,7 @@ func countStep(t *testing.T, h *harness, step string) int {
 // reads the head once); the publish admission (T-730) is config_set's only.
 
 // admitCfg is seedRoles' config with paths.reviews.
-const admitCfg = `{"name":"pj","prefix":"pj","roles":{"integrator":"","reviewer":"","deep_dive":""},"paths":{"reviews":"reviews"}}`
+const admitCfg = `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{"roles":{"integrator":"","reviewer":"","deep_dive":""}},"reviews":{"dir":"reviews"}}`
 
 // seedRoles is seedSched's project with a reviewer (pane w1:rev) and a deep dive (pane w1:dd), both idle in their
 // role worktrees, and T-1 accepted.
@@ -91,7 +91,7 @@ func seedRoles(t *testing.T) (*harness, *schedScratch) {
 	t.Helper()
 	h := newHarness(t)
 	h.write(filepath.Join(h.root, ".obor", "config.json"),
-		`{"name":"pj","prefix":"pj","roles":{"integrator":"","reviewer":"","deep_dive":""}}`)
+		`{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{"roles":{"integrator":"","reviewer":"","deep_dive":""}}}`)
 	h.snap.Panes = append(h.snap.Panes,
 		port.Pane{ID: "w1:rev", Group: "pj", Cwd: filepath.Join(h.wt, "reviewer"), Agent: "claude", Label: "pj-rev", Status: "idle"},
 		port.Pane{ID: "w1:dd", Group: "pj", Cwd: filepath.Join(h.wt, "deep_dive"), Agent: "claude", Label: "pj-deep-dive", Status: "idle"})
@@ -477,7 +477,7 @@ func newConcRig(t *testing.T) *concRig {
 		if err := os.MkdirAll(filepath.Join(root, ".obor"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		cfg := `{"name":"` + name + `","prefix":"` + name + `","roles":{"integrator":""}}`
+		cfg := `{"version":2,"project":{"name":"` + name + `","agent_prefix":"` + name + `"},"agents":{"roles":{"integrator":""}}}`
 		if err := os.WriteFile(filepath.Join(root, ".obor", "config.json"), []byte(cfg), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -1884,7 +1884,7 @@ func greenTask(r *concRig, task string, c port.Candidate) {
 // out.
 func newIdentHarness(t *testing.T) (*harness, *bytes.Buffer) {
 	h := newHarness(t)
-	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","lanes":1}`)
+	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"lanes":{"count":1}}`)
 	h.lanes.lanes[0].Agent = "pj-l-01"
 	p := h.pane("w1:p1")
 	p.Label, p.Terminal, p.Session = "pj-l-01", "t1", "s1"
@@ -1897,8 +1897,8 @@ func newIdentHarness(t *testing.T) (*harness, *bytes.Buffer) {
 // withLead gives pj a lead role (pj-lead), an integrator (pj-int) and an advisor (pj-advisor, no lane): every name a
 // start row or a recorded session may prove a pane with (T-605), lane L-01's worker pj-l-01 included.
 func (h *harness) withLead() {
-	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj",`+
-		`"lanes":1,"roles":{"integrator":"","lead":"","advisor":""}}`)
+	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},`+
+		`"lanes":{"count":1},"agents":{"roles":{"integrator":"","lead":"","advisor":""}}}`)
 }
 
 // sids makes agent → session each agent's current recorded session in the store (once the project is loaded): put in
@@ -2254,7 +2254,7 @@ func lineRoot(t *testing.T) string {
 	if err := os.MkdirAll(filepath.Join(root, ".obor"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cfg := `{"name":"proj","prefix":"pj","roles":{"integrator":"","reviewer":""}}`
+	cfg := `{"version":2,"project":{"name":"proj","agent_prefix":"pj"},"agents":{"roles":{"integrator":"","reviewer":""}}}`
 	if err := os.WriteFile(filepath.Join(root, ".obor/config.json"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -2717,7 +2717,7 @@ func (h *harness) has(s string) bool {
 func seedQuestions(t *testing.T, report string) (*harness, *schedScratch) {
 	t.Helper()
 	h := newHarness(t)
-	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","roles":{"integrator":""}}`)
+	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{"roles":{"integrator":""}}}`)
 	f := &schedScratch{h: h}
 	h.a.opt.Loop = func(string) (*Loop, error) {
 		return &Loop{Workflow: WorkflowOf(f), Agents: f, Typer: f, Kit: "../.."}, nil
@@ -2946,7 +2946,7 @@ func newReviewRig(t *testing.T) *reviewRig { return newReviewRigWith(t, true) }
 func newReviewRigWith(t *testing.T, seed bool) *reviewRig {
 	t.Helper()
 	root := lineRoot(t)
-	cfg := `{"name":"proj","prefix":"pj","roles":{"integrator":"","reviewer":""},"paths":{"reviews":"reviews"}}`
+	cfg := `{"version":2,"project":{"name":"proj","agent_prefix":"pj"},"agents":{"roles":{"integrator":"","reviewer":""}},"reviews":{"dir":"reviews"}}`
 	if err := os.WriteFile(filepath.Join(root, ".obor/config.json"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -3412,7 +3412,7 @@ func projectRoot(t *testing.T) string {
 	if err := os.MkdirAll(filepath.Join(root, ".obor"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, ".obor", "config.json"), []byte(`{"name":"pj"}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, ".obor", "config.json"), []byte(`{"version":2,"project":{"name":"pj"}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return root
@@ -3473,9 +3473,9 @@ func (f *schedScratch) Type(context.Context, string, string, bool) (bool, error)
 // sha s1 and gated into a conflict. before, when given, acts on the harness's snapshot before the connect takes it.
 func seedSched(t *testing.T, serve bool, before ...func(h *harness)) (*harness, *schedScratch) {
 	h := newHarness(t)
-	cfg := `{"name":"pj","prefix":"pj","roles":{"integrator":""}}`
+	cfg := `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{"roles":{"integrator":""}}}`
 	if !serve {
-		cfg = `{"name":"pj","prefix":"pj"}`
+		cfg = `{"version":2,"project":{"name":"pj","agent_prefix":"pj"}}`
 	}
 	h.write(filepath.Join(h.root, ".obor", "config.json"), cfg)
 	f := &schedScratch{h: h}
@@ -3896,7 +3896,7 @@ func newHarness(t *testing.T) *harness {
 	if err := os.MkdirAll(filepath.Join(h.root, ".obor"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj"}`)
+	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj"}}`)
 	h.lanes.lanes = []port.Lane{{Name: "L-01", Dir: h.lane("L-01"), Task: "T-1"}}
 	h.snap = port.Snapshot{Panes: []port.Pane{{ID: "w1:p1", Group: "pj", Cwd: h.lane("L-01"), Agent: "claude", Label: "pj-l-01", Status: "idle"}}}
 	h.a = New(Options{Root: h.root, Now: func() time.Time { return h.now }}, h.panes, h.lanes)
@@ -4058,7 +4058,7 @@ func roleFixture(t *testing.T, kitRole, doc string) (*proj, string) {
 	if err := os.MkdirAll(filepath.Join(root, ".obor"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cfg := `{"name":"pj","paths":{"agents":"doc/roles"}}`
+	cfg := `{"version":2,"project":{"name":"pj"},"agents":{"docs_dir":"doc/roles"}}`
 	if err := os.WriteFile(filepath.Join(root, ".obor", "config.json"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
