@@ -23,7 +23,7 @@ func TestWorkflowContractScratchFF(t *testing.T) {
 	t.Parallel()
 	testkit.WorkflowContract(t, func(t *testing.T) testkit.WorkflowRig {
 		y := newSx(t, cmd("check", "echo 1 pass"))
-		return &ffRig{y: y, wf: ScratchFF{Scratch: y.s, Lane: Lane{Cfg: y.s.Cfg}}}
+		return &ffRig{y: y, wf: NewScratchFF(y.s, nil)}
 	})
 }
 
