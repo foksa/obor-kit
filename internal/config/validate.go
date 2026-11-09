@@ -352,8 +352,8 @@ func (v *validator) nonNegative(path string, n *int64) {
 	}
 }
 
-// allowPush: guards.allow_push is a list of roles ("lead"), a role's derived name ("ob-lead") read as its slot
-// (T-786); an empty entry fails, one that names no role allows nothing: WARN.
+// allowPush: guards.allow_push is a list of roles ("lead"); an empty entry fails, one that names no role allows
+// nothing: WARN.
 func (v *validator) allowPush(entries []string) {
 	for _, e := range entries {
 		if e == "" {
@@ -362,11 +362,10 @@ func (v *validator) allowPush(entries []string) {
 		}
 	}
 	for _, e := range entries {
-		slot := v.c.pushSlot(e)
-		rc, _ := v.c.Role(slot)
+		rc, ok := v.c.Role(e)
 		switch {
-		case slot == "":
-			v.warns = append(v.warns, "WARN .guards.allow_push: "+Compact(e)+" is no role (nor a role's agent name): it allows no push")
+		case !ok:
+			v.warns = append(v.warns, "WARN .guards.allow_push: "+Compact(e)+" is no role: it allows no push")
 		case rc.Role.Custom:
 			v.fail(".guards.allow_push", Compact(e)+" is a custom role: it never pushes (remove it)")
 		}
@@ -533,16 +532,11 @@ func (v *validator) trunk() {
 }
 
 // warnings: merge.neutral globs that may share a path with a class glob (that class's files would merge guard-only,
-// T-92), removed keys still set, commands obor no longer runs by name (T-1083). Each removed key WARNs for two minor
-// versions after its removal, then is an unknown key (validate_test.go: TestRemovedKeysWithinTwoVersions, its window
-// read from VERSION).
+// T-92), commands obor no longer runs by name (T-1083). A removed key WARNs for two minor versions after its removal,
+// then is an unknown key (validate_test.go: TestRemovedKeysWithinTwoVersions, its window read from VERSION).
 func (c *Config) warnings(o ValidateOptions) []string {
 	var out []string
-	neutral := c.Data.Merge.Neutral
-	if neutral == nil {
-		neutral = []string{"docs/**"}
-	}
-	for _, n := range neutral {
+	for _, n := range c.Data.Merge.Neutral {
 		for _, class := range c.Data.Merge.Classes {
 			for _, glob := range class.Paths {
 				if o.Overlap != nil && n != "" && glob != "" && o.Overlap(n, glob) {
@@ -551,13 +545,6 @@ func (c *Config) warnings(o ValidateOptions) []string {
 			}
 		}
 	}
-	removed := func(path string, set bool) {
-		if set {
-			out = append(out, "WARN "+path+": no longer used, remove it")
-		}
-	}
-	removed("paths.research", c.Data.Paths["research"] != "")
-	removed("paths.questions", c.Data.Paths["questions"] != "")
 	// T-1083: baseline, gate and e2e are free command names again; a config that sets one loses its run silently unless
 	// it is named where a merge or the nightly still runs it.
 	for _, name := range []string{"baseline", "gate", "e2e"} {

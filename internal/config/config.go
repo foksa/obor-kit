@@ -1,6 +1,6 @@
 // Package config loads a project's effective config: .obor/local.json merged into .obor/config.json as JSON (objects
 // merge key by key; null, lists and scalars are replaced: jq's *), decoded over the defaults, then the derived keys
-// (lanes_dir, merge.scratch_dir, claude settings).
+// (lanes_dir, the merge scratch, claude settings).
 package config
 
 import (
@@ -60,7 +60,6 @@ type Data struct {
 	// Terminal is terminal: the terminal adapter obor drives its panes through (T-1044); absent: herdr.
 	Terminal Terminal `json:"terminal,omitzero"`
 	Slots    *Slots   `json:"slots,omitempty"`
-	Limits   *Limits  `json:"limits,omitempty"`
 	// Difficulty maps a level (hard, medium, simple) to its model refs in dispatch order; a level it omits has the
 	// built-in default (DifficultyDefault).
 	Difficulty map[string][]string `json:"difficulty,omitempty"`
@@ -79,10 +78,6 @@ type DenyCommand struct {
 	Match   string `json:"match"`
 	Alone   bool   `json:"alone,omitempty"`
 	Message string `json:"message"`
-}
-
-type Limits struct {
-	MaxPanesPerTab *int `json:"max_panes_per_tab,omitempty"`
 }
 
 type Branches struct {
@@ -169,10 +164,6 @@ type Roles struct {
 	Ordered[RoleEntry]
 }
 
-// knows: a roles member is a role; `leads` is not (removed in v0.12.0, T-467: one lead per project), so the schema walk
-// drops it as an unknown key.
-func (Roles) knows(key string) bool { return key != "leads" }
-
 func (r *Roles) UnmarshalJSON(b []byte) error {
 	*r = Roles{}
 	if string(b) == "null" {
@@ -249,7 +240,6 @@ func (c *Config) SetupConfirmed() bool {
 }
 
 type Merge struct {
-	ScratchDir   string `json:"scratch_dir"`
 	SummaryRegex string `json:"summary_regex,omitempty"`
 	FailGrep     string `json:"fail_grep,omitempty"`
 	// FlakeRegex is the pair of regexps that read a red run's failing tests and packages from its fail_grep lines
@@ -503,13 +493,10 @@ func warnUnknown(root, key string) {
 		filepath.Join(root, ".obor"), key)
 }
 
-// derive fills what the files leave unset: lanes_dir, merge.scratch_dir.
+// derive fills what the files leave unset: lanes_dir.
 func (d *Data) derive(base string) {
 	if d.LanesDir == "" {
 		d.LanesDir = "../" + base + "-wt"
-	}
-	if d.Merge.ScratchDir == "" {
-		d.Merge.ScratchDir = d.LanesDir + "/merge"
 	}
 }
 
@@ -931,18 +918,12 @@ func (c *Config) MayPush(role string) bool {
 	return !roles.LaneBound(role) && !rc.Role.Custom && c.PushAllowed(role)
 }
 
-// PushAllowed: guards.allow_push lists role (T-105, T-786). An entry is a role ("lead"); one that is no role but a
-// role's derived name ("ob-lead", a config written before T-786) is read as that role's slot.
+// PushAllowed: guards.allow_push lists role (T-105).
 func (c *Config) PushAllowed(role string) bool {
 	if role == "" || c.Data.Guards == nil {
 		return false
 	}
-	for _, entry := range c.Data.Guards.AllowPush {
-		if c.pushSlot(entry) == role {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(c.Data.Guards.AllowPush, role)
 }
 
 // DenyCommands is guards.deny_commands: the commands the agent guard denies for every role (T-905); nil when unset.
@@ -951,19 +932,6 @@ func (c *Config) DenyCommands() []DenyCommand {
 		return nil
 	}
 	return c.Data.Guards.DenyCommands
-}
-
-// pushSlot is the role an allow_push entry names: the role itself, else the role whose derived name it is ("": none).
-func (c *Config) pushSlot(entry string) string {
-	if rc, ok := c.Role(entry); ok {
-		return rc.Role.Name
-	}
-	for _, rc := range c.Roles() {
-		if !roles.LaneBound(rc.Role.Name) && entry != "" && rc.Agent == entry {
-			return rc.Role.Name
-		}
-	}
-	return ""
 }
 
 // RoleAgents is every role that counts as a role agent, in Roles order: every role but the worker, an optional one
@@ -1062,19 +1030,14 @@ func (c *Config) RoleWorktrees() []string {
 }
 
 // ReviewWriteDirs are the dirs a WriteReviewsOnly role (the reviewer, the deep dive) writes in the main checkout,
-// relative to the root: paths.reviews (default docs/reviews), then paths.research when set. The guard's write profile
-// and the start's writable dirs (RoleWriteDirs) are both these.
+// relative to the root: paths.reviews (default docs/reviews). The guard's write profile and the start's writable dirs
+// (RoleWriteDirs) are both these.
 func (c *Config) ReviewWriteDirs() []string {
-	paths := c.Paths()
-	reviews := strings.Trim(paths.Reviews, "/")
+	reviews := strings.Trim(c.Paths().Reviews, "/")
 	if reviews == "" {
 		reviews = "docs/reviews"
 	}
-	dirs := []string{reviews}
-	if research := strings.Trim(paths.Get("research"), "/"); research != "" {
-		dirs = append(dirs, research)
-	}
-	return dirs
+	return []string{reviews}
 }
 
 // RoleWriteDirs are the dirs outside its cwd an agent of role r writes, absolute (T-853): the reviewer and the deep
@@ -1092,8 +1055,8 @@ func (c *Config) RoleWriteDirs(r roles.Role) []string {
 	return out
 }
 
-// ScratchDir is the merge scratch, merge.scratch_dir, absolute.
-func (c *Config) ScratchDir() string { return AbsUnder(c.Root, c.Data.Merge.ScratchDir) }
+// ScratchDir is the merge scratch, <lanes_dir>/merge, absolute.
+func (c *Config) ScratchDir() string { return filepath.Join(c.LanesDir(), "merge") }
 
 // LaneAgentAliases returns the names that identify this lane's worker: its derived one (T-1031: no lane row names
 // one).

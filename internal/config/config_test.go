@@ -46,15 +46,17 @@ func raw(c *Config, path string) (string, bool) {
 func TestDefaultsAndDerivedKeys(t *testing.T) {
 	c := load(t, `{"version":1,"prefix":"pj","models":{"cx":{"kind":"codex","model":"gpt-x"}}}`, "")
 	for path, want := range map[string]string{
-		".branches.main":     "main",
-		".branches.task":     "task/{id}",
-		".task_id_pattern":   "T-[0-9]+[a-z]?",
-		".lanes_dir":         "../proj-wt",
-		".merge.scratch_dir": "../proj-wt/merge",
+		".branches.main":   "main",
+		".branches.task":   "task/{id}",
+		".task_id_pattern": "T-[0-9]+[a-z]?",
+		".lanes_dir":       "../proj-wt",
 	} {
 		if got, ok := raw(c, path); !ok || got != want {
 			t.Errorf("%s = %q (exists %v), want %q", path, got, ok, want)
 		}
+	}
+	if want := filepath.Join(filepath.Dir(c.Root), "proj-wt", "merge"); c.ScratchDir() != want {
+		t.Errorf("ScratchDir = %s, want %s", c.ScratchDir(), want)
 	}
 	if _, ok := c.Get(".roles.leads"); ok {
 		t.Error(".roles.leads: no longer derived (T-467)")
@@ -92,8 +94,8 @@ func TestLocalOverlay(t *testing.T) {
 	if got := c.Data.Merge.Classes; !reflect.DeepEqual(got, List[MergeClass]{{Name: "b", Paths: []string{"src/b/**"}}}) {
 		t.Errorf("a list of objects is replaced whole, no field of the old entry kept: %+v", got)
 	}
-	if c.LanesDir() != "/wt" || c.Data.Merge.ScratchDir != "/wt/merge" {
-		t.Errorf("derived after the overlay: %s %s", c.LanesDir(), c.Data.Merge.ScratchDir)
+	if c.LanesDir() != "/wt" || c.ScratchDir() != "/wt/merge" {
+		t.Errorf("derived after the overlay: %s %s", c.LanesDir(), c.ScratchDir())
 	}
 }
 

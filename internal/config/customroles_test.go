@@ -151,7 +151,6 @@ func TestCustomRoleRefusals(t *testing.T) {
 		{"write empty", []edit{set("roles.buddy", `{"model": "sonnet", "write": [""]}`)}, "FAIL .roles.buddy.write[0]: an empty path"},
 		{"default row write outside", []edit{set("roles.researcher", `{"model": "sonnet", "write": ["../x/"]}`)}, "FAIL .roles.researcher.write[0]: outside the project"},
 		{"allow_push lists it", []edit{set("roles.buddy", "sonnet"), set("guards.allow_push", `["lead", "buddy"]`)}, `FAIL .guards.allow_push: "buddy" is a custom role: it never pushes (remove it)`},
-		{"allow_push lists its agent", []edit{set("roles.buddy", "sonnet"), set("guards.allow_push", `["pj-buddy"]`)}, `FAIL .guards.allow_push: "pj-buddy" is a custom role`},
 		{"allow_push lists a default row", []edit{set("roles.advisor", "opus"), set("guards.allow_push", `["advisor"]`)}, `FAIL .guards.allow_push: "advisor" is a custom role`},
 		{"bad model", []edit{set("roles.buddy", `{"model": "nosuch"}`)}, `FAIL .roles.buddy.model: "nosuch" is not a model`},
 	} {

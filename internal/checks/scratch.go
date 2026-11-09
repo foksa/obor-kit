@@ -16,7 +16,7 @@ import (
 )
 
 // Scratch is obor serve's merge gate over git (port.Scratch). It works in
-// serve's own worktree, merge.scratch_dir, which only obor serve writes: every gate starts by resetting it, so there
+// serve's own worktree, <lanes_dir>/merge, which only obor serve writes: every gate starts by resetting it, so there
 // is no merge window, no lock and no ownership proof. Each step is a function of its inputs (shas the
 // app records, the pins under refs/obor/), never of the worktree's state. An outcome is final for its step; an error
 // is "not decided": the app runs the step again. Every git call ends with the method's ctx (killed with its process
@@ -757,7 +757,7 @@ func (s Scratch) dropFlatPin(g gitIO, task string) error {
 	return g.DeleteRef(submittedRefs + task)
 }
 
-// dir is serve's worktree, merge.scratch_dir.
+// dir is serve's worktree, <lanes_dir>/merge.
 func (s Scratch) dir() string {
 	return s.Cfg.ScratchDir()
 }
