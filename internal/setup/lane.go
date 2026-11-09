@@ -22,6 +22,9 @@ func (s *Setup) lane(ctx context.Context, args []string) error {
 		return err
 	}
 	configured := s.cfg.HasLane(lane)
+	if !configured && shape1(s.root) { // before the worktree: adding the lane writes the config (T-1125)
+		return project.Fail(config.Shape1Refusal(s.root))
+	}
 	if !configured && s.cfg.LanesListed() { // T-1031: a list is the owner's, a count edit would replace it
 		return project.Failf("lanes is a list in .obor/config.json: add {\"name\": \"%s\"} to it, then obor setup lane %s", lane, lane)
 	}

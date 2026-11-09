@@ -26,37 +26,43 @@ import (
 // TestValidateTrunkRef), and this plain dir has no repository for that check to read, so it starts no git process here
 // (T-1024: the app package's tests run no git).
 const configJSON = `{
-  "version": 1,
-  "name": "pj",
-  "prefix": "pj",
-  "branches": {
-    "main": ""
+  "version": 2,
+  "project": {
+    "name": "pj",
+    "agent_prefix": "pj"
   },
-  "difficulty": {
-    "hard": [
-      "opus:high"
-    ],
-    "simple": [
-      "kimi:high"
-    ]
+  "lanes": {
+    "count": 2
   },
-  "kinds": {
-    "claude": {
-      "args": [
-        "--x"
+  "agents": {
+    "roles": {
+      "lead": "opus:high",
+      "integrator": ""
+    },
+    "difficulty": {
+      "hard": [
+        "opus:high"
+      ],
+      "simple": [
+        "kimi:high"
       ]
+    },
+    "kinds": {
+      "claude": {
+        "args": [
+          "--x"
+        ]
+      }
+    },
+    "models": {
+      "kimi": {
+        "kind": "opencode",
+        "id": "opencode-go/kimi"
+      }
     }
   },
-  "models": {
-    "kimi": {
-      "kind": "opencode",
-      "model": "opencode-go/kimi"
-    }
-  },
-  "lanes": 2,
-  "roles": {
-    "lead": "opus:high",
-    "integrator": ""
+  "merge": {
+    "target_branch": ""
   }
 }
 `
@@ -161,10 +167,10 @@ func TestConfigSetEachField(t *testing.T) {
 		key, val, msg, wantIn, reply string
 	}{
 		{"difficulty.hard", `["sonnet","opus:high"]`, `config: difficulty.hard ["opus:high"] → ["sonnet","opus:high"] (owner, web)`,
-			"\"hard\": [\n      \"sonnet\",\n      \"opus:high\"\n    ]", `SET difficulty.hard ["opus:high"] → ["sonnet","opus:high"]`},
+			"\"hard\": [\n        \"sonnet\",\n        \"opus:high\"\n      ]", `SET difficulty.hard ["opus:high"] → ["sonnet","opus:high"]`},
 		{"kinds.claude.args", `["--strict-mcp-config"]`, `config: kinds.claude.args ["--x"] → ["--strict-mcp-config"] (owner, web)`,
-			"\"args\": [\n        \"--strict-mcp-config\"\n      ]", `SET kinds.claude.args ["--x"] → ["--strict-mcp-config"]`},
-		{"lanes", `3`, `config: lanes 2 → 3 (owner, web)`, `"lanes": 3`, `SET lanes 2 → 3`},
+			"\"args\": [\n          \"--strict-mcp-config\"\n        ]", `SET kinds.claude.args ["--x"] → ["--strict-mcp-config"]`},
+		{"lanes", `3`, `config: lanes 2 → 3 (owner, web)`, `"count": 3`, `SET lanes 2 → 3`},
 		{"roles.integrator", `"sonnet"`, `config: roles.integrator unset → "sonnet" (owner, web)`,
 			"\"integrator\": \"sonnet\"", `SET roles.integrator unset → "sonnet" (at its next start)`},
 	} {
@@ -295,8 +301,8 @@ func TestConfigSetWaitsForPublish(t *testing.T) {
 	r := newAdmitRig(t, true)
 	h, ctx := r.h, context.Background()
 	path := filepath.Join(h.root, ".obor", "config.json")
-	h.write(path, `{"version":1,"name":"pj","prefix":"pj","branches":{"main":""},`+
-		`"roles":{"integrator":"","reviewer":"","deep_dive":""},"paths":{"reviews":"reviews"},"lanes":1}`)
+	h.write(path, `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"lanes":{"count":1},`+
+		`"agents":{"roles":{"integrator":"","reviewer":"","deep_dive":""}},"merge":{"target_branch":""},"reviews":{"dir":"reviews"}}`)
 	f := &fakeConfig{path: path}
 	r.fx.Config = f
 	r.publishing(ctx)
@@ -375,7 +381,7 @@ func TestConfigSetBatchIsOneCommit(t *testing.T) {
 		t.Fatalf("batch: %q, %v; want %q", reply, err, want)
 	}
 	b, _ := os.ReadFile(f.path)
-	if !strings.Contains(string(b), "\"hard\": [\n      \"fable:high\"\n    ]") ||
+	if !strings.Contains(string(b), "\"hard\": [\n        \"fable:high\"\n      ]") ||
 		!strings.Contains(string(b), "\"integrator\": \"sonnet\"") {
 		t.Errorf("the file lacks a change:\n%s", b)
 	}
@@ -448,11 +454,30 @@ func TestConfigSetBaseIsTheFileRead(t *testing.T) {
 		t.Fatalf("the second tab's save on the old file: %v, want refused", err)
 	}
 	b, _ := os.ReadFile(f.path)
-	if !strings.Contains(string(b), `"lanes": 3`) || len(f.messages()) != 1 {
+	if !strings.Contains(string(b), `"count": 3`) || len(f.messages()) != 1 {
 		t.Errorf("the stale save wrote or committed: %q\n%s", f.messages(), b)
 	}
 	if _, err := h.a.configCall(wire.ConfigSetReq{Envelope: wire.Envelope{Root: h.root, CallID: "t3"},
 		Base: config.Rev(b), Changes: changes("lanes", `4`)}); err != nil {
 		t.Errorf("a save on the current file: %v", err)
+	}
+}
+
+// T-1125: a config.json of shape 1 refuses config_set with the hint (the rewrite comes first: an edit would mix the
+// shapes): nothing written, committed, recorded or told.
+func TestConfigSetRefusesShape1(t *testing.T) {
+	t.Parallel()
+	h, f := configRig(t)
+	shape1 := `{"version":1,"name":"pj","prefix":"pj","branches":{"main":""},"lanes":2}` + "\n"
+	h.write(f.path, shape1)
+	reply, err := h.set("s1", "lanes", `3`)
+	if err == nil || !strings.Contains(err.Error(), "is config shape 1: obor config migrate rewrites it") {
+		t.Fatalf("config_set on shape 1: %q, %v; want refused with the hint", reply, err)
+	}
+	if b, _ := os.ReadFile(f.path); string(b) != shape1 {
+		t.Errorf("the file changed:\n%s", b)
+	}
+	if len(f.messages()) != 0 || len(configFacts(t, h)) != 0 || len(leadLines(t, h)) != 0 {
+		t.Errorf("a refused edit committed %q, recorded %+v, told %q", f.messages(), configFacts(t, h), leadLines(t, h))
 	}
 }

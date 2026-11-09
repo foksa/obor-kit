@@ -1110,3 +1110,20 @@ func TestSetupStartWaitsForTheLaunch(t *testing.T) {
 		})
 	}
 }
+
+// T-1125: setup lane of a lane the config lacks, on a config.json of config shape 1, is refused with the hint before
+// the worktree (adding the lane would edit the config, mixing the shapes).
+func TestLaneRefusesAddingToAShape1Config(t *testing.T) {
+	t.Parallel()
+	x := newFx(t)
+	shape1 := `{"version":1,"name":"proj","prefix":"pj","lanes_dir":"../proj-wt","lanes":1}` + "\n"
+	x.Write(".obor/config.json", shape1)
+	out, rc := x.run(t, "lane", "L-02")
+	if rc != 1 || !strings.HasSuffix(last(out), "/.obor/config.json is config shape 1: obor config migrate rewrites it"+
+		" as shape 2 (obor serve does at its start), then try again") {
+		t.Fatalf("setup lane L-02: exit %d, last line %q, want the shape-1 FAIL\n%s", rc, last(out), out)
+	}
+	if x.Exists(x.LaneDir("L-02")) || x.Read(".obor/config.json") != shape1 {
+		t.Errorf("worktree made or config written before the FAIL:\n%s", out)
+	}
+}

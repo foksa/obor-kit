@@ -30,7 +30,8 @@ const (
 	// RoleTask is the task key of serve's stops of role agents: compat until v0.28, an older log's stop.<agent>[.N]
 	// (T-672; the stops are rules since T-870), folded to nothing.
 	RoleTask = "roles"
-	// ConfigTask is the task key of the owner's setup edits (obor web, T-753).
+	// ConfigTask is the task key of the owner's setup edits (obor web, T-753) and of a refused config shape 2 rewrite's
+	// needs-you (T-1125).
 	ConfigTask = "config"
 	// IdleTask is the task key of the lead's acknowledgement of the project's idle state (T-803, T-866).
 	IdleTask = "idle"
