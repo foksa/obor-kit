@@ -91,17 +91,6 @@ func runStop(input []byte, env project.Env) (reason string, err error) {
 	return "", nil
 }
 
-// --- lead / integrator ------------------------------------------------------------------------------------------------
-
-// handoffLimit: the integrator's threshold is 150000 (T-864: it starts fresh per job, T-602). The lead's
-// handoff_tokens, else 500000. 0 = off.
-func handoffLimit(cfg *config.Config, role string) int64 {
-	if role == "integrator" {
-		return 150000
-	}
-	return cfg.HandoffTokens()
-}
-
 // --- worker -----------------------------------------------------------------------------------------------------------
 
 // workerDone: block while the lane's task awaits its task_done (its row's finished, read-only: serve may be down),

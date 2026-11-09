@@ -67,9 +67,6 @@ the app tells the owner what needs them.
   Nothing to do by hand: once serve is back, every task goes on from its records.
 
 ## Always
-- Handoff: when a prompt carries `context is <N>k (> <M>k)`, finish the job in hand, run `obor restart <you> --fresh`
-  and end the turn; from your own pane it is scheduled: you are restarted fresh once idle
-  (`roles.integrator.handoff_tokens`).
 - Tests: none by hand. The app's gate is your test run: never `obor run check` first, and no suite or `-count` loop.
 - Decide yourself (`decided: <what> — <why>`, in your next note): a conflict only in status /
   test-registration lines keeps both sides; the owner's approval in the worker's report or in the spec counts;

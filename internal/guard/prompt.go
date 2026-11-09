@@ -16,8 +16,8 @@ import (
 	"obor/internal/store"
 )
 
-// UserPromptSubmit has two jobs, by role. Lead or integrator: the handoff reminder (handoffReminder) on every prompt
-// while the session's context is above its limit. Worker: the wrong-tab guard (design "Wrong-tab guard"): a prompt a
+// UserPromptSubmit has two jobs, by role. Lead: the handoff reminder (handoffReminder) on every prompt while the
+// session's context is above handoff_tokens. Worker: the wrong-tab guard (design "Wrong-tab guard"): a prompt a
 // person typed (not tagged `[obor `, nor a slash command, nor one of Claude Code's own envelopes or
 // auto-continuations) gets context telling the agent to ask "I am worker <agent> on <task>. Did you mean to type
 // here?" first. Anything else → no output.
@@ -45,8 +45,8 @@ func UserPromptSubmit(input []byte, env project.Env, out io.Writer) {
 	}
 	role := project.DetectRole(repo, cfg, env)
 	switch role.Role {
-	case "lead", "integrator":
-		if ctx := handoffReminder(cfg, env, role.Role, project.SelfAgent(cfg, role), ev.SessionID, ev.TranscriptPath); ctx != "" {
+	case "lead":
+		if ctx := handoffReminder(cfg, env, project.SelfAgent(cfg, role), ev.SessionID, ev.TranscriptPath); ctx != "" {
 			promptContext(out, ctx)
 		}
 		return
@@ -97,13 +97,13 @@ func promptContext(out io.Writer, ctx string) {
 	fmt.Fprintln(out, b)
 }
 
-// handoffReminder (T-175, integrator T-215, reminder T-232, T-465): the lead's or integrator's session context (sid,
-// else the transcript file's name; the transcript at path, else project.TranscriptOf) above its handoff_tokens → a
-// reminder to hand off at the next logical break: the Handoff section of BACKLOG.md (the lead), then a fresh restart
-// of agent ("<you>" when unknown), which obor restart schedules from the agent's own pane until it is idle. Nothing
-// forces the handoff: the agent picks the break. "" = no reminder.
-func handoffReminder(cfg *config.Config, env project.Env, role, agent, sid, path string) string {
-	limit := handoffLimit(cfg, role)
+// handoffReminder (T-175, reminder T-232, T-465): the lead's session context (sid, else the transcript file's name;
+// the transcript at path, else project.TranscriptOf) above handoff_tokens → a reminder to hand off at the next logical
+// break: the Handoff section of BACKLOG.md, then a fresh restart of agent ("<you>" when unknown), which obor restart
+// schedules from the agent's own pane until it is idle. Nothing forces the handoff: the agent picks the break. "" = no
+// reminder.
+func handoffReminder(cfg *config.Config, env project.Env, agent, sid, path string) string {
+	limit := cfg.HandoffTokens()
 	if sid == "" && path != "" {
 		sid = strings.TrimSuffix(filepath.Base(path), ".jsonl")
 	}
@@ -117,16 +117,12 @@ func handoffReminder(cfg *config.Config, env project.Env, role, agent, sid, path
 	if !ok || int64(ctx) <= limit {
 		return ""
 	}
-	who := role
 	restart := "`obor restart " + cmp.Or(agent, "<you>") + " --fresh` (scheduled: it waits until you are idle)"
 	when := "when the current task or discussion has reached its conclusion (nothing half-done, no question to the " +
 		"person open), write the Handoff section at the top of BACKLOG.md (state, in-flight tasks, open decisions, next " +
 		"steps), commit it, then run " + restart
-	if role == "integrator" {
-		when = "when the merge in hand is finished or reported (nothing half-done), run " + restart
-	}
-	return fmt.Sprintf("obor (%s): context is %dk (> %dk). Hand off at the next logical break, not in the middle of work: %s. "+
-		"If the person is talking with you, ask them first.", who, (ctx+500)/1000, limit/1000, when)
+	return fmt.Sprintf("obor (lead): context is %dk (> %dk). Hand off at the next logical break, not in the middle of work: %s. "+
+		"If the person is talking with you, ask them first.", (ctx+500)/1000, limit/1000, when)
 }
 
 var (
