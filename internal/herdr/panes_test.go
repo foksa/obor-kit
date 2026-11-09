@@ -524,3 +524,27 @@ func TestPanesSessionWithoutTranscript(t *testing.T) {
 		t.Errorf("sessions %q, %q; want herdr's ids", got["w1:p1"].Session, got["w1:p3"].Session)
 	}
 }
+
+// T-1135: the subscription's snapshot and Snapshot carry herdr's start, its socket file's time: a restarted herdr
+// (a new socket file) gives another one.
+func TestPanesStartedIsTheSocketFileTime(t *testing.T) {
+	t.Parallel()
+	srv := herdrtest.Serve(t, fixture())
+	p := herdr.Panes{S: srv.Client()}
+	at := time.Date(2026, 11, 9, 8, 0, 0, 123456789, time.UTC)
+	srv.Restart(t, at)
+	st, err := p.Subscribe(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.Snapshot.Started.Equal(at) {
+		t.Errorf("stream snapshot Started = %v, want the socket file's %v", st.Snapshot.Started, at)
+	}
+	st.Close()
+	later := at.Add(time.Hour)
+	srv.Restart(t, later)
+	snap, err := p.Snapshot(ctx)
+	if err != nil || !snap.Started.Equal(later) {
+		t.Errorf("Snapshot after a restart: Started %v, %v; want %v", snap.Started, err, later)
+	}
+}

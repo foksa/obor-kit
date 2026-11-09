@@ -440,6 +440,9 @@ only reset a live entry the record ends (`waitLine`, the stall timer, `retry`). 
 ## Not recorded (rebuilt on replay)
 
 - **herdr**: status, pane ids, who holds which pane — `session.snapshot` on connect and after each `events_lost`.
+  The one herdr fact serve keeps across its restarts is the instance it last connected to (herdr's start, its socket
+  file's time): `.obor/state/herdr-instance`, a state file, not the log; serve's first connect restores the project's
+  panes when herdr is another instance (`restore.go`, T-1135).
 - **git**: lane heads, the scratch, target HEAD, whether a candidate is in the target.
 - **Watchdog timers**, **check output** (files on disk), **activity** (read live before any prompt).
 - **A `job_next` reply** after the first fetch: in memory only, so a repeated call id after a restart is answered

@@ -117,7 +117,8 @@ func NotRunning(err error) bool {
 }
 
 // Restorer restarts a project's labelled panes that run no agent (launch.Restorer, T-1051): serve calls it once its
-// subscription is back from a lost terminal connection (a Subscribe or a stream's end with NotRunning). It is
+// subscription is back from a lost terminal connection (a Subscribe or a stream's end with NotRunning), and at its
+// first connect when the terminal restarted since serve last recorded it (T-1135). It is
 // idempotent: a pane whose agent runs is left alone, and runs for one project are one at a time, so another trigger's
 // run (the herdr plugin's) and serve's restart each pane at most once. It returns when the run has ended (or ctx has).
 type Restorer interface {

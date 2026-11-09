@@ -55,7 +55,11 @@ type Snapshot struct {
 	Version  string // the terminal's version and protocol as the snapshot said (Protocol 0: not read)
 	Protocol int
 	Speaks   int // the protocol obor itself speaks: Protocol above it is a newer terminal
-	Panes    []Pane
+	// Started is when the terminal's server started (herdr: its socket file's modification time, set when the server
+	// creates the socket at its start and untouched while it runs; herdr's API names no instance): a terminal restart
+	// changes it, so it is the instance serve's restore compares (internal/app/restore.go, T-1135). Zero: not known.
+	Started time.Time
+	Panes   []Pane
 }
 
 // Event kinds.

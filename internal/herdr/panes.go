@@ -90,7 +90,7 @@ func (p Panes) appPane(a port.Pane) port.Pane {
 }
 
 func (p Panes) appSnapshot(s Snapshot) port.Snapshot {
-	out := port.Snapshot{Version: s.Version, Protocol: s.Protocol, Speaks: Protocol}
+	out := port.Snapshot{Version: s.Version, Protocol: s.Protocol, Speaks: Protocol, Started: p.started()}
 	labels := s.labels()
 	seen := observed(s)
 	for _, pane := range s.Panes {
@@ -99,6 +99,17 @@ func (p Panes) appSnapshot(s Snapshot) port.Snapshot {
 		out.Panes = append(out.Panes, ap)
 	}
 	return out
+}
+
+// started is when the herdr server on p's socket started: the socket file's modification time (herdr creates the
+// socket at its start and nothing writes the file after; its API exposes no server pid, start time or instance id).
+// Zero when the file cannot be read.
+func (p Panes) started() time.Time {
+	fi, err := os.Stat(p.S.Path)
+	if err != nil {
+		return time.Time{}
+	}
+	return fi.ModTime()
 }
 
 // Snapshot is herdr's session now, as the subscription's Snapshot: the same source (session.snapshot), for a pane whose
