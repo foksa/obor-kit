@@ -609,8 +609,8 @@ func (s Scratch) Publish(ctx context.Context, c port.Candidate) (port.PublishOut
 		// ff-only moves the checked-out branch: off the target it would publish elsewhere (the loop pauses, T-425).
 		if b, err := g.Branch(root); err != nil {
 			return port.PublishOutcome{}, err
-		} else if b != s.Cfg.Data.Branches.Main {
-			return port.PublishOutcome{}, fmt.Errorf("publish %s: the main checkout %s is not on %s", c.Task, root, s.Cfg.Data.Branches.Main)
+		} else if b != s.Cfg.MainBranch() {
+			return port.PublishOutcome{}, fmt.Errorf("publish %s: the main checkout %s is not on %s", c.Task, root, s.Cfg.MainBranch())
 		}
 		ffErr := g.FF(c.SHA)
 		if ffErr == nil {
@@ -787,7 +787,7 @@ func (s Scratch) worktree(dir, target string) error {
 
 // target is branches.main and the sha it is at, whatever the main checkout has checked out (T-425).
 func (s Scratch) target(g gitReader) (branch, head string, err error) {
-	branch = s.Cfg.Data.Branches.Main
+	branch = s.Cfg.MainBranch()
 	head, err = g.Rev(s.Cfg.Root, "refs/heads/"+branch)
 	return branch, head, err
 }

@@ -34,7 +34,7 @@ const flakeWindow = project.FlakeKeep
 // flakeRegexp compiles merge.flake_regex: the failed-test line and the failed-package line (T-1047). A nil entry is
 // no regex configured, or one that does not compile (validate refuses that): that line is not parsed.
 func (opt *Options) flakeRegexp() (test, pkg *regexp.Regexp) {
-	if pair := opt.Cfg.Data.Merge.FlakeRegex; len(pair) == 2 {
+	if pair := opt.Cfg.MergeFlakeRegex(); len(pair) == 2 {
 		test, _ = regexp.Compile(pair[0])
 		pkg, _ = regexp.Compile(pair[1])
 	}
@@ -269,10 +269,7 @@ func (r *flakeRule) diff(task, sha string) []string {
 }
 
 func (r *flakeRule) taskDiff(task, sha string) []string {
-	branch := r.cfg.Data.Branches.Main // the target the tasks merge into
-	if branch == "" {
-		return nil // no target: git cannot tell, the red counts
-	}
+	branch := r.cfg.MainBranch() // the target the tasks merge into
 	base, err := project.Git(r.cfg.Root, "merge-base", branch, sha)
 	if err != nil {
 		return nil

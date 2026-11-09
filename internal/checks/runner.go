@@ -215,7 +215,7 @@ func (opt *Options) what(o output) string {
 // summary per part: "7 pass" and "30 pass" → "37 pass"), joined by ", "; rc=<n> without a match.
 func (opt *Options) counts(o output) string {
 	var res []string
-	for _, alt := range alternatives(opt.Cfg.Data.Merge.SummaryRegex) {
+	for _, alt := range alternatives(opt.Cfg.MergeSummaryRegex()) {
 		re, err := regexp.Compile(alt)
 		if err != nil {
 			continue
@@ -271,7 +271,7 @@ func alternatives(re string) []string {
 
 // failing is the output's merge.fail_grep matches (all of them).
 func (opt *Options) failing(o output) []string {
-	fg := opt.Cfg.Data.Merge.FailGrep
+	fg := opt.Cfg.MergeFailGrep()
 	if fg == "" {
 		return nil
 	}
@@ -344,7 +344,7 @@ func (r *runner) changed(task, rev string) *halt {
 	if err != nil {
 		return &halt{err: fmt.Errorf("cannot list the changed files into %s", path)}
 	}
-	r.class = Classify(r.Cfg.Data.Merge, files, r.Env.Get("OBOR_FULL") == "1")
+	r.class = Classify(r.Cfg.Merge(), files, r.Env.Get("OBOR_FULL") == "1")
 	r.mode = r.class.Mode()
 	r.env = append(r.env, "OBOR_CHANGED_FILES="+path)
 	return nil
@@ -385,7 +385,7 @@ func (r *runner) runChecks() *halt {
 		var checks []string
 		if !(len(r.class.Names) == 1 && r.class.Names[0] == "neutral") { // all files neutral: the guard only
 			for _, name := range r.class.Names {
-				cs, ok := classChecks(r.Cfg.Data.Merge, name)
+				cs, ok := classChecks(r.Cfg.Merge(), name)
 				if !ok {
 					return &halt{fail: fmt.Sprintf("class %s has no unique checks entry in merge.classes (obor config validate) (%s)",
 						name, r.mode)}
@@ -395,7 +395,7 @@ func (r *runner) runChecks() *halt {
 		}
 		var counts []string
 		seen := map[string]bool{}
-		for _, name := range append([]string{r.Cfg.Data.Merge.Guard}, checks...) {
+		for _, name := range append([]string{r.Cfg.MergeGuard()}, checks...) {
 			if seen[name] {
 				continue
 			}
@@ -423,7 +423,7 @@ func (r *runner) runChecks() *halt {
 	// full lane with release or web files still covers them).
 	seen := map[string]bool{"check": true}
 	for _, name := range r.class.Names {
-		for _, check := range withFullChecks(r.Cfg.Data.Merge, name) {
+		for _, check := range withFullChecks(r.Cfg.Merge(), name) {
 			if seen[check] {
 				continue
 			}

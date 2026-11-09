@@ -101,7 +101,7 @@ func (s *session) nightly() *Result {
 	// make is a line, never a failure. Its backup step runs only when the backup above succeeded (T-1086).
 	details = append(details, project.Sweep(s.Cfg, time.Now(), backedUp)...)
 	// merge.nightly_commands (T-817): after the gating checks and the backup, in order, each non-gating.
-	for _, name := range s.Cfg.Data.Merge.NightlyCommands {
+	for _, name := range s.Cfg.MergeNightlyCommands() {
 		o, ok, h := s.run(name)
 		if h != nil {
 			return h.result()

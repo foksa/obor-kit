@@ -25,7 +25,7 @@ var _ port.Workflow = ScratchFF{}
 // Target is the sha of branches.main, and whether task's branch has commits it lacks.
 func (w ScratchFF) Target(ctx context.Context, task string) (string, bool, error) {
 	cfg := w.Scratch.Cfg
-	base := cfg.Data.Branches.Main // whatever the main checkout has checked out (T-425)
+	base := cfg.MainBranch() // whatever the main checkout has checked out (T-425)
 	sha, err := project.GitCtx(ctx, cfg.Root, "rev-parse", "--verify", "--end-of-options", base+"^{commit}")
 	if err != nil {
 		return "", false, fmt.Errorf("cannot resolve %s: %w", base, err)

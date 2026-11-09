@@ -274,6 +274,24 @@ type Merge struct {
 	NightlyCommands []string `json:"nightly_commands,omitzero"`
 }
 
+// MergeSummaryRegex is merge.summary_regex: the part of a check's output that goes into its result line.
+func (c *Config) MergeSummaryRegex() string { return c.Data.Merge.SummaryRegex }
+
+// MergeFailGrep is merge.fail_grep: the lines of a red check's output that go into the RED line.
+func (c *Config) MergeFailGrep() string { return c.Data.Merge.FailGrep }
+
+// MergeFlakeRegex is merge.flake_regex: the failed-test line and the failed-package line (nil when unset).
+func (c *Config) MergeFlakeRegex() []string { return c.Data.Merge.FlakeRegex }
+
+// MergeGuard is merge.guard: the command that must pass before a smaller check is trusted.
+func (c *Config) MergeGuard() string { return c.Data.Merge.Guard }
+
+// MergeNightlyCommands is merge.nightly_commands: the commands `obor nightly` runs after its gating checks, in order.
+func (c *Config) MergeNightlyCommands() []string { return c.Data.Merge.NightlyCommands }
+
+// Merge is merge as a value: what classifies a merge (Classify's guard, neutral files and classes) takes it whole.
+func (c *Config) Merge() Merge { return c.Data.Merge }
+
 // DefaultRetestJoin is merge.retest_join's default: a regexp's alternatives separator, the form a retest's -run
 // takes.
 const DefaultRetestJoin = "|"
@@ -999,6 +1017,30 @@ func (c *Config) LaneCPUs() int {
 		}
 	}
 	return DefaultLaneCPUs
+}
+
+// HeavyAtOnce is slots.max: how many commands marked heavy run at once on this machine (false: the file sets none).
+func (c *Config) HeavyAtOnce() (int, bool) {
+	if c.Data.Slots == nil || c.Data.Slots.Max == nil {
+		return 0, false
+	}
+	return *c.Data.Slots.Max, true
+}
+
+// CPUsPerCheck is slots.cpus: the CPUs one check may use (CHECK_CPUS; false: the file sets none).
+func (c *Config) CPUsPerCheck() (int, bool) {
+	if c.Data.Slots == nil || c.Data.Slots.CPUs == nil {
+		return 0, false
+	}
+	return *c.Data.Slots.CPUs, true
+}
+
+// CheckSlotDir is slots.dir: where the check slot files are ("" when the file sets none).
+func (c *Config) CheckSlotDir() string {
+	if c.Data.Slots == nil {
+		return ""
+	}
+	return c.Data.Slots.Dir
 }
 
 // LaneEnv is a lane's env (T-1041), as NAME=value entries: the generic facts obor exports — OBOR_LANE_CPUS, the lane's

@@ -220,7 +220,7 @@ func (s *session) reset(rev string) bool {
 
 // linkLaneLinks symlinks each lane_links entry from root into dir (missing ones only).
 func linkLaneLinks(cfg *config.Config, root, dir string) {
-	for _, l := range cfg.Data.LaneLinks {
+	for _, l := range cfg.LaneLinks() {
 		src, dst := filepath.Join(root, l), filepath.Join(dir, l)
 		if _, err := os.Stat(src); l == "" || err != nil {
 			continue
