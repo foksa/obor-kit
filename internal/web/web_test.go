@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"reflect"
 	"slices"
 	"strconv"
@@ -263,7 +262,8 @@ func TestSetupAPI(t *testing.T) {
 }
 
 // TestTaskPage: a task's page carries serve's state, its spec rev and title, the report of its last submission, the
-// gate's line and log path, its needs-you with the answer commands, its records as a timeline and its jobs' text.
+// gate's line (no log path: the RED line names the real one, T-1095), its needs-you with
+// the answer commands, its records as a timeline and its jobs' text.
 func TestTaskPage(t *testing.T) {
 	_, _, s := fixture(t)
 	r := get(t, s.Handler(), "/api/task?project=pj&task=T-01")
@@ -284,8 +284,8 @@ func TestTaskPage(t *testing.T) {
 	if d.GateLine != "GREEN T-01 (ok 212 tests, 71s)" || d.GatedRev != 1 {
 		t.Errorf("gate: line %q, rev %d, want the green gate's", d.GateLine, d.GatedRev)
 	}
-	if want := filepath.Join(".obor", "state", "logs", "T-01-check.log"); d.GateLog != want {
-		t.Errorf("gate log %q, want %q", d.GateLog, want)
+	if strings.Contains(r.Body.String(), "gate_log") {
+		t.Errorf("task page carries gate_log: %s", r.Body.String())
 	}
 	if len(d.NeedsYou) != 1 || d.NeedsYou[0].Answer != `obor resume T-01 "<answer>"` {
 		t.Errorf("needs-you %+v, want serve's answer commands", d.NeedsYou)

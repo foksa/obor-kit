@@ -351,7 +351,6 @@ export interface TaskDetail {
   gated_rev?: number;
   report?: string;
   gate_line?: string;
-  gate_log?: string;
   needs_you: NeedsYou[];
   records: TaskRecord[];
   jobs: Prompt[];

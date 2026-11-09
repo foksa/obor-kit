@@ -3,7 +3,6 @@ package view
 import (
 	"database/sql"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"obor/internal/app"
@@ -31,7 +30,6 @@ type TaskDetail struct {
 	GatedRev     int          `json:"gated_rev,omitempty"`     // the rev the last gate checked
 	Report       string       `json:"report,omitempty"`        // the last submission's report
 	GateLine     string       `json:"gate_line,omitempty"`     // the last gate's result line
-	GateLog      string       `json:"gate_log,omitempty"`      // the check's log, under the project root
 	NeedsYou     []NeedsYou   `json:"needs_you"`
 	Records      []TaskRecord `json:"records"` // newest first
 	Jobs         []Prompt     `json:"jobs"`    // the task's job prompts, newest first
@@ -146,7 +144,7 @@ func (d Detail) Task(task string) (TaskDetail, bool) {
 		case r.Kind == event.KindFact && r.Step == event.StepSubmitted && t.Report == "":
 			t.Report = d.Report
 		case r.Kind == event.KindResult && base == event.StepGate && t.GateLine == "":
-			t.GateLine, t.GatedRev, t.GateLog = d.Text, d.SpecRev, gateLog(task)
+			t.GateLine, t.GatedRev = d.Text, d.SpecRev
 		case r.Kind == event.KindFact && r.Step == event.StepDispatched && t.Lane == "" && t.Agent == "":
 			// The lane was freed (the task merged, its row cleared): where its newest dispatch put it.
 			t.Lane, t.Agent = d.Lane, d.Agent
@@ -297,9 +295,4 @@ func sessionOf(s store.Session) AgentSession {
 // promptOf is r as a page shows it.
 func promptOf(r store.PromptRow) Prompt {
 	return Prompt{Seq: r.Seq, Kind: r.Kind, Job: r.Job, Task: r.Task, Agent: r.Agent, TS: r.TS, Text: r.Text}
-}
-
-// gateLog is where a task's gate keeps the check command's full output.
-func gateLog(task string) string {
-	return filepath.Join(".obor", "state", "logs", task+"-check.log")
 }
