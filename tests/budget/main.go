@@ -15,9 +15,15 @@
 // A missing entry for a package with tests is a breach too, so a new package is never unbudgeted. A green run prints
 // `budget OK: N packages` and exits 0; a breach exits 1 (the nightly records it as a red non-gating line).
 //
-// The budgets are seeded from one quiet machine's run x1.5: `go run ./tests/budget -seed` writes tests/budget.json
-// itself (T-1007, T-1008). A budget is raised only by an owner line in docs/decisions.md and lowered by any task that
-// gets under it (docs/plan/test-suite-rework.md §3).
+// `-missing` is the budget's own listing: it compares the packages with tests with tests/budget.json, runs no tests and
+// prints the command that seeds a package without an entry, or the entry whose package is gone (T-1073; a step of
+// make check-affected, so the lane that adds a package fails there instead of at the next nightly).
+//
+// The budgets are seeded from one quiet machine's run x1.5: `go run ./tests/budget -seed <pkg>...` measures the named
+// packages and writes their entries into tests/budget.json, every other entry unchanged, so the task that adds a
+// package seeds it alone; `-seed` with no arguments re-measures the whole file (T-1007, T-1008, T-1073). A budget is
+// raised only by an owner line in docs/decisions.md and lowered by any task that gets under it
+// (docs/plan/test-suite-rework.md §3).
 package main
 
 import (
@@ -72,7 +78,7 @@ func check(budget File, pkgs []string, runs map[string]Run, tmpLeft []string) (l
 	for _, pkg := range pkgs {
 		b, ok := budget.Packages[pkg]
 		if !ok {
-			lines = append(lines, "FAIL budget: "+pkg+" missing from tests/budget.json")
+			lines = append(lines, missingBudget(pkg))
 			continue
 		}
 		r := runs[pkg]
@@ -106,6 +112,35 @@ func (r Run) failure() string {
 		return ": " + r.note
 	}
 	return ""
+}
+
+// missingBudget is the line for a package with tests and no entry: check's breach and the start of -missing's line.
+func missingBudget(pkg string) string {
+	return "FAIL budget: " + pkg + " missing from tests/budget.json"
+}
+
+// missing lists -missing's lines (T-1073): the packages with tests and no entry, each with the seed command that writes
+// it, then the entries whose package is gone (deleted or moved), each with what to do. It runs no tests.
+func missing(pkgs []string, budget File) []string {
+	have := make(map[string]bool, len(pkgs))
+	var lines []string
+	for _, pkg := range pkgs {
+		have[pkg] = true
+		if _, ok := budget.Packages[pkg]; !ok {
+			lines = append(lines, missingBudget(pkg)+" — run: go run ./tests/budget -seed "+pkg)
+		}
+	}
+	var gone []string
+	for pkg := range budget.Packages {
+		if !have[pkg] {
+			gone = append(gone, pkg)
+		}
+	}
+	sort.Strings(gone)
+	for _, pkg := range gone {
+		lines = append(lines, "FAIL budget: "+pkg+" in tests/budget.json has no package with tests — delete its entry")
+	}
+	return lines
 }
 
 // parseRun reads one `go test -json` run's output. Non-JSON lines (the go command's own, such as `? pkg [no test
@@ -160,29 +195,65 @@ func seed(runs map[string]Run) File {
 	return f
 }
 
-// seeded is -seed's file: the measurement. The per-test caps and untagged_s an older tests/budget.json carried are
-// not carried over: they measured the -short tier, which is gone (T-1056).
-func seeded(root string, runs map[string]Run) (File, error) {
-	if _, err := load(root); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return File{}, err
+// seeded is -seed's file, ready to write: with names, the measured entries merged into tests/budget.json, every other
+// entry kept byte for byte (T-1073); with none, the whole measurement, as before: a package with no tests any more is
+// dropped. The per-test caps and untagged_s an older tests/budget.json carried are not carried over: they measured the
+// -short tier, which is gone (T-1056).
+func seeded(root string, named []string, runs map[string]Run) ([]byte, error) {
+	measured := seed(runs)
+	if len(named) == 0 {
+		return marshal(measured)
 	}
-	return seed(runs), nil
-}
-
-// seedFile is -seed's write (T-1008): the seeded file into tests/budget.json, through a temp file in the same dir and a
-// rename, so the old file stays on any error. A run that did not pass is no measurement and writes nothing; before, the
-// Makefile's redirect truncated the file before seeded could read its caps (RV-139 #2).
-func seedFile(root string, pkgs []string, runs map[string]Run) error {
-	for _, pkg := range pkgs {
-		if !runs[pkg].Passed {
-			return fmt.Errorf("%s did not pass; tests/budget.json left unchanged", pkg)
+	var f struct {
+		Packages map[string]json.RawMessage `json:"packages"`
+	}
+	b, err := os.ReadFile(filepath.Join(root, "tests", "budget.json"))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	if err == nil {
+		if err := json.Unmarshal(b, &f); err != nil {
+			return nil, fmt.Errorf("tests/budget.json: %v", err)
 		}
 	}
-	f, err := seeded(root, runs)
-	if err != nil {
-		return err
+	if f.Packages == nil {
+		f.Packages = map[string]json.RawMessage{}
 	}
-	b, err := json.MarshalIndent(f, "", "  ")
+	for _, pkg := range named {
+		raw, err := json.Marshal(measured.Packages[pkg])
+		if err != nil {
+			return nil, err
+		}
+		f.Packages[pkg] = raw
+	}
+	return marshal(f)
+}
+
+// marshal is JSON encoded in the file's shape: two-space indent and a trailing newline.
+func marshal(v any) ([]byte, error) {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(b, '\n'), nil
+}
+
+// seedFile is -seed's write (T-1008, T-1073): the measured entries into tests/budget.json, through a temp file in the
+// same dir and a rename, so the old file stays on any error. named are the packages to write; none is the whole
+// measurement. A run that did not pass is no measurement and writes nothing; before, the Makefile's redirect truncated
+// the file before seeded could read its caps (RV-139 #2).
+func seedFile(root string, named []string, runs map[string]Run) error {
+	var failed []string
+	for pkg, run := range runs {
+		if !run.Passed {
+			failed = append(failed, pkg)
+		}
+	}
+	if len(failed) > 0 {
+		sort.Strings(failed)
+		return fmt.Errorf("%s did not pass; tests/budget.json left unchanged", strings.Join(failed, ", "))
+	}
+	b, err := seeded(root, named, runs)
 	if err != nil {
 		return err
 	}
@@ -193,7 +264,7 @@ func seedFile(root string, pkgs []string, runs map[string]Run) error {
 	}
 	name := tmp.Name()
 	defer os.Remove(name) // a failed write or rename leaves no temp file behind
-	if _, err := tmp.Write(append(b, '\n')); err != nil {
+	if _, err := tmp.Write(b); err != nil {
 		tmp.Close()
 		return err
 	}
@@ -424,7 +495,8 @@ func main() {
 // run is main's work, returning the exit status: 0 green, 1 a breach, 2 the check itself could not run. It returns
 // instead of exiting so the deferred close removes the work dir (a breached run leaves no temp dirs behind).
 func run() int {
-	seedFlag := flag.Bool("seed", false, "write tests/budget.json measured now (x1.5) and compare nothing")
+	seedFlag := flag.Bool("seed", false, "write tests/budget.json measured now (x1.5); with package arguments only those")
+	missingFlag := flag.Bool("missing", false, "print packages with tests and no tests/budget.json entry, and entries whose package is gone; runs no tests")
 	verbose := flag.Bool("v", false, "print each package's measurement to stderr")
 	flag.Parse()
 
@@ -436,6 +508,24 @@ func run() int {
 	if goBin == "" {
 		goBin = "go"
 	}
+	if *missingFlag {
+		pkgs, err := listPackages(root, goBin, os.Environ())
+		if err != nil {
+			return fail(err)
+		}
+		budget, err := load(root)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fail(err)
+		}
+		lines := missing(pkgs, budget)
+		for _, line := range lines {
+			fmt.Println(line)
+		}
+		if len(lines) > 0 {
+			return 1
+		}
+		return 0
+	}
 	realGit, err := exec.LookPath("git")
 	if err != nil {
 		return fail(fmt.Errorf("git: %v (the budget counts its processes)", err))
@@ -446,9 +536,15 @@ func run() int {
 	}
 	defer r.close()
 
-	pkgs, err := listPackages(root, goBin, r.env())
-	if err != nil {
-		return fail(err)
+	named := flag.Args()
+	var pkgs []string
+	if *seedFlag && len(named) > 0 {
+		pkgs = named // -seed <pkg>...: measure only these, and merge them into the file (T-1073)
+	} else {
+		pkgs, err = listPackages(root, goBin, r.env())
+		if err != nil {
+			return fail(err)
+		}
 	}
 	budget := File{}
 	if !*seedFlag {
@@ -469,7 +565,7 @@ func run() int {
 	}
 
 	if *seedFlag {
-		if err := seedFile(root, pkgs, runs); err != nil {
+		if err := seedFile(root, named, runs); err != nil {
 			return fail(err)
 		}
 		fmt.Fprintln(os.Stderr, "seed: wrote tests/budget.json")

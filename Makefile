@@ -85,7 +85,9 @@ trim-go-cache:
 	  return sprintf("%d B", n) } BEGIN { printf "go cache: freed %s, %s left\n", size(f), size(l) }'
 
 # The merge gate (check: the full suite) and its per-merge tier (check-affected, commands.check_affected, T-347): check
-# runs every step; check-affected runs the kit's tools/affected list (go run, T-1040) and then go test only, on
+# runs every step; check-affected runs tests/budget -missing first (T-1073: a package with tests and no budget entry fails
+# the lane with the -seed command that writes it, and an entry whose package is gone with the line to remove it; no test
+# runs), then the kit's tools/affected list (go run, T-1040) and then go test only, on
 # the packages $OBOR_CHANGED_FILES affects; any doubt runs the full suite. The slot's check-compile already ran build,
 # gofmt, vet and deadcode on the same commit (T-995), so the lane repeats none of them.
 # One test split, not two tiers (T-1014, T-1056): a test that needs real I/O sits in a file with `//go:build
@@ -124,6 +126,7 @@ check:
 
 check-affected:
 	@$(GO_CACHE); \
+	GO="$(GO)" $(GO) run ./tests/budget -missing || exit 1; \
 	pkgs=./...; \
 	direct=; if [ "$$OBOR_PROMOTION" = 1 ]; then direct=--direct; fi; \
 	if a=$$($(GO) run ./tools/affected $$direct); then \
@@ -220,8 +223,10 @@ check-release:
 # git processes are compared with tests/budget.json. One "FAIL budget: <pkg> <metric> <got> > <max>" per breach, else
 # "budget OK: N packages". The nightly runs it on a quiet machine, so its numbers are comparable; a budget is raised
 # only by an owner line in docs/decisions.md and lowered by any task that gets under it (docs/plan/test-suite-
-# rework.md §3). Seed it with `GO="$(GO)" $(GO) run ./tests/budget -seed`: the seed writes tests/budget.json itself
-# (T-1008: a shell redirect would truncate it before -seed read the caps).
+# rework.md §3). Seed it with `GO="$(GO)" $(GO) run ./tests/budget -seed` for the whole file, or
+# `GO="$(GO)" $(GO) run ./tests/budget -seed <pkg>...` for the entries it names, every other entry unchanged (T-1073:
+# the task that adds a package seeds that package alone). The seed writes tests/budget.json itself (T-1008: a shell
+# redirect would truncate it before -seed read the caps).
 check-budget:
 	@$(GO_CACHE); \
 	GO="$(GO)" $(GO) run ./tests/budget
