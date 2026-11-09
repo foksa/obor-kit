@@ -15,16 +15,16 @@ import (
 
 // The setup edit (T-753, T-765): the owner changes one setup value from obor web's Setup page (the lead with obor
 // nightly on|off, T-781), and serve, the one writer, writes .obor/config.json and commits it. Exactly these keys are
-// editable:
+// editable (shape 2's names, T-1126):
 //
-//	difficulty.<level>   the level's ordered list of model refs (<model>[:<effort>])
-//	roles.<role>         a configured role's model ref
-//	lanes                how many lanes (L-01 … L-NN; a count replaces a list, T-1031)
-//	kinds.<kind>.args    the args appended to every start of a kind
-//	merge.nightly_at     the nightly's switch: a local time "HH:MM" (on, every night then) or null (off)
+//	agents.difficulty.<level>   the level's ordered list of model refs (<model>[:<effort>])
+//	agents.roles.<role>         a configured role's model ref
+//	lanes.count                 how many lanes (L-01 … L-NN; a count replaces lanes.list, T-1031)
+//	agents.kinds.<kind>.args    the args appended to every start of a kind
+//	nightly.at                  the nightly's switch: a local time "HH:MM" (on, every night then) or null (off)
 //
-// Any other key stays obor setup's or a hand edit's. The keys keep shape 1's names until config_set's own rename
-// (T-1126); the members they write are shape 2's (editPath).
+// Any other key stays obor setup's or a hand edit's. A key names one member of shape 2, and so does the write: a file
+// of shape 1 is written at the member shape 1 had (change's was), so the one-release window's file keeps its shape.
 //
 // A key .obor/local.json overrides (the key itself, a member of it, or an ancestor local.json replaces) is refused:
 // writing it to config.json would report success and change nothing that runs (T-754).
@@ -47,7 +47,7 @@ func Rev(doc []byte) string {
 }
 
 // EditKeys are the editable keys as patterns, for errors.
-const EditKeys = "difficulty.<level>, roles.<role>, lanes, kinds.<kind>.args, merge.nightly_at"
+const EditKeys = "agents.difficulty.<level>, agents.roles.<role>, lanes.count, agents.kinds.<kind>.args, nightly.at"
 
 // Edit is the change of the setup value at key to val (JSON) in doc, the bytes of c's config.json, and c's local.json
 // as it is, an error names why the key is not editable, val not a value it takes (an unknown level, role or kind, a
@@ -57,37 +57,37 @@ const EditKeys = "difficulty.<level>, roles.<role>, lanes, kinds.<kind>.args, me
 func (c *Config) Edit(doc []byte, key string, val json.RawMessage) (Change, error) {
 	parts := strings.Split(key, ".")
 	switch {
-	case len(parts) == 2 && parts[0] == "difficulty":
-		return c.editLevel(doc, parts[1], val)
-	case len(parts) == 2 && parts[0] == "roles",
-		len(parts) == 3 && parts[0] == "roles" && parts[2] == "type": // roles.<role>.type: the Setup page's key until its redesign
-		return c.editRole(doc, parts[1], val)
-	case key == "lanes":
+	case len(parts) == 3 && parts[0] == "agents" && parts[1] == "difficulty":
+		return c.editLevel(doc, parts[2], val)
+	case len(parts) == 3 && parts[0] == "agents" && parts[1] == "roles":
+		return c.editRole(doc, parts[2], val)
+	case key == "lanes.count":
 		return c.editLanes(doc, val)
-	case len(parts) == 3 && parts[0] == "kinds" && parts[2] == "args":
-		return c.editKindArgs(doc, parts[1], val)
-	case key == "merge.nightly_at":
+	case len(parts) == 4 && parts[0] == "agents" && parts[1] == "kinds" && parts[3] == "args":
+		return c.editKindArgs(doc, parts[2], val)
+	case key == "nightly.at":
 		return c.editNightlyAt(doc, val)
 	}
 	return Change{}, fmt.Errorf("%s is not an editable key (%s)", Compact(key), EditKeys)
 }
 
-// editLevel sets difficulty.<level> to a list of model refs, each naming a model of c.
+// editLevel sets agents.difficulty.<level> to a list of model refs, each naming a model of c.
 func (c *Config) editLevel(doc []byte, level string, val json.RawMessage) (Change, error) {
 	if _, ok := DifficultyDefault[level]; !ok {
 		return Change{}, fmt.Errorf("%s is not a level: hard, medium or simple", Compact(level))
 	}
 	var refs []string
 	if err := json.Unmarshal(val, &refs); err != nil || refs == nil {
-		return Change{}, fmt.Errorf("difficulty.%s takes a list of model refs", level)
+		return Change{}, fmt.Errorf("agents.difficulty.%s takes a list of model refs", level)
 	}
 	for _, ref := range refs {
 		if err := c.CheckModelRef(ref); err != nil {
-			return Change{}, fmt.Errorf("difficulty.%s: %v", level, err)
+			return Change{}, fmt.Errorf("agents.difficulty.%s: %v", level, err)
 		}
 	}
 	old := Compact(c.DifficultyList(level))
-	return c.change("difficulty."+level, doc, []string{"agents", "difficulty", level}, refs, old, Compact(refs))
+	return c.change("agents.difficulty."+level, doc, []string{"agents", "difficulty", level},
+		[]string{"difficulty", level}, nil, refs, old, Compact(refs))
 }
 
 // editLanes sets lanes.count (a whole number, 0 or more; it replaces lanes.list, T-1031): the lanes it no longer
@@ -95,22 +95,17 @@ func (c *Config) editLevel(doc []byte, level string, val json.RawMessage) (Chang
 func (c *Config) editLanes(doc []byte, val json.RawMessage) (Change, error) {
 	var n int
 	if err := json.Unmarshal(val, &n); err != nil || n < 0 {
-		return Change{}, fmt.Errorf("lanes takes a whole number (L-01 … L-NN)")
+		return Change{}, fmt.Errorf("lanes.count takes a whole number (L-01 … L-NN)")
 	}
 	if at := c.localShadow([]string{"lanes", "list"}); at != "" { // a list wins over the count
-		return Change{}, localRefusal("lanes", at)
+		return Change{}, localRefusal("lanes.count", at)
 	}
 	old := Compact(c.Data.Lanes.Count)
 	if c.Data.Lanes.List != nil {
 		old = Compact(c.Data.Lanes.List)
 	}
-	if ShapeOf(doc) >= ShapeVersion { // in shape 1, lanes is the count or the list itself
-		var err error
-		if doc, err = EditJSON(doc, []string{"lanes", "list"}, nil); err != nil {
-			return Change{}, err
-		}
-	}
-	ch, err := c.change("lanes", doc, []string{"lanes", "count"}, n, old, Compact(n))
+	ch, err := c.change("lanes.count", doc, []string{"lanes", "count"}, []string{"lanes"},
+		[]string{"lanes", "list"}, n, old, Compact(n))
 	kept := Lanes{Count: n}.entries()
 	for _, e := range c.Data.Lanes.entries() {
 		if !slices.ContainsFunc(kept, func(k LaneEntry) bool { return k.Name == e.Name }) {
@@ -129,14 +124,15 @@ func (c *Config) editNightlyAt(doc []byte, val json.RawMessage) (Change, error) 
 		_, _, ok = ParseClock(*at)
 	}
 	if !ok {
-		return Change{}, fmt.Errorf("merge.nightly_at takes a local time HH:MM (00:00 to 23:59), or null (off)")
+		return Change{}, fmt.Errorf("nightly.at takes a local time HH:MM (00:00 to 23:59), or null (off)")
 	}
 	var v any
 	newLine := ""
 	if at != nil {
 		v, newLine = *at, Compact(*at)
 	}
-	return c.change("merge.nightly_at", doc, []string{"nightly", "at"}, v, unsetOr(c.Data.Nightly.At), newLine)
+	return c.change("nightly.at", doc, []string{"nightly", "at"}, []string{"merge", "nightly_at"}, nil,
+		v, unsetOr(c.Data.Nightly.At), newLine)
 }
 
 // editKindArgs sets agents.kinds.<kind>.args: a list of args with no bare -- (obor adds the first prompt itself); an empty
@@ -147,10 +143,10 @@ func (c *Config) editKindArgs(doc []byte, kind string, val json.RawMessage) (Cha
 	}
 	var args []string
 	if err := json.Unmarshal(val, &args); err != nil {
-		return Change{}, fmt.Errorf("kinds.%s.args takes a list of strings", kind)
+		return Change{}, fmt.Errorf("agents.kinds.%s.args takes a list of strings", kind)
 	}
 	if slices.Contains(args, "--") {
-		return Change{}, fmt.Errorf("kinds.%s.args: `--` is not allowed: obor adds the first prompt itself", kind)
+		return Change{}, fmt.Errorf("agents.kinds.%s.args: `--` is not allowed: obor adds the first prompt itself", kind)
 	}
 	var v any = args
 	if len(args) == 0 {
@@ -164,7 +160,8 @@ func (c *Config) editKindArgs(doc []byte, kind string, val json.RawMessage) (Cha
 	if len(args) > 0 {
 		newLine = Compact(args)
 	}
-	return c.change("kinds."+kind+".args", doc, []string{"agents", "kinds", kind, "args"}, v, old, newLine)
+	return c.change("agents.kinds."+kind+".args", doc, []string{"agents", "kinds", kind, "args"},
+		[]string{"kinds", kind, "args"}, nil, v, old, newLine)
 }
 
 // editRole sets a configured role's model ref; a role always names its model (T-769), so "" and null are refused. A
@@ -181,33 +178,40 @@ func (c *Config) editRole(doc []byte, role string, val json.RawMessage) (Change,
 	}
 	var ref string
 	if err := json.Unmarshal(val, &ref); err != nil || ref == "" {
-		return Change{}, fmt.Errorf("roles.%s takes a model ref (<model>[:<effort>])", role)
+		return Change{}, fmt.Errorf("agents.roles.%s takes a model ref (<model>[:<effort>])", role)
 	}
 	if err := c.CheckModelRef(ref); err != nil {
-		return Change{}, fmt.Errorf("roles.%s: %v", role, err)
+		return Change{}, fmt.Errorf("agents.roles.%s: %v", role, err)
 	}
-	key, at := "roles."+role, []string{"agents", "roles", role}
+	key, at := "agents.roles."+role, []string{"agents", "roles", role}
+	was := []string{"roles", role}
 	if c.Data.Agents.Roles.M[role].Object {
-		key, at = key+".model", append(at, "model")
+		key, at, was = key+".model", append(at, "model"), append(was, "model")
 	}
-	return c.change(key, doc, at, ref, unsetOr(ModelRef(rc.Type, rc.Effort)), Compact(ref))
+	return c.change(key, doc, at, was, nil, ref, unsetOr(ModelRef(rc.Type, rc.Effort)), Compact(ref))
 }
 
-// change is c's edit of key: doc with path (the member the key writes, shape 2's) set to v (nil deletes it), laid out
-// as doc is, with the value's old and new lines. A doc of shape 1 keeps its shape: the member written is the key's own
-// path, shape 1's (the edit keys keep shape 1's names). It refuses a member .obor/local.json overrides (localRefusal)
+// change is c's edit of key: doc with the member at path (shape 2's) set to v (nil deletes it) and, when drop is not
+// nil, the member at drop deleted too (lanes.count replacing lanes.list, T-1031), laid out as doc is, with the value's
+// old and new lines. A doc of shape 1 keeps its shape: there the member is was, the key's shape-1 path, and a write
+// replaces what shape 1 had (drop is shape 2's alone). It refuses a member .obor/local.json overrides (localRefusal)
 // and one the merged config does not take up: either way the file would be written and what runs would not change.
-func (c *Config) change(key string, doc []byte, path []string, v any, old, new string) (Change, error) {
+func (c *Config) change(key string, doc []byte, path, was, drop []string, v any, old, new string) (Change, error) {
 	if at := c.localShadow(path); at != "" {
 		return Change{}, localRefusal(key, at)
 	}
 	at := path
 	if ShapeOf(doc) < ShapeVersion {
-		at = strings.Split(key, ".")
+		at, drop = was, nil
 	}
 	out, err := EditJSON(doc, at, v)
 	if err != nil {
 		return Change{}, err
+	}
+	if drop != nil {
+		if out, err = EditJSON(out, drop, nil); err != nil {
+			return Change{}, err
+		}
 	}
 	ch, err := relaid(doc, out, old, new)
 	if err != nil {

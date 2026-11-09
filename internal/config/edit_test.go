@@ -10,38 +10,48 @@ import (
 	"testing"
 )
 
-// editDoc is a config.json as obor setup writes it: indented by two, a final newline.
+// editDoc is a config.json in shape 2 as obor setup writes it: indented by two, a final newline.
 const editDoc = `{
-  "version": 1,
-  "name": "pj",
-  "prefix": "pj",
-  "difficulty": {
-    "hard": [
-      "opus:high"
-    ]
+  "version": 2,
+  "project": {
+    "name": "pj",
+    "agent_prefix": "pj"
   },
-  "kinds": {
-    "codex": {
-      "args": [
-        "-c",
-        "sandbox_workspace_write.network_access=true"
+  "lanes": {
+    "count": 2
+  },
+  "agents": {
+    "roles": {
+      "lead": "opus:high",
+      "integrator": "",
+      "deep_dive": "sonnet"
+    },
+    "difficulty": {
+      "hard": [
+        "opus:high"
       ]
+    },
+    "kinds": {
+      "codex": {
+        "args": [
+          "-c",
+          "sandbox_workspace_write.network_access=true"
+        ]
+      }
+    },
+    "models": {
+      "kimi": {
+        "kind": "opencode",
+        "id": "opencode-go/kimi"
+      }
     }
-  },
-  "models": {
-    "kimi": {
-      "kind": "opencode",
-      "model": "opencode-go/kimi"
-    }
-  },
-  "lanes": 2,
-  "roles": {
-    "lead": "opus:high",
-    "integrator": "",
-    "deep_dive": "sonnet"
   }
 }
 `
+
+// editShape1 is a config.json of shape 1, one line: the one-release window's file (T-1124), which an edit keeps.
+const editShape1 = `{"version":1,"name":"pj","prefix":"pj","difficulty":{"hard":["opus:high"]},"lanes":2,` +
+	`"roles":{"lead":"opus:high"},"kinds":{"codex":{"args":["-c","x=1"]}}}`
 
 // editProject is a project whose config.json is editDoc, loaded.
 func editProject(t *testing.T) *Config {
@@ -56,35 +66,31 @@ func TestEditSetsEachField(t *testing.T) {
 		key, val, old, new string
 		check              func(*Config) bool
 	}{
-		{"difficulty.hard", `["sonnet","opus:high"]`, `["opus:high"]`, `["sonnet","opus:high"]`,
+		{"agents.difficulty.hard", `["sonnet","opus:high"]`, `["opus:high"]`, `["sonnet","opus:high"]`,
 			func(n *Config) bool { return slices.Equal(n.DifficultyList("hard"), []string{"sonnet", "opus:high"}) }},
-		{"difficulty.simple", `["luna:xhigh","kimi"]`, `["deepseek","sonnet","haiku"]`, `["luna:xhigh","kimi"]`,
+		{"agents.difficulty.simple", `["luna:xhigh","kimi"]`, `["deepseek","sonnet","haiku"]`, `["luna:xhigh","kimi"]`,
 			func(n *Config) bool { return slices.Equal(n.DifficultyList("simple"), []string{"luna:xhigh", "kimi"}) }},
-		{"lanes", `4`, `2`, `4`, func(n *Config) bool { return len(n.Lanes()) == 4 && n.HasLane("L-04") }},
-		{"lanes", `1`, `2`, `1`, func(n *Config) bool { return len(n.Lanes()) == 1 && !n.HasLane("L-02") }},
-		{"kinds.codex.args", `["--x"]`, `["-c","sandbox_workspace_write.network_access=true"]`, `["--x"]`, func(n *Config) bool {
+		{"lanes.count", `4`, `2`, `4`, func(n *Config) bool { return len(n.Lanes()) == 4 && n.HasLane("L-04") }},
+		{"lanes.count", `1`, `2`, `1`, func(n *Config) bool { return len(n.Lanes()) == 1 && !n.HasLane("L-02") }},
+		{"agents.kinds.codex.args", `["--x"]`, `["-c","sandbox_workspace_write.network_access=true"]`, `["--x"]`, func(n *Config) bool {
 			m, _ := n.Model("terra")
 			return slices.Equal(m.Args, []string{"-s", "workspace-write", "-a", "never", "--no-daemon", "-m", "gpt-6.1-terra", "--x"})
 		}},
-		{"kinds.claude.args", `["--strict-mcp-config"]`, "", `["--strict-mcp-config"]`, func(n *Config) bool {
+		{"agents.kinds.claude.args", `["--strict-mcp-config"]`, "", `["--strict-mcp-config"]`, func(n *Config) bool {
 			m, _ := n.Model("opus")
 			return slices.Equal(m.Args, []string{"--permission-mode", "auto", "--model", "opus", "--strict-mcp-config"})
 		}},
-		{"kinds.codex.args", `[]`, `["-c","sandbox_workspace_write.network_access=true"]`, "", func(n *Config) bool {
+		{"agents.kinds.codex.args", `[]`, `["-c","sandbox_workspace_write.network_access=true"]`, "", func(n *Config) bool {
 			m, _ := n.Model("terra")
 			return len(m.Args) == len(KindBaseArgs["codex"])+2
 		}},
-		{"roles.integrator", `"sonnet"`, "", `"sonnet"`, func(n *Config) bool { rc, _ := n.Role("integrator"); return rc.Type == "sonnet" }},
-		{"roles.lead", `"luna:low"`, `"opus:high"`, `"luna:low"`, func(n *Config) bool {
+		{"agents.roles.integrator", `"sonnet"`, "", `"sonnet"`, func(n *Config) bool { rc, _ := n.Role("integrator"); return rc.Type == "sonnet" }},
+		{"agents.roles.lead", `"luna:low"`, `"opus:high"`, `"luna:low"`, func(n *Config) bool {
 			rc, _ := n.Role("lead")
 			return rc.Type == "luna" && rc.Effort == "low"
 		}},
-		{"roles.deep_dive.type", `"kimi:high"`, `"sonnet"`, `"kimi:high"`, func(n *Config) bool { // the Setup page's key
-			rc, _ := n.Role("deep_dive")
-			return rc.Type == "kimi" && rc.Effort == "high"
-		}},
-		{"merge.nightly_at", `"03:00"`, "", `"03:00"`, func(n *Config) bool { return n.Data.Nightly.At == "03:00" }},
-		{"merge.nightly_at", `null`, "", "", func(n *Config) bool { return n.Data.Nightly.At == "" }},
+		{"nightly.at", `"03:00"`, "", `"03:00"`, func(n *Config) bool { return n.Data.Nightly.At == "03:00" }},
+		{"nightly.at", `null`, "", "", func(n *Config) bool { return n.Data.Nightly.At == "" }},
 	} {
 		cfg := editProject(t)
 		ch, err := cfg.Edit([]byte(editDoc), c.key, json.RawMessage(c.val))
@@ -107,40 +113,65 @@ func TestEditSetsEachField(t *testing.T) {
 			t.Errorf("%s = %s: the result fails validate: %q", c.key, c.val, fails)
 		}
 		// the layout is the file's: indented by two, a final newline; only the edited member's lines differ
-		if !strings.HasSuffix(string(ch.Doc), "}\n") || !strings.Contains(string(ch.Doc), "\n  \"models\": {\n    \"kimi\": {\n") {
+		if !strings.HasSuffix(string(ch.Doc), "}\n") || !strings.Contains(string(ch.Doc), "\n    \"models\": {\n      \"kimi\": {\n") {
 			t.Errorf("%s = %s: the layout is not the file's:\n%s", c.key, c.val, ch.Doc)
 		}
 		if lines := diffLines(editDoc, string(ch.Doc)); lines > 12 {
 			t.Errorf("%s = %s: %d lines differ, want only the edited member's:\n%s", c.key, c.val, lines, ch.Doc)
 		}
 	}
-	ch, err := editProject(t).Edit([]byte(editDoc), "lanes", json.RawMessage(`0`))
+	ch, err := editProject(t).Edit([]byte(editDoc), "lanes.count", json.RawMessage(`0`))
 	if err != nil || !slices.Equal(ch.Dropped, []string{"L-01", "L-02"}) {
-		t.Errorf("lanes = 0: dropped %q, %v; want L-01, L-02 (serve refuses while one has a task)", ch.Dropped, err)
+		t.Errorf("lanes.count = 0: dropped %q, %v; want L-01, L-02 (serve refuses while one has a task)", ch.Dropped, err)
 	}
 }
 
-// T-781: merge.nightly_at is the nightly's switch: a time sets it (on), null deletes it (off), the change naming the
+// T-1126: a file of shape 1 keeps its shape: the edit of a shape-2 key writes the member shape 1 had for it (a mixed
+// file would not load), and the result still loads with the new value.
+func TestEditKeepsShape1(t *testing.T) {
+	cfg := load(t, editShape1, "")
+	for _, c := range []struct{ key, val, want, absent string }{
+		{"agents.difficulty.hard", `["sonnet"]`, `"difficulty":{"hard":["sonnet"]}`, `"agents"`},
+		{"agents.roles.lead", `"sonnet"`, `"roles":{"lead":"sonnet"}`, `"agents"`},
+		{"lanes.count", `3`, `"lanes":3`, `"count"`},
+		{"agents.kinds.codex.args", `["--y"]`, `"kinds":{"codex":{"args":["--y"]}}`, `"agents"`},
+		{"nightly.at", `"02:00"`, `"merge":{"nightly_at":"02:00"}`, `"nightly"`},
+	} {
+		ch, err := cfg.Edit([]byte(editShape1), c.key, json.RawMessage(c.val))
+		if err != nil {
+			t.Errorf("%s = %s: %v", c.key, c.val, err)
+			continue
+		}
+		if !strings.Contains(string(ch.Doc), c.want) || strings.Contains(string(ch.Doc), c.absent) {
+			t.Errorf("%s = %s: %s, want %s and no %s", c.key, c.val, ch.Doc, c.want, c.absent)
+		}
+		if _, err := LoadWith(cfg.Root, ch.Doc); err != nil {
+			t.Errorf("%s = %s: the result does not load: %v", c.key, c.val, err)
+		}
+	}
+}
+
+// T-781: nightly.at is the nightly's switch: a time sets it (on), null deletes it (off), the change naming the
 // value before; off when off is no change of the file.
 func TestEditNightlyAtOnOff(t *testing.T) {
 	cfg := editProject(t)
-	on, err := cfg.Edit([]byte(editDoc), "merge.nightly_at", json.RawMessage(`"02:30"`))
-	if err != nil || !strings.Contains(string(on.Doc), "\"nightly_at\": \"02:30\"") {
+	on, err := cfg.Edit([]byte(editDoc), "nightly.at", json.RawMessage(`"02:30"`))
+	if err != nil || !strings.Contains(string(on.Doc), "\"at\": \"02:30\"") {
 		t.Fatalf("on: %v\n%s", err, on.Doc)
 	}
 	onCfg, err := LoadWith(cfg.Root, on.Doc)
 	if err != nil || onCfg.Data.Nightly.At != "02:30" {
 		t.Fatalf("precondition: on loads with 02:30: %v", err)
 	}
-	off, err := onCfg.Edit(on.Doc, "merge.nightly_at", json.RawMessage(`null`))
-	if err != nil || off.Old != `"02:30"` || off.New != "" || strings.Contains(string(off.Doc), "nightly_at") {
+	off, err := onCfg.Edit(on.Doc, "nightly.at", json.RawMessage(`null`))
+	if err != nil || off.Old != `"02:30"` || off.New != "" || strings.Contains(string(off.Doc), "nightly") {
 		t.Fatalf("off: old %q new %q, %v; want \"02:30\" → unset, the key gone:\n%s", off.Old, off.New, err, off.Doc)
 	}
 	offCfg, err := LoadWith(cfg.Root, off.Doc)
 	if err != nil || offCfg.Data.Nightly.At != "" {
 		t.Fatalf("off does not load unset: %v\n%s", err, off.Doc)
 	}
-	again, err := offCfg.Edit(off.Doc, "merge.nightly_at", json.RawMessage(`null`))
+	again, err := offCfg.Edit(off.Doc, "nightly.at", json.RawMessage(`null`))
 	if err != nil || string(again.Doc) != string(off.Doc) {
 		t.Errorf("off when off: %v; want the file unchanged:\n%s", err, again.Doc)
 	}
@@ -168,41 +199,49 @@ func diffLines(a, b string) int {
 }
 
 // T-753: a value the key does not take, a key that is not editable and a name the config does not have are refused,
-// naming why.
+// naming why. T-1126: the keys are shape 2's names; shape 1's key names and the `roles.<role>.type` alias are not
+// editable.
 func TestEditRefuses(t *testing.T) {
 	cfg := editProject(t)
 	for _, c := range []struct{ key, val, want string }{
-		{"difficulty.extreme", `["opus"]`, "is not a level"},
-		{"difficulty.hard", `["gpt"]`, `"gpt" is not a model (models: opus, sonnet, haiku, fable, deepseek, terra, sol, luna, kimi)`},
-		{"difficulty.hard", `["opus:turbo"]`, `effort "turbo" is not one of claude's`},
-		{"difficulty.hard", `"opus"`, "takes a list of model refs"},
-		{"difficulty.hard", `null`, "takes a list of model refs"},
-		{"lanes", `-1`, "takes a whole number"},
-		{"lanes", `"two"`, "takes a whole number"},
+		{"agents.difficulty.extreme", `["opus"]`, "is not a level"},
+		{"agents.difficulty.hard", `["gpt"]`, `"gpt" is not a model (models: opus, sonnet, haiku, fable, deepseek, terra, sol, luna, kimi)`},
+		{"agents.difficulty.hard", `["opus:turbo"]`, `effort "turbo" is not one of claude's`},
+		{"agents.difficulty.hard", `"opus"`, "takes a list of model refs"},
+		{"agents.difficulty.hard", `null`, "takes a list of model refs"},
+		{"lanes.count", `-1`, "takes a whole number"},
+		{"lanes.count", `"two"`, "takes a whole number"},
 		{"lanes.L-01", `"opus"`, "is not an editable key"},
-		{"kinds.cursor.args", `["x"]`, `"cursor" is not a kind`},
-		{"kinds.claude.args", `"x"`, "takes a list of strings"},
-		{"kinds.claude.args", `["--"]`, "`--` is not allowed"},
-		{"kinds.claude.prompt_extra", `"x"`, "is not an editable key"},
-		{"models.kimi.model", `"x"`, "is not an editable key"},
+		{"agents.kinds.cursor.args", `["x"]`, `"cursor" is not a kind`},
+		{"agents.kinds.claude.args", `"x"`, "takes a list of strings"},
+		{"agents.kinds.claude.args", `["--"]`, "`--` is not allowed"},
+		{"agents.kinds.claude.job_note", `"x"`, "is not an editable key"},
+		{"agents.models.kimi.id", `"x"`, "is not an editable key"},
 		{"lane_types.opus.max", `2`, "is not an editable key"},
-		{"roles.worker", `"opus"`, `"worker" is not a configured role`},
-		{"roles.triage", `"opus"`, `"triage" is not a configured role`},
-		{"roles.nobody", `"opus"`, `"nobody" is not a configured role`},
-		{"roles.lead", `""`, "takes a model ref"},
-		{"roles.lead", `null`, "takes a model ref"},
-		{"roles.integrator", `""`, "takes a model ref"},
-		{"roles.reviewer", `null`, "takes a model ref"},
-		{"roles.deep_dive", `""`, "takes a model ref"},
-		{"roles.lead.agent", `"x"`, "is not an editable key"},
-		{"roles.lead", `"gpt:high"`, `"gpt" is not a model`},
+		{"agents.roles.worker", `"opus"`, `"worker" is not a configured role`},
+		{"agents.roles.triage", `"opus"`, `"triage" is not a configured role`},
+		{"agents.roles.nobody", `"opus"`, `"nobody" is not a configured role`},
+		{"agents.roles.lead", `""`, "takes a model ref"},
+		{"agents.roles.lead", `null`, "takes a model ref"},
+		{"agents.roles.integrator", `""`, "takes a model ref"},
+		{"agents.roles.reviewer", `null`, "takes a model ref"},
+		{"agents.roles.deep_dive", `""`, "takes a model ref"},
+		{"agents.roles.lead.agent", `"x"`, "is not an editable key"},
+		{"agents.roles.lead", `"gpt:high"`, `"gpt" is not a model`},
 		{"merge.scratch_dir", `"x"`, "is not an editable key"},
-		{"merge.nightly_at", `"25:00"`, "merge.nightly_at takes a local time HH:MM (00:00 to 23:59), or null (off)"},
-		{"merge.nightly_at", `"3:00"`, "merge.nightly_at takes a local time HH:MM"},
-		{"merge.nightly_at", `"2am"`, "merge.nightly_at takes a local time HH:MM"},
-		{"merge.nightly_at", `""`, "merge.nightly_at takes a local time HH:MM"},
-		{"merge.nightly_at", `300`, "merge.nightly_at takes a local time HH:MM"},
-		{"merge.nightly_at", ``, "merge.nightly_at takes a local time HH:MM"},
+		{"nightly.at", `"25:00"`, "nightly.at takes a local time HH:MM (00:00 to 23:59), or null (off)"},
+		{"nightly.at", `"3:00"`, "nightly.at takes a local time HH:MM"},
+		{"nightly.at", `"2am"`, "nightly.at takes a local time HH:MM"},
+		{"nightly.at", `""`, "nightly.at takes a local time HH:MM"},
+		{"nightly.at", `300`, "nightly.at takes a local time HH:MM"},
+		{"nightly.at", ``, "nightly.at takes a local time HH:MM"},
+		// shape 1's names and the Setup page's old alias are no keys now (T-1126)
+		{"difficulty.hard", `["opus"]`, "is not an editable key"},
+		{"roles.lead", `"opus"`, "is not an editable key"},
+		{"roles.deep_dive.type", `"kimi:high"`, "is not an editable key"},
+		{"lanes", `2`, "is not an editable key"},
+		{"kinds.claude.args", `["--x"]`, "is not an editable key"},
+		{"merge.nightly_at", `"03:00"`, "is not an editable key"},
 	} {
 		ch, err := cfg.Edit([]byte(editDoc), c.key, json.RawMessage(c.val))
 		if err == nil || !strings.Contains(err.Error(), c.want) {
@@ -212,15 +251,15 @@ func TestEditRefuses(t *testing.T) {
 }
 
 // T-754: a key .obor/local.json sets is refused before anything is written: the committed value would not count. The
-// refusal names local.json's member in shape 2 (a shape-1 local.json is read reshaped, and serve rewrites it).
+// refusal names local.json's member as the config has it (shape 2: local.json is reshaped with a shape-1 config.json).
 func TestEditRefusesLocalOverride(t *testing.T) {
 	for _, c := range []struct{ name, local, key, val, at string }{
-		{"a kind's args", `{"kinds":{"codex":{"args":["-c","x=1"]}}}`, "kinds.codex.args", `["y"]`, "agents.kinds.codex.args"},
-		{"a kind local.json replaces", `{"kinds":{"codex":null}}`, "kinds.codex.args", `["y"]`, "agents.kinds.codex"},
-		{"a level", `{"difficulty":{"hard":["sonnet"]}}`, "difficulty.hard", `["opus:high"]`, "agents.difficulty.hard"},
-		{"a role", `{"roles":{"lead":"sonnet"}}`, "roles.lead", `"opus:high"`, "agents.roles.lead"},
-		{"the lanes", `{"lanes":3}`, "lanes", `4`, "lanes.count"},
-		{"a lane list", `{"lanes":[{"name":"L-01"}]}`, "lanes", `4`, "lanes.list"},
+		{"a kind's args", `{"agents":{"kinds":{"codex":{"args":["-c","x=1"]}}}}`, "agents.kinds.codex.args", `["y"]`, "agents.kinds.codex.args"},
+		{"a kind local.json replaces", `{"agents":{"kinds":{"codex":null}}}`, "agents.kinds.codex.args", `["y"]`, "agents.kinds.codex"},
+		{"a level", `{"agents":{"difficulty":{"hard":["sonnet"]}}}`, "agents.difficulty.hard", `["opus:high"]`, "agents.difficulty.hard"},
+		{"a role", `{"agents":{"roles":{"lead":"sonnet"}}}`, "agents.roles.lead", `"opus:high"`, "agents.roles.lead"},
+		{"the lanes", `{"lanes":{"count":3}}`, "lanes.count", `4`, "lanes.count"},
+		{"a lane list", `{"lanes":{"list":[{"name":"L-01"}]}}`, "lanes.count", `4`, "lanes.list"},
 	} {
 		cfg, doc := localProject(t, c.local)
 		ch, err := cfg.Edit(doc, c.key, json.RawMessage(c.val))
@@ -243,9 +282,9 @@ func TestEditIgnoresLocalElsewhere(t *testing.T) {
 		name, local, key, val, leak string
 		check                       func(doc []byte, n *Config) bool
 	}{
-		{"another level", `{"difficulty":{"simple":["sonnet"]}}`, "difficulty.hard", `["opus"]`, "simple",
+		{"another level", `{"agents":{"difficulty":{"simple":["sonnet"]}}}`, "agents.difficulty.hard", `["opus"]`, "simple",
 			func(_ []byte, n *Config) bool { return slices.Equal(n.DifficultyList("hard"), []string{"opus"}) }},
-		{"another kind", `{"kinds":{"claude":{"args":["--strict-mcp-config"]}}}`, "kinds.codex.args", `["--y"]`, "strict",
+		{"another kind", `{"agents":{"kinds":{"claude":{"args":["--strict-mcp-config"]}}}}`, "agents.kinds.codex.args", `["--y"]`, "strict",
 			func(_ []byte, n *Config) bool {
 				return slices.Equal(n.Data.Agents.Kinds.M["codex"].Args, []string{"--y"})
 			}},

@@ -239,7 +239,7 @@ func TestEditCustomRoleModel(t *testing.T) {
 	validate(t, p, set("roles.buddy", "sonnet"), set("roles.designer", `{"model": "sonnet", "write": ["docs/design/"]}`))
 	c, _ := config.Load(p.Root)
 	doc, _ := os.ReadFile(p.Path(".obor/config.json"))
-	ch, err := c.Edit(doc, "roles.designer", []byte(`"opus:high"`))
+	ch, err := c.Edit(doc, "agents.roles.designer", []byte(`"opus:high"`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,14 +251,14 @@ func TestEditCustomRoleModel(t *testing.T) {
 		!reflect.DeepEqual(rc.Role.WritePaths, []string{"docs/design/"}) {
 		t.Errorf("designer after the edit = %+v, want opus:high still writing docs/design/", rc)
 	}
-	ch, err = c.Edit(doc, "roles.buddy", []byte(`"haiku"`))
+	ch, err = c.Edit(doc, "agents.roles.buddy", []byte(`"haiku"`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if after, _ := config.LoadWith(p.Root, ch.Doc); after == nil || func() string { rc, _ := after.Role("buddy"); return rc.Type }() != "haiku" {
 		t.Errorf("buddy after the edit: %s", ch.Doc)
 	}
-	if _, err := c.Edit(doc, "roles.researcher", []byte(`"opus"`)); err == nil || !strings.Contains(err.Error(), "not a configured role") ||
+	if _, err := c.Edit(doc, "agents.roles.researcher", []byte(`"opus"`)); err == nil || !strings.Contains(err.Error(), "not a configured role") ||
 		!strings.Contains(err.Error(), "buddy, designer") {
 		t.Errorf("an unnamed default row: %v, want refused naming the configured roles", err)
 	}

@@ -16,7 +16,7 @@ const s: Setup = {
     { name: "deepseek", kind: "opencode", model: "opencode-go/deepseek", builtin: true, efforts: [], paused: null },
     { name: "terra", kind: "codex", model: "gpt-6.1-terra", builtin: false, efforts: ["low", "medium", "high", "xhigh"], paused: null },
   ],
-  kinds: [{ name: "claude", args: [], prompt_extra: false }],
+  kinds: [{ name: "claude", args: [], job_note: false }],
   lanes: [
     { lane: "L-01", type: "", agent: "pj-l-01", state: "free" },
     { lane: "L-02", type: "opus:high", agent: "pj-l-02", state: "working", locked: true },
@@ -31,22 +31,25 @@ const name = (r: string) => r.toUpperCase();
 
 describe("staged setup edits", () => {
   it("reads every editable key: a level's refs, a role's ref, the lanes count", () => {
-    expect(current(s, "difficulty.hard")).toEqual(["opus:high"]);
-    expect(current(s, "roles.reviewer")).toBe("terra:xhigh");
-    expect(current(s, "roles.lead")).toBe("");
-    expect(current(s, "lanes")).toBe(3);
+    expect(current(s, "agents.difficulty.hard")).toEqual(["opus:high"]);
+    expect(current(s, "agents.roles.reviewer")).toBe("terra:xhigh");
+    expect(current(s, "agents.roles.lead")).toBe("");
+    expect(current(s, "lanes.count")).toBe(3);
     expect(current(s, "lane_types.opus.max")).toBeUndefined();
-    expect(current(s, "roles.reviewer.type")).toBeUndefined();
+    expect(current(s, "agents.roles.reviewer.type")).toBeUndefined();
+    expect(current(s, "difficulty.hard")).toBeUndefined(); // shape 1's names are no keys (T-1126)
+    expect(current(s, "roles.reviewer")).toBeUndefined();
+    expect(current(s, "lanes")).toBeUndefined();
     expect(current(s, "commands.check")).toBeUndefined();
   });
   it("stages a change and drops one that puts the value back", () => {
-    let st = stage({}, s, "lanes", 2);
-    st = stage(st, s, "difficulty.hard", ["opus:high", "terra"]);
-    expect(value(st, s, "lanes")).toBe(2);
-    expect(value(st, s, "roles.reviewer")).toBe("terra:xhigh");
-    st = stage(st, s, "lanes", 3);
-    expect(Object.keys(st)).toEqual(["difficulty.hard"]);
-    expect(body(st, "r1")).toEqual({ changes: [{ key: "difficulty.hard", value: ["opus:high", "terra"] }], base: "r1" });
+    let st = stage({}, s, "lanes.count", 2);
+    st = stage(st, s, "agents.difficulty.hard", ["opus:high", "terra"]);
+    expect(value(st, s, "lanes.count")).toBe(2);
+    expect(value(st, s, "agents.roles.reviewer")).toBe("terra:xhigh");
+    st = stage(st, s, "lanes.count", 3);
+    expect(Object.keys(st)).toEqual(["agents.difficulty.hard"]);
+    expect(body(st, "r1")).toEqual({ changes: [{ key: "agents.difficulty.hard", value: ["opus:high", "terra"] }], base: "r1" });
   });
   it("moves within a list and keeps it at its ends", () => {
     expect(move(["a", "b", "c"], 2, -1)).toEqual(["a", "c", "b"]);
@@ -83,7 +86,7 @@ describe("the Setup page's controls", () => {
   it("names what uses each model, staged edits in", () => {
     const u = usedBy({}, s, name);
     expect(u).toEqual({ opus: ["hard"], deepseek: ["medium"], sonnet: ["medium"], terra: ["REVIEWER"] });
-    const st = stage(stage({}, s, "roles.lead", "opus:medium"), s, "difficulty.hard", []);
+    const st = stage(stage({}, s, "agents.roles.lead", "opus:medium"), s, "agents.difficulty.hard", []);
     expect(usedBy(st, s, name).opus).toEqual(["LEAD"]);
   });
   it("lists the models in use and a paused one, in the config's order", () => {
@@ -105,7 +108,7 @@ describe("the Setup page's controls", () => {
 
 describe("a role's model select", () => {
   it("offers a disabled placeholder first and no empty option while the role has no model", () => {
-    const [none] = splitRef(current(s, "roles.lead") as string);
+    const [none] = splitRef(current(s, "agents.roles.lead") as string);
     expect(none).toBe(""); // precondition: the lead has no model
     const opts = roleModelOptions(["opus", "sonnet"], none);
     expect(opts[0]).toEqual({ value: "", label: NO_MODEL, disabled: true });

@@ -1,8 +1,8 @@
-// The Setup page's staged edits (T-760, T-766): a change is a key (config.EditKeys: difficulty.<level>, roles.<role>,
-// lanes) and its new value, kept until the owner commits them all at once (POST /api/config: one commit, all or
-// nothing). They are made on the config revision the page read when the first was staged (base): serve refuses them
-// once config.json is another file, so a tab never overwrites what another tab, the lead or a hand edit saved
-// meanwhile.
+// The Setup page's staged edits (T-760, T-766): a change is a key (config.EditKeys: agents.difficulty.<level>,
+// agents.roles.<role>, lanes.count) and its new value, kept until the owner commits them all at once (POST /api/config:
+// one commit, all or nothing). They are made on the config revision the page read when the first was staged (base):
+// serve refuses them once config.json is another file, so a tab never overwrites what another tab, the lead or a hand
+// edit saved meanwhile.
 import type { DispatchCount, Setup, SetupModel } from "./types";
 
 export type Value = string | number | string[];
@@ -11,9 +11,9 @@ export type Staged = Record<string, Value>;
 // current is key's value in s (undefined: s has no such field).
 export function current(s: Setup, key: string): Value | undefined {
   const p = key.split(".");
-  if (p[0] === "difficulty" && p.length === 2) return s.difficulty.find((d) => d.level === p[1])?.types;
-  if (p[0] === "roles" && p.length === 2) return s.roles.find((r) => r.role === p[1])?.type;
-  if (key === "lanes") return s.lanes.length;
+  if (p[0] === "agents" && p[1] === "difficulty" && p.length === 3) return s.difficulty.find((d) => d.level === p[2])?.types;
+  if (p[0] === "agents" && p[1] === "roles" && p.length === 3) return s.roles.find((r) => r.role === p[2])?.type;
+  if (key === "lanes.count") return s.lanes.length;
   return undefined;
 }
 
@@ -93,8 +93,8 @@ export function usedBy(staged: Staged, s: Setup, roleName: (r: string) => string
     const m = splitRef(ref)[0];
     if (m && !(u[m] || []).includes(who)) u[m] = [...(u[m] || []), who];
   };
-  for (const d of s.difficulty) for (const ref of (value(staged, s, "difficulty." + d.level) as string[]) || []) add(ref, d.level);
-  for (const r of s.roles) add((value(staged, s, "roles." + r.role) as string) || "", roleName(r.role));
+  for (const d of s.difficulty) for (const ref of (value(staged, s, "agents.difficulty." + d.level) as string[]) || []) add(ref, d.level);
+  for (const r of s.roles) add((value(staged, s, "agents.roles." + r.role) as string) || "", roleName(r.role));
   return u;
 }
 

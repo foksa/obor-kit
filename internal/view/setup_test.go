@@ -56,7 +56,7 @@ func TestSetupReadsAnOlderServesLanesAsLocked(t *testing.T) {
 
 // T-750, T-765, T-766: Setup is the project's steering — the difficulty levels in configured order with what runs each
 // model ref (kind, model id, the ref's effort), then the roles' refs no level names, every model the config knows with
-// its pause in force, every agent kind with its args and whether it has a prompt_extra, the lanes
+// its pause in force, every agent kind with its args and whether it has a job_note, the lanes
 // with their states, the roles the config names with their statuses and the pause — and how dispatches spread by
 // level and chosen model, in the last 7 days and in all records: a level dispatch, an override (--model, no level), a
 // record from before T-721 (unknown: every lane is pooled), a waiting dispatch that is placed later (once), a redo
@@ -155,9 +155,9 @@ func TestSetup(t *testing.T) {
 	if m := byName["opus"]; m.Paused != nil {
 		t.Errorf("model opus paused %+v, want none", m.Paused)
 	}
-	// kinds (T-766): every agent kind, its args and whether a prompt_extra is set
+	// kinds (T-766): every agent kind, its args and whether a job_note is set
 	wantKinds := []SetupKind{{Name: "claude", Args: []string{}}, {Name: "codex", Args: []string{"--search"}},
-		{Name: "opencode", Args: []string{}, PromptExtra: true}}
+		{Name: "opencode", Args: []string{}, JobNote: true}}
 	if !reflect.DeepEqual(s.Kinds, wantKinds) {
 		t.Errorf("kinds %+v, want %+v", s.Kinds, wantKinds)
 	}

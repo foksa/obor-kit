@@ -160,13 +160,13 @@ func TestConfigSetEachField(t *testing.T) {
 	for _, c := range []struct {
 		key, val, msg, wantIn, reply string
 	}{
-		{"difficulty.hard", `["sonnet","opus:high"]`, `config: difficulty.hard ["opus:high"] → ["sonnet","opus:high"] (owner, web)`,
-			"\"hard\": [\n      \"sonnet\",\n      \"opus:high\"\n    ]", `SET difficulty.hard ["opus:high"] → ["sonnet","opus:high"]`},
-		{"kinds.claude.args", `["--strict-mcp-config"]`, `config: kinds.claude.args ["--x"] → ["--strict-mcp-config"] (owner, web)`,
-			"\"args\": [\n        \"--strict-mcp-config\"\n      ]", `SET kinds.claude.args ["--x"] → ["--strict-mcp-config"]`},
-		{"lanes", `3`, `config: lanes 2 → 3 (owner, web)`, `"lanes": 3`, `SET lanes 2 → 3`},
-		{"roles.integrator", `"sonnet"`, `config: roles.integrator unset → "sonnet" (owner, web)`,
-			"\"integrator\": \"sonnet\"", `SET roles.integrator unset → "sonnet" (at its next start)`},
+		{"agents.difficulty.hard", `["sonnet","opus:high"]`, `config: agents.difficulty.hard ["opus:high"] → ["sonnet","opus:high"] (owner, web)`,
+			"\"hard\": [\n      \"sonnet\",\n      \"opus:high\"\n    ]", `SET agents.difficulty.hard ["opus:high"] → ["sonnet","opus:high"]`},
+		{"agents.kinds.claude.args", `["--strict-mcp-config"]`, `config: agents.kinds.claude.args ["--x"] → ["--strict-mcp-config"] (owner, web)`,
+			"\"args\": [\n        \"--strict-mcp-config\"\n      ]", `SET agents.kinds.claude.args ["--x"] → ["--strict-mcp-config"]`},
+		{"lanes.count", `3`, `config: lanes.count 2 → 3 (owner, web)`, `"lanes": 3`, `SET lanes.count 2 → 3`},
+		{"agents.roles.integrator", `"sonnet"`, `config: agents.roles.integrator unset → "sonnet" (owner, web)`,
+			"\"integrator\": \"sonnet\"", `SET agents.roles.integrator unset → "sonnet" (at its next start)`},
 	} {
 		t.Run(c.key, func(t *testing.T) {
 			t.Parallel()
@@ -211,20 +211,20 @@ func TestConfigSetRefused(t *testing.T) {
 		failCommit              error
 		role, want              string
 	}{
-		{name: "unknown ref", key: "difficulty.hard", val: `["gpt"]`, want: `"gpt" is not a model`},
-		{name: "role ref", key: "roles.lead", val: `"opus:turbo"`, want: `effort "turbo" is not one of claude's`},
+		{name: "unknown ref", key: "agents.difficulty.hard", val: `["gpt"]`, want: `"gpt" is not a model`},
+		{name: "role ref", key: "agents.roles.lead", val: `"opus:turbo"`, want: `effort "turbo" is not one of claude's`},
 		{name: "no caps", key: "lane_types.opus.max", val: `2`, want: "is not an editable key"},
-		{name: "uncommitted", key: "lanes", val: `3`, want: ".obor/config.json has uncommitted changes",
+		{name: "uncommitted", key: "lanes.count", val: `3`, want: ".obor/config.json has uncommitted changes",
 			refused: ".obor/config.json has uncommitted changes in /pj: commit or discard them first"},
-		{name: "worker", key: "lanes", val: `3`, role: "worker", want: "the owner or the lead changes the setup"},
-		{name: "commit", key: "lanes", val: `3`, failCommit: errors.New("git commit: hook said no"), want: "hook said no"},
+		{name: "worker", key: "lanes.count", val: `3`, role: "worker", want: "the owner or the lead changes the setup"},
+		{name: "commit", key: "lanes.count", val: `3`, failCommit: errors.New("git commit: hook said no"), want: "hook said no"},
 		{name: "not editable", key: "commands.check", val: `"x"`, want: "is not an editable key"},
 		// T-781: obor nightly on|off's change
-		{name: "nightly 25:00", key: "merge.nightly_at", val: `"25:00"`, want: "merge.nightly_at takes a local time HH:MM"},
-		{name: "nightly no time", key: "merge.nightly_at", val: `""`, want: "merge.nightly_at takes a local time HH:MM"},
-		{name: "nightly by a worker", key: "merge.nightly_at", val: `"03:00"`, role: "worker",
+		{name: "nightly 25:00", key: "nightly.at", val: `"25:00"`, want: "nightly.at takes a local time HH:MM"},
+		{name: "nightly no time", key: "nightly.at", val: `""`, want: "nightly.at takes a local time HH:MM"},
+		{name: "nightly by a worker", key: "nightly.at", val: `"03:00"`, role: "worker",
 			want: "the owner or the lead changes the setup"},
-		{name: "nightly by the integrator", key: "merge.nightly_at", val: `null`, role: "integrator",
+		{name: "nightly by the integrator", key: "nightly.at", val: `null`, role: "integrator",
 			want: "the owner or the lead changes the setup"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -259,28 +259,28 @@ func TestConfigSetLanesWithTask(t *testing.T) {
 	bf := &fakeConfig{path: filepath.Join(busy.root, ".obor", "config.json")}
 	busy.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Config: bf}, nil }
 	busy.connect()
-	if reply, err := busy.set("b1", "lanes", `0`); err == nil || !strings.Contains(err.Error(), "lane L-01 has task T-1") {
-		t.Errorf("lanes 0 while the lanes read puts T-1 on L-01: %q, %v; want refused", reply, err)
+	if reply, err := busy.set("b1", "lanes.count", `0`); err == nil || !strings.Contains(err.Error(), "lane L-01 has task T-1") {
+		t.Errorf("lanes.count 0 while the lanes read puts T-1 on L-01: %q, %v; want refused", reply, err)
 	}
 	h, f := configRig(t)
-	if reply, err := h.set("l0", "lanes", `2`); err != nil || reply != "UNCHANGED lanes" {
+	if reply, err := h.set("l0", "lanes.count", `2`); err != nil || reply != "UNCHANGED lanes.count" {
 		t.Fatalf("precondition: an unchanged count: %q, %v", reply, err)
 	}
 	h.a.mu.Lock()
 	h.a.p.folded.lr.rows["L-02"] = store.LaneRow{Lane: "L-02", Task: "T-1"}
 	h.a.mu.Unlock()
-	if reply, err := h.set("l1", "lanes", `1`); err == nil || !strings.Contains(err.Error(), "lane L-02 has task T-1: lower lanes once it is free") {
-		t.Fatalf("lanes 1 while L-02 has T-1: %q, %v; want refused", reply, err)
+	if reply, err := h.set("l1", "lanes.count", `1`); err == nil || !strings.Contains(err.Error(), "lane L-02 has task T-1: lower lanes once it is free") {
+		t.Fatalf("lanes.count 1 while L-02 has T-1: %q, %v; want refused", reply, err)
 	}
-	if reply, err := h.set("l1b", "lanes", `3`); err != nil || !strings.HasPrefix(reply, "SET lanes 2 → 3") {
+	if reply, err := h.set("l1b", "lanes.count", `3`); err != nil || !strings.HasPrefix(reply, "SET lanes.count 2 → 3") {
 		t.Fatalf("raising the count while L-02 has T-1: %q, %v; want it set (no lane dropped)", reply, err)
 	}
 	h.a.mu.Lock()
 	h.a.p.folded.loop["T-1"] = &mtask{task: "T-1", lane: "L-02", state: stMerged}
 	delete(h.a.p.folded.lr.rows, "L-02")
 	h.a.mu.Unlock()
-	if reply, err := h.set("l2", "lanes", `1`); err != nil || !strings.HasPrefix(reply, "SET lanes 3 → 1") {
-		t.Fatalf("lanes 1 once T-1 merged: %q, %v", reply, err)
+	if reply, err := h.set("l2", "lanes.count", `1`); err != nil || !strings.HasPrefix(reply, "SET lanes.count 3 → 1") {
+		t.Fatalf("lanes.count 1 once T-1 merged: %q, %v", reply, err)
 	}
 	if n := len(f.messages()); n != 2 {
 		t.Errorf("commits %d, want 2", n)
@@ -302,7 +302,7 @@ func TestConfigSetWaitsForPublish(t *testing.T) {
 	r.publishing(ctx)
 	done := make(chan error, 1)
 	go func() {
-		_, err := h.set("w1", "difficulty.hard", `["opus"]`)
+		_, err := h.set("w1", "agents.difficulty.hard", `["opus"]`)
 		done <- err
 	}()
 	if !waiting(done) {
@@ -315,7 +315,7 @@ func TestConfigSetWaitsForPublish(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatalf("the change after the publish: %v", err)
 	}
-	if got := f.messages(); len(got) != 1 || !strings.HasPrefix(got[0], "config: difficulty.hard") {
+	if got := f.messages(); len(got) != 1 || !strings.HasPrefix(got[0], "config: agents.difficulty.hard") {
 		t.Errorf("commits %q, want the change's", got)
 	}
 }
@@ -332,7 +332,7 @@ func TestConfigSetSameCallWhileInFlight(t *testing.T) {
 	defer release()
 	first := make(chan callReply, 1)
 	go func() {
-		reply, err := h.set("c1", "lanes", `3`)
+		reply, err := h.set("c1", "lanes.count", `3`)
 		first <- callReply{reply, err}
 	}()
 	select {
@@ -342,7 +342,7 @@ func TestConfigSetSameCallWhileInFlight(t *testing.T) {
 	}
 	second := make(chan callReply, 1)
 	go func() {
-		reply, err := h.set("c1", "lanes", `4`)
+		reply, err := h.set("c1", "lanes.count", `4`)
 		second <- callReply{reply, err}
 	}()
 	if !waiting(second) {
@@ -350,7 +350,7 @@ func TestConfigSetSameCallWhileInFlight(t *testing.T) {
 	}
 	release()
 	a, b := <-first, <-second
-	if a.err != nil || b.err != nil || a.reply != `SET lanes 2 → 3` || b.reply != a.reply {
+	if a.err != nil || b.err != nil || a.reply != `SET lanes.count 2 → 3` || b.reply != a.reply {
 		t.Fatalf("calls: %q, %v and %q, %v; want both the first's reply", a.reply, a.err, b.reply, b.err)
 	}
 	if got := f.messages(); len(got) != 1 || len(configFacts(t, h)) != 1 {
@@ -367,10 +367,10 @@ func TestConfigSetBatchIsOneCommit(t *testing.T) {
 	h, f := configRig(t)
 	reply, err := h.a.configCall(wire.ConfigSetReq{Envelope: wire.Envelope{Root: h.root, CallID: "b1"}, Source: "web",
 		Changes: changes(
-			"difficulty.hard", `["fable"]`, "difficulty.hard", `["fable:high"]`, "lanes", `2`,
-			"roles.integrator", `"sonnet"`)})
-	want := `SET difficulty.hard ["opus:high"] → ["fable"]; SET difficulty.hard ["fable"] → ["fable:high"]; ` +
-		`SET roles.integrator unset → "sonnet" (at its next start)`
+			"agents.difficulty.hard", `["fable"]`, "agents.difficulty.hard", `["fable:high"]`, "lanes.count", `2`,
+			"agents.roles.integrator", `"sonnet"`)})
+	want := `SET agents.difficulty.hard ["opus:high"] → ["fable"]; SET agents.difficulty.hard ["fable"] → ["fable:high"]; ` +
+		`SET agents.roles.integrator unset → "sonnet" (at its next start)`
 	if err != nil || reply != want {
 		t.Fatalf("batch: %q, %v; want %q", reply, err, want)
 	}
@@ -379,25 +379,25 @@ func TestConfigSetBatchIsOneCommit(t *testing.T) {
 		!strings.Contains(string(b), "\"integrator\": \"sonnet\"") {
 		t.Errorf("the file lacks a change:\n%s", b)
 	}
-	msg := "config: difficulty.hard, difficulty.hard, roles.integrator (owner, web)\n\n" +
-		"- difficulty.hard [\"opus:high\"] → [\"fable\"]\n- difficulty.hard [\"fable\"] → [\"fable:high\"]\n" +
-		"- roles.integrator unset → \"sonnet\""
+	msg := "config: agents.difficulty.hard, agents.difficulty.hard, agents.roles.integrator (owner, web)\n\n" +
+		"- agents.difficulty.hard [\"opus:high\"] → [\"fable\"]\n- agents.difficulty.hard [\"fable\"] → [\"fable:high\"]\n" +
+		"- agents.roles.integrator unset → \"sonnet\""
 	if got := f.messages(); len(got) != 1 || got[0] != msg {
 		t.Errorf("commits %q, want one:\n%s", got, msg)
 	}
 	facts := configFacts(t, h)
 	if len(facts) != 1 || len(facts[0].Changes) != 3 || facts[0].Changes[1] != (event.ConfigSetChange{
-		Key: "difficulty.hard", Old: `["fable"]`, New: `["fable:high"]`}) || facts[0].Reply != want {
+		Key: "agents.difficulty.hard", Old: `["fable"]`, New: `["fable:high"]`}) || facts[0].Reply != want {
 		t.Errorf("facts %+v, want one with the three changes", facts)
 	}
-	line := `[obor] config: difficulty.hard ["opus:high"] → ["fable"]; difficulty.hard ["fable"] → ["fable:high"]; ` +
-		`roles.integrator unset → "sonnet" (owner, web)`
+	line := `[obor] config: agents.difficulty.hard ["opus:high"] → ["fable"]; agents.difficulty.hard ["fable"] → ["fable:high"]; ` +
+		`agents.roles.integrator unset → "sonnet" (owner, web)`
 	if lines := leadLines(t, h); len(lines) != 1 || lines[0] != line {
 		t.Errorf("lines to the lead %q, want %q", lines, line)
 	}
 	if r, err := h.a.configCall(wire.ConfigSetReq{Envelope: wire.Envelope{Root: h.root, CallID: "b2"},
-		Changes: changes("lanes", `2`)}); err != nil ||
-		r != "UNCHANGED lanes" {
+		Changes: changes("lanes.count", `2`)}); err != nil ||
+		r != "UNCHANGED lanes.count" {
 		t.Errorf("a batch that changes nothing: %q, %v", r, err)
 	}
 }
@@ -411,8 +411,8 @@ func TestConfigSetBatchAllOrNothing(t *testing.T) {
 		kv   []string
 		want string
 	}{
-		{"second refused", []string{"lanes", `3`, "difficulty.hard", `["gpt"]`}, `"gpt" is not a model`},
-		{"validate", []string{"lanes", `3`, "kinds.opencode.args", `["--"]`}, "`--` is not allowed"},
+		{"second refused", []string{"lanes.count", `3`, "agents.difficulty.hard", `["gpt"]`}, `"gpt" is not a model`},
+		{"validate", []string{"lanes.count", `3`, "agents.kinds.opencode.args", `["--"]`}, "`--` is not allowed"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -439,11 +439,11 @@ func TestConfigSetBaseIsTheFileRead(t *testing.T) {
 	h, f := configRig(t)
 	base := config.Rev([]byte(configJSON))
 	if _, err := h.a.configCall(wire.ConfigSetReq{Envelope: wire.Envelope{Root: h.root, CallID: "t1"}, Base: base,
-		Changes: changes("lanes", `3`)}); err != nil {
+		Changes: changes("lanes.count", `3`)}); err != nil {
 		t.Fatalf("the first tab's save: %v", err)
 	}
 	_, err := h.a.configCall(wire.ConfigSetReq{Envelope: wire.Envelope{Root: h.root, CallID: "t2"}, Base: base,
-		Changes: changes("lanes", `4`)})
+		Changes: changes("lanes.count", `4`)})
 	if err == nil || !strings.Contains(err.Error(), "changed since this page read it") {
 		t.Fatalf("the second tab's save on the old file: %v, want refused", err)
 	}
@@ -452,7 +452,7 @@ func TestConfigSetBaseIsTheFileRead(t *testing.T) {
 		t.Errorf("the stale save wrote or committed: %q\n%s", f.messages(), b)
 	}
 	if _, err := h.a.configCall(wire.ConfigSetReq{Envelope: wire.Envelope{Root: h.root, CallID: "t3"},
-		Base: config.Rev(b), Changes: changes("lanes", `4`)}); err != nil {
+		Base: config.Rev(b), Changes: changes("lanes.count", `4`)}); err != nil {
 		t.Errorf("a save on the current file: %v", err)
 	}
 }

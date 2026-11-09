@@ -9,15 +9,16 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-781: obor nightly on HH:MM | off is one config_set request to obor serve as the caller: merge.nightly_at set to the
-// time (a JSON string) or null. Serve's SET is NIGHTLY ON at HH:MM / NIGHTLY OFF, its UNCHANGED the same "already";
-// its refusal (a bad time, a lane role) is FAIL, exit 1. A usage error sends nothing and leaves the config as it was.
+// T-781: obor nightly on HH:MM | off is one config_set request to obor serve as the caller: nightly.at set to the
+// time (a JSON string) or null (T-1126: the key's shape-2 name). Serve's SET is NIGHTLY ON at HH:MM / NIGHTLY OFF,
+// its UNCHANGED the same "already"; its refusal (a bad time, a lane role) is FAIL, exit 1. A usage error sends nothing
+// and leaves the config as it was.
 func TestNightlySwitch(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)
 	p.Config()
 	before := p.Read(".obor/config.json")
-	home, serve := startFakeServe(t, p.Root, wire.Status{}, `SET merge.nightly_at unset → "03:00"`, "")
+	home, serve := startFakeServe(t, p.Root, wire.Status{}, `SET nightly.at unset → "03:00"`, "")
 	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
 	for _, args := range [][]string{{"nightly", "on"}, {"nightly", "on", "03:00", "x"}, {"nightly", "off", "03:00"},
 		{"nightly", "now"}, {"nightly", "03:00"}} {
@@ -35,7 +36,7 @@ func TestNightlySwitch(t *testing.T) {
 	if rc, stdout, _ := run(t, p.Root, env, "nightly", "on", "03:00"); rc != 0 || stdout != "NIGHTLY ON at 03:00\n" {
 		t.Errorf("on: exit %d, %q; want NIGHTLY ON at 03:00", rc, stdout)
 	}
-	serve2 := startFakeServeAt(t, wire.SocketPath(p.Root), wire.Status{}, `SET merge.nightly_at "03:00" → unset`, "")
+	serve2 := startFakeServeAt(t, wire.SocketPath(p.Root), wire.Status{}, `SET nightly.at "03:00" → unset`, "")
 	if rc, stdout, _ := run(t, p.Root, env, "nightly", "off"); rc != 0 || stdout != "NIGHTLY OFF\n" {
 		t.Errorf("off: exit %d, %q; want NIGHTLY OFF", rc, stdout)
 	}
@@ -53,13 +54,13 @@ func TestNightlySwitch(t *testing.T) {
 	}
 	for i, want := range []string{`"03:00"`, `null`} {
 		c := calls[i]
-		if len(c.Changes) != 1 || c.Changes[0].Key != "merge.nightly_at" || string(c.Changes[0].Value) != want ||
+		if len(c.Changes) != 1 || c.Changes[0].Key != "nightly.at" || string(c.Changes[0].Value) != want ||
 			c.Role != "lead" || c.Agent != "pj-lead" || c.Root != p.Root || c.CallID == "" {
-			t.Errorf("request %d: %+v; want merge.nightly_at = %s as the lead", i+1, c, want)
+			t.Errorf("request %d: %+v; want nightly.at = %s as the lead", i+1, c, want)
 		}
 	}
 
-	startFakeServeAt(t, wire.SocketPath(p.Root), wire.Status{}, "UNCHANGED merge.nightly_at", "")
+	startFakeServeAt(t, wire.SocketPath(p.Root), wire.Status{}, "UNCHANGED nightly.at", "")
 	if rc, stdout, _ := run(t, p.Root, env, "nightly", "off"); rc != 0 || stdout != "NIGHTLY OFF already\n" {
 		t.Errorf("off when off: exit %d, %q; want NIGHTLY OFF already", rc, stdout)
 	}
@@ -67,7 +68,7 @@ func TestNightlySwitch(t *testing.T) {
 		t.Errorf("on when on: exit %d, %q; want NIGHTLY ON at 03:00 already", rc, stdout)
 	}
 
-	for _, refusal := range []string{"config: merge.nightly_at takes a local time HH:MM (00:00 to 23:59), or null (off)",
+	for _, refusal := range []string{"config: nightly.at takes a local time HH:MM (00:00 to 23:59), or null (off)",
 		"config: the owner or the lead changes the setup, not pj-l-01 (role worker)"} {
 		refusing := startFakeServeAt(t, wire.SocketPath(p.Root), wire.Status{}, "", refusal)
 		if rc, stdout, _ := run(t, p.Root, env, "nightly", "on", "25:00"); rc != 1 || stdout != "FAIL "+refusal+"\n" {

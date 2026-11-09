@@ -300,7 +300,7 @@ func TestMergeLoopNightlyFollowsTheConfig(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		ch, err := cfg.Edit(doc, "merge.nightly_at", json.RawMessage(val))
+		ch, err := cfg.Edit(doc, "nightly.at", json.RawMessage(val))
 		if err != nil {
 			t.Fatal(err)
 		}

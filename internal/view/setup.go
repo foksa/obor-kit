@@ -63,12 +63,12 @@ type SetupModel struct {
 	Paused *Pause `json:"paused"`
 }
 
-// SetupKind is one agent kind (T-766): the args kinds.<kind>.args appends to its every start and whether
-// kinds.<kind>.prompt_extra adds a line to its work jobs.
+// SetupKind is one agent kind (T-766): every start of it gets agents.kinds.<kind>.args, and
+// agents.kinds.<kind>.job_note adds a line to its work jobs.
 type SetupKind struct {
-	Name        string   `json:"name"`
-	Args        []string `json:"args"`
-	PromptExtra bool     `json:"prompt_extra"`
+	Name    string   `json:"name"`
+	Args    []string `json:"args"`
+	JobNote bool     `json:"job_note"`
 }
 
 // SetupLane is one configured lane: its name, the model it runs now (its dispatch's; "": none), its agent and its
@@ -187,7 +187,7 @@ func setup(cfg *config.Config, lanes []port.Lane, v Project, db *sql.DB, rev str
 	}
 	for _, kind := range agents.Names() {
 		k := cfg.Kind(kind)
-		s.Kinds = append(s.Kinds, SetupKind{Name: kind, Args: append([]string{}, k.Args...), PromptExtra: k.JobNote != ""})
+		s.Kinds = append(s.Kinds, SetupKind{Name: kind, Args: append([]string{}, k.Args...), JobNote: k.JobNote != ""})
 	}
 	s.Paused = v.Paused
 	s.Distribution = distribution(db, now)

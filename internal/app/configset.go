@@ -152,7 +152,7 @@ func (a *App) configSet(ctx context.Context, p *proj, file ConfigFile, c wire.Co
 	parts := make([]string, 0, len(done))
 	for _, d := range done {
 		r := fmt.Sprintf("SET %s %s → %s", d.Key, unsetText(d.Old), unsetText(d.New))
-		if strings.HasPrefix(d.Key, "roles.") {
+		if strings.HasPrefix(d.Key, "agents.roles.") {
 			r += " (at its next start)"
 		}
 		parts = append(parts, r)

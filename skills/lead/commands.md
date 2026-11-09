@@ -73,7 +73,7 @@ review request that follows the last merge is work, not idle), it posts one line
 The owner may change the setup on obor web's Setup page instead of editing `.obor/config.json`: a difficulty level's
 model refs, a role's model ref, the lanes count, a kind's args, and the pause. The page stages the edits and
 the owner commits them together (T-760): serve writes them as one commit on main itself and tells you in one line:
-- `[obor] config: <key> <old> → <new>; <key> <old> → <new> (owner, web)` — e.g. `[obor] config: difficulty.hard ["<model>"] → ["<model>:<effort>","<model>"] (owner, web)`.
+- `[obor] config: <key> <old> → <new>; <key> <old> → <new> (owner, web)` — e.g. `[obor] config: agents.difficulty.hard ["<model>"] → ["<model>:<effort>","<model>"] (owner, web)`.
 
 A save made on a config that changed since the owner's page read it (your hand edit, say) is refused, nothing written:
 the owner reviews it against yours.
@@ -82,16 +82,16 @@ It counts from the next dispatch (a role's type at its next start); nothing to d
 commit is on main: pull before you edit the config by hand. A pause set or cleared there is the same as `obor pause`.
 
 ## obor nightly on|off (T-781)
-`merge.nightly_at` is the nightly's switch, and you or the owner throw it; nothing else decides whether it runs. While
+`nightly.at` is the nightly's switch, and you or the owner throw it; nothing else decides whether it runs. While
 on, serve runs `obor nightly` (check, check_milestone, the store backup, then the config's
-`merge.nightly_commands` — e.g. a cache trim, each non-gating) every night at
+`nightly.also_run` — e.g. a cache trim, each non-gating) every night at
 that time, whatever merged since; off, never.
 - `obor nightly on HH:MM` — `NIGHTLY ON at HH:MM` (`… already` when it was; nothing committed). A time that is not
   `00:00`–`23:59` is refused, the config unchanged.
 - `obor nightly off` — `NIGHTLY OFF` (`NIGHTLY OFF already`). A run in progress is not stopped.
 - `obor nightly` — one run now, as before.
 
-Serve writes it as a setup edit (one commit on main, your `[obor] config: merge.nightly_at …` line) and reads it from
+Serve writes it as a setup edit (one commit on main, your `[obor] config: nightly.at …` line) and reads it from
 the next pass: no serve restart. `obor status` shows `nightly check at HH:MM (in …)`, or `nightly: off (obor nightly
 on HH:MM)`.
 
@@ -116,7 +116,7 @@ finished; a brief to a stopped role agent starts it fresh, its first prompt the 
   next pass tries again, or brief it again). An idle deep dive's worktree moves to the integration branch's head
   first either way (T-853; nothing waits for a publish in flight, T-872; merges are not held while they work).
 - `restart --prompt`, `--type`, `--effort` and `--sid` are gone: a first prompt is `obor brief --fresh`, a model is
-  `obor dispatch <T-xx> --model <model>` for a task or `roles.<role>` in the config (the Setup page) for a role.
+  `obor dispatch <T-xx> --model <model>` for a task or `agents.roles.<role>` in the config (the Setup page) for a role.
 
 ## obor review (T-638)
 `obor review [--after T-a,T-b] [--note "<text>"]` (`--rm` ends it) — `REVIEW REQUESTED (now | after T-a,T-b)`. A start
@@ -171,11 +171,11 @@ overrides both.
   (also in `obor status`): serve dispatches it when a lane frees or a pause ends. `--after` adds `WAITING T-xx after
   T-yy (queued)`.
 - `obor dispatch <T-xx> --model a,b` — overrides the level (a smoke test's model); no free lane is
-  a refusal, not a wait. A level's models are the config's `difficulty` entry for it, else the built-in default: hard
+  a refusal, not a wait. A level's models are the config's `agents.difficulty` entry for it, else the built-in default: hard
   `opus:high`, medium `sonnet, deepseek`, simple `deepseek, sonnet, haiku`; `obor setup show` prints them.
 - `obor pause --model <name> [--for 3h] "<why>"` — dispatch skips that model (a quota, an outage) and a level's next
   one runs; `obor pause --model <name> --clear` ends it. A redo keeps its own model even while it is paused.
-- Effort: any model named here (`Model:`, `--model`, config `difficulty`, `roles.<role>`) may be `<model>:<effort>`:
+- Effort: any model named here (`Model:`, `--model`, config `agents.difficulty`, `agents.roles.<role>`) may be `<model>:<effort>`:
   the agent starts at that effort, shown in the reply (`DISPATCHED T-xx → L-01 (queued)
   as <model> effort <effort>`) and `obor status`; an effort the kind lacks is refused.
 - A spec with no level and no `--model`: `FAIL`, naming the fix. The `<LANE> <T-xx>` form is gone.
