@@ -108,6 +108,36 @@ func TestLiveOnlyTheAgentsDescendants(t *testing.T) {
 	}
 }
 
+// T-1147 (RV-169 verify): the helper filter is the view's alone. A recorded run whose shell started 5 s after the agent
+// (within helperSlack of its start) is live; a helper shell started with the agent and no recorded call is not, and
+// the view's walk (Descendants) still hides it.
+func TestLiveEarlyAgentRun(t *testing.T) {
+	at := time.Unix(1_800_000_000, 0)
+	call := project.BackgroundCall{At: at.Add(-6 * time.Second).Unix(), Session: "s1", Agent: "w1",
+		Description: "bench", Command: "go test -bench . ./..."}
+	agent := Proc{PID: 500, PPID: 1, Age: 11 * time.Second, Command: "claude"}
+	run := []Proc{agent, {PID: 600, PPID: 500, Age: 6 * time.Second, Command: "/bin/zsh -c eval 'go test -bench . ./...'"},
+		{PID: 601, PPID: 600, Age: 6 * time.Second, Command: "go test -bench . ./..."}}
+	if got := NewProcIndex(run).Descendants(500, -1); len(got) != 0 {
+		t.Fatalf("precondition: the view's walk sees %+v, want the early run hidden as a helper", got)
+	}
+	if c, ok := Live([]project.BackgroundCall{call}, run, 500, at); !ok || c.Description != "bench" {
+		t.Errorf("a recorded run started 5 s after the agent: %+v %v, want the call live", c, ok)
+	}
+
+	helper := []Proc{agent, {PID: 610, PPID: 500, Age: 10 * time.Second, Command: "/bin/sh -c npx some-mcp"},
+		{PID: 611, PPID: 610, Age: 10 * time.Second, Command: "node some-mcp"}}
+	if got := NewProcIndex(helper).Descendants(500, -1); len(got) != 0 {
+		t.Errorf("a helper shell near the agent's start: the view shows %+v, want it hidden", got)
+	}
+	if c, ok := Live([]project.BackgroundCall{call}, helper, 500, at); ok {
+		t.Errorf("a helper shell with no recorded call: live %+v, want none", c)
+	}
+	if found := NewProcIndex(helper).walk(500, -1, false); len(found) != 1 || found[0].PID != 611 {
+		t.Errorf("precondition: Live's walk sees %+v, want the helper's process (only no call matches it)", found)
+	}
+}
+
 // T-1143: a hook's agent is its first ancestor that is no shell (the hook command's shell passed through); a hook
 // whose pid is not in the table, or whose ancestry ends at pid 1 through shells only or a pid not in the table, has
 // none.
