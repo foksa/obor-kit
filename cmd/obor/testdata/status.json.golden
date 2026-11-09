@@ -219,19 +219,22 @@
       "seq": 3,
       "ts": 0,
       "task": "T-02",
-      "line": "submitted T-02"
+      "line": "submitted T-02",
+      "kind": "submit"
     },
     {
       "seq": 2,
       "ts": 0,
       "task": "T-02",
-      "line": "dispatched T-02 (L-02)"
+      "line": "dispatched T-02 (L-02)",
+      "kind": "dispatch"
     },
     {
       "seq": 1,
       "ts": 0,
       "task": "T-01",
-      "line": "dispatched T-01 (L-01)"
+      "line": "dispatched T-01 (L-01)",
+      "kind": "dispatch"
     }
   ]
 }
