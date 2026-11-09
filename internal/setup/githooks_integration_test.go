@@ -22,9 +22,9 @@ const hangBound = 15 * time.Second
 // commit / push / merge. The kit is a throwaway copy of this checkout's bin/, VERSION and githooks/ with a fresh build
 // as dist/obor, so the hooks' `bin/obor whoami` runs this code.
 
-// pushRefusal: the pre-push hook's refusal names both ways out (T-793).
+// pushRefusal: the pre-push hook's refusal names its way out (T-793; T-1116: OBOR_ALLOW_PUSH is gone).
 func pushRefusal(errOut string) bool {
-	return strings.Contains(errOut, "guards.allow_push") && strings.Contains(errOut, "OBOR_ALLOW_PUSH=1")
+	return strings.Contains(errOut, "guards.allow_push")
 }
 
 // remote adds a bare origin and returns its path.
@@ -236,28 +236,27 @@ func TestGithooks(t *testing.T) {
 		name string
 		test func(t *testing.T, x *hx)
 	}{
-		// bash case_pre_push_refuses_allow_push_allows
-		{"pre-push refuses, OBOR_ALLOW_PUSH=1 allows", func(t *testing.T, x *hx) {
-			remote := filepath.Join(x.Base, "remote.git")
-			x.Git(x.Base, "init", "-q", "--bare", remote)
-			x.Git(x.Root, "remote", "add", "origin", remote)
-			rc, errOut := x.git(x.gitEnv(), x.Root, "push", "-q", "origin", "main")
+		// T-1116: the push block is for agents. A shell with no OBOR_ROLE (the owner's) pushes, even though the stub
+		// binary refuses --can-push: the hook answers this one itself, without asking (and so without a build).
+		{"pre-push: no OBOR_ROLE (a person's shell) pushes; a role the binary refuses is refused", func(t *testing.T, x *hx) {
+			remote := x.remote()
+			rc, errOut := x.git(x.gitEnv("OBOR_ROLE=reviewer"), x.Root, "push", "-q", "origin", "main")
 			if rc != 1 || !pushRefusal(errOut) {
-				t.Errorf("push refused: exit %d\n%s", rc, errOut)
+				t.Errorf("a reviewer's push: exit %d\n%s", rc, errOut)
 			}
 			if got := x.Git(remote, "branch", "--list", "main"); got != "" {
-				t.Errorf("nothing pushed: %q", got)
+				t.Errorf("the refused push reached the remote: %q", got)
 			}
-			if rc, errOut := x.git(x.gitEnv("OBOR_ALLOW_PUSH=1"), x.Root, "push", "-q", "origin", "main"); rc != 0 {
-				t.Errorf("OBOR_ALLOW_PUSH=1: exit %d\n%s", rc, errOut)
+			if rc, errOut := x.git(x.gitEnv(), x.Root, "push", "-q", "origin", "main"); rc != 0 {
+				t.Errorf("no OBOR_ROLE: exit %d\n%s", rc, errOut)
 			}
-			if x.Git(remote, "rev-parse", "main") != x.head(x.Root) {
-				t.Error("pushed")
+			if got, want := x.Git(remote, "rev-parse", "main"), x.head(x.Root); got != want {
+				t.Errorf("the remote's main is %s, want %s", got, want)
 			}
 		}},
-		// T-793: the hook asks the binary (whoami --can-push) and obeys its answer: a listed role passes, a role not
-		// listed and a lane-bound one refuse. The decision itself (guards.allow_push, the lane row) is the real
-		// binary's, tested in cmd/obor's TestWhoamiCanPush.
+		// T-793: the hook asks the binary (whoami --can-push) and obeys its answer for a role: a listed role passes, a
+		// role not listed and a lane-bound one refuse. T-1116: no OBOR_ROLE is not asked (the stub would refuse it).
+		// The decision itself (guards.allow_push, the lane row) is the real binary's, in cmd/obor's TestWhoamiCanPush.
 		{"pre-push obeys whoami --can-push: a listed role passes, a role not listed and a lane-bound one refuse", func(t *testing.T, x *hx) {
 			x.Config(func(c map[string]any) { c["guards"] = map[string]any{"allow_push": []string{"lead", "worker"}} })
 			x.binary("#!/bin/bash\n[ \"$OBOR_ROLE\" = lead ] && exit 0\nexit 1\n")
@@ -276,10 +275,11 @@ func TestGithooks(t *testing.T) {
 				}
 			}
 			pushes(x.Root, "main", x.gitEnv("OBOR_ROLE=reviewer"), 1, "role not listed")
-			pushes(x.Root, "main", x.gitEnv(), 1, "no role (the owner without the env)")
 			x.Git(x.lane, "branch", "-f", "lanebranch", "HEAD")
 			pushes(x.lane, "lanebranch", x.gitEnv("OBOR_ROLE=worker"), 1, "lane-bound role (the binary answers no)")
 			pushes(x.Root, "main", x.gitEnv("OBOR_ROLE=lead"), 0, "lead listed in allow_push")
+			x.Git(x.Root, "branch", "-f", "ownerbranch", "HEAD")
+			pushes(x.Root, "ownerbranch", x.gitEnv(), 0, "no OBOR_ROLE (the binary would refuse it)")
 		}},
 		{"pre-push refuses without a usable binary (none, stale, hanging)", func(t *testing.T, x *hx) {
 			x.Config(func(c map[string]any) { c["guards"] = map[string]any{"allow_push": []string{"lead"}} })
@@ -311,14 +311,16 @@ func TestGithooks(t *testing.T) {
 				t.Errorf("binary answering yes: exit %d\n%s", rc, errOut)
 			}
 		}},
-		{"pre-push: OBOR_ALLOW_PUSH=1 passes without asking the binary", func(t *testing.T, x *hx) {
-			x.remote()
+		// T-1116 replaced OBOR_ALLOW_PUSH=1: a person's shell (no OBOR_ROLE) pushes with no binary at all, since the
+		// hook needs no classifier for it; a role with no binary still fails closed (the case above).
+		{"pre-push: no OBOR_ROLE passes without a binary", func(t *testing.T, x *hx) {
+			remote := x.remote()
 			env, _ := x.cold(t)
-			if rc, _ := x.git(env, x.Root, "push", "-q", "origin", "main"); rc != 1 {
-				t.Fatalf("precondition: refused without the override and without a binary: exit %d", rc)
+			if rc, errOut := x.git(env, x.Root, "push", "-q", "origin", "main"); rc != 0 {
+				t.Errorf("no OBOR_ROLE without a binary: exit %d\n%s", rc, errOut)
 			}
-			if rc, errOut := x.git(append(env, "OBOR_ALLOW_PUSH=1"), x.Root, "push", "-q", "origin", "main"); rc != 0 {
-				t.Errorf("OBOR_ALLOW_PUSH=1 without a binary: exit %d\n%s", rc, errOut)
+			if got, want := x.Git(remote, "rev-parse", "main"), x.head(x.Root); got != want {
+				t.Errorf("the remote's main is %s, want %s", got, want)
 			}
 		}},
 		// T-709: a stopped project's git hooks stand down (obor stop wrote .obor/state/stopped): a lane commit and a
@@ -500,8 +502,8 @@ func TestGithooks(t *testing.T) {
 			x.Git(x.Root, "remote", "add", "origin", remote)
 			in := filepath.Join(x.Base, "chain-stdin")
 			x.chain(".githooks", "pre-push", fmt.Sprintf("#!/bin/sh\ncat > %q\n", in))
-			if rc, errOut := x.git(x.gitEnv("OBOR_ALLOW_PUSH=1"), x.Root, "push", "-q", "origin", "main"); rc != 0 {
-				t.Fatalf("push with OBOR_ALLOW_PUSH=1: exit %d\n%s", rc, errOut)
+			if rc, errOut := x.git(x.gitEnv(), x.Root, "push", "-q", "origin", "main"); rc != 0 {
+				t.Fatalf("push from a person's shell: exit %d\n%s", rc, errOut)
 			}
 			if got := x.Read(in); !strings.Contains(got, "refs/heads/main") {
 				t.Errorf("stdin reached the chained pre-push: %q", got)
@@ -517,7 +519,7 @@ func TestGithooks(t *testing.T) {
 			x.Git(x.Root, "remote", "add", "origin", remote)
 			calls := filepath.Join(x.Base, "own.calls")
 			x.chain(".githooks", "pre-push", fmt.Sprintf("#!/bin/sh\necho passed >> %q\n", calls))
-			rc, errOut := x.git(x.gitEnv(), x.Root, "push", "-q", "origin", "main")
+			rc, errOut := x.git(x.gitEnv("OBOR_ROLE=reviewer"), x.Root, "push", "-q", "origin", "main")
 			if rc != 1 || !pushRefusal(errOut) {
 				t.Errorf("push refused after the chain passed: exit %d\n%s", rc, errOut)
 			}

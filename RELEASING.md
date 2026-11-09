@@ -64,9 +64,9 @@ of `main`, no separate worktree):
 
 The owner:
 
-3. `make ship`, in the same main checkout (no checkout of `main` is needed: release already moved `refs/heads/main`;
-   `OBOR_ALLOW_PUSH=1` is inside the push): first the tag's own checks (`scripts/publish --check`) and the same
-   stale-tag check as `make release`, against the release's `checksums: v<x.y.z>` commit on main instead of HEAD; then
+3. `make ship`, in the same main checkout (no checkout of `main` is needed: release already moved `refs/heads/main`):
+   first the tag's own checks (`scripts/publish --check`) and the same stale-tag check as `make release`, against the
+   release's `checksums: v<x.y.z>` commit on main instead of HEAD; then
    pushes main up to that commit and the tag, runs `scripts/publish` (the GitHub release), then `install.sh` on this
    machine. Each step is skipped when it is already done and checked after it runs: origin has the tag (the same
    object) and a main containing that commit; the GitHub release is not a draft and has the eight assets (a release

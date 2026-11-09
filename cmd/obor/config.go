@@ -70,7 +70,7 @@ func whoami(args []string) int {
 	case len(args) == 0:
 	case len(args) == 1 && args[0] == "--json":
 		asJSON = true
-	case len(args) == 1 && args[0] == "--can-push": // hidden: the pre-push hook's question (T-793)
+	case len(args) == 1 && args[0] == "--can-push": // hidden: the pre-push hook's question for a role (T-793, T-1116)
 		canPush = true
 	default:
 		errf("%s", help.Usage("whoami"))
