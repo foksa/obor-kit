@@ -117,8 +117,8 @@ func Go(root string, files, fullGlobs []string) (Result, error) {
 	changed := map[string]bool{}   // files that are imported (or embedded): their packages and reverse deps
 	testFiles := map[string]bool{} // _test.go files: their own package only
 	for _, f := range files {
-		if f = path.Clean(f); f == "." || strings.HasPrefix(f, "../") {
-			continue
+		if f = path.Clean(f); f == "." || strings.HasPrefix(f, "../") || path.IsAbs(f) {
+			continue // not module-relative: no package of this module holds it (T-1159: an absolute path never reached ".")
 		}
 		test := strings.HasSuffix(f, "_test.go")
 		for dir := path.Dir(f); ; dir = path.Dir(dir) {

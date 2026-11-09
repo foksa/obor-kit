@@ -60,6 +60,7 @@ func TestGoFixture(t *testing.T) {
 		{"cmd/app/app_test.go", "fx/cmd/app", "", fixtureFull},                // a main package's test file selects it alone
 		{"other/tmpl/x.txt", "fx/other", "", fixtureFull},                     // a non-Go file in a package dir (embedded) selects it
 		{"top/top.go docs/a.md README.md", "fx/top", "", fixtureFull},         // files under no package select nothing
+		{"/abs/x.go", "", "", fixtureFull},                                    // T-1159: an absolute path is skipped, not walked to "/"
 		{"README.md docs/a.md", "", "", fixtureFull},                          // no Go files: empty
 		{"leaf/leaf.go go.mod", "", "changed go.mod", fixtureFull},
 		{"go.sum", "", "changed go.sum", fixtureFull},
