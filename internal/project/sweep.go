@@ -24,18 +24,35 @@ const (
 	backupTempKeep  = 24 * time.Hour
 )
 
+// mergedLogKeep is how long a merged task's step logs stay after its last merge (T-1090): they are rarely read after
+// the merge, whose gate results and report are in the event log. Every other log keeps PruneOlder's 14 days.
+const mergedLogKeep = 3 * 24 * time.Hour
+
+// Merge is one of a project's merged facts as the sweep's merged-task log step reads them (event.ReadMerges): the task
+// and when it merged.
+type Merge struct {
+	Task string
+	At   time.Time
+}
+
+// Merges reads the project at root's merged facts, oldest first (event.ReadMerges, read-only). An error means they
+// could not be read (a project without a store, for one): the merged-task log step then removes nothing and the sweep
+// has one line saying why (T-1090).
+type Merges func(root string) ([]Merge, error)
+
 // Sweep removes what the project at cfg.Root no longer needs, right after obor nightly's backup: daily backups past
 // the newest backupKeep dates (either format, T-1086: gzip'd days count together with the older uncompressed ones;
 // every other entry of state/backup/ but a temp file younger than a day), files keyed by a lane or agent the config no
 // longer names (run-changed-<lane>, lane-changed-files-<lane>, lanes/<lane>.plugin, lanes/<lane>.setup, inbox/<slot>,
 // restart-<agent>.log, restart-<lane|agent>.lock), the retired state files (receipts/, merges.log,
-// merge-changed-files), drafts not modified for draftKeep and stop-failure entries older than stopFailureKeep.
+// merge-changed-files), drafts not modified for draftKeep, the step logs of tasks merged more than mergedLogKeep ago
+// (merges, T-1090) and stop-failure entries older than stopFailureKeep.
 // backedUp says this nightly's backup succeeded with a nonempty reply: only then is the backup step run (RV-161 #1: a
 // failed or empty backup must not remove the days an upgraded project still has). Every other step runs regardless. It
-// never touches obor.db*, serve.*, logs/, kinds/, opencode.json, conformance.json, last-full-check, flakes.jsonl,
-// background.jsonl or launch.log. Every removal is best-effort: a failure is one line naming its path and the sweep
-// goes on (a removal it misses is only disk).
-func Sweep(cfg *config.Config, now time.Time, backedUp bool) []string {
+// never touches obor.db*, serve.*, the other logs/ files, kinds/, opencode.json, conformance.json, last-full-check,
+// flakes.jsonl, background.jsonl or launch.log. Every removal is best-effort: a failure is one line naming its path
+// and the sweep goes on (a removal it misses is only disk).
+func Sweep(cfg *config.Config, now time.Time, backedUp bool, merges Merges) []string {
 	if cfg == nil {
 		return []string{"sweep: no config"}
 	}
@@ -59,6 +76,16 @@ func Sweep(cfg *config.Config, now time.Time, backedUp bool) []string {
 			}, nil
 		}},
 		{"drafts", func() ([]string, error) { return sweepDrafts(filepath.Join(cfg.Root, ".obor", "drafts"), now) }},
+		{"merged logs", func() ([]string, error) {
+			if merges == nil {
+				return nil, fmt.Errorf("no merge reader")
+			}
+			ms, err := merges(cfg.Root)
+			if err != nil {
+				return nil, err
+			}
+			return sweepMergedLogs(filepath.Join(state, "logs"), ms, now)
+		}},
 	}
 	var out []string
 	for _, step := range steps {
@@ -249,6 +276,36 @@ func sweepDir(dir string, gone func(name string) bool) ([]string, error) {
 		}
 	}
 	return out, nil
+}
+
+// sweepMergedLogs is logs's step logs (a task's <id>-<step>.log) to remove (T-1090): those of a task whose last merge in
+// merges is older than mergedLogKeep. merges is in seq order, so a task merged twice keeps its last merge; an
+// unreadable merge time is no merge time, and the logs stay (PruneOlder's 14 days still ends them).
+func sweepMergedLogs(logs string, merges []Merge, now time.Time) ([]string, error) {
+	last := map[string]time.Time{}
+	for _, m := range merges {
+		last[m.Task] = m.At
+	}
+	cutoff := now.Add(-mergedLogKeep)
+	return sweepDir(logs, func(name string) bool { return mergedLog(name, last, cutoff) })
+}
+
+// mergedLog: name is a step log, "<task>-<step>.log", of a task in last merged before cutoff. The longest prefix that is
+// a task wins, so T-100's log is never T-10's.
+func mergedLog(name string, last map[string]time.Time, cutoff time.Time) bool {
+	stem, ok := strings.CutSuffix(name, ".log")
+	if !ok {
+		return false
+	}
+	for i := len(stem) - 1; i > 0; i-- {
+		if stem[i] != '-' {
+			continue
+		}
+		if at, ok := last[stem[:i]]; ok {
+			return !at.IsZero() && at.Before(cutoff)
+		}
+	}
+	return false
 }
 
 // sweepDrafts is .obor/drafts' files not modified for draftKeep.

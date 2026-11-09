@@ -104,7 +104,8 @@ func TestNightly(t *testing.T) {
 				`echo "PASS H-S1 obor sends only fields herdr knows (herdr.go:40, CAP §6)"; echo "conformance: 2 pass, 0 fail, 0 skip, 0 warn"`)))
 			head := x.head(x.Root)
 			x.is(x.nightly(), OK, `^NIGHTLY GREEN `+head[:7]+` on main \(conformance \(non-gating\) 2 pass, 0 fail, 0 skip, 0 warn, [0-9]+s\)$`)
-			x.eq(x.out.String(), "", "no detail lines")
+			// T-1090: the project has no store: the sweep's merged-log step is the one line
+			x.eq(x.out.String(), "sweep merged logs: no store ("+event.DBFile(x.Root)+")\n", "no conformance detail lines")
 		}},
 		// T-798: the conformance suite's static tier is a line in the report, never RED
 		{"a failing conformance command is a non-gating WARN line: GREEN, its FAIL lines printed", func(t *testing.T) {
@@ -392,7 +393,8 @@ func TestNightlyCommands(t *testing.T) {
 			x := newFx(t, cmd("slow_a", logged("slow_a", "echo hi")))
 			x.is(x.nightly(), OK, `^NIGHTLY GREEN [0-9a-f]{7} on main \(no commands, [0-9]+s\)$`)
 			x.gone(filepath.Join(x.Base, "ran"), "nothing ran")
-			x.eq(x.out.String(), "", "no detail lines")
+			// T-1090: only the sweep's no-store line, no command detail
+			x.eq(x.out.String(), "sweep merged logs: no store ("+event.DBFile(x.Root)+")\n", "no detail lines")
 		}},
 	} {
 		t.Run(c.name, func(t *testing.T) { t.Parallel(); c.test(t) })
