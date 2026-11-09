@@ -61,7 +61,6 @@ type Data struct {
 	// Terminal is terminal: the terminal adapter obor drives its panes through (T-1044); absent: herdr.
 	Terminal Terminal `json:"terminal,omitzero"`
 	Slots    *Slots   `json:"slots,omitempty"`
-	Checks   *Checks  `json:"checks,omitempty"`
 	Limits   *Limits  `json:"limits,omitempty"`
 	// Difficulty maps a level (hard, medium, simple) to its model refs in dispatch order; a level it omits has the
 	// built-in default (DifficultyDefault).
@@ -277,9 +276,6 @@ type Merge struct {
 	// each non-gating (T-817): one report line, never RED; a nonzero exit a WARN line. A name must be a defined
 	// command and no gating one. Unset: none.
 	NightlyCommands []string `json:"nightly_commands,omitzero"`
-	// ReceiptMaxAge is a removed key (v0.29, T-966): serve runs the class's checks itself on the candidate, so a receipt
-	// of an earlier obor run is never needed. It WARNs for two minors.
-	ReceiptMaxAge any `json:"receipt_max_age,omitempty"`
 }
 
 // DefaultRetestJoin is merge.retest_join's default: a regexp's alternatives separator, the form a retest's -run
@@ -317,12 +313,6 @@ type Slots struct {
 	LaneEnv map[string]string `json:"lane_env,omitempty"`
 }
 
-// Checks holds removed settings of every check run: checks.load_limit went with the machine-load wait (v0.29,
-// T-962); it WARNs for two minors.
-type Checks struct {
-	LoadLimit any `json:"load_limit,omitempty"`
-}
-
 // Defaults is a fresh copy each call: decoding reuses a slice's backing array. A null in the files leaves a default.
 func Defaults() Data {
 	return Data{
@@ -341,7 +331,8 @@ type Config struct {
 	Data       Data
 	json       []byte // Data as JSON, for Get
 	local      []byte // .obor/local.json's bytes (nil: none), for Edit's override check (T-754)
-	unknownErr error  // Load's error when read dropped an unknown key
+	unknownErr error    // LoadReader's warning when read dropped an unknown key
+	unknownIn  []string // the unknown keys config.json itself has (the others are local.json's), for LoadForValidate
 }
 
 // Rev is the revision of the config as it runs (Rev of its effective JSON: config.json with .obor/local.json merged
@@ -352,19 +343,11 @@ type Config struct {
 func (c *Config) Rev() string { return Rev(c.json) }
 
 // Load builds the effective config of the project whose main checkout is root (absolute, physical): config.json and
-// local.json merged as JSON (merge), decoded once over the defaults, then the derived keys. An unknown key is an error.
+// local.json merged as JSON (merge), decoded once over the defaults, then the derived keys. A key this binary does not
+// know (the config is newer than the binary, or the key was retired) is ignored with one warning per key and process
+// on Warn (T-377), for every command, hook, reader and serve alike (T-1081): only obor config validate
+// (LoadForValidate) refuses one. A retired pre-v0.23 shape key (retiredKeys) and every other error stay errors.
 func Load(root string) (*Config, error) {
-	c, unknown, err := read(root)
-	if err == nil && len(unknown) > 0 {
-		return nil, c.unknownErr
-	}
-	return c, err
-}
-
-// LoadDaemon is Load for the long-running process (obor serve): a key this binary does not know (the config is newer
-// than the binary, or the key was retired) is ignored with one warning per key and process on Warn, not an error that
-// stops the loop (T-377). Every other error is Load's.
-func LoadDaemon(root string) (*Config, error) {
 	c, unknown, err := read(root)
 	for _, key := range unknown {
 		warnUnknown(root, key)
@@ -372,15 +355,37 @@ func LoadDaemon(root string) (*Config, error) {
 	return c, err
 }
 
-// LoadHook is Load for the hooks (DD-v0.13 A1): a key this binary does not know is ignored, as LoadDaemon does, but
+// LoadDaemon is Load (T-1081: one rule for running; the name stays for serve's many callers).
+func LoadDaemon(root string) (*Config, error) { return Load(root) }
+
+// LoadForValidate is Load for obor config validate (and the merge guard that runs it), the one strict place (T-710,
+// T-1081): unknown are its FAIL lines, one per key this binary does not know, naming it and its file; cfg is the
+// config without them, for the other checks. Nothing goes to Warn. Every other error is Load's.
+func LoadForValidate(root string) (cfg *Config, unknown []string, err error) {
+	c, keys, err := read(root)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, key := range keys {
+		file := "local.json"
+		if slices.Contains(c.unknownIn, key) {
+			file = "config.json"
+		}
+		unknown = append(unknown, "FAIL ."+key+": unknown to this obor (retired, or newer than this binary): delete it"+
+			" (.obor/"+file+")")
+	}
+	return c, unknown, nil
+}
+
+// LoadHook is Load for the hooks (DD-v0.13 A1): a key this binary does not know is ignored, as Load does, but
 // returned in unknown instead of warned of on Warn (the SessionStart hook names them; the others say nothing). Every
 // other error is Load's: the hooks then fail closed (Fallback).
 func LoadHook(root string) (*Config, []string, error) { return read(root) }
 
 // LoadReader is Load for the readers (obor status, obor stop/start, obor web; T-709): a key this binary does not know (a
 // config newer than a long-running obor web, or a key this obor retired) is ignored, and warn names it, instead of
-// failing the page. Every other error is Load's; obor config validate (Load) keeps refusing such a config. The readers
-// and serve (LoadDaemon, T-377) are lenient, validate strict: that is the contract (T-710).
+// going to Warn. Every other error is Load's; obor config validate (LoadForValidate) refuses such a config. Every
+// loader is lenient, validate strict: that is the contract (T-710, T-1081).
 func LoadReader(root string) (cfg *Config, warn string, err error) {
 	c, unknown, err := read(root)
 	if err != nil || len(unknown) == 0 {
@@ -391,7 +396,7 @@ func LoadReader(root string) (cfg *Config, warn string, err error) {
 		" key was retired (obor config validate names it; delete it)", nil
 }
 
-// Warn receives LoadDaemon's warnings.
+// Warn receives Load's warnings.
 var Warn io.Writer = os.Stderr
 
 var warned sync.Map // "<file>: <key path>" already warned of in this process
@@ -412,7 +417,7 @@ func retiredKey(b json.RawMessage) string {
 	return ""
 }
 
-// unknownKey is Load's error for an unknown key (a dotted path), named as encoding/json names an unknown field.
+// unknownKey names an unknown key (a dotted path), named as encoding/json names an unknown field.
 type unknownKey struct{ file, key string }
 
 func (u unknownKey) Error() string {
@@ -427,7 +432,7 @@ func (u unknownKey) Error() string {
 // and returned in unknown (dotted paths, file order). err is every other failure (with no config and no unknown).
 func read(root string) (*Config, []string, error) { return readWith(root, nil) }
 
-// LoadWith is LoadDaemon of the project at root with doc in place of its config.json's bytes (local.json read as it
+// LoadWith is Load of the project at root with doc in place of its config.json's bytes (local.json read as it
 // is): what a config change would load as, before it is written (obor web's setup edit, T-753).
 func LoadWith(root string, doc []byte) (*Config, error) {
 	c, _, err := readWith(root, doc)
@@ -486,8 +491,8 @@ func readWith(root string, doc []byte) (*Config, []string, error) {
 	c.json = b
 	if len(unknown) > 0 { // name config.json when it has one, else local.json
 		c.unknownErr = unknownKey{filepath.Join(root, ".obor", "local.json"), unknown[0]}
-		if _, in := dropUnknown(files[0], reflect.TypeOf(c.Data), ""); len(in) > 0 {
-			c.unknownErr = unknownKey{filepath.Join(root, ".obor", "config.json"), in[0]}
+		if _, c.unknownIn = dropUnknown(files[0], reflect.TypeOf(c.Data), ""); len(c.unknownIn) > 0 {
+			c.unknownErr = unknownKey{filepath.Join(root, ".obor", "config.json"), c.unknownIn[0]}
 		}
 	}
 	return c, unknown, nil

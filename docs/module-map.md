@@ -28,8 +28,10 @@ gate runs it. Adapters never import each other: one that needs another goes thro
   never import each other),
   the machine's list of obor projects by name (`projects.go`, T-646: `Register`, `Projects`, `RootOf`); a stopped
   project (`stopped.go`, T-709, T-711: `Stopped`, `WriteStopMarker` (the pause stop replaced), `BeginStart`/`EndStart`, `Unregister`: obor stop / obor start).
-- `config`: effective config. `config.Load(root) (*Config, error)`; `LoadReader` (obor status, obor stop/start, web: an
-  unknown key is a warning, T-709); `Validate` (removed keys WARN), `TaskIDOK` /
+- `config`: effective config. `config.Load(root) (*Config, error)` (every command's, serve's: an unknown key is ignored
+  with a warning, T-1081); `LoadReader` (obor status, obor stop/start, web: the warning returned, T-709);
+  `LoadForValidate` (obor config validate, the one strict place: a FAIL line per unknown key); `Validate` (removed keys
+  WARN), `TaskIDOK` /
   `TaskFromBranch` / `TaskBranch`; `edit.go` (T-753): `Edit`, the one setup change obor web may make, applied to config.json's bytes
   in their own layout, and `LoadWith` (what it would load as).
 - `roles`: role names and defaults. `spec`: a spec text's title, sections and globs (the text is the store's).

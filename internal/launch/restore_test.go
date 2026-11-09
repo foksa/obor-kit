@@ -320,3 +320,17 @@ func TestRestoreRolePanesNotSkipped(t *testing.T) {
 		t.Errorf("a role pane skipped:\n%s", log)
 	}
 }
+
+// T-1081 (DD-v0.32 #1): a config naming keys this obor does not know (the promotion's, T-1076) still loads for the
+// restore (paneConfig): its lead pane restarts, where the project used to be skipped without a word.
+func TestRestoreLoadsAConfigWithUnknownKeys(t *testing.T) {
+	f := newRfx(t)
+	f.p.Config(testkit.Set("branches.promote", "release"), testkit.Set("merge.promote_weight", 2),
+		testkit.Set("merge.weights", map[string]any{"core": 3}))
+	if _, unknown, err := config.LoadForValidate(f.p.Root); err != nil || len(unknown) != 3 {
+		t.Fatalf("precondition: the config names three unknown keys: %q, %v", unknown, err)
+	}
+	f.shell("w1:p1", f.p.Root, "pj-lead")
+	f.pl.Restore(context.Background())
+	f.wantCalls(f.p.Root + " restart pj-lead --pane w1:p1 --fresh")
+}

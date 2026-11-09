@@ -52,7 +52,7 @@ type KindEntry struct {
 
 // KitKinds are the plugin kinds the kit ships, by name: the binary each runs as (T-1046), beside obor's own (KitKind).
 // A config naming no kinds.<name>.command for one runs the kit's: the compat of a config written before OpenCode left
-// the obor binary, which obor setup agents fills in and obor config validate warns about until v0.32.0 drops it.
+// the obor binary, which obor setup agents fills in and obor config validate warns about until v0.33.0 drops it.
 var KitKinds = map[string]string{"opencode": "obor-kind-opencode"}
 
 // KindCommand is kinds.<name>.command as a path ("": name is no plugin kind of this config): the name of a binary the

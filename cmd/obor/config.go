@@ -12,8 +12,20 @@ import (
 
 // configCmd is `obor config [get <path> | validate]`: the effective config (config.json * local.json * defaults), one
 // value (a string raw, anything else as JSON, null → nothing; FAIL on stderr and exit 1 when there is no such key), or the checks: WARN lines, then a FAIL line per
-// problem (exit 1) or OK. Exit 3 without .obor/config.json.
+// problem (exit 1) or OK. Exit 3 without .obor/config.json. validate is the one strict reader (T-1081): a key this obor
+// does not know is a FAIL line naming it (config.LoadForValidate), where every other command ignores it with a warning.
 func configCmd(args []string) int {
+	validate := len(args) == 1 && args[0] == "validate"
+	var unknown []string
+	load := load
+	if validate {
+		load = func() (*project.Repo, *config.Config, int) {
+			return loadWith(func(root string) (cfg *config.Config, err error) {
+				cfg, unknown, err = config.LoadForValidate(root)
+				return cfg, err
+			})
+		}
+	}
 	_, cfg, rc := load()
 	if rc != 0 {
 		return rc
@@ -34,8 +46,9 @@ func configCmd(args []string) int {
 		if s, ok := cfg.Raw(args[1]); ok {
 			fmt.Fprintln(out, s)
 		}
-	case args[0] == "validate" && len(args) == 1:
+	case validate:
 		warns, fails := cfg.Validate(config.ValidateOptions{Overlap: spec.Overlap})
+		fails = append(unknown, fails...)
 		for _, line := range append(warns, fails...) {
 			fmt.Fprintln(out, line)
 		}

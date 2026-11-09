@@ -701,7 +701,8 @@ func TestStopAndStartRestoreATimedPause(t *testing.T) {
 // T-709, the binary: in a stopped project whose config has a key this binary does not know, obor status (text and
 // --json) loads it with the warning and the stopped line, obor whoami says it is stopped, obor config validate keeps
 // refusing the key, and obor serve and obor init refuse to run in the stopped project, saying obor start. (Serve itself
-// is lenient about the key, as the readers are: config.LoadDaemon, T-377; only obor config validate is strict.)
+// is lenient about the key, as the readers and every command are: config.Load, T-377, T-1081; only obor config
+// validate is strict.)
 func TestStoppedProjectWithANewerConfig(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)
@@ -726,8 +727,8 @@ func TestStoppedProjectWithANewerConfig(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &j); rc != 0 || err != nil || len(j.Notes) != 2 || j.Notes[1] != project.StoppedLine {
 		t.Errorf("status --json: exit %d, %v, notes %q", rc, err, j.Notes)
 	}
-	if rc, _, stderr := run(t, p.Root, env, "config", "validate"); rc == 0 || !strings.Contains(stderr, `"zz_future"`) {
-		t.Errorf("config validate: exit %d, %q; want the unknown key refused", rc, stderr)
+	if rc, stdout, _ := run(t, p.Root, env, "config", "validate"); rc == 0 || !strings.Contains(stdout, "FAIL .zz_future: unknown to this obor") {
+		t.Errorf("config validate: exit %d, %q; want the unknown key refused", rc, stdout)
 	}
 
 	p.Config() // a config this binary knows: whoami, serve and init load it

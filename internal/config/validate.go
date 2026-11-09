@@ -25,7 +25,7 @@ var (
 
 // Validate is `obor config validate`: "FAIL <path>: <why>" per problem, and "WARN …" notes that are no failure (a
 // removed key still set, a merge.neutral glob overlapping a class glob, an agent named like another lane).
-// Shapes (types, unknown keys) are checked by Load; these are the checks a typed decode cannot make.
+// Shapes are checked by the load (types by Load, unknown keys by LoadForValidate); these are the checks a typed decode cannot make.
 func (c *Config) Validate(o ValidateOptions) (warns, fails []string) {
 	v := &validator{c: c, d: &c.Data}
 	v.top()
@@ -179,10 +179,10 @@ func (v *validator) models() {
 		}
 	}
 	for _, k := range v.c.PluginKinds() {
-		// a config from before T-1046 that uses a kit kind runs the kit's binary, until v0.32.0
+		// a config from before T-1046 that uses a kit kind runs the kit's binary, until v0.33.0
 		if v.d.Kinds.M[k].Command == "" && v.c.namesKind(k) {
 			v.warns = append(v.warns, fmt.Sprintf("WARN kinds.%s.command: not set, so obor runs the kit's %s (obor "+
-				"setup agents sets it; v0.32.0 drops the default)", k, KitKinds[k]))
+				"setup agents sets it; v0.33.0 drops the default)", k, KitKinds[k]))
 			v.pluginKind(k)
 		}
 	}
@@ -543,12 +543,6 @@ func (c *Config) warnings(o ValidateOptions) []string {
 	}
 	removed("paths.research", c.Data.Paths["research"] != "")
 	removed("paths.questions", c.Data.Paths["questions"] != "")
-	// T-962: v0.29 dropped checks.load_limit with the check slots' machine-load wait.
-	if ch := c.Data.Checks; ch != nil {
-		removed("checks.load_limit", ch.LoadLimit != nil)
-	}
-	// T-966: v0.29 dropped merge.receipt_max_age with the test receipts.
-	removed("merge.receipt_max_age", c.Data.Merge.ReceiptMaxAge != nil)
 	for _, name := range c.ModelNames() { // T-705: opencode's own default model may refuse requests, and effort needs one (T-703)
 		m, _ := c.Model(name)
 		if kd, known := agents.Lookup(m.Kind); known && kd.Caps().ModelArg && m.ID == "" && c.modelUsed(name) {
