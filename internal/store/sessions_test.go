@@ -12,13 +12,13 @@ import (
 func TestCurrentSession(t *testing.T) {
 	ss := []Session{{Agent: "a", ID: "1", Started: 10}, {Agent: "b", ID: "2", Started: 30}, {Agent: "a", ID: "3", Started: 20},
 		{Agent: "a", ID: "4", Started: 5}, {Agent: "b", ID: "5", Started: 30}}
-	if s, ok := Current(ss, "a"); !ok || s.ID != "3" {
+	if s, ok := FoldSessions(ss).Current("a"); !ok || s.ID != "3" {
 		t.Errorf("a: %+v %v, want 3 (the newest, not the last recorded)", s, ok)
 	}
-	if s, _ := Current(ss, "b"); s.ID != "5" {
+	if s, _ := FoldSessions(ss).Current("b"); s.ID != "5" {
 		t.Errorf("b: %+v, want 5 (a tie: the later)", s)
 	}
-	if _, ok := Current(ss, "c"); ok {
+	if _, ok := FoldSessions(ss).Current("c"); ok {
 		t.Error("c: none")
 	}
 	if ss, err := ReadSessionsAt(t.TempDir()); err != nil || len(ss) != 0 {
@@ -26,7 +26,7 @@ func TestCurrentSession(t *testing.T) {
 	}
 }
 
-// T-586, T-588: Owned keeps a fact only when Admits takes it: a repeat of (agent, id) and an id that is another
+// T-586, T-588: Owned keeps a fact only when the fold admits it: a repeat of (agent, id) and an id that is another
 // agent's current session are dropped; an id its holder has moved on from is free again.
 func TestOwnedSessions(t *testing.T) {
 	ss := []Session{{Agent: "a", ID: "x", Started: 10}, {Agent: "b", ID: "x", Started: 20}, {Agent: "a", ID: "x", Started: 30},
@@ -38,7 +38,7 @@ func TestOwnedSessions(t *testing.T) {
 	if want := "a:x a:y b:x"; strings.Join(got, " ") != want {
 		t.Errorf("owned %q, want %q", strings.Join(got, " "), want)
 	}
-	if h := Holder(ss[:1], "b", "x"); h != "a" {
+	if h := FoldSessions(ss[:1]).Holder("b", "x"); h != "a" {
 		t.Errorf("holder of x %q, want a", h)
 	}
 }
@@ -52,10 +52,11 @@ func TestOwnedConfirmation(t *testing.T) {
 	if len(got) != 1 || got[0].ID != "x" || got[0].Transcript != "/t/x.jsonl" || got[0].Started != 20 {
 		t.Fatalf("owned %+v, want x with the confirmation's transcript and start", got)
 	}
-	if Admits(got, Session{Agent: "a", ID: "x", Started: 30}) {
+	f := FoldSessions(got)
+	if f.Add(Session{Agent: "a", ID: "x", Started: 30}) {
 		t.Error("a later repeat with no transcript is admitted")
 	}
-	if Admits(got, Session{Agent: "a", ID: "x", Transcript: "/t/x.jsonl", Started: 30}) {
+	if f.Add(Session{Agent: "a", ID: "x", Transcript: "/t/x.jsonl", Started: 30}) {
 		t.Error("a repeat of the confirmed record is admitted")
 	}
 }
@@ -125,15 +126,15 @@ func TestOwnedRules(t *testing.T) {
 			if joined := strings.Join(ids, " "); joined != c.want {
 				t.Errorf("owned %q, want %q", joined, c.want)
 			}
-			var f sessions
+			var f SessionFold
 			for _, s := range c.log {
-				f.add(s)
+				f.Add(s)
 			}
 			for agent, id := range c.current {
-				if s, ok := f.current(agent); !ok || s.ID != id {
+				if s, ok := f.Current(agent); !ok || s.ID != id {
 					t.Errorf("%s's current session %+v %v, want %q", agent, s, ok, id)
 				}
-				if s, ok := Current(got, agent); !ok || s.ID != id {
+				if s, ok := currentSlow(got, agent); !ok || s.ID != id {
 					t.Errorf("Current(%s) %+v %v, want %q", agent, s, ok, id)
 				}
 			}
@@ -141,8 +142,8 @@ func TestOwnedRules(t *testing.T) {
 	}
 }
 
-// admitsSlow is Admits as the readers applied it before T-881: a scan of the records so far, and one per agent of
-// them for the holder (Holder).
+// admitsSlow is admission as the readers applied it before T-881: a scan of the records so far, and one per agent of
+// them for the holder (Current's rule, scanned).
 func admitsSlow(ss []Session, s Session) bool {
 	if s.Agent == "" || s.ID == "" {
 		return false
@@ -158,11 +159,23 @@ func admitsSlow(ss []Session, s Session) bool {
 			continue
 		}
 		seen[r.Agent] = true
-		if cur, _ := Current(ss, r.Agent); cur.ID == s.ID {
+		if cur, _ := currentSlow(ss, r.Agent); cur.ID == s.ID {
 			return false
 		}
 	}
 	return true
+}
+
+// currentSlow is Current's rule as a scan of ss.
+func currentSlow(ss []Session, agent string) (Session, bool) {
+	var cur Session
+	ok := false
+	for _, s := range ss {
+		if s.Agent == agent && (!ok || s.Started >= cur.Started) {
+			cur, ok = s, true
+		}
+	}
+	return cur, ok
 }
 
 // ownedSlow is Owned as it ran before T-881, record by record over admitsSlow: the reference TestOwnedMatchesTheScan
@@ -189,8 +202,8 @@ func ownedSlow(ss []Session) []Session {
 
 // T-881: the fold's one pass is the scans it replaces, on every log of four records over a small alphabet (agent ×
 // session × start × transcript: 16 kinds of record): the same owned records in the same order, and the current
-// session it keeps each agent's newest by Current's rule. Admits (one fold per call) holds to its scan on every log of
-// three, the size one call's own work makes affordable.
+// session it keeps each agent's newest by Current's rule. One Add held to its scan on every log of three, the size
+// the old per-call fold made affordable.
 func TestOwnedMatchesTheScan(t *testing.T) {
 	t.Parallel()
 	var kinds []Session
@@ -223,13 +236,13 @@ func TestOwnedMatchesTheScan(t *testing.T) {
 		if !slices.Equal(got, want) {
 			return fmt.Errorf("Owned(%+v) = %+v, want %+v", log, got, want)
 		}
-		var f sessions
+		var f SessionFold
 		for _, s := range log {
-			f.add(s)
+			f.Add(s)
 		}
 		for _, agent := range []string{"a", "b"} {
-			cur, ok := f.current(agent)
-			if want, wantOK := Current(got, agent); ok != wantOK || cur != want {
+			cur, ok := f.Current(agent)
+			if want, wantOK := currentSlow(got, agent); ok != wantOK || cur != want {
 				return fmt.Errorf("current(%s) of %+v = %+v %v, want %+v %v", agent, log, cur, ok, want, wantOK)
 			}
 		}
@@ -238,10 +251,33 @@ func TestOwnedMatchesTheScan(t *testing.T) {
 	walk(3, func() error {
 		want := ownedSlow(log)
 		for _, s := range kinds {
-			if got, wantAdmits := Admits(want, s), admitsSlow(want, s); got != wantAdmits {
-				return fmt.Errorf("log %+v: Admits(%+v, %+v) = %v, want %v", log, want, s, got, wantAdmits)
+			f := FoldSessions(want)
+			if got, wantAdmits := f.Add(s), admitsSlow(want, s); got != wantAdmits {
+				return fmt.Errorf("log %+v: the fold admits %+v of %+v = %v, want %v", log, s, want, got, wantAdmits)
 			}
 		}
 		return nil
 	})
+}
+
+// T-1088: a log folds in one pass — the index Add builds is the one the fold keeps, so the work per fact does not grow
+// with the log. The quadratic build this replaces rebuilt the whole index for every fact: allocations per fact were the
+// log's length (2,046 at 2,000 facts; 5,060 at 5,000), against a handful here. A bound on allocations, not wall clock.
+func TestFoldKeepsItsIndex(t *testing.T) {
+	const n = 2000
+	ss := make([]Session, n)
+	for i := range ss {
+		ss[i] = Session{Agent: fmt.Sprintf("a%d", i%16), ID: fmt.Sprintf("s%d", i), Started: int64(i)}
+	}
+	allocs := testing.AllocsPerRun(5, func() {
+		var f SessionFold
+		for _, s := range ss {
+			f.Add(s)
+		}
+	})
+	if per := allocs / n; per > 20 {
+		t.Errorf("folding %d facts allocated %.1f objects per fact, want under 20: the index is not built once", n, per)
+	} else {
+		t.Logf("folding %d facts: %.1f objects per fact", n, per)
+	}
 }

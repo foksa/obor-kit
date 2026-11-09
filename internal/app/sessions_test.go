@@ -45,7 +45,7 @@ func TestSessionFacts(t *testing.T) {
 	if err != nil || len(ss) != 2 {
 		t.Fatalf("store: %d sessions (%v), want 2", len(ss), err)
 	}
-	if s, ok := store.Current(ss, "pj-l-01"); !ok || s.ID != "s2" || s.Transcript != "/t/s2.jsonl" || s.Lane != "L-01" ||
+	if s, ok := store.FoldSessions(ss).Current("pj-l-01"); !ok || s.ID != "s2" || s.Transcript != "/t/s2.jsonl" || s.Lane != "L-01" ||
 		s.Task != "T-1" || s.Pane != "w1:p1" || s.Kind != "claude" || s.Started != now {
 		t.Errorf("store's current %+v, want s2 with its fields", s)
 	}
@@ -237,7 +237,7 @@ func TestSessionOneOwner(t *testing.T) {
 		eqs(t, h2.current("pj-a"), "zzzz0001", "replay: A owns zzzz0001")
 		eqs(t, h2.current("pj-b"), "", "replay: B does not")
 
-		// T-588: the store's readers apply the same rule (store.Admits): the owner's only.
+		// T-588: the store's readers apply the same rule (the session fold): the owner's only.
 		if s, ok := store.CurrentAt(h2.root, "pj-a"); !ok || s.ID != "zzzz0001" || s.Transcript != own {
 			t.Errorf("CurrentAt A: %+v %v, want zzzz0001 at %s", s, ok, own)
 		}
@@ -273,8 +273,8 @@ func TestSessionFactGoldenFolds(t *testing.T) {
 	p := &proj{}
 	p.foldSession(event.Record{Task: store.SessionTask, Step: store.StepSession, Kind: event.KindFact,
 		Data: []byte(sessionFactGolden)})
-	if len(p.folded.sessions) != 1 || p.folded.sessions[0] != want {
-		t.Errorf("the golden fact folds to %+v, want [%+v]", p.folded.sessions, want)
+	if all := p.folded.sessions.All(); len(all) != 1 || all[0] != want {
+		t.Errorf("the golden fact folds to %+v, want [%+v]", all, want)
 	}
 	h, _ := newIdentHarness(t)
 	h.connect()

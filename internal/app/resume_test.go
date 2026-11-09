@@ -82,7 +82,7 @@ func TestAnswerTypedWhenInboxIsAnotherPanes(t *testing.T) {
 	t.Parallel()
 	h := staleHerdr(t)
 	h.a.mu.Lock()
-	ss := h.proj().folded.sessions
+	ss := h.proj().folded.sessions.All()
 	ss[len(ss)-1].Pane = "w1:p5" // the record came from another pane
 	h.a.mu.Unlock()
 	in, liner := &kindSpy{}, &linerSpy{}

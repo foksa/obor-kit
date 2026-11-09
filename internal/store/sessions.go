@@ -29,57 +29,19 @@ type Session struct {
 	Source     string `json:"source,omitempty"`
 }
 
-// Current is agent's newest session in ss (by Started; of two at the same second, the later in ss); ok false: none.
-func Current(ss []Session, agent string) (Session, bool) {
-	var cur Session
-	ok := false
-	for _, s := range ss {
-		if s.Agent == agent && (!ok || s.Started >= cur.Started) {
-			cur, ok = s, true
-		}
-	}
-	return cur, ok
-}
+// Owned is ss, session facts in log order, as recorded: each that the rule admits given the ones before it, a
+// confirmation of an earlier record (T-813: same agent and id, now with the transcript) in that record's place, so an
+// agent's sessions stay one per id. One fold over ss (T-881: the rule's rescans are a lookup in each of the fold's
+// maps).
+func Owned(ss []Session) []Session { return FoldSessions(ss).All() }
 
-// Holder is the agent other than agent whose current session in ss is id ("": none).
-func Holder(ss []Session, agent, id string) string {
-	seen := map[string]bool{agent: true}
-	for _, s := range ss {
-		if seen[s.Agent] {
-			continue
-		}
-		seen[s.Agent] = true
-		if cur, _ := Current(ss, s.Agent); cur.ID == id {
-			return s.Agent
-		}
-	}
-	return ""
-}
-
-// Admits: s joins ss, the sessions recorded so far, as its agent's session (T-586, T-588): the one ownership rule, for
-// serve live and on replay (internal/app) and for the store's readers. Not when ss records s's (agent, id) already,
-// nor when id is another agent's current session (a log that holds such a duplicate keeps one owner, the earlier) —
-// except a record that names no transcript and is followed by one that does: the SessionStart hook's confirmation of
-// the id obor chose before the start fills in its transcript_path (T-813), and Owned keeps the confirmation.
-func Admits(ss []Session, s Session) bool {
-	f := sessionsOf(ss)
-	return f.add(s)
-}
-
-// Owned is ss, session facts in log order, as recorded: each that Admits the ones before it, a confirmation of an
-// earlier record (T-813: same agent and id, now with the transcript) in that record's place, so an agent's sessions
-// stay one per id. One fold over ss (T-881: the rule's rescans are a lookup in each of the fold's maps).
-func Owned(ss []Session) []Session {
-	f := foldSessions(ss)
-	return f.all
-}
-
-// sessions is one fold over a log's session facts (T-881): the records the rule admitted in log order, the (agent, id)
-// records by their place in it, each agent's current session and each session id's owners. It is the ownership rule's
+// SessionFold is one fold over a log's session facts (T-881): the records the ownership rule admitted in log order,
+// their (agent, id) by their place in it, each agent's current session and each session id's owners. It is the rule's
 // only implementation: a record joins when its (agent, id) is unknown and no other agent's current session is its id,
 // and a known one (agent, id) takes its record's place only when it is the confirmation T-813 names. Its zero value is
-// an empty log.
-type sessions struct {
+// an empty log, so a fold built record by record keeps its index (T-1088: serve's replay calls Add; it no longer
+// rebuilds the index for every fact).
+type SessionFold struct {
 	all    []Session                  // the admitted records, in log order
 	known  map[sessionKey]int         // (agent, id) → its index in all
 	cur    map[string]int             // agent → the index in all of its current session
@@ -89,36 +51,28 @@ type sessions struct {
 // sessionKey is a record's identity: one (agent, id) is one record.
 type sessionKey struct{ agent, id string }
 
-// sessionsOf is ss as a fold, taking its records as recorded — one per (agent, id), which Owned and the app's fold
-// keep: the maps are built without the rule, so a predicate asked of the fold sees exactly the records a scan of ss
-// does (T-881: Admits asks the fold instead of scanning ss).
-func sessionsOf(ss []Session) sessions {
-	var f sessions
-	f.init()
+// FoldSessions is ss folded: one pass of the ownership rule (Owned's fold).
+func FoldSessions(ss []Session) SessionFold {
+	var f SessionFold
 	for _, s := range ss {
-		if s.Agent == "" || s.ID == "" {
-			continue
-		}
-		f.all = append(f.all, s)
-		i := len(f.all) - 1
-		f.known[sessionKey{s.Agent, s.ID}] = i
-		if cur, ok := f.cur[s.Agent]; !ok || f.better(i, cur) {
-			f.setCurrent(i)
-		}
+		f.Add(s)
 	}
 	return f
 }
 
 // init makes the fold's maps (its zero value is an empty log).
-func (f *sessions) init() {
+func (f *SessionFold) init() {
 	if f.known == nil {
 		f.known, f.cur, f.owners = map[sessionKey]int{}, map[string]int{}, map[string]map[string]bool{}
 	}
 }
 
-// add folds s: whether the rule admits it. A new (agent, id) is appended; a confirmation replaces its record in place,
+// All is the records the rule admitted, in log order.
+func (f SessionFold) All() []Session { return f.all }
+
+// Add folds s: whether the rule admits it. A new (agent, id) is appended; a confirmation replaces its record in place,
 // so its position (and with it every tie-break) stays.
-func (f *sessions) add(s Session) bool {
+func (f *SessionFold) Add(s Session) bool {
 	if s.Agent == "" || s.ID == "" {
 		return false
 	}
@@ -128,7 +82,7 @@ func (f *sessions) add(s Session) bool {
 	if known && (f.all[i].Transcript != "" || s.Transcript == "") {
 		return false
 	}
-	if f.holder(s.Agent, s.ID) != "" {
+	if f.Holder(s.Agent, s.ID) != "" {
 		return false
 	}
 	if !known {
@@ -146,23 +100,32 @@ func (f *sessions) add(s Session) bool {
 
 // better reports whether record i outranks j as a current session: the later start, and of two at one second the one
 // later in the log (Current's rule).
-func (f *sessions) better(i, j int) bool {
+func (f SessionFold) better(i, j int) bool {
 	return f.all[i].Started > f.all[j].Started ||
 		(f.all[i].Started == f.all[j].Started && i > j)
 }
 
-// current is agent's current session in f (ok false: none).
-func (f *sessions) current(agent string) (Session, bool) {
+// Current is agent's current session in f (ok false: none): the newest by Started, of two at the same second the
+// later in the log.
+func (f SessionFold) Current(agent string) (Session, bool) {
 	if i, ok := f.cur[agent]; ok {
 		return f.all[i], true
 	}
 	return Session{}, false
 }
 
-// holder is the agent other than agent whose current session is id ("": none). The rule only asks whether there
-// is one; of several (a confirmation can leave two agents on one id, as the rule it replaces does) the earliest record
+// Transcript is the recorded transcript of agent's session id ("": none recorded).
+func (f SessionFold) Transcript(agent, id string) string {
+	if i, ok := f.known[sessionKey{agent, id}]; ok {
+		return f.all[i].Transcript
+	}
+	return ""
+}
+
+// Holder is the agent other than agent whose current session is id ("": none). The rule only asks whether
+// there is one; of several (a confirmation can leave two agents on one id, as the rule it replaces does) the earliest record
 // names it.
-func (f *sessions) holder(agent, id string) string {
+func (f SessionFold) Holder(agent, id string) string {
 	best := ""
 	for a := range f.owners[id] {
 		if a == agent {
@@ -177,7 +140,7 @@ func (f *sessions) holder(agent, id string) string {
 
 // setCurrent makes record i its agent's current session, with the id's ownership following it: the id the record it
 // replaces held stops being that agent's, and i's id becomes its (the rule let the record in).
-func (f *sessions) setCurrent(i int) {
+func (f *SessionFold) setCurrent(i int) {
 	agent, id := f.all[i].Agent, f.all[i].ID
 	if old, ok := f.cur[agent]; ok && old != i {
 		f.unown(f.all[old].ID, agent)
@@ -190,7 +153,7 @@ func (f *sessions) setCurrent(i int) {
 }
 
 // unown drops agent from id's owners.
-func (f *sessions) unown(id, agent string) {
+func (f *SessionFold) unown(id, agent string) {
 	delete(f.owners[id], agent)
 	if len(f.owners[id]) == 0 {
 		delete(f.owners, id)
@@ -200,7 +163,7 @@ func (f *sessions) unown(id, agent string) {
 // confirm replaces record i with s, a confirmation of it (T-813): the same (agent, id), its transcript now known. The
 // record keeps its place, so it stays its agent's current session unless the confirmation starts earlier than what it
 // replaces, which hands the choice to the agent's newest record (the same selection Current makes).
-func (f *sessions) confirm(i int, s Session) {
+func (f *SessionFold) confirm(i int, s Session) {
 	was := f.all[i].Started
 	f.all[i] = s
 	cur, ok := f.cur[s.Agent]
@@ -214,7 +177,7 @@ func (f *sessions) confirm(i int, s Session) {
 
 // choose makes agent's newest record its current session: confirmed to start earlier than its record, its old current
 // may lose to another. Only that confirmation scans (and only this agent's records); every other step is a lookup.
-func (f *sessions) choose(agent string) {
+func (f *SessionFold) choose(agent string) {
 	best := -1
 	for i, s := range f.all {
 		if s.Agent == agent && (best < 0 || f.better(i, best)) {
@@ -257,15 +220,6 @@ func sessionFacts(root string) ([]Session, error) {
 	return out, nil
 }
 
-// foldSessions is ss folded: one pass of the ownership rule (T-881).
-func foldSessions(ss []Session) sessions {
-	var f sessions
-	for _, s := range ss {
-		f.add(s)
-	}
-	return f
-}
-
 // ReadSessionsAt is every session fact of the project at root in log order, as recorded (Owned: a refused duplicate
 // is not one), read-only (launch, hooks: serve may be down). No database yet: none.
 func ReadSessionsAt(root string) ([]Session, error) {
@@ -283,8 +237,8 @@ func CurrentAt(root, agent string) (Session, bool) {
 	if err != nil {
 		return Session{}, false
 	}
-	f := foldSessions(ss)
-	return f.current(agent)
+	f := FoldSessions(ss)
+	return f.Current(agent)
 }
 
 // TranscriptAt is the recorded transcript of session id in the project at root ("": none recorded).

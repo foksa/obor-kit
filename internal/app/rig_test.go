@@ -1899,7 +1899,9 @@ func (h *harness) withLead() {
 }
 
 // sids makes agent → session each agent's current recorded session in the store (once the project is loaded): put in
-// p.sessions directly, so two agents may hold one id (the tie cases; sessionCall refuses that).
+// the fold directly, so two agents may hold one id (the tie cases; sessionCall refuses that). A tie is reached the way
+// a log can: the owner moves on, the other agent takes the id, and the owner's confirmation of its newer record hands
+// its current session back to the id (T-813's rule).
 func (h *harness) sids(m map[string]string) {
 	h.sidMap = m
 	h.applySids()
@@ -1911,12 +1913,32 @@ func (h *harness) applySids() {
 	}
 	h.a.mu.Lock()
 	defer h.a.mu.Unlock()
+	f := &h.a.p.folded.sessions
+	byID := map[string][]string{}
 	for agent, id := range h.sidMap {
-		if cur, ok := store.Current(h.a.p.folded.sessions, agent); ok && cur.ID == id {
-			continue
+		byID[id] = append(byID[id], agent)
+	}
+	for _, id := range slices.Sorted(maps.Keys(byID)) {
+		agents := byID[id]
+		slices.Sort(agents)
+		for _, agent := range agents {
+			if cur, ok := f.Current(agent); ok && cur.ID == id {
+				continue
+			}
+			h.sidSeq++
+			rec := store.Session{Agent: agent, Kind: "claude", ID: id, Started: h.sidSeq}
+			if f.Add(rec) {
+				continue
+			}
+			owner := agents[0]
+			moved := id + "-moved-" + owner
+			h.sidSeq++
+			f.Add(store.Session{Agent: owner, Kind: "claude", ID: moved, Started: h.sidSeq})
+			h.sidSeq++
+			f.Add(rec)
+			h.sidSeq++
+			f.Add(store.Session{Agent: owner, Kind: "claude", ID: moved, Transcript: "/t/moved", Started: 0})
 		}
-		h.sidSeq++
-		h.a.p.folded.sessions = append(h.a.p.folded.sessions, store.Session{Agent: agent, Kind: "claude", ID: id, Started: h.sidSeq})
 	}
 }
 
@@ -3589,7 +3611,7 @@ func (h *harness) sessions(agent string) []string {
 	h.a.mu.Lock()
 	defer h.a.mu.Unlock()
 	var out []string
-	for _, s := range h.proj().folded.sessions {
+	for _, s := range h.proj().folded.sessions.All() {
 		if s.Agent == agent {
 			out = append(out, s.ID+" "+s.Transcript)
 		}
