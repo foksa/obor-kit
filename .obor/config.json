@@ -110,7 +110,6 @@
     "main": "staging"
   },
   "merge": {
-    "trailer": "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>",
     "summary_regex": "[0-9]+ pass|[0-9]+ fail",
     "guard": "guard",
     "nightly_at": "02:00",
@@ -206,11 +205,11 @@
       {
         "match": "^(?:go(?: (?:-C [^ ]+|--?[^ ]+))* test|[^ ]*\\.test)(?: [^ ]+)* (?:--?(?:test\\.)?count[= ](?:[2-9]|[1-9][0-9]+)(?: |$)|--?(?:test\\.)?race(?: |$|=f(?: |$)|=fa(?: |$)|=fal(?: |$)|=fals(?: |$)|=false[^ ][^ ]*(?: |$)|=f[^a ][^ ]*(?: |$)|=fa[^l ][^ ]*(?: |$)|=fal[^s ][^ ]*(?: |$)|=fals[^e ][^ ]*(?: |$)|=0[^ ][^ ]*(?: |$)|=[^f0 ][^ ]*(?: |$)|=(?: |$)))",
         "alone": true,
-        "message": "a load run of tests (`-count` > 1, `-race`) is denied — one plain `go test <pkgs>` run; the gate and nightly run the rest"
+        "message": "a load run of tests (`-count` > 1, `-race`) is denied \u2014 one plain `go test <pkgs>` run; the gate and nightly run the rest"
       },
       {
         "match": "^(?:go(?: (?:-C [^ ]+|--?[^ ]+))* test|[^ ]*\\.test)(?: |$)",
-        "message": "two or more test commands at once (a background &, xargs -P, parallel) are a load run — one plain `go test <pkgs>` run; the gate and nightly run the rest"
+        "message": "two or more test commands at once (a background &, xargs -P, parallel) are a load run \u2014 one plain `go test <pkgs>` run; the gate and nightly run the rest"
       }
     ]
   },
