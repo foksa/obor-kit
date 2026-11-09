@@ -185,7 +185,7 @@ func (a *App) submit(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 			return nil, err
 		}
 		sha, err := fx.Workflow.Submit(ctx, mt.task, submitID(mt.attempt, in.Step), mt.lane,
-			subjectOf(title, mt.report), mt.agent)
+			subjectOf(title, mt.report))
 		var refused port.Refused
 		if errors.As(err, &refused) { // final: the owner decides
 			return submitOut{Refused: refused.Line}, nil

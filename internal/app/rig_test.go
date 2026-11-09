@@ -1437,7 +1437,7 @@ func (s *FakeWorkflow) waitOn(ctx context.Context, ch chan struct{}) error {
 // Submit commits the lane's changes ("<task>: <summary>") and pins its head under id; a pin id has is returned as it
 // is. A lane with nothing beyond its fork point is refused, as checks.Scratch refuses a branch already in the target.
 // An unknown lane's sha is "submitted".
-func (s *FakeWorkflow) Submit(ctx context.Context, task, id, lane, summary, _ string) (string, error) {
+func (s *FakeWorkflow) Submit(ctx context.Context, task, id, lane, summary string) (string, error) {
 	s.Submits.Add(1)
 	if err := s.failing(ctx, "Submit"); err != nil {
 		return "", err
@@ -3423,7 +3423,7 @@ type schedScratch struct {
 	resolved []string // the input of each Resolved call
 }
 
-func (f *schedScratch) Submit(context.Context, string, string, string, string, string) (string, error) {
+func (f *schedScratch) Submit(context.Context, string, string, string, string) (string, error) {
 	return "submitted", nil
 }
 

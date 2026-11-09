@@ -684,9 +684,9 @@ func (f *dropFx) Publish(ctx context.Context, c port.Candidate) (port.PublishOut
 	return f.concFakes.Publish(ctx, c)
 }
 
-func (f *dropFx) Submit(ctx context.Context, task, id, lane, summary, worker string) (string, error) {
+func (f *dropFx) Submit(ctx context.Context, task, id, lane, summary string) (string, error) {
 	f.note("submit")
-	return f.concFakes.Submit(ctx, task, id, lane, summary, worker)
+	return f.concFakes.Submit(ctx, task, id, lane, summary)
 }
 
 func (f *dropFx) Launch(ctx context.Context, l port.Launch) (port.Started, error) {

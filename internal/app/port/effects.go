@@ -347,7 +347,7 @@ type Scratch interface {
 	// refs/obor/submitted/<task>/<id>: that sha, the gate's input. id is the submit step's identity (submitID): a pin
 	// it already has is returned as it is. A final refusal (no lane dir, not on a branch, already in the target) is a
 	// Refused error.
-	Submit(ctx context.Context, task, id, lane, summary, worker string) (sha string, err error)
+	Submit(ctx context.Context, task, id, lane, summary string) (sha string, err error)
 	// Gate resets serve's worktree, merges or takes in.Input there, compiles it (commands.compile), commits and pins
 	// the candidate (T-961: no test runs there).
 	Gate(ctx context.Context, in GateInput) (GateOutcome, error)

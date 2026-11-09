@@ -91,7 +91,7 @@ func (c *contract) refused(err error, what string) {
 func (c *contract) submit() string {
 	c.t.Helper()
 	name, _, _ := c.r.Lane()
-	sha, err := c.r.Workflow().Submit(c.ctx, ContractTask, "1", name, "feature", "pj-l1")
+	sha, err := c.r.Workflow().Submit(c.ctx, ContractTask, "1", name, "feature")
 	c.ok(err, "Submit")
 	if sha == "" {
 		c.t.Fatal("Submit: no sha")
@@ -170,7 +170,7 @@ var contractRows = []struct {
 		c.pins(sha, "", "", "Submit: pinned")
 		c.target(head, true, "Target after the submit: the branch is ahead")
 		name2, _, _ := c.r.Lane2()
-		_, err := w.Submit(c.ctx, ContractTask2, "1", name2, "x", "w")
+		_, err := w.Submit(c.ctx, ContractTask2, "1", name2, "x")
 		c.refused(err, "Submit of a lane already in the target")
 
 		cand := c.green("Gate lane green", port.InputLane, sha)

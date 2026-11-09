@@ -270,7 +270,7 @@ func (x *fx) opts() Options {
 	}
 }
 
-// gate submits lane's work for task (worker label "worker"), gates it in serve's worktree and tests the candidate in
+// gate submits lane's work for task, gates it in serve's worktree and tests the candidate in
 // the lane, as obor serve does (Scratch.Submit, a lane Gate, then Test: T-961): green is OK, red Red, fail and conflict
 // Fail, each with the gate's line or, past a green gate, the test's; a refusal or error is Fail with its text. A green
 // gate's candidate is x.cand, its line x.gated.
@@ -283,7 +283,7 @@ func (x *fx) gate(lane, task, summary string) Result {
 func (x *fx) gateCtx(ctx context.Context, lane, task, summary string) Result {
 	x.out.Reset()
 	s := Scratch{Options: x.opts()}
-	sha, err := s.Submit(context.Background(), task, "1", lane, summary, "worker")
+	sha, err := s.Submit(context.Background(), task, "1", lane, summary)
 	if err != nil {
 		return Result{Code: Fail, Line: err.Error()}
 	}

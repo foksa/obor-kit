@@ -49,7 +49,7 @@ func TestSubmitLocks(t *testing.T) {
 				}
 				return true
 			}
-			if _, err := s.Submit(ctx, "T-05", "1", "L-01", "feature", "pj-l1"); err != nil {
+			if _, err := s.Submit(ctx, "T-05", "1", "L-01", "feature"); err != nil {
 				t.Fatalf("submit with the lock held by a live git: %v", err)
 			}
 			if asked < 2 {
@@ -64,7 +64,7 @@ func TestSubmitLocks(t *testing.T) {
 		}},
 		{"a stale lock with no git: removed once, logged", func(t *testing.T, x *fx, s Scratch, lock string) {
 			s.GitAlive = func(string) bool { return false }
-			if _, err := s.Submit(ctx, "T-05", "1", "L-01", "feature", "pj-l1"); err != nil {
+			if _, err := s.Submit(ctx, "T-05", "1", "L-01", "feature"); err != nil {
 				t.Fatalf("submit with a stale lock: %v", err)
 			}
 			if !x.committed() {
@@ -83,7 +83,7 @@ func TestSubmitLocks(t *testing.T) {
 			s.Git = x.stub("git-relock", fmt.Sprintf(`if [ "$3" = add ]; then : > '%[1]s'; touch -t 200001010000 '%[1]s'; fi
 exec '%[2]s' "$@"`, lock, real))
 			s.GitAlive = func(string) bool { return false }
-			_, err = s.Submit(ctx, "T-05", "1", "L-01", "feature", "pj-l1")
+			_, err = s.Submit(ctx, "T-05", "1", "L-01", "feature")
 			if err == nil || !strings.Contains(err.Error(), "git add") || !strings.Contains(err.Error(), "Another git process") {
 				t.Fatalf("submit: %v; want git add's lock error", err)
 			}

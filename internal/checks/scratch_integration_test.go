@@ -106,7 +106,7 @@ func TestGitEndsWithCtx(t *testing.T) {
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()
 	y.arm(0)
-	if _, err := y.s.Submit(canceled, "T-05", "1", "L-01", "feature", "w"); err == nil {
+	if _, err := y.s.Submit(canceled, "T-05", "1", "L-01", "feature"); err == nil {
 		t.Fatal("canceled Submit: no error")
 	}
 	y.eq(strings.Join(y.calls(), "|"), "", "no git call ran")
@@ -130,7 +130,7 @@ exec '%[3]s' "$@"`, child, blocked, real))
 		cancel()
 	}()
 	at := time.Now()
-	if _, err := (Scratch{Options: o}).Submit(c, "T-05", "1", "L-01", "feature", "w"); err == nil {
+	if _, err := (Scratch{Options: o}).Submit(c, "T-05", "1", "L-01", "feature"); err == nil {
 		t.Fatal("Submit canceled during a blocked git call: no error")
 	}
 	if d := time.Since(at); d > 10*time.Second {
@@ -148,7 +148,7 @@ exec '%[3]s' "$@"`, child, blocked, real))
 		syscall.Kill(pid, syscall.SIGKILL)
 		t.Errorf("the blocked git's child %d outlived the cancel", pid)
 	}
-	sha, err := (Scratch{Options: o}).Submit(ctx, "T-05", "1", "L-01", "feature", "w")
+	sha, err := (Scratch{Options: o}).Submit(ctx, "T-05", "1", "L-01", "feature")
 	if err != nil {
 		t.Fatal(err)
 	}
