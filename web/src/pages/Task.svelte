@@ -120,10 +120,9 @@
           <section class="card pad gate" aria-label="Last gate">
             <div class="gh"><h2 class="lbl">Last gate</h2><Pill state={green ? "green" : "fail"} text={green ? "pass" : "fail"} /></div>
             <p class="mono gl">{human(t.gate_line)}</p>
-            <p class="muted small">
-              {#if t.gated_rev}checked spec r{t.gated_rev}{#if t.spec_rev && t.spec_rev !== t.gated_rev}<span class="warn"> · spec is r{t.spec_rev} now</span>{/if} · {/if}
-              log <span class="mono">{t.gate_log || ""}</span>
-            </p>
+            {#if t.gated_rev}
+              <p class="muted small">checked spec r{t.gated_rev}{#if t.spec_rev && t.spec_rev !== t.gated_rev}<span class="warn"> · spec is r{t.spec_rev} now</span>{/if}</p>
+            {/if}
           </section>
         {/if}
       </aside>
