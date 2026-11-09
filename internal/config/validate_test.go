@@ -47,7 +47,7 @@ func del(path string) edit {
 // deletes it.
 func validate(t *testing.T, p *testkit.Project, edits ...edit) []string {
 	t.Helper()
-	base := []edit{set("roles.integrator", "opus")}
+	base := []edit{set("agents.roles.integrator", "opus")}
 	p.Config(append(base, edits...)...)
 	c, unknown, err := config.LoadForValidate(p.Root)
 	if err != nil {
@@ -85,205 +85,205 @@ func TestValidate(t *testing.T) {
 		// bash config.test.sh case_validate_ok_template_and_fixture
 		{name: "fixture default", want: nil},
 		// RV-52 #1: a model's kind must be one with a bridge; a leftover cursor or a typo is a FAIL naming the kinds.
-		{name: "cursor is no supported kind", edits: []edit{set("models.cur", map[string]any{"kind": "cursor", "model": "c"})},
+		{name: "cursor is no supported kind", edits: []edit{set("agents.models.cur", map[string]any{"kind": "cursor", "id": "c"})},
 			want: []string{`FAIL .agents.models.cur.kind: "cursor" is not a supported kind: use one of claude, codex, opencode`}},
-		{name: "typo is no supported kind", edits: []edit{set("models.opus", map[string]any{"kind": "claod", "model": "opus"})},
+		{name: "typo is no supported kind", edits: []edit{set("agents.models.opus", map[string]any{"kind": "claod", "id": "opus"})},
 			want: []string{`FAIL .agents.models.opus.kind: "claod" is not a supported kind: use one of claude, codex, opencode`}},
-		{name: "a kinds key is a supported kind", edits: []edit{set("kinds.cursor", map[string]any{"args": []any{"-x"}})},
+		{name: "a kinds key is a supported kind", edits: []edit{set("agents.kinds.cursor", map[string]any{"args": []any{"-x"}})},
 			want: []string{`FAIL .agents.kinds.cursor: "cursor" is not a supported kind: use one of claude, codex, opencode`}},
 		{name: "every supported kind is accepted", edits: []edit{
-			set("models.a", map[string]any{"kind": "claude", "model": "a"}), set("models.b", map[string]any{"kind": "codex", "model": "b"}),
-			set("models.c", map[string]any{"kind": "opencode", "model": "go/ds"})}},
+			set("agents.models.a", map[string]any{"kind": "claude", "id": "a"}), set("agents.models.b", map[string]any{"kind": "codex", "id": "b"}),
+			set("agents.models.c", map[string]any{"kind": "opencode", "id": "go/ds"})}},
 		// T-705: a used opencode model without a model id warns (not fails): opencode's own default may not work.
 		{name: "a used opencode model without a model id warns", edits: []edit{
-			set("models.oc", map[string]any{"kind": "opencode", "model": ""}), set("difficulty.simple", []any{"oc"})},
+			set("agents.models.oc", map[string]any{"kind": "opencode", "id": ""}), set("agents.difficulty.simple", []any{"oc"})},
 			want: []string{`WARN agents.models.oc: opencode model without a model id (opencode's own default may not work, and an effort needs one): set its "id", e.g. "opencode-go/deepseek-v4.1-flash"`}},
 		{name: "an unused opencode model without a model id is fine", edits: []edit{
-			set("models.oc", map[string]any{"kind": "opencode", "model": ""})}},
-		// T-1046: a config from before OpenCode's binary (no kinds.opencode.command) runs the kit's, with a WARN while it
+			set("agents.models.oc", map[string]any{"kind": "opencode", "id": ""})}},
+		// T-1046: a config from before OpenCode's binary (no agents.kinds.opencode.plugin) runs the kit's, with a WARN while it
 		// uses OpenCode (the default levels' deepseek), and none when it uses no OpenCode model.
-		{name: "no kinds.opencode.command, OpenCode used: the kit's binary, a WARN", edits: []edit{del("kinds")},
+		{name: "no agents.kinds.opencode.plugin, OpenCode used: the kit's binary, a WARN", edits: []edit{del("agents.kinds")},
 			want: []string{`WARN agents.kinds.opencode.plugin: not set, so obor runs the kit's obor-kind-opencode (obor setup agents sets it; v0.33.0 drops the default)`}},
-		{name: "no kinds.opencode.command, OpenCode unused: nothing", edits: []edit{del("kinds"),
-			set("difficulty", map[string]any{"hard": []any{"opus"}, "medium": []any{"sonnet"}, "simple": []any{"haiku"}})}},
-		{name: "a new model needs its kind", edits: []edit{set("models.cur", map[string]any{"model": "x"})},
+		{name: "no agents.kinds.opencode.plugin, OpenCode unused: nothing", edits: []edit{del("agents.kinds"),
+			set("agents.difficulty", map[string]any{"hard": []any{"opus"}, "medium": []any{"sonnet"}, "simple": []any{"haiku"}})}},
+		{name: "a new model needs its kind", edits: []edit{set("agents.models.cur", map[string]any{"id": "x"})},
 			want: []string{"FAIL .agents.models.cur.kind: required (claude, codex, opencode)"}},
-		{name: "a built-in's override may keep its kind", edits: []edit{set("models.opus", map[string]any{"model": "claude-opus-5-5"})}},
-		// T-830: paths.status and paths.queue are map entries, not keys with a field: they load with
-		// no WARN (paths is free-form).
-		{name: "removed paths keys load silently", edits: []edit{set("paths.status", "STATUS.md"),
-			set("paths.queue", "docs/QUEUE.md")}},
+		{name: "a built-in's override may keep its kind", edits: []edit{set("agents.models.opus", map[string]any{"id": "claude-opus-5-5"})}},
+		// T-830: paths.status and paths.queue are map entries, not keys with a field: a shape-1 file's dropped paths
+		// load with no WARN (paths is free-form); a test of the window, so its shape-1 edit is marked (T-1141).
+		{name: "removed paths keys load silently", edits: []edit{testkit.Shape1(set("paths.status", "STATUS.md"),
+			set("paths.queue", "docs/QUEUE.md"))}},
 		// T-428: owner decision 2026-10-24 — an integrator for every task; serve dispatches and merges for no project
 		// without one, so the config is invalid without the entry and unchanged with it.
-		{name: "no roles.integrator", edits: []edit{del("roles.integrator")},
+		{name: "no roles.integrator", edits: []edit{del("agents.roles.integrator")},
 			want: []string{"FAIL .agents.roles.integrator: required: serve dispatches and merges nothing without an integrator"}},
-		{name: "roles.integrator configured", edits: []edit{set("roles.integrator", "sonnet:high")}},
-		{name: "roles.integrator with no model", edits: []edit{set("roles.integrator", "")}},
+		{name: "roles.integrator configured", edits: []edit{set("agents.roles.integrator", "sonnet:high")}},
+		{name: "roles.integrator with no model", edits: []edit{set("agents.roles.integrator", "")}},
 		// bash config.test.sh case_validate_one_fail_per_broken_field
 		// config shape 2 (T-1124): the test kit writes version 2; a file with no version (or 1) is shape 1, one WARN
 		{name: "version 3", edits: []edit{set("version", 3)}, want: []string{"FAIL .version: must be 2, got 3"}},
 		{name: "no version: shape 1", edits: []edit{del("version")}, want: []string{"WARN .version: config shape 1, " +
 			"read as shape 2 for this release and refused by the next: serve rewrites it at its start (obor config migrate by hand)"}},
-		{name: "no prefix", edits: []edit{del("prefix")}, want: []string{"FAIL .project.agent_prefix: required string, got null"}},
-		{name: "prefix Bad", edits: []edit{set("prefix", "Bad")},
+		{name: "no prefix", edits: []edit{del("project.agent_prefix")}, want: []string{"FAIL .project.agent_prefix: required string, got null"}},
+		{name: "prefix Bad", edits: []edit{set("project.agent_prefix", "Bad")},
 			want: []string{`FAIL .project.agent_prefix: must match ^[a-z][a-z0-9-]{0,7}$, got "Bad"`}},
-		{name: "prefix too long", edits: []edit{set("prefix", "toolongprefix")},
+		{name: "prefix too long", edits: []edit{set("project.agent_prefix", "toolongprefix")},
 			want: []string{`FAIL .project.agent_prefix: must match ^[a-z][a-z0-9-]{0,7}$, got "toolongprefix"`}},
-		{name: "prefix 1x", edits: []edit{set("prefix", "1x")}, want: []string{`FAIL .project.agent_prefix: must match ^[a-z][a-z0-9-]{0,7}$, got "1x"`}},
+		{name: "prefix 1x", edits: []edit{set("project.agent_prefix", "1x")}, want: []string{`FAIL .project.agent_prefix: must match ^[a-z][a-z0-9-]{0,7}$, got "1x"`}},
 		// T-765: lanes is a count.
-		{name: "no lanes", edits: []edit{set("lanes", 0)}},
-		{name: "negative lanes", edits: []edit{set("lanes", -1)},
+		{name: "no lanes", edits: []edit{set("lanes.count", 0)}},
+		{name: "negative lanes", edits: []edit{set("lanes.count", -1)},
 			want: []string{"FAIL .lanes.count: must be a non-negative integer (how many lanes), got -1"}},
 		// T-538: a project's difficulty entry names the levels and the lane types it has; the built-in default skips what it lacks.
-		{name: "difficulty names known models", edits: []edit{set("difficulty", map[string]any{"hard": []any{"opus"}})}},
-		{name: "difficulty with an unknown model", edits: []edit{set("difficulty", map[string]any{"medium": []any{"opus", "ghost"}})},
+		{name: "difficulty names known models", edits: []edit{set("agents.difficulty", map[string]any{"hard": []any{"opus"}})}},
+		{name: "difficulty with an unknown model", edits: []edit{set("agents.difficulty", map[string]any{"medium": []any{"opus", "ghost"}})},
 			want: []string{`FAIL .agents.difficulty.medium[1]: "ghost" is not a model (models: opus, sonnet, haiku, fable, deepseek, terra, sol, luna)`}},
-		{name: "difficulty with an unknown level", edits: []edit{set("difficulty", map[string]any{"easy": []any{"opus"}})},
+		{name: "difficulty with an unknown level", edits: []edit{set("agents.difficulty", map[string]any{"easy": []any{"opus"}})},
 			want: []string{"FAIL .agents.difficulty.easy: is not a level: use hard, medium or simple"}},
 		// T-695: a level's list and a role's type take `<type>[:<effort>]`, the effort one its kind takes.
 		{name: "difficulty mixes models and model:effort", edits: []edit{
-			set("difficulty", map[string]any{"hard": []any{"opus:high", "luna:xhigh", "opus"}}),
-			set("roles.lead", "opus:max"), set("roles.reviewer", "luna:max")}},
-		{name: "difficulty with an effort its kind lacks", edits: []edit{set("difficulty", map[string]any{"hard": []any{"opus", "opus:minimal"}})},
+			set("agents.difficulty", map[string]any{"hard": []any{"opus:high", "luna:xhigh", "opus"}}),
+			set("agents.roles.lead", "opus:max"), set("agents.roles.reviewer", "luna:max")}},
+		{name: "difficulty with an effort its kind lacks", edits: []edit{set("agents.difficulty", map[string]any{"hard": []any{"opus", "opus:minimal"}})},
 			want: []string{`FAIL .agents.difficulty.hard[1]: opus:minimal: effort "minimal" is not one of claude's (low, medium, high, xhigh, max)`}},
 		// T-697: an OpenCode effort rides on the model's id (obor never guesses OpenCode's model).
 		{name: "an opencode effort needs the model's id", edits: []edit{
-			set("models.oc", map[string]any{"kind": "opencode", "model": ""}),
-			set("difficulty", map[string]any{"hard": []any{"deepseek:high", "oc:high", "oc"}})},
+			set("agents.models.oc", map[string]any{"kind": "opencode", "id": ""}),
+			set("agents.difficulty", map[string]any{"hard": []any{"deepseek:high", "oc:high", "oc"}})},
 			want: []string{`WARN agents.models.oc: opencode model without a model id (opencode's own default may not work, and an effort needs one): set its "id", e.g. "opencode-go/deepseek-v4.1-flash"`,
 				`FAIL .agents.difficulty.hard[1]: oc:high: kind opencode: start: effort high needs a model id (models.<name>.model, provider/model)`}},
-		{name: "difficulty with an unknown model and an effort", edits: []edit{set("difficulty", map[string]any{"hard": []any{"ghost:high"}})},
+		{name: "difficulty with an unknown model and an effort", edits: []edit{set("agents.difficulty", map[string]any{"hard": []any{"ghost:high"}})},
 			want: []string{`FAIL .agents.difficulty.hard[0]: "ghost" is not a model (models: opus, sonnet, haiku, fable, deepseek, terra, sol, luna)`}},
-		{name: "a role with an effort its kind lacks", edits: []edit{set("roles.lead", "opus:turbo")},
+		{name: "a role with an effort its kind lacks", edits: []edit{set("agents.roles.lead", "opus:turbo")},
 			want: []string{`FAIL .agents.roles.lead: opus:turbo: effort "turbo" is not one of claude's (low, medium, high, xhigh, max)`}},
-		{name: "a role with a colon and no effort", edits: []edit{set("roles.integrator", "opus:")},
+		{name: "a role with a colon and no effort", edits: []edit{set("agents.roles.integrator", "opus:")},
 			want: []string{`FAIL .agents.roles.integrator: "opus:" names no effort after the colon`}},
-		{name: "kinds args with a bare --", edits: []edit{set("kinds.claude.args", []any{"--strict-mcp-config", "--"})},
+		{name: "kinds args with a bare --", edits: []edit{set("agents.kinds.claude.args", []any{"--strict-mcp-config", "--"})},
 			want: []string{"FAIL .agents.kinds.claude.args: `--` is not allowed: obor adds the first prompt itself"}},
-		{name: "kinds args with -- inside a value", edits: []edit{set("kinds.claude.args", []any{"--x=--"})}},
-		{name: "roles.lead unknown", edits: []edit{set("roles.lead", "ghost")},
+		{name: "kinds args with -- inside a value", edits: []edit{set("agents.kinds.claude.args", []any{"--x=--"})}},
+		{name: "roles.lead unknown", edits: []edit{set("agents.roles.lead", "ghost")},
 			want: []string{`FAIL .agents.roles.lead: "ghost" is not a model (models: opus, sonnet, haiku, fable, deepseek, terra, sol, luna)`}},
-		{name: "several problems: one line each", edits: []edit{set("version", 3), set("prefix", "X"), set("models.extra", map[string]any{})},
+		{name: "several problems: one line each", edits: []edit{set("version", 3), set("project.agent_prefix", "X"), set("agents.models.extra", map[string]any{})},
 			want: []string{"FAIL .version: must be 2, got 3", `FAIL .project.agent_prefix: must match ^[a-z][a-z0-9-]{0,7}$, got "X"`,
 				"FAIL .agents.models.extra.kind: required (claude, codex, opencode)"}},
-		{name: "slots.cpus fine", edits: []edit{set("slots.cpus", 4)}},
+		{name: "slots.cpus fine", edits: []edit{set("checks.cpus_per_check", 4)}},
 		// T-966: merge.receipt_max_age went with the test receipts in v0.29; past its two minors it is an unknown key
 		// (T-1081), as are the promotion's three keys T-1076 deleted.
 		{name: "merge.receipt_max_age is unknown", edits: []edit{set("merge.receipt_max_age", 60)},
 			want: []string{unknownFail("merge.receipt_max_age")}},
 		{name: "the promotion's keys are unknown", edits: []edit{set("branches.promote", "release"),
 			set("merge.promote_weight", 2), set("merge.weights", map[string]any{"core": 3})},
-			// shape 1's branches keeps its unknown member after main moves out: the group is the unknown key
+			// branches is no group of shape 2: the promotion's member makes the whole key the unknown one
 			want: []string{unknownFail("merge.promote_weight"), unknownFail("merge.weights"), unknownFail("branches")}},
-		{name: "nightly_at fine", edits: []edit{set("merge.nightly_at", "02:00")}},
-		{name: "nightly_at no time", edits: []edit{set("merge.nightly_at", "2am")},
+		{name: "nightly_at fine", edits: []edit{set("nightly.at", "02:00")}},
+		{name: "nightly_at no time", edits: []edit{set("nightly.at", "2am")},
 			want: []string{`FAIL .nightly.at: must be a local time HH:MM (00:00 to 23:59), got "2am"`}},
-		{name: "nightly_at out of range", edits: []edit{set("merge.nightly_at", "24:00")},
+		{name: "nightly_at out of range", edits: []edit{set("nightly.at", "24:00")},
 			want: []string{`FAIL .nightly.at: must be a local time HH:MM (00:00 to 23:59), got "24:00"`}},
-		// T-817: merge.nightly_commands names defined, non-gating commands.
+		// T-817: nightly.also_run names defined, non-gating commands.
 		{name: "nightly_commands fine", edits: []edit{set("commands.trim_cache", "true"),
-			set("merge.nightly_commands", []any{"trim_cache"})}},
+			set("nightly.also_run", []any{"trim_cache"})}},
 		// T-1083: baseline, gate and e2e are free command names again: set and not named where they still run, one WARN;
-		// named in merge.nightly_commands, none (nightly runs it there, T-817).
+		// named in nightly.also_run, none (nightly runs it there, T-817).
 		{name: "commands.e2e alone warns", edits: []edit{set("commands.e2e", "bun run e2e")},
 			want: []string{"WARN commands.e2e: obor no longer runs it at merge or nightly (v0.32); delete it, or name it in a merge.by_path.rules run or nightly.also_run"}},
 		{name: "commands.baseline alone warns", edits: []edit{set("commands.baseline", "bun run baseline")},
 			want: []string{"WARN commands.baseline: obor no longer runs it at merge or nightly (v0.32); delete it, or name it in a merge.by_path.rules run or nightly.also_run"}},
-		{name: "e2e in merge.nightly_commands does not warn", edits: []edit{set("commands.e2e", "bun run e2e"),
-			set("merge.nightly_commands", []any{"e2e"})}},
+		{name: "e2e in nightly.also_run does not warn", edits: []edit{set("commands.e2e", "bun run e2e"),
+			set("nightly.also_run", []any{"e2e"})}},
 		{name: "baseline in a class's checks does not warn", edits: []edit{set("commands.baseline", "bun run baseline"),
-			set("merge.classes", []any{map[string]any{"name": "ui", "paths": []any{"src/ui/**"}, "checks": []any{"baseline"}}})}},
-		{name: "gate as merge.guard does not warn", edits: []edit{set("commands.gate", "bun run gate"),
-			set("merge.guard", "gate")}},
-		{name: "nightly_commands empty", edits: []edit{set("merge.nightly_commands", []any{})}},
-		{name: "nightly_commands an unknown name", edits: []edit{set("merge.nightly_commands", []any{"ghost"})},
+			set("merge.by_path.rules", []any{map[string]any{"name": "ui", "paths": []any{"src/ui/**"}, "run": []any{"baseline"}}})}},
+		{name: "gate as merge.by_path.guard does not warn", edits: []edit{set("commands.gate", "bun run gate"),
+			set("merge.by_path.guard", "gate")}},
+		{name: "nightly_commands empty", edits: []edit{set("nightly.also_run", []any{})}},
+		{name: "nightly_commands an unknown name", edits: []edit{set("nightly.also_run", []any{"ghost"})},
 			want: []string{"FAIL .nightly.also_run[0]: no commands.ghost: define it, or remove it"}},
-		{name: "nightly_commands a gating command", edits: []edit{set("commands.check", "make check"),
-			set("merge.nightly_commands", []any{"check"})},
+		{name: "nightly_commands a gating command", edits: []edit{set("merge.check", "make check"),
+			set("nightly.also_run", []any{"check"})},
 			want: []string{`FAIL .nightly.also_run[0]: "check" is a gating command: nightly runs it as a gate, never non-gating`}},
 		{name: "nightly_commands a merge class's check", edits: []edit{set("commands.ui", "true"),
-			set("merge.classes", []any{map[string]any{"name": "ui", "paths": []any{"src/ui/**"}, "checks": []any{"ui"}}}),
-			set("merge.nightly_commands", []any{"ui"})},
+			set("merge.by_path.rules", []any{map[string]any{"name": "ui", "paths": []any{"src/ui/**"}, "run": []any{"ui"}}}),
+			set("nightly.also_run", []any{"ui"})},
 			want: []string{`FAIL .nightly.also_run[0]: "ui" is a gating command: nightly runs it as a gate, never non-gating`}},
-		{name: "slots.cpus zero", edits: []edit{set("slots.cpus", 0)},
+		{name: "slots.cpus zero", edits: []edit{set("checks.cpus_per_check", 0)},
 			want: []string{"FAIL .checks.cpus_per_check: must be a positive integer, got 0"}},
-		{name: "slots.cpus negative", edits: []edit{set("slots.cpus", -2)},
+		{name: "slots.cpus negative", edits: []edit{set("checks.cpus_per_check", -2)},
 			want: []string{"FAIL .checks.cpus_per_check: must be a positive integer, got -2"}},
 		// T-962: checks.load_limit went with the check slots' machine-load wait in v0.29; past its two minors it is an
 		// unknown key (T-1081) of shape 2's checks group.
 		{name: "checks.load_limit is unknown", edits: []edit{set("checks.load_limit", 12.5)},
 			want: []string{unknownFail("checks.load_limit")}},
-		{name: "workflow scratch-ff", edits: []edit{set("workflow.kind", "scratch-ff")}},
-		{name: "workflow unknown kind", edits: []edit{set("workflow.kind", "x")},
+		{name: "workflow scratch-ff", edits: []edit{set("merge.workflow", "scratch-ff")}},
+		{name: "workflow unknown kind", edits: []edit{set("merge.workflow", "x")},
 			want: []string{`FAIL .merge.workflow: must be one of scratch-ff, got "x"`}},
-		{name: "terminal herdr", edits: []edit{set("terminal.kind", "herdr")}},
-		{name: "terminal unknown kind", edits: []edit{set("terminal.kind", "x")},
+		{name: "terminal herdr", edits: []edit{set("project.terminal", "herdr")}},
+		{name: "terminal unknown kind", edits: []edit{set("project.terminal", "x")},
 			want: []string{`FAIL .project.terminal: must be one of herdr, got "x"`}},
-		{name: "slots.lane_cpus fine", edits: []edit{set("slots.lane_cpus", 1)}},
-		{name: "slots.lane_cpus zero", edits: []edit{set("slots.lane_cpus", 0)},
+		{name: "slots.lane_cpus fine", edits: []edit{set("lanes.cpus", 1)}},
+		{name: "slots.lane_cpus zero", edits: []edit{set("lanes.cpus", 0)},
 			want: []string{"FAIL .lanes.cpus: must be a positive integer, got 0"}},
 		// T-777: the compact alias (pj-l1) and the agents key are gone: a lane's agent is <prefix>-l-NN or its row's.
 		// bash config.test.sh case_validate_lane_ready
-		{name: "lane_ready string", edits: []edit{set("commands.lane_ready", "test -d node_modules")}},
-		{name: "lane_ready object", edits: []edit{set("commands.lane_ready", `{"cmd": "test -d node_modules", "timeout": 30}`)}},
+		{name: "lane_ready string", edits: []edit{set("lanes.ready", "test -d node_modules")}},
+		{name: "lane_ready object", edits: []edit{set("lanes.ready", `{"cmd": "test -d node_modules", "timeout": 30}`)}},
 		// bash config.test.sh case_validate_after_merge
-		{name: "after_merge string", edits: []edit{set("commands.after_merge", "make build")}},
-		{name: "after_merge object with when", edits: []edit{set("commands.after_merge", `{"cmd": "make build", "timeout": 60, "when": ["cmd/**", "go.mod"]}`)}},
-		{name: "after_merge null", edits: []edit{set("commands.after_merge", nil)}},
+		{name: "after_merge string", edits: []edit{set("merge.after", "make build")}},
+		{name: "after_merge object with when", edits: []edit{set("merge.after", `{"cmd": "make build", "timeout": 60, "when_changed": ["cmd/**", "go.mod"]}`)}},
+		{name: "after_merge null", edits: []edit{set("merge.after", nil)}},
 		// bash config.test.sh case_validate_duplicate_class_names
-		{name: "duplicate class name", edits: []edit{set("merge.classes", `[{"name": "same", "paths": ["src/core/**"], "full": true},
-			{"name": "same", "paths": ["src/ui/**"], "checks": ["ui"]}]`)},
+		{name: "duplicate class name", edits: []edit{set("merge.by_path.rules", `[{"name": "same", "paths": ["src/core/**"], "full": true},
+			{"name": "same", "paths": ["src/ui/**"], "run": ["ui"]}]`)},
 			want: []string{`FAIL .merge.by_path.rules[1].name: duplicate of .merge.by_path.rules[0].name ("same")`}},
-		{name: "one line per later duplicate", edits: []edit{set("merge.classes", `[{"name": "a", "paths": ["src/**"], "full": true},
+		{name: "one line per later duplicate", edits: []edit{set("merge.by_path.rules", `[{"name": "a", "paths": ["src/**"], "full": true},
 			{"name": "b", "paths": ["x"]}, {"name": "a", "paths": ["y"]}, {"name": "b", "paths": ["z"]}]`)},
 			want: []string{`FAIL .merge.by_path.rules[2].name: duplicate of .merge.by_path.rules[0].name ("a")`,
 				`FAIL .merge.by_path.rules[3].name: duplicate of .merge.by_path.rules[1].name ("b")`}},
-		{name: "distinct class names, same paths", edits: []edit{set("merge.classes", `[{"name": "core", "paths": ["src/**"], "full": true},
-			{"name": "ui", "paths": ["src/**"], "checks": ["ui"]}]`)}},
+		{name: "distinct class names, same paths", edits: []edit{set("merge.by_path.rules", `[{"name": "core", "paths": ["src/**"], "full": true},
+			{"name": "ui", "paths": ["src/**"], "run": ["ui"]}]`)}},
 		// T-1007: with_full runs a class's checks after check on a full merge; on a full class it is meaningless.
-		{name: "with_full on a checks class", edits: []edit{set("merge.classes", `[{"name": "ui", "paths": ["src/**"], "checks": ["ui"]},
-			{"name": "release", "paths": ["Makefile"], "checks": ["release"], "with_full": true}]`)}},
-		{name: "with_full on a full class", edits: []edit{set("merge.classes", `[{"name": "core", "paths": ["src/**"], "full": true},
-			{"name": "core2", "paths": ["lib/**"], "full": true, "with_full": true}]`)},
+		{name: "with_full on a checks class", edits: []edit{set("merge.by_path.rules", `[{"name": "ui", "paths": ["src/**"], "run": ["ui"]},
+			{"name": "release", "paths": ["Makefile"], "run": ["release"], "also_on_full": true}]`)}},
+		{name: "with_full on a full class", edits: []edit{set("merge.by_path.rules", `[{"name": "core", "paths": ["src/**"], "full": true},
+			{"name": "core2", "paths": ["lib/**"], "full": true, "also_on_full": true}]`)},
 			want: []string{"FAIL .merge.by_path.rules[1].also_on_full: meaningless with full: true: a full rule already runs merge.check"}},
 		// bash config.test.sh case_validate_roles_triage, case_validate_roles_deep_dive
-		{name: "roles.triage", edits: []edit{set("roles.triage", "opus")}},
-		{name: "roles.deep_dive", edits: []edit{set("roles.deep_dive", "opus:high")}},
-		{name: "deep_dive model unknown", edits: []edit{set("roles.deep_dive", "ghost")},
+		{name: "roles.triage", edits: []edit{set("agents.roles.triage", "opus")}},
+		{name: "roles.deep_dive", edits: []edit{set("agents.roles.deep_dive", "opus:high")}},
+		{name: "deep_dive model unknown", edits: []edit{set("agents.roles.deep_dive", "ghost")},
 			want: []string{`FAIL .agents.roles.deep_dive: "ghost" is not a model (models: opus, sonnet, haiku, fable, deepseek, terra, sol, luna)`}},
 		// bash config.test.sh case_validate_handoff_tokens
-		{name: "handoff_tokens 500000", edits: []edit{set("handoff_tokens", 500000)}},
-		{name: "handoff_tokens 0", edits: []edit{set("handoff_tokens", 0)}},
-		{name: "handoff_tokens negative", edits: []edit{set("handoff_tokens", -1)},
+		{name: "handoff_tokens 500000", edits: []edit{set("agents.handoff_tokens", 500000)}},
+		{name: "handoff_tokens 0", edits: []edit{set("agents.handoff_tokens", 0)}},
+		{name: "handoff_tokens negative", edits: []edit{set("agents.handoff_tokens", -1)},
 			want: []string{"FAIL .agents.handoff_tokens: must be a non-negative integer, got -1"}},
 		// bash config.test.sh case_validate_allow_push
-		{name: "allow_push a role", edits: []edit{set("guards", `{"allow_push": ["lead", "integrator"]}`)}},
-		{name: "allow_push no role", edits: []edit{set("guards", `{"allow_push": ["lead-mp"]}`)},
+		{name: "allow_push a role", edits: []edit{set("rules", `{"may_push": ["lead", "integrator"]}`)}},
+		{name: "allow_push no role", edits: []edit{set("rules", `{"may_push": ["lead-mp"]}`)},
 			want: []string{`WARN .rules.may_push: "lead-mp" is no role: it allows no push`}},
-		{name: "allow_push empty", edits: []edit{set("guards", `{"allow_push": []}`)}},
-		{name: "allow_push an empty name", edits: []edit{set("guards", `{"allow_push": [""]}`)},
+		{name: "allow_push empty", edits: []edit{set("rules", `{"may_push": []}`)}},
+		{name: "allow_push an empty name", edits: []edit{set("rules", `{"may_push": [""]}`)},
 			want: []string{`FAIL .rules.may_push: must be a list of roles (e.g. ["lead"])`}},
-		// T-905: guards.deny_commands entries have a match that compiles and the message the guard denies with.
-		{name: "deny_commands a rule", edits: []edit{set("guards",
+		// T-905: rules.deny_commands entries have a match that compiles and the message the guard denies with.
+		{name: "deny_commands a rule", edits: []edit{set("rules",
 			`{"deny_commands": [{"match": "^bun test --coverage", "alone": true, "message": "a coverage run is a load run"}]}`)}},
-		{name: "deny_commands a pairs rule", edits: []edit{set("guards",
+		{name: "deny_commands a pairs rule", edits: []edit{set("rules",
 			`{"deny_commands": [{"match": "^bun test", "message": "two bun test commands at once are a load run"}]}`)}},
-		{name: "deny_commands a bad regex", edits: []edit{set("guards", `{"deny_commands": [{"match": "[", "message": "no"}]}`)},
+		{name: "deny_commands a bad regex", edits: []edit{set("rules", `{"deny_commands": [{"match": "[", "message": "no"}]}`)},
 			want: []string{"FAIL .rules.deny_commands[0].match: must be a regular expression: missing closing ]: `[`"}},
-		{name: "deny_commands no match", edits: []edit{set("guards", `{"deny_commands": [{"message": "no"}]}`)},
+		{name: "deny_commands no match", edits: []edit{set("rules", `{"deny_commands": [{"message": "no"}]}`)},
 			want: []string{"FAIL .rules.deny_commands[0].match: required: a regular expression on the resolved command line"}},
-		{name: "deny_commands no message", edits: []edit{set("guards", `{"deny_commands": [{"match": "^x"}]}`)},
+		{name: "deny_commands no message", edits: []edit{set("rules", `{"deny_commands": [{"match": "^x"}]}`)},
 			want: []string{"FAIL .rules.deny_commands[0].message: required: the text the guard denies with"}},
 		// bash config.test.sh case_validate_neutral_overlap
-		// T-1111: validate has no copy of merge.neutral's default (the one default is Classify's): with no neutral glob
-		// set it checks none, even where docs/** would overlap.
-		{name: "no neutral set", edits: []edit{set("merge", `{"guard": "g", "classes": [{"name": "docs", "paths": ["docs/**"], "checks": ["c"]}]}`)}},
-		{name: "*.md crosses /", edits: []edit{set("merge", neutralBase), set("merge.neutral", []any{"docs/**", "*.md"})},
+		// T-1111: validate has no copy of merge.by_path.no_check's default (the one default is Classify's): with no
+		// neutral glob set it checks none, even where docs/** would overlap.
+		{name: "no neutral set", edits: []edit{set("merge.by_path", `{"guard": "g", "rules": [{"name": "docs", "paths": ["docs/**"], "run": ["c"]}]}`)}},
+		{name: "*.md crosses /", edits: []edit{set("merge.by_path", neutralBase), set("merge.by_path.no_check", []any{"docs/**", "*.md"})},
 			want: []string{"WARN merge.by_path.no_check glob *.md overlaps rule skills glob skills/**",
 				"WARN merge.by_path.no_check glob *.md overlaps rule ui glob src/ui/**"}},
-		{name: "an explicit file under a class glob", edits: []edit{set("merge", neutralBase), set("merge.neutral", []any{"STATUS.md"}),
+		{name: "an explicit file under a class glob", edits: []edit{set("merge.by_path", neutralBase), set("merge.by_path.no_check", []any{"STATUS.md"}),
 			func(c map[string]any) {
-				ui := c["merge"].(map[string]any)["classes"].([]any)[1].(map[string]any)
+				ui := c["merge"].(map[string]any)["by_path"].(map[string]any)["rules"].([]any)[1].(map[string]any)
 				ui["paths"] = append(ui["paths"].([]any), "*.md")
 			}},
 			want: []string{"WARN merge.by_path.no_check glob STATUS.md overlaps rule ui glob *.md"}},
@@ -309,20 +309,20 @@ func TestShapeErrorsFailTheLoad(t *testing.T) {
 		edit edit
 		want string
 	}{
-		{set("commands.lane_ready", 5), "lanes.ready: "},
-		{set("commands.after_merge", map[string]any{"cmd": "make build", "when": "cmd/**"}), "when"},
+		{set("lanes.ready", 5), "lanes.ready: "},
+		{set("merge.after", map[string]any{"cmd": "make build", "when_changed": "cmd/**"}), "when"},
 		// T-935: after_merge's restart_serve is gone: binary following is serve's one automatic restart.
-		{set("commands.after_merge", map[string]any{"cmd": "make build", "restart_serve": true}), ".merge.after.restart_serve: unknown"},
-		{set("lanes", "two"), "lanes.count"},
-		{set("models", []any{}), "models"},
-		{set("kinds.claude.args", "x"), "args"},
+		{set("merge.after", map[string]any{"cmd": "make build", "restart_serve": true}), ".merge.after.restart_serve: unknown"},
+		{set("lanes.count", "two"), "lanes.count"},
+		{set("agents.models", []any{}), "models"},
+		{set("agents.kinds.claude.args", "x"), "args"},
 		// T-801: roles.mystery is a custom role (validate checks it); a key its row does not know fails the load.
-		{set("roles.mystery", map[string]any{"model": "opus", "writes": []string{}}), ".agents.roles.mystery.writes: unknown"},
-		{set("roles.integrator", 5), "integrator"},
-		{set("roles", 5), "roles: must be an object"},
-		{set("merge.classes", []any{map[string]any{"name": "a", "paths": "x"}}), "paths"},
-		{set("handoff_tokens", 1.5), "handoff_tokens"},
-		{set("guards", `{"allow_push": "pj-lead"}`), "may_push"},
+		{set("agents.roles.mystery", map[string]any{"model": "opus", "writes": []string{}}), ".agents.roles.mystery.writes: unknown"},
+		{set("agents.roles.integrator", 5), "integrator"},
+		{set("agents.roles", 5), "roles: must be an object"},
+		{set("merge.by_path.rules", []any{map[string]any{"name": "a", "paths": "x"}}), "paths"},
+		{set("agents.handoff_tokens", 1.5), "handoff_tokens"},
+		{set("rules", `{"may_push": "pj-lead"}`), "may_push"},
 		{set("merge.clases", []any{}), ".merge.clases: unknown"},
 		// T-846: the shape before v0.23 is no special case past its two-minor window: its keys are unknown keys (in a
 		// file of shape 2 agents is a group; a shape-1 file's refusal is TestRetiredShapeKeysRefusedByEveryReader's).
@@ -342,11 +342,11 @@ func TestShapeErrorsFailTheLoad(t *testing.T) {
 		{set("leads", map[string]any{"cross_ttl": 3600}), "leads"},
 		{set("spec", map[string]any{"files_heading": "Files"}), "spec"},
 		// T-1111: roles.leads is no special case: the old row is a shape the load refuses, naming the key.
-		{set("roles", `{"leads": [{"name": "mp"}]}`), "leads"},
+		{set("agents.roles", `{"leads": [{"name": "mp"}]}`), "leads"},
 		{set("obor", map[string]any{"version": "0.7.0"}), "obor"},
-		{set("slots.cpus", "4"), "cpus"},
-		{set("slots.cpus", 2.5), "cpus"},
-		{set("slots.lane_cpus", "3"), "lanes.cpus"},
+		{set("checks.cpus_per_check", "4"), "cpus"},
+		{set("checks.cpus_per_check", 2.5), "cpus"},
+		{set("lanes.cpus", "3"), "lanes.cpus"},
 		{set("checks.loadlimit", 20), ".checks.loadlimit: unknown"},
 		// T-1062: the nine v0.28 keys are past their two-minor window: each is an unknown key now.
 		{set("merge.max_load", 10), ".merge.max_load: unknown"},
@@ -363,8 +363,8 @@ func TestShapeErrorsFailTheLoad(t *testing.T) {
 	}
 }
 
-const neutralBase = `{"guard": "g", "classes": [{"name": "skills", "paths": ["skills/**"], "checks": ["c"]},
-	{"name": "ui", "paths": ["src/ui/**"], "checks": ["c"]}]}`
+const neutralBase = `{"guard": "g", "rules": [{"name": "skills", "paths": ["skills/**"], "run": ["c"]},
+	{"name": "ui", "paths": ["src/ui/**"], "run": ["c"]}]}`
 
 // T-431: the trunk branch exists in the main checkout (present: the fixture's main is OK; missing: FAIL with the hint).
 func TestValidateTrunkRef(t *testing.T) {
@@ -373,11 +373,11 @@ func TestValidateTrunkRef(t *testing.T) {
 		t.Fatalf("trunk main present: %q", got)
 	}
 	want := "FAIL .merge.target_branch: refs/heads/trunk does not exist: set merge.target_branch: your trunk is not trunk"
-	if got := validate(t, p, set("branches.main", "trunk")); !reflect.DeepEqual(got, []string{want}) {
+	if got := validate(t, p, set("merge.target_branch", "trunk")); !reflect.DeepEqual(got, []string{want}) {
 		t.Errorf("trunk missing: %q, want %q", got, want)
 	}
 	p.Git(p.Root, "branch", "trunk")
-	if got := validate(t, p, set("branches.main", "trunk")); len(got) != 0 {
+	if got := validate(t, p, set("merge.target_branch", "trunk")); len(got) != 0 {
 		t.Errorf("trunk created: %q", got)
 	}
 }
@@ -490,7 +490,7 @@ func TestModelRef(t *testing.T) {
 		}
 	}
 	p := newProject(t)
-	p.Config(set("roles.lead", "opus:high"))
+	p.Config(set("agents.roles.lead", "opus:high"))
 	cfg, err := config.Load(p.Root)
 	if err != nil {
 		t.Fatal(err)
@@ -515,7 +515,7 @@ func TestModelRef(t *testing.T) {
 // level has none.
 func TestDifficultyList(t *testing.T) {
 	p := newProject(t)
-	p.Config(set("difficulty", map[string]any{"medium": []string{"haiku", "luna:high"}}))
+	p.Config(set("agents.difficulty", map[string]any{"medium": []string{"haiku", "luna:high"}}))
 	cfg, err := config.Load(p.Root)
 	if err != nil {
 		t.Fatal(err)
@@ -562,7 +562,7 @@ func TestValidateProjectFiles(t *testing.T) {
 	}
 }
 
-// TestPluginKind (T-1036): kinds.<name>.command registers a plugin kind on load (agents.Lookup finds it, a model may
+// TestPluginKind (T-1036): agents.kinds.<name>.plugin registers a plugin kind on load (agents.Lookup finds it, a model may
 // name it); validate runs its describe: a command that answers passes, one that is not executable, answers for another
 // kind, or takes a compiled kind's name fails.
 func TestPluginKind(t *testing.T) {
@@ -578,8 +578,8 @@ func TestPluginKind(t *testing.T) {
 	if err := os.WriteFile(cmd+".txt", []byte(script), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	mine := set("kinds.mine", map[string]any{"command": "kinds/obor-kind-mine"})
-	got := validate(t, p, mine, set("models.m1", map[string]any{"kind": "mine", "model": ""}))
+	mine := set("agents.kinds.mine", map[string]any{"plugin": "kinds/obor-kind-mine"})
+	got := validate(t, p, mine, set("agents.models.m1", map[string]any{"kind": "mine", "id": ""}))
 	if len(got) != 0 {
 		t.Errorf("a plugin kind that answers: %q, want OK", got)
 	}
@@ -594,11 +594,11 @@ func TestPluginKind(t *testing.T) {
 		edit edit
 		want string
 	}{
-		{"not executable", set("kinds.mine", map[string]any{"command": "kinds/obor-kind-mine.txt"}),
+		{"not executable", set("agents.kinds.mine", map[string]any{"plugin": "kinds/obor-kind-mine.txt"}),
 			"FAIL .agents.kinds.mine.plugin: " + cmd + ".txt is not an executable file"},
-		{"another kind's describe", set("kinds.other", map[string]any{"command": cmd}),
+		{"another kind's describe", set("agents.kinds.other", map[string]any{"plugin": cmd}),
 			`FAIL .agents.kinds.other.plugin: kind other: describe: manifest names kind "mine", the config "other"`},
-		{"a compiled kind's name", set("kinds.claude", map[string]any{"command": cmd}),
+		{"a compiled kind's name", set("agents.kinds.claude", map[string]any{"plugin": cmd}),
 			"FAIL .agents.kinds.claude.plugin: claude is a compiled kind: a plugin kind takes a name of its own"},
 	} {
 		got := validate(t, p, c.edit)
@@ -606,7 +606,7 @@ func TestPluginKind(t *testing.T) {
 			t.Errorf("%s: %q, want %q", c.name, got, c.want)
 		}
 	}
-	validate(t, p) // a load without kinds.<name>.command: no plugin kind left
+	validate(t, p) // a load without agents.kinds.<name>.plugin: no plugin kind left
 	if _, ok := agents.Lookup("mine"); ok {
 		t.Error("a config without kinds.mine: the last load's plugin kind is still registered")
 	}
@@ -630,9 +630,9 @@ func TestPluginKindEffortsFromDescribe(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	mine := []edit{set("kinds.mine", map[string]any{"command": "kinds/obor-kind-mine"}),
-		set("models.m1", map[string]any{"kind": "mine", "model": ""}), set("roles.reviewer", "m1:high"),
-		set("difficulty", map[string]any{"hard": []any{"m1:high"}})}
+	mine := []edit{set("agents.kinds.mine", map[string]any{"plugin": "kinds/obor-kind-mine"}),
+		set("agents.models.m1", map[string]any{"kind": "mine", "id": ""}), set("agents.roles.reviewer", "m1:high"),
+		set("agents.difficulty", map[string]any{"hard": []any{"m1:high"}})}
 	answer(`["low","high"]`)
 	state := filepath.Join(p.Root, ".obor", "state")
 	if _, err := os.Stat(plugin.CacheFile(state, "mine")); err == nil {
@@ -661,7 +661,7 @@ func TestPluginKindEffortsFromDescribe(t *testing.T) {
 		t.Errorf("CheckModelRef(m1:high) on the stale cache = %v, want the cache's refusal (obor spec set's path)", err)
 	}
 
-	got := validate(t, p, append(mine, set("roles.reviewer", "m1:max"))...)
+	got := validate(t, p, append(mine, set("agents.roles.reviewer", "m1:max"))...)
 	if want := `FAIL .agents.roles.reviewer: m1:max: effort "max" is not one of mine's (low, high)`; len(got) != 1 || got[0] != want {
 		t.Errorf("an effort the describe lacks: %q, want %q", got, want)
 	}

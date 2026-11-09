@@ -14,7 +14,7 @@ import (
 // same agent names, their writes from the default row; an object replaces the write list, a string sets the model.
 func TestFoldedRolesFromStrings(t *testing.T) {
 	p := newProject(t)
-	edits := []edit{set("roles.advisor", "opus:high"), set("roles.researcher", "sonnet:medium"), set("roles.triage", "sonnet")}
+	edits := []edit{set("agents.roles.advisor", "opus:high"), set("agents.roles.researcher", "sonnet:medium"), set("agents.roles.triage", "sonnet")}
 	if got := validate(t, p, edits...); len(got) != 0 {
 		t.Fatalf("validate = %q, want OK", got)
 	}
@@ -61,8 +61,8 @@ func TestFoldedRolesFromStrings(t *testing.T) {
 	}
 
 	// An object replaces the write list and keeps the model; an object without write keeps the default row's.
-	validate(t, p, set("roles.researcher", `{"model": "sonnet", "write": ["notes/"]}`),
-		set("roles.advisor", `{"model": "opus"}`))
+	validate(t, p, set("agents.roles.researcher", `{"model": "sonnet", "write": ["notes/"]}`),
+		set("agents.roles.advisor", `{"model": "opus"}`))
 	c, _ = config.Load(p.Root)
 	if rc, _ := c.Role("researcher"); rc.Type != "sonnet" || !reflect.DeepEqual(rc.Role.WritePaths, []string{"notes/"}) {
 		t.Errorf("researcher object = %+v, want sonnet writing notes/", rc)
@@ -72,14 +72,14 @@ func TestFoldedRolesFromStrings(t *testing.T) {
 	}
 }
 
-// T-801: a custom role is a roles.<name> row (a model ref string, or an object with a write list) and its doc; it
-// validates, is a role agent (in config order after the table and default rows) named <prefix>-<name, _ → ->.
+// T-801: a custom role is an agents.roles.<name> row (a model ref string, or an object with a write list) and its
+// doc; it validates, is a role agent (in config order after the table and default rows) named <prefix>-<name, _ → ->.
 func TestValidCustomRoles(t *testing.T) {
 	p := newProject(t)
 	p.Write("docs/agents/buddy.md", "# Role: buddy\n")
 	p.Write("docs/agents/ux_designer.md", "# Role: ux_designer\n")
-	got := validate(t, p, set("roles.buddy", "sonnet"),
-		set("roles.ux_designer", `{"model": "opus:high", "write": ["docs/design/", "STYLE.md", "./docs/ux/"]}`))
+	got := validate(t, p, set("agents.roles.buddy", "sonnet"),
+		set("agents.roles.ux_designer", `{"model": "opus:high", "write": ["docs/design/", "STYLE.md", "./docs/ux/"]}`))
 	if len(got) != 0 {
 		t.Fatalf("validate = %q, want OK", got)
 	}
@@ -133,26 +133,26 @@ func TestCustomRoleRefusals(t *testing.T) {
 		edits []edit
 		want  string
 	}{
-		{"bad name", []edit{set("roles.Buddy", "sonnet")}, `FAIL .agents.roles.Buddy: a custom role's name must match ^[a-z][a-z0-9_]{0,23}$, got "Buddy"`},
-		{"bad name: dash", []edit{set("roles.ux-buddy", "sonnet")}, `FAIL .agents.roles["ux-buddy"]: a custom role's name must match`},
-		{"too long", []edit{set("roles.abcdefghijklmnopqrstuvwxy", "sonnet")}, "FAIL .agents.roles.abcdefghijklmnopqrstuvwxy: a custom role's name must match"},
-		{"table suffix", []edit{set("roles.rev", "sonnet")}, `FAIL .agents.roles.rev: collides with the built-in role reviewer (its name or agent suffix), got "rev"`},
-		{"table suffix: int", []edit{set("roles.int", "sonnet")}, "FAIL .agents.roles.int: collides with the built-in role integrator"},
-		{"table suffix: drive", []edit{set("roles.drive", "sonnet")}, "FAIL .agents.roles.drive: collides with the built-in role driver"},
-		{"reserved", []edit{set("roles.none", "sonnet")}, "FAIL .agents.roles.none: none is reserved"},
-		{"driver", []edit{set("roles.driver", "sonnet")}, "FAIL .agents.roles.driver: the drive agent's role is not configured: obor drive starts it"},
-		{"table object", []edit{set("roles.reviewer", `{"model": "opus", "write": ["x/"]}`)}, "FAIL .agents.roles.reviewer: a built-in role takes a model ref string, not an object"},
-		{"write in .obor", []edit{set("roles.buddy", `{"model": "sonnet", "write": [".obor/state/"]}`)}, `FAIL .agents.roles.buddy.write[0]: in .obor/: obor's own state is no role's to write, got ".obor/state/"`},
-		{"write .obor itself", []edit{set("roles.buddy", `{"model": "sonnet", "write": ["docs/", ".obor"]}`)}, "FAIL .agents.roles.buddy.write[1]: in .obor/"},
-		{"write the root", []edit{set("roles.buddy", `{"model": "sonnet", "write": ["./"]}`)}, "FAIL .agents.roles.buddy.write[0]: in .obor/"},
-		{"write outside", []edit{set("roles.buddy", `{"model": "sonnet", "write": ["../other/"]}`)}, `FAIL .agents.roles.buddy.write[0]: outside the project: a write path is relative to its root, got "../other/"`},
-		{"write outside via ..", []edit{set("roles.buddy", `{"model": "sonnet", "write": ["docs/../../x"]}`)}, "FAIL .agents.roles.buddy.write[0]: outside the project"},
-		{"write absolute", []edit{set("roles.buddy", `{"model": "sonnet", "write": ["/tmp/x/"]}`)}, "FAIL .agents.roles.buddy.write[0]: outside the project"},
-		{"write empty", []edit{set("roles.buddy", `{"model": "sonnet", "write": [""]}`)}, "FAIL .agents.roles.buddy.write[0]: an empty path"},
-		{"default row write outside", []edit{set("roles.researcher", `{"model": "sonnet", "write": ["../x/"]}`)}, "FAIL .agents.roles.researcher.write[0]: outside the project"},
-		{"allow_push lists it", []edit{set("roles.buddy", "sonnet"), set("guards.allow_push", `["lead", "buddy"]`)}, `FAIL .rules.may_push: "buddy" is a custom role: it never pushes (remove it)`},
-		{"allow_push lists a default row", []edit{set("roles.advisor", "opus"), set("guards.allow_push", `["advisor"]`)}, `FAIL .rules.may_push: "advisor" is a custom role`},
-		{"bad model", []edit{set("roles.buddy", `{"model": "nosuch"}`)}, `FAIL .agents.roles.buddy.model: "nosuch" is not a model`},
+		{"bad name", []edit{set("agents.roles.Buddy", "sonnet")}, `FAIL .agents.roles.Buddy: a custom role's name must match ^[a-z][a-z0-9_]{0,23}$, got "Buddy"`},
+		{"bad name: dash", []edit{set("agents.roles.ux-buddy", "sonnet")}, `FAIL .agents.roles["ux-buddy"]: a custom role's name must match`},
+		{"too long", []edit{set("agents.roles.abcdefghijklmnopqrstuvwxy", "sonnet")}, "FAIL .agents.roles.abcdefghijklmnopqrstuvwxy: a custom role's name must match"},
+		{"table suffix", []edit{set("agents.roles.rev", "sonnet")}, `FAIL .agents.roles.rev: collides with the built-in role reviewer (its name or agent suffix), got "rev"`},
+		{"table suffix: int", []edit{set("agents.roles.int", "sonnet")}, "FAIL .agents.roles.int: collides with the built-in role integrator"},
+		{"table suffix: drive", []edit{set("agents.roles.drive", "sonnet")}, "FAIL .agents.roles.drive: collides with the built-in role driver"},
+		{"reserved", []edit{set("agents.roles.none", "sonnet")}, "FAIL .agents.roles.none: none is reserved"},
+		{"driver", []edit{set("agents.roles.driver", "sonnet")}, "FAIL .agents.roles.driver: the drive agent's role is not configured: obor drive starts it"},
+		{"table object", []edit{set("agents.roles.reviewer", `{"model": "opus", "write": ["x/"]}`)}, "FAIL .agents.roles.reviewer: a built-in role takes a model ref string, not an object"},
+		{"write in .obor", []edit{set("agents.roles.buddy", `{"model": "sonnet", "write": [".obor/state/"]}`)}, `FAIL .agents.roles.buddy.write[0]: in .obor/: obor's own state is no role's to write, got ".obor/state/"`},
+		{"write .obor itself", []edit{set("agents.roles.buddy", `{"model": "sonnet", "write": ["docs/", ".obor"]}`)}, "FAIL .agents.roles.buddy.write[1]: in .obor/"},
+		{"write the root", []edit{set("agents.roles.buddy", `{"model": "sonnet", "write": ["./"]}`)}, "FAIL .agents.roles.buddy.write[0]: in .obor/"},
+		{"write outside", []edit{set("agents.roles.buddy", `{"model": "sonnet", "write": ["../other/"]}`)}, `FAIL .agents.roles.buddy.write[0]: outside the project: a write path is relative to its root, got "../other/"`},
+		{"write outside via ..", []edit{set("agents.roles.buddy", `{"model": "sonnet", "write": ["docs/../../x"]}`)}, "FAIL .agents.roles.buddy.write[0]: outside the project"},
+		{"write absolute", []edit{set("agents.roles.buddy", `{"model": "sonnet", "write": ["/tmp/x/"]}`)}, "FAIL .agents.roles.buddy.write[0]: outside the project"},
+		{"write empty", []edit{set("agents.roles.buddy", `{"model": "sonnet", "write": [""]}`)}, "FAIL .agents.roles.buddy.write[0]: an empty path"},
+		{"default row write outside", []edit{set("agents.roles.researcher", `{"model": "sonnet", "write": ["../x/"]}`)}, "FAIL .agents.roles.researcher.write[0]: outside the project"},
+		{"allow_push lists it", []edit{set("agents.roles.buddy", "sonnet"), set("rules.may_push", `["lead", "buddy"]`)}, `FAIL .rules.may_push: "buddy" is a custom role: it never pushes (remove it)`},
+		{"allow_push lists a default row", []edit{set("agents.roles.advisor", "opus"), set("rules.may_push", `["advisor"]`)}, `FAIL .rules.may_push: "advisor" is a custom role`},
+		{"bad model", []edit{set("agents.roles.buddy", `{"model": "nosuch"}`)}, `FAIL .agents.roles.buddy.model: "nosuch" is not a model`},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			got := validate(t, p, c.edits...)
@@ -162,23 +162,23 @@ func TestCustomRoleRefusals(t *testing.T) {
 		})
 	}
 
-	// The doc: a custom row without <paths.agents>/<name>.md fails naming the file; a default row needs none (the kit
+	// The doc: a custom row without <agents.docs_dir>/<name>.md fails naming the file; a default row needs none (the kit
 	// ships its text).
 	p = newPlainProject(t)
-	got := validate(t, p, set("roles.designer", "opus"), set("roles.advisor", "opus"))
+	got := validate(t, p, set("agents.roles.designer", "opus"), set("agents.roles.advisor", "opus"))
 	if want := []string{"FAIL .agents.roles.designer: no role doc: write docs/agents/designer.md (what the role does, what it writes)"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("validate = %q, want %q", got, want)
 	}
-	got = validate(t, p, set("roles.designer", "opus"), set("paths.agents", "doc/roles"))
+	got = validate(t, p, set("agents.roles.designer", "opus"), set("agents.docs_dir", "doc/roles"))
 	if want := "FAIL .agents.roles.designer: no role doc: write doc/roles/designer.md"; len(got) != 1 || !strings.HasPrefix(got[0], want) {
 		t.Errorf("validate = %q, want %q", got, want)
 	}
 	p.Write("doc/roles/designer.md", "# Role: designer\n")
-	if got := validate(t, p, set("roles.designer", "opus"), set("paths.agents", "doc/roles")); len(got) != 0 {
+	if got := validate(t, p, set("agents.roles.designer", "opus"), set("agents.docs_dir", "doc/roles")); len(got) != 0 {
 		t.Errorf("with its doc: validate = %q, want OK", got)
 	}
 	// An invalid row is no role.
-	validate(t, p, set("roles.rev", "opus"))
+	validate(t, p, set("agents.roles.rev", "opus"))
 	c, _ := config.Load(p.Root)
 	if rc, ok := c.Role("rev"); ok {
 		t.Errorf("roles.rev = %+v, want no role", rc)
@@ -194,7 +194,7 @@ func TestRemovedCustomRoleRow(t *testing.T) {
 	p := newProject(t)
 	p.Write("docs/agents/buddy.md", "# Role: buddy\n")
 	p.Write("docs/agents/gotchas.md", "# Gotchas\n")
-	if got := validate(t, p, set("roles.buddy", "sonnet")); len(got) != 0 {
+	if got := validate(t, p, set("agents.roles.buddy", "sonnet")); len(got) != 0 {
 		t.Fatalf("precondition: with its row validate = %q, want OK", got)
 	}
 	c, _ := config.Load(p.Root)
@@ -236,7 +236,7 @@ func TestEditCustomRoleModel(t *testing.T) {
 	p := newProject(t)
 	p.Write("docs/agents/buddy.md", "# Role: buddy\n")
 	p.Write("docs/agents/designer.md", "# Role: designer\n")
-	validate(t, p, set("roles.buddy", "sonnet"), set("roles.designer", `{"model": "sonnet", "write": ["docs/design/"]}`))
+	validate(t, p, set("agents.roles.buddy", "sonnet"), set("agents.roles.designer", `{"model": "sonnet", "write": ["docs/design/"]}`))
 	c, _ := config.Load(p.Root)
 	doc, _ := os.ReadFile(p.Path(".obor/config.json"))
 	ch, err := c.Edit(doc, "agents.roles.designer", []byte(`"opus:high"`))
@@ -270,8 +270,8 @@ func TestEditCustomRoleModel(t *testing.T) {
 func TestCustomRoleVerbs(t *testing.T) {
 	p := newPlainProject(t)
 	p.Write("docs/agents/tracker.md", "# Role: tracker\n")
-	if got := validate(t, p, set("roles.tracker", `{"verbs": ["spec_set", "dispatch"]}`),
-		set("roles.triage", `{"model": "sonnet", "verbs": ["send"]}`)); len(got) != 0 {
+	if got := validate(t, p, set("agents.roles.tracker", `{"verbs": ["spec_set", "dispatch"]}`),
+		set("agents.roles.triage", `{"model": "sonnet", "verbs": ["send"]}`)); len(got) != 0 {
 		t.Fatalf("validate = %q, want OK", got)
 	}
 	c, _ := config.Load(p.Root)
@@ -296,12 +296,12 @@ func TestCustomRoleVerbs(t *testing.T) {
 		edit edit
 		want string
 	}{
-		{"unknown method", set("roles.tracker", `{"verbs": ["spec_set", "nope"]}`),
+		{"unknown method", set("agents.roles.tracker", `{"verbs": ["spec_set", "nope"]}`),
 			`FAIL .agents.roles.tracker.verbs[1]: unknown wire method "nope": a verb is one of spec_set, dispatch, watch, send, brief`},
-		{"a method no role is granted", set("roles.tracker", `{"verbs": ["accept"]}`),
+		{"a method no role is granted", set("agents.roles.tracker", `{"verbs": ["accept"]}`),
 			`FAIL .agents.roles.tracker.verbs[0]: unknown wire method "accept"`},
-		{"twice", set("roles.tracker", `{"verbs": ["dispatch", "dispatch"]}`), "FAIL .agents.roles.tracker.verbs[1]: dispatch is listed twice"},
-		{"built-in role", set("roles.reviewer", `{"model": "opus", "verbs": ["spec_set"]}`),
+		{"twice", set("agents.roles.tracker", `{"verbs": ["dispatch", "dispatch"]}`), "FAIL .agents.roles.tracker.verbs[1]: dispatch is listed twice"},
+		{"built-in role", set("agents.roles.reviewer", `{"model": "opus", "verbs": ["spec_set"]}`),
 			"FAIL .agents.roles.reviewer.verbs: a built-in role's rights are its own: verbs are a custom role's"},
 	} {
 		got := validate(t, p, cc.edit)

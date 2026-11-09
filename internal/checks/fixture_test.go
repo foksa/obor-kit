@@ -234,9 +234,29 @@ func (x *fx) lane2() string {
 	return x.lane2Dir
 }
 
-// cmd is a config edit: commands.<name> = v (a string or an object).
+// cmd is a config edit: the command name = v (a string or an object), at shape 2's home for it: the seven commands
+// obor runs by name sit in the group that runs them (lanes.setup, merge.check, nightly.slow_check, …), a project's
+// own command in commands.<name>.
 func cmd(name string, v any) func(map[string]any) {
-	return func(c map[string]any) { c["commands"].(map[string]any)[name] = v }
+	home, ok := map[string][]string{
+		"lane_setup": {"lanes", "setup"}, "lane_ready": {"lanes", "ready"},
+		"compile": {"merge", "compile"}, "check": {"merge", "check"}, "retest": {"merge", "retest"},
+		"after_merge": {"merge", "after"}, "check_milestone": {"nightly", "slow_check"},
+	}[name]
+	if !ok {
+		home = []string{"commands", name}
+	}
+	return func(c map[string]any) {
+		for _, k := range home[:len(home)-1] {
+			next, ok := c[k].(map[string]any)
+			if !ok {
+				next = map[string]any{}
+				c[k] = next
+			}
+			c = next
+		}
+		c[home[len(home)-1]] = v
+	}
 }
 
 func (x *fx) opts() Options {
