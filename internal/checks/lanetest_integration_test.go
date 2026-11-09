@@ -102,8 +102,8 @@ func TestGateCandidateIsTheTasksOwnDiff(t *testing.T) {
 }
 
 // The lane test's green paths: the class's check runs in the lane at the candidate with the lane worker's environment
-// and the task's files, and the lane is back on its branch; the env is the facts plus slots.lane_env; a lane test while
-// branches.promote is set carries OBOR_PROMOTION; what the checks changed is discarded.
+// and the task's files, and the lane is back on its branch; the env is the facts plus slots.lane_env; what the checks changed is
+// discarded.
 func TestLaneTestGreenRestores(t *testing.T) {
 	for _, c := range []struct {
 		name string
@@ -111,7 +111,6 @@ func TestLaneTestGreenRestores(t *testing.T) {
 	}{
 		{"the class's check runs in the lane and the lane is restored", laneTestInTheLane},
 		{"the lane's env: the facts and slots.lane_env", laneTestLaneEnv},
-		{"OBOR_PROMOTION follows branches.promote", laneTestPromotionEnv},
 		{"what the checks changed is discarded", laneTestDiscards},
 	} {
 		t.Run(c.name, c.run)
@@ -195,43 +194,6 @@ func laneTestLaneEnv(t *testing.T) {
 		if !strings.Contains("\n"+env+"\n", "\n"+kv+"\n") {
 			t.Errorf("the check's environment has no %q:\n%s", kv, env)
 		}
-	}
-}
-
-// T-1041: a lane test carries the fact OBOR_PROMOTION=1 when branches.promote is set (a project's Makefile maps it to
-// the changed packages only: obor-kit's --direct, T-991/T-997) and never without one, so a class's checks run whole as
-// before T-989.
-func laneTestPromotionEnv(t *testing.T) {
-	t.Parallel()
-	for _, c := range []struct {
-		name    string
-		promote bool
-	}{
-		{"promotion on", true},
-		{"promotion off", false},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			edits := []func(map[string]any){cmd("check", probe)}
-			if c.promote {
-				edits = append(edits, testkit.Set("branches.promote", "prod"))
-			}
-			y := newSx(t, edits...)
-			if got := y.s.Cfg.Data.Branches.Promote != ""; got != c.promote {
-				t.Fatalf("precondition: branches.promote set %v, want %v", got, c.promote)
-			}
-			sha := y.submit()
-			o, err := y.test(ctx, y.green(lane(sha)))
-			if err != nil || o.Kind != port.OutcomeGreen {
-				t.Fatalf("test: %+v %v\noutput:\n%s", o, err, y.out.String())
-			}
-			env := y.probed("env")
-			const kv = "OBOR_PROMOTION=1"
-			got := strings.Contains("\n"+env+"\n", "\n"+kv+"\n")
-			if got != c.promote {
-				t.Errorf("the check's environment carries %s %v, want %v:\n%s", kv, got, c.promote, env)
-			}
-		})
 	}
 }
 

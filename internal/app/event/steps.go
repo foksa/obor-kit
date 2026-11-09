@@ -36,8 +36,8 @@ const (
 	IdleTask = "idle"
 	// RuleTask is the task key of the needs-you of a rule whose action failed ruleFails passes in a row (T-866).
 	RuleTask = "rule"
-	// PromoteTask is the task key of the promotion of branches.main to branches.promote (T-974): its runs, its facts
-	// and its needs-you, the project's.
+	// PromoteTask is the task key of the deleted promotion (T-974, deleted T-1076): an older log's records, the
+	// project's, only worded (describe.go), never written.
 	PromoteTask = "promote"
 )
 
@@ -71,11 +71,11 @@ const (
 // StepNightly is the nightly full check's intent/result (G), one key a day: nightly.<YYYY-MM-DD> → NightlyOut.
 const StepNightly = "nightly"
 
-// The promotion's steps (T-974, docs/state-model.md rows 50, 51; task PromoteTask).
+// The deleted promotion's steps (T-974, deleted T-1076; task PromoteTask): an older log's records, only worded.
 const (
-	StepPromote      = "promote"       // intent/result (G), promote.<seq>: the full suite on the target's head, promoteIn → PromoteOut
-	StepPromoted     = "promoted"      // fact: branches.promote fast-forwarded to the GREEN, reviewed sha (data: promotedData)
-	StepAfterPromote = "after_promote" // intent/result (G), after_promote.<seq>: commands.after_merge in the promotion worktree
+	StepPromote      = "promote"       // intent/result, promote.<seq>: the full suite on the target's head
+	StepPromoted     = "promoted"      // fact: the promoted branch fast-forwarded to a GREEN sha
+	StepAfterPromote = "after_promote" // intent/result, after_promote.<seq>: commands.after_merge after a promotion
 )
 
 // StepConfigSet is the fact of a setup edit serve wrote and committed (task ConfigTask; data: ConfigSet; T-753).

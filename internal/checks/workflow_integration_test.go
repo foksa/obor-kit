@@ -18,7 +18,7 @@ import (
 // real git: the rows' arrangements are made in git (a commit on main, an untracked file in the main checkout's way,
 // the integrator's resolution committed in serve's worktree), and Saw checks the git behind each result (T-1011's
 // scenario table: the commits' subjects and bodies, serve's worktree, the candidate's diff). The review git is
-// cmd/obor's (its own tests); the promotion has its own (promote_integration_test.go).
+// cmd/obor's (its own tests).
 func TestWorkflowContractScratchFF(t *testing.T) {
 	t.Parallel()
 	testkit.WorkflowContract(t, func(t *testing.T) testkit.WorkflowRig {

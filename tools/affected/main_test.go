@@ -75,7 +75,7 @@ func TestGoFixture(t *testing.T) {
 		{"leaf/leaf.go", "", "changed leaf/leaf.go", []string{"leaf/*.go"}},
 		{"go.mod", "", "changed go.mod", nil},
 	} {
-		res, err := Go(root, strings.Fields(c.files), c.globs, false)
+		res, err := Go(root, strings.Fields(c.files), c.globs)
 		if err != nil {
 			t.Fatalf("%s: %v", c.files, err)
 		}
@@ -88,39 +88,7 @@ func TestGoFixture(t *testing.T) {
 func TestGoBrokenModule(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	if _, err := Go(root, []string{"a/a.go"}, nil, false); err == nil {
+	if _, err := Go(root, []string{"a/a.go"}, nil); err == nil {
 		t.Error("no go.mod: want an error (the Makefile then runs the full suite)")
-	}
-}
-
-// T-991: direct returns the changed packages only, never the packages that import them (a changed test file its own
-// package, T-954), while merge.affected_full and the no-package fallback stay full.
-func TestGoDirect(t *testing.T) {
-	t.Parallel()
-	root := fixture(t)
-	for _, c := range []struct {
-		files, want, full string
-		globs             []string
-	}{
-		{"leaf/leaf.go", "fx/leaf", "", fixtureFull},      // mid, top and tester import leaf: none of them, unlike TestGoFixture
-		{"leaf/leaf_test.go", "fx/leaf", "", fixtureFull}, // a _test.go file: its package
-		{"leaf/leaf.go leaf/leaf_test.go", "fx/leaf", "", fixtureFull},
-		{"leaf/testdata/in.txt", "fx/leaf", "", fixtureFull}, // testdata/: its package
-		{"cmd/app/app_test.go", "fx/cmd/app", "", fixtureFull},
-		{"top/top.go", "fx/top", "", fixtureFull},
-		{"README.md docs/a.md", "", "", fixtureFull},
-		{"Makefile", "", "changed Makefile", fixtureFull}, // affected_full: full, direct or not
-		{"go.mod", "", "changed go.mod", fixtureFull},
-		{"internal/testkit/tk.go", "", "changed internal/testkit/tk.go", fixtureFull},
-		{"internal/other/x.go", "", "no package for internal/other/x.go", fixtureFull}, // the fallback stays full
-		{"gone/gone.go", "", "no package for gone/gone.go", fixtureFull},
-	} {
-		res, err := Go(root, strings.Fields(c.files), c.globs, true)
-		if err != nil {
-			t.Fatalf("%s: %v", c.files, err)
-		}
-		if got := strings.Join(res.Pkgs, " "); got != c.want || res.Full != c.full {
-			t.Errorf("%s (globs %v): pkgs %q full %q, want %q full %q", c.files, c.globs, got, res.Full, c.want, c.full)
-		}
 	}
 }

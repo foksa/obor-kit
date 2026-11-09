@@ -13,19 +13,14 @@ import (
 
 // ScratchFF is port.Workflow "scratch-ff" (workflow.kind, the default; T-1029): the merge slot in serve's own worktree
 // (Scratch: submit, gate, the lane test, the fast-forward publish), the lanes as worktrees on task branches (Lane), the
-// target branches.main, the review's git on the main checkout (Review: cmd/obor's, obor's own commits there) and the
-// promotion of branches.main to branches.promote (Promote; nil: branches.promote unset).
+// target branches.main, and the review's git on the main checkout (Review: cmd/obor's, obor's own commits there).
 type ScratchFF struct {
 	Scratch
 	Lane
 	port.Review
-	Promote *port.Promote
 }
 
 var _ port.Workflow = ScratchFF{}
-
-// Promotion is the promotion of branches.main to branches.promote (nil: none).
-func (w ScratchFF) Promotion() *port.Promote { return w.Promote }
 
 // Target is the sha of branches.main, and whether task's branch has commits it lacks.
 func (w ScratchFF) Target(ctx context.Context, task string) (string, bool, error) {

@@ -1,7 +1,6 @@
 // reviewfold.go: the reviews and the merges as the log holds them (T-1023; docs/plan/architecture-target.md §3 "Lane
 // free and review coverage come from the workflow", §6 "Review"). What a review covered, the "review due" count, a
-// review's and a verify's task lists and the promotion's unreviewed tasks are recomputed from this fold on every pass:
-// no git read decides them. The merges are the merge kernel's facts (merged{head}); a merge outside the app (by hand
+// review's and a verify's task lists are recomputed from this fold on every pass: no git read decides them. The merges are the merge kernel's facts (merged{head}); a merge outside the app (by hand
 // in git, merged{outside}) has no head and is not one: a by-hand twin (design rule 4), no review counts it.
 package app
 
@@ -53,24 +52,16 @@ func (rv *review) freeze(s closeSnap) {
 }
 
 // reviewLog is the reviews' and the merges' records folded (T-856, T-924, T-1023): every review the log started, in
-// order; every merge, in order; heads, each head the log names (a merge's, a review's start or verify, a promotion's
-// run or fast-forward) and the seq of the first record naming it; per agent its open verify brief, and the last verify
-// brief since the last start that ended unfinished.
-//
-// A head's position is how the fold tells the merges at or before it: those of seq <= its record's. A merge's head is
-// exact (its own fact). A head a later record names (a review's start, a verify's brief) is read from git before its
-// record is written, so a merge recorded in between counts as at or before it although it is after: such a merge is
-// covered by no review yet, and so is in the next review's scope, and it holds the promotion's R back until a review
-// covers it (the safe side of both).
+// order; every merge, in order; per agent its open verify brief, and the last verify brief since the last start that
+// ended unfinished.
 type reviewLog struct {
 	reviews []review
 	merges  []mergeRec
-	heads   map[string]int64
 	open    map[string]*verifyBrief
 	failed  *verifyBrief
 }
 
-// fold folds r: a merge; a promotion's head; a review start (a new review); its close's snapshot (review.closing,
+// fold folds r: a merge; a review start (a new review); its close's snapshot (review.closing,
 // T-1032); its close (closes the newest review when it names it or a later one, the first close counting, and freezes
 // it at the close's snapshot); a brief (a verify's, when it names tasks and a head; any brief
 // replaces the agent's open verify brief); the finished line that ends a brief; a stop that ends one. Records of an
@@ -78,21 +69,10 @@ type reviewLog struct {
 // none of them).
 func (l *reviewLog) fold(r event.Record) {
 	if l.open == nil {
-		l.open, l.heads = map[string]*verifyBrief{}, map[string]int64{}
+		l.open = map[string]*verifyBrief{}
 	}
 	if m, ok := event.MergeOf(r); ok {
 		l.merges = append(l.merges, mergeRec{task: m.Task, sha: m.SHA, seq: r.Seq})
-		l.head(m.SHA, r.Seq)
-		return
-	}
-	if r.Task == event.PromoteTask {
-		var d struct {
-			SHA string `json:"sha"`
-		}
-		if (r.Kind == event.KindIntent && strings.HasPrefix(r.Step, event.StepPromote+".") ||
-			r.Kind == event.KindFact && r.Step == event.StepPromoted) && json.Unmarshal(r.Data, &d) == nil {
-			l.head(d.SHA, r.Seq)
-		}
 		return
 	}
 	if r.Kind != event.KindFact || r.Task != event.ReviewTask && r.Task != event.MsgTask {
@@ -106,7 +86,6 @@ func (l *reviewLog) fold(r event.Record) {
 		}
 		l.reviews = append(l.reviews, review{seq: r.Seq, id: d.ID, head: d.Head, covered: slices.Clone(d.Tasks),
 			reviewed: d.Head})
-		l.head(d.Head, r.Seq)
 		l.failed = nil
 	case r.Task == event.ReviewTask && r.Step == event.StepReviewClosing:
 		var d ReviewData
@@ -139,7 +118,6 @@ func (l *reviewLog) fold(r event.Record) {
 		l.ended(m.To, "a newer brief replaced it")
 		if m.Task != "" && m.Reviewed != "" {
 			l.open[m.To] = &verifyBrief{seq: r.Seq, tasks: strings.Split(m.Task, ","), head: m.Reviewed}
-			l.head(m.Reviewed, r.Seq)
 		}
 	case r.Step == event.StepMessage:
 		var m event.Message
@@ -151,13 +129,6 @@ func (l *reviewLog) fold(r event.Record) {
 		if json.Unmarshal(r.Data, &d) == nil && d.Ends != "" { // an error stop: no finished line follows
 			l.ended(d.Ends, "the reviewer stopped: "+d.Error)
 		}
-	}
-}
-
-// head records sha's position at seq, unless an earlier record named it.
-func (l *reviewLog) head(sha string, seq int64) {
-	if _, ok := l.heads[sha]; sha != "" && !ok {
-		l.heads[sha] = seq
 	}
 }
 
@@ -193,17 +164,6 @@ func (l *reviewLog) last() lastReview {
 	return lastReview{seq: c.seq, id: c.id, head: c.head, closed: c.closed}
 }
 
-// closedHead is the last closed review's reviewed head R, its start's or its last finished verify's (full sha; the
-// promotion's one candidate, T-978); "": none closed in the log.
-func (l *reviewLog) closedHead() string {
-	for i := len(l.reviews) - 1; i >= 0; i-- {
-		if l.reviews[i].closed != 0 {
-			return l.reviews[i].reviewed
-		}
-	}
-	return ""
-}
-
 // prev is the review before the newest one (a zero review: none).
 func (l *reviewLog) prev() review {
 	if len(l.reviews) < 2 {
@@ -235,28 +195,11 @@ func (l *reviewLog) covered(closedOnly bool) []string {
 	return out
 }
 
-// pos is the seq bound of the merges at or before sha: the first record naming it; ok false: the log names no such
-// head.
-func (l *reviewLog) pos(sha string) (int64, bool) {
-	seq, ok := l.heads[sha]
-	return seq, ok && sha != ""
-}
-
-// between is the merges after from and at or before to, oldest first: from "" starts at base (the review scope's and
-// a verify's merge); a head the log does not name (a promoted branch older than the log's merges, T-1032) at the
-// log's first merge; to "" or unknown, every merge since.
-func (l *reviewLog) between(from, to string) []mergeRec {
-	lo, ok := l.pos(from)
-	switch {
-	case from == "":
-		lo = l.base()
-	case !ok:
-		lo = 0
-	}
-	hi, bounded := l.pos(to)
+// sinceBase is the merges after base, oldest first (the review scope's and a verify's merges).
+func (l *reviewLog) sinceBase() []mergeRec {
 	var out []mergeRec
 	for _, m := range l.merges {
-		if m.seq > lo && (!bounded || m.seq <= hi) {
+		if m.seq > l.base() {
 			out = append(out, m)
 		}
 	}
@@ -279,60 +222,18 @@ func uncovered(merges []mergeRec, covered []string) []mergeRec {
 // scope is the next review's merges: those since base that no review since base covered (the newest included, open
 // or closed), each task once, oldest first. The review due count, the brief's in-scope tasks.
 func (l *reviewLog) scope() []mergeRec {
-	return uncovered(l.between("", ""), l.covered(false))
+	return uncovered(l.sinceBase(), l.covered(false))
 }
 
 // mergeOf is task's last merge since base ({}: none): a verify's fix, merged during the review.
 func (l *reviewLog) mergeOf(task string) mergeRec {
 	var out mergeRec
-	for _, m := range l.between("", "") {
+	for _, m := range l.sinceBase() {
 		if m.task == task {
 			out = m
 		}
 	}
 	return out
-}
-
-// unreviewed is the tasks merged after at (the promoted branch's head) and at or before r (the last closed review's
-// reviewed head) that no closed review since base covered, oldest first, each once (T-985: one merged during the
-// review, inside its verify's head); at a head the log does not name (T-1032): every merge up to r, less those any
-// closed review covered. rv is the last closed review's id, the review they merged during ("the last review": none
-// closed).
-func (l *reviewLog) unreviewed(at, r string) (tasks []string, rv string) {
-	lo, known := l.pos(at)
-	covered := l.covered(true)
-	switch {
-	case at == "" || known && lo < l.base():
-		lo = l.base()
-	case !known:
-		lo, covered = 0, nil
-		for _, c := range l.reviews {
-			if c.closed != 0 {
-				covered = slices.Concat(covered, c.covered, c.fixes)
-			}
-		}
-	}
-	hi, ok := l.pos(r)
-	if !ok {
-		return nil, ""
-	}
-	var in []mergeRec
-	for _, m := range l.merges {
-		if m.seq > lo && m.seq <= hi {
-			in = append(in, m)
-		}
-	}
-	for _, m := range uncovered(in, covered) {
-		tasks = append(tasks, m.task)
-	}
-	rv = "the last review"
-	for i := len(l.reviews) - 1; i >= 0; i-- {
-		if l.reviews[i].closed != 0 {
-			rv = l.reviews[i].id
-			break
-		}
-	}
-	return tasks, rv
 }
 
 // cycle is the tasks the review's cycle covered so far: its in-scope tasks, then each finished verify's, each once.

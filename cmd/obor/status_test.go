@@ -557,37 +557,6 @@ func TestStatusShowsUnknownLaneReason(t *testing.T) {
 	}
 }
 
-// T-974: with a promotion, the "promoted <sha7> (<n> merges since)" line replaces the full check's, with why the
-// promotion waits (the open review, T-990; a GREEN run); without one the full check's line stays.
-func TestStatusPromotedLine(t *testing.T) {
-	now := time.Unix(1_800_000_000, 0)
-	fc := &view.FullCheck{SHA: "abcdef0123", Verdict: "GREEN", At: now.Unix() - 60, Summary: "promote: check 1 pass, 9s"}
-	cases := []struct {
-		pr   *wire.PromoteStatus
-		want string
-	}{
-		{nil, "full check: GREEN abcdef0, 1m ago (promote: check 1 pass, 9s)"},
-		{&wire.PromoteStatus{Branch: "main", SHA: "1234567890", Merges: 3}, "promoted 1234567 (3 merges since)"},
-		{&wire.PromoteStatus{Branch: "main", SHA: "1234567890", Merges: 2, Wait: "waiting for review RV-5"},
-			"promoted 1234567 (2 merges since); promotion waiting for review RV-5"},
-		{&wire.PromoteStatus{Branch: "main", SHA: "1234567890", Merges: 2, Wait: "GREEN fedcba9 waits: RV-5 open (not closed)"},
-			"promoted 1234567 (2 merges since); promotion GREEN fedcba9 waits: RV-5 open (not closed)"},
-	}
-	for _, c := range cases {
-		got := fullCheckSection(view.Project{FullCheck: fc, Promote: c.pr}, now)
-		if len(got) != 1 || got[0] != c.want {
-			t.Errorf("promote %+v: %q, want [%q]", c.pr, got, c.want)
-		}
-	}
-	// T-978: the last promotion run (last-promotion) on the promoted line, never the nightly's full check.
-	run := &view.FullCheck{SHA: "fedcba9876", Verdict: "RED", At: now.Unix() - 120, Summary: "failed: check; 9s"}
-	pr := &wire.PromoteStatus{Branch: "main", SHA: "1234567890", Merges: 1}
-	got := fullCheckSection(view.Project{FullCheck: fc, Promote: pr, Promotion: run}, now)
-	if want := "promoted 1234567 (1 merges since); last run RED fedcba9, 2m ago"; len(got) != 1 || got[0] != want {
-		t.Errorf("with a last promotion run: %q, want [%q]", got, want)
-	}
-}
-
 // T-1030: the queue lists a high waiting dispatch first and marks it `high`: the order is serve's (the lane's pick
 // order, T-1043: each wait's rank), not the task id's.
 func TestStatusQueueMarksHighWaitingFirst(t *testing.T) {

@@ -6,7 +6,7 @@ Install (a new machine; re-running is the upgrade):
 curl -fsSL https://raw.githubusercontent.com/foksa/obor-kit/main/install.sh | sh
 ```
 
-The lead, in the main checkout (on the branch the loop merges to: `staging` when promotion is off — T-1035: no checkout
+The lead, in the main checkout (on the branch the loop merges to: `staging` — T-1035: no checkout
 of `main`, no separate worktree):
 
 1. Write `docs/UPGRADE-v<x.y>.md` with a `## v<x.y.z>` heading — the release's guide, at tag time from
@@ -49,7 +49,7 @@ of `main`, no separate worktree):
    binaries (`obor-<v>-<os>-<arch>` and, beside each, the OpenCode kind `obor-kind-opencode-<v>-<os>-<arch>`, T-1046)
    and `bin/checksums.txt`, commits and tags `v<x.y.z>`. It copies the eight files into this checkout's `dist/`
    (where `make ship` reads them), commits the catalog on the branch, fast-forwards `refs/heads/main` to that commit by
-   `git update-ref` (the way a promotion moves it: the checkout keeps its branch and working tree, so `main` is never
+   `git update-ref` (the checkout keeps its branch and working tree, so `main` is never
    checked out), and removes the worktree. Each step has its done evidence and its undo (`scripts/release`'s header
    lists them): a re-run skips a step whose evidence holds (the `obor v<x.y.z>: …` version commit, the tag, the branch's
    catalog with the eight files

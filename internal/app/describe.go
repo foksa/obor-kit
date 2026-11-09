@@ -32,17 +32,16 @@ type Described struct {
 
 // The event kinds (T-1074): Described.Kind of every worded record, the web's icons and filters (EventKind).
 const (
-	KindMerge     = "merge"
-	KindGate      = "gate" // a gate or lane test result
-	KindAccept    = "accept"
-	KindSubmit    = "submit"
-	KindDispatch  = "dispatch" // dispatched, waiting
-	KindDrive     = "drive"
-	KindMessage   = "message" // a line to an agent, an outbox line
-	KindServe     = "serve"   // serve's own restart, no record
-	KindPromotion = "promotion"
-	KindProblem   = "problem" // a needs-you, a sendback, a failed step
-	KindOther     = "other"
+	KindMerge    = "merge"
+	KindGate     = "gate" // a gate or lane test result
+	KindAccept   = "accept"
+	KindSubmit   = "submit"
+	KindDispatch = "dispatch" // dispatched, waiting
+	KindDrive    = "drive"
+	KindMessage  = "message" // a line to an agent, an outbox line
+	KindServe    = "serve"   // serve's own restart, no record
+	KindProblem  = "problem" // a needs-you, a sendback, a failed step
+	KindOther    = "other"
 )
 
 // worder words one record of its kind into d from its data (an error: the data is not the kind's shape).
@@ -168,35 +167,36 @@ var worded = map[string]worder{
 		d.Line, d.Kind = "review request ended", KindOther
 		return nil
 	},
+	// An older log's promotion (T-974, deleted T-1076): its records stay readable, plain lines.
 	"intent " + event.StepPromote: func(r event.Record, d *Described) error {
-		var in promoteIn
+		var in oldPromotion
 		if err := decode(r, &in); err != nil {
 			return err
 		}
-		d.Kind, d.Line = KindPromotion, "promotion started: full suite on "+short(in.SHA)
+		d.Kind, d.Line = KindOther, "promotion started: full suite on "+short(in.SHA)
 		if len(in.Merges) > 0 {
 			d.Line += " (" + strings.Join(in.Merges, ", ") + ")"
 		}
 		return nil
 	},
 	"result " + event.StepPromote: func(r event.Record, d *Described) error {
-		var out PromoteOut
+		var out oldPromotion
 		if err := decode(r, &out); err != nil {
 			return err
 		}
 		if out.Verdict == "" { // the effect's error: a counted failure (fact failed), not a verdict
 			return nil
 		}
-		d.Kind, d.Outcome, d.Text = KindPromotion, out.Verdict, out.Line
+		d.Kind, d.Outcome, d.Text = KindOther, out.Verdict, out.Line
 		d.Line, d.Bad = "promotion "+out.Verdict+" "+short(out.SHA)+": "+out.Line, out.Verdict != "GREEN"
 		return nil
 	},
 	"fact " + event.StepPromoted: func(r event.Record, d *Described) error {
-		var pd promotedData
+		var pd oldPromotion
 		if err := decode(r, &pd); err != nil {
 			return err
 		}
-		d.Kind, d.Line = KindPromotion, "promoted "+cmp.Or(pd.Branch, "the promoted branch")+" → "+short(pd.SHA)
+		d.Kind, d.Line = KindOther, "promoted "+cmp.Or(pd.Branch, "the promoted branch")+" → "+short(pd.SHA)
 		return nil
 	},
 	"fact " + event.StepMessage: func(r event.Record, d *Described) error {
@@ -227,7 +227,7 @@ func Describe(r event.Record) Described {
 // describedKey is r's key in worded: "<kind> <step>", a result's step without its .N, a verdict's its method (the
 // step is <method>.<call id>).
 func describedKey(r event.Record) string {
-	if promoteSeq(r.Step, event.StepPromote) > 0 { // the promotion's promote.<seq>, intent and result (T-977)
+	if strings.HasPrefix(r.Step, event.StepPromote+".") { // an older log's promote.<seq>, intent and result (T-977)
 		return r.Kind + " " + event.StepPromote
 	}
 	if r.Kind != event.KindResult {
@@ -238,6 +238,16 @@ func describedKey(r event.Record) string {
 	}
 	method, _, _ := strings.Cut(r.Step, ".")
 	return r.Kind + " " + method
+}
+
+// oldPromotion is an older log's promotion record's data (T-974, deleted T-1076): a run's intent (sha, merges) or
+// result (sha, verdict, line), or fact promoted (sha, branch).
+type oldPromotion struct {
+	SHA     string   `json:"sha"`
+	Merges  []string `json:"merges,omitempty"`
+	Verdict string   `json:"verdict,omitempty"`
+	Line    string   `json:"line,omitempty"`
+	Branch  string   `json:"branch,omitempty"`
 }
 
 // decode is r's data into v (no data: v stays zero).

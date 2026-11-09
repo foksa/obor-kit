@@ -65,7 +65,6 @@ func (a *App) Status() wire.Status {
 		ps.Facts = append(ps.Facts, p.needsYou()...)
 		intents := p.log.OpenIntents()
 		steps := p.stepPhases(intents)
-		rv := p.promReview() // T-1030: the review the promotion waits for
 		// T-1043: each task's place in the pass's order (passOrder), shipped so the view's queue lists the waiting
 		// dispatches in the order serve starts them instead of sorting them by id.
 		rank := make(map[string]int, len(p.folded.loop))
@@ -98,7 +97,7 @@ func (a *App) Status() wire.Status {
 					ts.After, ts.Why = mt.disp.After, p.waitLine[mt.task].line
 					ts.Level, ts.Types = mt.disp.Level, mt.disp.Types
 					ts.Difficulty, ts.Model = p.waitDifficulty(mt), p.firstUnpaused(mt.disp.Types, now)
-					ts.High = err == nil && hasSpec && highPriority(row.Spec, rv)
+					ts.High = err == nil && hasSpec && highPriority(row.Spec)
 				}
 				key, open := mt.workerJob()
 				if !open {
@@ -138,7 +137,6 @@ func (a *App) Status() wire.Status {
 				Note: q.note, By: q.by, Since: q.at.Unix()}
 		}
 		ps.Briefs = p.out.BriefStatus()
-		ps.Promote = p.promoteStatus()
 		ps.Stopped = a.stoppedRoles(p)
 		for _, f := range ps.Facts {
 			if f.Step != event.StepNeedsYou {
@@ -182,12 +180,7 @@ func commandStep(r event.Record) (step, task string, ok bool) {
 	if strings.HasPrefix(r.Step, event.StepNightly+".") {
 		return event.StepNightly, "", true
 	}
-	if r.Task == event.PromoteTask { // promote.<seq>, after_promote.<seq>: the project's (T-974)
-		for _, base := range []string{event.StepPromote, event.StepAfterPromote} {
-			if promoteSeq(r.Step, base) > 0 {
-				return base, "", true
-			}
-		}
+	if r.Task == event.PromoteTask { // an old log's promotion (deleted, T-1076): nothing runs it
 		return "", "", false
 	}
 	switch step, _ = event.StepN(r.Step); step {
@@ -238,10 +231,6 @@ func (p *proj) pendingSteps(open []event.Record) []wire.PendingStep {
 		case r.Task == event.NightlyTask:
 			if p.night.fails[r.Step] > 0 {
 				ps.Error, ps.FailedAt = strings.TrimPrefix(p.night.failedWhy, r.Step+": "), p.night.failedAt.Unix()
-			}
-		case r.Task == event.PromoteTask:
-			if p.prom.fails[r.Step] > 0 {
-				ps.Error, ps.FailedAt = strings.TrimPrefix(p.prom.failedWhy, r.Step+": "), p.prom.failedAt.Unix()
 			}
 		case p.folded.loop[r.Task] != nil:
 			if f, failed := p.folded.loop[r.Task].fails[r.Step]; failed {

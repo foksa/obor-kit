@@ -26,7 +26,7 @@
 #                 make: all eight files checked against the tag's catalog first, then copied and the catalog committed
 #                 fail: bin/checksums.txt's index and tree back to HEAD
 #   main          done: refs/heads/main is the release's "checksums: v<version>" commit or past it
-#                 make: fast-forward refs/heads/main to that commit by git update-ref, the way a promotion moves it (the
+#                 make: fast-forward refs/heads/main to that commit by git update-ref (the
 #                 main checkout keeps its own branch checked out: main moves by release, never by a checkout)
 #                 fail: main has commits the release lacks (a release never rewinds main)
 # The check step reruns a failed go test package once (T-717): when `make check` fails only in go test, the failed
@@ -520,7 +520,7 @@ if [ -e "$scratch" ]; then
 fi
 
 # --- main (T-1035): the release moves main to the commit it made, never by a checkout. The main checkout keeps its own
-# branch checked out (staging) and refs/heads/main moves by update-ref, the way a promotion moves it. The commit is the
+# branch checked out (staging) and refs/heads/main moves by update-ref. The commit is the
 # newest "checksums: v<version>" on the branch's first-parent line (HEAD itself, when the release ran on main).
 if [ "$dry" = 1 ]; then
   say "would: move refs/heads/main to the release's 'checksums: $tag' commit (update-ref, no checkout)"

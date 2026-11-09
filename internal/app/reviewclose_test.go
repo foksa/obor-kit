@@ -311,7 +311,7 @@ func TestReviewCloseSnapshotStands(t *testing.T) {
 			r.a.mu.Lock()
 			defer r.a.mu.Unlock()
 			l := &r.p.folded.rv
-			if got := l.closedHead(); got != head {
+			if got := closedHead(l); got != head {
 				t.Errorf("the closed head R %q, want the close's %s", got, head)
 			}
 			if got := l.cur().cycle(); l.cur().closed == 0 || !slices.Equal(got, tasks) {

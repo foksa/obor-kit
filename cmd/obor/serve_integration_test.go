@@ -167,6 +167,50 @@ func TestServeToleratesUnknownConfigKey(t *testing.T) {
 	}
 }
 
+// T-1076: the promotion is deleted; a config that still sets its keys (branches.promote, merge.promote_weight,
+// merge.weights) is a config with unknown keys: serve warns once per key and its loop runs on (it lists the lane), no
+// error; the merge loop builds its workflow from it.
+func TestServeRunsWithARemovedPromotionKey(t *testing.T) {
+	t.Parallel()
+	p := testkit.New(t)
+	lane := p.Lane("L-01", "task/T-01")
+	keys := []string{"branches.promote", "merge.promote_weight", "merge.weights"}
+	p.Config(testkit.Set("roles.integrator", ""), // an integrator configured: the merge loop runs (servedGitProject's)
+		testkit.Set(keys[0], "prod"), testkit.Set(keys[1], 4), testkit.Set(keys[2], map[string]any{"hard": 5}))
+	p.Commit(lane)
+	if _, unknown, err := config.LoadHook(p.Root); err != nil || len(unknown) != len(keys) {
+		t.Fatalf("precondition: the config names the removed keys: unknown %q, %v; want %q", unknown, err, keys)
+	}
+	l, err := mergeLoop(p.Env(), herdr.Panes{}, &serveEnd{stop: func() {}}, &kindCache{})(p.Root)
+	if err != nil || l.Workflow == nil {
+		t.Fatalf("the merge loop with a removed promotion key: %+v, %v; want it built with its workflow", l, err)
+	}
+	f := herdrtest.New()
+	f.Workspaces = []herdr.Workspace{{ID: "w1", Label: "proj"}}
+	w := f.Agent("w1:p1", "pj-l-01", "working", lane)
+	w.Workspace, w.Label = "w1", "pj-l-01"
+	srv := herdrtest.Serve(t, f)
+	env := []string{"OBOR_STATE_HOME=" + t.TempDir(), "HERDR_SOCKET_PATH=" + srv.Path}
+	cmd, out := startServe(t, p.Root, env)
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		ss, err := wire.Ask(context.Background(), wire.SocketPath(p.Root))
+		if err == nil && ss.Project != nil && ss.Project.Merging && len(ss.Project.Agents) == 1 &&
+			ss.Project.Agents[0].Lane == "L-01" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("serve never ran its loop with a removed promotion key: %+v, %v; output:\n%s", ss, err, out.String())
+		}
+	}
+	_ = cmd.Process.Signal(syscall.SIGTERM)
+	_ = cmd.Wait()
+	for _, k := range keys {
+		if n := strings.Count(out.String(), `unknown key "`+k+`" ignored`); n != 1 {
+			t.Errorf("warnings for %s: %d, want 1:\n%s", k, n, out.String())
+		}
+	}
+}
+
 // T-781: serve's merge loop (mergeLoop, built on every pass) has its nightly from merge.nightly_at as the config is
 // now: on and off, committed by serve's config writer (config_set's), count from the next build, no restart.
 func TestMergeLoopNightlyFollowsTheConfig(t *testing.T) {

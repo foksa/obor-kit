@@ -70,9 +70,6 @@ var goStructs = map[string]reflect.Type{
 	"DispatchCount": reflect.TypeOf(view.DispatchCount{}),
 	"Setup":         reflect.TypeOf(view.Setup{}),
 	"Help":          reflect.TypeOf(Help{}),
-	"PromoteStatus": reflect.TypeOf(wire.PromoteStatus{}),
-	"PromoteRun":    reflect.TypeOf(wire.PromoteRun{}),
-	"PromoteRed":    reflect.TypeOf(wire.PromoteRed{}),
 }
 
 // tsOnly are the interfaces with no same-named Go struct: help's rows are help.Command and help.Section (web.Help ties
@@ -191,18 +188,12 @@ func TestTSStringSetsMatchGo(t *testing.T) {
 	format := readTS(t, filepath.Join(tsLib, "format.ts"))
 	// T-1074: every event kind serve names is Go's app.Kind*, and EventKind is their union, not a retyped list.
 	wantKinds := []string{app.KindMerge, app.KindGate, app.KindAccept, app.KindSubmit, app.KindDispatch, app.KindDrive,
-		app.KindMessage, app.KindServe, app.KindPromotion, app.KindProblem, app.KindOther}
+		app.KindMessage, app.KindServe, app.KindProblem, app.KindOther}
 	if kinds, ok := tsStringSet(format, "export const EVENT_KINDS = [", "]"); !ok || !slices.Equal(kinds, wantKinds) {
 		t.Errorf("format.ts: EVENT_KINDS %v (parsed %v), want %v (app.Kind*)", kinds, ok, wantKinds)
 	}
 	if !strings.Contains(format, "export type EventKind = (typeof EVENT_KINDS)[number];") {
 		t.Errorf("format.ts: EventKind is not the union of EVENT_KINDS (app.Kind*)")
-	}
-	promotion := readTS(t, filepath.Join(tsLib, "promotion.ts"))
-	if steps, ok := tsStringSet(promotion, "export const PROMOTE_STEPS = [", "]"); !ok ||
-		!slices.Equal(steps, []string{wire.PromoteSuite, wire.PromoteReview}) {
-		t.Errorf("promotion.ts: PROMOTE_STEPS %v (parsed %v), want [%s %s] (wire.Promote*)", steps, ok,
-			wire.PromoteSuite, wire.PromoteReview)
 	}
 	if strings.Contains(format, "export const FREE") {
 		t.Errorf("format.ts retypes the free lane states: the view ships Lane.free (T-883)")

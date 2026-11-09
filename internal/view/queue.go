@@ -49,7 +49,7 @@ const (
 // --after tasks (After; Why: its last refused dispatch once they all merged), for a lane of its level (Level, Types,
 // Why), or a stored spec never dispatched (Since: the spec's set time). A dispatch's carries serve's Difficulty and
 // the Model it will run on (wire.TaskStatus', T-977; "": serve has none). High: its dispatch goes first for the next
-// free lane (serve's status: Priority: high, or a fix of the review the promotion waits for; T-1030).
+// free lane (serve's status: Priority: high; T-1030).
 type WaitItem struct {
 	Task       string   `json:"task"`
 	WaitsOn    string   `json:"waits_on"`

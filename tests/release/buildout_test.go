@@ -13,8 +13,8 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-975: `make build` writes OUT (dist/obor by default), so the promotion's after_merge can build the kit in its own
-// worktree and still land the binary serve follows in the main checkout's dist/obor. The kit's own
+// T-975: `make build` writes OUT (dist/obor by default), so an after_merge run in another worktree (OBOR_ROOT set; the
+// deleted promotion's, T-1076) still lands the binary serve follows in the main checkout's dist/obor. The kit's own
 // commands.after_merge.cmd is run as written (bash -c, as internal/run does), with and without OBOR_ROOT.
 
 // outKit makes dir a kit copy for `make build`: the tree's Makefile, VERSION 1.2.3 and a fake go at dir/bin/go that
@@ -48,8 +48,8 @@ func runBuild(t *testing.T, dir string, extra ...string) string {
 	return strings.TrimSpace(readFile(t, filepath.Join(dir, "go.log")))
 }
 
-// TestMakeBuildOut: make build writes dist/obor by default and OUT's file when given (its directories created: a
-// promotion's worktree has no dist/ under the root it builds into), and the OpenCode kind's binary beside it, from
+// TestMakeBuildOut: make build writes dist/obor by default and OUT's file when given (its directories created: another
+// worktree has no dist/ under the root it builds into), and the OpenCode kind's binary beside it, from
 // kinds/opencode (T-1046: obor runs a kit kind from its own executable's directory).
 func TestMakeBuildOut(t *testing.T) {
 	t.Parallel()
@@ -135,8 +135,8 @@ func runAfterMerge(t *testing.T, dir, root string) string {
 	return string(out)
 }
 
-// TestAfterMergeBuildsIntoRoot: today's per-publish after_merge (no OBOR_ROOT) builds in the main checkout; the
-// promotion's (OBOR_ROOT set, make run in the promotion worktree) still leaves the binary in the root's dist/obor.
+// TestAfterMergeBuildsIntoRoot: the per-publish after_merge (no OBOR_ROOT) builds in the main checkout; one run in
+// another worktree with OBOR_ROOT set still leaves the binary in the root's dist/obor.
 func TestAfterMergeBuildsIntoRoot(t *testing.T) {
 	t.Parallel()
 	t.Run("no OBOR_ROOT: the main checkout", func(t *testing.T) {
@@ -150,7 +150,7 @@ func TestAfterMergeBuildsIntoRoot(t *testing.T) {
 	})
 	t.Run("OBOR_ROOT set: the root's dist/obor, from the worktree", func(t *testing.T) {
 		t.Parallel()
-		worktree := testkit.Dir(t) // the promotion's own worktree: the build runs here
+		worktree := testkit.Dir(t) // another worktree: the build runs here
 		outKit(t, worktree)
 		root := t.TempDir() // the main checkout: no dist/ until the build writes it
 		runAfterMerge(t, worktree, root)

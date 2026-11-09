@@ -96,7 +96,7 @@ process (`plugin.Local`).
   the `app/identity` table accepts; `whereIs` and the table's `WhoIs` the only lookups, never herdr's name; T-504);
   `lanerows.go` (the `lanes` table projection), `specs.go`, `prompts.go` (the `prompts` table's writes and prune,
   T-665, T-670), `dispatch.go`, `drive.go` (the owner's drive and land: `obor drive`, `obor land`, the driving state, T-751), `messages.go` (the lines' delivery over `app/outbox`'s state: `deliver`, `route`, `recordBrief`, `foldMsg` applying what `Fold` ended; T-1067), `mergewatch.go`,
-  `rules.go` (the rule pass: rule-tier steps, T-866), `idle.go` (the idle rules and `obor idle`), `stopped.go`, `stopwake.go`, `rolestop.go` (the role stop rules: serve stops the integrator and the reviewer once done, and a fresh brief's stop; T-672, T-870), `workerstart.go` (the worker start rule: a lane's worker started again while its job is outstanding; T-874), `keeplane.go` (a keep lane's agent between its tasks: its live agent takes the next job, the handoff rule stops one past handoff_tokens; T-1031), `nightly.go`, `promote.go` (the promotion of branches.main to branches.promote, T-974),
+  `rules.go` (the rule pass: rule-tier steps, T-866), `idle.go` (the idle rules and `obor idle`), `stopped.go`, `stopwake.go`, `rolestop.go` (the role stop rules: serve stops the integrator and the reviewer once done, and a fresh brief's stop; T-672, T-870), `workerstart.go` (the worker start rule: a lane's worker started again while its job is outstanding; T-874), `keeplane.go` (a keep lane's agent between its tasks: its live agent takes the next job, the handoff rule stops one past handoff_tokens; T-1031), `nightly.go`,
   `configset.go` (the owner's setup edit from obor web, through the `ConfigFile` port, T-753),
   `verbs.go` (`leadOr`: the admission of a lead's and the owner's method, a custom role's by its `roles.<name>.verbs`, T-1039),
   `feed.go` (the socket's `events` request: the event feed after a seq, streamed with `--follow`, T-1039),
@@ -109,7 +109,7 @@ process (`plugin.Local`).
   `TerminalSetup` (setup's terminal: `Agents`, `Place` a `Placement`, `Integrate`, `RenameProject`, T-1044); and the
   effects (`Agents`, `Typer`, `PaneControl`, `Starter`,
   `Scratch`, `LaneSetup`, `Review` and their inputs and outcomes, and `Workflow`, the git workflow behind one
-  interface: those three, the dispatch's `Target` and the `Promote`, T-1029). Adapters import it instead of `app`; `app` keeps type and const
+  interface: those three and the dispatch's `Target`, T-1029). Adapters import it instead of `app`; `app` keeps type and const
   aliases of it until a later task removes them (`app/ports.go`).
 - `app/event` (core, a leaf below `app`; T-691): the event log's vocabulary and its store: `Record`, `Key`, `Intent`,
   `FactData`, the `Kind*`/`Class*` constants, every exported `Step*` and the task keys (`MsgTask` …), the fact data
@@ -155,11 +155,10 @@ process (`plugin.Local`).
 - `checks`: git and the merge gate: lanes (`checks.Lane`, `LaneSetup`), serve's worktree `merge.scratch_dir` (submit,
   gate: merge and compile, resolved, publish, after_merge over pins under `refs/obor/`), the lane test of a candidate in
   the task's lane worktree (`lanetest.go`, `Scratch.Test`: the class's checks, T-961), nightly/milestone checks in their own worktree,
-  the promotion's full suite, fast-forward and after_merge in `<merge.scratch_dir>-promote` (`promote.go`, T-974),
   flakes, and the lane table (`LaneTable`: worktree facts for `obor status` and `app.Lanes`, merge evidence; `Lanes` is serve's
   `app.Lanes` adapter, each lane's configured type, T-738).
   Implements `port.Workflow` as `ScratchFF` (`workflow.go`, workflow.kind `scratch-ff`, T-1029: `Scratch`, `Lane`, the
-  target, the review git cmd/obor gives it, the promotion). `Scratch` decides over git's answers; its git goes through `gitReader`/`gitWriter`
+  target, the review git cmd/obor gives it). `Scratch` decides over git's answers; its git goes through `gitReader`/`gitWriter`
   (`gitio.go`: `realGit`, the one adapter over real git), so its decision tests run on `fakegit_test.go`'s fake; the
   workflow contract table (`testkit.WorkflowContract`, run on internal/app's `FakeWorkflow` too) and the real-git cases
   are behind `//go:build integration` (`workflow_integration_test.go`, `scratch_integration_test.go`, `gitlock_test.go`; T-1011, T-1029).

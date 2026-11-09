@@ -45,8 +45,6 @@ func TestRun(t *testing.T) {
 		want    string
 	}{
 		{"changed file", nil, list("a/a.go"), "fx/a\nfx/b\n"},
-		{"direct", []string{"--direct"}, list("a/a.go"), "fx/a\n"}, // T-991: no importer b
-		{"direct affected_full", []string{"--direct"}, list("a/a.go", "build/x.txt"), "full: changed build/x.txt\n"},
 		{"test file only", nil, list("a/a_test.go"), "fx/a\n"}, // T-954: b imports a, but nothing imports a test file
 		{"no Go file", nil, list("README.md"), ""},
 		{"go.mod", nil, list("go.mod"), "full: changed go.mod\n"},
@@ -75,6 +73,11 @@ func TestRun(t *testing.T) {
 	}
 	if rc := run(root, nil, env, &out); rc != 0 || !strings.HasPrefix(out.String(), "full: ") {
 		t.Errorf("unreadable list: exit %d, stdout %q", rc, out.String())
+	}
+	// An argument is a bad flag (T-1076: --direct went with the promotion): exit 2, no list.
+	out.Reset()
+	if rc := run(root, []string{"--direct"}, env, &out); rc != 2 || out.String() != "" {
+		t.Errorf("--direct: exit %d, stdout %q; want exit 2 and no list", rc, out.String())
 	}
 	// A missing config is an error: the list cannot be made, so the Makefile runs the full suite.
 	out.Reset()

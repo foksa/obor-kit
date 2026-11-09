@@ -15,7 +15,7 @@
   const ICON: Record<EventKind, [string, string]> = {
     merge: ["MG", "done"], gate: ["GT", "info"], accept: ["AC", "ok"], submit: ["SB", "info"],
     dispatch: ["DP", "idle"], message: ["→", "accent"], drive: ["DR", "accent"], problem: ["!", "bad"],
-    serve: ["SV", "idle"], promotion: ["PR", "done"], other: ["·", "idle"],
+    serve: ["SV", "idle"], other: ["·", "idle"],
   };
   const rows = $derived(events.map((e) => ({ e, k: eventKind(e.kind, e.bad), to: lineTo(e.line) }))
     .filter((r) => EVENT_FILTERS[filter]?.(r.k, r.e.bad) ?? true));

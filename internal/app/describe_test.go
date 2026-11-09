@@ -63,22 +63,23 @@ func TestDescribeWordsEveryKind(t *testing.T) {
 		{"a line", event.KindFact, event.StepMessage, `{"to":"pj-l-01","line":"look","from":"pj-lead"}`,
 			Described{Line: "line to pj-l-01: look", To: "pj-l-01", From: "pj-lead", Text: "look", Kind: KindMessage}},
 		{"an intent is not worded", event.KindIntent, event.StepGate, `{"kind":"lane"}`, Described{}},
-		// T-977: the promotion's events, of their own kind
+		// T-1076: an older log's promotion records (the promotion is deleted) stay worded, plain lines of kind other,
+		// never an unreadable record
 		{"a promotion's start", event.KindIntent, event.StepPromote + ".3",
 			`{"sha":"abcdef0123","since":"0123456789","merges":["T-1","T-2"],"weight":4}`,
-			Described{Line: "promotion started: full suite on abcdef0 (T-1, T-2)", Kind: KindPromotion}},
+			Described{Line: "promotion started: full suite on abcdef0 (T-1, T-2)", Kind: KindOther}},
 		{"a GREEN promotion", event.KindResult, event.StepPromote + ".3",
 			`{"sha":"abcdef0123","verdict":"GREEN","line":"check 10 passed"}`,
-			Described{Line: "promotion GREEN abcdef0: check 10 passed", Kind: KindPromotion, Outcome: "GREEN",
+			Described{Line: "promotion GREEN abcdef0: check 10 passed", Kind: KindOther, Outcome: "GREEN",
 				Text: "check 10 passed"}},
 		{"a RED promotion", event.KindResult, event.StepPromote + ".1",
 			`{"sha":"abcdef0123","verdict":"RED","line":"check 1 failed — TestX","retried":true}`,
-			Described{Line: "promotion RED abcdef0: check 1 failed — TestX", Bad: true, Kind: KindPromotion,
+			Described{Line: "promotion RED abcdef0: check 1 failed — TestX", Bad: true, Kind: KindOther,
 				Outcome: "RED", Text: "check 1 failed — TestX"}},
 		{"a promotion that ended neither is not worded", event.KindResult, event.StepPromote + ".2", ``,
 			Described{}},
 		{"main promoted", event.KindFact, event.StepPromoted, `{"sha":"abcdef0123","since":"0123456789","branch":"main"}`,
-			Described{Line: "promoted main → abcdef0", Kind: KindPromotion}},
+			Described{Line: "promoted main → abcdef0", Kind: KindOther}},
 		{"an after_promote is not worded", event.KindIntent, event.StepAfterPromote + ".1", `{"sha":"abcdef0123"}`,
 			Described{}},
 	}
@@ -98,9 +99,9 @@ func TestDescribeWordsEveryKind(t *testing.T) {
 		"fact " + event.StepReviewRequest: KindOther,
 		"fact " + event.StepReviewStarted: KindOther,
 		"fact " + event.StepReviewRm:      KindOther,
-		"intent " + event.StepPromote:     KindPromotion,
-		"result " + event.StepPromote:     KindPromotion,
-		"fact " + event.StepPromoted:      KindPromotion,
+		"intent " + event.StepPromote:     KindOther,
+		"result " + event.StepPromote:     KindOther,
+		"fact " + event.StepPromoted:      KindOther,
 		"fact " + event.StepMessage:       KindMessage,
 	}
 	kinded := map[string]bool{}
@@ -150,5 +151,27 @@ func TestDescribeShowsADecodeError(t *testing.T) {
 	r.Data = json.RawMessage(`{"to":"pj-lead","line":"hi","drive":3}`)
 	if d := Describe(r); d.Bad || d.Line != "line to pj-lead: hi" {
 		t.Errorf("precondition: the same record with its real shape: %+v", d)
+	}
+}
+
+// T-1076: the promotion is deleted; an older log's promotion records (task promote, each with the data the promotion
+// wrote) are worded as plain lines, never an unreadable record and never dropped.
+func TestDescribeWordsAnOldPromotionRecord(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		kind, step, data, want string
+	}{
+		{event.KindIntent, event.StepPromote + ".7", `{"sha":"abcdef0123","since":"0123456789","merges":["T-1"],"weight":2}`,
+			"promotion started: full suite on abcdef0 (T-1)"},
+		{event.KindResult, event.StepPromote + ".7", `{"sha":"abcdef0123","verdict":"GREEN","line":"ok","retried":false}`,
+			"promotion GREEN abcdef0: ok"},
+		{event.KindFact, event.StepPromoted, `{"sha":"abcdef0123","since":"0123456789","branch":"main"}`,
+			"promoted main → abcdef0"},
+	} {
+		r := event.Record{Task: event.PromoteTask, Kind: c.kind, Step: c.step, Data: json.RawMessage(c.data)}
+		d := Describe(r)
+		if strings.Contains(d.Line, "unreadable") || d.Kind != KindOther || d.Line != c.want {
+			t.Errorf("%s %s: %+v, want the plain line %q of kind %q", c.kind, c.step, d, c.want, KindOther)
+		}
 	}
 }

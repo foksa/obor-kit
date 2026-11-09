@@ -86,7 +86,7 @@ export function parts(text: string): Part[] {
 // EVENT_KINDS is every event kind serve names (Event.kind, app.Kind*: internal/web's types_test), and EventKind is
 // their union: the page's icons and filters switch on this set, never on the line's wording (T-1074).
 export const EVENT_KINDS = [
-  "merge", "gate", "accept", "submit", "dispatch", "drive", "message", "serve", "promotion", "problem", "other",
+  "merge", "gate", "accept", "submit", "dispatch", "drive", "message", "serve", "problem", "other",
 ] as const;
 
 export type EventKind = (typeof EVENT_KINDS)[number];
@@ -98,10 +98,10 @@ export function eventKind(kind: string | undefined, bad?: boolean): EventKind {
   return bad ? "problem" : "other";
 }
 
-// EVENT_FILTERS are the events list's filters: which kinds each shows (bad: the event is bad news, a RED promotion).
+// EVENT_FILTERS are the events list's filters: which kinds each shows (bad: the event is bad news, a gate that failed).
 export const EVENT_FILTERS: Record<string, (k: EventKind, bad?: boolean) => boolean> = {
   All: () => true,
-  Flow: (k) => ["merge", "gate", "accept", "submit", "dispatch", "drive", "promotion"].includes(k),
+  Flow: (k) => ["merge", "gate", "accept", "submit", "dispatch", "drive"].includes(k),
   Messages: (k) => k === "message",
   Problems: (k, bad) => k === "problem" || !!bad,
 };

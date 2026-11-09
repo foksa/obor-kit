@@ -227,13 +227,13 @@ func (kc *kindCache) refresh(cfg *config.Config, log io.Writer) (wrote bool) {
 }
 
 // workflowOf is the git workflow workflow.kind selects (T-1029; obor config validate refuses another kind): scratch-ff,
-// serve's scratch on o's config, its lanes, the review git on the main checkout and the promotion.
+// serve's scratch on o's config, its lanes, and the review git on the main checkout.
 func workflowOf(o checks.Options) (port.Workflow, error) {
 	switch k := o.Cfg.WorkflowKind(); k {
 	case config.DefaultWorkflow:
 		scratch := checks.Scratch{Options: o}
 		return checks.ScratchFF{Scratch: scratch, Lane: checks.Lane{Cfg: o.Cfg, Out: io.Discard},
-			Review: reviewGit{root: o.Cfg.Root, locked: scratch.Locked}, Promote: promotion(o)}, nil
+			Review: reviewGit{root: o.Cfg.Root, locked: scratch.Locked}}, nil
 	default:
 		return nil, fmt.Errorf("workflow.kind %q: serve knows %s", k, strings.Join(config.WorkflowKinds, ", "))
 	}
@@ -287,24 +287,6 @@ func nightly(o checks.Options) *app.Nightly {
 			sha, _, _, err := checks.LastFullCheck(root)
 			out.SHA = sha
 			return out, err
-		}}
-}
-
-// promotion is the merge loop's promotion of o's project (T-974): branches.main promoted to branches.promote by the full
-// suite (checks.Promote), the fast-forward (checks.PromoteFF) and after_merge in the promotion worktree
-// (checks.AfterPromote). Nil while branches.promote is unset: no promotion, after_merge after each publish.
-func promotion(o checks.Options) *port.Promote {
-	cfg := o.Cfg
-	if cfg.Data.Branches.Promote == "" {
-		return nil
-	}
-	return &port.Promote{Branch: cfg.Data.Branches.Promote, Target: cfg.Data.Branches.Main, Weight: cfg.PromoteWeight(),
-		Weigh:  cfg.MergeWeight,
-		Run:    func(ctx context.Context, sha string) (port.PromoteOut, error) { return checks.Promote(ctx, o, sha) },
-		Passed: func(ctx context.Context, sha string) (bool, error) { return checks.PromotePassed(ctx, o, sha) },
-		FF:     func(ctx context.Context, sha string) (port.FFOut, error) { return checks.PromoteFF(ctx, o, sha) },
-		After: func(ctx context.Context, sha, since string) (string, error) {
-			return checks.AfterPromote(ctx, o, sha, since)
 		}}
 }
 
