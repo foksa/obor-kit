@@ -7,22 +7,24 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 
 ## Handoff (lead; rewrite at each handoff)
 Read `docs/observations.md` first (patterns from past sessions: where we went in circles, the load tax, traps).
-- 2026-11-09 ~17:30 (lead; previous Handoff: `git show b106b38b:BACKLOG.md`). Every lane free, nothing queued, no
-  review open, no watch. **v0.33.0 tagged** (30ca80a5 on staging, `main` fast-forwarded, 8 binaries in `dist/`), not
-  shipped: **the owner runs `! make ship`**. In it (owner 11-09 themes): stored data (nightly sweep, gzip backups,
-  logs only on failure and gone at task end, prompts 3 days, shim keeps 2 binaries), event-log prune 30 days after a
-  task ends (schema 14) + linear session fold, undecided-behaviour deletions (merge.trailer, Model:/Implemented-by
-  lines, /obor:role, herdr plugin → serve restores incl. first connect after a herdr restart by socket mtime), config
-  shape 2 with serve's one-time rewrite (obor-kit rewritten at 40efc6c3), the background-run stop guard, the test
-  review (DD-tests-v0.33: perf unchanged, 7 unnecessary tests deleted). Reviews RV-161..RV-171 closed; DD-v0.33 +
-  verify approved; Codex smoke T-1154 passed. Kit kind default kept permanently (decisions 11-09, reversed T-1153).
-  **Next steps:** (1) After ship: axis-alies' serve rewrites its config (shape 2) at its first v0.33 start; check its
-  lead's line. (2) Check the 11-10 02:00 nightly GREEN (first sweep/prune run; internal/app budget 18 s of 27.5).
-  (3) Next release: config shape P7 (Later candidates) — delete Reshape/window/local.json shape test (T-1149/T-1151).
-  (4) Owner when convenient: ask herdr upstream for an instance id (Open, T-1135). Process lessons of the day are in
-  memory (review notes keep the review open; specs name each test's level, AGENTS.md test rule 11-09).
+- 2026-11-09 ~20:45 (lead; previous Handoff: `git show efc42d23:BACKLOG.md`). Every lane free, nothing queued, no
+  review open, no watch. **v0.34.0 tagged** (510405c4, `main` fast-forwarded, binaries in `dist/`), not shipped: **the
+  owner runs `! make ship`**. In it: config shape 1 refused (T-1157, P7: Reshape, serve's rewrite, `obor config
+  migrate` gone), setup passes the load error on (T-1163), README rewritten for v0.33/34 (T-1158, T-1164), four
+  cleanups (T-1159..T-1162). RV-172 + verify approved; Codex smoke T-1165 passed (dropped). v0.33.0 shipped earlier
+  today; axis-alies upgraded clean (config shape 2 at 56c1f59).
+  **Next steps:** (1) After ship: axis-alies needs nothing (already shape 2); check its lead's line. (2) Check the
+  11-10 02:00 nightly GREEN (first sweep/prune run). (3) Owner decisions below: agent skills scope (research
+  committed, da11d0dc). (4) v0.35: delete the baseline/gate/e2e validate WARN (Later candidates). (5) Owner when
+  convenient: herdr instance id (T-1135). BACKLOG partly triaged 11-09 (23 stale items gone); a full pass is still due.
 ## Owner decisions pending
-- (none; branching decided 11-07, docs/decisions.md)
+- **Agent skills scope** (owner asked 11-09, research only so far): `docs/research/agent-skills-scope.md` §9. Q1 keep
+  the owner's global plugins/skills out of non-lead agents (1A: Claude `--setting-sources project,local`, Codex `-c`
+  feature keys, OpenCode env; ~60-90 lines; saves ~3-5k tokens per Claude start, 2.3k Codex; the lead's 12k estimate
+  was high: the listing is 7.7k). Side effect: drops herdr's user hook for Claude (no `agent_session`). Q2 per-role
+  project skills: 2A (one `.agents/skills` tree, role text names them, docs only) vs 2B (obor hides per role, ~150-250
+  lines). Bigger lever found on the way: Claude's `Artifact` tool definition alone is ~9k tokens (`--disallowedTools`,
+  not probed). Seven open choices listed in §9.
 
 ## Later candidates
 - (v0.34 release) validate's WARN for a set `commands.baseline`/`gate`/`e2e` (T-1083, "until v0.34") kept one more release: delete it in v0.35 with its test.
