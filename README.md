@@ -14,7 +14,7 @@ Workers can be Claude Code, Codex or OpenCode.
 ## How it works
 
 ```
-you ─── lead (Claude Code) ── writes a spec ── obor spec set T-12 / obor dispatch T-12
+you ─── lead (Claude Code) ── writes a spec ── obor spec set T-12 .obor/drafts/T-12.md / obor dispatch T-12
                                                         │
         obor serve ── picks the first free model of the spec's difficulty on the first free lane,
             │         cuts task/T-12 from the target branch
@@ -26,8 +26,9 @@ you ─── lead (Claude Code) ── writes a spec ── obor spec set T-12 
 
 - **Lanes** are a pool of identical worktrees (`../<repo>-wt/L-01`, …; `lanes.count` of them). A spec says
   `Difficulty: hard | medium | simple`; each level has a list of models (`agents.difficulty`), and dispatch runs the
-  first free model of the list on the first free lane. A `Model:` line in the spec or `obor dispatch --model` overrides
-  it; a model that is paused (`obor pause --model`) is skipped.
+  first free model of that list on the first free lane. An optional `Model: <model>[, …]` line puts its models ahead
+  of the level's list (the level's models stay the fallback); a model that is paused (`obor pause --model`) is
+  skipped. `obor dispatch --model a,b` names the request's own list instead of the level's.
 - **The target branch** is `merge.target_branch` (`main` unless you set another; obor-kit itself uses `staging`). Tasks
   are cut from it and merged into it.
 - **Tests run in three places.** The worker runs the task's checks in its lane before it submits. After that the
