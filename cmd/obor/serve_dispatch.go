@@ -28,7 +28,7 @@ var _ app.Specs = specs{}
 // Check is why task cannot be dispatched ("" when it can): a bad task id or no stored spec (text "").
 func (s specs) Check(_ context.Context, task, text string) (string, error) {
 	if !s.cfg.TaskIDOK(task) {
-		return fmt.Sprintf("%s is no task id (task_id_pattern %s)", task, s.cfg.Data.TaskIDPattern), nil
+		return fmt.Sprintf("%s is no task id (task_id_pattern %s)", task, s.cfg.TaskIDPattern()), nil
 	}
 	if text == "" {
 		return fmt.Sprintf("no spec for %s in obor serve's store (obor spec set %s <path>)", task, task), nil

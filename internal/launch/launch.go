@@ -777,7 +777,7 @@ func (l *Launcher) roleWorktree(ctx context.Context, t *target) error {
 	if !ok || r.Cwd != roles.CwdRoleWorktree || l.Cfg == nil || t.info.Cwd != l.Cfg.RoleWorktree(r.Name) {
 		return nil
 	}
-	if _, err := project.AddWorktree(ctx, l.Cfg.Root, t.info.Cwd, l.Cfg.Data.Branches.Main); err != nil {
+	if _, err := project.AddWorktree(ctx, l.Cfg.Root, t.info.Cwd, l.Cfg.MainBranch()); err != nil {
 		return project.Failf("%s: its worktree: %v", t.agent, err)
 	}
 	return nil

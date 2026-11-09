@@ -304,6 +304,9 @@ func (c *Config) RetestJoin() string {
 	return DefaultRetestJoin
 }
 
+// NightlyAt is merge.nightly_at ("HH:MM" local time): when obor serve runs the nightly full check; "" is never.
+func (c *Config) NightlyAt() string { return c.Data.Merge.NightlyAt }
+
 // MergeClass is one merge.classes entry.
 type MergeClass struct {
 	Name   string   `json:"name"`
@@ -983,6 +986,9 @@ func (c *Config) DenyCommands() []DenyCommand {
 	return c.Data.Guards.DenyCommands
 }
 
+// ProtectedFiles is protected_files: the files only the lead edits, unless a task's spec unlocks one (T-1123).
+func (c *Config) ProtectedFiles() []string { return c.Data.ProtectedFiles }
+
 // RoleAgents is every role that counts as a role agent, in Roles order: every role but the worker, an optional one
 // (deep dive, a custom role, the driver) only when configured. Its agents are the ones obor brief reaches, obor restart
 // --stop stops, obor status and obor web list.
@@ -1181,6 +1187,9 @@ func (c *Config) TaskIDOK(id string) bool {
 	re, err := regexp.Compile("^(?:" + c.Data.TaskIDPattern + ")$")
 	return err == nil && !strings.Contains(id, "\n") && re.MatchString(id)
 }
+
+// TaskIDPattern is task_id_pattern: what a task id looks like (Go RE2 syntax).
+func (c *Config) TaskIDPattern() string { return c.Data.TaskIDPattern }
 
 // TaskBranch is the branch the branches.task template names for task id: its {id} replaced, the inverse of
 // TaskFromBranch.

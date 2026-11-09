@@ -78,7 +78,7 @@ func requestReply(ctx context.Context, env project.Env, build func(*config.Confi
 func taskIDs(cfg *config.Config, tasks ...string) error {
 	for _, task := range tasks {
 		if !cfg.TaskIDOK(task) {
-			return fmt.Errorf("%s is no task id (task_id_pattern %s)", task, cfg.Data.TaskIDPattern)
+			return fmt.Errorf("%s is no task id (task_id_pattern %s)", task, cfg.TaskIDPattern())
 		}
 	}
 	return nil

@@ -261,7 +261,7 @@ func fixRead(p *proj, kit string) (string, error) {
 		return "", err
 	}
 	paths := []string{filepath.Join(kit, "templates", "agents", "worker.md")}
-	doc := filepath.Join(cfg.Root, cfg.Data.Paths["agents"], "worker.md")
+	doc := filepath.Join(cfg.Root, cfg.AgentsDir(), "worker.md")
 	if _, err := os.Stat(doc); err == nil {
 		paths = append(paths, doc)
 	}

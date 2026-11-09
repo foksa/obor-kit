@@ -332,7 +332,7 @@ func (a *App) nextTaskID(p *proj, cfg *config.Config) (string, error) {
 	}
 	id := prefix + strconv.Itoa(top+1)
 	if !cfg.TaskIDOK(id) {
-		return "", fmt.Errorf("no next task id after %s%d (task_id_pattern %s)", prefix, top, cfg.Data.TaskIDPattern)
+		return "", fmt.Errorf("no next task id after %s%d (task_id_pattern %s)", prefix, top, cfg.TaskIDPattern())
 	}
 	return id, nil
 }

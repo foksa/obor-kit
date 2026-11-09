@@ -50,6 +50,9 @@ type KindEntry struct {
 	Command     string   `json:"command,omitempty"`
 }
 
+// Kind is kinds.<name> (the zero entry when the config does not name it): its args and its work jobs' prompt extra.
+func (c *Config) Kind(name string) KindEntry { return c.Data.Kinds.M[name] }
+
 // KitKinds are the plugin kinds the kit ships, by name: the binary each runs as (T-1046), beside obor's own (KitKind).
 // A config naming no kinds.<name>.command for one runs the kit's: the compat of a config written before OpenCode left
 // the obor binary, which obor setup agents fills in and obor config validate warns about until v0.33.0 drops it.

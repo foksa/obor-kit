@@ -183,7 +183,7 @@ func reviewConfig(root string) (ReviewSetup, error) {
 func ReviewConfig(cfg *config.Config) (ReviewSetup, error) {
 	rc, _ := cfg.Role("reviewer")
 	s := ReviewSetup{Agent: rc.Agent, Worktree: cfg.RoleWorktree(rc.Role.Name), Root: cfg.Root,
-		Reviews: cfg.Paths().Reviews, Branch: cfg.Data.Branches.Main}
+		Reviews: cfg.Paths().Reviews, Branch: cfg.MainBranch()}
 	switch {
 	case !rc.Configured || rc.Agent == "":
 		return s, errors.New("no reviewer role (obor setup role reviewer)")

@@ -208,7 +208,7 @@ func load(input []byte, env project.Env) *guard {
 	g.broken = err
 	g.repo, g.top, g.root, g.cfg = repo, repo.Top, repo.Root, cfg
 	g.rules = denyRules(cfg)
-	g.protected = cfg.Data.ProtectedFiles
+	g.protected = cfg.ProtectedFiles()
 	g.detectRole()
 	return g
 }
