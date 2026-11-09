@@ -13,6 +13,7 @@ import (
 
 	"obor/internal/app/port"
 	"obor/internal/project"
+	"obor/internal/spec"
 )
 
 // Scratch is obor serve's merge gate over git (port.Scratch). It works in
@@ -372,36 +373,7 @@ func specBody(in port.GateInput) string {
 	if strings.TrimSpace(in.Spec) == "" {
 		return ""
 	}
-	return fmt.Sprintf("\n\nSpec rev %d:\n\n%s", in.SpecRev, strings.TrimRight(noModelLine(in.Spec), "\n"))
-}
-
-// noModelLine is text without its `Model:` line: the first non-blank line after the `Difficulty:` line, which is the
-// one obor reads models from (spec.Parse); a `Model:` anywhere else stays.
-func noModelLine(text string) string {
-	lines := strings.Split(text, "\n")
-	title := slices.IndexFunc(lines, func(l string) bool { return strings.HasPrefix(l, "# ") })
-	if title < 0 {
-		return text
-	}
-	difficulty := nextNonBlank(lines, title+1)
-	if difficulty < 0 || !strings.HasPrefix(lines[difficulty], "Difficulty:") {
-		return text
-	}
-	model := nextNonBlank(lines, difficulty+1)
-	if model < 0 || !strings.HasPrefix(lines[model], "Model:") {
-		return text
-	}
-	return strings.Join(slices.Delete(lines, model, model+1), "\n")
-}
-
-// nextNonBlank is the index of the first non-blank line at or after from (-1: none).
-func nextNonBlank(lines []string, from int) int {
-	for i := from; i < len(lines); i++ {
-		if strings.TrimSpace(lines[i]) != "" {
-			return i
-		}
-	}
-	return -1
+	return fmt.Sprintf("\n\nSpec rev %d:\n\n%s", in.SpecRev, strings.TrimRight(spec.WithoutModelLine(in.Spec), "\n"))
 }
 
 // mergeMessage is every merge's message, the gate's own and the integrator's resolved one alike (T-802). Subject:

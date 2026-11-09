@@ -269,6 +269,23 @@ func models(text string) []string {
 	return out
 }
 
+// WithoutModelLine is text without its `Model:` line, the metadata line just under `Difficulty:` that models reads: the
+// stored spec a merge message carries drops it, so no model names reach commits (T-1112, T-1133). A `Model:` line
+// anywhere else stays, and text with no such line is returned unchanged.
+func WithoutModelLine(text string) string {
+	rest, _, found := difficultyLine(text)
+	if !found {
+		return text
+	}
+	at := slices.IndexFunc(rest, func(l string) bool { return strings.TrimSpace(l) != "" })
+	if at < 0 || !strings.HasPrefix(rest[at], "Model:") {
+		return text
+	}
+	lines := strings.Split(text, "\n")
+	at += len(lines) - len(rest) // its index in lines (rest is the tail of lines)
+	return strings.Join(slices.Delete(lines, at, at+1), "\n")
+}
+
 // oldTypeLine: the first non-blank line after the spec's `Difficulty:` line is the `Type:` line before T-765 (now
 // `Model:`): obor spec set refuses it, so it is not silently ignored.
 func oldTypeLine(text string) bool {

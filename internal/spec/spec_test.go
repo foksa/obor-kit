@@ -146,6 +146,31 @@ func TestParse(t *testing.T) {
 	}
 }
 
+// T-1133: the one function that strips the metadata line under Difficulty: the first non-blank line after it (the one
+// Parse's models reads); a `Model:` anywhere else stays.
+func TestWithoutModelLine(t *testing.T) {
+	for _, c := range []struct{ name, text, want string }{
+		{"model line", "# T-1 — A\n\nDifficulty: simple\nModel: opus:high, haiku\n\n## Do\nfeature.txt\n",
+			"# T-1 — A\n\nDifficulty: simple\n\n## Do\nfeature.txt\n"},
+		{"blanks before it", "# T-1 — A\n\nDifficulty: simple\n\n\nModel: opus\n",
+			"# T-1 — A\n\nDifficulty: simple\n\n\n"},
+		{"empty value", "# T-1 — A\n\nDifficulty: simple\nModel:\n", "# T-1 — A\n\nDifficulty: simple\n"},
+		{"no model line", "# T-1 — A\n\nDifficulty: simple\n\n## Do\n", "# T-1 — A\n\nDifficulty: simple\n\n## Do\n"},
+		{"not the next line", "# T-1 — A\n\nDifficulty: simple\nwhy\nModel: opus\n",
+			"# T-1 — A\n\nDifficulty: simple\nwhy\nModel: opus\n"},
+		{"below a section", "# T-1 — A\n\nDifficulty: simple\n\n## Do\nModel: opus\n",
+			"# T-1 — A\n\nDifficulty: simple\n\n## Do\nModel: opus\n"},
+		{"no title", "Difficulty: simple\nModel: opus\n", "Difficulty: simple\nModel: opus\n"},
+		{"no difficulty", "# T-1 — A\n\nModel: opus\n", "# T-1 — A\n\nModel: opus\n"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := WithoutModelLine(c.text); got != c.want {
+				t.Errorf("WithoutModelLine(%q) = %q, want %q", c.text, got, c.want)
+			}
+		})
+	}
+}
+
 // T-1022, T-1030: obor spec set's refusals are one function over the parsed spec: no title, no known Difficulty level,
 // the old Type: line, a Review: value but "on merge", a fix with Review: on merge, an empty Ref:, a Priority: value
 // but high.
