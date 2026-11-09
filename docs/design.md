@@ -526,7 +526,9 @@ proves the skipped code can't depend on the changed code (e.g. an import-directi
 ## Check tiers (v2.6, 2026-10-08 — user decision via axis-alies)
 Long property gates and soak runs stay out of per-task merge checks: fixing what they find later is cheaper than
 waiting on every merge.
-- `commands.check` is the full suite; a class's `checks` (v2.5) are its per-merge tier. `commands.check_milestone` is
+- `commands.check` is the merge check: what every merge must pass, kept to a few minutes at a lane's CPU budget
+  (an adopter without classes runs it in every lane; what is slower goes in `check_milestone`). A project with
+  classes (obor-kit) runs it only on a full lane and at night; a class's `checks` (v2.5) are its per-merge tier. `commands.check_milestone` is
   the long tier (property gates, soak; obor-kit: `make vulncheck`). `commands.gate` and `commands.baseline` get
   `"at": "milestone"` by default; `"at": "merge"` runs them on every full merge (opt-in).
 - A task's lane test runs only per-merge commands, as "Change-based merge checks" lists them. `check_milestone` never
