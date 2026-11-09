@@ -1,7 +1,9 @@
 package store
 
 import (
+	"compress/gzip"
 	"database/sql"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -235,9 +237,9 @@ func TestOpenPaths(t *testing.T) {
 	}
 }
 
-// TestBackupDailyKeepsSeven: one backup per day, a second the same day replaces it, and only the newest keep stay. A
-// backup is a readable copy: `VACUUM INTO` leaves the source alone and the copy opens read-only with its rows.
-func TestBackupDailyKeepsSeven(t *testing.T) {
+// TestBackupDailyGzip: a day's backup is one gzip'd file (a second the same day replaces it), and its gunzip'd copy
+// opens read-only with the source's rows. `VACUUM INTO` leaves the source alone.
+func TestBackupDailyGzip(t *testing.T) {
 	t.Parallel()
 	db, err := OpenRW(newPath(t))
 	if err != nil {
@@ -254,32 +256,15 @@ func TestBackupDailyKeepsSeven(t *testing.T) {
 	}
 	dir := filepath.Join(t.TempDir(), "backup")
 	day := time.Date(2026, 10, 1, 3, 0, 0, 0, time.UTC)
-	for i := range 9 {
-		path, err := BackupDaily(db, dir, day.AddDate(0, 0, i), 7)
-		if err != nil {
-			t.Fatalf("BackupDaily day %d: %v", i, err)
-		}
-		if want := filepath.Join(dir, day.AddDate(0, 0, i).Format("obor-2006-01-02.db")); path != want {
-			t.Errorf("path = %s, want %s", path, want)
-		}
-	}
-	if _, err := BackupDaily(db, dir, day.AddDate(0, 0, 8), 7); err != nil { // the same day again
-		t.Fatalf("BackupDaily again: %v", err)
-	}
-	entries, err := os.ReadDir(dir)
+	path, err := BackupDaily(db, dir, day)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("BackupDaily: %v", err)
 	}
-	var names []string
-	for _, e := range entries {
-		names = append(names, e.Name())
+	if want := filepath.Join(dir, day.Format("obor-2006-01-02.db.gz")); path != want {
+		t.Errorf("path = %s, want %s", path, want)
 	}
-	want := []string{"obor-2026-10-03.db", "obor-2026-10-04.db", "obor-2026-10-05.db", "obor-2026-10-06.db",
-		"obor-2026-10-07.db", "obor-2026-10-08.db", "obor-2026-10-09.db"}
-	if strings.Join(names, " ") != strings.Join(want, " ") {
-		t.Errorf("backups = %v, want the newest 7 %v", names, want)
-	}
-	ro, err := OpenRO(filepath.Join(dir, "obor-2026-10-09.db"))
+	copyPath := gunzip(t, path)
+	ro, err := OpenRO(copyPath)
 	if err != nil {
 		t.Fatalf("OpenRO(the copy): %v", err)
 	}
@@ -297,6 +282,48 @@ func TestBackupDailyKeepsSeven(t *testing.T) {
 	if err := db.QueryRow("SELECT count(*) FROM probe").Scan(&rows); err != nil || rows != 3 {
 		t.Errorf("source after backup: %d rows, %v; want 3", rows, err)
 	}
+	if _, err := BackupDaily(db, dir, day); err != nil { // the same day again
+		t.Fatalf("BackupDaily again: %v", err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != filepath.Base(path) {
+		var names []string
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		t.Errorf("backups = %v, want only %s", names, filepath.Base(path))
+	}
+}
+
+// gunzip writes path's gunzip'd bytes to a fresh file and returns its path.
+func gunzip(t *testing.T, path string) string {
+	t.Helper()
+	gz, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gz.Close()
+	zr, err := gzip.NewReader(gz)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer zr.Close()
+	dst := filepath.Join(t.TempDir(), "obor.db")
+	out, err := os.Create(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.Copy(out, zr); err != nil {
+		out.Close()
+		t.Fatal(err)
+	}
+	if err := out.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return dst
 }
 
 // TestOpenRWRefusalChangesNothing: a database OpenRW refuses (newer, older or non-numeric schema version) is left

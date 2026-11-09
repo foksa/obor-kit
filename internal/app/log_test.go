@@ -1,7 +1,9 @@
 package app
 
 import (
+	"compress/gzip"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -86,20 +88,13 @@ func TestBackup(t *testing.T) {
 	if _, err := l.Append(fact(t, "T-1", event.StepStalled, "idle"), logNow); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(wire.BackupDir(root), "obor-2026-10-27.db")
-	stopFailure := filepath.Join(root, ".obor", "state", "stop-failure.log")
-	if err := os.WriteFile(stopFailure, []byte("{\"at\":\"2026-10-12T02:59:59Z\",\"error\":\"old\"}\n{\"at\":\"2026-10-26T03:00:00Z\",\"error\":\"fresh\"}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	path := filepath.Join(wire.BackupDir(root), "obor-2026-10-27.db.gz")
 	reply, err := wire.Backup(ctx, sock, root, day)
 	if err != nil || reply != "BACKUP "+path {
 		t.Fatalf("direct backup = %q, %v; want BACKUP %s", reply, err, path)
 	}
 	if recs, err := event.ReadLog(backupRoot(t, path)); err != nil || len(recs) != 1 || recs[0].Task != "T-1" {
 		t.Errorf("the backup's log = %+v, %v; want T-1's record", recs, err)
-	}
-	if b, err := os.ReadFile(stopFailure); err != nil || string(b) != "{\"at\":\"2026-10-26T03:00:00Z\",\"error\":\"fresh\"}\n" {
-		t.Errorf("stop-failure log after daily backup = %q, %v; want only the fresh entry", b, err)
 	}
 
 	h := newHarness(t)
@@ -115,14 +110,14 @@ func TestBackup(t *testing.T) {
 		}
 	}
 	if reply,
-		err := h.a.backup(wire.BackupReq{Envelope: wire.Envelope{Root: h.root}}); err != nil || !strings.HasSuffix(reply, "obor-2026-10-24.db") {
+		err := h.a.backup(wire.BackupReq{Envelope: wire.Envelope{Root: h.root}}); err != nil || !strings.HasSuffix(reply, "obor-2026-10-24.db.gz") {
 		t.Fatalf("serve's backup = %q, %v", reply, err)
 	}
 	if rows, err := store.ReadPrompts(h.a.p.log.DB(), store.PromptQuery{Task: "T-1"}, 10); err != nil || len(rows) != 1 ||
 		rows[0].Text != "fresh" {
 		t.Errorf("prompts after the nightly backup: %+v, %v; want only the fresh one (14 days kept)", rows, err)
 	}
-	if recs, err := event.ReadLog(backupRoot(t, filepath.Join(wire.BackupDir(h.root), "obor-2026-10-24.db"))); err != nil || len(recs) == 0 {
+	if recs, err := event.ReadLog(backupRoot(t, filepath.Join(wire.BackupDir(h.root), "obor-2026-10-24.db.gz"))); err != nil || len(recs) == 0 {
 		t.Errorf("serve's backup log = %+v, %v; want its records", recs, err)
 	}
 	if _, err := h.a.backup(wire.BackupReq{Envelope: wire.Envelope{Root: logRoot(t)}}); err == nil {
@@ -130,11 +125,21 @@ func TestBackup(t *testing.T) {
 	}
 }
 
-// backupRoot is a project root whose database is a copy of the backup at path (ReadLog reads a root's).
+// backupRoot is a project root whose database is the gunzip'd backup at path (ReadLog reads a root's).
 func backupRoot(t *testing.T, path string) string {
 	t.Helper()
 	root := logRoot(t)
-	b, err := os.ReadFile(path)
+	gz, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gz.Close()
+	zr, err := gzip.NewReader(gz)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer zr.Close()
+	b, err := io.ReadAll(zr)
 	if err != nil {
 		t.Fatal(err)
 	}

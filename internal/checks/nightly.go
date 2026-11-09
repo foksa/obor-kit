@@ -17,7 +17,8 @@ import (
 // its own worktree (<merge.scratch_dir>-nightly, added when missing) reset to the head of the main checkout's current
 // branch: commands.lane_setup, then check and check_milestone, each skipped when unset. Non-blocking: every command
 // runs even after a failure (a failed lane_setup stops the rest).
-// It then backs up the project's database (wire.Backup) and runs merge.nightly_commands in order (T-817: each a
+// It then backs up the project's database (wire.Backup), sweeps .obor (project.Sweep, T-1085: each removal it could not
+// make is one detail line, never RED) and runs merge.nightly_commands in order (T-817: each a
 // commands.<name>, non-gating — one report line, never RED; a nonzero exit a WARN line). Writes
 // .obor/state/last-full-check
 // "<sha> <epoch> GREEN|RED <summary>" (LastFullCheck reads it for serve's nightly; obor status reads it too). A live nightly run of the project is waited for (max
@@ -93,6 +94,9 @@ func (s *session) nightly() *Result {
 	case reply != "":
 		results = append(results, "backup "+filepath.Base(strings.TrimPrefix(reply, "BACKUP ")))
 	}
+	// The nightly sweep (T-1085): after the backup, both the serve path and the direct one; a removal it could not
+	// make is a line, never a failure.
+	details = append(details, project.Sweep(s.Cfg, time.Now())...)
 	// merge.nightly_commands (T-817): after the gating checks and the backup, in order, each non-gating.
 	for _, name := range s.Cfg.Data.Merge.NightlyCommands {
 		o, ok, h := s.run(name)

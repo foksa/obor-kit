@@ -18,11 +18,10 @@ func (a *App) backup(c wire.BackupReq) (string, error) {
 		return "", fmt.Errorf("backup: %s is not loaded by this serve", root)
 	}
 	now := a.opt.Now()
-	path, err := store.BackupDaily(p.log.DB(), wire.BackupDir(root), now, wire.BackupKeep)
+	path, err := store.BackupDaily(p.log.DB(), wire.BackupDir(root), now)
 	if err != nil {
 		return "", err
 	}
 	a.prunePrompts(p, now)
-	wire.PruneStopFailure(root, now)
 	return "BACKUP " + path, nil
 }

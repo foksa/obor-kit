@@ -6,13 +6,14 @@
 package store
 
 import (
+	"compress/gzip"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -84,33 +85,53 @@ func Backup(db *sql.DB, path string) error {
 	return nil
 }
 
-// BackupDaily writes db's backup for day to dir/obor-<YYYY-MM-DD>.db (a backup of that day already there is
-// replaced) and removes all but the newest keep of them (obor nightly).
-func BackupDaily(db *sql.DB, dir string, day time.Time, keep int) (string, error) {
+// BackupDaily writes db's backup for day to dir/obor-<YYYY-MM-DD>.db.gz (gzip; a backup of that day already there is
+// replaced). It prunes nothing: project.Sweep keeps the newest days (obor nightly).
+func BackupDaily(db *sql.DB, dir string, day time.Time) (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
-	path := filepath.Join(dir, "obor-"+day.Format("2006-01-02")+".db")
-	tmp := path + ".tmp"
-	_ = os.Remove(tmp) // a backup that died midway: VACUUM INTO needs a new file
-	if err := Backup(db, tmp); err != nil {
+	path := filepath.Join(dir, "obor-"+day.Format("2006-01-02")+".db.gz")
+	raw, tmp := path+".raw", path+".tmp"
+	_ = os.Remove(raw) // a backup that died midway: VACUUM INTO needs a new file
+	_ = os.Remove(tmp)
+	if err := Backup(db, raw); err != nil {
+		os.Remove(raw)
+		return "", err
+	}
+	defer os.Remove(raw)
+	if err := gzipFile(raw, tmp); err != nil {
+		os.Remove(tmp)
 		return "", err
 	}
 	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
 		return "", err
-	}
-	old, err := filepath.Glob(filepath.Join(dir, "obor-????-??-??.db"))
-	if err != nil {
-		return "", err
-	}
-	sort.Strings(old) // by date: the name's only variable part
-	for len(old) > keep {
-		if err := os.Remove(old[0]); err != nil {
-			return "", err
-		}
-		old = old[1:]
 	}
 	return path, nil
+}
+
+// gzipFile writes src's bytes to dst, gzip'd (a daily backup's copy).
+func gzipFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	zw := gzip.NewWriter(out)
+	if _, err := io.Copy(zw, in); err != nil {
+		out.Close()
+		return err
+	}
+	if err := zw.Close(); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
 }
 
 // uriPath escapes what a file: URI's path cannot hold as is.

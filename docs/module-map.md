@@ -27,7 +27,9 @@ gate runs it. Adapters never import each other: one that needs another goes thro
   terminal's `HERDR_PANE_ID` for a pane obor did not start, else `ErrNoPane`; here, not in `herdr`, because adapters
   never import each other),
   the machine's list of obor projects by name (`projects.go`, T-646: `Register`, `Projects`, `RootOf`); a stopped
-  project (`stopped.go`, T-709, T-711: `Stopped`, `WriteStopMarker` (the pause stop replaced), `BeginStart`/`EndStart`, `Unregister`: obor stop / obor start).
+  project (`stopped.go`, T-709, T-711: `Stopped`, `WriteStopMarker` (the pause stop replaced), `BeginStart`/`EndStart`, `Unregister`: obor stop / obor start);
+  `sweep.go` (T-1085): the nightly sweep of `.obor` (old gzip backups, files of lanes and agents the config no longer
+  names, the retired state names and old drafts).
 - `config`: effective config. `config.Load(root) (*Config, error)` (every command's, serve's: an unknown key is ignored
   with a warning, T-1081); `LoadReader` (obor status, obor stop/start, web: the warning returned, T-709);
   `LoadForValidate` (obor config validate, the one strict place: a FAIL line per unknown key); `Validate` (removed keys
@@ -50,7 +52,8 @@ gate runs it. Adapters never import each other: one that needs another goes thro
   would run now), `Watch.Changed`, `Exec` (the shim, in place). Callers: serve, web.
 - `store`: the project's SQLite database (`.obor/state/obor.db`) and the rules of one writer: `store.OpenRW` for
   serve (WAL, `synchronous=FULL`, one connection, schema version in `meta`), `store.OpenRO` for hooks and CLIs
-  (read-only, short `busy_timeout`), `store.Backup`/`BackupDaily` (`VACUUM INTO`). Tables: `events` (T-435),
+  (read-only, short `busy_timeout`), `store.Backup`/`BackupDaily` (`VACUUM INTO`; a daily backup is gzip'd,
+  `obor-<YYYY-MM-DD>.db.gz`). Tables: `events` (T-435),
   `lanes` (T-439: each lane's dispatched task, serve's projection of the log; readers use `store.ReadLaneAt` /
   `ReadLanesAt`), `specs` (T-440: each task's spec and rev; `obor spec set` is a serve request, readers use
   `store.ReadSpecAt` / `ReadSpecsAt`; the gate puts the current rev into every merge's message, T-521), `prompts`
