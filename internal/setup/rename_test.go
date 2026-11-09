@@ -22,7 +22,7 @@ func renameProject(t *testing.T) *fx {
 	x.PlainLane("L-01", "task/T-1")
 	x.PlainLane("L-02", "task/T-2")
 	x.Config(testkit.Set("guards", `{"allow_push": ["lead", "integrator"]}`))
-	x.Write(".obor/local.json", `{"guards": {"allow_push": ["reviewer", "pj-lead"]}}`+"\n")
+	x.Write(".obor/local.json", `{"rules": {"may_push": ["reviewer", "pj-lead"]}}`+"\n") // shape 2, as config.json (T-1124)
 	x.Dispatched("L-01")
 	x.Dispatched("L-02")
 	agents := filepath.Join(x.Env().Get("OBOR_STATE_HOME"), "agents")
@@ -80,8 +80,8 @@ func TestRenameMapsConfigStoreFilesAndTerminal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Data.Name != "newp" || cfg.Data.Prefix != "ob" {
-		t.Errorf("name/prefix = %s/%s, want newp/ob", cfg.Data.Name, cfg.Data.Prefix)
+	if cfg.Data.Project.Name != "newp" || cfg.Data.Project.AgentPrefix != "ob" {
+		t.Errorf("name/prefix = %s/%s, want newp/ob", cfg.Data.Project.Name, cfg.Data.Project.AgentPrefix)
 	}
 	if got := cfg.AgentName("lead", ""); got != "ob-lead" {
 		t.Errorf("lead agent = %q, want ob-lead (the old lead name follows the new prefix)", got)
@@ -90,7 +90,7 @@ func TestRenameMapsConfigStoreFilesAndTerminal(t *testing.T) {
 		t.Errorf("integrator agent = %q, want ob-int", got)
 	}
 	// T-795: a derived name in allow_push becomes its role; the rest stays.
-	if got := strings.Join(cfg.Data.Guards.AllowPush, ","); got != "reviewer,lead" {
+	if got := strings.Join(cfg.Data.Rules.MayPush, ","); got != "reviewer,lead" {
 		t.Errorf("allow_push (local.json's) = %s, want reviewer,lead (pj-lead rewritten)", got)
 	}
 	if !strings.Contains(x.Read(".obor/config.json"), `"lead"`) || !strings.Contains(x.Read(".obor/config.json"), `"integrator"`) {
@@ -145,14 +145,14 @@ func TestRenameKeepsAllowPushWorking(t *testing.T) {
 				x.Config(testkit.Set("guards", `{"allow_push": `+entries+`}`))
 				x.Write(".obor/local.json", "{}\n")
 			} else {
-				x.Write(".obor/local.json", `{"guards": {"allow_push": `+entries+`}}`+"\n")
+				x.Write(".obor/local.json", `{"rules": {"may_push": `+entries+`}}`+"\n")
 			}
 			before, err := config.Load(x.Root)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if before.PushAllowed("lead") || before.PushAllowed("reviewer") {
-				t.Fatalf("precondition: the derived name allows no push, reviewer never: %v", before.Data.Guards.AllowPush)
+				t.Fatalf("precondition: the derived name allows no push, reviewer never: %v", before.Data.Rules.MayPush)
 			}
 			x.rename(t)
 			after, err := config.Load(x.Root)
@@ -161,9 +161,9 @@ func TestRenameKeepsAllowPushWorking(t *testing.T) {
 			}
 			if !after.PushAllowed("lead") || !after.PushAllowed("integrator") {
 				t.Errorf("after rename lead/integrator allowed = %v/%v, entries %v", after.PushAllowed("lead"),
-					after.PushAllowed("integrator"), after.Data.Guards.AllowPush)
+					after.PushAllowed("integrator"), after.Data.Rules.MayPush)
 			}
-			if got := strings.Join(after.Data.Guards.AllowPush, ","); got != "lead,integrator,bob,pj-nobody" {
+			if got := strings.Join(after.Data.Rules.MayPush, ","); got != "lead,integrator,bob,pj-nobody" {
 				t.Errorf("allow_push = %s, want lead,integrator,bob,pj-nobody (only pj-lead rewritten)", got)
 			}
 		})
@@ -301,7 +301,7 @@ func TestRenameRefusesWhileTheOldServeAgentIsInstalled(t *testing.T) {
 	if !strings.Contains(out, "OK 1 config: ") || !strings.Contains(out, "OK 5 finish") {
 		t.Errorf("not installed: want the rename to run:\n%s", out)
 	}
-	if cfg, err := config.Load(x.Root); err != nil || cfg.Data.Name != "newp" {
+	if cfg, err := config.Load(x.Root); err != nil || cfg.Data.Project.Name != "newp" {
 		t.Errorf("not installed: config name = %v, %v; want newp", cfg, err)
 	}
 }

@@ -24,15 +24,15 @@ func TestConfigValidateBinary(t *testing.T) {
 		{nil, 0, "OK\n"},
 		{[]func(map[string]any){testkit.Set("cache.warn_tokens", 50000)}, 1,
 			"FAIL .cache: unknown to this obor (retired, or newer than this binary): delete it (.obor/config.json)\n"},
-		{[]func(map[string]any){testkit.Set("version", 2), testkit.Set("commands.e2e", "bun run e2e")}, 1,
-			"WARN commands.e2e: obor no longer runs it at merge or nightly (v0.32); delete it, or name it in merge.classes checks or merge.nightly_commands\nFAIL .version: must be 1, got 2\n"},
+		{[]func(map[string]any){testkit.Set("version", 3), testkit.Set("commands.e2e", "bun run e2e")}, 1,
+			"WARN commands.e2e: obor no longer runs it at merge or nightly (v0.32); delete it, or name it in a merge.by_path.rules run or nightly.also_run\nFAIL .version: must be 2, got 3\n"},
 		// T-966: merge.receipt_max_age went with the test receipts in v0.29; past its two minors it is an unknown key,
 		// a FAIL line naming it (T-1081).
 		{[]func(map[string]any){testkit.Set("merge.receipt_max_age", 60)}, 1,
 			"FAIL .merge.receipt_max_age: unknown to this obor (retired, or newer than this binary): delete it (.obor/config.json)\n"},
 		// T-428: serve dispatches and merges nothing without roles.integrator, so validate FAILs.
 		{[]func(map[string]any){func(c map[string]any) { delete(c, "roles") }}, 1,
-			"FAIL .roles.integrator: required: serve dispatches and merges nothing without an integrator\n"},
+			"FAIL .agents.roles.integrator: required: serve dispatches and merges nothing without an integrator\n"},
 	} {
 		// The fixture carries the integrator serve needs (T-428); these cases are about the other lines.
 		p.Config(append([]func(map[string]any){testkit.Set("roles.integrator", "")}, c.edits...)...)
@@ -131,7 +131,7 @@ func TestWhoamiCustomRole(t *testing.T) {
 		t.Errorf("row removed: %q, want no agent line", text)
 	}
 	if rc, out, _ := run(t, p.Root, nil, "config", "validate"); rc != 0 ||
-		!strings.Contains(out, "WARN .roles.ux_buddy: docs/agents/ux_buddy.md is a role doc but roles.ux_buddy is not set") {
+		!strings.Contains(out, "WARN .agents.roles.ux_buddy: docs/agents/ux_buddy.md is a role doc but agents.roles.ux_buddy is not set") {
 		t.Errorf("row removed: config validate exit %d, %q; want OK with the doc's WARN", rc, out)
 	}
 }

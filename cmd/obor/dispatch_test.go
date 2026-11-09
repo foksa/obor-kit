@@ -66,7 +66,8 @@ func TestLaneCommands(t *testing.T) {
 // with one warning per key on stderr; obor config validate alone FAILs, naming each, and exits 1.
 func TestUnknownKeysStopNoCommand(t *testing.T) {
 	t.Parallel()
-	keys := []string{"branches.promote", "merge.promote_weight", "merge.weights", "merge.receipt_max_age", "dispatch"}
+	keys := []string{"branches", // the shape-1 branches left with promote alone (T-1124)
+		"merge.promote_weight", "merge.weights", "merge.receipt_max_age", "dispatch"}
 	p := servedProject(t, testkit.Set("branches.promote", "release"), testkit.Set("merge.promote_weight", 2),
 		testkit.Set("merge.weights", map[string]any{"core": 3}), testkit.Set("merge.receipt_max_age", 60),
 		testkit.Set("dispatch.serve", false))

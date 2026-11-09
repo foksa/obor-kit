@@ -1077,7 +1077,7 @@ func (r *loopRig) setConfig(path string, v any) {
 	if err := json.Unmarshal([]byte(r.p.Read(".obor/config.json")), &c); err != nil {
 		r.t.Fatal(err)
 	}
-	testkit.Set(path, v)(c)
+	testkit.SetShape2(path, v)(c) // the file is shape 2; path may be shape 1's (T-1124)
 	b, _ := json.Marshal(c)
 	r.p.Write(".obor/config.json", string(b)+"\n")
 }

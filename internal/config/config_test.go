@@ -46,10 +46,10 @@ func raw(c *Config, path string) (string, bool) {
 func TestDefaultsAndDerivedKeys(t *testing.T) {
 	c := load(t, `{"version":1,"prefix":"pj","models":{"cx":{"kind":"codex","model":"gpt-x"}}}`, "")
 	for path, want := range map[string]string{
-		".branches.main":   "main",
-		".branches.task":   "task/{id}",
-		".task_id_pattern": "T-[0-9]+[a-z]?",
-		".lanes_dir":       "../proj-wt",
+		".merge.target_branch":     "main",
+		".lanes.task_branch":       "task/{id}",
+		".project.task_id_pattern": "T-[0-9]+[a-z]?",
+		".lanes.dir":               "../proj-wt",
 	} {
 		if got, ok := raw(c, path); !ok || got != want {
 			t.Errorf("%s = %q (exists %v), want %q", path, got, ok, want)
@@ -58,10 +58,10 @@ func TestDefaultsAndDerivedKeys(t *testing.T) {
 	if want := filepath.Join(filepath.Dir(c.Root), "proj-wt", "merge"); c.ScratchDir() != want {
 		t.Errorf("ScratchDir = %s, want %s", c.ScratchDir(), want)
 	}
-	if _, ok := c.Get(".roles.leads"); ok {
-		t.Error(".roles.leads: no longer derived (T-467)")
+	if _, ok := c.Get(".agents.roles.leads"); ok {
+		t.Error(".agents.roles.leads: no longer derived (T-467)")
 	}
-	if _, ok := c.Get(".models.cx.settings"); ok {
+	if _, ok := c.Get(".agents.models.cx.settings"); ok {
 		t.Errorf("the Remote Control default is applied at launch, not in the config (T-280)")
 	}
 	if c.LanesDir() != filepath.Join(filepath.Dir(c.Root), "proj-wt") {
@@ -76,22 +76,22 @@ func TestLocalOverlay(t *testing.T) {
 		"merge":{"nightly_at":"03:00","classes":[{"name":"a","paths":["src/a/**"]}]}}`,
 		`{"merge":{"nightly_at":"02:00","classes":[{"name":"b","paths":["src/b/**"]}]},"lane_links":["X"],
 		"kinds":{"claude":{"args":["--y"]}},"lanes":2,"commands":{"check":{"heavy":true}},"lanes_dir":"/wt"}`)
-	if m := c.Data.Merge; m.NightlyAt != "02:00" {
-		t.Errorf("merge: objects merge key by key, got %+v", m)
+	if n := c.Data.Nightly; n.At != "02:00" {
+		t.Errorf("nightly: objects merge key by key, got %+v", n)
 	}
-	if !reflect.DeepEqual(c.Data.LaneLinks, []string{"X"}) {
-		t.Errorf("a list is replaced whole: %q", c.Data.LaneLinks)
+	if !reflect.DeepEqual(c.Data.Lanes.Links, []string{"X"}) {
+		t.Errorf("a list is replaced whole: %q", c.Data.Lanes.Links)
 	}
-	if k := c.Data.Kinds.M["claude"]; k.PromptExtra != "P" || !reflect.DeepEqual(k.Args, []string{"--y"}) {
+	if k := c.Data.Agents.Kinds.M["claude"]; k.JobNote != "P" || !reflect.DeepEqual(k.Args, []string{"--y"}) {
 		t.Errorf("a kind merges key by key, its args replaced whole: %+v", k)
 	}
-	if c.Data.Lanes.Count() != 2 || len(c.Lanes()) != 2 {
-		t.Errorf("local.json's lanes count replaces config.json's: %d", c.Data.Lanes.Count())
+	if c.LaneCount() != 2 || len(c.Lanes()) != 2 {
+		t.Errorf("local.json's lanes count replaces config.json's: %d", c.LaneCount())
 	}
 	if cmd, ok := c.Command("check"); !ok || cmd.Cmd != "make check" || cmd.Timeout != 90 || !cmd.Heavy {
 		t.Errorf("a command merges: %+v", cmd)
 	}
-	if got := c.Data.Merge.Classes; !reflect.DeepEqual(got, List[MergeClass]{{Name: "b", Paths: []string{"src/b/**"}}}) {
+	if got := c.Data.Merge.ByPath.Rules; !reflect.DeepEqual(got, List[PathRule]{{Name: "b", Paths: []string{"src/b/**"}}}) {
 		t.Errorf("a list of objects is replaced whole, no field of the old entry kept: %+v", got)
 	}
 	if c.LanesDir() != "/wt" || c.ScratchDir() != "/wt/merge" {
@@ -104,11 +104,12 @@ func TestLocalOverlay(t *testing.T) {
 func TestUnknownKeyFails(t *testing.T) {
 	for _, c := range []struct{ cfg, key string }{
 		{`{"prefix":"pj","typo_key":1}`, "typo_key"},
-		{`{"prefix":"pj","roles":{"mystery":{"model":"opus","writes":[]}}}`, "roles.mystery.writes"},
-		{`{"prefix":"pj","models":{"m":{"kind":"claude","modle":"x"}}}`, "models.m.modle"},
+		{`{"prefix":"pj","roles":{"mystery":{"model":"opus","writes":[]}}}`, "agents.roles.mystery.writes"},
+		{`{"prefix":"pj","models":{"m":{"kind":"claude","modle":"x"}}}`, "agents.models.m.modle"},
 		{`{"prefix":"pj","commands":{"c":{"cmd":"x","tmeout":5}}}`, "commands.c.tmeout"},
-		{`{"prefix":"pj","kinds":{"claude":{"argz":[]}}}`, "kinds.claude.argz"},
-		{`{"prefix":"pj","merge":{"trailer":"Co-Authored-By: x"}}`, "merge.trailer"}, // removed (T-1103)
+		{`{"prefix":"pj","kinds":{"claude":{"argz":[]}}}`, "agents.kinds.claude.argz"},
+		// removed (T-1103): shape 1's reshape drops it, a shape-2 file still names it
+		{`{"version":2,"project":{"agent_prefix":"pj"},"merge":{"trailer":"Co-Authored-By: x"}}`, "merge.trailer"},
 	} {
 		root := writeProject(t, c.cfg, "")
 		want := []string{"FAIL ." + c.key + ": unknown to this obor (retired, or newer than this binary): delete it (.obor/config.json)"}
@@ -119,8 +120,9 @@ func TestUnknownKeyFails(t *testing.T) {
 			t.Errorf("%s: Load %v, want the key ignored", c.cfg, err)
 		}
 	}
+	// shape 1: the reshape keeps a group it moves nothing out of where it is, so the group is the unknown key
 	_, fails, err := LoadForValidate(writeProject(t, `{"prefix":"pj"}`, `{"slots":{"maxx":1}}`))
-	if err != nil || len(fails) != 1 || !strings.HasPrefix(fails[0], "FAIL .slots.maxx: ") || !strings.HasSuffix(fails[0], "(.obor/local.json)") {
+	if err != nil || len(fails) != 1 || !strings.HasPrefix(fails[0], "FAIL .slots: ") || !strings.HasSuffix(fails[0], "(.obor/local.json)") {
 		t.Errorf("local.json unknown key: %q, %v", fails, err)
 	}
 	// A key the shape still types: a wrong type fails, as a removed key (an `any`) no longer does (T-864).
@@ -152,7 +154,7 @@ func TestOrderedMapsKeepOrder(t *testing.T) {
 		`{"models":{"b":{"kind":"codex","model":"b1"},"z":{"kind":"codex","model":"z2"}}}`)
 	for _, k := range []struct {
 		got, want []string
-	}{{c.Data.Models.Keys, []string{"z", "a", "b"}}, {c.Data.Kinds.Keys, []string{"opencode", "claude"}},
+	}{{c.Data.Agents.Models.Keys, []string{"z", "a", "b"}}, {c.Data.Agents.Kinds.Keys, []string{"opencode", "claude"}},
 		{c.Data.Commands.Keys, []string{"zz", "aa", "mm"}}} {
 		if !reflect.DeepEqual(k.got, k.want) {
 			t.Errorf("keys = %q, want %q (a known key keeps its place, a new one is appended)", k.got, k.want)
@@ -176,20 +178,20 @@ func TestGet(t *testing.T) {
 		path, want string
 		ok         bool
 	}{
-		{".prefix", "pj", true},
-		{".lanes", "2", true},
-		{".roles.integrator", "opus:high", true},
-		{".handoff_tokens", "0", true},
-		{".roles.leads", "", false},
+		{".project.agent_prefix", "pj", true},
+		{".lanes.count", "2", true},
+		{".agents.roles.integrator", "opus:high", true},
+		{".agents.handoff_tokens", "0", true},
+		{".agents.roles.leads", "", false},
 		{".nope", "", false},
-		{".prefix.x", "", false},
-		{".merge.nightly_at", "", false},
+		{".project.agent_prefix.x", "", false},
+		{".nightly.at", "", false},
 	} {
 		if got, ok := raw(c, tc.path); got != tc.want || ok != tc.ok {
 			t.Errorf("get %s = %q, %v; want %q, %v", tc.path, got, ok, tc.want, tc.ok)
 		}
 	}
-	if all, ok := c.Raw("."); !ok || !strings.HasPrefix(all, "{\n  \"version\"") && !strings.HasPrefix(all, "{\n  \"prefix\"") {
+	if all, ok := c.Raw("."); !ok || !strings.HasPrefix(all, "{\n  \"project\"") {
 		t.Errorf("get . = %.40q", all)
 	}
 }
@@ -201,8 +203,8 @@ func TestDefaults(t *testing.T) {
 		get       func(*Config) any
 		def, val  any
 	}{
-		{"merge.nightly_commands", `"merge":{"nightly_commands":["trim"]}`, func(c *Config) any { return len(c.Data.Merge.NightlyCommands) }, 0, 1},
-		{"paths.agents", `"paths":{"agents":"doc/roles"}`, func(c *Config) any { return c.Data.Paths["agents"] }, "docs/agents", "doc/roles"},
+		{"nightly.also_run", `"merge":{"nightly_commands":["trim"]}`, func(c *Config) any { return len(c.Data.Nightly.AlsoRun) }, 0, 1},
+		{"agents.docs_dir", `"paths":{"agents":"doc/roles"}`, func(c *Config) any { return c.Data.Agents.DocsDir }, "docs/agents", "doc/roles"},
 	} {
 		if got := tc.get(load(t, `{"prefix":"pj"}`, "")); got != tc.def {
 			t.Errorf("%s unset = %v, want the default %v", tc.name, got, tc.def)
@@ -229,8 +231,8 @@ func TestRolesAndAgentNames(t *testing.T) {
 	if got, _ := c.Role("deep_dive"); got.Type != "sonnet" || got.Effort != "high" {
 		t.Errorf("deep_dive = %+v: a role ref names its model and effort", got)
 	}
-	if got := c.Paths(); got.Reviews != "" || got.Get("tasks") != "" || got.Get("queue") != "" {
-		t.Errorf("Paths = %+v", got)
+	if got := c.ReviewsDirSet(); got != "" {
+		t.Errorf("ReviewsDirSet = %q, want none set", got)
 	}
 }
 
@@ -310,33 +312,36 @@ func TestLaunchArgs(t *testing.T) {
 // Lookup (obor config get) knows the unset fields of existing collection members, not invented members or Go names.
 func TestLookupCollectionDefaults(t *testing.T) {
 	t.Parallel()
-	c := load(t, `{"prefix":"pj","commands":{"check":{"cmd":"true"}},"models":{"m":{"kind":"claude","model":"x"}},
-		"kinds":{"claude":{"args":["--a"]}},"lanes":1,
-		"merge":{"classes":[{"name":"go","paths":["**/*.go"]}]}}`, "")
+	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"},"commands":{"lint":{"cmd":"true"}},
+		"merge":{"check":"make check","by_path":{"rules":[{"name":"go","paths":["**/*.go"]}]}},
+		"agents":{"models":{"m":{"kind":"claude","id":"x"}},"kinds":{"claude":{"args":["--a"]}}},"lanes":{"count":1}}`, "")
 	for _, tc := range []struct {
 		path, want string
 		known      bool
 	}{
 		{".merge.trailer", "", false}, // removed (T-1103): no field, so no such key
 		{".mcp.jobs", "", false},      // removed (T-830): no field, so no such key
-		{".commands.check.heavy", "false", true},
-		{`.commands["check"].heavy`, "false", true},
-		{".commands.check.cmd", `"true"`, true},
-		{".kinds.claude.prompt_extra", `""`, true},
-		{`.kinds["claude"].prompt_extra`, `""`, true},
-		{".models.m.kind", `"claude"`, true},
-		{".merge.classes[0].full", "false", true},
-		{".merge.classes.0.full", "false", true},
-		{".merge.classes[0].with_full", "false", true},
+		{".commands.lint.heavy", "false", true},
+		{`.commands["lint"].heavy`, "false", true},
+		{".commands.lint.cmd", `"true"`, true},
+		{".merge.check.heavy", "false", true}, // a fixed command given as a string
+		{".merge.check.cmd", `"make check"`, true},
+		{".merge.compile.cmd", `""`, true},
+		{".agents.kinds.claude.job_note", `""`, true},
+		{`.agents.kinds["claude"].job_note`, `""`, true},
+		{".agents.models.m.kind", `"claude"`, true},
+		{".merge.by_path.rules[0].full", "false", true},
+		{".merge.by_path.rules.0.full", "false", true},
+		{".merge.by_path.rules[0].also_on_full", "false", true},
 		{".commands.nope.heavy", "", false},
-		{".commands.check.nope", "", false},
-		{".kinds.codex.args", "", false},
-		{".models.nope.kind", "", false},
-		{".merge.classes[1].full", "", false},
-		{".merge.classes[-1].full", "", false},
+		{".commands.lint.nope", "", false},
+		{".agents.kinds.codex.args", "", false},
+		{".agents.models.nope.kind", "", false},
+		{".merge.by_path.rules[1].full", "", false},
+		{".merge.by_path.rules[-1].full", "", false},
 		{".commands.Keys", "", false},
-		{".models.M", "", false},
-		{".prefix.x", "", false},
+		{".agents.models.M", "", false},
+		{".project.agent_prefix.x", "", false},
 	} {
 		v, ok := c.Lookup(tc.path)
 		if ok != tc.known || (ok && string(v) != tc.want) {
@@ -345,7 +350,7 @@ func TestLookupCollectionDefaults(t *testing.T) {
 	}
 }
 
-// TaskIDOK and TaskFromBranch (T-470: from package lanes) follow task_id_pattern and branches.task; TaskBranch is
+// TaskIDOK and TaskFromBranch (T-470: from package lanes) follow project.task_id_pattern and lanes.task_branch; TaskBranch is
 // TaskFromBranch's inverse (T-896).
 func TestTaskFromBranch(t *testing.T) {
 	c := load(t, `{"prefix":"pj","task_id_pattern":"TK[0-9]+","branches":{"task":"wip/{id}-lane"}}`, "")
@@ -417,9 +422,9 @@ func TestLaneEnvValidate(t *testing.T) {
 		{name: "the template", env: `{"GOMAXPROCS": "{cpus}", "GOFLAGS": "-p={cpus} -trimpath"}`},
 		{name: "no placeholder", env: `{"CGO_ENABLED": "0"}`},
 		{name: "an unknown placeholder", env: `{"GOFLAGS": "-p={tests}"}`,
-			fails: []string{`FAIL .slots.lane_env.GOFLAGS: unknown placeholder {tests}: the one placeholder is {cpus} (slots.lane_cpus)`}},
+			fails: []string{`FAIL .lanes.env.GOFLAGS: unknown placeholder {tests}: the one placeholder is {cpus} (lanes.cpus)`}},
 		{name: "a name that is no env name", env: `{"GO FLAGS": "-p={cpus}"}`,
-			fails: []string{`FAIL .slots.lane_env["GO FLAGS"]: is no env name: letters, digits and _ only, not starting with a digit, got "GO FLAGS"`}},
+			fails: []string{`FAIL .lanes.env["GO FLAGS"]: is no env name: letters, digits and _ only, not starting with a digit, got "GO FLAGS"`}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -427,7 +432,7 @@ func TestLaneEnvValidate(t *testing.T) {
 			_, all := cfg.Validate(ValidateOptions{})
 			var fails []string
 			for _, f := range all {
-				if strings.HasPrefix(f, "FAIL .slots.lane_env") {
+				if strings.HasPrefix(f, "FAIL .lanes.env") {
 					fails = append(fails, f)
 				}
 			}
@@ -439,8 +444,9 @@ func TestLaneEnvValidate(t *testing.T) {
 }
 
 // T-1031: lanes is a count (sugar for that many fresh lanes) or a list of {name, keep_agent}; obor config validate
-// refuses a list with a repeated name or a name not of the L-NN shape, and a list member with an unknown key does not
-// load. The form the file has is the one written back.
+// refuses a list with a repeated name or a name not of the L-NN shape; a list member's unknown key is dropped as any
+// unknown key is (T-1081). The form the file has is the one written back. The cases are shape 1's lanes (a count or a
+// list): the reshape puts them in lanes.count and lanes.list.
 func TestLanesCountOrList(t *testing.T) {
 	type lane struct{ name, mode string }
 	for _, c := range []struct {
@@ -456,16 +462,16 @@ func TestLanesCountOrList(t *testing.T) {
 			want: []lane{{"L-02", LaneKeep}, {"L-05", LaneFresh}}},
 		{name: "duplicate names", lanes: `[{"name": "L-01", "keep_agent": true}, {"name": "L-01"}]`,
 			want:  []lane{{"L-01", LaneKeep}, {"L-01", LaneFresh}},
-			fails: []string{"FAIL .lanes[1].name: lane L-01 is listed twice"}},
+			fails: []string{"FAIL .lanes.list[1].name: lane L-01 is listed twice"}},
 		{name: "bad names", lanes: `[{"name": "l-01"}, {"name": "L-1"}, {"name": "L-00"}, {"name": ""}]`,
 			want: []lane{{"l-01", LaneFresh}, {"L-1", LaneFresh}, {"L-00", LaneFresh}, {"", LaneFresh}},
-			fails: []string{`FAIL .lanes[0].name: must be a lane name L-NN (L-01, L-02 …), got "l-01"`,
-				`FAIL .lanes[1].name: must be a lane name L-NN (L-01, L-02 …), got "L-1"`,
-				`FAIL .lanes[2].name: must be a lane name L-NN (L-01, L-02 …), got "L-00"`,
-				`FAIL .lanes[3].name: must be a lane name L-NN (L-01, L-02 …), got ""`}},
-		{name: "a negative count", lanes: `-1`, fails: []string{"FAIL .lanes: must be a non-negative integer (how many lanes), got -1"}},
-		{name: "an unknown member key", lanes: `[{"name": "L-01", "keep": true}]`, loadErr: `unknown field "keep"`},
-		{name: "neither a count nor a list", lanes: `"two"`, loadErr: "lanes takes a count or a list"},
+			fails: []string{`FAIL .lanes.list[0].name: must be a lane name L-NN (L-01, L-02 …), got "l-01"`,
+				`FAIL .lanes.list[1].name: must be a lane name L-NN (L-01, L-02 …), got "L-1"`,
+				`FAIL .lanes.list[2].name: must be a lane name L-NN (L-01, L-02 …), got "L-00"`,
+				`FAIL .lanes.list[3].name: must be a lane name L-NN (L-01, L-02 …), got ""`}},
+		{name: "a negative count", lanes: `-1`, fails: []string{"FAIL .lanes.count: must be a non-negative integer (how many lanes), got -1"}},
+		{name: "an unknown member key: dropped", lanes: `[{"name": "L-01", "keep": true}]`, want: []lane{{"L-01", LaneFresh}}},
+		{name: "neither a count nor a list", lanes: `"two"`, loadErr: "lanes.count"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -500,8 +506,12 @@ func TestLanesCountOrList(t *testing.T) {
 				t.Errorf("validate %q, want %q", fails, c.fails)
 			}
 			// the form the file has is written back (Compact: obor config get, a config edit's old value)
-			if got, want := Compact(cfg.Data.Lanes), strings.ReplaceAll(c.lanes, " ", ""); got != want {
-				t.Errorf("written back as %s, want %s", got, want)
+			written := Compact(cfg.Data.Lanes.Count)
+			if cfg.LanesListed() {
+				written = Compact(cfg.Data.Lanes.List)
+			}
+			if want := strings.ReplaceAll(c.lanes, " ", ""); written != want && c.name != "an unknown member key: dropped" {
+				t.Errorf("written back as %s, want %s", written, want)
 			}
 		})
 	}

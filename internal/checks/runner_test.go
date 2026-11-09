@@ -56,7 +56,7 @@ func TestRunChecksMixedClass(t *testing.T) {
 			r, ran := commandCalls(t, o, x.Root)
 			r.prio = "worker"
 			defer r.releaseSlot()
-			r.class = Classify(o.Cfg.Data.Merge, strings.Fields(c.files), false)
+			r.class = Classify(o.Cfg.ByPath(), strings.Fields(c.files), false)
 			r.mode = r.class.Mode()
 			if !r.class.Partial || r.mode != c.mode {
 				t.Fatalf("precondition: class %s, want %s", r.mode, c.mode)
@@ -101,7 +101,7 @@ func TestRunChecksFullWithFull(t *testing.T) {
 			r, ran := commandCalls(t, o, x.Root)
 			r.prio = "worker"
 			defer r.releaseSlot()
-			r.class = Classify(o.Cfg.Data.Merge, strings.Fields(c.files), false)
+			r.class = Classify(o.Cfg.ByPath(), strings.Fields(c.files), false)
 			r.mode = r.class.Mode()
 			if r.class.Partial || r.mode != c.mode {
 				t.Fatalf("precondition: class %s, want %s", r.mode, c.mode)
@@ -144,7 +144,7 @@ func TestRunChecksForcedKeepsWithFull(t *testing.T) {
 			r, ran := commandCalls(t, o, x.Root)
 			r.prio = "worker"
 			defer r.releaseSlot()
-			r.class = Classify(o.Cfg.Data.Merge, strings.Fields(c.files), o.Env.Get("OBOR_FULL") == "1")
+			r.class = Classify(o.Cfg.ByPath(), strings.Fields(c.files), o.Env.Get("OBOR_FULL") == "1")
 			r.mode = r.class.Mode()
 			if r.class.Partial || r.mode != "full:forced" {
 				t.Fatalf("precondition: class %s, want full:forced", r.mode)

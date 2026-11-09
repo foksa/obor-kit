@@ -167,7 +167,7 @@ func TestFlakeLogNoRegex(t *testing.T) {
 	x := newFx(t, testkit.Set("merge.fail_grep", goFailGrep),
 		cmd("check", `echo "--- FAIL: TestAlpha (0.01s)"; echo "FAIL example.com/pkg 0.03s"; exit 1`))
 	cfg, err := config.Load(x.Root)
-	if err != nil || len(cfg.Data.Merge.FlakeRegex) != 0 { // precondition: no flake_regex
+	if err != nil || len(cfg.MergeFlakeRegex()) != 0 { // precondition: no flake_regex
 		t.Fatalf("precondition: flake_regex %v, %v; want none", cfg, err)
 	}
 	x.is(x.gate("L-01", "T-05", "red"), Red, `^RED check `)
@@ -192,7 +192,7 @@ func newFlakeFx(t *testing.T) *flakeFx {
 	p.Git(p.Root, "add", "-A")
 	p.Git(p.Root, "commit", "-q", "-m", "fixture")
 	cfg := &config.Config{Root: p.Root}
-	cfg.Data.Branches.Main = "main"
+	cfg.Data.Merge.TargetBranch = "main"
 	return &flakeFx{Project: p, t: t, cfg: cfg}
 }
 

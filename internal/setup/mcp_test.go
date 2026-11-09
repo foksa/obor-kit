@@ -180,18 +180,20 @@ func TestSetupAgentsWritesTheKitKind(t *testing.T) {
 		t.Fatalf("precondition: no kinds in the config, no cache: %s", b)
 	}
 	out := x.ok(t, "agents")
-	has(t, out, "config kinds.opencode.command = obor-kind-opencode (uncommitted: the kit's binary)", "the line written")
+	has(t, out, "config agents.kinds.opencode.plugin = obor-kind-opencode (uncommitted: the kit's binary)", "the line written")
 	has(t, out, "OK agents opencode: manifest of ", "the kit kind's manifest cached")
 	var doc struct {
-		Kinds map[string]struct{ Command string } `json:"kinds"`
+		Agents struct {
+			Kinds map[string]struct{ Plugin string } `json:"kinds"`
+		} `json:"agents"`
 	}
-	if b, err := os.ReadFile(path); err != nil || json.Unmarshal(b, &doc) != nil || doc.Kinds["opencode"].Command != "obor-kind-opencode" {
+	if b, err := os.ReadFile(path); err != nil || json.Unmarshal(b, &doc) != nil || doc.Agents.Kinds["opencode"].Plugin != "obor-kind-opencode" {
 		t.Errorf("config after setup agents: %s, %v", b, err)
 	}
 	if b, err := os.ReadFile(cache); err != nil || !strings.Contains(string(b), `"name": "opencode"`) {
 		t.Errorf("cache %s: %s, %v", cache, b, err)
 	}
-	hasNot(t, x.ok(t, "agents"), "config kinds.opencode.command", "a config that names it is left alone")
+	hasNot(t, x.ok(t, "agents"), "config agents.kinds.opencode.plugin", "a config that names it is left alone")
 }
 
 // T-1081 (DD-v0.32 #1): on a config that still names keys this obor does not know (the promotion's, T-1076), obor
@@ -215,13 +217,15 @@ func TestSetupAgentsKeepsUnknownKeys(t *testing.T) {
 		t.Fatalf("precondition: no kinds in the config, no cache: %s", before)
 	}
 	out := x.ok(t, "agents")
-	has(t, out, "config kinds.opencode.command = obor-kind-opencode (uncommitted: the kit's binary)", "the line written")
+	has(t, out, "config agents.kinds.opencode.plugin = obor-kind-opencode (uncommitted: the kit's binary)", "the line written")
 	has(t, out, "OK agents opencode: manifest of ", "the kit kind's manifest cached")
 	after, err := os.ReadFile(path)
 	var doc struct {
-		Kinds map[string]struct{ Command string } `json:"kinds"`
+		Agents struct {
+			Kinds map[string]struct{ Plugin string } `json:"kinds"`
+		} `json:"agents"`
 	}
-	if err != nil || json.Unmarshal(after, &doc) != nil || doc.Kinds["opencode"].Command != "obor-kind-opencode" {
+	if err != nil || json.Unmarshal(after, &doc) != nil || doc.Agents.Kinds["opencode"].Plugin != "obor-kind-opencode" {
 		t.Errorf("config after setup agents: %s, %v", after, err)
 	}
 	for _, m := range members {

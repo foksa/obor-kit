@@ -183,14 +183,14 @@ func reviewConfig(root string) (ReviewSetup, error) {
 func ReviewConfig(cfg *config.Config) (ReviewSetup, error) {
 	rc, _ := cfg.Role("reviewer")
 	s := ReviewSetup{Agent: rc.Agent, Worktree: cfg.RoleWorktree(rc.Role.Name), Root: cfg.Root,
-		Reviews: cfg.Paths().Reviews, Branch: cfg.MainBranch()}
+		Reviews: cfg.ReviewsDirSet(), Branch: cfg.MainBranch()}
 	switch {
 	case !rc.Configured || rc.Agent == "":
 		return s, errors.New("no reviewer role (obor setup role reviewer)")
 	case s.Reviews == "":
-		return s, errors.New("no reviews dir (paths.reviews)")
+		return s, errors.New("no reviews dir (reviews.dir)")
 	case s.Branch == "":
-		return s, errors.New("no integration branch (branches.main)")
+		return s, errors.New("no integration branch (merge.target_branch)")
 	}
 	return s, nil
 }

@@ -17,28 +17,29 @@ func TestLoadUnknownPaths(t *testing.T) {
 	}{
 		{
 			name: "one unknown field (control)",
-			cfg:  `{"merge":{"future":1}}`,
+			cfg:  `{"version":2,"merge":{"future":1}}`,
 			warn: []string{"merge.future"},
 		},
 		{
 			// RV-41 probe: the same new name in two objects
 			name: "the same name in two nested objects",
-			cfg:  `{"merge":{"future":1},"slots":{"future":2}}`,
-			warn: []string{"merge.future", "slots.future"},
+			cfg:  `{"version":2,"merge":{"future":1},"checks":{"future":2}}`,
+			warn: []string{"merge.future", "checks.future"},
 		},
 		{
-			name: "the same name in two class-list entries",
-			cfg:  `{"merge":{"classes":[{"name":"a","paths":["x"],"future":1},{"name":"b","paths":["y"],"future":2}]}}`,
-			warn: []string{"merge.classes[0].future", "merge.classes[1].future"},
+			name: "the same name in two rule-list entries",
+			cfg: `{"version":2,"merge":{"by_path":{"rules":[{"name":"a","paths":["x"],"future":1},` +
+				`{"name":"b","paths":["y"],"future":2}]}}}`,
+			warn: []string{"merge.by_path.rules[0].future", "merge.by_path.rules[1].future"},
 			check: func(t *testing.T, c *Config) {
-				if cl := c.Data.Merge.Classes; len(cl) != 2 || cl[0].Name != "a" || cl[1].Paths[0] != "y" {
-					t.Errorf("classes = %+v, want both kept", cl)
+				if r := c.Data.Merge.ByPath.Rules; len(r) != 2 || r[0].Name != "a" || r[1].Paths[0] != "y" {
+					t.Errorf("rules = %+v, want both kept", r)
 				}
 			},
 		},
 		{
 			name: "the same name in two ordered commands",
-			cfg:  `{"commands":{"a":{"cmd":"x","future":1},"b":{"cmd":"y","future":2}}}`,
+			cfg:  `{"version":2,"commands":{"a":{"cmd":"x","future":1},"b":{"cmd":"y","future":2}}}`,
 			warn: []string{"commands.a.future", "commands.b.future"},
 			check: func(t *testing.T, c *Config) {
 				if _, ok := c.Command("b"); !ok || len(c.Data.Commands.Keys) != 2 {
@@ -49,7 +50,7 @@ func TestLoadUnknownPaths(t *testing.T) {
 		{
 			// T-1083: dir, paths and at went with baseline and gate; a command keeps its cmd, the field is an unknown key.
 			name: "a removed command field under a free command name",
-			cfg:  `{"commands":{"gate":{"cmd":"x","paths":["src/**"]}}}`,
+			cfg:  `{"version":2,"commands":{"gate":{"cmd":"x","paths":["src/**"]}}}`,
 			warn: []string{"commands.gate.paths"},
 			check: func(t *testing.T, c *Config) {
 				if cmd, ok := c.Command("gate"); !ok || cmd.Cmd != "x" {
@@ -59,33 +60,34 @@ func TestLoadUnknownPaths(t *testing.T) {
 		},
 		{
 			name: "the same name in two models",
-			cfg:  `{"models":{"x":{"kind":"claude","bar":1},"y":{"kind":"codex","bar":2}}}`,
-			warn: []string{"models.x.bar", "models.y.bar"},
+			cfg:  `{"version":2,"agents":{"models":{"x":{"kind":"claude","bar":1},"y":{"kind":"codex","bar":2}}}}`,
+			warn: []string{"agents.models.x.bar", "agents.models.y.bar"},
 		},
 		{
 			name: "an unknown member sharing a name with a known one elsewhere",
-			cfg:  `{"merge":{"guard":"g","future":{"guard":1}},"models":{"x":{"kind":"claude","model":"m3","merge":{"guard":2}}}}`,
-			warn: []string{"merge.future", "models.x.merge"},
+			cfg: `{"version":2,"merge":{"by_path":{"guard":"g"},"future":{"guard":1}},` +
+				`"agents":{"models":{"x":{"kind":"claude","id":"m3","by_path":{"guard":2}}}}}`,
+			warn: []string{"merge.future", "agents.models.x.by_path"},
 			check: func(t *testing.T, c *Config) {
-				if c.Data.Merge.Guard != "g" || c.Data.Models.M["x"].Model != "m3" {
-					t.Errorf("known members lost: merge.guard=%q model=%q", c.Data.Merge.Guard, c.Data.Models.M["x"].Model)
+				if c.MergeGuard() != "g" || c.Data.Agents.Models.M["x"].ID != "m3" {
+					t.Errorf("known members lost: merge.by_path.guard=%q id=%q", c.MergeGuard(), c.Data.Agents.Models.M["x"].ID)
 				}
 			},
 		},
 		{
 			name:  "the same name in config.json and local.json",
-			cfg:   `{"merge":{"future":1}}`,
-			local: `{"slots":{"future":2},"merge":{"guard":"g"}}`,
-			warn:  []string{"merge.future", "slots.future"},
+			cfg:   `{"version":2,"merge":{"future":1}}`,
+			local: `{"checks":{"future":2},"merge":{"by_path":{"guard":"g"}}}`,
+			warn:  []string{"merge.future", "checks.future"},
 			check: func(t *testing.T, c *Config) {
-				if c.Data.Merge.Guard != "g" {
-					t.Errorf("merge.guard = %q, want the overlay kept", c.Data.Merge.Guard)
+				if c.MergeGuard() != "g" {
+					t.Errorf("merge.by_path.guard = %q, want the overlay kept", c.MergeGuard())
 				}
 			},
 		},
 		{
 			name: "inside a map stays untouched",
-			cfg:  `{"paths":{"future":"x"},"merge":{"future":1}}`,
+			cfg:  `{"version":2,"lanes":{"env":{"future":"x"}},"merge":{"future":1}}`,
 			warn: []string{"merge.future"},
 		},
 	} {
@@ -131,7 +133,7 @@ func TestLoadUnknownPaths(t *testing.T) {
 // RV-153 #1 (T-1063): the no-op unknown-key warning names both causes: this binary is older than the config, or the
 // key was retired (merge.max_load is one of the nine v0.28 keys, so restarting serve fixes nothing).
 func TestWarnUnknownNamesBothCauses(t *testing.T) {
-	root := writeProject(t, `{"merge":{"max_load":10}}`, "")
+	root := writeProject(t, `{"version":2,"merge":{"max_load":10}}`, "")
 	var out bytes.Buffer
 	defer func(w interface{ Write([]byte) (int, error) }) { Warn = w }(Warn)
 	Warn = &out
@@ -152,11 +154,11 @@ func TestWarnUnknownNamesBothCauses(t *testing.T) {
 
 // TestLoadTypeErrors: a wrong type is still an error next to an unknown member.
 func TestLoadTypeErrors(t *testing.T) {
-	root := writeProject(t, `{"merge":{"future":1,"nightly_at":5},"slots":{"future":2}}`, "")
+	root := writeProject(t, `{"version":2,"merge":{"future":1},"nightly":{"at":5},"checks":{"future":2}}`, "")
 	var out bytes.Buffer
 	defer func(w interface{ Write([]byte) (int, error) }) { Warn = w }(Warn)
 	Warn = &out
-	if _, err := Load(root); err == nil || !strings.Contains(err.Error(), "nightly_at") {
-		t.Errorf("Load: %v, want the nightly_at type error", err)
+	if _, err := Load(root); err == nil || !strings.Contains(err.Error(), "nightly.at") {
+		t.Errorf("Load: %v, want the nightly.at type error", err)
 	}
 }

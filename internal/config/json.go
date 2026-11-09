@@ -9,8 +9,8 @@ import (
 	"strings"
 )
 
-// Ordered is a JSON object of V that keeps the config's key order: kinds, models, commands and agents are listed
-// in the order the config names them (merge keeps a known key's place and appends a new one).
+// Ordered is a JSON object of V that keeps the config's key order: kinds, models, commands and roles are listed in
+// the order the config names them (merge keeps a known key's place and appends a new one).
 type Ordered[V any] struct {
 	Keys []string
 	M    map[string]V
@@ -52,15 +52,13 @@ func (o *Ordered[V]) UnmarshalJSON(b []byte) error {
 func (o *Ordered[V]) name() string {
 	switch any(*new(V)).(type) {
 	case KindEntry:
-		return "kinds"
+		return "agents.kinds"
 	case ModelEntry:
-		return "models"
-	case Command:
-		return "commands"
+		return "agents.models"
 	case RoleEntry:
-		return "roles"
+		return "agents.roles"
 	}
-	return "agents"
+	return "commands"
 }
 
 func (o Ordered[V]) MarshalJSON() ([]byte, error) {

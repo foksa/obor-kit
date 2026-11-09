@@ -187,7 +187,7 @@ func setup(cfg *config.Config, lanes []port.Lane, v Project, db *sql.DB, rev str
 	}
 	for _, kind := range agents.Names() {
 		k := cfg.Kind(kind)
-		s.Kinds = append(s.Kinds, SetupKind{Name: kind, Args: append([]string{}, k.Args...), PromptExtra: k.PromptExtra != ""})
+		s.Kinds = append(s.Kinds, SetupKind{Name: kind, Args: append([]string{}, k.Args...), PromptExtra: k.JobNote != ""})
 	}
 	s.Paused = v.Paused
 	s.Distribution = distribution(db, now)

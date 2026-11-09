@@ -7,12 +7,15 @@ import (
 	"obor/internal/config"
 )
 
-// flakeOptions is an Options whose checks' failing lines are read as failGrep's matches and named by merge.flake_regex's
-// pair (T-1047).
+// flakeOptions is an Options whose checks' failing lines are read as failGrep's matches and named by
+// checks.output.failed_test and failed_package, the pair (T-1047).
 func flakeOptions(failGrep string, pair ...string) *Options {
 	cfg := &config.Config{}
-	cfg.Data.Merge.FailGrep = failGrep
-	cfg.Data.Merge.FlakeRegex = pair
+	o := &cfg.Data.Checks.Output
+	o.Failure = failGrep
+	if len(pair) == 2 {
+		o.FailedTest, o.FailedPackage = pair[0], pair[1]
+	}
 	return &Options{Cfg: cfg}
 }
 
@@ -97,7 +100,7 @@ func TestRetestCommand(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			cfg := &config.Config{}
-			cfg.Data.Merge.RetestJoin = c.join
+			cfg.Data.Merge.Retest.Join = c.join
 			r := runner{Options: &Options{Cfg: cfg}}
 			got := r.retestCommand(config.Command{Cmd: "make -s check-retest TESTS='^({tests})$'"}, c.tests)
 			if got.Cmd != c.want {

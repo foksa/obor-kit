@@ -13,17 +13,17 @@ import (
 
 // bash classify.test.sh's fixture: classes ui (checks), core (full), tools (checks), notes (no checks), guard
 // check_imports, default merge.neutral (docs/**).
-func classes(t *testing.T, edit string) config.Merge {
+func classes(t *testing.T, edit string) config.ByPath {
 	t.Helper()
-	m := config.Merge{Guard: "check_imports"}
-	text := `[{"name": "ui", "paths": ["src/ui/**", "e2e/**", "*.md"], "checks": ["check_ui"]},
+	m := config.ByPath{Guard: "check_imports"}
+	text := `[{"name": "ui", "paths": ["src/ui/**", "e2e/**", "*.md"], "run": ["check_ui"]},
 		{"name": "core", "paths": ["src/engine/**", "src/ai/**"], "full": true},
-		{"name": "tools", "paths": ["tools/**"], "checks": ["check_tools"]},
+		{"name": "tools", "paths": ["tools/**"], "run": ["check_tools"]},
 		{"name": "notes", "paths": ["notes/**"]}]`
 	if edit != "" {
 		text = edit
 	}
-	if err := json.Unmarshal([]byte(text), &m.Classes); err != nil {
+	if err := json.Unmarshal([]byte(text), &m.Rules); err != nil {
 		t.Fatal(err)
 	}
 	return m
@@ -31,11 +31,11 @@ func classes(t *testing.T, edit string) config.Merge {
 
 func TestClassify(t *testing.T) {
 	t.Parallel()
-	noMD := `[{"name": "ui", "paths": ["src/ui/**", "e2e/**"], "checks": ["check_ui"]},
-		{"name": "tools", "paths": ["tools/**"], "checks": ["check_tools"]}]`
+	noMD := `[{"name": "ui", "paths": ["src/ui/**", "e2e/**"], "run": ["check_ui"]},
+		{"name": "tools", "paths": ["tools/**"], "run": ["check_tools"]}]`
 	for _, c := range []struct {
 		classes string // "" the fixture's
-		edit    func(*config.Merge)
+		edit    func(*config.ByPath)
 		forced  bool
 		files   string
 		want    string
@@ -49,15 +49,15 @@ func TestClassify(t *testing.T) {
 		{"", nil, false, "src/ui/a.ts src/engine/e.ts", "full:full-class core (src/engine/e.ts)"},
 		{"", nil, false, "notes/x.txt", "full:full-class notes (notes/x.txt)"},
 		// bash case_no_guard, case_forced, case_no_changes
-		{"", func(m *config.Merge) { m.Guard = "" }, false, "src/ui/a.ts", "full:no-guard"},
+		{"", func(m *config.ByPath) { m.Guard = "" }, false, "src/ui/a.ts", "full:no-guard"},
 		{"", nil, true, "src/ui/a.ts", "full:forced"},
 		{"", nil, false, "", "full:no-changes"},
 		// bash case_first_match
-		{`[{"name": "first", "paths": ["src/**"], "checks": ["c1"]},
-			{"name": "ui", "paths": ["*.md"], "checks": ["check_ui"]}, {"name": "notes", "paths": ["notes/**"]}]`,
-			func(m *config.Merge) { m.Neutral = []string{} }, false, "src/ui/a.ts src/engine/e.ts", "partial:first"},
-		{`[{"name": "ui", "paths": ["*.md"], "checks": ["check_ui"]}, {"name": "notes", "paths": ["notes/**"]}]`,
-			func(m *config.Merge) { m.Neutral = []string{} }, false, "notes/a.md", "partial:ui"},
+		{`[{"name": "first", "paths": ["src/**"], "run": ["c1"]},
+			{"name": "ui", "paths": ["*.md"], "run": ["check_ui"]}, {"name": "notes", "paths": ["notes/**"]}]`,
+			func(m *config.ByPath) { m.NoCheck = []string{} }, false, "src/ui/a.ts src/engine/e.ts", "partial:first"},
+		{`[{"name": "ui", "paths": ["*.md"], "run": ["check_ui"]}, {"name": "notes", "paths": ["notes/**"]}]`,
+			func(m *config.ByPath) { m.NoCheck = []string{} }, false, "notes/a.md", "partial:ui"},
 		// bash case_neutral_with_class
 		{"", nil, false, "docs/a.md tools/x.sh", "partial:tools"},
 		{"", nil, false, "tools/x.sh docs/sub/b.txt docs/a.md", "partial:tools"},
@@ -69,18 +69,18 @@ func TestClassify(t *testing.T) {
 		// bash case_neutral_only, case_neutral_two_classes
 		{"", nil, false, "docs/a.md docs/b.txt docs/sub/c.md", "partial:neutral"},
 		{"", nil, true, "docs/a.md", "full:forced"},
-		{"", func(m *config.Merge) { m.Guard = "" }, false, "docs/a.md", "full:no-guard"},
+		{"", func(m *config.ByPath) { m.Guard = "" }, false, "docs/a.md", "full:no-guard"},
 		{"", nil, false, "docs/a.md src/ui/a.ts README.md tools/x.sh docs/b.md", "partial:ui+tools"},
 		{"", nil, false, "docs/a.md src/engine/e.ts", "full:full-class core (src/engine/e.ts)"},
 		{"", nil, false, "README.md package.json", "full:unmatched package.json"},
 		// bash case_neutral_custom
-		{"", func(m *config.Merge) { m.Neutral = []string{"tools/**"} }, false, "src/ui/a.ts tools/x.sh", "partial:ui"},
-		{"", func(m *config.Merge) { m.Neutral = []string{"tools/**"} }, false, "docs/x.txt", "full:unmatched docs/x.txt"},
-		{"", func(m *config.Merge) { m.Neutral = []string{"tools/**"} }, false, "tools/x.sh", "partial:neutral"},
-		{"", func(m *config.Merge) { m.Neutral = []string{} }, false, "docs/x.txt", "full:unmatched docs/x.txt"},
-		{"", func(m *config.Merge) { m.Neutral = []string{} }, false, "README.md tools/x.sh", "partial:ui+tools"},
+		{"", func(m *config.ByPath) { m.NoCheck = []string{"tools/**"} }, false, "src/ui/a.ts tools/x.sh", "partial:ui"},
+		{"", func(m *config.ByPath) { m.NoCheck = []string{"tools/**"} }, false, "docs/x.txt", "full:unmatched docs/x.txt"},
+		{"", func(m *config.ByPath) { m.NoCheck = []string{"tools/**"} }, false, "tools/x.sh", "partial:neutral"},
+		{"", func(m *config.ByPath) { m.NoCheck = []string{} }, false, "docs/x.txt", "full:unmatched docs/x.txt"},
+		{"", func(m *config.ByPath) { m.NoCheck = []string{} }, false, "README.md tools/x.sh", "partial:ui+tools"},
 		// bash case_neutral_class_name
-		{`[{"name": "neutral", "paths": ["n/**"], "checks": ["c"]}, {"name": "ui", "paths": ["src/ui/**"], "checks": ["u"]}]`,
+		{`[{"name": "neutral", "paths": ["n/**"], "run": ["c"]}, {"name": "ui", "paths": ["src/ui/**"], "run": ["u"]}]`,
 			nil, false, "n/a.sh", "full:full-class neutral (n/a.sh)"},
 		// bash case_rename_both_paths
 		{"", nil, false, "src/engine/a.ts src/ui/a.ts", "full:full-class core (src/engine/a.ts)"},
@@ -88,12 +88,12 @@ func TestClassify(t *testing.T) {
 		{"", nil, false, "src/ui/a.ts tools/a.sh", "partial:ui+tools"},
 		{"", nil, false, "src/ui/a.ts src/ui/b.ts", "partial:ui"},
 		// bash case_duplicate_names: entries are told apart by index
-		{`[{"name": "same", "paths": ["src/core/**"], "full": true}, {"name": "same", "paths": ["src/ui/**"], "checks": ["ui"]},
-			{"name": "same", "paths": ["lib/**"], "checks": ["lib"]}]`, nil, false, "src/ui/a.ts src/core/a.ts", "full:full-class same (src/core/a.ts)"},
-		{`[{"name": "same", "paths": ["src/core/**"], "full": true}, {"name": "same", "paths": ["src/ui/**"], "checks": ["ui"]},
-			{"name": "same", "paths": ["lib/**"], "checks": ["lib"]}]`, nil, false, "src/ui/a.ts src/ui/b.ts", "partial:same"},
-		{`[{"name": "same", "paths": ["src/core/**"], "full": true}, {"name": "same", "paths": ["src/ui/**"], "checks": ["ui"]},
-			{"name": "same", "paths": ["lib/**"], "checks": ["lib"]}]`, nil, false, "src/ui/a.ts lib/a.sh", "partial:same"},
+		{`[{"name": "same", "paths": ["src/core/**"], "full": true}, {"name": "same", "paths": ["src/ui/**"], "run": ["ui"]},
+			{"name": "same", "paths": ["lib/**"], "run": ["lib"]}]`, nil, false, "src/ui/a.ts src/core/a.ts", "full:full-class same (src/core/a.ts)"},
+		{`[{"name": "same", "paths": ["src/core/**"], "full": true}, {"name": "same", "paths": ["src/ui/**"], "run": ["ui"]},
+			{"name": "same", "paths": ["lib/**"], "run": ["lib"]}]`, nil, false, "src/ui/a.ts src/ui/b.ts", "partial:same"},
+		{`[{"name": "same", "paths": ["src/core/**"], "full": true}, {"name": "same", "paths": ["src/ui/**"], "run": ["ui"]},
+			{"name": "same", "paths": ["lib/**"], "run": ["lib"]}]`, nil, false, "src/ui/a.ts lib/a.sh", "partial:same"},
 	} {
 		m := classes(t, c.classes)
 		if c.edit != nil {
@@ -107,14 +107,14 @@ func TestClassify(t *testing.T) {
 	// class it matched (their with_full checks run) and a later unmatched file does not replace the reason.
 	for _, c := range []struct {
 		name   string
-		edit   func(*config.Merge)
+		edit   func(*config.ByPath)
 		forced bool
 		files  string
 		reason string
 		names  string
 	}{
 		{"forced", nil, true, "src/ui/a.ts tools/x.sh", "forced", "ui+tools"},
-		{"no-guard", func(m *config.Merge) { m.Guard = "" }, false, "src/ui/a.ts tools/x.sh", "no-guard", "ui+tools"},
+		{"no-guard", func(m *config.ByPath) { m.Guard = "" }, false, "src/ui/a.ts tools/x.sh", "no-guard", "ui+tools"},
 		{"forced keeps its reason beside an unmatched file", nil, true, "src/ui/a.ts package.json", "forced", "ui"},
 		{"forced with no files", nil, true, "", "forced", ""},
 		{"no-changes", nil, false, "", "no-changes", ""},
@@ -133,8 +133,8 @@ func TestClassify(t *testing.T) {
 	}
 
 	// a partial class's checks: exactly one entry of that name
-	m := classes(t, `[{"name": "same", "paths": ["a/**"], "checks": ["x"]}, {"name": "same", "paths": ["b/**"], "checks": ["y"]},
-		{"name": "one", "paths": ["c/**"], "checks": ["z", "w"]}, {"name": "empty", "paths": ["d/**"], "checks": [""]}]`)
+	m := classes(t, `[{"name": "same", "paths": ["a/**"], "run": ["x"]}, {"name": "same", "paths": ["b/**"], "run": ["y"]},
+		{"name": "one", "paths": ["c/**"], "run": ["z", "w"]}, {"name": "empty", "paths": ["d/**"], "run": [""]}]`)
 	for name, want := range map[string]string{"same": "", "one": "z w", "empty": "", "nope": ""} {
 		got, ok := classChecks(m, name)
 		if strings.Join(got, " ") != want || ok != (want != "") {
@@ -155,7 +155,7 @@ func TestCounts(t *testing.T) {
 		{`(ok|done) \(([0-9]+)\)|[0-9]+ skipped`, "ok (2)\ndone (3)\n4 skipped\n", "done (5), 4 skipped"},
 		{`Tests: +[0-9]+ passed`, "Tests:  4 passed\n", "Tests:  4 passed"},
 	} {
-		s := &session{Options: Options{Cfg: &config.Config{Data: config.Data{Merge: config.Merge{SummaryRegex: c.re}}}}}
+		s := &session{Options: Options{Cfg: &config.Config{Data: config.Data{Checks: config.Checks{Output: config.Output{Summary: c.re}}}}}}
 		if got := s.counts(output{text: c.out, rc: 5}); got != c.want {
 			t.Errorf("counts(%q, %q) = %q, want %q", c.re, c.out, got, c.want)
 		}
@@ -176,7 +176,7 @@ func TestOborKitConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := cfg.Data.Merge
+	m := cfg.ByPath()
 	if got := Classify(m, []string{"docs/tasks/T-75.md", "CLAUDE.md", "AGENTS.md", "BACKLOG.md"}, false).Mode(); got != "partial:neutral" {
 		t.Errorf("docs-only merge: %s", got)
 	}

@@ -23,7 +23,8 @@ import (
 //	kinds.<kind>.args    the args appended to every start of a kind
 //	merge.nightly_at     the nightly's switch: a local time "HH:MM" (on, every night then) or null (off)
 //
-// Any other key stays obor setup's or a hand edit's.
+// Any other key stays obor setup's or a hand edit's. The keys keep shape 1's names until config_set's own rename
+// (T-1126); the members they write are shape 2's (editPath).
 //
 // A key .obor/local.json overrides (the key itself, a member of it, or an ancestor local.json replaces) is refused:
 // writing it to config.json would report success and change nothing that runs (T-754).
@@ -86,19 +87,32 @@ func (c *Config) editLevel(doc []byte, level string, val json.RawMessage) (Chang
 		}
 	}
 	old := Compact(c.DifficultyList(level))
-	return c.change("difficulty."+level, doc, []string{"difficulty", level}, refs, old, Compact(refs))
+	return c.change("difficulty."+level, doc, []string{"agents", "difficulty", level}, refs, old, Compact(refs))
 }
 
-// editLanes sets the lanes count (a whole number, 0 or more; it replaces a list, T-1031): the lanes it no longer has
-// are in Change.Dropped.
+// editLanes sets lanes.count (a whole number, 0 or more; it replaces lanes.list, T-1031): the lanes it no longer
+// has are in Change.Dropped.
 func (c *Config) editLanes(doc []byte, val json.RawMessage) (Change, error) {
 	var n int
 	if err := json.Unmarshal(val, &n); err != nil || n < 0 {
 		return Change{}, fmt.Errorf("lanes takes a whole number (L-01 … L-NN)")
 	}
-	ch, err := c.change("lanes", doc, []string{"lanes"}, n, Compact(c.Data.Lanes), Compact(n))
-	kept := LaneList{N: n}.Entries()
-	for _, e := range c.Data.Lanes.Entries() {
+	if at := c.localShadow([]string{"lanes", "list"}); at != "" { // a list wins over the count
+		return Change{}, localRefusal("lanes", at)
+	}
+	old := Compact(c.Data.Lanes.Count)
+	if c.Data.Lanes.List != nil {
+		old = Compact(c.Data.Lanes.List)
+	}
+	if ShapeOf(doc) >= ShapeVersion { // in shape 1, lanes is the count or the list itself
+		var err error
+		if doc, err = EditJSON(doc, []string{"lanes", "list"}, nil); err != nil {
+			return Change{}, err
+		}
+	}
+	ch, err := c.change("lanes", doc, []string{"lanes", "count"}, n, old, Compact(n))
+	kept := Lanes{Count: n}.entries()
+	for _, e := range c.Data.Lanes.entries() {
 		if !slices.ContainsFunc(kept, func(k LaneEntry) bool { return k.Name == e.Name }) {
 			ch.Dropped = append(ch.Dropped, e.Name)
 		}
@@ -106,7 +120,7 @@ func (c *Config) editLanes(doc []byte, val json.RawMessage) (Change, error) {
 	return ch, err
 }
 
-// editNightlyAt switches the nightly (T-781): a local time "HH:MM" sets merge.nightly_at (on, every night at it), null
+// editNightlyAt switches the nightly (T-781): a local time "HH:MM" sets nightly.at (on, every night at it), null
 // deletes it (off); anything else is refused.
 func (c *Config) editNightlyAt(doc []byte, val json.RawMessage) (Change, error) {
 	var at *string
@@ -122,10 +136,10 @@ func (c *Config) editNightlyAt(doc []byte, val json.RawMessage) (Change, error) 
 	if at != nil {
 		v, newLine = *at, Compact(*at)
 	}
-	return c.change("merge.nightly_at", doc, []string{"merge", "nightly_at"}, v, unsetOr(c.Data.Merge.NightlyAt), newLine)
+	return c.change("merge.nightly_at", doc, []string{"nightly", "at"}, v, unsetOr(c.Data.Nightly.At), newLine)
 }
 
-// editKindArgs sets kinds.<kind>.args: a list of args with no bare -- (obor adds the first prompt itself); an empty
+// editKindArgs sets agents.kinds.<kind>.args: a list of args with no bare -- (obor adds the first prompt itself); an empty
 // list drops the key.
 func (c *Config) editKindArgs(doc []byte, kind string, val json.RawMessage) (Change, error) {
 	if _, ok := agents.Lookup(kind); !ok {
@@ -143,18 +157,18 @@ func (c *Config) editKindArgs(doc []byte, kind string, val json.RawMessage) (Cha
 		v = nil
 	}
 	old := ""
-	if cur := c.Data.Kinds.M[kind].Args; len(cur) > 0 {
+	if cur := c.Data.Agents.Kinds.M[kind].Args; len(cur) > 0 {
 		old = Compact(cur)
 	}
 	newLine := ""
 	if len(args) > 0 {
 		newLine = Compact(args)
 	}
-	return c.change("kinds."+kind+".args", doc, []string{"kinds", kind, "args"}, v, old, newLine)
+	return c.change("kinds."+kind+".args", doc, []string{"agents", "kinds", kind, "args"}, v, old, newLine)
 }
 
 // editRole sets a configured role's model ref; a role always names its model (T-769), so "" and null are refused. A
-// custom role's object row keeps its write list: its model is roles.<role>.model (T-801).
+// custom role's object row keeps its write list: its model is agents.roles.<role>.model (T-801).
 func (c *Config) editRole(doc []byte, role string, val json.RawMessage) (Change, error) {
 	rc, ok := c.Role(role)
 	if !ok || role == "worker" || rc.Role.Optional && !rc.Configured {
@@ -172,21 +186,26 @@ func (c *Config) editRole(doc []byte, role string, val json.RawMessage) (Change,
 	if err := c.CheckModelRef(ref); err != nil {
 		return Change{}, fmt.Errorf("roles.%s: %v", role, err)
 	}
-	at := []string{"roles", role}
-	if c.Data.Roles.M[role].Object {
-		at = append(at, "model")
+	key, at := "roles."+role, []string{"agents", "roles", role}
+	if c.Data.Agents.Roles.M[role].Object {
+		key, at = key+".model", append(at, "model")
 	}
-	return c.change(strings.Join(at, "."), doc, at, ref, unsetOr(ModelRef(rc.Type, rc.Effort)), Compact(ref))
+	return c.change(key, doc, at, ref, unsetOr(ModelRef(rc.Type, rc.Effort)), Compact(ref))
 }
 
-// change is c's edit of key: doc with path (the member the key writes) set to v (nil deletes it), laid out as doc is,
-// with the value's old and new lines. It refuses a member .obor/local.json overrides (localRefusal) and one the merged
-// config does not take up: either way the file would be written and what runs would not change.
+// change is c's edit of key: doc with path (the member the key writes, shape 2's) set to v (nil deletes it), laid out
+// as doc is, with the value's old and new lines. A doc of shape 1 keeps its shape: the member written is the key's own
+// path, shape 1's (the edit keys keep shape 1's names). It refuses a member .obor/local.json overrides (localRefusal)
+// and one the merged config does not take up: either way the file would be written and what runs would not change.
 func (c *Config) change(key string, doc []byte, path []string, v any, old, new string) (Change, error) {
 	if at := c.localShadow(path); at != "" {
 		return Change{}, localRefusal(key, at)
 	}
-	out, err := EditJSON(doc, path, v)
+	at := path
+	if ShapeOf(doc) < ShapeVersion {
+		at = strings.Split(key, ".")
+	}
+	out, err := EditJSON(doc, at, v)
 	if err != nil {
 		return Change{}, err
 	}
@@ -233,12 +252,18 @@ func (c *Config) localShadow(path []string) string {
 	return strings.Join(path, ".")
 }
 
-// applied reports whether the merged config, doc with c's .obor/local.json, has v at path: what a write to doc would
-// leave running. v nil is the key gone (or null).
+// applied reports whether the merged config, doc (in shape 2: reshaped when it is shape 1, as the load does) with c's
+// .obor/local.json, has v at path: what a write to doc would leave running. v nil is the key gone (or null).
 func (c *Config) applied(doc []byte, path []string, v any) bool {
 	merged := doc
+	if ShapeOf(doc) < ShapeVersion {
+		var err error
+		if merged, err = Reshape(doc); err != nil {
+			return false
+		}
+	}
 	if len(c.local) > 0 {
-		merged = merge(doc, c.local)
+		merged = merge(merged, c.local)
 	}
 	got, err := MemberAt(merged, path)
 	if err != nil {
@@ -332,95 +357,130 @@ type Write struct {
 	Key, Val string
 }
 
-// write sets path to v in doc; key is how the caller's line names it.
+// write sets path to v in doc; key is how the caller's line names it. A doc of shape 1 is reshaped first (Reshape):
+// a setup write never mixes the shapes.
 func write(key string, doc []byte, path []string, v any) (Write, error) {
+	if ShapeOf(doc) < ShapeVersion {
+		var err error
+		if doc, err = Reshape(doc); err != nil {
+			return Write{}, err
+		}
+	}
 	out, err := EditJSON(doc, path, v)
 	return Write{Doc: out, Key: key, Val: fmt.Sprintf("%v", v)}, err
 }
 
-// ProjectDoc is doc (the kit's config example) as obor init writes a new project's config: name, prefix and lanesDir
-// set, no lanes, commands, lane links or protected files; the example's difficulty and kinds go, but for each kit
-// kind's command (KitKinds).
+// ProjectDoc is doc (the kit's config example, shape 2) as obor init writes a new project's config: name, prefix and
+// lanesDir set, no lanes, project commands, lane links or protected files, the commands init detects (lanes.setup,
+// merge.check, nightly.slow_check) null; the example's agents.difficulty and agents.kinds go, but for each kit kind's
+// plugin (KitKinds).
 func ProjectDoc(doc []byte, name, prefix, lanesDir string) ([]byte, error) {
 	for _, kv := range []struct {
 		path []string
 		val  any
 	}{
-		{[]string{"name"}, name}, {[]string{"prefix"}, prefix}, {[]string{"lanes_dir"}, lanesDir},
-		{[]string{"lanes"}, 0},
-		{[]string{"commands"}, json.RawMessage(`{"lane_setup":null,"check":null,"check_milestone":null}`)},
-		{[]string{"lane_links"}, []string{}}, {[]string{"protected_files"}, []string{}},
+		{p("project", "name"), name}, {p("project", "agent_prefix"), prefix}, {p("lanes", "dir"), lanesDir},
+		{p("lanes", "count"), 0}, {p("lanes", "list"), nil},
+		{p("lanes", "setup"), json.RawMessage(`null`)}, {p("lanes", "ready"), nil},
+		{p("merge", "check"), json.RawMessage(`null`)}, {p("nightly", "slow_check"), json.RawMessage(`null`)},
+		{p("commands"), nil},
+		{p("lanes", "links"), []string{}}, {p("rules", "protected_files"), []string{}},
+		{p("agents", "difficulty"), nil}, {p("agents", "kinds"), nil},
 	} {
 		var err error
 		if doc, err = EditJSON(doc, kv.path, kv.val); err != nil {
 			return nil, err
 		}
 	}
-	for _, key := range []string{"difficulty", "kinds"} {
-		var err error
-		if doc, err = EditJSON(doc, []string{key}, nil); err != nil {
-			return nil, err
-		}
-	}
 	for _, name := range slices.Sorted(maps.Keys(KitKinds)) {
 		var err error
-		if doc, err = EditJSON(doc, []string{"kinds", name, "command"}, KitKinds[name]); err != nil {
+		if doc, err = EditJSON(doc, p("agents", "kinds", name, "plugin"), KitKinds[name]); err != nil {
 			return nil, err
 		}
 	}
 	return doc, nil
 }
 
-// SetCommand returns doc with commands.<name> = cmd.
+// commandPath is where the command run by name lives: its group for one of FixedCommands, else commands.<name>.
+func commandPath(name string) []string {
+	if at, ok := FixedCommands[name]; ok {
+		return at
+	}
+	return p("commands", name)
+}
+
+// SetCommand returns doc with the command run by name = cmd (commandPath).
 func SetCommand(doc []byte, name, cmd string) (Write, error) {
-	return write("commands."+name, doc, []string{"commands", name}, cmd)
+	at := commandPath(name)
+	return write(strings.Join(at, "."), doc, at, cmd)
 }
 
-// SetRoleModel returns doc with roles.<role> = ref.
+// SetRoleModel returns doc with agents.roles.<role> = ref.
 func SetRoleModel(doc []byte, role, ref string) (Write, error) {
-	return write("roles."+role, doc, []string{"roles", role}, ref)
+	return write("agents.roles."+role, doc, p("agents", "roles", role), ref)
 }
 
-// SetDifficulty returns doc with difficulty = levels.
+// SetDifficulty returns doc with agents.difficulty = levels.
 func SetDifficulty(doc []byte, levels map[string][]string) (Write, error) {
-	return write("difficulty", doc, []string{"difficulty"}, levels)
+	return write("agents.difficulty", doc, p("agents", "difficulty"), levels)
 }
 
-// SetLanes returns doc with lanes = n (a count; it replaces a list, T-1031).
+// SetLanes returns doc with lanes.count = n (it replaces lanes.list, T-1031).
 func SetLanes(doc []byte, n int) (Write, error) {
-	return write("lanes", doc, []string{"lanes"}, n)
+	w, err := write("lanes.count", doc, p("lanes", "list"), nil)
+	if err != nil {
+		return w, err
+	}
+	return write("lanes.count", w.Doc, p("lanes", "count"), n)
 }
 
-// SetLaneLinks returns doc with lane_links = links.
+// SetLaneLinks returns doc with lanes.links = links.
 func SetLaneLinks(doc []byte, links []string) (Write, error) {
-	return write("lane_links", doc, []string{"lane_links"}, links)
+	return write("lanes.links", doc, p("lanes", "links"), links)
 }
 
-// SetSetupConfirmed returns doc with setup.confirmed = confirmed.
+// SetSetupConfirmed returns doc with agents.confirmed = confirmed.
 func SetSetupConfirmed(doc []byte, confirmed bool) (Write, error) {
-	return write("setup.confirmed", doc, []string{"setup", "confirmed"}, confirmed)
+	return write("agents.confirmed", doc, p("agents", "confirmed"), confirmed)
 }
 
-// SetKindCommand returns doc with kinds.<kind>.command = cmd.
+// SetKindCommand returns doc with agents.kinds.<kind>.plugin = cmd.
 func SetKindCommand(doc []byte, kind, cmd string) (Write, error) {
-	return write("kinds."+kind+".command", doc, []string{"kinds", kind, "command"}, cmd)
+	return write("agents.kinds."+kind+".plugin", doc, p("agents", "kinds", kind, "plugin"), cmd)
 }
 
-// RenameProject returns doc with name and prefix set to the new ones: each only when the file has it, or always with
-// force (config.json; a local.json changes only what it overrides). obor setup rename's step 1.
+// RenameProject returns doc with project.name and project.agent_prefix set to the new ones: each only when the file
+// has it, or always with force (config.json; a local.json changes only what it overrides). obor setup rename's step 1.
+// A file of shape 1 (or the local.json beside one) keeps its shape: name and prefix there.
 func RenameProject(doc []byte, name, prefix string, force bool) ([]byte, error) {
 	out := doc
-	for _, kv := range [][2]string{{"name", name}, {"prefix", prefix}} {
-		cur, ok := stringAt(out, kv[0])
-		if cur == kv[1] || (!ok && !force) {
+	for _, kv := range []struct {
+		at, old []string
+		val     string
+	}{{p("project", "name"), p("name"), name}, {p("project", "agent_prefix"), p("prefix"), prefix}} {
+		at := shapedPath(out, kv.at, kv.old)
+		cur, ok := stringAt(out, at...)
+		if cur == kv.val || (!ok && !force) {
 			continue
 		}
 		var err error
-		if out, err = EditJSON(out, []string{kv[0]}, kv[1]); err != nil {
+		if out, err = EditJSON(out, at, kv.val); err != nil {
 			return nil, err
 		}
 	}
 	return out, nil
+}
+
+// shapedPath is where a setup edit of doc finds and writes a key: at (shape 2's path) when doc has it, old (shape 1's)
+// when doc has that, else at for a file of shape 2 and old for one of shape 1 (ShapeOf).
+func shapedPath(doc []byte, at, old []string) []string {
+	if v, _ := MemberAt(doc, at); v != nil {
+		return at
+	}
+	if v, _ := MemberAt(doc, old); v != nil || ShapeOf(doc) < ShapeVersion {
+		return old
+	}
+	return at
 }
 
 // stringAt is the string member of doc at path; ok false when there is none or it is no string.
@@ -436,9 +496,14 @@ func stringAt(doc []byte, path ...string) (string, bool) {
 	return s, true
 }
 
-// PushEntries is guards.allow_push in doc (nil when the file has none, or it is no string list).
+// pushPath is rules.may_push in doc's shape (shapedPath; guards.allow_push in shape 1).
+func pushPath(doc []byte) []string {
+	return shapedPath(doc, p("rules", "may_push"), p("guards", "allow_push"))
+}
+
+// PushEntries is rules.may_push in doc (nil when the file has none, or it is no string list).
 func PushEntries(doc []byte) []string {
-	raw, err := MemberAt(doc, []string{"guards", "allow_push"})
+	raw, err := MemberAt(doc, pushPath(doc))
 	if err != nil || raw == nil {
 		return nil
 	}
@@ -449,7 +514,7 @@ func PushEntries(doc []byte) []string {
 	return entries
 }
 
-// SetPushEntries returns doc with guards.allow_push = entries.
+// SetPushEntries returns doc with rules.may_push = entries.
 func SetPushEntries(doc []byte, entries []string) ([]byte, error) {
-	return EditJSON(doc, []string{"guards", "allow_push"}, entries)
+	return EditJSON(doc, pushPath(doc), entries)
 }

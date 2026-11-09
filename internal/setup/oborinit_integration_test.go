@@ -29,14 +29,14 @@ func TestOborInitRecordsTheSetupAnswer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Data.Setup.Confirmed == nil || *cfg.Data.Setup.Confirmed {
-		t.Fatalf("a new project's setup.confirmed = %v, want false", cfg.Data.Setup.Confirmed)
+	if cfg.Data.Agents.Confirmed == nil || *cfg.Data.Agents.Confirmed {
+		t.Fatalf("a new project's setup.confirmed = %v, want false", cfg.Data.Agents.Confirmed)
 	}
 	if stateOf(out, "setup") != "done" || !strings.Contains(summary(out, "setup"), "the lead asks the owner") {
 		t.Errorf("setup step %q", summary(out, "setup"))
 	}
 	// The owner answers at the first session: a rerun keeps that answer.
-	doc, err := config.EditJSON([]byte(x.Read(".obor/config.json")), []string{"setup", "confirmed"}, true)
+	doc, err := config.EditJSON([]byte(x.Read(".obor/config.json")), []string{"agents", "confirmed"}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,8 +45,8 @@ func TestOborInitRecordsTheSetupAnswer(t *testing.T) {
 	if cfg, err = config.Load(x.Root); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Data.Setup.Confirmed == nil || !*cfg.Data.Setup.Confirmed {
-		t.Errorf("a rerun changed setup.confirmed to %v, want the owner's true", cfg.Data.Setup.Confirmed)
+	if cfg.Data.Agents.Confirmed == nil || !*cfg.Data.Agents.Confirmed {
+		t.Errorf("a rerun changed setup.confirmed to %v, want the owner's true", cfg.Data.Agents.Confirmed)
 	}
 	if stateOf(out, "setup") != "already" || !strings.HasSuffix(summary(out, "setup"), "confirmed by the owner") {
 		t.Errorf("setup step after the answer: %q", summary(out, "setup"))
@@ -59,7 +59,7 @@ func TestOborInitAddsTheMissingSetupAnswer(t *testing.T) {
 	t.Parallel()
 	x := newGitInitFx(t, true)
 	x.init(t)
-	doc, err := config.EditJSON([]byte(x.Read(".obor/config.json")), []string{"setup"}, map[string]any{})
+	doc, err := config.EditJSON([]byte(x.Read(".obor/config.json")), []string{"agents", "confirmed"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,8 +69,8 @@ func TestOborInitAddsTheMissingSetupAnswer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Data.Setup.Confirmed == nil || *cfg.Data.Setup.Confirmed {
-		t.Errorf("setup.confirmed = %v, want false (init restores it when the key is absent)", cfg.Data.Setup.Confirmed)
+	if cfg.Data.Agents.Confirmed == nil || *cfg.Data.Agents.Confirmed {
+		t.Errorf("setup.confirmed = %v, want false (init restores it when the key is absent)", cfg.Data.Agents.Confirmed)
 	}
 	if stateOf(out, "setup") != "done" {
 		t.Errorf("setup step %q", summary(out, "setup"))
@@ -122,16 +122,16 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Data.Name != "proj" || cfg.Data.Prefix != "proj" {
-		t.Errorf("name %q prefix %q", cfg.Data.Name, cfg.Data.Prefix)
+	if cfg.Data.Project.Name != "proj" || cfg.Data.Project.AgentPrefix != "proj" {
+		t.Errorf("name %q prefix %q", cfg.Data.Project.Name, cfg.Data.Project.AgentPrefix)
 	}
-	if cfg.Data.Lanes.Count() != 2 {
-		t.Errorf("lanes = %d, want 2 (T-765)", cfg.Data.Lanes.Count())
+	if cfg.LaneCount() != 2 {
+		t.Errorf("lanes = %d, want 2 (T-765)", cfg.LaneCount())
 	}
-	// T-765: init writes the new shape: no lane types, no agents key, a lanes count, roles as model refs.
+	// T-765, T-1124: init writes config shape 2: no lane types, a lanes count, roles as model refs.
 	doc := x.Read(".obor/config.json")
-	if strings.Contains(doc, "lane_types") || strings.Contains(doc, `"agents"`) ||
-		!regexp.MustCompile(`(?m)^  "lanes": 2,?$`).MatchString(doc) ||
+	if strings.Contains(doc, "lane_types") || config.ShapeOf([]byte(doc)) != config.ShapeVersion ||
+		!regexp.MustCompile(`(?m)^    "count": 2,?$`).MatchString(doc) ||
 		!regexp.MustCompile(`"integrator": "opus"`).MatchString(doc) || !strings.Contains(doc, `"lead": "opus:high"`) {
 		t.Errorf("config.json is not the new shape:\n%s", doc)
 	}
@@ -455,8 +455,8 @@ func TestOborInitRerunKeepsTheLanes(t *testing.T) {
 	x.reset()
 	out := x.init(t)
 	cfg, err := config.Load(x.Root)
-	if err != nil || cfg.Data.Lanes.Count() != 2 {
-		t.Fatalf("lanes after the rerun: %d (%v)", cfg.Data.Lanes.Count(), err)
+	if err != nil || cfg.LaneCount() != 2 {
+		t.Fatalf("lanes after the rerun: %d (%v)", cfg.LaneCount(), err)
 	}
 	if stateOf(out, "lanes") != "already" || !strings.Contains(summary(out, "lanes"), "L-01, L-02") {
 		t.Errorf("lanes step %q", summary(out, "lanes"))
@@ -477,8 +477,8 @@ func TestOborInitRerunKeepsTheLanes(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(cfg.LanesDir(), "L-01", ".git")); err != nil || stateOf(out, "lanes") != "done" {
 		t.Errorf("worktree not recreated (%v), lanes %q", err, summary(out, "lanes"))
 	}
-	if cfg, _ := config.Load(x.Root); cfg.Data.Lanes.Count() != 2 {
-		t.Errorf("lanes after the recreation %d", cfg.Data.Lanes.Count())
+	if cfg, _ := config.Load(x.Root); cfg.LaneCount() != 2 {
+		t.Errorf("lanes after the recreation %d", cfg.LaneCount())
 	}
 }
 
@@ -493,14 +493,14 @@ func TestOborInitLaneSetupOnARerun(t *testing.T) {
 		run  func(t *testing.T, x *initFx)
 	}{
 		{"lane_setup failed last run: the rerun runs it", func(t *testing.T, x *initFx) {
-			x.editConfig(t, []string{"commands", "lane_setup"}, "exit 3")
+			x.editConfig(t, []string{"lanes", "setup"}, "exit 3")
 			x.failing(t, "FAIL lane_setup exited 3 in "+x.LaneDir("L-01")+": exit 3", "obor-init")
 			for _, lane := range []string{"L-01", "L-02"} {
 				if x.Exists(".obor/state/lanes/" + lane + ".setup") {
 					t.Errorf("%s: a failed lane_setup left the done marker", lane)
 				}
 			}
-			x.editConfig(t, []string{"commands", "lane_setup"}, "pwd > setup-ran")
+			x.editConfig(t, []string{"lanes", "setup"}, "pwd > setup-ran")
 			out := x.init(t)
 			for _, lane := range []string{"L-01", "L-02"} {
 				if got, want := x.Read(x.LaneDir(lane)+"/setup-ran"), x.LaneDir(lane)+"\n"; got != want {
@@ -515,7 +515,7 @@ func TestOborInitLaneSetupOnARerun(t *testing.T) {
 			}
 		}},
 		{"lane_setup changed since it finished: the rerun runs it", func(t *testing.T, x *initFx) {
-			x.editConfig(t, []string{"commands", "lane_setup"}, "pwd > setup-ran")
+			x.editConfig(t, []string{"lanes", "setup"}, "pwd > setup-ran")
 			x.init(t)
 			for _, lane := range []string{"L-01", "L-02"} {
 				if !x.Exists(".obor/state/lanes/" + lane + ".setup") {
@@ -523,7 +523,7 @@ func TestOborInitLaneSetupOnARerun(t *testing.T) {
 				}
 				os.Remove(filepath.Join(x.LaneDir(lane), "setup-ran"))
 			}
-			x.editConfig(t, []string{"commands", "lane_setup"}, "pwd > setup-ran-again")
+			x.editConfig(t, []string{"lanes", "setup"}, "pwd > setup-ran-again")
 			out := x.init(t)
 			for _, lane := range []string{"L-01", "L-02"} {
 				if !x.Exists(x.LaneDir(lane) + "/setup-ran-again") {
@@ -535,7 +535,7 @@ func TestOborInitLaneSetupOnARerun(t *testing.T) {
 			}
 		}},
 		{"lane_setup finished last run: the rerun skips it", func(t *testing.T, x *initFx) {
-			x.editConfig(t, []string{"commands", "lane_setup"}, "pwd > setup-ran")
+			x.editConfig(t, []string{"lanes", "setup"}, "pwd > setup-ran")
 			x.init(t)
 			for _, lane := range []string{"L-01", "L-02"} {
 				if !x.Exists(".obor/state/lanes/" + lane + ".setup") {
@@ -564,12 +564,12 @@ func TestOborInitLaneSetupOnARerun(t *testing.T) {
 			}
 		}},
 		{"lane_ready fails with no lane_setup to run: FAIL", func(t *testing.T, x *initFx) {
-			x.editConfig(t, []string{"commands", "lane_ready"}, "false")
+			x.editConfig(t, []string{"lanes", "ready"}, "false")
 			x.failing(t, "FAIL lane L-01: lane_ready fails (false) and commands.lane_setup is not set", "obor-init")
 		}},
 		{"lane_ready still fails after lane_setup: FAIL, never done", func(t *testing.T, x *initFx) {
-			x.editConfig(t, []string{"commands", "lane_ready"}, "echo not ready; exit 1")
-			x.editConfig(t, []string{"commands", "lane_setup"}, "true")
+			x.editConfig(t, []string{"lanes", "ready"}, "echo not ready; exit 1")
+			x.editConfig(t, []string{"lanes", "setup"}, "true")
 			out, rc := x.run(t, "obor-init")
 			want := "FAIL lane L-01: lane_ready still fails after lane_setup (echo not ready; exit 1): not ready"
 			if rc != 1 || last(out) != want {
@@ -580,8 +580,8 @@ func TestOborInitLaneSetupOnARerun(t *testing.T) {
 			}
 		}},
 		{"lane_ready passes after lane_setup: done", func(t *testing.T, x *initFx) {
-			x.editConfig(t, []string{"commands", "lane_ready"}, "test -f ready")
-			x.editConfig(t, []string{"commands", "lane_setup"}, "touch ready")
+			x.editConfig(t, []string{"lanes", "ready"}, "test -f ready")
+			x.editConfig(t, []string{"lanes", "setup"}, "touch ready")
 			out := x.init(t)
 			for _, lane := range []string{"L-01", "L-02"} {
 				if !x.Exists(x.LaneDir(lane) + "/ready") {
@@ -708,7 +708,7 @@ func TestOborInitSetsTheLeadsType(t *testing.T) {
 	}
 	has(t, summary(out, "lanes"), "lead opus:high", "lanes step")
 
-	x.editConfig(t, []string{"roles", "lead"}, nil) // a hand-written config that omits the lead
+	x.editConfig(t, []string{"agents", "roles", "lead"}, nil) // a hand-written config that omits the lead
 	if cfg, err = config.Load(x.Root); err != nil {
 		t.Fatal(err)
 	}
@@ -730,12 +730,12 @@ func TestOborInitSetsTheLeadsType(t *testing.T) {
 		t.Errorf("config changed on a rerun")
 	}
 
-	x.editConfig(t, []string{"roles", "lead"}, "sonnet")
+	x.editConfig(t, []string{"agents", "roles", "lead"}, "sonnet")
 	out = x.init(t)
 	if cfg, err = config.Load(x.Root); err != nil {
 		t.Fatal(err)
 	}
-	if lead, ok := cfg.Data.Roles.M["lead"]; !ok || lead.Model != "sonnet" {
+	if lead, ok := cfg.Data.Agents.Roles.M["lead"]; !ok || lead.Model != "sonnet" {
 		t.Errorf("a kept lead model: %+v", lead)
 	}
 	if got := summary(out, "lanes"); !strings.Contains(got, "lead sonnet") || strings.Contains(got, "lead sonnet →") {
@@ -751,14 +751,14 @@ func TestOborInitPrefixUniqueAgainstRunningAgents(t *testing.T) {
 	x.h.Agent("w9:a2", "proj2-lead", "idle", "/elsewhere2")
 	x.init(t)
 	cfg, err := config.Load(x.Root)
-	if err != nil || cfg.Data.Prefix != "proj3" {
-		t.Fatalf("prefix %q (%v), want proj3", cfg.Data.Prefix, err)
+	if err != nil || cfg.Data.Project.AgentPrefix != "proj3" {
+		t.Fatalf("prefix %q (%v), want proj3", cfg.Data.Project.AgentPrefix, err)
 	}
 	y := newGitInitFx(t, true)
 	y.h.Agent("w9:a1", "proj-lead", "idle", "/elsewhere")
 	y.init(t, "--prefix", "proj")
-	if cfg, _ := config.Load(y.Root); cfg.Data.Prefix != "proj" {
-		t.Errorf("explicit prefix %q", cfg.Data.Prefix)
+	if cfg, _ := config.Load(y.Root); cfg.Data.Project.AgentPrefix != "proj" {
+		t.Errorf("explicit prefix %q", cfg.Data.Project.AgentPrefix)
 	}
 }
 
@@ -788,7 +788,7 @@ func TestOborInitWritesDetectedCommandsOnce(t *testing.T) {
 	x.Write("go.mod", "module x\n")
 	out := x.init(t)
 	cfg, _ := config.Load(x.Root)
-	if c := cfg.Data.Commands.M["check"]; c.Cmd != "go test ./..." {
+	if c := cfg.Data.Merge.Check; c.Cmd != "go test ./..." {
 		t.Errorf("commands.check %+v", c)
 	}
 	if stateOf(out, "commands") != "done" {
@@ -804,11 +804,11 @@ func TestOborInitWritesDetectedCommandsOnce(t *testing.T) {
 	has(t, out, "obor commits with --no-verify: your pre-commit and commit-msg hooks do not run on them; put "+
 		"formatting and secret scans in commands.check (the merge check)", "the hooks line")
 	has(t, out, "go.mod", "detected line")
-	doc, _ := config.EditJSON([]byte(x.Read(".obor/config.json")), []string{"commands", "check"}, "make mine")
+	doc, _ := config.EditJSON([]byte(x.Read(".obor/config.json")), []string{"merge", "check"}, "make mine")
 	x.Write(".obor/config.json", string(doc))
 	out = x.init(t)
 	cfg, _ = config.Load(x.Root)
-	if c := cfg.Data.Commands.M["check"]; c.Cmd != "make mine" {
+	if c := cfg.Data.Merge.Check; c.Cmd != "make mine" {
 		t.Errorf("the user's check overwritten: %+v", c)
 	}
 	if stateOf(out, "commands") != "already" {
@@ -860,25 +860,25 @@ func TestOborInitDifficultyListsOnlyDetectedKinds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Data.Difficulty) == 0 {
+	if len(cfg.Data.Agents.Difficulty) == 0 {
 		t.Fatalf("difficulty not written:\n%s", x.Read(".obor/config.json"))
 	}
 	if _, ok := cfg.Model("deepseek"); !ok {
 		t.Fatal("precondition: deepseek is a lane type of the default config")
 	}
-	for level, list := range cfg.Data.Difficulty {
+	for level, list := range cfg.Data.Agents.Difficulty {
 		for _, ref := range list {
 			if typ, _ := config.ParseModelRef(ref); typ == "deepseek" {
 				t.Errorf("level %s lists %s without OpenCode opted in", level, ref)
 			}
 		}
 	}
-	if got := cfg.Data.Difficulty["simple"]; strings.Join(got, ",") != "sonnet,haiku" {
+	if got := cfg.Data.Agents.Difficulty["simple"]; strings.Join(got, ",") != "sonnet,haiku" {
 		t.Errorf("simple = %v, want sonnet,haiku", got)
 	}
 
 	// Opted in: the user lists deepseek; a rerun keeps it.
-	doc, err := config.EditJSON([]byte(x.Read(".obor/config.json")), []string{"difficulty"},
+	doc, err := config.EditJSON([]byte(x.Read(".obor/config.json")), []string{"agents", "difficulty"},
 		map[string][]string{"simple": {"deepseek", "sonnet"}})
 	if err != nil {
 		t.Fatal(err)
@@ -890,10 +890,10 @@ func TestOborInitDifficultyListsOnlyDetectedKinds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := cfg.Data.Difficulty["simple"]; strings.Join(got, ",") != "deepseek,sonnet" {
+	if got := cfg.Data.Agents.Difficulty["simple"]; strings.Join(got, ",") != "deepseek,sonnet" {
 		t.Errorf("an existing difficulty was changed: simple = %v", got)
 	}
-	if _, set := cfg.Data.Difficulty["hard"]; set {
-		t.Errorf("rerun added levels to an existing difficulty: %v", cfg.Data.Difficulty)
+	if _, set := cfg.Data.Agents.Difficulty["hard"]; set {
+		t.Errorf("rerun added levels to an existing difficulty: %v", cfg.Data.Agents.Difficulty)
 	}
 }
