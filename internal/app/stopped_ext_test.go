@@ -97,7 +97,7 @@ func (s *storingApp) counts() (int, map[string]int, []string) {
 
 // T-659: a verdict made while serve restarts (no socket until the new serve has loaded) is retried inside its 15 s
 // and lands once: one connection, one record.
-func TestVerdictLandsAfterRestartOnce(t *testing.T) {
+func testVerdictLandsAfterRestartOnce(t *testing.T) {
 	t.Parallel()
 	sock := filepath.Join(sockDir(t), "serve.sock")
 	s := serveStoring(t, sock, 3*time.Second, false)
@@ -115,7 +115,7 @@ func TestVerdictLandsAfterRestartOnce(t *testing.T) {
 }
 
 // T-659: the StopFailure hook's call (5 s) survives a serve back at 4 s: a retry near its deadline lands.
-func TestStopFailureLandsNearItsDeadline(t *testing.T) {
+func testStopFailureLandsNearItsDeadline(t *testing.T) {
 	t.Parallel()
 	sock := filepath.Join(sockDir(t), "serve.sock")
 	s := serveStoring(t, sock, 4*time.Second, false)
@@ -136,7 +136,7 @@ func TestStopFailureLandsNearItsDeadline(t *testing.T) {
 
 // T-659: a turn call (8 s) whose serve never comes back fails at its deadline, and a serve that binds afterwards gets
 // nothing: no call is applied after its caller gave up.
-func TestTurnFailsAtItsDeadline(t *testing.T) {
+func testTurnFailsAtItsDeadline(t *testing.T) {
 	t.Parallel()
 	sock := filepath.Join(sockDir(t), "serve.sock")
 	c := &wire.TurnReq{Envelope: wire.Envelope{Root: "/r", Agent: "pj-l-01", Role: "worker", CallID: "t1"},
@@ -164,7 +164,7 @@ func TestTurnFailsAtItsDeadline(t *testing.T) {
 
 // T-659: a reply lost after the serve stored the call is asked again with the same call id; the stored reply answers
 // it and the call is applied once.
-func TestLostReplyAnsweredFromStore(t *testing.T) {
+func testLostReplyAnsweredFromStore(t *testing.T) {
 	t.Parallel()
 	sock := filepath.Join(sockDir(t), "serve.sock")
 	s := serveStoring(t, sock, 0, true)

@@ -4,8 +4,10 @@
 //
 // It measures each package with tests once at GOMAXPROCS=2, with -tags integration (T-1014: the whole suite is
 // measured; T-1056: the -short tier is gone, so there is one measurement). A counting
-// `git` wrapper is first on PATH for the whole run and a private TMPDIR is every test's temp dir; the package's `go
-// test -json` elapsed is its wall time. A breach prints one line, `FAIL budget: <pkg> <metric> <got> > <max>`:
+// `git` wrapper is first on PATH for the whole run and a private TMPDIR under /tmp (short enough for a serve socket) is
+// every test's temp dir; the package's `go test -json` elapsed is its wall time. That is not `make check`'s
+// environment: `make check` runs with the caller's own TMPDIR, so a breach can come from a path that run never takes
+// (T-1144). A breach prints one line, `FAIL budget: <pkg> <metric> <got> > <max>`:
 //
 //	full_s             go test's package Elapsed against tests/budget.json (seconds; a cap under a second never fails
 //	                   on wall time alone, minWallS: at that size go test's 0.1 s granularity is the measurement)
