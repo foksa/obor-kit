@@ -88,7 +88,7 @@ func ReadLanes(db *sql.DB) ([]LaneRow, error) {
 }
 
 // WriteLanes replaces db's lane rows with rows, in one transaction (serve's projection). The agent column gets ”
-// (T-1031: the agent is derived; the column stays for v0.31's readers of an older row and goes in v0.32's schema).
+// (T-1031: the agent is derived; the column stays for v0.31's readers of an older row and goes in a later schema).
 func WriteLanes(db *sql.DB, rows []LaneRow) error {
 	tx, err := db.Begin()
 	if err != nil {

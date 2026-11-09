@@ -11,7 +11,7 @@ import (
 )
 
 // bash config.test.sh case_validate_* through the binary: OK exit 0; WARN lines then OK; FAIL lines exit 1; a removed key
-// past its two versions is an unknown key, so the load refuses it (T-830: cache.warn_tokens).
+// past its two versions is an unknown key, a FAIL line (T-830: cache.warn_tokens; T-1081).
 func TestConfigValidateBinary(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
@@ -22,12 +22,14 @@ func TestConfigValidateBinary(t *testing.T) {
 		out   string
 	}{
 		{nil, 0, "OK\n"},
-		{[]func(map[string]any){testkit.Set("cache.warn_tokens", 50000)}, 1, ""},
+		{[]func(map[string]any){testkit.Set("cache.warn_tokens", 50000)}, 1,
+			"FAIL .cache: unknown to this obor (retired, or newer than this binary): delete it (.obor/config.json)\n"},
 		{[]func(map[string]any){testkit.Set("version", 2), testkit.Set("paths.research", "r")}, 1,
 			"WARN paths.research: no longer used, remove it\nFAIL .version: must be 1, got 2\n"},
-		// T-966: merge.receipt_max_age went with the test receipts; naming it is one WARN line, not an error.
-		{[]func(map[string]any){testkit.Set("merge.receipt_max_age", 60)}, 0,
-			"WARN merge.receipt_max_age: no longer used, remove it\nOK\n"},
+		// T-966: merge.receipt_max_age went with the test receipts in v0.29; past its two minors it is an unknown key,
+		// a FAIL line naming it (T-1081).
+		{[]func(map[string]any){testkit.Set("merge.receipt_max_age", 60)}, 1,
+			"FAIL .merge.receipt_max_age: unknown to this obor (retired, or newer than this binary): delete it (.obor/config.json)\n"},
 		// T-428: serve dispatches and merges nothing without roles.integrator, so validate FAILs.
 		{[]func(map[string]any){func(c map[string]any) { delete(c, "roles") }}, 1,
 			"FAIL .roles.integrator: required: serve dispatches and merges nothing without an integrator\n"},

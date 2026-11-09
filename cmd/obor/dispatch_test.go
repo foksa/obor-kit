@@ -61,20 +61,51 @@ func TestLaneCommands(t *testing.T) {
 	}
 }
 
-// T-408, removed by v0.10.0 and unknown since v0.12: a config that still sets dispatch.serve does not load, so obor
-// config validate FAILs on it and obor dispatch asks serve nothing.
-func TestDispatchObsoleteSwitch(t *testing.T) {
+// T-1081 (DD-v0.32 #1): a key this obor does not know never stops a command. A config still naming the promotion's
+// keys (T-1076), a v0.29 removed key and T-408's dispatch.serve loads for obor dispatch and whoami (the load() path),
+// with one warning per key on stderr; obor config validate alone FAILs, naming each, and exits 1.
+func TestUnknownKeysStopNoCommand(t *testing.T) {
 	t.Parallel()
-	p := servedProject(t, testkit.Set("dispatch.serve", false))
+	keys := []string{"branches.promote", "merge.promote_weight", "merge.weights", "merge.receipt_max_age", "dispatch"}
+	p := servedProject(t, testkit.Set("branches.promote", "release"), testkit.Set("merge.promote_weight", 2),
+		testkit.Set("merge.weights", map[string]any{"core": 3}), testkit.Set("merge.receipt_max_age", 60),
+		testkit.Set("dispatch.serve", false))
 	home, serve := startFakeServe(t, p.Root, wire.Status{}, "DISPATCHED T-07 → L-01 (queued)", "")
-	env := []string{"OBOR_STATE_HOME=" + home}
-	if rc, _, stderr := run(t, p.Root, env, "config", "validate"); rc != 1 || !strings.Contains(stderr, `unknown field "dispatch"`) {
-		t.Errorf("validate: exit %d, stderr %q; want an unknown field FAIL", rc, stderr)
+	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
+	warned := func(cmd, stderr string) {
+		t.Helper()
+		if n := strings.Count(stderr, "ignored: this obor does not know it"); n != len(keys) {
+			t.Errorf("%s: %d warnings, want one per key (%d):\n%s", cmd, n, len(keys), stderr)
+		}
+		for _, k := range keys {
+			if !strings.Contains(stderr, `unknown key "`+k+`" ignored`) {
+				t.Errorf("%s: no warning naming %s in:\n%s", cmd, k, stderr)
+			}
+		}
 	}
-	if rc, _, _ := run(t, p.Root, env, "dispatch", "T-07"); rc == 0 {
-		t.Errorf("dispatch: exit 0 with an unloadable config")
+	rc, stdout, stderr := run(t, p.Root, env, "config", "validate")
+	if rc != 1 || stderr != "" {
+		t.Errorf("validate: exit %d, stderr %q; want exit 1, nothing on stderr", rc, stderr)
 	}
-	if calls, _ := serve.requests(); len(calls) != 0 {
-		t.Errorf("serve's requests %+v, want none", calls)
+	for _, k := range keys {
+		if want := "FAIL ." + k + ": unknown to this obor (retired, or newer than this binary): delete it (.obor/config.json)\n"; !strings.Contains(stdout, want) {
+			t.Errorf("validate: no %q in:\n%s", want, stdout)
+		}
 	}
+	if strings.Contains(stdout, "OK") {
+		t.Errorf("validate printed OK:\n%s", stdout)
+	}
+	rc, stdout, stderr = run(t, p.Root, env, "dispatch", "T-07")
+	if rc != 0 || stdout != "DISPATCHED T-07 → L-01 (queued)\n" {
+		t.Errorf("dispatch: exit %d, %q (%s); want serve's reply", rc, stdout, stderr)
+	}
+	warned("dispatch", stderr)
+	if calls, _ := serve.requests(); len(calls) != 1 || calls[0].Task != "T-07" {
+		t.Errorf("serve's requests %+v, want the dispatch of T-07", calls)
+	}
+	rc, stdout, stderr = run(t, p.Root, env, "whoami")
+	if rc != 0 || !strings.Contains(stdout, "role: lead\n") {
+		t.Errorf("whoami: exit %d, %q (%s)", rc, stdout, stderr)
+	}
+	warned("whoami", stderr)
 }

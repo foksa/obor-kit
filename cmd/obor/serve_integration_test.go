@@ -144,12 +144,12 @@ func TestServeToleratesUnknownConfigKey(t *testing.T) {
 	srv := herdrtest.Serve(t, f)
 	env := []string{"OBOR_STATE_HOME=" + t.TempDir(), "HERDR_SOCKET_PATH=" + srv.Path}
 
-	if rc, _, stderr := run(t, p.Root, env, "config", "validate"); rc == 0 || !strings.Contains(stderr, "unknown field") {
-		t.Fatalf("precondition: config validate exit %d, %q; want it to refuse the unknown key", rc, stderr)
+	if rc, stdout, _ := run(t, p.Root, env, "config", "validate"); rc == 0 || !strings.Contains(stdout, "FAIL .merge.from_a_newer_obor: unknown to this obor") {
+		t.Fatalf("precondition: config validate exit %d, %q; want it to refuse the unknown key", rc, stdout)
 	}
 	cmd, out := startServe(t, p.Root, env)
 	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
-		ss, err := wire.Ask(context.Background(), wire.SocketPath(p.Root)) // the CLI's own config read is strict
+		ss, err := wire.Ask(context.Background(), wire.SocketPath(p.Root))
 		if err == nil && ss.Project != nil && len(ss.Project.Agents) == 1 &&
 			ss.Project.Agents[0].Name == "pj-l-01" && ss.Project.Agents[0].Lane == "L-01" { // T-1012: a lane serve never dispatched holds no task
 			break

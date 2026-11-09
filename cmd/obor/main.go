@@ -143,15 +143,19 @@ func main() {
 	exit(2)
 }
 
-// load finds the project of the cwd and loads its effective config: exit 3 without .obor/config.json, 1 when broken.
-func load() (*project.Repo, *config.Config, int) {
+// load finds the project of the cwd and loads its effective config (config.Load: a key this obor does not know is a
+// warning, T-1081): exit 3 without .obor/config.json, 1 when broken.
+func load() (*project.Repo, *config.Config, int) { return loadWith(config.Load) }
+
+// loadWith is load with loadCfg in place of config.Load (obor config validate's strict load).
+func loadWith(loadCfg func(root string) (*config.Config, error)) (*project.Repo, *config.Config, int) {
 	cwd, _ := os.Getwd()
 	repo, err := project.Find(cwd)
 	if err != nil {
 		errf("obor: not in a git repository (no .obor/config.json)")
 		return nil, nil, 3
 	}
-	cfg, err := config.Load(repo.Root)
+	cfg, err := loadCfg(repo.Root)
 	if err != nil {
 		msg := err.Error()
 		if errors.Is(err, config.ErrNoConfig) {

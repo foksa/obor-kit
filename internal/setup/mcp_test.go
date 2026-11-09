@@ -304,6 +304,53 @@ func TestSetupAgentsWritesTheKitKind(t *testing.T) {
 	hasNot(t, x.ok(t, "agents"), "config kinds.opencode.command", "a config that names it is left alone")
 }
 
+// T-1081 (DD-v0.32 #1): on a config that still names keys this obor does not know (the promotion's, T-1076), obor
+// setup agents still writes kinds.opencode.command and caches the manifest (it used to skip both without a word), and
+// the file keeps those keys' bytes.
+func TestSetupAgentsKeepsUnknownKeys(t *testing.T) {
+	t.Parallel()
+	x := newFx(t, func(c map[string]any) { delete(c, "kinds") }, testkit.Set("branches.promote", "release"),
+		testkit.Set("merge.promote_weight", 2), testkit.Set("merge.weights", map[string]any{"core": 3}))
+	path := filepath.Join(x.Root, ".obor", "config.json")
+	cache := filepath.Join(x.Root, ".obor", "state", "kinds", "opencode.json")
+	members := []string{`"promote":"release"`, `"promote_weight":2`, `"weights":{"core":3}`}
+	before, _ := os.ReadFile(path)
+	compact := func(b []byte) string { return strings.Join(strings.Fields(string(b)), "") }
+	for _, m := range members {
+		if !strings.Contains(compact(before), m) {
+			t.Fatalf("precondition: %s in the config: %s", m, before)
+		}
+	}
+	if strings.Contains(string(before), `"kinds"`) || x.Exists(cache) {
+		t.Fatalf("precondition: no kinds in the config, no cache: %s", before)
+	}
+	out := x.ok(t, "agents")
+	has(t, out, "config kinds.opencode.command = obor-kind-opencode (uncommitted: the kit's binary)", "the line written")
+	has(t, out, "OK agents opencode: manifest of ", "the kit kind's manifest cached")
+	after, err := os.ReadFile(path)
+	var doc struct {
+		Kinds map[string]struct{ Command string } `json:"kinds"`
+	}
+	if err != nil || json.Unmarshal(after, &doc) != nil || doc.Kinds["opencode"].Command != "obor-kind-opencode" {
+		t.Errorf("config after setup agents: %s, %v", after, err)
+	}
+	for _, m := range members {
+		if !strings.Contains(compact(after), m) {
+			t.Errorf("unknown key %s dropped by setup agents:\n%s", m, after)
+		}
+	}
+	// Byte for byte: the members holding them (branches, merge) are their old bytes (the patch keeps every member).
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(before, &top); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"branches", "merge"} {
+		if !strings.Contains(string(after), `"`+k+`": `+string(top[k])) {
+			t.Errorf("%s not kept byte for byte:\nbefore %s\nafter %s", k, top[k], after)
+		}
+	}
+}
+
 // T-1045: the doctor prints a used kind's install warnings (codex: quarantined files beside its binary) as WARN lines
 // and still ends OK (a warning, never a failure); a kind the project does not run is not checked.
 func TestSetupMCPInstallWarning(t *testing.T) {

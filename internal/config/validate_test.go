@@ -42,18 +42,24 @@ func del(path string) edit {
 }
 
 // validate is `obor config validate` on the fixture config (lane L-01) changed by edits: the WARN lines, then the
-// FAIL lines. The baseline carries the integrator serve needs (T-428), so the cases that predate it stay about their
-// own rule; a case that wants it gone deletes it.
+// FAIL lines (an unknown key's first, LoadForValidate's, as the command prints them). The baseline carries the
+// integrator serve needs (T-428), so the cases that predate it stay about their own rule; a case that wants it gone
+// deletes it.
 func validate(t *testing.T, p *testkit.Project, edits ...edit) []string {
 	t.Helper()
 	base := []edit{set("roles.integrator", "opus")}
 	p.Config(append(base, edits...)...)
-	c, err := config.Load(p.Root)
+	c, unknown, err := config.LoadForValidate(p.Root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	warns, fails := c.Validate(config.ValidateOptions{Overlap: spec.Overlap})
-	return append(warns, fails...)
+	return append(append(warns, unknown...), fails...)
+}
+
+// unknownFail is LoadForValidate's FAIL line for key (a dotted path) in config.json.
+func unknownFail(key string) string {
+	return "FAIL ." + key + ": unknown to this obor (retired, or newer than this binary): delete it (.obor/config.json)"
 }
 
 func newProject(t *testing.T) *testkit.Project {
@@ -97,7 +103,7 @@ func TestValidate(t *testing.T) {
 		// T-1046: a config from before OpenCode's binary (no kinds.opencode.command) runs the kit's, with a WARN while it
 		// uses OpenCode (the default levels' deepseek), and none when it uses no OpenCode model.
 		{name: "no kinds.opencode.command, OpenCode used: the kit's binary, a WARN", edits: []edit{del("kinds")},
-			want: []string{`WARN kinds.opencode.command: not set, so obor runs the kit's obor-kind-opencode (obor setup agents sets it; v0.32.0 drops the default)`}},
+			want: []string{`WARN kinds.opencode.command: not set, so obor runs the kit's obor-kind-opencode (obor setup agents sets it; v0.33.0 drops the default)`}},
 		{name: "no kinds.opencode.command, OpenCode unused: nothing", edits: []edit{del("kinds"),
 			set("difficulty", map[string]any{"hard": []any{"opus"}, "medium": []any{"sonnet"}, "simple": []any{"haiku"}})}},
 		{name: "a new model needs its kind", edits: []edit{set("models.cur", map[string]any{"model": "x"})},
@@ -164,9 +170,13 @@ func TestValidate(t *testing.T) {
 			want: []string{"FAIL .version: must be 1, got 3", `FAIL .prefix: must match ^[a-z][a-z0-9-]{0,7}$, got "X"`,
 				"FAIL .models.extra.kind: required (claude, codex, opencode)"}},
 		{name: "slots.cpus fine", edits: []edit{set("slots.cpus", 4)}},
-		// T-966: merge.receipt_max_age went with the test receipts; a config still naming it warns.
-		{name: "merge.receipt_max_age is removed", edits: []edit{set("merge.receipt_max_age", 60)},
-			want: []string{"WARN merge.receipt_max_age: no longer used, remove it"}},
+		// T-966: merge.receipt_max_age went with the test receipts in v0.29; past its two minors it is an unknown key
+		// (T-1081), as are the promotion's three keys T-1076 deleted.
+		{name: "merge.receipt_max_age is unknown", edits: []edit{set("merge.receipt_max_age", 60)},
+			want: []string{unknownFail("merge.receipt_max_age")}},
+		{name: "the promotion's keys are unknown", edits: []edit{set("branches.promote", "release"),
+			set("merge.promote_weight", 2), set("merge.weights", map[string]any{"core": 3})},
+			want: []string{unknownFail("branches.promote"), unknownFail("merge.promote_weight"), unknownFail("merge.weights")}},
 		{name: "nightly_at fine", edits: []edit{set("merge.nightly_at", "02:00")}},
 		{name: "nightly_at no time", edits: []edit{set("merge.nightly_at", "2am")},
 			want: []string{`FAIL .merge.nightly_at: must be a local time HH:MM (00:00 to 23:59), got "2am"`}},
@@ -189,9 +199,10 @@ func TestValidate(t *testing.T) {
 			want: []string{"FAIL .slots.cpus: must be a positive integer, got 0"}},
 		{name: "slots.cpus negative", edits: []edit{set("slots.cpus", -2)},
 			want: []string{"FAIL .slots.cpus: must be a positive integer, got -2"}},
-		// T-962: checks.load_limit went with the check slots' machine-load wait; a config still naming it warns.
-		{name: "checks.load_limit is removed", edits: []edit{set("checks.load_limit", 12.5)},
-			want: []string{"WARN checks.load_limit: no longer used, remove it"}},
+		// T-962: checks.load_limit went with the check slots' machine-load wait in v0.29; past its two minors the
+		// checks section is unknown (T-1081).
+		{name: "checks.load_limit is unknown", edits: []edit{set("checks.load_limit", 12.5)},
+			want: []string{unknownFail("checks")}},
 		{name: "workflow scratch-ff", edits: []edit{set("workflow.kind", "scratch-ff")}},
 		{name: "workflow unknown kind", edits: []edit{set("workflow.kind", "x")},
 			want: []string{`FAIL .workflow.kind: must be one of scratch-ff, got "x"`}},
@@ -277,7 +288,8 @@ func TestValidate(t *testing.T) {
 	}
 }
 
-// Shapes are the load's: a wrong type or an unknown key fails config.Load with the key named; validate never sees it.
+// Shapes are the load's: a wrong type fails config.Load, an unknown key LoadForValidate (T-1081), each with the key
+// named; validate never sees it.
 func TestShapeErrorsFailTheLoad(t *testing.T) {
 	p := newPlainProject(t)
 	for _, c := range []struct {
@@ -287,25 +299,25 @@ func TestShapeErrorsFailTheLoad(t *testing.T) {
 		{set("commands.lane_ready", 5), "lane_ready"},
 		{set("commands.after_merge", map[string]any{"cmd": "make build", "when": "cmd/**"}), "when"},
 		// T-935: after_merge's restart_serve is gone: binary following is serve's one automatic restart.
-		{set("commands.after_merge", map[string]any{"cmd": "make build", "restart_serve": true}), `unknown field "restart_serve"`},
+		{set("commands.after_merge", map[string]any{"cmd": "make build", "restart_serve": true}), ".commands.after_merge.restart_serve: unknown"},
 		{set("lanes", map[string]any{}), "lanes"},
 		{set("models", []any{}), "models"},
 		{set("kinds.claude.args", "x"), "args"},
 		// T-801: roles.mystery is a custom role (validate checks it); a key its row does not know fails the load.
-		{set("roles.mystery", map[string]any{"model": "opus", "writes": []string{}}), `unknown field "writes"`},
+		{set("roles.mystery", map[string]any{"model": "opus", "writes": []string{}}), ".roles.mystery.writes: unknown"},
 		{set("roles.integrator", 5), "integrator"},
 		{set("roles", 5), "roles: must be an object"},
 		{set("merge.classes", []any{map[string]any{"name": "a", "paths": "x"}}), "paths"},
 		{set("handoff_tokens", 1.5), "handoff_tokens"},
 		{set("guards", `{"allow_push": "pj-lead"}`), "allow_push"},
-		{set("merge.clases", []any{}), `unknown field "clases"`},
+		{set("merge.clases", []any{}), ".merge.clases: unknown"},
 		// T-846: the shape before v0.23 is no special case past its two-minor window: its keys are unknown keys.
 		{set("agents", map[string]any{"triage": map[string]any{"type": "opus"}}), `unknown field "agents"`},
 		{set("lane_types", map[string]any{"opus": map[string]any{"kind": "claude"}}), `unknown field "lane_types"`},
 		// T-830: a removed key past its two-minor window is an unknown key, as any key this binary does not know.
 		// T-1062: the two empty v0.28 sections are past theirs too.
-		{set("mcp", map[string]any{}), `unknown field "mcp"`},
-		{set("cache", map[string]any{}), `unknown field "cache"`},
+		{set("mcp", map[string]any{}), ".mcp: unknown"},
+		{set("cache", map[string]any{}), ".cache: unknown"},
 		{set("heartbeat", map[string]any{"interval": 900}), "heartbeat"},
 		{set("stop_hook", map[string]any{"max_nudges": 2}), "stop_hook"},
 		{set("notify", map[string]any{"backends": []any{"herdr"}}), "notify"},
@@ -319,13 +331,18 @@ func TestShapeErrorsFailTheLoad(t *testing.T) {
 		{set("slots.cpus", "4"), "cpus"},
 		{set("slots.cpus", 2.5), "cpus"},
 		{set("slots.lane_cpus", "3"), "lane_cpus"},
-		{set("checks.loadlimit", 20), `unknown field "loadlimit"`},
+		{set("checks.loadlimit", 20), ".checks: unknown"},
 		// T-1062: the nine v0.28 keys are past their two-minor window: each is an unknown key now.
-		{set("merge.max_load", 10), `unknown field "max_load"`},
+		{set("merge.max_load", 10), ".merge.max_load: unknown"},
 	} {
 		p.Config(c.edit)
-		if _, err := config.Load(p.Root); err == nil || !strings.Contains(err.Error(), c.want) {
-			t.Errorf("load: %v, want an error naming %s", err, c.want)
+		_, unknown, err := config.LoadForValidate(p.Root)
+		got := strings.Join(unknown, "\n")
+		if err != nil {
+			got = err.Error()
+		}
+		if got == "" || !strings.Contains(got, c.want) {
+			t.Errorf("load: %q, want an error naming %s", got, c.want)
 		}
 	}
 }
@@ -378,10 +395,6 @@ func TestRemovedKeysWithinTwoVersions(t *testing.T) {
 	}{
 		{"paths.research", set("paths.research", `"docs/research"`), 0, 0},
 		{"paths.questions", set("paths.questions", `"QUESTIONS.md"`), 0, 0},
-		// T-962: v0.29 dropped checks.load_limit with the check slots' machine-load wait.
-		{"checks.load_limit", set("checks.load_limit", 12.5), 29, 31},
-		// T-966: v0.29 dropped merge.receipt_max_age with the test receipts.
-		{"merge.receipt_max_age", set("merge.receipt_max_age", 60), 29, 31},
 	} {
 		if r.removed > 0 {
 			if r.keepUntil != r.removed+2 {

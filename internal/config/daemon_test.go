@@ -6,9 +6,10 @@ import (
 	"testing"
 )
 
-// TestLoadDaemonUnknownPaths: LoadDaemon drops each unknown member found by its schema path, warns once per path, keeps
-// the known members that share a name, and still fails a type error; Load refuses every case (RV-41 #2).
-func TestLoadDaemonUnknownPaths(t *testing.T) {
+// TestLoadUnknownPaths: Load drops each unknown member found by its schema path, warns once per path, keeps the known
+// members that share a name, and still fails a type error; LoadForValidate fails every case, one line per path (RV-41
+// #2, T-1081).
+func TestLoadUnknownPaths(t *testing.T) {
 	for _, tc := range []struct {
 		name, cfg, local string
 		warn             []string
@@ -79,17 +80,26 @@ func TestLoadDaemonUnknownPaths(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := writeProject(t, tc.cfg, tc.local)
-			if _, err := Load(root); err == nil || !strings.Contains(err.Error(), "unknown field") {
-				t.Fatalf("Load: %v, want an unknown field error (strict stays strict)", err)
-			}
 			var out bytes.Buffer
 			defer func(w interface{ Write([]byte) (int, error) }) { Warn = w }(Warn)
 			Warn = &out
-			c, err := LoadDaemon(root)
+			if _, fails, err := LoadForValidate(root); err != nil || len(fails) != len(tc.warn) {
+				t.Fatalf("LoadForValidate: %q, %v; want a FAIL per path (strict stays strict)", fails, err)
+			} else {
+				for i, p := range tc.warn {
+					if !strings.HasPrefix(fails[i], "FAIL ."+p+": unknown to this obor") {
+						t.Errorf("FAIL line %q, want one naming %s", fails[i], p)
+					}
+				}
+			}
+			if out.Len() != 0 {
+				t.Errorf("LoadForValidate warned on Warn: %q", out.String())
+			}
+			c, err := Load(root)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := LoadDaemon(root); err != nil {
+			if _, err := Load(root); err != nil {
 				t.Fatal(err)
 			}
 			if n := strings.Count(out.String(), "\n"); n != len(tc.warn) {

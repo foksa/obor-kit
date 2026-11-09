@@ -144,3 +144,26 @@ func TestRestartCommand(t *testing.T) {
 		t.Errorf("--stop typed /exit in the worker's pane, started nothing: typed %v, started %v: %+v", typed, started, srv.Requests())
 	}
 }
+
+// T-1081: obor restart's load (load()) takes a config naming keys this obor does not know (the promotion's, T-1076):
+// the stop runs, with a warning, where it was "FAIL the config does not load".
+func TestRestartLoadsAConfigWithUnknownKeys(t *testing.T) {
+	t.Parallel()
+	p := testkit.NewPlain(t)
+	p.PlainLane("L-01", "")
+	p.Config(testkit.Set("branches.promote", "release"), testkit.Set("merge.weights", map[string]any{"core": 3}))
+	f := p.Herdr()
+	f.Shell("w1:p2", "pj-int", p.Root)
+	srv := herdrtest.Serve(t, f)
+	env := []string{"HERDR_SOCKET_PATH=" + srv.Path, "HOME=" + p.Base + "/home",
+		"OBOR_STATE_HOME=" + p.Base + "/state", "OBOR_RESTART_WAIT=1", callDown}
+	rc, stdout, stderr := run(t, p.Root, env, "restart", "pj-int", "--stop")
+	if rc != 0 || lastLine(stdout) != "STOPPED pj-int (pane w1:p2, already at a shell)" {
+		t.Errorf("restart --stop: exit %d, %q (%s); want the stop", rc, stdout, stderr)
+	}
+	for _, k := range []string{"branches.promote", "merge.weights"} {
+		if !strings.Contains(stderr, `unknown key "`+k+`" ignored`) {
+			t.Errorf("restart: no warning naming %s in %q", k, stderr)
+		}
+	}
+}

@@ -102,18 +102,28 @@ func TestLocalOverlay(t *testing.T) {
 	}
 }
 
+// TestUnknownKeyFails: the strict validate load (LoadForValidate) fails each unknown key with its path and file, where
+// Load (every command's) ignores it (T-1081).
 func TestUnknownKeyFails(t *testing.T) {
-	for _, cfg := range []string{`{"prefix":"pj","typo_key":1}`, `{"prefix":"pj","roles":{"mystery":{"model":"opus","writes":[]}}}`,
-		`{"prefix":"pj","models":{"m":{"kind":"claude","modle":"x"}}}`, `{"prefix":"pj","commands":{"c":{"cmd":"x","tmeout":5}}}`,
-		`{"prefix":"pj","kinds":{"claude":{"argz":[]}}}`} {
-		_, err := Load(writeProject(t, cfg, ""))
-		if err == nil || !strings.Contains(err.Error(), "unknown field") {
-			t.Errorf("%s: %v, want an unknown field error", cfg, err)
+	for _, c := range []struct{ cfg, key string }{
+		{`{"prefix":"pj","typo_key":1}`, "typo_key"},
+		{`{"prefix":"pj","roles":{"mystery":{"model":"opus","writes":[]}}}`, "roles.mystery.writes"},
+		{`{"prefix":"pj","models":{"m":{"kind":"claude","modle":"x"}}}`, "models.m.modle"},
+		{`{"prefix":"pj","commands":{"c":{"cmd":"x","tmeout":5}}}`, "commands.c.tmeout"},
+		{`{"prefix":"pj","kinds":{"claude":{"argz":[]}}}`, "kinds.claude.argz"},
+	} {
+		root := writeProject(t, c.cfg, "")
+		want := []string{"FAIL ." + c.key + ": unknown to this obor (retired, or newer than this binary): delete it (.obor/config.json)"}
+		if cfg, fails, err := LoadForValidate(root); err != nil || cfg == nil || !reflect.DeepEqual(fails, want) {
+			t.Errorf("%s: LoadForValidate %q, %v; want %q", c.cfg, fails, err, want)
+		}
+		if _, err := Load(root); err != nil {
+			t.Errorf("%s: Load %v, want the key ignored", c.cfg, err)
 		}
 	}
-	_, err := Load(writeProject(t, `{"prefix":"pj"}`, `{"slots":{"maxx":1}}`))
-	if err == nil || !strings.Contains(err.Error(), `unknown field "maxx"`) || !strings.Contains(err.Error(), "local.json") {
-		t.Errorf("local.json unknown key: %v", err)
+	_, fails, err := LoadForValidate(writeProject(t, `{"prefix":"pj"}`, `{"slots":{"maxx":1}}`))
+	if err != nil || len(fails) != 1 || !strings.HasPrefix(fails[0], "FAIL .slots.maxx: ") || !strings.HasSuffix(fails[0], "(.obor/local.json)") {
+		t.Errorf("local.json unknown key: %q, %v", fails, err)
 	}
 	// A key the shape still types: a wrong type fails, as a removed key (an `any`) no longer does (T-864).
 	if _, err := Load(writeProject(t, `{"prefix":"pj","handoff_tokens":"no"}`, "")); err == nil ||
