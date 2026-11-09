@@ -60,7 +60,7 @@ func TestDifficultyTakesTheLevelsModels(t *testing.T) {
 
 func TestDifficultyConfigOverridesTheDefault(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, pooled(), withConfig(testkit.Set("difficulty.medium", []string{"luna:low"})))
+	r := newLoopRig(t, pooled(), withConfig(testkit.Set("agents.difficulty.medium", []string{"luna:low"})))
 	r.start()
 	r.specLevel("medium")
 	if reply, err := r.dispatchLevel("d1"); err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01 (queued) as luna effort low") {
@@ -682,7 +682,7 @@ func TestDispatchFixesLine(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			r := newLoopRig(t, dispatching(), withConfig(testkit.Set("roles.reviewer", ""), testkit.Set("paths.reviews", "docs/reviews")))
+			r := newLoopRig(t, dispatching(), withConfig(testkit.Set("agents.roles.reviewer", ""), testkit.Set("reviews.dir", "docs/reviews")))
 			r.review = lastClose{}
 			if c.open {
 				r.reviewsLog("RV-5")

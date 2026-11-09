@@ -94,7 +94,7 @@ func TestDriveNoFreeLaneRefused(t *testing.T) {
 // sonnet:high takes L-01, T-2's dispatch of sonnet L-02, a second drive L-03; an unknown model is refused.
 func TestDriveModelHonoured(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, dispatching(), withConfig(testkit.Set("lanes", 3)))
+	r := newLoopRig(t, dispatching(), withConfig(testkit.Set("lanes.count", 3)))
 	r.addLanes(port.Lane{Name: "L-02", Dir: r.p.Lane("L-02", ""), State: "free"},
 		port.Lane{Name: "L-03", Dir: r.p.Lane("L-03", ""), State: "free"})
 	r.disp.set(func(d *dispatchFakes) { d.cut["prepare"] = "before" })

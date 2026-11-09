@@ -54,7 +54,7 @@ func TestIdleBlockers(t *testing.T) {
 	})
 	t.Run("a reviewer with a brief", func(t *testing.T) {
 		t.Parallel()
-		r := newLoopRig(t, withConfig(testkit.Set("roles.reviewer", "")))
+		r := newLoopRig(t, withConfig(testkit.Set("agents.roles.reviewer", "")))
 		rev := r.f.Agent("w1:p6", "pj-rev", "idle", r.p.Root)
 		rev.Label = "pj-rev"
 		r.start()
@@ -141,7 +141,7 @@ func TestIdleLineAfterTheWatchLine(t *testing.T) {
 // T-815: a brief of a role with no role worktree keeps the idle state: its acknowledgement stands.
 func TestCustomRoleBriefKeepsIdle(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, withConfig(testkit.Set("roles.researcher", "sonnet")))
+	r := newLoopRig(t, withConfig(testkit.Set("agents.roles.researcher", "sonnet")))
 	line := r.idleAcked()
 	if reply, err := r.line("b1", &wire.BriefReq{To: "pj-researcher", Text: "look at the docs"}); err != nil ||
 		!strings.HasPrefix(reply, "BRIEFED pj-researcher") {
@@ -164,7 +164,7 @@ func TestCustomRoleBriefKeepsIdle(t *testing.T) {
 // line, and only the request's end starts a window that posts the line.
 func TestIdleSettleReviewRequestTenSecondsLater(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, withConfig(testkit.Set("roles.reviewer", "")))
+	r := newLoopRig(t, withConfig(testkit.Set("agents.roles.reviewer", "")))
 	// The reviewer busy: the request stays in flight (every workflow has a review git, T-1029: an idle reviewer would
 	// start the review at once).
 	rev := r.f.Agent("w1:p5", "pj-rev", "working", r.p.Root)

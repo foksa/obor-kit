@@ -22,7 +22,7 @@ func TestFoldPinsTheLandedRowAtTheSubmittedHead(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewDir(t)
 	lane := p.Lane("L-01", "task/T-1")
-	p.Config(testkit.Set("roles.integrator", ""))
+	p.Config(testkit.Set("agents.roles.integrator", ""))
 	now := time.Now()
 	const submitted, merged = "1111111111111111111111111111111111111111", "2222222222222222222222222222222222222222"
 	rec := func(step, kind string, d any) event.Record {
@@ -121,7 +121,7 @@ func TestOldPrepareIntentReplays(t *testing.T) {
 // over git: internal/checks' TestLaneStates, internal/view's TestSetup.)
 func TestLaneRowsHoldConfiguredLanesOnly(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, withConfig(testkit.Set("lanes", 2)))
+	r := newLoopRig(t, withConfig(testkit.Set("lanes.count", 2)))
 	r.p.Lane("L-02", "") // the second configured lane: free
 	prep, _ := json.Marshal(map[string]any{"base": "b"})
 	d01, _ := json.Marshal(map[string]any{"lane": "D-01", "agent": "pj-l-01", "branch": "task/T-9", "type": "deepseek"})

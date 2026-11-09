@@ -15,11 +15,11 @@ import (
 
 // T-444, T-437: a dispatch starts against a herdr that refuses an agent.start argument with a newline: the start's
 // first prompt is the work job's one-line wake, its job result sent (start prompt), nothing typed. The kind's
-// prompt_extra is many lines, as a written note may be: it rides in the job's text, which job_next fetches (the real
-// templates/worker-prompt.txt), never on the start. (kinds.claude.prompt_extra: the rig's sonnet is a claude model.)
+// job_note is many lines, as a written note may be: it rides in the job's text, which job_next fetches (the real
+// templates/worker-prompt.txt), never on the start. (agents.kinds.claude.job_note: the rig's sonnet is a claude model.)
 func TestTypedDispatchStartsOnOneLine(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, dispatching(), withConfig(testkit.Set("kinds.claude.prompt_extra", "Also read docs/notes.md.\nThen start.")))
+	r := newLoopRig(t, dispatching(), withConfig(testkit.Set("agents.kinds.claude.job_note", "Also read docs/notes.md.\nThen start.")))
 	cfg, err := config.Load(r.p.Root)
 	if err != nil {
 		t.Fatal(err)
@@ -138,7 +138,7 @@ func TestStartPromptDelivery(t *testing.T) {
 			same(t, r.disp.called("prompt"), 0, "Prompter calls for the work job")
 		}},
 		{"a lane whose kind has no bridge: the dispatch refused, nothing recorded (DD-v0.13 D1)", func(t *testing.T) {
-			r := newLoopRig(t, dispatching(), withConfig(testkit.Set("models.sonnet", map[string]any{"kind": "pi", "model": "x"})))
+			r := newLoopRig(t, dispatching(), withConfig(testkit.Set("agents.models.sonnet", map[string]any{"kind": "pi", "id": "x"})))
 			r.start()
 			reply, err := r.dispatch("d1", "L-01")
 			if err == nil || err.Error() != "dispatch T-1: model sonnet's kind pi has no bridge (obor config validate)" {

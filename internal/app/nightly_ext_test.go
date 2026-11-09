@@ -271,9 +271,9 @@ func (c *configWriter) count() int {
 func TestNightlySwitchCountsFromTheNextPass(t *testing.T) {
 	t.Parallel()
 	f := &nightlyFake{outs: []app.NightlyOut{green}}
-	// No trunk (branches.main ""): this plain dir has no repository, so validate starts no git process for the
+	// No trunk (merge.target_branch ""): this plain dir has no repository, so validate starts no git process for the
 	// config_set (T-1024; the trunk check is config's TestValidateTrunkRef).
-	r := newLoopRig(t, withConfig(testkit.Set("branches.main", "")))
+	r := newLoopRig(t, withConfig(testkit.Set("merge.target_branch", "")))
 	r.clock.t = time.Date(2026, 11, 10, 12, 0, 0, 0, time.Local)
 	w := &configWriter{path: filepath.Join(r.p.Root, ".obor", "config.json")}
 	r.config = w
