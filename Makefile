@@ -63,8 +63,8 @@ test:
 # go test ./... and make check never run its checks (its stub MCP server and output writer are unit-tested there).
 # KIND=herdr|claude|codex|opencode (default: all), TIER=static (default; no session, no model) or live (one throwaway
 # herdr session per kind, agents started interactively; KEEP=1 keeps the scratch dir), TURN=1 (live: one model call
-# per kind). Prints PASS/FAIL/SKIP/WARN lines and records the versions checked in .obor/state/conformance.json; exit 1
-# on a FAIL. Nightly runs TIER=static as a non-gating line (commands.conformance).
+# per kind). Prints PASS/FAIL/SKIP/WARN lines; exit 1 on a FAIL. Nightly runs TIER=static as a non-gating line
+# (commands.conformance).
 conformance:
 	@KIND="$(KIND)" TIER="$(TIER)" TURN="$(TURN)" $(GO) run -tags conformance ./tests/conformance
 

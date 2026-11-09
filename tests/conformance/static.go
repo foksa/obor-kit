@@ -47,12 +47,11 @@ func output(d time.Duration, bin string, args ...string) (string, error) {
 	return string(b), err
 }
 
-// tool is the installed CLI of kind name: its path and version; begins the kind's lines. ok false: not installed
-// (every id in ids SKIPs, naming where).
+// tool is the installed CLI of kind name: its path and version. ok false: not installed (every id in ids SKIPs,
+// naming where).
 func tool(name string, ids map[string]string) (path, version string, ok bool) {
 	path, err := exec.LookPath(name)
 	if err != nil {
-		out.begin(name, "")
 		for _, id := range names(ids) {
 			report("SKIP", id, name+" is not installed", ids[id])
 		}
@@ -60,7 +59,6 @@ func tool(name string, ids map[string]string) (path, version string, ok bool) {
 	}
 	v, _ := output(15*time.Second, path, "--version")
 	version = versionOf(v)
-	out.begin(name, version)
 	return path, version, true
 }
 
