@@ -169,79 +169,40 @@ func TestSetupAgentsPluginKind(t *testing.T) {
 	x.failing(t, "FAIL agents mine: kind mine: install: exit 2: nope", "agents")
 }
 
-// T-1046: obor setup agents on a config from before OpenCode's binary (no agents.kinds.opencode.plugin) writes the line
-// into .obor/config.json (uncommitted) and caches the kit kind's manifest; a second run, the line there, writes nothing.
-func TestSetupAgentsWritesTheKitKind(t *testing.T) {
-	t.Parallel()
-	x := newFx(t, func(c map[string]any) { delete(c["agents"].(map[string]any), "kinds") })
-	path := filepath.Join(x.Root, ".obor", "config.json")
-	cache := filepath.Join(x.Root, ".obor", "state", "kinds", "opencode.json")
-	if b, _ := os.ReadFile(path); strings.Contains(string(b), `"kinds"`) || x.Exists(cache) {
-		t.Fatalf("precondition: no kinds in the config, no cache: %s", b)
-	}
-	out := x.ok(t, "agents")
-	has(t, out, "config agents.kinds.opencode.plugin = obor-kind-opencode (uncommitted: the kit's binary)", "the line written")
-	has(t, out, "OK agents opencode: manifest of ", "the kit kind's manifest cached")
-	var doc struct {
-		Agents struct {
-			Kinds map[string]struct{ Plugin string } `json:"kinds"`
-		} `json:"agents"`
-	}
-	if b, err := os.ReadFile(path); err != nil || json.Unmarshal(b, &doc) != nil || doc.Agents.Kinds["opencode"].Plugin != "obor-kind-opencode" {
-		t.Errorf("config after setup agents: %s, %v", b, err)
-	}
-	if b, err := os.ReadFile(cache); err != nil || !strings.Contains(string(b), `"name": "opencode"`) {
-		t.Errorf("cache %s: %s, %v", cache, b, err)
-	}
-	hasNot(t, x.ok(t, "agents"), "config agents.kinds.opencode.plugin", "a config that names it is left alone")
-}
-
-// T-1081 (DD-v0.32 #1): on a config that still names keys this obor does not know (the promotion's, T-1076), obor
-// setup agents still writes agents.kinds.opencode.plugin and caches the manifest (it used to skip both without a
-// word), and the file keeps those keys' bytes.
-func TestSetupAgentsKeepsUnknownKeys(t *testing.T) {
-	t.Parallel()
-	x := newFx(t, func(c map[string]any) { delete(c["agents"].(map[string]any), "kinds") }, testkit.Set("branches.promote", "release"),
-		testkit.Set("merge.promote_weight", 2), testkit.Set("merge.weights", map[string]any{"core": 3}))
-	path := filepath.Join(x.Root, ".obor", "config.json")
-	cache := filepath.Join(x.Root, ".obor", "state", "kinds", "opencode.json")
-	members := []string{`"promote":"release"`, `"promote_weight":2`, `"weights":{"core":3}`}
-	before, _ := os.ReadFile(path)
-	compact := func(b []byte) string { return strings.Join(strings.Fields(string(b)), "") }
-	for _, m := range members {
-		if !strings.Contains(compact(before), m) {
-			t.Fatalf("precondition: %s in the config: %s", m, before)
-		}
-	}
-	if strings.Contains(string(before), `"kinds"`) || x.Exists(cache) {
-		t.Fatalf("precondition: no kinds in the config, no cache: %s", before)
-	}
-	out := x.ok(t, "agents")
-	has(t, out, "config agents.kinds.opencode.plugin = obor-kind-opencode (uncommitted: the kit's binary)", "the line written")
-	has(t, out, "OK agents opencode: manifest of ", "the kit kind's manifest cached")
-	after, err := os.ReadFile(path)
-	var doc struct {
-		Agents struct {
-			Kinds map[string]struct{ Plugin string } `json:"kinds"`
-		} `json:"agents"`
-	}
-	if err != nil || json.Unmarshal(after, &doc) != nil || doc.Agents.Kinds["opencode"].Plugin != "obor-kind-opencode" {
-		t.Errorf("config after setup agents: %s, %v", after, err)
-	}
-	for _, m := range members {
-		if !strings.Contains(compact(after), m) {
-			t.Errorf("unknown key %s dropped by setup agents:\n%s", m, after)
-		}
-	}
-	// Byte for byte: the members holding them (branches, merge) are their old bytes (the patch keeps every member).
-	var top map[string]json.RawMessage
-	if err := json.Unmarshal(before, &top); err != nil {
-		t.Fatal(err)
-	}
-	for _, k := range []string{"branches", "merge"} {
-		if !strings.Contains(string(after), `"`+k+`": `+string(top[k])) {
-			t.Errorf("%s not kept byte for byte:\nbefore %s\nafter %s", k, top[k], after)
-		}
+// RV-171 (T-1156): obor setup agents caches the kit kind's manifest as the command the config resolves to
+// (config.KindCommand: the kit's binary, T-1155's default) and writes nothing to .obor/config.json — a shape-1 file
+// is not offered a write it would refuse, and a shape-2 one gets no unneeded uncommitted edit. A file holding a key
+// this obor does not know (T-1081) keeps its bytes too.
+func TestSetupAgentsCachesTheKitKindWithoutWriting(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		doc  string
+	}{
+		{"shape 1", `{"version": 1, "name": "proj", "prefix": "pj", "lanes": 0}` + "\n"},
+		{"shape 2", `{"version": 2, "project": {"name": "proj", "agent_prefix": "pj"},` +
+			` "branches": {"promote": "release"}}` + "\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			x := newFx(t)
+			path := filepath.Join(x.Root, ".obor", "config.json")
+			x.Write(".obor/config.json", tc.doc)
+			cache := filepath.Join(x.Root, ".obor", "state", "kinds", "opencode.json")
+			if x.Exists(cache) {
+				t.Fatal("precondition: a manifest cached before setup agents")
+			}
+			out := x.ok(t, "agents")
+			has(t, out, "OK agents opencode: manifest of ", "the kit kind's manifest cached")
+			var c struct {
+				Command string `json:"command"`
+			}
+			want := config.KitKind(config.KitKinds["opencode"])
+			if b, err := os.ReadFile(cache); err != nil || json.Unmarshal(b, &c) != nil || c.Command != want {
+				t.Errorf("cache %s: %s, %v; want the kit's binary %s", cache, b, err, want)
+			}
+			if b, err := os.ReadFile(path); err != nil || string(b) != tc.doc {
+				t.Errorf("config after setup agents:\n%s, %v; want it unchanged", b, err)
+			}
+		})
 	}
 }
 

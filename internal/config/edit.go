@@ -435,11 +435,6 @@ func SetSetupConfirmed(doc []byte, confirmed bool) (Write, error) {
 	return write("agents.confirmed", doc, p("agents", "confirmed"), confirmed)
 }
 
-// SetKindCommand returns doc with agents.kinds.<kind>.plugin = cmd.
-func SetKindCommand(doc []byte, kind, cmd string) (Write, error) {
-	return write("agents.kinds."+kind+".plugin", doc, p("agents", "kinds", kind, "plugin"), cmd)
-}
-
 // RenameProject returns doc with project.name and project.agent_prefix set to the new ones: each only when the file
 // has it, or always with force (config.json; a local.json changes only what it overrides). obor setup rename's step 1.
 // A file of shape 1 (or the local.json beside one) keeps its shape: name and prefix there.

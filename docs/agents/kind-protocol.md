@@ -23,8 +23,8 @@ its hook transport. A test binary answers it in process (`plugin.Local`, testkit
   `dist/obor-kind-opencode`, a release binary's same-suffixed file in `~/.obor/bin`). `obor init` writes
   `"opencode": {"plugin": "obor-kind-opencode"}`.
 - A config that uses OpenCode may name `agents.kinds.opencode.plugin` (`"plugin": "obor-kind-opencode"`); with no
-  line it runs the kit's binary all the same (`config.KitKinds`, the default, T-1155). `obor setup agents` writes the
-  line into `.obor/config.json` (uncommitted) and caches its manifest.
+  line it runs the kit's binary all the same (`config.KitKinds`, the default, T-1155). `obor setup agents` caches the
+  resolved command's manifest and writes nothing to the config (RV-171: a value obor derives needs no line).
 - `obor config validate` checks the file is executable and that its `describe` answers with a manifest of `<name>`.
 - obor serve runs `describe` and caches the reply (the **manifest**) as `.obor/state/kinds/<name>.json` at its start
   and again once the command's mtime (or its path) differs from the cached one (T-1054); `obor init` and

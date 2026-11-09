@@ -207,7 +207,8 @@ func (s *Setup) agentsCmd(args []string) error {
 // cachePlugins describes every plugin kind of the project around Dir (none outside a project, or with no config) and
 // caches its manifest, then reloads the config so the registry's plugin kinds carry it; cached are their names (obor
 // setup agents; obor init's kinds step, T-1054). A kit kind the config names no plugin for (config.KitKinds: the
-// kit's binary is the default, T-1155) gets agents.kinds.<name>.plugin first, uncommitted.
+// kit's binary is the default, T-1155) is cached as that default and the config is left as it is (RV-171: a shape-1
+// file refuses a write, and a shape-2 one needs no edit for a value obor derives).
 func (s *Setup) cachePlugins() (cached []string, err error) {
 	if s.findRoot() != nil {
 		return nil, nil
@@ -217,11 +218,6 @@ func (s *Setup) cachePlugins() (cached []string, err error) {
 		return nil, nil
 	}
 	for _, name := range cfg.PluginKinds() {
-		if !cfg.KindCommandSet(name) {
-			if err := s.setKindCommand(name, config.KitKinds[name]); err != nil {
-				return nil, err
-			}
-		}
 		cmd := cfg.KindCommand(name)
 		if _, err := plugin.Cache(name, cmd, cfg.StateDir()); err != nil {
 			return nil, project.Failf("agents %s: %v", name, err)
@@ -233,11 +229,4 @@ func (s *Setup) cachePlugins() (cached []string, err error) {
 		return nil, project.Failf("%v", err)
 	}
 	return cached, nil
-}
-
-// setKindCommand sets kinds.<name>.command to cmd in .obor/config.json (not local.json), uncommitted.
-func (s *Setup) setKindCommand(name, cmd string) error {
-	return s.editConfig(func(doc []byte) (config.Write, error) {
-		return config.SetKindCommand(doc, name, cmd)
-	}, ": the kit's binary")
 }
