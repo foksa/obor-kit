@@ -15,7 +15,7 @@
     "check": { "cmd": "bun run check", "timeout": 900 },
     "baseline": { "cmd": "bun run baseline diff \"$OBOR_BASELINE\"", "dir": "../myproject-baseline/main", "timeout": 600 },
     "gate": { "cmd": "bun run gate", "timeout": 900, "paths": ["src/slow/**"] },
-    "check_fast": "bun run check:fast",
+    "check_milestone": "bun run check:slow",
     "e2e": "bun run e2e"
   },
   "lane_links": ["fixtures"],
@@ -33,6 +33,7 @@
   "setup": { "confirmed": false },
   "merge": {
     "scratch_dir": null,
+    "nightly_at": "02:00",
     "trailer": "Co-Authored-By: Claude <noreply@anthropic.com>",
     "summary_regex": "[0-9]+ pass|[0-9]+ fail",
     "fail_grep": "error|FAIL|Expected|Received"

@@ -765,6 +765,9 @@ func TestOborInitWritesDetectedCommandsOnce(t *testing.T) {
 	if !strings.Contains(out, "OK init proj (prefix proj); next: obor lead\n") {
 		t.Errorf("a detected stack's next line is not the OK line:\n%s", out)
 	}
+	// T-1075: the summary says what commands.check is for, so an adopter keeps it to a few minutes.
+	has(t, out, "commands.check is what every merge must pass, keep it to a few minutes; slower tests go in "+
+		"check_milestone (the nightly), and obor nightly off if CI on main already does that", "the check line")
 	has(t, out, "go.mod", "detected line")
 	doc, _ := config.EditJSON([]byte(x.Read(".obor/config.json")), []string{"commands", "check"}, "make mine")
 	x.Write(".obor/config.json", string(doc))

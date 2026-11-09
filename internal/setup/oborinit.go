@@ -271,6 +271,8 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 		s.say("  %-10s %-8s %s", st.name, st.state, st.what)
 	}
 	s.say("detected: %s", s.detectedLine())
+	s.say("commands.check is what every merge must pass, keep it to a few minutes; slower tests go in check_milestone " +
+		"(the nightly), and obor nightly off if CI on main already does that")
 	s.say("change any of it in .obor/config.json (then obor init again, or obor setup lane / pane / role)")
 	if len(waiting) > 0 {
 		s.say("waiting on a \"Trust this folder?\" dialog: %s: press Enter in each, then obor init again",
