@@ -430,6 +430,20 @@ func TestStopBackgroundRunStillGoing(t *testing.T) {
 	f.stop(t, "-", o1, "", "OBOR_PANE=w1:p1").block("a call recorded without an agent in our pane").
 		has("reason", "bench the build")
 
+	// T-1147 (RV-169 verify): a run whose shell started 5 s after the agent (within the view's helper slack of its
+	// start) still blocks: the helper filter is the view's alone.
+	record(call)
+	early := append([]background.Proc(nil), agents...)
+	early[0].Age = 11 * time.Second
+	early = append(early, mine...)
+	stopProcs = func(context.Context) ([]background.Proc, error) { return early, nil }
+	for _, f := range background.NewProcIndex(early).Descendants(500, -1) {
+		if f.PID == 701 {
+			t.Fatalf("precondition: the view's walk hides the early run, found %+v", f)
+		}
+	}
+	f.stop(t, "-", o1, "").block("a recorded run started in the agent's first seconds").has("reason", "bench the build")
+
 	record(call)
 	procs(mine)
 	if os.Geteuid() != 0 { // root ignores the mode: the file reads as a live record

@@ -138,11 +138,12 @@ func runs(command, want string) bool {
 func Fold(s string) string { return strings.Join(strings.Fields(s), " ") }
 
 // Live is the newest call in calls still running at at in one of agent's processes in procs: a descendant of the
-// agent's pid (Descendants, the view's walk, of any age) that runs its command and started just after the call was
-// recorded (Match). Another agent's process running the same command is none of its (RV-169 #1). ok is false when
-// every call's process has ended, or agent is not in procs: the call's turn is over, or the agent is unknown.
+// agent's pid (every one, of any age: the view's helper filter is a display heuristic and not applied, T-1147 — a run
+// started within helperSlack of the agent's start is still its run) that runs its command and started just after the
+// call was recorded (Match). Another agent's process running the same command is none of its (RV-169 #1). ok is false
+// when every call's process has ended, or agent is not in procs: the call's turn is over, or the agent is unknown.
 func Live(calls []project.BackgroundCall, procs []Proc, agent int, at time.Time) (call project.BackgroundCall, ok bool) {
-	found := NewProcIndex(procs).Descendants(agent, -1)
+	found := NewProcIndex(procs).walk(agent, -1, false)
 	for i := len(calls) - 1; i >= 0; i-- {
 		for _, f := range found {
 			if c, ok := Match(f, calls[i:i+1], at); ok {
@@ -226,6 +227,13 @@ func NewProcIndex(procs []Proc) *ProcIndex {
 // server wrapped in a shell) and obor's own MCP server anywhere. Each entry's ancestors up to the agent (the shell that
 // wraps a Bash tool call) come with it, to match a recorded call against. None when agent is not in procs.
 func (x *ProcIndex) Descendants(agent int, min time.Duration) []Found {
+	return x.walk(agent, min, true)
+}
+
+// walk is Descendants with the agent's helpers left out when helpers is set; unset, every descendant is an entry
+// (shells with children still passed through, their commands the entries' chains): Live's walk, which matches a
+// recorded call before any filtering (T-1147).
+func (x *ProcIndex) walk(agent int, min time.Duration, helpers bool) []Found {
 	self, ok := x.byPID[agent]
 	if !ok || agent <= 1 {
 		return nil
@@ -236,7 +244,7 @@ func (x *ProcIndex) Descendants(agent int, min time.Duration) []Found {
 	walk = func(pid int, chain []string) {
 		for _, c := range kids[pid] {
 			shell := shells[program(c.Command)]
-			if oborMCP(c.Command) || pid == agent && (!shell || c.Age >= self.Age-helperSlack) {
+			if helpers && (oborMCP(c.Command) || pid == agent && (!shell || c.Age >= self.Age-helperSlack)) {
 				continue
 			}
 			if shell && len(kids[c.PID]) > 0 {
