@@ -250,9 +250,67 @@ func TestSweep(t *testing.T) {
 				t.Errorf("flakes.jsonl = %q, want only the 6-day-old entry", b)
 			}
 		}},
+		{"a removal the sweep cannot make is one line naming it, and the sweep goes on", func(t *testing.T, cfg *config.Config, now time.Time) {
+			stuck := filepath.Join(StateDir(cfg.Root), "backup", "herd-2026-11-01.db") // a directory: its removal needs write on it
+			sweepFile(t, now, filepath.Join(stuck, "x"), time.Hour)
+			if err := os.Chmod(stuck, 0o555); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { os.Chmod(stuck, 0o755) })
+			if f, err := os.Create(filepath.Join(stuck, ".probe")); err == nil { // root ignores the mode
+				f.Close()
+				t.Skip("running as root: modes are not enforced")
+			}
+			dead := filepath.Join(StateDir(cfg.Root), "run-changed-O-03")
+			sweepFile(t, now, dead, time.Hour)
+			lines := Sweep(cfg, now, true)
+			if len(lines) != 1 || !strings.Contains(lines[0], filepath.Base(stuck)) {
+				t.Fatalf("Sweep = %q, want one line naming %s", lines, filepath.Base(stuck))
+			}
+			there(t, stuck)
+			gone(t, dead) // the other steps still ran
+		}},
+		{"7 old .db days and today's backup: the oldest goes", func(t *testing.T, cfg *config.Config, now time.Time) {
+			days := sweepBackupDays(t, cfg, now)
+			if lines := Sweep(cfg, now, true); len(lines) != 0 {
+				t.Fatalf("Sweep = %q, want no lines", lines)
+			}
+			gone(t, days[0])
+			for _, p := range days[1:] {
+				there(t, p)
+			}
+		}},
+		{"7 old .db days, the backup failed: all stay, the other steps still run", func(t *testing.T, cfg *config.Config, now time.Time) {
+			days := sweepBackupDays(t, cfg, now)
+			dead := filepath.Join(StateDir(cfg.Root), "run-changed-O-03")
+			sweepFile(t, now, dead, time.Hour)
+			if lines := Sweep(cfg, now, false); len(lines) != 0 {
+				t.Fatalf("Sweep = %q, want no lines", lines)
+			}
+			for _, p := range days {
+				there(t, p) // without the guard the oldest would go: the newest 7 do not cover it
+			}
+			gone(t, dead)
+		}},
 	} {
 		t.Run(c.name, func(t *testing.T) { t.Parallel(); c.test(t, sweepCfg(t), now) })
 	}
+}
+
+// sweepBackupDays writes 7 old uncompressed daily backups (obor-2026-11-01.db … obor-2026-11-07.db) and today's
+// obor-2026-11-09.db.gz, then returns them, oldest first (T-1145: one date more than backupKeep keeps).
+func sweepBackupDays(t *testing.T, cfg *config.Config, now time.Time) []string {
+	t.Helper()
+	dir := filepath.Join(StateDir(cfg.Root), "backup")
+	var out []string
+	for day := 1; day <= 7; day++ {
+		p := filepath.Join(dir, fmt.Sprintf("obor-2026-11-%02d.db", day))
+		sweepFile(t, now, p, 2*24*time.Hour)
+		out = append(out, p)
+	}
+	today := filepath.Join(dir, "obor-2026-11-09.db.gz")
+	sweepFile(t, now, today, time.Hour)
+	return append(out, today)
 }
 
 // TestSweepNoPrefixFailsClosed: agent names cannot be derived, so the per-lane/agent step is a line and removes
