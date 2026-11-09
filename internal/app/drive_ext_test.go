@@ -60,6 +60,16 @@ func TestDriveNewOnAFreeUntypedLane(t *testing.T) {
 	}
 }
 
+// RV-167 #2: a project whose hard level names no model gives the shape-2 config path in the drive's hint.
+func TestDriveNoModelNamesShape2Path(t *testing.T) {
+	t.Parallel()
+	r := newLoopRig(t, dispatching(), started(), withConfig(testkit.Set("difficulty.hard", []string{})))
+	_, err := r.drive("v1", "web")
+	if err == nil || !strings.Contains(err.Error(), "no model for level hard (obor config get .agents.difficulty)") {
+		t.Fatalf("drive with no hard model: %v; want the shape-2 config path", err)
+	}
+}
+
 // No free lane: refused with the lanes' states, nothing recorded and no wait (a working lane holds its task).
 func TestDriveNoFreeLaneRefused(t *testing.T) {
 	t.Parallel()

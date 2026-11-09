@@ -293,7 +293,7 @@ func resolveLevel(cfg *config.Config, c *wire.DispatchReq, sp spec.Spec) error {
 	}
 	all := specFirst(cfg, sp, knownModels(cfg, cfg.DifficultyList(sp.Level)))
 	if len(all) == 0 {
-		return fmt.Errorf("no model of level %s is known to this project (obor config get difficulty): dispatch with "+
+		return fmt.Errorf("no model of level %s is known to this project (obor config get .agents.difficulty): dispatch with "+
 			"--model a,b", sp.Level)
 	}
 	c.Level, c.Types = sp.Level, all
