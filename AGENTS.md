@@ -41,6 +41,8 @@ checks placement against `docs/module-map.md` at accept).
 - An empty derived value is an error, never a default: a name, role, path or id that obor derives and gets back empty
   (or unknown) fails closed with a message naming what is missing; no silent fallback to "no role", "no agent" or the
   main checkout (T-791: an opencode worker's MCP calls lost their name; T-814: a removed role kept write rights).
+- A task that deletes a writer adds its file to the nightly sweep's retired list (`internal/project/sweep.go`, T-1085):
+  the sweep lists the retired names, never an allowlist of the live ones.
 
 ## Tests
 - Where tests run (T-961, T-995): the merge slot runs `make check-compile` (build, gofmt, vet, deadcode; no `go test`);

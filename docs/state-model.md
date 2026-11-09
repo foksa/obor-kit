@@ -46,7 +46,8 @@ it runs in (a lane worktree's is its main checkout's); `obor send` dials the tar
   (changed since: the current text, and the merge message as the gated rev's), so an accept binds to what was reviewed, and `git log` has each spec in its merge. A dropped task's spec stays in the store only. The lead drafts specs in
   `.obor/drafts/` (gitignored), never in the tasks dir (an untracked file there holds the publish).
 - `obor serve dump [<root>]` prints the table as JSONL (read-only, serve may be down). `obor nightly` backs the database up to
-  `.obor/state/backup/obor-<YYYY-MM-DD>.db` (through the running serve, else directly), keeping the newest 7.
+  `.obor/state/backup/obor-<YYYY-MM-DD>.db.gz` (gzip; through the running serve, else directly), keeping the newest 7;
+  restoring one is `gunzip -c <file> > .obor/state/obor.db` with serve stopped.
 - One writer: the serve holding the project's `serve.flock`. A failed append (disk full, read-only) is kept in memory
   as the project's `log_error` until an append succeeds: `obor status` prints it (T-424). That reason is not a record: while the log fails, no
   step, needs-you included, can be recorded.

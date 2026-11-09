@@ -203,10 +203,46 @@ func TestNightlyBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 	db.Close()
-	x.is(x.nightly(), OK, `^NIGHTLY GREEN [0-9a-f]{7} on main \(check rc=0, backup obor-[0-9]{4}-[0-9]{2}-[0-9]{2}\.db, [0-9]+s\)$`)
-	if got, _ := filepath.Glob(filepath.Join(wire.BackupDir(x.Root), "obor-*.db")); len(got) != 1 {
+	x.is(x.nightly(), OK, `^NIGHTLY GREEN [0-9a-f]{7} on main \(check rc=0, backup obor-[0-9]{4}-[0-9]{2}-[0-9]{2}\.db\.gz, [0-9]+s\)$`)
+	if got, _ := filepath.Glob(filepath.Join(wire.BackupDir(x.Root), "obor-*.db.gz")); len(got) != 1 {
 		t.Errorf("backups = %v, want one", got)
 	}
+}
+
+// T-1085: nightly runs the sweep right after the backup: files of a lane the config no longer names go.
+func TestNightlySweep(t *testing.T) {
+	t.Parallel()
+	x := newFx(t, cmd("check", "true"))
+	goneFile := x.Path(".obor/state/run-changed-O-03")
+	if err := os.MkdirAll(filepath.Dir(goneFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	x.Write(goneFile, "x\n")
+	x.is(x.nightly(), OK, `^NIGHTLY GREEN [0-9a-f]{7} on main \(check rc=0, [0-9]+s\)$`)
+	x.gone(goneFile, "a gone lane's changed-files file")
+}
+
+// T-1085: a removal the sweep cannot make is one line in nightly's output, never a failed nightly.
+func TestNightlySweepFailure(t *testing.T) {
+	t.Parallel()
+	x := newFx(t, cmd("check", "true"))
+	dir := filepath.Join(x.Root, ".obor", "state", "backup")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := filepath.Join(dir, "herd-2026-01-01.db")
+	x.Write(old, "x\n")
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(dir, 0o755) })
+	if f, err := os.Create(filepath.Join(dir, ".probe")); err == nil { // root ignores the mode
+		f.Close()
+		os.Remove(filepath.Join(dir, ".probe"))
+		t.Skip("running as root: modes are not enforced")
+	}
+	x.is(x.nightly(), OK, `^NIGHTLY GREEN [0-9a-f]{7} on main \(check rc=0, [0-9]+s\)$`)
+	x.contains(x.out.String(), filepath.Base(old), "the failed removal's line")
 }
 
 // T-817: merge.nightly_commands runs after the gating checks and the backup, in order, each non-gating: one report
@@ -237,7 +273,7 @@ func TestNightlyCommands(t *testing.T) {
 				t.Fatal(err)
 			}
 			db.Close()
-			x.is(x.nightly(), OK, `^NIGHTLY GREEN [0-9a-f]{7} on main \(check rc=0, backup obor-[0-9]{4}-[0-9]{2}-[0-9]{2}\.db, slow_a \(non-gating\) done, [0-9]+s\)$`)
+			x.is(x.nightly(), OK, `^NIGHTLY GREEN [0-9a-f]{7} on main \(check rc=0, backup obor-[0-9]{4}-[0-9]{2}-[0-9]{2}\.db\.gz, slow_a \(non-gating\) done, [0-9]+s\)$`)
 		}},
 		{"unset: a command no list names does not run, no line", func(t *testing.T) {
 			x := newFx(t, cmd("slow_a", logged("slow_a", "echo hi")))
