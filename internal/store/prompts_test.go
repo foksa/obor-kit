@@ -99,7 +99,7 @@ func TestPromptsWriteReadPrune(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	n, err := PrunePrompts(db, at.Add(14*24*time.Hour))
+	n, err := PrunePrompts(db, at.Add(3*24*time.Hour))
 	if err != nil || n != 6 {
 		t.Fatalf("PrunePrompts: %d %v; want 6", n, err)
 	}
@@ -107,7 +107,7 @@ func TestPromptsWriteReadPrune(t *testing.T) {
 	if err != nil || seqs(rows) != "6" {
 		t.Errorf("after the prune: %q %v; want 6", seqs(rows), err)
 	}
-	if n, err := PrunePrompts(db, at.Add(14*24*time.Hour)); err != nil || n != 0 {
+	if n, err := PrunePrompts(db, at.Add(3*24*time.Hour)); err != nil || n != 0 {
 		t.Errorf("a second prune: %d %v; want 0", n, err)
 	}
 }

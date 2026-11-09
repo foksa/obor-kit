@@ -100,10 +100,12 @@ func TestBackup(t *testing.T) {
 	h := newHarness(t)
 	h.connect()
 	h.tick(11 * time.Minute) // a record to back up
-	// T-665: the nightly backup prunes the prompts older than 14 days, keeps the rest.
+	// T-665, T-1092: the nightly backup prunes the prompts older than 3 days, keeps the rest.
 	for _, r := range []store.PromptRow{
 		{Seq: 1, Agent: "pj-l-01", Kind: store.PromptJob, Job: "T-1/1/work", Task: "T-1", TS: "2026-10-10T12:00:00Z", Text: "old"},
-		{Seq: 2, Agent: "pj-l-01", Kind: store.PromptJob, Job: "T-1/2/work", Task: "T-1", TS: "2026-10-24T12:00:00Z", Text: "fresh"},
+		// 4 days old: kept under the old 14 days, pruned under the 3 this test holds (T-1092).
+		{Seq: 3, Agent: "pj-l-01", Kind: store.PromptJob, Job: "T-1/3/work", Task: "T-1", TS: "2026-10-20T12:00:00Z", Text: "stale"},
+		{Seq: 2, Agent: "pj-l-01", Kind: store.PromptJob, Job: "T-1/2/work", Task: "T-1", TS: "2026-10-22T12:00:00Z", Text: "fresh"},
 	} {
 		if err := store.WritePrompt(h.a.p.log.DB(), r); err != nil {
 			t.Fatal(err)
@@ -115,7 +117,7 @@ func TestBackup(t *testing.T) {
 	}
 	if rows, err := store.ReadPrompts(h.a.p.log.DB(), store.PromptQuery{Task: "T-1"}, 10); err != nil || len(rows) != 1 ||
 		rows[0].Text != "fresh" {
-		t.Errorf("prompts after the nightly backup: %+v, %v; want only the fresh one (14 days kept)", rows, err)
+		t.Errorf("prompts after the nightly backup: %+v, %v; want only the fresh one (3 days kept)", rows, err)
 	}
 	if recs, err := event.ReadLog(backupRoot(t, filepath.Join(wire.BackupDir(h.root), "obor-2026-10-24.db.gz"))); err != nil || len(recs) == 0 {
 		t.Errorf("serve's backup log = %+v, %v; want its records", recs, err)

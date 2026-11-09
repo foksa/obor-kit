@@ -212,7 +212,7 @@ job's text in `jobNext` after `fetchText` (a refetch's row too, under the delive
 a fresh start's first prompt (`obor restart … --fresh --prompt`, a review's start) in `recordBrief` (one row each). A
 payload, not state: never folded or replayed, and a failed write is logged and never fails the job or the brief. A
 line (a `message` fact) carries its text already: no row. Readers are `store` functions by agent, by task and by job
-id, newest first, with a limit, on an `OpenRO` connection and no long transaction. Rows older than 14 days are deleted
+id, newest first, with a limit, on an `OpenRO` connection and no long transaction. Rows older than 3 days are deleted
 at serve's nightly backup (`PrunePrompts`; a backup made read-only with serve down prunes nothing).
 
 ## States
