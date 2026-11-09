@@ -28,7 +28,7 @@ its hook transport. A test binary answers it in process (`plugin.Local`, testkit
 - `obor config validate` checks the file is executable and that its `describe` answers with a manifest of `<name>`.
 - obor serve runs `describe` and caches the reply (the **manifest**) as `.obor/state/kinds/<name>.json` at its start
   and again once the command's mtime (or its path) differs from the cached one (T-1054); `obor init` and
-  `obor setup agents` cache it too (setup agents then runs `install` and applies what it returns). A call that runs
+  `obor setup agents` cache it too (setup agents then runs `install`, whose answer `obor setup mcp` checks). A call that runs
   the command describes it again by itself, too, once the command changed.
 - What the manifest answers is read from the cache, never by running the command: hooks and the guard load the config
   and stay as fast as for a compiled kind. A kind with no cache has no answers: every call that would run it fails
@@ -56,10 +56,14 @@ obor runs `<command> <call>` with one JSON object on stdin and reads one JSON ob
 | `describe` | — | the manifest (below) | `Name`, `Caps`, `Efforts`, `Vars`, `Stop`, `Headless`, `Transcript`, `InboxRecord`, `MCPRegistration.Lane` | `obor setup agents`, `obor config validate`, a changed command |
 | `start` | `env`, `kit`, `args`, `settings`, `resume`, `prompt`, `effort`, `strict_mcp`, `session`, `write_dirs`, `dir` | `args` (argv after the binary), `env` (variable → value, "" unsets), `files: [{name, bytes}]` | `StartWhole` (a compiled kind's `Start` and `StartEnv`, `agents.Split`) | once per agent start, with every field of the start: its argv, env and files applied together (T-1042); also obor config validate's effort check (`args` and `effort` alone, its files not written: `agents.ArgsChecker`) |
 | `not-ready` | `screen` | `why` ("" ready) | `NotReady` | per poll during a start, when the manifest says `not_ready: {call: true}` |
-| `install` | `kit`, `env` | `mcp: {where, path, alt_path, key, entry, unpinned}`, `plugin: {from, to}` or null | `Install` | `obor setup agents`, `obor setup mcp` |
+| `install` | `kit`, `env` | `mcp: {where, path, key, entry, unpinned}` | `Install` | `obor setup agents`, `obor setup mcp` |
 | `turn` | `what: last` + `tail`; `what: session` + `first`; `what: reset` + `error`, `details`, `at` | last: `ok`, `turn: {id, error, details, ended, reset}`; session: `ok`, `session: {id, cwd, started}`; reset: `limited`, `reset` | `LastTurn`, `Session`, `Reset` | per transcript poll (status `transcript`), a launch finding a session, a stop on an error |
 | `deliver` | `text`, `record` | `ok`, `delivery: {typed, socket, lines}` | `Deliver` | per line delivered, unless the manifest says `typed: true` |
 | `project-warnings` | `dir` | `warnings: ["<file>: <why>", …]` | `agents.ProjectChecker` | `obor config validate`, when the manifest says `project_warnings: true` (the kind reads the project's CLI files in `dir` itself, T-1033) |
+
+An install reply registers nothing user-global (T-1119: the user-config install path was removed): `mcp.where` is
+`manifest` or `start`, never `config`, and no `plugin` link is in it. A reply that still carries either is refused with
+an error naming the removal; a kind registers per launch or through the project's own files.
 
 Times are RFC 3339 strings ("" none).
 

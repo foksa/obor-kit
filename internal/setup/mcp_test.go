@@ -1,11 +1,9 @@
 package setup
 
 import (
-	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -127,115 +125,7 @@ func TestRV47SetupMCPLaneVariadic(t *testing.T) {
 // jsonStr is s as a JSON string literal, as the config holds kinds args.
 func jsonStr(s string) string { return config.Compact(s) }
 
-// DD-v0.13 B1: a Config registration is written at its bridge's Key, whatever the CLI's shape (a Cursor-like
-// mcpServers.obor here, not OpenCode's mcp.servers.obor): created with its parents, every other key kept, an equal
-// entry left, --remove deletes only the entry and the objects it leaves empty; the doctor reads it at the same Key.
-// The other spelling of the file (AltPath) is edited when it is the only one there; a config with comments, or one that
-// is no JSON, is left alone (T-835: the old global opencode entry was the last AltPath registration).
-func TestConfigMCPAtTheKindsKey(t *testing.T) {
-	t.Parallel()
-	path := filepath.Join(t.TempDir(), "cfg", "mcp.json")
-	m := agents.MCPRegistration{Where: agents.Config, Path: path, Key: []string{"mcpServers", "obor"},
-		Entry: map[string]any{"command": "/kit/bin/obor", "args": []string{"mcp"}}}
-	var out bytes.Buffer
-	s := &Setup{Out: &out}
-	if state, _, err := registration(m); state != entryNone || err != nil {
-		t.Fatalf("precondition: no file, not registered: %d %v", state, err)
-	}
-	if err := s.configMCP("cur", m, false); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := os.ReadFile(path)
-	if got := anyJSON(string(b)); !reflect.DeepEqual(got, anyJSON(`{"mcpServers":{"obor":{"command":"/kit/bin/obor","args":["mcp"]}}}`)) {
-		t.Errorf("written at the key: %s", b)
-	}
-	has(t, out.String(), "OK agents cur: mcpServers.obor set in "+path, "said, by the key")
-	if state, _, err := registration(m); state != entryPinned || err != nil {
-		t.Errorf("the doctor reads it at the key: %d %v", state, err)
-	}
-
-	os.WriteFile(path, []byte(`{"theme":"x","mcpServers":{"other":{"command":"o"},"obor":{"command":"/old"}}}`), 0o644)
-	if err := s.configMCP("cur", m, false); err != nil {
-		t.Fatal(err)
-	}
-	b, _ = os.ReadFile(path)
-	if got := anyJSON(string(b)); !reflect.DeepEqual(got, anyJSON(`{"theme":"x","mcpServers":{"other":{"command":"o"},"obor":{"command":"/kit/bin/obor","args":["mcp"]}}}`)) {
-		t.Errorf("stale entry replaced, the rest kept: %s", b)
-	}
-	if err := s.configMCP("cur", m, true); err != nil {
-		t.Fatal(err)
-	}
-	b, _ = os.ReadFile(path)
-	if got := anyJSON(string(b)); !reflect.DeepEqual(got, anyJSON(`{"theme":"x","mcpServers":{"other":{"command":"o"}}}`)) {
-		t.Errorf("--remove deletes only the entry: %s", b)
-	}
-	os.WriteFile(path, []byte(`{"theme":"x","mcpServers":{"obor":{}}}`), 0o644)
-	if err := s.configMCP("cur", m, true); err != nil {
-		t.Fatal(err)
-	}
-	b, _ = os.ReadFile(path)
-	if got := anyJSON(string(b)); !reflect.DeepEqual(got, anyJSON(`{"theme":"x"}`)) {
-		t.Errorf("an emptied mcpServers is deleted: %s", b)
-	}
-	os.WriteFile(path, []byte(`{"mcpServers":[]}`), 0o644)
-	if err := s.configMCP("cur", m, false); err == nil || !strings.Contains(err.Error(), "mcpServers is not an object: left alone") {
-		t.Errorf("a non-object on the way: %v", err)
-	}
-
-	// A registration with an AltPath (the other spelling of the file) edits it when it is the only one there.
-	alt := m
-	alt.Path, alt.AltPath = filepath.Join(filepath.Dir(path), "opencode.json"), filepath.Join(filepath.Dir(path), "opencode.jsonc")
-	if _, err := os.Stat(alt.Path); err == nil {
-		t.Fatalf("precondition: %s is not there", alt.Path)
-	}
-	if err := os.WriteFile(alt.AltPath, []byte(`{"theme":"x"}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	out.Reset()
-	if err := s.configMCP("cur", alt, false); err != nil {
-		t.Fatal(err)
-	}
-	has(t, out.String(), "OK agents cur: mcpServers.obor set in "+alt.AltPath, "the alt file, said")
-	if b, _ := os.ReadFile(alt.AltPath); anyJSON(string(b)) == nil || !strings.Contains(string(b), "/kit/bin/obor") {
-		t.Errorf("the alt file got the entry: %s", b)
-	}
-	if _, err := os.Stat(alt.Path); err == nil {
-		t.Errorf("the missing file %s is made: the alt one is edited instead", alt.Path)
-	}
-
-	// A config with comments is not edited: the paste block is printed and the step fails (comments would be lost).
-	jsonc := filepath.Join(filepath.Dir(path), "commented.jsonc")
-	commented := "// mine\n{\"mcpServers\":{}}\n"
-	if err := os.WriteFile(jsonc, []byte(commented), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	alt.Path, alt.AltPath = jsonc, ""
-	out.Reset()
-	err := s.configMCP("cur", alt, false)
-	if err == nil || err.Error() != "agents cur: "+jsonc+" is not edited (comments would be lost)" {
-		t.Errorf("a config with comments: %v", err)
-	}
-	has(t, out.String(), "WARN agents cur: "+jsonc+" is not edited (comments would be lost)", "the comments case: warned")
-	has(t, out.String(), "paste into "+jsonc+` under "mcpServers":`, "the comments case: the paste block")
-	if b, _ := os.ReadFile(jsonc); string(b) != commented {
-		t.Errorf("the commented config is not written: %q", b)
-	}
-
-	// A file that is no JSON at all is left alone, with the reason.
-	broken := filepath.Join(filepath.Dir(path), "broken.json")
-	alt.Path, alt.AltPath = broken, ""
-	if err := os.WriteFile(broken, []byte("{ not json"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.configMCP("cur", alt, false); err == nil || !strings.Contains(err.Error(), broken+": not valid JSON: left alone") {
-		t.Errorf("a file that is no JSON: %v", err)
-	}
-	if b, _ := os.ReadFile(broken); string(b) != "{ not json" {
-		t.Errorf("the broken file is not written: %q", b)
-	}
-}
-
-// DD-v0.13 B1: obor setup agents names each kind; one with no plugin and no config registration has nothing to install.
+// T-1119: obor setup agents names each kind; a kind installs nothing user-global, so each has nothing to install.
 func TestSetupAgentsEveryKind(t *testing.T) {
 	t.Parallel()
 	x := bare(t)
@@ -245,7 +135,7 @@ func TestSetupAgentsEveryKind(t *testing.T) {
 	has(t, out, "agents codex: nothing to install", "codex: launch args")
 	// T-835: the global retire step is gone; opencode installs nothing user-global (its start's generated config, T-809).
 	has(t, out, "agents opencode: nothing to install", "opencode: nothing user-global")
-	if !strings.Contains(Usage(), "agents [--remove]") {
+	if !strings.Contains(Usage(), "agents |") {
 		t.Errorf("usage names agents: %s", Usage())
 	}
 }

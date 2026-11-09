@@ -47,8 +47,8 @@ func opencodeLive(l *lab, turn bool) {
 		return xdg[n]
 	})
 	where3, where4 := at(opencodeGo, `case "install"`)+", P1, CAP §4.2", at(opencodeGo, "func Config")+", P1, CAP §4.3"
-	if inst.MCP.Where != agents.PerStart || inst.Plugin != nil {
-		report("FAIL", "OC-L3", fmt.Sprintf("Install still registers globally (%s, plugin %v)", inst.MCP.Where, inst.Plugin != nil), where3)
+	if inst.MCP.Where != agents.PerStart {
+		report("FAIL", "OC-L3", fmt.Sprintf("Install still registers globally (%s)", inst.MCP.Where), where3)
 		return
 	}
 	withKit, err := agents.StartOf(k, agents.Start{Kit: l.kit, WriteState: func(name string, data []byte) (string, error) {

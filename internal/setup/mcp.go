@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 
@@ -16,26 +15,10 @@ import (
 )
 
 // The obor MCP server (`obor mcp`) is registered per agent kind, as its bridge says
-// (agents.Kind.Install): by the kit's manifest (Claude), per start (Codex's launch args, OpenCode's generated config,
-// T-809), or by the obor entry of a CLI's user config (a Config registration, at its MCPRegistration.Key; none today).
-// This file reads and edits those files.
+// (agents.Kind.Install): by the kit's manifest (Claude) or per start (Codex's launch args, OpenCode's generated config,
+// T-809). A kind installs nothing user-global (T-1119). This file reads those files.
 
-// configFile is the file of m's entry: Path, or AltPath when that is the only one there (it is edited too when it is
-// plain JSON, errComments when it is not).
-func configFile(m agents.MCPRegistration) string {
-	if _, err := os.Stat(m.Path); err != nil && m.AltPath != "" {
-		if _, jerr := os.Stat(m.AltPath); jerr == nil {
-			return m.AltPath
-		}
-	}
-	return m.Path
-}
-
-// errComments: a .jsonc config that is not plain JSON; editing it would lose its comments.
-var errComments = errors.New("has comments")
-
-// readConfig is the file as it is, so every other key is written back as it was (an absent or blank file is an empty
-// config; a .jsonc that is not valid JSON is errComments).
+// readConfig is the file as JSON (an absent or blank file is an empty config; not JSON is an error).
 func readConfig(path string) ([]byte, error) {
 	b, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) || err == nil && len(bytes.TrimSpace(b)) == 0 {
@@ -45,84 +28,9 @@ func readConfig(path string) ([]byte, error) {
 		return nil, err
 	}
 	if !json.Valid(b) {
-		if strings.HasSuffix(path, ".jsonc") {
-			return nil, errComments
-		}
 		return nil, errors.New("not valid JSON")
 	}
 	return b, nil
-}
-
-// configMCP writes the obor entry of m (a Config registration of kind) at m.Key into the user config (idempotent: an
-// equal entry is left, a stale one, e.g. another kit's path, is replaced; every other key stays). remove deletes only
-// that entry.
-func (s *Setup) configMCP(kind string, m agents.MCPRegistration, remove bool) error {
-	path, key := configFile(m), strings.Join(m.Key, ".")
-	doc, err := readConfig(path)
-	if errors.Is(err, errComments) {
-		return s.pasteHint(kind, m, path)
-	}
-	if err != nil {
-		return project.Failf("agents %s: %s: %v: left alone", kind, path, err)
-	}
-	cur, err := config.MemberAt(doc, m.Key)
-	if err != nil {
-		return project.Failf("agents %s: %s: %v: left alone", kind, path, err)
-	}
-	var v json.RawMessage
-	switch {
-	case remove && cur == nil:
-		s.say("OK agents %s: no %s in %s", kind, key, path)
-		return nil
-	case !remove && cur != nil && reflect.DeepEqual(anyJSON(string(cur)), anyJSON(mustJSON(m.Entry))):
-		s.say("OK agents %s: %s already set in %s", kind, key, path)
-		return nil
-	case !remove:
-		v = json.RawMessage(mustJSON(m.Entry))
-	}
-	if err := s.writeUserConfig(kind, path, doc, m.Key, v); err != nil {
-		return err
-	}
-	if remove {
-		s.say("OK agents %s: %s removed from %s (restart %s)", kind, key, path, kind)
-	} else {
-		s.say("OK agents %s: %s set in %s (user-global; restart %s to load it)", kind, key, path, kind)
-	}
-	return nil
-}
-
-// writeUserConfig writes doc with v at key (nil: the key removed) as path, every other key as it was.
-func (s *Setup) writeUserConfig(kind, path string, doc []byte, key []string, v json.RawMessage) error {
-	doc, err := config.EditJSON(doc, key, v)
-	if err != nil {
-		return project.Failf("agents %s: %s: %v: left alone", kind, path, err)
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return project.Failf("agents %s: %v", kind, err)
-	}
-	var b bytes.Buffer // written in place, not atomically: a symlinked user config stays a link
-	if err := json.Indent(&b, doc, "", "  "); err != nil {
-		return project.Failf("agents %s: %v", kind, err)
-	}
-	if err := os.WriteFile(path, append(b.Bytes(), '\n'), 0o644); err != nil {
-		return project.Failf("agents %s: %v", kind, err)
-	}
-	return nil
-}
-
-// pasteEntry prints the obor entry to paste by hand in a config obor does not edit (comments).
-func (s *Setup) pasteEntry(m agents.MCPRegistration, path string) {
-	entry, _ := json.MarshalIndent(m.Entry, "  ", "  ")
-	s.say("paste into %s under %q:", path, strings.Join(m.Key[:len(m.Key)-1], "."))
-	s.say("  %q: %s", m.Key[len(m.Key)-1], entry)
-}
-
-// pasteHint is the comments case of obor setup agents: obor does not edit a config with comments, so it prints the
-// paste block and fails (the FAIL line stays last, exit 1).
-func (s *Setup) pasteHint(kind string, m agents.MCPRegistration, path string) error {
-	s.say("WARN agents %s: %s is not edited (comments would be lost)", kind, path)
-	s.pasteEntry(m, path)
-	return project.Failf("agents %s: %s is not edited (comments would be lost)", kind, path)
 }
 
 func mustJSON(v any) string {
@@ -130,7 +38,7 @@ func mustJSON(v any) string {
 	return string(b)
 }
 
-// Registration states of a Manifest or Config entry (registration).
+// Registration states of a Manifest entry (registration).
 const (
 	entryNone     = iota // no current obor entry at the key
 	entryUnpinned        // the entry as written before the pin: registered, with a warning
@@ -138,9 +46,9 @@ const (
 )
 
 // registration is how m's file (path) holds obor's entry at m.Key: entryNone, entryUnpinned or entryPinned; err: the file
-// is not read (errComments, not JSON, or no object on the way to the key).
+// is not read (not JSON, or no object on the way to the key).
 func registration(m agents.MCPRegistration) (state int, path string, err error) {
-	path = configFile(m)
+	path = m.Path
 	doc, err := readConfig(path)
 	if err != nil {
 		return entryNone, path, err
@@ -158,13 +66,8 @@ func registration(m agents.MCPRegistration) (state int, path string, err error) 
 	return entryNone, path, nil
 }
 
-// fix is how to register m: the manifest ships with the kit (update the plugin); a config entry is obor setup agents'.
-func fix(m agents.MCPRegistration) string {
-	if m.Where == agents.Manifest {
-		return "update the plugin"
-	}
-	return "obor setup agents"
-}
+// fixHint is how to register m: only the kit's manifest is left, and it ships with the kit.
+const fixHint = "update the plugin"
 
 // mcpCmd is `obor setup mcp [--model <name>]`, the doctor: per agent kind the project uses (usedKinds; the others are
 // "not used", never a WARN) whether the obor MCP server is registered, then `obor mcp --check` (the handshake against
@@ -206,21 +109,18 @@ func (s *Setup) mcpCmd(_ context.Context, args []string) error {
 			s.say("mcp %s: registered per start (%s)", name, how)
 			continue
 		}
-		// a manifest: every obor pane of the kind loads it with the plugin; a config: the CLI's user config
+		// a manifest: every obor pane of the kind loads it with the plugin
 		state, path, err := registration(m)
 		switch {
-		case errors.Is(err, errComments):
-			s.say("WARN mcp %s: not registered: %s is not read (comments) (%s)", name, path, fix(m))
-			s.pasteEntry(m, path)
 		case err != nil:
-			s.say("WARN mcp %s: not registered: %s: %v (%s)", name, path, err, fix(m))
+			s.say("WARN mcp %s: not registered: %s: %v (%s)", name, path, err, fixHint)
 		case state == entryNone:
-			s.say("WARN mcp %s: not registered: no current %s in %s (%s)", name, strings.Join(m.Key, "."), path, fix(m))
+			s.say("WARN mcp %s: not registered: no current %s in %s (%s)", name, strings.Join(m.Key, "."), path, fixHint)
 		default:
 			s.say("mcp %s: registered (%s)", name, path)
 		}
 		if state == entryUnpinned {
-			s.say("WARN mcp %s: registered without the %s pin: it reaches the cwd checkout's serve in an obor checkout (%s)", name, agents.Pin, fix(m))
+			s.say("WARN mcp %s: registered without the %s pin: it reaches the cwd checkout's serve in an obor checkout (%s)", name, agents.Pin, fixHint)
 		}
 		bad = bad || state == entryNone
 	}
@@ -320,21 +220,16 @@ func (s *Setup) mcpLane(name string) error {
 	case !static:
 		s.say("WARN mcp model %s (%s): not registered: %s", name, lt.Kind, how)
 		bad = true
-	default: // the Manifest or Config entry serves the start
+	default: // the kit's plugin manifest serves the start
 		switch state, path, err := registration(m); {
-		case errors.Is(err, errComments):
-			s.say("WARN mcp model %s (%s): not registered: %s is not read (comments) (%s)", name, lt.Kind, path, fix(m))
-			bad = true
 		case err != nil:
-			s.say("WARN mcp model %s (%s): not registered: %s: %v (%s)", name, lt.Kind, path, err, fix(m))
+			s.say("WARN mcp model %s (%s): not registered: %s: %v (%s)", name, lt.Kind, path, err, fixHint)
 			bad = true
 		case state == entryNone:
-			s.say("WARN mcp model %s (%s): not registered: no current %s in %s (%s)", name, lt.Kind, strings.Join(m.Key, "."), path, fix(m))
+			s.say("WARN mcp model %s (%s): not registered: no current %s in %s (%s)", name, lt.Kind, strings.Join(m.Key, "."), path, fixHint)
 			bad = true
-		case m.Where == agents.Manifest:
-			s.say("mcp model %s (%s): registered by the plugin manifest (%s)", name, lt.Kind, path)
 		default:
-			s.say("mcp model %s (%s): registered (%s)", name, lt.Kind, path)
+			s.say("mcp model %s (%s): registered by the plugin manifest (%s)", name, lt.Kind, path)
 		}
 	}
 	if bad {

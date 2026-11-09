@@ -39,10 +39,8 @@
 //	        path needs this); herdr's plugin list is read once, and an error reading it is a FAIL, not "linked"
 //	        (T-613); then one hint line unless herdr's config sets `[session] resume_agents_on_restore =
 //	        false` (never edited, T-159).
-//	agents [--remove]  what each kind's bridge says to install (user-global, once per user): its plugin link
-//	        and the obor entry of its user config (none today; another kit's copy re-linked, anything else there left
-//	        alone; --remove deletes those), and the removal of what an older obor installed (T-809: OpenCode's
-//	        <XDG_CONFIG_HOME|~/.config>/opencode/plugins/obor.js link and mcp.servers.obor entry, when obor's).
+//	agents  caches each plugin kind's manifest and runs every kind's install (T-1036), whose answer `obor setup mcp`
+//	        checks; a kind installs nothing user-global (T-1119).
 //
 //	rename --name N --prefix P  rename the project and its agents (config, lane opencode.json kit paths, the herdr
 //	        workspace); refused while its serve LaunchAgent is installed: see rename.go.
@@ -119,7 +117,7 @@ func Usage() string {
 	names = append(names, "<custom role>")
 	where := "[--tab <id> | --new-tab <label> | --pane <id>]"
 	return "usage: obor setup lane <L-NN> | pane <LANE> " + where + " [--start]" +
-		" | role <" + strings.Join(names, "|") + "> " + where + " | githooks [--remove] | herdr-plugin | agents [--remove] | mcp [--model <name>] | show | rename --name N --prefix P"
+		" | role <" + strings.Join(names, "|") + "> " + where + " | githooks [--remove] | herdr-plugin | agents | mcp [--model <name>] | show | rename --name N --prefix P"
 }
 
 var errUsage = errors.New("usage")

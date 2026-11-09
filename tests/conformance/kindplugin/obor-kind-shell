@@ -33,7 +33,7 @@ not-ready)
 	esac
 	;;
 install)
-	echo '{"version":1,"mcp":{"where":"start"},"plugin":null}'
+	echo '{"version":1,"mcp":{"where":"start"}}'
 	;;
 turn)
 	case $(field what) in

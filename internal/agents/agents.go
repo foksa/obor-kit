@@ -39,8 +39,8 @@ type Kind interface {
 	// Headless are the argv forms of this CLI the guard denies (an accident guard: forms agents type).
 	Headless() Headless
 
-	// Install is what setup registers for this kind and where (env: the user's HOME, XDG_CONFIG_HOME); setup does the
-	// file operations.
+	// Install is where the MCP server reaches this kind (env: the user's HOME, XDG_CONFIG_HOME); setup checks it. A kind
+	// installs nothing user-global (T-1119).
 	Install(kit string, env func(string) string) Install
 
 	// Transcript is the path (a glob) of session sid's transcript (env: HOME and the kind's own config dir variable).
@@ -197,27 +197,24 @@ type Headless struct {
 	PrintFlag   bool     // -p / --print, also inside a short-flag cluster, before `--`
 }
 
-// Install is what setup registers for a kind.
+// Install is how obor's MCP server reaches a kind.
 type Install struct {
-	MCP    MCPRegistration
-	Plugin *Link // a user-global plugin file to link; nil: none
+	MCP MCPRegistration
 }
 
 // Where obor's MCP server reaches a CLI.
 const (
 	Manifest = "manifest" // the kit's plugin manifest (Path)
 	PerStart = "start"    // launch args on every start: nothing to install
-	Config   = "config"   // the obor entry of the CLI's user config (Path), which obor setup agents writes
 )
 
 // MCPRegistration is how obor's MCP server reaches a CLI.
 type MCPRegistration struct {
-	Where    string         // Manifest, PerStart or Config
-	Path     string         // the manifest, or the user config file ("" for PerStart)
-	AltPath  string         // Config: the other spelling of the file, read and edited when it is the only one there
-	Key      []string       // Manifest, Config: the obor entry's place in the file's JSON, outermost first
-	Entry    map[string]any // Manifest, Config: the obor entry
-	Unpinned map[string]any // Manifest, Config: the entry as written before the pin (T-420): registered, with a warning
+	Where    string         // Manifest or PerStart
+	Path     string         // the manifest ("" for PerStart)
+	Key      []string       // Manifest: the obor entry's place in the file's JSON, outermost first
+	Entry    map[string]any // Manifest: the obor entry
+	Unpinned map[string]any // Manifest: the entry as written before the pin (T-420): registered, with a warning
 	// Lane is how a start with the type's args gets the server (obor setup mcp --lane): static true when the Where
 	// registration serves it (setup checks that file), else registered per start or not, how saying which.
 	Lane func(args []string, read ReadFile) (how string, registered, static bool)
@@ -238,9 +235,6 @@ type Turn struct {
 	Ended              bool
 	Reset              time.Time
 }
-
-// Link is a plugin link: From in the kit, To the user-global path.
-type Link struct{ From, To string }
 
 // Delivery is how one text reaches a running session.
 type Delivery struct {

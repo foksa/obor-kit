@@ -107,14 +107,14 @@ var calls = []call{
 		}
 		return why, ""
 	}},
-	{"install", `{"version":1,"mcp":{"where":"config","path":"/u/.stub.json","key":["mcp","obor"],"entry":{"command":"obor"}},"plugin":{"from":"/kit/p.js","to":"/u/p.js"}}`,
+	{"install", `{"version":1,"mcp":{"where":"start"}}`,
 		func(k *plugin.Kind, _ *bytes.Buffer) (string, string) {
 			in, err := k.InstallErr("/kit", nil)
 			if err != nil {
 				return "", err.Error()
 			}
 			how, reg, static := in.MCP.Lane(nil, nil)
-			return in.MCP.Where + " " + in.MCP.Path + " " + in.Plugin.To + " " + how + " " + boolText(reg, static), ""
+			return in.MCP.Where + " " + how + " " + boolText(reg, static), ""
 		}},
 	{"turn", `{"version":1,"ok":true,"turn":{"id":"t1","error":"limit","ended":true,"reset":"2026-11-08T18:00:00Z"}}`,
 		func(k *plugin.Kind, log *bytes.Buffer) (string, string) {
@@ -140,7 +140,7 @@ var calls = []call{
 func TestCalls(t *testing.T) {
 	want := map[string]string{
 		"not-ready": "updating",
-		"install":   "config /u/.stub.json /u/p.js STUB_CONFIG (the start's config) registered",
+		"install":   "start STUB_CONFIG (the start's config) registered",
 		"turn":      "t1 limit 2026-11-08T18:00:00Z",
 		"deliver":   "/s a,b",
 	}
@@ -171,6 +171,22 @@ func TestCalls(t *testing.T) {
 			case got != want[c.name]:
 				t.Errorf("%s good: %q, want %q", c.name, got, want[c.name])
 			}
+		}
+	}
+}
+
+// T-1119: the user-config install path is gone, so install's reply may not name a user config entry or a plugin link
+// under ~/; a kind that still does is refused with an error naming the removal.
+func TestInstallRefusesTheRemovedUserConfigPath(t *testing.T) {
+	for name, body := range map[string]string{
+		"a user config entry": `{"version":1,"mcp":{"where":"config","path":"/u/.stub.json","key":["mcp","obor"],"entry":{"command":"obor"}}}`,
+		"a plugin link":       `{"version":1,"mcp":{"where":"start"},"plugin":{"from":"/kit/p.js","to":"/u/p.js"}}`,
+	} {
+		k, _ := kind(t, reply(body))
+		_, err := agents.InstallOf(k, "/kit", nil)
+		if err == nil || !strings.Contains(err.Error(), "kind stub: install: ") ||
+			!strings.Contains(err.Error(), "the user-config install path was removed (T-1119)") {
+			t.Errorf("%s: %v, want the removal named", name, err)
 		}
 	}
 }

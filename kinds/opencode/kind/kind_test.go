@@ -67,7 +67,7 @@ func TestKind(t *testing.T) {
 	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
 	// T-809, T-835: nothing user-global; an old global entry and link are the user's to remove by hand.
 	in, err := agents.InstallOf(k, "/kit", env(map[string]string{"HOME": "/h"}))
-	if m := in.MCP; err != nil || m.Where != agents.PerStart || m.Path != "" || m.Entry != nil || in.Plugin != nil {
+	if m := in.MCP; err != nil || m.Where != agents.PerStart || m.Path != "" || m.Entry != nil {
 		t.Errorf("Install = %+v, %v: want per start, nothing user-global", in, err)
 	}
 	if how, reg, static := in.MCP.Lane([]string{"-m", "x"}, nil); !reg || static || !strings.Contains(how, "OPENCODE_CONFIG") ||
