@@ -16,9 +16,8 @@ A config without `kinds.opencode.command` still runs the kit's binary, the defau
 then in every project:
 
 ```sh
-obor setup agents        # caches the manifest and writes kinds.opencode.command = "obor-kind-opencode" (uncommitted)
+obor setup agents        # caches the manifest; the config needs no line (the kit's binary is the default)
 obor config validate     # OK: the line is optional now
-git add .obor/config.json && git commit -m "kinds.opencode.command" .obor/config.json
 ```
 
 The config line, if you write it by hand (`obor-kind-opencode` names the kit's binary beside obor, not a file in the

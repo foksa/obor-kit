@@ -163,7 +163,6 @@ func TestSetRefusesShape1UntilTheRewriteMovesBoth(t *testing.T) {
 		"SetDifficulty":     func() (config.Write, error) { return config.SetDifficulty(doc, map[string][]string{"hard": {"opus"}}) },
 		"SetLaneLinks":      func() (config.Write, error) { return config.SetLaneLinks(doc, []string{"x"}) },
 		"SetSetupConfirmed": func() (config.Write, error) { return config.SetSetupConfirmed(doc, false) },
-		"SetKindCommand":    func() (config.Write, error) { return config.SetKindCommand(doc, "opencode", "x") },
 	} {
 		if w, err := set(); err == nil || !strings.Contains(err.Error(), "is config shape 1: obor config migrate rewrites it") {
 			t.Errorf("%s on shape 1: %s, %v; want refused with the migrate hint", name, w.Doc, err)
