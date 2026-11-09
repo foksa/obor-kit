@@ -215,38 +215,25 @@ func TestPublishPendingStatusLikePublished(t *testing.T) {
 	}
 }
 
-// T-1091: the publish and after_merge intents carry the candidate's identity only (task, lane, sha, target), never its
-// diff or stat, which no reader reads there: 4.48 MB of the log's event data (docs/research/stored-data-audit.md
-// §3.1). The review job still reads the gate result's copy.
-func TestMergeIntentsCarryTheCandidatesIdentityOnly(t *testing.T) {
+// T-1106: the publish and after_merge intents carry no data: no reader reads it (their effects replay from the folded
+// candidate mt.cand; T-1091 had stored its identity there). The review job reads the gate result's copy instead.
+func TestMergeIntentsCarryNoData(t *testing.T) {
 	t.Parallel()
 	r := newLoopRig(t)
 	r.start()
 	r.mergedTask()
 	cand := r.published()
-	if cand.Diff == "" || cand.Stat == "" {
+	if cand.Diff == "" || cand.Stat == "" { // precondition: there is data the old intents stored and no reader read
 		t.Fatalf("precondition: the merged candidate has a diff and a stat: %+v", cand)
 	}
-	want := map[string]string{"task": "T-1", "lane": "L-01", "sha": cand.SHA, "target": cand.Target}
 	intents := 0
 	for _, rec := range r.records() {
 		if rec.Kind != event.KindIntent || (rec.Step != event.StepPublish && rec.Step != event.StepAfterMerge) {
 			continue
 		}
 		intents++
-		var got map[string]any
-		if err := json.Unmarshal(rec.Data, &got); err != nil {
-			t.Fatalf("%s intent data %q: %v", rec.Step, rec.Data, err)
-		}
-		for k, v := range want {
-			if got[k] != v {
-				t.Errorf("%s intent %s = %v, want %q: %s", rec.Step, k, got[k], v, rec.Data)
-			}
-		}
-		for k := range got {
-			if _, ok := want[k]; !ok {
-				t.Errorf("%s intent carries %q beyond the candidate's identity: %s", rec.Step, k, rec.Data)
-			}
+		if len(rec.Data) != 0 {
+			t.Errorf("%s intent carries data no reader reads: %s", rec.Step, rec.Data)
 		}
 	}
 	if intents != 2 {
