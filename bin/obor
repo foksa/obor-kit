@@ -109,6 +109,7 @@ fetch() {
   for kind in $(kind_assets); do
     [ -x "$(dirname "$binary")/$kind" ] || fetch_one "$kind" "${url%/*}/$kind" "$(dirname "$binary")/$kind"
   done
+  prune_old
 }
 
 # fetch_one <asset> <url> <path>: the asset from url to path, once its checksum line matches.
@@ -125,6 +126,59 @@ fetch_one() {
   chmod 755 "$tmp"
   mv "$tmp" "$to"
   trap - EXIT HUP INT TERM
+}
+
+# release_platforms: the <os>-<arch> names make release builds (scripts/release-lib.sh's platforms): a ~/.obor/bin may
+# hold the binaries of any of them.
+release_platforms="darwin-arm64 darwin-amd64 linux-arm64 linux-amd64"
+
+# versions_in <dir>: the versions of the release binaries in dir, the most recently fetched first (a fetched file's
+# mtime is its fetch time), one per line.
+versions_in() {
+  local dir=$1 f name pl v
+  ls -t "$dir"/obor-*-* 2> /dev/null | while IFS= read -r f; do
+    [ -f "$f" ] || continue
+    name=${f##*/}
+    case "$name" in obor-kind-*) continue ;; esac
+    for pl in $release_platforms; do
+      case "$name" in
+        "obor-"*"-$pl") v=${name#obor-}; printf '%s\n' "${v%-$pl}"; break ;;
+      esac
+    done
+  done
+}
+
+# binary_version <name> <versions…>: the version of a release or kind binary file name (obor-<v>-<os>-<arch>,
+# obor-kind-<kind>-<v>-<os>-<arch>) when it is one of <versions>; empty for any other name, so nothing else is removed.
+binary_version() {
+  local name=$1 pl v
+  shift
+  for pl in $release_platforms; do
+    for v in "$@"; do
+      case "$name" in
+        "obor-$v-$pl"|obor-kind-*-"$v-$pl") printf '%s\n' "$v"; return 0 ;;
+      esac
+    done
+  done
+  return 0
+}
+
+# prune_old: after a fetch, remove the release and kind binaries of every version but the kit's and the one fetched
+# before it (the most recent other version's files: the previous kit, kept for a rollback, T-1093). Best effort: a
+# failed remove never fails the command, and nothing that is not an obor release or kind binary is touched.
+prune_old() {
+  local dir prev f name v versions
+  dir=$(dirname "$binary")
+  versions=$(versions_in "$dir")
+  prev=$(printf '%s\n' "$versions" | awk -v cur="$ver" '$0 != cur { print; exit }')
+  for f in "$dir"/*; do
+    [ -f "$f" ] || continue
+    name=${f##*/}
+    v=$(binary_version "$name" $versions)
+    [ -n "$v" ] || continue
+    case " $ver $prev " in *" $v "*) continue ;; esac
+    rm -f "$f" 2> /dev/null || :
+  done
 }
 
 # has_hook <binary> <name>: `<binary> has hook <name>` exits 0 within OBOR_HOOK_TIMEOUT seconds (default 2; tests set
