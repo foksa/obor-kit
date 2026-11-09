@@ -111,6 +111,7 @@ func TestUnknownKeyFails(t *testing.T) {
 		{`{"prefix":"pj","models":{"m":{"kind":"claude","modle":"x"}}}`, "models.m.modle"},
 		{`{"prefix":"pj","commands":{"c":{"cmd":"x","tmeout":5}}}`, "commands.c.tmeout"},
 		{`{"prefix":"pj","kinds":{"claude":{"argz":[]}}}`, "kinds.claude.argz"},
+		{`{"prefix":"pj","merge":{"trailer":"Co-Authored-By: x"}}`, "merge.trailer"}, // removed (T-1103)
 	} {
 		root := writeProject(t, c.cfg, "")
 		want := []string{"FAIL ." + c.key + ": unknown to this obor (retired, or newer than this binary): delete it (.obor/config.json)"}
@@ -320,8 +321,8 @@ func TestLookupCollectionDefaults(t *testing.T) {
 		path, want string
 		known      bool
 	}{
-		{".merge.trailer", `""`, true},
-		{".mcp.jobs", "", false}, // removed (T-830): no field, so no such key
+		{".merge.trailer", "", false}, // removed (T-1103): no field, so no such key
+		{".mcp.jobs", "", false},      // removed (T-830): no field, so no such key
 		{".commands.check.heavy", "false", true},
 		{`.commands["check"].heavy`, "false", true},
 		{".commands.check.cmd", `"true"`, true},

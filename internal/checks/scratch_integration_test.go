@@ -209,7 +209,7 @@ func TestScratchOwnCommitsSkipProjectCommitHooks(t *testing.T) {
 // check (check_affected), never check; a full merge check; each runs on with no command between two.
 func TestGateReportsItsCommands(t *testing.T) {
 	t.Parallel()
-	partial := testkit.Set("merge", map[string]any{"trailer": trailer, "summary_regex": "[0-9]+ pass", "guard": "guard",
+	partial := testkit.Set("merge", map[string]any{"summary_regex": "[0-9]+ pass", "guard": "guard",
 		"classes": []any{map[string]any{"name": "any", "paths": []any{"**"}, "checks": []any{"check_affected"}}}})
 	for _, tc := range []struct {
 		name  string

@@ -12,7 +12,7 @@ import (
 // TestOverlayMatchesJq: each case's effective value is what the Bash loader's `jq -s '.[0] * .[1]'` gives (a null
 // left by the merge is unset in the effective config: a derived default, or absent).
 func TestOverlayMatchesJq(t *testing.T) {
-	cfg := `{"prefix":"pj","merge":{"scratch_dir":"../custom-scratch","trailer":"T"},
+	cfg := `{"prefix":"pj","merge":{"scratch_dir":"../custom-scratch","summary_regex":"T"},
 		"kinds":{"claude":{"args":["a","b"],"prompt_extra":"P"}},
 		"commands":{"check":{"cmd":"x","heavy":true,"timeout":5}},"slots":{"max":4,"dir":"/s"}}`
 	local := `{"prefix":"qq","merge":{"scratch_dir":null},
@@ -21,7 +21,7 @@ func TestOverlayMatchesJq(t *testing.T) {
 	c := load(t, cfg, local)
 	for _, tc := range []struct{ name, path, want string }{
 		{"null scratch_dir resets to the derived default", ".merge.scratch_dir", `"../proj-wt/merge"`},
-		{"a sibling of a null key is kept", ".merge.trailer", `"T"`},
+		{"a sibling of a null key is kept", ".merge.summary_regex", `"T"`},
 		{"null heavy clears it", ".commands.check", `{"cmd":"x","timeout":5}`},
 		{"null slots.max clears it", ".slots", `{"dir":"/s"}`},
 		{"null prompt_extra clears it", ".kinds.claude.prompt_extra", ``},
@@ -196,18 +196,21 @@ func TestLoadReaderWarnNamesBothCauses(t *testing.T) {
 	}
 }
 
-// T-1081 (DD-v0.32 #1): the keys T-1076 deleted (the promotion's) and v0.29's two removed keys never stop Load, the
-// load of every command: each is ignored with one warning naming it; only LoadForValidate fails, one line per key.
+// T-1081 (DD-v0.32 #1): the keys T-1076 deleted (the promotion's), v0.29's two removed keys and T-1103's merge.trailer
+// never stop Load, the load of every command: each is ignored with one warning naming it; only LoadForValidate fails,
+// one line per key.
 func TestRetiredKeysWarnOnLoadFailValidate(t *testing.T) {
 	for _, tc := range []struct{ name, cfg string }{
 		{"the promotion's keys", `{"prefix":"pj","branches":{"main":"main","promote":"release"},` +
 			`"merge":{"promote_weight":2,"weights":{"core":3}}}`},
 		{"v0.29's removed keys", `{"prefix":"pj","merge":{"receipt_max_age":60},"checks":{"load_limit":12.5}}`},
+		{"T-1103's removed key", `{"prefix":"pj","merge":{"trailer":"Co-Authored-By: x"}}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := writeProject(t, tc.cfg, "")
 			keys := map[string][]string{"the promotion's keys": {"branches.promote", "merge.promote_weight", "merge.weights"},
-				"v0.29's removed keys": {"merge.receipt_max_age", "checks"}}[tc.name]
+				"v0.29's removed keys": {"merge.receipt_max_age", "checks"},
+				"T-1103's removed key": {"merge.trailer"}}[tc.name]
 			var out strings.Builder
 			defer func(w io.Writer) { Warn = w }(Warn)
 			Warn = &out

@@ -118,7 +118,7 @@ warns on the keys that no longer do anything.
   },
   "models": { "muse": { "kind": "opencode", "model": "" } },  // a model the built-in table lacks, or an override
   "handoff_tokens": 500000,                      // the lead's handoff reminder threshold
-  "merge": { "scratch_dir": null, "trailer": "Co-Authored-By: …", "summary_regex": "[0-9]+ pass|[0-9]+ fail",
+  "merge": { "scratch_dir": null, "summary_regex": "[0-9]+ pass|[0-9]+ fail",
              "fail_grep": "error|FAIL|Expected|Received" }
 }
 ```
@@ -329,7 +329,7 @@ full check and the pause.
   `lane_setup`, `check` each under its timeout. The outcome is one
   line: `MERGED … | CONFLICT in <scratch>: … | RED … | HOLD … | FAIL …`. Counts (`merge.summary_regex`, each alternative
   summed over a chained command's parts) and seconds go in the MERGED line; a RED names the `merge.fail_grep` matches and
-  the log. Commit messages carry the worker label and `merge.trailer`. Every command's full output is kept in
+  the log. Commit messages carry the worker label. Every command's full output is kept in
   `.obor/state/logs/<task|nightly|milestone>-<name>.log`, so a RED can be triaged without a re-run.
 - **dispatch** (obor serve, `internal/app`): branch from the root's current branch; refuse unless the lane is `free`
   (or `dirty-free` with `--force`) and its agent is not working/blocked; `checkout -B`; the `lanes` row records the

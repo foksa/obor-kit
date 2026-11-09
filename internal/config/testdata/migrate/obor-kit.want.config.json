@@ -67,7 +67,6 @@
     "researcher": "sonnet:medium"
   },
   "merge": {
-    "trailer": "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>",
     "summary_regex": "[0-9]+ pass|[0-9]+ fail",
     "guard": "guard",
     "nightly_at": "02:00",

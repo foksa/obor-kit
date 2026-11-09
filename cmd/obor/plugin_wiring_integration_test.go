@@ -97,9 +97,11 @@ func TestPreToolUseHangingBinaryDenies(t *testing.T) {
 	dist := filepath.Join(k.dir, "dist/obor")
 	event := bashEvent(k.lane, "git commit -m x")
 	k.stub(t, dist, "hang")
-	// 0.5 s: ample for the stub to start and write its pid before the watchdog's kill; the repair call below need not
-	// let the stub start at all, so 0.1 s keeps it from adding a second full bound (T-1006).
-	const pidTimeout, quietTimeout = "OBOR_HOOK_TIMEOUT=0.5", "OBOR_HOOK_TIMEOUT=0.1"
+	// 1 s (hookTimeoutEnv): 0.5 s raced the stub's own bash startup under a loaded package (the race the plan's 0.3 s
+	// hit, plugin_wiring_test.go:25); the repair call below need not let the stub start at all, so 0.1 s keeps it from
+	// adding a second full bound (T-1006).
+	const quietTimeout = "OBOR_HOOK_TIMEOUT=0.1"
+	const pidTimeout = hookTimeoutEnv
 	rc, _, stderr, took := k.hook(t, "pre-tool-use", event, pidTimeout)
 	if rc != 2 || stderr != k.hint {
 		t.Errorf("hanging dist/obor: exit %d, %q; want 2 with the hint", rc, stderr)
