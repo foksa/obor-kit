@@ -295,6 +295,38 @@ func commandObject(v json.RawMessage) json.RawMessage {
 	return b
 }
 
+// shape1Members are the top-level members only shape 1 has: shape 2 moves each under a group (§3) or has no home for it.
+var shape1Members = []string{"name", "prefix", "lanes_dir", "lane_links", "roles", "difficulty", "kinds", "models",
+	"branches", "paths", "terminal", "workflow", "setup", "handoff_tokens", "slots", "guards"}
+
+// LocalShape1 is whether doc, a local.json (a config file with no version of its own), is of shape 1 (T-1149): it has a
+// member shape 2 lacks or types differently. So a shape-1 local.json is read reshaped and rewritten beside a shape-2
+// config.json too, as on the second clone or in a hand-kept file that the rewrite commit never reached. Its test: a
+// top-level member shape 1 has (shape1Members), lanes given as a number or a list, a command obor runs by a fixed name
+// under commands. A member this obor does not know — a group of shape 2, or a key of a newer binary — leaves it shape 2.
+func LocalShape1(doc []byte) bool {
+	ms, ok := object(doc)
+	if !ok {
+		return false
+	}
+	for _, m := range ms {
+		switch {
+		case slices.Contains(shape1Members, m.Key):
+			return true
+		case m.Key == "lanes" && lanesOld(m.Val) != "":
+			return true
+		case m.Key == "commands":
+			cmds, _ := object(m.Val)
+			for _, c := range cmds {
+				if _, fixed := FixedCommands[c.Key]; fixed {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 // ShapeOf is the shape of a config.json: its version when it is 2 or more, else 1 (a file with no version, or 1, is
 // shape 1).
 func ShapeOf(doc []byte) int {

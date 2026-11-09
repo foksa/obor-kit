@@ -193,6 +193,55 @@ func TestShape1LoadWarnsOnceAndEqualsShape2(t *testing.T) {
 	}
 }
 
+// T-1149 (DD-v0.33 #2): a local.json of shape 1 — a second clone's, a hand-kept copy, one written from pre-v0.33 docs —
+// is reshaped on load beside a config.json of shape 2: each member lands at its shape-2 home, none shows up as an
+// unknown key, and nothing reverts to a default.
+func TestShape1LocalBesideShape2Config(t *testing.T) {
+	const cfg = `{"version":2,"project":{"agent_prefix":"pj"}}`
+	for _, row := range []struct {
+		name, local string
+		want        map[string]string // dotted path in the effective config → its JSON value
+	}{
+		{"roles and slots", `{"roles":{"advisor":"fable"},"slots":{"dir":"/s","max":4}}`,
+			map[string]string{".agents.roles.advisor": `"fable"`, ".checks.slot_dir": `"/s"`,
+				".checks.heavy_at_once": `4`}},
+		{"lanes as a number", `{"lanes":3}`, map[string]string{".lanes.count": `3`}},
+		{"lanes as a list", `{"lanes":[{"name":"L-01","keep_agent":true}]}`,
+			map[string]string{".lanes.list": `[{"name":"L-01","keep_agent":true}]`}},
+		{"a fixed command", `{"commands":{"lane_setup":"make setup","lint":"make lint"}}`,
+			map[string]string{".lanes.setup": `"make setup"`, ".commands.lint": `"make lint"`}},
+		{"the rest of shape 1's members", `{"name":"n","prefix":"p","lanes_dir":"../wt","lane_links":["x"],` +
+			`"difficulty":{"hard":["opus"]},"kinds":{"codex":{"args":["-a"]}},` +
+			`"models":{"m":{"kind":"codex","model":"g"}},"branches":{"main":"stg","task":"t/{id}"},` +
+			`"paths":{"agents":"a"},"terminal":{"kind":"herdr"},"workflow":{"kind":"scratch-ff"},` +
+			`"setup":{"confirmed":true},"handoff_tokens":1,"guards":{"allow_push":["lead"]},` +
+			`"protected_files":["d"]}`,
+			map[string]string{".project.name": `"n"`, ".project.agent_prefix": `"p"`, ".lanes.dir": `"../wt"`,
+				".lanes.links": `["x"]`, ".agents.difficulty": `{"hard":["opus"]}`,
+				".agents.kinds.codex.args": `["-a"]`, ".agents.models.m.id": `"g"`,
+				".merge.target_branch": `"stg"`, ".lanes.task_branch": `"t/{id}"`, ".agents.docs_dir": `"a"`,
+				".project.terminal": `"herdr"`, ".merge.workflow": `"scratch-ff"`, ".agents.confirmed": `true`,
+				".agents.handoff_tokens": `1`, ".rules.may_push": `["lead"]`, ".rules.protected_files": `["d"]`}},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			c, unknown, err := LoadHook(writeProject(t, cfg, row.local))
+			if err != nil || len(unknown) != 0 {
+				t.Fatalf("LoadHook: unknown %q, %v; want local.json read reshaped, with no unknown key", unknown, err)
+			}
+			for path, want := range row.want {
+				got, ok := c.Get(path)
+				if !ok {
+					t.Errorf("%s: absent, want %s", path, want)
+					continue
+				}
+				if !sameJSON(t, got, []byte(want)) {
+					t.Errorf("%s = %s, want %s", path, got, want)
+				}
+			}
+		})
+	}
+}
+
 // T-1124: Config.Command finds the seven commands obor runs by a fixed name in their groups, and the project's own in
 // commands; validate fails a fixed name under commands (it would never run) and a count beside a lanes list.
 func TestFixedCommands(t *testing.T) {
