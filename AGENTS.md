@@ -60,6 +60,9 @@ checks placement against `docs/module-map.md` at accept).
   - Real git only in `internal/checks`, the CLI tests (`cmd/obor`) and `internal/setup`'s githook tests (hooks that
     git itself runs): the code that runs git. Anywhere else a test uses the package's fake (a `FakeScratch`, a stub
     runner), not a fixture repo.
+  - Even there, a new test starts git or a built binary only for a git/exec behaviour no existing test covers (owner
+    11-09). A decision, a refusal or a message (what to write, when to refuse, which text) is a unit test with the
+    package's fake or a function call; the one existing integration test of that write path keeps covering git.
   - A task that replaces a mechanism deletes the old mechanism's tests with it; a new test per behaviour, not per
     call path already covered.
   - A spec names its expected test change (added, changed, deleted; `templates/task-spec.md`): a task that adds
