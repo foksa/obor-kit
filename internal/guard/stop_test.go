@@ -352,14 +352,32 @@ func TestStopWorkerStaleBackgroundTasks(t *testing.T) {
 // T-1142: while a background Bash call recorded for this session still runs (its process in the table, project's
 // record), every agent's stop — the worker's, a role agent's, the lead's — is blocked with the call's description, and
 // stop_hook_active blocks too: the agent is waiting, and the block ends with the call. Its process ended, another
-// session's or another agent's call, no record, and an unreadable record file allow the stop.
+// session's or another agent's call, no record, and an unreadable record file allow the stop. T-1143 (RV-169 #1): only
+// the stopping agent's own processes count — the agent that ran the hook (its ancestry) and that agent's descendants:
+// another agent's process running the same command, with this agent's own run alive or ended, allows the stop, and so
+// does a hook whose agent process cannot be found.
 func TestStopBackgroundRunStillGoing(t *testing.T) {
 	f := newHfx(t)
 	o1 := f.PlainLane("L-01", "task/T-01")
 	f.Config()
-	old := stopProcs
-	t.Cleanup(func() { stopProcs = old })
-	procs := func(table ...background.Proc) {
+	oldProcs, oldSelf := stopProcs, stopSelf
+	t.Cleanup(func() { stopProcs, stopSelf = oldProcs, oldSelf })
+	stopSelf = func() int { return 601 }
+	// The hook (601) runs in its shell (600) under this agent's CLI (500); another agent's CLI is 800 (its hook 850).
+	agents := []background.Proc{{PID: 500, PPID: 1, Age: time.Hour, Command: "/usr/local/bin/claude"},
+		{PID: 600, PPID: 500, Age: 0, Command: "/bin/sh -c OBOR_NO_SELF_HOST=1 bash obor hook stop"},
+		{PID: 601, PPID: 600, Age: 0, Command: "/Users/x/.obor/bin/obor hook stop"},
+		{PID: 800, PPID: 1, Age: time.Hour, Command: "/usr/local/bin/claude"},
+		{PID: 850, PPID: 800, Age: 0, Command: "/Users/x/.obor/bin/obor hook stop"}}
+	run := func(agent, pid int, command string) []background.Proc { // a Bash call's shell and its process
+		return []background.Proc{{PID: pid, PPID: agent, Age: 6 * time.Second, Command: "/bin/zsh -c eval '" + command + "'"},
+			{PID: pid + 1, PPID: pid, Age: 6 * time.Second, Command: command}}
+	}
+	procs := func(runs ...[]background.Proc) {
+		table := append([]background.Proc(nil), agents...)
+		for _, r := range runs {
+			table = append(table, r...)
+		}
 		stopProcs = func(context.Context) ([]background.Proc, error) { return table, nil }
 	}
 	record := func(c project.BackgroundCall) {
@@ -370,10 +388,10 @@ func TestStopBackgroundRunStillGoing(t *testing.T) {
 	}
 	call := project.BackgroundCall{At: ago(6), Agent: "pj-l-01", Session: "s1", Pane: "w1:p1",
 		Description: "bench the build", Command: "go test -bench . ./..."}
-	live := background.Proc{PID: 900, PPID: 1, Age: 6 * time.Second, Command: "go test -bench . ./..."}
+	mine, theirs := run(500, 700, call.Command), run(800, 810, call.Command)
 
 	record(project.BackgroundCall{})
-	procs(live)
+	procs(mine)
 	f.stop(t, "-", o1, "").allow("no background record")
 
 	record(call)
@@ -381,11 +399,22 @@ func TestStopBackgroundRunStillGoing(t *testing.T) {
 		"bench the build", "started ", " ago", "wait for it in this turn")
 	f.stop(t, "-", o1, `{"stop_hook_active":true}`).block("the same loop again: the agent is waiting").
 		has("reason", "bench the build")
+	procs(mine, theirs)
+	f.stop(t, "-", o1, "").block("its own run alive beside another agent's").has("reason", "bench the build")
 
 	procs()
 	f.stop(t, "-", o1, "").allow("the call's process ended")
+	procs(theirs)
+	f.stop(t, "-", o1, "").allow("own run ended, another agent's same command alive")
+	stopSelf = func() int { return 850 } // precondition: the same table, from the other agent's side, is live
+	f.stop(t, "-", o1, "").block("the other agent's own run, seen from it").has("reason", "bench the build")
+	stopSelf = func() int { return 601 }
 
-	procs(live)
+	procs(mine)
+	stopSelf = func() int { return 999 }
+	f.stop(t, "-", o1, "").allow("the hook's agent process not found")
+	stopSelf = func() int { return 601 }
+
 	other := call
 	other.Session = "s2"
 	record(other)
@@ -402,7 +431,7 @@ func TestStopBackgroundRunStillGoing(t *testing.T) {
 		has("reason", "bench the build")
 
 	record(call)
-	procs(live)
+	procs(mine)
 	if os.Geteuid() != 0 { // root ignores the mode: the file reads as a live record
 		if err := os.Chmod(project.BackgroundFile(f.Root), 0o000); err != nil {
 			t.Fatal(err)
@@ -413,11 +442,11 @@ func TestStopBackgroundRunStillGoing(t *testing.T) {
 
 	record(project.BackgroundCall{At: ago(6), Agent: "pj-int", Session: "s1", Description: "run the gate",
 		Command: "make check"})
-	procs(background.Proc{PID: 901, PPID: 1, Age: 6 * time.Second, Command: "make check"})
+	procs(run(500, 900, "make check"))
 	f.stop(t, "integrator", f.Root, "").block("a role agent's live call").has("reason", "run the gate")
 	record(project.BackgroundCall{At: ago(6), Agent: "pj-lead", Session: "s1", Description: "read the logs",
 		Command: "tail -f serve.log"})
-	procs(background.Proc{PID: 902, PPID: 1, Age: 6 * time.Second, Command: "tail -f serve.log"})
+	procs(run(500, 900, "tail -f serve.log"))
 	f.stop(t, "lead", f.Root, "").block("the lead's live call").has("reason", "read the logs")
 }
 

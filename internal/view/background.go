@@ -12,7 +12,6 @@ package view
 import (
 	"context"
 	"path/filepath"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -25,10 +24,6 @@ import (
 
 // BackgroundMin is how long a process runs before it is shown.
 const BackgroundMin = 30 * time.Second
-
-// helperSlack is how close to the agent's own start a direct child must have started to count as started with it (its
-// MCP servers, its language servers): such a child and its descendants are helpers, never shown.
-const helperSlack = 10 * time.Second
 
 // now is the clock BackgroundOf takes the processes' start from (a test sets it).
 var now = time.Now
@@ -64,83 +59,16 @@ func (b Background) Line(age string) string {
 // Proc is one row of the process table: pid, parent, how long it has run and its full command.
 type Proc = background.Proc
 
-// shells are the programs a command runs in: a shell with children is passed through, its children are the processes
-// shown (an agent's Bash tool wraps every command in one).
-var shells = map[string]bool{"sh": true, "bash": true, "zsh": true, "dash": true, "fish": true, "ksh": true}
-
-// program is a command's argv0 without its path or a login shell's leading dash.
-func program(command string) string {
-	f := strings.Fields(command)
-	if len(f) == 0 {
-		return ""
-	}
-	return strings.TrimPrefix(filepath.Base(f[0]), "-")
-}
-
-// oborMCP: command is obor's own MCP server (`obor mcp`, through the shim or the binary).
-func oborMCP(command string) bool {
-	f := strings.Fields(command)
-	for i := 0; i+1 < len(f); i++ {
-		if filepath.Base(f[i]) == "obor" && f[i+1] == "mcp" {
-			return true
-		}
-	}
-	return false
-}
-
-// ProcIndex is a process table indexed for Descendants: each process's children and each pid's row. NewProcIndex
-// builds it once per scan; every agent of the scan walks the same index.
-type ProcIndex struct {
-	kids  map[int][]Proc
-	byPID map[int]Proc
-}
+// ProcIndex is a process table indexed for Descendants (internal/background's, T-1143: the Stop hook walks the same).
+type ProcIndex = background.ProcIndex
 
 // indexBuilds counts NewProcIndex calls (a test reads it: one index per scan).
 var indexBuilds atomic.Int64
 
-// NewProcIndex is procs indexed by parent and by pid.
+// NewProcIndex is procs indexed by parent and by pid (background.NewProcIndex, counted).
 func NewProcIndex(procs []Proc) *ProcIndex {
 	indexBuilds.Add(1)
-	x := &ProcIndex{kids: make(map[int][]Proc, len(procs)), byPID: make(map[int]Proc, len(procs))}
-	for _, p := range procs {
-		x.kids[p.PPID] = append(x.kids[p.PPID], p)
-		x.byPID[p.PID] = p
-	}
-	return x
-}
-
-// Descendants is the long-running processes of the agent with pid agent in x: walking down from it, a shell with
-// children is passed through and any other process is one entry (its own children are its business), kept when it has
-// run longer than min. Left out, with all they started — the agent's own helpers: a direct child of the agent that is
-// no shell (an agent runs commands through a shell; what it starts itself is its MCP servers, language servers, Claude
-// Code's caffeinate per turn), a direct child that started with the agent (within helperSlack of its own start: an MCP
-// server wrapped in a shell) and obor's own MCP server anywhere. Each entry's ancestors up to the agent (the shell that
-// wraps a Bash tool call) come with it, to match a recorded call against. None when agent is not in procs.
-func (x *ProcIndex) Descendants(agent int, min time.Duration) []background.Found {
-	self, ok := x.byPID[agent]
-	if !ok || agent <= 1 {
-		return nil
-	}
-	kids := x.kids
-	var out []background.Found
-	var walk func(pid int, chain []string)
-	walk = func(pid int, chain []string) {
-		for _, c := range kids[pid] {
-			shell := shells[program(c.Command)]
-			if oborMCP(c.Command) || pid == agent && (!shell || c.Age >= self.Age-helperSlack) {
-				continue
-			}
-			if shell && len(kids[c.PID]) > 0 {
-				walk(c.PID, append(chain[:len(chain):len(chain)], c.Command))
-				continue
-			}
-			if c.Age > min {
-				out = append(out, background.Found{Proc: c, Chain: chain})
-			}
-		}
-	}
-	walk(agent, nil)
-	return out
+	return background.NewProcIndex(procs)
 }
 
 // AgentPID is the agent's process in pane: the leader of the pane's foreground group (herdr process-info, as obor stop

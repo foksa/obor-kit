@@ -41,8 +41,9 @@ gate runs it. Adapters never import each other: one that needs another goes thro
   in their own layout, and `LoadWith` (what it would load as).
 - `background` (T-714, T-1142): the agents' live processes, the one check of them — the machine's process table
   (`ReadProcs`, `ParseProcs`, `Proc`), a recorded background Bash call matched to the process it started
-  (`Match` by command and time; `Live`, the newest call still running; `Mine`, an agent's calls; `Text`). The view's
-  background scan, serve's idle-with-background line and the Stop hook's block all read it (T-1142).
+  (`Match` by command and time; `Live`, the newest call still running in an agent's descendants; `Mine`, an agent's
+  calls; `Text`), an agent's descendants (`ProcIndex.Descendants`) and a hook's agent (`AgentOf`, T-1143). The view's
+  background scan and the Stop hook's block both read it (T-1142, T-1143).
 - `roles`: role names and defaults. `spec`: a spec text's title, sections and globs (the text is the store's).
 - `run`: commands under a timeout as a process group; machine-wide check slots. `run.Group`, `run.Slots`.
 - `version`: build version line.

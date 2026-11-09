@@ -137,18 +137,119 @@ func runs(command, want string) bool {
 // Fold is s with its whitespace runs as one space.
 func Fold(s string) string { return strings.Join(strings.Fields(s), " ") }
 
-// Live is the newest call in calls still running in procs at at: a process runs its command and started just after the
-// call was recorded (Match, with no ancestry: the hook and serve know no agent pid). ok is false when every call's
-// process has ended: the call's turn is over.
-func Live(calls []project.BackgroundCall, procs []Proc, at time.Time) (call project.BackgroundCall, ok bool) {
+// Live is the newest call in calls still running at at in one of agent's processes in procs: a descendant of the
+// agent's pid (Descendants, the view's walk, of any age) that runs its command and started just after the call was
+// recorded (Match). Another agent's process running the same command is none of its (RV-169 #1). ok is false when
+// every call's process has ended, or agent is not in procs: the call's turn is over, or the agent is unknown.
+func Live(calls []project.BackgroundCall, procs []Proc, agent int, at time.Time) (call project.BackgroundCall, ok bool) {
+	found := NewProcIndex(procs).Descendants(agent, -1)
 	for i := len(calls) - 1; i >= 0; i-- {
-		for _, p := range procs {
-			if c, ok := Match(Found{Proc: p}, calls[i:i+1], at); ok {
+		for _, f := range found {
+			if c, ok := Match(f, calls[i:i+1], at); ok {
 				return c, true
 			}
 		}
 	}
 	return project.BackgroundCall{}, false
+}
+
+// AgentOf is the agent process that ran the process self (a hook: the agent CLI that ran it, RV-169 #1): walking up
+// procs from self's parent, the first ancestor that is no shell (the shell a hook command runs in is passed through).
+// 0 when self is not in procs or the walk reaches pid 1 or a pid not in procs.
+func AgentOf(procs []Proc, self int) int {
+	byPID := make(map[int]Proc, len(procs))
+	for _, p := range procs {
+		byPID[p.PID] = p
+	}
+	p, ok := byPID[self]
+	for seen := 0; ok && seen < len(procs); seen++ {
+		if p.PPID <= 1 {
+			return 0
+		}
+		if p, ok = byPID[p.PPID]; ok && !shells[program(p.Command)] {
+			return p.PID
+		}
+	}
+	return 0
+}
+
+// helperSlack is how close to the agent's own start a direct child must have started to count as started with it (its
+// MCP servers, its language servers): such a child and its descendants are helpers, never counted.
+const helperSlack = 10 * time.Second
+
+// shells are the programs a command runs in: a shell with children is passed through, its children are the processes
+// counted (an agent's Bash tool wraps every command in one).
+var shells = map[string]bool{"sh": true, "bash": true, "zsh": true, "dash": true, "fish": true, "ksh": true}
+
+// program is a command's argv0 without its path or a login shell's leading dash.
+func program(command string) string {
+	f := strings.Fields(command)
+	if len(f) == 0 {
+		return ""
+	}
+	return strings.TrimPrefix(filepath.Base(f[0]), "-")
+}
+
+// oborMCP: command is obor's own MCP server (`obor mcp`, through the shim or the binary).
+func oborMCP(command string) bool {
+	f := strings.Fields(command)
+	for i := 0; i+1 < len(f); i++ {
+		if filepath.Base(f[i]) == "obor" && f[i+1] == "mcp" {
+			return true
+		}
+	}
+	return false
+}
+
+// ProcIndex is a process table indexed for Descendants: each process's children and each pid's row. Built once per
+// scan; every agent of a view's scan walks the same index.
+type ProcIndex struct {
+	kids  map[int][]Proc
+	byPID map[int]Proc
+}
+
+// NewProcIndex is procs indexed by parent and by pid.
+func NewProcIndex(procs []Proc) *ProcIndex {
+	x := &ProcIndex{kids: make(map[int][]Proc, len(procs)), byPID: make(map[int]Proc, len(procs))}
+	for _, p := range procs {
+		x.kids[p.PPID] = append(x.kids[p.PPID], p)
+		x.byPID[p.PID] = p
+	}
+	return x
+}
+
+// Descendants is the long-running processes of the agent with pid agent in x: walking down from it, a shell with
+// children is passed through and any other process is one entry (its own children are its business), kept when it has
+// run longer than min (a negative min: every one). Left out, with all they started — the agent's own helpers: a direct child of the agent that is
+// no shell (an agent runs commands through a shell; what it starts itself is its MCP servers, language servers, Claude
+// Code's caffeinate per turn), a direct child that started with the agent (within helperSlack of its own start: an MCP
+// server wrapped in a shell) and obor's own MCP server anywhere. Each entry's ancestors up to the agent (the shell that
+// wraps a Bash tool call) come with it, to match a recorded call against. None when agent is not in procs.
+func (x *ProcIndex) Descendants(agent int, min time.Duration) []Found {
+	self, ok := x.byPID[agent]
+	if !ok || agent <= 1 {
+		return nil
+	}
+	kids := x.kids
+	var out []Found
+	var walk func(pid int, chain []string)
+	walk = func(pid int, chain []string) {
+		for _, c := range kids[pid] {
+			shell := shells[program(c.Command)]
+			if oborMCP(c.Command) || pid == agent && (!shell || c.Age >= self.Age-helperSlack) {
+				continue
+			}
+			if shell && len(kids[c.PID]) > 0 {
+				walk(c.PID, append(chain[:len(chain):len(chain)], c.Command))
+				continue
+			}
+			if c.Age > min {
+				out = append(out, Found{Proc: c, Chain: chain})
+			}
+		}
+	}
+	walk(agent, nil)
+	return out
 }
 
 // Mine is the calls that belong to an agent, in log order: those recorded for session (when it is known) that name the
