@@ -16,9 +16,6 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   is a WARN for every loader and only `obor config validate` is strict (T-1081, T-1084; DD-v0.32 #1), an open promote
   needs-you ends on upgrade (T-1082), serve names every event's kind (T-1074), the gate fails a test package with no
   budget entry and `-seed <pkg>` seeds one (T-1073, T-1077). Reviews RV-156..RV-160 closed; DD-v0.32 + verify approved.
-  **Leftover to remove (my `git worktree remove` was denied by the auto-mode classifier; owner may run it):**
-  `git worktree remove --force ../obor-kit-wt/merge-promote && rm .obor/state/last-promotion
-  .obor/state/logs/promote-check.log` (clean detached worktree at 3c5bf79f; harmless if left).
   **Next steps:** (1) Check the 11-10 02:00 nightly GREEN (first on v0.32; the budget line should be OK now).
   (2) The owner picks the next work. Verified not done: `obor doctor` (check first that stale panes still happen).
   The `job_next` saving left is Claude-only (`alwaysLoad`), parked under the agent-neutral rule. Concerns: the deep
