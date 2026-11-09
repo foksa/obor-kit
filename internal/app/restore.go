@@ -15,8 +15,7 @@ import (
 // The restore runs in its own goroutine (it restarts agents: minutes), never under mu, so the stream's events go on
 // meanwhile. Runs never overlap: a reconnect while one runs asks for one more run after it (several coalesce), which
 // reads the panes afresh. The restore is idempotent (a pane whose agent runs is left alone, and a project's runs are
-// one at a time under its restore lock), so the herdr plugin's run, where linked, and serve's restart each pane at
-// most once.
+// one at a time under its restore lock), so a reconnect's run and the one it queued each restart a pane at most once.
 
 // restoreState is the restore's single flight (under App.mu).
 type restoreState struct {

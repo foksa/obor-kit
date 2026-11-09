@@ -22,7 +22,6 @@ spec
 flakes
 events
 nightly
-plugin
 setup
 init
 status

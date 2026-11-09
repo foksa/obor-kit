@@ -39,7 +39,7 @@ func TestMain(m *testing.M) {
 	os.Exit(testkit.Run(m))
 }
 
-// kit is this checkout: the templates, githooks and herdr-plugin setup reads.
+// kit is this checkout: the templates and githooks setup reads.
 var kit = func() string { d, _ := filepath.Abs("../.."); return d }()
 
 type fx struct {
@@ -882,100 +882,73 @@ func TestRoleCustomPlaced(t *testing.T) {
 // --- githooks ---------------------------------------------------------------------------------------------------------
 // githooks_integration_test.go: what setup githooks leaves in git config, and the hooks git runs (T-1021).
 
-// --- herdr-plugin (R-28 §3) -------------------------------------------------------------------------------------------
+// --- herdr-plugin (R-28 §3, T-1117: removed) ---------------------------------------------------------------------
 
-// bash setup.test.sh case_herdr_plugin_refreshes_symlink_and_reports_link; not linked → the kit's herdr-plugin linked
-// directly (T-250, T-256).
-func TestHerdrPluginLinksTheKitAndHints(t *testing.T) {
+// T-1117: `obor setup herdr-plugin` no longer links the obor.events plugin (obor serve restarts its own panes): the
+// one an older obor linked is unlinked once, and a machine without one has nothing to remove. Either way herdr's
+// resume hint is said once, unless herdr's config sets it.
+func TestHerdrPluginRemovesTheOldLinkAndHints(t *testing.T) {
 	t.Parallel()
 	x := bare(t)
 	conf := x.Path("herdr-config.toml")
 	x.env = []string{"HERDR_CONFIG_PATH=" + conf}
-	mine := filepath.Join(kit, "herdr-plugin")
-	x.h.Plugins = []herdrtest.Plugin{{ID: "obor.events", Root: mine}}
+	old := x.Path("old-kit/herdr-plugin")
+	x.h.Plugins = []herdrtest.Plugin{{ID: "obor.events", Root: old}, {ID: "other", Root: "/o"}}
 	out := x.ok(t, "herdr-plugin")
-	has(t, out, "herdr-plugin: obor.events linked ("+mine+")", "linked")
-	hasNot(t, strings.Join(x.reqs(), "\n"), "plugin.link", "linked → no link")
+	has(t, strings.Join(x.reqs(), "\n"), "plugin.unlink plugin_id=obor.events", "linked → the old plugin unlinked")
+	has(t, out, "herdr-plugin: obor.events unlinked (was "+old+"; obor serve restarts its own panes now)", "unlinked said")
 	has(t, out, "hint: obor restarts its panes after a herdr restart: set resume_agents_on_restore = false under [session] in "+conf,
 		"no setting → the resume line")
 	if last(out) != "OK herdr-plugin" {
 		t.Errorf("last line %q", last(out))
 	}
+	if len(x.h.Plugins) != 1 || x.h.Plugins[0].ID != "other" {
+		t.Errorf("herdr's plugins after the removal: %+v, want only the other", x.h.Plugins)
+	}
+	// A rerun (or a machine that never linked it): nothing to unlink, and it says so.
+	x.reset()
+	out = x.ok(t, "herdr-plugin")
+	has(t, out, "herdr-plugin: obor.events is not linked", "not linked said")
+	hasNot(t, strings.Join(x.reqs(), "\n"), "plugin.unlink", "nothing linked → no unlink")
+	hasNot(t, strings.Join(x.reqs(), "\n"), "plugin.link", "never linked again")
+
 	x.Write(conf, "[session]\nresume_agents_on_restore = true\n")
 	has(t, x.ok(t, "herdr-plugin"), "set resume_agents_on_restore = false", "true → the resume line")
 	text := "[ui]\nx = 1\n[session]\nresume_agents_on_restore = false # obor\n"
 	x.Write(conf, text)
-	out = x.ok(t, "herdr-plugin")
-	has(t, out, "obor.events linked", "precondition: still linked")
-	hasNot(t, out, "hint:", "false → no hint at all")
+	hasNot(t, x.ok(t, "herdr-plugin"), "hint:", "false → no hint at all")
 	if x.Read(conf) != text {
 		t.Error("herdr's config never edited")
 	}
 	x.Write(conf, "[other]\nresume_agents_on_restore = false\n")
 	has(t, x.ok(t, "herdr-plugin"), "set resume_agents_on_restore", "false outside [session] → the line")
 	os.Remove(conf)
-
-	x.srv.Fail("plugin.list", "invalid_request", "boom")
-	x.failing(t, "FAIL cannot read herdr's plugin list: herdr plugin.list: failed: boom (invalid_request)", "herdr-plugin")
-	if len(x.h.Plugins) != 1 || x.h.Plugins[0].Root != mine {
-		t.Errorf("a plugin list error changed herdr's plugins: %v", x.h.Plugins)
-	}
-	x.srv.Clear("plugin.list")
-
-	x.h.Plugins = nil
-	x.reset()
-	out = x.ok(t, "herdr-plugin")
-	has(t, strings.Join(x.reqs(), "\n"), "plugin.link path="+mine, "not linked → the kit's herdr-plugin linked")
-	has(t, out, "herdr-plugin: obor.events linked to "+mine+" (user-global: obor restarts its panes after a herdr session restore)", "said")
-	has(t, out, "(user-global: affects every herdr pane, not only obor's; those come back as shells)", "the resume line, linked or not")
-	if x.Exists(filepath.Join(x.Base, "state-home", "herdr-plugin")) {
-		t.Error("no ~/.obor/herdr-plugin symlink")
-	}
-
-	x.h.Plugins = nil
-	x.srv.Fail("plugin.link", "plugin_invalid", "boom")
-	out = x.failing(t, "FAIL herdr-plugin", "herdr-plugin")
-	has(t, out, "WARN herdr-plugin: herdr plugin.link: failed: boom (plugin_invalid)", "a failed link said")
-	x.srv.Clear("plugin.link")
-
-	x.kit = x.Path("no-kit")
-	x.reset()
-	out = x.failing(t, "FAIL herdr-plugin", "herdr-plugin")
-	has(t, out, "WARN herdr-plugin: no herdr plugin in "+x.Path("no-kit/herdr-plugin"), "a kit without the plugin said")
-	if calls := x.reqs(); len(calls) > 0 {
-		t.Errorf("no herdr call: %v", calls)
-	}
 }
 
-// RV-18 #1 + STATUS "herdr resolves the symlink": herdr runs another kit's plugin (a kit at another path) →
-// herdr-plugin re-links it to this kit (init only says so); this kit's (by any path to it) → nothing to re-link.
-// bash setup.test.sh case_herdr_plugin_other_kit_relink_command
-func TestHerdrPluginRelinksAnotherKitsPlugin(t *testing.T) {
+// T-613 #4: herdr cannot list its plugins: the removal FAILs with herdr's error (never "not linked") and unlinks
+// nothing; a failed unlink is a WARN and a FAIL too.
+func TestHerdrPluginRemovalFailures(t *testing.T) {
 	t.Parallel()
-	x := newFx(t)
-	old, mine := x.Path("old-kit/herdr-plugin"), filepath.Join(kit, "herdr-plugin")
-	os.MkdirAll(old, 0o755)
-	x.h.Plugins = []herdrtest.Plugin{{ID: "obor.events", Root: old}}
-	x.reset()
-	out := x.ok(t, "herdr-plugin")
-	if got := strings.Join(x.reqs(), "\n"); !strings.Contains(got, "plugin.unlink plugin_id=obor.events\nplugin.link path="+mine) {
-		t.Errorf("unlink, then link the kit's herdr-plugin:\n%s", got)
+	x := bare(t)
+	x.h.Plugins = []herdrtest.Plugin{{ID: "obor.events", Root: x.Path("old-kit/herdr-plugin")}}
+	x.srv.Fail("plugin.list", "invalid_request", "boom")
+	x.failing(t, "FAIL cannot read herdr's plugin list: herdr plugin.list: failed: boom (invalid_request)", "herdr-plugin")
+	if len(x.h.Plugins) != 1 {
+		t.Errorf("a plugin list error changed herdr's plugins: %v", x.h.Plugins)
 	}
-	has(t, out, "herdr-plugin: obor.events re-linked to "+mine+" (was "+old+";", "said")
-	if len(x.h.Plugins) != 1 || x.h.Plugins[0].Root != mine {
-		t.Errorf("herdr now runs this kit: %v", x.h.Plugins)
-	}
+	hasNot(t, strings.Join(x.reqs(), "\n"), "plugin.unlink", "a list error unlinked nothing")
+	x.srv.Clear("plugin.list")
 
-	alias := x.Path("kit-alias")
-	if err := os.Symlink(kit, alias); err != nil {
-		t.Fatal(err)
-	}
-	for _, root := range []string{mine, filepath.Join(alias, "herdr-plugin")} {
-		x.h.Plugins = []herdrtest.Plugin{{ID: "obor.events", Root: root}}
-		x.reset()
-		out = x.ok(t, "herdr-plugin")
-		has(t, out, "obor.events linked ("+mine+")", root+" is this kit")
-		hasNot(t, strings.Join(x.reqs(), "\n"), "plugin.link", root+": no re-link")
+	x.reset()
+	x.srv.Fail("plugin.unlink", "plugin_invalid", "boom")
+	out := x.failing(t, "FAIL herdr-plugin", "herdr-plugin")
+	has(t, out, "WARN herdr-plugin: herdr plugin.unlink: failed: boom (plugin_invalid)", "a failed unlink said")
+	x.srv.Clear("plugin.unlink")
+
+	x.h.Plugins = nil
+	x.reset()
+	if out := x.ok(t, "herdr-plugin"); last(out) != "OK herdr-plugin" {
+		t.Errorf("nothing linked: last line %q", last(out))
 	}
 }
 

@@ -125,8 +125,8 @@ type Restorer interface {
 }
 
 // TerminalSetup is what obor setup and obor init ask of the terminal (T-1044), in terminal-neutral terms: the pane
-// operations launch needs, the agents running now, a new pane for an agent placed by the adapter's own layout, the
-// terminal's integration for obor, and a project rename's share. The herdr adapter (herdr.Setup) implements it; setup
+// operations launch needs, the agents running now, a new pane for an agent placed by the adapter's own layout, what an
+// older obor installed there (and its removal), and a project rename's share. The herdr adapter (herdr.Setup) implements it; setup
 // decides whose pane and near what, never a tab, a workspace or a split.
 type TerminalSetup interface {
 	PaneControl
@@ -135,9 +135,10 @@ type TerminalSetup interface {
 	// Place makes a new pane for an agent where p says and returns its id; the layout is the adapter's. Its refusals
 	// and failures are the lines setup prints after FAIL.
 	Place(ctx context.Context, p Placement) (string, error)
-	// Integrate installs, once per user and idempotent, what the terminal needs to bring obor's agents back after it
-	// restarts (herdr: the obor.events plugin of the kit's herdr-plugin dir); its progress lines go to say.
-	Integrate(ctx context.Context, kit string, say func(line string)) (Integration, error)
+	// RemoveIntegration removes, once per user and idempotent, what an older obor installed in the terminal to bring
+	// its agents back after it restarts (herdr: the obor.events plugin, which serve's own restore replaced, T-1117);
+	// its progress lines go to say.
+	RemoveIntegration(ctx context.Context, say func(line string)) (Integration, error)
 	// RenameProject renames the terminal's group of the project from old to name (herdr: the workspace labelled old)
 	// and relabels each pane of it whose label relabel maps to another label.
 	RenameProject(ctx context.Context, old, name string, relabel func(label string) string) (Renamed, error)
@@ -171,8 +172,8 @@ type PlaceProject struct {
 	Has        func(cwd string) bool
 }
 
-// Integration is Integrate's outcome: whether anything was installed or replaced, the step's summary for obor init,
-// and a hint for the user ("": none) about a setting of the terminal's own that obor never edits.
+// Integration is RemoveIntegration's outcome: whether anything was removed, the one-line summary, and a hint for the
+// user ("": none) about a setting of the terminal's own that obor never edits.
 type Integration struct {
 	Changed bool
 	What    string

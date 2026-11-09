@@ -105,7 +105,6 @@ cmd/obor, internal Go source (make build → dist/obor; make check → the merge
 skills/            Claude Code skills: lead, setup, role
 hooks/             Claude Code hook wiring (every hook is `obor hook <name>`)
 templates/         role texts, task spec, BACKLOG/decisions templates, config examples
-herdr-plugin/      restores obor's panes after a herdr restart (optional: serve restores on reconnect)
 docs/              design (design.md, state-model.md, module-map.md), plans, decisions, upgrade guides
 ```
 

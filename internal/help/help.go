@@ -79,7 +79,6 @@ var Commands = []Command{
 	{"hook", "obor hook noop|pre-tool-use|stop|stop-failure|session-start|user-prompt-submit",
 		"the agents' hooks (Claude Code runs them)", "internals"},
 	{"mcp", "obor mcp [--check]", "the agents' MCP server of job tools (--check: one line on whether it answers)", "internals"},
-	{"plugin", "obor plugin restore [--now]", "the herdr plugin's restore command (herdr runs it)", "internals"},
 	{"has", "obor has <subcommand> [<sub-subcommand>]", "exit 0 when this binary implements it (the shim asks)", "internals"},
 }
 

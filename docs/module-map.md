@@ -160,7 +160,7 @@ process (`plugin.Local`).
 **adapters** — one outside system each.
 - `herdr`: herdr socket client (events.subscribe, session.snapshot, agent.prompt, pane.*). Implements `app.Panes`
   and `app.Typer`, and `port.TerminalSetup` as `Setup` (`setup.go`, T-1044: the layout of setup's placements in tabs,
-  workspaces and splits, the obor.events plugin, the workspace rename); herdr's own `Pane` (tab and workspace ids) stays
+  workspaces and splits, the unlink of the old obor.events plugin, the workspace rename); herdr's own `Pane` (tab and workspace ids) stays
   here; `terminal.kind` `herdr` selects it; `herdr/herdrtest` is its fake (test helper) and holds the terminal contract
   table (`contract.go`, run by `TestTerminalContract` and the live tier's H-C rows).
 - `checks`: git and the merge gate: lanes (`checks.Lane`, `LaneSetup`), serve's worktree `merge.scratch_dir` (submit,

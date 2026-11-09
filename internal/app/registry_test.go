@@ -77,7 +77,7 @@ func TestIdentFreshSession(t *testing.T) {
 	}
 }
 
-// 4: herdr restarted, obor plugin restore: new pane ids and terminals, the same label, the session record kept: identified by
+// 4: herdr restarted, serve's restore: new pane ids and terminals, the same label, the session record kept: identified by
 // session (by label for opencode, which records none); the lane sees no agent exit.
 func TestIdentHerdrRestartRestore(t *testing.T) {
 	t.Parallel()

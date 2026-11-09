@@ -128,7 +128,7 @@ func TestRestoreLabelledOborPanes(t *testing.T) {
 	f.shell("w1:p5", f.p.Root, "my notes")
 	f.h.Agent("w1:p6", "pj-int", "idle", f.p.Root).Label = "pj-int"
 	recordSessions(t, f.p.Root, store.Session{Agent: "pj-l-01", Kind: "claude", ID: "sid-l-01", Started: time.Now().Unix()})
-	f.pl.Restore(context.Background())
+	f.pl.RestoreProject(context.Background(), f.p.Root)
 	f.wantCalls(f.p.Root+" restart pj-l-01 --pane w1:p1", f.p.Root+" restart pj-lead --pane w1:p2 --fresh")
 	log := f.restoreLog()
 	has(t, log, " restore pj-l-01 (pane w1:p1) in "+f.p.Root+"\nstub restart ran: pj-l-01\nRESTARTED pj-l-01\n",
@@ -152,7 +152,7 @@ func TestRestoreOutsideOborSilent(t *testing.T) {
 	f.shell("w1:p1", other, "pj-l-01")
 	f.shell("w1:p2", f.p.Base, "pj-lead")
 	f.shell("w1:p3", filepath.Join(f.p.Base, "gone"), "pj-lead")
-	f.pl.Restore(context.Background())
+	f.pl.RestoreProject(context.Background(), f.p.Root)
 	f.wantCalls()
 	if _, err := os.Stat(launch.RestoreLog(f.pl.Env)); err == nil {
 		t.Error("a log outside obor")
@@ -160,13 +160,13 @@ func TestRestoreOutsideOborSilent(t *testing.T) {
 	f.p.Config()
 	f.shell("w1:p4", f.p.Root, "pj-lead")
 	f.srv.Fail("pane.list", "internal", "herdr is down")
-	f.pl.Restore(context.Background())
+	f.pl.RestoreProject(context.Background(), f.p.Root)
 	f.wantCalls()
 	if _, err := os.Stat(launch.RestoreLog(f.pl.Env)); err == nil {
 		t.Error("pane list failing: a log")
 	}
 	f.srv.Clear("pane.list")
-	f.pl.Restore(context.Background())
+	f.pl.RestoreProject(context.Background(), f.p.Root)
 	f.wantCalls(f.p.Root + " restart pj-lead --pane w1:p4 --fresh") // precondition: the obor pane restarts once herdr answers
 }
 
@@ -178,7 +178,7 @@ func TestRestoreIgnoresMonitorPane(t *testing.T) {
 	f.shell("w1:p1", f.p.Root, "pj-lead")
 	f.shell("w1:p2", f.p.Root, "pj-monitor")
 	f.h.Agent("w1:p3", "x", "idle", f.p.Root).Label = "pj-monitor"
-	f.pl.Restore(context.Background())
+	f.pl.RestoreProject(context.Background(), f.p.Root)
 	f.wantCalls(f.p.Root + " restart pj-lead --pane w1:p1 --fresh") // the lead restarts; the monitor panes do not
 	if log := f.restoreLog(); strings.Contains(log, "monitor") {
 		t.Errorf("the restore logged a monitor pane:\n%s", log)
@@ -199,7 +199,7 @@ func TestRestoreFailureLoggedNextPaneRestarts(t *testing.T) {
 	f.shell("w1:p1", f.p.Root, "pj-lead")
 	f.shell("w1:p2", lane, "pj-l-01")
 	f.fail["pj-lead"] = true
-	f.pl.Restore(context.Background())
+	f.pl.RestoreProject(context.Background(), f.p.Root)
 	has(t, f.restoreLog(), "obor restart pj-lead: FAIL no session", "a failed restart is logged")
 	f.wantCalls(f.p.Root+" restart pj-lead --pane w1:p1 --fresh", f.p.Root+" restart pj-l-01 --pane w1:p2 --fresh")
 }
@@ -215,7 +215,7 @@ func TestRestoreWorkerWithoutSessionFresh(t *testing.T) {
 	f.shell("w1:p3", f.p.Root, "pj-lead")
 	f.p.State("L-02", `{"lane":"L-02","task":"T-02","branch":"task/T-02"}`)
 	recordSessions(t, f.p.Root, store.Session{Agent: "pj-l-02", Kind: "claude", ID: "sid-l-02", Started: time.Now().Unix()})
-	f.pl.Restore(context.Background())
+	f.pl.RestoreProject(context.Background(), f.p.Root)
 	f.wantCalls(f.p.Root+" restart pj-l-01 --pane w1:p1 --fresh", f.p.Root+" restart pj-l-02 --pane w1:p2",
 		f.p.Root+" restart pj-lead --pane w1:p3 --fresh")
 	log := f.restoreLog()
@@ -239,7 +239,7 @@ func TestRestoreWorkerRecordedSession(t *testing.T) {
 		f.p.State("L-01", `{"task":"T-01","branch":"task/T-01","base":"main","agent":"pj-l-01","type":"luna"}`)
 		f.shell("w1:p1", lane, "pj-l-01")
 		recordSessions(t, f.p.Root, store.Session{Agent: "pj-l-01", Kind: "codex", ID: "cx-1", Started: time.Now().Unix()})
-		f.pl.Restore(context.Background())
+		f.pl.RestoreProject(context.Background(), f.p.Root)
 		f.wantCalls(f.p.Root + " restart pj-l-01 --pane w1:p1")
 		lacks(t, f.restoreLog(), "no recorded session", "no --fresh note")
 	})
@@ -250,7 +250,7 @@ func TestRestoreWorkerRecordedSession(t *testing.T) {
 		f.p.State("L-01", `{"task":"T-01","branch":"task/T-01","agent":"pj-l-01"}`) // its row holds T-01, not landed: busy (T-1012)
 		f.shell("w1:p1", lane, "pj-l-01")
 		recordSessions(t, f.p.Root, store.Session{Agent: "pj-l-01", Kind: "claude", ID: "sid-l-01", Started: time.Now().Unix()})
-		f.pl.Restore(context.Background())
+		f.pl.RestoreProject(context.Background(), f.p.Root)
 		f.wantCalls(f.p.Root + " restart pj-l-01 --pane w1:p1")
 		lacks(t, f.restoreLog(), "no recorded session", "no --fresh note")
 	})
@@ -261,7 +261,7 @@ func TestRestoreWorkerRecordedSession(t *testing.T) {
 		f.p.State("L-01", `{"task":"T-01","branch":"task/T-01","base":"main","agent":"pj-l-01","type":"deepseek"}`)
 		f.shell("w1:p1", lane, "pj-l-01")
 		recordSessions(t, f.p.Root, store.Session{Agent: "pj-l-01", Kind: "opencode", ID: "oc-1", Started: time.Now().Unix()})
-		f.pl.Restore(context.Background())
+		f.pl.RestoreProject(context.Background(), f.p.Root)
 		f.wantCalls(f.p.Root + " restart pj-l-01 --pane w1:p1 --fresh")
 		has(t, f.restoreLog(), "restore pj-l-01 (pane w1:p1) in "+f.p.Root+" (worker, kind opencode resumes nothing: --fresh)",
 			"the fresh start is logged")
@@ -286,7 +286,7 @@ func TestRestorePoolLaneKindIsTheDispatchs(t *testing.T) {
 			f.p.State("L-01", `{"task":"T-01","branch":"task/T-01","base":"main","agent":"pj-l-01","type":"`+c.typ+`"}`)
 			f.shell("w1:p1", lane, "pj-l-01")
 			recordSessions(t, f.p.Root, store.Session{Agent: "pj-l-01", Kind: c.kind, ID: "s-1", Started: time.Now().Unix()})
-			f.pl.Restore(context.Background())
+			f.pl.RestoreProject(context.Background(), f.p.Root)
 			f.wantCalls(f.p.Root + " restart pj-l-01 --pane w1:p1" + c.want)
 			if c.want != "" {
 				has(t, f.restoreLog(), "(worker, kind opencode resumes nothing: --fresh)", "the dispatch's kind is logged")
@@ -308,7 +308,7 @@ func TestRestoreRolePanesNotSkipped(t *testing.T) {
 	f.shell("w1:p1", o1, "pj-l-01")
 	f.shell("w1:p7", rev, "pj-rev")
 	f.shell("w1:p8", dd, "pj-deep-dive")
-	f.pl.Restore(context.Background())
+	f.pl.RestoreProject(context.Background(), f.p.Root)
 	f.wantCalls(f.p.Root+" restart pj-rev --pane w1:p7 --fresh", f.p.Root+" restart pj-deep-dive --pane w1:p8 --fresh")
 	log := f.restoreLog()
 	has(t, log, " skip pj-l-01 (pane w1:p1): lane L-01 is free", "the free lane skipped")
@@ -331,6 +331,26 @@ func TestRestoreLoadsAConfigWithUnknownKeys(t *testing.T) {
 		t.Fatalf("precondition: the config names three unknown keys: %q, %v", unknown, err)
 	}
 	f.shell("w1:p1", f.p.Root, "pj-lead")
-	f.pl.Restore(context.Background())
+	f.pl.RestoreProject(context.Background(), f.p.Root)
 	f.wantCalls(f.p.Root + " restart pj-lead --pane w1:p1 --fresh")
+}
+
+// Serve's run restores its own project alone: another obor project's labelled shell pane is that project's serve's.
+func TestRestoreProjectOnlyItsProject(t *testing.T) {
+	f := newRfx(t)
+	lane := f.p.PlainLane("L-01", "task/T-01")
+	f.p.Config()
+	f.p.State("L-01", `{"task":"T-01","branch":"task/T-01","agent":"pj-l-01"}`) // its row holds T-01, not landed: busy (T-1012)
+	f.shell("w1:p1", lane, "pj-l-01")
+	f.shell("w1:p2", f.p.Root, "pj-lead")
+	other := testkit.NewPlain(t)
+	other.Config()
+	f.shell("w2:p1", other.Root, "pj-lead")
+	f.pl.RestoreProject(context.Background(), f.p.Root)
+	f.wantCalls(f.p.Root+" restart pj-l-01 --pane w1:p1 --fresh", f.p.Root+" restart pj-lead --pane w1:p2 --fresh")
+	for _, c := range f.calls {
+		if strings.HasPrefix(c, other.Root+" ") {
+			t.Errorf("serve's run restarted the other project's pane: %q", c)
+		}
+	}
 }

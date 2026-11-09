@@ -7,6 +7,11 @@ ago (all but its merged or dropped fact) and the session records as old that are
 store's schema becomes 14 at the first start and an older obor refuses it: **rolling back across this release means
 restoring a nightly backup** (`.obor/state/backup/`) taken before the upgrade, as for schemas 12 and 13.
 
+The herdr plugin `obor.events` is gone: `obor serve` restarts its own panes after a herdr restart (T-1117). The block
+unlinks the plugin an older obor linked (user-global, once per machine); `obor init` does the same on a project's
+next run.
+
 ```sh
-# nothing to do
+# The obor.events herdr plugin an older obor linked is gone: obor serve restarts its own panes.
+obor setup herdr-plugin
 ```

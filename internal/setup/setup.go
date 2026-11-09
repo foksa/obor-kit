@@ -34,11 +34,10 @@
 //	        lacks). The project's own hooksPath, when already set, is chained (obor.hooksChain, run by every hook)
 //	        instead of refused. --remove puts the chained dir back and unsets obor.hooksChain, or unsets
 //	        core.hooksPath when there is none (only when it is ours).
-//	herdr-plugin  the obor.events herdr plugin (R-28 §3; user-global, once per user): link <kit>/herdr-plugin in
-//	        herdr, or re-link it when herdr runs another kit's copy (herdr stores the resolved path, so a kit at a new
-//	        path needs this); herdr's plugin list is read once, and an error reading it is a FAIL, not "linked"
-//	        (T-613); then one hint line unless herdr's config sets `[session] resume_agents_on_restore =
-//	        false` (never edited, T-159).
+//	herdr-plugin  the removal of the obor.events herdr plugin an older obor linked (R-28 §3, T-1117: obor serve
+//	        restarts its own panes): unlink it (user-global, once per user); herdr's plugin list is read once, and an
+//	        error reading it is a FAIL, not "not linked" (T-613); then one hint line unless herdr's config sets
+//	        `[session] resume_agents_on_restore = false` (never edited, T-159).
 //	agents  caches each plugin kind's manifest and runs every kind's install (T-1036), whose answer `obor setup mcp`
 //	        checks; a kind installs nothing user-global (T-1119).
 //
@@ -70,7 +69,7 @@ import (
 
 // Setup runs `obor setup` subcommands for the project around Dir.
 type Setup struct {
-	Kit string // the obor kit: templates/, githooks/, herdr-plugin/
+	Kit string // the obor kit: templates/, githooks/, skills/
 	Dir string // the caller's cwd
 	Env project.Env
 	// T is the terminal, in neutral terms (port.TerminalSetup, T-1044): setup says whose pane and near what, the
