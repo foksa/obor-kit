@@ -7,19 +7,20 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 
 ## Handoff (lead; rewrite at each handoff)
 Read `docs/observations.md` first (patterns from past sessions: where we went in circles, the load tax, traps).
-- 2026-11-09 ~09:40 (lead; previous Handoff: `git show f541e819:BACKLOG.md`). Owner stopped for the day. Every lane
-  free, nothing queued, no review open, no watch.
-  **Released and shipped v0.32.0** (owner ran `make ship`; tag at f27d7edc; axis-alies confirmed no upgrade steps and
-  committed `kinds.opencode.command`, b09493eb). In it: promotion deleted (T-1076, T-1078, T-1079; owner 11-09), the
-  adopter test flow = merge check + nightly, promotion unset (advisor option A; T-1075 init writes `nightly_at`),
-  `commands.baseline/gate/e2e` deleted with a validate WARN until v0.34 (T-1083; sizing T-1080), an unknown config key
-  is a WARN for every loader and only `obor config validate` is strict (T-1081, T-1084; DD-v0.32 #1), an open promote
-  needs-you ends on upgrade (T-1082), serve names every event's kind (T-1074), the gate fails a test package with no
-  budget entry and `-seed <pkg>` seeds one (T-1073, T-1077). Reviews RV-156..RV-160 closed; DD-v0.32 + verify approved.
-  **Next steps:** (1) Check the 11-10 02:00 nightly GREEN (first on v0.32; the budget line should be OK now).
-  (2) The owner picks the next work. Verified not done: `obor doctor` (check first that stale panes still happen).
-  The `job_next` saving left is Claude-only (`alwaysLoad`), parked under the agent-neutral rule. Deep-dive `git init` concern: decided 11-09, overlay route
-  named in its role text.
+- 2026-11-09 ~17:30 (lead; previous Handoff: `git show b106b38b:BACKLOG.md`). Every lane free, nothing queued, no
+  review open, no watch. **v0.33.0 tagged** (30ca80a5 on staging, `main` fast-forwarded, 8 binaries in `dist/`), not
+  shipped: **the owner runs `! make ship`**. In it (owner 11-09 themes): stored data (nightly sweep, gzip backups,
+  logs only on failure and gone at task end, prompts 3 days, shim keeps 2 binaries), event-log prune 30 days after a
+  task ends (schema 14) + linear session fold, undecided-behaviour deletions (merge.trailer, Model:/Implemented-by
+  lines, /obor:role, herdr plugin → serve restores incl. first connect after a herdr restart by socket mtime), config
+  shape 2 with serve's one-time rewrite (obor-kit rewritten at 40efc6c3), the background-run stop guard, the test
+  review (DD-tests-v0.33: perf unchanged, 7 unnecessary tests deleted). Reviews RV-161..RV-171 closed; DD-v0.33 +
+  verify approved; Codex smoke T-1154 passed. Kit kind default kept permanently (decisions 11-09, reversed T-1153).
+  **Next steps:** (1) After ship: axis-alies' serve rewrites its config (shape 2) at its first v0.33 start; check its
+  lead's line. (2) Check the 11-10 02:00 nightly GREEN (first sweep/prune run; internal/app budget 18 s of 27.5).
+  (3) Next release: config shape P7 (Later candidates) — delete Reshape/window/local.json shape test (T-1149/T-1151).
+  (4) Owner when convenient: ask herdr upstream for an instance id (Open, T-1135). Process lessons of the day are in
+  memory (review notes keep the review open; specs name each test's level, AGENTS.md test rule 11-09).
 ## Owner decisions pending
 - (none; branching decided 11-07, docs/decisions.md)
 
