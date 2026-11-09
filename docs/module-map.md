@@ -164,7 +164,7 @@ process (`plugin.Local`).
   workspaces and splits, the unlink of the old obor.events plugin, the workspace rename); herdr's own `Pane` (tab and workspace ids) stays
   here; `terminal.kind` `herdr` selects it; `herdr/herdrtest` is its fake (test helper) and holds the terminal contract
   table (`contract.go`, run by `TestTerminalContract` and the live tier's H-C rows).
-- `checks`: git and the merge gate: lanes (`checks.Lane`, `LaneSetup`), serve's worktree `merge.scratch_dir` (submit,
+- `checks`: git and the merge gate: lanes (`checks.Lane`, `LaneSetup`), serve's worktree `<lanes_dir>/merge` (submit,
   gate: merge and compile, resolved, publish, after_merge over pins under `refs/obor/`), the lane test of a candidate in
   the task's lane worktree (`lanetest.go`, `Scratch.Test`: the class's checks, T-961), nightly/milestone checks in their own worktree,
   flakes, and the lane table (`LaneTable`: worktree facts for `obor status` and `app.Lanes`, merge evidence; `Lanes` is serve's

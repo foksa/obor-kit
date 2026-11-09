@@ -82,8 +82,8 @@ or reviewed task, a merge-loop needs-you's regate, reprompt or retry; a flag onl
 ## Paths
 - **Project root** = the main checkout = `dirname "$(git rev-parse --path-format=absolute --git-common-dir)"`, from
   any worktree. Scripts always read the **main checkout's** `.obor/config.json` (a lane's copy can be a stale snapshot).
-- Lane dir = `<root>/<lanes_dir>/<LANE>` (lanes_dir relative to the root). Scratch merge worktree = `merge.scratch_dir`
-  (default `<lanes_dir>/merge`).
+- Lane dir = `<root>/<lanes_dir>/<LANE>` (lanes_dir relative to the root). Scratch merge worktree =
+  `<lanes_dir>/merge` (derived, not a key).
 - State dir = `<root>/.obor/state/` (gitignored).
 
 ## Config
@@ -117,12 +117,12 @@ warns on the keys that no longer do anything.
   },
   "models": { "muse": { "kind": "opencode", "model": "" } },  // a model the built-in table lacks, or an override
   "handoff_tokens": 500000,                      // the lead's handoff reminder threshold
-  "merge": { "scratch_dir": null, "summary_regex": "[0-9]+ pass|[0-9]+ fail",
+  "merge": { "summary_regex": "[0-9]+ pass|[0-9]+ fail",
              "fail_grep": "error|FAIL|Expected|Received" }
 }
 ```
-`.obor/local.json` (per machine, never committed): `lanes_dir` override, `limits` (`max_panes_per_tab`),
-and any key above (an object merges key by key; a list or scalar replaces).
+`.obor/local.json` (per machine, never committed): any key of the config, `lanes_dir` included (an object merges key
+by key; a list or scalar replaces). A tab holds four panes: a constant, not a key (T-1111).
 
 **Models (T-765):** the config names models with their effort directly: a model ref is `<model>[:<effort>]`
 (`opus:high`), in `difficulty` levels, `roles.<role>` and a spec's `Model:` line. The built-in
@@ -360,7 +360,7 @@ full check and the pause.
   there at a review's start, at each verify and at a brief to an idle deep dive, so it is never stale, and merges go on
   while they work. They may check out any commit there; their review files are written to the main checkout's
   `docs/reviews/`. The integrator has its own worktree `<lanes_dir>/integrator` for its review jobs; its resolve jobs
-  work in the scratch (`merge.scratch_dir`). Only the lead works in the main checkout among the merge-loop roles.
+  work in the scratch (`<lanes_dir>/merge`). Only the lead works in the main checkout among the merge-loop roles.
   A review's close commit names its reviewed sha, its covered tasks (`Covered:`) and its start sha (`Start:`, T-822);
   the scope, `review due` and the release check read those. A fix task's spec line `Fixes: RV-<n>` (T-924, rule
   tier; replaces T-850's `obor review fix`) links it to that review: the link is read from the dispatched tasks' stored
@@ -510,7 +510,7 @@ proves the skipped code can't depend on the changed code (e.g. an import-directi
   `with_full` (T-1007). The result says `partial:<class>` or `full:<reason>` (the file that decided
   it). A failing guard → RED (never falls back). These checks run in the task's lane (see "Where tests run").
 - `obor nightly`: `check` + `check_milestone`, each skipped when unset, in its own nightly worktree
-  (`<merge.scratch_dir>-nightly`, not the merge scratch) at the current branch head, under the merge window; it then
+  (`<lanes_dir>/merge-nightly`, not the merge scratch) at the current branch head, under the merge window; it then
   backs the store up and runs `merge.nightly_commands` in order, after the gates (each a `commands.<name>` that is no
   gating command; T-817: non-gating, one report line — its last output line — never RED, a nonzero exit a `WARN` line,
   and every `WARN`/`SKIP`/`FAIL` line it printed below it); writes `state/last-full-check`
@@ -578,8 +578,9 @@ A task's tests run in its own lane, not in serve's merge slot (T-961, T-995); no
   on that list with `$CHECK_CPUS` as `-p`. The tool reads `$OBOR_CHANGED_FILES` and prints the affected package import
   paths one per line (a changed file maps to the package of its nearest directory that holds one, and with the
   packages that import it, except a `_test.go` file, which selects its own package only), none when no package is affected, or one
-  `full: <why>` line: a changed `go.mod`/`go.sum`, a file matching `merge.affected_full` (build files and shared test
-  support: obor-kit lists `Makefile`, `internal/testkit/**`, …), a removed package, or an unset or unreadable list.
+  `full: <why>` line: a changed `go.mod`/`go.sum`, a file matching a `-full` glob the Makefile passes (build files
+  and shared test support: obor-kit lists `Makefile`, `internal/testkit/**`, …), a removed package, or an unset or
+  unreadable list.
   When it cannot make a list, the Makefile runs the full suite. The `go` class (`cmd/**`, `internal/**`, `kinds/**`,
   `tools/**`) has `checks: ["check_affected"]`; the other classes map the non-Go files to the checks that read them
   (`check_web`, `check_release`, `check_readers`, T-901, T-902), and `merge.guard` covers the rest. The Go-specific

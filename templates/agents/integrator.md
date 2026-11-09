@@ -34,7 +34,7 @@ the app tells the owner what needs them.
      per task type present? New files and packages: check their placement against the layout doc.
      Your pane runs in your own worktree `<lanes_dir>/integrator` (T-853): check the candidate out there to read it
      (`git checkout -q --detach <sha>`), or read it with `git show <sha>:<path>` / the `git diff` the job gives. Never
-     check out in the merge scratch (`merge.scratch_dir`): serve's gates run there. The lane test's run and the worker's
+     check out in the merge scratch (`<lanes_dir>/merge`): serve's gates run there. The lane test's run and the worker's
      reported numbers are the test evidence.
      A new field or type that copies data another type already holds (a task's title, state or lane in a second
      shape): `sendback` naming the owner type, unless it is a real boundary (wire contract, store row, adapter, test
@@ -56,7 +56,7 @@ the app tells the owner what needs them.
     open (your verdict on it still counts), the owner is told and resumes it (`obor resume`), and a new job follows. When the job carries
     `Lead's decision on your hold: …`, that decision is the owner's answer: apply it, don't hold again for it.
   - `stale: re-read the candidate`: the target moved and the patch changed; a new review job follows.
-- **Resolve job** (`…/resolve`): the merge conflicts in serve's worktree the job names (`merge.scratch_dir`).
+- **Resolve job** (`…/resolve`): the merge conflicts in serve's worktree the job names (`<lanes_dir>/merge`).
   Resolve it there and `git commit -m "Merge <T-xx>: <summary>"`, then `resolved`: the app checks it,
   then sends a review job. Cannot: `git merge --abort` there, then `reject {why}`. Only obor serve
   writes that worktree: a merge left open there (a `MERGE_HEAD` nobody resolved) is overwritten by the next gate.
