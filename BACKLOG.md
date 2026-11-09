@@ -25,7 +25,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
 - (none; branching decided 11-07, docs/decisions.md)
 
 ## Later candidates
-- **Config shape 2, step P7** (docs/research/config-shape.md §4.4): in the release after the one that ships T-1124/T-1125, delete `Reshape`, the one-release window, the test kit's pass-through and the fixtures; a shape-1 config is refused with the hint. Also the lead removes `merge.affected_full` from `.obor/config.json` once T-1120 merges.
+- (v0.34 release) validate's WARN for a set `commands.baseline`/`gate`/`e2e` (T-1083, "until v0.34") kept one more release: delete it in v0.35 with its test.
 - **Un-defer `job_next`** (chatter census proposal 2; advisor 11-07 docs/research/job-in-first-prompt-advice.md: no job-in-prompt; T-959/T-960/T-941 did the kind-neutral parts). Left: `alwaysLoad: true` on obor's MCP entry, Claude-only, so parked under the owner's agent-neutral rule (11-07); revisit if another kind gets the same deferral.
 - **Log snapshot at upgrade** (parked 11-05, docs/research/log-snapshot.md): build when compat branches pass ~300
   prod lines or a record-shape change needs it.
@@ -46,14 +46,12 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (RV-172 design, accepted) `checks.ScratchFF` still embeds `Scratch.Cfg` and `Lane.Cfg`, set once from the same pointer by its constructor (T-1161); drop the second stored pointer on a later touch if that stays simpler.
 - (RV-170, accepted) (RV-170, constructed) a shape-2 config with merge.retest as a string plus a second clone's shape-1 local.json holding only merge.retest_join loses the command (the reshaped local object replaces the string); no real project has that combination
 - (RV-166, accepted) (RV-166 verify 2, accepted) design.md's pre-push paragraph fixed by the lead after the first verify (e224c5ee), not re-verified; also accepted (constructed): no merge.neutral plus a class overlapping docs/** gets no validate warning
 - (T-1135, lead 11-09) Serve tells a herdr restart by the herdr socket file's mtime (`.obor/state/herdr-instance`): herdr's API has no pid, start time or instance id (protocol 22 pong, SessionSnapshot). Undocumented: if `herdr update --handoff` recreates the socket, serve restores once (stopped role agents restart once, as the old plugin did at every herdr start). Owner action when convenient: ask herdr upstream for an instance id in pong/snapshot (with discussion #5684); then switch to it.
-- (RV-164 verify note) `internal/spec/spec.go:~273` and `internal/checks/scratch.go:~370` comments say no model names reach commits; narrow to "no metadata Model: line" (content is not redacted, decisions 11-09) on the next touch.
 - (RV-162, accepted) (RV-162, accepted, constructed) pruning an integrator's only old verdict can change its verdicts > StartRow.Verdicts stop predicate on replay; needs an idle integrator running 30 days despite the stop rule
 - (RV-161, accepted) (RV-161, accepted) an unparseable per-lane name (run-changed-<not a lane>) is removed though the spec said it stays; no writer makes such a name (likelihood: none today)
-- (RV-158, accepted) (RV-158 redundancy) review.freeze sets rv.reviewed after the close (internal/app/reviewfold.go:46) though its only reader is guarded by cur.closed == 0 (reviewclose.go:39-42): drop the closed-review assignment on the next touch of reviewfold.go
-- (RV-155, accepted) RV-155 redundancy: test helper proj.queuedAt (internal/app/messages_test.go ~700) duplicates p.out.Line(seq); swap its three call sites at the next touch of that file (no behaviour)
 - (RV-154, accepted) RV-154 verify V1 (design.md slot sentence implied compile/nightly avoid the merge marker): fixed by the lead after the second verify (design.md, one sentence), not re-verified
 - (RV-151, accepted) herdr adapter decodes an omitted launch_pending as false (launched): true for herdr 0.9.5 (live H-L12/H-L13); a herdr that stops sending the field would fall back to listing evidence — recheck the probe on each herdr upgrade (likelihood: low, at upgrade only; fix: a version check, ~10 lines)
 - (RV-149, accepted) (RV-149 verify, unlikely: a Codex lead) an unattended restore (serve reconnect or the herdr plugin) of a Codex lead with a quarantined helper only logs the warning to the restore log and starts; fix when a project runs a Codex lead: restore refuses it and raises an owner-visible line (~30-70 lines)
@@ -61,26 +59,20 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
 - (RV-147, accepted) (RV-147 verify design) plugin Start/StartEnv remain only to satisfy agents.Kind and could each run the plugin; drop them with plugin.Whole once agents.Kind has one combined start for every kind (with step 9b)
 - (RV-146, accepted) (RV-146 design) a Claude lane that opts into project MCP servers starts non-strict, so it also loads the user's and plugins' MCP servers (CC-L9 listed many): document it in Customizing agents; revisit if Claude gains a narrower flag
 - (RV-145 design) the workflow contract table (T-1029) covers scratch, lane and target, not the review methods (tested on their own today): extend it with their portable outcomes before a second workflow implementation. Also `checks.ScratchFF` holds the config twice (`Scratch.Options.Cfg`, `Lane.Cfg`): one when next touched.
-- (RV-144, accepted) (RV-144 verify note) the fold keeps the review.closing pointer after the close although recovery no longer reads it (a retained copy of the frozen snapshot): clear it on close when next touching reviewfold.go
 - (RV-143 verify design) `specSetRev` parses the rev from the spec-set reply's text (T-1026), coupling replay to reply wording: keep the format, or a structured rev when the record is next revised.
 - (RV-141, accepted) (RV-141 verify design) the prepare-time head is no longer read: checks.Lane.Prepare's git merge-base and prepareOut.Head remain, and docs/state-model.md:293 and port/effects.go:380 still describe the old head; deleted in T-1017
 - (RV-141 #2, accepted) A rejected task whose branch the owner merges by hand keeps its lane `working` until `obor drop` (T-1012 removed the ancestry read that freed it); the drop is the explicit step. Also accepted: view/dispatch/restore still compare lane state strings (one decider in port, several readers of its output).
-- (lead 11-08, v0.30.0) **Release from a worktree loses the binaries:** `make release` builds the four `dist/obor-<v>-*` files in the checkout it runs in (gitignored), but `make ship` reads them from the main checkout's `dist/` and refuses off `main`; UPGRADE-v0.30 says to cut a release from a separate worktree at main (staging setups). The lead rebuilt them reproducibly (tag^ + the uncommitted marketplace edit: the binary embeds vcs.revision/modified). Fix: release copies `dist/` back to the main checkout, or ship reads the tag's assets from the release worktree; and ship's branch check allows a staging-based checkout.
 - (RV-140, accepted) (RV-140 design) internal/run TestRunRcArgsTimeout and TestExecuteLeavesNoGroup mix a real wait with quick assertions; split the quick cases out of the Slow tests when next touching them (plan step 2 covers run's tests)
 - (RV-139, accepted) (RV-139 verify 2, P2) OBOR_FULL=1 forced full returns before scanning files, so with_full release/web checks are skipped (classify.go:~43); fix in T-1008
 - (RV-139, accepted) (RV-139 verify 2, P1) the Makefile's -seed recipe redirects into tests/budget.json, truncating it before -seed reads its caps; fix in T-1008 (seed writes the file itself, atomically)
 - (RV-139, accepted) (RV-139 #3) restricted-PATH tests hide child git calls from the budget counter (already accepted)
 - (lead 11-08) `TestScratchCutTable` costs 31 s of work at 2 cores even after T-1000 (TestNightly 6.7 s, lane tests 2-4 s): they stay in -short with caps (T-1004 rev 5); a speed-up task for them lets the caps drop.
 - (RV-139, accepted) #3: tests that replace PATH (cmd/obor TestInitEndToEnd) hide their child's git calls from the budget's counting wrapper; one fixed test, its count does not grow by itself. Design notes: `release_tests` duplicates `check_release` only to drop `heavy` (merge if a second such duplicate appears); T-1001 lost TestUpgradeBrokenBuild's negative case (`make upgrade-check` runs the real upgrade).
-- (RV-138, accepted) RV-138 #2: the queue card counts --after dispatches waiting for their dependency as queued for a lane; serve should ship the waiting-for-lane count (web/src/lib/pipeline.ts:~33)
-- (RV-138, accepted) #2 the queue card's 'queued for a lane' counts --after dispatches still waiting for their dependency (web/src/lib/pipeline.ts:~33); serve should ship the waiting-for-lane count; next touch of the queue card.
 - (lead 11-07) opencode (deepseek) workers ignored Escape twice (T-958, T-992), both needed `obor drop --force`.
 - (RV-131, accepted) RV-131 #1: a crash between SetSpec's commit and the spec.set receipt, then another writer's spec within the 15 s retry, lets the retry write the old text as a new rev (internal/app/specs.go:88-100; docs/state-model.md:396-400). Very low likelihood; fix = spec + receipt in one transaction, 60-120 prod lines
-- (RV-129, accepted) verify design note: app.go:83's J1 rule comment lists the dispatch-class verbs as exceptions but they take two different locks (verdicts: dispatch, drop, drive, pause, job_next, resume; submitMu: task_done, land, spec set, move); say which lock each takes on the next touch of app.go
 - (lead 11-06) Empty `index.lock` files appeared in all four lane worktrees (`.git/worktrees/L-0x/index.lock`) at 12:31, with no git running; every dispatch then failed `lane.prepare … checkout -B … exit status 128`. Serve had not restarted (up since 12:15); the deep dive (12:22) and the RV-127 verify (Codex sandbox) were the only other agents. Removed by hand. If it recurs: find who runs git in the lanes and dies; `lane.prepare` could name the lock in its FAIL.
 - (RV-126, accepted) #2 rest: a process crash inside the close's commit window leaves an --accept line staged (a retry commits it twice) or the review file orphaned (post-commit crash; gitignored here); a removal error after the commit keeps the fold open until serve restarts. Crash-only; a durable close transaction is 60-120 prod lines
 - (RV-126, accepted) #3 a lost reply's same-id retry after a recovered close says 'no open review' although the close committed (one commit, one fact); needs a crash between commit and fact plus a retry; fix 30-70 lines
-- (lead 11-06) A model pause (`obor pause --model`) shows in neither `obor status` nor `obor setup show`: the owner had to ask why medium tasks went to sonnet, and a new lead session cannot see it. Small, adds lines: one status line per paused model with its end and why.
 - (RV-125, accepted) #1 upgrade with a released fix round open loses its links and verify: covered by docs/UPGRADE-v0.29.md (close the round first or add Fixes: lines); a legacy fold would be 70-140 prod lines of compat for one upgrade moment
 - (RV-125, accepted) #2 a closed review's fixes stay in obor status until the next review starts (stale line, every cycle): goes with T-926 (close through serve: the review.closed fact clears the fix snapshot)
 - (RV-125, accepted) design: a fix spec that also carries Review: on merge queues a fresh review its verify already covers; lead rule: a Fixes: spec carries no Review: on merge
@@ -131,10 +123,6 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
 - (RV-87, accepted) #2 replayed worked brief with a closed pane ends after the 1-min grace, not on the first pass: unlikely (serve restart + pane closed), costs a minute; fix 30-70 lines
 - (RV-87, accepted) verify: docs/design.md ~471 says a hold-role brief holds publishes while open without the 30-min cap (stated at ~241-245): one line, fold into the next task that edits docs/design.md
 - (RV-86, accepted) #4 bg label lost for later commands in a background shell (make build && go test): display only, likely; third round on the bg label (RV-85 #3, T-728); fix ~15-30 lines if it bites
-- (2026-11-02, T-714) A worker blocked on "the gate's RED is not my diff, re-gate" can only be answered
-  (`obor answer`), and an answer saying "the lead re-gates" leaves both waiting: serve needs task_done, the worker
-  waits for the lead; `obor resume T-x regate` refuses (no merge-loop needs-you). Fix idea: such a Blocked report's
-  needs-you offers `obor resume T-x regate` (re-run the gate on the submitted diff, no worker turn).
 - (RV-84 2nd verify #3, accepted: rare) `obor stop`: if unregister or the marker write fails after serve exited,
   the prior pause is lost (persist it in a recovery record before shutting serve down, ~20-50 lines).
 - (RV-84 2nd verify #4, accepted: rare) macOS: an installed but unloaded plist plus a pane serve: stop exits the
@@ -157,15 +145,6 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
 - (RV-67-verify #1, accepted) `obor init` appends its lines to an existing `.gitignore` in a repo with commits (by
   design, printed, not committed); byte-identical pre-existing template files in an unborn repo count as init's
   (constructed).
-- (owner 10-31) **v0.17.1 as soon as T-627, T-628, T-629 merge** (restore of never-prompted sessions; init places
-  panes in the project's workspace + waits for the shell; init on an empty dir / Claude-only). Then: one Terra review
-  over the three (RV-67), fixes if likely, tag v0.17.1 (RELEASING.md), owner pushes/publishes/reruns install.sh.
-- (10-31, axis-alies v0.17) `obor restart aa-rev --fresh` (Codex, no prompt) warns "holds no codex transcript open
-  within 10s (its session is not recorded)". Guess, unverified: Codex writes its rollout only at the first prompt.
-  Check at axis' next review brief; if so, the warning should not fire for a fresh role start without a prompt.
-- (v0.17 release) Until `~/.obor/kit` moves to v0.17, the global `obor.events` herdr plugin runs v0.16's `plugin
-  restore` (expects `.sid`): a herdr restart may not resume obor-kit panes. Machine leftovers to retire with
-  herd-kit-stable: `~/.obor/herdr-plugin` (symlink into it) and herdr's `herd.events` plugin.
 - (RV-66 #1, accepted: by design) A pane labelled with an agent the config no longer names is still identified by
   its label: T-605 removed start-row and session proof only; labels name hand-started panes.
 - (RV-65-verify #2, accepted: rare) The "session not recorded" warnings say a restart resumes the last recorded
@@ -193,12 +172,6 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   `OBOR_AGENT=hk-*` still exported, so `job_next` refused ob-int ("only the integrator (ob-int) fetches its jobs,
   not hk-int"; T-590 review stuck → needs-you). `obor restart <agent> --fresh` sets it right (verified per pid).
   setup role should export the agent env the way restart does.
-- (T-577) `obor plugin restore` could resume a Codex worker from its session in the store (restore restarts each
-  pane via `obor restart`, which reads the store since T-599: check a Codex worker resumes before speccing). Goal 1.
-- (10-30, migrate) **Role worktrees keep the old plugin**: a detached role worktree (deep-dive, review) carries the
-  tracked `.claude/settings.json` of its old commit (`herd@herd-kit`): after the switch its Claude session had no
-  plugin, no inbox, and its brief sat undelivered. migrate / the UPGRADE guide: move every role worktree to the new
-  tag before restarting its pane (herd-kit: deep-dive moved by hand; review is Codex, moves at the next review).
 - (10-30) The lead's handoff reminder rides only on prompts: an idle lead (or one in a long tool run) gets none
   until its next prompt. Fold into phase 6's context % (status-line JSON).
 - (T-563) opencode usage limits are still not read (its session store is not parsed); Codex done (T-563..T-569).
@@ -216,21 +189,12 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
 - (2026-10-26, low) OpenCode dispatch: each `agent.start` result lands ~30 s after start even when the job was
   fetched in 4 s; starts run one at a time. The start could end on the delivered fact.
 - (DD-v0.10-verify-2, low) `ask` retries a client timeout with the same call id.
-- (T-463, low) `obor answer` reuses `verdictResult.Lead` and the `held` mark; a third lead verdict → a method→rule
-  table in verdict.go.
-- (T-194, low) `obor sendback` onto a moved main leaves the worker a hand rebase; serve could merge main into the
-  lane branch first.
-- (T-334) Two `sendback`s (the lead's lane form and the integrator's MCP verb): rename or drop the lane form.
 ## Concerns
 - (DD-v0.32, lead 11-09) The deep dive's role guard denies `git init` even in the scratchpad, while its role text says "probes in a scratch dir"; it used `go test -overlay` on tests/upgrade instead (a good probe). Decided 11-09 (owner): overlay route, named in templates/agents/deep-dive.md. Open: give tests/upgrade's alpha project every config key the new minor removed (would have caught DD-v0.32 #1).
 - (lead 11-08) **Serve fires waiting work on the old binary before its self-restart after a merge:** `obor review --after T-1059,T-1060` fired at 19:35:16Z on 77df169's serve and hit the very bug T-1059 fixed; serve restarted on the new binary ~30 s later. A fix to serve's own code is live only after that restart, so an --after request or dispatch that tests the fix should fire after it (restart first, then fire). Small; decide when it bites again.
-- (lead 11-07) `internal/affected/affected.go:~60`: the directory walk never stops at `/` for an absolute path (infinite loop; only reachable with a malformed changed-files list).
 - (lead 11-07) **A task parked on a needs-you keeps its lane**: T-982 and T-983 (gate timeouts, not their diffs) held L-04 and L-01 while the fixes for the timeouts (T-989, T-990) waited for a lane. Since T-961 a merge-loop task holds its lane for its lane test; a parked one could release it (its tree is in its branch and candidate pin) and take a lane again when resumed. Decide with the next merge-flow change.
 - (lead 11-07) **Flake, 3 sightings**: `TestWakePostRefusedThenReplayed` (internal/app) failed T-704's gate, a gate near serve.log:13435 and T-957's full re-gate 11-07 14:28 (0.7 s, passes on main in 0.8 s); each red sent a worker back. The rework's retest (plan §5 T-C) absorbs it; fix the test if it recurs after T-C.
 - (lead 11-07) **Not a flake**: `TestJobNudgeFromDelivery/activity_at_8_min` red in T-956's gate was a rule bug: watchJob counted herdr 'not connected' as the integrator gone (against T-759); fixed in T-956 (jobs.go, joblost_test.go). Also: lead commits to main while candidates wait cost each a moved re-gate (12:40 BACKLOG commit moved T-950): bookkeeping only at a quiet merge queue.
-- (lead 11-07) **A role agent's 'finished' fires while it waits on its own background monitors**: ob-researcher ended its turn at 11:10 with 3 Monitor tasks running (go test -json runs) and no report yet; serve sent `[obor] ob-researcher finished` → a wasted lead wake. Chatter-census class: finished = ready pane, not done work. Candidate: the finished line waits for the brief's named output file, or herdr's completion_seq (T-953 probes it).
-- (lead 11-07) **Flake**: `TestDriveOfAWorkersTaskRefused/finished` (internal/app/drive_test.go:~286) compares the task's Phase before and after `r.passes()`, which can start the pending gate (`gate pending` → `gating`) under load; failed T-938's gate, passes alone. Fix: compare state/attempt only, or snapshot after the pass settles.
-- (lead 11-07) **A fetched job is never re-woken after its agent's call failed.** The integrator fetched T-938/4/review at 09:53:11, its `accept` hit serve's outage ("obor serve is not running") and it ended its turn; serve kept the job `fetched` and woke nobody, also after `obor restart ob-int` and `--fresh` (T-940 queued behind it). The lead typed the wake (`[obor job T-938/4/review] call the obor job_next tool`) into the pane. Fix candidate: a role agent's restart (or serve's start) re-wakes its open fetched job; the wake is harmless twice (fetch.go:22).
 - (lead 11-07) **Serve down 09:53-09:57: store at schema 13.** The audit's uncommitted schema-13 code ran as the live serve (launchd start 09:15 on a `dist/obor` built from the dirty main checkout) and migrated `.obor/state/obor.db`; T-939's merge rebuilt `dist/obor` at 12 and serve refused the store. Lead backed it up (scratchpad obor-schema13-0957.db), dropped `spec_calls` (2 receipts) and set 12. Rule: never `make build` uncommitted code in the main checkout; serve runs `dist/obor`. A store-schema change needs its rollback said in the spec.
 - (11-06, state-machine audit) Tests that inject effect results through `record` can miss differences in the real
   `App.do` path (SM-03: live idle keys differed from replay). Keep production-boundary regressions for durable
