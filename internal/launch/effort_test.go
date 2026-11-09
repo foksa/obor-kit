@@ -46,7 +46,8 @@ func TestStartEffort(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			x := setup(t, testkit.Set("agents.models", models), testkit.Set("agents.roles", `{"reviewer":"`+c.role+`"}`),
-				testkit.Set("agents.kinds", `{"claude":{"args":["--effort","medium"]},"codex":{"args":["-c","model_reasoning_effort=high"]}}`))
+				testkit.Set("agents.kinds", `{"claude":{"args":["--effort","medium"]},"codex":{"args":["-c","model_reasoning_effort=high"]},`+
+					`"opencode":{"plugin":"obor-kind-opencode"}}`))
 			// a role's model ref: the reviewer's start; a lane row's: lane L-01's worker.
 			agent, pane := "pj-rev", "w1:p7"
 			if c.role == "" {

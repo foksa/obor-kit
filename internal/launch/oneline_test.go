@@ -49,6 +49,22 @@ func TestStartPromptIsOneLine(t *testing.T) {
 	}
 }
 
+// T-1153: v0.33.0 drops the kit kind's default binary: a start of a kit kind (OpenCode) a config uses with no
+// agents.kinds.opencode.plugin is refused, with the line obor config validate fails with, before herdr's agent start.
+func TestStartWithoutKindPluginRefused(t *testing.T) {
+	t.Parallel()
+	x := setup(t, testkit.Set("agents.kinds", `{}`), testkit.Set("agents.models", `{"oc":{"kind":"opencode","id":""}}`),
+		testkit.Set("agents.roles", `{"reviewer":"oc"}`))
+	x.shell("w1:p7", "pj-rev", "")
+	out, ok := x.restart(launch.Request{Agent: "pj-rev", Fresh: true, Prompt: "go"})
+	if ok {
+		t.Fatalf("a start of kind opencode with no plugin ran: %s", out)
+	}
+	contains(t, out, "pane w1:p7 (from label)", "precondition: the restart found the pane")
+	eq(t, failLine(out), `FAIL pj-rev: kind opencode: set "plugin": "obor-kind-opencode" (obor setup agents sets it)`, "result")
+	eq(t, x.startCall(), "", "no herdr agent start")
+}
+
 // DD-v0.13 D1: a start of a kind obor has no bridge for is refused before herdr's agent start (dispatch and obor
 // config validate refuse such a model; no degraded start with its args alone).
 func TestStartWithoutBridgeRefused(t *testing.T) {

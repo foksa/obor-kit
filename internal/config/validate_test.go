@@ -100,10 +100,10 @@ func TestValidate(t *testing.T) {
 			want: []string{`WARN agents.models.oc: opencode model without a model id (opencode's own default may not work, and an effort needs one): set its "id", e.g. "opencode-go/deepseek-v4.1-flash"`}},
 		{name: "an unused opencode model without a model id is fine", edits: []edit{
 			set("agents.models.oc", map[string]any{"kind": "opencode", "id": ""})}},
-		// T-1046: a config from before OpenCode's binary (no agents.kinds.opencode.plugin) runs the kit's, with a WARN while it
-		// uses OpenCode (the default levels' deepseek), and none when it uses no OpenCode model.
-		{name: "no agents.kinds.opencode.plugin, OpenCode used: the kit's binary, a WARN", edits: []edit{del("agents.kinds")},
-			want: []string{`WARN agents.kinds.opencode.plugin: not set, so obor runs the kit's obor-kind-opencode (obor setup agents sets it; v0.33.0 drops the default)`}},
+		// T-1153: v0.33.0 drops the kit kind's default binary: a config that uses OpenCode (the default levels'
+		// deepseek) must name agents.kinds.opencode.plugin; one that uses no OpenCode model needs no line.
+		{name: "no agents.kinds.opencode.plugin, OpenCode used: the line required", edits: []edit{del("agents.kinds")},
+			want: []string{`FAIL .agents.kinds.opencode.plugin: set "plugin": "obor-kind-opencode" (obor setup agents sets it)`}},
 		{name: "no agents.kinds.opencode.plugin, OpenCode unused: nothing", edits: []edit{del("agents.kinds"),
 			set("agents.difficulty", map[string]any{"hard": []any{"opus"}, "medium": []any{"sonnet"}, "simple": []any{"haiku"}})}},
 		{name: "a new model needs its kind", edits: []edit{set("agents.models.cur", map[string]any{"id": "x"})},

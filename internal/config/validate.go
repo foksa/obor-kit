@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path"
@@ -201,12 +202,10 @@ func (v *validator) models() {
 			v.fail(".agents.kinds"+key(k)+".args", "`--` is not allowed: obor adds the first prompt itself")
 		}
 	}
-	for _, k := range v.c.PluginKinds() {
-		// a config from before T-1046 that uses a kit kind runs the kit's binary, until v0.33.0
-		if a.Kinds.M[k].Plugin == "" && v.c.namesKind(k) {
-			v.warns = append(v.warns, fmt.Sprintf("WARN agents.kinds.%s.plugin: not set, so obor runs the kit's %s (obor "+
-				"setup agents sets it; v0.33.0 drops the default)", k, KitKinds[k]))
-			v.pluginKind(k)
+	for _, k := range slices.Sorted(maps.Keys(KitKinds)) {
+		// a kit kind the config uses must name its plugin (T-1153: there is no default binary)
+		if why, missing := v.c.KindPluginMissing(k); missing {
+			v.fail(".agents.kinds"+key(k)+".plugin", why)
 		}
 	}
 	for _, k := range a.Roles.Keys {
