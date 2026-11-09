@@ -4,12 +4,13 @@
 
 Serve's nightly backup now deletes, after the backup is written, the records of every task that ended over 30 days
 ago (all but its merged or dropped fact) and the session records as old that are no agent's current session. The
-store's schema becomes 14 at the first start and an older obor refuses it: **rolling back across this release means
-restoring a nightly backup** (`.obor/state/backup/`) taken before the upgrade, as for schemas 12 and 13.
+store's schema becomes 14 at the first start and an older obor refuses it. **To roll back** (within 7 nights of the
+upgrade): restore a pre-upgrade backup (`.obor/state/backup/obor-<date>.db`), `git revert` the `config: shape 2`
+commit, and put back `.obor/local.json`'s old keys by hand (copy it before upgrading if you might roll back).
 
 The herdr plugin `obor.events` is gone: `obor serve` restarts its own panes after a herdr restart (T-1117). The block
-unlinks the plugin an older obor linked (user-global, once per machine); `obor init` does the same on a project's
-next run.
+unlinks the plugin an older obor linked (user-global, once per machine); `obor init` does the same once the config is
+shape 2.
 
 ```sh
 # The obor.events herdr plugin an older obor linked is gone: obor serve restarts its own panes.
@@ -25,7 +26,8 @@ commands obor runs by a fixed name leave `commands` for the group that runs them
 survives, as `reviews.dir`). The names typed at a prompt stay: `obor run check`, `lane_setup`, `after_merge`,
 `check_milestone`, `<task>-check.log`. One lookup (`Config.Command`) maps each to its new home.
 
-`.obor/local.json` has the same shape and follows `config.json`'s: it is rewritten too, in place (it is untracked).
+`.obor/local.json` has the same shape and follows `config.json`'s: it is rewritten too, in place (it is untracked). A
+second clone of the project has its own untracked copy: run `obor config migrate` there.
 
 **What happens on the upgrade.** A shape-1 file is read for this release: every load reshapes it in memory
 (`config.Reshape`) and warns once, so every command, hook and `obor serve` works from the first start of the new
@@ -44,8 +46,8 @@ FAIL, on a shape-1 file: a merge guard that runs validate keeps its gates green 
 next release refuses shape 1 like a pre-v0.23 config ("migrate it with obor v0.33, then upgrade").
 
 A lane in flight holds its branch's copy of the file and merges cleanly: obor reads the config from the main checkout
-only. An older binary that meets a shape-2 file in the seconds before it re-execs (a stale `obor web`) warns per
-unknown key and runs on defaults; hooks and commands are started per call by the shim and are never older than the kit.
+only. An older obor refuses a shape-2 file (`unknown field "agents"`): a stale `obor web` shows the project failing
+until it re-execs; hooks and commands are started per call by the shim and are never older than the kit.
 
 `*` marks a renamed key; every other row only moved. "Default" is what obor uses when the key is absent.
 

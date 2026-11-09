@@ -62,7 +62,7 @@ func gitRun(t *testing.T, dir string, env []string, args ...string) (int, string
 
 // T-999: the githooks' contract is the real binary's, not the stubs' (internal/setup stubs whoami; TestWhoamiCanPush asks
 // the classifier directly). This runs the kit's hooks over real git against the binary TestMain builds: a worker's lane
-// commit is refused with the lane line, a push is refused for a role not in guards.allow_push and allowed for one in
+// commit is refused with the lane line, a push is refused for a role not in rules.may_push and allowed for one in
 // it.
 func TestGithooksRealBinary(t *testing.T) {
 	p := testkit.New(t)
@@ -85,7 +85,7 @@ func TestGithooksRealBinary(t *testing.T) {
 		t.Errorf("the refused commit moved the lane's HEAD %s -> %s", before, after)
 	}
 
-	// pre-push: a role is whoami --can-push's (MayPush); a reviewer (not in guards.allow_push) is refused and nothing
+	// pre-push: a role is whoami --can-push's (MayPush); a reviewer (not in rules.may_push) is refused and nothing
 	// reaches the remote; a lead (listed, not lane-bound) pushes.
 	remote := filepath.Join(p.Base, "remote.git")
 	p.Git(p.Base, "init", "-q", "--bare", remote)
