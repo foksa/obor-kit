@@ -465,7 +465,7 @@ func (k *fk) laneCommit(msg string) string { return k.g.commitOn(k.lane, msg, 50
 
 func (k *fk) submit() string {
 	k.t.Helper()
-	sha, err := k.s.Submit(ctx, "T-05", "1", "L-01", "feature", "pj-l1")
+	sha, err := k.s.Submit(ctx, "T-05", "1", "L-01", "feature")
 	if err != nil {
 		k.t.Fatalf("submit: %v", err)
 	}

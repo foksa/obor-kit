@@ -19,8 +19,8 @@ import (
 // norm is s with the fixture's base dir as $BASE: an outcome comparable across fixtures.
 func (k *fk) norm(s string) string { return strings.ReplaceAll(s, k.Base, "$BASE") }
 
-// laneMsg is the submit commit's message for summary by pj-l1.
-const laneMsg = "T-05: feature\n\nImplemented by pj-l1, reviewed by integrator."
+// laneMsg is the submit commit's message for summary: the subject only (T-1112: no agent or model names).
+const laneMsg = "T-05: feature"
 
 // fakeStep is one Scratch step of the cut table: setup brings a fresh fixture to the step's start, call runs the
 // step (its outcome comparable across fixtures, or its error), end asserts the spec'd end state after it.
@@ -51,7 +51,7 @@ var fakeSteps = []fakeStep{
 		name:  "submit",
 		setup: func(k *fk) cutIn { return cutIn{} },
 		call: func(k *fk, _ cutIn) (string, any, error) {
-			sha, err := k.s.Submit(ctx, "T-05", "1", "L-01", "feature", "pj-l1")
+			sha, err := k.s.Submit(ctx, "T-05", "1", "L-01", "feature")
 			return sha, sha, err
 		},
 		end: func(k *fk, _ cutIn, out any) {
@@ -270,7 +270,7 @@ func TestSubmitDecisions(t *testing.T) {
 		late := k.laneCommit("late")
 		k.eq(k.submit(), first, "the replay returns the pinned sha")
 		k.eq(k.g.refs[submittedRefs+"T-05/1"], first, "the pin unchanged")
-		next, err := k.s.Submit(ctx, "T-05", "2", "L-01", "feature", "pj-l1")
+		next, err := k.s.Submit(ctx, "T-05", "2", "L-01", "feature")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -317,7 +317,7 @@ func TestSubmitDecisions(t *testing.T) {
 			t.Parallel()
 			k := newFk(t)
 			c.state(k)
-			_, err := k.s.Submit(ctx, "T-05", "1", c.lane, "x", "w")
+			_, err := k.s.Submit(ctx, "T-05", "1", c.lane, "x")
 			var ref port.Refused
 			if !errors.As(err, &ref) {
 				t.Fatalf("submit: %v; want Refused", err)
@@ -498,6 +498,15 @@ func TestGateDecisions(t *testing.T) {
 			"with a stored spec")
 		in.Spec = ""
 		k.eq(k.g.msgs[k.green(in).SHA], "Merge T-05: Stored\n\nSummary: feature", "without")
+	})
+	t.Run("a stored spec's Model: line never reaches the merge message (T-1112)", func(t *testing.T) {
+		t.Parallel()
+		k := newFk(t)
+		in := lane(k.submit())
+		in.Spec, in.SpecRev, in.Title = "# T-05 — Stored\n\nDifficulty: simple\nModel: opus:high, haiku\n\n## Do\n\nfeature.txt\n", 3,
+			"Stored"
+		k.eq(k.g.msgs[k.green(in).SHA], "Merge T-05: Stored\n\nSpec rev 3:\n\n# T-05 — Stored\n\nDifficulty: simple\n\n## Do\n\n"+
+			"feature.txt\n\nSummary: feature", "the Model: line gone, the rest of the spec kept")
 	})
 	t.Run("resolved: reset to the resolution, amended with the gate's message, the same commit on a repeat", func(t *testing.T) {
 		t.Parallel()

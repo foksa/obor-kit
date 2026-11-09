@@ -52,7 +52,7 @@ var rerere = []string{"-c", "rerere.enabled=true", "-c", "rerere.autoupdate=true
 // later worker commit stays out). A cut between the commit and the pin reads HEAD again (a residual race). The commit
 // passes --no-verify (T-622): the project's checking step is commands.check, not its commit hooks (prepare-commit-msg
 // still runs).
-func (s Scratch) Submit(ctx context.Context, task, id, lane, summary, worker string) (string, error) {
+func (s Scratch) Submit(ctx context.Context, task, id, lane, summary string) (string, error) {
 	s.gitCtx = ctx
 	g := s.gio()
 	pin := submittedRefs + task + "/" + id
@@ -78,7 +78,7 @@ func (s Scratch) Submit(ctx context.Context, task, id, lane, summary, worker str
 		if err := g.AddAll(dir); err != nil {
 			return "", err
 		}
-		if err := g.Commit(dir, submitMessage(task, summary, worker), ""); err != nil {
+		if err := g.Commit(dir, submitMessage(task, summary), ""); err != nil {
 			return "", err
 		}
 	}
@@ -104,9 +104,10 @@ func (s Scratch) Submit(ctx context.Context, task, id, lane, summary, worker str
 	return head, nil
 }
 
-// submitMessage is the lane commit's message: "<task>: <summary>" and who did what.
-func submitMessage(task, summary, worker string) string {
-	return task + ": " + summary + "\n\nImplemented by " + worker + ", reviewed by integrator."
+// submitMessage is the lane commit's message: "<task>: <summary>" and nothing else (T-1112: no agent or model names
+// in commits).
+func submitMessage(task, summary string) string {
+	return task + ": " + summary
 }
 
 // Gate resets serve's worktree (created when missing) and merges in.Input there: a lane or moved input (the submitted
@@ -365,12 +366,42 @@ func filePatches(diff string) map[string]string {
 }
 
 // specBody is the spec part of a merge's message (T-521): a blank line, "Spec rev N:", a blank line and in.Spec (the
-// store's rev at gate time); "" when none is stored (a task dispatched before T-440).
+// store's rev at gate time) without its `Model:` line (T-1112: no model names in commits); "" when none is stored (a
+// task dispatched before T-440).
 func specBody(in port.GateInput) string {
 	if strings.TrimSpace(in.Spec) == "" {
 		return ""
 	}
-	return fmt.Sprintf("\n\nSpec rev %d:\n\n%s", in.SpecRev, strings.TrimRight(in.Spec, "\n"))
+	return fmt.Sprintf("\n\nSpec rev %d:\n\n%s", in.SpecRev, strings.TrimRight(noModelLine(in.Spec), "\n"))
+}
+
+// noModelLine is text without its `Model:` line: the first non-blank line after the `Difficulty:` line, which is the
+// one obor reads models from (spec.Parse); a `Model:` anywhere else stays.
+func noModelLine(text string) string {
+	lines := strings.Split(text, "\n")
+	title := slices.IndexFunc(lines, func(l string) bool { return strings.HasPrefix(l, "# ") })
+	if title < 0 {
+		return text
+	}
+	difficulty := nextNonBlank(lines, title+1)
+	if difficulty < 0 || !strings.HasPrefix(lines[difficulty], "Difficulty:") {
+		return text
+	}
+	model := nextNonBlank(lines, difficulty+1)
+	if model < 0 || !strings.HasPrefix(lines[model], "Model:") {
+		return text
+	}
+	return strings.Join(slices.Delete(lines, model, model+1), "\n")
+}
+
+// nextNonBlank is the index of the first non-blank line at or after from (-1: none).
+func nextNonBlank(lines []string, from int) int {
+	for i := from; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) != "" {
+			return i
+		}
+	}
+	return -1
 }
 
 // mergeMessage is every merge's message, the gate's own and the integrator's resolved one alike (T-802). Subject:

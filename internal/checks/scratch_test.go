@@ -66,7 +66,7 @@ var kitDir = func() string { d, _ := filepath.Abs("../.."); return d }()
 
 func (y *sx) submit() string {
 	y.t.Helper()
-	sha, err := y.s.Submit(ctx, "T-05", "1", "L-01", "feature", "pj-l1")
+	sha, err := y.s.Submit(ctx, "T-05", "1", "L-01", "feature")
 	if err != nil {
 		y.t.Fatalf("submit: %v", err)
 	}
