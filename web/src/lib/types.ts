@@ -241,7 +241,7 @@ export interface Event {
   task?: string;
   line: string;
   bad?: boolean;
-  kind?: string;
+  kind: string;
 }
 
 export interface EventsPage {

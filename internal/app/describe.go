@@ -27,11 +27,23 @@ type Described struct {
 	Level   string   // a dispatch's difficulty level
 	Types   []string // a dispatch's model refs (--model or the level's)
 	Type    string   // the model ref a dispatch chose (T-721)
-	Kind    string   // the event's kind when serve names one (KindPromotion; "": the readers word it by its line)
+	Kind    string   // the event's kind (T-1074): one of the Kind* constants, always set on a worded record
 }
 
-// KindPromotion is Described.Kind of a promotion's events (T-977): started, GREEN, RED, promoted.
-const KindPromotion = "promotion"
+// The event kinds (T-1074): Described.Kind of every worded record, the web's icons and filters (EventKind).
+const (
+	KindMerge     = "merge"
+	KindGate      = "gate" // a gate or lane test result
+	KindAccept    = "accept"
+	KindSubmit    = "submit"
+	KindDispatch  = "dispatch" // dispatched, waiting
+	KindDrive     = "drive"
+	KindMessage   = "message" // a line to an agent, an outbox line
+	KindServe     = "serve"   // serve's own restart, no record
+	KindPromotion = "promotion"
+	KindProblem   = "problem" // a needs-you, a sendback, a failed step
+	KindOther     = "other"
+)
 
 // worder words one record of its kind into d from its data (an error: the data is not the kind's shape).
 type worder func(r event.Record, d *Described) error
@@ -44,6 +56,7 @@ var worded = map[string]worder{
 			return err
 		}
 		d.Outcome, d.Text, d.SpecRev = out.Outcome, out.Line, out.SpecRev
+		d.Kind = KindGate
 		if out.Outcome == "green" {
 			d.Line = "gate " + r.Task + " pass (" + out.Line + ")"
 		} else {
@@ -57,6 +70,7 @@ var worded = map[string]worder{
 			return err
 		}
 		d.Outcome, d.Text = out.Outcome, out.Line
+		d.Kind = KindGate
 		if out.Outcome == "green" {
 			d.Line = "test " + r.Task + " pass (" + out.Line + ")"
 		} else {
@@ -65,7 +79,7 @@ var worded = map[string]worder{
 		return nil
 	},
 	"result " + wire.MethodAccept: func(r event.Record, d *Described) error {
-		d.Line = "accepted " + r.Task
+		d.Line, d.Kind = "accepted "+r.Task, KindAccept
 		return nil
 	},
 	"result " + wire.MethodSendback: func(r event.Record, d *Described) error {
@@ -73,7 +87,7 @@ var worded = map[string]worder{
 		if err := decode(r, &v); err != nil {
 			return err
 		}
-		d.Line = "sendback " + r.Task + noteIn(v.Note)
+		d.Line, d.Kind = "sendback "+r.Task+noteIn(v.Note), KindProblem
 		return nil
 	},
 	"fact " + event.StepDispatched: func(r event.Record, d *Described) error {
@@ -83,9 +97,9 @@ var worded = map[string]worder{
 		}
 		d.Lane, d.Agent, d.Level, d.Types, d.Type = dd.Lane, dd.Agent, dd.Level, dd.Types, dd.Type
 		if dd.Drive {
-			d.Line = "drive " + r.Task + laneIn(dd.Lane)
+			d.Line, d.Kind = "drive "+r.Task+laneIn(dd.Lane), KindDrive
 		} else {
-			d.Line = "dispatched " + r.Task + laneIn(dd.Lane)
+			d.Line, d.Kind = "dispatched "+r.Task+laneIn(dd.Lane), KindDispatch
 		}
 		return nil
 	},
@@ -95,7 +109,7 @@ var worded = map[string]worder{
 			return err
 		}
 		d.Lane, d.Agent, d.Report = s.Lane, s.Agent, s.Report
-		d.Line = "submitted " + r.Task
+		d.Line, d.Kind = "submitted "+r.Task, KindSubmit
 		return nil
 	},
 	"fact " + event.StepSendback: func(r event.Record, d *Described) error {
@@ -103,7 +117,7 @@ var worded = map[string]worder{
 		if err := decode(r, &n); err != nil {
 			return err
 		}
-		d.Line = "sendback " + r.Task + noteIn(n.Note)
+		d.Line, d.Kind = "sendback "+r.Task+noteIn(n.Note), KindProblem
 		return nil
 	},
 	"fact " + event.StepNeedsYou: func(r event.Record, d *Described) error {
@@ -113,7 +127,7 @@ var worded = map[string]worder{
 		}
 		d.Lane, d.Agent = f.Lane, f.Agent
 		if f.Cause == event.CauseHeld { // the hold's reason is "held: " + its note (verdict.go hold)
-			d.Line, d.Bad = "held "+r.Task+noteIn(strings.TrimPrefix(f.Reason, "held: ")), true
+			d.Line, d.Bad, d.Kind = "held "+r.Task+noteIn(strings.TrimPrefix(f.Reason, "held: ")), true, KindProblem
 		}
 		return nil
 	},
@@ -127,6 +141,7 @@ var worded = map[string]worder{
 		} else {
 			d.Line = "merged " + r.Task + " " + m.Head[:min(7, len(m.Head))]
 		}
+		d.Kind = KindMerge
 		return nil
 	},
 	"fact " + event.StepReviewRequest: func(r event.Record, d *Described) error {
@@ -138,6 +153,7 @@ var worded = map[string]worder{
 		if len(rd.After) > 0 {
 			d.Line += " (after " + strings.Join(rd.After, ",") + ")"
 		}
+		d.Kind = KindOther
 		return nil
 	},
 	"fact " + event.StepReviewStarted: func(r event.Record, d *Described) error {
@@ -145,11 +161,11 @@ var worded = map[string]worder{
 		if err := decode(r, &rd); err != nil {
 			return err
 		}
-		d.Line = "review started " + rd.ID
+		d.Line, d.Kind = "review started "+rd.ID, KindOther
 		return nil
 	},
 	"fact " + event.StepReviewRm: func(r event.Record, d *Described) error {
-		d.Line = "review request ended"
+		d.Line, d.Kind = "review request ended", KindOther
 		return nil
 	},
 	"intent " + event.StepPromote: func(r event.Record, d *Described) error {
@@ -189,7 +205,7 @@ var worded = map[string]worder{
 			return err
 		}
 		d.To, d.From, d.Text = m.To, m.From, m.Line
-		d.Line = "line to " + m.To + ": " + m.Line
+		d.Line, d.Kind = "line to "+m.To+": "+m.Line, KindMessage
 		return nil
 	},
 }
@@ -203,7 +219,7 @@ func Describe(r event.Record) Described {
 		return d
 	}
 	if err := w(r, &d); err != nil {
-		return Described{Line: r.Step + " " + r.Task + ": unreadable record " + err.Error(), Bad: true}
+		return Described{Line: r.Step + " " + r.Task + ": unreadable record " + err.Error(), Bad: true, Kind: KindProblem}
 	}
 	return d
 }

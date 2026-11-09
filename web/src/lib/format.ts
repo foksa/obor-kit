@@ -83,30 +83,19 @@ export function parts(text: string): Part[] {
   return out;
 }
 
-// EventKind is an event line's kind, for its icon and the page's filters.
-export type EventKind = "merge" | "gate" | "accept" | "submit" | "dispatch" | "message" | "drive" | "problem" | "serve"
-  | "promotion" | "other";
+// EVENT_KINDS is every event kind serve names (Event.kind, app.Kind*: internal/web's types_test), and EventKind is
+// their union: the page's icons and filters switch on this set, never on the line's wording (T-1074).
+export const EVENT_KINDS = [
+  "merge", "gate", "accept", "submit", "dispatch", "drive", "message", "serve", "promotion", "problem", "other",
+] as const;
 
-// SERVE_KINDS are the kinds serve names itself (Event.kind, app.Kind*: internal/web's types_test), read before the line.
-export const SERVE_KINDS = ["promotion"] as const;
+export type EventKind = (typeof EVENT_KINDS)[number];
 
-// eventKind is an event's kind: the one serve names (kind, T-977: a promotion's start, GREEN, RED and fast-forward, a
-// RED one bad), else read from its line.
-export function eventKind(line: string, bad?: boolean, kind?: string): EventKind {
-  const s = String(line || "");
-  if (kind && (SERVE_KINDS as readonly string[]).includes(kind)) return kind as EventKind;
-  if (bad) return "problem";
-  if (/^line to |^→|^\[obor [^\]]+\]/.test(s)) return "message";
-  if (/^merged\b/.test(s)) return "merge";
-  if (/^gate\b|^test\b/.test(s)) return "gate";
-  if (/^accepted\b/.test(s)) return "accept";
-  if (/^submitted\b/.test(s)) return "submit";
-  if (/^dispatched\b|^waiting\b/.test(s)) return "dispatch";
-  if (/^drive\b|^land/.test(s)) return "drive";
-  if (/^serve\b/.test(s)) return "serve";
-  // A count ("33 pass, 0 fail") is a summary, not a failure: fail right after a number is no problem.
-  if (/needs you|sent back|sendback|red\b|(?<!\d )fail/i.test(s)) return "problem";
-  return "other";
+// eventKind is an event's kind: the one serve names (T-1074); a bad one keeps it (the Problems filter reads bad too).
+export function eventKind(kind: string | undefined, bad?: boolean): EventKind {
+  const k = EVENT_KINDS.find((known) => known === kind);
+  if (k) return k;
+  return bad ? "problem" : "other";
 }
 
 // EVENT_FILTERS are the events list's filters: which kinds each shows (bad: the event is bad news, a RED promotion).
