@@ -188,6 +188,18 @@ func (s *Server) Revive(t testing.TB) {
 	}
 }
 
+// Restart is herdr restarted (Die, then Revive) with its instance, the socket file's time (herdr.Panes' Started),
+// set to at: a new instance whatever the file system's clock resolution. Call it while no client is connected to it
+// (a test's setup before serve starts).
+func (s *Server) Restart(t testing.TB, at time.Time) {
+	t.Helper()
+	s.Die()
+	s.Revive(t)
+	if err := os.Chtimes(s.Path, at, at); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // Client is a socket client on this server.
 func (s *Server) Client() *herdr.Socket { return &herdr.Socket{Path: s.Path, Timeout: 5 * time.Second} }
 
