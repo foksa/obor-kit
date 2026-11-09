@@ -1,5 +1,5 @@
 #!/bin/bash
 # obor pre-push (design "Git hooks layer"): chains the project's own pre-push, then obor's rule: a person's shell
-# (no OBOR_ROLE) passes; an agent's role may push only when guards.allow_push lists it (`obor whoami --can-push`).
+# (no OBOR_ROLE) passes; an agent's role may push only when rules.may_push lists it (`obor whoami --can-push`).
 . "$(dirname "$0")/../_hook" || exit 1
 obor_hook "$(basename "$0")" "$@"

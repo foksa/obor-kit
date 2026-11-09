@@ -112,7 +112,7 @@ obor_pre_commit() {
 }
 
 # obor_pre_push: the block is for agents, so a person's shell (no OBOR_ROLE) passes (T-1116). An agent's role is the
-# binary's answer (`obor whoami --can-push`, T-793): a role that is not lane-bound and is listed in guards.allow_push
+# binary's answer (`obor whoami --can-push`, T-793): a role that is not lane-bound and is listed in rules.may_push
 # may push, the same rule as the agent guard. Fails closed: no binary, a stale one, a hang or an answer other than "yes"
 # refuses.
 obor_pre_push() {
@@ -125,6 +125,6 @@ obor_pre_push() {
     rm -f "$out"
   fi
   [ "$rc" = 0 ] && return 0
-  echo "obor: this role may not push: list it in guards.allow_push" >&2
+  echo "obor: this role may not push: list it in rules.may_push" >&2
   return 1
 }

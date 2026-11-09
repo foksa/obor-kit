@@ -24,7 +24,7 @@ const hangBound = 15 * time.Second
 
 // pushRefusal: the pre-push hook's refusal names its way out (T-793; T-1116: OBOR_ALLOW_PUSH is gone).
 func pushRefusal(errOut string) bool {
-	return strings.Contains(errOut, "guards.allow_push")
+	return strings.Contains(errOut, "rules.may_push")
 }
 
 // remote adds a bare origin and returns its path.
@@ -277,7 +277,7 @@ func TestGithooks(t *testing.T) {
 			pushes(x.Root, "main", x.gitEnv("OBOR_ROLE=reviewer"), 1, "role not listed")
 			x.Git(x.lane, "branch", "-f", "lanebranch", "HEAD")
 			pushes(x.lane, "lanebranch", x.gitEnv("OBOR_ROLE=worker"), 1, "lane-bound role (the binary answers no)")
-			pushes(x.Root, "main", x.gitEnv("OBOR_ROLE=lead"), 0, "lead listed in allow_push")
+			pushes(x.Root, "main", x.gitEnv("OBOR_ROLE=lead"), 0, "lead listed in rules.may_push")
 			x.Git(x.Root, "branch", "-f", "ownerbranch", "HEAD")
 			pushes(x.Root, "ownerbranch", x.gitEnv(), 0, "no OBOR_ROLE (the binary would refuse it)")
 		}},
