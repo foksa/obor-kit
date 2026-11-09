@@ -220,10 +220,11 @@ func (l *lab) makeProject() error {
 			return err
 		}
 		b, _ := json.Marshal(cmd)
-		kinds = `, "kinds": {"opencode": {"command": ` + string(b) + `}}`
+		kinds = `, "agents": {"kinds": {"opencode": {"plugin": ` + string(b) + `}}}`
 	}
-	doc := `{"version": 1, "name": "conf", "prefix": "cf", "lanes_dir": "../proj-wt", "lanes": 1,
-  "branches": {"task": "task/{id}", "main": "main"}, "task_id_pattern": "T-[0-9]+", "commands": {}` + kinds + `}
+	doc := `{"version": 2, "project": {"name": "conf", "agent_prefix": "cf", "task_id_pattern": "T-[0-9]+"},
+  "lanes": {"dir": "../proj-wt", "count": 1, "task_branch": "task/{id}"},
+  "merge": {"target_branch": "main"}, "commands": {}` + kinds + `}
 `
 	if err := os.WriteFile(filepath.Join(l.main, ".obor", "config.json"), []byte(doc), 0o644); err != nil {
 		return err

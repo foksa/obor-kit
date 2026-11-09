@@ -46,10 +46,12 @@ func TestLaneStartRunsTheBinary(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	doc := map[string]any{"version": 1, "name": "proj", "prefix": "pj", "lanes_dir": "../proj-wt", "lanes": 1,
-		"branches": map[string]any{"task": "task/{id}", "main": "main"}, "task_id_pattern": "T-[0-9]+", "commands": map[string]any{},
-		"kinds":  map[string]any{"opencode": map[string]any{"command": wrapper}},
-		"models": map[string]any{"ds": map[string]any{"kind": "opencode", "model": "go/ds"}}}
+	doc := map[string]any{"version": 2,
+		"project": map[string]any{"name": "proj", "agent_prefix": "pj", "task_id_pattern": "T-[0-9]+"},
+		"lanes":   map[string]any{"dir": "../proj-wt", "count": 1, "task_branch": "task/{id}"},
+		"merge":   map[string]any{"target_branch": "main"}, "commands": map[string]any{},
+		"agents": map[string]any{"kinds": map[string]any{"opencode": map[string]any{"plugin": wrapper}},
+			"models": map[string]any{"ds": map[string]any{"kind": "opencode", "id": "go/ds"}}}}
 	b, _ := json.Marshal(doc)
 	if err := os.WriteFile(filepath.Join(root, ".obor", "config.json"), b, 0o644); err != nil {
 		t.Fatal(err)
