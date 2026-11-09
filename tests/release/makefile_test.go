@@ -499,6 +499,9 @@ func TestMakeCheckAffectedCatchesVetError(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "Makefile"), string(treeFile(t, "Makefile")))
 	writeFile(t, filepath.Join(dir, "VERSION"), "1.2.3\n")
 	writeFile(t, filepath.Join(dir, "go.mod"), "module obor\n\ngo 1.21\n")
+	// check-affected runs the real tests/budget -missing first (T-1073), so the fixture carries the tool. The fixture has
+	// no test packages, so the step is silent and green.
+	writeFile(t, filepath.Join(dir, "tests", "budget", "main.go"), string(treeFile(t, filepath.Join("tests", "budget", "main.go"))))
 	writeFile(t, filepath.Join(dir, "tools", "affected", "main.go"),
 		"package main\n\nimport \"fmt\"\n\nfunc main() { fmt.Println(\"obor/bad\") }\n") // the affected-list stub
 	writeFile(t, filepath.Join(dir, "bad", "bad.go"),
