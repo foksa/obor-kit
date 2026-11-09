@@ -25,7 +25,7 @@ import (
 //	nightly.at                  the nightly's switch: a local time "HH:MM" (on, every night then) or null (off)
 //
 // Any other key stays obor setup's or a hand edit's. A key names one member of shape 2, and so does the write: a file
-// of shape 1 is written at the member shape 1 had (change's was), so the one-release window's file keeps its shape.
+// of shape 1 is refused with the migrate hint (T-1140).
 //
 // A key .obor/local.json overrides (the key itself, a member of it, or an ancestor local.json replaces) is refused:
 // writing it to config.json would report success and change nothing that runs (T-754).
@@ -87,8 +87,7 @@ func (c *Config) editLevel(doc []byte, level string, val json.RawMessage) (Chang
 		}
 	}
 	old := Compact(c.DifficultyList(level))
-	return c.change("agents.difficulty."+level, doc, []string{"agents", "difficulty", level},
-		[]string{"difficulty", level}, nil, refs, old, Compact(refs))
+	return c.change("agents.difficulty."+level, doc, []string{"agents", "difficulty", level}, nil, refs, old, Compact(refs))
 }
 
 // editLanes sets lanes.count (a whole number, 0 or more; it replaces lanes.list, T-1031): the lanes it no longer
@@ -105,8 +104,7 @@ func (c *Config) editLanes(doc []byte, val json.RawMessage) (Change, error) {
 	if c.Data.Lanes.List != nil {
 		old = Compact(c.Data.Lanes.List)
 	}
-	ch, err := c.change("lanes.count", doc, []string{"lanes", "count"}, []string{"lanes"},
-		[]string{"lanes", "list"}, n, old, Compact(n))
+	ch, err := c.change("lanes.count", doc, []string{"lanes", "count"}, []string{"lanes", "list"}, n, old, Compact(n))
 	kept := Lanes{Count: n}.entries()
 	for _, e := range c.Data.Lanes.entries() {
 		if !slices.ContainsFunc(kept, func(k LaneEntry) bool { return k.Name == e.Name }) {
@@ -132,8 +130,7 @@ func (c *Config) editNightlyAt(doc []byte, val json.RawMessage) (Change, error) 
 	if at != nil {
 		v, newLine = *at, Compact(*at)
 	}
-	return c.change("nightly.at", doc, []string{"nightly", "at"}, []string{"merge", "nightly_at"}, nil,
-		v, unsetOr(c.Data.Nightly.At), newLine)
+	return c.change("nightly.at", doc, []string{"nightly", "at"}, nil, v, unsetOr(c.Data.Nightly.At), newLine)
 }
 
 // editKindArgs sets agents.kinds.<kind>.args: a list of args with no bare -- (obor adds the first prompt itself); an empty
@@ -161,8 +158,7 @@ func (c *Config) editKindArgs(doc []byte, kind string, val json.RawMessage) (Cha
 	if len(args) > 0 {
 		newLine = Compact(args)
 	}
-	return c.change("agents.kinds."+kind+".args", doc, []string{"agents", "kinds", kind, "args"},
-		[]string{"kinds", kind, "args"}, nil, v, old, newLine)
+	return c.change("agents.kinds."+kind+".args", doc, []string{"agents", "kinds", kind, "args"}, nil, v, old, newLine)
 }
 
 // editRole sets a configured role's model ref; a role always names its model (T-769), so "" and null are refused. A
@@ -185,27 +181,25 @@ func (c *Config) editRole(doc []byte, role string, val json.RawMessage) (Change,
 		return Change{}, fmt.Errorf("agents.roles.%s: %v", role, err)
 	}
 	key, at := "agents.roles."+role, []string{"agents", "roles", role}
-	was := []string{"roles", role}
 	if c.Data.Agents.Roles.M[role].Object {
-		key, at, was = key+".model", append(at, "model"), append(was, "model")
+		key, at = key+".model", append(at, "model")
 	}
-	return c.change(key, doc, at, was, nil, ref, unsetOr(ModelRef(rc.Type, rc.Effort)), Compact(ref))
+	return c.change(key, doc, at, nil, ref, unsetOr(ModelRef(rc.Type, rc.Effort)), Compact(ref))
 }
 
-// change is c's edit of key: doc with the member at path (shape 2's) set to v (nil deletes it) and, when drop is not
-// nil, the member at drop deleted too (lanes.count replacing lanes.list, T-1031), laid out as doc is, with the value's
-// old and new lines. A doc of shape 1 keeps its shape: there the member is was, the key's shape-1 path, and a write
-// replaces what shape 1 had (drop is shape 2's alone). It refuses a member .obor/local.json overrides (localRefusal)
-// and one the merged config does not take up: either way the file would be written and what runs would not change.
-func (c *Config) change(key string, doc []byte, path, was, drop []string, v any, old, new string) (Change, error) {
+// change is c's edit of key: doc with the member at path set to v (nil deletes it) and, when drop is not nil, the
+// member at drop deleted too (lanes.count replacing lanes.list, T-1031), laid out as doc is, with the value's old and
+// new lines. A doc of shape 1 is refused with the migrate hint (T-1140: configSet and every setup write refuse it
+// first, T-1125). It refuses a member .obor/local.json overrides (localRefusal) and one the merged config does not take
+// up: either way the file would be written and what runs would not change.
+func (c *Config) change(key string, doc []byte, path, drop []string, v any, old, new string) (Change, error) {
+	if ShapeOf(doc) < ShapeVersion {
+		return Change{}, errors.New(".obor/config.json " + shape1Hint)
+	}
 	if at := c.localShadow(path); at != "" {
 		return Change{}, localRefusal(key, at)
 	}
-	at := path
-	if ShapeOf(doc) < ShapeVersion {
-		at, drop = was, nil
-	}
-	out, err := EditJSON(doc, at, v)
+	out, err := EditJSON(doc, path, v)
 	if err != nil {
 		return Change{}, err
 	}
@@ -257,16 +251,10 @@ func (c *Config) localShadow(path []string) string {
 	return strings.Join(path, ".")
 }
 
-// applied reports whether the merged config, doc (in shape 2: reshaped when it is shape 1, as the load does) with c's
-// .obor/local.json, has v at path: what a write to doc would leave running. v nil is the key gone (or null).
+// applied reports whether the merged config, doc with c's .obor/local.json, has v at path: what a write to doc would
+// leave running. v nil is the key gone (or null).
 func (c *Config) applied(doc []byte, path []string, v any) bool {
 	merged := doc
-	if ShapeOf(doc) < ShapeVersion {
-		var err error
-		if merged, err = Reshape(doc); err != nil {
-			return false
-		}
-	}
 	if len(c.local) > 0 {
 		merged = merge(merged, c.local)
 	}
