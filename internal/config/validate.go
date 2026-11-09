@@ -3,7 +3,6 @@ package config
 import (
 	"bytes"
 	"fmt"
-	"maps"
 	"os"
 	"os/exec"
 	"path"
@@ -200,12 +199,6 @@ func (v *validator) models() {
 		}
 		if slices.Contains(a.Kinds.M[k].Args, "--") {
 			v.fail(".agents.kinds"+key(k)+".args", "`--` is not allowed: obor adds the first prompt itself")
-		}
-	}
-	for _, k := range slices.Sorted(maps.Keys(KitKinds)) {
-		// a kit kind the config uses must name its plugin (T-1153: there is no default binary)
-		if why, missing := v.c.KindPluginMissing(k); missing {
-			v.fail(".agents.kinds"+key(k)+".plugin", why)
 		}
 	}
 	for _, k := range a.Roles.Keys {
@@ -620,24 +613,6 @@ func (v *validator) modelRef(path, ref string, required bool) {
 
 // modelUsed: a level (its own list or the default), a role or an agent of c names model.
 func (c *Config) modelUsed(model string) bool { return slices.Contains(c.UsedModels(), model) }
-
-// namesKind: c names kind k, as agents.kinds.<k>, an agents.models entry's kind or the kind of a model it uses.
-func (c *Config) namesKind(k string) bool {
-	if _, ok := c.Data.Agents.Kinds.M[k]; ok {
-		return true
-	}
-	for _, name := range c.Data.Agents.Models.Keys {
-		if c.Data.Agents.Models.M[name].Kind == k {
-			return true
-		}
-	}
-	for _, name := range c.UsedModels() {
-		if m, ok := c.Model(name); ok && m.Kind == k {
-			return true
-		}
-	}
-	return false
-}
 
 // UsedModels are the models a level (its own list or the default), a role or an agent of c names, known or not, in
 // level (hard, medium, simple), role, agent order.

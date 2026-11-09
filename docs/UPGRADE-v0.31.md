@@ -12,12 +12,12 @@ its env vars) is the binary's manifest, cached per project. obor serve caches it
 binary changes), and `obor init` does too: no hand step. Until a project has it, OpenCode agents cannot start there
 (`kind opencode: no manifest cached (…): run obor setup agents`) and the guard denies every `opencode` command.
 
-A config needs `kinds.opencode.command`; one without it still runs the kit's binary until v0.32.0, and `obor config
-validate` warns while it is missing. Re-run the installer, then in every project:
+A config without `kinds.opencode.command` still runs the kit's binary, the default (T-1155). Re-run the installer,
+then in every project:
 
 ```sh
 obor setup agents        # caches the manifest and writes kinds.opencode.command = "obor-kind-opencode" (uncommitted)
-obor config validate     # no WARN kinds.opencode.command
+obor config validate     # OK: the line is optional now
 git add .obor/config.json && git commit -m "kinds.opencode.command" .obor/config.json
 ```
 

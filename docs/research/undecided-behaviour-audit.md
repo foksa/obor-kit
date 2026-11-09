@@ -140,8 +140,8 @@ Follow-up (owner 11-09, "config looks all over the place"): the proposed groupin
 migration and its tasks are in `docs/research/config-shape.md`. If that shape is approved, `version` leaves B2: it
 becomes 2 and is how an old file is told from a new one. B1 and B2 land before the shape.
 
-Already scheduled, no task here: `merge.trailer` (T-1103); `KitKinds`' default command and its WARN (v0.33.0,
-`internal/config/models.go:53-56`); the `baseline`/`gate`/`e2e` WARN (v0.34, `validate.go:563-568`).
+Already scheduled, no task here: `merge.trailer` (T-1103); the `baseline`/`gate`/`e2e` WARN (v0.34,
+`validate.go:563-568`).
 
 ### 2.2 Config lines (edits by each project's lead, no task)
 

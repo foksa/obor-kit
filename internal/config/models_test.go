@@ -1,6 +1,7 @@
 package config
 
 import (
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -195,6 +196,25 @@ func TestLanesCount(t *testing.T) {
 	}
 	if LaneName(12) != "L-12" || LaneName(100) != "L-100" {
 		t.Errorf("LaneName: %s %s", LaneName(12), LaneName(100))
+	}
+}
+
+// T-1155: a kit kind (OpenCode) with no agents.kinds.<name>.plugin runs the kit's binary, as before T-1153, and is a
+// plugin kind of the config; a set plugin still overrides it.
+func TestKitKindDefaultCommand(t *testing.T) {
+	c := load(t, `{"prefix":"pj"}`, "")
+	if want := KitKind("obor-kind-opencode"); c.KindCommand("opencode") != want {
+		t.Errorf("KindCommand(opencode) with no plugin = %q, want the kit's binary %q", c.KindCommand("opencode"), want)
+	}
+	if got := c.PluginKinds(); !slices.Contains(got, "opencode") {
+		t.Errorf("PluginKinds = %q, want opencode (a kit kind with no plugin is one)", got)
+	}
+	if got := c.KindCommand("claude"); got != "" {
+		t.Errorf("KindCommand(claude) = %q, want none (a compiled kind is no plugin kind)", got)
+	}
+	own := load(t, `{"prefix":"pj","kinds":{"opencode":{"plugin":"tools/oc"}}}`, "")
+	if want := filepath.Join(own.Root, "tools", "oc"); own.KindCommand("opencode") != want {
+		t.Errorf("KindCommand(opencode) = %q, want the set plugin %q", own.KindCommand("opencode"), want)
 	}
 }
 

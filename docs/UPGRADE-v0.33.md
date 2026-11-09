@@ -17,9 +17,6 @@ shape 2.
 obor setup herdr-plugin
 ```
 
-If `obor config validate` says `agents.kinds.opencode.plugin` is not set, run `obor setup agents`: it writes
-`"plugin": "obor-kind-opencode"` (uncommitted), which a config that uses OpenCode now must name.
-
 ## v0.33.0 (config shape 2: ten top-level keys, nine groups, and one automatic rewrite)
 
 `.obor/config.json` is **shape 2** (`version: 2`): ten top-level keys — `project`,
@@ -44,9 +41,11 @@ config: shape 2 (obor <version>)
 with the dropped keys in the commit's body. Nothing is written when the file has uncommitted changes or the main
 checkout is on another branch: the project keeps running on the in-memory reshape and the refusal is a needs-you. A
 project whose serve is not running rewrites the file with `obor config migrate`; `config_set`, `obor setup lane` and
-`obor init` refuse a shape-1 file with that hint until it is rewritten. `obor config validate` prints one WARN, not a
-FAIL, on a shape-1 file: a merge guard that runs validate keeps its gates green in the minutes before the rewrite. The
-next release refuses shape 1 like a pre-v0.23 config ("migrate it with obor v0.33, then upgrade").
+`obor init` refuse a shape-1 file with that hint until it is rewritten. `obor config validate` on a shape-1 file prints
+`WARN .version: config shape 1, read as shape 2 for this release and refused by the next: serve rewrites it at its
+start (obor config migrate by hand)` and then `OK` (exit 0), so a merge guard that runs validate keeps its gates green
+in the minutes before the rewrite. The next release refuses shape 1 like a pre-v0.23 config ("migrate it with obor
+v0.33, then upgrade").
 
 A lane in flight holds its branch's copy of the file and merges cleanly: obor reads the config from the main checkout
 only. An older obor refuses a shape-2 file (`unknown field "agents"`): a stale `obor web` shows the project failing
