@@ -22,11 +22,11 @@ func (s *Setup) lane(ctx context.Context, args []string) error {
 		return err
 	}
 	configured := s.cfg.HasLane(lane)
-	if !configured && s.cfg.Data.Lanes.Listed() { // T-1031: a list is the owner's, a count edit would replace it
+	if !configured && s.cfg.LanesListed() { // T-1031: a list is the owner's, a count edit would replace it
 		return project.Failf("lanes is a list in .obor/config.json: add {\"name\": \"%s\"} to it, then obor setup lane %s", lane, lane)
 	}
-	if next := config.LaneName(s.cfg.Data.Lanes.Count() + 1); !configured && lane != next {
-		return project.Failf("lanes are L-01 … L-NN in order (lanes: %d): the next one is %s", s.cfg.Data.Lanes.Count(), next)
+	if next := config.LaneName(s.cfg.LaneCount() + 1); !configured && lane != next {
+		return project.Failf("lanes are L-01 … L-NN in order (lanes: %d): the next one is %s", s.cfg.LaneCount(), next)
 	}
 	dir := filepath.Join(s.cfg.LanesDir(), lane)
 	if err := s.ensureWorktree(dir); err != nil {
@@ -48,8 +48,8 @@ func (s *Setup) lane(ctx context.Context, args []string) error {
 		s.say("link %s → %s", link, src)
 	}
 	if configured {
-		s.say("skip config lanes (%s is lane %d of %d)", lane, s.laneIndex(lane), s.cfg.Data.Lanes.Count())
-	} else if err := s.addLane(s.cfg.Data.Lanes.Count() + 1); err != nil {
+		s.say("skip config lanes (%s is lane %d of %d)", lane, s.laneIndex(lane), s.cfg.LaneCount())
+	} else if err := s.addLane(s.cfg.LaneCount() + 1); err != nil {
 		return err
 	}
 	if c, ok := run.Command(s.cfg, "lane_setup"); ok {
@@ -136,17 +136,7 @@ func (s *Setup) laneDone(ctx context.Context, lane, dir string) (bool, error) {
 
 // addLane sets lanes to n in .obor/config.json (not local.json), uncommitted.
 func (s *Setup) addLane(n int) error {
-	path := filepath.Join(s.root, ".obor", "config.json")
-	doc, err := os.ReadFile(path)
-	if err != nil {
-		return project.Failf("cannot read %s", path)
-	}
-	doc, err = config.EditJSON(doc, []string{"lanes"}, n)
-	if err != nil || writeJSON(path, doc) != nil {
-		return project.Failf("cannot update %s", path)
-	}
-	s.say("config lanes = %d (uncommitted)", n)
-	return nil
+	return s.editConfig(func(doc []byte) (config.Write, error) { return config.SetLanes(doc, n) })
 }
 
 // pluginSettings is the project settings file that enables obor's plugin; lanes are worktrees, so an untracked one
@@ -155,7 +145,7 @@ const pluginSettings = ".claude/settings.json"
 
 // laneLinks are lane_links plus pluginSettings while it is untracked in the main checkout and not listed.
 func (s *Setup) laneLinks() []string {
-	links := s.cfg.Data.LaneLinks
+	links := s.cfg.LaneLinks()
 	if slices.Contains(links, pluginSettings) || !s.settingsUntracked() {
 		return links
 	}

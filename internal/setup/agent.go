@@ -107,7 +107,7 @@ func (s *Setup) lanePane(ctx context.Context, lane string, w where, startNow boo
 		return s.start(ctx, agent{name: s.cfg.AgentName("worker", lane), cwd: l.Dir, role: worker, lane: lane,
 			noStart: !startNow}, w)
 	}
-	return project.Failf("unknown lane %s (lanes: %d; obor setup lane %s first)", lane, s.cfg.Data.Lanes.Count(), lane)
+	return project.Failf("unknown lane %s (lanes: %d; obor setup lane %s first)", lane, s.cfg.LaneCount(), lane)
 }
 
 func (s *Setup) role(ctx context.Context, args []string) error {
@@ -365,10 +365,7 @@ const maxPanesPerTab = 4
 // placement is a's new pane as the terminal is asked for it: whose it is, its cwd and env, where w says, and the
 // project it is for (T-1044: the layout is the adapter's). A tab holds maxPanesPerTab panes.
 func (s *Setup) placement(a agent, w where, env []string) port.Placement {
-	name := s.cfg.Data.Name
-	if name == "" {
-		name = filepath.Base(s.root)
-	}
+	name := s.cfg.ProjectName()
 	self, _ := project.Pane(s.Env) // "" when the caller has no pane
 	return port.Placement{Role: a.role.Name, Lane: a.lane, Cwd: a.cwd, Env: env, Own: w.own, Group: w.newTab, In: w.tab,
 		Beside: w.beside, Say: func(line string) { s.say("%s", line) },

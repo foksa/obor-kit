@@ -192,7 +192,7 @@ func (s *Setup) inProject(cwd string) bool {
 	}
 	c := project.Physical(cwd)
 	in := func(d string) bool { d = project.Physical(d); return c == d || strings.HasPrefix(c, d+"/") }
-	return in(s.root) || in(config.AbsUnder(s.root, s.cfg.Data.LanesDir))
+	return in(s.root) || in(s.cfg.LanesDir())
 }
 
 // findRoot sets the main checkout of the project around Dir.

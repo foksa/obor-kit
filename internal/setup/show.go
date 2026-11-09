@@ -154,10 +154,12 @@ func verbsDetail(verbs []string) string {
 // initConfirmed records setup.confirmed: false when the config has no such key (T-647): the lead goes through the
 // setup table with the owner at its first session. A rerun keeps the answer. wrote reports whether it added the key.
 func (s *Setup) initConfirmed() (wrote bool, err error) {
-	if _, ok := s.cfg.Get("setup.confirmed"); ok {
+	if s.cfg.SetupConfirmedSet() {
 		return false, nil
 	}
-	if err := s.editConfig([]string{"setup", "confirmed"}, false); err != nil {
+	if err := s.editConfig(func(doc []byte) (config.Write, error) {
+		return config.SetSetupConfirmed(doc, false)
+	}); err != nil {
 		return false, err
 	}
 	if err := s.load(); err != nil {

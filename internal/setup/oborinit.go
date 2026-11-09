@@ -128,7 +128,7 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	if err := s.initProject(name, prefix); err != nil {
 		return err
 	}
-	add("project", doneOr(s.wrote), "%s (prefix %s)", s.cfg.Data.Name, s.cfg.Data.Prefix)
+	add("project", doneOr(s.wrote), "%s (prefix %s)", s.cfg.Name(), s.cfg.Prefix())
 
 	// setup: models, effort and difficulty are a starting point until the lead confirms them with the owner (T-647).
 	confirmed, err := s.initConfirmed()
@@ -142,7 +142,7 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	if err != nil {
 		return project.Failf("the machine's project list: %v", err)
 	}
-	add("projects", doneOr(changed), "%s in %s", s.cfg.Data.Name, project.ProjectsFile(s.Env))
+	add("projects", doneOr(changed), "%s in %s", s.cfg.Name(), project.ProjectsFile(s.Env))
 
 	// commit: a repository with no commit, empty before init, gets init's own files as its first (the lanes branch
 	// from it).
@@ -265,7 +265,7 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	}
 
 	s.say("")
-	s.say("obor init %s:", s.cfg.Data.Name)
+	s.say("obor init %s:", s.cfg.Name())
 	for _, st := range steps {
 		s.say("  %-10s %-8s %s", st.name, st.state, st.what)
 	}
@@ -288,14 +288,14 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 		s.say("committed obor init: %s", s.commitLine(committed))
 	} else {
 		s.say("nothing committed: review, then commit .obor/config.json, .gitignore, BACKLOG.md, docs/decisions.md, %s/",
-			s.agentsDir())
+			s.cfg.AgentsDir())
 	}
 	next := "obor lead"
 	if skippedCommands {
 		next = "first task for the lead: set up the stack and `commands.check` (lane_setup, lane_ready); until then " +
 			"every gate stops on \"missing command\""
 	}
-	s.say("OK init %s (prefix %s); next: %s", s.cfg.Data.Name, s.cfg.Data.Prefix, next)
+	s.say("OK init %s (prefix %s); next: %s", s.cfg.Name(), s.cfg.Prefix(), next)
 	s.say("")
 	s.printTable()
 	return nil
@@ -306,14 +306,14 @@ func (s *Setup) commitLine(files []string) string {
 	var parts []string
 	agents := false
 	for _, f := range files {
-		if strings.HasPrefix(f, s.agentsDir()+"/") {
+		if strings.HasPrefix(f, s.cfg.AgentsDir()+"/") {
 			agents = true
 			continue
 		}
 		parts = append(parts, f)
 	}
 	if agents {
-		parts = append(parts, s.agentsDir()+"/")
+		parts = append(parts, s.cfg.AgentsDir()+"/")
 	}
 	return strings.Join(parts, ", ")
 }
@@ -429,7 +429,9 @@ func (s *Setup) initCommands() ([]string, error) {
 		if _, ok := run.Command(s.cfg, kv[0]); ok {
 			continue
 		}
-		if err := s.editConfig([]string{"commands", kv[0]}, kv[1]); err != nil {
+		if err := s.editConfig(func(doc []byte) (config.Write, error) {
+			return config.SetCommand(doc, kv[0], kv[1])
+		}); err != nil {
 			return nil, err
 		}
 		set = append(set, kv[0]+" = "+kv[1])
@@ -455,18 +457,23 @@ func (s *Setup) commandsLine() string {
 	return strings.Join(have, "; ")
 }
 
-// editConfig sets key path to val in .obor/config.json (not local.json), uncommitted.
-func (s *Setup) editConfig(key []string, val any) error {
+// editConfig applies edit to .obor/config.json (not local.json), leaves it uncommitted, and says
+// "config <key> = <value> (uncommitted<note>)".
+func (s *Setup) editConfig(edit func([]byte) (config.Write, error), note ...string) error {
 	path := filepath.Join(s.root, ".obor", "config.json")
 	doc, err := os.ReadFile(path)
 	if err != nil {
 		return project.Failf("cannot read %s", path)
 	}
-	doc, err = config.EditJSON(doc, key, val)
-	if err != nil || writeJSON(path, doc) != nil {
+	w, err := edit(doc)
+	if err != nil || writeJSON(path, w.Doc) != nil {
 		return project.Failf("cannot update %s", path)
 	}
-	s.say("config %s = %v (uncommitted)", strings.Join(key, "."), val)
+	suffix := ""
+	if len(note) > 0 {
+		suffix = note[0]
+	}
+	s.say("config %s = %s (uncommitted%s)", w.Key, w.Val, suffix)
 	return nil
 }
 
@@ -502,7 +509,9 @@ func (s *Setup) initRoleTypes() (string, error) {
 				continue
 			}
 		}
-		if err := s.editConfig([]string{"roles", role}, "opus"); err != nil {
+		if err := s.editConfig(func(doc []byte) (config.Write, error) {
+			return config.SetRoleModel(doc, role, "opus")
+		}); err != nil {
 			return "", err
 		}
 		was := config.ModelRef(rc.Type, rc.Effort)
@@ -525,7 +534,7 @@ func (s *Setup) initRoleTypes() (string, error) {
 // user lists it: init has no flag or prompt for that, so a machine without OpenCode never sends its first simple task
 // to a CLI that cannot start. An existing `difficulty` is kept.
 func (s *Setup) initDifficulty() error {
-	if s.cfg.Data.Difficulty != nil {
+	if s.cfg.HasDifficulty() {
 		return nil
 	}
 	out := map[string][]string{}
@@ -540,7 +549,9 @@ func (s *Setup) initDifficulty() error {
 	if len(out) == 0 {
 		return nil
 	}
-	if err := s.editConfig([]string{"difficulty"}, out); err != nil {
+	if err := s.editConfig(func(doc []byte) (config.Write, error) {
+		return config.SetDifficulty(doc, out)
+	}); err != nil {
 		return err
 	}
 	return s.load()
@@ -690,9 +701,11 @@ func (s *Setup) initPluginLinks() (state, what string, err error) {
 		return "already", pluginSettings + " is tracked or absent: lanes get it from git", nil
 	}
 	changed := false
-	if !slices.Contains(s.cfg.Data.LaneLinks, pluginSettings) {
-		links := append(slices.Clone(s.cfg.Data.LaneLinks), pluginSettings)
-		if err := s.editConfig([]string{"lane_links"}, links); err != nil {
+	if !slices.Contains(s.cfg.LaneLinks(), pluginSettings) {
+		links := append(slices.Clone(s.cfg.LaneLinks()), pluginSettings)
+		if err := s.editConfig(func(doc []byte) (config.Write, error) {
+			return config.SetLaneLinks(doc, links)
+		}); err != nil {
 			return "", "", err
 		}
 		if err := s.load(); err != nil {
