@@ -22,6 +22,12 @@ type ScratchFF struct {
 
 var _ port.Workflow = ScratchFF{}
 
+// NewScratchFF is the scratch-ff workflow over s, serve's merge slot: the lanes take s's config, so a workflow holds one
+// *config.Config (T-1161).
+func NewScratchFF(s Scratch, review port.Review) ScratchFF {
+	return ScratchFF{Scratch: s, Lane: Lane{Cfg: s.Cfg}, Review: review}
+}
+
 // Target is the sha of branches.main, and whether task's branch has commits it lacks.
 func (w ScratchFF) Target(ctx context.Context, task string) (string, bool, error) {
 	cfg := w.Scratch.Cfg

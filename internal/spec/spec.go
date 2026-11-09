@@ -270,8 +270,8 @@ func models(text string) []string {
 }
 
 // WithoutModelLine is text without its `Model:` line, the metadata line just under `Difficulty:` that models reads: the
-// stored spec a merge message carries drops it, so no model names reach commits (T-1112, T-1133). A `Model:` line
-// anywhere else stays, and text with no such line is returned unchanged.
+// stored spec a merge message carries drops that line (T-1112, T-1133); the spec's content is not redacted, so a model
+// name written in it stays. A `Model:` line anywhere else stays, and text with no such line is returned unchanged.
 func WithoutModelLine(text string) string {
 	rest, _, found := difficultyLine(text)
 	if !found {

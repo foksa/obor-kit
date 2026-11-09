@@ -367,8 +367,8 @@ func filePatches(diff string) map[string]string {
 }
 
 // specBody is the spec part of a merge's message (T-521): a blank line, "Spec rev N:", a blank line and in.Spec (the
-// store's rev at gate time) without its `Model:` line (T-1112: no model names in commits); "" when none is stored (a
-// task dispatched before T-440).
+// store's rev at gate time) without its `Model:` line (T-1112: that metadata line is dropped, the content is not
+// redacted); "" when none is stored (a task dispatched before T-440).
 func specBody(in port.GateInput) string {
 	if strings.TrimSpace(in.Spec) == "" {
 		return ""
