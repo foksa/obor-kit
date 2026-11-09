@@ -51,14 +51,6 @@ type idleEnd struct {
 	at  time.Time
 }
 
-// newer is the newer of e and o (by seq).
-func (e idleEnd) newer(o idleEnd) idleEnd {
-	if o.seq > e.seq {
-		return o
-	}
-	return e
-}
-
 // idle is idleNow's answer: the last merge or drop as the line names it ("T-xx merged <sha7>", "T-xx dropped: <why>"),
 // the newest end record's seq (the idle key) and time, and whether nothing is in flight — the pipeline is empty, no
 // needs-you is in force, no review request is pending, no verify waits for its brief and no role worktree agent (the
