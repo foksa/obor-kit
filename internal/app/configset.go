@@ -255,21 +255,49 @@ func (p *proj) laneHolds(lane string) string {
 // Config shape 2's one rewrite (T-1125, docs/research/config-shape.md §4.2 steps 2-3): serve's first pass on a
 // config.json of shape 1 (configShape) and obor config migrate (RewriteShape) reshape it (config.Reshape), commit it on
 // the main branch through the setup edit's ConfigFile (subject "config: shape 2 (obor <version>)", the dropped keys in
-// the body) and rewrite .obor/local.json in place (untracked). A refusal of ConfigFile.Read (uncommitted changes, the
+// the body) and rewrite .obor/local.json in place (untracked, on its own shape test: a shape-1 local.json beside a
+// shape-2 config.json is the only thing left, T-1149). A refusal of ConfigFile.Read (uncommitted changes, the
 // main checkout on another branch) writes nothing: the project runs on the load's in-memory reshape, and serve's
 // refusal (or failure: a commit a hook refused) is a needs-you (task ConfigTask) until a pass rewrites the file.
 
 // RewriteShape rewrites the config.json of the project at root, of shape 1, as shape 2 through file; by is who does it
-// (the commit and the line name it). line is the [obor] line's text without its prefix; "" with no refusal when the
-// file is shape 2 already (nothing written). refused is ConfigFile.Read's refusal (nothing written). A failed commit
-// puts local.json back.
+// (the commit and the line name it). .obor/local.json is reshaped in place on the load's own test for it (readWith:
+// config.json is shape 1, or the file is: config.LocalShape1), also when config.json is shape 2 already — a second
+// clone's or a hand-kept file (T-1149). line is the [obor] line's text without its prefix; "" with no refusal when
+// nothing is left to rewrite. refused is ConfigFile.Read's refusal (nothing written). A failed commit puts local.json
+// back.
 func RewriteShape(ctx context.Context, root string, file ConfigFile, by string) (line, refused string, err error) {
 	disk, err := os.ReadFile(filepath.Join(root, ".obor", "config.json"))
 	if err != nil {
 		return "", "", err
 	}
-	if config.ShapeOf(disk) >= config.ShapeVersion { // read without git: a pass of a rewritten project stops here
-		return "", "", nil
+	localPath := filepath.Join(root, ".obor", "local.json")
+	local, err := os.ReadFile(localPath)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		local = nil
+	case err != nil:
+		return "", "", err
+	}
+	var nextLocal []byte // local.json as shape 2, when it is to be rewritten
+	cfgOld := config.ShapeOf(disk) < config.ShapeVersion
+	if local != nil && (cfgOld || config.LocalShape1(local)) { // readWith's rule for the file
+		r, err := config.Reshape(local)
+		if err != nil {
+			return "", "", fmt.Errorf(".obor/local.json: cannot reshape it: %v", err)
+		}
+		if !sameCompact(r, local) {
+			nextLocal = []byte(config.Pretty(json.RawMessage(r)))
+		}
+	}
+	if !cfgOld { // config.json is shape 2: only a shape-1 local.json is left
+		if nextLocal == nil {
+			return "", "", nil
+		}
+		if err := project.WriteAtomic(localPath, nextLocal); err != nil {
+			return "", "", err
+		}
+		return fmt.Sprintf("config: .obor/local.json rewritten as config shape 2 by %s", by), "", nil
 	}
 	doc, refused, err := file.Read(ctx)
 	if err != nil || refused != "" || config.ShapeOf(doc) >= config.ShapeVersion {
@@ -278,22 +306,6 @@ func RewriteShape(ctx context.Context, root string, file ConfigFile, by string) 
 	next, err := config.Reshape(doc)
 	if err != nil {
 		return "", "", fmt.Errorf(".obor/config.json: cannot reshape it: %v", err)
-	}
-	localPath := filepath.Join(root, ".obor", "local.json")
-	local, err := os.ReadFile(localPath)
-	var nextLocal []byte
-	switch {
-	case errors.Is(err, os.ErrNotExist):
-	case err != nil:
-		return "", "", err
-	default:
-		r, err := config.Reshape(local)
-		if err != nil {
-			return "", "", fmt.Errorf(".obor/local.json: cannot reshape it: %v", err)
-		}
-		if !sameCompact(r, local) {
-			nextLocal = []byte(config.Pretty(json.RawMessage(r)))
-		}
 	}
 	dropped := "none"
 	if keys := config.ShapeDropped(doc); len(keys) > 0 {

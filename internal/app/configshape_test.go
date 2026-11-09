@@ -84,6 +84,38 @@ func TestRewriteShapeOnceThenAlready(t *testing.T) {
 	}
 }
 
+// T-1149 (DD-v0.33 #2): a config.json of shape 2 beside a local.json of shape 1 (a second clone's, a hand-kept copy)
+// gets local.json reshaped and rewritten in place, with no commit; a second run finds nothing left to do.
+func TestRewriteShapeLocalOnly(t *testing.T) {
+	t.Parallel()
+	const cfg = `{"version":2,"project":{"agent_prefix":"pj"}}` + "\n"
+	root, f := shapeRoot(t, cfg, `{"lanes":3,"slots":{"max":2}}`+"\n")
+	line, refused, err := RewriteShape(context.Background(), root, f, "obor serve")
+	want := "config: .obor/local.json rewritten as config shape 2 by obor serve"
+	if err != nil || refused != "" || line != want {
+		t.Fatalf("RewriteShape: %q, %q, %v; want %q", line, refused, err, want)
+	}
+	if got := f.messages(); len(got) != 0 || readShape(root, "config.json") != cfg {
+		t.Errorf("commits %q, config.json %q; want no commit and the file as it was", got, readShape(root, "config.json"))
+	}
+	local := readShape(root, "local.json")
+	if strings.Contains(local, "slots") || !strings.Contains(local, `"heavy_at_once"`) {
+		t.Errorf("local.json after the rewrite:\n%s", local)
+	}
+	for path, want := range map[string]string{"lanes.count": "3", "checks.heavy_at_once": "2"} {
+		if v, _ := config.MemberAt([]byte(local), strings.Split(path, ".")); string(v) != want {
+			t.Errorf("local.json's %s = %s, want %s:\n%s", path, v, want, local)
+		}
+	}
+	if _, unknown, err := config.LoadHook(root); err != nil || len(unknown) != 0 {
+		t.Errorf("the rewritten pair loads: unknown %q, %v; want every key at its home", unknown, err)
+	}
+	line, refused, err = RewriteShape(context.Background(), root, f, "obor serve")
+	if err != nil || refused != "" || line != "" || readShape(root, "local.json") != local {
+		t.Errorf("RewriteShape again: %q, %q, %v; want nothing to do", line, refused, err)
+	}
+}
+
 // A refusal of ConfigFile.Read (uncommitted changes) is returned and nothing is written; a commit that fails puts
 // local.json back (config.json is Commit's to keep: configFile's restores it).
 func TestRewriteShapeRefusedOrFailedWritesNothing(t *testing.T) {

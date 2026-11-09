@@ -580,7 +580,8 @@ func LoadWith(root string, doc []byte) (*Config, error) {
 }
 
 // readWith is read with doc as config.json's bytes (nil: the file's). A config.json of shape 1 (ShapeOf) is reshaped
-// before the merge, and local.json with it (it has no version: it follows config.json's shape); one struct, one decode.
+// before the merge; local.json has no version and follows the load's rule — config.json is shape 1, or the file itself
+// is (LocalShape1: a shape-1 local.json beside a shape-2 config.json is reshaped too, T-1149); one struct, one decode.
 func readWith(root string, doc []byte) (*Config, []string, error) {
 	names := []string{"config.json", "local.json"}
 	var files [2][]byte
@@ -607,7 +608,11 @@ func readWith(root string, doc []byte) (*Config, []string, error) {
 	}
 	shape1 := ShapeOf(files[0]) < ShapeVersion
 	for i, name := range names {
-		if !shape1 || files[i] == nil {
+		old := shape1
+		if i == 1 && !old { // local.json has no version: its own test (T-1149)
+			old = LocalShape1(files[i])
+		}
+		if !old || files[i] == nil {
 			continue
 		}
 		path := filepath.Join(root, ".obor", name)

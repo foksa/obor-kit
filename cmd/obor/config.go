@@ -70,10 +70,10 @@ func configCmd(args []string) int {
 
 // configMigrate is `obor config migrate` (T-1125, docs/research/config-shape.md §4.2 step 3): serve's one rewrite of a
 // config.json of shape 1 by hand, for a project whose serve is not running (app.RewriteShape through configFile): the
-// commit on the main branch and local.json in place, then "OK <the line serve posts to the lead>"; "OK … already" for
-// a file of shape 2 (nothing written, so a second run changes nothing); FAIL with the refusal (uncommitted changes, the
-// main checkout on another branch: nothing written), exit 1. The load is the hooks' (no shape-1 warning: this is the
-// rewrite it points to).
+// commit on the main branch and local.json in place (or local.json alone, beside a config.json of shape 2: T-1149), then
+// "OK <the line serve posts to the lead>"; "OK … already" when neither file is left to rewrite (nothing written, so a
+// second run changes nothing); FAIL with the refusal (uncommitted changes, the main checkout on another branch: nothing
+// written), exit 1. The load is the hooks' (no shape-1 warning: this is the rewrite it points to).
 func configMigrate() int {
 	_, cfg, rc := loadWith(func(root string) (*config.Config, error) {
 		c, _, err := config.LoadHook(root)
