@@ -295,33 +295,30 @@ func commandObject(v json.RawMessage) json.RawMessage {
 	return b
 }
 
-// shape1Members are the top-level members only shape 1 has: shape 2 moves each under a group (§3) or has no home for it.
-var shape1Members = []string{"name", "prefix", "lanes_dir", "lane_links", "roles", "difficulty", "kinds", "models",
-	"branches", "paths", "terminal", "workflow", "setup", "handoff_tokens", "slots", "guards"}
-
 // LocalShape1 is whether doc, a local.json (a config file with no version of its own), is of shape 1 (T-1149): it has a
 // member shape 2 lacks or types differently. So a shape-1 local.json is read reshaped and rewritten beside a shape-2
-// config.json too, as on the second clone or in a hand-kept file that the rewrite commit never reached. Its test: a
-// top-level member shape 1 has (shape1Members), lanes given as a number or a list, a command obor runs by a fixed name
-// under commands. A member this obor does not know — a group of shape 2, or a key of a newer binary — leaves it shape 2.
+// config.json too, as on the second clone or in a hand-kept file that the rewrite commit never reached. Its test reads
+// Reshape's own tables (T-1151): a member at one of shapeMoves' from paths (each a path only shape 1 has), lanes given
+// as a number or a list (the table's lanes rows: shape 2's lanes is an object), or one of shapeGone's keys — every key
+// Reshape moves or drops, from the one table. A member this obor does not know — a group of shape 2, or a key of a newer
+// binary — leaves it shape 2.
 func LocalShape1(doc []byte) bool {
-	ms, ok := object(doc)
-	if !ok {
+	if _, ok := object(doc); !ok {
 		return false
 	}
-	for _, m := range ms {
-		switch {
-		case slices.Contains(shape1Members, m.Key):
+	for _, m := range shapeMoves {
+		v, err := MemberAt(doc, m.from)
+		if err != nil || v == nil {
+			continue
+		}
+		if len(m.from) == 1 && m.from[0] == "lanes" && lanesOld(v) == "" {
+			continue // shape 2's lanes object
+		}
+		return true
+	}
+	for _, gone := range shapeGone {
+		if v, err := MemberAt(doc, gone); err == nil && v != nil {
 			return true
-		case m.Key == "lanes" && lanesOld(m.Val) != "":
-			return true
-		case m.Key == "commands":
-			cmds, _ := object(m.Val)
-			for _, c := range cmds {
-				if _, fixed := FixedCommands[c.Key]; fixed {
-					return true
-				}
-			}
 		}
 	}
 	return false
