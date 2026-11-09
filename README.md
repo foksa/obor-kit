@@ -20,7 +20,7 @@ you ─── lead (Claude Code) ── writes a spec ── obor spec set T-12 
             │         cuts task/T-12 from the target branch
             │
             ├─ worker (lane L-01, its own worktree) ── implements, runs the task's checks, task_done
-            ├─ merge slot ── integrator reviews ── compiles onto the target branch ── merge
+            ├─ merge slot compiles onto the target ── lane test ── integrator reviews ── merge
             └─ "needs-you" lines to the lead: a question, a hold, a failed check
 ```
 
@@ -30,10 +30,12 @@ you ─── lead (Claude Code) ── writes a spec ── obor spec set T-12 
   it; a model that is paused (`obor pause --model`) is skipped.
 - **The target branch** is `merge.target_branch` (`main` unless you set another; obor-kit itself uses `staging`). Tasks
   are cut from it and merged into it.
-- **Tests run in three places.** The task's checks run in its lane before the worker submits. The merge slot compiles
-  the merge onto the target branch (`merge.compile`) and runs `merge.check`, or a smaller check your `merge.by_path`
-  rules pick for the changed files. The nightly (`nightly.at`, a local time such as `02:00`) runs `merge.check`, then
-  `nightly.slow_check`, then the commands in `nightly.also_run`, and goes red as a needs-you line.
+- **Tests run in three places.** The worker runs the task's checks in its lane before it submits. After that the
+  merge slot compiles the merge onto the target branch (`merge.compile`), then the lane test runs in the task's own
+  lane: `merge.check`, or the smaller checks your `merge.by_path` rules pick for the changed files. The nightly
+  (`nightly.at`, a local time such as `02:00`) runs `lanes.setup`, `merge.check` and `nightly.slow_check`; a failure
+  of either check is red and becomes a needs-you line. The commands in `nightly.also_run` come after those, and a
+  failure there is only a warning.
 - **Reviews.** When a few merges have piled up (`obor status` says "review due") the lead asks for one; a hard task
   gets one when it merges. The reviewer, from another model family, reviews the merged work; its findings become fix
   tasks, and it verifies them.
