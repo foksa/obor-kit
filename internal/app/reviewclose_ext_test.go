@@ -13,7 +13,7 @@ import (
 // docs/reviews/RV-5.md written, serve refuses it as no open review, nothing committed.
 func TestReviewCloseOnTheSocket(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, dispatching(), withConfig(testkit.Set("roles.reviewer", ""), testkit.Set("paths.reviews", "docs/reviews")))
+	r := newLoopRig(t, dispatching(), withConfig(testkit.Set("agents.roles.reviewer", ""), testkit.Set("reviews.dir", "docs/reviews")))
 	r.review = lastClose{}
 	r.reviewsLog("RV-5")
 	r.start()

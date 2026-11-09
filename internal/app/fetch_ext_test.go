@@ -702,7 +702,7 @@ func TestFetchCodexOpenCodeFinishByTaskDone(t *testing.T) {
 	for _, kind := range []string{"codex", "opencode"} {
 		t.Run(kind, func(t *testing.T) {
 			t.Parallel()
-			r := fetchRig(t, testkit.Set("models.sonnet", map[string]any{"kind": kind, "model": "x"}))
+			r := fetchRig(t, testkit.Set("agents.models.sonnet", map[string]any{"kind": kind, "id": "x"}))
 			r.work("feature.txt", "feature\n")
 			r.start()
 			r.mustDispatch("d1")

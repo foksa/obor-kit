@@ -13,14 +13,15 @@ import (
 	"obor/internal/testkit"
 )
 
-// keepRig is the loop rig with L-01 a keep lane (T-1031): lanes [{"name": "L-01", "keep_agent": true}], handoff_tokens
-// 1000, and pj-l-01's sessions sized by past: the first session serve starts (/s/1.jsonl; the rig's own pj-l-01, in
-// /s/0.jsonl, is no start of serve's, so the first dispatch restarts it, T-1048) is past the threshold once past is set.
+// keepRig is the loop rig with L-01 a keep lane (T-1031): lanes.list [{"name": "L-01", "keep_agent": true}],
+// agents.handoff_tokens 1000, and pj-l-01's sessions sized by past: the first session serve starts (/s/1.jsonl; the
+// rig's own pj-l-01, in /s/0.jsonl, is no start of serve's, so the first dispatch restarts it, T-1048) is past the
+// threshold once past is set.
 func keepRig(t *testing.T) (*loopRig, *atomic.Bool) {
 	t.Helper()
 	past := &atomic.Bool{}
-	r := newLoopRig(t, dispatching(), withConfig(testkit.Set("lanes", `[{"name": "L-01", "keep_agent": true}]`),
-		testkit.Set("handoff_tokens", 1000)))
+	r := newLoopRig(t, dispatching(), withConfig(testkit.Set("lanes.list", `[{"name": "L-01", "keep_agent": true}]`),
+		testkit.Set("agents.handoff_tokens", 1000)))
 	r.tokens = func(transcript string) (int, bool) {
 		if transcript == "/s/1.jsonl" && past.Load() {
 			return 5000, true
@@ -250,10 +251,10 @@ func TestKeepLaneReusesItsAgentOnlyForTheSameModel(t *testing.T) {
 }
 
 // T-1050 (RV-148 verify #1): the reuse also requires the config revision the kept agent's start recorded to be the
-// config's now. An alias is mutable config: another models.<model>.model (another model id behind the same ref) or
-// another kinds.<kind>.args between the tasks makes a new start of the same ref another launch, so pj-l-01 is stopped
-// and started fresh (the dispatch's stop, then its start). A config written back as it was (other bytes, the same
-// effective config) changes nothing: T-2's wake typed, no stop, no start.
+// config's now. An alias is mutable config: another agents.models.<model>.id (another model id behind the same ref) or
+// another agents.kinds.<kind>.args between the tasks makes a new start of the same ref another launch, so pj-l-01 is
+// stopped and started fresh (the dispatch's stop, then its start). A config written back as it was (other bytes, the
+// same effective config) changes nothing: T-2's wake typed, no stop, no start.
 func TestKeepLaneRestartsWhenTheConfigChangedSinceItsStart(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -261,14 +262,14 @@ func TestKeepLaneRestartsWhenTheConfigChangedSinceItsStart(t *testing.T) {
 		change  func(r *loopRig)
 		restart bool
 	}{
-		{name: "another model id for sonnet (models.sonnet.model)", restart: true, change: func(r *loopRig) {
-			r.setConfig("models.sonnet", map[string]any{"kind": "claude", "model": "sonnet-4-6"})
+		{name: "another model id for sonnet (agents.models.sonnet.id)", restart: true, change: func(r *loopRig) {
+			r.setConfig("agents.models.sonnet", map[string]any{"kind": "claude", "id": "sonnet-4-6"})
 		}},
-		{name: "another kind's args (kinds.claude.args)", restart: true, change: func(r *loopRig) {
-			r.setConfig("kinds.claude.args", []string{"--fallback-model", "haiku"})
+		{name: "another kind's args (agents.kinds.claude.args)", restart: true, change: func(r *loopRig) {
+			r.setConfig("agents.kinds.claude.args", []string{"--fallback-model", "haiku"})
 		}},
 		{name: "nothing changed (the same config written back)", change: func(r *loopRig) {
-			r.setConfig("name", "proj")
+			r.setConfig("project.name", "proj")
 		}},
 	} {
 		t.Run(c.name, func(t *testing.T) {

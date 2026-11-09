@@ -1070,14 +1070,15 @@ func (r *loopRig) deliveries() []string {
 	return out
 }
 
-// setConfig sets path in the project's config on disk (read at the app's next load).
+// setConfig sets path in the project's config on disk (read at the app's next load). The file is shape 2, so path is
+// one of its names (not shape 1's: the test kit's pass-through, T-1124, would map it).
 func (r *loopRig) setConfig(path string, v any) {
 	r.t.Helper()
 	var c map[string]any
 	if err := json.Unmarshal([]byte(r.p.Read(".obor/config.json")), &c); err != nil {
 		r.t.Fatal(err)
 	}
-	testkit.SetShape2(path, v)(c) // the file is shape 2; path may be shape 1's (T-1124)
+	testkit.Set(path, v)(c)
 	b, _ := json.Marshal(c)
 	r.p.Write(".obor/config.json", string(b)+"\n")
 }
@@ -1666,13 +1667,12 @@ func newLoopRig(t *testing.T, opts ...rigOpt) *loopRig {
 	r := &loopRig{t: t, p: p, f: herdrtest.New(), lanes: &laneTable{},
 		clock: &clock{t: time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)}, inbox: &rigInbox{none: map[string]bool{"pj-l-01": true, "pj-int": true}}}
 	r.lane = p.Lane("L-01", "task/T-1")
-	commands := map[string]any{}
+	edits := []func(map[string]any){testkit.Set("agents.roles.integrator", "")}
 	if o.check {
-		commands["check"] = "echo 1 pass"
+		edits = append(edits, testkit.Set("merge.check", "echo 1 pass"))
 	}
-	edits := []func(map[string]any){testkit.Set("roles.integrator", ""), testkit.Set("commands", commands)}
 	if o.pool {
-		edits = append(edits, testkit.Set("lanes", 2))
+		edits = append(edits, testkit.Set("lanes.count", 2))
 	}
 	// The lane's worker is pj-l-01 (L-01's derived name, its pane's label): serve's lane rows come from its log (T-439),
 	// and T-1's is its submission's.
@@ -3150,7 +3150,7 @@ func claudeRoleStop(t *testing.T, brief bool, errText string, details func(r *lo
 func verbsRig(t *testing.T) *loopRig {
 	t.Helper()
 	return newLoopRig(t, dispatching(), started(), withConfig(
-		testkit.Set("roles.tracker", `{"verbs": ["spec_set", "dispatch"]}`), testkit.Set("roles.scout", `{"model": ""}`)))
+		testkit.Set("agents.roles.tracker", `{"verbs": ["spec_set", "dispatch"]}`), testkit.Set("agents.roles.scout", `{"model": ""}`)))
 }
 
 // feed is the served feed after seq without follow (fatal on an error).

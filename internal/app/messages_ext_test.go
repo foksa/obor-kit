@@ -757,7 +757,7 @@ func TestBriefLeavesLeadLinesQueued(t *testing.T) {
 func TestLinesRefusedWithoutAMergeLoop(t *testing.T) {
 	t.Parallel()
 	r := newLoopRig(t, noCheck())
-	r.setConfig("roles", map[string]any{"reviewer": ""})
+	r.setConfig("agents.roles", map[string]any{"reviewer": ""})
 	r.start()
 	if st := r.app.Status().Project; st.Merging {
 		t.Fatalf("precondition: %s merges", st.Name)
