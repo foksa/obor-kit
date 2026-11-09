@@ -216,7 +216,8 @@ func TestTaskLogsGoWhenTheTaskEnds(t *testing.T) {
 }
 
 // TestTaskLogsGoAtLoad: serve's load removes the logs of every task the replayed log folds as ended (T-1104: what an
-// upgrade or a serve down at its end left); an open task's logs and a task the log does not know keep theirs.
+// upgrade or a serve down at its end left); an open task's logs and a task the log does not know keep theirs. T-1132:
+// load reads the logs dir once for all of them, not once per ended task.
 func TestTaskLogsGoAtLoad(t *testing.T) {
 	t.Parallel()
 	h, _ := logsHarness(t)
@@ -235,6 +236,11 @@ func TestTaskLogsGoAtLoad(t *testing.T) {
 		logFile(t, h, "T-3", "stop"),
 	}
 	open, unknown := logFile(t, h, "T-4", "check"), logFile(t, h, "T-5", "check") // T-5: no record at all
+	reads := 0
+	h.a.opt.ReadDir = func(dir string) ([]os.DirEntry, error) {
+		reads++
+		return os.ReadDir(dir)
+	}
 	p := reloadProj(t, h)
 	for _, task := range []string{"T-1", "T-2", "T-3"} {
 		if mt := p.folded.loop[task]; mt == nil || !mt.ended() {
@@ -251,4 +257,7 @@ func TestTaskLogsGoAtLoad(t *testing.T) {
 	}
 	logThere(t, open)
 	logThere(t, unknown)
+	if reads != 1 {
+		t.Errorf("load read the logs dir %d times, want 1", reads)
+	}
 }
