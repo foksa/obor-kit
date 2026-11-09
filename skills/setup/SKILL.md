@@ -12,20 +12,23 @@ disable-model-invocation: true
 path when they agree.
 
 ## Add a lane
+A default `obor init` makes L-01 and L-02, so its next lane is L-03: take the next name from the config as it is now
+(`obor setup show` prints the lanes).
 ```
-obor setup lane L-02
+obor setup lane L-03
 ```
 Takes the next lane name (`L-01` … `L-NN`, in order) or one already configured (a rerun). It raises the config's
-`lanes` count (a `lanes` list names the lanes: add `{"name": "L-02"}` by hand), adds a worktree detached at the main
-checkout's branch under `<lanes_dir>`, symlinks `lane_links`, runs `commands.lane_setup` there. A `FAIL lane_setup …`
-shows the command's output: fix with the user. A lane has no model: the task's `Difficulty:` level picks it at dispatch
-(`obor setup show` prints the levels).
+`lanes` count (a `lanes` list names the lanes: add `{"name": "L-03"}` to the list by hand first, then run it), adds a
+worktree detached at the main checkout's branch under `<lanes_dir>`, symlinks `lane_links`, runs `commands.lane_setup`
+there. A `FAIL lane_setup …` shows the command's output: fix with the user. A lane has no model: the task spec's
+`Model:` line tries those models first, its `Difficulty:` level picks the rest at dispatch, and
+`obor dispatch <task> --model <model>[,<model>…]` overrides both (`obor setup show` prints the levels).
 
 ## Add a pane or a role agent
 Spawning panes can be blocked by the auto-mode classifier: ask the user to approve, or to run the command.
 ```
-obor setup pane O-01 --new-tab workers        # first lane: a new tab
-obor setup pane O-02 --tab <tab-id>           # next lanes: split that tab (herdr tab list)
+obor setup pane L-03 --new-tab workers        # a new lane: a new tab
+obor setup pane L-04 --tab <tab-id>           # more lanes: split that tab (herdr tab list)
 obor setup role integrator --tab <tab-id>     # lead | integrator | reviewer
 obor setup role reviewer --new-tab review     # reviewer gets <lanes_dir>/<roles.reviewer.worktree>
 obor setup role triage --tab <tab-id>         # optional bug inbox: <prefix>-triage in the main checkout, docs/BUGS.md
