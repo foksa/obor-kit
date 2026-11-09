@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"obor/internal/app/port"
-	"obor/internal/testkit"
 )
 
 // T-1011: Scratch's decisions over git's answers, on fakeGit (fakegit_test.go). What real git answers is
@@ -811,8 +810,7 @@ func TestAfterMergeDecisions(t *testing.T) {
 }
 
 // Landed reads branches.main's log (HEAD in MergeEvidenceBy's call), whatever the main checkout has checked out; a
-// merge subject is evidence, an old "<id>: spec" commit touching only the legacy spec dir is not (T-550, RV-57 #1); a
-// log git cannot read is Landed's error (RV-38 #11).
+// merge subject is evidence and so is a "<id>:" commit; a log git cannot read is Landed's error (RV-38 #11).
 func TestLandedDecisions(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -823,9 +821,7 @@ func TestLandedDecisions(t *testing.T) {
 	}{
 		{"nothing", nil, "", "false <nil>"},
 		{"a merge subject", nil, "\x1eMerge T-05: feature\n\nfeature.txt\n", "true <nil>"},
-		{"a worker commit outside the spec dir", nil, "\x1eT-05: feature\n\nfeature.txt\n", "true <nil>"},
-		{"an old spec commit", nil, "\x1eT-05: spec\n\ndocs/tasks/T-05.md\n", "false <nil>"},
-		{"an old spec commit under paths.tasks", testkit.Set("paths.tasks", "specs"), "\x1eT-05: spec\n\nspecs/T-05.md\n", "false <nil>"},
+		{"a worker commit", nil, "\x1eT-05: feature\n\nfeature.txt\n", "true <nil>"},
 		{"an empty T-05 commit", nil, "\x1eT-05: empty\n", "true <nil>"},
 	} {
 		t.Run(c.name, func(t *testing.T) {

@@ -191,50 +191,22 @@ func (p *LaneTable) finished(task string) int64 {
 
 // MergeEvidenceBy (T-196, T-290, T-547, T-550) reads, with git run by git (git -C <root> args…), whether HEAD's log
 // holds a commit whose subject is "Merge <id>: …" (the gate's merge of the task) or starts with "<id>:" (a lane's
-// squashed work), except a "<id>:" commit that changes only files in the legacy spec dir (paths.tasks, else
-// docs/tasks): an old "<id>: spec" commit is no evidence (T-290's exclusion, kept while adopters' history still holds
-// specs there, T-521 stopped writing them). One log with file names reads both rules; task branches are not looked
-// at. An error when git cannot read the log. Serve's Scratch.Landed reads it for a task merged by hand (the merged
-// fact that sets the lane row's landed, T-1012); the lane table itself never reads the main checkout.
+// squashed work). Task branches are not looked at. An error when git cannot read the log. Serve's Scratch.Landed reads
+// it for a task merged by hand (the merged fact that sets the lane row's landed, T-1012); the lane table itself never
+// reads the main checkout.
 func (p *LaneTable) MergeEvidenceBy(id string, git func(args ...string) (string, error)) (bool, error) {
-	out, err := git("log", "-F", "--grep="+id+":", "--format=\x1e%s", "--name-only", "HEAD")
+	out, err := git("log", "-F", "--grep="+id+":", "--format=\x1e%s", "HEAD")
 	if err != nil {
 		return false, err
 	}
-	spec := legacySpecDir(p.Cfg)
 	for _, rec := range strings.Split(out, "\x1e") {
 		lines := strings.Split(strings.TrimRight(rec, "\n"), "\n")
 		if len(lines) == 0 {
 			continue
 		}
-		if strings.HasPrefix(lines[0], "Merge "+id+":") ||
-			(strings.HasPrefix(lines[0], id+":") && !specOnly(lines[1:], spec)) {
+		if strings.HasPrefix(lines[0], "Merge "+id+":") || strings.HasPrefix(lines[0], id+":") {
 			return true, nil
 		}
 	}
 	return false, nil
-}
-
-// legacySpecDir is the spec dir before T-521 wrote none: the configured paths.tasks, else its former default docs/tasks.
-func legacySpecDir(cfg *config.Config) string {
-	if dir := strings.Trim(cfg.Data.Paths["tasks"], "/"); dir != "" {
-		return dir
-	}
-	return "docs/tasks"
-}
-
-// specOnly: files (a commit's changed paths) hold at least one, and every one is inside dir. A commit that changes
-// nothing (an empty commit) is not spec-only.
-func specOnly(files []string, dir string) bool {
-	n := 0
-	for _, f := range files {
-		if f == "" {
-			continue
-		}
-		n++
-		if f != dir && !strings.HasPrefix(f, dir+"/") {
-			return false
-		}
-	}
-	return n > 0
 }
