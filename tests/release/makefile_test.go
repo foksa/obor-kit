@@ -231,7 +231,7 @@ func TestMakeCheckGocacheFallback(t *testing.T) {
 }
 
 // makeCheckShort runs `make -s check` on a kit copy whose go logs each call and passes (writeKit) and whose gofmt passes,
-// with env added (an inherited OBOR_PROMOTION, this lane test's own, removed first); it returns the logged go calls.
+// with env added; it returns the logged go calls.
 func makeCheckShort(t *testing.T, env ...string) []string {
 	t.Helper()
 	dir := testkit.Dir(t)
@@ -239,12 +239,7 @@ func makeCheckShort(t *testing.T, env ...string) []string {
 	log := filepath.Join(dir, "go.log")
 	writeExec(t, filepath.Join(dir, "stub", "gofmt"), "#!/bin/bash\nexit 0\n")
 	cmd := exec.Command("make", "-s", "-C", dir, "check", "GO="+filepath.Join(dir, "bin", "go"))
-	for _, kv := range plainMakeEnv() {
-		if !strings.HasPrefix(kv, "OBOR_PROMOTION=") {
-			cmd.Env = append(cmd.Env, kv)
-		}
-	}
-	cmd.Env = append(cmd.Env, "PATH="+filepath.Join(dir, "stub")+string(os.PathListSeparator)+os.Getenv("PATH"))
+	cmd.Env = append(plainMakeEnv(), "PATH="+filepath.Join(dir, "stub")+string(os.PathListSeparator)+os.Getenv("PATH"))
 	cmd.Env = append(cmd.Env, env...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -255,8 +250,7 @@ func makeCheckShort(t *testing.T, env ...string) []string {
 
 // makeCheckTier runs `make -s <target>` on a kit copy whose go and gofmt log their argv to go.log; the fake go answers
 // `go run ./tools/affected` with one package (fx/a), as the kit's tool would. It returns the output, the logged go argv
-// lines and the affected list's call ("": the tool was not asked). env is appended to the make environment (an
-// inherited OBOR_PROMOTION, this lane test's own, removed first).
+// lines and the affected list's call ("": the tool was not asked). env is appended to the make environment.
 func makeCheckTier(t *testing.T, target string, env ...string) (string, []string, string) {
 	t.Helper()
 	dir := testkit.Dir(t)
@@ -264,13 +258,7 @@ func makeCheckTier(t *testing.T, target string, env ...string) (string, []string
 	log := filepath.Join(dir, "go.log")
 	writeExec(t, filepath.Join(dir, "stub", "gofmt"), "#!/bin/bash\necho \"gofmt $*\" >> \""+log+"\"\n")
 	cmd := exec.Command("make", "-s", "-C", dir, target, "GO="+filepath.Join(dir, "bin", "go"))
-	var base []string
-	for _, kv := range plainMakeEnv() {
-		if !strings.HasPrefix(kv, "OBOR_PROMOTION=") {
-			base = append(base, kv)
-		}
-	}
-	cmd.Env = append(base, "PATH="+filepath.Join(dir, "stub")+string(os.PathListSeparator)+os.Getenv("PATH"))
+	cmd.Env = append(plainMakeEnv(), "PATH="+filepath.Join(dir, "stub")+string(os.PathListSeparator)+os.Getenv("PATH"))
 	cmd.Env = append(cmd.Env, env...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -524,26 +512,15 @@ func TestMakeCheckAffectedCatchesVetError(t *testing.T) {
 	}
 }
 
-// T-991: OBOR_PROMOTION=1 makes check-affected ask tools/affected for the changed packages only (--direct; serve's lane
-// test sets it when branches.promote is); without it, or with another value, the list keeps the importers' expansion.
-func TestMakeCheckAffectedDirect(t *testing.T) {
+// T-1076: check-affected asks tools/affected for the changed packages and their importers, always: an OBOR_PROMOTION=1
+// (an older serve's lane env; the promotion and its --direct switch are deleted) changes nothing.
+func TestMakeCheckAffectedAsksImporters(t *testing.T) {
 	t.Parallel()
-	for _, c := range []struct {
-		name string
-		env  []string
-		want string
-	}{
-		{"OBOR_PROMOTION=1", []string{"OBOR_PROMOTION=1"}, "run ./tools/affected --direct"},
-		{"unset", nil, "run ./tools/affected"},
-		{"OBOR_PROMOTION=0", []string{"OBOR_PROMOTION=0"}, "run ./tools/affected"},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			_, _, affected := makeCheckTier(t, "check-affected", c.env...)
-			if affected != c.want {
-				t.Errorf("check-affected asked %q, want %q", affected, c.want)
-			}
-		})
+	for _, env := range [][]string{nil, {"OBOR_PROMOTION=1"}} {
+		_, _, affected := makeCheckTier(t, "check-affected", env...)
+		if affected != "run ./tools/affected" {
+			t.Errorf("env %q: check-affected asked %q, want %q", env, affected, "run ./tools/affected")
+		}
 	}
 }
 

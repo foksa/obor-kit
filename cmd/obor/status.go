@@ -239,21 +239,8 @@ func needsYouSection(st view.Project) []string {
 	return textLines(b.String())
 }
 
-// fullCheckSection is the last full check and its age, or that there is none yet; with a promotion (T-974) the line
-// "promoted <sha7> (<n> merges since)" instead, with the last promotion run and its age (last-promotion, T-978) and
-// why a GREEN promotion waits.
+// fullCheckSection is the last full check and its age, or that there is none yet.
 func fullCheckSection(st view.Project, now time.Time) []string {
-	if pr := st.Promote; pr != nil {
-		line := fmt.Sprintf("promoted %s (%d merges since)", cmp.Or(pr.SHA[:min(7, len(pr.SHA))], "-"), pr.Merges)
-		if r := st.Promotion; r != nil {
-			line += fmt.Sprintf("; last run %s %s, %s ago", r.Verdict, r.SHA[:min(7, len(r.SHA))],
-				app.Age(max(now.Sub(time.Unix(r.At, 0)), 0)))
-		}
-		if pr.Wait != "" {
-			line += "; promotion " + pr.Wait
-		}
-		return []string{line}
-	}
 	fc := st.FullCheck
 	if fc == nil {
 		return []string{"full check: none yet"}
@@ -568,8 +555,6 @@ func runningName(step string) string {
 	switch step {
 	case event.StepNightly:
 		return "nightly check"
-	case event.StepPromote:
-		return "promotion"
 	case event.StepServeRestart:
 		return "restarting serve"
 	}

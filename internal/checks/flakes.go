@@ -269,7 +269,7 @@ func (r *flakeRule) diff(task, sha string) []string {
 }
 
 func (r *flakeRule) taskDiff(task, sha string) []string {
-	branch := r.cfg.Data.Branches.Main // the target the tasks merge into (staging while branches.promote is set, T-974)
+	branch := r.cfg.Data.Branches.Main // the target the tasks merge into
 	if branch == "" {
 		return nil // no target: git cannot tell, the red counts
 	}

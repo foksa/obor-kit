@@ -15,8 +15,7 @@ import (
 
 // Nightly is `obor nightly`: the milestone check tier in
 // its own worktree (<merge.scratch_dir>-nightly, added when missing) reset to the head of the main checkout's current
-// branch: commands.lane_setup, then check (not while branches.promote is set: each promotion runs it, T-974),
-// check_milestone, baseline (if its dir exists), gate (forced: OBOR_GATE=1, its paths and "at" ignored) and e2e, each
+// branch: commands.lane_setup, then check, check_milestone, baseline (if its dir exists), gate (forced: OBOR_GATE=1, its paths and "at" ignored) and e2e, each
 // skipped when unset. Non-blocking: every command runs even after a failure (a failed lane_setup stops the rest).
 // It then backs up the project's database (wire.Backup) and runs merge.nightly_commands in order (T-817: each a
 // commands.<name>, non-gating — one report line, never RED; a nonzero exit a WARN line). Writes
@@ -76,10 +75,6 @@ func (s *session) nightly() *Result {
 	if len(failed) == 0 {
 		for _, name := range []string{"check", "check_milestone", "baseline", "gate", "e2e"} {
 			switch name {
-			case "check":
-				if s.Cfg.Data.Branches.Promote != "" {
-					continue // the promotion runs it on every promoted head (T-974, row 45)
-				}
 			case "baseline":
 				dir := s.baselineDir()
 				if dir == "" {

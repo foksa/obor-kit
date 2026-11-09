@@ -32,7 +32,7 @@ import (
 // Loop is what the merge loop drives in one project.
 type Loop struct {
 	// Workflow is the project's git workflow (T-1029, port.Workflow: the merge slot, the lanes, the target, the
-	// review's git and the promotion; workflow.kind picks it at serve start). Nil: a Loop without one (tests): nothing
+	// review's git; workflow.kind picks it at serve start). Nil: a Loop without one (tests): nothing
 	// is gated, published, dispatched or reviewed.
 	Workflow port.Workflow
 	Agents   port.Agents
@@ -56,15 +56,6 @@ type Loop struct {
 	Restart func(ctx context.Context) error
 	// Config is the main checkout's config file and its git: the owner's setup edits (configset.go, T-753; nil: none).
 	Config ConfigFile
-}
-
-// promotion is the workflow's promotion (nil: no workflow, or one without a promotion: after_merge after each
-// publish, T-974).
-func (fx *Loop) promotion() *port.Promote {
-	if fx.Workflow == nil {
-		return nil
-	}
-	return fx.Workflow.Promotion()
 }
 
 // K is how often a task is sent back before the owner decides (rule 3).
@@ -360,16 +351,9 @@ func (a *App) advance(ctx context.Context) *Loop {
 		a.drive(ctx, p, fx, task)
 	}
 	a.nightly(ctx, p, fx)
-	a.promotion(ctx, p, fx)
 	a.reviewCloseRead(ctx, p, fx) // once per process: the open review's close commit a crash cut from its fact (T-926)
 	a.reviewPass(ctx, p, fx)
-	if fx.promotion() == nil { // T-974: a promotion requests its review itself; the "review due" count is off
-		a.reviewDueTick(ctx, p, fx)
-	} else {
-		a.mu.Lock()
-		p.due = ""
-		a.mu.Unlock()
-	}
+	a.reviewDueTick(ctx, p, fx)
 	return fx
 }
 

@@ -98,7 +98,6 @@ func (p *proj) foldRecord(r event.Record) {
 	p.foldLanes(r)
 	p.foldStart(r)
 	p.foldNightly(r)
-	p.foldPromote(r)
 	p.foldPause(r)
 	p.foldConfig(r)
 	p.foldSpecSet(r)
@@ -271,7 +270,8 @@ func (p *proj) keptTask(l port.Lane) port.Lane {
 }
 
 // projectKey: task is a key of the project's own facts (the merge loop's, the nightly's, the lines', the disk's, the
-// review requests', a failed self-restart's, a failing rule's, the promotion's), not a task's.
+// review requests', a failed self-restart's, a failing rule's, an old log's promotion's: T-1076 deleted it), not a
+// task's.
 func projectKey(task string) bool {
 	return task == event.LoopTask || task == event.NightlyTask || task == event.MsgTask || task == event.DiskTask || task == event.ReviewTask ||
 		task == event.ServeTask || task == event.RuleTask || task == event.PromoteTask

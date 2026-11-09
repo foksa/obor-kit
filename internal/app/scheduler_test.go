@@ -183,8 +183,7 @@ func waitSpec(task, level string, lines ...string) string {
 }
 
 // T-1030: the pass order's waiting part is the lane's pick order (a freed lane goes to the first waiting task there):
-// a high task before every ordinary one — its spec's `Priority: high`, or a Fixes: task of the review the promotion
-// waits for (p.prom.waitRV) — then the waiting fact's order (dispatch order). Its first is the task that starts on the
+// a high task before every ordinary one — its spec's `Priority: high` — then the waiting fact's order (dispatch order). Its first is the task that starts on the
 // next free lane. T-2 waits before T-3, and status marks exactly the high ones.
 func TestPassOrderPutsAHighWaitingTaskFirst(t *testing.T) {
 	t.Parallel()
@@ -192,12 +191,11 @@ func TestPassOrderPutsAHighWaitingTaskFirst(t *testing.T) {
 	high2, high3 := waitSpec("T-2", "medium", "Priority: high"), waitSpec("T-3", "medium", "Priority: high")
 	fix3 := waitSpec("T-3", "medium", "Fixes: RV-1")
 	for _, c := range []struct {
-		name   string
-		specs  map[string]string // task → its spec
-		open   string            // a review the fold has open ("" none)
-		waitRV string            // the review the promotion waits for ("" none: promotion off, or nothing promotes)
-		want   []string
-		high   []string // the tasks obor status marks high
+		name  string
+		specs map[string]string // task → its spec
+		open  string            // a review the fold has open ("" none)
+		want  []string
+		high  []string // the tasks obor status marks high
 	}{
 		{name: "ordinary: the dispatch order", specs: map[string]string{"T-2": plain2, "T-3": plain3},
 			want: []string{"T-2", "T-3"}},
@@ -205,14 +203,8 @@ func TestPassOrderPutsAHighWaitingTaskFirst(t *testing.T) {
 			want: []string{"T-3", "T-2"}, high: []string{"T-3"}},
 		{name: "both high: the dispatch order", specs: map[string]string{"T-2": high2, "T-3": high3},
 			want: []string{"T-2", "T-3"}, high: []string{"T-2", "T-3"}},
-		{name: "a fix of the review the promotion waits for is high",
-			specs: map[string]string{"T-2": plain2, "T-3": fix3}, open: "RV-1", waitRV: "RV-1",
-			want: []string{"T-3", "T-2"}, high: []string{"T-3"}},
-		{name: "a fix with an open review the promotion does not wait for is ordinary",
+		{name: "a fix of the open review is ordinary",
 			specs: map[string]string{"T-2": plain2, "T-3": fix3}, open: "RV-1", want: []string{"T-2", "T-3"}},
-		{name: "a fix of another review is ordinary",
-			specs: map[string]string{"T-2": plain2, "T-3": fix3}, open: "RV-2", waitRV: "RV-2",
-			want: []string{"T-2", "T-3"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -225,11 +217,6 @@ func TestPassOrderPutsAHighWaitingTaskFirst(t *testing.T) {
 			}
 			if c.open != "" {
 				startReview(t, a, p, c.open)
-			}
-			if c.waitRV != "" {
-				a.mu.Lock()
-				p.prom.waitRV = c.waitRV // promoteHeads' record, T-977: a GREEN run waits for its close
-				a.mu.Unlock()
 			}
 			// The waiting facts in dispatch order: T-2's first.
 			for _, task := range []string{"T-2", "T-3"} {

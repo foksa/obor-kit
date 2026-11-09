@@ -34,7 +34,7 @@ describe("wording", () => {
   // T-1074: serve names every event's kind (app.Kind*); the page no longer reads it from the line's wording.
   it("takes each event's kind from serve", () => {
     expect(EVENT_KINDS.map((k) => eventKind(k))).toEqual([...EVENT_KINDS]);
-    expect(eventKind("promotion", true)).toBe("promotion"); // bad news keeps its kind
+    expect(eventKind("merge", true)).toBe("merge"); // bad news keeps its kind
     expect(eventKind("gate", true)).toBe("gate");
     expect(eventKind("what", false)).toBe("other");
     expect(eventKind("", true)).toBe("problem"); // no kind (older page's cache): bad still lands in Problems
@@ -44,8 +44,8 @@ describe("wording", () => {
     for (const k of EVENT_KINDS) expect(EVENT_FILTERS.Problems(k, true)).toBe(true);
     for (const k of EVENT_KINDS) expect(EVENT_FILTERS.Problems(k, false)).toBe(k === "problem");
     expect(EVENT_FILTERS.Problems("gate", false)).toBe(false);
-    expect(EVENT_FILTERS.Problems("promotion", true)).toBe(true);
-    expect(EVENT_FILTERS.Flow("promotion")).toBe(true);
+    expect(EVENT_FILTERS.Problems("merge", true)).toBe(true);
+    expect(EVENT_FILTERS.Flow("merge")).toBe(true);
   });
   it("reads a line to an agent as its agent and text", () => {
     expect(lineTo("line to aa-rev: verify RV-4")).toEqual({ agent: "aa-rev", text: "verify RV-4" });

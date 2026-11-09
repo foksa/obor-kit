@@ -20,7 +20,7 @@ GO ?= go
 GOFLAGS := $(strip $(filter-out -trimpath,$(GOFLAGS)) -trimpath)
 export GOFLAGS
 # OUT is where build writes the binary: dist/obor in the kit as always, and another path for a build that runs outside the
-# kit (the promotion's after_merge builds in its own worktree into the main checkout's dist/obor, T-975).
+# kit (T-975).
 OUT ?= dist/obor
 VERSION_FILE := VERSION
 VERSION := $(shell cat $(VERSION_FILE))
@@ -93,11 +93,7 @@ trim-go-cache:
 # One test split, not two tiers (T-1014, T-1056): a test that needs real I/O sits in a file with `//go:build
 # integration`, and every gating or measuring check passes -tags integration, so a lane runs the whole suite of the
 # affected packages. `-short` and testkit.Slow are gone: nothing skips a test in a lane.
-# OBOR_PROMOTION=1 (serve's fact: the project has branches.promote set) makes
-# check-affected ask tools/affected --direct: the changed packages only, no importers (T-991, T-997). The merge
-# slot's compile (check-compile) catches an importer's build break and the promotion's full suite (commands.check) an
-# importer's test break, so such a lane need not run them; without a promotion nothing else would, so a lane runs the
-# full class check, importers included (RV-138 #1).
+# A lane runs the full class check, importers included (RV-138 #1).
 # Serve's lane step runs the class's tier in the task's lane (T-961). check-compile (commands.compile, T-961) is
 # what serve's merge slot runs on each merge: build, gofmt, vet and deadcode, no go test. CHECK_CPUS (obor run and the
 # gates export it: cores / slots.max) is go test -p. check and check-release start with GO_GATE: GOCACHE falls back to
@@ -128,8 +124,7 @@ check-affected:
 	@$(GO_CACHE); \
 	GO="$(GO)" $(GO) run ./tests/budget -missing || exit 1; \
 	pkgs=./...; \
-	direct=; if [ "$$OBOR_PROMOTION" = 1 ]; then direct=--direct; fi; \
-	if a=$$($(GO) run ./tools/affected $$direct); then \
+	if a=$$($(GO) run ./tools/affected); then \
 	  case "$$a" in \
 	    "full: "*) echo "affected: full suite ($${a#full: })" ;; \
 	    "") pkgs= ;; \

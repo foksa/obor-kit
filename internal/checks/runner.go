@@ -32,7 +32,6 @@ type runner struct {
 	env         []string // extra command environment (OBOR_CHANGED_FILES, OBOR_BASELINE, OBOR_GATE, a lane test's CPU budget)
 	prio        string   // the check slot's priority: "merge" (the merge marker; "" too) or "worker" (a pool slot: a lane test, T-961)
 	retest      bool     // a lane test: a red run's failing tests are rerun once (commands.retest, T-964)
-	retried     bool     // must reran a red run's failing tests (retestOnRed ran; a promotion's result says so, T-974)
 	pre         string   // the target side of the merge
 	class       Class
 	mode        string            // class.Mode() once classified
@@ -506,7 +505,6 @@ func (r *runner) must(name string) (output, bool, *halt) {
 	}
 	if r.retest {
 		if out, green, ran := r.retestOnRed(o); ran {
-			r.retried = true
 			r.logFlakes(name, true, green, o)
 			if green {
 				return out, true, nil

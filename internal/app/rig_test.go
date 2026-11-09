@@ -1065,15 +1065,12 @@ var PickLane = pickLane
 // It knows only what it is told: a lane it was given (AddLane, Prepare) has a committed snapshot of its dir, so Submit
 // commits what changed there and Test refuses it dirty; an unknown lane, sha or resolution is taken as it comes (the
 // concurrency rig's records name lanes and shas the fake never saw). Its review git has the one target (Head of any
-// branch is its head) and records the role worktrees it detached and the closes it committed; Promote is its
-// promotion (nil: none). A test's own fake of one part is combined with it by WorkflowOf.
+// branch is its head) and records the role worktrees it detached and the closes it committed. A test's own fake of one part is combined with it by WorkflowOf.
 type FakeWorkflow struct {
 	Dir    string // serve's worktree, the one a conflict names (nothing is written there)
 	Checks string // a green lane test's checks summary ("": "rc=0", commands.check ran)
 
 	Submits, Gates, Tests, Publishes, AfterMerges atomic.Int32 // calls, a failed one too
-
-	Promote *port.Promote // the workflow's promotion (nil: none)
 
 	mu         sync.Mutex
 	head       string                // the target's head
@@ -1829,17 +1826,14 @@ func (s *FakeWorkflow) Closed(_ context.Context, _, _, id string) (string, error
 	return "", nil
 }
 
-// Promotion is Promote.
-func (s *FakeWorkflow) Promotion() *port.Promote { return s.Promote }
-
 var _ port.Workflow = (*FakeWorkflow)(nil)
 
 // WorkflowOf is a port.Workflow of a test's own fakes (T-1029): each part takes over every piece of port.Workflow it
-// implements (port.Scratch, port.LaneSetup, port.Review, Target, Promotion; a *port.Promote is the promotion), a later
+// implements (port.Scratch, port.LaneSetup, port.Review, Target), a later
 // part over an earlier one; the pieces no part implements are a NewFakeWorkflow's. A nil part is skipped.
 func WorkflowOf(parts ...any) port.Workflow {
 	f := NewFakeWorkflow("")
-	w := &workflowOf{Scratch: f, LaneSetup: f, Review: f, targeter: f, promote: f.Promotion}
+	w := &workflowOf{Scratch: f, LaneSetup: f, Review: f, targeter: f}
 	for _, p := range parts {
 		if x, ok := p.(port.Scratch); ok {
 			w.Scratch = x
@@ -1852,12 +1846,6 @@ func WorkflowOf(parts ...any) port.Workflow {
 		}
 		if x, ok := p.(targeter); ok {
 			w.targeter = x
-		}
-		switch x := p.(type) {
-		case interface{ Promotion() *port.Promote }:
-			w.promote = x.Promotion
-		case *port.Promote:
-			w.promote = func() *port.Promote { return x }
 		}
 	}
 	return w
@@ -1872,10 +1860,7 @@ type workflowOf struct {
 	port.LaneSetup
 	port.Review
 	targeter
-	promote func() *port.Promote
 }
-
-func (w *workflowOf) Promotion() *port.Promote { return w.promote() }
 
 // T-602: integrator jobs start a fresh session each (Launch with Fresh, the job's wake its first prompt), not a wake
 // typed into the session that runs.

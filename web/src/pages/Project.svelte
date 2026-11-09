@@ -9,9 +9,7 @@
   import { dur, now, roleName, splitTasks, unixOf } from "../lib/format";
   import { idleText } from "../lib/idle";
   import { stageOf, taskOf } from "../lib/stages";
-  import { promoteLine, promoteWarning, promoteWarningDetail } from "../lib/promotion";
   import { WAITS_NEVER, laneSteps, pipelineOf, queuedForLane, waitChips } from "../lib/pipeline";
-  import { tick } from "../lib/clock.svelte";
   import type { Lane, ProjectView, Role, WaitItem } from "../lib/types";
   import Pill from "../ui/Pill.svelte";
   import Dot from "../ui/Dot.svelte";
@@ -41,9 +39,8 @@
   const q = $derived(v?.queue);
   const waiting = $derived(q?.waiting || []);
 
-  // The pipeline's six blocks (T-986), with branches.promote set the promotion's line under its heading ("": off).
+  // The pipeline's six blocks (T-986).
   const pipeline = $derived(pipelineOf(q, busy));
-  const promo = $derived(promoteLine(v?.promote, Math.max(tick.now, Date.now() / 1000)));
   // The queue counts only the dispatches with no lane yet: a task in the merge loop holds its lane (T-961).
   const queued = $derived(queuedForLane(waiting, busy));
   const never = $derived(waiting.filter((w) => w.waits_on === WAITS_NEVER).length);
@@ -63,8 +60,6 @@
     if (s.up && !s.merging) w.push({ text: "merge loop off", state: "idle" });
     if (s.up && !s.herdr) w.push({ text: "herdr not connected", state: "blocked" });
     if (s.log_error) w.push({ text: "log: " + s.log_error, state: "fail" });
-    const red = promoteWarning(v?.promote);
-    if (red) w.push({ text: red, state: "fail", title: promoteWarningDetail(v?.promote) });
     for (const n of v?.notes || []) w.push({ text: n, state: "pending" });
     return w;
   });
@@ -162,7 +157,6 @@
     </div>
 
     <Section title="Pipeline" sub="tasks by stage now">
-      {#if promo}<p class="promo small mono"><Linked {project} text={promo} raw /></p>{/if}
       <div class="pipe">
         {#each pipeline as c (c.name)}
           <div class="stage t-{c.tasks.length ? c.tone : 'none'}">
@@ -346,7 +340,6 @@
   .n { font-size: 22px; font-weight: 600; color: var(--c); line-height: 1; }
   .t-none .n { color: var(--faint); }
   .chips { display: flex; flex-wrap: wrap; gap: 4px; }
-  .promo { margin: -4px 0 8px; color: var(--fg-2); overflow-wrap: anywhere; }
 
   .lanes { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
   .lane { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }

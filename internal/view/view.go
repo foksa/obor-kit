@@ -44,12 +44,7 @@ type Project struct {
 	Lead      *Role              `json:"lead,omitempty"` // the lead's agent, when serve sees its pane (T-714: its background processes)
 	NeedsYou  []NeedsYou         `json:"needs_you"`
 	FullCheck *FullCheck         `json:"full_check"`
-	// Promote is the promotion as serve's last pass read it (T-974; nil: branches.promote unset, or serve down): obor
-	// status' "promoted" line replaces the full check's.
-	Promote *wire.PromoteStatus `json:"promote,omitempty"`
-	// Promotion is the last promotion run (.obor/state/last-promotion, T-978; nil: none): the promoted line's.
-	Promotion *FullCheck `json:"promotion,omitempty"`
-	Paused    *Pause     `json:"paused"`
+	Paused    *Pause             `json:"paused"`
 	// ModelPauses is the model pauses in force (obor pause --model, T-765), by model name (T-766: the Setup page;
 	// T-979: obor status --json prints them as model_pauses).
 	ModelPauses map[string]*Pause    `json:"model_pauses,omitempty"`
@@ -163,7 +158,7 @@ type NeedsYou struct {
 	Since  int64  `json:"since,omitempty"`  // when serve recorded the fact (epoch seconds)
 }
 
-// FullCheck is the last full check (.obor/state/last-full-check), or the last promotion run (last-promotion).
+// FullCheck is the last full check (.obor/state/last-full-check).
 type FullCheck struct {
 	SHA     string `json:"sha"`
 	Verdict string `json:"verdict"` // GREEN | RED
@@ -233,7 +228,6 @@ func Build(in Input) Project {
 		v.Lanes = append(v.Lanes, l)
 	}
 	v.FullCheck = readFullCheck(p.Root, "last-full-check")
-	v.Promotion = readFullCheck(p.Root, checks.LastPromotionFile)
 	v.Queue = queue(&v, ps, p.Cfg.Data.Merge.NightlyAt, specs, dispatchedTasks(in.DB), in.Now)
 	v.Events = events(in.DB, in.Events, v.Serve)
 	return v
@@ -268,7 +262,6 @@ func serveOf(v *Project, ss wire.Status, err error, p *checks.LaneTable, bg map[
 	v.Messages = append(v.Messages, ps.Messages...)
 	v.Review, v.Watches = ps.Review, ps.Watches
 	v.Idle = ps.Idle
-	v.Promote = ps.Promote
 	v.Facts = ps.Facts
 	v.NeedsYou = needsYou(ps)
 	v.Roles, v.Lead = roles(p.Cfg, ps, bg), lead(p.Cfg, ps, bg)
@@ -437,8 +430,8 @@ func laneSince(l Lane, v *Project, now, dispatched int64) *int64 {
 
 // runningCommand is the configured command r runs, for the running line: for a gate or a lane test the command serve
 // says it runs now (T-669, T-961: compile, the class's, the guard or check; its name when not configured; "" while
-// unknown, never a guess), the full check for the nightly check and a promotion (T-974), commands.after_merge for
-// after_merge and after_promote; "" for a step of
+// unknown, never a guess), the full check for the nightly check, commands.after_merge for
+// after_merge; "" for a step of
 // git alone (publish) or an unset command.
 func runningCommand(p *checks.LaneTable, r wire.RunningStep) string {
 	name := ""
@@ -447,9 +440,9 @@ func runningCommand(p *checks.LaneTable, r wire.RunningStep) string {
 		if name = r.Command; name == "" {
 			return ""
 		}
-	case event.StepNightly, event.StepPromote:
+	case event.StepNightly:
 		name = "check"
-	case event.StepAfterMerge, event.StepAfterPromote:
+	case event.StepAfterMerge:
 		name = event.StepAfterMerge
 	}
 	cmd, ok := p.Cfg.Command(name)
@@ -459,8 +452,8 @@ func runningCommand(p *checks.LaneTable, r wire.RunningStep) string {
 	return cmd.Cmd
 }
 
-// readFullCheck is .obor/state/<name> ("<sha> <epoch> GREEN|RED <summary>": last-full-check, obor nightly's;
-// last-promotion, the promotion's); nil when there is none.
+// readFullCheck is .obor/state/<name> ("<sha> <epoch> GREEN|RED <summary>": last-full-check, obor nightly's); nil
+// when there is none.
 func readFullCheck(root, name string) *FullCheck {
 	b, err := os.ReadFile(filepath.Join(project.StateDir(root), name))
 	if err != nil {

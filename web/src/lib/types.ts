@@ -195,7 +195,7 @@ export interface WaitItem {
   waits_on: string;
   after?: string[];
   why?: string;
-  high?: boolean; // its dispatch goes first for the next free lane (Priority: high, or a fix of the promotion's review; T-1030)
+  high?: boolean; // its dispatch goes first for the next free lane (Priority: high; T-1030)
   level?: string;
   types?: string[];
   queue?: string; // the keep lane it queues on (T-1031)
@@ -260,7 +260,6 @@ export interface ProjectView {
   lead?: Role;
   needs_you: NeedsYou[];
   full_check: FullCheck | null;
-  promote?: PromoteStatus;
   paused: Pause | null;
   messages: MessageStatus[];
   review?: string;
@@ -307,39 +306,9 @@ export interface ProjectsEntry {
   background: number;
   lanes: LaneDot[];
   full_check?: FullCheck | null;
-  promote?: PromoteStatus;
   paused?: Pause | null;
   events: Event[];
   error?: string;
-}
-
-// PromoteStatus is serve's promotion of staging to main (T-974, T-977; absent: branches.promote unset).
-export interface PromoteStatus {
-  branch: string;
-  sha: string;
-  at?: number;
-  merges: number;
-  tasks?: string[];
-  weight: number;
-  threshold: number;
-  wait?: string;
-  run?: PromoteRun;
-  red?: PromoteRed;
-}
-
-export interface PromoteRun {
-  sha: string;
-  since: number;
-  step: string;
-  review?: string;
-}
-
-export interface PromoteRed {
-  sha: string;
-  tests: string;
-  at: number;
-  since?: string;
-  merges?: string[];
 }
 
 export interface TaskRecord {

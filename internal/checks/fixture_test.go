@@ -246,10 +246,10 @@ func (x *fx) opts() Options {
 	if err != nil {
 		x.t.Fatal(err)
 	}
-	// Without what an obor merge running this test exports (CHECK_PRIORITY, CHECK_SLOT_HELD, OBOR_MERGE, OBOR_GATE) and
-	// what a lane test does (OBOR_PROMOTION, T-1041): the fixture's commands would see the outer merge's.
+	// Without what an obor merge running this test exports (CHECK_PRIORITY, CHECK_SLOT_HELD, OBOR_MERGE, OBOR_GATE):
+	// the fixture's commands would see the outer merge's.
 	environ := slices.DeleteFunc(os.Environ(), func(kv string) bool {
-		for _, k := range []string{"CHECK_PRIORITY=", "CHECK_SLOT_HELD=", "OBOR_MERGE=", "OBOR_GATE=", "OBOR_PROMOTION="} {
+		for _, k := range []string{"CHECK_PRIORITY=", "CHECK_SLOT_HELD=", "OBOR_MERGE=", "OBOR_GATE="} {
 			if strings.HasPrefix(kv, k) {
 				return true
 			}

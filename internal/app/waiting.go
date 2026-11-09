@@ -104,19 +104,11 @@ func (p *proj) waitHigh(task string) bool {
 		return false
 	}
 	row, ok, err := specOf(p, task)
-	return err == nil && ok && highPriority(row.Spec, p.promReview())
+	return err == nil && ok && highPriority(row.Spec)
 }
 
-// highPriority is whether spec's task is high (T-1030): its `Priority: high` line, or a Fixes: of rv, the review the
-// promotion waits for ("" none).
-func highPriority(sp spec.Spec, rv string) bool {
-	return sp.Priority == spec.PriorityHigh || rv != "" && sp.FixesReview == rv
-}
-
-// promReview is the review the promotion waits for (T-1030): p.prom.waitRV, set while a GREEN run waits on its close
-// (promoteHeads, T-977: what obor status shows as the promotion's run and Review); "" when nothing waits, promotion
-// off or nothing to promote. Under mu.
-func (p *proj) promReview() string { return p.prom.waitRV }
+// highPriority is whether spec's task is high (T-1030): its `Priority: high` line.
+func highPriority(sp spec.Spec) bool { return sp.Priority == spec.PriorityHigh }
 
 // pickWaiting is a waiting task's next step (under mu; readiness rule 1): nothing while a task it waits for is not
 // merged; one of them dropped or rejected: needs-you{after}; all merged: the dispatch (waitDispatch). A task it waits

@@ -46,11 +46,8 @@ type ProjectStatus struct {
 	// Messages is the lines not delivered yet (messages.go): obor send's, obor brief's, a brief's finished line.
 	Messages []MessageStatus `json:"messages,omitempty"`
 	// Review is the open review request, else "review due: …" when more than 3 tasks merged since the last review
-	// and branches.promote is unset (review.go; "": neither; T-974: a promotion requests its review itself); then the
-	// open review's fix tasks, "RV-n fixes: T-a merged · T-b open" (T-924).
+	// (review.go; "": neither); then the open review's fix tasks, "RV-n fixes: T-a merged · T-b open" (T-924).
 	Review string `json:"review,omitempty"`
-	// Promote is the promotion of branches.main to branches.promote (T-974; nil: unset, or no pass read it yet).
-	Promote *PromoteStatus `json:"promote,omitempty"`
 	// ReviewRequest is the open review request as data (T-664: the view's queue; nil: none): Review is its line.
 	ReviewRequest *ReviewRequestStatus `json:"review_request,omitempty"`
 	// Briefs is the role agents' open briefs (messages.go): the brief each is on, since when and whether its line was
@@ -137,50 +134,6 @@ type IdleStatus struct {
 	Last  string `json:"last,omitempty"`
 	Acked bool   `json:"acked,omitempty"`
 	Why   string `json:"why,omitempty"`
-}
-
-// PromoteStatus is the promotion as the last pass read it (T-974): the promoted branch and its sha, the first-parent
-// merges on the target since, and why the promotion waits ("": none waits: the open review or request, T-990, or a
-// GREEN run waiting to be promoted). T-977, the monitor's: when the sha was promoted (At, fact promoted's time; 0: no
-// fact promoted it), the tasks merged since (Tasks) and their weight against merge.promote_weight (Threshold), the
-// promotion under way (Run) and the last RED one while its needs-you is open (Red).
-type PromoteStatus struct {
-	Branch    string      `json:"branch"`
-	SHA       string      `json:"sha"`
-	At        int64       `json:"at,omitempty"`
-	Merges    int         `json:"merges"`
-	Tasks     []string    `json:"tasks,omitempty"`
-	Weight    int         `json:"weight"`
-	Threshold int         `json:"threshold"`
-	Wait      string      `json:"wait,omitempty"`
-	Run       *PromoteRun `json:"run,omitempty"`
-	Red       *PromoteRed `json:"red,omitempty"`
-}
-
-// What a promotion under way does (PromoteRun.Step, T-977).
-const (
-	PromoteSuite  = "suite"  // the full suite runs on the target's head
-	PromoteReview = "review" // the suite was GREEN; the fast-forward waits for a closed review
-)
-
-// PromoteRun is the promotion under way: the target's head it checks, since when (the suite's start, or the GREEN
-// result's time while it waits for review), its step (Promote*) and, waiting for review, the open review (RV-n; "":
-// none is open yet, the request or a merge not reviewed).
-type PromoteRun struct {
-	SHA    string `json:"sha"`
-	Since  int64  `json:"since"`
-	Step   string `json:"step"`
-	Review string `json:"review,omitempty"`
-}
-
-// PromoteRed is a RED promotion whose needs-you is open: the sha it ran on, the failing tests' line, when, and the
-// tasks merged since the promoted sha it followed (Since).
-type PromoteRed struct {
-	SHA    string   `json:"sha"`
-	Tests  string   `json:"tests"`
-	At     int64    `json:"at"`
-	Since  string   `json:"since,omitempty"`
-	Merges []string `json:"merges,omitempty"`
 }
 
 // TaskDriving is a TaskStatus' State while the owner's drive agent works on the task (obor drive, T-751): serve sends
@@ -289,8 +242,7 @@ type TaskStatus struct {
 	After []string `json:"after,omitempty"` // waiting: the tasks it waits for
 	Why   string   `json:"why,omitempty"`   // waiting, all it waits for merged: its dispatch's last refusal
 	// High is a waiting task whose dispatch takes the next free lane before the ordinary waiting ones (T-1030): its
-	// spec's `Priority: high`, or a Fixes: of the review the promotion waits for. The view's queue lists the high ones
-	// first, obor status marks them.
+	// spec's `Priority: high`. The view's queue lists the high ones first, obor status marks them.
 	High bool `json:"high,omitempty"`
 	// Waiting is the merge loop's waiting predicate (mtask.is(stWaiting), T-1043): the dispatch waits for its After
 	// tasks, a lane of its level or its keep lane. The view's queue lists it rather than comparing State, and Rank is

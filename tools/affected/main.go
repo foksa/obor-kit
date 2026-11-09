@@ -27,13 +27,9 @@ func main() {
 // the one "full: <why>" line, go. It returns 1 when the list cannot be made (the Makefile then runs the full suite) and
 // 2 on a bad flag.
 func run(root string, args []string, getenv func(string) string, out io.Writer) int {
-	direct := false
-	for _, a := range args {
-		if a != "--direct" {
-			fmt.Fprintln(os.Stderr, "usage: affected [--direct] (changed files: $OBOR_CHANGED_FILES)")
-			return 2
-		}
-		direct = true
+	if len(args) > 0 {
+		fmt.Fprintln(os.Stderr, "usage: affected (changed files: $OBOR_CHANGED_FILES)")
+		return 2
 	}
 	fullGlobs, err := affectedFull(root)
 	if err != nil {
@@ -56,7 +52,7 @@ func run(root string, args []string, getenv func(string) string, out io.Writer) 
 			files = append(files, f)
 		}
 	}
-	res, err := Go(root, files, fullGlobs, direct)
+	res, err := Go(root, files, fullGlobs)
 	switch {
 	case err != nil:
 		fmt.Fprintf(os.Stderr, "affected: %v\n", err)
@@ -100,9 +96,7 @@ type Result struct {
 // the package of its nearest directory that holds one (a testdata/ or embedded file selects its package); a file under
 // no package selects nothing, except a .go file (a removed package), which forces full. A changed _test.go file selects
 // its directory's package only, never the packages that import it: a test binary is built from that directory alone.
-// With direct, only the changed packages themselves are returned (T-991): no reverse dependencies, while the full
-// answers (go.mod, fullGlobs, no package for a .go file) stay as they are.
-func Go(root string, files, fullGlobs []string, direct bool) (Result, error) {
+func Go(root string, files, fullGlobs []string) (Result, error) {
 	for _, f := range files {
 		if f == "go.mod" || f == "go.sum" {
 			return Result{Full: "changed " + f}, nil
@@ -159,9 +153,6 @@ func Go(root string, files, fullGlobs []string, direct bool) (Result, error) {
 		}
 		if changed[name] || testFiles[name] {
 			set[owner] = true
-			continue
-		}
-		if direct {
 			continue
 		}
 		for _, d := range p.Deps {

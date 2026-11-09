@@ -139,12 +139,12 @@ func TestReleaseAndShipOnStaging(t *testing.T) {
 }
 
 // T-1035: main moves by release, never by a checkout, and a release never rewinds it: a main with commits the release
-// lacks (a promotion moved it past staging's line) stops the release at its last step with main where it was.
+// lacks (moved past staging's line by hand) stops the release at its last step with main where it was.
 func TestReleaseRefusesToRewindMain(t *testing.T) {
 	t.Parallel()
 	f := newShipFixture(t)
 	f.Git(f.Root, "checkout", "-q", "-b", "staging")
-	// main moves ahead on its own line, as a promotion moves it: a merge staging does not have.
+	// main moves ahead on its own line: a merge staging does not have.
 	f.Git(f.Root, "checkout", "-q", "main")
 	f.merge(t, "topic/mainline", "Merge T-9: main-only work", map[string]string{"internal/mainline.go": "package internal\n"})
 	onMain := f.Git(f.Root, "rev-parse", "refs/heads/main")

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { laneSteps, pipelineOf, queuedForLane, waitChips } from "./pipeline";
-import { promoteLine } from "./promotion";
 import type { Lane, Queue } from "./types";
 
 const lane = (n: string, task: string | null, column: string): Lane => ({ lane: n, type: "", dir: "", branch: null, task,
@@ -18,11 +17,8 @@ const q: Pick<Queue, "merge" | "waiting"> = {
 const names = ["Waiting", "Working", "Submitted", "Gate", "Review", "Merging"];
 
 describe("the pipeline (T-986)", () => {
-  it("keeps its six blocks with promotion on and off", () => {
-    const promote = { branch: "main", sha: "abc", merges: 1, weight: 1, threshold: 6 };
-    expect(promoteLine(promote)).not.toBe(""); // on: the line shows, the blocks stay six
+  it("keeps its six blocks", () => {
     expect(pipelineOf(q, busy).map((c) => c.name)).toEqual(names);
-    expect(promoteLine(undefined)).toBe(""); // off
     expect(pipelineOf(null, []).map((c) => c.name)).toEqual(names);
     expect(pipelineOf(null, []).every((c) => c.tasks.length === 0)).toBe(true);
   });
