@@ -16,8 +16,6 @@ import (
 	"time"
 
 	"obor/internal/agents"
-	"obor/internal/background"
-	"obor/internal/project"
 	"obor/internal/store"
 )
 
@@ -35,9 +33,6 @@ import (
 //     replay, so the brief and its supersede are one append (T-580).
 //     Once that agent's pane has worked after the brief (after its line was delivered) and is idle again, serve records
 //     message{to: the lead, line "[obor] <agent> finished (briefed <age> ago)", ends: the agent}: the brief is over.
-//     A turn that ends while a background run it started still runs (its recorded call's process alive, T-1142) records
-//     "[obor] <agent> idle with a background run still going: <description>" and no ends instead: the brief waits for
-//     the agent's next turn, and that turn's end posts the finished line.
 //
 // The first work serve sees after a brief is recorded as fact worked{to, brief: the brief's seq} as soon as the
 // observation's caller releases mu (a herdr event, a snapshot, a fresh start's brief; each delivery pass retries a
@@ -192,76 +187,35 @@ func (a *App) deliver(ctx context.Context, p *proj, fx *Loop) {
 	a.roleTurns(ctx, p)
 
 	a.mu.Lock()
-	type ending struct {
-		agent, session, pane, file string
-		seq                        int64
-		at                         time.Time
-	}
-	var ends []ending
+	var done []event.Message
+	var reviewed map[string]string // the finished agents' review files (finishedReview): by agent, the review id + "[-verify]"
 	for agent, b := range p.out.Briefs() {
 		w := a.whereIs(p, agent)
 		gone := a.gone(p, agent, b, w, now) // noted on every pass: where its agent was last seen
-		if b.Worked() && b.Stop() == nil && (w.State == Identified && Ready(w.Pane.Status) || gone) && !b.Bg() {
-			s, _ := p.session(agent)
-			ends = append(ends, ending{agent: agent, session: s.ID, pane: w.Pane.ID, file: p.folded.rv.briefFile(agent, b.Seq()),
-				seq: b.Seq(), at: b.At()})
-		}
-	}
-	lead := p.out.Lead()
-	a.mu.Unlock()
-
-	// outLine is a line this pass posts: msg; for an idle-with-background line, the agent and its brief's seq (T-1142:
-	// the brief is marked once the line is in the log).
-	type outLine struct {
-		msg   event.Message
-		agent string
-		brief int64
-	}
-	var done []outLine
-	var reviewed map[string]string // the finished agents' review files (finishedReview): by agent, the review id + "[-verify]"
-	for _, e := range ends {
-		// A turn that ended while a background run it started still goes is no finish (T-1142): the lead hears the run,
-		// the brief waits for the agent's next turn, and that turn's end posts the finished line.
-		if desc, live := a.liveBackground(ctx, p.root, e.agent, e.session, e.pane, now); live {
-			done = append(done, outLine{msg: event.Message{To: lead, From: "obor",
-				Line: "[obor] " + e.agent + " idle with a background run still going: " + desc}, agent: e.agent, brief: e.seq})
-			continue
-		}
-		done = append(done, outLine{msg: event.Message{To: lead, From: "obor", Ends: e.agent,
-			Line: fmt.Sprintf("[obor] %s finished (briefed %s ago)", e.agent, Age(now.Sub(e.at)))}})
-		if e.file != "" {
-			if reviewed == nil {
-				reviewed = map[string]string{}
+		if b.Worked() && b.Stop() == nil && (w.State == Identified && Ready(w.Pane.Status) || gone) {
+			done = append(done, event.Message{To: p.out.Lead(), From: "obor", Ends: agent,
+				Line: fmt.Sprintf("[obor] %s finished (briefed %s ago)", agent, Age(now.Sub(b.At())))})
+			if file := p.folded.rv.briefFile(agent, b.Seq()); file != "" {
+				if reviewed == nil {
+					reviewed = map[string]string{}
+				}
+				reviewed[agent] = file
 			}
-			reviewed[e.agent] = e.file
 		}
 	}
+	a.mu.Unlock()
 	if len(reviewed) > 0 { // the review files are read outside mu, once, as the lines are composed
 		if s, err := reviewConfig(p.root); err == nil {
-			for i, l := range done {
-				if file := reviewed[l.msg.Ends]; file != "" && l.msg.Ends == s.Agent {
-					done[i].msg.Line = finishedReview(p.root, s.Reviews, file, l.msg.Ends)
+			for i, m := range done {
+				if file := reviewed[m.Ends]; file != "" && m.Ends == s.Agent {
+					done[i].Line = finishedReview(p.root, s.Reviews, file, m.Ends)
 				}
 			}
 		}
 	}
-	sort.Slice(done, func(i, j int) bool {
-		if done[i].msg.Ends != done[j].msg.Ends {
-			return done[i].msg.Ends < done[j].msg.Ends
-		}
-		return done[i].agent < done[j].agent // the idle-with-background lines (no ends) by agent
-	})
-
-	for _, l := range done {
-		if !a.record(p, event.Record{Task: event.MsgTask, Step: event.StepMessage, Kind: event.KindFact}, l.msg) ||
-			l.agent == "" {
-			continue
-		}
-		a.mu.Lock()
-		if b := p.out.Brief(l.agent); b != nil && b.Seq() == l.brief {
-			b.SetBg(true)
-		}
-		a.mu.Unlock()
+	sort.Slice(done, func(i, j int) bool { return done[i].Ends < done[j].Ends })
+	for _, m := range done {
+		a.record(p, event.Record{Task: event.MsgTask, Step: event.StepMessage, Kind: event.KindFact}, m)
 	}
 
 	a.mu.Lock()
@@ -301,36 +255,6 @@ func (a *App) deliver(ctx context.Context, p *proj, fx *Loop) {
 	}
 	a.roleWakes(ctx, p, fx)
 	a.msgNeedsYou(p, now)
-}
-
-// liveBackground is the description of a background call agent still runs ("" when none is alive): its recorded calls
-// (background.Mine: its session's, or its name's when it records none) against the machine's process table, read only
-// when the agent has a record (a line whose agent has none runs no ps). Best-effort, a hook's rule (T-1142): no
-// record, no process or an unreadable table is no live call, so a read never fails a pass's other lines.
-func (a *App) liveBackground(ctx context.Context, root, agent, session, pane string, now time.Time) (string, bool) {
-	calls := background.Mine(project.BackgroundCalls(root), agent, session, pane)
-	if len(calls) == 0 {
-		return "", false
-	}
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	procs, err := a.procs(ctx)
-	if err != nil {
-		return "", false
-	}
-	c, ok := background.Live(calls, procs, now)
-	if !ok {
-		return "", false
-	}
-	return background.Text(c), true
-}
-
-// procs is the machine's process table (Options.Procs; background.ReadProcs when none).
-func (a *App) procs(ctx context.Context) ([]background.Proc, error) {
-	if a.opt.Procs != nil {
-		return a.opt.Procs(ctx)
-	}
-	return background.ReadProcs(ctx)
 }
 
 // closeSettled closes unsent every settled open delivery of p (T-749, RV-91 #1): a line whose question was settled

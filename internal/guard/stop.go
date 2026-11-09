@@ -62,8 +62,12 @@ type stopHook struct {
 // staleBg is how long nothing in a worker's lane may change before its running background tasks look stale (T-167).
 const staleBg = 1200
 
-// stopProcs is the process table the background check reads (a test's fake; internal/background's one ps).
-var stopProcs = background.ReadProcs
+// stopProcs is the process table the background check reads (a test's fake; internal/background's one ps), stopSelf
+// the hook's own pid in it (a test's fake: the walk up to the agent starts there).
+var (
+	stopProcs = background.ReadProcs
+	stopSelf  = os.Getpid
+)
 
 func runStop(input []byte, env project.Env) (reason string, err error) {
 	h := &stopHook{env: env}
@@ -106,9 +110,12 @@ func runStop(input []byte, env project.Env) (reason string, err error) {
 }
 
 // background: a background Bash call recorded for this hook's session (the PreToolUse record, project.BackgroundCalls)
-// whose process still runs blocks the stop, the call's description and age named (T-1142). Every agent's, the lead's
-// too; stop_hook_active allows nothing here — a repeated block means the agent is waiting, and the block ends with the
-// call's process. Best-effort: no session, no record, an unreadable file or no process table allows the stop.
+// whose process still runs blocks the stop, the call's description and age named (T-1142). Only the agent's own
+// processes count (RV-169 #1): the agent is the CLI that ran this hook (background.AgentOf, up from the hook's pid) and
+// the call's process one of its descendants (background.Live), so another agent running the same command blocks
+// nothing. Every agent's, the lead's too; stop_hook_active allows nothing here — a repeated block means the agent is
+// waiting, and the block ends with the call's process. Best-effort: no session, no record, an unreadable file, no
+// process table or no agent process found allows the stop.
 func (h *stopHook) background() string {
 	if h.ev.SessionID == "" || h.root == "" {
 		return ""
@@ -124,7 +131,18 @@ func (h *stopHook) background() string {
 	if err != nil {
 		return ""
 	}
-	c, ok := background.Live(calls, procs, time.Unix(h.now, 0))
+	self := stopSelf()
+	agent := background.AgentOf(procs, self)
+	if agent == 0 {
+		return ""
+	}
+	others := procs[:0:0] // the hook itself is none of the agent's runs
+	for _, p := range procs {
+		if p.PID != self {
+			others = append(others, p)
+		}
+	}
+	c, ok := background.Live(calls, others, agent, time.Unix(h.now, 0))
 	if !ok {
 		return ""
 	}

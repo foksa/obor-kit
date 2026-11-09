@@ -1,7 +1,6 @@
 package app_test
 
 import (
-	"context"
 	"encoding/json"
 	"strconv"
 	"strings"
@@ -11,10 +10,8 @@ import (
 	"obor/internal/app"
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
-	"obor/internal/background"
 	"obor/internal/herdr"
 	"obor/internal/herdr/herdrtest"
-	"obor/internal/project"
 )
 
 // T-732: a worked brief ends with the usual finished line once its agent is gone: its pane at its shell or closed, or
@@ -549,59 +546,6 @@ func TestBriefFinishedLineToTheLead(t *testing.T) {
 	}
 	if typed := append(r.promptsTo("pj-rev"), r.promptsTo("pj-lead")...); len(typed) != 0 {
 		t.Errorf("typed %q, want the brief and the finished line posted, none typed (T-499)", typed)
-	}
-}
-
-// T-1142: a role agent's turn that ends while a background run it started still goes is no finish: the lead gets
-// "[obor] <agent> idle with a background run still going: <description>" instead, once, and the brief stays open; the
-// run's process ended and the agent's next turn (working, then idle) posts the usual finished line.
-func TestFinishedLineWaitsForABackgroundRun(t *testing.T) {
-	t.Parallel()
-	r := lineRig(t, "idle", "idle")
-	r.start()
-	if _, err := r.line("b1", &wire.BriefReq{To: "pj-rev", Text: "measure the deep dive"}); err != nil {
-		t.Fatalf("brief: %v", err)
-	}
-	r.waitFor("the brief posted", func() bool { return r.inbox.count("pj-rev", "[obor pj-lead] measure the deep dive") == 1 })
-	r.waitBriefDelivered()
-	r.agentIs("w1:p6", "pj-rev", "working")
-	// The call its pane started: recorded a moment before the process the fake table runs.
-	at := r.clock.Now().Add(-6 * time.Second).Unix()
-	project.AppendBackground(r.p.Root, project.BackgroundCall{At: at, Agent: "pj-rev", Session: "s1",
-		Description: "bench the build", Command: "go test -bench . ./..."})
-	r.mu.Lock()
-	r.procs = func(context.Context) ([]background.Proc, error) {
-		return []background.Proc{{PID: 900, PPID: 1, Age: 6 * time.Second, Command: "go test -bench . ./..."}}, nil
-	}
-	r.mu.Unlock()
-	r.agentIs("w1:p6", "pj-rev", "idle")
-	const idle = "[obor] pj-rev idle with a background run still going: bench the build"
-	r.waitFor("the idle-with-background line", func() bool { return r.inbox.count("pj-lead", idle) == 1 })
-	if n := r.taskStep(event.MsgTask, "fact message"); n != 1 {
-		t.Errorf("%d message facts, want one: the idle line, not a finished one", n)
-	}
-	if bs := r.briefs(); len(bs) != 1 || bs[0].To != "pj-rev" {
-		t.Errorf("briefs %+v, want pj-rev's open: its next turn ends it", bs)
-	}
-	// The agent stays idle while the run goes: no second line (the brief waits for a turn).
-	r.passes()
-	if n := r.inbox.count("pj-lead", idle); n != 1 {
-		t.Errorf("the idle line posted %d times, want once", n)
-	}
-	// The run ended and the agent's next turn came: the finished line follows and ends the brief.
-	r.mu.Lock()
-	r.procs = nil
-	r.mu.Unlock()
-	r.clock.Add(5 * time.Minute)
-	r.agentIs("w1:p6", "pj-rev", "working")
-	r.agentIs("w1:p6", "pj-rev", "idle")
-	const done = "[obor] pj-rev finished (briefed 5m ago)"
-	r.waitFor("the finished line", func() bool { return r.inbox.count("pj-lead", done) == 1 })
-	if bs := r.briefs(); len(bs) != 0 {
-		t.Errorf("briefs %+v, want none: the finished line ended it", bs)
-	}
-	if n := r.inbox.count("pj-lead", idle); n != 1 {
-		t.Errorf("the idle line posted %d times, want its one", n)
 	}
 }
 
