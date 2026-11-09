@@ -1109,3 +1109,93 @@ func TestSetupStartWaitsForTheLaunch(t *testing.T) {
 		})
 	}
 }
+
+// --- a config.json that fails to load (T-1163, RV-172 #1) -----------------------------------------------------------
+
+// unloadableConfig is a config.json of shape 1: since T-1157 this obor refuses it, naming the release that migrates it.
+const unloadableConfig = `{"name":"legacy","prefix":"leg","lanes":1}` + "\n"
+
+// migrateHint is the way out the load's shape-1 error names.
+const migrateHint = "obor config migrate with obor v0.33"
+
+// noUsable is setup's today text for a project with no config.json.
+const noUsable = "FAIL no usable .obor/config.json (obor init, then obor config validate)"
+
+// entry is one setup entry point: what it is called and how the test runs it (output and exit code, Run's FAIL line
+// included).
+type entry struct {
+	name string
+	run  func(t *testing.T, x *fx) (string, int)
+}
+
+// loadEntries are the commands that load the config through s.load, and the drive start (obor drive, StartDrive).
+func loadEntries() []entry {
+	cmd := func(args ...string) func(*testing.T, *fx) (string, int) {
+		return func(t *testing.T, x *fx) (string, int) { return x.run(t, args...) }
+	}
+	return []entry{
+		{"show", cmd("show")},
+		{"lane", cmd("lane", "L-01")},
+		{"pane", cmd("pane", "L-01")},
+		{"role", cmd("role", "reviewer")},
+		{"rename", cmd("rename", "--name", "renamed", "--prefix", "rn")},
+		{"mcp --model", cmd("mcp", "--model", "opus")},
+		{"StartDrive", func(t *testing.T, x *fx) (string, int) {
+			s, out := x.newSetup(t)
+			s.Dir = x.Root
+			if err := s.StartDrive(context.Background(), Drive{Agent: "pj-l-01-drive", Lane: "L-01", Cwd: x.Root}); err != nil {
+				fmt.Fprintf(out, "FAIL %s\n", err)
+				return out.String(), 1
+			}
+			return out.String(), 0
+		}},
+	}
+}
+
+// TestSetupRefusesAnUnloadableConfig: an existing config.json that fails to load fails every s.load entry point with
+// the load's own error, not the generic "no usable" text; with no config.json at all that text stays.
+func TestSetupRefusesAnUnloadableConfig(t *testing.T) {
+	t.Parallel()
+	for _, c := range loadEntries() {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			x := bare(t)
+			x.Write(".obor/config.json", unloadableConfig)
+			out, rc := c.run(t, x)
+			if rc != 1 || !strings.Contains(last(out), migrateHint) {
+				t.Errorf("an unloadable config: exit %d, last line %q, want the load's shape-1 FAIL\n%s", rc, last(out), out)
+			}
+			if strings.Contains(out, "no usable .obor/config.json") {
+				t.Errorf("the generic no-usable text for an existing config:\n%s", out)
+			}
+
+			y := bare(t)
+			if out, rc := c.run(t, y); rc != 1 || last(out) != noUsable {
+				t.Errorf("no config.json: exit %d, last line %q, want %q\n%s", rc, last(out), noUsable, out)
+			}
+		})
+	}
+}
+
+// TestSetupAgentsAndMCPRefuseAnUnloadableConfig: setup agents (cachePlugins) and setup mcp (usedKinds) load the config
+// without s.load: an existing config that fails to load fails them too, instead of reporting success; with no
+// config.json at all today's behaviour stays.
+func TestSetupAgentsAndMCPRefuseAnUnloadableConfig(t *testing.T) {
+	x := bare(t)
+	x.Write(".obor/config.json", unloadableConfig)
+	for _, args := range [][]string{{"agents"}, {"mcp"}} {
+		out, rc := x.run(t, args...)
+		if rc != 1 || !strings.Contains(last(out), migrateHint) {
+			t.Errorf("setup %v with an unloadable config: exit %d, last line %q, want the load's shape-1 FAIL\n%s",
+				args, rc, last(out), out)
+		}
+	}
+
+	y := bare(t)
+	if out, rc := y.run(t, "agents"); rc != 0 {
+		t.Errorf("setup agents with no config.json: exit %d, want today's success\n%s", rc, out)
+	}
+	if out, rc := y.run(t, "mcp"); rc != 0 || last(out) != "OK mcp" {
+		t.Errorf("setup mcp with no config.json: exit %d, last line %q, want today's OK mcp\n%s", rc, last(out), out)
+	}
+}

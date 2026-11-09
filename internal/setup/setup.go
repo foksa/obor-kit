@@ -205,17 +205,37 @@ func (s *Setup) findRoot() error {
 	return nil
 }
 
-// load finds the project and loads its effective config.
+// load finds the project and loads its effective config. A config.json that exists and fails to load fails with the
+// load's own error (T-1163: a shape-1 file names its way out); the generic "no usable" text is for no file at all.
 func (s *Setup) load() error {
 	if err := s.findRoot(); err != nil {
 		return err
 	}
 	cfg, err := config.Load(s.root)
-	if err != nil {
+	switch {
+	case errors.Is(err, config.ErrNoConfig):
 		return project.Failf("no usable .obor/config.json (obor init, then obor config validate)")
+	case err != nil:
+		return project.Failf("%v", err)
 	}
 	s.cfg = cfg
 	return nil
+}
+
+// projectConfig is config.Load for the commands that work without a config (setup agents, setup mcp): nil with no error
+// when there is no project config.json, or no git repository at all. Any other load error is a Fail naming it (T-1163).
+func (s *Setup) projectConfig() (*config.Config, error) {
+	if err := s.findRoot(); err != nil {
+		return nil, nil
+	}
+	cfg, err := config.Load(s.root)
+	switch {
+	case errors.Is(err, config.ErrNoConfig):
+		return nil, nil
+	case err != nil:
+		return nil, project.Failf("%v", err)
+	}
+	return cfg, nil
 }
 
 // ensureWorktree makes dir a detached worktree at the root's current branch, unless it already is one of this repo.
