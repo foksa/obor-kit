@@ -228,7 +228,7 @@ func Build(in Input) Project {
 		v.Lanes = append(v.Lanes, l)
 	}
 	v.FullCheck = readFullCheck(p.Root, "last-full-check")
-	v.Queue = queue(&v, ps, p.Cfg.Data.Merge.NightlyAt, specs, dispatchedTasks(in.DB), in.Now)
+	v.Queue = queue(&v, ps, p.Cfg.NightlyAt(), specs, dispatchedTasks(in.DB), in.Now)
 	v.Events = events(in.DB, in.Events, v.Serve)
 	return v
 }

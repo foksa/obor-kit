@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strconv"
 	"time"
@@ -20,10 +19,7 @@ import (
 // serviceOf is the launchd agent of cfg's project (T-596): labelled by its config name (else its root's base, as
 // serve names it), running the kit's bin/obor with the caller's PATH and HERDR_SOCKET_PATH.
 func serviceOf(cfg *config.Config, env project.Env) service.Service {
-	name := cfg.Data.Name
-	if name == "" {
-		name = filepath.Base(cfg.Root)
-	}
+	name := cfg.ProjectName()
 	return service.Service{Name: name, Root: cfg.Root, Kit: project.KitRoot(env), Home: env.Get("HOME"),
 		UID: os.Getuid(), GOOS: runtime.GOOS, Path: env.Get("PATH"), Herdr: env.Get("HERDR_SOCKET_PATH")}
 }

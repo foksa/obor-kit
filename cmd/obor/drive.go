@@ -209,13 +209,13 @@ func landCmd(args []string) int {
 			summary = strings.TrimSpace(args[1])
 		}
 		if summary == "" {
-			log, err := project.Git(dir, "log", "--reverse", "--format=%s", cfg.Data.Branches.Main+"..HEAD")
+			log, err := project.Git(dir, "log", "--reverse", "--format=%s", cfg.MainBranch()+"..HEAD")
 			if err != nil {
 				return nil, fmt.Errorf("the commits of lane %s: %v", lane, err)
 			}
 			if summary = strings.TrimSpace(log); summary == "" {
 				return nil, fmt.Errorf("%s has no commits on %s beyond %s: nothing to land", task, branchOf(cfg, task),
-					cfg.Data.Branches.Main)
+					cfg.MainBranch())
 			}
 		}
 		return &wire.LandReq{Envelope: id, Task: task, Report: summary}, nil

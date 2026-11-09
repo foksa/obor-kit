@@ -190,7 +190,7 @@ func mergeLoop(env project.Env, panes herdr.Panes, end *serveEnd, kinds *kindCac
 		l := &app.Loop{Workflow: wf, Agents: agents, Typer: panes, Nightly: nightly(o), Disk: diskOf(repo.Root),
 			Inbox: poster{repo.Root}}
 		dispatchLoop(l, env, cfg)
-		l.Config = configFile{root: repo.Root, main: cfg.Data.Branches.Main}
+		l.Config = configFile{root: repo.Root, main: cfg.MainBranch()}
 		l.Restart = serveRestarter(cfg, env, end)
 		return l, nil
 	}
@@ -265,7 +265,7 @@ func diskOf(root string) *app.Disk {
 // a signal). At "" (merge.nightly_at unset) is off: the pass starts no run, but still settles one (T-782).
 func nightly(o checks.Options) *app.Nightly {
 	root := o.Cfg.Root
-	return &app.Nightly{At: o.Cfg.Data.Merge.NightlyAt,
+	return &app.Nightly{At: o.Cfg.NightlyAt(),
 		Last: func() (string, string, error) {
 			sha, _, verdict, err := checks.LastFullCheck(root)
 			return sha, verdict, err

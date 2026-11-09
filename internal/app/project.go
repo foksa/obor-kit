@@ -8,7 +8,6 @@ import (
 	"obor/internal/app/identity"
 	"obor/internal/app/outbox"
 	"obor/internal/app/port"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -24,10 +23,7 @@ func (a *App) load(root string) (*proj, error) {
 	if err != nil {
 		return nil, err
 	}
-	name := cfg.Data.Name
-	if name == "" {
-		name = filepath.Base(root)
-	}
+	name := cfg.ProjectName()
 	start := time.Now()
 	log, recs, err := a.openLog(root)
 	if err != nil {

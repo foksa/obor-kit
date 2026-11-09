@@ -7,7 +7,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -39,10 +38,7 @@ func sendCmd(args []string) int {
 			return nil, errors.New("obor send goes to another project's lead, not this one")
 		}
 		id.Root = root
-		c := &wire.SendReq{Envelope: id, Text: args[1], From: cfg.Data.Name}
-		if c.From == "" {
-			c.From = filepath.Base(cfg.Root)
-		}
+		c := &wire.SendReq{Envelope: id, Text: args[1], From: cfg.ProjectName()}
 		return c, nil
 	})
 }

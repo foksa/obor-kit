@@ -186,7 +186,7 @@ func setup(cfg *config.Config, lanes []port.Lane, v Project, db *sql.DB, rev str
 			Paused: v.ModelPauses[name]})
 	}
 	for _, kind := range agents.Names() {
-		k := cfg.Data.Kinds.M[kind]
+		k := cfg.Kind(kind)
 		s.Kinds = append(s.Kinds, SetupKind{Name: kind, Args: append([]string{}, k.Args...), PromptExtra: k.PromptExtra != ""})
 	}
 	s.Paused = v.Paused

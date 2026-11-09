@@ -78,7 +78,7 @@ type roleFile struct{ title, path string }
 // (the template's fill-in note and nothing else) is not sent.
 func roleTexts(cfg *config.Config, kit, role string) (text string, read []string, err error) {
 	files := []roleFile{{"Your role text", filepath.Join(kit, "templates", "agents", role+".md")}}
-	doc := filepath.Join(cfg.Root, cfg.Data.Paths["agents"], role+".md")
+	doc := filepath.Join(cfg.Root, cfg.AgentsDir(), role+".md")
 	if _, err := os.Stat(doc); err == nil {
 		files = append(files, roleFile{"This project's " + role + " rules", doc})
 	}
@@ -147,7 +147,7 @@ func workerPrompt(cfg *config.Config, kit, task string, lt config.Model) (string
 	if err != nil {
 		return "", fmt.Errorf("cannot read the worker prompt %s", file)
 	}
-	fill := strings.NewReplacer("{{task}}", task, "{{base}}", cfg.Data.Branches.Main,
+	fill := strings.NewReplacer("{{task}}", task, "{{base}}", cfg.MainBranch(),
 		"{{done_sections}}", strings.Join(config.ReportSections, ", "))
 	var parts []string
 	for _, line := range strings.Split(string(b), "\n") {

@@ -78,7 +78,7 @@ func (a *App) briefMove(ctx context.Context, p *proj, role, agent string) error 
 	if err != nil {
 		return err
 	}
-	head, err := fx.Workflow.Head(ctx, cfg.Data.Branches.Main)
+	head, err := fx.Workflow.Head(ctx, cfg.MainBranch())
 	if err != nil {
 		return err
 	}
