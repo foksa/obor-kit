@@ -14,7 +14,9 @@ already done, areas to emphasise.
 section. The lead turns findings into tasks.
 
 ## Rules
-- Read-only on source; probes in a scratch dir. Fewer, verified findings beat many guesses. No subagents.
+- Read-only on source; probes without git writes (your guard allows git reads only, a scratch dir included): a
+  test run with `go test -overlay`, the package's fakes, or a copy of a store folded by the code. Fewer, verified
+  findings beat many guesses. No subagents.
   The guard denies git that writes (`git init`, `commit`) even there: probe a changed source with `go test -overlay`
   (an overlay JSON mapping the file to a scratch copy), never a scratch repo.
 - Runs in its own role pane in its own worktree `<lanes.dir>/deep_dive` (`obor setup role deep_dive`,
