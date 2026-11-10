@@ -2292,12 +2292,19 @@ func (r *loopRig) waitJob(agent, job string) string {
 }
 
 // waitWake waits until job's wake reached agent: typed into its pane, or carried by its start, and the job's prompt
-// has its result (job_next could hand the job out from its intent on, before the start that carries it returns).
+// has its result (job_next could hand the job out from its intent on, before the start that carries it returns). The
+// result is the job's own task's: on a lane that runs task after task, an earlier task's job has the same attempt and
+// step.
 func (r *loopRig) waitWake(agent, job string) {
 	r.t.Helper()
 	w := "[obor job " + job + "] call the obor job_next tool"
 	parts := strings.SplitN(job, "/", 3)
-	result := parts[1] + " result " + parts[2]
+	delivered := func() bool {
+		return slices.ContainsFunc(r.records(), func(rec event.Record) bool {
+			return rec.Task == parts[0] && strconv.Itoa(rec.Attempt) == parts[1] && rec.Kind == event.KindResult &&
+				rec.String() == parts[2]
+		})
+	}
 	r.waitFor("the wake of "+job+" to "+agent, func() bool {
 		sent := false
 		for _, p := range r.prompts() {
@@ -2308,7 +2315,7 @@ func (r *loopRig) waitWake(agent, job string) {
 			sent = sent || l.Agent == agent && l.Prompt == w
 		}
 		r.mu.Unlock()
-		return sent && r.has(result)
+		return sent && delivered()
 	})
 }
 
