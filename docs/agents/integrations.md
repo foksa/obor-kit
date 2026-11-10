@@ -64,11 +64,14 @@ default: from the first record), one line per record, in seq order.
 it takes `TICKET-1` of a fake tracker into obor (`spec_set` with `Ref: TICKET-1`, then `dispatch`), follows the feed
 from its cursor, and on the task's `merged` record marks the ticket done. The same as a script:
 
+The caller picks the task id in `id`: it matches `project.task_id_pattern` (default `T-[0-9]+[a-z]?`) and is unused.
+
 ```sh
 export OBOR_ROLE=tracker
+id=T-7
 cursor=$(cat .tracker-cursor 2>/dev/null || echo 0)
-printf '# T-xx — Fix the widget\n\nDifficulty: medium\nRef: TICKET-1\n' > /tmp/T-xx.md
-obor spec set T-xx /tmp/T-xx.md && obor dispatch T-xx
+printf '# %s — Fix the widget\n\nDifficulty: medium\nRef: TICKET-1\n' "$id" > "/tmp/$id.md"
+obor spec set "$id" "/tmp/$id.md" && obor dispatch "$id"
 obor events --follow --json --after "$cursor" | while read -r line; do
   seq=$(printf '%s' "$line" | jq -r .seq)
   if [ "$(printf '%s' "$line" | jq -r '.step + " " + .kind')" = "merged fact" ]; then
