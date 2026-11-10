@@ -101,7 +101,8 @@ the flag for it:
 | Claude | `.claude/settings.json` or `.claude/settings.local.json` | any settings entry (`remoteControlAtStartup`, `autoMemoryEnabled`, an `env` variable, a plugin in `enabledPlugins`, `statusLine`, …) | that entry of the agent's settings file (non-lead roles, below): the project's value applies |
 | Codex | `.codex/config.toml`, top-level (before any `[table]`) | `sandbox_mode` | `-s workspace-write` |
 | Codex | same | `check_for_update_on_startup` | `-c check_for_update_on_startup=false` |
-| Codex | `.codex/config.toml`, anywhere (dotted, or under its `[table]`) | `features.plugins`, `features.apps`, `skills.bundled.enabled`, `skills.config` | that key's `-c` option (non-lead roles): `-c <key>=false` for the user's plugins with their skills, the app connectors and the bundled skills, and `-c skills.config=[{name="<skill>",enabled=false},…]` for each dir in `~/.codex/skills`; the rest of the user's config applies, and user skills in `~/.agents/skills` stay |
+| Codex | `.codex/config.toml`, anywhere (dotted, or under its `[table]`) | `features.plugins`, `features.apps`, `skills.bundled.enabled`, `skills.config` | that key's `-c` option (non-lead roles): `-c <key>=false` for the user's plugins with their skills, the app connectors and the bundled skills, and `-c skills.config=[{name="<skill>",enabled=false},…]` for each skill (a dir holding a `SKILL.md`) in `~/.codex/skills`; the rest of the user's config applies, and user skills in `~/.agents/skills` stay |
+| Codex | same | a key `agents.overrides.codex.settings` names, the `[plugins."<id>"]` or `[mcp_servers.<name>]` table of an entry `off` names | that entry's `-c` option (non-lead roles, below): the project's value applies |
 | OpenCode | none | none (no opt-out) | nothing: `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` is in every non-lead start's env and hides the Claude skill dirs, `~/.claude/skills` and the project's `.claude/skills`; the user's `opencode.json`, plugins, `~/.config/opencode/skills` and `~/.agents/skills` stay |
 
 obor's MCP server, the session id, the prompt, the model ref each role and difficulty level names (`<model>[:<effort>]`,
@@ -148,9 +149,21 @@ them anyway, a role agent keeps them), `settings` are merged in, and obor sets `
 (the first Claude row above). They lose what is not in `settings.json`: your `~/.claude/CLAUDE.md`, your rules
 (`~/.claude/rules`), your skills (`~/.claude/skills`) and the skills Claude syncs from claude.ai do not reach them, so
 `off.skills` has nothing to do on Claude. `--settings` in `agents.kinds.claude.args` is no way around the file (obor
-passes its own `--settings`). Codex and OpenCode agents: the two rows above say what is switched off and what stays
-(Codex keeps `~/.agents/skills`, OpenCode its user config, plugins and skill roots); that trim is best effort, not a
-project-only view: whatever a CLI has no switch for stays visible.
+passes its own `--settings`).
+
+Codex agents (all but the lead) keep your `~/.codex/config.toml` (`$CODEX_HOME`) and get `-c` options over it: the
+switches of the Codex rows above, then the override. `settings` are `config.toml` keys, one `-c <key>=<value>` each
+(`{"model_reasoning_summary": "none"}`; a nested object is passed as an inline table; `model_reasoning_effort` gives
+way to the effort of the agent's model reference). `off.hooks` switches off each hook of your `hooks.json` whose
+command matches, by its position in the file (`-c hooks.state={…={enabled=false}}`, read at every start; hooks declared
+inline in `config.toml` are not reached). `off.mcp` passes `-c mcp_servers.<name>.enabled=false` for each matching
+`[mcp_servers.<name>]` of your `config.toml`. `off.skills` adds the matching skills of `~/.agents/skills` to the
+switched-off list (those of `~/.codex/skills` are all off already). `off.plugins` matters only where the project's
+`.codex/config.toml` sets `features.plugins` (all plugins are off otherwise): each matching `[plugins."<id>"]` of
+your `config.toml` is then switched off.
+
+OpenCode agents: the row above says what is switched off and what stays (its user config, plugins and skill roots).
+The Codex and OpenCode trims are best effort, not a project-only view: whatever a CLI has no switch for stays visible.
 
 **Project skills and MCP servers.**
 - Skills: one tree, `.agents/skills/<name>/SKILL.md` (Codex and OpenCode read it), with `.claude/skills` a symlink to
