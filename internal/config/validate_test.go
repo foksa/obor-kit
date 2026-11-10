@@ -1,7 +1,6 @@
 package config_test
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -42,7 +41,7 @@ func del(path string) edit {
 }
 
 // validate is `obor config validate` on the fixture config (lane L-01) changed by edits: the WARN lines, then the
-// FAIL lines (an unknown key's first, LoadForValidate's, as the command prints them). The baseline carries the
+// FAIL lines (an unknown key's first, LoadForValidate's, as the command prints them). The base config carries the
 // integrator serve needs, so the cases that predate it stay about their own rule; a case that wants it gone
 // deletes it.
 func validate(t *testing.T, p *testkit.Project, edits ...edit) []string {
@@ -173,18 +172,8 @@ func TestValidate(t *testing.T) {
 		// nightly.also_run names defined, non-gating commands.
 		{name: "nightly_commands fine", edits: []edit{set("commands.trim_cache", "true"),
 			set("nightly.also_run", []any{"trim_cache"})}},
-		// baseline, gate and e2e are free command names again: set and not named where they still run, one WARN;
-		// named in nightly.also_run, none (nightly runs it there).
-		{name: "commands.e2e alone warns", edits: []edit{set("commands.e2e", "bun run e2e")},
-			want: []string{"WARN commands.e2e: obor no longer runs it at merge or nightly (v0.32); delete it, or name it in a merge.by_path.rules run or nightly.also_run"}},
-		{name: "commands.baseline alone warns", edits: []edit{set("commands.baseline", "bun run baseline")},
-			want: []string{"WARN commands.baseline: obor no longer runs it at merge or nightly (v0.32); delete it, or name it in a merge.by_path.rules run or nightly.also_run"}},
-		{name: "e2e in nightly.also_run does not warn", edits: []edit{set("commands.e2e", "bun run e2e"),
-			set("nightly.also_run", []any{"e2e"})}},
-		{name: "baseline in a class's checks does not warn", edits: []edit{set("commands.baseline", "bun run baseline"),
-			set("merge.by_path.rules", []any{map[string]any{"name": "ui", "paths": []any{"src/ui/**"}, "run": []any{"baseline"}}})}},
-		{name: "gate as merge.by_path.guard does not warn", edits: []edit{set("commands.gate", "bun run gate"),
-			set("merge.by_path.guard", "gate")}},
+		// commands.e2e is a free command name like any other: set alone, it validates.
+		{name: "commands.e2e is a free command name", edits: []edit{set("commands.e2e", "bun run e2e")}},
 		{name: "nightly_commands empty", edits: []edit{set("nightly.also_run", []any{})}},
 		{name: "nightly_commands an unknown name", edits: []edit{set("nightly.also_run", []any{"ghost"})},
 			want: []string{"FAIL .nightly.also_run[0]: no commands.ghost: define it, or remove it"}},
@@ -369,62 +358,6 @@ func TestValidateTrunkRef(t *testing.T) {
 	if got := validate(t, p, set("merge.target_branch", "trunk")); len(got) != 0 {
 		t.Errorf("trunk created: %q", got)
 	}
-}
-
-// releaseMinor is the minor version this tree ships in, read from VERSION (0.25.1 → 25). A removed key WARNs in the
-// two minor versions after the release that removed it, then is an unknown key. Once releaseMinor is past a row's
-// keepUntil, the key goes: its field, its WARN in config.warnings and its row in TestRemovedKeysWithinTwoVersions.
-func releaseMinor(t *testing.T) int {
-	t.Helper()
-	b, err := os.ReadFile(filepath.Join("..", "..", "VERSION"))
-	if err != nil {
-		t.Fatalf("read VERSION: %v", err)
-	}
-	var minor int
-	if _, err := fmt.Sscanf(strings.TrimSpace(string(b)), "0.%d", &minor); err != nil {
-		t.Fatalf("VERSION %q: %v", strings.TrimSpace(string(b)), err)
-	}
-	return minor
-}
-
-// TestRemovedKeysWithinTwoVersions: each versioned removed key still WARNs, and the test fails once VERSION is past the
-// key's two versions.
-func TestRemovedKeysWithinTwoVersions(t *testing.T) {
-	minor := releaseMinor(t)
-	p := newPlainProject(t)
-	for _, r := range []struct {
-		key       string // the WARN's path
-		e         edit
-		removed   int // v0.<removed>.0 removed it; 0: no recorded version
-		keepUntil int // the last minor that still WARNs: removed + 2
-	}{
-		// the three commands obor does not run by name.
-		{"commands.e2e", set("commands.e2e", `"bun run e2e"`), 32, 34},
-	} {
-		if r.removed > 0 {
-			if r.keepUntil != r.removed+2 {
-				t.Errorf("%s: keepUntil v0.%d is not two minors after v0.%d", r.key, r.keepUntil, r.removed)
-			}
-			if minor > r.keepUntil {
-				t.Errorf("%s: removed in v0.%d and WARNs only through v0.%d: it is past its two versions, drop the key, "+
-					"its WARN and this row", r.key, r.removed, r.keepUntil)
-				continue
-			}
-		}
-		if got := validate(t, p, r.e); !warnsKey(got, r.key) {
-			t.Errorf("%s: no WARN for it in %q", r.key, got)
-		}
-	}
-}
-
-// warnsKey: one of the WARN lines is the removed key key's.
-func warnsKey(lines []string, key string) bool {
-	for _, l := range lines {
-		if strings.HasPrefix(l, "WARN "+key+" ") || strings.HasPrefix(l, "WARN "+key+":") {
-			return true
-		}
-	}
-	return false
 }
 
 // bash config.test.sh case_validate_ok_template_and_fixture: the template plus the local example validate. The kit's own

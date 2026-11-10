@@ -24,7 +24,7 @@ var (
 )
 
 // Validate is `obor config validate`: "FAIL <path>: <why>" per problem, and "WARN …" notes that are no failure (a
-// removed key still set, a merge.by_path.no_check glob overlapping a rule's glob, an agent named like another lane).
+// merge.by_path.no_check glob overlapping a rule's glob, an agent named like another lane).
 // Shapes are checked by the load (types by Load, unknown keys by LoadForValidate); these are the checks a typed decode cannot make.
 func (c *Config) Validate(o ValidateOptions) (warns, fails []string) {
 	v := &validator{c: c, d: &c.Data}
@@ -225,20 +225,6 @@ func (v *validator) nightlyCommands() {
 			v.fail(path, Compact(name)+" is a gating command: nightly runs it as a gate, never non-gating")
 		}
 	}
-}
-
-// commandStillRuns: a by_path rule's run, merge.by_path.guard or nightly.also_run names name, so it runs there even
-// though obor does not run it by its own name.
-func (c *Config) commandStillRuns(name string) bool {
-	if c.Data.Merge.ByPath.Guard == name || slices.Contains(c.Data.Nightly.AlsoRun, name) {
-		return true
-	}
-	for _, rule := range c.Data.Merge.ByPath.Rules {
-		if slices.Contains(rule.Run, name) {
-			return true
-		}
-	}
-	return false
 }
 
 // classes: merge.by_path.rules names are unique and also_on_full is refused on a full rule, which already
@@ -544,8 +530,7 @@ func (v *validator) trunk() {
 }
 
 // warnings: merge.by_path.no_check globs that may share a path with a rule's glob (that rule's files would merge
-// guard-only), commands obor does not run by name. A removed key WARNs for two minor versions after its removal,
-// then is an unknown key (validate_test.go: TestRemovedKeysWithinTwoVersions, its window read from VERSION).
+// guard-only).
 func (c *Config) warnings(o ValidateOptions) []string {
 	var out []string
 	for _, n := range c.Data.Merge.ByPath.NoCheck {
@@ -555,14 +540,6 @@ func (c *Config) warnings(o ValidateOptions) []string {
 					out = append(out, "WARN merge.by_path.no_check glob "+n+" overlaps rule "+rule.Name+" glob "+glob)
 				}
 			}
-		}
-	}
-	// baseline, gate and e2e are free command names again; a config that sets one loses its run silently unless
-	// it is named where a merge or the nightly still runs it.
-	for _, name := range []string{"baseline", "gate", "e2e"} {
-		if _, set := c.Command(name); set && !c.commandStillRuns(name) {
-			out = append(out, "WARN commands."+name+": obor no longer runs it at merge or nightly (v0.32); delete it, "+
-				"or name it in a merge.by_path.rules run or nightly.also_run")
 		}
 	}
 	for _, name := range c.ModelNames() { // opencode's own default model may refuse requests, and effort needs one

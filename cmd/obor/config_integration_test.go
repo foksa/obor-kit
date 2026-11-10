@@ -24,8 +24,6 @@ func TestConfigValidateBinary(t *testing.T) {
 		{nil, 0, "OK\n"},
 		{[]func(map[string]any){testkit.Set("cache.warn_tokens", 50000)}, 1,
 			"FAIL .cache: unknown to this obor (retired, or newer than this binary): delete it (.obor/config.json)\n"},
-		{[]func(map[string]any){testkit.Set("version", 3), testkit.Set("commands.e2e", "bun run e2e")}, 1,
-			"WARN commands.e2e: obor no longer runs it at merge or nightly (v0.32); delete it, or name it in a merge.by_path.rules run or nightly.also_run\nFAIL .version: must be 2, got 3\n"},
 		// merge.receipt_max_age has no meaning for the test receipts; past its two minors it is an unknown key,
 		// a FAIL line naming it.
 		{[]func(map[string]any){testkit.Set("merge.receipt_max_age", 60)}, 1,
