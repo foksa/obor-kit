@@ -121,7 +121,7 @@ func TestOborInitFailsWithoutClaude(t *testing.T) {
 	x := newInitFx(t, true)
 	os.Remove(filepath.Join(x.bin, "claude"))
 	x.failing(t, "FAIL claude is not on PATH (the lead runs it): install it, then obor init again", "obor-init")
-	if x.Exists(".obor/config.json") || x.Exists("BACKLOG.md") || len(x.h.Plugins) != 0 {
+	if x.Exists(".obor/config.json") || x.Exists("BACKLOG.md") {
 		t.Errorf("wrote before the FAIL")
 	}
 }

@@ -633,20 +633,6 @@ func (s *Socket) NewWorkspace(ctx context.Context, label, cwd string) (string, e
 	return r.Workspace.ID, nil
 }
 
-// Plugins is plugin.list. herdr's plugin registry is user-global: every session sees the same plugins.
-func (s *Socket) Plugins(ctx context.Context) ([]Plugin, error) {
-	var r pluginsAnswer
-	if err := s.call(ctx, 0, &r, "plugin.list", nil); err != nil {
-		return nil, err
-	}
-	return r.plugins("plugin.list")
-}
-
-// UnlinkPlugin is plugin.unlink.
-func (s *Socket) UnlinkPlugin(ctx context.Context, id string) error {
-	return s.call(ctx, 0, nil, "plugin.unlink", map[string]any{"plugin_id": id})
-}
-
 // Close is pane.close.
 func (s *Socket) Close(ctx context.Context, pane string) error {
 	return s.call(ctx, 0, nil, "pane.close", map[string]any{"pane_id": pane})
@@ -1179,9 +1165,6 @@ type Rect struct {
 	W, H int
 }
 
-// Plugin is one linked herdr plugin (plugin.list): its id and the directory it runs from.
-type Plugin struct{ ID, Root string }
-
 // layoutAnswer is herdr's answer to pane.layout.
 type layoutAnswer struct {
 	Layout struct {
@@ -1201,27 +1184,4 @@ func (r layoutAnswer) rects() []Rect {
 		out = append(out, Rect{Pane: p.ID, W: p.Rect.W, H: p.Rect.H})
 	}
 	return out
-}
-
-// pluginsAnswer is herdr's answer to plugin.list.
-type pluginsAnswer struct {
-	Plugins *[]struct {
-		ID    string `json:"plugin_id"`
-		OldID string `json:"id"` // an older herdr
-		Root  string `json:"plugin_root"`
-	} `json:"plugins"`
-}
-
-func (r pluginsAnswer) plugins(op string) ([]Plugin, error) {
-	if r.Plugins == nil {
-		return nil, &Error{Kind: BadAnswer, Op: op, Msg: "no plugins in the answer"}
-	}
-	out := make([]Plugin, 0, len(*r.Plugins))
-	for _, p := range *r.Plugins {
-		if p.ID == "" {
-			p.ID = p.OldID
-		}
-		out = append(out, Plugin{ID: p.ID, Root: p.Root})
-	}
-	return out, nil
 }

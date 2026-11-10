@@ -16,7 +16,6 @@ import (
 
 	"obor/internal/config"
 	"obor/internal/herdr"
-	"obor/internal/herdr/herdrtest"
 	"obor/internal/project"
 )
 
@@ -104,13 +103,13 @@ func TestOborInitEndsWithTheSetupTable(t *testing.T) {
 
 // One run sets the whole project up: config (name, prefix), L-01 opus and L-02 sonnet with worktrees, the lead and the
 // integrator opus and (codex on PATH) the example's Codex reviewer, the plugin installed from the kit's marketplace,
-// no herdr plugin linked, four agents in their tabs, serve installed; the summary says each step done, then
+// four agents in their tabs, serve installed; the summary says each step done, then
 // next: obor lead.
 func TestOborInitSetsUpTheProject(t *testing.T) {
 	t.Parallel()
 	x := newGitInitFx(t, true)
-	if x.Exists(".obor/config.json") || len(x.h.Plugins) != 0 {
-		t.Fatal("precondition: no config, no herdr plugin")
+	if x.Exists(".obor/config.json") {
+		t.Fatal("precondition: no config")
 	}
 	out := x.init(t)
 	const ok = "OK init proj (prefix proj); next: first task for the lead: set up the stack and `commands.check` " +
@@ -166,14 +165,6 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 	if got := x.claudeCalls(); got != want {
 		t.Errorf("claude calls:\n%s\nwant:\n%s", got, want)
 	}
-	if len(x.h.Plugins) != 0 {
-		t.Errorf("herdr plugins: %+v, want none (T-1117: serve restarts the panes)", x.h.Plugins)
-	}
-	for _, q := range x.reqs() {
-		if strings.HasPrefix(q, "plugin.link") {
-			t.Errorf("init linked a herdr plugin: %s", q)
-		}
-	}
 	// The fake numbers a new tab's pane n<k> and the tab t<k>.
 	// the worker lanes' panes are labelled and hold no agent (dispatch starts one); role panes run theirs.
 	panes := map[string]string{}
@@ -226,9 +217,6 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 	if reqs := strings.Join(x.reqs(), "\n"); strings.Contains(reqs, "text=obor monitor") || strings.Contains(reqs, "label=system") {
 		t.Errorf("init touched a monitor pane:\n%s", reqs)
 	}
-	if n := strings.Count(strings.Join(x.reqs(), "\n"), "plugin.list"); n != 1 {
-		t.Errorf("plugin.list read %d times, want once for the old plugin's removal (T-1117)", n)
-	}
 	if x.serves != 1 {
 		t.Errorf("serve install called %d times", x.serves)
 	}
@@ -236,9 +224,6 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 		if stateOf(out, st) != "done" {
 			t.Errorf("step %s: %q, want done\n%s", st, summary(out, st), out)
 		}
-	}
-	if summary(out, "events") != "" {
-		t.Errorf("events step %q, want none (T-1117: it only removes the old plugin, without a step)", summary(out, "events"))
 	}
 	if stateOf(out, "commands") != "skipped" {
 		t.Errorf("commands with no build files: %q", summary(out, "commands"))
@@ -613,39 +598,6 @@ func (x *initFx) editConfig(t *testing.T, key []string, val any) {
 		t.Fatal(err)
 	}
 	x.Write(".obor/config.json", string(doc))
-}
-
-// herdr cannot list its plugins. The removal of the obor.events plugin an older obor linked is best
-// effort: init reads the list once, says a WARN and sets the project up all the same, linking and unlinking nothing.
-func TestOborInitWarnsWhenHerdrCannotListPlugins(t *testing.T) {
-	t.Parallel()
-	x := newGitInitFx(t, true)
-	old := x.Path("old-kit/herdr-plugin")
-	x.h.Plugins = []herdrtest.Plugin{{ID: "obor.events", Root: old}}
-	x.srv.Fail("plugin.list", "internal", "boom")
-	out := x.init(t)
-	has(t, out, "WARN events: cannot read herdr's plugin list: herdr plugin.list: failed: boom (internal)", "the list error said")
-	var lists int
-	for _, r := range x.reqs() {
-		if strings.HasPrefix(r, "plugin.list") {
-			lists++
-		}
-		for _, m := range []string{"plugin.link", "plugin.unlink"} {
-			if strings.HasPrefix(r, m) {
-				t.Errorf("init sent %s although it could not list herdr's plugins", r)
-			}
-		}
-	}
-	if lists != 1 {
-		t.Errorf("plugin.list read %d times, want once", lists)
-	}
-	if len(x.h.Plugins) != 1 || x.h.Plugins[0].ID != "obor.events" {
-		t.Errorf("plugins %v after the WARN, want the old link left", x.h.Plugins)
-	}
-	if x.serves != 1 || len(x.agents(t)) != 0 {
-		t.Errorf("the project is set up (serve installs %d, agents %v) despite the WARN", x.serves, x.agents(t))
-	}
-	has(t, out, "hint: obor restarts its panes after a herdr restart: set resume_agents_on_restore = false", "the herdr hint")
 }
 
 // no codex on PATH: the reviewer is opus (the example's reviewer is a Codex type), the summary says so.

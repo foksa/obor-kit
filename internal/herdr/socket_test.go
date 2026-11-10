@@ -959,36 +959,6 @@ func TestSocketPanesLayoutTabs(t *testing.T) {
 	}
 }
 
-func TestSocketPlugins(t *testing.T) {
-	t.Parallel()
-	f := fixture()
-	f.Plugins = []herdrtest.Plugin{{ID: "other", Root: "/o"}, {ID: "obor.events", Root: "/kit/plugin"}}
-	srv := herdrtest.Serve(t, f)
-	c := srv.Client()
-
-	if plugins, err := c.Plugins(ctx); err != nil ||
-		!reflect.DeepEqual(plugins, []herdr.Plugin{{ID: "other", Root: "/o"}, {ID: "obor.events", Root: "/kit/plugin"}}) {
-		t.Errorf("Plugins = %+v, %v; want the fixture's two", plugins, err)
-	}
-	if err := c.UnlinkPlugin(ctx, "obor.events"); err != nil {
-		t.Fatal(err)
-	}
-	if got := lastParams(t, srv, "plugin.unlink"); got != `{"plugin_id":"obor.events"}` {
-		t.Errorf("plugin.unlink params = %s", got)
-	}
-	if plugins, err := c.Plugins(ctx); err != nil || !reflect.DeepEqual(plugins, []herdr.Plugin{{ID: "other", Root: "/o"}}) {
-		t.Errorf("Plugins after the unlink = %+v, %v", plugins, err)
-	}
-	srv.Reply("plugin.list", map[string]any{"type": "plugin_list", "plugins": []any{map[string]any{"id": "old", "plugin_root": "/r"}}})
-	if plugins, err := c.Plugins(ctx); err != nil || !reflect.DeepEqual(plugins, []herdr.Plugin{{ID: "old", Root: "/r"}}) {
-		t.Errorf("Plugins from an older herdr's id = %+v, %v", plugins, err)
-	}
-	srv.Reply("plugin.list", map[string]any{"type": "plugin_list"})
-	if _, err := c.Plugins(ctx); !errors.Is(err, herdr.ErrBadAnswer) {
-		t.Errorf("Plugins with no list = %v, want a bad answer", err)
-	}
-}
-
 func TestSocketPaneInput(t *testing.T) {
 	t.Parallel()
 	f := fixture()

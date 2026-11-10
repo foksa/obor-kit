@@ -29,8 +29,9 @@ package setup
 //	plugin     claude plugin marketplace add <kit>, claude plugin install obor@<the kit's marketplace> --scope
 //	           project (exit codes only, under a timeout); skipped when the project's settings enable it. Before the
 //	           panes: an agent started without the plugin runs without obor's hooks and MCP tools.
-//	events     gone: obor serve restarts its own panes, so init only removes the obor.events plugin an older
-//	           obor linked in herdr (setup herdr-plugin, once): a list error is a WARN, not a step, and never a FAIL.
+//	herdr      serve restarts its own panes after a herdr restart, so herdr must not resume agents: when its
+//	           config.toml does not set `[session] resume_agents_on_restore = false`, the summary says the line to
+//	           add (user-global: it affects every herdr pane; obor never edits that config).
 //	panes      L-01 in a new tab "workers", L-02 and the integrator beside it (the integrator in the caller's tab when
 //	           that is the project's), the reviewer in a new tab "review". A pane held by a trust dialog is
 //	           listed, not fatal: Enter there, then obor init again.
@@ -119,8 +120,6 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 		return err
 	}
 	var hints []string
-	s.hints = &hints
-	defer func() { s.hints = nil }()
 	var steps []step
 	add := func(name, state, format string, a ...any) {
 		steps = append(steps, step{name, state, fmt.Sprintf(format, a...)})
@@ -248,10 +247,10 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	}
 	add("plugin-links", state, "%s", what)
 
-	// obor links no obor.events plugin in herdr (serve restarts its own panes): one removal, best
-	// effort, so a herdr that cannot list its plugins never fails the project's setup; its hint goes to the summary.
-	if _, err := s.removeIntegration(ctx); err != nil {
-		s.say("WARN events: %v", err)
+	// herdr: serve restarts its own panes after a herdr restart, so herdr must not resume agents; herdr's config is
+	// never edited, and its hint goes to the summary.
+	if h := s.T.ResumeHint(); h != "" {
+		hints = append(hints, h)
 	}
 
 	// panes
