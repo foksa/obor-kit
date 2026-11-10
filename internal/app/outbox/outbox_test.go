@@ -33,6 +33,9 @@ func failed(seq int64, via string) event.Record {
 	return fact(0, event.StepFailed, event.FactData{Reason: step + ": refused", Step: step, Via: via})
 }
 
+// noOld is a test's oldOf: an older message has no did key here.
+func noOld(json.RawMessage) event.Of { return event.Of{} }
+
 // lines is o's queued lines as seq → state.
 func lines(o *Outbox) map[int64]State {
 	out := map[int64]State{}
@@ -180,7 +183,7 @@ func TestFold(t *testing.T) {
 			lines:  map[int64]State{1: Waiting, 2: SendingSettled},
 			ended:  Ended{Reply: &Reply{Method: wire.MethodResume}},
 			check: func(t *testing.T, o *Outbox) {
-				o.Fold(deliver(2, event.KindResult, RetiredResult))
+				o.Fold(deliver(2, event.KindResult, RetiredResult), noOld)
 				if got := lines(o); !reflect.DeepEqual(got, map[int64]State{1: Waiting}) {
 					t.Errorf("after the close: lines %v, want T-1's answer alone", got)
 				}
@@ -209,7 +212,7 @@ func TestFold(t *testing.T) {
 				if s := b.Stop(); s.Woke != t0.Add(time.Hour) {
 					t.Errorf("woke %v, want its first wake", s.Woke)
 				}
-				o.Fold(fact(5, event.StepTurned, Turned{To: "pj-rev", Brief: 1}))
+				o.Fold(fact(5, event.StepTurned, Turned{To: "pj-rev", Brief: 1}), noOld)
 				if b.Stop() != nil || !b.Followed() || b.Worked() {
 					t.Errorf("after the turn's start: stop %+v, followed %v, worked %v; want followed, no stop", b.Stop(),
 						b.Followed(), b.Worked())
@@ -241,7 +244,7 @@ func TestFold(t *testing.T) {
 					t.Errorf("brief at %v, want its line's delivery %v", at, t0)
 				}
 				e := o.Fold(fact(9, event.StepMessage, event.Message{To: "pj-lead", Line: "[obor] pj-rev finished",
-					Ends: "pj-rev"}))
+					Ends: "pj-rev"}), noOld)
 				if e.BriefEnd != "pj-rev" || o.Brief("pj-rev") != nil {
 					t.Errorf("ended %q, brief %v; want the brief ended", e.BriefEnd, o.Brief("pj-rev"))
 				}
@@ -272,7 +275,7 @@ func TestFold(t *testing.T) {
 			o := New("pj-lead", "claude")
 			var e Ended
 			for _, r := range c.recs {
-				e = o.Fold(r)
+				e = o.Fold(r, noOld)
 			}
 			if c.settle != "" {
 				o.RetireAnswers(c.settle, 0)
@@ -300,12 +303,30 @@ func TestFold(t *testing.T) {
 	}
 }
 
+// TestFoldOldOf: an older message takes its did key from oldOf; one with its own Of, a brief, or
+// another step never asks.
+func TestFoldOldOf(t *testing.T) {
+	t.Parallel()
+	o := New("pj-lead", "")
+	asked := 0
+	old := func(json.RawMessage) event.Of { asked++; return event.Of{Kind: RuleNeeds, Seq: 5} }
+	if e := o.Fold(fact(1, event.StepMessage, event.Message{To: "pj-lead", Line: "old"}), old); asked != 1 ||
+		e.Of != (event.Of{Kind: RuleNeeds, Seq: 5}) || o.Line(1).Msg().Of != e.Of {
+		t.Fatalf("asked %d, ended %+v, line's Of %+v; want the old key, kept on the line", asked, e.Of, o.Line(1).Msg().Of)
+	}
+	o.Fold(fact(2, event.StepMessage, event.Message{To: "pj-lead", Line: "new", Of: event.Of{Kind: "watch", Seq: 2}}), old)
+	o.Fold(fact(3, event.StepBriefed, event.Message{To: "pj-rev", Line: "b"}), old)
+	if asked != 1 {
+		t.Errorf("oldOf asked %d times, want once (the old message only)", asked)
+	}
+}
+
 // TestStatus: obor status' rows: a brief whose line is queued is not delivered; a line's age and why it waits.
 func TestStatus(t *testing.T) {
 	t.Parallel()
 	o := New("pj-lead", "")
-	o.Fold(fact(1, event.StepBriefed, event.Message{To: "pj-rev", From: "pj-lead", Line: "go"}))
-	o.Fold(fact(2, event.StepBriefed, event.Message{To: "pj-deep"}))
+	o.Fold(fact(1, event.StepBriefed, event.Message{To: "pj-rev", From: "pj-lead", Line: "go"}), noOld)
+	o.Fold(fact(2, event.StepBriefed, event.Message{To: "pj-deep"}), noOld)
 	o.Line(1).Held = "pj-rev is busy"
 	bs := o.BriefStatus()
 	want := []wire.BriefStatus{{To: "pj-deep", Since: t0.Add(2 * time.Second).Unix(), Delivered: true},

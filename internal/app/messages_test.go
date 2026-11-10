@@ -1909,7 +1909,7 @@ func TestLogWorkedTwoPassesAtOnceRecordOneFact(t *testing.T) {
 		agent := "pj-r" + string(rune('a'+i%26)) + string(rune('a'+i/26))
 		data, _ := json.Marshal(event.Message{To: agent}) // a brief without a line, its work seen
 		p.out.Fold(event.Record{Seq: int64(1000 + i), Task: event.MsgTask, Step: event.StepBriefed, Kind: event.KindFact,
-			Data: data})
+			Data: data}, p.oldLineOf)
 		p.out.SawWork(agent)
 		b := p.out.Brief(agent)
 		if b == nil || !b.Worked() || b.Logged() {
@@ -1969,7 +1969,7 @@ func relead(t *testing.T, a *App, p *proj, lead string) {
 		if settles(r) {
 			o.RetireAnswers(r.Task, 0)
 		}
-		o.Fold(r)
+		o.Fold(r, p.oldLineOf)
 	}
 	p.out = o
 }
