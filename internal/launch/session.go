@@ -278,6 +278,19 @@ func (l *Launcher) searchRollout(ctx context.Context, agent, pane, kind, lane st
 	})
 }
 
+// reportResume reports the session a resumed start runs as its agent's session: a repeat of its record (serve records
+// nothing of it and answers the same), which tells serve that the process running the agent is this start's. serve ends
+// the agent's line naming the release of the process the start replaced. A report that fails says so: serve keeps that
+// line until a session request or its next start.
+func (l *Launcher) reportResume(ctx context.Context, s Start) {
+	rec := l.withTask(store.Session{Agent: s.Agent, Kind: s.Kind, ID: s.Resume, Pane: s.Pane, Lane: s.Lane,
+		Source: "launch"})
+	if err := l.report(ctx, rec); err != nil && !wire.Absent(err) {
+		l.say("warning: session %s of %s not reported after its start: %v (serve may still name its last process's "+
+			"release)", s.Resume, s.Agent, err)
+	}
+}
+
 // report records s (Report, else the session request to Cfg.Root's serve).
 func (l *Launcher) report(ctx context.Context, s store.Session) error {
 	if l.Report != nil {

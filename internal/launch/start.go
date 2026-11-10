@@ -32,8 +32,8 @@ type (
 // busyStart). herdr's agent name is neither required nor renamed back (T-952: herdr drops it at times and obor
 // addresses the pane by id). A failed start is a *StartError, herdr's error printed: NoShell when the pane never
 // became its shell, NotReady with a hint when the pane shows a trust dialog or a Codex self-update, or herdr says
-// agent_not_ready. A failed env line is its own error; a failed pane label is a Fail (nothing started). A started fresh start of a kind that reports its session records it
-// (done).
+// agent_not_ready. A failed env line is its own error; a failed pane label is a Fail (nothing started). A start of a
+// kind whose sessions its transcript names reports its session (done).
 func (l *Launcher) Start(ctx context.Context, s Start) error {
 	_, err := l.start(ctx, s)
 	return err
@@ -265,10 +265,16 @@ func (l *Launcher) busyStart(ctx context.Context, s Start, t attempt) (port.Pane
 	return a, true
 }
 
-// done is a start's success path, the one for Start and restart (T-582): a fresh start of a kind that reports its
-// session searches for it (searchRollout: the transcript its process holds open, T-588; a resume reports none).
+// done is a start's success path, the one for Start and restart: a start of a kind whose sessions its transcript names
+// reports the session the agent runs (report). serve records it, and ends its line naming another release than serve's
+// for that agent: the process that runs now is this start's. A resume reports the session it resumed, a repeat serve
+// records nothing of; a fresh start searches for its own (searchRollout: the transcript its process holds open).
 func (l *Launcher) done(ctx context.Context, s Start, a port.Pane) port.Pane {
-	if k, ok := agents.Lookup(s.Kind); s.Resume != "" || !ok || !k.Caps().Sessions {
+	if k, ok := agents.Lookup(s.Kind); !ok || !k.Caps().Sessions {
+		return a
+	}
+	if s.Resume != "" {
+		l.reportResume(ctx, s)
 		return a
 	}
 	l.searchRollout(ctx, s.Agent, s.Pane, s.Kind, s.Lane, s.Prompt != "")

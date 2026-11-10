@@ -97,7 +97,8 @@ type App struct {
 	obs       map[string]*seen // by pane id: every pane of the last snapshot and the events since
 	skews     map[string]bool  // by agent and version: the wire callers whose obor differs from serve's and were logged
 	// behind is, by agent, the obor version its calls carry when that is another release than serve's (version.Release):
-	// Status's skew line. An agent's entry goes when it reports a new session (status.go, noteSkew).
+	// Status's skew line. An agent's entry goes at a start of it — a new process, status.go's started — or at a session
+	// request (a hook's, a plugin's, a start's of the session it runs).
 	behind    map[string]string
 	stopped   bool // Serve has ended: the socket takes no more requests
 	checks    int  // full checks done (a tick's, a connect's), for the tests to wait on
