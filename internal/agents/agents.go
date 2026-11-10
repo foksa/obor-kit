@@ -94,7 +94,8 @@ type Start struct {
 	// wiring. nil: the user's settings as they are (a lead). Each kind applies it its own way (claude: Prepare's
 	// merged settings file; codex: -c features.plugins/features.apps/skills.bundled.enabled false and skills.config
 	// with enabled false per dir of the user's skills dir; opencode: OPENCODE_DISABLE_CLAUDE_CODE_SKILLS hides
-	// ~/.claude/skills and the project's .claude/skills, while .agents/skills stays).
+	// ~/.claude/skills and the project's .claude/skills, while .agents/skills stays, and settings, off.plugins and
+	// off.mcp go into its generated config).
 	Override *Override
 	// Agent is the agent's name, for a kind that writes a state file per agent (claude's settings file); "": none
 	// is named.

@@ -180,9 +180,15 @@ the project or `settings` enables one, and what is not in `settings.json` does n
 rules, skills and the skills Claude syncs from claude.ai (`off.skills` names nothing on Claude). Codex: `-c features.plugins=false -c features.apps=false -c skills.bundled.enabled=false` and
 `-c skills.config=[{name="<skill>",enabled=false},…]` for each dir of the user's skills dir (`$CODEX_HOME` or
 `~/.codex`, `skills/`); a key the project's `.codex/config.toml` sets is left to it. OpenCode:
-`OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` hides `~/.claude/skills` and the project's `.claude/skills`. The trim is best
+`OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` hides `~/.claude/skills` and the project's `.claude/skills`, and the override
+goes into the start's generated config (`OPENCODE_CONFIG`, which OpenCode ranks above the user's config and below the
+project's): `settings` merged in (a `plugins` list added to obor's entry, `mcp.servers.obor` obor's own), `"-<id>"` in
+`plugins` for each plugin of the user's plugins dir (`$XDG_CONFIG_HOME/opencode` or `~/.config/opencode`, `plugins/`)
+whose declared id matches `off.plugins`, and each server of the user's `opencode.json[c]` matching `off.mcp` repeated
+whole with `"disabled": true`; `off.hooks` names nothing (OpenCode's hooks are plugins: `off.plugins`), `off.skills`
+neither. The trim is best
 effort, not a project-only view: Codex's `~/.agents/skills`, and OpenCode's user config, plugins,
-`~/.config/opencode/skills` and `~/.agents/skills`, stay. The project's own settings and skills stay for Claude and
+`~/.config/opencode/skills` and `~/.agents/skills`, stay unless the override names them. The project's own settings and skills stay for Claude and
 Codex; OpenCode keeps the project's `.agents/skills` and `.opencode/skills`, not its `.claude/skills`. A lane's agent
 (a worker, the owner's drive agent) starts strict: `--strict-mcp-config`, with obor's `--mcp-config` spliced in before it,
 so the user's own MCP servers cost no context on a job; the lead and the role agents keep every one of them.
