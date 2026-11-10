@@ -9,10 +9,10 @@ obor spec. Executors: read the plan fully before starting, honor its STOP condit
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
-| [001](improve-001-nightly-race-run.md) | The nightly runs the suite once under the race detector, non-gating | P1 | S | none | TODO |
-| [002](improve-002-web-host-allowlist.md) | obor web answers only to loopback names and `--allow-host` names | P1 | S | none | TODO |
-| [003](improve-003-contract-docs-drift.md) | `docs/module-map.md` and `AGENTS.md` say what the code is today | P2 | S | none | TODO |
-| [004](improve-004-linux-decision.md) | Decide Linux: run the suite there once, then test it or stop claiming it | P3 | S-M | none | TODO |
+| [001](improve-001-nightly-race-run.md) | The nightly runs the suite once under the race detector, non-gating | P1 | S | none | DONE (T-1169, 2ecee62) |
+| [002](improve-002-web-host-allowlist.md) | obor web answers only to loopback names and `--allow-host` names | P1 | S | none | DONE (T-1170, 2ecee62) |
+| [003](improve-003-contract-docs-drift.md) | `docs/module-map.md` and `AGENTS.md` say what the code is today | P2 | S | none | DONE (T-1171, 2ecee62) |
+| [004](improve-004-linux-decision.md) | Decide Linux: run the suite there once, then test it or stop claiming it | P3 | S-M | none | DONE (decided: stop claiming Linux, T-1172) |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 
