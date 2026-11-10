@@ -32,6 +32,12 @@ func New(opt Options, panes port.Panes, lanes port.Lanes) *App {
 	if opt.RetryMax < opt.Retry {
 		opt.RetryMax = max(5*time.Second, opt.Retry)
 	}
+	if opt.StepRetry <= 0 {
+		opt.StepRetry = 5 * time.Second
+	}
+	if opt.StepRetryMax < opt.StepRetry {
+		opt.StepRetryMax = max(time.Minute, opt.StepRetry)
+	}
 	if opt.Now == nil {
 		opt.Now = time.Now
 	}

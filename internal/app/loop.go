@@ -390,6 +390,9 @@ func (a *App) recordIn(p *proj, r event.Record, data any) (int64, bool) {
 	was := p.taskEnded(r.Task)
 	p.foldRecord(r)
 	a.endTaskLogs(p, r.Task, was) // a merged or dropped fact, or an outside merge that needs none, ends it
+	if r.Kind == event.KindFact {
+		p.cutEndFact(r)
+	}
 	if r.Kind == event.KindFact && (r.Step == event.StepMerged || r.Step == event.StepDropped) {
 		a.settleEnded(p, r.Task) // the task ended: its pending intents never run
 	}
@@ -409,7 +412,8 @@ func (a *App) recordIn(p *proj, r event.Record, data any) (int64, bool) {
 //
 // The failure rule (every merge-loop effect; the table in docs/state-model.md "Crash classes"): an effect returns a
 // result only for an outcome final for its step. Anything else is an error: no result, the step stays pending and is
-// tried again on the next pass; failed counts it, and after tries counted failures the owner is told.
+// tried again on the next pass; failed counts it, and after tries counted failures the owner is told. An attempt that
+// is not counted while serve runs is tried again only after a delay (uncounted).
 //
 // An effect that ran and whose result's write failed is never run again in this process: the next call writes the
 // result it had (p.unwritten). A restart has only the log: the intent's crash class settles it.
@@ -438,6 +442,7 @@ func (a *App) do(ctx context.Context, p *proj, in event.Intent, effect func(cont
 		if r, err = a.doFinish(p, in, v, err); err != nil {
 			return nil, err
 		}
+		p.cutEnd(in.Key)
 		was := p.taskEnded(r.Task)
 		p.foldRecord(r)               // its append and this fold are one section: the live fold order is the log's
 		a.endTaskLogs(p, r.Task, was) // the last after-merge step's result ends a merged task
@@ -500,9 +505,9 @@ func (a *App) doFinish(p *proj, in event.Intent, v any, err error) (event.Record
 	return r, err
 }
 
-// cutByServe: err is serve's own cancellation (its ctx ended: a restart, a stop), so the effect was cut off, not
-// failed: nothing is recorded as a failure or needs-you, and the intent stays pending for the next serve's
-// replay, as after a crash.
+// cutByServe: err is a cancellation, serve's own (its ctx ended: a restart, a stop) or the effect's, so the effect
+// was cut off, not failed: nothing is recorded as a failure or needs-you, and the intent stays pending, for the next
+// serve's replay as after a crash, or for a later try (uncounted).
 func cutByServe(ctx context.Context, err error) bool {
 	return ctx.Err() != nil || errors.Is(err, context.Canceled)
 }
@@ -516,20 +521,21 @@ func (a *App) shutDown(what string) {
 // failed counts err, the failure of mt's step (the failure rule: do): fact failed{step: why}, so a restart keeps the
 // count. The tries-th is needs-you{<step> failed: why}; while it is in force the step is not tried, and obor resume
 // ends it and the count. An attempt cut off by ctx or by the loss of the herdr connection is not counted, nor herdr's
-// agent_not_found within startSettle of the start of mt's agent (herdr may not know a new agent's name yet). The task
-// waits either way.
+// agent_not_found within startSettle of the start of mt's agent (herdr may not know a new agent's name yet): while
+// serve runs the step then waits before its next try (uncounted). The task waits either way.
 func (a *App) failed(ctx context.Context, p *proj, mt mtask, step string, err error) bool {
-	if cutByServe(ctx, err) { // serve is stopping: the step was cut, not failed
-		a.shutDown(mt.task + " " + event.StepFailed + "{" + step + ": " + err.Error() + "}")
-		return false
-	}
 	a.mu.Lock()
-	cut := !a.connected || a.p != p
+	cut := cutByServe(ctx, err) || !a.connected || a.p != p
 	a.mu.Unlock()
 	if port.ErrorCode(err) == "agent_not_found" && !mt.startAt.IsZero() && a.opt.Now().Sub(mt.startAt) < startSettle {
 		cut = true
 	}
-	if cut || !a.record(p, event.Record{Task: mt.task, Attempt: mt.attempt, Step: event.StepFailed, Kind: event.KindFact},
+	if cut { // the step was cut, not failed
+		a.uncounted(ctx, p, event.Key{Task: mt.task, Attempt: mt.attempt, Step: step},
+			mt.task+" "+event.StepFailed+"{"+step+": "+err.Error()+"}")
+		return false
+	}
+	if !a.record(p, event.Record{Task: mt.task, Attempt: mt.attempt, Step: event.StepFailed, Kind: event.KindFact},
 		event.FactData{Lane: mt.lane, Machine: Machine, Reason: step + ": " + err.Error(), Merge: true, Step: step}) {
 		return false
 	}
@@ -650,6 +656,9 @@ type step func(ctx context.Context, fx *Loop) bool
 // and a drop is refused meanwhile. Drop decides under the same lock (App.drop), so no effect starts after DROPPED, and
 // none is still starting when DROPPED is returned.
 func (a *App) next(p *proj, m *mtask) step {
+	if !m.needs.due() && p.taskCutWaits(m.task) {
+		return nil // a step of it waits after an uncounted attempt (a due needs-you is recorded all the same)
+	}
 	s := a.pick(p, m)
 	if s == nil {
 		return nil
