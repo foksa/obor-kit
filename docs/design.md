@@ -159,10 +159,9 @@ kind's base args (claude `--permission-mode auto`; codex `-s workspace-write -a 
 `--auto --standalone`), the model, then `agents.kinds.<kind>.args`; the effort is the kind's own flag,
 refused when the kind does not take it.
 `lanes.count` is a count: L-01 … L-NN, every lane pooled (it runs the model its dispatch picks); `lanes.list` names
-the lanes instead (each `{name, keep_agent}`). There are no caps. A config with
-a key obor does not know (`lane_types`, `lanes` as an object of typed lanes, role objects) is
-just invalid: `obor config validate` names the unknown key and says "this config predates v0.23: migrate it with obor
-v0.24 (`obor setup migrate`), then upgrade".
+the lanes instead (each `{name, keep_agent}`). There are no caps. A key obor does not know (`lane_types`, `lanes` as
+an object of typed lanes, role objects) is dropped with a WARN by every command and serve (its setting does not apply);
+`obor config validate` alone fails, naming the key: delete it from the file it names.
 
 Per-kind defaults live in the plugin: Claude `--settings '{"autoMemoryEnabled":false,"remoteControlAtStartup":false}'`
 for every agent except leads (only the lead keeps Remote Control and auto memory). A lane's agent (a
