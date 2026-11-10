@@ -112,7 +112,7 @@ func (r leadRun) run(ctx context.Context, args []string) int {
 }
 
 // leadOurs: the running agent with cwd is this project's lead, by the launcher's ownership rule (agent names are
-// machine-wide): its cwd in the main checkout, a lanes_dir worktree, the lead's configured cwd or
+// machine-wide): its cwd in the main checkout, a lanes.dir worktree, the lead's configured cwd or
 // another worktree of this repository. No cwd known: yes.
 func leadOurs(cfg *config.Config, agent, cwd string) bool {
 	if cwd == "" || project.LabelOurs(cfg, agent, cwd, "") {

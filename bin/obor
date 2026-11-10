@@ -43,7 +43,7 @@ self_host() {
   OBOR_SELF_HOSTED=1 exec "$BASH" "$root/bin/obor" "$@"
 }
 
-# usage: the shim's own lines; the commands are the binary's list (`obor help`, T-854: bin/go-commands is only what the
+# usage: the shim's own lines; the commands are the binary's list (`obor help`: bin/go-commands is only what the
 # shim passes on).
 usage() {
   echo "usage: obor <subcommand> [args…]"
@@ -77,8 +77,8 @@ run() {
   OBOR_VERSION_SOURCE="$src" exec "$binary" "$@"
 }
 
-# kind_assets: the kind binaries the catalog lists for this version and platform (obor-kind-<name>-<ver>-<os>-<arch>,
-# T-1046: obor runs them from beside its own binary), one per line.
+# kind_assets: the kind binaries the catalog lists for this version and platform (obor-kind-<name>-<ver>-<os>-<arch>:
+# obor runs them from beside its own binary), one per line.
 kind_assets() {
   [ -f "$OBOR_PLUGIN_ROOT/bin/checksums.txt" ] || return 0
   awk -v tail="-$ver-$os-$arch" '{ n = $2; sub(/^dist\//, "", n) }
@@ -164,7 +164,7 @@ binary_version() {
 }
 
 # prune_old: after a fetch, remove the release and kind binaries of every version but the kit's and the one fetched
-# before it (the most recent other version's files: the previous kit, kept for a rollback, T-1093). Best effort: a
+# before it (the most recent other version's files: the previous kit, kept for a rollback). Best effort: a
 # failed remove never fails the command, and nothing that is not an obor release or kind binary is touched.
 prune_old() {
   local dir prev f name v versions
@@ -182,9 +182,9 @@ prune_old() {
 }
 
 # has_hook <binary> <name>: `<binary> has hook <name>` exits 0 within OBOR_HOOK_TIMEOUT seconds (default 2; tests set
-# 1; T-195: a stale dist/obor broke every hook; RV-22 #1: a hanging one must not hang them). On expiry the watchdog
-# kills it. No job control (T-279: where setpgid is refused, `set -m` printed to stderr and the group kill missed): a
-# simple background command is the binary's own pid.
+# 1; a stale or hanging binary must not hang a hook). On expiry the watchdog kills it. No job control (where
+# setpgid is refused, `set -m` writes to stderr and the group kill misses): a simple background command is the
+# binary's own pid.
 # The watchdog sleeps in the background and waits, so a TERM ends it at once, its sleep with it.
 has_hook() {
   local pid watchdog rc=0 timeout=${OBOR_HOOK_TIMEOUT:-2}
@@ -206,7 +206,7 @@ has_hook() {
 }
 
 # in_project <event json>: the event's cwd is in an obor project (.obor/config.json in its main checkout) that is not
-# stopped (obor stop, T-709: .obor/state/stopped).
+# stopped (obor stop: .obor/state/stopped).
 in_project() {
   local cwd root
   cwd=$(jq -r '.cwd // empty' <<< "$1" 2> /dev/null) || return 1
@@ -214,13 +214,13 @@ in_project() {
   root=$(main_checkout "$cwd") && [ -f "$root/.obor/config.json" ] && [ ! -f "$root/.obor/state/stopped" ]
 }
 
-# hook <name>: run `obor hook <name>` on the first usable binary. None (missing, stale, hanging; user decision T-201:
-# fail visibly) in an obor project: pre-tool-use denies Bash / Edit / Write / MultiEdit / NotebookEdit with the repair
+# hook <name>: run `obor hook <name>` on the first usable binary. None (missing, stale, hanging; fail visibly) in an
+# obor project: pre-tool-use denies Bash / Edit / Write / MultiEdit / NotebookEdit with the repair
 # hint, except the command that repairs it (exactly `make -C <kit> build`, or `make build` with cwd = the kit); the
 # other hooks allow with the hint on stderr. Outside an obor project: allow, silent.
 hook() {
   local name=${1:-} binary input tool cmd cwd hint
-  # Kit-owned caller: every obor the binary runs uses this plugin root, not the cwd's checkout (T-221).
+  # Kit-owned caller: every obor the binary runs uses this plugin root, not the cwd's checkout.
   export OBOR_NO_SELF_HOST=1
   if [ -x "$OBOR_PLUGIN_ROOT/dist/obor" ] && has_hook "$OBOR_PLUGIN_ROOT/dist/obor" "$name"; then
     run "$OBOR_PLUGIN_ROOT/dist/obor" "dev build" hook "$@"

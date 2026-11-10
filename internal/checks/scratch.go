@@ -17,7 +17,7 @@ import (
 )
 
 // Scratch is obor serve's merge gate over git (port.Scratch). It works in
-// serve's own worktree, <lanes_dir>/merge, which only obor serve writes: every gate starts by resetting it, so there
+// serve's own worktree, <lanes.dir>/merge, which only obor serve writes: every gate starts by resetting it, so there
 // is no merge window, no lock and no ownership proof. Each step is a function of its inputs (shas the
 // app records, the pins under refs/obor/), never of the worktree's state. An outcome is final for its step; an error
 // is "not decided": the app runs the step again. Every git call ends with the method's ctx (killed with its process
@@ -51,7 +51,7 @@ var rerere = []string{"-c", "rerere.enabled=true", "-c", "rerere.autoupdate=true
 // Submit commits the lane's uncommitted work ("<task>: <summary>") and pins the lane's HEAD at
 // refs/obor/submitted/<task>/<id>. A pin there is this submit's result already: it is returned, nothing touched (a
 // later worker commit stays out). A cut between the commit and the pin reads HEAD again (a residual race). The commit
-// passes --no-verify: the project's checking step is commands.check, not its commit hooks (prepare-commit-msg
+// passes --no-verify: the project's checking step is merge.check, not its commit hooks (prepare-commit-msg
 // still runs).
 func (s Scratch) Submit(ctx context.Context, task, id, lane, summary string) (string, error) {
 	s.gitCtx = ctx
@@ -719,7 +719,7 @@ func afterMergeWarn(o output) string {
 }
 
 // Landed: the target holds merge evidence of task (a merge outside the app); an error: git could not read its log.
-// MergeEvidenceBy reads HEAD's log: here it reads branches.main's, whatever the main checkout is on.
+// MergeEvidenceBy reads HEAD's log: here it reads merge.target_branch's, whatever the main checkout is on.
 func (s Scratch) Landed(ctx context.Context, task string) (bool, error) {
 	s.gitCtx = ctx
 	g := s.gio()
@@ -760,7 +760,7 @@ func (s Scratch) dropFlatPin(g gitIO, task string) error {
 	return g.DeleteRef(submittedRefs + task)
 }
 
-// dir is serve's worktree, <lanes_dir>/merge.
+// dir is serve's worktree, <lanes.dir>/merge.
 func (s Scratch) dir() string {
 	return s.Cfg.ScratchDir()
 }
@@ -785,7 +785,7 @@ func (s Scratch) worktree(dir, target string) error {
 	return nil
 }
 
-// target is branches.main and the sha it is at, whatever the main checkout has checked out.
+// target is merge.target_branch and the sha it is at, whatever the main checkout has checked out.
 func (s Scratch) target(g gitReader) (branch, head string, err error) {
 	branch = s.Cfg.MainBranch()
 	head, err = g.Rev(s.Cfg.Root, "refs/heads/"+branch)

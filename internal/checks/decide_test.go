@@ -555,7 +555,7 @@ func TestGateDecisions(t *testing.T) {
 		k.eq(fmt.Sprintf("%+v", k.green(lane(sha))), fmt.Sprintf("%+v", want), "the same candidate")
 		k.eq(strings.Join(k.g.writeCalls()[:2], "|"), "Reset "+k.serve()+" main0|Clean "+k.serve(), "reset and cleaned first")
 	})
-	t.Run("the target is branches.main, whatever the main checkout has checked out", func(t *testing.T) {
+	t.Run("the target is merge.target_branch, whatever the main checkout has checked out", func(t *testing.T) {
 		t.Parallel()
 		k := newFk(t)
 		k.g.branch[k.Root], k.g.refs["refs/heads/side"] = "side", "side1"
@@ -673,7 +673,7 @@ func TestResolvedDecisions(t *testing.T) {
 }
 
 // Publish: merged (fast-forward, unpin), already (a repeat), moved (the target moved: nothing written, the candidate
-// pinned), hold (a dirty merged file: nothing written); off branches.main an error before any write; a refused
+// pinned), hold (a dirty merged file: nothing written); off merge.target_branch an error before any write; a refused
 // fast-forward is its error, unless the target moved meanwhile (moved then).
 func TestPublishDecisions(t *testing.T) {
 	t.Parallel()
@@ -718,7 +718,7 @@ func TestPublishDecisions(t *testing.T) {
 		k.eq(publish(k, c), "hold  [feature.txt] <nil>", "hold")
 		k.eq(strings.Join(k.g.writeCalls(), "|"), "", "nothing written")
 	})
-	t.Run("the main checkout off branches.main: an error, nothing written", func(t *testing.T) {
+	t.Run("the main checkout off merge.target_branch: an error, nothing written", func(t *testing.T) {
 		t.Parallel()
 		k, c := setup(t)
 		k.g.branch[k.Root], k.g.refs["refs/heads/side"] = "side", "main0"
@@ -818,7 +818,7 @@ func TestAfterMergeDecisions(t *testing.T) {
 	}
 }
 
-// Landed reads branches.main's log (HEAD in MergeEvidenceBy's call), whatever the main checkout has checked out; a
+// Landed reads merge.target_branch's log (HEAD in MergeEvidenceBy's call), whatever the main checkout has checked out; a
 // merge subject is evidence and so is a "<id>:" commit; a log git cannot read is Landed's error.
 func TestLandedDecisions(t *testing.T) {
 	t.Parallel()

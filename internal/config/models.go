@@ -54,8 +54,7 @@ type KindEntry struct {
 func (c *Config) Kind(name string) KindEntry { return c.Data.Agents.Kinds.M[name] }
 
 // KitKinds are the plugin kinds the kit ships, by name: the binary each runs as, beside obor's own (KitKind).
-// A config naming no agents.kinds.<name>.plugin for one runs the kit's binary (the v0.32 default, permanent);
-// setting the line still overrides.
+// A config naming no agents.kinds.<name>.plugin for one runs the kit's binary; setting the line overrides it.
 var KitKinds = map[string]string{"opencode": "obor-kind-opencode"}
 
 // KindCommand is agents.kinds.<name>.plugin as a path ("": name is no plugin kind of this config): the name of a

@@ -26,7 +26,7 @@ type Record struct {
 	Attempt int             `json:"attempt"`
 	Step    string          `json:"step"`
 	Kind    string          `json:"kind"`            // intent, result or fact
-	Class   string          `json:"class,omitempty"` // an intent's crash class: F, S or G; a prompt's: prompt (older logs: P)
+	Class   string          `json:"class,omitempty"` // an intent's crash class: F, S or G; a prompt's: prompt
 	Data    json.RawMessage `json:"data,omitempty"`
 }
 
@@ -37,7 +37,7 @@ const (
 	KindResult = "result"
 
 	ClassFact   = "F"      // pure fact
-	ClassPrompt = "prompt" // agent.prompt: no crash class, sent again by the step that reaches it (older logs: "P")
+	ClassPrompt = "prompt" // agent.prompt: no crash class, sent again by the step that reaches it
 	ClassStart  = "S"      // start/stop, checked via the snapshot
 	ClassGit    = "G"      // git effect, checked via ancestry
 
@@ -162,8 +162,8 @@ func ReadLog(root string) ([]Record, error) {
 	return records(db)
 }
 
-// Dump writes root's event log as the JSONL serve wrote before phase 3, one record per line (`obor serve dump`: a
-// rollback's events.jsonl).
+// Dump writes root's event log as JSONL, one record per line (`obor serve dump`: the events.jsonl a rollback's
+// serve reads).
 func Dump(w io.Writer, root string) error {
 	recs, err := ReadLog(root)
 	if err != nil {

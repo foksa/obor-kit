@@ -200,8 +200,7 @@ func seed(runs map[string]Run) File {
 
 // seeded is -seed's file, ready to write: with names, the measured entries merged into tests/budget.json, every other
 // entry kept byte for byte; with none, the whole measurement: a package with no tests any more is
-// dropped. The per-test caps and untagged_s an older tests/budget.json carried are not carried over: they measured a
-// tier the suite does not have.
+// dropped. Each entry is a package's wall time and git processes; the file has no per-test tier.
 func seeded(root string, named []string, runs map[string]Run) ([]byte, error) {
 	measured := seed(runs)
 	if len(named) == 0 {
@@ -242,9 +241,8 @@ func marshal(v any) ([]byte, error) {
 }
 
 // seedFile is -seed's write: the measured entries into tests/budget.json, through a temp file in the
-// same dir and a rename, so the old file stays on any error. named are the packages to write; none is the whole
-// measurement. A run that did not pass is no measurement and writes nothing; before, the Makefile's redirect truncated
-// the file before seeded could read its caps.
+// same dir and a rename, so the file stays on any error. named are the packages to write; none is the whole
+// measurement. A run that did not pass is no measurement and writes nothing.
 func seedFile(root string, named []string, runs map[string]Run) error {
 	var failed []string
 	for pkg, run := range runs {

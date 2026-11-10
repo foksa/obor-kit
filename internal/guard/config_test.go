@@ -14,7 +14,7 @@ var brokenConfigs = []struct {
 	name, file, text string
 }{
 	{"a syntax error in config.json", ".obor/config.json", `{"version": 1,`},
-	{"a syntax error in local.json", ".obor/local.json", `{"lanes_dir": `},
+	{"a syntax error in local.json", ".obor/local.json", `{"lanes.dir": `},
 	{"a type error", ".obor/local.json", `{"nightly": {"at": 5}}`}, // shape 2, as the fixture's config.json
 }
 
@@ -62,7 +62,7 @@ func TestConfigUnreadableFailsClosed(t *testing.T) {
 				bash("worker", L, "git status && git diff && obor config validate", ""),
 				edit("worker", L, "Write", scratch, ""),
 				bash("worker", L, "echo x > "+scratch, ""),
-				edit("-", L, "Edit", L+"/src/a/x.go", why), // a worker by its cwd, on the default lanes_dir
+				edit("-", L, "Edit", L+"/src/a/x.go", why), // a worker by its cwd, on the default lanes.dir
 				edit("integrator", P, "Edit", P+"/README.md", why),
 				bash("integrator", P, "git merge task/T-01", why),
 				edit("reviewer", P, "Write", P+"/docs/reviews/RV-1.md", why),

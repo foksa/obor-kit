@@ -16,7 +16,7 @@ import (
 )
 
 // NewPlain is NewDir plus the shape of a repository project.Find reads as files: <root>/.git is the common dir, and
-// every built-in role worktree (<lanes_dir>/<role>) is a linked worktree, so a launcher that would add one has
+// every built-in role worktree (<lanes.dir>/<role>) is a linked worktree, so a launcher that would add one has
 // nothing to run. Use Worktree (or PlainLane) for the lanes.
 func NewPlain(t testing.TB) *Project {
 	t.Helper()

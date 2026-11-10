@@ -405,7 +405,7 @@ func (x *fx) clean(what string) {
 // change writes a new worker change into lane L-01.
 func (x *fx) change(name, text string) { x.Write(filepath.Join(x.lane, name), text+"\n") }
 
-// nightlyDir is nightly's own worktree, <lanes_dir>/merge-nightly.
+// nightlyDir is nightly's own worktree, <lanes.dir>/merge-nightly.
 func (x *fx) nightlyDir() string { return x.scratch + "-nightly" }
 
 // window is .obor/state/nightly.flock, the nightly lock.

@@ -82,7 +82,7 @@ func countStep(t *testing.T, h *harness, step string) int {
 // the deep dive working holds no merge. A role's start is not admitted (it
 // reads the head once); the publish admission is config_set's only.
 
-// admitCfg is seedRoles' config with paths.reviews.
+// admitCfg is seedRoles' config with reviews.dir.
 const admitCfg = `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{"roles":{"integrator":"","reviewer":"","deep_dive":""}},"reviews":{"dir":"reviews"}}`
 
 // seedRoles is seedSched's project with a reviewer (pane w1:rev) and a deep dive (pane w1:dd), both idle in their
@@ -160,7 +160,7 @@ func (s *gatedScratch) Publish(_ context.Context, c port.Candidate) (port.Publis
 }
 
 // admitRig is seedRoles' project (T-1 accepted, candidate candidate1; reviewer pj-rev and deep dive pj-deep-dive idle)
-// with paths.reviews, RV-5 open (its file written in the main checkout), its review git (head base1) and a gated publish.
+// with reviews.dir, RV-5 open (its file written in the main checkout), its review git (head base1) and a gated publish.
 type admitRig struct {
 	h      *harness
 	git    *reviewGitFake
@@ -1071,7 +1071,7 @@ var PickLane = pickLane
 // branch is its head) and records the role worktrees it detached and the closes it committed. A test's own fake of one part is combined with it by WorkflowOf.
 type FakeWorkflow struct {
 	Dir    string // serve's worktree, the one a conflict names (nothing is written there)
-	Checks string // a green lane test's checks summary ("": "rc=0", commands.check ran)
+	Checks string // a green lane test's checks summary ("": "rc=0", merge.check ran)
 
 	Submits, Gates, Tests, Publishes, AfterMerges atomic.Int32 // calls, a failed one too
 
@@ -2926,7 +2926,7 @@ func (s *agentsSpy) Launch(_ context.Context, l port.Launch) (port.Started, erro
 
 func (s *agentsSpy) Stop(context.Context, string, string, bool) (string, error) { return "", nil }
 
-// reviewRig is a merging project with a reviewer pj-rev (idle, worktree review), paths.reviews and git and agent fakes.
+// reviewRig is a merging project with a reviewer pj-rev (idle, worktree review), reviews.dir and git and agent fakes.
 type reviewRig struct {
 	t      *testing.T
 	a      *App

@@ -42,7 +42,7 @@ type Slots struct {
 	After func(time.Duration) <-chan time.Time
 }
 
-// DefaultBlockMax is how long a live merge marker blocks a check (slots.merge_block_max's old default).
+// DefaultBlockMax is how long a live merge marker blocks a check.
 const DefaultBlockMax = 900 * time.Second
 
 // SlotsFor reads the slot settings: env CHECK_SLOT_DIR / CHECK_SLOTS / CHECK_PROJECT, else slots.dir / slots.max /

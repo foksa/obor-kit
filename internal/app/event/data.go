@@ -21,7 +21,7 @@ type Pause struct {
 
 // ConfigSet is a setup edit's fact data: its changes (each key with its value before and after), who
 // made them and where (owner, web), their one commit on the main branch, and the call that recorded it with its reply.
-// An older record is one change, as key, old and new at the top: only Call and Reply are folded.
+// Only Call and Reply are folded.
 type ConfigSet struct {
 	Changes []ConfigSetChange `json:"changes"`
 	By      string            `json:"by"`
@@ -89,7 +89,7 @@ func RecordTime(r Record) time.Time {
 }
 
 // Merge is one merged fact of the merge loop's (a merge outside the app has no sha and is none): its task, sha and
-// time (an older log's "full" is not read).
+// time.
 type Merge struct {
 	Task, SHA string
 	At        time.Time

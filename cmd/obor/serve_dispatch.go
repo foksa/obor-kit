@@ -10,7 +10,7 @@ import (
 )
 
 // dispatchLoop sets l up for dispatch as state: the spec reader and the obor kit (the lanes and the target are the
-// workflow's). The merge loop does not pause while the main checkout is off branches.main (the review close, its
+// workflow's). The merge loop does not pause while the main checkout is off merge.target_branch (the review close, its
 // last reader, refuses on its own).
 func dispatchLoop(l *app.Loop, env project.Env, cfg *config.Config) {
 	l.Specs = specs{cfg: cfg, env: env}

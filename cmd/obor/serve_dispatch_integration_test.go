@@ -51,7 +51,7 @@ func TestSpecs(t *testing.T) {
 
 }
 
-// the dispatch target is branches.main's sha whatever the main checkout has checked out (another
+// the dispatch target is merge.target_branch's sha whatever the main checkout has checked out (another
 // branch, a detached HEAD); the merge loop does not pause off it (no Checkout).
 func TestDispatchTargetOffBranch(t *testing.T) {
 	t.Parallel()

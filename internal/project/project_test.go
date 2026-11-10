@@ -318,10 +318,10 @@ func TestDetectRoleCwdEnvAndLanes(t *testing.T) {
 	if got := role(t, filepath.Join(wt, "L-01")); got != (Role{"worker", "L-01", "cwd"}) {
 		t.Errorf("lane: %+v", got)
 	}
-	// no name under lanes_dir is reserved for a role worktree (a leftover review worktree is a
+	// no name under lanes.dir is reserved for a role worktree (a leftover review worktree is a
 	// lane of that name).
 	if got := role(t, filepath.Join(wt, "review")); got != (Role{"worker", "review", "cwd"}) {
-		t.Errorf("leftover worktree under lanes_dir: %+v", got)
+		t.Errorf("leftover worktree under lanes.dir: %+v", got)
 	}
 	if got := role(t, filepath.Join(wt, "merge")); got != (Role{"none", "", "none"}) {
 		t.Errorf("merge scratch: %+v", got)

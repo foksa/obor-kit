@@ -29,16 +29,16 @@ none of this replaces the task, and "nothing to flag" needs no line.
   2026-11-05, with `github.com/google/jsonschema-go` for the tools' schemas). One static binary
   (`make build` → `dist/obor`), and beside it each plugin kind the kit ships as its own (`dist/obor-kind-opencode`,
   `kinds/opencode`); `bin/obor` is the only bash (bash 3.2 compatible, macOS).
-- Runtime deps: **git, herdr, jq** (jq only in the `bin/obor` shim) + the binary. No python, node or bun in shipped code; the mods are TypeScript run by
-  Claude Code itself.
+- Runtime deps: **git, herdr, jq** (jq only in the `bin/obor` shim) + the binary. No python, node or bun in shipped
+  code.
 - Timeouts through `context`; processes that may leave children run as a process group (`run.Group`).
 - Hooks: fast, no network, never block on herdr; no-op outside an obor project (no `.obor/config.json`).
 
 ## Layout
 `.claude-plugin/plugin.json` · `skills/` · `hooks/hooks.json` · `bin/obor` (the one bash shim) · `cmd/obor/` +
-`internal/` (Go) · `githooks/` · `mods/` · `templates/` · `tests/` · `docs/` (this repo's own process;
-your spec comes in your first prompt (`obor spec show T-xx`) — edit only in your lane; no per-file list is enforced: the integrator
-checks placement against `docs/module-map.md` at accept).
+`internal/` (Go) · `kinds/opencode/` (the kind's own binary) · `githooks/` · `templates/` · `tests/` · `docs/`
+(this repo's own process; your spec comes in your first prompt (`obor spec show T-xx`) — edit only in your lane;
+no per-file list is enforced: the integrator checks placement against `docs/module-map.md` at accept).
 
 ## Helpers
 - One owner per helper: grep `internal/` for a twin before writing one. No line-count targets: simpler, not shorter.

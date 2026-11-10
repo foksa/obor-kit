@@ -15,7 +15,7 @@ import (
 )
 
 // obor init in a fresh project leaves .claude/settings.json untracked in the main checkout; the lanes
-// are worktrees, so init links it (lane_links, .gitignore) and each lane sees the enabled plugin. A rerun changes
+// are worktrees, so init links it (lanes.links, .gitignore) and each lane sees the enabled plugin. A rerun changes
 // nothing.
 func TestOborInitLinksThePluginIntoTheLanes(t *testing.T) {
 	t.Parallel()
@@ -38,7 +38,7 @@ func TestOborInitLinksThePluginIntoTheLanes(t *testing.T) {
 		}
 	}
 	if got := cfg.Data.Lanes.Links; len(got) != 1 || got[0] != ".claude/settings.json" {
-		t.Errorf("lane_links = %q, want [.claude/settings.json]", got)
+		t.Errorf("lanes.links = %q, want [.claude/settings.json]", got)
 	}
 	if !strings.Contains(x.Read(".gitignore"), "\n.claude/settings.json\n") {
 		t.Errorf(".gitignore lacks the link:\n%s", x.Read(".gitignore"))
@@ -92,7 +92,7 @@ func TestOborInitLeavesATrackedSettingsFileToGit(t *testing.T) {
 	out := x.init(t)
 	cfg, _ := config.Load(x.Root)
 	if len(cfg.Data.Lanes.Links) != 0 || stateOf(out, "plugin-links") != "already" {
-		t.Errorf("lane_links %q, plugin-links %q; want none, already", cfg.Data.Lanes.Links, summary(out, "plugin-links"))
+		t.Errorf("lanes.links %q, plugin-links %q; want none, already", cfg.Data.Lanes.Links, summary(out, "plugin-links"))
 	}
 	if !config.PluginEnabledIn(filepath.Join(cfg.LanesDir(), "L-01")) {
 		t.Error("L-01 does not get the tracked file from git")

@@ -109,7 +109,7 @@ func TestWhoamiDeepDiveAndLead(t *testing.T) {
 		t.Errorf("a worker's lane line is missing: %q", text)
 	}
 	dd := p.PlainLane("deep-dive", "")
-	// no role worktree is reserved under lanes_dir; the deep-dive worktree is a lane and its cwd wins
+	// no role worktree is reserved under lanes.dir; the deep-dive worktree is a lane and its cwd wins
 	// over OBOR_ROLE.
 	if text, _ := whoamiIn(t, dd, "OBOR_ROLE=deep_dive", "OBOR_AGENT=pj-deep-dive"); !strings.Contains(text, "role: worker\n") ||
 		!strings.Contains(text, "lane: deep-dive\n") || !strings.Contains(text, "source: env+cwd\n") {

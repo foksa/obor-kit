@@ -139,7 +139,7 @@ func (l Lane) git(ctx context.Context, dir string, args ...string) (string, erro
 	return strings.TrimSpace(string(out)), err
 }
 
-// LaneSetup: a lane that fails commands.lane_ready gets commands.lane_setup, and must pass lane_ready after.
+// LaneSetup: a lane that fails lanes.ready gets lanes.setup, and must pass lane_ready after.
 // No lane_ready: nothing runs. Its errors are final (port.Refused in Lane.Prepare). Every command runs under ctx
 // a canceled prepare ends it with its process group.
 func LaneSetup(ctx context.Context, cfg *config.Config, lane, dir string, w io.Writer) error {
@@ -152,19 +152,19 @@ func LaneSetup(ctx context.Context, cfg *config.Config, lane, dir string, w io.W
 	}
 	setup, ok := herdrun.Command(cfg, "lane_setup")
 	if !ok {
-		return project.Failf("lane_setup in %s: commands.lane_ready fails and commands.lane_setup is not set", lane)
+		return project.Failf("lane_setup in %s: lanes.ready fails and lanes.setup is not set", lane)
 	}
 	if rc, text := runIn(ctx, dir, setup); rc != 0 {
 		lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
 		return project.Failf("lane_setup in %s: rc %d: %s", lane, rc, strings.Join(lines[max(0, len(lines)-3):], " "))
 	}
 	if rc, _ := runIn(ctx, dir, ready); rc != 0 {
-		return project.Failf("lane_setup in %s: ran, but commands.lane_ready still fails (rc %d)", lane, rc)
+		return project.Failf("lane_setup in %s: ran, but lanes.ready still fails (rc %d)", lane, rc)
 	}
 	if w == nil {
 		w = io.Discard
 	}
-	fmt.Fprintf(w, "lane_setup ran in %s (commands.lane_ready failed)\n", dir)
+	fmt.Fprintf(w, "lane_setup ran in %s (lanes.ready failed)\n", dir)
 	return nil
 }
 

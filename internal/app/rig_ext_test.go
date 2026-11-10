@@ -1589,7 +1589,7 @@ func (r *loopRig) redoTypes() []any {
 // loopRig is project proj (a plain dir: its config written, no git) with lane L-01 on task/T-1 (a plain dir the fake
 // Scratch snapshots; its worker pj-l-01 idle in it; without the dispatch option T-1's dispatch fact in the log at the
 // first start), roles.integrator (pj-int, not running until started) and the app not started yet (unless an option
-// starts it). commands.check is configured ("echo 1 pass": its outcome is the fake's, Script).
+// starts it). merge.check is configured ("echo 1 pass": its outcome is the fake's, Script).
 type loopRig struct {
 	t       *testing.T
 	p       *testkit.Project
@@ -1642,7 +1642,7 @@ type loopRig struct {
 
 // rigOpts is what newLoopRig's options ask for (one rig constructor, its variants options).
 type rigOpts struct {
-	check    bool                   // commands.check configured (a green lane test says rc=0; else no check)
+	check    bool                   // merge.check configured (a green lane test says rc=0; else no check)
 	edits    []func(map[string]any) // config edits
 	dispatch bool                   // the dispatch adapters, L-01 free
 	pool     bool                   // lanes 2: L-02 free too (the dispatch adapters on)
@@ -1652,7 +1652,7 @@ type rigOpts struct {
 
 type rigOpt func(*rigOpts)
 
-// noCheck: no commands.check (a green lane test says "no check").
+// noCheck: no merge.check (a green lane test says "no check").
 func noCheck() rigOpt { return func(o *rigOpts) { o.check = false } }
 
 // withConfig changes the config further.

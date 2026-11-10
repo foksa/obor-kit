@@ -136,7 +136,7 @@ func TestInitCreatesConfigDocsAndGitignoreUncommitted(t *testing.T) {
 	has(t, st, "M .gitignore", ".gitignore left modified")
 }
 
-// init ignores the reviews dir (paths.reviews, default docs/reviews): a broad `git add -A` stages no open
+// init ignores the reviews dir (reviews.dir, default docs/reviews): a broad `git add -A` stages no open
 // review, which `obor review close` would refuse.
 func TestInitGitignoresTheReviewsDir(t *testing.T) {
 	t.Parallel()
@@ -211,7 +211,7 @@ func TestLaneAddsConfigWorktreeLinksAndRunsLaneSetup(t *testing.T) {
 			t.Errorf("link %s: %q", l, got)
 		}
 	}
-	has(t, out, "warning: lane_links missing", "a missing link source said")
+	has(t, out, "warning: lanes.links missing", "a missing link source said")
 	if x.Read(lane+"/setup-ran") != lane+"\n" {
 		t.Error("lane_setup ran in the lane")
 	}
@@ -231,7 +231,7 @@ func TestLaneAddsConfigWorktreeLinksAndRunsLaneSetup(t *testing.T) {
 	}
 }
 
-// the reviewer and the deep dive run in their role worktree <lanes_dir>/<role>: setup role adds it detached when
+// the reviewer and the deep dive run in their role worktree <lanes.dir>/<role>: setup role adds it detached when
 // missing, keeps one that is there, refuses a dir that is no worktree of the repo, and leaves a leftover of the older
 // names (review, deep-dive) alone. No lane is added.
 func TestReviewerAndDeepDiveRunInTheirRoleWorktree(t *testing.T) {
@@ -295,7 +295,7 @@ func TestReviewerAndDeepDiveRunInTheirRoleWorktree(t *testing.T) {
 }
 
 // in its role worktree
-// <lanes_dir>/integrator (not the merge scratch, where gates run), added detached when missing.
+// <lanes.dir>/integrator (not the merge scratch, where gates run), added detached when missing.
 func TestRoleIntegratorStartsInItsWorktreeAndNeedsAType(t *testing.T) {
 	t.Parallel()
 	x := newGitFx(t)
@@ -335,7 +335,7 @@ func TestRoleIntegratorStartsInItsWorktreeAndNeedsAType(t *testing.T) {
 
 }
 
-// obor setup role reviewer and deep_dive add paths.reviews to an existing project's .gitignore, once: an
+// obor setup role reviewer and deep_dive add reviews.dir to an existing project's .gitignore, once: an
 // init made before the line was ignored leaves it out (init's own case is TestInitGitignoresTheReviewsDir).
 func TestRoleSetupGitignoresTheReviewsDir(t *testing.T) {
 	t.Parallel()

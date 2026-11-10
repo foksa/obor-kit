@@ -325,10 +325,10 @@ func (r *renamer) finish(context.Context) error {
 	if lanes := r.cfg.LanesDir(); r.oldName != r.name && r.oldName != "" &&
 		strings.Contains(filepath.Base(lanes), r.oldName) {
 		to := filepath.Join(filepath.Dir(lanes), strings.Replace(filepath.Base(lanes), r.oldName, r.name, 1))
-		r.say("lanes_dir %s has the old name; by hand (the lanes' worktrees move with it):", lanes)
+		r.say("lanes.dir %s has the old name; by hand (the lanes' worktrees move with it):", lanes)
 		r.say("  mv %s %s", lanes, to)
 		r.say("  git -C %s worktree repair %s/*", r.root, to)
-		r.say("  then set lanes_dir in .obor/config.json to the new path")
+		r.say("  then set lanes.dir in .obor/config.json to the new path")
 	}
 	r.ok("5 finish", false, "start serve, then restart each agent fresh by its new name (obor restart <agent> --fresh)")
 	return nil

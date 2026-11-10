@@ -350,7 +350,7 @@ func (r *runner) changed(task, rev string) *halt {
 	return nil
 }
 
-// laneSetup runs commands.lane_setup: a timeout is red, another failure a fail (its last 15 lines first).
+// laneSetup runs lanes.setup: a timeout is red, another failure a fail (its last 15 lines first).
 func (r *runner) laneSetup() *halt {
 	o, ok, h := r.run("lane_setup")
 	switch {
