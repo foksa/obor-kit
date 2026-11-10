@@ -279,8 +279,9 @@ lane, serve's tasks on no lane, needs-you with the commands that answer them, th
 `lanes.count` or `agents.kinds.<kind>.args` (T-765), and `base`, the `.obor/config.json` revision the page read, `config.Rev`: the
 setup's `config_rev`) and `POST /api/pause` (set with a reason and an optional duration, or clear). Web writes nothing:
 each is a request on the project's app socket (`config_set`, `pause`), so serve stays the one writer; serve down is
-503. A POST is taken only on those two routes, only with the page's own Origin, the listen address as Host (no DNS
-rebinding) and a JSON body (403 otherwise); every other route is GET/HEAD (405). Serve applies the changes in order to
+503. Every request's Host must be a loopback name (`localhost`, `127.0.0.1`, `[::1]`, any port; T-1170, no DNS
+rebinding of reads either), else 403. A POST is taken only on those two routes, only with the page's own Origin
+and a JSON body (403 otherwise); every other route is GET/HEAD (405). Serve applies the changes in order to
 `.obor/config.json`, each to the bytes the one before wrote (`config.Edit`), runs `config.Validate` once on the result (refused for a new FAIL), writes the file in its own layout and
 commits that one file on main once (`config: <key> <old> → <new> (owner, web)`; several: the keys as the subject, one
 `- <key> <old> → <new>` line each in the body), behind the publish admission (never while a publish moves main). All
@@ -602,8 +603,9 @@ A task's tests run in its own lane, not in serve's merge slot (T-961, T-995); no
   a real socket or a built binary sits in a file with `//go:build integration`; every check that gates or measures
   (the lane test, the nightly, `vet`, `deadcode`, the budget) passes `-tags integration`. The live
   conformance tier (`make conformance TIER=live`, one throwaway session per kind) is run by hand; the nightly runs
-  the static tier and the budget (`make check-budget`, tests/budget: the size ratchet on wall time, git processes
-  and slow tests) from `nightly.also_run`. `-short` and `testkit.Slow` are gone: nothing skips a test in a lane.
+  the static tier, the budget (`make check-budget`, tests/budget: the size ratchet on wall time, git processes
+  and slow tests) and one race-detector run (`make check-race`, T-1169: the data race count, non-gating) from
+  `nightly.also_run`. `-short` and `testkit.Slow` are gone: nothing skips a test in a lane.
 - **The generic mechanism, and obor-kit's mapping.** A class's `run` names commands; a Go project narrows its test
   to the affected packages. obor-kit's `check_affected` is `make check-affected`, which runs the kit tool
   `tools/affected` (`go run ./tools/affected`, T-1040) and then `go test`
