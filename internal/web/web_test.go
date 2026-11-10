@@ -6,6 +6,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strconv"
@@ -156,11 +158,18 @@ func newestSeq(t *testing.T, root string) int64 {
 	return recs[0].Seq
 }
 
-// get runs one GET on the handler.
+// get runs one GET on the handler, as the page sends it: under a loopback name (every route checks the Host, T-1170).
 func get(t *testing.T, h http.Handler, url string) *httptest.ResponseRecorder {
 	t.Helper()
+	return at(h, http.MethodGet, url, DefaultListen)
+}
+
+// at runs one request of method to url under host, the name it arrives as.
+func at(h http.Handler, method, url, host string) *httptest.ResponseRecorder {
+	r := httptest.NewRequest(method, url, nil)
+	r.Host = host
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, url, nil))
+	h.ServeHTTP(w, r)
 	return w
 }
 
@@ -526,8 +535,7 @@ func TestReadOnlyAndThePage(t *testing.T) {
 	_, _, s := fixture(t)
 	h := s.Handler()
 	for _, m := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, httptest.NewRequest(m, "/api/view?project=pj", nil))
+		w := at(h, m, "/api/view?project=pj", DefaultListen)
 		if w.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s /api/view: %d, want 405", m, w.Code)
 		}
@@ -544,6 +552,77 @@ func TestReadOnlyAndThePage(t *testing.T) {
 		if !strings.Contains(bundle(t), want) {
 			t.Errorf("the page's bundle has no %q: the idle state is not rendered", want)
 		}
+	}
+}
+
+// TestEveryRouteRefusesAForeignHost (T-1170): obor web answers only to its own names — a loopback name on any port, and
+// a name in Hosts — on every route. Any other Host is 403 naming it, so a DNS rebinding page reads nothing, and its POST
+// is refused before the page checks. The page's own checks stay: a POST from another origin is 403.
+func TestEveryRouteRefusesAForeignHost(t *testing.T) {
+	p, _, s := fixture(t)
+	kit := t.TempDir()
+	readme := "# obor\n\n## Install\n\nx\n\n## Set up a project\n\ny\n"
+	if err := os.WriteFile(filepath.Join(kit, "README.md"), []byte(readme), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	spy := &callSpy{reply: "OK"}
+	s.Call, s.Kit = spy.call, kit
+	s.Wait, s.Poll = 50*time.Millisecond, 10*time.Millisecond
+	since := strconv.FormatInt(newestSeq(t, p.Root), 10)
+	h := s.Handler()
+	gets := []string{"/api/projects", "/api/view?project=pj", "/api/setup?project=pj",
+		"/api/task?project=pj&task=T-01", "/api/agent?project=pj&agent=pj-l1", "/api/job?project=pj&job=T-01/1/work",
+		"/api/events?project=pj&since=" + since, "/api/help", "/"}
+	posts := []struct{ url, body string }{
+		{"/api/config?project=pj", `{"changes":[{"key":"lanes.L-01","value":"opus"}],"base":"r1"}`},
+		{"/api/pause?project=pj", `{"clear":true}`},
+	}
+	for _, url := range gets {
+		w := at(h, http.MethodGet, url, "evil.example:8787")
+		if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "evil.example:8787") {
+			t.Errorf("GET %s under a foreign Host: %d %s, want 403 naming the Host", url, w.Code, w.Body.String())
+		}
+	}
+	for _, c := range posts {
+		w := post(h, c.url, c.body, "evil.example:8787")
+		if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "evil.example:8787") {
+			t.Errorf("POST %s under a foreign Host: %d %s, want 403 naming the Host", c.url, w.Code, w.Body.String())
+		}
+	}
+	if got := len(spy.all()); got != 0 {
+		t.Errorf("a request under a foreign Host asked serve %d times", got)
+	}
+	// A loopback name on any port is one of obor web's names: the page itself, an SSH tunnel on any local port.
+	for _, host := range []string{"localhost:9000", "127.0.0.1:65535", "[::1]:8787"} {
+		for _, url := range gets {
+			if w := at(h, http.MethodGet, url, host); w.Code != http.StatusOK {
+				t.Errorf("GET %s as %s: %d %s, want 200", url, host, w.Code, w.Body.String())
+			}
+		}
+		for _, c := range posts {
+			if w := post(h, c.url, c.body, host); w.Code != http.StatusOK {
+				t.Errorf("POST %s as %s: %d %s, want 200", c.url, host, w.Code, w.Body.String())
+			}
+		}
+	}
+	// Hosts are the extra names obor web answers to (a later --allow-host appends to it): one name is served, under any
+	// port, and a name it does not list is not.
+	s.Hosts = []string{"mac.example.net"}
+	if w := at(h, http.MethodGet, "/api/projects", "mac.example.net:8787"); w.Code != http.StatusOK {
+		t.Errorf("GET as a Hosts name: %d %s, want 200", w.Code, w.Body.String())
+	}
+	if w := at(h, http.MethodGet, "/api/projects", "other.example.net"); w.Code != http.StatusForbidden {
+		t.Errorf("GET as a name not in Hosts: %d, want 403", w.Code)
+	}
+	s.Hosts = nil
+	if w := at(h, http.MethodGet, "/api/projects", "mac.example.net"); w.Code != http.StatusForbidden {
+		t.Errorf("GET as a name with no Hosts: %d, want 403", w.Code)
+	}
+	// The POST's own checks stay: a loopback Host and another page's Origin is 403.
+	w := post(h, "/api/pause?project=pj", `{"clear":true}`, "localhost:9000",
+		func(r *http.Request) { r.Header.Set("Origin", "http://evil.example") })
+	if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "Origin") {
+		t.Errorf("a POST from another origin: %d %s, want 403 naming the Origin", w.Code, w.Body.String())
 	}
 }
 

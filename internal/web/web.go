@@ -10,9 +10,11 @@
 // Two verbs (T-753), the owner's setup edits from the Setup page: POST /api/config (a list of config changes, one
 // commit, T-760) and POST
 // /api/pause (set or clear the pause). Neither writes anything itself: each is a request to the project's serve (its
-// app socket), the one writer; serve not running is 503. Every other route is GET or HEAD only (405). A POST is taken
-// only on those two routes and only when its Origin is the page's own origin, its Host the listen address (no DNS
-// rebinding) and its Content-Type application/json (403 otherwise): a page on another origin cannot send one.
+// app socket), the one writer; serve not running is 503. Every other route is GET or HEAD only (405). Every request,
+// on every route, must arrive under one of obor web's names — a loopback name on any port (localhost, 127.0.0.1, ::1:
+// the page itself, an SSH tunnel on any local port) or one of Server.Hosts — so a DNS rebinding page reads nothing
+// (403). A POST is taken only on those two routes and only when its Origin is the page's own origin and its
+// Content-Type application/json (403 otherwise): a page on another origin cannot send one.
 package web
 
 import (
@@ -27,6 +29,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -65,8 +68,9 @@ type Server struct {
 	Events int           // worded events in a view (0: 20)
 	Wait   time.Duration // how long /api/events holds a poll (0: 20s)
 	Poll   time.Duration // how often it asks the store (0: 300ms)
-	// Listen is the address it serves on: a POST's Host must name it ("": DefaultListen).
-	Listen string
+	// Hosts are the extra names obor web answers to (a tunnel's or a proxy's name), lower case, no port. A loopback
+	// name on any port is always one of its names.
+	Hosts []string
 	// Call is a request to the serve of the project at root (default: wire.Verdict on its socket; no socket:
 	// errServeDown).
 	Call func(ctx context.Context, root string, r wire.Req) (string, error)
@@ -102,10 +106,16 @@ func (s *Server) Handler() http.Handler {
 // writeRoutes are the routes that take a POST (and only a POST).
 var writeRoutes = map[string]bool{"/api/config": true, "/api/pause": true}
 
-// methods is the request check in front of every route: GET and HEAD everywhere but the write routes; POST only on
-// those, and only from the page itself (sameOrigin; 403); anything else 405.
+// methods is the request check in front of every route: the Host must be one of obor web's names (answersTo; 403); then
+// GET and HEAD everywhere but the write routes, POST only on those and only from the page itself (sameOrigin; 403), and
+// anything else 405.
 func (s *Server) methods(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !s.answersTo(r.Host) {
+			fail(w, http.StatusForbidden, "Host "+strconv.Quote(r.Host)+" is not a loopback name obor web answers to "+
+				"(localhost, 127.0.0.1, [::1])")
+			return
+		}
 		write := writeRoutes[r.URL.Path]
 		switch {
 		case write && r.Method == http.MethodPost:
@@ -127,13 +137,10 @@ func (s *Server) methods(h http.Handler) http.Handler {
 	})
 }
 
-// sameOrigin is why a POST is not the page's own ("": it is): its Host is not the listen address (a DNS rebinding
-// name; localhost and 127.0.0.1 are one host), its Origin is not http://<Host>, or its body is not
-// application/json (a form post another page could send).
+// sameOrigin is why a POST is not the page's own ("": it is): its Host is not one of obor web's names (a DNS rebinding
+// name; methods checked it), its Origin is not http://<Host> (another page, or another local port's page), or its body
+// is not application/json (a form post another page could send).
 func (s *Server) sameOrigin(r *http.Request) string {
-	if !s.listenHost(r.Host) {
-		return "Host " + strconv.Quote(r.Host) + " is not the address obor web listens on"
-	}
 	if o := r.Header.Get("Origin"); o != "http://"+r.Host {
 		return "Origin " + strconv.Quote(o) + " is not this page's (http://" + r.Host + ")"
 	}
@@ -143,26 +150,26 @@ func (s *Server) sameOrigin(r *http.Request) string {
 	return ""
 }
 
-// listenHost: host (a request's Host, with its port) is the address obor web listens on, or that address with
-// localhost for a loopback IP and the other way round.
-func (s *Server) listenHost(host string) bool {
-	listen := s.Listen
-	if listen == "" {
-		listen = DefaultListen
+// hostName is a Host header's name without its port, lower case ("[::1]:8787" is "::1").
+func hostName(host string) string {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
 	}
-	if host == listen {
-		return true
-	}
-	lh, lp, err := net.SplitHostPort(listen)
-	h, p, err2 := net.SplitHostPort(host)
-	if err != nil || err2 != nil || p != lp {
-		return false
-	}
-	loop := func(x string) bool {
-		ip := net.ParseIP(x)
-		return x == "localhost" || ip != nil && ip.IsLoopback()
-	}
-	return loop(lh) && loop(h) && (h == "localhost" || lh == "localhost")
+	return strings.ToLower(strings.Trim(host, "[]"))
+}
+
+// loopback is whether name is localhost or a loopback IP.
+func loopback(name string) bool {
+	ip := net.ParseIP(name)
+	return name == "localhost" || ip != nil && ip.IsLoopback()
+}
+
+// answersTo is whether host (a request's Host) is one of obor web's names: a loopback name on any port (the page itself,
+// an SSH tunnel on any local port) or one of Hosts. Any other Host is a DNS rebinding name, or a proxy the owner did not
+// name.
+func (s *Server) answersTo(host string) bool {
+	name := hostName(host)
+	return name != "" && (loopback(name) || slices.Contains(s.Hosts, name))
 }
 
 // ProjectsEntry is one row of /api/projects: the project's name and root, whether serve is up, its busy and free lanes,
