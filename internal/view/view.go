@@ -433,7 +433,7 @@ func laneSince(l Lane, v *Project, now, dispatched int64) *int64 {
 
 // runningCommand is the configured command r runs, for the running line: for a gate or a lane test the command serve
 // says it runs now (compile, the class's, the guard or check; its name when not configured; "" while
-// unknown, never a guess), the full check for the nightly check, commands.after_merge for
+// unknown, never a guess), the full check for the nightly check, merge.after for
 // after_merge; "" for a step of
 // git alone (publish) or an unset command.
 func runningCommand(p *checks.LaneTable, r wire.RunningStep) string {

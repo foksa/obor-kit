@@ -355,7 +355,7 @@ type Scratch interface {
 	Resolved(ctx context.Context, task, input string, m *Mismatch) (sha string, err error)
 	// Publish fast-forwards the target to c.SHA when it is still c.Target, then deletes the task's pins.
 	Publish(ctx context.Context, c Candidate) (PublishOutcome, error)
-	// AfterMerge runs commands.after_merge for the published c: ran | skipped | WARN …. Its intent (G) is the once:
+	// AfterMerge runs merge.after for the published c: ran | skipped | WARN …. Its intent (G) is the once:
 	// a cut before its result runs it again (after_merge is idempotent).
 	AfterMerge(ctx context.Context, c Candidate) (string, error)
 	// Landed: the target holds merge evidence of task (merged outside the app); an error: git cannot tell.

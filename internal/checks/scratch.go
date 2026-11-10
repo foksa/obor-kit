@@ -634,7 +634,7 @@ func statusPaths(st []string) []string {
 	return files
 }
 
-// AfterMerge runs commands.after_merge in the main checkout for the published c when its "when" globs match the
+// AfterMerge runs merge.after in the main checkout for the published c when its "when" globs match the
 // merged files (none: always). A failed run's full output goes to .obor/state/logs/<task>-after_merge.log; a passing
 // one writes none (the log is a failure's trace). A failing command is the WARN line. Its intent (G) is the
 // once: a cut before its result runs it again (after_merge is idempotent).
@@ -670,7 +670,7 @@ func anyMatch(files, globs []string) bool {
 	return false
 }
 
-// afterMergeRun runs commands.after_merge in the main checkout for the published c and returns its result line. The
+// afterMergeRun runs merge.after in the main checkout for the published c and returns its result line. The
 // checkout must be at c.SHA on a branch (publish fast-forwards it; a later merge or a checkout moved it away): else a
 // WARN line and no run.
 func (s Scratch) afterMergeRun(ctx context.Context, g gitReader, c port.Candidate) (string, error) {

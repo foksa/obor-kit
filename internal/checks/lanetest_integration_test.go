@@ -102,7 +102,7 @@ func TestGateCandidateIsTheTasksOwnDiff(t *testing.T) {
 }
 
 // The lane test's green paths: the class's check runs in the lane at the candidate with the lane worker's environment
-// and the task's files, and the lane is back on its branch; the env is the facts plus slots.lane_env; what the checks changed is
+// and the task's files, and the lane is back on its branch; the env is the facts plus lanes.env; what the checks changed is
 // discarded.
 func TestLaneTestGreenRestores(t *testing.T) {
 	for _, c := range []struct {
@@ -110,7 +110,7 @@ func TestLaneTestGreenRestores(t *testing.T) {
 		run  func(*testing.T)
 	}{
 		{"the class's check runs in the lane and the lane is restored", laneTestInTheLane},
-		{"the lane's env: the facts and slots.lane_env", laneTestLaneEnv},
+		{"the lane's env: the facts and lanes.env", laneTestLaneEnv},
 		{"what the checks changed is discarded", laneTestDiscards},
 	} {
 		t.Run(c.name, c.run)
@@ -172,7 +172,7 @@ func laneTestInTheLane(t *testing.T) {
 }
 
 // the lane test's env is the lane workers' (config.LaneEnv): the fact OBOR_LANE_CPUS (slots.lane_cpus) and the
-// project's slots.lane_env with {cpus} replaced — a var the inherited env also had takes the config's value, no merge;
+// project's lanes.env with {cpus} replaced — a var the inherited env also had takes the config's value, no merge;
 // CHECK_CPUS the same budget.
 func laneTestLaneEnv(t *testing.T) {
 	t.Parallel()
