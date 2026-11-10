@@ -218,19 +218,10 @@ func (s *session) reset(rev string) bool {
 	return s.ok(s.scratch, "reset", "-q", "--hard", rev) && s.ok(s.scratch, "clean", "-fdq")
 }
 
-// linkLaneLinks symlinks each lane_links entry from root into dir (missing ones only).
+// linkLaneLinks symlinks each lane_links entry from root into dir (project.LinkInto: missing ones only), best
+// effort: a link that cannot be made shows as the failure of the check that needs it.
 func linkLaneLinks(cfg *config.Config, root, dir string) {
-	for _, l := range cfg.LaneLinks() {
-		src, dst := filepath.Join(root, l), filepath.Join(dir, l)
-		if _, err := os.Stat(src); l == "" || err != nil {
-			continue
-		}
-		if _, err := os.Lstat(dst); err == nil {
-			continue
-		}
-		os.MkdirAll(filepath.Dir(dst), 0o755)
-		os.Symlink(src, dst)
-	}
+	_, _ = project.LinkInto(root, dir, cfg.LaneLinks())
 }
 
 func secs(d time.Duration) int { return int(d / time.Second) }
