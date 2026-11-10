@@ -260,56 +260,6 @@ func TestOpenQuestionsHoldReachesTheLead(t *testing.T) {
 	}
 }
 
-// An older log's hold of the open questions before review still folds: the hold ends, the task is green and
-// gets its review job carrying the questions (and the lead's decision when the old log has one), live and on replay.
-func TestOldPreReviewHoldFolds(t *testing.T) {
-	t.Parallel()
-	const q = "should it use sqlite?"
-	for _, c := range []struct {
-		name     string
-		resumed  bool
-		replay   bool
-		decision string
-	}{
-		{"held, live", false, false, ""},
-		{"held, replay", false, true, ""},
-		{"resumed, live", true, false, "use sqlite, it is cgo-free"},
-		{"resumed, replay", true, true, "use sqlite, it is cgo-free"},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			h, f := seedQuestions(t, "Summary: done.\nSelf-check: ok.\nSkipped: none.\nOpen questions: "+q)
-			addRecord(t, h, "T-1", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "L-01", Merge: true, Cause: causeOpen,
-				Reason: "open questions: " + q})
-			if c.resumed {
-				addRecord(t, h, "T-1", event.StepUnblocked, event.KindFact, event.FactData{Lane: "L-01", Merge: true, Cause: causeOpen,
-					Reason: wire.ResumeReprompt, Agent: "pj-lead", Call: "r1", Note: c.decision})
-			}
-			if n := countStep(t, h, event.StepNeedsYou); n != 1 {
-				t.Fatalf("precondition: %d needs-you facts in the log; want the old hold", n)
-			}
-			p := h.a.p
-			if c.replay {
-				p = reloadProj(t, h)
-			}
-			if mt := p.folded.loop["T-1"]; mt.state != stGreen || mt.needs.fact.Seq != 0 {
-				t.Fatalf("folded: T-1 %s, needs %d; want green with no needs-you", mt.state, mt.needs.fact.Seq)
-			}
-			mt := pickGreenStep(t, h, f, false)
-			if mt.state != stAwaiting || mt.job != event.StepReview {
-				t.Fatalf("T-1 %s, job %q; want the review job out", mt.state, mt.job)
-			}
-			jr := reviewJob(t, h, "j1")
-			if jr.Job != "T-1/1/review" || !strings.Contains(jr.Text, questionsPart(q)) {
-				t.Errorf("job %s does not carry the question:\n%s", jr.Job, jr.Text)
-			}
-			if c.decision != "" && !strings.Contains(jr.Text, c.decision) {
-				t.Errorf("the review job does not carry the old decision %q:\n%s", c.decision, jr.Text)
-			}
-		})
-	}
-}
-
 // An Open questions section whose first word is none, n/a, no or - leaves nothing open, whatever
 // follows; one that leaves something open comes back verbatim.
 func TestOpenQuestionsFirstWord(t *testing.T) {

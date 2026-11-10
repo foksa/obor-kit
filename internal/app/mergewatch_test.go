@@ -10,7 +10,7 @@ import (
 
 // The merge watch's rule, one table (condition → action). A watch whose set all merged, or one of it dropped,
 // gets one line naming it (its note after it), and the line ends the watch; an unwatched one or one not ended gets
-// none; a restart, or an older line (message{watch}, no of), sends it no second time.
+// none; a restart sends it no second time.
 func TestWatchRule(t *testing.T) {
 	t.Parallel()
 	watchR := rule{name: ruleWatch, when: watchRule}
@@ -31,11 +31,6 @@ func TestWatchRule(t *testing.T) {
 			addRecord(t, h, task, event.StepSubmitted, event.KindFact, submitData{Lane: "L-01"})
 			addRecord(t, h, task, event.StepDropped, event.KindFact, event.FactData{Reason: why, Merge: true})
 		}
-	}
-	oldLine := func(t *testing.T, h *harness) { // T-1's watch line as an older obor recorded it
-		w := h.proj().folded.watches["T-1"]
-		addRecord(t, h, event.MsgTask, event.StepMessage, event.KindFact, map[string]any{"to": "pj-lead", "from": "obor",
-			"line": "[obor] T-1 merged", "task": "T-1", "watch": w.seq})
 	}
 	const sha1, sha2 = "1111111aaaa", "2222222bbbb"
 	cases := []struct {
@@ -60,8 +55,6 @@ func TestWatchRule(t *testing.T) {
 		{name: "a restart after the line: not sent again",
 			steps: []lineStep{watch("T-1", ""), taskMerged("T-1", sha1), pass, restartRig, pass, pass},
 			lines: []string{"[obor] T-1 merged 1111111"}},
-		{name: "a line recorded before T-927: not sent again",
-			steps: []lineStep{watch("T-1", ""), taskMerged("T-1", sha1), oldLine, restartRig, pass, pass}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

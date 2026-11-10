@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"obor/internal/app/event"
@@ -86,7 +85,7 @@ func (p *proj) foldMsg(r event.Record) {
 	if r.Task != event.MsgTask {
 		return
 	}
-	e := p.out.Fold(r, p.oldLineOf)
+	e := p.out.Fold(r)
 	if e.Of.Kind != "" { // a rule's line: its did key (rules.go)
 		p.folded.did[e.Of] = e.At
 	}
@@ -761,23 +760,6 @@ func (p *proj) needsLine(r event.Record, n int, now time.Time) string {
 		line += " (again, " + Age(now.Sub(event.RecordTime(r))) + ")"
 	}
 	return line
-}
-
-// oldLineOf is the did key of a needs-you's or a watch's line that carries no Of (its own field; under mu): needs,
-// the needs-you's seq and the lines of it folded so far; watch, the watch's seq.
-func (p *proj) oldLineOf(data json.RawMessage) event.Of {
-	var old struct {
-		Needs int64 `json:"needs"`
-		Watch int64 `json:"watch"`
-	}
-	_ = json.Unmarshal(data, &old)
-	switch {
-	case old.Needs != 0:
-		return event.Of{Kind: ruleNeeds, Seq: needsKey(old.Needs, p.needsLined(old.Needs))}
-	case old.Watch != 0:
-		return event.Of{Kind: ruleWatch, Seq: old.Watch}
-	}
-	return event.Of{}
 }
 
 // Age is d as obor status writes ages: 42s, 5m, 3h, 2d.

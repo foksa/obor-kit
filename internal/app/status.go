@@ -183,9 +183,6 @@ func commandStep(r event.Record) (step, task string, ok bool) {
 	if strings.HasPrefix(r.Step, event.StepNightly+".") {
 		return event.StepNightly, "", true
 	}
-	if r.Task == event.PromoteTask { // a promotion record: nothing runs it
-		return "", "", false
-	}
 	switch step, _ = event.StepN(r.Step); step {
 	case event.StepGate, event.StepTest, event.StepPublish, event.StepAfterMerge:
 		return step, r.Task, true

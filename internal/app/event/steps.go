@@ -33,9 +33,6 @@ const (
 	IdleTask = "idle"
 	// RuleTask is the task key of the needs-you of a rule whose action failed ruleFails passes in a row.
 	RuleTask = "rule"
-	// PromoteTask is the task key a log's promotion records carry (promote, after_promote): the fold drops them
-	// (project.go); no writer sets it.
-	PromoteTask = "promote"
 	// VersionTask is the task key of the versions of the tools obor drives (the agent CLIs, the terminal): the
 	// project's facts, one per change (internal/app/versions.go).
 	VersionTask = "version"
@@ -70,13 +67,6 @@ const (
 
 // StepNightly is the nightly full check's intent/result (G), one key a day: nightly.<YYYY-MM-DD> → NightlyOut.
 const StepNightly = "nightly"
-
-// The promotion's steps (task PromoteTask): a log's records, which no reader words.
-const (
-	StepPromote      = "promote"       // intent/result, promote.<seq>: the full suite on the target's head
-	StepPromoted     = "promoted"      // fact: the promoted branch fast-forwarded to a GREEN sha
-	StepAfterPromote = "after_promote" // intent/result, after_promote.<seq>: merge.after after a promotion
-)
 
 // StepConfigSet is the fact of a setup edit serve wrote and committed (task ConfigTask; data: ConfigSet).
 const StepConfigSet = "config.set"
