@@ -80,7 +80,8 @@ type Lanes struct {
 	TaskBranch string `json:"task_branch"`
 	// Links are paths symlinked from the main checkout into every lane (untracked files a lane needs).
 	Links []string `json:"links"`
-	// Setup is the command that prepares a new lane (also run in the merge scratch and the nightly's worktree).
+	// Setup is the command that prepares a new lane (also run in the merge scratch, the nightly's worktree and a role
+	// worktree serve moves to a head).
 	Setup Command `json:"setup,omitzero"`
 	// Ready is the command that says a lane is still set up.
 	Ready Command `json:"ready,omitzero"`

@@ -139,7 +139,8 @@ func (l Lane) git(ctx context.Context, dir string, args ...string) (string, erro
 	return strings.TrimSpace(string(out)), err
 }
 
-// LaneSetup: a lane that fails lanes.ready gets lanes.setup, and must pass lane_ready after.
+// LaneSetup: a lane that fails lanes.ready gets lanes.setup, and must pass lane_ready after. A role worktree serve
+// moves to a head gets the same (ScratchFF.Detach).
 // No lane_ready: nothing runs. Its errors are final (port.Refused in Lane.Prepare). Every command runs under ctx
 // a canceled prepare ends it with its process group.
 func LaneSetup(ctx context.Context, cfg *config.Config, lane, dir string, w io.Writer) error {
