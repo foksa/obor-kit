@@ -85,10 +85,13 @@ type Start struct {
 	// its command line does not name starts that way, obor's own registered on the start (claude: --strict-mcp-config
 	// with --mcp-config MCPConfig; a kind that hides nothing ignores it).
 	StrictMCP bool
-	// TrimUser is a start without the user's own plugins, skills and hooks (every agent but a lead,
-	// config.Model.Launch): each kind drops its user scope its own way (claude: --setting-sources project,local; codex:
-	// -c features.plugins/features.apps/skills.bundled.enabled false; opencode: OPENCODE_DISABLE_CLAUDE_CODE_SKILLS),
-	// the project's own config and obor's wiring kept.
+	// TrimUser is a start that drops as much of the user's own plugins, skills and hooks as the kind's CLI lets it
+	// (every agent but a lead, config.Model.Launch): the kind's switch names what it hides and which user sources
+	// stay (claude: --setting-sources project,local drops the user's settings, hooks, plugins, ~/.claude/skills and
+	// user CLAUDE.md, while the project's settings and skills stay; codex: -c features.plugins/features.apps/
+	// skills.bundled.enabled false drops the user's plugins with their skills, the app connectors and the bundled
+	// skills, while ~/.codex/skills stays; opencode: OPENCODE_DISABLE_CLAUDE_CODE_SKILLS hides ~/.claude/skills and
+	// the project's .claude/skills, while .agents/skills stays), the project's own config and obor's wiring kept.
 	TrimUser bool
 	// Env is the start's environment (HOME, XDG_CONFIG_HOME, …), for a kind that reads its own config; nil: none.
 	Env func(string) string
