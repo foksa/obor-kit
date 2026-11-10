@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"obor/internal/agents"
+	"obor/internal/app"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
@@ -155,7 +156,9 @@ type Role struct {
 // NeedsYou is one needs-you fact in force, of a task by id (its lane is the task's) or of the project (its loop
 // error, its lines).
 type NeedsYou struct {
-	Task   string `json:"task"`
+	Task string `json:"task"`
+	// Reason is the fact's text (app.NeedsText): its reason, then a blocked pane's question and where a person
+	// answers it.
 	Reason string `json:"reason"`
 	Answer string `json:"answer,omitempty"` // the commands that answer it (serve's ProjectStatus.Answers)
 	Since  int64  `json:"since,omitempty"`  // when serve recorded the fact (epoch seconds)
@@ -279,7 +282,7 @@ func needsYou(ps wire.ProjectStatus) []NeedsYou {
 		if f.Step != event.StepNeedsYou {
 			continue
 		}
-		n := NeedsYou{Task: f.Task, Reason: f.Fact().Reason, Answer: ps.Answers[f.Seq]}
+		n := NeedsYou{Task: f.Task, Reason: app.NeedsText(f.Fact()), Answer: ps.Answers[f.Seq]}
 		if t, err := time.Parse(time.RFC3339, f.TS); err == nil {
 			n.Since = t.Unix()
 		}
