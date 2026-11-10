@@ -57,6 +57,7 @@ var rules = []rule{
 	{name: ruleReviewerStop, when: reviewerStopRule},
 	{name: ruleWorkerStart, settle: workerStartSettle, when: workerStartRule},
 	{name: ruleHandoff, when: handoffRule}, // a keep lane's agent past handoff_tokens between tasks (T-1031)
+	{name: ruleVersion, when: versionRule}, // a tool obor drives changed version (T-1176)
 }
 
 // rulePass runs each of rs on the project once (the merge loop's goroutine, after the pass's lines, on the pass's

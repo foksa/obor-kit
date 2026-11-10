@@ -131,7 +131,8 @@ process (`plugin.Local`).
   `resume.go`, `verdict.go`, `jobs.go`, `prompt.go`,
   `roleworktree.go` (role worktrees: serve moves the reviewer's and the deep dive's to the head it hands them, T-853),
   `block.go` (the merge loop's needs-you as a block on a task's phase, T-827), `disk.go` (low disk: free space below
-  diskLow is a needs-you that holds the gate and the nightly, T-564), `fold.go` (`foldStart`: a start's result into the
+  diskLow is a needs-you that holds the gate and the nightly, T-564), `versions.go` (the versions of the tools obor
+  drives: the periodic read, fact `version`, the rule that lines the lead on a change, T-1176), `fold.go` (`foldStart`: a start's result into the
   identity table: agent, pane, kind, session, model, T-1050), `follow.go` (serve follows a new obor binary and takes the
   self-restart path, preferring an idle moment, T-719), `scheduler.go` (the scheduler's rule for serve's worktree: pass
   order, who holds the scratch, what a step waits, T-669),
@@ -197,7 +198,8 @@ process (`plugin.Local`).
   `RestartLock`, T-500); the restore after the terminal restarts (`Restorer`: serve's run for its project, after a
   lost connection or at its first connect after a herdr restart, under its `RestoreLock`; T-1051, T-1135); `session.go`: the id obor names a fresh Claude
   start and records before it runs (T-813), and a fresh Codex start's session from the transcript its process holds
-  open (a Codex rollout, T-588), both reported to serve.
+  open (a Codex rollout, T-588), both reported to serve; `CLIVersions`: the first line of each kind's
+  `<kind> --version`, for serve's version read (T-1176).
 - `mcp`: stdio shim from an agent to the app's socket; typed tools per role: the worker's `job_next`/`task_done`, the
   integrator's jobs and verdicts. The lead gets no tools: its chat work goes through the CLI, one request path.
 - `guard`: the Claude Code hooks: PreToolUse (Bash parse, edit checks, the headless ban), Stop (the worker's
