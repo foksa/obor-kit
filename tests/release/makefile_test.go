@@ -5,10 +5,12 @@ package release
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1071,6 +1073,138 @@ func TestOborKitTrimGoCache(t *testing.T) {
 	if want := "go cache: freed 5.0 MiB, 100 B left"; !strings.Contains(string(out), want) {
 		t.Errorf("output %q lacks %q", out, want)
 	}
+}
+
+// T-1169: check-race (commands.race, the nightly's non-gating race line) runs the suite once under the race detector
+// and decides on data race reports only: a test that fails on timing under the detector's slowdown is not this line's
+// failure (the nightly check owns it), a run in which no package ran is a FAIL and exit 2 — never "0 reports" — and a
+// race is exit 1, so the nightly prints a WARN and keeps the whole output. Through make the recipe's status reaches the
+// operator in make's own trailing line (`make: *** [check-race] Error 1` for a race, `Error 2` for a build that did not
+// run) and make itself exits 2 for any failed recipe; the nightly's last-line report therefore reads that line, while
+// the count is this target's line just above it and the kept log (reported to the lead, T-1169). The cases are canned
+// go test output, so no real race build runs here; the real build is covered once by the task's own run of the target
+// on ./internal/spec. The go stub answers `go env GOCACHE` with a temp cache and logs its argv, so the test also proves
+// the target asks Go for -race.
+func TestOborKitCheckRace(t *testing.T) {
+	t.Parallel()
+	repo, _ := filepath.Abs("../..")
+	const failedBuild = "FAIL race: the race build did not run"
+	for _, c := range []struct {
+		name     string
+		canned   string // what the stub's go test prints
+		wantCode int    // make's exit status (0, or 2 for any failed recipe)
+		wantExit int    // the recipe's own exit status, as make's trailing line names it
+		wantLine string // the target's own last line, above make's
+	}{
+		{
+			name:     "clean",
+			canned:   "ok  \tobor/internal/a\t0.1s\n",
+			wantCode: 0,
+			wantExit: 0,
+			wantLine: "race: 0 data race report(s), 0 package(s) with failing tests under -race",
+		},
+		{
+			name: "timing failure only",
+			canned: "--- FAIL: TestX (1.00s)\nFAIL\nFAIL\tobor/internal/a\t1.2s\n" +
+				"ok  \tobor/internal/b\t0.1s\n",
+			wantCode: 0,
+			wantExit: 0,
+			wantLine: "race: 0 data race report(s), 1 package(s) with failing tests under -race",
+		},
+		{
+			name: "a race",
+			canned: "==================\nWARNING: DATA RACE\nRead at 0x00c0000b4010 by goroutine 7:\n" +
+				"  obor/internal/a.TestX()\n\nWARNING: DATA RACE\nWrite at 0x00c0000b4010 by goroutine 8:\n" +
+				"FAIL\tobor/internal/a\t1.2s\n",
+			wantCode: 2,
+			wantExit: 1,
+			wantLine: "race: 2 data race report(s), 1 package(s) with failing tests under -race",
+		},
+		{
+			name:     "build did not run",
+			canned:   "go: -race requires cgo; enable cgo by setting CGO_ENABLED=1\n",
+			wantCode: 2,
+			wantExit: 2,
+			wantLine: failedBuild,
+		},
+		{
+			name:     "build failed",
+			canned:   "FAIL\tobor/internal/a [build failed]\n",
+			wantCode: 2,
+			wantExit: 2,
+			wantLine: failedBuild,
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			canned := filepath.Join(dir, "go-test.out")
+			writeFile(t, canned, c.canned)
+			log := filepath.Join(dir, "go.log")
+			stub := filepath.Join(dir, "go")
+			writeExec(t, stub, "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \""+log+"\"\ncase \"$1\" in\n"+
+				"  env) echo \""+filepath.Join(dir, "cache")+"\" ;;\n  *) cat \""+canned+"\" ;;\nesac\n")
+			// Precondition: the stub logged nothing yet, so the -race check below is about this run's call.
+			if _, err := os.Stat(log); !os.IsNotExist(err) {
+				t.Fatalf("precondition: %s exists before make: %v", log, err)
+			}
+			cmd := exec.Command("make", "-s", "-C", repo, "check-race", "GO="+stub)
+			cmd.Env = plainMakeEnv()
+			out, err := cmd.CombinedOutput()
+			code := 0
+			if err != nil {
+				var ee *exec.ExitError
+				if !errors.As(err, &ee) {
+					t.Fatalf("make check-race: %v\n%s", err, out)
+				}
+				code = ee.ExitCode()
+			}
+			calls := strings.Split(strings.TrimSpace(readFile(t, log)), "\n")
+			var test string
+			for _, call := range calls {
+				if strings.HasPrefix(call, "test ") {
+					test = call
+				}
+			}
+			if !slices.Contains(strings.Fields(test), "-race") {
+				t.Errorf("check-race's go test %q passes no -race: %q", test, calls)
+			}
+			if code != c.wantCode {
+				t.Errorf("%s: make exits %d; want %d:\n%s", c.name, code, c.wantCode, out)
+			}
+			if line := decisionLine(string(out)); line != c.wantLine {
+				t.Errorf("%s: the target's last line %q; want %q:\n%s", c.name, line, c.wantLine, out)
+			}
+			// The recipe's own status, which the nightly's line carries inside make's message: 1 is a data race (WARN,
+			// log kept), 2 a race build that did not run (also a WARN — never "0 reports").
+			if c.wantExit > 0 {
+				if want := "make: *** [check-race] Error " + strconv.Itoa(c.wantExit); lastLine(string(out)) != want {
+					t.Errorf("%s: last line %q; want %q:\n%s", c.name, lastLine(string(out)), want, out)
+				}
+			}
+		})
+	}
+}
+
+// decisionLine is the target's own last non-blank line: the output above make's trailing `make: *** [check-race] Error
+// N` line, which make appends to every failed recipe (and which the nightly's last-line report reads instead).
+func decisionLine(s string) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if l := strings.TrimSpace(lines[i]); l != "" && !strings.HasPrefix(l, "make: *** [check-race] ") {
+			return l
+		}
+	}
+	return ""
+}
+
+// lastLine is the last non-blank line of s ("" when there is none).
+func lastLine(s string) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	if len(lines) == 0 {
+		return ""
+	}
+	return lines[len(lines)-1]
 }
 
 // T-1027: the Makefile exports GOFLAGS with -trimpath for every target's Go command, keeping a GOFLAGS from the

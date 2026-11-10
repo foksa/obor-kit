@@ -68,7 +68,8 @@ checks placement against `docs/module-map.md` at accept).
   - A spec names its expected test change (added, changed, deleted; `templates/task-spec.md`): a task that adds
     tests without a line for them is a review finding.
 - No load runs (T-543): one plain `go test <pkgs>` at a time — `-count` > 1, `-race` and two test commands at once
-  (`&`, `xargs -P`, `parallel`) are denied by the guard for every role; the gate and nightly run the rest.
+  (`&`, `xargs -P`, `parallel`) are denied by the guard for every role; the gate and nightly run the rest (the nightly
+  runs the suite under `-race` as a non-gating line, `make check-race`).
 - Tests are Go only (`go test ./...`; no bash suite). Tests build fixture repos in a temp dir and put a stub `herdr`
   on `PATH`; they never touch this repo's git state or real herdr panes.
 - Tests stub herdr. Never link a real herdr plugin from a test or probe: herdr's plugin registry is user-global (even
