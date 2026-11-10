@@ -16,8 +16,8 @@
     "roles": {
       "reviewer": "terra:xhigh",
       "lead": "opus:high",
-      "deep_dive": "opus:high",
-      "integrator": "opus:medium",
+      "deep_dive": "fable:medium",
+      "integrator": "fable:low",
       "researcher": "sonnet:medium"
     },
     "difficulty": {

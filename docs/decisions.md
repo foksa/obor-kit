@@ -4,6 +4,7 @@ Owner decisions on record, newest sections first. Folded from STATUS.md on 2026-
 at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
+- 2026-11-10 (owner): **deep dive `fable:medium`, integrator `fable:low`** (were opus:high, opus:medium), with the hard level's fable:medium, to use Fable resets.
 - 2026-11-10 (owner, Fable /improve audit, docs/research/improve-plans.md): **obor stops claiming Linux** until a machine or CI tests it (plan 004; T-1172). **Built now:** plans 001-003 (T-1169 nightly race line, T-1170 web Host check on every route without `--allow-host`, T-1171 module-map drift) and architecture ideas A1 step 2 (in-process test rig + synctest), A5 (version skew in status), A7 (accepted findings out of BACKLOG), A8 (serve flags agent CLI/herdr version changes); the advisor writes their plans (005-008).
 - 2026-11-10 (owner: "use fable:medium before opus high for high difficulty tasks", to spend Fable usage resets): **`agents.difficulty.hard` = `fable:medium`, then `opus:high`.** Fable out of quota: `obor pause --model fable --for <h> "<why>"` and hard tasks fall to opus:high.
 - 2026-11-09 (lead, RV-171; reverses the v0.32 promise): **A kit-shipped agent kind (OpenCode) runs the kit's binary when `agents.kinds.<kind>.plugin` is unset, permanently**, like the built-in model table: no validate warning, no refusal. Dropping it (T-1153) spread one condition over several refusal paths for no user gain.
