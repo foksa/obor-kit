@@ -7,6 +7,10 @@ panes. Contracts: `docs/design.md` (lead-owned — don't change it; propose chan
 Small packages, one job each, readable top to bottom. Prefer: plain functions, explicit loops, early returns with a
 clear one-line result (`MERGED …`, `FAIL …`). Avoid: frameworks, generated code, dependencies outside the policy below.
 
+**Text says what is, never what was** (owner 2026-11-10). Skills, role texts, templates, `docs/design.md`, help text
+and code comments describe the current behaviour: no previous states ("it was `X`", "`Y` is gone", "used to",
+"no longer", "replaces the old …"). History lives in git, `docs/decisions.md`, CHANGELOG and the UPGRADE guides.
+
 ## Speak up (every role, unprompted)
 If you notice something systemic while working — complexity growing faster than value, a fragile dependency (e.g. on
 another tool's undocumented behaviour), effort out of proportion to the benefit, a rule or process that keeps causing
