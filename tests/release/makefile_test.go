@@ -1144,19 +1144,18 @@ func TestOborKitTrimGoCache(t *testing.T) {
 
 // T-1169: check-race (commands.race, the nightly's non-gating race line) runs the suite once under the race detector
 // and decides on data race reports only: a test that fails on timing under the detector's slowdown is not this line's
-// failure (the nightly check owns it), a run in which no package ran is a FAIL and exit 2 — never "0 reports" — and a
-// race is exit 1, so the nightly prints a WARN and keeps the whole output. Through make the recipe's status reaches the
-// operator in make's own trailing line (`make: *** [check-race] Error 1` for a race, `Error 2` for a build that did not
-// run; GNU Make 4.x prints the file and line too, `make: *** [Makefile:165: check-race] Error 1`) and make itself exits
-// 2 for any failed recipe; the nightly's last-line report therefore reads that line, while the count is this target's
-// line just above it and the kept log (reported to the lead, T-1169). The cases are canned go test output, so no real
-// race build runs here; the real build is covered once by the task's own run of the target on ./internal/spec. The go
-// stub answers `go env GOCACHE` with a temp cache and logs its argv, so the test also proves the target asks Go for
-// -race.
+// failure (the nightly check owns it), a race is exit 1, so the nightly prints a WARN and keeps the whole output, and a
+// run in which no package ran is a FAIL and exit 2 — never "0 reports". Every outcome ends in a `race: ` line: the
+// counts, or the build that did not run (T-1182), so the nightly's result line carries that summary and not the
+// trailer make appends to a failed recipe (`make: *** [check-race] Error 2`, or GNU Make 4.x's
+// `make: *** [Makefile:N: check-race] Error 2`), which make itself exits 2 for. The cases are canned go test
+// output, so no real race build runs here; the real build is covered once by the task's own run of the target on
+// ./internal/spec. The go stub answers `go env GOCACHE` with a temp cache and logs its argv, so the test also proves
+// the target asks Go for -race.
 func TestOborKitCheckRace(t *testing.T) {
 	t.Parallel()
 	repo, _ := filepath.Abs("../..")
-	const failedBuild = "FAIL race: the race build did not run"
+	const failedBuild = "race: the race build did not run (FAIL)"
 	for _, c := range []struct {
 		name     string
 		canned   string // what the stub's go test prints
