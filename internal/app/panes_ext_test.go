@@ -19,13 +19,11 @@ func TestReconnectReadsANewSnapshot(t *testing.T) {
 		r.f.Remove("w1:p1")
 		r.f.Pane("w1:p2").Status = "blocked"
 		r.srv.DropConns()
-		r.waitFacts("T-1 needs-you{pane exited}")
+		r.waitFacts("T-1 needs-you{pane exited}", "T-2 needs-you{blocked}")
 		if n := r.count("session.snapshot"); n <= before {
 			t.Errorf("snapshots = %d, want more than the %d before the drop", n, before)
 		}
 		r.waitConnected()
-		r.clock.Add(11 * time.Minute)
-		r.waitFacts("T-1 needs-you{pane exited}", "T-2 needs-you{blocked}")
 
 		// events_lost ends the stream too: subscribe again, from a new snapshot.
 		before = r.count("session.snapshot")

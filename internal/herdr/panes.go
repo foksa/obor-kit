@@ -302,6 +302,11 @@ func (p Panes) Notify(ctx context.Context, title, body string) error {
 	return p.S.Notify(ctx, title, body)
 }
 
+// Screen is pane.read: the pane's visible text, its last lines (what a blocked pane asks a person).
+func (p Panes) Screen(ctx context.Context, pane string, lines int) (string, error) {
+	return p.S.Screen(ctx, pane, lines)
+}
+
 var _ port.Typer = Panes{}
 
 // Type types text into pane (agent.prompt, no wait): a job's wake with its [obor job <id>] tag, or serve's line as it
