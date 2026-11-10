@@ -175,7 +175,7 @@ func TestUnknownModelRefused(t *testing.T) {
 	}
 }
 
-// lanes is a count: L-01 … L-NN under lanes_dir, nothing else is a lane.
+// lanes.count is a count: L-01 … L-NN under lanes.dir, nothing else is a lane.
 func TestLanesCount(t *testing.T) {
 	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"},"lanes":{"count":3}}`, "")
 	var names []string

@@ -65,7 +65,7 @@ func TestMerge(t *testing.T) {
 }
 
 // LoadHook ignores unknown keys (both files) and returns them, writing nothing on Warn; every other error
-// is Load's; Fallback is the defaults with the derived lanes_dir.
+// is Load's; Fallback is the defaults with the derived lanes.dir.
 func TestLoadHook(t *testing.T) {
 	var warn strings.Builder
 	defer func(w interface{ Write([]byte) (int, error) }) { Warn = w }(Warn)

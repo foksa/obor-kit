@@ -22,7 +22,7 @@ import (
 // line; any change refused refuses them all.
 
 // configJSON is the edit tests' config.json: an opencode model a level names with an effort, a kind's args, two lanes,
-// and no trunk (branches.main ""): these edits test the config_set mechanism, not validate's trunk check (config's
+// and no trunk (merge.target_branch ""): these edits test the config_set mechanism, not validate's trunk check (config's
 // TestValidateTrunkRef), and this plain dir has no repository for that check to read, so it starts no git process here
 // (the app package's tests run no git).
 const configJSON = `{

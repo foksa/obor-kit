@@ -240,7 +240,7 @@ type Role struct {
 }
 
 // DetectRole is the session's role: OBOR_ROLE / OBOR_LANE from env; a directory in a linked worktree directly under
-// lanes_dir (not the merge scratch) → a worker in that lane. The lane cwd wins over the env, except OBOR_ROLE=driver
+// lanes.dir (not the merge scratch) → a worker in that lane. The lane cwd wins over the env, except OBOR_ROLE=driver
 // there: the owner's drive agent.
 func DetectRole(r *Repo, cfg *config.Config, env Env) Role {
 	envRole, envLane := env.Get("OBOR_ROLE"), env.Get("OBOR_LANE")
@@ -261,7 +261,7 @@ func DetectRole(r *Repo, cfg *config.Config, env Env) Role {
 	return Role{"none", "", "none"}
 }
 
-// LaneOf is the lane whose worktree r is: a linked worktree directly under lanes_dir (compared physically), not the
+// LaneOf is the lane whose worktree r is: a linked worktree directly under lanes.dir (compared physically), not the
 // merge scratch and not a role worktree (the reviewer's, the deep dive's). "" when none (a lane is any
 // other worktree there).
 func LaneOf(r *Repo, cfg *config.Config) string {

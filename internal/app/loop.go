@@ -105,9 +105,8 @@ func resumeDefaultOf(cause string) string {
 	return resumeDefault[cause]
 }
 
-// afterSteps are a merged task's steps, in order (a keep lane's task runs the first only: afterList). An older log's
-// dispatch.next (the legacy queue dispatch) and archive (the done file's) are none of them: their
-// results fold as no step's.
+// afterSteps are a merged task's steps, in order (a keep lane's task runs the first only: afterList). A result of
+// any other step folds as no step's.
 var afterSteps = []string{event.StepAfterMerge, event.StepStop}
 
 // afterList is mt's after-merge steps: a keep lane's task (its dispatch's Keep) runs after_merge only, its

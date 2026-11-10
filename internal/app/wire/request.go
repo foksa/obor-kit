@@ -3,12 +3,12 @@ package wire
 import "obor/internal/store"
 
 // The app socket's requests: one type per method, each an Envelope and its method's fields only, its doc
-// comment the method's documented request. The JSON keys are the union's (a key per field:
-// "note" carries a hold's why, resume's text, spec_set's what-changed …), less the keys no serve of either version
-// reads for that method (a no-task method sends no empty "task", task_done and the verdicts no "pane", web
-// pause no "source"); the golden test names each one and why it is unread. The wire guarantee is not byte-for-byte
-// equality with an older line: every key a serve of either version reads for the method is sent, and every older line
-// decodes here; a key a method does not use is ignored, as any unknown key.
+// comment the method's documented request. The JSON keys are the fields' wire names ("note" carries a hold's
+// why, resume's text, spec_set's what-changed …), less the keys no serve of either version reads for that
+// method (a no-task method sends no empty "task", task_done and the verdicts no "pane", web pause no
+// "source"); the golden test names each one and why it is unread. The wire guarantee is not byte-for-byte
+// equality with an older line: every key a serve of either version reads for the method is sent, and every
+// older line decodes here; a key a method does not use is ignored, as any unknown key.
 
 // Envelope is every request's caller: who calls (its derived agent name, project.Self, and its role; both empty:
 // the owner), from which project, and the call's id (a repeated id gets serve's stored reply, so every call has its

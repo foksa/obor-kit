@@ -1,8 +1,8 @@
 // Package setup is `obor setup`: make a project obor-ready. Every subcommand is idempotent, prints what it did and
 // ends with OK … / FAIL … (exit 1).
 //
-//	lane <L-NN>  git worktree add --detach <lanes_dir>/<L-NN> <current branch>; symlink lane_links; raise config.lanes
-//	        to NN when it is the next lane (lanes are L-01 … L-NN); run commands.lane_setup in the lane (under its timeout), leaving
+//	lane <L-NN>  git worktree add --detach <lanes.dir>/<L-NN> <current branch>; symlink lanes.links; raise lanes.count
+//	        to NN when it is the next lane (lanes are L-01 … L-NN); run lanes.setup in the lane (under its timeout), leaving
 //	        <state>/lanes/<LANE>.setup when it finished (obor init's rerun skips a lane only then, and
 //	        only while that marker names the lane_setup configured now).
 //	pane <LANE> [--tab <tab-id> | --new-tab <label> | --pane <pane-id>] [--start]  a pane for the lane's worker, labelled and
@@ -23,10 +23,10 @@
 //	        pane (or herdr's agent_not_ready) → FAIL agent not ready: <hint>. A running agent → OK, no-op.
 //	role <role> [same placement] [--start]  the same (no agent unless --start) for a role of the roles table (not worker): agent and type from
 //	        roles.<role>, env OBOR_ROLE (the role's env value, triage too), cwd the role's (config.RoleDir):
-//	        the reviewer, the deep dive and the integrator their role worktree <lanes_dir>/<role>, added
+//	        the reviewer, the deep dive and the integrator their role worktree <lanes.dir>/<role>, added
 //	        detached at the main checkout's branch when missing; every other role the root. triage also copies
 
-//	        templates/BUGS.md to docs/BUGS.md if missing; the reviewer and the deep dive also add paths.reviews (default
+//	        templates/BUGS.md to docs/BUGS.md if missing; the reviewer and the deep dive also add reviews.dir (default
 //	        docs/reviews) to the main checkout's .gitignore, once.
 //	githooks [--remove]  core.hooksPath (repo-local config, shared by all worktrees) = <kit>/githooks (pre-commit,
 //	        pre-push and githooks/_hook) or, when there is something to chain, <kit>/githooks/chain (every hook git

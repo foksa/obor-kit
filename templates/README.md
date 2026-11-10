@@ -19,7 +19,7 @@ Files written once; after that the project owns them.
 |---|---|---|
 | `{{project}}` | `project.name` | Display name of the project |
 | `{{prefix}}` | `project.agent_prefix` | Agent-name / tab prefix (`{{prefix}}-o1`) |
-| `{{lanes_dir}}` | `lanes.dir` | Directory holding the lane worktrees |
+| `{{lanes.dir}}` | `lanes.dir` | Directory holding the lane worktrees |
 
 Anything else is literal: `docs/reviews/`, `docs/research/` and `AGENTS.md` appear as the defaults (`reviews.dir`
 can differ; edit the copied docs if so).

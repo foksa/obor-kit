@@ -57,7 +57,7 @@ func TestInitEndToEnd(t *testing.T) {
 	env, log, home := initEnv(t, nil)
 	rc, stdout, stderr := run(t, p.Root, env, "init")
 	if rc != 0 || !strings.Contains(stdout, "OK init proj (prefix proj); next: first task for the lead: set up the stack "+
-		"and `commands.check` (lane_setup, lane_ready); until then every gate stops on \"missing command\"\n") ||
+		"and `merge.check` (lanes.setup, lanes.ready); until then every gate stops on \"missing command\"\n") ||
 		!strings.HasSuffix(stdout, "starting point: the lead goes through it with you at its first session\n") {
 		t.Fatalf("obor init: exit %d\n%s%s", rc, stdout, stderr)
 	}

@@ -22,7 +22,7 @@ const restoreWait = 30 * time.Second
 //  1. The lane's dir from the config; uncommitted changes there are an error (the step runs again on a later pass;
 //     the lane is not touched). Its branch is the one checked out, or in.Branch when the lane is detached already (a
 //     test cut before its restore).
-//  2. checkout --detach in.SHA (ignored files, the lane's build outputs, stay), lane_links.
+//  2. checkout --detach in.SHA (ignored files, the lane's build outputs, stay), lanes.links.
 //  3. The changed files in.Target..in.SHA (OBOR_CHANGED_FILES), classified; lane_setup; the class's checks and the
 //     guard (runChecks, as the gate runs them), holding a pool slot (prio worker, never the merge
 //     marker: slots.max bounds how many lanes test at once), the lane's CPU budget in their environment. A red whose

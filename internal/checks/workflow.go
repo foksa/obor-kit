@@ -13,7 +13,7 @@ import (
 
 // ScratchFF is port.Workflow "scratch-ff" (workflow.kind, the default): the merge slot in serve's own worktree
 // (Scratch: submit, gate, the lane test, the fast-forward publish), the lanes as worktrees on task branches (Lane), the
-// target branches.main, and the review's git on the main checkout (Review: cmd/obor's, obor's own commits there).
+// target merge.target_branch, and the review's git on the main checkout (Review: cmd/obor's, obor's own commits there).
 type ScratchFF struct {
 	Scratch
 	Lane
@@ -28,7 +28,7 @@ func NewScratchFF(s Scratch, review port.Review) ScratchFF {
 	return ScratchFF{Scratch: s, Lane: Lane{Cfg: s.Cfg}, Review: review}
 }
 
-// Target is the sha of branches.main, and whether task's branch has commits it lacks.
+// Target is the sha of merge.target_branch, and whether task's branch has commits it lacks.
 func (w ScratchFF) Target(ctx context.Context, task string) (string, bool, error) {
 	cfg := w.Scratch.Cfg
 	base := cfg.MainBranch() // whatever the main checkout has checked out

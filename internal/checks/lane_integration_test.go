@@ -110,10 +110,10 @@ func TestLanePrepareRefused(t *testing.T) {
 		{"lane_ready still red", []func(map[string]any){
 			testkit.Set("lanes.ready", "test -f ready"),
 			testkit.Set("lanes.setup", "true")}, false,
-			"lane_setup in L-01: ran, but commands.lane_ready still fails"},
+			"lane_setup in L-01: ran, but lanes.ready still fails"},
 		{"lane_ready red, no lane_setup", []func(map[string]any){
 			testkit.Set("lanes.ready", "false")}, false,
-			"commands.lane_setup is not set"},
+			"lanes.setup is not set"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()

@@ -32,7 +32,7 @@ func (g reviewGit) Close(ctx context.Context, c port.ReviewCommit) error {
 	if verify := filepath.Join(filepath.Dir(c.File), c.ID+"-verify.md"); fileThere(verify) {
 		files = append(files, verify)
 	}
-	own := map[string]bool{} // the review's files: untracked when paths.reviews is not gitignored
+	own := map[string]bool{} // the review's files: untracked when reviews.dir is not gitignored
 	for _, f := range files {
 		rel, _ := filepath.Rel(root, f)
 		own[filepath.ToSlash(rel)] = true

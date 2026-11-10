@@ -1,7 +1,7 @@
 #!/bin/sh
 # obor install: clone (or update) the kit into ~/.obor/kit at the newest release tag, link ~/.local/bin/obor, then run
-# `obor version` once so the release binary, and beside it each kind binary the release ships (obor-kind-opencode,
-# T-1046), is fetched and checksum-checked. Re-running this script is the upgrade.
+# `obor version` once so the release binary, and beside it each kind binary the release ships (obor-kind-opencode),
+# is fetched and checksum-checked. Re-running this script is the upgrade.
 #
 #   curl -fsSL https://raw.githubusercontent.com/foksa/obor-kit/main/install.sh | sh
 #

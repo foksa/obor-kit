@@ -763,9 +763,8 @@ func (p *proj) needsLine(r event.Record, n int, now time.Time) string {
 	return line
 }
 
-// oldLineOf is the did key of a needs-you's or a watch's line an older log recorded (its own field, no Of; under
-// mu): needs, the needs-you's seq and the lines of it folded so far; watch, the watch's seq. Compat until v0.29
-// (change rule 5).
+// oldLineOf is the did key of a needs-you's or a watch's line that carries no Of (its own field; under mu): needs,
+// the needs-you's seq and the lines of it folded so far; watch, the watch's seq.
 func (p *proj) oldLineOf(data json.RawMessage) event.Of {
 	var old struct {
 		Needs int64 `json:"needs"`

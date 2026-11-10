@@ -149,8 +149,8 @@ func (s *Setup) configJSON(name, prefix string) ([]byte, error) {
 	return doc, nil
 }
 
-// gitignore appends the lines obor needs, each once (.obor/drafts/: the lead's spec drafts; paths.reviews: an
-// open review). lane_links too: obor serve cleans the scratch with git clean, which keeps only ignored files.
+// gitignore appends the lines obor needs, each once (.obor/drafts/: the lead's spec drafts; reviews.dir: an
+// open review). lanes.links too: obor serve cleans the scratch with git clean, which keeps only ignored files.
 func (s *Setup) gitignore() error { return s.ignoreLines(s.gitignoreLines()...) }
 
 // ignoreLines appends lines to .gitignore, each once. A line already there with or without its trailing slash (git
@@ -192,7 +192,7 @@ func (s *Setup) gitignoreLines() []string {
 		s.cfg.LaneLinks()...)
 }
 
-// initBranch is the branch gitInit makes: branches.main from a config in dir, else main.
+// initBranch is the branch gitInit makes: merge.target_branch from a config in dir, else main.
 func (s *Setup) initBranch() string {
 	if cfg, err := config.Load(s.Dir); err == nil {
 		return cfg.MainBranch()
@@ -200,7 +200,7 @@ func (s *Setup) initBranch() string {
 	return "main"
 }
 
-// gitInit makes dir a repository when it is in none: branch is branches.main from a config already there, else main
+// gitInit makes dir a repository when it is in none: branch is merge.target_branch from a config already there, else main
 func (s *Setup) gitInit() error {
 	branch := s.initBranch()
 	if _, err := project.Git(s.Dir, "init", "-q", "-b", branch); err != nil {
@@ -384,7 +384,7 @@ func (s *Setup) renderTemplate(src string, stub bool) ([]byte, error) {
 			"in this project.\n\n" + section(text, "## This project")
 	}
 	d := s.cfg
-	text = strings.NewReplacer("{{project}}", d.Name(), "{{prefix}}", d.Prefix(), "{{lanes_dir}}", d.LanesDirSetting()).Replace(text)
+	text = strings.NewReplacer("{{project}}", d.Name(), "{{prefix}}", d.Prefix(), "{{lanes.dir}}", d.LanesDirSetting()).Replace(text)
 	return []byte(strings.TrimRight(text, "\n") + "\n"), nil
 }
 

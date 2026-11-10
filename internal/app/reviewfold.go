@@ -66,9 +66,8 @@ type reviewLog struct {
 // fold folds r: a merge; a review start (a new review); its close's snapshot (review.closing,
 // the close's snapshot); its close (closes the newest review when it names it or a later one, the first close counting, and freezes
 // it at the close's snapshot); a brief (a verify's, when it names tasks and a head; any brief
-// replaces the agent's open verify brief); the finished line that ends a brief; a stop that ends one. Records of an
-// older obor (review.fix, review.verify.request, a brief's verify_of) fold as nothing (a closed cycle needs
-// none of them).
+// replaces the agent's open verify brief); the finished line that ends a brief; a stop that ends one. Any other
+// record of a review or a line folds as nothing (a closed cycle needs none of them).
 func (l *reviewLog) fold(r event.Record) {
 	if l.open == nil {
 		l.open = map[string]*verifyBrief{}
@@ -104,7 +103,7 @@ func (l *reviewLog) fold(r event.Record) {
 		n, ok := reviewNumber(d.ID)
 		if open, isID := reviewNumber(cur.id); cur.seq != 0 && cur.closed == 0 && ok && isID && n >= open {
 			cur.closed, cur.subject = r.Seq, strings.TrimPrefix(d.Reply, closedReply)
-			switch { // its snapshot: the fact's, else its review.closing's; neither (an older obor): as folded so far
+			switch { // its snapshot: the fact's, else its review.closing's; neither: as folded so far
 			case d.Head != "" && d.ID == cur.id:
 				cur.freeze(closeSnap{head: d.Head, tasks: d.Tasks})
 			case cur.closing != nil:

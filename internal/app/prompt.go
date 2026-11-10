@@ -17,8 +17,8 @@ import (
 // record is posted there, "[obor job <id>] <text>" as typed: nothing typed. The text cannot land in a
 // dialog: a session behind an open permission dialog reads it when its turn continues. Any other kind, or a session
 // with no inbox record, is typed, its input line cleared first (an earlier wake a dialog ate may sit there): the record
-// is missing only for a session its SessionStart hook did not register (an older kit, a failed hook), and a
-// wake refused there would leave the worker without its job until a restart (lines instead stay queued: deliver).
+// is missing only for a session its SessionStart hook did not register, and a wake refused there would leave the
+// worker without its job until a restart (lines instead stay queued: deliver).
 
 // promptData is every prompt intent's data: the agent prompted and its job; a review or resolve job's patch (folded
 // as JobData), a fix job's note.

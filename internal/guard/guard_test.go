@@ -770,7 +770,7 @@ func TestWorkerEditsAnywhereInItsLaneOnly(t *testing.T) {
 		edit("integrator", P, "Edit", other.Root+"/README.md", ""),
 		edit("reviewer", P, "Edit", P+"/README.md", "outside the reviewer write profile"),
 	))
-	// OBOR_ROLE=worker + OBOR_LANE from the main checkout: the lane is still lanes_dir/L-01.
+	// OBOR_ROLE=worker + OBOR_LANE from the main checkout: the lane is still lanes.dir/L-01.
 	check(t, f.Project, []tc{
 		edit("worker", P, "Edit", L+"/src/b.ts", ""),
 		edit("worker", P, "Edit", S+"/src/b.ts", "another worktree"),

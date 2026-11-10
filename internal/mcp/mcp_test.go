@@ -598,7 +598,7 @@ func (f *fixture) worktree(dir string) {
 func TestJobNextPerKind(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
-	lane := filepath.Join(filepath.Dir(f.root), "proj-wt", "L-01") // the default lanes_dir, ../<name>-wt
+	lane := filepath.Join(filepath.Dir(f.root), "proj-wt", "L-01") // the default lanes.dir, ../<name>-wt
 	f.worktree(lane)
 	a := &fakeServe{answer: func(_ string, c toolCall) (string, string) {
 		if c.Agent != "pj-l-01" {

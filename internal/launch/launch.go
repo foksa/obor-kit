@@ -394,7 +394,7 @@ func (l *Launcher) ps(args ...string) ([]byte, error) {
 // inProject: the pane of an agent this config knows (it is started with a cd into this project) is this project's
 // (labels and agent names are machine-wide, so a run that loaded another project's config took axis's
 // integrator pane for the kit's lane of the same name and started it in the kit's lane worktree). Its herdr cwd is in
-// the main checkout, a lanes_dir worktree, the agent's configured cwd or another worktree of this repository. No cwd
+// the main checkout, a lanes.dir worktree, the agent's configured cwd or another worktree of this repository. No cwd
 // known, or an unknown agent (started where its pane is): not checked. Else FAIL with evidence, before anything is
 // stopped or typed.
 func (l *Launcher) inProject(ctx context.Context, t *target) error {
@@ -780,7 +780,7 @@ func (l *Launcher) envOrOS() project.Env {
 }
 
 // roleWorktree adds the role worktree a role agent's cwd is when it is missing (the reviewer's, the deep
-// dive's, the integrator's <lanes_dir>/<role>), detached at branches.main, so the env line's cd finds it: serve's
+// dive's, the integrator's <lanes.dir>/<role>), detached at merge.target_branch, so the env line's cd finds it: serve's
 // starts and obor restart of a project whose role worktree is absent. The worktree, added now or there before, gets
 // the links it lacks (project.WorktreeLinks, project.LinkInto): a settings file git does not track reaches it only as
 // a link, listed in lanes.links or not, and with it obor's plugin. Any other cwd: nothing.

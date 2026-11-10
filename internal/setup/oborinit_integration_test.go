@@ -112,8 +112,8 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 		t.Fatal("precondition: no config")
 	}
 	out := x.init(t)
-	const ok = "OK init proj (prefix proj); next: first task for the lead: set up the stack and `commands.check` " +
-		"(lane_setup, lane_ready); until then every gate stops on \"missing command\""
+	const ok = "OK init proj (prefix proj); next: first task for the lead: set up the stack and `merge.check` " +
+		"(lanes.setup, lanes.ready); until then every gate stops on \"missing command\""
 	if !strings.Contains(out, ok+"\n") {
 		t.Errorf("no OK line %q in\n%s", ok, out)
 	}
@@ -550,7 +550,7 @@ func TestOborInitLaneSetupOnARerun(t *testing.T) {
 		}},
 		{"lane_ready fails with no lane_setup to run: FAIL", func(t *testing.T, x *initFx) {
 			x.editConfig(t, []string{"lanes", "ready"}, "false")
-			x.failing(t, "FAIL lane L-01: lane_ready fails (false) and commands.lane_setup is not set", "obor-init")
+			x.failing(t, "FAIL lane L-01: lane_ready fails (false) and lanes.setup is not set", "obor-init")
 		}},
 		{"lane_ready still fails after lane_setup: FAIL, never done", func(t *testing.T, x *initFx) {
 			x.editConfig(t, []string{"lanes", "ready"}, "echo not ready; exit 1")

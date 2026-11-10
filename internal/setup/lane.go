@@ -72,14 +72,14 @@ func (s *Setup) laneIndex(lane string) int {
 	return 0
 }
 
-// laneSetupMarker is <root>/.obor/state/lanes/<lane>.setup: the commands.lane_setup that finished for the lane.
+// laneSetupMarker is <root>/.obor/state/lanes/<lane>.setup: the lanes.setup command that finished for the lane.
 // setup.lane writes the config and the worktree before running it, so on a rerun only this marker tells a finished
 // setup from one that failed; it holds the command, so an edit to lane_setup does not match it.
 func laneSetupMarker(root, lane string) string {
 	return filepath.Join(project.StateDir(root), "lanes", lane+".setup")
 }
 
-// laneReady runs commands.lane_ready in dir (ok with none configured) and reads its output as a FAIL line can carry
+// laneReady runs lanes.ready in dir (ok with none configured) and reads its output as a FAIL line can carry
 // it: its last three lines on one line (checks.LaneSetup's shape).
 func (s *Setup) laneReady(ctx context.Context, dir string) (c config.Command, out string, ok bool) {
 	c, configured := run.Command(s.cfg, "lane_ready")
@@ -93,7 +93,7 @@ func (s *Setup) laneReady(ctx context.Context, dir string) (c config.Command, ou
 }
 
 // laneDone: this lane of the config needs no `obor setup lane` (obor init's rerun): dir is a worktree of this
-// repo and commands.lane_ready passes there, or (with none configured) its lane_setup finished the last time with the
+// repo and lanes.ready passes there, or (with none configured) its lane_setup finished the last time with the
 // command configured now (an edited lane_setup runs again). A dir that exists and is not a worktree of this repo
 // is a FAIL, never a skip; no dir at all is false: setup.lane makes one.
 func (s *Setup) laneDone(ctx context.Context, lane, dir string) (bool, error) {
@@ -106,7 +106,7 @@ func (s *Setup) laneDone(ctx context.Context, lane, dir string) (bool, error) {
 	}
 	if c, _, ok := s.laneReady(ctx, dir); !ok {
 		if _, has := run.Command(s.cfg, "lane_setup"); !has {
-			return false, project.Failf("lane %s: lane_ready fails (%s) and commands.lane_setup is not set", lane, c.Cmd)
+			return false, project.Failf("lane %s: lane_ready fails (%s) and lanes.setup is not set", lane, c.Cmd)
 		}
 		s.say("lane %s: lane_ready fails (%s): running its lane_setup again", lane, c.Cmd)
 		return false, nil
@@ -144,7 +144,7 @@ func (s *Setup) linkWorktree(dir string) error {
 		case statErr == nil:
 			s.say("skip link %s (exists)", link)
 		default:
-			s.say("warning: lane_links %s: no %s, not linked", link, src)
+			s.say("warning: lanes.links %s: no %s, not linked", link, src)
 		}
 	}
 	return nil

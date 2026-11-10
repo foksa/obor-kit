@@ -175,8 +175,8 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 		add("commands", "done", "%s", strings.Join(set, "; "))
 	case !s.anyCommand():
 		skippedCommands = true
-		add("commands", "skipped", "none detected (no Makefile check:, go.mod or package.json): set commands.check, "+
-			"lane_setup, lane_ready and lane_links in .obor/config.json")
+		add("commands", "skipped", "none detected (no Makefile check:, go.mod or package.json): set merge.check, "+
+			"lanes.setup, lanes.ready and lanes.links in .obor/config.json")
 	default:
 		add("commands", "already", "%s", s.commandsLine())
 	}
@@ -298,7 +298,7 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	}
 	next := "obor lead"
 	if skippedCommands {
-		next = "first task for the lead: set up the stack and `commands.check` (lane_setup, lane_ready); until then " +
+		next = "first task for the lead: set up the stack and `merge.check` (lanes.setup, lanes.ready); until then " +
 			"every gate stops on \"missing command\""
 	}
 	s.say("OK init %s (prefix %s); next: %s", s.cfg.Name(), s.cfg.Prefix(), next)
@@ -703,8 +703,8 @@ func (s *Setup) laneWorker(lane string) string {
 // --- plugin reaches the lanes ----------------------------------------------------------------------------
 
 // initPluginLinks makes the project's .claude/settings.json reach every lane: lanes are worktrees, so a file the
-// repository does not track is not in them. Untracked → it joins lane_links (and .gitignore, which keeps git clean
-// from removing the links) and lane_links is linked into the existing lanes; tracked or absent → nothing to do. A
+// repository does not track is not in them. Untracked → it joins lanes.links (and .gitignore, which keeps git clean
+// from removing the links) and lanes.links is linked into the existing lanes; tracked or absent → nothing to do. A
 // role worktree gets the links where it is made (rolePane; the launcher at its agent's start).
 func (s *Setup) initPluginLinks() (state, what string, err error) {
 	if !project.SettingsUntracked(s.root) {
@@ -741,5 +741,5 @@ func (s *Setup) initPluginLinks() (state, what string, err error) {
 			changed = true
 		}
 	}
-	return doneOr(changed), project.PluginSettings + " is untracked: in lane_links, linked into the lanes and, as each is made, the role worktrees (commit it to share it by git instead)", nil
+	return doneOr(changed), project.PluginSettings + " is untracked: in lanes.links, linked into the lanes and, as each is made, the role worktrees (commit it to share it by git instead)", nil
 }

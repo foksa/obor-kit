@@ -16,7 +16,7 @@ type WriteProfile string
 const (
 	CwdProject CwdRule = "project"
 	CwdLane    CwdRule = "lane"
-	// CwdRoleWorktree is a worktree serve owns, <lanes_dir>/<role> (the reviewer, the deep dive, the integrator),
+	// CwdRoleWorktree is a worktree serve owns, <lanes.dir>/<role> (the reviewer, the deep dive, the integrator),
 	// detached; never a lane. Serve moves the reviewer's and the deep dive's to the head it hands them.
 	CwdRoleWorktree  CwdRule      = "role-worktree"
 	WriteNone        WriteProfile = "none"
@@ -63,7 +63,7 @@ var table = []Role{
 	{Name: "worker", EnvValue: "worker", AgentSuffix: "<lane>", Cwd: CwdLane, Write: WriteSpec, Stoppable: true, Dispatchable: true},
 	// The reviewer and the deep dive read their own worktree (a merge hold would put merges in the main checkout):
 	// serve moves it to the head it hands them, so merges never wait. Their files go to the main checkout's
-	// paths.reviews (the guard's WriteReviewsOnly).
+	// reviews.dir (the guard's WriteReviewsOnly).
 	{Name: "reviewer", EnvValue: "reviewer", AgentSuffix: "rev", Cwd: CwdRoleWorktree, Write: WriteReviewsOnly, GitReadOnly: true},
 	{Name: "deep_dive", EnvValue: "deep_dive", AgentSuffix: "deep-dive", Cwd: CwdRoleWorktree, Write: WriteReviewsOnly, Optional: true, GitReadOnly: true},
 	// The owner's drive agent (obor drive): in a lane, with the worker's write limits and push denial, but it

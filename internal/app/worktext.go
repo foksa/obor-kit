@@ -137,7 +137,7 @@ func (a *App) watchWork(p *proj, mt mtask) step {
 
 // workerPrompt is the worker prompt, the work job's text job_next hands out: templates/worker-prompt.txt rendered (its
 // lines joined by spaces), the model's kind's prompt_extra (kinds.<kind>.prompt_extra); no backticks (herdr gotcha). It carries no sender tag of its
-// own. The worker's role texts follow it (workText). {{base}} is the target branch (branches.main). Placeholders:
+// own. The worker's role texts follow it (workText). {{base}} is the target branch (merge.target_branch). Placeholders:
 //
 //	{{task}} {{base}}
 //	{{done_sections}}  config.ReportSections, comma-separated: the sections task_done's report must have

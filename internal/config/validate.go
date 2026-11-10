@@ -275,8 +275,8 @@ func (v *validator) flakeRegex() {
 }
 
 // integrator: every project needs one. serve dispatches and merges only for a project with
-// agents.roles.integrator, so without the entry nothing lands: a v0.9.4 project that relied on the default
-// <prefix>-int agent, or one written without the role, would otherwise look valid and only queue up work.
+// agents.roles.integrator, so without the entry nothing lands: a project written without the role would
+// otherwise look valid and only queue up work.
 func (v *validator) integrator() {
 	if _, ok := v.d.Agents.Roles.entry("integrator"); !ok {
 		v.fail(".agents.roles.integrator", "required: serve dispatches and merges nothing without an integrator")

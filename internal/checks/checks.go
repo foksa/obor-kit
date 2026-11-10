@@ -7,7 +7,7 @@
 // names that log and its failing tests (merge.fail_grep matches) in the result line; a failed after_merge names it in
 // its WARN line.
 //
-// nightly runs in its own worktree, <lanes_dir>/merge-nightly, one at a time per project
+// nightly runs in its own worktree, <lanes.dir>/merge-nightly, one at a time per project
 // (.obor/state/nightly.flock). Result line (printed last) and exit code: NIGHTLY GREEN 0 | RED 3 | FAIL 1. A signal
 // (INT, TERM, HUP) ends a run with 130, 143, 129.
 package checks
@@ -78,13 +78,13 @@ type session struct {
 	signal  int // the signal's exit code once interrupted
 	sigDone chan struct{}
 	target  string // the main checkout's current branch
-	scratch string // <lanes_dir>/merge-<name>: -nightly
+	scratch string // <lanes.dir>/merge-<name>: -nightly
 	window  *project.Lock
 	locked  bool
 	start   time.Time
 }
 
-// open starts a session named name (nightly: its worktree <lanes_dir>/merge-<name> and its logs' prefix):
+// open starts a session named name (nightly: its worktree <lanes.dir>/merge-<name> and its logs' prefix):
 // the target branch and the worktree path; a signal on Interrupted or the end of ctx cancels its context.
 func open(ctx context.Context, o Options, name string) (*session, *Result) {
 	s := &session{Options: o, start: time.Now()}
@@ -173,7 +173,7 @@ func nonEmpty(ss ...string) []string {
 	return out
 }
 
-// DefaultWindowWait is how long a nightly waits for another nightly's lock (merge.window_wait's old default).
+// DefaultWindowWait is how long a nightly waits for another nightly's lock (merge.window_wait's default).
 const DefaultWindowWait = 900 * time.Second
 
 // lock takes the nightly lock (nightly.flock) until close. A live holder: a line every 30 s, FAIL after WindowWait.

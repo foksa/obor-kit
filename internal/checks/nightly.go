@@ -14,8 +14,8 @@ import (
 )
 
 // Nightly is `obor nightly`: the milestone check tier in
-// its own worktree (<lanes_dir>/merge-nightly, added when missing) reset to the head of the main checkout's current
-// branch: commands.lane_setup, then check and check_milestone, each skipped when unset. Non-blocking: every command
+// its own worktree (<lanes.dir>/merge-nightly, added when missing) reset to the head of the main checkout's current
+// branch: lanes.setup, then check and check_milestone, each skipped when unset. Non-blocking: every command
 // runs even after a failure (a failed lane_setup stops the rest). A red check reruns its named failing tests once by
 // merge.retest inside the slot it holds; green then is the step's green and its line names the rerun.
 // It then backs up the project's database (wire.Backup), sweeps.obor (project.Sweep: each removal it could not
