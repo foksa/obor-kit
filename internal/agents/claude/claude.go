@@ -171,7 +171,7 @@ func userOff(in agents.Start, proj settings) map[string]any {
 		out[pluginsKey] = plugins
 	}
 	skills := map[string]string{}
-	for _, n := range agents.UserSkills(in, filepath.Join(dir, "skills")) {
+	for _, n := range agents.UserSkills(in, dir) {
 		if !named(skillsKey, n) {
 			skills[n] = "off"
 		}

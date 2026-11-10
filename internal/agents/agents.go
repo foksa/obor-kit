@@ -137,12 +137,14 @@ func UserDir(in Start, envVar, dflt string) string {
 	return ""
 }
 
-// UserSkills are the skills of a user's skills dir: the names of its subdirectories, sorted, without the dot dirs
-// (a CLI's own, such as Codex's .system). nil: no dir (""), no lister, or a dir that does not list.
-func UserSkills(in Start, dir string) []string {
-	if dir == "" || in.Dirs == nil {
+// UserSkills are the skills of a user's config dir (UserDir): the names of the subdirectories of its skills dir,
+// sorted, without the dot dirs (a CLI's own, such as Codex's .system). nil: no config dir (""), no lister, or a
+// skills dir that does not list.
+func UserSkills(in Start, userDir string) []string {
+	if userDir == "" || in.Dirs == nil {
 		return nil
 	}
+	dir := filepath.Join(userDir, "skills")
 	names, err := in.Dirs(dir)
 	if err != nil {
 		return nil

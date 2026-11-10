@@ -430,7 +430,7 @@ func TestStartTrimUserSkills(t *testing.T) {
 				Dirs: dirs("/home/u/.codex/skills", "codex-img")}, want(append(slices.Clone(base), "-c", "skills.config=[]"))},
 		{"no skills dir", agents.Start{Args: base, Env: home, Dirs: dirs("/elsewhere", "codex-img")}, want(base)},
 		{"no home in the environment", agents.Start{Args: base, Env: func(string) string { return "" },
-			Dirs: dirs("skills", "codex-img")}, want(base)},
+			Dirs: dirs("/home/u/.codex/skills", "codex-img")}, want(base)},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			c.in.TrimUser, c.in.Dir = true, "/lane"

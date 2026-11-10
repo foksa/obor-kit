@@ -118,7 +118,7 @@ func skillsOff(in agents.Start) string {
 		return ""
 	}
 	var entries []string
-	for _, n := range agents.UserSkills(in, filepath.Join(dir, "skills")) {
+	for _, n := range agents.UserSkills(in, dir) {
 		name, _ := json.Marshal(n) // a JSON string is a TOML basic string
 		entries = append(entries, "{name="+string(name)+",enabled=false}")
 	}
