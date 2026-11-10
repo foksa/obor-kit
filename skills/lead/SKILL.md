@@ -19,8 +19,8 @@ To (re)start the lead (none running, or after a Claude Code update): `obor lead`
    the project's first session: show that table to the owner and ask about it — the models per difficulty level, the
    effort, how many lanes, the lead's, integrator's and reviewer's models. Write the answers into `.obor/config.json`
    (`agents.difficulty`, `lanes.count`, `agents.roles`, model refs `<model>[:<effort>]`; `agents.kinds`, `agents.models` when asked), then set
-   `agents.confirmed: true` and commit. A config with a key this obor does not know (`lanes.types`, say) is refused,
-   naming that key: an unknown key is not one obor can migrate.
+   `agents.confirmed: true` and commit. A key this obor does not know (`lanes.types`, say) is dropped with a WARN by
+   every command and serve (its setting does not apply), and `obor config validate` fails naming it: delete or fix it.
    Never change a model setting without the owner's answer; `obor init` wrote what it found, not what they chose.
 4. Read `BACKLOG.md` (Handoff, Owner decisions pending, Concerns), the top of `docs/decisions.md`, the day's plan
    (`docs/plan/<date>.md`) if there is one, and `AGENTS.md`. Continue from the Handoff's next steps.
