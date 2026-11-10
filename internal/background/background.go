@@ -1,4 +1,4 @@
-// Package background is the agents' live processes (T-714, T-1142): the machine's process table, the matching of a
+// Package background is the agents' live processes: the machine's process table, the matching of a
 // recorded background Bash call (project.BackgroundCall, obor's PreToolUse hook) to the process it started, and the
 // calls of one agent that still run. Base, so the hook (guard), serve (app) and the view share one check.
 package background
@@ -138,9 +138,9 @@ func runs(command, want string) bool {
 func Fold(s string) string { return strings.Join(strings.Fields(s), " ") }
 
 // Live is the newest call in calls still running at at in one of agent's processes in procs: a descendant of the
-// agent's pid (every one, of any age: the view's helper filter is a display heuristic and not applied, T-1147 — a run
+// agent's pid (every one, of any age: the view's helper filter is a display heuristic and not applied — a run
 // started within helperSlack of the agent's start is still its run) that runs its command and started just after the
-// call was recorded (Match). Another agent's process running the same command is none of its (RV-169 #1). ok is false
+// call was recorded (Match). Another agent's process running the same command is none of its. ok is false
 // when every call's process has ended, or agent is not in procs: the call's turn is over, or the agent is unknown.
 func Live(calls []project.BackgroundCall, procs []Proc, agent int, at time.Time) (call project.BackgroundCall, ok bool) {
 	found := NewProcIndex(procs).walk(agent, -1, false)
@@ -154,7 +154,7 @@ func Live(calls []project.BackgroundCall, procs []Proc, agent int, at time.Time)
 	return project.BackgroundCall{}, false
 }
 
-// AgentOf is the agent process that ran the process self (a hook: the agent CLI that ran it, RV-169 #1): walking up
+// AgentOf is the agent process that ran the process self (a hook: the agent CLI that ran it): walking up
 // procs from self's parent, the first ancestor that is no shell (the shell a hook command runs in is passed through).
 // 0 when self is not in procs or the walk reaches pid 1 or a pid not in procs.
 func AgentOf(procs []Proc, self int) int {
@@ -232,7 +232,7 @@ func (x *ProcIndex) Descendants(agent int, min time.Duration) []Found {
 
 // walk is Descendants with the agent's helpers left out when helpers is set; unset, every descendant is an entry
 // (shells with children still passed through, their commands the entries' chains): Live's walk, which matches a
-// recorded call before any filtering (T-1147).
+// recorded call before any filtering.
 func (x *ProcIndex) walk(agent int, min time.Duration, helpers bool) []Found {
 	self, ok := x.byPID[agent]
 	if !ok || agent <= 1 {
@@ -261,8 +261,8 @@ func (x *ProcIndex) walk(agent int, min time.Duration, helpers bool) []Found {
 }
 
 // Mine is the calls that belong to an agent, in log order: those recorded for session (when it is known) that name the
-// agent, or name none and were recorded in its pane (the view's rule, RV-85 #3). An agent with no recorded session is
-// known by its name alone (T-1142: an opencode agent that records none still has its calls).
+// agent, or name none and were recorded in its pane (the view's rule). An agent with no recorded session is
+// known by its name alone (an opencode agent that records none still has its calls).
 func Mine(calls []project.BackgroundCall, agent, session, pane string) []project.BackgroundCall {
 	var out []project.BackgroundCall
 	for _, c := range calls {

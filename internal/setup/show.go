@@ -1,6 +1,6 @@
 package setup
 
-// `obor setup show` (T-647): the project's models, effort and lanes as obor init left them, and whether the owner
+// `obor setup show`: the project's models, effort and lanes as obor init left them, and whether the owner
 // confirmed them. The lead prints it at its first session and asks the owner about it; obor init ends with it too.
 
 import (
@@ -45,7 +45,7 @@ func (s *Setup) printTable() {
 	}
 }
 
-// modelPauses is the model pauses in force now (obor pause --model, T-765), by model: the table marks them (T-979).
+// modelPauses is the model pauses in force now (obor pause --model), by model: the table marks them.
 // No store yet, or one that cannot be read, marks none: the table is still worth printing.
 func (s *Setup) modelPauses() map[string]*event.Pause {
 	db, err := store.OpenAt(s.root)
@@ -62,7 +62,7 @@ func (s *Setup) modelPauses() map[string]*event.Pause {
 
 // levelLine is one level of the table: each model ref of the level, in order, with what runs it — "opus:high (claude
 // opus, effort high) | deepseek (opencode opencode-go/deepseek-v4.1-flash)" — a ref naming no model of the project
-// marked so, and a model a pause holds marked "(paused until cleared|HH:MM)" (T-979).
+// marked so, and a model a pause holds marked "(paused until cleared|HH:MM)".
 func (s *Setup) levelLine(level string, paused map[string]*event.Pause) string {
 	refs := s.cfg.DifficultyList(level)
 	if len(refs) == 0 {
@@ -79,7 +79,7 @@ func (s *Setup) levelLine(level string, paused map[string]*event.Pause) string {
 	return strings.Join(parts, " | ")
 }
 
-// pauseUntil is a pause's end as local HH:MM, "cleared" for none (as obor status words it, T-979).
+// pauseUntil is a pause's end as local HH:MM, "cleared" for none (as obor status words it).
 func pauseUntil(p *event.Pause) string {
 	if p.Until == 0 {
 		return "cleared"
@@ -142,7 +142,7 @@ func (s *Setup) rolesLine() string {
 	return strings.Join(parts, ", ")
 }
 
-// verbsDetail is a custom role's verbs as the roles line shows them after its model (T-1039): " [verbs spec_set
+// verbsDetail is a custom role's verbs as the roles line shows them after its model: " [verbs spec_set
 // dispatch]", "" for none.
 func verbsDetail(verbs []string) string {
 	if len(verbs) == 0 {
@@ -151,7 +151,7 @@ func verbsDetail(verbs []string) string {
 	return " [verbs " + strings.Join(verbs, " ") + "]"
 }
 
-// initConfirmed records setup.confirmed: false when the config has no such key (T-647): the lead goes through the
+// initConfirmed records setup.confirmed: false when the config has no such key: the lead goes through the
 // setup table with the owner at its first session. A rerun keeps the answer. wrote reports whether it added the key.
 func (s *Setup) initConfirmed() (wrote bool, err error) {
 	if s.cfg.SetupConfirmedSet() {

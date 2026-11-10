@@ -14,11 +14,11 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-812: every start path types its env line through the one builder (agents.StartVars): run in a real sh after a
+// every start path types its env line through the one builder (agents.StartVars): run in a real sh after a
 // shell that exports a stale value of every registry var (another role, another lane, another kind's model and config,
 // the retired OBOR_AGENT, another pane's OBOR_PANE), the line leaves the new start's values and none of the stale ones:
-// OBOR_PANE is the pane the start runs in (T-1037). A user's own
-// XDG_STATE_HOME and OPENCODE_CONFIG_CONTENT are none of obor's (T-703: the per-agent state dirs are gone) and stay as
+// OBOR_PANE is the pane the start runs in. A user's own
+// XDG_STATE_HOME and OPENCODE_CONFIG_CONTENT are none of obor's (obor keeps no per-agent state dirs) and stay as
 // they were. Paths: a restart, a dispatch's type (OpenCode: its model and config), a start in another pane (a move),
 // and setup's reused pane (SetEnv). A restore runs obor restart (TestRestoreWorkerWithoutSessionFresh): the restart path.
 func TestEveryStartPathTypesTheRegistryEnv(t *testing.T) {
@@ -83,7 +83,7 @@ func TestEveryStartPathTypesTheRegistryEnv(t *testing.T) {
 	}
 }
 
-// T-809: an OpenCode start, a lane's worker and a role agent alike, names its generated config in the env line
+// an OpenCode start, a lane's worker and a role agent alike, names its generated config in the env line
 // (OPENCODE_CONFIG=<project>/.obor/state/opencode.json, a path: the line stays short): the file that line names holds
 // obor's MCP server (the launching kit's `bin/obor mcp`) and plugin (the kit's package dir). Another kind's start
 // names none.

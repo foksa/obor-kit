@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// The machine's obor projects by name (T-646): ${OBOR_STATE_HOME:-$HOME/.obor}/projects.json, {"<name>": "<root>"},
+// The machine's obor projects by name: ${OBOR_STATE_HOME:-$HOME/.obor}/projects.json, {"<name>": "<root>"},
 // written by obor serve at its start and by obor init, so obor send and obor projects can name a project instead of
 // spelling a path into it.
 
@@ -25,15 +25,15 @@ func ProjectsFile(env Env) string { return filepath.Join(StateHome(env), "projec
 func ConfigFile(root string) string { return filepath.Join(root, ".obor", "config.json") }
 
 // Configured is whether root holds an obor config file, whatever its shape: a project this binary cannot load is still
-// a project (T-767). obor send needs nothing more of its target; obor serve and obor init load it (config.Load).
+// a project. obor send needs nothing more of its target; obor serve and obor init load it (config.Load).
 func Configured(root string) bool {
 	_, err := os.Stat(ConfigFile(root))
 	return err == nil
 }
 
 // NameAt is the name the project at root answers to: the name its .obor/config.json carries (project.name in config
-// shape 2, name in shape 1, T-1124), else the directory's base name (the name obor send posts as the sender). ok false
-// only when root holds no config file: a config this binary cannot load (an older or a newer shape, T-767) still names
+// shape 2, name in shape 1), else the directory's base name (the name obor send posts as the sender). ok false
+// only when root holds no config file: a config this binary cannot load (an older or a newer shape) still names
 // its project, so one machine's projects on different obor versions stay listed.
 func NameAt(root string) (string, bool) {
 	b, err := os.ReadFile(ConfigFile(root))
@@ -54,8 +54,8 @@ func NameAt(root string) (string, bool) {
 	return filepath.Base(root), true
 }
 
-// Projects lists the projects this machine knows, in name order: an entry whose root no longer holds a config file, or
-// whose config names another project, is left out (the entry stays in the file: a stale entry costs nothing, T-774).
+// Projects lists the projects this machine knows, in name order: an entry whose root does not hold a config file, or
+// whose config names another project, is left out (the entry stays in the file: a stale entry costs nothing).
 func Projects(env Env) []Project { return live(readProjects(env)) }
 
 // live is the entries of list whose project is there under that name, in name order.
@@ -82,9 +82,9 @@ func RootOf(name string, env Env) (string, bool) {
 
 // Register adds the project at root to the machine's list under its own name, or replaces its entry: obor serve at its
 // start and obor init write it. It never drops another entry: a project unloadable or missing for a moment keeps its
-// entry (T-774), and Projects/RootOf leave a stale one out when they read. It reports whether the list changed (the
+// entry, and Projects/RootOf leave a stale one out when they read. It reports whether the list changed (the
 // entry was absent, or named another root). The read-modify-write holds projects.lock and the file is replaced by a
-// rename, so two registers at once both land (T-646).
+// rename, so two registers at once both land.
 func Register(root string, env Env) (changed bool, err error) {
 	name, ok := NameAt(root)
 	if !ok {

@@ -9,13 +9,13 @@ import (
 	"obor/internal/app/port"
 )
 
-// The scratch fixture on a Go module, for the rerere replay tests (T-913, T-915, T-917).
+// The scratch fixture on a Go module, for the rerere replay tests.
 
 // goA is package a's file: two functions far apart, so a change to each merges cleanly.
 const goA = "package a\n\nfunc A() int { return 1 }\n\n// one\n// two\n// three\n// four\n// five\n\nfunc A2() int { return 2 }\n"
 
 // newGoSx is the scratch fixture on a Go module (m: packages a, b, d alone; c imports a) whose commands.compile (the
-// gate's one command, T-961) counts its runs in $TMP_DIR/compile-runs; lane L-01 on task/T-05 holds the module,
+// gate's one command) counts its runs in $TMP_DIR/compile-runs; lane L-01 on task/T-05 holds the module,
 // nothing else changed.
 func newGoSx(t testing.TB, edits ...func(map[string]any)) *sx {
 	t.Helper()
@@ -68,7 +68,7 @@ func (y *sx) edit(dir, file, old, new string) {
 	y.Git(dir, "commit", "-qam", "edit "+file)
 }
 
-// moved is T-05's gate of sha onto the moved target.
+// moved is the gate of sha onto the moved target, of the fixture's task.
 func moved(sha string) port.GateInput {
 	return port.GateInput{Task: "T-05", Lane: "L-01", Kind: port.InputMoved, Input: sha, Summary: "feature"}
 }

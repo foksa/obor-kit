@@ -21,7 +21,7 @@ import (
 	"obor/internal/agents"
 )
 
-// The import boundaries of docs/module-map.md (T-317): every obor package has a layer, and a package imports only
+// The import boundaries of docs/module-map.md: every obor package has a layer, and a package imports only
 // the layers its own layer allows. This table is the enforced copy of the map; change both together.
 const (
 	base     = "base"    // shared leaf packages: paths, config, roles, spec reader, process runner, version, the store
@@ -32,7 +32,7 @@ const (
 	entry    = "entry"   // cmd/obor: wiring and flags only
 	testhelp = "test"    // test helpers
 	tool     = "tool"    // standalone programs (probes, spikes)
-	kindbin  = "kind"    // a plugin kind's own binary (kinds/<name>, T-1046): the bridge and its own tree only
+	kindbin  = "kind"    // a plugin kind's own binary (kinds/<name>): the bridge and its own tree only
 	legacy   = "legacy"  // to be moved or deleted (module map table); nothing outside legacy may import it
 )
 
@@ -40,7 +40,7 @@ var layerOf = map[string]string{
 	"internal/project": base, "internal/config": base, "internal/roles": base, "internal/spec": base,
 	"internal/run": base, "internal/version": base, "internal/store": base, "internal/selfexec": base,
 	"internal/help": base, "internal/background": base,
-	// a plugin kind (T-1036) runs its command as a process group (project.Group) and caches its manifest: no bridge
+	// a plugin kind runs its command as a process group (project.Group) and caches its manifest: no bridge
 	// (data and pure functions); the config registers it through agents.Plugins, setup caches it
 	"internal/agents/plugin": base,
 
@@ -85,7 +85,7 @@ func layer(pkg string) string {
 // core interfaces; nobody but legacy, entry and test code imports legacy. Every layer may import a bridge; a bridge
 // imports no obor package but the agents package itself (its kinds implement agents.Kind). The view reads base, core
 // and the adapters (the lane table, the restart lock); only entry (and test) packages import it, so every reader of
-// project state goes through view.Build (T-664).
+// project state goes through view.Build.
 func allowed(fromPkg, from, toPkg, to string) bool {
 	switch {
 	case from == bridge:
@@ -210,7 +210,7 @@ func listPackages(t *testing.T) map[string][]string {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, goBin, "list", "-buildvcs=false", "-deps", "-json", "./...") // no VCS stamp: no git (T-1018)
+	cmd := exec.CommandContext(ctx, goBin, "list", "-buildvcs=false", "-deps", "-json", "./...") // no VCS stamp: no git
 	cmd.Dir = filepath.Join("..", "..")
 	out, err := cmd.Output()
 	if err != nil {
@@ -248,14 +248,14 @@ func listPackages(t *testing.T) map[string][]string {
 }
 
 // kindLiteralFree are the trees that may name an agent kind as a string literal: the bridges, a plugin kind's own binary
-// (kinds/<name>, T-1046), the test fakes, and the built-in model table with each kind's base args (T-765: one table in
+// (kinds/<name>), the test fakes, and the built-in model table with each kind's base args (one table in
 // internal/config, data only).
 var kindLiteralFree = []string{"internal/agents/", "kinds/", "internal/herdr/herdrtest/", "internal/testkit/",
 	"internal/config/models.go"}
 
-// TestNoKindLiterals (T-495): per-kind behaviour lives in the bridges (docs/module-map.md "bridge"), so no Go file
+// TestNoKindLiterals: per-kind behaviour lives in the bridges (docs/module-map.md "bridge"), so no Go file
 // outside them, the fakes and tests holds a registered kind's name as a string literal: an adapter asks agents.Lookup
-// instead. The kinds are agents.Names() (DD-v0.13 B1: a new kind is checked with no edit here; the test binary
+// instead. The kinds are agents.Names() (a new kind is checked with no edit here; the test binary
 // registers every kind through testkit). Comments and longer strings ("codex exec") do not count.
 func TestNoKindLiterals(t *testing.T) {
 	root := filepath.Join("..", "..")

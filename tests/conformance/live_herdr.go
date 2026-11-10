@@ -62,7 +62,7 @@ func init() {
 	}
 }
 
-// hContract: the terminal contract (herdrtest.Contract, T-1044) against herdr's adapter on the throwaway session, one
+// hContract: the terminal contract (herdrtest.Contract) against herdr's adapter on the throwaway session, one
 // H-C row each, on pane (a shell in the workspace labelled group). A row that starts an agent is the kind sessions'
 // (each proves a start there): SKIP here.
 func hContract(l *lab, pane, group string) {
@@ -211,7 +211,7 @@ func paneEvents(s *sub, pane string, d time.Duration) []paneEvent {
 }
 
 // hL3: pane.rename emits no event on a stream subscribed to pane.updated and the pane's status: the stream's reread
-// stays the way a relabel is seen (T-839: the settled fact, asserted; re-probed on 0.9.5, T-953: still none).
+// stays the way a relabel is seen (the settled fact, asserted; re-probed: still none).
 func hL3(l *lab, pane string) {
 	where := at(socketGo, "pane.rename emits no event") + ", F3.2, H9"
 	s, err := l.subscribe(map[string]any{"type": "pane.updated"}, map[string]any{"type": "pane.agent_status_changed", "pane_id": pane})
@@ -302,7 +302,7 @@ func hL5(l *lab, pane string) {
 	report("PASS", "H-L5", fact+" (eventName maps the underscore spelling to the dotted one)", where)
 }
 
-// hL9: a cd in a pane's shell and what a stream subscribed to pane.updated sees (T-953: H10's probe; obor's rereadPanes
+// hL9: a cd in a pane's shell and what a stream subscribed to pane.updated sees (H10's probe; obor's rereadPanes
 // exists because 0.9.3 gave no event for a cd). Records the event, its cwd and the pane's own read, and passes either way:
 // obor's reread is correct whichever answer herdr gives, and which proposal the answer settles is the probe doc's call.
 func hL9(l *lab, pane string) {
@@ -566,7 +566,7 @@ func (l *lab) pluginLog() string {
 }
 
 // hL8: ping to the throwaway session's running server: its version, protocol and capabilities, its protocol against
-// obor's as H-S2 judges the installed CLI's (RV-103: H-S1/H-S2 read the CLI's bundled schema, not a server).
+// obor's as H-S2 judges the installed CLI's (H-S1/H-S2 read the CLI's bundled schema, not a server).
 func hL8(l *lab) {
 	where := at(socketGo, "func checkProtocol") + ", CAP §5.1"
 	r, err := l.call("ping", nil, 10*time.Second)
@@ -602,7 +602,7 @@ func hL8(l *lab) {
 	}
 }
 
-// hL12 (T-1058, RV-151 #1): does agent.get say when the launched process is the one listed? A claude start in pane
+// hL12: does agent.get say when the launched process is the one listed? A claude start in pane
 // (agent.get sampled every 200 ms from the start until it is ready), its exit (sampled for 3 s after the pane is its
 // shell again), and a second start right after that exit (sampled until ready): each change of status,
 // launch_pending and interactive_ready, with the raw agent.get answer while the second start was pending. The start
@@ -637,7 +637,7 @@ func hL12(l *lab, pane string) {
 			sawReady = sawReady || err == nil && a.Ready
 			readyAfterPending = readyAfterPending || sawPending && err == nil && !a.LaunchPending && a.Ready
 			// down, enter: "Yes, I trust this folder" (the default is "No, exit"); once per scratch dir, again every 2 s
-			// while the dialog shows (T-1059: keys sent while it renders are lost, and the start then never comes up).
+			// while the dialog shows (keys sent while it renders are lost, and the start then never comes up).
 			if time.Since(trusted) > 2*time.Second && strings.Contains(strings.ToLower(l.visible(pane)), "trust this folder") {
 				fact0 = "trust dialog: " + tail(l.visible(pane), 6)
 				_, _ = l.call("pane.send_input", map[string]any{"pane_id": pane, "keys": []string{"down", "enter"}}, 10*time.Second)
@@ -689,7 +689,7 @@ func hL12(l *lab, pane string) {
 	}
 }
 
-// hL13 (T-1058): obor's own start (launch.Launcher.Start, the one start of restart, serve and setup) of claude in pane
+// hL13: obor's own start (launch.Launcher.Start, the one start of restart, serve and setup) of claude in pane
 // on the live session, then a second right after that agent's exit (the pane waited for, as a restart does): each
 // must return only once herdr says the launch is over (agent.get: launch_pending gone, interactive_ready), never on
 // the pending listing herdr answers at once. Run after H-L12 (the scratch dir is trusted by then).
@@ -742,7 +742,7 @@ func hL13(l *lab, pane string) {
 const hL14Prompt = "Run the shell command `perl -e 'sleep 70'` exactly once in the foreground (not in the background), " +
 	"with a timeout of at least 120 seconds, then reply with exactly OK."
 
-// hL14 (T-1059): a start with a first prompt that keeps the agent working, sent as obor sends it (agent.start with no
+// hL14: a start with a first prompt that keeps the agent working, sent as obor sends it (agent.start with no
 // timeout_ms, the call left open up to 90 s): when herdr answers and with what, and each change of agent.get (kind,
 // status, launch_pending, interactive_ready) over 60 s from t0 (the first call; agent_pane_busy retried); then the
 // agent is stopped (halt) and the same start runs right after its exit in the pane; last, obor's own start of it
@@ -853,7 +853,7 @@ func hL14(l *lab, kind, pane string, argv []string, turn bool) {
 	}
 }
 
-// hL14Obor is H-L14's last leg: obor's own start (launch.Launcher.Start, T-1059's rule) of the first-prompt agent in
+// hL14Obor is H-L14's last leg: obor's own start (launch.Launcher.Start, the first-prompt start rule) of the first-prompt agent in
 // pane, right after the previous agent's exit, with obor's 30 s Up: the fact, and whether it returned started while
 // herdr lists the agent working (its launch still pending, if H-L14's raw runs hold).
 func hL14Obor(l *lab, kind, pane string, argv []string) (string, bool) {

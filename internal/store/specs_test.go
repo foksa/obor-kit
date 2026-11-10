@@ -12,8 +12,8 @@ import (
 	"obor/internal/spec"
 )
 
-// TestSpecsSetShowList (T-440): a first set is rev 1, the same text again changes nothing, another text is the next
-// rev (who and when with it, and the note it carried, T-819); readers see the current rev read-only, also once the
+// TestSpecsSetShowList: a first set is rev 1, the same text again changes nothing, another text is the next
+// rev (who and when with it, and the note it carried); readers see the current rev read-only, also once the
 // writer is closed (serve down); a project without a database has none; an empty spec is refused.
 func TestSpecsSetShowList(t *testing.T) {
 	root := t.TempDir()
@@ -64,7 +64,7 @@ func TestSpecsSetShowList(t *testing.T) {
 	}
 }
 
-// T-819: a schema-9 specs table has no note column: a reader (a newer CLI, serve not yet restarted) reads its rows
+// a schema-9 specs table has no note column: a reader (a newer CLI, serve not yet restarted) reads its rows
 // with none, and OpenRW adds the column, keeps the row and takes a set's note.
 func TestOpenRWMigratesTheSpecNote(t *testing.T) {
 	t.Parallel()
@@ -112,7 +112,7 @@ func TestOpenRWMigratesTheSpecNote(t *testing.T) {
 	}
 }
 
-// TestSpecsTableMissing: a database from before T-440 (no specs table: serve not restarted) is a read error, never
+// TestSpecsTableMissing: a database with no specs table (a serve that has not restarted) is a read error, never
 // "no spec" (the file guard denies on it).
 func TestSpecsTableMissing(t *testing.T) {
 	root := t.TempDir()

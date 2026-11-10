@@ -105,7 +105,7 @@ func (r result) hasNot(what string, needles ...string) result {
 	return r
 }
 
-// nudges is the old nudge ledger: the hook writes none (T-465).
+// nudges is where a nudge ledger would live: the hook writes none.
 func (f hfx) nudges() string { return f.Root + "/.obor/state/nudges" }
 
 // state writes lane L-01's row (task T-01, agent pj-l1, base main) dispatched at.
@@ -138,7 +138,7 @@ func session(sid, tr string) string {
 	return `{"session_id":"` + sid + `","transcript_path":"` + tr + `"}`
 }
 
-// T-232 (replaces T-175's case_lead_handoff_*): no Stop block for context size; the reminder rides on each prompt
+// No Stop block for context size; the reminder rides on each prompt
 // (prompt_test.go). Above the limit the lead stops freely, and nothing is written.
 func TestStopAboveHandoffLimitNoBlock(t *testing.T) {
 	t.Parallel()
@@ -156,7 +156,7 @@ func TestStopAboveHandoffLimitNoBlock(t *testing.T) {
 	}
 }
 
-// bash stop case_worker_handoff_unaffected, case_worker_background_task; T-437: a worker's stop before its task_done.
+// A worker's stop before its task_done.
 // One block per stop loop (stop_hook_active true allows, its look-alikes are a new loop); a running background task
 // allows, a finished one does not; at 900k context the block is still the task_done one (a worker gets no handoff
 // block); its task_done allows the stop, and a new dispatch blocks again.
@@ -197,7 +197,7 @@ func TestStopWorkerBlockRows(t *testing.T) {
 	f.stop(t, "-", o1, "").block("a new attempt awaits its task_done")
 }
 
-// T-437: a worker whose task awaits its task_done (dispatched in the event log, no submission) is blocked with the
+// a worker whose task awaits its task_done (dispatched in the event log, no submission) is blocked with the
 // hint, the sections named; the hook writes nothing (no nudges ledger, the lane row as it was).
 func TestStopWorkerNoTaskDoneBlocks(t *testing.T) {
 	t.Parallel()
@@ -219,10 +219,10 @@ func TestStopWorkerNoTaskDoneBlocks(t *testing.T) {
 	}
 }
 
-// T-894 (replaces T-558's and T-560's own fold of the log): the Stop hook reads the lane row's blocked, serve's
+// The Stop hook reads the lane row's blocked, serve's
 // fold's answer (lanerows_test.go), so with serve down the row still says whether a question is in force. A question
 // in force allows the stop; the fold's ended question blocks again; a drive's answer, a dispatch and a sendback leave
-// the question in force (the SQL this replaces ended it on each), and an unblocked ends it.
+// the question in force, and an unblocked ends it.
 func TestStopWorkerBlockedRowRows(t *testing.T) {
 	t.Parallel()
 	type fact struct {
@@ -294,7 +294,7 @@ func (f hfx) appendFact(t *testing.T, task, step string, data any) {
 	f.appendEvent(t, task, step, "fact", data)
 }
 
-// T-437, T-439: no task to finish → allow: no lane row (not a lane serve dispatched), or a row whose task_done is in
+// no task to finish → allow: no lane row (not a lane serve dispatched), or a row whose task_done is in
 // (finished); the lanes table unreadable → allow, saying so.
 func TestStopWorkerNoServeTaskAllows(t *testing.T) {
 	t.Parallel()
@@ -313,7 +313,7 @@ func TestStopWorkerNoServeTaskAllows(t *testing.T) {
 	f.stop(t, "-", o1, "").allow("the lanes table unreadable: allow (the hook says so on stderr)")
 }
 
-// bash stop case_worker_background_task_stale (T-167); T-437: once per stop loop, no ledger.
+// Once per stop loop, no ledger.
 func TestStopWorkerStaleBackgroundTasks(t *testing.T) {
 	t.Parallel()
 	f := newGitHfx(t) // the stale read is project.NewestChange: git log and ls-files
@@ -349,10 +349,10 @@ func TestStopWorkerStaleBackgroundTasks(t *testing.T) {
 	f.stop(t, "-", o1, bg).allow("a fresh lane change")
 }
 
-// T-1142: while a background Bash call recorded for this session still runs (its process in the table, project's
+// while a background Bash call recorded for this session still runs (its process in the table, project's
 // record), every agent's stop — the worker's, a role agent's, the lead's — is blocked with the call's description, and
 // stop_hook_active blocks too: the agent is waiting, and the block ends with the call. Its process ended, another
-// session's or another agent's call, no record, and an unreadable record file allow the stop. T-1143 (RV-169 #1): only
+// session's or another agent's call, no record, and an unreadable record file allow the stop. Only
 // the stopping agent's own processes count — the agent that ran the hook (its ancestry) and that agent's descendants:
 // another agent's process running the same command, with this agent's own run alive or ended, allows the stop, and so
 // does a hook whose agent process cannot be found.
@@ -430,7 +430,7 @@ func TestStopBackgroundRunStillGoing(t *testing.T) {
 	f.stop(t, "-", o1, "", "OBOR_PANE=w1:p1").block("a call recorded without an agent in our pane").
 		has("reason", "bench the build")
 
-	// T-1147 (RV-169 verify): a run whose shell started 5 s after the agent (within the view's helper slack of its
+	// a run whose shell started 5 s after the agent (within the view's helper slack of its
 	// start) still blocks: the helper filter is the view's alone.
 	record(call)
 	early := append([]background.Proc(nil), agents...)
@@ -522,7 +522,7 @@ func (f hfx) allowsWithError(t *testing.T, n int, role, cwd, extra string) {
 	}
 }
 
-// T-437: an event log the worker hook cannot read allows the stop with the error on stderr.
+// an event log the worker hook cannot read allows the stop with the error on stderr.
 func TestStopRoleErrorWorkerLogUnreadable(t *testing.T) {
 	t.Parallel()
 	f := newHfx(t)
@@ -533,7 +533,7 @@ func TestStopRoleErrorWorkerLogUnreadable(t *testing.T) {
 	f.allowsWithError(t, 2, "-", o1, "")
 }
 
-// T-409, T-465: the lead and the integrator stop freely: a done lane (serve's), with or without an integrator
+// the lead and the integrator stop freely: a done lane (serve's), with or without an integrator
 // configured, serve down (no socket); nothing is written.
 func TestStopLeadAndIntegratorNeverBlock(t *testing.T) {
 	t.Parallel()

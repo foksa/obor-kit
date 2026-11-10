@@ -241,8 +241,8 @@ test("setup outside an obor project registers nothing: no guard, no context, no 
   assert.deepEqual(hooked, {});
 });
 
-// T-809: the plugin's own kit runs in every directory, an obor checkout's main checkout and lane included (kitFor and
-// its T-478 self-hosting rule are gone: the start's generated config names the launching kit).
+// the plugin's own kit runs in every directory, an obor checkout's main checkout and lane included (there is no
+// self-hosting rule: the start's generated config names the launching kit).
 const kitCases = [
   ["outside a git repository: the plugin's kit", {}, "kit"],
   ["an obor checkout's main checkout: the plugin's kit, not its bin/obor", { checkout: "obor" }, "kit"],
@@ -259,7 +259,7 @@ for (const [name, opts, want] of kitCases) {
   });
 }
 
-// T-578: opencode v2.2's session events (the probe at the top of obor.js) mapped to Claude Code's hooks. created is
+// opencode v2.2's session events (the probe at the top of obor.js) mapped to Claude Code's hooks. created is
 // each event's time (ms); an event with at names its location (session.execution.* carry none in opencode).
 const CREATED = 1793361600000;
 const oc = (type, data, at) => ({ id: "evt_" + type, type, created: CREATED, ...(at ? { location: { directory: at } } : {}), data });
@@ -331,7 +331,7 @@ test("session events: another directory's session, a child session and an interr
   assert.deepEqual(names(), ["session-start", "user-prompt-submit"], "precondition: this directory's session runs its hooks");
 });
 
-// T-703: the start's model (OBOR_OPENCODE_MODEL) as opencode's Model.Ref.
+// the start's model (OBOR_OPENCODE_MODEL) as opencode's Model.Ref.
 test("modelRef: provider/model[#variant]; none for an empty or malformed value", () => {
   assert.deepEqual(modelRef("opencode-go/deepseek-v4.1-flash#max"), { providerID: "opencode-go", id: "deepseek-v4.1-flash", variant: "max" });
   assert.deepEqual(modelRef("p/m"), { providerID: "p", id: "m" });

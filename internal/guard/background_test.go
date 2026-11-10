@@ -15,7 +15,7 @@ func bgInput(cwd, cmd, desc string, background bool) []byte {
 	return b
 }
 
-// T-714: an allowed Bash call run in the background is recorded with its description, command, agent, pane and
+// an allowed Bash call run in the background is recorded with its description, command, agent, pane and
 // session; a foreground call and a denied background call are not.
 func TestBackgroundBashCallRecorded(t *testing.T) {
 	t.Parallel()

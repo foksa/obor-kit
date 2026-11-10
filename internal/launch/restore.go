@@ -1,6 +1,6 @@
 package launch
 
-// The restore after the terminal restarts (T-1051): obor serve, once its subscription is back from a lost terminal
+// The restore after the terminal restarts: obor serve, once its subscription is back from a lost terminal
 // connection, restarts its project's panes (port.Restorer). It acts only on panes whose label is an agent of the obor
 // project they work in (R-28 §2: obor setup and obor restart label the pane): the main checkout of the pane cwd's
 // repository, when its config knows the label. Anything else (no label, no git, no .obor/config.json, a label the
@@ -10,8 +10,8 @@ package launch
 // each labelled obor pane that runs no agent is restarted with obor restart, one at a time (a project's under its
 // restore lock, so a reconnect during a run restarts a pane at most once), each bounded by
 // OBOR_RESTORE_TIMEOUT (s, default 120). Skipped, with a log line: a pane that runs an agent, and the worker of a free
-// (or dirty-free) lane (obor dispatch starts it, T-169). A pane with no recorded
-// session (serve's store, T-583) or a kind that resumes nothing starts --fresh (RV-18 #3, T-627: a role pane started
+// (or dirty-free) lane (obor dispatch starts it). A pane with no recorded
+// session (serve's store) or a kind that resumes nothing starts --fresh (a role pane started
 // fresh with no prompt wrote no transcript either, so no restart could resume it). Log: ~/.obor/restore.log
 // (last 200).
 
@@ -66,7 +66,7 @@ func paneConfig(cwd string) (cfg *config.Config, ok bool) {
 		return nil, false
 	}
 	repo, err := project.Find(cwd)
-	if err != nil || project.Stopped(repo.Root) { // a stopped project (obor stop, T-709): nothing to restore
+	if err != nil || project.Stopped(repo.Root) { // a stopped project (obor stop): nothing to restore
 		return nil, false
 	}
 	if cfg, err = config.Load(repo.Root); err != nil {
@@ -81,7 +81,7 @@ func RestoreLog(env project.Env) string {
 }
 
 // RestoreProject restarts the labelled panes of the obor project at root that herdr's pane list shows without an
-// agent (serve's run after its terminal connection came back, T-1051). Another project's panes are its serve's.
+// agent (serve's run after its terminal connection came back). Another project's panes are its serve's.
 func (p *Restorer) RestoreProject(ctx context.Context, root string) {
 	root = filepath.Clean(root)
 	panes, ok := p.panes(ctx)
@@ -181,8 +181,8 @@ func (p *Restorer) restoreOne(ctx context.Context, cfg *config.Config, pane port
 		fmt.Fprintf(w, "%s skip %s (pane %s): lane %s is free (dispatch starts its worker)\n", now, agent, pane.ID, lane)
 		return
 	}
-	// A pane with no session it can resume starts fresh (RV-18 #3, T-583, T-627): none in serve's store, or a kind
-	// that resumes nothing (OpenCode, T-581). Every dispatch starts a fresh worker anyway; a role pane started fresh
+	// A pane with no session it can resume starts fresh: none in serve's store, or a kind
+	// that resumes nothing (OpenCode). Every dispatch starts a fresh worker anyway; a role pane started fresh
 	// with no prompt has no transcript either (Claude writes none before its first message), so no restart could
 	// resume it.
 	req := Request{Agent: agent, Pane: pane.ID}
@@ -213,7 +213,7 @@ func (p *Restorer) restoreOne(ctx context.Context, cfg *config.Config, pane port
 }
 
 // freeLane is the lane of a worker whose lane is free or dirty-free (no task in flight), "" otherwise. Role panes
-// (reviewer, deep-dive) are no lanes, so never skipped (T-179). T-864: stop_idle_workers is gone, so a free worker lane
+// (reviewer, deep-dive) are no lanes, so never skipped. A free worker lane
 // is always skipped (obor dispatch starts its worker).
 func (p *Restorer) freeLane(cfg *config.Config, info config.AgentInfo) string {
 	if info.Role != "worker" {

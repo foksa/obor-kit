@@ -54,7 +54,7 @@ func UserPromptSubmit(input []byte, env project.Env, out io.Writer) {
 	default:
 		return
 	}
-	// Turns Claude Code starts by itself are no person typing (T-147): an origin field naming an auto-continuation.
+	// Turns Claude Code starts by itself are no person typing: an origin field naming an auto-continuation.
 	origin := ev.Origin
 	if o, ok := origin.(map[string]any); ok {
 		origin = o["kind"]
@@ -69,7 +69,7 @@ func UserPromptSubmit(input []byte, env project.Env, out io.Writer) {
 		return
 	}
 	st, _, err := store.ReadLaneAt(cfg.Root, role.Lane) // unreadable: the guard still asks, without the task
-	// The worker's name is derived from its lane (T-1031: no row stores it), the task is the row's.
+	// The worker's name is derived from its lane (no row stores it), the task is the row's.
 	agent, task, lane := cfg.AgentName("worker", role.Lane), st.Task, role.Lane
 	if agent == "" {
 		agent = env.Get("OBOR_LANE")
@@ -97,7 +97,7 @@ func promptContext(out io.Writer, ctx string) {
 	fmt.Fprintln(out, b)
 }
 
-// handoffReminder (T-175, reminder T-232, T-465): the lead's session context (sid, else the transcript file's name;
+// handoffReminder (reminder): the lead's session context (sid, else the transcript file's name;
 // the transcript at path, else project.TranscriptOf) above handoff_tokens → a reminder to hand off at the next logical
 // break: the Handoff section of BACKLOG.md, then a fresh restart of agent ("<you>" when unknown), which obor restart
 // schedules from the agent's own pane until it is idle. Nothing forces the handoff: the agent picks the break. "" = no
@@ -136,7 +136,7 @@ const autoContinue = "Your claude.ai usage limit has reset. Continue the task yo
 // (`[obor `), a slash command, the auto-continuation sentence, nor one of Claude Code's machine envelopes (exact tag at
 // the start and its closing tag at the very end). Claude Code 2.1.312 hands the hook no origin field for a subagent's
 // hand-back or another session's message, only the prompt: `<agent-message from=…>` resp.
-// `<cross-session-message from=…>` (T-502, testdata/prompt-*.json). A raw post to the inbox socket (obor's own) comes
+// `<cross-session-message from=…>` (testdata/prompt-*.json). A raw post to the inbox socket (obor's own) comes
 // bare: it passes by its `[obor ` tag.
 func personTyped(prompt string) bool {
 	const blanks = " \t\n\v\f\r"
@@ -162,9 +162,9 @@ func personTyped(prompt string) bool {
 		return !ends(t, "</local-command-caveat>")
 	case has(t, "<local-command-stdout>"):
 		return !ends(t, "</local-command-stdout>")
-	case opens(t, "agent-message"): // a subagent's hand-back (T-502)
+	case opens(t, "agent-message"): // a subagent's hand-back
 		return !ends(t, "</agent-message>")
-	case opens(t, "cross-session-message"): // another Claude session's SendMessage (T-502)
+	case opens(t, "cross-session-message"): // another Claude session's SendMessage
 		return !ends(t, "</cross-session-message>")
 	}
 	return true

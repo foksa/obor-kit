@@ -9,7 +9,7 @@ import (
 	"obor/internal/store"
 )
 
-// T-892: LaneModel is the one answer to "which model does this lane run now": the row's Type (effort kept) when the
+// LaneModel is the one answer to "which model does this lane run now": the row's Type (effort kept) when the
 // row holds a task, also on a free lane whose row keeps its last task; no row or no task names none. RunningKind is
 // that model's kind, else agents.Default; an agent with no lane uses its own type.
 func TestLaneModelAndRunningKind(t *testing.T) {
@@ -33,7 +33,7 @@ func TestLaneModelAndRunningKind(t *testing.T) {
 	if err := store.WriteLanes(db, []store.LaneRow{
 		{Lane: "L-01", Task: "T-01", Type: "opus"},                 // an open dispatch
 		{Lane: "L-02", Task: "T-02", Type: "ds:high", Finished: 9}, // a free lane keeping its last task
-		{Lane: "L-08", Task: "T-08"},                               // a dispatch recorded before T-721 names no type
+		{Lane: "L-08", Task: "T-08"},                               // a dispatch recorded with no type
 		{Lane: "L-09", Type: "ds"},                                 // a row with no task is no open dispatch
 	}); err != nil {
 		t.Fatal(err)

@@ -13,9 +13,9 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-1031: the view's lane says its mode (keep) and its queue (serve's Queues, in the pass's order), its agent the lane's
-// derived name with no lane row; a task queued on it is a waiting item naming that lane, read from Queues (T-1048: the
-// owner, no per-task copy), listed in serve's order (a high T-3 before the older T-2); a fresh lane says neither.
+// the view's lane says its mode (keep) and its queue (serve's Queues, in the pass's order), its agent the lane's
+// derived name with no lane row; a task queued on it is a waiting item naming that lane, read from Queues (the
+// owner, no per-task copy), listed in serve's order (a high T-3 before the older); a fresh lane says neither.
 func TestViewKeepLaneModeAndQueue(t *testing.T) {
 	p := testkit.New(t)
 	p.Lane("L-01", "task/T-01")

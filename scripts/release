@@ -1,24 +1,24 @@
 #!/bin/sh
 # release <x.y.z> [--dry-run]: the lead's one command for a release (RELEASING.md). In the main checkout, on the branch
-# the loop merges to (`staging`; T-1035: no checkout of main, no separate worktree), with a clean tree,
+# the loop merges to (`staging`: no checkout of main, no separate worktree), with a clean tree,
 # docs/UPGRADE-v<x.y>.md holding a v<version> heading and docs/releases/v<version>.md holding the release notes, it runs
 # eight steps. Each step first looks for its done evidence (present: the step is skipped, so a re-run resumes where the
-# last run stopped), and a step that fails runs its undo, so the next run starts from a clean tree (T-643):
+# last run stopped), and a step that fails runs its undo, so the next run starts from a clean tree:
 #   review guard  done: no code merged since the branch's first-parent "RV-<n> closed" commit, or UNREVIEWED="<why>" (the
 #                 owner's call; it goes into the tag message)         fail: refuse, nothing changed
 #   bump          done: VERSION and the plugin version = <version> at HEAD, set by an "obor v<version>: …" commit on
 #                 the branch's first-parent line                      fail: both paths' index and tree back to HEAD
 #   check         the full `make check`, run only when the bump is not committed   fail: undo the bump
-#   upgrade check `make upgrade-check` (T-772), run only while the tag is not made: the previous release (the catalog's
+#   upgrade check `make upgrade-check`, run only while the tag is not made: the previous release (the catalog's
 #                 newest below <version>) upgraded to this build; SKIP_UPGRADE_CHECK="<why>" skips it (the owner's call,
 #                 like UNREVIEWED; it goes into the tag message)   fail: refuse, nothing tagged (the bump stays committed)
-#   release check `make check-release` (T-902), run only while the tag is not made: tests/release (the Makefile,
-#                 scripts/ and install.sh against fixture repos), not part of `make check` (behind //go:build release,
-#                 T-1001)   fail: refuse, nothing tagged (the bump stays committed)
+#   release check `make check-release`, run only while the tag is not made: tests/release (the Makefile,
+#                 scripts/ and install.sh against fixture repos), not part of `make check` (behind //go:build release)
+#                 fail: refuse, nothing tagged (the bump stays committed)
 #   tag           done: a local tag v<version> whose commit changes only the catalog and marketplace name on top of its
 #                 source parent, which differs from HEAD in docs and bin/checksums.txt only (scripts/release-lib.sh)
 #                 make: a scratch worktree detached at HEAD under this repo's git dir, marketplace name obor-kit,
-#                 `make release` (the eight binaries: obor and the OpenCode kind per platform, T-1046; and
+#                 `make release` (the eight binaries: obor and the OpenCode kind per platform; and
 #                 bin/checksums.txt), commit, tag     fail: remove the scratch
 #                 worktree; an existing tag is never touched
 #   copy-back     done: the branch's bin/checksums.txt has the tag's lines for the release and this checkout's dist
@@ -29,7 +29,7 @@
 #                 make: fast-forward refs/heads/main to that commit by git update-ref (the
 #                 main checkout keeps its own branch checked out: main moves by release, never by a checkout)
 #                 fail: main has commits the release lacks (a release never rewinds main)
-# The check step reruns a failed go test package once (T-717): when `make check` fails only in go test, the failed
+# The check step reruns a failed go test package once: when `make check` fails only in go test, the failed
 # packages run again in one `go test`; all pass → the release goes on with a FLAKY line per failed test, recorded in
 # .obor/state/flakes.jsonl (obor flakes); any fails again → refused, naming the tests. A failure outside go test (build,
 # vet, gofmt, deadcode) refuses at once. The whole run (not --dry-run) is also written to
@@ -66,16 +66,16 @@ say() { echo "release: $*"; }
 
 # plain_make: a nested make starts from a plain make environment. make runs a recipe with its command-line variables
 # (V=…, DRY=…) and its own MAKEFLAGS, MFLAGS and MAKELEVEL in the environment, and a nested make reads them back: under
-# `make release V=x` the check would run with V=x, and the tests it runs would take their own `make release`'s V= path
-# (T-641). UNREVIEWED is the owner's override for this release only: the check's own release tests must not see it
-# (T-643); this shell keeps it for the tag message. SKIP_UPGRADE_CHECK likewise (T-772).
+# `make release V=x` the check would run with V=x, and the tests it runs would take their own `make release`'s V= path.
+# UNREVIEWED is the owner's override for this release only: the check's own release tests must not see it;
+# this shell keeps it for the tag message. SKIP_UPGRADE_CHECK likewise.
 plain_make() {
   env -u MAKEFLAGS -u MFLAGS -u MAKELEVEL -u V -u DRY -u UNREVIEWED -u SKIP_UPGRADE_CHECK make "$@"
 }
 
-# run_check: the full `make check` (T-717). Its output goes to the terminal and to a scratch file this function reads; a
+# run_check: the full `make check`. Its output goes to the terminal and to a scratch file this function reads; a
 # red check that is only go test packages is rerun once (one `go test -tags integration <pkgs>`, no -count; the tag runs
-# the integration tests again, as the check did, T-1014): all pass → FLAKY lines and flake
+# the integration tests again, as the check did): all pass → FLAKY lines and flake
 # records and the release goes on; else the release is refused. Anything outside go test refuses at once.
 run_check() {
   chk=$(mktemp "$tmpdir/obor-check.XXXXXX")
@@ -151,7 +151,7 @@ on_exit() {
 }
 trap on_exit EXIT
 
-# restore <path>…: the paths' index and working tree back to HEAD (a staged change is undone too, T-643).
+# restore <path>…: the paths' index and working tree back to HEAD (a staged change is undone too).
 restore() {
   git checkout -q HEAD -- "$@" 2> /dev/null || true
 }
@@ -167,7 +167,7 @@ scratch_listed() {
 }
 
 # remove_scratch: the scratch worktree gone (from git's worktree list and the disk). git only removes a worktree it
-# lists for this repo, and this script only ever runs that on a path it made (RV-71 #1): never rm -rf.
+# lists for this repo, and this script only ever runs that on a path it made: never rm -rf.
 remove_scratch() {
   [ -e "$scratch" ] || { git worktree prune > /dev/null 2>&1 || true; return 0; }
   git worktree remove --force "$scratch" > /dev/null 2>&1 || return 1
@@ -226,7 +226,7 @@ bump_done() {
 }
 
 # check_tag: the existing local tag is this release's, or the release stops (the tag is never touched). The tag's notes
-# are checked too (T-683, the same check publish runs): notes committed on the branch after the tag cannot repair the
+# are checked too (the same check publish runs): notes committed on the branch after the tag cannot repair the
 # tag, and ship would refuse them later.
 check_tag() {
   tagver=$(git show "$tag:VERSION" 2> /dev/null | tr -d '[:space:]') || tagver=
@@ -274,9 +274,9 @@ copyback_done() {
 [ -f Makefile ] && [ -f VERSION ] && [ -f .claude-plugin/plugin.json ] ||
   fail "not at a kit checkout's root: run make release V=$v there"
 
-# The whole run goes to the terminal and to .obor/state/logs/release-<version>.log (T-717): the script runs itself again
+# The whole run goes to the terminal and to .obor/state/logs/release-<version>.log: the script runs itself again
 # with stdout and stderr in one pipe to tee, and passes its exit status on (a plain pipe would lose it). A re-run
-# appends, so an earlier failed run's log stays; a release that succeeds removes the log (T-1098: its FAIL lines, the
+# appends, so an earlier failed run's log stays; a release that succeeds removes the log (its FAIL lines, the
 # reason to keep one, are a failed run's). OBOR_RELEASE_LOGGED marks the inner run.
 if [ "$dry" = 0 ]; then
   log=".obor/state/logs/release-$v.log"
@@ -294,13 +294,13 @@ if [ "$dry" = 0 ]; then
   fi
 fi
 
-# The branch the release commits land on (T-1035): the main checkout keeps it checked out, and the release fast-forwards
+# The branch the release commits land on: the main checkout keeps it checked out, and the release fast-forwards
 # main to what it commits. A detached HEAD has no line to fast-forward, so it is refused before anything changes.
 branch=$(git symbolic-ref --quiet --short HEAD 2> /dev/null) || branch=
 [ -n "$branch" ] || fail "on a detached HEAD, not a branch: make release commits the release on the branch it runs on"
 
-# The scratch worktree lives in this repo's own git dir, so two checkouts releasing the same version never share a path
-# (RV-71 #1). git prints the common dir relative to the cwd in a plain checkout; pwd -P gives the physical path, the way
+# The scratch worktree lives in this repo's own git dir, so two checkouts releasing the same version never share a path.
+# git prints the common dir relative to the cwd in a plain checkout; pwd -P gives the physical path, the way
 # git worktree list prints the worktrees it holds.
 common=$(git rev-parse --git-common-dir)
 common=$(cd "$common" && pwd -P)
@@ -315,7 +315,7 @@ fi
 grep -Eq "^#+[[:space:]]*v$vre([^0-9.]|\$)" "$guide" ||
   fail "$guide has no v$v heading: the guide names that version before the release"
 
-# The GitHub release's notes come from docs/releases/v<version>.md at the tag (T-682): the lead writes it with the guide.
+# The GitHub release's notes come from docs/releases/v<version>.md at the tag: the lead writes it with the guide.
 notes="docs/releases/v$v.md"
 [ -f "$notes" ] ||
   fail "no $notes: write the release notes (a summary line, then - **Name:** bullets) and commit them on $branch first"
@@ -324,13 +324,13 @@ grep -q '[^[:space:]]' "$notes" || fail "$notes is empty: it is the GitHub relea
 dirty=$(git status --porcelain)
 [ -z "$dirty" ] || fail "the working tree is dirty: commit or stash first (a release starts from a clean tree)"
 
-# --- review guard (T-642, T-822). Code merged since the last review that no cycle covered: the first-parent merges on
+# --- review guard. Code merged since the last review that no cycle covered: the first-parent merges on
 # the branch in the next review's scope, whose files are not all docs, as the task ids their subjects name. Only a
 # subject on the branch's own line counts: never a body line (a merge message carries a whole spec, which may quote a
-# close line), never a commit a side branch brought in. A close commit since T-822 carries its cycle's Covered tasks and
+# close line), never a commit a side branch brought in. A close commit carries its cycle's Covered tasks and
 # the sha its review started at in the body: the range starts at that sha and the tasks it covered are left out, so a
-# task merged while the review's verify ran stays unreviewed until a cycle covers it. An older close commit has no
-# Covered line: the range is the close commit itself, as before. No close commit: nothing has been reviewed, so every
+# task merged while the review's verify ran stays unreviewed until a cycle covers it. A close commit with no
+# Covered line: the range is the close commit itself. No close commit: nothing has been reviewed, so every
 # merge counts.
 close=$(git log --first-parent --format='%H %s' HEAD | grep -E -m1 '^[0-9a-f]+ RV-[0-9]+ closed' | cut -d' ' -f1)
 since="the first commit (no RV closed yet)"
@@ -397,7 +397,7 @@ else
   say "committed on $branch: obor v$v: VERSION, plugin version"
 fi
 
-# --- upgrade check (T-772): before the tag, `make upgrade-check` installs this build over a project the previous
+# --- upgrade check: before the tag, `make upgrade-check` installs this build over a project the previous
 # release made (tests/upgrade); a red check tags nothing, and the re-run (the bump committed) starts here again. An
 # existing tag is past it. SKIP_UPGRADE_CHECK="<why>" is the owner's call only, like UNREVIEWED.
 if git rev-parse -q --verify "refs/tags/$tag" > /dev/null 2>&1; then
@@ -412,7 +412,7 @@ else
     fail "make upgrade-check failed (its step and output above): nothing is tagged; fix it and re-run, or SKIP_UPGRADE_CHECK=\"<why>\" make release V=$v (the owner's call only)"
 fi
 
-# --- release tooling check (T-902): before the tag, `make check-release` runs tests/release (the Makefile's check,
+# --- release tooling check: before the tag, `make check-release` runs tests/release (the Makefile's check,
 # release and publish targets, scripts/release, scripts/ship, scripts/publish and install.sh). The full `make check`
 # above runs the same package (go test ./...); naming it here keeps the release depending on it even when the check
 # step is skipped (the bump already committed), and a red one tags nothing. An existing tag is past it.
@@ -449,7 +449,7 @@ else
   git worktree add -q --detach "$scratch" "$sha" || fail "cannot add the scratch worktree $scratch"
   market="$scratch/.claude-plugin/marketplace.json"
   tmp=$(mktemp "$tmpdir/obor-marketplace.XXXXXX")
-  # Only the top-level name flips (T-645: v0.17.2's sed renamed the plugin entry too, and obor@obor-kit broke).
+  # Only the top-level name flips: renaming the plugin entry too would break obor@obor-kit.
   market_flip < "$market" > "$tmp" ||
     fail "$market has no single \"name\": \"obor-kit-dev\" to set to obor-kit: nothing is tagged"
   mv "$tmp" "$market" || fail "cannot set the marketplace name in $market"
@@ -458,7 +458,7 @@ else
     "$(jq -r '.name | strings' "$scratch/.claude-plugin/plugin.json" 2> /dev/null)" "$scratch")
   [ -z "$problem" ] || fail ".claude-plugin/marketplace.json $problem: nothing is tagged"
   ( cd "$scratch" && plain_make release V= ) || fail "make release failed in $scratch: nothing is tagged"
-  # The tag's message carries the owner's UNREVIEWED reason (T-642): the merges the tag ships past the last review.
+  # The tag's message carries the owner's UNREVIEWED reason: the merges the tag ships past the last review.
   tagmsg="obor $tag"
   [ -z "$unreviewed" ] || tagmsg="$tagmsg
 Unreviewed: $unreviewed — ${UNREVIEWED}"
@@ -520,7 +520,7 @@ if [ -e "$scratch" ]; then
   fi
 fi
 
-# --- main (T-1035): the release moves main to the commit it made, never by a checkout. The main checkout keeps its own
+# --- main: the release moves main to the commit it made, never by a checkout. The main checkout keeps its own
 # branch checked out (staging) and refs/heads/main moves by update-ref. The commit is the
 # newest "checksums: v<version>" on the branch's first-parent line (HEAD itself, when the release ran on main).
 if [ "$dry" = 1 ]; then
@@ -544,7 +544,7 @@ else
   fi
 fi
 
-# A release that got here succeeded: its log went with the FAIL lines it existed to name (T-1098). A refused release
+# A release that got here succeeded: its log went with the FAIL lines it existed to name. A refused release
 # exits at fail above, before this, so its log stays; a --dry-run has none. A removal that fails is no failure.
 if [ "$dry" = 0 ]; then
   rm -f "$log" || true

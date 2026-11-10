@@ -42,7 +42,7 @@ type (
 func (s *server) register(srv *sdk.Server) {
 	jobNext := func(in jobNextIn) (wire.Req, error) {
 		pane, _ := project.Pane(s.env) // none: a call from no pane, which serve's own checks then answer
-		// The wake's job id (T-602): that job when it is open, else superseded{current}.
+		// The wake's job id: that job when it is open, else superseded{current}.
 		return &wire.JobNextReq{Job: in.Job, Lane: s.env.Get("OBOR_LANE"), Pane: pane}, nil
 	}
 	const jobNextDesc = "Your open obor job: its id, task, attempt, step and prompt text. Call it when a wake names a " +
@@ -52,7 +52,7 @@ func (s *server) register(srv *sdk.Server) {
 		add(srv, s, wire.MethodJobNext, jobNextDesc, jobNext)
 		add(srv, s, wire.MethodTaskDone, "Submit your task's work, your final report its argument (the review job quotes "+
 			"it). A refusal names what is missing.", func(in taskDoneIn) (wire.Req, error) {
-			// Serve resolves the lane to its task (T-439).
+			// Serve resolves the lane to its task.
 			return &wire.TaskDoneReq{Lane: s.env.Get("OBOR_LANE"), Report: in.Report}, required("report", in.Report)
 		})
 	case "integrator":
@@ -87,7 +87,7 @@ func add[In any](srv *sdk.Server, s *server, name, desc string, request func(In)
 		})
 }
 
-// schemaOf is In's schema, kept as before the SDK (T-877): open, so an argument the tool does not know is ignored (a
+// schemaOf is In's schema, kept as before the SDK: open, so an argument the tool does not know is ignored (a
 // newer client's), and with its properties even when it has none ({}).
 func schemaOf[In any]() *jsonschema.Schema {
 	sc, err := jsonschema.For[In](nil)

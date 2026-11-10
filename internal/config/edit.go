@@ -13,20 +13,20 @@ import (
 	"obor/internal/agents"
 )
 
-// The setup edit (T-753, T-765): the owner changes one setup value from obor web's Setup page (the lead with obor
-// nightly on|off, T-781), and serve, the one writer, writes .obor/config.json and commits it. Exactly these keys are
-// editable (shape 2's names, T-1126):
+// The setup edit: the owner changes one setup value from obor web's Setup page (the lead with obor
+// nightly on|off), and serve, the one writer, writes .obor/config.json and commits it. Exactly these keys are
+// editable (shape 2's names):
 //
 //	agents.difficulty.<level>   the level's ordered list of model refs (<model>[:<effort>])
 //	agents.roles.<role>         a configured role's model ref
-//	lanes.count                 how many lanes (L-01 … L-NN; a count replaces lanes.list, T-1031)
+//	lanes.count                 how many lanes (L-01 … L-NN; a count replaces lanes.list)
 //	agents.kinds.<kind>.args    the args appended to every start of a kind
 //	nightly.at                  the nightly's switch: a local time "HH:MM" (on, every night then) or null (off)
 //
 // Any other key stays obor setup's or a hand edit's. A key names one member of shape 2, and so does the write.
 //
 // A key .obor/local.json overrides (the key itself, a member of it, or an ancestor local.json replaces) is refused:
-// writing it to config.json would report success and change nothing that runs (T-754).
+// writing it to config.json would report success and change nothing that runs.
 
 // Change is one setup edit applied to a config.json: its new bytes (in the file's own layout, Relayout) and the key's
 // value before and after, each one line of JSON ("" for a value the config leaves unset).
@@ -37,7 +37,7 @@ type Change struct {
 	Dropped []string
 }
 
-// Rev is a config.json's revision as the Setup page reads it (T-760): the sha256 of its bytes, its first 16 hex
+// Rev is a config.json's revision as the Setup page reads it: the sha256 of its bytes, its first 16 hex
 // characters. A setup edit names the revision its page read, and serve refuses it when the file is another one now:
 // another tab, the lead or a hand edit changed it since (an edit built from a stale page never undoes theirs).
 func Rev(doc []byte) string {
@@ -88,8 +88,8 @@ func (c *Config) editLevel(doc []byte, level string, val json.RawMessage) (Chang
 	return c.change("agents.difficulty."+level, doc, []string{"agents", "difficulty", level}, nil, refs, old, Compact(refs))
 }
 
-// editLanes sets lanes.count (a whole number, 0 or more; it replaces lanes.list, T-1031): the lanes it no longer
-// has are in Change.Dropped.
+// editLanes sets lanes.count (a whole number, 0 or more; it replaces lanes.list): the lanes it does not
+// name are in Change.Dropped.
 func (c *Config) editLanes(doc []byte, val json.RawMessage) (Change, error) {
 	var n int
 	if err := json.Unmarshal(val, &n); err != nil || n < 0 {
@@ -112,7 +112,7 @@ func (c *Config) editLanes(doc []byte, val json.RawMessage) (Change, error) {
 	return ch, err
 }
 
-// editNightlyAt switches the nightly (T-781): a local time "HH:MM" sets nightly.at (on, every night at it), null
+// editNightlyAt switches the nightly: a local time "HH:MM" sets nightly.at (on, every night at it), null
 // deletes it (off); anything else is refused.
 func (c *Config) editNightlyAt(doc []byte, val json.RawMessage) (Change, error) {
 	var at *string
@@ -159,8 +159,8 @@ func (c *Config) editKindArgs(doc []byte, kind string, val json.RawMessage) (Cha
 	return c.change("agents.kinds."+kind+".args", doc, []string{"agents", "kinds", kind, "args"}, nil, v, old, newLine)
 }
 
-// editRole sets a configured role's model ref; a role always names its model (T-769), so "" and null are refused. A
-// custom role's object row keeps its write list: its model is agents.roles.<role>.model (T-801).
+// editRole sets a configured role's model ref; a role always names its model, so "" and null are refused. A
+// custom role's object row keeps its write list: its model is agents.roles.<role>.model.
 func (c *Config) editRole(doc []byte, role string, val json.RawMessage) (Change, error) {
 	rc, ok := c.Role(role)
 	if !ok || role == "worker" || rc.Role.Optional && !rc.Configured {
@@ -186,7 +186,7 @@ func (c *Config) editRole(doc []byte, role string, val json.RawMessage) (Change,
 }
 
 // change is c's edit of key: doc with the member at path set to v (nil deletes it) and, when drop is not nil, the
-// member at drop deleted too (lanes.count replacing lanes.list, T-1031), laid out as doc is, with the value's old and
+// member at drop deleted too (lanes.count replacing lanes.list), laid out as doc is, with the value's old and
 // new lines. It refuses a member .obor/local.json overrides (localRefusal) and one the merged config does not take
 // up: either way the file would be written and what runs would not change.
 func (c *Config) change(key string, doc []byte, path, drop []string, v any, old, new string) (Change, error) {
@@ -334,7 +334,7 @@ func NewFails(before, after []string) []string {
 	return out
 }
 
-// The setup writes (T-1121): obor setup changes .obor/config.json through these functions, never by a key path of its
+// The setup writes: obor setup changes.obor/config.json through these functions, never by a key path of its
 // own, so the shape changes in this package (docs/research/config-shape.md §4.4, P1).
 
 // Write is one setup write to a config document: the new document, the key it set (a dotted path) and its value, as
@@ -405,7 +405,7 @@ func SetDifficulty(doc []byte, levels map[string][]string) (Write, error) {
 	return write("agents.difficulty", doc, p("agents", "difficulty"), levels)
 }
 
-// SetLanes returns doc with lanes.count = n (it replaces lanes.list, T-1031).
+// SetLanes returns doc with lanes.count = n (it replaces lanes.list).
 func SetLanes(doc []byte, n int) (Write, error) {
 	w, err := write("lanes.count", doc, p("lanes", "list"), nil)
 	if err != nil {

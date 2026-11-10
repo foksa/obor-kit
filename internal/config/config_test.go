@@ -102,7 +102,7 @@ func TestLocalOverlay(t *testing.T) {
 }
 
 // TestUnknownKeyFails: the strict validate load (LoadForValidate) fails each unknown key with its path and file, where
-// Load (every command's) ignores it (T-1081).
+// Load (every command's) ignores it.
 func TestUnknownKeyFails(t *testing.T) {
 	for _, c := range []struct{ cfg, key string }{
 		{`{"version":2,"project":{"agent_prefix":"pj"},"typo_key":1}`, "typo_key"},
@@ -120,12 +120,12 @@ func TestUnknownKeyFails(t *testing.T) {
 			t.Errorf("%s: Load %v, want the key ignored", c.cfg, err)
 		}
 	}
-	// local.json has no shape of its own: a shape-1 key in it is an unknown key like any other (T-1081).
+	// local.json has no shape of its own: a shape-1 key in it is an unknown key like any other.
 	_, fails, err := LoadForValidate(writeProject(t, `{"version":2,"project":{"agent_prefix":"pj"}}`, `{"slots":{"maxx":1}}`))
 	if err != nil || len(fails) != 1 || !strings.HasPrefix(fails[0], "FAIL .slots: ") || !strings.HasSuffix(fails[0], "(.obor/local.json)") {
 		t.Errorf("local.json unknown key: %q, %v", fails, err)
 	}
-	// A key the shape still types: a wrong type fails, as a removed key (an `any`) no longer does (T-864).
+	// A key the shape still types: a wrong type fails, as a removed key (an `any`) does not.
 	if _, err := Load(writeProject(t, `{"version":2,"project":{"agent_prefix":"pj"},"agents":{"handoff_tokens":"no"}}`, "")); err == nil ||
 		!strings.Contains(err.Error(), "handoff_tokens") {
 		t.Errorf("wrong type: %v", err)
@@ -198,7 +198,7 @@ func TestGet(t *testing.T) {
 	}
 }
 
-// TestDefaults: each default the callers read as a typed field (T-286): unset → the default, set → the value.
+// TestDefaults: each default the callers read as a typed field: unset → the default, set → the value.
 func TestDefaults(t *testing.T) {
 	for _, tc := range []struct {
 		name, set string
@@ -247,7 +247,7 @@ func TestAgentLookupPrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := c.LaneAgentAliases("L-01"); !reflect.DeepEqual(got, []string{"pj-l-01"}) { // derived only (T-1031)
+	if got := c.LaneAgentAliases("L-01"); !reflect.DeepEqual(got, []string{"pj-l-01"}) { // derived only
 		t.Errorf("LaneAgentAliases = %#v", got)
 	}
 	if _, ok := c.AgentLookup("pj-advisor", ""); ok {
@@ -257,9 +257,9 @@ func TestAgentLookupPrecedence(t *testing.T) {
 	for name, want := range map[string]AgentInfo{
 		"pj-l-01":      {Role: "worker", Lane: "L-01", Cwd: wt + "/L-01"},
 		"pj-l-02":      {Role: "worker", Lane: "L-02", Cwd: wt + "/L-02"},
-		"pj-int":       {Role: "integrator", Type: "sonnet", Cwd: wt + "/integrator"}, // T-853: its role worktree
+		"pj-int":       {Role: "integrator", Type: "sonnet", Cwd: wt + "/integrator"}, // its role worktree
 		"pj-lead":      {Role: "lead", Type: "opus", Effort: "high", Cwd: root},
-		"pj-deep-dive": {Role: "deep_dive", Type: "opus", Cwd: wt + "/deep_dive"}, // T-853: its role worktree
+		"pj-deep-dive": {Role: "deep_dive", Type: "opus", Cwd: wt + "/deep_dive"}, // its role worktree
 		"pj-triage":    {Role: "triage", Cwd: root},
 	} {
 		if got, ok := c.AgentLookup(name, ""); !ok || got != want {
@@ -272,7 +272,7 @@ func TestAgentLookupPrecedence(t *testing.T) {
 	if _, ok := c.AgentLookup("unknown", ""); ok {
 		t.Error("unknown agent found")
 	}
-	// T-777: the removed forms resolve to nothing: the compact lane alias (pj-l1), an agents entry (adv) and the bare
+	// the removed forms resolve to nothing: the compact lane alias (pj-l1), an agents entry (adv) and the bare
 	// lane name (l-01).
 	for _, name := range []string{"pj-l1", "adv", "l-01"} {
 		if got, ok := c.AgentLookup(name, ""); ok {
@@ -281,7 +281,7 @@ func TestAgentLookupPrecedence(t *testing.T) {
 	}
 }
 
-// T-280, T-770: Remote Control off and auto memory off for every claude agent but a lead; a lane's agent (a worker, the
+// Remote Control off and auto memory off for every claude agent but a lead; a lane's agent (a worker, the
 // owner's drive agent) starts with --strict-mcp-config, obor's MCP server alone.
 func TestLaunchArgs(t *testing.T) {
 	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"}}`, "")
@@ -323,7 +323,7 @@ func TestLookupCollectionDefaults(t *testing.T) {
 		path, want string
 		known      bool
 	}{
-		{".mcp.jobs", "", false}, // removed (T-830): no field, so no such key
+		{".mcp.jobs", "", false}, // removed: no field, so no such key
 		{".commands.lint.heavy", "false", true},
 		{`.commands["lint"].heavy`, "false", true},
 		{".commands.lint.cmd", `"true"`, true},
@@ -353,8 +353,8 @@ func TestLookupCollectionDefaults(t *testing.T) {
 	}
 }
 
-// TaskIDOK and TaskFromBranch (T-470: from package lanes) follow project.task_id_pattern and lanes.task_branch; TaskBranch is
-// TaskFromBranch's inverse (T-896).
+// TaskIDOK and TaskFromBranch (from package lanes) follow project.task_id_pattern and lanes.task_branch; TaskBranch is
+// TaskFromBranch's inverse.
 func TestTaskFromBranch(t *testing.T) {
 	c := load(t, `{"version":2,"project":{"agent_prefix":"pj","task_id_pattern":"TK[0-9]+"},`+
 		`"lanes":{"task_branch":"wip/{id}-lane"}}`, "")
@@ -373,7 +373,7 @@ func TestTaskFromBranch(t *testing.T) {
 	}
 }
 
-// T-1041: a lane's env is the generic fact OBOR_LANE_CPUS (slots.lane_cpus) and the project's slots.lane_env, its
+// a lane's env is the generic fact OBOR_LANE_CPUS (slots.lane_cpus) and the project's slots.lane_env, its
 // {cpus} replaced by that budget, names in order; a project without lane_env gets the fact alone (no Go names), and a
 // value with no placeholder is kept as it is.
 func TestLaneEnv(t *testing.T) {
@@ -401,7 +401,7 @@ func TestLaneEnv(t *testing.T) {
 	}
 }
 
-// T-1041: a var of the start's kind env that slots.lane_env also names takes the config's value: obor merges nothing
+// a var of the start's kind env that slots.lane_env also names takes the config's value: obor merges nothing
 // into it (the config line is the policy).
 func TestWithLaneEnv(t *testing.T) {
 	cfg := load(t, `{"version":2,"lanes":{"env":{"GOFLAGS":"-p={cpus}"}}}`, "")
@@ -415,7 +415,7 @@ func TestWithLaneEnv(t *testing.T) {
 	}
 }
 
-// T-1041: slots.lane_env's names are env names and {cpus} its one placeholder: an unknown {…} or a name that is no env
+// slots.lane_env's names are env names and {cpus} its one placeholder: an unknown {…} or a name that is no env
 // name fails validate, a value with no placeholder is fine.
 func TestLaneEnvValidate(t *testing.T) {
 	for _, c := range []struct {
@@ -447,9 +447,9 @@ func TestLaneEnvValidate(t *testing.T) {
 	}
 }
 
-// T-1031: lanes is a count (sugar for that many fresh lanes) or a list of {name, keep_agent}; obor config validate
+// lanes is a count (sugar for that many fresh lanes) or a list of {name, keep_agent}; obor config validate
 // refuses a list with a repeated name or a name not of the L-NN shape; a list member's unknown key is dropped as any
-// unknown key is (T-1081). The form the file has is the one written back.
+// unknown key is. The form the file has is the one written back.
 func TestLanesCountOrList(t *testing.T) {
 	type lane struct{ name, mode string }
 	for _, c := range []struct {
@@ -529,7 +529,7 @@ func TestLanesCountOrList(t *testing.T) {
 	}
 }
 
-// T-1050: a config's revision (Config.Rev) is its effective JSON's, so a rewrite that leaves what runs alone keeps it,
+// a config's revision (Config.Rev) is its effective JSON's, so a rewrite that leaves what runs alone keeps it,
 // while an edit in .obor/local.json — where a model's id or a kind's args may live — changes it: either file counts,
 // not only the committed one.
 func TestRevIsTheEffectiveConfig(t *testing.T) {

@@ -12,7 +12,7 @@ import (
 	"obor/internal/testkit"
 )
 
-// Tests for T-682: a release gets a title `obor <x.y.z>` and the notes the lead writes in docs/releases/v<x.y.z>.md, plus
+// a release gets a title `obor <x.y.z>` and the notes the lead writes in docs/releases/v<x.y.z>.md, plus
 // a Full Changelog line to the newest earlier GitHub release. scripts/release refuses without the notes file; scripts/
 // publish reads it at the tag (so what is published is what was tagged) and appends the changelog link.
 
@@ -33,7 +33,7 @@ func (f *publishFixture) dropNotes(t *testing.T, v string) {
 	writeFile(t, path, notes)
 }
 
-// T-682: scripts/release refuses a version without its notes file, or with an empty one, naming the file and changing
+// scripts/release refuses a version without its notes file, or with an empty one, naming the file and changing
 // nothing; --dry-run reports the same refusal.
 func TestMakeReleaseRequiresNotes(t *testing.T) {
 	t.Parallel()
@@ -75,7 +75,7 @@ func TestMakeReleaseRequiresNotes(t *testing.T) {
 	}
 }
 
-// T-682: publish creates the release with the title `obor <version>` and a notes file made of the tag's
+// publish creates the release with the title `obor <version>` and a notes file made of the tag's
 // docs/releases/v<version>.md plus the Full Changelog line; the baseline is the newest GitHub release older than this
 // tag, so a tag that was never released is skipped; with no earlier release there is no line.
 func TestMakePublishNotes(t *testing.T) {
@@ -125,7 +125,7 @@ func TestMakePublishNotes(t *testing.T) {
 	t.Run("a final release beats a prerelease in the list", func(t *testing.T) {
 		t.Parallel()
 		f := newPublishFixture(t)
-		// RV-77 #3: a prerelease is not an x.y.z baseline; version_lt says so, so v1.2.2 wins over v1.2.2-rc1.
+		// a prerelease is not an x.y.z baseline; version_lt says so, so v1.2.2 wins over v1.2.2-rc1.
 		writeFile(t, f.releases, "v1.2.2-rc1\nv1.2.2\nv1.2.1\n")
 		writeFile(t, f.slug, "foksa/obor-kit\n")
 		out, failed, _ := f.publish(t)
@@ -181,7 +181,7 @@ func TestMakePublishNotes(t *testing.T) {
 	})
 }
 
-// RV-77 #1 (T-683): a failed `gh release list` refuses before anything is created (a created release without the Full
+// a failed `gh release list` refuses before anything is created (a created release without the Full
 // Changelog line is not repaired by re-running ship); the retry with a working list publishes with the line.
 func TestMakePublishRefusesFailedReleaseList(t *testing.T) {
 	t.Parallel()
@@ -219,7 +219,7 @@ func TestMakePublishRefusesFailedReleaseList(t *testing.T) {
 }
 
 // tagWithoutNotes makes v a finished release tag whose tree lacks docs/releases/v<v>.md, then commits the notes on main
-// after it: a release tagged before T-682, resumed once the lead wrote the notes (RV-77 #2). Everything else of the tag
+// after it: a release resumed once the lead wrote the notes. Everything else of the tag
 // is finished (VERSION, plugin, marketplace, catalog, the four files), so the notes are the only reason to refuse.
 func tagWithoutNotes(t *testing.T, f *releaseFixture, v string) {
 	t.Helper()
@@ -255,7 +255,7 @@ func tagWithoutNotes(t *testing.T, f *releaseFixture, v string) {
 	f.Git(f.Root, "commit", "-q", "-m", "docs: v"+v+" release notes")
 }
 
-// RV-77 #2 (T-683): resuming an existing tag whose tree has no notes is refused with the never-moves guidance, even when
+// resuming an existing tag whose tree has no notes is refused with the never-moves guidance, even when
 // the notes are committed on main after the tag: the immutable tag cannot be repaired, so a changed release is a new
 // patch version. --dry-run refuses the same way.
 func TestMakeReleaseExistingTagWithoutNotes(t *testing.T) {
@@ -293,7 +293,7 @@ func TestMakeReleaseExistingTagWithoutNotes(t *testing.T) {
 	}
 }
 
-// RV-77 #3 (T-683): version_lt is false for anything but x.y.z on either side, as its comment says, so a prerelease or
+// version_lt is false for anything but x.y.z on either side, as its comment says, so a prerelease or
 // malformed tag never wins the changelog baseline.
 func TestReleaseLibVersionLt(t *testing.T) {
 	t.Parallel()

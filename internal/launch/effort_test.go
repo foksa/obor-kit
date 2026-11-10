@@ -8,10 +8,10 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-695, T-722, T-765: the model and effort a start runs at: the request's (a dispatch's model ref), else the role's
+// the model and effort a start runs at: the request's (a dispatch's model ref), else the role's
 // model ref (roles.<role> `opus:max`), else the lane row's (a pooled lane's type), else none (the kind's default); the
 // request's type and effort come before the row's. The kind sets the effort once, in place of any kinds args' own;
-// OpenCode's reaches obor's plugin through the env line (OBOR_OPENCODE_MODEL, T-703), which unsets it when the start
+// OpenCode's reaches obor's plugin through the env line (OBOR_OPENCODE_MODEL), which unsets it when the start
 // names none.
 func TestStartEffort(t *testing.T) {
 	t.Parallel()
@@ -33,7 +33,7 @@ func TestStartEffort(t *testing.T) {
 			"", "", []string{"--auto"}, []string{"--model", "go/ds", "high"}, "export OBOR_ROLE=reviewer OBOR_PANE=w1:p7 OBOR_OPENCODE_MODEL='go/ds#high'", "OPENCODE_CONFIG_CONTENT"},
 		{"opencode, no model or effort: the variable unset", "bare", "",
 			"", "", []string{"--auto"}, nil, "unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL ", "export OBOR_OPENCODE_MODEL"},
-		// T-722, T-765: a pooled lane's worker runs the model its lane row's type names, and the launch's type before it.
+		// a pooled lane's worker runs the model its lane row's type names, and the launch's type before it.
 		{"no dispatch model: the default kind, no model", "", "",
 			"", "", []string{"kind=claude"}, []string{"gpt-6-luna", "--model"}, "", ""},
 		{"the launch's type and effort", "", "xhigh", "", "luna",
@@ -92,7 +92,7 @@ func TestStartEffort(t *testing.T) {
 	}
 }
 
-// T-695: an effort the role's kind does not take, or one OpenCode cannot carry (no model anywhere), fails the start
+// an effort the role's kind does not take, or one OpenCode cannot carry (no model anywhere), fails the start
 // before anything is stopped or typed.
 func TestStartEffortRefused(t *testing.T) {
 	t.Parallel()
@@ -114,7 +114,7 @@ func TestStartEffortRefused(t *testing.T) {
 	}
 }
 
-// T-785: the effort is a dispatch's (port.Launch.Effort), not a scheduled CLI restart's: the argv carries neither it
+// the effort is a dispatch's (port.Launch.Effort), not a scheduled CLI restart's: the argv carries neither it
 // nor a first prompt, and ParseRequest reads back exactly what Args writes for the CLI's own fields.
 func TestRequestArgsCarryTheEffort(t *testing.T) {
 	r := launch.Request{Agent: "pj-l-01", Fresh: true, Prompt: "go", Effort: "high"}

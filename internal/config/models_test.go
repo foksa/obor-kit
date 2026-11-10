@@ -11,7 +11,7 @@ import (
 	_ "obor/internal/agents/codex"
 )
 
-// T-765: each built-in model resolves to its kind, its model id and its kind's base args, the model as the kind takes
+// each built-in model resolves to its kind, its model id and its kind's base args, the model as the kind takes
 // it (claude --model, codex -m, opencode --model).
 func TestBuiltinModelsResolve(t *testing.T) {
 	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"}}`, "")
@@ -43,7 +43,7 @@ func TestBuiltinModelsResolve(t *testing.T) {
 	}
 }
 
-// T-765: the effort of a model ref is its kind's own flag at start (claude --effort, codex -c
+// the effort of a model ref is its kind's own flag at start (claude --effort, codex -c
 // model_reasoning_effort=), each kind's own values (OpenCode's, a plugin kind: TestOpencodeModelEffort).
 func TestModelEffortPerKind(t *testing.T) {
 	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"}}`, "")
@@ -76,7 +76,7 @@ func TestModelEffortPerKind(t *testing.T) {
 	}
 }
 
-// T-765: kinds.<kind>.args are appended after the model, to every model of the kind and no other; kinds.<kind>
+// kinds.<kind>.args are appended after the model, to every model of the kind and no other; kinds.<kind>
 // .prompt_extra is the work job's for each model of the kind.
 func TestKindsArgsAppended(t *testing.T) {
 	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"},
@@ -101,7 +101,7 @@ func TestKindsArgsAppended(t *testing.T) {
 	}
 }
 
-// T-810: Codex starts with --no-daemon, once, from the base args (its shared background server would give the MCP
+// Codex starts with --no-daemon, once, from the base args (its shared background server would give the MCP
 // server and hooks the daemon's env and cwd). Workers and the reviewer get it the same way, and
 // kinds.codex.args still follow it.
 func TestCodexStartsWithNoDaemon(t *testing.T) {
@@ -132,7 +132,7 @@ func TestCodexStartsWithNoDaemon(t *testing.T) {
 	}
 }
 
-// T-765: models.<name> adds a model or overrides a built-in one (its kind kept when the entry names none; model ""
+// models.<name> adds a model or overrides a built-in one (its kind kept when the entry names none; model ""
 // starts the kind without a model).
 func TestModelsOverride(t *testing.T) {
 	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"},
@@ -157,7 +157,7 @@ func TestModelsOverride(t *testing.T) {
 	}
 }
 
-// T-765: a ref naming no model, or an effort its kind rejects, is refused with the known names.
+// a ref naming no model, or an effort its kind rejects, is refused with the known names.
 func TestUnknownModelRefused(t *testing.T) {
 	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"},"agents":{"models":{"muse":{"kind":"opencode","id":""}}}}`, "")
 	if _, ok := c.Model("gpt"); ok {
@@ -175,7 +175,7 @@ func TestUnknownModelRefused(t *testing.T) {
 	}
 }
 
-// T-765: lanes is a count: L-01 … L-NN under lanes_dir, nothing else is a lane.
+// lanes is a count: L-01 … L-NN under lanes_dir, nothing else is a lane.
 func TestLanesCount(t *testing.T) {
 	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"},"lanes":{"count":3}}`, "")
 	var names []string
@@ -202,7 +202,7 @@ func TestLanesCount(t *testing.T) {
 	}
 }
 
-// T-1155: a kit kind (OpenCode) with no agents.kinds.<name>.plugin runs the kit's binary, as before T-1153, and is a
+// a kit kind (OpenCode) with no agents.kinds.<name>.plugin runs the kit's binary and is a
 // plugin kind of the config; a set plugin still overrides it.
 func TestKitKindDefaultCommand(t *testing.T) {
 	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"}}`, "")

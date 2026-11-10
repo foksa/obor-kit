@@ -18,7 +18,7 @@ import (
 )
 
 // opencode is the kind as obor's plugin package runs it (agents.Kind from the protocol's replies), answered in process
-// by Handle: the same requests and replies as the binary's, without the exec (T-1046). stateDir: where a start's files go.
+// by Handle: the same requests and replies as the binary's, without the exec. stateDir: where a start's files go.
 func opencode(t *testing.T, stateDir string) agents.Kind {
 	t.Helper()
 	plugin.Local[kind.Name] = kind.Handle
@@ -30,8 +30,8 @@ func opencode(t *testing.T, stateDir string) agents.Kind {
 	return k
 }
 
-// T-495: OpenCode's start argv (--prompt, no resume, no registration on the command line), /exit with the popup's
-// second Enter and the clear keys, `opencode run`, registered per start (nothing user-global, T-809), no transcript, typed
+// OpenCode's start argv (--prompt, no resume, no registration on the command line), /exit with the popup's
+// second Enter and the clear keys, `opencode run`, registered per start (nothing user-global), no transcript, typed
 // delivery, the plugin hook transport.
 func TestKind(t *testing.T) {
 	k := opencode(t, t.TempDir())
@@ -65,7 +65,7 @@ func TestKind(t *testing.T) {
 		t.Errorf("Headless = %+v", h)
 	}
 	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
-	// T-809, T-835: nothing user-global; an old global entry and link are the user's to remove by hand.
+	// nothing user-global; an old global entry and link are the user's to remove by hand.
 	in, err := agents.InstallOf(k, "/kit", env(map[string]string{"HOME": "/h"}))
 	if m := in.MCP; err != nil || m.Where != agents.PerStart || m.Path != "" || m.Entry != nil {
 		t.Errorf("Install = %+v, %v: want per start, nothing user-global", in, err)
@@ -80,13 +80,13 @@ func TestKind(t *testing.T) {
 	if d, ok := k.Deliver("hi", nil); !ok || !d.Typed {
 		t.Errorf("Deliver = %+v, %v; want typed", d, ok)
 	}
-	if got, ok := k.LastTurn([]byte(`{"type":"event_msg","payload":{"type":"task_complete","turn_id":"t1","error":{"message":"m","codex_error_info":"usage_limit_exceeded"}}}` + "\n")); ok { // T-563: its turns are not read (Caps.Status terminal below)
+	if got, ok := k.LastTurn([]byte(`{"type":"event_msg","payload":{"type":"task_complete","turn_id":"t1","error":{"message":"m","codex_error_info":"usage_limit_exceeded"}}}` + "\n")); ok { // its turns are not read (Caps.Status terminal below)
 		t.Errorf("LastTurn = %+v, true; want none read", got)
 	}
 	if got, ok := k.Session([]byte(`{"type":"session_meta","payload":{"id":"x"}}` + "\n")); ok {
 		t.Errorf("Session = %+v, true; want none read", got)
 	}
-	// T-584: parse the plugin's StopFailure details; the app tests exercise worker and role routing.
+	// parse the plugin's StopFailure details; the app tests exercise worker and role routing.
 	at := time.Unix(1793361600, 0)
 	for _, c := range []struct {
 		name, err, details string
@@ -118,7 +118,7 @@ func TestKind(t *testing.T) {
 	}
 }
 
-// T-695, T-697, T-703: the type's model and the effort reach obor's plugin as OBOR_OPENCODE_MODEL
+// the type's model and the effort reach obor's plugin as OBOR_OPENCODE_MODEL
 // <provider>/<model>#<effort>, the model being the type's --model/-m only: obor never guesses OpenCode's model, so a
 // type without one unsets the variable (OpenCode's own choice stands, even when the user's files name a model) and an
 // effort on it is refused, by the start and by the args check before it (agents.ArgsChecker). Without a kit the
@@ -179,7 +179,7 @@ func TestStartEnvModelReachesThePlugin(t *testing.T) {
 	}
 }
 
-// T-809: a start from a kit writes one generated config into the state dir, named by OPENCODE_CONFIG (a path, so the
+// a start from a kit writes one generated config into the state dir, named by OPENCODE_CONFIG (a path, so the
 // env line stays short): mcp.servers.obor runs the launching kit's `bin/obor mcp`, pinned, and plugins names the kit's
 // plugin package dir; the model variable still rides along. A failed write is the start's error.
 func TestStartEnvNamesTheGeneratedConfig(t *testing.T) {
@@ -235,7 +235,7 @@ func TestStartEnvNamesTheGeneratedConfig(t *testing.T) {
 	}
 }
 
-// T-1033: config validate notes a project file (any of the four OpenCode reads) defining mcp.servers.obor, JSONC
+// config validate notes a project file (any of the four OpenCode reads) defining mcp.servers.obor, JSONC
 // comments and trailing commas read, and one that does not parse; none for a clean project. Through the protocol
 // (project-warnings) the kind reads the files of the dir itself.
 func TestProjectWarnings(t *testing.T) {

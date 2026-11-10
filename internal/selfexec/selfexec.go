@@ -1,4 +1,4 @@
-// Package selfexec lets a long-running obor process (serve, web) follow a new obor binary (T-719): it tells
+// Package selfexec lets a long-running obor process (serve, web) follow a new obor binary: it tells
 // when the binary the kit's shim would run now is another file than the running one, and execs the shim in place.
 package selfexec
 

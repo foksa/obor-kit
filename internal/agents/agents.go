@@ -2,7 +2,7 @@
 // functions over strings and bytes. No herdr, no sockets, no exec, no file I/O: the adapters (launch, setup, guard,
 // herdr, inbox) do that and ask the kind what differs. A compiled kind is one package (agents/claude, agents/codex)
 // that registers itself from its init; cmd/obor and testkit import all of them. A plugin kind is an executable answering
-// obor's kind protocol (agents/plugin, docs/agents/kind-protocol.md; OpenCode, kinds/opencode, T-1046), registered by
+// obor's kind protocol (agents/plugin, docs/agents/kind-protocol.md; OpenCode, kinds/opencode), registered by
 // the config that names it.
 package agents
 
@@ -24,13 +24,13 @@ import (
 type Kind interface {
 	Name() string // herdr's --kind and models.<name>.kind
 
-	// A kind's start is Split's two methods (a compiled kind) or Whole's one call (a plugin kind, T-1046): StartOf.
+	// A kind's start is Split's two methods (a compiled kind) or Whole's one call (a plugin kind): StartOf.
 
 	// NotReady is why a just-started agent cannot take a prompt yet, from its screen ("": nothing of this kind's).
 	NotReady(screen string) string
-	// Efforts are the effort values Start.Effort takes, from the CLI's own help (T-695); nil: this kind takes none.
+	// Efforts are the effort values Start.Effort takes, from the CLI's own help; nil: this kind takes none.
 	Efforts() []string
-	// Vars are every variable a start's env may set: the kind's part of the registry (agents.Vars, T-812).
+	// Vars are every variable a start's env may set: the kind's part of the registry (agents.Vars).
 	Vars() []string
 
 	// Stop is the quit recipe; launch runs it (the group proofs and the terminate ladder stay in launch).
@@ -40,23 +40,23 @@ type Kind interface {
 	Headless() Headless
 
 	// Install is where the MCP server reaches this kind (env: the user's HOME, XDG_CONFIG_HOME); setup checks it. A kind
-	// installs nothing user-global (T-1119).
+	// installs nothing user-global.
 	Install(kit string, env func(string) string) Install
 
 	// Transcript is the path (a glob) of session sid's transcript (env: HOME and the kind's own config dir variable).
 	// It takes no cwd: how a kind names its transcript's directory is the kind's own (Claude resolves symlinks and
-	// hashes a long path, T-813), and the one true path is the one the session itself reports (the SessionStart hook).
+	// hashes a long path), and the one true path is the one the session itself reports (the SessionStart hook).
 	// "" when the kind keeps none obor can find.
 	Transcript(env func(string) string, sid string) string
 	// LastTurn is the last turn a part of a session's transcript records, whole lines only (a partial last line is
 	// not read); ok false: none in it. The adapter passes the transcript's end, then earlier parts while none is found.
 	// A kind whose hooks report a stop reads none (Caps.Status not StatusTranscript).
 	LastTurn(tail []byte) (t Turn, ok bool)
-	// Session is the session a transcript's first line names (T-577: launch finds a new session's transcript by it);
+	// Session is the session a transcript's first line names (launch finds a new session's transcript by it);
 	// ok false: this kind's transcripts name none there, or the line is not such a record.
 	Session(first []byte) (s Session, ok bool)
 	// Reset reads an API error a turn ended on (errText as the CLI names it, details its message, seen at at):
-	// limited, the error is a usage or rate limit, so the turn can go on once it resets (T-568); reset, when the
+	// limited, the error is a usage or rate limit, so the turn can go on once it resets; reset, when the
 	// message says it does (zero: it names no time).
 	Reset(errText, details string, at time.Time) (reset time.Time, limited bool)
 
@@ -78,28 +78,28 @@ type Start struct {
 	Resume   string         // the session id to resume ("": fresh)
 	Prompt   string         // the first prompt of a fresh start, one line ("": none)
 	Read     ReadFile       // reads a file an arg names (a config file); nil: none is read
-	// Effort is the effort to start with (a type reference's `:<effort>`, T-695): the kind sets it, replacing the one
+	// Effort is the effort to start with (a type reference's `:<effort>`): the kind sets it, replacing the one
 	// Args set; "": Args as given.
 	Effort string
-	// StrictMCP is a lane's agent starting (a worker, the owner's drive agent, T-770): a kind that hides the MCP servers
+	// StrictMCP is a lane's agent starting (a worker, the owner's drive agent): a kind that hides the MCP servers
 	// its command line does not name starts that way, obor's own registered on the start (claude: --strict-mcp-config
 	// with --mcp-config MCPConfig; a kind that hides nothing ignores it).
 	StrictMCP bool
 	// Env is the start's environment (HOME, XDG_CONFIG_HOME, …), for a kind that reads its own config; nil: none.
 	Env func(string) string
 	// Session is the session id this start runs as, for a kind that takes one on its command line (Claude's
-	// --session-id, T-813: obor chooses it and records it before the start); "" for one that takes none. A resume
+	// --session-id: obor chooses it and records it before the start); "" for one that takes none. A resume
 	// names Resume instead.
 	Session string
-	// WriteState writes a file the start reads (OpenCode's generated config, T-809) as name in the project's state
+	// WriteState writes a file the start reads (OpenCode's generated config) as name in the project's state
 	// dir, replacing the last start's, and returns its path: the adapter's I/O; nil: the start writes none.
 	WriteState func(name string, data []byte) (path string, err error)
-	// WriteDirs are dirs outside its cwd the agent writes (config.RoleWriteDirs, T-853: a reviewer's or deep dive's
+	// WriteDirs are dirs outside its cwd the agent writes (config.RoleWriteDirs: a reviewer's or deep dive's
 	// files go to the main checkout's reviews dir from its role worktree): a kind that sandboxes its writes to the cwd
 	// lets it write there too (codex: --add-dir); a kind with no such sandbox ignores them.
 	WriteDirs []string
 	// Dir is the start dir, the agent's cwd (its lane worktree, or the main checkout or role worktree of a role): a
-	// kind reads the project's committed CLI config there with Read, for the keys its policy flags give way to (T-1033:
+	// kind reads the project's committed CLI config there with Read, for the keys its policy flags give way to (
 	// a project customizes its agents natively); "" or Read nil: no project file is read, the flags as before.
 	Dir string
 }
@@ -107,7 +107,7 @@ type Start struct {
 // ReadFile reads a file for a kind (os.ReadFile): the adapter's I/O, handed to a pure function.
 type ReadFile func(path string) ([]byte, error)
 
-// ProjectFile is the file rel of the start's dir (in.Dir), read with in.Read (T-1033). found false: no dir or reader,
+// ProjectFile is the file rel of the start's dir (in.Dir), read with in.Read. found false: no dir or reader,
 // or no such file; err: a file there that could not be read (the kind then starts as if it set nothing).
 func ProjectFile(in Start, rel string) (b []byte, found bool, err error) {
 	if in.Dir == "" || in.Read == nil {
@@ -120,14 +120,14 @@ func ProjectFile(in Start, rel string) (b []byte, found bool, err error) {
 	return b, true, err
 }
 
-// ProjectChecker is a kind that reads a project's committed CLI config (T-1033): Warnings are `obor config validate`'s
+// ProjectChecker is a kind that reads a project's committed CLI config: Warnings are `obor config validate`'s
 // notes on the files in dir, "<file>: <why>" each (a file that does not parse, a key that disables part of obor).
 type ProjectChecker interface {
 	ProjectWarnings(dir string, read ReadFile) []string
 }
 
 // ProjectWarnings are every registered kind's ProjectChecker warnings on dir's files, kinds in name order; a kind in
-// described (a plugin kind obor config validate just described, T-1054) answers in place of the registry's, whose
+// described (a plugin kind obor config validate just described) answers in place of the registry's, whose
 // manifest may not be cached.
 func ProjectWarnings(dir string, read ReadFile, described map[string]Kind) []string {
 	var out []string
@@ -143,7 +143,7 @@ func ProjectWarnings(dir string, read ReadFile, described map[string]Kind) []str
 	return out
 }
 
-// InstallHost is the machine a kind's CLI is installed on, the adapter's I/O handed to a pure check (T-1045).
+// InstallHost is the machine a kind's CLI is installed on, the adapter's I/O handed to a pure check.
 type InstallHost struct {
 	GOOS     string                            // runtime.GOOS
 	LookPath func(name string) (string, error) // the CLI on the user's PATH
@@ -158,7 +158,7 @@ type InstallChecker interface {
 	InstallWarnings(h InstallHost) []string
 }
 
-// StartChecker is a kind that refuses a start its CLI's install cannot make work (T-1052): StartRefusal is why ("" the
+// StartChecker is a kind that refuses a start its CLI's install cannot make work: StartRefusal is why ("" the
 // start may go ahead), naming the files and the owner's fix. h is the machine's install; the kind runs no process.
 type StartChecker interface {
 	StartRefusal(h InstallHost) string
@@ -214,7 +214,7 @@ type MCPRegistration struct {
 	Path     string         // the manifest ("" for PerStart)
 	Key      []string       // Manifest: the obor entry's place in the file's JSON, outermost first
 	Entry    map[string]any // Manifest: the obor entry
-	Unpinned map[string]any // Manifest: the entry as written before the pin (T-420): registered, with a warning
+	Unpinned map[string]any // Manifest: the entry as written before the pin: registered, with a warning
 	// Lane is how a start with the type's args gets the server (obor setup mcp --lane): static true when the Where
 	// registration serves it (setup checks that file), else registered per start or not, how saying which.
 	Lane func(args []string, read ReadFile) (how string, registered, static bool)
@@ -227,9 +227,9 @@ type Session struct {
 }
 
 // Turn is one turn of a session as its transcript records it: its id, whether the event read is its end (Ended;
-// false: its start, the turn still running, T-571) and, when it ended on an error (a usage limit), the error as the
+// false: its start, the turn still running) and, when it ended on an error (a usage limit), the error as the
 // CLI names it and its message (Error "": it did not, or has not ended yet), and when the limit it hit resets as the
-// transcript records it (zero: unknown; T-568).
+// transcript records it (zero: unknown).
 type Turn struct {
 	ID, Error, Details string
 	Ended              bool
@@ -249,7 +249,7 @@ type HookTransport int
 const (
 	HooksNone   HookTransport = iota // no hooks
 	HooksNative                      // the CLI's own hooks (the plugin's hooks/hooks.json)
-	HooksPlugin                      // obor's plugin for the CLI: it leaves a marker obor status checks (T-307)
+	HooksPlugin                      // obor's plugin for the CLI: it leaves a marker obor status checks
 )
 
 // Caps are a kind's capabilities.
@@ -257,23 +257,23 @@ type Caps struct {
 	Hooks      HookTransport
 	Inbox      bool // Deliver posts over the session's inbox socket
 	Resume     bool // Start honours Resume
-	Skills     bool // a first prompt may be a plugin's slash command (/obor:lead, T-594)
+	Skills     bool // a first prompt may be a plugin's slash command (/obor:lead)
 	Transcript bool // Transcript finds the session file
-	// Status is where the agent's status and turns come from (T-1036): StatusTranscript, LastTurn reads the session's
-	// turns from its transcript (T-563, Codex); StatusTerminal, herdr's agent detection; StatusHooks, its hooks.
+	// Status is where the agent's status and turns come from: StatusTranscript, LastTurn reads the session's
+	// turns from its transcript (Codex); StatusTerminal, herdr's agent detection; StatusHooks, its hooks.
 	Status   Status
-	Sessions bool // Session reads the session a transcript begins with: launch reports a fresh start's (T-577)
+	Sessions bool // Session reads the session a transcript begins with: launch reports a fresh start's
 	// NamedSession: a fresh start names its session id (Start.Session: obor's choice, recorded before the start) and
 	// its transcript is the path the session itself reports: obor is the only source of its session ids, so herdr's
-	// agent_session is never adopted for a resume (T-813).
+	// agent_session is never adopted for a resume.
 	NamedSession  bool
-	ProjectPlugin bool // loads obor's plugin from the project's .claude/settings.json (a worktree needs the file too, T-705)
-	ModelArg      bool // its own default model may not work: a model should name its id (T-705)
+	ProjectPlugin bool // loads obor's plugin from the project's .claude/settings.json (a worktree needs the file too)
+	ModelArg      bool // its own default model may not work: a model should name its id
 	// VersionVar is the session's environment variable holding the CLI's version, for the plugin marker ("": none)
 	VersionVar string
 }
 
-// Status is a kind's source of its agents' status (idle, working, done) and turns (Caps.Status, T-1036).
+// Status is a kind's source of its agents' status (idle, working, done) and turns (Caps.Status).
 type Status string
 
 const (
@@ -292,7 +292,7 @@ func TurnsRead(k Kind) bool { return k.Caps().Status == StatusTranscript }
 const Default = "claude"
 
 // Pin is the variable every kit-owned `obor mcp` start sets, as hooks do: bin/obor then runs this kit, not the main
-// checkout of the obor checkout the agent happens to sit in (T-420).
+// checkout of the obor checkout the agent happens to sit in.
 const Pin = "OBOR_NO_SELF_HOST"
 
 // EnvVars are the variables `obor mcp` reads from the agent's session (internal/mcp); a CLI that starts MCP servers
@@ -300,8 +300,8 @@ const Pin = "OBOR_NO_SELF_HOST"
 var EnvVars = []string{RoleVar, LaneVar, PaneVar, "OBOR_STATE_HOME"}
 
 // RoleVar, LaneVar and PaneVar are an agent's identity in its env (the role's env value, its lane, its terminal pane:
-// T-1037, project.Pane resolves it); RetiredVars are variables an older obor exported that no start sets any more
-// (T-786: OBOR_AGENT, a name is derived, project.Self): every start unsets them.
+// project.Pane resolves it); RetiredVars are variables an older obor exported that no start sets any more
+// (OBOR_AGENT, a name is derived, project.Self): every start unsets them.
 const (
 	RoleVar = "OBOR_ROLE"
 	LaneVar = "OBOR_LANE"
@@ -310,7 +310,7 @@ const (
 
 var RetiredVars = []string{"OBOR_AGENT"}
 
-// Vars is the registry of every variable a start of any agent sets (T-812): the identity vars, the retired ones and
+// Vars is the registry of every variable a start of any agent sets: the identity vars, the retired ones and
 // each kind's own (Kind.Vars), sorted. A start unsets every one it does not set, so no value of an earlier start in the
 // pane's shell survives into it, whatever the kinds.
 func Vars() []string {
@@ -327,8 +327,8 @@ func Vars() []string {
 // EnvVar is one variable a start sets.
 type EnvVar struct{ Name, Value string }
 
-// StartVars is the one builder of a start's env (T-812): set, the role's env value ("": none), the lane ("": none), the
-// pane the agent starts in ("": not known yet, a pane being made; T-1037) and the kind's StartEnv vars (a "" value:
+// StartVars is the one builder of a start's env: set, the role's env value ("": none), the lane ("": none), the
+// pane the agent starts in ("": not known yet, a pane being made) and the kind's StartEnv vars (a "" value:
 // none), in that order (a kind's sorted); unset, every registry var (Vars) the
 // start does not set and keep does not name, sorted. keep is a var the caller leaves as the pane has it (an unknown
 // agent's OBOR_ROLE: obor cannot tell it).
@@ -361,7 +361,7 @@ func StartVars(role, lane, pane string, kind map[string]string, keep ...string) 
 }
 
 // The registry: the compiled kinds (Register, from their init) and the plugin kinds the loaded config names
-// (SetPlugins, T-1036). A config load replaces the plugin kinds while serve's goroutines look kinds up: mu guards both.
+// (SetPlugins). A config load replaces the plugin kinds while serve's goroutines look kinds up: mu guards both.
 var (
 	mu      sync.RWMutex
 	kinds   = map[string]Kind{}
@@ -392,15 +392,14 @@ func lookup(name string) Kind {
 	return k
 }
 
-// PluginLoader builds the kinds a project's config names as executables (kinds.<name>.command, T-1036); the plugin
+// PluginLoader builds the kinds a project's config names as executables (kinds.<name>.command); the plugin
 // package (internal/agents/plugin) sets Plugins from its init, so the config (which cannot import it) registers them.
 type PluginLoader interface {
 	// Kind is the kind name answering obor's kind protocol as command, its manifest the one obor setup agents cached in
 	// stateDir: no process runs (hooks and the guard load the config).
 	Kind(name, command, stateDir string) Kind
 	// Check runs command's describe: why it cannot be the kind name (not executable, no answer, a bad manifest), else
-	// the kind with the manifest it answered, which it caches nowhere (obor config validate checks efforts against it,
-	// T-1042).
+	// the kind with the manifest it answered, which it caches nowhere (obor config validate checks efforts against it).
 	Check(name, command string) (Kind, error)
 }
 
@@ -431,13 +430,13 @@ func IsPlugin(name string) bool {
 	return plugins[name]
 }
 
-// Uncached is a plugin kind that may have no manifest at hand (T-1054): Uncached is why (nil: it has one). Without one
+// Uncached is a plugin kind that may have no manifest at hand: Uncached is why (nil: it has one). Without one
 // its Headless is empty, so the guard denies its program outright rather than let a headless run through.
 type Uncached interface {
 	Uncached() error
 }
 
-// Fallible is a kind whose install can fail (a plugin kind runs a process, T-1036): Install with its error. Its
+// Fallible is a kind whose install can fail (a plugin kind runs a process): Install with its error. Its
 // Install gives the failure's zero form (no registration, Lane saying why).
 type Fallible interface {
 	InstallErr(kit string, env func(string) string) (Install, error)
@@ -450,14 +449,14 @@ type Launch struct {
 	Env  map[string]string
 }
 
-// Whole is a kind whose start is one call (a plugin kind runs its command once per start, T-1042): the argv, the env and
+// Whole is a kind whose start is one call (a plugin kind runs its command once per start): the argv, the env and
 // the files it writes come from one reply to the complete Start, applied together.
 type Whole interface {
 	StartWhole(in Start) (Launch, error)
 }
 
-// Split is a compiled kind's start: its argv and its env by two methods (RV-147: a plugin kind is Whole and has
-// neither, T-1046).
+// Split is a compiled kind's start: its argv and its env by two methods (a plugin kind is Whole and has
+// neither).
 type Split interface {
 	Kind
 	// Start is the argv after the binary: the type's args, the kind's settings and MCP registration (none without a
@@ -468,7 +467,7 @@ type Split interface {
 	StartEnv(in Start) (map[string]string, error)
 }
 
-// StartOf is k's start of in, a complete Start built once at the launch boundary (T-1042): a Whole kind's one call;
+// StartOf is k's start of in, a complete Start built once at the launch boundary: a Whole kind's one call;
 // a Split kind's env (StartEnv) and its argv in two passes of Start, as before: the type's launch args (Args with
 // Settings, Effort, StrictMCP, WriteDirs), then the start over them (Kit, Resume, Session, Prompt), Dir and Read in
 // both. An error: the start cannot carry in.Effort, a plugin kind's start failed, or k has no start.
@@ -517,14 +516,14 @@ func Skills(name string) bool {
 	return ok && k.Caps().Skills
 }
 
-// Resumes: the kind named name resumes a session (its Caps.Resume), as OpenCode's does not (T-581); an unknown kind
+// Resumes: the kind named name resumes a session (its Caps.Resume), as OpenCode's does not; an unknown kind
 // does not either.
 func Resumes(name string) bool {
 	k, ok := Lookup(name)
 	return ok && k.Caps().Resume
 }
 
-// NamedSession: the kind named name starts a session obor names itself (its Caps.NamedSession, T-813); an unknown
+// NamedSession: the kind named name starts a session obor names itself (its Caps.NamedSession); an unknown
 // kind's sessions are not obor's.
 func NamedSession(name string) bool {
 	k, ok := Lookup(name)
@@ -532,7 +531,7 @@ func NamedSession(name string) bool {
 }
 
 // CheckEffort is why the kind named kind cannot start with effort ("" takes any kind): an unknown kind, a kind that
-// takes no effort, or a value not among its Efforts (T-695: obor spec set, dispatch and config validate refuse it).
+// takes no effort, or a value not among its Efforts (obor spec set, dispatch and config validate refuse it).
 func CheckEffort(kind, effort string) error {
 	if effort == "" {
 		return nil
@@ -544,7 +543,7 @@ func CheckEffort(kind, effort string) error {
 	return checkEffort(k, effort)
 }
 
-// ArgsChecker is a kind whose effort also depends on the type's args (OpenCode: --model, T-697; a plugin kind asks its
+// ArgsChecker is a kind whose effort also depends on the type's args (OpenCode: --model; a plugin kind asks its
 // start).
 type ArgsChecker interface {
 	CheckEffort(args []string, effort string) error
@@ -559,7 +558,7 @@ func CheckEffortArgs(kind string, args []string, effort string) error {
 }
 
 // CheckEffortOf is CheckEffortArgs for a kind at hand (obor config validate's plugin kind as its describe just
-// answered, T-1042), not the registry's.
+// answered), not the registry's.
 func CheckEffortOf(k Kind, args []string, effort string) error {
 	if effort == "" {
 		return nil
@@ -573,7 +572,7 @@ func CheckEffortOf(k Kind, args []string, effort string) error {
 	return nil
 }
 
-// ModelEditor is a kind that names its model in the args (config.Model, T-765): WithModel is args with model in place
+// ModelEditor is a kind that names its model in the args (config.Model): WithModel is args with model in place
 // of the model they name (appended when they name none; "" drops it), every other arg as it is.
 type ModelEditor interface {
 	WithModel(args []string, model string) []string
@@ -590,7 +589,7 @@ func ModelArgs(kind string, args []string, model string) ([]string, error) {
 
 // SetFlag is args with the value of the flag any of names spells (`<name> <value>` or `<name>=<value>`) set to value:
 // the first one keeps its place and spelling, a later one is dropped; none: names[0] value appended. Value "" drops
-// every one. Every other arg stays as it is (a bridge's WithModel; T-753).
+// every one. Every other arg stays as it is (a bridge's WithModel).
 func SetFlag(args, names []string, value string) []string {
 	out := make([]string, 0, len(args)+2)
 	set := false
@@ -664,7 +663,7 @@ var resetEpoch = regexp.MustCompile(`\|(\d{10})\b`)
 // resetClock is a limit message's reset as a clock time: "resets 6pm", "resets at 6:30 PM", "try again at 6:30 PM".
 var resetClock = regexp.MustCompile(`(?i)\b(?:resets|try again)(?: at)? (\d{1,2})(?::(\d{2}))? ?([ap])\.?m\b`)
 
-// ResetIn is the reset time a limit message names (T-568): an epoch after a '|', else a clock time's next occurrence
+// ResetIn is the reset time a limit message names: an epoch after a '|', else a clock time's next occurrence
 // after at, in at's location (the clock of the machine the agent runs on). Zero: it names none.
 func ResetIn(text string, at time.Time) time.Time {
 	if m := resetEpoch.FindStringSubmatch(text); m != nil {

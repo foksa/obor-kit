@@ -15,14 +15,14 @@ import (
 	"obor/internal/testkit"
 )
 
-// TestMain isolates the tests and removes the project template New copies (T-1009).
+// TestMain isolates the tests and removes the project template New copies.
 func TestMain(m *testing.M) { testkit.Main(m) }
 
-// Tests for T-640: `make release V=x.y.z` (scripts/release) and `make ship` (scripts/ship). The fixtures are kit copies
+// `make release V=x.y.z` (scripts/release) and `make ship` (scripts/ship). The fixtures are kit copies
 // in a temp repo with a fake go that writes its -o file, so `make check` and `make release` are fast and observable.
 
-// devMarketplace is main's marketplace, laid out like the kit's own (one "name" per line: v0.17.2's line-wise sed
-// renamed each of them, T-645).
+// devMarketplace is main's marketplace, laid out like the kit's own (one "name" per line, so a line-wise edit
+// reaches each of them).
 const devMarketplace = `{
   "name": "obor-kit-dev",
   "owner": { "name": "x" },
@@ -35,7 +35,7 @@ const devMarketplace = `{
 }`
 
 // v0172Marketplace is what v0.17.2's flip made of devMarketplace: every "name" set to obor-kit, the owner's and the
-// plugin entry's too, so obor@obor-kit no longer resolved (T-645).
+// plugin entry's too, so obor@obor-kit does not resolve.
 const v0172Marketplace = `{"name": "obor-kit","owner":{"name": "obor-kit"},"plugins":[{"name": "obor-kit","source":"./"}]}`
 
 // releaseFixture is a kit copy ready for a release of 1.2.4 from VERSION 1.2.3: the Makefile, both scripts, the guide
@@ -46,7 +46,7 @@ type releaseFixture struct {
 	log string
 }
 
-// scratch is where release's scratch worktree lives: this repo's own git dir (T-648).
+// scratch is where release's scratch worktree lives: this repo's own git dir.
 func (f *releaseFixture) scratch(v string) string {
 	return filepath.Join(f.Root, ".git", "obor-release-"+v)
 }
@@ -174,14 +174,14 @@ func (f *releaseFixture) untouched(t *testing.T, v, head string) {
 }
 
 // closeReview commits "RV-<n> closed · <sha> · approved" on main (the shape obor review closes with): the reviewed
-// point T-642 reads is the close commit itself, never the sha it names.
+// point release reads is the close commit itself, never the sha it names.
 func (f *releaseFixture) closeReview(t *testing.T, n int, named string) string {
 	t.Helper()
 	return f.closeReviewCovered(t, n, named, "")
 }
 
-// closeReviewCovered is closeReview with the body T-822 writes: the cycle's covered tasks and where its review started
-// (start "": an old close commit, no body); covered nil: none covered.
+// closeReviewCovered is closeReview with the body obor review writes: the cycle's covered tasks and where its review started
+// (start "": a close commit with no body); covered nil: none covered.
 func (f *releaseFixture) closeReviewCovered(t *testing.T, n int, named, start string, covered ...string) string {
 	t.Helper()
 	writeFile(t, filepath.Join(f.Root, "docs", "reviews", fmt.Sprintf("RV-%d.md", n)), "# RV\n")
@@ -207,7 +207,7 @@ func (f *releaseFixture) merge(t *testing.T, branch, subject string, files map[s
 }
 
 // mergeBody is merge with a message body after the subject: main's merge messages carry whole specs, so a body may quote
-// a close line at the start of a line (T-642).
+// a close line at the start of a line.
 func (f *releaseFixture) mergeBody(t *testing.T, branch, subject, body string, files map[string]string) string {
 	t.Helper()
 	f.Git(f.Root, "checkout", "-q", "-b", branch)
@@ -228,7 +228,7 @@ func (f *releaseFixture) mergeBody(t *testing.T, branch, subject, body string, f
 	return f.Git(f.Root, "rev-parse", "HEAD")
 }
 
-// T-642: a merge after the close whose files are all docs passes the check (docs/ of any kind, a .md anywhere), and so
+// a merge after the close whose files are all docs passes the check (docs/ of any kind, a .md anywhere), and so
 // does a code merge the close commit came after.
 func TestMakeReleaseAllowsDocsAndReviewedMerges(t *testing.T) {
 	t.Parallel()
@@ -265,7 +265,7 @@ func TestMakeReleaseAllowsDocsAndReviewedMerges(t *testing.T) {
 	}
 }
 
-// T-642: UNREVIEWED="<why>" (the owner's call) lets the release through, says what it lets through, and puts the reason
+// UNREVIEWED="<why>" (the owner's call) lets the release through, says what it lets through, and puts the reason
 // in the tag message.
 func TestMakeReleaseUnreviewedOverride(t *testing.T) {
 	t.Parallel()
@@ -288,8 +288,8 @@ func TestMakeReleaseUnreviewedOverride(t *testing.T) {
 	}
 }
 
-// T-640, T-642, T-648, T-1035: make release's refusals share one fixture, a row each: a detached HEAD (the release
-// commits land on the branch the main checkout has; T-1035), a dirty tree, a V not greater
+// make release's refusals share one fixture, a row each: a detached HEAD (the release
+// commits land on the branch the main checkout has), a dirty tree, a V not greater
 // than VERSION, a guide missing or without this version's heading, unreviewed merges (with and without a close, and
 // --dry-run reporting them too), a close line quoted in a merge body (only a subject is a close commit), and a foreign
 // directory at the scratch path. Each refusal leaves the repo as it was: nothing committed, no tag, no check, no
@@ -379,7 +379,7 @@ func TestMakeReleaseRefusals(t *testing.T) {
 	}
 }
 
-// T-640: a full run makes the two commits on main and tags v1.2.4 (marketplace obor-kit there, obor-kit-dev on main),
+// a full run makes the two commits on main and tags v1.2.4 (marketplace obor-kit there, obor-kit-dev on main),
 // with the four binaries and their catalog copied back to main and the worktree removed.
 func TestMakeReleaseFullRun(t *testing.T) {
 	t.Parallel()
@@ -401,7 +401,7 @@ func TestMakeReleaseFullRun(t *testing.T) {
 	if got := f.Read(".claude-plugin/marketplace.json"); !strings.Contains(got, "obor-kit-dev") {
 		t.Errorf("main's marketplace name is gone from %q", got)
 	}
-	// T-645: the flip renames only the marketplace: the owner and the plugin entry keep main's names.
+	// the flip renames only the marketplace: the owner and the plugin entry keep main's names.
 	tagMarket := f.Git(f.Root, "show", "v1.2.4:.claude-plugin/marketplace.json")
 	var market struct {
 		Name  string `json:"name"`
@@ -474,7 +474,7 @@ func TestMakeReleaseFullRun(t *testing.T) {
 	}
 }
 
-// T-640: a re-run after a failure resumes: the version commit and the local tag are skipped, and a run interrupted
+// a re-run after a failure resumes: the version commit and the local tag are skipped, and a run interrupted
 // after the tag makes only the catalog commit, without rebuilding.
 func TestMakeReleaseResumes(t *testing.T) {
 	t.Parallel()
@@ -501,7 +501,7 @@ func TestMakeReleaseResumes(t *testing.T) {
 		t.Errorf("the re-run ran go %d more times, want the check skipped", n-goCalls)
 	}
 
-	// The tag is there but the copy-back commit is not (main moved with it, as release does, T-1035): main rebuilt from
+	// The tag is there but the copy-back commit is not (main moved with it, as release does): main rebuilt from
 	// the tag's files only.
 	f.Git(f.Root, "reset", "--hard", "HEAD~1")
 	f.Git(f.Root, "update-ref", "refs/heads/main", "HEAD")
@@ -517,13 +517,13 @@ func TestMakeReleaseResumes(t *testing.T) {
 	if got := f.Git(f.Root, "status", "--porcelain"); got != "" {
 		t.Errorf("main is dirty after the resume: %q", got)
 	}
-	// T-648: a re-run with the tag already there cleans up its own worktree and leaves none behind.
+	// a re-run with the tag already there cleans up its own worktree and leaves none behind.
 	if f.Exists(f.scratch("1.2.4")) {
 		t.Error("the re-run left a scratch worktree")
 	}
 }
 
-// T-640: a red make check stops the release with nothing committed and puts VERSION and the plugin version back, so
+// a red make check stops the release with nothing committed and puts VERSION and the plugin version back, so
 // the re-run (check green) starts from a clean tree and finishes the release.
 func TestMakeReleaseCheckFailsAndResumes(t *testing.T) {
 	t.Parallel()
@@ -567,7 +567,7 @@ func TestMakeReleaseCheckFailsAndResumes(t *testing.T) {
 	}
 }
 
-// T-640: --dry-run (make release V=… DRY=1) prints the steps and changes nothing.
+// --dry-run (make release V=… DRY=1) prints the steps and changes nothing.
 func TestMakeReleaseDryRun(t *testing.T) {
 	t.Parallel()
 	f := newReleaseFixture(t)
@@ -585,7 +585,7 @@ func TestMakeReleaseDryRun(t *testing.T) {
 	f.untouched(t, "1.2.4", head)
 }
 
-// T-640: a re-run whose dist files no longer match the local tag's catalog is refused with what to do: the tag is
+// a re-run whose dist files do not match the local tag's catalog is refused with what to do: the tag is
 // never moved, and nothing is committed.
 func TestMakeReleaseRefusesChangedBytes(t *testing.T) {
 	t.Parallel()
@@ -609,7 +609,7 @@ func TestMakeReleaseRefusesChangedBytes(t *testing.T) {
 	}
 }
 
-// T-640: ship refuses a tag that is not a finished release before it pushes anything: a pushed tag never moves, so a
+// ship refuses a tag that is not a finished release before it pushes anything: a pushed tag never moves, so a
 // wrong tag (here: main's dev marketplace) must stop on this machine.
 func TestMakeShipRefusesWrongTagBeforePush(t *testing.T) {
 	t.Parallel()
@@ -633,7 +633,7 @@ func TestMakeShipRefusesWrongTagBeforePush(t *testing.T) {
 	}
 }
 
-// T-641: the release's nested makes start from a plain make environment. make exports its command-line variables
+// the release's nested makes start from a plain make environment. make exports its command-line variables
 // (V=…) into every recipe and reads them back from MAKEFLAGS, so a nested `make check` that inherited them would run
 // the gate's tests with V set, and their own `make release` would take the V= path (`make release V=x` fails its own
 // check).
@@ -662,7 +662,7 @@ func TestMakeReleasePlainMakeEnv(t *testing.T) {
 		!strings.Contains(got, "UNREVIEWED=[the owner ships it]") {
 		t.Fatalf("precondition: the caller's make exports V and UNREVIEWED, got %q", got)
 	}
-	// T-643 (RV-70 #1): UNREVIEWED is scrubbed too, else the gate's own release tests run with the override.
+	// UNREVIEWED is scrubbed too, else the gate's own release tests run with the override.
 	if got, want := readFile(t, check), "V=[] DRY=[] MAKEFLAGS=[] MFLAGS=[] MAKELEVEL=[1] UNREVIEWED=[]"; got != want {
 		t.Errorf("the release's make check saw %q, want %q: the caller's make variables must not reach it", got, want)
 	}
@@ -677,7 +677,7 @@ type shipFixture struct {
 	verfile string
 	instlog string
 	ghstate string // the stub gh's release: release, assets, draft
-	sent    string // the log of the stub's `obor send` calls (T-903)
+	sent    string // the log of the stub's `obor send` calls
 }
 
 func newShipFixture(t *testing.T) *shipFixture {
@@ -725,7 +725,7 @@ case "$1 $2" in
 esac
 `)
 	writeFile(t, s.verfile, "v1.2.3\n")
-	// obor: its version line, `obor projects` (this kit and two others) and `obor send` of the release notes (T-903);
+	// obor: its version line, `obor projects` (this kit and two others) and `obor send` of the release notes;
 	// axis-alies' send fails while send-broken exists.
 	s.sent = filepath.Join(f.Base, "sent")
 	writeExec(t, filepath.Join(f.Root, "stub", "obor"), `#!/bin/bash
@@ -750,7 +750,7 @@ echo "obor $(cat "`+s.verfile+`")"
 	return s
 }
 
-// T-640, T-715, T-719, T-903: one ship run covers the family: a ship without a tag refuses; the ship after a release
+// one ship run covers the family: a ship without a tag refuses; the ship after a release
 // pushes main and the tag, publishes and installs, and ends by telling the leads (one `obor send <project> "<the tag's
 // docs/releases/v<version>.md>"` per project of `obor projects` but the kit's own); a send that fails fails the ship
 // after the follow line, naming the repair, and the other projects are sent to anyway; a second run skips push,
@@ -858,7 +858,7 @@ func TestMakeShip(t *testing.T) {
 	}
 }
 
-// T-822: a close commit's body records its cycle's Covered set and the sha its review started at. The check runs from
+// a close commit's body records its cycle's Covered set and the sha its review started at. The check runs from
 // that sha: a task merged while the review ran that no cycle covered is unreviewed, a task a verify covered is not, and
 // the cycle that covers it clears it.
 func TestMakeReleaseCountsCoveredTasks(t *testing.T) {

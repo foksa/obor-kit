@@ -1,8 +1,8 @@
 package herdr
 
-// setup.go: port.TerminalSetup over herdr (T-1044). What obor setup and obor init ask of the terminal in neutral terms
+// setup.go: port.TerminalSetup over herdr. What obor setup and obor init ask of the terminal in neutral terms
 // (a pane for a role near something, the removal of an older obor's integration, a project rename) is laid out here in
-// herdr's: tabs, workspaces, splits, the workspace label, and the unlink of the obor.events plugin (T-1117).
+// herdr's: tabs, workspaces, splits, the workspace label, and the unlink of the obor.events plugin.
 
 import (
 	"bufio"
@@ -27,14 +27,14 @@ type Setup struct {
 	// config (the resume hint).
 	Env project.Env
 
-	made string // the workspace this run created for the project (T-632), "" when none
+	made string // the workspace this run created for the project, "" when none
 	last []Pane // the panes Panes listed last, herdr's fields kept: Place lays out against them
 }
 
 var _ port.TerminalSetup = (*Setup)(nil)
 
 // Panes is pane.list; the answer, with each pane's tab and workspace, is what the next Place lays out against (setup
-// reads the panes once per start and places against that moment, as before T-1044).
+// reads the panes once per start and places against that moment).
 func (h *Setup) Panes(ctx context.Context) ([]port.Pane, error) {
 	ps, err := h.panesAt(ctx)
 	if err != nil {
@@ -44,7 +44,7 @@ func (h *Setup) Panes(ctx context.Context) ([]port.Pane, error) {
 	return corePanes(ps), nil
 }
 
-// --- placement (T-628, T-632, T-634) -----------------------------------------------------------------------------
+// --- placement -----------------------------------------------------------------------------
 
 // workersTab is the tab the lanes' workers share (obor init's first worker opens it, L-02 and the integrator go beside).
 const workersTab = "workers"
@@ -78,7 +78,7 @@ func (h *Setup) Place(ctx context.Context, p port.Placement) (string, error) {
 	if tab := defaultTab(panes, p.Project); tab != "" {
 		return h.split(ctx, panes, p, tab)
 	}
-	return h.newTab(ctx, panes, p, ownTab(p)) // no tab of the project to split: a new one in its workspace (T-632)
+	return h.newTab(ctx, panes, p, ownTab(p)) // no tab of the project to split: a new one in its workspace
 }
 
 // ownTab is the label of a tab of p's role's own: the lanes' workers share one, obor init's reviewer has "review",
@@ -101,10 +101,10 @@ func say(p port.Placement, format string, a ...any) {
 }
 
 // projectWorkspace is the herdr workspace of this project ("" when none): one with a pane whose cwd is the project
-// root or under its lanes dir and no pane with a known cwd elsewhere (T-634: a shell of another project's workspace
+// root or under its lanes dir and no pane with a known cwd elsewhere (a shell of another project's workspace
 // that cd's into this one does not make that workspace the project's); an unknown cwd counts neither way. Several:
 // the one with most project panes, the first of equals in herdr's order. Placement follows it, never the caller's
-// workspace when that is another project's (T-628, live: obor init from obor-kit's lead pane put axis-maps' panes in
+// workspace when that is another project's (live: obor init from obor-kit's lead pane put axis-maps' panes in
 // obor-kit's w5).
 func projectWorkspace(panes []Pane, has func(string) bool) string {
 	count, foreign := map[string]int{}, map[string]bool{}
@@ -126,7 +126,7 @@ func projectWorkspace(panes []Pane, has func(string) bool) string {
 	return ws
 }
 
-// projectTab: every pane of tab has a known cwd in this project, so placement may pick it on its own (T-632). A pane
+// projectTab: every pane of tab has a known cwd in this project, so placement may pick it on its own. A pane
 // with an unknown cwd may be another project's.
 func projectTab(panes []Pane, has func(string) bool, tab string) bool {
 	n := 0
@@ -144,7 +144,6 @@ func projectTab(panes []Pane, has func(string) bool, tab string) bool {
 
 // projectTabOf is the tab of pane when it is the project's (projectTab), "" otherwise or when unknown: obor init never
 // puts L-02 and the integrator beside a pane in a foreign or unknown-cwd tab, a new tab in the project's workspace then
-// (T-634).
 func projectTabOf(panes []Pane, has func(string) bool, pane string) string {
 	for _, p := range panes {
 		if p.ID == pane && projectTab(panes, has, p.Tab) {
@@ -155,7 +154,7 @@ func projectTabOf(panes []Pane, has func(string) bool, pane string) string {
 }
 
 // defaultTab is the tab a placement with no place named goes to: the caller's when it is a project tab in the
-// project's workspace, else that workspace's project tab with most panes; "" when none (a new tab then, T-632).
+// project's workspace, else that workspace's project tab with most panes; "" when none (a new tab then).
 func defaultTab(panes []Pane, pr port.PlaceProject) string {
 	proj := projectWorkspace(panes, pr.Has)
 	if proj == "" {
@@ -189,7 +188,7 @@ func busiestTab(panes []Pane, has func(string) bool, ws string) string {
 }
 
 // workspace is where this run's new tabs go: the project's workspace; none (no herdr workspace holds a pane of the
-// project) → a new workspace named after the project, its first pane a shell in the root, made once a run (T-632).
+// project) → a new workspace named after the project, its first pane a shell in the root, made once a run.
 // The caller's or herdr's active workspace is never a fallback: it may be another project's.
 func (h *Setup) workspace(ctx context.Context, panes []Pane, p port.Placement) (string, error) {
 	if ws := projectWorkspace(panes, p.Project.Has); ws != "" {
@@ -223,7 +222,7 @@ func (h *Setup) newTab(ctx context.Context, panes []Pane, p port.Placement, labe
 }
 
 // split splits the largest pane of tab a split may use for p's new pane: to the right when it is wider than tall on
-// screen (a cell is about twice as tall as wide), else down. Another project's pane is never split (T-628): a pane
+// screen (a cell is about twice as tall as wide), else down. Another project's pane is never split: a pane
 // may be split when its cwd is unknown or in the project. A tab holding MaxPanes panes is full.
 func (h *Setup) split(ctx context.Context, panes []Pane, p port.Placement, tab string) (string, error) {
 	var in []string
@@ -278,13 +277,14 @@ func (h *Setup) split(ctx context.Context, panes []Pane, p port.Placement, tab s
 	return pane, nil
 }
 
-// --- integration removed: the obor.events plugin (R-28 §3, T-1117) ----------------------------------------------
+// --- integration removed: the obor.events plugin (R-28 §3) ----------------------------------------------
 
-// oborPlugin is the id of the herdr plugin an obor before T-1117 linked to restore panes after a herdr restart.
+// oborPlugin is the id of the herdr plugin that restores panes in herdr and that a project's setup unlinks
+// (obor serve restarts its own panes).
 const oborPlugin = "obor.events"
 
 // RemoveIntegration removes the obor.events plugin from herdr (user-global, once per user): obor serve restarts its
-// own panes since T-1051, so the plugin is a second restore path no more. herdr's plugin list is read once (T-613 #4:
+// own panes, so obor needs no second restore path. herdr's plugin list is read once (
 // a list error is the call's error, never "not linked"); a listed plugin → unlink. Then herdr's resume setting: Hint
 // is the one line to add unless herdr's config sets it, also when the unlink failed.
 func (h *Setup) RemoveIntegration(ctx context.Context, out func(string)) (port.Integration, error) {
@@ -316,9 +316,9 @@ func (h *Setup) RemoveIntegration(ctx context.Context, out func(string)) (port.I
 
 var resumeRE = regexp.MustCompile(`^\s*resume_agents_on_restore\s*=\s*([^#\s]*)`)
 
-// resumeHint: obor serve restarts obor's panes itself, so herdr must not resume agents on a restore (R-28 §1,
-// T-159). Unless herdr's config.toml ($HERDR_CONFIG_PATH, else ~/.config/herdr/config.toml) sets `[session]
-// resume_agents_on_restore = false`: the one line to add, saying it is user-global (RV-18 #3); "" when it is set.
+// resumeHint: obor serve restarts obor's panes itself, so herdr must not resume agents on a restore.
+// Unless herdr's config.toml ($HERDR_CONFIG_PATH, else ~/.config/herdr/config.toml) sets `[session]
+// resume_agents_on_restore = false`: the one line to add, saying it is user-global; "" when it is set.
 // Never edited.
 func (h *Setup) resumeHint() string {
 	path := h.Env.Get("HERDR_CONFIG_PATH")
@@ -347,7 +347,7 @@ func (h *Setup) resumeHint() string {
 		path + " (user-global: affects every herdr pane, not only obor's; those come back as shells)"
 }
 
-// --- project rename (T-587 step 4) -------------------------------------------------------------------------------
+// --- project rename ----------------------------------------------------------------------------------------------
 
 // RenameProject renames the workspace labelled old to name (`herdr workspace rename`, the herdr CLI on Env's PATH) and
 // relabels every pane of the project's workspaces (labelled old, or name: a rerun, or only the prefix changes) whose

@@ -7,7 +7,7 @@ import (
 	"obor/internal/launch"
 )
 
-// T-722: obor restart <worker> resumes the recorded session when its kind is the lane row type's kind, else starts a
+// obor restart <worker> resumes the recorded session when its kind is the lane row type's kind, else starts a
 // new session of the row type's kind (said), without --fresh.
 func TestRestartResumesOnlyTheRowTypesKind(t *testing.T) {
 	t.Parallel()

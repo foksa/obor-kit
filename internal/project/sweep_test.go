@@ -49,7 +49,7 @@ func sweepDay(day int) string {
 	return time.Date(2026, 10, day, 3, 0, 0, 0, time.UTC).Format("obor-2006-01-02.db.gz")
 }
 
-// TestSweep is the nightly sweep's table (T-1085, T-1098), one case per rule of its tests.
+// TestSweep is the nightly sweep's table, one case per rule of its tests.
 func TestSweep(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 11, 9, 2, 0, 0, 0, time.UTC)
@@ -197,7 +197,7 @@ func TestSweep(t *testing.T) {
 				filepath.Join(logs, "T-1-check.log"), // a landed task still running its after-merge steps
 				filepath.Join(logs, "T-1-after_merge.log"),
 				filepath.Join(logs, "T-100-check.log"),
-				filepath.Join(logs, "nightly-check.log"), // its next pass removes it (T-1094)
+				filepath.Join(logs, "nightly-check.log"), // its next pass removes it
 				filepath.Join(logs, "serve.log"),
 				filepath.Join(logs, "release-0.32.0.log"),
 			}
@@ -298,7 +298,7 @@ func TestSweep(t *testing.T) {
 }
 
 // sweepBackupDays writes 7 old uncompressed daily backups (obor-2026-11-01.db … obor-2026-11-07.db) and today's
-// obor-2026-11-09.db.gz, then returns them, oldest first (T-1145: one date more than backupKeep keeps).
+// obor-2026-11-09.db.gz, then returns them, oldest first (one date more than backupKeep keeps).
 func sweepBackupDays(t *testing.T, cfg *config.Config, now time.Time) []string {
 	t.Helper()
 	dir := filepath.Join(StateDir(cfg.Root), "backup")

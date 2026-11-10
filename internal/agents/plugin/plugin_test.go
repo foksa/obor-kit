@@ -175,8 +175,8 @@ func TestCalls(t *testing.T) {
 	}
 }
 
-// T-1119: the user-config install path is gone, so install's reply may not name a user config entry or a plugin link
-// under ~/; a kind that still does is refused with an error naming the removal.
+// a kind cannot install to the user config, so install's reply may not name a user config entry or a plugin link
+// under ~/; a kind that does is refused with an error naming the refusal.
 func TestInstallRefusesTheRemovedUserConfigPath(t *testing.T) {
 	for name, body := range map[string]string{
 		"a user config entry": `{"version":1,"mcp":{"where":"config","path":"/u/.stub.json","key":["mcp","obor"],"entry":{"command":"obor"}}}`,
@@ -211,7 +211,7 @@ func boolText(registered, static bool) string {
 
 // TestStartRequest: start's request carries the version, the call, every field of the complete start and the
 // manifest's env snapshot (closure 1 as data: the dir the plugin reads itself), in one call whose argv and env both
-// have the file's path substituted (T-1042); an env var the manifest's vars do not name is an error.
+// have the file's path substituted; an env var the manifest's vars do not name is an error.
 func TestStartRequest(t *testing.T) {
 	k, state := kind(t, `cat >"$REQ"; echo '{"version":1,"args":["-c","{file:c.json}"],"env":{"STUB_CONFIG":"{file:c.json}"},"files":[{"name":"c.json","bytes":"x"}]}'`)
 	env := func(v string) string { return map[string]string{"HOME": "/home/u", "OTHER": "o"}[v] }
@@ -341,7 +341,7 @@ func TestNoCache(t *testing.T) {
 	}
 }
 
-// TestEnsure (T-1054, obor serve's cache step): no cache → describe and cache it; a cache of the command as it is → no
+// TestEnsure (obor serve's cache step): no cache → describe and cache it; a cache of the command as it is → no
 // process runs; the command changed (another mtime) → described again; a describe that fails is the error, and wrote
 // false. A kind New loads from what Ensure wrote has its manifest (Uncached nil).
 func TestEnsure(t *testing.T) {

@@ -34,7 +34,7 @@ func fixture(t testing.TB) *fx {
 	return f
 }
 
-// spec stores T-01's spec (obor spec set, T-440: the next rev) with these lines as its "Protected files this task may
+// spec stores T-01's spec (obor spec set: the next rev) with these lines as its "Protected files this task may
 // edit" section.
 func (f *fx) spec(lines ...string) {
 	f.Spec("T-01", "# T-01\n\n## Do\nThings in `src/core/types.ts`.\n\n## Protected files this task may edit\n"+
@@ -132,7 +132,7 @@ func TestGitPushDeniedInEveryFormLookAlikesAllowed(t *testing.T) {
 	})
 }
 
-// bash case_allow_push (T-105): an entry is a role ("lead"); the session's role is what counts, never the name in a
+// bash case_allow_push: an entry is a role ("lead"); the session's role is what counts, never the name in a
 // (stale) OBOR_AGENT.
 func TestAllowPushListedNonWorkerOnly(t *testing.T) {
 	t.Parallel()
@@ -173,7 +173,7 @@ func TestAllowPushListedNonWorkerOnly(t *testing.T) {
 		bash("reviewer", P, "echo gh pr create", ""),
 		bash("reviewer", P, "gh", ""),
 	})
-	// No guards.allow_push, or an entry that names no role (an agent's derived name too, T-1111) → everyone denied.
+	// No guards.allow_push, or an entry that names no role (an agent's derived name too) → everyone denied.
 	for _, list := range []string{"", `["pj-boss"]`, `["pj-lead"]`} {
 		edits := []func(map[string]any){testkit.Set("rules.protected_files", `["src/core/types.ts"]`)}
 		if list != "" {
@@ -208,7 +208,7 @@ func TestPkillKillallDeniedKillPIDAllowed(t *testing.T) {
 	})
 }
 
-// T-470: codex exec, claude -p / --print and opencode run are denied for every role (lead included), wrapped or
+// codex exec, claude -p / --print and opencode run are denied for every role (lead included), wrapped or
 // nested too; the interactive forms and look-alikes are allowed.
 func TestHeadlessAgentRunsDenied(t *testing.T) {
 	t.Parallel()
@@ -263,7 +263,7 @@ func TestHeadlessAgentRunsDenied(t *testing.T) {
 	check(t, f.Project, cases)
 }
 
-// T-476 (RV-50 #4): headless is decided by argv structure: codex/opencode's subcommand is the first word that is
+// headless is decided by argv structure: codex/opencode's subcommand is the first word that is
 // not an option or an option's value; words after `--` never count; env -S strings split with quote removal.
 func TestHeadlessByArgvStructure(t *testing.T) {
 	t.Parallel()
@@ -279,7 +279,7 @@ func TestHeadlessByArgvStructure(t *testing.T) {
 		bash("lead", P, `codex --oss -C /tmp exec hi`, "codex exec"),
 		bash("lead", P, `opencode --session abc run hi`, "opencode run"),
 		bash("lead", P, `opencode -s abc run hi`, "opencode run"),
-		// RV-51 #1 (owner/lead 2026-10-28): exec / run deny anywhere before --, e only as the subcommand
+		// owner/lead 2026-10-28: exec / run deny anywhere before --, e only as the subcommand
 		bash("lead", P, `codex "hello" exec hi`, "codex exec"),
 		bash("lead", P, `codex resume exec`, "codex exec"),
 		bash("lead", P, `opencode "hello" run hi`, "opencode run"),
@@ -314,7 +314,7 @@ func TestHeadlessByArgvStructure(t *testing.T) {
 }
 
 // kitDenyCommands is obor-kit's guards.deny_commands (testdata/deny-commands.json, the two entries its
-// .obor/config.json carries): T-543's Go load-run rule now in config — the flag forms that run the tests many times
+// .obor/config.json carries): the Go load-run rule the config holds — the flag forms that run the tests many times
 // (alone) and two test commands at once.
 func kitDenyCommands(t *testing.T) string {
 	t.Helper()
@@ -325,8 +325,8 @@ func kitDenyCommands(t *testing.T) string {
 	return string(b)
 }
 
-// T-905: guards.deny_commands carries what T-543's Go load-run rule hard-coded. obor-kit's two rules deny the commands
-// the old rule denied, with the same messages; a config that sets a rule of its own (a bun project's) denies it there,
+// guards.deny_commands is a project's own deny rules, in config. obor-kit's two rules deny the commands its Go
+// load-run rule names, with the same messages; a config that sets a rule of its own (a bun project's) denies it there,
 // a config with no rules denies nothing, and a rule without Alone denies only two matching commands at once.
 func TestDenyCommands(t *testing.T) {
 	t.Parallel()
@@ -531,16 +531,16 @@ func TestWorkerGitWritesDeniedReadsAllowed(t *testing.T) {
 		bash("worker", P, "git commit -m x", "leave changes uncommitted"),
 		bash("integrator", L, "git commit -m x", "workers don't run git commit"),
 		bash("integrator", P, "git commit -m x", ""),
-		bash("integrator", P, "git merge --no-ff task/T-01", ""), // T-853: the main checkout's HEAD rows went
+		bash("integrator", P, "git merge --no-ff task/T-01", ""), // the integrator moves no HEAD in the main checkout
 	)
 	check(t, f.Project, cases)
 }
 
-// T-853 (was T-841 / T-848's case_main_checkout_head): the main checkout's HEAD rows went — the integrator, the
-// reviewer and the deep dive run in their role worktrees, so no role but the lead (and the custom roles, which read git
-// only) runs in the main checkout. What stays: a GitReadOnly role runs git reads only, except that the reviewer and the
-// deep dive check out any commit in their own role worktree (never a branch they create, never a path, never another
-// worktree); a non-lead in a lane or role worktree may check out (the integrator a candidate in its own).
+// No role but the lead (and the custom roles, which read git only) runs in the main checkout: the integrator, the
+// reviewer and the deep dive run in their role worktrees. What stays: a GitReadOnly role runs git reads only, except
+// that the reviewer and the deep dive check out any commit in their own role worktree (never a branch they create,
+// never a path, never another worktree); a non-lead in a lane or role worktree may check out (the integrator a
+// candidate in its own).
 func TestRoleCheckoutRows(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
@@ -555,8 +555,8 @@ func TestRoleCheckoutRows(t *testing.T) {
 	verbs := []string{"checkout main", "switch main", "reset --hard", "rebase main", "merge main", "stash",
 		"cherry-pick abc", "revert HEAD", "am x.patch", "apply x.patch", "clean -fd"}
 	var cases []tc
-	// The rows that went: a non-lead that is not read-only no longer meets a main-checkout HEAD row, here or with
-	// -C / --git-dir / --work-tree / GIT_DIR from the scratch, --detach (T-848) included.
+	// A non-lead that is not read-only meets no main-checkout HEAD row, here or with
+	// -C / --git-dir / --work-tree / GIT_DIR from the scratch, --detach included.
 	for _, v := range verbs {
 		cases = append(cases,
 			bash("integrator", P, "git "+v, ""),
@@ -611,7 +611,7 @@ func TestRoleCheckoutRows(t *testing.T) {
 	check(t, f.Project, cases)
 }
 
-// T-212: index writes are denied for workers only.
+// index writes are denied for workers only.
 func TestWorkerIndexWritesDeniedLeadAndIntegratorAllowed(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
@@ -641,8 +641,8 @@ func link(t *testing.T, path, target string) {
 	}
 }
 
-// RV-40 #5 (T-372), Extent "checked by probe": all four file-tool entry points deny a lane symlink whose destination is a
-// sibling worktree (the lane path alone would pass); the neighbouring checks keep their results.
+// All four file-tool entry points deny a lane symlink whose destination is a sibling worktree (the lane path
+// alone would pass); the neighbouring checks keep their results.
 func TestRV40LeafSymlinkIntoAnotherWorktree(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
@@ -676,8 +676,8 @@ func TestRV40LeafSymlinkIntoAnotherWorktree(t *testing.T) {
 	})
 }
 
-// RV-40 #5 (T-372), Extent "checked by code": a leaf link into the main checkout or a role worktree shares the path; a
-// spec naming the link as a protected unlock does not turn the destination check off.
+// A leaf link into the main checkout or a role worktree shares the path; a spec naming the link as a
+// protected unlock does not turn the destination check off.
 func TestRV40LeafSymlinkIntoMainAndRoleWorktree(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
@@ -691,15 +691,15 @@ func TestRV40LeafSymlinkIntoMainAndRoleWorktree(t *testing.T) {
 		edit("-", L, "Edit", L+"/src/a/main.ts", "is a symlink to "+P+"/STATUS.md in another worktree of this repo ("+P+")"),
 		edit("-", L, "Write", L+"/src/a/role.ts", "is a symlink to "+role+"/STATUS.md in another worktree of this repo ("+role+")"),
 	})
-	f.spec("`src/a/main.ts`", "`src/a/role.ts`") // an exact unlock entry, as in the T-238 unlock
+	f.spec("`src/a/main.ts`", "`src/a/role.ts`") // an exact unlock entry
 	check(t, f.Project, []tc{
 		edit("-", L, "Edit", L+"/src/a/main.ts", "in another worktree"),
 		edit("-", L, "Edit", L+"/src/a/role.ts", "in another worktree"),
 	})
 }
 
-// RV-40 #5 (T-372), Extent "unchecked by dedicated probe": the control shapes — a directory symlink is already resolved by
-// phys, a protected link target keeps its protected deny, and a dangling link is judged by its target path.
+// The control shapes — a directory symlink is already resolved by phys, a protected link target keeps its
+// protected deny, and a dangling link is judged by its target path.
 func TestRV40LeafSymlinkControls(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
@@ -731,7 +731,7 @@ func TestRV40LeafSymlinkControls(t *testing.T) {
 	})
 }
 
-// bash case_worker_edit; T-496: no per-file guard: a worker edits any file of its own lane (no spec list, no lane row,
+// No per-file guard: a worker edits any file of its own lane (no spec list, no lane row,
 // no stored spec needed); another lane, the main checkout and another obor project are denied; a protected file is
 // denied unless the spec names it; git writes stay denied. Paths in no obor project (scratch, /tmp) are not the guard's.
 func TestWorkerEditsAnywhereInItsLaneOnly(t *testing.T) {
@@ -791,9 +791,9 @@ func TestWorkerEditsAnywhereInItsLaneOnly(t *testing.T) {
 	}
 }
 
-// T-496 (was T-439, T-478): a store that cannot be read, or a lanes/specs table missing, no longer denies lane edits
-// (there is no files list to arm); it only means the spec's protected unlocks cannot be read: the protected file stays
-// denied (fail closed), for Edit and Bash writes alike. (A newer schema whose tables still read is read as it is.)
+// A store that cannot be read, or a lanes/specs table missing, denies no lane edit (there is no files list to arm); it
+// only means the spec's protected unlocks cannot be read: the protected file stays denied (fail closed), for Edit and
+// Bash writes alike. (A newer schema whose tables still read is read as it is.)
 func TestStoreUnreadableKeepsProtectedLocked(t *testing.T) {
 	exec := func(q string) func(f *fx) {
 		return func(f *fx) {
@@ -853,7 +853,7 @@ func gitShows(t *testing.T, f *fx) func() int {
 	return func() int { return strings.Count(f.Read(log), "show") }
 }
 
-// bash case_worker_edit_spec_on_base; T-440: the protected unlock reads the stored spec's current rev, never git.
+// The protected unlock reads the stored spec's current rev, never git.
 func TestProtectedUnlockReadsTheStoredSpec(t *testing.T) {
 	f := fixture(t)
 	L := f.L
@@ -927,7 +927,7 @@ func TestProtectedFilesDeniedForNonLeads(t *testing.T) {
 	})
 }
 
-// T-238, T-496: a protected file the lane's stored spec names as an exact path under "Protected files this task may
+// a protected file the lane's stored spec names as an exact path under "Protected files this task may
 // edit" is editable in that lane, by Edit and Bash; a glob there, or the path under another heading, unlocks nothing.
 func TestProtectedFileUnlockedByExactSpecEntry(t *testing.T) {
 	t.Parallel()
@@ -939,7 +939,7 @@ func TestProtectedFileUnlockedByExactSpecEntry(t *testing.T) {
 		edit("-", L, "Edit", L+"/src/core/types.ts", "src/core/types.ts is a protected file (protected_files in .obor/config.json; lead-only) — don't change it; ask the lead (final message or QUESTIONS.md); "+unlock),
 		bash("-", L, "echo x > src/core/types.ts", unlock),
 	})
-	// Globs that match only → still denied, with the hint; so is the exact path under the old files heading.
+	// Globs that match only → still denied, with the hint; so is the exact path under an earlier files heading.
 	f.Spec("T-01", "# T-01\n\n## Files you may touch\n`src/core/types.ts`\n")
 	check(t, f.Project, []tc{edit("-", L, "Edit", L+"/src/core/types.ts", unlock)})
 	f.spec("`src/core/*.ts`", "`src/**`")
@@ -971,7 +971,7 @@ func TestProtectedFileUnlockedByExactSpecEntry(t *testing.T) {
 	if code != 2 || strings.Contains(reason, "can unlock") {
 		t.Errorf("reviewer: %d %q, want a deny without the worker hint", code, reason)
 	}
-	// A later rev without the exact entry → denied again (the current rev is the truth, T-440).
+	// A later rev without the exact entry → denied again (the current rev is the truth).
 	f.spec("`src/core/*.ts`")
 	check(t, f.Project, []tc{
 		edit("-", L, "Edit", L+"/src/core/types.ts", unlock),
@@ -979,7 +979,7 @@ func TestProtectedFileUnlockedByExactSpecEntry(t *testing.T) {
 	})
 }
 
-// RV-25 verify #3, #4 (T-241): an exact spec entry unlocks one regular file (or a path not created yet), never a
+// An exact spec entry unlocks one regular file (or a path not created yet), never a
 // symlink (whatever it points at) or a directory (its children are not listed).
 func TestProtectedExactEntryUnlocksOnlyARegularFile(t *testing.T) {
 	t.Parallel()
@@ -1027,7 +1027,7 @@ func TestProtectedExactEntryUnlocksOnlyARegularFile(t *testing.T) {
 	})
 }
 
-// bash case_nested_shell_double_dash (RV-02 #1)
+// bash case_nested_shell_double_dash
 func TestNestedShellDoubleDashParsesTheScript(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
@@ -1055,7 +1055,7 @@ func TestNestedShellDoubleDashParsesTheScript(t *testing.T) {
 	))
 }
 
-// bash case_cd_options (RV-02 #2)
+// bash case_cd_options
 func TestCdOptionsMoveTheCwd(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
@@ -1074,7 +1074,7 @@ func TestCdOptionsMoveTheCwd(t *testing.T) {
 	})
 }
 
-// bash case_cd_subshell_scope (RV-02 #2)
+// bash case_cd_subshell_scope
 func TestCdScopedBySubshellPipelineAndNestedShell(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
@@ -1100,7 +1100,7 @@ func TestCdScopedBySubshellPipelineAndNestedShell(t *testing.T) {
 	})
 }
 
-// bash case_protected_after_cd_options_and_scope (RV-02 #2)
+// bash case_protected_after_cd_options_and_scope
 func TestProtectedAfterCdUsesTheRightCwd(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
@@ -1116,7 +1116,7 @@ func TestProtectedAfterCdUsesTheRightCwd(t *testing.T) {
 	})
 }
 
-// bash case_cp_source_not_a_target (RV-02 #8)
+// bash case_cp_source_not_a_target
 func TestCpChecksItsTargetNotItsSources(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
@@ -1225,7 +1225,7 @@ func TestLeadEditsAnything(t *testing.T) {
 	})
 }
 
-// bash case_no_identity_from_session_id (T-159)
+// bash case_no_identity_from_session_id
 func TestNoIdentityFromTheSessionID(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
@@ -1249,7 +1249,7 @@ func TestNoIdentityFromTheSessionID(t *testing.T) {
 	}
 }
 
-// bash case_reviews_write_profile (T-193)
+// bash case_reviews_write_profile
 func TestReviewsWriteProfile(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
@@ -1268,7 +1268,7 @@ func TestReviewsWriteProfile(t *testing.T) {
 			edit(rv, P, "Write", S+"/.task-done.md", "outside the "+rv+" write profile"),
 			edit(rv, P, "Edit", P+"/src/core/types.ts", "src/core/types.ts is a protected file"))
 	}
-	// T-853: from its role worktree a reviewer or deep dive writes its files into the main checkout's reviews dir, never
+	// from its role worktree a reviewer or deep dive writes its files into the main checkout's reviews dir, never
 	// into its worktree's own.
 	for _, rv := range []string{"reviewer", "deep_dive"} {
 		wt := f.LaneDir(rv)
@@ -1281,10 +1281,10 @@ func TestReviewsWriteProfile(t *testing.T) {
 			edit(rv, wt, "Edit", wt+"/src/a/x.ts", "outside the "+rv+" write profile"))
 	}
 	check(t, f.Project, append(cases,
-		bash("reviewer", P, "echo x > src/a/x.ts", "src/a/x.ts is outside the reviewer write profile"), // RV-83 #1
+		bash("reviewer", P, "echo x > src/a/x.ts", "src/a/x.ts is outside the reviewer write profile"),
 		bash("integrator", P, "echo x > src/a/x.ts", ""),
 		edit("integrator", P, "Edit", P+"/src/a/x.ts", ""),
-		edit("advisor", P, "Edit", P+"/src/a/x.ts", "src/a/x.ts is outside the advisor write profile"), // T-801
+		edit("advisor", P, "Edit", P+"/src/a/x.ts", "src/a/x.ts is outside the advisor write profile"),
 	))
 	f.Config(testkit.Set("reviews.dir", "notes/rv"))
 	check(t, f.Project, []tc{
@@ -1293,7 +1293,7 @@ func TestReviewsWriteProfile(t *testing.T) {
 	})
 }
 
-// T-704, T-801: the researcher (a kit default custom row) writes only under docs/research/, the advisor only under
+// the researcher (a kit default custom row) writes only under docs/research/, the advisor only under
 // docs/research/ and docs/plan/; both run no git write and read anywhere. An object row replaces the write list.
 func TestResearcherWriteProfile(t *testing.T) {
 	t.Parallel()
@@ -1328,7 +1328,7 @@ func TestResearcherWriteProfile(t *testing.T) {
 	})
 }
 
-// T-801: a custom role writes exactly its write list (a dir/ entry: under it; a file entry: that file), elsewhere in
+// a custom role writes exactly its write list (a dir/ entry: under it; a file entry: that file), elsewhere in
 // the project is denied (outside it is not limited); it runs git reads only and never pushes, even when allow_push
 // lists it; a string row writes nothing.
 func TestCustomRoleGuard(t *testing.T) {
@@ -1361,7 +1361,7 @@ func TestCustomRoleGuard(t *testing.T) {
 	})
 }
 
-// T-814 (RV-104 #1): a custom role whose roles.<name> row the config no longer names — removed while its agent runs —
+// a custom role whose roles.<name> row the config does not name — removed while its agent runs —
 // fails closed: editor and shell writes in the project and every git write are denied with a reason naming the missing
 // row, git reads stay allowed; the kit's default rows are unaffected and a lane cwd still resolves to the worker.
 func TestRemovedCustomRoleFailsClosed(t *testing.T) {
@@ -1398,7 +1398,7 @@ func TestRemovedCustomRoleFailsClosed(t *testing.T) {
 	})
 }
 
-// bash case_old_bypasses_denied (T-193)
+// bash case_old_bypasses_denied
 func TestOldBashBypassesDenied(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
@@ -1447,13 +1447,13 @@ func TestOldBashBypassesDenied(t *testing.T) {
 		bash("-", P, `X='git push'; echo "$X"`, ""),
 		bash("-", P, `find . -name '*.go' -exec grep push {} \;`, ""),
 		bash("-", P, "echo a | xargs echo git push", ""),
-		bash("integrator", P, "git checkout main", ""), // T-853: the main checkout's HEAD rows went
+		bash("integrator", P, "git checkout main", ""), // the integrator moves no HEAD in the main checkout
 		bash("integrator", P, "git --git-dir="+L+"/.git commit -am x", ""),
 		bash("-", L, "bash tests/a.test.sh", ""),
 	}, "OBOR_TEST_GIT_SUB=push")
 }
 
-// Wrappers (T-220, T-230): the wrapper word and its valueOpts' values are skipped, any other option is a flag; a
+// Wrappers: the wrapper word and its valueOpts' values are skipped, any other option is a flag; a
 // git/pkill/killall word among the skipped words, or after a flag, is checked as a command too (fail closed).
 func TestWrapperOptions(t *testing.T) {
 	t.Parallel()
@@ -1506,7 +1506,7 @@ func TestWrapperOptions(t *testing.T) {
 	})
 }
 
-// RV-24 #4 (T-230): value options are per wrapper — sudo -n/-k/-s are flags, so the command after them is checked.
+// value options are per wrapper — sudo -n/-k/-s are flags, so the command after them is checked.
 func TestWrapperValueOptionsPerWrapper(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
@@ -1532,7 +1532,7 @@ func TestWrapperValueOptionsPerWrapper(t *testing.T) {
 	})
 }
 
-// find (T-220): the words after -exec/-execdir/-ok/-okdir up to ; or + are a nested command; other words are words.
+// find: the words after -exec/-execdir/-ok/-okdir up to; or + are a nested command; other words are words.
 func TestFindExec(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
@@ -1546,7 +1546,6 @@ func TestFindExec(t *testing.T) {
 	})
 }
 
-// bash case_unresolved_command (T-199, RV-22-verify #2)
 func TestUnresolvedCommandWordWithGitDenied(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
@@ -1578,7 +1577,7 @@ func TestUnresolvedCommandWordWithGitDenied(t *testing.T) {
 	})
 }
 
-// bash case_unresolved_command_verb (T-200)
+// bash case_unresolved_command_verb
 func TestUnresolvedCommandWordDeniesOnlyWithAWriteVerb(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
@@ -1619,7 +1618,7 @@ func TestUnescapeAndFields(t *testing.T) {
 	}
 }
 
-// RV-83 #1-3 (T-706): one path policy per role for every write route. A researcher (docs/research) and a reviewer /
+// 3: one path policy per role for every write route. A researcher (docs/research) and a reviewer /
 // deep_dive (docs/reviews) are held to their write profile by shell write targets as by the editor tools, a final
 // symlink is checked at its destination, and they run git reads only.
 func TestRV83WriteProfileOnEveryRoute(t *testing.T) {
@@ -1701,7 +1700,7 @@ func TestRV83WriteProfileOnEveryRoute(t *testing.T) {
 	))
 }
 
-// gitRead's forms that read only in some shapes (RV-83 #2).
+// gitRead's forms that read only in some shapes.
 func TestGitReadForms(t *testing.T) {
 	for _, c := range []struct {
 		cmd  string
@@ -1730,7 +1729,7 @@ func TestGitReadForms(t *testing.T) {
 	}
 }
 
-// T-751: the owner's drive agent (OBOR_ROLE=driver) in its lane edits only there (no other worktree, the main checkout
+// the owner's drive agent (OBOR_ROLE=driver) in its lane edits only there (no other worktree, the main checkout
 // included), no protected file (its spec unlocks none), and never pushes, even when guards.allow_push names it; unlike
 // a worker it commits on its branch (obor land commits nothing).
 func TestDriverLaneBoundCommitsNoPush(t *testing.T) {
@@ -1750,7 +1749,7 @@ func TestDriverLaneBoundCommitsNoPush(t *testing.T) {
 	})
 }
 
-// T-796: triage has a role (OBOR_ROLE=triage) and the guard holds it to the role table's: git reads only, protected
+// triage has a role (OBOR_ROLE=triage) and the guard holds it to the role table's: git reads only, protected
 // files locked, its docs/BUGS.md writable; the owner (no role) in the main checkout keeps its rules.
 func TestTriageRoleGuard(t *testing.T) {
 	t.Parallel()
@@ -1761,7 +1760,7 @@ func TestTriageRoleGuard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// T-801: triage is a kit default custom row, writing only docs/BUGS.md.
+	// triage is a kit default custom row, writing only docs/BUGS.md.
 	if rc, ok := cfg.Role("triage"); !ok || !rc.Role.GitReadOnly || !rc.Role.Custom || rc.Role.EnvValue != "triage" ||
 		!reflect.DeepEqual(rc.Role.WritePaths, []string{"docs/BUGS.md"}) {
 		t.Fatalf("precondition: triage a custom role, git read-only, writes docs/BUGS.md, env triage: %+v", rc.Role)

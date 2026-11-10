@@ -27,7 +27,7 @@ func newSx(t testing.TB, edits ...func(map[string]any)) *sx {
 	return newSxEnv(t, nil, edits...)
 }
 
-// newSxEnv is newSx with env added to the project's environment (what serve's Env answers, T-967).
+// newSxEnv is newSx with env added to the project's environment (what serve's Env answers).
 func newSxEnv(t testing.TB, env []string, edits ...func(map[string]any)) *sx {
 	t.Helper()
 	x := newFx(t, edits...)
@@ -61,7 +61,7 @@ func (y *sx) calls() []string { return lines(y.Read(filepath.Join(y.cut, "calls"
 
 var ctx = context.Background()
 
-// kitDir is this checkout: the kit's githooks/ (the project's chained dir runs through them, T-620).
+// kitDir is this checkout: the kit's githooks/ (the project's chained dir runs through them).
 var kitDir = func() string { d, _ := filepath.Abs("../.."); return d }()
 
 func (y *sx) submit() string {

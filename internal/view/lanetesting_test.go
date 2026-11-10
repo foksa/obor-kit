@@ -11,7 +11,7 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-969: while a task's lane test runs, the lane is detached at the candidate (checks.Scratch.Test) and git's HEAD names
+// while a task's lane test runs, the lane is detached at the candidate (checks.Scratch.Test) and git's HEAD names
 // no branch: the lane serve owns still shows its task, the dispatch's branch and the phase testing. After the test's
 // restore git is the source as before; a detached lane serve does not own still reads as git says.
 func TestLaneTestingShowsItsTaskAndBranch(t *testing.T) {
@@ -21,7 +21,7 @@ func TestLaneTestingShowsItsTaskAndBranch(t *testing.T) {
 	p.Config()
 	p.Commit(o1)
 	p.Dispatched("L-01")
-	// A stale row: its task is not open (dropped: landed, T-1012).
+	// A stale row: its task is not open (dropped: landed).
 	p.State("L-02", map[string]any{"task": "T-02", "branch": "task/T-02", "landed": true})
 	p.Git(o1, "checkout", "-q", "--detach", "main") // the lane test's checkout: detached, off the branch
 	p.Commit(o1, "candidate")
@@ -72,7 +72,7 @@ func TestLaneTestingShowsItsTaskAndBranch(t *testing.T) {
 		t.Errorf("unowned detached lane %+v; want no task, no branch, free (git's reading of the branch; its row's task landed)", l2)
 	}
 
-	// After the test's restore the lane is back on its branch and git names the task, as before T-969.
+	// After the test's restore the lane is back on its branch and git names the task.
 	p.Git(o1, "checkout", "-q", "task/T-01")
 	v = read()
 	if l := v.Lanes[0]; l.State != "working" || l.Task != "T-01" || l.Branch != "task/T-01" || l.Column != wire.PhaseTesting {

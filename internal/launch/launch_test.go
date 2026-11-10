@@ -33,7 +33,7 @@ func TestMain(m *testing.M) { testkit.Main(m) }
 
 const settings = `--settings {"autoMemoryEnabled":false,"remoteControlAtStartup":false}`
 
-// laneMCP is a lane agent's own args before its settings (T-770): obor's MCP server, then the strict flag that hides
+// laneMCP is a lane agent's own args before its settings: obor's MCP server, then the strict flag that hides
 // every server the command line does not name.
 const laneMCP = strictMCP + " --strict-mcp-config "
 
@@ -56,12 +56,12 @@ type fx struct {
 	wait       time.Duration                        // the launcher's exit wait and idle wait (0: bound, the load-proof default)
 	up         time.Duration                        // the launcher's wait for a started agent to come up (0: wait)
 	poll       time.Duration                        // the launcher's pane poll interval (0: 1 ms)
-	shellBound time.Duration                        // the launcher's bound on a stopped pane's shell (T-1053; 0: the default)
+	shellBound time.Duration                        // the launcher's bound on a stopped pane's shell (0: the default)
 	// A stop test may ask for less: waitEnv is OBOR_RESTART_WAIT for the launcher's env ("" none), idle overrides the
 	// exit wait for the idle wait alone, waitZero leaves the launcher's Wait unset (the env's or the default's wait),
 	// bound is the launcher's stop bound (0: port.StopBound).
 	waitEnv  string
-	goflags  string // GOFLAGS in the launcher's env ("" none, T-1041: a lane's config value wins, no merge)
+	goflags  string // GOFLAGS in the launcher's env ("" none: a lane's config value wins, no merge)
 	idle     time.Duration
 	waitZero bool
 	bound    time.Duration
@@ -73,7 +73,7 @@ type fx struct {
 	reported []store.Session
 	// rollout: the launcher's rollout bound (0: 20 ms); background: its rollout search runs in a goroutine, each
 	// report also sent on reports (nil: not sent); capture keeps that search in searches for the test to run with
-	// runSearches (T-849: after the pane changed).
+	// runSearches (after the pane changed).
 	rollout    time.Duration
 	background bool
 	capture    bool
@@ -85,9 +85,9 @@ type fx struct {
 	// a test gives its pane another.
 	open map[int][]string
 	// files replaces the launcher's Open when set: a test's own view of the files (it may act while the search reads
-	// them, T-646).
+	// them).
 	files func(pids []int) []string
-	// install is the launcher's install check machine (T-1052; zero: no kind's start is refused).
+	// install is the launcher's install check machine (zero: no kind's start is refused).
 	install agents.InstallHost
 	mu      sync.Mutex // guards reported, logged, open, searches
 }
@@ -117,7 +117,7 @@ func (x *fx) log() string {
 }
 
 // runSearches runs the background searches x captured (capture), here in the test's goroutine, and returns how many
-// ran (T-849: a test that changes the pane between the start and the search).
+// ran (a test that changes the pane between the start and the search).
 func (x *fx) runSearches() int {
 	x.mu.Lock()
 	searches := x.searches
@@ -324,7 +324,7 @@ func last(out string) string {
 }
 
 // sid records agent's session in serve's store with the transcript its SessionStart hook reported, as a confirmed
-// session has it (T-813: the path is the session's own, no cwd slug).
+// session has it (the path is the session's own, no cwd slug).
 func (x *fx) sid(agent, sid string) {
 	x.t.Helper()
 	x.recordAt(agent, sid, x.transcript(sid))
@@ -394,7 +394,7 @@ func hasParts(line, query string) bool {
 
 func (x *fx) startCall() string { return strings.Join(x.calls("agent.start"), "\n") }
 
-// namedSession is the session id the launcher recorded before its start for a kind whose sessions obor names (T-813);
+// namedSession is the session id the launcher recorded before its start for a kind whose sessions obor names;
 // "" when none was reported.
 func (x *fx) namedSession() string {
 	x.mu.Lock()
@@ -427,7 +427,7 @@ func (x *fx) index(query string) int {
 }
 
 // lastIndex is the position of the last request matching query (-1: none): a call's line is no unique key, since a
-// request repeated with the same params (a poll's agent.get) reads the same both times (T-1167).
+// request repeated with the same params (a poll's agent.get) reads the same both times.
 func (x *fx) lastIndex(query string) int {
 	calls, last := x.srv.Calls(), -1
 	for i := len(calls) - 1; i >= 0; i-- {
@@ -462,10 +462,10 @@ func eq(t *testing.T, got, want, what string) {
 	}
 }
 
-// envMarksRE is the env line's two words as typed (T-601): its success word, then its failure word.
+// envMarksRE is the env line's two words as typed: its success word, then its failure word.
 var envMarksRE = regexp.MustCompile(` && echo obor-env-"([0-9a-z]+)" \|\| echo obor-env-"([0-9a-z]+)"$`)
 
-// T-1041: a lane worker's env line carries the generic fact OBOR_LANE_CPUS (lanes.cpus, default 2) and the
+// a lane worker's env line carries the generic fact OBOR_LANE_CPUS (lanes.cpus, default 2) and the
 // project's lanes.env with {cpus} replaced; a var the launcher's env had is the config's, never merged; a role
 // agent's line carries none of it.
 func TestRestartLaneEnv(t *testing.T) {
@@ -541,7 +541,7 @@ func TestRestartWho(t *testing.T) {
 		start: "agent.start args=[" + laneMCP + settings + " --resume sid-1] kind=claude name=pj-l-01 pane_id=w1:p3",
 		line:  "RESTARTED pj-l-01 (pane w1:p3, session sid-1)",
 	}, {
-		// T-302: another project's agent may be named like a lane; no lane env, no lane settings
+		// another project's agent may be named like a lane; no lane env, no lane settings
 		name: "agent named <lane lower>, lane state agent null: not the lane",
 		prep: func(x *fx) {
 			x.p.State("L-01", `{"agent":null}`)
@@ -584,7 +584,7 @@ func TestRestartWho(t *testing.T) {
 		env: func(x *fx) string {
 			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) + " && unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OPENCODE_CONFIG && export OBOR_ROLE=lead OBOR_PANE=w1:p6"
 		},
-		start: "agent.start args=[--permission-mode auto --model opus --session-id <new> /obor:lead] kind=claude name=pj-lead pane_id=w1:p6", // T-729
+		start: "agent.start args=[--permission-mode auto --model opus --session-id <new> /obor:lead] kind=claude name=pj-lead pane_id=w1:p6",
 		line:  "RESTARTED pj-lead (pane w1:p6, session new)",
 	}, {
 		// bash restart.test.sh case_unknown_agent_with_sid_gets_obor_agent_only
@@ -600,7 +600,7 @@ func TestRestartWho(t *testing.T) {
 		start: "agent.start args=[--resume sid-t] kind=claude name=triage pane_id=w1:p8",
 		line:  "RESTARTED triage (pane w1:p8, session sid-t)",
 	}, {
-		// bash restart.test.sh case_triage_gets_obor_agent_only; T-796: OBOR_ROLE=triage like every other role
+		// OBOR_ROLE=triage like every other role
 		name: "triage role: its type, cwd root, OBOR_ROLE=triage (no OBOR_AGENT)",
 		edit: []func(map[string]any){testkit.Set("agents.roles", `{"lead":"opus","triage":"opus"}`)},
 		prep: func(x *fx) { x.shell("w1:p6", "", "") },
@@ -611,7 +611,7 @@ func TestRestartWho(t *testing.T) {
 		start: "agent.start args=[--permission-mode auto --model opus " + settings + " --session-id <new>] kind=claude name=pj-triage pane_id=w1:p6",
 		line:  "RESTARTED pj-triage (pane w1:p6, session new)",
 	}, {
-		// bash restart.test.sh case_deep_dive_gets_role_env_and_its_worktree; T-853: its role worktree again
+		// its role worktree
 		name: "deep_dive role (T-179, T-853): its type, cwd its role worktree, OBOR_ROLE=deep_dive",
 		git:  true, // the launcher adds the worktree: project.AddWorktree runs git
 		edit: []func(map[string]any){
@@ -661,7 +661,7 @@ func TestRestartWho(t *testing.T) {
 				t.Fatalf("the env line ends without its success and failure marks: %q", runs[0])
 			}
 			eq(t, runs[0][:len(runs[0])-len(m[0])], c.env(x), "env line (cwd, OBOR_ROLE, OBOR_LANE, a stale OBOR_AGENT unset)")
-			// T-853: a role worktree the env line cds into was added for the start (none was there).
+			// a role worktree the env line cds into was added for the start (none was there).
 			for _, role := range []string{"integrator", "deep_dive"} {
 				if wt := x.p.LaneDir(role); strings.Contains(c.env(x), "cd "+q(wt)+" ") {
 					if top := strings.TrimSpace(x.p.Git(wt, "rev-parse", "--show-toplevel")); project.Physical(top) != project.Physical(wt) {
@@ -680,10 +680,9 @@ func TestRestartWho(t *testing.T) {
 	}
 }
 
-// T-303: Request.Args and ParseRequest are one pair; the CLI's fields (agent, pane, fresh, force) go through both and
-// come back the same, so a field carried on one side only (a handoff flag once was, and the scheduled run lost it)
-// fails here. T-785: a Prompt, Effort or Type is a start's (serve's), never a scheduled CLI restart's: no flag carries
-// it, and ParseRequest refuses the flags restart gave up.
+// Request.Args and ParseRequest are one pair; the CLI's fields (agent, pane, fresh, force) go through both and
+// come back the same, so a field carried on one side only fails here. A Prompt, Effort or Type is a start's (serve's), never a scheduled CLI restart's: no flag carries
+// it, and ParseRequest refuses the flags restart does not take.
 func TestRequestArgsRoundTrip(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -713,8 +712,8 @@ func TestRequestArgsRoundTrip(t *testing.T) {
 	}
 }
 
-// T-303: ParseRequest refuses what Args never writes: a stray flag (--keep-inbox went with the inbox, T-466), a second
-// positional, a flag without its value; T-785: the flags restart gave up, with their values.
+// ParseRequest refuses what Args never writes: a stray flag, a second
+// positional, a flag without its value; and the flags restart does not take, with their values.
 func TestParseRequestRefusals(t *testing.T) {
 	t.Parallel()
 	for _, c := range [][]string{
@@ -821,10 +820,10 @@ func TestRestartWhereRefusals(t *testing.T) {
 	}
 }
 
-// T-301: two projects with the same names. The kit has lane L-02 (agent pj-l-02); axis has a lane L-02 too, in its own
+// two projects with the same names. The kit has lane L-02 (agent pj-l-02); axis has a lane L-02 too, in its own
 // worktree. A restart that loaded the kit's config (axis's scheduled self-restart, spawned in the kit's checkout) took
-// axis's lane pane for the kit's lane and started it in the kit's lane worktree. T-777: an agents entry is no name any
-// more; the pane's lane cwd is what makes it axis's.
+// axis's lane pane for the kit's lane and started it in the kit's lane worktree. An agents entry names nothing; the
+// pane's lane cwd is what makes it axis's.
 func TestRestartOtherProjectsPane(t *testing.T) {
 	t.Parallel()
 	kitEdits := []func(map[string]any){testkit.Set("agents.roles", `{"integrator":"opus"}`)}
@@ -863,7 +862,7 @@ func TestRestartOtherProjectsPane(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// axis's L-02 pane runs an agent named as the kit's lane L-02's worker (pj-l-02: derived in both, T-1031).
+		// axis's L-02 pane runs an agent named as the kit's lane L-02's worker (pj-l-02: derived in both).
 		x.f.Set("w2:pF", func(p *herdrtest.Pane) { p.Name, p.Label = "pj-l-02", "pj-l-02" })
 		if info, ok := kit.AgentLookup("pj-l-02", ""); !ok || info.Lane != "L-02" {
 			t.Fatalf("precondition: the kit's config takes pj-l-02 for its lane L-02: %+v %v", info, ok)
@@ -960,8 +959,8 @@ func TestRestartLabel(t *testing.T) {
 	}
 }
 
-// codexMCP is the server Codex gets on every start's command line (T-375); codexUpdate is its startup update check off
-// (T-570, from the type's launch args, so the start adds none).
+// codexMCP is the server Codex gets on every start's command line; codexUpdate is its startup update check off
+// (from the type's launch args, so the start adds none).
 const codexMCP = `-c mcp_servers.obor.command="/kit/bin/obor" -c mcp_servers.obor.args=["mcp"] ` +
 	`-c mcp_servers.obor.env_vars=["OBOR_ROLE","OBOR_LANE","OBOR_PANE","OBOR_STATE_HOME"] ` +
 	`-c mcp_servers.obor.env={OBOR_NO_SELF_HOST="1"} ` +
@@ -969,7 +968,7 @@ const codexMCP = `-c mcp_servers.obor.command="/kit/bin/obor" -c mcp_servers.obo
 
 const codexUpdate = "-c check_for_update_on_startup=false"
 
-// T-773: obor restart of a lane's worker while its lane's task has a job open (Launcher.Job) restarts it with that job:
+// obor restart of a lane's worker while its lane's task has a job open (Launcher.Job) restarts it with that job:
 // a fresh session's first prompt is the job's wake, a resumed one gets it typed once it is up. No job: unchanged
 // (nothing typed, no first prompt); an explicit --prompt wins; an agent on no lane is not asked about.
 func TestRestartLaneWorkerWithItsJob(t *testing.T) {
@@ -1064,7 +1063,7 @@ func TestRestartLaneWorkerWithItsJob(t *testing.T) {
 	})
 }
 
-// T-947: obor restart of the integrator carries its open job as its wake, as a lane worker's restart carries its
+// obor restart of the integrator carries its open job as its wake, as a lane worker's restart carries its
 // lane's: a fresh session's first prompt is the wake, a resumed one gets it typed once it is up. The job asked for is
 // the integrator's (its role, no lane: a task's review or resolve job); no job: no wake.
 func TestRestartIntegratorWithItsJob(t *testing.T) {
@@ -1132,7 +1131,7 @@ func TestRestartIntegratorWithItsJob(t *testing.T) {
 	})
 }
 
-// T-874: serve's start of a lane's worker again (no --fresh, its outstanding job's wake as the Prompt): a recorded
+// serve's start of a lane's worker again (no --fresh, its outstanding job's wake as the Prompt): a recorded
 // session is resumed and the wake typed once it is up; no session to resume starts fresh with the wake as its first
 // prompt instead of the FAIL a CLI restart gets.
 func TestLaunchCarriesItsPromptOnAResume(t *testing.T) {
@@ -1178,7 +1177,7 @@ func TestLaunchCarriesItsPromptOnAResume(t *testing.T) {
 	})
 }
 
-// T-778: a lane's job that cannot be told (Launcher.Job's error: the lane holds a task, serve does not answer) refuses
+// a lane's job that cannot be told (Launcher.Job's error: the lane holds a task, serve does not answer) refuses
 // the restart before the stop: FAIL naming why, the running agent untouched (no keys, no input, no start).
 func TestRestartLaneWorkerJobUnknownRefuses(t *testing.T) {
 	t.Parallel()
@@ -1204,7 +1203,7 @@ func TestRestartLaneWorkerJobUnknownRefuses(t *testing.T) {
 	}
 }
 
-// T-959: a Job error that is restart's own line (a project.Fail: the integrator's serve is down and may hold its job)
+// a Job error that is restart's own line (a project.Fail: the integrator's serve is down and may hold its job)
 // is the FAIL line itself, never wrapped as "not restarted (nothing stopped)": obor restart prints exactly what its
 // spec names. Nothing is stopped either.
 func TestRestartIntegratorServeDownRefuses(t *testing.T) {
@@ -1229,9 +1228,9 @@ func TestRestartIntegratorServeDownRefuses(t *testing.T) {
 	}
 }
 
-// T-387: herdr's start waits for an agent ready for input; one working on its first prompt is not, herdr gives up
+// herdr's start waits for an agent ready for input; one working on its first prompt is not, herdr gives up
 // after 30 s and keeps no name for it. A start with a prompt whose agent runs and works in the pane is a start; the
-// name it keeps from herdr is not obor's business (T-952: no rename back).
+// name it keeps from herdr is not obor's business (no rename back).
 func TestStartBusyOnFirstPrompt(t *testing.T) {
 	t.Parallel()
 	const wake = "[obor job T-1/1/work] call the obor job_next tool"
@@ -1268,7 +1267,7 @@ func TestStartBusyOnFirstPrompt(t *testing.T) {
 	}
 }
 
-// T-1059 (live regression of T-1058, H-L14): serve's first-prompt starts through Launch, a review's fresh start on its
+// serve's first-prompt starts through Launch, a review's fresh start on its
 // brief (internal/app/review.go) and a worker dispatch's fresh start on its first prompt (internal/app/dispatch.go):
 // herdr answers at once with the launch pending and keeps it pending while the agent works on the prompt, past the
 // start's bound. Started on the agent working, not FAIL.
@@ -1304,7 +1303,6 @@ func TestServeFirstPromptStartWhileTheLaunchStaysPending(t *testing.T) {
 			}
 			// A poll read of the pane runs alongside the start (started), so a loaded machine can record one before
 			// the start: the clause is a read after the start, found by the last read's position, never the first
-			// (T-1167).
 			if start := x.index("agent.start"); start < 0 || x.lastIndex("agent.get target="+c.pane) < start {
 				t.Errorf("started without a listing read after the start: %q", x.srv.Calls())
 			}
@@ -1313,7 +1311,7 @@ func TestServeFirstPromptStartWhileTheLaunchStaysPending(t *testing.T) {
 	}
 }
 
-// T-548: the launcher finds the agent's pane in the one pane list it reads to resolve the restart, not in a second list
+// the launcher finds the agent's pane in the one pane list it reads to resolve the restart, not in a second list
 // that can differ (or fail, which it reported as "no pane labelled"): the label gone from every later list changes nothing.
 func TestRestartResolvesFromOnePaneList(t *testing.T) {
 	t.Parallel()
@@ -1336,7 +1334,7 @@ func TestRestartResolvesFromOnePaneList(t *testing.T) {
 	}
 }
 
-// T-544: herdr answers agent.start at once (launch_pending), before the agent runs; a start whose agent never comes
+// herdr answers agent.start at once (launch_pending), before the agent runs; a start whose agent never comes
 // up (live: the command cut off at the shell, left at an open quote) is a FAIL that says so, not RESTARTED.
 func TestStartAgentNeverUp(t *testing.T) {
 	t.Parallel()
@@ -1355,9 +1353,9 @@ func TestStartAgentNeverUp(t *testing.T) {
 	eqInt(t, len(x.calls("agent.rename")), 0, "nothing named")
 }
 
-// T-544: the start's command is typed only once the shell has run the env line and is back at its prompt (zsh runs a
+// the start's command is typed only once the shell has run the env line and is back at its prompt (zsh runs a
 // line with the tty in cooked mode, where a long command typed at once is cut off): the mark it echoes, waited for by
-// herdr (T-950: pane.wait_for_output, one server-side wait instead of a screen poll), then a start.
+// herdr (pane.wait_for_output, one server-side wait instead of a screen poll), then a start.
 func TestRestartWaitsForTheEnvLine(t *testing.T) {
 	t.Parallel()
 	t.Run("the shell back: the start after the mark", func(t *testing.T) {
@@ -1396,7 +1394,7 @@ func TestRestartWaitsForTheEnvLine(t *testing.T) {
 	})
 }
 
-// T-601 (RV-64 #3): the env line's success mark proves the env was set. A cd that fails echoes the failure mark instead
+// the env line's success mark proves the env was set. A cd that fails echoes the failure mark instead
 // (no success mark), and the launch gives up before it starts the agent in the shell's old cwd with the old OBOR_* env.
 func TestRestartFailsWhenTheEnvLineFailed(t *testing.T) {
 	t.Parallel()
@@ -1440,7 +1438,7 @@ func TestRestartFailsWhenTheEnvLineFailed(t *testing.T) {
 	})
 }
 
-// envWords is the success and failure words the typed env line echoes (T-601), quotes removed.
+// envWords is the success and failure words the typed env line echoes, quotes removed.
 func envWords(t *testing.T, line string) (ok, bad string) {
 	t.Helper()
 	m := envMarksRE.FindStringSubmatch(line)
@@ -1450,10 +1448,10 @@ func envWords(t *testing.T, line string) (ok, bad string) {
 	return "obor-env-" + m[1], "obor-env-" + m[2]
 }
 
-// T-1058: a listing read before herdr answered the start is no proof (it cannot tell the old agent from the new): with
+// a listing read before herdr answered the start is no proof (it cannot tell the old agent from the new): with
 // herdr's answer held while its state already shows the agent up, the start waits for the answer and is started only
-// by it (T-952: herdr left the agent unnamed; nothing renames it back); held past the bound, it fails, and the call it
-// owns has ended before it returns (T-405).
+// by it (herdr left the agent unnamed; nothing renames it back); held past the bound, it fails, and the call it
+// owns has ended before it returns.
 func TestStartWaitsForHerdrsAnswer(t *testing.T) {
 	t.Parallel()
 	t.Run("held, the agent up meanwhile: started by the answer", func(t *testing.T) {
@@ -1511,7 +1509,7 @@ func TestStartWaitsForHerdrsAnswer(t *testing.T) {
 			t.Fatalf("started with no answer from herdr:\n%s", out.String())
 		}
 		contains(t, err.Error(), "no claude agent came up in w1:p3 within 60ms", "why")
-		select { // T-405: the start owns herdr's call: ended (cancelled) before the start returns
+		select { // the start owns herdr's call: ended (cancelled) before the start returns
 		case <-ended:
 		default:
 			t.Error("herdr's agent start call still runs after the start returned")
@@ -1519,7 +1517,7 @@ func TestStartWaitsForHerdrsAnswer(t *testing.T) {
 	})
 }
 
-// T-404: a start is its own agent. An agent of the kind already in the pane (herdr lost its name) is not taken for the
+// a start is its own agent. An agent of the kind already in the pane (herdr lost its name) is not taken for the
 // start: obor setup's Start on such a pane waits for herdr's answer, which refuses it (the pane hosts an agent).
 func TestStartNotTakenForAnOldAgent(t *testing.T) {
 	t.Parallel()
@@ -1550,7 +1548,7 @@ func TestStartNotTakenForAnOldAgent(t *testing.T) {
 }
 
 // pendingStart holds herdr's agent start answer until release: herdr acts (its state shows the start), the call has
-// no answer yet (T-404). ended (nil: not needed) closes once the start call returns (T-405).
+// no answer yet. ended (nil: not needed) closes once the start call returns.
 func (x *fx) pendingStart(release chan struct{}, ended chan struct{}) {
 	rel, _ := x.srv.Hold("agent.start")
 	go func() {
@@ -1641,7 +1639,7 @@ func TestRestartStopsTheRunningAgent(t *testing.T) {
 		out, ok := x.restart(launch.Request{Agent: "pj-rev"})
 		eq(t, last(out), "RESTARTED pj-rev (pane w1:p7, session cx-9)", "result")
 		contains(t, strings.Join(x.calls("pane.send_input"), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p7 text=/quit", "Codex quits with /quit")
-		// T-853: the reviewer's Codex start writes the main checkout's reviews dir too (made for it).
+		// the reviewer's Codex start writes the main checkout's reviews dir too (made for it).
 		reviews := filepath.Join(x.p.Root, "docs", "reviews")
 		eq(t, x.startCall(), "agent.start args=[resume cx-9 -s workspace-write -a never --no-daemon -m gpt-6-luna --add-dir "+reviews+" "+codexUpdate+" "+codexMCP+"] kind=codex name=pj-rev pane_id=w1:p7", "codex resume <id>")
 		if !x.p.Exists(reviews) {
@@ -1651,7 +1649,7 @@ func TestRestartStopsTheRunningAgent(t *testing.T) {
 		contains(t, out, "resuming cx-9 (from herdr)", "source")
 		_ = ok
 	})
-	// T-312: no background-task pre-check: Claude's Bash tool shells lead their own sessions, which process info does
+	// no background-task pre-check: Claude's Bash tool shells lead their own sessions, which process info does
 	// not list (live 2026-10-17); Claude's exit dialog decides (the next test).
 	t.Run("a shell in the agent's group, no exit dialog: no pre-check, restarts", func(t *testing.T) {
 		t.Parallel()
@@ -1701,7 +1699,7 @@ func eqInt(t *testing.T, got, want int, what string) {
 	}
 }
 
-// The start's agent_name_taken retry (T-952: herdr keeps a name from a pane that ran agent before, and lags in
+// The start's agent_name_taken retry (herdr keeps a name from a pane that ran agent before, and lags in
 // noticing an exit; obor itself renames nothing back).
 func TestRestartAgentNameTaken(t *testing.T) {
 	t.Parallel()
@@ -1771,7 +1769,7 @@ func TestRestartAgentNameTaken(t *testing.T) {
 	})
 }
 
-// Cut (T-208): no fg resume, no moves; both FAIL with a hint before anything is typed. Replaces bash restart.test.sh
+// Cut: no fg resume, no moves; both FAIL with a hint before anything is typed. Replaces bash restart.test.sh
 // case_stopped_job_gets_fg_and_resumed, case_suspended_agent_found_by_label_fg_renames_after_detection,
 // case_fg_without_detection_does_not_rename, case_fg_resumes_something_else_warns,
 // case_move_to_other_pane_clears_old_name_resumes_recorded_or_old_session, case_move_live_old_agent_fails_before_stopping,
@@ -1817,7 +1815,7 @@ func TestRestartCuts(t *testing.T) {
 	}
 }
 
-// RV-35 #1: Claude suspends on Ctrl+Z and herdr then sees an idle shell; a stopped child of the pane's shell refuses
+// Claude suspends on Ctrl+Z and herdr then sees an idle shell; a stopped child of the pane's shell refuses
 // restart and stop before anything is typed (a second Claude next to the frozen one). The shell is a real sh with a
 // real sleep child, in a throwaway process group; the real ps reads it.
 func TestRestartSuspended(t *testing.T) {
@@ -1838,7 +1836,7 @@ func TestRestartSuspended(t *testing.T) {
 	}
 	// stat sends sig to the sleep child and waits until ps shows it in a state starting with one of want's letters (T
 	// stopped, S/R/I running). ps may still show the old state: a SIGSTOP sent while the child is between fork and exec
-	// is discarded by the exec, and under load that window is long enough to lose it (T-329: 15 of 50 runs under load
+	// is discarded by the exec, and under load that window is long enough to lose it (15 of 50 runs under load
 	// never saw T with one signal). So resend each poll, with a generous upper bound.
 	stat := func(want string, sig syscall.Signal) {
 		t.Helper()
@@ -1923,9 +1921,9 @@ func TestRestartSuspended(t *testing.T) {
 	eqInt(t, asked, 0, "ps asked only at a shell")
 }
 
-// T-813: a recorded session resumes from the transcript its SessionStart hook reported: obor derives no path from the
+// a recorded session resumes from the transcript its SessionStart hook reported: obor derives no path from the
 // cwd, so a symlinked or long lane path, or a pane whose cwd moved, resumes it. A transcript that is gone was never
-// prompted (T-627): fresh, said. A record with no path yet (obor named the session, no hook confirmed it) resumes when
+// prompted: fresh, said. A record with no path yet (obor named the session, no hook confirmed it) resumes when
 // the kind's own file of that id is somewhere. Codex's sessions are not obor's: not checked.
 func TestRestartRecordedSession(t *testing.T) {
 	t.Parallel()
@@ -2018,7 +2016,7 @@ func TestRestartRecordedSession(t *testing.T) {
 	})
 }
 
-// T-627, T-813: the session rule, restart and restore, as the state model's row 51 says it. A recorded session
+// the session rule, restart and restore, as the state model's row 51 says it. A recorded session
 // resumes from the transcript the session itself reported; none anywhere means it was never prompted (Claude writes
 // no transcript before the first prompt), so the restart starts fresh, said. A pane with no recorded session starts
 // fresh in restore, role or worker (a role started fresh with no prompt has no transcript either).
@@ -2106,7 +2104,7 @@ func TestSessionResumeRule(t *testing.T) {
 		f := newRfx(t)
 		lane := f.p.PlainLane("L-01", "task/T-01")
 		f.p.Config()
-		f.p.State("L-01", `{"task":"T-01","branch":"task/T-01","agent":"pj-l-01"}`) // its row holds T-01, not landed: busy (T-1012)
+		f.p.State("L-01", `{"task":"T-01","branch":"task/T-01","agent":"pj-l-01"}`) // its row holds T-01, not landed: busy
 		f.shell("w1:p1", lane, "pj-l-01")
 		f.pl.RestoreProject(context.Background(), f.p.Root)
 		f.wantCalls(f.p.Root + " restart pj-l-01 --pane w1:p1 --fresh")
@@ -2143,8 +2141,8 @@ func TestStop(t *testing.T) {
 			t.Error("nothing typed")
 		}
 	})
-	// T-773: no "left running": a working agent is interrupted with Escape and quits once idle, force or not.
-	// T-950: the idle wait is herdr's agent.wait (idle, done), one server-side wait instead of an agent.get poll.
+	// no "left running": a working agent is interrupted with Escape and quits once idle, force or not.
+	// the idle wait is herdr's agent.wait (idle, done), one server-side wait instead of an agent.get poll.
 	t.Run("working, no force: Escape, wait idle, /exit, STOPPED", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
@@ -2191,7 +2189,7 @@ func TestStop(t *testing.T) {
 		if n := len(x.calls("agent.wait")); n != 1 {
 			t.Errorf("%d idle waits, want the one herdr timed out", n)
 		}
-		// serve's drop refuses on this refusal alone (T-773): it carries port.CodeNeedsForce.
+		// serve's drop refuses on this refusal alone: it carries port.CodeNeedsForce.
 		if _, err := x.launcher(io.Discard).Stop(context.Background(), "pj-l-01", "", false); !port.NeedsForce(err) {
 			t.Errorf("the refusal %v carries no %s", err, port.CodeNeedsForce)
 		}
@@ -2235,7 +2233,7 @@ func TestStop(t *testing.T) {
 	})
 }
 
-// T-829: a stop whose agent never goes idle and never quits is terminated within the stop's one bound (the idle wait,
+// a stop whose agent never goes idle and never quits is terminated within the stop's one bound (the idle wait,
 // the quit wait and the terminate together; the harness's own path to the stop is not part of it): at the default quit
 // wait, and with OBOR_RESTART_WAIT set larger (the override is capped, so the bound holds).
 func TestStopBound(t *testing.T) {
@@ -2267,7 +2265,7 @@ func TestStopBound(t *testing.T) {
 			contains(t, out, "terminated pj-l-01 (claude pid 2, SIGTERM)", "the stop terminated it")
 			// The bound covers the stop's own phases (stop.go); the path to them (resolve, the project lock, herdr
 			// round trips) is outside it, and the gate's load can stall a goroutine past a poll: a loaded machine must
-			// slow this test, not fail it (T-721; the gate saw 1.012s here). Twice the bound is still far under the
+			// slow this test, not fail it (the gate saw 1.012s here). Twice the bound is still far under the
 			// 20 s default and the 3600 s env wait, so an uncapped stop still fails by far.
 			if elapsed > 2*x.bound {
 				t.Errorf("the stop took %s, past twice its bound %s (the bound covers the stop's phases only): %s",
@@ -2277,7 +2275,7 @@ func TestStopBound(t *testing.T) {
 	}
 }
 
-// T-249: an agent that ignores /exit. Without --force: FAIL with the hint. With --force, while it provably still leads
+// an agent that ignores /exit. Without --force: FAIL with the hint. With --force, while it provably still leads
 // the pane's foreground group (same shell, same leader pid, claude/codex): SIGTERM, then SIGKILL, then the leftover
 // check and the start as for an agent that exited. Not proven: no signal, FAIL with evidence.
 func TestStopForceTerminates(t *testing.T) {
@@ -2381,12 +2379,12 @@ func TestStopForceTerminates(t *testing.T) {
 	}{
 		{name: "leader changed: no signal", when: "wait", procs: []herdr.Process{{PID: 2, Argv0: "vim"}},
 			fail: `not terminated: the group's leader (pid 2) is "vim", not claude`},
-		// No longer listed is gone (T-312): the agent counts as exited, what is left is the leftovers' ladder's.
+		// Not listed is gone: the agent counts as exited, what is left is the leftovers' ladder's.
 		{name: "leader gone from the list: exited, its leftovers signalled", when: "wait", procs: []herdr.Process{{PID: 300, Argv0: "uvx"}},
 			kills: "2 terminated,2 killed", fail: "pj-l-01 exited, but its leftover process(es) (uvx) kept the foreground after SIGTERM and SIGKILL (pane w1:p3)"},
 		{name: "shell changed: no signal", when: "wait", shell: 7,
 			fail: "not terminated: the pane's shell is pid 7, not 1"},
-		// T-249: another group has the foreground after the wait: the user's next job, never the agent's.
+		// another group has the foreground after the wait: the user's next job, never the agent's.
 		{name: "foreground changed: no signal", when: "wait", fg: 5,
 			fail: "not terminated: the foreground is group 5, not 2"},
 		{name: "leader changed after TERM: no KILL", when: "term", procs: []herdr.Process{{PID: 2, Argv0: "vim"}},
@@ -2458,7 +2456,7 @@ func (s lockSpy) Start(ctx context.Context, name, kind, pane string, args ...str
 	return s.PaneControl.Start(ctx, name, kind, pane, args...)
 }
 
-// T-500: one restart lock (the lane's, else the agent's) held for the whole operation, freed at its end.
+// one restart lock (the lane's, else the agent's) held for the whole operation, freed at its end.
 func TestOneRestartLock(t *testing.T) {
 	t.Parallel()
 	x := setup(t)
@@ -2507,7 +2505,7 @@ func (b *lockedBuf) String() string {
 	return b.b.String()
 }
 
-// T-500: two restarts of one lane: the second waits (saying so) until the first frees the lane's restart lock, and
+// two restarts of one lane: the second waits (saying so) until the first frees the lane's restart lock, and
 // touches the pane only then.
 func TestConcurrentRestartWaits(t *testing.T) {
 	t.Parallel()
@@ -2588,7 +2586,7 @@ func (f failCalls) ProcessInfo(ctx context.Context, pane string) (port.ProcessIn
 	return f.PaneControl.ProcessInfo(ctx, pane)
 }
 
-// T-213: a give-up carries its evidence: the agent's status, the pane's last non-empty lines, the processes.
+// a give-up carries its evidence: the agent's status, the pane's last non-empty lines, the processes.
 func TestGiveUpCarriesEvidence(t *testing.T) {
 	t.Parallel()
 	stuck := func(x *fx) {
@@ -2721,7 +2719,7 @@ func (x *fx) quitTyped(quit *atomic.Bool) {
 	})
 }
 
-// T-217: after /exit the agent (the foreground group's leader) is gone while its MCP servers keep the group in the
+// after /exit the agent (the foreground group's leader) is gone while its MCP servers keep the group in the
 // foreground: the exit is the leader's pid gone; the leftovers get SIGTERM, then SIGKILL once; never the shell's group.
 func TestStopLeftoverMCP(t *testing.T) {
 	t.Parallel()
@@ -2787,7 +2785,7 @@ func TestStopLeftoverMCP(t *testing.T) {
 		contains(t, out, "in the group: 300 uvx", "evidence: processes")
 		lacks(t, out, "stopped 2 leftover", "no success line")
 	})
-	// T-245: the leftovers exit by themselves while the foreground is still their (now empty) group, before the
+	// the leftovers exit by themselves while the foreground is still their (now empty) group, before the
 	// first check, after TERM or after KILL: a clean pane, not a FAIL; nothing (more) signalled.
 	for _, c := range []struct {
 		name  string
@@ -2829,7 +2827,7 @@ func TestStopLeftoverMCP(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.wait = shortWait // the exit wait is given up on (the leftovers keep the foreground)
-		x.up = bound       // the start's outcome, not a give-up: 60ms failed under the gate's load (T-721)
+		x.up = bound       // the start's outcome, not a give-up: 60ms failed under the gate's load
 		x.sid("pj-l-01", "sid-1")
 		p := mcp(x)
 		x.onKill = func(int, syscall.Signal) { p.Foreground = 1 }
@@ -2893,7 +2891,7 @@ func TestStopLeftoverMCP(t *testing.T) {
 }
 
 // leftoverMCP: an idle Claude in w1:p3 leading group 2 (listed, alive) that exits on /exit, its pid gone and no
-// longer listed, but leaves uvx and python in its group (T-217; one consistent process model, RV-24).
+// longer listed, but leaves uvx and python in its group (one consistent process model).
 func leftoverMCP(x *fx) *herdrtest.Pane {
 	p := x.agent("w1:p3", "pj-l-01", "claude", "idle")
 	p.OnQuit = "stay"
@@ -2905,7 +2903,7 @@ func leftoverMCP(x *fx) *herdrtest.Pane {
 	return p
 }
 
-// RV-24 #1 (T-227): no signal to a group not proven to be the exited agent's leftovers. Process info that cannot be
+// no signal to a group not proven to be the exited agent's leftovers. Process info that cannot be
 // read proves nothing; the leader still listed, a changed foreground or shell refuse the signal, before TERM and
 // before KILL.
 func TestStopUnprovenLeftovers(t *testing.T) {
@@ -2914,7 +2912,7 @@ func TestStopUnprovenLeftovers(t *testing.T) {
 	unreadable := func(x *fx) {
 		x.srv.Fail("pane.process_info", "internal", "denied")
 	}
-	// RV-24's probe: /exit does nothing (claude and uvx stay in group 2), and process info is unreadable after it.
+	// /exit does nothing (claude and uvx stay in group 2), and process info is unreadable after it.
 	for _, force := range []bool{false, true} {
 		t.Run(fmt.Sprintf("process info unreadable during the exit wait, force %v: no kill, FAIL with evidence", force), func(t *testing.T) {
 			t.Parallel()
@@ -3036,7 +3034,7 @@ func TestStopUnprovenLeftovers(t *testing.T) {
 	})
 }
 
-// T-577 (was T-265): the recorded session wins over herdr's live one for the pane, which is only said; herdr's is
+// The recorded session wins over herdr's live one for the pane, which is only said; herdr's is
 // resumed when none is recorded. The record is never rewritten from herdr.
 func TestRestartRecordOverLiveSession(t *testing.T) {
 	t.Parallel()
@@ -3189,9 +3187,9 @@ func (s slowAfterQuit) ProcessInfo(ctx context.Context, pane string) (port.Proce
 	return s.PaneControl.ProcessInfo(ctx, pane)
 }
 
-// T-292: stop for every agent kind. The leader to prove is the program of the kind herdr sees running (RV-33 #2: not
+// stop for every agent kind. The leader to prove is the program of the kind herdr sees running (not
 // a configured kind); the quit is the kind's own (opencode: /exit, then a second Enter for the popup); a kind with
-// no quit (no bridge: Cursor's rows went with T-495) goes straight to the proven SIGTERM, without the wait.
+// no quit (no bridge: Cursor's rows went with) goes straight to the proven SIGTERM, without the wait.
 func TestStopEveryKind(t *testing.T) {
 	t.Parallel()
 	// kind: lane L-01's agent of that kind (as herdr sees it); it runs as leader of group 2 and ignores the quit.
@@ -3236,7 +3234,7 @@ func TestStopEveryKind(t *testing.T) {
 		eqInt(t, len(x.kills), 0, "no signal")
 		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
 	})
-	// T-712: Claude Code's slash-command menu (many plugin commands) took the Enter in the owner's run: the second Enter submits.
+	// Claude Code's slash-command menu (many plugin commands) takes the Enter: the second Enter submits.
 	t.Run("claude, the slash-command menu takes the first Enter, no --force: the second Enter exits it, STOPPED", func(t *testing.T) {
 		t.Parallel()
 		x, p := kind(t, "claude", herdr.Process{PID: 2, Argv0: "claude"})
@@ -3280,7 +3278,7 @@ func TestStopEveryKind(t *testing.T) {
 		contains(t, out, "terminated pj-l-01 (opencode pid 2, SIGTERM)", "said")
 		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
 	})
-	// RV-33 #2: the proof reads the kind herdr sees running, as the quit does, not the configured one.
+	// the proof reads the kind herdr sees running, as the quit does, not the configured one.
 	t.Run("retyped lane: configured opus, herdr kind codex, leader codex, quit ignored, --force: SIGTERM, STOPPED", func(t *testing.T) {
 		t.Parallel()
 		x, p := kind(t, "claude", herdr.Process{PID: 2, Argv0: "codex"})
@@ -3322,7 +3320,7 @@ func TestStopEveryKind(t *testing.T) {
 		contains(t, out, "terminated pj-l-01 (gemini pid 2, SIGTERM): it has no clean quit\n", "said")
 		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
 	})
-	// RV-33 #3: a popup kind that gives up leaves no quit in its input for the next typed message.
+	// a popup kind that gives up leaves no quit in its input for the next typed message.
 	for _, c := range []struct{ kind, argv0, clear string }{
 		{"opencode", "opencode", "pane.send_keys keys=[esc] pane_id=w1:p3\npane.send_keys keys=[ctrl+u] pane_id=w1:p3"},
 	} {
@@ -3343,7 +3341,7 @@ func TestStopEveryKind(t *testing.T) {
 			eq(t, failLine(out), "FAIL pj-l-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)", "result")
 		})
 	}
-	// T-712: text a person typed into an idle agent's input is cleared before the quit, or the quit joins it.
+	// text a person typed into an idle agent's input is cleared before the quit, or the quit joins it.
 	for _, c := range []struct{ kind, argv0, quit, clear string }{
 		{"claude", "claude", "/exit", "ctrl+u"},
 		{"codex", "codex", "/quit", "ctrl+u"},
@@ -3405,7 +3403,7 @@ func TestStopEveryKind(t *testing.T) {
 	})
 }
 
-// T-418, P5-3: Launch reports the pane, kind and session herdr showed for the agent it started: serve's registry row
+// Launch reports the pane, kind and session herdr showed for the agent it started: serve's registry row
 // of a start (app/registry.go).
 func TestLaunchReportsIdentity(t *testing.T) {
 	t.Parallel()
@@ -3420,7 +3418,7 @@ func TestLaunchReportsIdentity(t *testing.T) {
 	eq(t, s.Pane+" "+s.Kind+" "+s.Session, "w1:p3 claude original-task-session", "the identity the start reports")
 }
 
-// T-813: a fresh start of a kind whose sessions obor names carries --session-id <id>, and the id is in the store
+// a fresh start of a kind whose sessions obor names carries --session-id <id>, and the id is in the store
 // before the agent runs (the store and a restart know it before the SessionStart hook reports it). A resume carries
 // none. A refused record is said, and the start keeps its id.
 func TestStartNamesItsSession(t *testing.T) {
@@ -3502,7 +3500,7 @@ func (p startProbe) Start(ctx context.Context, name, kind, pane string, args ...
 	return p.PaneControl.Start(ctx, name, kind, pane, args...)
 }
 
-// T-474 (RV-50 #5): a role with no configured model still gets its kind's launch defaults: Claude's memory off for
+// a role with no configured model still gets its kind's launch defaults: Claude's memory off for
 // every role but the lead.
 func TestUntypedRoleLaunchDefaults(t *testing.T) {
 	t.Parallel()
@@ -3521,7 +3519,7 @@ func TestUntypedRoleLaunchDefaults(t *testing.T) {
 	}
 }
 
-// T-500: the restart lock is <state>/restart-<lane>.lock (no lane: the agent's); Held probes it without taking it.
+// the restart lock is <state>/restart-<lane>.lock (no lane: the agent's); Held probes it without taking it.
 func TestRestartLockHeld(t *testing.T) {
 	root := t.TempDir()
 	lock := launch.RestartLock(root, "L-01", "pj-l-01")
@@ -3553,7 +3551,7 @@ func TestRestartLockHeld(t *testing.T) {
 	}
 }
 
-// T-729: a fresh start without --prompt gets its role's first prompt (the lead's /obor:lead); --prompt wins, a resume
+// a fresh start without --prompt gets its role's first prompt (the lead's /obor:lead); --prompt wins, a resume
 // carries none, a role without a Prompt and a kind without skills start bare.
 func TestFreshStartRolePrompt(t *testing.T) {
 	t.Parallel()
@@ -3575,7 +3573,7 @@ func TestFreshStartRolePrompt(t *testing.T) {
 			a := x.agent("w1:p7", c.agent, c.kind, "idle")
 			a.Session = "sid-1"
 			if c.resume {
-				x.sid(c.agent, "sid-1") // T-813: a Claude resume is its record's, not herdr's session
+				x.sid(c.agent, "sid-1") // a Claude resume is its record's, not herdr's session
 			}
 			c.req.Agent = c.agent
 			out, ok := x.restart(c.req)

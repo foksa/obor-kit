@@ -34,14 +34,14 @@
   const lanes = $derived(v?.lanes || []);
   const busy = $derived(lanes.filter((l) => !l.free));
   const free = $derived(lanes.filter((l) => l.free));
-  // task is the view's task of an id (T-883): its title, phase, lane and step read the same on every section.
+  // task is the view's task of an id: its title, phase, lane and step read the same on every section.
   const task = (id: string | null | undefined) => taskOf(v, id);
   const q = $derived(v?.queue);
   const waiting = $derived(q?.waiting || []);
 
-  // The pipeline's six blocks (T-986).
+  // The pipeline's six blocks.
   const pipeline = $derived(pipelineOf(q, busy));
-  // The queue counts only the dispatches with no lane yet: a task in the merge loop holds its lane (T-961).
+  // The queue counts only the dispatches with no lane yet: a task in the merge loop holds its lane.
   const queued = $derived(queuedForLane(waiting, busy));
   const never = $derived(waiting.filter((w) => w.waits_on === WAITS_NEVER).length);
 

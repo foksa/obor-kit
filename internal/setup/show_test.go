@@ -11,7 +11,7 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-647, T-765: obor setup show prints the setup table from the config: per difficulty level its model refs in order,
+// obor setup show prints the setup table from the config: per difficulty level its model refs in order,
 // each with its kind, model id and the ref's effort; the lanes; then the roles' refs and the owner's answer. It is
 // read-only.
 func TestSetupShowPrintsTheTable(t *testing.T) {
@@ -42,7 +42,7 @@ func TestSetupShowPrintsTheTable(t *testing.T) {
 	}
 }
 
-// T-765: a level's own list in its order; a model from agents.models (its own id, or none: its kind alone); a ref
+// a level's own list in its order; a model from agents.models (its own id, or none: its kind alone); a ref
 // naming no model marked; no lanes is "0"; a role not set says so; a confirmed setup prints no starting point.
 func TestSetupShowLevelLines(t *testing.T) {
 	t.Parallel()
@@ -68,7 +68,7 @@ func TestSetupShowLevelLines(t *testing.T) {
 	}
 }
 
-// T-1039: the roles line lists a custom role's verbs after its model ("": none named); a role without verbs shows none.
+// the roles line lists a custom role's verbs after its model ("": none named); a role without verbs shows none.
 func TestSetupShowListsVerbs(t *testing.T) {
 	t.Parallel()
 	x := newFx(t, testkit.Set("agents.roles", `{"lead": "opus", "tracker": {"model": "sonnet", "verbs": ["spec_set", "dispatch"]},
@@ -85,7 +85,7 @@ func TestSetupShowListsVerbs(t *testing.T) {
 	}
 }
 
-// T-979: obor setup show marks a paused model in each level's list with its end ("cleared" for none), and stops
+// obor setup show marks a paused model in each level's list with its end ("cleared" for none), and stops
 // marking it once serve records the clear.
 func TestSetupShowMarksPausedModels(t *testing.T) {
 	t.Parallel()

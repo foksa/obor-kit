@@ -1,14 +1,14 @@
-// Package web is `obor web` (T-667): a localhost page for every obor project on the machine. It serves the read model's
+// Package web is `obor web`: a localhost page for every obor project on the machine. It serves the read model's
 // JSON — each project's view as view.Build builds it for `obor status --json` (view.Load), the pages' narrow reads
-// (view.LoadTask, LoadAgent, LoadSetup; T-880) and the drill-down pages of
-// view.Detail — plus the page itself (T-760): a Svelte app whose source is web/ at the repo's root, built by `make web`
+// (view.LoadTask, LoadAgent, LoadSetup) and the drill-down pages of
+// view.Detail — plus the page itself: a Svelte app whose source is web/ at the repo's root, built by `make web`
 // into dist/ here, committed and embedded (the Go build needs no Node; TestDistFresh fails when dist/ is older than
 // web/'s sources). Its own
 // process, never inside serve: serve is the one writer with a replayed state machine, and a handler in its process
 // would share its restarts. Localhost only, no auth: remote access is an SSH tunnel.
 //
-// Two verbs (T-753), the owner's setup edits from the Setup page: POST /api/config (a list of config changes, one
-// commit, T-760) and POST
+// Two verbs, the owner's setup edits from the Setup page: POST /api/config (a list of config changes, one
+// commit) and POST
 // /api/pause (set or clear the pause). Neither writes anything itself: each is a request to the project's serve (its
 // app socket), the one writer; serve not running is 503. Every other route is GET or HEAD only (405). Every request,
 // on every route, must arrive under one of obor web's names — a loopback name on any port (localhost, 127.0.0.1, ::1:
@@ -61,7 +61,7 @@ type Server struct {
 	Projects func() []project.Project                            // the machine's projects (default: project.Projects)
 	Build    func(context.Context, string) (view.Project, error) // one project's view by root (default: view.Load)
 	// Task, Agent and Setup are the drill-down pages' narrow reads (defaults: view.LoadTask, view.LoadAgent,
-	// view.LoadSetup, T-880): a page never builds the overview.
+	// view.LoadSetup): a page never builds the overview.
 	Task   func(context.Context, string) (view.Detail, error)
 	Agent  func(context.Context, string) (view.Detail, error)
 	Setup  func(context.Context, string) (view.Setup, error)
@@ -174,7 +174,7 @@ func (s *Server) answersTo(host string) bool {
 
 // ProjectsEntry is one row of /api/projects: the project's name and root, whether serve is up, its busy and free lanes,
 // its needs-you count, its queue length (the merge loop's tasks and the dispatches waiting), the steps running without
-// an agent, the role agents at work (T-713) and why its view could not be built.
+// an agent, the role agents at work and why its view could not be built.
 type ProjectsEntry struct {
 	Name     string         `json:"name"`
 	Root     string         `json:"root"`
@@ -185,9 +185,9 @@ type ProjectsEntry struct {
 	Queue    int            `json:"queue"`
 	Running  []view.Running `json:"running"`
 	Roles    []view.Role    `json:"roles"`
-	// Background is how many long-running background processes the project's agents have (T-714).
+	// Background is how many long-running background processes the project's agents have.
 	Background int `json:"background"`
-	// Lanes is each lane's state column and task (the fleet page's lane strip, T-760), FullCheck the last full check,
+	// Lanes is each lane's state column and task (the fleet page's lane strip), FullCheck the last full check,
 	// Paused the pause in force and Events the project's newest worded events (at most fleetEvents).
 	Lanes     []LaneDot       `json:"lanes"`
 	FullCheck *view.FullCheck `json:"full_check"`
@@ -197,7 +197,7 @@ type ProjectsEntry struct {
 }
 
 // LaneDot is one lane as the fleet page shows it: its name, its state column, its configured type, whether it is free
-// and its task (view.Task, T-883: a free lane's is its last branch's id alone); a busy lane's task is the view's, with
+// and its task (view.Task: a free lane's is its last branch's id alone); a busy lane's task is the view's, with
 // what the fleet's running list shows (its title, serve's state and step of it, the agent), and since when the column
 // holds (epoch seconds). The task's lane is the dot's own.
 type LaneDot struct {
@@ -272,7 +272,7 @@ func (s *Server) viewAPI(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, v)
 }
 
-// setupAPI is /api/setup?project=<name>: the project's setup read model (T-750), read narrow (T-880): its config, the
+// setupAPI is /api/setup?project=<name>: the project's setup read model, read narrow: its config, the
 // lane states, serve's role rows and the store's dispatch records, never the whole overview.
 func (s *Server) setupAPI(w http.ResponseWriter, r *http.Request) {
 	p, ok := s.project(w, r)
@@ -289,7 +289,7 @@ func (s *Server) setupAPI(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, setup)
 }
 
-// taskAPI is /api/task?project=<name>&task=<id>: the task's page, from the narrow task read (T-880).
+// taskAPI is /api/task?project=<name>&task=<id>: the task's page, from the narrow task read.
 func (s *Server) taskAPI(w http.ResponseWriter, r *http.Request) {
 	d, id, ok := s.detail(w, r, "task", s.taskRead)
 	if !ok {
@@ -303,7 +303,7 @@ func (s *Server) taskAPI(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, t)
 }
 
-// agentAPI is /api/agent?project=<name>&agent=<name>: the agent's page, from the narrow agent read (T-880).
+// agentAPI is /api/agent?project=<name>&agent=<name>: the agent's page, from the narrow agent read.
 func (s *Server) agentAPI(w http.ResponseWriter, r *http.Request) {
 	d, name, ok := s.detail(w, r, "agent", s.agentRead)
 	if !ok {
@@ -337,7 +337,7 @@ func (s *Server) jobAPI(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, prompt)
 }
 
-// Help is /api/help (T-854): every obor command (help.Commands) by group, and README's "Install" and "Set up a project"
+// Help is /api/help: every obor command (help.Commands) by group, and README's "Install" and "Set up a project"
 // sections.
 type Help struct {
 	Groups   []string       `json:"groups"`
@@ -369,7 +369,7 @@ func (s *Server) helpAPI(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, Help{Groups: help.Groups, Commands: help.Commands, Sections: sections})
 }
 
-// configBody is POST /api/config's body (T-760): the changes, each a key path (config.EditKeys) and its new value, and
+// configBody is POST /api/config's body: the changes, each a key path (config.EditKeys) and its new value, and
 // the config.json revision the page read them on (the setup's config_rev).
 type configBody struct {
 	Changes []wire.ConfigChange `json:"changes"`
@@ -380,7 +380,7 @@ type configBody struct {
 const maxChanges = 100
 
 // pauseBody is POST /api/pause's body: a pause's reason and its duration (a Go duration, "": until cleared), or clear;
-// with model, that model's pause (obor pause --model, T-766).
+// with model, that model's pause (obor pause --model).
 type pauseBody struct {
 	Reason string `json:"reason"`
 	For    string `json:"for"`

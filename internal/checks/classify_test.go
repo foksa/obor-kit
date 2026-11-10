@@ -103,7 +103,7 @@ func TestClassify(t *testing.T) {
 			t.Errorf("Classify(%q) = %q, want %q", c.files, got, c.want)
 		}
 	}
-	// T-1008 (RV-139 #2): a forced or no-guard full records its reason and still scans the files, so it carries every
+	// a forced or no-guard full records its reason and still scans the files, so it carries every
 	// class it matched (their with_full checks run) and a later unmatched file does not replace the reason.
 	for _, c := range []struct {
 		name   string
@@ -162,12 +162,12 @@ func TestCounts(t *testing.T) {
 	}
 }
 
-// T-901: obor-kit's own merge.classes (bash classify.test.sh case_real_valid, case_real_docs): docs-only merges are
+// obor-kit's own merge.classes (bash classify.test.sh case_real_valid, case_real_docs): docs-only merges are
 // partial neutral (guard only); Go-only merges partial go and run check_affected (the same heavy gate on the affected
-// packages, T-347); skills/, templates/, hooks/, bin/go-commands and .claude-plugin/ partial readers and run
+// packages); skills/, templates/, hooks/, bin/go-commands and .claude-plugin/ partial readers and run
 // check_readers; web/src/ and the committed internal/web/dist partial web and run check_web; the kit's release tooling
-// (Makefile, scripts/, install.sh, RELEASING.md, the marketplace, tests/release/, T-902) partial release and runs
-// check_release; two of them in one merge are partial with both names (config order) and run both checks (T-1003);
+// (Makefile, scripts/, install.sh, RELEASING.md, the marketplace, tests/release/) partial release and runs
+// check_release; two of them in one merge are partial with both names (config order) and run both checks;
 // every other file still runs the full check.
 func TestOborKitConfig(t *testing.T) {
 	t.Parallel()
@@ -187,7 +187,7 @@ func TestOborKitConfig(t *testing.T) {
 		{"go", "check_affected", [][]string{
 			{"internal/app/loop.go", "internal/app/loop_test.go"},
 			{"internal/app/loop.go", "cmd/obor/main.go", "internal/checks/merge.go", "docs/tasks/T-75.md"},
-			{"tools/affected/main.go"}, // T-1040: the kit's Go tool is Go code the gate tests
+			{"tools/affected/main.go"}, // the kit's Go tool is Go code the gate tests
 		}},
 		{"readers", "check_readers", [][]string{
 			{"skills/lead/SKILL.md"}, {"templates/agents/worker.md"}, {"hooks/hooks.json"}, {"bin/go-commands"},
@@ -215,7 +215,7 @@ func TestOborKitConfig(t *testing.T) {
 			}
 		}
 	}
-	// A merge in two classes is partial, named in config order, and runs both classes' checks (T-1003).
+	// A merge in two classes is partial, named in config order, and runs both classes' checks.
 	for _, c := range []struct{ files, class, checks string }{
 		{"internal/app/loop.go Makefile", "go+release", "check_affected check_release"},
 		{"Makefile skills/lead/SKILL.md", "release+readers", "check_release check_readers"},
@@ -250,7 +250,7 @@ func TestOborKitConfig(t *testing.T) {
 			t.Errorf("%s beside Go files: %s (want a full merge)", f, c.Mode())
 		}
 	}
-	// A full merge keeps the classes it matched, and release and web mark themselves with_full (T-1007): the kit's own
+	// A full merge keeps the classes it matched, and release and web mark themselves with_full: the kit's own
 	// release or web files still run their checks beside an unmatched one; go's do not.
 	for _, c := range []struct{ files, name, checks string }{
 		{"Makefile go.mod", "release", "check_release"},
@@ -272,7 +272,7 @@ func TestOborKitConfig(t *testing.T) {
 	}
 }
 
-// T-901: READER_PKGS in the Makefile is the survey of the packages whose Go files name a path the readers class maps to
+// READER_PKGS in the Makefile is the survey of the packages whose Go files name a path the readers class maps to
 // check_readers (skills/, templates/, hooks/, bin/go-commands, .claude-plugin/): a package that starts reading one and is
 // missing there would run no test on a change to it. The survey is a grep, the same one the target's comment records;
 // this file is skipped, its tables name the paths without reading them.

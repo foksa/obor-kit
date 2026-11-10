@@ -21,7 +21,7 @@ func kind(t *testing.T) agents.Split {
 	return k.(agents.Split)
 }
 
-// T-495: Claude's start argv, fresh, resumed and strict: the settings after the args, obor's --mcp-config right before
+// Claude's start argv, fresh, resumed and strict: the settings after the args, obor's --mcp-config right before
 // the strict flag (with a kit, unless a config names obor), `--` before a prompt a config flag could take, --resume
 // with no prompt.
 func TestStart(t *testing.T) {
@@ -47,7 +47,7 @@ func TestStart(t *testing.T) {
 		{"resume: --resume last, the prompt dropped", agents.Start{Kit: "/kit", Args: []string{"--model", "opus"},
 			Settings: map[string]any{"a": 1}, Resume: "sid-1", Prompt: "go"},
 			[]string{"--model", "opus", "--settings", `{"a":1}`, "--resume", "sid-1"}},
-		// T-813: a fresh start runs as the session obor named, and a resume names no new one.
+		// a fresh start runs as the session obor named, and a resume names no new one.
 		{"fresh, the session obor named: --session-id before the prompt", agents.Start{Kit: "/kit",
 			Args: []string{"--model", "opus"}, Session: "2f1c9a56-6e2b-4d7f-9a7e-3c0b8a1d5e42", Prompt: "go"},
 			[]string{"--model", "opus", "--session-id", "2f1c9a56-6e2b-4d7f-9a7e-3c0b8a1d5e42", "go"}},
@@ -99,7 +99,7 @@ func TestStart(t *testing.T) {
 	}
 }
 
-// T-495: the rest of the kind: no NotReady screen, /exit with Ctrl+C after Escape and its background-task dialog, the print flag, the manifest,
+// the rest of the kind: no NotReady screen, /exit with Ctrl+C after Escape and its background-task dialog, the print flag, the manifest,
 // transcripts per cwd, the inbox lines, the caps.
 func TestKind(t *testing.T) {
 	k := kind(t)
@@ -110,7 +110,7 @@ func TestKind(t *testing.T) {
 		!slices.Equal(s.ClearInput, []string{"ctrl+u"}) || s.Program != "" || s.Dialog == nil || s.Dialog.Option != "Exit and stop tasks" {
 		t.Errorf("Stop = %+v", s)
 	}
-	// DD-v0.13 B1: the dialog's option and its key, as Claude Code numbers them ("2. Exit…" or "2) Exit…").
+	// the dialog's option and its key, as Claude Code numbers them ("2. Exit…" or "2) Exit…").
 	for screen, key := range map[string]string{
 		"  1. Move to background\n❯ 2. Exit and stop tasks\n  3. Stay": "2",
 		"3) Exit and stop tasks": "3",
@@ -174,7 +174,7 @@ func TestKind(t *testing.T) {
 			t.Errorf("Deliver(record %q) ok; want no socket, the line kept", rec)
 		}
 	}
-	// DD-v0.13 B1: the record SessionStart writes is the one Deliver reads.
+	// the record SessionStart writes is the one Deliver reads.
 	rec := k.InboxRecord(env(map[string]string{"CLAUDE_CODE_MESSAGING_SOCKET": "/s.sock", "CLAUDE_CODE_MESSAGING_TOKEN": "t1"}))
 	if d, ok := k.Deliver("hi", rec); !ok || d.Socket != "/s.sock" || len(d.Lines) != 2 || d.Lines[0] != want[0] {
 		t.Errorf("Deliver(InboxRecord %s) = %+v, %v; want the socket and the token's auth line", rec, d, ok)
@@ -185,7 +185,7 @@ func TestKind(t *testing.T) {
 	if rec := k.InboxRecord(env(map[string]string{"CLAUDE_CODE_MESSAGING_TOKEN": "t1"})); rec != nil {
 		t.Errorf("InboxRecord without a socket = %s, want none (messaging off)", rec)
 	}
-	if got, ok := k.LastTurn([]byte(`{"type":"event_msg","payload":{"type":"task_complete","turn_id":"t1","error":{"message":"m","codex_error_info":"usage_limit_exceeded"}}}` + "\n")); ok { // T-563: its turns are not read (Caps.Status terminal below)
+	if got, ok := k.LastTurn([]byte(`{"type":"event_msg","payload":{"type":"task_complete","turn_id":"t1","error":{"message":"m","codex_error_info":"usage_limit_exceeded"}}}` + "\n")); ok { // its turns are not read (Caps.Status terminal below)
 		t.Errorf("LastTurn = %+v, true; want none read", got)
 	}
 	if c := k.Caps(); c != (agents.Caps{Hooks: agents.HooksNative, NamedSession: true, ProjectPlugin: true, Inbox: true,
@@ -194,7 +194,7 @@ func TestKind(t *testing.T) {
 	}
 }
 
-// T-568: StopFailure's rate_limit is a limit, its reset what its error_details name (an epoch after '|', a clock
+// StopFailure's rate_limit is a limit, its reset what its error_details name (an epoch after '|', a clock
 // time's next one), none when they name no time; billing_error is no limit.
 func TestReset(t *testing.T) {
 	k := kind(t)
@@ -218,7 +218,7 @@ func TestReset(t *testing.T) {
 	}
 }
 
-// T-695: Start with an effort sets --effort <effort> once, in place of the args' own (either spelling); without one the
+// Start with an effort sets --effort <effort> once, in place of the args' own (either spelling); without one the
 // args are as given; a second Start over the first's argv (launch: config.Model.LaunchArgs, then the start) keeps
 // one --effort.
 func TestStartEffort(t *testing.T) {
@@ -255,7 +255,7 @@ func projectFS(rel string, content []byte) agents.ReadFile {
 	}
 }
 
-// T-1033: the start dir's committed .claude/settings.json outranks obor's policy flags: an MCP opt-in (either key)
+// the start dir's committed .claude/settings.json outranks obor's policy flags: an MCP opt-in (either key)
 // drops the strict flag (and obor's --mcp-config with it: the plugin's server serves, as for a role), a settings key
 // the file sets leaves --settings (no --settings when it sets both); a file that does not parse, or one setting none
 // of the keys, starts as without it.
@@ -305,7 +305,7 @@ func TestStartProjectSettings(t *testing.T) {
 	}
 }
 
-// T-1033: config validate's notes on the settings file: disableAllHooks true, a file that does not parse; none for a
+// config validate's notes on the settings file: disableAllHooks true, a file that does not parse; none for a
 // clean or absent one.
 func TestProjectWarnings(t *testing.T) {
 	pc, ok := kind(t).(agents.ProjectChecker)

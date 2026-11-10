@@ -60,7 +60,7 @@ func TestMCPArgs(t *testing.T) {
 	}
 }
 
-// TestRV47ExplicitVariadicConfig (RV-47 #3): --mcp-config takes several values, so an explicit obor entry in any of them
+// TestRV47ExplicitVariadicConfig: --mcp-config takes several values, so an explicit obor entry in any of them
 // (a later inline value, a later file value, after the = spelling, in a repeated flag) is the type's own obor server:
 // obor adds none. A strict start whose configs name no obor server still gets its pair.
 func TestRV47ExplicitVariadicConfig(t *testing.T) {
@@ -101,7 +101,7 @@ func TestRV47ExplicitVariadicConfig(t *testing.T) {
 	}
 }
 
-// RV-47 #3 at the start: the strict start's argv keeps the type's own configs (obor's later value) and adds no second obor
+// At the start: the strict start's argv keeps the type's own configs (obor's later value) and adds no second obor
 // entry; the prompt stays the first prompt after the flag.
 func TestRV47StartVariadicConfig(t *testing.T) {
 	t.Parallel()
@@ -122,7 +122,8 @@ func TestRV47StartVariadicConfig(t *testing.T) {
 	}
 }
 
-// TestStartArgsTable: the start argv for every shape of type args (T-451; RV-47 #3, RV-47-verify N1, RV-47-verify-2 N1).
+// TestStartArgsTable: the start argv for every shape of type args (each row a shape that matters: a positional prompt,
+// a --mcp-config value, the variadic forms).
 // Each row is the args as the lane type and obor's settings leave them, the kind, the prompt, and the argv; the prompt is
 // positional, never a value of --mcp-config, and `--` appears at most once.
 func TestStartArgsTable(t *testing.T) {
@@ -139,7 +140,7 @@ func TestStartArgsTable(t *testing.T) {
 	}
 	ours := claude.MCPConfig("/kit")
 	const strict, cfg = "--strict-mcp-config", "--mcp-config"
-	// codexReg is a Codex start's argv before its prompt (T-375: the MCP registration is on every start, prompted or not).
+	// codexReg is a Codex start's argv before its prompt (the MCP registration is on every start, prompted or not).
 	codexReg := []string{"-a", "never",
 		"-c", `mcp_servers.obor.command="/kit/bin/obor"`,
 		"-c", `mcp_servers.obor.args=["mcp"]`,
@@ -214,7 +215,7 @@ func TestStartArgsTable(t *testing.T) {
 	}
 }
 
-// T-1033: a lane worker's start reads the project's committed CLI config in its lane worktree (its cwd), in both
+// a lane worker's start reads the project's committed CLI config in its lane worktree (its cwd), in both
 // passes of the argv (LaunchArgs, then the kind's start with the kit): Claude with an MCP opt-in starts without the
 // strict flag and obor's --mcp-config, --settings keeping the key the file does not set; Codex with a top-level
 // sandbox_mode and update check starts without -s workspace-write and obor's update-check option.

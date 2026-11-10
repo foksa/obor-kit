@@ -1,6 +1,6 @@
 //go:build integration
 
-// T-705 on real git (T-1021): whether git tracks .claude/settings.json decides the lane link.
+// Whether git tracks .claude/settings.json decides the lane link.
 
 package setup
 
@@ -12,7 +12,7 @@ import (
 	"obor/internal/config"
 )
 
-// T-705 item 1: obor init in a fresh project leaves .claude/settings.json untracked in the main checkout; the lanes
+// obor init in a fresh project leaves .claude/settings.json untracked in the main checkout; the lanes
 // are worktrees, so init links it (lane_links, .gitignore) and each lane sees the enabled plugin. A rerun changes
 // nothing.
 func TestOborInitLinksThePluginIntoTheLanes(t *testing.T) {

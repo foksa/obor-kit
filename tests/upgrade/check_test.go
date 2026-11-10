@@ -1,8 +1,8 @@
-// Package upgrade is the release's upgrade check (T-772, `make upgrade-check`): a project made by the previous release
+// Package upgrade is the release's upgrade check (`make upgrade-check`): a project made by the previous release
 // must survive the new build installed over it. The check is a test because it drives herdr's stub
 // (internal/herdr/herdrtest), which only test code may import; TestUpgradeCheck is the release's run (OBOR_UPGRADE_CHECK=1,
 // skipped otherwise), the other tests hold the guide's steps, the previous release and the refusal of an old one on
-// fixed fixtures (T-1001: the two frozen-binary runs went; `make upgrade-check` is the real check at each release).
+// fixed fixtures (the two frozen-binary runs went; `make upgrade-check` is the real check at each release).
 package upgrade
 
 import (
@@ -45,8 +45,8 @@ import (
 //     setup show load; the dispatch still waits with its spec's model first; each lead, started now under its current
 //     name (its SessionStart hook records its inbox), gets the line held for it; obor send works both ways.
 //
-// The Model: assertion needs a previous release of v0.23.0 or later (before, a spec named a lane type: Type:): an
-// older PREV is refused before the check runs (supported, T-778).
+// The Model: assertion needs a previous release of v0.23.0 or later (an older release's specs named a lane type):
+// an older PREV is refused before the check runs (supported).
 
 // check is one run of the upgrade check.
 type check struct {
@@ -92,7 +92,7 @@ type world struct {
 	stub    string          // claude and launchctl stubs
 	oborDir string          // the dir with the obor on PATH (a symlink to the binary of the phase)
 	herdr   string          // the stub herdr's socket
-	fake    *herdrtest.Fake // the stub herdr's state (its plugin list, T-1148)
+	fake    *herdrtest.Fake // the stub herdr's state (its plugin list)
 	kit     string          // OBOR_PLUGIN_ROOT of the phase
 	bin     string          // the binary of the phase
 	projs   []*proj

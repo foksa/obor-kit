@@ -11,7 +11,7 @@ import (
 	"obor/internal/project"
 )
 
-// ScratchFF is port.Workflow "scratch-ff" (workflow.kind, the default; T-1029): the merge slot in serve's own worktree
+// ScratchFF is port.Workflow "scratch-ff" (workflow.kind, the default): the merge slot in serve's own worktree
 // (Scratch: submit, gate, the lane test, the fast-forward publish), the lanes as worktrees on task branches (Lane), the
 // target branches.main, and the review's git on the main checkout (Review: cmd/obor's, obor's own commits there).
 type ScratchFF struct {
@@ -23,7 +23,7 @@ type ScratchFF struct {
 var _ port.Workflow = ScratchFF{}
 
 // NewScratchFF is the scratch-ff workflow over s, serve's merge slot: the lanes take s's config, so a workflow holds one
-// *config.Config (T-1161).
+// *config.Config.
 func NewScratchFF(s Scratch, review port.Review) ScratchFF {
 	return ScratchFF{Scratch: s, Lane: Lane{Cfg: s.Cfg}, Review: review}
 }
@@ -31,7 +31,7 @@ func NewScratchFF(s Scratch, review port.Review) ScratchFF {
 // Target is the sha of branches.main, and whether task's branch has commits it lacks.
 func (w ScratchFF) Target(ctx context.Context, task string) (string, bool, error) {
 	cfg := w.Scratch.Cfg
-	base := cfg.MainBranch() // whatever the main checkout has checked out (T-425)
+	base := cfg.MainBranch() // whatever the main checkout has checked out
 	sha, err := project.GitCtx(ctx, cfg.Root, "rev-parse", "--verify", "--end-of-options", base+"^{commit}")
 	if err != nil {
 		return "", false, fmt.Errorf("cannot resolve %s: %w", base, err)

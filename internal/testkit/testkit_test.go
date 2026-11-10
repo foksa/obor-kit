@@ -9,8 +9,8 @@ import (
 	"testing"
 )
 
-// Isolate clears the check-slot variables the merge gate exports to `make check` (T-297): a test's heavy `obor run`
-// inside a merge otherwise reuses the merge's real slot file. It also turns git's auto maintenance off (T-438): a
+// Isolate clears the check-slot variables the merge gate exports to `make check`: a test's heavy `obor run`
+// inside a merge otherwise reuses the merge's real slot file. It also turns git's auto maintenance off: a
 // commit's detached `git maintenance run --auto` could still be writing .git/objects when the test's temp dir is
 // removed.
 func TestIsolate(t *testing.T) {
@@ -38,10 +38,10 @@ func TestIsolate(t *testing.T) {
 
 func TestMain(m *testing.M) { Main(m) }
 
-// New copies the binary's one template (T-1009): two projects are independent copies, each with the template's commit
+// New copies the binary's one template: two projects are independent copies, each with the template's commit
 // on main, a commit in one is not in the other, and the template was built once for both. Refs and objects are read
 // from the files (a fresh repo's are loose), not by git: the package's git budget. The commit is the one git process
-// (commit -a of a tracked file; T-1024).
+// (commit -a of a tracked file).
 func TestNewCopiesOneTemplate(t *testing.T) {
 	a, b := New(t), New(t)
 	if a.Root == b.Root {
@@ -85,8 +85,8 @@ func (noHookTB) Helper() {}
 func (noHookTB) Fatal(args ...any)                 { panic(fmt.Sprint(args...)) }
 func (noHookTB) Fatalf(format string, args ...any) { panic(fmt.Sprintf(format, args...)) }
 
-// New in a test binary whose TestMain did not call Main/Run fails at the template's first use (T-1019), naming the fix:
-// nothing would remove the template then, and a silent build leaks an hk-tmpl* dir per run (RV-142 #1).
+// New in a test binary whose TestMain did not call Main/Run fails at the template's first use, naming the fix:
+// nothing would remove the template then, and a silent build leaks an hk-tmpl* dir per run.
 func TestNewWithoutTheHookFails(t *testing.T) {
 	hooked.Store(false)
 	defer hooked.Store(true)
@@ -110,8 +110,8 @@ func TestNewWithoutTheHookFails(t *testing.T) {
 }
 
 // Run removes the template New copies: a child test binary gives the binary a template base (a dir of the template's
-// shape) and writes it down, and after the child exits nothing is left there (T-1019). This package's own run cannot
-// show it: its template must live for its tests. The child builds no template, so the check starts no git (T-1024);
+// shape) and writes it down, and after the child exits nothing is left there. This package's own run cannot
+// show it: its template must live for its tests. The child builds no template, so the check starts no git;
 // that New builds it once is TestNewCopiesOneTemplate's.
 func TestRunRemovesTheTemplate(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "base")
@@ -158,7 +158,7 @@ func TestTemplateChild(t *testing.T) {
 }
 
 // TestScript: Script writes the body as an executable, and the same body again is the same file (a hardlink to the one
-// cached copy: macOS scans a fresh executable on its first exec, T-1025).
+// cached copy: macOS scans a fresh executable on its first exec).
 func TestScript(t *testing.T) {
 	body := "#!/bin/sh\necho hi\n"
 	one := Script(t, t.TempDir(), "stub", body)

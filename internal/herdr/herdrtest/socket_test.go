@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// T-541 (RV-56 #5): pane.send_input types its text and keeps it pending; only Enter submits it, Escape clears it.
+// pane.send_input types its text and keeps it pending; only Enter submits it, Escape clears it.
 func TestPaneInputSubmitsOnlyOnEnter(t *testing.T) {
 	for _, c := range []struct {
 		name    string

@@ -1,6 +1,6 @@
 package main
 
-// T-820: Claude creates a session's transcript at the first prompt (CAP §2.4), so CC-L2 checks the path at
+// Claude creates a session's transcript at the first prompt (CAP §2.4), so CC-L2 checks the path at
 // SessionStart and the file's existence after the turn.
 
 import (

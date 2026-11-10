@@ -1,6 +1,6 @@
-// Command affected selects the Go packages a change can break (T-1040, moved from internal/affected, T-347, T-351):
+// Command affected selects the Go packages a change can break (moved from internal/affected):
 // the packages of the changed files plus every package whose imports or test imports reach them. A changed test file
-// selects only its own package (T-954): no other package imports it. The kit's Makefile runs it for `make
+// selects only its own package: no other package imports it. The kit's Makefile runs it for `make
 // check-affected`; it is a kit tool, not part of the obor binary, and imports the standard library only.
 package main
 
@@ -22,7 +22,7 @@ func main() {
 }
 
 // run is the tool: root is the module root, args its flags (-full, repeatable: the globs whose change forces the full
-// suite, which the Makefile passes; T-1120), getenv the environment (OBOR_CHANGED_FILES, the changed files one
+// suite, which the Makefile passes), getenv the environment (OBOR_CHANGED_FILES, the changed files one
 // repo-relative path per line), out where the import paths, or the one "full: <why>" line, go. It returns 1 when the
 // list cannot be made (the Makefile then runs the full suite) and 2 on a bad flag.
 func run(root string, args []string, getenv func(string) string, out io.Writer) int {
@@ -118,7 +118,7 @@ func Go(root string, files, fullGlobs []string) (Result, error) {
 	testFiles := map[string]bool{} // _test.go files: their own package only
 	for _, f := range files {
 		if f = path.Clean(f); f == "." || strings.HasPrefix(f, "../") || path.IsAbs(f) {
-			continue // not module-relative: no package of this module holds it (T-1159: an absolute path never reached ".")
+			continue // not module-relative: no package of this module holds it (an absolute path never reached ".")
 		}
 		test := strings.HasSuffix(f, "_test.go")
 		for dir := path.Dir(f); ; dir = path.Dir(dir) {

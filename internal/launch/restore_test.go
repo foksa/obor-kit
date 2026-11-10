@@ -118,7 +118,7 @@ func TestRestoreLabelledOborPanes(t *testing.T) {
 	f := newRfx(t)
 	lane := f.p.PlainLane("L-01", "task/T-01")
 	f.p.Config()
-	f.p.State("L-01", `{"task":"T-01","branch":"task/T-01","agent":"pj-l-01"}`) // its row holds T-01, not landed: busy (T-1012)
+	f.p.State("L-01", `{"task":"T-01","branch":"task/T-01","agent":"pj-l-01"}`) // its row holds T-01, not landed: busy
 	other := filepath.Join(f.p.Base, "other")
 	repoAt(t, other)
 	f.shell("w1:p1", lane, "pj-l-01")
@@ -170,7 +170,7 @@ func TestRestoreOutsideOborSilent(t *testing.T) {
 	f.wantCalls(f.p.Root + " restart pj-lead --pane w1:p4 --fresh") // precondition: the obor pane restarts once herdr answers
 }
 
-// T-776: obor monitor is gone; a pane still labelled <prefix>-monitor (a project not yet upgraded) is no agent: the
+// obor has no monitor role; a pane still labelled <prefix>-monitor (a project not yet upgraded) is no agent: the
 // restore types nothing in it, restarts nothing there and logs nothing of it (the lead's own pane still restarts).
 func TestRestoreIgnoresMonitorPane(t *testing.T) {
 	f := newRfx(t)
@@ -195,7 +195,7 @@ func TestRestoreFailureLoggedNextPaneRestarts(t *testing.T) {
 	f := newRfx(t)
 	lane := f.p.PlainLane("L-01", "task/T-01")
 	f.p.Config()
-	f.p.State("L-01", `{"task":"T-01","branch":"task/T-01","agent":"pj-l-01"}`) // its row holds T-01, not landed: busy (T-1012)
+	f.p.State("L-01", `{"task":"T-01","branch":"task/T-01","agent":"pj-l-01"}`) // its row holds T-01, not landed: busy
 	f.shell("w1:p1", f.p.Root, "pj-lead")
 	f.shell("w1:p2", lane, "pj-l-01")
 	f.fail["pj-lead"] = true
@@ -209,7 +209,7 @@ func TestRestoreWorkerWithoutSessionFresh(t *testing.T) {
 	f := newRfx(t)
 	o1, o2 := f.p.PlainLane("L-01", "task/T-01"), f.p.PlainLane("L-02", "task/T-02")
 	f.p.Config()
-	f.p.State("L-01", `{"task":"T-01","branch":"task/T-01","agent":"pj-l-01"}`) // its row holds T-01, not landed: busy (T-1012)
+	f.p.State("L-01", `{"task":"T-01","branch":"task/T-01","agent":"pj-l-01"}`) // its row holds T-01, not landed: busy
 	f.shell("w1:p1", o1, "pj-l-01")
 	f.shell("w1:p2", o2, "pj-l-02")
 	f.shell("w1:p3", f.p.Root, "pj-lead")
@@ -228,9 +228,9 @@ func TestRestoreWorkerWithoutSessionFresh(t *testing.T) {
 	}
 }
 
-// T-583, T-599: the restore's --fresh decision reads serve's store only, as obor restart does. A worker with a session
+// the restore's --fresh decision reads serve's store only, as obor restart does. A worker with a session
 // there (Claude or Codex) resumes; none at all: TestRestoreWorkerWithoutSessionFresh. A kind that resumes nothing
-// (OpenCode, T-581) starts fresh whatever is recorded.
+// (OpenCode) starts fresh whatever is recorded.
 func TestRestoreWorkerRecordedSession(t *testing.T) {
 	t.Run("store-only Codex worker: resumed, no --fresh", func(t *testing.T) {
 		f := newRfx(t)
@@ -247,7 +247,7 @@ func TestRestoreWorkerRecordedSession(t *testing.T) {
 		f := newRfx(t)
 		lane := f.p.PlainLane("L-01", "task/T-01")
 		f.p.Config()
-		f.p.State("L-01", `{"task":"T-01","branch":"task/T-01","agent":"pj-l-01"}`) // its row holds T-01, not landed: busy (T-1012)
+		f.p.State("L-01", `{"task":"T-01","branch":"task/T-01","agent":"pj-l-01"}`) // its row holds T-01, not landed: busy
 		f.shell("w1:p1", lane, "pj-l-01")
 		recordSessions(t, f.p.Root, store.Session{Agent: "pj-l-01", Kind: "claude", ID: "sid-l-01", Started: time.Now().Unix()})
 		f.pl.RestoreProject(context.Background(), f.p.Root)
@@ -268,7 +268,7 @@ func TestRestoreWorkerRecordedSession(t *testing.T) {
 	})
 }
 
-// T-739: the restore's resume decision reads the kind of the model a lane's open dispatch runs: an OpenCode dispatch
+// the restore's resume decision reads the kind of the model a lane's open dispatch runs: an OpenCode dispatch
 // starts fresh whatever session is recorded, a Claude dispatch there resumes.
 func TestRestorePoolLaneKindIsTheDispatchs(t *testing.T) {
 	for _, c := range []struct{ typ, kind, want string }{
@@ -297,7 +297,7 @@ func TestRestorePoolLaneKindIsTheDispatchs(t *testing.T) {
 	}
 }
 
-// bash restore.test.sh case_role_panes_restored_not_skipped; T-169: the free lane's worker is skipped (obor dispatch
+// The free lane's worker is skipped (obor dispatch
 // would start it, so the restore skips it by default).
 func TestRestoreRolePanesNotSkipped(t *testing.T) {
 	f := newGitRfx(t) // the free lane is checks.LaneTable's answer: git
@@ -321,8 +321,8 @@ func TestRestoreRolePanesNotSkipped(t *testing.T) {
 	}
 }
 
-// T-1081 (DD-v0.32 #1): a config naming keys this obor does not know (the promotion's, T-1076) still loads for the
-// restore (paneConfig): its lead pane restarts, where the project used to be skipped without a word.
+// a config naming keys this obor does not know (the promotion's) still loads for the
+// restore (paneConfig): its lead pane restarts, never skipping the project without a word.
 func TestRestoreLoadsAConfigWithUnknownKeys(t *testing.T) {
 	f := newRfx(t)
 	f.p.Config(testkit.Set("branches.promote", "release"), testkit.Set("merge.promote_weight", 2),
@@ -340,7 +340,7 @@ func TestRestoreProjectOnlyItsProject(t *testing.T) {
 	f := newRfx(t)
 	lane := f.p.PlainLane("L-01", "task/T-01")
 	f.p.Config()
-	f.p.State("L-01", `{"task":"T-01","branch":"task/T-01","agent":"pj-l-01"}`) // its row holds T-01, not landed: busy (T-1012)
+	f.p.State("L-01", `{"task":"T-01","branch":"task/T-01","agent":"pj-l-01"}`) // its row holds T-01, not landed: busy
 	f.shell("w1:p1", lane, "pj-l-01")
 	f.shell("w1:p2", f.p.Root, "pj-lead")
 	other := testkit.NewPlain(t)

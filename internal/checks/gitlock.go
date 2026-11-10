@@ -45,7 +45,7 @@ func (s Scratch) gitLocked(env []string, dir string, args ...string) (string, st
 	}
 }
 
-// Locked runs git -C dir args… under ctx as serve's own git calls do (gitLocked, T-872: the review git's worktree
+// Locked runs git -C dir args… under ctx as serve's own git calls do (gitLocked: the review git's worktree
 // move): its stdout; an error names the call and git's last stderr line.
 func (s Scratch) Locked(ctx context.Context, dir string, args ...string) (string, error) {
 	s.gitCtx = ctx

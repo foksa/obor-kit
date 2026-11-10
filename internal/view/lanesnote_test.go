@@ -12,7 +12,7 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-879: serve's line on a lane table older than its tick follows the project's own notes (obor status prints them,
+// serve's line on a lane table older than its tick follows the project's own notes (obor status prints them,
 // the page shows them); a fresh table adds none.
 func TestBuildLanesNote(t *testing.T) {
 	p := testkit.New(t)

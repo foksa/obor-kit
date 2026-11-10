@@ -5,7 +5,7 @@ import type { Lane, Queue } from "./types";
 const lane = (n: string, task: string | null, column: string): Lane => ({ lane: n, type: "", dir: "", branch: null, task,
   state: task ? "working" : "free", reason: null, done_age: null, dirty: false, warning: null, free: !task, column });
 
-// Four lanes busy, two of their tasks in the merge loop (T-961: they keep their lanes), one dispatch waiting for a
+// Four lanes busy, two of their tasks in the merge loop (they keep their lanes), one dispatch waiting for a
 // lane and one spec never dispatched: the owner's 11-07 picture.
 const busy = [lane("L-01", "T-1", "working"), lane("L-02", "T-2", "testing"), lane("L-03", "T-3", "review"),
   lane("L-04", "T-4", "working")];
@@ -59,7 +59,7 @@ describe("a queued item (T-986)", () => {
   });
 });
 
-// T-1043: the queue's order is serve's (the view sends the waits in the scheduler's pass order): the page lists them as
+// the queue's order is serve's (the view sends the waits in the scheduler's pass order): the page lists them as
 // sent — T-20, dispatched first, before T-10 — never by task id.
 describe("the queue's order (T-1043)", () => {
   it("lists the waiting dispatches as serve sent them", () => {

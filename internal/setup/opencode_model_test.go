@@ -8,11 +8,11 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-703: the env obor setup hands herdr for a new OpenCode pane carries the start's model and effort for obor's plugin
-// (OBOR_OPENCODE_MODEL provider/model#effort), and nothing of the T-696 workaround (no XDG_STATE_HOME, no
-// OPENCODE_CONFIG_CONTENT), and OPENCODE_CONFIG naming the start's generated config (T-809). A type without a model hands the variable empty, so a value the pane would inherit from
+// the env obor setup hands herdr for a new OpenCode pane carries the start's model and effort for obor's plugin
+// (OBOR_OPENCODE_MODEL provider/model#effort), and no workaround variables (no XDG_STATE_HOME, no
+// OPENCODE_CONFIG_CONTENT), and OPENCODE_CONFIG naming the start's generated config. A type without a model hands the variable empty, so a value the pane would inherit from
 // setup's own env (an OpenCode agent running setup) is none to the plugin. (A model without a model id:
-// agents.models.bare.) A new pane's shell is typed at once: the env line that exports its pane id (T-1037).
+// agents.models.bare.) A new pane's shell is typed at once: the env line that exports its pane id.
 func TestSetupOpencodePaneEnvCarriesTheModel(t *testing.T) {
 	t.Parallel()
 	const models = `{"oc":{"kind":"opencode","id":"go/ds"},"bare":{"kind":"opencode","id":""}}`
@@ -45,7 +45,7 @@ func TestSetupOpencodePaneEnvCarriesTheModel(t *testing.T) {
 			hasNot(t, calls, "inherited/m", "the inherited model")
 			hasNot(t, calls, "XDG_STATE_HOME", "no state dir, the user's own untouched")
 			hasNot(t, calls, "OPENCODE_CONFIG_CONTENT", "no config content")
-			// T-809: the start's generated config, by path, with the launching kit's server and plugin.
+			// the start's generated config, by path, with the launching kit's server and plugin.
 			file := filepath.Join(x.Root, ".obor", "state", "opencode.json")
 			has(t, calls, "OPENCODE_CONFIG="+file, "the generated config named")
 			has(t, x.Read(file), `"`+filepath.Join(kit, "bin", "obor")+`"`, "the kit's bin/obor")
@@ -57,7 +57,7 @@ func TestSetupOpencodePaneEnvCarriesTheModel(t *testing.T) {
 	}
 }
 
-// T-707 (RV-83 #4): OBOR_OPENCODE_MODEL is obor's own, for OpenCode starts only: a new pane for a Claude or Codex agent
+// OBOR_OPENCODE_MODEL is obor's own, for OpenCode starts only: a new pane for a Claude or Codex agent
 // gets it empty (none to obor's plugin) over a value setup's own env holds, and nothing else of the OpenCode kind's.
 func TestSetupNonOpencodePaneDropsTheInheritedModel(t *testing.T) {
 	t.Parallel()

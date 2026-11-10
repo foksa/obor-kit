@@ -10,10 +10,10 @@ import (
 	"testing"
 )
 
-// Tests for T-902: `make release` runs `make check-release` (tests/release) before the tag; a red check stops the
+// `make release` runs `make check-release` (tests/release) before the tag; a red check stops the
 // release with nothing tagged, and the re-run (green) starts at that check.
 
-// checkReleaseTest is check-release's go test line: the release build tag (T-1001), the integration tag (T-1014) and
+// checkReleaseTest is check-release's go test line: the release build tag, the integration tag and
 // CHECK_CPUS (-p, the gate exports it), nothing else, so a fixture run inherits them.
 var checkReleaseTest = regexp.MustCompile(`^test -count=1 -tags release,integration (-p [0-9]+ )?\./tests/release$`)
 

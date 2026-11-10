@@ -1,7 +1,7 @@
-// socketprobe (T-182): can a third-party client subscribe to herdr events? Connects to a herdr API socket, sends one
+// socketprobe: can a third-party client subscribe to herdr events? Connects to a herdr API socket, sends one
 // request line (default: events.subscribe with the given subscriptions), and prints every line it receives with the
 // wall clock in ms, until -for elapses. Run it ONLY against a throwaway session's socket (`herdr --session
-// hk-probe-…`; AGENTS.md "Tests stub herdr", T-150): it refuses the default session's socket.
+// hk-probe-…`; AGENTS.md "Tests stub herdr"): it refuses the default session's socket.
 //
 //	go run ./tests/go/socketprobe -socket <path> -sub '[{"type":"pane.exited"}]' -for 60s
 //	go run ./tests/go/socketprobe -socket <path> -req '{"id":"1","method":"pane.list","params":{}}'

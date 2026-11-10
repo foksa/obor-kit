@@ -63,7 +63,7 @@ func dropFact(t *testing.T, p *testkit.Project, at time.Time, task string, rev i
 	addFact(t, db, at, task, event.StepDropped, event.FactData{Reason: "superseded", Merge: true, Rev: rev})
 }
 
-// T-1028 (RV-143 verify #1): a spec dropped before any dispatch is serve's task outcome alone (T-1026, its dropped task
+// A spec dropped before any dispatch is serve's task outcome alone (its dropped task
 // status), so without serve's status for this project — down, up with no project, or answering for another one — the
 // queue cannot tell the dropped spec from one never dispatched and lists neither; it never lists T-1 as a drop that did
 // not happen.
@@ -95,7 +95,7 @@ func TestQueueListsNoDroppedSpecWithoutServeStatus(t *testing.T) {
 	}
 }
 
-// T-1028: the accepted trade-off — without serve's status a valid spec that was never dispatched is not listed either
+// the accepted trade-off — without serve's status a valid spec that was never dispatched is not listed either
 // (the view shows nothing it cannot know).
 func TestQueueListsNoNeverDispatchedSpecWithoutServeStatus(t *testing.T) {
 	t.Parallel()
@@ -112,7 +112,7 @@ func TestQueueListsNoNeverDispatchedSpecWithoutServeStatus(t *testing.T) {
 	}
 }
 
-// T-1016, T-1026, T-1028: with serve's status a stored spec not in it is never dispatched — unless serve lists it as
+// with serve's status a stored spec not in it is never dispatched — unless serve lists it as
 // dropped (ended), which hides it until a later obor spec set revives it; a valid spec is listed as never dispatched.
 func TestQueueListsStoredSpecsWithServeStatus(t *testing.T) {
 	t.Parallel()
@@ -144,8 +144,8 @@ func TestQueueListsStoredSpecsWithServeStatus(t *testing.T) {
 	}
 }
 
-// T-1030, T-1043: the queue lists serve's high waiting dispatches before the ordinary ones, each in the pass's order
-// (the rank serve ships: T-4 dispatched before T-3), and carries the flag; a spec never dispatched is ordinary and
+// the queue lists serve's high waiting dispatches before the ordinary ones, each in the pass's order
+// (the rank serve ships: T-4 dispatched before), and carries the flag; a spec never dispatched is ordinary and
 // follows them. The order is serve's status's alone, the view never reads a spec.
 func TestQueueListsHighWaitingTasksFirst(t *testing.T) {
 	t.Parallel()
@@ -179,7 +179,7 @@ func TestQueueListsHighWaitingTasksFirst(t *testing.T) {
 	}
 }
 
-// T-1043: the queue lists the dispatched waits in serve's order — each one's rank, the scheduler's pass order — not by
+// the queue lists the dispatched waits in serve's order — each one's rank, the scheduler's pass order — not by
 // task id: T-20, dispatched before T-10, is listed first. A status whose state string says waiting but whose predicate
 // serve does not set is no wait: the flag is serve's, the view never reads the string.
 func TestQueueListsWaitingTasksInServeOrder(t *testing.T) {

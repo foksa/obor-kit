@@ -37,7 +37,7 @@ describe("staged setup edits", () => {
     expect(current(s, "lanes.count")).toBe(3);
     expect(current(s, "lane_types.opus.max")).toBeUndefined();
     expect(current(s, "agents.roles.reviewer.type")).toBeUndefined();
-    expect(current(s, "difficulty.hard")).toBeUndefined(); // shape 1's names are no keys (T-1126)
+    expect(current(s, "difficulty.hard")).toBeUndefined(); // shape 1's names are no keys
     expect(current(s, "roles.reviewer")).toBeUndefined();
     expect(current(s, "lanes")).toBeUndefined();
     expect(current(s, "commands.check")).toBeUndefined();

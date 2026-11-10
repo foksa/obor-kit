@@ -195,7 +195,7 @@ func (k *Kind) writeState(name string, data []byte) (string, error) {
 	return path, project.WriteAtomic(path, data)
 }
 
-// StartWhole is one start (agents.Whole, T-1042): one start call with the complete start, its argv, env and files
+// StartWhole is one start (agents.Whole): one start call with the complete start, its argv, env and files
 // applied together.
 func (k *Kind) StartWhole(in agents.Start) (agents.Launch, error) {
 	r, err := k.start(in)
@@ -206,7 +206,7 @@ func (k *Kind) StartWhole(in agents.Start) (agents.Launch, error) {
 }
 
 // CheckEffort (agents.ArgsChecker) is why args cannot carry effort: a start of the args and effort alone, its reply's
-// error (an effort that needs an arg the args lack: OpenCode's model id, T-697); its files are not written.
+// error (an effort that needs an arg the args lack: OpenCode's model id); its files are not written.
 func (k *Kind) CheckEffort(args []string, effort string) error {
 	if _, err := k.manifest(); err != nil {
 		return err
@@ -259,7 +259,7 @@ func (k *Kind) NotReady(screen string) string {
 }
 
 // installReply is install's reply: the MCP registration as data; setup checks it. A reply that still carries the
-// removed user-config install path (mcp.where "config", a plugin link under ~/) is refused (T-1119).
+// removed user-config install path (mcp.where "config", a plugin link under ~/) is refused.
 type installReply struct {
 	MCP struct {
 		Where    string         `json:"where"`
@@ -268,7 +268,7 @@ type installReply struct {
 		Entry    map[string]any `json:"entry"`
 		Unpinned map[string]any `json:"unpinned"`
 	} `json:"mcp"`
-	Plugin json.RawMessage `json:"plugin"` // removed (T-1119): any non-null value is refused
+	Plugin json.RawMessage `json:"plugin"` // removed: any non-null value is refused
 }
 
 // InstallErr runs install; the registration's Lane is the manifest's mcp_lane (closure 3 as data).

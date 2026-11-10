@@ -9,10 +9,10 @@ import (
 	"path/filepath"
 )
 
-// ccL2: SessionStart reports the id --session-id gave (obor's choice, T-813) and a transcript_path of its own — the
+// ccL2: SessionStart reports the id --session-id gave (obor's choice) and a transcript_path of its own — the
 // realpath Claude resolved, under its config dir — and that path is the file of that id: obor records it and derives
 // none. Claude creates the transcript at the first prompt (CAP §2.4), so its existence is checked after the turn
-// (T-820), never at SessionStart: with turn it PASSes when the file is there, else FAILs; without it the missing file
+// never at SessionStart: with turn it PASSes when the file is there, else FAILs; without it the missing file
 // is a SKIP.
 func ccL2(r *run, sid string, hooks []record, turn bool, where string) {
 	if len(hooks) == 0 {

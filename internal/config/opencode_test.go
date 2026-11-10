@@ -9,7 +9,7 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-765, T-697, T-1046: OpenCode (a plugin kind, answering in process here) takes the effort as the model's #variant in
+// OpenCode (a plugin kind, answering in process here) takes the effort as the model's #variant in
 // its plugin's env; a value not among its efforts, and an effort on a model without an id, are refused (the second by
 // a start of the args and effort: agents.ArgsChecker).
 func TestOpencodeModelEffort(t *testing.T) {

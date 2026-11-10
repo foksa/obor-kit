@@ -10,7 +10,7 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-444: a fresh start's first prompt of many lines reaches herdr as one line (each run of newlines and \r one space),
+// a fresh start's first prompt of many lines reaches herdr as one line (each run of newlines and \r one space),
 // for every kind, the text otherwise unchanged: herdr refuses an agent.start argument with a newline
 // ("agent arguments cannot be encoded safely for the target shell"; the fake refuses it too), so a typed job's
 // multi-line text would leave the pane at a shell. A prompt with no line break is passed as it is.
@@ -27,7 +27,7 @@ func TestStartPromptIsOneLine(t *testing.T) {
 		prompt, want    string // the first prompt given, and what reaches the start
 	}{
 		{"claude", "opus", "claude", "-- --permission-mode auto --model opus" + settings + " --session-id <new> ", prompt, one},
-		// T-853: a Codex reviewer writes the main checkout's reviews dir (<reviews>) from its role worktree.
+		// a Codex reviewer writes the main checkout's reviews dir (<reviews>) from its role worktree.
 		{"codex", "luna", "codex", "-- -s workspace-write -a never --no-daemon -m gpt-6-luna --add-dir <reviews> " + codexUpdate + " " + codexMCP + " ", prompt, one},
 		{"opencode", "oc", "opencode", "-- --auto --standalone --prompt ", prompt, one},
 		{"no line break: unchanged", "opus", "claude", "-- --permission-mode auto --model opus" + settings + " --session-id <new> ", plain, plain},
@@ -49,7 +49,7 @@ func TestStartPromptIsOneLine(t *testing.T) {
 	}
 }
 
-// DD-v0.13 D1: a start of a kind obor has no bridge for is refused before herdr's agent start (dispatch and obor
+// a start of a kind obor has no bridge for is refused before herdr's agent start (dispatch and obor
 // config validate refuse such a model; no degraded start with its args alone).
 func TestStartWithoutBridgeRefused(t *testing.T) {
 	t.Parallel()

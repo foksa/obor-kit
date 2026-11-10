@@ -166,7 +166,7 @@ func TestDetectCommands(t *testing.T) {
 	}
 }
 
-// T-1125, T-1157: obor init on an existing config.json this obor cannot load (shape 1: no longer read) is refused with
+// obor init on an existing config.json this obor cannot load (shape 1: not read) is refused with
 // the load's own error before it writes anything (it would edit the config in place): the file as it was, no init file,
 // claude not called.
 func TestOborInitRefusesAnUnloadableConfig(t *testing.T) {

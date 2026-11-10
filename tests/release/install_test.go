@@ -55,7 +55,7 @@ func treePath(t *testing.T, rel string) string {
 }
 
 // commitVersion writes a kit at version v into the source repo and tags it: the tree's shim and command list, VERSION v,
-// a file:// release URL, and the checksum lines for a fake release binary and a fake OpenCode kind binary (T-1046) it
+// a file:// release URL, and the checksum lines for a fake release binary and a fake OpenCode kind binary it
 // places in the download dir.
 func (f *installFixture) commitVersion(t *testing.T, v string) {
 	t.Helper()
@@ -139,7 +139,7 @@ func TestInstallFresh(t *testing.T) {
 	if !f.Exists(filepath.Join(f.home, ".obor", "bin", shimAsset("0.2.0"))) {
 		t.Errorf("the v0.2.0 release binary was not fetched into ~/.obor/bin")
 	}
-	// T-1046: the kind binary the catalog lists lands beside it, checksum-checked, from the same release dir
+	// the kind binary the catalog lists lands beside it, checksum-checked, from the same release dir
 	if got := readFile(t, filepath.Join(f.home, ".obor", "bin", kindAsset("0.2.0"))); got != "#!/bin/sh\necho kind 0.2.0\n" {
 		t.Errorf("the v0.2.0 OpenCode kind binary beside obor's: %q", got)
 	}
@@ -221,7 +221,7 @@ func TestInstallPathLine(t *testing.T) {
 	}
 }
 
-// RV-63: a directory (or a symlink to one) where the ~/.local/bin/obor link goes fails the install naming it, before
+// a directory (or a symlink to one) where the ~/.local/bin/obor link goes fails the install naming it, before
 // `ln` could drop a link inside it, and the directory is left as it was.
 func TestInstallDirectoryAtLink(t *testing.T) {
 	t.Parallel()

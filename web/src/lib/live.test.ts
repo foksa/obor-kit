@@ -1,5 +1,5 @@
-// The top bar's live mark is the worst of the running Lives' states (T-763): the sidebar's healthy reads never hide
-// the shown page's failed refresh or lost event poll, and a page navigated away from no longer counts.
+// The top bar's live mark is the worst of the running Lives' states: the sidebar's healthy reads never hide
+// the shown page's failed refresh or lost event poll, and a page navigated away from does not count.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const events = vi.fn();

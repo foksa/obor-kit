@@ -11,9 +11,9 @@ import (
 	"obor/internal/agents/codex"
 )
 
-// T-495: Codex's start argv (resume first, obor's five -c options with a kit, the update check off, the prompt last
+// Codex's start argv (resume first, obor's five -c options with a kit, the update check off, the prompt last
 // unless resumed), its self-update screen, /quit, the headless forms, the per-start registration, rollout transcripts,
-// typed delivery. T-570: the startup update check is off unless the type's args set it.
+// typed delivery. The startup update check is off unless the type's args set it.
 func TestKind(t *testing.T) {
 	k, ok := split()
 	if !ok || k.Name() != "codex" {
@@ -121,10 +121,10 @@ func sameTurn(a, b agents.Turn) bool {
 	return a.ID == b.ID && a.Error == b.Error && a.Details == b.Details && a.Ended == b.Ended && a.Reset.Equal(b.Reset)
 }
 
-// T-563: LastTurn reads the rollout's last turn event from its tail: a task_complete with an error is a hit (the
+// LastTurn reads the rollout's last turn event from its tail: a task_complete with an error is a hit (the
 // error as codex_error_info gives it, the message its details); a clean one, a later turn start after the error, or
 // the error's line cut short (no newline yet) is none; a tail with no turn event says nothing. Each says its phase
-// (T-571): task_complete and turn_aborted are the turn's end (Ended), task_started its start.
+// task_complete and turn_aborted are the turn's end (Ended), task_started its start.
 func TestLastTurn(t *testing.T) {
 	k, _ := split()
 	for _, c := range []struct {
@@ -159,7 +159,7 @@ func tokenLimits(primary, secondary string) string {
 		`"rate_limits":{"limit_id":"codex","primary":` + primary + `,"secondary":` + secondary + `,"credits":null}}}` + "\n"
 }
 
-// T-568: a turn ended on the usage limit has its reset from its last token count with a window at 100% (that
+// a turn ended on the usage limit has its reset from its last token count with a window at 100% (that
 // window's resets_at; both full: the later; a later count of another limit with no windows passed over), else from
 // the message's clock time, else none; a full window of an earlier turn is not this turn's.
 func TestLastTurnReset(t *testing.T) {
@@ -191,7 +191,7 @@ func TestLastTurnReset(t *testing.T) {
 	}
 }
 
-// T-568: usage_limit_exceeded is a limit, its message's clock time its reset; another error is no limit.
+// usage_limit_exceeded is a limit, its message's clock time its reset; another error is no limit.
 func TestReset(t *testing.T) {
 	k, _ := split()
 	at := time.Date(2026, 10, 30, 14, 0, 0, 0, time.UTC)
@@ -203,7 +203,7 @@ func TestReset(t *testing.T) {
 	}
 }
 
-// T-577: a rollout's first line, its session_meta, names the session: its id, cwd and start (the payload's
+// a rollout's first line, its session_meta, names the session: its id, cwd and start (the payload's
 // timestamp, else the line's); any other line names none.
 func TestSessionMeta(t *testing.T) {
 	k, _ := split()
@@ -227,7 +227,7 @@ func TestSessionMeta(t *testing.T) {
 	}
 }
 
-// T-695: Start with an effort sets -c model_reasoning_effort=<effort> once, in place of the args' own (each spelling);
+// Start with an effort sets -c model_reasoning_effort=<effort> once, in place of the args' own (each spelling);
 // without one the args are as given.
 func TestStartEffort(t *testing.T) {
 	k, _ := split()
@@ -250,7 +250,7 @@ func TestStartEffort(t *testing.T) {
 	}
 }
 
-// T-853: a start with WriteDirs (a reviewer's or deep dive's reviews dir in the main checkout) adds one --add-dir per
+// a start with WriteDirs (a reviewer's or deep dive's reviews dir in the main checkout) adds one --add-dir per
 // dir after the args, on a resume too; none: no --add-dir.
 func TestStartWriteDirs(t *testing.T) {
 	k, _ := split()
@@ -279,7 +279,7 @@ func projectFS(content string) agents.ReadFile {
 	}
 }
 
-// T-1033: the start dir's committed .codex/config.toml outranks obor's policy flags: a top-level sandbox_mode drops
+// the start dir's committed .codex/config.toml outranks obor's policy flags: a top-level sandbox_mode drops
 // the base -s workspace-write, a top-level check_for_update_on_startup drops obor's -c; a key under a [table], a
 // file that does not parse, or no file: the flags as before.
 func TestStartProjectConfig(t *testing.T) {
@@ -315,7 +315,7 @@ func TestStartProjectConfig(t *testing.T) {
 	if got := k.Start(agents.Start{Args: base, Read: projectFS("sandbox_mode = \"x\"\n")}); !slices.Equal(got, all) {
 		t.Errorf("no dir: %q", got)
 	}
-	// The type's own update-check option still wins over the default (T-570), with a project file there too.
+	// The type's own update-check option still wins over the default, with a project file there too.
 	typed := append(append([]string(nil), base...), "-c", "check_for_update_on_startup=true")
 	if got := k.Start(agents.Start{Args: typed, Dir: "/lane", Read: projectFS("sandbox_mode = \"x\"\n")}); !slices.Equal(got,
 		[]string{"-a", "never", "--no-daemon", "-c", "check_for_update_on_startup=true"}) {
@@ -323,7 +323,7 @@ func TestStartProjectConfig(t *testing.T) {
 	}
 }
 
-// T-1033: config validate notes a config file that does not parse; none for a clean or absent one.
+// config validate notes a config file that does not parse; none for a clean or absent one.
 func TestProjectWarnings(t *testing.T) {
 	k, _ := split()
 	pc, ok := k.(agents.ProjectChecker)
@@ -337,7 +337,7 @@ func TestProjectWarnings(t *testing.T) {
 	}
 }
 
-// T-1045, T-1049: on darwin, the files beside the resolved codex (symlinks followed) whose com.apple.quarantine lacks
+// on darwin, the files beside the resolved codex (symlinks followed) whose com.apple.quarantine lacks
 // the user-approved bit (0x0040) make one warning naming them and the fix on the package's version dir; an approved
 // file (0x01c1), none, codex not on the PATH, or a machine that is not a Mac: no warning.
 func TestInstallWarnings(t *testing.T) {
@@ -402,7 +402,7 @@ func TestInstallWarnings(t *testing.T) {
 	}
 }
 
-// T-1052: the start check refuses on darwin for the files beside the resolved codex whose com.apple.quarantine lacks
+// the start check refuses on darwin for the files beside the resolved codex whose com.apple.quarantine lacks
 // the user-approved bit (0x0040), naming them and the fix; an approved file, none, no codex, or another OS: no refusal.
 // It is the same read of the install as TestInstallWarnings, and it runs no process.
 func TestStartRefusal(t *testing.T) {

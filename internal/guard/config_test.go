@@ -9,22 +9,22 @@ import (
 	"obor/internal/testkit"
 )
 
-// brokenConfigs are the ways .obor/config.json exists but does not load (DD-v0.13 A1's routes, beside an unknown key).
+// brokenConfigs are the ways .obor/config.json exists but does not load (every route, beside an unknown key).
 var brokenConfigs = []struct {
 	name, file, text string
 }{
 	{"a syntax error in config.json", ".obor/config.json", `{"version": 1,`},
 	{"a syntax error in local.json", ".obor/local.json", `{"lanes_dir": `},
-	{"a type error", ".obor/local.json", `{"nightly": {"at": 5}}`}, // shape 2, as the fixture's config.json (T-1124)
+	{"a type error", ".obor/local.json", `{"nightly": {"at": 5}}`}, // shape 2, as the fixture's config.json
 }
 
-// unknownKey adds keys this binary does not know (keep_warm is one T-501 removed) to the fixture's config.
+// unknownKey adds keys this binary does not know (keep_warm is one such retired key) to the fixture's config.
 func unknownKey(f *testkit.Project, protected string) {
 	f.Config(testkit.Set("rules.protected_files", protected), testkit.Set("keep_warm", `{"lanes": 1}`),
 		testkit.Set("merge.future", 1))
 }
 
-// DD-v0.13 A1, PreToolUse: an unknown config key is ignored (the guard runs on the rest of the config); a config that
+// PreToolUse: an unknown config key is ignored (the guard runs on the rest of the config); a config that
 // does not load fails closed: every session but a lead (and a role-less one in the main checkout) is denied writes in
 // the repo and git writes, reads and writes outside the repo stay allowed, and git push, pkill and headless runs stay
 // denied for everyone.
@@ -78,9 +78,9 @@ func TestConfigUnreadableFailsClosed(t *testing.T) {
 	}
 }
 
-// DD-v0.13 A1, SessionStart: an unknown key is one WARN line naming it, then the usual context; a config that does not
+// SessionStart: an unknown key is one WARN line naming it, then the usual context; a config that does not
 // load is one line saying so (no role line: nothing is guarded on the default config's view); its default config
-// derives no name (T-786), so the last readable session's inbox record stays as it was (never one under a wrong name).
+// derives no name, so the last readable session's inbox record stays as it was (never one under a wrong name).
 func TestSessionConfigUnknownKeyAndUnreadable(t *testing.T) {
 	t.Parallel()
 	f, o1 := sessionFx(t, true)
@@ -114,7 +114,7 @@ func TestSessionConfigUnknownKeyAndUnreadable(t *testing.T) {
 	}
 }
 
-// DD-v0.13 A1, UserPromptSubmit: the wrong-tab guard still asks with an unknown key (and says nothing of it) and with a
+// UserPromptSubmit: the wrong-tab guard still asks with an unknown key (and says nothing of it) and with a
 // config that does not load (on the default config: the lane by its cwd).
 func TestPromptConfigUnknownKeyAndUnreadable(t *testing.T) {
 	t.Parallel()
@@ -134,7 +134,7 @@ func TestPromptConfigUnknownKeyAndUnreadable(t *testing.T) {
 	}
 }
 
-// DD-v0.13 B1: the hooks line names one headless form per registered kind, from its bridge (xkind: by its program).
+// the hooks line names one headless form per registered kind, from its bridge (xkind: by its program).
 func TestHeadlessFormsFromTheBridges(t *testing.T) {
 	if got := strings.Join(headlessForms(), ", "); got != "claude -p, codex exec, opencode run, x-agent -p" {
 		t.Errorf("headlessForms = %q", got)

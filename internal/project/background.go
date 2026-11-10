@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 )
 
-// BackgroundFile is <root>/.obor/state/background.jsonl (T-714): one line per Bash call an agent started in the
+// BackgroundFile is <root>/.obor/state/background.jsonl: one line per Bash call an agent started in the
 // background (Claude's run_in_background), written by obor's PreToolUse hook, so the readers (obor status, web) can
 // show a live process under its description. Best-effort, like the other state-dir records.
 func BackgroundFile(root string) string { return filepath.Join(StateDir(root), "background.jsonl") }

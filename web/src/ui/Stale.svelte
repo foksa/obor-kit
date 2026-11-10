@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Stale is a page's note that its shown data is old: the last read of a page that has data failed (T-763). It wears
+  // Stale is a page's note that its shown data is old: the last read of a page that has data failed. It wears
   // the top bar's stale mark.
   let { error }: { error: string } = $props();
 </script>

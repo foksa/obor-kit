@@ -12,7 +12,7 @@ import (
 	"obor/internal/store"
 )
 
-// Detail is one project's drill-down pages (T-667), for the API of `obor web` and nothing else: the project's root (its
+// Detail is one project's drill-down pages, for the API of `obor web` and nothing else: the project's root (its
 // store, read-only, is opened per page; the sessions' transcripts) and its view (serve's live bits: a task's state, a
 // needs-you's answer commands; serve down: none). The store alone answers the rest: a task's spec, report, gate,
 // records and jobs; an agent's sessions, briefs, lines and jobs; a job's text, which is a prompts row.
@@ -21,7 +21,7 @@ type Detail struct {
 	Project Project
 }
 
-// TaskDetail is one task's page: the view's Task (T-883; where it is: a lane freed since — the task merged — its
+// TaskDetail is one task's page: the view's Task (where it is: a lane freed since — the task merged — its
 // newest dispatch's lane and agent), its spec, the report it was last submitted with, its last gate, its needs-you,
 // its records newest first and the prompts of its jobs.
 type TaskDetail struct {
@@ -31,15 +31,15 @@ type TaskDetail struct {
 	GatedRev     int          `json:"gated_rev,omitempty"`     // the rev the last gate checked
 	Report       string       `json:"report,omitempty"`        // the last submission's report
 	GateLine     string       `json:"gate_line,omitempty"`     // the last gate's result line
-	GatePass     bool         `json:"gate_pass,omitempty"`     // the last gate's pass: its outcome is green (T-1105: the page reads this, never the line's wording)
+	GatePass     bool         `json:"gate_pass,omitempty"`     // the last gate's pass: its outcome is green (the page reads this, never the line's wording)
 	NeedsYou     []NeedsYou   `json:"needs_you"`
 	Records      []TaskRecord `json:"records"` // newest first
 	Jobs         []Prompt     `json:"jobs"`    // the task's job prompts, newest first
 }
 
 // TaskRecord is one record of a task's timeline: its seq, time, step and kind, the worded line when the view words
-// it (an intent or a result the event list does not show has none), a gate's outcome (green, red …; T-893: the
-// page reads it, never the line's wording), and a gate's pass (T-1105: the outcome as the page's yes or no).
+// it (an intent or a result the event list does not show has none), a gate's outcome (green, red …; the
+// page reads it, never the line's wording), and a gate's pass (the outcome as the page's yes or no).
 type TaskRecord struct {
 	Seq     int64  `json:"seq"`
 	TS      string `json:"ts"`
@@ -50,7 +50,7 @@ type TaskRecord struct {
 	Pass    bool   `json:"pass,omitempty"`
 }
 
-// Prompt is one row of the prompts table as a page shows it (T-665): what serve sent an agent, the job id (jobs only),
+// Prompt is one row of the prompts table as a page shows it: what serve sent an agent, the job id (jobs only),
 // the task (a job's), the kind (job, brief or start), when, and its text.
 type Prompt struct {
 	Seq   int64  `json:"seq"`
@@ -73,7 +73,7 @@ type AgentDetail struct {
 	Briefs   []Prompt       `json:"briefs"`           // newest first
 	Lines    []AgentLine    `json:"lines"`            // newest first
 	Jobs     []Prompt       `json:"jobs"`             // newest first
-	// Background is its long-running background processes (T-714; Project.AgentBackground).
+	// Background is its long-running background processes (Project.AgentBackground).
 	Background []Background `json:"background,omitempty"`
 }
 
@@ -182,7 +182,7 @@ func (d Detail) Agent(agent string) (AgentDetail, bool) {
 		}
 	}
 	// A role agent on no lane is in the roles, not the agents: its page is still a page (stopped when serve stopped it,
-	// no pane when nothing runs it), and an active agent's status, lane and task keep precedence (T-680).
+	// no pane when nothing runs it), and an active agent's status, lane and task keep precedence.
 	for _, r := range d.Project.Roles {
 		if r.Agent != agent {
 			continue
@@ -244,7 +244,7 @@ func (d Detail) Job(job string) (Prompt, bool) {
 }
 
 // recordStep is the step record r (described as d) shows its task reached (wire.TaskStep*; -1: none): the dispatch,
-// the job fetched or a sendback (working), the submission, a gate (the gate: its lane test or its review next, T-961), a
+// the job fetched or a sendback (working), the submission, a gate (the gate: its lane test or its review next), a
 // lane test (red: the gate; green: the review), the review job, an accept or a publish (merging). The merged fact is the page's own "every step done".
 func recordStep(r event.Record, d app.Described) int {
 	base, _ := event.StepN(r.Step)

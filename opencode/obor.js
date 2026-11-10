@@ -1,4 +1,4 @@
-// obor's opencode plugin (design "opencode lanes", T-306): opencode runs no Claude Code hooks, so each hook here maps
+// obor's opencode plugin (design "opencode lanes"): opencode runs no Claude Code hooks, so each hook here maps
 // opencode's event to the Claude Code hook event JSON and runs `<kit>/bin/obor hook <name>`. No obor rule lives here:
 // the guard, the session context, the stop and the limit logic stay in the Go binary.
 //
@@ -10,11 +10,11 @@
 //	session.execution.failed          → stop-failure (error, error_details as Claude Code sends them)
 //	session hook prompt               → the start's model (OBOR_OPENCODE_MODEL, below), not a Claude hook
 //
-// The start's model and effort (T-703): obor's opencode kind exports OBOR_OPENCODE_MODEL=<provider>/<model>[#<variant>]
+// The start's model and effort: obor's opencode kind exports OBOR_OPENCODE_MODEL=<provider>/<model>[#<variant>]
 // for the start (the type's --model, the effort as its variant). With it set, the session hook prompt switches each new
 // root session of this location to it, once, before its first turn (ctx.session.switchModel); a child (a subagent's)
 // is never switched (it inherits its parent's model), and without the variable nothing is registered, so the owner's
-// own opencode windows, which load this plugin too, are untouched. T-703 probe (opencode 2.2.0, a --standalone TUI in a
+// own opencode windows, which load this plugin too, are untouched. A live probe (opencode 2.2.0, a --standalone TUI in a
 // pty, a fake provider): the TUI switches the session to its own pick (for a new session the variant it remembers in
 // model.json first) just before it submits; the prompt hook runs after that switch and before the turn, so the turn
 // runs on the plugin's model and variant, and so do the later turns (the TUI follows the session's switch). A switch on
@@ -22,7 +22,7 @@
 // else one line to stderr and nothing. The variable is read from the plugin's process env, which is the pane's under
 // --standalone (obor's opencode base args: its own server in the pane's process).
 //
-// opencode v2.2 plugin API (T-578 probe, opencode v2.2.0: its bundled source, and an isolated `opencode serve` with its
+// opencode v2.2 plugin API (a live probe, opencode v2.2.0: its bundled source, and an isolated `opencode serve` with its
 // own HOME/XDG dirs and port, a fake provider and a logging plugin):
 //   - setup(ctx) runs once per location (directory), lazily at its first request; a shared `opencode serve --service`
 //     runs one instance per location in one process. ctx.location.directory is the cwd; ctx.app is {name, version,
@@ -38,24 +38,24 @@
 //     transcript_path is that database.
 //   - (b) turn start: session.execution.started (after session.inbox.enqueued, whose item {type: "user", payload:
 //     {text}} is the prompt); turn end: session.execution.succeeded | failed {error} | interrupted {reason}. No
-//     session.idle any more (T-306 saw none in an older 2.x either).
+//     session.idle (opencode 2.x emits none).
 //   - (c) errors: Session.StructuredError {type, message, status?, response?: {body}, retryAfterMs?}, type one of
 //     provider.rate-limit, quota, free-limit, budget-limit, model-budget-limit, auth, content-filter, invalid-request,
 //     transport, timeout, internal, … A 429 does not end the turn: opencode retries it (session.retry.scheduled
 //     {attempt, at, error}, up to 10 times, each wait min(retryAfterMs, 15 min)), then session.execution.failed.
-//     Only that failure ends the turn, so only it is a stop-failure: a retry sends nothing (T-578 lead decision).
+//     Only that failure ends the turn, so only it is a stop-failure: a retry sends nothing.
 //
 // The plugin's process is the pane's agent (--standalone, obor's opencode base args: its own server in the pane's
 // process), so its env is the agent's start env: obor hook gets it whole, the identity vars (OBOR_ROLE, OBOR_LANE,
-// HERDR_PANE_ID) included, as Claude's and Codex's hooks do (T-812, OC-L2).
+// HERDR_PANE_ID) included, as Claude's and Codex's hooks do (OC-L2).
 //
-// The kit is this plugin's, in every directory (T-809): each start's generated config (OPENCODE_CONFIG) names the
+// The kit is this plugin's, in every directory: each start's generated config (OPENCODE_CONFIG) names the
 // launching kit's plugin package dir (<kit>/opencode, this file its main), so the kit that started the agent runs its
 // hooks; no rule picks another one.
 //
 // Outside an obor project (no .obor/config.json above the directory) every hook is a no-op. bin/obor missing, failing
 // or slower than 5 s: allow, except the guard, which then denies (bin/obor's own no-binary rule already fails closed).
-// Loaded per start from the generated config's plugins (T-809; opencode loads a package dir from an env config, not a
+// Loaded per start from the generated config's plugins (opencode loads a package dir from an env config, not a
 // plain .js file, so package.json beside this file names it); plain JS, node built-ins only.
 
 import { spawn } from "node:child_process";
@@ -342,7 +342,7 @@ async function setup(ctx) {
     const text = await started(c.sessionID);
     if (text && Array.isArray(c.system)) c.system.push({ type: "text", text });
   });
-  // prompt: the start's model, before a new root session's first turn (OBOR_OPENCODE_MODEL, T-703).
+  // prompt: the start's model, before a new root session's first turn (OBOR_OPENCODE_MODEL).
   const switchModel = modelSwitch(ctx, model, sessions.isChild);
   if (switchModel) await ctx.session.hook("prompt", switchModel);
   // The session events, one at a time in their order; an opencode without event.subscribe keeps the two hooks above.

@@ -7,8 +7,7 @@ import (
 )
 
 // TestLoadUnknownPaths: Load drops each unknown member found by its schema path, warns once per path, keeps the known
-// members that share a name, and still fails a type error; LoadForValidate fails every case, one line per path (RV-41
-// #2, T-1081).
+// members that share a name, and still fails a type error; LoadForValidate fails every case, one line per path.
 func TestLoadUnknownPaths(t *testing.T) {
 	for _, tc := range []struct {
 		name, cfg, local string
@@ -21,7 +20,7 @@ func TestLoadUnknownPaths(t *testing.T) {
 			warn: []string{"merge.future"},
 		},
 		{
-			// RV-41 probe: the same new name in two objects
+			// the same new name in two objects
 			name: "the same name in two nested objects",
 			cfg:  `{"version":2,"merge":{"future":1},"checks":{"future":2}}`,
 			warn: []string{"merge.future", "checks.future"},
@@ -48,7 +47,7 @@ func TestLoadUnknownPaths(t *testing.T) {
 			},
 		},
 		{
-			// T-1083: dir, paths and at went with baseline and gate; a command keeps its cmd, the field is an unknown key.
+			// dir, paths and at went with baseline and gate; a command keeps its cmd, the field is an unknown key.
 			name: "a removed command field under a free command name",
 			cfg:  `{"version":2,"commands":{"gate":{"cmd":"x","paths":["src/**"]}}}`,
 			warn: []string{"commands.gate.paths"},
@@ -130,7 +129,7 @@ func TestLoadUnknownPaths(t *testing.T) {
 	}
 }
 
-// RV-153 #1 (T-1063): the no-op unknown-key warning names both causes: this binary is older than the config, or the
+// the no-op unknown-key warning names both causes: this binary is older than the config, or the
 // key was retired (merge.max_load is one of the nine v0.28 keys, so restarting serve fixes nothing).
 func TestWarnUnknownNamesBothCauses(t *testing.T) {
 	root := writeProject(t, `{"version":2,"merge":{"max_load":10}}`, "")

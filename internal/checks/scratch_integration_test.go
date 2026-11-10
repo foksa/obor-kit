@@ -20,12 +20,12 @@ import (
 	"obor/internal/testkit"
 )
 
-// Scratch on real git (T-1011): the cases only real git shows (rerere's replay, a canceled git's process group,
+// Scratch on real git: the cases only real git shows (rerere's replay, a canceled git's process group,
 // --no-verify against a project's hooks, the gate's and lane test's commands, a gate from a foreign state); the scenario
-// table is the workflow contract's (TestWorkflowContractScratchFF, T-1029). Behind the integration tag: plain go test
+// table is the workflow contract's (TestWorkflowContractScratchFF). Behind the integration tag: plain go test
 // runs the fake-backed decision tests (decide_test.go) alone.
 
-// T-913: a conflict the integrator resolved is not resolved again when the target moves. The gate's merge records the
+// a conflict the integrator resolved is not resolved again when the target moves. The gate's merge records the
 // conflict (rerere), the integrator's plain resolve commit records the resolution in the repository's common rr-cache
 // (serve's worktree shares it), and the next merge of the same sha onto a moved target replays it: a clean merge that
 // compiles and says so. A target move that changes the conflicted hunk differently is another preimage: a
@@ -96,7 +96,7 @@ func TestScratchRerereReplaysResolvedConflict(t *testing.T) {
 	}
 }
 
-// RV-38 #12: the adapter's git ends with its ctx. Canceled before entry: no git call runs, nothing changes. Canceled
+// the adapter's git ends with its ctx. Canceled before entry: no git call runs, nothing changes. Canceled
 // while a git call blocks (a hook's child, say): the call's process group is killed, Submit returns promptly with no
 // child left, and run again it completes.
 func TestGitEndsWithCtx(t *testing.T) {
@@ -156,12 +156,12 @@ exec '%[3]s' "$@"`, child, blocked, real))
 	y.eq(y.ref(submittedRefs+"T-05/1"), sha, "and pins")
 }
 
-// T-622: serve's own commits pass --no-verify. The project's own hooks dir (obor.hooksChain, chained by the kit's
-// commit-msg since T-620) rejects every message, yet submit's commit and the gate's merge commit are made.
+// serve's own commits pass --no-verify. The project's own hooks dir (obor.hooksChain, chained by the kit's
+// commit-msg hook) rejects every message, yet submit's commit and the gate's merge commit are made.
 func TestScratchOwnCommitsSkipProjectCommitHooks(t *testing.T) {
 	t.Parallel()
 	y := newSx(t, cmd("check", "echo 1 pass"))
-	// The kit's commit-msg lives in githooks/chain/ and sources ../_hook (T-623): copy the two files into the same
+	// The kit's commit-msg lives in githooks/chain/ and sources ../_hook: copy the two files into the same
 	// shape and point core.hooksPath at the chain dir.
 	hooks := filepath.Join(y.Base, "hooks")
 	for _, c := range []struct{ dir, name string }{{"", "_hook"}, {"chain", "commit-msg"}} {
@@ -204,7 +204,7 @@ func TestScratchOwnCommitsSkipProjectCommitHooks(t *testing.T) {
 	}
 }
 
-// T-669 (RV-75 #4), T-673: serve's gate tells GateInput.Command each command as it starts and "" as it ends (T-961: its
+// serve's gate tells GateInput.Command each command as it starts and "" as it ends (its
 // lane_setup and compile), and the lane test tells TestInput.Command its own: a partial merge its guard then its class's
 // check (check_affected), never check; a full merge check; each runs on with no command between two.
 func TestGateReportsItsCommands(t *testing.T) {
@@ -243,9 +243,9 @@ func TestGateReportsItsCommands(t *testing.T) {
 	}
 }
 
-// T-1011: a gate converges from whatever serve's worktree holds (an open merge and a dirty tree, the worktree gone): the
+// a gate converges from whatever serve's worktree holds (an open merge and a dirty tree, the worktree gone): the
 // same candidate, the worktree clean. The rest of the scenario table is the workflow contract's
-// (TestWorkflowContractScratchFF, T-1029).
+// (TestWorkflowContractScratchFF).
 func TestGateLaneGreenFromAForeignState(t *testing.T) {
 	t.Parallel()
 	y := newSx(t, cmd("check", "echo 1 pass"))
@@ -276,12 +276,12 @@ func TestGateLaneGreenFromAForeignState(t *testing.T) {
 	}
 }
 
-// T-915 (RV-123 #1): git rerere replays conflict hunks, not the whole resolution commit. A moved gate whose merge
+// git rerere replays conflict hunks, not the whole resolution commit. A moved gate whose merge
 // needed a replay is clean only when its patch equals the attempt's checked resolution's (GateInput.Resolved); else,
 // or with none, a conflict naming the files whose patch differs, nothing compiled.
 
 // The review's fixture: the resolution also changed b/b.go, main then moves in disjoint d/d.go; the replay drops the
-// b/b.go edit. Before T-915 the moved gate went green with that edit lost.
+// b/b.go edit. A moved gate that goes green with that edit lost is the bug this guards against.
 func TestRV123RerereDropsOtherResolvedEdits(t *testing.T) {
 	t.Parallel()
 	y, sha, res, old := resolvedFx.resolved(t)
@@ -301,7 +301,7 @@ func TestRV123RerereDropsOtherResolvedEdits(t *testing.T) {
 	y.eq(o.Dir, y.serve, "the merge stays open in serve's worktree")
 }
 
-// T-917 (RV-123 V1): a replay mismatch has no unmerged path, so the gate outcome carries the checked resolution and the
+// a replay mismatch has no unmerged path, so the gate outcome carries the checked resolution and the
 // files, and Scratch.Resolved refuses the staged merge committed as it stands.
 
 // Committing the staged merge unchanged is refused; restoring the lost edit is accepted and gated.

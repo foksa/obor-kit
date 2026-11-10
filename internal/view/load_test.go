@@ -11,10 +11,10 @@ import (
 	"obor/internal/testkit"
 )
 
-// TestMain isolates the tests and removes the project template New copies (T-1009).
+// TestMain isolates the tests and removes the project template New copies.
 func TestMain(m *testing.M) { testkit.Main(m) }
 
-// T-667: Load builds one project's view as obor status does — serve down is its error in the view, not an error — from
+// Load builds one project's view as obor status does — serve down is its error in the view, not an error — from
 // the lane table and the store alone (the lane's spec rev and its events are there).
 func TestLoadWithoutServe(t *testing.T) {
 	p := testkit.New(t)
@@ -41,7 +41,7 @@ func TestLoadWithoutServe(t *testing.T) {
 	}
 }
 
-// T-880: the task and agent pages' reads spawn no git and no ps; the overview runs both. The injected runners count the
+// the task and agent pages' reads spawn no git and no ps; the overview runs both. The injected runners count the
 // spawns and the injected serve answer makes the overview's background scan reach ps.
 func TestNarrowReadsSpawnNoProcesses(t *testing.T) {
 	p := testkit.New(t)
@@ -121,7 +121,7 @@ func TestNarrowReadsSpawnNoProcesses(t *testing.T) {
 	}
 }
 
-// T-880: serve down is no error for the pages either, as for Load: the rows and the store answer, serve's error is the
+// serve down is no error for the pages either, as for Load: the rows and the store answer, serve's error is the
 // view's (the endpoints still answer as today).
 func TestNarrowReadsWithoutServe(t *testing.T) {
 	p := testkit.New(t)

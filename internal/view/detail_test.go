@@ -13,7 +13,7 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-675: a merged task's lane was freed (its row cleared, the worktree off its branch), yet its page still says where
+// a merged task's lane was freed (its row cleared, the worktree off its branch), yet its page still says where
 // it ran: the lane and the agent of its newest dispatch. Its spec's text is on the page too.
 func TestMergedTaskKeepsItsLaneAndAgent(t *testing.T) {
 	p := testkit.New(t)
@@ -50,7 +50,7 @@ func TestMergedTaskKeepsItsLaneAndAgent(t *testing.T) {
 	}
 }
 
-// T-1105: the task page's last gate carries its pass from serve's outcome, never from its line's wording: a green gate
+// the task page's last gate carries its pass from serve's outcome, never from its line's wording: a green gate
 // passes, a red one does not, even when its line counts passes, and each gate record ships the same pass.
 func TestTaskPageGatePass(t *testing.T) {
 	at := time.Date(2026, 11, 9, 9, 0, 0, 0, time.UTC)
@@ -87,7 +87,7 @@ func TestTaskPageGatePass(t *testing.T) {
 	}
 }
 
-// T-1089: a task the nightly prune left with its merged fact alone: its page shows its outcome (serve's state) and its
+// a task the nightly prune left with its merged fact alone: its page shows its outcome (serve's state) and its
 // spec, with the one record and no error.
 func TestPrunedTaskPage(t *testing.T) {
 	t.Parallel()

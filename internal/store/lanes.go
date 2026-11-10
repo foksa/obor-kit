@@ -6,17 +6,17 @@ import (
 	"fmt"
 )
 
-// The lanes table (T-439): each lane's dispatched task, a projection serve rewrites from the event log's fold on load
+// The lanes table: each lane's dispatched task, a projection serve rewrites from the event log's fold on load
 // and on every change (WriteLanes); no other writer. Hooks and CLIs read it read-only (ReadLanesAt, ReadLaneAt):
 // the guard's protected unlocks, whoami, the session hooks, the worker Stop hook, obor status.
 
 // LaneRow is one lane's row: the task its last prepared dispatch put there (lane.prepare's branch, base: the target
-// sha; the lane's agent is derived from the lane, roles.Role.AgentName, never stored: T-1031) and when it was dispatched (unix seconds). Head is the lane commit the task's last submit pinned (T-1015:
+// sha; the lane's agent is derived from the lane, roles.Role.AgentName, never stored) and when it was dispatched (unix seconds). Head is the lane commit the task's last submit pinned (
 // what the gate merges; "": no submission since the prepare): port.FreeState frees a landed lane only at that HEAD. Finished is when the attempt's
 // task_done was recorded (unix seconds; 0: the task awaits it). Type is the model ref its dispatch chose,
-// `<model>[:<effort>]` (T-721; "": a dispatch recorded before T-721). Blocked is serve's answer whether the task's
-// worker has a question in force (its Blocked: report; T-894: the fold's, not a hook's own reading of the log).
-// Landed is serve's answer whether the row's task has landed (T-1012: merged, by the gate or by hand as serve's
+// `<model>[:<effort>]` ("": a dispatch whose record has no type). Blocked is serve's answer whether the task's
+// worker has a question in force (its Blocked: report; serve's own fold, not a hook's reading of the log).
+// Landed is serve's answer whether the row's task has landed (merged, by the gate or by hand as serve's
 // merge-evidence read records it, or dropped): the one free rule, port.FreeState, reads it instead of the main
 // checkout's history.
 type LaneRow struct {
@@ -28,8 +28,8 @@ type LaneRow struct {
 	Landed                 bool
 }
 
-// laneCols is the select list of a lane row in db: a lanes table from before schema 9 (a serve not restarted since
-// T-721) has no type column, one from before schema 12 (T-894) no blocked one and one from before schema 13 (T-1012)
+// laneCols is the select list of a lane row in db: a lanes table older than schema 9 (a serve that has not
+// restarted) has no type column, one older than schema 12 no blocked one and one older than schema 13
 // no landed one; its rows read none, false and false.
 func laneCols(db *sql.DB) (string, error) {
 	typ, err := laneCol(db, "type", "''")
@@ -88,7 +88,7 @@ func ReadLanes(db *sql.DB) ([]LaneRow, error) {
 }
 
 // WriteLanes replaces db's lane rows with rows, in one transaction (serve's projection). The agent column gets ”
-// (T-1031: the agent is derived; the column stays for v0.31's readers of an older row and goes in a later schema).
+// (the agent is derived; the column stays for v0.31's readers of an older row and goes in a later schema).
 func WriteLanes(db *sql.DB, rows []LaneRow) error {
 	tx, err := db.Begin()
 	if err != nil {
@@ -112,7 +112,7 @@ func WriteLanes(db *sql.DB, rows []LaneRow) error {
 }
 
 // ReadLanesAt is the lane rows of the project at root by lane, read-only (hooks, CLIs: serve may be down). No
-// database yet: none. An error: the database or its lanes table cannot be read (a serve not restarted since T-439
+// database yet: none. An error: the database or its lanes table cannot be read (a serve that has not restarted
 // has no lanes table).
 func ReadLanesAt(root string) (map[string]LaneRow, error) {
 	db, err := openROAt(root)

@@ -21,7 +21,7 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-581: a kind that resumes nothing (OpenCode) starts fresh whatever session is recorded — serve's store's or a
+// a kind that resumes nothing (OpenCode) starts fresh whatever session is recorded — serve's store's or a
 // older record — and its first prompt survives; no resume reaches the start.
 func TestOpencodeStartsFresh(t *testing.T) {
 	t.Parallel()
@@ -47,7 +47,7 @@ func TestOpencodeStartsFresh(t *testing.T) {
 	}
 }
 
-// setupRunning is setup with lane L-01's open dispatch running model (its lane row's task and type, T-722): a start
+// setupRunning is setup with lane L-01's open dispatch running model (its lane row's task and type): a start
 // of pj-l-01 runs that model's kind.
 func setupRunning(t *testing.T, model string) *fx {
 	t.Helper()
@@ -77,7 +77,7 @@ func recordSessions(t *testing.T, root string, ss ...store.Session) {
 	}
 }
 
-// T-577, T-588: a fresh Codex start in a lane reports its new session: the rollout its own process holds open (its
+// a fresh Codex start in a lane reports its new session: the rollout its own process holds open (its
 // first line's session_meta: the id; the file: the transcript), not a newer one of the same cwd that it does not hold.
 func TestCodexStartReportsRollout(t *testing.T) {
 	t.Parallel()
@@ -160,9 +160,9 @@ func writeRollout(x *fx, id, cwd string, at time.Time) string {
 	return path
 }
 
-// T-589: a pid the system reuses while the search reads the files a process holds open is not recorded under: the pin
-// is read again after the scan (T-646: before, the pid's new lstart was checked before the files were read, so a reuse
-// in between recorded the new process's rollout as the agent's).
+// a pid the system reuses while the search reads the files a process holds open is not recorded under: the pin
+// is read again after the scan (checking the pin's lstart only before the files are read would miss a reuse
+// in between that records the new process's rollout as the agent's).
 func TestCodexSearchPidReusedWhileTheFilesAreRead(t *testing.T) {
 	t.Parallel()
 	x := setup(t, testkit.Set("agents.roles", `{"integrator":"luna"}`))
@@ -243,7 +243,7 @@ func awaitReports(t *testing.T, x *fx, n int) map[string]store.Session {
 	return got
 }
 
-// T-588 (RV-62 #1): two Codex roles in the main checkout started one after the other, their searches pending at once:
+// two Codex roles in the main checkout started one after the other, their searches pending at once:
 // each records the rollout its own process holds, whichever is written first, the first agent's after the second's
 // launch too. A replay of the session facts gives the same current sessions.
 func TestCodexSessionsOfTwoStartsInOneCwd(t *testing.T) {
@@ -301,7 +301,7 @@ func TestCodexSessionsOfTwoStartsInOneCwd(t *testing.T) {
 	}
 }
 
-// T-588: the rollout is opened by a child of the agent's process (Codex's launcher runs the binary that writes it):
+// the rollout is opened by a child of the agent's process (Codex's launcher runs the binary that writes it):
 // the child's file counts; a process outside the agent's tree holding another rollout does not.
 func TestCodexRolloutOfAChild(t *testing.T) {
 	t.Parallel()
@@ -332,8 +332,8 @@ func TestCodexRolloutOfAChild(t *testing.T) {
 	contains(t, out, "open in pid 2", "the agent's pid said")
 }
 
-// T-588: the agent's process holds no rollout within the bound (a rollout of its cwd exists, written by another
-// Codex): no session fact, a line saying so, nothing recorded: never a guess from the cwd. T-627: the line says that
+// the agent's process holds no rollout within the bound (a rollout of its cwd exists, written by another
+// Codex): no session fact, a line saying so, nothing recorded: never a guess from the cwd. The line says that
 // this is expected of a fresh start with no prompt (Codex writes its rollout at the first one); a prompted start gets
 // the plain one.
 func TestCodexNoRolloutOpen(t *testing.T) {
@@ -365,8 +365,8 @@ func TestCodexNoRolloutOpen(t *testing.T) {
 	}
 }
 
-// T-586: serve refusing the session (another agent holds it), or not reachable, records nothing and says so; a
-// restart resumes the last recorded session, else herdr's (T-607).
+// serve refusing the session (another agent holds it), or not reachable, records nothing and says so; a
+// restart resumes the last recorded session, else herdr's.
 func TestCodexUnreportedSessionRecordsNothing(t *testing.T) {
 	t.Parallel()
 	run := func(t *testing.T, reportErr error) (*fx, string) {
@@ -402,8 +402,8 @@ func TestCodexUnreportedSessionRecordsNothing(t *testing.T) {
 	})
 }
 
-// T-589: the start pins the agent's process; the search never looks at the pane again. The pane is held by another
-// agent (pid 999, with its own rollout) after the restart returned but before the start's search runs (T-849: captured
+// the start pins the agent's process; the search never looks at the pane again. The pane is held by another
+// agent (pid 999, with its own rollout) after the restart returned but before the start's search runs (captured
 // and run then, not in a goroutine that may run first): the first agent records its own rollout when its process lives,
 // nothing when it is gone (its pid under another process), never the replacement's.
 func TestCodexSearchPinnedToStartedProcess(t *testing.T) {

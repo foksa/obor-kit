@@ -101,7 +101,7 @@ func TestRunRcArgs(t *testing.T) {
 }
 
 // bash run.test.sh case_timeout: a command over its timeout is rc 124 with a note, ended at the timeout.
-// Slow: it waits out config's whole-second 1 s timeout (T-1006).
+// Slow: it waits out config's whole-second 1 s timeout.
 func TestRunTimeout(t *testing.T) {
 	t.Parallel()
 	f := setup(t, `{"slow": {"cmd": "sleep 5", "timeout": 1}}`)
@@ -139,7 +139,7 @@ func TestRunLaneMarker(t *testing.T) {
 	}
 }
 
-// T-214: in a lane whose .task-run is not ignored, one warning line and the command still runs; ignored: no warning.
+// in a lane whose .task-run is not ignored, one warning line and the command still runs; ignored: no warning.
 func TestRunWarnsMarkerNotIgnored(t *testing.T) {
 	t.Parallel()
 	f := setup(t, `{"m": "echo ran"}`)
@@ -304,9 +304,9 @@ func gone(pid int) bool {
 	return false
 }
 
-// RV-26 #2: nothing of the command's group outlives Execute: a TERM-ignoring child at the timeout is KILLed after the
+// nothing of the command's group outlives Execute: a TERM-ignoring child at the timeout is KILLed after the
 // grace.
-// Slow: it waits a config command's 3 s timeout plus project.Grace before the KILL (T-1006).
+// Slow: it waits a config command's 3 s timeout plus project.Grace before the KILL.
 func TestExecuteLeavesNoGroup(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -314,7 +314,7 @@ func TestExecuteLeavesNoGroup(t *testing.T) {
 until [ -s pid ]; do sleep 0.05; done; wait`
 	start := time.Now()
 	var out bytes.Buffer
-	// 3 s: under a loaded full suite the child bash may take over a second to write its pid (T-438's gate).
+	// 3 s: under a loaded full suite the child bash may take over a second to write its pid.
 	rc, timedOut := Execute(context.Background(), config.Command{Name: "t", Cmd: ignorer, Timeout: 3}, dir, nil, nil, &out, &out)
 	pid := childPID(t, filepath.Join(dir, "pid"))
 	if rc == 0 || !timedOut {
@@ -328,7 +328,7 @@ until [ -s pid ]; do sleep 0.05; done; wait`
 	}
 }
 
-// RV-26 #2, RV-140: a descendant of a command that exited normally does not outlive Execute.
+// a descendant of a command that exited normally does not outlive Execute.
 func TestExecuteLeavesNoDescendant(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

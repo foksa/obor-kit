@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-// The prompts table (T-665): the text of every job, brief and start prompt serve sent, one row per prompt it sent
-// (Seq: the delivered fact for a job, the briefed one for a brief or a start). Its own id is the key (T-670): a job
+// The prompts table: the text of every job, brief and start prompt serve sent, one row per prompt it sent
+// (Seq: the delivered fact for a job, the briefed one for a brief or a start). Its own id is the key: a job
 // fetched again after its text changed (a new spec rev, a re-gate) gets another row, so a job may have several, its
 // newest first. Serve is its only writer (WritePrompt); hooks and CLIs read it read-only (ReadPromptsAt). A payload,
 // not state: never folded or replayed, so the log's replay never carries it. A line (a message fact) carries its text
@@ -35,7 +35,7 @@ type PromptRow struct {
 	Text  string
 }
 
-// WritePrompt stores r: a new row, whatever the table holds (each prompt has its own id, T-670). Serve's only write.
+// WritePrompt stores r: a new row, whatever the table holds (each prompt has its own id). Serve's only write.
 func WritePrompt(db *sql.DB, r PromptRow) error {
 	switch {
 	case r.Seq <= 0:

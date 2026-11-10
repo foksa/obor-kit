@@ -16,7 +16,7 @@ import (
 	"obor/internal/project"
 )
 
-// T-382: git lock contention at serve's git boundary (docs/state-model.md "Crash classes").
+// git lock contention at serve's git boundary (docs/state-model.md "Crash classes").
 
 // lockFx is the fixture's Scratch (real git) and the lane's index.lock.
 func lockFx(t *testing.T) (*fx, Scratch, string) {
@@ -31,7 +31,7 @@ func (x *fx) committed() bool {
 		"--", "feature.txt") == ""
 }
 
-// T-382: git lock contention at serve's git boundary (docs/state-model.md "Crash classes"), on submit's git calls: a
+// git lock contention at serve's git boundary (docs/state-model.md "Crash classes"), on submit's git calls: a
 // lock a live git holds, old enough to be stale but for its holder, is waited for and the submit goes on; a stale one
 // (no git running) is removed once, logged; a stale one that comes back is not removed again, and its git call's error
 // is the step's.
@@ -133,8 +133,8 @@ func TestGitAliveSeesGitInWorktree(t *testing.T) {
 	}
 }
 
-// processCwd reads a running process's working directory: this test's own pid, physical (the survey tree covered its
-// lsof path only when gitAlive reached a readable git; T-842 pins it on its own), and a pid that is not a number.
+// processCwd reads a running process's working directory: this test's own pid, physical (this covers its
+// lsof path only when gitAlive reached a readable git), and a pid that is not a number.
 func TestProcessCwdReadsARunningProcess(t *testing.T) {
 	t.Parallel()
 	wd, err := os.Getwd()

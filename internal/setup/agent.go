@@ -54,14 +54,14 @@ func parseWhere(args []string) (where, error) {
 // agent is who to start: its herdr name, model, cwd, role and lane ("" for a role).
 type agent struct {
 	name, typ, cwd string
-	effort         string // the role's effort (roles.<role>.type's `:<effort>`, T-695); "": the type's args
+	effort         string // the role's effort (roles.<role>.type's `:<effort>`); "": the type's args
 	role           roles.Role
 	lane           string
-	noStart        bool   // label the pane and type its env, start no agent (T-705/T-708: a pane without --start)
-	prompt         string // the first prompt ("": the role's StartPrompt); a drive agent's line (T-751)
+	noStart        bool   // label the pane and type its env, start no agent (a pane without --start)
+	prompt         string // the first prompt ("": the role's StartPrompt); a drive agent's line
 }
 
-// Drive is the owner's drive agent to start (obor drive, T-751): its name, lane, worktree, model and effort, and its
+// Drive is the owner's drive agent to start (obor drive): its name, lane, worktree, model and effort, and its
 // one-line first prompt.
 type Drive struct {
 	Agent, Lane, Cwd, Type, Effort, Prompt string
@@ -127,9 +127,9 @@ func (s *Setup) rolePane(ctx context.Context, name string, w where, startNow boo
 	if err := s.load(); err != nil {
 		return err
 	}
-	rc, ok := s.cfg.Role(strings.ReplaceAll(name, "-", "_")) // a table role or a custom one (T-801)
+	rc, ok := s.cfg.Role(strings.ReplaceAll(name, "-", "_")) // a table role or a custom one
 	role := rc.Role
-	if !ok || role.Name == "worker" || role.Name == roles.Driver { // a driver is obor drive's (T-751)
+	if !ok || role.Name == "worker" || role.Name == roles.Driver { // a driver is obor drive's
 		return errUsage
 	}
 	if rc.Type == "" {
@@ -137,7 +137,7 @@ func (s *Setup) rolePane(ctx context.Context, name string, w where, startNow boo
 	}
 	a := agent{name: s.cfg.AgentName(role.Name, ""), typ: rc.Type, effort: rc.Effort, cwd: s.cfg.RoleDir(role), role: role,
 		noStart: !startNow}
-	if a.cwd != s.cfg.Root { // its role worktree (T-853)
+	if a.cwd != s.cfg.Root { // its role worktree
 		if err := s.ensureWorktree(a.cwd); err != nil {
 			return err
 		}
@@ -149,7 +149,7 @@ func (s *Setup) rolePane(ctx context.Context, name string, w where, startNow boo
 		}
 	}
 	switch role.Name {
-	case "reviewer", "deep_dive": // T-731: the reviews dir is gitignored, also in a project init made before it was
+	case "reviewer", "deep_dive": // the reviews dir is gitignored, also in a project init made before it was
 		if err := s.ignoreLines(s.reviewsIgnore()); err != nil {
 			return err
 		}
@@ -179,7 +179,7 @@ func (s *Setup) copyFile(src, rel string) error {
 
 // start places a's pane, labels it and starts the agent (see the package doc); a running agent → OK, nothing done.
 func (s *Setup) start(ctx context.Context, a agent, w where) error {
-	// A lane's model comes with its dispatch (T-765: every lane is pooled): --start runs the ref project.LaneModel
+	// A lane's model comes with its dispatch (every lane is pooled): --start runs the ref project.LaneModel
 	// answers, else the default kind with no model, as obor restart does (launch.dispatchType).
 	if a.lane != "" && a.typ == "" {
 		if ref, ok := project.LaneModel(s.cfg, a.lane); ok {
@@ -206,7 +206,7 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	}
 	s.placed, s.running, s.started, s.idle = "", false, false, false
 	for _, r := range running {
-		if a.role.Name == roles.Driver && r.Name != a.name && r.Cwd == a.cwd { // T-751: one agent in a lane
+		if a.role.Name == roles.Driver && r.Name != a.name && r.Cwd == a.cwd { // one agent in a lane
 			return project.Failf("%s still runs in lane %s (pane %s): obor restart %s --stop first", r.Name, a.lane, r.ID,
 				r.Name)
 		}
@@ -223,7 +223,7 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	}
 	label := ""
 	for _, p := range panes {
-		if a.noStart && w.pane == "" && p.Label == a.name { // a rerun: the pane is there, labelled, with no agent (T-705)
+		if a.noStart && w.pane == "" && p.Label == a.name { // a rerun: the pane is there, labelled, with no agent
 			s.placed, s.idle = p.ID, true
 			s.say("skip pane: %s already labelled %s (pane %s)", a.name, a.name, p.ID)
 			s.say("OK %s: pane %s", what, p.ID)
@@ -242,10 +242,10 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 		}
 	}
 
-	if err := agents.CheckEffort(lt.Kind, a.effort); err != nil { // one the args cannot carry: the start's error (T-1046)
+	if err := agents.CheckEffort(lt.Kind, a.effort); err != nil { // one the args cannot carry: the start's error
 		return project.Failf("%s: %v (obor config validate)", a.name, err)
 	}
-	// The start, built once (T-1042): its argv for the start and its env for the new pane or the env line, from one
+	// The start, built once: its argv for the start and its env for the new pane or the env line, from one
 	// complete start (a plugin kind's one start call).
 	l := s.Starter(s.cfg)
 	prompt := a.prompt
@@ -258,11 +258,11 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 		return project.Failf("%s: %v", a.name, err)
 	}
 	vars := built.Vars
-	// The one builder of a start's env (agents.StartVars, T-812), as the env line of a reused pane: herdr's pane env
+	// The one builder of a start's env (agents.StartVars), as the env line of a reused pane: herdr's pane env
 	// cannot unset, so every registry var the start does not set goes to herdr empty, none to obor (the pane may inherit
-	// setup's own env: an OpenCode agent running setup, T-703; a stale OBOR_AGENT, T-786; the caller's OBOR_PANE: the
-	// new pane's id is herdr's answer, exported by the env line before a start, T-1037).
-	if a.lane != "" { // a lane's env (T-1041): the generic facts and the project's slots.lane_env
+	// setup's own env: an OpenCode agent running setup; a stale OBOR_AGENT; the caller's OBOR_PANE: the
+	// new pane's id is herdr's answer, exported by the env line before a start).
+	if a.lane != "" { // a lane's env: the generic facts and the project's slots.lane_env
 		vars = config.WithLaneEnv(vars, s.cfg)
 	}
 	set, unset := agents.StartVars(a.role.EnvValue, a.lane, "", vars)
@@ -305,9 +305,9 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	}
 	s.started = true
 	// A pane a new tab or a split made is a shell that may still be coming up: herdr answers agent_pane_busy until it
-	// is one (T-628, live 2026-10-31). The start waits for it within the bound, then types the env line (its id is
-	// known now: the env line exports OBOR_PANE before the start, T-1037) and retries a busy answer within the same
-	// bound (launch's one start, T-1057). A reused pane's env line is typed above, and its start is not retried.
+	// is one (live 2026-10-31). The start waits for it within the bound, then types the env line (its id is
+	// known now: the env line exports OBOR_PANE before the start) and retries a busy answer within the same
+	// bound (launch's one start). A reused pane's env line is typed above, and its start is not retried.
 	st := port.Start{Agent: a.name, Kind: lt.Kind, Pane: pane, Label: label, Args: built.Args, Session: built.Session,
 		Lane: a.lane, Prompt: prompt}
 	if fresh {
@@ -345,7 +345,7 @@ func (s *Setup) notShell(pane, agent, kind string) error {
 		"(herdr agent start %s --kind %s --pane %s)", pane, s.shellWait(), agent, kind, pane)
 }
 
-// --- placement (T-628) -------------------------------------------------------------------------------------------
+// --- placement -------------------------------------------------------------------------------------------
 
 // shellWait bounds the wait for a new pane's shell and the start's agent_pane_busy retries (port.Start.Shell): a new
 // pane's shell is up in moments, unlike a restart's, which waits for the old agent's exit to be reaped.
@@ -359,11 +359,11 @@ func (s *Setup) shellWait() time.Duration {
 	return shellWait
 }
 
-// maxPanesPerTab is how many panes a tab holds: a constant, not a key (T-1111; limits.max_panes_per_tab is retired).
+// maxPanesPerTab is how many panes a tab holds: a constant, not a config key.
 const maxPanesPerTab = 4
 
 // placement is a's new pane as the terminal is asked for it: whose it is, its cwd and env, where w says, and the
-// project it is for (T-1044: the layout is the adapter's). A tab holds maxPanesPerTab panes.
+// project it is for (the layout is the adapter's). A tab holds maxPanesPerTab panes.
 func (s *Setup) placement(a agent, w where, env []string) port.Placement {
 	name := s.cfg.ProjectName()
 	self, _ := project.Pane(s.Env) // "" when the caller has no pane

@@ -10,7 +10,7 @@ import (
 
 // Class is a merge's check class (design "Change-based merge checks (v2.5)"): partial runs merge.by_path.guard plus
 // each class's checks (Names ["neutral"]: the guard only), full runs check plus the checks of every matched class
-// marked also_on_full (T-1007).
+// marked also_on_full.
 type Class struct {
 	Partial bool
 	// Names are every matched class, in config order (one name per class; ["neutral"]: only neutral files; full: those
@@ -37,8 +37,8 @@ func (c Class) Mode() string {
 // names of every matched class, config order, are the partial's (a class matched by several entries once, by name);
 // only neutral files → partial neutral. A class named neutral never counts as partial (it would read as guard-only).
 //
-// Full keeps the matched class names too (T-1007): runChecks runs the checks of those marked with_full after check. A
-// forced or no-guard merge records its reason first and scans the files anyway (T-1008): its matched classes keep their
+// Full keeps the matched class names too: runChecks runs the checks of those marked with_full after check. A
+// forced or no-guard merge records its reason first and scans the files anyway: its matched classes keep their
 // with_full checks.
 func Classify(m config.ByPath, files []string, forced bool) Class {
 	reason := "" // the full reason: forced or no-guard before any file, else the first file that decides full
@@ -116,7 +116,7 @@ func classChecks(m config.ByPath, name string) ([]string, bool) {
 }
 
 // withFullChecks are the checks a full merge runs after check for the class name: exactly one class of that name, marked
-// with_full and not full (obor config validate refuses that pair); nil otherwise (T-1007).
+// with_full and not full (obor config validate refuses that pair); nil otherwise.
 func withFullChecks(m config.ByPath, name string) []string {
 	var found []config.PathRule
 	for _, c := range m.Rules {

@@ -1,4 +1,4 @@
-// Package help is obor's one list of commands (T-854): each subcommand cmd/obor dispatches, its usage line, one line on
+// Package help is obor's one list of commands: each subcommand cmd/obor dispatches, its usage line, one line on
 // what it does and its group. `obor help` prints it and obor web's Help page shows it (GET /api/help), with README's
 // "Install" and "Set up a project" sections read from the kit's README at request time (Sections).
 package help
@@ -83,7 +83,7 @@ var Commands = []Command{
 }
 
 // Steps are the usage lines of a command's own steps: a subcommand with arguments of its own but no row of its own in
-// Commands (obor review close). Commands and Steps are the one source of every usage line the CLI prints (T-873): each
+// Commands (obor review close). Commands and Steps are the one source of every usage line the CLI prints: each
 // command's usage error prints Usage of its name.
 var Steps = map[string]string{
 	"review close": `obor review close "<summary>" [--accept "<line>"]… [--force]`,

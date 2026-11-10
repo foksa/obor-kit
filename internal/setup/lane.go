@@ -22,7 +22,7 @@ func (s *Setup) lane(ctx context.Context, args []string) error {
 		return err
 	}
 	configured := s.cfg.HasLane(lane)
-	if !configured && s.cfg.LanesListed() { // T-1031: a list is the owner's, a count edit would replace it
+	if !configured && s.cfg.LanesListed() { // a list is the owner's, a count edit would replace it
 		return project.Failf("lanes is a list in .obor/config.json: add {\"name\": \"%s\"} to it, then obor setup lane %s", lane, lane)
 	}
 	if next := config.LaneName(s.cfg.LaneCount() + 1); !configured && lane != next {
@@ -54,7 +54,7 @@ func (s *Setup) lane(ctx context.Context, args []string) error {
 	}
 	if c, ok := run.Command(s.cfg, "lane_setup"); ok {
 		marker := laneSetupMarker(s.root, lane)
-		_ = os.Remove(marker) // a run that fails leaves nothing for a rerun to skip (T-613)
+		_ = os.Remove(marker) // a run that fails leaves nothing for a rerun to skip
 		var out bytes.Buffer
 		rc, timedOut := run.Execute(ctx, c, dir, nil, nil, &out, &out)
 		if rc != 0 || timedOut {
@@ -86,7 +86,7 @@ func (s *Setup) laneIndex(lane string) int {
 
 // laneSetupMarker is <root>/.obor/state/lanes/<lane>.setup: the commands.lane_setup that finished for the lane.
 // setup.lane writes the config and the worktree before running it, so on a rerun only this marker tells a finished
-// setup from one that failed (T-613); it holds the command, so an edit to lane_setup does not match it (T-618).
+// setup from one that failed; it holds the command, so an edit to lane_setup does not match it.
 func laneSetupMarker(root, lane string) string {
 	return filepath.Join(project.StateDir(root), "lanes", lane+".setup")
 }
@@ -104,9 +104,9 @@ func (s *Setup) laneReady(ctx context.Context, dir string) (c config.Command, ou
 	return c, strings.Join(lines[max(0, len(lines)-3):], " "), rc == 0 && !timedOut
 }
 
-// laneDone: this lane of the config needs no `obor setup lane` (obor init's rerun, T-613): dir is a worktree of this
+// laneDone: this lane of the config needs no `obor setup lane` (obor init's rerun): dir is a worktree of this
 // repo and commands.lane_ready passes there, or (with none configured) its lane_setup finished the last time with the
-// command configured now (an edited lane_setup runs again, T-618). A dir that exists and is not a worktree of this repo
+// command configured now (an edited lane_setup runs again). A dir that exists and is not a worktree of this repo
 // is a FAIL, never a skip; no dir at all is false: setup.lane makes one.
 func (s *Setup) laneDone(ctx context.Context, lane, dir string) (bool, error) {
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
@@ -140,7 +140,7 @@ func (s *Setup) addLane(n int) error {
 }
 
 // pluginSettings is the project settings file that enables obor's plugin; lanes are worktrees, so an untracked one
-// reaches them only as a link (T-705).
+// reaches them only as a link.
 const pluginSettings = ".claude/settings.json"
 
 // laneLinks are lane_links plus pluginSettings while it is untracked in the main checkout and not listed.

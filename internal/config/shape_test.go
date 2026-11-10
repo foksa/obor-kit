@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-// T-1157: a config.json of shape 1 — no version, or version 1 — fails every load with one error naming the file and
-// the way out: v0.33 read and rewrote it, and this obor no longer reads it (docs/design.md "Config").
+// a config.json of shape 1 — no version, or version 1 — fails every load with one error naming the file and
+// the way out (docs/design.md "Config").
 func TestShape1Refused(t *testing.T) {
 	for _, doc := range []string{
 		`{"project":{"agent_prefix":"pj"}}`,
@@ -27,7 +27,7 @@ func TestShape1Refused(t *testing.T) {
 	}
 }
 
-// T-1157: local.json has no shape of its own: a shape-1 key in it is an unknown key like any other, not a shape to
+// local.json has no shape of its own: a shape-1 key in it is an unknown key like any other, not a shape to
 // migrate — Load warns with it, and LoadForValidate names it as a FAIL line.
 func TestShape1KeyInLocalIsUnknown(t *testing.T) {
 	root := writeProject(t, `{"version":2,"project":{"agent_prefix":"pj"}}`, `{"handoff_tokens":400000}`)

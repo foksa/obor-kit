@@ -13,7 +13,7 @@ import (
 )
 
 // InboxFile is where the SessionStart hook records the Claude session inbox of the session holding slot in the
-// project at root (T-485, DD-consolidation I4): <root>/.obor/state/inbox/<slot>, its "/" a "." (L-03/drive →
+// project at root: <root>/.obor/state/inbox/<slot>, its "/" a "." (L-03/drive →
 // L-03.drive), mode 0600 (it holds the session's messaging token). Keyed by the project and the slot, never by an agent
 // name: two projects with one prefix keep apart, and a rename leaves it where it is. obor serve posts there.
 func InboxFile(root, slot string) string {
@@ -114,13 +114,13 @@ func WriteInbox(root, slot string, in Inbox) error {
 	return os.Rename(tmp.Name(), f)
 }
 
-// PluginMarkerFile is <root>/.obor/state/lanes/<lane>.plugin (T-310): the opencode plugin's marker (compared with the
+// PluginMarkerFile is <root>/.obor/state/lanes/<lane>.plugin: the opencode plugin's marker (compared with the
 // lane row's dispatch time), never in the lane worktree.
 func PluginMarkerFile(root, lane string) string {
 	return filepath.Join(StateDir(root), "lanes", lane+".plugin")
 }
 
-// PluginMarker is the marker an agent's plugin leaves when its context hook runs (T-307): it proves the plugin loaded,
+// PluginMarker is the marker an agent's plugin leaves when its context hook runs: it proves the plugin loaded,
 // so obor status warns when it is missing (the lane then runs with no obor guard).
 // Kind is the agent's kind (one whose hooks run through obor's plugin: agents.HooksPlugin), Version its version when the hook knew one (usually ""), At the epoch it ran.
 type PluginMarker struct {
@@ -129,7 +129,7 @@ type PluginMarker struct {
 	At      int64  `json:"at"`
 }
 
-// PluginMarkerAt reads the lane's marker in root's state dir (T-310: <state dir>/lanes/<lane>.plugin): ok false when
+// PluginMarkerAt reads the lane's marker in root's state dir (<state dir>/lanes/<lane>.plugin): ok false when
 // there is none or it is not a marker.
 func PluginMarkerAt(root, lane string) (PluginMarker, bool) {
 	b, err := os.ReadFile(PluginMarkerFile(root, lane))
@@ -143,7 +143,7 @@ func PluginMarkerAt(root, lane string) (PluginMarker, bool) {
 	return m, true
 }
 
-// WritePluginMarker records that an agent of kind ran a hook (T-307, T-310): the marker goes to the main checkout's
+// WritePluginMarker records that an agent of kind ran a hook: the marker goes to the main checkout's
 // state dir, never the lane worktree, which must stay clean. Best-effort, like the other
 // state-dir records: a state dir the session cannot write says nothing.
 func WritePluginMarker(root, lane, kind, version string) {

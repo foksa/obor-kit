@@ -6,7 +6,7 @@ import (
 )
 
 // The stamped version is the Makefile's: a release tag, a dev checkout's newest-tag-dev+sha (dirty included), or a
-// plain sha, whatever the build passed (T-554, T-559).
+// plain sha, whatever the build passed.
 func TestLineFromDescribe(t *testing.T) {
 	old := Version
 	defer func() { Version = old }()
@@ -30,7 +30,7 @@ func TestLineFromDescribe(t *testing.T) {
 }
 
 // Release groups builds by the release they belong to: a dev build's suffix is not a skew, anything else is its own
-// release (T-1177).
+// release.
 func TestRelease(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct{ v, want string }{
@@ -47,7 +47,7 @@ func TestRelease(t *testing.T) {
 	}
 }
 
-// CurrentLine without shim metadata is the kit's own build: the short form, with no "dev build" word (T-554).
+// CurrentLine without shim metadata is the kit's own build: the short form, with no "dev build" word.
 func TestCurrentLineDropsDevBuild(t *testing.T) {
 	old := Version
 	defer func() { Version = old }()

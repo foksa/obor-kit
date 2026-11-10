@@ -14,7 +14,7 @@ import (
 	"obor/internal/app/wire"
 )
 
-// T-753: obor web's two verbs. A POST is taken only on /api/config and /api/pause, and only from the page itself (its
+// obor web's two verbs. A POST is taken only on /api/config and /api/pause, and only from the page itself (its
 // Origin, the listen address as Host, a JSON body); each is one request to the project's serve.
 
 // callSpy is a Server.Call that records each request and answers reply (or err).
@@ -77,7 +77,7 @@ func post(h http.Handler, url, body, host string, edit ...func(*http.Request)) *
 
 // A POST from the page reaches serve; one without its Origin, from another origin, under a Host that is not a loopback
 // name (DNS rebinding) or with a body that is not JSON is 403 and asks serve nothing. A loopback Host on any port is one
-// of obor web's names (T-1170): an SSH tunnel on another local port can post.
+// of obor web's names: an SSH tunnel on another local port can post.
 func TestPostOnlyFromThePage(t *testing.T) {
 	p, _, s := fixture(t)
 	spy := &callSpy{reply: "SET lanes.L-01 \"\" → \"opus\""}
@@ -126,7 +126,7 @@ func TestPostOnlyFromThePage(t *testing.T) {
 	if got := len(spy.all()); got != asked {
 		t.Errorf("a refused POST asked serve: %d calls, want %d", got, asked)
 	}
-	// T-1170: a tunnel on another local port keeps working — the page is the same page, its origin its own Host.
+	// a tunnel on another local port keeps working — the page is the same page, its origin its own Host.
 	if w := post(h, "/api/config?project=pj", body, "127.0.0.1:9999"); w.Code != http.StatusOK {
 		t.Errorf("a POST on another local port (an SSH tunnel): %d %s, want 200", w.Code, w.Body.String())
 	}
@@ -191,7 +191,7 @@ func TestPostServeDownIs503(t *testing.T) {
 
 // The pause from the web: set with a reason and a duration, and clear, each serve's pause call from the owner; a bad
 // duration or no reason is 400 and asks serve nothing; serve's refusal is 400 with its reason. With a model, that
-// model's pause and clear (T-766).
+// model's pause and clear.
 func TestPauseViaWeb(t *testing.T) {
 	p, _, s := fixture(t)
 	spy := &callSpy{reply: "PAUSED until 13:30"}
@@ -222,7 +222,7 @@ func TestPauseViaWeb(t *testing.T) {
 	if set.c.Model != "" || clear.c.Model != "" {
 		t.Errorf("the project's pause names a model: %q, %q", set.c.Model, clear.c.Model)
 	}
-	// a model's pause and its clear (T-766): the same call with its model
+	// a model's pause and its clear: the same call with its model
 	spy.reply = "PAUSED sonnet until cleared"
 	if w := post(h, "/api/pause?project=pj", `{"model":" sonnet ","reason":"quota"}`, DefaultListen); w.Code != http.StatusOK {
 		t.Fatalf("model pause: %d %s", w.Code, w.Body.String())

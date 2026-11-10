@@ -30,13 +30,13 @@ import (
 //     a pattern that can be pkill/killall; words inside a substitution don't count (they are walked on their own).
 //     Nothing is evaluated (no environment reads beyond the above).
 //   - git -C / --git-dir / --work-tree / GIT_DIR= / GIT_WORK_TREE= name the repo a rule is about: git commit -a in
-//     the main checkout; a reviewer's or deep dive's checkout of a commit in its own role worktree (T-853).
+//     the main checkout; a reviewer's or deep dive's checkout of a commit in its own role worktree.
 //   - writers: > >> &> >| <> targets, tee, rm, mv and cp targets (incl. <dir>/<source basename>), sed -i, git
 //     checkout/restore paths (non-workers; workers can't run them at all): each goes through checkWrite, the same
 //     path policy as the editor tools (protected files, the role's write profile, a final symlink at its target).
-//   - a GitReadOnly role runs only the git subcommands gitRead classifies as reads (RV-83 #2), and a reviewer or deep
-//     dive also a checkout or switch to a commit in its own role worktree (headCheckout, T-853).
-//   - commands the project's guards.deny_commands matches (T-905): the rule's regex runs on the resolved command line
+//   - a GitReadOnly role runs only the git subcommands gitRead classifies as reads, and a reviewer or deep
+//     dive also a checkout or switch to a commit in its own role worktree (headCheckout).
+//   - commands the project's guards.deny_commands matches: the rule's regex runs on the resolved command line
 //     (the program by its basename, its words one space apart); a rule with Alone denies at once, one without denies
 //     two matching commands at once (sibling background units, a literal fan-out above one under xargs / parallel).
 //
@@ -56,8 +56,8 @@ type shell struct {
 	vars   map[string]*string // nil = assigned a value we cannot know
 	depth  int
 	ctx    []string // the words of the commands a nested string came from (sh -c, eval, find -exec)
-	bg     bool     // this scope runs in the background (an & of an enclosing statement; T-543)
-	par    bool     // this command runs under a parallel fan-out (xargs -P, parallel; T-543)
+	bg     bool     // this scope runs in the background (an & of an enclosing statement)
+	par    bool     // this command runs under a parallel fan-out (xargs -P, parallel)
 	bgUnit *[]bool  // per guards.deny_commands rule: this background sibling matched the rule
 }
 
@@ -470,11 +470,11 @@ func unescape(v string, quoted bool) string {
 
 // ---- one simple command ----------------------------------------------------------------------------------------
 
-// headless denies an agent CLI run headless (T-470, owner 2026-10-27), for every role, by its argv structure (an
+// headless denies an agent CLI run headless (owner 2026-10-27), for every role, by its argv structure (an
 // accident guard: a prompt word is quoted, so it is no word of its own), as its kind names the forms h
 // (agents.Kind.Headless; name is the program typed, one of h.Programs): a subcommand (codex exec, opencode run), one
 // also as any later positional word (Anywhere); a print flag -p, --print or a short cluster holding p (-cp, -pc) before
-// `--` (claude; it has no -p-shaped option values). Words after `--` and option values never count. Accepted, not fixed (owner/lead 2026-10-28, RV-51 #1): the
+// `--` (claude; it has no -p-shaped option values). Words after `--` and option values never count. Accepted, not fixed (owner/lead 2026-10-28): the
 // alias after a prompt word (`codex "hello" e hi`); `env -S` separators the shell parser reads differently (`\_`).
 func headless(h agents.Headless, name string, args []string) {
 	if sub := subcommand(args, h.ValueOpts); oneOf(sub, h.Subcommands...) {
@@ -537,12 +537,12 @@ func positionals(args, valueOpts []string) []string {
 	return out
 }
 
-// ---- guards.deny_commands (T-905) ------------------------------------------------------------------------------------
+// ---- guards.deny_commands ------------------------------------------------------------------------------------
 
 // denyCommands denies command W[k:] when a guards.deny_commands rule matches its resolved line: the program by its
 // basename, its words one space apart (quotes removed, known variables substituted). A rule with Alone denies at once;
 // one without denies only when two matching commands run at once — s.par is a literal fan-out, and stmts counts the
-// background units it marked (the generic form of T-543's two-at-once rule).
+// background units it marked (the generic form of the two-at-once rule).
 func (s *shell) denyCommands(W []string, k int) {
 	if len(s.g.rules) == 0 {
 		return
@@ -675,7 +675,7 @@ loop:
 		s.sed(W, k)
 	default:
 		if kind, ok := agents.ByProgram(name); ok {
-			// a plugin kind with no manifest has no headless forms to check: its program is denied (T-1054)
+			// a plugin kind with no manifest has no headless forms to check: its program is denied
 			if u, ok := kind.(agents.Uncached); ok && u.Uncached() != nil {
 				deny(name + " is the CLI of plugin kind " + kind.Name() + ", whose manifest is not cached, so its " +
 					"headless runs are unknown: run obor setup agents (obor serve caches it at its start)")
@@ -689,7 +689,7 @@ loop:
 var gitWrites = []string{"commit", "merge", "rebase", "reset", "checkout", "switch", "restore", "stash", "cherry-pick",
 	"revert", "push", "tag", "worktree", "clean", "am", "apply"}
 
-// headCheckout reports a git checkout or switch that only moves HEAD to a commit (T-853): a checkout of a ref
+// headCheckout reports a git checkout or switch that only moves HEAD to a commit: a checkout of a ref
 // (checkoutRef) or a switch, neither creating a branch (-b, -B, --orphan; -c, -C, --create, --force-create). A
 // GitReadOnly role with a role worktree (the reviewer, the deep dive) runs one there: it may check out any commit.
 func (s *shell) headCheckout(sub string, args []string, dir string) bool {
@@ -713,7 +713,7 @@ func (s *shell) headCheckout(sub string, args []string, dir string) bool {
 
 // checkoutRef reports a `git checkout` of a ref (it moves HEAD) rather than of paths. A `--` makes what follows paths,
 // and a tree-ish before it belongs to that path checkout. -b / -B / --orphan create and switch to a branch, and
-// --detach / -d detach HEAD: both move HEAD with or without an operand (T-848). A single operand "-" is the previous
+// --detach / -d detach HEAD: both move HEAD with or without an operand. A single operand "-" is the previous
 // branch; one that names an existing path, or no operand at all, checks out paths.
 func (s *shell) checkoutRef(args []string, dir string) bool {
 	var pos []string
@@ -838,7 +838,7 @@ var valueOpts = map[string][]string{
 
 // unwrap skips wrapper W[k]'s options (to --, or the first word not starting with -), then timeout's duration and
 // NAME=VALUE words (into env), and returns the index of the nested command, and whether the wrapper fans out in
-// parallel (xargs -P / --max-procs, parallel; T-543). A flag may still take a value the guard
+// parallel (xargs -P / --max-procs, parallel). A flag may still take a value the guard
 // doesn't know of, and a value may be the command after all, so net checks git/pkill/killall among the skipped
 // words, and after a flag among all later words, as commands (fail closed).
 func (s *shell) unwrap(W []string, k int, env map[string]string) (int, bool) {
@@ -1159,7 +1159,7 @@ sub:
 	if g.broken != nil && g.restricted && (oneOf(sub, gitWrites...) || oneOf(sub, workerIndexWrites...)) {
 		deny(unreadable(g.broken))
 	}
-	// A reviewer or deep dive moves HEAD in its own role worktree (T-853: it may check out any commit there; serve moves
+	// A reviewer or deep dive moves HEAD in its own role worktree (it may check out any commit there; serve moves
 	// it to the next head it hands the role). A checkout of paths stays a write: the read-only rule below.
 	if r, ok := g.sessionRole(); ok && r.GitReadOnly && r.Cwd == roles.CwdRoleWorktree && g.gone() == "" &&
 		s.headCheckout(sub, W[i+1:], dir) && g.gitTop(dir, gitDir, workTree) == project.Physical(g.cfg.RoleWorktree(r.Name)) {
@@ -1205,7 +1205,7 @@ sub:
 	}
 }
 
-// gitReads: git subcommands that only read (for a GitReadOnly role, RV-83 #2). branch, config, remote, tag, stash,
+// gitReads: git subcommands that only read (for a GitReadOnly role). branch, config, remote, tag, stash,
 // worktree and reflog read in some forms only (gitRead); every other subcommand counts as a write.
 var gitReads = []string{"status", "log", "diff", "show", "blame", "annotate", "grep", "ls-files", "ls-tree", "ls-remote",
 	"rev-parse", "rev-list", "cat-file", "describe", "shortlog", "merge-base", "show-ref", "for-each-ref", "name-rev",
@@ -1325,10 +1325,10 @@ func (g *guard) gitTop(dir, gitDir, workTree string) string {
 	return ""
 }
 
-// checkPush: a push is allowed only for a non-worker whose role is in guards.allow_push (config.PushAllowed, T-786:
+// checkPush: a push is allowed only for a non-worker whose role is in guards.allow_push (config.PushAllowed:
 // an entry is a role, or a derived name read as its slot).
 func (g *guard) checkPush(what string) {
-	if g.cfg.MayPush(g.role) { // never a worker's or a driver's (T-751)
+	if g.cfg.MayPush(g.role) { // never a worker's or a driver's
 		return
 	}
 	deny(what + " is blocked — only a non-worker role listed in guards.allow_push may push; otherwise the user pushes")

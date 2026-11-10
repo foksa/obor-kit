@@ -21,8 +21,8 @@ import (
 	"obor/internal/testkit"
 )
 
-// tmpl is the base of the one fixture repo these tests copy (T-998): built on first use, after testkit.Run armed New
-// (T-1019), and removed after the run.
+// tmpl is the base of the one fixture repo these tests copy: built on first use, after testkit.Run armed New
+// and removed after the run.
 var tmpl = sync.OnceValue(buildTemplate)
 
 var (
@@ -41,7 +41,7 @@ func keep(d string) string {
 
 func TestMain(m *testing.M) {
 	testkit.Isolate()
-	code := testkit.Run(m) // removes the project template testkit.New copies (T-1009)
+	code := testkit.Run(m) // removes the project template testkit.New copies
 	for _, d := range tmplDirs {
 		os.RemoveAll(d)
 	}
@@ -53,7 +53,7 @@ func TestMain(m *testing.M) {
 
 // mainTB is a testing.TB for the templates built outside a test: failures panic, and Cleanup's work (testkit's short
 // temp dirs) runs after the run, as a test's would at its end: the fixture must outlive every test that copies it
-// (T-1024: before, Cleanup was a no-op and each fixture's hk<digits> dir stayed in TMPDIR).
+// (a Cleanup that did nothing would leave each fixture's hk<digits> dir in TMPDIR).
 type mainTB struct{ testing.TB }
 
 func (mainTB) Helper()             {}
@@ -155,7 +155,7 @@ func fxConfig(edits ...func(map[string]any)) []func(map[string]any) {
 	}, edits...)
 }
 
-// goLines is a project whose checks print `go test` output, with obor-kit's failing lines (T-1047): failure picks
+// goLines is a project whose checks print `go test` output, with obor-kit's failing lines: failure picks
 // them, checks.output.failed_test and failed_package name the test and the package on them.
 func goLines() func(map[string]any) {
 	return func(c map[string]any) {
@@ -186,7 +186,7 @@ func buildTemplate() string {
 	return p.Base
 }
 
-// fx is the fixture these tests copy from the template (T-998): .obor/state/ gitignored, a 10-line shared.txt, lane
+// fx is the fixture these tests copy from the template: .obor/state/ gitignored, a 10-line shared.txt, lane
 // L-01 on task/T-05 with an uncommitted feature.txt, checks.output's summary / failure set, a per-test check
 // slot dir. lane2 adds the idle lane L-02 on task/T-20 when a test uses it. The scratch is the default proj-wt/merge.
 type fx struct {
@@ -199,7 +199,7 @@ type fx struct {
 	out        syncBuffer
 	env        []string       // project.Env (OBOR_FULL)
 	environ    []string       // more command environment
-	windowWait time.Duration  // > 0: the nightly lock's wait (T-864: no merge.window_wait key)
+	windowWait time.Duration  // > 0: the nightly lock's wait (no merge.window_wait key)
 	cand       port.Candidate // the last green gate's (gate)
 	gated      string         // the last green gate's line (gate: the test's is its result's)
 	spec       string         // the task's stored spec gate passes (GateInput.Spec; "": none)
@@ -279,7 +279,6 @@ func (x *fx) opts() Options {
 		"GIT_COMMITTER_NAME=obor test", "GIT_COMMITTER_EMAIL=obor-test@example.invalid", "CHECK_SLOT_DIR="+x.slots,
 		"TMP_DIR="+x.Base)
 	// The socket calls end at once: no test here runs a serve, and a nightly's backup must not wait out its deadline
-	// (T-685).
 	callCtx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	x.t.Cleanup(cancel)
 	slots := &run.Slots{Dir: x.slots, Max: 2, BlockMax: 900 * time.Second, Marker: "merge-running-proj",
@@ -292,7 +291,7 @@ func (x *fx) opts() Options {
 }
 
 // gate submits lane's work for task, gates it in serve's worktree and tests the candidate in
-// the lane, as obor serve does (Scratch.Submit, a lane Gate, then Test: T-961): green is OK, red Red, fail and conflict
+// the lane, as obor serve does (Scratch.Submit, a lane Gate, then Test): green is OK, red Red, fail and conflict
 // Fail, each with the gate's line or, past a green gate, the test's; a refusal or error is Fail with its text. A green
 // gate's candidate is x.cand, its line x.gated.
 func (x *fx) gate(lane, task, summary string) Result {

@@ -17,12 +17,12 @@ import (
 	"obor/internal/testkit"
 )
 
-// fakeGit is gitIO over a small model of the repository (T-1011): its refs, each worktree's HEAD, branch, status and
+// fakeGit is gitIO over a small model of the repository: its refs, each worktree's HEAD, branch, status and
 // open merge, and the commits Scratch made (their parents, messages and dates). Writes change the model as git does
 // for the calls Scratch makes (a commit moves HEAD and closes a merge, a reset clears the worktree, a fast-forward
 // moves the branch); the reads it does not model (diffs, the log, a blob's sha) answer from answers, keyed by the
 // call ("Diff <from> <to>"), "" when unscripted. A merge of a sha in conflicts stops: its paths stay unmerged (none:
-// a replayed resolution). cut fails the cut-th call (as the cut table's git shim did, before T-1011); every call is
+// a replayed resolution). cut fails the cut-th call (as a git shim over real git would); every call is
 // logged in calls, "<Method> <args…>".
 type fakeGit struct {
 	root      string

@@ -9,7 +9,7 @@ import (
 	"obor/internal/project"
 )
 
-// T-588: the default Open (lsof, or /proc/<pid>/fd) names a file this process holds open, by its physical path, and
+// the default Open (lsof, or /proc/<pid>/fd) names a file this process holds open, by its physical path, and
 // that path matches the transcript glob spelled through a symlinked directory (macOS: /var is /private/var).
 func TestOpenFilesOfARealProcess(t *testing.T) {
 	base := t.TempDir()

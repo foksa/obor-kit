@@ -19,7 +19,7 @@ import (
 )
 
 // TranscriptOf is the transcript file of an agent session id: the one the project at root recorded for it (serve's
-// session facts, T-577; root "": none read), else as the kinds keep them (agents.Kind.Transcript, in agents.Names
+// session facts; root "": none read), else as the kinds keep them (agents.Kind.Transcript, in agents.Names
 // order: $CLAUDE_CONFIG_DIR (~/.claude)/projects/*/<sid>.jsonl, $CODEX_HOME
 // (~/.codex)/sessions/*/*/*/rollout-*-<sid>.jsonl); "" when none, or when sid is no uuid-like word (it is matched
 // inside a file name).
@@ -206,7 +206,7 @@ func WriteAtomic(path string, data []byte) error {
 
 // LookPath finds name in the directories of the PATH value path (an Env's PATH, not the process's), as exec.LookPath
 // does: dirs in order, an empty component is the cwd, and only a regular file with an execute bit matches (a directory
-// named like it, or a file without one, is passed over). The one PATH search setup and launch share (T-1052).
+// named like it, or a file without one, is passed over). The one PATH search setup and launch share.
 func LookPath(path, name string) (string, error) {
 	for _, dir := range filepath.SplitList(path) {
 		p := filepath.Join(dir, name)
@@ -217,9 +217,9 @@ func LookPath(path, name string) (string, error) {
 	return "", exec.ErrNotFound
 }
 
-// InstallHost is the machine a kind's CLI is installed on, as the install checks read it (agents.InstallHost, T-1045):
+// InstallHost is the machine a kind's CLI is installed on, as the install checks read it (agents.InstallHost):
 // the CLI on env's PATH (project.LookPath), its symlinks followed, and com.apple.quarantine read with macOS's xattr.
-// The check itself runs nothing of the CLI (T-1052).
+// The check itself runs nothing of the CLI.
 func InstallHost(env Env) agents.InstallHost {
 	if env == nil {
 		env = OSEnv

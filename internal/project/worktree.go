@@ -12,7 +12,7 @@ import (
 // AddWorktree makes dir a worktree of the repo whose main checkout is root, added detached at ref when dir is missing
 // (git worktree add -f: a worktree whose directory was removed is still registered); added false when dir already is
 // one. A dir there that is no worktree of root is an error, nothing changed. The one adder of the role worktrees and
-// lanes (T-853: obor setup, serve's review moves, the launcher's start of a role agent).
+// lanes (obor setup, serve's review moves, the launcher's start of a role agent).
 func AddWorktree(ctx context.Context, root, dir, ref string) (added bool, err error) {
 	if _, err := os.Stat(dir); err == nil {
 		if r, err := Find(dir); err != nil || r.Root != Physical(root) || r.Top != Physical(dir) {

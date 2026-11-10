@@ -13,9 +13,9 @@ import (
 	"obor/internal/view"
 )
 
-// T-788 (S5): serve's phase is the one word for a task everywhere: the lanes row (obor status' column), the pipeline
+// serve's phase is the one word for a task everywhere: the lanes row (obor status' column), the pipeline
 // (the queue's merge item and its stage) and the fleet page's lane strip show it as serve sent it, for every phase,
-// over a lane git reads as submitted (the lane table's done before, which the lanes row showed for a green task).
+// over a lane git reads as submitted (which the lanes row shows for a green task).
 func TestPhaseAgreesAcrossLanesPipelineAndWeb(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
@@ -27,7 +27,7 @@ func TestPhaseAgreesAcrossLanesPipelineAndWeb(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, c := range []struct{ state, phase string }{ // a worker's needs-you (working) has no merge stage (T-797)
+	for _, c := range []struct{ state, phase string }{ // a worker's needs-you (working) has no merge stage
 		{"waiting", wire.PhaseWaiting}, {"dispatched", wire.PhaseDispatching}, {"working", wire.PhaseWorking},
 		{"driving", wire.PhaseDriving}, {"submitted", wire.PhaseSubmitted}, {"submitted", wire.PhaseGating},
 		{"submitted", wire.PhaseGatePending}, {"candidate", wire.PhaseTesting}, {"candidate", wire.PhaseTestPending},

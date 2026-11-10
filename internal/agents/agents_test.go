@@ -9,10 +9,10 @@ import (
 	"obor/internal/agents"
 	_ "obor/internal/agents/claude"
 	_ "obor/internal/agents/codex"
-	_ "obor/internal/testkit" // OpenCode, a plugin kind answering in process (T-1046)
+	_ "obor/internal/testkit" // OpenCode, a plugin kind answering in process
 )
 
-// T-495: the registry is the one list of kinds (sorted), Default is one of them, an unknown kind is no kind (Cursor's
+// the registry is the one list of kinds (sorted), Default is one of them, an unknown kind is no kind (Cursor's
 // rows went), and a second registration of a name panics.
 func TestRegistry(t *testing.T) {
 	if got := agents.Names(); !slices.Equal(got, []string{"claude", "codex", "opencode"}) {
@@ -35,7 +35,7 @@ func TestRegistry(t *testing.T) {
 	agents.Register(k)
 }
 
-// DD-v0.13-verify "Design 2 again" gap 1: a kind's programs default to its name; ByProgram finds a kind by an
+// A kind's programs default to its name; ByProgram finds a kind by an
 // executable's base name and no kind by another word.
 func TestByProgram(t *testing.T) {
 	for _, name := range agents.Names() {
@@ -54,7 +54,7 @@ func TestByProgram(t *testing.T) {
 	}
 }
 
-// T-581: Resumes names the kinds that honour a session id: Claude and Codex yes, OpenCode no (its session is
+// Resumes names the kinds that honour a session id: Claude and Codex yes, OpenCode no (its session is
 // recorded but never resumed), an unknown kind no.
 func TestResumes(t *testing.T) {
 	for _, c := range []struct {
@@ -67,7 +67,7 @@ func TestResumes(t *testing.T) {
 	}
 }
 
-// T-568: ResetIn reads an epoch after '|', else a clock time ("resets 6pm", "resets at 6:30 PM", "try again at
+// ResetIn reads an epoch after '|', else a clock time ("resets 6pm", "resets at 6:30 PM", "try again at
 // 11:01 PM.") as its next occurrence after at in at's location (12 am is midnight, 12 pm noon); else none.
 func TestResetIn(t *testing.T) {
 	loc := time.FixedZone("CET", 3600)
@@ -111,7 +111,7 @@ type noEffort struct{ agents.Kind }
 func (noEffort) Name() string      { return "plain" }
 func (noEffort) Efforts() []string { return nil }
 
-// T-695: an effort is checked per kind: each kind's own list, a value outside it refused naming the list, a kind with
+// an effort is checked per kind: each kind's own list, a value outside it refused naming the list, a kind with
 // no effort and an unknown kind refused, "" always fine.
 func TestCheckEffort(t *testing.T) {
 	for _, c := range []struct{ kind, effort, refusal string }{
@@ -129,7 +129,7 @@ func TestCheckEffort(t *testing.T) {
 	}
 }
 
-// T-753, T-765: ModelArgs puts a model in args as each kind takes it: in place of the args' own (their spelling kept,
+// ModelArgs puts a model in args as each kind takes it: in place of the args' own (their spelling kept,
 // a later one dropped), appended when they have none, dropped for ""; every other arg stays where it is.
 func TestModelArgs(t *testing.T) {
 	for _, c := range []struct {
@@ -154,12 +154,12 @@ func TestModelArgs(t *testing.T) {
 	if _, err := agents.ModelArgs("cursor", nil, "m"); err == nil {
 		t.Error("a kind with no bridge names no model: want an error")
 	}
-	if _, err := agents.ModelArgs("opencode", nil, "m"); err == nil { // T-1046: config appends --model <id>
+	if _, err := agents.ModelArgs("opencode", nil, "m"); err == nil { // config appends --model <id>
 		t.Error("a plugin kind names no model in its args: want an error")
 	}
 }
 
-// T-812: the registry of the env vars obor sets for an agent is one list: the identity vars, the retired OBOR_AGENT and
+// the registry of the env vars obor sets for an agent is one list: the identity vars, the retired OBOR_AGENT and
 // every kind's own (Kind.Vars), and a kind's start sets none outside it.
 func TestVarsRegistry(t *testing.T) {
 	vars := agents.Vars()
@@ -195,7 +195,7 @@ func TestVarsRegistry(t *testing.T) {
 	}
 }
 
-// T-812: StartVars, the one builder of a start's env: the role, the lane, the pane (T-1037) and the kind's vars set (a
+// StartVars, the one builder of a start's env: the role, the lane, the pane and the kind's vars set (a
 // "" value: none), every other registry var unset, whatever kind set it before; keep leaves one as the pane has it.
 func TestStartVars(t *testing.T) {
 	names := func(set []agents.EnvVar) string {

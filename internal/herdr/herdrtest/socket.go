@@ -147,7 +147,7 @@ func Serve(t testing.TB, f *Fake) *Server {
 }
 
 // ServeMem is Serve in memory: no socket file (Path stays ""), the server's Client opens each connection as an
-// in-memory pipe, which a testing/synctest bubble can wait on (T-1175). Die and Revive work as on a socket (a dial
+// in-memory pipe, which a testing/synctest bubble can wait on. Die and Revive work as on a socket (a dial
 // between them is refused); Restart does not: herdr's instance is its socket file's time.
 func ServeMem(t testing.TB, f *Fake) *Server {
 	t.Helper()
@@ -324,7 +324,7 @@ func (s *Server) Once(method string, failures ...Failure) {
 }
 
 // Hold delays the answers of method until release: the fake acts as it answers, so herdr's state changes while the
-// caller still has no answer (T-404). reached closes once an answer is held (the fake has acted). release may be
+// caller still has no answer. reached closes once an answer is held (the fake has acted). release may be
 // called more than once.
 func (s *Server) Hold(method string) (release func(), reached <-chan struct{}) {
 	h := &hold{c: make(chan struct{}), reached: make(chan struct{})}
@@ -449,7 +449,7 @@ func (s *Server) Push(event string, data map[string]any) int {
 // Refresh pushes the workspace-created event data describes — herdr ends the stream it reaches (obor reads it as a
 // refresh) — to every subscribing connection. reached is whether one got it; next says whether serve has ended that
 // stream — the client closed those connections — and holds a lifecycle subscription registered after the push, so the
-// stream serve connects next carries nothing of this one (T-759). A push that reached no subscription reached no
+// stream serve connects next carries nothing of this one. A push that reached no subscription reached no
 // stream.
 func (s *Server) Refresh(data map[string]any) (reached bool, next func() bool) {
 	s.mu.Lock()

@@ -28,7 +28,7 @@ type Row struct {
 	Run   func(ctx context.Context, t Terminal, pane string) error
 }
 
-// Contract is the terminal contract (T-1044, docs/plan/architecture-target.md §2b): what the core and setup rely on of
+// Contract is the terminal contract (docs/plan/architecture-target.md §2b): what the core and setup rely on of
 // a terminal adapter, in terminal-neutral terms, one row each. internal/herdr's TestTerminalContract runs it against
 // this fake; the conformance suite's live herdr tier (tests/conformance, H-C rows) against a throwaway herdr session.
 // A second adapter runs the same rows.

@@ -42,7 +42,7 @@ func fakeTable() []Proc {
 	}
 }
 
-// T-714: an agent's background processes are its descendants that ran longer than the threshold — a shell with
+// an agent's background processes are its descendants that ran longer than the threshold — a shell with
 // children passed through, the long child shown with its wrapping shell — and never its helpers: a direct child that is
 // no shell (caffeinate, an MCP server), one that started with it (a shell-wrapped MCP server, with what it started) or
 // obor's own MCP server.
@@ -68,7 +68,7 @@ func TestDescendants(t *testing.T) {
 	}
 }
 
-// T-714, T-727: BackgroundOf takes each agent's process from its pane's process info (its foreground leader), marks a
+// BackgroundOf takes each agent's process from its pane's process info (its foreground leader), marks a
 // process that runs a recorded background call (matched by command, through the shell's quoting) as background with
 // the call's description, and gives the command shortened and the age; another agent's record does not mark it; an
 // agent at its shell has none; an unrecorded long child is a running foreground command, no bg.
@@ -101,7 +101,7 @@ func TestBackgroundOf(t *testing.T) {
 		Proc{PID: 302, PPID: 301, Age: 99 * s, Command: "go test ./..."})
 	before := indexBuilds.Load()
 	got := BackgroundOf(context.Background(), root, agents, table, info)
-	// T-727: one scan builds one process index, whatever the number of agents.
+	// one scan builds one process index, whatever the number of agents.
 	if len(got) != 2 || len(got["w1"]) != 1 || len(got["w4"]) == 0 {
 		t.Fatalf("background %+v, want a process of w1 and of w4 (two agents with one)", got)
 	}
@@ -142,8 +142,8 @@ func fixClock(t *testing.T) time.Time {
 	return t0
 }
 
-// RV-85 verify #3: a record marks a process bg only when it is of the agent's current session and was recorded just
-// before the process started: a newer foreground run of the same command (the old record, long before its start),
+// A record marks a process bg only when it is of the agent's current session and was recorded just
+// before the process started: a newer foreground run of the same command (an earlier record, long before its start),
 // a previous session's record and a record after the start are `running`; the matching one is bg.
 func TestBackgroundOfMatchesTheStartingCall(t *testing.T) {
 	t0 := fixClock(t)
@@ -177,7 +177,7 @@ func TestBackgroundOfMatchesTheStartingCall(t *testing.T) {
 	}
 }
 
-// T-714: Build puts each agent's background processes on its lane, its role row and the lead's row, and --json carries
+// Build puts each agent's background processes on its lane, its role row and the lead's row, and --json carries
 // them as background.
 func TestBuildBackground(t *testing.T) {
 	p := testkit.New(t)

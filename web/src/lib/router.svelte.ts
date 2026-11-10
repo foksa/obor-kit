@@ -1,4 +1,4 @@
-// The page routes by the URL's hash, as before T-760 (links into obor web keep working): #/ the fleet,
+// The page routes by the URL's hash (links into obor web keep working): #/ the fleet,
 // #/p/<project>, #/s/<project> its setup, #/t/<project>/<task>, #/a/<project>/<agent>, #/j/<project>/<job id>.
 import { parseRoute, type Route } from "./route";
 

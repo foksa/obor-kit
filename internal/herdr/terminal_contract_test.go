@@ -18,7 +18,7 @@ func contractTerminal(t *testing.T) herdrtest.Terminal {
 	return herdrtest.Terminal{Control: srv.Client(), Panes: herdr.Panes{S: srv.Client(), Home: t.TempDir()}, Group: "proj"}
 }
 
-// TestTerminalContract runs the terminal contract (herdrtest.Contract, T-1044: start, status, type, keys, screen, wait,
+// TestTerminalContract runs the terminal contract (herdrtest.Contract: start, status, type, keys, screen, wait,
 // rename, process info, notify, reconnect) against herdr's adapter over herdrtest; the live herdr tier runs the same
 // rows (tests/conformance, H-C).
 func TestTerminalContract(t *testing.T) {

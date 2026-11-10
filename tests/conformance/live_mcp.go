@@ -1,11 +1,11 @@
 //go:build conformance
 
-// The live tier's real-server case (T-898). The lab's kit runs stubmcp where a kit runs obor: that proves how each CLI
+// The live tier's real-server case. The lab's kit runs stubmcp where a kit runs obor: that proves how each CLI
 // starts and wires an MCP server, not that obor's own `obor mcp` works with a real client. These cases point one start
 // per kind at the repository's own obor (built in the scratch dir; a kit's bin/obor shim in front of it), ask the agent
 // to call job_next once, and pass only when the server's rendered reply reaches the session's transcript. The start is
-// the shipped launch's (launchOf: config.Model.Launch for a worker, T-910, T-1042), so the case proves obor's
-// own launch reaches its tool, not a copy of the launch with the tool wired in by hand (RV-122 #1). The lab's project is
+// the shipped launch's (launchOf: config.Model.Launch for a worker), so the case proves obor's
+// own launch reaches its tool, not a copy of the launch with the tool wired in by hand. The lab's project is
 // the same scratch checkout with a stub serve on its app socket, so no real serve is needed.
 package main
 
@@ -36,7 +36,7 @@ const (
 )
 
 // realKit builds the repository's own obor as a kit in the scratch dir: bin/obor (the kit's shim) runs bin/obor-real
-// (CONF_OBOR_BIN copies a binary already built, T-898's pre-SDK run; unset, ./cmd/obor is built) and opencode/ holds
+// (CONF_OBOR_BIN copies a binary already built; unset, ./cmd/obor is built) and opencode/ holds
 // the shipped plugin, so every driver's registration points at the real `obor mcp` and the plugin's hooks run the same
 // binary. The kit is built once per lab.
 func (l *lab) realKit() (string, error) {
@@ -83,7 +83,7 @@ func (l *lab) makeRealKit() error {
 	return nil
 }
 
-// liveStart is one worker's start as internal/launch builds it (config.Model.Launch, T-1042): the model's launch args
+// liveStart is one worker's start as internal/launch builds it (config.Model.Launch): the model's launch args
 // (the kind's base args, its model, kinds.<kind>.args, the settings, and a lane's strict flag) and the start's own env
 // (OpenCode's model and generated config).
 type liveStart struct {
@@ -92,9 +92,9 @@ type liveStart struct {
 }
 
 // launchOf builds a worker's start of model in the lab's project as internal/launch does (a compiled kind's), its start dir
-// the lab's lane (T-1033: the project's CLI config there counts). Each kind's
+// the lab's lane (the project's CLI config there counts). Each kind's
 // real-server case starts from this, so it runs the shipped launch instead of a copy of its arguments that could drift
-// from it (RV-122 #1, T-910); model is a built-in model of the lab config's table (liveModel).
+// from it; model is a built-in model of the lab config's table (liveModel).
 func (l *lab) launchOf(kind, model, kit string, writeState func(string, []byte) (string, error)) (liveStart, error) {
 	cfg, err := config.Load(l.main)
 	if err != nil {

@@ -125,13 +125,13 @@ func Physical(p string) string {
 }
 
 // Git runs git -C dir args… with no ctx (GitCtx): its stdout (also on failure, as $(…) would capture it); a failure's
-// error carries git's stderr, the reason a read failed (T-871).
+// error carries git's stderr, the reason a read failed.
 func Git(dir string, args ...string) (string, error) {
 	return GitCtx(context.Background(), dir, args...)
 }
 
 // GitCtx is Git under ctx: git is the leader of its own process group (Group), so a canceled ctx kills it and whatever
-// it started (T-873), not just the git process.
+// it started, not just the git process.
 func GitCtx(ctx context.Context, dir string, args ...string) (string, error) {
 	return gitRun(ctx, dir, nil, args...)
 }
@@ -164,8 +164,8 @@ const Grace = 2 * time.Second
 // Group makes cmd (from exec.CommandContext, not started) the leader of its own process group: when its context ends
 // the group gets TERM, then KILL after Grace; Wait gives up on pipes a descendant still holds a second later. Call the
 // returned cleanup after Wait (Run, Output) returns: it KILLs what is left of the group, so a TERM-ignoring child or
-// a descendant of a parent that exited normally doesn't outlive the command (RV-26 #2). One owner for every process
-// group obor starts (T-873: internal/run's twin moved here, so GitCtx and obor run's commands share it).
+// a descendant of a parent that exited normally doesn't outlive the command. One owner for every process
+// group obor starts (internal/run's twin moved here, so GitCtx and obor run's commands share it).
 func Group(cmd *exec.Cmd) (cleanup func()) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {
@@ -241,12 +241,12 @@ type Role struct {
 
 // DetectRole is the session's role: OBOR_ROLE / OBOR_LANE from env; a directory in a linked worktree directly under
 // lanes_dir (not the merge scratch) → a worker in that lane. The lane cwd wins over the env, except OBOR_ROLE=driver
-// there: the owner's drive agent (T-751).
+// there: the owner's drive agent.
 func DetectRole(r *Repo, cfg *config.Config, env Env) Role {
 	envRole, envLane := env.Get("OBOR_ROLE"), env.Get("OBOR_LANE")
 	cwdLane := LaneOf(r, cfg)
 	switch {
-	case envRole == roles.Driver && cwdLane != "": // the owner's drive agent in its lane (T-751)
+	case envRole == roles.Driver && cwdLane != "": // the owner's drive agent in its lane
 		return Role{roles.Driver, cwdLane, "env+cwd"}
 	case envRole != "" && cwdLane != "":
 		return Role{"worker", cwdLane, "env+cwd"}
@@ -262,7 +262,7 @@ func DetectRole(r *Repo, cfg *config.Config, env Env) Role {
 }
 
 // LaneOf is the lane whose worktree r is: a linked worktree directly under lanes_dir (compared physically), not the
-// merge scratch and not a role worktree (T-853: the reviewer's, the deep dive's). "" when none (T-777: a lane is any
+// merge scratch and not a role worktree (the reviewer's, the deep dive's). "" when none (a lane is any
 // other worktree there).
 func LaneOf(r *Repo, cfg *config.Config) string {
 	if r == nil || cfg == nil || !r.Linked() {
@@ -280,7 +280,7 @@ func LaneOf(r *Repo, cfg *config.Config) string {
 }
 
 // SelfAgent is the herdr agent name of a session in role (DetectRole: OBOR_ROLE, its lane's cwd winning): the name
-// config.Self derives from the role's slot and the current config (T-786). "" when none (no role, the owner). An
+// config.Self derives from the role's slot and the current config. "" when none (no role, the owner). An
 // OBOR_AGENT in the environment is never read: a stored copy went stale on every rename.
 func SelfAgent(cfg *config.Config, role Role) string {
 	if cfg == nil {

@@ -10,7 +10,7 @@ import (
 	"obor/internal/config"
 )
 
-// T-801: the kit's default rows (advisor, researcher, triage) keep working from a config that names them as strings:
+// the kit's default rows (advisor, researcher, triage) keep working from a config that names them as strings:
 // same agent names, their writes from the default row; an object replaces the write list, a string sets the model.
 func TestFoldedRolesFromStrings(t *testing.T) {
 	p := newProject(t)
@@ -72,7 +72,7 @@ func TestFoldedRolesFromStrings(t *testing.T) {
 	}
 }
 
-// T-801: a custom role is an agents.roles.<name> row (a model ref string, or an object with a write list) and its
+// a custom role is an agents.roles.<name> row (a model ref string, or an object with a write list) and its
 // doc; it validates, is a role agent (in config order after the table and default rows) named <prefix>-<name, _ → ->.
 func TestValidCustomRoles(t *testing.T) {
 	p := newProject(t)
@@ -122,7 +122,7 @@ func TestValidCustomRoles(t *testing.T) {
 	}
 }
 
-// T-801: validate refuses a bad name, a collision with a table role (its name or agent suffix), a write path outside
+// validate refuses a bad name, a collision with a table role (its name or agent suffix), a write path outside
 // the project or into .obor/, a missing role doc (naming the file to write), an allow_push listing a custom role, an
 // object for a table role and a roles.driver.
 func TestCustomRoleRefusals(t *testing.T) {
@@ -188,7 +188,7 @@ func TestCustomRoleRefusals(t *testing.T) {
 	}
 }
 
-// T-801: removing a custom role's row leaves its doc behind: validate warns of it, the role is gone from every list
+// removing a custom role's row leaves its doc behind: validate warns of it, the role appears in no list
 // (no derived name, no role agent), nothing else changes; a doc without a "# Role:" first line is no role doc.
 func TestRemovedCustomRoleRow(t *testing.T) {
 	p := newProject(t)
@@ -230,7 +230,7 @@ func TestRemovedCustomRoleRow(t *testing.T) {
 	}
 }
 
-// T-801: the setup edit of a custom role's model: a string row is replaced, an object row keeps its write list (its
+// the setup edit of a custom role's model: a string row is replaced, an object row keeps its write list (its
 // model key is set); an unconfigured custom role is refused like any optional role.
 func TestEditCustomRoleModel(t *testing.T) {
 	p := newProject(t)
@@ -264,7 +264,7 @@ func TestEditCustomRoleModel(t *testing.T) {
 	}
 }
 
-// T-1039: roles.<name>.verbs are the wire methods serve admits a custom role to (roles.Verbs): a custom row's and a kit
+// roles.<name>.verbs are the wire methods serve admits a custom role to (roles.Verbs): a custom row's and a kit
 // default row's validate and reach Role (its HasVerb, nothing else granted, the effective config keeps them); validate
 // refuses an unknown method, one listed twice and verbs on a built-in role.
 func TestCustomRoleVerbs(t *testing.T) {

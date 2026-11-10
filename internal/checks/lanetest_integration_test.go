@@ -15,7 +15,7 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-961: the merge slot merges and compiles (Gate); the class's checks run in the task's lane (Test).
+// the merge slot merges and compiles (Gate); the class's checks run in the task's lane (Test).
 
 // probe is a check that records where and how it ran: its dir, the HEAD it saw and its environment, under $TMP_DIR.
 const probe = `pwd -P > "$TMP_DIR/check-pwd"; git rev-parse HEAD > "$TMP_DIR/check-head"; env > "$TMP_DIR/check-env"; ` +
@@ -36,7 +36,7 @@ func (y *sx) test(c context.Context, cand port.Candidate) (port.TestOutcome, err
 }
 
 // The gate runs commands.compile and never the class's checks: green names compile's counts; a compile that fails is
-// red; a lane_setup that fails before it is a fail, its rc named (T-996: internal/app's scripted "FAIL lane_setup"
+// red; a lane_setup that fails before it is a fail, its rc named (internal/app's scripted "FAIL lane_setup"
 // gate holds on this); with no compile configured nothing runs (lane_setup neither) and the merge is green.
 func TestGateCompilesOnly(t *testing.T) {
 	t.Parallel()
@@ -171,7 +171,7 @@ func laneTestInTheLane(t *testing.T) {
 	}
 }
 
-// T-1041: the lane test's env is the lane workers' (config.LaneEnv): the fact OBOR_LANE_CPUS (slots.lane_cpus) and the
+// the lane test's env is the lane workers' (config.LaneEnv): the fact OBOR_LANE_CPUS (slots.lane_cpus) and the
 // project's slots.lane_env with {cpus} replaced — a var the inherited env also had takes the config's value, no merge;
 // CHECK_CPUS the same budget.
 func laneTestLaneEnv(t *testing.T) {
@@ -262,7 +262,7 @@ func laneTestCut(t *testing.T) {
 	y.eq(y.Git(y.lane, "branch", "--show-current"), "task/T-05", "restored to the dispatch's branch")
 }
 
-// T-964, T-1047: a red lane test reruns the tests and packages it named once (commands.retest, its {tests} joined by
+// a red lane test reruns the tests and packages it named once (commands.retest, its {tests} joined by
 // merge.retest_join and OBOR_FAILED_PKGS) in the lane at the candidate. Green then is the step's green and the flake
 // is logged retried and passed; still red is the original red; a red that named no test (a build failure) and a
 // project without commands.retest rerun nothing.
@@ -322,7 +322,7 @@ func laneTestRetests(t *testing.T) {
 
 	t.Run("a retest that ran no tests: red", func(t *testing.T) {
 		t.Parallel()
-		// T-976: the retry's summary says it tested nothing ("go test: 0 pass, 0 fail") yet exits 0: the red stands.
+		// the retry's summary says it tested nothing ("go test: 0 pass, 0 fail") yet exits 0: the red stands.
 		y := newSx(t, goLines(), cmd("check", redOne),
 			cmd("retest", `echo "go test: 0 pass, 0 fail"; echo ran > "$TMP_DIR/retest-ran"; exit 0`))
 		o, err := y.test(ctx, y.green(lane(y.submit())))
@@ -341,7 +341,7 @@ func laneTestRetests(t *testing.T) {
 
 	t.Run("a retest with no summary: rc decides", func(t *testing.T) {
 		t.Parallel()
-		// No summary line to read says nothing about the tests: the retest's rc 0 is green, as before T-976.
+		// No summary line to read says nothing about the tests: the retest's rc 0 is green.
 		y := newSx(t, goLines(), cmd("check", redOne), cmd("retest", `exit 0`))
 		o, err := y.test(ctx, y.green(lane(y.submit())))
 		if err != nil || o.Kind != port.OutcomeGreen {

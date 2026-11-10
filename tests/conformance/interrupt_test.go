@@ -1,6 +1,6 @@
 package main
 
-// T-816 (RV-104 #3): the interrupt closes every open lab once, tells the runner to stop first, and exits 130 within a
+// the interrupt closes every open lab once, tells the runner to stop first, and exits 130 within a
 // bound. The stub lab reproduces a real lab's close: it forgets itself under labsMu, the mutex the handler held while
 // closing (a deadlock in the code this replaces).
 

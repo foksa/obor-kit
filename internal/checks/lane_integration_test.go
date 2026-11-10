@@ -51,7 +51,7 @@ func laneInput(lane, target string) port.PrepareInput {
 }
 
 // TestLanePrepare: a fresh prepare puts the branch at the target; base is the target (serve's lane row), and it writes
-// no lane state file (serve's row replaces it, T-439). A redo keeps the lane's commits (no checkout).
+// no lane state file (serve's row replaces it). A redo keeps the lane's commits (no checkout).
 func TestLanePrepare(t *testing.T) {
 	t.Parallel()
 	p, lane, target := laneFx(t)
@@ -163,7 +163,7 @@ func TestLanePrepareRepeats(t *testing.T) {
 	}
 }
 
-// TestLanePrepareCanceledEndsSetup (T-873): a canceled prepare ends the configured setup check's process: the check
+// TestLanePrepareCanceledEndsSetup: a canceled prepare ends the configured setup check's process: the check
 // gets no output after the cancel (its sleep and its marker never happen) and Prepare returns at once with a refusal.
 func TestLanePrepareCanceledEndsSetup(t *testing.T) {
 	p, lane, target := laneFx(t, testkit.Set("lanes.ready", "touch ready-started; sleep 3; touch ready-done"))
@@ -201,7 +201,7 @@ func TestLanePrepareCanceledEndsSetup(t *testing.T) {
 	}
 }
 
-// TestLaneFree (obor drop, T-439): a dirty lane and a branch with commits not in the target are refused, nothing
+// TestLaneFree (obor drop): a dirty lane and a branch with commits not in the target are refused, nothing
 // changed; --discard drops both; then the lane is detached at the target and the branch deleted, and freeing again
 // converges.
 func TestLaneFree(t *testing.T) {
@@ -313,7 +313,7 @@ func TestLaneFreeHistoryFailurePreservesBranch(t *testing.T) {
 	}
 }
 
-// T-981: a drop whose branch delete fails after the lane was detached says the same drop finishes it, and it does:
+// a drop whose branch delete fails after the lane was detached says the same drop finishes it, and it does:
 // the lane is freed all the same (detached at the target), the branch kept, and a free without the failing git deletes
 // it. Nothing before the detach carries the hint (that failure freed no lane).
 func TestLaneFreeBranchDeleteFailsAfterTheLaneIsFreed(t *testing.T) {
@@ -349,7 +349,7 @@ func TestLaneFreeBranchDeleteFailsAfterTheLaneIsFreed(t *testing.T) {
 	}
 }
 
-// T-981: an empty index.lock left in the lane's git dir makes lane.prepare fail 128 on its checkout; the error names
+// an empty index.lock left in the lane's git dir makes lane.prepare fail 128 on its checkout; the error names
 // the stale lock and what to do with it, and removes nothing.
 func TestLanePrepareStaleIndexLock(t *testing.T) {
 	t.Parallel()

@@ -1,6 +1,6 @@
 //go:build conformance
 
-// The static tier of the kind protocol (T-1036, docs/agents/kind-protocol.md): obor's plugin package against a plugin
+// The static tier of the kind protocol (docs/agents/kind-protocol.md): obor's plugin package against a plugin
 // kind written as a shell script (kindplugin/obor-kind-shell), every call. No CLI, no session.
 package main
 

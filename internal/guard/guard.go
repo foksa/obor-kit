@@ -2,18 +2,18 @@
 // prompt.go) and the PreToolUse hook (`obor hook pre-tool-use`, run through bin/obor): the event JSON in,
 // allow (exit 0, no output) or deny (exit 2, one line "obor: …" on stderr). Bash commands are parsed with
 // mvdan.cc/sh/v3/syntax (shell.go); a command the project's guards.deny_commands matches is denied for every role
-// (T-905: obor-kit's config carries T-543's Go load-run rule); writes — the editor tools and the Bash write targets
-// alike (checkWrite, RV-83) — are checked against protected_files and the role's write profile (config.Role: a
+// (obor-kit's config carries the Go load-run rule); writes — the editor tools and the Bash write targets
+// alike (checkWrite) — are checked against protected_files and the role's write profile (config.Role: a
 // reviewer or deep_dive writes only under the main checkout's paths.reviews, never in its own role
-// worktree, T-853; a custom role — advisor, researcher, triage, a project's own — only its write list, T-801; a role
-// whose roles.<name> row was removed while its agent runs writes nothing and reads git only, T-814; a final symlink at
+// worktree; a custom role — advisor, researcher, triage, a project's own — only its write list; a role
+// whose roles.<name> row is missing while its agent runs writes nothing and reads git only; a final symlink at
 // its destination too), and an editor tool of a worker against its lane's boundary: no other worktree of this repo
 // (the main checkout included), no other obor project, no final symlink out of the lane. A GitReadOnly role (reviewer,
 // deep_dive, every custom role) runs git reads only (gitRead); the reviewer and the deep dive also check out a commit
-// in their own role worktree (T-853).
-// The main checkout's HEAD rows (T-841, T-848) are gone with T-853: the integrator, the reviewer and the deep dive
-// left it, and a custom role there reads git only, so no role but the lead moves HEAD there. Which files of its lane
-// a worker edits is not checked (T-496: placement is checked at accept). An agent CLI run headless (codex exec,
+// in their own role worktree.
+// No role but the lead moves HEAD in the main checkout: the integrator, the reviewer and the deep dive
+// work in their own worktrees, and a custom role there reads git only. Which files of its lane
+// a worker edits is not checked (placement is checked at accept). An agent CLI run headless (codex exec,
 // claude -p, opencode run) is denied for every role: agents run in herdr panes.
 //
 // It is an accident guard: it does not try to stop a crafted bypass (an interpreter, a script file, an alias, a
@@ -21,7 +21,7 @@
 // script (python, node, a script file) are not checked at all.
 //
 // Fails open: no project, no .obor/config.json, bad input or any internal error → allow. Only a matched rule denies.
-// Fails closed on a .obor/config.json that exists but does not load (DD-v0.13 A1; an unknown key is ignored): every
+// Fails closed on a.obor/config.json that exists but does not load (an unknown key is ignored): every
 // session but a lead (and a role-less one in the main checkout) is denied writes inside the repo's worktrees and git
 // writes; git push, pkill/killall and headless agent runs stay denied for everyone, on the default config.
 package guard
@@ -48,7 +48,7 @@ type denial struct{ reason string }
 
 func deny(reason string) { panic(denial{reason}) }
 
-// denyRule is one compiled guards.deny_commands entry (T-905).
+// denyRule is one compiled guards.deny_commands entry.
 type denyRule struct {
 	re      *regexp.Regexp
 	alone   bool // deny a matching command run alone; without it only two matching commands at once are denied
@@ -118,10 +118,10 @@ type guard struct {
 	description, session   string // the Bash call's description, the hook's session id
 	repo                   *project.Repo
 	cfg                    *config.Config
-	broken                 error // the config does not load (cfg is config.Fallback): fail closed (DD-v0.13 A1)
+	broken                 error // the config does not load (cfg is config.Fallback): fail closed
 	root, top              string
 
-	rules []denyRule // guards.deny_commands, compiled once per call (T-905)
+	rules []denyRule // guards.deny_commands, compiled once per call
 
 	protected []string
 
@@ -139,7 +139,7 @@ type guard struct {
 }
 
 // unlocked is the paths the lane's task spec names under "Protected files this task may edit" (spec.Protected; the
-// store's current rev, T-440), read once per hook call from the store's lanes and specs tables (read-only: serve may be
+// store's current rev), read once per hook call from the store's lanes and specs tables (read-only: serve may be
 // down), so a change the lead sets applies at the next call. No row, no task, no spec, or a store that cannot be read:
 // none.
 func (g *guard) unlocked() []string {
@@ -158,8 +158,8 @@ func (g *guard) unlocked() []string {
 }
 
 // specUnlocks: p is inside this worker's lane and its stored spec names p's lane path under "Protected files this task
-// may edit" (T-238: the spec is the lead's authorization for a protected file, and only the lead sets one; a glob
-// unlocks nothing). T-241: a symlink (its target may be another lane's file) or a directory (its children are not
+// may edit" (the spec is the lead's authorization for a protected file, and only the lead sets one; a glob
+// unlocks nothing). A symlink (its target may be another lane's file) or a directory (its children are not
 // listed) never unlocks.
 func (g *guard) specUnlocks(p string) bool {
 	if g.role != "worker" || g.laneDir == "" || !strings.HasPrefix(p, g.laneDir+"/") {
@@ -221,7 +221,7 @@ func norm(p string) string { return filepath.Clean("/" + p) }
 func (g *guard) detectRole() {
 	g.detected = project.DetectRole(g.repo, g.cfg, g.env)
 	g.role, g.lane = g.detected.Role, g.detected.Lane
-	if roles.LaneBound(g.role) { // a worker or the owner's drive agent (T-751): edits stay in its lane
+	if roles.LaneBound(g.role) { // a worker or the owner's drive agent: edits stay in its lane
 		if g.detected.Source != "env" {
 			g.laneDir = g.top
 		} else if d := g.cfg.LanesDir() + "/" + g.lane; g.lane != "" && project.IsDir(d) {
@@ -365,7 +365,7 @@ func (g *guard) linkDest(p string) (string, bool) {
 	return "", false
 }
 
-// checkLink: a selected path p that is a final symlink must resolve inside the worker's lane (T-372). phys resolves directory symlinks but leaves a final file symlink intact, so without this the worktree
+// checkLink: a selected path p that is a final symlink must resolve inside the worker's lane. phys resolves directory symlinks but leaves a final file symlink intact, so without this the worktree
 // check above sees only the in-lane path and a link into another worktree (or anywhere else) passes.
 func (g *guard) checkLink(p string) {
 	if fi, err := os.Lstat(p); err != nil || fi.Mode()&os.ModeSymlink == 0 {
@@ -397,7 +397,7 @@ func (g *guard) checkWriteArg(arg, dir string) {
 }
 
 // sessionRole is this session's role as config.Role finds it (a table or custom role; ok false: none). A non-empty role
-// the config does not find fails closed as a custom role writing nothing and reading git only (gone names it, T-814).
+// the config does not find fails closed as a custom role writing nothing and reading git only (gone names it).
 func (g *guard) sessionRole() (roles.Role, bool) {
 	rc, ok := g.cfg.Role(g.role)
 	if ok || g.gone() == "" {
@@ -406,7 +406,7 @@ func (g *guard) sessionRole() (roles.Role, bool) {
 	return roles.Custom(g.role, nil), true
 }
 
-// gone is why this session's role is one config.Role does not find (T-814), "" when it is known or the session has no
+// gone is why this session's role is one config.Role does not find, "" when it is known or the session has no
 // role ("" / "none"): the roles.<name> row was removed while the agent runs. Such a role writes nothing and runs git
 // reads only — fail closed, with a denial naming the missing row (checkWrite, gitRead).
 func (g *guard) gone() string {
@@ -432,9 +432,9 @@ func profiled(wp roles.WriteProfile) bool {
 }
 
 // checkWrite is the one path policy of a write to the physical path p, used by every write route the guard sees (the
-// editor tools and the Bash write targets: redirections, tee, cp, mv, rm, sed -i, git checkout/restore paths; RV-83):
+// editor tools and the Bash write targets: redirections, tee, cp, mv, rm, sed -i, git checkout/restore paths):
 // protected files, then the role's write profile, at p and — when p is a final symlink (phys leaves it intact) — at its
-// destination; a link that cannot be resolved is denied for a profiled role (RV-83 #3). Writes by an interpreter
+// destination; a link that cannot be resolved is denied for a profiled role. Writes by an interpreter
 // (python -c, node -e) or a script file are not seen at all: an accident guard, not a sandbox.
 func (g *guard) checkWrite(p string) {
 	g.checkProtected(p)
@@ -458,9 +458,9 @@ func (g *guard) checkWrite(p string) {
 }
 
 // profileDenial is the deny reason of the write profile wp for the physical path p, "" when allowed. Inside this repo's
-// worktrees a reviewer / deep_dive writes only under the main checkout's paths.reviews (default docs/reviews; T-853: it
+// worktrees a reviewer / deep_dive writes only under the main checkout's paths.reviews (default docs/reviews: it
 // runs in its role worktree, its files go to the main checkout), a custom role (advisor, researcher, triage …) only its
-// write list (T-801). Outside the repo (/tmp) is not limited.
+// write list. Outside the repo (/tmp) is not limited.
 func (g *guard) profileDenial(wp roles.WriteProfile, p string) string {
 	wt := g.wtOf(p)
 	if wt == "" {
@@ -479,7 +479,7 @@ func (g *guard) profileDenial(wp roles.WriteProfile, p string) string {
 	}
 	dirs, instead := g.cfg.ReviewWriteDirs(), "report the change as a finding instead"
 	for _, d := range dirs {
-		if strings.HasPrefix(r, d+"/") && wt == g.root { // the main checkout's (T-853: not its own role worktree's)
+		if strings.HasPrefix(r, d+"/") && wt == g.root { // the main checkout's (not its own role worktree's)
 			return ""
 		}
 	}
@@ -552,7 +552,7 @@ func otherProject(p string) string {
 // bash guards a Bash command (shell.go).
 func (g *guard) bash() { g.script(g.cmd, g.cwd, 0) }
 
-// recordBackground records an allowed Bash call run in the background (T-714): its description and command with the
+// recordBackground records an allowed Bash call run in the background: its description and command with the
 // agent, pane and session, so obor status and web show the live process under its description
 // (project.AppendBackground: one append, no wait).
 func (g *guard) recordBackground() {

@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// gitReader is the git Scratch reads (T-1011, docs/plan/architecture-target.md §1): each method one question to git in
+// gitReader is the git Scratch reads (docs/plan/architecture-target.md §1): each method one question to git in
 // dir, its answer. Scratch decides only over these answers (and the config, the lane dirs on disk), so every outcome
 // of a step is a function of them; the fake in fakegit_test.go scripts them for the decision tests.
 type gitReader interface {
@@ -92,7 +92,7 @@ func (s Scratch) gio() gitIO {
 }
 
 // realGit is gitIO over real git: each method one git call through Scratch.call (gitLocked, gitCtx), the same calls
-// Scratch made before T-1011.
+// the scratch makes elsewhere.
 type realGit struct{ s Scratch }
 
 var _ gitIO = realGit{}

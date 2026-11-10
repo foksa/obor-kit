@@ -36,7 +36,7 @@ func initArgs(args []string) (name, prefix string, err error) {
 }
 
 // reviewsIgnore is the .gitignore line for the reviews dir, a directory line: a broad `git add -A` never stages an open
-// review, which `obor review close` refuses (T-731).
+// review, which `obor review close` refuses.
 func (s *Setup) reviewsIgnore() string { return s.cfg.ReviewsDir() + "/" }
 
 // initProject writes what init writes (config, .gitignore lines, the docs; each only when missing) and loads the
@@ -131,8 +131,8 @@ func (s *Setup) writeConfig(name, prefix string) error {
 
 // configJSON is the .obor/config.json init writes: the kit's example with name, prefix, the lanes dir beside the root
 // and no lanes, commands, lane links or protected files; the example's difficulty and kinds go (initDifficulty writes
-// the levels from the kinds init detected, RV-88 #1), but for each kit kind's command (config.KitKinds: OpenCode's
-// binary, T-1046).
+// the levels from the kinds init detected), but for each kit kind's command (config.KitKinds: OpenCode's
+// binary).
 func (s *Setup) configJSON(name, prefix string) ([]byte, error) {
 	example, err := os.ReadFile(filepath.Join(s.Kit, "templates", "config.example.json"))
 	if err != nil {
@@ -149,12 +149,12 @@ func (s *Setup) configJSON(name, prefix string) ([]byte, error) {
 	return doc, nil
 }
 
-// gitignore appends the lines obor needs, each once (.obor/drafts/: the lead's spec drafts, T-440; paths.reviews: an
-// open review, T-731). lane_links too: obor serve cleans the scratch with git clean, which keeps only ignored files.
+// gitignore appends the lines obor needs, each once (.obor/drafts/: the lead's spec drafts; paths.reviews: an
+// open review). lane_links too: obor serve cleans the scratch with git clean, which keeps only ignored files.
 func (s *Setup) gitignore() error { return s.ignoreLines(s.gitignoreLines()...) }
 
 // ignoreLines appends lines to .gitignore, each once. A line already there with or without its trailing slash (git
-// ignores the directory either way) is not added again (T-731).
+// ignores the directory either way) is not added again.
 func (s *Setup) ignoreLines(lines ...string) error {
 	path := filepath.Join(s.root, ".gitignore")
 	text, _ := os.ReadFile(path)
@@ -201,7 +201,6 @@ func (s *Setup) initBranch() string {
 }
 
 // gitInit makes dir a repository when it is in none: branch is branches.main from a config already there, else main
-// (T-629).
 func (s *Setup) gitInit() error {
 	branch := s.initBranch()
 	if _, err := project.Git(s.Dir, "init", "-q", "-b", branch); err != nil {
@@ -211,7 +210,7 @@ func (s *Setup) gitInit() error {
 	return nil
 }
 
-// autoCommit reports whether this init makes the "obor init" commit (T-631): root's branch has no commit and root
+// autoCommit reports whether this init makes the "obor init" commit: root's branch has no commit and root
 // holds nothing but .git, or only files init writes, each byte-equal to init's text (a rerun after an interrupted
 // init). No commit and anything else in root: FAIL, before init writes anything (init never commits or touches the
 // user's files). A repository with a commit: false. repo: root is a git repository (else a plain directory).
@@ -303,7 +302,7 @@ func onlyFiles(root string, want map[string][]byte) bool {
 }
 
 // initCommit makes the "obor init" commit when auto (autoCommit): init's own files, the commit the lanes branch from
-// (T-629). committed is what it committed, nil when it made no commit.
+// committed is what it committed, nil when it made no commit.
 func (s *Setup) initCommit(auto bool) (committed []string, err error) {
 	if !auto {
 		return nil, nil
@@ -370,7 +369,7 @@ func (s *Setup) copyTemplate(src, rel string, stub bool) error {
 }
 
 // renderTemplate is the text copyTemplate writes for the template src: placeholders filled from the loaded config;
-// stub: only the project's short role doc (T-204): the kit text's title, a pointer line to it and its "## This
+// stub: only the project's short role doc: the kit text's title, a pointer line to it and its "## This
 // project" section.
 func (s *Setup) renderTemplate(src string, stub bool) ([]byte, error) {
 	b, err := os.ReadFile(src)

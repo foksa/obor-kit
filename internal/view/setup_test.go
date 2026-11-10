@@ -17,7 +17,7 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-921 (RV-124 #1): a status from an older serve names no free lanes: every lane reads as locked, so the page warns
+// a status from an older serve names no free lanes: every lane reads as locked, so the page warns
 // before a lanes-count edit drops one; a free list naming a lane frees it and leaves the others locked.
 func TestSetupReadsAnOlderServesLanesAsLocked(t *testing.T) {
 	p := testkit.New(t)
@@ -54,12 +54,12 @@ func TestSetupReadsAnOlderServesLanesAsLocked(t *testing.T) {
 	}
 }
 
-// T-750, T-765, T-766: Setup is the project's steering — the difficulty levels in configured order with what runs each
+// Setup is the project's steering — the difficulty levels in configured order with what runs each
 // model ref (kind, model id, the ref's effort), then the roles' refs no level names, every model the config knows with
 // its pause in force, every agent kind with its args and whether it has a job_note, the lanes
 // with their states, the roles the config names with their statuses and the pause — and how dispatches spread by
 // level and chosen model, in the last 7 days and in all records: a level dispatch, an override (--model, no level), a
-// record from before T-721 (unknown: every lane is pooled), a waiting dispatch that is placed later (once), a redo
+// record with no type (unknown: every lane is pooled), a waiting dispatch that is placed later (once), a redo
 // (again) and a record older than 7 days (all only).
 func TestSetup(t *testing.T) {
 	p := testkit.New(t)
@@ -78,14 +78,14 @@ func TestSetup(t *testing.T) {
 	p.State("L-01", map[string]any{"task": "T-01", "branch": "task/T-01"}) // its row holds T-01, not landed: working
 	now := time.Now()
 	at := func(ago time.Duration) time.Time { return now.Add(-ago) }
-	// the level dispatch, the override, the pre-T-721 record, the waiting one and the dispatch that places it, a redo
+	// the level dispatch, the override, the untyped record, the waiting one and the dispatch that places it, a redo
 	// and one older than the window
 	dispatchRecord(t, p.Root, "T-02", event.StepDispatched, dispatchData{Lane: "L-01", Level: "hard",
 		Types: []string{"opus:high"}, Type: "opus:high"}, at(2*time.Hour))
 	dispatchRecord(t, p.Root, "T-03", event.StepDispatched, dispatchData{Lane: "L-01", Types: []string{"sonnet"},
 		Type: "sonnet"}, at(3*time.Hour))
 	dispatchRecord(t, p.Root, "T-04", event.StepDispatched, dispatchData{Lane: "L-01", Level: "medium",
-		Types: []string{"sonnet", "opus"}}, at(4*time.Hour)) // before T-721: no Type, unknown
+		Types: []string{"sonnet", "opus"}}, at(4*time.Hour)) // no Type, unknown
 	dispatchRecord(t, p.Root, "T-05", event.StepWaiting, dispatchData{Level: "simple", Types: []string{"opus"},
 		After: []string{"T-01"}}, at(5*time.Hour))
 	dispatchRecord(t, p.Root, "T-05", event.StepDispatched, dispatchData{Lane: "L-01", Level: "simple",
@@ -148,14 +148,14 @@ func TestSetup(t *testing.T) {
 	if m := byName["kimi"]; m.Kind != "opencode" || m.Model != "opencode-go/kimi" || m.Builtin {
 		t.Errorf("model kimi %+v, want the project's opencode kimi", m)
 	}
-	// a model's pause in force (T-766), none on the others
+	// a model's pause in force, none on the others
 	if m := byName["sonnet"]; m.Paused == nil || m.Paused.Reason != "quota" || m.Paused.By != "pj-lead" || m.Paused.Until != nil {
 		t.Errorf("model sonnet's pause %+v, want quota by pj-lead until cleared", m.Paused)
 	}
 	if m := byName["opus"]; m.Paused != nil {
 		t.Errorf("model opus paused %+v, want none", m.Paused)
 	}
-	// kinds (T-766): every agent kind, its args and whether a job_note is set
+	// kinds: every agent kind, its args and whether a job_note is set
 	wantKinds := []SetupKind{{Name: "claude", Args: []string{}}, {Name: "codex", Args: []string{"--search"}},
 		{Name: "opencode", Args: []string{}, JobNote: true}}
 	if !reflect.DeepEqual(s.Kinds, wantKinds) {
@@ -195,7 +195,7 @@ func TestSetup(t *testing.T) {
 	// distribution: level × chosen type, in level order, recent and all
 	want := []DispatchCount{
 		{Level: "hard", Type: "opus:high", Recent: 2, All: 3}, // the level dispatch, the redo, and the old one
-		{Level: "medium", Type: "", Recent: 1, All: 1},        // before T-721 on a configured lane: unknown
+		{Level: "medium", Type: "", Recent: 1, All: 1},        // an untyped record on a configured lane: unknown
 		{Level: "simple", Type: "opus", Recent: 1, All: 1},    // waited, then placed: counted once
 		{Level: OverrideLevel, Type: "sonnet", Recent: 1, All: 1},
 	}
@@ -211,7 +211,7 @@ func TestSetup(t *testing.T) {
 	}
 }
 
-// T-750: no store is no distribution and no config names none: Setup answers with empty lists, not nil, so the page
+// no store is no distribution and no config names none: Setup answers with empty lists, not nil, so the page
 // has arrays to draw.
 func TestSetupWithoutStore(t *testing.T) {
 	p := testkit.New(t)
@@ -254,7 +254,7 @@ func dispatchRecord(t *testing.T, root, task, step string, data any, at time.Tim
 	}
 }
 
-// T-801: a custom role and a kit default row the config names are role rows of the view (obor status, obor web) and of
+// a custom role and a kit default row the config names are role rows of the view (obor status, obor web) and of
 // the Setup page with their model refs, like any other role; an unnamed default row is neither; a removed row drops
 // out of both and leaves the others.
 func TestCustomRolesListed(t *testing.T) {

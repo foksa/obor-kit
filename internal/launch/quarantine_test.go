@@ -45,7 +45,7 @@ func quarantineHost(goos string, flags uint32) agents.InstallHost {
 	}
 }
 
-// T-1052: a Codex start whose resolved install carries an unapproved quarantine flag is not made: the launch refuses
+// a Codex start whose resolved install carries an unapproved quarantine flag is not made: the launch refuses
 // before anything is stopped or typed, with one line naming the file and `xattr -dr com.apple.quarantine <version dir>`,
 // as port.Refused (serve's start boundary turns it into a needs-you). An approved file (0x01c1) or no flag starts.
 func TestLaunchRefusesQuarantinedCodex(t *testing.T) {
@@ -100,7 +100,7 @@ func TestLaunchRefusesQuarantinedCodex(t *testing.T) {
 	}
 }
 
-// T-1052: the lead's start is not refused — the owner is at its screen, so the Gatekeeper dialog can be answered: it
+// the lead's start is not refused — the owner is at its screen, so the Gatekeeper dialog can be answered: it
 // warns with the same line and starts, for `obor lead` (setup's Start, the owner's own start) and for a restart.
 func TestLaunchLeadWarnsQuarantinedCodex(t *testing.T) {
 	t.Parallel()

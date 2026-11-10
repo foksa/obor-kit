@@ -64,7 +64,7 @@ func TestMerge(t *testing.T) {
 	}
 }
 
-// DD-v0.13 A1: LoadHook ignores unknown keys (both files) and returns them, writing nothing on Warn; every other error
+// LoadHook ignores unknown keys (both files) and returns them, writing nothing on Warn; every other error
 // is Load's; Fallback is the defaults with the derived lanes_dir.
 func TestLoadHook(t *testing.T) {
 	var warn strings.Builder
@@ -101,8 +101,8 @@ func TestLoadHook(t *testing.T) {
 	}
 }
 
-// T-377's contract: a key this binary does not know (a newer config) is dropped by every reader, with its warning,
-// and only LoadForValidate refuses it (T-1081).
+// The contract between a reader and a key this binary does not know (a newer config): the reader drops it, with its warning,
+// and only LoadForValidate refuses it.
 func TestNewerUnknownKeyStillDropped(t *testing.T) {
 	root := writeProject(t, `{"version":2,"project":{"agent_prefix":"pj"},"keep_warm":1}`, "")
 	var out strings.Builder
@@ -133,7 +133,7 @@ func TestNewerUnknownKeyStillDropped(t *testing.T) {
 	}
 }
 
-// T-1063 (RV-153 #1): LoadReader's warning names both causes too: this binary is older than the config, or the key was
+// LoadReader's warning names both causes too: this binary is older than the config, or the key was
 // retired (merge.max_load is one of the nine v0.28 keys, so restarting fixes nothing).
 func TestLoadReaderWarnNamesBothCauses(t *testing.T) {
 	root := writeProject(t, `{"version":2,"project":{"agent_prefix":"pj"},"merge":{"max_load":10}}`, "")
@@ -152,7 +152,7 @@ func TestLoadReaderWarnNamesBothCauses(t *testing.T) {
 	}
 }
 
-// T-1081 (DD-v0.32 #1): the keys T-1076 deleted (the promotion's), v0.29's two removed keys and T-1103's merge.trailer
+// the retired keys (the promotion's, v0.29's two and merge.trailer)
 // never stop Load, the load of every command: each is ignored with one warning naming it; only LoadForValidate fails,
 // one line per key.
 func TestRetiredKeysWarnOnLoadFailValidate(t *testing.T) {

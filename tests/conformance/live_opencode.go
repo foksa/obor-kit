@@ -26,9 +26,9 @@ const (
 	ocModelVar  = "OBOR_OPENCODE_MODEL"
 )
 
-// opencodeLive: on scratch XDG dirs holding nothing of obor's (T-809: `obor setup agents` installs nothing global; an
-// old entry and link are removed by hand, T-835), one --standalone start in the lane with the env the kind's start (the
-// real kinds/opencode binary through obor's plugin package, T-1046) gives it (OPENCODE_CONFIG naming its generated config, under the scratch dir): OC-L1, H-L1, OC-L3 (the start's own
+// opencodeLive: on scratch XDG dirs holding nothing of obor's (`obor setup agents` installs nothing global; an
+// old entry and link are removed by hand), one --standalone start in the lane with the env the kind's start (the
+// real kinds/opencode binary through obor's plugin package) gives it (OPENCODE_CONFIG naming its generated config, under the scratch dir): OC-L1, H-L1, OC-L3 (the start's own
 // mcp.servers.obor runs), OC-L4 (no global link; obor.js set up once, from the config's package dir), OC-L5's quit.
 // With TURN=1 a role agent in the main checkout takes one turn (OC-L2, OC-L5).
 func opencodeLive(l *lab, turn bool) {
@@ -112,7 +112,7 @@ func opencodeLive(l *lab, turn bool) {
 	l.opencodeAuth(xdg)
 	ocTurn(l, pane, argv, xdg, st)
 	ocL6(l, pane, xdg, st)
-	// H-L14 (T-1059): a start with a first prompt that keeps opencode working, then the same right after its exit.
+	// H-L14: a start with a first prompt that keeps opencode working, then the same right after its exit.
 	if prompted, err := agents.StartOf(k, agents.Start{Args: []string{"--standalone"}, Prompt: hL14Prompt}); err != nil {
 		report("FAIL", "H-L14", "opencode: the first-prompt start: "+err.Error(), at(opencodeGo, "func start("))
 	} else {
@@ -133,7 +133,7 @@ func ocL3(labels []string, where string) {
 	}
 }
 
-// ocL4: no global obor.js link (what an obor before v0.25 wrote; setup no longer removes it, T-835) and obor.js set up
+// ocL4: no global obor.js link (setup does not remove one a person left) and obor.js set up
 // exactly once, from the config's package dir (<kit>/opencode, its main obor.js).
 func ocL4(l *lab, link, where string) {
 	if _, err := os.Lstat(link); err == nil {
@@ -357,11 +357,11 @@ func (l *lab) opencodeAuth(xdg map[string]string) {
 	}
 }
 
-// ocL6 (T-898): opencode starts as a worker of the lab's project with its generated config naming the repository's own
+// ocL6: opencode starts as a worker of the lab's project with its generated config naming the repository's own
 // `obor mcp` (not the stub), and one job_next call's rendered reply reaches the session's transcript — opencode's own
 // store, the database its plugin reports as transcript_path (opencode 2.x keeps a session's messages there,
 // session_message). The start is the shipped launch's (launchOf: its generated config and model env included), so a tool
-// the start does not wire is a FAIL, not a pass the case's own flags bought (RV-122 #1, T-910). A client that cannot
+// the start does not wire is a FAIL, not a pass the case's own flags bought. A client that cannot
 // list the server's tools, or cannot call one, leaves no such result. Runs after ocTurn, so it sets the lane worker's
 // environment again (ocTurn left the main checkout as a researcher).
 func ocL6(l *lab, pane string, xdg map[string]string, st agents.Stop) {

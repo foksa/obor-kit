@@ -1,5 +1,5 @@
-// The project page's pipeline and its counts (T-986): the six blocks Waiting · Working · Submitted · Gate · Review ·
-// Merging (Held only while a task is), the queue's count and the busy lanes' steps. Since T-961 a task in the merge
+// The project page's pipeline and its counts: the six blocks Waiting · Working · Submitted · Gate · Review ·
+// Merging (Held only while a task is), the queue's count and the busy lanes' steps. A task in the merge
 // loop still holds its lane, so the counts never add a task twice: the queue counts the dispatches with no lane yet,
 // the lanes count every busy lane and say each one's step (serve's phase, Lane.column).
 import type { Lane, MergeItem, Queue, WaitItem } from "./types";
@@ -8,7 +8,7 @@ import type { Lane, MergeItem, Queue, WaitItem } from "./types";
 export const WAITS_NEVER = "never dispatched";
 
 // WAITS_LANE is WaitItem.waits_on of a dispatch waiting for a free lane of its level (view.WaitsLane): the only wait
-// that queues for a lane (an --after dispatch waits for its tasks, T-1162).
+// that queues for a lane (an --after dispatch waits for its tasks).
 export const WAITS_LANE = "lane";
 
 export type Col = { name: string; tone: string; tasks: string[] };
@@ -33,7 +33,7 @@ export function pipelineOf(q: Pick<Queue, "merge" | "waiting"> | null | undefine
 }
 
 // queuedForLane is the dispatches that wait with no lane yet: a waiting dispatch whose waits_on is WAITS_LANE (a spec
-// never dispatched, WAITS_NEVER, and an --after dispatch, which waits for its tasks instead, wait for no lane, T-1162)
+// never dispatched, WAITS_NEVER, and an --after dispatch, which waits for its tasks instead, wait for no lane)
 // and whose task holds no busy lane (a task in the merge loop holds its lane and is the lanes' count, never the
 // queue's).
 export function queuedForLane(waiting: WaitItem[] | null | undefined, busy: Lane[]): WaitItem[] {

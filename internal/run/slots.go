@@ -27,7 +27,7 @@ import (
 //	merge:  claim our merge marker; a live one → wait "waiting for the other merge check". Never waits on worker slots.
 //
 // A file whose holder is dead is reclaimed under the per-path guard dir <path>.reclaim (stale after 10 s). Held
-// (CHECK_SLOT_HELD, T-41): the parent already holds that file for this check; while its holder lives it is reused,
+// (CHECK_SLOT_HELD): the parent already holds that file for this check; while its holder lives it is reused,
 // nothing claimed.
 type Slots struct {
 	Dir      string
@@ -37,17 +37,17 @@ type Slots struct {
 	Held     string
 	Poll     time.Duration // between attempts (Acquire; default 1 s)
 	Report   time.Duration // between wait lines (Acquire; default 30 s)
-	// Now and After are Acquire's clock and poll wait (nil: time.Now, time.After); tests drive them (T-736).
+	// Now and After are Acquire's clock and poll wait (nil: time.Now, time.After); tests drive them.
 	Now   func() time.Time
 	After func(time.Duration) <-chan time.Time
 }
 
-// DefaultBlockMax is how long a live merge marker blocks a check (slots.merge_block_max's old default, T-864).
+// DefaultBlockMax is how long a live merge marker blocks a check (slots.merge_block_max's old default).
 const DefaultBlockMax = 900 * time.Second
 
 // SlotsFor reads the slot settings: env CHECK_SLOT_DIR / CHECK_SLOTS / CHECK_PROJECT, else slots.dir / slots.max /
 // name, else /tmp/obor-check-slots, 2, "default" (a project name with / or white space is "default" too). The merge
-// marker's cap is 900 s (T-864: slots.merge_block_max is gone).
+// marker's cap is 900 s.
 func SlotsFor(cfg *config.Config, env project.Env) Slots {
 	heavy, heavySet := cfg.HeavyAtOnce()
 	maxSetting := ""

@@ -6,7 +6,7 @@ import (
 	"obor/internal/app/port"
 )
 
-// T-807: the merge's body is the worker report's whole Summary section (an opening sentence and its bullets), on every
+// the merge's body is the worker report's whole Summary section (an opening sentence and its bullets), on every
 // path — the gate's own merge, a moved target, the integrator's resolved merge — while the no-title subject stays its
 // first line alone.
 func TestMergeMessageSummaryBody(t *testing.T) {
@@ -32,7 +32,7 @@ func TestMergeMessageSummaryBody(t *testing.T) {
 			}
 		})
 	}
-	// No Body (an old record): the summary's first line is the body, as before.
+	// No Body (an old record): the summary's first line is the body.
 	if got, want := mergeMessage(port.GateInput{Task: "T-05", Title: "Stored", Summary: summary}, "", ""),
 		"Merge T-05: Stored\n\nSummary: "+summary; got != want {
 		t.Errorf("without a Body: message\n%s\nwant\n%s", got, want)

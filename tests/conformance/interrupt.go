@@ -1,6 +1,6 @@
 package main
 
-// The interrupt path (T-816, RV-104 #3): Ctrl-C or SIGTERM stops every open throwaway session and exits 130. This file
+// The interrupt path: Ctrl-C or SIGTERM stops every open throwaway session and exits 130. This file
 // carries no build tag, so its test (interrupt_test.go) runs the path in `go test ./...` with a stub lab: no herdr, no
 // session.
 
@@ -27,7 +27,7 @@ func openLab(l closable) {
 }
 
 // stopLabs closes every open lab once. It snapshots the labs under the mutex and closes them after unlocking: a close
-// takes the mutex itself (it forgets the lab), so closing under it deadlocked the interrupt (RV-104 #3).
+// takes the mutex itself (it forgets the lab), so closing under it deadlocked the interrupt.
 func stopLabs() {
 	labsMu.Lock()
 	open := make([]closable, 0, len(labs))

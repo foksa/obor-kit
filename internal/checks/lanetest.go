@@ -17,19 +17,19 @@ import (
 const restoreWait = 30 * time.Second
 
 // Test runs the class's checks for the candidate in.SHA (the slot's merge of the task onto in.Target) in the task's
-// lane worktree (T-961, docs/state-model.md row 18b), the lane analogue of Gate:
+// lane worktree (docs/state-model.md row 18b), the lane analogue of Gate:
 //
 //  1. The lane's dir from the config; uncommitted changes there are an error (the step runs again on a later pass;
 //     the lane is not touched). Its branch is the one checked out, or in.Branch when the lane is detached already (a
 //     test cut before its restore).
 //  2. checkout --detach in.SHA (ignored files, the lane's build outputs, stay), lane_links.
 //  3. The changed files in.Target..in.SHA (OBOR_CHANGED_FILES), classified; lane_setup; the class's checks and the
-//     guard (runChecks, as the gate ran them before T-961), holding a pool slot (prio worker, never the merge
+//     guard (runChecks, as the gate runs them), holding a pool slot (prio worker, never the merge
 //     marker: slots.max bounds how many lanes test at once), the lane's CPU budget in their environment. A red whose
-//     failing tests and packages it names is rerun once by commands.retest at the same commit (T-964): green then is
+//     failing tests and packages it names is rerun once by commands.retest at the same commit: green then is
 //     the step's green, the flake logged as retried and passed.
 //  4. What the checks changed discarded, checkout <branch>: the lane is where the worker left it (restore). A step that
-//     generates or stages a file no longer lands it in the merge: the slot committed the candidate before any check.
+//     generates or stages a file does not land it in the merge: the slot committed the candidate before any check.
 //
 // The outcome is final (green, red, fail); git I/O, the slot and a signal are errors (the step runs again: a function of
 // the candidate, the target and the lane's ignored files).
@@ -75,7 +75,7 @@ func (s Scratch) Test(ctx context.Context, in port.TestInput) (out port.TestOutc
 	r := newRunner(ctx, &s.Options, dir, in.Task)
 	r.changedFile = "lane-changed-files-" + in.Lane
 	r.prio, r.pre, r.onCommand, r.retest = "worker", in.Target, in.Command, true
-	// The lane's env (T-1041): the generic facts and the project's slots.lane_env, and CHECK_CPUS the lane's CPU budget,
+	// The lane's env: the generic facts and the project's slots.lane_env, and CHECK_CPUS the lane's CPU budget,
 	// never the gate's cores / slots.max.
 	r.env = append(r.env, config.LaneEnv(s.Cfg)...)
 	r.env = append(r.env, "CHECK_CPUS="+strconv.Itoa(s.Cfg.LaneCPUs()))

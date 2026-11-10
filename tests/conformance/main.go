@@ -3,7 +3,7 @@
 // Command conformance checks the facts obor's drivers depend on in the tools they drive (deep dive §6). It is a
 // program behind the conformance build tag, outside `go test ./...`: run it with
 // `make conformance [KIND=herdr|claude|codex|opencode|plugin] [TIER=static|live] [TURN=1]` (plugin: the kind protocol
-// against a shell-script kind, static only, T-1036). Each check prints one line,
+// against a shell-script kind, static only). Each check prints one line,
 // `PASS|FAIL|SKIP|WARN <id> <fact> (<driver file:line>, CAP §x)`, and the last line sums them. The exit status is 1
 // when any check FAILs. A tool that is not installed, or a check that cannot run (no auth, no TURN), SKIPs with why.
 //
@@ -33,7 +33,7 @@ var out = newRun(os.Stdout)
 func report(status, id, fact, where string) { out.report(status, id, fact, where) }
 
 // cliReport is report for the static herdr rows: they read the installed herdr CLI's bundled schema, not a running server
-// (RV-103; H-L8 pings a running one).
+// (H-L8 pings a running one).
 func cliReport(status, id, fact, where string) {
 	report(status, id, "installed herdr CLI: "+fact, where)
 }

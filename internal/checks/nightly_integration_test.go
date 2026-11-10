@@ -20,7 +20,7 @@ func logged(name, then string) string {
 	return fmt.Sprintf(`echo "%s $(git rev-parse HEAD) ${CHECK_PRIORITY:-none}" >> "$TMP_DIR/ran"; %s`, name, then)
 }
 
-// nightly is a config edit: nightly.also_run is names, in order (T-817).
+// nightly is a config edit: nightly.also_run is names, in order.
 func nightly(names ...any) func(map[string]any) {
 	return testkit.Set("nightly.also_run", names)
 }
@@ -78,7 +78,7 @@ func TestNightly(t *testing.T) {
 			x.match(x.Read(".obor/state/last-full-check"), `^`+head+` [0-9]+ RED failed: check, check_milestone; check 1 pass, 2 fail, check_milestone rc=5, [0-9]+s\n$`, "state file")
 			x.gone(x.window(), "lock released")
 		}},
-		// T-805: a passing conformance run's skips and warns are in the report (RV-103 #1: herdr missing from
+		// a passing conformance run's skips and warns are in the report (herdr missing from
 		// nightly's PATH reads "0 pass, 0 fail" today)
 		{"conformance exit 0 with SKIP lines: the line carries their count, every SKIP line printed, still GREEN", func(t *testing.T) {
 			x := newFx(t, nightly("conformance"), cmd("conformance", logged("conformance",
@@ -105,10 +105,10 @@ func TestNightly(t *testing.T) {
 				`echo "PASS H-S1 obor sends only fields herdr knows (herdr.go:40, CAP §6)"; echo "conformance: 2 pass, 0 fail, 0 skip, 0 warn"`)))
 			head := x.head(x.Root)
 			x.is(x.nightly(), OK, `^NIGHTLY GREEN `+head[:7]+` on main \(conformance \(non-gating\) 2 pass, 0 fail, 0 skip, 0 warn, [0-9]+s\)$`)
-			// T-1098: no merged-log step, and every sweep step had something to go on: no details.
+			// no merged-log step, and every sweep step had something to go on: no details.
 			x.eq(x.out.String(), "", "no conformance detail lines")
 		}},
-		// T-798: the conformance suite's static tier is a line in the report, never RED; T-1174: make's trailer after
+		// the conformance suite's static tier is a line in the report, never RED; make's trailer after
 		// the command's own summary line does not take its place.
 		{"a failing conformance command is a non-gating WARN line: GREEN, its FAIL lines printed", func(t *testing.T) {
 			x := newFx(t, nightly("conformance"), cmd("check", logged("check", "echo 7 pass; echo 0 fail")),
@@ -169,7 +169,7 @@ func TestNightly(t *testing.T) {
 			x.is(x.nightly(), OK, `^NIGHTLY GREEN `)
 			x.lacks(x.out.String(), "waiting", "a dead holder's lock is not waited for")
 		}},
-		// T-409: nightly runs in its own worktree; serve's (<lanes_dir>/merge), an open merge in it and all, is not
+		// nightly runs in its own worktree; serve's (<lanes_dir>/merge), an open merge in it and all, is not
 		// touched.
 		{"serve's worktree holding a merge is untouched; nightly's own worktree with a commit not in the target is reset", func(t *testing.T) {
 			x := newFx(t, cmd("check", logged("check", "test ! -e held.txt")))
@@ -196,13 +196,13 @@ func TestNightly(t *testing.T) {
 	}
 }
 
-// T-1168: the nightly's check and check_milestone rerun a red's named failing tests once with commands.retest, as a
-// lane test does (T-964), inside the slot the check already holds: green then is the step's green, the GREEN line names
+// the nightly's check and check_milestone rerun a red's named failing tests once with commands.retest, as a
+// lane test does, inside the slot the check already holds: green then is the step's green, the GREEN line names
 // the rerun ("retest saved <n>") and the flake is logged retried and passed. A retest that fails leaves the original
-// red with its flake line retried, not passed; a project without commands.retest reds as before.
+// red with its flake line retried, not passed; a project without commands.retest is red too.
 func TestNightlyRetest(t *testing.T) {
 	t.Parallel()
-	// redOne is a check that records the slot it held and names one failing test and its package (T-1047's lines).
+	// redOne is a check that records the slot it held and names one failing test and its package.
 	const redOne = `echo "${CHECK_SLOT_HELD:-none}" > "$TMP_DIR/check-slot"; ` +
 		`echo "--- FAIL: TestAlpha (0.01s)"; echo "FAIL example.com/pkg 0.03s"; exit 1`
 	// retestCmd is commands.retest: it counts its runs and records where and how it ran under $TMP_DIR, then exits rc.
@@ -283,7 +283,7 @@ func TestNightlyRetest(t *testing.T) {
 	})
 }
 
-// T-435: NIGHTLY backs up the project's database (no serve runs: directly) into .obor/state/backup and names it in
+// NIGHTLY backs up the project's database (no serve runs: directly) into .obor/state/backup and names it in
 // its summary; a project without one has nothing to back up.
 func TestNightlyBackup(t *testing.T) {
 	t.Parallel()
@@ -302,7 +302,7 @@ func TestNightlyBackup(t *testing.T) {
 	}
 }
 
-// T-817: merge.nightly_commands runs after the gating checks and the backup, in order, each non-gating: one report
+// merge.nightly_commands runs after the gating checks and the backup, in order, each non-gating: one report
 // line, never RED; a nonzero exit is a WARN line.
 func TestNightlyCommands(t *testing.T) {
 	t.Parallel()
@@ -336,7 +336,7 @@ func TestNightlyCommands(t *testing.T) {
 			x := newFx(t, cmd("slow_a", logged("slow_a", "echo hi")))
 			x.is(x.nightly(), OK, `^NIGHTLY GREEN [0-9a-f]{7} on main \(no commands, [0-9]+s\)$`)
 			x.gone(filepath.Join(x.Base, "ran"), "nothing ran")
-			// T-1098: no merged-log step: no command detail lines
+			// no merged-log step: no command detail lines
 			x.eq(x.out.String(), "", "no detail lines")
 		}},
 	} {

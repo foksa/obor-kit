@@ -1,10 +1,10 @@
-// Package plugin is a plugin kind (T-1036): an agents.Kind whose CLI-specific part is an executable, any language,
+// Package plugin is a plugin kind: an agents.Kind whose CLI-specific part is an executable, any language,
 // answering obor's kind protocol (docs/agents/kind-protocol.md): one JSON request on stdin, one JSON reply on stdout,
 // per run. A project names it as kinds.<name>.command; obor serve (at its start and when the command changes, Ensure),
 // obor init and obor setup agents run its describe and cache the reply (the manifest) in the state dir. What the
 // manifest answers (caps, stop, headless forms, the transcript glob, the inbox record) is read from that cache, never by
 // running the command: hooks and the guard load the config, and hook time stays the binary's own; without a cache the
-// guard denies the kind's program outright (T-1054). The calls that run it (start, not-ready, install, turn, deliver) first describe it again when
+// guard denies the kind's program outright. The calls that run it (start, not-ready, install, turn, deliver) first describe it again when
 // the command changed (its mtime, or another path) since the cache was written.
 package plugin
 
@@ -204,7 +204,7 @@ func Cache(name, command, stateDir string) (*Kind, error) {
 }
 
 // Ensure is Cache when kind name's cache in stateDir does not describe command as it is now (none, unreadable, another
-// command, another mtime: obor serve, T-1054); wrote says it described. A kind answered in process (Local) caches
+// command, another mtime: obor serve); wrote says it described. A kind answered in process (Local) caches
 // nothing: it needs no cache.
 func Ensure(name, command, stateDir string) (wrote bool, err error) {
 	if Local[name] != nil {

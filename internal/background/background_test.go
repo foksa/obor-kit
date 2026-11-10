@@ -8,7 +8,7 @@ import (
 	"obor/internal/project"
 )
 
-// T-714: ps's lines (pid ppid etime command) parse into rows, every etime form included; a header or a broken line is
+// ps's lines (pid ppid etime command) parse into rows, every etime form included; a header or a broken line is
 // skipped.
 func TestParseProcs(t *testing.T) {
 	out := "  PID  PPID ELAPSED COMMAND\n" +
@@ -30,7 +30,7 @@ func TestParseProcs(t *testing.T) {
 	}
 }
 
-// T-1142: a recorded call is live while a process runs its command, one that started just after the call was recorded
+// a recorded call is live while a process runs its command, one that started just after the call was recorded
 // (a shell that wraps it, its quoting undone, included); its process gone, an old record (a newer run of the same
 // command), a record after the start, and a fragment too short to tell are not. The newest live call is the one.
 func TestLive(t *testing.T) {
@@ -67,7 +67,7 @@ func TestLive(t *testing.T) {
 	}
 }
 
-// T-1143 (RV-169 #1): a call is live only in the stopping agent's own processes: its descendant running the recorded
+// a call is live only in the stopping agent's own processes: its descendant running the recorded
 // command blocks; another agent's process running the same command (same start) does not, with the agent's own run
 // alive or ended; an agent pid not in the table finds none.
 func TestLiveOnlyTheAgentsDescendants(t *testing.T) {
@@ -108,7 +108,7 @@ func TestLiveOnlyTheAgentsDescendants(t *testing.T) {
 	}
 }
 
-// T-1147 (RV-169 verify): the helper filter is the view's alone. A recorded run whose shell started 5 s after the agent
+// The helper filter is the view's alone. A recorded run whose shell started 5 s after the agent
 // (within helperSlack of its start) is live; a helper shell started with the agent and no recorded call is not, and
 // the view's walk (Descendants) still hides it.
 func TestLiveEarlyAgentRun(t *testing.T) {
@@ -138,7 +138,7 @@ func TestLiveEarlyAgentRun(t *testing.T) {
 	}
 }
 
-// T-1143: a hook's agent is its first ancestor that is no shell (the hook command's shell passed through); a hook
+// a hook's agent is its first ancestor that is no shell (the hook command's shell passed through); a hook
 // whose pid is not in the table, or whose ancestry ends at pid 1 through shells only or a pid not in the table, has
 // none.
 func TestAgentOf(t *testing.T) {
@@ -164,7 +164,7 @@ func TestAgentOf(t *testing.T) {
 	}
 }
 
-// T-1142: a call belongs to an agent by its session when one is known, and by its name, or (naming none) its pane,
+// a call belongs to an agent by its session when one is known, and by its name, or (naming none) its pane,
 // inside that; another session's, another agent's and no session's are none of its.
 func TestMine(t *testing.T) {
 	calls := []project.BackgroundCall{
@@ -189,7 +189,7 @@ func TestMine(t *testing.T) {
 	}
 }
 
-// T-1142: a call is named by its description, else its command as a view shows it.
+// a call is named by its description, else its command as a view shows it.
 func TestText(t *testing.T) {
 	if got := Text(project.BackgroundCall{Description: "convert maps", Command: "python x.py"}); got != "convert maps" {
 		t.Errorf("Text = %q, want the description", got)
@@ -199,7 +199,7 @@ func TestText(t *testing.T) {
 	}
 }
 
-// T-714: a long command is cut with an ellipsis, its argv0 without its path.
+// a long command is cut with an ellipsis, its argv0 without its path.
 func TestShorten(t *testing.T) {
 	if got := Shorten("/usr/bin/python3   x.py"); got != "python3 x.py" {
 		t.Errorf("Shorten = %q", got)

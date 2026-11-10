@@ -13,7 +13,7 @@ import (
 )
 
 // plainFx is the fixture's config (fxConfig plus edits) in a plain project (testkit.NewPlain): no git, for a runner test
-// whose commands run in the root and read no repository (T-1018: the unit tier runs no git).
+// whose commands run in the root and read no repository (the unit tier runs no git).
 func plainFx(t *testing.T, edits ...func(map[string]any)) *fx {
 	t.Helper()
 	p := testkit.NewPlain(t)
@@ -32,7 +32,7 @@ func commandCalls(t *testing.T, opts Options, dir string) (*runner, *[]string) {
 	return &r, got
 }
 
-// T-1003 (RV-139 #1): a lane in two classes runs the guard once, then each class's checks once, in config order; a
+// a lane in two classes runs the guard once, then each class's checks once, in config order; a
 // command both classes name runs once. Only neutral files still run the guard alone.
 func TestRunChecksMixedClass(t *testing.T) {
 	x := plainFx(t,
@@ -74,7 +74,7 @@ func TestRunChecksMixedClass(t *testing.T) {
 	}
 }
 
-// T-1007 (RV-139 #1): a full lane (here an unmatched go.mod beside a class's file) runs check, then each matched
+// a full lane (here an unmatched go.mod beside a class's file) runs check, then each matched
 // class marked also_on_full's commands, config order; a class without also_on_full adds nothing.
 func TestRunChecksFullWithFull(t *testing.T) {
 	x := plainFx(t,
@@ -119,7 +119,7 @@ func TestRunChecksFullWithFull(t *testing.T) {
 	}
 }
 
-// T-1008 (RV-139 #2): OBOR_FULL=1 forces the merge full, but the scan still names the classes it matched, so release
+// OBOR_FULL=1 forces the merge full, but the scan still names the classes it matched, so release
 // and web files keep their also_on_full commands (before: the forced early return dropped them).
 func TestRunChecksForcedKeepsWithFull(t *testing.T) {
 	x := plainFx(t,
@@ -162,7 +162,7 @@ func TestRunChecksForcedKeepsWithFull(t *testing.T) {
 	}
 }
 
-// T-673 (RV-75 #4): the runner tells serve's gate each command as it starts and "" as it ends, so obor status shows
+// the runner tells serve's gate each command as it starts and "" as it ends, so obor status shows
 // the gate with no command between two — a finished command is never shown as running.
 func TestRunnerCommandEnds(t *testing.T) {
 	x := plainFx(t, cmd("check", "true"))
@@ -181,7 +181,7 @@ func TestRunnerCommandEnds(t *testing.T) {
 	}
 }
 
-// T-673: a command that times out, and one a signal cuts, end like any other: the runner reports no command running.
+// a command that times out, and one a signal cuts, end like any other: the runner reports no command running.
 func TestRunnerCommandEndsOnTimeoutAndInterrupt(t *testing.T) {
 	x := plainFx(t, cmd("check", map[string]any{"cmd": "sleep 1", "timeout": 1}))
 	o := x.opts()
@@ -220,7 +220,7 @@ func TestRunnerCommandEndsOnTimeoutAndInterrupt(t *testing.T) {
 	}
 }
 
-// T-1094: only a failed command keeps a log. A red run writes its log, and the green run of the same name that
+// only a failed command keeps a log. A red run writes its log, and the green run of the same name that
 // follows it leaves none: the pass removes it.
 func TestGreenRunRemovesRedLog(t *testing.T) {
 	x := plainFx(t, cmd("check", `if [ -e "$TMP_DIR/ran" ]; then echo 2 pass; else : > "$TMP_DIR/ran"; echo 1 fail; exit 1; fi`))

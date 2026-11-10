@@ -30,8 +30,8 @@ func ltGit(t *testing.T, dir string, args ...string) {
 	}
 }
 
-// ltFixture (T-470: the lane table's tests, from package lanes): proj with a committed config whose lanes count is the
-// given names' (L-01 … L-NN, T-765) under proj-wt; each lane a worktree on task/<id> when its id is set, else detached
+// ltFixture (the lane table's tests, from package lanes): proj with a committed config whose lanes count is the
+// given names' (L-01 … L-NN) under proj-wt; each lane a worktree on task/<id> when its id is set, else detached
 // at main. Returns the project.
 func ltFixture(t *testing.T, extra string, lanes map[string]string) *LaneTable {
 	t.Helper()
@@ -60,7 +60,7 @@ func ltFixture(t *testing.T, extra string, lanes map[string]string) *LaneTable {
 }
 
 // ltSubmit puts task on lane's row and, done, its task_done age ago with the lane's HEAD as its submitted head
-// (T-1015), and landed, its landed fact, as obor serve projects its log (T-439, T-1012).
+// and landed, its landed fact, as obor serve projects its log.
 func ltSubmit(t *testing.T, root, lane, task string, done, landed bool, age time.Duration) {
 	t.Helper()
 	head := ""
@@ -96,7 +96,7 @@ func ltRow(t *testing.T, root, lane, task, head string, done, landed bool, age t
 	}
 }
 
-// TestLaneStatesCanceled (T-873): a canceled ctx ends the lane table's git reads: a git that hangs is killed, States
+// TestLaneStatesCanceled: a canceled ctx ends the lane table's git reads: a git that hangs is killed, States
 // returns at once, and the lane is unknown (never free), with the cancellation as its reason.
 func TestLaneStatesCanceled(t *testing.T) {
 	p := ltFixture(t, `,"dir":"../proj-wt"`, map[string]string{"L-01": "T-01"})
@@ -143,9 +143,9 @@ func ltCommit(t *testing.T, dir string) {
 	ltGit(t, dir, "commit", "-q", "-m", "work")
 }
 
-// TestLaneStates (T-470, T-1012, T-1015): the lane table's states are the one free rule over the lane's row, its HEAD
+// TestLaneStates: the lane table's states are the one free rule over the lane's row, its HEAD
 // and its own dirty status, whatever the main checkout's history says (a landed task frees its lane only at the head
-// its submission pinned; with no recorded head, only at a HEAD on main), and each lane's type (T-721, T-765: a working lane's type
+// its submission pinned; with no recorded head, only at a HEAD on main), and each lane's type (a working lane's type
 // is the model its row's dispatch chose — a ref's model: sonnet:low is sonnet; a lane with no row has none, nor has
 // a free lane whatever its row says: a lane's model is its task's only while it holds it). Its git reads run in the
 // lane dirs only.
@@ -164,13 +164,13 @@ func TestLaneStates(t *testing.T) {
 	ltSubmit(t, p.Root, "L-05", "T-05", false, false, 0) // dispatched, no task_done yet
 	ltSetType(t, p.Root, "L-05", "sonnet:low")
 	os.WriteFile(filepath.Join(dir("L-06"), "scratch.txt"), []byte("x"), 0o644)
-	ltSubmit(t, p.Root, "L-06", "T-06", true, true, 0) // landed, dirty: never free (T-196)
+	ltSubmit(t, p.Root, "L-06", "T-06", true, true, 0) // landed, dirty: never free
 	// The main checkout's history is no input: L-07's HEAD is main's (its "merge" by ancestry) but its task has not
 	// landed; L-08's commit is not on main but its task landed (serve's fact).
 	ltSubmit(t, p.Root, "L-07", "T-07", false, false, 0)
 	ltCommit(t, dir("L-08"))
 	ltSubmit(t, p.Root, "L-08", "T-08", true, true, 0)
-	// T-1015: L-09's task landed, then a further clean commit (a driver after obor land): its HEAD is not what landed.
+	// L-09's task landed, then a further clean commit (a driver after obor land): its HEAD is not what landed.
 	ltCommit(t, dir("L-09"))
 	ltSubmit(t, p.Root, "L-09", "T-09", true, true, 0)
 	ltGit(t, dir("L-09"), "commit", "-q", "--allow-empty", "-m", "after the submit")
@@ -227,7 +227,7 @@ func TestLaneStates(t *testing.T) {
 			t.Errorf("the table read git in the main checkout %s", d)
 		}
 	}
-	// T-788: no done state (the task's phase is serve's); a submitted lane keeps its task_done's age.
+	// no done state (the task's phase is serve's); a submitted lane keeps its task_done's age.
 	for _, s := range p.States() {
 		submittedLanes := []string{"L-03", "L-04", "L-06", "L-08", "L-09", "L-10", "L-11"}
 		if submitted := s.DoneAge != nil; submitted != slices.Contains(submittedLanes, s.Name) {
@@ -241,7 +241,7 @@ func TestLaneStates(t *testing.T) {
 	if !evidence(p, "T-50") {
 		t.Error("a Merge T-50: commit is evidence")
 	}
-	// RV-38 #11: a log git cannot read is an error from MergeEvidenceBy, not "no evidence".
+	// a log git cannot read is an error from MergeEvidenceBy, not "no evidence".
 	if ok, err := p.MergeEvidenceBy("T-50", func(...string) (string, error) { return "", errors.New("git I/O") }); ok || err == nil {
 		t.Errorf("MergeEvidenceBy with git failing = %v, %v; want false and the error", ok, err)
 	}
@@ -273,7 +273,7 @@ func evidence(p *LaneTable, id string) bool {
 	return ok
 }
 
-// ltSetType sets lane's row's type to typ (the type reference its dispatch chose, T-721).
+// ltSetType sets lane's row's type to typ (the type reference its dispatch chose).
 func ltSetType(t *testing.T, root, lane, typ string) {
 	t.Helper()
 	db, err := store.OpenRW(store.File(root))
@@ -299,7 +299,7 @@ func ltSetType(t *testing.T, root, lane, typ string) {
 	}
 }
 
-// T-547, T-550: a "<id>:" subject is evidence whatever files it changes; "Merge <id>:" stays evidence.
+// a "<id>:" subject is evidence whatever files it changes; "Merge <id>:" stays evidence.
 func TestMergeEvidenceSubjectRule(t *testing.T) {
 	add := func(p *LaneTable, file, subj string) {
 		path := filepath.Join(p.Root, file)
@@ -337,7 +337,7 @@ func TestMergeEvidenceSubjectRule(t *testing.T) {
 	}
 }
 
-// T-871: a lane whose git or store read failed is never free: its state is unknown, with the reason (git's stderr or
+// a lane whose git or store read failed is never free: its state is unknown, with the reason (git's stderr or
 // the store's error), and dispatch's lane list (Lanes, what obor serve's lane choice reads) carries both. A project with
 // no database yet is not a failed read: it has no rows and no error, and its lanes read as git says.
 func TestLaneUnknownOnFailedRead(t *testing.T) {
@@ -415,7 +415,7 @@ func stateOf(p *LaneTable, lane string) port.Lane {
 	return port.Lane{}
 }
 
-// A lead commit whose subject contains the id is no merge evidence; "Merge <id>:" is. T-802: a resolved merge, as the
+// A lead commit whose subject contains the id is no merge evidence; "Merge <id>:" is. A resolved merge, as the
 // gate amends it (title subject, spec and summary in the body), is evidence too — git's own "Merge commit '<sha>' into
 // HEAD" is not. One repo, read between commits.
 func TestMergeEvidenceSubjects(t *testing.T) {

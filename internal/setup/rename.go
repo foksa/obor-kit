@@ -1,16 +1,16 @@
 package setup
 
-// `obor setup rename --name N --prefix P`: rename a project and its agents (T-587). Refused before any step while the
-// project's serve LaunchAgent is installed under the old name (DD-consolidation I7: its label would outlive the
+// `obor setup rename --name N --prefix P`: rename a project and its agents. Refused before any step while the
+// project's serve LaunchAgent is installed under the old name (its label would outlive the
 // rename). Steps 0, 1, 3, 4, 5 in order, each one `OK <n> <name>: …` (`(already)` when there was nothing to do) or the
 // one `FAIL <n> <name>: …` that stops the run; a rerun after the fix is the repair path. The project's history is
-// never rewritten. The inbox records are keyed by slot in the project (DD-consolidation I4): nothing to move.
+// never rewritten. The inbox records are keyed by slot in the project: nothing to move.
 //
 //	0 stop     no serve holds .obor/state/serve.flock (a flock held, or a pid in the file that still lives) and no
 //	           herdr agent runs in the root or the lanes dir (panes may stay)
-//	1 config   .obor/config.json and .obor/local.json: name and prefix (agent names are derived from them, T-765;
-//	           a derived name in guards.allow_push becomes its role, T-795)
-//	           (no store step: a lane's agent is derived from the config, no lane row stores one: T-1031)
+//	1 config, .obor/config.json and .obor/local.json: name and prefix (agent names are derived from them;
+//	           a derived name in guards.allow_push becomes its role)
+//	           (no store step: a lane's agent is derived from the config, no lane row stores one)
 //	3 files    each lane worktree's opencode.json with a path to another kit's bin/obor (an MCP server) pointing at this kit's bin/obor
 //	4 herdr    the workspace labelled with the old name is renamed (`herdr workspace rename`), and every pane of it
 //	           whose label follows the old prefix (mapAgent) is relabelled (`herdr pane rename`)
@@ -189,9 +189,9 @@ func (r *renamer) renameDoc(doc []byte, forceNames bool) ([]byte, error) {
 	return append(ind.Bytes(), '\n'), nil
 }
 
-// pushRoles rewrites each guards.allow_push entry that is a role's derived name under the old prefix ("ob-lead", as a
-// config before T-786 wrote it) to the role ("lead"): the derived name would resolve against the new prefix and name
-// no role. Role entries and unrelated entries stay. It runs before the prefix changes.
+// pushRoles rewrites each guards.allow_push entry that is a role's derived name under the old prefix ("ob-lead") to the
+// role ("lead"): a derived name would resolve against the new prefix and name no role. Role entries and unrelated
+// entries stay. It runs before the prefix changes.
 func (r *renamer) pushRoles(out *[]byte) error {
 	entries := config.PushEntries(*out)
 	if entries == nil {

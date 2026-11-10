@@ -21,15 +21,15 @@ type (
 )
 
 // Start is the one start of an agent in its pane, for obor setup (port.Starter), a restart and serve's starts
-// (Launch), and restore's restart (T-1057): the pane's shell waited for (s.Await, within s.Shell), the env line
-// (s.Env), the pane labelled, the launch line printed (T-145: a wrong model or permission mode is visible before the
-// agent starts; s.Args as its Build built them, T-1042: no kind is asked again), the session obor chose recorded
+// (Launch), and restore's restart: the pane's shell waited for (s.Await, within s.Shell), the env line
+// (s.Env), the pane labelled, the launch line printed (a wrong model or permission mode is visible before the
+// agent starts; s.Args as its Build built them: no kind is asked again), the session obor chose recorded
 // (s.Session), then herdr agent start: agent_pane_busy retried once the pane is its shell again, within s.Shell
-// (T-628, T-1053); agent_name_taken: the stale name cleared and retried once, unless a live agent elsewhere holds it.
-// A start ends as soon as its agent runs in the pane (started), never at a fixed wait (T-404: herdr's own answer waits
+// agent_name_taken: the stale name cleared and retried once, unless a live agent elsewhere holds it.
+// A start ends as soon as its agent runs in the pane (started), never at a fixed wait (herdr's own answer waits
 // up to 30 s for an agent ready for input, which an agent busy on its first prompt never is); a start with a first
 // prompt whose agent works on it is a start, its launch pending or herdr's call given up on (attempt.counts,
-// busyStart). herdr's agent name is neither required nor renamed back (T-952: herdr drops it at times and obor
+// busyStart). herdr's agent name is neither required nor renamed back (herdr drops it at times and obor
 // addresses the pane by id). A failed start is a *StartError, herdr's error printed: NoShell when the pane never
 // became its shell, NotReady with a hint when the pane shows a trust dialog or a Codex self-update, or herdr says
 // agent_not_ready. A failed env line is its own error; a failed pane label is a Fail (nothing started). A start of a
@@ -59,15 +59,15 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
 		}
 		l.say("labelled pane %s %s", s.Pane, s.Agent)
 	}
-	if _, ok := agents.Lookup(s.Kind); !ok { // dispatch and obor config validate refuse such a model's kind (DD-v0.13 D1)
+	if _, ok := agents.Lookup(s.Kind); !ok { // dispatch and obor config validate refuse such a model's kind
 		return port.Pane{}, project.Failf("%s: kind %s has no bridge (obor config validate)", s.Agent, s.Kind)
 	}
-	// A start the owner makes at a screen (obor lead, obor setup role): a quarantined install warns, never refuses (T-1052)
+	// A start the owner makes at a screen (obor lead, obor setup role): a quarantined install warns, never refuses
 	// — the Gatekeeper dialog can be answered there.
 	if why := agents.StartRefusal(s.Kind, l.installHost()); why != "" {
 		l.say("warning: " + why)
 	}
-	// The session obor chose for a kind whose sessions it names (Built.Session, T-813): recorded before the agent runs.
+	// The session obor chose for a kind whose sessions it names (Built.Session): recorded before the agent runs.
 	if s.Session != "" {
 		l.recordSession(ctx, s)
 	}
@@ -130,16 +130,16 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
 }
 
 // attempt is one agent start as started saw it: the agent it ended with, the terminal's error, and whether the
-// terminal accepted it (T-1057): it answered a start it made (success, a pending launch included, or one it gave up
+// terminal accepted it: it answered a start it made (success, a pending launch included, or one it gave up
 // waiting on: timeout, agent_not_ready), or, before its answer, listed the record it resets the pane's agent to when
-// it accepts a start (launching, T-1059); never a refusal (agent_pane_busy, agent_name_taken, pane_not_available).
+// it accepts a start (launching); never a refusal (agent_pane_busy, agent_name_taken, pane_not_available).
 type attempt struct {
 	a        port.Pane
 	err      error
 	accepted bool
 }
 
-// counts is the evidence rule (T-1058, RV-151 #1, T-1059): a listing a is the start's own agent only when it was read
+// counts is the evidence rule: a listing a is the start's own agent only when it was read
 // after the terminal accepted this attempt, is up, and carries the terminal's word that the launch is over
 // (a.Launched, herdr's launch_pending gone or interactive_ready) or, for a start with a first prompt, works: herdr
 // keeps such a launch pending while its agent works on the prompt, until its own ~30 s bound (live H-L14: claude and
@@ -153,18 +153,18 @@ func (t attempt) counts(a port.Pane, s Start) bool {
 // launching: a is the record herdr resets s.Pane's agent to when it accepts a start, which no listing of an agent
 // that ran there shows: the launch pending with no status yet (live H-L12, H-L14: none/unknown, then the kind with
 // unknown, from the call's acceptance until the agent shows a status). Read after the start's call began and before
-// its answer, it is the acceptance (T-1059). An old agent's stale listing carries a status (idle, blocked, working).
+// its answer, it is the acceptance. An old agent's stale listing carries a status (idle, blocked, working).
 func launching(a port.Pane, s Start) bool {
 	return a.ID == s.Pane && (a.Agent == "" || a.Agent == s.Kind) && !a.Launched && a.Status == "unknown"
 }
 
 // started runs the terminal's agent start once and returns once the agent runs in s.Pane (the start's done
-// condition, T-404), or the terminal's answer: its error, or the agent it detected. A pending answer is no proof: herdr
-// answers before the agent runs (launch_pending, T-544: a command cut off at the shell left no agent, and the start said
+// condition), or the terminal's answer: its error, or the agent it detected. A pending answer is no proof: herdr
+// answers before the agent runs (launch_pending: a command cut off at the shell left no agent, and the start said
 // RESTARTED), so a poll reads s.Pane until a listing counts by the evidence rule (attempt.counts), and none within Up is
-// an error. The poll runs alongside the call, from its start (T-387, T-1059: herdr's answer may come after an agent
+// an error. The poll runs alongside the call, from its start (herdr's answer may come after an agent
 // busy on its first prompt is up); until the answer, only the terminal's reset record (launching) accepts the start,
-// never a listing of an agent. started owns that call (T-405): it runs under Up, and before started returns it is
+// never a listing of an agent. started owns that call: it runs under Up, and before started returns it is
 // cancelled and joined, its late answer dropped.
 func (l *Launcher) started(ctx context.Context, s Start) attempt {
 	var t attempt
@@ -237,8 +237,8 @@ func detected(a port.Pane, s Start) bool {
 	return a.ID == s.Pane && a.Agent == s.Kind && a.Launched && a.Status != "" && a.Status != "unknown"
 }
 
-// up: a is an agent of s's kind in its pane, ready for obor: idle or done, or working on its first prompt (T-387).
-// Whether it is the start's own agent is the evidence rule's (attempt.counts). herdr's name is no part of it (T-952).
+// up: a is an agent of s's kind in its pane, ready for obor: idle or done, or working on its first prompt.
+// Whether it is the start's own agent is the evidence rule's (attempt.counts). herdr's name is no part of it.
 func up(a port.Pane, s Start) bool {
 	switch {
 	case a.ID != s.Pane || a.Agent != s.Kind:
@@ -251,11 +251,11 @@ func up(a port.Pane, s Start) bool {
 
 // busyStart: a start that carried a first prompt failed, yet the agent of s.Kind runs in s.Pane and took it (working,
 // or idle/done after a short turn): started. herdr's start succeeds only once the agent is ready for input within its
-// 30 s bound, and an agent that works on its first prompt from the outset is not (T-387, live: Sonnet and Codex
+// 30 s bound, and an agent that works on its first prompt from the outset is not (live: Sonnet and Codex
 // workers busy on their wake at 30 s); herdr then keeps no name for it. The listing counts by the evidence rule of the
-// last attempt t (attempt.counts): a start herdr refused while the old agent was still listed (agent_pane_busy,
-// T-1053) is no start, however ready that old agent looks; one herdr accepted and gave up on is, once herdr lists its
-// agent launched, or working on the prompt (RV-151 #1, T-1058, T-1059).
+// last attempt t (attempt.counts): a start herdr refused while the old agent was still listed (agent_pane_busy)
+// is no start, however ready that old agent looks; one herdr accepted and gave up on is, once herdr lists its
+// agent launched, or working on the prompt.
 func (l *Launcher) busyStart(ctx context.Context, s Start, t attempt) (port.Pane, bool) {
 	a, err := l.H.Agent(ctx, s.Pane)
 	if err != nil || !t.counts(a, s) {

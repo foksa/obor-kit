@@ -1,7 +1,7 @@
-// Package kind is the OpenCode kind as obor's kind protocol answers it (docs/agents/kind-protocol.md, T-1046): the
+// Package kind is the OpenCode kind as obor's kind protocol answers it (docs/agents/kind-protocol.md): the
 // reference plugin kind, built as the binary obor-kind-opencode (kinds/opencode). --prompt, no resume, /exit with its
 // popup's second Enter, `opencode run` denied, obor's MCP server and plugin (<kit>/opencode, its hook transport) in each
-// start's generated config (OPENCODE_CONFIG, T-809), prompts typed. Handle is one request; the binary runs it on its
+// start's generated config (OPENCODE_CONFIG), prompts typed. Handle is one request; the binary runs it on its
 // stdin, a test binary in process (testkit).
 package kind
 
@@ -25,10 +25,10 @@ const Version = 1
 const Name = "opencode"
 
 // ModelVar is the variable obor's plugin (opencode/obor.js) reads the start's model and effort from,
-// provider/model[#variant]: it switches each new root session of the start to it (T-703).
+// provider/model[#variant]: it switches each new root session of the start to it.
 const ModelVar = "OBOR_OPENCODE_MODEL"
 
-// ConfigVar is the variable that names a start's generated config (T-809): a path, so the typed env line stays short
+// ConfigVar is the variable that names a start's generated config: a path, so the typed env line stays short
 // (herdr refuses over-long lines).
 const ConfigVar = "OPENCODE_CONFIG"
 
@@ -108,13 +108,13 @@ func Handle(call string, req []byte) ([]byte, error) {
 }
 
 // describe is the manifest. Caps: hooks through obor's plugin; a session is recorded but never resumed (no resume: obor
-// starts an OpenCode agent fresh, T-581), and no hook event carries the version, so the marker takes OPENCODE_VERSION;
+// starts an OpenCode agent fresh), and no hook event carries the version, so the marker takes OPENCODE_VERSION;
 // status from the terminal's agent detection. Stop: /exit, typed with Enter (live 2026-10-17); its slash-command popup
 // takes that Enter, a second one runs it (once the agent has exited it reaches the shell as an empty line). When it did
 // not exit: Escape (the popup), then Ctrl+U, so the next typed message does not follow the quit. Headless: `opencode
 // run`, as the subcommand or a later word (ValueOpts: opencode --help). No transcript: OpenCode keeps its sessions in a
 // database (its plugin reports the session id: opencode/obor.js); no inbox: prompts are typed. MCP: nothing
-// user-global (T-809): obor's server and plugin reach each start through its generated config.
+// user-global: obor's server and plugin reach each start through its generated config.
 func describe() map[string]any {
 	return map[string]any{
 		"name":    Name,
@@ -139,7 +139,7 @@ func describe() map[string]any {
 // earlier start's). OpenCode's interactive TUI has no --model flag (2.2.0: only `opencode run` and `mini` take one) and,
 // for a new session, ranks the variant it remembers in its state (model.json) above the config's; obor's plugin switches
 // the session in its prompt hook, after the TUI's own pre-submit switch, so the start's model and variant win from the
-// first turn (T-703 probe). obor never guesses a model (T-697): args without --model set none, so OpenCode's own choice
+// first turn (a live probe). obor never guesses a model: args without --model set none, so OpenCode's own choice
 // stands, and an effort on them is the start's error.
 func start(in request) map[string]any {
 	args, model := splitModel(in.Args)
@@ -184,8 +184,8 @@ func splitModel(args []string) (rest []string, model string) {
 }
 
 // Config is the generated config of a start from kit: mcp.servers.obor runs the kit's `bin/obor mcp`, pinned to the
-// kit (agents.Pin, T-420), and plugins names the kit's plugin package dir (<kit>/opencode: opencode loads a package
-// dir from an env config, not a plain .js file, T-804 OC-L4).
+// kit (agents.Pin), and plugins names the kit's plugin package dir (<kit>/opencode: opencode loads a package
+// dir from an env config, not a plain .js file).
 func Config(kit string) []byte {
 	b, _ := json.MarshalIndent(map[string]any{
 		"mcp": map[string]any{"servers": map[string]any{"obor": map[string]any{
@@ -220,7 +220,7 @@ func turn(in request) map[string]any {
 // ProjectFiles are the project config files OpenCode reads in a start dir (opencode.ai/docs/config), relative to it.
 var ProjectFiles = []string{"opencode.json", "opencode.jsonc", ".opencode/opencode.json", ".opencode/opencode.jsonc"}
 
-// ProjectWarnings (T-1033): a project file defining mcp.servers.obor replaces obor's server (OpenCode's project layer
+// ProjectWarnings: a project file defining mcp.servers.obor replaces obor's server (OpenCode's project layer
 // outranks OPENCODE_CONFIG, docs/research/agent-project-config.md §3), and a file that does not parse. dir "": none.
 func ProjectWarnings(dir string, read func(string) ([]byte, error)) []string {
 	out := []string{}

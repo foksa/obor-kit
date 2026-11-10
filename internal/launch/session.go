@@ -40,7 +40,7 @@ func newSessionID() (string, error) {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:]), nil
 }
 
-// newSession is the session id a fresh start of agent runs as, for a kind whose sessions obor names (T-813): the id
+// newSession is the session id a fresh start of agent runs as, for a kind whose sessions obor names: the id
 // is obor's, recorded for the agent before the agent runs (recordSession). "" when obor cannot make one (the kind then
 // picks its own, and the hook records that one).
 func (l *Launcher) newSession(agent string) string {
@@ -63,7 +63,7 @@ func (l *Launcher) recordSession(ctx context.Context, s Start) {
 }
 
 // chosenSession is the session fact of a start obor named: the agent, its kind and the id, where it starts and its
-// lane's task. Its transcript is the one the session itself reports (the SessionStart hook fills it in, T-813).
+// lane's task. Its transcript is the one the session itself reports (the SessionStart hook fills it in).
 func (l *Launcher) chosenSession(s Start, id string) store.Session {
 	return l.withTask(store.Session{Agent: s.Agent, Kind: s.Kind, ID: id, Pane: s.Pane, Lane: s.Lane,
 		Started: time.Now().Unix(), Source: "launch"})
@@ -87,7 +87,7 @@ type proc struct {
 }
 
 // pin is the agent in pane as its process info gives it now: the leader of the foreground group (stop's proofs read
-// the same). It is read in the start's own path, before the pane can be reused (T-589). ok false: herdr names none.
+// the same). It is read in the start's own path, before the pane can be reused. ok false: herdr names none.
 func (l *Launcher) pin(ctx context.Context, pane string) (proc, bool) {
 	pi, err := l.H.ProcessInfo(ctx, pane)
 	if err != nil || pi.FgPGID == 0 || pi.AtShell() {
@@ -105,13 +105,13 @@ func (l *Launcher) running(p proc) bool {
 }
 
 // reportRollout: after a fresh start of a kind whose transcripts begin with their session (agents.Caps.Sessions:
-// Codex's rollout, T-577), the transcript of the start's new session is reported as agent's session (Report); serve
-// not told or refusing: said, nothing recorded (a restart resumes agent's last recorded session, else herdr's; T-607).
+// Codex's rollout), the transcript of the start's new session is reported as agent's session (Report); serve
+// not told or refusing: said, nothing recorded (a restart resumes agent's last recorded session, else herdr's).
 // The start's session is the one
-// whose transcript the started agent's own process p holds open (T-588: a fact, not a guess by cwd and time; T-589: p
+// whose transcript the started agent's own process p holds open (a fact, not a guess by cwd and time: p
 // pinned by the start, never read again from the pane, which another agent may hold by now): p or a process below it.
 // p gone: nothing recorded. Nothing open within Rollout: said, nothing recorded (never a scan of the cwd; a fresh
-// start with no prompt writes none, T-627: the line says so). say is where it says so.
+// start with no prompt writes none: the line says so). say is where it says so.
 func (l *Launcher) reportRollout(ctx context.Context, agent, pane, kind, lane string, p proc, prompted bool,
 	say func(format string, args ...any)) {
 	k, ok := agents.Lookup(kind)
@@ -140,7 +140,7 @@ func (l *Launcher) reportRollout(ctx context.Context, agent, pane, kind, lane st
 			}
 		}
 		// The pin is read last, right before the recording it guards: a pid the system reused while the files were read
-		// is gone, and what another process opened meanwhile is not the agent's (T-589).
+		// is gone, and what another process opened meanwhile is not the agent's.
 		if !l.running(p) {
 			gone = true
 			return false
@@ -156,7 +156,7 @@ func (l *Launcher) reportRollout(ctx context.Context, agent, pane, kind, lane st
 	case len(found) == 0:
 		why := ""
 		if !prompted {
-			why = ": expected after a fresh start with no prompt" // Codex writes its rollout at the first one (T-627)
+			why = ": expected after a fresh start with no prompt" // Codex writes its rollout at the first one
 		}
 		say("warning: %s (pid %d) holds no %s transcript open within %s (its session is not recorded%s)", agent, pid, kind,
 			l.rollout(), why)
@@ -252,7 +252,7 @@ func (l *Launcher) openFiles(pids []int) []string {
 }
 
 // searchRollout runs reportRollout for a fresh start of agent (kind) in pane and lane: the agent's process is pinned
-// here, in the start's own path (T-589), and searched in Background when set (its own bound, Rollout and the report's;
+// here, in the start's own path, and searched in Background when set (its own bound, Rollout and the report's;
 // the start returns at once; its lines to Log), else before the start returns.
 func (l *Launcher) searchRollout(ctx context.Context, agent, pane, kind, lane string, prompted bool) {
 	say := l.say

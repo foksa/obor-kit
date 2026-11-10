@@ -22,13 +22,13 @@ func sessionFx(t *testing.T, armed bool) (f hfx, o1 string) {
 	o1 = f.PlainLane("L-01", "task/T-05")
 	f.Config()
 	if armed {
-		f.Spec("T-05", "# T-05\n\n## Protected files this task may edit\n`docs/design.md`\n") // the store's (T-440)
+		f.Spec("T-05", "# T-05\n\n## Protected files this task may edit\n`docs/design.md`\n") // the store's
 		f.State("L-01", `{"lane":"L-01","task":"T-05","branch":"task/T-05","base":"main"}`)
 	}
 	return f, o1
 }
 
-// runs makes lane L-01's open dispatch (task T-05) run model: its kind is the lane's (T-722, T-765).
+// runs makes lane L-01's open dispatch (task) run model: its kind is the lane's.
 func (f hfx) runs(model string) {
 	f.State("L-01", `{"lane":"L-01","task":"T-05","branch":"task/T-05","base":"main","type":"`+model+`"}`)
 }
@@ -127,7 +127,7 @@ func TestSessionWorkerRows(t *testing.T) {
 	}
 }
 
-// bash plugin case_session_lead_and_integrator; T-465: no Stop hook line (they stop freely), no heartbeat.
+// No Stop hook line (they stop freely), no heartbeat.
 func TestSessionLeadAndIntegratorHookLines(t *testing.T) {
 	t.Parallel()
 	f, _ := sessionFx(t, true)
@@ -139,7 +139,7 @@ func TestSessionLeadAndIntegratorHookLines(t *testing.T) {
 	}
 }
 
-// T-905: the hooks line names how many guards.deny_commands rules the project's config carries.
+// the hooks line names how many guards.deny_commands rules the project's config carries.
 func TestSessionDenyCommandCount(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -158,7 +158,7 @@ func TestSessionDenyCommandCount(t *testing.T) {
 	}
 }
 
-// T-204, T-801: the role-text line names the kit's text (absolute path) and, when the worktree has one, the project's
+// the role-text line names the kit's text (absolute path) and, when the worktree has one, the project's
 // doc under paths.agents; the lead gets /obor:lead; a role without a text gets none; a custom role's doc is its own.
 func TestSessionRoleTextRows(t *testing.T) {
 	t.Parallel()
@@ -167,7 +167,7 @@ func TestSessionRoleTextRows(t *testing.T) {
 	for _, r := range []string{"worker", "integrator", "reviewer", "researcher"} {
 		f.Write(kit+"/templates/agents/"+r+".md", "# Role: "+r+"\n")
 	}
-	// custom is the T-801 fixture: a custom role's doc and a kit default row's model.
+	// custom is a custom role: a custom role's doc and a kit default row's model.
 	custom := func() {
 		f.Write("docs/agents/ux_buddy.md", "# Role: ux_buddy\n")
 		f.Config(testkit.Set("agents.roles.ux_buddy", `{"model": "opus", "write": ["docs/ux/"]}`), testkit.Set("agents.roles.researcher", "sonnet"))
@@ -261,7 +261,7 @@ func TestSessionNoConfigOrBadInputSilent(t *testing.T) {
 	}
 }
 
-// T-599: the hook writes no session-id file: serve's store is the only session record (the session request); with
+// the hook writes no session-id file: serve's store is the only session record (the session request); with
 // serve down the session is not recorded. Nothing is written without OBOR_AGENT either.
 func TestSessionWritesNoSidFile(t *testing.T) {
 	t.Parallel()
@@ -278,7 +278,7 @@ func TestSessionWritesNoSidFile(t *testing.T) {
 	}
 }
 
-// T-581: an OpenCode lane's session-start (its plugin's shared process carries no OBOR_AGENT) records the session
+// an OpenCode lane's session-start (its plugin's shared process carries no OBOR_AGENT) records the session
 // under the lane's agent (its Began names the agent, kind and session for serve).
 func TestSessionOpencodeBegan(t *testing.T) {
 	f, o1 := sessionFx(t, true)
@@ -301,7 +301,7 @@ func TestSessionOpencodeBegan(t *testing.T) {
 	if !ok || began.Agent != "pj-l-01" || began.Kind != "opencode" || began.ID != "sid-o" {
 		t.Errorf("a stale OBOR_AGENT: began %+v, %v; want the derived pj-l-01", began, ok)
 	}
-	// T-786: every role's session begins as its derived name, a stale OBOR_AGENT ignored.
+	// every role's session begins as its derived name, a stale OBOR_AGENT ignored.
 	for role, want := range map[string]string{"lead": "pj-lead", "integrator": "pj-int", "reviewer": "pj-rev"} {
 		began, ok := start(f.Root, "OBOR_ROLE="+role, "OBOR_AGENT=pj-old-name")
 		if !ok || began.Agent != want {
@@ -322,7 +322,8 @@ func TestSessionOpencodeBegan(t *testing.T) {
 	}
 }
 
-// bash plugin case_session_no_identity_fallback (T-159; its pre-tool-use part: guard TestNoIdentityFromTheSessionID)
+// This is the pre-tool-use part of the lost-identity check: a session record is never an identity (see
+// TestNoIdentityFromTheSessionID).
 func TestSessionNoIdentityFromRecords(t *testing.T) {
 	f, o1 := sessionFx(t, true)
 	_, sock := f.serve(t)
@@ -332,7 +333,7 @@ func TestSessionNoIdentityFromRecords(t *testing.T) {
 	envFile := f.Base + "/claude-env"
 	out := f.session(t, f.Root, "sid-lead", "OBOR_PANE=w9:p1", sock, "CLAUDE_ENV_FILE="+envFile)
 	contains(t, out, "a recorded sid gives no identity", "obor: role none")
-	if n := strings.Count(out, "pj-lead"); n != 0 { // T-786: no lost-identity line either
+	if n := strings.Count(out, "pj-lead"); n != 0 { // no lost-identity line either
 		t.Errorf("the pane's label is named: %d in\n%s", n, out)
 	}
 	if f.Exists(envFile) || f.Exists(home+"/sessions") {
@@ -348,7 +349,7 @@ func TestSessionNoIdentityFromRecords(t *testing.T) {
 	}
 }
 
-// T-310: the session-start hook of an opencode lane writes the plugin marker into the main checkout's state dir,
+// the session-start hook of an opencode lane writes the plugin marker into the main checkout's state dir,
 // <root>/.obor/state/lanes/<LANE>.plugin (what obor dispatch waits for and obor status reads), never the lane worktree,
 // so the lane reads clean. Another kind, or the main checkout, writes none.
 func TestSessionWritesOpencodePluginMarker(t *testing.T) {
@@ -381,7 +382,7 @@ func TestSessionWritesOpencodePluginMarker(t *testing.T) {
 		t.Error("the lane worktree holds a marker")
 	}
 	// The lane holds nothing but its own .git file and the settings every lane has: the state written is the main
-	// checkout's (a git status would say the same; a plain lane has no git to ask, T-1010).
+	// checkout's (a git status would say the same; a plain lane has no git to ask).
 	var extra []string
 	err := filepath.WalkDir(o1, func(p string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -418,7 +419,7 @@ func TestSessionWritesOpencodePluginMarker(t *testing.T) {
 	}
 }
 
-// T-739 (RV-88 #2), T-765: the session's kind and the plugin marker follow the model a lane's open dispatch runs: an
+// the session's kind and the plugin marker follow the model a lane's open dispatch runs: an
 // OpenCode dispatch is kind opencode with a marker, a Claude dispatch kind claude without one; with no open dispatch
 // the default kind.
 func TestSessionKindIsTheDispatchs(t *testing.T) {
@@ -484,7 +485,7 @@ func TestSessionWithOborAgentIgnoresOtherRecords(t *testing.T) {
 	}
 }
 
-// T-786 (was R-28 §2's lost-identity warning): a name is derived, so a labelled pane without OBOR_AGENT is no lost
+// A name is derived, so a labelled pane without OBOR_AGENT is no lost
 // identity: no warning, and the hook asks herdr nothing.
 func TestSessionLabelledPaneNoLostIdentity(t *testing.T) {
 	f, o1 := sessionFx(t, true)
@@ -501,7 +502,7 @@ func TestSessionLabelledPaneNoLostIdentity(t *testing.T) {
 	}
 }
 
-// RV-48 #3: a database read error is said, and the other bookkeeping (the session id) still runs.
+// a database read error is said, and the other bookkeeping (the session id) still runs.
 func TestSessionUnreadableDatabase(t *testing.T) {
 	f, o1 := sessionFx(t, true)
 	if out := f.session(t, o1, "sid-ok"); !strings.Contains(out, "Protected files this task may edit:") {
@@ -516,7 +517,7 @@ func TestSessionUnreadableDatabase(t *testing.T) {
 	}
 }
 
-// T-485, T-786, DD-consolidation I4: a session with CLAUDE_CODE_MESSAGING_SOCKET records the inbox of its slot in the
+// a session with CLAUDE_CODE_MESSAGING_SOCKET records the inbox of its slot in the
 // project's main checkout (<root>/.obor/state/inbox/<slot>), mode 0600, with the socket, the token and the session id:
 // a worker under its lane, the lead under lead, the drive agent under its lane's .drive, triage under triage; nothing in the global state
 // home; a stale OBOR_AGENT (a reused shell) is ignored; a later session without one removes it; a session that holds no

@@ -22,7 +22,7 @@ import (
 	"obor/internal/agents"
 	_ "obor/internal/agents/claude"
 	_ "obor/internal/agents/codex"
-	"obor/internal/agents/plugin" // the plugin kinds a config names (kinds.<name>.command, T-1036)
+	"obor/internal/agents/plugin" // the plugin kinds a config names (kinds.<name>.command)
 	"obor/internal/config"
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/project"
@@ -30,7 +30,7 @@ import (
 	ockind "obor/kinds/opencode/kind"
 )
 
-// OpenCode is a plugin kind (T-1046): a test binary has no built obor-kind-opencode, so its kind answers in process
+// OpenCode is a plugin kind: a test binary has no built obor-kind-opencode, so its kind answers in process
 // (plugin.Local) with the handler the binary runs, registered from the start as a config load registers it.
 func init() {
 	plugin.Local[ockind.Name] = ockind.Handle
@@ -44,10 +44,10 @@ func Main(m *testing.M) {
 	os.Exit(Run(m))
 }
 
-// Run is m.Run followed by the removal of the project template New copies (T-1009), for a TestMain that does more than
-// Main: it returns m.Run's code. It also arms New (T-1019): only a TestMain that calls it removes the template. It sets
-// no wire deadline (T-1166): a call to a serve that is running gets its method's deadline from wire/client.go's table,
-// seconds, where T-1144's 0.2 s for the whole binary timed the app tests out under the nightly's load. A test whose call
+// Run is m.Run followed by the removal of the project template New copies, for a TestMain that does more than
+// Main: it returns m.Run's code. It also arms New: only a TestMain that calls it removes the template. It sets
+// no wire deadline: a call to a serve that is running gets its method's deadline from wire/client.go's table,
+// seconds, where a 0.2 s bound for the whole binary timed the app tests out under the nightly's load. A test whose call
 // means to hit a serve that is not there, and must end at once, sets the short deadline itself: a ctx deadline, or
 // t.Setenv("OBOR_CALL_DEADLINE", …) as cmd/obor's callDown and internal/setup do.
 func Run(m *testing.M) int {
@@ -62,11 +62,11 @@ func Run(m *testing.M) int {
 	return code
 }
 
-// hooked is Run's: this binary's TestMain removes the template. template checks it before it builds (T-1019), so the
+// hooked is Run's: this binary's TestMain removes the template. template checks it before it builds, so the
 // next package that calls New without Main/Run fails at once instead of leaving an hk-tmpl* dir in TMPDIR per run.
 var hooked atomic.Bool
 
-// tmpl is the project every New copies (T-1009): <base>/proj with its one commit on main, built once per test binary on
+// tmpl is the project every New copies: <base>/proj with its one commit on main, built once per test binary on
 // first use and removed by Run. builds counts the builds (a test checks it is one).
 var tmpl struct {
 	once   sync.Once
@@ -75,7 +75,7 @@ var tmpl struct {
 	builds int
 }
 
-// scripts is Script's cache: one written executable per body, hardlinked into the tests' dirs (T-1025). macOS scans a
+// scripts is Script's cache: one written executable per body, hardlinked into the tests' dirs. macOS scans a
 // fresh executable before its first exec (100+ ms for a small script, 200+ ms for the 24 MB obor binary), so a suite
 // that writes the same launcher in each test paid that scan per test.
 var scripts struct {
@@ -163,7 +163,7 @@ func copyTree(src, dst string) error {
 }
 
 // Script writes body as the executable dir/name and returns its path: a test's fake launchctl, a stub obor. It is one
-// copy per body per test binary, hardlinked into dir (T-1025): macOS scans a fresh executable before its first exec
+// copy per body per test binary, hardlinked into dir: macOS scans a fresh executable before its first exec
 // (100+ ms for a small script), so a launcher written in each test paid that scan per test. Bodies that differ in a
 // test's paths are different copies, so keep them out of the body: derive them from $0 or pass them in the environment.
 func Script(t testing.TB, dir, name, body string) string {
@@ -225,7 +225,7 @@ func Isolate() {
 	os.Setenv("GIT_CONFIG_GLOBAL", "/dev/null")
 	os.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	// No detached `git maintenance run --auto` after a commit: it can still write .git/objects while the test's temp
-	// dir is removed ("directory not empty", T-438's gate).
+	// dir is removed ("directory not empty").
 	os.Setenv("GIT_CONFIG_COUNT", "1")
 	os.Setenv("GIT_CONFIG_KEY_0", "maintenance.auto")
 	os.Setenv("GIT_CONFIG_VALUE_0", "false")
@@ -276,7 +276,7 @@ func New(t testing.TB) *Project {
 }
 
 // NewAt is New at base (a test that wants it under t.TempDir): the caller owns base. The project is a private copy of
-// the binary's template (T-1009): no git process here.
+// the binary's template: no git process here.
 func NewAt(t testing.TB, base string) *Project {
 	t.Helper()
 	p := &Project{t: t, Base: base}
@@ -292,12 +292,12 @@ func NewAt(t testing.TB, base string) *Project {
 }
 
 // Adopt is a project already at base (Root <Base>/proj), for a test that copied a built template into its own dir
-// (T-998): nothing is created and nothing is removed; base lives with the test's t.TempDir.
+// nothing is created and nothing is removed; base lives with the test's t.TempDir.
 func Adopt(t testing.TB, base string) *Project {
 	return &Project{t: t, Base: base, Root: filepath.Join(base, "proj")}
 }
 
-// NewDir is a plain project dir <Base>/proj with no git (T-996): for tests whose git side is a fake (internal/app's
+// NewDir is a plain project dir <Base>/proj with no git: for tests whose git side is a fake (internal/app's
 // FakeWorkflow). Config writes .obor/config.json there; Lane makes a plain lane dir; Git fails the test.
 func NewDir(t testing.TB) *Project {
 	t.Helper()
@@ -386,8 +386,8 @@ func (p *Project) Lane(name, branch string) string {
 // LaneDir is <Base>/proj-wt/<name>.
 func (p *Project) LaneDir(name string) string { return filepath.Join(p.Base, "proj-wt", name) }
 
-// Config is fx_config: the default config in shape 2 (project pj, lanes: the highest L-NN under proj-wt, T-765; the
-// kit's OpenCode plugin kind, as obor init writes it, T-1046), changed by edit, written to .obor/config.json and
+// Config is fx_config: the default config in shape 2 (project pj, lanes: the highest L-NN under proj-wt; the
+// kit's OpenCode plugin kind, as obor init writes it), changed by edit, written to .obor/config.json and
 // committed on main (projects commit it; a plain project's stays uncommitted). An edit names shape 2's paths: the map
 // is written as it is.
 func (p *Project) Config(edit ...func(c map[string]any)) {
@@ -485,7 +485,7 @@ func (p *Project) Read(path string) string {
 }
 
 // Session records agent's session in the project's log with its transcript file (written empty), as serve records one
-// its SessionStart hook confirmed (T-813: a restart resumes that path).
+// its SessionStart hook confirmed (a restart resumes that path).
 func (p *Project) Session(agent, id string) {
 	p.t.Helper()
 	path := p.Write(filepath.Join(".obor", "state", "sessions", id+".jsonl"), "")
@@ -513,7 +513,7 @@ func (p *Project) Commit(dir string, subject ...string) {
 
 // Dispatched records the dispatch of the task on lane's branch (task/<id>) in the project's store, as obor serve's
 // event log holds it (fact dispatch, attempt 1), and the lane's row as serve projects it: the task awaits its
-// task_done (finished 0) and its dispatch names the lane's derived agent (T-1031: no row stores it).
+// task_done (finished 0) and its dispatch names the lane's derived agent (no row stores it).
 func (p *Project) Dispatched(lane string) {
 	p.t.Helper()
 	task := p.laneTask(lane)
@@ -527,7 +527,7 @@ func (p *Project) Dispatched(lane string) {
 	p.setRow(row)
 }
 
-// Submit is fx_done since T-437: the dispatch of the task on lane's branch and its task_done in the project's store,
+// Submit is fx_done: the dispatch of the task on lane's branch and its task_done in the project's store,
 // now: facts dispatch and submitted, the report text (the four sections when none), as obor serve records them, and
 // the lane's row finished then.
 func (p *Project) Submit(lane string, text ...string) { p.t.Helper(); p.SubmitAgo(lane, 0, text...) }
@@ -557,7 +557,7 @@ func (p *Project) laneTask(lane string) string {
 }
 
 // MergedAt appends fact merged of task (attempt 1) to the project's event log at epoch at, as obor serve records a
-// merge: its head sha and whether its gate ran the full check (T-525).
+// merge: its head sha and whether its gate ran the full check.
 func (p *Project) MergedAt(task, sha string, full bool, at int64) {
 	p.t.Helper()
 	p.eventAt(task, "merged", map[string]any{"head": sha, "full": full}, time.Unix(at, 0))
@@ -586,7 +586,7 @@ func (p *Project) eventAt(task, step string, data any, at time.Time) {
 	}
 }
 
-// State writes lane's row in the store's lanes table (what obor serve projects from its log; T-439): v as JSON (a
+// State writes lane's row in the store's lanes table (what obor serve projects from its log): v as JSON (a
 // JSON text string as is) with the row's keys lane, task, branch, agent (null: ""), base, head, dispatched_at,
 // finished, type, blocked, landed; other keys are ignored. The row's lane is lane.
 func (p *Project) State(lane string, v any) {
@@ -613,8 +613,8 @@ func (p *Project) State(lane string, v any) {
 	p.setRow(row)
 }
 
-// Landed sets lane's row landed (T-1012) at the lane's HEAD: its task merged and the lane's HEAD the head its submission
-// pinned (T-1015), as obor serve projects the submit result and the merged fact; the one free rule (port.FreeState)
+// Landed sets lane's row landed at the lane's HEAD: its task merged and the lane's HEAD the head its submission
+// pinned, as obor serve projects the submit result and the merged fact; the one free rule (port.FreeState)
 // then reads the lane free (dirty-free with uncommitted changes) while its HEAD stays there, whatever the main
 // checkout's history.
 func (p *Project) Landed(lane string) {
@@ -650,7 +650,7 @@ func (p *Project) rows() map[string]store.LaneRow {
 	return rows
 }
 
-// Spec stores text as task's spec in the project's store, as obor spec set does through serve (T-440): the next rev.
+// Spec stores text as task's spec in the project's store, as obor spec set does through serve: the next rev.
 func (p *Project) Spec(task, text string) {
 	p.t.Helper()
 	db, err := store.OpenRW(store.File(p.Root))
@@ -752,7 +752,7 @@ func (p *Project) Herdr() *herdrtest.Fake {
 	return p.herdr
 }
 
-// enablePlugin gives lane dir the project settings a real lane has (T-705: obor's plugin enabled, as obor init links
+// enablePlugin gives lane dir the project settings a real lane has (obor's plugin enabled, as obor init links
 // them), excluded from git so the lane stays clean.
 func (p *Project) enablePlugin(dir string) {
 	p.t.Helper()

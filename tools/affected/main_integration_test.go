@@ -10,9 +10,9 @@ import (
 	"testing"
 )
 
-// T-351/T-1040/T-1120: the tool prints the affected import paths (one per line) of the Go module it runs in, or one
+// the tool prints the affected import paths (one per line) of the Go module it runs in, or one
 // "full: <why>" line; the list comes from $OBOR_CHANGED_FILES; the -full globs force full. The tool reads no config
-// (T-1120): the Makefile passes the globs.
+// the Makefile passes the globs.
 func TestRun(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -45,7 +45,7 @@ func TestRun(t *testing.T) {
 		want    string
 	}{
 		{"changed file", nil, list("a/a.go"), "fx/a\nfx/b\n"},
-		{"test file only", nil, list("a/a_test.go"), "fx/a\n"}, // T-954: b imports a, but nothing imports a test file
+		{"test file only", nil, list("a/a_test.go"), "fx/a\n"}, // b imports a, but nothing imports a test file
 		{"no Go file", nil, list("README.md"), ""},
 		{"go.mod", nil, list("go.mod"), "full: changed go.mod\n"},
 		{"full glob", []string{"-full", "build/**"}, list("a/a.go", "build/x.txt"), "full: changed build/x.txt\n"},
@@ -76,7 +76,7 @@ func TestRun(t *testing.T) {
 	if rc := run(root, nil, env, &out); rc != 0 || !strings.HasPrefix(out.String(), "full: ") {
 		t.Errorf("unreadable list: exit %d, stdout %q", rc, out.String())
 	}
-	// An argument is a bad flag (T-1076: --direct went with the promotion): exit 2, no list.
+	// An argument is a bad flag (--direct went with the promotion): exit 2, no list.
 	out.Reset()
 	if rc := run(root, []string{"--direct"}, env, &out); rc != 2 || out.String() != "" {
 		t.Errorf("--direct: exit %d, stdout %q; want exit 2 and no list", rc, out.String())

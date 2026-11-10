@@ -9,7 +9,7 @@ import (
 )
 
 // A run's panes go to the project's herdr workspace — the one whose panes work in the project — never to the workspace
-// of the pane obor was run from when that is another project's (T-628, live: axis-maps' panes landed in obor-kit's w5).
+// of the pane obor was run from when that is another project's (live: axis-maps' panes landed in obor-kit's w5).
 func TestPlacementFollowsTheProjectsGroup(t *testing.T) {
 	t.Parallel()
 	x := newFx(t)
@@ -42,9 +42,9 @@ func TestPlacementFollowsTheProjectsGroup(t *testing.T) {
 	hasNot(t, calls, "workspace_id=w5", "never the caller's workspace")
 }
 
-// Placement table (T-632): with no pane of the project anywhere, a workspace of its own is made (never the caller's,
+// Placement table: with no pane of the project anywhere, a workspace of its own is made (never the caller's,
 // maybe another project's); only a tab whose every pane works in the project is picked; an unknown cwd may be another
-// project's; several workspaces: the one with most project panes; a user's own --tab into a mixed tab is honoured (T-634).
+// project's; several workspaces: the one with most project panes; a user's own --tab into a mixed tab is honoured.
 func TestPlacementTable(t *testing.T) {
 	t.Parallel()
 	t.Run("no project pane, caller in another project's workspace: a new workspace, both lanes there", func(t *testing.T) {
@@ -228,7 +228,7 @@ func TestPlacementTable(t *testing.T) {
 }
 
 // The caller's tab holds another project's lead, in the workspace of this project's pane: that pane is never split
-// (T-628), and the workspace is not the project's (T-634: another project's pane there): a workspace of its own.
+// and the workspace is not the project's (another project's pane there): a workspace of its own.
 func TestPlacementSkipsAnotherProjectsLeadTab(t *testing.T) {
 	t.Parallel()
 	x := newFx(t)
@@ -251,7 +251,7 @@ func TestPlacementSkipsAnotherProjectsLeadTab(t *testing.T) {
 
 // A pane a new tab or a split makes is not an available shell at once (live 2026-10-31: "agent target pane w5:p10 is
 // not an available shell (agent_pane_busy)"): the start waits for herdr to report a shell there, within the bound.
-// T-1057: setup's direct starter entry point into launch's one start (its shell wait and busy retry, the case table in
+// setup's direct starter entry point into launch's one start (its shell wait and busy retry, the case table in
 // internal/launch); past setup's bound, setup's own refusal.
 func TestNewPaneShellIsWaitedFor(t *testing.T) {
 	t.Parallel()
@@ -260,7 +260,7 @@ func TestNewPaneShellIsWaitedFor(t *testing.T) {
 		x := newFx(t)
 		x.lane(t, "L-01")
 		x.State("L-01", map[string]any{"task": "T-1", "type": "luna"})
-		x.h.NewPaneBusy = 300 * time.Millisecond // three of the start's 100 ms looks: a wait, not a real 2 s (T-1009)
+		x.h.NewPaneBusy = 300 * time.Millisecond // three of the start's 100 ms looks: a wait, not a real 2 s
 		begin := time.Now()
 		out := x.ok(t, "pane", "--start", "L-01", "--new-tab", "workers")
 		if d := time.Since(begin); d < x.h.NewPaneBusy {

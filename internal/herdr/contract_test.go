@@ -166,7 +166,7 @@ func TestSentCoversCallSites(t *testing.T) {
 	}
 }
 
-// TestWireIsOne is T-890: herdr's Wire is the one struct of herdr's pane and agent JSON, filled by herdrtest's fake and
+// TestWireIsOne: herdr's Wire is the one struct of herdr's pane and agent JSON, filled by herdrtest's fake and
 // decoded by the client, so neither side can carry a field the other lacks.
 func TestWireIsOne(t *testing.T) {
 	if f, ok := reflect.TypeOf(herdrtest.Pane{}).FieldByName("Wire"); !ok || f.Type != reflect.TypeOf(herdr.Wire{}) {
@@ -204,7 +204,7 @@ func TestWireIsOne(t *testing.T) {
 	}
 
 	// The fake fills that struct, and the client reads every field of it but state_change_seq (no decision reads it,
-	// T-1044: the stream compares panes without it).
+	// the stream compares panes without it).
 	f := herdrtest.New()
 	p := f.Agent("w1:p1", "pj-l-01", "idle", "/proj-wt/L-01")
 	p.Tab, p.Terminal, p.Workspace, p.Label, p.Seq = "w1:t1", "t1", "w1", "pj-l-01", 7

@@ -13,10 +13,10 @@ import (
 	"obor/internal/store"
 )
 
-// Queue is what waits (T-664, the owner: "not only what is going on but also what is queued"), as typed arrays the
-// text renderers word: who holds serve's worktree (Scratch, serve's own word: T-669), the merge loop's tasks with their
-// stage and what each waits for (never which one goes next, T-673), the dispatches waiting and on what (in serve's
-// order, T-1043: a high one first, then the oldest wait), the review request, the lines and briefs not done, the pause
+// Queue is what waits (the owner: "not only what is going on but also what is queued"), as typed arrays the
+// text renderers word: who holds serve's worktree (Scratch, serve's own word), the merge loop's tasks with their
+// stage and what each waits for (never which one goes next), the dispatches waiting and on what (in serve's
+// order: a high one first, then the oldest wait), the review request, the lines and briefs not done, the pause
 // and the next nightly run.
 type Queue struct {
 	Scratch *wire.ScratchStatus `json:"scratch"`
@@ -28,9 +28,9 @@ type Queue struct {
 	Nightly *Nightly            `json:"nightly"`
 }
 
-// MergeItem is one task in the merge loop by id (Project.Tasks has its title, state, phase, lane and job, T-883), in
+// MergeItem is one task in the merge loop by id (Project.Tasks has its title, state, phase, lane and job), in
 // the merge loop's order: its stage (wire.PhaseStage: the pipeline's column) and, when its next step needs the
-// scratch, what it waits for and why (T-669: copied from serve's scheduler, which names no task as next, T-673).
+// scratch, what it waits for and why (copied from serve's scheduler, which names no task as next).
 type MergeItem struct {
 	Task    string `json:"task"`
 	Stage   string `json:"stage"`
@@ -45,18 +45,18 @@ const (
 	WaitsNever = "never dispatched" // a spec stored, never dispatched
 )
 
-// WaitItem is a dispatch that waits, of a task by id (Project.Tasks has its title and spec rev, T-883): for its
+// WaitItem is a dispatch that waits, of a task by id (Project.Tasks has its title and spec rev): for its
 // --after tasks (After; Why: its last refused dispatch once they all merged), for a lane of its level (Level, Types,
 // Why), or a stored spec never dispatched (Since: the spec's set time). A dispatch's carries serve's Difficulty and
-// the Model it will run on (wire.TaskStatus', T-977; "": serve has none). High: its dispatch goes first for the next
-// free lane (serve's status: Priority: high; T-1030).
+// the Model it will run on (wire.TaskStatus'; "": serve has none). High: its dispatch goes first for the next
+// free lane (serve's status: Priority: high).
 type WaitItem struct {
 	Task       string   `json:"task"`
 	WaitsOn    string   `json:"waits_on"`
 	After      []string `json:"after,omitempty"`
 	Why        string   `json:"why,omitempty"`
 	High       bool     `json:"high,omitempty"`
-	Queue      string   `json:"queue,omitempty"` // WaitsLane: the keep lane it queues on (T-1031; "": a free lane of its level)
+	Queue      string   `json:"queue,omitempty"` // WaitsLane: the keep lane it queues on ("" means a free lane of its level)
 	Level      string   `json:"level,omitempty"`
 	Types      []string `json:"types,omitempty"`
 	Difficulty string   `json:"difficulty,omitempty"`
@@ -77,7 +77,7 @@ const (
 	OutBrief = "brief" // a role agent's brief in progress
 )
 
-// OutboxItem is a line not delivered yet (To, From, Line, Since: its fact's time, Held: why serve holds it, T-746) or
+// OutboxItem is a line not delivered yet (To, From, Line, Since: its fact's time, Held: why serve holds it) or
 // a brief in progress (To, Since, Delivered: its line was, Worked: the agent's pane worked on it since).
 type OutboxItem struct {
 	Kind      string `json:"kind"`
@@ -98,9 +98,9 @@ type Nightly struct {
 
 // queue is v's queue at now: from serve's tasks (in its merge loop's order), its scheduler's state, review request,
 // lines and briefs (ps), the specs stored (their set time) and the tasks the store saw dispatched (a spec of neither is
-// never dispatched; one serve lists is its task, a spec dropped before any dispatch among them, T-1026) and
+// never dispatched; one serve lists is its task, a spec dropped before any dispatch among them) and
 // merge.nightly_at. Without serve's status for this project (v.Serve.Project) a stored spec is not listed at all
-// (T-1028): serve's task status alone knows a spec-only drop, so the view cannot tell a dropped spec from one never
+// serve's task status alone knows a spec-only drop, so the view cannot tell a dropped spec from one never
 // dispatched, and lists neither rather than a drop that did not happen.
 func queue(v *Project, ps wire.ProjectStatus, nightlyAt string, specs map[string]store.SpecRow,
 	dispatched map[string]bool, now time.Time) Queue {
@@ -110,14 +110,14 @@ func queue(v *Project, ps wire.ProjectStatus, nightlyAt string, specs map[string
 	for _, w := range ps.ScratchQueue {
 		waits[w.Task] = w
 	}
-	keepLane := map[string]string{} // T-1048: a task's keep lane is the lane whose queue lists it (serve's Queues)
+	keepLane := map[string]string{} // a task's keep lane is the lane whose queue lists it (serve's Queues)
 	for lane, tasks := range ps.Queues {
 		for _, t := range tasks {
 			keepLane[t] = lane
 		}
 	}
 	known := map[string]bool{}
-	ranks := map[string]int{} // T-1043: serve's rank of a dispatched wait (its place in the pass's order)
+	ranks := map[string]int{} // serve's rank of a dispatched wait (its place in the pass's order)
 	for _, t := range ps.Tasks {
 		known[t.Task] = true
 		if t.Ended {
@@ -139,8 +139,8 @@ func queue(v *Project, ps wire.ProjectStatus, nightlyAt string, specs map[string
 			q.Merge = append(q.Merge, MergeItem{Task: t.Task, Stage: stage, WaitsOn: w.WaitsOn, Why: w.Why})
 		}
 	}
-	// T-1028: without serve's status for this project a stored spec's fate is unknown (a spec-only drop lives in serve's
-	// task status alone, T-1026): list none of them as never dispatched (RV-143 verify #1).
+	// without serve's status for this project a stored spec's fate is unknown (a spec-only drop lives in serve's
+	// task status alone): list none of them as never dispatched.
 	if v.Serve.Project {
 		for task, s := range specs {
 			if known[task] || dispatched[task] { // serve's task (a spec dropped until a new rev too), or dispatched
@@ -153,9 +153,9 @@ func queue(v *Project, ps wire.ProjectStatus, nightlyAt string, specs map[string
 			q.Waiting = append(q.Waiting, w)
 		}
 	}
-	// T-1043: the dispatched waits are listed in serve's order (each one's rank: the scheduler's pass order, a high
+	// the dispatched waits are listed in serve's order (each one's rank: the scheduler's pass order, a high
 	// one before every ordinary one, then the oldest wait); a spec never dispatched has no rank and keeps the id order
-	// below them (T-1028: listed only with serve's status).
+	// below them (listed only with serve's status).
 	sort.SliceStable(q.Waiting, func(i, j int) bool {
 		a, b := ranks[q.Waiting[i].Task], ranks[q.Waiting[j].Task]
 		if (a > 0) != (b > 0) {
@@ -184,12 +184,12 @@ func queue(v *Project, ps wire.ProjectStatus, nightlyAt string, specs map[string
 	return q
 }
 
-// sortTasks sorts items by their task id (idOf), numerically: T-9 before T-10.
+// sortTasks sorts items by their task id (idOf), numerically: a task 9 sorts before its task 10.
 func sortTasks[T any](items []T, idOf func(T) string) {
 	sort.SliceStable(items, func(i, j int) bool { return lessTask(idOf(items[i]), idOf(items[j])) })
 }
 
-// lessTask is task id a before task id b: numerically (T-9 before T-10), else as strings.
+// lessTask is task id a before task id b: numerically (a task 9 before a task 10), else as strings.
 func lessTask(a, b string) bool {
 	na, ea := idNum(a)
 	nb, eb := idNum(b)
@@ -199,7 +199,7 @@ func lessTask(a, b string) bool {
 	return a < b
 }
 
-// idNum is a task id's number (T-664 → 664).
+// idNum is a task id's number: the part after the hyphen, as an int.
 func idNum(id string) (int, error) {
 	_, n, _ := strings.Cut(id, "-")
 	return strconv.Atoi(n)

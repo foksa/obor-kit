@@ -27,13 +27,13 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	// obor init commits a fresh repository's files (T-629): git needs an identity in the tests' config-less environment.
+	// obor init commits a fresh repository's files: git needs an identity in the tests' config-less environment.
 	for k, v := range map[string]string{"GIT_AUTHOR_NAME": "obor test", "GIT_AUTHOR_EMAIL": "obor-test@example.invalid",
 		"GIT_COMMITTER_NAME": "obor test", "GIT_COMMITTER_EMAIL": "obor-test@example.invalid"} {
 		os.Setenv(k, v)
 	}
 	// A start reports its session to the project's serve, which no test here runs: the call ends in 0.2 s, not after
-	// retrying for the report's 2 s (T-685's knob; T-1009: 1.8 s per pane start). T-1166: this is the short deadline
+	// retrying for the report's 2 s (1.8 s per pane start). This is the short deadline
 	// for calls meant to miss a serve; it is the binary's, so a test here that served would clear it for its calls.
 	testkit.Isolate() // before the Setenv: it clears OBOR_*
 	os.Setenv("OBOR_CALL_DEADLINE", "0.2")
@@ -65,14 +65,14 @@ type fx struct {
 	install func() agents.InstallHost
 	// shellWait is Setup.ShellWait (0: 10 s), for tests that count on the bound
 	shellWait time.Duration
-	// poll and up are the launcher's Poll and Up (0: its defaults, 1 s and 30 s), for a start that polls (T-1058)
+	// poll and up are the launcher's Poll and Up (0: its defaults, 1 s and 30 s), for a start that polls
 	poll, up time.Duration
 }
 
 // newFx is a project with a config (prefix pj, lanes_dir ../proj-wt, the built-in models; edits on top) and a fake
 // herdr: tab w1:t1 with pane w1:p1, tab w1:t2 with w1:q1 (200×50 each),
-// both shells of this project (workspace w1, cwd the root: the project's own tabs, T-632). The project is plain
-// (testkit.NewPlain, T-1021): its role worktrees are laid out as files and no git process runs, so a lane comes from
+// both shells of this project (workspace w1, cwd the root: the project's own tabs). The project is plain
+// (testkit.NewPlain): its role worktrees are laid out as files and no git process runs, so a lane comes from
 // x.lane; a test of what git does with what setup installs uses newGitFx.
 func newFx(t *testing.T, edits ...func(map[string]any)) *fx {
 	t.Helper()
@@ -306,7 +306,7 @@ func last(out string) string {
 	return lines[len(lines)-1]
 }
 
-// named hides the session id obor names a fresh Claude start with (T-813): it is random, so the expectations write
+// named hides the session id obor names a fresh Claude start with: it is random, so the expectations write
 // it NEW.
 var namedRE = regexp.MustCompile(`--session-id [0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}`)
 
@@ -405,8 +405,8 @@ func TestDefaultPrefix(t *testing.T) {
 	}
 }
 
-// T-609: `obor setup`'s init subcommand is gone (obor init sets a project up): the usage line names no init, and
-// the old init subcommand is unknown.
+// `obor setup` has no init subcommand (obor init sets a project up): the usage line names no init, and
+// an init subcommand is unknown.
 func TestSetupUsageNamesNoInit(t *testing.T) {
 	t.Parallel()
 	x := newFx(t)
@@ -416,7 +416,7 @@ func TestSetupUsageNamesNoInit(t *testing.T) {
 
 // --- lane -------------------------------------------------------------------------------------------------------------
 
-// T-765: lanes are L-01 … L-NN in order: setup lane takes a configured lane or the next one, nothing else, and one
+// lanes are L-01 … L-NN in order: setup lane takes a configured lane or the next one, nothing else, and one
 // name only (no type).
 func TestLaneTakesOnlyTheNextLNN(t *testing.T) {
 	t.Parallel()
@@ -440,7 +440,7 @@ func TestLaneTakesOnlyTheNextLNN(t *testing.T) {
 	}
 }
 
-// T-765: a lane pane without --start is labelled and starts nothing; with --start it runs the default kind with no
+// a lane pane without --start is labelled and starts nothing; with --start it runs the default kind with no
 // model (no dispatch names one), as obor restart does.
 func TestPaneOnALaneStartsTheDefaultKindWithoutADispatch(t *testing.T) {
 	t.Parallel()
@@ -460,7 +460,7 @@ func TestPaneOnALaneStartsTheDefaultKindWithoutADispatch(t *testing.T) {
 	has(t, named(strings.Join(x.reqs(), "\n")), "agent.start args=["+laneArgs+" --session-id NEW] kind=claude name=pj-l-01", "the default kind, no model")
 }
 
-// T-770: the owner's drive agent (role driver) is a lane's agent too: its Claude start is strict — obor's MCP server
+// the owner's drive agent (role driver) is a lane's agent too: its Claude start is strict — obor's MCP server
 // alone, the user's MCP servers out of its context on every job.
 func TestDriveStartIsStrict(t *testing.T) {
 	t.Parallel()
@@ -491,7 +491,7 @@ func TestLaneRefusesAFailingSetup(t *testing.T) {
 
 const settings = `--settings {"autoMemoryEnabled":false,"remoteControlAtStartup":false}`
 
-// laneArgs is a lane agent's start args before its first prompt (T-770): obor's MCP server, then the strict flag that
+// laneArgs is a lane agent's start args before its first prompt: obor's MCP server, then the strict flag that
 // hides every other one, then the settings.
 var laneArgs = "--mcp-config " + claude.MCPConfig(kit) + " --strict-mcp-config " + settings
 
@@ -505,7 +505,7 @@ func TestPaneSplitsTheTabAndStartsTheAgentInOrder(t *testing.T) {
 	if last(out) != "OK L-01: pj-l-01 in pane w1:n1" {
 		t.Errorf("last line %q", last(out))
 	}
-	// T-1037: the new pane's id is herdr's answer to the split, so its shell, once up, gets the env line with OBOR_PANE
+	// the new pane's id is herdr's answer to the split, so its shell, once up, gets the env line with OBOR_PANE
 	// before the start.
 	want := []string{"agent.list", "pane.list", "pane.layout pane_id=w1:p1",
 		"pane.split cwd=" + lane + " direction=right env={OBOR_AGENT=,OBOR_LANE=L-01,OBOR_LANE_CPUS=2,OBOR_OPENCODE_MODEL=,OBOR_PANE=,OBOR_ROLE=worker,OPENCODE_CONFIG=} target_pane_id=w1:p1",
@@ -520,7 +520,7 @@ func TestPaneSplitsTheTabAndStartsTheAgentInOrder(t *testing.T) {
 	}
 }
 
-// T-1041: a lane's pane gets the generic fact OBOR_LANE_CPUS (lanes.cpus) and the project's lanes.env, its
+// a lane's pane gets the generic fact OBOR_LANE_CPUS (lanes.cpus) and the project's lanes.env, its
 // {cpus} replaced, in the split's env and the env line (setup is one of the three consumers of config.LaneEnv).
 func TestPaneLaneEnv(t *testing.T) {
 	t.Parallel()
@@ -536,7 +536,7 @@ func TestPaneLaneEnv(t *testing.T) {
 }
 
 // STATUS 2026-10-13: hk-int got a 1-line pane: the largest pane is split (not the last), right when wide, else down.
-// T-557: panes of the same area go to the last one, as before (50×20 and 100×10 are both 1000 cells).
+// panes of the same area go to the last one, as before (50×20 and 100×10 are both 1000 cells).
 func TestPaneSplitsTheLargestPane(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -648,7 +648,7 @@ func TestPaneSkipsALaneWhoseAgentRuns(t *testing.T) {
 	}
 }
 
-// A failed start reads the pane (T-256: only then, the one launch.Start): a trust dialog or a Codex self-update names
+// A failed start reads the pane (only then, the one launch.Start): a trust dialog or a Codex self-update names
 // its fix; herdr's agent_not_ready alone says the agent waits; any other failure is herdr's.
 // bash setup.test.sh case_pane_trust_dialog_fails_with_hint, case_pane_codex_self_update_fails_with_hint
 func TestPaneNotReadyHints(t *testing.T) {
@@ -692,7 +692,7 @@ func TestPaneRefusesUnknownLaneAndAmbiguousPlacement(t *testing.T) {
 	x.lane(t, "L-01")
 	x.failing(t, "FAIL pass at most one of --tab, --new-tab, --pane", "pane", "--start", "L-01", "--tab", "w1:t1", "--new-tab", "x")
 	x.lane(t, "L-02")
-	x.ok(t, "pane", "--start", "L-02") // not in a herdr pane: the project's tab with most panes, the first of equals (T-632)
+	x.ok(t, "pane", "--start", "L-02") // not in a herdr pane: the project's tab with most panes, the first of equals
 	has(t, strings.Join(x.reqs(), "\n"), "target_pane_id=w1:p1", "no caller: the project's first tab")
 	x.reset()
 	x.env = []string{"OBOR_PANE=w1:q1"}
@@ -722,7 +722,7 @@ func TestSetupPaneTypesTheEnvAtAReusedPane(t *testing.T) {
 	x.reset()
 	x.ok(t, "role", "integrator", "--pane", "w1:p1", "--start")
 	lines := x.envLines()
-	// T-853: the integrator's cwd is its role worktree.
+	// the integrator's cwd is its role worktree.
 	if len(lines) != 1 || !strings.HasPrefix(lines[0], "cd "+x.LaneDir("integrator")+" && unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OPENCODE_CONFIG && export OBOR_ROLE=integrator OBOR_PANE=w1:p1 && echo obor-env-") {
 		t.Fatalf("typed %q, want one env line: cd its role worktree, unset every registry var it does not set (a stale OBOR_AGENT, OBOR_LANE, another kind's), export integrator and its pane, then the marks", lines)
 	}
@@ -741,7 +741,7 @@ func TestSetupPaneTypesTheEnvAtAReusedPane(t *testing.T) {
 	}
 
 	// a new pane gets its env from herdr at creation (OBOR_PANE empty: its id is herdr's answer), then the env line
-	// with its id once its shell is up (T-1037)
+	// with its id once its shell is up
 	x.noAgents()
 	x.h.Pane("w1:p1").Label = ""
 	x.reset()
@@ -753,7 +753,7 @@ func TestSetupPaneTypesTheEnvAtAReusedPane(t *testing.T) {
 	}
 }
 
-// T-601 (RV-64 #3): setup role --pane types the env line through the same setEnv as restart. A cd that fails echoes the
+// setup role --pane types the env line through the same setEnv as restart. A cd that fails echoes the
 // line's failure word, not its success word, so the agent is not started with the shell's old cwd and OBOR_* env.
 func TestSetupPaneStopsWhenTheEnvLineFailed(t *testing.T) {
 	t.Parallel()
@@ -795,10 +795,10 @@ func TestSetupPaneStopsWhenTheEnvLineFailed(t *testing.T) {
 	})
 }
 
-// envMarksRE is the env line's two words as typed (T-601): its success word, then its failure word.
+// envMarksRE is the env line's two words as typed: its success word, then its failure word.
 var envMarksRE = regexp.MustCompile(` && echo obor-env-"([0-9a-z]+)" \|\| echo obor-env-"([0-9a-z]+)"$`)
 
-// envWords is the success and failure words the typed env line echoes (T-601), quotes removed.
+// envWords is the success and failure words the typed env line echoes, quotes removed.
 func envWords(t *testing.T, line string) (ok, bad string) {
 	t.Helper()
 	m := envMarksRE.FindStringSubmatch(line)
@@ -820,7 +820,7 @@ func TestRoleLeadNewTabGetsRoleEnv(t *testing.T) {
 	has(t, named(calls), "agent.start args=[--permission-mode auto --model opus --session-id NEW /obor:lead] kind=claude name=pj-lead pane_id=w1:n1", "the agent named by its derived name, no Remote Control default (T-280)")
 }
 
-// T-280: a lead of a type without settings keeps Remote Control; a worker does not. (Setup role lead, the one lead.)
+// a lead of a type without settings keeps Remote Control; a worker does not. (Setup role lead, the one lead.)
 func TestLeadKeepsRemoteControl(t *testing.T) {
 	t.Parallel()
 	x := newFx(t, testkit.Set("agents.roles", `{"lead": "opus"}`))
@@ -832,7 +832,7 @@ func TestLeadKeepsRemoteControl(t *testing.T) {
 	hasNot(t, calls, "remoteControlAtStartup", "lead")
 }
 
-// bash setup.test.sh case_role_triage_runs_in_the_root_with_agent_env_only_and_creates_bugs_md; T-796: OBOR_ROLE=triage,
+// OBOR_ROLE=triage,
 // so its identity is derived like every other role's.
 func TestRoleTriageRunsInTheRootWithItsRoleEnvAndCreatesBugsMd(t *testing.T) {
 	t.Parallel()
@@ -857,7 +857,7 @@ func TestRoleTriageRunsInTheRootWithItsRoleEnvAndCreatesBugsMd(t *testing.T) {
 	}
 }
 
-// T-801: obor setup role places a custom role like any other (its name with - or _), in the main checkout with
+// obor setup role places a custom role like any other (its name with - or _), in the main checkout with
 // OBOR_ROLE=<name>, its agent <prefix>-<name, _ → ->; it seeds nothing (only a default row with Seeds does); a name with
 // no row is the usage line.
 func TestRoleCustomPlaced(t *testing.T) {
@@ -881,12 +881,12 @@ func TestRoleCustomPlaced(t *testing.T) {
 }
 
 // --- githooks ---------------------------------------------------------------------------------------------------------
-// githooks_integration_test.go: what setup githooks leaves in git config, and the hooks git runs (T-1021).
+// githooks_integration_test.go: what setup githooks leaves in git config, and the hooks git runs.
 
-// --- herdr-plugin (R-28 §3, T-1117: removed) ---------------------------------------------------------------------
+// --- herdr-plugin (removed) ---------------------------------------------------------------------------------------
 
-// T-1117: `obor setup herdr-plugin` no longer links the obor.events plugin (obor serve restarts its own panes): the
-// one an older obor linked is unlinked once, and a machine without one has nothing to remove. Either way herdr's
+// `obor setup herdr-plugin` unlinks the obor.events plugin an older obor linked (obor serve restarts its own panes):
+// a machine without one has nothing to remove. Either way herdr's
 // resume hint is said once, unless herdr's config sets it.
 func TestHerdrPluginRemovesTheOldLinkAndHints(t *testing.T) {
 	t.Parallel()
@@ -926,7 +926,7 @@ func TestHerdrPluginRemovesTheOldLinkAndHints(t *testing.T) {
 	os.Remove(conf)
 }
 
-// T-613 #4: herdr cannot list its plugins: the removal FAILs with herdr's error (never "not linked") and unlinks
+// herdr cannot list its plugins: the removal FAILs with herdr's error (never "not linked") and unlinks
 // nothing; a failed unlink is a WARN and a FAIL too.
 func TestHerdrPluginRemovalFailures(t *testing.T) {
 	t.Parallel()
@@ -953,7 +953,7 @@ func TestHerdrPluginRemovalFailures(t *testing.T) {
 	}
 }
 
-// --- agents (T-306, DD-v0.13 B1, T-809) -----------------------------------------------------------------------------
+// --- agents -----------------------------------------------------------------------------
 
 // `obor setup mcp` says per kind whether the server is registered, then runs the handshake: all OK, a broken handshake
 // a WARN and a FAIL.
@@ -1002,7 +1002,7 @@ func TestKitManifestMCPServers(t *testing.T) {
 		len(h.Env) != 1 || h.Env["OBOR_NO_SELF_HOST"] != "1" {
 		t.Errorf("plugin.json mcpServers: %s", b)
 	}
-	// DD-v0.13 B1: the bridge's entry is the shipped one.
+	// the bridge's entry is the shipped one.
 	k, _ := agents.Lookup("claude")
 	m := k.Install(kit, nil).MCP
 	if state, path, err := registration(m); state != entryPinned || err != nil || path != filepath.Join(kit, ".claude-plugin", "plugin.json") {
@@ -1014,9 +1014,9 @@ func TestKitManifestMCPServers(t *testing.T) {
 	}
 }
 
-// T-582 (RV-62 #3), T-588: obor setup pane and setup role start Codex through launch's one start path, so the rollout
+// obor setup pane and setup role start Codex through launch's one start path, so the rollout
 // the fresh start's process holds open (the fake herdr's agent: pid 2) is recorded as the agent's session: serve down
-// here, so it is said and nothing is recorded (no .sid file: T-599).
+// here, so it is said and nothing is recorded (no .sid file).
 func TestCodexSetupStartRecordsItsSession(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -1064,7 +1064,7 @@ func TestCodexSetupStartRecordsItsSession(t *testing.T) {
 	}
 }
 
-// T-1058 (RV-151 #1): setup's direct starter goes through the one start: herdr accepts it at once with launch_pending
+// setup's direct starter goes through the one start: herdr accepts it at once with launch_pending
 // and lists the start's kind with a stale idle, still pending, for three reads: OK only once the new agent is up
 // (interactive_ready); a replacement never up is a FAIL, not OK.
 func TestSetupStartWaitsForTheLaunch(t *testing.T) {
@@ -1111,9 +1111,9 @@ func TestSetupStartWaitsForTheLaunch(t *testing.T) {
 	}
 }
 
-// --- a config.json that fails to load (T-1163, RV-172 #1) -----------------------------------------------------------
+// --- a config.json that fails to load -----------------------------------------------------------
 
-// unloadableConfig is a config.json of shape 1: since T-1157 this obor refuses it, naming the release that migrates it.
+// unloadableConfig is a config.json of shape 1: this obor refuses it, naming the release that migrates it.
 const unloadableConfig = `{"name":"legacy","prefix":"leg","lanes":1}` + "\n"
 
 // migrateHint is the way out the load's shape-1 error names.

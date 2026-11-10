@@ -10,11 +10,11 @@ import (
 	"testing"
 )
 
-// Tests for T-645: the release's marketplace flip renames only the marketplace (top-level name obor-kit-dev →
+// The release's marketplace flip renames only the marketplace (top-level name obor-kit-dev →
 // obor-kit), never the owner or the plugin entry; release and publish refuse a tag whose marketplace differs from main's
 // in anything else. The good tag's shape is asserted in TestMakeReleaseFullRun; publish's refusals in TestMakePublish.
 
-// T-592, moved here from cmd/obor's plugin_wiring_test.go (T-902): main is the dev checkout, so the kit's marketplace
+// main is the dev checkout, so the kit's marketplace
 // is obor-kit-dev (a release tag renames it to obor-kit, which the flip above does); it lists the plugin obor at ./.
 // cmd/obor keeps the manifest invariants it can check without the release's name.
 func TestTreeMarketplaceIsDev(t *testing.T) {

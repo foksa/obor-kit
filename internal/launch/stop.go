@@ -13,17 +13,17 @@ import (
 	"obor/internal/project"
 )
 
-// StopBound is the most a Stop may take: its idle wait, its quit wait and the terminate together (T-829). It is
-// port.StopBound: the one number of the stop's waits (T-829).
+// StopBound is the most a Stop may take: its idle wait, its quit wait and the terminate together. It is
+// port.StopBound: the one number of the stop's waits.
 const StopBound = port.StopBound
 
 // Stop quits agent in its pane (pane "": the pane labelled agent) and leaves the pane labelled, at its shell:
 // idle/done → the kind's quit (agents.Kind.Stop), the exit dialog closed, wait for the shell; a kind with no quit is
-// terminated. Working/blocked → Escape, wait (≤ Idle, port.StopIdle) for it to go idle, then the same exit (T-773: no "left
+// terminated. Working/blocked → Escape, wait (≤ Idle, port.StopIdle) for it to go idle, then the same exit (no "left
 // running"); still working after Escape, or an agent whose quit opens its kind's dialog (background tasks) → FAIL
 // unless force; force → exits anyway after the wait (the kind's Stop.Dialog option when the dialog asks); an agent that
 // ignores the exit is terminated (terminate). The whole stop keeps to StopBound, whatever OBOR_RESTART_WAIT says
-// (T-829). No session check, no start. Returns the STOPPED line.
+// No session check, no start. Returns the STOPPED line.
 func (l *Launcher) Stop(ctx context.Context, agent, pane string, force bool) (string, error) {
 	if !config.AgentNameRE.MatchString(agent) {
 		return "", project.Failf("bad agent name %q", agent)
@@ -67,7 +67,7 @@ func (l *Launcher) stop(ctx context.Context, t *target, force, escape bool, hint
 	if running == "" || l.atShell(ctx, t.pane) {
 		return nil
 	}
-	// One bound for the whole stop (T-829): the idle wait, the quit wait (however long OBOR_RESTART_WAIT asks for) and
+	// One bound for the whole stop: the idle wait, the quit wait (however long OBOR_RESTART_WAIT asks for) and
 	// the terminate after a quit that was not obeyed. kill is the share of the bound the terminate may need and each
 	// wait leaves for it: StopTerminate, or half of a shorter bound (a test's), which no ladder waits out.
 	bound := l.bound()
@@ -94,7 +94,7 @@ func (l *Launcher) stop(ctx context.Context, t *target, force, escape bool, hint
 			restored = true
 		}
 	}
-	// The agent leads the pane's foreground group (T-217): its exit is that pid gone, even when the MCP servers it
+	// The agent leads the pane's foreground group: its exit is that pid gone, even when the MCP servers it
 	// started stay in the group and keep the shell from getting the foreground back.
 	var before group
 	if g, err := l.group(ctx, t.pane); err == nil && g.shell != 0 && !g.atShell() && g.pgid > 1 {
@@ -105,14 +105,14 @@ func (l *Launcher) stop(ctx context.Context, t *target, force, escape bool, hint
 	bgFail := needsForce("%s has background tasks (finish them, or --force to stop them)", t.agent)
 	quit := recipe.Quit
 	if quit == "" {
-		// No clean quit to wait for: the proven SIGTERM/SIGKILL path at once (T-292).
+		// No clean quit to wait for: the proven SIGTERM/SIGKILL path at once.
 		if err := l.terminate(ctx, t, before, running, "has no clean quit"); err != nil {
 			return err
 		}
 		return l.finish(ctx, t, before, running)
 	}
 	if !restored {
-		// A person may have typed into the input: the quit typed after it would be sent as part of that text (T-712).
+		// A person may have typed into the input: the quit typed after it would be sent as part of that text.
 		for _, k := range recipe.ClearInput {
 			_ = l.H.SendKeys(ctx, t.pane, k)
 		}
@@ -122,7 +122,7 @@ func (l *Launcher) stop(ctx context.Context, t *target, force, escape bool, hint
 	}
 	chose, polls := false, 0
 	var dialogErr error
-	// The quit's wait, capped so the terminate still has its part of the bound (T-829: OBOR_RESTART_WAIT may ask for
+	// The quit's wait, capped so the terminate still has its part of the bound (OBOR_RESTART_WAIT may ask for
 	// longer, never past it).
 	wait := min(l.wait(), left())
 	exited := l.until(ctx, wait, func() bool {
@@ -130,7 +130,7 @@ func (l *Launcher) stop(ctx context.Context, t *target, force, escape bool, hint
 			return true
 		}
 		n, open := l.exitDialog(ctx, t.pane, recipe.Dialog)
-		// The second Enter submits a quit a completion menu took the first Enter for (T-712); never into the kind's exit
+		// The second Enter submits a quit a completion menu took the first Enter for; never into the kind's exit
 		// dialog, where a bare Enter would pick its default option.
 		if polls++; polls == 2 && recipe.SecondEnter && !open {
 			_ = l.H.SendKeys(ctx, t.pane, "enter")
@@ -184,7 +184,7 @@ func (l *Launcher) stop(ctx context.Context, t *target, force, escape bool, hint
 	return l.finish(ctx, t, before, running)
 }
 
-// forceFail is a stop's FAIL that only force gets past (port.CodeNeedsForce): serve's drop refuses then (T-773).
+// forceFail is a stop's FAIL that only force gets past (port.CodeNeedsForce): serve's drop refuses then.
 type forceFail struct{ project.Fail }
 
 func (forceFail) ErrorCode() string { return port.CodeNeedsForce }
@@ -219,7 +219,7 @@ func programs(kind string) string {
 
 // awaitIdle: the agent in pane went idle (or done, or left) within d, as herdr's agent.wait says: one server-owned
 // wait instead of a poll of agent.get. Only herdr's timeout says it is still busy; an agent that left
-// (agent_not_running) and any other error are done, as the poll's error was (T-950).
+// (agent_not_running) and any other error are done, as the poll's error was.
 func (l *Launcher) awaitIdle(ctx context.Context, pane string, d time.Duration) bool {
 	return port.ErrorCode(l.H.Wait(ctx, pane, []string{"idle", "done"}, d)) != "timeout"
 }
@@ -337,7 +337,7 @@ func (l *Launcher) ladder(ctx context.Context, pgid int, proof func() (done bool
 }
 
 // terminate ends an agent of kind running (herdr's kind for the pane) that ignored the quit after the wait (force,
-// T-249; every kind, opencode too) or has none (T-292; why: which, e.g. "did not exit in 20s"): the ladder on the group
+// every kind, opencode too) or has none (why: which, e.g. "did not exit in 20s"): the ladder on the group
 // recorded before the quit (before), each signal proven by same: still led by the agent as at the start, as running's
 // program. nil: the agent is gone (its leftovers are the caller's).
 func (l *Launcher) terminate(ctx context.Context, t *target, before group, running, why string) error {
@@ -419,11 +419,11 @@ func (l *Launcher) atShell(ctx context.Context, pane string) bool {
 // ShellWait is how long a restart waits after its stop for the pane's shell, and how long it retries a start herdr
 // answered agent_pane_busy (Launcher.Shell overrides it; Start.Shell). herdr keeps the pane no available shell
 // (agent.start: agent_pane_busy) until the old agent's exit is reaped, so a start sent at once failed while the restart
-// still said RESTARTED (T-1053).
+// still said RESTARTED.
 const ShellWait = 30 * time.Second
 
 // shellPoll is the most a wait for a pane's shell sleeps between looks (Launcher.Poll when shorter): a new pane's
-// shell is up in moments (obor setup, T-628), and a look is one herdr call.
+// shell is up in moments (obor setup), and a look is one herdr call.
 const shellPoll = 100 * time.Millisecond
 
 // waitShell waits until pane is a shell (atShell), no longer than by: one poll first (herdr's agent.start answer is
