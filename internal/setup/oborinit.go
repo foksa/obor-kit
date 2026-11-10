@@ -101,7 +101,7 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	}
 	if _, err := os.Stat(filepath.Join(root, ".obor", "config.json")); err == nil {
 		// Before any write: init edits the config it finds, so one this obor cannot read refuses here, with
-		// the load's own error (a config of shape 1 names the release that rewrites it).
+		// the load's own error.
 		if _, err := config.Load(root); err != nil {
 			return project.Fail(strings.TrimPrefix(err.Error(), "obor: "))
 		}

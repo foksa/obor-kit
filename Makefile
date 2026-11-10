@@ -264,8 +264,8 @@ deadcode:
 	if [ -n "$$out" ]; then printf '%s\n' "$$out"; exit 1; fi
 
 # upgrade-check: a project made by the previous release survives this build installed over it. The previous
-# release is the catalog's newest x.y.z below VERSION (PREV=x.y.z another, v0.23.0 or later: an older one is
-# refused, the check's fixture needs a spec's Model:), its binary the kit's cache
+# release is the catalog's newest x.y.z below VERSION (PREV=x.y.z another; the check's fixture needs a spec's
+# Model:, so a release before v0.23 fails it), its binary the kit's cache
 # (~/.obor/bin, fetched with curl and checked against bin/checksums.txt when missing); the new build is dist/obor; the
 # steps are the sh blocks of docs/UPGRADE-v<x.y>.md. The check is tests/upgrade's TestUpgradeCheck: a failure names
 # its step and the output. scripts/release runs it before the tag.

@@ -146,10 +146,6 @@ runs it, and `Config.Command` (`internal/config/config.go`) maps the name to it:
 `lane_ready` → `lanes.ready`, `compile`, `check`, `retest` and `after_merge` → `merge`, `check_milestone` →
 `nightly.slow_check`. Every other name is a `commands.<name>`.
 
-**Shape 1** — the file of obor before v0.33 (24 top-level keys, the fixed commands in `commands`) — is read and
-rewritten by v0.33 alone (`obor config migrate`, or serve's first start). From v0.34 a load refuses it: one error naming the file
-and the way out ("migrate it with obor v0.33, then upgrade", `docs/UPGRADE-v0.33.md` has the old and new keys).
-
 **Models:** the config names models with their effort directly: a model ref is `<model>[:<effort>]`
 (`opus:high`), in `agents.difficulty` levels, `agents.roles.<role>` and a spec's `Model:` line. The built-in
 models (one table, `internal/config/models.go`): opus, sonnet, haiku, fable → claude `--model <name>`; deepseek →
@@ -662,7 +658,7 @@ agent (posted to a Claude session, typed into another kind's pane); nothing is t
 writes in, and nothing else goes to a chat agent but a job's wake. State in `docs/state-model.md` row 47.
 - **`obor send <project> "<text>"`** (a lead or the owner): `<project>` is a path into an obor project. One `obor serve`
   per project (owner decision 2026-10-28): it runs in the project and listens on
-  `<root>/.obor/state/serve.sock`, so the request goes to `<target root>/.obor/state/serve.sock` (`docs/UPGRADE-v0.15.md` covers a project whose files still name the earlier socket). That serve records
+  `<root>/.obor/state/serve.sock`, so the request goes to `<target root>/.obor/state/serve.sock`. That serve records
   fact `message` (task key `msg`) and posts `[obor <sender project>] <text>` to its lead's session.
   The own project is refused. A repeated call id gets the stored reply.
 - **Briefs:** `obor brief <role-agent> "<text>"` records fact `briefed` with a line `[obor <caller>] <text>`

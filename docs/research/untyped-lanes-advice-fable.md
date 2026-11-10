@@ -63,7 +63,7 @@ wanted. Quotas: a worker stopped on a usage limit holds its lane and continues b
 
 axis-alies (D-01..D-04, OH-01), axis-maps (O-01, S-01, D-01, D-02) and codex-image-tool change nothing: typed lanes
 stay pinned. To pool, blank a type (`obor config set lanes.D-01 ""`); worktree, pane and label stay. One paragraph in
-`docs/UPGRADE-v0.20.md`; `obor init` makes L-01 and L-02 untyped (`internal/setup/oborinit.go:185`).
+the v0.20 upgrade guide; `obor init` makes L-01 and L-02 untyped (`internal/setup/oborinit.go:185`).
 
 ## 5. Deletes versus adds
 

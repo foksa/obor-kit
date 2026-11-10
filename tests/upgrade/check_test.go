@@ -1,7 +1,7 @@
 // Package upgrade is the release's upgrade check (`make upgrade-check`): a project made by the previous release
 // must survive the new build installed over it. The check is a test because it drives herdr's stub
 // (internal/herdr/herdrtest), which only test code may import; TestUpgradeCheck is the release's run (OBOR_UPGRADE_CHECK=1,
-// skipped otherwise), the other tests hold the guide's steps, the previous release and the refusal of an old one on
+// skipped otherwise), the other tests hold the guide's steps and the previous release on
 // fixed fixtures (the two frozen-binary runs went; `make upgrade-check` is the real check at each release).
 package upgrade
 
@@ -46,7 +46,7 @@ import (
 //     name (its SessionStart hook records its inbox), gets the line held for it; obor send works both ways.
 //
 // The Model: assertion needs a previous release of v0.23.0 or later (an older release's specs named a lane type):
-// an older PREV is refused before the check runs (supported).
+// a PREV below v0.23 fails the check at that assertion.
 
 // check is one run of the upgrade check.
 type check struct {

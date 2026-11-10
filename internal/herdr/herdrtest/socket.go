@@ -983,8 +983,8 @@ func (s *Server) answer(c *conn, method string, params json.RawMessage) (map[str
 		defer f.mu.Unlock()
 		return ok(map[string]any{"type": "plugin_list", "plugins": f.pluginList()}), nil
 	case "plugin.link":
-		// Previous releases' obor init links obor.events here: it stays while tests/upgrade's minPrev is below 0.33.0
-		// (the upgrade check runs a previous release's init before the guide unlinks it).
+		// The upgrade check runs a previous release's obor init, which links obor.events here before the guide
+		// unlinks it.
 		var p struct {
 			Path string `json:"path"`
 		}

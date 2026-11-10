@@ -1113,11 +1113,11 @@ func TestSetupStartWaitsForTheLaunch(t *testing.T) {
 
 // --- a config.json that fails to load -----------------------------------------------------------
 
-// unloadableConfig is a config.json of shape 1: this obor refuses it, naming the release that migrates it.
-const unloadableConfig = `{"name":"legacy","prefix":"leg","lanes":1}` + "\n"
+// unloadableConfig is a config.json this binary cannot load: valid JSON, a key of a type the config does not take.
+const unloadableConfig = `{"version":2,"project":{"agent_prefix":"pj"},"lanes":1}` + "\n"
 
-// migrateHint is the way out the load's shape-1 error names.
-const migrateHint = "obor config migrate with obor v0.33"
+// loadFail is what the load's own error names: the file and its key, where the generic text names no file.
+const loadFail = ".obor/config.json: "
 
 // noUsable is setup's today text for a project with no config.json.
 const noUsable = "FAIL no usable .obor/config.json (obor init, then obor config validate)"
@@ -1163,8 +1163,8 @@ func TestSetupRefusesAnUnloadableConfig(t *testing.T) {
 			x := bare(t)
 			x.Write(".obor/config.json", unloadableConfig)
 			out, rc := c.run(t, x)
-			if rc != 1 || !strings.Contains(last(out), migrateHint) {
-				t.Errorf("an unloadable config: exit %d, last line %q, want the load's shape-1 FAIL\n%s", rc, last(out), out)
+			if rc != 1 || !strings.Contains(last(out), loadFail) {
+				t.Errorf("an unloadable config: exit %d, last line %q, want the load's own FAIL\n%s", rc, last(out), out)
 			}
 			if strings.Contains(out, "no usable .obor/config.json") {
 				t.Errorf("the generic no-usable text for an existing config:\n%s", out)
@@ -1186,8 +1186,8 @@ func TestSetupAgentsAndMCPRefuseAnUnloadableConfig(t *testing.T) {
 	x.Write(".obor/config.json", unloadableConfig)
 	for _, args := range [][]string{{"agents"}, {"mcp"}} {
 		out, rc := x.run(t, args...)
-		if rc != 1 || !strings.Contains(last(out), migrateHint) {
-			t.Errorf("setup %v with an unloadable config: exit %d, last line %q, want the load's shape-1 FAIL\n%s",
+		if rc != 1 || !strings.Contains(last(out), loadFail) {
+			t.Errorf("setup %v with an unloadable config: exit %d, last line %q, want the load's own FAIL\n%s",
 				args, rc, last(out), out)
 		}
 	}

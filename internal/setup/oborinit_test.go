@@ -166,21 +166,20 @@ func TestDetectCommands(t *testing.T) {
 	}
 }
 
-// obor init on an existing config.json this obor cannot load (shape 1: not read) is refused with
-// the load's own error before it writes anything (it would edit the config in place): the file as it was, no init file,
-// claude not called.
+// obor init on an existing config.json this obor cannot load (a key of a type the config does not take) is refused
+// with the load's own error before it writes anything (it would edit the config in place): the file as it was, no init
+// file, claude not called.
 func TestOborInitRefusesAnUnloadableConfig(t *testing.T) {
 	t.Parallel()
 	x := newInitFx(t, true)
-	shape1 := `{"version":1,"name":"proj","prefix":"pj","lanes":0}` + "\n"
-	x.Write(".obor/config.json", shape1)
+	unloadable := `{"version":2,"project":{"agent_prefix":"pj"},"lanes":1}` + "\n"
+	x.Write(".obor/config.json", unloadable)
 	out, rc := x.run(t, "obor-init")
-	want := "/.obor/config.json: config shape 1, which this obor no longer reads: run obor config migrate with obor " +
-		"v0.33, then upgrade (docs/UPGRADE-v0.33.md lists old and new keys)"
-	if rc != 1 || !strings.HasPrefix(last(out), "FAIL ") || !strings.HasSuffix(last(out), want) {
-		t.Fatalf("exit %d, last line %q, want the load's shape-1 FAIL\n%s", rc, last(out), out)
+	want := ".obor/config.json: "
+	if rc != 1 || !strings.HasPrefix(last(out), "FAIL ") || !strings.Contains(last(out), want) {
+		t.Fatalf("exit %d, last line %q, want the load's own FAIL\n%s", rc, last(out), out)
 	}
-	if x.Read(".obor/config.json") != shape1 || x.Exists("BACKLOG.md") || x.claudeCalls() != "" {
+	if x.Read(".obor/config.json") != unloadable || x.Exists("BACKLOG.md") || x.claudeCalls() != "" {
 		t.Errorf("wrote or called claude before the FAIL:\n%s", out)
 	}
 }

@@ -15,7 +15,7 @@ import (
 // configAt puts a minimal obor config naming name at root.
 func configAt(t *testing.T, root, name string) {
 	t.Helper()
-	configBytesAt(t, root, `{"name":"`+name+`"}`+"\n")
+	configBytesAt(t, root, `{"version":2,"project":{"name":"`+name+`"}}`+"\n")
 }
 
 // configBytesAt puts config, an obor config's bytes as they are, at root.
@@ -82,24 +82,24 @@ func TestProjectsByName(t *testing.T) {
 	}
 }
 
-// the list keeps a project whose config this binary cannot load (an older or a newer shape, an
-// unparsable file): a read leaves its entry out only when its root has no .obor/config.json, or its config names
-// another project. Those stale entries stay in the file; a register of another project never drops one.
+// the list keeps a project whose config this binary cannot load (a newer shape, a broken key): a read leaves its
+// entry out only when its root has no .obor/config.json, or its config names another project. Those stale entries stay
+// in the file; a register of another project never drops one.
 func TestProjectsKeepsWhatItsEntriesName(t *testing.T) {
 	t.Parallel()
 	env := stateEnv(t)
 	dir := t.TempDir()
 	old, broken, moved, renamed, gone, kit := filepath.Join(dir, "axis-alies"), filepath.Join(dir, "obor-kit"),
 		filepath.Join(dir, "moved"), filepath.Join(dir, "renamed"), filepath.Join(dir, "gone"), filepath.Join(dir, "kit")
-	// The shape before v0.23: this binary refuses it at the load, and its name still counts.
-	configBytesAt(t, old, `{"name":"axis-alies","prefix":"ax","lane_types":{"opus":{"kind":"claude"}}}`+"\n")
+	// A key of a type the config does not take: this binary refuses it at the load, and its project.name still counts.
+	configBytesAt(t, old, `{"project":{"name":"axis-alies"},"lanes":1}`+"\n")
 	configBytesAt(t, broken, `{"name": "obor-kit",`+"\n")
 	configAt(t, moved, "moved")
 	configAt(t, renamed, "renamed")
 	configAt(t, gone, "gone")
 	configAt(t, kit, "kit")
 	if _, err := config.Load(old); err == nil {
-		t.Fatal("precondition: the pre-v0.23 config loads")
+		t.Fatal("precondition: the unloadable config loads")
 	}
 	if _, err := config.Load(broken); err == nil {
 		t.Fatal("precondition: the unparsable config loads")
@@ -187,13 +187,14 @@ func TestProjectsRegisterAtOnce(t *testing.T) {
 	}
 }
 
-// NameAt reads the name in either config shape (project.name in shape 2, name in shape 1), else the root's.
-func TestNameAtEitherShape(t *testing.T) {
+// NameAt reads project.name, else the root's base name; a name outside project (the key of a shape obor no longer
+// reads) is no name.
+func TestNameAt(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	for _, c := range []struct{ root, config, want string }{
-		{"two", `{"version":2,"project":{"name":"shape-two","agent_prefix":"st"}}`, "shape-two"},
-		{"one", `{"version":1,"name":"shape-one","prefix":"so"}`, "shape-one"},
+		{"named", `{"version":2,"project":{"name":"shape-two","agent_prefix":"st"}}`, "shape-two"},
+		{"unnamed", `{"version":2,"project":{"agent_prefix":"so"},"name":"loose"}`, "unnamed"},
 		{"none", `{"version":2,"project":{"agent_prefix":"nn"}}`, "none"},
 	} {
 		root := filepath.Join(dir, c.root)

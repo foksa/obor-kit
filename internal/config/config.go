@@ -1,6 +1,6 @@
 // Package config loads a project's effective config: .obor/local.json merged into .obor/config.json as JSON (objects
 // merge key by key; null, lists and scalars are replaced: jq's *), decoded over the defaults, then the derived keys
-// (lanes.dir, the merge scratch, claude settings). A config.json of config shape 1 is refused by the load.
+// (lanes.dir, the merge scratch, claude settings).
 package config
 
 import (
@@ -30,8 +30,8 @@ var AgentNameRE = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 var ErrNoConfig = errors.New("no config")
 
 // Data is the config file's shape, version 2 (docs/research/config-shape.md §2): ten top-level keys, nine groups by
-// what they are about and the version. Its field comments are the reference for each key. A key it does not name
-// fails the load, and so does a file of an older shape.
+// what they are about and the version. Its field comments are the reference for each key. A key it does not name is
+// dropped with a warning, or failed by obor config validate.
 type Data struct {
 	// Version is the shape of this file: 2.
 	Version *int    `json:"version,omitempty"`
@@ -49,23 +49,11 @@ type Data struct {
 	Reviews  Reviews          `json:"reviews,omitzero"`
 }
 
-// ShapeVersion is the config shape this obor reads: Data's. A file of an older version fails the load.
+// ShapeVersion is the config shape this obor reads: Data's. obor config validate fails a file that says another one.
 const ShapeVersion = 2
 
 // p is a path: one key per step.
 func p(keys ...string) []string { return keys }
-
-// ShapeOf is the shape of a config.json: its version when it is 2 or more, else 1 (a file with no version, or 1, is
-// shape 1).
-func ShapeOf(doc []byte) int {
-	var v struct {
-		Version *int `json:"version"`
-	}
-	if json.Unmarshal(doc, &v) != nil || v.Version == nil || *v.Version < ShapeVersion {
-		return 1
-	}
-	return *v.Version
-}
 
 // Project is `project`: what the project is called and what its ids look like.
 type Project struct {
@@ -452,7 +440,7 @@ func (c *Config) Rev() string { return Rev(c.json) }
 // local.json merged as JSON (merge), decoded once over the defaults, then the derived keys. A key this binary does not
 // know (the config is newer than the binary, or the key was retired) is ignored with one warning per key and process
 // on Warn, for every command, hook, reader and serve alike: only obor config validate
-// (LoadForValidate) refuses one. A config.json of shape 1 fails the load, as every other error does.
+// (LoadForValidate) refuses one.
 func Load(root string) (*Config, error) {
 	c, unknown, err := read(root)
 	for _, key := range unknown {
@@ -537,10 +525,9 @@ func LoadWith(root string, doc []byte) (*Config, error) {
 	return c, err
 }
 
-// readWith is read with doc as config.json's bytes (nil: the file's): one struct, one decode. A config.json of shape 1
-// fails it (ShapeOf): shape 1 was read and rewritten by v0.33 alone, and the way out is that release. local.json has
-// no version and no shape test: a shape-1 key in it is an unknown key like any other (WARN for readers, refused by
-// validate, decision 2026-11-09).
+// readWith is read with doc as config.json's bytes (nil: the file's): one struct, one decode. local.json has no
+// version of its own: a key it holds that this binary does not know is an unknown key like any other (WARN for
+// readers, refused by validate, decision 2026-11-09).
 func readWith(root string, doc []byte) (*Config, []string, error) {
 	names := []string{"config.json", "local.json"}
 	var files [2][]byte
@@ -564,11 +551,6 @@ func readWith(root string, doc []byte) (*Config, []string, error) {
 			return nil, nil, fmt.Errorf("obor: %s is not a JSON object", path)
 		}
 		files[i] = b
-	}
-	if ShapeOf(files[0]) < ShapeVersion {
-		return nil, nil, fmt.Errorf("obor: %s: config shape 1, which this obor no longer reads: run obor config migrate "+
-			"with obor v0.33, then upgrade (docs/UPGRADE-v0.33.md lists old and new keys)",
-			filepath.Join(root, ".obor", "config.json"))
 	}
 	merged := files[0]
 	if files[1] != nil {

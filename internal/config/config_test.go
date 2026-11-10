@@ -120,7 +120,8 @@ func TestUnknownKeyFails(t *testing.T) {
 			t.Errorf("%s: Load %v, want the key ignored", c.cfg, err)
 		}
 	}
-	// local.json has no shape of its own: a shape-1 key in it is an unknown key like any other.
+	// local.json has no version of its own: a key it holds that the config does not know is an unknown key like any
+	// other.
 	_, fails, err := LoadForValidate(writeProject(t, `{"version":2,"project":{"agent_prefix":"pj"}}`, `{"slots":{"maxx":1}}`))
 	if err != nil || len(fails) != 1 || !strings.HasPrefix(fails[0], "FAIL .slots: ") || !strings.HasSuffix(fails[0], "(.obor/local.json)") {
 		t.Errorf("local.json unknown key: %q, %v", fails, err)

@@ -95,7 +95,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
 - (11-04) `make upgrade-check` takes the catalog's newest release below VERSION as the previous one, so a second release before the first ships 404s on its download (v0.24.1 over the unpublished v0.24.0). Ran it with `PREV=0.23.1` (what the axis projects run). Fix if it recurs: default to the newest release origin has, or ship each release before tagging the next.
 - (11-03) T-765 rollout on obor-kit: the old serve could not load the merged config, so `dist/obor` was not rebuilt
   and serve stayed down ("lanes: must be an object") until the lead ran `make build`, `obor setup migrate`
-  (local.json) and `obor serve restart`. UPGRADE-v0.23 must give other projects that order.
+  (local.json) and `obor serve restart`. The upgrade guide must give other projects that order.
 - (11-03) T-766's `--after` dispatch, queued under the old serve, was placed on DeepSeek after the upgrade despite its
   `Model: opus` line (a fresh `obor dispatch` honoured it). One-time, from the Type:→Model: rename; watch for another
   queued request ignoring its spec's line.
