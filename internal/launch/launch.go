@@ -97,6 +97,9 @@ type Launcher struct {
 	// Report records a session a start found (a Codex rollout) or the session a start resumed; nil: the session
 	// request to Cfg.Root's serve.
 	Report func(ctx context.Context, s store.Session) error
+	// Started reports the confirmed start of an agent (a start's one success path, done): serve ends the agent's skew
+	// entry for it, whatever session the start reports. nil: the started request to Cfg.Root's serve.
+	Started func(ctx context.Context, agent string) error
 	// Rollout is how long a fresh start looks for its new session's transcript (default 10 s).
 	Rollout time.Duration
 	// Background runs the search for a fresh start's new session transcript after the start returned (obor serve: a

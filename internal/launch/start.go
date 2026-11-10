@@ -10,6 +10,7 @@ import (
 
 	"obor/internal/agents"
 	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"obor/internal/project"
 	"obor/internal/store"
 )
@@ -32,8 +33,9 @@ type (
 // busyStart). herdr's agent name is neither required nor renamed back (herdr drops it at times and obor
 // addresses the pane by id). A failed start is a *StartError, herdr's error printed: NoShell when the pane never
 // became its shell, NotReady with a hint when the pane shows a trust dialog or a Codex self-update, or herdr says
-// agent_not_ready. A failed env line is its own error; a failed pane label is a Fail (nothing started). A start of a
-// kind whose sessions its transcript names reports its session (done).
+// agent_not_ready. A failed env line is its own error; a failed pane label is a Fail (nothing started). A start reports
+// the confirmed start (serve ends the agent's skew entry) and, for a kind whose sessions its transcript names, its
+// session (done).
 func (l *Launcher) Start(ctx context.Context, s Start) error {
 	_, err := l.start(ctx, s)
 	return err
@@ -265,11 +267,12 @@ func (l *Launcher) busyStart(ctx context.Context, s Start, t attempt) (port.Pane
 	return a, true
 }
 
-// done is a start's success path, the one for Start and restart: a start of a kind whose sessions its transcript names
-// reports the session the agent runs (report). serve records it, and ends its line naming another release than serve's
-// for that agent: the process that runs now is this start's. A resume reports the session it resumed, a repeat serve
-// records nothing of; a fresh start searches for its own (searchRollout: the transcript its process holds open).
+// done is a start's success path, the one for Start and restart: it reports the confirmed start (serve ends the agent's
+// skew entry), then, for a start of a kind whose sessions its transcript names, the session the agent runs (report):
+// a resume reports the session it resumed, a fresh start searches for its own (searchRollout: the transcript its process
+// holds open).
 func (l *Launcher) done(ctx context.Context, s Start, a port.Pane) port.Pane {
+	l.reportStarted(ctx, s)
 	if k, ok := agents.Lookup(s.Kind); !ok || !k.Caps().Sessions {
 		return a
 	}
@@ -279,6 +282,24 @@ func (l *Launcher) done(ctx context.Context, s Start, a port.Pane) port.Pane {
 	}
 	l.searchRollout(ctx, s.Agent, s.Pane, s.Kind, s.Lane, s.Prompt != "")
 	return a
+}
+
+// reportStarted reports the confirmed start of s.Agent to serve: the process that runs now is this start's, whatever
+// session it reports (a fresh Codex start with no prompt has none before its first prompt). It is one request, not
+// retried: serve's entry it ends is serve's memory, and a serve that is not listening is no warning; any other failure
+// is one line.
+func (l *Launcher) reportStarted(ctx context.Context, s Start) {
+	var err error
+	if l.Started != nil {
+		err = l.Started(ctx, s.Agent)
+	} else if l.Cfg != nil {
+		ctx, cancel := context.WithTimeout(ctx, reportWait)
+		defer cancel()
+		err = wire.Notify(ctx, wire.SocketPath(l.Cfg.Root), wire.StartedRequest(l.Cfg.Root, s.Agent))
+	}
+	if err != nil && !wire.Absent(err) {
+		l.say("warning: start of %s not reported: %v (serve may still name its last process's release)", s.Agent, err)
+	}
 }
 
 // session is agent's current recorded session (Sessions, else serve's store).

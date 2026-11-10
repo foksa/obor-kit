@@ -64,22 +64,6 @@ type Loop struct {
 // K is how often a task is sent back before the owner decides (rule 3).
 const K = 2
 
-// startedAgents is the merge loop's Agents with the app's note of each start: a Launch that returned with the pane its
-// agent runs in started that agent (fresh or resumed), so its skew entry goes (started). A start that returned nothing
-// ("running": the integrator answers another job) or failed starts nothing.
-type startedAgents struct {
-	port.Agents
-	a *App
-}
-
-func (s startedAgents) Launch(ctx context.Context, l port.Launch) (port.Started, error) {
-	out, err := s.Agents.Launch(ctx, l)
-	if err == nil && out.Pane != "" {
-		s.a.started(l.Agent)
-	}
-	return out, err
-}
-
 // The merge loop's steps are in internal/app/event (the integrator's jobs: StepReview, StepResolve; its verdicts:
 // <method>.<call id>); these are the prefixes of its own.
 const (

@@ -437,6 +437,7 @@ func (a *App) handlers() map[string]handler {
 		wire.MethodStopped:     handle(a.stoppedCall),
 		wire.MethodTurn:        handle(a.turnCall),
 		wire.MethodSession:     handle(a.sessionCall),
+		wire.MethodStarted:     handle(a.startedCall),
 		wire.MethodExit:        handle(a.exitCall),
 		wire.MethodConfig:      handle(a.configCall),
 		wire.MethodTellLead:    handle(a.tellLeadCall),
@@ -486,9 +487,14 @@ func versionSkew(c wire.Envelope) string {
 // noteSkew writes serve's one log line for a call whose caller runs another obor: the first per (agent, version), not
 // each call. It also keeps, per agent, the version of the other release its calls carry (behind): a session request
 // clears it — a hook's, a plugin's, or a start's of the session the agent runs, a repeat of one already recorded
-// included — and so does a start serve makes itself (started). A call of serve's own release never clears it: one agent
-// calls through several processes, and the line must not flicker between them.
+// included — and so does a started request, a launcher's confirmed start (startedCall). A call of serve's own release
+// never clears it: one agent calls through several processes, and the line must not flicker between them. A started
+// request names the agent a launcher started, not a caller beside it: its reporter's release is not that agent's, so it
+// holds nothing here and logs nothing.
 func (a *App) noteSkew(method string, c wire.Envelope) {
+	if method == wire.MethodStarted {
+		return
+	}
 	if c.Agent != "" { // the owner's own CLI is not an agent: nothing to restart
 		other := version.Release(c.Version) != version.Release(version.Version)
 		a.mu.Lock()
@@ -531,6 +537,20 @@ func (a *App) started(agent string) {
 	a.mu.Lock()
 	delete(a.behind, agent)
 	a.mu.Unlock()
+}
+
+// startedCall answers the socket's started request: a launcher's start of the envelope's agent is confirmed — the process
+// that runs now is that start's, whatever session it reports (a fresh Codex start with no prompt has none yet) — so
+// serve ends the agent's skew entry. It records no session: a session is the session request's.
+func (a *App) startedCall(c wire.StartedReq) (string, error) {
+	if c.Agent == "" {
+		return "", errors.New(wire.MethodStarted + ": the agent is required")
+	}
+	if a.projAt(c.Root) == nil {
+		return "", fmt.Errorf("%s: no served project at %s", wire.MethodStarted, c.Root)
+	}
+	a.started(c.Agent)
+	return "STARTED " + c.Agent, nil
 }
 
 // skewNote is the status note for the agents in a pane whose calls carry another obor release than serve's (behind):

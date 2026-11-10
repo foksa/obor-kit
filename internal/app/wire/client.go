@@ -75,6 +75,20 @@ func Verdict(ctx context.Context, path string, r Req) (string, error) {
 	return ans.Reply, nil
 }
 
+// Notify sends the request r once to the app listening at path, its envelope stamped with this binary's version, and
+// returns its answer's error (nil: the app took it). It is not retried: a request whose effect is serve's own state in
+// memory (a started request ending an agent's skew entry) recovers nothing from a serve that is not there, and starts
+// run on the caller's clock. Absent: no app listens at path.
+func Notify(ctx context.Context, path string, r Req) error {
+	r.Env().Version = version.Version
+	b, err := json.Marshal(r)
+	if err != nil {
+		return fmt.Errorf("%s: %v", r.Method(), err)
+	}
+	_, err = askOnce(ctx, path, Request{Method: r.Method(), Call: b})
+	return err
+}
+
 // The deadlines of the socket's callers, the one table: a call is retried inside its own deadline, so a serve
 // restart that ends before it loses nothing. The hooks' are under their timeouts (10 s and 15 s); status has none: a
 // read fails at once. OBOR_CALL_DEADLINE, in seconds (fractions allowed: 0.2), is every method's deadline when set: a

@@ -68,6 +68,10 @@ var goldenRequests = []requestLine{
 	{&SessionReq{Envelope: env, Session: &store.Session{Agent: "ag", Kind: "claude", ID: "s1", Transcript: "/t",
 		Pane: "p1", Lane: "L-01", Task: "T-1", Started: 7, Source: "startup"}},
 		`{"method":"session","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","session_fact":{"agent":"ag","kind":"claude","id":"s1","transcript":"/t","pane":"p1","lane":"L-01","task":"T-1","started":7,"source":"startup"}}}`, []droppedKey{dropTask}},
+	// started is a method this release's serve answers: no older line carries it, so its row is the union's line, the
+	// envelope and no field of its own.
+	{&StartedReq{Envelope: env},
+		`{"method":"started","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":""}}`, []droppedKey{dropTask}},
 	{&SpecSetReq{Envelope: env, Task: "T-1", Changed: "changed", Spec: "# T-1"},
 		`{"method":"spec_set","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"T-1","note":"changed","spec":"# T-1"}}`, nil},
 	{&ConfigSetReq{Envelope: env, Changes: []ConfigChange{{Key: "k", Value: json.RawMessage(`{"a":1}`)}}, Base: "r1",
@@ -238,7 +242,8 @@ func TestRequestLinesDropOnlyUnreadKeys(t *testing.T) {
 	}
 	// Every method of the socket but status (no call) has its row.
 	for _, m := range []string{MethodAccept, MethodSendback, MethodReject, MethodResolved, MethodHold, MethodDrop,
-		MethodResume, MethodDispatch, MethodWatch, MethodPause, MethodReview, MethodSession, MethodSpecSet, MethodConfig,
+		MethodResume, MethodDispatch, MethodWatch, MethodPause, MethodReview, MethodSession, MethodStarted, MethodSpecSet,
+		MethodConfig,
 		MethodBackup, MethodSend, MethodBrief, MethodStopped, MethodTurn, MethodRestartJob, MethodExit, MethodDrive,
 		MethodLand, MethodTellLead, MethodIdle, MethodReviewClose, MethodEvents, MethodJobNext, MethodTaskDone} {
 		if !methods[m] {
