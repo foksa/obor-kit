@@ -39,7 +39,7 @@ func restartStub(t *testing.T, p *testkit.Project) (home, bin, log string) {
 }
 
 // serveStatusAfter binds root's app socket after d and answers one status request, then leaves: the serve of a restart,
-// which replays its log before it binds (T-659).
+// which replays its log before it binds.
 func serveStatusAfter(t *testing.T, root string, d time.Duration) {
 	t.Helper()
 	sock := wire.SocketPath(root)
@@ -73,8 +73,8 @@ func serveStatusAfter(t *testing.T, root string, d time.Duration) {
 	})
 }
 
-// T-862: restart returns once the new serve answers, not when launchd has started it: a big replay binds its socket
-// after that (T-659). Here the old socket is gone and the new one answers 1.5 s in.
+// restart returns once the new serve answers, not when launchd has started it: a big replay binds its socket
+// after that. Here the first serve's socket answers nothing and the new one answers 1.5 s in.
 func TestServeRestartWaitsForServe(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("launchd: darwin only")
@@ -102,7 +102,7 @@ func TestServeRestartWaitsForServe(t *testing.T) {
 	}
 }
 
-// T-862: a serve that never answers fails after the wait (shortened here), naming the deadline and where to look, and
+// a serve that never answers fails after the wait (shortened here), naming the deadline and where to look, and
 // prints no line as if the restart had succeeded.
 func TestServeRestartServeNeverAnswers(t *testing.T) {
 	if runtime.GOOS != "darwin" {
@@ -127,7 +127,7 @@ func TestServeRestartServeNeverAnswers(t *testing.T) {
 	}
 }
 
-// serveRestarter (T-656, T-719): launchd's own serve ends as a signal ends it (launchd starts the new build), never by
+// serveRestarter: launchd's own serve ends as a signal ends it (launchd starts the new build), never by
 // kickstart; any other serve (launchd's agent not installed, or another process: this one runs in a pane) ends and is
 // marked to exec the kit's shim; a kit without its shim is an error, nothing ended.
 func TestServeRestarter(t *testing.T) {
@@ -225,7 +225,7 @@ func kitEnv(t *testing.T, shim bool) project.Env {
 	})
 }
 
-// DD-consolidation I7: setup's Installed is the plist of the project's serve LaunchAgent under HOME, there or not.
+// setup's Installed is the plist of the project's serve LaunchAgent under HOME, there or not.
 func TestServeInstalledIsThePlistOfTheConfigName(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)

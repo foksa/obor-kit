@@ -10,7 +10,7 @@ import (
 	"obor/internal/project"
 )
 
-// mcpCmd is `obor mcp [--check]`: the stdio MCP server of the job tools (internal/mcp; T-375).
+// mcpCmd is `obor mcp [--check]`: the stdio MCP server of the job tools (internal/mcp).
 // Its stdout is the protocol, so it writes there directly, never through out's buffer. --check runs initialize and
 // tools/list against the server itself and prints one line, the doctor's.
 func mcpCmd(args []string) int {

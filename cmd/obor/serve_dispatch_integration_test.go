@@ -10,9 +10,9 @@ import (
 	"obor/internal/testkit"
 )
 
-// specs: Check wants a task id and a stored spec (T-440: the text the app read from the store, "" none; a spec in
-// git counts for nothing; T-496: a files section is no longer needed). The target is the workflow's (T-1029: the
-// contract table, testkit.WorkflowContract).
+// specs: Check wants a task id and a stored spec (the text the app read from the store, "" none; a spec in git
+// counts for nothing; no files section is needed). The target is the workflow's (the contract table,
+// testkit.WorkflowContract).
 func TestSpecs(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
@@ -51,8 +51,8 @@ func TestSpecs(t *testing.T) {
 
 }
 
-// T-425, T-1023: the dispatch target is branches.main's sha whatever the main checkout has checked out (another
-// branch, a detached HEAD); the merge loop no longer pauses off it (no Checkout).
+// the dispatch target is branches.main's sha whatever the main checkout has checked out (another
+// branch, a detached HEAD); the merge loop does not pause off it (no Checkout).
 func TestDispatchTargetOffBranch(t *testing.T) {
 	t.Parallel()
 	p := servedGitProject(t)

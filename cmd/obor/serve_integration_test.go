@@ -21,10 +21,10 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-522: obor serve serves the project it runs in: its socket is <root>/.obor/state/serve.sock and its lock the
+// obor serve serves the project it runs in: its socket is <root>/.obor/state/serve.sock and its lock the
 // project's serve.flock. A CLI in a lane worktree reaches it (obor status: serve's agent of the lane, from the fake
 // herdr); a second serve of the project is refused by the lock, also from a lane; serve outside an obor project fails;
-// on TERM the lock and the socket are gone.
+// on TERM the lock and the socket are released.
 func TestServeBinary(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
@@ -72,12 +72,12 @@ func TestServeBinary(t *testing.T) {
 	if !strings.Contains(out.String(), "herdr: fake protocol "+strconv.Itoa(herdr.Protocol)+"\n") {
 		t.Errorf("serve did not report its herdr snapshot before running:\n%s", out.String())
 	}
-	// T-646: serve registers the project it serves in the machine's list of obor projects by name.
+	// serve registers the project it serves in the machine's list of obor projects by name.
 	if b, err := os.ReadFile(filepath.Join(home, "projects.json")); err != nil ||
 		!strings.Contains(string(b), `"proj": "`+p.Root+`"`) {
 		t.Errorf("the machine's project list: %v, %q; want proj at the served root", err, b)
 	}
-	// T-864: obor status --all is gone (T-522: a serve holds one project): a usage error.
+	// obor status --all is no flag (a serve holds one project): a usage error.
 	if rc, _, stderr := run(t, p.Root, env, "status", "--all", "--facts"); rc != 2 ||
 		!strings.Contains(stderr, "usage: obor status") {
 		t.Errorf("obor status --all --facts: exit %d, %q; want 2 and the usage", rc, stderr)
@@ -87,7 +87,7 @@ func TestServeBinary(t *testing.T) {
 		!strings.Contains(stdout, "agent: pj-l-01 (working)") {
 		t.Errorf("obor status --facts: exit %d, %q, %q; want the project's status", rc, stdout, stderr)
 	}
-	// T-774: obor serve status is gone; obor status --facts replaces it
+	// obor serve status is no subcommand; obor status --facts takes its place
 	if rc, _, stderr := run(t, p.Root, env, "serve", "status"); rc != 2 || !strings.Contains(stderr, "usage: obor serve") {
 		t.Errorf("obor serve status: exit %d, %q; want 2 and the usage", rc, stderr)
 	}
@@ -123,12 +123,12 @@ func TestServeBinary(t *testing.T) {
 	if rc, stdout, _ := run(t, lane, env, "status"); rc != 0 || !strings.Contains(stdout, "serve: down") {
 		t.Errorf("obor status after TERM: exit %d, %q; want serve down", rc, stdout)
 	}
-	if rc, _, _ := run(t, p.Root, env, "has", "serve", "status"); rc != 1 { // T-774: the alias is gone
+	if rc, _, _ := run(t, p.Root, env, "has", "serve", "status"); rc != 1 { // no such subcommand
 		t.Errorf("obor has serve status: exit %d, want 1", rc)
 	}
 }
 
-// T-377: a config key this binary does not know (the config is newer than the running serve) does not stop serve:
+// a config key this binary does not know (the config is newer than the running serve) does not stop serve:
 // it loads the project, reads its lanes, warns once for the key however many times the config is read, while
 // `obor config validate` still refuses it.
 func TestServeToleratesUnknownConfigKey(t *testing.T) {
@@ -151,7 +151,7 @@ func TestServeToleratesUnknownConfigKey(t *testing.T) {
 	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
 		ss, err := wire.Ask(context.Background(), wire.SocketPath(p.Root))
 		if err == nil && ss.Project != nil && len(ss.Project.Agents) == 1 &&
-			ss.Project.Agents[0].Name == "pj-l-01" && ss.Project.Agents[0].Lane == "L-01" { // T-1012: a lane serve never dispatched holds no task
+			ss.Project.Agents[0].Name == "pj-l-01" && ss.Project.Agents[0].Lane == "L-01" { // a lane serve never dispatched holds no task
 			break
 		}
 		if time.Now().After(deadline) {
@@ -167,7 +167,7 @@ func TestServeToleratesUnknownConfigKey(t *testing.T) {
 	}
 }
 
-// T-1076: the promotion is deleted; a config that still sets its keys (branches.promote, merge.promote_weight,
+// the promotion has no code; a config that still sets its keys (branches.promote, merge.promote_weight,
 // merge.weights) is a config with unknown keys: serve warns once per key and its loop runs on (it lists the lane), no
 // error; the merge loop builds its workflow from it.
 func TestServeRunsWithARemovedPromotionKey(t *testing.T) {
@@ -204,7 +204,7 @@ func TestServeRunsWithARemovedPromotionKey(t *testing.T) {
 	}
 	_ = cmd.Process.Signal(syscall.SIGTERM)
 	_ = cmd.Wait()
-	// branches.promote is warned of as branches: shape 1's branches, left with promote alone (T-1124)
+	// branches.promote is warned of as branches: shape 1's branches, left with promote alone
 	for _, k := range []string{"branches", keys[1], keys[2]} {
 		if n := strings.Count(out.String(), `unknown key "`+k+`" ignored`); n != 1 {
 			t.Errorf("warnings for %s: %d, want 1:\n%s", k, n, out.String())
@@ -212,7 +212,7 @@ func TestServeRunsWithARemovedPromotionKey(t *testing.T) {
 	}
 }
 
-// T-781: serve's merge loop (mergeLoop, built on every pass) has its nightly from merge.nightly_at as the config is
+// serve's merge loop (mergeLoop, built on every pass) has its nightly from merge.nightly_at as the config is
 // now: on and off, committed by serve's config writer (config_set's), count from the next build, no restart.
 func TestMergeLoopNightlyFollowsTheConfig(t *testing.T) {
 	t.Parallel()

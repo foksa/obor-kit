@@ -16,7 +16,7 @@ import (
 	"obor/internal/store"
 )
 
-// eventsCmd is `obor events [--follow] [--after <seq>] [--json]` (T-1039): the project's event log after the cursor
+// eventsCmd is `obor events [--follow] [--after <seq>] [--json]`: the project's event log after the cursor
 // <seq> (0: from the first record), one line per record in seq order, each carrying its seq so an integration keeps
 // its own cursor. --json prints each as a JSON line (wire.FeedRecord: the record and its task's spec Ref:); else "<seq>
 // <ts> <task> <kind> <step>[ ref <ref>][ — <line>]". Serve up: its feed (wire.Feed); serve down: the store, the same

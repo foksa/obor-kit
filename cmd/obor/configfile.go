@@ -11,7 +11,7 @@ import (
 	"obor/internal/project"
 )
 
-// configFile is app.ConfigFile on the project's main checkout (T-753): .obor/config.json and git -C <root>.
+// configFile is app.ConfigFile on the project's main checkout: .obor/config.json and git -C <root>.
 type configFile struct{ root, main string }
 
 var _ app.ConfigFile = configFile{}

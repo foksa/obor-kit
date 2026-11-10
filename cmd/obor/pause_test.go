@@ -9,9 +9,9 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-465: obor pause [--for <dur>] "<why>" | --clear is one pause request to obor serve as the caller (the lead, the
+// obor pause [--for <dur>] "<why>" | --clear is one pause request to obor serve as the caller (the lead, the
 // owner with no role), serve's reply printed; a usage error or a bad duration sends nothing and writes no file; those,
-// serve down or its refusal are FAIL on stdout, exit 1 (T-520).
+// serve down or its refusal are FAIL on stdout, exit 1.
 func TestPauseRequest(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)

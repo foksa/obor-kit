@@ -60,7 +60,7 @@ func gitRun(t *testing.T, dir string, env []string, args ...string) (int, string
 	return 0, errOut.String()
 }
 
-// T-999: the githooks' contract is the real binary's, not the stubs' (internal/setup stubs whoami; TestWhoamiCanPush asks
+// the githooks' contract is the real binary's, not the stubs' (internal/setup stubs whoami; TestWhoamiCanPush asks
 // the classifier directly). This runs the kit's hooks over real git against the binary TestMain builds: a worker's lane
 // commit is refused with the lane line, a push is refused for a role not in rules.may_push and allowed for one in
 // it.

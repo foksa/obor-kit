@@ -30,7 +30,7 @@ const hookTimeoutEnv = "OBOR_HOOK_TIMEOUT=1"
 const hookTimeout = time.Second
 
 // The plugin wiring: the JSON manifests, hooks/hooks.json, `claude plugin validate`, and the five hooks run as
-// `bin/obor hook <name>` without a usable Go binary (T-195, RV-22 #1, T-201). What the hooks do is the Go binary's
+// `bin/obor hook <name>` without a usable Go binary. What the hooks do is the Go binary's
 // `obor hook <name>` (internal/guard). These tests start plain processes (no process groups), so they
 // run inside a Codex sandbox too; every run is bounded by a context timeout.
 
@@ -120,8 +120,8 @@ func TestPluginManifests(t *testing.T) {
 	if v := strings.TrimSpace(string(want)); v == "" || plugin.Name != "obor" || plugin.Version != v {
 		t.Errorf("plugin.json: name %q version %q; want obor and VERSION %q", plugin.Name, plugin.Version, v)
 	}
-	// T-592: what the marketplace lists is a manifest invariant; its dev/release name is the release's own concern,
-	// tested in tests/release (T-902).
+	// what the marketplace lists is a manifest invariant; its dev/release name is the release's own concern,
+	// tested in tests/release.
 	if len(market.Plugins) == 0 || market.Plugins[0].Name != "obor" || market.Plugins[0].Source != "./" {
 		t.Errorf("marketplace.json: %+v; want it listing obor with source ./", market)
 	}
@@ -137,11 +137,11 @@ func bashParseError(t *testing.T, path string) string {
 	return fmt.Sprintf("exit %d: %s", rc, stderr)
 }
 
-// The bash files the kit ships (bin/obor and the git hooks) parse: since T-281 no code merge runs them, so an
-// unreached syntax error would merge green (RV-31 #5).
+// The bash files the kit ships (bin/obor and the git hooks) parse: no code merge runs them, so an
+// unreached syntax error would merge green.
 func TestScriptsParse(t *testing.T) {
 	root := checkoutRoot(t)
-	// githooks/ holds the runner and the two rules, githooks/chain/ every other hook (T-623): all of them parse.
+	// githooks/ holds the runner and the two rules, githooks/chain/ every other hook: all of them parse.
 	var hooks []string
 	for _, glob := range []string{"githooks/*", "githooks/chain/*"} {
 		files, err := filepath.Glob(filepath.Join(root, glob))
@@ -199,7 +199,7 @@ func TestHooksJSONWiring(t *testing.T) {
 			t.Errorf("%s: matcher %q type %q timeout %d; want %q command %d", w.event, e.Matcher, hk.Type, hk.Timeout,
 				w.matcher, w.timeout)
 		}
-		// T-221: the shim, never self-hosted into the cwd's checkout, running a hook the binary has.
+		// the shim, never self-hosted into the cwd's checkout, running a hook the binary has.
 		if hk.Command != prefix+w.hook {
 			t.Errorf("%s: command %q, want %q", w.event, hk.Command, prefix+w.hook)
 		}
@@ -210,7 +210,7 @@ func TestHooksJSONWiring(t *testing.T) {
 	if entries, _ := os.ReadDir(filepath.Join(root, "hooks")); len(entries) != 1 || entries[0].Name() != "hooks.json" {
 		t.Errorf("hooks/ holds %v, want only hooks.json", entries)
 	}
-	// T-466: the obor mod is gone; the plugin loads no hooks module.
+	// the plugin loads no hooks module.
 	if len(h.Modules) != 0 {
 		t.Errorf("modules %v, want none (the obor mod went in T-466)", h.Modules)
 	}
@@ -218,7 +218,7 @@ func TestHooksJSONWiring(t *testing.T) {
 
 // `claude plugin validate`, the tool's behaviour, is conformance CC-S3 (tests/conformance/static.go).
 
-// --- hooks without a usable Go binary (T-195, RV-22 #1, T-201) -------------------------------------------------------
+// --- hooks without a usable Go binary -------------------------------------------------------
 
 // noBinKit is a copy of this kit (bin/, VERSION) with no dist/obor, inside an obor project with lane L-01, and an empty
 // HOME (no installed release).
@@ -271,10 +271,10 @@ func (k *noBinKit) release(t *testing.T) string {
 		strings.TrimSpace(k.p.Read("kit/VERSION")), runtime.GOOS, runtime.GOARCH))
 }
 
-// stub writes a Go binary stand-in to path that logs its args to <Base>/stub.log. stale: built before `has` (knows only
-// hook noop; anything else → usage, exit 2: the dist/obor of the T-193 outage); no: `has` exits 1; deny: `has` → 0, else
+// stub writes a Go binary stand-in to path that logs its args to <Base>/stub.log. stale: a binary without `has` (knows
+// only hook noop; anything else → usage, exit 2, as a stale dist/obor does); no: `has` exits 1; deny: `has` → 0, else
 // "obor: go stub" on stderr, exit 2 (the Go guard); good: `has` → 0, else "go stub", exit 0; hang: `has` never returns
-// (its pid in <Base>/stub.pids, then exec sleep: no child, RV-22 #1, T-279).
+// (its pid in <Base>/stub.pids, then exec sleep: no child).
 func (k *noBinKit) stub(t *testing.T, path, kind string) {
 	t.Helper()
 	body := map[string]string{
@@ -302,7 +302,7 @@ func (k *noBinKit) stubLog() string {
 	return strings.TrimSpace(k.p.Read(filepath.Join(k.p.Base, "stub.log")))
 }
 
-// reaped: the hanging stub (its pid in stub.pids) is gone within 2 s; if left over it is killed.
+// reaped: the hanging stub (its pid in stub.pids) is reaped within 2 s; if left over it is killed.
 func (k *noBinKit) reaped(t *testing.T) {
 	t.Helper()
 	pid, err := strconv.Atoi(strings.TrimSpace(k.p.Read(filepath.Join(k.p.Base, "stub.pids"))))
@@ -384,7 +384,7 @@ func (k *noBinKit) runs(t *testing.T, hook, event, what string) {
 	}
 }
 
-// bash plugin.test.sh case_hooks_pin_no_self_host (T-221): the hooks are kit-owned callers: whatever obor they run must
+// bash plugin.test.sh case_hooks_pin_no_self_host: the hooks are kit-owned callers: whatever obor they run must
 // not self-host into the cwd's checkout. Each hooks.json command, run as Claude Code runs it (sh -c,
 // CLAUDE_PLUGIN_ROOT = the kit) from a lane whose main checkout is an obor checkout with a broken bin/obor, reaches the
 // kit's binary, which sees OBOR_NO_SELF_HOST=1.

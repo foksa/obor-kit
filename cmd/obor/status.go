@@ -28,7 +28,7 @@ import (
 
 // status is `obor status [--facts] [--json] [--short]`. Serve down is a line, never a non-zero exit: the lanes are read
 // from the store alone. --facts adds the facts in force; --short prints only the serve line, the running line and
-// needs-you (T-657). --all went with T-864 (T-522: a serve holds one project, this one).
+// needs-you. --all is no flag (a serve holds one project, this one).
 func status(args []string) int {
 	asJSON, facts, short := false, false, false
 	for _, a := range args {
@@ -132,7 +132,7 @@ func statusSections(st view.Project, now time.Time) [][]string {
 // serveSection is the project's notes, then serve's line with the running line and the pending line under it.
 func serveSection(st view.Project, now time.Time) []string {
 	var b strings.Builder
-	for _, n := range st.Notes { // the project's own lines first (T-709): an unknown config key, a stopped project
+	for _, n := range st.Notes { // the project's own lines first: an unknown config key, a stopped project
 		fmt.Fprintln(&b, n)
 	}
 	writeServe(&b, st.Serve, now)
@@ -158,7 +158,7 @@ func laneSection(st view.Project, now time.Time) []string {
 		t := st.Tasks[id]
 		// serve's open tasks alone; a waiting one is the queue's
 		if !shown[id] && t.Open && t.TaskState != "waiting" {
-			state := "" // serve's state when it says more than the phase (T-788)
+			state := "" // serve's state when it says more than the phase
 			if t.TaskState != t.Phase {
 				state = t.TaskState + ", "
 			}
@@ -173,14 +173,14 @@ func laneSection(st view.Project, now time.Time) []string {
 		}
 	}
 	for _, r := range st.Roles {
-		if r.Status == view.RoleStopped { // serve or the lead stopped it: its next use starts it fresh (T-672, T-677)
+		if r.Status == view.RoleStopped { // serve or the lead stopped it: its next use starts it fresh
 			fmt.Fprintf(&b, "agent %s: stopped\n", r.Agent)
 		}
 	}
 	return textLines(b.String())
 }
 
-// writeBackground is one line per long-running process of an agent, under its line (T-714, T-727): `  bg:
+// writeBackground is one line per long-running process of an agent, under its line: `  bg:
 // <description or command> · 15m` for a recorded background call, `  running <command> · 15m` for another.
 func writeBackground(w io.Writer, bs []view.Background) {
 	for _, bg := range bs {
@@ -188,9 +188,9 @@ func writeBackground(w io.Writer, bs []view.Background) {
 	}
 }
 
-// laneLine is l's line: its lane, the model its dispatch runs ("-": none), branch, the state column (T-657), the task's
-// age and id, then serve's state of t (the task serve has on l, Project.TaskOn), the effort its dispatch named (T-695),
-// a dirty or warned worktree and the agent; a keep lane says so, with its queue (T-1031).
+// laneLine is l's line: its lane, the model its dispatch runs ("-": none), branch, the state column, the task's
+// age and id, then serve's state of t (the task serve has on l, Project.TaskOn), the effort its dispatch named,
+// a dirty or warned worktree and the agent; a keep lane says so, with its queue.
 func laneLine(l view.Lane, t view.Task) string {
 	ago := "-"
 	if l.DoneAge != nil {
@@ -249,16 +249,16 @@ func fullCheckSection(st view.Project, now time.Time) []string {
 		app.Age(max(now.Sub(time.Unix(fc.At, 0)), 0)), fc.Summary)}
 }
 
-// queueSection is what waits (T-664), one line per item, in the order of urgency: a merge open in serve's worktree
-// (T-669: a gate or publish there is on the running line), the merge loop's tasks in its order with their stage and
-// what each waits for, where serve's scheduler knows of one (T-673: it names no task as next), the dispatches waiting
-// and on what (--after tasks, a lane of their level, a spec never dispatched; a high one before the ordinary ones,
-// T-1030), the review request (or "review due"), the lead's watches, the lines not typed yet and the briefs in
+// queueSection is what waits, one line per item, in the order of urgency: a merge open in serve's worktree
+// (a gate or publish there is on the running line), the merge loop's tasks in its order with their stage and
+// what each waits for, where serve's scheduler knows of one (it names no task as next), the dispatches waiting
+// and on what (--after tasks, a lane of their level, a spec never dispatched; a high one before the ordinary ones),
+// the review request (or "review due"), the lead's watches, the lines not typed yet and the briefs in
 // progress, the pause and the next nightly check (or that it is off).
 func queueSection(st view.Project, now time.Time) []string {
 	var out []string
 	q := st.Queue
-	if i := st.Idle; i != nil { // the pipeline is empty (T-803): acknowledged, or still waiting for the lead's word
+	if i := st.Idle; i != nil { // the pipeline is empty: acknowledged, or still waiting for the lead's word
 		if i.Acked {
 			out = append(out, "idle: "+i.Why)
 		} else {
@@ -291,7 +291,7 @@ func queueSection(st view.Project, now time.Time) []string {
 		age := app.Age(max(now.Sub(time.Unix(o.Since, 0)), 0))
 		if o.Kind == view.OutLine {
 			wait := ""
-			if o.Held != "" { // why serve holds it (T-746; C7: "held" is the integrator's verdict alone)
+			if o.Held != "" { // why serve holds it (C7: "held" is the integrator's verdict alone)
 				wait = "; undelivered: " + o.Held
 			}
 			out = append(out, fmt.Sprintf("undelivered to %s (from %s, %s%s): %s", o.To, app.Dash(o.From), age, wait,
@@ -310,19 +310,19 @@ func queueSection(st view.Project, now time.Time) []string {
 	if q.Pause != nil {
 		out = append(out, strings.TrimSuffix(pauseLine(q.Pause), "\n"))
 	}
-	for _, m := range slices.Sorted(maps.Keys(st.ModelPauses)) { // a paused model, beside the project's pause (T-979)
+	for _, m := range slices.Sorted(maps.Keys(st.ModelPauses)) { // a paused model, beside the project's pause
 		out = append(out, modelPauseLine(m, st.ModelPauses[m]))
 	}
 	if n := q.Nightly; n != nil {
 		out = append(out, fmt.Sprintf("nightly check at %s (in %s)", n.At, app.Age(time.Unix(n.Next, 0).Sub(now))))
 	} else {
-		out = append(out, "nightly: off (obor nightly on HH:MM)") // merge.nightly_at unset (T-781)
+		out = append(out, "nightly: off (obor nightly on HH:MM)") // merge.nightly_at unset
 	}
 	return out
 }
 
-// mergeLine is a merge-loop task's queue line (t: its task): its lane, its phase (T-788: the lane line's; serve's
-// state when it says more), what it waits for and why (serve's scheduler, T-669; no task is named next, T-673), an
+// mergeLine is a merge-loop task's queue line (t: its task): its lane, its phase (the lane line's; serve's state
+// when it says more), what it waits for and why (serve's scheduler; no task is named next), an
 // integrator job out (its review stage's) and whether it was fetched.
 func mergeLine(m view.MergeItem, t view.Task) string {
 	line := "merge " + m.Task
@@ -347,8 +347,8 @@ func mergeLine(m view.MergeItem, t view.Task) string {
 }
 
 // runsOn is a queued line's " (<difficulty>, <model>)": the waiting task's Difficulty and the model it will run on
-// (T-977; serve's, either "" left out; "": serve sent neither), "high" first when its dispatch goes first for the next
-// free lane (T-1030).
+// (serve's, either "" left out; "": serve sent neither), "high" first when its dispatch goes first for the next
+// free lane.
 func runsOn(w view.WaitItem) string {
 	var parts []string
 	if w.High {
@@ -366,7 +366,7 @@ func runsOn(w view.WaitItem) string {
 }
 
 // waitLine is a waiting dispatch's queue line after "queued <T-xx>: ": its --after tasks and its last refusal, the lane
-// it waits for (its level and models; the reason when it is not a free lane: "opus paused: …", T-765), or its spec
+// it waits for (its level and models; the reason when it is not a free lane: "opus paused: …"), or its spec
 // stored and never dispatched (t: its task, with the spec's rev and title).
 func waitLine(w view.WaitItem, t view.Task, now time.Time) string {
 	switch w.WaitsOn {
@@ -383,7 +383,7 @@ func waitLine(w view.WaitItem, t view.Task, now time.Time) string {
 		}
 		return line
 	}
-	if w.Queue != "" { // T-1031: queued on a keep lane: "behind <task> on keep lane <lane>"
+	if w.Queue != "" { // queued on a keep lane: "behind <task> on keep lane <lane>"
 		return cmp.Or(w.Why, "waiting for keep lane "+w.Queue)
 	}
 	if w.Level == "" {
@@ -405,7 +405,7 @@ func pauseLine(p *view.Pause) string {
 	return fmt.Sprintf("paused: %s, until %s (obor pause --clear ends it; no dispatch meanwhile)\n", p.Reason, until)
 }
 
-// modelPauseLine is a model's pause in force as the queue section words it (T-979): "paused sonnet until 18:00 (quota)".
+// modelPauseLine is a model's pause in force as the queue section words it: "paused sonnet until 18:00 (quota)".
 func modelPauseLine(model string, p *view.Pause) string {
 	until := "cleared"
 	if p.Until != nil {
@@ -439,8 +439,8 @@ func writeLines(w io.Writer, s []string) {
 	}
 }
 
-// writeStatusShort is `obor status --short` (T-657): serve's line, the running line (and the pending line under it,
-// T-662) and each needs-you, nothing else (a status bar or a quick glance). It is the head of writeStatus' text, so
+// writeStatusShort is `obor status --short`: serve's line, the running line (and the pending line under it) and
+// each needs-you, nothing else (a status bar or a quick glance). It is the head of writeStatus' text, so
 // both read the same.
 func writeStatusShort(w io.Writer, st view.Project, now time.Time) {
 	writeServe(w, st.Serve, now)
@@ -489,9 +489,9 @@ func writeServe(w io.Writer, s view.Serve, now time.Time) {
 	}
 }
 
-// writeRunning is the running line right under serve's (T-657): what serve does without an agent, each step with the
+// writeRunning is the running line right under serve's: what serve does without an agent, each step with the
 // command it runs and its elapsed time (`running: gate T-656 (make -s check, 2m14s) · after_merge T-655 (make build,
-// 12s)`), or `running: nothing`. A pending self-restart reads "restarting serve" (T-972: it goes at the first idle
+// 12s)`), or `running: nothing`. A pending self-restart reads "restarting serve" (it goes at the first idle
 // pass, waiting however long); a step without a command (publish, a gate of git alone) its elapsed time only.
 func writeRunning(w io.Writer, st view.Project, now time.Time) {
 	if len(st.Running) == 0 {
@@ -516,7 +516,7 @@ func writeRunning(w io.Writer, st view.Project, now time.Time) {
 	fmt.Fprintln(w, "running: "+strings.Join(items, " · "))
 }
 
-// writePending is the pending line under the running one (T-662): the merge loop's command steps whose intent has no
+// writePending is the pending line under the running one: the merge loop's command steps whose intent has no
 // result and whose effect does not run now (`pending: after_merge T-655 (failed 3m ago: <err>) · gate T-656 (queued)`),
 // nothing when none waits. A step that failed names its last failure's age and reason (its first line, short: the
 // needs-you or the log has the rest); one that never failed reads "queued": the next pass or a replay runs it.

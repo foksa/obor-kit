@@ -97,7 +97,7 @@ func sleepFx(t *testing.T) (p *testkit.Project, s *sleeper, out *bytes.Buffer, s
 	}
 	f = &sleepServe{root: p.Root, up: true}
 	// Wait is the serve wait a stop may sit out: 100ms, the loop's own poll (sleep.go's stopServe), long enough for a
-	// test that must see the deadline pass and short enough not to (T-1025: it was 300ms).
+	// test that must see the deadline pass and short enough not to (300ms raced the deadline).
 	s = &sleeper{Cfg: cfg, Env: env, Cwd: p.Root, Out: out, Why: "obor stop", Wait: 100 * time.Millisecond,
 		H: &herdr.Socket{Path: herdrtest.Serve(t, p.Herdr()).Path}, Ask: f.ask, Call: f.call,
 		Stop: func(_ context.Context, agent, pane string, force bool) (string, error) {
@@ -131,7 +131,7 @@ func pausedThenCleared(t *testing.T, f *sleepServe, out *bytes.Buffer) {
 }
 
 // launchdServe makes serve launchd's (darwin; the fake launchctl answers pid 4242) or, with pid not 4242, one in a pane:
-// its plist installed and loaded, serve.flock naming pid (not held: the process is gone once asked).
+// its plist installed and loaded, serve.flock naming pid (not held: the process exits once asked).
 func launchdServe(t *testing.T, s *sleeper, state string, pid string) service.Service {
 	t.Helper()
 	svc := serviceOf(s.Cfg, s.Env)
@@ -155,7 +155,7 @@ func launchdServe(t *testing.T, s *sleeper, state string, pid string) service.Se
 	return svc
 }
 
-// T-710 (RV-84 #1, #2): obor stop from a worker lane's cwd is refused before anything is asked or sent — with no
+// obor stop from a worker lane's cwd is refused before anything is asked or sent — with no
 // OBOR_ROLE (the owner's identity otherwise) and with OBOR_ROLE=lead (the cwd wins) — and so is OBOR_ROLE=worker in
 // the main checkout.
 func TestStopRefusedFromAWorker(t *testing.T) {
@@ -183,7 +183,7 @@ func TestStopRefusedFromAWorker(t *testing.T) {
 	}
 }
 
-// T-710 (RV-84 #3): serve down, obor stop refuses (start serve first) and does nothing: no offline guess at the tasks.
+// serve down, obor stop refuses (start serve first) and does nothing: no offline guess at the tasks.
 func TestStopRefusedWhileServeIsDown(t *testing.T) {
 	t.Parallel()
 	p, s, out, stops, f := sleepFx(t)
@@ -198,7 +198,7 @@ func TestStopRefusedWhileServeIsDown(t *testing.T) {
 	nothingDone(t, p, s, *stops, f)
 }
 
-// T-710, T-867: a waiting dispatch (no lane) refuses obor stop after its pause, which it clears, and names that
+// a waiting dispatch (no lane) refuses obor stop after its pause, which it clears, and names that
 // --force keeps the task open; a merged task is not open.
 func TestStopRefusesATaskInProgress(t *testing.T) {
 	t.Parallel()
@@ -217,7 +217,7 @@ func TestStopRefusesATaskInProgress(t *testing.T) {
 	nothingDone(t, p, s, *stops, f)
 }
 
-// statusTasks decodes a status answer's tasks as an older serve writes it: the JSON names no ended field (T-921).
+// statusTasks decodes a status answer's tasks as an older serve writes it: the JSON names no ended field.
 func statusTasks(t *testing.T, body string) []wire.TaskStatus {
 	t.Helper()
 	var st wire.Status
@@ -230,7 +230,7 @@ func statusTasks(t *testing.T, body string) []wire.TaskStatus {
 	return st.Project.Tasks
 }
 
-// T-921 (RV-124 #1): an older serve's status names no task's ended field; absent reads as not ended, so obor stop
+// an older serve's status names no task's ended field; absent reads as not ended, so obor stop
 // refuses and names the task instead of stopping the agents and serve with it in flight. The same task ended: true,
 // the new serve's answer for a dropped one, refuses nothing.
 func TestStopReadsAnOlderServesTaskAsOpen(t *testing.T) {
@@ -260,7 +260,7 @@ func TestStopReadsAnOlderServesTaskAsOpen(t *testing.T) {
 	})
 }
 
-// T-921 (RV-124 #1): obor stop --force keeps the caller-lane protection: a task an older serve lists without ended is
+// obor stop --force keeps the caller-lane protection: a task an older serve lists without ended is
 // still in progress, so the pane running its lane's agent refuses the stop.
 func TestStopForceReadsAnOlderServesTaskAsOpen(t *testing.T) {
 	t.Parallel()
@@ -278,7 +278,7 @@ func TestStopForceReadsAnOlderServesTaskAsOpen(t *testing.T) {
 	nothingDone(t, p, s, *stops, f)
 }
 
-// T-711 (RV-84 #3): a timed pause in force before obor stop is replaced by stop's own untimed one; a refusal restores
+// a timed pause in force before obor stop is replaced by stop's own untimed one; a refusal restores
 // it (its why and end) while it has not expired, and clears stop's once it has.
 func TestStopReplacesATimedPause(t *testing.T) {
 	t.Parallel()
@@ -311,7 +311,7 @@ func TestStopReplacesATimedPause(t *testing.T) {
 	}
 }
 
-// T-711 (RV-84 #1): the caller's own herdr pane runs the agent of a busy lane (its label pj-l-01; its cwd the main
+// the caller's own herdr pane runs the agent of a busy lane (its label pj-l-01; its cwd the main
 // checkout, OBOR_ROLE unset: the owner's identity otherwise): obor stop --force refuses before any agent stops, clears its
 // pause and does nothing; so it does when the pane's cwd is in the lane under a label of no agent.
 func TestStopRefusesTheCallersLane(t *testing.T) {
@@ -348,7 +348,7 @@ func TestStopRefusesTheCallersLane(t *testing.T) {
 	nothingDone(t, p, s, *stops, f)
 }
 
-// T-710 (RV-84 #6): herdr's panes not listed refuses obor stop (with --force too): no proof no agent runs; the pause
+// herdr's panes not listed refuses obor stop (with --force too): no proof no agent runs; the pause
 // cleared.
 func TestStopRefusedWhenHerdrFails(t *testing.T) {
 	t.Parallel()
@@ -381,7 +381,7 @@ func paneServe(t *testing.T, s *sleeper, f *sleepServe, exits bool) *project.Loc
 	return held
 }
 
-// T-711 (RV-84 #4): a serve that is not launchd's (in a pane or run by hand, any OS) is asked to exit over its socket
+// a serve that is not launchd's (in a pane or run by hand, any OS) is asked to exit over its socket
 // and confirmed down (serve.flock released, no socket): STOPPED, the marker written, the project unregistered.
 func TestStopEndsAPaneServe(t *testing.T) {
 	p, s, out, _, f := sleepFx(t)
@@ -409,7 +409,7 @@ func TestStopEndsAPaneServe(t *testing.T) {
 	}
 }
 
-// T-711: a serve in a pane that answers its exit but keeps serve.flock is not confirmed down: refused, the pause
+// a serve in a pane that answers its exit but keeps serve.flock is not confirmed down: refused, the pause
 // cleared, no marker.
 func TestStopRefusesAPaneServeThatStaysUp(t *testing.T) {
 	p, s, out, _, f := sleepFx(t)
@@ -424,7 +424,7 @@ func TestStopRefusesAPaneServeThatStaysUp(t *testing.T) {
 	}
 }
 
-// T-710 (RV-84 #4): launchd's serve uninstalled that still holds serve.flock is not confirmed down: refused, no
+// launchd's serve uninstalled that still holds serve.flock is not confirmed down: refused, no
 // marker, the project still registered.
 func TestStopRefusesAServeThatStaysUp(t *testing.T) {
 	if runtime.GOOS != "darwin" {
@@ -456,7 +456,7 @@ func TestStopRefusesAServeThatStaysUp(t *testing.T) {
 
 // fakeLaunchctl puts a launchctl on PATH (the test's process env: no t.Parallel) that logs each call to the returned
 // file and keeps one label loaded while its state file exists (as internal/service's own fake). Its calls and state
-// live next to the script, so its body is the same in every test and testkit.Script runs it once (T-1025).
+// live next to the script, so its body is the same in every test and testkit.Script runs it once.
 func fakeLaunchctl(t *testing.T) (log, state string) {
 	dir := t.TempDir()
 	log, state = filepath.Join(dir, "calls"), filepath.Join(dir, "loaded")
@@ -474,8 +474,8 @@ esac
 	return log, state
 }
 
-// T-867: obor stop --force with two working tasks drops nothing: serve gets the pause and the exit only, both agents
-// stop, STOPPED is said. That the tasks continue at obor start is serve's (T-874: the worker start rule,
+// obor stop --force with two working tasks drops nothing: serve gets the pause and the exit only, both agents
+// stop, STOPPED is said. That the tasks continue at obor start is serve's (the worker start rule,
 // internal/app TestWorkerStartAfterStopForce), not this fake's.
 func TestStopForceKeepsTasksOpen(t *testing.T) {
 	p, s, out, stops, f := sleepFx(t)
@@ -515,7 +515,7 @@ func TestStopForceKeepsTasksOpen(t *testing.T) {
 	}
 }
 
-// T-709, T-710, T-867: obor stop's transition against fakes: serve paused, the tasks in progress kept open with
+// obor stop's transition against fakes: serve paused, the tasks in progress kept open with
 // --force (no drop), herdr's panes (the worker and the integrator stopped; the caller's own pane and agent, a pane at
 // its shell, an unknown label and another project's agent not), launchd's serve booted out
 // and confirmed down, the project out of the machine's list, the marker; a second stop says it is stopped already and
@@ -611,7 +611,7 @@ func TestStopStepsAndStart(t *testing.T) {
 	}
 }
 
-// T-710: obor start leaves a pause that is not obor stop's.
+// obor start leaves a pause that is not obor stop's.
 func TestStartClearsOnlyTheStopsPause(t *testing.T) {
 	_, s, out, _, f := sleepFx(t)
 	fakeLaunchctl(t)
@@ -624,7 +624,7 @@ func TestStartClearsOnlyTheStopsPause(t *testing.T) {
 	}
 }
 
-// T-711 (RV-84 #3, #7): a timed pause in force is replaced by obor stop's own untimed one and recorded in the marker;
+// a timed pause in force is replaced by obor stop's own untimed one and recorded in the marker;
 // obor start with serve not answering fails (exit 1, the retry line), stop's pause still in force; its rerun, serve
 // up, completes it: the owner's pause restored while it has not expired, cleared once it has; the marker gone, and a
 // third start sends nothing.
@@ -698,15 +698,15 @@ func TestStopAndStartRestoreATimedPause(t *testing.T) {
 	}
 }
 
-// T-709, the binary: in a stopped project whose config has a key this binary does not know, obor status (text and
+// The binary, in a stopped project whose config has a key this binary does not know: obor status (text and
 // --json) loads it with the warning and the stopped line, obor whoami says it is stopped, obor config validate keeps
 // refusing the key, and obor serve and obor init refuse to run in the stopped project, saying obor start. (Serve itself
-// is lenient about the key, as the readers and every command are: config.Load, T-377, T-1081; only obor config
+// is lenient about the key, as the readers and every command are: config.Load; only obor config
 // validate is strict.)
 func TestStoppedProjectWithANewerConfig(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)
-	p.Config(testkit.Set("zz_future", "")) // T-801: roles.<name> is a custom role now, no unknown key
+	p.Config(testkit.Set("zz_future", "")) // roles.<name> is a custom role now, no unknown key
 	env := []string{"HOME=" + p.Base + "/home", "OBOR_STATE_HOME=" + p.Base + "/state",
 		"HERDR_SOCKET_PATH=" + herdrtest.Serve(t, p.Herdr()).Path}
 	rc, stdout, stderr := run(t, p.Root, env, "status")

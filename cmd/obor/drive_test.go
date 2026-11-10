@@ -11,7 +11,7 @@ import (
 
 // obor drive's request: a name is a new drive (Note, --model as its one model), a task id a drive's own task (Task;
 // --model passed on, serve's retry ignores it); serve's refusal is the caller's FAIL and nothing is started: a worker's
-// task's (T-912) word for word.
+// task's word for word.
 func TestDriveRequest(t *testing.T) {
 	t.Parallel()
 	p := servedProject(t)
@@ -53,7 +53,7 @@ func TestDriveRequest(t *testing.T) {
 }
 
 // parseDrive reads serve's DRIVE reply, its tail ignored; a DRIVING reply (a drive whose agent runs already, or an old
-// serve's take-over, T-912) is none.
+// serve's take-over) is none.
 func TestParseDrive(t *testing.T) {
 	t.Parallel()
 	for reply, want := range map[string]drive{
@@ -75,7 +75,7 @@ func TestParseDrive(t *testing.T) {
 	}
 }
 
-// obor drive on a drive whose agent runs (T-755): serve's DRIVING reply is printed with OK (exit 0), nothing started
+// obor drive on a drive whose agent runs: serve's DRIVING reply is printed with OK (exit 0), nothing started
 // (no lane wait, no herdr: the fake project has neither).
 func TestDriveAgentRunningStartsNothing(t *testing.T) {
 	t.Parallel()
@@ -91,7 +91,7 @@ func TestDriveAgentRunningStartsNothing(t *testing.T) {
 	}
 }
 
-// obor tell-lead "<text>" (T-761): one request to obor serve carrying the text, the caller's role and its lane (a
+// obor tell-lead "<text>": one request to obor serve carrying the text, the caller's role and its lane (a
 // drive agent: OBOR_ROLE=driver in its lane's cwd), serve's reply printed; a usage error sends nothing; serve's refusal
 // is FAIL, exit 1.
 func TestTellLeadRequest(t *testing.T) {
@@ -100,7 +100,7 @@ func TestTellLeadRequest(t *testing.T) {
 	o1 := p.PlainLane("L-01", "task/T-01")
 	p.Config()
 	home, serve := startFakeServe(t, p.Root, wire.Status{}, "TOLD pj-lead (T-01; its answer arrives here as an [obor answer] line)", "")
-	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=driver", "OBOR_AGENT=pj-l1-drive", "OBOR_LANE=L-01"} // a stale name (T-786)
+	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=driver", "OBOR_AGENT=pj-l1-drive", "OBOR_LANE=L-01"} // a stale name
 	for _, args := range [][]string{{"tell-lead"}, {"tell-lead", " "}, {"tell-lead", "a", "b"}} {
 		if rc, stdout, _ := run(t, o1, env, args...); rc != 1 || !strings.Contains(stdout, `FAIL usage: obor tell-lead "<text>"`) {
 			t.Errorf("obor %q: exit %d, %q; want the usage", args, rc, stdout)
@@ -129,8 +129,8 @@ func TestTellLeadRequest(t *testing.T) {
 	}
 }
 
-// The drive agent's first prompt names how it reaches the lead and how the lead's answers arrive (T-761), and says to
-// commit on the branch as it goes, which obor land refuses (T-762); one line.
+// The drive agent's first prompt names how it reaches the lead and how the lead's answers arrive, and says to
+// commit on the branch as it goes, which obor land refuses; one line.
 func TestDrivePrompt(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)

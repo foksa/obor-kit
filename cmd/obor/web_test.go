@@ -7,7 +7,7 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-667: obor web is localhost only — a --listen whose host is not loopback (or has no host: every interface) is
+// obor web is localhost only — a --listen whose host is not loopback (or has no host: every interface) is
 // refused before anything starts — and the binary and the shim know the command.
 func TestWebRefusesNonLocalhostListen(t *testing.T) {
 	t.Parallel()

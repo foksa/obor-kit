@@ -19,9 +19,9 @@ import (
 
 // sendCmd is `obor send <project> "<text>"`, a lead's or the owner's: a request to the target project's serve
 // (wire.MethodSend), which posts "[obor <this project>] <text> (reply: obor send <this project> "…")" to that project's
-// lead's Claude session (T-485).
+// lead's Claude session.
 // <project> is a project this machine knows by name (obor projects), lead@<name> (the same: only a lead gets
-// messages), or a path into an obor project (T-646). Serve's reply (SENT to …), or FAIL: the own project, an unknown
+// messages), or a path into an obor project. Serve's reply (SENT to …), or FAIL: the own project, an unknown
 // name, not an obor project, serve down or its refusal (exit 1).
 func sendCmd(args []string) int {
 	if len(args) != 2 || args[0] == "" || strings.TrimSpace(args[1]) == "" {
@@ -77,10 +77,10 @@ func unknownProject(name string, env project.Env) error {
 }
 
 // briefCmd is `obor brief <role-agent> [--fresh] "<text>"`, the lead's or the owner's: the one way to brief a role
-// agent (T-785). A request to obor serve (wire.MethodBrief) that its pane or session reads "[obor <caller>] <text>"
+// agent. A request to obor serve (wire.MethodBrief) that its pane or session reads "[obor <caller>] <text>"
 // once the agent is idle; once that agent has worked on it and is idle again, serve posts
-// "[obor] <agent> finished (briefed <age> ago)" to the lead's session. --fresh is the same request with fresh set
-// (T-794): serve admits and records the brief (as any brief; the reviewer's and the deep dive's merges are held), and
+// "[obor] <agent> finished (briefed <age> ago)" to the lead's session. --fresh is the same request with fresh set:
+// serve admits and records the brief (as any brief; the reviewer's and the deep dive's merges are held), and
 // only then stops a running agent and starts it clean, the text its first prompt. The CLI stops nothing: a refused
 // brief leaves the agent running. Serve's reply (BRIEFED …), or FAIL: not a role agent, serve down or its refusal
 // (exit 1).
@@ -133,15 +133,15 @@ func roleAgent(cfg *config.Config, agent string) bool {
 	return ok && info.Role != "lead" && info.Role != "integrator" && info.Role != "worker"
 }
 
-// poster posts serve's lines and job wakes into an agent's session whose kind has an inbox (app.Poster, T-485, T-499):
+// poster posts serve's lines and job wakes into an agent's session whose kind has an inbox (app.Poster):
 // the session's inbox socket as its SessionStart hook recorded it in the project at root (the record of the agent's
-// slot, DD-consolidation I4), the kind's lines (agents.Kind.Deliver). Nothing is typed into a pane.
+// slot), the kind's lines (agents.Kind.Deliver). Nothing is typed into a pane.
 type poster struct{ root string }
 
 // postWait bounds one post: the dial, the write, and the wait for the session to close its end after reading.
 const postWait = 3 * time.Second
 
-// Post posts line to agent's session as kind posts it (the pane's kind, DD-v0.13 B1): the record read, the kind's
+// Post posts line to agent's session as kind posts it (the pane's kind): the record read, the kind's
 // lines from it, one dial, the lines written, then close. began: a byte of it went out (a refusal before is safe to
 // retry). No ack comes back.
 func (p poster) Post(ctx context.Context, kind, agent, line string) (began bool, err error) {

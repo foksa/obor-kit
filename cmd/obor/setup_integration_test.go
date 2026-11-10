@@ -15,7 +15,7 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-536: setup talks to herdr over its socket (HERDR_SOCKET_PATH). The run's PATH has no herdr on it: only the fake
+// setup talks to herdr over its socket (HERDR_SOCKET_PATH). The run's PATH has no herdr on it: only the fake
 // socket answers, and every call is its answer.
 func TestSetupPaneUsesTheHerdrSocket(t *testing.T) {
 	t.Parallel()
@@ -114,7 +114,7 @@ func initEnv(t *testing.T, more map[string]string) (env []string, log, home stri
 	return env, log, home
 }
 
-// T-1054 (RV-150 #2): obor init in a clean project with the kit binary (the real obor-kind-opencode beside obor)
+// obor init in a clean project with the kit binary (the real obor-kind-opencode beside obor)
 // caches OpenCode's manifest before its panes, so obor setup mcp --model deepseek works with no hand step; init in a
 // project whose integrator is OpenCode's (its pane's start built from the manifest) succeeds, and so does its rerun.
 func TestInitCachesThePluginKinds(t *testing.T) {

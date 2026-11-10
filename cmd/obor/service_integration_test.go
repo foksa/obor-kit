@@ -33,7 +33,7 @@ func TestServeServiceVerbs(t *testing.T) {
 	if rc, stdout, stderr := run(t, p.Root, env, "status"); rc != 0 || !strings.HasPrefix(stdout, "serve: down (obor serve install)\n") {
 		t.Fatalf("status before install: %d %q %q", rc, stdout, stderr)
 	}
-	// Install and restart wait for the agent's serve to answer (T-862): the fake launchd's new serve is this project's
+	// Install and restart wait for the agent's serve to answer: the fake launchd's new serve is this project's
 	// socket, there before install's preamble asks and stopped before status reads serve as down.
 	serve := startFakeServeAt(t, wire.SocketPath(p.Root), wire.Status{}, "", "")
 	rc, stdout, stderr := run(t, p.Root, env, "serve", "install")

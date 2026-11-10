@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// RV-51 #5: agent names are machine-wide; another project's pj-lead is not this project's lead.
+// agent names are machine-wide; another project's pj-lead is not this project's lead.
 func TestLeadNamesakeInAnotherProjectFails(t *testing.T) {
 	t.Parallel()
 	x := newLeadFx(t)

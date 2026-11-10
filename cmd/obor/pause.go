@@ -14,7 +14,7 @@ import (
 
 // pauseCmd is `obor pause [--model <name>] [--for <dur>] "<why>" | [--model <name>] --clear`, the lead's or the
 // owner's: a request to obor serve that records the project's pause (wire.MethodPause): while it holds, dispatches are
-// refused and waiting tasks wait; running gates and merges finish. With --model only that model's (T-765): dispatch
+// refused and waiting tasks wait; running gates and merges finish. With --model only that model's: dispatch
 // skips it and a level's next model is used. <dur> is a Go duration (90m, 3h). Serve's reply (PAUSED until …, PAUSE
 // CLEARED, NOT PAUSED), or FAIL: serve down, its refusal or a usage error (exit 1).
 func pauseCmd(args []string) int {

@@ -14,7 +14,7 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-638, T-1023: reviewGit on a fixture repo: the head, the files since a sha, and Closed, a review's own close
+// reviewGit on a fixture repo: the head, the files since a sha, and Closed, a review's own close
 // commit since a sha (the close's crash cut): not a later review's whose number starts the same, not a commit that
 // only quotes a close subject in its body, none before the range.
 func TestReviewGit(t *testing.T) {
@@ -54,8 +54,8 @@ func TestReviewGit(t *testing.T) {
 	}
 }
 
-// T-853: reviewGit.Detach adds a missing role worktree detached at the sha, moves one that is there to another sha
-// (a commit the role checked out is left behind; T-872: a lock another git holds is waited for), and refuses a dir
+// reviewGit.Detach adds a missing role worktree detached at the sha, moves one that is there to another sha
+// (a commit the role checked out is left behind; a lock another git holds is waited for), and refuses a dir
 // that is no worktree of the repo, nothing forced; with no locked runner it fails.
 func TestReviewGitDetach(t *testing.T) {
 	t.Parallel()

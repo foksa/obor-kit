@@ -36,17 +36,17 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	oborBin = filepath.Join(dir, "obor")
-	// -buildvcs=false: VCS stamping runs git, and the unit tier starts none (T-1020).
+	// -buildvcs=false: VCS stamping runs git, and the unit tier starts none.
 	if out, err := exec.Command("go", "build", "-buildvcs=false", "-o", oborBin, ".").CombinedOutput(); err != nil {
 		panic("go build: " + err.Error() + "\n" + string(out))
 	}
-	// beside it the OpenCode kind's binary, as make build lays them out (T-1046: obor runs a kit kind from its own
+	// beside it the OpenCode kind's binary, as make build lays them out (obor runs a kit kind from its own
 	// executable's directory; config validate describes it)
 	kind := filepath.Join(dir, "obor-kind-opencode")
 	if out, err := exec.Command("go", "build", "-buildvcs=false", "-o", kind, "../../kinds/opencode").CombinedOutput(); err != nil {
 		panic("go build kinds/opencode: " + err.Error() + "\n" + string(out))
 	}
-	code := testkit.Run(m) // removes the project template testkit.New copies (T-1009)
+	code := testkit.Run(m) // removes the project template testkit.New copies
 	os.RemoveAll(dir)
 	os.Exit(code)
 }
@@ -54,7 +54,7 @@ func TestMain(m *testing.M) {
 func build(t *testing.T) string { return oborBin }
 
 // waitFor polls cond for up to a minute. Detached commands and herdr over a socket are slow on a loaded machine: the
-// gate's parallel packages took one past 15 s (T-960's check).
+// gate's parallel packages took one past 15 s (a budget breach).
 func waitFor(cond func() bool) bool {
 	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
 		if cond() {
@@ -65,7 +65,7 @@ func waitFor(cond func() bool) bool {
 }
 
 // callDown is the environment of a call to a serve that is not running: every deadline is 0.2 s, so the call's
-// retries end at once (T-685), not after the deadline table's 15 s.
+// retries end at once, not after the deadline table's 15 s.
 const callDown = "OBOR_CALL_DEADLINE=0.2"
 
 // run is the binary in dir with env added: its exit code, stdout and stderr. The command is killed after 60 s (and
@@ -130,7 +130,7 @@ func TestClosedStdoutExitsZeroQuietly(t *testing.T) {
 
 func TestVersionPrintsBuildAndPaths(t *testing.T) {
 	bin := build(t)
-	// T-554: a kit's own dist/obor is self-describing (no "dev build" word); a fetched release names the kit and source.
+	// a kit's own dist/obor is self-describing (no "dev build" word); a fetched release names the kit and source.
 	for _, c := range []struct{ source, want string }{
 		{"pinned", "obor dev (" + bin + ", kit /kit, pinned)\n"},
 		{"dev build", "obor dev (" + bin + ")\n"},
@@ -147,7 +147,7 @@ func TestVersionPrintsBuildAndPaths(t *testing.T) {
 	}
 }
 
-// T-195: `obor has` is the capability check hooks and the shim run before trusting a binary: 0 implemented, 1 not,
+// `obor has` is the capability check hooks and the shim run before trusting a binary: 0 implemented, 1 not,
 // never any output.
 func TestHas(t *testing.T) {
 	bin := build(t)
@@ -162,10 +162,10 @@ func TestHas(t *testing.T) {
 		{[]string{"has", "status"}, 0}, {[]string{"has", "restart"}, 0}, {[]string{"has", "version"}, 0}, {[]string{"has", "config", "get"}, 0},
 		{[]string{"has", "send"}, 0}, {[]string{"has", "brief"}, 0}, {[]string{"has", "tell"}, 1}, {[]string{"has", "inbox"}, 1},
 		{[]string{"has", "flakes"}, 0},
-		{[]string{"has", "monitor"}, 1}, {[]string{"has", "setup", "monitor"}, 1}, // T-846: obor monitor is unknown now; the setup step went with T-776
-		{[]string{"has", "plugin"}, 1}, {[]string{"has", "plugin", "restore"}, 1}, // T-1117: the herdr plugin's command went
-		{[]string{"has", "setup", "migrate"}, 1}, // T-789: the one-time migration code lived one release
-		{[]string{"has", "merge"}, 1},            // T-409: obor serve merges
+		{[]string{"has", "monitor"}, 1}, {[]string{"has", "setup", "monitor"}, 1}, // obor monitor is no subcommand; the setup step is unknown too
+		{[]string{"has", "plugin"}, 1}, {[]string{"has", "plugin", "restore"}, 1}, // the herdr plugin's command is no subcommand
+		{[]string{"has", "setup", "migrate"}, 1}, // no migration step
+		{[]string{"has", "merge"}, 1},            // obor serve merges
 		{[]string{"has", "hook", "no-such"}, 1}, {[]string{"has", "no-such"}, 1}, {[]string{"has", "status", "x"}, 1},
 		{[]string{"has"}, 2}, {[]string{"has", "hook", "noop", "x"}, 2},
 	} {
@@ -184,8 +184,8 @@ func TestHas(t *testing.T) {
 	}
 }
 
-// T-846: obor monitor's one-minor notice is over (T-776, obor status and obor web remain): it is an unknown subcommand
-// now, exit 2 and the same error every command this binary lacks gets.
+// obor monitor is an unknown subcommand (obor status and obor web remain): exit 2 and the same error every
+// command this binary lacks gets.
 func TestMonitorIsUnknown(t *testing.T) {
 	t.Parallel()
 	for _, args := range [][]string{{"monitor"}, {"monitor", "--json"}} {
@@ -224,7 +224,7 @@ func TestPreToolUseDenyIsOneOborLine(t *testing.T) {
 	}
 }
 
-// runIn is run with stdin, bounded the same way (T-291).
+// runIn is run with stdin, bounded the same way.
 func runIn(t *testing.T, dir string, env []string, stdin string, args ...string) (int, string, string) {
 	t.Helper()
 	var stdout, stderr bytes.Buffer
@@ -285,7 +285,7 @@ func dispatched(t *testing.T) []string {
 	return names
 }
 
-// T-854: every subcommand main dispatches has a row in help.Commands and every row is dispatched: a removed command
+// every subcommand main dispatches has a row in help.Commands and every row is dispatched: a removed command
 // cannot stay listed, a new one cannot be missing. Each row's group is one of help.Groups and its usage names it.
 func TestHelpTableMatchesDispatch(t *testing.T) {
 	t.Parallel()
@@ -318,7 +318,7 @@ func TestHelpTableMatchesDispatch(t *testing.T) {
 	}
 }
 
-// T-873: one usage source. Every command row and step resolves through help.Usage to a line that names it, and no
+// one usage source. Every command row and step resolves through help.Usage to a line that names it, and no
 // cmd/obor file spells a usage line out: a new one would drift from the table obor help prints.
 func TestUsageLinesComeFromHelp(t *testing.T) {
 	t.Parallel()
@@ -368,7 +368,7 @@ func TestUsageLinesComeFromHelp(t *testing.T) {
 	}
 }
 
-// T-854: `obor help` (the binary) prints every group and every row, its usage line and its description, exit 0.
+// `obor help` (the binary) prints every group and every row, its usage line and its description, exit 0.
 func TestHelpPrintsEveryGroupAndRow(t *testing.T) {
 	t.Parallel()
 	for _, arg := range []string{"help", "--help"} {
@@ -415,7 +415,7 @@ func bashHook(t *testing.T, dir, cmd string) (int, string) {
 	return rc, stderr.String()
 }
 
-// T-1054 (RV-150 #1): a project whose OpenCode manifest is not cached has no headless forms for opencode, so the guard
+// a project whose OpenCode manifest is not cached has no headless forms for opencode, so the guard
 // denies every opencode command (also wrapped) naming obor setup agents; after obor serve's start, which caches the
 // manifest of the kit's real obor-kind-opencode, the manifest's rule applies: `opencode run` is denied as headless and
 // another opencode command is let through.
@@ -462,7 +462,7 @@ func TestGuardDeniesAnUncachedPluginKindUntilServeCachesIt(t *testing.T) {
 	}
 }
 
-// T-581: an OpenCode lane's session-start has no OBOR_AGENT (its plugin runs in a shared process): obor reports the
+// an OpenCode lane's session-start has no OBOR_AGENT (its plugin runs in a shared process): obor reports the
 // session to serve under the lane's agent, and writes no .sid.
 func TestSessionStartOpencodeLaneReportsNoSid(t *testing.T) {
 	t.Parallel()
@@ -496,7 +496,7 @@ func TestSessionStartOpencodeLaneReportsNoSid(t *testing.T) {
 	}
 }
 
-// T-577: obor hook session-start sends serve one session request with the agent, its kind, the session id and its
+// obor hook session-start sends serve one session request with the agent, its kind, the session id and its
 // transcript_path, the pane, lane and task; serve down: nothing is recorded (no .sid file), the hook says so on stderr
 // and still exits 0.
 func TestSessionStartHookReports(t *testing.T) {
@@ -506,7 +506,7 @@ func TestSessionStartHookReports(t *testing.T) {
 	state := t.TempDir()
 	env := []string{"OBOR_ROLE=worker", "OBOR_AGENT=pj-l-01", "OBOR_LANE=L-01", "OBOR_STATE_HOME=" + state,
 		"OBOR_PANE=w1:p3"}
-	// The first call goes to a serve that is not there: with a short deadline it ends at once (T-685).
+	// The first call goes to a serve that is not there: with a short deadline it ends at once.
 	down := append(append([]string(nil), env...), callDown)
 	event, _ := json.Marshal(map[string]any{"hook_event_name": "SessionStart", "cwd": lane, "session_id": "sid-77",
 		"transcript_path": "/claude/projects/x/sid-77.jsonl", "source": "startup"})
@@ -548,7 +548,7 @@ func TestSessionStartHookReports(t *testing.T) {
 	}
 }
 
-// T-532: obor hook stop-failure (Claude Code's StopFailure: a turn ended on an API error) appends the payload's raw
+// obor hook stop-failure (Claude Code's StopFailure: a turn ended on an API error) appends the payload's raw
 // error and error_details with a timestamp to .obor/state/stop-failure.log and sends serve one stopped request with
 // the agent, its role and lane, the error and its details. Serve down or refusing: exit 0, nothing on stdout, the log
 // line written all the same. Outside an obor project: nothing.
@@ -558,7 +558,7 @@ func TestStopFailureHook(t *testing.T) {
 	lane := p.LaneDir("L-01")
 	logPath := filepath.Join(p.Root, ".obor/state/stop-failure.log")
 	env := []string{"OBOR_ROLE=worker", "OBOR_AGENT=pj-l-01"}
-	down := append(append([]string(nil), env...), callDown) // the first call: no serve yet (T-685)
+	down := append(append([]string(nil), env...), callDown) // the first call: no serve yet
 	event, _ := json.Marshal(map[string]any{"hook_event_name": "StopFailure", "cwd": lane, "error": "rate_limit",
 		"error_details": "429 Too Many Requests"})
 	logLines := func() []map[string]any {
@@ -615,17 +615,17 @@ func TestStopFailureHook(t *testing.T) {
 	// Outside an obor project: TestStopFailureHookOutsideAProject (stopfailure_integration_test.go: project.Find asks git).
 }
 
-// T-540: a worker's UserPromptSubmit and Stop hooks each tell serve its next turn began or ended (one turn request
+// a worker's UserPromptSubmit and Stop hooks each tell serve its next turn began or ended (one turn request
 // with the agent, its role and lane), which ends a stop in force; the hooks' own output is unchanged (the Stop hook
-// still blocks with no task_done). A role agent's hooks send the same (T-569: its brief's stop ends). Each says its
-// phase (T-571): the Stop hook's is the turn's end, UserPromptSubmit's its start. SessionStart and a lead's hooks send
+// still blocks with no task_done). A role agent's hooks send the same (its brief's stop ends). Each says its
+// phase: the Stop hook's is the turn's end, UserPromptSubmit's its start. SessionStart and a lead's hooks send
 // none; serve down: exit 0 all the same.
 func TestTurnHooks(t *testing.T) {
 	t.Parallel()
 	p := servedProject(t)
 	lane := p.LaneDir("L-01")
 	worker := []string{"OBOR_ROLE=worker", "OBOR_AGENT=pj-l-01"}
-	down := append(append([]string(nil), worker...), callDown) // the first turn: no serve yet (T-685)
+	down := append(append([]string(nil), worker...), callDown) // the first turn: no serve yet
 	event := func(name string, cwd ...string) string {
 		b, _ := json.Marshal(map[string]any{"hook_event_name": name, "cwd": append(cwd, lane)[0],
 			"prompt": "[obor job T-01/1/work] go"})
@@ -681,7 +681,7 @@ func TestTurnHooks(t *testing.T) {
 	}
 }
 
-// T-581: an OpenCode lane's hooks run in a shared process with no OBOR_AGENT: from the lane's cwd they name the lane's
+// an OpenCode lane's hooks run in a shared process with no OBOR_AGENT: from the lane's cwd they name the lane's
 // agent (serve gets the turn, the turn's end and the stop-failure); outside a lane they name none and send nothing.
 func TestOpencodeHooksResolveTheLaneAgent(t *testing.T) {
 	t.Parallel()
@@ -733,7 +733,7 @@ func TestOpencodeHooksResolveTheLaneAgent(t *testing.T) {
 	}
 }
 
-// T-796: SessionStart of a triage session records its session (serve gets pj-triage's) and its project inbox (slot
+// SessionStart of a triage session records its session (serve gets pj-triage's) and its project inbox (slot
 // triage), so a brief to pj-triage is posted to the session, not typed.
 func TestTriageSessionStartRecordsItsInbox(t *testing.T) {
 	t.Parallel()
@@ -801,7 +801,7 @@ func TestTriageSessionStartRecordsItsInbox(t *testing.T) {
 	}
 }
 
-// T-796: the stop-failure hook of a triage session names the triage agent and its role to serve.
+// the stop-failure hook of a triage session names the triage agent and its role to serve.
 func TestTriageStopFailureNamesIt(t *testing.T) {
 	t.Parallel()
 	p := triageProject(t)

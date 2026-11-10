@@ -9,7 +9,7 @@ import (
 )
 
 // projectsCmd is `obor projects`: the obor projects this machine knows by name, the list obor serve (at its start) and
-// obor init keep (T-646): "<name> <root> serve <up|down>", one per line, by name, a stale entry left out. Serve is up
+// obor init keep: "<name> <root> serve <up|down>", one per line, by name, a stale entry left out. Serve is up
 // while the project's serve holds its lock.
 func projectsCmd(args []string) int {
 	if len(args) != 0 {

@@ -16,15 +16,15 @@ import (
 	"obor/internal/testkit"
 )
 
-// obor resume through the binary: usage, a task id, serve not running (one word that is no mode is a decision, RV-54
-// #4), then with obor serve running its refusals reach
-// the caller (not a worker's, no needs-you). T-470: the integrator's CLI verdicts (accept, reject, resolved, hold,
-// sendback <T-xx>) are gone: its MCP tools are their only path; the lead's sendback is obor resume --sendback (T-775).
+// obor resume through the binary: usage, a task id, serve not running (one word that is no mode is a decision),
+// then with obor serve running its refusals reach the caller (not a worker's, no needs-you). The integrator's CLI
+// verdicts (accept, reject, resolved, hold, sendback <T-xx>) are no subcommands: its MCP tools are their only path;
+// the lead's sendback is obor resume --sendback.
 func TestResumeAndNoVerdictVerbs(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
 	lane := p.Lane("L-01", "task/T-01")
-	// the merge loop on: a project without an integrator role refuses every verdict (T-352)
+	// the merge loop on: a project without an integrator role refuses every verdict
 	p.Config(testkit.Set("agents.roles.integrator", ""))
 	p.Commit(lane)
 	home, err := os.MkdirTemp("", "hs") // short: the serve socket lives here
@@ -51,15 +51,15 @@ func TestResumeAndNoVerdictVerbs(t *testing.T) {
 		want string
 	}{
 		{[]string{"resume", "T-01", " "}, "FAIL " + help.Usage("resume")},        // a blank text
-		{[]string{"resume", "T-01", "yes"}, "FAIL obor serve is not running"},    // a one-word text (RV-54 #4)
-		{[]string{"resume", "T-01", "regate"}, "FAIL obor serve is not running"}, // no keyword any more: a text (T-775)
+		{[]string{"resume", "T-01", "yes"}, "FAIL obor serve is not running"},    // a one-word text
+		{[]string{"resume", "T-01", "regate"}, "FAIL obor serve is not running"}, // no keyword: a text
 		{[]string{"resume", "T-01", "--regate", " "}, "FAIL usage: obor resume"},
 		{[]string{"resume"}, "FAIL usage: obor resume"},
 		{[]string{"resume", "X-1"}, "FAIL X-1 is no task id (task_id_pattern T-[0-9]+[a-z]?)"},
 		{[]string{"resume", "T-01", "--regate"}, "FAIL obor serve is not running"},
 		{[]string{"resume", "T-01", "--sendback", "why"}, "FAIL obor serve is not running"},
 		{[]string{"resume", "T-01", "yes", "more"}, "FAIL usage: obor resume"},
-		{[]string{"resume", "T-01", "--reprompt", "yes"}, "FAIL usage: obor resume"}, // the keywords are gone (T-775)
+		{[]string{"resume", "T-01", "--reprompt", "yes"}, "FAIL usage: obor resume"}, // no keyword: a text
 		{[]string{"resume", "T-01", "the owner says yes"}, "FAIL obor serve is not running"},
 	} {
 		check(down, c.want, c.args...)
@@ -101,7 +101,7 @@ func TestResumeAndNoVerdictVerbs(t *testing.T) {
 	}
 	check(worker, "FAIL resume: the lead or the owner resumes a task, not pj-l-01 (role worker)", "resume", "T-01")
 	lead := append(append([]string(nil), env...), "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead")
-	for _, text := range []string{"yes", "no", "approved", "--regate"} { // RV-54 #4: serve's refusal, not the usage
+	for _, text := range []string{"yes", "no", "approved", "--regate"} { // serve's refusal, not the usage
 		check(lead, "FAIL resume: T-01 is not open in obor serve", "resume", "T-01", text)
 	}
 }

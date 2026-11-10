@@ -17,12 +17,12 @@ import (
 
 // restart is `obor restart` (internal/launch): progress lines, then the result line last, RESTARTED / STOPPED,
 // SCHEDULED (the caller's own pane: a detached run does it once the agent is idle) or FAIL (exit 1).
-// A first prompt, a model and an effort are serve's (a brief, a dispatch), never a flag here (T-785); the flags restart
-// gave up are unknown, so they get the usage (T-864: their one-minor notice is gone).
+// A first prompt, a model and an effort are serve's (a brief, a dispatch), never a flag here; the flags restart
+// does not take are unknown, so they get the usage.
 func restart(args []string) int {
 	usage := func() int { fmt.Fprintln(out, "FAIL "+help.Usage("restart")); return 1 }
 	// --stop is restart's own flag, not a Request field: take it out, then let launch.ParseRequest own every flag
-	// that maps to one (T-303: its write side is Request.Args, so the two cannot drift).
+	// that maps to one (its write side is Request.Args, so the two cannot drift).
 	stopIt, rest := false, make([]string, 0, len(args))
 	for _, a := range args {
 		if a == "--stop" {
@@ -84,10 +84,9 @@ func launchResult(w io.Writer, line string, err error) int {
 }
 
 // serveAgentJob is the job agent's (role's; a lane's worker on lane, the integrator's lane is "") restart carries as its
-// wake ("": none): serve's answer, by the rule its job_next hands jobs out (T-959: the agent's oldest open job, never a
+// wake ("": none): serve's answer, by the rule its job_next hands jobs out (the agent's oldest open job, never a
 // held one). serve not answering within a few seconds (no socket, an error, a timeout) refuses the restart where serve
-// may hold a job: for the integrator always (T-959: no lane row says otherwise), for a lane whose row holds a task
-// (T-778).
+// may hold a job: for the integrator always (no lane row says otherwise), for a lane whose row holds a task.
 func serveAgentJob(ctx context.Context, cfg *config.Config, agent, role, lane string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()

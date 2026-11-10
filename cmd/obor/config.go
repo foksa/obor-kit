@@ -13,7 +13,7 @@ import (
 // configCmd is `obor config [get <path> | validate]`: the effective config (config.json * local.json * defaults), one
 // value (a string raw, anything else as JSON, null → nothing; FAIL on stderr and exit 1 when there is no such key), or
 // the checks: WARN lines, then a FAIL line per problem (exit 1) or OK. Exit 3 without .obor/config.json. validate is
-// the one strict reader (T-1081): a key this obor does not know is a FAIL line naming it (config.LoadForValidate),
+// the one strict reader: a key this obor does not know is a FAIL line naming it (config.LoadForValidate),
 // where every other command ignores it with a warning.
 func configCmd(args []string) int {
 	validate := len(args) == 1 && args[0] == "validate"
@@ -71,7 +71,7 @@ func whoami(args []string) int {
 	case len(args) == 0:
 	case len(args) == 1 && args[0] == "--json":
 		asJSON = true
-	case len(args) == 1 && args[0] == "--can-push": // hidden: the pre-push hook's question for a role (T-793, T-1116)
+	case len(args) == 1 && args[0] == "--can-push": // hidden: the pre-push hook's question for a role
 		canPush = true
 	default:
 		errf("%s", help.Usage("whoami"))
@@ -96,7 +96,7 @@ func whoami(args []string) int {
 		fmt.Fprint(out, config.Pretty(w.JSON()))
 		return 0
 	}
-	if project.Stopped(cfg.Root) { // obor stop (T-709): the hooks stand down
+	if project.Stopped(cfg.Root) { // obor stop: the hooks stand down
 		fmt.Fprintln(out, project.StoppedLine)
 	}
 	fmt.Fprintf(out, "role: %s\n", w.Role.Role)

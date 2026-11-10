@@ -27,7 +27,7 @@ func setupCmd(args []string) int {
 	return s.Run(context.Background(), args)
 }
 
-// terminalSetup is setup's terminal (port.TerminalSetup, T-1044) over the herdr socket h: herdr is the one terminal
+// terminalSetup is setup's terminal (port.TerminalSetup) over the herdr socket h: herdr is the one terminal
 // kind obor has an adapter for (config.TerminalKinds; obor config validate refuses another, serve's load too).
 func terminalSetup(env project.Env, h *herdr.Socket) port.TerminalSetup {
 	return &herdr.Setup{Socket: h, Env: env}

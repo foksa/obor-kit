@@ -14,15 +14,15 @@ import (
 	"obor/internal/app/port"
 )
 
-// The review close's commit plumbing (T-716, T-926, T-1023): serve checks the open review against its fold, renders
+// The review close's commit plumbing: serve checks the open review against its fold, renders
 // the close (internal/app/reviewclose.go) and commits it in the main checkout here (reviewGit.Close); reviewGit.Closed
 // is the close's crash cut, its one read.
 
-// Close is port.Review's close on the main checkout (serve calls it admitted, T-926): refused before any change when
+// Close is port.Review's close on the main checkout (serve calls it admitted): refused before any change when
 // the checkout is not on c.Branch, dirty outside BACKLOG.md, docs/accepted.md and c's files, or c.Reviewed is no
 // commit; then c's files deleted (its review file and, when there, its verify file), each accepted line appended to
 // docs/accepted.md naming the review (the file created when missing), and the commit c.Subject / c.Body with
-// BACKLOG.md and docs/accepted.md (T-1178: a dirty one of either is committed too).
+// BACKLOG.md and docs/accepted.md (a dirty one of either is committed too).
 func (g reviewGit) Close(ctx context.Context, c port.ReviewCommit) error {
 	root := g.root
 	if on, err := g.git(ctx, "symbolic-ref", "-q", "--short", "HEAD"); err != nil || strings.TrimSpace(on) != c.Branch {
@@ -153,7 +153,7 @@ func removeFiles(files []string) error {
 	return nil
 }
 
-// porcelainLines is git status --porcelain's entry lines, untrimmed (T-725): the two status columns stay, so each
+// porcelainLines is git status --porcelain's entry lines, untrimmed: the two status columns stay, so each
 // line's path starts at column 3 (" M BACKLOG.md" is an unstaged edit); a line shorter than "XY p" is dropped.
 func porcelainLines(out string) []string {
 	var l []string

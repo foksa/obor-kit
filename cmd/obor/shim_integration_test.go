@@ -20,9 +20,9 @@ import (
 	"obor/internal/testkit"
 )
 
-// Tests for bin/obor, the kit's one bash file: self-hosting (T-143, T-240: inside an obor checkout, main or lane
+// Tests for bin/obor, the kit's one bash file: self-hosting (inside an obor checkout, main or lane
 // worktree, `obor` runs the MAIN checkout's bin/obor; elsewhere the installed ("stable") copy runs) and finding the Go
-// binary (dev build, installed release, fetch + checksum; a hook checks `has` first, T-195). Every fixture kit carries its
+// binary (dev build, installed release, fetch + checksum; a hook checks `has` first). Every fixture kit carries its
 // own VERSION (shimVersion), so the tests pass with any VERSION in the tree. A fake dist/obor marks which root ran.
 
 // shimVersion is the VERSION of every fixture kit.
@@ -61,7 +61,7 @@ printf ' source=%s root=%s\n' "${OBOR_VERSION_SOURCE:-}" "${OBOR_PLUGIN_ROOT:-}"
 `)
 }
 
-// staleGo was built before `has` (T-193 outage): it knows only `hook noop`, anything else is usage + exit 2.
+// staleGo is built without `has`: it knows only `hook noop`, anything else is usage + exit 2.
 func staleGo(t *testing.T, path string) {
 	writeExec(t, path, "#!/bin/bash\n[ \"$1 $2\" = \"hook noop\" ] && exit 0\necho \"usage: obor hook noop\" >&2\nexit 2\n")
 }
@@ -70,7 +70,7 @@ func staleGo(t *testing.T, path string) {
 const hang = 3 * time.Second
 
 // hangGo logs its argv to <dir>/stub.log; its `has` never returns (it writes its pid to <dir>/stub.pids, then execs
-// sleep for hang: no child, T-279).
+// sleep for hang: no child).
 func hangGo(t *testing.T, path, dir string) {
 	writeExec(t, path, fmt.Sprintf("#!/bin/bash\necho \"$*\" >> %q\n"+
 		"[ \"$1\" = has ] && { echo \"$$\" > %q; exec sleep %d; }\necho \"ran: hang $*\"\n",
@@ -106,7 +106,7 @@ func writeFile(t *testing.T, path, text string) {
 
 // plainMakeEnv is the test process's environment without the make variables an enclosing make exports into every
 // recipe: the gate run as `MAKEFLAGS=' V=0.17.2' make check` (or a test inside `make release V=…`) would otherwise put
-// a test's own `make release` on the V= path (T-641).
+// a test's own `make release` on the V= path.
 func plainMakeEnv() []string {
 	var env []string
 	for _, kv := range os.Environ() {
@@ -207,9 +207,9 @@ func TestShimDispatchAndUsage(t *testing.T) {
 	}
 }
 
-// T-324: `serve` is in bin/go-commands, so `bin/obor serve dump` reaches the binary instead of the shim's
+// `serve` is in bin/go-commands, so `bin/obor serve dump` reaches the binary instead of the shim's
 // unknown-subcommand error (exit 2, usage). The stub dist/obor argv-echoes and fails as the real one does with no app
-// running; the real serve's own output is covered by T-323's serve test.
+// running; the real serve's own output is covered by serve_test.go's tests.
 func TestShimServeReachesBinary(t *testing.T) {
 	t.Parallel()
 	f := newShimFixture(t)
@@ -236,7 +236,7 @@ func TestShimSelfHost(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(f.Root, "docs", "sub"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// The lane's docs dir (T-547: testkit's fixture no longer carries docs/tasks).
+	// The lane's docs dir (testkit's fixture carries no docs/tasks).
 	if err := os.MkdirAll(filepath.Join(f.lane, "docs"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +283,7 @@ func TestShimSelfHost(t *testing.T) {
 	}
 }
 
-// bash tests/bin.test.sh case_help_prints_plugin_root; T-854: the command list is the binary's (`obor help`), so
+// bash tests/bin.test.sh case_help_prints_plugin_root: the command list is the binary's (`obor help`), so
 // the shim prints the plugin root and runs the binary with help (-h and --help too), never bin/go-commands' names.
 func TestShimHelpPrintsPluginRoot(t *testing.T) {
 	t.Parallel()
@@ -349,7 +349,7 @@ func TestShimPicksBinary(t *testing.T) {
 	}
 }
 
-// bash tests/bin.test.sh case_stale_binary_skipped_for_hooks (T-195): a stale dist/obor is not run for a hook: the
+// bash tests/bin.test.sh case_stale_binary_skipped_for_hooks: a stale dist/obor is not run for a hook: the
 // installed release that has it is; a good dist/obor wins. A command runs the dev build without asking (a stale one
 // says "unknown subcommand": make build).
 func TestShimHookSkipsStaleDevBuild(t *testing.T) {
@@ -375,10 +375,10 @@ func TestShimHookSkipsStaleDevBuild(t *testing.T) {
 
 func alive(pid int) bool { return syscall.Kill(pid, 0) == nil }
 
-// bash tests/bin.test.sh case_hanging_binary_skipped_for_hooks (RV-22 #1): a dist/obor whose `has` never returns is
+// bash tests/bin.test.sh case_hanging_binary_skipped_for_hooks: a dist/obor whose `has` never returns is
 // skipped within the watchdog's bound (OBOR_HOOK_TIMEOUT, 1 s here: 0.5 s raced the stub's own bash startup under a
-// loaded package, as plugin_wiring_test.go's hangBound notes; T-1006) and killed (its own pid: no process group,
-// T-279); the release runs.
+// loaded package, as plugin_wiring_test.go's hangBound notes) and killed (its own pid: no process group); the
+// release runs.
 func TestShimHookSkipsHangingDevBuild(t *testing.T) {
 	t.Parallel()
 	f := newShimFixture(t)
@@ -464,7 +464,7 @@ func TestShimFetchVerifiesChecksum(t *testing.T) {
 	}
 }
 
-// T-1046: the fetch also brings each kind binary the catalog lists for this version and platform
+// the fetch also brings each kind binary the catalog lists for this version and platform
 // (obor-kind-<name>-<v>-<os>-<arch>, from the release dir obor's asset is in) into ~/.obor/bin beside obor's, checked
 // against its line; a kind binary that is missing alone is fetched at the next command; a catalog that lists no kind
 // fetches obor's alone (TestShimFetchVerifiesChecksum).
@@ -536,7 +536,7 @@ func shimVersionFiles(t *testing.T, dir, v string, when time.Time) {
 	}
 }
 
-// T-1093 (stored-data audit §5 row E): a successful fetch removes the release and kind binaries of every version but
+// A successful fetch removes the release and kind binaries of every version but
 // the kit's and the one fetched before it (the previous kit, kept for a rollback); a file that is not one of those
 // stays.
 func TestShimFetchPrunesOldBinaries(t *testing.T) {
@@ -624,7 +624,7 @@ func TestShimNoBinary(t *testing.T) {
 }
 
 // bash tests/bin.test.sh case_release_keeps_other_versions_and_sorts_catalog: make release (a fake go) replaces only
-// its own version's lines of bin/checksums.txt, obor's and the OpenCode kind's (T-1046), and keeps the catalog sorted.
+// its own version's lines of bin/checksums.txt, obor's and the OpenCode kind's, and keeps the catalog sorted.
 func TestShimReleaseCatalog(t *testing.T) {
 	t.Parallel()
 	dir := testkit.Dir(t)

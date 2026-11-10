@@ -1,4 +1,4 @@
-// obor (Go): every command main dispatches, listed with its usage and group in help.Commands (`obor help`, T-854), and
+// obor (Go): every command main dispatches, listed with its usage and group in help.Commands (`obor help`), and
 // the hooks noop, pre-tool-use, stop, stop-failure, session-start and user-prompt-submit. bin/obor (the kit's one bash
 // file) execs this binary for the commands in bin/go-commands.
 package main
@@ -18,7 +18,7 @@ import (
 	// the compiled agent kinds (agents.Kind): each registers itself
 	_ "obor/internal/agents/claude"
 	_ "obor/internal/agents/codex"
-	// the plugin kinds a config names (kinds.<name>.command, T-1036), OpenCode's the kit's binary (T-1046)
+	// the plugin kinds a config names (kinds.<name>.command), OpenCode's the kit's binary
 	_ "obor/internal/agents/plugin"
 	"obor/internal/app/wire"
 	"obor/internal/config"
@@ -46,7 +46,7 @@ func exit(code int) {
 
 func errf(format string, a ...any) { fmt.Fprintf(os.Stderr, format+"\n", a...) }
 
-// usage is `obor help`: every command by group, its usage line and what it does (help.Commands, T-854).
+// usage is `obor help`: every command by group, its usage line and what it does (help.Commands).
 func usage() { help.Write(out) }
 
 func main() {
@@ -142,7 +142,7 @@ func main() {
 }
 
 // load finds the project of the cwd and loads its effective config (config.Load: a key this obor does not know is a
-// warning, T-1081): exit 3 without .obor/config.json, 1 when broken.
+// warning): exit 3 without .obor/config.json, 1 when broken.
 func load() (*project.Repo, *config.Config, int) { return loadWith(config.Load) }
 
 // loadWith is load with loadCfg in place of config.Load (obor config validate's strict load).
@@ -166,7 +166,7 @@ func loadWith(loadCfg func(root string) (*config.Config, error)) (*project.Repo,
 	return repo, cfg, 0
 }
 
-// loadReader is load for the readers (obor status, obor stop/start; T-709): a config key this binary does not know is
+// loadReader is load for the readers (obor status, obor stop/start): a config key this binary does not know is
 // warn (config.LoadReader), not a failure.
 func loadReader() (cfg *config.Config, warn string, rc int) {
 	cwd, _ := os.Getwd()
@@ -189,7 +189,7 @@ func loadReader() (cfg *config.Config, warn string, rc int) {
 }
 
 // commands is what this binary implements: subcommand → its sub-subcommands (nil: takes none). `obor has` reads it,
-// so bin/obor runs a binary for a hook only when it knows it (T-195: a stale dist/obor broke every hook).
+// so bin/obor runs a binary for a hook only when it knows it (a stale dist/obor broke every hook).
 var commands = map[string][]string{
 	"whoami":    nil,
 	"init":      nil,
@@ -278,9 +278,9 @@ func hook(args []string) int {
 	return 2
 }
 
-// stopFailure is the StopFailure hook (T-532): the log line (guard.StopFailure), then one request to the project's
+// stopFailure is the StopFailure hook: the log line (guard.StopFailure), then one request to the project's
 // serve (wire.MethodStopped) with the agent, its error and details, under the call's deadline (wire.Verdict's table:
-// 5 s, retried through a serve restart; T-659). Serve down, a refusal or a session with no agent name: a line on
+// 5 s, retried through a serve restart). Serve down, a refusal or a session with no agent name: a line on
 // stderr, nothing else; the hook always exits 0.
 func stopFailure(input []byte, env project.Env) {
 	s, ok, err := guard.StopFailure(input, env, time.Now())
@@ -298,8 +298,8 @@ func stopFailure(input []byte, env project.Env) {
 }
 
 // turn is a worker's or role agent's UserPromptSubmit or Stop hook (ended) telling the project's serve its next turn
-// began or ended (wire.MethodTurn, T-540, T-569; the phase: T-571): a stop in force (its last turn ended on an API
-// error) ends. The call's deadline is wire.Verdict's (8 s, retried through a serve restart; T-659). Serve down, a
+// began or ended (wire.MethodTurn; the phase tells a start from an end): a stop in force (its last turn ended on an API
+// error) ends. The call's deadline is wire.Verdict's (8 s, retried through a serve restart). Serve down, a
 // refusal, the lead or no role: nothing (no line: the hook's own output is its verdict).
 func turn(input []byte, env project.Env, ended bool) {
 	s, ok := guard.Turn(input, env)
@@ -311,11 +311,11 @@ func turn(input []byte, env project.Env, ended bool) {
 	_, _ = wire.Verdict(context.Background(), wire.SocketPath(s.Root), c)
 }
 
-// sessionBegan is the SessionStart hook telling the project's serve the agent's session began (wire.MethodSession,
-// T-577): its id and transcript. Serve down or a refusal: nothing is recorded (the hook's log line says so), and a
-// restart resumes the agent's last recorded session, else herdr's (T-607).
+// sessionBegan is the SessionStart hook telling the project's serve the agent's session began (wire.MethodSession):
+// its id and transcript. Serve down or a refusal: nothing is recorded (the hook's log line says so), and a
+// restart resumes the agent's last recorded session, else herdr's.
 func sessionBegan(b guard.Began, log io.Writer) {
-	ctx := context.Background() // the call's deadline is wire.Verdict's (8 s; T-659)
+	ctx := context.Background() // the call's deadline is wire.Verdict's (8 s)
 	s := b.Session
 	s.Started = time.Now().Unix()
 	if _, err := wire.Verdict(ctx, wire.SocketPath(b.Root), wire.SessionRequest(b.Root, s)); err != nil {

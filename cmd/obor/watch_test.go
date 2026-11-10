@@ -8,7 +8,7 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-523: obor watch <T-xx> [<T-yy> …] is one watch request per task as the caller, serve's reply printed for each;
+// obor watch <T-xx> [<T-yy> …] is one watch request per task as the caller, serve's reply printed for each;
 // no task is one request for the list; --rm <T-xx> one request that ends the watch. A usage error or a bad task id
 // sends nothing; those and serve's refusal are FAIL on stdout, exit 1.
 func TestWatchRequest(t *testing.T) {
@@ -66,7 +66,7 @@ func TestWatchRequest(t *testing.T) {
 	refusing.stop()
 }
 
-// T-528: each argument of obor watch is a task or a comma list, one request each with the list as its task; --rm
+// each argument of obor watch is a task or a comma list, one request each with the list as its task; --rm
 // takes a comma list; a bad id in a list sends nothing.
 func TestWatchSetRequest(t *testing.T) {
 	t.Parallel()
@@ -97,7 +97,7 @@ func TestWatchSetRequest(t *testing.T) {
 	}
 }
 
-// T-666: --note "<text>" goes with a watch (one request per set, each carrying the note); a note with no set, with no
+// --note "<text>" goes with a watch (one request per set, each carrying the note); a note with no set, with no
 // text or with --rm is a usage error, as is a note before a missing text; nothing is sent then.
 func TestWatchNoteFlag(t *testing.T) {
 	t.Parallel()

@@ -18,7 +18,7 @@ import (
 	"obor/internal/testkit"
 )
 
-// bin/obor's has_hook (T-279): `obor hook pre-tool-use` through the shim of a kit copy whose dist/obor is a fake, run
+// bin/obor's has_hook: `obor hook pre-tool-use` through the shim of a kit copy whose dist/obor is a fake, run
 // without a process group of its own: a stale binary is the hint only, a good one runs Go, and the watchdog's sleep is
 // never left behind. The hanging binary: TestShimHasHookHang.
 func TestShimHasHook(t *testing.T) {
@@ -29,7 +29,7 @@ func TestShimHasHook(t *testing.T) {
 	})
 }
 
-// T-279: a hanging `has` is bounded at OBOR_HOOK_TIMEOUT (1 s here) with no job control: denied with exactly the hint,
+// a hanging `has` is bounded at OBOR_HOOK_TIMEOUT (1 s here) with no job control: denied with exactly the hint,
 // nothing else on stderr (no setpgid line), the fake killed and no watchdog sleep left behind.
 // Slow: it waits out the shim's hang watchdog (1 s: whole seconds, bin/obor's sleep).
 func TestShimHasHookHang(t *testing.T) {

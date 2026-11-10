@@ -50,7 +50,7 @@ func TestMcpBinaryServes(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)
 	lane := p.PlainLane("L-01", "")
-	p.Config() // the caller's name derives from it (T-786, T-791)
+	p.Config() // the caller's name derives from it
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, oborBin, "mcp")

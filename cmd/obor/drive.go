@@ -24,13 +24,13 @@ const driveTitle = "Owner drive: "
 // driveWait bounds how long obor drive waits for serve to prepare a new drive's lane before it starts the agent.
 var driveWait = 60 * time.Second
 
-// driveCmd is `obor drive <name> [--model <ref>]` and `obor drive <T-xx>` (T-751): the owner iterates by hand on a
+// driveCmd is `obor drive <name> [--model <ref>]` and `obor drive <T-xx>`: the owner iterates by hand on a
 // branch in a plain interactive agent (role driver). Serve records a new drive (a new task on the first free lane) and
 // answers DRIVE <task> → <lane> (<agent>, <model>); this command then waits for the lane to be prepared and starts the
 // drive agent in a pane split in the caller's tab, labelled like a lane pane, its first prompt one line saying what it
-// is. On a drive already (by task id or name; T-755) serve records nothing: its agent not running, this command starts
+// is. On a drive already (by task id or name) serve records nothing: its agent not running, this command starts
 // it again on its recorded lane and model (a failed start's retry; --model ignored); running, serve's DRIVING reply
-// and OK, nothing started. A task id that is not a drive is serve's refusal (a drive is new work only, T-912). Its
+// and OK, nothing started. A task id that is not a drive is serve's refusal (a drive is new work only). Its
 // lines, then OK or FAIL (exit 1).
 func driveCmd(args []string) int {
 	var name, ref string
@@ -146,7 +146,7 @@ func startDrive(ctx context.Context, cfg *config.Config, d drive, env project.En
 }
 
 // drivePrompt is the drive agent's first prompt: one line saying what it is, that it commits on the branch as it goes,
-// how it lands the branch and how it reaches the lead and the lead's answers arrive (T-761, T-762; no backticks: typed
+// how it lands the branch and how it reaches the lead and the lead's answers arrive (no backticks: typed
 // by herdr).
 func drivePrompt(cfg *config.Config, d drive) string {
 	return fmt.Sprintf("[obor drive] You are the owner's drive of %s in lane %s, on branch %s: work with the owner here "+
@@ -175,7 +175,7 @@ func waitPrepared(ctx context.Context, cfg *config.Config, d drive) error {
 	}
 }
 
-// landCmd is `obor land <T-xx|name> ["<summary>"]` (T-751): the drive's branch submitted on the owner's behalf. It
+// landCmd is `obor land <T-xx|name> ["<summary>"]`: the drive's branch submitted on the owner's behalf. It
 // commits nothing: a dirty lane worktree is refused with its paths. The summary is the report (default: the branch's
 // commit subjects since the target); serve's reply LANDED <task>: submitted …, then the gate, the integrator and the
 // merge as for any task. FAIL (exit 1): no open drive by that id or name, a dirty worktree, no commits, serve's
@@ -262,12 +262,12 @@ func dirtyPaths(dir string) []string {
 	return paths
 }
 
-// tellLeadCmd is `obor tell-lead "<text>"` (T-761; obor lead starts the lead, so the drive's way to it has this name):
+// tellLeadCmd is `obor tell-lead "<text>"` (obor lead starts the lead, so the drive's way to it has this name):
 // run in a drive agent's pane (role driver, its lane from its cwd), a request to obor serve that posts
 // "[obor <T-xx> drive] <text> (reply: obor resume <T-xx> "…")" to this project's lead as a lead line; the lead's obor
 // resume comes back to the drive agent as an "[obor answer] …" line. Serve's reply (TOLD …), or FAIL: serve down, the
-// caller no drive agent (serve names who it is for), no open drive in the lane, a drive the lead cannot answer (T-764:
-// landed, not driving).
+// caller no drive agent (serve names who it is for), no open drive in the lane, a drive the lead cannot answer (landed,
+// not driving).
 func tellLeadCmd(args []string) int {
 	if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
 		fmt.Fprintln(out, "FAIL "+help.Usage("tell-lead"))

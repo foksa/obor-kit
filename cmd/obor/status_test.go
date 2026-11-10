@@ -104,7 +104,7 @@ func taskLines(t *testing.T, st wire.Status) map[string]string {
 	return lines
 }
 
-// T-921 (RV-124 #1): a task an older serve lists without an ended field is open and gets its task line; the new
+// a task an older serve lists without an ended field is open and gets its task line; the new
 // serve's ended: true (a dropped task) keeps it off the lanes section.
 func TestStatusTaskLinesReadAnOlderServesTaskAsOpen(t *testing.T) {
 	t.Parallel()
@@ -161,8 +161,8 @@ func TestStatusTaskLines(t *testing.T) {
 	}
 }
 
-// T-462: a waiting task's queue line names what it waits for, no lane or attempt; DD-v0.12 A1: and why its dispatch
-// is refused once all of them merged; T-538: a lane of its level; T-664: a spec stored and never dispatched.
+// a waiting task's queue line names what it waits for, no lane or attempt, and why its dispatch is refused once
+// all of them merged; it names a lane of its level, or a spec stored and never dispatched.
 func TestStatusShowsWaiting(t *testing.T) {
 	now := time.Now()
 	for _, c := range []struct {
@@ -205,7 +205,7 @@ func TestStatusFactLine(t *testing.T) {
 	}
 }
 
-// T-596: the serve line names who runs serve: launchd (its agent's pid is serve's), a pane (any other serve), or
+// the serve line names who runs serve: launchd (its agent's pid is serve's), a pane (any other serve), or
 // nobody with no launchd agent (install it); a down serve whose agent is installed keeps the reason.
 func TestStatusServeLine(t *testing.T) {
 	since := time.Now().Add(-time.Hour)
@@ -235,7 +235,7 @@ func TestStatusServeLine(t *testing.T) {
 	}
 }
 
-// T-1177: a serve whose callers still run another obor release gets one line under serve's (the running line follows
+// a serve whose callers still run another obor release gets one line under serve's (the running line follows
 // it), and none when no observed agent is behind.
 func TestServeLineSkew(t *testing.T) {
 	t.Parallel()
@@ -284,7 +284,7 @@ func TestServeLineSkew(t *testing.T) {
 	}
 }
 
-// T-657: the running line right under serve's says what serve does without an agent: an open gate intent with the
+// the running line right under serve's says what serve does without an agent: an open gate intent with the
 // command it runs and its elapsed time, two steps at once both, a publish (git alone) and the nightly check, a pending
 // self-restart, and `running: nothing` when none is open.
 func TestStatusRunningLine(t *testing.T) {
@@ -300,7 +300,7 @@ func TestStatusRunningLine(t *testing.T) {
 		{"nothing open", nil, "running: nothing"},
 		{"gate", []wire.RunningStep{{Step: event.StepGate, Task: "T-656", Command: "check",
 			Since: now.Add(-2*time.Minute - 14*time.Second).Unix()}}, "running: gate T-656 (make -s check, 2m14s)"},
-		// T-669 (RV-75 #4), T-673: a partial gate shows the class's command serve says it runs; between two commands
+		// a partial gate shows the class's command serve says it runs; between two commands
 		// (the runner clears it as each ends) none, so the line names no command either.
 		{"partial gate", []wire.RunningStep{{Step: event.StepGate, Task: "T-656", Command: "check_affected",
 			Since: now.Add(-14 * time.Second).Unix()}}, "running: gate T-656 (make -s check-affected, 14s)"},
@@ -310,7 +310,7 @@ func TestStatusRunningLine(t *testing.T) {
 			{Step: event.StepGate, Task: "T-656", Command: "check", Since: now.Add(-2*time.Minute - 14*time.Second).Unix()},
 			{Step: event.StepAfterMerge, Task: "T-655", Since: now.Add(-12 * time.Second).Unix()}},
 			"running: gate T-656 (make -s check, 2m14s) · after_merge T-655 (make build, 12s)"},
-		// T-961: the slot's gate and two lanes' tests at once, each test with the class's command it runs.
+		// the slot's gate and two lanes' tests at once, each test with the class's command it runs.
 		{"lane tests beside the slot", []wire.RunningStep{
 			{Step: event.StepGate, Task: "T-7", Command: "compile", Since: now.Add(-3 * time.Second).Unix()},
 			{Step: event.StepTest, Task: "T-5", Command: "check_affected", Since: now.Add(-2 * time.Minute).Unix()},
@@ -322,7 +322,7 @@ func TestStatusRunningLine(t *testing.T) {
 			"running: nightly check (make -s check, 1m30s)"},
 		{"restarting serve", []wire.RunningStep{{Step: event.StepServeRestart, Since: now.Unix()}},
 			"running: restarting serve"},
-		// T-972: the restart holds nothing back: lane tests run beside it, and the line says nothing about waiting.
+		// the restart holds nothing back: lane tests run beside it, and the line says nothing about waiting.
 		{"restarting serve beside a lane test", []wire.RunningStep{
 			{Step: event.StepTest, Task: "T-5", Command: "check_affected", Since: now.Add(-2 * time.Minute).Unix()},
 			{Step: event.StepServeRestart, Since: now.Unix()}},
@@ -354,7 +354,7 @@ func TestStatusRunningLine(t *testing.T) {
 	}
 }
 
-// T-662: the pending line under the running one names the command steps whose effect does not run now: a failed step
+// the pending line under the running one names the command steps whose effect does not run now: a failed step
 // with the age of its last failure and its reason (its first line, short), one that never failed as queued; no line at
 // all when nothing waits, and --json carries the same steps.
 func TestStatusPendingLine(t *testing.T) {
@@ -391,7 +391,7 @@ func TestStatusPendingLine(t *testing.T) {
 	}
 }
 
-// T-657: --short is the serve line, the running line and needs-you, nothing else (a status bar).
+// --short is the serve line, the running line and needs-you, nothing else (a status bar).
 func TestStatusShort(t *testing.T) {
 	p := testkit.NewPlain(t)
 	p.Config()
@@ -421,7 +421,7 @@ func TestStatusShort(t *testing.T) {
 	}
 }
 
-// T-672: a role agent serve stopped once its work was done, with no pane running it, is `stopped`, not missing: the
+// a role agent serve stopped once its work was done, with no pane running it, is `stopped`, not missing: the
 // view's role row and the status line `agent <name>: stopped`; one serve did not stop has no pane as before.
 func TestStatusStoppedRole(t *testing.T) {
 	t.Parallel()
@@ -448,7 +448,7 @@ func TestStatusStoppedRole(t *testing.T) {
 	}
 }
 
-// T-677: a role agent the lead stopped (obor restart <agent> --stop), its pane at a shell, is `stopped` for every
+// a role agent the lead stopped (obor restart <agent> --stop), its pane at a shell, is `stopped` for every
 // output that reads the field: the view's role row, obor status' text and --json.
 func TestStatusStoppedRoleTextJSON(t *testing.T) {
 	t.Parallel()
@@ -500,7 +500,7 @@ func roleRowOf(t *testing.T, st view.Project, agent string) *view.Role {
 	return nil
 }
 
-// T-688: --json's events carry bad only when true: a red gate and a hold do, a green gate whose summary counts a fail
+// --json's events carry bad only when true: a red gate and a hold do, a green gate whose summary counts a fail
 // does not (its record has no bad key at all).
 func TestStatusEventsBad(t *testing.T) {
 	t.Parallel()
@@ -556,8 +556,8 @@ func TestStatusEventsBad(t *testing.T) {
 	}
 }
 
-// T-801: a custom role's agent is a role row of obor status (text and --json) like the advisor's, and obor restart
-// <agent> --stop stops it; once its row is removed it is no row and restart no longer knows it, nothing else changes.
+// a custom role's agent is a role row of obor status (text and --json) like the advisor's, and obor restart
+// <agent> --stop stops it; once its row is removed it is no row and restart does not know it, nothing else changes.
 func TestStatusAndStopCustomRole(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)
@@ -597,7 +597,7 @@ func TestStatusAndStopCustomRole(t *testing.T) {
 	}
 }
 
-// T-871: obor status shows an unknown lane's reason on its line, beside the unknown state.
+// obor status shows an unknown lane's reason on its line, beside the unknown state.
 func TestStatusShowsUnknownLaneReason(t *testing.T) {
 	why := "git status: exit status 1: fatal: index file smaller than expected"
 	line := laneLine(view.Lane{Lane: port.Lane{Name: "L-01", State: "unknown", Reason: why}, Column: "unknown"}, view.Task{})
@@ -606,8 +606,8 @@ func TestStatusShowsUnknownLaneReason(t *testing.T) {
 	}
 }
 
-// T-1030: the queue lists a high waiting dispatch first and marks it `high`: the order is serve's (the lane's pick
-// order, T-1043: each wait's rank), not the task id's.
+// the queue lists a high waiting dispatch first and marks it `high`: the order is serve's (the lane's pick
+// order, each wait's rank), not the task id's.
 func TestStatusQueueMarksHighWaitingFirst(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)
@@ -633,7 +633,7 @@ func TestStatusQueueMarksHighWaitingFirst(t *testing.T) {
 	}
 }
 
-// T-1043: the queue's text lists the dispatched waits in serve's order (each one's rank: the scheduler's pass order),
+// the queue's text lists the dispatched waits in serve's order (each one's rank: the scheduler's pass order),
 // not by task id: T-20, its dispatch before T-10's, comes first although its id sorts second.
 func TestStatusQueueListsServeOrder(t *testing.T) {
 	t.Parallel()
@@ -658,7 +658,7 @@ func TestStatusQueueListsServeOrder(t *testing.T) {
 	}
 }
 
-// T-1031: a keep lane's line says keep, with its queue in dispatch order; a fresh lane's line says neither; a task
+// a keep lane's line says keep, with its queue in dispatch order; a fresh lane's line says neither; a task
 // queued on a keep lane is the queue's line "queued <task>: behind <task> on keep lane <lane>".
 func TestStatusShowsKeepLaneAndItsQueue(t *testing.T) {
 	keep := laneLine(view.Lane{Lane: port.Lane{Name: "L-01", State: "working", Task: "T-1", Mode: config.LaneKeep,
@@ -707,7 +707,7 @@ func TestStatusExitCodesAndLeadFlag(t *testing.T) {
 	}
 }
 
-// T-803: obor status shows the idle state: unacknowledged with when it began, or the acknowledgement's why.
+// obor status shows the idle state: unacknowledged with when it began, or the acknowledgement's why.
 func TestStatusShowsIdle(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)

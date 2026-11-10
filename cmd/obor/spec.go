@@ -13,7 +13,7 @@ import (
 	"obor/internal/store"
 )
 
-// specCmd is `obor spec set|show|list` (T-440): the tasks' specs live in obor serve's store. set is a request to
+// specCmd is `obor spec set|show|list`: the tasks' specs live in obor serve's store. set is a request to
 // serve (the lead role only); show and list read the store read-only, serve up or down.
 func specCmd(args []string) int {
 	if len(args) == 0 {
@@ -34,7 +34,7 @@ func specCmd(args []string) int {
 	return 1
 }
 
-// specSetArgs is obor spec set's arguments, <T-xx> <path> [--note "<what changed>"] (T-819: the note is what
+// specSetArgs is obor spec set's arguments, <T-xx> <path> [--note "<what changed>"] (the note is what
 // task_done's refusal names). False: not that form.
 func specSetArgs(args []string) (task, path, note string, ok bool) {
 	switch {
@@ -48,8 +48,8 @@ func specSetArgs(args []string) (task, path, note string, ok bool) {
 
 // specSet is `obor spec set <T-xx> <path> [--note "<what changed>"]`: path (any file, read once) stored as the task's
 // spec, a request to obor serve, the store's one writer. A later set with another text is the next rev (a running
-// task's guard reads its protected unlocks at its next call; its worker's next task_done at the older rev is refused,
-// T-819). SET <task> rev <n> | UNCHANGED <task> rev <n>, or FAIL … exit 1 (serve down too). The caller is the session's (caller:
+// task's guard reads its protected unlocks at its next call; its worker's next task_done at the older rev is refused).
+// SET <task> rev <n> | UNCHANGED <task> rev <n>, or FAIL … exit 1 (serve down too). The caller is the session's (caller:
 // a lane's cwd is a worker's whatever OBOR_ROLE says; none, the owner in a plain terminal, is sent as no role), and
 // serve refuses every role but the lead and the owner.
 func specSet(task, path, note string) int {

@@ -55,7 +55,7 @@ func (x *leadFx) run(t *testing.T, args ...string) (string, int) {
 	return out.String(), rc
 }
 
-// runWakes is run with obor start's outside systems faked: serve up or down, its agents nothing to stop (T-911's wake
+// runWakes is run with obor start's outside systems faked: serve up or down, its agents nothing to stop (its wake
 // needs no herdr). Its output carries the start's lines and the lead's, its serve the requests start made.
 func (x *leadFx) runWakes(t *testing.T, up bool, args ...string) (string, int, *sleepServe) {
 	t.Helper()
@@ -88,14 +88,14 @@ func startCall(name, pane string, args ...string) string {
 	return "agent.start " + string(b)
 }
 
-// uuidArg matches the session id obor names a fresh start with (T-813): random, so the tests write it "NEW".
+// uuidArg matches the session id obor names a fresh start with: random, so the tests write it "NEW".
 var uuidArg = regexp.MustCompile(`"--session-id","[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"`)
 
 func noSessionID(calls string) string {
 	return uuidArg.ReplaceAllString(calls, `"--session-id","NEW"`)
 }
 
-var leadStart = startCall("pj-lead", "w1:p1", "--permission-mode", "auto", "--model", "opus") // no Remote Control default (T-280)
+var leadStart = startCall("pj-lead", "w1:p1", "--permission-mode", "auto", "--model", "opus") // no Remote Control default
 
 func TestLeadRunningTouchesNothing(t *testing.T) {
 	t.Parallel()
@@ -114,8 +114,8 @@ func TestLeadRunningTouchesNothing(t *testing.T) {
 	}
 }
 
-// T-553: `obor lead` starts fresh; --resume continues the recorded session (--fresh was removed, T-774). A fresh
-// start names its session itself, and herdr's session is no source of a Claude resume (T-813).
+// `obor lead` starts fresh; --resume continues the recorded session (--fresh is no flag). A fresh
+// start names its session itself, and herdr's session is no source of a Claude resume.
 func TestLeadLabelledPaneSession(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -124,7 +124,7 @@ func TestLeadLabelledPaneSession(t *testing.T) {
 		want   string
 		start  []string // the agent.start args
 	}{
-		{nil, false, "RESTARTED pj-lead (pane w1:p1, session new)", // T-594: the lead skill is the first prompt
+		{nil, false, "RESTARTED pj-lead (pane w1:p1, session new)", // the lead skill is the first prompt
 			[]string{"--permission-mode", "auto", "--model", "opus", "--session-id", "NEW", "/obor:lead"}},
 		{[]string{"--resume"}, true, "RESTARTED pj-lead (pane w1:p1, session old-sid)",
 			[]string{"--permission-mode", "auto", "--model", "opus", "--resume", "old-sid"}},
@@ -149,21 +149,21 @@ func TestLeadLabelledPaneSession(t *testing.T) {
 }
 
 // From the lead's own pane at its shell obor lead itself has the foreground, and herdr starts an agent only at the
-// shell prompt: the start runs detached once obor lead has exited (T-553: fresh unless --resume).
+// shell prompt: the start runs detached once obor lead has exited (fresh unless --resume).
 func TestLeadOwnPaneStartsOnceItExits(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
 		args []string
 		want string
 	}{
-		// The scheduled run carries no first prompt (T-785): a fresh start of a role agent gets its role's (T-729),
+		// The scheduled run carries no first prompt: a fresh start of a role agent gets its role's,
 		// the lead's /obor:lead.
 		{nil, "restart pj-lead --pane w1:p1 --fresh"},
 		{[]string{"--resume"}, "restart pj-lead --pane w1:p1"},
 	} {
 		x := newLeadFx(t)
 		x.f.Shell("w1:p1", "pj-lead", x.p.Root).Session = "old-sid"
-		x.p.Session("pj-lead", "old-sid") // T-813: the resume's source is the record, not herdr's session
+		x.p.Session("pj-lead", "old-sid") // the resume's source is the record, not herdr's session
 		x.env = []string{"OBOR_PANE=w1:p1"}
 		x.srv.Reply("pane.process_info", map[string]any{"type": "pane_process_info", "process_info": map[string]any{
 			"pane_id": "w1:p1", "shell_pid": 1, "foreground_process_group_id": 77,
@@ -188,20 +188,20 @@ func TestLeadNoPaneSetsUp(t *testing.T) {
 	t.Parallel()
 	x := newLeadFx(t)
 	out, rc := x.run(t)
-	// No pane of the project anywhere: its own herdr workspace first, wn1 (T-632).
+	// No pane of the project anywhere: its own herdr workspace first, wn1.
 	if rc != 0 || lastLine(out) != "OK lead: pj-lead in pane wn1:n2" {
 		t.Fatalf("no pane: exit %d\n%s", rc, out)
 	}
 	c := x.calls()
 	if !strings.Contains(c, `workspace.create {"cwd":"`+x.p.Root+`","focus":false,"label":"proj"}`) ||
 		!strings.Contains(c, `tab.create {"cwd":"`+x.p.Root+`","env":{"OBOR_AGENT":"","OBOR_LANE":"","OBOR_OPENCODE_MODEL":"","OBOR_PANE":"","OBOR_ROLE":"lead","OPENCODE_CONFIG":""},"focus":false,"label":"lead","workspace_id":"wn1"}`) ||
-		!strings.Contains(c, "export OBOR_ROLE=lead OBOR_PANE=wn1:n2 ") || // T-1037: the new pane's id, before the start
+		!strings.Contains(c, "export OBOR_ROLE=lead OBOR_PANE=wn1:n2 ") || // the new pane's id, before the start
 		!strings.Contains(noSessionID(c), startCall("pj-lead", "wn1:n2", "--permission-mode", "auto", "--model", "opus", "--session-id", "NEW", "/obor:lead")) || strings.Contains(c, "--resume") {
 		t.Errorf("obor setup role lead --new-tab lead, fresh:\n%s", c)
 	}
 }
 
-// RV-51 #4: only a new pane needs roles.lead.
+// only a new pane needs roles.lead.
 func TestLeadNoRoleTypeFailsOnlyForANewPane(t *testing.T) {
 	t.Parallel()
 	x := newLeadFx(t, testkit.Set("agents.roles.lead", ""))
@@ -224,7 +224,7 @@ func TestLeadUntypedRunningOrLabelled(t *testing.T) {
 
 	x = newLeadFx(t, testkit.Set("agents.roles.lead", ""))
 	x.f.Shell("w1:p1", "pj-lead", x.p.Root).Session = "old-sid"
-	x.p.Session("pj-lead", "old-sid") // T-813: a resume reads the record, never herdr's session
+	x.p.Session("pj-lead", "old-sid") // a resume reads the record, never herdr's session
 	out, rc := x.run(t, "--resume")
 	if rc != 0 || lastLine(out) != "RESTARTED pj-lead (pane w1:p1, session old-sid)" {
 		t.Fatalf("untyped labelled pane: exit %d\n%s", rc, out)
@@ -248,7 +248,7 @@ func TestLeadUsage(t *testing.T) {
 	}
 }
 
-// T-594: only a Claude lead gets the skill as its first prompt, in a labelled pane and in a new tab; --resume none.
+// only a Claude lead gets the skill as its first prompt, in a labelled pane and in a new tab; --resume none.
 func TestLeadPromptOnlyForAFreshClaudeLead(t *testing.T) {
 	t.Parallel()
 	x := newLeadFx(t, testkit.Set("agents.roles.lead", "luna"))
@@ -261,7 +261,7 @@ func TestLeadPromptOnlyForAFreshClaudeLead(t *testing.T) {
 	}
 
 	x = newLeadFx(t, testkit.Set("agents.roles.lead", "luna"))
-	if out, rc := x.run(t); rc != 0 || lastLine(out) != "OK lead: pj-lead in pane wn1:n2" { // its own workspace, T-632
+	if out, rc := x.run(t); rc != 0 || lastLine(out) != "OK lead: pj-lead in pane wn1:n2" { // its own workspace
 		t.Fatalf("codex lead, new tab: exit %d\n%s", rc, out)
 	}
 	if c := x.calls(); !strings.Contains(c, "agent.start") || strings.Contains(c, "/obor:lead") {
@@ -269,7 +269,7 @@ func TestLeadPromptOnlyForAFreshClaudeLead(t *testing.T) {
 	}
 }
 
-// T-911: a stopped project is woken before its lead: obor start's steps run first (its STARTED line, the marker gone,
+// a stopped project is woken before its lead: obor start's steps run first (its STARTED line, no marker,
 // the project registered), then the lead starts; a start that fails ends obor lead with its error at once and starts
 // no lead; a running project runs no start at all.
 func TestLeadWakesAStoppedProjectFirst(t *testing.T) {

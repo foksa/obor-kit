@@ -9,7 +9,7 @@ import (
 	"obor/internal/project"
 )
 
-// T-719: serve and web follow a new obor binary. These tests replace the package's binaryWatch and selfExec (and
+// serve and web follow a new obor binary. These tests replace the package's binaryWatch and selfExec (and
 // shorten serve's tick and web's watch), so none of them runs in parallel.
 
 // execRec is a fake selfExec: it records each call and runs at (nil: nothing) at the moment of the exec.

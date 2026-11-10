@@ -8,7 +8,7 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-638: obor review [--after T-a,T-b] [--note …] | --rm is one review request as the caller; a usage error or a bad
+// obor review [--after T-a,T-b] [--note …] | --rm is one review request as the caller; a usage error or a bad
 // task id sends nothing (FAIL on stdout, exit 1).
 func TestReviewRequest(t *testing.T) {
 	t.Parallel()

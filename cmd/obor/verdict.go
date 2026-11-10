@@ -11,11 +11,11 @@ import (
 	"obor/internal/project"
 )
 
-// resumeCmd is `obor resume <T-xx> ["<text>"] [--regate|--sendback]` (T-775), the lead's or the owner's one word to a
+// resumeCmd is `obor resume <T-xx> ["<text>"] [--regate|--sendback]`, the lead's or the owner's one word to a
 // task, sent to obor serve (its app socket) as the caller (caller: the session's derived name and role): serve picks the
 // action from the task's state (a question's answer, a stalled or stopped worker's line, a drive's line, a sendback, a
 // needs-you's decision; the flags only where two fit). It prints the app's reply, or FAIL with its refusal. The
-// integrator's verdicts (accept, sendback, reject, resolved, hold) are its MCP tools only (T-437, T-470).
+// integrator's verdicts (accept, sendback, reject, resolved, hold) are its MCP tools only.
 func resumeCmd(args []string) int {
 	c, ok := wire.ResumeArgs(args)
 	if !ok {
@@ -28,9 +28,9 @@ func resumeCmd(args []string) int {
 	})
 }
 
-// caller is the one identity of every CLI request to obor serve (DD-v0.11 §Design 2): the session's role
+// caller is the one identity of every CLI request to obor serve: the session's role
 // (project.DetectRole: a lane's cwd is a worker's whatever OBOR_ROLE says; none, the owner in a plain terminal, is sent
-// as no role) and its name derived from it (project.SelfAgent, T-786: never OBOR_AGENT), a new call id and the
+// as no role) and its name derived from it (project.SelfAgent: never OBOR_AGENT), a new call id and the
 // project; cwd is the session's. Serve decides which callers each request takes:
 // the owner (no role), the lead, the integrator, a worker.
 func caller(env project.Env, cwd string, cfg *config.Config) wire.Envelope {
