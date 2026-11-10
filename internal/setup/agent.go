@@ -141,6 +141,9 @@ func (s *Setup) rolePane(ctx context.Context, name string, w where, startNow boo
 		if err := s.ensureWorktree(a.cwd); err != nil {
 			return err
 		}
+		if err := s.linkWorktree(a.cwd); err != nil { // an untracked settings file reaches a worktree only as a link
+			return err
+		}
 	}
 
 	for _, rel := range slices.Sorted(maps.Keys(role.Seeds)) { // a custom role's seeded files (triage's docs/BUGS.md)

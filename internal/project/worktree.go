@@ -31,3 +31,31 @@ func AddWorktree(ctx context.Context, root, dir, ref string) (added bool, err er
 	}
 	return true, nil
 }
+
+// LinkInto symlinks each entry of links (lanes.links: paths relative to root, the main checkout) into the worktree
+// dir and returns the entries it linked. Only a missing entry is linked: whatever is at its path in dir (a file git
+// tracks, the project's own file, an earlier link) stays as it is, and an entry root does not have is skipped. The
+// one linker of every worktree obor makes or meets: lanes and role worktrees (obor setup, the launcher's start of a
+// role agent) and the checks' scratch worktrees.
+func LinkInto(root, dir string, links []string) (linked []string, err error) {
+	for _, link := range links {
+		if link == "" {
+			continue
+		}
+		src, dst := filepath.Join(root, link), filepath.Join(dir, link)
+		if _, err := os.Lstat(dst); err == nil {
+			continue
+		}
+		if _, err := os.Stat(src); err != nil {
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return linked, fmt.Errorf("cannot link %s: %v", dst, err)
+		}
+		if err := os.Symlink(src, dst); err != nil {
+			return linked, fmt.Errorf("cannot link %s: %v", dst, err)
+		}
+		linked = append(linked, link)
+	}
+	return linked, nil
+}

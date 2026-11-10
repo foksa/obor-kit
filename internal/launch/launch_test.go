@@ -712,6 +712,67 @@ func TestRestartWho(t *testing.T) {
 	}
 }
 
+// A role agent's start links lanes.links into its role worktree, so a file git does not track (the project's
+// .claude/settings.json of a fresh init, which enables obor's plugin) reaches the agent: a worktree the start adds
+// gets the links, one already there gets the link it lacks, and a file at a link's path stays as it is.
+func TestRestartLinksLaneLinksIntoTheRoleWorktree(t *testing.T) {
+	t.Parallel()
+	links := testkit.Set("lanes.links", `["local.env", ".claude/settings.json"]`)
+	start := func(t *testing.T, x *fx) {
+		t.Helper()
+		x.p.Write(filepath.Join(x.p.Root, "local.env"), "A=1\n")
+		x.p.Write(filepath.Join(x.p.Root, ".claude", "settings.json"), `{"main":true}`+"\n")
+		x.sid("pj-int", "sid-i")
+		x.shell("w1:p5", "pj-int", "").Session = "sid-i"
+		if out, ok := x.restart(launch.Request{Agent: "pj-int"}); !ok {
+			t.Fatalf("restart failed:\n%s", out)
+		}
+	}
+	linked := func(t *testing.T, x *fx, wt, link string) {
+		t.Helper()
+		got, err := os.Readlink(filepath.Join(wt, link))
+		if want := filepath.Join(x.p.Root, link); err != nil || project.Physical(got) != project.Physical(want) {
+			t.Errorf("%s in the role worktree: link to %q (%v), want a link to %s", link, got, err, want)
+		}
+	}
+	t.Run("a missing role worktree is added with the links", func(t *testing.T) {
+		t.Parallel()
+		x := setupGit(t, links)
+		wt := x.p.LaneDir("integrator")
+		if _, err := os.Stat(wt); err == nil {
+			t.Fatalf("precondition: no role worktree %s", wt)
+		}
+		start(t, x)
+		if top := strings.TrimSpace(x.p.Git(wt, "rev-parse", "--show-toplevel")); project.Physical(top) != project.Physical(wt) {
+			t.Fatalf("the role worktree %s was not added (toplevel %q)", wt, top)
+		}
+		linked(t, x, wt, "local.env")
+		linked(t, x, wt, ".claude/settings.json")
+	})
+	t.Run("an existing role worktree gets the link it lacks and keeps the file it has", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t, links)
+		wt := x.p.LaneDir("integrator")
+		own := filepath.Join(wt, ".claude", "settings.json")
+		before, err := os.ReadFile(own)
+		if fi, lerr := os.Lstat(own); err != nil || lerr != nil || !fi.Mode().IsRegular() {
+			t.Fatalf("precondition: the role worktree has its own %s (a regular file): %v %v", own, err, lerr)
+		}
+		if _, err := os.Lstat(filepath.Join(wt, "local.env")); err == nil {
+			t.Fatal("precondition: the role worktree has no local.env")
+		}
+		start(t, x)
+		linked(t, x, wt, "local.env")
+		after, _ := os.ReadFile(own)
+		if fi, err := os.Lstat(own); err != nil || !fi.Mode().IsRegular() || string(after) != string(before) {
+			t.Errorf("the worktree's own %s changed: %q, want the regular file %q", own, after, before)
+		}
+		if string(before) == x.p.Read(filepath.Join(x.p.Root, ".claude", "settings.json")) {
+			t.Fatal("the worktree's file and the main checkout's are the same text: the test cannot tell them apart")
+		}
+	})
+}
+
 // Request.Args and ParseRequest are one pair; the CLI's fields (agent, pane, fresh, force) go through both and
 // come back the same, so a field carried on one side only fails here. A Prompt, Effort or Type is a start's (serve's), never a scheduled CLI restart's: no flag carries
 // it, and ParseRequest refuses the flags restart does not take.

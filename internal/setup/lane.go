@@ -32,20 +32,8 @@ func (s *Setup) lane(ctx context.Context, args []string) error {
 	if err := s.ensureWorktree(dir); err != nil {
 		return err
 	}
-	for _, link := range s.laneLinks() {
-		src, dst := filepath.Join(s.root, link), filepath.Join(dir, link)
-		if _, err := os.Lstat(dst); err == nil {
-			s.say("skip link %s (exists)", link)
-			continue
-		}
-		if _, err := os.Stat(src); err != nil {
-			s.say("warning: lane_links %s: no %s, not linked", link, src)
-			continue
-		}
-		if os.MkdirAll(filepath.Dir(dst), 0o755) != nil || os.Symlink(src, dst) != nil {
-			return project.Failf("cannot link %s", dst)
-		}
-		s.say("link %s → %s", link, src)
+	if err := s.linkWorktree(dir); err != nil {
+		return err
 	}
 	if configured {
 		s.say("skip config lanes (%s is lane %d of %d)", lane, s.laneIndex(lane), s.cfg.LaneCount())
@@ -150,6 +138,29 @@ func (s *Setup) laneLinks() []string {
 		return links
 	}
 	return append(slices.Clone(links), pluginSettings)
+}
+
+// linkWorktree links laneLinks into the worktree dir (a lane, a role worktree) with project.LinkInto and says what
+// became of each entry: linked, already there, or not in the main checkout.
+func (s *Setup) linkWorktree(dir string) error {
+	links := s.laneLinks()
+	linked, err := project.LinkInto(s.root, dir, links)
+	if err != nil {
+		return project.Failf("%v", err)
+	}
+	for _, link := range links {
+		src := filepath.Join(s.root, link)
+		_, statErr := os.Lstat(filepath.Join(dir, link))
+		switch {
+		case slices.Contains(linked, link):
+			s.say("link %s → %s", link, src)
+		case statErr == nil:
+			s.say("skip link %s (exists)", link)
+		default:
+			s.say("warning: lane_links %s: no %s, not linked", link, src)
+		}
+	}
+	return nil
 }
 
 // settingsUntracked: the main checkout has pluginSettings and git does not track it.
