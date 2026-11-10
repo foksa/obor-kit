@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -1080,11 +1081,12 @@ func TestOborKitTrimGoCache(t *testing.T) {
 // failure (the nightly check owns it), a run in which no package ran is a FAIL and exit 2 — never "0 reports" — and a
 // race is exit 1, so the nightly prints a WARN and keeps the whole output. Through make the recipe's status reaches the
 // operator in make's own trailing line (`make: *** [check-race] Error 1` for a race, `Error 2` for a build that did not
-// run) and make itself exits 2 for any failed recipe; the nightly's last-line report therefore reads that line, while
-// the count is this target's line just above it and the kept log (reported to the lead, T-1169). The cases are canned
-// go test output, so no real race build runs here; the real build is covered once by the task's own run of the target
-// on ./internal/spec. The go stub answers `go env GOCACHE` with a temp cache and logs its argv, so the test also proves
-// the target asks Go for -race.
+// run; GNU Make 4.x prints the file and line too, `make: *** [Makefile:165: check-race] Error 1`) and make itself exits
+// 2 for any failed recipe; the nightly's last-line report therefore reads that line, while the count is this target's
+// line just above it and the kept log (reported to the lead, T-1169). The cases are canned go test output, so no real
+// race build runs here; the real build is covered once by the task's own run of the target on ./internal/spec. The go
+// stub answers `go env GOCACHE` with a temp cache and logs its argv, so the test also proves the target asks Go for
+// -race.
 func TestOborKitCheckRace(t *testing.T) {
 	t.Parallel()
 	repo, _ := filepath.Abs("../..")
@@ -1178,20 +1180,29 @@ func TestOborKitCheckRace(t *testing.T) {
 			// The recipe's own status, which the nightly's line carries inside make's message: 1 is a data race (WARN,
 			// log kept), 2 a race build that did not run (also a WARN — never "0 reports").
 			if c.wantExit > 0 {
-				if want := "make: *** [check-race] Error " + strconv.Itoa(c.wantExit); lastLine(string(out)) != want {
-					t.Errorf("%s: last line %q; want %q:\n%s", c.name, lastLine(string(out)), want, out)
+				last := lastLine(string(out))
+				m := makeErrorLine.FindStringSubmatch(last)
+				if m == nil {
+					t.Errorf("%s: last line %q is not make's error line for a failed recipe:\n%s", c.name, last, out)
+				} else if m[1] != strconv.Itoa(c.wantExit) {
+					t.Errorf("%s: the recipe's status %s; want %d (last line %q):\n%s", c.name, m[1], c.wantExit, last, out)
 				}
 			}
 		})
 	}
 }
 
-// decisionLine is the target's own last non-blank line: the output above make's trailing `make: *** [check-race] Error
-// N` line, which make appends to every failed recipe (and which the nightly's last-line report reads instead).
+// makeErrorLine is make's trailing line for a failed recipe, both formats in use where this kit runs: GNU Make 3.81
+// prints `make: *** [check-race] Error N`, GNU Make 4.x `make: *** [Makefile:165: check-race] Error N` (and a sub-make
+// prefixes its own `make[1]:`). Group 1 is the recipe's exit status.
+var makeErrorLine = regexp.MustCompile(`^make(?:\[\d+\])?: \*\*\* \[(?:.+: )?check-race\] Error (\d+)$`)
+
+// decisionLine is the target's own last non-blank line: the output above make's trailing error line, which make appends
+// to every failed recipe (and which the nightly's last-line report reads instead).
 func decisionLine(s string) string {
 	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
 	for i := len(lines) - 1; i >= 0; i-- {
-		if l := strings.TrimSpace(lines[i]); l != "" && !strings.HasPrefix(l, "make: *** [check-race] ") {
+		if l := strings.TrimSpace(lines[i]); l != "" && !makeErrorLine.MatchString(l) {
 			return l
 		}
 	}
@@ -1205,6 +1216,40 @@ func lastLine(s string) string {
 		return ""
 	}
 	return lines[len(lines)-1]
+}
+
+// T-1169: make's trailing error line has two formats where the kit runs (GNU Make 3.81 on macOS, 4.x on Linux), and the
+// test above goes through it on both: this machine's make prints 3.81's, so the 4.x form is pinned here. Both the
+// status assert and decisionLine must read either.
+func TestOborKitMakeErrorLine(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		line, status string
+	}{
+		{"make: *** [check-race] Error 1", "1"},
+		{"make: *** [Makefile:165: check-race] Error 1", "1"},
+		{"make[1]: *** [Makefile:165: check-race] Error 2", "2"},
+		{"make: *** [Makefile:165: check-race] Error 12", "12"},
+	} {
+		t.Run(c.line, func(t *testing.T) {
+			t.Parallel()
+			m := makeErrorLine.FindStringSubmatch(c.line)
+			if m == nil {
+				t.Fatalf("%q does not match make's error line", c.line)
+			}
+			if m[1] != c.status {
+				t.Errorf("the recipe's status %q, want %q", m[1], c.status)
+			}
+			if got := decisionLine("the target's line\n" + c.line + "\n"); got != "the target's line" {
+				t.Errorf("decisionLine does not skip %q: got %q", c.line, got)
+			}
+		})
+	}
+	// Precondition for the skip above: a line that is not make's comes back, so decisionLine returning the target's
+	// line is not vacuous.
+	if got := decisionLine("race: 0 data race report(s)\nmake: *** [Makefile:165: check-race] Error 1\n"); got != "race: 0 data race report(s)" {
+		t.Errorf("decisionLine returned %q, want the target's line", got)
+	}
 }
 
 // T-1027: the Makefile exports GOFLAGS with -trimpath for every target's Go command, keeping a GOFLAGS from the
