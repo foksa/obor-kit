@@ -89,3 +89,4 @@ last). Nobody reads this file at session start: look a line up when its symptom 
 - (DD-v0.10-verify-2, accepted) `ask` retries a client timeout with the same call id.
 - (RV-177, accepted) RV-177 verify design: internal/project/worktree_test.go runs real git untagged (rule: real-git tests in checks/CLI/setup githook, integration tag); move to an allowed package with a fake for the link choice, ~1 small task
 - (RV-183, accepted) A Codex worker resuming from a usage stop into a dialog gets its needs-you{blocked} one watchdog tick late (≤30 s): the stop's resumed decision skips judge. Fix cost: 5-15 lines + a 25-45 line test.
+- (RV-184, accepted) A review close refuses (nothing committed) when the tracked BACKLOG.md sits under a non-ASCII directory or was just renamed with git mv: porcelain's quoted or 'a -> b' path is read as the path. Fix cost: parse status -z (30-50 lines + test).
