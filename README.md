@@ -102,8 +102,8 @@ the flag for it:
 | Codex | `.codex/config.toml`, top-level (before any `[table]`) | `sandbox_mode` | `-s workspace-write` |
 | Codex | same | `check_for_update_on_startup` | `-c check_for_update_on_startup=false` |
 | Codex | `.codex/config.toml`, anywhere (dotted, or under its `[table]`) | `features.plugins`, `features.apps`, `skills.bundled.enabled`, `skills.config` | that key's `-c` option (non-lead roles): `-c <key>=false` for the user's plugins with their skills, the app connectors and the bundled skills, and `-c skills.config=[{name="<skill>",enabled=false},…]` for each skill (a dir holding a `SKILL.md`) in `~/.codex/skills`; the rest of the user's config applies, and user skills in `~/.agents/skills` stay |
-| Codex | same | a key `agents.overrides.codex.settings` names, the `[plugins."<id>"]` or `[mcp_servers.<name>]` table of an entry `off` names | that entry's `-c` option (non-lead roles, below): the project's value applies |
-| OpenCode | `opencode.json[c]`, `.opencode/opencode.json[c]` | any key | nothing, but the project's value applies: OpenCode ranks the project's config above the config obor generates for the start (`OPENCODE_CONFIG`: obor's MCP server and plugin, and `agents.overrides.opencode` for non-lead roles, below), and that one above your user config. `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` is in every non-lead start's env (no opt-out) and hides the Claude skill dirs, `~/.claude/skills` and the project's `.claude/skills`; the user's `opencode.json`, plugins, `~/.config/opencode/skills` and `~/.agents/skills` stay unless an override names them |
+| Codex | same | a key `.obor/codex/config_override.toml` sets | that key's `-c` option (non-lead roles, below): the project's value applies |
+| OpenCode | `opencode.json[c]`, `.opencode/opencode.json[c]` | any key | nothing, but the project's value applies: OpenCode ranks the project's config above the config obor generates for the start (`OPENCODE_CONFIG`: obor's MCP server and plugin, and for non-lead roles your config with `.obor/opencode/opencode_override.json` laid over it, below), and that one above your user config. `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` is in every non-lead start's env (no opt-out) and hides the Claude skill dirs, `~/.claude/skills` and the project's `.claude/skills`; the user's `opencode.json`, plugins, `~/.config/opencode/skills` and `~/.agents/skills` stay unless the override file switches them off |
 
 obor's MCP server, the session id, the prompt, the model ref each role and difficulty level names (`<model>[:<effort>]`,
 e.g. `opus:high`), Claude's `--permission-mode auto` and Codex's `-a never` stay (change those in `.obor/config.json`:
@@ -114,64 +114,85 @@ off obor's guard hooks) and on an OpenCode project config (`opencode.json[c]`, `
 defines `mcp.servers.obor` (it replaces obor's server).
 
 **Your own user settings.** The lead starts on your user-level settings as they are. Every other agent keeps them
-too, except what obor overrides: your plugins and skills are off by default, and `agents.overrides.<kind>` in
-`.obor/config.json` names anything else to set or switch off for that CLI's agents. A role's own `overrides` are laid
-over the kind's (its `settings` keys win, its `off` lists are added); a built-in role then takes the object form
-`{"model": "<ref>", "overrides": {…}}` in place of its model ref string.
+too, except a default obor switches off: your plugins and skills.
 
-```json
-"agents": {
-  "overrides": {
-    "claude": {
-      "settings": {"env": {"MAX_THINKING_TOKENS": "8000"}},
-      "off": {"hooks": ["notify.sh"], "plugins": ["openseo@openseo"], "mcp": ["blender"]}
-    }
-  },
-  "roles": {
-    "reviewer": {"model": "opus:high", "overrides": {"claude": {"settings": {"env": {"MAX_THINKING_TOKENS": "32000"}}}}}
-  }
-}
+Most of what a project wants for its agents needs no obor file: the project's own committed CLI config already
+combines with yours. In Claude's `.claude/settings.json` a scalar (`model`, `statusLine`, …) and a plugin in
+`enabledPlugins` win over yours, `env` wins per variable, and permission lists and hooks add up with yours. An
+**override file** is for the two things that cannot do: removing an entry of yours (one of your hooks, an MCP
+server), or a setting meant for obor's agents only and not for everyone who opens the project. An override file is a
+file in the CLI's own format, in `.obor/<kind>/` at the project's root (committed), merged over your file of the same
+kind for every agent of that CLI but the lead:
+
+| File | Merged over |
+| --- | --- |
+| `.obor/claude/settings_override.json` | `~/.claude/settings.json` (`$CLAUDE_CONFIG_DIR`) |
+| `.obor/claude/claude_override.json` | the `mcpServers` of `~/.claude.json` |
+| `.obor/codex/config_override.toml` | `~/.codex/config.toml` (`$CODEX_HOME`) |
+| `.obor/codex/hooks_override.json` | `~/.codex/hooks.json` |
+| `.obor/opencode/opencode_override.json` | `~/.config/opencode/opencode.json[c]` (`$XDG_CONFIG_HOME/opencode`) |
+
+The merge is a JSON Merge Patch (RFC 7396), for TOML on the parsed tables: an object (a table) merges key by key,
+so you write only what changes; `null` deletes a key; anything else, a list too, replaces yours whole. The file is
+applied after obor's default, so it can switch one of your plugins back on. `obor config validate` fails on a file
+that does not parse (no agent of that CLI starts on one either) and warns on a file of another name in
+`.obor/<kind>/`.
+
+```jsonc
+// .obor/claude/settings_override.json: drop your SessionStart hooks, cap thinking, keep one of your plugins
+{"hooks": {"SessionStart": []}, "env": {"MAX_THINKING_TOKENS": "8000"}, "enabledPlugins": {"improve@improve": true}}
+// .obor/claude/claude_override.json: no Blender MCP server for the agents
+{"mcpServers": {"blender": null}}
+// .obor/codex/hooks_override.json: your hooks.json's SessionStart event without its hooks
+{"hooks": {"SessionStart": null}}
+// .obor/opencode/opencode_override.json: without herdr's plugin, your "herd" MCP server disabled
+{"plugins": ["-herdr.opencode"], "mcp": {"servers": {"herd": {"disabled": true}}}}
 ```
 
-- `settings` are keys in the CLI's own shape (Claude: `settings.json` keys; OpenCode: `opencode.json` keys), set over yours; an object merges key by
-  key, so the `env` above changes one variable and keeps your others.
-- `off` lists name entries of your own config by a substring: a hook by its command, a plugin by its id, a skill by
-  its dir name, an MCP server by its name (`off: {hooks, plugins, skills, mcp}`).
+```toml
+# .obor/codex/config_override.toml
+model_reasoning_summary = "none"
+[mcp_servers.blender]
+enabled = false
+```
 
 Claude agents (all but the lead) start with `--setting-sources project,local --settings <file>`: the file,
-`.obor/state/settings/<agent>.json`, is written at each start from your `settings.json` (`$CLAUDE_CONFIG_DIR` or
-`~/.claude`). They keep every key of it (`env`, hooks, `statusLine`, permissions, …) except: each plugin you enable
-is off (obor's own stays; `settings` with `enabledPlugins` switches one back on, and so does the project's own
-`enabledPlugins`), the hooks `off.hooks` names are removed, the servers `off.mcp` names are removed from the file's
-`mcpServers` and `enabledMcpjsonServers` (servers in `~/.claude.json` are no settings: a lane's agent starts without
-them anyway, a role agent keeps them), `settings` are merged in, and obor sets `remoteControlAtStartup` and
-`autoMemoryEnabled` false. An entry the project's own settings set is left to the project
-(the first Claude row above). They lose what is not in `settings.json`: your `~/.claude/CLAUDE.md`, your rules
-(`~/.claude/rules`), your skills (`~/.claude/skills`) and the skills Claude syncs from claude.ai do not reach them, so
-`off.skills` has nothing to do on Claude. `--settings` in `agents.kinds.claude.args` is no way around the file (obor
-passes its own `--settings`).
+`.obor/state/settings/<agent>.json`, is written at each start from your `settings.json`. They keep every key of it
+(`env`, hooks, `statusLine`, permissions, …) except: each plugin you enable is off (obor's own stays, and the
+project's own `enabledPlugins` decides for the plugins it names); an entry the project's own settings set is left to
+the project (the first Claude row above); `settings_override.json` is merged in, and what it sets stays whatever
+the project's settings say (it is the project's word for its agents); obor sets `remoteControlAtStartup` and
+`autoMemoryEnabled` false. They lose what is not in `settings.json`: your `~/.claude/CLAUDE.md`, your rules
+(`~/.claude/rules`), your skills (`~/.claude/skills`) and the skills Claude syncs from claude.ai do not reach them.
+`--settings` in `agents.kinds.claude.args` is no way around the file (obor passes its own `--settings`).
 
-Codex agents (all but the lead) keep your `~/.codex/config.toml` (`$CODEX_HOME`) and get `-c` options over it: the
-switches of the Codex rows above, then the override. `settings` are `config.toml` keys, one `-c <key>=<value>` each
-(`{"model_reasoning_summary": "none"}`; a nested object is passed key by key, `{"features": {"web_search": true}}`
-as `-c features.web_search=true`, so it leaves the switches above and your other keys of that table alone;
-`model_reasoning_effort` gives way to the effort of the agent's model reference). `off.hooks` switches off each hook of your `hooks.json` whose
-command matches, by its position in the file (`-c hooks.state={…={enabled=false}}`, read at every start; hooks declared
-inline in `config.toml` are not reached). `off.mcp` passes `-c mcp_servers.<name>.enabled=false` for each matching
-`[mcp_servers.<name>]` of your `config.toml` (not for a server whose name needs quotes in TOML). `off.skills` adds the matching skills of `~/.agents/skills` to the
-switched-off list (those of `~/.codex/skills` are all off already). `off.plugins` matters only where the project's
-`.codex/config.toml` sets `features.plugins` (all plugins are off otherwise): each matching `[plugins."<id>"]` of
-your `config.toml` is then switched off.
+Your MCP servers are not in `settings.json` but in `~/.claude.json`: a lane's agent starts without them
+(`--strict-mcp-config`), a role agent keeps them. Only `mcpServers` of `claude_override.json` has an effect (validate
+warns on any other key). Once it names `mcpServers`, every agent but the lead starts with `--strict-mcp-config
+--mcp-config .obor/state/mcp/<agent>.json`: the file holds your servers (the top-level `mcpServers` of
+`~/.claude.json` and those it keeps for the project's root) with the override merged over them, the project's
+`.mcp.json` servers its settings approve, and obor's own. Strict means those are all the agent loads: the MCP
+servers of other plugins and your claude.ai connectors are hidden too.
 
-OpenCode agents (all but the lead) keep your `~/.config/opencode` (`$XDG_CONFIG_HOME/opencode`) as it is; the override
-goes into the config obor generates for the start (`.obor/state/opencode.json`, named by `OPENCODE_CONFIG`), which
-OpenCode ranks above your own config: `settings` are merged into it (a `plugins` list is added to obor's own entry;
-`mcp.servers.obor` stays obor's); each plugin of your `plugins/` dir whose id matches `off.plugins` gets a `"-<id>"`
-entry (the id is the one the plugin's module declares, e.g. `herdr.opencode`, not its file name; for a plugin from
-another source write `"plugins": ["-<exact id>"]` in `settings`); each MCP server of your `opencode.json[c]` whose
-name matches `off.mcp` is repeated whole with `"disabled": true`. OpenCode's hooks are plugins: `off.hooks` names
-nothing there, use `off.plugins`; `off.skills` neither (the skills switch is the row above). The project's own
-OpenCode config still wins over all of it.
+Codex agents (all but the lead) keep your `~/.codex/config.toml` and get `-c` options over it: the switches of the
+Codex rows above, then the override. Each key `config_override.toml` sets becomes one `-c <key>=<value>` (a table is
+passed key by key, `[features]` with `web_search = true` as `-c features.web_search=true`, so it leaves the switches
+above and your other keys of that table alone; `model_reasoning_effort` gives way to the effort of the agent's model
+reference). Codex has no option that deletes one of your keys, and TOML has no `null`: switch an entry off the way
+Codex itself does (`enabled = false` on an MCP server or a plugin). `hooks_override.json` is compared with your
+`hooks.json`: each hook of yours that the merged document lacks is switched off by its position in your file (`-c
+hooks.state={…={enabled=false}}`, read at every start; hooks declared inline in `config.toml` are not reached). A
+hook's list is replaced whole, so to drop one hook of a group write the event's groups without it. A hook the file
+adds does not run (validate warns): add it to the project's own Codex hooks.
+
+OpenCode agents (all but the lead) keep your `~/.config/opencode` as it is. With an override file, the config obor
+generates for the start (`.obor/state/opencode.json`, named by `OPENCODE_CONFIG`, which OpenCode ranks above your
+own config) is your `opencode.json[c]` with the file merged over it, plus obor's MCP server and plugin
+(`mcp.servers.obor` stays obor's). OpenCode still reads your own config below it, so a `null` there removes nothing;
+use OpenCode's own syntax: `"plugins": ["-<id>"]` removes a plugin (the id its module declares, e.g.
+`herdr.opencode`, not its file name), and `{"disabled": true}` on an MCP server of yours disables it (the merge
+supplies the rest of its definition, which OpenCode needs). OpenCode's hooks are plugins. The project's own OpenCode
+config still wins over all of it.
 
 The Codex and OpenCode trims are best effort, not a project-only view: whatever a CLI has no switch for stays visible.
 

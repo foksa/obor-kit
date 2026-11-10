@@ -286,7 +286,7 @@ func TestAgentLookupPrecedence(t *testing.T) {
 }
 
 // A lane's agent (a worker, the owner's drive agent) starts with --strict-mcp-config, obor's MCP server alone. Every
-// agent but a lead starts with an override of the user's settings, each kind with its own switches (claude its
+// agent but a lead starts trimmed of the user's settings, each kind with its own switches (claude its
 // settings file in place of the user's source; codex its three -c keys); a lead start carries none of them.
 func TestLaunchArgs(t *testing.T) {
 	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"}}`, "")
@@ -319,45 +319,36 @@ func TestLaunchArgs(t *testing.T) {
 	}
 }
 
-// The override of the user's settings for a role on a kind is agents.overrides.<kind> with the role's own laid over
-// it: both settings (an object's keys merged, the role's value winning), the off lists added up; another kind's or
-// another role's is not in it. Launch hands it to the kind: a worker's Claude settings file holds both env keys beside
-// obor's own, a lead's start writes none.
-func TestOverride(t *testing.T) {
-	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"},"agents":{
-		"overrides":{"claude":{"settings":{"env":{"KIND":"k","BOTH":"kind"},"model":"sonnet"},"off":{"hooks":["x.sh"],"plugins":["p@m"]}},
-			"codex":{"settings":{"model_reasoning_effort":"low"}}},
-		"roles":{"lead":"opus","integrator":"opus",
-			"reviewer":{"model":"opus","overrides":{"claude":{"settings":{"env":{"ROLE":"r","BOTH":"role"}},"off":{"hooks":["y.sh"],"mcp":["herd"]}}}}}}}`, "")
-	env := func(kv ...string) map[string]any {
-		m := map[string]any{}
-		for i := 0; i < len(kv); i += 2 {
-			m[kv[i]] = kv[i+1]
+// The project's override files of a kind are the files its kind names that the project's root has in .obor/<kind>/,
+// each document as written; a file of another name there, another kind's and a kind with none are not in them, and a
+// file that does not parse is an error naming it. Launch hands them to the kind on every start but a lead's: a
+// worker's Claude settings file holds the override's env key beside obor's own, a lead's start writes none.
+func TestOverrides(t *testing.T) {
+	root := writeProject(t, `{"version":2,"project":{"agent_prefix":"pj"}}`, "")
+	write := func(rel, text string) {
+		t.Helper()
+		file := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+			t.Fatal(err)
 		}
-		return m
+		if err := os.WriteFile(file, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
-	kindOnly := agents.Override{Settings: map[string]any{"env": env("KIND", "k", "BOTH", "kind"), "model": "sonnet"},
-		Off: agents.Off{Hooks: []string{"x.sh"}, Plugins: []string{"p@m"}}}
-	for _, tc := range []struct {
-		role, kind string
-		want       agents.Override
-	}{
-		{"reviewer", "claude", agents.Override{Settings: map[string]any{"env": env("KIND", "k", "ROLE", "r", "BOTH", "role"), "model": "sonnet"},
-			Off: agents.Off{Hooks: []string{"x.sh", "y.sh"}, Plugins: []string{"p@m"}, MCP: []string{"herd"}}}},
-		{"integrator", "claude", kindOnly},
-		{"worker", "claude", kindOnly},
-		{"reviewer", "codex", agents.Override{Settings: map[string]any{"model_reasoning_effort": "low"}}},
-		{"reviewer", "opencode", agents.Override{Settings: map[string]any{}}},
+	const settings, config = `{"env": {"KIND": "k"}}`, "model_reasoning_effort = \"low\"\n"
+	write(".obor/claude/settings_override.json", settings)
+	write(".obor/claude/notes.md", "not an override file")
+	write(".obor/codex/config_override.toml", config)
+	c, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for kind, want := range map[string]map[string]string{
+		"claude": {"settings_override.json": settings}, "codex": {"config_override.toml": config}, "opencode": nil, "nokind": nil,
 	} {
-		if got := c.Override(tc.role, tc.kind); !reflect.DeepEqual(got, tc.want) {
-			t.Errorf("Override(%s, %s) = %+v, want %+v", tc.role, tc.kind, got, tc.want)
+		if got, err := c.Overrides(kind); err != nil || !reflect.DeepEqual(got, want) {
+			t.Errorf("Overrides(%s) = %q, %v, want %q", kind, got, err, want)
 		}
-	}
-	if e, ok := c.Data.Agents.Roles.M["reviewer"]; !ok || e.Model != "opus" {
-		t.Errorf("roles.reviewer = %+v, want the object's model opus", e)
-	}
-	if rc, ok := c.Role("reviewer"); !ok || rc.Type != "opus" {
-		t.Errorf("Role(reviewer) = %+v, %v: want the object's model", rc, ok)
 	}
 
 	opus, _ := c.Model("opus")
@@ -366,7 +357,8 @@ func TestOverride(t *testing.T) {
 		files[name] = string(data)
 		return "/state/" + name, nil
 	}}
-	l, err := opus.Launch("reviewer", c.Override("reviewer", "claude"), in)
+	overrides, _ := c.Overrides("claude")
+	l, err := opus.Launch("reviewer", overrides, in)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -377,13 +369,18 @@ func TestOverride(t *testing.T) {
 	if err := json.Unmarshal([]byte(files["settings/pj-rev.json"]), &file); err != nil {
 		t.Fatalf("settings file %q of %v: %v", files["settings/pj-rev.json"], files, err)
 	}
-	if want := `{"autoMemoryEnabled":false,"env":{"BOTH":"role","KIND":"k","ROLE":"r"},"model":"sonnet","remoteControlAtStartup":false}`; Compact(file) != want {
+	if want := `{"autoMemoryEnabled":false,"env":{"KIND":"k"},"remoteControlAtStartup":false}`; Compact(file) != want {
 		t.Errorf("a reviewer's settings file %s, want %s", Compact(file), want)
 	}
 	clear(files)
-	if l, err = opus.Launch("lead", c.Override("lead", "claude"), in); err != nil || len(files) != 0 ||
+	if l, err = opus.Launch("lead", overrides, in); err != nil || len(files) != 0 ||
 		strings.Join(l.Args, " ") != "--permission-mode auto --model opus" {
 		t.Errorf("a lead's launch: args %q, files %v, err %v; want the model's args alone and no file", l.Args, files, err)
+	}
+
+	write(".obor/codex/hooks_override.json", `{"hooks": `)
+	if got, err := c.Overrides("codex"); err == nil || got != nil || !strings.Contains(err.Error(), filepath.Join(".obor", "codex", "hooks_override.json")+": does not parse") {
+		t.Errorf("a file that does not parse: Overrides = %q, %v, want an error naming it", got, err)
 	}
 }
 

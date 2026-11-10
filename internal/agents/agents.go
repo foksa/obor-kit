@@ -7,6 +7,8 @@
 package agents
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -18,6 +20,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/BurntSushi/toml"
 )
 
 // Kind is one agent CLI as obor drives it.
@@ -78,9 +82,12 @@ type Start struct {
 	// SettingsFile is the file that holds the start's settings in place of Settings and of the user's own (a
 	// Preparer wrote it: claude's settings file); "": none.
 	SettingsFile string
-	Resume       string   // the session id to resume ("": fresh)
-	Prompt       string   // the first prompt of a fresh start, one line ("": none)
-	Read         ReadFile // reads a file an arg names (a config file); nil: none is read
+	// MCPFile is the file of the MCP servers the start loads in place of the user's own (a Preparer wrote it:
+	// claude's --mcp-config file of a start whose override names MCP servers); "": none.
+	MCPFile string
+	Resume  string   // the session id to resume ("": fresh)
+	Prompt  string   // the first prompt of a fresh start, one line ("": none)
+	Read    ReadFile // reads a file an arg names (a config file); nil: none is read
 	// Effort is the effort to start with (a type reference's `:<effort>`): the kind sets it, replacing the one
 	// Args set; "": Args as given.
 	Effort string
@@ -88,21 +95,26 @@ type Start struct {
 	// its command line does not name starts that way, obor's own registered on the start (claude: --strict-mcp-config
 	// with --mcp-config MCPConfig; a kind that hides nothing ignores it).
 	StrictMCP bool
-	// Override is what obor overrides of the user's own settings on this start (every agent but a lead,
-	// config.Model.Launch: the config's agents.overrides.<kind> with the role's laid over, empty when the config
-	// names none); every user setting it does not name applies, and so do the project's own config and obor's
-	// wiring. nil: the user's settings as they are (a lead). Each kind applies it its own way (claude: Prepare's
-	// merged settings file; codex: -c features.plugins/features.apps/skills.bundled.enabled false, skills.config
-	// with enabled false per skill of the user's skills dir, then -c options for its settings and off lists;
-	// opencode: OPENCODE_DISABLE_CLAUDE_CODE_SKILLS hides ~/.claude/skills and the project's .claude/skills, while
-	// .agents/skills stays, and settings, off.plugins and off.mcp go into its generated config).
-	Override *Override
+	// TrimUser is every agent but a lead starting: the kind switches off its default part of the user's own
+	// settings (claude: the user's plugins, in Prepare's merged settings file; codex: -c features.plugins,
+	// features.apps and skills.bundled.enabled false, skills.config with enabled false per skill of the user's skills
+	// dir; opencode: OPENCODE_DISABLE_CLAUDE_CODE_SKILLS hides ~/.claude/skills and the project's .claude/skills),
+	// then applies Overrides. Every other user setting applies, and so do the project's own config and obor's
+	// wiring. false: the user's settings as they are (a lead).
+	TrimUser bool
+	// Overrides are the project's override files of this kind (OverrideDir: the names its Overridable lists), file
+	// name → document as written, each merged over the user's file of the same kind (MergePatch) after the kind's
+	// default; a file the project lacks has no entry. Read only on a TrimUser start.
+	Overrides map[string]string
+	// Root is the project's root (the main checkout), for a kind that reads what the user keeps per project
+	// (claude: the MCP servers ~/.claude.json holds for it); "": none is named.
+	Root string
 	// Agent is the agent's name, for a kind that writes a state file per agent (claude's settings file); "": none
 	// is named.
 	Agent string
 	// Env is the start's environment (HOME, XDG_CONFIG_HOME, …), for a kind that reads its own config; nil: none.
 	Env func(string) string
-	// Dirs lists a dir's subdirectories by name (a user's skills dir, for a start with an override): the adapter's I/O; nil:
+	// Dirs lists a dir's subdirectories by name (a user's skills dir, for a TrimUser start): the adapter's I/O; nil:
 	// none is listed.
 	Dirs ListDirs
 	// Session is the session id this start runs as, for a kind that takes one on its command line (Claude's
@@ -122,61 +134,100 @@ type Start struct {
 	Dir string
 }
 
-// Override is one kind's override of the user's own settings (config agents.overrides.<kind>, a role's laid over
-// it). Settings are keys in the kind's native shape, set over the user's. Off switches off entries of the user's own
-// config, each named by a substring of the entry.
-type Override struct {
-	Settings map[string]any `json:"settings,omitempty"`
-	Off      Off            `json:"off,omitzero"`
+// OverrideDir is the dir of kind's override files, relative to the project's root.
+func OverrideDir(kind string) string { return filepath.Join(".obor", kind) }
+
+// Overridable is a kind a project overrides the user's own settings of, with files in the CLI's own format:
+// OverrideFiles are their names in OverrideDir (obor reads them at the project's root and hands them to the start as
+// Start.Overrides).
+type Overridable interface {
+	OverrideFiles() []string
 }
 
-// Off are the user's entries an override switches off, each a substring of the entry it names: a hook's command, a
-// plugin's id, a skill's dir name, an MCP server's name.
-type Off struct {
-	Hooks   []string `json:"hooks,omitempty"`
-	Plugins []string `json:"plugins,omitempty"`
-	Skills  []string `json:"skills,omitempty"`
-	MCP     []string `json:"mcp,omitempty"`
+// OverrideFiles are the override file names of k (nil: it takes none).
+func OverrideFiles(k Kind) []string {
+	if o, ok := k.(Overridable); ok {
+		return o.OverrideFiles()
+	}
+	return nil
 }
 
-// Over is o with over laid over it: over's settings win key by key (Merge), its off lists are added.
-func (o Override) Over(over Override) Override {
-	return Override{Settings: Merge(o.Settings, over.Settings), Off: Off{
-		Hooks:   slices.Concat(o.Off.Hooks, over.Off.Hooks),
-		Plugins: slices.Concat(o.Off.Plugins, over.Off.Plugins),
-		Skills:  slices.Concat(o.Off.Skills, over.Off.Skills),
-		MCP:     slices.Concat(o.Off.MCP, over.Off.MCP),
-	}}
+// OverrideChecker is a kind with notes on a start's override files beyond their parse: OverrideWarnings are `obor
+// config validate`'s, "<file>: <why>" each, for in (a start's Overrides, Env, Read, Dir and Root).
+type OverrideChecker interface {
+	OverrideWarnings(in Start) []string
 }
 
-// Merge is a with b laid over it, as a new map that shares no object with either: where both hold an object under a
-// key the two merge the same way, anything else in b replaces a's value.
-func Merge(a, b map[string]any) map[string]any {
-	out := make(map[string]any, len(a)+len(b))
-	for k, v := range a {
+// ParseOverride is the override file name's document as its tree: a .toml file as TOML, any other as JSON (its
+// numbers as written). An error: it does not parse, or it is no object (a table).
+func ParseOverride(name, doc string) (map[string]any, error) {
+	if strings.HasSuffix(name, ".toml") {
+		var m map[string]any
+		if _, err := toml.Decode(doc, &m); err != nil {
+			return nil, err
+		}
+		if m == nil {
+			m = map[string]any{}
+		}
+		return m, nil
+	}
+	return JSONObject([]byte(doc))
+}
+
+// JSONObject is b as a JSON object, its numbers as written; an error: it does not parse, or it is no object.
+func JSONObject(b []byte) (map[string]any, error) {
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.UseNumber()
+	var m map[string]any
+	if err := dec.Decode(&m); err != nil {
+		return nil, err
+	}
+	if m == nil {
+		return nil, errors.New("no JSON object")
+	}
+	if dec.More() {
+		return nil, errors.New("text after the JSON object")
+	}
+	return m, nil
+}
+
+// Override is the tree of the start's override file name (ParseOverride); nil: the start has none, or it does not
+// parse (config.Model.Launch refuses such a start before the kind sees it).
+func (in Start) Override(name string) map[string]any {
+	doc, ok := in.Overrides[name]
+	if !ok {
+		return nil
+	}
+	m, err := ParseOverride(name, doc)
+	if err != nil {
+		return nil
+	}
+	return m
+}
+
+// MergePatch is target with patch laid over it as a JSON Merge Patch (RFC 7396), as a new map that shares no object
+// with either: where patch holds an object the two merge key by key the same way (a target value that is no object
+// counts as an empty one), a null in patch deletes the key, any other value (a list too) replaces the target's.
+func MergePatch(target, patch map[string]any) map[string]any {
+	out := make(map[string]any, len(target)+len(patch))
+	for k, v := range target {
 		if m, ok := v.(map[string]any); ok {
-			v = Merge(m, nil)
+			v = MergePatch(m, nil)
 		}
 		out[k] = v
 	}
-	for k, v := range b {
-		if bm, ok := v.(map[string]any); ok {
-			am, _ := out[k].(map[string]any)
-			v = Merge(am, bm)
+	for k, v := range patch {
+		switch pv := v.(type) {
+		case nil:
+			delete(out, k)
+		case map[string]any:
+			tm, _ := out[k].(map[string]any)
+			out[k] = MergePatch(tm, pv)
+		default:
+			out[k] = v
 		}
-		out[k] = v
 	}
 	return out
-}
-
-// Matches: entry holds one of subs (an Off list's match of a user's entry).
-func Matches(subs []string, entry string) bool {
-	for _, s := range subs {
-		if s != "" && strings.Contains(entry, s) {
-			return true
-		}
-	}
-	return false
 }
 
 // ReadFile reads a file for a kind (os.ReadFile): the adapter's I/O, handed to a pure function.
@@ -574,7 +625,8 @@ type Whole interface {
 }
 
 // Preparer is a Split kind whose start reads or writes files before its argv is built (claude's merged settings
-// file): Prepare is in with that done and what it wrote named (Start.SettingsFile). An error refuses the start.
+// file): Prepare is in with that done and what it wrote named (Start.SettingsFile, Start.MCPFile). An error refuses
+// the start.
 type Preparer interface {
 	Prepare(in Start) (Start, error)
 }
@@ -593,8 +645,8 @@ type Split interface {
 
 // StartOf is k's start of in, a complete Start built once at the launch boundary: a Whole kind's one call;
 // a Split kind's env (StartEnv) and its argv in two passes of Start: the type's launch args (Args with
-// Settings or SettingsFile, Effort, StrictMCP, Override with Env and Dirs, WriteDirs), then the start over them (Kit, Resume,
-// Session, Prompt), Dir and Read in both; a Preparer's Prepare comes first. An error: the start cannot carry
+// Settings or SettingsFile, MCPFile, Effort, StrictMCP, TrimUser and Overrides with Env and Dirs, WriteDirs), then the
+// start over them (Kit, Resume, Session, Prompt), Dir and Read in both; a Preparer's Prepare comes first. An error: the start cannot carry
 // in.Effort, a plugin kind's start or a Prepare failed, or k has no start.
 func StartOf(k Kind, in Start) (Launch, error) {
 	if w, ok := k.(Whole); ok {
@@ -613,8 +665,9 @@ func StartOf(k Kind, in Start) (Launch, error) {
 			return Launch{}, err
 		}
 	}
-	args := s.Start(Start{Args: in.Args, Settings: in.Settings, SettingsFile: in.SettingsFile, Effort: in.Effort, StrictMCP: in.StrictMCP,
-		Override: in.Override, Env: in.Env, Dirs: in.Dirs, WriteDirs: in.WriteDirs, Dir: in.Dir, Read: in.Read})
+	args := s.Start(Start{Args: in.Args, Settings: in.Settings, SettingsFile: in.SettingsFile, MCPFile: in.MCPFile,
+		Effort: in.Effort, StrictMCP: in.StrictMCP, TrimUser: in.TrimUser, Overrides: in.Overrides, Env: in.Env,
+		Dirs: in.Dirs, WriteDirs: in.WriteDirs, Dir: in.Dir, Read: in.Read})
 	args = s.Start(Start{Kit: in.Kit, Args: args, Resume: in.Resume, Session: in.Session, Prompt: in.Prompt,
 		Dir: in.Dir, Read: in.Read})
 	return Launch{Args: args, Env: env}, nil

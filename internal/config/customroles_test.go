@@ -124,7 +124,7 @@ func TestValidCustomRoles(t *testing.T) {
 
 // validate refuses a bad name, a collision with a table role (its name or agent suffix), a write path outside
 // the project or into .obor/, a missing role doc (naming the file to write), an allow_push listing a custom role, an
-// object with a write list for a table role and a roles.driver.
+// object for a table role and a roles.driver.
 func TestCustomRoleRefusals(t *testing.T) {
 	p := newPlainProject(t)
 	p.Write("docs/agents/buddy.md", "# Role: buddy\n")
@@ -141,7 +141,7 @@ func TestCustomRoleRefusals(t *testing.T) {
 		{"table suffix: drive", []edit{set("agents.roles.drive", "sonnet")}, "FAIL .agents.roles.drive: collides with the built-in role driver"},
 		{"reserved", []edit{set("agents.roles.none", "sonnet")}, "FAIL .agents.roles.none: none is reserved"},
 		{"driver", []edit{set("agents.roles.driver", "sonnet")}, "FAIL .agents.roles.driver: the drive agent's role is not configured: obor drive starts it"},
-		{"table object", []edit{set("agents.roles.reviewer", `{"model": "opus", "write": ["x/"]}`)}, "FAIL .agents.roles.reviewer.write: a built-in role's write paths are its own: an object here takes model and overrides"},
+		{"table object", []edit{set("agents.roles.reviewer", `{"model": "opus", "write": ["x/"]}`)}, "FAIL .agents.roles.reviewer: a built-in role takes a model ref string, not an object"},
 		{"write in .obor", []edit{set("agents.roles.buddy", `{"model": "sonnet", "write": [".obor/state/"]}`)}, `FAIL .agents.roles.buddy.write[0]: in .obor/: obor's own state is no role's to write, got ".obor/state/"`},
 		{"write .obor itself", []edit{set("agents.roles.buddy", `{"model": "sonnet", "write": ["docs/", ".obor"]}`)}, "FAIL .agents.roles.buddy.write[1]: in .obor/"},
 		{"write the root", []edit{set("agents.roles.buddy", `{"model": "sonnet", "write": ["./"]}`)}, "FAIL .agents.roles.buddy.write[0]: in .obor/"},

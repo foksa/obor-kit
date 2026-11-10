@@ -3,7 +3,6 @@ package config
 import (
 	"bytes"
 	"fmt"
-	"maps"
 	"os"
 	"os/exec"
 	"path"
@@ -28,7 +27,10 @@ var (
 // merge.by_path.no_check glob overlapping a rule's glob, an agent named like another lane).
 // Shapes are checked by the load (types by Load, unknown keys by LoadForValidate); these are the checks a typed decode cannot make.
 func (c *Config) Validate(o ValidateOptions) (warns, fails []string) {
-	v := &validator{c: c, d: &c.Data}
+	v := &validator{c: c, d: &c.Data, env: o.Env}
+	if v.env == nil {
+		v.env = os.Getenv
+	}
 	v.top()
 	v.fixedCommands()
 	v.models()
@@ -47,6 +49,7 @@ func (c *Config) Validate(o ValidateOptions) (warns, fails []string) {
 	v.laneEnv()
 	v.terminal()
 	v.projectFiles()
+	v.overrideFiles()
 	return append(c.warnings(o), v.warns...), v.fails
 }
 
@@ -89,9 +92,56 @@ func (v *validator) projectFiles() {
 	}
 }
 
+// overrideFiles: the project's override files (agents.OverrideDir of each kind that takes some, a plugin kind as
+// pluginKind described it). A file that does not parse fails; a file of another name in the dir (nothing reads it)
+// and each of the kind's own notes on the files of a worker's start (agents.OverrideChecker) are warnings.
+func (v *validator) overrideFiles() {
+	if v.c.Root == "" {
+		return
+	}
+	for _, name := range agents.Names() {
+		k, _ := agents.Lookup(name)
+		if d := v.described[name]; d != nil {
+			k = d
+		}
+		files := agents.OverrideFiles(k)
+		if len(files) == 0 {
+			continue
+		}
+		dir := agents.OverrideDir(name)
+		entries, _ := os.ReadDir(filepath.Join(v.c.Root, dir))
+		overrides := map[string]string{}
+		for _, e := range entries {
+			rel := filepath.Join(dir, e.Name())
+			if !slices.Contains(files, e.Name()) {
+				v.warns = append(v.warns, "WARN "+rel+": no override file of "+name+" (it takes "+strings.Join(files, ", ")+"): nothing reads it")
+				continue
+			}
+			b, err := os.ReadFile(filepath.Join(v.c.Root, rel))
+			if err == nil {
+				_, err = agents.ParseOverride(e.Name(), string(b))
+			}
+			if err != nil {
+				v.fails = append(v.fails, "FAIL "+rel+": does not parse: "+err.Error())
+				continue
+			}
+			overrides[e.Name()] = string(b)
+		}
+		if c, ok := k.(agents.OverrideChecker); ok {
+			in := agents.Start{TrimUser: true, Overrides: overrides, Root: v.c.Root, Dir: v.c.Root, Read: os.ReadFile, Env: v.env}
+			for _, w := range c.OverrideWarnings(in) {
+				v.warns = append(v.warns, "WARN "+filepath.Join(dir, w))
+			}
+		}
+	}
+}
+
 // ValidateOptions are what Validate cannot know itself; a nil func skips its check.
 type ValidateOptions struct {
 	Overlap func(a, b string) bool // two path globs may match a common path (spec.Overlap)
+	// Env is the environment that places the user's own CLI config (HOME, CODEX_HOME, …), which a kind's notes on
+	// the project's override files compare them with; nil: the process's.
+	Env func(string) string
 }
 
 type validator struct {
@@ -99,6 +149,7 @@ type validator struct {
 	d     *Data
 	warns []string
 	fails []string
+	env   func(string) string // ValidateOptions.Env
 	// described are the plugin kinds as their describe answered (pluginKind), for the model refs' efforts
 	described map[string]agents.Kind
 }
@@ -166,8 +217,7 @@ func (v *validator) lanes() {
 // LaneNameRE is a lane's name as LaneName writes it: L-01 … L-99, L-100 ….
 var LaneNameRE = regexp.MustCompile(`^L-(0[1-9]|[1-9][0-9]+)$`)
 
-// models: every agents.models entry, agents.kinds key and overrides key (agents.overrides, a role's overrides) names
-// a kind with a bridge (agents.Lookup), no kinds args carry a bare
+// models: every agents.models entry and agents.kinds key names a kind with a bridge (agents.Lookup), no kinds args carry a bare
 // `--` (obor adds the first prompt after its own options, so a `--` would turn --settings and --resume into
 // positionals); each role names a known model with an effort its kind takes.
 func (v *validator) models() {
@@ -197,17 +247,8 @@ func (v *validator) models() {
 			v.fail(".agents.kinds"+key(k)+".args", "`--` is not allowed: obor adds the first prompt itself")
 		}
 	}
-	overridden := func(path string, over map[string]agents.Override) {
-		for _, k := range slices.Sorted(maps.Keys(over)) {
-			if _, kit := KitKinds[k]; !kit && a.Kinds.M[k].Plugin == "" {
-				bridged(path+key(k), k)
-			}
-		}
-	}
-	overridden(".agents.overrides", a.Overrides)
 	for _, k := range a.Roles.Keys {
 		e, path := a.Roles.M[k], ".agents.roles"+key(k)
-		overridden(path+".overrides", e.Overrides)
 		if e.Object {
 			path += ".model"
 		}
@@ -400,8 +441,8 @@ func (v *validator) denyCommands(rules []DenyCommand) {
 
 // customRoles: each agents.roles.<name> that is no table role defines a custom role: a name
 // roles.CheckCustomName takes, write paths inside the project and outside .obor/, and its doc
-// <agents.docs_dir>/<name>.md (a kit default row may use the kit's). A table role takes a model ref string or an
-// object {model, overrides}; the driver's is never configured (obor drive starts it).
+// <agents.docs_dir>/<name>.md (a kit default row may use the kit's). A table role takes a model ref string; the
+// driver's is never configured (obor drive starts it).
 func (v *validator) customRoles() {
 	for _, k := range v.d.Agents.Roles.Keys {
 		e, path := v.d.Agents.Roles.M[k], ".agents.roles"+key(k)
@@ -411,8 +452,8 @@ func (v *validator) customRoles() {
 				v.fail(path, "the drive agent's role is not configured: obor drive starts it")
 			case len(e.Verbs) > 0:
 				v.fail(path+".verbs", "a built-in role's rights are its own: verbs are a custom role's (T-1039)")
-			case e.Write != nil:
-				v.fail(path+".write", "a built-in role's write paths are its own: an object here takes model and overrides")
+			case e.Object:
+				v.fail(path, "a built-in role takes a model ref string, not an object")
 			}
 			continue
 		}

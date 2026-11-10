@@ -209,8 +209,8 @@ func (s *Setup) mcpLane(name string) error {
 	// unless the project's committed CLI config opts out (the main checkout's copy stands for a lane's). A kind
 	// whose start is one call (a plugin kind) gets the complete start, the kit too; a compiled kind's Lane reads
 	// the type's launch args, before the start registers obor's server for the kit, and its start file (Claude's
-	// settings file) is named, not written: no agent starts.
-	start := agents.Start{Agent: "worker", Dir: s.cfg.Root, Read: os.ReadFile, Env: s.Env.Get, Dirs: project.SubDirs,
+	// settings file, its MCP file) is named, not written: no agent starts.
+	start := agents.Start{Agent: "worker", Dir: s.cfg.Root, Root: s.cfg.Root, Read: os.ReadFile, Env: s.Env.Get, Dirs: project.SubDirs,
 		WriteState: project.StateWriter(s.cfg.Root)}
 	if _, whole := k.(agents.Whole); whole {
 		start.Kit = s.Kit
@@ -219,7 +219,11 @@ func (s *Setup) mcpLane(name string) error {
 			return filepath.Join(project.StateDir(s.cfg.Root), name), nil
 		}
 	}
-	built, err := lt.Launch("worker", s.cfg.Override("worker", lt.Kind), start)
+	overrides, err := s.cfg.Overrides(lt.Kind)
+	var built agents.Launch
+	if err == nil {
+		built, err = lt.Launch("worker", overrides, start)
+	}
 	if err != nil {
 		s.say("WARN mcp model %s (%s): %v", name, lt.Kind, err)
 		return project.Failf("mcp model %s", name)

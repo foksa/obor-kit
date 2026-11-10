@@ -1,6 +1,6 @@
 // Package claude is the Claude Code bridge (agents.Kind): its start argv (--settings, obor's --mcp-config on a strict
-// start, --resume), the settings file of a start with an override, its quit, its headless flag, its plugin manifest,
-// its transcripts and its session inbox.
+// start, --resume), the settings file and the MCP file of a start that trims the user's settings, its quit, its
+// headless flag, its plugin manifest, its transcripts and its session inbox.
 package claude
 
 import (
@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -34,18 +35,27 @@ const StrictFlag = "--strict-mcp-config"
 // path spelled out (a strict start has no ${CLAUDE_PLUGIN_ROOT}) and the pin, so bin/obor runs this kit. The
 // OBOR_* variables need no entry: Claude passes its own environment to the server.
 func MCPConfig(kit string) string {
-	b, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{"obor": map[string]any{
-		"command": filepath.Join(kit, "bin", "obor"),
-		"args":    []string{"mcp"},
-		"env":     map[string]string{agents.Pin: "1"},
-	}}})
+	b, _ := json.Marshal(map[string]any{serversKey: map[string]any{"obor": oborServer(kit)}})
 	return string(b)
 }
 
+// oborServer is the kit's obor server as an mcpServers entry.
+func oborServer(kit string) map[string]any {
+	return map[string]any{
+		"command": filepath.Join(kit, "bin", "obor"),
+		"args":    []string{"mcp"},
+		"env":     map[string]string{agents.Pin: "1"},
+	}
+}
+
+// serversKey is the map of MCP server name → definition, in ~/.claude.json, a .mcp.json and an --mcp-config file.
+const serversKey = "mcpServers"
+
 // Start is the type's args (with in.Effort: their --effort replaced by --effort <effort>), then
-// --strict-mcp-config for a lane's agent (in.StrictMCP: once, also when the args name it), then the settings:
-// --settings <in.Settings> as inline JSON, or for a start with an override `--setting-sources project,local
-// --settings <in.SettingsFile>` (Prepare's file: Claude loads the project's settings and that file, never the
+// --strict-mcp-config for a lane's agent (in.StrictMCP: once, also when the args name it) or `--mcp-config
+// <in.MCPFile> --strict-mcp-config` for a start with Prepare's MCP file (the file's servers alone), then the
+// settings: --settings <in.Settings> as inline JSON, or for a start with Prepare's settings file `--setting-sources
+// project,local --settings <in.SettingsFile>` (Claude loads the project's settings and that file, never the
 // user's own, so what the file leaves out of the user's settings is off; --setting-sources as the args name it,
 // when they do), then --session-id <in.Session> (a fresh start obor names) or --resume <sid>, with obor's
 // --mcp-config pair spliced in before the strict flag (the flag stops --mcp-config's variadic value), then one `--`
@@ -55,12 +65,16 @@ func MCPConfig(kit string) string {
 // The project's committed .claude/settings.json in in.Dir outranks obor's policy: a project that opts into its
 // .mcp.json servers (enableAllProjectMcpServers true, or a non-empty enabledMcpjsonServers, which also approves them,
 // so an unattended lane does not sit on the approval prompt) starts without the strict flag, obor's server then the
-// plugin manifest's as for a role; a settings key the file sets is left out of --settings (no --settings when it sets
+// plugin manifest's as for a role (a start with an MCP file is strict all the same: the file holds those servers); a
+// settings key the file sets is left out of --settings (no --settings when it sets
 // all). A file that does not parse counts as absent (config validate warns).
 func (kind) Start(in agents.Start) []string {
 	proj, _ := projectSettings(in)
 	args := withEffort(in.Args, in.Effort)
-	if in.StrictMCP && !proj.mcpOptIn() {
+	switch {
+	case in.MCPFile != "":
+		args = withStrict(append(args, "--mcp-config", in.MCPFile))
+	case in.StrictMCP && !proj.mcpOptIn():
 		args = withStrict(args)
 	}
 	if in.SettingsFile != "" {
@@ -118,12 +132,20 @@ func projectFile(in agents.Start, rel string) (settings, error) {
 // mcpOptIn: the project opts into its .mcp.json servers and approves them (enableAllProjectMcpServers true, or a
 // non-empty enabledMcpjsonServers).
 func (s settings) mcpOptIn() bool {
-	var all bool
-	if json.Unmarshal(s["enableAllProjectMcpServers"], &all) == nil && all {
-		return true
-	}
 	var names []json.RawMessage
-	return json.Unmarshal(s["enabledMcpjsonServers"], &names) == nil && len(names) > 0
+	return s.approvesAll() || json.Unmarshal(s["enabledMcpjsonServers"], &names) == nil && len(names) > 0
+}
+
+// approvesAll: enableAllProjectMcpServers is true.
+func (s settings) approvesAll() bool {
+	var all bool
+	return json.Unmarshal(s["enableAllProjectMcpServers"], &all) == nil && all
+}
+
+// approves: the project approves its .mcp.json server name (approvesAll, or enabledMcpjsonServers names it).
+func (s settings) approves(name string) bool {
+	var names []string
+	return s.approvesAll() || json.Unmarshal(s["enabledMcpjsonServers"], &names) == nil && slices.Contains(names, name)
 }
 
 // unset is want without the keys s sets.
@@ -140,118 +162,154 @@ func (s settings) unset(want map[string]any) map[string]any {
 // LocalSettingsFile is the project's own uncommitted settings file, relative to the start dir.
 const LocalSettingsFile = ".claude/settings.local.json"
 
-// StateSettings is the settings file of agent's start with an override, as a name in the project's state dir.
+// StateSettings is the settings file of agent's start, as a name in the project's state dir; StateMCP its MCP file.
 func StateSettings(agent string) string { return "settings/" + agent + ".json" }
+func StateMCP(agent string) string      { return "mcp/" + agent + ".json" }
 
-// Prepare (agents.Preparer) is a start with an override (every agent but a lead) made ready: its settings file
-// (overridden, in.Settings in it) written as StateSettings(in.Agent) with in.WriteState, replacing the agent's last
-// one, and named in in.SettingsFile for Start. A start with no override is in as given. An error: the start names no
-// agent or no state writer, or the file cannot be written (it names the file).
+// SettingsOverride and MCPOverride are Claude's override files (agents.OverrideDir): the first is merged over the
+// user's settings.json, the second's mcpServers over the MCP servers of the user's ~/.claude.json.
+const (
+	SettingsOverride = "settings_override.json"
+	MCPOverride      = "claude_override.json"
+)
+
+func (kind) OverrideFiles() []string { return []string{SettingsOverride, MCPOverride} }
+
+// Prepare (agents.Preparer) is a start that trims the user's settings (in.TrimUser: every agent but a lead) made
+// ready: its settings file (merged, in.Settings in it) written as StateSettings(in.Agent) with in.WriteState,
+// replacing the agent's last one, and named in in.SettingsFile for Start; and, when MCPOverride names mcpServers, its
+// MCP file (servers) written as StateMCP(in.Agent) and named in in.MCPFile. Any other start is in as given. An error:
+// the start names no agent or no state writer, or a file cannot be written (it names the file).
 func (kind) Prepare(in agents.Start) (agents.Start, error) {
-	if in.Override == nil {
+	if !in.TrimUser {
 		return in, nil
 	}
 	if in.Agent == "" || in.WriteState == nil {
-		return in, errors.New("claude: a start with an override names no agent or no state dir for its settings file")
+		return in, errors.New("claude: a start that trims the user's settings names no agent or no state dir for its settings file")
 	}
-	var b bytes.Buffer
-	enc := json.NewEncoder(&b)
-	enc.SetEscapeHTML(false)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(overridden(in)); err != nil {
-		return in, fmt.Errorf("claude: the settings file %s: %v", StateSettings(in.Agent), err)
+	write := func(name string, doc map[string]any) (string, error) {
+		var b bytes.Buffer
+		enc := json.NewEncoder(&b)
+		enc.SetEscapeHTML(false)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(doc); err != nil {
+			return "", fmt.Errorf("claude: the file %s: %v", name, err)
+		}
+		path, err := in.WriteState(name, b.Bytes())
+		if err != nil {
+			return "", fmt.Errorf("claude: writing the file %s of the state dir: %v", name, err)
+		}
+		return path, nil
 	}
-	path, err := in.WriteState(StateSettings(in.Agent), b.Bytes())
+	settingsFile, err := write(StateSettings(in.Agent), merged(in))
 	if err != nil {
-		return in, fmt.Errorf("claude: writing the settings file %s of the state dir: %v", StateSettings(in.Agent), err)
+		return in, err
 	}
-	in.SettingsFile, in.Settings, in.Override = path, nil, nil
+	if patch, ok := in.Override(MCPOverride)[serversKey].(map[string]any); ok {
+		if in.MCPFile, err = write(StateMCP(in.Agent), map[string]any{serversKey: servers(in, patch)}); err != nil {
+			return in, err
+		}
+	}
+	in.SettingsFile, in.Settings = settingsFile, nil
 	return in, nil
 }
 
 // pluginsKey is the settings map of plugin id → enabled.
 const pluginsKey = "enabledPlugins"
 
-// overridden is the settings file of a start with an override: the user's settings file ($CLAUDE_CONFIG_DIR, default
-// ~/.claude: settings.json; none, or one that does not parse: empty) with, in this order,
-//   - every plugin it enables set false (obor's own stays), and every plugin matching off.plugins;
-//   - the hooks whose command matches off.hooks removed (a group or event left without a hook goes too);
-//   - the MCP servers matching off.mcp removed from its mcpServers and enabledMcpjsonServers;
-//   - the override's settings merged in, then in.Settings (agents.Merge);
+// userDir is the user's Claude config dir: $CLAUDE_CONFIG_DIR, default ~/.claude ("": the start names neither).
+func userDir(in agents.Start) string { return agents.UserDir(in, "CLAUDE_CONFIG_DIR", ".claude") }
+
+// merged is the settings file of a start that trims the user's settings, built in this order:
+//   - the user's settings file (userDir: settings.json; none, or one that does not parse: empty);
+//   - the default: every plugin it enables set false (obor's own stays);
 //   - every entry the project's settings set (in.Dir's SettingsFile and LocalSettingsFile) dropped (dropSet): the file
-//     ranks above the project's, the user's settings rank below them.
+//     ranks above the project's, the user's settings rank below them;
+//   - SettingsOverride laid over it (agents.MergePatch): what it sets stays, whatever the project's settings set;
+//   - in.Settings, obor's own keys, without those the project's settings set.
 //
-// The user's skills and the skills Claude syncs from claude.ai do not load without the user source: off.skills
-// needs no entry.
-func overridden(in agents.Start) map[string]any {
-	over := *in.Override
+// The user's skills and the skills Claude syncs from claude.ai do not load without the user source.
+func merged(in agents.Start) map[string]any {
 	user := map[string]any{}
-	if dir := agents.UserDir(in, "CLAUDE_CONFIG_DIR", ".claude"); dir != "" {
+	if dir := userDir(in); dir != "" {
 		user = objectFile(in.Read, filepath.Join(dir, "settings.json"))
 	}
 	if plugins, ok := user[pluginsKey].(map[string]any); ok {
 		for id, v := range plugins {
-			if v != false && !isObor(id) || agents.Matches(over.Off.Plugins, id) {
+			if v != false && !isObor(id) {
 				plugins[id] = false
 			}
 		}
 	}
-	if hooks, ok := user["hooks"].(map[string]any); ok {
-		withoutHooks(hooks, over.Off.Hooks)
+	own := agents.MergePatch(in.Settings, nil)
+	if in.Dir != "" {
+		for _, rel := range []string{SettingsFile, LocalSettingsFile} {
+			set := objectFile(in.Read, filepath.Join(in.Dir, rel))
+			dropSet(user, set)
+			dropSet(own, set)
+		}
 	}
-	if servers, ok := user["mcpServers"].(map[string]any); ok {
-		for name := range servers {
-			if agents.Matches(over.Off.MCP, name) {
-				delete(servers, name)
+	return agents.MergePatch(agents.MergePatch(user, in.Override(SettingsOverride)), own)
+}
+
+// servers are the MCP servers of a start whose MCPOverride names mcpServers (patch), by name: the user's own (the
+// top-level mcpServers of the user's .claude.json, then those it holds for the project's root, in.Root) with patch
+// laid over them (agents.MergePatch: a null removes a server), then the servers of in.Dir's .mcp.json the project's
+// settings approve (enableAllProjectMcpServers: all; else those enabledMcpjsonServers names), then obor's own (with
+// a kit). The start is strict, so these are all it loads.
+func servers(in agents.Start, patch map[string]any) map[string]any {
+	user := map[string]any{}
+	if file := userFile(in); file != "" {
+		doc := objectFile(in.Read, file)
+		user, _ = doc[serversKey].(map[string]any)
+		projects, _ := doc["projects"].(map[string]any)
+		if project, ok := projects[in.Root].(map[string]any); ok && in.Root != "" {
+			local, _ := project[serversKey].(map[string]any)
+			user = agents.MergePatch(user, local)
+		}
+	}
+	out := agents.MergePatch(user, patch)
+	if in.Dir != "" {
+		proj, _ := projectSettings(in)
+		own, _ := objectFile(in.Read, filepath.Join(in.Dir, ".mcp.json"))[serversKey].(map[string]any)
+		for name, def := range own {
+			if proj.approves(name) {
+				out[name] = def
 			}
 		}
 	}
-	if enabled, ok := user["enabledMcpjsonServers"].([]any); ok {
-		user["enabledMcpjsonServers"] = slices.DeleteFunc(enabled, func(v any) bool {
-			name, _ := v.(string)
-			return agents.Matches(over.Off.MCP, name)
-		})
-	}
-	out := agents.Merge(agents.Merge(user, over.Settings), in.Settings)
-	if in.Dir != "" {
-		dropSet(out, objectFile(in.Read, filepath.Join(in.Dir, SettingsFile)))
-		dropSet(out, objectFile(in.Read, filepath.Join(in.Dir, LocalSettingsFile)))
+	if in.Kit != "" {
+		out["obor"] = oborServer(in.Kit)
 	}
 	return out
 }
 
-// withoutHooks removes from hooks (a settings file's hooks: event → groups, each with its hooks list) every hook
-// whose command holds one of off, then a group it left without a hook and an event it left without a group.
-func withoutHooks(hooks map[string]any, off []string) {
-	for event, v := range hooks {
-		groups, _ := v.([]any)
-		kept := []any{}
-		for _, g := range groups {
-			group, _ := g.(map[string]any)
-			list, _ := group["hooks"].([]any)
-			rest := []any{}
-			for _, h := range list {
-				hook, _ := h.(map[string]any)
-				if cmd, _ := hook["command"].(string); !agents.Matches(off, cmd) {
-					rest = append(rest, h)
-				}
-			}
-			switch {
-			case len(rest) == len(list):
-				kept = append(kept, g)
-			case len(rest) > 0:
-				group["hooks"] = rest
-				kept = append(kept, g)
-			}
-		}
-		switch {
-		case len(kept) == len(groups):
-		case len(kept) == 0:
-			delete(hooks, event)
-		default:
-			hooks[event] = kept
+// userFile is the user's .claude.json, where Claude keeps the user's MCP servers: in $CLAUDE_CONFIG_DIR when the
+// start's environment sets it, else in $HOME ("": it names neither).
+func userFile(in agents.Start) string {
+	if in.Env == nil {
+		return ""
+	}
+	dir := in.Env("CLAUDE_CONFIG_DIR")
+	if dir == "" {
+		dir = in.Env("HOME")
+	}
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, ".claude.json")
+}
+
+// OverrideWarnings (agents.OverrideChecker): a key of MCPOverride other than mcpServers (nothing reads it).
+func (kind) OverrideWarnings(in agents.Start) []string {
+	var out []string
+	doc := in.Override(MCPOverride)
+	for _, k := range slices.Sorted(maps.Keys(doc)) {
+		if k != serversKey {
+			out = append(out, MCPOverride+": "+k+": only "+serversKey+" applies")
 		}
 	}
+	return out
 }
 
 // dropSet drops from file every entry set sets: where both hold an object under a key, entry by entry the same way
@@ -290,10 +348,8 @@ func objectFile(read agents.ReadFile, path string) map[string]any {
 	if err != nil {
 		return out
 	}
-	dec := json.NewDecoder(bytes.NewReader(b))
-	dec.UseNumber()
-	var m map[string]any
-	if dec.Decode(&m) != nil || m == nil {
+	m, err := agents.JSONObject(b)
+	if err != nil {
 		return out
 	}
 	return m

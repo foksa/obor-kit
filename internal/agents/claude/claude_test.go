@@ -100,8 +100,8 @@ func TestStart(t *testing.T) {
 	}
 }
 
-// machine is a user's machine and a project for a start with an override: files by path, and the state files the
-// start wrote, by name.
+// machine is a user's machine and a project for a start that trims the user's settings: files by path, and the
+// state files the start wrote, by name.
 type machine struct {
 	files map[string]string
 	state map[string]string
@@ -109,23 +109,26 @@ type machine struct {
 
 const (
 	userSettings = "/home/u/.claude/settings.json"
+	userFile     = "/home/u/.claude.json"
 	projSettings = "/lane/" + claude.SettingsFile
 	stateFile    = "/state/settings/pj-l-01.json"
+	mcpFile      = "/state/mcp/pj-l-01.json"
 )
 
-// start is the whole start (agents.StartOf) of agent pj-l-01 in /lane with over and obor's two settings, the user's
-// home /home/u (or env's own variables): its argv and the settings file it wrote, as one line of JSON with sorted
-// keys ("": none written).
-func (m *machine) start(t *testing.T, over *agents.Override, env map[string]string) (argv []string, file string) {
-	t.Helper()
+// in is a worker's start (trimmed, obor's two settings) of agent pj-l-01 in /lane of the project /main with the
+// override files overrides, the user's home /home/u (or env's own variables).
+func (m *machine) in(overrides, env map[string]string) agents.Start {
 	if env == nil {
 		env = map[string]string{"HOME": "/home/u"}
 	}
 	m.state = map[string]string{}
-	l, err := agents.StartOf(kind(t), agents.Start{Args: []string{"--model", "opus"}, Agent: "pj-l-01", Override: over,
-		Dir: "/lane", Env: func(k string) string { return env[k] },
+	return agents.Start{Args: []string{"--model", "opus"}, Agent: "pj-l-01", TrimUser: true, Overrides: overrides,
+		Dir: "/lane", Root: "/main", Env: func(k string) string { return env[k] },
 		Read: func(path string) ([]byte, error) {
 			if b, ok := m.files[path]; ok {
+				return []byte(b), nil
+			}
+			if b, ok := m.state[strings.TrimPrefix(path, "/state/")]; ok { // a file this start wrote
 				return []byte(b), nil
 			}
 			return nil, fs.ErrNotExist
@@ -134,23 +137,36 @@ func (m *machine) start(t *testing.T, over *agents.Override, env map[string]stri
 			m.state[name] = string(data)
 			return "/state/" + name, nil
 		},
-		Settings: map[string]any{"remoteControlAtStartup": false, "autoMemoryEnabled": false}})
+		Settings: map[string]any{"remoteControlAtStartup": false, "autoMemoryEnabled": false}}
+}
+
+// written is the state file name the start wrote, as one line of JSON with sorted keys.
+func (m *machine) written(t *testing.T, name string) string {
+	t.Helper()
+	var v any
+	if err := json.Unmarshal([]byte(m.state[name]), &v); err != nil {
+		t.Fatalf("the state file %s %q (of %v): %v", name, m.state[name], m.state, err)
+	}
+	b, _ := json.Marshal(v)
+	return string(b)
+}
+
+// start is the whole start (agents.StartOf) of in with a settings override (""; none): its argv and the settings
+// file it wrote, the one state file.
+func (m *machine) start(t *testing.T, override string, env map[string]string) (argv []string, file string) {
+	t.Helper()
+	var overrides map[string]string
+	if override != "" {
+		overrides = map[string]string{claude.SettingsOverride: override}
+	}
+	l, err := agents.StartOf(kind(t), m.in(overrides, env))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(m.state) == 0 {
-		return l.Args, ""
-	}
-	written, ok := m.state[claude.StateSettings("pj-l-01")]
-	if !ok || len(m.state) != 1 {
+	if len(m.state) != 1 {
 		t.Fatalf("state files %v, want %s alone", m.state, claude.StateSettings("pj-l-01"))
 	}
-	var v any
-	if err := json.Unmarshal([]byte(written), &v); err != nil {
-		t.Fatalf("the settings file %q: %v", written, err)
-	}
-	b, _ := json.Marshal(v)
-	return l.Args, string(b)
+	return l.Args, m.written(t, claude.StateSettings("pj-l-01"))
 }
 
 // hooks is a settings file's hooks member: one SessionStart group with a command hook per command.
@@ -162,81 +178,75 @@ func hooks(commands ...string) string {
 	return `"hooks":{"SessionStart":[{"hooks":[` + strings.Join(list, ",") + `]}]}`
 }
 
-// A start with an override (every agent but a lead) loads the project's settings and one settings file obor
-// writes, never the user's source: the file is the user's settings.json with the user's plugins off (the project's
-// and obor's own left alone), the override's off entries removed and its settings merged in, obor's own settings,
-// and without what the project's settings set.
-func TestStartOverride(t *testing.T) {
+// A start that trims the user's settings (every agent but a lead) loads the project's settings and one settings
+// file obor writes, never the user's source: the file is the user's settings.json with the user's plugins off (the
+// project's and obor's own left alone), without what the project's settings set, with the project's
+// settings_override.json laid over it as a merge patch (what it sets stays), and obor's own settings.
+func TestStartSettingsFile(t *testing.T) {
 	const obor = `"autoMemoryEnabled":false,`
 	const remote = `,"remoteControlAtStartup":false`
 	const herdr, x = "~/.config/herdr/herdr-agent-state.sh", "/bin/x.sh"
-	user := `{"env":{"A":"1","B":"2"},"statusLine":{"command":"line.sh","type":"command"},` + hooks(herdr, x) +
-		`,"enabledPlugins":{"a@m":true,"b@m":true}}`
+	const line = `"statusLine":{"command":"line.sh","type":"command"}`
+	user := `{"env":{"A":"1","B":"2"},` + line + `,` + hooks(herdr, x) + `,"enabledPlugins":{"a@m":true,"b@m":true}}`
 	for _, c := range []struct {
-		name  string
-		files map[string]string
-		over  agents.Override
-		env   map[string]string
-		want  string // the settings file
+		name     string
+		files    map[string]string
+		override string
+		env      map[string]string
+		want     string // the settings file
 	}{
-		{"no config, the project enables b: env, statusLine and both hooks kept, a off",
-			map[string]string{userSettings: user, projSettings: `{"enabledPlugins":{"b@m":true}}`}, agents.Override{}, nil,
-			`{` + obor + `"enabledPlugins":{"a@m":false},"env":{"A":"1","B":"2"},` + hooks(herdr, x) + remote +
-				`,"statusLine":{"command":"line.sh","type":"command"}}`},
-		{"off.hooks x.sh: herdr's hook stays, x.sh goes",
-			map[string]string{userSettings: `{` + hooks(herdr, x) + `}`}, agents.Override{Off: agents.Off{Hooks: []string{"x.sh"}}}, nil,
-			`{` + obor + hooks(herdr) + remote + `}`},
-		{"off.hooks naming every hook of the one group: the group and the event go, another event stays",
+		{"no override file, the project enables b: env, statusLine and both hooks kept, a off",
+			map[string]string{userSettings: user, projSettings: `{"enabledPlugins":{"b@m":true}}`}, "", nil,
+			`{` + obor + `"enabledPlugins":{"a@m":false},"env":{"A":"1","B":"2"},` + hooks(herdr, x) + remote + `,` + line + `}`},
+		{"the override empties SessionStart: no user SessionStart hook, the Stop hook kept",
 			map[string]string{userSettings: `{"hooks":{"SessionStart":[{"hooks":[{"command":"/bin/x.sh","type":"command"}]}],` +
 				`"Stop":[{"hooks":[{"command":"keep.sh","type":"command"}]}]}}`},
-			agents.Override{Off: agents.Off{Hooks: []string{"x.sh"}}}, nil,
-			`{` + obor + `"hooks":{"Stop":[{"hooks":[{"command":"keep.sh","type":"command"}]}]}` + remote + `}`},
-		{"settings set an env variable: in the file beside the user's others",
-			map[string]string{userSettings: `{"env":{"A":"1","MAX_THINKING_TOKENS":"128000"}}`},
-			agents.Override{Settings: map[string]any{"env": map[string]any{"MAX_THINKING_TOKENS": "8000"}}}, nil,
+			`{"hooks": {"SessionStart": []}}`, nil,
+			`{` + obor + `"hooks":{"SessionStart":[],"Stop":[{"hooks":[{"command":"keep.sh","type":"command"}]}]}` + remote + `}`},
+		{"the override sets an env variable, the project sets statusLine, the user has both: env from the override, no statusLine",
+			map[string]string{userSettings: `{"env":{"A":"1","MAX_THINKING_TOKENS":"128000"},` + line + `}`,
+				projSettings: `{"statusLine":{"command":"proj.sh","type":"command"}}`},
+			`{"env": {"MAX_THINKING_TOKENS": "8000"}}`, nil,
 			`{` + obor + `"env":{"A":"1","MAX_THINKING_TOKENS":"8000"}` + remote + `}`},
-		{"the project sets statusLine and one env variable: neither in the file, the other variable stays",
-			map[string]string{userSettings: `{"env":{"A":"1","B":"2"},"statusLine":{"command":"line.sh","type":"command"}}`,
-				projSettings: `{"statusLine":{"command":"proj.sh","type":"command"},"env":{"A":"9"}}`}, agents.Override{}, nil,
+		{"the override switches one user plugin back on: the other stays off",
+			map[string]string{userSettings: `{"enabledPlugins":{"improve@improve":true,"b@m":true}}`},
+			`{"enabledPlugins": {"improve@improve": true}}`, nil,
+			`{` + obor + `"enabledPlugins":{"b@m":false,"improve@improve":true}` + remote + `}`},
+		{"a null of the override deletes the user's key, a list of it replaces the user's",
+			map[string]string{userSettings: `{"env":{"A":"1","B":"2"},` + line + `,"permissions":{"allow":["Bash(ls)"]}}`},
+			`{"env": {"A": null}, "statusLine": null, "permissions": {"allow": ["Bash(go)"]}}`, nil,
+			`{` + obor + `"env":{"B":"2"},"permissions":{"allow":["Bash(go)"]}` + remote + `}`},
+		{"the project sets one env variable: not in the file, the other variable stays",
+			map[string]string{userSettings: `{"env":{"A":"1","B":"2"}}`, projSettings: `{"env":{"A":"9"}}`}, "", nil,
 			`{` + obor + `"env":{"B":"2"}` + remote + `}`},
-		{"the project's local settings set a key of obor's and of the override's: left to them",
+		{"the project's local settings set a key of obor's and of the override's: obor's is left to them, the override's stays",
 			map[string]string{"/lane/" + claude.LocalSettingsFile: `{"autoMemoryEnabled":true,"model":"opus"}`},
-			agents.Override{Settings: map[string]any{"model": "sonnet", "effortLevel": "low"}}, nil,
-			`{"effortLevel":"low"` + remote + `}`},
+			`{"model": "sonnet", "effortLevel": "low"}`, nil,
+			`{"effortLevel":"low","model":"sonnet"` + remote + `}`},
 		{"the project sets hooks and permission lists too: the user's lists stay (Claude adds them up), its scalar goes",
 			map[string]string{userSettings: `{` + hooks(herdr) + `,"permissions":{"allow":["Bash(ls)"],"defaultMode":"auto"}}`,
-				projSettings: `{` + hooks("proj.sh") + `,"permissions":{"allow":["Bash(go)"],"defaultMode":"plan"}}`}, agents.Override{}, nil,
+				projSettings: `{` + hooks("proj.sh") + `,"permissions":{"allow":["Bash(go)"],"defaultMode":"plan"}}`}, "", nil,
 			`{` + obor + hooks(herdr) + `,"permissions":{"allow":["Bash(ls)"]}` + remote + `}`},
-		{"no user settings file: obor's keys and the settings only", nil,
-			agents.Override{Settings: map[string]any{"effortLevel": "low"}, Off: agents.Off{Hooks: []string{"x.sh"}, Skills: []string{"s"}}}, nil,
+		{"the override sets a key obor sets: obor's own stands", nil, `{"autoMemoryEnabled": true, "effortLevel": "low"}`, nil,
 			`{` + obor + `"effortLevel":"low"` + remote + `}`},
 		{"a user settings file that does not parse: as none",
-			map[string]string{userSettings: `{"enabledPlugins":`}, agents.Override{}, nil, `{"autoMemoryEnabled":false` + remote + `}`},
+			map[string]string{userSettings: `{"enabledPlugins":`}, "", nil, `{"autoMemoryEnabled":false` + remote + `}`},
 		{"no home in the environment: nothing of the user's is read",
-			map[string]string{".claude/settings.json": `{"env":{"A":"1"}}`}, agents.Override{}, map[string]string{},
+			map[string]string{".claude/settings.json": `{"env":{"A":"1"}}`}, "", map[string]string{},
 			`{"autoMemoryEnabled":false` + remote + `}`},
 		{"the user's settings under $CLAUDE_CONFIG_DIR",
-			map[string]string{"/cfg/settings.json": `{"env":{"A":"1"}}`, userSettings: `{"env":{"B":"2"}}`}, agents.Override{},
+			map[string]string{"/cfg/settings.json": `{"env":{"A":"1"}}`, userSettings: `{"env":{"B":"2"}}`}, "",
 			map[string]string{"HOME": "/home/u", "CLAUDE_CONFIG_DIR": "/cfg"}, `{` + obor + `"env":{"A":"1"}` + remote + `}`},
-		{"obor's own plugin stays on, a plugin the user has off stays off, off.plugins switches a named one off",
-			map[string]string{userSettings: `{"enabledPlugins":{"obor@obor-kit":true,"obor@dev":true,"off@m":false}}`},
-			agents.Override{Off: agents.Off{Plugins: []string{"@dev"}}}, nil,
-			`{` + obor + `"enabledPlugins":{"obor@dev":false,"obor@obor-kit":true,"off@m":false}` + remote + `}`},
-		{"settings switch a user plugin back on",
-			map[string]string{userSettings: `{"enabledPlugins":{"a@m":true,"b@m":true}}`},
-			agents.Override{Settings: map[string]any{"enabledPlugins": map[string]any{"a@m": true}}}, nil,
-			`{` + obor + `"enabledPlugins":{"a@m":true,"b@m":false}` + remote + `}`},
-		{"off.mcp: the named server leaves the file's own MCP keys",
-			map[string]string{userSettings: `{"mcpServers":{"herd":{"command":"h"},"keep":{"command":"k"}},"enabledMcpjsonServers":["herd-2","keep"]}`},
-			agents.Override{Off: agents.Off{MCP: []string{"herd"}}}, nil,
-			`{` + obor + `"enabledMcpjsonServers":["keep"],"mcpServers":{"keep":{"command":"k"}}` + remote + `}`},
+		{"obor's own plugin stays on, a plugin the user has off stays off",
+			map[string]string{userSettings: `{"enabledPlugins":{"obor@obor-kit":true,"x@dev":true,"off@m":false}}`}, "", nil,
+			`{` + obor + `"enabledPlugins":{"obor@obor-kit":true,"off@m":false,"x@dev":false}` + remote + `}`},
 		{"a number of the user's is written as it stands",
-			map[string]string{userSettings: `{"big":12345678901234567890,"cleanupPeriodDays":30}`}, agents.Override{}, nil,
+			map[string]string{userSettings: `{"big":12345678901234567890,"cleanupPeriodDays":30}`}, "", nil,
 			`{` + obor + `"big":12345678901234567890,"cleanupPeriodDays":30` + remote + `}`},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			m := machine{files: c.files}
-			argv, file := m.start(t, &c.over, c.env)
+			argv, file := m.start(t, c.override, c.env)
 			if want := []string{"--model", "opus", "--setting-sources", "project,local", "--settings", stateFile}; !slices.Equal(argv, want) {
 				t.Errorf("argv %q, want %q", argv, want)
 			}
@@ -253,34 +263,87 @@ func TestStartOverride(t *testing.T) {
 	}
 }
 
-// A lead's start (no override) on the same machine: the args alone, no --setting-sources, no --settings and no file.
-func TestStartLeadKeepsTheUserSettings(t *testing.T) {
-	m := machine{files: map[string]string{userSettings: `{"enabledPlugins":{"a@m":true},` + hooks("/bin/x.sh") + `}`}}
-	if argv, file := m.start(t, &agents.Override{}, nil); file == "" || !slices.Contains(argv, "--setting-sources") {
-		t.Fatalf("precondition: a worker's start on this machine writes a file: %q, %q", argv, file)
-	}
+// claude_override.json naming mcpServers makes the start strict on an MCP file obor writes: the user's servers
+// (~/.claude.json's own and those it holds for the project's root) with the override laid over them, the project's
+// approved .mcp.json servers and obor's own. Without mcpServers in it the start is as without the file.
+func TestStartMCPOverride(t *testing.T) {
 	k := kind(t)
-	lead := agents.Start{Args: []string{"--model", "opus"}, Agent: "pj-lead", Dir: "/lane", Kit: "/kit", Prompt: "go",
-		Env: func(string) string { return "/home/u" }, Read: func(string) ([]byte, error) { return nil, fs.ErrNotExist },
-		WriteState: func(name string, _ []byte) (string, error) {
-			t.Errorf("a lead's start wrote %s", name)
-			return "", nil
-		}}
-	l, err := agents.StartOf(k, lead)
+	user := `{"mcpServers":{"blender":{"command":"b"},"x":{"command":"x"}},` +
+		`"projects":{"/main":{"mcpServers":{"local":{"command":"l"}}},"/other":{"mcpServers":{"far":{"command":"f"}}}}}`
+	m := machine{files: map[string]string{userFile: user,
+		"/lane/.mcp.json": `{"mcpServers":{"proj":{"command":"p"},"unapproved":{"command":"u"}}}`,
+		projSettings:      `{"enabledMcpjsonServers":["proj"]}`}}
+	in := m.in(map[string]string{claude.MCPOverride: `{"mcpServers": {"blender": null}}`}, nil)
+	in.Kit, in.Prompt = "/kit", "go"
+	l, err := agents.StartOf(k, in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"--model", "opus", "go"}; !slices.Equal(l.Args, want) {
-		t.Errorf("a lead's start = %q, want %q", l.Args, want)
+	if want := []string{"--model", "opus", "--mcp-config", mcpFile, "--strict-mcp-config", "--setting-sources", "project,local",
+		"--settings", stateFile, "--", "go"}; !slices.Equal(l.Args, want) {
+		t.Errorf("argv\n %q\nwant\n %q", l.Args, want)
+	}
+	var ours map[string]map[string]any
+	if err := json.Unmarshal([]byte(claude.MCPConfig("/kit")), &ours); err != nil {
+		t.Fatal(err)
+	}
+	obor, _ := json.Marshal(ours["mcpServers"]["obor"])
+	want := `{"mcpServers":{"local":{"command":"l"},"obor":` + string(obor) + `,"proj":{"command":"p"},"x":{"command":"x"}}}`
+	if got := m.written(t, claude.StateMCP("pj-l-01")); got != want {
+		t.Errorf("the MCP file\n %s\nwant (blender gone, x and the project root's local server kept, the approved .mcp.json server, obor's)\n %s", got, want)
+	}
+
+	// no mcpServers in the file: the lane's start is as without it (not strict here: the project approves its servers)
+	in = m.in(map[string]string{claude.MCPOverride: `{"numStartups": 3}`}, nil)
+	in.Kit, in.StrictMCP = "/kit", true
+	if l, err = agents.StartOf(k, in); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"--model", "opus", "--setting-sources", "project,local", "--settings", stateFile}; !slices.Equal(l.Args, want) {
+		t.Errorf("an override without mcpServers: argv %q, want %q", l.Args, want)
+	}
+	if _, wrote := m.state[claude.StateMCP("pj-l-01")]; wrote {
+		t.Errorf("an override without mcpServers wrote an MCP file: %v", m.state)
+	}
+	checker := k.(agents.OverrideChecker)
+	if got, want := checker.OverrideWarnings(in), []string{"claude_override.json: numStartups: only mcpServers applies"}; !slices.Equal(got, want) {
+		t.Errorf("OverrideWarnings = %q, want %q", got, want)
+	}
+	if got := checker.OverrideWarnings(m.in(map[string]string{claude.MCPOverride: `{"mcpServers": {}}`}, nil)); len(got) != 0 {
+		t.Errorf("OverrideWarnings of mcpServers alone = %q, want none", got)
+	}
+}
+
+// A lead's start (not trimmed) on the same machine and project, override files and all: the args alone, no
+// --setting-sources, no --settings, no MCP file and no state file.
+func TestStartLeadKeepsTheUserSettings(t *testing.T) {
+	m := machine{files: map[string]string{userSettings: `{"enabledPlugins":{"a@m":true},` + hooks("/bin/x.sh") + `}`,
+		userFile: `{"mcpServers":{"blender":{"command":"b"}}}`}}
+	overrides := map[string]string{claude.SettingsOverride: `{"env": {"A": "1"}}`, claude.MCPOverride: `{"mcpServers": {"blender": null}}`}
+	worker := m.in(overrides, nil)
+	l, err := agents.StartOf(kind(t), worker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.state) != 2 || !slices.Contains(l.Args, "--setting-sources") || !slices.Contains(l.Args, "--strict-mcp-config") {
+		t.Fatalf("precondition: a worker's start with these override files writes two files: %q, %v", l.Args, m.state)
+	}
+	lead := m.in(overrides, nil)
+	lead.Agent, lead.TrimUser, lead.Settings, lead.Kit, lead.Prompt = "pj-lead", false, nil, "/kit", "go"
+	if l, err = agents.StartOf(kind(t), lead); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"--model", "opus", "go"}; !slices.Equal(l.Args, want) || len(m.state) != 0 {
+		t.Errorf("a lead's start = %q with state files %v, want %q and none", l.Args, m.state, want)
 	}
 }
 
 // The whole start of a lane's agent: the file's two flags after the effort and the strict flag with obor's
 // --mcp-config, before the session and the prompt; --setting-sources as the type's args name it, when they do. A start that
 // cannot write its file is refused with the file's name: no agent or no state writer, or the write failing.
-func TestStartOverrideWhole(t *testing.T) {
+func TestStartTrimmedWhole(t *testing.T) {
 	k := kind(t)
-	in := agents.Start{Args: []string{"--model", "opus"}, Agent: "pj-l-01", Override: &agents.Override{}, Kit: "/kit",
+	in := agents.Start{Args: []string{"--model", "opus"}, Agent: "pj-l-01", TrimUser: true, Kit: "/kit",
 		StrictMCP: true, Effort: "high", Prompt: "go", Session: "s-1",
 		WriteState: func(name string, _ []byte) (string, error) { return "/state/" + name, nil }}
 	l, err := agents.StartOf(k, in)

@@ -50,6 +50,9 @@ type Manifest struct {
 	MCPLane     MCPLane   `json:"mcp_lane"`
 	// ProjectWarnings: the kind answers project-warnings (obor config validate's notes on the project's CLI files).
 	ProjectWarnings bool `json:"project_warnings,omitempty"`
+	// OverrideFiles are the names of the kind's override files in the project's .obor/<name>/ (agents.Overridable):
+	// obor reads them and hands them to start as overrides.
+	OverrideFiles []string `json:"override_files,omitempty"`
 }
 
 // Caps are agents.Caps as the manifest spells them; Status and Transcript come from the manifest's status and
@@ -130,6 +133,11 @@ func parse(name string, b []byte) (*manifest, error) {
 	if _, ok := hookTransports[m.Caps.Hooks]; !ok {
 		return nil, fmt.Errorf("manifest caps.hooks %q is none of none, native, plugin", m.Caps.Hooks)
 	}
+	for _, f := range m.OverrideFiles {
+		if f == "" || filepath.Base(f) != f {
+			return nil, fmt.Errorf("manifest override_files: %q is no file name", f)
+		}
+	}
 	var err error
 	if nr := m.NotReady; nr != nil {
 		if nr.Call == (nr.Pattern != "") {
@@ -159,7 +167,8 @@ type cache struct {
 // CacheFile is kind name's cached manifest in stateDir.
 func CacheFile(stateDir, name string) string { return filepath.Join(stateDir, "kinds", name+".json") }
 
-// Kind is a plugin kind: agents.Kind (and agents.Whole, agents.Fallible, agents.ArgsChecker, agents.ProjectChecker) by
+// Kind is a plugin kind: agents.Kind (and agents.Whole, agents.Fallible, agents.ArgsChecker, agents.ProjectChecker,
+// agents.Overridable) by
 // running its command.
 type Kind struct {
 	name, command, stateDir string
@@ -372,6 +381,14 @@ func (k *Kind) Caps() agents.Caps {
 func (k *Kind) Efforts() []string {
 	if m := k.cached(); m != nil {
 		return m.Efforts
+	}
+	return nil
+}
+
+// OverrideFiles (agents.Overridable) are the manifest's override_files.
+func (k *Kind) OverrideFiles() []string {
+	if m := k.cached(); m != nil {
+		return m.OverrideFiles
 	}
 	return nil
 }
