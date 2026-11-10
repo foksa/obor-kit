@@ -18,6 +18,9 @@ live in `docs/decisions.md`, open work in `BACKLOG.md`, the lead's own working r
 - **Replacing a mechanism grows, deleting one shrinks.** Name the deletions in the spec; price a "replace X with Y"
   at its crash and race paths.
 - **Split by files means grepping the files** before splitting.
+- **"Nothing open" is not "nothing reads it"** (11-10, T-1222): a replay branch is read by the fold that decides
+  what is open, so a quiet `obor status` proves nothing. Before deleting one, trace the fold and rules that read the
+  record shape, and fold a copy of each live store with the change (a copy, never the live store).
 
 ## Load is the hidden tax
 - Flaky reds track machine load. The release's full `make check` is the most loaded run: v0.35's first try hung a
