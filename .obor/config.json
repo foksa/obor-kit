@@ -165,6 +165,7 @@
       "conformance",
       "release_tests",
       "check_budget",
+      "race",
       "trim_go_cache"
     ]
   },
@@ -191,6 +192,10 @@
     },
     "check_budget": {
       "cmd": "make -s check-budget",
+      "timeout": 1800
+    },
+    "race": {
+      "cmd": "make -s check-race",
       "timeout": 1800
     },
     "release_tests": {

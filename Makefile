@@ -5,6 +5,7 @@
 # the two non-Go classes' checks (skills/templates/hooks and the page's Go side, T-901), `make check-release` → the
 # kit's own release tooling (the Makefile, scripts/, install.sh; tests/release, T-902),
 # `make check-budget` → the nightly test budget (tests/budget, T-1002),
+# `make check-race` → the nightly's non-gating race line (commands.race),
 # `make trim-go-cache` → every entry of the Go build cache (commands.trim_go_cache, nightly, T-817, T-1027),
 # `make vulncheck` → the nightly's pinned govulncheck (commands.check_milestone, T-1034),
 # `make deadcode` → its dead-code check, `make deps` → a warm module cache for an offline machine, `make upgrade-check`
@@ -46,7 +47,7 @@ GOARCH_LIST := arm64 amd64
 KINDS := opencode
 RELEASE_BINARIES := obor $(KINDS:%=obor-kind-%)
 
-.PHONY: build test conformance trim-go-cache check check-affected check-compile check-retest check-readers check-web check-release check-budget vulncheck deadcode deps upgrade-check release ship publish clean web web-dev web-test
+.PHONY: build test conformance trim-go-cache check check-affected check-compile check-retest check-race check-readers check-web check-release check-budget vulncheck deadcode deps upgrade-check release ship publish clean web web-dev web-test
 
 # build writes OUT and, beside it, each kind binary the kit ships (KINDS: kinds/<kind> -> obor-kind-<kind>, T-1046; obor
 # runs a kit kind from the directory of its own executable, config.KitKind).
@@ -153,6 +154,21 @@ check-retest:
 	rc=0; out=$$($(GO) test -count=1 -tags integration $${CHECK_CPUS:+-p $$CHECK_CPUS} -run "$$TESTS" $$OBOR_FAILED_PKGS 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
 	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"
+
+# check-race (commands.race, the nightly's non-gating race line): the suite once under the race detector. Only a data
+# race counts here: a test that fails on timing under -race's slowdown is the nightly check's business, not this
+# line's, so the last line is the number of race reports and the exit is 1 only when there is one (the nightly then
+# keeps the whole output, .obor/state/logs/nightly-race.log). A run in which no package ran (-race needs cgo off
+# macOS; a build error) is a FAIL line and exit 2, never "0 reports". RACE_PKGS narrows it to a task's own package.
+RACE_PKGS ?= ./...
+check-race:
+	@$(GO_CACHE); \
+	out=$$($(GO) test -race -count=1 -tags integration $${CHECK_CPUS:+-p $$CHECK_CPUS} $(RACE_PKGS) 2>&1) || true; printf '%s\n' "$$out" >&2; \
+	ran=$$(printf '%s\n' "$$out" | grep -c -e '^ok' -e '^FAIL[[:space:]]' || true); \
+	if [ "$$ran" = 0 ] || printf '%s\n' "$$out" | grep -q -e '\[build failed\]' -e '\[setup failed\]'; then echo "FAIL race: the race build did not run"; exit 2; fi; \
+	n=$$(printf '%s\n' "$$out" | grep -c 'WARNING: DATA RACE' || true); \
+	f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
+	echo "race: $$n data race report(s), $$f package(s) with failing tests under -race"; test "$$n" = 0
 
 # check-readers: the packages that read the non-Go files outside a Go rule (merge.classes "readers", T-901). The survey
 # greps the .go files under cmd/ and internal/ for each path, package by package; TestOborKitReaders fails when a package
