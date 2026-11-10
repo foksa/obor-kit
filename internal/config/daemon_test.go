@@ -47,7 +47,7 @@ func TestLoadUnknownPaths(t *testing.T) {
 			},
 		},
 		{
-			// dir, paths and at went with baseline and gate; a command keeps its cmd, the field is an unknown key.
+			// a command keeps its cmd; a field it does not take is an unknown key.
 			name: "a removed command field under a free command name",
 			cfg:  `{"version":2,"commands":{"gate":{"cmd":"x","paths":["src/**"]}}}`,
 			warn: []string{"commands.gate.paths"},
