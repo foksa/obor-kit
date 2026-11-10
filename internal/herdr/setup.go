@@ -1,8 +1,8 @@
 package herdr
 
 // setup.go: port.TerminalSetup over herdr. What obor setup and obor init ask of the terminal in neutral terms
-// (a pane for a role near something, the removal of an older obor's integration, a project rename) is laid out here in
-// herdr's: tabs, workspaces, splits, the workspace label, and the unlink of the obor.events plugin.
+// (a pane for a role near something, herdr's own setting for a restart, a project rename) is laid out here in
+// herdr's: tabs, workspaces, splits, the workspace label, and its config.toml.
 
 import (
 	"bufio"
@@ -277,50 +277,15 @@ func (h *Setup) split(ctx context.Context, panes []Pane, p port.Placement, tab s
 	return pane, nil
 }
 
-// --- integration removed: the obor.events plugin (R-28 §3) ----------------------------------------------
-
-// oborPlugin is the id of the herdr plugin that restores panes in herdr and that a project's setup unlinks
-// (obor serve restarts its own panes).
-const oborPlugin = "obor.events"
-
-// RemoveIntegration removes the obor.events plugin from herdr (user-global, once per user): obor serve restarts its
-// own panes, so obor needs no second restore path. herdr's plugin list is read once (
-// a list error is the call's error, never "not linked"); a listed plugin → unlink. Then herdr's resume setting: Hint
-// is the one line to add unless herdr's config sets it, also when the unlink failed.
-func (h *Setup) RemoveIntegration(ctx context.Context, out func(string)) (port.Integration, error) {
-	in := port.Integration{Hint: h.resumeHint()}
-	plugins, err := h.Plugins(ctx)
-	if err != nil {
-		return in, project.Failf("cannot read herdr's plugin list: %v", err)
-	}
-	for _, p := range plugins {
-		if p.ID != oborPlugin {
-			continue
-		}
-		if err := h.UnlinkPlugin(ctx, oborPlugin); err != nil {
-			out(fmt.Sprintf("WARN herdr-plugin: %v", err))
-			return in, project.Failf("herdr-plugin")
-		}
-		root := p.Root
-		if root == "" {
-			root = "an unknown directory"
-		}
-		in.Changed = true
-		in.What = fmt.Sprintf("%s unlinked (was %s; obor serve restarts its own panes now)", oborPlugin, root)
-		out("herdr-plugin: " + in.What)
-		return in, nil
-	}
-	in.What = oborPlugin + " is not linked"
-	return in, nil
-}
+// --- herdr's setting for a restart ------------------------------------------------------------------------------
 
 var resumeRE = regexp.MustCompile(`^\s*resume_agents_on_restore\s*=\s*([^#\s]*)`)
 
-// resumeHint: obor serve restarts obor's panes itself, so herdr must not resume agents on a restore.
+// ResumeHint: obor serve restarts obor's panes itself, so herdr must not resume agents on a restore.
 // Unless herdr's config.toml ($HERDR_CONFIG_PATH, else ~/.config/herdr/config.toml) sets `[session]
 // resume_agents_on_restore = false`: the one line to add, saying it is user-global; "" when it is set.
 // Never edited.
-func (h *Setup) resumeHint() string {
+func (h *Setup) ResumeHint() string {
 	path := h.Env.Get("HERDR_CONFIG_PATH")
 	if path == "" {
 		path = filepath.Join(h.Env.Get("HOME"), ".config", "herdr", "config.toml")

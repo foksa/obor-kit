@@ -125,9 +125,9 @@ type Restorer interface {
 }
 
 // TerminalSetup is what obor setup and obor init ask of the terminal, in terminal-neutral terms: the pane
-// operations launch needs, the agents running now, a new pane for an agent placed by the adapter's own layout, what an
-// older obor installed there (and its removal), and a project rename's share. The herdr adapter (herdr.Setup) implements it; setup
-// decides whose pane and near what, never a tab, a workspace or a split.
+// operations launch needs, the agents running now, a new pane for an agent placed by the adapter's own layout, the
+// terminal's own setting for a restart, and a project rename's share. The herdr adapter (herdr.Setup) implements it;
+// setup decides whose pane and near what, never a tab, a workspace or a split.
 type TerminalSetup interface {
 	PaneControl
 	// Agents is every agent the terminal runs now.
@@ -135,10 +135,9 @@ type TerminalSetup interface {
 	// Place makes a new pane for an agent where p says and returns its id; the layout is the adapter's. Its refusals
 	// and failures are the lines setup prints after FAIL.
 	Place(ctx context.Context, p Placement) (string, error)
-	// RemoveIntegration removes, once per user and idempotent, what an older obor installed in the terminal to bring
-	// its agents back after it restarts (herdr: the obor.events plugin, whose job serve's own restore does);
-	// its progress lines go to say.
-	RemoveIntegration(ctx context.Context, say func(line string)) (Integration, error)
+	// ResumeHint is the one line to add when the terminal would resume its own agents after a restart and obor
+	// restarts them itself ("" when the user's terminal config says it must not); obor never edits that config.
+	ResumeHint() string
 	// RenameProject renames the terminal's group of the project from old to name (herdr: the workspace labelled old)
 	// and relabels each pane of it whose label relabel maps to another label.
 	RenameProject(ctx context.Context, old, name string, relabel func(label string) string) (Renamed, error)
@@ -170,14 +169,6 @@ type PlaceProject struct {
 	Self       string
 	MaxPanes   int
 	Has        func(cwd string) bool
-}
-
-// Integration is RemoveIntegration's outcome: whether anything was removed, the one-line summary, and a hint for the
-// user ("": none) about a setting of the terminal's own that obor never edits.
-type Integration struct {
-	Changed bool
-	What    string
-	Hint    string
 }
 
 // Renamed is RenameProject's outcome: the step's line, Already when nothing was left to do, and Warn when the terminal

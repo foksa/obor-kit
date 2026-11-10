@@ -34,10 +34,6 @@
 //	        lacks). The project's own hooksPath, when already set, is chained (obor.hooksChain, run by every hook)
 //	        instead of refused. --remove puts the chained dir back and unsets obor.hooksChain, or unsets
 //	        core.hooksPath when there is none (only when it is ours).
-//	herdr-plugin  the removal of the obor.events herdr plugin an older obor linked (obor serve
-//	        restarts its own panes): unlink it (user-global, once per user); herdr's plugin list is read once, and an
-//	        error reading it is a FAIL, not "not linked"; then one hint line unless herdr's config sets
-//	        `[session] resume_agents_on_restore = false` (never edited).
 //	agents  caches each plugin kind's manifest and runs every kind's install, whose answer `obor setup mcp`
 //	        checks; a kind installs nothing user-global.
 //
@@ -100,9 +96,8 @@ type Setup struct {
 	// start's last placement (obor init): the pane, and whether the agent was running already
 	placed  string
 	running bool
-	started bool      // and whether it started one (a pane without --start does not)
-	idle    bool      // a pane labelled for the agent was there already, no agent in it (a rerun without --start)
-	hints   *[]string // obor init: herdr's config hint goes here, to its summary, instead of out
+	started bool // and whether it started one (a pane without --start does not)
+	idle    bool // a pane labelled for the agent was there already, no agent in it (a rerun without --start)
 }
 
 // Usage is the one usage line.
@@ -116,7 +111,7 @@ func Usage() string {
 	names = append(names, "<custom role>")
 	where := "[--tab <id> | --new-tab <label> | --pane <id>]"
 	return "usage: obor setup lane <L-NN> | pane <LANE> " + where + " [--start]" +
-		" | role <" + strings.Join(names, "|") + "> " + where + " | githooks [--remove] | herdr-plugin | agents | mcp [--model <name>] | show | rename --name N --prefix P"
+		" | role <" + strings.Join(names, "|") + "> " + where + " | githooks [--remove] | agents | mcp [--model <name>] | show | rename --name N --prefix P"
 }
 
 var errUsage = errors.New("usage")
@@ -137,8 +132,6 @@ func (s *Setup) Run(ctx context.Context, args []string) int {
 		err = s.role(ctx, args)
 	case "githooks":
 		err = s.githooks(args)
-	case "herdr-plugin":
-		err = s.herdrPlugin(ctx, args)
 	case "agents":
 		err = s.agentsCmd(args)
 	case "mcp":

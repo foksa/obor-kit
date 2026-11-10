@@ -88,14 +88,10 @@ type Pane struct {
 	Placeholder string
 }
 
-// Plugin is a scripted plugin.list entry.
-type Plugin struct{ ID, Root string }
-
 // Fake is the fake herdr. Its fields may be changed between calls (under the test's own ordering).
 type Fake struct {
 	mu         sync.Mutex
 	Panes      []*Pane
-	Plugins    []Plugin          // nil: plugin.list answers an empty list
 	Workspaces []herdr.Workspace // session.snapshot's workspaces
 	TabLabels  map[string]string // tab id → the label tab.list shows (tab.create's label)
 	made       int               // panes made by pane.split and tab.create
@@ -416,23 +412,4 @@ func (f *Fake) tabList() []any {
 			"label": label, "focused": len(tabs) == 0, "pane_count": count[p.Tab], "agent_status": "unknown"})
 	}
 	return tabs
-}
-
-func (f *Fake) pluginList() []any {
-	plugins := []any{}
-	for _, pl := range f.Plugins {
-		plugins = append(plugins, map[string]any{"plugin_id": pl.ID, "plugin_root": pl.Root, "enabled": true})
-	}
-	return plugins
-}
-
-// unlink drops plugin id (no such plugin: nothing changes).
-func (f *Fake) unlink(id string) {
-	var kept []Plugin
-	for _, pl := range f.Plugins {
-		if pl.ID != id {
-			kept = append(kept, pl)
-		}
-	}
-	f.Plugins = kept
 }

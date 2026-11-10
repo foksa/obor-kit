@@ -92,7 +92,7 @@ type world struct {
 	stub    string          // claude and launchctl stubs
 	oborDir string          // the dir with the obor on PATH (a symlink to the binary of the phase)
 	herdr   string          // the stub herdr's socket
-	fake    *herdrtest.Fake // the stub herdr's state (its plugin list)
+	fake    *herdrtest.Fake // the stub herdr's state
 	kit     string          // OBOR_PLUGIN_ROOT of the phase
 	bin     string          // the binary of the phase
 	projs   []*proj

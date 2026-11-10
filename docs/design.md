@@ -260,15 +260,16 @@ row 53.
 `obor init [--name] [--prefix]` sets a project up with no questions: herdr reachable (else FAIL first),
 config with the detected commands, lanes for the CLIs on PATH, the git hooks layer, panes and roles, the plugin (`claude plugin
 marketplace add <kit>` + `install obor@<kit marketplace> --scope project`), `obor serve install`, then a
-summary (panes waiting on a trust dialog, the file to change, next: `obor lead`). Every step is idempotent: a rerun is
+summary (panes waiting on a trust dialog, herdr's `resume_agents_on_restore = false` hint while its config lacks it,
+the file to change, next: `obor lead`). Every step is idempotent: a rerun is
 the repair path. Placement: a workspace or tab is the project's when every pane in it with a
 known cwd is in the project; none: init creates a workspace. Run init from a shell in the project's own workspace:
-a workspace whose only pane is a shell `cd`'d into the project counts as the project's (accepted). `obor setup` keeps the single steps for changes later: `lane`, `pane`, `role`, `githooks`, `herdr-plugin`, `agents`, `mcp`, `show`, `rename`; each idempotent, ending in `OK …` / `FAIL …` (the
+a workspace whose only pane is a shell `cd`'d into the project counts as the project's (accepted). `obor setup` keeps the single steps for changes later: `lane`, `pane`, `role`, `githooks`, `agents`, `mcp`, `show`, `rename`; each idempotent, ending in `OK …` / `FAIL …` (the
 contract is the package doc). Role names, env values and cwd rules come from `internal/roles` (the reviewer, the deep
 dive and the integrator run in a role worktree serve owns, `<lanes.dir>/<role>`; `obor setup role`, serve's starts and
 `obor restart` add it when it is missing). `pane --tab`
 splits the tab's largest pane (right when it is wider than tall on screen, else down), not the last one. `githooks`
-points `core.hooksPath` at `<kit>/githooks`. `herdr-plugin` unlinks the `obor.events` plugin. Every herdr call
+points `core.hooksPath` at `<kit>/githooks`. Every herdr call
 goes through `internal/herdr`, and `pane` / `role` start the agent through `launch.Launcher.Start`, the one
 start `obor restart` uses too.
 

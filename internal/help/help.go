@@ -72,7 +72,7 @@ var Commands = []Command{
 	{"help", "obor help", "this list", "project"},
 	{"init", "obor init [--name N] [--prefix P]",
 		"set up a project: plugin, git hooks, .obor/config.json, lanes, agent panes, obor serve", "setup"},
-	{"setup", "obor setup <lane|pane|role|githooks|herdr-plugin|agents|mcp> …",
+	{"setup", "obor setup <lane|pane|role|githooks|agents|mcp> …",
 		"one setup step on its own (a lane, a pane, the git hooks, the MCP server, …)", "setup"},
 	{"serve", "obor serve [install | uninstall | restart | dump]",
 		"the project's app: dispatch, gate, merges (install: its launchd agent)", "setup"},

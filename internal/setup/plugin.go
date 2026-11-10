@@ -1,7 +1,6 @@
 package setup
 
 import (
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -9,7 +8,6 @@ import (
 
 	"obor/internal/agents"
 	"obor/internal/agents/plugin"
-	"obor/internal/app/port"
 	"obor/internal/config"
 	"obor/internal/project"
 )
@@ -150,37 +148,6 @@ func hooksLine(root string) string {
 		line += ", chaining " + chain
 	}
 	return line
-}
-
-// herdrPlugin is `obor setup herdr-plugin`: removes the obor.events plugin an older obor linked (
-// port.TerminalSetup.RemoveIntegration; obor serve restarts its own panes), its lines, then its hint.
-func (s *Setup) herdrPlugin(ctx context.Context, args []string) error {
-	if len(args) > 0 {
-		return errUsage
-	}
-	in, err := s.removeIntegration(ctx)
-	if err != nil {
-		return err
-	}
-	if !in.Changed {
-		s.say("herdr-plugin: %s", in.What)
-	}
-	s.say("OK herdr-plugin")
-	return nil
-}
-
-// removeIntegration removes what an older obor installed in the terminal (user-global, once per user) and says its
-// lines; its hint goes to obor init's summary when init runs, else it is said after them, also when the removal failed.
-func (s *Setup) removeIntegration(ctx context.Context) (port.Integration, error) {
-	in, err := s.T.RemoveIntegration(ctx, func(line string) { s.say("%s", line) })
-	switch {
-	case in.Hint == "":
-	case s.hints != nil:
-		*s.hints = append(*s.hints, in.Hint)
-	default:
-		s.say("%s", in.Hint)
-	}
-	return in, err
 }
 
 // agentsCmd is `obor setup agents` (once per user): in a project, each plugin kind its config names
