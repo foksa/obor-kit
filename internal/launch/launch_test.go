@@ -465,14 +465,12 @@ func (x *fx) settingsFile(agent string) string {
 // they are: no --setting-sources, no --settings and no file.
 func TestStartWritesTheSettingsFile(t *testing.T) {
 	t.Parallel()
-	x := setup(t, testkit.Set("agents.overrides.claude", `{"settings":{"env":{"KIND":"k"}},"off":{"hooks":["x.sh"]}}`),
-		testkit.Set("agents.roles.integrator", `{"model":"opus","overrides":{"claude":{"settings":{"env":{"ROLE":"r"}},"off":{"hooks":["y.sh"]}}}}`))
-	hook := func(cmd string) string { return `{"hooks":[{"command":"` + cmd + `","type":"command"}]}` }
-	user := func(hooks ...string) {
-		x.p.Write(filepath.Join(x.claude, "settings.json"), `{"env":{"USER":"u"},"enabledPlugins":{"a@m":true},`+
-			`"hooks":{"SessionStart":[`+strings.Join(hooks, ",")+`]}}`)
-	}
-	user(hook("herdr-agent-state.sh"), hook("/bin/x.sh"), hook("/bin/y.sh"))
+	x := setup(t, testkit.Set("agents.overrides.claude", `{"settings":{"env":{"KIND":"k"}},"off":{"mcp":["x-srv"]}}`),
+		testkit.Set("agents.roles.integrator", `{"model":"opus","overrides":{"claude":{"settings":{"env":{"ROLE":"r"}},"off":{"mcp":["y-srv"]}}}}`))
+	// the user's settings: a variable, a plugin and three MCP servers (the kind's override switches x-srv off, the
+	// integrator's y-srv too)
+	x.p.Write(filepath.Join(x.claude, "settings.json"), `{"env":{"USER":"u"},"enabledPlugins":{"a@m":true},`+
+		`"mcpServers":{"keep":{"command":"k"},"x-srv":{"command":"x"},"y-srv":{"command":"y"}}}`)
 	x.p.Write(filepath.Join(project.StateDir(x.p.Root), claude.StateSettings("pj-int")), `{"env":{"LAST":"start"}}`)
 	start := func(agent, pane, cwd string) string {
 		t.Helper()
@@ -488,15 +486,14 @@ func TestStartWritesTheSettingsFile(t *testing.T) {
 	if got := start("pj-int", "w1:p5", x.p.Root); !strings.Contains(got, file+" ") {
 		t.Errorf("the integrator's start %q lacks %q", got, file)
 	}
-	if got, want := x.settingsFile("pj-int"), `{`+obor+`"env":{"KIND":"k","ROLE":"r","USER":"u"},"hooks":{"SessionStart":[`+
-		hook("herdr-agent-state.sh")+`]},"remoteControlAtStartup":false}`; got != want {
+	if got, want := x.settingsFile("pj-int"), `{`+obor+`"env":{"KIND":"k","ROLE":"r","USER":"u"},`+
+		`"mcpServers":{"keep":{"command":"k"}},"remoteControlAtStartup":false}`; got != want {
 		t.Errorf("the integrator's settings file\n %s\nwant\n %s", got, want)
 	}
 	// a lane's worker: the kind's override alone, its own file
-	user(hook("/bin/x.sh"), hook("/bin/y.sh"))
 	start("pj-l-01", "w1:p3", "")
-	if got, want := x.settingsFile("pj-l-01"), `{`+obor+`"env":{"KIND":"k","USER":"u"},"hooks":{"SessionStart":[`+
-		hook("/bin/y.sh")+`]},"remoteControlAtStartup":false}`; got != want {
+	if got, want := x.settingsFile("pj-l-01"), `{`+obor+`"env":{"KIND":"k","USER":"u"},`+
+		`"mcpServers":{"keep":{"command":"k"},"y-srv":{"command":"y"}},"remoteControlAtStartup":false}`; got != want {
 		t.Errorf("the worker's settings file\n %s\nwant\n %s", got, want)
 	}
 	lead := start("pj-lead", "w1:p1", x.p.Root)
