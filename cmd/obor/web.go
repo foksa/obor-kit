@@ -53,7 +53,7 @@ func webCmd(args []string) int {
 		errf("obor web: %v", err)
 		return 1
 	}
-	srv := &http.Server{Handler: (&web.Server{Events: statusEvents, Listen: ln.Addr().String()}).Handler(), ReadHeaderTimeout: 5 * time.Second}
+	srv := &http.Server{Handler: (&web.Server{Events: statusEvents}).Handler(), ReadHeaderTimeout: 5 * time.Second}
 	fmt.Fprintf(out, "obor web: http://%s/ (localhost; Ctrl-C ends it)\n", ln.Addr())
 	out.Flush() // said before the first request, not when the process ends
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

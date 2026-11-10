@@ -75,12 +75,13 @@ func post(h http.Handler, url, body, host string, edit ...func(*http.Request)) *
 	return w
 }
 
-// A POST from the page reaches serve; one without its Origin, from another origin, to another Host (DNS rebinding)
-// or with a body that is not JSON is 403 and asks serve nothing. localhost and 127.0.0.1 are one host.
+// A POST from the page reaches serve; one without its Origin, from another origin, under a Host that is not a loopback
+// name (DNS rebinding) or with a body that is not JSON is 403 and asks serve nothing. A loopback Host on any port is one
+// of obor web's names (T-1170): an SSH tunnel on another local port can post.
 func TestPostOnlyFromThePage(t *testing.T) {
 	p, _, s := fixture(t)
 	spy := &callSpy{reply: "SET lanes.L-01 \"\" → \"opus\""}
-	s.Call, s.Listen = spy.call, "127.0.0.1:8787"
+	s.Call = spy.call
 	h := s.Handler()
 	const body = `{"changes":[{"key":"lanes.L-01","value":"opus"}],"base":"r1"}`
 	w := post(h, "/api/config?project=pj", body, "127.0.0.1:8787")
@@ -108,7 +109,6 @@ func TestPostOnlyFromThePage(t *testing.T) {
 		{"another port", "127.0.0.1:8787", func(r *http.Request) { r.Header.Set("Origin", "http://127.0.0.1:9999") }},
 		{"https origin", "127.0.0.1:8787", func(r *http.Request) { r.Header.Set("Origin", "https://127.0.0.1:8787") }},
 		{"rebinding Host", "evil.example:8787", nil},
-		{"another Host port", "127.0.0.1:9999", nil},
 		{"form body", "127.0.0.1:8787", func(r *http.Request) { r.Header.Set("Content-Type", "application/x-www-form-urlencoded") }},
 		{"text body", "127.0.0.1:8787", func(r *http.Request) { r.Header.Set("Content-Type", "text/plain") }},
 		{"no content type", "127.0.0.1:8787", func(r *http.Request) { r.Header.Del("Content-Type") }},
@@ -125,6 +125,10 @@ func TestPostOnlyFromThePage(t *testing.T) {
 	}
 	if got := len(spy.all()); got != asked {
 		t.Errorf("a refused POST asked serve: %d calls, want %d", got, asked)
+	}
+	// T-1170: a tunnel on another local port keeps working — the page is the same page, its origin its own Host.
+	if w := post(h, "/api/config?project=pj", body, "127.0.0.1:9999"); w.Code != http.StatusOK {
+		t.Errorf("a POST on another local port (an SSH tunnel): %d %s, want 200", w.Code, w.Body.String())
 	}
 	w = post(h, "/api/config?project=pj", body, "127.0.0.1:8787", func(r *http.Request) {
 		r.Header.Set("Content-Type", "application/json; charset=utf-8")
@@ -147,8 +151,7 @@ func TestPostElsewhereIs405(t *testing.T) {
 	}
 	for _, m := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
 		for _, url := range []string{"/api/config?project=pj", "/api/pause?project=pj"} {
-			w := httptest.NewRecorder()
-			h.ServeHTTP(w, httptest.NewRequest(m, url, nil))
+			w := at(h, m, url, DefaultListen)
 			if w.Code != http.StatusMethodNotAllowed || w.Header().Get("Allow") != "POST" {
 				t.Errorf("%s %s: %d (Allow %q), want 405 with Allow POST", m, url, w.Code, w.Header().Get("Allow"))
 			}
