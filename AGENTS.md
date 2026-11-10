@@ -19,8 +19,9 @@ none of this replaces the task, and "nothing to flag" needs no line.
 - Go, standard library first. A dependency is allowed only when it implements a published spec or a database engine
   obor would otherwise write itself, is cgo-free and pinned in `go.mod`; adding or bumping one is its own task with
   `make check` as the gate (the owner approves new ones). `govulncheck` runs in `obor nightly` (`check_milestone`).
-  Today the two dependencies are the shell parser (`mvdan.cc/sh`) and SQLite (`modernc.org/sqlite`, cgo-free, with its
-  matching `modernc.org/libc` pin). One static binary
+  Today the dependencies are the shell parser (`mvdan.cc/sh`), SQLite (`modernc.org/sqlite`, cgo-free, with its
+  matching `modernc.org/libc` pin) and the official MCP Go SDK (`github.com/modelcontextprotocol/go-sdk`, adopted
+  2026-11-05, with `github.com/google/jsonschema-go` for the tools' schemas). One static binary
   (`make build` → `dist/obor`), and beside it each plugin kind the kit ships as its own (`dist/obor-kind-opencode`,
   `kinds/opencode`, T-1046); `bin/obor` is the only bash (bash 3.2 compatible, macOS and Linux).
 - Runtime deps: **git, herdr, jq** (jq only in the `bin/obor` shim) + the binary. No python, node or bun in shipped code; the mods are TypeScript run by
