@@ -95,6 +95,39 @@ func TestSessionIdentityCrossCheck(t *testing.T) {
 	})
 }
 
+// herdr reports no session for a pane (a trimmed Claude start loads no user hooks, herdr's among them): the agent
+// is identified all the same, by its start or by its label, its own session report is recorded and stays its current
+// session, and nothing is cross-checked.
+func TestSessionIdentityWithoutHerdrSession(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct{ name, label, want string }{
+		{"by its start", "", "identified w1:p1 start"},
+		{"by its label", "pj-l-01", "identified w1:p1 label"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			h, out := newIdentHarness(t)
+			h.pane("w1:p1").Label, h.pane("w1:p1").Session = c.label, ""
+			if c.label == "" {
+				h.started("pj-l-01", "w1:p1", "t1", "")
+			}
+			h.connect()
+			if p := h.pane("w1:p1"); p.Session != "" {
+				t.Fatalf("precondition: herdr reports no session for the pane, got %q", p.Session)
+			}
+			eqs(t, h.session("pj-l-01", "s1", "/t/s1.jsonl", time.Now().Unix()), "SESSION pj-l-01 s1", "the agent's own report")
+			h.connect()
+			eqs(t, h.where("pj-l-01"), c.want, "identified without herdr's session")
+			eqs(t, h.current("pj-l-01"), "s1", "the recorded session is its current one")
+			h.status("w1:p1", func(p *port.Pane) { p.Status = "working" })
+			eqs(t, h.where("pj-l-01"), c.want, "still identified after a pane event")
+			if strings.Contains(out.String(), "herdr reports session") {
+				t.Errorf("a cross-check line with no herdr session:\n%s", out)
+			}
+		})
+	}
+}
+
 // obor status shows an identified agent's current session: its id, transcript and start.
 func TestSessionInStatus(t *testing.T) {
 	t.Parallel()

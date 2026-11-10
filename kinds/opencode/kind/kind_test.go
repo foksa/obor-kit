@@ -113,7 +113,7 @@ func TestKind(t *testing.T) {
 	if r := k.InboxRecord(env(map[string]string{"CLAUDE_CODE_MESSAGING_SOCKET": "/s"})); r != nil {
 		t.Errorf("InboxRecord = %s, want none", r)
 	}
-	if !slices.Equal(k.Vars(), []string{kind.ModelVar, kind.ConfigVar}) {
+	if !slices.Equal(k.Vars(), []string{kind.ModelVar, kind.ConfigVar, kind.SkillsVar}) {
 		t.Errorf("Vars = %q", k.Vars())
 	}
 }
@@ -122,7 +122,7 @@ func TestKind(t *testing.T) {
 // <provider>/<model>#<effort>, the model being the type's --model/-m only: obor never guesses OpenCode's model, so a
 // type without one unsets the variable (OpenCode's own choice stands, even when the user's files name a model) and an
 // effort on it is refused, by the start and by the args check before it (agents.ArgsChecker). Without a kit the
-// variable is the only one set: no config, no file.
+// model is the only variable with a value: no config, no file, and the skills switch unset.
 func TestStartEnvModelReachesThePlugin(t *testing.T) {
 	k := opencode(t, t.TempDir())
 	// The user's files name models; none may be read (Read is a trap).
@@ -138,8 +138,8 @@ func TestStartEnvModelReachesThePlugin(t *testing.T) {
 				return "", nil
 			}})
 		v, set := l.Env[kind.ModelVar]
-		if err == nil && (!set || len(l.Env) != 1) {
-			t.Errorf("start(%q, %q) env = %v: want %s and nothing else", args, effort, l.Env, kind.ModelVar)
+		if off, unset := l.Env[kind.SkillsVar]; err == nil && (!set || len(l.Env) != 2 || !unset || off != "") {
+			t.Errorf("start(%q, %q) env = %v: want %s, %s unset and nothing else", args, effort, l.Env, kind.ModelVar, kind.SkillsVar)
 		}
 		return v, set, err
 	}
@@ -179,6 +179,36 @@ func TestStartEnvModelReachesThePlugin(t *testing.T) {
 	}
 }
 
+// a trimmed start (every agent but a lead) sets OpenCode's own switch for the Claude skill dirs; an untrimmed one
+// has it in its env as "", which the start unsets (the pane's shell may hold an earlier, trimmed start's), and the
+// manifest's vars name it so every other kind's start unsets it too. The argv is the same either way.
+func TestStartEnvTrimsTheUserSkills(t *testing.T) {
+	k := opencode(t, t.TempDir())
+	if kind.SkillsVar != "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS" {
+		t.Errorf("SkillsVar = %q: OpenCode reads OPENCODE_DISABLE_CLAUDE_CODE_SKILLS", kind.SkillsVar)
+	}
+	if !slices.Contains(k.Vars(), kind.SkillsVar) {
+		t.Errorf("Vars %q lack %s: another kind's start would not unset it", k.Vars(), kind.SkillsVar)
+	}
+	start := func(trim bool) agents.Launch {
+		l, err := agents.StartOf(k, agents.Start{Args: []string{"--auto", "--model", "p/m"}, Prompt: "go", TrimUser: trim})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return l
+	}
+	trimmed, whole := start(true), start(false)
+	if v := trimmed.Env[kind.SkillsVar]; v != "1" {
+		t.Errorf("a trimmed start: %s = %q in %v, want 1", kind.SkillsVar, v, trimmed.Env)
+	}
+	if v, set := whole.Env[kind.SkillsVar]; !set || v != "" {
+		t.Errorf("an untrimmed start: %s = %q (in the env: %v), want it there and empty (unset)", kind.SkillsVar, v, set)
+	}
+	if !slices.Equal(trimmed.Args, whole.Args) || !slices.Equal(whole.Args, []string{"--auto", "--prompt", "go"}) {
+		t.Errorf("argv %q (trimmed) and %q: want the same, no switch on the command line", trimmed.Args, whole.Args)
+	}
+}
+
 // a start from a kit writes one generated config into the state dir, named by OPENCODE_CONFIG (a path, so the
 // env line stays short): mcp.servers.obor runs the launching kit's `bin/obor mcp`, pinned, and plugins names the kit's
 // plugin package dir; the model variable still rides along. A failed write is the start's error.
@@ -198,7 +228,7 @@ func TestStartEnvNamesTheGeneratedConfig(t *testing.T) {
 		t.Fatalf("written %v: want the one generated config", written)
 	}
 	vars := l.Env
-	if kind.ConfigVar != "OPENCODE_CONFIG" || vars[kind.ConfigVar] != "/p/.obor/state/opencode.json" || vars[kind.ModelVar] != "p/m#high" || len(vars) != 2 {
+	if kind.ConfigVar != "OPENCODE_CONFIG" || vars[kind.ConfigVar] != "/p/.obor/state/opencode.json" || vars[kind.ModelVar] != "p/m#high" || len(vars) != 3 {
 		t.Errorf("start env = %v: want OPENCODE_CONFIG=<the file> and the model", vars)
 	}
 	if !bytes.Equal(written[kind.ConfigFile], kind.Config("/kit")) {

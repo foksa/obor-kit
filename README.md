@@ -101,6 +101,9 @@ the flag for it:
 | Claude | `.claude/settings.json` | `remoteControlAtStartup`, `autoMemoryEnabled` | that key of `--settings` (non-lead roles) |
 | Codex | `.codex/config.toml`, top-level (before any `[table]`) | `sandbox_mode` | `-s workspace-write` |
 | Codex | same | `check_for_update_on_startup` | `-c check_for_update_on_startup=false` |
+| Claude | `.obor/config.json` | `--setting-sources <list>` in `agents.kinds.claude.args` | `--setting-sources project,local` (non-lead roles), which drops the user's `~/.claude/settings.json` (its plugins, hooks, env), `~/.claude/skills` and `~/.claude/CLAUDE.md` |
+| Codex | `.codex/config.toml`, anywhere (dotted, or under its `[table]`) | `features.plugins`, `features.apps`, `skills.bundled.enabled` | that key's `-c <key>=false` (non-lead roles), which drop the user's plugins with their skills, the app connectors and the bundled skills |
+| OpenCode | none | none (no opt-out) | nothing: `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` is in every non-lead start's env and hides `~/.claude/skills` and the project's `.claude/skills` |
 
 obor's MCP server, the session id, the prompt, the model ref each role and difficulty level names (`<model>[:<effort>]`,
 e.g. `opus:high`), Claude's `--permission-mode auto` and Codex's `-a never` stay (change those in `.obor/config.json`:
@@ -109,6 +112,18 @@ project is trusted in `~/.codex/config.toml`. A file that does not parse counts 
 absent. `obor config validate` warns on such a file, on `disableAllHooks: true` in `.claude/settings.json` (it turns
 off obor's guard hooks) and on an OpenCode project config (`opencode.json[c]`, `.opencode/opencode.json[c]`) that
 defines `mcp.servers.obor` (it replaces obor's server).
+
+**Project skills and MCP servers.** Every agent but the lead starts without the user's own plugins, skills and hooks
+(the three rows above), so what such an agent sees is what the project commits; the lead keeps the user's setup.
+obor's Claude plugin must be installed at project scope (`obor init` installs it there): a user-scope install is dropped
+with the rest.
+- Skills: one tree, `.agents/skills/<name>/SKILL.md` (Codex and OpenCode read it), with `.claude/skills` a symlink to
+  `../.agents/skills` (Claude reads that). Keep the tree in `.agents/skills`, not in `.claude/skills`: OpenCode's
+  switch hides the project's `.claude/skills` too. The role text (`docs/agents/<role>.md`) names which skills a role
+  uses; every role sees all of them.
+- MCP servers (say, a Blender server for a game project): each CLI's own project file. Claude: `.mcp.json`, with the
+  approval row of the table (`enabledMcpjsonServers`) so a lane's agent loads it; Codex: `mcp_servers` in
+  `.codex/config.toml`; OpenCode: `mcp` in `opencode.json`.
 
 ## Everyday commands
 

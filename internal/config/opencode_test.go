@@ -30,6 +30,15 @@ func TestOpencodeModelEffort(t *testing.T) {
 	if err := c.CheckModelRef("deepseek:high"); err != nil {
 		t.Errorf("deepseek:high refused: %v", err)
 	}
+	// Every agent but a lead starts trimmed: OpenCode's switch is in the start's env, and a lead's start unsets it
+	// (the kind protocol's trim_user, through the kind's own start).
+	const skills = "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"
+	for role, want := range map[string]string{"worker": "1", "reviewer": "1", "lead": ""} {
+		l, err := ds.Launch(role, agents.Start{})
+		if v, set := l.Env[skills]; err != nil || !set || v != want {
+			t.Errorf("a %s start: %s = %q (in the env: %v), %v; want %q", role, skills, v, set, err, want)
+		}
+	}
 	for ref, refusal := range map[string]string{
 		"deepseek:big": `effort "big" is not one of opencode's`,
 		"muse:high":    "kind opencode: start: effort high needs a model id",

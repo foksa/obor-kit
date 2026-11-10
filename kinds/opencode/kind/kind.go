@@ -32,6 +32,10 @@ const ModelVar = "OBOR_OPENCODE_MODEL"
 // (herdr refuses over-long lines).
 const ConfigVar = "OPENCODE_CONFIG"
 
+// SkillsVar is OpenCode's own switch that leaves the Claude skill dirs unread (~/.claude/skills with the user's synced
+// skills, and the project's .claude/skills): "1" on a trimmed start. .agents/skills and .opencode/skills still load.
+const SkillsVar = "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"
+
 // ConfigFile is the generated config's name in the project's state dir.
 const ConfigFile = "opencode.json"
 
@@ -48,6 +52,7 @@ type request struct {
 	Resume  string   `json:"resume"`
 	Prompt  string   `json:"prompt"`
 	Effort  string   `json:"effort"`
+	Trim    bool     `json:"trim_user"`
 	Dir     string   `json:"dir"`
 	What    string   `json:"what"`
 	Error   string   `json:"error"`
@@ -121,7 +126,7 @@ func describe() map[string]any {
 		"status":  "terminal",
 		"caps":    map[string]any{"hooks": "plugin", "model_arg": true, "version_var": "OPENCODE_VERSION"},
 		"efforts": efforts,
-		"vars":    []string{ModelVar, ConfigVar},
+		"vars":    []string{ModelVar, ConfigVar, SkillsVar},
 		"stop":    map[string]any{"quit": "/exit", "second_enter": true, "clear_input": []string{"esc", "ctrl+u"}},
 		"headless": map[string]any{"subcommands": []string{"run"}, "anywhere": []string{"run"},
 			"value_opts": []string{"--server", "-s", "--session", "--prompt", "--completions", "--log-level"}},
@@ -136,7 +141,8 @@ func describe() map[string]any {
 // then --prompt <prompt> (OpenCode has no resume, so a resume adds nothing). Env: ConfigVar, the path of the start's
 // generated config (Config of the kit; no kit: none), and ModelVar <provider>/<model>[#<effort>] when the args name a
 // model (the effort replaces a #variant the model names), else ModelVar "" (unset: the pane's shell may hold an
-// earlier start's). OpenCode's interactive TUI has no --model flag (2.2.0: only `opencode run` and `mini` take one) and,
+// earlier start's), and SkillsVar "1" on a trimmed start (trim_user: every agent but a lead), else "" (unset, the
+// same way). OpenCode's interactive TUI has no --model flag (2.2.0: only `opencode run` and `mini` take one) and,
 // for a new session, ranks the variant it remembers in its state (model.json) above the config's; obor's plugin switches
 // the session in its prompt hook, after the TUI's own pre-submit switch, so the start's model and variant win from the
 // first turn (a live probe). obor never guesses a model: args without --model set none, so OpenCode's own choice
@@ -154,7 +160,10 @@ func start(in request) map[string]any {
 	if in.Prompt != "" && in.Resume == "" {
 		args = append(args, "--prompt", in.Prompt)
 	}
-	env := map[string]string{ModelVar: model}
+	env := map[string]string{ModelVar: model, SkillsVar: ""}
+	if in.Trim {
+		env[SkillsVar] = "1"
+	}
 	files := []map[string]string{}
 	if in.Kit != "" {
 		env[ConfigVar] = "{file:" + ConfigFile + "}"

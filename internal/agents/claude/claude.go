@@ -37,8 +37,10 @@ func MCPConfig(kit string) string {
 }
 
 // Start is the type's args (with in.Effort: their --effort replaced by --effort <effort>), then
-// --strict-mcp-config for a lane's agent (in.StrictMCP: once, also when the args name it), then --settings
-// <settings>, then --session-id <in.Session> (a fresh start obor names) or --resume <sid>, with obor's
+// --strict-mcp-config for a lane's agent (in.StrictMCP: once, also when the args name it), then
+// --setting-sources project,local for a trimmed start (in.TrimUser: no user settings, user hooks, user plugins or
+// ~/.claude/skills; the project's settings, its enabledPlugins with obor's plugin, and --settings stay) unless the args
+// name --setting-sources (the project's opt-out, agents.kinds.claude.args), then --settings <settings>, then --session-id <in.Session> (a fresh start obor names) or --resume <sid>, with obor's
 // --mcp-config pair spliced in before the strict flag (the flag stops --mcp-config's variadic value), then one `--`
 // when a config flag could take the prompt, then the prompt. The prompt is positional, never a config value; a
 // resume carries none. The only `--` is obor's own (config validate refuses one in the args).
@@ -53,6 +55,9 @@ func (kind) Start(in agents.Start) []string {
 	args := withEffort(in.Args, in.Effort)
 	if in.StrictMCP && !proj.mcpOptIn() {
 		args = withStrict(args)
+	}
+	if in.TrimUser && !hasFlag(args, sourcesFlag) {
+		args = append(args, sourcesFlag, trimmedSources)
 	}
 	if settings := proj.unset(in.Settings); len(settings) > 0 {
 		args = append(args, "--settings", compact(settings))
@@ -173,15 +178,30 @@ func withEffort(args []string, effort string) []string {
 	return append(out, "--effort", effort)
 }
 
+// sourcesFlag is Claude's flag that names the setting sources a start loads (user, project, local); trimmedSources
+// leaves out the user's.
+const (
+	sourcesFlag    = "--setting-sources"
+	trimmedSources = "project,local"
+)
+
 // withStrict is args with the strict flag last, unless they already name it (either spelling): a lane's agent starts
 // with obor's MCP server alone.
 func withStrict(args []string) []string {
-	for _, a := range args {
-		if a == StrictFlag || strings.HasPrefix(a, StrictFlag+"=") {
-			return args
-		}
+	if hasFlag(args, StrictFlag) {
+		return args
 	}
 	return append(args, StrictFlag)
+}
+
+// hasFlag: args name flag, either spelling (`flag` or `flag=<value>`).
+func hasFlag(args []string, flag string) bool {
+	for _, a := range args {
+		if a == flag || strings.HasPrefix(a, flag+"=") {
+			return true
+		}
+	}
+	return false
 }
 
 // compact is v as one line of JSON, HTML characters as they are (config.Compact).

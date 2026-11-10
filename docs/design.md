@@ -164,7 +164,11 @@ an object of typed lanes) is dropped with a WARN by every command and serve (its
 `obor config validate` alone fails, naming the key: delete it from the file it names.
 
 Per-kind defaults live in the plugin: Claude `--settings '{"autoMemoryEnabled":false,"remoteControlAtStartup":false}'`
-for every agent except leads (only the lead keeps Remote Control and auto memory). A lane's agent (a
+for every agent except leads (only the lead keeps Remote Control and auto memory). Every agent except leads also
+starts without the user's own plugins, skills and hooks: Claude `--setting-sources project,local` (unless
+`agents.kinds.claude.args` names `--setting-sources`), Codex `-c features.plugins=false -c features.apps=false
+-c skills.bundled.enabled=false` (a key the project's `.codex/config.toml` sets is left to it), OpenCode
+`OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1`; the project's own settings, plugins and skills stay. A lane's agent (a
 worker, the owner's drive agent) starts strict: `--strict-mcp-config`, with obor's `--mcp-config` spliced in before it,
 so the user's own MCP servers cost no context on a job; the lead and the role agents keep every one of them.
 Permission mode and posted lines: a Claude lane's job wakes and a Claude role agent's briefs are posted to its

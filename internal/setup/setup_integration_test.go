@@ -241,11 +241,11 @@ func TestReviewerAndDeepDiveRunInTheirRoleWorktree(t *testing.T) {
 		there                       bool // the role worktree is there before setup role
 		edit                        func(map[string]any)
 	}{
-		{"reviewer", "review", "pj-rev", "OK reviewer: pj-rev in pane w1:n1", "{OBOR_AGENT=,OBOR_LANE=,OBOR_OPENCODE_MODEL=,OBOR_PANE=,OBOR_ROLE=reviewer,OPENCODE_CONFIG=}",
+		{"reviewer", "review", "pj-rev", "OK reviewer: pj-rev in pane w1:n1", "{OBOR_AGENT=,OBOR_LANE=,OBOR_OPENCODE_MODEL=,OBOR_PANE=,OBOR_ROLE=reviewer,OPENCODE_CONFIG=,OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=}",
 			false, testkit.Set("agents.roles", `{"reviewer": "luna"}`)},
-		{"reviewer", "review", "pj-rev", "OK reviewer: pj-rev in pane w1:n1", "{OBOR_AGENT=,OBOR_LANE=,OBOR_OPENCODE_MODEL=,OBOR_PANE=,OBOR_ROLE=reviewer,OPENCODE_CONFIG=}",
+		{"reviewer", "review", "pj-rev", "OK reviewer: pj-rev in pane w1:n1", "{OBOR_AGENT=,OBOR_LANE=,OBOR_OPENCODE_MODEL=,OBOR_PANE=,OBOR_ROLE=reviewer,OPENCODE_CONFIG=,OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=}",
 			true, testkit.Set("agents.roles", `{"reviewer": "luna"}`)},
-		{"deep_dive", "deep-dive", "pj-deep-dive", "OK deep_dive: pj-deep-dive in pane w1:n1", "{OBOR_AGENT=,OBOR_LANE=,OBOR_OPENCODE_MODEL=,OBOR_PANE=,OBOR_ROLE=deep_dive,OPENCODE_CONFIG=}",
+		{"deep_dive", "deep-dive", "pj-deep-dive", "OK deep_dive: pj-deep-dive in pane w1:n1", "{OBOR_AGENT=,OBOR_LANE=,OBOR_OPENCODE_MODEL=,OBOR_PANE=,OBOR_ROLE=deep_dive,OPENCODE_CONFIG=,OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=}",
 			false, testkit.Set("agents.roles", `{"deep_dive": "luna"}`)},
 	} {
 		x := newGitFx(t, c.edit)

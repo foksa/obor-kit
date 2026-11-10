@@ -30,12 +30,15 @@ func EnvVarsTOML() string {
 }
 
 // Start: `resume <sid>` before the type's args (with in.Effort: their model_reasoning_effort replaced by
-// -c model_reasoning_effort=<effort>), then obor's server (with a kit), then the update check off,
-// then the prompt (a resume carries none). Codex takes no settings.
+// -c model_reasoning_effort=<effort>), then --add-dir per write dir, then a trimmed start's switches (in.TrimUser:
+// trimKeys false: no plugins, no app connectors, no bundled skills), then obor's server (with a kit), then the update
+// check off, then the prompt (a resume carries none). Codex takes no settings.
 //
 // The project's committed .codex/config.toml in in.Dir outranks obor's policy: a top-level sandbox_mode drops
 // the base args' -s workspace-write, a top-level check_for_update_on_startup leaves the update check as the file sets
-// it. A file that does not parse counts as absent (config validate warns).
+// it, and a trim key the file sets (in any form: dotted, in a [table], or inside a table it assigns whole) is left as
+// the file sets it. A key the type's args set (-c) is left as they set it too. A file that does not parse counts as
+// absent (config validate warns).
 func (kind) Start(in agents.Start) []string {
 	top, _ := projectKeys(in)
 	args := in.Args
@@ -50,6 +53,13 @@ func (kind) Start(in agents.Start) []string {
 	for _, d := range in.WriteDirs { // workspace-write writes the cwd only
 		out = append(out, "--add-dir", d)
 	}
+	if in.TrimUser {
+		for _, k := range trimKeys {
+			if !argSets(in.Args, k) && !sets(top, k) {
+				out = append(out, "-c", k+"=false")
+			}
+		}
+	}
 	if in.Kit != "" {
 		out = append(out,
 			"-c", `mcp_servers.obor.command="`+filepath.Join(in.Kit, "bin", "obor")+`"`,
@@ -61,7 +71,7 @@ func (kind) Start(in agents.Start) []string {
 	}
 	// Codex's own "Update available" menu blocks a fresh start until someone picks "Skip"; a type arg that
 	// sets the key wins.
-	if !updateCheckSet(in.Args) && !top[updateCheck] {
+	if !argSets(in.Args, updateCheck) && !top[updateCheck] {
 		out = append(out, "-c", updateCheck+"=false")
 	}
 	if in.Prompt != "" && in.Resume == "" {
@@ -89,13 +99,31 @@ func withoutSandbox(args []string) []string {
 	return args
 }
 
-// projectKeys are the top-level keys of the start dir's ConfigFile (nil: no file, or one that does not parse).
+// trimKeys are the switches of a trimmed start, each set false: the user's plugins (their skills too), the app
+// connectors, the bundled system skills. The project's skills and obor's -c MCP server stay.
+var trimKeys = []string{"features.plugins", "features.apps", "skills.bundled.enabled"}
+
+// projectKeys are the keys the start dir's ConfigFile sets, as configKeys (nil: no file, or one that does not parse).
 func projectKeys(in agents.Start) (map[string]bool, error) {
 	b, found, err := agents.ProjectFile(in, ConfigFile)
 	if !found || err != nil {
 		return nil, err
 	}
-	return topKeys(string(b))
+	return configKeys(string(b))
+}
+
+// sets: keys (configKeys) set key, or a table above it as one value (`features = {…}` sets features.plugins).
+func sets(keys map[string]bool, key string) bool {
+	for p := key; ; {
+		if keys[p] {
+			return true
+		}
+		i := strings.LastIndex(p, ".")
+		if i < 0 {
+			return false
+		}
+		p = p[:i]
+	}
 }
 
 // ProjectWarnings: a config file whose top-level part does not parse (obor's start flags then apply as without it).
@@ -173,38 +201,65 @@ func (kind) StartRefusal(h agents.InstallHost) string {
 		strings.Join(q, ", "), version)
 }
 
-// tomlKey is a `key = value` line of TOML: the key bare or quoted, dotted parts allowed; the value after the `=`.
-var tomlKey = regexp.MustCompile(`^((?:[A-Za-z0-9_-]+|"[^"\\]*"|'[^']*')(?:\s*\.\s*(?:[A-Za-z0-9_-]+|"[^"\\]*"|'[^']*'))*)\s*=\s*(.*)$`)
+// keyPart is one part of a TOML key, bare or quoted; dottedKey is a key of parts joined by dots.
+const (
+	keyPart   = `[A-Za-z0-9_-]+|"[^"\\]*"|'[^']*'`
+	dottedKey = `(?:` + keyPart + `)(?:\s*\.\s*(?:` + keyPart + `))*`
+)
 
-// topKeys are the keys a TOML document sets before its first [table] header: a narrow scan, no TOML parser.
-// It reads `key = value` lines, skips blank and comment lines, and follows a value over lines while a bracket or a
-// triple-quoted string it opens is open; any other line is an error naming its number.
-func topKeys(doc string) (map[string]bool, error) {
+var (
+	// tomlKey is a `key = value` line of TOML: the key, the value after the `=`.
+	tomlKey = regexp.MustCompile(`^(` + dottedKey + `)\s*=\s*(.*)$`)
+	// tomlTable is a `[table]` or `[[array.of.tables]]` header line, a comment allowed after it.
+	tomlTable = regexp.MustCompile(`^\[\[?\s*(` + dottedKey + `)\s*\]\]?\s*(?:#.*)?$`)
+	keyParts  = regexp.MustCompile(keyPart)
+)
+
+// configKeys are the keys a TOML document sets, each as its full dotted path, quotes off: `a = 1` sets "a",
+// `a.b = 1` and `[a]` then `b = 1` both set "a.b" (a table's own header sets nothing). A narrow scan, no TOML parser:
+// it reads `key = value` lines and table headers, skips blank and comment lines, and follows a value over lines while
+// a bracket or a triple-quoted string it opens is open. Any other line before the first table header is an error
+// naming its number; under a table it ends the scan with the keys read so far.
+func configKeys(doc string) (map[string]bool, error) {
 	keys := map[string]bool{}
 	var open value
+	table := ""
 	for i, line := range strings.Split(doc, "\n") {
 		if open.pending() {
 			open.scan(line)
 			continue
 		}
 		t := strings.TrimSpace(line)
-		switch {
-		case t == "" || strings.HasPrefix(t, "#"):
+		if t == "" || strings.HasPrefix(t, "#") {
 			continue
-		case strings.HasPrefix(t, "["):
-			return keys, nil
+		}
+		if m := tomlTable.FindStringSubmatch(t); m != nil {
+			table = keyPath(m[1]) + "."
+			continue
 		}
 		m := tomlKey.FindStringSubmatch(t)
 		if m == nil || strings.TrimSpace(m[2]) == "" {
+			if table != "" || strings.HasPrefix(t, "[") {
+				return keys, nil
+			}
 			return nil, fmt.Errorf("line %d is no key = value", i+1)
 		}
-		keys[strings.Trim(m[1], `"'`)] = true
+		keys[table+keyPath(m[1])] = true
 		open.scan(m[2])
 	}
-	if open.pending() {
+	if open.pending() && table == "" {
 		return nil, errors.New("a value is not closed")
 	}
 	return keys, nil
+}
+
+// keyPath is a dotted key's parts, quotes off, joined by dots.
+func keyPath(key string) string {
+	parts := keyParts.FindAllString(key, -1)
+	for i, p := range parts {
+		parts[i] = strings.Trim(p, `"'`)
+	}
+	return strings.Join(parts, ".")
 }
 
 // value follows one TOML value over lines: the depth of its open brackets and braces, and the triple quote it is in.
@@ -296,13 +351,13 @@ func withEffort(args []string, effort string) []string {
 // updateCheck is Codex's setting for the update check it runs on startup.
 const updateCheck = "check_for_update_on_startup"
 
-// updateCheckSet: the type's args set updateCheck themselves (`-c key=value`, `--config key=value` or their
-// `key=value` word, either spelling of the flag with =).
-func updateCheckSet(args []string) bool {
+// argSets: the type's args set key themselves (`-c key=value`, `--config key=value` or their `key=value` word,
+// either spelling of the flag with =).
+func argSets(args []string, key string) bool {
 	for _, a := range args {
 		a = strings.TrimPrefix(a, "-c=")
 		a = strings.TrimPrefix(a, "--config=")
-		if key, _, ok := strings.Cut(a, "="); ok && strings.TrimSpace(key) == updateCheck {
+		if k, _, ok := strings.Cut(a, "="); ok && strings.TrimSpace(k) == key {
 			return true
 		}
 	}

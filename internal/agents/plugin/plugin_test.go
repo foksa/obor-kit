@@ -217,7 +217,7 @@ func TestStartRequest(t *testing.T) {
 	env := func(v string) string { return map[string]string{"HOME": "/home/u", "OTHER": "o"}[v] }
 	l, err := k.StartWhole(agents.Start{Kit: "/kit", Args: []string{"-m", "x"}, Prompt: "go", Effort: "high",
 		StrictMCP: true, Dir: "/lane", Env: env, Settings: map[string]any{"a": false}, Session: "s-1",
-		WriteDirs: []string{"/reviews"}})
+		WriteDirs: []string{"/reviews"}, TrimUser: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,6 +237,7 @@ func TestStartRequest(t *testing.T) {
 		Prompt    string            `json:"prompt"`
 		Effort    string            `json:"effort"`
 		StrictMCP bool              `json:"strict_mcp"`
+		TrimUser  bool              `json:"trim_user"`
 		Dir       string            `json:"dir"`
 		Session   string            `json:"session"`
 		WriteDirs []string          `json:"write_dirs"`
@@ -247,7 +248,7 @@ func TestStartRequest(t *testing.T) {
 		t.Fatalf("request %s: %v", b, err)
 	}
 	if req.Version != 1 || req.Call != "start" || req.Kit != "/kit" || strings.Join(req.Args, " ") != "-m x" ||
-		req.Prompt != "go" || req.Effort != "high" || !req.StrictMCP || req.Dir != "/lane" || req.Settings["a"] != false ||
+		req.Prompt != "go" || req.Effort != "high" || !req.StrictMCP || !req.TrimUser || req.Dir != "/lane" || req.Settings["a"] != false ||
 		req.Session != "s-1" || strings.Join(req.WriteDirs, " ") != "/reviews" {
 		t.Errorf("request %s", b)
 	}
