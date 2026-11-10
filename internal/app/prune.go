@@ -102,8 +102,8 @@ func (p *proj) pruneCandidates(cutoff time.Time) map[string]mtask {
 		pinned[task] = true
 	}
 	review := int64(-1) // the open review's start seq (-1: none open)
-	if last := p.folded.rv.last(); last.open() != "" {
-		review = last.seq
+	if last := p.folded.rv.Last(); last.Open() != "" {
+		review = last.Seq
 	}
 	out := map[string]mtask{}
 	for task, mt := range p.folded.loop {

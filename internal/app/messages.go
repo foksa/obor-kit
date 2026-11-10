@@ -195,7 +195,7 @@ func (a *App) deliver(ctx context.Context, p *proj, fx *Loop) {
 		if b.Worked() && b.Stop() == nil && (w.State == Identified && Ready(w.Pane.Status) || gone) {
 			done = append(done, event.Message{To: p.out.Lead(), From: "obor", Ends: agent,
 				Line: fmt.Sprintf("[obor] %s finished (briefed %s ago)", agent, Age(now.Sub(b.At())))})
-			if file := p.folded.rv.briefFile(agent, b.Seq()); file != "" {
+			if file := p.folded.rv.BriefFile(agent, b.Seq()); file != "" {
 				if reviewed == nil {
 					reviewed = map[string]string{}
 				}

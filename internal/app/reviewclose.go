@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
+	"obor/internal/app/review"
 	"obor/internal/app/wire"
 	"obor/internal/store"
 	"strings"
@@ -20,7 +21,7 @@ import (
 // between its checks and its commit; the fact is recorded only after the commit is in. The refusals are the command's
 // (skills/lead/review-brief.md §5). The reviewer's stop is the existing rule, keyed by the fact.
 
-// reviewCycle is the open review's cycle as serve's fold holds it (reviewLog): the tasks it
+// reviewCycle is the open review's cycle as serve's fold holds it (review.State.Cycle): the tasks it
 // covered (its in-scope tasks plus each finished verify's, once each), the head it started at, the head the reviewer
 // last finished (never the head of a verify that did not finish; "": the last start is not id's, or it is
 // closed) and the linked tasks still open, or merged and not covered (the close's refusal).
@@ -34,19 +35,19 @@ type reviewCycle struct {
 // reviewCycle is review id's cycle (a spec that does not read is the error).
 func (a *App) reviewCycle(p *proj, id string) (reviewCycle, error) {
 	a.mu.Lock()
-	cur := p.folded.rv.cur()
-	c := reviewCycle{start: cur.head, covered: cur.cycle()}
-	ours := cur.id == id && cur.seq != 0 && cur.closed == 0
-	var cands []fixLink
+	cur := p.folded.rv.Cycle()
+	c := reviewCycle{start: cur.Head, covered: cur.Covered}
+	ours := cur.ID == id && cur.Seq != 0 && cur.Closed == 0
+	var cands []review.Link
 	if ours {
-		c.reviewed, cands = cur.reviewed, fixCandidates(p.folded.loop, cur.seq)
+		c.reviewed, cands = cur.Reviewed, fixCandidates(p.folded.loop, cur.Seq)
 	}
 	a.mu.Unlock()
 	if !ours {
 		return c, nil
 	}
 	links, err := linkFixes(cands, id, func(task string) (store.SpecRow, bool, error) { return specOf(p, task) })
-	c.pending = pendingFixes(links, c.covered)
+	c.pending = cur.Pending(links)
 	return c, err
 }
 
@@ -97,9 +98,6 @@ func (a *App) reviewCloseCall(c wire.ReviewCloseReq) (string, error) {
 	return a.reviewClose(ctx, p, fx.Workflow, s, c, summary)
 }
 
-// closedReply starts a close's reply, CLOSED <the close commit's subject>: the fold reads the subject back from it.
-const closedReply = "CLOSED "
-
 // closeUnwrittenHint is the way out an unwritten review's file refusal names (openReview's missing-file refusal).
 const closeUnwrittenHint = `obor review close "<summary>" --force closes it unwritten if it covers no task`
 
@@ -123,10 +121,10 @@ func unwrittenCovered(s ReviewSetup, o openCycle, c reviewCycle) error {
 func (a *App) reviewClose(ctx context.Context, p *proj, g port.Review, s ReviewSetup, c wire.ReviewCloseReq, summary string) (string,
 	error) {
 	a.mu.Lock()
-	open := p.folded.rv.last()
+	open := p.folded.rv.Last()
 	a.mu.Unlock()
 	if err := a.closeCommitted(ctx, p, g, open); err != nil { // a commit whose fact a crash cut: never committed twice
-		return "", fmt.Errorf("review close: is %s closed in git: %v: nothing changed", open.id, err)
+		return "", fmt.Errorf("review close: is %s closed in git: %v: nothing changed", open.ID, err)
 	}
 	o, err := a.openReview(p, s, closeUnwrittenHint)
 	unwritten := err != nil && errors.Is(err, errNoOpenReview) && o.ID != ""
@@ -160,7 +158,7 @@ func (a *App) reviewClose(ctx context.Context, p *proj, g port.Review, s ReviewS
 		Subject: subject, Body: body, Accepts: c.Accept}); err != nil {
 		return "", err
 	}
-	reply := closedReply + subject
+	reply := review.ClosedReply + subject
 	d := ReviewData{ID: o.ID, Call: c.CallID, Reply: reply, Head: snap.Head, Tasks: snap.Tasks}
 	if !a.record(p, event.Record{Task: event.ReviewTask, Step: event.StepReviewClosed, Kind: event.KindFact}, d) {
 		a.mu.Lock()
@@ -182,7 +180,7 @@ func (a *App) reviewClose(ctx context.Context, p *proj, g port.Review, s ReviewS
 // next reads again) and records only while the fold still shows the same review open.
 func (a *App) reviewCloseRead(ctx context.Context, p *proj, fx *Loop) {
 	a.mu.Lock()
-	open, done := p.folded.rv.last(), p.closeRead
+	open, done := p.folded.rv.Last(), p.closeRead
 	a.mu.Unlock()
 	if done || fx == nil || fx.Workflow == nil {
 		return
@@ -192,7 +190,7 @@ func (a *App) reviewCloseRead(ctx context.Context, p *proj, fx *Loop) {
 	}
 	defer a.configMu.Unlock()
 	if err := a.closeCommitted(ctx, p, fx.Workflow, open); err != nil {
-		a.logf("%s: is %s closed in git: %v", p.name, open.id, err)
+		a.logf("%s: is %s closed in git: %v", p.name, open.ID, err)
 		return
 	}
 	a.mu.Lock()
@@ -201,8 +199,8 @@ func (a *App) reviewCloseRead(ctx context.Context, p *proj, fx *Loop) {
 }
 
 // closeCommitted records fact review.closed from open's own close commit when there is one (under configMu).
-func (a *App) closeCommitted(ctx context.Context, p *proj, g port.Review, open lastReview) error {
-	if open.open() == "" {
+func (a *App) closeCommitted(ctx context.Context, p *proj, g port.Review, open review.Last) error {
+	if open.Open() == "" {
 		return nil
 	}
 	s, err := reviewConfig(p.root)
@@ -211,15 +209,15 @@ func (a *App) closeCommitted(ctx context.Context, p *proj, g port.Review, open l
 	}
 	ctx, cancel := context.WithTimeout(ctx, verifyGitWait)
 	defer cancel()
-	subject, err := g.Closed(ctx, s.Branch, open.head, open.id)
-	if err != nil || !ClosesReview(subject, open.id) {
+	subject, err := g.Closed(ctx, s.Branch, open.Head, open.ID)
+	if err != nil || !ClosesReview(subject, open.ID) {
 		return err // open: no close commit for it
 	}
-	d := ReviewData{ID: open.id, Reply: closedReply + subject}
+	d := ReviewData{ID: open.ID, Reply: review.ClosedReply + subject}
 	a.mu.Lock()
-	same := p.folded.rv.last() == open
-	if s := p.folded.rv.cur().closing; s != nil { // the snapshot the close recorded before its commit
-		d.Head, d.Tasks = s.head, s.tasks
+	same := p.folded.rv.Last() == open
+	if head, tasks, ok := p.folded.rv.Closing(); ok { // the snapshot the close recorded before its commit
+		d.Head, d.Tasks = head, tasks
 	}
 	a.mu.Unlock()
 	if !same {
@@ -228,7 +226,7 @@ func (a *App) closeCommitted(ctx context.Context, p *proj, g port.Review, open l
 	if !a.record(p, event.Record{Task: event.ReviewTask, Step: event.StepReviewClosed, Kind: event.KindFact}, d) {
 		return errors.New("the event log refused fact " + event.StepReviewClosed)
 	}
-	a.logf("%s: %s closed by commit %q: recorded", p.name, open.id, subject)
+	a.logf("%s: %s closed by commit %q: recorded", p.name, open.ID, subject)
 	a.wake()
 	return nil
 }

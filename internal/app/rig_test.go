@@ -31,6 +31,7 @@ import (
 	"obor/internal/app/identity"
 	"obor/internal/app/outbox"
 	"obor/internal/app/port"
+	"obor/internal/app/review"
 	"obor/internal/app/wire"
 	"obor/internal/store"
 	"obor/internal/version"
@@ -2966,7 +2967,7 @@ func newReviewRigWith(t *testing.T, seed bool) *reviewRig {
 func (r *reviewRig) seed() {
 	r.t.Helper()
 	r.fact(event.ReviewTask, event.StepReviewStarted, ReviewData{ID: "RV-4", Head: "1111111", Tasks: []string{"T-9"}})
-	r.fact(event.ReviewTask, event.StepReviewClosed, ReviewData{ID: "RV-4", Reply: closedReply + "RV-4 closed · 1111111 · approved · T-9"})
+	r.fact(event.ReviewTask, event.StepReviewClosed, ReviewData{ID: "RV-4", Reply: review.ClosedReply + "RV-4 closed · 1111111 · approved · T-9"})
 	r.mergedAt("T-a", "aaaaaaa1")
 	r.mergedAt("T-b", "bbbbbbb2")
 	recs := readLog(r.t, r.p.root)
@@ -3003,7 +3004,7 @@ func (r *reviewRig) started() {
 	r.t.Helper()
 	r.mustCall("r1", nil, "", false)
 	r.pass()
-	if len(r.agents.launches) != 1 || r.p.folded.rv.last().id != r.next {
+	if len(r.agents.launches) != 1 || r.p.folded.rv.Last().ID != r.next {
 		r.t.Fatalf("precondition: %s not started: %+v", r.next, r.agents.launches)
 	}
 	lineStatus(r.a, "w:rev", "working", r.now)
@@ -3017,7 +3018,7 @@ func (r *reviewRig) started() {
 // closedBy is a close as serve's close leaves it: fact review.closed of id, its reply naming subject.
 func (r *reviewRig) closedBy(id, subject string) {
 	r.t.Helper()
-	r.fact(event.ReviewTask, event.StepReviewClosed, ReviewData{ID: id, Reply: closedReply + subject})
+	r.fact(event.ReviewTask, event.StepReviewClosed, ReviewData{ID: id, Reply: review.ClosedReply + subject})
 }
 
 // close is obor review close's call from the lead (call id id, the summary, its accepted lines, --force).
@@ -3141,10 +3142,10 @@ func (r *reviewRig) commits() int {
 	return len(r.git.closes)
 }
 
-func tasksOf(ms []mergeRec) []string {
+func tasksOf(ms []review.Merge) []string {
 	var out []string
 	for _, m := range ms {
-		out = append(out, m.task)
+		out = append(out, m.Task())
 	}
 	return out
 }

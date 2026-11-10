@@ -16,6 +16,7 @@ import (
 	"obor/internal/app/identity"
 	"obor/internal/app/outbox"
 	"obor/internal/app/port"
+	"obor/internal/app/review"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -150,7 +151,7 @@ type proj struct {
 	// fixes: the open review's fix round as the verify rule last read it (obor status' review line); verifyDue: a
 	// verify is owed, which idle waits for (reviewverify.go); closeRead: this process read git once for the open
 	// review's close commit, the close's crash cut (reviewclose.go).
-	fixes     fixState
+	fixes     review.Round
 	verifyDue bool
 	closeRead bool
 	// lastBefore: the newest record's time when the replay ended, before this serve's start-up appended any (zero: no
@@ -245,8 +246,8 @@ type folded struct {
 	watches map[string]*mergeWatch // each set's last watch, open or closed (mergewatch.go; current state: openWatch)
 	// review: the open review request (review.go; nil: none; held is live).
 	review *reviewReq
-	// rv: the reviews (started, verified, closed) and the merges, one fold (reviewfold.go).
-	rv reviewLog
+	// rv: the reviews (started, verified, closed) and the merges, one fold (package review).
+	rv review.State
 	// sessions: the agents' recorded sessions as one fold in log order (sessions.go).
 	sessions store.SessionFold
 	// did: the rules' lines by their key (rules.go: a lead line's Of) and when each was recorded.

@@ -28,7 +28,7 @@ const ruleReviewOnMerge = "review.on.merge"
 // need their review.
 func reviewOnMergeRule(_ context.Context, a *App, p *proj, _ *Loop, _ time.Time) (int64, action, bool) {
 	a.mu.Lock()
-	last, open, ended := p.folded.rv.last().seq, p.folded.review != nil, p.folded.reviewEnd.seq
+	last, open, ended := p.folded.rv.Last().Seq, p.folded.review != nil, p.folded.reviewEnd.seq
 	var merges []mergedTask
 	if !open {
 		for _, task := range p.loopTasks() {
