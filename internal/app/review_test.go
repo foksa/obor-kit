@@ -46,7 +46,7 @@ func TestReviewRequest(t *testing.T) {
 				!strings.Contains(l.Prompt, " "+redundantLine+" ") ||
 				!strings.HasSuffix(l.Prompt, "\nLead's note: skip docs") ||
 				!strings.Contains(l.Prompt, " Previous review: RV-4 (its close commit: RV-4 closed · 1111111 · approved · T-9; its accepted"+
-					" findings are the BACKLOG lines that name RV-4) — don't repeat them. ") || strings.Contains(l.Prompt, ".md, or the file") {
+					" findings are the lines of docs/accepted.md that name RV-4) — don't repeat them. ") || strings.Contains(l.Prompt, ".md, or the file") {
 				t.Errorf("launch %+v", l)
 			}
 			// T-853: the reviewer's role worktree is moved to the head before its start.

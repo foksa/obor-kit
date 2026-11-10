@@ -5,7 +5,7 @@ Files written once; after that the project owns them.
 
 | Template | Becomes | For |
 |---|---|---|
-| `BACKLOG.md` | `BACKLOG.md` | The lead's working file, prose only: `obor review close --accept` also writes its accepted lines under Open. Handoff, Owner decisions pending, Open, Concerns, Ideas. Running and waiting tasks come from `obor status`. |
+| `BACKLOG.md` | `BACKLOG.md` | The lead's working file, prose only. Accepted review findings are not here: `obor review close --accept` writes them to `docs/accepted.md`. Handoff, Owner decisions pending, Open, Concerns, Ideas. Running and waiting tasks come from `obor status`. |
 | `decisions.md` | `docs/decisions.md` | Owner decisions on record, newest first. |
 | `task-spec.md` | the spec skeleton (`obor spec set`) | What the lead fills for every task. A protected file the task may edit goes under `## Protected files this task may edit` (exact path). |
 | `agents/*.md` | read in place from the kit | The role texts (lead → the `obor:lead` skill, integrator, worker, reviewer, advisor, deep-dive, triage) and `gotchas.md`. `obor init` writes a short project stub per role into the agents docs dir (title, pointer line, the text's **This project** prompts); who runs now is `obor status` (or obor web), and `README.md` stays in the kit. |

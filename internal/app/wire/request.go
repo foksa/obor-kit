@@ -281,7 +281,7 @@ type IdleReq struct {
 func (IdleReq) Method() string { return MethodIdle }
 
 // ReviewCloseReq is the lead's or the owner's (obor review close, T-926): Summary the summary, Accept each accepted
-// finding's line for BACKLOG.md's Open section, Force closes with fixes pending. Serve commits the close on the
+// finding's line for docs/accepted.md (T-1178), Force closes with fixes pending. Serve commits the close on the
 // integration branch and records fact review.closed; the reply is CLOSED <subject>.
 type ReviewCloseReq struct {
 	Envelope

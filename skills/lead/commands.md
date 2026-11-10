@@ -131,13 +131,14 @@ itself when it merges, and `obor review` stays for the every-~3-merges reviews.
   to re-run its probes, each task's `Fixes:` text as your note. A linked task dropped or rejected: one line to you,
   not counted. A verify that did not finish (a newer brief, the reviewer's error stop) or whose git failed: one line,
   and serve briefs it again on a later pass (T-869: there is no verify by hand). Close only after that verify.
-- When a verify approves: `obor review close "<summary>" [--accept "<line>"]… [--force]` deletes the review's files, adds each
-  accepted line to `BACKLOG.md`'s Open section naming the RV and commits `RV-xx closed · <sha> · approved · <summary>`
+- When a verify approves: `obor review close "<summary>" [--accept "<line>"]… [--force]` deletes the review's files, appends
+  each accepted line to `docs/accepted.md` naming the RV (created when missing) and commits
+  `RV-xx closed · <sha> · approved · <summary>`
   (`CLOSED <subject>`; `accepted <n>` in place of `approved` when it carries `--accept` lines). It is a call to serve
   (T-926), which commits the close, records it and stops the reviewer on its next pass.
   Refused, nothing changed: no open review, no review start for it in serve's log, a main checkout dirty outside
-  `BACKLOG.md`, a linked fix task open, or merged and no finished verify covering it (named; `--force`, the owner's
-  word, closes anyway).
+  `BACKLOG.md`, `docs/accepted.md`, a linked fix task open, or merged and no finished verify covering it (named;
+  `--force`, the owner's word, closes anyway).
   Steps and texts: review-brief.md §3–5.
 
 ## An agent stopped by an API error (T-532)

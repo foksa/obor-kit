@@ -51,8 +51,8 @@ func reviewCmd(args []string) int {
 // (wire.MethodReviewClose). Serve's reply: CLOSED <subject>, the commit "RV-<n> closed · <reviewed sha> · approved ·
 // <summary>" (with --accept lines: "accepted <n>" in place of "approved", T-909) on the integration branch. FAIL:
 // serve down, its refusal (no open review, no review start for it in the log, the main checkout not on the
-// integration branch or dirty outside BACKLOG.md and the review's files, a linked fix not verified without --force) or
-// a usage error (exit 1).
+// integration branch or dirty outside BACKLOG.md, docs/accepted.md and the review's files, a linked fix not verified
+// without --force) or a usage error (exit 1).
 func reviewCloseCmd(args []string) int {
 	var summary string
 	var accepts []string

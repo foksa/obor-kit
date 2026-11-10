@@ -42,8 +42,8 @@ Merges go on while the reviewer works (T-853: no merge hold): its worktree stays
 verify moves it, whatever lands on the integration branch meanwhile. The brief serve sends:
 ```
 Review <RV-xx>. <branch> is at <sha>. In scope: <T-a (<merge sha>), T-b (…)>; files: <list>.
-Previous review: <RV-prev> (its close commit: <subject>; its accepted findings are the BACKLOG lines that name
-<RV-prev>) — don't repeat them. Report only findings a real config or workflow hits; for each give severity,
+Previous review: <RV-prev> (its close commit: <subject>; its accepted findings are the lines of docs/accepted.md that
+name <RV-prev>) — don't repeat them. Report only findings a real config or workflow hits; for each give severity,
 likelihood (the real config or workflow that hits it), file:line, probe/evidence, suggested fix and its cost in
 added code, and an Extent line: every other entry point / branch that shares the root cause, each marked checked
 or unchecked. A finding only a constructed case hits goes in a short "Not reported (constructed)" list instead:
@@ -59,8 +59,9 @@ idle again: nothing to watch.
 Read `<reviews>/<RV-xx>.md` in the main checkout; do not copy or commit it. Triage each finding (owner rule
 2026-10-27): likely, or unlikely with a small fix → a fix task (one goal each; the fix spec lists every Extent entry,
 one test each, and carries what it needs from the finding: the file is not on the branch). Unlikely and the fix adds
-complexity → no fix: accept it in `BACKLOG.md` with one line why, or remove the case instead (refuse the config) when
-that makes the code smaller. A probe that proves a constructed case is not by itself a reason to add code.
+complexity → no fix: accept it with `--accept` at the close (`docs/accepted.md`), one line with why, or remove the case
+instead (refuse the config) when that makes the code smaller. A probe that proves a constructed case is not by itself a
+reason to add code.
 Each fix spec carries the line `Fixes: RV-xx[ <what to check>]` between its title and its first `## ` heading, where
 the `Review: on merge` line would go, and never `Review: on merge` (its verify is the review; T-924, T-928; `obor
 spec set` refuses the pair, T-932; `obor review fix` is gone): dispatching it links it to the open review, nothing else to run.
@@ -69,7 +70,8 @@ open | none is open)`); `obor spec set` does not check it. The free text is your
 (e.g. `Fixes: RV-12 #1, #3 — re-run with an old status JSON`). Do not close the review now: its verify (§4) needs the
 reviewer's session and the findings' context.
 At most two review rounds per feature (owner 2026-11-02): after the second verify, what is still open is accepted
-in `BACKLOG.md` (one line each, with its likelihood and fix cost), unless it is likely and its fix is small.
+with `--accept` at the close (`docs/accepted.md`), one line each, with its likelihood and fix cost, unless it is likely
+and its fix is small.
 
 ## 4. Verification (same session — never `/new` the reviewer)
 The verify is a rule (T-924; T-869: there is no verify by hand): while the review is open, every task linked by its
@@ -106,10 +108,11 @@ nothing": dispatch that task with `Fixes: RV-xx` and close only after its verify
 alive while a fix it asked for is open; closing first stops it, and an unlinked task is never verified).
 When a verify approves with nothing left to do (or the review found nothing): `obor review close "<summary>" [--accept "<line>"]…
 [--force]`. It is a call to serve (T-926: serve must be up), which
-deletes `<RV-xx>.md` and `<RV-xx>-verify.md` from the main checkout, adds each `--accept` line to `BACKLOG.md`'s Open
-section as `- (<RV-xx>, accepted) <line>`, commits `RV-xx closed · <reviewed sha> · approved · <summary>` on the
+deletes `<RV-xx>.md` and `<RV-xx>-verify.md` from the main checkout, appends each `--accept` line to `docs/accepted.md`
+as `- (<RV-xx>, accepted) <line>` (the file created when missing), commits
+`RV-xx closed · <reviewed sha> · approved · <summary>` on the
 integration branch in the main checkout (`accepted <n>` in place of `approved` when the close carries `--accept` lines;
-with `BACKLOG.md`; the reviewed sha is the head serve's log says the reviewer
+with `docs/accepted.md`, and a dirty `BACKLOG.md`; the reviewed sha is the head serve's log says the reviewer
 last finished: the last done verify's (T-857: never one replaced or failed), else the review's, not your doc commits
 since), then records the close (fact `review.closed`): the next review may start, and serve stops the reviewer on its
 next pass. Since T-822 the commit's body records the tasks the cycle covered (its in-scope tasks and each verify's)
@@ -124,6 +127,7 @@ so the next review's scope takes the merges this cycle did not cover (a task mer
 unreviewed until a cycle covers it; `obor status`' `review due` counts it). A close commit from an
 older obor has no such body: the next review falls back to the sha range. Refused before any change: no open review,
 no review start for it in serve's log (T-869), the main checkout not on the integration branch or dirty outside
-`BACKLOG.md` and the review's files, or a task linked by its `Fixes:` line open, or merged and not covered (named;
+`BACKLOG.md`, `docs/accepted.md` and the review's files, or a task linked by its `Fixes:` line open, or merged and not
+covered (named;
 `--force`, the owner's word, closes anyway). Nothing else of the review
 is kept; the reviewer's evidence lives only in its session.
