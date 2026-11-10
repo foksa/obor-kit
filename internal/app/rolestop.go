@@ -11,7 +11,7 @@ import (
 	"obor/internal/config"
 )
 
-// Idle role agents hold memory, and nothing of a stopped one is resumed: its next use starts fresh (
+// Idle role agents hold memory, and nothing of a stopped one is resumed: its next use starts fresh (see
 // docs/state-model.md "Role agents stopped"). Serve stops two of them itself, each with launch.Stop (the agent quits,
 // its labelled pane stays at a shell), as two rules on the rule pass (rules.go):
 //   - the integrator, once a verdict came since its last start and no job is open or queued for it (a green task to

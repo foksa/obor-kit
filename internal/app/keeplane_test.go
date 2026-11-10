@@ -16,8 +16,8 @@ func dispatchSonnet(t *testing.T, h *harness) {
 		Agent: "pj-l-01", Type: "sonnet", Target: "target", Branch: "task/T-1"})
 }
 
-// startReported folds pj-l-01's agent.start result in w1:p1 with the config revision rev ("" : a record from before
-// the config revision, which those carried none of).
+// startReported folds pj-l-01's agent.start result in w1:p1 with the config revision rev ("": an older record, which
+// carries none).
 func startReported(t *testing.T, h *harness, rev string) {
 	t.Helper()
 	addRecord(t, h, "T-1", event.StepStartWork, event.KindResult, startOut{Line: "STARTED", Agent: "pj-l-01",

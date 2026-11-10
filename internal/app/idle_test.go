@@ -30,8 +30,8 @@ func TestIdleEpochFactsFoldNothing(t *testing.T) {
 	}
 }
 
-// An older log from before the upgrade holds an open promotion needs-you (the deletion of the
-// promotion). The fold drops it, so the pass sees no needs-you and the idle check it holds off fires.
+// An older log holds an open promotion needs-you for the deleted promotion. The fold drops it, so the pass sees no
+// needs-you and the idle check it holds off fires.
 func TestPromoteNeedsYouEndsAtUpgrade(t *testing.T) {
 	t.Parallel()
 	r := newReviewRigWith(t, false)

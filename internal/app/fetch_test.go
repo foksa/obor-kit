@@ -467,7 +467,7 @@ func TestIntegratorJobNextEqualSeqsTakesFirstTaskByName(t *testing.T) {
 	}
 }
 
-// Restart_job is callerJob's answer, never the status list's first review job. A held (earlier)
+// restart_job is callerJob's answer, never the status list's first review job. A held (earlier)
 // review and a later active one leave the integrator's restart with the active job — the one its job_next would hand
 // it — although the status list shows the held task first (by task name) with its job open.
 func TestRestartJobSkipsHeld(t *testing.T) {

@@ -277,7 +277,7 @@ func TestLaneRowWriteFailureStopsStep(t *testing.T) {
 	}
 }
 
-// Persistent: while the lane-row write keeps failing, no task effect starts, on any pass; the step's
+// The persistent case: while the lane-row write keeps failing, no task effect starts, on any pass; the step's
 // result is folded but the row is neither missing nor stale for a worker. Removing the failure repairs the row and
 // the task goes on. The control is the failure removed: the worker starts.
 func TestLaneRowWriteFailurePersistent(t *testing.T) {

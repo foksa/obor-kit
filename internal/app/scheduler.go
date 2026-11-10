@@ -77,8 +77,8 @@ func (p *proj) keepAhead(task, lane string, now time.Time) string {
 }
 
 // scratchHolder is the task of p other than except whose merge is open in the scratch (rule: one merge there at a
-// time) and why: a conflict, its resolve job, the merge resolved, also while a needs-you pauses that work (held,
-// A needs-you that pauses a job). It is released when the task abandons it (reject, a closed block, regate, a new attempt) or merges. "":
+// time) and why: a conflict, its resolve job, the merge resolved, also while a needs-you pauses that work (held). It
+// is released when the task abandons it (reject, a closed block, regate, a new attempt) or merges. "":
 // none. Under mu.
 func (p *proj) scratchHolder(except string) (task, why string) {
 	for _, t := range p.passOrder() {

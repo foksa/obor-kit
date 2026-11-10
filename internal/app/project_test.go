@@ -159,7 +159,7 @@ func TestStopAfterCloseNoFact(t *testing.T) {
 	}
 }
 
-// The old case: a closed task's merge-loop needs-you in force (an after-merge step's, a reject's) posts its
+// A closed task's merge-loop needs-you in force (an after-merge step's, a reject's) posts its
 // lead line and toasts the owner once, live and on replay.
 func TestClosedTaskMergeNeedsYouLine(t *testing.T) {
 	t.Parallel()

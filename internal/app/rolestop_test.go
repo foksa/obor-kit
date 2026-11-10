@@ -450,8 +450,8 @@ func TestRoleStopReviewerFailuresAccumulate(t *testing.T) {
 	}
 }
 
-// A brief to a lane's worker whose labelled pane is at a shell (stopped after its merge) starts nothing (
-// sendback: only a role agent is started on a brief; workers are dispatched): its line stays queued, nothing typed.
+// A brief to a lane's worker whose labelled pane is at a shell (stopped after its merge) starts nothing (only a role
+// agent is started on a brief; workers are dispatched): its line stays queued, nothing typed.
 func TestBriefToStoppedWorkerStartsNothing(t *testing.T) {
 	t.Parallel()
 	root := lineRoot(t)

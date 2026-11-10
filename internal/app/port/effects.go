@@ -136,7 +136,7 @@ type TerminalSetup interface {
 	// and failures are the lines setup prints after FAIL.
 	Place(ctx context.Context, p Placement) (string, error)
 	// RemoveIntegration removes, once per user and idempotent, what an older obor installed in the terminal to bring
-	// its agents back after it restarts (herdr: the obor.events plugin, which serve's own restore runs instead);
+	// its agents back after it restarts (herdr: the obor.events plugin, whose job serve's own restore does);
 	// its progress lines go to say.
 	RemoveIntegration(ctx context.Context, say func(line string)) (Integration, error)
 	// RenameProject renames the terminal's group of the project from old to name (herdr: the workspace labelled old)
@@ -492,8 +492,8 @@ type Prepared struct{ Base string }
 
 // Dispatch is what a dispatch chose for the lane: the lane and its worktree, its worker agent, the task branch and the
 // target sha read when the dispatch fact was recorded (Redo: the branch is kept as it is). The app's dispatch fact
-// embeds it first, so its tags are that record's; the lane intents (PrepareInput, FreeInput) embed it too (an
-// intent that stored these as Lane, Dir, …, which decode into it, encoding/json matching keys case-insensitively).
+// embeds it first, so its tags are that record's; the lane intents (PrepareInput, FreeInput) embed it too: an older
+// intent stores these as Lane, Dir, …, which decode into it, encoding/json matching keys case-insensitively.
 type Dispatch struct {
 	Lane   string `json:"lane"`
 	Dir    string `json:"dir"`

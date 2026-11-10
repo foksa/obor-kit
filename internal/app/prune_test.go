@@ -142,7 +142,7 @@ func (h *history) rejected(task, lane string, at time.Time) {
 		verdictResult{Job: JobID(event.Key{Task: task, Attempt: 1, Step: event.StepReview}), Note: "not this"})
 }
 
-// session is agent's session fact id at at (transcript "": not known yet; given: its own confirmation).
+// session is agent's session fact id at at (transcript "": not known yet; a given one is the session's own confirmation).
 func (h *history) session(agent, id, transcript string, at time.Time) {
 	h.add(at, store.SessionTask, 0, store.StepSession, event.KindFact,
 		store.Session{Agent: agent, ID: id, Transcript: transcript, Started: at.Unix(), Source: "hook"})
@@ -396,7 +396,7 @@ func TestPruneKeepsTheLastTerminalFact(t *testing.T) {
 	}
 }
 
-// One shape: merged at attempt 1, dispatched again and dropped at attempt 2, 31 days ago. The per-task check
+// Merged at attempt 1, dispatched again and dropped at attempt 2, 31 days ago. The per-task check
 // fails (a merged fact other than the one that would stay): the task stays whole.
 func TestPruneKeepsAMergedThenDroppedTaskWhole(t *testing.T) {
 	t.Parallel()

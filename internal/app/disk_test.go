@@ -29,7 +29,7 @@ func (f *diskCount) disk() *Disk {
 	}}
 }
 
-// Direct: free 1 GiB with the needs-you append refused is still low and leaves no fact in force; the next
+// The direct case: free 1 GiB with the needs-you append refused is still low and leaves no fact in force; the next
 // reading, appends working again, records the needs-you.
 func TestRV59DiskRecordFailure(t *testing.T) {
 	t.Parallel()

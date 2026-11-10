@@ -15,7 +15,7 @@ import (
 // transcript, pane, lane, task, started} on task key store.SessionTask, one per (agent, id); the history stays (the
 // UI's list), the agent's current session is its newest (the fold's Current). The sources, per kind:
 //   - Claude: launch records the id it chose before the start (--session-id), and the SessionStart hook
-// confirms it with its transcript_path (a different id is the session's, recorded with one log line; serve
+//     confirms it with its transcript_path (a different id is the session's, recorded with one log line; serve
 //     down: the session is not recorded, said on the hook's log line);
 //   - Codex: launch, after a fresh start, reads the rollout the started agent's process holds open (its first
 //     line's session_meta) and reports it (in serve after the start returned: its own goroutine);

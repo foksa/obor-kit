@@ -90,7 +90,7 @@ var rows = []row{
 			}
 		}},
 
-	// App side: events apply after the snapshot they follow; a new snapshot replaces what came before.
+	// Events apply after the snapshot they follow; a new snapshot replaces what came before.
 	{name: "#2 a status event after the snapshot wins: blocked replaces the snapshot's idle", setup: connect,
 		event: func(h *harness) { h.status("w1:p1", func(p *port.Pane) { p.Status = "blocked" }) },
 		then:  tick(11 * minute), later: []string{"T-1 needs-you{blocked}"}},

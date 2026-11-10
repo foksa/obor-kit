@@ -725,7 +725,8 @@ func TestIntegratorJobFetchableDuringStart(t *testing.T) {
 	}
 }
 
-// The control: the worker's early fetch during its start, delivered, the work step sent with nothing typed.
+// The control for the early-fetch probe: the worker's fetch during its start is delivered, and the work step is sent
+// with nothing typed.
 func TestWorkerEarlyFetchDuringStart(t *testing.T) {
 	t.Parallel()
 	r := newConcRig(t)

@@ -63,7 +63,7 @@ func TestReviewRequest(t *testing.T) {
 			if !strings.Contains(l.Prompt, "Result: approved | changes requested · <sha reviewed> · <scope>") {
 				t.Errorf("the brief does not ask for the Result line: %q", l.Prompt)
 			}
-			// obor-kit's own three sentences left serve's brief for its docs/agents/reviewer.md.
+			// serve's brief carries none of obor-kit's own three sentences: they are in its docs/agents/reviewer.md.
 			assertNoKitVocabulary(t, l.Prompt)
 
 			if lines := r.leadLines(); len(lines) != 0 {

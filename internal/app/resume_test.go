@@ -61,9 +61,8 @@ func TestResumeArgs(t *testing.T) {
 	}
 }
 
-// The live case: herdr's session for the pane differs from the recorded one, the worker is idle, an answer queued. The
-// session the pane's own SessionStart hook reported (the inbox record's) is the one running there: the answer is
-// posted to its inbox, nothing typed, nothing left queued.
+// The live session is the one the pane's own SessionStart hook reported, not herdr's stale value: the worker is idle
+// with an answer queued, so the answer is posted to that session's inbox, nothing typed, nothing left queued.
 func TestAnswerReachesIdleWorkerHerdrSessionStale(t *testing.T) {
 	t.Parallel()
 	h := staleHerdr(t)
@@ -647,7 +646,7 @@ func TestResumeRegateOfABlockedReport(t *testing.T) {
 	})
 }
 
-// ResumeAct by state: each state that takes no resume is refused by its state; a hold's decision reaches the
+// resumeAct by state: each state that takes no resume is refused by its state; a hold's decision reaches the
 // integrator (reprompt, its text required); red past K with neither flag is refused naming both, each flag fits; a
 // flag that does not fit names what resume does; a driving task's line goes to the drive agent.
 func TestResumeActByState(t *testing.T) {

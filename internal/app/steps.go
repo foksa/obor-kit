@@ -265,7 +265,7 @@ func gateResult(task string, o port.GateOutcome) gateOut {
 	return gateOut{Outcome: outFail, Line: fmt.Sprintf("FAIL %s: unknown gate outcome %q", task, o.Kind)}
 }
 
-// laneStep starts effect, mt's lane test (key step), in its own goroutine outside the scratch token (
+// laneStep starts effect, mt's lane test (key step), in its own goroutine outside the scratch token (see
 // docs/state-model.md "Concurrency"): one per task and so one per lane (a lane holds one task), in parallel with the
 // other lanes' and with the slot's steps; the pool slot it takes bounds how many run at once (slots.max). The task
 // waits until the effect's records are folded, then the goroutine wakes the loop. False: the task waits.

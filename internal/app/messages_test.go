@@ -646,8 +646,8 @@ func TestLeadLinesTwoTargets(t *testing.T) {
 	}
 }
 
-// TestLeadLinesOldTargetNoInbox: the old lead has no inbox record: its line waits (the 24 h needs-you as before); the
-// new lead's line goes out.
+// TestLeadLinesOldTargetNoInbox: the old lead has no inbox record: its line waits (the 24 h needs-you as for any
+// waiting line); the new lead's line goes out.
 func TestLeadLinesOldTargetNoInbox(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
@@ -1194,8 +1194,8 @@ func TestBriefSupersedesSeveralLines(t *testing.T) {
 
 // TestBriefWorkDurableAtOnce: the work a brief's agent is seen doing is in the log as soon as its caller (a herdr status
 // event, a snapshot, a fresh start's brief) returns, before any delivery pass: a restart right then still gets the
-// finished line once the agent is idle on reconnect, for a brief with a text and a fresh start's brief (the
-// the retained observation → reload probes).
+// finished line once the agent is idle on reconnect, for a brief with a text and a fresh start's brief (the retained
+// observation → reload probes).
 func TestBriefWorkDurableAtOnce(t *testing.T) {
 	t.Parallel()
 	working := func(a *App, p *proj) {
@@ -1889,7 +1889,7 @@ func TestSettledInFlightDeliveryLeftAlone(t *testing.T) {
 }
 
 // Two passes logging a brief's seen work at once (the merge loop's and the watchdog's) record its fact worked once:
-// the brief is claimed under mu while its fact is recorded (attempt 3; the gate saw two).
+// the brief is claimed under mu while its fact is recorded, so one pass records it and the other finds the claim.
 func TestLogWorkedTwoPassesAtOnceRecordOneFact(t *testing.T) {
 	t.Parallel()
 	root := logRoot(t)

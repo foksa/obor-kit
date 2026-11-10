@@ -265,7 +265,7 @@ func TestSessionOneOwner(t *testing.T) {
 const sessionFactGolden = `{"agent":"pj-l-01","kind":"claude","id":"sid-1","transcript":"/t/sid-1.jsonl","pane":"w1:p1",` +
 	`"lane":"L-01","task":"T-1","started":1700000000,"source":"SessionStart hook"}`
 
-// A stored session fact from before folds the same, and a session recorded now is stored in that shape.
+// An older stored session fact folds the same, and a session recorded now is stored in that shape.
 func TestSessionFactGoldenFolds(t *testing.T) {
 	t.Parallel()
 	want := store.Session{Agent: "pj-l-01", Kind: "claude", ID: "sid-1", Transcript: "/t/sid-1.jsonl", Pane: "w1:p1",

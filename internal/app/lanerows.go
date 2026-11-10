@@ -175,7 +175,7 @@ func (p *proj) laneRowsErr() error {
 func (p *proj) laneTask(lane string) string { return p.folded.lr.rows[lane].Task }
 
 // finishedIn: task's lane row reads it finished (laneTable, under mu): its task_done submitted it, or it ended without
-// one and its row stays. A dispatch redoes no finished task in its lane (the lane table's done state before).
+// one and its row stays. A dispatch redoes no finished task in its lane (not the lane table's finished row).
 func (p *proj) finishedIn(task string) bool {
 	for _, row := range p.laneTable() {
 		if row.Task == task && row.Finished != 0 {

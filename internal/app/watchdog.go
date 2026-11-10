@@ -208,8 +208,7 @@ func (a *App) judge(p *proj, task string, w *watch, now time.Time, ev map[string
 	return v
 }
 
-// reasonStalled is the reason of the watchdog's needs-you on a stalled worker (needs-you{stalled}; obor resume ends it,
-// a stalled or blocked worker's).
+// reasonStalled is the reason of the watchdog's needs-you on a stalled worker (needs-you{stalled}; obor resume ends it).
 const reasonStalled = "stalled"
 
 // sample is the stall timer (rows 10, 12, 14), a state machine over observed quiet time. Its state per open task is

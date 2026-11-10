@@ -494,7 +494,7 @@ func (o *Outbox) Fold(r event.Record, oldOf func(json.RawMessage) event.Of) Ende
 // RetireAnswers settles task's undelivered answer lines but keep's: their question was settled another
 // way (app's settles, or a newer answer or a stalled worker's resume came), so a line is never delivered late and obor
 // status lists it no more. A waiting line retires; a sending one may have landed and stays until its outcome (as a
-// keeps a brief's): sent, or retired by a refusal before a byte or by its open delivery's close (app's deliverLine).
+// brief's does): sent, or retired by a refusal before a byte or by its open delivery's close (app's deliverLine).
 // Folded live and on replay alike.
 func (o *Outbox) RetireAnswers(task string, keep int64) {
 	for seq, q := range o.msgs {

@@ -863,7 +863,7 @@ func TestDropAfterScratchStepStarted(t *testing.T) {
 	}
 }
 
-// The step's table first: a drop while a selected step holds the task (gate, publish, start, a prompt) is
+// The step's table: a drop while a selected step holds the task (gate, publish, start, a prompt) is
 // refused at once, naming the step, and changes nothing; once the step has returned, a drop goes through.
 func TestDropRefusedWhileStepHeld(t *testing.T) {
 	t.Parallel()

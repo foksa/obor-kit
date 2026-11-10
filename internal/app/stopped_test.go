@@ -330,8 +330,8 @@ func typedTo(l *linerSpy, line string) int {
 	return n
 }
 
-// Control: the Codex role is seen working first (its start read with it), then idle with the turn's end → the
-// finished line once.
+// The control for the Codex turn: the role is seen working first (its start read with it), then idle with the turn's
+// end → the finished line once.
 func TestTurnCodexWorkingFirst(t *testing.T) {
 	t.Parallel()
 	r := newTurnRig(t, "codex")
@@ -376,7 +376,8 @@ func TestTurnClaudeMissedStart(t *testing.T) {
 	r.replayed()
 }
 
-// Control: the Claude role's start hook, then its Stop hook (no status seen between) → the finished line once.
+// The control for the Claude turn: its start hook, then its Stop hook (no status seen between) → the finished line
+// once.
 func TestTurnClaudeStartThenStop(t *testing.T) {
 	t.Parallel()
 	r := newTurnRig(t, "claude")

@@ -436,7 +436,7 @@ func TestPhaseOverlaysFromTheLog(t *testing.T) {
 	}
 }
 
-// Serve's status ships the phase: a green task reads review (not the lane table's done of before), and its
+// Serve's status ships the phase: a green task reads review (not the lane table's finished row), and its
 // lane row reads it finished, so a dispatch of it is no redo in its lane.
 func TestStatusShipsTheGreenTasksPhase(t *testing.T) {
 	h, _ := seedQuestions(t, "Summary: done.")
