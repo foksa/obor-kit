@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"obor/internal/app/port"
@@ -26,6 +27,18 @@ var _ port.Workflow = ScratchFF{}
 // *config.Config.
 func NewScratchFF(s Scratch, review port.Review) ScratchFF {
 	return ScratchFF{Scratch: s, Lane: Lane{Cfg: s.Cfg}, Review: review}
+}
+
+// Detach is port.Review.Detach on the worktree a role reads (its role worktree, or the reviewer's at a review's start)
+// and then the lane setup a lane gets there: lanes.ready, lanes.setup when it is red, lanes.ready again (LaneSetup), so
+// a role that runs targeted tests reads a worktree that would pass a lane's own, not a bare checkout. A setup that
+// stays red, or a ready still red after it, is the move's error with LaneSetup's message (the role is named by its
+// dir's base name, <lanes.dir>/<role>): the role's start or brief is then refused and says why.
+func (w ScratchFF) Detach(ctx context.Context, dir, sha string) error {
+	if err := w.Review.Detach(ctx, dir, sha); err != nil {
+		return err
+	}
+	return LaneSetup(ctx, w.Scratch.Cfg, filepath.Base(dir), dir, w.Scratch.Out)
 }
 
 // Target is the sha of merge.target_branch, and whether task's branch has commits it lacks.

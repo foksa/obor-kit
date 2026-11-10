@@ -13,7 +13,8 @@ import (
 // Role worktrees: the reviewer and the deep dive read their own worktree,
 // <lanes.dir>/<role> (config.RoleWorktree), detached at the head serve hands them, so a merge never waits for them
 // (the integrator has one too, which serve does not move: a review job checks out its candidate there itself).
-// Serve moves a role worktree (port.Review.Detach, which adds it when it is missing) at the start that hands the role a
+// Serve moves a role worktree (port.Review.Detach, which adds it when it is missing and gives it a lane's ready/setup)
+// at the start that hands the role a
 // head, to the sha that start read (no publish admission): the reviewer's at a review's start and at each
 // verify once it is idle (never under its turn), to the head it reviews; the deep dive's at a brief while it is
 // idle, to the integration branch's head. A brief to a working deep dive leaves its worktree where it is (the code

@@ -25,7 +25,9 @@ type Review interface {
 	Head(ctx context.Context, branch string) (string, error)
 	// Files is the files changed from from to to (from "": every file of to).
 	Files(ctx context.Context, from, to string) ([]string, error)
-	// Detach puts the role worktree at dir on sha, detached, adding it when it is missing.
+	// Detach puts the role worktree at dir on sha, detached, adding it when it is missing. The workflow's
+	// implementation then runs the lane setup a lane gets there (lanes.ready, lanes.setup when red, lanes.ready
+	// again): the role's tests run in that worktree.
 	Detach(ctx context.Context, dir, sha string) error
 	// Close commits c in the main checkout (serve calls it admitted, reviewclose.go). Refused, an error ending
 	// "nothing changed": the checkout not on c.Branch, dirty outside BACKLOG.md, docs/accepted.md and c's files, or
