@@ -23,7 +23,9 @@ prints your lane, task and the protected files your spec unlocks (`obor whoami` 
   nothing after it) or, when no class check covers it, the tests of every file you changed. Never run the project's
   merge gate (`merge.check`) in a lane, not even via `obor run check`: obor serve's gate runs it once, and check
   slots are shared machine-wide. Never a second run "to be sure", and finish only when those results are in, never
-  with a placeholder.
+  with a placeholder. Never generate machine load (busy loops such as `while :; do :; done`, `yes`, stress tools) to
+  reproduce a flake: the machine is shared with the other lanes and the gate; load comes from the test run itself
+  (`-cpu 1`, the package's other tests beside it). Any process you start, you stop before your turn ends.
 - **Never `pkill`/`killall`** by pattern (a worker once killed every lane's checks); stop only processes you started,
   by PID. Don't wait on a shared command name with `pgrep -f` (it hung).
 - **Tests:** assert preconditions first (a test that passes because nothing happened is vacuous); each clause of a
