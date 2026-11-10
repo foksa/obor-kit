@@ -22,9 +22,9 @@ func TestNonGatingLine(t *testing.T) {
 			"==================\nWARNING: DATA RACE\nRead at 0x00c0000b4010 by goroutine 7:\n" + raceSummary + "\n" +
 				"make: *** [check-race] Error 1\n",
 			"WARN race (rc 2, non-gating): 1 data race report(s), 1 package(s) with failing tests under -race"},
-		{"no \"race: \" line (the race build did not run): the last line, as before", "race", 2,
-			"FAIL race: the race build did not run\nmake: *** [check-race] Error 2\n",
-			"WARN race (rc 2, non-gating): make: *** [check-race] Error 2"},
+		{"the race build did not run: its race line, not make's trailer", "race", 2,
+			"race: the race build did not run (FAIL)\nmake: *** [check-race] Error 2\n",
+			"WARN race (rc 2, non-gating): the race build did not run (FAIL)"},
 		{"a passing command whose summary is not its last line: that line", "check_budget", 0,
 			"check_budget: budget OK: 12 packages\n24 git processes\n",
 			"check_budget (non-gating) budget OK: 12 packages"},

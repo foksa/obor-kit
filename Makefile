@@ -161,13 +161,15 @@ check-retest:
 # race counts here: a test that fails on timing under -race's slowdown is the nightly check's business, not this
 # line's, so the last line is the number of race reports and the exit is 1 only when there is one (the nightly then
 # keeps the whole output, .obor/state/logs/nightly-race.log). A run in which no package ran (-race needs cgo off
-# macOS; a build error) is a FAIL line and exit 2, never "0 reports". RACE_PKGS narrows it to a task's own package.
+# macOS; a build error) is itself a `race: ` line naming the failure, "the race build did not run (FAIL)", and exit 2,
+# never "0 reports": the nightly's WARN line carries that line, not make's trailer (T-1182). RACE_PKGS narrows it to a
+# task's own package.
 RACE_PKGS ?= ./...
 check-race:
 	@$(GO_CACHE); \
 	out=$$($(GO) test -race -count=1 -tags integration $${CHECK_CPUS:+-p $$CHECK_CPUS} $(RACE_PKGS) 2>&1) || true; printf '%s\n' "$$out" >&2; \
 	ran=$$(printf '%s\n' "$$out" | grep -c -e '^ok' -e '^FAIL[[:space:]]' || true); \
-	if [ "$$ran" = 0 ] || printf '%s\n' "$$out" | grep -q -e '\[build failed\]' -e '\[setup failed\]'; then echo "FAIL race: the race build did not run"; exit 2; fi; \
+	if [ "$$ran" = 0 ] || printf '%s\n' "$$out" | grep -q -e '\[build failed\]' -e '\[setup failed\]'; then echo "race: the race build did not run (FAIL)"; exit 2; fi; \
 	n=$$(printf '%s\n' "$$out" | grep -c 'WARNING: DATA RACE' || true); \
 	f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	echo "race: $$n data race report(s), $$f package(s) with failing tests under -race"; test "$$n" = 0
