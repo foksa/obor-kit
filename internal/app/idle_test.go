@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"encoding/json"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -24,38 +23,6 @@ func TestKeylessIdleAckAcknowledgesNothing(t *testing.T) {
 	}
 	if got := p.folded.calls[verdictStep(wire.MethodIdle, "c1")]; got != "ACKED idle: old ack" {
 		t.Errorf("the old ack's call reply %q, want the stored reply", got)
-	}
-}
-
-// An older log holds an open promotion needs-you for the deleted promotion. The fold drops it, so the pass sees no
-// needs-you and the idle check it holds off fires.
-func TestPromoteNeedsYouEndsAtUpgrade(t *testing.T) {
-	t.Parallel()
-	r := newReviewRigWith(t, false)
-	r.fixTask("T-1", "a task") // its dispatch, spec and submission: the merge below has a loop task to fold into
-	r.merged("T-1")
-	r.afterStepsDone("T-1")
-	r.fact(event.PromoteTask, event.StepNeedsYou, event.FactData{Reason: "promotion RED abc1234: TestX; merges since fedcba9: T-1"})
-	if !slices.ContainsFunc(readLog(t, r.p.root), func(rec event.Record) bool {
-		return rec.Task == event.PromoteTask && rec.Step == event.StepNeedsYou
-	}) {
-		t.Fatal("precondition: the log holds no promotion needs-you to end")
-	}
-	r.a, r.p = lineReload(r.t, r.a, r.p, &r.now)
-	r.idlePass()
-	r.a.mu.Lock()
-	needs := r.p.needsYou()
-	r.a.mu.Unlock()
-	if len(needs) != 0 {
-		t.Errorf("needs-you %+v after the pass, want none: the deleted promotion's ended", needs)
-	}
-	if !r.idleOK() {
-		t.Error("the promotion's needs-you still holds the idle check off")
-	}
-	r.now = r.now.Add(idleSettle)
-	r.idlePass()
-	if posts := r.idlePosts(); len(posts) != 1 {
-		t.Errorf("idle lines %q after the pass, want the one", posts)
 	}
 }
 

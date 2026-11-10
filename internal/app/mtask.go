@@ -101,8 +101,7 @@ func (p *proj) foldLoop(r event.Record) {
 			f.n, f.at, f.why = f.n+1, event.RecordTime(r), r.Fact().Reason
 			mt.fails[r.Fact().Step] = f
 		case event.StepNeedsYou:
-			// An older log's hold of the open questions before review ends here: the review job goes out.
-			if r.Fact().Merge && r.Fact().Cause != causeOpen {
+			if r.Fact().Merge {
 				mt.block(block{fact: r})
 			}
 		case event.StepSpecSeen:

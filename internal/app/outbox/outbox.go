@@ -367,9 +367,8 @@ type Reply struct {
 }
 
 // Fold folds r, a record of the project's lines (Task event.MsgTask; app's foldMsg retires the answers a record of
-// another task settles first, RetireAnswers). oldOf is the did key of an older message (its own field,
-// no Of; app's oldLineOf), read only for such a message.
-func (o *Outbox) Fold(r event.Record, oldOf func(json.RawMessage) event.Of) Ended {
+// another task settles first, RetireAnswers).
+func (o *Outbox) Fold(r event.Record) Ended {
 	if r.Task != event.MsgTask {
 		return Ended{}
 	}
@@ -378,9 +377,6 @@ func (o *Outbox) Fold(r event.Record, oldOf func(json.RawMessage) event.Of) Ende
 	case r.Kind == event.KindFact && (r.Step == event.StepMessage || r.Step == event.StepBriefed):
 		var m event.Message
 		_ = json.Unmarshal(r.Data, &m)
-		if m.Of.Kind == "" && r.Step == event.StepMessage {
-			m.Of = oldOf(r.Data)
-		}
 		e.Of = m.Of // a rule's line: its did key (rules.go)
 		if m.Call != "" {
 			method := wire.MethodSend

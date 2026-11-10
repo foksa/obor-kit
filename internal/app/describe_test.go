@@ -67,8 +67,6 @@ func TestDescribeWordsEveryKind(t *testing.T) {
 		{"a line", event.KindFact, event.StepMessage, `{"to":"pj-l-01","line":"look","from":"pj-lead"}`,
 			Described{Line: "line to pj-l-01: look", To: "pj-l-01", From: "pj-lead", Text: "look", Kind: KindMessage}},
 		{"an intent is not worded", event.KindIntent, event.StepGate, `{"kind":"lane"}`, Described{}},
-		{"an after_promote is not worded", event.KindIntent, event.StepAfterPromote + ".1", `{"sha":"abcdef0123"}`,
-			Described{}},
 	}
 	covered := map[string]bool{}
 	// Every worded key names its kind here; a new worded key with no entry fails, and a case must word it as

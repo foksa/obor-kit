@@ -86,10 +86,7 @@ const (
 	causeResolveRejected = "resolve rejected"
 	causeFix             = "fix job not sent"
 	causeRejected        = "rejected"
-	// causeOpen: an older log's hold of a report's open questions before the review job:
-	// the fold ends it, and the task gets its review job.
-	causeOpen    = "open questions"
-	failedSuffix = " failed"
+	failedSuffix         = " failed"
 )
 
 var resumeDefault = map[string]string{
