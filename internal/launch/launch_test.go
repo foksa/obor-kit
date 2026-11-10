@@ -426,6 +426,19 @@ func (x *fx) index(query string) int {
 	return -1
 }
 
+// lastIndex is the position of the last request matching query (-1: none): a call's line is no unique key, since a
+// request repeated with the same params (a poll's agent.get) reads the same both times (T-1167).
+func (x *fx) lastIndex(query string) int {
+	calls, last := x.srv.Calls(), -1
+	for i := len(calls) - 1; i >= 0; i-- {
+		if hasParts(calls[i], query) {
+			last = i
+			break
+		}
+	}
+	return last
+}
+
 func (x *fx) reset() { x.f.Panes = nil }
 
 func contains(t *testing.T, s, sub, what string) {
@@ -1289,7 +1302,10 @@ func TestServeFirstPromptStartWhileTheLaunchStaysPending(t *testing.T) {
 			if !pending || kind != c.kind || status != "working" {
 				t.Fatalf("precondition: herdr still lists the launch pending, %s working; got pending %t, %s %s", c.kind, pending, kind, status)
 			}
-			if start, gets := x.index("agent.start"), x.calls("agent.get target="+c.pane); len(gets) == 0 || x.index(gets[len(gets)-1]) < start {
+			// A poll read of the pane runs alongside the start (started), so a loaded machine can record one before
+			// the start: the clause is a read after the start, found by the last read's position, never the first
+			// (T-1167).
+			if start := x.index("agent.start"); start < 0 || x.lastIndex("agent.get target="+c.pane) < start {
 				t.Errorf("started without a listing read after the start: %q", x.srv.Calls())
 			}
 			eq(t, last(got), "RESTARTED "+c.req.Agent+" (pane "+c.pane+", session new)", "result")
