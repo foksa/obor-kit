@@ -193,7 +193,7 @@ func mergeLoop(env project.Env, panes herdr.Panes, end *serveEnd, kinds *kindCac
 		dispatchLoop(l, env, cfg)
 		l.Config = configFile{root: repo.Root, main: cfg.MainBranch()}
 		l.Restart = serveRestarter(cfg, env, end)
-		l.Versions = func(ctx context.Context) map[string]string { return launch.CLIVersions(ctx, env, usedKinds(cfg)) }
+		l.Versions = func(ctx context.Context) map[string]string { return launch.CLIVersions(ctx, env, watchKinds(cfg)) }
 		return l, nil
 	}
 }
@@ -262,11 +262,12 @@ func diskOf(root string) *app.Disk {
 		}}
 }
 
-// usedKinds are the agent kinds of the models cfg's levels and roles name, unique and sorted: the CLIs this project
-// starts, so the ones whose version serve reads (T-1176). A model the config does not know is skipped.
-func usedKinds(cfg *config.Config) []string {
+// watchKinds are the agent kinds of every model cfg knows (its catalog: built-in and configured, the one dispatch
+// validates a model ref against), unique and sorted: the CLIs this project may start, so the ones whose version serve
+// reads. A kind whose program is not installed gives no reading, as a failed --version does.
+func watchKinds(cfg *config.Config) []string {
 	var kinds []string
-	for _, name := range cfg.UsedModels() {
+	for _, name := range cfg.ModelNames() {
 		if m, ok := cfg.Model(name); ok && m.Kind != "" {
 			kinds = append(kinds, m.Kind)
 		}

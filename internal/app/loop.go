@@ -47,8 +47,8 @@ type Loop struct {
 	Nightly *Nightly
 	// Disk is the project volume's free space (nil: not watched, T-564).
 	Disk *Disk
-	// Versions is the version line of each agent CLI the config uses, by kind; a kind with no entry was not read
-	// (versions.go, T-1176). Nil: not watched.
+	// Versions is the version line of each agent CLI a model of the config can start, by kind; a kind with no entry
+	// was not read (versions.go). Nil: not watched.
 	Versions func(ctx context.Context) map[string]string
 	// Inbox posts the project's lines to its lead into the lead's Claude session (obor send, a brief's finished
 	// line; nil: none posted, T-485): nothing is typed into the pane the owner writes in.
