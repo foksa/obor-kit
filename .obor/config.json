@@ -21,6 +21,10 @@
       "researcher": "sonnet:medium"
     },
     "difficulty": {
+      "hard": [
+        "fable:medium",
+        "opus:high"
+      ],
       "medium": [
         "deepseek",
         "sonnet:medium",
