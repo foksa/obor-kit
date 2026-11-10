@@ -1,8 +1,8 @@
 // Package kind is the OpenCode kind as obor's kind protocol answers it (docs/agents/kind-protocol.md): the
 // reference plugin kind, built as the binary obor-kind-opencode (kinds/opencode). --prompt, no resume, /exit with its
 // popup's second Enter, `opencode run` denied, obor's MCP server and plugin (<kit>/opencode, its hook transport) in each
-// start's generated config (OPENCODE_CONFIG), prompts typed. Handle is one request; the binary runs it on its
-// stdin, a test binary in process (testkit).
+// start's generated config (OPENCODE_CONFIG), with the start's override of the user's own config (override.go),
+// prompts typed. Handle is one request; the binary runs it on its stdin, a test binary in process (testkit).
 package kind
 
 import (
@@ -46,18 +46,19 @@ var efforts = []string{"none", "minimal", "low", "medium", "high", "xhigh", "max
 
 // request is one call's request: the fields of every call (docs/agents/kind-protocol.md "The calls").
 type request struct {
-	Version int      `json:"version"`
-	Kit     string   `json:"kit"`
-	Args    []string `json:"args"`
-	Resume  string   `json:"resume"`
-	Prompt  string   `json:"prompt"`
-	Effort  string   `json:"effort"`
-	Trim    bool     `json:"trim_user"`
-	Dir     string   `json:"dir"`
-	What    string   `json:"what"`
-	Error   string   `json:"error"`
-	Details string   `json:"details"`
-	At      string   `json:"at"`
+	Version  int               `json:"version"`
+	Env      map[string]string `json:"env"`
+	Kit      string            `json:"kit"`
+	Args     []string          `json:"args"`
+	Resume   string            `json:"resume"`
+	Prompt   string            `json:"prompt"`
+	Effort   string            `json:"effort"`
+	Override *agents.Override  `json:"override"`
+	Dir      string            `json:"dir"`
+	What     string            `json:"what"`
+	Error    string            `json:"error"`
+	Details  string            `json:"details"`
+	At       string            `json:"at"`
 }
 
 // Main is the binary: call args[0] with the request on stdin, its reply on stdout; a request it cannot read, or an
@@ -119,7 +120,8 @@ func Handle(call string, req []byte) ([]byte, error) {
 // not exit: Escape (the popup), then Ctrl+U, so the next typed message does not follow the quit. Headless: `opencode
 // run`, as the subcommand or a later word (ValueOpts: opencode --help). No transcript: OpenCode keeps its sessions in a
 // database (its plugin reports the session id: opencode/obor.js); no inbox: prompts are typed. MCP: nothing
-// user-global: obor's server and plugin reach each start through its generated config.
+// user-global: obor's server and plugin reach each start through its generated config. Env: the variables that
+// place the user's config dir, which a start with an override reads.
 func describe() map[string]any {
 	return map[string]any{
 		"name":    Name,
@@ -127,6 +129,7 @@ func describe() map[string]any {
 		"caps":    map[string]any{"hooks": "plugin", "model_arg": true, "version_var": "OPENCODE_VERSION"},
 		"efforts": efforts,
 		"vars":    []string{ModelVar, ConfigVar, SkillsVar},
+		"env":     []string{"HOME", "XDG_CONFIG_HOME"},
 		"stop":    map[string]any{"quit": "/exit", "second_enter": true, "clear_input": []string{"esc", "ctrl+u"}},
 		"headless": map[string]any{"subcommands": []string{"run"}, "anywhere": []string{"run"},
 			"value_opts": []string{"--server", "-s", "--session", "--prompt", "--completions", "--log-level"}},
@@ -139,9 +142,9 @@ func describe() map[string]any {
 
 // start: the type's args but their --model/-m (OpenCode's TUI takes none: the env carries the model to obor's plugin),
 // then --prompt <prompt> (OpenCode has no resume, so a resume adds nothing). Env: ConfigVar, the path of the start's
-// generated config (Config of the kit; no kit: none), and ModelVar <provider>/<model>[#<effort>] when the args name a
+// generated config (Config of the kit, with the start's override laid in: Overridden; no kit: none), and ModelVar <provider>/<model>[#<effort>] when the args name a
 // model (the effort replaces a #variant the model names), else ModelVar "" (unset: the pane's shell may hold an
-// earlier start's), and SkillsVar "1" on a trimmed start (trim_user: every agent but a lead), else "" (unset, the
+// earlier start's), and SkillsVar "1" on a start with an override (every agent but a lead), else "" (unset, the
 // same way). OpenCode's interactive TUI has no --model flag (2.2.0: only `opencode run` and `mini` take one) and,
 // for a new session, ranks the variant it remembers in its state (model.json) above the config's; obor's plugin switches
 // the session in its prompt hook, after the TUI's own pre-submit switch, so the start's model and variant win from the
@@ -161,13 +164,17 @@ func start(in request) map[string]any {
 		args = append(args, "--prompt", in.Prompt)
 	}
 	env := map[string]string{ModelVar: model, SkillsVar: ""}
-	if in.Trim {
+	if in.Override != nil {
 		env[SkillsVar] = "1"
 	}
 	files := []map[string]string{}
 	if in.Kit != "" {
 		env[ConfigVar] = "{file:" + ConfigFile + "}"
-		files = append(files, map[string]string{"name": ConfigFile, "bytes": string(Config(in.Kit))})
+		conf := Config(in.Kit)
+		if in.Override != nil {
+			conf = Overridden(in.Kit, in.Override, UserDir(in.Env), os.ReadFile, os.ReadDir)
+		}
+		files = append(files, map[string]string{"name": ConfigFile, "bytes": string(conf)})
 	}
 	return map[string]any{"args": args, "env": env, "files": files}
 }
@@ -195,15 +202,10 @@ func splitModel(args []string) (rest []string, model string) {
 // Config is the generated config of a start from kit: mcp.servers.obor runs the kit's `bin/obor mcp`, pinned to the
 // kit (agents.Pin), and plugins names the kit's plugin package dir (<kit>/opencode: opencode loads a package
 // dir from an env config, not a plain .js file).
-func Config(kit string) []byte {
-	b, _ := json.MarshalIndent(map[string]any{
-		"mcp": map[string]any{"servers": map[string]any{"obor": map[string]any{
-			"type": "local", "command": []string{filepath.Join(kit, "bin", "obor"), "mcp"},
-			"environment": map[string]string{agents.Pin: "1"}}}},
-		"plugins": []string{"file://" + filepath.Join(kit, Name)},
-	}, "", "  ")
-	return append(b, '\n')
-}
+func Config(kit string) []byte { return Overridden(kit, nil, "", nil, nil) }
+
+// pluginEntry is the plugins entry of the kit's plugin package dir.
+func pluginEntry(kit string) string { return "file://" + filepath.Join(kit, Name) }
 
 // turn: no turn and no session are read (OpenCode keeps its sessions in a database, not a transcript obor finds).
 // Reset: the plugin maps a provider quota failure with a retry time to rate_limit and writes its reset in

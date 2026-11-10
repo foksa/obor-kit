@@ -94,7 +94,9 @@ does not name is absent (`{}`: no override named, the kind's defaults alone). `s
 each `off` entry is a substring of the user's own entry (a hook's command, a plugin id, a skill dir name, an MCP
 server name) to switch off. With any override obor switches off the user's plugins and skills; every other user
 setting applies. The kind says what its switch names and what stays (OpenCode: `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1`
-in `env`, "" for a lead, hides the Claude skill dirs only). What the CLI has no switch for stays visible.
+in `env`, "" for a lead, hides the Claude skill dirs only; `settings`, `off.plugins` and `off.mcp` go into its
+generated config file, read from the user's config dir that the request's `env` places). What the CLI has no switch
+for stays visible.
 
 ## The manifest
 
