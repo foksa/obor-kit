@@ -173,7 +173,7 @@ func nonEmpty(ss ...string) []string {
 	return out
 }
 
-// DefaultWindowWait is how long a nightly waits for another nightly's lock (merge.window_wait's default).
+// DefaultWindowWait is how long a nightly waits for another nightly's lock.
 const DefaultWindowWait = 900 * time.Second
 
 // lock takes the nightly lock (nightly.flock) until close. A live holder: a line every 30 s, FAIL after WindowWait.
