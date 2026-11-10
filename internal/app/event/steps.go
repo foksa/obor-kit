@@ -27,17 +27,14 @@ const (
 	MsgTask = "msg"
 	// ServeTask is the task key of a failed self-restart's needs-you: the project's serve, not a task's.
 	ServeTask = "serve"
-	// RoleTask is the task key of serve's stops of role agents: compat until v0.28, an older log's stop.<agent>[.N]
-	// (the stops are rules), folded to nothing.
-	RoleTask = "roles"
 	// ConfigTask is the task key of the owner's setup edits (obor web).
 	ConfigTask = "config"
 	// IdleTask is the task key of the lead's acknowledgement of the project's idle state.
 	IdleTask = "idle"
 	// RuleTask is the task key of the needs-you of a rule whose action failed ruleFails passes in a row.
 	RuleTask = "rule"
-	// PromoteTask is the task key of the deleted promotion: an older log's records, the
-	// project's, only worded (describe.go), never written.
+	// PromoteTask is the task key of the deleted promotion: an older log's records, the project's, which the fold
+	// drops (project.go); never written.
 	PromoteTask = "promote"
 	// VersionTask is the task key of the versions of the tools obor drives (the agent CLIs, the terminal): the
 	// project's facts, one per change (internal/app/versions.go).
@@ -74,7 +71,7 @@ const (
 // StepNightly is the nightly full check's intent/result (G), one key a day: nightly.<YYYY-MM-DD> → NightlyOut.
 const StepNightly = "nightly"
 
-// The deleted promotion's steps (task PromoteTask): an older log's records, only worded.
+// The deleted promotion's steps (task PromoteTask): an older log's records, no reader words them.
 const (
 	StepPromote      = "promote"       // intent/result, promote.<seq>: the full suite on the target's head
 	StepPromoted     = "promoted"      // fact: the promoted branch fast-forwarded to a GREEN sha
@@ -139,12 +136,9 @@ const (
 	StepWorked  = "worked"  // fact: a briefed agent's pane worked since its brief (data: workedData)
 )
 
-// The project's idle state: no task in flight, no needs-you and no brief open to the reviewer or the
-// deep dive.
-const (
-	StepIdle    = "idle"     // compat until v0.28: an idle epoch fact (an older log), folded to nothing
-	StepIdleAck = "idle.ack" // fact: the lead or the owner acknowledged it with a why (data: idleAck, Key and Why)
-)
+// StepIdleAck is the fact of the lead's or the owner's acknowledgement of the project's idle state (no task in flight,
+// no needs-you and no brief open to the reviewer or the deep dive), with a why (data: idleAck, Key and Why).
+const StepIdleAck = "idle.ack"
 
 // StepVersion is the fact of a tool's version as serve read it (task VersionTask; data: versionData).
 const StepVersion = "version"

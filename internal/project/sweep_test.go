@@ -124,23 +124,6 @@ func TestSweep(t *testing.T) {
 			}
 			there(t, unparsed)
 		}},
-		{"retired state files go", func(t *testing.T, cfg *config.Config, now time.Time) {
-			state := StateDir(cfg.Root)
-			for _, p := range []string{filepath.Join(state, "receipts", "x"), filepath.Join(state, "merges.log"),
-				filepath.Join(state, "merge-changed-files"), filepath.Join(state, "serve-changed-files"),
-				filepath.Join(state, "conformance.json"), filepath.Join(cfg.Root, ".obor", "cache", "x")} {
-				sweepFile(t, now, p, time.Hour)
-			}
-			if lines := Sweep(cfg, now, false); len(lines) != 0 {
-				t.Fatalf("Sweep = %q, want no lines", lines)
-			}
-			gone(t, filepath.Join(state, "receipts"))
-			gone(t, filepath.Join(state, "merges.log"))
-			gone(t, filepath.Join(state, "merge-changed-files"))
-			gone(t, filepath.Join(state, "serve-changed-files"))
-			gone(t, filepath.Join(state, "conformance.json"))
-			gone(t, filepath.Join(cfg.Root, ".obor", "cache"))
-		}},
 		{"drafts: 15 days old goes, 13 days old stays", func(t *testing.T, cfg *config.Config, now time.Time) {
 			dir := filepath.Join(cfg.Root, ".obor", "drafts")
 			old, fresh := filepath.Join(dir, "T-01.md"), filepath.Join(dir, "T-02.md")
@@ -191,7 +174,7 @@ func TestSweep(t *testing.T) {
 				t.Errorf("stop-failure log = %q, want only the fresh entry", b)
 			}
 		}},
-		{"logs: a task's step logs are serve's, never the sweep's; the retired names go", func(t *testing.T, cfg *config.Config, now time.Time) {
+		{"logs: a task's step logs are serve's, never the sweep's", func(t *testing.T, cfg *config.Config, now time.Time) {
 			logs := filepath.Join(StateDir(cfg.Root), "logs")
 			kept := []string{
 				filepath.Join(logs, "T-1-check.log"), // a landed task still running its after-merge steps
@@ -201,12 +184,7 @@ func TestSweep(t *testing.T) {
 				filepath.Join(logs, "serve.log"),
 				filepath.Join(logs, "release-0.32.0.log"),
 			}
-			retired := []string{
-				filepath.Join(logs, "milestone-check.log"),
-				filepath.Join(logs, "promote-retest-check.log"),
-				filepath.Join(logs, "conformance-turn-1.log"),
-			}
-			for _, p := range append(kept, retired...) {
+			for _, p := range kept {
 				sweepFile(t, now, p, time.Hour)
 			}
 			if lines := Sweep(cfg, now, false); len(lines) != 0 {
@@ -214,9 +192,6 @@ func TestSweep(t *testing.T) {
 			}
 			for _, p := range kept {
 				there(t, p)
-			}
-			for _, p := range retired {
-				gone(t, p)
 			}
 		}},
 		{"logs: flakes 8 days old go, 6 days old stay; launch.log and an old restart log go", func(t *testing.T, cfg *config.Config, now time.Time) {

@@ -8,7 +8,6 @@ dist/
 .task-run
 .obor/drafts/
 docs/reviews/
-.obor/cache/
 
 # obor web's page (T-760): node_modules is npm ci's; internal/web/dist is the committed build (dist/ above is make build's)
 web/node_modules/

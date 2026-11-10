@@ -171,38 +171,6 @@ func TestRoleStopIntegratorRule(t *testing.T) {
 	}
 }
 
-// An older log's role stop (stop.<agent>[.N], task key roles) folds to nothing (compat until v0.28): no
-// fold reads it, and the rule still stops an integrator whose job was answered;
-// status never reads a record for "stopped" (the pane says).
-func TestRoleStopOldRecordsFoldToNothing(t *testing.T) {
-	t.Parallel()
-	h, s := stopRig(t)
-	addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "L-01"})
-	addRecord(t, h, "T-1", event.StepGate, event.KindResult, gateOut{Outcome: outGreen,
-		Candidate: port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"}})
-	addRecord(t, h, "T-1", event.StepReview, event.KindIntent, promptData{Agent: "pj-int", Job: "T-1/1/review", Patch: "p1"})
-	addRecord(t, h, "T-1", "accept.c1", event.KindResult, verdictResult{Job: "T-1/1/review", Patch: "p1"})
-	addRecord(t, h, event.RoleTask, stepRoleStop+"pj-int", event.KindIntent, stopData{Agent: "pj-int"})
-	addRecord(t, h, event.RoleTask, stepRoleStop+"pj-int", event.KindResult,
-		map[string]string{"agent": "pj-int", "role": "integrator", "line": "STOPPED pj-int"})
-	old := 0
-	for _, rec := range readLog(t, h.root) {
-		if rec.Task == event.RoleTask {
-			old++
-		}
-	}
-	if old != 2 {
-		t.Fatalf("precondition: %d old role stop records in the log, want 2", old)
-	}
-	h.a.rulePass(context.Background(), rules, &Loop{Agents: s})
-	if want := []string{"pj-int w1:int force=false"}; !slices.Equal(s.stops, want) {
-		t.Errorf("stops %q with the old record and its verdict in, want %q", s.stops, want)
-	}
-	if got := h.a.Status().Project.Stopped; len(got) != 0 {
-		t.Errorf("status stopped %q with the record in and pj-int running, want none", got)
-	}
-}
-
 // The next job after a stop starts the integrator fresh: no job.lost, no needs-you, and status no longer shows it
 // stopped once its start is in and herdr reports the pane running it.
 func TestRoleStopNextJobStartsFresh(t *testing.T) {
@@ -602,11 +570,6 @@ func TestStoppedRoles(t *testing.T) {
 				panes = c.panes(root)
 			}
 			a, p := stoppedApp(t, root, panes...)
-			for _, rec := range readLog(t, p.root) {
-				if rec.Task == event.RoleTask {
-					t.Fatalf("precondition: a role stop is recorded: %s %s", rec.Task, rec.Step)
-				}
-			}
 			if got := a.Status().Project.Stopped; !slices.Equal(got, c.want) {
 				t.Errorf("status stopped %q, want %q", got, c.want)
 			}

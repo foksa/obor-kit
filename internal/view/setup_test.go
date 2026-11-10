@@ -3,7 +3,6 @@ package view
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"reflect"
 	"slices"
 	"testing"
@@ -16,43 +15,6 @@ import (
 	"obor/internal/store"
 	"obor/internal/testkit"
 )
-
-// a status from an older serve names no free lanes: every lane reads as locked, so the page warns
-// before a lanes-count edit drops one; a free list naming a lane frees it and leaves the others locked.
-func TestSetupReadsAnOlderServesLanesAsLocked(t *testing.T) {
-	p := testkit.New(t)
-	p.Lane("L-01", "task/T-01")
-	p.Lane("L-02", "")
-	p.Config()
-	ask := func(body string) func(context.Context, string) (wire.Status, error) {
-		var ss wire.Status
-		if err := json.Unmarshal([]byte(body), &ss); err != nil {
-			t.Fatal(err)
-		}
-		return func(context.Context, string) (wire.Status, error) { return ss, nil }
-	}
-	older, err := reading{ask: ask(fmt.Sprintf(`{"project":{"name":"proj","root":%q}}`, p.Root))}.
-		setup(context.Background(), p.Root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []SetupLane{{Lane: "L-01", Agent: "pj-l-01", State: "free", Locked: true},
-		{Lane: "L-02", Agent: "pj-l-02", State: "free", Locked: true}}
-	if !reflect.DeepEqual(older.Lanes, want) {
-		t.Errorf("no free field: lanes %+v, want %+v (every lane locked)", older.Lanes, want)
-	}
-
-	newer, err := reading{ask: ask(fmt.Sprintf(`{"project":{"name":"proj","root":%q,"free":["L-01"]}}`, p.Root))}.
-		setup(context.Background(), p.Root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want = []SetupLane{{Lane: "L-01", Agent: "pj-l-01", State: "free"},
-		{Lane: "L-02", Agent: "pj-l-02", State: "free", Locked: true}}
-	if !reflect.DeepEqual(newer.Lanes, want) {
-		t.Errorf("free L-01: lanes %+v, want %+v", newer.Lanes, want)
-	}
-}
 
 // Setup is the project's steering — the difficulty levels in configured order with what runs each
 // model ref (kind, model id, the ref's effort), then the roles' refs no level names, every model the config knows with

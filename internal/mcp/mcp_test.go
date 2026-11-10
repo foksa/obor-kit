@@ -372,15 +372,18 @@ func TestWorkerTools(t *testing.T) {
 	}
 }
 
-// TestJobNextStates: a superseded job and none each get their own one line, and a reply that is not a JobReply (an
-// older serve) is passed through.
+// TestJobNextStates: a superseded job and none each get their own one line; an answer that is no job reply is the
+// tool's error.
 func TestJobNextStates(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
-	cases := []struct{ reply, want string }{
-		{`{"state":"none"}`, "NO JOB (none)"},
-		{`{"state":"superseded","current":"T-01/2/work"}`, "SUPERSEDED BY T-01/2/work (call job_next again)"},
-		{`a plain line`, "a plain line"},
+	cases := []struct {
+		reply, want string
+		bad         bool
+	}{
+		{reply: `{"state":"none"}`, want: "NO JOB (none)"},
+		{reply: `{"state":"superseded","current":"T-01/2/work"}`, want: "SUPERSEDED BY T-01/2/work (call job_next again)"},
+		{reply: `a plain line`, bad: true},
 	}
 	var mu sync.Mutex
 	next := 0
@@ -396,7 +399,14 @@ func TestJobNextStates(t *testing.T) {
 	serveFake(t, wire.SocketPath(f.root), a)
 	c := start(t, f.worker(), f.lane)
 	for _, tc := range cases {
-		if got := c.tool("job_next", nil); got.IsError || got.Text != tc.want {
+		got := c.tool("job_next", nil)
+		if tc.bad {
+			if !got.IsError || !strings.Contains(got.Text, "not a job reply") {
+				t.Errorf("job_next %s: %+v; want the error", tc.reply, got)
+			}
+			continue
+		}
+		if got.IsError || got.Text != tc.want {
 			t.Errorf("job_next %s: %+v; want %q", tc.reply, got, tc.want)
 		}
 	}

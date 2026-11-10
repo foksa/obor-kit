@@ -83,9 +83,8 @@ type (
 		Refused string `json:"refused,omitempty"`
 	}
 	// startData is agent.start's intent: the lane's pane and the agent in it at intent time (Ran; Session herdr's
-	// session id of it, "": none known), what a replay compares the snapshot with. (An older intent held the
-	// transcript under "session": such an intent has no session id, a replay of it cannot tell.) It runs under its
-	// job's intent and carries its wake (startJob); older intents carry the job's id as "wake", ignored.
+	// session id of it, "": none known), what a replay compares the snapshot with. It runs under its job's intent and
+	// carries its wake (startJob).
 	startData struct {
 		Lane    string `json:"lane"`
 		Agent   string `json:"agent"`
@@ -98,7 +97,7 @@ type (
 	// kind and herdr's session id of it ("": none reported, or a replay that saw it in the snapshot): the start row of
 	// the identity table (foldStart). Config is the config revision the start was launched under (config.Config.Rev).
 	// The start's row keeps it, so a keep lane reuses the agent only while the config is that same config
-	// (startFits). agent.start's alone: the integrator's start.<job>, and an older record, carry none.
+	// (startFits). agent.start's alone: the integrator's start.<job> carries none.
 	startOut struct {
 		Line     string `json:"line,omitempty"`
 		Agent    string `json:"agent,omitempty"`

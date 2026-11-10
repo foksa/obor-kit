@@ -22,7 +22,7 @@ import (
 // just created; anything not a number does not). Release removes a file only while it still holds our pid.
 //
 //	worker: 1. our project's merge marker live and younger than BlockMax → wait "waiting: a merge check is running"
-//	        2. live slots + live merge markers of every project (the legacy merge-running too) ≥ Max → wait
+//	        2. live slots + live merge markers of every project ≥ Max → wait
 //	        3. claim the first free slot-<i>
 //	merge:  claim our merge marker; a live one → wait "waiting for the other merge check". Never waits on worker slots.
 //
@@ -153,7 +153,7 @@ func claim(path string, pid int) bool {
 	return create(path, pid)
 }
 
-// running: live worker slots plus live merge markers of every project, the legacy merge-running included.
+// running: live worker slots plus live merge markers of every project.
 func (s Slots) running() int {
 	n := 0
 	for i := 0; i < s.Max; i++ {
@@ -162,7 +162,7 @@ func (s Slots) running() int {
 		}
 	}
 	markers, _ := filepath.Glob(filepath.Join(s.Dir, "merge-running-*"))
-	for _, m := range append([]string{filepath.Join(s.Dir, "merge-running")}, markers...) {
+	for _, m := range markers {
 		if !strings.HasSuffix(m, ".reclaim") {
 			if _, ok := live(m); ok {
 				n++

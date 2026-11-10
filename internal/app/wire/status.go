@@ -7,8 +7,8 @@ import (
 
 // Status is the answer to the app socket's one request, status.
 //
-// A predicate serve ships is named so that a missing field (an older serve's answer, during an upgrade) reads as the
-// safe answer: a task is open unless it says it ended, a lane is locked unless it says it is free.
+// A predicate serve ships is named so that a missing field reads as the safe answer: a task is open unless it says it
+// ended, a lane is locked unless it says it is free.
 type Status struct {
 	Since     string `json:"since,omitempty"`      // when this serve started (RFC 3339)
 	Connected bool   `json:"connected"`            // the herdr subscription is live
@@ -38,7 +38,7 @@ type ProjectStatus struct {
 	ModelPauses map[string]*event.Pause `json:"model_pauses,omitempty"`
 	// Free is the configured lanes that hold no task now, by configset's own rule (laneHolds): obor web's setup page
 	// warns before a lanes-count edit drops one not in it, and serve refuses that edit while a lane holds a task.
-	// Absent (an older serve): no lane free, so every dropped lane warns.
+	// Absent: no lane free, so every dropped lane warns.
 	Free []string `json:"free"`
 	// Queues is each keep lane's queue: the tasks waiting for it, in dispatch order (absent: none waits).
 	Queues map[string][]string `json:"queues,omitempty"`
@@ -235,7 +235,7 @@ type TaskStatus struct {
 	Attempt int    `json:"attempt"`
 	State   string `json:"state"`
 	// Ended is whether the state table ends the task (rejected or dropped; a merged one is no TaskStatus at all).
-	// Readers show a task as open unless this is set, so an older serve's answer, without it, keeps the task open.
+	// Readers show a task as open unless this is set: an answer without it keeps the task open.
 	Ended   bool   `json:"ended,omitempty"`
 	Phase   string `json:"phase"`             // what serve does for it now (Phase*)
 	Stage   string `json:"stage,omitempty"`   // its merge-loop stage (Stage*; "": not in the merge loop)

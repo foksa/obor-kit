@@ -30,9 +30,6 @@ import (
 // (obor brief --fresh) to a running one stops it right before that start, once the brief is recorded: that stop
 // is part of the brief's delivery (freshStop), not a rule.
 
-// stepRoleStop is the step prefix of an older log's role stop: stop.<agent>[.N].
-const stepRoleStop = "stop."
-
 // roleStopRetry is how long after a failed stop of a fresh brief serve tries it again.
 const roleStopRetry = time.Minute
 

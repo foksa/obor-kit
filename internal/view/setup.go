@@ -73,8 +73,7 @@ type SetupKind struct {
 
 // SetupLane is one configured lane: its name, the model it runs now (its dispatch's; "": none), its agent and its
 // state now (free, working, done, missing …), and whether it holds a task serve would refuse to drop (Locked: the
-// config-set rule). Locked is computed here from serve's Free lanes, so an older serve, which names none,
-// locks every lane.
+// config-set rule). Locked is computed here from serve's Free lanes: a status that names none locks every lane.
 type SetupLane struct {
 	Lane   string `json:"lane"`
 	Type   string `json:"type"`
@@ -148,7 +147,7 @@ func configRev(root string) string {
 
 // setup is Setup for one config snapshot (cfg), the lane table's rows (lanes), the view's role rows and pauses (v), the
 // store (db), the config.json revision the page read (rev) and serve's lanes that hold no task (free: configset's
-// rule; none from an older serve: every lane counts as locked).
+// rule; none named: every lane counts as locked).
 func setup(cfg *config.Config, lanes []port.Lane, v Project, db *sql.DB, rev string, free []string, now time.Time) Setup {
 	s := Setup{Difficulty: []SetupLevel{}, Types: []SetupType{}, Models: []SetupModel{}, Kinds: []SetupKind{}, Lanes: []SetupLane{},
 		Roles: []SetupRole{}, Distribution: []DispatchCount{}, ConfigRev: rev}

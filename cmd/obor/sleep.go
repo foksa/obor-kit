@@ -382,7 +382,7 @@ func (s *sleeper) status(ctx context.Context) (*wire.ProjectStatus, error) {
 }
 
 // openTasks is serve's open tasks: every task it still has in its merge loop (working, gating, merging, waiting …),
-// which is every task that does not say it ended — an older serve names no ended field, so its tasks stay open.
+// which is every task that does not say it ended: an answer that names no ended field keeps its tasks open.
 func openTasks(p *wire.ProjectStatus) (out []busyTask) {
 	for _, t := range p.Tasks {
 		if !t.Ended {
