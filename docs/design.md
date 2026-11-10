@@ -165,11 +165,16 @@ an object of typed lanes) is dropped with a WARN by every command and serve (its
 
 Per-kind defaults live in the plugin: Claude `--settings '{"autoMemoryEnabled":false,"remoteControlAtStartup":false}'`
 for every agent except leads (only the lead keeps Remote Control and auto memory). Every agent except leads also
-starts without the user's own plugins, skills and hooks: Claude `--setting-sources project,local` (unless
-`agents.kinds.claude.args` names `--setting-sources`), Codex `-c features.plugins=false -c features.apps=false
--c skills.bundled.enabled=false` (a key the project's `.codex/config.toml` sets is left to it), OpenCode
-`OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1`; the project's own settings, plugins and skills stay. A lane's agent (a
-worker, the owner's drive agent) starts strict: `--strict-mcp-config`, with obor's `--mcp-config` spliced in before it,
+starts without as much of the user's own plugins, skills and hooks as its CLI lets obor drop: Claude
+`--setting-sources project,local` (unless `agents.kinds.claude.args` names `--setting-sources`) drops the user's
+settings, hooks, plugins, `~/.claude/skills` and user `CLAUDE.md`; Codex `-c features.plugins=false
+-c features.apps=false -c skills.bundled.enabled=false` (a key the project's `.codex/config.toml` sets is left to it)
+drops the user's plugins with their skills, the app connectors and the bundled skills; OpenCode
+`OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` hides `~/.claude/skills` and the project's `.claude/skills`. The trim is best
+effort, not a project-only view: Codex's `~/.codex/skills` and `~/.agents/skills`, and OpenCode's user config, plugins,
+`~/.config/opencode/skills` and `~/.agents/skills`, stay. The project's own settings and skills stay for Claude and
+Codex; OpenCode keeps the project's `.agents/skills` and `.opencode/skills`, not its `.claude/skills`. A lane's agent
+(a worker, the owner's drive agent) starts strict: `--strict-mcp-config`, with obor's `--mcp-config` spliced in before it,
 so the user's own MCP servers cost no context on a job; the lead and the role agents keep every one of them.
 Permission mode and posted lines: a Claude lane's job wakes and a Claude role agent's briefs are posted to its
 session's inbox, not typed. A session in `--permission-mode bypassPermissions` holds a posted message for its 5-minute

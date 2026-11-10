@@ -101,9 +101,9 @@ the flag for it:
 | Claude | `.claude/settings.json` | `remoteControlAtStartup`, `autoMemoryEnabled` | that key of `--settings` (non-lead roles) |
 | Codex | `.codex/config.toml`, top-level (before any `[table]`) | `sandbox_mode` | `-s workspace-write` |
 | Codex | same | `check_for_update_on_startup` | `-c check_for_update_on_startup=false` |
-| Claude | `.obor/config.json` | `--setting-sources <list>` in `agents.kinds.claude.args` | `--setting-sources project,local` (non-lead roles), which drops the user's `~/.claude/settings.json` (its plugins, hooks, env), `~/.claude/skills` and `~/.claude/CLAUDE.md` |
-| Codex | `.codex/config.toml`, anywhere (dotted, or under its `[table]`) | `features.plugins`, `features.apps`, `skills.bundled.enabled` | that key's `-c <key>=false` (non-lead roles), which drop the user's plugins with their skills, the app connectors and the bundled skills |
-| OpenCode | none | none (no opt-out) | nothing: `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` is in every non-lead start's env and hides `~/.claude/skills` and the project's `.claude/skills` |
+| Claude | `.obor/config.json` | `--setting-sources <list>` in `agents.kinds.claude.args` | `--setting-sources project,local` (non-lead roles): the user's `~/.claude/settings.json` (its plugins, hooks, env), `~/.claude/skills` and `~/.claude/CLAUDE.md` go; the project's settings, skills and agents, managed settings, `~/.claude.json` (trust) and auth stay |
+| Codex | `.codex/config.toml`, anywhere (dotted, or under its `[table]`) | `features.plugins`, `features.apps`, `skills.bundled.enabled` | that key's `-c <key>=false` (non-lead roles): the user's plugins with their skills, the app connectors and the bundled skills go; user skills in `~/.codex/skills` and `~/.agents/skills` stay |
+| OpenCode | none | none (no opt-out) | nothing: `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` is in every non-lead start's env and hides the Claude skill dirs, `~/.claude/skills` and the project's `.claude/skills`; the user's `opencode.json`, plugins, `~/.config/opencode/skills` and `~/.agents/skills` stay |
 
 obor's MCP server, the session id, the prompt, the model ref each role and difficulty level names (`<model>[:<effort>]`,
 e.g. `opus:high`), Claude's `--permission-mode auto` and Codex's `-a never` stay (change those in `.obor/config.json`:
@@ -113,8 +113,10 @@ absent. `obor config validate` warns on such a file, on `disableAllHooks: true` 
 off obor's guard hooks) and on an OpenCode project config (`opencode.json[c]`, `.opencode/opencode.json[c]`) that
 defines `mcp.servers.obor` (it replaces obor's server).
 
-**Project skills and MCP servers.** Every agent but the lead starts without the user's own plugins, skills and hooks
-(the three rows above), so what such an agent sees is what the project commits; the lead keeps the user's setup.
+**Project skills and MCP servers.** Every agent but the lead starts without as much of the user's own plugins, skills
+and hooks as its CLI lets obor drop; the three rows above say what each switch hides and what stays (Codex keeps user
+skills in its own dirs, OpenCode its user config, plugins and skill roots). The trim is best effort, not a project-only
+view: whatever a CLI has no switch for stays visible, and the lead keeps the user's setup.
 obor's Claude plugin must be installed at project scope (`obor init` installs it there): a user-scope install is dropped
 with the rest.
 - Skills: one tree, `.agents/skills/<name>/SKILL.md` (Codex and OpenCode read it), with `.claude/skills` a symlink to
