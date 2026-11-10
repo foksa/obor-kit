@@ -9,7 +9,8 @@ clear one-line result (`MERGED …`, `FAIL …`). Avoid: frameworks, generated c
 
 **Text says what is, never what was** (owner 2026-11-10). Skills, role texts, templates, `docs/design.md`, help text
 and code comments describe the current behaviour: no previous states ("it was `X`", "`Y` is gone", "used to",
-"no longer", "replaces the old …"). History lives in git, `docs/decisions.md`, CHANGELOG and the UPGRADE guides.
+"no longer", "replaces the old …") and no task or review ids (`T-331`, `RV-37 #2`): they mean nothing to a reader.
+History and ids live in git (commit subjects), `docs/decisions.md`, reviews, BACKLOG, CHANGELOG and the UPGRADE guides.
 
 ## Speak up (every role, unprompted)
 If you notice something systemic while working — complexity growing faster than value, a fragile dependency (e.g. on
