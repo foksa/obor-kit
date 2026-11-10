@@ -98,3 +98,33 @@ func TestStartRowKeepsItsConfigRevAcrossAReplay(t *testing.T) {
 		t.Error("startFits after the replay = true, want false: the start recorded another config revision")
 	}
 }
+
+// A kept Claude agent herdr reports no session for is the start's when the session recorded from its pane is the
+// start row's (reused), and is not when another session was recorded from the pane since (stopped, started fresh).
+func TestStartFitsReadsTheRecordedSession(t *testing.T) {
+	t.Parallel()
+	h, _ := seedSched(t, false)
+	dispatchSonnet(t, h)
+	cfg, err := config.Load(h.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	startReported(t, h, cfg.Rev())
+	pane := port.Pane{ID: "w1:p1"} // herdr reports no agent_session
+	fits := func() bool {
+		h.a.mu.Lock()
+		defer h.a.mu.Unlock()
+		return h.proj().startFits(cfg, "pj-l-01", pane, "sonnet")
+	}
+	if fits() {
+		t.Fatal("precondition: startFits with no session recorded and none from herdr = true, want false")
+	}
+	h.session("pj-l-01", "new-session", "/t/new-session.jsonl", 100)
+	if !fits() {
+		t.Error("startFits with the start's session recorded from the pane = false, want true: the agent is reused")
+	}
+	h.session("pj-l-01", "by-hand", "/t/by-hand.jsonl", 200)
+	if fits() {
+		t.Error("startFits with another session recorded from the pane = true, want false: a fresh start")
+	}
+}

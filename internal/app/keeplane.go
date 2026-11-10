@@ -85,15 +85,15 @@ func (a *App) keepStop(p *proj, cfg *config.Config, l port.Lane, agent, ref stri
 
 // startFits: agent, live in pane, runs model ref ref as serve's own start of it recorded (under mu): its start
 // row (agent.start's result, foldStart) names the model ref the start ran (its dispatch's) with ref's model and effort,
-// the kind of ref's model, and a session that is pane's now (the agent the start launched, not one started since by
-// hand), and the config revision the start was launched under is the config's now (a model's id or a kind's
-// args edited since would make a new start of ref another launch). Unknown or unprovable is no fit: no start row (an
-// agent serve did not start), no ref (the integrator's), no config revision (an older start),
-// a kind that reports no session id (it cannot prove the live agent is the start's), or herdr reporting
-// none for the pane now.
+// the kind of ref's model, and a session that is pane's now (liveSession: the agent the start launched, not one
+// started since by hand), and the config revision the start was launched under is the config's now (a model's id or
+// a kind's args edited since would make a new start of ref another launch). Unknown or unprovable is no fit: no start
+// row (an agent serve did not start), no ref (the integrator's), no config revision (an older start), a start
+// that recorded no session id (it cannot prove the live agent is the start's), or no session known for the pane
+// now (none recorded from it, and herdr reporting none).
 func (p *proj) startFits(cfg *config.Config, agent string, pane port.Pane, ref string) bool {
 	row, ok := p.reg.Start(agent)
-	if !ok || row.Ref == "" || row.Session == "" || row.Config == "" || pane.Session != row.Session ||
+	if !ok || row.Ref == "" || row.Config == "" || !sameSession(p.liveSession(agent, pane), row.Session) ||
 		row.Config != cfg.Rev() {
 		return false
 	}

@@ -460,8 +460,9 @@ func (l *Launcher) Restart(ctx context.Context, req Request) (string, error) {
 	return s.Line, err
 }
 
-// Launch is Restart (port.Agents): its line, and the agent it started there with the session id herdr reported for it
-// (the identity serve records for a later rename; none for a scheduled restart of the caller's own pane).
+// Launch is Restart (port.Agents): its line, and the agent it started there with its session id: herdr's for it, else
+// the id obor named it (the identity serve records for a later rename; none for a scheduled restart of the caller's
+// own pane).
 func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error) {
 	if !config.AgentNameRE.MatchString(req.Agent) {
 		return port.Started{}, project.Failf("bad agent name %q", req.Agent)
@@ -642,8 +643,14 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	if sid == "" {
 		sid = "new"
 	}
+	// The session the start row records: the one herdr shows for the started agent, else the id obor named it
+	// (t.session: a fresh start of a kind whose sessions obor names).
+	session := seen.Session
+	if session == "" {
+		session = t.session
+	}
 	return port.Started{Line: fmt.Sprintf("RESTARTED %s (pane %s, session %s)", t.agent, t.pane, sid), Pane: t.pane,
-		Terminal: t.entry.Terminal, Kind: t.kind, Session: seen.Session}, nil
+		Terminal: t.entry.Terminal, Kind: t.kind, Session: session}, nil
 }
 
 // quarantined is why t's kind may not start on this machine (agents.StartRefusal), and whether the start may

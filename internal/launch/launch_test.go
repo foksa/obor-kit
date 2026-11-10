@@ -3600,10 +3600,14 @@ func TestStartNamesItsSession(t *testing.T) {
 			recordSessions(t, x.p.Root, s)
 			return nil
 		}
-		line, err := l.Restart(context.Background(), launch.Request{Agent: "pj-l-01", Fresh: true})
-		if _, ok := result(t, &out, line, err); !ok {
+		started, err := l.Launch(context.Background(), launch.Request{Agent: "pj-l-01", Fresh: true})
+		if _, ok := result(t, &out, started.Line, err); !ok {
 			t.Fatal(out.String())
 		}
+		if p := x.shell("w1:p3", "pj-l-01", ""); p.Session != "" {
+			t.Fatalf("precondition: herdr reports session %q for the pane, want none", p.Session)
+		}
+		eq(t, started.Session, reported.ID, "the start's session, herdr reporting none, is the id obor named")
 		if reported.Agent != "pj-l-01" || reported.Kind != "claude" || reported.Pane != "w1:p3" || reported.Lane != "L-01" ||
 			reported.Source != "launch" || reported.Transcript != "" || reported.Started == 0 {
 			t.Errorf("reported %+v, want the agent, kind, pane, lane and no transcript yet", reported)

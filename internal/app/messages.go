@@ -429,6 +429,12 @@ func (p *proj) liveSession(agent string, pane port.Pane) string {
 	return pane.Session
 }
 
+// sameSession: a and b, each a session as liveSession gives it (a recorded id, or herdr's value: an id or its
+// transcript's path), name one session. An unknown one ("") is no session: never the same.
+func sameSession(a, b string) bool {
+	return identity.SameSession(a, b) || identity.SameSession(b, a)
+}
+
 // deliverLine posts q's line to target's session through kind post's inbox (the lead, or an agent whose kind has
 // one) or, post "", types it into target (its pane) under its delivery key (P, transmit). Refused before a byte went
 // out: fact failed, no result, delivered again on a later pass; a byte went out and then an error: result "sent: …".
