@@ -36,7 +36,7 @@ import (
 	"obor/internal/version"
 )
 
-// RV-55 #1 (T-530): an accept is of the spec rev its candidate was gated with. A green gate of another rev ends it
+// An accept is of the spec rev its candidate was gated with. A green gate of another rev ends it
 // (the candidate is reviewed again), even when the patch is the same; the same rev and patch keep it (row 20).
 
 // acceptAt gates T-1 green (kind, spec rev, candidate sha), sends its review job and accepts it.
@@ -78,9 +78,9 @@ func countStep(t *testing.T, h *harness, step string) int {
 	return n
 }
 
-// T-853: serve moves the reviewer's and the deep dive's role worktree to the head it hands the role; the reviewer or
-// the deep dive working holds no merge (the merge hold of T-718 is gone). T-872: a role's start is not admitted (it
-// reads the head once); the publish admission (T-730) is config_set's only.
+// Serve moves the reviewer's and the deep dive's role worktree to the head it hands the role; the reviewer or
+// the deep dive working holds no merge. A role's start is not admitted (it
+// reads the head once); the publish admission is config_set's only.
 
 // admitCfg is seedRoles' config with paths.reviews.
 const admitCfg = `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{"roles":{"integrator":"","reviewer":"","deep_dive":""}},"reviews":{"dir":"reviews"}}`
@@ -269,7 +269,7 @@ func answerSeed(t *testing.T, cause, state, job string, watch bool) (*harness, *
 	return h, p, mt.needs.fact
 }
 
-// T-746 (axis-alies T-1421): the answer to an idle worker reaches it, a line that cannot go out says why, and obor
+// The answer to an idle worker reaches it, a line that cannot go out says why, and obor
 // resume takes a stalled worker's needs-you.
 
 // staleHerdr is the ident harness with pj-l-01 idle in w1:p1, where herdr reports session s-herdr (stale: launch's
@@ -373,7 +373,7 @@ func (r *concRig) reload(name string) (*App, *proj) {
 	return b, p
 }
 
-// T-369 (docs/state-model.md "Concurrency"): a gate runs in its own goroutine holding its project's scratch; the
+// A gate runs in its own goroutine holding its project's scratch; the
 // merge loop goes on with every other step meanwhile. The fakes below are safe for the loop goroutine, the gate's
 // goroutine and the test at once.
 
@@ -382,20 +382,20 @@ func (r *concRig) reload(name string) (*App, *proj) {
 type concFakes struct {
 	*FakeWorkflow
 	restarts int // under the FakeWorkflow's mu
-	// obor drop by lane (T-439): the stops (agent, force) and Free inputs; refuse: Free's refusal ("": frees).
+	// obor drop by lane: the stops (agent, force) and Free inputs; refuse: Free's refusal ("": frees).
 	stops  []string
 	frees  []port.FreeInput
 	refuse string
-	// ignoresEsc: the worker keeps working after Escape, as launch.Stop sees it (T-773): a stop without force fails.
+	// ignoresEsc: the worker keeps working after Escape, as launch.Stop sees it: a stop without force fails.
 	ignoresEsc bool
-	// stopFails: a stop's error by force ("" : none): a quit timeout, a forced stop that fails (RV-98 #2).
+	// stopFails: a stop's error by force ("" : none): a quit timeout, a forced stop that fails.
 	stopFails func(force bool) string
-	// freeErrs: how many Free calls fail first, as a cut git does (T-852: retried, never a half-done drop).
+	// freeErrs: how many Free calls fail first, as a cut git does (retried, never a half-done drop).
 	freeErrs int
 }
 
 // newConcFakes is a project's adapters whose gate of hold waits for release; the target is at "b", and a candidate
-// has no Base unless the test says so (unbased false: a lane test follows its gate, T-961).
+// has no Base unless the test says so (unbased false: a lane test follows its gate).
 func newConcFakes(hold string) *concFakes {
 	s := NewFakeWorkflow("b")
 	s.hold, s.release, s.entered, s.unbased, s.Checks = hold, make(chan struct{}), make(chan string, 16), true, "check 1 pass"
@@ -451,7 +451,7 @@ func (f *concFakes) Target(context.Context, string) (string, bool, error) {
 	return "target", false, nil
 }
 
-// concRig is three projects, each on its own app (obor serve serves one project, T-522): pj (workspace w1; T-1
+// concRig is three projects, each on its own app (obor serve serves one project): pj (workspace w1; T-1
 // submitted and held in its gate, T-5 submitted behind it, T-2 dispatched onto lane L-02; the dispatch switch on), pq
 // (w2; T-3 submitted) and pr (w3; T-4 green, its review job out). Each workspace runs its integrator; L-02's pane runs
 // pj's worker. r.a is pj's app.
@@ -788,7 +788,7 @@ func (r *concRig) heldWhy(p *proj, task string) string {
 	return ""
 }
 
-// RV-42-verify-2 #1 (T-397): a dropped fact is terminal for the task whatever attempt it names; any record of the task
+// A dropped fact is terminal for the task whatever attempt it names; any record of the task
 // after it is ignored, and only a new dispatch reopens it.
 
 // addAt is add at attempt n.
@@ -927,7 +927,7 @@ func Counts(a *App) (checks, passes int) {
 	return a.checks, a.passes
 }
 
-// StreamPasses is how many merge loop passes a has done connected to one herdr stream from start to end (T-861):
+// StreamPasses is how many merge loop passes a has done connected to one herdr stream from start to end:
 // the passes a test that moved the clock or changed herdr waits on.
 func StreamPasses(a *App) int {
 	a.mu.Lock()
@@ -942,7 +942,7 @@ func Follows(a *App) int {
 	return a.follows
 }
 
-// Admits is the admissions in force on a's project at root (p.admits, T-934).
+// Admits is the admissions in force on a's project at root (p.admits).
 func Admits(a *App, root string) int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -950,7 +950,7 @@ func Admits(a *App, root string) int {
 }
 
 // Admit is one admission in force on a's project at root, as a config_set's or a review close's call holds it until
-// its commit is in; release ends it. The project must be served and no publish running (T-930).
+// its commit is in; release ends it. The project must be served and no publish running.
 func Admit(a *App, root string) (release func(), err error) {
 	a.mu.Lock()
 	p := a.projAt(root)
@@ -1019,10 +1019,10 @@ func WatchedPane(a *App, root, task string) string {
 	return p.tasks[task].agent.ID
 }
 
-// WorkerStartSettle is how long the worker start rule waits on a worker's pane at its shell (T-874).
+// WorkerStartSettle is how long the worker start rule waits on a worker's pane at its shell.
 const WorkerStartSettle = workerStartSettle
 
-// CachedLane is lane name as a's lane table last scanned it in the project at root (T-879; ok false: not in it).
+// CachedLane is lane name as a's lane table last scanned it in the project at root (ok false: not in it).
 func CachedLane(a *App, root, name string) (l port.Lane, ok bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -1047,7 +1047,7 @@ func NeedsSeq(of event.Of) int64 {
 }
 
 // ReplayLanes loads the project at root as serve does on start, with no herdr and no lanes source, and closes it: its
-// log's replay writes the lanes table (T-439), the rows the lane table and dispatch read (T-1015's fold test).
+// log's replay writes the lanes table, the rows the lane table and dispatch read.
 func ReplayLanes(root string, now time.Time) {
 	a := New(Options{Root: root, Now: func() time.Time { return now }}, &fakePanes{}, &fakeLanes{})
 	a.loadProject()
@@ -1057,7 +1057,7 @@ func ReplayLanes(root string, now time.Time) {
 // PickLane is pickLane for the external tests: the lane a dispatch takes of ls, its model ref, why none.
 var PickLane = pickLane
 
-// FakeWorkflow is the package's one port.Workflow for tests (T-996 as FakeScratch, T-1029): the loop rig's (app_test)
+// FakeWorkflow is the package's one port.Workflow for tests (as FakeScratch): the loop rig's (app_test)
 // and the concurrency rig's, and the in-memory row of the workflow contract table (testkit.WorkflowContract). It runs
 // no git and no command: shas are made up, the target is a head the test moves (Move, Land), pins and lane commits are
 // maps. It keeps port.Workflow's contract (port/effects.go, port/workflow.go): an outcome is final for its step, an
@@ -1096,11 +1096,11 @@ type FakeWorkflow struct {
 	resolution string              // the merge the integrator committed in Dir ("": none)
 	n          int
 
-	// The concurrency rig's (T-369): a gate of hold, a publish of holdPub, a resolved check of holdResolved block until
+	// The concurrency rig's: a gate of hold, a publish of holdPub, a resolved check of holdResolved block until
 	// release is closed (or their ctx ends), holdTest's lane test until testRelease is (release when nil); entered gets
 	// each Gate's task as it begins ("publish <task>", "resolved <task>", "test <task>" when held; nil: not sent).
 	// Every scratch call (Gate, Publish, Resolved) counts in inflight, max the most at once. unbased: a candidate has no
-	// Base (a gate before T-961: green at once, no lane test).
+	// Base (green at once, no lane test).
 	hold, holdPub, holdResolved, holdTest string
 	unbased                               bool
 	release, testRelease                  chan struct{}
@@ -1627,7 +1627,7 @@ func (s *FakeWorkflow) Publish(ctx context.Context, c port.Candidate) (port.Publ
 		return port.PublishOutcome{Kind: port.PublishMoved, Head: s.head}, nil
 	case kind == port.PublishHold:
 		return port.PublishOutcome{Kind: port.PublishHold, Files: strings.Fields(cmp.Or(rest, "shared.txt"))}, nil
-	case kind == port.PublishPending: // the merge asked for, not done: Land is the forge's merge (T-1029)
+	case kind == port.PublishPending: // the merge asked for, not done: Land is the forge's merge
 		return port.PublishOutcome{Kind: port.PublishPending}, nil
 	}
 	s.head, s.history[c.SHA], s.landed[c.Task] = c.SHA, true, true
@@ -1831,7 +1831,7 @@ func (s *FakeWorkflow) Closed(_ context.Context, _, _, id string) (string, error
 
 var _ port.Workflow = (*FakeWorkflow)(nil)
 
-// WorkflowOf is a port.Workflow of a test's own fakes (T-1029): each part takes over every piece of port.Workflow it
+// WorkflowOf is a port.Workflow of a test's own fakes: each part takes over every piece of port.Workflow it
 // implements (port.Scratch, port.LaneSetup, port.Review, Target), a later
 // part over an earlier one; the pieces no part implements are a NewFakeWorkflow's. A nil part is skipped.
 func WorkflowOf(parts ...any) port.Workflow {
@@ -1865,7 +1865,7 @@ type workflowOf struct {
 	targeter
 }
 
-// T-602: integrator jobs start a fresh session each (Launch with Fresh, the job's wake its first prompt), not a wake
+// Integrator jobs start a fresh session each (Launch with Fresh, the job's wake its first prompt), not a wake
 // typed into the session that runs.
 
 // greenTask gates task green in r's project pj with candidate c.
@@ -1874,10 +1874,10 @@ func greenTask(r *concRig, task string, c port.Candidate) {
 	r.add("pj", task, event.StepGate, event.KindResult, gateOut{Outcome: outGreen, Candidate: c})
 }
 
-// T-504: the identity table (registry.go), its case table, on the watchdogs'
+// The identity table (registry.go), its case table, on the watchdogs'
 // harness: lane L-01's worker pj-l-01 in w1:p1 (terminal t1, session s1, labelled by its launch), a shell w1:p2 beside
 // it. Each test asserts whereIs and the consumer's observable call (the fake Agents' Stop pane, the Prompter/Poster/
-// Liner target, the queued line, the fact written). Rows 12–20 are the transitions RV-53 asks for.
+// Liner target, the queued line, the fact written). Rows 12–20 are the transitions the model asks for.
 
 // newIdentHarness is the harness with w1:p1 labelled pj-l-01 on terminal t1 (session s1), the lane row and the config
 // naming pj-l-01 (lane L-01's worker), and a shell w1:p2 (terminal t2) in the project's workspace; its log lines in
@@ -1895,7 +1895,7 @@ func newIdentHarness(t *testing.T) (*harness, *bytes.Buffer) {
 }
 
 // withLead gives pj a lead role (pj-lead), an integrator (pj-int) and an advisor (pj-advisor, no lane): every name a
-// start row or a recorded session may prove a pane with (T-605), lane L-01's worker pj-l-01 included.
+// start row or a recorded session may prove a pane with, lane L-01's worker pj-l-01 included.
 func (h *harness) withLead() {
 	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},`+
 		`"lanes":{"count":1},"agents":{"roles":{"integrator":"","lead":"","advisor":""}}}`)
@@ -1904,7 +1904,7 @@ func (h *harness) withLead() {
 // sids makes agent → session each agent's current recorded session in the store (once the project is loaded): put in
 // the fold directly, so two agents may hold one id (the tie cases; sessionCall refuses that). A tie is reached the way
 // a log can: the owner moves on, the other agent takes the id, and the owner's confirmation of its newer record hands
-// its current session back to the id (T-813's rule).
+// its current session back to the id.
 func (h *harness) sids(m map[string]string) {
 	h.sidMap = m
 	h.applySids()
@@ -2116,9 +2116,9 @@ func (h *harness) queuedLeadThenBrief() {
 	h.brief("pj-l-01", "[obor] verify")
 }
 
-// T-858, T-924: idle counts a verify the pipeline still owes (the verify rule's condition, before its brief), so no
+// Idle counts a verify the pipeline still owes (the verify rule's condition, before its brief), so no
 // idle line fires between a fix round's last merge and the verify's brief; the verify rule runs before idle's in the
-// one rule pass (T-859's race between them is gone).
+// one rule pass.
 
 // afterStepsDone records task's after-merge steps as done: its merge alone is no work in flight.
 func (r *reviewRig) afterStepsDone(task string) {
@@ -2163,7 +2163,7 @@ func (r *reviewRig) idlePosts() []string {
 }
 
 // eventNow is a.event as Serve completes it: the refresher's pass over the lane table the event marked, then the run
-// loop's decision on the table it read (lanescan.go, T-879); for the tests that drive the core without Serve's
+// loop's decision on the table it read (lanescan.go); for the tests that drive the core without Serve's
 // goroutines.
 func eventNow(a *App, ev port.Event) {
 	ctx := context.Background()
@@ -2218,9 +2218,9 @@ func taskMerged(task, head string) lineStep {
 	}
 }
 
-// RV-50 #1–#3 (T-473): the project's lines survive a restart (orderly and SIGKILL) and an off-target checkout.
+// The project's lines survive a restart (orderly and SIGKILL) and an off-target checkout.
 
-// linerSpy is a Typer and a Poster that records each line typed or posted (the lead's, T-485); refuse: refused before
+// linerSpy is a Typer and a Poster that records each line typed or posted (the lead's); refuse: refused before
 // typing; hang: typing begins and never returns (the process is killed there).
 type linerSpy struct {
 	calls  []string
@@ -2327,7 +2327,7 @@ func (p *proj) briefCount() int {
 
 // park blocks the calling goroutine with a pending timer, so the runtime's deadlock detector leaves the process for the
 // parent's SIGKILL. A bare select{} let a loaded child exit 2 ("all goroutines are asleep") before the kill landed, red
-// in a gate run (T-554).
+// in a gate run.
 func park() {
 	t := time.NewTimer(time.Hour)
 	defer t.Stop()
@@ -2395,7 +2395,7 @@ func fact(t *testing.T, task, step, reason string) event.Record {
 	return r
 }
 
-// The choices of one merge-loop task over p's loop map never follow Go's map order (T-615): a lane's task is its newest
+// The choices of one merge-loop task over p's loop map never follow Go's map order: a lane's task is its newest
 // dispatch's, the other choices are by task name. Each test has two tasks the choice could take and asks it many
 // times: map order would pick the other one in about half of them.
 
@@ -2411,7 +2411,7 @@ func twoInLane() *proj {
 		folded: folded{loop: map[string]*mtask{"T-2": mk("T-2", 7), "T-1": mk("T-1", 3)}, calls: map[string]string{}}}
 }
 
-// T-827 (DD-consolidation S2): a needs-you is a block on the task's phase. These golden folds were captured with the
+// A needs-you is a block on the task's phase. These golden folds were captured with the
 // code before the change (the three encodings: fail, needs-you with left, merged/rejected with needs): each case is a
 // log in the event log's format, replayed, and what obor status, the needs-you list, the task verbs, the next step
 // and obor resume make of it (each action folded in turn) must stay the same. OBOR_UPDATE_GOLDEN=1 rewrites the file.
@@ -2560,7 +2560,7 @@ func needsMessages(t *testing.T, p *proj) []event.Message {
 	return out
 }
 
-// docs/state-model.md "Prompts" (the wake contract) and row 4's agent.start replay (T-371; RV-40 #2–#4). The first
+// docs/state-model.md "Prompts" (the wake contract) and row 4's agent.start replay. The first
 // action after the setup is the case's entry.
 
 // boxPrompter is a Typer whose agents never take a prompt by themselves: what is typed stays in the pane's box (box),
@@ -2710,7 +2710,7 @@ func (h *harness) has(s string) bool {
 	return false
 }
 
-// T-649 (reverses T-604): a green task whose worker's report leaves open questions gets its review job, the questions
+// A green task whose worker's report leaves open questions gets its review job, the questions
 // in it: the integrator decides the ones inside the spec's goal and holds the rest for the lead.
 
 // seedQuestions is project pj with an integrator, lane L-01's T-1 submitted with report and its lane gate green.
@@ -2785,9 +2785,9 @@ func since(h *harness) time.Time {
 	return h.a.p.nopane["T-1"]
 }
 
-// T-973 (reverting T-968's binding): the fold of a resolution's green gate (live and replayed: a serve restart replays
+// The fold of a resolution's green gate (live and replayed: a serve restart replays
 // these records). A first-gate conflict has no accept, so its resolved candidate goes to its lane test and then to a
-// review job (row 19). A moved conflict's earlier accept is kept as before, unless the spec rev changed.
+// review job (row 19). A moved conflict's earlier accept is kept, unless the spec rev changed.
 
 // resolvedGate folds a resolved gate's intent and green result under gate: the task's own patch, green at rev.
 func (b *blockLog) resolvedGate(gate string, rev int) *blockLog {
@@ -2806,15 +2806,15 @@ func (r *concRig) showsRestart(name string) bool {
 	return false
 }
 
-// T-638: obor review records a request; a merge-loop pass starts the review once its --after tasks merged and the
+// obor review records a request; a merge-loop pass starts the review once its --after tasks merged and the
 // reviewer is idle.
 
-// reviewGitFake is the tests' one port.Review (T-869, DD D4): head the integration branch's head ("": headSHA), which a
+// reviewGitFake is the tests' one port.Review: head the integration branch's head ("": headSHA), which a
 // gated publish moves (admit_test.go); files the fixed answer; detachErr fails the detach, detached every Detach as
-// <dir>@<sha>. onHead runs once, inside the next Head read. closes is every close committed (T-926; Closed finds its
+// <dir>@<sha>. onHead runs once, inside the next Head read. closes is every close committed (Closed finds its
 // subject), closeErr refuses one; closeGate, when set, holds a close until it is closed and closeBegan gets a value
-// when one reaches it (T-930); reads counts the Closed reads, headReads the Head reads. What merged and what a review covered are the log's
-// (T-1023). mu guards every field a method touches (a publish runs beside the admission tests' calls).
+// when one reaches it; reads counts the Closed reads, headReads the Head reads. What merged and what a review covered are the log's
+// mu guards every field a method touches (a publish runs beside the admission tests' calls).
 type reviewGitFake struct {
 	mu         sync.Mutex
 	head       string
@@ -2860,7 +2860,7 @@ func (g *reviewGitFake) Close(ctx context.Context, c port.ReviewCommit) error {
 	g.mu.Lock()
 	gate, began := g.closeGate, g.closeBegan
 	g.mu.Unlock()
-	if gate != nil { // a close in flight inside configMu (T-930)
+	if gate != nil { // a close in flight inside configMu
 		if began != nil {
 			began <- struct{}{}
 		}
@@ -3014,7 +3014,7 @@ func (r *reviewRig) started() {
 	}
 }
 
-// closedBy is a close as serve's close leaves it (T-926): fact review.closed of id, its reply naming subject.
+// closedBy is a close as serve's close leaves it: fact review.closed of id, its reply naming subject.
 func (r *reviewRig) closedBy(id, subject string) {
 	r.t.Helper()
 	r.fact(event.ReviewTask, event.StepReviewClosed, ReviewData{ID: id, Reply: closedReply + subject})
@@ -3063,7 +3063,7 @@ func (r *reviewRig) mustCall(id string, after []string, note string, rm bool) st
 
 // submitted opens task (attempt 1 on a lane); merged and dropped end it.
 func (r *reviewRig) submitted(task string) {
-	// T-1089: the seed's merged facts (no dispatch) are merged loop tasks, and a submission never reopens an ended
+	// The seed's merged facts (no dispatch) are merged loop tasks, and a submission never reopens an ended
 	// task: one the seed merged is dispatched again first, as a real log has it.
 	if mt := r.p.folded.loop[task]; mt != nil && mt.dispSeq == 0 && states[mt.state].ended {
 		r.a.record(r.p, event.Record{Task: task, Attempt: 1, Step: event.StepDispatched, Kind: event.KindFact},
@@ -3117,7 +3117,7 @@ func (r *reviewRig) needs() []string {
 	return out
 }
 
-// T-926: obor review close is a call to serve: serve checks the open review against its fold, commits the close in the
+// obor review close is a call to serve: serve checks the open review against its fold, commits the close in the
 // main checkout (port.Review.Close, admitted) and records fact review.closed, which every "is a review open" reads.
 
 // closedFacts is the log's review.closed facts' data since the seed, in order.
@@ -3149,7 +3149,7 @@ func tasksOf(ms []mergeRec) []string {
 	return out
 }
 
-// T-924: a fix task links itself to the open review with its spec's Fixes: line (derived, no record); the verify is a
+// A fix task links itself to the open review with its spec's Fixes: line (derived, no record); the verify is a
 // rule: once every linked task merged (or ended unmerged) and the reviewer is idle, serve detaches the reviewer's
 // worktree at the integration head and briefs the verify in the same session; only the finished line covers the tasks.
 
@@ -3372,7 +3372,7 @@ func gone(pid int) bool {
 	return false
 }
 
-// leadSendback is the lead's obor resume --sendback of task in project name (T-775: obor sendback is gone).
+// leadSendback is the lead's obor resume --sendback of task in project name.
 func (r *concRig) leadSendback(name, task, id string) (string, error) {
 	return r.app(name).resume(wire.ResumeReq{Envelope: wire.Envelope{Root: r.roots[name], Agent: "pq-lead",
 		Role: "lead", CallID: id}, Task: task, Flag: wire.ResumeSendback, Text: "fix the edge case"})
@@ -3397,7 +3397,7 @@ func (r *concRig) attempt(name, task string) int {
 	return p.folded.loop[task].attempt
 }
 
-// T-424 (DD-v0.10 #5): a broken event log is visible. T-522: serve loads the one project at Options.Root.
+// A broken event log is visible. Serve loads the one project at Options.Root.
 
 // rootApp is an app serving root; out is its output.
 func rootApp(root string, out *bytes.Buffer) *App {
@@ -3418,7 +3418,7 @@ func projectRoot(t *testing.T) string {
 	return root
 }
 
-// schedScratch is a fake Scratch and Agents for the RV-38 scheduling tests: gates are green and logged by task,
+// schedScratch is a fake Scratch and Agents for the scheduling tests: gates are green and logged by task,
 // Resolved logs the input it was given.
 type schedScratch struct {
 	h        *harness
@@ -3568,7 +3568,7 @@ func (l *memListener) Close() error { l.once.Do(func() { close(l.done) }); retur
 func (l *memListener) Addr() net.Addr { return &net.UnixAddr{Name: "mem", Net: "unix"} }
 
 // send writes one request line to the app listening on l and returns the connection to read the answer from: the
-// call carries this binary's version, as wire.Verdict's does (T-826).
+// call carries this binary's version, as wire.Verdict's does.
 func (l *memListener) send(t *testing.T, c wire.Req) net.Conn {
 	t.Helper()
 	c.Env().Version = version.Version
@@ -3594,7 +3594,7 @@ func (l *memListener) sendRaw(t *testing.T, c wire.Req) net.Conn {
 // as the error. It has none of the wire client's retries or deadlines: a test of those uses a unix socket.
 type MemServe struct{ ln *memListener }
 
-// ServeMem answers a's socket in memory until t ends (T-1175: the connections a testing/synctest bubble can wait on).
+// ServeMem answers a's socket in memory until t ends (the connections a testing/synctest bubble can wait on).
 func ServeMem(t *testing.T, a *App) *MemServe {
 	t.Helper()
 	ln := newMemListener()
@@ -3736,7 +3736,7 @@ func same[T comparable](t *testing.T, got, want T, what string) {
 	}
 }
 
-// RV-42's probe effects: start runs inside Restart (an agent obeying its CLI first prompt); typed are the Typer's
+// Probe effects: start runs inside Restart (an agent obeying its CLI first prompt); typed are the Typer's
 // texts.
 type startEffects struct {
 	*concFakes
@@ -3834,7 +3834,7 @@ type fakePanes struct {
 	turned   bool // Turn knows turn
 	// Snapshot's answer: snap when an error does not come first (nil snap, nil err: "not in the table", as for the
 	// table's rows); after runs once the answer is read, before it returns (a stream event landing in between);
-	// snaps counts the calls (T-747).
+	// snaps counts the calls.
 	snap    *port.Snapshot
 	snapErr error
 	after   func()
@@ -3889,7 +3889,7 @@ func (f *fakePanes) Notify(_ context.Context, title, body string) error {
 	return nil
 }
 
-// fakeLanes is the lane table; err, when set, fails the whole read instead (T-879).
+// fakeLanes is the lane table; err, when set, fails the whole read instead.
 type fakeLanes struct {
 	lanes []port.Lane
 	err   error
@@ -4073,7 +4073,7 @@ func eq(t *testing.T, got, want []string, what string) {
 	}
 }
 
-// T-603: the work job carries the worker's role texts, so the worker reads them once (in the job) instead of spending
+// The work job carries the worker's role texts, so the worker reads them once (in the job) instead of spending
 // turns on the files, and a role text too big to carry is named for the worker to read.
 
 // roleFixture is a project root whose config puts the agents docs in doc/roles, and the obor kit it is dispatched from:

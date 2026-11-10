@@ -1,3 +1,5 @@
+//go:build integration
+
 package app_test
 
 import (
@@ -138,7 +140,7 @@ func noRestore(t *testing.T, r *rig, fr *fakeRestorer, what string) {
 	}
 }
 
-// T-1051: herdr gone (its socket dies under the stream, the subscribes fail) and back: serve restores its project's
+// Herdr gone (its socket dies under the stream, the subscribes fail) and back: serve restores its project's
 // panes once, with the project's root, after it subscribed again.
 func TestServeRestoresAfterTerminalBack(t *testing.T) {
 	t.Parallel()
@@ -218,7 +220,7 @@ func TestServeRestoresDoNotOverlap(t *testing.T) {
 	}
 }
 
-// T-1135: herdr restarted while serve was down (a machine restart: herdr first, serve later): serve's first connect
+// Herdr restarted while serve was down (a machine restart: herdr first, serve later): serve's first connect
 // finds another instance than it recorded, restores once, and records the new one.
 func TestServeRestoresAtFirstConnectAfterTerminalRestart(t *testing.T) {
 	t.Parallel()
@@ -245,7 +247,7 @@ func TestServeRestoresAtFirstConnectAfterTerminalRestart(t *testing.T) {
 	}
 }
 
-// T-1135: serve restarts (a re-exec on a new build, a restart) on the herdr it recorded: no restore at either start,
+// Serve restarts (a re-exec on a new build, a restart) on the herdr it recorded: no restore at either start,
 // so a role agent stopped on purpose stays at its shell; the record stays.
 func TestServeNoRestoreOnServeRestartSameTerminal(t *testing.T) {
 	t.Parallel()
@@ -262,7 +264,7 @@ func TestServeNoRestoreOnServeRestartSameTerminal(t *testing.T) {
 	}
 }
 
-// T-1135: nothing recorded (serve's first start with this rule): a herdr started after the newest record of the
+// Nothing recorded (serve's first start with this rule): a herdr started after the newest record of the
 // project's log (serve's last activity) restarted while serve was down, one started before it did not; either way
 // the instance is recorded.
 func TestServeFirstStartNothingRecorded(t *testing.T) {
@@ -302,7 +304,7 @@ func TestServeFirstStartNothingRecorded(t *testing.T) {
 	}
 }
 
-// T-1135: the project was stopped (obor stop: its pause in force when serve loads the project) and herdr restarted
+// The project was stopped (obor stop: its pause in force when serve loads the project) and herdr restarted
 // meanwhile: obor start's serve restores nothing (the agents start on first use) and records the new instance.
 func TestServeNoRestoreAfterOborStop(t *testing.T) {
 	t.Parallel()

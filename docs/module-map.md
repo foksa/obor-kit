@@ -174,7 +174,9 @@ process (`plugin.Local`).
 - Interfaces it drives adapters through: `Panes` (subscribe, busy, activity, notify), `Lanes` (a project's lanes), and,
   on its `Loop`, `Scratch` (submit/gate/resolved/publish/after_merge/landed/unpin), `Agents` (launch/stop), `Typer`
   (a job's wake, a line typed into a pane), `Poster` (posted to a session's inbox), `Specs`, `Nightly` and `Restart` (serve's own restart after a code merge).
-  API: `app.New(Options, Panes, Lanes)`, `(*App).Serve(ctx)`.
+  API: `app.New(Options, Panes, Lanes)`, `(*App).Serve(ctx)`. Its rig tests (`*_ext_test.go`) run in a
+  `testing/synctest` bubble on in-memory connections (`bubble`, `rig_ext_test.go`), and the ones that need a unix
+  socket are `*_integration_test.go` files.
 
 **adapters** — one outside system each.
 - `herdr`: herdr socket client (events.subscribe, session.snapshot, agent.prompt, pane.*). Implements `app.Panes`

@@ -59,6 +59,9 @@ checks placement against `docs/module-map.md` at accept).
 - One split, not two tiers: a test that needs real I/O (real git, herdr's socket, a built binary) goes
   in a file with `//go:build integration`, a plain `go test` runs the unit tests, and every gating or measuring check
   passes `-tags integration` so the tagged tests still gate. No other split exists: nothing skips a test in a lane.
+  `internal/app`'s rig tests run in a `testing/synctest` bubble on in-memory connections (`bubble`,
+  `internal/app/rig_ext_test.go`): no wait in them is wall-clock time; a test that needs a unix socket is in an
+  `_integration_test.go` file.
 - The suite has a budget: `tests/budget.json` caps each package's full wall time at 2 cores and its
   git processes; the nightly's `make check-budget` prints `FAIL budget: …` per breach. A budget is raised only by an
   owner line in `docs/decisions.md`; a task that gets under it lowers it.

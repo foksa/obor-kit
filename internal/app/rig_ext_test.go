@@ -375,13 +375,6 @@ func eq(t *testing.T, got, want []string, what string) {
 	}
 }
 
-// askCall is an integrator's accept of T-1 under call id id.
-func askCall(id string) *wire.VerdictReq {
-	return &wire.VerdictReq{Verb: wire.MethodAccept, Envelope: wire.Envelope{Root: "/r", Agent: "pj-int",
-		Role:   "integrator",
-		CallID: id}, Task: "T-1", Job: "T-1/2/review", Patch: "p1", Note: "why"}
-}
-
 // callID is the call id of a request line.
 func callID(line []byte) string {
 	var req struct {
@@ -391,17 +384,6 @@ func callID(line []byte) string {
 	}
 	_ = json.Unmarshal(line, &req)
 	return req.Call.CallID
-}
-
-// sockDir is a new short temp dir (a unix socket path is limited), removed at the test's end.
-func sockDir(t *testing.T) string {
-	t.Helper()
-	dir, err := os.MkdirTemp("", "ask")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
-	return dir
 }
 
 // briefs is the open briefs obor status shows.
@@ -422,9 +404,9 @@ func (r *loopRig) agentGone(pane, agent string, fn func(p *herdrtest.Pane)) {
 	})
 }
 
-// T-499 (P5-4): serve's lines and job wakes reach a running agent as its kind takes them (agents.Kind.Deliver): a
+// Serve's lines and job wakes reach a running agent as its kind takes them (agents.Kind.Deliver): a
 // Claude session gets them posted to its inbox (nothing typed into its pane, no ctrl+u), Codex and OpenCode panes get
-// them typed as before. A Claude session with no inbox record: a line stays queued, a job wake is typed (the fallback).
+// them typed into theirs. A Claude session with no inbox record: a line stays queued, a job wake is typed (the fallback).
 
 // keysTo is the agent.send_keys requests to agent.
 func (r *loopRig) keysTo(agent string) int {
@@ -439,7 +421,7 @@ func (r *loopRig) keysTo(agent string) int {
 	return n
 }
 
-// T-538, T-765: obor dispatch <T-xx> takes its models from the spec's Difficulty level (config difficulty, built-in
+// obor dispatch <T-xx> takes its models from the spec's Difficulty level (config difficulty, built-in
 // default), the spec's Model: line first: the first model not paused, on the first free lane (every lane is pooled);
 // no free lane: the task waits for one; every model of the request paused: it waits, the reply says why. The rig has
 // lanes L-01 and L-02, both free.
@@ -483,17 +465,17 @@ type dispatchFakes struct {
 	on bool // the loop has the dispatch adapters (its lanes and target in Loop.Workflow, Loop.Specs)
 	// The Specs: refusals by task, the target sha, the task branch ahead.
 	refuse map[string]string
-	texts  []string // the spec text each Check was given (the store's, T-440)
+	texts  []string // the spec text each Check was given (the store's)
 	ahead  bool
 	// What the LaneSetup and the worker's starts applied (a call cut before it applies counts in calls only).
 	prepares, starts int
-	resumes          int // the starts without --fresh applied (the worker start rule's, T-874)
+	resumes          int // the starts without --fresh applied (the worker start rule's)
 	calls            map[string]int
 	inputs           []port.PrepareInput
 	frees            []port.FreeInput
 	session          int           // the worker's session number (its transcript /s/<n>.jsonl)
 	keepSession      bool          // a start leaves the session as it is
-	sessionless      bool          // a start reports no session id for its agent (OpenCode; T-418)
+	sessionless      bool          // a start reports no session id for its agent (OpenCode)
 	gate             chan struct{} // non-nil: a start, its agent up, waits for it to close before it returns
 	// fail: an error a method gives instead of acting (nil: none); cut: where a method blocks until its ctx ends
 	// ("before" or "after" it applies), hit: it blocked there.
@@ -584,7 +566,7 @@ func (d *dispatchFakes) Free(ctx context.Context, in port.FreeInput) (string, er
 }
 
 // startWorker is pj-l-01's start in its pane: a fresh one a new session (unless keepSession), one without --fresh
-// (the worker start rule's, T-874) the session resumed; idle, seen by the app.
+// (the worker start rule's) the session resumed; idle, seen by the app.
 func (d *dispatchFakes) startWorker(ctx context.Context, req port.Launch) (port.Started, error) {
 	if err := d.enter("start"); err != nil {
 		return port.Started{}, err
@@ -603,7 +585,7 @@ func (d *dispatchFakes) startWorker(ctx context.Context, req port.Launch) (port.
 		d.session++
 	}
 	transcript := "/s/" + string(rune('0'+d.session)) + ".jsonl"
-	sid := transcript // herdr's session id of the agent: what the start reports and the pane shows (T-1048)
+	sid := transcript // herdr's session id of the agent: what the start reports and the pane shows
 	if d.sessionless {
 		sid = ""
 	}
@@ -670,7 +652,7 @@ func (d *dispatchFakes) set(fn func(d *dispatchFakes)) {
 }
 
 // dispatch is the lead's dispatch of T-1 (lane "" with models: the first free lane for them). A named lane with no
-// models runs sonnet: the rig's T-1 has no stored spec, so no level to take one from (T-765: every lane is pooled).
+// models runs sonnet: the rig's T-1 has no stored spec, so no level to take one from (every lane is pooled).
 func (r *loopRig) dispatch(callID, lane string, types ...string) (string, error) {
 	if lane != "" && len(types) == 0 {
 		types = []string{"sonnet"}
@@ -732,7 +714,7 @@ func (r *loopRig) taskState() string {
 	return ""
 }
 
-// dispatchSteps: the start carries the work job's wake (its intent first, the start's result its delivery, T-387).
+// dispatchSteps: the start carries the work job's wake (its intent first, the start's result its delivery).
 var dispatchSteps = []string{"1 fact dispatch", "1 intent lane.prepare", "1 result lane.prepare",
 	"1 intent work", "1 intent agent.start", "1 result agent.start", "1 result work"}
 
@@ -743,7 +725,7 @@ func (r *loopRig) addLanes(ls ...port.Lane) {
 	r.lanes.mu.Unlock()
 }
 
-// lastClose is a review git with no close commit; what a review covered is the log's (T-1023: reviewsLog).
+// lastClose is a review git with no close commit; what a review covered is the log's (reviewsLog).
 type lastClose struct{}
 
 func (lastClose) Head(context.Context, string) (string, error) { return "head1", nil }
@@ -773,8 +755,8 @@ func (r *loopRig) reviewsLog(open ...string) {
 	}
 }
 
-// The owner's drive (T-751) on the dispatch rig: obor drive's request (a new drive on the first free lane; a worker's
-// task refused, T-912), the driving state, obor land's request, and the merge loop after it. Lane L-01 is made
+// The owner's drive on the dispatch rig: obor drive's request (a new drive on the first free lane; a worker's
+// task refused), the driving state, obor land's request, and the merge loop after it. Lane L-01 is made
 // free for a new drive; the CLI's start of the drive agent is the rig's pane w1:p5 (driveAgentUp).
 
 // drive is obor drive's request by the owner (no role): a new drive named name (types: its --type), or a task's when
@@ -799,7 +781,7 @@ func (r *loopRig) stateOf(task string) string { return r.task(task).State }
 // driveAgentUp is the CLI's start of the drive agent pj-l-01-drive in the lane (pane w1:p5, labelled), identified by the
 // app (seen in a pane is not enough: obor drive's DRIVING answer needs it identified). The pane is announced as created
 // rather than with a workspace event: that ends serve's stream (a refresh), and a call that landed in the resubscribe's
-// gap answered "its agent is not running" under load (T-757).
+// gap answered "its agent is not running" under load.
 func (r *loopRig) driveAgentUp() {
 	r.t.Helper()
 	r.f.Agent("w1:p5", "pj-l-01-drive", "idle", r.lane)
@@ -860,7 +842,7 @@ func (r *loopRig) hardType() string {
 	return types[0]
 }
 
-// T-761: a drive and the lead message each other. The drive agent's obor tell-lead is a lead line naming its task; the
+// A drive and the lead message each other. The drive agent's obor tell-lead is a lead line naming its task; the
 // lead's obor answer on a driving task is a line to the drive agent (no question open), delivered when its pane is idle.
 
 // tellLead is obor tell-lead's request from agent with role in lane.
@@ -931,9 +913,9 @@ func (r *loopRig) launchOf(agent string) (port.Launch, bool) {
 	return port.Launch{}, false
 }
 
-// T-400: an intent of an ended task (merged, dropped) is not pending on replay: it is settled as nothing ("not run"),
-// never run again; one of an open task replays as today. The logs are what an earlier build left (T-385: dropped with
-// agent.start and work open; T-386: merged with an earlier attempt's work open).
+// An intent of an ended task (merged, dropped) is not pending on replay: it is settled as nothing ("not run"),
+// never run again; one of an open task replays as today. The logs are what an earlier build left (dropped with
+// agent.start and work open; merged with an earlier attempt's work open).
 
 // logRec is one record a case writes to the log before the app starts.
 type logRec struct {
@@ -968,7 +950,7 @@ func (r *loopRig) resultOf(attempt int, step string) string {
 	return ""
 }
 
-// The failure rule (T-340, docs/state-model.md "Crash classes"): an effect gives a result only for an outcome final
+// The failure rule (docs/state-model.md "Crash classes"): an effect gives a result only for an outcome final
 // for its step; anything else leaves the step pending, tried again, and its third counted failure is a needs-you
 // during which the step is not tried (also after a restart); obor resume's default retries it.
 
@@ -1000,7 +982,7 @@ func (notFound) Error() string { return "agent_not_found: pj-l-01" }
 func (notFound) NotFound() bool { return true }
 
 // startsWere fails the test unless pj-int was started n times, each fresh with the job's wake, forced or not as
-// force says, and nothing was typed to it (T-602).
+// force says, and nothing was typed to it.
 func (r *loopRig) startsWere(n int, force bool) {
 	r.t.Helper()
 	r.mu.Lock()
@@ -1023,7 +1005,7 @@ func (r *loopRig) startsWere(n int, force bool) {
 
 // Jobs by fetch (docs/state-model.md rows 5–8, 16–17) on the dispatch rig: every
 // job's prompt is its wake, the agent's job_next fetches the job (its first fetch is fact delivered via mcp, its only
-// delivery), and the worker's task_done, its report the argument, submits its task (T-437).
+// delivery), and the worker's task_done, its report the argument, submits its task.
 
 // fetchRig is the dispatch rig (edits change the config further).
 func fetchRig(t *testing.T, edits ...func(map[string]any)) *loopRig {
@@ -1125,7 +1107,7 @@ func fetched(t *testing.T) (*loopRig, string) {
 	r.submit()
 	r.waitStep("1 fact submitted")
 	r.waitStep("1 result review")
-	eq(t, r.promptsTo("pj-int"), []string(nil), "typed to pj-int (its start carried the wake, T-393)")
+	eq(t, r.promptsTo("pj-int"), []string(nil), "typed to pj-int (its start carried the wake)")
 	same(t, r.result("review"), `"sent (start prompt)"`, "review result")
 	r.integratorIs("working")
 	r.passes()
@@ -1147,7 +1129,7 @@ func (r *loopRig) callDone(agent, role, callID, report string) (string, error) {
 		Agent: agent, Role: role, CallID: callID}, Lane: "L-01", Task: "T-1", Report: report})
 }
 
-// T-855 (RV-113 #1): a task whose move's stop of its worker is pending (recorded, not settled) is busy for every other
+// A task whose move's stop of its worker is pending (recorded, not settled) is busy for every other
 // verb: a drop is refused, "retry when it settles". A stop that failed (its needs-you) is settled, and a drop then
 // stops the halt's recorded agent (the old worker) before it frees the lane. The rig: newLoopRig(t, working()) (T-1 working on L-01, its worker pj-l-01 in w1:p1).
 
@@ -1252,7 +1234,7 @@ func (r *loopRig) oldWorkerStoppedFirst(attempt int) {
 	}
 }
 
-// T-803, T-866: the idle rules end to end (their table is rules_test.go's TestIdleRules): what keeps the pipeline from
+// The idle rules end to end (their table is rules_test.go's TestIdleRules): what keeps the pipeline from
 // being idle, the line through the merge loop and the acknowledgement through the socket, and the line's order after a
 // watch's.
 
@@ -1267,7 +1249,7 @@ func idleLineText(last string) string {
 	return `[obor] idle: nothing in flight (last: ` + last + `) — dispatch next, or obor idle "<why nothing>"`
 }
 
-// idleSettle is T-859's window: the idle line waits until the pipeline has stayed idle this long.
+// idleSettle is the window: the idle line waits until the pipeline has stayed idle this long.
 const idleSettle = time.Minute
 
 // settleIdle lets the idle window pass: two passes start its clock, then the clock moves past idleSettle, so the next
@@ -1329,7 +1311,7 @@ func (r *loopRig) idleAcked() string {
 	return line
 }
 
-// The integrator's jobs (T-339): their delivery and stall timers on the app's clock, obor hold and obor resume.
+// The integrator's jobs: their delivery and stall timers on the app's clock, obor hold and obor resume.
 
 // integratorIs sets pj-int's status in the fake herdr and waits until the app sees it.
 func (r *loopRig) integratorIs(status string) {
@@ -1346,11 +1328,11 @@ func (r *loopRig) integratorIs(status string) {
 	})
 }
 
-// integratorStops ends pj-int's turn after a verdict that left it no job, and waits for serve's stop of it (T-672,
-// T-870): its idle is gone again once the next pass stops it, so a wait on obor status's "idle" can miss it (T-684);
+// integratorStops ends pj-int's turn after a verdict that left it no job, and waits for serve's stop of it:
+// its idle is gone again once the next pass stops it, so a wait on obor status's "idle" can miss it;
 // the stop is a rule now and is done when the pane is at its shell.
 //
-// One refresh, then no push while it waits (T-907): the rule stops pj-int only on a pass that stays on one herdr stream
+// One refresh, then no push while it waits: the rule stops pj-int only on a pass that stays on one herdr stream
 // from its start to the rule (whereIs is "not connected" in a resubscribe's gap), and a push ends the stream. Pushed
 // on every poll, the streams were shorter than a pass under load, so the stop waited a minute and more; serve's tick
 // runs the passes, and the stop's own refreshes (the rig's Stop) end once serve sees pj-int gone.
@@ -1399,10 +1381,10 @@ func (r *loopRig) push() { r.srv.Push("workspace_created", workspaceEvent) }
 
 // connectedAgain waits, as an event, until serve works from a herdr stream that began after the rig's pushes: a refresh
 // reaches the stream serve has now, serve reads it and ends that stream, and subscribes again — the wait is that new
-// stream's lifecycle subscription and serve's connection to it (T-759). Status().Connected alone is no such event: it
+// stream's lifecycle subscription and serve's connection to it. Status().Connected alone is no such event: it
 // is still true in the instant before serve ends a stream (serve closes the stream, then clears the flag), and a push
 // is only a socket write that the stream may read after the caller looked — the call then lands in the resubscribe's
-// gap and is refused "serve is not connected to herdr" (T-757, T-758).
+// gap and is refused "serve is not connected to herdr".
 func (r *loopRig) connectedAgain() {
 	r.t.Helper()
 	var next func() bool // that stream ended and a stream after it subscribed: true once it connected too
@@ -1419,7 +1401,7 @@ func (r *loopRig) connectedAgain() {
 }
 
 // passes waits for two more passes of the merge loop: the second one started after the call, so it saw the clock and
-// the state the test set before it. Only passes that ran connected to one herdr stream count (StreamPasses, T-861): the
+// the state the test set before it. Only passes that ran connected to one herdr stream count (StreamPasses): the
 // rig's pushes end serve's stream, and a pass in the resubscribe's gap skips the project.
 func (r *loopRig) passes() {
 	r.t.Helper()
@@ -1569,7 +1551,7 @@ func (r *loopRig) runToMerge(task string, inReview func()) {
 	r.setLane(func(l *port.Lane) { l.Task, l.State = "", "free" })
 }
 
-// T-738, T-765: a redo runs the model ref its dispatch ran unless its --model names another; a model ref naming no
+// A redo runs the model ref its dispatch ran unless its --model names another; a model ref naming no
 // model of the project is refused before a lane is picked. The rig: lanes L-01 and L-02, both free.
 
 // specOf stores task's spec (obor spec set).
@@ -1601,7 +1583,7 @@ func (r *loopRig) redoTypes() []any {
 }
 
 // The merge loop at the app boundary: the herdr socket client on the fake herdr socket (snapshot, job prompts,
-// notifications), the package's in-memory Scratch (app.FakeWorkflow: no git, T-996), a scripted lane table, and an
+// notifications), the package's in-memory Scratch (app.FakeWorkflow: no git), a scripted lane table, and an
 // integrator start that puts pj-int into the fake herdr.
 
 // loopRig is project proj (a plain dir: its config written, no git) with lane L-01 on task/T-1 (a plain dir the fake
@@ -1629,23 +1611,23 @@ type loopRig struct {
 
 	disp  *dispatchFakes // the dispatch's adapters (nil: none, the loop has no dispatch)
 	tick  time.Duration  // the watchdogs' tick, each a merge-loop pass (0: 2 ms); set before start
-	night *app.Nightly   // the loop's Nightly (nil: none; off is At "", T-782); set before start
-	// nightOf, when set, is the loop's Nightly built on each pass (serve's: from the config as it is, T-781); set
+	night *app.Nightly   // the loop's Nightly (nil: none; off is At ""); set before start
+	// nightOf, when set, is the loop's Nightly built on each pass (serve's: from the config as it is); set
 	// before start
 	nightOf func() *app.Nightly
 	config  app.ConfigFile // the loop's config_set writer (nil: none); set before start
-	review  port.Review    // the loop's review git (nil: the fake workflow's own, T-1029); set before start
+	review  port.Review    // the loop's review git (nil: the fake workflow's own); set before start
 	disk    *app.Disk      // the loop's Disk (nil: none); set before start
-	// restart is the loop's Restart, serve's self-restart (nil: none, T-719); set before start
+	// restart is the loop's Restart, serve's self-restart (nil: none); set before start
 	restart func(ctx context.Context) error
-	// binary is Options.Binary, a new obor binary there (nil: not watched, T-719); set before start
+	// binary is Options.Binary, a new obor binary there (nil: not watched); set before start
 	binary func() bool
-	// exit is Options.Exit, the socket's exit request (nil: none, T-711); set before start
+	// exit is Options.Exit, the socket's exit request (nil: none); set before start
 	exit func()
-	// tokens is Options.Tokens, a transcript's context size (nil: the file read, T-1031); set before start
+	// tokens is Options.Tokens, a transcript's context size (nil: the file read); set before start
 	tokens func(transcript string) (int, bool)
-	// inbox is the loop's Inbox: the lead's lines posted (T-485), kept across restarts. The worker pj-l-01 and the
-	// integrator pj-int start with no inbox record, so their job wakes are typed (T-499's fallback); a test of posted
+	// inbox is the loop's Inbox: the lead's lines posted, kept across restarts. The worker pj-l-01 and the
+	// integrator pj-int start with no inbox record, so their job wakes are typed; a test of posted
 	// wakes records them (inbox.record).
 	inbox *rigInbox
 
@@ -1658,7 +1640,7 @@ type loopRig struct {
 	done   chan struct{}
 }
 
-// rigOpts is what newLoopRig's options ask for (T-996: one rig constructor, its variants options).
+// rigOpts is what newLoopRig's options ask for (one rig constructor, its variants options).
 type rigOpts struct {
 	check    bool                   // commands.check configured (a green lane test says rc=0; else no check)
 	edits    []func(map[string]any) // config edits
@@ -1685,7 +1667,7 @@ func dispatching() rigOpt { return func(o *rigOpts) { o.dispatch = true } }
 func started() rigOpt { return func(o *rigOpts) { o.start = true } }
 
 // working is dispatching, started, T-1's spec set (medium) and dispatched onto L-01, its worker working on the work
-// job, and serve subscribed again after the worker's start (the stream a move or a drop decides on, T-758, T-759).
+// job, and serve subscribed again after the worker's start (the stream a move or a drop decides on).
 func working() rigOpt { return func(o *rigOpts) { o.dispatch, o.start, o.working = true, true, true } }
 
 func newLoopRig(t *testing.T, opts ...rigOpt) *loopRig {
@@ -1705,7 +1687,7 @@ func newLoopRig(t *testing.T, opts ...rigOpt) *loopRig {
 	if o.pool {
 		edits = append(edits, testkit.Set("lanes.count", 2))
 	}
-	// The lane's worker is pj-l-01 (L-01's derived name, its pane's label): serve's lane rows come from its log (T-439),
+	// The lane's worker is pj-l-01 (L-01's derived name, its pane's label): serve's lane rows come from its log,
 	// and T-1's is its submission's.
 	p.Config(append(edits, o.edits...)...)
 	r.lanes.lanes = []port.Lane{{Name: "L-01", Dir: r.lane, Task: "T-1", Agent: "pj-l-01"}}
@@ -1739,7 +1721,7 @@ func newLoopRig(t *testing.T, opts ...rigOpt) *loopRig {
 		r.waitJob("pj-l-01", "T-1/1/work")
 		r.waitFor("working", func() bool { return r.stateOf("T-1") == "working" })
 		// The worker's start pushed a refresh, so serve subscribes again: wait for that stream, the one a move or a drop
-		// decides by serve's identity on (T-758, T-759).
+		// decides by serve's identity.
 		r.connectedAgain()
 	}
 	return r
@@ -1837,7 +1819,7 @@ func (r *loopRig) stopped() []string {
 	return append([]string(nil), r.stops...)
 }
 
-// workerStops is the stops of agents but the integrator (T-672: serve stops pj-int after each verdict that leaves no
+// workerStops is the stops of agents but the integrator (serve stops pj-int after each verdict that leaves no
 // job for it).
 func (r *loopRig) workerStops() []string {
 	var out []string
@@ -2074,7 +2056,7 @@ func rigAgent(target string) string {
 }
 
 // cleared is, for each agent.prompt to agent in order, whether an agent.send_keys ctrl+u to it came since the one
-// before (T-365: a retry clears the input line before it types).
+// before (a retry clears the input line before it types).
 func (r *loopRig) cleared(agent string) []bool {
 	var out []bool
 	clear := false
@@ -2208,7 +2190,7 @@ func (r *loopRig) noLead() {
 	}
 }
 
-// redLine is the third attempt's red line (its lane test's, T-961), as the needs-you names it.
+// redLine is the third attempt's red line (its lane test's), as the needs-you names it.
 func (r *loopRig) redLine() string {
 	var line string
 	for _, rec := range r.records() {
@@ -2242,7 +2224,7 @@ func (r *loopRig) setSpec(callID, text string) string {
 	return reply
 }
 
-// TestMain is the hook testkit.New requires (T-1019): it removes the project template the run copies. Run, not Main:
+// TestMain is the hook testkit.New requires: it removes the project template the run copies. Run, not Main:
 // internal/app's tests re-exec their own binary carrying OBOR_TEST_DO_CRASH and rewrite goldens under OBOR_UPDATE_GOLDEN,
 // and Main's Isolate clears every OBOR_* variable.
 func TestMain(m *testing.M) { os.Exit(testkit.Run(m)) }
@@ -2253,7 +2235,7 @@ func (r *loopRig) watch(callID, task string, rm bool) (string, error) {
 		Role: "lead", Agent: "pj-lead", CallID: callID}, Task: task, Clear: rm})
 }
 
-// watchNote is a watch request carrying the lead's note (T-666).
+// watchNote is a watch request carrying the lead's note.
 func (r *loopRig) watchNote(callID, task, note string) (string, error) {
 	return r.ask(&wire.WatchReq{Envelope: wire.Envelope{Root: r.p.Root,
 		Role: "lead", Agent: "pj-lead", CallID: callID}, Task: task, Note: note})
@@ -2330,7 +2312,7 @@ func (r *loopRig) dropSettled(task, note string) {
 	}
 }
 
-// rigInbox is the rig's Poster (T-485): the lead's lines posted, the agents with no inbox record, and how a post
+// rigInbox is the rig's Poster: the lead's lines posted, the agents with no inbox record, and how a post
 // fails (refused: before a byte, as a dead socket's dial; partial: after one).
 type rigInbox struct {
 	mu       sync.Mutex
@@ -2351,7 +2333,7 @@ func (in *rigInbox) Post(ctx context.Context, _, agent, line string) (bool, erro
 		in.cutting = false
 	}
 	in.mu.Unlock()
-	if cut { // a post serve's own stop cut before a byte went out (T-660), as its inbox's ctx ends
+	if cut { // a post serve's own stop cut before a byte went out, as its inbox's ctx ends
 		<-ctx.Done()
 		return false, ctx.Err()
 	}
@@ -2371,7 +2353,7 @@ func (in *rigInbox) Post(ctx context.Context, _, agent, line string) (bool, erro
 		}
 		return false, errors.New("dial unix: connection refused")
 	}
-	for _, row := range strings.Split(line, "\n") { // a batched post (T-651) counts as one entry per row
+	for _, row := range strings.Split(line, "\n") { // a batched post counts as one entry per row
 		in.posts = append(in.posts, agent+": "+row)
 	}
 	if in.partial {
@@ -2414,7 +2396,7 @@ func (in *rigInbox) fail(partial bool) {
 
 // failOnce makes the next post alone fail (partial false before a byte went out, true after one): the posts after it
 // go out. A test that means to see one refusal before the failure rule counts three needs no race with the merge
-// loop's passes over the post (T-565).
+// loop's passes over the post.
 func (in *rigInbox) failOnce(partial bool) {
 	in.mu.Lock()
 	defer in.mu.Unlock()
@@ -2428,7 +2410,7 @@ func (in *rigInbox) ok() {
 }
 
 // cut makes the next post alone wait for serve's ctx and fail with its error before a byte went out: a delivery serve's
-// own stop cut (T-660).
+// own stop cut.
 func (in *rigInbox) cut(on bool) {
 	in.mu.Lock()
 	defer in.mu.Unlock()
@@ -2529,7 +2511,7 @@ type supersededLine struct {
 	By  int64
 }
 
-// supersededLines is the brief lines the project's briefed facts in the log supersede (T-580), in order.
+// supersededLines is the brief lines the project's briefed facts in the log supersede, in order.
 func (r *loopRig) supersededLines() []supersededLine {
 	var out []supersededLine
 	for _, rec := range r.records() {
@@ -2546,7 +2528,7 @@ func (r *loopRig) supersededLines() []supersededLine {
 
 // waitBriefDelivered waits until the one brief line is delivered: its result in the log and folded (nothing waiting).
 // The brief's age counts from that result's time, so the clock moves only after it; the fake inbox's or pane's count
-// of the line is earlier than the result record (T-702).
+// of the line is earlier than the result record.
 func (r *loopRig) waitBriefDelivered() {
 	r.t.Helper()
 	r.waitFor("the brief's delivery recorded", func() bool { return len(r.lineResults()) >= 1 && len(r.waiting()) == 0 })
@@ -2556,14 +2538,14 @@ func (r *loopRig) waitBriefDelivered() {
 func (r *loopRig) waiting() []wire.MessageStatus { return r.app.Status().Project.Messages }
 
 // sentLine is the line obor send posts in the target project for text from the project from: the sender, the text, and
-// the reply in one command (T-466, T-646).
+// the reply in one command.
 func sentLine(from, text string) string {
 	return "[obor " + from + "] " + text + ` (reply: obor send ` + from + ` "…")`
 }
 
-// T-773: obor dispatch T-xx --model <ref> on a task its worker works on moves it: serve keeps the lane, branch and
+// obor dispatch T-xx --model <ref> on a task its worker works on moves it: serve keeps the lane, branch and
 // spec and records the redo dispatch of the next attempt with the new model; the merge loop stops the worker by its
-// identity (worker.stop, T-852: stopstep_test.go), then the redo's agent.start launches that model with the new attempt's work job. The rig: newLoopRig(t, working()) (T-1 working on
+// identity (worker.stop, stopstep_test.go), then the redo's agent.start launches that model with the new attempt's work job. The rig: newLoopRig(t, working()) (T-1 working on
 // L-01 as sonnet, its worker pj-l-01 in w1:p1).
 
 // moveTo is the lead's obor dispatch T-1 --model types.
@@ -2599,7 +2581,7 @@ func (r *loopRig) dispatchFacts() int {
 // advance moves the fake clock on by d (0: not at all), then waits for two more passes of serve's loop (wake).
 func (r *loopRig) advance(d time.Duration) {
 	r.t.Helper()
-	n := app.StreamPasses(r.app) // T-861: passes in a resubscribe's gap skip the project
+	n := app.StreamPasses(r.app) // passes in a resubscribe's gap skip the project
 	r.clock.Add(d)
 	r.waitFor("two more passes", func() bool { return app.StreamPasses(r.app) >= n+2 })
 }
@@ -2671,7 +2653,7 @@ var (
 )
 
 // startWithAgents starts the app as start does, with agents as its loop's Agents: a real launcher, so the start's
-// args reach the fake herdr (T-444).
+// args reach the fake herdr.
 func (r *loopRig) startWithAgents(agents port.Agents) {
 	r.t.Helper()
 	panes := herdr.Panes{S: r.srv.Client(), PS: func(context.Context) ([]byte, error) { return []byte("2 1 2\n"), nil }}
@@ -2706,7 +2688,7 @@ func (r *loopRig) pause(role, callID string, c wire.PauseReq) (string, error) {
 	return r.ask(&c)
 }
 
-// The prompts table (T-665, T-670): the text of every job, brief and start prompt serve sent is recorded right after
+// The prompts table: the text of every job, brief and start prompt serve sent is recorded right after
 // its fact, by the fact's seq; every distinct text a job's fetch returned gets its own row (the job's newest), and a
 // failed write never fails the job.
 
@@ -2764,7 +2746,7 @@ func (r *loopRig) spec(callID, text string) string {
 	return reply
 }
 
-// Recovery (T-338, RV-37): obor serve dies at any point of a merge-loop step, before its effect or after it with the
+// Recovery: obor serve dies at any point of a merge-loop step, before its effect or after it with the
 // result lost, and the restart takes the task on from there with the in-memory Scratch (app.FakeWorkflow: an effect
 // that ran is in it, as it would be in git).
 
@@ -2903,7 +2885,7 @@ func (r *rig) settled(before int) {
 	r.waitFor("checks on the new stream", func() bool { c, _ := app.Counts(r.app); return c >= checks+3 })
 }
 
-// T-660: a failure or needs-you an error would record is not recorded when the error is serve's own cancellation (its
+// A failure or needs-you an error would record is not recorded when the error is serve's own cancellation (its
 // ctx ended: a restart, a stop). serve logged it as "shutting down: <what> not recorded" instead, and the intent stays
 // pending, so the next serve's replay runs it as after a crash.
 
@@ -2962,7 +2944,7 @@ func (r *loopRig) stoppedCallWith(agent, role, lane, callID, errText, details st
 		Error: errText, Details: details})
 }
 
-// turnCall is a worker's UserPromptSubmit or Stop hook telling serve its next turn began or ended (T-540).
+// turnCall is a worker's UserPromptSubmit or Stop hook telling serve its next turn began or ended.
 func (r *loopRig) turnCall() (string, error) {
 	return r.line(wire.NewCallID(), &wire.TurnReq{Envelope: wire.Envelope{Agent: "pj-l-01", Role: "worker"},
 		Lane: "L-01"})
@@ -3010,7 +2992,7 @@ type codexRig struct {
 	inForce func() int
 }
 
-// cdxReason is the stop's reason on the usage limit (T-563).
+// cdxReason is the stop's reason on the usage limit.
 const cdxReason = "pj-l-01 stopped: usage_limit_exceeded (" + cdxLimitMsg + ")"
 
 // codexStoppedOn is codexStopped with limited the lines that end turn t1, so the stop in force says reason.
@@ -3056,12 +3038,12 @@ func codexStoppedOn(t *testing.T, limited, reason string) codexRig {
 	return c
 }
 
-// T-852: a move answers at once; the worker's stop is a step of the merge loop (worker.stop), done
-// before the step that needs the lane, a done stop tells the lead nothing (T-943); a stop that fails is a needs-you obor resume
+// A move answers at once; the worker's stop is a step of the merge loop (worker.stop), done
+// before the step that needs the lane, a done stop tells the lead nothing; a stop that fails is a needs-you obor resume
 // retries. The rig: newLoopRig(t, working()) (T-1 working on L-01 as sonnet, its worker pj-l-01 in w1:p1).
 
 // stopLines is the lead's lines that tell a worker.stop's outcome ("stopped <agent>", "<agent> was not running"):
-// T-943: a done stop sends none, so the tests below assert it stays empty.
+// A done stop sends none, so the tests below assert it stays empty.
 func (r *loopRig) stopLines() []string {
 	var out []string
 	for _, rec := range r.records() {
@@ -3126,7 +3108,7 @@ func (r *loopRig) before(a, b string) bool {
 	return i >= 0 && j >= 0 && i < j
 }
 
-// continueLine is the continue wake T-1's stopped worker gets (T-568): its work job's tag, then the text.
+// continueLine is the continue wake T-1's stopped worker gets: its work job's tag, then the text.
 const continueLine = "[obor job T-1/1/work] Your usage limit has reset: continue where your turn stopped (call the obor job_next tool for your job)."
 
 // stillStopped is the alarm's addition to the stop's reason.
@@ -3203,31 +3185,11 @@ func claudeRoleStop(t *testing.T, brief bool, errText string, details func(r *lo
 }
 
 // verbsRig is the loop rig (dispatching, started) with two custom roles: tracker, verbs spec_set and dispatch (an
-// integration's, T-1039), and scout, none.
+// integration's), and scout, none.
 func verbsRig(t *testing.T) *loopRig {
 	t.Helper()
 	return newLoopRig(t, dispatching(), started(), withConfig(
 		testkit.Set("agents.roles.tracker", `{"verbs": ["spec_set", "dispatch"]}`), testkit.Set("agents.roles.scout", `{"model": ""}`)))
-}
-
-// feed is the served feed after seq without follow (fatal on an error).
-func feed(t *testing.T, r *loopRig, seq int64) []wire.FeedRecord {
-	t.Helper()
-	var out []wire.FeedRecord
-	if inBubble(r.t) {
-		r.t.Fatal("the event feed needs the unix socket: this test stays outside a bubble")
-	}
-	last, err := wire.Feed(context.Background(), r.sock, r.p.Root, seq, false, func(f wire.FeedRecord) error {
-		out = append(out, f)
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("feed after %d: %v", seq, err)
-	}
-	if len(out) > 0 && last != out[len(out)-1].Seq || len(out) == 0 && last != seq {
-		t.Errorf("feed after %d: cursor %d, want the last record's seq", seq, last)
-	}
-	return out
 }
 
 // serve opens the running app's socket for ask: in memory in a bubble (mem), on a new socket path outside one
@@ -3304,7 +3266,7 @@ func (r *rig) verdicts() []string {
 	return out
 }
 
-// T-462: obor dispatch … --after waits for merges (docs/state-model.md row 2a, readiness rule 1). T-2 is the task T-1
+// obor dispatch … --after waits for merges (docs/state-model.md row 2a, readiness rule 1). T-2 is the task T-1
 // waits for: in the loop as a failed submission (a needs-you), merged once an obor merge lands it on main (row 34,
 // outside); T-3 is a task with a stored spec and no loop record.
 
@@ -3357,7 +3319,7 @@ func (r *loopRig) taskStatus(task string) wire.TaskStatus {
 
 // startWithT2 starts the rig with T-2 seeded and waits until its needs-you is folded and its fail step settled: drop
 // refuses a task whose step still runs ("retry when it settles"), and under load that step outlasts the test's first
-// call (T-845's gate).
+// call.
 func startWithT2(t *testing.T, more ...event.Record) *loopRig {
 	t.Helper()
 	r := newLoopRig(t, dispatching())
