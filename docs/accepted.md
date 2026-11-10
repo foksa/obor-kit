@@ -87,3 +87,4 @@ last). Nobody reads this file at session start: look a line up when its symptom 
 - (RV-77, accepted) `scripts/ship` counts a release done by draft state and asset names only, not its title/notes; a partly published release stays incomplete on rerun. Low once T-683 refuses before create.
 - (RV-67-verify-2, accepted) init placement infers ownership from pane cwds: (a) a workspace whose only pane is a shell cd'd into the project counts as the project's; (b) on a rerun after an earlier misplacement S-01 can follow O-01's clean tab inside a mixed workspace. Documented (README, design Setup); a stored project→workspace identity only if it bites.
 - (DD-v0.10-verify-2, accepted) `ask` retries a client timeout with the same call id.
+- (RV-177, accepted) RV-177 verify design: internal/project/worktree_test.go runs real git untagged (rule: real-git tests in checks/CLI/setup githook, integration tag); move to an allowed package with a fake for the link choice, ~1 small task
