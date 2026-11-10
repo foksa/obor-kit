@@ -20,7 +20,7 @@ func TestStartPromptIsOneLine(t *testing.T) {
 	const one = "You are a worker. Read AGENTS.md. Go. More."
 	const plain = "  a b\tc  `d` \"e\" $f & g;  " // no line break: unchanged
 	const models = `{"oc":{"kind":"opencode","id":""}}`
-	settings := " --settings " + config.Compact(map[string]any{"remoteControlAtStartup": false, "autoMemoryEnabled": false})
+	settings := " --setting-sources project,local --settings " + config.Compact(map[string]any{"remoteControlAtStartup": false, "autoMemoryEnabled": false})
 	for _, c := range []struct {
 		name, typ, kind string
 		head            string // the start args before the prompt

@@ -21,7 +21,9 @@ func kind(t *testing.T) agents.Split {
 	return k.(agents.Split)
 }
 
-// Claude's start argv, fresh, resumed and strict: the settings after the args, obor's --mcp-config right before
+// Claude's start argv, fresh, resumed, strict and trimmed: the settings after the args, a trimmed start's
+// --setting-sources project,local before them (not on an untrimmed start; not when the args name the flag, either
+// spelling: the project's opt-out), obor's --mcp-config right before
 // the strict flag (with a kit, unless a config names obor), `--` before a prompt a config flag could take, --resume
 // with no prompt.
 func TestStart(t *testing.T) {
@@ -81,6 +83,20 @@ func TestStart(t *testing.T) {
 		{"a lane's start, an explicit obor entry in the args: the flag once, no second config", agents.Start{Kit: "/kit", StrictMCP: true,
 			Args: []string{"--mcp-config", obor}},
 			[]string{"--mcp-config", obor, "--strict-mcp-config"}},
+		{"trimmed: the project and local sources, before the settings",
+			agents.Start{Kit: "/kit", Args: []string{"--model", "opus"}, Settings: map[string]any{"autoMemoryEnabled": false},
+				TrimUser: true, Prompt: "go"},
+			[]string{"--model", "opus", "--setting-sources", "project,local", "--settings", `{"autoMemoryEnabled":false}`, "go"}},
+		{"trimmed, a lane's start: after the strict flag", agents.Start{Kit: "/kit", Args: []string{"--model", "opus"},
+			StrictMCP: true, TrimUser: true, Resume: "sid-1"},
+			[]string{"--model", "opus", "--mcp-config", ours, "--strict-mcp-config", "--setting-sources", "project,local",
+				"--resume", "sid-1"}},
+		{"trimmed, the args name the sources: theirs alone",
+			agents.Start{Kit: "/kit", Args: []string{"--setting-sources", "user,project,local", "--model", "opus"}, TrimUser: true, Prompt: "go"},
+			[]string{"--setting-sources", "user,project,local", "--model", "opus", "go"}},
+		{"trimmed, the args name the sources with =: theirs alone",
+			agents.Start{Kit: "/kit", Args: []string{"--setting-sources=user,project,local"}, TrimUser: true, Prompt: "go"},
+			[]string{"--setting-sources=user,project,local", "go"}},
 		{"a lane's start, no kit: the flag alone", agents.Start{StrictMCP: true, Args: []string{"--model", "opus"}, Prompt: "go"},
 			[]string{"--model", "opus", "--strict-mcp-config", "go"}},
 	} {

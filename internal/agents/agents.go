@@ -85,6 +85,11 @@ type Start struct {
 	// its command line does not name starts that way, obor's own registered on the start (claude: --strict-mcp-config
 	// with --mcp-config MCPConfig; a kind that hides nothing ignores it).
 	StrictMCP bool
+	// TrimUser is a start without the user's own plugins, skills and hooks (every agent but a lead,
+	// config.Model.Launch): each kind drops its user scope its own way (claude: --setting-sources project,local; codex:
+	// -c features.plugins/features.apps/skills.bundled.enabled false; opencode: OPENCODE_DISABLE_CLAUDE_CODE_SKILLS),
+	// the project's own config and obor's wiring kept.
+	TrimUser bool
 	// Env is the start's environment (HOME, XDG_CONFIG_HOME, …), for a kind that reads its own config; nil: none.
 	Env func(string) string
 	// Session is the session id this start runs as, for a kind that takes one on its command line (Claude's
@@ -468,8 +473,8 @@ type Split interface {
 }
 
 // StartOf is k's start of in, a complete Start built once at the launch boundary: a Whole kind's one call;
-// a Split kind's env (StartEnv) and its argv in two passes of Start, as before: the type's launch args (Args with
-// Settings, Effort, StrictMCP, WriteDirs), then the start over them (Kit, Resume, Session, Prompt), Dir and Read in
+// a Split kind's env (StartEnv) and its argv in two passes of Start: the type's launch args (Args with
+// Settings, Effort, StrictMCP, TrimUser, WriteDirs), then the start over them (Kit, Resume, Session, Prompt), Dir and Read in
 // both. An error: the start cannot carry in.Effort, a plugin kind's start failed, or k has no start.
 func StartOf(k Kind, in Start) (Launch, error) {
 	if w, ok := k.(Whole); ok {
@@ -484,7 +489,7 @@ func StartOf(k Kind, in Start) (Launch, error) {
 		return Launch{}, err
 	}
 	args := s.Start(Start{Args: in.Args, Settings: in.Settings, Effort: in.Effort, StrictMCP: in.StrictMCP,
-		WriteDirs: in.WriteDirs, Dir: in.Dir, Read: in.Read})
+		TrimUser: in.TrimUser, WriteDirs: in.WriteDirs, Dir: in.Dir, Read: in.Read})
 	args = s.Start(Start{Kit: in.Kit, Args: args, Resume: in.Resume, Session: in.Session, Prompt: in.Prompt,
 		Dir: in.Dir, Read: in.Read})
 	return Launch{Args: args, Env: env}, nil

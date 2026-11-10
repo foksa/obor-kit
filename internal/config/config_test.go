@@ -282,7 +282,9 @@ func TestAgentLookupPrecedence(t *testing.T) {
 }
 
 // Remote Control off and auto memory off for every claude agent but a lead; a lane's agent (a worker, the
-// owner's drive agent) starts with --strict-mcp-config, obor's MCP server alone.
+// owner's drive agent) starts with --strict-mcp-config, obor's MCP server alone. Every agent but a lead starts
+// trimmed, each kind with its own switches (claude --setting-sources project,local, codex its three -c keys); a lead
+// start carries none of them.
 func TestLaunchArgs(t *testing.T) {
 	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"}}`, "")
 	opus, _ := c.Model("opus")
@@ -293,16 +295,17 @@ func TestLaunchArgs(t *testing.T) {
 		role string
 		want string
 	}{
-		{"worker: strict, the settings", opus, "worker",
-			`--permission-mode auto --model opus --strict-mcp-config --settings {"autoMemoryEnabled":false,"remoteControlAtStartup":false}`},
-		{"drive agent: strict too", opus, "driver",
-			`--permission-mode auto --model opus --strict-mcp-config --settings {"autoMemoryEnabled":false,"remoteControlAtStartup":false}`},
-		{"lead: no --settings, no strict", opus, "lead", "--permission-mode auto --model opus"},
-		{"integrator: no strict", opus, "integrator",
-			`--permission-mode auto --model opus --settings {"autoMemoryEnabled":false,"remoteControlAtStartup":false}`},
-		{"codex: no --settings", luna, "integrator", "-s workspace-write -a never --no-daemon -m gpt-6-luna -c check_for_update_on_startup=false"},
+		{"worker: strict, trimmed, the settings", opus, "worker",
+			`--permission-mode auto --model opus --strict-mcp-config --setting-sources project,local --settings {"autoMemoryEnabled":false,"remoteControlAtStartup":false}`},
+		{"drive agent: strict and trimmed too", opus, "driver",
+			`--permission-mode auto --model opus --strict-mcp-config --setting-sources project,local --settings {"autoMemoryEnabled":false,"remoteControlAtStartup":false}`},
+		{"lead: no --settings, no strict, no trim", opus, "lead", "--permission-mode auto --model opus"},
+		{"integrator: no strict, trimmed", opus, "integrator",
+			`--permission-mode auto --model opus --setting-sources project,local --settings {"autoMemoryEnabled":false,"remoteControlAtStartup":false}`},
+		{"codex: no --settings, trimmed", luna, "integrator", "-s workspace-write -a never --no-daemon -m gpt-6-luna -c features.plugins=false -c features.apps=false -c skills.bundled.enabled=false -c check_for_update_on_startup=false"},
 		{"codex worker: its kind's start, strict means nothing to it", luna, "worker",
-			"-s workspace-write -a never --no-daemon -m gpt-6-luna -c check_for_update_on_startup=false"},
+			"-s workspace-write -a never --no-daemon -m gpt-6-luna -c features.plugins=false -c features.apps=false -c skills.bundled.enabled=false -c check_for_update_on_startup=false"},
+		{"codex lead: no trim", luna, "lead", "-s workspace-write -a never --no-daemon -m gpt-6-luna -c check_for_update_on_startup=false"},
 	} {
 		if got := strings.Join(launchArgs(t, tc.m, tc.role, ""), " "); got != tc.want {
 			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)

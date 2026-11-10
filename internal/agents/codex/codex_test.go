@@ -301,6 +301,7 @@ func TestStartProjectConfig(t *testing.T) {
 		{"a multi-line value before the key", "notify = [\n  \"a]\",\n  [\"b\"],\n]\nsandbox_mode = \"read-only\" # c\n", noSandbox},
 		{"a multi-line string before the key", "x = \"\"\"\nsandbox_mode = 1\n\"\"\"\ncheck_for_update_on_startup = true\n", base},
 		{"the keys under a table: not top-level", "model = \"m\"\n[profiles.x]\nsandbox_mode = \"read-only\"\ncheck_for_update_on_startup = true\n", all},
+		{"a top-level key above a table part that does not scan: still read", "sandbox_mode = \"read-only\"\n[t]\nwhat ever\n", noSandbox},
 		{"does not parse: as absent", "sandbox_mode \"read-only\"\n", all},
 		{"an open value: as absent", "check_for_update_on_startup = true\nx = [1,\n", all},
 	} {
@@ -320,6 +321,65 @@ func TestStartProjectConfig(t *testing.T) {
 	if got := k.Start(agents.Start{Args: typed, Dir: "/lane", Read: projectFS("sandbox_mode = \"x\"\n")}); !slices.Equal(got,
 		[]string{"-a", "never", "--no-daemon", "-c", "check_for_update_on_startup=true"}) {
 		t.Errorf("type args set the update check: %q", got)
+	}
+}
+
+// a trimmed start (every agent but a lead) turns off the user's plugins, the app connectors and the bundled skills,
+// after the write dirs and before the update check; an untrimmed start carries none of the three. A key the project's
+// .codex/config.toml sets is left to it, in each form TOML gives it (dotted, under its table, quoted, or inside a
+// table assigned whole), and so is a key the type's args set; the other keys still go. A key of another table, a
+// commented line, a bare table header or a file that does not parse skips nothing.
+func TestStartTrimUser(t *testing.T) {
+	k, _ := split()
+	base := []string{"-a", "never"}
+	const plugins, apps, bundled = "features.plugins=false", "features.apps=false", "skills.bundled.enabled=false"
+	want := func(keys ...string) []string {
+		out := slices.Clone(base)
+		for _, key := range keys {
+			out = append(out, "-c", key)
+		}
+		return append(out, "-c", "check_for_update_on_startup=false")
+	}
+	if got := k.Start(agents.Start{Args: base, Dir: "/lane", Read: projectFS("")}); !slices.Equal(got, want()) {
+		t.Fatalf("precondition: an untrimmed start carries no trim switch: %q", got)
+	}
+	for _, c := range []struct {
+		name, file string
+		want       []string
+	}{
+		{"no project file: all three", "", want(plugins, apps, bundled)},
+		{"a file setting other keys: all three", "model = \"m\"\n[features]\nweb_search = true\n[skills]\n", want(plugins, apps, bundled)},
+		{"a dotted key", "features.plugins = true\n", want(apps, bundled)},
+		{"a dotted key, spaced and quoted", "\"features\" . 'apps' = true\n", want(plugins, bundled)},
+		{"under its table", "model = \"m\"\n\n[features] # mine\nplugins = true\napps = true\n", want(bundled)},
+		{"a table two deep", "[skills.bundled]\nenabled = true\n", want(plugins, apps)},
+		{"a dotted key under a table", "[skills]\nbundled.enabled = true\n", want(plugins, apps)},
+		{"a table assigned whole, top-level", "features = { plugins = true }\n", want(bundled)},
+		{"a table assigned whole, under a table", "[skills]\nbundled = { enabled = true }\n", want(plugins, apps)},
+		{"all three set", "features.plugins = false\nfeatures.apps = true\n[skills.bundled]\nenabled = true\n", want()},
+		{"the key in another table", "[profiles.x.features]\nplugins = true\n[other]\nfeatures.apps = true\n", want(plugins, apps, bundled)},
+		{"the table left for another", "[features]\n[mcp_servers.x]\nplugins = true\n", want(plugins, apps, bundled)},
+		{"a commented key", "# features.plugins = true\n[features]\n# apps = true\n", want(plugins, apps, bundled)},
+		{"a key after a multi-line value in its table", "[features]\nx = [\n  \"plugins = 1\",\n]\napps = true\n", want(plugins, bundled)},
+		{"does not parse: as absent", "what ever\nfeatures.plugins = true\n", want(plugins, apps, bundled)},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got := k.Start(agents.Start{Args: base, TrimUser: true, Dir: "/lane", Read: projectFS(c.file)})
+			if !slices.Equal(got, c.want) {
+				t.Errorf("Start =\n %q\nwant\n %q", got, c.want)
+			}
+		})
+	}
+	// The write dirs come first; a resume is trimmed like a fresh start.
+	got := k.Start(agents.Start{Args: base, TrimUser: true, WriteDirs: []string{"/reviews"}, Resume: "cx-1"})
+	if w := append([]string{"resume", "cx-1", "-a", "never", "--add-dir", "/reviews"}, want(plugins, apps, bundled)[2:]...); !slices.Equal(got, w) {
+		t.Errorf("a trimmed resume with a write dir:\n %q\nwant\n %q", got, w)
+	}
+	// A key the type's args set stays as they set it.
+	typed := append(slices.Clone(base), "-c", "features.apps=true")
+	if got, w := k.Start(agents.Start{Args: typed, TrimUser: true}), append(slices.Clone(typed),
+		"-c", plugins, "-c", bundled, "-c", "check_for_update_on_startup=false"); !slices.Equal(got, w) {
+		t.Errorf("the args set features.apps:\n %q\nwant\n %q", got, w)
 	}
 }
 

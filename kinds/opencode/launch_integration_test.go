@@ -84,8 +84,10 @@ func TestLaneStartRunsTheBinary(t *testing.T) {
 		t.Errorf("argv %q, want %q", built.Args, want)
 	}
 	conf := filepath.Join(cfg.StateDir(), kind.ConfigFile)
-	if len(built.Vars) != 2 || built.Vars[kind.ModelVar] != "go/ds#high" || built.Vars[kind.ConfigVar] != conf {
-		t.Errorf("env %v, want %s=go/ds#high and %s=%s", built.Vars, kind.ModelVar, kind.ConfigVar, conf)
+	if len(built.Vars) != 3 || built.Vars[kind.ModelVar] != "go/ds#high" || built.Vars[kind.ConfigVar] != conf ||
+		built.Vars[kind.SkillsVar] != "1" {
+		t.Errorf("env %v, want %s=go/ds#high, %s=%s and a worker's %s=1", built.Vars, kind.ModelVar, kind.ConfigVar, conf,
+			kind.SkillsVar)
 	}
 	if got, err := os.ReadFile(conf); err != nil || !bytes.Equal(got, kind.Config("/kit")) {
 		t.Errorf("the generated config %q (%v), want the kit's:\n%s", got, err, kind.Config("/kit"))
@@ -105,13 +107,14 @@ func TestLaneStartRunsTheBinary(t *testing.T) {
 		Prompt    string         `json:"prompt"`
 		Dir       string         `json:"dir"`
 		StrictMCP bool           `json:"strict_mcp"`
+		TrimUser  bool           `json:"trim_user"`
 		Settings  map[string]any `json:"settings"`
 	}
 	if err := json.Unmarshal([]byte(strings.TrimPrefix(calls[0], "start ")), &req); err != nil {
 		t.Fatal(err)
 	}
 	if req.Version != 1 || req.Call != "start" || req.Kit != "/kit" || !slices.Equal(req.Args, m.Args) || req.Effort != "high" ||
-		req.Prompt != "go" || req.Dir != lane || !req.StrictMCP || req.Settings == nil {
-		t.Errorf("start request %+v: want the complete start (kit, the model's args %q, effort, prompt, the lane, strict, settings)", req, m.Args)
+		req.Prompt != "go" || req.Dir != lane || !req.StrictMCP || !req.TrimUser || req.Settings == nil {
+		t.Errorf("start request %+v: want the complete start (kit, the model's args %q, effort, prompt, the lane, strict, trimmed, settings)", req, m.Args)
 	}
 }
