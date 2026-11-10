@@ -217,16 +217,16 @@ func TestStartArgsTable(t *testing.T) {
 
 // a lane worker's start reads the project's committed CLI config in its lane worktree (its cwd), in both
 // passes of the argv (LaunchArgs, then the kind's start with the kit): Claude with an MCP opt-in starts without the
-// strict flag and obor's --mcp-config, --settings keeping the key the file does not set; Codex with a top-level
+// strict flag and obor's --mcp-config, its settings file keeping the key the file does not set; Codex with a top-level
 // sandbox_mode and update check starts without -s workspace-write and obor's update-check option.
 func TestStartReadsTheLaneProjectConfig(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
 		name, typ, rel, file string
-		has, lacks           []string
+		has, lacks           []string // of the agent.start call, with the content of a Claude start's settings file
 	}{
 		{"claude", "", ".claude/settings.json", `{"enabledMcpjsonServers":["mine"],"autoMemoryEnabled":true}`,
-			[]string{`--settings {"remoteControlAtStartup":false}`, "kind=claude"},
+			[]string{`settings file {"remoteControlAtStartup":false}`, "kind=claude"},
 			[]string{"--strict-mcp-config", "--mcp-config", "autoMemoryEnabled"}},
 		{"codex", "luna", ".codex/config.toml", "sandbox_mode = \"read-only\"\ncheck_for_update_on_startup = true\n",
 			[]string{"kind=codex", "-a never"}, []string{"workspace-write", "check_for_update_on_startup"}},
@@ -248,7 +248,7 @@ func TestStartReadsTheLaneProjectConfig(t *testing.T) {
 				if out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true, Type: c.typ}); !ok {
 					t.Fatal(out)
 				}
-				return x.startCall()
+				return x.startCall() + " settings file " + x.settingsFile("pj-l-01")
 			}
 			before := start("") // precondition: without the file, the start carries obor's flags
 			for _, l := range c.lacks {

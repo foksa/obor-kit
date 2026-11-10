@@ -3,6 +3,7 @@ package launch_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +21,7 @@ import (
 	"time"
 
 	"obor/internal/agents"
+	"obor/internal/agents/claude"
 	"obor/internal/app/port"
 	"obor/internal/config"
 	"obor/internal/herdr"
@@ -32,7 +34,12 @@ import (
 
 func TestMain(m *testing.M) { testkit.Main(m) }
 
-const settings = `--settings {"autoMemoryEnabled":false,"remoteControlAtStartup":false}`
+// settings are the settings flags of a Claude agent that is no lead: the project's sources and the agent's own
+// settings file in the state dir, its path written <file> (fx.named).
+const settings = `--setting-sources project,local --settings <file>`
+
+// settingsFileRE is a start's --settings <the agent's settings file in the state dir>.
+var settingsFileRE = regexp.MustCompile(`--settings \S+/\.obor/state/settings/[^/ ]+\.json`)
 
 // laneMCP is a lane agent's own args before its settings: obor's MCP server, then the strict flag that hides
 // every server the command line does not name.
@@ -425,12 +432,89 @@ func (x *fx) namedSession() string {
 }
 
 // named is s with the session id obor chose hidden as the tables write it, "<new>": the id is random (a uuid; the
-// start that carries it is TestStartNamesItsSession's).
+// start that carries it is TestStartNamesItsSession's), and an agent's settings file as "<file>" (its path and
+// content are TestStartWritesTheSettingsFile's).
 func (x *fx) named(s string) string {
 	if id := x.namedSession(); id != "" {
 		s = strings.ReplaceAll(s, id, "<new>")
 	}
-	return s
+	return settingsFileRE.ReplaceAllString(s, "--settings <file>")
+}
+
+// settingsFile is the settings file obor wrote for agent's start in the project's state dir, as one line of JSON with
+// sorted keys; "": none is there.
+func (x *fx) settingsFile(agent string) string {
+	x.t.Helper()
+	b, err := os.ReadFile(filepath.Join(project.StateDir(x.p.Root), claude.StateSettings(agent)))
+	if errors.Is(err, os.ErrNotExist) {
+		return ""
+	}
+	var v any
+	if err == nil {
+		err = json.Unmarshal(b, &v)
+	}
+	if err != nil {
+		x.t.Fatalf("the settings file of %s: %v", agent, err)
+	}
+	return config.Compact(v)
+}
+
+// A Claude agent that is no lead starts on the project's settings and its own settings file,
+// <state>/settings/<agent>.json, written at each start (the last start's replaced): the user's settings with the user's plugins off, the config's
+// override applied (the role's laid over the kind's) and obor's own keys. A lead starts on the user's settings as
+// they are: no --setting-sources, no --settings and no file.
+func TestStartWritesTheSettingsFile(t *testing.T) {
+	t.Parallel()
+	x := setup(t, testkit.Set("agents.overrides.claude", `{"settings":{"env":{"KIND":"k"}},"off":{"mcp":["x-srv"]}}`),
+		testkit.Set("agents.roles.integrator", `{"model":"opus","overrides":{"claude":{"settings":{"env":{"ROLE":"r"}},"off":{"mcp":["y-srv"]}}}}`))
+	// the user's settings: a variable, a plugin and three MCP servers (the kind's override switches x-srv off, the
+	// integrator's y-srv too)
+	x.p.Write(filepath.Join(x.claude, "settings.json"), `{"env":{"USER":"u"},"enabledPlugins":{"a@m":true},`+
+		`"mcpServers":{"keep":{"command":"k"},"x-srv":{"command":"x"},"y-srv":{"command":"y"}}}`)
+	x.p.Write(filepath.Join(project.StateDir(x.p.Root), claude.StateSettings("pj-int")), `{"env":{"LAST":"start"}}`)
+	start := func(agent, pane, cwd string) string {
+		t.Helper()
+		x.shell(pane, agent, cwd)
+		if out, ok := x.restart(launch.Request{Agent: agent, Fresh: true}); !ok {
+			t.Fatal(out)
+		}
+		calls := x.calls("agent.start")
+		return calls[len(calls)-1]
+	}
+	const obor = `"autoMemoryEnabled":false,"enabledPlugins":{"a@m":false},`
+	file := "--setting-sources project,local --settings " + filepath.Join(project.StateDir(x.p.Root), "settings", "pj-int.json")
+	if got := start("pj-int", "w1:p5", x.p.Root); !strings.Contains(got, file+" ") {
+		t.Errorf("the integrator's start %q lacks %q", got, file)
+	}
+	if got, want := x.settingsFile("pj-int"), `{`+obor+`"env":{"KIND":"k","ROLE":"r","USER":"u"},`+
+		`"mcpServers":{"keep":{"command":"k"}},"remoteControlAtStartup":false}`; got != want {
+		t.Errorf("the integrator's settings file\n %s\nwant\n %s", got, want)
+	}
+	// a lane's worker: the kind's override alone, its own file
+	start("pj-l-01", "w1:p3", "")
+	if got, want := x.settingsFile("pj-l-01"), `{`+obor+`"env":{"KIND":"k","USER":"u"},`+
+		`"mcpServers":{"keep":{"command":"k"},"y-srv":{"command":"y"}},"remoteControlAtStartup":false}`; got != want {
+		t.Errorf("the worker's settings file\n %s\nwant\n %s", got, want)
+	}
+	lead := start("pj-lead", "w1:p1", x.p.Root)
+	if strings.Contains(lead, "--setting-sources") || strings.Contains(lead, "--settings") || x.settingsFile("pj-lead") != "" {
+		t.Errorf("the lead's start %q (settings file %q): want no --setting-sources, no --settings and no file", lead, x.settingsFile("pj-lead"))
+	}
+}
+
+// A start whose settings file cannot be written is refused, naming the file: no agent starts.
+func TestStartRefusedWhenTheSettingsFileCannotBeWritten(t *testing.T) {
+	t.Parallel()
+	x := setup(t)
+	x.p.Write(filepath.Join(project.StateDir(x.p.Root), "settings"), "a file where the dir goes\n")
+	x.shell("w1:p5", "pj-int", x.p.Root)
+	out, ok := x.restart(launch.Request{Agent: "pj-int", Fresh: true})
+	if ok || !strings.Contains(out, "settings/pj-int.json") {
+		t.Errorf("restart = %q, %v: want it refused, naming settings/pj-int.json", out, ok)
+	}
+	if calls := x.calls("agent.start"); len(calls) != 0 {
+		t.Errorf("agent.start %q, want no start", calls)
+	}
 }
 
 // index is the position of the first request matching query (-1: none).
@@ -571,7 +655,7 @@ func TestRestartWho(t *testing.T) {
 		env: func(x *fx) string {
 			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=cd " + q(x.lane) + " && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:p3 OBOR_LANE_CPUS=2"
 		},
-		start: "agent.start args=[" + laneMCP + "--settings {\"autoMemoryEnabled\":false,\"remoteControlAtStartup\":false} --resume sid-1] kind=claude name=pj-l-01 pane_id=w1:p3",
+		start: "agent.start args=[" + laneMCP + settings + " --resume sid-1] kind=claude name=pj-l-01 pane_id=w1:p3",
 		line:  "RESTARTED pj-l-01 (pane w1:p3, session sid-1)",
 	}, {
 		// another project's agent may be named like a lane; no lane env, no lane settings
@@ -3673,8 +3757,8 @@ func TestUntypedRoleLaunchDefaults(t *testing.T) {
 			if out, ok := x.restart(launch.Request{Agent: c.agent, Fresh: true}); !ok {
 				t.Fatal(out)
 			}
-			if got := strings.Contains(x.startCall(), `"autoMemoryEnabled":false`); got != (c.role != "lead") {
-				t.Errorf("memory off = %v in %s", got, x.startCall())
+			if got := strings.Contains(x.settingsFile(c.agent), `"autoMemoryEnabled":false`); got != (c.role != "lead") {
+				t.Errorf("memory off = %v in the settings file %q of %s", got, x.settingsFile(c.agent), x.startCall())
 			}
 		})
 	}

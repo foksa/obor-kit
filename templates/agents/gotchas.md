@@ -31,8 +31,9 @@ otherwise.
   agent name (herdr drops a name at times, and obor never reads it). If the pane shows the Background tasks
   panel, send `esc` first — only while the agent is idle: Esc interrupts a working turn.
 - TaskStop on a background shell can leave its child script running → check by script path, kill by PID.
-- Claude panes except leads start with `--settings '{"autoMemoryEnabled":false,"remoteControlAtStartup":false}'` (only the lead
-  on the phone and with auto memory); `agents.kinds.claude.args` adds args to every Claude start.
+- Claude panes except leads start with Remote Control and auto memory off (only the lead on the phone and with auto
+  memory), on their own settings file (`--setting-sources project,local --settings .obor/state/settings/<agent>.json`:
+  the user's settings with `agents.overrides` applied); `agents.kinds.claude.args` adds args to every Claude start.
 - Ctrl+Z suspends Claude Code (2026-10-10) → type `fg` in the pane. `obor restart` refuses a stopped job, so `fg`
   and `/exit` it (or end it), then `obor restart <agent> --fresh`.
 - After a usage-limit reset Claude Code resumes the session by itself ("Your claude.ai usage limit has reset. Continue

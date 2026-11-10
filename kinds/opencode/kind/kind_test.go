@@ -190,14 +190,14 @@ func TestStartEnvTrimsTheUserSkills(t *testing.T) {
 	if !slices.Contains(k.Vars(), kind.SkillsVar) {
 		t.Errorf("Vars %q lack %s: another kind's start would not unset it", k.Vars(), kind.SkillsVar)
 	}
-	start := func(trim bool) agents.Launch {
-		l, err := agents.StartOf(k, agents.Start{Args: []string{"--auto", "--model", "p/m"}, Prompt: "go", TrimUser: trim})
+	start := func(over *agents.Override) agents.Launch {
+		l, err := agents.StartOf(k, agents.Start{Args: []string{"--auto", "--model", "p/m"}, Prompt: "go", Override: over})
 		if err != nil {
 			t.Fatal(err)
 		}
 		return l
 	}
-	trimmed, whole := start(true), start(false)
+	trimmed, whole := start(&agents.Override{}), start(nil)
 	if v := trimmed.Env[kind.SkillsVar]; v != "1" {
 		t.Errorf("a trimmed start: %s = %q in %v, want 1", kind.SkillsVar, v, trimmed.Env)
 	}

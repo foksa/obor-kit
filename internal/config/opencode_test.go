@@ -23,7 +23,7 @@ func TestOpencodeModelEffort(t *testing.T) {
 		t.Fatal("precondition: opencode is a plugin kind of the loaded config")
 	}
 	ds, _ := c.Model("deepseek")
-	l, err := ds.Launch("lead", agents.Start{Effort: "high"})
+	l, err := ds.Launch("lead", agents.Override{}, agents.Start{Effort: "high"})
 	if env := l.Env; err != nil || env["OBOR_OPENCODE_MODEL"] != "opencode-go/deepseek-v4.1-flash#high" {
 		t.Errorf("deepseek at high: env %v, %v; want the model's #high variant", l.Env, err)
 	}
@@ -34,7 +34,7 @@ func TestOpencodeModelEffort(t *testing.T) {
 	// (the kind protocol's trim_user, through the kind's own start).
 	const skills = "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"
 	for role, want := range map[string]string{"worker": "1", "reviewer": "1", "lead": ""} {
-		l, err := ds.Launch(role, agents.Start{})
+		l, err := ds.Launch(role, agents.Override{}, agents.Start{})
 		if v, set := l.Env[skills]; err != nil || !set || v != want {
 			t.Errorf("a %s start: %s = %q (in the env: %v), %v; want %q", role, skills, v, set, err, want)
 		}

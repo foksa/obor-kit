@@ -1,13 +1,17 @@
 // Package claude is the Claude Code bridge (agents.Kind): its start argv (--settings, obor's --mcp-config on a strict
-// start, --resume), its quit, its headless flag, its plugin manifest, its transcripts and its session inbox.
+// start, --resume), the settings file of a start with an override, its quit, its headless flag, its plugin manifest,
+// its transcripts and its session inbox.
 package claude
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -39,9 +43,11 @@ func MCPConfig(kit string) string {
 }
 
 // Start is the type's args (with in.Effort: their --effort replaced by --effort <effort>), then
-// --strict-mcp-config for a lane's agent (in.StrictMCP: once, also when the args name it), then --settings <settings>:
-// in.Settings and, on a trimmed start (in.TrimUser), the user's plugins and skills switched off (userOff; every
-// other user setting applies), then --session-id <in.Session> (a fresh start obor names) or --resume <sid>, with obor's
+// --strict-mcp-config for a lane's agent (in.StrictMCP: once, also when the args name it), then the settings:
+// --settings <in.Settings> as inline JSON, or for a start with an override `--setting-sources project,local
+// --settings <in.SettingsFile>` (Prepare's file: Claude loads the project's settings and that file, never the
+// user's own, so what the file leaves out of the user's settings is off; --setting-sources as the args name it,
+// when they do), then --session-id <in.Session> (a fresh start obor names) or --resume <sid>, with obor's
 // --mcp-config pair spliced in before the strict flag (the flag stops --mcp-config's variadic value), then one `--`
 // when a config flag could take the prompt, then the prompt. The prompt is positional, never a config value; a
 // resume carries none. The only `--` is obor's own (config validate refuses one in the args).
@@ -50,21 +56,19 @@ func MCPConfig(kit string) string {
 // .mcp.json servers (enableAllProjectMcpServers true, or a non-empty enabledMcpjsonServers, which also approves them,
 // so an unattended lane does not sit on the approval prompt) starts without the strict flag, obor's server then the
 // plugin manifest's as for a role; a settings key the file sets is left out of --settings (no --settings when it sets
-// all). The two maps of a trimmed start give way per entry, not per key: only the plugins and skills the project's
-// settings name are left out. A file that does not parse counts as absent (config validate warns).
+// all). A file that does not parse counts as absent (config validate warns).
 func (kind) Start(in agents.Start) []string {
 	proj, _ := projectSettings(in)
 	args := withEffort(in.Args, in.Effort)
 	if in.StrictMCP && !proj.mcpOptIn() {
 		args = withStrict(args)
 	}
-	settings := proj.unset(in.Settings)
-	if in.TrimUser {
-		for key, off := range userOff(in, proj) {
-			settings[key] = off
+	if in.SettingsFile != "" {
+		if !hasFlag(args, "--setting-sources") {
+			args = append(args, "--setting-sources", "project,local")
 		}
-	}
-	if len(settings) > 0 {
+		args = append(args, "--settings", in.SettingsFile)
+	} else if settings := proj.unset(in.Settings); len(settings) > 0 {
 		args = append(args, "--settings", compact(settings))
 	}
 	prompt := in.Prompt
@@ -136,50 +140,163 @@ func (s settings) unset(want map[string]any) map[string]any {
 // LocalSettingsFile is the project's own uncommitted settings file, relative to the start dir.
 const LocalSettingsFile = ".claude/settings.local.json"
 
-// The two settings maps a trimmed start writes: a plugin id → false, a skill name → "off".
-const (
-	pluginsKey = "enabledPlugins"
-	skillsKey  = "skillOverrides"
-)
+// StateSettings is the settings file of agent's start with an override, as a name in the project's state dir.
+func StateSettings(agent string) string { return "settings/" + agent + ".json" }
 
-// userOff are the --settings keys that switch off the user's own plugins and skills: enabledPlugins false for every
-// plugin the user's settings file enables ($CLAUDE_CONFIG_DIR, default ~/.claude: settings.json) and skillOverrides
-// "off" for every dir of the user's skills dir beside it. Left alone: an entry the project's settings (proj, and the
-// start dir's LocalSettingsFile) name in the same map, and obor's own plugin. A map with no entry has no key; with
-// no user settings file and no skills dir there is none. A plugin's skills go with their plugin; the skills Claude
-// syncs from claude.ai are not in the skills dir and stay.
-func userOff(in agents.Start, proj settings) map[string]any {
-	dir := agents.UserDir(in, "CLAUDE_CONFIG_DIR", ".claude")
-	if dir == "" {
-		return nil
+// Prepare (agents.Preparer) is a start with an override (every agent but a lead) made ready: its settings file
+// (overridden, in.Settings in it) written as StateSettings(in.Agent) with in.WriteState, replacing the agent's last
+// one, and named in in.SettingsFile for Start. A start with no override is in as given. An error: the start names no
+// agent or no state writer, or the file cannot be written (it names the file).
+func (kind) Prepare(in agents.Start) (agents.Start, error) {
+	if in.Override == nil {
+		return in, nil
 	}
-	local, _ := projectFile(in, LocalSettingsFile)
-	named := func(key, entry string) bool {
-		_, p := proj.entries(key)[entry]
-		_, l := local.entries(key)[entry]
-		return p || l
+	if in.Agent == "" || in.WriteState == nil {
+		return in, errors.New("claude: a start with an override names no agent or no state dir for its settings file")
 	}
-	out := map[string]any{}
-	plugins := map[string]bool{}
-	user, _ := settingsFile(in.Read, filepath.Join(dir, "settings.json"))
-	for id, v := range user.entries(pluginsKey) {
-		if string(v) != "false" && !isObor(id) && !named(pluginsKey, id) {
-			plugins[id] = false
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(overridden(in)); err != nil {
+		return in, fmt.Errorf("claude: the settings file %s: %v", StateSettings(in.Agent), err)
+	}
+	path, err := in.WriteState(StateSettings(in.Agent), b.Bytes())
+	if err != nil {
+		return in, fmt.Errorf("claude: writing the settings file %s of the state dir: %v", StateSettings(in.Agent), err)
+	}
+	in.SettingsFile, in.Settings, in.Override = path, nil, nil
+	return in, nil
+}
+
+// pluginsKey is the settings map of plugin id → enabled.
+const pluginsKey = "enabledPlugins"
+
+// overridden is the settings file of a start with an override: the user's settings file ($CLAUDE_CONFIG_DIR, default
+// ~/.claude: settings.json; none, or one that does not parse: empty) with, in this order,
+//   - every plugin it enables set false (obor's own stays), and every plugin matching off.plugins;
+//   - the hooks whose command matches off.hooks removed (a group or event left without a hook goes too);
+//   - the MCP servers matching off.mcp removed from its mcpServers and enabledMcpjsonServers;
+//   - the override's settings merged in, then in.Settings (agents.Merge);
+//   - every entry the project's settings set (in.Dir's SettingsFile and LocalSettingsFile) dropped (dropSet): the file
+//     ranks above the project's, the user's settings rank below them.
+//
+// The user's skills and the skills Claude syncs from claude.ai do not load without the user source: off.skills
+// needs no entry.
+func overridden(in agents.Start) map[string]any {
+	over := *in.Override
+	user := map[string]any{}
+	if dir := agents.UserDir(in, "CLAUDE_CONFIG_DIR", ".claude"); dir != "" {
+		user = objectFile(in.Read, filepath.Join(dir, "settings.json"))
+	}
+	if plugins, ok := user[pluginsKey].(map[string]any); ok {
+		for id, v := range plugins {
+			if v != false && !isObor(id) || agents.Matches(over.Off.Plugins, id) {
+				plugins[id] = false
+			}
 		}
 	}
-	if len(plugins) > 0 {
-		out[pluginsKey] = plugins
+	if hooks, ok := user["hooks"].(map[string]any); ok {
+		withoutHooks(hooks, over.Off.Hooks)
 	}
-	skills := map[string]string{}
-	for _, n := range agents.UserSkills(in, dir) {
-		if !named(skillsKey, n) {
-			skills[n] = "off"
+	if servers, ok := user["mcpServers"].(map[string]any); ok {
+		for name := range servers {
+			if agents.Matches(over.Off.MCP, name) {
+				delete(servers, name)
+			}
 		}
 	}
-	if len(skills) > 0 {
-		out[skillsKey] = skills
+	if enabled, ok := user["enabledMcpjsonServers"].([]any); ok {
+		user["enabledMcpjsonServers"] = slices.DeleteFunc(enabled, func(v any) bool {
+			name, _ := v.(string)
+			return agents.Matches(over.Off.MCP, name)
+		})
+	}
+	out := agents.Merge(agents.Merge(user, over.Settings), in.Settings)
+	if in.Dir != "" {
+		dropSet(out, objectFile(in.Read, filepath.Join(in.Dir, SettingsFile)))
+		dropSet(out, objectFile(in.Read, filepath.Join(in.Dir, LocalSettingsFile)))
 	}
 	return out
+}
+
+// withoutHooks removes from hooks (a settings file's hooks: event → groups, each with its hooks list) every hook
+// whose command holds one of off, then a group it left without a hook and an event it left without a group.
+func withoutHooks(hooks map[string]any, off []string) {
+	for event, v := range hooks {
+		groups, _ := v.([]any)
+		kept := []any{}
+		for _, g := range groups {
+			group, _ := g.(map[string]any)
+			list, _ := group["hooks"].([]any)
+			rest := []any{}
+			for _, h := range list {
+				hook, _ := h.(map[string]any)
+				if cmd, _ := hook["command"].(string); !agents.Matches(off, cmd) {
+					rest = append(rest, h)
+				}
+			}
+			switch {
+			case len(rest) == len(list):
+				kept = append(kept, g)
+			case len(rest) > 0:
+				group["hooks"] = rest
+				kept = append(kept, g)
+			}
+		}
+		switch {
+		case len(kept) == len(groups):
+		case len(kept) == 0:
+			delete(hooks, event)
+		default:
+			hooks[event] = kept
+		}
+	}
+}
+
+// dropSet drops from file every entry set sets: where both hold an object under a key, entry by entry the same way
+// (an object left empty goes); where both hold a list the file's stays (Claude adds the lists of its sources up);
+// any other value of file's goes.
+func dropSet(file, set map[string]any) {
+	for k, sv := range set {
+		fv, ok := file[k]
+		if !ok {
+			continue
+		}
+		fm, fIsMap := fv.(map[string]any)
+		sm, sIsMap := sv.(map[string]any)
+		_, fIsList := fv.([]any)
+		_, sIsList := sv.([]any)
+		switch {
+		case fIsMap && sIsMap:
+			if dropSet(fm, sm); len(fm) == 0 {
+				delete(file, k)
+			}
+		case fIsList && sIsList:
+		default:
+			delete(file, k)
+		}
+	}
+}
+
+// objectFile is the JSON object of the file at path, read with read, its numbers as written; an empty one: no reader,
+// no such file, or one that does not read or parse as an object.
+func objectFile(read agents.ReadFile, path string) map[string]any {
+	out := map[string]any{}
+	if read == nil {
+		return out
+	}
+	b, err := read(path)
+	if err != nil {
+		return out
+	}
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.UseNumber()
+	var m map[string]any
+	if dec.Decode(&m) != nil || m == nil {
+		return out
+	}
+	return m
 }
 
 // isObor: id (<plugin>@<marketplace>) is obor's own plugin, from any marketplace.
@@ -206,15 +323,6 @@ func settingsFile(read agents.ReadFile, path string) (settings, error) {
 		return nil, err
 	}
 	return s, nil
-}
-
-// entries are the entries of the map s sets as key (enabledPlugins, skillOverrides); nil: no such key, or no map.
-func (s settings) entries(key string) map[string]json.RawMessage {
-	var m map[string]json.RawMessage
-	if json.Unmarshal(s[key], &m) != nil {
-		return nil
-	}
-	return m
 }
 
 // ProjectWarnings: a settings file that does not parse (obor's start flags then apply as without it), and

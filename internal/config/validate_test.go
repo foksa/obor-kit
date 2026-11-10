@@ -90,6 +90,25 @@ func TestValidate(t *testing.T) {
 			want: []string{`FAIL .agents.models.opus.kind: "claod" is not a supported kind: use one of claude, codex, opencode`}},
 		{name: "a kinds key is a supported kind", edits: []edit{set("agents.kinds.cursor", map[string]any{"args": []any{"-x"}})},
 			want: []string{`FAIL .agents.kinds.cursor: "cursor" is not a supported kind: use one of claude, codex, opencode`}},
+		// an override names a kind obor knows, under agents.overrides and under a role's overrides; a built-in role
+		// takes the object form {model, overrides}.
+		{name: "an override of no supported kind", edits: []edit{set("agents.overrides.cursor", map[string]any{"settings": map[string]any{"a": 1}})},
+			want: []string{`FAIL .agents.overrides.cursor: "cursor" is not a supported kind: use one of claude, codex, opencode`}},
+		{name: "a role's override of no supported kind", edits: []edit{
+			set("agents.roles.reviewer", map[string]any{"model": "opus", "overrides": map[string]any{"claod": map[string]any{}}})},
+			want: []string{`FAIL .agents.roles.reviewer.overrides.claod: "claod" is not a supported kind: use one of claude, codex, opencode`}},
+		{name: "an unknown key in an override's off", edits: []edit{
+			set("agents.overrides.claude", map[string]any{"off": map[string]any{"hooks": []any{"x.sh"}, "hookz": []any{"y"}}})},
+			want: []string{unknownFail("agents.overrides.claude.off.hookz")}},
+		{name: "an unknown key in a role's override", edits: []edit{
+			set("agents.roles.reviewer", map[string]any{"model": "opus", "overrides": map[string]any{"claude": map[string]any{"of": map[string]any{}}}})},
+			want: []string{unknownFail("agents.roles.reviewer.overrides.claude.of")}},
+		{name: "overrides of every kind, and a built-in role's object with its own", edits: []edit{
+			set("agents.overrides", map[string]any{
+				"claude":   map[string]any{"settings": map[string]any{"env": map[string]any{"A": "1"}}, "off": map[string]any{"hooks": []any{"x.sh"}, "plugins": []any{"p"}}},
+				"codex":    map[string]any{"off": map[string]any{"skills": []any{"s"}}},
+				"opencode": map[string]any{"off": map[string]any{"mcp": []any{"herd"}}}}),
+			set("agents.roles.reviewer", map[string]any{"model": "opus", "overrides": map[string]any{"claude": map[string]any{"off": map[string]any{"hooks": []any{"y.sh"}}}}})}},
 		{name: "every supported kind is accepted", edits: []edit{
 			set("agents.models.a", map[string]any{"kind": "claude", "id": "a"}), set("agents.models.b", map[string]any{"kind": "codex", "id": "b"}),
 			set("agents.models.c", map[string]any{"kind": "opencode", "id": "go/ds"})}},

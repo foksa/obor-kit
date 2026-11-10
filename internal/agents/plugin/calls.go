@@ -139,7 +139,7 @@ func (k *Kind) start(in agents.Start) (startReply, error) {
 	}
 	req := map[string]any{"env": snapshot(m, in.Env), "kit": in.Kit, "args": in.Args, "settings": in.Settings,
 		"resume": in.Resume, "prompt": in.Prompt, "effort": in.Effort, "strict_mcp": in.StrictMCP,
-		"trim_user": in.TrimUser, "session": in.Session, "write_dirs": in.WriteDirs, "dir": in.Dir}
+		"trim_user": in.Override != nil, "override": in.Override, "session": in.Session, "write_dirs": in.WriteDirs, "dir": in.Dir}
 	var r startReply
 	if err := k.run("start", req, &r); err != nil {
 		return startReply{}, err

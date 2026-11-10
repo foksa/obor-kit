@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -209,15 +210,18 @@ func boolText(registered, static bool) string {
 	return s
 }
 
-// TestStartRequest: start's request carries the version, the call, every field of the complete start and the
+// TestStartRequest: start's request carries the version, the call, every field of the complete start (its override
+// of the user's settings as the start holds it, trim_user true beside it; a start with none: null and false) and the
 // manifest's env snapshot (closure 1 as data: the dir the plugin reads itself), in one call whose argv and env both
 // have the file's path substituted; an env var the manifest's vars do not name is an error.
 func TestStartRequest(t *testing.T) {
 	k, state := kind(t, `cat >"$REQ"; echo '{"version":1,"args":["-c","{file:c.json}"],"env":{"STUB_CONFIG":"{file:c.json}"},"files":[{"name":"c.json","bytes":"x"}]}'`)
 	env := func(v string) string { return map[string]string{"HOME": "/home/u", "OTHER": "o"}[v] }
+	over := agents.Override{Settings: map[string]any{"env": map[string]any{"K": "v"}},
+		Off: agents.Off{Hooks: []string{"x.sh"}, Plugins: []string{"p@m"}, Skills: []string{"s"}, MCP: []string{"herd"}}}
 	l, err := k.StartWhole(agents.Start{Kit: "/kit", Args: []string{"-m", "x"}, Prompt: "go", Effort: "high",
 		StrictMCP: true, Dir: "/lane", Env: env, Settings: map[string]any{"a": false}, Session: "s-1",
-		WriteDirs: []string{"/reviews"}, TrimUser: true})
+		WriteDirs: []string{"/reviews"}, Override: &over})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,6 +242,7 @@ func TestStartRequest(t *testing.T) {
 		Effort    string            `json:"effort"`
 		StrictMCP bool              `json:"strict_mcp"`
 		TrimUser  bool              `json:"trim_user"`
+		Override  *agents.Override  `json:"override"`
 		Dir       string            `json:"dir"`
 		Session   string            `json:"session"`
 		WriteDirs []string          `json:"write_dirs"`
@@ -252,8 +257,26 @@ func TestStartRequest(t *testing.T) {
 		req.Session != "s-1" || strings.Join(req.WriteDirs, " ") != "/reviews" {
 		t.Errorf("request %s", b)
 	}
+	if req.Override == nil || !reflect.DeepEqual(*req.Override, over) {
+		t.Errorf("request override %+v, want the start's %+v (request %s)", req.Override, over, b)
+	}
 	if len(req.Env) != 1 || req.Env["HOME"] != "/home/u" {
 		t.Errorf("request env %v, want HOME alone (the manifest's env)", req.Env)
+	}
+	// a start with no override (a lead's): no override in the request, trim_user false
+	if _, err := k.StartWhole(agents.Start{Prompt: "go"}); err != nil {
+		t.Fatal(err)
+	}
+	if b, err = os.ReadFile(filepath.Join(stubDir, "req.json")); err != nil {
+		t.Fatal(err)
+	}
+	var lead struct {
+		Prompt   string          `json:"prompt"`
+		TrimUser bool            `json:"trim_user"`
+		Override json.RawMessage `json:"override"`
+	}
+	if err := json.Unmarshal(b, &lead); err != nil || lead.Prompt != "go" || lead.TrimUser || string(lead.Override) != "null" {
+		t.Errorf("a start with no override: request %s (%v), want trim_user false and override null", b, err)
 	}
 
 	k, _ = kind(t, `cat >/dev/null; echo '{"version":1,"env":{"PATH":"/x"}}'`)

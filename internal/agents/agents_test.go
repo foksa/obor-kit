@@ -1,6 +1,7 @@
 package agents_test
 
 import (
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -239,6 +240,50 @@ func TestStartVars(t *testing.T) {
 		}
 		if got := strings.Join(unset, " "); got != c.unset {
 			t.Errorf("%s: unset %q, want %q", c.name, got, c.unset)
+		}
+	}
+}
+
+// Merge lays b over a key by key, objects merged recursively and any other value replaced, in a new map that shares
+// no object with a or b; Over lays a role's override over a kind's (settings merged, off lists added up); Matches is
+// a substring match, an empty name matching nothing.
+func TestOverride(t *testing.T) {
+	a := map[string]any{"env": map[string]any{"A": "1", "B": "2"}, "model": "opus", "list": []any{"x"}}
+	b := map[string]any{"env": map[string]any{"B": "3", "C": "4"}, "model": map[string]any{"id": "m"}, "list": []any{"y"}, "new": map[string]any{"k": true}}
+	got := agents.Merge(a, b)
+	want := map[string]any{"env": map[string]any{"A": "1", "B": "3", "C": "4"}, "model": map[string]any{"id": "m"},
+		"list": []any{"y"}, "new": map[string]any{"k": true}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Merge = %v, want %v", got, want)
+	}
+	got["env"].(map[string]any)["A"] = "changed"
+	delete(got["new"].(map[string]any), "k")
+	delete(got["model"].(map[string]any), "id")
+	if a["env"].(map[string]any)["A"] != "1" || b["new"].(map[string]any)["k"] != true || b["model"].(map[string]any)["id"] != "m" {
+		t.Errorf("a change of the merged map reached its inputs: a %v, b %v", a, b)
+	}
+	only := agents.Merge(nil, b)
+	delete(only["env"].(map[string]any), "B")
+	if b["env"].(map[string]any)["B"] != "3" {
+		t.Errorf("Merge(nil, b) shares b's object: %v", b)
+	}
+
+	kind := agents.Override{Settings: map[string]any{"env": map[string]any{"A": "1"}}, Off: agents.Off{Hooks: []string{"h1"}, Skills: []string{"s"}}}
+	role := agents.Override{Settings: map[string]any{"env": map[string]any{"B": "2"}}, Off: agents.Off{Hooks: []string{"h2"}, Plugins: []string{"p"}, MCP: []string{"m"}}}
+	if got, want := kind.Over(role), (agents.Override{Settings: map[string]any{"env": map[string]any{"A": "1", "B": "2"}},
+		Off: agents.Off{Hooks: []string{"h1", "h2"}, Plugins: []string{"p"}, Skills: []string{"s"}, MCP: []string{"m"}}}); !reflect.DeepEqual(got, want) {
+		t.Errorf("Over = %+v, want %+v", got, want)
+	}
+	for _, c := range []struct {
+		subs  []string
+		entry string
+		want  bool
+	}{
+		{[]string{"x.sh"}, "/bin/x.sh --flag", true}, {[]string{"y", "x.sh"}, "/bin/x.sh", true},
+		{[]string{"y.sh"}, "/bin/x.sh", false}, {[]string{""}, "/bin/x.sh", false}, {nil, "/bin/x.sh", false},
+	} {
+		if got := agents.Matches(c.subs, c.entry); got != c.want {
+			t.Errorf("Matches(%q, %q) = %v, want %v", c.subs, c.entry, got, c.want)
 		}
 	}
 }

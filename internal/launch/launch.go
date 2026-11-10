@@ -881,7 +881,7 @@ func (l *Launcher) build(t *target, effort, resume, prompt string) ([]string, er
 }
 
 // Build is the agent's one start (port.Starter), built once at the launch boundary: the complete agents.Start
-// (the kit, the model's args with the role's settings and strictness, the effort, the cwd, the dirs the agent writes,
+// (the kit, the model's args with the role's settings, strictness and override of the user's settings, the effort, the cwd, the dirs the agent writes,
 // which it makes, the resume or the first prompt as one line, the session obor names for a kind that takes one, the
 // env and state writer), handed to the kind once (config.Model.Launch, agents.StartOf): the argv, the env and the files
 // a plugin kind writes come from one start call. An unknown kind: the args as given (Start refuses it).
@@ -911,7 +911,7 @@ func (l *Launcher) startOf(b port.Build, bare bool) (port.Built, error) {
 	if b.Resume == "" && k.Caps().NamedSession {
 		session = l.newSession(b.Agent)
 	}
-	in := agents.Start{Kit: kit, Effort: b.Effort, Resume: b.Resume, Prompt: oneLine(b.Prompt), Session: session,
+	in := agents.Start{Kit: kit, Agent: b.Agent, Effort: b.Effort, Resume: b.Resume, Prompt: oneLine(b.Prompt), Session: session,
 		WriteDirs: b.WriteDirs, Dir: b.Dir, Read: os.ReadFile, Env: l.envOrOS().Get,
 		Dirs: project.SubDirs, WriteState: project.StateWriter(l.Cfg.Root)}
 	var r agents.Launch
@@ -919,7 +919,7 @@ func (l *Launcher) startOf(b port.Build, bare bool) (port.Built, error) {
 	if bare {
 		r, err = agents.StartOf(k, in)
 	} else {
-		r, err = config.Model{Kind: b.Kind, Args: b.Args}.Launch(b.Role, in)
+		r, err = config.Model{Kind: b.Kind, Args: b.Args}.Launch(b.Role, l.Cfg.Override(b.Role, b.Kind), in)
 	}
 	if err != nil {
 		return port.Built{}, err
