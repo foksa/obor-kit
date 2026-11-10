@@ -23,7 +23,7 @@ none of this replaces the task, and "nothing to flag" needs no line.
   matching `modernc.org/libc` pin) and the official MCP Go SDK (`github.com/modelcontextprotocol/go-sdk`, adopted
   2026-11-05, with `github.com/google/jsonschema-go` for the tools' schemas). One static binary
   (`make build` → `dist/obor`), and beside it each plugin kind the kit ships as its own (`dist/obor-kind-opencode`,
-  `kinds/opencode`, T-1046); `bin/obor` is the only bash (bash 3.2 compatible, macOS and Linux).
+  `kinds/opencode`, T-1046); `bin/obor` is the only bash (bash 3.2 compatible, macOS).
 - Runtime deps: **git, herdr, jq** (jq only in the `bin/obor` shim) + the binary. No python, node or bun in shipped code; the mods are TypeScript run by
   Claude Code itself.
 - Timeouts through `context`; processes that may leave children run as a process group (`run.Group`).

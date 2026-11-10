@@ -9,7 +9,8 @@ It ships as a Claude Code plugin (`obor`: the lead skill, role texts, guard hook
 Workers can be Claude Code, Codex or OpenCode.
 
 > **Status:** early: built and used daily by one person on two projects. Expect rough edges and breaking changes
-> between minor versions; each release has an upgrade guide in `docs/UPGRADE-v<x.y>.md`. macOS and Linux.
+> between minor versions; each release has an upgrade guide in `docs/UPGRADE-v<x.y>.md`. macOS: the Linux binaries are
+> built but untested.
 
 ## How it works
 
