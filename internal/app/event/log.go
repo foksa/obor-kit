@@ -56,7 +56,10 @@ type FactData struct {
 	Pane   string `json:"pane,omitempty"`
 	Agent  string `json:"agent,omitempty"`
 	Reason string `json:"reason,omitempty"`
-	Merge  bool   `json:"merge,omitempty"` // a merge-loop fact, not a watchdog's
+	// Question is what a blocked pane shows, its last lines: the question a person answers in the pane (empty when
+	// the screen cannot be read).
+	Question string `json:"question,omitempty"`
+	Merge    bool   `json:"merge,omitempty"` // a merge-loop fact, not a watchdog's
 	// A merge-loop needs-you's cause (what obor resume does by default), an unblocked's too (of a watchdog's, only a
 	// worker's stop has one: causeStopped); Job is the integrator job
 	// it names, Call the call id of the hold or resume that recorded it, Step the key of the step a failed fact counts.

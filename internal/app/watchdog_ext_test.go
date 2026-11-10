@@ -169,10 +169,6 @@ func TestBlockedNeedsYou(t *testing.T) {
 		r.f.Pane("w1:p1").Status = "blocked"
 		r.f.Pane("w1:p2").Status = "working"
 		r.start()
-		r.clock.Add(9 * time.Minute)
-		r.settle()
-		eq(t, r.facts(), nil, "facts after 9 min blocked")
-		r.clock.Add(2 * time.Minute)
 		r.waitFacts("T-1 needs-you{blocked}")
 		r.clock.Add(20 * time.Minute)
 		r.settle()

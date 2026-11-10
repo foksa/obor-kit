@@ -14,7 +14,7 @@ import (
 )
 
 // An unknown or stale observation keeps the task's facts but drops every elapsed-time baseline
-// (quiet, the stall's escalation, blocked, lost); the next good read starts new ones. Each row: a baseline running,
+// (quiet, the stall's escalation, lost); the next good read starts new ones. Each row: a baseline running,
 // then no observation for longer than its interval (the lane's read fails, the whole scan fails, or the table is
 // older than its bound), then recovery: no judgement at recovery, the fact only once a new baseline has elapsed, and
 // the facts in force before stay through it.
@@ -33,10 +33,6 @@ func TestUnknownObservationResetsTheTimers(t *testing.T) {
 		{name: "stalled", setup: func(h *harness) { h.tick(11 * minute) },
 			running: func(w *watch) time.Time { return w.quietSince }, inForce: []string{"stalled{idle}"},
 			interval: 10 * minute, judged: "T-1 needs-you{stalled}"},
-		{name: "blocked", setup: func(h *harness) {
-			h.status("w1:p1", func(p *port.Pane) { p.Status = "blocked" })
-			h.tick(minute)
-		}, running: func(w *watch) time.Time { return w.blocked }, interval: 10 * minute, judged: "T-1 needs-you{blocked}"},
 		{name: "lost", setup: func(h *harness) {
 			h.status("w1:p1", func(p *port.Pane) { p.Agent, p.Status = "", "" }) // the agent exits, its shell stays
 			h.tick(30 * time.Second)
@@ -87,7 +83,7 @@ func TestUnknownObservationResetsTheTimers(t *testing.T) {
 				if got := h.facts(seq); len(got) != 0 {
 					t.Errorf("facts recorded without an observation: %v", got)
 				}
-				if w := p.tasks["T-1"]; w == nil || !w.quietSince.IsZero() || !w.blocked.IsZero() || !w.lost.IsZero() {
+				if w := p.tasks["T-1"]; w == nil || !w.quietSince.IsZero() || !w.lost.IsZero() {
 					t.Errorf("the gap kept a baseline: %+v", w)
 				}
 

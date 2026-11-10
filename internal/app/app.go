@@ -280,18 +280,17 @@ type watch struct {
 	agent      port.Pane // the last pane an agent ran in while the lane held the task (ID "": none yet)
 	lost       time.Time // since when the lane's panes run no agent (zero: one runs)
 	quietTimer           // the stall timer's quiet time
-	blocked    time.Time // since when the agent is seen blocked for the task (zero: it is not)
 }
 
 // unread: w's lane could not be read at the last check (unknown): the watchdog keeps its task and facts and
 // observes nothing there until a read succeeds.
 func (w *watch) unread() bool { return w.lane.State == port.LaneUnknown }
 
-// forget drops w's elapsed-time baselines (the quiet time, the stall's escalation counting from it, blocked, lost):
+// forget drops w's elapsed-time baselines (the quiet time, the stall's escalation counting from it, lost):
 // an unknown or stale observation of its lane, so the next good read starts new ones and no unobserved interval
 // counts. Its facts stay; seenWrite stays, a watermark, not a time counted.
 func (w *watch) forget() {
-	w.quietSince, w.blocked, w.lost = time.Time{}, time.Time{}, time.Time{}
+	w.quietSince, w.lost = time.Time{}, time.Time{}
 }
 
 // quietTimer is the stall timer's quiet time (docs/state-model.md "Timers"), the watchdogs' and the integrator jobs'.

@@ -251,7 +251,8 @@ intent waits as `gate pending`/`test pending`/`publish pending`), and a watchdog
   needs-you). That quiet time starts at the newest of the job's `delivered` fact's time and its nudge's result time
   when that is older than the live timer's start, so the nudge comes at most Idle after delivery and the needs-you
   at most Idle after the nudge, whatever restarts happen.
-- **Blocked**: a `blocked` herdr status for 10 min since the agent was first seen blocked for the task → needs-you.
+- **Blocked**: a `blocked` herdr status → needs-you at once, with the pane's question (its last lines) as the text:
+  a person answers it in the pane, where typing picks an option.
 - **Stall** (Idle = 10 min): a state machine over observed quiet time. Its state per open task is `quietSince`
   (zero = no baseline) and `seenWrite`, the newest transcript write already accounted for, with the `stalled{idle}`
   and `needs-you{stalled}` facts in force. The first sample (and the first after a reset event) only sets
@@ -311,7 +312,7 @@ fast-forward off the branch (an error: run again).
 | 8 | dispatched → needs-you | no delivery 5 min after the retry | — | fact `needs-you{job not delivered}` | notify owner | — | F (`obor resume`: `work.2` / `fix.2`) |
 | 9 | dispatched → needs-you | row 3 or 4 `refused`, 3 counted failures of a step (rows 3–5), or no pane in the lane for Gone | — | fact `needs-you{lane: … \| start: … \| <step> failed: … \| no pane in lane …}` | notify | — | F |
 | 10 | working (no change of state) | idle with the task (herdr idle or `done`, no own background job) 10 min, or working without activity 10 min | no task_done | fact `stalled{idle\|no activity}` | — | — | F |
-| 11 | working → needs-you | herdr `blocked` status 10 min | — | fact `needs-you{blocked}` | notify | — | F |
+| 11 | working → needs-you | herdr `blocked` status (the first decision that sees it) | — | fact `needs-you{blocked}` (its text the pane's question, its last lines) | notify | — | F |
 | 12 | working, stalled (or asks, row 16a) in force → working (no change) | activity again (tool call, status working); **not for asks** (row 16a) **nor a worker's stop** (row 50: its next turn's hook ends it): a Stop hook's forced turn does not end a question, which ends only with `obor resume`, the task's submission or a drop; a task's merge, drop or reject (its fold, live and on replay) ends all its watchdog facts and their retries, an asks too (a merged task's asks would be reminded hourly, unanswerable) | — | fact `resumed` | — | — | F |
 | 13 | working, stalled in force | after row 10 | no nudge in this attempt | intent `prompt{job nudge}` | `agent.prompt` (the task again: the nudge's reminder line, then the wake for a kind that fetches) | result `sent` | — |
 | 14 | working → needs-you | no activity 10 min after the nudge | — | fact `needs-you{stalled}` | notify | — | F |

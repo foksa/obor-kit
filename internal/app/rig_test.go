@@ -3824,14 +3824,17 @@ func (h *harness) t1() mtask {
 // in-memory herdr (fakePanes) and lane table. setup builds the prior state; the event is the first action after it.
 
 type fakePanes struct {
-	busy     bool
-	busyErr  error
-	last     time.Time // the transcript's last write (zero: unknown)
-	notifyFn func() error
-	notes    []string
-	asked    []string // the panes Busy was asked about
-	turn     agents.Turn
-	turned   bool // Turn knows turn
+	busy      bool
+	busyErr   error
+	last      time.Time // the transcript's last write (zero: unknown)
+	screen    string    // what Screen shows
+	screenErr error
+	screens   []string // the panes Screen was asked about
+	notifyFn  func() error
+	notes     []string
+	asked     []string // the panes Busy was asked about
+	turn      agents.Turn
+	turned    bool // Turn knows turn
 	// Snapshot's answer: snap when an error does not come first (nil snap, nil err: "not in the table", as for the
 	// table's rows); after runs once the answer is read, before it returns (a stream event landing in between);
 	// snaps counts the calls.
@@ -3873,6 +3876,21 @@ func (f *fakePanes) Busy(_ context.Context, pane string) (bool, error) {
 
 func (f *fakePanes) Activity(context.Context, port.Pane) (time.Time, bool) {
 	return f.last, !f.last.IsZero()
+}
+
+// Screen is what the pane shows, its last lines raw (lines is honoured, as herdr's pane.read does): the question a
+// blocked pane shows sits above the TUI's blank rows and footer.
+func (f *fakePanes) Screen(_ context.Context, pane string, lines int) (string, error) {
+	f.screens = append(f.screens, pane)
+	text := f.screen
+	if lines > 0 {
+		raw := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
+		if len(raw) > lines {
+			raw = raw[len(raw)-lines:]
+		}
+		text = strings.Join(raw, "\n")
+	}
+	return text, f.screenErr
 }
 
 func (f *fakePanes) Turn(context.Context, port.Pane, string) (agents.Turn, bool) {

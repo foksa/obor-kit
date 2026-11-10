@@ -1,9 +1,11 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -71,10 +73,33 @@ var rows = []row{
 	{name: "row 14: stalled, quiet 10 min more → needs-you{stalled}, notified", setup: stalled,
 		event: tick(10 * minute), facts: []string{"T-1 needs-you{stalled}"}},
 	{name: "row 14: needs-you{stalled} is notified once", setup: escalated, event: tick(30 * minute)},
-	{name: "row 11: blocked 10 min → needs-you{blocked}, notified",
-		setup: func(h *harness) { h.pane("w1:p1").Status = "blocked"; h.connect() },
-		event: tick(11 * minute), facts: []string{"T-1 needs-you{blocked}"},
-		then: tick(20 * minute), later: []string{"T-1 needs-you{blocked}"}},
+	{name: "row 11: blocked, the first decision that sees it → needs-you{blocked} at once, with the pane's question",
+		setup: func(h *harness) {
+			h.pane("w1:p1").Status = "blocked"
+			h.panes.screen = "Do you want to proceed?\n❯ 1. Yes\n  2. No"
+		},
+		event: connect, facts: []string{"T-1 needs-you{blocked}"},
+		then: tick(20 * minute), later: []string{"T-1 needs-you{blocked}"},
+		check: func(t *testing.T, h *harness) {
+			f := h.records()[0].Fact()
+			if f.Question != "Do you want to proceed?\n❯ 1. Yes\n2. No" {
+				t.Errorf("the blocked needs-you's question = %q", f.Question)
+			}
+			if len(h.panes.screens) != 1 { // read once, for the fact it recorded
+				t.Errorf("screen reads = %v, want one", h.panes.screens)
+			}
+		}},
+	{name: "row 11: a Screen error records needs-you{blocked} without its question",
+		setup: func(h *harness) {
+			h.pane("w1:p1").Status = "blocked"
+			h.panes.screenErr = errors.New("pane.read: no such pane")
+		},
+		event: connect, facts: []string{"T-1 needs-you{blocked}"},
+		check: func(t *testing.T, h *harness) {
+			if q := h.records()[0].Fact().Question; q != "" {
+				t.Errorf("the blocked needs-you's question = %q, want none", q)
+			}
+		}},
 	{name: "row 12: working event ends a stall → resumed", setup: stalled,
 		event: func(h *harness) { h.status("w1:p1", func(p *port.Pane) { p.Status = "working" }) },
 		facts: []string{"T-1 resumed"}},
@@ -93,6 +118,7 @@ var rows = []row{
 	// Events apply after the snapshot they follow; a new snapshot replaces what came before.
 	{name: "#2 a status event after the snapshot wins: blocked replaces the snapshot's idle", setup: connect,
 		event: func(h *harness) { h.status("w1:p1", func(p *port.Pane) { p.Status = "blocked" }) },
+		facts: []string{"T-1 needs-you{blocked}"},
 		then:  tick(11 * minute), later: []string{"T-1 needs-you{blocked}"}},
 	{name: "#2 reconnect (lost connection, events_lost): the new snapshot replaces the old stream's blocked",
 		setup: func(h *harness) {
@@ -322,7 +348,7 @@ var rows = []row{
 	{name: "#8 the task is replaced in the same idle lane: the new task starts afresh",
 		setup: func(h *harness) { stalled(h); h.setLane("T-5", false) },
 		event: tick(minute), then: steps(tick(9*minute), tick(minute)), later: []string{"T-5 stalled{idle}"}},
-	{name: "#8 a blocked taskless pane takes a task: the blocked timer starts with the task",
+	{name: "#8 a blocked taskless pane takes a task: needs-you{blocked} on the first decision that sees it",
 		setup: func(h *harness) {
 			h.pane("w1:p1").Status = "blocked"
 			h.setLane("", false)
@@ -330,7 +356,7 @@ var rows = []row{
 			h.tick(60 * minute)
 			h.setLane("T-99", false)
 		},
-		event: tick(minute), then: steps(tick(9*minute), tick(minute)), later: []string{"T-99 needs-you{blocked}"}},
+		event: tick(minute), facts: []string{"T-99 needs-you{blocked}"}},
 
 	// Observed activity ends a stall.
 	{name: "#9 a busy child after the stall → resumed; quiet again → stalled afresh, not needs-you",
@@ -351,7 +377,7 @@ var rows = []row{
 		setup: func(h *harness) { escalated(h); h.panes.busy = true },
 		event: tick(minute), facts: []string{"T-1 resumed"}},
 	{name: "#9 working after needs-you{blocked} → resumed",
-		setup: func(h *harness) { h.pane("w1:p1").Status = "blocked"; h.connect(); h.tick(11 * minute) },
+		setup: func(h *harness) { h.pane("w1:p1").Status = "blocked"; h.connect() },
 		event: func(h *harness) { h.status("w1:p1", func(p *port.Pane) { p.Status = "working" }) },
 		facts: []string{"T-1 resumed"}},
 
@@ -426,6 +452,65 @@ func TestWatchdogTable(t *testing.T) {
 			}
 			if tc.check != nil {
 				tc.check(t, h)
+			}
+		})
+	}
+}
+
+// A blocked worker's needs-you line and the owner's toast carry the pane's question, and say where a person answers
+// it (docs/state-model.md row 11).
+func TestBlockedNeedsYouCarriesTheQuestion(t *testing.T) {
+	t.Parallel()
+	h := ruleHarness(t)
+	h.panes.screen = "Do you want to proceed?\n❯ 1. Yes\n  2. No"
+	h.status("w1:p1", func(p *port.Pane) { p.Status = "blocked" })
+	h.a.rulePass(context.Background(), []rule{{name: ruleNeeds, when: needsRule}}, &Loop{})
+	_, lines := ruleLines(t, h)
+	if len(lines) != 1 {
+		t.Fatalf("needs-you lines = %q, want one", lines)
+	}
+	for _, want := range []string{"needs-you T-1 (L-01): blocked:", "Do you want to proceed?", "1. Yes 2. No",
+		"answer in pane w1:p1"} {
+		if !strings.Contains(lines[0], want) {
+			t.Errorf("line %q does not carry %q", lines[0], want)
+		}
+	}
+	if len(h.panes.notes) != 1 {
+		t.Fatalf("owner toasts = %q, want one", h.panes.notes)
+	}
+	for _, want := range []string{"Do you want to proceed?", "answer in pane w1:p1"} {
+		if !strings.Contains(h.panes.notes[0], want) {
+			t.Errorf("toast %q does not carry %q", h.panes.notes[0], want)
+		}
+	}
+}
+
+// question is what a blocked pane shows: its last non-empty lines from a questionScreen-line window, trimmed, at most
+// questionLines of them and questionChars runes; a Screen error is no text.
+func TestPaneQuestion(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name, screen string
+		err          error
+		want         string
+	}{
+		{name: "trimmed, blank lines dropped",
+			screen: "\n  Do you want to proceed?  \n\n  1. Yes\n2. No\n\n", want: "Do you want to proceed?\n1. Yes\n2. No"},
+		{name: "at most questionLines lines",
+			screen: "1\n2\n3\n4\n5\n6\n7", want: "2\n3\n4\n5\n6\n7"},
+		{name: "the question above blank rows, a border and a footer deeper than questionLines raw lines",
+			screen: "Do you want to proceed?\n❯ 1. Yes\n  2. No\n" + strings.Repeat("\n", 6) + "────────\n? for shortcuts",
+			want:   "Do you want to proceed?\n❯ 1. Yes\n2. No\n────────\n? for shortcuts"},
+		{name: "at most questionChars runes",
+			screen: strings.Repeat("é", questionChars+1), want: strings.Repeat("é", questionChars)},
+		{name: "a Screen error is no text", err: errors.New("pane.read: no such pane")},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			h := newHarness(t)
+			h.panes.screen, h.panes.screenErr = c.screen, c.err
+			if got := h.a.question(context.Background(), "w1:p1"); got != c.want {
+				t.Errorf("question = %q, want %q", got, c.want)
 			}
 		})
 	}

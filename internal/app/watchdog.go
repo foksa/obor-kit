@@ -8,6 +8,7 @@ import (
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"sort"
+	"strings"
 	"time"
 
 	"obor/internal/agents"
@@ -92,8 +93,9 @@ func (p *proj) openTasks() []string {
 
 // plan installs the lanes read and observes each open task's agent (a task on an unknown lane: none, its
 // baselines dropped): another agent or pane, none, or a status that is not ready resets the stall timer (see
-// sample). It is the panes to sample: every ready agent with an open task, at every check, and a stopped worker of a
-// kind whose turns are read whatever its status (its next turn ends the stop: turnStop).
+// sample). It is the panes to sample: every ready agent with an open task, at every check; a blocked one while its
+// needs-you is not in force, for the question it shows; and a stopped worker of a kind whose turns are read whatever
+// its status (its next turn ends the stop: turnStop).
 func (a *App) plan(p *proj, ls []port.Lane, now time.Time) []port.Pane {
 	var ask []port.Pane
 	p.setLanes(ls)
@@ -106,7 +108,7 @@ func (a *App) plan(p *proj, ls []port.Lane, now time.Time) []port.Pane {
 		}
 		at, _ := a.agentOf(p, w.lane)
 		if at.State != Identified {
-			w.quietSince, w.seenWrite, w.blocked = time.Time{}, time.Time{}, time.Time{}
+			w.quietSince, w.seenWrite = time.Time{}, time.Time{}
 			if (w.agent.ID != "" || at.State == Ambiguous) && w.lost.IsZero() {
 				w.lost = now
 			}
@@ -114,21 +116,23 @@ func (a *App) plan(p *proj, ls []port.Lane, now time.Time) []port.Pane {
 		}
 		pane := at.Pane
 		if pane.ID != w.agent.ID || pane.Agent != w.agent.Agent {
-			w.quietSince, w.seenWrite, w.blocked = time.Time{}, time.Time{}, time.Time{}
+			w.quietSince, w.seenWrite = time.Time{}, time.Time{}
 		}
 		w.agent, w.lost = pane, time.Time{}
 		switch {
 		case Ready(pane.Status):
-			w.blocked = time.Time{}
 			ask = append(ask, pane)
 			continue
 		case pane.Status == "blocked":
 			w.quietSince, w.seenWrite = time.Time{}, time.Time{}
-			if w.blocked.IsZero() {
-				w.blocked = now
+			// The needs-you is due at once (judge), its question read from the pane: ask only while there is none
+			// to record, or for the turn that ends a stopped worker.
+			if !p.has(task, event.StepNeedsYou, "blocked") || p.stops(task) && turnsRead(pane.Agent) {
+				ask = append(ask, pane)
 			}
+			continue
 		default:
-			w.quietSince, w.seenWrite, w.blocked = time.Time{}, time.Time{}, time.Time{}
+			w.quietSince, w.seenWrite = time.Time{}, time.Time{}
 		}
 		if p.stops(task) && turnsRead(pane.Agent) {
 			ask = append(ask, pane)
@@ -158,13 +162,14 @@ func (a *App) decide(p *proj, ev map[string]*evidence, now time.Time) {
 type verdict struct {
 	step, reason string    // the fact due ("": none)
 	cause        string    // its cause (a worker's stop: causeStopped)
+	question     string    // a blocked pane's question, its visible lines ("" when not read)
 	pane         port.Pane // the pane the fact names
 }
 
 // judge is the watchdogs' decision for task (docs/state-model.md rows 10–15), from the observed panes, the task's
 // facts and ev, the evidence sampled by pane. Its lane's panes running no agent after one ran for the task: the pane
 // exited, or the agent did and its shell stays (after Gone: a restart takes a moment). Working: activity, the stall
-// ends. Blocked for Idle since the agent was first seen blocked for the task: the owner is needed. Ready: sample.
+// ends. Blocked: the owner is needed at once, its text the question a person answers in the pane. Ready: sample.
 func (a *App) judge(p *proj, task string, w *watch, now time.Time, ev map[string]*evidence) verdict {
 	at, panes := a.agentOf(p, w.lane)
 	if at.State == Ambiguous { // two panes claim the lane's agent: the owner says which, after Gone
@@ -197,8 +202,11 @@ func (a *App) judge(p *proj, task string, w *watch, now time.Time, ev map[string
 			v.step = event.StepResumed
 		}
 	case o.Status == "blocked":
-		if !p.has(task, event.StepNeedsYou, "blocked") && now.Sub(w.blocked) >= a.opt.Idle {
+		if !p.has(task, event.StepNeedsYou, "blocked") {
 			v.step, v.reason = event.StepNeedsYou, "blocked"
+			if e := ev[o.ID]; e != nil {
+				v.question = e.question
+			}
 		}
 	case Ready(o.Status):
 		if e := ev[o.ID]; e != nil {
@@ -284,15 +292,55 @@ type evidence struct {
 	err   error     // Busy failed
 	last  time.Time // the transcript's last write
 	known bool      // last is known
+	// question is what a blocked pane shows: the lines a person answers ("" when the screen could not be read)
+	question string
 	// turn is the last turn the transcript records, of a kind whose turns are read (turned: it is known)
 	turn   agents.Turn
 	turned bool
 }
 
+// questionScreen is the visible lines question reads: an agent TUI's bottom rows are blank rows, a border and the
+// footer, so the question sits well above the last questionLines raw lines. questionLines is how many non-empty lines
+// of that window the needs-you carries, questionChars their cap.
+const (
+	questionScreen = 40
+	questionLines  = 6
+	questionChars  = 300
+)
+
+// question is what a blocked pane shows: its last non-empty screen lines, trimmed, at most questionLines of them and
+// questionChars runes. The cap cuts the end (the options) deliberately: the question comes first. "" when the screen
+// cannot be read: the fact is recorded without it.
+func (a *App) question(ctx context.Context, pane string) string {
+	screen, err := a.panes.Screen(ctx, pane, questionScreen)
+	if err != nil {
+		a.logf("screen of %s: %v (the blocked needs-you without its question)", pane, err)
+		return ""
+	}
+	var lines []string
+	for _, l := range strings.Split(screen, "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			lines = append(lines, l)
+		}
+	}
+	if len(lines) > questionLines {
+		lines = lines[len(lines)-questionLines:]
+	}
+	text := strings.Join(lines, "\n")
+	if r := []rune(text); len(r) > questionChars {
+		text = string(r[:questionChars])
+	}
+	return text
+}
+
 // evidence asks herdr about pane's activity (outside mu): the child-process check is a herdr call, its transcript the
-// observed pane's.
+// observed pane's. A blocked pane asks a person: its question is its screen's last lines, not its activity.
 func (a *App) evidence(ctx context.Context, pane port.Pane) *evidence {
 	e := &evidence{}
+	if pane.Status == "blocked" {
+		e.question = a.question(ctx, pane.ID)
+		return e
+	}
 	e.busy, e.err = a.panes.Busy(ctx, pane.ID)
 	if e.err != nil {
 		e.busy = false
@@ -306,7 +354,7 @@ func (a *App) evidence(ctx context.Context, pane port.Pane) *evidence {
 // next rule pass (rules.go, the needs rule).
 func (a *App) fact(p *proj, task string, w *watch, v verdict) bool {
 	data, _ := json.Marshal(event.FactData{Lane: w.lane.Name, Machine: Machine, Group: v.pane.Group,
-		Pane: v.pane.ID, Agent: a.shownAs(p, v.pane), Reason: v.reason,
+		Pane: v.pane.ID, Agent: a.shownAs(p, v.pane), Reason: v.reason, Question: v.question,
 		Cause: v.cause}) // strings: cannot fail
 	now := a.opt.Now()
 	r, err := p.log.Append(event.Record{Task: task, Step: v.step, Kind: event.KindFact, Data: data}, now)
