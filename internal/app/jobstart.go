@@ -34,16 +34,17 @@ func (a *App) job(ctx context.Context, p *proj, fx *Loop, mt mtask, jobStep stri
 	replay := p.log.Open(start)
 	a.mu.Lock()
 	w := a.whereIs(p, p.integrator)
-	d := startData{Agent: p.integrator}
+	d, live := startData{Agent: p.integrator}, ""
 	if w.State == Identified {
-		d.Pane, d.Ran, d.Session = w.Pane.ID, true, w.Pane.Session
+		live = p.liveSession(p.integrator, w.Pane)
+		d.Pane, d.Ran, d.Session = w.Pane.ID, true, live
 	}
 	if r, ok := p.log.Intent(start); ok { // a pending start: its recorded data
 		d = startData{}
 		_ = json.Unmarshal(r.Data, &d)
 	}
 	// the job's first start: a new session, unless a pending one shows its session started
-	fresh := start.Step == stepStart+jobStep && (!replay || freshAgain(d, w))
+	fresh := start.Step == stepStart+jobStep && (!replay || freshAgain(d, w, live))
 	force, wait := false, false
 	if fresh {
 		force, wait = a.integratorWait(p, mt.task, w)
@@ -89,16 +90,14 @@ func (a *App) job(ctx context.Context, p *proj, fx *Loop, mt mtask, jobStep stri
 }
 
 // freshAgain: a pending first start of an integrator job (its intent's data d) starts a fresh session again: the
-// snapshot (w) shows no integrator, or the session the intent saw (the start did not replace it). A session id
-// unknown at the intent or now cannot tell: no second start (it no-ops, the wake typed), as a new session does.
-func freshAgain(d startData, w Where) bool {
-	switch {
-	case w.State != Identified:
+// snapshot (w) shows no integrator, or the session the intent saw (the start did not replace it): live, the session
+// of the integrator's pane now (liveSession), is the intent's. A session id unknown at the intent or now cannot
+// tell: no second start (it no-ops, the wake typed), as a new session does.
+func freshAgain(d startData, w Where, live string) bool {
+	if w.State != Identified {
 		return true
-	case !d.Ran || d.Session == "" || w.Pane.Session == "":
-		return false
 	}
-	return w.Pane.Session == d.Session
+	return d.Ran && sameSession(live, d.Session)
 }
 
 // idleWait is since when the integrator's pane has been identified and not Ready: the busy interval belongs to the

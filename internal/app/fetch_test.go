@@ -387,17 +387,22 @@ func TestFreshIntegratorPendingStart(t *testing.T) {
 	for _, c := range []struct {
 		name          string
 		at            startData // the start's intent
-		now           string    // the integrator pane's session now ("gone": no integrator)
+		now           string    // the integrator pane's session now as herdr reports it ("gone": no integrator)
+		recorded      string    // the integrator's session recorded from its pane ("": none)
 		start, forced bool
 	}{
-		{"the same session: start again", startData{Agent: "pj-int", Pane: "w1:p9", Ran: true, Session: "old"}, "old",
+		{"no herdr session, the recorded session is the intent's: start again",
+			startData{Agent: "pj-int", Pane: "w1:p9", Ran: true, Session: "old"}, "", "old", true, false},
+		{"no herdr session, none recorded: cannot tell",
+			startData{Agent: "pj-int", Pane: "w1:p9", Ran: true, Session: "old"}, "", "", false, false},
+		{"the same session: start again", startData{Agent: "pj-int", Pane: "w1:p9", Ran: true, Session: "old"}, "old", "",
 			true, false},
-		{"none runs: start again", startData{Agent: "pj-int", Pane: "w1:p9", Ran: true, Session: "old"}, "gone",
+		{"none runs: start again", startData{Agent: "pj-int", Pane: "w1:p9", Ran: true, Session: "old"}, "gone", "",
 			true, false},
-		{"a new session: started", startData{Agent: "pj-int", Pane: "w1:p9", Ran: true, Session: "old"}, "new",
+		{"a new session: started", startData{Agent: "pj-int", Pane: "w1:p9", Ran: true, Session: "old"}, "new", "",
 			false, false},
-		{"none at the intent, one now: started", startData{Agent: "pj-int"}, "new", false, false},
-		{"unknown at the intent: cannot tell", startData{Agent: "pj-int", Pane: "w1:p9", Ran: true}, "old", false, false},
+		{"none at the intent, one now: started", startData{Agent: "pj-int"}, "new", "", false, false},
+		{"unknown at the intent: cannot tell", startData{Agent: "pj-int", Pane: "w1:p9", Ran: true}, "old", "", false, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -406,6 +411,10 @@ func TestFreshIntegratorPendingStart(t *testing.T) {
 			greenTask(r, "T-1", port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
 			r.add("pj", "T-1", event.StepReview, event.KindIntent, promptData{Agent: "pj-int", Job: "T-1/1/review", Patch: "p1"})
 			r.add("pj", "T-1", "start.review", event.KindIntent, c.at)
+			if c.recorded != "" {
+				r.add("pj", store.SessionTask, store.StepSession, event.KindFact,
+					store.Session{Agent: "pj-int", Kind: "claude", ID: c.recorded, Pane: "w1:p9", Started: 100})
+			}
 			r.a.mu.Lock()
 			if c.now == "gone" {
 				delete(r.a.obs, "w1:p9")

@@ -189,6 +189,7 @@ func TestStartReplay(t *testing.T) {
 		name                string
 		ran                 bool
 		atIntent, now       string // the session ids at the intent and in the snapshot now
+		recorded            string // the agent's session recorded from the pane now ("": none)
 		agentNow            bool
 		restarts            int
 		refused, transcript string
@@ -201,6 +202,8 @@ func TestStartReplay(t *testing.T) {
 		{name: "no session id at the intent: cannot tell", ran: true, now: "fresh", agentNow: true,
 			refused: "cannot tell"},
 		{name: "no session id now: cannot tell", ran: true, atIntent: "old", agentNow: true, refused: "cannot tell"},
+		{name: "no herdr session, another session recorded from the pane: started", ran: true, atIntent: "old",
+			recorded: "fresh", agentNow: true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -214,6 +217,9 @@ func TestStartReplay(t *testing.T) {
 			o.pane.Agent, o.pane.Session, o.pane.Transcript = "", c.now, c.transcript
 			if c.agentNow {
 				o.pane.Agent = "claude"
+			}
+			if c.recorded != "" {
+				h.session("pj-l-01", c.recorded, "/t/"+c.recorded+".jsonl", 100)
 			}
 			h.step(t, fx)
 			mt := h.proj().folded.loop["T-1"]

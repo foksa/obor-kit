@@ -139,7 +139,7 @@ func (a *App) nextStart(p *proj, mt mtask) step {
 		if o == nil {
 			return a.waitPane(p, mt)
 		}
-		d.Pane, d.Ran, d.Session = o.pane.ID, o.pane.Agent != "", o.pane.Session
+		d.Pane, d.Ran, d.Session = o.pane.ID, o.pane.Agent != "", p.liveSession(mt.agent, o.pane)
 	}
 	delete(p.nopane, mt.task)
 	// The work job the start runs under: one open from an earlier start, else the next.
@@ -292,8 +292,9 @@ func (a *App) startWorker(ctx context.Context, p *proj, fx *Loop, mt mtask, key 
 			case seenStarted: // the start that ran carried the same first prompt
 				return startOut{Line: "started (seen in the snapshot)", Agent: d.Agent, Pane: d.Pane}, nil
 			case seenUnknown:
-				return startOut{Refused: "cannot tell whether the agent in " + d.Pane + " is the one started (herdr " +
-					"reports no session id): look at the pane, then obor resume " + mt.task}, nil
+				return startOut{Refused: "cannot tell whether the agent in " + d.Pane + " is the one started (no " +
+					"session id recorded from the pane, and herdr reports none): look at the pane, then obor resume " +
+					mt.task}, nil
 			}
 		}
 		typ, _ := config.ParseModelRef(mt.disp.Type) // the dispatch's type, not the lane's configured one
@@ -320,19 +321,22 @@ const (
 // startSeen is the case table of a pending agent.start (docs/state-model.md row 4): pane d.Pane (of p) runs no
 // agent now → not started; it runs one and none ran at the intent → started; one ran then too: its session id
 // differs from the recorded one → started, the same → not started, unknown on either side → cannot tell. A session
-// is herdr's session id (Pane.Session), never whether its transcript file is found.
+// is the pane's live one (liveSession: the agent's session recorded from the pane, else herdr's session id), at the
+// intent and now, never whether its transcript file is found.
 func (a *App) startSeen(p *proj, d startData) int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	o := a.obs[d.Pane]
-	switch {
-	case o == nil || o.pane.Agent == "" || a.projectOf(o.pane) != p:
+	if o == nil || o.pane.Agent == "" || a.projectOf(o.pane) != p {
 		return seenNotStarted
+	}
+	live := p.liveSession(d.Agent, o.pane)
+	switch {
 	case !d.Ran:
 		return seenStarted
-	case d.Session == "" || o.pane.Session == "":
+	case d.Session == "" || live == "":
 		return seenUnknown
-	case o.pane.Session != d.Session:
+	case !sameSession(live, d.Session):
 		return seenStarted
 	}
 	return seenNotStarted
