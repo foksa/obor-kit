@@ -222,7 +222,7 @@ test minutes, reds and their re-run outcomes, needs-you from dirty lanes (risk 1
 | Task | Difficulty | Files | Depends on | Leaves |
 |---|---|---|---|---|
 | **T-G: promotion.** `branches.promote`, `merge.promote_weight`; the trigger (row 50); `promote.<seq>` in `<scratch_dir>-promote`; GREEN → ff the promoted branch, `promoted` fact, `last-full-check`; RED → retest (T-C) → needs-you listing the merges since; `after_promote` with `OBOR_ROOT` (row 51) and `after_merge` per publish off when promote is set; the nightly drops `check` when set; `flakes.go:243`; `obor status` promoted line. `Difficulty: hard`, `Review: on merge`. | hard | new `internal/app/promote.go`, new `internal/checks/promote.go`, `internal/checks/nightly.go:77`, `internal/app/steps.go` (`afterSteps`), `internal/config`, `internal/view`; `docs/state-model.md` rows 38, 45, 50, 51 | T-C (retest), T-A | with `branches.promote` unset: nothing changes (today's projects); set: `main` moves only on a GREEN full suite |
-| T-H: `Makefile` `OUT ?= dist/obor` for `build`; `.obor/config.json` `after_merge.cmd` = `make build OUT=$OBOR_ROOT/dist/obor` | simple | `Makefile`, `.obor/config.json`, `docs/UPGRADE-v0.30.md` (adopters' order of steps) | — (∥ T-G; the env var is ignored until T-G exports it) | — |
+| T-H: `Makefile` `OUT ?= dist/obor` for `build`; `.obor/config.json` `after_merge.cmd` = `make build OUT=$OBOR_ROOT/dist/obor` | simple | `Makefile`, `.obor/config.json`, the v0.30 upgrade guide (adopters' order of steps) | — (∥ T-G; the env var is ignored until T-G exports it) | — |
 | Owner's switch (§6) | — | config, one `git checkout -b` | T-G merged, T-H merged | lanes, reviews and serve's loop target `staging`; releases and `install.sh` follow `main` |
 
 **Phase 3: on numbers.**
@@ -242,7 +242,7 @@ new contract when T-A and T-E land: tests in the lane step, the slot compiles, n
 three days: `obor status` running list, `flakes.jsonl` `retried`, needs-you with "lane dirty".
 
 **Lead, phase 2.** Spec T-G and T-H with the owner's N and branch names (default 6, `staging` → `main`); dispatch T-H
-first (∥ T-G). Write `docs/UPGRADE-v0.30.md`: adopters without `branches.promote` see no change; with it, the owner's
+first (∥ T-G). Write the v0.30 upgrade guide: adopters without `branches.promote` see no change; with it, the owner's
 switch below.
 
 **Owner, one-time switch (after T-G and T-H merge, at a quiet queue).**

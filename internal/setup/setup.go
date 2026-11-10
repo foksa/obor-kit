@@ -206,7 +206,7 @@ func (s *Setup) findRoot() error {
 }
 
 // load finds the project and loads its effective config. A config.json that exists and fails to load fails with the
-// load's own error (a shape-1 file names its way out); the generic "no usable" text is for no file at all.
+// load's own error; the generic "no usable" text is for no file at all.
 func (s *Setup) load() error {
 	if err := s.findRoot(); err != nil {
 		return err

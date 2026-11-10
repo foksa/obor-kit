@@ -13,8 +13,8 @@ grep -q '"version": *2' .obor/config.json && echo "shape 2: ready for v0.34" || 
 ```
 
 A project still on shape 1 (one whose serve never started on v0.33): install v0.33, run `obor config migrate` in the
-project (or start its serve once), commit, then upgrade. `docs/UPGRADE-v0.33.md` lists every old and new key for a
-rewrite by hand.
+project (or start its serve once), commit, then upgrade. The v0.33 guide in the `v0.33.0` tag's tree lists every old
+and new key for a rewrite by hand.
 
 `.obor/local.json` has no version: a shape-1 key left in it is now an unknown key like any other — one warning per key
-for every reader, and `obor config validate` refuses it. Rename it by the v0.33 table.
+for every reader, and `obor config validate` refuses it. Rename it by the v0.33 tag's table.

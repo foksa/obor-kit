@@ -31,25 +31,20 @@ func Configured(root string) bool {
 	return err == nil
 }
 
-// NameAt is the name the project at root answers to: the name its .obor/config.json carries (project.name in config
-// shape 2, name in shape 1), else the directory's base name (the name obor send posts as the sender). ok false
-// only when root holds no config file: a config this binary cannot load (an older or a newer shape) still names
-// its project, so one machine's projects on different obor versions stay listed.
+// NameAt is the name the project at root answers to: project.name in its .obor/config.json, else the directory's base
+// name (the name obor send posts as the sender). ok false only when root holds no config file: a config this binary
+// cannot load (a newer shape, a broken key) still names its project through project.name, so one machine's projects
+// on different obor versions stay listed.
 func NameAt(root string) (string, bool) {
 	b, err := os.ReadFile(ConfigFile(root))
 	if err != nil {
 		return "", false
 	}
 	var doc struct {
-		Name    string
 		Project struct{ Name string } `json:"project"`
 	}
-	if json.Unmarshal(b, &doc) == nil {
-		for _, name := range []string{doc.Project.Name, doc.Name} {
-			if name != "" {
-				return name, true
-			}
-		}
+	if json.Unmarshal(b, &doc) == nil && doc.Project.Name != "" {
+		return doc.Project.Name, true
 	}
 	return filepath.Base(root), true
 }

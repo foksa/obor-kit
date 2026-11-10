@@ -101,7 +101,7 @@ func TestSendRequest(t *testing.T) {
 	}
 }
 
-// obor send reaches a project whose config this binary cannot load (another release's shape): sending needs the
+// obor send reaches a project whose config this binary cannot load (a broken key): sending needs the
 // target's root, and the target's serve loads its own config. By a known name and by a path into it.
 func TestSendToProjectWhoseConfigDoesNotLoad(t *testing.T) {
 	t.Parallel()
@@ -110,10 +110,10 @@ func TestSendToProjectWhoseConfigDoesNotLoad(t *testing.T) {
 	q := testkit.NewPlain(t)
 	q.Config(testkit.Set("project.name", "other"), testkit.Set("project.agent_prefix", "ot"))
 	q.Write("sub/x.txt", "x\n")
-	// A shape-1 file: this binary refuses it at the load, a serve of the version that wrote it does not.
-	q.Write(".obor/config.json", `{"name":"other","prefix":"ot","lane_types":{"opus":{"kind":"claude"}}}`+"\n")
+	// A config this binary cannot load (a key of a type the config does not take): the target's serve loads its own.
+	q.Write(".obor/config.json", `{"project":{"name":"other","agent_prefix":"ot"},"lanes":1}`+"\n")
 	if _, err := config.Load(q.Root); err == nil {
-		t.Fatal("precondition: the target's old-shape config loads")
+		t.Fatal("precondition: the target's config loads")
 	}
 	home, target := startFakeServe(t, q.Root, wire.Status{}, "SENT to ot-lead in other (posted to its session)", "")
 	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}

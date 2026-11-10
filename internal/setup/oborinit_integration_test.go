@@ -130,7 +130,7 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 	}
 	// init writes config shape 2: no lane types, a lanes count, roles as model refs.
 	doc := x.Read(".obor/config.json")
-	if strings.Contains(doc, "lane_types") || config.ShapeOf([]byte(doc)) != config.ShapeVersion ||
+	if strings.Contains(doc, "lane_types") || !strings.Contains(doc, `"version": 2`) ||
 		!regexp.MustCompile(`(?m)^    "count": 2,?$`).MatchString(doc) ||
 		!regexp.MustCompile(`"integrator": "opus"`).MatchString(doc) || !strings.Contains(doc, `"lead": "opus:high"`) {
 		t.Errorf("config.json is not the new shape:\n%s", doc)

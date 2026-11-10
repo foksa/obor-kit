@@ -72,23 +72,6 @@ func TestConfigPrintAndGet(t *testing.T) {
 	}
 }
 
-// a key of the shape before v0.23 in a shape-2 file is an ordinary unknown-key failure: `obor config
-// validate` names the key and says nothing of a migration (a file of shape 1 itself fails the load instead).
-func TestConfigValidateOldShapeKeysAreUnknownKeys(t *testing.T) {
-	t.Parallel()
-	for _, c := range []struct{ config, key string }{
-		{`{"version":2,"project":{"name":"proj","agent_prefix":"pj"},"lane_types":{"opus":{"kind":"claude"}}}`, "lane_types"},
-		{`{"version":2,"project":{"name":"proj","agent_prefix":"pj"},"lanes":{"count":2},"agents":{"triage":{"type":"opus"}}}`, "agents.triage"},
-	} {
-		p := testkit.NewPlain(t)
-		p.Write(".obor/config.json", c.config+"\n")
-		rc, stdout, stderr := run(t, p.Root, nil, "config", "validate")
-		if rc != 1 || !strings.Contains(stdout, "FAIL ."+c.key+": unknown to this obor") || strings.Contains(stdout, "predates v0.23") {
-			t.Errorf("%s: exit %d, %q (%s); want exit 1 and the unknown key %q", c.config, rc, stdout, stderr, c.key)
-		}
-	}
-}
-
 // whoami is `obor whoami [--json]` in dir with env: exit code, text and the decoded JSON.
 func whoamiIn(t *testing.T, dir string, env ...string) (string, map[string]any) {
 	t.Helper()
