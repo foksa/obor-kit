@@ -137,8 +137,9 @@ itself when it merges, and `obor review` stays for the every-~3-merges reviews.
   which commits the close, records it and stops the reviewer on its next pass.
   Refused, nothing changed: no open review, no review start for it in serve's log, a main checkout dirty outside
   `BACKLOG.md`, `docs/accepted.md`, a linked fix task open, or merged and no finished verify covering it (named;
-  `--force`, the owner's word, closes anyway). `--force` also closes a review whose file was never written: nothing is
-  deleted and the reviewed sha is its start's head.
+  `--force`, the owner's word, closes anyway). `--force` also closes an unwritten review when it covers no task (nothing
+  is deleted, the reviewed sha its start's head); one that covers tasks is refused, naming the `obor brief` line that
+  has its reviewer write it first.
   Steps and texts: review-brief.md §3–5.
 
 ## An agent stopped by an API error

@@ -130,5 +130,7 @@ no review start for it in serve's log, the main checkout not on the integration 
 `BACKLOG.md`, `docs/accepted.md` and the review's files, or a task linked by its `Fixes:` line open, or merged and not
 covered (named;
 `--force`, the owner's word, closes anyway). `--force` also closes a review whose file was never written (the reviewer
-stopped before writing it): nothing is deleted, the reviewed sha is its start's head and the subject says `abandoned`.
+stopped before writing it) when it covers no task; one that covers tasks is refused, naming the `obor brief` line
+that has its reviewer write it first. An unwritten close deletes nothing, its reviewed sha is its start's head and the
+subject says `abandoned`.
 Nothing else of the review is kept; the reviewer's evidence lives only in its session.

@@ -72,47 +72,79 @@ func TestReviewCloseRefusals(t *testing.T) {
 }
 
 // A review serve started whose file the reviewer never wrote: without --force the close is refused with the one way out
-// and records nothing; --force closes it unwritten (nothing to delete, the reviewed sha its start's head, the subject's
-// verdict "abandoned") and the next review starts.
+// and records nothing; --force closes it unwritten when it covers no task (nothing to delete, the reviewed sha its
+// start's head, the subject's verdict "abandoned") and the next review starts. One that covers a task is refused with
+// --force too, naming the brief that has its reviewer write it, and changes nothing.
 func TestReviewCloseUnwritten(t *testing.T) {
 	t.Parallel()
-	r := newReviewRig(t)
-	startedReview(t, r) // RV-5 at startHead, and no reviews/RV-5.md
-	if r.p.folded.rv.last().open() != "RV-5" {
-		t.Fatalf("precondition: %+v, want RV-5 open", r.p.folded.rv.last())
-	}
-	_, err := r.close("c1", "never written", false)
-	want := fmt.Sprintf("no open review: no reviews/RV-5.md in %s (RV-5 is not written yet: obor review close"+
-		" \"<summary>\" --force closes it unwritten)", r.p.root)
-	if err == nil || err.Error() != want {
-		t.Fatalf("close without --force: %v; want %q", err, want)
-	}
-	if n, f := r.commits(), r.closedFacts(); n != 0 || len(f) != 0 {
-		t.Fatalf("a refused close: %d commits, facts %+v; want none", n, f)
-	}
-	subject := "RV-5 closed · 1234567 · abandoned · never written"
-	reply, err := r.close("c2", "never written", true)
-	if err != nil || reply != "CLOSED "+subject {
-		t.Fatalf("--force: %q, %v; want CLOSED %q", reply, err, subject)
-	}
-	wantCommit := port.ReviewCommit{Branch: "main", ID: "RV-5", File: r.p.root + "/reviews/RV-5.md",
-		Reviewed: startHead, Subject: subject, Body: "Covered: T-start\nStart: " + startHead}
-	if r.commits() != 1 || !commitEqual(r.git.closes[0], wantCommit) {
-		t.Errorf("committed %+v, want %+v", r.git.closes, wantCommit)
-	}
-	if f := r.closedFacts(); len(f) != 1 || f[0].ID != "RV-5" || f[0].Reply != "CLOSED "+subject || f[0].Head != startHead {
-		t.Errorf("review.closed facts %+v, want RV-5's once at %s", f, startHead)
-	}
-	if r.p.folded.rv.last().open() != "" {
-		t.Errorf("the fold %+v, want RV-5 closed", r.p.folded.rv.last())
-	}
-	if got := r.mustCall("r2", nil, "", false); got != "REVIEW REQUESTED (now)" {
-		t.Fatalf("obor review after the close: %q", got)
-	}
-	r.pass()
-	if l := r.agents.launches; len(l) != 1 || !strings.HasPrefix(l[0].Prompt, "Review RV-6. ") {
-		t.Errorf("launches %+v, want the next review RV-6 started", l)
-	}
+	t.Run("covers no task", func(t *testing.T) {
+		t.Parallel()
+		r := newReviewRig(t)
+		r.fact(event.ReviewTask, event.StepReviewStarted, ReviewData{ID: "RV-5", Head: startHead}) // covers no task
+		if r.p.folded.rv.last().open() != "RV-5" {
+			t.Fatalf("precondition: %+v, want RV-5 open", r.p.folded.rv.last())
+		}
+		_, err := r.close("c1", "never written", false)
+		want := fmt.Sprintf("no open review: no reviews/RV-5.md in %s (RV-5 is not written yet: obor review close"+
+			" \"<summary>\" --force closes it unwritten if it covers no task)", r.p.root)
+		if err == nil || err.Error() != want {
+			t.Fatalf("close without --force: %v; want %q", err, want)
+		}
+		if n, f := r.commits(), r.closedFacts(); n != 0 || len(f) != 0 {
+			t.Fatalf("a refused close: %d commits, facts %+v; want none", n, f)
+		}
+		subject := "RV-5 closed · 1234567 · abandoned · never written"
+		reply, err := r.close("c2", "never written", true)
+		if err != nil || reply != "CLOSED "+subject {
+			t.Fatalf("--force: %q, %v; want CLOSED %q", reply, err, subject)
+		}
+		wantCommit := port.ReviewCommit{Branch: "main", ID: "RV-5", File: r.p.root + "/reviews/RV-5.md",
+			Reviewed: startHead, Subject: subject, Body: "Covered: \nStart: " + startHead} // its start covered no task
+		if r.commits() != 1 || !commitEqual(r.git.closes[0], wantCommit) {
+			t.Errorf("committed %+v, want %+v", r.git.closes, wantCommit)
+		}
+		if f := r.closedFacts(); len(f) != 1 || f[0].ID != "RV-5" || f[0].Reply != "CLOSED "+subject || f[0].Head != startHead {
+			t.Errorf("review.closed facts %+v, want RV-5's once at %s", f, startHead)
+		}
+		if r.p.folded.rv.last().open() != "" {
+			t.Errorf("the fold %+v, want RV-5 closed", r.p.folded.rv.last())
+		}
+		if got := r.mustCall("r2", nil, "", false); got != "REVIEW REQUESTED (now)" {
+			t.Fatalf("obor review after the close: %q", got)
+		}
+		r.pass()
+		if l := r.agents.launches; len(l) != 1 || !strings.HasPrefix(l[0].Prompt, "Review RV-6. ") {
+			t.Errorf("launches %+v, want the next review RV-6 started", l)
+		}
+	})
+	t.Run("covers a task", func(t *testing.T) {
+		t.Parallel()
+		r := newReviewRig(t)
+		startedReview(t, r) // RV-5 at startHead covering T-start, and no reviews/RV-5.md
+		_, err := r.close("c1", "never written", false)
+		unwritten := fmt.Sprintf("no open review: no reviews/RV-5.md in %s (RV-5 is not written yet: obor review close"+
+			" \"<summary>\" --force closes it unwritten if it covers no task)", r.p.root)
+		if err == nil || err.Error() != unwritten {
+			t.Fatalf("close without --force: %v; want %q", err, unwritten)
+		}
+		want := `RV-5 is not written yet and covers T-start: have its reviewer write it (obor brief pj-rev "Write` +
+			` reviews/RV-5.md: the review of T-start at 1234567"), then close it`
+		force := func() {
+			t.Helper()
+			_, err := r.close("c2", "forced", true)
+			if err == nil || err.Error() != want {
+				t.Errorf("close --force: %v; want %q", err, want)
+			}
+			if n, f, s := r.commits(), r.closedFacts(), r.facts(event.StepReviewClosing); n != 0 || len(f) != 0 || s != 0 {
+				t.Errorf("a refused --force close: %d commits, %d closing facts, facts %+v; want none", n, s, f)
+			}
+			if r.p.folded.rv.last().open() != "RV-5" {
+				t.Errorf("a refused --force close took RV-5 out of the fold: %+v", r.p.folded.rv.last())
+			}
+		}
+		force()
+		force() // a repeated call id: the refusal again, nothing recorded
+	})
 }
 
 // A close of a verified fix round: the main checkout commits the subject and body as before (the verify's head, the
