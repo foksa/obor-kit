@@ -224,12 +224,12 @@ func TestKitKindDefaultCommand(t *testing.T) {
 // stateNamed is a start's state writer that writes nothing: the file's path is /state/<name>.
 func stateNamed(name string, _ []byte) (string, error) { return "/state/" + name, nil }
 
-// launchArgs is m.Launch's args of a start of agent a with no override, kit, dir, write dirs or prompt (the type's
+// launchArgs is m.Launch's args of a start of agent a with no override file, kit, dir, write dirs or prompt (the type's
 // launch args; a start file is named in /state, not written); an error fails the test (a compiled kind's start has
 // none).
 func launchArgs(t *testing.T, m Model, role, effort string) []string {
 	t.Helper()
-	l, err := m.Launch(role, agents.Override{}, agents.Start{Agent: "a", Effort: effort, WriteState: stateNamed})
+	l, err := m.Launch(role, nil, agents.Start{Agent: "a", Effort: effort, WriteState: stateNamed})
 	if err != nil {
 		t.Fatalf("Launch(%s, %s): %v", role, effort, err)
 	}

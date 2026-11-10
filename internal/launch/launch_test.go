@@ -460,17 +460,17 @@ func (x *fx) settingsFile(agent string) string {
 }
 
 // A Claude agent that is no lead starts on the project's settings and its own settings file,
-// <state>/settings/<agent>.json, written at each start (the last start's replaced): the user's settings with the user's plugins off, the config's
-// override applied (the role's laid over the kind's) and obor's own keys. A lead starts on the user's settings as
-// they are: no --setting-sources, no --settings and no file.
+// <state>/settings/<agent>.json, written at each start (the last start's replaced): the user's settings with the
+// user's plugins off, the project's override file (.obor/claude/settings_override.json, read at the project's root)
+// laid over them and obor's own keys. A lead starts on the user's settings as they are: no --setting-sources, no
+// --settings and no file. An override file that does not parse refuses the start, naming the file.
 func TestStartWritesTheSettingsFile(t *testing.T) {
 	t.Parallel()
-	x := setup(t, testkit.Set("agents.overrides.claude", `{"settings":{"env":{"KIND":"k"}},"off":{"mcp":["x-srv"]}}`),
-		testkit.Set("agents.roles.integrator", `{"model":"opus","overrides":{"claude":{"settings":{"env":{"ROLE":"r"}},"off":{"mcp":["y-srv"]}}}}`))
-	// the user's settings: a variable, a plugin and three MCP servers (the kind's override switches x-srv off, the
-	// integrator's y-srv too)
+	x := setup(t)
+	x.p.Write(".obor/claude/settings_override.json", `{"env": {"KIND": "k"}, "mcpServers": {"x-srv": null}}`)
+	// the user's settings: a variable, a plugin and two MCP servers (the override deletes x-srv)
 	x.p.Write(filepath.Join(x.claude, "settings.json"), `{"env":{"USER":"u"},"enabledPlugins":{"a@m":true},`+
-		`"mcpServers":{"keep":{"command":"k"},"x-srv":{"command":"x"},"y-srv":{"command":"y"}}}`)
+		`"mcpServers":{"keep":{"command":"k"},"x-srv":{"command":"x"}}}`)
 	x.p.Write(filepath.Join(project.StateDir(x.p.Root), claude.StateSettings("pj-int")), `{"env":{"LAST":"start"}}`)
 	start := func(agent, pane, cwd string) string {
 		t.Helper()
@@ -481,24 +481,32 @@ func TestStartWritesTheSettingsFile(t *testing.T) {
 		calls := x.calls("agent.start")
 		return calls[len(calls)-1]
 	}
-	const obor = `"autoMemoryEnabled":false,"enabledPlugins":{"a@m":false},`
+	const want = `{"autoMemoryEnabled":false,"enabledPlugins":{"a@m":false},"env":{"KIND":"k","USER":"u"},` +
+		`"mcpServers":{"keep":{"command":"k"}},"remoteControlAtStartup":false}`
 	file := "--setting-sources project,local --settings " + filepath.Join(project.StateDir(x.p.Root), "settings", "pj-int.json")
 	if got := start("pj-int", "w1:p5", x.p.Root); !strings.Contains(got, file+" ") {
 		t.Errorf("the integrator's start %q lacks %q", got, file)
 	}
-	if got, want := x.settingsFile("pj-int"), `{`+obor+`"env":{"KIND":"k","ROLE":"r","USER":"u"},`+
-		`"mcpServers":{"keep":{"command":"k"}},"remoteControlAtStartup":false}`; got != want {
+	if got := x.settingsFile("pj-int"); got != want {
 		t.Errorf("the integrator's settings file\n %s\nwant\n %s", got, want)
 	}
-	// a lane's worker: the kind's override alone, its own file
+	// a lane's worker: the same override (the project root's, not its lane's), its own file
 	start("pj-l-01", "w1:p3", "")
-	if got, want := x.settingsFile("pj-l-01"), `{`+obor+`"env":{"KIND":"k","USER":"u"},`+
-		`"mcpServers":{"keep":{"command":"k"},"y-srv":{"command":"y"}},"remoteControlAtStartup":false}`; got != want {
+	if got := x.settingsFile("pj-l-01"); got != want {
 		t.Errorf("the worker's settings file\n %s\nwant\n %s", got, want)
 	}
 	lead := start("pj-lead", "w1:p1", x.p.Root)
 	if strings.Contains(lead, "--setting-sources") || strings.Contains(lead, "--settings") || x.settingsFile("pj-lead") != "" {
 		t.Errorf("the lead's start %q (settings file %q): want no --setting-sources, no --settings and no file", lead, x.settingsFile("pj-lead"))
+	}
+
+	x.p.Write(".obor/claude/settings_override.json", `{"env": `)
+	before := len(x.calls("agent.start"))
+	x.shell("w1:p5", "pj-int", x.p.Root)
+	out, ok := x.restart(launch.Request{Agent: "pj-int", Fresh: true})
+	if ok || !strings.Contains(out, ".obor/claude/settings_override.json: does not parse") || len(x.calls("agent.start")) != before {
+		t.Errorf("an override file that does not parse: restart = %q, %v with %d more starts; want it refused, naming the file",
+			out, ok, len(x.calls("agent.start"))-before)
 	}
 }
 

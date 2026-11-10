@@ -36,6 +36,9 @@ func opencode(t *testing.T, stateDir string) agents.Kind {
 // delivery, the plugin hook transport.
 func TestKind(t *testing.T) {
 	k := opencode(t, t.TempDir())
+	if got := agents.OverrideFiles(k); !slices.Equal(got, []string{"opencode_override.json"}) {
+		t.Errorf("OverrideFiles = %q, want the manifest's override_files, opencode_override.json", got)
+	}
 	write := func(name string, _ []byte) (string, error) { return "/state/" + name, nil }
 	for _, c := range []struct {
 		name string
@@ -191,14 +194,14 @@ func TestStartEnvTrimsTheUserSkills(t *testing.T) {
 	if !slices.Contains(k.Vars(), kind.SkillsVar) {
 		t.Errorf("Vars %q lack %s: another kind's start would not unset it", k.Vars(), kind.SkillsVar)
 	}
-	start := func(over *agents.Override) agents.Launch {
-		l, err := agents.StartOf(k, agents.Start{Args: []string{"--auto", "--model", "p/m"}, Prompt: "go", Override: over})
+	start := func(trim bool) agents.Launch {
+		l, err := agents.StartOf(k, agents.Start{Args: []string{"--auto", "--model", "p/m"}, Prompt: "go", TrimUser: trim})
 		if err != nil {
 			t.Fatal(err)
 		}
 		return l
 	}
-	trimmed, whole := start(&agents.Override{}), start(nil)
+	trimmed, whole := start(true), start(false)
 	if v := trimmed.Env[kind.SkillsVar]; v != "1" {
 		t.Errorf("a trimmed start: %s = %q in %v, want 1", kind.SkillsVar, v, trimmed.Env)
 	}
@@ -339,39 +342,33 @@ func TestMainRefuses(t *testing.T) {
 	}
 }
 
-// userConfig is a user's OpenCode config dir under a fresh XDG_CONFIG_HOME: opencode.json with a setting and two
-// MCP servers, and a plugins dir with herdr's plugin (its id differs from its file name), another file plugin and a
-// package dir. started is the generated config of a start with over from kit /kit, read back.
-func userConfig(t *testing.T) (started func(over *agents.Override) (map[string]any, []byte)) {
+// userConfig is a user's OpenCode config dir under a fresh XDG_CONFIG_HOME: opencode.json (with comments and
+// trailing commas) holding a setting and two MCP servers. started is the generated config of a start from kit /kit,
+// trimmed or not, with the override file override ("": the project has none), read back.
+func userConfig(t *testing.T) (started func(trim bool, override string) (map[string]any, []byte)) {
 	t.Helper()
 	xdg := t.TempDir()
-	files := map[string]string{
-		"opencode.json": `{"default_agent": "plan", // mine
-			"mcp": {"servers": {
-				"herd": {"type": "local", "command": ["/h/bin/herd", "mcp"], "environment": {"HERD_NO_SELF_HOST": "1"}},
-				"docs": {"type": "remote", "url": "https://docs.example/mcp"},},},}`,
-		"plugins/herdr-agent-state.js": "function send() { return { id: requestId } }\nexport default {\n  id: \"herdr.opencode\",\n  setup() {},\n};\n",
-		"plugins/herd.js":              "export default { id: 'herd.opencode', setup() {} };\n",
-		"plugins/notes.md":             `id: "no.plugin"`,
-		"plugins/pkg/package.json":     `{"main": "main.js"}`,
-		"plugins/pkg/main.js":          `export default { id: "acme.herdr-like", setup() {} };`,
+	file := filepath.Join(xdg, "opencode", "opencode.json")
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	for rel, text := range files {
-		file := filepath.Join(xdg, "opencode", rel)
-		if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(file, []byte(text), 0o644); err != nil {
-			t.Fatal(err)
-		}
+	if err := os.WriteFile(file, []byte(`{"default_agent": "plan", // mine
+		"mcp": {"servers": {
+			"herd": {"type": "local", "command": ["/h/bin/herd", "mcp"], "environment": {"HERD_NO_SELF_HOST": "1"}},
+			"docs": {"type": "remote", "url": "https://docs.example/mcp"},},},}`), 0o644); err != nil {
+		t.Fatal(err)
 	}
 	k := opencode(t, t.TempDir())
 	env := func(v string) string { return map[string]string{"XDG_CONFIG_HOME": xdg, "HOME": "/nowhere"}[v] }
-	return func(over *agents.Override) (map[string]any, []byte) {
+	return func(trim bool, override string) (map[string]any, []byte) {
 		t.Helper()
 		var b []byte
 		write := func(name string, data []byte) (string, error) { b = data; return "/state/" + name, nil }
-		if _, err := agents.StartOf(k, agents.Start{Kit: "/kit", Override: over, Env: env, WriteState: write}); err != nil {
+		in := agents.Start{Kit: "/kit", TrimUser: trim, Env: env, WriteState: write}
+		if override != "" {
+			in.Overrides = map[string]string{kind.OverrideFile: override}
+		}
+		if _, err := agents.StartOf(k, in); err != nil {
 			t.Fatal(err)
 		}
 		var doc map[string]any
@@ -382,87 +379,64 @@ func userConfig(t *testing.T) (started func(over *agents.Override) (map[string]a
 	}
 }
 
-// servers and plugins of a generated config.
+// servers of a generated config.
 func serversOf(doc map[string]any) map[string]any {
 	mcp, _ := doc["mcp"].(map[string]any)
 	s, _ := mcp["servers"].(map[string]any)
 	return s
 }
 
-// an override's settings are merged into the generated config: their keys beside obor's, their own MCP server and
-// plugin entries kept beside obor's server and plugin, and obor's server not theirs to replace.
-func TestOverrideSettingsAreMergedIntoTheConfig(t *testing.T) {
+// the override file is laid over the user's own config as a merge patch, and the result is the generated config's
+// base: OpenCode's own plugin removal is in its plugins after obor's plugin, a key it sets wins over the user's, a
+// server it only marks disabled is the user's whole definition with disabled true (OpenCode ignores a bare one),
+// the user's other server and keys stay, and obor's server is not the file's to replace.
+func TestOverrideFileIsMergedOverTheUserConfig(t *testing.T) {
 	started := userConfig(t)
-	doc, _ := started(&agents.Override{Settings: map[string]any{
-		"default_agent": "build",
-		"plugins":       []any{"-acme.exact"},
-		"mcp": map[string]any{"timeout": 5.0, "servers": map[string]any{
-			"mine": map[string]any{"type": "local", "command": []any{"m"}},
-			"obor": map[string]any{"type": "local", "command": []any{"not-obor"}}}},
-	}})
+	doc, _ := started(true, `{"plugins": ["-herdr.opencode"]}`)
+	if want := []any{"file:///kit/opencode", "-herdr.opencode"}; !reflect.DeepEqual(doc["plugins"], want) {
+		t.Errorf("plugins = %v, want %v", doc["plugins"], want)
+	}
+	if s := serversOf(doc); doc["default_agent"] != "plan" || len(s) != 3 || s["herd"] == nil || s["docs"] == nil {
+		t.Errorf("the override names plugins alone: default_agent %v, servers %v, want the user's own beside obor's", doc["default_agent"], s)
+	}
+
+	doc, _ = started(true, `{"default_agent": "build", "mcp": {"timeout": 5, "servers": {
+		"herd": {"disabled": true}, "docs": null, "mine": {"type": "local", "command": ["m"]},
+		"obor": {"type": "local", "command": ["not-obor"]}}}}`)
 	if doc["default_agent"] != "build" {
 		t.Errorf("default_agent = %v, want the override's build", doc["default_agent"])
 	}
 	mcp, _ := doc["mcp"].(map[string]any)
 	s := serversOf(doc)
+	herd := map[string]any{"type": "local", "command": []any{"/h/bin/herd", "mcp"},
+		"environment": map[string]any{"HERD_NO_SELF_HOST": "1"}, "disabled": true}
+	if !reflect.DeepEqual(s["herd"], herd) {
+		t.Errorf("mcp.servers.herd = %v, want the user's definition with disabled: %v", s["herd"], herd)
+	}
 	mine, _ := s["mine"].(map[string]any)
 	obor, _ := s["obor"].(map[string]any)
-	if mcp["timeout"] != 5.0 || len(s) != 2 || mine["type"] != "local" || !reflect.DeepEqual(obor["command"], []any{"/kit/bin/obor", "mcp"}) {
-		t.Errorf("mcp = %v: want the settings' timeout and server, and obor's own server", mcp)
+	if _, docs := s["docs"]; docs || mcp["timeout"] != 5.0 || len(s) != 3 || mine["type"] != "local" ||
+		!reflect.DeepEqual(obor["command"], []any{"/kit/bin/obor", "mcp"}) {
+		t.Errorf("mcp = %v: want the override's timeout and server, no docs (null), and obor's own server", mcp)
 	}
-	if want := []any{"file:///kit/opencode", "-acme.exact"}; !reflect.DeepEqual(doc["plugins"], want) {
+	if want := []any{"file:///kit/opencode"}; !reflect.DeepEqual(doc["plugins"], want) {
 		t.Errorf("plugins = %v, want %v", doc["plugins"], want)
 	}
 }
 
-// off.plugins matching herdr's plugin writes "-<its id>" (the id its module declares, not its file name) and keeps
-// the user's other plugins: no entry for them.
-func TestOffPluginsRemovesTheMatchingUserPlugin(t *testing.T) {
-	started := userConfig(t)
-	if doc, _ := started(&agents.Override{}); !reflect.DeepEqual(doc["plugins"], []any{"file:///kit/opencode"}) {
-		t.Fatalf("precondition: no off list removes nothing: plugins = %v", doc["plugins"])
-	}
-	doc, _ := started(&agents.Override{Off: agents.Off{Plugins: []string{"herdr.opencode"}, Hooks: []string{"herd.opencode"}}})
-	if want := []any{"file:///kit/opencode", "-herdr.opencode"}; !reflect.DeepEqual(doc["plugins"], want) {
-		t.Errorf("plugins = %v, want %v (herd.opencode and the package's plugin kept, off.hooks naming nothing)", doc["plugins"], want)
-	}
-	doc, _ = started(&agents.Override{Off: agents.Off{Plugins: []string{"herdr"}}})
-	if want := []any{"file:///kit/opencode", "-herdr.opencode", "-acme.herdr-like"}; !reflect.DeepEqual(doc["plugins"], want) {
-		t.Errorf("a substring: plugins = %v, want %v (in the plugins dir's order, a package dir's plugin too)", doc["plugins"], want)
-	}
-}
-
-// off.mcp repeats the matching user server's whole definition with disabled true (OpenCode ignores a bare
-// disabled), leaves the user's other server unnamed and keeps obor's.
-func TestOffMCPRepeatsTheServerDisabled(t *testing.T) {
-	started := userConfig(t)
-	if doc, _ := started(&agents.Override{}); len(serversOf(doc)) != 1 {
-		t.Fatalf("precondition: no off list names no user server: %v", serversOf(doc))
-	}
-	doc, _ := started(&agents.Override{Off: agents.Off{MCP: []string{"herd"}}})
-	s := serversOf(doc)
-	want := map[string]any{"type": "local", "command": []any{"/h/bin/herd", "mcp"},
-		"environment": map[string]any{"HERD_NO_SELF_HOST": "1"}, "disabled": true}
-	if !reflect.DeepEqual(s["herd"], want) {
-		t.Errorf("mcp.servers.herd = %v, want the user's definition with disabled: %v", s["herd"], want)
-	}
-	if _, obor := s["obor"]; len(s) != 2 || !obor {
-		t.Errorf("mcp.servers = %v: want herd and obor only (docs is not named)", s)
-	}
-}
-
-// a lead's start (no override) writes obor's own config unchanged, whatever the user's config holds; the same user
-// config under an override that names it does change the file.
+// a lead's start (not trimmed) writes obor's own config unchanged, whatever the user's config and the project's
+// override file hold, and so does a trimmed start of a project with no override file; the same override on a trimmed
+// start does change the file.
 func TestLeadStartConfigIsUnchanged(t *testing.T) {
 	started := userConfig(t)
-	off := agents.Off{Plugins: []string{"herd"}, MCP: []string{"herd"}}
-	if _, b := started(&agents.Override{Off: off}); bytes.Equal(b, kind.Config("/kit")) {
-		t.Fatal("precondition: an override naming the user's entries changes the config")
+	const override = `{"plugins": ["-herdr.opencode"]}`
+	if _, b := started(true, override); bytes.Equal(b, kind.Config("/kit")) {
+		t.Fatal("precondition: the override file changes a trimmed start's config")
 	}
-	if _, b := started(nil); !bytes.Equal(b, kind.Config("/kit")) {
+	if _, b := started(false, override); !bytes.Equal(b, kind.Config("/kit")) {
 		t.Errorf("a lead's config:\n%s\nwant obor's own:\n%s", b, kind.Config("/kit"))
 	}
-	if _, b := started(&agents.Override{}); !bytes.Equal(b, kind.Config("/kit")) {
-		t.Errorf("an empty override's config:\n%s\nwant obor's own:\n%s", b, kind.Config("/kit"))
+	if _, b := started(true, ""); !bytes.Equal(b, kind.Config("/kit")) {
+		t.Errorf("a trimmed start's config with no override file:\n%s\nwant obor's own:\n%s", b, kind.Config("/kit"))
 	}
 }

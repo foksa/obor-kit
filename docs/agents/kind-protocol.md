@@ -54,7 +54,7 @@ obor runs `<command> <call>` with one JSON object on stdin and reads one JSON ob
 | Call | Request fields | Reply | Replaces (`agents.Kind`) | When |
 |---|---|---|---|---|
 | `describe` | — | the manifest (below) | `Name`, `Caps`, `Efforts`, `Vars`, `Stop`, `Headless`, `Transcript`, `InboxRecord`, `MCPRegistration.Lane` | `obor setup agents`, `obor config validate`, a changed command |
-| `start` | `env`, `kit`, `args`, `settings`, `resume`, `prompt`, `effort`, `strict_mcp`, `trim_user`, `override`, `session`, `write_dirs`, `dir` | `args` (argv after the binary), `env` (variable → value, "" unsets), `files: [{name, bytes}]` | `StartWhole` (a compiled kind's `Start` and `StartEnv`, `agents.Split`) | once per agent start, with every field of the start: its argv, env and files applied together; also obor config validate's effort check (`args` and `effort` alone, its files not written: `agents.ArgsChecker`) |
+| `start` | `env`, `kit`, `args`, `settings`, `resume`, `prompt`, `effort`, `strict_mcp`, `trim_user`, `overrides`, `session`, `write_dirs`, `dir`, `root` | `args` (argv after the binary), `env` (variable → value, "" unsets), `files: [{name, bytes}]` | `StartWhole` (a compiled kind's `Start` and `StartEnv`, `agents.Split`) | once per agent start, with every field of the start: its argv, env and files applied together; also obor config validate's effort check (`args` and `effort` alone, its files not written: `agents.ArgsChecker`) |
 | `not-ready` | `screen` | `why` ("" ready) | `NotReady` | per poll during a start, when the manifest says `not_ready: {call: true}` |
 | `install` | `kit`, `env` | `mcp: {where, path, key, entry, unpinned}` | `Install` | `obor setup agents`, `obor setup mcp` |
 | `turn` | `what: last` + `tail`; `what: session` + `first`; `what: reset` + `error`, `details`, `at` | last: `ok`, `turn: {id, error, details, ended, reset}`; session: `ok`, `session: {id, cwd, started}`; reset: `limited`, `reset` | `LastTurn`, `Session`, `Reset` | per transcript poll (status `transcript`), a launch finding a session, a stop on an error |
@@ -81,22 +81,20 @@ The compiled kinds get three Go functions; a process gets data instead.
 Every variable in `env` must be among the manifest's `vars` (`agents.Vars`: a start unsets every registry var
 it does not set).
 
-`override` (`agents.Start.Override`) is what obor overrides of the user's own settings on this start: an object for
-every agent but a lead, `null` for a lead (the user's settings as they are); `trim_user` is true when there is one.
+`trim_user` (`agents.Start.TrimUser`) is true for every agent but a lead: the kind switches off its default part of
+the user's own settings (the user's plugins and skills, as far as its CLI has a switch) and applies `overrides`;
+every other user setting applies. A lead's start has `trim_user` false and the user's settings as they are.
 
-```json
-{"settings": {"<key in the kind's own shape>": "…"},
- "off": {"hooks": ["<substring>"], "plugins": ["…"], "skills": ["…"], "mcp": ["…"]}}
-```
+`overrides` (`agents.Start.Overrides`) are the project's override files of the kind: an object, file name → the
+document as written (text), holding each file the manifest's `override_files` names that the project has in
+`.obor/<name>/` at its root (none: `null`). obor reads the files and checks that each parses (`.toml` as TOML, any
+other name as a JSON object); the kind merges each over the user's file of the same kind, which it reads itself
+from the config dir the request's `env` places, as a JSON Merge Patch (RFC 7396: objects merge key by key, `null`
+deletes a key, anything else replaces). `root` is the project's root.
 
-It is the config's `agents.overrides.<kind>` with the role's `overrides.<kind>` laid over it; a member the config
-does not name is absent (`{}`: no override named, the kind's defaults alone). `settings` are set over the user's;
-each `off` entry is a substring of the user's own entry (a hook's command, a plugin id, a skill dir name, an MCP
-server name) to switch off. With any override obor switches off the user's plugins and skills; every other user
-setting applies. The kind says what its switch names and what stays (OpenCode: `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1`
-in `env`, "" for a lead, hides the Claude skill dirs only; `settings`, `off.plugins` and `off.mcp` go into its
-generated config file, read from the user's config dir that the request's `env` places). What the CLI has no switch
-for stays visible.
+OpenCode: `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` in `env` on a trimmed start ("" for a lead) hides the Claude skill
+dirs only; `opencode_override.json` merged over the user's `opencode.json[c]` is the base of its generated config
+file. What the CLI has no switch for stays visible.
 
 ## The manifest
 
@@ -118,7 +116,8 @@ for stays visible.
   "not_ready": {"pattern": "Updating", "why": "is updating itself"},
   "typed": true,
   "mcp_lane": {"how": "MYKIND_CONFIG (the start's generated config: {kit}/bin/obor mcp)", "registered": true, "static": false},
-  "project_warnings": false
+  "project_warnings": false,
+  "override_files": ["mykind_override.json"]
 }
 ```
 
@@ -137,6 +136,7 @@ for stays visible.
 | `typed` | every line is typed into the pane: `deliver` is never called |
 | `mcp_lane` | `obor setup mcp --model`'s answer for a lane's start: how (`{kit}` the kit install names), registered, static (served by an installed file setup checks) |
 | `project_warnings` | the kind answers `project-warnings` |
+| `override_files` | the names of the kind's override files in the project's `.obor/<name>/` (`agents.Overridable`): obor hands those the project has to `start` as `overrides`, and `obor config validate` checks them |
 
 ## Where the core branches on status
 

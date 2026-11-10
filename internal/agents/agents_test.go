@@ -1,6 +1,7 @@
 package agents_test
 
 import (
+	"encoding/json"
 	"reflect"
 	"slices"
 	"strings"
@@ -244,46 +245,45 @@ func TestStartVars(t *testing.T) {
 	}
 }
 
-// Merge lays b over a key by key, objects merged recursively and any other value replaced, in a new map that shares
-// no object with a or b; Over lays a role's override over a kind's (settings merged, off lists added up); Matches is
-// a substring match, an empty name matching nothing.
-func TestOverride(t *testing.T) {
-	a := map[string]any{"env": map[string]any{"A": "1", "B": "2"}, "model": "opus", "list": []any{"x"}}
-	b := map[string]any{"env": map[string]any{"B": "3", "C": "4"}, "model": map[string]any{"id": "m"}, "list": []any{"y"}, "new": map[string]any{"k": true}}
-	got := agents.Merge(a, b)
-	want := map[string]any{"env": map[string]any{"A": "1", "B": "3", "C": "4"}, "model": map[string]any{"id": "m"},
-		"list": []any{"y"}, "new": map[string]any{"k": true}}
+// MergePatch lays a patch over a target as RFC 7396 does: objects merged key by key, a null deleting the key, any
+// other value (a list too) replacing it, in a new map that shares no object with either. ParseOverride reads an
+// override file by its extension, TOML or JSON, and refuses what is no table or object.
+func TestMergePatchAndParseOverride(t *testing.T) {
+	a := map[string]any{"env": map[string]any{"A": "1", "B": "2"}, "model": "opus", "list": []any{"x"}, "gone": 1, "keep": true}
+	b := map[string]any{"env": map[string]any{"B": "3", "C": "4", "A": nil}, "model": map[string]any{"id": "m", "none": nil},
+		"list": []any{"y"}, "new": map[string]any{"k": true}, "gone": nil, "absent": nil}
+	got := agents.MergePatch(a, b)
+	want := map[string]any{"env": map[string]any{"B": "3", "C": "4"}, "model": map[string]any{"id": "m"},
+		"list": []any{"y"}, "new": map[string]any{"k": true}, "keep": true}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("Merge = %v, want %v", got, want)
+		t.Fatalf("MergePatch = %v, want %v", got, want)
 	}
-	got["env"].(map[string]any)["A"] = "changed"
+	got["env"].(map[string]any)["B"] = "changed"
 	delete(got["new"].(map[string]any), "k")
-	delete(got["model"].(map[string]any), "id")
-	if a["env"].(map[string]any)["A"] != "1" || b["new"].(map[string]any)["k"] != true || b["model"].(map[string]any)["id"] != "m" {
+	if a["env"].(map[string]any)["B"] != "2" || b["env"].(map[string]any)["B"] != "3" || b["new"].(map[string]any)["k"] != true {
 		t.Errorf("a change of the merged map reached its inputs: a %v, b %v", a, b)
 	}
-	only := agents.Merge(nil, b)
-	delete(only["env"].(map[string]any), "B")
-	if b["env"].(map[string]any)["B"] != "3" {
-		t.Errorf("Merge(nil, b) shares b's object: %v", b)
+	only := agents.MergePatch(a, nil)
+	delete(only["env"].(map[string]any), "A")
+	if a["env"].(map[string]any)["A"] != "1" {
+		t.Errorf("MergePatch(a, nil) shares a's object: %v", a)
 	}
 
-	kind := agents.Override{Settings: map[string]any{"env": map[string]any{"A": "1"}}, Off: agents.Off{Hooks: []string{"h1"}, Skills: []string{"s"}}}
-	role := agents.Override{Settings: map[string]any{"env": map[string]any{"B": "2"}}, Off: agents.Off{Hooks: []string{"h2"}, Plugins: []string{"p"}, MCP: []string{"m"}}}
-	if got, want := kind.Over(role), (agents.Override{Settings: map[string]any{"env": map[string]any{"A": "1", "B": "2"}},
-		Off: agents.Off{Hooks: []string{"h1", "h2"}, Plugins: []string{"p"}, Skills: []string{"s"}, MCP: []string{"m"}}}); !reflect.DeepEqual(got, want) {
-		t.Errorf("Over = %+v, want %+v", got, want)
+	doc, err := agents.ParseOverride("config_override.toml", "model_reasoning_effort = \"low\"\n[features]\nweb_search = true\n")
+	if want := map[string]any{"model_reasoning_effort": "low", "features": map[string]any{"web_search": true}}; err != nil || !reflect.DeepEqual(doc, want) {
+		t.Errorf("ParseOverride(toml) = %v, %v, want %v", doc, err, want)
 	}
-	for _, c := range []struct {
-		subs  []string
-		entry string
-		want  bool
-	}{
-		{[]string{"x.sh"}, "/bin/x.sh --flag", true}, {[]string{"y", "x.sh"}, "/bin/x.sh", true},
-		{[]string{"y.sh"}, "/bin/x.sh", false}, {[]string{""}, "/bin/x.sh", false}, {nil, "/bin/x.sh", false},
-	} {
-		if got := agents.Matches(c.subs, c.entry); got != c.want {
-			t.Errorf("Matches(%q, %q) = %v, want %v", c.subs, c.entry, got, c.want)
+	doc, err = agents.ParseOverride("settings_override.json", `{"big": 12345678901234567890, "off": null}`)
+	if want := map[string]any{"big": json.Number("12345678901234567890"), "off": nil}; err != nil || !reflect.DeepEqual(doc, want) {
+		t.Errorf("ParseOverride(json) = %v, %v, want %v (numbers as written)", doc, err, want)
+	}
+	for name, bad := range map[string]string{"a.toml": "x = ", "a.json": `{"x": `, "list.json": `[1]`, "null.json": `null`, "two.json": `{} {}`} {
+		if doc, err := agents.ParseOverride(name, bad); err == nil {
+			t.Errorf("ParseOverride(%s, %q) = %v, want an error", name, bad, doc)
 		}
+	}
+	in := agents.Start{Overrides: map[string]string{"ok.json": `{"a": 1}`, "bad.json": `{`}}
+	if in.Override("ok.json") == nil || in.Override("bad.json") != nil || in.Override("none.json") != nil {
+		t.Errorf("Start.Override: ok %v, bad %v, none %v, want a tree, nil, nil", in.Override("ok.json"), in.Override("bad.json"), in.Override("none.json"))
 	}
 }

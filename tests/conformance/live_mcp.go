@@ -109,7 +109,10 @@ func (l *lab) launchOf(kind, model, kit string, writeState func(string, []byte) 
 		return liveStart{}, fmt.Errorf("model %s is %s's, not %s's", model, m.Kind, kind)
 	}
 	// the env of a start with the kit; the args of one without (the case's own start adds the kit's registration)
-	over := cfg.Override("worker", kind)
+	over, err := cfg.Overrides(kind)
+	if err != nil {
+		return liveStart{}, err
+	}
 	if writeState == nil { // a kind that writes a start file of its own (Claude's settings file)
 		writeState = project.StateWriter(l.main)
 	}
@@ -117,7 +120,7 @@ func (l *lab) launchOf(kind, model, kit string, writeState func(string, []byte) 
 	if err != nil {
 		return liveStart{}, err
 	}
-	noKit, err := m.Launch("worker", over, agents.Start{Agent: "live", Dir: l.lane, Read: os.ReadFile, Env: os.Getenv,
+	noKit, err := m.Launch("worker", over, agents.Start{Agent: "live", Dir: l.lane, Root: l.main, Read: os.ReadFile, Env: os.Getenv,
 		Dirs: project.SubDirs, WriteState: writeState})
 	if err != nil {
 		return liveStart{}, err

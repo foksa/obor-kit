@@ -90,25 +90,6 @@ func TestValidate(t *testing.T) {
 			want: []string{`FAIL .agents.models.opus.kind: "claod" is not a supported kind: use one of claude, codex, opencode`}},
 		{name: "a kinds key is a supported kind", edits: []edit{set("agents.kinds.cursor", map[string]any{"args": []any{"-x"}})},
 			want: []string{`FAIL .agents.kinds.cursor: "cursor" is not a supported kind: use one of claude, codex, opencode`}},
-		// an override names a kind obor knows, under agents.overrides and under a role's overrides; a built-in role
-		// takes the object form {model, overrides}.
-		{name: "an override of no supported kind", edits: []edit{set("agents.overrides.cursor", map[string]any{"settings": map[string]any{"a": 1}})},
-			want: []string{`FAIL .agents.overrides.cursor: "cursor" is not a supported kind: use one of claude, codex, opencode`}},
-		{name: "a role's override of no supported kind", edits: []edit{
-			set("agents.roles.reviewer", map[string]any{"model": "opus", "overrides": map[string]any{"claod": map[string]any{}}})},
-			want: []string{`FAIL .agents.roles.reviewer.overrides.claod: "claod" is not a supported kind: use one of claude, codex, opencode`}},
-		{name: "an unknown key in an override's off", edits: []edit{
-			set("agents.overrides.claude", map[string]any{"off": map[string]any{"hooks": []any{"x.sh"}, "hookz": []any{"y"}}})},
-			want: []string{unknownFail("agents.overrides.claude.off.hookz")}},
-		{name: "an unknown key in a role's override", edits: []edit{
-			set("agents.roles.reviewer", map[string]any{"model": "opus", "overrides": map[string]any{"claude": map[string]any{"of": map[string]any{}}}})},
-			want: []string{unknownFail("agents.roles.reviewer.overrides.claude.of")}},
-		{name: "overrides of every kind, and a built-in role's object with its own", edits: []edit{
-			set("agents.overrides", map[string]any{
-				"claude":   map[string]any{"settings": map[string]any{"env": map[string]any{"A": "1"}}, "off": map[string]any{"hooks": []any{"x.sh"}, "plugins": []any{"p"}}},
-				"codex":    map[string]any{"off": map[string]any{"skills": []any{"s"}}},
-				"opencode": map[string]any{"off": map[string]any{"mcp": []any{"herd"}}}}),
-			set("agents.roles.reviewer", map[string]any{"model": "opus", "overrides": map[string]any{"claude": map[string]any{"off": map[string]any{"hooks": []any{"y.sh"}}}}})}},
 		{name: "every supported kind is accepted", edits: []edit{
 			set("agents.models.a", map[string]any{"kind": "claude", "id": "a"}), set("agents.models.b", map[string]any{"kind": "codex", "id": "b"}),
 			set("agents.models.c", map[string]any{"kind": "opencode", "id": "go/ds"})}},
@@ -674,5 +655,60 @@ func TestRetestJoin(t *testing.T) {
 	}
 	if got := (*config.Config)(nil).RetestJoin(); got != "|" {
 		t.Errorf("nil config: RetestJoin() = %q, want |", got)
+	}
+}
+
+// obor config validate reads the project's override files (.obor/<kind>/): a file that does not parse fails, naming
+// it (a compiled kind's and the OpenCode plugin kind's); a file of another name there, a key of claude_override.json
+// other than mcpServers and a hook Codex's hooks override adds to the user's are warnings; clean files say nothing.
+func TestValidateOverrideFiles(t *testing.T) {
+	p := newPlainProject(t)
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".codex"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".codex", "hooks.json"), []byte(`{"hooks": {"Stop": [{"hooks": [{"command": "a.sh"}]}]}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run := func() []string {
+		t.Helper()
+		p.Config(set("agents.roles.integrator", "opus"))
+		c, unknown, err := config.LoadForValidate(p.Root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		warns, fails := c.Validate(config.ValidateOptions{Overlap: spec.Overlap,
+			Env: func(k string) string { return map[string]string{"HOME": home}[k] }})
+		return append(append(warns, unknown...), fails...)
+	}
+	p.Write(".obor/claude/settings_override.json", `{"hooks": {"SessionStart": []}}`)
+	p.Write(".obor/claude/claude_override.json", `{"mcpServers": {"blender": null}}`)
+	p.Write(".obor/codex/config_override.toml", "model_reasoning_effort = \"low\"\n")
+	p.Write(".obor/codex/hooks_override.json", `{"hooks": {"Stop": []}}`)
+	p.Write(".obor/opencode/opencode_override.json", `{"plugins": ["-herdr.opencode"]}`)
+	if got := run(); len(got) != 0 {
+		t.Fatalf("precondition: clean override files validate clean: %q", got)
+	}
+
+	p.Write(".obor/claude/claude_override.json", `{"mcpServers": {"blender": null}, "numStartups": 1}`)
+	p.Write(".obor/claude/settings.json", `{}`)
+	p.Write(".obor/codex/config_override.toml", "model_reasoning_effort = \n")
+	p.Write(".obor/codex/hooks_override.json", `{"hooks": {"Stop": [{"hooks": [{"command": "a.sh"}, {"command": "new.sh"}]}]}}`)
+	p.Write(".obor/opencode/opencode_override.json", `{"plugins": `)
+	got := run()
+	want := []string{
+		"WARN .obor/claude/settings.json: no override file of claude (it takes settings_override.json, claude_override.json): nothing reads it",
+		"WARN .obor/claude/claude_override.json: numStartups: only mcpServers applies",
+		"WARN .obor/codex/hooks_override.json: adds a Stop hook: Codex runs none from an override; add it to the project's own Codex hooks instead",
+		"FAIL .obor/codex/config_override.toml: does not parse: ",
+		"FAIL .obor/opencode/opencode_override.json: does not parse: ",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("validate =\n %q\nwant\n %q", got, want)
+	}
+	for i, w := range want {
+		if got[i] != w && !(strings.HasSuffix(w, "does not parse: ") && strings.HasPrefix(got[i], w) && len(got[i]) > len(w)) {
+			t.Errorf("line %d: %q, want %q", i, got[i], w)
+		}
 	}
 }

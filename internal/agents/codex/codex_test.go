@@ -365,20 +365,20 @@ func TestStartTrimUser(t *testing.T) {
 		{"does not parse: as absent", "what ever\nfeatures.plugins = true\n", want(plugins, apps, bundled)},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			got := k.Start(agents.Start{Args: base, Override: &agents.Override{}, Dir: "/lane", Read: projectFS(c.file)})
+			got := k.Start(agents.Start{Args: base, TrimUser: true, Dir: "/lane", Read: projectFS(c.file)})
 			if !slices.Equal(got, c.want) {
 				t.Errorf("Start =\n %q\nwant\n %q", got, c.want)
 			}
 		})
 	}
 	// The write dirs come first; a resume is trimmed like a fresh start.
-	got := k.Start(agents.Start{Args: base, Override: &agents.Override{}, WriteDirs: []string{"/reviews"}, Resume: "cx-1"})
+	got := k.Start(agents.Start{Args: base, TrimUser: true, WriteDirs: []string{"/reviews"}, Resume: "cx-1"})
 	if w := append([]string{"resume", "cx-1", "-a", "never", "--add-dir", "/reviews"}, want(plugins, apps, bundled)[2:]...); !slices.Equal(got, w) {
 		t.Errorf("a trimmed resume with a write dir:\n %q\nwant\n %q", got, w)
 	}
 	// A key the type's args set stays as they set it.
 	typed := append(slices.Clone(base), "-c", "features.apps=true")
-	if got, w := k.Start(agents.Start{Args: typed, Override: &agents.Override{}}), append(slices.Clone(typed),
+	if got, w := k.Start(agents.Start{Args: typed, TrimUser: true}), append(slices.Clone(typed),
 		"-c", plugins, "-c", bundled, "-c", "check_for_update_on_startup=false"); !slices.Equal(got, w) {
 		t.Errorf("the args set features.apps:\n %q\nwant\n %q", got, w)
 	}
@@ -461,7 +461,7 @@ func TestStartTrimUserSkills(t *testing.T) {
 			Dirs: dirs("/home/u/.codex/skills", "codex-img")}, want(base)},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			c.in.Override, c.in.Dir, c.in.Read = &agents.Override{}, "/lane", skillFiles(c.in.Read)
+			c.in.TrimUser, c.in.Dir, c.in.Read = true, "/lane", skillFiles(c.in.Read)
 			if got := k.Start(c.in); !slices.Equal(got, c.want) {
 				t.Errorf("Start =\n %q\nwant\n %q", got, c.want)
 			}
@@ -473,14 +473,12 @@ func TestStartTrimUserSkills(t *testing.T) {
 	}
 }
 
-// a start's override becomes -c options around the trim switches. Before them: each settings key with its value as
-// TOML, a nested object as dotted keys down to its leaves (an inline table only for the entries whose key needs quotes,
-// first), skipped where the project's .codex/config.toml sets it, so that no settings object cancels a trim switch
-// under the same table. After them: off.hooks as one hooks.state
-// table keyed by the matching hook's position in the user's hooks.json, none without that file; off.mcp as
-// mcp_servers.<name>.enabled=false per matching server of the user's config.toml; off.skills adding ~/.agents/skills
-// dirs to skills.config; off.plugins as a plugins table only where the project keeps plugins on. A lead's start
-// (no override) carries none of them, and features.hooks is never switched.
+// a start's override files become -c options around the trim switches. Before them: each key config_override.toml
+// sets with its value as TOML, a table as dotted keys down to its leaves (an inline table only for the entries whose
+// key needs quotes, first), skipped where the project's .codex/config.toml sets it, so that no table cancels a trim
+// switch under the same table. After them: one hooks.state table keyed by the position, in the user's hooks.json,
+// of each hook that file has and it merged with hooks_override.json lacks; none without either file. A lead's start
+// (not trimmed) carries none of them, and features.hooks is never switched.
 func TestStartOverride(t *testing.T) {
 	k, _ := split()
 	base := []string{"-a", "never"}
@@ -493,21 +491,18 @@ func TestStartOverride(t *testing.T) {
 		}
 		return out
 	}
-	// settings are the options before the trim, want's own the ones after it.
-	settings := func(before []string, after ...string) []string {
+	// config are the options before the trim, want's own the ones after it.
+	config := func(before []string, after ...string) []string {
 		return slices.Concat(base, before, trim, opts(after...), opts(update))
 	}
-	want := func(after ...string) []string { return settings(nil, after...) }
+	want := func(after ...string) []string { return config(nil, after...) }
 	home := func(k string) string { return map[string]string{"HOME": "/home/u"}[k] }
+	const herdr, a, b, notify = `{"type": "command", "command": "bash /home/u/.codex/herdr-agent-state.sh session"}`,
+		`{"type": "command", "command": "a.sh"}`, `{"type": "command", "command": "b.sh"}`, `{"type": "command", "command": "/bin/notify.sh pre"}`
 	const hooksFile = `{"hooks": {
-		"SessionStart": [{"hooks": [{"type": "command", "command": "bash /home/u/.codex/herdr-agent-state.sh session"}]}],
-		"PreToolUse": [
-			{"matcher": "Bash", "hooks": [{"type": "command", "command": "a.sh"}]},
-			{"hooks": [{"type": "command", "command": "b.sh"}, {"type": "command", "command": "/bin/notify.sh pre"}]}]}}`
-	const userConfig = "model = \"m\"\n[plugins.\"pdf@openai-primary-runtime\"]\nenabled = true\n" +
-		"[plugins.\"documents@openai-primary-runtime\"]\nenabled = true\n" +
-		"[mcp_servers.node_repl]\ncommand = \"n\"\n[mcp_servers.node_repl.env]\nX = \"1\"\n[mcp_servers.blender]\ncommand = \"b\"\n"
-	user := map[string]string{"/home/u/.codex/hooks.json": hooksFile, "/home/u/.codex/config.toml": userConfig}
+		"SessionStart": [{"hooks": [` + herdr + `]}],
+		"PreToolUse": [{"matcher": "Bash", "hooks": [` + a + `]}, {"hooks": [` + b + `, ` + notify + `]}]}}`
+	user := map[string]string{"/home/u/.codex/hooks.json": hooksFile}
 	with := func(project string) agents.ReadFile {
 		m := maps.Clone(user)
 		if project != "" {
@@ -517,57 +512,54 @@ func TestStartOverride(t *testing.T) {
 	}
 	const notifyOff = `hooks.state={"/home/u/.codex/hooks.json:pre_tool_use:1:1"={enabled=false}}`
 	for _, c := range []struct {
-		name string
-		over agents.Override
-		read agents.ReadFile
-		want []string
+		name          string
+		config, hooks string // the override files ("": none)
+		read          agents.ReadFile
+		want          []string
 	}{
-		{"an empty override: the trim alone", agents.Override{}, with(""), want()},
-		{"a settings key: -c key=value, sorted, values as TOML, an object as dotted keys, its quoted entry as a table first",
-			agents.Override{Settings: map[string]any{"model_reasoning_summary": "none", "tool_output_token_limit": float64(9000),
-				"hide_agent_reasoning": true, "notify": []any{"a", "b c"},
-				"shell_environment_policy": map[string]any{"inherit": "core", "set": map[string]any{"A.B": "1"}}}},
-			with(""),
-			settings(opts(`shell_environment_policy.set={"A.B"="1"}`, "hide_agent_reasoning=true", `model_reasoning_summary="none"`,
-				`notify=["a","b c"]`, `shell_environment_policy.inherit="core"`, "tool_output_token_limit=9000"))},
-		{"a settings key the project's config sets is skipped, an object entry by entry",
-			agents.Override{Settings: map[string]any{"model_reasoning_summary": "none", "web_search": "live",
-				"tui": map[string]any{"notifications": false, "theme": "dark"}, "history": map[string]any{"persistence": "none"}}},
-			with("model_reasoning_summary = \"detailed\"\n[tui]\ntheme = \"light\"\n[history]\npersistence = \"save-all\"\n"),
-			settings(opts("tui.notifications=false", `web_search="live"`))},
-		{"settings set a trim key and the update check: theirs alone, as a dotted key that leaves the other trim switches standing",
-			agents.Override{Settings: map[string]any{"features": map[string]any{"plugins": true}, "check_for_update_on_startup": true}},
-			with(""),
+		{"no override file: the trim alone", "", "", with(""), want()},
+		{"a key: -c key=value", "model_reasoning_effort = \"low\"\n", "", with(""), config(opts(`model_reasoning_effort="low"`))},
+		{"keys sorted, values as TOML, a table as dotted keys, its quoted entry as a table first",
+			"model_reasoning_summary = \"none\"\ntool_output_token_limit = 9000\nratio = 2.0\nhide_agent_reasoning = true\n" +
+				"notify = [\"a\", \"b c\"]\n[shell_environment_policy]\ninherit = \"core\"\nset = { \"A.B\" = \"1\" }\n" +
+				"[[skills.extra]]\nname = \"x\"\nenabled = false\n",
+			"", with(""),
+			config(opts(`shell_environment_policy.set={"A.B"="1"}`, "hide_agent_reasoning=true", `model_reasoning_summary="none"`,
+				`notify=["a","b c"]`, "ratio=2.0", `shell_environment_policy.inherit="core"`, `skills.extra=[{enabled=false,name="x"}]`,
+				"tool_output_token_limit=9000"))},
+		{"a key the project's config sets is skipped, a table entry by entry",
+			"model_reasoning_summary = \"none\"\nweb_search = \"live\"\n[tui]\nnotifications = false\ntheme = \"dark\"\n[history]\npersistence = \"none\"\n",
+			"", with("model_reasoning_summary = \"detailed\"\n[tui]\ntheme = \"light\"\n[history]\npersistence = \"save-all\"\n"),
+			config(opts("tui.notifications=false", `web_search="live"`))},
+		{"the override sets a trim key and the update check: its own alone, as a dotted key that leaves the other trim switches standing",
+			"check_for_update_on_startup = true\n[features]\nplugins = true\n", "", with(""),
 			slices.Concat(base, opts("check_for_update_on_startup=true", "features.plugins=true", "features.apps=false", "skills.bundled.enabled=false"))},
-		{"a skills settings object next to the skills trim: dotted, the trim's skills switch after it",
-			agents.Override{Settings: map[string]any{"skills": map[string]any{"include_instructions": false}}},
-			with(""), settings(opts("skills.include_instructions=false"))},
-		{"a quoted entry of an object: one table at the object's key, before its dotted keys and the trim's (the project sets apps)",
-			agents.Override{Settings: map[string]any{"features": map[string]any{"x.y": true, "web_search": true}}},
-			with("features.apps = false\n"),
+		{"a quoted entry of a table: one table at the table's key, before its dotted keys and the trim's (the project sets apps)",
+			"[features]\n\"x.y\" = true\nweb_search = true\n", "", with("features.apps = false\n"),
 			slices.Concat(base, opts(`features={"x.y"=true}`, "features.web_search=true", "features.plugins=false", "skills.bundled.enabled=false", update))},
-		{"off.hooks matching the second hook of a group: its positional key",
-			agents.Override{Off: agents.Off{Hooks: []string{"notify.sh"}}}, with(""), want(notifyOff)},
-		{"off.hooks matching two hooks: one table, events sorted",
-			agents.Override{Off: agents.Off{Hooks: []string{"a.sh", "herdr-agent-state.sh"}}}, with(""),
+		{"an MCP server switched off the CLI's own way", "[mcp_servers.blender]\nenabled = false\n", "", with(""),
+			config(opts("mcp_servers.blender.enabled=false"))},
+		{"the hooks override drops the user's second hook of a group: its positional key", "",
+			`{"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [` + a + `]}, {"hooks": [` + b + `]}]}}`, with(""), want(notifyOff)},
+		{"the hooks override deletes one event and empties a group of another: one table, events sorted", "",
+			`{"hooks": {"SessionStart": null, "PreToolUse": [{"hooks": [` + b + `, ` + notify + `]}]}}`, with(""),
 			want(`hooks.state={"/home/u/.codex/hooks.json:pre_tool_use:0:0"={enabled=false},` +
 				`"/home/u/.codex/hooks.json:session_start:0:0"={enabled=false}}`)},
-		{"off.hooks matching no hook: no hooks key", agents.Override{Off: agents.Off{Hooks: []string{"other.sh"}}}, with(""), want()},
-		{"no hooks.json: no hooks key",
-			agents.Override{Off: agents.Off{Hooks: []string{"notify.sh"}}}, files(map[string]string{"/home/u/.codex/config.toml": userConfig}), want()},
-		{"off.mcp: the matching server of the user's config, once",
-			agents.Override{Off: agents.Off{MCP: []string{"node"}}}, with(""), want("mcp_servers.node_repl.enabled=false")},
-		{"off.mcp: a server the project's config has keys for is left to it",
-			agents.Override{Off: agents.Off{MCP: []string{"node", "blender"}}}, with("[mcp_servers.blender]\ncommand = \"mine\"\n"),
-			want("mcp_servers.node_repl.enabled=false")},
-		{"off.plugins with obor's features.plugins=false: nothing more",
-			agents.Override{Off: agents.Off{Plugins: []string{"pdf@"}}}, with(""), want()},
-		{"settings, hooks and mcp together: in that order",
-			agents.Override{Settings: map[string]any{"web_search": "live"}, Off: agents.Off{Hooks: []string{"notify.sh"}, MCP: []string{"blender"}}},
-			with(""), settings(opts(`web_search="live"`), notifyOff, "mcp_servers.blender.enabled=false")},
+		{"a hooks override that keeps every user hook: no hooks key", "", `{"hooks": {"Stop": []}}`, with(""), want()},
+		{"no user hooks.json: no hooks key", "", `{"hooks": {"PreToolUse": []}}`, files(nil), want()},
+		{"both files: the config's options, the trim, then the hooks", "web_search = \"live\"\n",
+			`{"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [` + a + `]}, {"hooks": [` + b + `]}]}}`, with(""),
+			config(opts(`web_search="live"`), notifyOff)},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			got := k.Start(agents.Start{Args: base, Override: &c.over, Dir: "/lane", Env: home, Read: c.read})
+			overrides := map[string]string{}
+			if c.config != "" {
+				overrides[codex.ConfigOverride] = c.config
+			}
+			if c.hooks != "" {
+				overrides[codex.HooksOverride] = c.hooks
+			}
+			got := k.Start(agents.Start{Args: base, TrimUser: true, Overrides: overrides, Dir: "/lane", Env: home, Read: c.read})
 			if !slices.Equal(got, c.want) {
 				t.Errorf("Start =\n %q\nwant\n %q", got, c.want)
 			}
@@ -576,40 +568,55 @@ func TestStartOverride(t *testing.T) {
 			}
 		})
 	}
-	// The project keeps plugins on: the plugins off.plugins names go off one by one, in one table.
-	got := k.Start(agents.Start{Args: base, Override: &agents.Override{Off: agents.Off{Plugins: []string{"pdf@"}}}, Dir: "/lane",
-		Env: home, Read: with("[features]\nplugins = true\n")})
-	if w := slices.Concat(base, opts(`plugins={"pdf@openai-primary-runtime"={enabled=false}}`, "features.apps=false",
-		"skills.bundled.enabled=false", update)); !slices.Equal(got, w) {
-		t.Errorf("off.plugins under a project that keeps plugins on:\n %q\nwant\n %q", got, w)
-	}
-	// off.skills adds the matching skills of ~/.agents/skills to the user's skills dir's.
-	dirs := func(dir string) ([]string, error) {
-		return map[string][]string{"/home/u/.codex/skills": {"codex-img"}, "/home/u/.agents/skills": {"print-art", "other"}}[dir], nil
-	}
-	in := agents.Start{Args: base, Override: &agents.Override{}, Env: home, Dirs: dirs, Read: skillFiles(nil)}
-	if got, w := k.Start(in), want(`skills.config=[{name="codex-img",enabled=false}]`); !slices.Equal(got, w) {
-		t.Fatalf("precondition: without off.skills ~/.agents/skills stays:\n %q\nwant\n %q", got, w)
-	}
-	in.Override = &agents.Override{Off: agents.Off{Skills: []string{"print"}}}
-	if got, w := k.Start(in), want(`skills.config=[{name="codex-img",enabled=false},{name="print-art",enabled=false}]`); !slices.Equal(got, w) {
-		t.Errorf("off.skills:\n %q\nwant\n %q", got, w)
-	}
-	// The type's args set a key under features: a settings table there would cancel it, so it is not passed.
+	// The type's args set a key under features: a table there would cancel it, so it is not passed.
 	typed := append(slices.Clone(base), "-c", "features.web_search=true")
-	got = k.Start(agents.Start{Args: typed, Override: &agents.Override{Settings: map[string]any{"features": map[string]any{"x.y": true, "js_repl": false}}}})
+	got := k.Start(agents.Start{Args: typed, TrimUser: true,
+		Overrides: map[string]string{codex.ConfigOverride: "[features]\n\"x.y\" = true\njs_repl = false\n"}})
 	if w := slices.Concat(typed, opts("features.js_repl=false"), trim, opts(update)); !slices.Equal(got, w) {
-		t.Errorf("a quoted settings entry under a key of the type's args:\n %q\nwant\n %q", got, w)
+		t.Errorf("a quoted entry under a key of the type's args:\n %q\nwant\n %q", got, w)
 	}
-	// The start's own effort wins over the settings' effort key.
-	got = k.Start(agents.Start{Args: base, Effort: "high", Override: &agents.Override{Settings: map[string]any{"model_reasoning_effort": "low"}}})
+	// The start's own effort wins over the override's effort key.
+	effort := map[string]string{codex.ConfigOverride: "model_reasoning_effort = \"low\"\n"}
+	got = k.Start(agents.Start{Args: base, Effort: "high", TrimUser: true, Overrides: effort})
 	if w := append(append(slices.Clone(base), "-c", "model_reasoning_effort=high"), want()[2:]...); !slices.Equal(got, w) {
-		t.Errorf("an effort with the settings' effort key:\n %q\nwant\n %q", got, w)
+		t.Errorf("an effort with the override's effort key:\n %q\nwant\n %q", got, w)
 	}
-	// A lead's start carries no override: none of its switches, with every user file there.
-	lead := k.Start(agents.Start{Args: base, Dir: "/lane", Env: home, Dirs: dirs, Read: skillFiles(with(""))})
-	if w := append(slices.Clone(base), "-c", update); !slices.Equal(lead, w) {
+	// A lead's start is not trimmed: none of the switches, with every file there.
+	dirs := func(dir string) ([]string, error) {
+		return map[string][]string{"/home/u/.codex/skills": {"codex-img"}}[dir], nil
+	}
+	both := map[string]string{codex.ConfigOverride: "web_search = \"live\"\n", codex.HooksOverride: `{"hooks": {"SessionStart": null}}`}
+	worker := agents.Start{Args: base, TrimUser: true, Overrides: both, Dir: "/lane", Env: home, Dirs: dirs, Read: skillFiles(with(""))}
+	if got, w := k.Start(worker), config(opts(`web_search="live"`), `skills.config=[{name="codex-img",enabled=false}]`,
+		`hooks.state={"/home/u/.codex/hooks.json:session_start:0:0"={enabled=false}}`); !slices.Equal(got, w) {
+		t.Fatalf("precondition: a worker's start with both files:\n %q\nwant\n %q", got, w)
+	}
+	worker.TrimUser = false
+	if lead, w := k.Start(worker), append(slices.Clone(base), "-c", update); !slices.Equal(lead, w) {
 		t.Errorf("a lead's start = %q, want %q", lead, w)
+	}
+}
+
+// config validate's notes on the hooks override: one per hook it adds to the user's (to an event the user has, or
+// a new one), none for a hook it keeps or drops, none without the file.
+func TestOverrideWarnings(t *testing.T) {
+	k, _ := split()
+	checker := k.(agents.OverrideChecker)
+	home := func(k string) string { return map[string]string{"HOME": "/home/u"}[k] }
+	read := files(map[string]string{"/home/u/.codex/hooks.json": `{"hooks": {"Stop": [{"hooks": [{"command": "a.sh"}, {"command": "b.sh"}]}]}}`})
+	in := func(hooks string) agents.Start {
+		return agents.Start{TrimUser: true, Env: home, Read: read, Overrides: map[string]string{codex.HooksOverride: hooks}}
+	}
+	if got := checker.OverrideWarnings(in(`{"hooks": {"Stop": [{"hooks": [{"command": "a.sh"}]}]}}`)); len(got) != 0 {
+		t.Errorf("an override that drops a hook: %q, want no warning", got)
+	}
+	got := checker.OverrideWarnings(in(`{"hooks": {"Stop": [{"hooks": [{"command": "a.sh"}, {"command": "new.sh"}]}], "SessionStart": [{"hooks": [{"command": "s.sh"}]}]}}`))
+	if len(got) != 2 || !strings.HasPrefix(got[0], "hooks_override.json: adds a Stop hook") ||
+		!strings.HasPrefix(got[1], "hooks_override.json: adds a SessionStart hook") || !strings.Contains(got[0], "project's own Codex hooks") {
+		t.Errorf("an override that adds two hooks: %q, want one warning per hook naming the file, the event and the project's own hooks", got)
+	}
+	if got := checker.OverrideWarnings(agents.Start{TrimUser: true, Env: home, Read: read}); len(got) != 0 {
+		t.Errorf("no hooks override: %q, want no warning", got)
 	}
 }
 

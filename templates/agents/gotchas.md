@@ -33,7 +33,8 @@ otherwise.
 - TaskStop on a background shell can leave its child script running → check by script path, kill by PID.
 - Claude panes except leads start with Remote Control and auto memory off (only the lead on the phone and with auto
   memory), on their own settings file (`--setting-sources project,local --settings .obor/state/settings/<agent>.json`:
-  the user's settings with `agents.overrides` applied); `agents.kinds.claude.args` adds args to every Claude start.
+  the user's settings with the project's `.obor/claude/settings_override.json` merged over them);
+  `agents.kinds.claude.args` adds args to every Claude start.
 - Ctrl+Z suspends Claude Code (2026-10-10) → type `fg` in the pane. `obor restart` refuses a stopped job, so `fg`
   and `/exit` it (or end it), then `obor restart <agent> --fresh`.
 - After a usage-limit reset Claude Code resumes the session by itself ("Your claude.ai usage limit has reset. Continue

@@ -35,7 +35,7 @@ obor setup role triage --tab <tab-id>         # optional bug inbox: <project.age
 ```
 Without `--tab` / `--new-tab` the current pane's tab is split; `--pane <id>` uses an existing shell pane. `obor setup pane` labels the pane and types the env but starts no agent (dispatch starts a fresh worker anyway); add `--start` to start it now. `obor init` and `obor setup role` likewise label their panes and start no agent (each starts on first use: a job, a review, a brief); `--start` starts it now. Panes get
 `--cwd` the lane and `OBOR_ROLE` / `OBOR_LANE`; agents are named `<project.agent_prefix>-<lane lower>` (`<project.agent_prefix>-int`,
-`<project.agent_prefix>-rev`, `<project.agent_prefix>-lead`); Claude agents except leads start with Remote Control and auto memory off, on a settings file obor writes (`.obor/state/settings/<agent>.json`: the user's settings with `agents.overrides` applied; a lead keeps Remote Control, auto memory and the user's settings as they are).
+`<project.agent_prefix>-rev`, `<project.agent_prefix>-lead`); Claude agents except leads start with Remote Control and auto memory off, on a settings file obor writes (`.obor/state/settings/<agent>.json`: the user's settings with the project's `.obor/claude/settings_override.json` merged over them; a lead keeps Remote Control, auto memory and the user's settings as they are).
 - `FAIL tab … is full` → use `--new-tab` (a tab holds 4 panes).
 - `FAIL agent not ready: … Trust this folder? …` → ask the user to answer the dialog in that pane (Enter = trust,
   once per repo). `… updated itself and exited …` → rerun the `herdr agent start` the hint prints.
