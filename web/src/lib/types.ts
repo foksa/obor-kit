@@ -21,6 +21,7 @@ export interface Serve {
   error?: string;
   herdr: boolean;
   herdr_note?: string;
+  skew?: string;
   project: boolean;
   merging: boolean;
   log_error?: string;
