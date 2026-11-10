@@ -718,16 +718,16 @@ func needsRule(_ context.Context, a *App, p *proj, _ *Loop, now time.Time) (int6
 // needsToast is the owner's herdr toast for needs-you fact r: the task and lane, or the project fact's reason alone.
 func needsToast(p *proj, r event.Record) (title, body string) {
 	d := r.Fact()
-	body = needsText(d)
+	body = NeedsText(d)
 	if !projectKey(r.Task) {
 		body = fmt.Sprintf("%s in %s: %s", r.Task, d.Lane, body)
 	}
 	return "obor: " + p.name + " needs you", body
 }
 
-// needsText is a needs-you fact's text for the lead's line and the owner's toast: its reason, then a blocked pane's
-// question and where a person answers it.
-func needsText(d event.FactData) string {
+// NeedsText is a needs-you fact's text for the lead's line, the owner's toast and the view (obor status, the web):
+// its reason, then a blocked pane's question and where a person answers it.
+func NeedsText(d event.FactData) string {
 	text := oneLine(d.Reason)
 	if d.Question == "" {
 		return text
@@ -761,14 +761,14 @@ func (p *proj) needsYou() []event.Record {
 
 // needsLine is line n of needs-you fact r at now (under mu): "[obor] needs-you T-xx (<lane>): <reason> → <the
 // commands that answer it, in its task's state now>", a blocked pane's question with where a person answers it
-// (needsText), a repeat adding " (again, <its age>)".
+// (NeedsText), a repeat adding " (again, <its age>)".
 func (p *proj) needsLine(r event.Record, n int, now time.Time) string {
 	d := r.Fact()
 	line := "[obor] needs-you " + r.Task
 	if d.Lane != "" {
 		line += " (" + d.Lane + ")"
 	}
-	line += ": " + needsText(d)
+	line += ": " + NeedsText(d)
 	if ans := p.answerPath(r); ans != "" {
 		line += " → " + ans
 	}
