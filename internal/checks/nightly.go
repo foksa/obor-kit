@@ -124,15 +124,7 @@ func (s *session) nightly() *Result {
 		if !ok { // config validate refuses a name that is no command; a config newer than this binary is no failure
 			continue
 		}
-		last := strings.TrimPrefix(lastLine(o.text), name+": ")
-		if last == "" {
-			last = "rc=" + strconv.Itoa(o.rc)
-		}
-		line := name + " (non-gating) " + last
-		if o.rc != 0 { // a warning line, never RED
-			line = fmt.Sprintf("WARN %s (rc %d, non-gating): %s", name, o.rc, last)
-		}
-		results = append(results, line)
+		results = append(results, nonGatingLine(name, o.rc, o.text))
 		if notes := noteLines(o.text); len(notes) > 0 {
 			details = append(details, fmt.Sprintf("--- %s (non-gating)", name))
 			details = append(details, notes...)
@@ -158,6 +150,32 @@ func (s *session) nightly() *Result {
 	}
 	return result(Red, "NIGHTLY RED %s on %s (%s) — %s", sha[:min(7, len(sha))], s.target, summary,
 		strings.Join(evidence, " | "))
+}
+
+// nonGatingLine is a merge.nightly_commands command's result line (T-817): its own summary, a nonzero exit a WARN line,
+// never RED. The summary is the command's last line that starts "<name>: " (prefix stripped), so a wrapper's trailer
+// never stands in for it — make appends `make: *** [check-race] Error 1` to a failed recipe (T-1174, RV-173 #2); no
+// such line: its last non-blank line, as before. A command that printed no line at all is rc=<rc>.
+func nonGatingLine(name string, rc int, text string) string {
+	summary, found := "", false
+	ls := lines(text)
+	for i := len(ls) - 1; i >= 0; i-- {
+		l := strings.TrimSpace(ls[i])
+		if strings.HasPrefix(l, name+": ") {
+			summary, found = strings.TrimPrefix(l, name+": "), true
+			break
+		}
+	}
+	if !found {
+		summary = lastLine(text)
+	}
+	if summary == "" {
+		summary = "rc=" + strconv.Itoa(rc)
+	}
+	if rc != 0 { // a warning line, never RED
+		return fmt.Sprintf("WARN %s (rc %d, non-gating): %s", name, rc, summary)
+	}
+	return name + " (non-gating) " + summary
 }
 
 // backupOutcome is nightly's backup step's answer for wire.Backup's reply and error (T-1145: a unit test, no nightly):

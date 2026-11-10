@@ -108,10 +108,11 @@ func TestNightly(t *testing.T) {
 			// T-1098: no merged-log step, and every sweep step had something to go on: no details.
 			x.eq(x.out.String(), "", "no conformance detail lines")
 		}},
-		// T-798: the conformance suite's static tier is a line in the report, never RED
+		// T-798: the conformance suite's static tier is a line in the report, never RED; T-1174: make's trailer after
+		// the command's own summary line does not take its place.
 		{"a failing conformance command is a non-gating WARN line: GREEN, its FAIL lines printed", func(t *testing.T) {
 			x := newFx(t, nightly("conformance"), cmd("check", logged("check", "echo 7 pass; echo 0 fail")),
-				cmd("conformance", logged("conformance", "echo FAIL H-S1 a method is gone; echo 3 pass, 1 fail; exit 1")))
+				cmd("conformance", logged("conformance", `echo "FAIL H-S1 a method is gone"; echo "conformance: 3 pass, 1 fail"; echo "make: *** [conformance] Error 1"; exit 1`)))
 			head := x.head(x.Root)
 			x.is(x.nightly(), OK, `^NIGHTLY GREEN `+head[:7]+` on main \(check 7 pass, 0 fail, WARN conformance \(rc 1, non-gating\): 3 pass, 1 fail, [0-9]+s\)$`)
 			x.contains(x.out.String(), "--- conformance (non-gating)\nFAIL H-S1 a method is gone\n", "conformance details")
