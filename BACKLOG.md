@@ -13,8 +13,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   for internal/app (P0-P10), CLI/herdr version watch, `docs/accepted.md` for accepted findings, the status skew line
   (one `started` signal per confirmed start, T-1197), and the text sweeps (no ids, no previous states in texts and
   comments; rule in AGENTS.md). Config: `agents.difficulty.hard = fable:medium, opus:high`; deep_dive fable:medium,
-  integrator fable:low (no fallback model: if Fable's quota ends, `obor pause --model fable` and move both roles back
-  to opus with the owner's OK). RV-175 closed approved. **A review is running** (13 merges: comment sweeps T-1180,
+  integrator fable:low (Fable and opus share the 5h limit: no fallback between them; resume after the reset). RV-175 closed approved. **A review is running** (13 merges: comment sweeps T-1180,
   T-1181, T-1183, T-1184 and rig P4-P10, T-1188-T-1194); its finish line comes to the next lead.
   **Next steps:** (1) The review: fix tasks with `Fixes: RV-<n>` (its id), verify, close; findings in comments only are cheap
   to accept. (2) Ask the owner whether to keep Fable first when the usage resets end. (3) Owner decisions below:
