@@ -582,7 +582,8 @@ A task's tests run in its own lane, not in serve's merge slot (T-961, T-995); no
   to its explicit release, its setup exempt.
   A red that names its failing tests and packages is rerun once at the same commit by `merge.retest`
   (T-964; `{tests}` joined by `merge.retest.join`, default `|`; the packages in `OBOR_FAILED_PKGS`); green then is the
-  step's green and the flake is logged as retried. The names come from `checks.output.failure` lines read by
+  step's green and the flake is logged as retried. The nightly's `check` and `check_milestone` retest the same way
+  (T-1168): a retest that saves a red leaves the nightly GREEN, its line naming the rerun. The names come from `checks.output.failure` lines read by
   `checks.output.failed_test`/`failed_package` (T-1047; unset: no flake parsing).
 - **Lane env.** Every process in a lane gets `OBOR_LANE_CPUS` (`lanes.cpus`, default 2) and the project's
   `lanes.env` (values with `{cpus}` replaced by that budget; T-1041). The lane test also exports
