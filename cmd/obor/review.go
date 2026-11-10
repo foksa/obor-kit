@@ -12,7 +12,7 @@ import (
 	"obor/internal/project"
 )
 
-// reviewCmd is `obor review [--after T-a,T-b] [--note "<text>"] | --rm`, the lead's or the owner's (T-638): one request
+// reviewCmd is `obor review [--after T-a,T-b] [--note "<text>"] | --rm`, the lead's or the owner's: one request
 // to obor serve (wire.MethodReview). Serve's reply: REVIEW REQUESTED (now | after T-a,T-b)[ (replaces the request of
 // <age> ago)], REVIEW REQUEST ENDED / NO REVIEW REQUEST for --rm; with no argument the open request (REVIEW REQUEST
 // since <age> …), else a request to start now. Serve starts the review once every --after task merged and the
@@ -49,7 +49,7 @@ func reviewCmd(args []string) int {
 
 // reviewCloseCmd is `obor review close "<summary>" [--accept "<line>"]… [--force]`: one request to obor serve
 // (wire.MethodReviewClose). Serve's reply: CLOSED <subject>, the commit "RV-<n> closed · <reviewed sha> · approved ·
-// <summary>" (with --accept lines: "accepted <n>" in place of "approved", T-909) on the integration branch. FAIL:
+// <summary>" (with --accept lines: "accepted <n>" in place of "approved") on the integration branch. FAIL:
 // serve down, its refusal (no open review, no review start for it in the log, the main checkout not on the
 // integration branch or dirty outside BACKLOG.md, docs/accepted.md and the review's files, a linked fix not verified
 // without --force) or a usage error (exit 1).
@@ -81,7 +81,7 @@ func reviewCloseCmd(args []string) int {
 }
 
 // reviewGit is port.Review on the project's main checkout: git -C <root>. locked runs Detach's checkout as serve's
-// own git calls run (checks.Scratch.Locked: a lock another git holds is waited for, T-872); nil: Detach fails.
+// own git calls run (checks.Scratch.Locked: a lock another git holds is waited for); nil: Detach fails.
 type reviewGit struct {
 	root   string
 	locked func(ctx context.Context, dir string, args ...string) (string, error)
@@ -103,7 +103,7 @@ func (g reviewGit) Files(ctx context.Context, from, to string) ([]string, error)
 	return lines(out), err
 }
 
-// Detach puts the role worktree dir on sha, detached (T-853): added at it when dir is missing (project.AddWorktree),
+// Detach puts the role worktree dir on sha, detached: added at it when dir is missing (project.AddWorktree),
 // else checked out there. A dir that is no worktree of this repo, or local changes in the way of the checkout: an
 // error, nothing forced. The checkout waits for a lock another git holds (locked: a publish's ref update meanwhile).
 func (g reviewGit) Detach(ctx context.Context, dir, sha string) error {

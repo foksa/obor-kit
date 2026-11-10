@@ -13,7 +13,7 @@ import (
 const pluginRoot = "../.."
 
 var (
-	// Skills of the kit (T-204): only lead is model-discoverable; setup is user-invoked only.
+	// Skills of the kit: only lead is model-discoverable; setup is user-invoked only.
 	selfChosenSkills  = []string{"lead"}
 	userInvokedSkills = []string{"setup"}
 	removedSkills     = []string{"worker", "integrator", "review-brief", "night-shift", "role"}
@@ -265,7 +265,7 @@ func contains(list []string, s string) bool {
 	return false
 }
 
-// bash tests/skills.test.sh skills are exactly lead and setup; the removed ones are gone
+// bash tests/skills.test.sh skills are exactly lead and setup; the removed ones are absent
 func TestSkillsAreExactlyLeadAndSetup(t *testing.T) {
 	eqStrings(t, []string{"lead", "setup"}, skillDirs(t), "skill dirs")
 	for _, s := range removedSkills {

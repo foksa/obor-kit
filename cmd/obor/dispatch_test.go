@@ -48,7 +48,7 @@ func TestLaneCommands(t *testing.T) {
 		{nil, []string{"dispatch", "T-05", "--bogus"}, 1, "FAIL " + help.Usage("dispatch")},
 		{nil, []string{"drop", "T-01"}, 1, `FAIL usage: obor drop <T-xx> "<why>" [--discard] [--force]`},
 		{nil, []string{"drop", "T-01", "why", "--bogus"}, 1, `FAIL usage: obor drop <T-xx> "<why>" [--discard] [--force]`},
-		{nil, []string{"drop", "L-01", "why"}, 1, "FAIL L-01 is no task id (task_id_pattern T-[0-9]+[a-z]?)"}, // the lane form is gone (T-775)
+		{nil, []string{"drop", "L-01", "why"}, 1, "FAIL L-01 is no task id (task_id_pattern T-[0-9]+[a-z]?)"}, // a lane is not a task id
 		// A drop that passes these checks is a request to obor serve: TestDropServeRequest.
 	} {
 		if c.prep != nil {
@@ -61,12 +61,12 @@ func TestLaneCommands(t *testing.T) {
 	}
 }
 
-// T-1081 (DD-v0.32 #1): a key this obor does not know never stops a command. A config still naming the promotion's
-// keys (T-1076), a v0.29 removed key and T-408's dispatch.serve loads for obor dispatch and whoami (the load() path),
+// a key this obor does not know never stops a command. A config still naming the promotion's
+// keys, a v0.29 removed key and the dispatch.serve key load for obor dispatch and whoami (the load() path),
 // with one warning per key on stderr; obor config validate alone FAILs, naming each, and exits 1.
 func TestUnknownKeysStopNoCommand(t *testing.T) {
 	t.Parallel()
-	keys := []string{"branches", // the shape-1 branches left with promote alone (T-1124)
+	keys := []string{"branches", // the shape-1 branches left with promote alone
 		"merge.promote_weight", "merge.weights", "merge.receipt_max_age", "dispatch"}
 	p := servedProject(t, testkit.Set("branches.promote", "release"), testkit.Set("merge.promote_weight", 2),
 		testkit.Set("merge.weights", map[string]any{"core": 3}), testkit.Set("merge.receipt_max_age", 60),

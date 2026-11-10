@@ -28,7 +28,7 @@ func nightlyCmd(args []string) int {
 	return 1
 }
 
-// nightlySwitch is `obor nightly on HH:MM | off` (T-781), the lead's or the owner's switch of serve's nightly: a
+// nightlySwitch is `obor nightly on HH:MM | off`, the lead's or the owner's switch of serve's nightly: a
 // config_set of nightly.at to the time (on: every night at it) or null (off), one commit on main; serve checks
 // the time (config.Edit) and the caller. NIGHTLY ON at HH:MM | NIGHTLY OFF, "… already" when it was so (no commit),
 // or FAIL: serve down or its refusal (exit 1).

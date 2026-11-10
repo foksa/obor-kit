@@ -28,13 +28,13 @@ type leadRun struct {
 	wake *sleeper
 }
 
-// lead is `obor lead [--resume]` (T-479, T-553): (re)start the project's lead (roles.lead) in a fresh session;
-// --resume continues its last one. A stopped project (T-911) is woken first: obor start's steps run, its STARTED said,
+// lead is `obor lead [--resume]`: (re)start the project's lead (roles.lead) in a fresh session;
+// --resume continues its last one. A stopped project is woken first: obor start's steps run, its STARTED said,
 // and only then the lead starts; a start that fails ends obor lead with its error and starts no lead. Its agent already
-// running → OK, nothing touched; an agent of that name running outside the project → FAIL (RV-51 #5). A pane labelled
+// running → OK, nothing touched; an agent of that name running outside the project → FAIL. A pane labelled
 // with its agent (the session ended, or Claude was quit to update it) → obor restart's start in that pane; from that
 // pane itself the start runs once this command has exited (herdr starts an agent only at the shell prompt). No such
-// pane → obor setup role lead's start in a new tab, fresh; only this needs roles.lead.type (RV-51 #4: a running or
+// pane → obor setup role lead's start in a new tab, fresh; only this needs roles.lead.type (a running or
 // labelled untyped lead is restarted as any other).
 func lead(args []string) int {
 	cwd, _ := os.Getwd()
@@ -44,7 +44,7 @@ func lead(args []string) int {
 
 func (r leadRun) run(ctx context.Context, args []string) int {
 	fail := func(format string, a ...any) int { fmt.Fprintf(r.out, "FAIL "+format+"\n", a...); return 1 }
-	fresh := true // T-553: a fresh session unless --resume
+	fresh := true // a fresh session unless --resume
 	for _, a := range args {
 		switch a {
 		case "--resume":
@@ -61,7 +61,7 @@ func (r leadRun) run(ctx context.Context, args []string) int {
 	if err != nil {
 		return fail("the config does not load (obor config validate)")
 	}
-	if project.Stopped(cfg.Root) { // T-911: no lead starts in a stopped project: obor start's steps go first
+	if project.Stopped(cfg.Root) { // no lead starts in a stopped project: obor start's steps go first
 		s := r.wake
 		if s == nil {
 			s = &sleeper{Cfg: cfg, Env: r.env, Cwd: r.dir, Out: r.out, H: r.h}
@@ -93,7 +93,7 @@ func (r leadRun) run(ctx context.Context, args []string) int {
 	}
 	if pane, err := l.PaneOf(ctx, agent, ""); err == nil {
 		req := launch.Request{Agent: agent, Pane: pane, Fresh: fresh}
-		if rc, _ := cfg.Role("lead"); fresh && rc.Type != "" { // T-594: a fresh Claude lead loads its skill itself
+		if rc, _ := cfg.Role("lead"); fresh && rc.Type != "" { // a fresh Claude lead loads its skill itself
 			lt, _ := cfg.Model(rc.Type)
 			lead, _ := roles.Lookup("lead")
 			req.Prompt = lead.StartPrompt(lt.Kind)
@@ -111,8 +111,8 @@ func (r leadRun) run(ctx context.Context, args []string) int {
 	return s.Run(ctx, []string{"role", "lead", "--new-tab", "lead", "--start"})
 }
 
-// leadOurs: the running agent with cwd is this project's lead, by the launcher's ownership rule (T-301, RV-19 #3:
-// agent names are machine-wide): its cwd in the main checkout, a lanes_dir worktree, the lead's configured cwd or
+// leadOurs: the running agent with cwd is this project's lead, by the launcher's ownership rule (agent names are
+// machine-wide): its cwd in the main checkout, a lanes_dir worktree, the lead's configured cwd or
 // another worktree of this repository. No cwd known: yes.
 func leadOurs(cfg *config.Config, agent, cwd string) bool {
 	if cwd == "" || project.LabelOurs(cfg, agent, cwd, "") {

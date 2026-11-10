@@ -11,7 +11,7 @@ import (
 	"obor/internal/testkit"
 )
 
-// The T-211 commands through the binary: usage, help and exit codes (behaviour: internal/run and cmd/obor).
+// The small commands through the binary: usage, help and exit codes (behaviour: internal/run and cmd/obor).
 func TestSmallCommandsBinary(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
@@ -34,7 +34,7 @@ func TestSmallCommandsBinary(t *testing.T) {
 		{lane, []string{"run", "t", "--", "-h"}, 0, `ran -- -h\n`, ""},
 		{lane, []string{"run", "nope"}, 2, `FAIL no commands\.nope in the config\n`, ""},
 		{p.Base, []string{"run", "t"}, 2, `FAIL no usable \.obor/config\.json \(obor config validate\)\n`, ""},
-		// T-465: gone with the heartbeat (pause: a request to serve, pause_test.go)
+		// an unknown subcommand: pause is a request to serve (pause_test.go)
 		{p.Root, []string{"ack", "T-06", "x"}, 2, ``, "unknown subcommand: ack"},
 		{p.Root, []string{"notify", "Build complete"}, 2, ``, "unknown subcommand: notify"},
 		{p.Root, []string{"wait-agent", "l-01"}, 2, ``, "unknown subcommand: wait-agent"},

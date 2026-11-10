@@ -15,7 +15,7 @@ import (
 )
 
 // sentCall is a request's call as the fake serve reads it off the socket: every key a CLI request sends (the
-// wire.*Req types share them, T-1055), one field per key, named as the key, so a test checks the bytes serve gets.
+// wire.*Req types share them), one field per key, named as the key, so a test checks the bytes serve gets.
 type sentCall struct {
 	wire.Envelope
 	Task    string              `json:"task"`
@@ -62,7 +62,7 @@ func startFakeServe(t *testing.T, root string, st wire.Status, reply, errText st
 	return t.TempDir(), startFakeServeAt(t, wire.SocketPath(root), st, reply, errText)
 }
 
-// startFakeServeAt is startFakeServe's server listening at sock (a previous one there is no longer reached).
+// startFakeServeAt is startFakeServe's server listening at sock (a previous one there is not reached).
 func startFakeServeAt(t *testing.T, sock string, st wire.Status, reply, errText string) *fakeServe {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(sock), 0o755); err != nil {

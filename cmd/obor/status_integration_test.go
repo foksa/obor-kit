@@ -29,7 +29,7 @@ import (
 // on no lane, each
 // needs-you with the commands serve says answer it (a question obor resume; a red gate obor resume --regate or --sendback, or drop; a
 // reject obor drop only; a stalled worker its pane; a loop error none; a line waiting a day none), the lines not typed
-// yet (T-466), the last full check and its age, the pause.
+// yet, the last full check and its age, the pause.
 func TestStatusOverServe(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
@@ -39,7 +39,7 @@ func TestStatusOverServe(t *testing.T) {
 	p.Commit(o1)
 	now := time.Now()
 	p.Write(".obor/state/last-full-check", "abcdef0123 "+strconv.FormatInt(now.Unix()-3*3600, 10)+" RED failed: e2e; 120s\n")
-	p.Write(".obor/pause", "-\nold file\n") // T-465: no reader; serve's pause is the one
+	p.Write(".obor/pause", "-\nold file\n") // no reader; serve's pause is the one
 	since := now.Add(-2 * time.Hour).UTC()
 	ss := wire.Status{Since: since.Format(time.RFC3339), Connected: true, Project: &wire.ProjectStatus{
 		Name: "pj", Root: p.Root, Merging: true, Paused: &event.Pause{Why: "quota", Caller: "pj-lead"},
@@ -62,7 +62,7 @@ func TestStatusOverServe(t *testing.T) {
 		},
 		Messages: []wire.MessageStatus{{To: "pj-lead", From: "other", Line: "[obor other] hi", Age: 90000},
 			{To: "pj-rev", From: "pj-lead", Line: "[obor pj-lead] verify 3", Age: 120}},
-		Answers: map[int64]string{ // serve's, from each task's state (T-515); a loop error, a line waiting: none
+		Answers: map[int64]string{ // serve's, from each task's state; a loop error, a line waiting: none
 			1: `obor resume T-01 "<answer>"`, 2: `obor resume T-05 --regate | obor resume T-05 --sendback "<why>" | obor drop T-05 "<why>"`,
 			3: `obor drop L-08 "<why>"`, 4: `its pane, or obor drop L-07 "<why>"`, 5: `obor resume T-08 | obor drop L-06 "<why>"`}}}
 	st, text := statusOf(t, p, ss, nil, now)
@@ -77,7 +77,7 @@ func TestStatusOverServe(t *testing.T) {
 	matchLine(t, text, `^L-02 +- +- +free +- +\(-\)  agent: pj-l-02$`, "L-02")
 	for _, want := range []string{
 		"task T-05 (L-09): needs-you (attempt 2)",
-		"queued T-09: waiting (after T-03): dispatch T-09: lane L-01 is working on T-01", // DD-v0.12 A1
+		"queued T-09: waiting (after T-03): dispatch T-09: lane L-01 is working on T-01",
 		"agent pj-int: working 5m",
 		`needs-you T-01 (L-01): asks: may I edit x.go? → obor resume T-01 "<answer>"`,
 		`needs-you T-05 (L-09): gate red after 2 sendbacks → obor resume T-05 --regate | obor resume T-05 --sendback "<why>" | obor drop T-05 "<why>"`,
@@ -113,9 +113,9 @@ func TestStatusOverServe(t *testing.T) {
 	matchLine(t, text, `^serve: up since .*; this project is not loaded \(obor serve's output says why\); herdr: not connected$`, "not loaded")
 }
 
-// Serve down: one line saying so, first, the lanes from the store and git alone (T-788: no phase, so a submitted lane
+// Serve down: one line saying so, first, the lanes from the store and git alone (no phase, so a submitted lane
 // is working, with its task_done's age; an opencode
-// lane without its plugin marker warned), no agents and no role rows (T-664: nothing stale), no full check yet; herdr
+// lane without its plugin marker warned), no agents and no role rows (nothing stale), no full check yet; herdr
 // is never asked.
 func TestStatusServeDown(t *testing.T) {
 	t.Parallel()
@@ -144,7 +144,7 @@ func TestStatusServeDown(t *testing.T) {
 		`^L-01 +- +task/T-01 +working +12m +\(T-01\)  agent: pj-l-01$`,
 		`^L-02 +- +task/T-02 +working +[0-9]+s +\(T-02\)  agent: pj-l-02$`,
 		`^L-03 +oc +task/T-03 +working +- +\(T-03\)  warning: no-plugin  agent: pj-l-03$`,
-		`^nightly: off \(obor nightly on HH:MM\)$`, // merge.nightly_at unset (T-781)
+		`^nightly: off \(obor nightly on HH:MM\)$`, // merge.nightly_at unset
 		`^full check: none yet$`}
 	if len(lines) != len(want) {
 		t.Fatalf("%d lines, want %d:\n%s", len(lines), len(want), text)
@@ -158,7 +158,7 @@ func TestStatusServeDown(t *testing.T) {
 }
 
 // --json (the binary, serve down): indented, serve.up false, lanes[].lane, task, state, paused.reason, messages [];
-// no ready rows (T-470: the queue went).
+// no ready rows (no ready field: the queue is serve's).
 func TestStatusJSON(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
@@ -168,7 +168,7 @@ func TestStatusJSON(t *testing.T) {
 	p.Commit(o1)
 	p.Submit("L-01")
 	p.Spec("T-09", "# T-09 — stored, never dispatched\n\nDifficulty: simple\n")
-	p.Write(".obor/pause", "-\nhold\n") // T-465: no reader; serve (down here) holds the pause
+	p.Write(".obor/pause", "-\nhold\n") // no reader; serve (down here) holds the pause
 	rc, stdout, stderr := run(t, p.Root, nil, "status", "--json")
 	if rc != 0 || !strings.HasPrefix(stdout, "{\n  \"serve\": {") {
 		t.Fatalf("--json: exit %d, %s\n%s", rc, stdout, stderr)
@@ -204,7 +204,7 @@ func TestStatusJSON(t *testing.T) {
 	if st.Ready != nil || strings.Contains(stdout, `"ready"`) {
 		t.Errorf("ready: %v; want no ready field (T-470)", st.Ready)
 	}
-	// T-1028: serve is down, so the CLI lists no stored spec as never dispatched — it takes view.Build's empty-status
+	// serve is down, so the CLI lists no stored spec as never dispatched — it takes view.Build's empty-status
 	// path (T-09's spec is stored and was never dispatched).
 	if len(st.Queue.Waiting) != 0 || len(st.Queue.Merge) != 0 {
 		t.Errorf("queue %+v, want none with serve down", st.Queue)
@@ -217,8 +217,8 @@ func TestStatusJSON(t *testing.T) {
 	}
 }
 
-// T-979: a model paused with and without --for is one line per model beside the project's pause, --json carries them
-// as model_pauses, and a model serve no longer names (its pause cleared) is gone.
+// a model paused with and without --for is one line per model beside the project's pause, --json carries them
+// as model_pauses, and a model serve does not name (its pause cleared) has no line.
 func TestStatusListsModelPauses(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
@@ -243,7 +243,7 @@ func TestStatusListsModelPauses(t *testing.T) {
 		t.Errorf("pause lines out of order (project's first, then models sorted):\n%s", text)
 	}
 
-	// --json: serve's answer through the client (serve ships it, T-979)
+	// --json: serve's answer through the client (serve ships it)
 	home, _ := startFakeServe(t, p.Root, ss, "", "")
 	env := []string{"OBOR_STATE_HOME=" + home}
 	rc, stdout, stderr := run(t, p.Root, env, "status", "--json")
@@ -278,7 +278,7 @@ func TestStatusListsModelPauses(t *testing.T) {
 	}
 }
 
-// T-657: the binary's --short over a lane and a full check prints neither, only serve's line and `running: nothing`
+// the binary's --short over a lane and a full check prints neither, only serve's line and `running: nothing`
 // when nothing runs.
 func TestStatusShortBinary(t *testing.T) {
 	t.Parallel()
@@ -296,10 +296,10 @@ func TestStatusShortBinary(t *testing.T) {
 	}
 }
 
-// T-664: a store and a served status with one item of each queue kind — the merge loop in serve's order (a review
+// a store and a served status with one item of each queue kind — the merge loop in serve's order (a review
 // job out and not fetched, two submitted tasks waiting for the conflict that holds the scratch, as serve's scheduler
-// says: T-669, T-673), dispatches waiting on --after tasks, on a lane
-// of their level and a spec never dispatched, the review request, the lead's watch with its note (T-666), a line and a
+// says), dispatches waiting on --after tasks, on a lane
+// of their level and a spec never dispatched, the review request, the lead's watch with its note, a line and a
 // brief not done, the pause and the nightly check — give --json's typed arrays (with the role rows, a lane's spec rev
 // and open job, and the worded events with their seq) and one plain text line each.
 func TestStatusQueue(t *testing.T) {
@@ -328,7 +328,7 @@ func TestStatusQueue(t *testing.T) {
 				Level: "medium", Types: []string{"sonnet"}, Difficulty: "medium", Model: "sonnet"},
 			{Task: "T-9", Lane: "L-03", Attempt: 1, State: "awaiting-accept", Phase: wire.PhaseReviewing, Stage: wire.StageReview, Job: "T-9/1/review"},
 		},
-		// T-669, T-673: serve's scheduler: the conflict T-1000 holds the scratch, so T-100 and T-11 (in the pass's
+		// serve's scheduler: the conflict T-1000 holds the scratch, so T-100 and T-11 (in the pass's
 		// lexical order) wait on it; no task is next (as data: the view copies what serve says, it does not check it).
 		Scratch: &wire.ScratchStatus{Task: "T-1000", Why: wire.ScratchConflict},
 		ScratchQueue: []wire.ScratchWait{{Task: "T-100", WaitsOn: "T-1000", Why: wire.ScratchConflict},
@@ -351,7 +351,7 @@ func TestStatusQueue(t *testing.T) {
 			Lane string  `json:"lane"`
 			Task *string `json:"task"`
 		} `json:"lanes"`
-		Tasks map[string]struct { // T-883: the sections name a task by id, its fields are here
+		Tasks map[string]struct { // the sections name a task by id, its fields are here
 			Title   string `json:"title"`
 			Lane    string `json:"lane"`
 			SpecRev int    `json:"spec_rev"`
@@ -414,7 +414,7 @@ func TestStatusQueue(t *testing.T) {
 	if err := json.Unmarshal(b, &js); err != nil {
 		t.Fatal(err)
 	}
-	// T-673: --json's merge items have no next field (the prediction is gone; the nightly's next run stays).
+	// --json's merge items have no next field (no prediction field; the nightly's next run stays).
 	var raw struct {
 		Queue struct {
 			Merge []map[string]json.RawMessage `json:"merge"`
@@ -493,7 +493,7 @@ func TestStatusQueue(t *testing.T) {
 		`^scratch T-1000: conflict$`,
 		`^merge T-100 \(L-04\): submitted, waits for T-1000 \(conflict\)$`,
 		`^merge T-11 \(L-02\): submitted, waits for T-1000 \(conflict\)$`,
-		`^queued T-12 \(hard, opus:high\): waiting \(after T-11\)$`, // T-977: difficulty and model, after stays
+		`^queued T-12 \(hard, opus:high\): waiting \(after T-11\)$`, // difficulty and model, after stays
 		`^queued T-14 \(medium, sonnet\): waiting for a free lane \(medium: sonnet\)$`,
 		`^queued T-20: spec r1 stored [0-9]+s ago, never dispatched: never sent$`,
 		`^review request since 3m \(after T-11, waiting T-11\), note: check x$`,
@@ -513,7 +513,7 @@ func TestStatusQueue(t *testing.T) {
 	}
 }
 
-// T-695, T-721, T-765: the effort a task's dispatch named and the model its lane row holds are on its line and in
+// the effort a task's dispatch named and the model its lane row holds are on its line and in
 // --json (lanes[].effort, lanes[].type); a task without them shows none, as does a free lane.
 func TestStatusShowsEffortAndType(t *testing.T) {
 	t.Parallel()
@@ -525,7 +525,7 @@ func TestStatusShowsEffortAndType(t *testing.T) {
 	p.Commit(o1)
 	p.Commit(o2)
 	p.State("L-01", map[string]any{"task": "T-01", "branch": "task/T-01", "type": "sonnet:high"})
-	p.State("L-02", map[string]any{"task": "T-02", "branch": "task/T-02"}) // a row from before T-721: no model
+	p.State("L-02", map[string]any{"task": "T-02", "branch": "task/T-02"}) // a row with no model
 	now := time.Now()
 	ss := wire.Status{Since: now.Add(-time.Hour).UTC().Format(time.RFC3339), Connected: true, Project: &wire.ProjectStatus{
 		Name: "pj", Root: p.Root, Merging: true,
@@ -550,7 +550,7 @@ func TestStatusShowsEffortAndType(t *testing.T) {
 	}
 }
 
-// T-705: a working Claude lane whose worktree has no enabled obor plugin is warned no-plugin, as an opencode lane
+// a working Claude lane whose worktree has no enabled obor plugin is warned no-plugin, as an opencode lane
 // without its marker is; the testkit's lanes have the plugin enabled.
 func TestStatusWarnsAClaudeLaneWithoutThePlugin(t *testing.T) {
 	t.Parallel()
@@ -559,7 +559,7 @@ func TestStatusWarnsAClaudeLaneWithoutThePlugin(t *testing.T) {
 	p.Config()
 	p.Commit(o1)
 	p.Commit(o2)
-	// The rows hold their tasks, not landed: working (T-1012); no agent recorded.
+	// The rows hold their tasks, not landed: working; no agent recorded.
 	p.State("L-01", map[string]any{"task": "T-01", "branch": "task/T-01"})
 	p.State("L-02", map[string]any{"task": "T-02", "branch": "task/T-02"})
 	if err := os.Remove(filepath.Join(o2, ".claude", "settings.json")); err != nil {
@@ -573,7 +573,7 @@ func TestStatusWarnsAClaudeLaneWithoutThePlugin(t *testing.T) {
 }
 
 // backgroundView is a project with a lane agent running a recorded background call, a role agent running an unrecorded
-// long command (a foreground one, T-727) and the lead running a recorded one with no description, as view.Build joins
+// long command (a foreground one) and the lead running a recorded one with no description, as view.Build joins
 // them.
 func backgroundView(t *testing.T) (view.Project, string, string) {
 	t.Helper()
@@ -597,7 +597,7 @@ func backgroundView(t *testing.T) (view.Project, string, string) {
 	return v, lead, integ
 }
 
-// T-714, T-727: obor status shows each agent's long processes on a line under its own — the lane's under the lane
+// obor status shows each agent's long processes on a line under its own — the lane's under the lane
 // line, a role's and the lead's under their agent line — by description, else command, with the age: bg for a
 // recorded background call, running for another.
 func TestStatusShowsBackground(t *testing.T) {
@@ -620,9 +620,9 @@ func TestStatusShowsBackground(t *testing.T) {
 	}
 }
 
-// goldenStatus is a project with a task of every kind the view knows: one on a lane at work (T-01), one merging
-// (T-02), one waiting for a lane (T-03), one waiting --after (T-04), one needing you on no lane (T-05) and one only
-// specified (T-06), with serve's answer for it; and the view's JSON and text of it at an hour after now.
+// goldenStatus is a project with a task of every kind the view knows: one on a lane at work, one merging
+// one waiting for a lane, one waiting --after, one needing you on no lane and one only
+// specified, with serve's answer for it; and the view's JSON and text of it at an hour after now.
 func goldenStatus(t *testing.T) (string, string) {
 	t.Helper()
 	p := testkit.New(t)
@@ -681,7 +681,7 @@ func scrubGolden(s string, p *testkit.Project) string {
 // updateGolden is OBOR_UPDATE_GOLDEN set, read before TestMain's testkit.Isolate clears obor's environment.
 var updateGolden = os.Getenv("OBOR_UPDATE_GOLDEN") != ""
 
-// T-883: `obor status --json` and its text, against testdata/status.json.golden and status.txt.golden
+// `obor status --json` and its text, against testdata/status.json.golden and status.txt.golden
 // (OBOR_UPDATE_GOLDEN=1 rewrites them).
 func TestStatusGolden(t *testing.T) {
 	js, text := goldenStatus(t)
@@ -705,7 +705,7 @@ func TestStatusGolden(t *testing.T) {
 	}
 }
 
-// T-336, T-437: the lane table holds a lane's task open while its branch is not merged: working until its task_done is
+// the lane table holds a lane's task open while its branch is not merged: working until its task_done is
 // in the event log, done after; it names the lane's worker and type.
 func TestLaneTable(t *testing.T) {
 	t.Parallel()
@@ -720,7 +720,7 @@ func TestLaneTable(t *testing.T) {
 		prep        func()
 	}{
 		{"dispatched", "working", func() { p.Dispatched("L-01") }},
-		{"task_done in", "working", func() { p.Submit("L-01") }}, // T-788: no done (the task's phase is serve's)
+		{"task_done in", "working", func() { p.Submit("L-01") }}, // no done (the task's phase is serve's)
 		{"dispatched anew", "working", func() { p.Dispatched("L-01") }},
 	} {
 		c.prep()

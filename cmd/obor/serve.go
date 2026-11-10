@@ -31,8 +31,8 @@ import (
 	"obor/internal/service"
 )
 
-// serveCmd is `obor serve` (T-323: the app; T-522: one per project, run in it; T-336: the merge loop), `obor serve
-// install|uninstall|restart` (its launchd agent, T-596) and `dump`.
+// serveCmd is `obor serve` (the app; one per project, run in it; the merge loop), `obor serve
+// install|uninstall|restart` (its launchd agent) and `dump`.
 func serveCmd(args []string) int {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
@@ -42,7 +42,7 @@ func serveCmd(args []string) int {
 
 // serve runs the app for the project around cwd until ctx ends: it holds the project's serve.flock (one serve per
 // project) and listens on <root>/.obor/state/serve.sock, and it writes the project into the machine's list of obor
-// projects by name (T-646).
+// projects by name.
 func serve(ctx context.Context, args []string, env project.Env, cwd string) int {
 	switch {
 	case len(args) == 1 && args[0] == "dump":
@@ -58,12 +58,12 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 		errf("FAIL obor serve: %s is not in an obor project (no .obor/config.json): run it in the project", cwd)
 		return 1
 	}
-	if project.Stopped(repo.Root) { // obor stop (T-709): nothing serves a sleeping project
+	if project.Stopped(repo.Root) { // obor stop: nothing serves a sleeping project
 		errf("FAIL obor serve: %s is stopped (obor stop): obor start wakes it", repo.Root)
 		return 1
 	}
-	// stop ends serve the way a signal does: as a graceful shutdown, exit 0. The self-restart uses it (T-656), and so
-	// does the socket's exit request (obor stop, T-711).
+	// stop ends serve the way a signal does: as a graceful shutdown, exit 0. The self-restart uses it, and so
+	// does the socket's exit request (obor stop).
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
 	end := &serveEnd{stop: stop}
@@ -84,19 +84,19 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 		return 1
 	}
 	defer lock.Unlock()
-	// serve's own rotation, so a new build's re-exec counts as much as an install or restart (T-1100). launchd's fd
+	// serve's own rotation, so a new build's re-exec counts as much as an install or restart. launchd's fd
 	// is opened with O_APPEND: the truncate keeps it on this file and its next write lands at 0. A failure is one
 	// line, not the end of serve: serving the project is not the rotation's to refuse.
 	if err := service.RotateServeLog(root); err != nil {
 		fmt.Fprintf(flushWriter{}, "obor serve: serve.log not rotated (%v)\n", err)
 	}
 	_ = os.Remove(sock) // a leftover of a serve that died: the lock says none runs
-	// The plugin kinds' manifests, before anything reads them (T-1054): the merge loop keeps them current.
+	// The plugin kinds' manifests, before anything reads them: the merge loop keeps them current.
 	kinds := &kindCache{}
 	if cfg, err := config.Load(root); err == nil {
 		kinds.refresh(cfg, flushWriter{})
 	}
-	// The machine's list of obor projects by name (T-646): obor send and obor projects read it. A failure is one line,
+	// The machine's list of obor projects by name: obor send and obor projects read it. A failure is one line,
 	// not the end of serve: naming a project is a convenience, serving it is not.
 	if _, err := project.Register(root, env); err != nil {
 		fmt.Fprintf(flushWriter{}, "obor serve: the machine's project list is not updated (%v)\n", err)
@@ -111,7 +111,7 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 		defer close(served)
 		_ = a.Serve(ctx)
 	}()
-	// The socket is bound only once the project is loaded (T-659): a call made during the replay finds no socket and
+	// The socket is bound only once the project is loaded: a call made during the replay finds no socket and
 	// its client retries inside its own deadline; nothing is admitted to wait for the load.
 	select {
 	case <-served:
@@ -133,7 +133,7 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 	if !end.exec.Load() {
 		return 0
 	}
-	// The self-restart of a serve launchd does not run (a pane, Linux; T-719): it has ended as at a signal, and now
+	// The self-restart of a serve launchd does not run (a pane, Linux): it has ended as at a signal, and now
 	// the same pid execs the kit's shim, which runs the binary it picks now. The flock goes with the exec (Go's files
 	// are close-on-exec); the socket is removed here, and a new serve removes a leftover once it holds the lock.
 	ln.Close()
@@ -150,7 +150,7 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 // serveTick is the app's tick and its binary watch's (0: their default, 30 s); a test shortens it.
 var serveTick time.Duration
 
-// serveEnd is how serve ends for its self-restart (T-656, T-719): stop ends it as a signal does; exec, set by the
+// serveEnd is how serve ends for its self-restart: stop ends it as a signal does; exec, set by the
 // restart, has serve exec the kit's shim once it has ended (a serve launchd does not restart).
 type serveEnd struct {
 	stop context.CancelFunc
@@ -159,10 +159,10 @@ type serveEnd struct {
 
 // mergeLoop is the merge loop's adapters for a project: serve's scratch on its config as it is now (a merged config
 // change counts), launch for the integrator's start and the merged worker's stop, the herdr socket for the job
-// prompts and the lines it types (T-466), the session inbox for the lead's lines and for the lines and job wakes of a
-// kind with an inbox (T-485, T-499), and dispatch as state (dispatchLoop: obor serve is the only dispatcher, T-408).
-// end ends serve for its self-restart (T-656, T-719). A plugin kind whose command changed is described again first
-// (kinds, T-1054).
+// prompts and the lines it types, the session inbox for the lead's lines and for the lines and job wakes of a
+// kind with an inbox, and dispatch as state (dispatchLoop: obor serve is the only dispatcher).
+// end ends serve for its self-restart. A plugin kind whose command changed is described again first
+// (kindCache).
 func mergeLoop(env project.Env, panes herdr.Panes, end *serveEnd, kinds *kindCache) func(root string) (*app.Loop, error) {
 	return func(root string) (*app.Loop, error) {
 		repo, err := project.Find(root)
@@ -185,7 +185,7 @@ func mergeLoop(env project.Env, panes herdr.Panes, end *serveEnd, kinds *kindCac
 		if err != nil {
 			return nil, err
 		}
-		if k := cfg.TerminalKind(); k != config.DefaultTerminal { // T-1044: herdr is the one terminal adapter
+		if k := cfg.TerminalKind(); k != config.DefaultTerminal { // herdr is the one terminal adapter
 			return nil, fmt.Errorf("terminal.kind %q: serve knows %s", k, strings.Join(config.TerminalKinds, ", "))
 		}
 		l := &app.Loop{Workflow: wf, Agents: agents, Typer: panes, Nightly: nightly(o), Disk: diskOf(repo.Root),
@@ -198,7 +198,7 @@ func mergeLoop(env project.Env, panes herdr.Panes, end *serveEnd, kinds *kindCac
 	}
 }
 
-// kindCache is serve's cache step (T-1054): each plugin kind of the project's config gets its manifest cached
+// kindCache is serve's cache step: each plugin kind of the project's config gets its manifest cached
 // (plugin.Ensure) at serve's start and again once its command changed (another path, a rebuilt binary), so the guard,
 // the starts, obor setup mcp and obor config validate read it with no hand step; hooks still never run a plugin. A
 // failure is said once per kind until it changes or heals: the guard denies that kind's program meanwhile.
@@ -235,7 +235,7 @@ func (kc *kindCache) refresh(cfg *config.Config, log io.Writer) (wrote bool) {
 	return wrote
 }
 
-// workflowOf is the git workflow workflow.kind selects (T-1029; obor config validate refuses another kind): scratch-ff,
+// workflowOf is the git workflow workflow.kind selects (obor config validate refuses another kind): scratch-ff,
 // serve's scratch on o's config, its lanes, and the review git on the main checkout.
 func workflowOf(o checks.Options) (port.Workflow, error) {
 	switch k := o.Cfg.WorkflowKind(); k {
@@ -250,7 +250,7 @@ func workflowOf(o checks.Options) (port.Workflow, error) {
 // herdrSocket is the herdr socket client every runtime caller shares: herdr's socket for env (herdr.SocketPath).
 func herdrSocket(env project.Env) *herdr.Socket { return &herdr.Socket{Path: herdr.SocketPath(env)} }
 
-// diskOf is the merge loop's low-disk watch (T-564) of the volume root is on.
+// diskOf is the merge loop's low-disk watch of the volume root is on.
 func diskOf(root string) *app.Disk {
 	return &app.Disk{Volume: root,
 		Free: func() (uint64, error) {
@@ -277,7 +277,7 @@ func watchKinds(cfg *config.Config) []string {
 }
 
 // nightly is the merge loop's nightly full check of o's project: what obor nightly runs, cut off when ctx ends (as by
-// a signal). At "" (merge.nightly_at unset) is off: the pass starts no run, but still settles one (T-782).
+// a signal). At "" (merge.nightly_at unset) is off: the pass starts no run, but still settles one.
 func nightly(o checks.Options) *app.Nightly {
 	root := o.Cfg.Root
 	return &app.Nightly{At: o.Cfg.NightlyAt(),
@@ -324,7 +324,7 @@ func configured(root string) bool {
 	return err == nil
 }
 
-// serveDump is `obor serve dump` (T-435): the event log of the project around cwd as the JSONL serve wrote before
+// serveDump is `obor serve dump`: the event log of the project around cwd as the JSONL serve wrote before
 // phase 3, read-only, so it works with serve down. For a rollback: stop serve, then
 // `obor serve dump > .obor/state/events.jsonl` and run the old binary.
 func serveDump(w io.Writer, cwd string) int {

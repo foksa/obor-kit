@@ -11,8 +11,9 @@ import (
 	"obor/internal/version"
 )
 
-// obor dispatch is one socket request to obor serve, the only dispatcher (T-408; as obor resume is): the level form, the
-// types form, --after (T-462) and --force reach it as the call, its reply is printed; serve down is FAIL with the lane untouched; the
+// obor dispatch is one socket request to obor serve, the only dispatcher (as obor resume is): the level form, the
+// types form, --after and --force reach it as the call, its reply is printed; serve down is FAIL with the lane
+// untouched; the
 // options that mean nothing to a queued dispatch are usage errors; its refusal is the caller's FAIL.
 func TestDispatchServeRequest(t *testing.T) {
 	t.Parallel()
@@ -51,7 +52,7 @@ func TestDispatchServeRequest(t *testing.T) {
 		}
 		got.CallID = ""
 		c.want.Root, c.want.Agent, c.want.Role = p.Root, "pj-lead", "lead"
-		c.want.Version = version.Version // every call names its binary (T-826)
+		c.want.Version = version.Version // every call names its binary
 		if !reflect.DeepEqual(got, c.want) {
 			t.Errorf("%s: call %+v, want %+v", c.name, got, c.want)
 		}
@@ -112,7 +113,7 @@ func TestDispatchServeRequest(t *testing.T) {
 	}
 }
 
-// obor drop is one request to obor serve (T-439, T-775): the task, the why, --discard and --force reach it as the call
+// obor drop is one request to obor serve: the task, the why, --discard and --force reach it as the call
 // (the caller's role and agent; serve knows the lane), its reply is printed; its refusal is the caller's FAIL; serve
 // down is FAIL with the lane untouched; a usage error or a lane instead of a task id asks serve nothing.
 func TestDropServeRequest(t *testing.T) {

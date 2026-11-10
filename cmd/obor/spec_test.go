@@ -8,9 +8,9 @@ import (
 	"obor/internal/app/wire"
 )
 
-// T-440: obor spec set is one socket request to obor serve: the file's text read once, the task, the caller and its
+// obor spec set is one socket request to obor serve: the file's text read once, the task, the caller and its
 // role (the session's: a lane's cwd is a worker's whatever OBOR_ROLE says, so serve refuses it); its reply is printed.
-// A bad task id or an unreadable file asks nothing; serve down or a refusal is FAIL, exit 1 (T-520).
+// A bad task id or an unreadable file asks nothing; serve down or a refusal is FAIL, exit 1.
 func TestSpecSetRequest(t *testing.T) {
 	t.Parallel()
 	p := servedProject(t)
@@ -22,7 +22,7 @@ func TestSpecSetRequest(t *testing.T) {
 
 	for _, c := range []struct {
 		name, dir, role string
-		agent           string // derived from the role (T-786), whatever OBOR_AGENT says
+		agent           string // derived from the role, whatever OBOR_AGENT says
 	}{
 		{"the lead", p.Root, "lead", "pj-lead"},
 		{"from a lane, OBOR_ROLE=lead", p.LaneDir("L-01"), "worker", "pj-l-01"},
@@ -39,7 +39,7 @@ func TestSpecSetRequest(t *testing.T) {
 		}
 	}
 
-	// The owner in a plain terminal (role none) is sent as no role (DD-v0.11 A3).
+	// The owner in a plain terminal (role none) is sent as no role.
 	if rc, stdout, _ := run(t, p.Root, []string{"OBOR_STATE_HOME=" + home}, "spec", "set", "T-07", draft); rc != 0 ||
 		stdout != "SET T-07 rev 1\n" {
 		t.Errorf("the owner: exit %d, %q; want the reply", rc, stdout)
@@ -48,7 +48,7 @@ func TestSpecSetRequest(t *testing.T) {
 		t.Errorf("the owner: call %+v; want no role", calls[len(calls)-1])
 	}
 
-	// T-819: --note is what changed: sent with the set (serve tells a working worker, and task_done's refusal names it).
+	// --note is what changed: sent with the set (serve tells a working worker, and task_done's refusal names it).
 	if rc, stdout, _ := run(t, p.Root, env, "spec", "set", "T-07", draft, "--note", "widen the guard"); rc != 0 ||
 		stdout != "SET T-07 rev 1\n" {
 		t.Errorf("--note: exit %d, %q; want the reply", rc, stdout)
@@ -91,7 +91,7 @@ func TestSpecSetRequest(t *testing.T) {
 	}
 }
 
-// T-440: obor spec show and list read the store read-only, with serve down: show prints the current rev's text as
+// obor spec show and list read the store read-only, with serve down: show prints the current rev's text as
 // set, list one line per task; a task with no spec is FAIL, exit 1.
 func TestSpecShowListServeDown(t *testing.T) {
 	t.Parallel()

@@ -21,7 +21,7 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-1039: obor events, against a real obor serve (fake herdr): the JSON lines of the log from the first record, in
+// obor events, against a real obor serve (fake herdr): the JSON lines of the log from the first record, in
 // seq order, a task's carrying its spec's ref; --after N from N+1; a cursor past the end prints nothing, exit 0; the
 // text form leads with the seq; --follow prints a record appended after it started and ends on TERM, exit 0; with
 // serve down the same records come from the store. A session with OBOR_ROLE=tracker is the custom role: spec_set

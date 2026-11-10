@@ -1,10 +1,10 @@
 package main
 
-// obor stop / obor start (T-709): put a project to sleep and wake it. A stopped project runs no serve and no agents,
+// obor stop / obor start: put a project to sleep and wake it. A stopped project runs no serve and no agents,
 // is not in the machine's project list, and its hooks stand down (project.Stopped); its files stay.
 //
-// obor stop is one guarded transition (T-710, RV-84): serve must answer, it is paused first so nothing new starts,
-// and STOPPED is said only once serve is confirmed down. The pause is always stop's own, untimed (T-711): a pause in
+// obor stop is one guarded transition: serve must answer, it is paused first so nothing new starts,
+// and STOPPED is said only once serve is confirmed down. The pause is always stop's own, untimed: a pause in
 // force before it is replaced and recorded in the marker; a refusal after the pause, and obor start, restore that
 // pause while it has not expired, else clear. obor start fails until stop's pause is ended, and its rerun completes it.
 
@@ -119,7 +119,7 @@ func (s *sleeper) name() string { return s.Cfg.ProjectName() }
 // answers for the project (else: start serve first); (2) serve paused by stop's own untimed pause, so nothing new is
 // dispatched (a pause in force already is replaced, and recorded); (3) the tasks in progress, asked of serve: refused,
 // or with --force kept open (the agents stop; the tasks continue at obor start) — never the lane whose agent runs in
-// the caller's own pane (project.Pane, T-711); (4) herdr's panes listed (an error refuses) and every agent obor
+// the caller's own pane (project.Pane); (4) herdr's panes listed (an error refuses) and every agent obor
 // started in the project stopped but the caller's own;
 // (5) serve ended (launchd's agent uninstalled; one in a pane or run by hand asked to exit over its socket) and
 // confirmed down (its socket and lock gone); (6) the project unregistered and the marker written, with the replaced
@@ -328,7 +328,7 @@ func untilLine(until int64) string {
 	return time.Unix(until, 0).Format("2006-01-02 15:04")
 }
 
-// ownLane is the lane among busy whose agent runs in the caller's own pane (project.Pane; T-711): its label is that
+// ownLane is the lane among busy whose agent runs in the caller's own pane (project.Pane): its label is that
 // lane's agent or its cwd in that lane. "": none, or no pane of the caller's. An error: herdr's panes not listed, so
 // the caller's pane is not known.
 func (s *sleeper) ownLane(ctx context.Context, busy []busyTask) (string, error) {
@@ -382,8 +382,7 @@ func (s *sleeper) status(ctx context.Context) (*wire.ProjectStatus, error) {
 }
 
 // openTasks is serve's open tasks: every task it still has in its merge loop (working, gating, merging, waiting …),
-// which is every task that does not say it ended — an older serve names no ended field, so its tasks stay open
-// (T-921).
+// which is every task that does not say it ended — an older serve names no ended field, so its tasks stay open.
 func openTasks(p *wire.ProjectStatus) (out []busyTask) {
 	for _, t := range p.Tasks {
 		if !t.Ended {
@@ -416,7 +415,7 @@ func (s *sleeper) stopAgents(ctx context.Context) error {
 	}
 	repo, _ := project.Find(s.Cwd)
 	ownPane, _ := project.Pane(s.Env)            // none: no pane of the caller's to spare
-	ownAgent := project.Self(repo, s.Cfg, s.Env) // derived (T-786)
+	ownAgent := project.Self(repo, s.Cfg, s.Env) // derived
 	stopped := 0
 	for _, p := range panes {
 		if p.Label == "" || p.Agent == "" || p.ID == ownPane || ownAgent != "" && p.Label == ownAgent {
@@ -445,8 +444,8 @@ func (s *sleeper) stopAgents(ctx context.Context) error {
 
 // stopServe ends the project's running serve and confirms it down: launchd's agent, when loaded, is uninstalled
 // first (it ends launchd's serve, and no launchd serve takes over the lock); a serve that is not launchd's (in a pane,
-// or run by hand, on any OS) is then asked to exit over its socket (wire.MethodExit: its graceful exit, T-652's).
-// Down is serve.flock no longer held and serve.sock not answering, within Wait.
+// or run by hand, on any OS) is then asked to exit over its socket (wire.MethodExit: its graceful exit).
+// Down is serve.flock released and serve.sock not answering, within Wait.
 func (s *sleeper) stopServe(ctx context.Context, id wire.Envelope) error {
 	root := s.Cfg.Root
 	svc := serviceOf(s.Cfg, s.Env)

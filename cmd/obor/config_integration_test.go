@@ -11,7 +11,7 @@ import (
 )
 
 // bash config.test.sh case_validate_* through the binary: OK exit 0; WARN lines then OK; FAIL lines exit 1; a removed key
-// past its two versions is an unknown key, a FAIL line (T-830: cache.warn_tokens; T-1081).
+// past its two versions is an unknown key, a FAIL line (cache.warn_tokens).
 func TestConfigValidateBinary(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
@@ -26,15 +26,15 @@ func TestConfigValidateBinary(t *testing.T) {
 			"FAIL .cache: unknown to this obor (retired, or newer than this binary): delete it (.obor/config.json)\n"},
 		{[]func(map[string]any){testkit.Set("version", 3), testkit.Set("commands.e2e", "bun run e2e")}, 1,
 			"WARN commands.e2e: obor no longer runs it at merge or nightly (v0.32); delete it, or name it in a merge.by_path.rules run or nightly.also_run\nFAIL .version: must be 2, got 3\n"},
-		// T-966: merge.receipt_max_age went with the test receipts in v0.29; past its two minors it is an unknown key,
-		// a FAIL line naming it (T-1081).
+		// merge.receipt_max_age has no meaning for the test receipts; past its two minors it is an unknown key,
+		// a FAIL line naming it.
 		{[]func(map[string]any){testkit.Set("merge.receipt_max_age", 60)}, 1,
 			"FAIL .merge.receipt_max_age: unknown to this obor (retired, or newer than this binary): delete it (.obor/config.json)\n"},
-		// T-428: serve dispatches and merges nothing without roles.integrator, so validate FAILs.
+		// serve dispatches and merges nothing without roles.integrator, so validate FAILs.
 		{[]func(map[string]any){func(c map[string]any) { delete(c["agents"].(map[string]any), "roles") }}, 1,
 			"FAIL .agents.roles.integrator: required: serve dispatches and merges nothing without an integrator\n"},
 	} {
-		// The fixture carries the integrator serve needs (T-428); these cases are about the other lines.
+		// The fixture carries the integrator serve needs; these cases are about the other lines.
 		p.Config(append([]func(map[string]any){testkit.Set("agents.roles.integrator", "")}, c.edits...)...)
 		if rc, stdout, stderr := run(t, p.Root, nil, "config", "validate"); rc != c.rc || stdout != c.out {
 			t.Errorf("validate: exit %d, %q (%s); want %d, %q", rc, stdout, stderr, c.rc, c.out)
@@ -66,8 +66,8 @@ func TestWhoami(t *testing.T) {
 		t.Errorf("whoami --bogus: exit %d, want 2", rc)
 	}
 
-	// bash config.test.sh case_whoami_armed; T-496: no allowed globs, only the protected files the stored spec
-	// (T-440) unlocks; a spec committed in git counts for nothing.
+	// bash config.test.sh case_whoami_armed: no allowed globs, only the protected files the stored spec
+	// unlocks; a spec committed in git counts for nothing.
 	p.Write("docs/tasks/T-02.md", "# T-02\n\n## Protected files this task may edit\n`git/only.md`\n")
 	p.Git(p.Root, "add", "docs/tasks/T-02.md")
 	p.Git(p.Root, "commit", "-q", "-m", "spec T-02 in git")
@@ -99,7 +99,7 @@ func TestWhoami(t *testing.T) {
 	}
 }
 
-// T-801: whoami in a custom role's env says its role and derived name (a default row's too); once its row is removed the
+// whoami in a custom role's env says its role and derived name (a default row's too); once its row is removed the
 // role derives no name (no agent line).
 func TestWhoamiCustomRole(t *testing.T) {
 	t.Parallel()

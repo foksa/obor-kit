@@ -11,7 +11,7 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-753: configFile is serve's setup edit on the main checkout: Read refuses a config with uncommitted changes (named)
+// configFile is serve's setup edit on the main checkout: Read refuses a config with uncommitted changes (named)
 // and a checkout off main; Commit writes the file and commits that one file on main with the message, a staged
 // change of another file left out; a failed commit puts the file back.
 func TestConfigFileCommitsOnlyTheConfig(t *testing.T) {

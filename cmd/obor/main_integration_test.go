@@ -13,7 +13,7 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-409: obor merge is gone (obor serve's merge loop is the only merger): an unknown subcommand, exit 2, nothing
+// obor merge is no subcommand (obor serve's merge loop is the only merger): an unknown subcommand, exit 2, nothing
 // merged, the lane's work left as it was.
 func TestMergeIsUnknown(t *testing.T) {
 	t.Parallel()

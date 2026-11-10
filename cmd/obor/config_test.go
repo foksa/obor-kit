@@ -51,9 +51,9 @@ func TestConfigPrintAndGet(t *testing.T) {
 	}{
 		{p.Root, []string{"config", "get", ".project.agent_prefix"}, 0, "pj\n"},
 		{lane, []string{"config", "get", ".nightly.at"}, 0, "02:30\n"},
-		{p.Root, []string{"config", "get", ".notify"}, 1, ""}, // removed (T-830): an unknown key now
+		{p.Root, []string{"config", "get", ".notify"}, 1, ""}, // retired: an unknown key now
 		{p.Root, []string{"config", "get", ".nosuch"}, 1, ""},
-		{p.Root, []string{"config", "get", ".mcp.jobs"}, 1, ""}, // removed (T-830): an unknown key now
+		{p.Root, []string{"config", "get", ".mcp.jobs"}, 1, ""}, // retired: an unknown key now
 		{p.Root, []string{"config", "get", ".mcp.nope"}, 1, ""},
 		{p.Root, []string{"config", "get", ".lanes.count"}, 0, "1\n"},
 		{p.Root, []string{"config", "get"}, 2, ""},
@@ -72,7 +72,7 @@ func TestConfigPrintAndGet(t *testing.T) {
 	}
 }
 
-// T-846, T-1157: a key of the shape before v0.23 in a shape-2 file is an ordinary unknown-key failure: `obor config
+// a key of the shape before v0.23 in a shape-2 file is an ordinary unknown-key failure: `obor config
 // validate` names the key and says nothing of a migration (a file of shape 1 itself fails the load instead).
 func TestConfigValidateOldShapeKeysAreUnknownKeys(t *testing.T) {
 	t.Parallel()
@@ -104,7 +104,7 @@ func whoamiIn(t *testing.T, dir string, env ...string) (string, map[string]any) 
 	return text, j
 }
 
-// bash config.test.sh case_whoami_deep_dive, and a lead has no lead line any more (T-467).
+// bash config.test.sh case_whoami_deep_dive, and a lead has no lead line.
 func TestWhoamiDeepDiveAndLead(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)
@@ -114,7 +114,7 @@ func TestWhoamiDeepDiveAndLead(t *testing.T) {
 	if !strings.Contains(text, "role: lead\n") || !strings.Contains(text, "source: env\nlane row: none\n") {
 		t.Errorf("lead: %q", text)
 	}
-	if strings.Contains(text, "\nlane: ") { // T-554: no empty `lane:` line for a role without a lane
+	if strings.Contains(text, "\nlane: ") { // no empty `lane:` line for a role without a lane
 		t.Errorf("a lead has no lane line: %q", text)
 	}
 	if want := map[string]any{"role": "lead", "agent": "pj-lead", "lane": "", "source": "env"}; !reflect.DeepEqual(j, want) {
@@ -126,7 +126,7 @@ func TestWhoamiDeepDiveAndLead(t *testing.T) {
 		t.Errorf("a worker's lane line is missing: %q", text)
 	}
 	dd := p.PlainLane("deep-dive", "")
-	// T-777: no role worktree is reserved under lanes_dir any more; the deep-dive worktree is a lane and its cwd wins
+	// no role worktree is reserved under lanes_dir; the deep-dive worktree is a lane and its cwd wins
 	// over OBOR_ROLE.
 	if text, _ := whoamiIn(t, dd, "OBOR_ROLE=deep_dive", "OBOR_AGENT=pj-deep-dive"); !strings.Contains(text, "role: worker\n") ||
 		!strings.Contains(text, "lane: deep-dive\n") || !strings.Contains(text, "source: env+cwd\n") {
@@ -137,9 +137,9 @@ func TestWhoamiDeepDiveAndLead(t *testing.T) {
 	}
 }
 
-// T-793: `whoami --can-push` (hidden; the pre-push hook's question) exits 0 for a non-lane-bound role in
-// guards.allow_push and 1 otherwise, printing nothing. A caller with no role is answered by the hook itself (T-1116:
-// a person's shell pushes), so "no role" stays 1 here: config.MayPush is a role's rule.
+// `whoami --can-push` (hidden; the pre-push hook's question) exits 0 for a non-lane-bound role in
+// guards.allow_push and 1 otherwise, printing nothing. A caller with no role is answered by the hook itself (a
+// person's shell pushes), so "no role" stays 1 here: config.MayPush is a role's rule.
 func TestWhoamiCanPush(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)
@@ -163,7 +163,7 @@ func TestWhoamiCanPush(t *testing.T) {
 	}
 }
 
-// T-1054 (RV-150 #3): obor config validate asks OpenCode for its project warnings as it just described it, not the
+// obor config validate asks OpenCode for its project warnings as it just described it, not the
 // registry's uncached kind: with no cache, an opencode.json overriding mcp.servers.obor is a WARN.
 func TestConfigValidateWarnsOfTheProjectFileWithoutACache(t *testing.T) {
 	t.Parallel()
@@ -180,7 +180,7 @@ func TestConfigValidateWarnsOfTheProjectFileWithoutACache(t *testing.T) {
 	}
 }
 
-// T-796: a triage session (OBOR_ROLE=triage, as setup and obor restart export it, in the main checkout) has the
+// a triage session (OBOR_ROLE=triage, as setup and obor restart export it, in the main checkout) has the
 // derived identity: obor whoami says role triage, and a CLI call to serve is the triage agent's, not the owner's.
 func TestTriageWhoamiAndCaller(t *testing.T) {
 	t.Parallel()

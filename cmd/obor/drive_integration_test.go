@@ -10,7 +10,7 @@ import (
 	"obor/internal/app/wire"
 )
 
-// obor land (T-751) is one socket request after two checks of its own: the task is a driving one in serve's status
+// obor land is one socket request after two checks of its own: the task is a driving one in serve's status
 // (by id, or by the drive's name in its stored spec), and its lane worktree is clean. A dirty worktree is refused with
 // its paths and nothing is sent (land commits nothing); no summary: the branch's commit subjects since main; none:
 // refused. Serve's reply is printed.

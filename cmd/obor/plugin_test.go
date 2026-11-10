@@ -8,9 +8,9 @@ import (
 	"testing"
 )
 
-// The opencode plugin (T-306): opencode/obor.js ships as a package dir and each start's generated config names it (the
-// kind, T-495, T-809; its own binary since T-1046). Its event mapping and hooks are the tool's behaviour: `node --check` and `node --test` run in
-// conformance OC-S2, not here.
+// The opencode plugin: opencode/obor.js ships as a package dir and each start's generated config names it (the
+// kind, its own binary). Its event mapping and hooks are the tool's behaviour: `node --check` and `node --test` run
+// in conformance OC-S2, not here.
 func TestOpencodePlugin(t *testing.T) {
 	root := checkoutRoot(t)
 	js := filepath.Join(root, "opencode", "obor.js")
@@ -24,7 +24,7 @@ func TestOpencodePlugin(t *testing.T) {
 	if !strings.Contains(string(src), `"file://" + filepath.Join(kit, Name)`) || !strings.Contains(string(src), `const Name = "opencode"`) {
 		t.Error("kinds/opencode does not name <kit>/opencode in the start's plugins")
 	}
-	// T-809 (T-804 OC-L4): opencode loads only a package dir from an env config: <kit>/opencode/package.json, obor.js
+	// opencode loads only a package dir from an env config: <kit>/opencode/package.json, obor.js
 	// its main.
 	b, err := os.ReadFile(filepath.Join(root, "opencode", "package.json"))
 	if err != nil {

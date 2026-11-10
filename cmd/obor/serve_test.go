@@ -54,7 +54,7 @@ func TestServeReportsHerdrProtocolMismatch(t *testing.T) {
 	_ = cmd.Wait()
 }
 
-// T-522: a project whose serve socket path is over the unix limit fails at serve start, naming the path and the
+// a project whose serve socket path is over the unix limit fails at serve start, naming the path and the
 // limit; nothing is left behind.
 func TestServeSocketPathTooLong(t *testing.T) {
 	t.Parallel()
@@ -82,7 +82,7 @@ func TestServeSocketPathTooLong(t *testing.T) {
 	}
 }
 
-// T-435: `obor serve dump` prints the event log of the project around cwd as JSONL, read-only (no serve runs); without a
+// `obor serve dump` prints the event log of the project around cwd as JSONL, read-only (no serve runs); without a
 // database it fails, printing nothing.
 func TestServeDump(t *testing.T) {
 	t.Parallel()
@@ -115,7 +115,7 @@ func TestServeDump(t *testing.T) {
 }
 
 // A herdr on a newer protocol than obor's is served, not refused: serve's log names its version and protocol once,
-// and obor status (text and JSON) carries the same note. The note follows the server serve is connected to (T-806):
+// and obor status (text and JSON) carries the same note. The note follows the server serve is connected to:
 // herdr coming up after serve, and herdr restarted on another protocol, change it; a restart as the same one does not
 // log again.
 func TestServeAcceptsNewerHerdrProtocol(t *testing.T) {
@@ -174,7 +174,7 @@ func TestServeAcceptsNewerHerdrProtocol(t *testing.T) {
 	}
 }
 
-// serve's merge loop gets the workflow workflow.kind selects (T-1029: scratch-ff, the default) and the dispatch's spec
+// serve's merge loop gets the workflow workflow.kind selects (scratch-ff, the default) and the dispatch's spec
 // reader and kit; a kind serve has no implementation of fails the loop's construction.
 func TestMergeLoopWorkflowWiring(t *testing.T) {
 	t.Parallel()

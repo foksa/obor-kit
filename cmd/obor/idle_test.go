@@ -8,7 +8,7 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-803: obor idle ["<why>"] is one request to obor serve as the caller: with a text it acknowledges the idle state,
+// obor idle ["<why>"] is one request to obor serve as the caller: with a text it acknowledges the idle state,
 // with none it asks for it; serve's reply is printed. A usage error sends nothing, serve's refusal is FAIL.
 func TestIdleRequest(t *testing.T) {
 	t.Parallel()

@@ -25,7 +25,7 @@ func flakeLine(t *testing.T, at int64, test, task string, saved bool) string {
 	return string(b)
 }
 
-// T-350: obor flakes prints exactly the flaky tests of the last 7 days (a passed_on_retry line, or red lines on two
+// obor flakes prints exactly the flaky tests of the last 7 days (a passed_on_retry line, or red lines on two
 // tasks), one line each with the tasks and the newest time; none → "no flaky tests (7d)"; read-only, no arguments.
 func TestFlakesCommand(t *testing.T) {
 	t.Parallel()
@@ -35,7 +35,7 @@ func TestFlakesCommand(t *testing.T) {
 	day := int64(24 * 60 * 60)
 	p.Write(".obor/state/flakes.jsonl", strings.Join([]string{
 		flakeLine(t, now-day, "TestTwo", "T-01", false),    // two tasks in 7 days → flaky
-		flakeLine(t, now-2*day, "TestTwo", "T-02", false),  // (the older one, so T-01 is the newest)
+		flakeLine(t, now-2*day, "TestTwo", "T-02", false),  // (the older one: the newest time is the other's)
 		flakeLine(t, now-day, "TestOnce", "T-01", false),   // one task, no retry → not flaky
 		flakeLine(t, now-8*day, "TestOld", "T-01", false),  // older than 7 days → not flaky
 		flakeLine(t, now-day, "TestRetried", "T-03", true), // passed on a rerun (release's) → flaky

@@ -16,7 +16,7 @@ import (
 	"obor/internal/service"
 )
 
-// serviceOf is the launchd agent of cfg's project (T-596): labelled by its config name (else its root's base, as
+// serviceOf is the launchd agent of cfg's project: labelled by its config name (else its root's base, as
 // serve names it), running the kit's bin/obor with the caller's PATH and HERDR_SOCKET_PATH.
 func serviceOf(cfg *config.Config, env project.Env) service.Service {
 	name := cfg.ProjectName()
@@ -65,7 +65,7 @@ func serveService(verb, cwd string, env project.Env) int {
 		return 1
 	}
 	// launchd's restart returns when it has started the new serve; that one replays its log before it binds its
-	// socket (T-659), so a caller that asks it at once finds no serve. Wait for its answer (T-862). A serve in a pane
+	// socket, so a caller that asks it at once finds no serve. Wait for its answer. A serve in a pane
 	// is not waited for: install's launchd one waits on the pane's flock, nothing new answers yet.
 	ready := false
 	if s.Supported() && pane == 0 && (verb == "install" || verb == "restart") {
@@ -141,7 +141,7 @@ func servePID(root string) int {
 	return pid
 }
 
-// serveRestarter is serve's self-restart (app.Loop.Restart) on a new obor binary (T-719). It ends serve the way a
+// serveRestarter is serve's self-restart (app.Loop.Restart) on a new obor binary. It ends serve the way a
 // signal does — end.stop cancels the daemon's context, running gates end their process groups, serve returns — and
 // then: launchd's serve exits 0 and launchd's KeepAlive starts the shim, which runs the new build; any other serve
 // (in a pane, on Linux, launchd's agent not installed) execs the kit's shim itself, same pid, same pane (serve, after

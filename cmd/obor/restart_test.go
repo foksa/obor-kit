@@ -12,7 +12,7 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-773, T-959: obor restart asks serve for the job an agent's restart carries (restart_job), with the project, the
+// obor restart asks serve for the job an agent's restart carries (restart_job), with the project, the
 // agent, its role and a worker's lane; serve's answer is the job, or none.
 func TestRestartJob(t *testing.T) {
 	t.Parallel()
@@ -40,10 +40,10 @@ func TestRestartJob(t *testing.T) {
 	}
 }
 
-// T-778, T-959: serve down refuses where it may hold a job. A lane whose row holds a task names the task and serve's
-// state (RV-99 #6: obor serve restart (the installed service) or obor serve (a pane), obor status --facts to check, no
+// serve down refuses where it may hold a job. A lane whose row holds a task names the task and serve's
+// state (obor serve restart (the installed service) or obor serve (a pane), obor status --facts to check, no
 // obor serve status). The integrator, whose lane is "", has no row to say otherwise: it always refuses with its own
-// line (RV-133 #3). A lane with no task is the plain restart.
+// line. A lane with no task is the plain restart.
 func TestServeJobServeDown(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)
@@ -59,7 +59,7 @@ func TestServeJobServeDown(t *testing.T) {
 			t.Errorf("error %q lacks %q", err, want)
 		}
 	}
-	if strings.Contains(err.Error(), "serve status") { // RV-99 #6: obor serve status is gone (T-774)
+	if strings.Contains(err.Error(), "serve status") { // obor serve status is no subcommand
 		t.Errorf("error %q names obor serve status", err)
 	}
 	if job, err := resolveAgentJob(p.Root, "pj-l-02", "worker", "L-02", down); job != "" || err != nil {
@@ -92,8 +92,8 @@ func TestRestartCommand(t *testing.T) {
 	f.Shell("w1:p2", "pj-int", p.Root)
 	a := f.Agent("w1:p1", "pj-l-01", "idle", o1)
 	a.Label = "pj-l-01"
-	// The agent's group leader is a live pid (this test's own), and herdr lists no process in its group (RV-24 #1:
-	// an empty list proves no exit), so the stop still times out.
+	// The agent's group leader is a live pid (this test's own), and herdr lists no process in its group (a
+	// empty list proves no exit), so the stop still times out.
 	a.Foreground, a.OnQuit = os.Getpid(), "stay" // the live fake would quit on /exit: this agent ignores it
 	srv := herdrtest.Serve(t, f)
 	env := []string{"HERDR_SOCKET_PATH=" + srv.Path, "HOME=" + p.Base + "/home",
@@ -106,16 +106,16 @@ func TestRestartCommand(t *testing.T) {
 		{[]string{"restart"}, 1, "FAIL " + help.Usage("restart")},
 		{[]string{"restart", "a", "b"}, 1, "FAIL " + help.Usage("restart")},
 		{[]string{"restart", "pj-l-01", "--stop", "--fresh"}, 1, "FAIL --stop takes no --fresh"},
-		// T-466: --keep-inbox went with the inbox: an unknown flag.
+		// --keep-inbox is an unknown flag.
 		{[]string{"restart", "pj-l-01", "--fresh", "--keep-inbox"}, 1, "FAIL " + help.Usage("restart")},
-		// T-864: the flags restart gave up are unknown flags now (T-785's one-minor notice is gone): the usage.
+		// the flags restart does not take are unknown flags: the usage.
 		{[]string{"restart", "pj-l-01", "--prompt", "go"}, 1, "FAIL " + help.Usage("restart")},
 		{[]string{"restart", "pj-l-01", "--type", "luna"}, 1, "FAIL " + help.Usage("restart")},
 		{[]string{"restart", "pj-l-01", "--effort", "high"}, 1, "FAIL " + help.Usage("restart")},
 		{[]string{"restart", "pj-l-01", "--sid", "sid-9"}, 1, "FAIL " + help.Usage("restart")},
 		{[]string{"restart", "pj-l-01", "--type=luna"}, 1, "FAIL " + help.Usage("restart")},
 		{[]string{"restart", "nobody"}, 1, "FAIL unknown agent nobody (no lane, role, agents entry or recorded session)"},
-		// T-959: serve is down and may hold an open job for the integrator: refused, not restarted without a wake.
+		// serve is down and may hold an open job for the integrator: refused, not restarted without a wake.
 		{[]string{"restart", "pj-int", "--fresh"}, 1, "FAIL restart pj-int: obor serve is not running; it may hold an " +
 			"open job for pj-int: start serve, then restart"},
 		{[]string{"restart", "pj-int", "--stop"}, 0, "STOPPED pj-int (pane w1:p2, already at a shell)"},
@@ -126,7 +126,7 @@ func TestRestartCommand(t *testing.T) {
 			t.Errorf("obor %v: exit %d (want %d)\n%s---\n%s", c.args, rc, c.rc, stdout, stderr)
 		}
 	}
-	// A direct stop that gives up prints its evidence, then the one-line FAIL last (T-213).
+	// A direct stop that gives up prints its evidence, then the one-line FAIL last.
 	rc, stdout, _ := run(t, p.Root, env, "restart", "pj-l-01", "--stop")
 	lines := strings.Split(strings.TrimRight(stdout, "\n"), "\n")
 	if rc != 1 || lines[len(lines)-1] != "FAIL pj-l-01 did not exit in 1s (pane w1:p1; the input was cleared; --force terminates it)" ||
@@ -145,7 +145,7 @@ func TestRestartCommand(t *testing.T) {
 	}
 }
 
-// T-1081: obor restart's load (load()) takes a config naming keys this obor does not know (the promotion's, T-1076):
+// obor restart's load (load()) takes a config naming keys this obor does not know (the promotion's):
 // the stop runs, with a warning, where it was "FAIL the config does not load".
 func TestRestartLoadsAConfigWithUnknownKeys(t *testing.T) {
 	t.Parallel()
@@ -161,7 +161,7 @@ func TestRestartLoadsAConfigWithUnknownKeys(t *testing.T) {
 	if rc != 0 || lastLine(stdout) != "STOPPED pj-int (pane w1:p2, already at a shell)" {
 		t.Errorf("restart --stop: exit %d, %q (%s); want the stop", rc, stdout, stderr)
 	}
-	for _, k := range []string{"branches", "merge.weights"} { // branches: shape 1's, left with promote alone (T-1124)
+	for _, k := range []string{"branches", "merge.weights"} { // branches: shape 1's, left with promote alone
 		if !strings.Contains(stderr, `unknown key "`+k+`" ignored`) {
 			t.Errorf("restart: no warning naming %s in %q", k, stderr)
 		}

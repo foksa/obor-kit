@@ -51,7 +51,7 @@ func TestPreToolUseMissingBinaryDenies(t *testing.T) {
 	}
 }
 
-// bash plugin.test.sh case_pre_tool_use_stale_binary_denies: a stale dist/obor (no `has`: the T-193 outage) or a
+// bash plugin.test.sh case_pre_tool_use_stale_binary_denies: a stale dist/obor (no `has`) or a
 // binary whose `has hook pre-tool-use` exits 1 is not run: the hint denies; a binary that has it runs.
 func TestPreToolUseStaleBinaryDenies(t *testing.T) {
 	t.Parallel()
@@ -74,7 +74,7 @@ func TestPreToolUseStaleBinaryDenies(t *testing.T) {
 		{"release with has → Go guard", "deny", "stale", "obor: go stub"},
 		{"dist/obor with has → Go guard", "", "deny", "obor: go stub"},
 	} {
-		// A rewrite keeps the release file's inode: only its first write here is a fresh file (T-1006: macOS charges
+		// A rewrite keeps the release file's inode: only its first write here is a fresh file (macOS charges
 		// the first exec of a new file, not of a rewritten one). The last case needs it absent.
 		if c.release == "" {
 			os.Remove(k.release(t))
@@ -88,7 +88,7 @@ func TestPreToolUseStaleBinaryDenies(t *testing.T) {
 	}
 }
 
-// bash plugin.test.sh case_pre_tool_use_hanging_binary_denies (RV-22 #1, T-201): a dist/obor whose `has` never returns
+// bash plugin.test.sh case_pre_tool_use_hanging_binary_denies: a dist/obor whose `has` never returns
 // → denied with the hint within the watchdog's bound (OBOR_HOOK_TIMEOUT, 1 s here), the binary and its child reaped;
 // the repair command allowed; the binary rebuilt runs.
 func TestPreToolUseHangingBinaryDenies(t *testing.T) {
@@ -99,7 +99,7 @@ func TestPreToolUseHangingBinaryDenies(t *testing.T) {
 	k.stub(t, dist, "hang")
 	// 1 s (hookTimeoutEnv): 0.5 s raced the stub's own bash startup under a loaded package (the race the plan's 0.3 s
 	// hit, plugin_wiring_test.go:25); the repair call below need not let the stub start at all, so 0.1 s keeps it from
-	// adding a second full bound (T-1006).
+	// adding a second full bound.
 	const quietTimeout = "OBOR_HOOK_TIMEOUT=0.1"
 	const pidTimeout = hookTimeoutEnv
 	rc, _, stderr, took := k.hook(t, "pre-tool-use", event, pidTimeout)
@@ -158,7 +158,7 @@ func TestOtherHooksNoBinaryAllow(t *testing.T) {
 	}
 }
 
-// case_session_start_no_binary_allows, the hanging binary (RV-22 #1): the other hooks allow with the hint, the hang is
+// case_session_start_no_binary_allows, the hanging binary: the other hooks allow with the hint, the hang is
 // bounded and reaped, the binary never runs the hook; rebuilt, it runs.
 // Slow: each hook waits out the shim's hang watchdog (OBOR_HOOK_TIMEOUT, 1 s here: whole seconds, bin/obor's sleep).
 func TestOtherHooksHangingBinaryAllow(t *testing.T) {

@@ -1,9 +1,9 @@
 package main
 
-// obor web (T-667): a page for every obor project on the machine, in its own process (never inside serve: serve is the
+// obor web: a page for every obor project on the machine, in its own process (never inside serve: serve is the
 // one writer, and a handler there would share its restarts). It listens on localhost only, serves the read model's JSON
 // (view.Build as obor status --json builds it) and one embedded HTML page. No auth; its two verbs, the Setup page's
-// edits (T-753), are requests to the project's serve, taken only from the page's own origin.
+// edits, are requests to the project's serve, taken only from the page's own origin.
 
 import (
 	"context"
@@ -75,7 +75,7 @@ func webCmd(args []string) int {
 	if !followed.Load() {
 		return 0
 	}
-	// A new obor binary (T-719): the same address again, so the owner's URL stays (an unset port would change); the
+	// A new obor binary: the same address again, so the owner's URL stays (an unset port would change); the
 	// page's long poll reconnects.
 	if err := selfExec(project.KitRoot(project.OSEnv), []string{"web", "--listen", ln.Addr().String()}); err != nil {
 		errf("obor web: following the new obor binary: %v", err)
@@ -84,7 +84,7 @@ func webCmd(args []string) int {
 	return 0 // only a test's selfExec returns nil
 }
 
-// webFollowEvery is how often obor web asks whether a new obor binary is there (T-719); a test shortens it.
+// webFollowEvery is how often obor web asks whether a new obor binary is there; a test shortens it.
 var webFollowEvery = 30 * time.Second
 
 // watchBinary calls follow once changed says a new obor binary is there, asking every webFollowEvery until ctx ends.

@@ -20,7 +20,7 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-466, T-522, T-646: obor send <project> "<text>" is one send request, as the caller, to the target's serve: the
+// obor send <project> "<text>" is one send request, as the caller, to the target's serve: the
 // target by a known name (obor projects), lead@<name> (the same thing), or a path into it; its serve on <target
 // root>/.obor/state/serve.sock. Usage, the own project, an unknown name, a path outside an obor project and a path
 // that is not a directory send nothing (FAIL, exit 1); serve's refusal is FAIL.
@@ -101,7 +101,7 @@ func TestSendRequest(t *testing.T) {
 	}
 }
 
-// T-767: obor send reaches a project whose config this binary cannot load (another release's shape): sending needs the
+// obor send reaches a project whose config this binary cannot load (another release's shape): sending needs the
 // target's root, and the target's serve loads its own config. By a known name and by a path into it.
 func TestSendToProjectWhoseConfigDoesNotLoad(t *testing.T) {
 	t.Parallel()
@@ -110,7 +110,7 @@ func TestSendToProjectWhoseConfigDoesNotLoad(t *testing.T) {
 	q := testkit.NewPlain(t)
 	q.Config(testkit.Set("project.name", "other"), testkit.Set("project.agent_prefix", "ot"))
 	q.Write("sub/x.txt", "x\n")
-	// A shape-1 file: this binary refuses it at the load (T-1157), a serve of the version that wrote it does not.
+	// A shape-1 file: this binary refuses it at the load, a serve of the version that wrote it does not.
 	q.Write(".obor/config.json", `{"name":"other","prefix":"ot","lane_types":{"opus":{"kind":"claude"}}}`+"\n")
 	if _, err := config.Load(q.Root); err == nil {
 		t.Fatal("precondition: the target's old-shape config loads")
@@ -156,7 +156,7 @@ func writeProjects(t *testing.T, env project.Env, list map[string]string) {
 	}
 }
 
-// T-785: obor brief <role-agent> "<text>" is one brief request with the text; not a role agent (the lead, the
+// obor brief <role-agent> "<text>" is one brief request with the text; not a role agent (the lead, the
 // integrator, a worker, nobody) or no text sends nothing.
 func TestBriefRequest(t *testing.T) {
 	t.Parallel()
@@ -195,7 +195,7 @@ func TestBriefRequest(t *testing.T) {
 	}
 }
 
-// T-785, T-794: obor brief <role-agent> --fresh is one brief request with fresh set and the text; the CLI stops
+// obor brief <role-agent> --fresh is one brief request with fresh set and the text; the CLI stops
 // nothing and starts nothing (serve stops and starts the agent once it has recorded the brief), so a running agent
 // still runs after the request, and a refused request leaves it running too. Without --fresh, fresh is not set.
 func TestBriefFresh(t *testing.T) {
@@ -237,7 +237,7 @@ func TestBriefFresh(t *testing.T) {
 	}
 }
 
-// T-794: a brief --fresh that serve refuses is FAIL with serve's reason, and the running agent is not stopped.
+// a brief --fresh that serve refuses is FAIL with serve's reason, and the running agent is not stopped.
 func TestBriefFreshRefused(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)
@@ -260,10 +260,10 @@ func TestBriefFreshRefused(t *testing.T) {
 	}
 }
 
-// T-485, DD-consolidation I4: the poster reads the inbox record of the lead's slot in its project, dials its socket and writes the auth line (the record's token)
-// then the user line with the text as it is, and the session reads both before the connection ends; no record, or a
-// record whose socket is gone (a dial refused), posts nothing (began false); inboxed is true only for a record whose
-// socket is there.
+// the poster reads the inbox record of the lead's slot in its project, dials its socket and writes the auth line
+// (the record's token) then the user line with the text as it is, and the session reads both before the connection
+// ends; no record, or a record whose socket answers nothing (a dial refused), posts nothing (began false); inboxed
+// is true only for a record whose socket is there.
 func TestPosterPostsToTheInbox(t *testing.T) {
 	t.Parallel()
 	dir, err := os.MkdirTemp("", "in") // short: a unix socket path is limited
@@ -330,7 +330,7 @@ func TestPosterPostsToTheInbox(t *testing.T) {
 	}
 }
 
-// DD-v0.13 B1: poster.Post posts with the kind it is given (the pane's), not the first kind with an inbox: the same record
+// poster.Post posts with the kind it is given (the pane's), not the first kind with an inbox: the same record
 // is posted for a kind with an inbox, and refused before a byte (nothing dialled) for a kind without one or a kind
 // obor has no bridge for. The refusals name no kind's product ("no session recorded").
 func TestPosterUsesTheGivenKind(t *testing.T) {
@@ -403,7 +403,7 @@ func TestPosterUsesTheGivenKind(t *testing.T) {
 	}
 }
 
-// DD-consolidation I4: two projects with the same prefix both have a pj-lead; each one's record is in its own project,
+// two projects with the same prefix both have a pj-lead; each one's record is in its own project,
 // so serve's poster for each project posts its lead's line into that project's lead session, never the other's.
 func TestPosterKeepsProjectsWithOnePrefixApart(t *testing.T) {
 	t.Parallel()

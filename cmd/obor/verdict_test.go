@@ -9,10 +9,10 @@ import (
 	"obor/internal/testkit"
 )
 
-// obor resume <T-xx> ["<text>"] [--regate|--sendback] (T-775): one request to obor serve carrying the task, the text
+// obor resume <T-xx> ["<text>"] [--regate|--sendback]: one request to obor serve carrying the task, the text
 // and the flag as the caller (caller: the lead from the main checkout, the owner with no role, a worker from its lane's
 // cwd whatever OBOR_ROLE says), serve's reply printed; a usage error or a bad task id sends nothing; serve's refusal is
-// FAIL, exit 1. obor answer and obor sendback are gone. --reprompt is a text (RV-99 #5): with another, two texts.
+// FAIL, exit 1. obor answer and obor sendback are no subcommands. --reprompt is a text: with another, two texts.
 func TestResumeRequest(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)
@@ -50,7 +50,7 @@ func TestResumeRequest(t *testing.T) {
 	if len(calls) != 3 {
 		t.Fatalf("%d requests, want 3", len(calls))
 	}
-	// The agent is derived from the role (T-786): the owner (no role) is no agent, a stale OBOR_AGENT is never read.
+	// The agent is derived from the role: the owner (no role) is no agent, a stale OBOR_AGENT is never read.
 	for i, want := range []struct{ role, agent, note, to string }{{"lead", "pj-lead", "yes, edit x.go", ""},
 		{"", "", "as the owner", wire.ResumeSendback}, {"worker", "pj-l-01", "", wire.ResumeRegate}} {
 		c := calls[i]

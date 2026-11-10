@@ -9,8 +9,8 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-781: obor nightly on HH:MM | off is one config_set request to obor serve as the caller: nightly.at set to the
-// time (a JSON string) or null (T-1126: the key's shape-2 name). Serve's SET is NIGHTLY ON at HH:MM / NIGHTLY OFF,
+// obor nightly on HH:MM | off is one config_set request to obor serve as the caller: nightly.at set to the
+// time (a JSON string) or null (the key's shape-2 name). Serve's SET is NIGHTLY ON at HH:MM / NIGHTLY OFF,
 // its UNCHANGED the same "already"; its refusal (a bad time, a lane role) is FAIL, exit 1. A usage error sends nothing
 // and leaves the config as it was.
 func TestNightlySwitch(t *testing.T) {

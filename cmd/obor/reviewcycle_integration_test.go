@@ -23,7 +23,7 @@ const acceptedHeadText = "# Accepted findings\n\n" +
 	"Review findings accepted instead of fixed, one line each, written by `obor review close --accept` (newest\n" +
 	"last). Nobody reads this file at session start: look a line up when its symptom shows, and fix it then.\n\n"
 
-// reviewFixture is a project with a reviewer (pj-rev, in the main checkout: T-718), its state dir gitignored (the log's
+// reviewFixture is a project with a reviewer (pj-rev, in the main checkout), its state dir gitignored (the log's
 // database is not the close's to commit), a closed RV-3, then T-5 merged on main: the open review is RV-4 once its
 // file is written in the main checkout.
 func reviewFixture(t *testing.T) (p *testkit.Project, head string) {
@@ -45,7 +45,7 @@ func reviewFixture(t *testing.T) (p *testkit.Project, head string) {
 	return p, p.Git(p.Root, "rev-parse", "HEAD")
 }
 
-// T-926: obor review close is one review_close request to serve: the summary, each --accept line (spaces folded) and
+// obor review close is one review_close request to serve: the summary, each --accept line (spaces folded) and
 // --force as the call's fields, serve's reply printed; a usage error sends nothing; serve's refusal is the FAIL line.
 func TestReviewCloseCall(t *testing.T) {
 	t.Parallel()
@@ -87,16 +87,16 @@ func closeOf(p *testkit.Project, reviewed string, accepts ...string) port.Review
 	return closeOfID(p, "RV-4", reviewed, accepts...)
 }
 
-// closeOfID is review id's close on the fixture (T-1178: a second close, another id).
+// closeOfID is review id's close on the fixture (a second close, another id).
 func closeOfID(p *testkit.Project, id, reviewed string, accepts ...string) port.ReviewCommit {
 	subject, body := app.CloseCommit(id, reviewed[:7], "T-5 (fix)", []string{"T-5"}, reviewed, len(accepts))
 	return port.ReviewCommit{Branch: "main", ID: id, File: p.Path("docs/reviews/" + id + ".md"), Reviewed: reviewed,
 		Subject: subject, Body: body, Accepts: accepts}
 }
 
-// T-716, T-926, T-1178: the main checkout's close (reviewGit.Close, serve's adapter) refuses before any change: not on
+// the main checkout's close (reviewGit.Close, serve's adapter) refuses before any change: not on
 // the integration branch, a file dirty outside BACKLOG.md, docs/accepted.md and the review's files, or a reviewed head
-// that is no commit. Then it deletes the review's files (T-718), appends each accepted line to docs/accepted.md naming
+// that is no commit. Then it deletes the review's files, appends each accepted line to docs/accepted.md naming
 // the review (created when missing) and commits the subject and body as one commit on main's head with it; BACKLOG.md
 // keeps no accepted line; the checkout is clean after it; a second close appends below the first.
 func TestReviewGitClose(t *testing.T) {
@@ -172,7 +172,7 @@ func TestReviewGitClose(t *testing.T) {
 		t.Errorf("Closed after the close: %q, %v; want the close commit's subject", s, err)
 	}
 
-	// T-1178: a second close appends below the first one's lines and keeps the head once.
+	// a second close appends below the first one's lines and keeps the head once.
 	p.Write("docs/reviews/RV-5.md", "# RV-5\n")
 	if err := g.Close(ctx, closeOfID(p, "RV-5", head, "another one")); err != nil {
 		t.Fatalf("a second close: %v", err)
@@ -187,8 +187,8 @@ func TestReviewGitClose(t *testing.T) {
 	}
 }
 
-// T-1178: a close with --accept creates docs/accepted.md when it is missing; BACKLOG.md without an "## Open" section is
-// no longer a refusal (the old no-Open-section error is gone).
+// a close with --accept creates docs/accepted.md when it is missing; BACKLOG.md without an "## Open" section is
+// no refusal.
 func TestReviewGitCloseCreatesAccepted(t *testing.T) {
 	t.Parallel()
 	p, head := reviewFixture(t)
@@ -214,7 +214,7 @@ func TestReviewGitCloseCreatesAccepted(t *testing.T) {
 	}
 }
 
-// T-725, T-1178: the close accepts a dirty BACKLOG.md in the main checkout, unstaged (" M BACKLOG.md", whose leading
+// the close accepts a dirty BACKLOG.md in the main checkout, unstaged (" M BACKLOG.md", whose leading
 // space a trimmed line lost) or staged ("M  BACKLOG.md"), and commits that edit with the close; another modified
 // tracked file is refused, named by its untrimmed status line. The accepted lines go to docs/accepted.md.
 func TestReviewGitCloseDirtyBacklog(t *testing.T) {
@@ -226,7 +226,7 @@ func TestReviewGitCloseDirtyBacklog(t *testing.T) {
 			p, head := reviewFixture(t)
 			g := reviewGit{root: p.Root}
 			ctx := context.Background()
-			p.Write("docs/reviews/RV-4.md", "# RV-4\n") // in the main checkout (T-718): untracked, RV-4's own
+			p.Write("docs/reviews/RV-4.md", "# RV-4\n") // in the main checkout: untracked, RV-4's own
 
 			p.Write("fix.txt", "changed\n")
 			if st := p.Git(p.Root, "status", "--porcelain", "--untracked-files=no"); st != "M fix.txt" { // p.Git trims: the line is " M fix.txt"
@@ -271,8 +271,8 @@ func TestReviewGitCloseDirtyBacklog(t *testing.T) {
 	}
 }
 
-// T-924: obor review fix is gone (a fix task's spec line Fixes: RV-<n> links it), and T-869: there is no verify by
-// hand: each is a usage error of obor review, which names neither; nothing is sent.
+// obor review fix is no subcommand (a fix task's spec line Fixes: RV-<n> links it), and there is no verify
+// by hand: each is a usage error of obor review, which names neither; nothing is sent.
 func TestReviewFixGone(t *testing.T) {
 	t.Parallel()
 	p, _ := reviewFixture(t)
@@ -289,12 +289,12 @@ func TestReviewFixGone(t *testing.T) {
 	}
 }
 
-// RV-126 #2, T-1178: a close whose commit fails (a rejecting pre-commit hook, a cancelled context) leaves the review's
+// a close whose commit fails (a rejecting pre-commit hook, a cancelled context) leaves the review's
 // files, BACKLOG.md and docs/accepted.md (content and index) as they were before the call, and returns the error; a
-// docs/accepted.md the close would have created is gone again, nothing of it staged. A close that succeeds removes the
+// docs/accepted.md the close creates is removed again, nothing of it staged. A close that succeeds removes the
 // files only after the commit.
 // Slow: eight cases, each a real commit through a pre-commit hook on a fixture of 14 git processes (the code under test
-// runs git), ≈0.45 s a case: 0.2 s the fixture, the rest the close's own git (T-1009 measured).
+// runs git), ≈0.45 s a case: 0.2 s the fixture, the rest the close's own git (measured on this fixture).
 func TestReviewGitCloseCommitFails(t *testing.T) {
 	t.Parallel()
 	for _, hook := range []string{"reject", "cancel"} {

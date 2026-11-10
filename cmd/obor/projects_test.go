@@ -8,7 +8,7 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-646: obor projects lists the projects this machine knows by name, by name: "<name> <root> serve <up|down>", a
+// obor projects lists the projects this machine knows by name, by name: "<name> <root> serve <up|down>", a
 // stale entry left out (its root now holds another project); serve is up while the project's serve holds its lock.
 func TestProjectsListsKnownProjects(t *testing.T) {
 	t.Parallel()
