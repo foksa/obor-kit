@@ -191,6 +191,8 @@ check-race:
 #   internal/agents, internal/agents/plugin  match only through the status value "hooks" (Caps.Status) and the
 #                    kind protocol's caps.hooks in plugin's test manifests, no path: listed for the same reason; their
 #                    tests take about two seconds.
+#   internal/agents/codex  matches only through the "hooks" key of the user's hooks.json it reads (codex.go), no
+#                    path: listed for the same reason; its tests take under a second.
 # tests/conformance reads hooks/hooks.json too, but that suite is `make conformance`, nightly. No compile step (the slot's
 # check-compile compiled the commit) and no deadcode: a changed skill or template moves no package's API. Left as
 # they are: docs/** is merge.neutral (guard only, unchanged) — the
@@ -201,7 +203,7 @@ check-race:
 # tests/release/**). In .obor/config.json the web class must stay before go (internal/web/dist/** lies under
 # internal/**) and the release class before readers (.claude-plugin/marketplace.json lies under readers'
 # .claude-plugin/**), since the first class whose glob matches owns the file.
-READER_PKGS := ./cmd/obor ./internal/agents ./internal/agents/claude ./internal/agents/plugin ./internal/app ./internal/checks ./internal/config ./internal/guard ./internal/setup
+READER_PKGS := ./cmd/obor ./internal/agents ./internal/agents/claude ./internal/agents/codex ./internal/agents/plugin ./internal/app ./internal/checks ./internal/config ./internal/guard ./internal/setup
 check-readers:
 	@$(GO_CACHE); \
 	rc=0; out=$$($(GO) test -count=1 -tags integration $${CHECK_CPUS:+-p $$CHECK_CPUS} $(READER_PKGS) 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
