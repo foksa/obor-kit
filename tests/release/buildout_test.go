@@ -13,8 +13,8 @@ import (
 	"obor/internal/testkit"
 )
 
-// after_merge runs only per publish in the main checkout (T-1076 deleted the promotion), so the kit's own
-// commands.after_merge.cmd — plain `make build` (T-1079) — is run as written (bash -c, as internal/run does) and must
+// after_merge runs only per publish in the main checkout, so the kit's own
+// commands.after_merge.cmd — plain `make build` — is run as written (bash -c, as internal/run does) and must
 // leave the binary serve follows in this checkout's dist/obor.
 
 // outKit makes dir a kit copy for `make build`: the tree's Makefile, VERSION 1.2.3 and a fake go at dir/bin/go that
@@ -50,7 +50,7 @@ func runBuild(t *testing.T, dir string, extra ...string) string {
 
 // TestMakeBuildOut: make build writes dist/obor by default and OUT's file when given (its directories created: another
 // worktree has no dist/ under the root it builds into), and the OpenCode kind's binary beside it, from
-// kinds/opencode (T-1046: obor runs a kit kind from its own executable's directory).
+// kinds/opencode (obor runs a kit kind from its own executable's directory).
 func TestMakeBuildOut(t *testing.T) {
 	t.Parallel()
 	t.Run("default: dist/obor", func(t *testing.T) {
@@ -92,7 +92,7 @@ func TestMakeBuildOut(t *testing.T) {
 	})
 }
 
-// afterMergeCmd is the tree's after_merge command (T-1079: `make build`): merge.after.cmd in config shape 2.
+// afterMergeCmd is the tree's after_merge command (`make build`): merge.after.cmd in config shape 2.
 func afterMergeCmd(t *testing.T) string {
 	t.Helper()
 	type command struct {

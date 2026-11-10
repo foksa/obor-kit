@@ -10,8 +10,8 @@ import (
 	"testing"
 )
 
-// Tests for T-643 (RV-70): each step of scripts/release and scripts/ship has explicit done evidence and an explicit undo
-// on failure. One test per row of the spec's step table plus each RV-70 finding's failure; the rows already covered by
+// Each step of scripts/release and scripts/ship has explicit done evidence and an explicit undo
+// on failure. One test per row of the step table plus each review finding's failure; the rows already covered by
 // release_test.go (bump and check: TestMakeReleaseFullRun, TestMakeReleaseCheckFailsAndResumes; review guard:
 // TestMakeReleaseRefusesUnreviewed; ship's happy path: TestMakeShip) are named there.
 
@@ -62,7 +62,7 @@ func TestReleaseGuardIgnoresSideBranchClose(t *testing.T) {
 	f.untouched(t, "1.2.4", head)
 }
 
-// Bump row, RV-70 #2: the version commit rejected by a pre-commit hook puts both paths' index and tree back to HEAD
+// Bump row: the version commit rejected by a pre-commit hook puts both paths' index and tree back to HEAD
 // (git checkout -- restored from the index, which held the bump), so the re-run starts clean and finishes.
 func TestReleaseBumpRejectedCommitResumes(t *testing.T) {
 	t.Parallel()
@@ -179,7 +179,7 @@ func copyBackFailed(t *testing.T) (f *releaseFixture, reject, head string) {
 	return f, reject, f.Git(f.Root, "rev-parse", "HEAD")
 }
 
-// Copy-back row, RV-70 #3: a rejected catalog commit puts bin/checksums.txt's index and tree back to HEAD (it stayed
+// Copy-back row: a rejected catalog commit puts bin/checksums.txt's index and tree back to HEAD (it stayed
 // staged and blocked the re-run); the re-run then makes only that commit from the scratch worktree's bytes.
 func TestReleaseCopyBackRejectedCommitResumes(t *testing.T) {
 	t.Parallel()
@@ -211,7 +211,7 @@ func TestReleaseCopyBackRejectedCommitResumes(t *testing.T) {
 	f.clean(t, "after the re-run")
 }
 
-// Copy-back row, RV-70 #3: all four files are checked before anything is written. A mismatched or missing file stops
+// Copy-back row: all four files are checked before anything is written. A mismatched or missing file stops
 // the copy-back with main's catalog untouched (it was written before the check), the missing one saying the bytes are
 // gone; the tag never moves.
 func TestReleaseCopyBackChecksBeforeWriting(t *testing.T) {
@@ -269,9 +269,9 @@ func TestReleaseCopyBackChecksBeforeWriting(t *testing.T) {
 	}
 }
 
-// Tag row and ship's push, RV-70 #4: an existing tag is accepted by release only when its source parent and HEAD differ
-// in docs and bookkeeping: code merged after the tag (v0.17.2's shape: tagged, then T-642 merged and reviewed) is
-// refused by release. Ship (T-661) compares the tag with its checksums: v<V> commit on main, not HEAD: code merged
+// Tag row and ship's push: an existing tag is accepted by release only when its source parent and HEAD differ
+// in docs and bookkeeping: code merged after the tag (a tagged release, then a code merge and its review) is
+// refused by release. Ship compares the tag with its checksums: v<V> commit on main, not HEAD: code merged
 // after that commit is the next release's, so ship pushes main only up to it; a tag whose source differs in code from
 // that commit's history is refused before anything is pushed.
 func TestReleaseStaleTag(t *testing.T) {
@@ -429,7 +429,7 @@ func TestShipPushDoneWhenOriginContainsMain(t *testing.T) {
 	}
 }
 
-// Ship publish row, RV-70 #5: done is a release that is not a draft and has all eight assets (T-1046: obor and the
+// Ship publish row: done is a release that is not a draft and has all eight assets (obor and the
 // OpenCode kind per platform). A release missing some gets only those, after scripts/publish's byte checks; a draft
 // stops with the exact repair command.
 func TestShipPublishEvidence(t *testing.T) {

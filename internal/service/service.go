@@ -1,4 +1,4 @@
-// Package service is the launchd adapter (T-596, phase 7 advice §2): one LaunchAgent per project runs its obor
+// Package service is the launchd adapter (phase 7 advice §2): one LaunchAgent per project runs its obor
 // serve, so serve outlives the pane (and herdr) it was typed in. Darwin only; elsewhere every verb says to run
 // obor serve yourself.
 package service
@@ -54,7 +54,7 @@ func ServeLog(root string) string {
 func (s Service) LogPath() string { return ServeLog(s.Root) }
 
 // MaxLog is the size over which a serve.log is moved aside: Install and Restart rename it, serve's own start copies
-// it and truncates it in place (T-1100).
+// it and truncates it in place.
 const MaxLog = 5 << 20
 
 // logOver is path's size over MaxLog (a missing log is not).
@@ -81,7 +81,7 @@ func (s Service) rotateLog() error {
 	return os.Rename(log, log+".1")
 }
 
-// RotateServeLog is the rotation serve itself does at its start, re-execs included (T-1100): a serve.log over MaxLog
+// RotateServeLog is the rotation serve itself does at its start, re-execs included: a serve.log over MaxLog
 // is copied to serve.log.1 (replacing an old one) and truncated in place. launchd keeps the fd it opened for serve —
 // with O_APPEND — across a serve's respawn, and the re-exec keeps the same process's fds, so a rename here would leave
 // launchd writing the moved file while a fresh serve.log stayed empty; truncating keeps that fd on the same, now
@@ -183,7 +183,7 @@ func installedRoot(path string) (string, error) {
 	return v.S, nil
 }
 
-// owner is the check all three verbs run before they touch launchd (T-607): the label's plist, when there is one,
+// owner is the check all three verbs run before they touch launchd: the label's plist, when there is one,
 // must name this root — another project's plist of the same label is not this one's to boot out, kickstart or
 // overwrite — and a label launchd has loaded with no plist is one whose owner cannot be told. So nothing is done to
 // another project's agent, nor to one nobody can claim. pid and loaded are launchd's state of the label.
@@ -221,7 +221,7 @@ func (s Service) Current(ctx context.Context) bool {
 
 // Install writes the plist and loads it (bootstrap; one loaded before is booted out first, so a reinstall takes the
 // new plist). A bootstrap launchd refuses — the label it still knows, or half knows while the old one is torn down
-// (T-771: "Bootstrap failed: 5: Input/output error" left the label gone) — is booted out and bootstrapped once more;
+// ("Bootstrap failed: 5: Input/output error" left the label gone) — is booted out and bootstrapped once more;
 // an install that ends with the label not loaded is a FAIL naming the label's state and the next step. FAIL when the
 // label is another project's (owner).
 func (s Service) Install(ctx context.Context) (string, error) {
@@ -311,7 +311,7 @@ func (s Service) Uninstall(ctx context.Context) (string, error) {
 
 // Restart kills the agent's serve and starts it again (kickstart -k): a new binary takes over. kickstart -k waits
 // for the old serve to exit (launchd's ExitTimeOut), so it runs under stopTimeout. A kickstart error is not the last
-// word (T-771): launchd may have restarted serve all the same, so the agent's pid is read (up to settle) — a new one
+// word: launchd may have restarted serve all the same, so the agent's pid is read (up to settle) — a new one
 // is RESTARTED with a warning line, anything else a FAIL naming the state it left. Another project's label (owner):
 // FAIL, nothing done.
 func (s Service) Restart(ctx context.Context) (string, error) {
@@ -389,7 +389,7 @@ const Deadline = 3 * time.Minute
 
 // The launchctl timeouts (vars: the tests shorten them). callTimeout is for the calls launchd answers at once (print,
 // bootstrap); stopTimeout for the ones that wait for serve to exit (kickstart -k, bootout: launchd's ExitTimeOut, 20s
-// by default, before it SIGKILLs serve — the flat 10s it once had killed launchctl mid-kickstart, T-771). settle is
+// by default, before it SIGKILLs serve — the flat 10s it once had killed launchctl mid-kickstart). settle is
 // how long a verb reads launchd's state after a call that changes it, every pollEvery.
 var (
 	callTimeout = 10 * time.Second

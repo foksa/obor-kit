@@ -23,7 +23,7 @@ describe("wording", () => {
     expect(["working", "waiting", "needs-you", "merged", "gating", "free", "driving", "done", "unknown"].map(tone))
       .toEqual(["ok", "wait", "bad", "done", "info", "idle", "accent", "wait", "bad"]);
   });
-  // T-971: a lane test is part of the merge loop (T-961): serve reports "testing" on the gate step and "test pending"
+  // a lane test is part of the merge loop: serve reports "testing" on the gate step and "test pending"
   // while its intent waits.
   it("colors a lane test like the merge loop's other stages", () => {
     expect(tone("testing")).toBe("info");
@@ -31,7 +31,7 @@ describe("wording", () => {
     expect(tone("test pending")).toBe("wait");
     expect(tone("gating")).toBe("info");
   });
-  // T-1074: serve names every event's kind (app.Kind*); the page no longer reads it from the line's wording.
+  // serve names every event's kind (app.Kind*); the page never reads it from the line's wording.
   it("takes each event's kind from serve", () => {
     expect(EVENT_KINDS.map((k) => eventKind(k))).toEqual([...EVENT_KINDS]);
     expect(eventKind("merge", true)).toBe("merge"); // bad news keeps its kind
@@ -39,7 +39,7 @@ describe("wording", () => {
     expect(eventKind("what", false)).toBe("other");
     expect(eventKind("", true)).toBe("problem"); // no kind (older page's cache): bad still lands in Problems
   });
-  // T-688, T-1074: the Problems filter shows bad news of any kind, and a problem that is not bad.
+  // the Problems filter shows bad news of any kind, and a problem that is not bad.
   it("shows bad news of any kind in Problems", () => {
     for (const k of EVENT_KINDS) expect(EVENT_FILTERS.Problems(k, true)).toBe(true);
     for (const k of EVENT_KINDS) expect(EVENT_FILTERS.Problems(k, false)).toBe(k === "problem");

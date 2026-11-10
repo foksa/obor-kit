@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// TestPromptsWriteReadPrune (T-665, T-670): a row per prompt, read newest first by agent, by task and by job id with a
+// TestPromptsWriteReadPrune: a row per prompt, read newest first by agent, by task and by job id with a
 // limit (a job's rows, one per distinct text its fetch returned, newest first), read-only once the writer is closed
 // (serve down), and pruned by the ts before the cutoff; a query naming no one of an agent, a task or a job, and a row
 // with no seq, agent or kind, are refused.
@@ -33,7 +33,7 @@ func TestPromptsWriteReadPrune(t *testing.T) {
 		{Seq: 5, Agent: "pj-rev", Kind: PromptStart, TS: at.Add(4 * time.Hour).Format(time.RFC3339), Text: "Review RV-1."},
 		{Seq: 6, Agent: "pj-l1", Kind: PromptJob, Job: "T-2/1/work", Task: "T-2",
 			TS: at.Add(40 * 24 * time.Hour).Format(time.RFC3339), Text: "work two"},
-		// The same job fetched again, its text changed (T-670): a row of its own, under the same delivery fact.
+		// The same job fetched again, its text changed: a row of its own, under the same delivery fact.
 		{Seq: 1, Agent: "pj-l1", Kind: PromptJob, Job: "T-1/1/work", Task: "T-1", TS: at.Add(5 * time.Hour).Format(time.RFC3339),
 			Rev: 2, Text: "work one, spec rev 2"},
 	} {

@@ -39,7 +39,7 @@ func base() env {
 	}
 }
 
-// T-1002: the green run has no line (the precondition the breach cases rest on) and counts every package.
+// the green run has no line (the precondition the breach cases rest on) and counts every package.
 func TestCheckGreen(t *testing.T) {
 	e := base()
 	lines, n := check(e.budget, e.pkgs, e.runs, e.tmp)
@@ -51,7 +51,7 @@ func TestCheckGreen(t *testing.T) {
 	}
 }
 
-// T-1002, T-1004: one line per breach, in the shape `FAIL budget: <pkg> <metric> <got> > <max>` for a metric, and a
+// one line per breach, in the shape `FAIL budget: <pkg> <metric> <got> > <max>` for a metric, and a
 // line of its own for a missing budget, a failed run and the TMPDIR's leftovers.
 func TestCheckBreaches(t *testing.T) {
 	if lines, _ := check(base().budget, base().pkgs, base().runs, nil); len(lines) != 0 {
@@ -72,7 +72,7 @@ func TestCheckBreaches(t *testing.T) {
 			r.Git = 11
 			e.runs["a"] = r
 		}, []string{"FAIL budget: a git_procs 11 > 10"}},
-		// T-1024: a cap under a second is the size of go test's own noise, so the floor answers, not the cap.
+		// a cap under a second is the size of go test's own noise, so the floor answers, not the cap.
 		{"a wall under the floor over a tiny cap is green", func(e *env) {
 			e.budget.Packages["a"] = Budget{FullS: 0.6, GitProcs: 10}
 			e.runs["a"] = Run{Passed: true, Elapsed: 0.9, Git: 10}
@@ -121,7 +121,7 @@ func TestCheckBreaches(t *testing.T) {
 	}
 }
 
-// T-1073: -missing names every package with tests and no entry, with the seed command that writes it, and every entry
+// -missing names every package with tests and no entry, with the seed command that writes it, and every entry
 // whose package is gone, and says nothing when the two match.
 func TestMissing(t *testing.T) {
 	matched := File{Packages: map[string]Budget{"a": {}, "b": {}}}
@@ -140,7 +140,7 @@ func TestMissing(t *testing.T) {
 	}
 }
 
-// T-1073: -missing exits 1 when a package with tests has no entry, and 0 when the file matches: the gate reads the
+// -missing exits 1 when a package with tests has no entry, and 0 when the file matches: the gate reads the
 // status, not the text.
 func TestMissingExitRed(t *testing.T) {
 	got := runMissing(t,
@@ -187,7 +187,7 @@ func runMissing(t *testing.T, pkgs []string, budget string) int {
 	return run()
 }
 
-// T-1002: the package's own verdict is the run's wall time, and its failed top-level tests are named.
+// the package's own verdict is the run's wall time, and its failed top-level tests are named.
 func TestParseRun(t *testing.T) {
 	const passing = `{"Action":"start","Package":"p"}
 {"Action":"run","Test":"TestA"}
@@ -232,7 +232,7 @@ func TestParseRun(t *testing.T) {
 	}
 }
 
-// T-1002: the wrapper counts every call and still runs the real git with the caller's arguments (the budget's whole
+// the wrapper counts every call and still runs the real git with the caller's arguments (the budget's whole
 // measurement rests on it).
 func TestGitWrapper(t *testing.T) {
 	dir := t.TempDir()
@@ -265,7 +265,7 @@ func TestGitWrapper(t *testing.T) {
 	}
 }
 
-// T-1002: the seed is each measured wall time x1.5 and each git count x1.5, rounded up (a tenth of a second; one
+// the seed is each measured wall time x1.5 and each git count x1.5, rounded up (a tenth of a second; one
 // process).
 func TestSeed(t *testing.T) {
 	runs := map[string]Run{
@@ -284,7 +284,7 @@ func TestSeed(t *testing.T) {
 	}
 }
 
-// T-1007: -seed re-measures the packages of the file it finds; an older file's per-test section (the -short tier's)
+// -seed re-measures the packages of the file it finds; an older file's per-test section (the -short tier's)
 // is not carried over, and no file seeds the same measurement.
 func TestSeededKeepsCaps(t *testing.T) {
 	runs := map[string]Run{"a": {Elapsed: 2.0, Git: 2}}
@@ -321,7 +321,7 @@ func TestSeededKeepsCaps(t *testing.T) {
 	}
 }
 
-// T-1008 (RV-139 #2): -seed writes tests/budget.json itself, over the caps of the file it finds and complete for every
+// -seed writes tests/budget.json itself, over the caps of the file it finds and complete for every
 // measured package; a run that failed writes nothing, so the old file stays byte for byte.
 func TestSeedWritesFile(t *testing.T) {
 	root := t.TempDir()
@@ -365,7 +365,7 @@ func TestSeedWritesFile(t *testing.T) {
 	}
 }
 
-// T-1073: -seed with package arguments merges: the named packages get their new measurement, every other entry stays
+// -seed with package arguments merges: the named packages get their new measurement, every other entry stays
 // byte for byte (even a hand-formatted 4.0, which re-marshalling the whole file would rewrite as 4).
 func TestSeedMerges(t *testing.T) {
 	root := t.TempDir()
@@ -408,7 +408,7 @@ func TestSeedMerges(t *testing.T) {
 	}
 }
 
-// T-1073: -seed with no arguments is today's behaviour, the whole measurement: an entry no run measured (its package
+// -seed with no arguments is today's behaviour, the whole measurement: an entry no run measured (its package
 // moved or was deleted) is dropped rather than kept.
 func TestSeedWholeFile(t *testing.T) {
 	root := t.TempDir()
@@ -458,8 +458,8 @@ func readFile(t *testing.T, p string) string {
 	return string(b)
 }
 
-// T-1014: a package's run passes -tags integration, so a test behind `//go:build integration` is measured instead of
-// silently skipped; T-1056: nothing passes -short.
+// a package's run passes -tags integration, so a test behind `//go:build integration` is measured instead of
+// silently skipped; nothing passes -short.
 func TestTestArgsIntegration(t *testing.T) {
 	args := testArgs("obor/internal/checks")
 	if !slices.Contains(args, "integration") {
@@ -473,7 +473,7 @@ func TestTestArgsIntegration(t *testing.T) {
 	}
 }
 
-// T-1014: go list passes the tag too, so a package whose only tests are tagged is measured rather than dropped.
+// go list passes the tag too, so a package whose only tests are tagged is measured rather than dropped.
 func TestListPackagesTagsIntegration(t *testing.T) {
 	dir := t.TempDir()
 	log := filepath.Join(dir, "go.log")
@@ -495,7 +495,7 @@ func TestListPackagesTagsIntegration(t *testing.T) {
 	}
 }
 
-// T-1077 (RV-156 #1): -seed ./rel/pkg measures the package and writes its entry under the import path the listing and
+// -seed ./rel/pkg measures the package and writes its entry under the import path the listing and
 // -missing key by, not under the raw argument.
 func TestSeedWritesImportPathKey(t *testing.T) {
 	root := t.TempDir()
@@ -518,7 +518,7 @@ func TestSeedWritesImportPathKey(t *testing.T) {
 	}
 }
 
-// T-1077: -seed resolves each argument through go list: a pattern expands to its packages with tests, two arguments
+// -seed resolves each argument through go list: a pattern expands to its packages with tests, two arguments
 // keep their order, and an import path is kept as given.
 func TestResolvePackages(t *testing.T) {
 	goBin := goStub(t, map[string]string{
@@ -547,7 +547,7 @@ func TestResolvePackages(t *testing.T) {
 	}
 }
 
-// T-1077: an argument that resolves to no package with tests is an error naming it (a path that matches nothing, and a
+// an argument that resolves to no package with tests is an error naming it (a path that matches nothing, and a
 // package whose tests are all gone), so the seed can be corrected.
 func TestResolvePackagesNoTests(t *testing.T) {
 	goBin := goStub(t, map[string]string{
@@ -565,7 +565,7 @@ func TestResolvePackagesNoTests(t *testing.T) {
 	}
 }
 
-// T-1077: -seed with an argument that resolves to no package with tests fails before measuring: tests/budget.json stays
+// -seed with an argument that resolves to no package with tests fails before measuring: tests/budget.json stays
 // byte for byte.
 func TestSeedUnresolvedArgWritesNothing(t *testing.T) {
 	root := t.TempDir()

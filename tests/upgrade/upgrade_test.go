@@ -81,7 +81,7 @@ func newCheck(t testing.TB, kit, prev, next string, fetch bool) (check, error) {
 	return c, nil
 }
 
-// minPrev is the oldest previous release the check supports (T-778): its fixture's spec names its model (Model:,
+// minPrev is the oldest previous release the check supports: its fixture's spec names its model (Model:,
 // v0.23.0 on; before, a spec named a lane type).
 const minPrev = "0.23.0"
 
@@ -98,7 +98,7 @@ func supported(prev string) error {
 	return nil
 }
 
-// T-778: a previous release below v0.23.0 (PREV=0.22.0) is refused before anything is fetched or run, naming the
+// a previous release below v0.23.0 (PREV=0.22.0) is refused before anything is fetched or run, naming the
 // supported range; v0.23.0 and later pass the range check.
 func TestUpgradeCheckRefusesOldPrev(t *testing.T) {
 	t.Parallel()
@@ -121,7 +121,7 @@ func TestUpgradeCheckRefusesOldPrev(t *testing.T) {
 	}
 }
 
-// T-772: the guide's steps of an upgrade are the sh blocks under its version headings above the previous release up to
+// the guide's steps of an upgrade are the sh blocks under its version headings above the previous release up to
 // the new one; a new minor needs its x.y.0 heading's block.
 func TestGuideSteps(t *testing.T) {
 	guide := "# Upgrading\n\n## v1.2.4 (old)\n```sh\necho four\n```\n\n## v1.2.5\nText.\n```sh\necho five\n```\n" +
@@ -162,7 +162,7 @@ func TestGuideSteps(t *testing.T) {
 	}
 }
 
-// T-772: the kit's own v0.23 guide says v0.23.0's steps in its block (obor setup migrate), and v0.23.1 has none.
+// the kit's own v0.23 guide says v0.23.0's steps in its block (obor setup migrate), and v0.23.1 has none.
 func TestGuideV023(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join(kitRoot(t), "docs", "UPGRADE-v0.23.md"))
 	if err != nil {
@@ -180,7 +180,7 @@ func TestGuideV023(t *testing.T) {
 	}
 }
 
-// T-772: the previous release is the catalog's newest x.y.z below the new version (dev builds are no release).
+// the previous release is the catalog's newest x.y.z below the new version (dev builds are no release).
 func TestPrevious(t *testing.T) {
 	catalog := "aa  dist/obor-0.6.4-dev-darwin-arm64\nbb  dist/obor-0.23.0-darwin-arm64\ncc  dist/obor-0.22.0-linux-amd64\n" +
 		"dd  dist/obor-0.23.1-darwin-arm64\n"

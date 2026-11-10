@@ -1,4 +1,4 @@
-// Command stubmcp is the conformance suite's stand-in for `obor` (deep dive §6, T-804): the live tier builds it into a
+// Command stubmcp is the conformance suite's stand-in for `obor` (deep dive §6): the live tier builds it into a
 // scratch kit as bin/obor-stub, behind a bin/obor shell wrapper, so a driver's real start argv (claude, codex, opencode)
 // starts it where it would start obor. It writes what it saw and, as an MCP server, answers enough to come up:
 //

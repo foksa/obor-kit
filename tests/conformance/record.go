@@ -1,7 +1,7 @@
 package main
 
 // The live tier's stub record and the hook payload's fields the checks read. This file carries no build tag, so the
-// checks over them run in `go test ./...` (T-820); the lab that writes records is behind the conformance tag.
+// checks over them run in `go test ./...`; the lab that writes records is behind the conformance tag.
 
 import "encoding/json"
 

@@ -56,7 +56,7 @@ type Options struct {
 	// never). A session sets its own, Scratch the one each method is given.
 	gitCtx context.Context
 	// callCtx ends the run's socket calls, the nightly's backup (nil: the run's own). A test shortens a nightly with no
-	// serve, so its backup goes on at once instead of waiting out the deadline table (T-685).
+	// serve, so its backup goes on at once instead of waiting out the deadline table.
 	callCtx context.Context
 }
 
@@ -173,7 +173,7 @@ func nonEmpty(ss ...string) []string {
 	return out
 }
 
-// DefaultWindowWait is how long a nightly waits for another nightly's lock (merge.window_wait's old default, T-864).
+// DefaultWindowWait is how long a nightly waits for another nightly's lock (merge.window_wait's old default).
 const DefaultWindowWait = 900 * time.Second
 
 // lock takes the nightly lock (nightly.flock) until close. A live holder: a line every 30 s, FAIL after WindowWait.

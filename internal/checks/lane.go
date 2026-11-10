@@ -28,9 +28,9 @@ var _ port.LaneSetup = Lane{}
 
 // Prepare puts in.Dir on in.Branch at in.Target (in.Redo: the branch is kept as it is) and runs lane_ready (then
 // lane_setup and lane_ready again when it was red). It returns the target sha the branch is based on: serve's lane row
-// (T-439; its head is the submitted head, T-1015). Repeating it converges on the same state.
+// (its head is the submitted head). Repeating it converges on the same state.
 // A final refusal: no lane dir, lane_setup red, lane_ready still red; git failures are plain errors (retry), a git
-// that failed on an index.lock naming the stale lock (T-981: nothing is removed).
+// that failed on an index.lock naming the stale lock (nothing is removed).
 func (l Lane) Prepare(ctx context.Context, in port.PrepareInput) (port.Prepared, error) {
 	if !project.IsDir(in.Dir) {
 		return port.Prepared{}, port.Refused{Line: "no lane dir " + in.Dir}
@@ -47,7 +47,7 @@ func (l Lane) Prepare(ctx context.Context, in port.PrepareInput) (port.Prepared,
 	return port.Prepared{Base: in.Target}, nil
 }
 
-// staleIndexLock is a failed lane git call's hint for a lock left behind (T-981): git's exit 128 whose stderr names
+// staleIndexLock is a failed lane git call's hint for a lock left behind: git's exit 128 whose stderr names
 // index.lock gets the lock's path as git names it (the lane worktree's git dir), else the lane's own, and asks whether
 // a git still runs in the lane; nothing is removed. "" for any other failure.
 func staleIndexLock(dir string, err error) string {
@@ -62,11 +62,11 @@ func staleIndexLock(dir string, err error) string {
 	return " — stale " + path + " (no git running in the lane? remove it)"
 }
 
-// Free gives a dropped task's lane back (obor drop, T-439). Refused, nothing changed: no lane dir; uncommitted
+// Free gives a dropped task's lane back (obor drop). Refused, nothing changed: no lane dir; uncommitted
 // changes or commits on in.Branch not in in.Target, unless in.Discard (then git reset --hard and git clean -fd, the
 // commits left with the deleted branch). Then the lane is detached at in.Target and in.Branch deleted (a branch that
 // is gone already is fine). Its line lists what it discarded ("" nothing). A failure after the detach (the branch
-// delete) leaves the lane freed: its error says the same obor drop finishes it (T-981).
+// delete) leaves the lane freed: its error says the same obor drop finishes it.
 func (l Lane) Free(ctx context.Context, in port.FreeInput) (string, error) {
 	if !project.IsDir(in.Dir) {
 		return "", port.Refused{Line: "no lane dir " + in.Dir}
@@ -139,9 +139,9 @@ func (l Lane) git(ctx context.Context, dir string, args ...string) (string, erro
 	return strings.TrimSpace(string(out)), err
 }
 
-// LaneSetup (T-122): a lane that fails commands.lane_ready gets commands.lane_setup, and must pass lane_ready after.
+// LaneSetup: a lane that fails commands.lane_ready gets commands.lane_setup, and must pass lane_ready after.
 // No lane_ready: nothing runs. Its errors are final (port.Refused in Lane.Prepare). Every command runs under ctx
-// (T-873): a canceled prepare ends it with its process group.
+// a canceled prepare ends it with its process group.
 func LaneSetup(ctx context.Context, cfg *config.Config, lane, dir string, w io.Writer) error {
 	ready, ok := herdrun.Command(cfg, "lane_ready")
 	if !ok {

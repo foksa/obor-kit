@@ -56,7 +56,7 @@ func TestPanesBusy(t *testing.T) {
 	}
 }
 
-// T-331: the cases herdr cannot tell are errors (unknown), never (false, nil) (unknown is never idle, RV-36).
+// the cases herdr cannot tell are errors (unknown), never (false, nil) (unknown is never idle).
 func TestPanesBusyUnknown(t *testing.T) {
 	t.Parallel()
 	psOf := func(table string) func(context.Context) ([]byte, error) {
@@ -98,7 +98,7 @@ func TestPanesSubscribe(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	// The core sees workspace w1 by its label, as the pane's group (T-1044).
+	// The core sees workspace w1 by its label, as the pane's group.
 	want := port.Pane{ID: "w1:p1", Group: "pj", Cwd: "/proj-wt/L-01", Agent: "claude", Name: "pj-l-01", Status: "idle",
 		Label: "pj-l-01", Session: "5e1d0c2b-aaaa", Launched: true}
 	if len(st.Snapshot.Panes) != 3 || st.Snapshot.Panes[0] != want {
@@ -160,9 +160,9 @@ func nextApp(t *testing.T, st *port.Stream) port.Event {
 	return port.Event{}
 }
 
-// T-563: Turn reads the last turn of a Codex agent's rollout (found from its session id, or the path herdr reports)
+// Turn reads the last turn of a Codex agent's rollout (found from its session id, or the path herdr reports)
 // from its tail, a long rollout's too (its first, cut line skipped); a kind whose turns are not read (Claude), no file,
-// no session or no agent: unknown. RV-59 #2: a turn whose start is more than a tail back (one 300 KiB output after it,
+// no session or no agent: unknown. A turn whose start is more than a tail back (one 300 KiB output after it,
 // or thirty 10 KiB ones) is still found, by either path; an oversized task_complete is read whole; a rollout of many
 // chunks with no turn event, its last line cut: unknown.
 func TestPanesTurn(t *testing.T) {
@@ -345,7 +345,7 @@ func TestPanesPromptSendsJobID(t *testing.T) {
 	}
 }
 
-// T-499: Type types a line as it is (no job tag, no clear key without clear); a refused one typed nothing.
+// Type types a line as it is (no job tag, no clear key without clear); a refused one typed nothing.
 func TestPanesLineTypesTheLineAsItIs(t *testing.T) {
 	t.Parallel()
 	srv := herdrtest.Serve(t, fixture())
@@ -369,7 +369,7 @@ func TestPanesLineTypesTheLineAsItIs(t *testing.T) {
 	}
 }
 
-// T-417: Prompt types the text once and sends no key after it, whatever the agent does (an idle agent that shows no
+// Prompt types the text once and sends no key after it, whatever the agent does (an idle agent that shows no
 // change, a quick turn, a working one): a bare Enter would act on a dialog herdr reports as idle.
 func TestPanesPromptSendsNoEnter(t *testing.T) {
 	t.Parallel()
@@ -456,7 +456,7 @@ func TestPanesPromptAgainClearsTheLine(t *testing.T) {
 	})
 }
 
-// T-371 (docs/state-model.md "Prompts"): Prompt's typed says whether any of the text may be in the input box. Refused
+// TestPanesPromptTyped (docs/state-model.md "Prompts"): Prompt's typed says whether any of the text may be in the input box. Refused
 // before typing (herdr's error answer, the clear failing, no socket): false, the app sends it again. Typing began,
 // then an error (the connection dropped before the answer): true with the error, so
 // the app never types it again.
@@ -501,7 +501,7 @@ func TestPanesPromptTyped(t *testing.T) {
 	}
 }
 
-// RV-40 #2 (TestRV40SessionBeforeTranscript, fixed): two Claude sessions whose transcripts are not found yet are two
+// Two Claude sessions whose transcripts are not found yet are two
 // sessions to the app: Pane.Session is herdr's id, whatever the transcript lookup finds.
 func TestPanesSessionWithoutTranscript(t *testing.T) {
 	t.Parallel()
@@ -525,7 +525,7 @@ func TestPanesSessionWithoutTranscript(t *testing.T) {
 	}
 }
 
-// T-1135: the subscription's snapshot and Snapshot carry herdr's start, its socket file's time: a restarted herdr
+// the subscription's snapshot and Snapshot carry herdr's start, its socket file's time: a restarted herdr
 // (a new socket file) gives another one.
 func TestPanesStartedIsTheSocketFileTime(t *testing.T) {
 	t.Parallel()

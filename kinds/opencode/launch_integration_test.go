@@ -20,7 +20,7 @@ import (
 	"obor/kinds/opencode/kind"
 )
 
-// T-1046 (RV-147: test the caller's boundary): a lane worker of an OpenCode model, started the way a dispatch starts it
+// a lane worker of an OpenCode model, started the way a dispatch starts it
 // (launch.Launcher.Build), runs the real obor-kind-opencode binary built here, once, through obor's plugin package
 // (a recording wrapper keeps each request): the start request carries the complete start (kit, the model's args, the
 // effort, the prompt, the lane dir, strict), and the start gets the argv, the env and the generated config the compiled

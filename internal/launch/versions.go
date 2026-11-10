@@ -10,7 +10,7 @@ import (
 	"obor/internal/project"
 )
 
-// versions.go: how the agent CLIs name their own versions (T-1176), for serve's read of the tools it drives
+// versions.go: how the agent CLIs name their own versions, for serve's read of the tools it drives
 // (internal/app/versions.go). Nothing here is part of a start.
 
 // versionTimeout bounds one CLI's --version (claude 23 ms, codex 48 ms, opencode 80 ms when measured, 2026-11-10).

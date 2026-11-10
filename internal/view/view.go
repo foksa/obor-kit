@@ -1,7 +1,7 @@
-// Package view is the project's read model (T-664): one function, Build, joins obor serve's status answer (none when
+// Package view is the project's read model: one function, Build, joins obor serve's status answer (none when
 // serve is down), the git lane table and the store (read-only) into one Project, and Load is that build for a project at
 // a root. Every reader of project state goes through this package: `obor status` prints the Project as JSON or renders it
-// as text, and the web UI serves it. The drill-down pages read narrow (T-880): LoadTask, LoadAgent and LoadSetup build
+// as text, and the web UI serves it. The drill-down pages read narrow: LoadTask, LoadAgent and LoadSetup build
 // only what their page needs — no git and no ps for a task or an agent page. app never imports view; only entry packages
 // do (internal/checks/boundary_test.go).
 package view
@@ -38,31 +38,31 @@ type Project struct {
 	Running   []Running          `json:"running"`
 	Pending   []wire.PendingStep `json:"pending"` // the open command steps whose effect does not run now
 	Lanes     []Lane             `json:"lanes"`
-	Tasks     map[string]Task    `json:"tasks"`          // every task the view knows, by id (tasks, T-883)
+	Tasks     map[string]Task    `json:"tasks"`          // every task the view knows, by id (tasks)
 	Agents    []wire.AgentStatus `json:"agents"`         // the agents serve sees in the project
 	Roles     []Role             `json:"roles"`          // the role agents on no lane (integrator, reviewer, deep dive, advisor)
-	Lead      *Role              `json:"lead,omitempty"` // the lead's agent, when serve sees its pane (T-714: its background processes)
+	Lead      *Role              `json:"lead,omitempty"` // the lead's agent, when serve sees its pane (its background processes)
 	NeedsYou  []NeedsYou         `json:"needs_you"`
 	FullCheck *FullCheck         `json:"full_check"`
 	Paused    *Pause             `json:"paused"`
-	// ModelPauses is the model pauses in force (obor pause --model, T-765), by model name (T-766: the Setup page;
-	// T-979: obor status --json prints them as model_pauses).
+	// ModelPauses is the model pauses in force (obor pause --model), by model name (the Setup page;
+	// obor status --json prints them as model_pauses).
 	ModelPauses map[string]*Pause    `json:"model_pauses,omitempty"`
 	Messages    []wire.MessageStatus `json:"messages"`          // the lines not typed yet
-	Review      string               `json:"review,omitempty"`  // the open review request, or "review due: …" (T-638)
-	Watches     []wire.WatchStatus   `json:"watches,omitempty"` // the lead's open watches (obor status, T-658)
-	// Idle is the project's idle state (T-803): the pipeline is empty, what ended it and the lead's acknowledgement.
+	Review      string               `json:"review,omitempty"`  // the open review request, or "review due: …"
+	Watches     []wire.WatchStatus   `json:"watches,omitempty"` // the lead's open watches (obor status)
+	// Idle is the project's idle state: the pipeline is empty, what ended it and the lead's acknowledgement.
 	// obor status and obor web show it; a dispatch or a review request ends it.
 	Idle   *Idle          `json:"idle,omitempty"`
 	Queue  Queue          `json:"queue"`
 	Events []Event        `json:"events"` // the newest worded records, newest first
 	Facts  []event.Record `json:"-"`      // serve's facts in force (obor status --facts)
-	// Notes are the project's own lines above serve's (T-709): a config key this binary does not know, a stopped
-	// project (Notes builds them); then serve's line on a lane table older than its tick (T-879).
+	// Notes are the project's own lines above serve's: a config key this binary does not know, a stopped
+	// project (Notes builds them); then serve's line on a lane table older than its tick.
 	Notes []string `json:"notes,omitempty"`
 }
 
-// Running is one step that runs without an agent (wire.RunningStep, T-657) with the configured command it runs ("": a
+// Running is one step that runs without an agent (wire.RunningStep) with the configured command it runs ("": a
 // step of git alone, such as publish); the text renderers count its elapsed time from Since.
 type Running struct {
 	Step    string `json:"step"` // gate, publish, after_merge, nightly or restart
@@ -85,7 +85,7 @@ type Serve struct {
 	Merging  bool   `json:"merging"`             // its merge loop runs for it
 	LogError string `json:"log_error,omitempty"` // its event log's last append error
 	PID      int    `json:"pid,omitempty"`       // the serve that answered (its serve.flock's pid)
-	// Launchd is the project's launchd agent (T-596; darwin): "none" (not installed), "loaded" (installed, its
+	// Launchd is the project's launchd agent (darwin): "none" (not installed), "loaded" (installed, its
 	// process not the serve that answered), "running" (the serve that answered is launchd's); "": not asked. The
 	// caller fills PID and Launchd (cmd/obor asks the service adapter).
 	Launchd   string    `json:"launchd,omitempty"`
@@ -93,26 +93,26 @@ type Serve struct {
 }
 
 // Lane is one configured lane: the lane table's row (port.Lane: its worktree as git and the store's row say, its task
-// by id, Project.Tasks has the task's own fields, T-883; its Agent is serve's agent in the lane, else the lane row's),
+// by id, Project.Tasks has the task's own fields; its Agent is serve's agent in the lane, else the lane row's),
 // a restart in progress, the agent's status and whether it is free.
 type Lane struct {
 	port.Lane
 	Op          string `json:"op,omitempty"`
 	AgentStatus string `json:"agent_status,omitempty"`
 	// Free: no task holds the lane: its state column is the one free rule's free or dirty-free (port.FreeState: its
-	// row's task landed at the lane's HEAD, T-1012, T-1015, or it has none) and so serve has no phase of a task on it (a free lane keeps its last
+	// row's task landed at the lane's HEAD, or it has none) and so serve has no phase of a task on it (a free lane keeps its last
 	// branch's task).
 	Free bool `json:"free"`
-	// Column is the state column of obor status (T-657): serve's phase of the task (T-788: computed once, by serve),
+	// Column is the state column of obor status: serve's phase of the task (computed once, by serve),
 	// else the lane's State (no task serve has: free, dirty-free, working, missing).
 	Column string `json:"column"`
 	// Since is when the state column began, as far as the view can tell (epoch seconds; nil: unknown, or a lane with
 	// no task): the needs-you's fact, the gate or publish running on the task, the task_done's record (submitted), the
-	// lane row's dispatch (a task working). obor web's fleet page shows it (T-658).
+	// lane row's dispatch (a task working). obor web's fleet page shows it.
 	Since *int64 `json:"since,omitempty"`
-	// Queue is a keep lane's queue: the tasks waiting for it, in dispatch order (T-1031; serve's Queues).
+	// Queue is a keep lane's queue: the tasks waiting for it, in dispatch order (serve's Queues).
 	Queue []string `json:"queue,omitempty"`
-	// Background is the lane agent's long-running background processes (T-714; Input.Background).
+	// Background is the lane agent's long-running background processes (Input.Background).
 	Background []Background `json:"background,omitempty"`
 }
 
@@ -148,11 +148,11 @@ type Role struct {
 	Age     int64             `json:"age,omitempty"`
 	Brief   *wire.BriefStatus `json:"brief,omitempty"`
 	Session string            `json:"session,omitempty"`
-	// Background is the agent's long-running background processes (T-714; Input.Background).
+	// Background is the agent's long-running background processes (Input.Background).
 	Background []Background `json:"background,omitempty"`
 }
 
-// NeedsYou is one needs-you fact in force, of a task by id (its lane is the task's, T-883) or of the project (its loop
+// NeedsYou is one needs-you fact in force, of a task by id (its lane is the task's) or of the project (its loop
 // error, its lines).
 type NeedsYou struct {
 	Task   string `json:"task"`
@@ -176,7 +176,7 @@ type Pause struct {
 	By     string `json:"by,omitempty"`
 }
 
-// Idle is the project's idle state (T-803): since when the pipeline is empty, what ended it, and the lead's
+// Idle is the project's idle state: since when the pipeline is empty, what ended it, and the lead's
 // acknowledgement, as serve sends it.
 type Idle = wire.IdleStatus
 
@@ -195,7 +195,7 @@ type Input struct {
 }
 
 // Notes is the project's own lines for Input.Notes: warn (config.LoadReader's, "" for none), then
-// project.StoppedLine when root is stopped (obor stop, T-709).
+// project.StoppedLine when root is stopped (obor stop).
 func Notes(root, warn string) []string {
 	var out []string
 	if warn != "" {
@@ -208,7 +208,7 @@ func Notes(root, warn string) []string {
 }
 
 // RoleStopped is a Role's Status when its only labelled pane is at its shell: serve stopped the agent once its work was
-// done (T-672) or the lead did (T-677), and no pane runs it.
+// done or the lead did, and no pane runs it.
 const RoleStopped = "stopped"
 
 // Build is the project's view: serve's answer joined to the lane table and the store. Serve down: its error, no
@@ -258,7 +258,7 @@ func serveOf(v *Project, ss wire.Status, err error, p *checks.LaneTable, bg map[
 	}
 	v.Pending = append(v.Pending, ps.Pending...)
 	v.Serve.Merging, v.Serve.LogError = ps.Merging, ps.LogError
-	if ps.Lanes != "" { // serve's lane table is older than its tick (T-879): obor status and the page show its age
+	if ps.Lanes != "" { // serve's lane table is older than its tick: obor status and the page show its age
 		v.Notes = append(slices.Clip(v.Notes), ps.Lanes)
 	}
 	v.Agents = append(v.Agents, ps.Agents...)
@@ -288,7 +288,7 @@ func needsYou(ps wire.ProjectStatus) []NeedsYou {
 	return out
 }
 
-// pausesOf is serve's pause and model pauses as the view shows them (T-765, T-766).
+// pausesOf is serve's pause and model pauses as the view shows them.
 func pausesOf(v *Project, ps wire.ProjectStatus) {
 	if ps.Paused != nil {
 		v.Paused = pauseOf(ps.Paused)
@@ -307,7 +307,7 @@ func pausesOf(v *Project, ps wire.ProjectStatus) {
 func lane(p *checks.LaneTable, s port.Lane, v *Project, ps wire.ProjectStatus, row store.LaneRow,
 	starts map[string]int64) Lane {
 	l := Lane{Lane: s, Op: restartOp(p.Root, s.Name), Queue: ps.Queues[s.Name]}
-	// T-969: a lane serve owns shows the task its row records and the dispatch's branch, whatever git's HEAD says: a
+	// a lane serve owns shows the task its row records and the dispatch's branch, whatever git's HEAD says: a
 	// lane test checks the candidate out detached, so git names no branch. An unowned lane keeps git's reading.
 	if ts := laneTaskOn(ps, s.Name); ts != nil && row.Task == ts.Task {
 		l.Task = ts.Task
@@ -331,7 +331,7 @@ func lane(p *checks.LaneTable, s port.Lane, v *Project, ps wire.ProjectStatus, r
 }
 
 // laneTaskOn is serve's open task on lane (nil: none): the task whose record owns the lane's row, even while git has
-// the lane detached at its candidate (T-969).
+// the lane detached at its candidate.
 func laneTaskOn(ps wire.ProjectStatus, lane string) *wire.TaskStatus {
 	for i := range ps.Tasks {
 		if ts := &ps.Tasks[i]; ts.Lane == lane && !ts.Ended {
@@ -358,7 +358,7 @@ func roles(cfg *config.Config, ps wire.ProjectStatus, bg map[string][]Background
 			}
 		}
 		if r.Status == "" && slices.Contains(ps.Stopped, agent) {
-			r.Status = RoleStopped // serve or the lead stopped it: not missing (T-672, T-677)
+			r.Status = RoleStopped // serve or the lead stopped it: not missing
 		}
 		for _, b := range ps.Briefs {
 			if b.To == agent {
@@ -432,7 +432,7 @@ func laneSince(l Lane, v *Project, now, dispatched int64) *int64 {
 }
 
 // runningCommand is the configured command r runs, for the running line: for a gate or a lane test the command serve
-// says it runs now (T-669, T-961: compile, the class's, the guard or check; its name when not configured; "" while
+// says it runs now (compile, the class's, the guard or check; its name when not configured; "" while
 // unknown, never a guess), the full check for the nightly check, commands.after_merge for
 // after_merge; "" for a step of
 // git alone (publish) or an unset command.
@@ -474,7 +474,7 @@ func readFullCheck(root, name string) *FullCheck {
 	return fc
 }
 
-// startsOf is when serve last tried to start each task's lane agent (TaskStatus.Started, by task; T-893: serve's own
+// startsOf is when serve last tried to start each task's lane agent (TaskStatus.Started, by task; serve's own
 // fold, not the view's guess from the log): a resume runs the failed step again under its next key, so it is the current
 // attempt's (pluginMissing). Serve down: none.
 func startsOf(ps wire.ProjectStatus) map[string]int64 {
@@ -489,19 +489,19 @@ func startsOf(ps wire.ProjectStatus) map[string]int64 {
 
 // pluginSettle is how long after serve's last attempt to start a lane's agent (the dispatch, or a resume's retry) the
 // agent's plugin may still check in: it runs the session-start hook on its session's first event, which comes after the
-// agent started — and obor restart starts an agent outside any dispatch (T-783: a lane restarted by hand and resumed
+// agent started — and obor restart starts an agent outside any dispatch (a lane restarted by hand and resumed
 // was flagged while its plugin was fine and checked in a minute later).
 const pluginSettle = 2 * time.Minute
 
-// A Claude lane is missing it when its worktree has no .claude/settings.json enabling obor's plugin (T-705).
-// pluginMissing (T-307): a lane whose kind runs obor's hooks through obor's plugin (agents.HooksPlugin: opencode) has
+// A Claude lane is missing it when its worktree has no .claude/settings.json enabling obor's plugin.
+// pluginMissing: a lane whose kind runs obor's hooks through obor's plugin (agents.HooksPlugin: opencode) has
 // no plugin marker newer than the dispatch that started its work (obor status warns: the lane runs with no obor
 // guard). None at all, or one older than the lane row's dispatched_at (a leftover from before this dispatch): missing.
 // No row: a marker at all is fresh, nothing to compare it against. A start the lane's agent has not had the time to
 // check in from yet (pluginSettle after the dispatch and after its last agent.start, starts) is no answer either.
 func pluginMissing(p *checks.LaneTable, s port.Lane, starts map[string]int64) bool {
 	kind := project.RunningKind(p.Cfg, config.AgentInfo{Type: s.Type})
-	if k, known := agents.Lookup(kind); known && k.Caps().ProjectPlugin { // Claude loads the plugin from the worktree's own .claude/settings.json (T-705)
+	if k, known := agents.Lookup(kind); known && k.Caps().ProjectPlugin { // Claude loads the plugin from the worktree's own .claude/settings.json
 		return !config.PluginEnabledIn(s.Dir)
 	}
 	if k, known := agents.Lookup(kind); !known || k.Caps().Hooks != agents.HooksPlugin {
@@ -527,7 +527,7 @@ func pluginMissing(p *checks.LaneTable, s port.Lane, starts map[string]int64) bo
 	return rowOK && m.At < row.DispatchedAt
 }
 
-// restartOp is "restart" while a restart of lane holds its restart lock (T-192, T-500), else "".
+// restartOp is "restart" while a restart of lane holds its restart lock, else "".
 func restartOp(root, lane string) string {
 	if launch.RestartLock(root, lane, "").Held() {
 		return "restart"

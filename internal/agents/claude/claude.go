@@ -21,11 +21,11 @@ const name = "claude"
 func (kind) Name() string { return name }
 
 // StrictFlag is Claude's flag that hides every MCP server the command line does not name: the plugin manifest's obor
-// server included (T-445).
+// server included.
 const StrictFlag = "--strict-mcp-config"
 
 // MCPConfig is the --mcp-config JSON of this kit's obor server, as the plugin manifest declares it but with the kit's
-// path spelled out (a strict start has no ${CLAUDE_PLUGIN_ROOT}) and the pin, so bin/obor runs this kit (T-420). The
+// path spelled out (a strict start has no ${CLAUDE_PLUGIN_ROOT}) and the pin, so bin/obor runs this kit. The
 // OBOR_* variables need no entry: Claude passes its own environment to the server.
 func MCPConfig(kit string) string {
 	b, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{"obor": map[string]any{
@@ -36,14 +36,14 @@ func MCPConfig(kit string) string {
 	return string(b)
 }
 
-// Start is the type's args (with in.Effort: their --effort replaced by --effort <effort>, T-695), then
-// --strict-mcp-config for a lane's agent (in.StrictMCP, T-770: once, also when the args name it), then --settings
-// <settings>, then --session-id <in.Session> (a fresh start obor names, T-813) or --resume <sid>, with obor's
+// Start is the type's args (with in.Effort: their --effort replaced by --effort <effort>), then
+// --strict-mcp-config for a lane's agent (in.StrictMCP: once, also when the args name it), then --settings
+// <settings>, then --session-id <in.Session> (a fresh start obor names) or --resume <sid>, with obor's
 // --mcp-config pair spliced in before the strict flag (the flag stops --mcp-config's variadic value), then one `--`
 // when a config flag could take the prompt, then the prompt. The prompt is positional, never a config value; a
 // resume carries none. The only `--` is obor's own (config validate refuses one in the args).
 //
-// The project's committed .claude/settings.json in in.Dir (T-1033) outranks obor's policy: a project that opts into its
+// The project's committed .claude/settings.json in in.Dir outranks obor's policy: a project that opts into its
 // .mcp.json servers (enableAllProjectMcpServers true, or a non-empty enabledMcpjsonServers, which also approves them,
 // so an unattended lane does not sit on the approval prompt) starts without the strict flag, obor's server then the
 // plugin manifest's as for a role; a settings key the file sets is left out of --settings (no --settings when it sets
@@ -150,7 +150,7 @@ func (kind) StartEnv(agents.Start) (map[string]string, error) { return nil, nil 
 // Vars: none (StartEnv sets none).
 func (kind) Vars() []string { return nil }
 
-// WithModel: --model <model> in place of the args' own (T-753).
+// WithModel: --model <model> in place of the args' own.
 func (kind) WithModel(args []string, model string) []string {
 	return agents.SetFlag(args, []string{"--model"}, model)
 }
@@ -174,7 +174,7 @@ func withEffort(args []string, effort string) []string {
 }
 
 // withStrict is args with the strict flag last, unless they already name it (either spelling): a lane's agent starts
-// with obor's MCP server alone (T-770).
+// with obor's MCP server alone.
 func withStrict(args []string) []string {
 	for _, a := range args {
 		if a == StrictFlag || strings.HasPrefix(a, StrictFlag+"=") {
@@ -204,7 +204,7 @@ type args struct {
 }
 
 // parse reads a once. --mcp-config takes several values, so every value after a flag counts up to the next option
-// (RV-47); `--mcp-config=<v>` takes the same variadic tail.
+// `--mcp-config=<v>` takes the same variadic tail.
 func parse(a []string) args {
 	p := args{strict: -1}
 	for i := 0; i < len(a); i++ {
@@ -272,7 +272,7 @@ func (kind) NotReady(string) string { return "" }
 // Stop: /exit. Escape puts Claude's interrupted prompt back into the input box, and /exit typed after it would be
 // sent as part of that text (live 2026-10-13): Ctrl+C clears the whole input (it only arms "press again to exit").
 // With background tasks running, /exit opens a dialog ("Exit and stop tasks / Move to background / Stay"), its
-// options numbered. SecondEnter: with many slash commands the menu over "/exit" can take the Enter (T-712, owner
+// options numbered. SecondEnter: with many slash commands the menu over "/exit" can take the Enter (owner
 // 2026-11-02); a second Enter after the first poll submits it (never into the dialog).
 func (kind) Stop() agents.Stop {
 	return agents.Stop{Quit: "/exit", SecondEnter: true, AfterEscape: []string{"ctrl+c"}, ClearInput: []string{"ctrl+u"}, Dialog: &exitDialog}
@@ -280,13 +280,12 @@ func (kind) Stop() agents.Stop {
 
 var exitDialog = agents.Dialog{Option: "Exit and stop tasks", Key: regexp.MustCompile(`([1-9])[.)] *Exit and stop tasks`)}
 
-// Headless: claude has no headless subcommand; its headless form is -p / --print (T-470).
+// Headless: claude has no headless subcommand; its headless form is -p / --print.
 func (kind) Headless() agents.Headless { return agents.Headless{PrintFlag: true} }
 
 // Install: the kit's plugin manifest registers the server (mcpServers.obor: `bash ${CLAUDE_PLUGIN_ROOT}/bin/obor mcp`,
 // so the shipped manifest never names the kit's path), which every obor Claude pane loads with the plugin; a start with
-// --strict-mcp-config hides it, so obor names its own on that start (T-445) — a lane's agent always is such a start
-// (T-770).
+// --strict-mcp-config hides it, so obor names its own on that start — a lane's agent always is such a start
 func (kind) Install(kit string, _ func(string) string) agents.Install {
 	lane := func(a []string, read agents.ReadFile) (string, bool, bool) {
 		p := parse(a)
@@ -309,7 +308,7 @@ func (kind) Install(kit string, _ func(string) string) agents.Install {
 
 // Transcript: $CLAUDE_CONFIG_DIR (default ~/.claude)/projects/<dir>/<sid>.jsonl with any project dir (*): Claude
 // derives the dir from its start cwd as it sees fit (resolved symlinks, a hash past 200 characters), so only the
-// session id names the file and the path recorded by the session itself is the true one (T-813).
+// session id names the file and the path recorded by the session itself is the true one.
 func (kind) Transcript(env func(string) string, sid string) string {
 	dir := env("CLAUDE_CONFIG_DIR")
 	if dir == "" {
@@ -318,10 +317,10 @@ func (kind) Transcript(env func(string) string, sid string) string {
 	return filepath.Join(dir, "projects", "*", sid+".jsonl")
 }
 
-// LastTurn: none read; the StopFailure hook reports a stop (T-532).
+// LastTurn: none read; the StopFailure hook reports a stop.
 func (kind) LastTurn([]byte) (agents.Turn, bool) { return agents.Turn{}, false }
 
-// Session: none read; the SessionStart hook reports the session id and its transcript_path (T-577).
+// Session: none read; the SessionStart hook reports the session id and its transcript_path.
 func (kind) Session([]byte) (agents.Session, bool) { return agents.Session{}, false }
 
 // Reset: StopFailure's error rate_limit is a limit (billing_error, overloaded, … are not); its error_details name
@@ -333,7 +332,7 @@ func (kind) Reset(errText, details string, at time.Time) (time.Time, bool) {
 	return agents.ResetIn(details, at), true
 }
 
-// Deliver posts to the session's inbox (T-485), as the SessionStart hook recorded it ({"socket", "token"}): the two
+// Deliver posts to the session's inbox, as the SessionStart hook recorded it ({"socket", "token"}): the two
 // lines of the binary's own sender, {"type":"auth","token":…} (when the record has a token) then
 // {"type":"user","message":{"role":"user","content":<text>}}. Written against Claude Code 2.1.312 (cross-session
 // messaging needs ≥ 2.1.224; code.claude.com/docs/en/cross-session-messaging.md: an idle receiving session starts a

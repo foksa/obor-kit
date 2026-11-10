@@ -11,12 +11,12 @@ import (
 
 // Version is the build version, stamped by the build (the Makefile): the tag (v0.14.0) when HEAD is exactly at one, else
 // the newest release tag plus -dev+<short sha> (v0.14.0-dev+21242f62, -dirty when the tree is modified) — release tags
-// sit on release commits off main (T-559). A plain `go build` keeps "dev".
+// sit on release commits off main. A plain `go build` keeps "dev".
 var Version = "dev"
 
 // Release is the release a build belongs to: its version less the dev suffix ("v0.34.0-dev+21242f62-dirty" is
 // "v0.34.0"). A version without one (a tag, a plain "dev", a bare sha) is its own release. Two builds of one release
-// are not a skew worth showing: obor-kit's own dev builds differ after every merge (T-826).
+// are not a skew worth showing: obor-kit's own dev builds differ after every merge.
 func Release(v string) string {
 	if i := strings.Index(v, "-dev+"); i > 0 {
 		return v[:i]

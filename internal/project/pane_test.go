@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// T-1037: Pane is the one resolver of an agent's pane: OBOR_PANE (every start obor makes exports it), else the
+// Pane is the one resolver of an agent's pane: OBOR_PANE (every start obor makes exports it), else the
 // terminal's HERDR_PANE_ID (a pane obor did not start, or one started before OBOR_PANE), else ErrNoPane naming both.
 func TestPane(t *testing.T) {
 	t.Parallel()

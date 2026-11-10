@@ -15,7 +15,7 @@ import (
 )
 
 // reading is a load's outside facts beyond the project's files and store: serve's status (ask), the lane table's git
-// and the agents' one ps. The zero value is the real thing; a test sets them to count what a read spawns (T-880).
+// and the agents' one ps. The zero value is the real thing; a test sets them to count what a read spawns.
 type reading struct {
 	ask   func(ctx context.Context, path string) (wire.Status, error)
 	git   func(ctx context.Context, dir string, args ...string) (string, error)
@@ -36,7 +36,7 @@ type inputs struct {
 	err   error
 }
 
-// open reads one load's shared inputs (T-880: one config snapshot per request).
+// open reads one load's shared inputs (one config snapshot per request).
 func (r reading) open(ctx context.Context, root string) inputs {
 	in := inputs{close: func() {}}
 	cfg, warn, err := config.LoadReader(root)
@@ -59,7 +59,7 @@ func Load(ctx context.Context, root string, now time.Time, events int) (Project,
 
 // load is Load: serve is asked (down: its error, not an error here), the lane table is read from git and the store
 // read-only (closed before it returns). A config key this binary does not know is a note, not an error
-// (config.LoadReader, T-709).
+// (config.LoadReader).
 func (r reading) load(ctx context.Context, root string, now time.Time, events int) (Project, error) {
 	in := r.open(ctx, root)
 	defer in.close()
@@ -70,7 +70,7 @@ func (r reading) load(ctx context.Context, root string, now time.Time, events in
 		Notes: Notes(in.cfg.Root, in.warn), Background: r.background(ctx, in.cfg.Root, in.ss, in.serr)}), nil
 }
 
-// LoadTask is the task pages' read, narrow (T-880): serve's answer, one config read and the store's lane rows and
+// LoadTask is the task pages' read, narrow: serve's answer, one config read and the store's lane rows and
 // specs. It runs no git and no ps: a task page needs its task and its needs-you; the lanes' git facts are the
 // overview's.
 func LoadTask(ctx context.Context, root string) (Detail, error) {
@@ -90,7 +90,7 @@ func (r reading) task(ctx context.Context, root string) (Detail, error) {
 	return Detail{Root: in.cfg.Root, Project: v}, nil
 }
 
-// LoadAgent is the agent pages' read, narrow (T-880): serve's answer, one config read and its role rows. It runs no
+// LoadAgent is the agent pages' read, narrow: serve's answer, one config read and its role rows. It runs no
 // git and no ps: the page's history is the store's (Detail.Agent) and the agent's long-running processes are the
 // overview's.
 func LoadAgent(ctx context.Context, root string) (Detail, error) {

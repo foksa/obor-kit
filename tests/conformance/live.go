@@ -6,7 +6,7 @@
 // scratch kit whose bin/obor is the stub (stubmcp): each driver's real start argv runs it where it would run obor. No
 // herdr plugin is linked. Agents start interactively in the session's panes (agent.start), never headless. Model calls
 // only with TURN=1. The stub proves the wiring; live_mcp.go's case per kind runs the repository's own `obor mcp`
-// against the same client (T-898).
+// against the same client.
 package main
 
 import (
@@ -107,9 +107,9 @@ type lab struct {
 	kit       string     // root/kit: bin/obor (the stub's wrapper), bin/obor-stub, opencode/obor.js, out/
 	main      string     // root/proj: the main checkout, .obor/config.json committed
 	lane      string     // root/proj-wt/L-01: a lane worktree on task/T-1
-	real      string     // root/real: a kit whose bin/obor is the repository's own obor (realKit, T-898)
+	real      string     // root/real: a kit whose bin/obor is the repository's own obor (realKit)
 	realErr   error      // why realKit failed (nil until it is asked)
-	app       *stubServe // the app socket's stub serve (startStubServe, T-898)
+	app       *stubServe // the app socket's stub serve (startStubServe)
 	session   string     // obor-conf-<kind>
 	sock      string
 	env       []string  // the server's clean environment
@@ -122,7 +122,7 @@ type lab struct {
 }
 
 // labTemp is the base dir a lab's scratch dir is made in: os.TempDir(), or /tmp when TMPDIR is too long for the
-// project's app socket path (<base>/obc-<kind>-XXXXXXXXXX/proj/.obor/state/serve.sock, T-898). A unix socket path is
+// project's app socket path (<base>/obc-<kind>-XXXXXXXXXX/proj/.obor/state/serve.sock). A unix socket path is
 // 104 bytes on macOS including the NUL, and macOS's TMPDIR is already 57 bytes past its /private symlink.
 func labTemp(kind string) string {
 	base := os.TempDir()
@@ -262,7 +262,7 @@ func (l *lab) makeProject() error {
 	return nil
 }
 
-// opencodeKind builds the OpenCode kind's binary (kinds/opencode, T-1046) into the scratch dir, as `make build` puts it
+// opencodeKind builds the OpenCode kind's binary (kinds/opencode) into the scratch dir, as `make build` puts it
 // beside obor: the lab's opencode is that plugin kind, run through obor's plugin package.
 func (l *lab) opencodeKind() (string, error) {
 	exe := filepath.Join(l.root, "bin", "obor-kind-opencode")
@@ -779,7 +779,7 @@ func (l *lab) start(name, kind, pane string, args []string, timeout time.Duratio
 
 // reportStart is H-L1 for a kind's agent.start: the answer within obor's 10 s client timeout, with what (status,
 // launch_pending) and when the agent took input; an at-once launch_pending answer is a fact of the run, not a failure.
-// T-953: the fact also says whether the answer came before or only when the agent was ready (H6).
+// the fact also says whether the answer came before or only when the agent was ready (H6).
 func reportStart(kind string, s started, readyAfter time.Duration) {
 	where := at("internal/herdr/socket.go", "func (s *Socket) Start") + ", " + at("internal/launch/start.go", "func (l *Launcher) started") + ", F3.4, H6"
 	fact := fmt.Sprintf("%s: agent.start (timeout_ms %d) answered after %.1fs", kind, s.timeout.Milliseconds(), s.took.Seconds())
@@ -896,7 +896,7 @@ func same(a, b string) bool {
 // Quit with Enter, a second Enter when the popup took the first) and returns the agent's exit status, as the shell
 // prints it. The clear is the recipe's too, not a courtesy: a quit appended to text already in the input is submitted
 // as a prompt, not run — codex kept a draft and read "/quit" as the rest of it, so the agent ran another turn and never
-// exited (T-1038), while obor's own stop never sends a quit into a dirty input (T-712).
+// exited, while obor's own stop never sends a quit into a dirty input.
 func (l *lab) quit(pane string, r agents.Stop) (int, error) {
 	for _, k := range r.ClearInput {
 		_ = l.keys(pane, k)

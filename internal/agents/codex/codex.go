@@ -30,10 +30,10 @@ func EnvVarsTOML() string {
 }
 
 // Start: `resume <sid>` before the type's args (with in.Effort: their model_reasoning_effort replaced by
-// -c model_reasoning_effort=<effort>, T-695), then obor's server (with a kit), then the update check off (T-570),
+// -c model_reasoning_effort=<effort>), then obor's server (with a kit), then the update check off,
 // then the prompt (a resume carries none). Codex takes no settings.
 //
-// The project's committed .codex/config.toml in in.Dir (T-1033) outranks obor's policy: a top-level sandbox_mode drops
+// The project's committed .codex/config.toml in in.Dir outranks obor's policy: a top-level sandbox_mode drops
 // the base args' -s workspace-write, a top-level check_for_update_on_startup leaves the update check as the file sets
 // it. A file that does not parse counts as absent (config validate warns).
 func (kind) Start(in agents.Start) []string {
@@ -47,7 +47,7 @@ func (kind) Start(in agents.Start) []string {
 		out = append(out, "resume", in.Resume)
 	}
 	out = append(out, withEffort(args, in.Effort)...)
-	for _, d := range in.WriteDirs { // workspace-write writes the cwd only (T-853)
+	for _, d := range in.WriteDirs { // workspace-write writes the cwd only
 		out = append(out, "--add-dir", d)
 	}
 	if in.Kit != "" {
@@ -56,10 +56,10 @@ func (kind) Start(in agents.Start) []string {
 			"-c", `mcp_servers.obor.args=["mcp"]`,
 			"-c", "mcp_servers.obor.env_vars="+EnvVarsTOML(),
 			"-c", "mcp_servers.obor.env={"+agents.Pin+`="1"}`,
-			// lanes run -a never: without this every obor tool call fails "requires approval" (T-390)
+			// lanes run -a never: without this every obor tool call fails "requires approval"
 			"-c", `mcp_servers.obor.default_tools_approval_mode="approve"`)
 	}
-	// Codex's own "Update available" menu blocks a fresh start until someone picks "Skip" (T-570); a type arg that
+	// Codex's own "Update available" menu blocks a fresh start until someone picks "Skip"; a type arg that
 	// sets the key wins.
 	if !updateCheckSet(in.Args) && !top[updateCheck] {
 		out = append(out, "-c", updateCheck+"=false")
@@ -110,11 +110,11 @@ func (kind) ProjectWarnings(dir string, read agents.ReadFile) []string {
 // call (0.167) and the exec server for commands.
 var installFiles = []string{"codex", "codex-code-mode-host", "codex-exec-server"}
 
-// userApproved is quarantine's user-approved bit (T-1049, docs/research/codex-quarantine.md §3: "0181" → "01c1" once
+// userApproved is quarantine's user-approved bit (docs/research/codex-quarantine.md §3: "0181" → "01c1" once
 // Gatekeeper's dialog was answered Open): such a file will not prompt again.
 const userApproved = 0x0040
 
-// quarantined (T-1045, T-1049, T-1052): on darwin, the files beside the resolved codex that carry
+// quarantined: on darwin, the files beside the resolved codex that carry
 // com.apple.quarantine without the user-approved bit, and the package's version dir to clear. One read of the
 // machine's install for both the setup warning and the start check.
 // A quarantined codex-code-mode-host hangs at exec (macOS never approves it for a child process), so every tool call
@@ -148,7 +148,7 @@ func quarantined(h agents.InstallHost) (files []string, version string) {
 	return files, version
 }
 
-// InstallWarnings (T-1045, T-1049): the quarantined files, one line naming them and the fix.
+// InstallWarnings: the quarantined files, one line naming them and the fix.
 func (kind) InstallWarnings(h agents.InstallHost) []string {
 	q, version := quarantined(h)
 	if len(q) == 0 {
@@ -159,7 +159,7 @@ func (kind) InstallWarnings(h agents.InstallHost) []string {
 		strings.Join(q, ", "), version)}
 }
 
-// StartRefusal (T-1052): a Codex start whose resolved install carries an unapproved quarantine flag is not made. The
+// StartRefusal: a Codex start whose resolved install carries an unapproved quarantine flag is not made. The
 // Gatekeeper dialog for codex-code-mode-host would sit unanswered in an unattended pane, so every tool call of the
 // session would time out; the line names the files and the owner's fix (obor applies none).
 func (kind) StartRefusal(h agents.InstallHost) string {
@@ -176,7 +176,7 @@ func (kind) StartRefusal(h agents.InstallHost) string {
 // tomlKey is a `key = value` line of TOML: the key bare or quoted, dotted parts allowed; the value after the `=`.
 var tomlKey = regexp.MustCompile(`^((?:[A-Za-z0-9_-]+|"[^"\\]*"|'[^']*')(?:\s*\.\s*(?:[A-Za-z0-9_-]+|"[^"\\]*"|'[^']*'))*)\s*=\s*(.*)$`)
 
-// topKeys are the keys a TOML document sets before its first [table] header: a narrow scan, no TOML parser (T-1033).
+// topKeys are the keys a TOML document sets before its first [table] header: a narrow scan, no TOML parser.
 // It reads `key = value` lines, skips blank and comment lines, and follows a value over lines while a bracket or a
 // triple-quoted string it opens is open; any other line is an error naming its number.
 func topKeys(doc string) (map[string]bool, error) {
@@ -252,7 +252,7 @@ const effortKey = "model_reasoning_effort"
 
 // efforts are Codex's model_reasoning_effort values: `codex --help` lists none, so they are the efforts of Codex 0.166's
 // built-in models (low, medium, high, xhigh, max, ultra; luna tops out at max, per-model limits are not checked;
-// no minimal, T-799).
+// no minimal).
 var efforts = []string{"low", "medium", "high", "xhigh", "max", "ultra"}
 
 func (kind) Efforts() []string { return efforts }
@@ -263,7 +263,7 @@ func (kind) StartEnv(agents.Start) (map[string]string, error) { return nil, nil 
 // Vars: none (StartEnv sets none).
 func (kind) Vars() []string { return nil }
 
-// WithModel: -m <model> in place of the args' own (-m or --model, T-753).
+// WithModel: -m <model> in place of the args' own (-m or --model).
 func (kind) WithModel(args []string, model string) []string {
 	return agents.SetFlag(args, []string{"-m", "--model"}, model)
 }
@@ -321,7 +321,7 @@ func (kind) NotReady(screen string) string {
 
 func (kind) Stop() agents.Stop { return agents.Stop{Quit: "/quit", ClearInput: []string{"ctrl+u"}} }
 
-// Headless: `codex exec` (alias e, T-470, owner 2026-10-27); exec also as a later word, as codex's optional prompt
+// Headless: `codex exec` (alias e, owner 2026-10-27); exec also as a later word, as codex's optional prompt
 // precedes its subcommand (`codex "hello" exec hi`); the alias is too short to count there. ValueOpts: codex --help.
 func (kind) Headless() agents.Headless {
 	return agents.Headless{Subcommands: []string{"exec", "e"}, Anywhere: []string{"exec"},
@@ -347,7 +347,7 @@ func (kind) Transcript(env func(string) string, sid string) string {
 	return filepath.Join(dir, "sessions", "*", "*", "*", "rollout-*-"+sid+".jsonl")
 }
 
-// Session: a rollout's first line is its session_meta {payload: {id, cwd, timestamp}} (T-577); the line's own
+// Session: a rollout's first line is its session_meta {payload: {id, cwd, timestamp}}; the line's own
 // timestamp when the payload has none.
 func (kind) Session(first []byte) (agents.Session, bool) {
 	var l struct {
@@ -399,7 +399,7 @@ type rateWindow struct {
 // codex_error_info as given: a string, or the one key of an object (a variant with data); "unknown" when it is
 // neither. A line that is not JSON (the partial last one, a cut first one) is skipped.
 //
-// A turn ended on an error has its Reset (T-568) from the turn's last token_count whose rate_limits has a window at
+// A turn ended on an error has its Reset from the turn's last token_count whose rate_limits has a window at
 // 100% (seen 2026-10-28: {"primary":{"used_percent":100.0,"window_minutes":300,"resets_at":<epoch>}, …}; a later
 // one of another limit with no windows is passed over): that window's resets_at, the later of two; else the time the
 // message names ("try again at 6:00 PM", the clock of the line's time in the local zone); else zero.

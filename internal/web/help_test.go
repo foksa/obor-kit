@@ -11,7 +11,7 @@ import (
 	"obor/internal/help"
 )
 
-// T-854: /api/help is the command table (help.Groups, help.Commands) and the kit's README "Install" and "Set up a
+// /api/help is the command table (help.Groups, help.Commands) and the kit's README "Install" and "Set up a
 // project" sections, read at the request: a README changed after the start shows its new text.
 func TestHelpAPIIsTheTableAndReadmeSections(t *testing.T) {
 	t.Parallel()

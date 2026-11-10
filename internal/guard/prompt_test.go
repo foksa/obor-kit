@@ -11,7 +11,7 @@ import (
 	"obor/internal/testkit"
 )
 
-// promptFx: lane L-01 (task/T-05, its worker pj-l-01: derived, T-1031) whose row names task T-05 (armed = false: no row).
+// promptFx: lane L-01 (task/T-05, its worker pj-l-01: derived) whose row names task T-05 (armed = false: no row).
 func promptFx(t *testing.T, armed bool) (f hfx, o1 string) {
 	t.Helper()
 	f = newHfx(t)
@@ -78,12 +78,8 @@ type promptRow struct {
 	prompts []string
 }
 
-// bash user-prompt-submit case_worker_untagged, case_worker_subdir_leading_space, case_tagged, case_slash_command,
-// case_pasted_content_wrapper, case_machine_envelopes, case_envelope_needs_closing_tag (RV-09 #7), T-502's peer
-// envelopes, case_auto_continuation_text: the wrong-tab guard's rows. A person's prompt gets the question; obor's own,
-// a slash command, an unwrapped pasted-content wrapper and a whole machine envelope are quiet. The five same-shape tests
-// the survey names, the untagged one and the resume one became these rows; no row dropped (the plain prompt three of
-// them share is row one).
+// The wrong-tab guard's rows: a person's prompt gets the question; obor's own,
+// a slash command, an unwrapped pasted-content wrapper and a whole machine envelope are quiet.
 func TestPromptGuardRows(t *testing.T) {
 	t.Parallel()
 	f, o1 := promptFx(t, true)
@@ -164,7 +160,7 @@ func TestPromptGuardRows(t *testing.T) {
 	}
 }
 
-// bash user-prompt-submit case_no_state_file_uses_lane; T-1031: with no lane row the worker is still named by its derived
+// With no lane row the worker is still named by its derived
 // name (no row stores one), whatever OBOR_LANE says.
 func TestPromptNoStateFileUsesTheLane(t *testing.T) {
 	t.Parallel()
@@ -173,7 +169,7 @@ func TestPromptNoStateFileUsesTheLane(t *testing.T) {
 	contains(t, f.prompt(t, o1, "hello", "", "OBOR_LANE=pj-x"), "OBOR_LANE", "I am worker pj-l-01 on (no task).")
 }
 
-// T-502: the UserPromptSubmit input Claude Code 2.1.312 gave a probe hook (testdata/prompt-*.json, paths redacted). It
+// the UserPromptSubmit input Claude Code 2.1.312 gave a probe hook (testdata/prompt-*.json, paths redacted). It
 // carries no origin field for any of them: a subagent's hand-back and another session's SendMessage come in their
 // envelope; a raw post to the inbox socket (obor's) comes bare, so an untagged one cannot be told from typing.
 func TestPromptCapturedPayloads(t *testing.T) {
@@ -207,7 +203,7 @@ func TestPromptCapturedPayloads(t *testing.T) {
 	}
 }
 
-// bash user-prompt-submit case_auto_continuation_origin (T-147)
+// bash user-prompt-submit case_auto_continuation_origin
 func TestPromptAutoContinuationOriginQuiet(t *testing.T) {
 	t.Parallel()
 	f, o1 := promptFx(t, true)
@@ -252,7 +248,7 @@ func TestPersonTyped(t *testing.T) {
 	}
 }
 
-// T-232, T-465: the handoff reminder text up to the session-specific numbers: the restart of the agent named.
+// the handoff reminder text up to the session-specific numbers: the restart of the agent named.
 func leadWhenOf(agent string) string {
 	return "Hand off at the next logical break, not in the middle of work: when the current task or discussion has " +
 		"reached its conclusion (nothing half-done, no question to the person open), write the Handoff section at the " +
@@ -262,7 +258,7 @@ func leadWhenOf(agent string) string {
 
 var leadWhen = leadWhenOf("pj-lead")
 
-// handoffFx: a project with lane L-01 (agent pj-l-01, task T-05) and a transcript at ctx tokens.
+// handoffFx: a project with lane L-01 (agent pj-l-01, task) and a transcript at ctx tokens.
 func handoffFx(t *testing.T, ctx int64) (f hfx, o1, tr string) {
 	t.Helper()
 	f, o1 = promptFx(t, true)
@@ -270,7 +266,7 @@ func handoffFx(t *testing.T, ctx int64) (f hfx, o1, tr string) {
 	return f, o1, tr
 }
 
-// T-232: a lead above its limit gets the reminder on every prompt: a person's, obor's, a slash command, an
+// a lead above its limit gets the reminder on every prompt: a person's, obor's, a slash command, an
 // auto-continuation, a machine envelope.
 func TestPromptLeadHandoffReminderOnEveryPrompt(t *testing.T) {
 	t.Parallel()
@@ -294,7 +290,7 @@ func TestPromptLeadHandoffReminderOnEveryPrompt(t *testing.T) {
 	}
 }
 
-// T-232: below the limit and limit 0 (off).
+// below the limit and limit 0 (off).
 func TestPromptLeadHandoffLimits(t *testing.T) {
 	t.Parallel()
 	f, _, tr := handoffFx(t, 400000)
@@ -313,7 +309,7 @@ func TestPromptLeadHandoffLimits(t *testing.T) {
 	}
 }
 
-// T-232, T-1108: only the lead gets the handoff reminder; a worker above any limit gets only the wrong-tab guard (a
+// only the lead gets the handoff reminder; a worker above any limit gets only the wrong-tab guard (a
 // person's prompt) or nothing (obor's), and the integrator nothing.
 func TestPromptHandoffOnlyForTheLead(t *testing.T) {
 	t.Parallel()
@@ -347,7 +343,7 @@ func hugeTail(t *testing.T, tr string, size int) {
 	}
 }
 
-// T-237 (RV-25 #1): a 64 MiB transcript tail → the read stops at its budget, no usage found → no reminder (fail open),
+// a 64 MiB transcript tail → the read stops at its budget, no usage found → no reminder (fail open),
 // well inside the hook timeout.
 func TestPromptLeadHugeTranscriptFailsOpenFast(t *testing.T) {
 	t.Parallel()

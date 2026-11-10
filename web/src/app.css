@@ -1,4 +1,4 @@
-/* obor web's tokens and base styles (T-760). Dark by default with the system's light mode, or the toggle's choice
+/* obor web's tokens and base styles. Dark by default with the system's light mode, or the toggle's choice
    (data-theme on <html>, kept in localStorage "obor-theme"). Components use the tokens, never raw colors. */
 :root {
   color-scheme: dark;

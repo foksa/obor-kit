@@ -2,49 +2,49 @@
 // ends with OK … / FAIL … (exit 1).
 //
 //	lane <L-NN>  git worktree add --detach <lanes_dir>/<L-NN> <current branch>; symlink lane_links; raise config.lanes
-//	        to NN when it is the next lane (lanes are L-01 … L-NN, T-765); run commands.lane_setup in the lane (under its timeout), leaving
-//	        <state>/lanes/<LANE>.setup when it finished (T-613: obor init's rerun skips a lane only then, and T-618:
+//	        to NN when it is the next lane (lanes are L-01 … L-NN); run commands.lane_setup in the lane (under its timeout), leaving
+//	        <state>/lanes/<LANE>.setup when it finished (obor init's rerun skips a lane only then, and
 //	        only while that marker names the lane_setup configured now).
 //	pane <LANE> [--tab <tab-id> | --new-tab <label> | --pane <pane-id>] [--start]  a pane for the lane's worker, labelled and
-//	        with its env typed but no agent in it unless --start (T-705: dispatch starts a fresh worker anyway) (agent
-//	        <prefix>-<lane lower>; the placement is the terminal adapter's, herdr.Setup.Place, T-1044): split the largest pane of --tab (default: the caller's tab
-//	        when it is the project's, else the project's busiest tab, T-628; a tab is the project's only when every
-//	        pane in it has a known cwd in the project, and with none a new tab, T-632), or a new tab in the project's
+//	        with its env typed but no agent in it unless --start (dispatch starts a fresh worker anyway) (agent
+//	        <prefix>-<lane lower>; the placement is the terminal adapter's, herdr.Setup.Place): split the largest pane of --tab (default: the caller's tab
+//	        when it is the project's, else the project's busiest tab; a tab is the project's only when every
+//	        pane in it has a known cwd in the project, and with none a new tab), or a new tab in the project's
 //	        workspace (the one with most panes in the project), or an existing shell pane; without a pane of the
 //	        project anywhere a new herdr workspace named after the project, cwd the root (never the caller's or
-//	        herdr's active one, T-632), and another project's pane is never split; cwd the lane, env
-//	        OBOR_ROLE / OBOR_LANE and the kind's vars, every other var of the registry empty (agents.StartVars, T-812; no
-//	        OBOR_AGENT: a name is derived, T-786); then the pane label (= the agent, R-28 §2: refused when another pane
+//	        herdr's active one), and another project's pane is never split; cwd the lane, env
+//	        OBOR_ROLE / OBOR_LANE and the kind's vars, every other var of the registry empty (agents.StartVars; no
+//	        OBOR_AGENT: a name is derived); then the pane label (= the agent, R-28 §2: refused when another pane
 //	        holds it or --pane is labelled otherwise) and herdr agent start with the model's kind and args (+ Claude
 //	        --settings), both through launch.Start (the one start, shared with obor restart). A pane a new tab or a split
-//	        made is used once herdr reports it an available shell (T-628: bounded at 10 s, agent_pane_busy retried).
+//	        made is used once herdr reports it an available shell (bounded at 10 s, agent_pane_busy retried).
 //	        Refuses a full tab
 //	        (4 panes, a constant). A failed start with a trust dialog or a Codex self-update in the
 //	        pane (or herdr's agent_not_ready) → FAIL agent not ready: <hint>. A running agent → OK, no-op.
-//	role <role> [same placement] [--start]  the same (no agent unless --start, T-708) for a role of the roles table (not worker): agent and type from
-//	        roles.<role>, env OBOR_ROLE (the role's env value, triage too: T-796), cwd the role's (config.RoleDir,
-//	        T-853): the reviewer, the deep dive and the integrator their role worktree <lanes_dir>/<role>, added
+//	role <role> [same placement] [--start]  the same (no agent unless --start) for a role of the roles table (not worker): agent and type from
+//	        roles.<role>, env OBOR_ROLE (the role's env value, triage too), cwd the role's (config.RoleDir):
+//	        the reviewer, the deep dive and the integrator their role worktree <lanes_dir>/<role>, added
 //	        detached at the main checkout's branch when missing; every other role the root. triage also copies
 
 //	        templates/BUGS.md to docs/BUGS.md if missing; the reviewer and the deep dive also add paths.reviews (default
-//	        docs/reviews) to the main checkout's .gitignore, once (T-731).
+//	        docs/reviews) to the main checkout's .gitignore, once.
 //	githooks [--remove]  core.hooksPath (repo-local config, shared by all worktrees) = <kit>/githooks (pre-commit,
 //	        pre-push and githooks/_hook) or, when there is something to chain, <kit>/githooks/chain (every hook git
-//	        runs, all through githooks/_hook; T-623: a recorded obor.hooksChain or a hook in .git/hooks the small set
+//	        runs, all through githooks/_hook: a recorded obor.hooksChain or a hook in .git/hooks the small set
 //	        lacks). The project's own hooksPath, when already set, is chained (obor.hooksChain, run by every hook)
 //	        instead of refused. --remove puts the chained dir back and unsets obor.hooksChain, or unsets
 //	        core.hooksPath when there is none (only when it is ours).
-//	herdr-plugin  the removal of the obor.events herdr plugin an older obor linked (R-28 §3, T-1117: obor serve
+//	herdr-plugin  the removal of the obor.events herdr plugin an older obor linked (obor serve
 //	        restarts its own panes): unlink it (user-global, once per user); herdr's plugin list is read once, and an
-//	        error reading it is a FAIL, not "not linked" (T-613); then one hint line unless herdr's config sets
-//	        `[session] resume_agents_on_restore = false` (never edited, T-159).
-//	agents  caches each plugin kind's manifest and runs every kind's install (T-1036), whose answer `obor setup mcp`
-//	        checks; a kind installs nothing user-global (T-1119).
+//	        error reading it is a FAIL, not "not linked"; then one hint line unless herdr's config sets
+//	        `[session] resume_agents_on_restore = false` (never edited).
+//	agents  caches each plugin kind's manifest and runs every kind's install, whose answer `obor setup mcp`
+//	        checks; a kind installs nothing user-global.
 //
 //	rename --name N --prefix P  rename the project and its agents (config, lane opencode.json kit paths, the herdr
 //	        workspace); refused while its serve LaunchAgent is installed: see rename.go.
 //
-//	show  the setup table, read-only (T-647): per difficulty level each model ref, in order, with its kind, model id
+//	show  the setup table, read-only: per difficulty level each model ref, in order, with its kind, model id
 //	        and effort; the lanes; the roles' models; whether the owner confirmed it.
 //
 // obor init (P7-2): see oborinit.go.
@@ -72,7 +72,7 @@ type Setup struct {
 	Kit string // the obor kit: templates/, githooks/, skills/
 	Dir string // the caller's cwd
 	Env project.Env
-	// T is the terminal, in neutral terms (port.TerminalSetup, T-1044): setup says whose pane and near what, the
+	// T is the terminal, in neutral terms (port.TerminalSetup): setup says whose pane and near what, the
 	// terminal adapter (herdr.Setup) lays it out.
 	T   port.TerminalSetup
 	Out io.Writer
@@ -86,12 +86,12 @@ type Setup struct {
 	// it): obor init's last step. state is done, already or skipped; line says what.
 	Serve func(ctx context.Context, cfg *config.Config) (state, line string, err error)
 	// Installed is the plist of cfg's serve LaunchAgent when it is installed (cmd/obor passes the service adapter's;
-	// nil: none is): obor setup rename refuses while it is (DD-consolidation I7).
+	// nil: none is): obor setup rename refuses while it is.
 	Installed func(cfg *config.Config) (plist string, ok bool)
-	// Install is the machine for the doctor's install checks (agents.InstallChecker, T-1045); nil: this one
+	// Install is the machine for the doctor's install checks (agents.InstallChecker); nil: this one
 	// (installHost).
 	Install func() agents.InstallHost
-	// ShellWait bounds the wait for a pane a new tab or a split made to be an available shell (T-628; 0: 10 s).
+	// ShellWait bounds the wait for a pane a new tab or a split made to be an available shell (0: 10 s).
 	ShellWait time.Duration
 
 	root  string // the main checkout, once found
@@ -100,7 +100,7 @@ type Setup struct {
 	// start's last placement (obor init): the pane, and whether the agent was running already
 	placed  string
 	running bool
-	started bool      // and whether it started one (a pane without --start does not, T-705)
+	started bool      // and whether it started one (a pane without --start does not)
 	idle    bool      // a pane labelled for the agent was there already, no agent in it (a rerun without --start)
 	hints   *[]string // obor init: herdr's config hint goes here, to its summary, instead of out
 }
@@ -206,7 +206,7 @@ func (s *Setup) findRoot() error {
 }
 
 // load finds the project and loads its effective config. A config.json that exists and fails to load fails with the
-// load's own error (T-1163: a shape-1 file names its way out); the generic "no usable" text is for no file at all.
+// load's own error (a shape-1 file names its way out); the generic "no usable" text is for no file at all.
 func (s *Setup) load() error {
 	if err := s.findRoot(); err != nil {
 		return err
@@ -223,7 +223,7 @@ func (s *Setup) load() error {
 }
 
 // projectConfig is config.Load for the commands that work without a config (setup agents, setup mcp): nil with no error
-// when there is no project config.json, or no git repository at all. Any other load error is a Fail naming it (T-1163).
+// when there is no project config.json, or no git repository at all. Any other load error is a Fail naming it.
 func (s *Setup) projectConfig() (*config.Config, error) {
 	if err := s.findRoot(); err != nil {
 		return nil, nil

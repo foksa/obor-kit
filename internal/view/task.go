@@ -7,7 +7,7 @@ import (
 	"obor/internal/store"
 )
 
-// Task is one task the view knows (T-883): dispatched, waiting, merging, needing you, on a lane's branch, or only a
+// Task is one task the view knows: dispatched, waiting, merging, needing you, on a lane's branch, or only a
 // stored spec. Build makes one per task (tasks), in Project.Tasks by id; the sections (Lane, MergeItem, WaitItem,
 // NeedsYou) name it by id and keep only their own fields, so a task's title, phase and lane are the same everywhere.
 // Its JSON names are the ones a section embedding it may use (task_state: a lane's own state is "state").
@@ -20,15 +20,15 @@ type Task struct {
 	Lane      string `json:"lane,omitempty"`
 	Agent     string `json:"agent,omitempty"`
 	TaskState string `json:"task_state,omitempty"` // serve's state of it ("": serve has no such task)
-	Open      bool   `json:"open,omitempty"`       // serve still has it in its merge loop (not ended; T-896)
-	Phase     string `json:"phase,omitempty"`      // serve's phase of it (wire.Phase*, T-788)
+	Open      bool   `json:"open,omitempty"`       // serve still has it in its merge loop (not ended)
+	Phase     string `json:"phase,omitempty"`      // serve's phase of it (wire.Phase*)
 	// Step is the step its phase places it on (wire.PhaseStep; nil: needs-you, held, ended or no phase, which its
 	// records place).
 	Step    *int   `json:"step,omitempty"`
 	Attempt int    `json:"attempt,omitempty"`
 	Running string `json:"running,omitempty"` // its step running now (its gate, its publish …)
-	Effort  string `json:"effort,omitempty"`  // the effort its dispatch started its agent with (T-695)
-	Ref     string `json:"ref,omitempty"`     // its spec's Ref: an external tracker's id (T-1022)
+	Effort  string `json:"effort,omitempty"`  // the effort its dispatch started its agent with
+	Ref     string `json:"ref,omitempty"`     // its spec's Ref: an external tracker's id
 	Job     *Job   `json:"job,omitempty"`     // its open job (nil: none)
 }
 
@@ -93,7 +93,7 @@ func tasks(ps wire.ProjectStatus, lanes []port.Lane, specs map[string]store.Spec
 }
 
 // serveAgent is serve's agent in lane (its name and pane status; a drive's agent too); ok false: none, the lane's
-// derived agent (port.Lane.Agent, T-1031) is the one named.
+// derived agent (port.Lane.Agent) is the one named.
 func serveAgent(ps wire.ProjectStatus, lane string) (wire.AgentStatus, bool) {
 	for _, a := range ps.Agents {
 		if a.Lane == lane {
@@ -114,7 +114,7 @@ func (p Project) TaskOn(l Lane) Task {
 	return Task{}
 }
 
-// TaskIDs is Project.Tasks' ids in order (sortTasks: T-9 before T-10).
+// TaskIDs is Project.Tasks' ids in order (sortTasks: a task 9 before its task 10).
 func (p Project) TaskIDs() []string {
 	ids := make([]string, 0, len(p.Tasks))
 	for id := range p.Tasks {

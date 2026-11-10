@@ -12,10 +12,10 @@ import (
 	"obor/internal/store"
 )
 
-// The lane table (T-470, from package lanes): each configured lane's worktree as git and the store's lanes table
+// The lane table (from package lanes): each configured lane's worktree as git and the store's lanes table
 // (read-only) say; obor status and obor serve's app.Lanes read it.
 
-// NewLaneTable is the lane table of a loaded config: its git reads run under ctx (T-873: a canceled request or serve
+// NewLaneTable is the lane table of a loaded config: its git reads run under ctx (a canceled request or serve
 // pass ends them).
 func NewLaneTable(ctx context.Context, cfg *config.Config) *LaneTable {
 	return &LaneTable{ctx: ctx, Cfg: cfg, Root: cfg.Root, Now: time.Now().Unix()}
@@ -27,14 +27,14 @@ type LaneTable struct {
 	Cfg  *config.Config
 	Root string
 	Now  int64
-	// Git is the git command the table's reads run (nil: project.GitCtx): a test counts them (T-880).
+	// Git is the git command the table's reads run (nil: project.GitCtx): a test counts them.
 	Git func(ctx context.Context, dir string, args ...string) (string, error)
 
 	once     sync.Once
 	states   []port.Lane
 	rowsOnce sync.Once
 	rows     map[string]store.LaneRow // the lanes table, by lane, read once
-	rowsErr  error                    // why it cannot be read (no database yet: nil, no rows, T-871)
+	rowsErr  error                    // why it cannot be read (no database yet: nil, no rows)
 }
 
 // git is the table's git: project.GitCtx unless a test injected Git.
@@ -65,12 +65,12 @@ func (p *LaneTable) States() []port.Lane {
 
 // LaneState is one lane's row: missing when the lane dir is no worktree of its own, else the one free rule
 // (port.FreeState: free, dirty-free, working, unknown) over the store's row of the lane (its task, whether that task
-// landed: serve's projection, T-1012; the head its submission pinned, T-1015), the lane's HEAD and its own uncommitted
+// landed: serve's projection; the head its submission pinned), the lane's HEAD and its own uncommitted
 // changes. Its git reads run in the lane dir only (rev-parse, status; headMerged's only for a landed row with no
-// recorded head), never in the main checkout; what serve does for its task is the task's phase (T-788). Unknown: git
-// or the store could not tell (Reason says why, T-871), never free.
+// recorded head), never in the main checkout; what serve does for its task is the task's phase. Unknown: git
+// or the store could not tell (Reason says why), never free.
 func (p *LaneTable) LaneState(l config.Lane) port.Lane {
-	// The agent is derived from the lane (T-1031: no row stores it); a keep lane says its mode (a fresh one none).
+	// The agent is derived from the lane (no row stores it); a keep lane says its mode (a fresh one none).
 	s := port.Lane{Name: l.Name, Dir: l.Dir, State: port.LaneMissing, Agent: p.Cfg.AgentName("worker", l.Name)}
 	if l.Mode == config.LaneKeep {
 		s.Mode = l.Mode
@@ -103,7 +103,7 @@ func (p *LaneTable) LaneState(l config.Lane) port.Lane {
 			break
 		}
 	}
-	// An unreadable store cannot tell whether a task holds the lane: unknown, never free (T-871). A fresh project has
+	// An unreadable store cannot tell whether a task holds the lane: unknown, never free. A fresh project has
 	// no store, not an unreadable one: store.ReadLanesAt says so with no rows and no error.
 	rows, err := p.Rows()
 	if err != nil {
@@ -119,21 +119,21 @@ func (p *LaneTable) LaneState(l config.Lane) port.Lane {
 	return s
 }
 
-// headMerged: the lane's HEAD is in the target branch's history (branches.main), read in the lane dir (T-1015: the
+// headMerged: the lane's HEAD is in the target branch's history (branches.main), read in the lane dir (the
 // merge evidence of a landed row with no recorded head, a hand merge with no submission); git failing proves nothing.
 func (p *LaneTable) headMerged(dir string) bool {
 	_, err := p.git(dir, "merge-base", "--is-ancestor", "HEAD", "refs/heads/"+p.Cfg.MainBranch())
 	return err == nil
 }
 
-// unknown is s as a lane whose read failed: state unknown, why a git or store error (T-871). Its branch and task, when
+// unknown is s as a lane whose read failed: state unknown, why a git or store error. Its branch and task, when
 // the git read that failed came after them, still say which task the lane holds.
 func unknown(s port.Lane, why string) port.Lane {
 	s.State, s.Reason = port.LaneUnknown, why
 	return s
 }
 
-// taskType is the model lane l runs in state s (T-721, T-765), without its effort: project.RowModel's answer for
+// taskType is the model lane l runs in state s, without its effort: project.RowModel's answer for
 // the lane's row, kept only while git says the lane works on the row's task (a free lane whose row keeps its last
 // task runs none).
 func (p *LaneTable) taskType(l config.Lane, s port.Lane) string {
@@ -148,8 +148,8 @@ func (p *LaneTable) taskType(l config.Lane, s port.Lane) string {
 }
 
 // Lanes is port.Lanes from today's lane table (obor serve's app.Lanes): a lane's task is open while the lane works
-// (its row's task has not landed, T-1012); its agent is derived from the lane (LaneState). A lane whose git or store read failed is unknown, with
-// its reason (T-871): dispatch never picks it.
+// (its row's task has not landed); its agent is derived from the lane (LaneState). A lane whose git or store read failed is unknown, with
+// its reason: dispatch never picks it.
 type Lanes struct{}
 
 func (Lanes) Lanes(ctx context.Context, root string) ([]port.Lane, error) {
@@ -170,7 +170,7 @@ func (Lanes) Lanes(ctx context.Context, root string) ([]port.Lane, error) {
 }
 
 // Rows is the store's lanes table by lane, read once (read-only); an error when the database or its lanes table
-// cannot be read, with no rows. A project with no database yet has no rows and no error (T-871).
+// cannot be read, with no rows. A project with no database yet has no rows and no error.
 func (p *LaneTable) Rows() (map[string]store.LaneRow, error) {
 	p.rowsOnce.Do(func() {
 		p.rows, p.rowsErr = store.ReadLanesAt(p.Root)
@@ -189,10 +189,10 @@ func (p *LaneTable) finished(task string) int64 {
 	return 0
 }
 
-// MergeEvidenceBy (T-196, T-290, T-547, T-550) reads, with git run by git (git -C <root> args…), whether HEAD's log
+// MergeEvidenceBy reads, with git run by git (git -C <root> args…), whether HEAD's log
 // holds a commit whose subject is "Merge <id>: …" (the gate's merge of the task) or starts with "<id>:" (a lane's
 // squashed work). Task branches are not looked at. An error when git cannot read the log. Serve's Scratch.Landed reads
-// it for a task merged by hand (the merged fact that sets the lane row's landed, T-1012); the lane table itself never
+// it for a task merged by hand (the merged fact that sets the lane row's landed); the lane table itself never
 // reads the main checkout.
 func (p *LaneTable) MergeEvidenceBy(id string, git func(args ...string) (string, error)) (bool, error) {
 	out, err := git("log", "-F", "--grep="+id+":", "--format=\x1e%s", "HEAD")

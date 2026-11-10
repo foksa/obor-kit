@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// An agent's sessions (T-577): serve records fact session{…} on task key SessionTask for each session an agent
+// An agent's sessions: serve records fact session{…} on task key SessionTask for each session an agent
 // starts, one per (agent, id); internal/app writes them (sessions.go there), launch, the hooks and the transcript
 // readers read them here. History stays: an agent's current session is its newest (Current).
 const (
@@ -19,7 +19,7 @@ const (
 // Session is one agent session as obor recorded it: the agent, its kind, the session id and its transcript file
 // ("": not known), the pane, lane and task it started in, when it started (Unix seconds) and who reported it (the
 // SessionStart hook, launch's Codex rollout, OpenCode's plugin). Task is the task it started on: a keep lane's session
-// spans several (T-1031), its current task is its lane row's (serve's agent status), never this record's.
+// spans several, its current task is its lane row's (serve's agent status), never this record's.
 type Session struct {
 	Agent      string `json:"agent"`
 	Kind       string `json:"kind,omitempty"`
@@ -33,17 +33,17 @@ type Session struct {
 }
 
 // Owned is ss, session facts in log order, as recorded: each that the rule admits given the ones before it, a
-// confirmation of an earlier record (T-813: same agent and id, now with the transcript) in that record's place, so an
-// agent's sessions stay one per id. One fold over ss (T-881: the rule's rescans are a lookup in each of the fold's
+// confirmation of an earlier record (same agent and id, now with the transcript) in that record's place, so an
+// agent's sessions stay one per id. One fold over ss (the rule's rescans are a lookup in each of the fold's
 // maps).
 func Owned(ss []Session) []Session { return FoldSessions(ss).All() }
 
-// SessionFold is one fold over a log's session facts (T-881): the records the ownership rule admitted in log order,
+// SessionFold is one fold over a log's session facts: the records the ownership rule admitted in log order,
 // their (agent, id) by their place in it, each agent's current session and each session id's owners. It is the rule's
 // only implementation: a record joins when its (agent, id) is unknown and no other agent's current session is its id,
-// and a known one (agent, id) takes its record's place only when it is the confirmation T-813 names. Its zero value is
-// an empty log, so a fold built record by record keeps its index (T-1088: serve's replay calls Add; it no longer
-// rebuilds the index for every fact).
+// and a known one (agent, id) takes its record's place only when it is the session's confirmation record. Its zero
+// value is an empty log, so a fold built record by record keeps its index (serve's replay calls Add, so the index is
+// not rebuilt for every fact).
 type SessionFold struct {
 	all    []Session                  // the admitted records, in log order
 	known  map[sessionKey]int         // (agent, id) → its index in all
@@ -163,7 +163,7 @@ func (f *SessionFold) unown(id, agent string) {
 	}
 }
 
-// confirm replaces record i with s, a confirmation of it (T-813): the same (agent, id), its transcript now known. The
+// confirm replaces record i with s, a confirmation of it: the same (agent, id), its transcript now known. The
 // record keeps its place, so it stays its agent's current session unless the confirmation starts earlier than what it
 // replaces, which hands the choice to the agent's newest record (the same selection Current makes).
 func (f *SessionFold) confirm(i int, s Session) {
@@ -257,9 +257,9 @@ func TranscriptAt(root, id string) string {
 }
 
 // PruneSessions deletes, in one transaction, the session facts of every session id that no agent's current session is
-// and whose records were all written before cutoff and below horizon (T-1089: serve's nightly prune, 30 days on;
+// and whose records were all written before cutoff and below horizon (serve's nightly prune, 30 days on;
 // horizon is the log's last seq when the prune began, so the table's newest row stays). An id goes with all its
-// records or none: a current session keeps its start and its T-813 confirmation. The fold of what stays must admit
+// records or none: a current session keeps its start and its confirmation record. The fold of what stays must admit
 // every kept record as the whole log did (the ownership rule asks other agents' current sessions); when it would not,
 // nothing is deleted and that is the error. The count of rows deleted.
 func PruneSessions(db *sql.DB, cutoff time.Time, horizon int64) (int64, error) {

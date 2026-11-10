@@ -1,5 +1,5 @@
 // Package roles is the single source for the built-in roles and their runtime defaults, and the shape of a custom role
-// (T-801: a roles.<name> row of the config, or one of the kit's default rows): config.Role is the one lookup of both.
+// (a roles.<name> row of the config, or one of the kit's default rows): config.Role is the one lookup of both.
 package roles
 
 import (
@@ -16,7 +16,7 @@ type WriteProfile string
 const (
 	CwdProject CwdRule = "project"
 	CwdLane    CwdRule = "lane"
-	// CwdRoleWorktree is a worktree serve owns, <lanes_dir>/<role> (T-853: the reviewer, the deep dive, the integrator),
+	// CwdRoleWorktree is a worktree serve owns, <lanes_dir>/<role> (the reviewer, the deep dive, the integrator),
 	// detached; never a lane. Serve moves the reviewer's and the deep dive's to the head it hands them.
 	CwdRoleWorktree  CwdRule      = "role-worktree"
 	WriteNone        WriteProfile = "none"
@@ -27,7 +27,7 @@ const (
 )
 
 // Role records the defaults shared by setup, config validation, and the guard.
-// EnvValue is the role's OBOR_ROLE value: every role has one (T-796: triage too), so the derived identity covers it.
+// EnvValue is the role's OBOR_ROLE value: every role has one (triage too), so the derived identity covers it.
 type Role struct {
 	Name         string
 	EnvValue     string
@@ -38,13 +38,13 @@ type Role struct {
 	Dispatchable bool
 	Prompt       string // the first prompt of a fresh start of a Claude agent in this role ("": none)
 	Optional     bool   // counts (known agents, collisions) only when roles.<name> is configured
-	GitReadOnly  bool   // runs git reads only (the guard's read list); the lead commits its files (RV-83 #2)
-	// Custom is a role a config row defines (T-801), a kit default row or the project's own: main checkout, git
+	GitReadOnly  bool   // runs git reads only (the guard's read list); the lead commits its files
+	// Custom is a role a config row defines, a kit default row or the project's own: main checkout, git
 	// read-only, never lane-bound or dispatchable, no push, writes only WritePaths.
 	Custom bool
 	// WritePaths are a custom role's writes, relative to the root: "dir/" a directory, anything else one file.
 	WritePaths []string
-	// Verbs are a custom role's wire methods serve admits it to as it admits the lead and the owner (T-1039:
+	// Verbs are a custom role's wire methods serve admits it to as it admits the lead and the owner (
 	// roles.<name>.verbs, each one of Verbs): an integration's role takes a task and briefs the lead. They add rights,
 	// never remove one; a built-in role has none.
 	Verbs []string
@@ -55,24 +55,24 @@ type Role struct {
 
 var table = []Role{
 	{Name: "lead", EnvValue: "lead", AgentSuffix: "lead", Cwd: CwdProject, Write: WriteAll, Prompt: "/obor:lead"},
-	// The integrator runs in its own worktree (T-853), not the merge scratch, where gates run: a review job may check
+	// The integrator runs in its own worktree, not the merge scratch, where gates run: a review job may check
 	// out the candidate there; its resolve jobs still work in the scratch the job names. Serve adds it (the launcher,
 	// obor setup role) but never moves it.
 
 	{Name: "integrator", EnvValue: "integrator", AgentSuffix: "int", Cwd: CwdRoleWorktree, Write: WriteNone},
 	{Name: "worker", EnvValue: "worker", AgentSuffix: "<lane>", Cwd: CwdLane, Write: WriteSpec, Stoppable: true, Dispatchable: true},
-	// The reviewer and the deep dive read their own worktree (T-853; T-718 had them in the main checkout behind a merge
-	// hold): serve moves it to the head it hands them, so merges never wait. Their files go to the main checkout's
+	// The reviewer and the deep dive read their own worktree (a merge hold would put merges in the main checkout):
+	// serve moves it to the head it hands them, so merges never wait. Their files go to the main checkout's
 	// paths.reviews (the guard's WriteReviewsOnly).
 	{Name: "reviewer", EnvValue: "reviewer", AgentSuffix: "rev", Cwd: CwdRoleWorktree, Write: WriteReviewsOnly, GitReadOnly: true},
 	{Name: "deep_dive", EnvValue: "deep_dive", AgentSuffix: "deep-dive", Cwd: CwdRoleWorktree, Write: WriteReviewsOnly, Optional: true, GitReadOnly: true},
-	// The owner's drive agent (T-751, obor drive): in a lane, with the worker's write limits and push denial, but it
+	// The owner's drive agent (obor drive): in a lane, with the worker's write limits and push denial, but it
 	// commits on its branch, pulls no jobs, has no Stop-hook report demand and no wrong-tab guard. Never configured
 	// (no roles.driver): obor drive starts it, named Drive's way.
 	{Name: Driver, EnvValue: Driver, AgentSuffix: "drive", Cwd: CwdLane, Write: WriteSpec, Optional: true},
 }
 
-// defaultRows are the custom roles the kit ships (T-801: advisor, researcher and triage left the table): a config row of
+// defaultRows are the custom roles the kit ships (advisor, researcher and triage left the table): a config row of
 // the name sets its model (a string) or replaces its write list (an object with write). Their doc is the project's
 // <paths.agents>/<name>.md, else the kit's templates/agents/<name>.md.
 var defaultRows = []Role{
@@ -99,14 +99,14 @@ func DefaultRow(name string) (Role, bool) {
 // DefaultRows returns a copy of the kit's default rows, in their order.
 func DefaultRows() []Role { return append([]Role(nil), defaultRows...) }
 
-// Custom is the custom role name writing only write (T-801): an advisor-like role in the main checkout, its agent
+// Custom is the custom role name writing only write: an advisor-like role in the main checkout, its agent
 // <prefix>-<name, _ → ->, OBOR_ROLE=<name>.
 func Custom(name string, write []string) Role {
 	return Role{Name: name, EnvValue: name, AgentSuffix: strings.ReplaceAll(name, "_", "-"), Cwd: CwdProject,
 		Write: WriteList, WritePaths: write, Optional: true, GitReadOnly: true, Custom: true}
 }
 
-// Verbs are the wire methods a custom role's roles.<name>.verbs may name (T-1039): the lead's and the owner's calls an
+// Verbs are the wire methods a custom role's roles.<name>.verbs may name: the lead's and the owner's calls an
 // integration needs to take a task (spec_set, dispatch), follow it (watch) and brief the lead or a role agent (send,
 // brief). The names are internal/app/wire's Method* (its test keeps the two alike); serve's admission of each reads
 // HasVerb.
@@ -126,7 +126,7 @@ func CheckCustomName(name string) error {
 	if !CustomNameRE.MatchString(name) {
 		return fmt.Errorf("a custom role's name must match %s", CustomNameRE)
 	}
-	if name == "none" || name == "leads" { // the role of a session with none; the removed roles.leads (T-467)
+	if name == "none" || name == "leads" { // the role of a session with none; the removed roles.leads
 		return fmt.Errorf("%s is reserved", name)
 	}
 	suffix := strings.ReplaceAll(name, "_", "-")
@@ -148,7 +148,7 @@ func (r Role) DocFile() string {
 	return strings.ReplaceAll(r.Name, "_", "-") + ".md"
 }
 
-// Driver is the owner's drive agent's role (T-751).
+// Driver is the owner's drive agent's role.
 const Driver = "driver"
 
 // DriveAgent is the drive agent's name in a lane whose worker is worker: <worker>-drive, a name of its own so its pane
@@ -181,7 +181,7 @@ func LookupEnv(value string) (Role, bool) {
 	return Role{}, false
 }
 
-// AgentName is the table default: <prefix>-<role suffix>, a worker's suffix from its lane name (T-765: a name is
+// AgentName is the table default: <prefix>-<role suffix>, a worker's suffix from its lane name (a name is
 // derived, never configured).
 func (r Role) AgentName(prefix, lane string) string {
 	suffix := r.AgentSuffix
@@ -194,8 +194,8 @@ func (r Role) AgentName(prefix, lane string) string {
 	return prefix + "-" + suffix
 }
 
-// LaneAgentAliases returns every name that can identify a lane's worker: <prefix>-<lane lower> (T-1031: the name is
-// derived, no lane row names one). The bare lane lower (o-01) is no name (T-302): agent names are machine-wide, and
+// LaneAgentAliases returns every name that can identify a lane's worker: <prefix>-<lane lower> (the name is
+// derived, no lane row names one). The bare lane lower (o-01) is no name: agent names are machine-wide, and
 // another project's agent may be named like a lane here.
 func LaneAgentAliases(lane, prefix string) []string {
 	return []string{prefix + "-" + strings.ToLower(lane)}

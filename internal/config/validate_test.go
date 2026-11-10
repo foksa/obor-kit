@@ -43,7 +43,7 @@ func del(path string) edit {
 
 // validate is `obor config validate` on the fixture config (lane L-01) changed by edits: the WARN lines, then the
 // FAIL lines (an unknown key's first, LoadForValidate's, as the command prints them). The baseline carries the
-// integrator serve needs (T-428), so the cases that predate it stay about their own rule; a case that wants it gone
+// integrator serve needs, so the cases that predate it stay about their own rule; a case that wants it gone
 // deletes it.
 func validate(t *testing.T, p *testkit.Project, edits ...edit) []string {
 	t.Helper()
@@ -69,7 +69,7 @@ func newProject(t *testing.T) *testkit.Project {
 }
 
 // newPlainProject is newProject without git: these tests' subject is config.Load and Validate, and a plain project
-// keeps each case's fixture cost (a git init, a commit, a worktree) off a loop of cases (T-1006).
+// keeps each case's fixture cost (a git init, a commit, a worktree) off a loop of cases.
 func newPlainProject(t *testing.T) *testkit.Project {
 	p := testkit.NewDir(t)
 	p.Lane("L-01", "")
@@ -84,7 +84,7 @@ func TestValidate(t *testing.T) {
 	}{
 		// bash config.test.sh case_validate_ok_template_and_fixture
 		{name: "fixture default", want: nil},
-		// RV-52 #1: a model's kind must be one with a bridge; a leftover cursor or a typo is a FAIL naming the kinds.
+		// a model's kind must be one with a bridge; a leftover cursor or a typo is a FAIL naming the kinds.
 		{name: "cursor is no supported kind", edits: []edit{set("agents.models.cur", map[string]any{"kind": "cursor", "id": "c"})},
 			want: []string{`FAIL .agents.models.cur.kind: "cursor" is not a supported kind: use one of claude, codex, opencode`}},
 		{name: "typo is no supported kind", edits: []edit{set("agents.models.opus", map[string]any{"kind": "claod", "id": "opus"})},
@@ -94,19 +94,19 @@ func TestValidate(t *testing.T) {
 		{name: "every supported kind is accepted", edits: []edit{
 			set("agents.models.a", map[string]any{"kind": "claude", "id": "a"}), set("agents.models.b", map[string]any{"kind": "codex", "id": "b"}),
 			set("agents.models.c", map[string]any{"kind": "opencode", "id": "go/ds"})}},
-		// T-705: a used opencode model without a model id warns (not fails): opencode's own default may not work.
+		// a used opencode model without a model id warns (not fails): opencode's own default may not work.
 		{name: "a used opencode model without a model id warns", edits: []edit{
 			set("agents.models.oc", map[string]any{"kind": "opencode", "id": ""}), set("agents.difficulty.simple", []any{"oc"})},
 			want: []string{`WARN agents.models.oc: opencode model without a model id (opencode's own default may not work, and an effort needs one): set its "id", e.g. "opencode-go/deepseek-v4.1-flash"`}},
 		{name: "an unused opencode model without a model id is fine", edits: []edit{
 			set("agents.models.oc", map[string]any{"kind": "opencode", "id": ""})}},
-		// T-1155: a kit kind's binary is the default again (T-1153's FAIL is gone): a config that uses OpenCode (the
+		// a kit kind's binary is the default (no FAIL for a missing plugin): a config that uses OpenCode (the
 		// default levels' deepseek) with no agents.kinds.opencode.plugin validates clean.
 		{name: "no agents.kinds.opencode.plugin, OpenCode used: the kit's binary, clean", edits: []edit{del("agents.kinds")}},
 		{name: "a new model needs its kind", edits: []edit{set("agents.models.cur", map[string]any{"id": "x"})},
 			want: []string{"FAIL .agents.models.cur.kind: required (claude, codex, opencode)"}},
 		{name: "a built-in's override may keep its kind", edits: []edit{set("agents.models.opus", map[string]any{"id": "claude-opus-5-5"})}},
-		// T-428: owner decision 2026-10-24 — an integrator for every task; serve dispatches and merges for no project
+		// owner decision 2026-10-24 — an integrator for every task; serve dispatches and merges for no project
 		// without one, so the config is invalid without the entry and unchanged with it.
 		{name: "no roles.integrator", edits: []edit{del("agents.roles.integrator")},
 			want: []string{"FAIL .agents.roles.integrator: required: serve dispatches and merges nothing without an integrator"}},
@@ -120,23 +120,23 @@ func TestValidate(t *testing.T) {
 		{name: "prefix too long", edits: []edit{set("project.agent_prefix", "toolongprefix")},
 			want: []string{`FAIL .project.agent_prefix: must match ^[a-z][a-z0-9-]{0,7}$, got "toolongprefix"`}},
 		{name: "prefix 1x", edits: []edit{set("project.agent_prefix", "1x")}, want: []string{`FAIL .project.agent_prefix: must match ^[a-z][a-z0-9-]{0,7}$, got "1x"`}},
-		// T-765: lanes is a count.
+		// lanes is a count.
 		{name: "no lanes", edits: []edit{set("lanes.count", 0)}},
 		{name: "negative lanes", edits: []edit{set("lanes.count", -1)},
 			want: []string{"FAIL .lanes.count: must be a non-negative integer (how many lanes), got -1"}},
-		// T-538: a project's difficulty entry names the levels and the lane types it has; the built-in default skips what it lacks.
+		// a project's difficulty entry names the levels and the lane types it has; the built-in default skips what it lacks.
 		{name: "difficulty names known models", edits: []edit{set("agents.difficulty", map[string]any{"hard": []any{"opus"}})}},
 		{name: "difficulty with an unknown model", edits: []edit{set("agents.difficulty", map[string]any{"medium": []any{"opus", "ghost"}})},
 			want: []string{`FAIL .agents.difficulty.medium[1]: "ghost" is not a model (models: opus, sonnet, haiku, fable, deepseek, terra, sol, luna)`}},
 		{name: "difficulty with an unknown level", edits: []edit{set("agents.difficulty", map[string]any{"easy": []any{"opus"}})},
 			want: []string{"FAIL .agents.difficulty.easy: is not a level: use hard, medium or simple"}},
-		// T-695: a level's list and a role's type take `<type>[:<effort>]`, the effort one its kind takes.
+		// a level's list and a role's type take `<type>[:<effort>]`, the effort one its kind takes.
 		{name: "difficulty mixes models and model:effort", edits: []edit{
 			set("agents.difficulty", map[string]any{"hard": []any{"opus:high", "luna:xhigh", "opus"}}),
 			set("agents.roles.lead", "opus:max"), set("agents.roles.reviewer", "luna:max")}},
 		{name: "difficulty with an effort its kind lacks", edits: []edit{set("agents.difficulty", map[string]any{"hard": []any{"opus", "opus:minimal"}})},
 			want: []string{`FAIL .agents.difficulty.hard[1]: opus:minimal: effort "minimal" is not one of claude's (low, medium, high, xhigh, max)`}},
-		// T-697: an OpenCode effort rides on the model's id (obor never guesses OpenCode's model).
+		// an OpenCode effort rides on the model's id (obor never guesses OpenCode's model).
 		{name: "an opencode effort needs the model's id", edits: []edit{
 			set("agents.models.oc", map[string]any{"kind": "opencode", "id": ""}),
 			set("agents.difficulty", map[string]any{"hard": []any{"deepseek:high", "oc:high", "oc"}})},
@@ -157,8 +157,7 @@ func TestValidate(t *testing.T) {
 			want: []string{"FAIL .version: must be 2, got 3", `FAIL .project.agent_prefix: must match ^[a-z][a-z0-9-]{0,7}$, got "X"`,
 				"FAIL .agents.models.extra.kind: required (claude, codex, opencode)"}},
 		{name: "slots.cpus fine", edits: []edit{set("checks.cpus_per_check", 4)}},
-		// T-966: merge.receipt_max_age went with the test receipts in v0.29; past its two minors it is an unknown key
-		// (T-1081), as are the promotion's three keys T-1076 deleted.
+		// merge.receipt_max_age is retired: an unknown key, as are the promotion's three keys.
 		{name: "merge.receipt_max_age is unknown", edits: []edit{set("merge.receipt_max_age", 60)},
 			want: []string{unknownFail("merge.receipt_max_age")}},
 		{name: "the promotion's keys are unknown", edits: []edit{set("branches.promote", "release"),
@@ -171,11 +170,11 @@ func TestValidate(t *testing.T) {
 			want: []string{`FAIL .nightly.at: must be a local time HH:MM (00:00 to 23:59), got "2am"`}},
 		{name: "nightly_at out of range", edits: []edit{set("nightly.at", "24:00")},
 			want: []string{`FAIL .nightly.at: must be a local time HH:MM (00:00 to 23:59), got "24:00"`}},
-		// T-817: nightly.also_run names defined, non-gating commands.
+		// nightly.also_run names defined, non-gating commands.
 		{name: "nightly_commands fine", edits: []edit{set("commands.trim_cache", "true"),
 			set("nightly.also_run", []any{"trim_cache"})}},
-		// T-1083: baseline, gate and e2e are free command names again: set and not named where they still run, one WARN;
-		// named in nightly.also_run, none (nightly runs it there, T-817).
+		// baseline, gate and e2e are free command names again: set and not named where they still run, one WARN;
+		// named in nightly.also_run, none (nightly runs it there).
 		{name: "commands.e2e alone warns", edits: []edit{set("commands.e2e", "bun run e2e")},
 			want: []string{"WARN commands.e2e: obor no longer runs it at merge or nightly (v0.32); delete it, or name it in a merge.by_path.rules run or nightly.also_run"}},
 		{name: "commands.baseline alone warns", edits: []edit{set("commands.baseline", "bun run baseline")},
@@ -200,8 +199,8 @@ func TestValidate(t *testing.T) {
 			want: []string{"FAIL .checks.cpus_per_check: must be a positive integer, got 0"}},
 		{name: "slots.cpus negative", edits: []edit{set("checks.cpus_per_check", -2)},
 			want: []string{"FAIL .checks.cpus_per_check: must be a positive integer, got -2"}},
-		// T-962: checks.load_limit went with the check slots' machine-load wait in v0.29; past its two minors it is an
-		// unknown key (T-1081) of shape 2's checks group.
+		// checks.load_limit went with the check slots' machine-load wait in v0.29; past its two minors it is an
+		// unknown key of shape 2's checks group.
 		{name: "checks.load_limit is unknown", edits: []edit{set("checks.load_limit", 12.5)},
 			want: []string{unknownFail("checks.load_limit")}},
 		{name: "workflow scratch-ff", edits: []edit{set("merge.workflow", "scratch-ff")}},
@@ -213,7 +212,7 @@ func TestValidate(t *testing.T) {
 		{name: "slots.lane_cpus fine", edits: []edit{set("lanes.cpus", 1)}},
 		{name: "slots.lane_cpus zero", edits: []edit{set("lanes.cpus", 0)},
 			want: []string{"FAIL .lanes.cpus: must be a positive integer, got 0"}},
-		// T-777: the compact alias (pj-l1) and the agents key are gone: a lane's agent is <prefix>-l-NN or its row's.
+		// there is no compact alias (pj-l1) and no agents key: a lane's agent is <prefix>-l-NN or its row's.
 		// bash config.test.sh case_validate_lane_ready
 		{name: "lane_ready string", edits: []edit{set("lanes.ready", "test -d node_modules")}},
 		{name: "lane_ready object", edits: []edit{set("lanes.ready", `{"cmd": "test -d node_modules", "timeout": 30}`)}},
@@ -231,7 +230,7 @@ func TestValidate(t *testing.T) {
 				`FAIL .merge.by_path.rules[3].name: duplicate of .merge.by_path.rules[1].name ("b")`}},
 		{name: "distinct class names, same paths", edits: []edit{set("merge.by_path.rules", `[{"name": "core", "paths": ["src/**"], "full": true},
 			{"name": "ui", "paths": ["src/**"], "run": ["ui"]}]`)}},
-		// T-1007: with_full runs a class's checks after check on a full merge; on a full class it is meaningless.
+		// with_full runs a class's checks after check on a full merge; on a full class it is meaningless.
 		{name: "with_full on a checks class", edits: []edit{set("merge.by_path.rules", `[{"name": "ui", "paths": ["src/**"], "run": ["ui"]},
 			{"name": "release", "paths": ["Makefile"], "run": ["release"], "also_on_full": true}]`)}},
 		{name: "with_full on a full class", edits: []edit{set("merge.by_path.rules", `[{"name": "core", "paths": ["src/**"], "full": true},
@@ -254,7 +253,7 @@ func TestValidate(t *testing.T) {
 		{name: "allow_push empty", edits: []edit{set("rules", `{"may_push": []}`)}},
 		{name: "allow_push an empty name", edits: []edit{set("rules", `{"may_push": [""]}`)},
 			want: []string{`FAIL .rules.may_push: must be a list of roles (e.g. ["lead"])`}},
-		// T-905: rules.deny_commands entries have a match that compiles and the message the guard denies with.
+		// rules.deny_commands entries have a match that compiles and the message the guard denies with.
 		{name: "deny_commands a rule", edits: []edit{set("rules",
 			`{"deny_commands": [{"match": "^bun test --coverage", "alone": true, "message": "a coverage run is a load run"}]}`)}},
 		{name: "deny_commands a pairs rule", edits: []edit{set("rules",
@@ -266,7 +265,7 @@ func TestValidate(t *testing.T) {
 		{name: "deny_commands no message", edits: []edit{set("rules", `{"deny_commands": [{"match": "^x"}]}`)},
 			want: []string{"FAIL .rules.deny_commands[0].message: required: the text the guard denies with"}},
 		// bash config.test.sh case_validate_neutral_overlap
-		// T-1111: validate has no copy of merge.by_path.no_check's default (the one default is Classify's): with no
+		// validate has no copy of merge.by_path.no_check's default (the one default is Classify's): with no
 		// neutral glob set it checks none, even where docs/** would overlap.
 		{name: "no neutral set", edits: []edit{set("merge.by_path", `{"guard": "g", "rules": [{"name": "docs", "paths": ["docs/**"], "run": ["c"]}]}`)}},
 		{name: "*.md crosses /", edits: []edit{set("merge.by_path", neutralBase), set("merge.by_path.no_check", []any{"docs/**", "*.md"})},
@@ -291,7 +290,7 @@ func TestValidate(t *testing.T) {
 	}
 }
 
-// Shapes are the load's: a wrong type fails config.Load, an unknown key LoadForValidate (T-1081), each with the key
+// Shapes are the load's: a wrong type fails config.Load, an unknown key LoadForValidate, each with the key
 // named; validate never sees it.
 func TestShapeErrorsFailTheLoad(t *testing.T) {
 	p := newPlainProject(t)
@@ -301,12 +300,12 @@ func TestShapeErrorsFailTheLoad(t *testing.T) {
 	}{
 		{set("lanes.ready", 5), "lanes.ready: "},
 		{set("merge.after", map[string]any{"cmd": "make build", "when_changed": "cmd/**"}), "when"},
-		// T-935: after_merge's restart_serve is gone: binary following is serve's one automatic restart.
+		// there is no merge.after.restart_serve: binary following is serve's one automatic restart.
 		{set("merge.after", map[string]any{"cmd": "make build", "restart_serve": true}), ".merge.after.restart_serve: unknown"},
 		{set("lanes.count", "two"), "lanes.count"},
 		{set("agents.models", []any{}), "models"},
 		{set("agents.kinds.claude.args", "x"), "args"},
-		// T-801: roles.mystery is a custom role (validate checks it); a key its row does not know fails the load.
+		// roles.mystery is a custom role (validate checks it); a key its row does not know fails the load.
 		{set("agents.roles.mystery", map[string]any{"model": "opus", "writes": []string{}}), ".agents.roles.mystery.writes: unknown"},
 		{set("agents.roles.integrator", 5), "integrator"},
 		{set("agents.roles", 5), "roles: must be an object"},
@@ -314,12 +313,12 @@ func TestShapeErrorsFailTheLoad(t *testing.T) {
 		{set("agents.handoff_tokens", 1.5), "handoff_tokens"},
 		{set("rules", `{"may_push": "pj-lead"}`), "may_push"},
 		{set("merge.clases", []any{}), ".merge.clases: unknown"},
-		// T-846: the shape before v0.23 is no special case past its two-minor window: its keys are unknown keys (in a
+		// the shape before v0.23 is no special case past its two-minor window: its keys are unknown keys (in a
 		// file of shape 2 agents is a group).
 		{set("agents", map[string]any{"triage": map[string]any{"type": "opus"}}), ".agents.triage: unknown"},
 		{set("lane_types", map[string]any{"opus": map[string]any{"kind": "claude"}}), ".lane_types: unknown"},
-		// T-830: a removed key past its two-minor window is an unknown key, as any key this binary does not know.
-		// T-1062: the two empty v0.28 sections are past theirs too.
+		// a removed key past its two-minor window is an unknown key, as any key this binary does not know.
+		// the two empty v0.28 sections are past theirs too.
 		{set("mcp", map[string]any{}), ".mcp: unknown"},
 		{set("cache", map[string]any{}), ".cache: unknown"},
 		{set("heartbeat", map[string]any{"interval": 900}), "heartbeat"},
@@ -331,14 +330,14 @@ func TestShapeErrorsFailTheLoad(t *testing.T) {
 
 		{set("leads", map[string]any{"cross_ttl": 3600}), "leads"},
 		{set("spec", map[string]any{"files_heading": "Files"}), "spec"},
-		// T-1111: roles.leads is no special case: the old row is a shape the load refuses, naming the key.
+		// roles.leads is no special case: the leads row is a shape the load refuses, naming the key.
 		{set("agents.roles", `{"leads": [{"name": "mp"}]}`), "leads"},
 		{set("obor", map[string]any{"version": "0.7.0"}), "obor"},
 		{set("checks.cpus_per_check", "4"), "cpus"},
 		{set("checks.cpus_per_check", 2.5), "cpus"},
 		{set("lanes.cpus", "3"), "lanes.cpus"},
 		{set("checks.loadlimit", 20), ".checks.loadlimit: unknown"},
-		// T-1062: the nine v0.28 keys are past their two-minor window: each is an unknown key now.
+		// the nine v0.28 keys are past their two-minor window: each is an unknown key now.
 		{set("merge.max_load", 10), ".merge.max_load: unknown"},
 	} {
 		p.Config(c.edit)
@@ -356,7 +355,7 @@ func TestShapeErrorsFailTheLoad(t *testing.T) {
 const neutralBase = `{"guard": "g", "rules": [{"name": "skills", "paths": ["skills/**"], "run": ["c"]},
 	{"name": "ui", "paths": ["src/ui/**"], "run": ["c"]}]}`
 
-// T-431: the trunk branch exists in the main checkout (present: the fixture's main is OK; missing: FAIL with the hint).
+// the trunk branch exists in the main checkout (present: the fixture's main is OK; missing: FAIL with the hint).
 func TestValidateTrunkRef(t *testing.T) {
 	p := newProject(t)
 	if got := validate(t, p); len(got) != 0 {
@@ -399,7 +398,7 @@ func TestRemovedKeysWithinTwoVersions(t *testing.T) {
 		removed   int // v0.<removed>.0 removed it; 0: no recorded version
 		keepUntil int // the last minor that still WARNs: removed + 2
 	}{
-		// T-1083: the three commands obor no longer runs by name.
+		// the three commands obor does not run by name.
 		{"commands.e2e", set("commands.e2e", `"bun run e2e"`), 32, 34},
 	} {
 		if r.removed > 0 {
@@ -429,7 +428,7 @@ func warnsKey(lines []string, key string) bool {
 }
 
 // bash config.test.sh case_validate_ok_template_and_fixture: the template plus the local example validate. The kit's own
-// .obor/config.json is not a product invariant: the kit's guard runs `bin/obor config validate` on it (T-901).
+// .obor/config.json is not a product invariant: the kit's guard runs `bin/obor config validate` on it.
 func TestValidateTemplates(t *testing.T) {
 	kit, _ := filepath.Abs("../..")
 	p := testkit.New(t)
@@ -451,7 +450,7 @@ func TestValidateTemplates(t *testing.T) {
 	if len(warns)+len(fails) != 0 {
 		t.Errorf("templates: %q %q", warns, fails)
 	}
-	// T-769: every role it lists names a model, the lead too
+	// every role it lists names a model, the lead too
 	for _, role := range []string{"lead", "integrator", "reviewer"} {
 		if rc, ok := c.Role(role); !ok || rc.Type == "" {
 			t.Errorf("template role %s = %+v, %v; want a model", role, rc, ok)
@@ -469,7 +468,7 @@ func TestValidateTemplates(t *testing.T) {
 	}
 }
 
-// T-695, T-765: a model ref is `<model>[:<effort>]`; CheckModelRef refuses an unknown model, an empty effort and one
+// a model ref is `<model>[:<effort>]`; CheckModelRef refuses an unknown model, an empty effort and one
 // its kind does not take; a role's ref splits into Type and Effort (AgentInfo carries the effort).
 func TestModelRef(t *testing.T) {
 	for _, c := range []struct{ ref, typ, effort string }{
@@ -501,7 +500,7 @@ func TestModelRef(t *testing.T) {
 	}
 }
 
-// T-538, T-765: a level's model refs are the project's difficulty entry, else the built-in default; a name that is no
+// a level's model refs are the project's difficulty entry, else the built-in default; a name that is no
 // level has none.
 func TestDifficultyList(t *testing.T) {
 	p := newProject(t)
@@ -520,7 +519,7 @@ func TestDifficultyList(t *testing.T) {
 	}
 }
 
-// T-1033: the project's committed CLI config, notes only (never a FAIL): a .claude/settings.json with disableAllHooks
+// the project's committed CLI config, notes only (never a FAIL): a .claude/settings.json with disableAllHooks
 // true, an opencode.json defining mcp.servers.obor; none for a clean project.
 func TestValidateProjectFiles(t *testing.T) {
 	p := newPlainProject(t)
@@ -552,7 +551,7 @@ func TestValidateProjectFiles(t *testing.T) {
 	}
 }
 
-// TestPluginKind (T-1036): agents.kinds.<name>.plugin registers a plugin kind on load (agents.Lookup finds it, a model may
+// TestPluginKind: agents.kinds.<name>.plugin registers a plugin kind on load (agents.Lookup finds it, a model may
 // name it); validate runs its describe: a command that answers passes, one that is not executable, answers for another
 // kind, or takes a compiled kind's name fails.
 func TestPluginKind(t *testing.T) {
@@ -602,7 +601,7 @@ func TestPluginKind(t *testing.T) {
 	}
 }
 
-// TestPluginKindEffortsFromDescribe (T-1042, RV-147 #3): validate checks a role's and a difficulty level's effort on a
+// TestPluginKindEffortsFromDescribe: validate checks a role's and a difficulty level's effort on a
 // plugin kind against the manifest its describe just answered: with no cached manifest (before obor setup agents), and
 // with a stale one (the command since added the effort), the effort is taken; one the manifest lacks still fails.
 // obor spec set, dispatch and drive keep reading the cache (CheckModelRef: the stale cache refuses the effort).
@@ -657,7 +656,7 @@ func TestPluginKindEffortsFromDescribe(t *testing.T) {
 	}
 }
 
-// T-1047: checks.output.failed_test and failed_package — the failed-test line and the failed-package line — go
+// checks.output.failed_test and failed_package — the failed-test line and the failed-package line — go
 // together, and each compiles and has its named group (test, package); neither is fine (a project whose checks print
 // no such lines).
 func TestValidateFlakeRegex(t *testing.T) {
@@ -702,7 +701,7 @@ func TestValidateFlakeRegex(t *testing.T) {
 	}
 }
 
-// T-1047: merge.retest.join is the separator merge.retest's {tests} joins the failing tests with, default "|".
+// merge.retest.join is the separator merge.retest's {tests} joins the failing tests with, default "|".
 func TestRetestJoin(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct{ cfg, want string }{

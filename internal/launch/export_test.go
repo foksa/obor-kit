@@ -39,5 +39,5 @@ func MCPArgs(kind, kit string, args []string) []string {
 	return nil
 }
 
-// StartSeen is Start with the agent the start ended with (T-1058: the case table asserts the observation returned).
+// StartSeen is Start with the agent the start ended with (the case table asserts the observation returned).
 func (l *Launcher) StartSeen(ctx context.Context, s Start) (port.Pane, error) { return l.start(ctx, s) }

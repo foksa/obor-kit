@@ -1,4 +1,4 @@
-// The Help page's data (/api/help, T-854): every obor command by group, and README's setup sections; filterHelp is the
+// The Help page's data (/api/help): every obor command by group, and README's setup sections; filterHelp is the
 // filter box.
 import type { Help, HelpCommand } from "./types";
 

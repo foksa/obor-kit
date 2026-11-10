@@ -10,7 +10,7 @@ import (
 	"obor/internal/launch"
 )
 
-// T-192, T-500: a lane whose restart lock is held has op restart (obor status); a lock file nobody holds (its restart
+// a lane whose restart lock is held has op restart (obor status); a lock file nobody holds (its restart
 // was killed) is no op.
 func TestRestartOpIsTheHeldRestartLock(t *testing.T) {
 	root := t.TempDir()
@@ -30,14 +30,14 @@ func TestRestartOpIsTheHeldRestartLock(t *testing.T) {
 	}
 }
 
-// T-669 (RV-75 #1 #2), T-673: the merge queue is serve's: its tasks in the merge loop's order with their phase and its
-// stage (T-788: serve's phase, the lane row's word) and what each waits for, copied from its scheduler (never
+// The merge queue is serve's: its tasks in the merge loop's order with their phase and its
+// stage (serve's phase, the lane row's word) and what each waits for, copied from its scheduler (never
 // predicted: a task nothing waits behind says nothing more). A task its worker works on is no merge item.
 func TestQueueMerge(t *testing.T) {
 	now := time.Now()
 	tasks := []wire.TaskStatus{{Task: "T-10", State: "submitted", Phase: wire.PhaseGating, Stage: wire.StageGating},
 		{Task: "T-3", State: "working", Phase: wire.PhaseWorking},
-		{Task: "T-4", State: "working", Phase: wire.PhaseNeedsYou}, // a watchdog's needs-you: no stage (T-797)
+		{Task: "T-4", State: "working", Phase: wire.PhaseNeedsYou}, // a watchdog's needs-you: no stage
 		{Task: "T-5", State: "dispatched", Phase: wire.PhaseNeedsYou},
 		{Task: "T-7", State: "needs-you", Phase: wire.PhaseHeld, Stage: wire.StageHeld},
 		{Task: "T-8", State: "accepted", Phase: wire.PhasePublish, Stage: wire.StagePublish},
@@ -59,7 +59,7 @@ func TestQueueMerge(t *testing.T) {
 	}
 }
 
-// T-921 (RV-124 #1): a task an older serve lists without an ended field is open, so the queue holds it; the new
+// a task an older serve lists without an ended field is open, so the queue holds it; the new
 // serve's ended: true (a dropped task) leaves it out, as does an ended waiting task.
 func TestQueueReadsAnOlderServesTaskAsOpen(t *testing.T) {
 	t.Parallel()
@@ -88,7 +88,7 @@ func TestQueueReadsAnOlderServesTaskAsOpen(t *testing.T) {
 	}
 }
 
-// T-664: the nightly check's next run is today's time when it is still ahead, else tomorrow's; none without
+// the nightly check's next run is today's time when it is still ahead, else tomorrow's; none without
 // merge.nightly_at.
 func TestNightlyNext(t *testing.T) {
 	now := time.Date(2026, 11, 1, 14, 0, 0, 0, time.Local)

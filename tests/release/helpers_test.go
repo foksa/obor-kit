@@ -1,8 +1,8 @@
 //go:build release
 
-// Package release is the kit's own release tooling tests (T-902): the Makefile's check/release/publish targets,
+// Package release is the kit's own release tooling tests: the Makefile's check/release/publish targets,
 // scripts/release, scripts/ship, scripts/publish and install.sh, run against fixture repos in a temp dir. They live
-// outside the product's packages because they test obor-kit, not obor, and behind `//go:build release` (T-1001) so a
+// outside the product's packages because they test obor-kit, not obor, and behind `//go:build release` so a
 // merge's go test ./... leaves them out: `make check-release` and the nightly's release_tests command run them, and the
 // release class in .obor/config.json selects them in a lane whose release paths changed.
 package release
@@ -21,7 +21,7 @@ import (
 // shimAsset is the release asset name of version v on this platform (bin/obor's uname mapping is Go's GOOS/GOARCH).
 func shimAsset(v string) string { return "obor-" + v + "-" + runtime.GOOS + "-" + runtime.GOARCH }
 
-// kindAsset is the OpenCode kind's release asset for this platform (T-1046), fetched beside shimAsset.
+// kindAsset is the OpenCode kind's release asset for this platform, fetched beside shimAsset.
 func kindAsset(v string) string {
 	return "obor-kind-opencode-" + v + "-" + runtime.GOOS + "-" + runtime.GOARCH
 }
@@ -63,8 +63,8 @@ func readFile(t *testing.T, p string) string {
 
 // plainMakeEnv is the test process's environment without the make variables an enclosing make exports into every
 // recipe: the gate run as `MAKEFLAGS=' V=0.17.2' make check` (or a test inside `make release V=…`) would otherwise put
-// a test's own `make release` on the V= path (T-641). OBOR_RELEASE_LOGGED is the enclosing release's marker too: left in,
-// a fixture's `make release` thinks it is already the logged inner run and writes no log (T-937).
+// a test's own `make release` on the V= path. OBOR_RELEASE_LOGGED is the enclosing release's marker too: left in,
+// a fixture's `make release` thinks it is already the logged inner run and writes no log.
 func plainMakeEnv() []string {
 	var env []string
 	for _, kv := range os.Environ() {

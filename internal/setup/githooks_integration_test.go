@@ -22,7 +22,7 @@ const hangBound = 15 * time.Second
 // commit / push / merge. The kit is a throwaway copy of this checkout's bin/, VERSION and githooks/ with a fresh build
 // as dist/obor, so the hooks' `bin/obor whoami` runs this code.
 
-// pushRefusal: the pre-push hook's refusal names its way out (T-793; T-1116: OBOR_ALLOW_PUSH is gone).
+// pushRefusal: the pre-push hook's refusal names its way out (rules.may_push).
 func pushRefusal(errOut string) bool {
 	return strings.Contains(errOut, "rules.may_push")
 }
@@ -109,7 +109,7 @@ func copyFile(t *testing.T, from, to string) {
 // the main checkout, recorded for it.
 func (x *hx) hooks() string { return filepath.Join(x.kit, "githooks") }
 
-// chainDir is the kit's full hook set: what core.hooksPath points at when there is something to chain (T-623).
+// chainDir is the kit's full hook set: what core.hooksPath points at when there is something to chain.
 func (x *hx) chainDir() string { return filepath.Join(x.kit, "githooks", "chain") }
 
 // chain makes dir (relative to the main checkout) hold hook with script, executable, and records it as obor.hooksChain.
@@ -236,7 +236,7 @@ func TestGithooks(t *testing.T) {
 		name string
 		test func(t *testing.T, x *hx)
 	}{
-		// T-1116: the push block is for agents. A shell with no OBOR_ROLE (the owner's) pushes, even though the stub
+		// the push block is for agents. A shell with no OBOR_ROLE (the owner's) pushes, even though the stub
 		// binary refuses --can-push: the hook answers this one itself, without asking (and so without a build).
 		{"pre-push: no OBOR_ROLE (a person's shell) pushes; a role the binary refuses is refused", func(t *testing.T, x *hx) {
 			remote := x.remote()
@@ -254,8 +254,8 @@ func TestGithooks(t *testing.T) {
 				t.Errorf("the remote's main is %s, want %s", got, want)
 			}
 		}},
-		// T-793: the hook asks the binary (whoami --can-push) and obeys its answer for a role: a listed role passes, a
-		// role not listed and a lane-bound one refuse. T-1116: no OBOR_ROLE is not asked (the stub would refuse it).
+		// the hook asks the binary (whoami --can-push) and obeys its answer for a role: a listed role passes, a
+		// role not listed and a lane-bound one refuse. A shell with no OBOR_ROLE is not asked (the stub would refuse it).
 		// The decision itself (rules.may_push, the lane row) is the real binary's, in cmd/obor's TestWhoamiCanPush.
 		{"pre-push obeys whoami --can-push: a listed role passes, a role not listed and a lane-bound one refuse", func(t *testing.T, x *hx) {
 			x.Config(func(c map[string]any) { c["rules"] = map[string]any{"may_push": []string{"lead", "worker"}} })
@@ -311,7 +311,7 @@ func TestGithooks(t *testing.T) {
 				t.Errorf("binary answering yes: exit %d\n%s", rc, errOut)
 			}
 		}},
-		// T-1116 replaced OBOR_ALLOW_PUSH=1: a person's shell (no OBOR_ROLE) pushes with no binary at all, since the
+		// A person's shell (no OBOR_ROLE) pushes with no binary at all, since the
 		// hook needs no classifier for it; a role with no binary still fails closed (the case above).
 		{"pre-push: no OBOR_ROLE passes without a binary", func(t *testing.T, x *hx) {
 			remote := x.remote()
@@ -323,7 +323,7 @@ func TestGithooks(t *testing.T) {
 				t.Errorf("the remote's main is %s, want %s", got, want)
 			}
 		}},
-		// T-709: a stopped project's git hooks stand down (obor stop wrote .obor/state/stopped): a lane commit and a
+		// a stopped project's git hooks stand down (obor stop wrote .obor/state/stopped): a lane commit and a
 		// push go through, the project's own hooks still chained.
 		{"a stopped project's hooks only chain", func(t *testing.T, x *hx) {
 			x.commits(t, x.lane, x.gitEnv(), 1, lane, "precondition: lane commit refused while running")
@@ -342,7 +342,7 @@ func TestGithooks(t *testing.T) {
 			x.commits(t, x.lane, x.gitEnv("OBOR_MERGE=1"), 0, "", "lane commit with OBOR_MERGE=1")
 			x.commits(t, x.Root, x.gitEnv(), 0, "", "main commit")
 		}},
-		// T-762: the owner's drive agent (role driver) commits on its branch in its lane; a worker and any other role
+		// the owner's drive agent (role driver) commits on its branch in its lane; a worker and any other role
 		// stay refused, and the main checkout and OBOR_MERGE=1 are as before. The classifier is a stub here; whoami
 		// derives driver/worker from OBOR_ROLE and the cwd in cmd/obor's tests.
 		{"pre-commit allows a drive agent's commit in its lane, refuses a worker's", func(t *testing.T, x *hx) {
@@ -356,7 +356,7 @@ func TestGithooks(t *testing.T) {
 			x.commits(t, x.Root, x.gitEnv("OBOR_ROLE=driver"), 0, "", "main commit with OBOR_ROLE=driver")
 			x.commits(t, x.lane, x.gitEnv("OBOR_ROLE=driver", "OBOR_MERGE=1"), 0, "", "drive agent commit with OBOR_MERGE=1")
 		}},
-		// T-762: only the role whoami names is allowed: an unknown role in a lane, or a whoami without one, refuses.
+		// only the role whoami names is allowed: an unknown role in a lane, or a whoami without one, refuses.
 		{"pre-commit refuses an unknown role in a lane", func(t *testing.T, x *hx) {
 			env, _ := x.cold(t)
 			x.binary("#!/bin/bash\necho 'role: bogus'\necho 'source: env+cwd'\n")
@@ -439,7 +439,7 @@ func TestGithooks(t *testing.T) {
 				t.Errorf("a lane commit without a config chains the project's pre-commit: %q", got)
 			}
 		}},
-		// T-620: the project's own hooksPath (recorded by `obor setup githooks`) is chained by every hook, and a
+		// the project's own hooksPath (recorded by `obor setup githooks`) is chained by every hook, and a
 		// chained failure is the hook's result. The lane runs it from the main checkout, not from the lane.
 		{"a chained pre-commit's failure blocks the commit, before obor's rule", func(t *testing.T, x *hx) {
 			calls := filepath.Join(x.Base, "own.calls")
@@ -461,7 +461,7 @@ func TestGithooks(t *testing.T) {
 				t.Errorf("the chained hook runs once, .git/hooks not at all: %q", got)
 			}
 		}},
-		// T-620: git aborts `git gc --auto` on a non-zero pre-auto-gc ("Exiting with non-zero status from this script
+		// git aborts `git gc --auto` on a non-zero pre-auto-gc ("Exiting with non-zero status from this script
 		// causes the git gc --auto to abort"), so a project's vote must reach it through the chain.
 		{"a chained pre-auto-gc's veto is the hook's result", func(t *testing.T, x *hx) {
 			calls := filepath.Join(x.Base, "own.calls")
@@ -541,7 +541,7 @@ func TestGithooks(t *testing.T) {
 			x.commits(t, x.lane, x.gitEnv(), 1, lane, "lane commit")
 			x.commits(t, x.Root, x.gitEnv(), 0, "", "main commit")
 		}},
-		// T-623: the small set ships pre-commit and pre-push; every other hook git runs lives in chain/, which git
+		// the small set ships pre-commit and pre-push; every other hook git runs lives in chain/, which git
 		// runs only when core.hooksPath points there. Each chain file sources ../_hook (one runner, one level up).
 		{"pre-commit and pre-push in githooks/, every hook in githooks/chain/", func(t *testing.T, x *hx) {
 			entries, _ := os.ReadDir(filepath.Join(kit, "githooks"))
@@ -574,7 +574,7 @@ func TestGithooks(t *testing.T) {
 				t.Errorf("chain/:\n got %q\nwant %q", got, want)
 			}
 		}},
-		// T-623 #5: with a chain recorded, a hook the chain lacks runs nothing: .git/hooks is not a fallback (git
+		// with a chain recorded, a hook the chain lacks runs nothing:.git/hooks is not a fallback (git
 		// never runs it once core.hooksPath is set), so a failing .git/hooks/pre-commit cannot block the commit.
 		{"with a chain, a hook it lacks runs nothing (.git/hooks is no fallback)", func(t *testing.T, x *hx) {
 			calls := filepath.Join(x.Base, "dotgit.calls")
@@ -595,7 +595,7 @@ func TestGithooks(t *testing.T) {
 	}
 }
 
-// tests/githooks.test.sh case_setup_githooks_sets_chains_removes (T-620)
+// tests/githooks.test.sh case_setup_githooks_sets_chains_removes
 func TestGithooksSetsChainsRemoves(t *testing.T) {
 	t.Parallel()
 	x := newGitFx(t)
@@ -615,7 +615,7 @@ func TestGithooksSetsChainsRemoves(t *testing.T) {
 	if got, _ := gitIn(x.Root, "config", "--local", "--get", "core.hooksPath"); got != "" {
 		t.Errorf("removed: %q", got)
 	}
-	// The project's own hooksPath is chained, not refused (T-620): recorded, then obor's full set (T-623).
+	// The project's own hooksPath is chained, not refused: recorded, then obor's full set.
 	x.Git(x.Root, "config", "core.hooksPath", ".githooks")
 	if out := x.ok(t, "githooks"); out != "OK githooks: core.hooksPath = "+chain+", chaining .githooks\n" {
 		t.Errorf("own hooksPath: %q", out)
@@ -650,11 +650,11 @@ func TestGithooksSetsChainsRemoves(t *testing.T) {
 	}
 }
 
-// T-623: core.hooksPath is githooks/ (pre-commit, pre-push and the runner) unless there is something to chain: a
+// core.hooksPath is githooks/ (pre-commit, pre-push and the runner) unless there is something to chain: a
 // recorded obor.hooksChain, or a hook in .git/hooks the small set lacks. Then it is githooks/chain/ (every hook git
 // runs). A rerun moves between the two as that changes, and --remove works from either.
 // Slow: seven cases, each three obor setup githooks runs whose work is git config (the code under test runs git: no
-// fake), ≈1.8 s together at 2 cores (T-1009 measured).
+// fake), ≈1.8 s together at 2 cores (measured).
 func TestGithooksPicksTheHooksDir(t *testing.T) {
 	t.Parallel()
 	dir := filepath.Join(kit, "githooks")
@@ -705,8 +705,7 @@ func TestGithooksPicksTheHooksDir(t *testing.T) {
 }
 
 // A githooks path of another obor kit (a checkout whose plugin.json names obor, or one that is gone) is re-pointed at
-// this kit's; anyone else's hooks dir is the project's own: chained, not refused (T-620), so obor's full set runs
-// (T-623).
+// this kit's; anyone else's hooks dir is the project's own: chained, not refused, so obor's full set runs
 func TestGithooksRepointsAnotherOborKitsHooksAndChainsOthers(t *testing.T) {
 	x := newGitFx(t)
 	mine := filepath.Join(kit, "githooks")
@@ -720,7 +719,7 @@ func TestGithooksRepointsAnotherOborKitsHooksAndChainsOthers(t *testing.T) {
 	if got := x.Git(x.Root, "config", "--local", "core.hooksPath"); got != mine {
 		t.Errorf("core.hooksPath = %s, want %s", got, mine)
 	}
-	// an obor kit's chain set is re-pointed too (T-623)
+	// an obor kit's chain set is re-pointed too
 	x.Git(x.Root, "config", "--local", "core.hooksPath", old+"/githooks/chain")
 	has(t, x.ok(t, "githooks"), "core.hooksPath = "+mine, "a kit's chain set re-pointed")
 	if got := x.Git(x.Root, "config", "--local", "core.hooksPath"); got != mine {

@@ -7,7 +7,7 @@ import (
 )
 
 func TestRoleTableDefaultsAndProfiles(t *testing.T) {
-	// T-801: advisor, researcher and triage are the kit's default custom rows, not table roles.
+	// advisor, researcher and triage are the kit's default custom rows, not table roles.
 	want := []string{"lead", "integrator", "worker", "reviewer", "deep_dive", "driver"}
 	all := All()
 	if len(all) != len(want) {
@@ -39,11 +39,11 @@ func TestRoleTableDefaultsAndProfiles(t *testing.T) {
 		optional     bool
 	}{
 		{"lead", "lead", "pj-lead", CwdProject, WriteAll, false, false, false},
-		{"integrator", "integrator", "pj-int", CwdRoleWorktree, WriteNone, false, false, false}, // T-853
+		{"integrator", "integrator", "pj-int", CwdRoleWorktree, WriteNone, false, false, false},
 		{"worker", "worker", "pj-l-01", CwdLane, WriteSpec, true, true, false},
-		{"reviewer", "reviewer", "pj-rev", CwdRoleWorktree, WriteReviewsOnly, false, false, false}, // T-853
+		{"reviewer", "reviewer", "pj-rev", CwdRoleWorktree, WriteReviewsOnly, false, false, false},
 		{"deep_dive", "deep_dive", "pj-deep-dive", CwdRoleWorktree, WriteReviewsOnly, false, false, true},
-		// Optional table roles count only when configured (T-751): the driver is never configured, obor drive starts it.
+		// Optional table roles count only when configured: the driver is never configured, obor drive starts it.
 		{"driver", "driver", "pj-drive", CwdLane, WriteSpec, false, false, true},
 	}
 	for _, check := range checks {
@@ -72,7 +72,7 @@ func TestRoleLookupAndDefaults(t *testing.T) {
 	}
 }
 
-// T-777, T-1031: a lane's worker has one name, the derived <prefix>-<lane lower> (no lane row records one). The
+// a lane's worker has one name, the derived <prefix>-<lane lower> (no lane row records one). The
 // compact alias (pj-l1), a configured name and the bare lane name are no names.
 func TestLaneAgentAliases(t *testing.T) {
 	for _, test := range []struct {
@@ -93,7 +93,7 @@ func TestLaneAgentAliases(t *testing.T) {
 	}
 }
 
-// T-751: the drive agent has a name of its own beside the lane's worker, and it is lane-bound like the worker.
+// the drive agent has a name of its own beside the lane's worker, and it is lane-bound like the worker.
 func TestDriverNameAndLaneBound(t *testing.T) {
 	if got := DriveAgent("pj-l-01"); got != "pj-l-01-drive" {
 		t.Errorf("DriveAgent = %q, want pj-l-01-drive", got)
@@ -105,7 +105,7 @@ func TestDriverNameAndLaneBound(t *testing.T) {
 	}
 }
 
-// T-801: a custom role (a config row, or one of the kit's default rows) is an advisor-like role: main checkout, git
+// a custom role (a config row, or one of the kit's default rows) is an advisor-like role: main checkout, git
 // reads only, optional, never dispatchable or stoppable by serve, writes only its list; its agent suffix is its name
 // with _ → -, its doc <name>.md.
 func TestCustomRoles(t *testing.T) {
@@ -152,7 +152,7 @@ func TestCustomRoles(t *testing.T) {
 	}
 }
 
-// T-801: a custom role's name matches [a-z][a-z0-9_]{0,23} and is no table role's name or agent suffix.
+// a custom role's name matches [a-z][a-z0-9_]{0,23} and is no table role's name or agent suffix.
 func TestCheckCustomName(t *testing.T) {
 	for _, c := range []struct {
 		name string

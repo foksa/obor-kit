@@ -49,7 +49,7 @@ func newFixture(t *testing.T) *fixture {
 			t.Fatal(err)
 		}
 	}
-	f.write(f.root+"/.obor/config.json", `{"version": 2, "project": {"agent_prefix": "pj"}, "lanes": {"count": 1}}`) // the callers' names derive from it (T-786)
+	f.write(f.root+"/.obor/config.json", `{"version": 2, "project": {"agent_prefix": "pj"}, "lanes": {"count": 1}}`) // the callers' names derive from it
 	return f
 }
 
@@ -70,7 +70,7 @@ func (f *fixture) env(kv ...string) project.Env {
 	return testkit.MapEnv(m)
 }
 
-// worker is the environment of the lane's worker agent, a stale OBOR_AGENT included (T-786: never read).
+// worker is the environment of the lane's worker agent, a stale OBOR_AGENT included (never read).
 func (f *fixture) worker() project.Env {
 	return f.env("OBOR_ROLE=worker", "OBOR_AGENT=pj-old-name", "OBOR_LANE=L-01", "OBOR_PANE=w1:p1")
 }
@@ -159,7 +159,7 @@ type client struct {
 }
 
 // answerWait bounds one answer through the pipes: a server that answers nothing fails the test there, not at go
-// test's timeout. It outlasts a tool's wait for a serve that is not there (10 s, T-656).
+// test's timeout. It outlasts a tool's wait for a serve that is not there (10 s).
 const answerWait = 20 * time.Second
 
 // start runs a server on pipes with env and cwd and connects a client (the initialize handshake).
@@ -168,7 +168,7 @@ func start(t *testing.T, env project.Env, cwd string) *client {
 }
 
 // startCtx is start with ctx, which its tool calls have: a short one ends a call to a serve that is not running at
-// once, not at the deadline table's 15 s (T-685).
+// once, not at the deadline table's 15 s.
 func startCtx(t *testing.T, ctx context.Context, env project.Env, cwd string) *client {
 	t.Helper()
 	return serveOn(t, ctx, Options{Env: env, Cwd: cwd, Err: io.Discard})
@@ -262,7 +262,7 @@ func TestToolsListPerRole(t *testing.T) {
 		{[]string{"OBOR_ROLE=integrator"}, `["accept","hold","job_next","reject","resolved","sendback"]`},
 		{[]string{"OBOR_ROLE=lead"}, `[]`},
 		{[]string{"OBOR_ROLE=deep_dive"}, `[]`},
-		{[]string{"OBOR_ROLE=triage"}, `[]`}, // T-796: a role of its own, still no tools
+		{[]string{"OBOR_ROLE=triage"}, `[]`}, // a role of its own, still no tools
 		{nil, `[]`},
 	} {
 		c := start(t, f.env(tc.env...), f.root)
@@ -465,9 +465,9 @@ func TestToolErrorsAreResults(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
 	// The server's ctx is the tool calls': a short deadline ends the call to a serve that is not running soon, not at
-	// the deadline table's 15 s (T-685). It counts from here, before the server starts, and the call retries until it
+	// the deadline table's 15 s. It counts from here, before the server starts, and the call retries until it
 	// less askMargin (200 ms): 800 ms leaves the call 600 ms to begin under a loaded suite (at 200 ms it began past the
-	// deadline once and answered "did not answer in 0s", T-872). The run ends with it: the other answers get their own.
+	// deadline once and answered "did not answer in 0s"). The run ends with it: the other answers get their own.
 	down, cancel := context.WithTimeout(context.Background(), 800*time.Millisecond)
 	defer cancel()
 	if got := startCtx(t, down, f.worker(), f.lane).tool("job_next", nil); !got.IsError ||
@@ -581,10 +581,10 @@ func (f *fixture) worktree(dir string) {
 	f.write(filepath.Join(gitDir, "commondir"), "../..\n")
 }
 
-// TestJobNextPerKind (T-791): the MCP server started as each kind starts it — its cwd and environment as the live
+// TestJobNextPerKind: the MCP server started as each kind starts it — its cwd and environment as the live
 // processes have them (ps eww / lsof of the running `obor mcp`s, 2026-11-04) — names the lane's worker, so job_next
-// returns the lane's job and the call carries the pane (OBOR_PANE, T-1037). No shape carries OBOR_AGENT (T-786 stopped
-// exporting it).
+// returns the lane's job and the call carries the pane (OBOR_PANE). No shape carries OBOR_AGENT (a name is derived,
+// never exported).
 func TestJobNextPerKind(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
@@ -630,7 +630,7 @@ func TestJobNextPerKind(t *testing.T) {
 	}
 }
 
-// TestNoCallerIdentity (T-791): a worker's server with no lane (no OBOR_LANE, its cwd the main checkout) refuses the
+// TestNoCallerIdentity: a worker's server with no lane (no OBOR_LANE, its cwd the main checkout) refuses the
 // call itself, naming what was missing, and never asks serve with an empty name.
 func TestNoCallerIdentity(t *testing.T) {
 	t.Parallel()

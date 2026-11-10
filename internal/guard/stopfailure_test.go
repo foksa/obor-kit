@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// T-581, T-786: Turn and StopFailure name the lane's derived agent with no env (an OpenCode plugin's shared process
+// Turn and StopFailure name the lane's derived agent with no env (an OpenCode plugin's shared process
 // carries none), for every kind; a stale OBOR_AGENT is ignored; a cwd that is no lane names no agent (nothing is sent).
 func TestTurnAndStopFailureResolveTheLaneAgent(t *testing.T) {
 	t.Parallel()
@@ -27,7 +27,7 @@ func TestTurnAndStopFailureResolveTheLaneAgent(t *testing.T) {
 				t.Errorf("StopFailure from the lane: %+v, %v, %v; want the lane's agent", stop, ok, err)
 			}
 
-			// A stale OBOR_AGENT (a reused shell, a renamed project) is ignored: the derived name (T-786).
+			// A stale OBOR_AGENT (a reused shell, a renamed project) is ignored: the derived name.
 			env := f.Env("OBOR_AGENT=pj-other")
 			if turn, _ := Turn(turnEvent, env); turn.Agent != "pj-l-01" {
 				t.Errorf("Turn with a stale OBOR_AGENT: agent %q, want pj-l-01", turn.Agent)

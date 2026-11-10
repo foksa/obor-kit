@@ -44,7 +44,7 @@ func (x *fx) flakes() []Flake {
 	return out
 }
 
-// T-350: the check runner appends one line per failing test to .obor/state/flakes.jsonl (a red run), and never on a
+// the check runner appends one line per failing test to .obor/state/flakes.jsonl (a red run), and never on a
 // green run; a log it cannot write is a warning, never a red.
 func TestFlakeLog(t *testing.T) {
 	t.Parallel()
@@ -55,7 +55,7 @@ func TestFlakeLog(t *testing.T) {
 		t.Parallel()
 		x := newFx(t, cmd("check", twoFails), goLines())
 		x.is(x.gate("L-01", "T-05", "red"), Red, `^RED check `)
-		base := x.cand.SHA // T-961: the lane test runs on the candidate, the slot's merge commit
+		base := x.cand.SHA // the lane test runs on the candidate, the slot's merge commit
 		got := x.flakes()
 		if len(got) != 2 {
 			t.Fatalf("flake lines %d, want 2: %+v", len(got), got)
@@ -113,7 +113,7 @@ func (x *fx) eqList(got, want []string, what string) {
 	}
 }
 
-// T-359 (RV-39 #3): every command of the full tier logs a red run, and the result is unchanged.
+// every command of the full tier logs a red run, and the result is unchanged.
 func TestFlakeLogNightly(t *testing.T) {
 	t.Parallel()
 	failing := func(name string) any { return `echo "--- FAIL: Test_` + name + ` (0.01s)"; exit 1` }
@@ -149,7 +149,7 @@ func TestFlakeLogNightly(t *testing.T) {
 	})
 }
 
-// T-359 (RV-39 #4): an independent FAIL <pkg> line is logged unless a --- FAIL: name of that package covers it: a
+// an independent FAIL <pkg> line is logged unless a --- FAIL: name of that package covers it: a
 // merge's mixed output names the test and the package that did not build.
 func TestFlakeLogMixed(t *testing.T) {
 	t.Parallel()
@@ -160,7 +160,7 @@ func TestFlakeLogMixed(t *testing.T) {
 	x.eqList(x.logged(), []string{"TestUnit/check/false/false", "example.com/build/check/false/false"}, "red")
 }
 
-// T-1047: a project with no checks.output.failed_test parses no flake names: failure still picks the failing lines for
+// a project with no checks.output.failed_test parses no flake names: failure still picks the failing lines for
 // the red's report, but no name is logged, with no error.
 func TestFlakeLogNoRegex(t *testing.T) {
 	t.Parallel()
@@ -213,12 +213,12 @@ func (x *flakeFx) task(task string, files map[string]string) string {
 	return sha
 }
 
-// spec stores task's spec with the given title (the store: the flakes rule's only source, T-521).
+// spec stores task's spec with the given title (the store: the flakes rule's only source).
 func (x *flakeFx) spec(task, title string) {
 	x.Spec(task, "# "+task+" — "+title+"\n\nDifficulty: tiny.\n")
 }
 
-// mergedAt records task's merge at epoch at in the store, as obor serve does: fact merged (T-525).
+// mergedAt records task's merge at epoch at in the store, as obor serve does: fact merged.
 func (x *flakeFx) mergedAt(task string, at int64) {
 	x.MergedAt(task, x.Git(x.Root, "rev-parse", "main"), false, at)
 }
@@ -237,7 +237,7 @@ func flakyNames(got []Flaky) string {
 	return strings.Join(out, " ")
 }
 
-// T-399: a red does not count when the red task's diff touched the file that defines the test, or when it came before
+// a red does not count when the red task's diff touched the file that defines the test, or when it came before
 // the merge of a task whose spec title names the test; a red on an untouched file, after that merge, or a package name
 // still counts.
 func TestFlakyRule(t *testing.T) {

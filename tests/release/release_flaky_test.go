@@ -10,13 +10,13 @@ import (
 	"testing"
 )
 
-// Tests for T-717: scripts/release keeps its own full log and reruns the failed go test packages of a red check once.
+// scripts/release keeps its own full log and reruns the failed go test packages of a red check once.
 
 // redPackage is go test's output for one failed test in one package.
 const redPackage = "--- FAIL: TestRace (0.01s)\n    race_test.go:9: timing\nFAIL\nFAIL\tobor/internal/racy\t0.02s\nFAIL\n"
 
-// goTests is how many go tests the check and its rerun ran (the upgrade check's go test, T-772, and check-release's,
-// T-902, are not ones of them).
+// goTests is how many go tests the check and its rerun ran (the upgrade check's and check-release's
+// go test are not ones of them).
 func (f *releaseFixture) goTests() int {
 	n := 0
 	for _, l := range strings.Split(readFileOr(f.log), "\n") {
@@ -103,7 +103,7 @@ func TestMakeReleaseVetFailureIsRefusedWithoutRerun(t *testing.T) {
 	}
 }
 
-// T-717, T-1098: a refused release keeps its full log (its FAIL lines name it); a release that succeeds removes it.
+// a refused release keeps its full log (its FAIL lines name it); a release that succeeds removes it.
 func TestMakeReleaseKeepsItsFullLog(t *testing.T) {
 	t.Parallel()
 	f := newReleaseFixture(t)

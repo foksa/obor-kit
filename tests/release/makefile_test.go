@@ -19,7 +19,7 @@ import (
 	"obor/internal/testkit"
 )
 
-// Tests for the Makefile's check target, the merge gate (T-281): build first, a sandbox-safe GOCACHE. A fake go logs
+// Tests for the Makefile's check target, the merge gate: build first, a sandbox-safe GOCACHE. A fake go logs
 // each call (args and the GOCACHE it got) and answers `go env GOCACHE` with $FAKE_GOCACHE; `go build` fails.
 
 // makeCheck runs `make -s check` on a kit copy with the fake go (no GOCACHE in the environment, TMPDIR the copy); it
@@ -124,7 +124,7 @@ func releaseRepo(t *testing.T) (*testkit.Project, string) {
 	return p, p.Git(p.Root, "rev-parse", "--short", "HEAD")
 }
 
-// T-559: the build stamps the tag when HEAD is exactly at one, else the newest release tag by version order plus
+// the build stamps the tag when HEAD is exactly at one, else the newest release tag by version order plus
 // -dev+<short sha> (-dirty when the tree is modified): release tags sit on release commits off main, so describe on
 // main names an older tag. Outside a git checkout it falls back to the VERSION file.
 func TestMakeBuildStampsVersion(t *testing.T) {
@@ -227,8 +227,8 @@ esac
 	return string(out), err != nil, statErr == nil, strings.Split(strings.TrimSpace(readFile(t, log)), "\n")
 }
 
-// RV-173 #1 (T-1173): check runs deadcode before its go test. A red suite the nightly's retest turns green used to exit
-// check on the failed go test, so the commit a saved nightly pins never had its dead-code check run; and when deadcode
+// check runs deadcode before its go test. A red suite the nightly's retest turns green is a red: a commit
+// the nightly pins never has its dead-code check run unmeasured; and when deadcode
 // fails the tests do not run. The tests' summary stays the target's last line, which the nightly's report reads.
 func TestMakeCheckRunsDeadcodeBeforeGoTest(t *testing.T) {
 	t.Parallel()
@@ -337,7 +337,7 @@ func makeCheckTier(t *testing.T, target string, env ...string) (string, []string
 	return string(out), calls, goCall(calls, "run ./tools/affected")
 }
 
-// T-961/T-995: check-compile (commands.compile, the merge slot's tier) runs the compile steps only — build, gofmt, vet
+// check-compile (commands.compile, the merge slot's tier) runs the compile steps only — build, gofmt, vet
 // and deadcode — with no go test (nor the affected list it would test). The lane's class checks run go test and nothing
 // else of the compile tier: check-affected asks tools/affected for the list and runs go test (no build, gofmt, vet or
 // deadcode), and check-readers and check-web skip the build too — the slot compiled the same commit.
@@ -424,7 +424,7 @@ func tagged(call, tag string) bool {
 	return false
 }
 
-// T-1014: every check that gates or measures passes -tags integration to go test, go vet and deadcode, so a test behind
+// every check that gates or measures passes -tags integration to go test, go vet and deadcode, so a test behind
 // `//go:build integration` keeps running wherever it gates; the worker's plain `make test` / `go test` does not (the next
 // test shows that).
 func TestMakeChecksPassIntegrationTag(t *testing.T) {
@@ -473,7 +473,7 @@ func TestMakeChecksPassIntegrationTag(t *testing.T) {
 	}
 }
 
-// T-1014: the tag's point — a test behind `//go:build integration` runs in check and check-affected and is left out by a
+// the tag's point — a test behind `//go:build integration` runs in check and check-affected and is left out by a
 // plain go test. The fixture is a tiny module whose scratch package has a unit test and a tagged test that fails, so a
 // run of the tagged one is visible in the output; its go is the real go except build (it writes the affected-list
 // stub), the affected list (it prints the fixture's package) and deadcode.
@@ -542,7 +542,7 @@ exec `+goBin+` "$@"
 	}
 }
 
-// T-995: check-affected asks tools/affected for the list and runs go test, dropping the rest of GO_GATE, but the lane
+// check-affected asks tools/affected for the list and runs go test, dropping the rest of GO_GATE, but the lane
 // still catches a vet error: go test runs vet's high-confidence subset (printf here) on the packages it builds, so a
 // changed file with a format mistake fails the tier. The fixture's tool is a real build whose binary prints the changed
 // package.
@@ -556,7 +556,7 @@ func TestMakeCheckAffectedCatchesVetError(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "Makefile"), string(treeFile(t, "Makefile")))
 	writeFile(t, filepath.Join(dir, "VERSION"), "1.2.3\n")
 	writeFile(t, filepath.Join(dir, "go.mod"), "module obor\n\ngo 1.21\n")
-	// check-affected runs the real tests/budget -missing first (T-1073), so the fixture carries the tool. The fixture has
+	// check-affected runs the real tests/budget -missing first, so the fixture carries the tool. The fixture has
 	// no test packages, so the step is silent and green.
 	writeFile(t, filepath.Join(dir, "tests", "budget", "main.go"), string(treeFile(t, filepath.Join("tests", "budget", "main.go"))))
 	writeFile(t, filepath.Join(dir, "tools", "affected", "main.go"),
@@ -581,8 +581,8 @@ func TestMakeCheckAffectedCatchesVetError(t *testing.T) {
 	}
 }
 
-// T-1076: check-affected asks tools/affected for the changed packages and their importers, always: an OBOR_PROMOTION=1
-// (an older serve's lane env; the promotion and its --direct switch are deleted) changes nothing. T-1120: it passes the
+// check-affected asks tools/affected for the changed packages and their importers, always: an OBOR_PROMOTION=1
+// (an older serve's lane env) changes nothing. It passes the
 // full-suite globs as -full flags.
 func TestMakeCheckAffectedAsksImporters(t *testing.T) {
 	t.Parallel()
@@ -597,7 +597,7 @@ func TestMakeCheckAffectedAsksImporters(t *testing.T) {
 	}
 }
 
-// T-1001: go test runs with Go's own 10-minute per-package timeout (T-991's TEST_TIMEOUT ?= 20m is gone); the check's
+// go test runs with Go's own 10-minute per-package timeout, not a TEST_TIMEOUT override; the check's
 // own commands.check budget still bounds the run.
 func TestMakeCheckGoTestNoTimeout(t *testing.T) {
 	t.Parallel()
@@ -621,7 +621,7 @@ func TestMakeCheckGoTestNoTimeout(t *testing.T) {
 	}
 }
 
-// T-964/T-976/T-1047: check-retest (commands.retest, a red lane test's one rerun) tests only what the red named: the
+// check-retest (commands.retest, a red lane test's one rerun) tests only what the red named: the
 // -run regexp of TESTS (obor fills commands.retest's {tests}) and the packages of OBOR_FAILED_PKGS, CHECK_CPUS as -p,
 // the other tiers' summary line.
 // No build, gofmt or vet.
@@ -702,7 +702,7 @@ func checkRetest(t *testing.T, dir string, env ...string) (string, bool) {
 	return string(out), err != nil
 }
 
-// T-976 (RV-135 #1): check-retest reruns the test the red run named: still failing is red, and passing then is green.
+// check-retest reruns the test the red run named: still failing is red, and passing then is green.
 func TestMakeCheckRetestRedAndGreen(t *testing.T) {
 	t.Parallel()
 	dir := retestKit(t)
@@ -722,7 +722,7 @@ func TestMakeCheckRetestRedAndGreen(t *testing.T) {
 	}
 }
 
-// T-976 (RV-135 #2): check-retest selects GOCACHE as GO_GATE does, so a retry under an unwritable default cache
+// check-retest selects GOCACHE as GO_GATE does, so a retry under an unwritable default cache
 // (/dev/null here) uses the $TMPDIR fallback and runs instead of failing before any test.
 func TestMakeCheckRetestGocacheFallback(t *testing.T) {
 	t.Parallel()
@@ -770,7 +770,7 @@ func TestMakeReleaseVersionMismatch(t *testing.T) {
 
 var publishPlatforms = []string{"darwin-arm64", "darwin-amd64", "linux-arm64", "linux-amd64"}
 
-// releaseBinaries are the binaries a release ships, one per platform each (T-1046: obor and the OpenCode kind).
+// releaseBinaries are the binaries a release ships, one per platform each (obor and the OpenCode kind).
 var releaseBinaries = []string{"obor", "obor-kind-opencode"}
 
 // releaseAssets are version v's release files' names (<binary>-<v>-<os>-<arch>), in scripts/release-lib.sh's order.
@@ -784,8 +784,8 @@ func releaseAssets(v string) []string {
 	return out
 }
 
-// releaseMarketplace is the marketplace name a release tag ships (T-592; main says obor-kit-dev).
-// It is devMarketplace with only its top-level name flipped (T-645).
+// releaseMarketplace is the marketplace name a release tag ships (main says obor-kit-dev).
+// It is devMarketplace with only its top-level name flipped.
 var releaseMarketplace = strings.Replace(devMarketplace, `"name": "obor-kit-dev"`, `"name": "obor-kit"`, 1)
 
 // releaseNotes is a release's notes file (docs/releases/v1.2.3.md in publishFixture): a summary line, bold-led bullets
@@ -821,7 +821,7 @@ func newPublishFixture(t *testing.T) *publishFixture {
 	writeFile(t, filepath.Join(dir, "VERSION"), "1.2.3\n")
 	writeFile(t, filepath.Join(dir, ".claude-plugin", "plugin.json"), `{"name":"obor","version":"1.2.3"}`+"\n")
 	writeFile(t, filepath.Join(dir, "docs", "releases", "v1.2.3.md"), releaseNotes)
-	// The tag's source parent: main's dev marketplace (T-645 compares the tag's against it).
+	// The tag's source parent: main's dev marketplace (publish compares the tag's against it).
 	writeFile(t, filepath.Join(dir, ".claude-plugin", "marketplace.json"), devMarketplace+"\n")
 	p.Git(dir, "add", "-A")
 	p.Git(dir, "commit", "-q", "-m", "obor v1.2.3: VERSION, plugin version")
@@ -895,17 +895,17 @@ func wantPublishFail(t *testing.T, out string, failed bool, gh []string, want st
 }
 
 // commitAll commits the working tree as a replacement of the tag's commit, on the same source parent (the tag stays
-// where it was until a test moves it): the tag's marketplace is still compared with main's dev one (T-645).
+// where it was until a test moves it): the tag's marketplace is still compared with main's dev one.
 func (f *publishFixture) commitAll(t *testing.T) {
 	t.Helper()
 	f.Git(f.Root, "add", "-A")
 	f.Git(f.Root, "commit", "-q", "--amend", "-m", "release 1.2.3, changed")
 }
 
-// RV-63: make publish uploads exactly the eight checked binaries of the tag (obor and the OpenCode kind per platform,
-// T-1046): a literal list passed to gh as explicit arguments (no glob, no GOOS_LIST override), each file's sha256 equal
+// make publish uploads exactly the eight checked binaries of the tag (obor and the OpenCode kind per platform):
+// a literal list passed to gh as explicit arguments (no glob, no GOOS_LIST override), each file's sha256 equal
 // to its line in the tag's catalog.
-// T-682: the create carries the release's title and its notes from the tag.
+// the create carries the release's title and its notes from the tag.
 func TestMakePublish(t *testing.T) {
 	t.Parallel()
 	create := "release create v1.2.3 --verify-tag --title obor 1.2.3 --notes-file <notes>"
@@ -1020,7 +1020,7 @@ func TestMakePublish(t *testing.T) {
 		out, failed, gh := f.publish(t)
 		wantPublishFail(t, out, failed, gh, "marketplace.json")
 	})
-	// T-645: v0.17.2's flip renamed every "name": the plugin entry too, so obor@obor-kit no longer resolved.
+	// a tag whose flip renamed every "name", the plugin entry too: obor@obor-kit does not resolve.
 	t.Run("the tag's flip renamed the plugin entry too", func(t *testing.T) {
 		t.Parallel()
 		f := newPublishFixture(t)
@@ -1071,11 +1071,10 @@ func TestMakePublish(t *testing.T) {
 	})
 }
 
-// T-817, T-1027: commands.trim_go_cache runs make trim-go-cache, which deletes every file in the Go build cache — however
+// commands.trim_go_cache runs make trim-go-cache, which deletes every file in the Go build cache — however
 // recently used (the owner's 11-08 decision: the nightly empties it; at 18-25 GB a 48 h trim freed nothing) — and
 // prints "go cache: freed <size>, <size> left". It keeps the 00-ff directories and README: a Go command running beside
 // it sees misses, not a missing cache directory. GOCACHE names a throwaway cache: a test never trims the machine's.
-// (Moved here from internal/checks, T-902: it tests the kit's Makefile, not obor.)
 func TestOborKitTrimGoCache(t *testing.T) {
 	t.Parallel()
 	repo, _ := filepath.Abs("../..")
@@ -1142,11 +1141,11 @@ func TestOborKitTrimGoCache(t *testing.T) {
 	}
 }
 
-// T-1169: check-race (commands.race, the nightly's non-gating race line) runs the suite once under the race detector
+// check-race (commands.race, the nightly's non-gating race line) runs the suite once under the race detector
 // and decides on data race reports only: a test that fails on timing under the detector's slowdown is not this line's
 // failure (the nightly check owns it), a race is exit 1, so the nightly prints a WARN and keeps the whole output, and a
 // run in which no package ran is a FAIL and exit 2 — never "0 reports". Every outcome ends in a `race: ` line: the
-// counts, or the build that did not run (T-1182), so the nightly's result line carries that summary and not the
+// counts, or the build that did not run, so the nightly's result line carries that summary and not the
 // trailer make appends to a failed recipe (`make: *** [check-race] Error 2`, or GNU Make 4.x's
 // `make: *** [Makefile:N: check-race] Error 2`), which make itself exits 2 for. The cases are canned go test
 // output, so no real race build runs here; the real build is covered once by the task's own run of the target on
@@ -1283,7 +1282,7 @@ func lastLine(s string) string {
 	return lines[len(lines)-1]
 }
 
-// T-1169: make's trailing error line has two formats where the kit runs (GNU Make 3.81 on macOS, 4.x on Linux), and the
+// make's trailing error line has two formats where the kit runs (GNU Make 3.81 on macOS, 4.x on Linux), and the
 // test above goes through it on both: this machine's make prints 3.81's, so the 4.x form is pinned here. Both the
 // status assert and decisionLine must read either.
 func TestOborKitMakeErrorLine(t *testing.T) {
@@ -1317,7 +1316,7 @@ func TestOborKitMakeErrorLine(t *testing.T) {
 	}
 }
 
-// T-1027: the Makefile exports GOFLAGS with -trimpath for every target's Go command, keeping a GOFLAGS from the
+// the Makefile exports GOFLAGS with -trimpath for every target's Go command, keeping a GOFLAGS from the
 // environment (a lane's: config.LaneEnv sets -p and -trimpath) and adding -trimpath once, never twice. The go the target
 // runs is a stub that records the GOFLAGS it got; trim-go-cache is the cheapest target that calls go.
 func TestOborKitGoFlagsTrimpath(t *testing.T) {

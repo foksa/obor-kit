@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// T-1176: CLIVersions runs each kind's CLI found on env's PATH with --version and keeps its first line. Stub
+// CLIVersions runs each kind's CLI found on env's PATH with --version and keeps its first line. Stub
 // executables only: the one found and answering has an entry; a CLI that hangs is cut at its timeout, and one that
 // fails, prints nothing or is not on PATH has none.
 func TestCLIVersions(t *testing.T) {

@@ -1,6 +1,6 @@
 package view
 
-// T-893: the event list, the task page and an agent's lines word one record of each worded kind; the golden is the
+// the event list, the task page and an agent's lines word one record of each worded kind; the golden is the
 // text the view wrote before app.Describe took over (identical after).
 
 import (
@@ -148,7 +148,7 @@ func golden(t *testing.T, name, got string) {
 	}
 }
 
-// T-893: a task page whose task's phase places it on no step (needs-you, held, ended, serve down) is placed by its
+// a task page whose task's phase places it on no step (needs-you, held, ended, serve down) is placed by its
 // records, the furthest step they reached: a gate by its outcome, never its line's wording; a phase's step wins.
 func TestTaskPageStepFromRecords(t *testing.T) {
 	recs := []event.Record{

@@ -31,12 +31,12 @@ func TestPlistGolden(t *testing.T) {
 
 // fakeLaunchctl puts a launchctl on PATH that logs each call (one line of its args) and keeps one label's state in
 // state (a file: bootstrap loads it, bootout unloads it, print answers "pid = <the pid file, else 4242>" while loaded
-// and exits 113 otherwise). Knobs (T-771), in state's directory: a file eio holding n fails the next n bootstraps
+// and exits 113 otherwise). Knobs, in state's directory: a file eio holding n fails the next n bootstraps
 // with launchd's "5: Input/output error", nothing loaded; a file noload makes bootstrap exit 0 loading nothing. In
 // the environment: FAKE_KICK_PID is written to the pid file as kickstart begins, FAKE_KICK_UNLOAD unloads the label
 // then, FAKE_KICK_SLEEP seconds it then takes (exec sleep: a kill ends it), and FAKE_KICK_EXIT is its exit code.
 //
-// The script is the same for every test, under its per-test dir in FAKE_LAUNCHCTL_DIR (T-1006: macOS charges ~60-200 ms
+// The script is the same for every test, under its per-test dir in FAKE_LAUNCHCTL_DIR (macOS charges ~60-200 ms
 // for the first exec of a fresh file, so a script written per call would dominate these tests).
 func fakeLaunchctl(t *testing.T) (log, state string) {
 	dir := t.TempDir()
@@ -135,7 +135,7 @@ func TestVerbs(t *testing.T) {
 	}
 	plist := s.PlistPath()
 	// each verb's owner print first; a bootstrap is followed by the print that it loaded, a bootout by the one that
-	// it unloaded (T-771); the test's own PID reads are the 1st and 5th
+	// it unloaded; the test's own PID reads are the 1st and 5th
 	want := []string{"print gui/501/obor.serve.pj",
 		"print gui/501/obor.serve.pj", "bootstrap gui/501 " + plist, "print gui/501/obor.serve.pj",
 		"print gui/501/obor.serve.pj",
@@ -185,7 +185,7 @@ func TestInstallLabelClash(t *testing.T) {
 	}
 }
 
-// T-607 #3: uninstall and restart check the plist's owner first: another project's plist of this label FAILs naming
+// uninstall and restart check the plist's owner first: another project's plist of this label FAILs naming
 // it, and launchctl is never called — its agent is not booted out or kickstarted.
 func TestVerbsLeaveAnotherRootsAgent(t *testing.T) {
 	log, state := fakeLaunchctl(t)
@@ -228,7 +228,7 @@ func TestVerbsLeaveAnotherRootsAgent(t *testing.T) {
 	}
 }
 
-// T-607 #3: a label launchd has loaded with no plist at all is nobody's to boot out or kickstart: uninstall and
+// a label launchd has loaded with no plist at all is nobody's to boot out or kickstart: uninstall and
 // restart FAIL saying whose it is cannot be told, and launchctl is only asked whether it is loaded.
 func TestVerbsRefuseUnownedLabel(t *testing.T) {
 	log, state := fakeLaunchctl(t)
@@ -310,7 +310,7 @@ func TestCurrent(t *testing.T) {
 	}
 }
 
-// T-614: Install and Restart move a serve.log over MaxLog to serve.log.1 (replacing an old one) before they start
+// Install and Restart move a serve.log over MaxLog to serve.log.1 (replacing an old one) before they start
 // the agent; a smaller or missing log is left; a failed rename returns the error and launchctl is not called to
 // start anything.
 func TestRotateLog(t *testing.T) {
@@ -428,7 +428,7 @@ func bigLog(t *testing.T, path string, size int64) {
 	}
 }
 
-// T-1100: serve's own start copies a serve.log over MaxLog to serve.log.1 (replacing an old one) and truncates
+// serve's own start copies a serve.log over MaxLog to serve.log.1 (replacing an old one) and truncates
 // serve.log in place, so the append-mode fd launchd holds keeps writing the same file at offset 0; a log at the limit
 // or a missing one is left.
 func TestRotateServeLog(t *testing.T) {
@@ -522,7 +522,7 @@ func TestRotateServeLog(t *testing.T) {
 
 // fast shortens the waits for a test: stopTimeout 3s, settle 500ms read every 50ms. callTimeout keeps its 10s: a
 // forked fake launchctl under a loaded suite (the merge gate) can outlast a short one and is SIGKILLed, failing a verb
-// for no reason of the test's (T-779, T-861).
+// for no reason of the test's.
 func fast(t *testing.T) {
 	st, se, p := stopTimeout, settle, pollEvery
 	stopTimeout, settle, pollEvery = 3*time.Second, 500*time.Millisecond, 50*time.Millisecond
@@ -545,13 +545,13 @@ func installed(t *testing.T, log string) Service {
 	return s
 }
 
-// T-771: kickstart -k waits for the old serve to exit; one slower than the flat deadline launchctl once had (300ms,
-// callTimeout no longer bounds a kickstart) but inside stopTimeout is a plain RESTARTED, no warning, kickstart called
+// kickstart -k waits for the old serve to exit; one slower than 300 ms (callTimeout does not bound a kickstart) but
+// inside stopTimeout is a plain RESTARTED, no warning, kickstart called
 // once.
 func TestRestartSlowKickstart(t *testing.T) {
 	fast(t)
 	// 400 ms: slower than that flat 300 ms deadline, and far enough under stopTimeout that a loaded machine still runs
-	// it inside (T-1006: a whole second was waited out for nothing).
+	// it inside (a whole second was waited out for nothing).
 	const slowKick = 400 * time.Millisecond
 	log, _ := fakeLaunchctl(t)
 	s := installed(t, log)
@@ -569,7 +569,7 @@ func TestRestartSlowKickstart(t *testing.T) {
 	}
 }
 
-// T-771: launchctl ended by its deadline (signal: killed, as the axis leads saw) while launchd did restart serve —
+// launchctl ended by its deadline (signal: killed, as the axis leads saw) while launchd did restart serve —
 // the pid changed: RESTARTED with the new pid and a warning line naming launchctl's error and the old pid.
 func TestRestartKickstartErrorPidChanged(t *testing.T) {
 	fast(t)
@@ -595,7 +595,7 @@ func TestRestartKickstartErrorPidChanged(t *testing.T) {
 	}
 }
 
-// T-771: a kickstart error after which serve was not restarted is a FAIL naming launchctl's error and the state it
+// a kickstart error after which serve was not restarted is a FAIL naming launchctl's error and the state it
 // left: the old pid still running, no serve running, or the label gone from launchd.
 func TestRestartKickstartErrorNotRestarted(t *testing.T) {
 	for _, c := range []struct {
@@ -613,7 +613,7 @@ func TestRestartKickstartErrorNotRestarted(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			fast(t)
 			// The failed kickstart changes nothing, so the FAIL comes from the whole settle window read: 100 ms still
-			// reads the fake's state four times and keeps the test off a 500 ms wait per case (T-1006).
+			// reads the fake's state four times and keeps the test off a 500 ms wait per case.
 			settle, pollEvery = 100*time.Millisecond, 20*time.Millisecond
 			log, _ := fakeLaunchctl(t)
 			s := installed(t, log)
@@ -632,7 +632,7 @@ func TestRestartKickstartErrorNotRestarted(t *testing.T) {
 	}
 }
 
-// T-771: a reinstall whose bootstrap meets the label half torn down (5: Input/output error, nothing loaded) boots it
+// a reinstall whose bootstrap meets the label half torn down (5: Input/output error, nothing loaded) boots it
 // out and bootstraps once more: INSTALLED, the label loaded.
 func TestInstallBootstrapEIORetried(t *testing.T) {
 	fast(t)
@@ -659,7 +659,7 @@ func TestInstallBootstrapEIORetried(t *testing.T) {
 	}
 }
 
-// T-771: a bootstrap that fails twice (before and after the bootout) is a FAIL naming both errors and the label's
+// a bootstrap that fails twice (before and after the bootout) is a FAIL naming both errors and the label's
 // state (not loaded) with the next step; a bootstrap that returns without loading the label is a FAIL too.
 func TestInstallEndsNotLoaded(t *testing.T) {
 	t.Run("bootstrap fails twice", func(t *testing.T) {

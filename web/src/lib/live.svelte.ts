@@ -12,7 +12,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // mark is the live mark in the top bar: on, or why not. It is the worst of every running Live's own state (the
 // sidebar's and the shown page's), so a healthy sidebar never hides a page's failed refresh or lost poll; a stopped
-// Live (a page navigated away from) no longer counts.
+// Live (a page navigated away from) does not count.
 export const mark = $state<{ state: "on" | "stale" | "off"; text: string }>({ state: "off", text: "" });
 
 type Own = "" | "on" | "refresh failed" | "reconnecting"; // "": not read yet

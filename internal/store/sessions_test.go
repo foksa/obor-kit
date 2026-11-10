@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// T-577: an agent's current session is its newest by start (of two at one second, the later recorded); none: ok
+// an agent's current session is its newest by start (of two at one second, the later recorded); none: ok
 // false; no database: no sessions.
 func TestCurrentSession(t *testing.T) {
 	ss := []Session{{Agent: "a", ID: "1", Started: 10}, {Agent: "b", ID: "2", Started: 30}, {Agent: "a", ID: "3", Started: 20},
@@ -29,7 +29,7 @@ func TestCurrentSession(t *testing.T) {
 	}
 }
 
-// T-586, T-588: Owned keeps a fact only when the fold admits it: a repeat of (agent, id) and an id that is another
+// Owned keeps a fact only when the fold admits it: a repeat of (agent, id) and an id that is another
 // agent's current session are dropped; an id its holder has moved on from is free again.
 func TestOwnedSessions(t *testing.T) {
 	ss := []Session{{Agent: "a", ID: "x", Started: 10}, {Agent: "b", ID: "x", Started: 20}, {Agent: "a", ID: "x", Started: 30},
@@ -46,7 +46,7 @@ func TestOwnedSessions(t *testing.T) {
 	}
 }
 
-// T-813: the confirmation of the id a launch recorded before its start — the same (agent, id), now with the
+// the confirmation of the id a launch recorded before its start — the same (agent, id), now with the
 // transcript the session reports — is that record, not a second one; a repeat that names no new transcript records
 // nothing.
 func TestOwnedConfirmation(t *testing.T) {
@@ -64,7 +64,7 @@ func TestOwnedConfirmation(t *testing.T) {
 	}
 }
 
-// T-881: the fold keeps every rule of the scans it replaces, one case each: the timestamp tie (of two at one second,
+// the fold keeps every rule of the scans it replaces, one case each: the timestamp tie (of two at one second,
 // the later), the earlier owner's precedence (an id another agent's current session holds is refused, and free again
 // once it moved on), the confirmation, and an older record kept without ever being its agent's current session.
 func TestOwnedRules(t *testing.T) {
@@ -145,7 +145,7 @@ func TestOwnedRules(t *testing.T) {
 	}
 }
 
-// admitsSlow is admission as the readers applied it before T-881: a scan of the records so far, and one per agent of
+// admitsSlow is admission applied as a scan of the records so far: a scan of the records, and one per agent of
 // them for the holder (Current's rule, scanned).
 func admitsSlow(ss []Session, s Session) bool {
 	if s.Agent == "" || s.ID == "" {
@@ -181,8 +181,8 @@ func currentSlow(ss []Session, agent string) (Session, bool) {
 	return cur, ok
 }
 
-// ownedSlow is Owned as it ran before T-881, record by record over admitsSlow: the reference TestOwnedMatchesTheScan
-// holds the fold to.
+// ownedSlow is the record-by-record reference over admitsSlow: TestOwnedMatchesTheScan
+// holds the fold to it.
 func ownedSlow(ss []Session) []Session {
 	var out []Session
 	for _, s := range ss {
@@ -203,10 +203,10 @@ func ownedSlow(ss []Session) []Session {
 	return out
 }
 
-// T-881: the fold's one pass is the scans it replaces, on every log of four records over a small alphabet (agent ×
+// the fold's one pass is the scans it replaces, on every log of four records over a small alphabet (agent ×
 // session × start × transcript: 16 kinds of record): the same owned records in the same order, and the current
 // session it keeps each agent's newest by Current's rule. One Add held to its scan on every log of three, the size
-// the old per-call fold made affordable.
+// a per-call fold can afford.
 func TestOwnedMatchesTheScan(t *testing.T) {
 	t.Parallel()
 	var kinds []Session
@@ -263,7 +263,7 @@ func TestOwnedMatchesTheScan(t *testing.T) {
 	})
 }
 
-// T-1088: a log folds in one pass — the index Add builds is the one the fold keeps, so the work per fact does not grow
+// a log folds in one pass — the index Add builds is the one the fold keeps, so the work per fact does not grow
 // with the log. The quadratic build this replaces rebuilt the whole index for every fact: allocations per fact were the
 // log's length (2,046 at 2,000 facts; 5,060 at 5,000), against a handful here. A bound on allocations, not wall clock.
 func TestFoldKeepsItsIndex(t *testing.T) {
@@ -285,7 +285,7 @@ func TestFoldKeepsItsIndex(t *testing.T) {
 	}
 }
 
-// putSessions writes ss as session facts, seq 1… in order, the i-th at ts[i] (T-1089's prune tests).
+// putSessions writes ss as session facts, seq 1… in order, the i-th at ts[i] (for the prune tests).
 func putSessions(t *testing.T, db *sql.DB, ss []Session, ts []time.Time) {
 	t.Helper()
 	for i, s := range ss {
@@ -316,7 +316,7 @@ func sessionSeqs(t *testing.T, db *sql.DB) []int64 {
 	return out
 }
 
-// T-1089: the prune deletes an old session id no agent's current session is, all its records; a current session
+// the prune deletes an old session id no agent's current session is, all its records; a current session
 // keeps its start and its confirmation however old; a session written since the cutoff stays, and so does an old one
 // at the horizon (the table's newest row). A second prune deletes nothing.
 func TestPruneSessions(t *testing.T) {
@@ -355,7 +355,7 @@ func TestPruneSessions(t *testing.T) {
 	}
 }
 
-// T-1089: when the sessions left would fold differently (a's old session y, gone, was its current one when b's w was
+// when the sessions left would fold differently (a's old session y, gone, was its current one when b's w was
 // admitted; without it a's w holds w again and b's would be refused), nothing is deleted and that is the error.
 func TestPruneSessionsKeepsTheFold(t *testing.T) {
 	t.Parallel()

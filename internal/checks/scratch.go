@@ -23,7 +23,7 @@ import (
 // is "not decided": the app runs the step again. Every git call ends with the method's ctx (killed with its process
 // group).
 //
-// T-1011: each method reads git (gitReader), decides over the answers, then writes (gitWriter); realGit (gitio.go) is
+// each method reads git (gitReader), decides over the answers, then writes (gitWriter); realGit (gitio.go) is
 // the one adapter that runs git, so an outcome is a function of git's answers and the decision tests run on a fake.
 type Scratch struct {
 	Options
@@ -41,7 +41,7 @@ const (
 	resolvedRefs  = "refs/obor/resolved/"
 )
 
-// rerere is git's options for the scratch's merge (T-913): recording and replay of conflict resolutions, for that call
+// rerere is git's options for the scratch's merge: recording and replay of conflict resolutions, for that call
 // only (-c, never the repo's config). The preimage lands in the repository's common rr-cache, which serve's worktree
 // shares with the main checkout; the integrator's resolve commit records the resolution there (git turns rerere on by
 // itself once that directory exists), and a later merge of the same sha onto a moved target replays it, autoupdate
@@ -51,7 +51,7 @@ var rerere = []string{"-c", "rerere.enabled=true", "-c", "rerere.autoupdate=true
 // Submit commits the lane's uncommitted work ("<task>: <summary>") and pins the lane's HEAD at
 // refs/obor/submitted/<task>/<id>. A pin there is this submit's result already: it is returned, nothing touched (a
 // later worker commit stays out). A cut between the commit and the pin reads HEAD again (a residual race). The commit
-// passes --no-verify (T-622): the project's checking step is commands.check, not its commit hooks (prepare-commit-msg
+// passes --no-verify: the project's checking step is commands.check, not its commit hooks (prepare-commit-msg
 // still runs).
 func (s Scratch) Submit(ctx context.Context, task, id, lane, summary string) (string, error) {
 	s.gitCtx = ctx
@@ -105,22 +105,22 @@ func (s Scratch) Submit(ctx context.Context, task, id, lane, summary string) (st
 	return head, nil
 }
 
-// submitMessage is the lane commit's message: "<task>: <summary>" and nothing else (T-1112: no agent or model names
+// submitMessage is the lane commit's message: "<task>: <summary>" and nothing else (no agent or model names
 // in commits).
 func submitMessage(task, summary string) string {
 	return task + ": " + summary
 }
 
 // Gate resets serve's worktree (created when missing) and merges in.Input there: a lane or moved input (the submitted
-// sha, never the old candidate, T-403) is merged onto the target (merge --no-ff --no-commit; a conflict stays open), a
-// resolved one is taken as committed. Then commands.compile runs on it (T-961: the slot compiles, it runs no test; red
+// sha, never the old candidate) is merged onto the target (merge --no-ff --no-commit; a conflict stays open), a
+// resolved one is taken as committed. Then commands.compile runs on it (the slot compiles, it runs no test; red
 // when it fails), after lane_setup when compile is configured. Green: the merge committed and pinned at
 // refs/obor/candidate/<task>, its Patch, Stat and Diff the task's own diff Base..S (Base: merge-base(S, target); S the
 // submitted sha), which a move keeps. The merge commit's date is its newer parent's, so a repeat makes the same commit.
 //
-// T-913: the merge runs with git's rerere, so a hunk the integrator resolved once is replayed by the next merge of the
+// the merge runs with git's rerere, so a hunk the integrator resolved once is replayed by the next merge of the
 // same sha onto a moved target instead of being asked for again. A merge that stopped with MERGE_HEAD but has no
-// unmerged path left after the replay is clean when its patch is the checked resolution's (T-915): it compiles as any
+// unmerged path left after the replay is clean when its patch is the checked resolution's: it compiles as any
 // merge, and its message says the resolution was reused.
 func (s Scratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutcome, error) {
 	s.gitCtx = ctx
@@ -173,7 +173,7 @@ func (s Scratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutcome,
 	}
 
 	r := newRunner(ctx, &s.Options, dir, in.Task)
-	r.onCommand = in.Command // obor status' running line names the command while it runs, none between two (T-669, T-673)
+	r.onCommand = in.Command // obor status' running line names the command while it runs, none between two
 	defer r.releaseSlot()
 	if _, ok := s.command("compile"); ok {
 		if o, err := gateHalt(&r, r.laneSetup()); o != nil || err != nil {
@@ -213,7 +213,7 @@ func gateBase(in port.GateInput, target string) (string, error) {
 }
 
 // movedBody is the body line of a gate's own merge: a moved target's "Merged onto the moved <branch> at <target>"
-// (T-360: the subject keeps the task's rule) and, when the merge replayed a recorded resolution, "(conflict resolution
+// (the subject keeps the task's rule) and, when the merge replayed a recorded resolution, "(conflict resolution
 // reused)"; "" for a plain lane merge.
 func movedBody(in port.GateInput, branch, target string, reused bool) string {
 	moved := ""
@@ -245,8 +245,8 @@ func deref(o *port.GateOutcome) port.GateOutcome {
 
 // stopped decides a merge that stopped with mergeErr from what git answers after it: no MERGE_HEAD (or no answer) is
 // the merge's error, not decided; unmerged paths a conflict. With none left, every hunk came from a recorded
-// resolution: clean (nil, nil) only when the merge's patch is the attempt's checked resolution's (T-915), else a
-// conflict naming the files, carrying the mismatch when the attempt has a checked resolution (T-917).
+// resolution: clean (nil, nil) only when the merge's patch is the attempt's checked resolution's, else a
+// conflict naming the files, carrying the mismatch when the attempt has a checked resolution.
 func (s Scratch) stopped(g gitIO, dir, target string, in port.GateInput, mergeErr error) (*port.GateOutcome, error) {
 	if _, open, err := g.Verify(dir, "MERGE_HEAD"); err != nil || !open {
 		return nil, mergeErr
@@ -274,7 +274,7 @@ func (s Scratch) stopped(g gitIO, dir, target string, in port.GateInput, mergeEr
 		return nil, nil
 	}
 	o := conflictOutcome(dir, files, " (the replayed resolution differs from the checked one)")
-	if in.Resolved != "" { // T-917: the resolve job names the checked resolution and the files
+	if in.Resolved != "" { // the resolve job names the checked resolution and the files
 		tree, err := g.WriteTree(dir)
 		if err != nil {
 			return nil, err
@@ -291,8 +291,8 @@ func conflictOutcome(dir string, files []string, why string) port.GateOutcome {
 }
 
 // ownDiff fills c's Base (merge-base(submitted, c.Target)) and the task's own diff Base..submitted: its Patch (an
-// accept binds to it, row 20), Stat and Diff (at most InlineDiff bytes: the review job carries it, T-602). Base is
-// fixed by the submitted sha's history, so a move onto a newer target keeps the same three (T-961).
+// accept binds to it, row 20), Stat and Diff (at most InlineDiff bytes: the review job carries it). Base is
+// fixed by the submitted sha's history, so a move onto a newer target keeps the same three.
 func (s Scratch) ownDiff(g gitReader, c *port.Candidate, submitted string) error {
 	base, err := g.MergeBase(submitted, c.Target)
 	if err != nil {
@@ -320,7 +320,7 @@ func patchOf(diff string) (patch, kept string) {
 
 // replayDiffers is the files whose patch differs between the merge open in serve's worktree (staged: its index
 // against the target) and the checked resolution (checked: resolved^1..resolved; have false: none, every file
-// differs), each file's diff compared without its index line and hunk line numbers, as git patch-id does (T-915).
+// differs), each file's diff compared without its index line and hunk line numbers, as git patch-id does.
 // Conservative: a moved context line differs too.
 func replayDiffers(staged, checked string, have bool) []string {
 	got, want := filePatches(staged), map[string]string{}
@@ -366,9 +366,9 @@ func filePatches(diff string) map[string]string {
 	return m
 }
 
-// specBody is the spec part of a merge's message (T-521): a blank line, "Spec rev N:", a blank line and in.Spec (the
-// store's rev at gate time) without its `Model:` line (T-1112: that metadata line is dropped, the content is not
-// redacted); "" when none is stored (a task dispatched before T-440).
+// specBody is the spec part of a merge's message: a blank line, "Spec rev N:", a blank line and in.Spec (the
+// store's rev at gate time) without its `Model:` line (that metadata line is dropped, the content is not
+// redacted); "" when none is stored (a task dispatched without one).
 func specBody(in port.GateInput) string {
 	if strings.TrimSpace(in.Spec) == "" {
 		return ""
@@ -376,10 +376,10 @@ func specBody(in port.GateInput) string {
 	return fmt.Sprintf("\n\nSpec rev %d:\n\n%s", in.SpecRev, strings.TrimRight(spec.WithoutModelLine(in.Spec), "\n"))
 }
 
-// mergeMessage is every merge's message, the gate's own and the integrator's resolved one alike (T-802). Subject:
-// "Merge T-xx: <in.Title>" (the spec's title, T-790), else the worker's summary's first line. Body, each part after a
+// mergeMessage is every merge's message, the gate's own and the integrator's resolved one alike. Subject:
+// "Merge T-xx: <in.Title>" (the spec's title), else the worker's summary's first line. Body, each part after a
 // blank line: the spec (specBody), moved (a moved target's "Merged onto ..." line), resolver (the integrator's own
-// message body without git's "#" comment lines) and "Summary: <in.Body>" (the report's whole Summary section, T-807;
+// message body without git's "#" comment lines) and "Summary: <in.Body>" (the report's whole Summary section;
 // no Body: the first line, in.Summary; not repeated when it is the subject).
 func mergeMessage(in port.GateInput, moved, resolver string) string {
 	summary, _, _ := strings.Cut(strings.TrimSpace(in.Summary), "\n")
@@ -456,7 +456,7 @@ func gateHalt(r *runner, h *halt) (*port.GateOutcome, error) {
 }
 
 // commit commits the open merge of the target and input in dir with the newer parent's date (the same commit on every
-// repeat): its sha. --no-verify as submit's (T-622); prepare-commit-msg still runs.
+// repeat): its sha. --no-verify as submit's; prepare-commit-msg still runs.
 func (s Scratch) commit(g gitIO, dir, msg, target, input string) (string, error) {
 	out, err := g.Dates(dir, target, input)
 	if err != nil {
@@ -487,7 +487,7 @@ func newestDate(dates string) (string, error) {
 
 // Resolved pins serve's worktree HEAD, the merge the integrator resolved and committed there, at
 // refs/obor/resolved/<task>, only when it is the merge of input (the conflicting gate's: submit's sha, a lane or moved
-// gate alike, T-403) on top of the target: a merge whose second parent is input and whose first is in the target.
+// gate alike) on top of the target: a merge whose second parent is input and whose first is in the target.
 // Refused: no worktree, a merge still open, another HEAD (another task's gate, say), or one the target holds.
 func (s Scratch) Resolved(ctx context.Context, task, input string, m *port.Mismatch) (string, error) {
 	s.gitCtx = ctx
@@ -547,7 +547,7 @@ func lostRefusal(dir, checked string, lost []string) port.Refused {
 }
 
 // lostEdits is the files of m whose patch in the committed merge head still differs from the checked resolution's and
-// whose content is the replay's (T-917): the integrator committed nothing new there.
+// whose content is the replay's: the integrator committed nothing new there.
 func (s Scratch) lostEdits(g gitReader, dir, head string, m *port.Mismatch) ([]string, error) {
 	out, err := g.Patch(dir, head+"^1", head)
 	if err != nil {
@@ -606,7 +606,7 @@ func (s Scratch) Publish(ctx context.Context, c port.Candidate) (port.PublishOut
 				return port.PublishOutcome{Kind: port.PublishHold, Files: statusPaths(st)}, nil
 			}
 		}
-		// ff-only moves the checked-out branch: off the target it would publish elsewhere (the loop pauses, T-425).
+		// ff-only moves the checked-out branch: off the target it would publish elsewhere (the loop pauses).
 		if b, err := g.Branch(root); err != nil {
 			return port.PublishOutcome{}, err
 		} else if b != s.Cfg.MainBranch() {
@@ -636,8 +636,8 @@ func statusPaths(st []string) []string {
 
 // AfterMerge runs commands.after_merge in the main checkout for the published c when its "when" globs match the
 // merged files (none: always). A failed run's full output goes to .obor/state/logs/<task>-after_merge.log; a passing
-// one writes none (T-414 kept the log for a failure's trace). A failing command is the WARN line. Its intent (G) is the
-// once: a cut before its result runs it again (after_merge is idempotent, T-525).
+// one writes none (the log is a failure's trace). A failing command is the WARN line. Its intent (G) is the
+// once: a cut before its result runs it again (after_merge is idempotent).
 func (s Scratch) AfterMerge(ctx context.Context, c port.Candidate) (string, error) {
 	s.gitCtx = ctx
 	if s.Out == nil {
@@ -719,7 +719,7 @@ func afterMergeWarn(o output) string {
 }
 
 // Landed: the target holds merge evidence of task (a merge outside the app); an error: git could not read its log.
-// MergeEvidenceBy reads HEAD's log: here it reads branches.main's, whatever the main checkout is on (T-425).
+// MergeEvidenceBy reads HEAD's log: here it reads branches.main's, whatever the main checkout is on.
 func (s Scratch) Landed(ctx context.Context, task string) (bool, error) {
 	s.gitCtx = ctx
 	g := s.gio()
@@ -785,7 +785,7 @@ func (s Scratch) worktree(dir, target string) error {
 	return nil
 }
 
-// target is branches.main and the sha it is at, whatever the main checkout has checked out (T-425).
+// target is branches.main and the sha it is at, whatever the main checkout has checked out.
 func (s Scratch) target(g gitReader) (branch, head string, err error) {
 	branch = s.Cfg.MainBranch()
 	head, err = g.Rev(s.Cfg.Root, "refs/heads/"+branch)

@@ -1,6 +1,6 @@
-// Package mcp is obor's stdio MCP server: the job tools on the official Go SDK (github.com/modelcontextprotocol/go-sdk,
-// T-877), which speaks the protocol and checks the arguments against each tool's schema. The tools are filtered by
-// OBOR_ROLE, and each tool call is one request on obor serve's app socket (a wire.Verdict Call; T-470: the only path
+// Package mcp is obor's stdio MCP server: the job tools on the official Go SDK (github.com/modelcontextprotocol/go-sdk),
+// which speaks the protocol and checks the arguments against each tool's schema. The tools are filtered by
+// OBOR_ROLE, and each tool call is one request on obor serve's app socket (a wire.Verdict Call: the only path
 // of the integrator's verdicts): the app decides, the server only renders its reply. `obor mcp` runs it; `obor mcp
 // --check` checks it.
 package mcp
@@ -57,7 +57,7 @@ type nopWriteCloser struct{ io.Writer }
 func (nopWriteCloser) Close() error { return nil }
 
 // server is one run: the context of its tool calls (the SDK detaches a handler's context from the run's, and a call's
-// deadline is the run's, T-685), the environment, the cwd, and the last job_next reply. The integrator's verdict tools
+// deadline is the run's), the environment, the cwd, and the last job_next reply. The integrator's verdict tools
 // key their call on that job's task and job id (the app's verdicts name a task; the role text says to call job_next
 // first, and job_next's reply is the only place the server learns them). The SDK runs calls concurrently: mu guards
 // task and job.
@@ -89,8 +89,8 @@ func (s *server) fetched() (task, job string) {
 }
 
 // self is the caller's agent name: project.Self of the server's cwd in repo r under the current config, read at each
-// call (T-786: derived, never OBOR_AGENT, so a rename applies at once). No name: missing says which input lacked it
-// (T-791: the refusal names it, not serve's "not -").
+// call (derived, never OBOR_AGENT, so a rename applies at once). No name: missing says which input lacked it
+// (the refusal names it, not serve's "not -").
 func (s *server) self(r *project.Repo) (name, missing string) {
 	cfg, _, err := config.LoadHook(r.Root)
 	if err != nil {

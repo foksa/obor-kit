@@ -1,6 +1,6 @@
 // Package spec reads a task spec's text once (Parse) into the fields its readers use, refuses what obor spec set may
 // not store (Validate); and matches path globs (config globs: protected_files, merge classes). The text is the store's
-// (internal/store specs, T-440): a row carries the parsed value (T-1022).
+// (internal/store specs): a row carries the parsed value.
 package spec
 
 import (
@@ -19,8 +19,8 @@ type Spec struct {
 	Models      []string // the Model: refs, as written, first occurrence of each
 	Review      string   // the Review: value ("" when no line)
 	ReviewOK    bool     // a Review: line
-	OnMerge     bool     // asks a review on merge: Review: on merge or Difficulty: hard, and no Fixes: (T-878, T-932)
-	FixesReview string   // Fixes: the review it fixes (T-924)
+	OnMerge     bool     // asks a review on merge: Review: on merge or Difficulty: hard, and no Fixes:
+	FixesReview string   // Fixes: the review it fixes
 	FixesNote   string   // and the free text after it
 	FixesOK     bool     // a Fixes: line
 	Protected   []string // the exact paths of the "## Protected files this task may edit" section
@@ -45,7 +45,7 @@ func Parse(text string) Spec {
 	}
 }
 
-// Validate is what obor spec set refuses, in one place (T-764, T-790, T-878, T-932, T-1022, T-1030): a spec without a
+// Validate is what obor spec set refuses, in one place: a spec without a
 // title or a known difficulty, a Review: value but "on merge", a fix with Review: on merge, an empty Ref:, or a
 // Priority: value but high. task names the spec in the messages.
 func Validate(task string, s Spec) error {
@@ -67,8 +67,7 @@ func Validate(task string, s Spec) error {
 	return nil
 }
 
-// ProtectedHeading is the spec section whose backticked exact paths unlock protected files for that one task (T-238,
-// T-496).
+// ProtectedHeading is the spec section whose backticked exact paths unlock protected files for that one task.
 const ProtectedHeading = "Protected files this task may edit"
 
 // protected is the exact paths of the spec's "## Protected files this task may edit" section: its backticked spans
@@ -251,7 +250,7 @@ func difficulty(text string) (level string, ok bool) {
 
 // models is the model refs of the spec's optional `Model: <model>[, <model>…]` line: the
 // first non-blank line after the `Difficulty:` line. Each is a model ref, `<model>[:<effort>]` as written
-// (config.ParseModelRef, T-695). nil when there is no such line (a `Model:` elsewhere is ignored).
+// (config.ParseModelRef). nil when there is no such line (a `Model:` elsewhere is ignored).
 func models(text string) []string {
 	v, ok := lineAfterDifficulty(text, "Model:")
 	if !ok {
@@ -267,7 +266,7 @@ func models(text string) []string {
 }
 
 // WithoutModelLine is text without its `Model:` line, the metadata line just under `Difficulty:` that models reads: the
-// stored spec a merge message carries drops that line (T-1112, T-1133); the spec's content is not redacted, so a model
+// stored spec a merge message carries drops that line; the spec's content is not redacted, so a model
 // name written in it stays. A `Model:` line anywhere else stays, and text with no such line is returned unchanged.
 func WithoutModelLine(text string) string {
 	rest, _, found := difficultyLine(text)
@@ -283,14 +282,14 @@ func WithoutModelLine(text string) string {
 	return strings.Join(slices.Delete(lines, at, at+1), "\n")
 }
 
-// ReviewOnMergeValue is the one value of the spec's optional `Review:` line (T-878).
+// ReviewOnMergeValue is the one value of the spec's optional `Review:` line.
 const ReviewOnMergeValue = "on merge"
 
-// PriorityHigh is the one value of the spec's optional `Priority:` line (T-1030): the task's waiting dispatch goes
+// PriorityHigh is the one value of the spec's optional `Priority:` line: the task's waiting dispatch goes
 // first for the next free lane.
 const PriorityHigh = "high"
 
-// reviewOnMerge reports whether the spec asks for a review once the task merges (T-878, T-932): the line
+// reviewOnMerge reports whether the spec asks for a review once the task merges: the line
 // `Review: on merge` between its title and its first "## " heading, or `Difficulty: hard`; never for a spec with a
 // `Fixes:` line (its verify is its review).
 func reviewOnMerge(text string) bool {
@@ -305,11 +304,11 @@ func reviewOnMerge(text string) bool {
 }
 
 // reviewValue is the value of the spec's first `Review:` line between its title and its first "## " heading: one line
-// there (T-878). ok is false when there is no such line; a `Review:` below a "## " heading is ignored. obor spec set
+// there. ok is false when there is no such line; a `Review:` below a "## " heading is ignored. obor spec set
 // refuses a value other than ReviewOnMergeValue.
 func reviewValue(text string) (value string, ok bool) { return headValue(text, "Review:") }
 
-// fixes is the spec's first `Fixes: RV-<n>[ <free text>]` line between its title and its first "## " heading (T-924):
+// fixes is the spec's first `Fixes: RV-<n>[ <free text>]` line between its title and its first "## " heading:
 // the review it fixes (its first word, as written) and the free text after it, the note the verify brief carries for
 // this task. ok is false when there is no such line. obor dispatch refuses a review that is not the open one.
 func fixes(text string) (review, note string, ok bool) {

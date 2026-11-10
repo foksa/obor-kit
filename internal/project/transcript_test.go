@@ -8,7 +8,7 @@ import (
 	"obor/internal/store"
 )
 
-// T-577: TranscriptOf reads the transcript the project recorded for the session first; a recorded file that is gone
+// TranscriptOf reads the transcript the project recorded for the session first; a recorded file that is gone
 // (or no project) falls back to the kinds' own places.
 func TestTranscriptOfRecorded(t *testing.T) {
 	root := t.TempDir()

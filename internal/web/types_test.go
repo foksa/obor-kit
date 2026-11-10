@@ -1,6 +1,6 @@
 package web
 
-// The page's hand-kept copy of the API's JSON, tied to the Go structs that write it (T-885, docs/research/data-model.md
+// The page's hand-kept copy of the API's JSON, tied to the Go structs that write it (docs/research/data-model.md
 // task A1): every interface of web/src/lib/types.ts has the same property names as its Go struct's json tags, and every
 // string set of web/src/lib is made of Go's constants. A field one side has and the other lacks fails here, before it
 // can drift to a page that reads a field Go never sets (Lane.hold) or misses one Go sends (TaskStatus.stage).
@@ -77,7 +77,7 @@ var goStructs = map[string]reflect.Type{
 // the record; a same-named Go struct wins, so it is compared (see TestTypesTSMatchesGoJSON).
 var tsOnly = map[string]bool{"HelpCommand": true, "HelpSection": true, "ProjectView": true, "ProjectsEntry": true}
 
-// goAliases are the interfaces whose Go name is an alias of another package's struct (view.Idle = wire.IdleStatus, T-883): the
+// goAliases are the interfaces whose Go name is an alias of another package's struct (view.Idle = wire.IdleStatus): the
 // struct's own name differs, its json names are the same.
 var goAliases = map[string]string{"Idle": "IdleStatus"}
 
@@ -147,7 +147,7 @@ func TestTypesTSCheckRefusesDrift(t *testing.T) {
 
 // TestTSStringSetsMatchGo: the strings the page switches on are Go's constants, not retyped copies: the merge loop's
 // stages (Project.svelte's pipeline, wire.Stage*), and the stepper's steps (stages.ts TASK_STEPS, one per
-// wire.TaskStep*: T-883, the view places a task on one, the page no longer maps phases, lane states or free itself).
+// wire.TaskStep*: the view places a task on one, the page maps no phases, lane states or free itself).
 func TestTSStringSetsMatchGo(t *testing.T) {
 	t.Parallel()
 	stages := []string{wire.StageSubmitted, wire.StageGating, wire.StageReview, wire.StagePublish, wire.StageHeld}
@@ -165,7 +165,7 @@ func TestTSStringSetsMatchGo(t *testing.T) {
 		}
 	}
 
-	// T-986: the project page's pipeline blocks are pipeline.ts's (pipelineOf).
+	// the project page's pipeline blocks are pipeline.ts's (pipelineOf).
 	pipeline := readTS(t, filepath.Join(tsLib, "pipeline.ts"))
 	shown := pipelineStages(pipeline)
 	if len(shown) != len(stages) {
@@ -186,7 +186,7 @@ func TestTSStringSetsMatchGo(t *testing.T) {
 	}
 
 	format := readTS(t, filepath.Join(tsLib, "format.ts"))
-	// T-1074: every event kind serve names is Go's app.Kind*, and EventKind is their union, not a retyped list.
+	// every event kind serve names is Go's app.Kind*, and EventKind is their union, not a retyped list.
 	wantKinds := []string{app.KindMerge, app.KindGate, app.KindAccept, app.KindSubmit, app.KindDispatch, app.KindDrive,
 		app.KindMessage, app.KindServe, app.KindProblem, app.KindOther}
 	if kinds, ok := tsStringSet(format, "export const EVENT_KINDS = [", "]"); !ok || !slices.Equal(kinds, wantKinds) {

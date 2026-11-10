@@ -10,8 +10,8 @@ import (
 )
 
 // Event is one record of the log as the view words it: its seq (a UI's cursor: "changed since seq X"; 0 for serve's
-// own start, which is no record), its time, its task, its line, whether that line is bad news (T-688), and its kind
-// (app.Kind*, T-1074: the page's filter and icon).
+// own start, which is no record), its time, its task, its line, whether that line is bad news, and its kind
+// (app.Kind*: the page's filter and icon).
 type Event struct {
 	Seq  int64     `json:"seq"`
 	TS   string    `json:"ts"`
@@ -47,7 +47,7 @@ func events(db *sql.DB, n int, s Serve) []Event {
 	return out[:min(n, len(out))]
 }
 
-// EventsPage is the API's event cursor (T-667): the worded records newer than the since it was asked for, oldest first,
+// EventsPage is the API's event cursor: the worded records newer than the since it was asked for, oldest first,
 // and Seq, the newest record read — the next since (unchanged when nothing is newer).
 type EventsPage struct {
 	Seq    int64   `json:"seq"`

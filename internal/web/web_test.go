@@ -25,7 +25,7 @@ import (
 	"obor/internal/view"
 )
 
-// TestMain isolates the tests and removes the project template New copies (T-1009).
+// TestMain isolates the tests and removes the project template New copies.
 func TestMain(m *testing.M) { testkit.Main(m) }
 
 // fixture is one project with a store and serve's answer, the view built from both (as obor status builds it) and a
@@ -77,7 +77,7 @@ func fixture(t *testing.T) (*testkit.Project, view.Project, *Server) {
 	if !want.Serve.Up || len(want.NeedsYou) != 1 || len(want.Lanes) != 1 {
 		t.Fatalf("precondition: serve up, one needs-you, one lane: %+v", want)
 	}
-	// T-803: the idle state is part of the view the page draws.
+	// the idle state is part of the view the page draws.
 	want.Idle = &view.Idle{Since: now.Unix(), Last: "T-1 merged abc1234", Acked: true, Why: "nothing to dispatch"}
 	s := &Server{
 		Projects: func() []project.Project { return []project.Project{{Name: "pj", Root: p.Root}} },
@@ -158,7 +158,7 @@ func newestSeq(t *testing.T, root string) int64 {
 	return recs[0].Seq
 }
 
-// get runs one GET on the handler, as the page sends it: under a loopback name (every route checks the Host, T-1170).
+// get runs one GET on the handler, as the page sends it: under a loopback name (every route checks the Host).
 func get(t *testing.T, h http.Handler, url string) *httptest.ResponseRecorder {
 	t.Helper()
 	return at(h, http.MethodGet, url, DefaultListen)
@@ -222,16 +222,16 @@ func TestViewAPIIsTheViewsJSON(t *testing.T) {
 		t.Errorf("/api/projects: %+v, want pj with %d needs-you and %d queued", e, len(want.NeedsYou),
 			len(want.Queue.Merge)+len(want.Queue.Waiting))
 	}
-	// T-675: the landing's row says whether serve is up and how many lanes are busy (L-01 works on T-01) and free.
+	// the landing's row says whether serve is up and how many lanes are busy (L-01 works on) and free.
 	if e := entries[0]; !e.Up || e.Busy != 1 || e.Free != 0 || e.Running == nil {
 		t.Errorf("/api/projects: up %v, busy %d, free %d, running %v; want up, 1 busy, 0 free, a running list", e.Up,
 			e.Busy, e.Free, e.Running)
 	}
 }
 
-// TestSetupAPI (T-750, T-765): /api/setup answers with the project's setup read model — the three difficulty levels,
+// TestSetupAPI: /api/setup answers with the project's setup read model — the three difficulty levels,
 // the model refs each names with what runs it, the lane with its state, the roles the config names, the models — and
-// counts the fixture's bare dispatches (records from before T-721) as unknown (every lane is pooled).
+// counts the fixture's bare dispatches (records with no type) as unknown (every lane is pooled).
 func TestSetupAPI(t *testing.T) {
 	_, _, s := fixture(t)
 	r := get(t, s.Handler(), "/api/setup?project=pj")
@@ -271,7 +271,7 @@ func TestSetupAPI(t *testing.T) {
 }
 
 // TestTaskPage: a task's page carries serve's state, its spec rev and title, the report of its last submission, the
-// gate's line (no log path: the RED line names the real one, T-1095), its needs-you with
+// gate's line (no log path: the RED line names the real one), its needs-you with
 // the answer commands, its records as a timeline and its jobs' text.
 func TestTaskPage(t *testing.T) {
 	_, _, s := fixture(t)
@@ -307,7 +307,7 @@ func TestTaskPage(t *testing.T) {
 	}
 }
 
-// TestJobTextNeedsNoView (T-687): /api/job answers with the prompts row (agent, task, time and the whole text) from the
+// TestJobTextNeedsNoView: /api/job answers with the prompts row (agent, task, time and the whole text) from the
 // project's store alone: a view that cannot be built is no error (the job's page needs neither the lane table, git nor
 // serve's ask).
 func TestJobTextNeedsNoView(t *testing.T) {
@@ -331,7 +331,7 @@ func TestJobTextNeedsNoView(t *testing.T) {
 	}
 }
 
-// T-680 (RV-76 #2): a role on no lane has an agent page too: the detail joins the matching role row, so a stopped role
+// a role on no lane has an agent page too: the detail joins the matching role row, so a stopped role
 // is found with its status and its history, and a role with no history is not a 404; an active agent's lane, task and
 // status keep precedence.
 func TestAgentPageOfRoles(t *testing.T) {
@@ -479,7 +479,7 @@ func TestEventsSince(t *testing.T) {
 	}
 }
 
-// T-880: the task, agent and setup pages never build the overview: their narrow reads answer, and a Build that counts
+// the task, agent and setup pages never build the overview: their narrow reads answer, and a Build that counts
 // is not asked. /api/view still builds it.
 func TestDetailPagesDoNotBuildTheView(t *testing.T) {
 	_, _, s := fixture(t)
@@ -547,7 +547,7 @@ func TestReadOnlyAndThePage(t *testing.T) {
 	if ct := r.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
 		t.Errorf("page content type %q, want text/html", ct)
 	}
-	// T-803: the page renders the idle state (idle, not acknowledged since <time>; idle: <why> once acknowledged).
+	// the page renders the idle state (idle, not acknowledged since <time>; idle: <why> once acknowledged).
 	for _, want := range []string{"not acknowledged since", "obor idle", "last: "} {
 		if !strings.Contains(bundle(t), want) {
 			t.Errorf("the page's bundle has no %q: the idle state is not rendered", want)
@@ -555,7 +555,7 @@ func TestReadOnlyAndThePage(t *testing.T) {
 	}
 }
 
-// TestEveryRouteRefusesAForeignHost (T-1170): obor web answers only to its own names — a loopback name on any port, and
+// TestEveryRouteRefusesAForeignHost: obor web answers only to its own names — a loopback name on any port, and
 // a name in Hosts — on every route. Any other Host is 403 naming it, so a DNS rebinding page reads nothing, and its POST
 // is refused before the page checks. The page's own checks stay: a POST from another origin is 403.
 func TestEveryRouteRefusesAForeignHost(t *testing.T) {
@@ -649,13 +649,13 @@ func TestListenLocalhostOnly(t *testing.T) {
 	}
 }
 
-// T-709: a project whose config has a key this binary does not know (a long-running obor web older than the config:
+// a project whose config has a key this binary does not know (a long-running obor web older than the config:
 // "unknown field roles.researcher") is served with the warning among the view's notes instead of failing the page,
 // and a stopped project says so; the landing's row carries no error.
 func TestViewOfANewerConfigWarns(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	p.Config(testkit.Set("zz_future", "")) // T-801: agents.roles.<name> is a custom role now, no unknown key
+	p.Config(testkit.Set("zz_future", "")) // agents.roles.<name> is a custom role now, no unknown key
 	p.Spec("T-01", "# T-01 — stored, never dispatched\n\nDifficulty: simple\n")
 	if _, unknown, err := config.LoadForValidate(p.Root); err != nil || len(unknown) != 1 {
 		t.Fatalf("precondition: the strict validate load refuses the unknown key: %q, %v", unknown, err)
@@ -674,7 +674,7 @@ func TestViewOfANewerConfigWarns(t *testing.T) {
 		v.Notes[1] != project.StoppedLine {
 		t.Errorf("notes %q, want the unknown key's warning and the stopped line", v.Notes)
 	}
-	// T-1028: the page's view is view.Build's (view.Load), and serve is down: T-01's stored spec is not listed as never
+	// the page's view is view.Build's (view.Load), and serve is down: T-01's stored spec is not listed as never
 	// dispatched.
 	if len(v.Queue.Waiting) != 0 {
 		t.Errorf("queue %+v, want none with serve down: a stored-only spec is not listed", v.Queue.Waiting)
@@ -686,7 +686,7 @@ func TestViewOfANewerConfigWarns(t *testing.T) {
 	}
 }
 
-// TestOverviewShowsWorkingRoles (T-713): a project whose only work is a working deep dive lists it in /api/projects
+// TestOverviewShowsWorkingRoles: a project whose only work is a working deep dive lists it in /api/projects
 // (busy stays the lane count); a role with a brief waiting counts; a stopped role and an idle one are not listed; and
 // the page script shows the roles on the card.
 func TestOverviewShowsWorkingRoles(t *testing.T) {
@@ -735,8 +735,8 @@ func TestOverviewShowsWorkingRoles(t *testing.T) {
 	}
 }
 
-// T-714, T-727: /api/projects counts the agents' recorded background processes for the overview card (a long
-// foreground command is not counted), and an agent page shows the processes its read supplies (T-880: the narrow agent
+// /api/projects counts the agents' recorded background processes for the overview card (a long
+// foreground command is not counted), and an agent page shows the processes its read supplies (the narrow agent
 // read scans none; the overview is where they are read); the page reads both.
 func TestBackgroundOnOverviewAndAgentPage(t *testing.T) {
 	t.Parallel()
@@ -744,7 +744,7 @@ func TestBackgroundOnOverviewAndAgentPage(t *testing.T) {
 	o1 := p.Lane("L-01", "task/T-01")
 	p.Config()
 	p.Commit(o1)
-	p.Dispatched("L-01") // its row holds T-01, not landed: busy (T-1012)
+	p.Dispatched("L-01") // its row holds T-01, not landed: busy
 	cfg, err := config.Load(p.Root)
 	if err != nil {
 		t.Fatal(err)
@@ -764,7 +764,7 @@ func TestBackgroundOnOverviewAndAgentPage(t *testing.T) {
 	if len(entries) != 1 || entries[0].Background != 2 {
 		t.Errorf("/api/projects: %+v, want 2 background processes", entries)
 	}
-	// T-760: the fleet page's lanes: L-01 busy with T-01 and its agent
+	// the fleet page's lanes: L-01 busy with T-01 and its agent
 	if l := entries[0].Lanes; len(l) != 1 || l[0].Lane != "L-01" || l[0].Task.Task != "T-01" || l[0].Agent != "pj-l1" {
 		t.Errorf("/api/projects lanes %+v, want L-01 on T-01 with pj-l1", l)
 	}

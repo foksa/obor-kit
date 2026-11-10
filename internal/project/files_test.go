@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// T-1052: one PATH search for setup and launch (project.LookPath), as exec.LookPath reads it: dirs in order, an empty
+// one PATH search for setup and launch (project.LookPath), as exec.LookPath reads it: dirs in order, an empty
 // component is the cwd, a directory named like the binary or a file without an execute bit does not match.
 func TestLookPath(t *testing.T) {
 	dir := t.TempDir()
@@ -44,7 +44,7 @@ func TestLookPath(t *testing.T) {
 	}
 }
 
-// T-1049: xattr's com.apple.quarantine value carries its flags in hex before the first ';' (the time, agent and uuid
+// xattr's com.apple.quarantine value carries its flags in hex before the first ';' (the time, agent and uuid
 // follow): the user-approved bit's value reads as 0x01c1, and a value with no hex flags is no flag.
 func TestQuarantineFlags(t *testing.T) {
 	t.Parallel()

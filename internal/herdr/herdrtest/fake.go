@@ -12,7 +12,7 @@ import (
 	"obor/internal/herdr"
 )
 
-// Pane is a scripted pane: herdr's own Wire fields (embedded, so the fake cannot drift from the protocol, T-890) and
+// Pane is a scripted pane: herdr's own Wire fields (embedded, so the fake cannot drift from the protocol) and
 // what the fake does with them. Kind != "" means an agent runs in it (Name may still be "": herdr lost the name).
 type Pane struct {
 	herdr.Wire
@@ -23,7 +23,7 @@ type Pane struct {
 	Shell               int // the pane's shell pid (pane.process_info; 0: 1)
 	// Ready is when the pane's shell becomes an available shell (zero: at once). Until then pane.process_info
 	// reports no shell in the foreground and agent.start answers agent_pane_busy, as herdr does for a pane a new tab or
-	// a split just made (T-628).
+	// a split just made.
 	Ready time.Time
 	Procs []herdr.Process // its foreground processes (pane process-info)
 	// Foreground is the pane's foreground process group (pane process-info; the shell is pid 1): 0 = the agent's (2)
@@ -55,18 +55,18 @@ type Pane struct {
 	// OnStart is what agent start does: "" the agent starts, named and idle; "unnamed": it starts idle and herdr
 	// answers success but keeps no name for it; else the agent starts but is never ready for input (working on a
 	// first prompt, blocked at a dialog): herdr gives up (error timeout) and keeps no name for it, which is left in
-	// status OnStart (T-387). "never": herdr answers agent_started (launch_pending, as protocol 22 does at once) but no
-	// agent ever comes up: the pane stays at its shell (T-544: the command typed while the shell was busy, cut off).
+	// status OnStart. "never": herdr answers agent_started (launch_pending, as protocol 22 does at once) but no
+	// agent ever comes up: the pane stays at its shell (the command typed while the shell was busy, cut off).
 	OnStart string
-	// StartPending: agent start answers at once with launch_pending, as herdr 0.9.5 does (live H-L1, H-L12, T-1058): the
+	// StartPending: agent start answers at once with launch_pending, as herdr 0.9.5 does (live H-L1, H-L12): the
 	// pane then lists the start's kind with a stale idle status and launch_pending for this many agent.get reads of it,
 	// after which the agent is up (idle, interactive_ready). Ahead of OnStart while > 0.
 	StartPending int
 	// PendingStatus is the status the pending launch lists (StartPending): "" the stale idle; "working": the agent busy
-	// on its first prompt while herdr keeps its launch pending (live H-L14, T-1059).
+	// on its first prompt while herdr keeps its launch pending (live H-L14).
 	PendingStatus string
 	// StartBusy is how many agent start calls yet answer agent_pane_busy: herdr has not noticed the pane's old agent
-	// leave, though pane.process_info may already show its shell (T-1053: the exit not yet reaped). Each call spends
+	// leave, though pane.process_info may already show its shell (the exit not yet reaped). Each call spends
 	// one.
 	StartBusy int
 	// OnRun is what the pane's shell does with a command line typed at it (pane.send_input with Enter): "" it succeeds,
@@ -99,7 +99,7 @@ type Fake struct {
 	Workspaces []herdr.Workspace // session.snapshot's workspaces
 	TabLabels  map[string]string // tab id → the label tab.list shows (tab.create's label)
 	made       int               // panes made by pane.split and tab.create
-	// NewPaneBusy: a pane pane.split or tab.create makes is not an available shell for this long (0: at once, T-628).
+	// NewPaneBusy: a pane pane.split or tab.create makes is not an available shell for this long (0: at once).
 	NewPaneBusy time.Duration
 }
 
@@ -147,7 +147,7 @@ func spaceOf(id string) string {
 }
 
 // Group labels workspace id label (session.snapshot's workspaces): the group the core sees its panes in
-// (port.Pane.Group, T-1044). A workspace already listed is relabelled.
+// (port.Pane.Group). A workspace already listed is relabelled.
 func (f *Fake) Group(id, label string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -299,7 +299,7 @@ func (p *Pane) run(text string) {
 }
 
 // echoWord is the word line echoes after sep ("&& echo " when it succeeded, "|| echo " when it failed), quotes
-// removed: the env line's recipe of T-601. "" when line has no such clause.
+// removed: the env line's recipe. "" when line has no such clause.
 func echoWord(line, sep string) string {
 	i := strings.LastIndex(line, sep)
 	if i < 0 {
@@ -397,7 +397,7 @@ func (f *Fake) newWorkspace(label, cwd string) *Pane {
 }
 
 // tabList is herdr's tab.list: each tab of the panes, in their order, its label ("" when none), number and pane
-// count. obor no longer asks for it (T-776: the monitor's "system" tab is gone), but the upgrade check drives older
+// count. obor asks for it in no current path, but the upgrade check drives older
 // obor binaries through this fake and they do.
 func (f *Fake) tabList() []any {
 	var tabs []any

@@ -12,10 +12,10 @@ import (
 	"obor/internal/roles"
 )
 
-// The models (T-765): the config names a model with its effort, `<model>[:<effort>]` (a model ref), in difficulty
+// The models: the config names a model with its effort, `<model>[:<effort>]` (a model ref), in difficulty
 // levels, roles, agents and a spec's Model: line. A model is a built-in one (BuiltinModels) or models.<name>, which
 // adds one or overrides a built-in; what starts it is its kind's base args (KindBaseArgs), its model id as the kind
-// takes it (agents.ModelArgs), then kinds.<kind>.args. The effort is the kind's own flag (agents.Start.Effort, T-695).
+// takes it (agents.ModelArgs), then kinds.<kind>.args. The effort is the kind's own flag (agents.Start.Effort).
 
 // BuiltinModel is one entry of the built-in model table: its name, its kind and the model id the kind starts it with.
 type BuiltinModel struct{ Name, Kind, ID string }
@@ -34,7 +34,7 @@ var BuiltinModels = []BuiltinModel{
 
 // KindBaseArgs are the args every start of a kind begins with (kinds.<kind>.args are appended after the model).
 // Codex's --no-daemon: its shared background server would give the MCP server and hooks the daemon's env and cwd, not
-// the lane's (T-810).
+// the lane's.
 var KindBaseArgs = map[string][]string{
 	"claude":   {"--permission-mode", "auto"},
 	"codex":    {"-s", "workspace-write", "-a", "never", "--no-daemon"},
@@ -42,7 +42,7 @@ var KindBaseArgs = map[string][]string{
 }
 
 // KindEntry is agents.kinds.<kind>: Args are extra args for every start of that CLI, JobNote the text added to every
-// work job an agent of that kind gets. Plugin makes it a plugin kind (T-1036): the executable answering obor's kind
+// work job an agent of that kind gets. Plugin makes it a plugin kind: the executable answering obor's kind
 // protocol (docs/agents/kind-protocol.md), a path (relative: to the project root; KindCommand).
 type KindEntry struct {
 	Args    []string `json:"args,omitzero"`
@@ -53,8 +53,8 @@ type KindEntry struct {
 // Kind is agents.kinds.<name> (the zero entry when the config does not name it): its args and its work jobs' note.
 func (c *Config) Kind(name string) KindEntry { return c.Data.Agents.Kinds.M[name] }
 
-// KitKinds are the plugin kinds the kit ships, by name: the binary each runs as (T-1046), beside obor's own (KitKind).
-// A config naming no agents.kinds.<name>.plugin for one runs the kit's binary (T-1155: the v0.32 default, permanent);
+// KitKinds are the plugin kinds the kit ships, by name: the binary each runs as, beside obor's own (KitKind).
+// A config naming no agents.kinds.<name>.plugin for one runs the kit's binary (the v0.32 default, permanent);
 // setting the line still overrides.
 var KitKinds = map[string]string{"opencode": "obor-kind-opencode"}
 
@@ -75,7 +75,7 @@ func (c *Config) KindCommand(name string) string {
 	return filepath.Join(c.Root, cmd)
 }
 
-// KitKind is the path of the kind binary name the kit ships beside this obor's executable (T-1046): dist/obor's
+// KitKind is the path of the kind binary name the kit ships beside this obor's executable: dist/obor's
 // dist/<name>, a release binary obor-<v>-<os>-<arch>'s <name>-<v>-<os>-<arch> in the same directory. An executable obor
 // cannot find leaves name as it is (the kind's describe then fails naming it).
 func KitKind(name string) string {
@@ -211,11 +211,11 @@ func (c *Config) ModelNames() []string {
 }
 
 // CheckModelRef is why ref names no model of this config, or an effort its kind does not take (agents.CheckEffort:
-// a plugin kind's cached manifest, T-1036); nil when it is fine.
+// a plugin kind's cached manifest); nil when it is fine.
 func (c *Config) CheckModelRef(ref string) error { return c.checkModelRef(ref, nil) }
 
 // checkModelRef is CheckModelRef with the kinds of described in place of the registry's (obor config validate: the
-// plugin kinds as their describe just answered, not their cached manifests, T-1042).
+// plugin kinds as their describe just answered, not their cached manifests).
 func (c *Config) checkModelRef(ref string, described map[string]agents.Kind) error {
 	name, effort := ParseModelRef(ref)
 	m, ok := c.Model(name)
@@ -235,15 +235,15 @@ func (c *Config) checkModelRef(ref string, described map[string]agents.Kind) err
 	return nil
 }
 
-// Launch is a start of this model as its kind builds it (agents.StartOf, T-1042: one call of a plugin kind): in, the
+// Launch is a start of this model as its kind builds it (agents.StartOf: one call of a plugin kind): in, the
 // launch boundary's complete start (kit, effort, dir, write dirs, resume or first prompt, session, env, readers and
 // writer), with the model's args, the settings and a lane's strictness. The args with effort: the kind sets it
-// (T-695); the settings as the kind takes them (Claude's --settings <settings>); a lane's agent starts strict (its obor
-// MCP server alone, T-770). Every agent but a lead starts with {"remoteControlAtStartup":false,"autoMemoryEnabled":false}
-// (only the lead on the phone, T-280, and only the lead keeps auto memory, T-471). role is the agent's
+// the settings as the kind takes them (Claude's --settings <settings>); a lane's agent starts strict (its obor
+// MCP server alone). Every agent but a lead starts with {"remoteControlAtStartup":false,"autoMemoryEnabled":false}
+// (only the lead on the phone, and only the lead keeps auto memory). role is the agent's
 // (roles.Role.Name; "": none). A kind obor has no bridge for: the args alone, no env. What the env does not set the
-// start unsets (agents.StartVars, T-812): an earlier OpenCode start's model never carries into another kind's (RV-83
-// #4, T-707). An error: the start cannot carry the effort, or a plugin kind's start failed (T-1036).
+// start unsets (agents.StartVars): an earlier OpenCode start's model never carries into another kind's.
+// An error: the start cannot carry the effort, or a plugin kind's start failed.
 func (m Model) Launch(role string, in agents.Start) (agents.Launch, error) {
 	k, ok := agents.Lookup(m.Kind)
 	if !ok {

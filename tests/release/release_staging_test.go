@@ -15,7 +15,7 @@ func (f *releaseFixture) ancestor(t *testing.T, a, b string) bool {
 	return exec.Command("git", "-C", f.Root, "merge-base", "--is-ancestor", a, b).Run() == nil
 }
 
-// T-1035: release and ship run in the main checkout on the branch the loop merges to (staging), not in a worktree at
+// release and ship run in the main checkout on the branch the loop merges to (staging), not in a worktree at
 // main. release builds in its scratch worktree, copies the four binaries into this checkout's dist/ (where publish
 // reads them), commits the catalog on staging and fast-forwards refs/heads/main to that commit; ship then pushes main
 // and the tag from staging without a checkout of main. Staging stays checked out, and a re-run of each step is a no-op.
@@ -70,7 +70,7 @@ func TestReleaseAndShipOnStaging(t *testing.T) {
 		}
 	}
 
-	// ship on staging is no longer refused: it pushes main up to the release commit and the tag, publishes and installs.
+	// ship on staging is not refused: it pushes main up to the release commit and the tag, publishes and installs.
 	out, failed = f.make(t, "ship")
 	if failed {
 		t.Fatalf("make ship on staging failed:\n%s", out)
@@ -138,7 +138,7 @@ func TestReleaseAndShipOnStaging(t *testing.T) {
 	}
 }
 
-// T-1035: main moves by release, never by a checkout, and a release never rewinds it: a main with commits the release
+// main moves by release, never by a checkout, and a release never rewinds it: a main with commits the release
 // lacks (moved past staging's line by hand) stops the release at its last step with main where it was.
 func TestReleaseRefusesToRewindMain(t *testing.T) {
 	t.Parallel()

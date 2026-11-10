@@ -1,5 +1,5 @@
 // A task's place in dispatched → working → submitted → gate → review → merging → merged, from the step the view places
-// it on (T-883: Task.step, wire.PhaseStep of serve's phase; T-893: on a task's page, when its phase places it on none —
+// it on (Task.step, wire.PhaseStep of serve's phase; on a task's page, when its phase places it on none —
 // needs-you, held, ended, no phase — the furthest step its records reached); a task's fields from the view by id; and a
 // record as one line of its timeline.
 import { tone, type Tone } from "./format";
@@ -7,7 +7,7 @@ import type { Task, TaskRecord } from "./types";
 
 export const TASK_STEPS = ["dispatched", "working", "submitted", "gate", "review", "merging", "merged"] as const;
 
-// taskOf is the view's task id (project.tasks, T-883): the one place a page reads a task's title, phase, lane and step
+// taskOf is the view's task id (project.tasks): the one place a page reads a task's title, phase, lane and step
 // from, so they read the same on every section; a task the view does not know is its id alone.
 export function taskOf(view: { tasks?: Record<string, Task> } | null | undefined, id: string | null | undefined): Task {
   return (id && view?.tasks?.[id]) || { task: id || "" };
@@ -29,7 +29,7 @@ export function stageOf(t: { phase?: string; step?: number } | undefined, record
   return { i: t?.step ?? 0, tone: st ? tone(st) : "idle", state: st || (records.length ? "ended" : "") };
 }
 
-// gateOf is a task's last gate as its card shows it (T-1105): the view's gate_pass and gate_line, never the line's
+// gateOf is a task's last gate as its card shows it: the view's gate_pass and gate_line, never the line's
 // wording.
 export function gateOf(t: { gate_pass?: boolean; gate_line?: string } | null | undefined): { pass: boolean; line: string } {
   return { pass: t?.gate_pass === true, line: t?.gate_line || "" };

@@ -8,7 +8,7 @@ import (
 	"obor/internal/project"
 )
 
-// T-709: in a stopped project (obor stop) every hook stands down: the PreToolUse guard allows what it denies in a
+// in a stopped project (obor stop) every hook stands down: the PreToolUse guard allows what it denies in a
 // running project, the Stop hook lets a worker without its task_done stop, the wrong-tab guard and SessionStart add
 // nothing, and Turn/StopFailure tell serve nothing. Each is checked denying/acting first (the precondition).
 func TestHooksStandDownInAStoppedProject(t *testing.T) {

@@ -1,9 +1,9 @@
 package guard
 
 // The Stop, SessionStart and UserPromptSubmit hooks (`obor hook stop|session-start|user-prompt-submit`, run through
-// bin/obor; T-470: package stop moved here): the worker's task_done, the session's obor context, the handoff reminder
-// and the wrong-tab guard. The lead and the integrator stop when they like (T-465: no nudges, no ledger) — except for a
-// background run they started, which blocks every agent's stop (T-1142, background).
+// bin/obor): the worker's task_done, the session's obor context, the handoff reminder
+// and the wrong-tab guard. The lead and the integrator stop when they like (no nudges, no ledger) — except for a
+// background run they started, which blocks every agent's stop (background).
 
 import (
 	"context"
@@ -59,7 +59,7 @@ type stopHook struct {
 	bgRunning int64 // running background tasks
 }
 
-// staleBg is how long nothing in a worker's lane may change before its running background tasks look stale (T-167).
+// staleBg is how long nothing in a worker's lane may change before its running background tasks look stale.
 const staleBg = 1200
 
 // stopProcs is the process table the background check reads (a test's fake; internal/background's one ps), stopSelf
@@ -95,14 +95,14 @@ func runStop(input []byte, env project.Env) (reason string, err error) {
 		}
 	}
 
-	// A background run this session started and that still runs blocks any agent's stop (T-1142): the turn it ended is
+	// A background run this session started and that still runs blocks any agent's stop: the turn it ended is
 	// not over, and obor would read the silence as finished work. First, so the reason is the run, not the task.
 	if reason := h.background(); reason != "" {
 		return reason, nil
 	}
 
 	// The role's verdict: a block reason, or "" (allow). Only a worker's (its task_done); no block for context size
-	// (T-232): the handoff reminder rides on each prompt (handoffReminder).
+	// the handoff reminder rides on each prompt (handoffReminder).
 	if h.role.Role == "worker" {
 		return h.workerDone()
 	}
@@ -110,8 +110,8 @@ func runStop(input []byte, env project.Env) (reason string, err error) {
 }
 
 // background: a background Bash call recorded for this hook's session (the PreToolUse record, project.BackgroundCalls)
-// whose process still runs blocks the stop, the call's description and age named (T-1142). Only the agent's own
-// processes count (RV-169 #1): the agent is the CLI that ran this hook (background.AgentOf, up from the hook's pid) and
+// whose process still runs blocks the stop, the call's description and age named. Only the agent's own
+// processes count: the agent is the CLI that ran this hook (background.AgentOf, up from the hook's pid) and
 // the call's process one of its descendants (background.Live), so another agent running the same command blocks
 // nothing. Every agent's, the lead's too; stop_hook_active allows nothing here — a repeated block means the agent is
 // waiting, and the block ends with the call's process. Best-effort: no session, no record, an unreadable file, no
@@ -156,7 +156,7 @@ func (h *stopHook) background() string {
 // workerDone: block while the lane's task awaits its task_done (its row's finished, read-only: serve may be down),
 // once per stop loop: a stop within an active loop (stop_hook_active) is allowed, so a worker that asks instead
 // can stop. A row whose blocked is set (the worker's Blocked: report, as serve's fold sees it) allows the stop.
-// Nothing is written. Running background tasks allow the stop unless they look stale (T-167).
+// Nothing is written. Running background tasks allow the stop unless they look stale.
 func (h *stopHook) workerDone() (string, error) {
 	lane := h.role.Lane
 	if lane == "" || h.ev.StopHookActive == true {
@@ -170,7 +170,7 @@ func (h *stopHook) workerDone() (string, error) {
 		return "", nil // submitted, or the task's Blocked: report awaits the owner's answer
 	}
 
-	// Background tasks running: the worker may wait on them, unless they look stale (T-167) — nothing in the lane changed
+	// Background tasks running: the worker may wait on them, unless they look stale — nothing in the lane changed
 	// for staleBg seconds and no `obor run` is alive.
 	stale := ""
 	if h.bgRunning > 0 {
@@ -189,7 +189,7 @@ func (h *stopHook) workerDone() (string, error) {
 }
 
 // runAlive: an `obor run` in the lane dir is alive (its marker <dir>/.task-run, internal/run.MarkerName, holds a live
-// pid, T-192).
+// pid).
 func runAlive(dir string) bool {
 	b, err := os.ReadFile(filepath.Join(dir, ".task-run"))
 	if err != nil {

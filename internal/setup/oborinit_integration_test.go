@@ -1,6 +1,6 @@
 //go:build integration
 
-// The integration tier of obor init (T-1021): init makes the repository (git init, the "obor init" commit), installs
+// The integration tier of obor init: init makes the repository (git init, the "obor init" commit), installs
 // core.hooksPath and adds the lane worktrees with git, so these run on a git project (newGitInitFx).
 
 package setup
@@ -20,7 +20,7 @@ import (
 	"obor/internal/project"
 )
 
-// T-647: obor init writes setup.confirmed: false when the config has no such key, and a rerun keeps the owner's true.
+// obor init writes setup.confirmed: false when the config has no such key, and a rerun keeps the owner's true.
 func TestOborInitRecordsTheSetupAnswer(t *testing.T) {
 	t.Parallel()
 	x := newGitInitFx(t, true)
@@ -53,7 +53,7 @@ func TestOborInitRecordsTheSetupAnswer(t *testing.T) {
 	}
 }
 
-// T-647: an existing config without the setup key (written before the table) gets confirmed: false on init: nothing
+// an existing config without the setup key (written before the table) gets confirmed: false on init: nothing
 // there says the owner saw the table.
 func TestOborInitAddsTheMissingSetupAnswer(t *testing.T) {
 	t.Parallel()
@@ -77,7 +77,7 @@ func TestOborInitAddsTheMissingSetupAnswer(t *testing.T) {
 	}
 }
 
-// T-647, T-724, RV-88 #1: obor init's output ends with the setup table, after the OK line; no deepseek (OpenCode is not opted in).
+// obor init's output ends with the setup table, after the OK line; no deepseek (OpenCode is not opted in).
 func TestOborInitEndsWithTheSetupTable(t *testing.T) {
 	t.Parallel()
 	x := newGitInitFx(t, true)
@@ -104,7 +104,7 @@ func TestOborInitEndsWithTheSetupTable(t *testing.T) {
 
 // One run sets the whole project up: config (name, prefix), L-01 opus and L-02 sonnet with worktrees, the lead and the
 // integrator opus and (codex on PATH) the example's Codex reviewer, the plugin installed from the kit's marketplace,
-// no herdr plugin linked (T-1117), four agents in their tabs, serve installed; the summary says each step done, then
+// no herdr plugin linked, four agents in their tabs, serve installed; the summary says each step done, then
 // next: obor lead.
 func TestOborInitSetsUpTheProject(t *testing.T) {
 	t.Parallel()
@@ -128,7 +128,7 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 	if cfg.LaneCount() != 2 {
 		t.Errorf("lanes = %d, want 2 (T-765)", cfg.LaneCount())
 	}
-	// T-765, T-1124: init writes config shape 2: no lane types, a lanes count, roles as model refs.
+	// init writes config shape 2: no lane types, a lanes count, roles as model refs.
 	doc := x.Read(".obor/config.json")
 	if strings.Contains(doc, "lane_types") || config.ShapeOf([]byte(doc)) != config.ShapeVersion ||
 		!regexp.MustCompile(`(?m)^    "count": 2,?$`).MatchString(doc) ||
@@ -146,12 +146,12 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 	if rc, _ := cfg.Role("reviewer"); rc.Type != "sol" {
 		t.Errorf("reviewer type %q, want the example's sol (codex on PATH)", rc.Type)
 	}
-	for _, wt := range []string{"review", "deep-dive"} { // T-718: the reviewer runs in the main checkout
+	for _, wt := range []string{"review", "deep-dive"} { // the reviewer runs in the main checkout
 		if x.Exists(filepath.Join(cfg.LanesDir(), wt)) {
 			t.Errorf("init made a %s worktree", wt)
 		}
 	}
-	// T-646: init registers the project in the machine's list of obor projects by name.
+	// init registers the project in the machine's list of obor projects by name.
 	if ps := project.Projects(x.Env()); len(ps) != 1 || ps[0] != (project.Project{Name: "proj", Root: x.Root}) {
 		t.Errorf("the machine's project list %+v, want proj at its root\n%s", ps, out)
 	}
@@ -175,7 +175,7 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 		}
 	}
 	// The fake numbers a new tab's pane n<k> and the tab t<k>.
-	// T-705: the worker lanes' panes are labelled and hold no agent (dispatch starts one); role panes run theirs.
+	// the worker lanes' panes are labelled and hold no agent (dispatch starts one); role panes run theirs.
 	panes := map[string]string{}
 	for _, p := range x.h.Panes {
 		if p.Label != "" {
@@ -188,7 +188,7 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 			t.Errorf("role pane %s holds an agent: %+v", p.Label, p)
 		}
 	}
-	// T-708: init starts no agent at all; it labels every pane it places.
+	// init starts no agent at all; it labels every pane it places.
 	for _, q := range x.reqs() {
 		if strings.HasPrefix(q, "agent.start") {
 			t.Errorf("init started an agent: %s", q)
@@ -199,7 +199,7 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 	o, s := panes["proj-l-01"], panes["proj-l-02"]
 	i, r := panes[cfg.AgentName("integrator", "")], panes[cfg.AgentName("reviewer", "")]
 	tab := func(v string) string { return append(strings.Fields(v), "", "")[1] }
-	// No pane of the project anywhere: one workspace of its own, wn1, made first (T-632).
+	// No pane of the project anywhere: one workspace of its own, wn1, made first.
 	if len(panes) != 4 || !strings.HasPrefix(o, "wn1:n") || !strings.HasPrefix(r, "wn1:n") || tab(s) != tab(o) ||
 		tab(i) != tab(o) || tab(r) == tab(o) {
 		t.Errorf("agents (L-01 in a new tab of the new workspace, L-02 and the integrator beside it, the reviewer in a "+
@@ -217,7 +217,7 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 	if len(tabs) != 2 || !strings.Contains(tabs[0], "label=workers") || !strings.Contains(tabs[1], "label=review") {
 		t.Errorf("tabs created: %q", tabs)
 	}
-	// T-776: obor monitor is gone: no monitor pane, no "system" tab, and nothing typed at a shell.
+	// obor has no monitor role: no monitor pane, no "system" tab, and nothing typed at a shell.
 	for _, p := range x.h.Panes {
 		if p.Label == "proj-monitor" {
 			t.Errorf("init made a monitor pane: %+v", p)
@@ -254,7 +254,7 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 	hasNot(t, out, "waiting on", "no trust dialog")
 }
 
-// T-629: obor init in a plain directory (no repository) makes one on branch main, commits its own files as "obor init"
+// obor init in a plain directory (no repository) makes one on branch main, commits its own files as "obor init"
 // and branches the lanes from that commit; a directory the user already made a repository of, with no commit, gets the
 // same first commit; a user's untracked file is a FAIL, never committed; a repository with a commit is left as it is.
 func TestOborInitInAnEmptyDirectory(t *testing.T) {
@@ -291,7 +291,7 @@ func TestOborInitInAnEmptyDirectory(t *testing.T) {
 	hasNot(t, out, "nothing committed", "no uncommitted note after init committed")
 }
 
-// T-631: init commits only in a directory that held nothing but .git; with anything else and no commit it FAILs before
+// init commits only in a directory that held nothing but .git; with anything else and no commit it FAILs before
 // any write: no repository made, no config, the user's files as they were.
 func TestOborInitRefusesToCommitAUsersFile(t *testing.T) {
 	t.Parallel()
@@ -314,7 +314,7 @@ func TestOborInitRefusesToCommitAUsersFile(t *testing.T) {
 	onlyEntries(t, dir, "README.md")
 }
 
-// wantFail: exit 1 and T-631's FAIL for an unborn main in dir last.
+// wantFail: exit 1 and a FAIL for an unborn main in dir last.
 func wantFail(t *testing.T, out string, rc int, dir string) {
 	t.Helper()
 	want := "FAIL main has no commit yet and " + dir + " has files: commit what belongs in the project, then obor init " +
@@ -356,7 +356,7 @@ func (x *initFx) unborn(t *testing.T, name string) string {
 	return dir
 }
 
-// T-631 (RV-67 #1): a user's own untracked file in an unborn repository, even one named as init's (BACKLOG.md,
+// a user's own untracked file in an unborn repository, even one named as init's (BACKLOG.md,
 // .gitignore, which init would append to), is a FAIL before any write: the file unchanged, nothing created.
 func TestOborInitRefusesAnUnbornRepositoryWithAUsersFile(t *testing.T) {
 	t.Parallel()
@@ -394,7 +394,7 @@ func (x *initFx) interrupted(t *testing.T, dir string) {
 	}
 }
 
-// T-631: a rerun after an interrupted init (init's own files, no commit) commits them when each is init's text; one
+// a rerun after an interrupted init (init's own files, no commit) commits them when each is init's text; one
 // the user edited is a FAIL, left as it is.
 func TestOborInitRerunAfterAnInterruptedInit(t *testing.T) {
 	t.Parallel()
@@ -445,7 +445,7 @@ func TestOborInitLeavesACommittedRepositoryAlone(t *testing.T) {
 	has(t, out, "nothing committed: review, then commit", "the uncommitted note")
 }
 
-// T-613 #3: obor init's rerun is the repair path for a lane, and the last run's outcome decides: a failed lane_setup
+// obor init's rerun is the repair path for a lane, and the last run's outcome decides: a failed lane_setup
 // worktree is gone gets it back.
 func TestOborInitRerunKeepsTheLanes(t *testing.T) {
 	t.Parallel()
@@ -482,10 +482,10 @@ func TestOborInitRerunKeepsTheLanes(t *testing.T) {
 	}
 }
 
-// T-613 #3: obor init's rerun is the repair path for a lane, and the last run's outcome decides: a failed lane_setup
+// obor init's rerun is the repair path for a lane, and the last run's outcome decides: a failed lane_setup
 // runs again, a finished one is skipped, and a lane dir that is no worktree of the repo is a FAIL (never a skip).
 // Slow: seven cases, each two or three real obor init runs (its commit, its lanes' worktree adds: the code under test
-// runs git, so no fake), ≈0.35 s a case (T-1009).
+// runs git, so no fake), ≈0.35 s a case.
 func TestOborInitLaneSetupOnARerun(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -615,7 +615,7 @@ func (x *initFx) editConfig(t *testing.T, key []string, val any) {
 	x.Write(".obor/config.json", string(doc))
 }
 
-// T-613 #4, T-1117: herdr cannot list its plugins. The removal of the obor.events plugin an older obor linked is best
+// herdr cannot list its plugins. The removal of the obor.events plugin an older obor linked is best
 // effort: init reads the list once, says a WARN and sets the project up all the same, linking and unlinking nothing.
 func TestOborInitWarnsWhenHerdrCannotListPlugins(t *testing.T) {
 	t.Parallel()
@@ -661,7 +661,7 @@ func TestOborInitReviewerOpusWithoutCodex(t *testing.T) {
 		t.Errorf("reviewer type %q, want opus", rc.Type)
 	}
 	has(t, summary(out, "lanes"), "reviewer sol:high → opus", "lanes step")
-	// T-708: the reviewer's pane is labelled and holds no agent; its type decides what the first review starts.
+	// the reviewer's pane is labelled and holds no agent; its type decides what the first review starts.
 	if a := x.h.Pane(x.paneOf(cfg.AgentName("reviewer", ""))); a == nil || a.Kind != "" || a.Name != "" {
 		t.Errorf("reviewer pane: %+v, want labelled with no agent", a)
 	}
@@ -677,7 +677,7 @@ func (x *initFx) paneOf(name string) string {
 	return ""
 }
 
-// T-644, T-769: the template names the lead's model (kept by init); a hand-written config with no roles.lead gets opus
+// the template names the lead's model (kept by init); a hand-written config with no roles.lead gets opus
 // (obor lead refuses an untyped lead); a type the user set stays, and a rerun changes nothing.
 func TestOborInitSetsTheLeadsType(t *testing.T) {
 	t.Parallel()
@@ -781,10 +781,10 @@ func TestOborInitWritesDetectedCommandsOnce(t *testing.T) {
 	if !strings.Contains(out, "OK init proj (prefix proj); next: obor lead\n") {
 		t.Errorf("a detected stack's next line is not the OK line:\n%s", out)
 	}
-	// T-1075: the summary says what commands.check is for, so an adopter keeps it to a few minutes.
+	// the summary says what commands.check is for, so an adopter keeps it to a few minutes.
 	has(t, out, "commands.check is what every merge must pass, keep it to a few minutes; slower tests go in "+
 		"check_milestone (the nightly), and obor nightly off if CI on main already does that", "the check line")
-	// T-1115: obor's commits pass --no-verify, so the summary says an adopter's hooks never run on them.
+	// obor's commits pass --no-verify, so the summary says an adopter's hooks never run on them.
 	has(t, out, "obor commits with --no-verify: your pre-commit and commit-msg hooks do not run on them; put "+
 		"formatting and secret scans in commands.check (the merge check)", "the hooks line")
 	has(t, out, "go.mod", "detected line")
@@ -800,7 +800,7 @@ func TestOborInitWritesDetectedCommandsOnce(t *testing.T) {
 	}
 }
 
-// T-634: on a rerun L-01's tab holds a pane with an unknown cwd (maybe another project's): init does not pass that
+// on a rerun L-01's tab holds a pane with an unknown cwd (maybe another project's): init does not pass that
 // tab for L-02, which goes to a new tab of the project's workspace; nothing is split.
 func TestOborInitRerunPutsS01InANewTabBesideAMixedO01Tab(t *testing.T) {
 	t.Parallel()
@@ -834,7 +834,7 @@ func TestOborInitRerunPutsS01InANewTabBesideAMixedO01Tab(t *testing.T) {
 	}
 }
 
-// RV-88 #1: obor init writes `difficulty` from the kinds it detected (Claude), so no level lists deepseek (OpenCode)
+// obor init writes `difficulty` from the kinds it detected (Claude), so no level lists deepseek (OpenCode)
 // on a machine that never opted in; an existing `difficulty` (a user's opt-in) is kept on a rerun.
 func TestOborInitDifficultyListsOnlyDetectedKinds(t *testing.T) {
 	t.Parallel()

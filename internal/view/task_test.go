@@ -15,8 +15,8 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-883: Build makes one Task per task the view knows: one waiting for a lane, one waiting --after (a queued task kept
-// its title only while never dispatched, T-664), one merging, one needing you and one only specified all carry their
+// Build makes one Task per task the view knows: one waiting for a lane, one waiting --after (a queued task kept
+// its title only while never dispatched), one merging, one needing you and one only specified all carry their
 // title and state in Tasks, and each section names them by id.
 func TestBuildOneTaskPerTask(t *testing.T) {
 	p := testkit.New(t)
@@ -88,7 +88,7 @@ func TestBuildOneTaskPerTask(t *testing.T) {
 	}
 }
 
-// T-1022: the Task obor status --json prints carries serve's ref of it (wire.TaskStatus.Ref, its spec's external id);
+// the Task obor status --json prints carries serve's ref of it (wire.TaskStatus.Ref, its spec's external id);
 // a task without one ships no ref key.
 func TestTaskCarriesItsRef(t *testing.T) {
 	ps := wire.ProjectStatus{Tasks: []wire.TaskStatus{

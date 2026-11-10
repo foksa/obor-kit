@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// T-721, T-894: a lane row keeps its dispatch's type and its worker's blocked report through a write and both reads
+// a lane row keeps its dispatch's type and its worker's blocked report through a write and both reads
 // (all rows, one lane).
 func TestLaneRowKeepsItsTypeAndBlocked(t *testing.T) {
 	t.Parallel()
@@ -29,7 +29,7 @@ func TestLaneRowKeepsItsTypeAndBlocked(t *testing.T) {
 	}
 }
 
-// T-894: a schema-11 lanes table has no blocked column: a reader (a newer CLI, serve not yet restarted) reads its rows
+// a schema-11 lanes table has no blocked column: a reader (a newer CLI, serve not yet restarted) reads its rows
 // unblocked, and OpenRW adds the column, keeps the rows and takes a blocked one.
 func TestOpenRWMigratesTheLaneBlocked(t *testing.T) {
 	t.Parallel()
@@ -77,7 +77,7 @@ func TestOpenRWMigratesTheLaneBlocked(t *testing.T) {
 	}
 }
 
-// T-1012: a schema-12 lanes table has no landed column: a reader (a hook or obor status while serve is down) reads
+// a schema-12 lanes table has no landed column: a reader (a hook or obor status while serve is down) reads
 // its rows not landed, and OpenRW adds the column, keeps the rows and takes a landed one through both reads.
 func TestOpenRWMigratesTheLaneLanded(t *testing.T) {
 	t.Parallel()

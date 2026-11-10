@@ -8,7 +8,7 @@ import (
 	"obor/internal/herdr/herdrtest"
 )
 
-// T-444: herdr encodes an agent.start argument for the target shell and refuses one with a newline (herdr 0.9.3,
+// herdr encodes an agent.start argument for the target shell and refuses one with a newline (herdr 0.9.3,
 // invalid_agent_argument; live probe 2026-10-27), before anything runs; quotes, backticks, $, backslashes, braces, &
 // and ; pass, as the probe showed.
 func TestStartRefusesNewlineArgument(t *testing.T) {

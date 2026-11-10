@@ -12,13 +12,13 @@ import (
 	"obor/internal/app/port"
 )
 
-// T-1011: Scratch's decisions over git's answers, on fakeGit (fakegit_test.go). What real git answers is
+// Scratch's decisions over git's answers, on fakeGit (fakegit_test.go). What real git answers is
 // TestScratchGitScenarios' (scratch_test.go).
 
 // norm is s with the fixture's base dir as $BASE: an outcome comparable across fixtures.
 func (k *fk) norm(s string) string { return strings.ReplaceAll(s, k.Base, "$BASE") }
 
-// laneMsg is the submit commit's message for summary: the subject only (T-1112: no agent or model names).
+// laneMsg is the submit commit's message for summary: the subject only (no agent or model names).
 const laneMsg = "T-05: feature"
 
 // fakeStep is one Scratch step of the cut table: setup brings a fresh fixture to the step's start, call runs the
@@ -181,7 +181,7 @@ func (k *fk) published() port.Candidate {
 
 // The cut table: for each step, its N-th git call fails, one N per write and the step's first read; that run is an
 // error (not decided) that writes nothing after the failed call, and the step run again gives the uncut run's outcome and end
-// state. Before T-1011 a git shim cut real git's calls (47 s); the decisions are the same over the fake's answers.
+// state. The cut runs over an in-memory fake (a shim over real git took 47 s); the decisions are the same.
 // The lane test's step (Scratch.Test) is not here: its runner lists the changed files with git of its own
 // (runner.go), so its cut cases are TestLaneTest*'s, on real git.
 func TestScratchCutTable(t *testing.T) {
@@ -516,7 +516,7 @@ func TestGateDecisions(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		k.g.head[k.serve()] = "elsewhere" // another task's gate since (a red resolved gate, then T-20's)
+		k.g.head[k.serve()] = "elsewhere" // another task's gate since (a red resolved gate, then a red one)
 		in := port.GateInput{Task: "T-05", Lane: "L-01", Kind: port.InputResolved, Input: res, Spec: "# T-05 — Stored\n\nx\n",
 			SpecRev: 2, Title: "Stored", Summary: "feature"}
 		k.g.calls = nil
@@ -573,7 +573,7 @@ func TestGateDecisions(t *testing.T) {
 }
 
 // Resolved: serve's HEAD is pinned only when it is the task's committed merge of its input onto the target; with a
-// replay mismatch, only when the checked resolution's lost edits are back or the file was changed otherwise (T-917).
+// replay mismatch, only when the checked resolution's lost edits are back or the file was changed otherwise.
 func TestResolvedDecisions(t *testing.T) {
 	t.Parallel()
 	t.Run("its own committed merge: pinned", func(t *testing.T) {
@@ -744,8 +744,8 @@ func TestPublishDecisions(t *testing.T) {
 
 // after_merge runs commands.after_merge in the main checkout (the directory publish fast-forwards), never in serve's
 // worktree; its when globs decide; a failed run's full output goes to .obor/state/logs/<task>-after_merge.log, a
-// passing one writes no log (T-414: on 2026-10-25 a stale dist/obor after a merge had no trace; T-1094: a pass has
-// nothing to trace). It keeps no record of its own (T-525: its intent in the store is the once), so a second call runs
+// passing one writes no log (a stale dist/obor after a merge had no trace): a pass has
+// nothing to trace. It keeps no record of its own (its intent in the store is the once), so a second call runs
 // it again. The main checkout must be on a branch at the published merge, else a WARN line, again on a second call.
 func TestAfterMergeDecisions(t *testing.T) {
 	t.Parallel()
@@ -819,7 +819,7 @@ func TestAfterMergeDecisions(t *testing.T) {
 }
 
 // Landed reads branches.main's log (HEAD in MergeEvidenceBy's call), whatever the main checkout has checked out; a
-// merge subject is evidence and so is a "<id>:" commit; a log git cannot read is Landed's error (RV-38 #11).
+// merge subject is evidence and so is a "<id>:" commit; a log git cannot read is Landed's error.
 func TestLandedDecisions(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {

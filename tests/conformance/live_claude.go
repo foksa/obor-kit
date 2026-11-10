@@ -111,7 +111,7 @@ func claudeLive(l *lab, turn bool) {
 		report("SKIP", "CC-L6", "needs TURN=1 (a model call)", "internal/guard/stop.go")
 	}
 	turn1Seq := ccL8(l, pane, startSeq, turn)
-	// CC-L2's existence check runs after the turn: Claude creates the transcript at the first prompt (CAP §2.4, T-820).
+	// CC-L2's existence check runs after the turn: Claude creates the transcript at the first prompt (CAP §2.4).
 	ccL2(out, sid, hooks, turn, "internal/guard/session.go, "+at(claudeGo, "func (kind) Start")+", F4.3, F4.4")
 
 	st := k.Stop()
@@ -151,10 +151,10 @@ func claudeLive(l *lab, turn bool) {
 	out.note("claude: ~/.claude.json keeps a trust entry for " + link + " (" + l.lane + "); Claude's trust dialog writes it (known leftover, deep dive §6)")
 }
 
-// ccL7 (T-898): claude starts as a worker of the lab's project with the repository's own `obor mcp` (not the stub) and
+// ccL7: claude starts as a worker of the lab's project with the repository's own `obor mcp` (not the stub) and
 // one job_next call's rendered reply reaches the session's transcript. The start is the shipped launch's (launchOf),
-// so an approval path or a tool the start does not grant is a FAIL, not a pass the case's own flags bought (RV-122 #1,
-// T-910). A client that cannot list the server's tools, or cannot call one, leaves no such result.
+// so an approval path or a tool the start does not grant is a FAIL, not a pass the case's own flags bought.
+// A client that cannot list the server's tools, or cannot call one, leaves no such result.
 func ccL7(l *lab, pane string, turn bool) {
 	where := at("internal/mcp/mcp.go", "func Serve") + ", F1.1, CAP §2.2, T-898"
 	if !turn {
@@ -192,7 +192,7 @@ func ccL7(l *lab, pane string, turn bool) {
 		l.stopAgent(pane)
 		return
 	}
-	// Claude creates a session's transcript at its first prompt (CAP §2.4, T-820), so the case reads it once the
+	// Claude creates a session's transcript at its first prompt (CAP §2.4), so the case reads it once the
 	// turn's tool result is there; the kind's own pattern names it (the start names the session id).
 	path := k.Transcript(l.envOf, sid)
 	if _, err := l.call("agent.prompt", map[string]any{"target": pane, "text": mcpPrompt}, 15*time.Second); err != nil {
@@ -362,7 +362,7 @@ func ccTurn(l *lab, k agents.Kind, hooks []record) {
 	report("PASS", "CC-L6", fmt.Sprintf("the Stop payload carries last_assistant_message %q (StopFailure stays docs-only)", p.LastMessage), where6)
 }
 
-// ccL8 (T-953, H3): completion_seq on agent.get across two short turns of one Claude agent: the value after the start,
+// ccL8 (H3): completion_seq on agent.get across two short turns of one Claude agent: the value after the start,
 // after the inbox's turn and after a second typed turn, whether it grew, and what herdr says about detection. Returns
 // the value after turn 1 (the restart probe compares a fresh agent's with it).
 func ccL8(l *lab, pane string, start *uint64, turn bool) *uint64 {
@@ -400,7 +400,7 @@ func ccL8(l *lab, pane string, start *uint64, turn bool) *uint64 {
 	return turn1
 }
 
-// ccL8Restart (T-953, H3): completion_seq of a fresh Claude agent in the pane the first one was quit from, after one
+// ccL8Restart (H3): completion_seq of a fresh Claude agent in the pane the first one was quit from, after one
 // typed turn: a per-agent counter reads the quit agent's after-one-turn value or below, a server-wide one goes on.
 func ccL8Restart(l *lab, pane string, oldTurn1 *uint64, turn bool) {
 	where := at(socketGo, "completion_seq") + ", H3"
@@ -533,7 +533,7 @@ func ccResume(l *lab, k agents.Kind, pane string, base []string, settings map[st
 	}
 }
 
-// ccL9 (T-1033): a lane whose committed .claude/settings.json opts into its .mcp.json servers (enabledMcpjsonServers)
+// ccL9: a lane whose committed .claude/settings.json opts into its.mcp.json servers (enabledMcpjsonServers)
 // starts without --strict-mcp-config and obor's --mcp-config, so obor's server is the plugin manifest's (the repository's
 // own manifest, loaded from the real kit with --plugin-dir in place of the project's enabledPlugins): obor's job_next
 // result reaches the transcript, the project's .mcp.json server (the stub, `mcp project`) starts beside it, and the

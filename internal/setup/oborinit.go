@@ -8,15 +8,15 @@ package setup
 //	           FAIL (the lead runs it).
 //	git        no commit yet: only a directory holding nothing but .git (or init's own untouched files, a rerun)
 //	           gets git init (when in no repository) and, after the project step, the "obor init" commit of init's
-//	           files; anything else there → FAIL before any write (T-631). A repository with a commit: untouched.
+//	           files; anything else there → FAIL before any write. A repository with a commit: untouched.
 //	project    init's files (.obor/config.json, .gitignore lines, docs); a new config's prefix is made unique against
 //	           the running herdr agents' names (<prefix>-…).
-//	setup      setup.confirmed: false when the config has no key (T-647): the models, effort and lanes obor init left
+//	setup      setup.confirmed: false when the config has no key: the models, effort and lanes obor init left
 //	           are a starting point the lead goes through with the owner at its first session.
-//	projects   the project in the machine's list of obor projects by name (T-646, project.Register): obor send <name>
+//	projects   the project in the machine's list of obor projects by name (project.Register): obor send <name>
 //	           and obor projects read it.
 //	githooks   obor setup githooks: core.hooksPath at the kit's hooks, or at its chain/ set when there is something to
-//	           chain (T-623).
+//	           chain.
 //	commands   detect: a Makefile with a check: target → make check; go.mod → go test ./...; package.json → its
 //	           lockfile picks bun / pnpm / npm, the check script else the test script, lane_setup the install,
 //	           lane_ready test -d node_modules. Only keys still null are written; nothing found → they stay null.
@@ -29,14 +29,14 @@ package setup
 //	plugin     claude plugin marketplace add <kit>, claude plugin install obor@<the kit's marketplace> --scope
 //	           project (exit codes only, under a timeout); skipped when the project's settings enable it. Before the
 //	           panes: an agent started without the plugin runs without obor's hooks and MCP tools.
-//	events     gone (T-1117): obor serve restarts its own panes, so init only removes the obor.events plugin an older
+//	events     gone: obor serve restarts its own panes, so init only removes the obor.events plugin an older
 //	           obor linked in herdr (setup herdr-plugin, once): a list error is a WARN, not a step, and never a FAIL.
 //	panes      L-01 in a new tab "workers", L-02 and the integrator beside it (the integrator in the caller's tab when
-//	           that is the project's, T-628), the reviewer in a new tab "review". A pane held by a trust dialog is
+//	           that is the project's), the reviewer in a new tab "review". A pane held by a trust dialog is
 //	           listed, not fatal: Enter there, then obor init again.
 //	serve      obor serve install (Setup.Serve; off darwin it says to run obor serve yourself).
 //
-// The output ends with the setup table (T-647, setup show): per difficulty level each of its model refs with what runs
+// The output ends with the setup table (setup show): per difficulty level each of its model refs with what runs
 // it, the lanes, the roles' models, and whether the owner confirmed them.
 
 import (
@@ -86,9 +86,9 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	if err != nil {
 		return project.Failf("%s is not on PATH (the lead runs it): install it, then obor init again", agents.Default)
 	}
-	// git: a directory in no repository gets one (T-629); a repository without a commit gets its first below, from
+	// git: a directory in no repository gets one; a repository without a commit gets its first below, from
 	// init's own files (the lanes branch from it).
-	// Decided before any write (T-631): init commits only in a directory that held nothing but .git (or init's own
+	// Decided before any write: init commits only in a directory that held nothing but.git (or init's own
 	// untouched files, a rerun); a repository with no commit and anything else in it is a FAIL.
 	root, repo := s.Dir, true
 	switch r, err := project.Find(s.Dir); {
@@ -100,7 +100,7 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 		root = r.Root
 	}
 	if _, err := os.Stat(filepath.Join(root, ".obor", "config.json")); err == nil {
-		// Before any write (T-1125): init edits the config it finds, so one this obor cannot read refuses here, with
+		// Before any write: init edits the config it finds, so one this obor cannot read refuses here, with
 		// the load's own error (a config of shape 1 names the release that rewrites it).
 		if _, err := config.Load(root); err != nil {
 			return project.Fail(strings.TrimPrefix(err.Error(), "obor: "))
@@ -137,14 +137,14 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	}
 	add("project", doneOr(s.wrote), "%s (prefix %s)", s.cfg.Name(), s.cfg.Prefix())
 
-	// setup: models, effort and difficulty are a starting point until the lead confirms them with the owner (T-647).
+	// setup: models, effort and difficulty are a starting point until the lead confirms them with the owner.
 	confirmed, err := s.initConfirmed()
 	if err != nil {
 		return err
 	}
 	add("setup", doneOr(confirmed || !existed), "%s", confirmedLine(s.cfg))
 
-	// projects: the machine's list of obor projects by name (T-646): obor send <name> and obor projects read it.
+	// projects: the machine's list of obor projects by name: obor send <name> and obor projects read it.
 	changed, err := project.Register(s.cfg.Root, s.Env)
 	if err != nil {
 		return project.Failf("the machine's project list: %v", err)
@@ -182,7 +182,7 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 		add("commands", "already", "%s", s.commandsLine())
 	}
 
-	// kinds: each plugin kind's manifest cached (T-1054), before anything reads it: the guard, the agent starts of the
+	// kinds: each plugin kind's manifest cached, before anything reads it: the guard, the agent starts of the
 	// panes step, obor setup mcp
 	kinds, err := s.cachePlugins()
 	if err != nil {
@@ -206,7 +206,7 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 		return err
 	}
 	var made, had []string
-	// Two lanes: a task's Model:/Difficulty: picks the model per dispatch (T-724, T-765).
+	// Two lanes: a task's Model:/Difficulty: picks the model per dispatch.
 	for _, l := range []string{"L-01", "L-02"} {
 		if s.cfg.HasLane(l) {
 			done, err := s.laneDone(ctx, l, filepath.Join(s.cfg.LanesDir(), l))
@@ -224,7 +224,7 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 		if err := s.load(); err != nil { // the next lane follows the count this one wrote
 			return err
 		}
-		// The rerun's lane_setup must leave the lane ready: a lane the user is told "done" is one they can use (T-613).
+		// The rerun's lane_setup must leave the lane ready: a lane the user is told "done" is one they can use.
 		if c, out, ok := s.laneReady(ctx, filepath.Join(s.cfg.LanesDir(), l)); !ok {
 			return project.Failf("lane %s: lane_ready still fails after lane_setup (%s): %s", l, c.Cmd, out)
 		}
@@ -248,7 +248,7 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	}
 	add("plugin-links", state, "%s", what)
 
-	// The obor.events plugin an older obor linked is gone (T-1117: serve restarts its own panes): one removal, best
+	// obor links no obor.events plugin in herdr (serve restarts its own panes): one removal, best
 	// effort, so a herdr that cannot list its plugins never fails the project's setup; its hint goes to the summary.
 	if _, err := s.removeIntegration(ctx); err != nil {
 		s.say("WARN events: %v", err)
@@ -279,7 +279,7 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	s.say("detected: %s", s.detectedLine())
 	s.say("commands.check is what every merge must pass, keep it to a few minutes; slower tests go in check_milestone " +
 		"(the nightly), and obor nightly off if CI on main already does that")
-	// T-1115: obor's lane and merge commits pass --no-verify (internal/checks/gitio.go:Commit), so an adopter's hooks
+	// obor's lane and merge commits pass --no-verify (internal/checks/gitio.go:Commit), so an adopter's hooks
 	// never run on them.
 	s.say("obor commits with --no-verify: your pre-commit and commit-msg hooks do not run on them; put formatting " +
 		"and secret scans in commands.check (the merge check)")
@@ -539,7 +539,7 @@ func (s *Setup) initRoleTypes() (string, error) {
 	return strings.Join(parts, ", "), nil
 }
 
-// initDifficulty writes `difficulty` from the kinds init detected (RV-88 #1): the built-in lists keep only the models
+// initDifficulty writes `difficulty` from the kinds init detected: the built-in lists keep only the models
 // of the Claude kind, which init requires on PATH. A non-Claude model (deepseek on OpenCode) joins a list only when the
 // user lists it: init has no flag or prompt for that, so a machine without OpenCode never sends its first simple task
 // to a CLI that cannot start. An existing `difficulty` is kept.
@@ -645,7 +645,7 @@ func exitText(err error) string {
 
 // --- panes ------------------------------------------------------------------------------------------------------
 
-// initPanes labels the panes of L-01, L-02, the integrator and the reviewer and starts no agent (T-708; each skipped when it runs): one summary line each
+// initPanes labels the panes of L-01, L-02, the integrator and the reviewer and starts no agent (each skipped when it runs): one summary line each
 // through add, and the agents a trust dialog holds ("name (pane id)").
 func (s *Setup) initPanes(ctx context.Context, add func(name, state, format string, a ...any)) ([]string, error) {
 	var waiting []string
@@ -674,7 +674,7 @@ func (s *Setup) initPanes(ctx context.Context, add func(name, state, format stri
 	role := func(name string) func(where) error {
 		return func(w where) error { return s.rolePane(ctx, name, w, false) }
 	}
-	// The layout is the terminal's (T-1044): L-01 in a group of its own, L-02 and the integrator beside it (the
+	// The layout is the terminal's: L-01 in a group of its own, L-02 and the integrator beside it (the
 	// integrator by the caller's own pane when it has one), the reviewer in a group of its own.
 	if err := place("L-01", s.laneWorker("L-01"), lane("L-01"), where{own: true}); err != nil {
 		return nil, err
@@ -685,7 +685,7 @@ func (s *Setup) initPanes(ctx context.Context, add func(name, state, format stri
 	}
 	integrator := beside
 	if _, err := project.Pane(s.Env); err == nil {
-		integrator = where{} // the default placement: the caller's tab when it is the project's (T-628)
+		integrator = where{} // the default placement: the caller's tab when it is the project's
 	}
 	if err := place("integrator", s.cfg.AgentName("integrator", ""), role("integrator"), integrator); err != nil {
 		return nil, err
@@ -701,7 +701,7 @@ func (s *Setup) laneWorker(lane string) string {
 	return s.cfg.AgentName("worker", lane)
 }
 
-// --- plugin reaches the lanes (T-705) ----------------------------------------------------------------------------
+// --- plugin reaches the lanes ----------------------------------------------------------------------------
 
 // initPluginLinks makes the project's .claude/settings.json reach every lane: lanes are worktrees, so a file the
 // repository does not track is not in them. Untracked → it joins lane_links (and .gitignore, which keeps git clean

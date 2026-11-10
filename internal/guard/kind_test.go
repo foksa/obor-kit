@@ -24,7 +24,7 @@ func init() {
 	agents.Register(xKind{k})
 }
 
-// DD-v0.13-verify "Design 2 again" gap 1: the guard matches the command word against the kinds' programs, not their
+// The guard matches the command word against the kinds' programs, not their
 // names: x-agent -p is denied (bare, by path, wrapped, nested), xkind -p is no agent run.
 func TestHeadlessByProgramNotName(t *testing.T) {
 	t.Parallel()

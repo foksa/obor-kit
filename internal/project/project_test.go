@@ -180,7 +180,7 @@ func TestLockKilledHolderFreesAtOnce(t *testing.T) {
 	lock.Unlock()
 }
 
-// Unlock removes the file while others may have it open: never two holders at once (RV-35 #2). The contenders are
+// Unlock removes the file while others may have it open: never two holders at once. The contenders are
 // processes (the bug is between open file descriptions), each holding the lock for a moment while it owns an O_EXCL
 // sentinel: a second holder fails to create it.
 func TestLockOneHolderUnderContention(t *testing.T) {
@@ -318,7 +318,7 @@ func TestDetectRoleCwdEnvAndLanes(t *testing.T) {
 	if got := role(t, filepath.Join(wt, "L-01")); got != (Role{"worker", "L-01", "cwd"}) {
 		t.Errorf("lane: %+v", got)
 	}
-	// T-777: role worktrees are gone; no name under lanes_dir is reserved any more (a leftover review worktree is a
+	// no name under lanes_dir is reserved for a role worktree (a leftover review worktree is a
 	// lane of that name).
 	if got := role(t, filepath.Join(wt, "review")); got != (Role{"worker", "review", "cwd"}) {
 		t.Errorf("leftover worktree under lanes_dir: %+v", got)
@@ -326,7 +326,7 @@ func TestDetectRoleCwdEnvAndLanes(t *testing.T) {
 	if got := role(t, filepath.Join(wt, "merge")); got != (Role{"none", "", "none"}) {
 		t.Errorf("merge scratch: %+v", got)
 	}
-	// T-853: the reviewer's, the deep dive's and the integrator's role worktrees are no lanes: their env role stands
+	// the reviewer's, the deep dive's and the integrator's role worktrees are no lanes: their env role stands
 	// there.
 	for _, r := range []string{"reviewer", "deep_dive", "integrator"} {
 
@@ -357,7 +357,7 @@ func TestDetectRoleCwdEnvAndLanes(t *testing.T) {
 	if got := role(t, filepath.Join(wt, "L-01")); got != (Role{"worker", "L-01", "env+cwd"}) {
 		t.Errorf("table env role + worker cwd: %+v", got)
 	}
-	// T-751: the owner's drive agent in a lane is the driver, not its worker; out of a lane it is no lane's.
+	// the owner's drive agent in a lane is the driver, not its worker; out of a lane it is no lane's.
 	t.Setenv("OBOR_ROLE", "driver")
 	if got := role(t, filepath.Join(wt, "L-01")); got != (Role{"driver", "L-01", "env+cwd"}) {
 		t.Errorf("driver in its lane: %+v", got)
@@ -367,7 +367,7 @@ func TestDetectRoleCwdEnvAndLanes(t *testing.T) {
 	}
 }
 
-// T-786: Self is the one "who am I": role + lane (cwd wins) + the current config → the derived name, for a lane
+// Self is the one "who am I": role + lane (cwd wins) + the current config → the derived name, for a lane
 // worker (env or none: OpenCode's shared hook process), the drive agent, each role; a stale OBOR_AGENT is never read;
 // a prefix change applies at once (nothing stored).
 func TestSelfDerivesTheName(t *testing.T) {
@@ -459,7 +459,7 @@ func writeTail(t *testing.T, lines ...string) string {
 	return file
 }
 
-// T-237 (RV-25 #1): TailLines reads backwards at most tailBudget bytes; a line cut by the budget is dropped.
+// TailLines reads backwards at most tailBudget bytes; a line cut by the budget is dropped.
 func TestTailLinesBoundedAndLinear(t *testing.T) {
 	t.Parallel()
 	usage := `{"type":"assistant","timestamp":"2026-10-13T10:00:00Z","message":{"usage":{"input_tokens":7}}}`

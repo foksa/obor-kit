@@ -34,7 +34,7 @@ export interface Job {
   delivered: boolean;
 }
 
-// Task is one task the view knows (T-883): the sections name it by id, project.tasks[id] (taskOf) has its fields.
+// Task is one task the view knows: the sections name it by id, project.tasks[id] (taskOf) has its fields.
 export interface Task {
   task: string;
   title?: string;
@@ -48,7 +48,7 @@ export interface Task {
   attempt?: number;
   running?: string;
   effort?: string;
-  ref?: string; // its spec's Ref: an external tracker's id (T-1022)
+  ref?: string; // its spec's Ref: an external tracker's id
   job?: Job;
 }
 
@@ -64,14 +64,14 @@ export interface Lane {
   dirty: boolean;
   warning: string | null;
   op?: string;
-  mode?: string; // "keep": a keep lane, its agent kept between tasks (T-1031)
+  mode?: string; // "keep": a keep lane, its agent kept between tasks
   agent?: string;
   agent_status?: string;
   free: boolean;
   column: string;
   since?: number;
   background?: Background[];
-  queue?: string[]; // a keep lane's queue, in serve's pass order (T-1031, T-1048)
+  queue?: string[]; // a keep lane's queue, in serve's pass order
 }
 
 export interface BriefStatus {
@@ -130,19 +130,19 @@ export interface TaskStatus {
   running?: string;
   after?: string[];
   why?: string;
-  high?: boolean; // its dispatch goes first for the next free lane when it waits (T-1030)
-  waiting?: boolean; // the merge loop's waiting predicate (T-1043): the view's queue lists it
-  rank?: number; // waiting: its place in serve's pass order, the queue's order (T-1043; absent: not a waiting dispatch)
+  high?: boolean; // its dispatch goes first for the next free lane when it waits
+  waiting?: boolean; // the merge loop's waiting predicate: the view's queue lists it
+  rank?: number; // waiting: its place in serve's pass order, the queue's order (absent: not a waiting dispatch)
   level?: string;
   types?: string[];
   difficulty?: string;
   model?: string;
-  ref?: string; // its spec's Ref: an external tracker's id (T-1022)
+  ref?: string; // its spec's Ref: an external tracker's id
   effort?: string;
   job?: string;
   delivered?: boolean;
   stopping?: string;
-  started?: number; // when serve last tried to start its lane agent (epoch seconds, T-893)
+  started?: number; // when serve last tried to start its lane agent (epoch seconds)
 }
 
 export interface AgentStatus {
@@ -175,7 +175,7 @@ export interface WatchStatus {
   since: number;
 }
 
-// Idle is the project's idle state (T-803): the pipeline is empty since its fact's time, what ended it, and the
+// Idle is the project's idle state: the pipeline is empty since its fact's time, what ended it, and the
 // lead's acknowledgement (acked and why).
 export interface Idle {
   since: number;
@@ -196,10 +196,10 @@ export interface WaitItem {
   waits_on: string;
   after?: string[];
   why?: string;
-  high?: boolean; // its dispatch goes first for the next free lane (Priority: high; T-1030)
+  high?: boolean; // its dispatch goes first for the next free lane (Priority: high)
   level?: string;
   types?: string[];
-  queue?: string; // the keep lane it queues on (T-1031)
+  queue?: string; // the keep lane it queues on
   difficulty?: string;
   model?: string;
   since?: number;
@@ -290,7 +290,7 @@ export interface LaneDot {
   attempt?: number;
   running?: string;
   effort?: string;
-  ref?: string; // its spec's Ref: an external tracker's id (T-1022)
+  ref?: string; // its spec's Ref: an external tracker's id
   job?: Job;
 }
 
@@ -318,8 +318,8 @@ export interface TaskRecord {
   step: string;
   kind: string;
   line?: string;
-  outcome?: string; // a gate's: green, red, conflict, fail (T-893)
-  pass?: boolean; // a gate's pass, the outcome as a yes or no (T-1105)
+  outcome?: string; // a gate's: green, red, conflict, fail
+  pass?: boolean; // a gate's pass, the outcome as a yes or no
 }
 
 export interface Prompt {
@@ -346,14 +346,14 @@ export interface TaskDetail {
   attempt?: number;
   running?: string;
   effort?: string;
-  ref?: string; // its spec's Ref: an external tracker's id (T-1022)
+  ref?: string; // its spec's Ref: an external tracker's id
   job?: Job;
   dispatched_at?: number;
   spec?: string;
   gated_rev?: number;
   report?: string;
   gate_line?: string;
-  gate_pass?: boolean; // the last gate's pass, from serve (T-1105: never the line's wording)
+  gate_pass?: boolean; // the last gate's pass, from serve (never the line's wording)
   needs_you: NeedsYou[];
   records: TaskRecord[];
   jobs: Prompt[];
@@ -396,7 +396,7 @@ export interface SetupLevel {
   types: string[];
 }
 
-// SetupType is a model ref the setup names and what runs it (T-765).
+// SetupType is a model ref the setup names and what runs it.
 export interface SetupType {
   ref: string;
   name: string;
@@ -405,7 +405,7 @@ export interface SetupType {
   effort: string;
 }
 
-// SetupModel is a model the config knows: built-in or models' own, its kind's efforts and its pause (T-766).
+// SetupModel is a model the config knows: built-in or models' own, its kind's efforts and its pause.
 export interface SetupModel {
   name: string;
   kind: string;
@@ -415,7 +415,7 @@ export interface SetupModel {
   paused: Pause | null;
 }
 
-// SetupKind is an agent kind: the args its starts get and whether it has a job_note (T-766).
+// SetupKind is an agent kind: the args its starts get and whether it has a job_note.
 export interface SetupKind {
   name: string;
   args: string[];

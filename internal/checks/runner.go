@@ -29,13 +29,13 @@ type runner struct {
 	changedFile string     // the OBOR_CHANGED_FILES file under state (a lane test's)
 	slot        string
 	env         []string // extra command environment (OBOR_CHANGED_FILES, a lane test's CPU budget)
-	prio        string   // the check slot's priority: "merge" (the merge marker; "" too) or "worker" (a pool slot: a lane test, T-961)
-	retest      bool     // a lane test or the nightly: a red run's failing tests are rerun once (commands.retest, T-964, T-1168)
+	prio        string   // the check slot's priority: "merge" (the merge marker; "" too) or "worker" (a pool slot: a lane test)
+	retest      bool     // a lane test or the nightly: a red run's failing tests are rerun once (commands.retest)
 	pre         string   // the target side of the merge
 	class       Class
 	mode        string            // class.Mode() once classified
 	check       string            // the checks' counts
-	onCommand   func(name string) // told each command as it starts and "" as it ends (serve's gate: obor status' running line, T-669, T-673)
+	onCommand   func(name string) // told each command as it starts and "" as it ends (serve's gate: obor status' running line)
 }
 
 func newRunner(ctx context.Context, o *Options, dir, logName string) runner {
@@ -88,7 +88,7 @@ type output struct {
 // command is commands.<name> with obor run's defaults; ok false when unset.
 func (opt *Options) command(name string) (config.Command, bool) { return run.Command(opt.Cfg, name) }
 
-// run is exec plus the flake log (T-359, RV-39 #3): the one boundary every check run of the runner passes, so merge,
+// run is exec plus the flake log: the one boundary every check run of the runner passes, so merge,
 // serve, nightly and milestone runs all record a red run's failing tests. A run in another dir (after_merge) is no
 // check run and records no flakes; its output goes to its log like any other run's.
 func (r *runner) run(name string, dir ...string) (output, bool, *halt) {
@@ -136,7 +136,7 @@ func (r *runner) execCommand(c config.Command, dir ...string) (output, *halt) {
 	rc, timedOut := run.Execute(r.ctx, c, wd, nil, environ, &buf, &buf)
 	if r.onCommand != nil {
 		// The command ended, however it ended (a normal exit, a timeout, the signal that cut ctx): between two
-		// commands the gate runs and no command does (T-673, RV-75 #4).
+		// commands the gate runs and no command does.
 		r.onCommand("")
 	}
 	if code := r.interrupted(); code != 0 {
@@ -168,7 +168,7 @@ func (r *runner) writeLog(name string, b []byte) string {
 	return path
 }
 
-// priority is the check slot's priority the runner takes: merge unless set (a lane test's worker, T-961).
+// priority is the check slot's priority the runner takes: merge unless set (a lane test's worker).
 func (r *runner) priority() string {
 	if r.prio == "" {
 		return "merge"
@@ -335,7 +335,7 @@ func (opt *Options) printLines(ls []string) {
 // .obor/state/<changedFile> (exported as OBOR_CHANGED_FILES) and classifies the merge.
 func (r *runner) changed(task, rev string) *halt {
 	path := filepath.Join(r.state, r.changedFile)
-	// --no-renames: a rename is a deletion plus an addition, so its source path is classified too (RV-03 #2).
+	// --no-renames: a rename is a deletion plus an addition, so its source path is classified too.
 	out, err := r.git(r.dir, "diff", "--no-renames", "--name-only", rev)
 	files := lines(out)
 	if err == nil {
@@ -366,7 +366,7 @@ func (r *runner) laneSetup() *halt {
 	return &halt{fail: fmt.Sprintf("lane_setup (rc %d)", o.rc)}
 }
 
-// compile runs commands.compile, the merge slot's one check (T-961: build, gofmt, vet, deadcode in obor-kit): a failure
+// compile runs commands.compile, the merge slot's one check (build, gofmt, vet, deadcode in obor-kit): a failure
 // is red. r.check is its counts, "" when it is not configured (nothing runs).
 func (r *runner) compile() *halt {
 	o, ok, h := r.must("compile")
@@ -378,8 +378,8 @@ func (r *runner) compile() *halt {
 }
 
 // runChecks runs the classes' checks: partial → merge.guard, then each class's checks (a missing command → fail; a
-// command two classes name runs once); full → check, then each matched class marked with_full's checks (T-1007).
-// Every check runs: a run in a lane has nothing to reuse (T-966).
+// command two classes name runs once); full → check, then each matched class marked with_full's checks.
+// Every check runs: a run in a lane has nothing to reuse.
 func (r *runner) runChecks() *halt {
 	if r.class.Partial {
 		var checks []string
@@ -419,7 +419,7 @@ func (r *runner) runChecks() *halt {
 	} else if ok {
 		counts = append(counts, r.counts(o))
 	}
-	// A matched class marked with_full runs its checks after check, config order, a command named twice once (T-1007: a
+	// A matched class marked with_full runs its checks after check, config order, a command named twice once (a
 	// full lane with release or web files still covers them).
 	seen := map[string]bool{"check": true}
 	for _, name := range r.class.Names {
@@ -445,8 +445,8 @@ func (r *runner) runChecks() *halt {
 }
 
 // must runs commands.<name>; a failure is red. ok false: not configured. Every red run's failing tests go to the flake
-// log (T-350). A lane test or the nightly reruns a red's failing tests once (retested, retestOnRed, T-964, T-1168). The
-// load retry that used to save a red with only timeouts failing under load is gone (T-864).
+// log. A lane test or the nightly reruns a red's failing tests once (retested, retestOnRed). A red whose only
+// failures are timeouts is red: a retry does not save it.
 func (r *runner) must(name string) (output, bool, *halt) {
 	o, ok, h, _ := r.retested(name)
 	if h != nil || !ok {
@@ -461,7 +461,7 @@ func (r *runner) must(name string) (output, bool, *halt) {
 // retested is must before its red halt: commands.<name> run once, and a red whose failing tests and packages it names
 // rerun once (retestOnRed) when the runner retests — green then is the run's, saved the failing tests it reran, 0 when
 // none was saved (a red that names no test, no commands.retest, a retest that failed). ok false: not configured. Every
-// red run's failing tests go to the flake log, retried and passed when the retest saved it (T-350, T-964, T-1168: the
+// red run's failing tests go to the flake log, retried and passed when the retest saved it (the
 // nightly's GREEN line names the rerun).
 func (r *runner) retested(name string) (o output, ok bool, h *halt, saved int) {
 	o, ok, h = r.exec(name)
@@ -481,11 +481,11 @@ func (r *runner) retested(name string) (o output, ok bool, h *halt, saved int) {
 	return o, true, nil, 0
 }
 
-// retestOnRed runs a red run's failures once more (T-964, T-1168: a lane test and the nightly, one retest, never
+// retestOnRed runs a red run's failures once more (a lane test and the nightly, one retest, never
 // more): the tests and packages the run named, commands.retest in the same dir at the same commit — its {tests} the
 // failing tests joined by merge.retest_join, OBOR_FAILED_PKGS the failing packages — the runner's CPU budget, inside
 // the slot it already holds. green: the retest passed and ran at least one test (a run that tested nothing, "0 pass,
-// 0 fail", is not green, T-976); ran false: none ran (no name or package, no commands.retest), so the red stands as
+// 0 fail", is not green); ran false: none ran (no name or package, no commands.retest), so the red stands as
 // before; n: how many failing tests it reran.
 func (r *runner) retestOnRed(red output) (out output, green, ran bool, n int) {
 	_, tests, pkgs := r.flakeParse(red)
@@ -509,7 +509,7 @@ func (r *runner) retestOnRed(red output) (out output, green, ran bool, n int) {
 
 // ranTests is whether a retest's counts (merge.summary_regex) show at least one test: the retry's own "go test: 0
 // pass, 0 fail" is a run that tested nothing (an empty package list, a -run that matched nothing) and cannot turn the
-// original red green (T-976). counts' "rc=<n>" (no summary line) says nothing about tests, so rc alone decides.
+// original red green. counts' "rc=<n>" (no summary line) says nothing about tests, so rc alone decides.
 func ranTests(counts string) bool {
 	if strings.HasPrefix(counts, "rc=") {
 		return true
@@ -523,7 +523,7 @@ func ranTests(counts string) bool {
 	return len(nums) == 0
 }
 
-// retestPlaceholder is commands.retest's placeholder for the failing tests (T-1047), joined by merge.retest_join.
+// retestPlaceholder is commands.retest's placeholder for the failing tests, joined by merge.retest_join.
 const retestPlaceholder = "{tests}"
 
 // retestCommand is c with retestPlaceholder filled: the failing tests joined by merge.retest_join (default "|"), in

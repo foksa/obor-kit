@@ -119,7 +119,7 @@ func (p Panes) started() time.Time {
 }
 
 // Snapshot is herdr's session now, as the subscription's Snapshot: the same source (session.snapshot), for a pane whose
-// cwd changed with no event (a cd in it: T-745).
+// cwd changed with no event (a cd in it).
 func (p Panes) Snapshot(ctx context.Context) (port.Snapshot, error) {
 	s, err := p.S.Snapshot(ctx)
 	if err != nil {
@@ -130,7 +130,7 @@ func (p Panes) Snapshot(ctx context.Context) (port.Snapshot, error) {
 
 // Activity is when pane's agent last wrote its transcript; known is false when herdr reports no session for it, or
 // for a kind whose transcripts obor cannot find, or when the file is not there (unknown, not inactive). pane is the one
-// the caller observed (T-951): its Session and Transcript, no herdr call.
+// the caller observed: its Session and Transcript, no herdr call.
 func (p Panes) Activity(_ context.Context, pane port.Pane) (last time.Time, known bool) {
 	path := p.transcript(pane)
 	if path == "" {
@@ -144,12 +144,12 @@ func (p Panes) Activity(_ context.Context, pane port.Pane) (last time.Time, know
 }
 
 // turnChunk is how much of a transcript Turn reads at a time, from its end back: a turn's last events first, then
-// earlier chunks while none is found (a turn's tool outputs can be megabytes, RV-59 #2).
+// earlier chunks while none is found (a turn's tool outputs can be megabytes).
 const turnChunk = 256 << 10
 
 // Turn is the last turn pane's agent's transcript records (lastTurn): the file transcript names (its recorded
-// session's, T-577), else the one herdr reports; ok false when obor cannot tell: no session, a kind whose turns are
-// not read, no file, no turn event in it. pane is the one the caller observed (T-951): its Agent, Session and
+// session's), else the one herdr reports; ok false when obor cannot tell: no session, a kind whose turns are
+// not read, no file, no turn event in it. pane is the one the caller observed: its Agent, Session and
 // Transcript, no herdr call.
 func (p Panes) Turn(_ context.Context, pane port.Pane, transcript string) (agents.Turn, bool) {
 	k, ok := agents.Lookup(pane.Agent)

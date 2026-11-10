@@ -1,5 +1,5 @@
-// plugin_test.go: obor status's no-plugin warning (T-307) for an opencode lane, and when it waits for the plugin to
-// check in (T-783): its marker is written on the agent session's first event, which comes after the agent started.
+// plugin_test.go: obor status's no-plugin warning for an opencode lane, and when it waits for the plugin to
+// check in: its marker is written on the agent session's first event, which comes after the agent started.
 package view
 
 import (
@@ -62,7 +62,7 @@ func pluginRig(t *testing.T, dispatchedAt, at int64, now time.Time) (*checks.Lan
 		State: "working", Task: "T-1"}
 }
 
-// T-783: obor status reads the start serve last tried (T-893: serve's TaskStatus.Started, its fold of the agent.start
+// obor status reads the start serve last tried (serve's TaskStatus.Started, its fold of the agent.start
 // records) into the warning: a lane whose agent was restarted and resumed 30 s ago has no no-plugin warning yet, though
 // its marker is a dispatch old; the same lane ten minutes after that start, its hook still not run, is warned.
 func TestBuildNoPluginWaitsForTheLastStart(t *testing.T) {
@@ -112,7 +112,7 @@ func TestBuildNoPluginWaitsForTheLastStart(t *testing.T) {
 	}
 }
 
-// T-783: a lane whose agent was (re)started after its dispatch — obor restart, then obor resume retrying the start —
+// a lane whose agent was (re)started after its dispatch — obor restart, then obor resume retrying the start —
 // has a marker older than the dispatch until the agent's session's first event writes a new one, so the warning waits
 // pluginSettle after that start; a start that never checks in is the missing plugin.
 func TestPluginMissingWaitsForTheStartToCheckIn(t *testing.T) {

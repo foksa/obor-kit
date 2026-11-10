@@ -1,8 +1,8 @@
 // Package store opens a project's SQLite database. serve is the only writer: it opens the
 // database with OpenRW; hooks and CLIs open it with OpenRO, read-only, so they work while serve is down or writing.
-// Tables: meta (the schema version), events (the event log, T-435; internal/app's Log reads and writes it), lanes
-// (each lane's dispatched task, serve's projection of the log, T-439; lanes.go), specs (each task's spec, T-440;
-// specs.go) and prompts (the text of every prompt serve sent, T-665; prompts.go).
+// Tables: meta (the schema version), events (the event log; internal/app's Log reads and writes it), lanes
+// (each lane's dispatched task, serve's projection of the log; lanes.go), specs (each task's spec;
+// specs.go) and prompts (the text of every prompt serve sent; prompts.go).
 package store
 
 import (
@@ -23,7 +23,7 @@ import (
 
 const (
 	// SchemaVersion is the schema this binary knows. OpenRW refuses a newer one: the database is per project, and a
-	// obor that wrote it may be newer than this binary. 7: prompts (T-665); 8: the prompts table's own key (T-670); 9: the lane row's type (T-721); 10: the spec row's note (T-819); 11: the read indexes (T-881); 12: the lane row's blocked (T-894); 13: the lane row's landed (T-1012); 14: serve's nightly prune of the events table (T-1089: no DDL; a binary at 13 refuses a store that may be pruned, as it would fold a task's lone merged fact to nothing).
+	// obor that wrote it may be newer than this binary. 7: prompts; 8: the prompts table's own key; 9: the lane row's type; 10: the spec row's note; 11: the read indexes; 12: the lane row's blocked; 13: the lane row's landed; 14: serve's nightly prune of the events table (no DDL; a binary at 13 refuses a store that may be pruned, as it would fold a task's lone merged fact to nothing).
 	SchemaVersion = 14
 	// upgradeFrom is the oldest schema OpenRW opens: a store from before v0.22 (schema 2–8) is refused, and upgrades
 	// through v0.24.0 first. A store this opens is migrated to SchemaVersion (initSchema: its tables are all created
@@ -177,7 +177,7 @@ var schema = []string{
 	`CREATE TABLE IF NOT EXISTS prompts (id INTEGER PRIMARY KEY AUTOINCREMENT, seq INTEGER NOT NULL,
 		agent TEXT NOT NULL, kind TEXT NOT NULL, job TEXT NOT NULL, task TEXT NOT NULL, ts TEXT NOT NULL,
 		rev INTEGER NOT NULL DEFAULT 0, text TEXT NOT NULL)`,
-	// The read indexes (T-881): a task's timeline and session facts filter by task and order by seq, the blocked
+	// The read indexes: a task's timeline and session facts filter by task and order by seq, the blocked
 	// report reads one task's (and msg's); a job's prompt lookup filters by job and takes its newest first (id is the
 	// rowid, so the index's entries are ordered by it). A query plan on a copy of this project's store uses both;
 	// the other readers' columns (kind, step, a task's prompts) get one only when a plan shows it pays for its writes.
@@ -186,7 +186,7 @@ var schema = []string{
 }
 
 // versionErr is a binary's refusal of a database at schema got, the binary knowing schema binary (nil: it opens it):
-// newer than the binary (a store an older obor must not fold: 14's pruned log, T-1089), or older than upgradeFrom.
+// newer than the binary (a store an older obor must not fold: 14's pruned log), or older than upgradeFrom.
 func versionErr(got, binary int) error {
 	switch {
 	case got > binary:
@@ -238,8 +238,8 @@ func initSchema(db *sql.DB) error {
 			return fmt.Errorf("store: create schema: %w", err)
 		}
 	}
-	// Version 10 gave the spec row the note its set carried (T-819): an older specs table gets the column, empty (a
-	// rev set before T-819 has none).
+	// Version 10 gave the spec row the note its set carried: an older specs table gets the column, empty (a
+	// rev set with no note has none).
 	if found && got < 10 {
 		var n int
 		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM pragma_table_info('specs') WHERE name = 'note'").
@@ -252,21 +252,21 @@ func initSchema(db *sql.DB) error {
 			}
 		}
 	}
-	// Version 12 gave the lane row the worker's blocked report (T-894): an older lanes table gets the column, false
+	// Version 12 gave the lane row the worker's blocked report: an older lanes table gets the column, false
 	// (a question nobody reports is not blocked).
 	if found && got < 12 {
 		if err := addLaneColumn(ctx, tx, "blocked", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 			return err
 		}
 	}
-	// Version 13 gave the lane row its task's landed fact (T-1012): an older lanes table gets the column, false until
+	// Version 13 gave the lane row its task's landed fact: an older lanes table gets the column, false until
 	// serve rewrites the table from its fold (it does on load); an older binary's reads name their columns and skip it.
 	if found && got < 13 {
 		if err := addLaneColumn(ctx, tx, "landed", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 			return err
 		}
 	}
-	// Version 14 changes no table (T-1089): serve's nightly backup prunes ended tasks' records and old sessions, which
+	// Version 14 changes no table: serve's nightly backup prunes ended tasks' records and old sessions, which
 	// a binary at 13 would fold wrong, so only the version moves.
 	switch {
 	case !found:

@@ -12,11 +12,11 @@ import (
 	"time"
 )
 
-// A stopped project (T-709): `obor stop` put it to sleep (no serve, no agents, not in the machine's project list) and
+// A stopped project: `obor stop` put it to sleep (no serve, no agents, not in the machine's project list) and
 // `obor start` wakes it. The marker is <root>/.obor/state/stopped; while it is there every obor hook and the git hooks
 // stand down, serve and the herdr plugin's restore leave the project alone, and obor init says to run obor start.
 // obor start moves the marker to <root>/.obor/state/starting first (serve may start then) and removes that once obor
-// stop's pause is ended (T-711): an obor start that failed before that finds it on its rerun.
+// stop's pause is ended: an obor start that failed before that finds it on its rerun.
 
 // StoppedLine is the line obor whoami, obor status and obor web show for a stopped project.
 const StoppedLine = "project stopped: obor start"
@@ -34,7 +34,7 @@ func Stopped(root string) bool {
 }
 
 // StopMarker is the marker's content: when and why the project stopped, and the pause in force that obor stop
-// replaced with its own (T-711; PauseWhy "": none; PauseUntil 0: until cleared). obor start restores that pause while
+// replaced with its own (PauseWhy "": none; PauseUntil 0: until cleared). obor start restores that pause while
 // it has not expired.
 type StopMarker struct {
 	At         time.Time

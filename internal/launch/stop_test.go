@@ -8,7 +8,7 @@ import (
 	"obor/internal/app/port"
 )
 
-// T-758 (RV-93 #1, T-757 reverted): a stop of an agent with no labelled pane is a plain FAIL, not port.NotFound: a
+// A stop of an agent with no labelled pane is a plain FAIL, not port.NotFound: a
 // label is not the identity, so a missing one never says the agent is gone (serve's identity decides that, stopAgent);
 // herdr's pane list failing is a plain FAIL too.
 func TestStopNoPanePlainFail(t *testing.T) {

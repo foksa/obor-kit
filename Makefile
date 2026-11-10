@@ -1,33 +1,33 @@
-# obor (Go). `make build` → dist/obor and the kind binaries beside it (OUT elsewhere, T-975, T-1046), `make test` → go test ./..., `make check` → the merge gate (commands.check),
+# obor (Go). `make build` → dist/obor and the kind binaries beside it (OUT elsewhere), `make test` → go test ./..., `make check` → the merge gate (commands.check),
 # `make check-affected` → its per-merge tier (commands.check_affected), `make check-compile` → the merge slot's
-# compile tier (commands.compile, T-961), `make check-retest` → a red lane test's failing tests once more
-# (commands.retest, T-964), `make check-readers` / `make check-web` →
-# the two non-Go classes' checks (skills/templates/hooks and the page's Go side, T-901), `make check-release` → the
-# kit's own release tooling (the Makefile, scripts/, install.sh; tests/release, T-902),
-# `make check-budget` → the nightly test budget (tests/budget, T-1002),
+# compile tier (commands.compile), `make check-retest` → a red lane test's failing tests once more
+# (commands.retest), `make check-readers` / `make check-web` →
+# the two non-Go classes' checks (skills/templates/hooks and the page's Go side), `make check-release` → the
+# kit's own release tooling (the Makefile, scripts/, install.sh; tests/release),
+# `make check-budget` → the nightly test budget (tests/budget),
 # `make check-race` → the nightly's non-gating race line (commands.race),
-# `make trim-go-cache` → every entry of the Go build cache (commands.trim_go_cache, nightly, T-817, T-1027),
-# `make vulncheck` → the nightly's pinned govulncheck (commands.check_milestone, T-1034),
+# `make trim-go-cache` → every entry of the Go build cache (commands.trim_go_cache, nightly),
+# `make vulncheck` → the nightly's pinned govulncheck (commands.check_milestone),
 # `make deadcode` → its dead-code check, `make deps` → a warm module cache for an offline machine, `make upgrade-check`
 # → the previous release upgraded to this build (tests/upgrade),
 # `make release V=x.y.z` → the whole release (scripts/release); `make ship` → the owner's push, publish and install
 # (scripts/ship); `make release` without V → only the local release files; `make publish` → the eight of them to a
 # GitHub release (explicit, outward-facing).
 GO ?= go
-# GOFLAGS carries -trimpath for every Go command of every target (T-1027): without it Go puts the package's directory
+# GOFLAGS carries -trimpath for every Go command of every target: without it Go puts the package's directory
 # into a compile's cache key, so each of the ~9 worktrees caches its own copy of every package at every commit. A
 # GOFLAGS from the environment (a lane's, from this project's slots.lane_env: -p and -trimpath) is kept, and -trimpath
 # is added once.
 GOFLAGS := $(strip $(filter-out -trimpath,$(GOFLAGS)) -trimpath)
 export GOFLAGS
 # OUT is where build writes the binary: dist/obor in the kit as always, and another path for a build that runs outside the
-# kit (T-975).
+# kit.
 OUT ?= dist/obor
 VERSION_FILE := VERSION
 VERSION := $(shell cat $(VERSION_FILE))
 # The version stamped into the binary (-X): the tag when HEAD is exactly at one (v0.14.0 at a release), else the newest
 # release tag by version order plus -dev+<short sha> (v0.14.0-dev+abc1234, -dirty when the tree is modified) — release
-# tags sit on release commits off main, so `git describe` on main names an older tag (T-559). Else the VERSION file's
+# tags sit on release commits off main, so `git describe` on main names an older tag. Else the VERSION file's
 # bare number with a v (v0.14.0) when this is not a git checkout or has no release tag. `make release` always stamps
 # v$(VERSION): its binaries are built before the release commit (with their catalog) is tagged.
 BUILD_VERSION := $(shell dirty=; [ -z "$$(git status --porcelain --untracked-files=no 2>/dev/null)" ] || dirty=-dirty; \
@@ -42,14 +42,14 @@ BUILD_VERSION := v$(shell cat $(VERSION_FILE))
 endif
 GOOS_LIST := darwin linux
 GOARCH_LIST := arm64 amd64
-# KINDS are the plugin kinds the kit ships as their own binaries (kinds/<kind>, T-1046): built beside obor, released
+# KINDS are the plugin kinds the kit ships as their own binaries (kinds/<kind>): built beside obor, released
 # beside it (obor-kind-<kind>-<version>-<os>-<arch>; scripts/release-lib.sh's binaries names them too).
 KINDS := opencode
 RELEASE_BINARIES := obor $(KINDS:%=obor-kind-%)
 
 .PHONY: build test conformance trim-go-cache check check-affected check-compile check-retest check-race check-readers check-web check-release check-budget vulncheck deadcode deps upgrade-check release ship publish clean web web-dev web-test
 
-# build writes OUT and, beside it, each kind binary the kit ships (KINDS: kinds/<kind> -> obor-kind-<kind>, T-1046; obor
+# build writes OUT and, beside it, each kind binary the kit ships (KINDS: kinds/<kind> -> obor-kind-<kind>; obor
 # runs a kit kind from the directory of its own executable, config.KitKind).
 build:
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags "-s -w -X obor/internal/version.Version=$(BUILD_VERSION)" -o $(OUT) ./cmd/obor
@@ -60,7 +60,7 @@ build:
 test:
 	$(GO) test ./...
 
-# The conformance suite (T-798, T-804, deep dive §6): tests/conformance, behind the conformance build tag so
+# The conformance suite (deep dive §6): tests/conformance, behind the conformance build tag so
 # go test ./... and make check never run its checks (its stub MCP server and output writer are unit-tested there).
 # KIND=herdr|claude|codex|opencode (default: all), TIER=static (default; no session, no model) or live (one throwaway
 # herdr session per kind, agents started interactively; KEEP=1 keeps the scratch dir), TURN=1 (live: one model call
@@ -69,7 +69,7 @@ test:
 conformance:
 	@KIND="$(KIND)" TIER="$(TIER)" TURN="$(TURN)" $(GO) run -tags conformance ./tests/conformance
 
-# trim-go-cache (commands.trim_go_cache, T-817, T-1027) deletes every file in the Go build cache and prints
+# trim-go-cache (commands.trim_go_cache) deletes every file in the Go build cache and prints
 # "go cache: freed <size>, <size> left". The owner's decision (2026-11-08): the nightly empties the cache, not by age —
 # at 18-25 GB every entry had been used within 48 h, so the 48 h trim freed nothing — and a slower first compile beats
 # gigabytes on disk; -trimpath keeps one entry per package, not one per worktree (GOFLAGS above). It deletes the entry
@@ -85,29 +85,29 @@ trim-go-cache:
 	  if (n >= 1048576) return sprintf("%.1f MiB", n/1048576); if (n >= 1024) return sprintf("%.1f KiB", n/1024); \
 	  return sprintf("%d B", n) } BEGIN { printf "go cache: freed %s, %s left\n", size(f), size(l) }'
 
-# The merge gate (check: the full suite) and its per-merge tier (check-affected, commands.check_affected, T-347): check
-# runs every step; check-affected runs tests/budget -missing first (T-1073: a package with tests and no budget entry fails
+# The merge gate (check: the full suite) and its per-merge tier (check-affected, commands.check_affected): check
+# runs every step; check-affected runs tests/budget -missing first (a package with tests and no budget entry fails
 # the lane with the -seed command that writes it, and an entry whose package is gone with the line to remove it; no test
-# runs), then the kit's tools/affected list (go run, T-1040; T-1120: its -full globs, the files whose change forces the
+# runs), then the kit's tools/affected list (go run: its -full globs, the files whose change forces the
 # full suite, are the Makefile's) and then go test only, on
 # the packages $OBOR_CHANGED_FILES affects; any doubt runs the full suite. The slot's check-compile already ran build,
-# gofmt, vet and deadcode on the same commit (T-995), so the lane repeats none of them.
-# One test split, not two tiers (T-1014, T-1056): a test that needs real I/O sits in a file with `//go:build
+# gofmt, vet and deadcode on the same commit, so the lane repeats none of them.
+# One test split, not two tiers: a test that needs real I/O sits in a file with `//go:build
 # integration`, and every gating or measuring check passes -tags integration, so a lane runs the whole suite of the
-# affected packages. `-short` and testkit.Slow are gone: nothing skips a test in a lane.
-# A lane runs the full class check, importers included (RV-138 #1).
-# Serve's lane step runs the class's tier in the task's lane (T-961). check-compile (commands.compile, T-961) is
+# affected packages. Nothing skips a test in a lane: there is no -short tier.
+# A lane runs the full class check, importers included.
+# Serve's lane step runs the class's tier in the task's lane. check-compile (commands.compile) is
 # what serve's merge slot runs on each merge: build, gofmt, vet and deadcode, no go test. CHECK_CPUS (obor run and the
 # gates export it: cores / slots.max) is go test -p. check and check-release start with GO_GATE: GOCACHE falls back to
-# $TMPDIR when the default is not writable (a Codex sandbox, T-206), then build, gofmt and vet; every failure prints a
-# line fail_grep matches (^FAIL). GO_CACHE is that GOCACHE selection alone (shared with check-retest and check-affected,
-# T-976, T-1040); check-readers and check-web start with GO_CACHE only; none of them runs gofmt, go vet or deadcode: the
-# slot compiled the commit (T-995).
-# The integration tag (T-1014, owner 11-08): tests that need real I/O (real git, herdr's fake socket, a built binary) go
+# $TMPDIR when the default is not writable (a Codex sandbox), then build, gofmt and vet; every failure prints a
+# line fail_grep matches (^FAIL). GO_CACHE is that GOCACHE selection alone (shared with check-retest and check-affected);
+# check-readers and check-web start with GO_CACHE only; none of them runs gofmt, go vet or deadcode: the
+# slot compiled the commit.
+# The integration tag (owner 11-08): tests that need real I/O (real git, herdr's fake socket, a built binary) go
 # in files with `//go:build integration`, and a worker's plain `go test ./<pkg>/...` leaves them out. Every check that
 # gates or measures (check, check-affected, check-retest, check-readers, check-web, check-release, vet, deadcode and
 # tests/budget) passes -tags integration, so a tagged test keeps running wherever it gates. `make test` stays plain: it
-# is the unit tests a worker runs; the tag moves no test until T-1011 tags its package.
+# is the unit tests a worker runs, and a file with the integration tag is not one of them.
 GO_CACHE = c=$$($(GO) env GOCACHE 2>/dev/null); \
 	{ mkdir -p "$$c" && : > "$$c/.obor-probe" && rm -f "$$c/.obor-probe"; } 2>/dev/null || \
 	  { GOCACHE="$${TMPDIR:-/tmp}/obor-go-build"; export GOCACHE; }
@@ -115,8 +115,8 @@ GO_GATE = $(GO_CACHE); \
 	$(MAKE) -s build || { echo "FAIL make build"; exit 1; }; \
 	f=$$(gofmt -l cmd internal tools kinds); test -z "$$f" || { echo "FAIL gofmt: $$(printf '%s\n' "$$f" | tr '\n' ' ')"; exit 1; }; \
 	$(GO) vet -tags integration ./... || { echo "FAIL go vet"; exit 1; }
-# check runs deadcode before its go test (T-1173, RV-173 #1): a suite the nightly's retest turns green still had the
-# dead-code check run at its commit, and the tests' summary stays the target's last line (the nightly reads it).
+# check runs deadcode before its go test: a suite the nightly's retest turns green still runs the
+# dead-code check at its commit, and the tests' summary stays the target's last line (the nightly reads it).
 check:
 	@$(GO_GATE); \
 	$(MAKE) -s deadcode || { echo "FAIL deadcode"; exit 1; }; \
@@ -146,7 +146,7 @@ check-compile:
 	$(MAKE) -s deadcode || { echo "FAIL deadcode"; exit 1; }; \
 	echo "compile: build, gofmt, vet, deadcode OK"
 
-# check-retest (commands.retest, T-964, T-976, T-1047): a red lane test's failing tests once more on the same tree, not
+# check-retest (commands.retest): a red lane test's failing tests once more on the same tree, not
 # the check's whole package tier: go test -run of $TESTS (the tests the run named, `^(A|B)$` — obor fills commands.retest's
 # {tests}) on $OBOR_FAILED_PKGS (the packages it named), with GO_CACHE (an unwritable default cache falls back as the
 # checks do), CHECK_CPUS as -p. The retry runs a test as it ran and still skips build, gofmt and vet. Green →
@@ -162,7 +162,7 @@ check-retest:
 # line's, so the last line is the number of race reports and the exit is 1 only when there is one (the nightly then
 # keeps the whole output, .obor/state/logs/nightly-race.log). A run in which no package ran (-race needs cgo off
 # macOS; a build error) is itself a `race: ` line naming the failure, "the race build did not run (FAIL)", and exit 2,
-# never "0 reports": the nightly's WARN line carries that line, not make's trailer (T-1182). RACE_PKGS narrows it to a
+# never "0 reports": the nightly's WARN line carries that line, not make's trailer. RACE_PKGS narrows it to a
 # task's own package.
 RACE_PKGS ?= ./...
 check-race:
@@ -174,7 +174,7 @@ check-race:
 	f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	echo "race: $$n data race report(s), $$f package(s) with failing tests under -race"; test "$$n" = 0
 
-# check-readers: the packages that read the non-Go files outside a Go rule (merge.classes "readers", T-901). The survey
+# check-readers: the packages that read the non-Go files outside a Go rule (merge.classes "readers"). The survey
 # greps the .go files under cmd/ and internal/ for each path, package by package; TestOborKitReaders fails when a package
 # starts reading one and READER_PKGS lacks it, and when a listed package stopped:
 #   skills/**        cmd/obor (skills_test.go: the skill texts, their frontmatter and the files they point to)
@@ -188,17 +188,17 @@ check-race:
 #   internal/checks  matches only through the classification table and a fixture that name paths without reading them:
 #                    listed so the survey needs no per-file exception; its tests run beside cmd/obor's and internal/app's,
 #                    so the extra package costs little wall time.
-#   internal/agents, internal/agents/plugin  match only through the status value "hooks" (Caps.Status, T-1036) and the
+#   internal/agents, internal/agents/plugin  match only through the status value "hooks" (Caps.Status) and the
 #                    kind protocol's caps.hooks in plugin's test manifests, no path: listed for the same reason; their
 #                    tests take about two seconds.
 # tests/conformance reads hooks/hooks.json too, but that suite is `make conformance`, nightly. No compile step (the slot's
-# check-compile compiled the commit, T-995) and no deadcode: a changed skill or template moves no package's API. Left as
+# check-compile compiled the commit) and no deadcode: a changed skill or template moves no package's API. Left as
 # they are: docs/** is merge.neutral (guard only, unchanged) — the
 # reader list above leaves docs out, so docs/agents/*.md, read by cmd/obor (skills_test.go) and internal/app
 # (worktext_test.go), keeps today's hole; root README.md is read by cmd/obor (skills_test.go) but stays unmatched (the
 # full check, safe), and bin/obor, githooks/** and web/package.json match no class and run the full check too (the
 # release class owns Makefile, scripts/**, install.sh, RELEASING.md, .claude-plugin/marketplace.json and
-# tests/release/**, T-902). In .obor/config.json the web class must stay before go (internal/web/dist/** lies under
+# tests/release/**). In .obor/config.json the web class must stay before go (internal/web/dist/** lies under
 # internal/**) and the release class before readers (.claude-plugin/marketplace.json lies under readers'
 # .claude-plugin/**), since the first class whose glob matches owns the file.
 READER_PKGS := ./cmd/obor ./internal/agents ./internal/agents/claude ./internal/agents/plugin ./internal/app ./internal/checks ./internal/config ./internal/guard ./internal/setup
@@ -208,8 +208,8 @@ check-readers:
 	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"
 
-# check-web: the Go side of the page (merge.classes "web", T-901), with GO_CACHE as the other lane checks (the slot's
-# check-compile compiled the commit, T-995). `go test ./internal/web` is
+# check-web: the Go side of the page (merge.classes "web"), with GO_CACHE as the other lane checks (the slot's
+# check-compile compiled the commit). `go test ./internal/web` is
 # TestDistFresh (the committed internal/web/dist was built from web/ as it is now), types_test (web/src/lib/types.ts
 # against the JSON the page reads) and TestPageIsEmbedded (the embedded build). The page's own suite — make web-test:
 # svelte-check and Vitest — needs web/node_modules, which only `make web` (npm ci, network) creates and no gate worktree
@@ -221,49 +221,49 @@ check-web:
 	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"
 
-# check-release: obor-kit's own release tooling (merge.classes "release", T-902), which used to run inside cmd/obor on
-# every product merge: the Makefile's check, release and publish targets, scripts/release, scripts/ship, scripts/publish
+# check-release: obor-kit's own release tooling (merge.classes "release"): the Makefile's check, release and publish
+# targets, scripts/release, scripts/ship, scripts/publish
 # and install.sh, each against fixture repos in a temp dir (tests/release, beside tests/upgrade). A change to what they
 # test (merge.classes "release": Makefile, scripts/**, install.sh, RELEASING.md, .claude-plugin/marketplace.json,
 # tests/release/**) runs them; tests/release is behind `//go:build release`, so the merge's `go test ./...` leaves it out
-# (T-1001) and this target, scripts/release and the nightly's release_tests command are where it runs; integration is the
-# gate's tag (T-1014). No deadcode step: its fixture scripts are the tree's, not a package's API.
+# and this target, scripts/release and the nightly's release_tests command are where it runs; integration is the
+# gate's tag. No deadcode step: its fixture scripts are the tree's, not a package's API.
 check-release:
 	@$(GO_GATE); \
 	rc=0; out=$$($(GO) test -count=1 -tags release,integration $${CHECK_CPUS:+-p $$CHECK_CPUS} ./tests/release 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
 	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"
 
-# check-budget (commands.check_budget, the nightly's non-gating budget line, T-1002): every package with tests runs once
+# check-budget (commands.check_budget, the nightly's non-gating budget line): every package with tests runs once
 # at GOMAXPROCS=2 with a counting git wrapper first on PATH and a private TMPDIR (tests/budget), and its wall time and
 # git processes are compared with tests/budget.json. One "FAIL budget: <pkg> <metric> <got> > <max>" per breach, else
 # "budget OK: N packages". The nightly runs it on a quiet machine, so its numbers are comparable; a budget is raised
 # only by an owner line in docs/decisions.md and lowered by any task that gets under it (docs/plan/test-suite-
 # rework.md §3). Seed it with `GO="$(GO)" $(GO) run ./tests/budget -seed` for the whole file, or
 # `GO="$(GO)" $(GO) run ./tests/budget -seed <pkg>...` for the entries it names (an import path, a relative path or a
-# pattern: -seed resolves them through go list, RV-156), every other entry unchanged (T-1073:
-# the task that adds a package seeds that package alone). The seed writes tests/budget.json itself (T-1008: a shell
+# pattern: -seed resolves them through go list), every other entry unchanged, so the task that adds a package seeds
+# that package alone. The seed writes tests/budget.json itself (a shell
 # redirect would truncate it before -seed read the caps).
 check-budget:
 	@$(GO_CACHE); \
 	GO="$(GO)" $(GO) run ./tests/budget
 
-# vulncheck (commands.check_milestone, T-1034): the nightly's pinned govulncheck, through make so it carries GOFLAGS=-trimpath (T-1027).
+# vulncheck (commands.check_milestone): the nightly's pinned govulncheck, through make so it carries GOFLAGS=-trimpath.
 vulncheck:
 	$(GO) run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
 # Pinned; the module cache comes before the proxy, so a warm cache needs no network (a Codex sandbox has none).
-# Test support (herdrtest, testkit) is excepted. The prompts table's path readers stay for the hooks and CLIs of T-665
-# (obor web reads with a store handle it opens itself, view.Load's). -tags conformance,release,integration:
+# Test support (herdrtest, testkit) is excepted. The prompts table's path readers stay for the hooks and CLIs (obor web
+# reads with a store handle it opens itself, view.Load's). -tags conformance,release,integration:
 # tests/conformance's main and tests/release are behind those tags, and their untagged files (conformance's report.go)
-# are reached only from them; integration is the gate's tag too (T-1014), so a tagged file is analysed as it is tested.
+# are reached only from them; integration is the gate's tag too, so a tagged file is analysed as it is tested.
 deadcode:
 	@out=$$(GOPROXY="file://$$($(GO) env GOMODCACHE)/cache/download,$$($(GO) env GOPROXY)" $(GO) run golang.org/x/tools/cmd/deadcode@v0.52.0 -tags conformance,release,integration ./...) || exit $$?; \
 	out=$$(printf '%s\n' "$$out" | grep -v -e '/herdrtest/' -e '/testkit/' \
 	  -e '^internal/store/prompts\.go:[0-9:]*: unreachable func: ReadPromptsAt$$'); \
 	if [ -n "$$out" ]; then printf '%s\n' "$$out"; exit 1; fi
 
-# upgrade-check (T-772): a project made by the previous release survives this build installed over it. The previous
+# upgrade-check: a project made by the previous release survives this build installed over it. The previous
 # release is the catalog's newest x.y.z below VERSION (PREV=x.y.z another, v0.23.0 or later: an older one is
 # refused, the check's fixture needs a spec's Model:), its binary the kit's cache
 # (~/.obor/bin, fetched with curl and checked against bin/checksums.txt when missing); the new build is dist/obor; the
@@ -313,7 +313,7 @@ endif
 
 # ship is the owner's one command after make release V=x.y.z (scripts/ship): push main up to the release (its
 # `checksums: vx.y.z` commit, not main's tip) and the tag, publish the GitHub release, install the kit; each step is
-# skipped when it is already done. It runs in the main checkout on its own branch (T-1035: no checkout of main).
+# skipped when it is already done. It runs in the main checkout on its own branch (no checkout of main).
 ship:
 	@sh scripts/ship "$(VERSION)"
 
@@ -326,7 +326,7 @@ publish:
 clean:
 	rm -rf dist
 
-# web builds obor web's page (web/, Svelte, T-760) into internal/web/dist, which the binary embeds: run it before every
+# web builds obor web's page (web/, Svelte) into internal/web/dist, which the binary embeds: run it before every
 # commit that touches web/ and commit dist/ with it (internal/web's TestDistFresh fails on a stale build). It needs
 # Node and the network for npm ci; make check and make release never call it (the gate has no network).
 web:

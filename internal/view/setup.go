@@ -16,7 +16,7 @@ import (
 	"obor/internal/config"
 )
 
-// Setup is the project's setup as the web page shows it (T-750, T-765): what steers the work — each difficulty
+// Setup is the project's setup as the web page shows it: what steers the work — each difficulty
 // level's model refs with what runs them, the lanes, the role agents and the pause — and how the dispatches actually
 // spread, by difficulty level and chosen model. It is its own read model, outside Project: obor status needs none of
 // it.
@@ -29,7 +29,7 @@ type Setup struct {
 	Roles        []SetupRole     `json:"roles"`        // every role the config names (the worker is the lanes)
 	Paused       *Pause          `json:"paused"`       // the pause in force (nil: none)
 	Distribution []DispatchCount `json:"distribution"` // one cell per level and chosen model
-	// ConfigRev is the revision of .obor/config.json this setup was read from (config.Rev, T-760; "": no file): the
+	// ConfigRev is the revision of .obor/config.json this setup was read from (config.Rev; "": no file): the
 	// page's edits name it, and serve refuses them once the file is another one.
 	ConfigRev string `json:"config_rev"`
 }
@@ -51,7 +51,7 @@ type SetupType struct {
 	Effort string `json:"effort"`
 }
 
-// SetupModel is one model the config knows (T-765): its name, kind and model id, whether it is a built-in one
+// SetupModel is one model the config knows: its name, kind and model id, whether it is a built-in one
 // (models.<name> may override it), and the efforts its kind takes.
 type SetupModel struct {
 	Name    string   `json:"name"`
@@ -59,11 +59,11 @@ type SetupModel struct {
 	Model   string   `json:"model"`
 	Builtin bool     `json:"builtin"`
 	Efforts []string `json:"efforts"`
-	// Paused is the model's pause in force (obor pause --model, T-766; nil: none): dispatch skips the model.
+	// Paused is the model's pause in force (obor pause --model; nil: none): dispatch skips the model.
 	Paused *Pause `json:"paused"`
 }
 
-// SetupKind is one agent kind (T-766): every start of it gets agents.kinds.<kind>.args, and
+// SetupKind is one agent kind: every start of it gets agents.kinds.<kind>.args, and
 // agents.kinds.<kind>.job_note adds a line to its work jobs.
 type SetupKind struct {
 	Name    string   `json:"name"`
@@ -73,8 +73,8 @@ type SetupKind struct {
 
 // SetupLane is one configured lane: its name, the model it runs now (its dispatch's; "": none), its agent and its
 // state now (free, working, done, missing …), and whether it holds a task serve would refuse to drop (Locked: the
-// config-set rule, T-896). Locked is computed here from serve's Free lanes, so an older serve, which names none,
-// locks every lane (T-921).
+// config-set rule). Locked is computed here from serve's Free lanes, so an older serve, which names none,
+// locks every lane.
 type SetupLane struct {
 	Lane   string `json:"lane"`
 	Type   string `json:"type"`
@@ -94,9 +94,9 @@ type SetupRole struct {
 
 // DispatchCount is the dispatches that placed a task on a lane, by the difficulty level they chose by and the type
 // reference they placed: Recent are those of the last 7 days, All those the log still holds (the page's "kept": serve's
-// nightly prune deletes an ended task's records 30 days after its end, T-1089). Level is OverrideLevel for a
-// dispatch with --model and no level ("" is neither), Type "" a dispatch the store names no model for: a record from
-// before T-721 (the page labels it "unknown"; T-752, T-865).
+// nightly prune deletes an ended task's records 30 days after its end). Level is OverrideLevel for a
+// dispatch with --model and no level ("" is neither), Type "" a dispatch the store names no model for (an older
+// record; the page labels it "unknown").
 type DispatchCount struct {
 	Level  string `json:"level"`
 	Type   string `json:"type"`
@@ -115,7 +115,7 @@ const distributionWindow = 7 * 24 * time.Hour
 // dispatch with neither (a level unknown to this binary sorts after them, so it still shows).
 var distributionLevels = []string{"hard", "medium", "simple", OverrideLevel, ""}
 
-// LoadSetup is the setup page's read, narrow (T-880): one config read, serve's answer, the lane table (git: a lane's
+// LoadSetup is the setup page's read, narrow: one config read, serve's answer, the lane table (git: a lane's
 // state) and the store's dispatch records. It runs no ps and builds none of the overview's other facts (the queue, the
 // events, the full check, each task). An error is the config's, as Load's.
 func LoadSetup(ctx context.Context, root string) (Setup, error) {
@@ -137,7 +137,7 @@ func (r reading) setup(ctx context.Context, root string) (Setup, error) {
 }
 
 // configRev is .obor/config.json's revision under root (config.Rev; "": no file): the page's edits name it, and serve
-// refuses them once the file is another one (T-760).
+// refuses them once the file is another one.
 func configRev(root string) string {
 	doc, err := os.ReadFile(filepath.Join(root, ".obor", "config.json"))
 	if err != nil {
@@ -148,7 +148,7 @@ func configRev(root string) string {
 
 // setup is Setup for one config snapshot (cfg), the lane table's rows (lanes), the view's role rows and pauses (v), the
 // store (db), the config.json revision the page read (rev) and serve's lanes that hold no task (free: configset's
-// rule, T-896; none from an older serve: every lane counts as locked, T-921).
+// rule; none from an older serve: every lane counts as locked).
 func setup(cfg *config.Config, lanes []port.Lane, v Project, db *sql.DB, rev string, free []string, now time.Time) Setup {
 	s := Setup{Difficulty: []SetupLevel{}, Types: []SetupType{}, Models: []SetupModel{}, Kinds: []SetupKind{}, Lanes: []SetupLane{},
 		Roles: []SetupRole{}, Distribution: []DispatchCount{}, ConfigRev: rev}
@@ -159,7 +159,7 @@ func setup(cfg *config.Config, lanes []port.Lane, v Project, db *sql.DB, rev str
 	for _, l := range lanes {
 		states[l.Name] = l
 	}
-	for _, l := range cfg.Lanes() { // a working lane's view type is its dispatch's model (T-721)
+	for _, l := range cfg.Lanes() { // a working lane's view type is its dispatch's model
 		s.Lanes = append(s.Lanes, SetupLane{Lane: l.Name, Type: states[l.Name].Type, Agent: cfg.AgentName("worker", l.Name),
 			State: states[l.Name].State, Locked: !slices.Contains(free, l.Name)})
 	}
@@ -232,10 +232,10 @@ func setupType(cfg *config.Config, ref string) (SetupType, bool) {
 }
 
 // distribution is db's dispatch records counted by level and chosen model, for the last 7 days and for every record
-// the log still holds (T-1089: an ended task's go 30 days after its end).
+// the log still holds (an ended task's records are pruned 30 days after its end).
 // Only a dispatch that placed a task on a lane counts: a waiting dispatch places nothing, and the dispatch that
-// places it later counts once; a redo is a dispatch of its own. A record with no type (a dispatch from before T-721)
-// is unknown (T-752, T-865: a lane row or a later record of a lane gone from the config names nothing for it).
+// places it later counts once; a redo is a dispatch of its own. A record with no type (an untyped dispatch)
+// is unknown (a lane row or a later record of a lane gone from the config names nothing for it).
 func distribution(db *sql.DB, now time.Time) []DispatchCount {
 	if db == nil {
 		return []DispatchCount{}

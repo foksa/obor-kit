@@ -1,13 +1,13 @@
-// Command budget is the nightly test budget (T-1002, the test-suite rework's T-J): it measures every test package and
+// Command budget is the nightly test budget (the test-suite rework): it measures every test package and
 // compares it with tests/budget.json. Run it with `make check-budget` (commands.check_budget, in
 // merge.nightly_commands as a non-gating line, like conformance).
 //
-// It measures each package with tests once at GOMAXPROCS=2, with -tags integration (T-1014: the whole suite is
-// measured; T-1056: the -short tier is gone, so there is one measurement). A counting
+// It measures each package with tests once at GOMAXPROCS=2, with -tags integration (the whole suite is
+// measured, so there is one measurement). A counting
 // `git` wrapper is first on PATH for the whole run and a private TMPDIR under /tmp (short enough for a serve socket) is
 // every test's temp dir; the package's `go test -json` elapsed is its wall time. That is not `make check`'s
 // environment: `make check` runs with the caller's own TMPDIR, so a breach can come from a path that run never takes
-// (T-1144). A breach prints one line, `FAIL budget: <pkg> <metric> <got> > <max>`:
+// A breach prints one line, `FAIL budget: <pkg> <metric> <got> > <max>`:
 //
 //	full_s             go test's package Elapsed against tests/budget.json (seconds; a cap under a second never fails
 //	                   on wall time alone, minWallS: at that size go test's 0.1 s granularity is the measurement)
@@ -18,13 +18,13 @@
 // `budget OK: N packages` and exits 0; a breach exits 1 (the nightly records it as a red non-gating line).
 //
 // `-missing` is the budget's own listing: it compares the packages with tests with tests/budget.json, runs no tests and
-// prints the command that seeds a package without an entry, or the entry whose package is gone (T-1073; a step of
+// prints the command that seeds a package without an entry, or the entry whose package is gone (a step of
 // make check-affected, so the lane that adds a package fails there instead of at the next nightly).
 //
 // The budgets are seeded from one quiet machine's run x1.5: `go run ./tests/budget -seed <pkg>...` measures the named
 // packages and writes their entries into tests/budget.json, every other entry unchanged, so the task that adds a
-// package seeds it alone; `-seed` with no arguments re-measures the whole file (T-1007, T-1008, T-1073). Its arguments
-// are resolved through go list to import paths, so a relative path or a pattern works (RV-156). A budget is
+// package seeds it alone; `-seed` with no arguments re-measures the whole file. Its arguments
+// are resolved through go list to import paths, so a relative path or a pattern works. A budget is
 // raised only by an owner line in docs/decisions.md and lowered by any task that gets under it
 // (docs/plan/test-suite-rework.md §3).
 package main
@@ -67,7 +67,7 @@ type Run struct {
 	note    string   // why the run failed when Passed is false (the build output's last line)
 }
 
-// minWallS is the floor of a package's wall-time cap (T-1024): go test's Elapsed moves by 0.1 s from run to run, so a
+// minWallS is the floor of a package's wall-time cap: go test's Elapsed moves by 0.1 s from run to run, so a
 // cap under a second is the same size as that noise (internal/version 0.6 > 0.4, tests/budget 0.9 > 0.9 on a quiet
 // machine). A package under it never fails on wall time alone: its wall time is that small.
 const minWallS = 1.0
@@ -122,7 +122,7 @@ func missingBudget(pkg string) string {
 	return "FAIL budget: " + pkg + " missing from tests/budget.json"
 }
 
-// missing lists -missing's lines (T-1073): the packages with tests and no entry, each with the seed command that writes
+// missing lists -missing's lines: the packages with tests and no entry, each with the seed command that writes
 // it, then the entries whose package is gone (deleted or moved), each with what to do. It runs no tests.
 func missing(pkgs []string, budget File) []string {
 	have := make(map[string]bool, len(pkgs))
@@ -199,9 +199,9 @@ func seed(runs map[string]Run) File {
 }
 
 // seeded is -seed's file, ready to write: with names, the measured entries merged into tests/budget.json, every other
-// entry kept byte for byte (T-1073); with none, the whole measurement, as before: a package with no tests any more is
-// dropped. The per-test caps and untagged_s an older tests/budget.json carried are not carried over: they measured the
-// -short tier, which is gone (T-1056).
+// entry kept byte for byte; with none, the whole measurement: a package with no tests any more is
+// dropped. The per-test caps and untagged_s an older tests/budget.json carried are not carried over: they measured a
+// tier the suite does not have.
 func seeded(root string, named []string, runs map[string]Run) ([]byte, error) {
 	measured := seed(runs)
 	if len(named) == 0 {
@@ -241,10 +241,10 @@ func marshal(v any) ([]byte, error) {
 	return append(b, '\n'), nil
 }
 
-// seedFile is -seed's write (T-1008, T-1073): the measured entries into tests/budget.json, through a temp file in the
+// seedFile is -seed's write: the measured entries into tests/budget.json, through a temp file in the
 // same dir and a rename, so the old file stays on any error. named are the packages to write; none is the whole
 // measurement. A run that did not pass is no measurement and writes nothing; before, the Makefile's redirect truncated
-// the file before seeded could read its caps (RV-139 #2).
+// the file before seeded could read its caps.
 func seedFile(root string, named []string, runs map[string]Run) error {
 	var failed []string
 	for pkg, run := range runs {
@@ -378,7 +378,7 @@ func (r *runner) run(pkg string) (Run, error) {
 	return run, nil
 }
 
-// testArgs is a package's go test: -tags integration, so the budget measures the tagged tests too (T-1014); a package
+// testArgs is a package's go test: -tags integration, so the budget measures the tagged tests too; a package
 // whose only tests are tagged would otherwise never be measured.
 func testArgs(pkg string) []string {
 	return []string{"test", "-json", "-count=1", "-tags", "integration", pkg}
@@ -451,7 +451,7 @@ func findRoot() (string, error) {
 
 // listPackages names the packages with tests that patterns match (the whole module when there are none), in the order
 // go list gives them. The tag is passed too, so a package whose tests are all behind `//go:build integration` still
-// counts (T-1014: an unmeasured package is a breach).
+// counts (an unmeasured package is a breach).
 func listPackages(root, goBin string, env []string, patterns ...string) ([]string, error) {
 	if len(patterns) == 0 {
 		patterns = []string{"./..."}
@@ -479,7 +479,7 @@ func listPackages(root, goBin string, env []string, patterns ...string) ([]strin
 	return pkgs, nil
 }
 
-// resolvePackages is -seed's arguments as the import paths tests/budget.json is keyed by (RV-156 #1): each argument is
+// resolvePackages is -seed's arguments as the import paths tests/budget.json is keyed by: each argument is
 // listed by the tool's own go list, tags included, so a relative path, an import path and a pattern all land on the keys
 // -missing and check compare. An argument that names no package with tests is an error naming it: the file must not get
 // a key no package answers to.
@@ -565,13 +565,13 @@ func run() int {
 	named := flag.Args()
 	var pkgs []string
 	if *seedFlag && len(named) > 0 {
-		// RV-156 #1: -seed's arguments are import paths before anything is measured or written; the listing and -missing
+		// -seed's arguments are import paths before anything is measured or written; the listing and -missing
 		// key by import path, so a raw ./internal/newpkg would be a missing entry and a stale one at the next gate.
 		named, err = resolvePackages(root, goBin, r.env(), named)
 		if err != nil {
 			return fail(err)
 		}
-		pkgs = named // -seed <pkg>...: measure only these, and merge them into the file (T-1073)
+		pkgs = named // -seed <pkg>...: measure only these, and merge them into the file
 	} else {
 		pkgs, err = listPackages(root, goBin, r.env())
 		if err != nil {

@@ -1,5 +1,5 @@
 <script lang="ts">
-  // The Help page (T-854): how to install obor and set up a project (the kit's README, read by obor web at each
+  // The Help page: how to install obor and set up a project (the kit's README, read by obor web at each
   // request), then every obor command by group with a filter box (the table `obor help` prints).
   import { onDestroy } from "svelte";
   import { api } from "../lib/api";

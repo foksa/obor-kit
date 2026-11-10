@@ -50,8 +50,8 @@ func (c *Config) Validate(o ValidateOptions) (warns, fails []string) {
 }
 
 // pluginKind: agents.kinds.<k>.plugin names no compiled kind, is executable and its describe answers with k's manifest
-// (agents.PluginLoader.Check, T-1036: it runs the command once). The kind as it answered is the one the rest of the
-// validation checks efforts against (T-1042: no cache needed, a stale one not read).
+// (agents.PluginLoader.Check: it runs the command once). The kind as it answered is the one the rest of the
+// validation checks efforts against (no cache needed, a stale one not read).
 func (v *validator) pluginKind(k string) {
 	path := ".agents.kinds" + key(k) + ".plugin"
 	switch {
@@ -76,9 +76,9 @@ func (v *validator) pluginKind(k string) {
 	}
 }
 
-// projectFiles: the notes each agent kind has on the project's committed CLI config in the main checkout (T-1033,
+// projectFiles: the notes each agent kind has on the project's committed CLI config in the main checkout (
 // agents.ProjectWarnings): a file that does not parse, a key that switches part of obor off. Never a failure. A plugin
-// kind pluginKind described answers as described (T-1054: the registry's has no manifest before a cache).
+// kind pluginKind described answers as described (the registry's has no manifest before a cache).
 func (v *validator) projectFiles() {
 	if v.c.Root == "" {
 		return
@@ -136,7 +136,7 @@ func (v *validator) fixedCommands() {
 	}
 }
 
-// lanes: a count is not negative and not set beside a list; a list's names are unique and of the L-NN shape (T-1031:
+// lanes: a count is not negative and not set beside a list; a list's names are unique and of the L-NN shape (
 // no name to collide with a role worktree).
 func (v *validator) lanes() {
 	l := v.d.Lanes
@@ -167,7 +167,7 @@ var LaneNameRE = regexp.MustCompile(`^L-(0[1-9]|[1-9][0-9]+)$`)
 
 // models: every agents.models entry and agents.kinds key names a kind with a bridge (agents.Lookup), no kinds args carry a bare
 // `--` (obor adds the first prompt after its own options, so a `--` would turn --settings and --resume into
-// positionals, RV-47-verify-3 N2); each role names a known model with an effort its kind takes (T-695).
+// positionals); each role names a known model with an effort its kind takes.
 func (v *validator) models() {
 	bridged := func(path, kind string) {
 		if _, ok := agents.Lookup(kind); !ok {
@@ -205,11 +205,11 @@ func (v *validator) models() {
 }
 
 // gatingCommands are the commands a merge or the nightly gates on, a by_path rule's run beside them:
-// nightly.also_run must name none of them (T-817).
+// nightly.also_run must name none of them.
 var gatingCommands = []string{"lane_setup", "compile", "check", "check_milestone", "guard"}
 
 // nightlyCommands: every nightly.also_run entry is a defined command and no gating command — nightly runs it
-// non-gating, after its gates (T-817).
+// non-gating, after its gates.
 func (v *validator) nightlyCommands() {
 	gating := slices.Clone(gatingCommands)
 	for _, rule := range v.d.Merge.ByPath.Rules {
@@ -228,7 +228,7 @@ func (v *validator) nightlyCommands() {
 }
 
 // commandStillRuns: a by_path rule's run, merge.by_path.guard or nightly.also_run names name, so it runs there even
-// though obor no longer runs it by its own name (T-1083).
+// though obor does not run it by its own name.
 func (c *Config) commandStillRuns(name string) bool {
 	if c.Data.Merge.ByPath.Guard == name || slices.Contains(c.Data.Nightly.AlsoRun, name) {
 		return true
@@ -241,8 +241,8 @@ func (c *Config) commandStillRuns(name string) bool {
 	return false
 }
 
-// classes: merge.by_path.rules names are unique (RV-03 #3) and also_on_full is refused on a full rule, which already
-// runs merge.check (T-1007).
+// classes: merge.by_path.rules names are unique and also_on_full is refused on a full rule, which already
+// runs merge.check.
 func (v *validator) classes() {
 	seen := map[string]int{}
 	for i, rule := range v.d.Merge.ByPath.Rules {
@@ -259,7 +259,7 @@ func (v *validator) classes() {
 }
 
 // flakeRegex: checks.output.failed_test and failed_package are set together, and each compiles and captures its name
-// in the group named for it (T-1047). Both unset is fine: no flake parsing.
+// in the group named for it. Both unset is fine: no flake parsing.
 func (v *validator) flakeRegex() {
 	o := v.d.Checks.Output
 	pair := []string{o.FailedTest, o.FailedPackage}
@@ -288,7 +288,7 @@ func (v *validator) flakeRegex() {
 	}
 }
 
-// integrator: every project needs one (T-428). serve dispatches and merges only for a project with
+// integrator: every project needs one. serve dispatches and merges only for a project with
 // agents.roles.integrator, so without the entry nothing lands: a v0.9.4 project that relied on the default
 // <prefix>-int agent, or one written without the role, would otherwise look valid and only queue up work.
 func (v *validator) integrator() {
@@ -297,8 +297,8 @@ func (v *validator) integrator() {
 	}
 }
 
-// optional checks the optional settings: agents.handoff_tokens (T-175), rules.may_push (T-105), rules.deny_commands
-// (T-905), nightly.at, checks.cpus_per_check, lanes.cpus.
+// optional checks the optional settings: agents.handoff_tokens, rules.may_push, rules.deny_commands
+// nightly.at, checks.cpus_per_check, lanes.cpus.
 func (v *validator) optional() {
 	v.nonNegative(".agents.handoff_tokens", v.d.Agents.HandoffTokens)
 	v.allowPush(v.d.Rules.MayPush)
@@ -316,7 +316,7 @@ func (v *validator) optional() {
 	}
 }
 
-// laneEnv: lanes.env's names are env names and its values' one placeholder is {cpus} (T-1041): a value's other {…}
+// laneEnv: lanes.env's names are env names and its values' one placeholder is {cpus}: a value's other {…}
 // is a typo, and obor substitutes nothing else.
 func (v *validator) laneEnv() {
 	env := v.d.Lanes.Env
@@ -341,14 +341,14 @@ func (v *validator) laneEnv() {
 // laneEnvPlaceholder is a {…} in a lanes.env value; {cpus} is the one validate takes (LaneCPUsPlaceholder).
 var laneEnvPlaceholder = regexp.MustCompile(`\{[^}]*\}`)
 
-// workflow: merge.workflow names a kind serve has an implementation of (T-1029).
+// workflow: merge.workflow names a kind serve has an implementation of.
 func (v *validator) workflow() {
 	if k := v.d.Merge.Workflow; k != "" && !slices.Contains(WorkflowKinds, k) {
 		v.fail(".merge.workflow", "must be one of "+strings.Join(WorkflowKinds, ", ")+", got "+Compact(k))
 	}
 }
 
-// terminal: project.terminal names a terminal obor has an adapter for (T-1044).
+// terminal: project.terminal names a terminal obor has an adapter for.
 func (v *validator) terminal() {
 	if k := v.d.Project.Terminal; k != "" && !slices.Contains(TerminalKinds, k) {
 		v.fail(".project.terminal", "must be one of "+strings.Join(TerminalKinds, ", ")+", got "+Compact(k))
@@ -383,7 +383,7 @@ func (v *validator) allowPush(entries []string) {
 }
 
 // denyCommands: every rules.deny_commands entry has a match that compiles and the message the guard denies with
-// (T-905). An empty match is refused too: it would deny every command.
+// An empty match is refused too: it would deny every command.
 func (v *validator) denyCommands(rules []DenyCommand) {
 	for i, r := range rules {
 		path := ".rules.deny_commands" + idx(i)
@@ -401,7 +401,7 @@ func (v *validator) denyCommands(rules []DenyCommand) {
 	}
 }
 
-// customRoles: each agents.roles.<name> that is no table role defines a custom role (T-801): a name
+// customRoles: each agents.roles.<name> that is no table role defines a custom role: a name
 // roles.CheckCustomName takes, write paths inside the project and outside .obor/, and its doc
 // <agents.docs_dir>/<name>.md (a kit default row may use the kit's). A table role takes a model ref string; the
 // driver's is never configured (obor drive starts it).
@@ -438,7 +438,7 @@ func (v *validator) customRoles() {
 	}
 }
 
-// verbs: each of a custom role's verbs (agents.roles.<name>.verbs, T-1039) is a wire method a role may be granted
+// verbs: each of a custom role's verbs (agents.roles.<name>.verbs) is a wire method a role may be granted
 // (roles.Verbs), named once.
 func (v *validator) verbs(path string, verbs []string) {
 	seen := map[string]bool{}
@@ -497,7 +497,7 @@ func regularFile(p string) bool {
 	return err == nil && fi.Mode().IsRegular()
 }
 
-// laneNames: no name of a lane's worker is a role's agent (T-189, T-191).
+// laneNames: no name of a lane's worker is a role's agent.
 func (v *validator) laneNames() {
 	names := []string{}
 	if rc, _ := v.c.Role("worker"); rc.Configured {
@@ -520,7 +520,7 @@ func (v *validator) laneNames() {
 }
 
 // bareLaneName: a role agent named like lane's lowercase name (l-02) is no name of lane (lookups take no bare lane
-// name, T-302) but reads like one: WARN.
+// name) but reads like one: WARN.
 func (v *validator) bareLaneName(lane string, roleAgents []string) {
 	lower := strings.ToLower(lane)
 	for _, agent := range roleAgents {
@@ -544,7 +544,7 @@ func (v *validator) trunk() {
 }
 
 // warnings: merge.by_path.no_check globs that may share a path with a rule's glob (that rule's files would merge
-// guard-only, T-92), commands obor no longer runs by name (T-1083). A removed key WARNs for two minor versions after its removal,
+// guard-only), commands obor does not run by name. A removed key WARNs for two minor versions after its removal,
 // then is an unknown key (validate_test.go: TestRemovedKeysWithinTwoVersions, its window read from VERSION).
 func (c *Config) warnings(o ValidateOptions) []string {
 	var out []string
@@ -557,7 +557,7 @@ func (c *Config) warnings(o ValidateOptions) []string {
 			}
 		}
 	}
-	// T-1083: baseline, gate and e2e are free command names again; a config that sets one loses its run silently unless
+	// baseline, gate and e2e are free command names again; a config that sets one loses its run silently unless
 	// it is named where a merge or the nightly still runs it.
 	for _, name := range []string{"baseline", "gate", "e2e"} {
 		if _, set := c.Command(name); set && !c.commandStillRuns(name) {
@@ -565,7 +565,7 @@ func (c *Config) warnings(o ValidateOptions) []string {
 				"or name it in a merge.by_path.rules run or nightly.also_run")
 		}
 	}
-	for _, name := range c.ModelNames() { // T-705: opencode's own default model may refuse requests, and effort needs one (T-703)
+	for _, name := range c.ModelNames() { // opencode's own default model may refuse requests, and effort needs one
 		m, _ := c.Model(name)
 		if kd, known := agents.Lookup(m.Kind); known && kd.Caps().ModelArg && m.ID == "" && c.modelUsed(name) {
 			out = append(out, "WARN agents.models."+name+": opencode model without a model id (opencode's own default "+
@@ -576,7 +576,7 @@ func (c *Config) warnings(o ValidateOptions) []string {
 }
 
 // difficulty: each level of agents.difficulty is hard, medium or simple and names models the config knows (each may name
-// an effort, T-695).
+// an effort).
 func (v *validator) difficulty() {
 	keys := make([]string, 0, len(v.d.Agents.Difficulty))
 	for k := range v.d.Agents.Difficulty {

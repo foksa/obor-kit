@@ -1,6 +1,6 @@
 //go:build integration
 
-// The integration tier of setup_test.go (T-1021): tests whose subject is the git state setup leaves (the lane and
+// The integration tier of setup_test.go: tests whose subject is the git state setup leaves (the lane and
 // role worktrees git made, init's uncommitted files, what git ignores). Real git: AGENTS.md's internal/setup rule.
 
 package setup
@@ -45,7 +45,7 @@ func TestInitCreatesConfigDocsAndGitignoreUncommitted(t *testing.T) {
 	if _, ok := cfg.Command("lane_setup"); ok || len(d.Lanes.Links) != 0 {
 		t.Errorf("the example's lanes.setup and lanes.links cleared: %v", d.Lanes.Links)
 	}
-	// T-1075: an adopter's default is two clocks: a nightly on main's head, with nightly.slow_check left null.
+	// an adopter's default is two clocks: a nightly on main's head, with nightly.slow_check left null.
 	if d.Nightly.At != "02:00" {
 		t.Errorf("nightly.at %q, want 02:00", d.Nightly.At)
 	}
@@ -58,7 +58,7 @@ func TestInitCreatesConfigDocsAndGitignoreUncommitted(t *testing.T) {
 	if !regexp.MustCompile(`(?m)^  "lanes": \{`).MatchString(x.Read(".obor/config.json")) {
 		t.Errorf("config at indent 2:\n%s", x.Read(".obor/config.json"))
 	}
-	// T-470: BACKLOG.md and docs/decisions.md instead of a STATUS file (paths.status is gone).
+	// BACKLOG.md and docs/decisions.md instead of a STATUS file (there is no paths.status).
 	for _, h := range []string{"## Handoff", "## Owner decisions pending", "## Open", "## Concerns", "## Ideas"} {
 		has(t, x.Read("BACKLOG.md"), "\n"+h+"\n", "BACKLOG.md section "+h)
 	}
@@ -66,13 +66,13 @@ func TestInitCreatesConfigDocsAndGitignoreUncommitted(t *testing.T) {
 	if x.Exists("docs/STATUS.md") || strings.Contains(out, "STATUS") {
 		t.Errorf("init wrote a STATUS file:\n%s", out)
 	}
-	// T-547: paths.tasks is deprecated and nothing writes specs there: init creates no tasks dir.
+	// paths.tasks is deprecated and nothing writes specs there: init creates no tasks dir.
 	if x.Exists("docs/tasks") {
 		t.Error("init created docs/tasks")
 	}
 	has(t, out, "created .obor/config.json (name My Proj, prefix mp, no lanes)", "the config said")
 
-	// T-204: role texts stay in the kit; the project gets short stubs (title, pointer, "This project" prompts).
+	// role texts stay in the kit; the project gets short stubs (title, pointer, "This project" prompts).
 	texts, _ := filepath.Glob(filepath.Join(kit, "templates", "agents", "*.md"))
 	n := 0
 	for _, f := range texts {
@@ -103,7 +103,7 @@ func TestInitCreatesConfigDocsAndGitignoreUncommitted(t *testing.T) {
 	}
 	has(t, x.Read("docs/agents/task-spec.md"), "## Protected files this task may edit", "the task spec template copied")
 	hasNot(t, x.Read("docs/agents/task-spec.md"), "Files you may touch", "no files section (T-496)")
-	if x.Exists("docs/agents/roster.md") { // T-774: the rosters are gone; obor status and obor web show who runs
+	if x.Exists("docs/agents/roster.md") { // there are no roster files; obor status and obor web show who runs
 		t.Error("init copied docs/agents/roster.md")
 	}
 	filepath.Walk(x.Path("docs"), func(p string, fi os.FileInfo, _ error) error {
@@ -118,10 +118,10 @@ func TestInitCreatesConfigDocsAndGitignoreUncommitted(t *testing.T) {
 			t.Errorf(".gitignore has %s once:\n%s", l, gi)
 		}
 	}
-	if count(gi, ".obor/pause") != 0 { // T-465: the pause is serve's fact, no file
+	if count(gi, ".obor/pause") != 0 { // the pause is serve's fact, no file
 		t.Errorf(".gitignore has no .obor/pause:\n%s", gi)
 	}
-	// T-459: no queue lock any more (the queue is the store); the fixture's own .task-done.md line is left alone.
+	// no queue lock any more (the queue is the store); the fixture's own .task-done.md line is left alone.
 	if count(gi, "QUEUE.md.lock") != 0 {
 		t.Errorf(".gitignore has no QUEUE.md.lock:\n%s", gi)
 	}
@@ -136,7 +136,7 @@ func TestInitCreatesConfigDocsAndGitignoreUncommitted(t *testing.T) {
 	has(t, st, "M .gitignore", ".gitignore left modified")
 }
 
-// T-731: init ignores the reviews dir (paths.reviews, default docs/reviews): a broad `git add -A` stages no open
+// init ignores the reviews dir (paths.reviews, default docs/reviews): a broad `git add -A` stages no open
 // review, which `obor review close` would refuse.
 func TestInitGitignoresTheReviewsDir(t *testing.T) {
 	t.Parallel()
@@ -177,8 +177,7 @@ func TestInitGitignoresTheReviewsDir(t *testing.T) {
 	}
 }
 
-// bash setup.test.sh case_lane_adds_config_entry_worktree_links_and_runs_lane_setup; T-765: the lane is the next
-// L-NN and raises lanes by one.
+// The lane is the next L-NN and raises lanes by one.
 func TestLaneAddsConfigWorktreeLinksAndRunsLaneSetup(t *testing.T) {
 	t.Parallel()
 	x := newGitFx(t, testkit.Set("lanes.links", []any{"ref", "assets/img", "missing"}),
@@ -232,9 +231,9 @@ func TestLaneAddsConfigWorktreeLinksAndRunsLaneSetup(t *testing.T) {
 	}
 }
 
-// T-853: the reviewer and the deep dive run in their role worktree <lanes_dir>/<role> (T-718 had them in the main
-// checkout): setup role adds it detached when missing, keeps one that is there, refuses a dir that is no worktree of
-// the repo, and leaves a leftover of the old names (review, deep-dive) alone. No lane is added.
+// the reviewer and the deep dive run in their role worktree <lanes_dir>/<role>: setup role adds it detached when
+// missing, keeps one that is there, refuses a dir that is no worktree of the repo, and leaves a leftover of the older
+// names (review, deep-dive) alone. No lane is added.
 func TestReviewerAndDeepDiveRunInTheirRoleWorktree(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -251,7 +250,7 @@ func TestReviewerAndDeepDiveRunInTheirRoleWorktree(t *testing.T) {
 	} {
 		x := newGitFx(t, c.edit)
 		wt, old := x.LaneDir(c.role), x.LaneDir(c.old)
-		x.Git(x.Root, "worktree", "add", "-q", "--detach", old, "main") // a leftover of before T-718
+		x.Git(x.Root, "worktree", "add", "-q", "--detach", old, "main") // a leftover of the older role dir names
 		if c.there {
 			x.Git(x.Root, "worktree", "add", "-q", "--detach", wt, "main")
 		}
@@ -295,7 +294,7 @@ func TestReviewerAndDeepDiveRunInTheirRoleWorktree(t *testing.T) {
 	x.failing(t, "FAIL "+x.LaneDir("reviewer")+" exists and is not a worktree of "+x.Root, "role", "reviewer", "--tab", "w1:t1", "--start")
 }
 
-// bash setup.test.sh case_role_integrator_starts_in_the_root_and_needs_a_type; T-853: in its role worktree
+// in its role worktree
 // <lanes_dir>/integrator (not the merge scratch, where gates run), added detached when missing.
 func TestRoleIntegratorStartsInItsWorktreeAndNeedsAType(t *testing.T) {
 	t.Parallel()
@@ -336,7 +335,7 @@ func TestRoleIntegratorStartsInItsWorktreeAndNeedsAType(t *testing.T) {
 
 }
 
-// T-731, T-843: obor setup role reviewer and deep_dive add paths.reviews to an existing project's .gitignore, once: an
+// obor setup role reviewer and deep_dive add paths.reviews to an existing project's .gitignore, once: an
 // init made before the line was ignored leaves it out (init's own case is TestInitGitignoresTheReviewsDir).
 func TestRoleSetupGitignoresTheReviewsDir(t *testing.T) {
 	t.Parallel()
@@ -360,7 +359,7 @@ func TestRoleSetupGitignoresTheReviewsDir(t *testing.T) {
 	}
 }
 
-// T-731, T-843: a reviews line already there, with or without its trailing slash, is left alone (the line is git's
+// a reviews line already there, with or without its trailing slash, is left alone (the line is git's
 // either way): setup role reviewer adds no second line.
 func TestRoleSetupLeavesAnExistingReviewsLineAlone(t *testing.T) {
 	t.Parallel()

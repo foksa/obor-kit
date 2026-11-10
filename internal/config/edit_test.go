@@ -58,7 +58,7 @@ func editProject(t *testing.T) *Config {
 	return load(t, editDoc, "")
 }
 
-// T-753, T-765: each editable key, set: the file's other members keep their bytes and layout, the result loads with
+// each editable key, set: the file's other members keep their bytes and layout, the result loads with
 // the new value, and the change says the old and the new value.
 func TestEditSetsEachField(t *testing.T) {
 	for _, c := range []struct {
@@ -125,7 +125,7 @@ func TestEditSetsEachField(t *testing.T) {
 	}
 }
 
-// T-781: nightly.at is the nightly's switch: a time sets it (on), null deletes it (off), the change naming the
+// nightly.at is the nightly's switch: a time sets it (on), null deletes it (off), the change naming the
 // value before; off when off is no change of the file.
 func TestEditNightlyAtOnOff(t *testing.T) {
 	cfg := editProject(t)
@@ -172,8 +172,8 @@ func diffLines(a, b string) int {
 	return n
 }
 
-// T-753: a value the key does not take, a key that is not editable and a name the config does not have are refused,
-// naming why. T-1126: the keys are shape 2's names; the `roles.<role>.type` alias is not editable.
+// a value the key does not take, a key that is not editable and a name the config does not have are refused,
+// naming why. The keys are shape 2's names; the `roles.<role>.type` alias is not editable.
 func TestEditRefuses(t *testing.T) {
 	cfg := editProject(t)
 	for _, c := range []struct{ key, val, want string }{
@@ -208,7 +208,7 @@ func TestEditRefuses(t *testing.T) {
 		{"nightly.at", `""`, "nightly.at takes a local time HH:MM"},
 		{"nightly.at", `300`, "nightly.at takes a local time HH:MM"},
 		{"nightly.at", ``, "nightly.at takes a local time HH:MM"},
-		// the Setup page's old alias is no key now (T-1126)
+		// the Setup page's old alias is no key now
 		{"difficulty.hard", `["opus"]`, "is not an editable key"},
 		{"roles.lead", `"opus"`, "is not an editable key"},
 		{"roles.deep_dive.type", `"kimi:high"`, "is not an editable key"},
@@ -223,7 +223,7 @@ func TestEditRefuses(t *testing.T) {
 	}
 }
 
-// T-754: a key .obor/local.json sets is refused before anything is written: the committed value would not count. The
+// a key .obor/local.json sets is refused before anything is written: the committed value would not count. The
 // refusal names local.json's member as the config has it.
 func TestEditRefusesLocalOverride(t *testing.T) {
 	for _, c := range []struct{ name, local, key, val, at string }{
@@ -248,7 +248,7 @@ func TestEditRefusesLocalOverride(t *testing.T) {
 	}
 }
 
-// T-754: a member local.json leaves alone (another level, another kind) does not keep an edit from counting, and
+// a member local.json leaves alone (another level, another kind) does not keep an edit from counting, and
 // local.json's own values stay out of the committed file.
 func TestEditIgnoresLocalElsewhere(t *testing.T) {
 	for _, c := range []struct {
@@ -293,7 +293,7 @@ func localProject(t *testing.T, local string) (*Config, []byte) {
 	return cfg, doc
 }
 
-// T-753: Relayout keeps the file's layout: a one-line file stays one line, a tab-indented one tabs, no final newline
+// Relayout keeps the file's layout: a one-line file stays one line, a tab-indented one tabs, no final newline
 // none.
 func TestRelayout(t *testing.T) {
 	for _, c := range []struct{ orig, want string }{
@@ -309,7 +309,7 @@ func TestRelayout(t *testing.T) {
 	}
 }
 
-// T-753: NewFails is the fails a change adds: one the config already had is not the change's.
+// NewFails is the fails a change adds: one the config already had is not the change's.
 func TestNewFails(t *testing.T) {
 	got := NewFails([]string{"FAIL .a: x"}, []string{"FAIL .a: x", "FAIL .b: y"})
 	if !slices.Equal(got, []string{"FAIL .b: y"}) {

@@ -15,8 +15,8 @@ import (
 )
 
 // The obor MCP server (`obor mcp`) is registered per agent kind, as its bridge says
-// (agents.Kind.Install): by the kit's manifest (Claude) or per start (Codex's launch args, OpenCode's generated config,
-// T-809). A kind installs nothing user-global (T-1119). This file reads those files.
+// (agents.Kind.Install): by the kit's manifest (Claude) or per start (Codex's launch args, OpenCode's generated config).
+// A kind installs nothing user-global. This file reads those files.
 
 // readConfig is the file as JSON (an absent or blank file is an empty config; not JSON is an error).
 func readConfig(path string) ([]byte, error) {
@@ -71,7 +71,7 @@ const fixHint = "update the plugin"
 
 // mcpCmd is `obor setup mcp [--model <name>]`, the doctor: per agent kind the project uses (usedKinds; the others are
 // "not used", never a WARN) whether the obor MCP server is registered, then `obor mcp --check` (the handshake against
-// the server itself); --model <name> instead asks for that model alone, from its effective start args (T-445).
+// the server itself); --model <name> instead asks for that model alone, from its effective start args.
 // Read-only.
 func (s *Setup) mcpCmd(_ context.Context, args []string) error {
 	lane := ""
@@ -95,13 +95,13 @@ func (s *Setup) mcpCmd(_ context.Context, args []string) error {
 			continue
 		}
 		k, _ := agents.Lookup(name)
-		if c, ok := k.(agents.InstallChecker); ok { // the CLI's install (T-1045): a warning, never a failure
+		if c, ok := k.(agents.InstallChecker); ok { // the CLI's install: a warning, never a failure
 			for _, w := range c.InstallWarnings(s.installHost()) {
 				s.say("WARN %s: %s", name, w)
 			}
 		}
 		in, err := agents.InstallOf(k, s.Kit, s.Env.Get)
-		if err != nil { // a plugin kind's install failed (T-1036)
+		if err != nil { // a plugin kind's install failed
 			s.say("WARN mcp %s: %v", name, err)
 			bad = true
 			continue
@@ -142,8 +142,7 @@ func (s *Setup) mcpCmd(_ context.Context, args []string) error {
 }
 
 // installHost is this machine for agents.InstallChecker: the CLI looked up on the project env's PATH (an env without
-// one finds none), the quarantine flags read with macOS's xattr (project.InstallHost, the one builder launch shares,
-// T-1052).
+// one finds none), the quarantine flags read with macOS's xattr (project.InstallHost, the one builder launch shares).
 func (s *Setup) installHost() agents.InstallHost {
 	if s.Install != nil {
 		return s.Install()
@@ -153,7 +152,7 @@ func (s *Setup) installHost() agents.InstallHost {
 
 // usedKinds are the kinds the project runs: every used model's (a level's, a role's, an agent's), and agents.Default
 // for a role with no model, as launch starts it; nil when there is no project config (check every kind), and a config
-// that fails to load is its own error (T-1163: the command fails with it).
+// that fails to load is its own error (the command fails with it).
 func (s *Setup) usedKinds() (map[string]bool, error) {
 	cfg, err := s.projectConfig()
 	if err != nil || cfg == nil {
@@ -179,8 +178,8 @@ func (s *Setup) usedKinds() (map[string]bool, error) {
 // mcpLane is `obor setup mcp --model <name>`: whether a start of that model gives its agent obor's server, read from
 // its effective start args as its kind says (agents.MCPRegistration.Lane) — claude: a lane's start carries
 // --strict-mcp-config, so obor adds its --mcp-config (an explicit obor entry in kinds.claude.args wins); codex: launch
-// args on every start; opencode: the start's generated config (OPENCODE_CONFIG, T-809). It starts no agent and runs no `claude -p`
-// (T-445: a headless run in a lane worktree inherits the worker role and its Stop hook). No handshake: `obor setup mcp`
+// args on every start; opencode: the start's generated config (OPENCODE_CONFIG). It starts no agent and runs no `claude -p`
+// (a headless run in a lane worktree inherits the worker role and its Stop hook). No handshake: `obor setup mcp`
 // runs it.
 func (s *Setup) mcpLane(name string) error {
 	if err := s.load(); err != nil {
@@ -200,14 +199,14 @@ func (s *Setup) mcpLane(name string) error {
 		return project.Failf("mcp model %s", name)
 	}
 	in, err := agents.InstallOf(k, s.Kit, s.Env.Get)
-	if err != nil { // a plugin kind's install failed (T-1036)
+	if err != nil { // a plugin kind's install failed
 		s.say("WARN mcp model %s (%s): %v", name, lt.Kind, err)
 		return project.Failf("mcp model %s", name)
 	}
 	m := in.MCP
-	// a lane's start: a lane never is the lead, the settings default applies, and a lane's agent starts strict (T-770)
-	// unless the project's committed CLI config opts out (T-1033: the main checkout's copy stands for a lane's). A kind
-	// whose start is one call (a plugin kind, T-1042) gets the complete start, the kit too; a compiled kind's Lane reads
+	// a lane's start: a lane never is the lead, the settings default applies, and a lane's agent starts strict
+	// unless the project's committed CLI config opts out (the main checkout's copy stands for a lane's). A kind
+	// whose start is one call (a plugin kind) gets the complete start, the kit too; a compiled kind's Lane reads
 	// the type's launch args, before the start registers obor's server for the kit.
 	start := agents.Start{Dir: s.cfg.Root, Read: os.ReadFile, Env: s.Env.Get, WriteState: project.StateWriter(s.cfg.Root)}
 	if _, whole := k.(agents.Whole); whole {

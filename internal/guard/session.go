@@ -22,7 +22,7 @@ import (
 // session's records are still written). Records the session id for obor restart (a kind that resumes) and its inbox
 // (record). paneLabel is a herdr pane's label ("" when
 // it cannot tell; cmd/obor: one bounded `herdr pane get`), asked only for the lost-identity warning. The session it
-// returns is what cmd/obor reports to serve (T-577; ok false: no project, no agent name or no session id).
+// returns is what cmd/obor reports to serve (ok false: no project, no agent name or no session id).
 func SessionStart(input []byte, env project.Env, out io.Writer) (Began, bool) {
 	var ev struct {
 		Cwd            string `json:"cwd"`
@@ -39,9 +39,9 @@ func SessionStart(input []byte, env project.Env, out io.Writer) (Began, bool) {
 	if repo == nil || errors.Is(err, config.ErrNoConfig) {
 		return Began{}, false
 	}
-	agent := project.Self(repo, cfg, env) // derived, never OBOR_AGENT (T-786)
+	agent := project.Self(repo, cfg, env) // derived, never OBOR_AGENT
 	kind := sessionKind(cfg, agent, ev.Cwd)
-	if err != nil { // DD-v0.13 A1: say so, guard nothing else on a default config (it derives no name: nothing recorded)
+	if err != nil { // say so, guard nothing else on a default config (it derives no name: nothing recorded)
 		fmt.Fprintln(out, "obor: "+unreadable(err))
 		record(repo.Root, agent, project.InboxSlot(cfg, project.DetectRole(repo, cfg, env)), ev.SessionID, env)
 		return Began{}, false
@@ -71,7 +71,7 @@ func SessionStart(input []byte, env project.Env, out io.Writer) (Began, bool) {
 	case w.State == nil:
 		fmt.Fprintln(out, "No lane row (not dispatched).")
 	case len(w.Protected) > 0:
-		// The stored spec (whoami, T-440): a change the lead sets applies at once.
+		// The stored spec (whoami): a change the lead sets applies at once.
 		fmt.Fprintf(out, "Protected files this task may edit: %s (from %s's spec, rev %d in obor serve's store).\n",
 			strings.Join(w.Protected, ", "), w.State.Task, w.Rev)
 	}
@@ -80,7 +80,7 @@ func SessionStart(input []byte, env project.Env, out io.Writer) (Began, bool) {
 	switch w.Role.Role {
 	case "worker":
 		fmt.Fprintln(out, "Hooks: git writes and push are denied, edits outside your lane (other lanes, the main checkout, other obor projects) are denied, protected files are denied unless your spec names them under Protected files this task may edit, headless agent runs ("+forms+") are denied; "+runs+"; you cannot stop before you call the obor task_done tool with your report (Summary/Self-check/…; once per stop: asking works); prompts not tagged [obor … are answered with a wrong-tab question first.")
-	case roles.Driver: // the owner's drive (T-751): no job pull, no report demand, no wrong-tab guard
+	case roles.Driver: // the owner's drive: no job pull, no report demand, no wrong-tab guard
 		fmt.Fprintln(out, "Hooks: git push is denied, edits outside your lane (other lanes, the main checkout, other obor projects) are denied, protected files are denied, headless agent runs ("+forms+") are denied; "+runs+". Commit your work on the lane's branch; the owner lands it with obor land.")
 	case "lead":
 		fmt.Fprintln(out, "Hooks: git push, pkill/killall by pattern and headless agent runs ("+forms+") are denied; "+runs+".")
@@ -93,9 +93,9 @@ func SessionStart(input []byte, env project.Env, out io.Writer) (Began, bool) {
 		fmt.Fprintln(out, line)
 	}
 
-	// T-307/T-310: an opencode lane's plugin runs this hook (its context transform), so the marker proves the plugin
+	// An opencode lane's plugin runs this hook (its context transform), so the marker proves the plugin
 	// loaded: obor status warns when it is missing (dispatch does not wait for one). It lives in the main checkout's
-	// state dir, so it never dirties the lane worktree (RV-34 #4). No hook event carries the agent's version, so it
+	// state dir, so it never dirties the lane worktree. No hook event carries the agent's version, so it
 	// is the kind's VersionVar when the environment sets one, else "". A native-hooks session writes none.
 	if k, ok := agents.Lookup(laneKind(cfg, w.Role.Lane)); w.Role.Lane != "" && ok && k.Caps().Hooks == agents.HooksPlugin {
 		version := ""
@@ -114,15 +114,15 @@ func SessionStart(input []byte, env project.Env, out io.Writer) (Began, bool) {
 	return began, began.ID != "" && recordable(began.Agent)
 }
 
-// Began is an agent session the SessionStart hook saw begin (T-577) in the project at Root: the agent (project.Self:
-// derived, T-786), its kind, the session id and its transcript file ("": the event names none), the pane, lane and
+// Began is an agent session the SessionStart hook saw begin in the project at Root: the agent (project.Self:
+// derived), its kind, the session id and its transcript file ("": the event names none), the pane, lane and
 // task it began in, and its source. Started is the report's (cmd/obor stamps it).
 type Began struct {
 	Root string
 	store.Session
 }
 
-// sessionKind is the kind agent runs as (project.RunningKind: a lane agent's is its lane's open dispatch's, T-739;
+// sessionKind is the kind agent runs as (project.RunningKind: a lane agent's is its lane's open dispatch's;
 // else its role's or agents entry's configured type), else agents.Default.
 func sessionKind(cfg *config.Config, agent, cwd string) string {
 	if info, ok := cfg.AgentLookup(agent, cwd); ok {
@@ -131,10 +131,10 @@ func sessionKind(cfg *config.Config, agent, cwd string) string {
 	return agents.Default
 }
 
-// roleText is the line naming this role's text (T-204): the kit's templates/agents/<doc file>, read in place, plus the
-// project's <paths.agents>/<doc file> when the worktree has one; a custom role (T-801) without a kit text has the
+// roleText is the line naming this role's text: the kit's templates/agents/<doc file>, read in place, plus the
+// project's <paths.agents>/<doc file> when the worktree has one; a custom role without a kit text has the
 // project's doc alone. The lead's text is the obor:lead skill. "" when there is no text for the role (none …, a role
-// cfg does not know). The integrator's line says its jobs carry the texts (T-941); the others say to read them.
+// cfg does not know). The integrator's line says its jobs carry the texts; the others say to read them.
 func roleText(cfg *config.Config, role, kit, top string) string {
 	rc, known := cfg.Role(role)
 	if !known {
@@ -150,7 +150,7 @@ func roleText(cfg *config.Config, role, kit, top string) string {
 	}
 	text := filepath.Join(kit, "templates", "agents", rc.Role.DocFile())
 	tail := " — read it before acting"
-	if role == "integrator" { // T-941: its review and resolve jobs carry the role texts
+	if role == "integrator" { // its review and resolve jobs carry the role texts
 		tail = " — your jobs carry it (job_next), no read needed"
 	}
 	switch {
@@ -177,7 +177,7 @@ func regular(p string) bool {
 }
 
 // laneKind is the kind the configured lane named lane runs now (project.RunningKind: its open dispatch's model,
-// T-739; else agents.Default); "" when it is not a lane.
+// else agents.Default); "" when it is not a lane.
 func laneKind(cfg *config.Config, lane string) string {
 	for _, l := range cfg.Lanes() {
 		if l.Name == lane {
@@ -187,8 +187,8 @@ func laneKind(cfg *config.Config, lane string) string {
 	return ""
 }
 
-// record writes this session's inbox under its slot in the project at root (DD-consolidation I4: every agent,
-// role-free; none for a session that derives no agent name or holds no slot; T-485: obor serve posts the lead's lines
+// record writes this session's inbox under its slot in the project at root (every agent,
+// role-free; none for a session that derives no agent name or holds no slot; obor serve posts the lead's lines
 // there, nothing is typed), as the bridge of the kind whose environment this is builds it (Kind.InboxRecord); a
 // session with none (messaging off, no inbox kind) removes a stale record. The session itself is recorded by serve
 // alone (the session request), never in a file.
@@ -213,8 +213,8 @@ func recordable(agent string) bool {
 	return agent != "" && !strings.Contains(agent, "/") && !strings.HasPrefix(agent, ".")
 }
 
-// loadRuns is the hooks-line clause of guards.deny_commands (T-905): how many rules this project's config denies
-// with (the count T-543's fixed sentence named by its rule forms).
+// loadRuns is the hooks-line clause of guards.deny_commands: how many rules this project's config denies
+// with.
 func loadRuns(n int) string {
 	if n == 1 {
 		return "1 deny rule from guards.deny_commands"

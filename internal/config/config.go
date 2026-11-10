@@ -75,15 +75,15 @@ type Project struct {
 	AgentPrefix string `json:"agent_prefix,omitempty"`
 	// TaskIDPattern is what a task id looks like (Go RE2). Default T-[0-9]+[a-z]?.
 	TaskIDPattern string `json:"task_id_pattern"`
-	// Terminal is the terminal obor drives panes through (T-1044): one of TerminalKinds; absent: herdr.
+	// Terminal is the terminal obor drives panes through: one of TerminalKinds; absent: herdr.
 	Terminal string `json:"terminal,omitempty"`
 }
 
 // Lanes is `lanes`: how many lanes, where they are and what every lane gets.
 type Lanes struct {
-	// Count is how many lanes: L-01 … L-NN, each fresh (T-765).
+	// Count is how many lanes: L-01 … L-NN, each fresh.
 	Count int `json:"count,omitempty"`
-	// List is in place of count: named lanes, each {name, keep_agent} (T-1031: a keep lane's agent stays between its
+	// List is in place of count: named lanes, each {name, keep_agent} (a keep lane's agent stays between its
 	// tasks).
 	List []LaneEntry `json:"list,omitzero"`
 	// Dir is the directory of the lane worktrees. Default ../<repo>-wt.
@@ -96,10 +96,10 @@ type Lanes struct {
 	Setup Command `json:"setup,omitzero"`
 	// Ready is the command that says a lane is still set up.
 	Ready Command `json:"ready,omitzero"`
-	// CPUs are the CPUs every process in a lane may use (OBOR_LANE_CPUS; Env's {cpus}). Default 2 (T-1041).
+	// CPUs are the CPUs every process in a lane may use (OBOR_LANE_CPUS; Env's {cpus}). Default 2.
 	CPUs *int `json:"cpus,omitempty"`
 	// Env is the env every process in a lane gets beside the generic facts, NAME: value; {cpus} stands for CPUs
-	// (T-1041). Unset: only the facts.
+	// Unset: only the facts.
 	Env map[string]string `json:"env,omitempty"`
 }
 
@@ -114,10 +114,10 @@ type Agents struct {
 	Kinds Ordered[KindEntry] `json:"kinds,omitzero"`
 	// Models is models.<name> {kind, id}: a model the built-in table (BuiltinModels) lacks, or one overridden.
 	Models Ordered[ModelEntry] `json:"models,omitzero"`
-	// HandoffTokens is the context size above which the lead is reminded to hand off (T-175) and a keep lane's idle
-	// agent is restarted (T-1031). Default 500000.
+	// HandoffTokens is the context size above which the lead is reminded to hand off and a keep lane's idle
+	// agent is restarted. Default 500000.
 	HandoffTokens *int64 `json:"handoff_tokens,omitempty"`
-	// Confirmed: the owner went through the models above with the lead (T-647); false or absent: the lead asks.
+	// Confirmed: the owner went through the models above with the lead; false or absent: the lead asks.
 	Confirmed *bool `json:"confirmed,omitempty"`
 	// DocsDir is where the project's role docs are. Default docs/agents.
 	DocsDir string `json:"docs_dir,omitempty"`
@@ -125,15 +125,15 @@ type Agents struct {
 
 // Rules is `rules`: what an agent may not do.
 type Rules struct {
-	// MayPush are the roles that may git push (T-105). Default: none.
+	// MayPush are the roles that may git push. Default: none.
 	MayPush []string `json:"may_push,omitzero"`
 	// ProtectedFiles are the files only the lead edits, unless a task's spec unlocks one.
 	ProtectedFiles []string `json:"protected_files"`
-	// DenyCommands are shell commands denied for every agent (T-905).
+	// DenyCommands are shell commands denied for every agent.
 	DenyCommands []DenyCommand `json:"deny_commands,omitzero"`
 }
 
-// DenyCommand is rules.deny_commands[i] (T-905): a command the agent guard denies for every role. Match is a regex on
+// DenyCommand is rules.deny_commands[i]: a command the agent guard denies for every role. Match is a regex on
 // the resolved command line (the program by its basename, its words one space apart, quotes removed); Alone denies a
 // matching command run alone (and so also two at once), without it only two matching commands run at once — a
 // sibling background unit pair, xargs -P, parallel — are denied. Message is the deny line.
@@ -147,7 +147,7 @@ type DenyCommand struct {
 type Merge struct {
 	// TargetBranch is the branch tasks merge into. Default main.
 	TargetBranch string `json:"target_branch"`
-	// Workflow is how a task lands (T-1029): one of WorkflowKinds; absent: scratch-ff.
+	// Workflow is how a task lands: one of WorkflowKinds; absent: scratch-ff.
 	Workflow string `json:"workflow,omitempty"`
 	// Compile is what the merge slot runs on every merge.
 	Compile Command `json:"compile,omitzero"`
@@ -155,8 +155,7 @@ type Merge struct {
 	Check Command `json:"check,omitzero"`
 	// ByPath picks a smaller check by the changed paths (design "Change-based merge checks").
 	ByPath ByPath `json:"by_path,omitzero"`
-	// Retest runs a red check's failing tests once more; {tests} is their names joined by its join (default |,
-	// T-1047).
+	// Retest runs a red check's failing tests once more; {tests} is their names joined by its join (default |).
 	Retest Command `json:"retest,omitzero"`
 	// After runs in the main checkout after a merge, only when one of its when_changed globs changed.
 	After Command `json:"after,omitzero"`
@@ -180,18 +179,18 @@ type PathRule struct {
 	// Run are the commands, by name.
 	Run  []string `json:"run,omitzero"`
 	Full bool     `json:"full,omitempty"`
-	// AlsoOnFull runs them after merge.check too when the merge is a full one (T-1007): a lane with a file only this
+	// AlsoOnFull runs them after merge.check too when the merge is a full one: a lane with a file only this
 	// rule covers, beside an unmatched one, still runs it. Meaningless with Full: obor config validate refuses the pair.
 	AlsoOnFull bool `json:"also_on_full,omitempty"`
 }
 
 // Nightly is `nightly`: the nightly run on the target branch.
 type Nightly struct {
-	// At is the local time of the nightly ("HH:MM", T-464); absent: no nightly.
+	// At is the local time of the nightly ("HH:MM"); absent: no nightly.
 	At string `json:"at,omitempty"`
 	// SlowCheck is the slow tier: the nightly runs lanes.setup, merge.check, then this, and is RED when one fails.
 	SlowCheck Command `json:"slow_check,omitzero"`
-	// AlsoRun are commands, by name, run after those, in order (T-817); a failure is a WARN line, never RED. A name
+	// AlsoRun are commands, by name, run after those, in order; a failure is a WARN line, never RED. A name
 	// must be a defined command and no gating one.
 	AlsoRun []string `json:"also_run,omitzero"`
 }
@@ -213,7 +212,7 @@ type Output struct {
 	Summary string `json:"summary,omitempty"`
 	// Failure picks the lines of a red check's output that go into the RED line.
 	Failure string `json:"failure,omitempty"`
-	// FailedTest and FailedPackage read the failing tests and packages from those lines (T-1047: the name in the
+	// FailedTest and FailedPackage read the failing tests and packages from those lines (the name in the
 	// group test, package), for the retest and obor flakes. Unset: no flake parsing.
 	FailedTest    string `json:"failed_test,omitempty"`
 	FailedPackage string `json:"failed_package,omitempty"`
@@ -300,7 +299,7 @@ func (c Command) MarshalJSON() ([]byte, error) {
 	return []byte(Compact(command(c))), nil
 }
 
-// Roles is agents.roles: agents.roles.<name> in config order (T-801), a table role's model ref or a custom role's row
+// Roles is agents.roles: agents.roles.<name> in config order, a table role's model ref or a custom role's row
 // (RoleEntry; a null member is no member).
 type Roles struct {
 	Ordered[RoleEntry]
@@ -330,10 +329,10 @@ func (r *Roles) entry(name string) (RoleEntry, bool) {
 	return e, ok
 }
 
-// RoleEntry is agents.roles.<name> (T-801): a model ref string ("": configured, no model named), or a custom role's
+// RoleEntry is agents.roles.<name>: a model ref string ("": configured, no model named), or a custom role's
 // object {"model": "<ref>", "write": ["<dir>/", "<file>"], "verbs": ["spec_set", …]} (Object). Write is nil when the
 // entry names no write list (a string, or an object without write: a kit default row keeps its own). Verbs are the
-// wire methods serve admits the role to (T-1039, roles.Verbs; a built-in role has none: validate fails them).
+// wire methods serve admits the role to (roles.Verbs; a built-in role has none: validate fails them).
 type RoleEntry struct {
 	Model  string   `json:"model"`
 	Write  []string `json:"write,omitzero"`
@@ -369,7 +368,7 @@ func (e RoleEntry) MarshalJSON() ([]byte, error) {
 	return []byte(Compact(plain(e))), nil
 }
 
-// SetupConfirmed is the owner's answer to the setup table (agents.confirmed): absent is not confirmed (T-647).
+// SetupConfirmed is the owner's answer to the setup table (agents.confirmed): absent is not confirmed.
 func (c *Config) SetupConfirmed() bool {
 	return c.Data.Agents.Confirmed != nil && *c.Data.Agents.Confirmed
 }
@@ -417,7 +416,7 @@ func (c *Config) RetestJoin() string {
 // NightlyAt is nightly.at ("HH:MM" local time): when obor serve runs the nightly full check; "" is never.
 func (c *Config) NightlyAt() string { return c.Data.Nightly.At }
 
-// ReportSections are the sections a worker's task_done report must have, each a `Name:` label (T-1107): built in, the
+// ReportSections are the sections a worker's task_done report must have, each a `Name:` label: built in, the
 // done_file_sections key they came from is retired.
 var ReportSections = []string{"Summary", "Self-check", "Skipped", "Open questions"}
 
@@ -437,13 +436,13 @@ type Config struct {
 	Root       string
 	Data       Data
 	json       []byte   // Data as JSON, for Get
-	local      []byte   // .obor/local.json's bytes (nil: none), for Edit's override check (T-754)
+	local      []byte   // .obor/local.json's bytes (nil: none), for Edit's override check
 	unknownErr error    // LoadReader's warning when read dropped an unknown key
 	unknownIn  []string // the unknown keys config.json itself has (the others are local.json's), for LoadForValidate
 }
 
 // Rev is the revision of the config as it runs (Rev of its effective JSON: config.json with .obor/local.json merged
-// and the defaults filled, T-1050). Unlike the file's own revision it changes when an edit in either file changes what
+// and the defaults filled). Unlike the file's own revision it changes when an edit in either file changes what
 // runs — a model's id in local.json too — so a start can record it and a keep lane reuse its agent only while it is
 // the same (startFits). An edit that leaves the effective config alone (a rewrite, a key set to its own value) does
 // not change it.
@@ -452,7 +451,7 @@ func (c *Config) Rev() string { return Rev(c.json) }
 // Load builds the effective config of the project whose main checkout is root (absolute, physical): config.json and
 // local.json merged as JSON (merge), decoded once over the defaults, then the derived keys. A key this binary does not
 // know (the config is newer than the binary, or the key was retired) is ignored with one warning per key and process
-// on Warn (T-377), for every command, hook, reader and serve alike (T-1081): only obor config validate
+// on Warn, for every command, hook, reader and serve alike: only obor config validate
 // (LoadForValidate) refuses one. A config.json of shape 1 fails the load, as every other error does.
 func Load(root string) (*Config, error) {
 	c, unknown, err := read(root)
@@ -462,8 +461,8 @@ func Load(root string) (*Config, error) {
 	return c, err
 }
 
-// LoadForValidate is Load for obor config validate (and the merge guard that runs it), the one strict place (T-710,
-// T-1081): unknown are its FAIL lines, one per key this binary does not know, naming it and its file; cfg is the
+// LoadForValidate is Load for obor config validate (and the merge guard that runs it), the one strict place:
+// unknown are its FAIL lines, one per key this binary does not know, naming it and its file; cfg is the
 // config without them, for the other checks. Nothing goes to Warn. Every other error is Load's.
 func LoadForValidate(root string) (cfg *Config, unknown []string, err error) {
 	c, keys, err := read(root)
@@ -481,15 +480,15 @@ func LoadForValidate(root string) (cfg *Config, unknown []string, err error) {
 	return c, unknown, nil
 }
 
-// LoadHook is Load for the hooks (DD-v0.13 A1): a key this binary does not know is ignored, as Load does, but
+// LoadHook is Load for the hooks: a key this binary does not know is ignored, as Load does, but
 // returned in unknown instead of warned of on Warn (the SessionStart hook names them; the others say nothing). Every
 // other error is Load's: the hooks then fail closed (Fallback).
 func LoadHook(root string) (*Config, []string, error) { return read(root) }
 
-// LoadReader is Load for the readers (obor status, obor stop/start, obor web; T-709): a key this binary does not know (a
+// LoadReader is Load for the readers (obor status, obor stop/start, obor web): a key this binary does not know (a
 // config newer than a long-running obor web, or a key this obor retired) is ignored, and warn names it, instead of
 // going to Warn. Every other error is Load's; obor config validate (LoadForValidate) refuses such a config. Every
-// loader is lenient, validate strict: that is the contract (T-710, T-1081).
+// loader is lenient, validate strict: that is the contract.
 func LoadReader(root string) (cfg *Config, warn string, err error) {
 	c, unknown, err := read(root)
 	if err != nil {
@@ -532,7 +531,7 @@ func (u unknownKey) Error() string {
 func read(root string) (*Config, []string, error) { return readWith(root, nil) }
 
 // LoadWith is Load of the project at root with doc in place of its config.json's bytes (local.json read as it
-// is): what a config change would load as, before it is written (obor web's setup edit, T-753).
+// is): what a config change would load as, before it is written (obor web's setup edit).
 func LoadWith(root string, doc []byte) (*Config, error) {
 	c, _, err := readWith(root, doc)
 	return c, err
@@ -541,7 +540,7 @@ func LoadWith(root string, doc []byte) (*Config, error) {
 // readWith is read with doc as config.json's bytes (nil: the file's): one struct, one decode. A config.json of shape 1
 // fails it (ShapeOf): shape 1 was read and rewritten by v0.33 alone, and the way out is that release. local.json has
 // no version and no shape test: a shape-1 key in it is an unknown key like any other (WARN for readers, refused by
-// validate, decision 2026-11-09 T-1081).
+// validate, decision 2026-11-09).
 func readWith(root string, doc []byte) (*Config, []string, error) {
 	names := []string{"config.json", "local.json"}
 	var files [2][]byte
@@ -762,7 +761,7 @@ func (c *Config) LanesDir() string { return AbsUnder(c.Root, c.Data.Lanes.Dir) }
 // placeholder's value; LanesDir is the absolute form.
 func (c *Config) LanesDirSetting() string { return c.Data.Lanes.Dir }
 
-// LaneCount is how many lanes the config has: a count, or a list's length (T-1031).
+// LaneCount is how many lanes the config has: a count, or a list's length.
 func (c *Config) LaneCount() int { return c.Data.Lanes.total() }
 
 // LanesListed: the lanes are a list the owner wrote (lanes.list), not a count.
@@ -779,14 +778,14 @@ func AbsUnder(root, p string) string {
 	return filepath.Clean(p)
 }
 
-// Lane is one configured lane, pooled (it runs the model its dispatch picks, T-765), and its Mode (T-1031):
+// Lane is one configured lane, pooled (it runs the model its dispatch picks), and its Mode:
 // LaneFresh or LaneKeep.
 type Lane struct {
 	Name, Dir string
 	Mode      string
 }
 
-// The lane modes (Lane.Mode, T-1031): a fresh lane's agent is stopped once its task merged and every dispatch starts
+// The lane modes (Lane.Mode): a fresh lane's agent is stopped once its task merged and every dispatch starts
 // a new one; a keep lane's agent stays at its shell between tasks, the next dispatch's job goes to the same session
 // (a start only when the lane has no live agent), and a dispatch naming it while it is busy queues behind its task.
 const (
@@ -825,14 +824,14 @@ func (l Lanes) entries() []LaneEntry {
 type RoleConfig struct {
 	Role  roles.Role
 	Agent string
-	// Type is the model agents.roles.<role> names ("": none), Effort the effort after it (`opus:high`, T-695; "": the kind's
+	// Type is the model agents.roles.<role> names ("": none), Effort the effort after it (`opus:high`; "": the kind's
 	// default).
 	Type, Effort string
 	Configured   bool
 }
 
 // AgentInfo is the role, lane, model (Type) and cwd resolved for a configured agent, and the effort its model ref
-// names ("": the kind's default; T-695). A worker's Type is "": its dispatch picks the model.
+// names ("": the kind's default). A worker's Type is "": its dispatch picks the model.
 type AgentInfo struct {
 	Role, Lane, Type, Cwd string
 	Effort                string
@@ -872,7 +871,7 @@ func (c *Config) HasLane(name string) bool {
 	return ok
 }
 
-// KeepLane: name is a configured lane whose agent is kept between tasks (T-1031).
+// KeepLane: name is a configured lane whose agent is kept between tasks.
 func (c *Config) KeepLane(name string) bool {
 	l, ok := c.Lane(name)
 	return ok && l.Mode == LaneKeep
@@ -882,7 +881,7 @@ func (c *Config) KeepLane(name string) bool {
 const DefaultHandoffTokens = 500000
 
 // HandoffTokens is the handoff threshold (agents.handoff_tokens, else DefaultHandoffTokens; 0: off): the lead's reminder
-// (T-175) and a keep lane's restart of its idle agent between tasks (T-1031).
+// and a keep lane's restart of its idle agent between tasks.
 func (c *Config) HandoffTokens() int64 {
 	if n := c.Data.Agents.HandoffTokens; n != nil {
 		return *n
@@ -954,7 +953,7 @@ func (c *Config) Command(name string) (Command, bool) {
 // ReviewsDirSet is reviews.dir as the file sets it ("" when it sets none; ReviewsDir has the default).
 func (c *Config) ReviewsDirSet() string { return c.Data.Reviews.Dir }
 
-// Role is the one role lookup (T-801): a table role, a kit default row (roles.DefaultRow) or a custom role a
+// Role is the one role lookup: a table role, a kit default row (roles.DefaultRow) or a custom role a
 // agents.roles.<name> row adds, with its configured model ref; the agent's name is derived (roles.AgentName). A row whose
 // name cannot name a custom role (roles.CheckCustomName) is no role (validate fails it); the driver is never
 // configured (obor drive starts it).
@@ -1027,7 +1026,7 @@ func (c *Config) Roles() []RoleConfig {
 	return out
 }
 
-// AgentName is the herdr agent name of role (of lane, for a worker): the derived name (T-765).
+// AgentName is the herdr agent name of role (of lane, for a worker): the derived name.
 func (c *Config) AgentName(role, lane string) string {
 	rc, ok := c.Role(role)
 	if !ok {
@@ -1038,7 +1037,7 @@ func (c *Config) AgentName(role, lane string) string {
 
 // Self is the herdr agent name of the slot role (of lane, for a lane-bound role) holds: a worker's derived name, the
 // drive agent's (roles.DriveAgent of its lane's worker), another table role's derived name; "" for no role, a role
-// outside the table or a lane-bound role without a lane. The one derivation of "who am I" (T-786): a name obor can
+// outside the table or a lane-bound role without a lane. The one derivation of "who am I": a name obor can
 // derive is never stored (no OBOR_AGENT).
 func (c *Config) Self(role, lane string) string {
 	switch {
@@ -1054,23 +1053,23 @@ func (c *Config) Self(role, lane string) string {
 }
 
 // MayPush is the one rule for "this role may push" (the agent guard's checkPush and, for a role, the git pre-push hook
-// through `obor whoami --can-push`, T-793): a role that is not lane-bound (never a worker's or a driver's, T-751) and
-// is listed in rules.may_push. A custom role never pushes (T-801; validate fails a may_push that lists one). A
-// caller with no role is not an agent: the pre-push hook lets it push without asking (T-1116).
+// through `obor whoami --can-push`): a role that is not lane-bound (never a worker's or a driver's) and
+// is listed in rules.may_push. A custom role never pushes (validate fails a may_push that lists one). A
+// caller with no role is not an agent: the pre-push hook lets it push without asking.
 func (c *Config) MayPush(role string) bool {
 	rc, _ := c.Role(role)
 	return !roles.LaneBound(role) && !rc.Role.Custom && c.PushAllowed(role)
 }
 
-// PushAllowed: rules.may_push lists role (T-105).
+// PushAllowed: rules.may_push lists role.
 func (c *Config) PushAllowed(role string) bool {
 	return role != "" && slices.Contains(c.Data.Rules.MayPush, role)
 }
 
-// DenyCommands is rules.deny_commands: the commands the agent guard denies for every role (T-905); nil when unset.
+// DenyCommands is rules.deny_commands: the commands the agent guard denies for every role; nil when unset.
 func (c *Config) DenyCommands() []DenyCommand { return c.Data.Rules.DenyCommands }
 
-// ProtectedFiles is rules.protected_files: the files only the lead edits, unless a task's spec unlocks one (T-1123).
+// ProtectedFiles is rules.protected_files: the files only the lead edits, unless a task's spec unlocks one.
 func (c *Config) ProtectedFiles() []string { return c.Data.Rules.ProtectedFiles }
 
 // RoleAgents is every role that counts as a role agent, in Roles order: every role but the worker, an optional one
@@ -1086,7 +1085,7 @@ func (c *Config) RoleAgents() []RoleConfig {
 	return out
 }
 
-// RoleDir is where a role agent of role r runs (T-853), by its cwd rule: its role worktree <lanes.dir>/<role> (the
+// RoleDir is where a role agent of role r runs, by its cwd rule: its role worktree <lanes.dir>/<role> (the
 // reviewer, the deep dive, the integrator), else the main checkout. A lane-bound role runs in its lane (Lanes), not
 // here: the main checkout.
 func (c *Config) RoleDir(r roles.Role) string {
@@ -1127,7 +1126,7 @@ func (c *Config) CPUsPerCheck() (int, bool) {
 // CheckSlotDir is checks.slot_dir: where the check slot files are ("" when the file sets none).
 func (c *Config) CheckSlotDir() string { return c.Data.Checks.SlotDir }
 
-// LaneEnv is a lane's env (T-1041), as NAME=value entries: the generic facts obor exports — OBOR_LANE_CPUS, the lane's
+// LaneEnv is a lane's env, as NAME=value entries: the generic facts obor exports — OBOR_LANE_CPUS, the lane's
 // CPU budget (lanes.cpus) — then lanes.env, its values with {cpus} replaced by that budget, names in order.
 // What the env means (a Go build's -p, a test tier) is the project's config line, never obor's code.
 func LaneEnv(c *Config) []string {
@@ -1156,7 +1155,7 @@ func (c *Config) LaneEnvMap() map[string]string {
 	return c.Data.Lanes.Env
 }
 
-// WithLaneEnv is vars (a start's kind env, not changed) with LaneEnv added (T-1041): a lane worker's start of any kind,
+// WithLaneEnv is vars (a start's kind env, not changed) with LaneEnv added: a lane worker's start of any kind,
 // launch's env line and obor setup's pane. A var the config names replaces the one vars had: the config line is the
 // policy, obor merges nothing into it.
 func WithLaneEnv(vars map[string]string, c *Config) map[string]string {
@@ -1171,7 +1170,7 @@ func WithLaneEnv(vars map[string]string, c *Config) map[string]string {
 	return out
 }
 
-// RoleWorktree is the worktree serve owns for role (T-853): <lanes.dir>/<role>, never a lane.
+// RoleWorktree is the worktree serve owns for role: <lanes.dir>/<role>, never a lane.
 func (c *Config) RoleWorktree(role string) string { return filepath.Join(c.LanesDir(), role) }
 
 // RoleWorktrees is the worktree of every table role whose cwd rule is a role worktree, configured or not: a linked
@@ -1186,7 +1185,7 @@ func (c *Config) RoleWorktrees() []string {
 	return out
 }
 
-// ReviewsDir is reviews.dir (default docs/reviews): where the reviewer writes an open review (T-731).
+// ReviewsDir is reviews.dir (default docs/reviews): where the reviewer writes an open review.
 func (c *Config) ReviewsDir() string {
 	if r := strings.Trim(c.Data.Reviews.Dir, "/"); r != "" {
 		return r
@@ -1201,7 +1200,7 @@ func (c *Config) ReviewWriteDirs() []string {
 	return []string{c.ReviewsDir()}
 }
 
-// RoleWriteDirs are the dirs outside its cwd an agent of role r writes, absolute (T-853): the reviewer and the deep
+// RoleWriteDirs are the dirs outside its cwd an agent of role r writes, absolute: the reviewer and the deep
 // dive (WriteReviewsOnly, in their role worktree) write their files into the main checkout's ReviewWriteDirs; every
 // other role none. A sandboxed kind's start lets it write there (agents.Start.WriteDirs: Codex's --add-dir).
 func (c *Config) RoleWriteDirs(r roles.Role) []string {
@@ -1219,7 +1218,7 @@ func (c *Config) RoleWriteDirs(r roles.Role) []string {
 // ScratchDir is the merge scratch, <lanes.dir>/merge, absolute.
 func (c *Config) ScratchDir() string { return filepath.Join(c.LanesDir(), "merge") }
 
-// LaneAgentAliases returns the names that identify this lane's worker: its derived one (T-1031: no lane row names
+// LaneAgentAliases returns the names that identify this lane's worker: its derived one (no lane row names
 // one).
 func (c *Config) LaneAgentAliases(lane string) []string {
 	return roles.LaneAgentAliases(lane, c.Data.Project.AgentPrefix)
@@ -1321,7 +1320,7 @@ func (c *Config) DifficultyList(level string) []string {
 func (c *Config) HasDifficulty() bool { return c.Data.Agents.Difficulty != nil }
 
 // PluginEnabledIn: dir's .claude/settings.json enables an obor plugin (enabledPlugins "obor@<marketplace>": true). A
-// lane is a worktree, so an untracked settings file of the main checkout is not there unless it is linked (T-705).
+// lane is a worktree, so an untracked settings file of the main checkout is not there unless it is linked.
 func PluginEnabledIn(dir string) bool {
 	var settings struct {
 		Enabled map[string]any `json:"enabledPlugins"`

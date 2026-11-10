@@ -1,6 +1,6 @@
 package testkit
 
-// The git-less project layout (T-1010): a project and its worktrees laid out as files, in the shape project.Find
+// The git-less project layout: a project and its worktrees laid out as files, in the shape project.Find
 // reads. The root's .git is a directory; a worktree's .git is a file naming a gitdir: under
 // <root>/.git/worktrees/<name>, and that gitdir holds the commondir (../..) and gitdir (the worktree's .git) files a
 // git worktree has. So project.Find, project.LaneOf and project.DetectRole answer as they do in a real project, with

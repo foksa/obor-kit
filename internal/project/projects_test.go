@@ -41,7 +41,7 @@ func stateEnv(t *testing.T) Env {
 	}
 }
 
-// T-646: the machine's list of obor projects by name: obor serve and obor init register a project under its config
+// the machine's list of obor projects by name: obor serve and obor init register a project under its config
 // name, and obor send's names (Projects, RootOf) read it back from <state home>/projects.json.
 func TestProjectsByName(t *testing.T) {
 	t.Parallel()
@@ -82,7 +82,7 @@ func TestProjectsByName(t *testing.T) {
 	}
 }
 
-// T-646, T-767, T-774: the list keeps a project whose config this binary cannot load (an older or a newer shape, an
+// the list keeps a project whose config this binary cannot load (an older or a newer shape, an
 // unparsable file): a read leaves its entry out only when its root has no .obor/config.json, or its config names
 // another project. Those stale entries stay in the file; a register of another project never drops one.
 func TestProjectsKeepsWhatItsEntriesName(t *testing.T) {
@@ -91,7 +91,7 @@ func TestProjectsKeepsWhatItsEntriesName(t *testing.T) {
 	dir := t.TempDir()
 	old, broken, moved, renamed, gone, kit := filepath.Join(dir, "axis-alies"), filepath.Join(dir, "obor-kit"),
 		filepath.Join(dir, "moved"), filepath.Join(dir, "renamed"), filepath.Join(dir, "gone"), filepath.Join(dir, "kit")
-	// The shape before v0.23: this binary refuses it at the load (T-1157), and its name still counts.
+	// The shape before v0.23: this binary refuses it at the load, and its name still counts.
 	configBytesAt(t, old, `{"name":"axis-alies","prefix":"ax","lane_types":{"opus":{"kind":"claude"}}}`+"\n")
 	configBytesAt(t, broken, `{"name": "obor-kit",`+"\n")
 	configAt(t, moved, "moved")
@@ -146,7 +146,7 @@ func TestProjectsKeepsWhatItsEntriesName(t *testing.T) {
 	}
 }
 
-// T-646: two registers at once (two serves starting) both end up in the list: the read-modify-write holds
+// two registers at once (two serves starting) both end up in the list: the read-modify-write holds
 // projects.lock.
 func TestProjectsRegisterAtOnce(t *testing.T) {
 	t.Parallel()
@@ -187,7 +187,7 @@ func TestProjectsRegisterAtOnce(t *testing.T) {
 	}
 }
 
-// T-1124: NameAt reads the name in either config shape (project.name in shape 2, name in shape 1), else the root's.
+// NameAt reads the name in either config shape (project.name in shape 2, name in shape 1), else the root's.
 func TestNameAtEitherShape(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

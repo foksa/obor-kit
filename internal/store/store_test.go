@@ -382,7 +382,7 @@ func TestOpenRWRefusalChangesNothing(t *testing.T) {
 	}
 }
 
-// TestOpenRWRefusesPreV022 (T-840): a store from before v0.22 (schema 5 with its queue table, and an older one) is
+// TestOpenRWRefusesPreV022: a store from before v0.22 (schema 5 with its queue table, and an older one) is
 // refused with one line naming its schema and v0.24.0, and the file is left byte for byte as it was.
 func TestOpenRWRefusesPreV022(t *testing.T) {
 	t.Parallel()
@@ -435,7 +435,7 @@ func TestOpenRWRefusesPreV022(t *testing.T) {
 	}
 }
 
-// TestOpenRWRefusesSchema8 (T-840): a schema-8 store (its lanes table has no type, its specs table no note) is refused
+// TestOpenRWRefusesSchema8: a schema-8 store (its lanes table has no type, its specs table no note) is refused
 // with one line naming its schema and v0.24.0, and the file is left byte for byte as it was.
 func TestOpenRWRefusesSchema8(t *testing.T) {
 	t.Parallel()
@@ -500,7 +500,7 @@ func TestOpenRWRefusesSchema8(t *testing.T) {
 	}
 }
 
-// T-881: a schema-10 store (no read indexes) gets them on its next open, and the timeline, session-fact and prompt
+// a schema-10 store (no read indexes) gets them on its next open, and the timeline, session-fact and prompt
 // queries plan with them instead of scanning.
 func TestOpenRWAddsTheReadIndexes(t *testing.T) {
 	t.Parallel()
@@ -560,7 +560,7 @@ func TestOpenRWAddsTheReadIndexes(t *testing.T) {
 	}
 }
 
-// T-1089: schema 14 adds no table, only the version: a store at 13 is opened and becomes 14 with its rows as they
+// schema 14 adds no table, only the version: a store at 13 is opened and becomes 14 with its rows as they
 // were; a binary that knows 13 refuses a store at 14 (it may be pruned: an older fold reads a lone merged fact as
 // nothing).
 func TestSchema14(t *testing.T) {

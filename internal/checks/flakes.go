@@ -17,7 +17,7 @@ import (
 )
 
 // A Flake is one .obor/state/flakes.jsonl line: a check run's failing test. Retried and PassedOnRetry are written by
-// scripts/release's own rerun (T-717) and by a lane test's one retest (commands.retest, T-964).
+// scripts/release's own rerun and by a lane test's one retest (commands.retest).
 type Flake struct {
 	Time          int64  `json:"time"`            // epoch seconds
 	Test          string `json:"test"`            // the fail_grep line's name: the test, else the package (merge.flake_regex)
@@ -28,10 +28,10 @@ type Flake struct {
 	PassedOnRetry bool   `json:"passed_on_retry"` // and the test passed then
 }
 
-// flakeWindow is how far back obor flakes looks: the window the nightly sweep prunes flakes.jsonl with (T-1098).
+// flakeWindow is how far back obor flakes looks: the window the nightly sweep prunes flakes.jsonl with.
 const flakeWindow = project.FlakeKeep
 
-// flakeRegexp compiles merge.flake_regex: the failed-test line and the failed-package line (T-1047). A nil entry is
+// flakeRegexp compiles merge.flake_regex: the failed-test line and the failed-package line. A nil entry is
 // no regex configured, or one that does not compile (validate refuses that): that line is not parsed.
 func (opt *Options) flakeRegexp() (test, pkg *regexp.Regexp) {
 	if pair := opt.Cfg.MergeFlakeRegex(); len(pair) == 2 {
@@ -53,7 +53,7 @@ func flakeGroup(re *regexp.Regexp, name, l string) string {
 	return ""
 }
 
-// flakeParse reads outs' fail_grep lines with merge.flake_regex (T-1047). names is the flake log's list, in line order:
+// flakeParse reads outs' fail_grep lines with merge.flake_regex. names is the flake log's list, in line order:
 // a failed-test line's test, and a failed-package line's package unless a test line since the previous package line
 // covers it (a build failure or a panic has no test line of its own). tests is every test line's name, pkgs every
 // package line's package — the retest reruns the tests in all of them. One entry per name, in order; no regex: nothing,
@@ -98,7 +98,7 @@ func (opt *Options) flakeParse(outs ...output) (names, tests, pkgs []string) {
 }
 
 // logFlakes appends the failing tests of outs (one logical record: a red run) to the project's flake log; a write error
-// is a warning line, never the check's result. retried: commands.retest ran the failures once more (a lane test, T-964);
+// is a warning line, never the check's result. retried: commands.retest ran the failures once more (a lane test);
 // passed: and they passed there.
 func (r *runner) logFlakes(name string, retried, passed bool, outs ...output) {
 	names, _, _ := r.flakeParse(outs...)
@@ -116,7 +116,7 @@ func (r *runner) logFlakes(name string, retried, passed bool, outs ...output) {
 	}
 }
 
-// sha is the commit the checks ran on (a lane test's candidate, T-961; a nightly's head); "" when git cannot name
+// sha is the commit the checks ran on (a lane test's candidate; a nightly's head); "" when git cannot name
 // one.
 func (r *runner) sha() string {
 	out, err := r.git(r.dir, "rev-parse", "HEAD")
@@ -179,7 +179,7 @@ type Flaky struct {
 	Last  int64
 }
 
-// flakeRule is T-399's rule for the reds that are not flake evidence: the red task's own diff touched the file that
+// flakeRule is the rule for the reds that are not flake evidence: the red task's own diff touched the file that
 // defines the test, or the red came before the merge of a task whose spec title names the test (a fix ended it). Its
 // reads (git, the specs, the merges) are lazy and remembered per rule, so one `obor flakes` round
 // pays for each test and sha once.
@@ -200,7 +200,7 @@ func newFlakeRule(cfg *config.Config) *flakeRule {
 }
 
 // explained reports whether e is a red the project explains, so it is no flake evidence. A passed_on_retry line is
-// evidence on its own; a line git, the specs or the merges cannot place counts as before.
+// evidence on its own; a line git, the specs or the merges cannot place counts as no explanation.
 func (r *flakeRule) explained(e Flake) bool {
 	if e.PassedOnRetry || e.SHA == "" || e.Task == "" {
 		return false
@@ -325,7 +325,7 @@ func nonBlank(s string) []string {
 	return out
 }
 
-// load reads the task specs' titles and the tasks' merge times (fact merged, T-525), both the store's, read-only; no
+// load reads the task specs' titles and the tasks' merge times (fact merged), both the store's, read-only; no
 // store leaves them empty, so only the diff rule applies.
 func (r *flakeRule) load() {
 	if r.loaded {
@@ -340,7 +340,7 @@ func (r *flakeRule) load() {
 			}
 		}
 	}
-	// The store's specs (T-440, the only source since T-521).
+	// The store's specs (the only source).
 	if rows, err := store.ReadSpecsAt(r.cfg.Root); err == nil {
 		for _, row := range rows {
 			r.specs = append(r.specs, flakeSpec{task: row.Task, title: row.Spec.Title})
@@ -349,7 +349,7 @@ func (r *flakeRule) load() {
 }
 
 // FlakyTests is the flaky tests among entries as of now, sorted by name: a test with a passed_on_retry line in the
-// window, or red lines on two or more tasks in it — a red the project explains does not count (T-399, flakeRule).
+// window, or red lines on two or more tasks in it — a red the project explains does not count (flakeRule).
 func FlakyTests(cfg *config.Config, entries []Flake, now time.Time) []Flaky {
 	type acc struct {
 		n     int

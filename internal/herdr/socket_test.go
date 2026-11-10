@@ -243,7 +243,7 @@ func TestSocketErrors(t *testing.T) {
 	}
 }
 
-// T-544: agent.start takes the client's bound (herdr answers at once, before the agent runs); an answer later than it
+// agent.start takes the client's bound (herdr answers at once, before the agent runs); an answer later than it
 // is a timeout that may have typed the command (Reached), never a second send; a long prompt goes in one request, whole.
 func TestSocketStartSentOnce(t *testing.T) {
 	t.Parallel()
@@ -281,7 +281,7 @@ func TestSocketStartSentOnce(t *testing.T) {
 	}
 }
 
-// T-950: herdr's own waits: agent.wait ends when the agent reaches the state asked for (text already on the screen
+// herdr's own waits: agent.wait ends when the agent reaches the state asked for (text already on the screen
 // matches at once), times out while it does not, and ends agent_not_running when the agent leaves the pane;
 // pane.wait_for_output reads the text when the regex matches. Each is one request: obor does not poll.
 func TestSocketWaits(t *testing.T) {
@@ -590,7 +590,7 @@ func agentOf(snap herdr.Snapshot, pane string) port.Pane {
 	return port.Pane{}
 }
 
-// RV-36 #2: a status event queued before the final snapshot never overrides it, on every Subscribe (the first
+// a status event queued before the final snapshot never overrides it, on every Subscribe (the first
 // connection, and the reconnects after events_lost and after a lost connection all subscribe the same way).
 func TestStreamDropsStatusOlderThanSnapshot(t *testing.T) {
 	t.Parallel()
@@ -645,7 +645,7 @@ func TestStreamDropsStatusOlderThanSnapshot(t *testing.T) {
 	st.Close()
 }
 
-// RV-36 #2: a pane_created queued before the final snapshot does not replace the snapshot's pane (and its agent)
+// a pane_created queued before the final snapshot does not replace the snapshot's pane (and its agent)
 // with the creation's empty shell.
 func TestStreamDropsCreatedOlderThanSnapshot(t *testing.T) {
 	t.Parallel()
@@ -670,7 +670,7 @@ func TestStreamDropsCreatedOlderThanSnapshot(t *testing.T) {
 	}
 }
 
-// RV-36 #2: status and lifecycle events come on separate connections, so a pane's status event may arrive after
+// status and lifecycle events come on separate connections, so a pane's status event may arrive after
 // its pane_closed; it is not delivered for a pane C already closed, nor for one herdr no longer has.
 func TestStreamStatusAfterCloseOnAnotherConnection(t *testing.T) {
 	t.Parallel()
@@ -703,7 +703,7 @@ func TestStreamStatusAfterCloseOnAnotherConnection(t *testing.T) {
 	}
 }
 
-// RV-36 #3: a pane created after startup is read again once its status subscription is live, so an agent that
+// a pane created after startup is read again once its status subscription is live, so an agent that
 // started (and reached any status) before that is not lost; panes created after a reconnect too.
 func TestStreamNewPaneReadAfterSubscribe(t *testing.T) {
 	t.Parallel()
@@ -761,7 +761,7 @@ func TestStreamNewPaneReadAfterSubscribe(t *testing.T) {
 	st.Close()
 }
 
-// RV-36 #4 / Fable A3: a healthy stream refreshes a pane's agent and metadata: a late agent (detected, or seen by
+// A healthy stream refreshes a pane's agent and metadata: a late agent (detected, or seen by
 // a status event) brings its name and session; an update brings cwd, session and name changes; an update that
 // changes nothing obor watches is not delivered.
 func TestStreamRefreshesPaneMetadata(t *testing.T) {
@@ -827,7 +827,7 @@ func TestStreamRefreshesPaneMetadata(t *testing.T) {
 	}
 }
 
-// RV-36 #4: a new or renamed workspace or a moved pane ends the stream (Code refresh); the next Subscribe's
+// a new or renamed workspace or a moved pane ends the stream (Code refresh); the next Subscribe's
 // snapshot has them.
 func TestStreamRefreshEndsOnLayoutChange(t *testing.T) {
 	t.Parallel()
@@ -1064,7 +1064,7 @@ func TestSocketRenames(t *testing.T) {
 	notFound(t, c.RenameAgent(ctx, "nope", "x"), "agent.rename", "agent_not_found")
 }
 
-// T-949: Notify reads herdr's answer. shown true is success; shown false is a port.NotShown naming the reason (the
+// Notify reads herdr's answer. shown true is success; shown false is a port.NotShown naming the reason (the
 // toast's caller logs it and goes on: there is no retry decision here).
 func TestNotifyReadsShownAndReason(t *testing.T) {
 	t.Parallel()
@@ -1092,7 +1092,7 @@ func TestNotifyReadsShownAndReason(t *testing.T) {
 	}
 }
 
-// T-1058: the adapter reads herdr's launch fact into port.Pane.Launched from the answers herdr 0.9.5 sends (live
+// the adapter reads herdr's launch fact into port.Pane.Launched from the answers herdr 0.9.5 sends (live
 // H-L12, verbatim but the scratch cwd): pending while launch_pending is true (whatever its kind and status show), up
 // once launch_pending is gone and interactive_ready is true; herdr leaves a false one out, which reads not pending.
 func TestAgentLaunchFact(t *testing.T) {
@@ -1144,7 +1144,7 @@ func TestAgentLaunchFact(t *testing.T) {
 	}
 }
 
-// A client given its connections (Socket.Conn, T-1175) talks to a herdr served in memory as to one on a socket: it
+// A client given its connections (Socket.Conn) talks to a herdr served in memory as to one on a socket: it
 // answers, a dead server is Unavailable, a revived one answers again.
 func TestSocketOverGivenConn(t *testing.T) {
 	t.Parallel()

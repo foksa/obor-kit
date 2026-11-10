@@ -11,7 +11,7 @@ import (
 	"obor/internal/app/port"
 )
 
-// The workflow contract table (T-1029): one table of rows, each a run of port.Workflow calls with each call's expected
+// The workflow contract table: one table of rows, each a run of port.Workflow calls with each call's expected
 // result, run against internal/app's FakeWorkflow (plain go test) and against scratch-ff on real git (internal/checks,
 // behind the integration tag). A row's arrangements (a target move, a dirty main checkout, the integrator's resolution)
 // are each implementation's own: the fake scripts them, the git rig makes them in git. The git behind a result that the
@@ -153,8 +153,7 @@ func (c *contract) pins(submitted, candidate, resolved, what string) {
 	c.eq(c.r.Pins(ContractTask), "submitted="+dash(submitted)+" candidate="+dash(candidate)+" resolved="+dash(resolved), what)
 }
 
-// contractRows are the table (internal/checks' scratch scenario table and internal/app's FakeScratch cases, merged:
-// T-1011's names, T-1029).
+// contractRows are the table (internal/checks' scratch scenario table and internal/app's FakeScratch cases, merged).
 var contractRows = []struct {
 	name string
 	run  func(c *contract)

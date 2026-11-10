@@ -17,10 +17,10 @@ import (
 // its own worktree (<lanes_dir>/merge-nightly, added when missing) reset to the head of the main checkout's current
 // branch: commands.lane_setup, then check and check_milestone, each skipped when unset. Non-blocking: every command
 // runs even after a failure (a failed lane_setup stops the rest). A red check reruns its named failing tests once by
-// merge.retest inside the slot it holds (T-1168); green then is the step's green and its line names the rerun.
-// It then backs up the project's database (wire.Backup), sweeps .obor (project.Sweep, T-1085: each removal it could not
-// make is one detail line, never RED; its backup step only after a backup with a nonempty reply, T-1086) and runs
-// merge.nightly_commands in order (T-817: each a
+// merge.retest inside the slot it holds; green then is the step's green and its line names the rerun.
+// It then backs up the project's database (wire.Backup), sweeps.obor (project.Sweep: each removal it could not
+// make is one detail line, never RED; its backup step only after a backup with a nonempty reply) and runs
+// merge.nightly_commands in order (each a
 // commands.<name>, non-gating — one report line, never RED; a nonzero exit a WARN line). Writes
 // .obor/state/last-full-check
 // "<sha> <epoch> GREEN|RED <summary>" (LastFullCheck reads it for serve's nightly; obor status reads it too). A live nightly run of the project is waited for (max
@@ -52,7 +52,7 @@ func (s *session) nightly() *Result {
 	linkLaneLinks(s.Cfg, s.root, s.scratch)
 
 	var results, failed, details, evidence []string
-	// step runs commands.<name>; retest is whether a red's failing tests are rerun once (T-1168: the nightly's check and
+	// step runs commands.<name>; retest is whether a red's failing tests are rerun once (the nightly's check and
 	// check_milestone, as a lane test does; lane_setup and merge.nightly_commands never are).
 	step := func(name string, retest bool) *Result {
 		var o output
@@ -72,7 +72,7 @@ func (s *session) nightly() *Result {
 		}
 		results = append(results, name+" "+s.what(o))
 		if saved > 0 {
-			// A retest that saved the run: the GREEN line names the rerun, so a flaky night shows in obor status (T-1168).
+			// A retest that saved the run: the GREEN line names the rerun, so a flaky night shows in obor status.
 			results = append(results, fmt.Sprintf("retest saved %d", saved))
 		}
 		if o.rc == 0 {
@@ -90,7 +90,7 @@ func (s *session) nightly() *Result {
 		return r
 	}
 	if len(failed) == 0 {
-		s.retest = true // the nightly reruns a red check's failing tests once, inside the slot it holds (T-1168)
+		s.retest = true // the nightly reruns a red check's failing tests once, inside the slot it holds
 		for _, name := range []string{"check", "check_milestone"} {
 			if r := step(name, true); r != nil {
 				return r
@@ -112,10 +112,10 @@ func (s *session) nightly() *Result {
 	if line != "" {
 		results = append(results, line)
 	}
-	// The nightly sweep (T-1085): after the backup, both the serve path and the direct one; a removal it could not
-	// make is a line, never a failure. Its backup step runs only when the backup above succeeded (T-1086).
+	// The nightly sweep: after the backup, both the serve path and the direct one; a removal it could not
+	// make is a line, never a failure. Its backup step runs only when the backup above succeeded.
 	details = append(details, project.Sweep(s.Cfg, time.Now(), backedUp)...)
-	// merge.nightly_commands (T-817): after the gating checks and the backup, in order, each non-gating.
+	// merge.nightly_commands: after the gating checks and the backup, in order, each non-gating.
 	for _, name := range s.Cfg.MergeNightlyCommands() {
 		o, ok, h := s.run(name)
 		if h != nil {
@@ -152,10 +152,10 @@ func (s *session) nightly() *Result {
 		strings.Join(evidence, " | "))
 }
 
-// nonGatingLine is a merge.nightly_commands command's result line (T-817): its own summary, a nonzero exit a WARN line,
+// nonGatingLine is a merge.nightly_commands command's result line: its own summary, a nonzero exit a WARN line,
 // never RED. The summary is the command's last line that starts "<name>: " (prefix stripped), so a wrapper's trailer
-// never stands in for it — make appends `make: *** [check-race] Error 1` to a failed recipe (T-1174, RV-173 #2); no
-// such line: its last non-blank line, as before. A command that printed no line at all is rc=<rc>.
+// never stands in for it — make appends `make: *** [check-race] Error 1` to a failed recipe; with no
+// such line, the command's last non-blank line is. A command that printed no line at all is rc=<rc>.
 func nonGatingLine(name string, rc int, text string) string {
 	summary, found := "", false
 	ls := lines(text)
@@ -178,9 +178,9 @@ func nonGatingLine(name string, rc int, text string) string {
 	return name + " (non-gating) " + summary
 }
 
-// backupOutcome is nightly's backup step's answer for wire.Backup's reply and error (T-1145: a unit test, no nightly):
+// backupOutcome is nightly's backup step's answer for wire.Backup's reply and error (a unit test, no nightly):
 // line is the step's result line, failure the evidence line of a backup that could not be made, and backedUp whether
-// the sweep may prune days: only a nonempty reply says a backup landed (T-1086).
+// the sweep may prune days: only a nonempty reply says a backup landed.
 func backupOutcome(reply string, err error) (line, failure string, backedUp bool) {
 	switch {
 	case err != nil:
@@ -202,7 +202,7 @@ func lastLine(text string) string {
 	return ""
 }
 
-// noteLines are text's lines that start WARN, SKIP or FAIL (T-805, T-817): a skip is why a check did not run; a warn
+// noteLines are text's lines that start WARN, SKIP or FAIL: a skip is why a check did not run; a warn
 // or a fail, what may break.
 func noteLines(text string) []string {
 	var out []string

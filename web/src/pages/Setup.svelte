@@ -1,5 +1,5 @@
 <script lang="ts">
-  // The Setup page (T-750, T-753, T-760, T-766): what steers the project's work — its pause, the model refs each
+  // The Setup page: what steers the project's work — its pause, the model refs each
   // difficulty tries, the roles' models, how many lanes, the models in use with their pauses, the kinds' extras — and
   // how its dispatches spread. Edits are staged and committed together as one commit of .obor/config.json on main; a
   // pause (the project's or a model's) acts at once.

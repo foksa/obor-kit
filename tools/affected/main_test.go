@@ -52,7 +52,7 @@ func TestGoFixture(t *testing.T) {
 		globs             []string
 	}{
 		{"leaf/leaf.go", leafAndImporters, "", fixtureFull},                   // a leaf: it plus its importers, direct, indirect and test-only
-		{"leaf/leaf_test.go", "fx/leaf", "", fixtureFull},                     // T-954: a test file only selects its own package
+		{"leaf/leaf_test.go", "fx/leaf", "", fixtureFull},                     // a test file only selects its own package
 		{"leaf/leaf.go leaf/leaf_test.go", leafAndImporters, "", fixtureFull}, // a non-test file in the change still expands
 		{"leaf/testdata/in.txt", leafAndImporters, "", fixtureFull},           // testdata/: its package
 		{"top/top.go", "fx/top", "", fixtureFull},                             // nothing imports top
@@ -60,7 +60,7 @@ func TestGoFixture(t *testing.T) {
 		{"cmd/app/app_test.go", "fx/cmd/app", "", fixtureFull},                // a main package's test file selects it alone
 		{"other/tmpl/x.txt", "fx/other", "", fixtureFull},                     // a non-Go file in a package dir (embedded) selects it
 		{"top/top.go docs/a.md README.md", "fx/top", "", fixtureFull},         // files under no package select nothing
-		{"/abs/x.go", "", "", fixtureFull},                                    // T-1159: an absolute path is skipped, not walked to "/"
+		{"/abs/x.go", "", "", fixtureFull},                                    // an absolute path is skipped, not walked to "/"
 		{"README.md docs/a.md", "", "", fixtureFull},                          // no Go files: empty
 		{"leaf/leaf.go go.mod", "", "changed go.mod", fixtureFull},
 		{"go.sum", "", "changed go.sum", fixtureFull},
@@ -70,7 +70,7 @@ func TestGoFixture(t *testing.T) {
 		{"internal/testkit/nested/tk.go", "", "changed internal/testkit/nested/tk.go", fixtureFull}, // a path under a full glob, no package lookup
 		{"internal/other/x.go", "", "no package for internal/other/x.go", fixtureFull},
 		{"gone/gone.go", "", "no package for gone/gone.go", fixtureFull}, // a removed package
-		// T-351/T-1120: the -full globs are the project's list; with none the testkit change selects its own
+		// the -full globs are the project's list; with none the testkit change selects its own
 		// package, while go.mod stays full.
 		{"internal/testkit/tk.go", "fx/internal/testkit", "", nil},
 		{"leaf/leaf.go", "", "changed leaf/leaf.go", []string{"leaf/*.go"}},

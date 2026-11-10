@@ -14,15 +14,15 @@ import (
 	"obor/internal/project"
 )
 
-// A restart (or stop) of the caller's own pane (T-264): `obor restart` run by the agent itself can neither stop it in
+// A restart (or stop) of the caller's own pane: `obor restart` run by the agent itself can neither stop it in
 // the foreground (the /exit ends the restart too) nor as a background task (it is the task). So it starts a detached
 // `obor restart` (own session, outside the agent's process tree), says SCHEDULED and exits; that run (ScheduledEnv
 // set) waits until the agent is idle, ≤ Sched (10 min), then restarts it as usual, from the top: who, where and which
-// session are decided after the wait (RV-29). Its output goes to
+// session are decided after the wait. Its output goes to
 // .obor/state/restart-<agent>.log; giving up is logged with evidence in launch.log, like any other give-up.
 
 // ScheduledEnv marks the detached run of a scheduled restart or stop; its value is the operation (restart or stop),
-// which the give-up text names (T-289).
+// which the give-up text names.
 const ScheduledEnv = "OBOR_RESTART_SCHEDULED"
 
 // ownPane: t's pane is the caller's (project.Pane; none: the caller runs in no pane).
@@ -33,13 +33,13 @@ func (l *Launcher) ownPane(t *target) bool {
 
 // schedule starts the detached run of req (stop: --stop) and returns the SCHEDULED line.
 func (l *Launcher) schedule(t *target, req Request, stop bool) (string, error) {
-	// The pane resolved here is the target's; Request.Args owns every other field (T-303).
+	// The pane resolved here is the target's; Request.Args owns every other field.
 	req.Agent, req.Pane = t.agent, t.pane
 	args, what := append([]string{"restart"}, Args(req)...), "restart"
 	if stop {
 		args, what = append(args, "--stop"), "stop"
 	}
-	// The run loads its project from its cwd: this project's main checkout, never the caller's cwd (T-301: a herdr
+	// The run loads its project from its cwd: this project's main checkout, never the caller's cwd (a herdr
 	// plugin kick runs in the plugin directory, inside the kit's own checkout, so the run loaded the kit's config).
 	dir, out := "", os.DevNull
 	if l.Cfg != nil {
@@ -88,7 +88,7 @@ func spawnDetached(dir string, args []string, out, op string) error {
 // of that run and say so (waited). An agent in the pane: until it is idle (whenIdle). No agent: until the caller
 // (`obor restart` at this pane's shell) has given the shell the foreground back, ≤ the exit wait, else
 // give up naming the program that kept it. The caller then runs its normal path from the top on fresh state, with no
-// further wait (RV-29 #2, RV-30 #1: stopped job, identity and session are checked after every wait), skipping the
+// further wait (stopped job, identity and session are checked after every wait), skipping the
 // schedule. The pane is resolved here only to learn which one to watch. Not the detached run, or not the caller's
 // pane: nothing to wait for.
 func (l *Launcher) waitScheduled(ctx context.Context, agent, pane string) (waited bool, err error) {
@@ -134,7 +134,7 @@ func (l *Launcher) waitScheduled(ctx context.Context, agent, pane string) (waite
 		prog, t.pane, d, word, t.agent)
 }
 
-// sameAgent (after the scheduled wait): confirms the pane still runs t's agent before anything is stopped (RV-29 #2).
+// sameAgent (after the scheduled wait): confirms the pane still runs t's agent before anything is stopped.
 // herdr's name is the pane's agent: the same, or none (unnamed pane, or no agent: stop finds a shell), is fine; another
 // agent's name, or a lookup that fails any other way (identity unknown), is a FAIL. No retry.
 func (l *Launcher) sameAgent(ctx context.Context, t *target) error {
@@ -151,7 +151,7 @@ func (l *Launcher) sameAgent(ctx context.Context, t *target) error {
 }
 
 // whenIdle (the scheduled run) waits until t's agent is not working or blocked, ≤ Sched. Only ErrNotFound means no
-// agent (nothing to wait for); any other error is an unknown status: keep looking (RV-29 #1). word ("restart" or
+// agent (nothing to wait for); any other error is an unknown status: keep looking. word ("restart" or
 // "stop") names the operation in the give-up text.
 func (l *Launcher) whenIdle(ctx context.Context, t *target, word string) error {
 	d := l.Sched

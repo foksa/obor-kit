@@ -5,7 +5,7 @@ const rec = (step: string, kind: string, line = "", outcome = "", pass = false) 
   ({ seq: 1, ts: "", step, kind, line, outcome, pass });
 
 describe("a task's stage", () => {
-  // T-883: the view places the task (Task.step, wire.PhaseStep of serve's phase, T-788); the stepper shows that step.
+  // the view places the task (Task.step, wire.PhaseStep of serve's phase); the stepper shows that step.
   it("is the step the view places it on", () => {
     expect(stageOf({ phase: "gating", step: 3 })).toMatchObject({ i: 3, state: "gating" });
     expect(stageOf({ phase: "waiting", step: 0 })).toMatchObject({ i: 0, state: "waiting" });
@@ -16,7 +16,7 @@ describe("a task's stage", () => {
   it("is merged on the merged fact alone", () => {
     expect(stageOf({ phase: "publish", step: 5 }, [rec("merged", "fact")])).toMatchObject({ i: 7, state: "merged" });
   });
-  // T-893: the task page's step of a task its phase places on none is the view's (the furthest its records reached).
+  // the task page's step of a task its phase places on none is the view's (the furthest its records reached).
   it("holds at the step the task page's view gives it otherwise", () => {
     expect(stageOf({ phase: "needs-you", step: 3 }, [rec("dispatch", "fact"), rec("gate.1", "result", "gate T-1 fail", "red")]))
       .toMatchObject({ i: 3, tone: "bad", state: "needs-you" });
@@ -40,7 +40,7 @@ describe("a task's stage", () => {
     expect(milestone(rec("gate.2", "result", "check 3 pass, 1 fail"))?.tone).toBe("bad"); // nor the outcome's
     expect(milestone(rec("work.1", "intent"))).toBeNull();
   });
-  // T-1105: the last gate's card follows the view's gate_pass, even when its line does not start with GREEN.
+  // the last gate's card follows the view's gate_pass, even when its line does not start with GREEN.
   it("shows the last gate from the view's gate_pass, with a line that does not start with GREEN", () => {
     const line = "check 25 pass, 0 fail";
     expect(gateOf({ gate_pass: true, gate_line: line })).toEqual({ pass: true, line });

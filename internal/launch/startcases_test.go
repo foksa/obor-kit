@@ -93,10 +93,10 @@ func claudeIn(st string, launched bool, name string) port.Pane {
 // It is also the record herdr resets the pane's agent to at the acceptance (H-L12, H-L14: none/unknown, pending).
 var pendingAnswer = port.Pane{ID: memID, Status: "unknown"}
 
-// T-1058 (RV-151 #1): a start is up only on the terminal's own word, read after it accepted the start: its launch no
+// a start is up only on the terminal's own word, read after it accepted the start: its launch no
 // longer pending (Launched) on a listing of the kind that is up. A listing alone (kind and status) never is: while the
-// launch is pending the old agent's stale idle may show, and a launch whose CLI exits leaves no agent. T-1059 (live
-// H-L14): the poll runs alongside the call, herdr's reset record (pending, status unknown) accepting the start before
+// launch is pending the old agent's stale idle may show, and a launch whose CLI exits leaves no agent. A live run
+// (H-L14): the poll runs alongside the call, herdr's reset record (pending, status unknown) accepting the start before
 // its answer, and a first-prompt start is up on its kind working although herdr keeps the launch pending. Each row
 // through the one start with a restart's shell bound (busy retries) and a first prompt where it says so; a started row
 // checks the observation returned and that the scripted transition happened, not only the result.

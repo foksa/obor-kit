@@ -75,7 +75,7 @@ func Run(o Options) int {
 	lane := laneOf(o.Cfg, top)
 	if lane != "" {
 		marker := filepath.Join(top, MarkerName)
-		// Not ignored, the marker dirties the lane while the command runs (status, the file guard, obor serve's gate; T-214).
+		// Not ignored, the marker dirties the lane while the command runs (status, the file guard, obor serve's gate).
 		var ee *exec.ExitError
 		if _, err := project.Git(top, "check-ignore", "-q", MarkerName); errors.As(err, &ee) && ee.ExitCode() == 1 {
 			fmt.Fprintf(o.Stderr, "warning: %s is not in .gitignore — run obor setup (or add the line)\n", MarkerName)
@@ -120,7 +120,7 @@ func Run(o Options) int {
 			return 2
 		}
 		defer Release(path, o.PID)
-		// The command runs under this slot: a slot-aware runner inside reuses it (T-121).
+		// The command runs under this slot: a slot-aware runner inside reuses it.
 		environ = append(append([]string(nil), environ...), "CHECK_SLOT_HELD="+path, CPUsEnv(o.Cfg, o.Env))
 		if lane != "" {
 			o.exportChangedFiles(ctx, top, lane, &environ)
@@ -178,7 +178,7 @@ func (o Options) changedFiles(top, tree string) ([]string, error) {
 
 // Tree is the content tree of the work in dir (a worktree): HEAD plus every tracked and untracked change, as serve's
 // submit commits a lane (add -A), the run marker excluded. It is computed with a temporary index (its own git, under
-// the caller's ctx: a canceled run's Tree ends with it, T-873), so dir's index and history are not touched.
+// the caller's ctx: a canceled run's Tree ends with it), so dir's index and history are not touched.
 func Tree(ctx context.Context, dir string, environ []string) (string, error) {
 	tmp, err := os.MkdirTemp("", "obor-tree-")
 	if err != nil {
@@ -203,7 +203,7 @@ func Tree(ctx context.Context, dir string, environ []string) (string, error) {
 }
 
 // ChangedFiles is the files a tree changes against base (names only, a rename as a deletion and an addition: the
-// merge's own listing, RV-03 #2).
+// merge's own listing).
 func ChangedFiles(dir, base, tree string) ([]string, error) {
 	out, err := project.Git(dir, "diff", "--no-renames", "--name-only", base, tree)
 	if err != nil {

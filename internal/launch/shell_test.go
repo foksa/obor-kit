@@ -11,7 +11,7 @@ import (
 	"obor/internal/launch"
 )
 
-// T-1053: a restart's start runs only once the pane is its shell again, and its line is RESTARTED only when the start
+// a restart's start runs only once the pane is its shell again, and its line is RESTARTED only when the start
 // succeeded. The owner's `obor restart ob-lead --fresh` started at once after the stop, herdr answered agent_pane_busy
 // (the old agent's exit not yet reaped), the start took the old agent for the new one and printed RESTARTED.
 func TestRestartWaitsForTheShellAfterTheStop(t *testing.T) {
@@ -115,7 +115,7 @@ func TestRestartWaitsForTheShellAfterTheStop(t *testing.T) {
 	})
 }
 
-// T-1057 (RV-151 #1): each entry point's start goes through the one start, whose evidence rule takes a listing of the
+// each entry point's start goes through the one start, whose evidence rule takes a listing of the
 // kind for the new agent once herdr accepted the start. The review's probe: herdr still lists the old Claude after it
 // exited (linger), the first start answers agent_pane_busy, the second starts a Claude that works on its first prompt
 // and herdr gives up waiting on it (timeout). The start held the old listing against the new agent: FAIL while it ran.
@@ -183,7 +183,7 @@ func TestEveryEntryPointStartsThroughTheOneStart(t *testing.T) {
 	})
 }
 
-// T-1058 (RV-151 #1): every entry point's start is up only on herdr's word that its launch is no longer pending. The
+// every entry point's start is up only on herdr's word that its launch is no longer pending. The
 // review's sequence through herdr: the old Claude still listed after its exit (linger), the first start answers
 // agent_pane_busy, the second is accepted at once with launch_pending, and for three reads the pane lists the start's
 // kind with a stale idle, still pending; then the new agent is up (interactive_ready). Each start waits through the

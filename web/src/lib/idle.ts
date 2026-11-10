@@ -1,4 +1,4 @@
-// The idle line (T-803): serve says when the pipeline empties, the lead acknowledges with obor idle "<why>". The page
+// The idle line: serve says when the pipeline empties, the lead acknowledges with obor idle "<why>". The page
 // words the state exactly as obor status does: "idle, not acknowledged since <time>", or "idle: <why>".
 import type { Idle } from "./types";
 

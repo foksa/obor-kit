@@ -13,9 +13,9 @@ import (
 	"obor/internal/testkit"
 )
 
-// DD-v0.13-verify "Design 2 again" gap 2, T-765: the doctor checks the kinds the project's models use (a level's,
+// the doctor checks the kinds the project's models use (a level's,
 // a role's, an agent's); another registered kind is "not used", never a WARN or FAIL. A Claude-only project with no
-// OpenCode entry is OK; a role of an OpenCode model makes OpenCode used (checked: registered per start, T-809); a role
+// OpenCode entry is OK; a role of an OpenCode model makes OpenCode used (checked: registered per start); a role
 // with no model runs agents.Default.
 func TestSetupMCPDoctorUsedKinds(t *testing.T) {
 	t.Parallel()
@@ -49,10 +49,10 @@ func TestSetupMCPDoctorUsedKinds(t *testing.T) {
 	has(t, out, "mcp codex: not used", "codex still unused")
 }
 
-// T-445, T-765: `obor setup mcp --model <name>` says whether a start of that model gives its agent obor's server, from
+// `obor setup mcp --model <name>` says whether a start of that model gives its agent obor's server, from
 // its effective start args alone (no agent started, no `claude -p`): a Claude start with --strict-mcp-config (in
 // agents.kinds.claude.args) gets obor's --mcp-config (an explicit obor entry there wins), one without it the plugin
-// manifest, Codex the launch args, OpenCode its generated config (T-809); a kind obor registers nothing for fails, as
+// manifest, Codex the launch args, OpenCode its generated config; a kind obor registers nothing for fails, as
 // does an unknown model.
 func TestSetupMCPLane(t *testing.T) {
 	t.Parallel()
@@ -60,7 +60,7 @@ func TestSetupMCPLane(t *testing.T) {
 	conf := filepath.Join(x.Base, "xdg")
 	x.env = []string{"XDG_CONFIG_HOME=" + conf}
 
-	// A lane's Claude start is strict (T-770): obor adds the kit's own on the start, the plugin manifest's hidden.
+	// A lane's Claude start is strict: obor adds the kit's own on the start, the plugin manifest's hidden.
 	has(t, x.ok(t, "mcp", "--model", "opus"),
 		"mcp model opus (claude): registered per start (--strict-mcp-config hides the plugin manifest's server; obor adds --mcp-config "+
 			claude.MCPConfig(kit)+")", "a lane's start: strict, obor adds --mcp-config")
@@ -76,7 +76,7 @@ func TestSetupMCPLane(t *testing.T) {
 	// Codex gets it from the launch args.
 	has(t, x.ok(t, "mcp", "--model", "luna"), "mcp model luna (codex): registered per start (launch args", "codex")
 
-	// OpenCode: each start's generated config (T-809), no user config entry needed.
+	// OpenCode: each start's generated config, no user config entry needed.
 	if _, err := os.Stat(filepath.Join(conf, "opencode", "opencode.json")); err == nil {
 		t.Fatal("precondition: no opencode user config")
 	}
@@ -99,7 +99,7 @@ func TestSetupMCPLane(t *testing.T) {
 	}
 }
 
-// RV-47 #3: the doctor reads --mcp-config as the start does, every value up to the next option. Args whose obor entry
+// the doctor reads --mcp-config as the start does, every value up to the next option. Args whose obor entry
 // is a later value (or a repeated flag) name obor itself: no per-start registration is added.
 func TestRV47SetupMCPLaneVariadic(t *testing.T) {
 	t.Parallel()
@@ -125,7 +125,7 @@ func TestRV47SetupMCPLaneVariadic(t *testing.T) {
 // jsonStr is s as a JSON string literal, as the config holds kinds args.
 func jsonStr(s string) string { return config.Compact(s) }
 
-// T-1119: obor setup agents names each kind; a kind installs nothing user-global, so each has nothing to install.
+// obor setup agents names each kind; a kind installs nothing user-global, so each has nothing to install.
 // Not parallel: the config load registers its plugin kinds (OpenCode's) in the process registry.
 func TestSetupAgentsEveryKind(t *testing.T) {
 	x := newFx(t)
@@ -133,14 +133,14 @@ func TestSetupAgentsEveryKind(t *testing.T) {
 	out := x.ok(t, "agents")
 	has(t, out, "agents claude: nothing to install", "claude: the manifest ships with the kit")
 	has(t, out, "agents codex: nothing to install", "codex: launch args")
-	// T-835: the global retire step is gone; opencode installs nothing user-global (its start's generated config, T-809).
+	// there is no global retire step; opencode installs nothing user-global (its start's generated config).
 	has(t, out, "agents opencode: nothing to install", "opencode: nothing user-global")
 	if !strings.Contains(Usage(), "agents |") {
 		t.Errorf("usage names agents: %s", Usage())
 	}
 }
 
-// TestSetupAgentsPluginKind (T-1036): obor setup agents describes a plugin kind the config names, caches its manifest in
+// TestSetupAgentsPluginKind: obor setup agents describes a plugin kind the config names, caches its manifest in
 // the state dir and installs what its install call returns; an install that fails is a FAIL naming the kind and the
 // call. Not parallel: the load registers the plugin kind in the process's registry.
 func TestSetupAgentsPluginKind(t *testing.T) {
@@ -169,9 +169,9 @@ func TestSetupAgentsPluginKind(t *testing.T) {
 	x.failing(t, "FAIL agents mine: kind mine: install: exit 2: nope", "agents")
 }
 
-// RV-171 (T-1156): obor setup agents caches the kit kind's manifest as the command the config resolves to
-// (config.KindCommand: the kit's binary, T-1155's default) and writes nothing to .obor/config.json — a shape-2 file
-// gets no unneeded uncommitted edit. A file holding a key this obor does not know (T-1081) keeps its bytes too.
+// obor setup agents caches the kit kind's manifest as the command the config resolves to
+// (config.KindCommand: the kit's binary) and writes nothing to .obor/config.json — a shape-2 file
+// gets no unneeded uncommitted edit. A file holding a key this obor does not know keeps its bytes too.
 func TestSetupAgentsCachesTheKitKindWithoutWriting(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -204,7 +204,7 @@ func TestSetupAgentsCachesTheKitKindWithoutWriting(t *testing.T) {
 	}
 }
 
-// T-1045: the doctor prints a used kind's install warnings (codex: quarantined files beside its binary) as WARN lines
+// the doctor prints a used kind's install warnings (codex: quarantined files beside its binary) as WARN lines
 // and still ends OK (a warning, never a failure); a kind the project does not run is not checked.
 func TestSetupMCPInstallWarning(t *testing.T) {
 	t.Parallel()

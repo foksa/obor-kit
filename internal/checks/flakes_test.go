@@ -8,7 +8,7 @@ import (
 )
 
 // flakeOptions is an Options whose checks' failing lines are read as failGrep's matches and named by
-// checks.output.failed_test and failed_package, the pair (T-1047).
+// checks.output.failed_test and failed_package, the pair.
 func flakeOptions(failGrep string, pair ...string) *Options {
 	cfg := &config.Config{}
 	o := &cfg.Data.Checks.Output
@@ -19,8 +19,8 @@ func flakeOptions(failGrep string, pair ...string) *Options {
 	return &Options{Cfg: cfg}
 }
 
-// T-1047: the flake log's names and the retest's tests and packages come from merge.flake_regex, not from patterns in
-// the code: obor-kit's Go pair gives the same names as T-359's parser did, a project's own pair reads its lines, and a
+// the flake log's names and the retest's tests and packages come from merge.flake_regex, not from patterns in
+// the code: obor-kit's Go pair names the same, a project's own pair reads its lines, and a
 // project with no pair parses nothing, with no error.
 func TestFlakeParse(t *testing.T) {
 	t.Parallel()
@@ -83,7 +83,7 @@ func TestFlakeParse(t *testing.T) {
 	}
 }
 
-// T-1047: commands.retest's {tests} is the failing tests joined by merge.retest_join, in the run's order; a template
+// commands.retest's {tests} is the failing tests joined by merge.retest_join, in the run's order; a template
 // with no placeholder is its own command.
 func TestRetestCommand(t *testing.T) {
 	t.Parallel()

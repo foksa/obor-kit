@@ -1,7 +1,7 @@
-# release-lib.sh: what scripts/release and scripts/ship both prove about a release tag, sourced by both (T-643).
+# release-lib.sh: what scripts/release and scripts/ship both prove about a release tag, sourced by both.
 # Needs $tag (v<version>). POSIX sh.
 
-# The release's files (T-1046): obor and each kind binary obor runs beside it (Makefile RELEASE_BINARIES), one per
+# The release's files: obor and each kind binary obor runs beside it (Makefile RELEASE_BINARIES), one per
 # platform each, dist/<binary>-<version>-<os>-<arch> and the asset of that name on the GitHub release.
 binaries="obor obor-kind-opencode"
 platforms="darwin-arm64 darwin-amd64 linux-arm64 linux-amd64"
@@ -26,7 +26,7 @@ version_lines() {
 }
 
 # version_lt <a> <b>: version a (x.y.z) is below version b, comparing the parts numerically (false for anything that is
-# not x.y.z, both sides: a prerelease or malformed tag never becomes the changelog baseline, T-683).
+# not x.y.z, both sides: a prerelease or malformed tag never becomes the changelog baseline).
 version_lt() {
   awk -v a="$1" -v b="$2" 'BEGIN {
     if (a !~ /^[0-9]+\.[0-9]+\.[0-9]+$/ || b !~ /^[0-9]+\.[0-9]+\.[0-9]+$/) exit 1
@@ -42,8 +42,7 @@ tag_notes() {
 }
 
 # tag_notes_problem <notes>: why <notes> (tag_notes at $tag) is not a release's notes (empty when it is): something but
-# whitespace, so the body publish sends gh is not empty. scripts/publish and scripts/release refuse the same way (T-682,
-# T-683).
+# whitespace, so the body publish sends gh is not empty. scripts/publish and scripts/release refuse the same way.
 tag_notes_problem() {
   [ -n "$(printf '%s' "$1" | tr -d '[:space:]')" ] ||
     echo "no docs/releases/v${tag#v}.md at $tag: write the release notes (a summary line, then - **Name:** bullets) and commit them on main before the tag"
@@ -59,7 +58,7 @@ main_neutral() {
 }
 
 # tag_neutral <path>: a path the tag's own commit may change on top of its source parent: the catalog. Its
-# .claude-plugin/marketplace.json may change only in the top-level name (tag_market_problem, T-645).
+# .claude-plugin/marketplace.json may change only in the top-level name (tag_market_problem).
 tag_neutral() {
   case $1 in
     bin/checksums.txt) return 0 ;;
@@ -69,7 +68,7 @@ tag_neutral() {
 
 # market_flip: stdin's marketplace.json with its one "name": "obor-kit-dev" set to "name": "obor-kit" (main's dev name
 # to the name users install), nothing else touched; fails, printing nothing, unless that string is there exactly once.
-# v0.17.2 replaced every "name" and so renamed the plugin entry too (T-645).
+# v0.17.2 replaced every "name" and so renamed the plugin entry too.
 market_flip() {
   awk -v re='"name"[[:space:]]*:[[:space:]]*"obor-kit-dev"' '
     { lines[NR] = $0; s = $0; while (match(s, re)) { n++; s = substr(s, RSTART + RLENGTH) } }
@@ -156,7 +155,7 @@ tag_predates() {
 
 # require_fresh_tag [<tip>]: the tag is a release commit on top of the version commit, and <tip> has nothing past that
 # commit but docs and bookkeeping. <tip> is HEAD by default (scripts/release, at tag time); scripts/ship passes the
-# checksums: v<version> commit (T-661): merges on main after it belong to the next release. A tag is never moved, so
+# checksums: v<version> commit: merges on main after it belong to the next release. A tag is never moved, so
 # either refusal's fix is a new patch version.
 require_fresh_tag() {
   extra=$(tag_extra)

@@ -4,31 +4,31 @@
 //	Who      a lane agent, a role agent (lead, integrator, reviewer, triage, deep_dive, advisor), an agents.<name>
 //	         entry (config.AgentLookup: the roles table, no second copy of the name rules), an agent whose pane has a
 //	         lane worktree as cwd (that lane's agent), or any agent with a session recorded in serve's store. Env
-//	         OBOR_ROLE (the role's env value, triage too since T-796; an agents entry without a role: unset), OBOR_LANE (no lane:
+//	         OBOR_ROLE (the role's env value, triage's too; an agents entry without a role: unset), OBOR_LANE (no lane:
 //	         unset), the kind's vars and the cwd as obor setup gives them, every other var of the registry unset (agents.StartVars,
-//	         T-812: a stale OBOR_AGENT, T-786, or another kind's OBOR_OPENCODE_MODEL);
+//	         a stale OBOR_AGENT or another kind's OBOR_OPENCODE_MODEL);
 //	         an unknown agent keeps its OBOR_ROLE, in the pane's cwd. Kind and args from the dispatch's model (the
-//	         launch's, else a lane agent's lane row model, T-722), else the role / lead / agents entry's model (config.Model: base args, model id, kinds args, then --settings for
+//	         launch's, else a lane agent's lane row model), else the role / lead / agents entry's model (config.Model: base args, model id, kinds args, then --settings for
 //	         claude); no model: the kind herdr reports for the pane, else claude, no args.
-//	Where    --pane, else the pane labelled <agent> (in this project: RV-19 #3). Never a pane labelled for another
+//	Where    --pane, else the pane labelled <agent> (in this project). Never a pane labelled for another
 //	         agent, never a second pane labelled <agent>, never a known agent's pane whose cwd is outside this project
-//	         (T-301). Another pane holding the agent's herdr name (moving between panes) → FAIL with a hint: no moves.
+//	         Another pane holding the agent's herdr name (moving between panes) → FAIL with a hint: no moves.
 //	Session  the recorded sid, else the one herdr reports for the pane (never herdr's for a kind whose sessions obor
-//	         names itself: Claude, T-813); --fresh: a new one. None → FAIL (pass --fresh), checked before anything is
+//	         names itself: Claude); --fresh: a new one. None → FAIL (pass --fresh), checked before anything is
 //	         stopped. A fresh start of such a kind records the id obor chose before the agent runs. A recorded Claude
-//	         sid resumes from the transcript the session itself reported (the SessionStart hook's path, T-813); none
-//	         anywhere (never prompted, T-627): starts fresh, said. A session of another kind than the dispatch's type
-//	         (T-722): starts fresh, said.
+//	         sid resumes from the transcript the session itself reported (the SessionStart hook's path); none
+//	         anywhere (never prompted): starts fresh, said. A session of another kind than the dispatch's type
+//	         starts fresh, said.
 //	Stop     see Stop. A child the pane's shell stopped (Ctrl+Z: herdr then sees an idle shell) → FAIL with a hint, before
 //	         anything is stopped or typed: no fg resume.
-//	Shell    a restart whose pane ran an agent waits after the stop for the pane to be a shell again (ShellWait, T-1053:
+//	Shell    a restart whose pane ran an agent waits after the stop for the pane to be a shell again (ShellWait:
 //	         herdr answers agent_pane_busy until the old agent's exit is reaped), and a start herdr answers
 //	         agent_pane_busy is retried like that within the same bound; past it, no start and a FAIL naming the pane.
 //	         RESTARTED only when the start succeeded and its agent is seen.
 //	Start    the env line typed at the shell (never into another program), then Start (the one start, shared with
 //	         obor setup): the pane labelled <agent>, herdr agent start (agent_name_taken: cleared and retried once), a
 //	         look for a startup dialog. The start ends when its agent runs in the pane, not at herdr's own bound for an
-//	         agent ready for input (T-404). herdr's agent name is neither required nor renamed back (T-952).
+//	         agent ready for input. herdr's agent name is neither required nor renamed back.
 //	Self     the caller's own pane (project.Pane): scheduled, see self.go.
 //
 // Every operation registers one op record (kind restart) for its whole run.
@@ -71,10 +71,10 @@ type Launcher struct {
 	Poll time.Duration // how often it looks (default 1 s)
 	// Shell is how long a restart waits after its stop for the pane to be a shell again, and retries a start herdr
 	// answered agent_pane_busy: herdr keeps the pane no available shell until the old agent's exit is reaped (default
-	// ShellWait, T-1053).
+	// ShellWait).
 	Shell time.Duration
 	// Bound is the most a stop may take: its idle wait, its quit wait and the terminate together (default StopBound,
-	// port.StopBound). The quit wait is capped to it, whatever OBOR_RESTART_WAIT says (T-829).
+	// port.StopBound). The quit wait is capped to it, whatever OBOR_RESTART_WAIT says.
 	Bound time.Duration
 	// TermGrace and KillGrace are how long a terminate waits for the process group to be done after SIGTERM and after
 	// SIGKILL (defaults 3 s and 2 s). A test sets them small: it asserts the ladder's signals, not its timing.
@@ -92,9 +92,9 @@ type Launcher struct {
 	// Spawn starts `obor <args>` detached (own session) in dir, its output appended to the file out, with the env
 	// marking it the scheduled run; nil: this binary.
 	Spawn func(dir string, args []string, out string) error
-	// Sessions is agent's current recorded session (T-577); nil: serve's store at Cfg.Root (store.CurrentAt).
+	// Sessions is agent's current recorded session; nil: serve's store at Cfg.Root (store.CurrentAt).
 	Sessions func(agent string) (store.Session, bool)
-	// Report records a session a start found (a Codex rollout, T-577); nil: the session request to Cfg.Root's serve.
+	// Report records a session a start found (a Codex rollout); nil: the session request to Cfg.Root's serve.
 	Report func(ctx context.Context, s store.Session) error
 	// Rollout is how long a fresh start looks for its new session's transcript (default 10 s).
 	Rollout time.Duration
@@ -102,19 +102,19 @@ type Launcher struct {
 	// goroutine, as its starts run one at a time and must not wait for it); nil: before the start returns (a CLI
 	// restart, which exits after).
 	Background func(search func())
-	// Log is where a background search says what it found (none, or several open, T-582); nil: nowhere.
+	// Log is where a background search says what it found (none, or several open); nil: nowhere.
 	Log io.Writer
-	// Open is the files processes pids hold open (a fresh start's session: the transcript its agent has open, T-588);
+	// Open is the files processes pids hold open (a fresh start's session: the transcript its agent has open);
 	// nil: /proc/<pid>/fd on linux, lsof elsewhere.
 	Open func(pids []int) []string
 	// Job is the open job (<task>/<attempt>/<step>) obor serve holds for role's agent on lane ("": none): a lane
-	// worker's work or fix job of the task its lane holds, the integrator's review or resolve job of a task (T-773,
-	// T-947); obor restart sends its wake, never an idle agent with no job. An error refuses the restart before the old
-	// agent is stopped: the agent's lane holds a task and serve cannot answer (T-778), or the integrator's serve is not
-	// running and may hold one of its jobs (T-959; that error is already restart's whole FAIL line). nil: none asked
+	// worker's work or fix job of the task its lane holds, the integrator's review or resolve job of a task;
+	// obor restart sends its wake, never an idle agent with no job. An error refuses the restart before the old
+	// agent is stopped: the agent's lane holds a task and serve cannot answer, or the integrator's serve is not
+	// running and may hold one of its jobs (that error is already restart's whole FAIL line). nil: none asked
 	// (obor serve's own starts carry their job's wake).
 	Job func(ctx context.Context, role, lane string) (string, error)
-	// Install is the machine a kind's start check reads (agents.StartChecker, T-1052); nil: project.InstallHost of
+	// Install is the machine a kind's start check reads (agents.StartChecker); nil: project.InstallHost of
 	// this launcher's Env.
 	Install func() agents.InstallHost
 }
@@ -125,8 +125,8 @@ type Request = port.Launch
 var _ port.Agents = (*Launcher)(nil)
 
 // Args writes r into argv (after the "restart" subcommand): schedule puts it into the detached run's argv and
-// ParseRequest reads that back, so a flag cannot be carried on one side only (T-303: a handoff flag once was, and the
-// scheduled run lost it). The Prompt, Effort and Type are not restart's (T-785: a brief's or a dispatch's start): a
+// ParseRequest reads that back, so a flag cannot be carried on one side only (a handoff flag once was, and the
+// scheduled run lost it). The Prompt, Effort and Type are not restart's (a brief's or a dispatch's start): a
 // scheduled run is the CLI's restart, which carries none of them.
 func Args(r Request) []string {
 	args := []string{r.Agent}
@@ -144,7 +144,7 @@ func Args(r Request) []string {
 
 // ParseRequest reads an `obor restart` argument list (after the subcommand) back into the Request Args wrote; the
 // other half of that pair. Flags restart owns but a Request does not carry (--stop) are not its business and
-// are an error, as is every flag restart gave up (T-785: --prompt, --type, --effort, --sid).
+// are an error, as is every flag restart gave up (--prompt, --type, --effort, --sid).
 func ParseRequest(args []string) (Request, error) {
 	var r Request
 	for i := 0; i < len(args); i++ {
@@ -264,11 +264,11 @@ type target struct {
 	info  config.AgentInfo
 	sid   string // recorded session id
 	// sidKind is the recorded session's kind ("": not recorded); dispatched: the type is a dispatch's (the launch's or
-	// the lane row's, T-722), not the configured one.
+	// the lane row's), not the configured one.
 	sidKind    string
 	dispatched bool
-	// transcript is the recorded session's transcript, as the session reported it (Claude's SessionStart hook,
-	// T-813); "" when the record names none (a start obor named, before its hook ran).
+	// transcript is the recorded session's transcript, as the session reported it (Claude's SessionStart hook);
+	// "" when the record names none (a start obor named, before its hook ran).
 	transcript string
 	pane       string
 	entry      port.Pane // the pane as pane list shows it
@@ -279,7 +279,7 @@ type target struct {
 }
 
 // resolve is who and where (shared by Restart and Stop) with typ the launch's model type ("": none; port.Launch.Type, a
-// dispatch's since T-785); nothing is typed.
+// dispatch's); nothing is typed.
 func (l *Launcher) resolve(ctx context.Context, agent, pane, typ string) (*target, error) {
 	t := &target{agent: agent}
 	if l.Cfg != nil {
@@ -364,9 +364,9 @@ func (l *Launcher) resolve(ctx context.Context, agent, pane, typ string) (*targe
 	return t, nil
 }
 
-// dispatchType puts the type a dispatch chose into t.info (T-722: a lane is a pool, the task's type picks the
-// kind): typ, the launch's (port.Launch.Type and Effort, its effort the launch's own; no CLI flag since T-785), else
-// the ref project.LaneModel answers for a lane agent (T-865: a configured lane's row always names its dispatch's
+// dispatchType puts the type a dispatch chose into t.info (a lane is a pool, the task's type picks the
+// kind): typ, the launch's (port.Launch.Type and Effort, its effort the launch's own; no CLI flag sets it), else
+// the ref project.LaneModel answers for a lane agent (a configured lane's row always names its dispatch's
 // type, so there is no fallback to a lane type); neither: the configured type and effort stay.
 func (l *Launcher) dispatchType(t *target, typ string) {
 	effort := ""
@@ -389,7 +389,7 @@ func (l *Launcher) ps(args ...string) ([]byte, error) {
 }
 
 // inProject: the pane of an agent this config knows (it is started with a cd into this project) is this project's
-// (T-301: labels and agent names are machine-wide, so a run that loaded another project's config took axis's
+// (labels and agent names are machine-wide, so a run that loaded another project's config took axis's
 // integrator pane for the kit's lane of the same name and started it in the kit's lane worktree). Its herdr cwd is in
 // the main checkout, a lanes_dir worktree, the agent's configured cwd or another worktree of this repository. No cwd
 // known, or an unknown agent (started where its pane is): not checked. Else FAIL with evidence, before anything is
@@ -458,7 +458,7 @@ func (l *Launcher) Restart(ctx context.Context, req Request) (string, error) {
 }
 
 // Launch is Restart (port.Agents): its line, and the agent it started there with the session id herdr reported for it
-// (the identity serve records for a later rename, T-418; none for a scheduled restart of the caller's own pane).
+// (the identity serve records for a later rename; none for a scheduled restart of the caller's own pane).
 func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error) {
 	if !config.AgentNameRE.MatchString(req.Agent) {
 		return port.Started{}, project.Failf("bad agent name %q", req.Agent)
@@ -495,15 +495,15 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 			a.ID, t.agent, t.agent)
 	}
 
-	// The session, checked before anything is stopped (T-124): none and no --fresh → FAIL.
-	// A kind that resumes nothing (agents.Caps.Resume false: OpenCode, T-581) always starts fresh: serve records its
-	// session, but there is nothing obor resumes. The recorded session wins (T-577): herdr's live one for the pane is a
-	// cross-check, said when it differs. A kind whose sessions obor names itself (agents.Caps.NamedSession: Claude,
-	// T-813) never adopts herdr's: obor chose the recorded id, and a session with no record is a new one.
+	// The session, checked before anything is stopped: none and no --fresh → FAIL.
+	// A kind that resumes nothing (agents.Caps.Resume false: OpenCode) always starts fresh: serve records its
+	// session, but there is nothing obor resumes. The recorded session wins: herdr's live one for the pane is a
+	// cross-check, said when it differs. A kind whose sessions obor names itself (agents.Caps.NamedSession: Claude)
+	// never adopts herdr's: obor chose the recorded id, and a session with no record is a new one.
 	sid, src := t.sid, "record"
 	// A first prompt on a request that may resume (serve's: a lane worker started again with its outstanding job's
-	// wake, T-874, or the integrator with its job's): no session to resume starts fresh with it, a resumed session
-	// gets it typed once up, as a job's wake (T-773).
+	// wake, or the integrator with its job's): no session to resume starts fresh with it, a resumed session
+	// gets it typed once up, as a job's wake.
 	carry := !req.Fresh && req.Prompt != ""
 	if !agents.Resumes(t.kind) {
 		sid, src = "", ""
@@ -524,7 +524,7 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 			sid = ""
 		}
 		fresh := false
-		// A dispatch's type of another kind than the session's (T-722: the lane's last task ran another kind): that
+		// A dispatch's type of another kind than the session's (the lane's last task ran another kind): that
 		// session is not this kind's to resume, so a new one.
 		if was := map[string]string{"record": t.sidKind, "herdr": t.entry.Agent}[src]; sid != "" && t.dispatched &&
 			was != "" && was != t.kind {
@@ -544,27 +544,27 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 			return port.Started{}, project.Failf("no session to resume for %s (pass --fresh to start a new one)", t.agent)
 		}
 	}
-	// The caller's own pane (T-264): schedule a detached run; that run waited for the agent to go idle (waitScheduled).
+	// The caller's own pane: schedule a detached run; that run waited for the agent to go idle (waitScheduled).
 	if l.ownPane(t) && !waited {
 		line, err := l.schedule(t, req, false)
 		return port.Started{Line: line}, err
 	}
 
-	// The effort (T-695): the request's (a dispatch's type reference), else the role's (roles.<role>.type), else the
+	// The effort: the request's (a dispatch's type reference), else the role's (roles.<role>.type), else the
 	// type's args; it applies to a resume too, so a role's session keeps the effort it was started with.
 	effort := req.Effort
 	if effort == "" {
 		effort = t.info.Effort
 	}
-	// An agent restarted with no first prompt of its own while serve holds a job for it (T-773, T-947): that job's
+	// An agent restarted with no first prompt of its own while serve holds a job for it: that job's
 	// wake, the first prompt of a fresh session, typed into a resumed one once it is up. A lane's worker asks for its
 	// lane's job (a work or fix job), the integrator for a task's open review or resolve job. Resolved before the stop
-	// (T-778): a lane with a task whose job serve cannot tell refuses the restart, the old agent untouched.
+	// a lane with a task whose job serve cannot tell refuses the restart, the old agent untouched.
 	job := ""
 	if req.Prompt == "" && l.Job != nil && (t.info.Role == "integrator" || t.info.Role == "worker" && t.info.Lane != "") {
 		if job, err = l.Job(ctx, t.info.Role, t.info.Lane); err != nil {
 			var fail project.Fail
-			if errors.As(err, &fail) { // restart's own refusal: the whole FAIL line (T-959: serve down for the integrator)
+			if errors.As(err, &fail) { // restart's own refusal: the whole FAIL line (serve down for the integrator)
 				return port.Started{}, err
 			}
 			return port.Started{}, project.Failf("%s not restarted (nothing stopped): %v", t.agent, err)
@@ -584,17 +584,17 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	case job != "":
 		prompt = wake
 	case prompt == "":
-		// A fresh start without a first prompt gets its role's (T-729), e.g. the lead's /obor:lead.
+		// A fresh start without a first prompt gets its role's, e.g. the lead's /obor:lead.
 		if rc, ok := l.Cfg.Role(t.info.Role); ok {
 			prompt = rc.Role.StartPrompt(t.kind)
 		}
 	}
-	// The start, built once before anything is stopped (T-1042): its argv and its env from one complete start.
+	// The start, built once before anything is stopped: its argv and its env from one complete start.
 	args, err := l.build(t, effort, sid, prompt)
 	if err != nil {
 		return port.Started{}, err
 	}
-	if t.info.Lane != "" { // a lane's env (T-1041): the generic facts and the project's slots.lane_env
+	if t.info.Lane != "" { // a lane's env: the generic facts and the project's slots.lane_env
 		t.env = config.WithLaneEnv(t.env, l.Cfg)
 	}
 	if err := l.stop(ctx, t, req.Force, false, "--force to restart anyway"); err != nil {
@@ -603,7 +603,7 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	if sid != "" {
 		l.say("resuming %s (from %s)", sid, src)
 	}
-	// The start runs only once the pane is a shell again (T-1053): until the old agent's exit is reaped, herdr answers
+	// The start runs only once the pane is a shell again: until the old agent's exit is reaped, herdr answers
 	// agent.start with agent_pane_busy, and the env line would fail in a pane that still runs it. One bound covers this
 	// wait and the start's retries; past it, no start and a FAIL naming the pane. Only a pane that ran an agent is
 	// waited on (Await): a pane at a shell, or one running a person's program, is setEnv's to refuse.
@@ -643,7 +643,7 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 		Terminal: t.entry.Terminal, Kind: t.kind, Session: seen.Session}, nil
 }
 
-// quarantined is why t's kind may not start on this machine (agents.StartRefusal, T-1052), and whether the start may
+// quarantined is why t's kind may not start on this machine (agents.StartRefusal), and whether the start may
 // still be made with a warning: the lead, whose owner is at its screen and can answer Gatekeeper's dialog. A worker's
 // or role's start is refused (the line names the files and the fix), so no unattended pane waits on it.
 func (l *Launcher) quarantined(t *target) (why string, lead bool) {
@@ -659,11 +659,11 @@ func (l *Launcher) installHost() agents.InstallHost {
 	return project.InstallHost(l.envOrOS())
 }
 
-// checkTranscript: what a recorded session needs to resume. For a kind whose sessions obor names itself (T-813:
+// checkTranscript: what a recorded session needs to resume. For a kind whose sessions obor names itself (
 // agents.Caps.NamedSession) that is the transcript the session reported, as the SessionStart hook recorded it: the
 // path is the session's own (Claude resolves symlinks and hashes a long cwd, so obor derives none), so a pane cwd
-// that moved or a symlinked lane no longer refuses it. A session with no transcript file was never prompted (Claude
-// writes none before its first message, T-627): it is no session to resume, so the restart starts fresh, said; fresh
+// that moved or a symlinked lane does not refuse it. A session with no transcript file was never prompted (Claude
+// writes none before its first message): it is no session to resume, so the restart starts fresh, said; fresh
 // is true then. A record that names no transcript yet (obor chose its id, and no SessionStart hook confirmed it)
 // resumes when the kind's own file of that id is somewhere. Other kinds are not checked: their sessions are not
 // obor's to check (Codex's rollout, which launch records itself).
@@ -676,7 +676,7 @@ func (l *Launcher) checkTranscript(t *target, sid string) (fresh bool, err error
 	if path := t.transcript; path != "" {
 		if _, err := os.Stat(path); err == nil {
 			return false, nil
-		} else if !os.IsNotExist(err) { // a search that failed is no proof of "never prompted" (RV-67 #4)
+		} else if !os.IsNotExist(err) { // a search that failed is no proof of "never prompted"
 			return false, project.Failf("recorded session %s: cannot check its transcript %s: %v (pass --fresh)", sid, path, err)
 		}
 		l.say("recorded session %s has no transcript (%s): starting fresh", sid, path)
@@ -695,7 +695,7 @@ func (l *Launcher) checkTranscript(t *target, sid string) (fresh bool, err error
 }
 
 // transcriptElsewhere: whether the transcript wild is "<projects>/*/<file>" names exists under any project dir. The
-// projects dir is listed literally (no glob: a base dir with glob metacharacters, T-633) and a failure other than
+// projects dir is listed literally (no glob: a base dir with glob metacharacters) and a failure other than
 // "no such dir" is an error, never "not found".
 func transcriptElsewhere(wild string) (bool, error) {
 	dir, file := filepath.Dir(filepath.Dir(wild)), filepath.Base(wild)
@@ -740,16 +740,16 @@ func (l *Launcher) setEnv(ctx context.Context, t *target) error {
 	if err := l.roleWorktree(ctx, t); err != nil {
 		return err
 	}
-	// The line echoes one of two words (T-601): the success word only when the whole line (its cd, its exports)
+	// The line echoes one of two words: the success word only when the whole line (its cd, its exports)
 	// succeeded — a `; echo` after a cd that failed still printed it, and the agent started in the shell's old cwd with
-	// the old env (RV-64 #3) — and its failure word when it failed, so a visible failure ends the wait at once instead
+	// the old env — and its failure word when it failed, so a visible failure ends the wait at once instead
 	// of at the timeout.
 	okMark, badMark := envMark(), envMark()
 	if err := l.H.Type(ctx, t.pane, envLine(t)+" && echo "+okMark.typed+" || echo "+badMark.typed); err != nil {
 		return project.Failf("herdr pane run %s (env) failed", t.pane)
 	}
 	// One server-owned wait for either mark (the echoed words, which the typed line's quoted forms never match): its
-	// timeout is the env line's bound, and the text read says which mark the shell printed (T-950).
+	// timeout is the env line's bound, and the text read says which mark the shell printed.
 	screen, err := l.H.WaitForOutput(ctx, t.pane, okMark.echoed+"|"+badMark.echoed, l.wait())
 	if err != nil {
 		return l.giveUp(ctx, t, "the shell in %s did not finish the env line in %s (nothing started; the env line may have failed: check the pane)",
@@ -769,9 +769,9 @@ func (l *Launcher) envOrOS() project.Env {
 	return l.Env
 }
 
-// roleWorktree adds the role worktree a role agent's cwd is when it is missing (T-853: the reviewer's, the deep
+// roleWorktree adds the role worktree a role agent's cwd is when it is missing (the reviewer's, the deep
 // dive's, the integrator's <lanes_dir>/<role>), detached at branches.main, so the env line's cd finds it: serve's
-// starts and obor restart of a project set up before T-853. Any other cwd: nothing.
+// starts and obor restart of a project whose role worktree is absent. Any other cwd: nothing.
 func (l *Launcher) roleWorktree(ctx context.Context, t *target) error {
 	r, ok := roles.Lookup(t.info.Role)
 	if !ok || r.Cwd != roles.CwdRoleWorktree || l.Cfg == nil || t.info.Cwd != l.Cfg.RoleWorktree(r.Name) {
@@ -784,8 +784,8 @@ func (l *Launcher) roleWorktree(ctx context.Context, t *target) error {
 }
 
 // envLine is the shell line that sets the agent's env (and cwd) as obor setup does, built by the one builder
-// (agents.StartVars, T-812): OBOR_ROLE, OBOR_LANE, OBOR_PANE (the pane's id, T-1037) and the kind's vars exported,
-// every other var of the registry unset (a stale OBOR_AGENT, T-786; another kind's OBOR_OPENCODE_MODEL, T-707), so
+// (agents.StartVars): OBOR_ROLE, OBOR_LANE, OBOR_PANE (the pane's id) and the kind's vars exported,
+// every other var of the registry unset (a stale OBOR_AGENT; another kind's OBOR_OPENCODE_MODEL), so
 // nothing of an earlier start in the pane's shell survives. An agent the config does not know keeps the shell's OBOR_ROLE (obor cannot tell its role).
 func envLine(t *target) string {
 	role := t.info.Role
@@ -811,7 +811,7 @@ func envLine(t *target) string {
 	return line
 }
 
-// mark is a word the env line echoes (T-544, T-601: its success word, or its failure word when the line failed): the
+// mark is a word the env line echoes (its success word, or its failure word when the line failed): the
 // shell's prompt drawn after it is the shell back at its line editor. Before that, zsh runs the line with the tty in
 // cooked mode, where a start's command typed at once is echoed raw and cut at the tty's line limit (~1 KB on macOS: a
 // long --prompt left the shell at an open quote, live 2026-10-29), while herdr already counts the pane an available
@@ -836,12 +836,12 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-// build is t's one start (T-1042), built before anything is stopped: the type's (a role without a type: the defaults
-// of the resolved kind; a lead keeps Remote Control, T-280; a lane's agent starts strict, T-770) with effort in place of
-// the type's ("": the type's, T-695), resume or the first prompt; its argv returned, t.env its own env (OpenCode's
+// build is t's one start, built before anything is stopped: the type's (a role without a type: the defaults
+// of the resolved kind; a lead keeps Remote Control; a lane's agent starts strict) with effort in place of
+// the type's ("": the type's), resume or the first prompt; its argv returned, t.env its own env (OpenCode's
 // model and effort, its generated config) for the env line, t.session the session obor names for it. An agent with
 // neither type nor role starts with no launch args: the kind's start over none, still with its env (OpenCode: its
-// generated config, T-809). An effort the start cannot carry is a Fail (nothing stopped yet).
+// generated config). An effort the start cannot carry is a Fail (nothing stopped yet).
 func (l *Launcher) build(t *target, effort, resume, prompt string) ([]string, error) {
 	b := port.Build{Agent: t.agent, Kind: t.kind, Role: t.info.Role, Effort: effort, Dir: t.info.Cwd, Resume: resume,
 		Prompt: prompt}
@@ -851,7 +851,7 @@ func (l *Launcher) build(t *target, effort, resume, prompt string) ([]string, er
 		b.Kind, b.Args = lt.Kind, lt.Args
 	}
 	if !bare {
-		if err := agents.CheckEffort(b.Kind, effort); err != nil { // one the args cannot carry: the start's error (T-1046)
+		if err := agents.CheckEffort(b.Kind, effort); err != nil { // one the args cannot carry: the start's error
 			return nil, project.Failf("%s: %v", t.agent, err)
 		}
 		rc, _ := l.Cfg.Role(t.info.Role)
@@ -865,7 +865,7 @@ func (l *Launcher) build(t *target, effort, resume, prompt string) ([]string, er
 	return built.Args, nil
 }
 
-// Build is the agent's one start (port.Starter, T-1042), built once at the launch boundary: the complete agents.Start
+// Build is the agent's one start (port.Starter), built once at the launch boundary: the complete agents.Start
 // (the kit, the model's args with the role's settings and strictness, the effort, the cwd, the dirs the agent writes,
 // which it makes, the resume or the first prompt as one line, the session obor names for a kind that takes one, the
 // env and state writer), handed to the kind once (config.Model.Launch, agents.StartOf): the argv, the env and the files
@@ -881,7 +881,7 @@ func (l *Launcher) startOf(b port.Build, bare bool) (port.Built, error) {
 	if !ok {
 		return port.Built{Args: append([]string(nil), b.Args...)}, nil
 	}
-	for _, d := range b.WriteDirs { // a dir a start lets the agent write (Codex's --add-dir) must be there (T-853)
+	for _, d := range b.WriteDirs { // a dir a start lets the agent write (Codex's --add-dir) must be there
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return port.Built{}, err
 		}
@@ -890,7 +890,7 @@ func (l *Launcher) startOf(b port.Build, bare bool) (port.Built, error) {
 	if kit == "" {
 		kit = project.KitRoot(l.Env)
 	}
-	// A kind whose sessions obor names (T-813): the id is obor's, recorded for the agent before it runs (Start), so the
+	// A kind whose sessions obor names: the id is obor's, recorded for the agent before it runs (Start), so the
 	// store and a restart know it before its SessionStart hook reports it (the hook confirms it, with its transcript).
 	session := ""
 	if b.Resume == "" && k.Caps().NamedSession {

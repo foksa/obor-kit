@@ -113,21 +113,21 @@ func codexLive(l *lab, turn bool) {
 		}
 	}
 
-	// 3: H-L11 (T-953, H7): herdr's agent_session on a fresh --no-daemon start whose CODEX_HOME has the integration.
+	// 3: H-L11 (H7): herdr's agent_session on a fresh --no-daemon start whose CODEX_HOME has the integration.
 	hL11Start(l, k, pane, codexHome, src, turn)
 
-	// 4: the repository's own server (T-898): CX-L3 reads the first turn's rollout.
+	// 4: the repository's own server: CX-L3 reads the first turn's rollout.
 	cxL4(l, pane, codexHome, turn)
 
-	// 5: H-L14 (T-1059): a start with a first prompt that keeps codex working, then the same right after its exit.
+	// 5: H-L14: a start with a first prompt that keeps codex working, then the same right after its exit.
 	l.stopAgent(pane)
 	hL14(l, "codex", pane, k.(agents.Split).Start(agents.Start{Kit: l.kit,
 		Args: []string{"--strict-config", "--no-daemon", "-a", "never"}, Prompt: hL14Prompt}), turn)
 }
 
-// cxL4 (T-898): codex starts as a worker of the lab's project with the repository's own `obor mcp` (not the stub) and
+// cxL4: codex starts as a worker of the lab's project with the repository's own `obor mcp` (not the stub) and
 // one job_next call's rendered reply reaches the session's rollout. The start is the shipped launch's (launchOf), so a
-// tool its own discovery cannot reach is a FAIL, not a pass the case's own config bought (RV-122 #1, T-910). A client
+// tool its own discovery cannot reach is a FAIL, not a pass the case's own config bought. A client
 // that cannot list the server's tools, or cannot call one, leaves no such result.
 func cxL4(l *lab, pane, codexHome string, turn bool) {
 	where := at("internal/mcp/mcp.go", "func Serve") + ", F1.1, CAP §3.2, T-898"
@@ -195,7 +195,7 @@ func rollouts(dir string) string {
 	return b.String()
 }
 
-// hL11Start (T-953, H7): a fresh codex --no-daemon start in a CODEX_HOME holding herdr's Codex integration (the user's
+// hL11Start (H7): a fresh codex --no-daemon start in a CODEX_HOME holding herdr's Codex integration (the user's
 // hooks.json, whose SessionStart it runs), and when agent_session reaches agent.get: what the start alone gives, and with
 // TURN=1 how long after the first turn it arrives (codex dispatches SessionStart with the session's first turn, not at
 // TUI startup). The scratch home has neither the user's `[features] hooks = true` nor its hook trust, so the start

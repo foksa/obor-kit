@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// T-1174 (RV-173 #2): a non-gating command's result line carries the command's own summary — its last "<name>: " line —
+// a non-gating command's result line carries the command's own summary — its last "<name>: " line —
 // not the wrapper's trailer: make appends `make: *** [check-race] Error 1` to a failed recipe, and the line is what the
 // nightly's result (and last-full-check) carries. The WARN shape and the rc stay as they were.
 func TestNonGatingLine(t *testing.T) {
@@ -42,10 +42,10 @@ func TestNonGatingLine(t *testing.T) {
 	}
 }
 
-// T-1145: nightly's backup step as a function over wire.Backup's answer, so no test starts a nightly (and git) to see
+// nightly's backup step as a function over wire.Backup's answer, so no test starts a nightly (and git) to see
 // which reply prunes days: an error is the evidence line that makes the nightly RED and prunes nothing; an empty reply
 // (a project with no database) is nothing at all; a BACKUP path is its base name in the result line and the sweep's
-// permission (T-1086).
+// permission.
 func TestBackupOutcome(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {

@@ -46,7 +46,7 @@ func (l *Lock) Try() (bool, error) {
 			}
 			return false, err
 		}
-		// The previous holder removed the file on Unlock after we opened it: this inode is no longer the lock.
+		// The previous holder removed the file on Unlock after we opened it: this inode is not the lock.
 		if !samePath(f, l.Path) {
 			f.Close()
 			continue

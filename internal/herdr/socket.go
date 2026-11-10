@@ -142,7 +142,7 @@ type Socket struct {
 	Path    string
 	Timeout time.Duration // per request (default 10 s); slow requests take their own bound
 	// Conn, when set, opens each connection in place of dialing Path: a herdr served in memory (herdrtest.ServeMem),
-	// whose connections a testing/synctest bubble can wait on (T-1175; a unix socket's it cannot). Production leaves it
+	// whose connections a testing/synctest bubble can wait on (a unix socket's it cannot). Production leaves it
 	// nil.
 	Conn func(ctx context.Context) (net.Conn, error)
 }
@@ -290,7 +290,7 @@ type Snapshot struct {
 }
 
 // Pane is a pane as herdr reports it: the core's Pane and herdr's own place of it, its workspace and tab ids. They
-// stay in the adapter (T-1044): the core sees the workspace's label as the pane's Group, setup never sees a tab.
+// stay in the adapter: the core sees the workspace's label as the pane's Group, setup never sees a tab.
 type Pane struct {
 	port.Pane
 	Workspace, Tab string
@@ -480,7 +480,7 @@ func (s *Socket) Screen(ctx context.Context, pane string, lines int) (string, er
 
 // WaitForOutput is pane.wait_for_output: the pane's recent unwrapped text, once a line of it matches regex (text
 // already printed matches at once); herdr's error code "timeout" after timeout. Not "visible": that was stale in a
-// shell after an agent exited (T-970), while "recent" had the line; unwrapped keeps a long typed line whole.
+// shell after an agent exited, while "recent" had the line; unwrapped keeps a long typed line whole.
 func (s *Socket) WaitForOutput(ctx context.Context, pane, regex string, timeout time.Duration) (string, error) {
 	var r struct {
 		Read *struct {
@@ -517,7 +517,7 @@ func orNil(s string) any {
 }
 
 // Start is agent.start: name a new agent of kind in pane and type its command line (kind and args) at the pane's
-// shell. herdr answers at once, before the agent runs (launch_pending, live T-544): the answer is no proof the agent
+// shell. herdr answers at once, before the agent runs (launch_pending, live): the answer is no proof the agent
 // came up, the caller polls for it (launch.started). Sent once, never retried: a request that timed out may have
 // been typed (Reached).
 func (s *Socket) Start(ctx context.Context, name, kind, pane string, args ...string) (port.Pane, error) {
@@ -617,7 +617,7 @@ func (s *Socket) NewTab(ctx context.Context, workspace, label, cwd string, env .
 }
 
 // NewWorkspace is workspace.create: a new workspace labelled label, its first tab's root pane a shell in cwd, not
-// focused; the workspace's id (T-632).
+// focused; the workspace's id.
 func (s *Socket) NewWorkspace(ctx context.Context, label, cwd string) (string, error) {
 	var r struct {
 		Workspace struct {
@@ -668,7 +668,7 @@ func (s *Socket) ProcessInfo(ctx context.Context, pane string) (ProcessInfo, err
 
 // Notify is notification.show: a desktop notification, best effort through herdr's foreground client. herdr's answer
 // says whether it showed it; not shown, the reason is a port.NotShown error (busy, rate_limited, disabled,
-// no_foreground_client): the toast's caller logs it and goes on (T-949).
+// no_foreground_client): the toast's caller logs it and goes on.
 func (s *Socket) Notify(ctx context.Context, title, body string) error {
 	var r struct {
 		Shown  *bool  `json:"shown"`
@@ -1104,7 +1104,7 @@ type (
 
 // Wire is herdr's JSON for an agent or a pane (both carry the same agent fields): the one struct of that part of the
 // protocol, so herdr's client decodes and herdrtest's fake fills the same fields, and a tag herdr changes changes both
-// (T-890). A null herdr sends for a cleared name, label, cwd, status or agent reads as "".
+// A null herdr sends for a cleared name, label, cwd, status or agent reads as "".
 type Wire struct {
 	Name         string        `json:"name"` // the agent's herdr name ("" when herdr keeps none)
 	ID           string        `json:"pane_id"`
@@ -1118,7 +1118,7 @@ type Wire struct {
 	AgentSession *AgentSession `json:"agent_session"` // nil: herdr reports no session for the agent
 	Seq          int64         `json:"state_change_seq"`
 	// LaunchPending: herdr accepted an agent.start in the pane and its agent is not up yet; InteractiveReady: the
-	// launched agent takes input. herdr 0.9.5 leaves a false one out (live H-L12, T-1058).
+	// launched agent takes input. herdr 0.9.5 leaves a false one out (live H-L12).
 	LaunchPending    bool `json:"launch_pending,omitempty"`
 	InteractiveReady bool `json:"interactive_ready,omitempty"`
 }

@@ -70,7 +70,7 @@ func (w idleAfter) Agent(ctx context.Context, target string) (port.Pane, error) 
 	return w.PaneControl.Agent(ctx, target)
 }
 
-// T-264: obor restart of the caller's own pane schedules a detached run that restarts the agent once it is idle.
+// obor restart of the caller's own pane schedules a detached run that restarts the agent once it is idle.
 func TestRestartOwnPane(t *testing.T) {
 	t.Parallel()
 	t.Run("own pane: SCHEDULED, a detached obor restart with the same args, nothing stopped", func(t *testing.T) {
@@ -219,7 +219,7 @@ func (w polled) Type(ctx context.Context, pane, text string) error {
 	return w.PaneControl.Type(ctx, pane, text)
 }
 
-// T-465: the handoff is `obor restart <you> --fresh` from the agent's own pane, with no --force and no handoff
+// the handoff is `obor restart <you> --fresh` from the agent's own pane, with no --force and no handoff
 // machinery: SCHEDULED while it works (nothing stopped or typed), and the detached run, its args round-tripped, waits
 // until the agent is idle and restarts it with a new session.
 func TestRestartSelfFreshHandoff(t *testing.T) {
@@ -257,7 +257,7 @@ func TestRestartSelfFreshHandoff(t *testing.T) {
 	}
 }
 
-// RV-29: the detached run waits first, then restarts or stops on fresh state; an unknown status is no idle.
+// the detached run waits first, then restarts or stops on fresh state; an unknown status is no idle.
 func TestScheduledWaitsThenDecidesFresh(t *testing.T) {
 	t.Parallel()
 	own := launch.Request{Agent: "pj-l-01", Pane: "w1:p3"}
@@ -480,7 +480,7 @@ func TestScheduledWaitsThenDecidesFresh(t *testing.T) {
 	})
 }
 
-// T-270 (RV-29 #2, second strike): after the scheduled wait, sameAgent fails closed. One test per row of the spec's table.
+// After the scheduled wait, sameAgent fails closed. One test per row of the spec's table.
 func TestSameAgentAfterScheduledWait(t *testing.T) {
 	t.Parallel()
 	type kind struct{ agent, pane, kind string }
@@ -644,7 +644,7 @@ func (w callerFg) ProcessInfo(ctx context.Context, pane string) (port.ProcessInf
 	return w.PaneControl.ProcessInfo(ctx, pane)
 }
 
-// T-272 (RV-30 #1): waitScheduled does all the waiting of the scheduled run, one row of the spec's table each; the
+// waitScheduled does all the waiting of the scheduled run, one row of the spec's table each; the
 // normal path then runs with no further wait.
 func TestWaitScheduledTable(t *testing.T) {
 	t.Parallel()

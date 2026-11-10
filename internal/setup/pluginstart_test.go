@@ -21,7 +21,7 @@ import (
 	"obor/internal/testkit"
 )
 
-// stubKind is a plugin kind (T-1036) as a POSIX sh script that appends every request to a log, one line each, and
+// stubKind is a plugin kind as a POSIX sh script that appends every request to a log, one line each, and
 // answers start with args and env naming one generated file whose bytes carry the request's kit (as the conformance
 // script's start does); LOG is the log.
 const stubKind = `#!/bin/sh
@@ -62,7 +62,7 @@ type startRequest struct {
 
 var uuidRE = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
-// T-1042 (RV-147 #1): every launch of a plugin kind makes exactly one start call, with the complete start (the kit, the
+// every launch of a plugin kind makes exactly one start call, with the complete start (the kit, the
 // type's args, the role's settings and strictness, the effort, the cwd, the write dirs, the first prompt or the resume,
 // the session obor names), and applies that one reply's argv, env and file together: setup's first start (a new pane)
 // and a reused pane, a restart fresh and resumed, and setup's MCP model inspection. The generated file holds the

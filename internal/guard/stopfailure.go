@@ -1,9 +1,9 @@
 package guard
 
-// The StopFailure hook (`obor hook stop-failure`, T-532): Claude Code fires it instead of Stop when a turn ends on an
+// The StopFailure hook (`obor hook stop-failure`): Claude Code fires it instead of Stop when a turn ends on an
 // API error (a usage limit, an overload, …). The hook logs the payload's error and error_details and tells obor serve
 // (cmd/obor sends the request); it never blocks and has no verdict. A worker's stop ends with its next turn: its
-// UserPromptSubmit and Stop hooks tell serve (Turn, T-540).
+// UserPromptSubmit and Stop hooks tell serve (Turn).
 
 import (
 	"encoding/json"
@@ -35,7 +35,7 @@ type stopFailureEvent struct {
 
 // StopFailure reads the StopFailure event in input, appends its log line and returns what serve is told; ok false
 // outside an obor project or on an unreadable event (nothing to send). The agent is the session's derived name
-// (project.SelfAgent, T-786: a lane's from its cwd, so OpenCode's shared hook process without env names it too, T-308).
+// (project.SelfAgent: a lane's from its cwd, so OpenCode's shared hook process without env names it too).
 // A log line that cannot be written is err (the hook says so and still sends).
 func StopFailure(input []byte, env project.Env, now time.Time) (s Stopped, ok bool, err error) {
 	var ev stopFailureEvent
@@ -63,10 +63,10 @@ func StopFailure(input []byte, env project.Env, now time.Time) (s Stopped, ok bo
 	return s, true, err
 }
 
-// Turn is what a worker's or role agent's UserPromptSubmit or Stop hook tells serve besides its own job (T-540,
-// T-569): the agent's next turn began or ended, which ends a stop in force; ok false outside an obor project, on an
+// Turn is what a worker's or role agent's UserPromptSubmit or Stop hook tells serve besides its own job:
+// the agent's next turn began or ended, which ends a stop in force; ok false outside an obor project, on an
 // unreadable event, for the lead or a session of no role, or with no agent name. The agent is the session's derived
-// name (project.SelfAgent, T-786).
+// name (project.SelfAgent).
 func Turn(input []byte, env project.Env) (s Stopped, ok bool) {
 	var ev struct {
 		Cwd string `json:"cwd"`

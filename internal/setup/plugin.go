@@ -15,7 +15,7 @@ import (
 )
 
 // kitHooks: path is the githooks dir of an obor kit (a checkout whose plugin.json names obor, or one that is gone: its
-// path then still names the kit), or that dir's chain/ set (T-623), which `obor setup githooks` may re-point.
+// path then still names the kit), or that dir's chain/ set, which `obor setup githooks` may re-point.
 func kitHooks(path string) bool {
 	if filepath.Base(path) == "chain" {
 		path = filepath.Dir(path)
@@ -35,9 +35,9 @@ func kitHooks(path string) bool {
 	return json.Unmarshal(b, &m) == nil && m.Name == "obor"
 }
 
-// githooks points core.hooksPath at <kit>/githooks, or at its chain/ set when there is something to chain (T-623: a
+// githooks points core.hooksPath at <kit>/githooks, or at its chain/ set when there is something to chain (a
 // recorded obor.hooksChain, or a hook in .git/hooks that the small set lacks). A project's own hooks dir (the value it
-// already had) is not refused but chained (T-620): recorded as obor.hooksChain in the repo config and run by the hook
+// already had) is not refused but chained: recorded as obor.hooksChain in the repo config and run by the hook
 // before obor's rule, for every hook. --remove puts it back and unsets obor.hooksChain.
 func (s *Setup) githooks(args []string) error {
 	_, err := s.githooksStep(args)
@@ -83,7 +83,7 @@ func (s *Setup) githooksStep(args []string) (changed bool, err error) {
 		s.say("OK githooks removed (core.hooksPath unset)")
 		return true, nil
 	}
-	// The project's own hooks dir is chained, rather than make it choose (T-620).
+	// The project's own hooks dir is chained, rather than make it choose.
 	own := cur != "" && cur != dir && cur != chainDir && !kitHooks(cur)
 	if own {
 		if _, err := project.Git(s.root, "config", "--local", "obor.hooksChain", cur); err != nil {
@@ -92,7 +92,7 @@ func (s *Setup) githooksStep(args []string) (changed bool, err error) {
 		chain = cur
 	}
 	// The full set only when there is something to chain: git runs one dir, and the small set ships pre-commit and
-	// pre-push alone (T-623).
+	// pre-push alone.
 	target := dir
 	if chain != "" || dotgitHooks(s.root) {
 		target = chainDir
@@ -118,7 +118,7 @@ func (s *Setup) githooksStep(args []string) (changed bool, err error) {
 }
 
 // dotgitHooks: .git/hooks holds an executable hook (not a *.sample) that the small githooks/ set lacks, other than
-// pre-commit and pre-push (T-623). git never runs .git/hooks once core.hooksPath is set, so only githooks/chain/ can
+// pre-commit and pre-push. git never runs .git/hooks once core.hooksPath is set, so only githooks/chain/ can
 // run it.
 func dotgitHooks(root string) bool {
 	repo, err := project.Find(root)
@@ -152,7 +152,7 @@ func hooksLine(root string) string {
 	return line
 }
 
-// herdrPlugin is `obor setup herdr-plugin`: removes the obor.events plugin an older obor linked (T-1117:
+// herdrPlugin is `obor setup herdr-plugin`: removes the obor.events plugin an older obor linked (
 // port.TerminalSetup.RemoveIntegration; obor serve restarts its own panes), its lines, then its hint.
 func (s *Setup) herdrPlugin(ctx context.Context, args []string) error {
 	if len(args) > 0 {
@@ -184,9 +184,9 @@ func (s *Setup) removeIntegration(ctx context.Context) (port.Integration, error)
 }
 
 // agentsCmd is `obor setup agents` (once per user): in a project, each plugin kind its config names
-// (kinds.<name>.command, T-1036; the kit's OpenCode, T-1046) is described first and its manifest cached in the state dir
+// (kinds.<name>.command: the kit's OpenCode) is described first and its manifest cached in the state dir
 // (plugin.Cache), what hooks and the guard read; then every kind's install is run (its answer is obor setup mcp's) and
-// a failure is a FAIL. A kind installs nothing user-global (T-1119), so each is said once.
+// a failure is a FAIL. A kind installs nothing user-global, so each is said once.
 func (s *Setup) agentsCmd(args []string) error {
 	if len(args) > 0 {
 		return errUsage
@@ -205,10 +205,10 @@ func (s *Setup) agentsCmd(args []string) error {
 }
 
 // cachePlugins describes every plugin kind of the project around Dir (none outside a project, or with no config; a
-// config that fails to load is its own error, T-1163) and caches its manifest, then reloads the config so the
-// registry's plugin kinds carry it; cached are their names (obor setup agents; obor init's kinds step, T-1054). A kit
-// kind the config names no plugin for (config.KitKinds: the kit's binary is the default, T-1155) is cached as that
-// default and the config is left as it is (RV-171: a value obor derives needs no edit).
+// config that fails to load is its own error) and caches its manifest, then reloads the config so the
+// registry's plugin kinds carry it; cached are their names (obor setup agents; obor init's kinds step). A kit
+// kind the config names no plugin for (config.KitKinds: the kit's binary is the default) is cached as that
+// default and the config is left as it is (a value obor derives needs no edit).
 func (s *Setup) cachePlugins() (cached []string, err error) {
 	cfg, err := s.projectConfig()
 	if err != nil || cfg == nil {

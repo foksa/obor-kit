@@ -12,7 +12,7 @@ import (
 	"obor/internal/testkit"
 )
 
-// TestViewLaneFreeByItsLandedRow (T-1012): the view's Free and state column come from the one free rule over the
+// TestViewLaneFreeByItsLandedRow: the view's Free and state column come from the one free rule over the
 // lane's row: a lane whose task landed shows free though its commit is not in the main checkout's history; a lane whose
 // row holds a task that has not landed shows working though its HEAD is in main's history; landed with uncommitted
 // changes shows dirty-free, still free for the view (not idle for dispatch).

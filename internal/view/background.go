@@ -1,13 +1,13 @@
 package view
 
-// The agents' long-running processes (T-714, T-727): Claude Code's background Bash shells lead their own sessions,
+// The agents' long-running processes: Claude Code's background Bash shells lead their own sessions,
 // outside the pane's process group herdr's process-info lists (internal/launch/stop.go), but they stay descendants of
 // the agent's process. One `ps` per scan lists the machine's processes, indexed once by parent (ProcIndex) for all the
 // scan's agents; each agent serve sees with a pane is its pane's foreground leader (herdr process-info, as stop takes
 // it), and its descendants that have run longer than BackgroundMin, the agent's own helpers left out, are its long
 // processes. Only one that runs a recorded background Bash call (run_in_background, obor's PreToolUse hook) is
 // background work (`bg`); any other is a long foreground command (`running`). The process table and the call's matching
-// are internal/background's (T-1142: the hook and serve check a call's liveness with them too).
+// are internal/background's (the hook and serve check a call's liveness with them too).
 
 import (
 	"context"
@@ -29,7 +29,7 @@ const BackgroundMin = 30 * time.Second
 var now = time.Now
 
 // Background is one long-running process of an agent: its pid, its command (shortened), whether it runs a background
-// Bash call obor's hook recorded (T-727: false is a long foreground command), that call's description ("" otherwise)
+// Bash call obor's hook recorded (false is a long foreground command), that call's description ("" otherwise)
 // and how long it has run (seconds).
 type Background struct {
 	PID        int    `json:"pid"`
@@ -48,7 +48,7 @@ func (b Background) Text() string {
 }
 
 // Line is what a view shows of b, its age (app.Age) given: `bg: <description or command> · 15m` for a recorded
-// background call, `running <command> · 15m` for any other long process (T-727).
+// background call, `running <command> · 15m` for any other long process.
 func (b Background) Line(age string) string {
 	if b.Background {
 		return "bg: " + b.Text() + " · " + age
@@ -59,7 +59,7 @@ func (b Background) Line(age string) string {
 // Proc is one row of the process table: pid, parent, how long it has run and its full command.
 type Proc = background.Proc
 
-// ProcIndex is a process table indexed for Descendants (internal/background's, T-1143: the Stop hook walks the same).
+// ProcIndex is a process table indexed for Descendants (internal/background's: the Stop hook walks the same).
 type ProcIndex = background.ProcIndex
 
 // indexBuilds counts NewProcIndex calls (a test reads it: one index per scan).
@@ -84,7 +84,7 @@ func AgentPID(pi port.ProcessInfo) int {
 // info (info) and its descendants in procs (one ProcIndex for all the agents), matched against root's recorded
 // background calls of that agent (Mine's: its session's, or its name's when it records no session): one that started the
 // process, by command and by time (background.Match), makes it background, with the call's description; a later
-// foreground run of the same command, or an earlier session's call, is `running` (RV-85 verify #3). An agent with none
+// foreground run of the same command, or an earlier session's call, is `running`. An agent with none
 // is not in the map.
 func BackgroundOf(ctx context.Context, root string, agents []wire.AgentStatus, procs []Proc,
 	info func(context.Context, string) (port.ProcessInfo, error)) map[string][]Background {
@@ -147,7 +147,7 @@ func (v Project) AgentBackground(agent string) []Background {
 }
 
 // BackgroundCount is how many recorded background processes v's agents have (obor web's overview card, `N bg`; a
-// long foreground command is not counted, T-727).
+// long foreground command is not counted).
 func (v Project) BackgroundCount() int {
 	lists := [][]Background{}
 	for _, l := range v.Lanes {
@@ -187,7 +187,7 @@ func (r reading) background(ctx context.Context, root string, ss wire.Status, er
 	return scanBackground(ctx, root, ss, err, project.OSEnv, procs)
 }
 
-// scanBackground is ScanBackground with ps read by procs (a read's own, T-880): any failure is no processes.
+// scanBackground is ScanBackground with ps read by procs (a read's own): any failure is no processes.
 func scanBackground(ctx context.Context, root string, ss wire.Status, err error, env project.Env,
 	procs func(ctx context.Context) ([]Proc, error)) map[string][]Background {
 	if err != nil || ss.Project == nil || filepath.Clean(ss.Project.Root) != filepath.Clean(root) ||

@@ -15,7 +15,7 @@ import (
 	"obor/internal/roles"
 )
 
-// The sweep's retentions (T-1085): the newest daily backups, and how long drafts, stop-failure entries and a leftover
+// The sweep's retentions: the newest daily backups, and how long drafts, stop-failure entries and a leftover
 // backup temp file stay.
 const (
 	backupKeep      = 7
@@ -24,30 +24,30 @@ const (
 	backupTempKeep  = 24 * time.Hour
 )
 
-// staleLogKeep is how long a state file with no writer but a person's reader stays unwritten before it goes (T-1098:
+// staleLogKeep is how long a state file with no writer but a person's reader stays unwritten before it goes (
 // launch.log, restart-<agent>.log: their failure output is worth a fortnight).
 const staleLogKeep = 14 * 24 * time.Hour
 
-// FlakeKeep is how far back obor flakes reads flakes.jsonl: the sweep drops an older entry (T-1098). The checks
+// FlakeKeep is how far back obor flakes reads flakes.jsonl: the sweep drops an older entry. The checks
 // package cannot be imported here, so its reader (flakeWindow) takes this window from here.
 const FlakeKeep = 7 * 24 * time.Hour
 
-// staleLogs are the logs/ names no current code writes (T-1098): an old milestone run, promotion or conformance
+// staleLogs are the logs/ names no current code writes: an old milestone run, promotion or conformance
 // turn.
 var staleLogs = []string{"milestone-", "promote-retest", "conformance-turn"}
 
 // Sweep removes what the project at cfg.Root no longer needs, right after obor nightly's backup: daily backups past
-// the newest backupKeep dates (either format, T-1086: gzip'd days count together with the older uncompressed ones;
+// the newest backupKeep dates (either format: gzip'd days count together with the older uncompressed ones;
 // every other entry of state/backup/ but a temp file younger than a day), files keyed by a lane or agent the config no
 // longer names (run-changed-<lane>, lane-changed-files-<lane>, lanes/<lane>.plugin, lanes/<lane>.setup, inbox/<slot>,
 // restart-<agent>.log, restart-<lane|agent>.lock), the retired state files (receipts/, merges.log,
 // merge-changed-files, serve-changed-files, conformance.json, .obor/cache), drafts not modified for draftKeep, the
 // logs nothing needs (the logs/ names no code writes any more, and launch.log and restart-<agent>.log unwritten for
 // staleLogKeep), stop-failure entries older than stopFailureKeep and flakes.jsonl's entries older than flakeKeep. A
-// task's step logs are serve's to remove at its end (T-1104): the sweep leaves them, a task's or an unknown one's.
-// backedUp says this nightly's backup succeeded with a nonempty reply: only then is the backup step run (RV-161 #1: a
+// task's step logs are serve's to remove at its end: the sweep leaves them, a task's or an unknown one's.
+// backedUp says this nightly's backup succeeded with a nonempty reply: only then is the backup step run (a
 // failed or empty backup must not remove the days an upgraded project still has). Every other step runs regardless. It
-// never touches obor.db*, serve.*, serve.log, nightly's and a release's logs (their writers end them, T-1094, T-1098),
+// never touches obor.db*, serve.*, serve.log, nightly's and a release's logs (their writers end them),
 // kinds/, opencode.json, last-full-check or background.jsonl. Every removal is best-effort: a failure is one line
 // naming its path and the sweep goes on (a removal it misses is only disk).
 func Sweep(cfg *config.Config, now time.Time, backedUp bool) []string {
@@ -103,7 +103,7 @@ func Sweep(cfg *config.Config, now time.Time, backedUp bool) []string {
 }
 
 // sweepBackups is state/backup's entries to remove: the daily backups outside the newest backupKeep dates (a date
-// keeps every format it has, T-1086), and every other entry (herd-*.db, an unknown leftover) but a temp file younger
+// keeps every format it has), and every other entry (herd-*.db, an unknown leftover) but a temp file younger
 // than a day.
 func sweepBackups(dir string, now time.Time) ([]string, error) {
 	entries, err := os.ReadDir(dir)
@@ -139,8 +139,8 @@ func sweepBackups(dir string, now time.Time) ([]string, error) {
 	return out, nil
 }
 
-// dailyBackup: name is a daily backup, obor-<YYYY-MM-DD>.db.gz, or the older uncompressed obor-<YYYY-MM-DD>.db
-// (before T-1085), and its date.
+// dailyBackup: name is a daily backup, obor-<YYYY-MM-DD>.db.gz, or uncompressed, obor-<YYYY-MM-DD>.db
+// and its date.
 func dailyBackup(name string) (string, bool) {
 	date, ok := strings.CutPrefix(name, "obor-")
 	if !ok {
@@ -164,7 +164,7 @@ func isBackupTemp(name string) bool {
 	return strings.HasSuffix(name, ".tmp") || strings.HasSuffix(name, ".raw")
 }
 
-// sweepNames is the state dir's per-lane and per-agent files whose lane, agent or slot the config no longer names. A
+// sweepNames is the state dir's per-lane and per-agent files whose lane, agent or slot the config does not name. A
 // name it cannot parse stays.
 func sweepNames(cfg *config.Config, state string) ([]string, error) {
 	lanes, agents, slots, err := liveNames(cfg)
@@ -274,10 +274,10 @@ func sweepDir(dir string, gone func(name string) bool) ([]string, error) {
 	return out, nil
 }
 
-// sweepLogs is the state's logs nothing needs any more (T-1098, T-1104): in logs/, the files of staleLogs' names, and
+// sweepLogs is the state's logs nothing needs any more: in logs/, the files of staleLogs' names, and
 // in state, launch.log and restart-<agent>.log unwritten for staleLogKeep. A task's step logs are serve's to remove at
 // its end (mtask.ended), never the sweep's: it cannot tell a landed task still running its after-merge steps from a
-// closed one. A pass's own log stays: nightly's next pass removes it (T-1094), and the release script its own (T-1098).
+// closed one. A pass's own log stays: nightly's next pass removes it, and the release script its own.
 func sweepLogs(state string, now time.Time) ([]string, error) {
 	logs := filepath.Join(state, "logs")
 	entries, err := os.ReadDir(logs)
@@ -373,7 +373,7 @@ func sweepDrafts(dir string, now time.Time) ([]string, error) {
 	return out, nil
 }
 
-// pruneStopFailure drops the stop-failure log's entries older than stopFailureKeep (T-1085: its own 14-day
+// pruneStopFailure drops the stop-failure log's entries older than stopFailureKeep (its own 14-day
 // retention, moved into the sweep); the file stays.
 func pruneStopFailure(path string, now time.Time) error {
 	b, err := os.ReadFile(path)

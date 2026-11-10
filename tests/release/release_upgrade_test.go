@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-// Tests for T-772: `make release` runs `make upgrade-check` (tests/upgrade) before the tag; a red check stops the
+// `make release` runs `make upgrade-check` (tests/upgrade) before the tag; a red check stops the
 // release with nothing tagged, and SKIP_UPGRADE_CHECK="<why>" (the owner's call) skips it into the tag message.
 
 // upgradeRun is the fake go's log line of the upgrade check's go test ("" when it did not run).

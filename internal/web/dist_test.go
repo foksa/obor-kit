@@ -54,7 +54,7 @@ func sourceHash(root string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// TestDistFresh (T-760): the embedded page was built from web/ as it is — the stamp `vite build` wrote is the hash of
+// TestDistFresh: the embedded page was built from web/ as it is — the stamp `vite build` wrote is the hash of
 // web/'s sources now. A change to web/ without `make web` fails here (the gate never builds the page: no network).
 func TestDistFresh(t *testing.T) {
 	stamp, err := fs.ReadFile(distFS, "source.sha256")

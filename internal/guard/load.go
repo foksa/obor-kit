@@ -11,8 +11,8 @@ import (
 
 // loadAt loads the project of dir: nil repo when dir is no directory in a git repository; config.ErrNoConfig without
 // .obor/config.json. Keys this binary does not know are ignored and returned in unknown (config.LoadHook). A config
-// that exists but does not load is an error with config.Fallback as cfg: the hooks fail closed on it (DD-v0.13 A1).
-// A stopped project (obor stop, T-709) is no project here (nil repo): every hook allows and adds nothing.
+// that exists but does not load is an error with config.Fallback as cfg: the hooks fail closed on it.
+// A stopped project (obor stop) is no project here (nil repo): every hook allows and adds nothing.
 func loadAt(dir string) (repo *project.Repo, cfg *config.Config, unknown []string, err error) {
 	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
 		return nil, nil, nil, nil

@@ -11,10 +11,10 @@ import (
 	"obor/internal/testkit"
 )
 
-// `obor setup rename` (T-587): a project with guards naming its agents (and one off-prefix), local.json, a dispatched
-// store, files of the old agents in the global state home (left alone: the inbox records are the project's, by slot,
-// DD-consolidation I4), and a stub herdr (on PATH) holding the workspace. Agent names follow the
-// prefix (T-765: no configured role or lane agents).
+// `obor setup rename`: a project with guards naming its agents (and one off-prefix), local.json, a dispatched
+// store, files of the old agents in the global state home (left alone: the inbox records are the project's, by slot),
+// and a stub herdr (on PATH) holding the workspace. Agent names follow the
+// prefix (no configured role or lane agents).
 
 func renameProject(t *testing.T) *fx {
 	t.Helper()
@@ -22,7 +22,7 @@ func renameProject(t *testing.T) *fx {
 	x.PlainLane("L-01", "task/T-1")
 	x.PlainLane("L-02", "task/T-2")
 	x.Config(testkit.Set("rules", `{"may_push": ["lead", "integrator"]}`))
-	x.Write(".obor/local.json", `{"rules": {"may_push": ["reviewer", "pj-lead"]}}`+"\n") // shape 2, as config.json (T-1124)
+	x.Write(".obor/local.json", `{"rules": {"may_push": ["reviewer", "pj-lead"]}}`+"\n") // shape 2, as config.json
 	x.Dispatched("L-01")
 	x.Dispatched("L-02")
 	agents := filepath.Join(x.Env().Get("OBOR_STATE_HOME"), "agents")
@@ -89,7 +89,7 @@ func TestRenameMapsConfigStoreFilesAndTerminal(t *testing.T) {
 	if got := cfg.AgentName("integrator", ""); got != "ob-int" {
 		t.Errorf("integrator agent = %q, want ob-int", got)
 	}
-	// T-795: a derived name in allow_push becomes its role; the rest stays.
+	// a derived name in allow_push becomes its role; the rest stays.
 	if got := strings.Join(cfg.Data.Rules.MayPush, ","); got != "reviewer,lead" {
 		t.Errorf("allow_push (local.json's) = %s, want reviewer,lead (pj-lead rewritten)", got)
 	}
@@ -107,7 +107,7 @@ func TestRenameMapsConfigStoreFilesAndTerminal(t *testing.T) {
 		t.Error("L-02's row is gone, want it untouched")
 	}
 
-	// DD-consolidation I4: no inbox copy step; the old global files stay as they were, none is added.
+	// no inbox copy step; the old global files stay as they were, none is added.
 	agents := filepath.Join(x.Env().Get("OBOR_STATE_HOME"), "agents")
 	if entries, err := os.ReadDir(agents); err != nil || len(entries) != 4 {
 		t.Errorf("%s: %d entries, %v; want the 4 old files only (nothing copied)", agents, len(entries), err)
@@ -132,8 +132,8 @@ func TestRenameMapsConfigStoreFilesAndTerminal(t *testing.T) {
 	}
 }
 
-// T-795: a rename rewrites an allow_push entry that was the old prefix's derived name ("pj-lead") to its role
-// ("lead"), so it allows the push again (T-1111: such an entry alone allows nothing); a literal role entry and an
+// a rename rewrites an allow_push entry that was the old prefix's derived name ("pj-lead") to its role
+// ("lead"), so it allows the push again (such an entry alone allows nothing); a literal role entry and an
 // unknown entry are kept as written.
 func TestRenameKeepsAllowPushWorking(t *testing.T) {
 	for _, file := range []string{"config.json", "local.json"} {
@@ -267,7 +267,7 @@ func TestRenameRewritesALanesOpencodeKitPath(t *testing.T) {
 	}
 }
 
-// DD-consolidation I7: while the project's serve LaunchAgent is installed under the old name (obor.serve.<old>), the
+// while the project's serve LaunchAgent is installed under the old name (obor.serve.<old>), the
 // rename is refused before any step runs: no config, no herdr call, no file changed; with none installed it runs.
 func TestRenameRefusesWhileTheOldServeAgentIsInstalled(t *testing.T) {
 	x := renameProject(t)

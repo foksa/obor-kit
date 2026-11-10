@@ -9,7 +9,7 @@ import (
 	"obor/internal/testkit"
 )
 
-// The lane table's tests that need no git (T-1018); the ones over real git are lanetable_integration_test.go's.
+// The lane table's tests that need no git; the ones over real git are lanetable_integration_test.go's.
 
 // A configured lane with no worktree is missing: no git read, no branch, no type. A plain project (no git): the lane
 // table never asks git about a lane that is not there.
@@ -29,7 +29,7 @@ func TestMissingLane(t *testing.T) {
 	}
 }
 
-// T-224: spec.Match with the patterns GlobMatch's tests used, with what it returned.
+// spec.Match with the patterns GlobMatch's tests used, with what it returned.
 func TestSpecMatchGlobs(t *testing.T) {
 	for _, c := range []struct {
 		path, glob string
