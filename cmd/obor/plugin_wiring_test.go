@@ -18,12 +18,9 @@ import (
 	"obor/internal/testkit"
 )
 
-// hangBound: the watchdog fires at OBOR_HOOK_TIMEOUT (2 s by default, 1 s in these tests); the rest is headroom for a
-// loaded merge machine.
-const hangBound = 15 * time.Second
-
-// hookTimeoutEnv sets the shim's hang watchdog (bin/obor has_hook) to 1 s; hookTimeout is that bound. (The plan's
-// 0.3 s raced the stub's own bash startup under a loaded package: the watchdog killed it before its first line.)
+// hookTimeoutEnv sets the shim's hang watchdog (bin/obor has_hook) to 1 s; hookTimeout is that bound. A stub is run
+// once before the call (noBinKit.stub), so the deadline covers the shim's answer, not the platform's first-exec scan of
+// a fresh script.
 const hookTimeoutEnv = "OBOR_HOOK_TIMEOUT=1"
 
 // hookTimeout is the watchdog bound hookTimeoutEnv sets.
@@ -295,6 +292,14 @@ func (k *noBinKit) stub(t *testing.T, path, kind string) {
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// Warm the stub: a platform scans a fresh executable before its first exec (macOS: 100+ ms idle, more under a
+	// loaded machine), and the shim's hang watchdog would kill it before its first line. A non-`has` argument makes it
+	// log and exit at once.
+	if err := exec.Command(path, "warm").Run(); err != nil {
+		if _, ok := err.(*exec.ExitError); !ok {
+			t.Fatalf("warm %s: %v", path, err)
+		}
+	}
 	k.p.Write(filepath.Join(k.p.Base, "stub.log"), "")
 }
 
@@ -302,7 +307,8 @@ func (k *noBinKit) stubLog() string {
 	return strings.TrimSpace(k.p.Read(filepath.Join(k.p.Base, "stub.log")))
 }
 
-// reaped: the hanging stub (its pid in stub.pids) is reaped within 2 s; if left over it is killed.
+// reaped: the hanging stub (its pid in stub.pids) is gone once the hook returns (waitFor: a loaded machine delays the
+// reaping); a leftover is killed.
 func (k *noBinKit) reaped(t *testing.T) {
 	t.Helper()
 	pid, err := strconv.Atoi(strings.TrimSpace(k.p.Read(filepath.Join(k.p.Base, "stub.pids"))))
@@ -310,10 +316,7 @@ func (k *noBinKit) reaped(t *testing.T) {
 		t.Fatalf("stub.pids: %v, want <pid>", err)
 	}
 	alive := func() bool { return syscall.Kill(pid, 0) == nil }
-	for deadline := time.Now().Add(2 * time.Second); alive() && time.Now().Before(deadline); {
-		time.Sleep(50 * time.Millisecond)
-	}
-	if alive() {
+	if !waitFor(func() bool { return !alive() }) {
 		t.Errorf("hanging binary %d still alive", pid)
 		syscall.Kill(pid, syscall.SIGKILL)
 	}
@@ -364,13 +367,13 @@ var otherHooks = []struct {
 }
 
 // allows runs hook with event through the kit's shim and checks it allowed: exit 0, no output, the hint once on stderr.
-func (k *noBinKit) allows(t *testing.T, hook, event, what string) time.Duration {
+// The hook ran no binary's hook (it would print its own output), which is what says the shim gave up on a hanging has.
+func (k *noBinKit) allows(t *testing.T, hook, event, what string) {
 	t.Helper()
-	rc, out, stderr, took := k.hook(t, hook, event)
+	rc, out, stderr, _ := k.hook(t, hook, event)
 	if rc != 0 || out != "" || stderr != k.hint {
 		t.Errorf("%s: exit %d, stdout %q, stderr %q; want 0, nothing, the hint", what, rc, out, stderr)
 	}
-	return took
 }
 
 // runs runs hook with event through the kit's shim and checks the binary ran it, having been asked has first.

@@ -4,11 +4,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
+
+	ockind "obor/kinds/opencode/kind"
 )
 
-// The opencode plugin: opencode/obor.js ships as a package dir and each start's generated config names it (the
+// The opencode plugin: opencode/obor.js ships as a package dir and the kind's generated start config names it (the
 // kind, its own binary). Its event mapping and hooks are the tool's behaviour: `node --check` and `node --test` run
 // in conformance OC-S2, not here.
 func TestOpencodePlugin(t *testing.T) {
@@ -17,12 +18,16 @@ func TestOpencodePlugin(t *testing.T) {
 	if fi, err := os.Stat(js); err != nil || !fi.Mode().IsRegular() {
 		t.Fatalf("%s: %v", js, err)
 	}
-	src, err := os.ReadFile(filepath.Join(root, "kinds", "opencode", "kind", "kind.go"))
-	if err != nil {
-		t.Fatal(err)
+	// The start's generated config, asked of the kind itself: its first plugin is the kit's opencode package dir. (No
+	// source text: where the kind keeps that expression is not the test's business.)
+	kit := t.TempDir()
+	var conf struct{ Plugins []string }
+	if err := json.Unmarshal(ockind.Config(kit), &conf); err != nil {
+		t.Fatalf("the kind's start config does not parse: %v", err)
 	}
-	if !strings.Contains(string(src), `"file://" + filepath.Join(kit, Name)`) || !strings.Contains(string(src), `const Name = "opencode"`) {
-		t.Error("kinds/opencode does not name <kit>/opencode in the start's plugins")
+	if ockind.Name != "opencode" || len(conf.Plugins) == 0 || conf.Plugins[0] != "file://"+filepath.Join(kit, "opencode") {
+		t.Errorf("the kind is %q and its start config's plugins %v; want opencode and file://<kit>/opencode first",
+			ockind.Name, conf.Plugins)
 	}
 	// opencode loads only a package dir from an env config: <kit>/opencode/package.json, obor.js
 	// its main.

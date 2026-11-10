@@ -52,6 +52,17 @@ func marker(t *testing.T, path, label string) {
 	writeExec(t, path, "#!/bin/bash\necho \"ran: "+label+" root=$OBOR_PLUGIN_ROOT hosted=${OBOR_SELF_HOSTED:-}\"\n")
 }
 
+// warmScript runs path once with a non-`has` argument: a platform scans a fresh executable before its first exec
+// (macOS: 100+ ms idle, more under a loaded machine), and a hook test's watchdog must not be raced by that scan.
+func warmScript(t *testing.T, path string) {
+	t.Helper()
+	if err := exec.Command(path, "warm").Run(); err != nil {
+		if _, ok := err.(*exec.ExitError); !ok {
+			t.Fatalf("warm %s: %v", path, err)
+		}
+	}
+}
+
 // fakeGo is a Go binary that prints its argv, OBOR_VERSION_SOURCE and OBOR_PLUGIN_ROOT.
 func fakeGo(t *testing.T, path string) {
 	writeExec(t, path, `#!/bin/bash
@@ -59,14 +70,17 @@ printf 'argv:'
 for arg in "$@"; do printf ' <%s>' "$arg"; done
 printf ' source=%s root=%s\n' "${OBOR_VERSION_SOURCE:-}" "${OBOR_PLUGIN_ROOT:-}"
 `)
+	warmScript(t, path)
 }
 
 // staleGo is built without `has`: it knows only `hook noop`, anything else is usage + exit 2.
 func staleGo(t *testing.T, path string) {
 	writeExec(t, path, "#!/bin/bash\n[ \"$1 $2\" = \"hook noop\" ] && exit 0\necho \"usage: obor hook noop\" >&2\nexit 2\n")
+	warmScript(t, path)
 }
 
-// hang is how long hangGo's `has` sleeps: a shim back sooner gave up on it by its own bound (hookTimeoutEnv).
+// hang is how long hangGo's `has` sleeps: past the shim's bound (hookTimeoutEnv), so a shim that waited it out would
+// run the dev build's hook instead of the release.
 const hang = 3 * time.Second
 
 // hangGo logs its argv to <dir>/stub.log; its `has` never returns (it writes its pid to <dir>/stub.pids, then execs
@@ -75,6 +89,8 @@ func hangGo(t *testing.T, path, dir string) {
 	writeExec(t, path, fmt.Sprintf("#!/bin/bash\necho \"$*\" >> %q\n"+
 		"[ \"$1\" = has ] && { echo \"$$\" > %q; exec sleep %d; }\necho \"ran: hang $*\"\n",
 		filepath.Join(dir, "stub.log"), filepath.Join(dir, "stub.pids"), int(hang.Seconds())))
+	warmScript(t, path)
+	writeFile(t, filepath.Join(dir, "stub.log"), "") // the warm-up's line, not the hook's
 }
 
 // kit is a plugin root at dir: the tree's bin/obor and bin/go-commands, VERSION shimVersion, a release URL that
@@ -376,29 +392,22 @@ func TestShimHookSkipsStaleDevBuild(t *testing.T) {
 func alive(pid int) bool { return syscall.Kill(pid, 0) == nil }
 
 // bash tests/bin.test.sh case_hanging_binary_skipped_for_hooks: a dist/obor whose `has` never returns is
-// skipped within the watchdog's bound (OBOR_HOOK_TIMEOUT, 1 s here: 0.5 s raced the stub's own bash startup under a
-// loaded package, as plugin_wiring_test.go's hangBound notes) and killed (its own pid: no process group); the
-// release runs.
+// skipped (OBOR_HOOK_TIMEOUT, 1 s here) and killed (its own pid: no process group); the release runs.
 func TestShimHookSkipsHangingDevBuild(t *testing.T) {
 	t.Parallel()
 	f := newShimFixture(t)
 	hangGo(t, filepath.Join(f.Root, "dist", "obor"), f.Base)
 	fakeGo(t, filepath.Join(f.home, ".obor", "bin", shimAsset(shimVersion)))
-	start := time.Now()
 	rc, stdout, stderr := f.shim(t, f.Root, append([]string{hookTimeoutEnv}, noSelfHost...),
 		filepath.Join(f.Root, "bin", "obor"), "hook", "stop")
-	elapsed := time.Since(start)
 	if want := "argv: <hook> <stop> source=kit default root=" + f.Root + "\n"; rc != 0 || stdout != want {
 		t.Errorf("hanging dist/obor → the release runs the hook: exit %d, %q; want %q", rc, stdout, want)
 	}
 	if stderr != "" {
 		t.Errorf("nothing on stderr (no job notice): %q", stderr)
 	}
-	// The bound is the shim's own watchdog (OBOR_HOOK_TIMEOUT=1 s here): back before the hang's own end, the shim
-	// killed it (the wall-clock bound is not asserted: a loaded machine stretches it).
-	if elapsed >= hang {
-		t.Errorf("a hanging has is bounded by the shim, not by the hang (%v): took %v", hang, elapsed)
-	}
+	// No wall-clock bound: the release's argv and the log say the shim gave up on the hang (had it waited, the dev
+	// build's `has` returns 0 and the dev build runs the hook instead).
 	if log := f.Read(filepath.Join(f.Base, "stub.log")); log != "has hook stop\n" {
 		t.Errorf("asked has once, never run: %q", log)
 	}

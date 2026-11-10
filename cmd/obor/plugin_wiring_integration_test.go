@@ -89,26 +89,24 @@ func TestPreToolUseStaleBinaryDenies(t *testing.T) {
 }
 
 // bash plugin.test.sh case_pre_tool_use_hanging_binary_denies: a dist/obor whose `has` never returns
-// → denied with the hint within the watchdog's bound (OBOR_HOOK_TIMEOUT, 1 s here), the binary and its child reaped;
-// the repair command allowed; the binary rebuilt runs.
+// → denied with the hint, the binary and its child reaped; the repair command allowed; the binary rebuilt runs.
 func TestPreToolUseHangingBinaryDenies(t *testing.T) {
 	t.Parallel()
 	k := newGitNoBinKit(t)
 	dist := filepath.Join(k.dir, "dist/obor")
 	event := bashEvent(k.lane, "git commit -m x")
 	k.stub(t, dist, "hang")
-	// 1 s (hookTimeoutEnv): 0.5 s raced the stub's own bash startup under a loaded package (the race the plan's 0.3 s
-	// hit, plugin_wiring_test.go:25); the repair call below need not let the stub start at all, so 0.1 s keeps it from
-	// adding a second full bound.
+	// 1 s (hookTimeoutEnv, k.hook's default) is the shim's own bound; the stub is warm, so the deadline is not a race
+	// with its first exec. The repair call asks the same hanging stub, so 0.1 s keeps that probe from adding a second
+	// full bound (its no-binary path allows the repair whatever the stub does).
 	const quietTimeout = "OBOR_HOOK_TIMEOUT=0.1"
-	const pidTimeout = hookTimeoutEnv
-	rc, _, stderr, took := k.hook(t, "pre-tool-use", event, pidTimeout)
+	rc, _, stderr, _ := k.hook(t, "pre-tool-use", event)
 	if rc != 2 || stderr != k.hint {
 		t.Errorf("hanging dist/obor: exit %d, %q; want 2 with the hint", rc, stderr)
 	}
-	if took > hangBound {
-		t.Errorf("a hanging has is bounded (%s): took %s", hookTimeout, took)
-	}
+	// No wall-clock bound: the exit and hint say the shim gave up on the hang (had it waited, the stub's `has` returns
+	// 0 and the stub's hook runs, printing "go stub" with exit 0), the log says it was asked once and never run, and
+	// the child is gone.
 	if got := k.stubLog(); got != "has hook pre-tool-use" {
 		t.Errorf("stub log %q: want has asked once, never run", got)
 	}
@@ -158,8 +156,8 @@ func TestOtherHooksNoBinaryAllow(t *testing.T) {
 	}
 }
 
-// case_session_start_no_binary_allows, the hanging binary: the other hooks allow with the hint, the hang is
-// bounded and reaped, the binary never runs the hook; rebuilt, it runs.
+// case_session_start_no_binary_allows, the hanging binary: the other hooks allow with the hint, the binary is killed
+// (its pid is gone), it never runs the hook; rebuilt, it runs.
 // Slow: each hook waits out the shim's hang watchdog (OBOR_HOOK_TIMEOUT, 1 s here: whole seconds, bin/obor's sleep).
 func TestOtherHooksHangingBinaryAllow(t *testing.T) {
 	t.Parallel()
@@ -170,9 +168,9 @@ func TestOtherHooksHangingBinaryAllow(t *testing.T) {
 			event, _ := json.Marshal(c.event(k.lane))
 			dist := filepath.Join(k.dir, "dist/obor")
 			k.stub(t, dist, "hang")
-			if took := k.allows(t, c.hook, string(event), "hanging binary"); took > hangBound {
-				t.Errorf("a hanging has is bounded (%s): took %s", hookTimeout, took)
-			}
+			// No wall-clock bound: allows needs no output and exit 0, which the stub's own hook would not leave
+			// (it prints "go stub"), so only a shim that gave up on the hang passes.
+			k.allows(t, c.hook, string(event), "hanging binary")
 			if log := k.stubLog(); log != "has hook "+c.hook {
 				t.Errorf("hanging binary: stub log %q, want has asked once, never run", log)
 			}

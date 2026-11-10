@@ -113,9 +113,11 @@ func shimHasHook(t *testing.T, cases []hasCase) {
 				}
 			}
 			if strings.HasPrefix(tc.name, "hanging") {
-				// The 1 s bound plus the shim's own work (git, jq: a second or more on a loaded machine); the fake sleeps 3 s.
-				if elapsed < hookTimeout || elapsed > hangBound {
-					t.Errorf("took %v, want the %s bound", elapsed, hookTimeout)
+				// The watchdog waits its whole bound before it kills (the fake sleeps 3 s, so a shim that returned
+				// sooner would have run the fake's hook: the stdout, stderr checks above say it did not). No upper
+				// bound: a loaded machine stretches the shim's own work without bound.
+				if elapsed < hookTimeout {
+					t.Errorf("took %v, before the %s bound", elapsed, hookTimeout)
 				}
 				pids := readPids(t, filepath.Join(kit, "dist", "has.pid"))
 				if len(pids) != 1 {
