@@ -11,8 +11,8 @@ import (
 	"obor/internal/testkit"
 )
 
-// bash slots.test.sh (lib/slots.sh, checkSlots.ts's protocol): claims, waits, the merge marker's age cap, foreign and
-// legacy markers, stale reclaim, release only by the holder.
+// bash slots.test.sh (lib/slots.sh, checkSlots.ts's protocol): claims, waits, the merge marker's age cap, foreign
+// markers, stale reclaim, release only by the holder.
 func TestSlotsTry(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -49,13 +49,12 @@ func TestSlotsTry(t *testing.T) {
 		t.Errorf("young own marker: %q %q", got, wait)
 	}
 	write("merge-running-proj", strconv.Itoa(live)+" "+old+"\n")
-	write("merge-running", strconv.Itoa(live)+"\n")
-	if got, wait, _ := s.Try("worker", 4); got != "" || wait != "waiting for a check slot (2 running)" {
-		t.Errorf("old own marker + legacy marker take both slots: %q %q", got, wait)
+	s.Max = 1 // the one slot a marker takes is all it has
+	if got, wait, _ := s.Try("worker", 4); got != "" || wait != "waiting for a check slot (1 running)" {
+		t.Errorf("old own marker takes the only slot: %q %q", got, wait)
 	}
-	os.Remove(at(dir, "merge-running"))
+	s.Max = 2
 	write("merge-running-other", strconv.Itoa(live)+" "+now+"\n")
-	write("merge-running-proj", strconv.Itoa(live)+" "+old+"\n")
 	if got, _, _ := s.Try("worker", 4); got != "" {
 		t.Errorf("a foreign marker never blocks but takes a slot: claimed %q", got)
 	}

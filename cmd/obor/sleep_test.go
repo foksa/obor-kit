@@ -217,67 +217,6 @@ func TestStopRefusesATaskInProgress(t *testing.T) {
 	nothingDone(t, p, s, *stops, f)
 }
 
-// statusTasks decodes a status answer's tasks as an older serve writes it: the JSON names no ended field.
-func statusTasks(t *testing.T, body string) []wire.TaskStatus {
-	t.Helper()
-	var st wire.Status
-	if err := json.Unmarshal([]byte(body), &st); err != nil {
-		t.Fatal(err)
-	}
-	if st.Project == nil || len(st.Project.Tasks) == 0 {
-		t.Fatalf("precondition: no task in %s", body)
-	}
-	return st.Project.Tasks
-}
-
-// an older serve's status names no task's ended field; absent reads as not ended, so obor stop
-// refuses and names the task instead of stopping the agents and serve with it in flight. The same task ended: true,
-// the new serve's answer for a dropped one, refuses nothing.
-func TestStopReadsAnOlderServesTaskAsOpen(t *testing.T) {
-	t.Run("no ended field", func(t *testing.T) {
-		p, s, out, stops, f := sleepFx(t)
-		f.tasks = statusTasks(t, `{"project":{"tasks":[{"task":"T-02","lane":"L-01","state":"working"}]}}`)
-		if rc := s.stop(context.Background()); rc != 1 ||
-			!strings.Contains(out.String(), "FAIL tasks in progress: T-02 (L-01, working)") {
-			t.Errorf("exit %d\n%s", rc, out)
-		}
-		pausedThenCleared(t, f, out)
-		if len(f.calls) != 2 {
-			t.Errorf("calls %q: want only the pause and its clear (nothing stopped)", f.calls)
-		}
-		nothingDone(t, p, s, *stops, f)
-	})
-	t.Run("ended", func(t *testing.T) {
-		p, s, out, _, f := sleepFx(t)
-		paneServe(t, s, f, true)
-		f.tasks = statusTasks(t, `{"project":{"tasks":[{"task":"T-02","lane":"L-01","state":"dropped","ended":true}]}}`)
-		if rc := s.stop(context.Background()); rc != 0 || strings.Contains(out.String(), "tasks in progress") {
-			t.Errorf("exit %d\n%s", rc, out)
-		}
-		if !project.Stopped(p.Root) {
-			t.Error("no marker: the stop refused")
-		}
-	})
-}
-
-// obor stop --force keeps the caller-lane protection: a task an older serve lists without ended is
-// still in progress, so the pane running its lane's agent refuses the stop.
-func TestStopForceReadsAnOlderServesTaskAsOpen(t *testing.T) {
-	t.Parallel()
-	p, s, out, stops, f := sleepFx(t)
-	fk := p.Herdr()
-	fk.Agent("w1:p1", "pj-l-01", "working", p.Root).Label = "pj-l-01"
-	s.Env = p.Env("PATH="+os.Getenv("PATH"), "OBOR_PANE=w1:p1")
-	s.Force = true
-	f.tasks = statusTasks(t, `{"project":{"tasks":[{"task":"T-02","lane":"L-01","state":"working"}]}}`)
-	if rc := s.stop(context.Background()); rc != 1 ||
-		!strings.Contains(out.String(), "FAIL lane L-01's agent runs in this pane (w1:p1)") {
-		t.Errorf("exit %d\n%s", rc, out)
-	}
-	pausedThenCleared(t, f, out)
-	nothingDone(t, p, s, *stops, f)
-}
-
 // a timed pause in force before obor stop is replaced by stop's own untimed one; a refusal restores
 // it (its why and end) while it has not expired, and clears stop's once it has.
 func TestStopReplacesATimedPause(t *testing.T) {

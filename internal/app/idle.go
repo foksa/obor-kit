@@ -64,20 +64,16 @@ type idle struct {
 
 // foldIdle folds r, the lead's acknowledgement of an idle state.
 func (p *proj) foldIdle(r event.Record) {
-	if r.Task != event.IdleTask || r.Kind != event.KindFact {
+	if r.Task != event.IdleTask || r.Kind != event.KindFact || r.Step != event.StepIdleAck {
 		return
 	}
-	switch r.Step {
-	case event.StepIdle: // compat until v0.28: an idle epoch fact (an older log) folds to nothing
-	case event.StepIdleAck: // an older one names an epoch, no key: it acknowledges nothing
-		var d idleAck
-		_ = json.Unmarshal(r.Data, &d)
-		if d.Call != "" {
-			p.folded.calls[verdictStep(wire.MethodIdle, d.Call)] = d.Reply
-		}
-		if d.Key != 0 {
-			p.folded.idleAck = d
-		}
+	var d idleAck
+	_ = json.Unmarshal(r.Data, &d)
+	if d.Call != "" {
+		p.folded.calls[verdictStep(wire.MethodIdle, d.Call)] = d.Reply
+	}
+	if d.Key != 0 {
+		p.folded.idleAck = d
 	}
 }
 

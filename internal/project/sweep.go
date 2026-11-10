@@ -32,19 +32,18 @@ const staleLogKeep = 14 * 24 * time.Hour
 // package cannot be imported here, so its reader (flakeWindow) takes this window from here.
 const FlakeKeep = 7 * 24 * time.Hour
 
-// staleLogs are the logs/ names no current code writes: an old milestone run, promotion or conformance
-// turn.
-var staleLogs = []string{"milestone-", "promote-retest", "conformance-turn"}
+// retired is the state dir's entries no current writer has, by name: a task that deletes a writer adds its file here
+// (AGENTS.md), and the sweep removes each. None today.
+var retired = []string{}
 
 // Sweep removes what the project at cfg.Root no longer needs, right after obor nightly's backup: daily backups past
 // the newest backupKeep dates (either format: gzip'd days count together with the older uncompressed ones;
 // every other entry of state/backup/ but a temp file younger than a day), files keyed by a lane or agent the config no
 // longer names (run-changed-<lane>, lane-changed-files-<lane>, lanes/<lane>.plugin, lanes/<lane>.setup, inbox/<slot>,
-// restart-<agent>.log, restart-<lane|agent>.lock), the retired state files (receipts/, merges.log,
-// merge-changed-files, serve-changed-files, conformance.json, .obor/cache), drafts not modified for draftKeep, the
-// logs nothing needs (the logs/ names no code writes any more, and launch.log and restart-<agent>.log unwritten for
-// staleLogKeep), stop-failure entries older than stopFailureKeep and flakes.jsonl's entries older than flakeKeep. A
-// task's step logs are serve's to remove at its end: the sweep leaves them, a task's or an unknown one's.
+// restart-<agent>.log, restart-<lane|agent>.lock), the retired state entries (retired), drafts not modified for
+// draftKeep, launch.log and restart-<agent>.log unwritten for staleLogKeep, stop-failure entries older than
+// stopFailureKeep and flakes.jsonl's entries older than flakeKeep. A task's step logs are serve's to remove at its
+// end: the sweep leaves them, a task's or an unknown one's.
 // backedUp says this nightly's backup succeeded with a nonempty reply: only then is the backup step run (a
 // failed or empty backup must not remove the days an upgraded project still has). Every other step runs regardless. It
 // never touches obor.db*, serve.*, serve.log, nightly's and a release's logs (their writers end them),
@@ -67,14 +66,11 @@ func Sweep(cfg *config.Config, now time.Time, backedUp bool) []string {
 		}},
 		{"lanes and agents", func() ([]string, error) { return sweepNames(cfg, state) }},
 		{"retired", func() ([]string, error) {
-			return []string{
-				filepath.Join(state, "receipts"),
-				filepath.Join(state, "merges.log"),
-				filepath.Join(state, "merge-changed-files"),
-				filepath.Join(state, "serve-changed-files"),
-				filepath.Join(state, "conformance.json"),
-				filepath.Join(cfg.Root, ".obor", "cache"),
-			}, nil
+			paths := make([]string, 0, len(retired))
+			for _, name := range retired {
+				paths = append(paths, filepath.Join(state, name))
+			}
+			return paths, nil
 		}},
 		{"drafts", func() ([]string, error) { return sweepDrafts(filepath.Join(cfg.Root, ".obor", "drafts"), now) }},
 		{"logs", func() ([]string, error) { return sweepLogs(state, now) }},
@@ -274,27 +270,16 @@ func sweepDir(dir string, gone func(name string) bool) ([]string, error) {
 	return out, nil
 }
 
-// sweepLogs is the state's logs nothing needs any more: in logs/, the files of staleLogs' names, and
-// in state, launch.log and restart-<agent>.log unwritten for staleLogKeep. A task's step logs are serve's to remove at
-// its end (mtask.ended), never the sweep's: it cannot tell a landed task still running its after-merge steps from a
-// closed one. A pass's own log stays: nightly's next pass removes it, and the release script its own.
+// sweepLogs is the state's own logs nothing needs any more: launch.log and restart-<agent>.log unwritten for
+// staleLogKeep. A task's step logs are serve's to remove at its end (mtask.ended), never the sweep's: it cannot tell a
+// landed task still running its after-merge steps from a closed one. A pass's own log stays: nightly's next pass removes
+// it, and the release script its own.
 func sweepLogs(state string, now time.Time) ([]string, error) {
-	logs := filepath.Join(state, "logs")
-	entries, err := os.ReadDir(logs)
+	var out []string
+	cutoff := now.Add(-staleLogKeep)
+	entries, err := os.ReadDir(state)
 	if err != nil && !os.IsNotExist(err) {
 		return nil, err
-	}
-	var out []string
-	for _, e := range entries {
-		name := e.Name()
-		if staleLog(name) {
-			out = append(out, filepath.Join(logs, name))
-		}
-	}
-	cutoff := now.Add(-staleLogKeep)
-	entries, err = os.ReadDir(state)
-	if err != nil && !os.IsNotExist(err) {
-		return out, err
 	}
 	for _, e := range entries { // the state's own logs: the names are fixed, so this loop is the age rule alone
 		name := e.Name()
@@ -306,16 +291,6 @@ func sweepLogs(state string, now time.Time) ([]string, error) {
 		}
 	}
 	return out, nil
-}
-
-// staleLog: name is a logs/ file no current code writes (staleLogs).
-func staleLog(name string) bool {
-	for _, pre := range staleLogs {
-		if strings.HasPrefix(name, pre) {
-			return true
-		}
-	}
-	return false
 }
 
 // pruneFlakes drops flakes.jsonl's entries older than flakeKeep; the file stays, and an entry that does not parse

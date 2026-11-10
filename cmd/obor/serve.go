@@ -324,9 +324,8 @@ func configured(root string) bool {
 	return err == nil
 }
 
-// serveDump is `obor serve dump`: the event log of the project around cwd as the JSONL serve wrote before
-// phase 3, read-only, so it works with serve down. For a rollback: stop serve, then
-// `obor serve dump > .obor/state/events.jsonl` and run the old binary.
+// serveDump is `obor serve dump`: the project's event log around cwd, one JSON record a line, read-only, so it works
+// with serve down.
 func serveDump(w io.Writer, cwd string) int {
 	repo, err := project.Find(cwd)
 	if err != nil {

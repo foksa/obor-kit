@@ -134,7 +134,10 @@ func (s *server) call(method string, request func() (wire.Req, error)) (string, 
 	if method != wire.MethodJobNext {
 		return reply, nil
 	}
-	text, task, job := renderJob(reply)
+	text, task, job, err := renderJob(reply)
+	if err != nil {
+		return "", err
+	}
 	s.mu.Lock()
 	s.task, s.job = task, job
 	s.mu.Unlock()
@@ -142,22 +145,22 @@ func (s *server) call(method string, request func() (wire.Req, error)) (string, 
 }
 
 // renderJob is job_next's readable text and, for a job, its task and id — the verdict tools' call names them. The two
-// other states get their own one line, and a reply that is not a JobReply at all (an older serve) is passed through.
-func renderJob(reply string) (text, task, job string) {
+// other states get their own one line; an answer that is no job reply is an error, never a line.
+func renderJob(reply string) (text, task, job string, err error) {
 	var r wire.JobReply
 	if err := json.Unmarshal([]byte(reply), &r); err != nil || r.State == "" {
-		return reply, "", ""
+		return "", "", "", fmt.Errorf("job_next: the answer is not a job reply: %s", reply)
 	}
 	switch r.State {
 	case "job":
 		head := fmt.Sprintf("JOB %s (task %s, attempt %d, step %s)", r.Job, r.Task, r.Attempt, r.Step)
 		if strings.TrimSpace(r.Text) == "" {
-			return head, r.Task, r.Job
+			return head, r.Task, r.Job, nil
 		}
-		return head + "\n\n" + r.Text, r.Task, r.Job
+		return head + "\n\n" + r.Text, r.Task, r.Job, nil
 	case "superseded":
-		return fmt.Sprintf("SUPERSEDED BY %s (call job_next again)", r.Current), "", ""
+		return fmt.Sprintf("SUPERSEDED BY %s (call job_next again)", r.Current), "", "", nil
 	default: // "none", and a state a later app may add: its own line
-		return "NO JOB (" + r.State + ")", "", ""
+		return "NO JOB (" + r.State + ")", "", "", nil
 	}
 }

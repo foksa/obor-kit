@@ -1,7 +1,6 @@
 package app
 
 import (
-	"cmp"
 	"encoding/json"
 	"strings"
 
@@ -178,38 +177,6 @@ var worded = map[string]worder{
 		}
 		return nil
 	},
-	// An older log's promotion: its records stay readable, plain lines.
-	"intent " + event.StepPromote: func(r event.Record, d *Described) error {
-		var in oldPromotion
-		if err := decode(r, &in); err != nil {
-			return err
-		}
-		d.Kind, d.Line = KindOther, "promotion started: full suite on "+short(in.SHA)
-		if len(in.Merges) > 0 {
-			d.Line += " (" + strings.Join(in.Merges, ", ") + ")"
-		}
-		return nil
-	},
-	"result " + event.StepPromote: func(r event.Record, d *Described) error {
-		var out oldPromotion
-		if err := decode(r, &out); err != nil {
-			return err
-		}
-		if out.Verdict == "" { // the effect's error: a counted failure (fact failed), not a verdict
-			return nil
-		}
-		d.Kind, d.Outcome, d.Text = KindOther, out.Verdict, out.Line
-		d.Line, d.Bad = "promotion "+out.Verdict+" "+short(out.SHA)+": "+out.Line, out.Verdict != "GREEN"
-		return nil
-	},
-	"fact " + event.StepPromoted: func(r event.Record, d *Described) error {
-		var pd oldPromotion
-		if err := decode(r, &pd); err != nil {
-			return err
-		}
-		d.Kind, d.Line = KindOther, "promoted "+cmp.Or(pd.Branch, "the promoted branch")+" → "+short(pd.SHA)
-		return nil
-	},
 	"fact " + event.StepMessage: func(r event.Record, d *Described) error {
 		var m event.Message
 		if err := decode(r, &m); err != nil {
@@ -238,9 +205,6 @@ func Describe(r event.Record) Described {
 // describedKey is r's key in worded: "<kind> <step>", a result's step without its .N, a verdict's its method (the
 // step is <method>.<call id>).
 func describedKey(r event.Record) string {
-	if strings.HasPrefix(r.Step, event.StepPromote+".") { // an older log's promote.<seq>, intent and result
-		return r.Kind + " " + event.StepPromote
-	}
 	if r.Kind != event.KindResult {
 		return r.Kind + " " + r.Step
 	}
@@ -249,16 +213,6 @@ func describedKey(r event.Record) string {
 	}
 	method, _, _ := strings.Cut(r.Step, ".")
 	return r.Kind + " " + method
-}
-
-// oldPromotion is an older log's promotion record's data: a run's intent (sha, merges) or
-// result (sha, verdict, line), or fact promoted (sha, branch).
-type oldPromotion struct {
-	SHA     string   `json:"sha"`
-	Merges  []string `json:"merges,omitempty"`
-	Verdict string   `json:"verdict,omitempty"`
-	Line    string   `json:"line,omitempty"`
-	Branch  string   `json:"branch,omitempty"`
 }
 
 // decode is r's data into v (no data: v stays zero).

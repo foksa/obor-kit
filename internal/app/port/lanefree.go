@@ -9,7 +9,7 @@ import "obor/internal/store"
 // hand included once serve's merge-evidence read recorded it); its Head the head serve recorded for the task's last
 // submission (the lane commit the gate merged). A landed task frees its lane only while the lane's HEAD is
 // that head: a commit after the submit pinned it (a driver after obor land) is work no merge holds. A row with no
-// recorded head (no submission: a hand merge; a table an older serve wrote) is free only when merged (nil: none)
+// recorded head (no submission: a hand merge, or a table that names none) is free only when merged (nil: none)
 // proves the lane's HEAD merged, read only then.
 //
 //	unknown     the table could not be read: never free

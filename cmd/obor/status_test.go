@@ -104,35 +104,6 @@ func taskLines(t *testing.T, st wire.Status) map[string]string {
 	return lines
 }
 
-// a task an older serve lists without an ended field is open and gets its task line; the new
-// serve's ended: true (a dropped task) keeps it off the lanes section.
-func TestStatusTaskLinesReadAnOlderServesTaskAsOpen(t *testing.T) {
-	t.Parallel()
-	var older wire.Status
-	if err := json.Unmarshal([]byte(`{"project":{"tasks":[{"task":"T-7","lane":"L-07","attempt":1,"state":"working",`+
-		`"phase":"working"}]}}`), &older); err != nil {
-		t.Fatal(err)
-	}
-	if len(older.Project.Tasks) != 1 || older.Project.Tasks[0].Ended {
-		t.Fatalf("precondition: %+v, want one task with no ended", older.Project.Tasks)
-	}
-	line, ok := taskLines(t, older)["T-7"]
-	if !ok || !strings.HasSuffix(line, ": working (attempt 1)") {
-		t.Errorf("T-7 without ended: line %q (listed %v), want an open task line", line, ok)
-	}
-	var ended wire.Status
-	if err := json.Unmarshal([]byte(`{"project":{"tasks":[{"task":"T-7","lane":"L-07","attempt":1,"state":"dropped",`+
-		`"ended":true}]}}`), &ended); err != nil {
-		t.Fatal(err)
-	}
-	if !ended.Project.Tasks[0].Ended {
-		t.Fatalf("precondition: %+v, want ended", ended.Project.Tasks[0])
-	}
-	if line, ok := taskLines(t, ended)["T-7"]; ok {
-		t.Errorf("T-7 ended: line %q, want none", line)
-	}
-}
-
 // A task line ends with the step it runs: a held gate or publish, numbered steps kept, and nothing on an idle task.
 func TestStatusTaskLines(t *testing.T) {
 	for _, c := range []struct {

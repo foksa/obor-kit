@@ -1,7 +1,6 @@
 package view
 
 import (
-	"encoding/json"
 	"slices"
 	"testing"
 	"time"
@@ -56,35 +55,6 @@ func TestQueueMerge(t *testing.T) {
 	}
 	if q.Scratch != ps.Scratch {
 		t.Errorf("scratch %+v, want serve's %+v", q.Scratch, ps.Scratch)
-	}
-}
-
-// a task an older serve lists without an ended field is open, so the queue holds it; the new
-// serve's ended: true (a dropped task) leaves it out, as does an ended waiting task.
-func TestQueueReadsAnOlderServesTaskAsOpen(t *testing.T) {
-	t.Parallel()
-	var older wire.ProjectStatus
-	if err := json.Unmarshal([]byte(`{"tasks":[{"task":"T-1","state":"submitted","phase":"gating","stage":"gating"}]}`),
-		&older); err != nil {
-		t.Fatal(err)
-	}
-	if len(older.Tasks) != 1 || older.Tasks[0].Ended {
-		t.Fatalf("precondition: %+v, want one task with no ended", older.Tasks)
-	}
-	if q := queue(&Project{}, older, "", nil, nil, time.Now()); len(q.Merge) != 1 || q.Merge[0].Task != "T-1" {
-		t.Errorf("T-1 without ended: merge %+v, want it", q.Merge)
-	}
-
-	var ended wire.ProjectStatus
-	if err := json.Unmarshal([]byte(`{"tasks":[{"task":"T-1","state":"submitted","stage":"gating","ended":true},`+
-		`{"task":"T-2","state":"waiting","waiting":true,"rank":1,"ended":true}]}`), &ended); err != nil {
-		t.Fatal(err)
-	}
-	if len(ended.Tasks) != 2 || !ended.Tasks[0].Ended || !ended.Tasks[1].Ended {
-		t.Fatalf("precondition: %+v, want both ended", ended.Tasks)
-	}
-	if q := queue(&Project{}, ended, "", nil, nil, time.Now()); len(q.Merge) != 0 || len(q.Waiting) != 0 {
-		t.Errorf("ended tasks: merge %+v, waiting %+v, want neither", q.Merge, q.Waiting)
 	}
 }
 

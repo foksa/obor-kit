@@ -492,8 +492,7 @@ type Prepared struct{ Base string }
 
 // Dispatch is what a dispatch chose for the lane: the lane and its worktree, its worker agent, the task branch and the
 // target sha read when the dispatch fact was recorded (Redo: the branch is kept as it is). The app's dispatch fact
-// embeds it first, so its tags are that record's; the lane intents (PrepareInput, FreeInput) embed it too: an older
-// intent stores these as Lane, Dir, …, which decode into it, encoding/json matching keys case-insensitively.
+// embeds it first, so its tags are that record's; the lane intents (PrepareInput, FreeInput) embed it too.
 type Dispatch struct {
 	Lane   string `json:"lane"`
 	Dir    string `json:"dir"`
