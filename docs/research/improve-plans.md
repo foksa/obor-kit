@@ -13,10 +13,10 @@ obor spec. Executors: read the plan fully before starting, honor its STOP condit
 | [002](improve-002-web-host-allowlist.md) | obor web answers only to loopback names and `--allow-host` names | P1 | S | none | DONE (T-1170, 2ecee62) |
 | [003](improve-003-contract-docs-drift.md) | `docs/module-map.md` and `AGENTS.md` say what the code is today | P2 | S | none | DONE (T-1171, 2ecee62) |
 | [004](improve-004-linux-decision.md) | Decide Linux: run the suite there once, then test it or stop claiming it | P3 | S-M | none | DONE (decided: stop claiming Linux, T-1172) |
-| [005](improve-005-app-rig-in-process.md) | `internal/app`'s rig tests run in `testing/synctest` bubbles on in-memory connections (A1 step 2; 11 pieces, P0 the pilot) | P1 | L (P0: M) | none; its pieces: P1-P9 after P0, P10 last | TODO |
-| [006](improve-006-cli-version-change.md) | Serve tells the lead when an agent CLI or the terminal changed version (A8) | P2 | M | none | TODO |
-| [007](improve-007-accepted-findings-file.md) | `obor review close --accept` writes `docs/accepted.md`, not `BACKLOG.md` (A7) | P2 | S-M | none | TODO |
-| [008](improve-008-status-obor-skew.md) | `obor status` names the agents whose calls come from another obor release (A5) | P2 | S | none | TODO |
+| [005](improve-005-app-rig-in-process.md) | `internal/app`'s rig tests run in `testing/synctest` bubbles on in-memory connections (A1 step 2; 11 pieces, P0 the pilot) | P1 | L (P0: M) | none; its pieces: P1-P9 after P0, P10 last | DONE (T-1175, T-1185-T-1194, a9cc53b) |
+| [006](improve-006-cli-version-change.md) | Serve tells the lead when an agent CLI or the terminal changed version (A8) | P2 | M | none | DONE (T-1176, T-1195) |
+| [007](improve-007-accepted-findings-file.md) | `obor review close --accept` writes `docs/accepted.md`, not `BACKLOG.md` (A7) | P2 | S-M | none | DONE (T-1178) |
+| [008](improve-008-status-obor-skew.md) | `obor status` names the agents whose calls come from another obor release (A5) | P2 | S | none | DONE (T-1177, T-1196, T-1197) |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 

@@ -55,34 +55,9 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
 - (lead 11-07) opencode (deepseek) workers ignored Escape twice (T-958, T-992), both needed `obor drop --force`.
 - (lead 11-06) Empty `index.lock` files appeared in all four lane worktrees (`.git/worktrees/L-0x/index.lock`) at 12:31, with no git running; every dispatch then failed `lane.prepare … checkout -B … exit status 128`. Serve had not restarted (up since 12:15); the deep dive (12:22) and the RV-127 verify (Codex sandbox) were the only other agents. Removed by hand. If it recurs: find who runs git in the lanes and dies; `lane.prepare` could name the lock in its FAIL.
 - (lead 11-05) An empty untracked `.obor/obor.db` (0 bytes, 21:54) appeared in the main checkout and blocked `obor review close` (dirty); moved to the lead's scratchpad. Not `obor serve dump`. Something opened the store at `.obor/` instead of `.obor/state/` (an empty derived dir?): find the caller if it recurs (AGENTS.md: empty derived value fails closed).
-- (11-05) Load flakes in internal/app's role-brief tests, only on T-852's gates so far (load ~30): TestReviewerBriefEndsIdleAndANewEpochStarts,
-  TestBriefEndsWhenItsAgentIsGone/not_identified (62 s wait); both pass alone and in the package at load 19. If one
-  recurs on another task: a flake task (what the test waits on under load).
-  **Recurred 11-05 10:1x:** `TestJobRecovery/unblocked_refused` timed out (61 s, "waiting for the crash") in
-  `make release V=0.27.0`, in the full check and its rerun; passes alone and in the package at load 34. Third
-  different internal/app test in one day with the same ~60 s wait under load: a flake task after v0.27 (what the
-  rig waits on; a shared cause in the fake herdr/loop timing is likely).
-  Fourth the same day: `TestHoldAndResume` (release retry, FLAKY, passed on rerun).
-- (11-05) `obor drop T-851 --discard` failed halfway: `FAIL drop: git branch -D task/T-851: signal: terminated` left
-  the lane freed but the task `working`; the same drop again finished it. A drop that fails after freeing the lane
-  should say "retry the same obor drop" (or record the drop before the branch delete). Likely under load; fix small.
-- (lead 11-04) **Flake**: `TestHoldAndResume/resume_reprompts` (internal/app/jobs_test.go:394) failed under full-check load in T-804's gate ("resume T-1: T-1 has review.2 running; retry when it settles", 5.1 s), passes alone; T-804 touches no internal/app. Fix if it recurs: wait for the review step to settle instead of a fixed deadline.
-- (T-684 concern) `patience()` lets one hung test eat the whole package deadline, so parallel siblings fail on the
-  1 s floor (one failure read as eight at v0.18.1). A per-wait cap (~60 s) keeps failures local. Small; next test task.
-- (RV-77 design concern, logged) `scripts/ship` counts a release done by draft state and asset names only, not its
-  title/notes; a partly published release stays incomplete on rerun. Low once T-683 refuses before create.
-- (v0.18.0 release, 11-02) `TestStopForceTerminates` failed once under the full check (60 ms waits for a fake agent;
-  passes alone): same family as the flaky `TestStopEveryKind`. Widen the test's waits if it fails again.
-- (RV-67-verify-2 #2, owner 11-01: ship + document) init placement infers ownership from pane cwds: (a) a workspace
-  whose only pane is a shell cd'd into the project counts as the project's; (b) on a rerun after an earlier
-  misplacement S-01 can follow O-01's clean tab inside a mixed workspace. Documented (README, design Setup); a stored
-  project→workspace identity only if it bites.
 - (T-606) Other "oldest/first" choices that range over `p.loop` (a map) go by Go's map order: job_next's did
   (T-602 → T-606, a flaky gate). Sweep: each such choice orders by intent seq or task; a candidate for the `proj`
   split's folded-state step.
-- (T-596) Under launchd `.obor/state/logs/serve.log` is never rotated (worker: rotate at serve start, keep `.1`); and
-  `obor status` tests on darwin run a real read-only `launchctl print`. Small follow-ups, not urgent. While herdr is
-  down serve stays up but gates/merges nothing (lead's call 10-31: outages are short).
 - (10-30, rename) **serve keeps a pane's old label**: after `herdr pane rename` + `obor setup role --pane`, serve
   identified the new agents by their old labels (hk-int at w5:pZ, label proof) until serve restarted. Label changes
   seem not to refresh serve's pane cache; any relabel (setup pane/role on a reused pane) hits it. Also ob-int's
@@ -109,7 +84,6 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   pane; or briefs over the inbox socket (Phase 5).
 - (2026-10-26, low) OpenCode dispatch: each `agent.start` result lands ~30 s after start even when the job was
   fetched in 4 s; starts run one at a time. The start could end on the delivered fact.
-- (DD-v0.10-verify-2, low) `ask` retries a client timeout with the same call id.
 ## Concerns
 - (DD-v0.32, lead 11-09) The deep dive's role guard denies `git init` even in the scratchpad, while its role text says "probes in a scratch dir"; it used `go test -overlay` on tests/upgrade instead (a good probe). Decided 11-09 (owner): overlay route, named in templates/agents/deep-dive.md. Open: give tests/upgrade's alpha project every config key the new minor removed (would have caught DD-v0.32 #1).
 - (lead 11-08) **Serve fires waiting work on the old binary before its self-restart after a merge:** `obor review --after T-1059,T-1060` fired at 19:35:16Z on 77df169's serve and hit the very bug T-1059 fixed; serve restarted on the new binary ~30 s later. A fix to serve's own code is live only after that restart, so an --after request or dispatch that tests the fix should fire after it (restart first, then fire). Small; decide when it bites again.

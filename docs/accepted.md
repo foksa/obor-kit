@@ -84,3 +84,6 @@ last). Nobody reads this file at session start: look a line up when its symptom 
   project: finish it by hand); #5 rename's lane `opencode.json` loop skips an unreadable file silently.
 - (RV-56 #4, accepted) A StopFailure that arrives after serve already queued a role's `finished` line gives the lead
   both lines; both are true, the `stopped` one says why. A guaranteed order needs a turn-outcome signal (40-70 lines).
+- (RV-77, accepted) `scripts/ship` counts a release done by draft state and asset names only, not its title/notes; a partly published release stays incomplete on rerun. Low once T-683 refuses before create.
+- (RV-67-verify-2, accepted) init placement infers ownership from pane cwds: (a) a workspace whose only pane is a shell cd'd into the project counts as the project's; (b) on a rerun after an earlier misplacement S-01 can follow O-01's clean tab inside a mixed workspace. Documented (README, design Setup); a stored project→workspace identity only if it bites.
+- (DD-v0.10-verify-2, accepted) `ask` retries a client timeout with the same call id.
