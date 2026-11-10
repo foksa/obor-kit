@@ -84,7 +84,6 @@ func TestDifficultySpecSetRefusesASpecWithoutALevel(t *testing.T) {
 			}
 		}
 		for text, want := range map[string]string{
-			"# T-1 — A\n\nDifficulty: hard\nType: opus\n":          `the "Type:" line is now "Model:`,
 			"# T-1 — A\n\nDifficulty: hard\nModel: gpt\n":          `"Model: gpt": "gpt" is not a model`,
 			"# T-1 — A\n\nDifficulty: hard\nModel: luna:minimal\n": `effort "minimal" is not one of codex's (low, medium, high, xhigh, max, ultra)`,
 		} {

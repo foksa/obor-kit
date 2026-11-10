@@ -41,7 +41,7 @@ To (re)start the lead (none running, or after a Claude Code update): `obor lead`
 - Every spec carries `Difficulty: hard|medium|simple` under its title (hard: state machines, crash/replay,
   concurrency, cross-package redesign; medium: a specified feature or fix in one or two packages; simple: mechanical
   with a full oracle); `obor spec set` refuses one without. An optional `Model: <model>[, …]` line right under it (e.g.
-  `opus` vs `sonnet`; it was `Type:`, which spec set now refuses) puts those models ahead of the level's.
+  `opus` vs `sonnet`) puts those models ahead of the level's.
   `obor dispatch <T-xx>` runs the level's first model (config `agents.difficulty`) on the first free lane (every lane is
   pooled); a model paused with `obor pause --model <name> [--for 3h] "<why>"` is skipped and the next one used; none
   free, or every model paused: the task waits and the reply says why. There are no caps. `--model a,b` overrides the

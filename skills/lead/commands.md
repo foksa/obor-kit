@@ -163,8 +163,7 @@ building is a move (`obor dispatch T-xx --model <ref>`, a fresh attempt, T-773).
 You give the difficulty; obor picks the model and the lane (T-765: every lane is pooled, no caps). The spec's
 `Difficulty: hard|medium|simple` line (right under the title; `obor spec set` refuses a spec without it) maps through
 the config's `difficulty` to model refs, in order. An optional `Model: <model>[, …]` line right under it (`obor spec
-set` refuses a model the config lacks, and the old `Type:` line) puts those models first, then the level's; `--model`
-overrides both.
+set` refuses a model the config lacks) puts those models first, then the level's; `--model` overrides both.
 
 - `obor dispatch <T-xx> [--after T-yy[,T-zz]] [--force]` — the first model not paused, on the first free lane.
   Replies: `DISPATCHED T-xx → <LANE> (queued) as <model>`, or, with no free lane, `WAITING T-xx (queued): waiting for

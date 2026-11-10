@@ -7,7 +7,7 @@ import (
 )
 
 // T-1022: one Parse reads a spec's head, every field a reader uses. Every case the per-line tests had (T-440's title,
-// T-538's difficulty, T-689/T-765's models and old Type: line, T-878/T-932's review, T-924's fixes, T-496's protected
+// T-538's difficulty, T-689/T-765's models, T-878/T-932's review, T-924's fixes, T-496's protected
 // paths) is a row, plus the Ref: line.
 func TestParse(t *testing.T) {
 	for _, c := range []struct {
@@ -41,8 +41,7 @@ func TestParse(t *testing.T) {
 		{"difficulty: no title", "Difficulty: hard\n", Spec{}},
 		{"difficulty: empty text", "", Spec{}},
 
-		// Models (T-689, T-765): the optional Model line is the next non-blank line after Difficulty; the Type line it
-		// replaced is told apart so spec set can refuse it.
+		// Models (T-689, T-765): the optional Model line is the next non-blank line after Difficulty.
 		{"models: none", "# T-1 — A\n\nDifficulty: medium\n\n## Do\n",
 			Spec{Title: "A", Level: "medium", LevelKnown: true}},
 		{"models: one", "# T-1 — A\n\nDifficulty: medium\nModel: opus\n",
@@ -58,12 +57,10 @@ func TestParse(t *testing.T) {
 		{"models: before difficulty", "# T-1 — A\n\nModel: opus\nDifficulty: hard\n", Spec{Title: "A"}},
 		{"models: below a section", "# T-1 — A\n\nDifficulty: hard\n\n## Do\nModel: opus\n",
 			Spec{Title: "A", Level: "hard", LevelKnown: true, OnMerge: true}},
-		{"models: old Type line", "# T-1 — A\n\nDifficulty: hard\nType: opus\n",
-			Spec{Title: "A", Level: "hard", LevelKnown: true, OldType: true, OnMerge: true}},
+		{"models: a Type line is plain text", "# T-1 — A\n\nDifficulty: hard\nType: opus\n",
+			Spec{Title: "A", Level: "hard", LevelKnown: true, OnMerge: true}},
 		{"models: no title", "Difficulty: hard\nModel: opus\n", Spec{}},
-		{"old Type: after a blank line", "# T-1 — A\n\nDifficulty: hard\n\nType: x\n",
-			Spec{Title: "A", Level: "hard", LevelKnown: true, OldType: true, OnMerge: true}},
-		{"old Type: not the next line", "# T-1 — A\n\nDifficulty: hard\nwhy\nType: x\n",
+		{"models: a Type line further down", "# T-1 — A\n\nDifficulty: hard\nwhy\nType: x\n",
 			Spec{Title: "A", Level: "hard", LevelKnown: true, OnMerge: true}},
 
 		// Review (T-878, T-932): the first Review: line between the title and the first "## " heading; only "on merge"
@@ -172,8 +169,7 @@ func TestWithoutModelLine(t *testing.T) {
 }
 
 // T-1022, T-1030: obor spec set's refusals are one function over the parsed spec: no title, no known Difficulty level,
-// the old Type: line, a Review: value but "on merge", a fix with Review: on merge, an empty Ref:, a Priority: value
-// but high.
+// a Review: value but "on merge", a fix with Review: on merge, an empty Ref:, a Priority: value but high.
 func TestValidate(t *testing.T) {
 	for _, c := range []struct{ name, text, want string }{
 		{"valid", "# T-1 — A\n\nDifficulty: medium\n", ""},
@@ -181,7 +177,7 @@ func TestValidate(t *testing.T) {
 		{"no title", "# T-1\n\nDifficulty: medium\n", "the spec needs a title: `# T-1 — <title>`"},
 		{"unknown difficulty", "# T-1 — A\n\nDifficulty: easy\n", "hard, medium, simple"},
 		{"no difficulty", "# T-1 — A\n", "hard, medium, simple"},
-		{"old Type line", "# T-1 — A\n\nDifficulty: hard\nType: opus\n", `the "Type:" line is now "Model:`},
+		{"a Type line is plain text", "# T-1 — A\n\nDifficulty: hard\nType: opus\n", ""},
 		{"another Review value", "# T-1 — A\n\nDifficulty: medium\nReview: now\n",
 			`the "Review:" line takes one value: "on merge"`},
 		{"a fix with Review: on merge", "# T-1 — A\n\nDifficulty: hard\nFixes: RV-12\nReview: on merge\n",

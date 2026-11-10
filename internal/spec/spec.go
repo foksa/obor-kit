@@ -17,7 +17,6 @@ type Spec struct {
 	Level       string   // the Difficulty: level, as written ("" when no line)
 	LevelKnown  bool     // whether Level is one of Levels
 	Models      []string // the Model: refs, as written, first occurrence of each
-	OldType     bool     // a Type: line where Model: belongs (T-765)
 	Review      string   // the Review: value ("" when no line)
 	ReviewOK    bool     // a Review: line
 	OnMerge     bool     // asks a review on merge: Review: on merge or Difficulty: hard, and no Fixes: (T-878, T-932)
@@ -39,7 +38,7 @@ func Parse(text string) Spec {
 	ref, refOK := headValue(text, "Ref:")
 	priority, priorityOK := headValue(text, "Priority:")
 	return Spec{
-		Title: title(text), Level: level, LevelKnown: known, Models: models(text), OldType: oldTypeLine(text),
+		Title: title(text), Level: level, LevelKnown: known, Models: models(text),
 		Review: review, ReviewOK: reviewOK, OnMerge: reviewOnMerge(text),
 		FixesReview: fixesReview, FixesNote: fixesNote, FixesOK: fixesOK, Protected: protected(text),
 		Ref: ref, RefOK: refOK, Priority: priority, PriorityOK: priorityOK,
@@ -47,8 +46,8 @@ func Parse(text string) Spec {
 }
 
 // Validate is what obor spec set refuses, in one place (T-764, T-790, T-878, T-932, T-1022, T-1030): a spec without a
-// title or a known difficulty, one with the old Type: line, a Review: value but "on merge", a fix with Review: on
-// merge, an empty Ref:, or a Priority: value but high. task names the spec in the messages.
+// title or a known difficulty, a Review: value but "on merge", a fix with Review: on merge, an empty Ref:, or a
+// Priority: value but high. task names the spec in the messages.
 func Validate(task string, s Spec) error {
 	switch {
 	case s.Title == "":
@@ -56,8 +55,6 @@ func Validate(task string, s Spec) error {
 	case !s.LevelKnown:
 		return fmt.Errorf("the spec needs a \"Difficulty: <level>\" line right under its title (%s)", strings.Join(Levels,
 			", "))
-	case s.OldType:
-		return errors.New(`the "Type:" line is now "Model: <model>[:<effort>], …" (T-765): rename it`)
 	case s.ReviewOK && s.Review != ReviewOnMergeValue:
 		return fmt.Errorf("the \"Review:\" line takes one value: %q", ReviewOnMergeValue)
 	case s.FixesOK && s.ReviewOK && s.Review == ReviewOnMergeValue:
@@ -252,7 +249,7 @@ func difficulty(text string) (level string, ok bool) {
 	return level, slices.Contains(Levels, level)
 }
 
-// models is the model refs of the spec's optional `Model: <model>[, <model>…]` line (T-765; it was `Type:`): the
+// models is the model refs of the spec's optional `Model: <model>[, <model>…]` line: the
 // first non-blank line after the `Difficulty:` line. Each is a model ref, `<model>[:<effort>]` as written
 // (config.ParseModelRef, T-695). nil when there is no such line (a `Model:` elsewhere is ignored).
 func models(text string) []string {
@@ -284,13 +281,6 @@ func WithoutModelLine(text string) string {
 	lines := strings.Split(text, "\n")
 	at += len(lines) - len(rest) // its index in lines (rest is the tail of lines)
 	return strings.Join(slices.Delete(lines, at, at+1), "\n")
-}
-
-// oldTypeLine: the first non-blank line after the spec's `Difficulty:` line is the `Type:` line before T-765 (now
-// `Model:`): obor spec set refuses it, so it is not silently ignored.
-func oldTypeLine(text string) bool {
-	_, ok := lineAfterDifficulty(text, "Type:")
-	return ok
 }
 
 // ReviewOnMergeValue is the one value of the spec's optional `Review:` line (T-878).
