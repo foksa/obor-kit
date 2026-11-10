@@ -33,6 +33,7 @@ func (a *App) Status() wire.Status {
 			ps.LogError = "lane rows: " + p.folded.lr.err.Error()
 		}
 		ps.Lanes = a.lanesNote(p, now)
+		names := map[string]bool{} // the agents serve observes in a pane now: skewNote's seen
 		for _, l := range p.lanes {
 			if p.laneHolds(l.Name) == "" {
 				ps.Free = append(ps.Free, l.Name)
@@ -44,6 +45,7 @@ func (a *App) Status() wire.Status {
 			}
 			as := wire.AgentStatus{Machine: Machine, Group: o.pane.Group, Pane: o.pane.ID, Name: a.shownAs(p, o.pane),
 				Agent: o.pane.Agent, Status: o.pane.Status, Age: int64(now.Sub(o.since) / time.Second)}
+			names[as.Name] = true
 			if l, ok := p.laneOf(o.pane.Cwd); ok {
 				as.Lane, as.Task = l.Name, l.Task
 			}
@@ -169,6 +171,7 @@ func (a *App) Status() wire.Status {
 		sort.Slice(ps.Tasks, func(i, j int) bool { return ps.Tasks[i].Task < ps.Tasks[j].Task })
 		sort.Slice(ps.Facts, func(i, j int) bool { return ps.Facts[i].Seq < ps.Facts[j].Seq })
 		st.Project = &ps
+		st.Skew = a.skewNote(names)
 	}
 	return st
 }
@@ -357,7 +360,7 @@ func (a *App) Listen(ln net.Listener) {
 				if unreadable = json.Unmarshal(req.Call, env) != nil; unreadable {
 					env = nil
 				} else {
-					a.noteSkew(*env)
+					a.noteSkew(req.Method, *env)
 				}
 			}
 			do, known := a.handlers()[req.Method]
@@ -481,8 +484,24 @@ func versionSkew(c wire.Envelope) string {
 }
 
 // noteSkew writes serve's one log line for a call whose caller runs another obor: the first per (agent, version), not
-// each call (T-826).
-func (a *App) noteSkew(c wire.Envelope) {
+// each call (T-826). It also keeps, per agent, the version of the other release its calls carry (behind): a new session
+// clears what the last one ran. An entry is only set here, never cleared by a later call of serve's own release: one
+// agent calls through several processes, and the line must not flicker between them.
+func (a *App) noteSkew(method string, c wire.Envelope) {
+	if c.Agent != "" { // the owner's own CLI is not an agent: nothing to restart
+		other := version.Release(c.Version) != version.Release(version.Version)
+		a.mu.Lock()
+		if method == wire.MethodSession {
+			delete(a.behind, c.Agent) // a new session: what the last one ran is gone
+		}
+		if other {
+			if a.behind == nil {
+				a.behind = map[string]string{}
+			}
+			a.behind[c.Agent] = c.Version
+		}
+		a.mu.Unlock()
+	}
 	skew := versionSkew(c)
 	if skew == "" {
 		return
@@ -499,6 +518,27 @@ func (a *App) noteSkew(c wire.Envelope) {
 	if !seen {
 		a.logf("caller %s runs %s, serve %s", agent, skew, version.Version)
 	}
+}
+
+// skewNote is the status note for the agents in a pane whose calls carry another obor release than serve's (behind):
+// "pj-l-01 runs obor v0.33.0, pj-rev runs an older obor (serve v0.34.0)", agents in name order; "" when none. seen is
+// the agents serve observes in a pane now: one that left is not named. The caller holds a.mu.
+func (a *App) skewNote(seen map[string]bool) string {
+	var names []string
+	for name := range a.behind {
+		if seen[name] {
+			names = append(names, name)
+		}
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	sort.Strings(names)
+	parts := make([]string, 0, len(names))
+	for _, name := range names {
+		parts = append(parts, name+" runs "+versionSkew(wire.Envelope{Version: a.behind[name]}))
+	}
+	return strings.Join(parts, ", ") + " (serve " + version.Version + ")"
 }
 
 // herdrNote is the status note for the server serve is connected to: its version and protocol when it speaks a newer

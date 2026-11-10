@@ -29,6 +29,24 @@ func TestLineFromDescribe(t *testing.T) {
 	}
 }
 
+// Release groups builds by the release they belong to: a dev build's suffix is not a skew, anything else is its own
+// release (T-1177).
+func TestRelease(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct{ v, want string }{
+		{"v0.34.0", "v0.34.0"},
+		{"v0.34.0-dev+21242f62", "v0.34.0"},
+		{"v0.34.0-dev+21242f62-dirty", "v0.34.0"},
+		{"dev", "dev"},
+		{"abc1234", "abc1234"},
+		{"", ""},
+	} {
+		if got := Release(c.v); got != c.want {
+			t.Errorf("Release(%q) = %q, want %q", c.v, got, c.want)
+		}
+	}
+}
+
 // CurrentLine without shim metadata is the kit's own build: the short form, with no "dev build" word (T-554).
 func TestCurrentLineDropsDevBuild(t *testing.T) {
 	old := Version

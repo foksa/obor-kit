@@ -10,10 +10,13 @@ import (
 // A predicate serve ships is named so that a missing field (an older serve's answer, during an upgrade) reads as the
 // safe answer: a task is open unless it says it ended, a lane is locked unless it says it is free (T-921).
 type Status struct {
-	Since     string         `json:"since,omitempty"`      // when this serve started (RFC 3339)
-	Connected bool           `json:"connected"`            // the herdr subscription is live
-	HerdrNote string         `json:"herdr_note,omitempty"` // "herdr 0.9.4, protocol 23" when herdr is newer than obor's protocol
-	Project   *ProjectStatus `json:"project,omitempty"`    // the served project once loaded (nil before)
+	Since     string `json:"since,omitempty"`      // when this serve started (RFC 3339)
+	Connected bool   `json:"connected"`            // the herdr subscription is live
+	HerdrNote string `json:"herdr_note,omitempty"` // "herdr 0.9.4, protocol 23" when herdr is newer than obor's protocol
+	// Skew names the agents whose calls carry another obor release than serve's, with both versions ("": none; T-826's
+	// versions, compared by release). A reader prints it.
+	Skew    string         `json:"skew,omitempty"`
+	Project *ProjectStatus `json:"project,omitempty"` // the served project once loaded (nil before)
 }
 
 // ProjectStatus is the served project: its observed agents, whether the merge loop runs for it and its open tasks,

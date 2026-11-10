@@ -78,10 +78,13 @@ type Serve struct {
 	Error     string `json:"error,omitempty"`      // why it is down
 	Herdr     bool   `json:"herdr"`                // serve's herdr subscription is live
 	HerdrNote string `json:"herdr_note,omitempty"` // herdr's version and protocol when newer than obor's
-	Project   bool   `json:"project"`              // serve has this project loaded
-	Merging   bool   `json:"merging"`              // its merge loop runs for it
-	LogError  string `json:"log_error,omitempty"`  // its event log's last append error
-	PID       int    `json:"pid,omitempty"`        // the serve that answered (its serve.flock's pid)
+	// Skew names the agents whose calls carry another obor release than serve's, with both versions ("" when none;
+	// wire.Status.Skew). The reader prints it.
+	Skew     string `json:"skew,omitempty"`
+	Project  bool   `json:"project"`             // serve has this project loaded
+	Merging  bool   `json:"merging"`             // its merge loop runs for it
+	LogError string `json:"log_error,omitempty"` // its event log's last append error
+	PID      int    `json:"pid,omitempty"`       // the serve that answered (its serve.flock's pid)
 	// Launchd is the project's launchd agent (T-596; darwin): "none" (not installed), "loaded" (installed, its
 	// process not the serve that answered), "running" (the serve that answered is launchd's); "": not asked. The
 	// caller fills PID and Launchd (cmd/obor asks the service adapter).
@@ -244,7 +247,7 @@ func serveOf(v *Project, ss wire.Status, err error, p *checks.LaneTable, bg map[
 		v.NeedsYou = needsYou(ps)
 		return ps
 	}
-	v.Serve.Up, v.Serve.Since, v.Serve.Herdr, v.Serve.HerdrNote = true, ss.Since, ss.Connected, ss.HerdrNote
+	v.Serve.Up, v.Serve.Since, v.Serve.Herdr, v.Serve.HerdrNote, v.Serve.Skew = true, ss.Since, ss.Connected, ss.HerdrNote, ss.Skew
 	v.Serve.SinceTime, _ = time.Parse(time.RFC3339, ss.Since)
 	if x := ss.Project; x != nil && filepath.Clean(x.Root) == filepath.Clean(p.Root) {
 		ps, v.Serve.Project = *x, true

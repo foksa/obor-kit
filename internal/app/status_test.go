@@ -509,6 +509,94 @@ func TestSkewLoggedOncePerAgentAndVersion(t *testing.T) {
 	}
 }
 
+// T-1177: obor status names the agents whose calls carry another obor release than serve's, until the agent reports a
+// new session; an agent serve no longer observes in a pane is not named, and the owner is not an agent.
+func TestStatusNamesAgentsOnAnotherRelease(t *testing.T) {
+	t.Parallel()
+	if version.Release(version.Version) == "v0.1.0" {
+		t.Fatalf("precondition: the test versions differ from serve's release %q", version.Version)
+	}
+	h := newHarness(t)
+	h.connect()
+	ask := askApp(t, h.a)
+	skew := func() string { return h.a.Status().Skew }
+	if got := skew(); got != "" {
+		t.Fatalf("no call yet: skew %q, want none", got)
+	}
+	call := func(agent, ver, callID string) {
+		t.Helper()
+		if ans := ask(&wire.JobNextReq{Envelope: wire.Envelope{Root: h.root, Role: "worker", Agent: agent,
+			CallID: callID, Version: ver}}); ans.Error != "" {
+			t.Fatalf("job_next %s at %q: %q", agent, ver, ans.Error)
+		}
+	}
+	call("pj-l-01", version.Version, "c1")
+	if got := skew(); got != "" {
+		t.Errorf("a call at serve's version: skew %q, want none", got)
+	}
+	call("pj-l-01", "v0.1.0", "c2")
+	want := "pj-l-01 runs obor v0.1.0 (serve " + version.Version + ")"
+	if got := skew(); got != want {
+		t.Errorf("another release: skew %q, want %q", got, want)
+	}
+	call("pj-l-01", version.Version, "c3") // another of its processes runs serve's release: no flicker
+	if got := skew(); got != want {
+		t.Errorf("serve's version again: skew %q, want %q (unchanged)", got, want)
+	}
+	call("pj-l-09", "v0.1.0", "c4") // in no pane: serve does not observe it
+	if got := skew(); got != want {
+		t.Errorf("an agent in no pane: skew %q, want %q (not named)", got, want)
+	}
+	session := wire.SessionRequest(h.root, store.Session{Agent: "pj-l-01", ID: "s2"})
+	session.Version = version.Version
+	ask(session) // its handler may refuse: the note is taken before it runs
+	if got := skew(); got != "" {
+		t.Errorf("a new session at serve's version: skew %q, want none (the old one's entry went)", got)
+	}
+	call("pj-l-01", "", "c5")
+	want = "pj-l-01 runs an older obor (serve " + version.Version + ")"
+	if got := skew(); got != want {
+		t.Errorf("a call with no version: skew %q, want %q", got, want)
+	}
+	ask(&wire.JobNextReq{Envelope: wire.Envelope{Root: h.root, Role: "worker", CallID: "c6", Version: "v0.1.0"}})
+	if got := skew(); got != want {
+		t.Errorf("the owner at another release: skew %q, want %q (the owner is not an agent)", got, want)
+	}
+}
+
+// T-1177: two builds of one release are no skew (a dev suffix), and a dev build of another release reads as that
+// release with its own version text.
+func TestStatusSkewComparesReleases(t *testing.T) {
+	t.Parallel()
+	if version.Release(version.Version) == "v0.1.0" {
+		t.Fatalf("precondition: the test versions differ from serve's release %q", version.Version)
+	}
+	skewOf := func(ver string) string {
+		h := newHarness(t)
+		h.connect()
+		ask := askApp(t, h.a)
+		if ans := ask(&wire.JobNextReq{Envelope: wire.Envelope{Root: h.root, Role: "worker", Agent: "pj-l-01",
+			CallID: "c1", Version: ver}}); ans.Error != "" {
+			t.Fatalf("job_next at %q: %q", ver, ans.Error)
+		}
+		return h.a.Status().Skew
+	}
+	if got := skewOf(version.Version); got != "" {
+		t.Errorf("serve's own release %q: skew %q, want none", version.Version, got)
+	}
+	devBuild := skewOf("v0.1.0-dev+abc")
+	tag := skewOf("v0.1.0")
+	if want := "pj-l-01 runs obor v0.1.0-dev+abc (serve " + version.Version + ")"; devBuild != want {
+		t.Errorf("a dev build of another release: skew %q, want %q", devBuild, want)
+	}
+	if want := "pj-l-01 runs obor v0.1.0 (serve " + version.Version + ")"; tag != want {
+		t.Errorf("another release's tag: skew %q, want %q", tag, want)
+	}
+	if a, b := strings.Replace(devBuild, "v0.1.0-dev+abc", "X", 1), strings.Replace(tag, "v0.1.0", "X", 1); a != b {
+		t.Errorf("a dev build and its tag differ apart from the version shown: %q vs %q", a, b)
+	}
+}
+
 // T-1055: Listen reads a request's envelope, then its method's request type. A request with no call (none, or null)
 // is refused as before the split, an unknown method is, and an old binary's line with keys of the union its method
 // does not use (task, patch on a pause) reaches the method's handler, those keys ignored.

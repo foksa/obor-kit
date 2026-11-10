@@ -480,6 +480,9 @@ func writeServe(w io.Writer, s view.Serve, now time.Time) {
 			line += "; " + s.HerdrNote
 		}
 		fmt.Fprintln(w, line)
+		if s.Skew != "" {
+			fmt.Fprintf(w, "serve: another obor release: %s; restart them (obor restart <agent>)\n", s.Skew)
+		}
 		if s.LogError != "" {
 			fmt.Fprintf(w, "serve: event log broken: %s\n", s.LogError)
 		}
