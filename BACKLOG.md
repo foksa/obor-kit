@@ -7,20 +7,16 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 
 ## Handoff (lead; rewrite at each handoff)
 Read `docs/observations.md` first (patterns from past sessions: where we went in circles, the load tax, traps).
-- 2026-11-10 ~17:30 (lead; previous Handoff: `git show d4243e44:BACKLOG.md`). Every lane free, nothing queued, no
-  watch. **v0.35.0 tagged** (447c629a, `main` moved locally); **the owner runs `! make ship`** (origin/main was still
-  v0.34.0 at handoff). In v0.35: non-lead agents start with the owner's plugins and skills off and the rest of the
-  user settings kept (Claude: merged copy `.obor/state/settings/<agent>.json` under `--setting-sources project,local`);
-  native override files `.obor/<kind>/*_override.*` (JSON Merge Patch) replace the short-lived `agents.overrides`;
-  role worktrees get `lanes.links`; start decisions read obor's own session record; compat C2-C14 deleted; lead skill
-  `agent-setup.md`. Reviews RV-176..180 closed, DD-v0.35 verified. Live-checked: a non-lead Claude reports herdr's
-  `agent_session`; the Codex reviewer's catalog has no user skills.
-  **Next steps:** (1) After the ship: `obor send axis-alies` the upgrade note (UPGRADE-v0.35: trim, override files;
-  DD-v0.35 asks one live role start there to confirm obor's plugin and hooks load). (2) P1 (owner 11-10: the lead runs
-  obor-kit's, axis' lead its own): DD-v0.35 §"one-off delete", serve stopped, the day's backup first; send axis' lead
-  the statement after it upgrades; then one task for C15-C18. (3) C1 store migrations not before 11-16. (4) BACKLOG
-  Open: the cut-step retry with no timer (T-1221's finding). (5) Owner by hand when convenient: unlink herdr's old
-  `herd.events` plugin (`~/.config/herdr/plugins.json`, `~/.obor/herdr-plugin`); herdr instance id (T-1135).
+- 2026-11-10 ~23:00 (lead; previous Handoff: `git show 2126da93:BACKLOG.md`). Every lane free, nothing queued, no
+  watch, no open review (RV-185 closed). **v0.36.0 shipped** (role worktree ready/setup, blocked worker → needs-you at
+  once with the pane's question, `review close --force` for an empty unwritten review, C15-C18 deleted with C16
+  restored). P1 ran on both stores. Since v0.36 on staging: T-1229/T-1233 (review close carries a tracked BACKLOG.md
+  at any path), T-1230/T-1231 (keep-lane and cmd/obor flakes), T-1232 (A4: `internal/app/review` package), T-1234
+  (uncounted step retries wait), worker text (no machine load), deep-dive text (no git writes in probes); all
+  reviewed (RV-184, RV-185).
+  **Next steps:** (1) 11-16 or later: C1 store migrations (DD-v0.35 group 1). (2) After ~2 weeks of the nightly's race
+  line: decide A1 steps 3-4 (`docs/research/improve-architecture.md`). (3) Owner may pick A6 `obor stats`. (4) v0.37
+  when the owner wants: everything since v0.36 is reviewed. Parked by the owner 11-10: `obor run` (Later candidates).
 ## Owner decisions pending
 - none (agent skills scope decided 11-10: 1A, T-1201).
 
@@ -86,7 +82,6 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
 - (2026-10-26, low) OpenCode dispatch: each `agent.start` result lands ~30 s after start even when the job was
   fetched in 4 s; starts run one at a time. The start could end on the delivered fact.
 ## Concerns
-- (DD-v0.32, lead 11-09) The deep dive's role guard denies `git init` even in the scratchpad, while its role text says "probes in a scratch dir"; it used `go test -overlay` on tests/upgrade instead (a good probe). Decided 11-09 (owner): overlay route, named in templates/agents/deep-dive.md. Open: give tests/upgrade's alpha project every config key the new minor removed (would have caught DD-v0.32 #1).
 - (lead 11-08) **Serve fires waiting work on the old binary before its self-restart after a merge:** `obor review --after T-1059,T-1060` fired at 19:35:16Z on 77df169's serve and hit the very bug T-1059 fixed; serve restarted on the new binary ~30 s later. A fix to serve's own code is live only after that restart, so an --after request or dispatch that tests the fix should fire after it (restart first, then fire). Small; decide when it bites again.
 - (lead 11-07) **A task parked on a needs-you keeps its lane**: T-982 and T-983 (gate timeouts, not their diffs) held L-04 and L-01 while the fixes for the timeouts (T-989, T-990) waited for a lane. Since T-961 a merge-loop task holds its lane for its lane test; a parked one could release it (its tree is in its branch and candidate pin) and take a lane again when resumed. Decide with the next merge-flow change.
 - (lead 11-07) **Flake, 3 sightings**: `TestWakePostRefusedThenReplayed` (internal/app) failed T-704's gate, a gate near serve.log:13435 and T-957's full re-gate 11-07 14:28 (0.7 s, passes on main in 0.8 s); each red sent a worker back. The rework's retest (plan §5 T-C) absorbs it; fix the test if it recurs after T-C.
