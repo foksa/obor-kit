@@ -37,6 +37,10 @@ live in `docs/decisions.md`, open work in `BACKLOG.md`, the lead's own working r
 - **Only obor-kit and axis-alies count for compat** (owner 11-10): judge old-version code by their current state.
 
 ## Local traps
+- **"Reproduce under load" in a spec invites CPU burners** (11-10: 16 orphaned busy loops from a lane, 100% CPU):
+  say where the load comes from (`-cpu 1`, the package's other tests). The worker text now forbids burners.
+- **The lead cannot kill processes** (the auto-mode classifier denies `kill` by pid): give the owner the exact
+  `! kill <pids>` line, pids checked by cwd.
 - **External CLIs change under us** (Codex auto-upgrades; Gatekeeper per binary per version): after a `brew
   upgrade`, check `codex --version` and the setup warning first.
 - Commit BACKLOG at once while any task in flight edits it (an uncommitted edit held a publish).
