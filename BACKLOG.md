@@ -22,16 +22,9 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   (the audit wave is unreleased). (5) Owner when convenient: herdr instance id (T-1135). BACKLOG Open triaged 11-10
   (15 left).
 ## Owner decisions pending
-- **Agent skills scope** (owner asked 11-09, research only so far): `docs/research/agent-skills-scope.md` §9. Q1 keep
-  the owner's global plugins/skills out of non-lead agents (1A: Claude `--setting-sources project,local`, Codex `-c`
-  feature keys, OpenCode env; ~60-90 lines; saves ~3-5k tokens per Claude start, 2.3k Codex; the lead's 12k estimate
-  was high: the listing is 7.7k). Side effect: drops herdr's user hook for Claude (no `agent_session`). Q2 per-role
-  project skills: 2A (one `.agents/skills` tree, role text names them, docs only) vs 2B (obor hides per role, ~150-250
-  lines). Bigger lever found on the way: Claude's `Artifact` tool definition alone is ~9k tokens (`--disallowedTools`,
-  not probed). Seven open choices listed in §9.
+- none (agent skills scope decided 11-10: 1A, T-1201).
 
 ## Later candidates
-- (v0.34 release) validate's WARN for a set `commands.baseline`/`gate`/`e2e` (T-1083, "until v0.34") kept one more release: delete it in v0.35 with its test.
 - **Un-defer `job_next`** (chatter census proposal 2; advisor 11-07 docs/research/job-in-first-prompt-advice.md: no job-in-prompt; T-959/T-960/T-941 did the kind-neutral parts). Left: `alwaysLoad: true` on obor's MCP entry, Claude-only, so parked under the owner's agent-neutral rule (11-07); revisit if another kind gets the same deferral.
 - **Log snapshot at upgrade** (parked 11-05, docs/research/log-snapshot.md): build when compat branches pass ~300
   prod lines or a record-shape change needs it.
