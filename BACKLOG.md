@@ -7,16 +7,20 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 
 ## Handoff (lead; rewrite at each handoff)
 Read `docs/observations.md` first (patterns from past sessions: where we went in circles, the load tax, traps).
-- 2026-11-09 ~20:45 (lead; previous Handoff: `git show efc42d23:BACKLOG.md`). Every lane free, nothing queued, no
-  review open, no watch. **v0.34.0 tagged** (510405c4, `main` fast-forwarded, binaries in `dist/`), not shipped: **the
-  owner runs `! make ship`**. In it: config shape 1 refused (T-1157, P7: Reshape, serve's rewrite, `obor config
-  migrate` gone), setup passes the load error on (T-1163), README rewritten for v0.33/34 (T-1158, T-1164), four
-  cleanups (T-1159..T-1162). RV-172 + verify approved; Codex smoke T-1165 passed (dropped). v0.33.0 shipped earlier
-  today; axis-alies upgraded clean (config shape 2 at 56c1f59).
-  **Next steps:** (1) After ship: axis-alies needs nothing (already shape 2); check its lead's line. (2) Check the
-  11-10 02:00 nightly GREEN (first sweep/prune run). (3) Owner decisions below: agent skills scope (research
-  committed, da11d0dc). (4) v0.35: delete the baseline/gate/e2e validate WARN (Later candidates). (5) Owner when
-  convenient: herdr instance id (T-1135). BACKLOG partly triaged 11-09 (23 stale items gone); a full pass is still due.
+- 2026-11-10 ~11:45 (lead; previous Handoff: `git show 4163dc6a:BACKLOG.md`). Every lane free, nothing queued, no
+  watch. **v0.34.0 shipped** (origin/main 510405c4). Since: the owner's Fable audit (`docs/research/improve-plans.md`,
+  plans 001-008 all DONE): nightly race run, web Host allowlist, Linux no longer claimed, the in-process synctest rig
+  for internal/app (P0-P10), CLI/herdr version watch, `docs/accepted.md` for accepted findings, the status skew line
+  (one `started` signal per confirmed start, T-1197), and the text sweeps (no ids, no previous states in texts and
+  comments; rule in AGENTS.md). Config: `agents.difficulty.hard = fable:medium, opus:high`; deep_dive fable:medium,
+  integrator fable:low (no fallback model: if Fable's quota ends, `obor pause --model fable` and move both roles back
+  to opus with the owner's OK). RV-175 closed approved. **A review is running** (13 merges: comment sweeps T-1180,
+  T-1181, T-1183, T-1184 and rig P4-P10, T-1188-T-1194); its finish line comes to the next lead.
+  **Next steps:** (1) The review: fix tasks with `Fixes: RV-176`, verify, close; findings in comments only are cheap
+  to accept. (2) Ask the owner whether to keep Fable first when the usage resets end. (3) Owner decisions below:
+  agent skills scope. (4) v0.35: delete the baseline/gate/e2e validate WARN (Later candidates), then cut a release
+  (the audit wave is unreleased). (5) Owner when convenient: herdr instance id (T-1135). BACKLOG Open triaged 11-10
+  (15 left).
 ## Owner decisions pending
 - **Agent skills scope** (owner asked 11-09, research only so far): `docs/research/agent-skills-scope.md` §9. Q1 keep
   the owner's global plugins/skills out of non-lead agents (1A: Claude `--setting-sources project,local`, Codex `-c`
