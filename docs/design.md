@@ -160,7 +160,7 @@ kind's base args (claude `--permission-mode auto`; codex `-s workspace-write -a 
 refused when the kind does not take it.
 `lanes.count` is a count: L-01 … L-NN, every lane pooled (it runs the model its dispatch picks); `lanes.list` names
 the lanes instead (each `{name, keep_agent}`). There are no caps. A key obor does not know (`lane_types`, `lanes` as
-an object of typed lanes, role objects) is dropped with a WARN by every command and serve (its setting does not apply);
+an object of typed lanes) is dropped with a WARN by every command and serve (its setting does not apply);
 `obor config validate` alone fails, naming the key: delete it from the file it names.
 
 Per-kind defaults live in the plugin: Claude `--settings '{"autoMemoryEnabled":false,"remoteControlAtStartup":false}'`
