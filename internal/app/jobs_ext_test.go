@@ -241,85 +241,89 @@ func TestHoldAndResume(t *testing.T) {
 	t.Parallel()
 	t.Run("resume reprompts", func(t *testing.T) {
 		t.Parallel()
-		r, _ := reviewed(t)
-		hold := func(agent, role, callID, note string) (string, error) {
-			return wire.Verdict(context.Background(), r.sock, &wire.VerdictReq{Envelope: wire.Envelope{Root: r.p.Root,
-				Agent: agent, Role: role, CallID: callID}, Verb: wire.MethodHold, Task: "T-1", Note: note})
-		}
-		if _, err := hold("pj-l-01", "worker", "h0", "why"); err == nil ||
-			!strings.Contains(err.Error(), "only the integrator (pj-int) gives verdicts, not pj-l-01 (role worker)") {
-			t.Errorf("hold by the worker: %v", err)
-		}
-		if _, err := hold("pj-int", "integrator", "h0", " "); err == nil || !strings.Contains(err.Error(), "hold: say why") {
-			t.Errorf("hold without a why: %v", err)
-		}
-		if r.hasPrefix("1 fact needs-you") {
-			t.Fatalf("a refused hold was recorded: %q", r.steps())
-		}
-		const reply = "HOLD T-1 (job T-1/1/review): the owner is told"
-		for _, id := range []string{"h1", "h1"} {
-			if got, err := hold("pj-int", "integrator", id, "spec deviation: the owner decides"); err != nil || got != reply {
-				t.Errorf("hold %s: %q, %v; want %q", id, got, err, reply)
+		bubble(t, func(t *testing.T) {
+			r, _ := reviewed(t)
+			hold := func(agent, role, callID, note string) (string, error) {
+				return r.ask(&wire.VerdictReq{Envelope: wire.Envelope{Root: r.p.Root,
+					Agent: agent, Role: role, CallID: callID}, Verb: wire.MethodHold, Task: "T-1", Note: note})
 			}
-		}
-		if got, err := hold("pj-int", "integrator", "h2", "again"); err == nil || !strings.Contains(err.Error(), "held already") {
-			t.Errorf("a second hold: %q, %v; want refused as held already (the job is open)", got, err)
-		}
-		r.waitFor("one notification", func() bool { return countReq(r.srv, "notification.show") == 1 })
-		if r.count("1 fact needs-you{held: spec deviation: the owner decides}") != 1 ||
-			r.app.Status().Project.Tasks[0].State != "needs-you" {
-			t.Errorf("want one needs-you{held}, the task needs-you: %q", r.steps())
-		}
+			if _, err := hold("pj-l-01", "worker", "h0", "why"); err == nil ||
+				!strings.Contains(err.Error(), "only the integrator (pj-int) gives verdicts, not pj-l-01 (role worker)") {
+				t.Errorf("hold by the worker: %v", err)
+			}
+			if _, err := hold("pj-int", "integrator", "h0", " "); err == nil || !strings.Contains(err.Error(), "hold: say why") {
+				t.Errorf("hold without a why: %v", err)
+			}
+			if r.hasPrefix("1 fact needs-you") {
+				t.Fatalf("a refused hold was recorded: %q", r.steps())
+			}
+			const reply = "HOLD T-1 (job T-1/1/review): the owner is told"
+			for _, id := range []string{"h1", "h1"} {
+				if got, err := hold("pj-int", "integrator", id, "spec deviation: the owner decides"); err != nil || got != reply {
+					t.Errorf("hold %s: %q, %v; want %q", id, got, err, reply)
+				}
+			}
+			if got, err := hold("pj-int", "integrator", "h2", "again"); err == nil || !strings.Contains(err.Error(), "held already") {
+				t.Errorf("a second hold: %q, %v; want refused as held already (the job is open)", got, err)
+			}
+			r.waitFor("one notification", func() bool { return countReq(r.srv, "notification.show") == 1 })
+			if r.count("1 fact needs-you{held: spec deviation: the owner decides}") != 1 ||
+				r.app.Status().Project.Tasks[0].State != "needs-you" {
+				t.Errorf("want one needs-you{held}, the task needs-you: %q", r.steps())
+			}
 
-		worker := &wire.ResumeReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-l-01", Role: "worker",
-			CallID: "r0"}, Task: "T-1"}
-		if _, err := wire.Verdict(context.Background(), r.sock, worker); err == nil ||
-			!strings.Contains(err.Error(), "the lead or the owner resumes a task, not pj-l-01 (role worker)") {
-			t.Errorf("resume by the worker: %v", err)
-		}
-		if _, err := r.resume("r1", ""); err == nil || !strings.Contains(err.Error(), "say the text") {
-			t.Errorf("resume of a hold with no decision: %v; want refused (T-775)", err)
-		}
-		for _, id := range []string{"r1", "r1"} {
-			if reply, err := r.resumeWith(id, "", "go on"); err != nil || reply != "RESUMED T-1: reprompt (held)" {
-				t.Fatalf("resume %s: %q, %v", id, reply, err)
+			worker := &wire.ResumeReq{Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-l-01", Role: "worker",
+				CallID: "r0"}, Task: "T-1"}
+			if _, err := r.ask(worker); err == nil ||
+				!strings.Contains(err.Error(), "the lead or the owner resumes a task, not pj-l-01 (role worker)") {
+				t.Errorf("resume by the worker: %v", err)
 			}
-		}
-		// The reprompt sends review.2: wait for that step to finish before a resume reads the task, else it is busy
-		// under load, not awaiting (T-796, T-804, T-808's gates saw "T-1 has review.2 running"; BACKLOG 11-04).
-		r.waitFor("review.2 out and settled", func() bool {
-			return r.has("1 result review.2") && app.Settled(r.app, r.p.Root, "T-1")
+			if _, err := r.resume("r1", ""); err == nil || !strings.Contains(err.Error(), "say the text") {
+				t.Errorf("resume of a hold with no decision: %v; want refused (T-775)", err)
+			}
+			for _, id := range []string{"r1", "r1"} {
+				if reply, err := r.resumeWith(id, "", "go on"); err != nil || reply != "RESUMED T-1: reprompt (held)" {
+					t.Fatalf("resume %s: %q, %v", id, reply, err)
+				}
+			}
+			// The reprompt sends review.2: wait for that step to finish before a resume reads the task, else it is busy
+			// under load, not awaiting (T-796, T-804, T-808's gates saw "T-1 has review.2 running"; BACKLOG 11-04).
+			r.waitFor("review.2 out and settled", func() bool {
+				return r.has("1 result review.2") && app.Settled(r.app, r.p.Root, "T-1")
+			})
+			if _, err := r.resume("r2", ""); err == nil || !strings.Contains(err.Error(), "sends it back to its worker") { // awaiting again: a sendback, its why required
+				t.Errorf("resume with no needs-you: %v", err)
+			}
+			job := r.waitJob("pj-int", "T-1/1/review.2")
+			stale := &wire.VerdictReq{Verb: wire.MethodAccept, Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-int",
+				Role: "integrator", CallID: "c1"}, Task: "T-1", Job: "T-1/1/review", Patch: r.patch(job)}
+			if _, err := r.ask(stale); err == nil ||
+				!strings.Contains(err.Error(), "stale job T-1/1/review") {
+				t.Errorf("accept of the held job after the resume: %v", err)
+			}
+			r.accept("c2", r.patch(job))
+			r.merged(1)
+			if r.count("1 fact unblocked{reprompt}") != 1 || r.facts() != 0 || r.jobPrompts("T-1/1/review") != 1 {
+				t.Errorf("want one unblocked, no fact in force, the held job not sent again: %q", r.steps())
+			}
 		})
-		if _, err := r.resume("r2", ""); err == nil || !strings.Contains(err.Error(), "sends it back to its worker") { // awaiting again: a sendback, its why required
-			t.Errorf("resume with no needs-you: %v", err)
-		}
-		job := r.waitJob("pj-int", "T-1/1/review.2")
-		stale := &wire.VerdictReq{Verb: wire.MethodAccept, Envelope: wire.Envelope{Root: r.p.Root, Agent: "pj-int",
-			Role: "integrator", CallID: "c1"}, Task: "T-1", Job: "T-1/1/review", Patch: r.patch(job)}
-		if _, err := wire.Verdict(context.Background(), r.sock, stale); err == nil ||
-			!strings.Contains(err.Error(), "stale job T-1/1/review") {
-			t.Errorf("accept of the held job after the resume: %v", err)
-		}
-		r.accept("c2", r.patch(job))
-		r.merged(1)
-		if r.count("1 fact unblocked{reprompt}") != 1 || r.facts() != 0 || r.jobPrompts("T-1/1/review") != 1 {
-			t.Errorf("want one unblocked, no fact in force, the held job not sent again: %q", r.steps())
-		}
 	})
 	t.Run("a verdict on the held job ends the hold", func(t *testing.T) {
 		t.Parallel()
-		r, job := reviewed(t)
-		if _, err := wire.Verdict(context.Background(), r.sock, &wire.VerdictReq{Envelope: wire.Envelope{Root: r.p.Root,
-			Agent: "pj-int", Role: "integrator", CallID: "h1"}, Verb: wire.MethodHold, Task: "T-1",
-			Note: "asking the owner"}); err != nil {
-			t.Fatal(err)
-		}
-		r.waitFor("the hold in force", func() bool { return r.facts() == 1 })
-		r.accept("c1", r.patch(job))
-		r.merged(1)
-		if r.facts() != 0 || r.has("1 fact unblocked") {
-			t.Errorf("want the hold ended by the accept: %q", r.steps())
-		}
+		bubble(t, func(t *testing.T) {
+			r, job := reviewed(t)
+			if _, err := r.ask(&wire.VerdictReq{Envelope: wire.Envelope{Root: r.p.Root,
+				Agent: "pj-int", Role: "integrator", CallID: "h1"}, Verb: wire.MethodHold, Task: "T-1",
+				Note: "asking the owner"}); err != nil {
+				t.Fatal(err)
+			}
+			r.waitFor("the hold in force", func() bool { return r.facts() == 1 })
+			r.accept("c1", r.patch(job))
+			r.merged(1)
+			if r.facts() != 0 || r.has("1 fact unblocked") {
+				t.Errorf("want the hold ended by the accept: %q", r.steps())
+			}
+		})
 	})
 }
 

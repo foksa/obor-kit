@@ -3589,6 +3589,32 @@ func (l *memListener) sendRaw(t *testing.T, c wire.Req) net.Conn {
 	return client
 }
 
+// MemServe is a's socket answered in memory: Listen on an in-memory listener until the test ends. Call is one
+// request as wire.Verdict sends it (the envelope stamped with this binary's version): the reply, or the app's refusal
+// as the error. It has none of the wire client's retries or deadlines: a test of those uses a unix socket.
+type MemServe struct{ ln *memListener }
+
+// ServeMem answers a's socket in memory until t ends (T-1175: the connections a testing/synctest bubble can wait on).
+func ServeMem(t *testing.T, a *App) *MemServe {
+	t.Helper()
+	ln := newMemListener()
+	t.Cleanup(func() { ln.Close() })
+	go a.Listen(ln)
+	return &MemServe{ln: ln}
+}
+
+// Call sends c and gives the app's reply, or its refusal as the error.
+func (s *MemServe) Call(t *testing.T, c wire.Req) (string, error) {
+	t.Helper()
+	client := s.ln.send(t, c)
+	defer client.Close()
+	ans := read(t, client)
+	if ans.Error != "" {
+		return "", errors.New(ans.Error)
+	}
+	return ans.Reply, nil
+}
+
 // read is the answer on client.
 func read(t *testing.T, client net.Conn) wire.Answer {
 	t.Helper()

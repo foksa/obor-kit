@@ -1143,3 +1143,39 @@ func TestAgentLaunchFact(t *testing.T) {
 		})
 	}
 }
+
+// A client given its connections (Socket.Conn, T-1175) talks to a herdr served in memory as to one on a socket: it
+// answers, a dead server is Unavailable, a revived one answers again.
+func TestSocketOverGivenConn(t *testing.T) {
+	t.Parallel()
+	f := herdrtest.New()
+	f.Agent("w1:p1", "pj-l-01", "idle", "/proj-wt/L-01")
+	srv := herdrtest.ServeMem(t, f)
+	c := srv.Client()
+	if c.Path != "" || c.Conn == nil {
+		t.Fatalf("precondition: an in-memory server's client has Conn and no Path, got %+v", c)
+	}
+	one := func(when string) {
+		t.Helper()
+		snap, err := c.Snapshot(ctx)
+		if err != nil {
+			t.Fatalf("%s: Snapshot: %v", when, err)
+		}
+		if len(snap.Agents) != 1 || snap.Agents[0].Name != "pj-l-01" || snap.Agents[0].ID != "w1:p1" {
+			t.Fatalf("%s: agents %+v, want pj-l-01 in w1:p1", when, snap.Agents)
+		}
+	}
+	one("served")
+	st, err := (herdr.Panes{S: c}).Subscribe(ctx) // the ping and the stream's connections: Conn too
+	if err != nil {
+		t.Fatalf("Subscribe over Conn: %v", err)
+	}
+	st.Close()
+	srv.Die()
+	_, err = c.Snapshot(ctx)
+	if e := herdrErr(t, err); e.Kind != herdr.Unavailable || e.Op != "session.snapshot" {
+		t.Fatalf("after Die: %v, want Unavailable from session.snapshot", err)
+	}
+	srv.Revive(t)
+	one("revived")
+}

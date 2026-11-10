@@ -40,7 +40,13 @@ var _ port.Panes = Panes{}
 // label as the stream's snapshot listed it: a new or renamed workspace ends the stream (Code refresh), so the labels
 // hold for the stream's life.
 func (p Panes) Subscribe(ctx context.Context) (*port.Stream, error) {
-	s, err := Dial(ctx, p.S.Path)
+	var s *Socket
+	var err error
+	if p.S.Conn != nil { // given its connections (a herdr served in memory): no path to dial
+		s, err = (&Socket{Conn: p.S.Conn}).checked(ctx)
+	} else {
+		s, err = Dial(ctx, p.S.Path)
+	}
 	if err != nil {
 		return nil, err
 	}

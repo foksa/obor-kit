@@ -18,6 +18,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"obor/internal/app"
@@ -33,7 +34,7 @@ import (
 
 // answer is the lead's obor resume of T-1 with call id and text (a question's answer).
 func (r *loopRig) answer(role, callID, text string) (string, error) {
-	return wire.Verdict(context.Background(), r.sock, &wire.ResumeReq{Envelope: wire.Envelope{Root: r.p.Root,
+	return r.ask(&wire.ResumeReq{Envelope: wire.Envelope{Root: r.p.Root,
 		Agent: "pj-lead", Role: role, CallID: callID}, Task: "T-1", Text: text})
 }
 
@@ -78,7 +79,7 @@ func (r *loopRig) runPath(fact event.Record, verb, callID, text string) (string,
 		}
 		id := wire.Envelope{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: callID}
 		if args[1] == "drop" {
-			return wire.Verdict(context.Background(), r.sock, &wire.DropReq{Envelope: id, Task: args[2], Why: text})
+			return r.ask(&wire.DropReq{Envelope: id, Task: args[2], Why: text})
 		}
 		rc, ok := wire.ResumeArgs(append(args[2:], text))
 		if text == "" {
@@ -88,10 +89,36 @@ func (r *loopRig) runPath(fact event.Record, verb, callID, text string) (string,
 			r.t.Fatalf("%q: obor resume's parser refuses it", cmd)
 		}
 		rc.Envelope = id
-		return wire.Verdict(context.Background(), r.sock, &rc)
+		return r.ask(&rc)
 	}
 	r.t.Fatalf("answers %q suggest no obor %s", path, verb)
 	return "", nil
+}
+
+// bubbles holds the tests running in a bubble (bubble): a rig built by one uses in-memory connections.
+var bubbles sync.Map // *testing.T → true
+
+// bubble runs f in a testing/synctest bubble. A rig built inside it has no unix socket: the fake herdr and the app's
+// socket are in-memory pipes, so every wait of the test and of the app is on the bubble's clock, which stands still
+// while anything runs. Machine load cannot expire such a wait. No t.Run, t.Parallel or t.Deadline inside.
+func bubble(t *testing.T, f func(t *testing.T)) {
+	t.Helper()
+	synctest.Test(t, func(t *testing.T) {
+		bubbles.Store(t, true)
+		defer bubbles.Delete(t)
+		f(t)
+	})
+}
+
+func inBubble(t *testing.T) bool { _, ok := bubbles.Load(t); return ok }
+
+// serveHerdr is the fake herdr on f: in memory in a bubble, on a unix socket outside one.
+func serveHerdr(t *testing.T, f *herdrtest.Fake) *herdrtest.Server {
+	t.Helper()
+	if inBubble(t) {
+		return herdrtest.ServeMem(t, f)
+	}
+	return herdrtest.Serve(t, f)
 }
 
 // The app at its boundary: the herdr socket client (herdr.Panes) on the fake herdr socket, a scripted lane table and
@@ -171,6 +198,9 @@ type rig struct {
 	out     *syncBuf
 	cancel  context.CancelFunc
 	done    chan struct{}
+	// The app's socket once serve opened it: sock outside a bubble, mem in one.
+	sock string
+	mem  *app.MemServe
 }
 
 // newRig is project pj (workspace w1) with lanes L-01 (T-1) and L-02 (T-2), each with an idle claude, a workspace
@@ -193,7 +223,7 @@ func newRig(t *testing.T) *rig {
 		p := r.f.Agent("w1:p"+lane[3:], "pj-l-0"+lane[3:], "idle", r.lane(lane))
 		p.Label = "pj-l-0" + lane[3:] // labelled by its launch: serve's identity of it
 	}
-	r.srv = herdrtest.Serve(t, r.f)
+	r.srv = serveHerdr(t, r.f)
 	r.srv.Reply("notification.show", map[string]any{"type": "notification_show", "shown": true, "reason": "shown"})
 	r.ps = "2 1 2\n" // the agent (pid 2, the fake's foreground group) and nothing under it
 	return r
@@ -650,7 +680,7 @@ func (r *loopRig) dispatch(callID, lane string, types ...string) (string, error)
 }
 
 func (r *loopRig) dispatchCall(c wire.DispatchReq) (string, error) {
-	return wire.Verdict(context.Background(), r.sock, &c)
+	return r.ask(&c)
 }
 
 func (r *loopRig) mustDispatch(callID string) {
@@ -754,12 +784,12 @@ func (r *loopRig) drive(callID, name string, types ...string) (string, error) {
 	if strings.HasPrefix(name, "T-") {
 		c.Task, c.Name = name, ""
 	}
-	return wire.Verdict(context.Background(), r.sock, c)
+	return r.ask(c)
 }
 
 // landDrive is obor land's request by the owner for task with summary.
 func (r *loopRig) landDrive(callID, task, summary string) (string, error) {
-	return wire.Verdict(context.Background(), r.sock, &wire.LandReq{Envelope: wire.Envelope{Root: r.p.Root,
+	return r.ask(&wire.LandReq{Envelope: wire.Envelope{Root: r.p.Root,
 		CallID: callID}, Task: task, Report: summary})
 }
 
@@ -835,7 +865,7 @@ func (r *loopRig) hardType() string {
 
 // tellLead is obor tell-lead's request from agent with role in lane.
 func (r *loopRig) tellLead(callID, agent, role, lane, text string) (string, error) {
-	return wire.Verdict(context.Background(), r.sock, &wire.TellLeadReq{Envelope: wire.Envelope{Root: r.p.Root,
+	return r.ask(&wire.TellLeadReq{Envelope: wire.Envelope{Root: r.p.Root,
 		CallID: callID, Agent: agent, Role: role}, Lane: lane, Text: text})
 }
 
@@ -875,14 +905,14 @@ func (r *loopRig) driveStatus(status string) {
 
 // leadAnswer is the lead's obor answer on T-1.
 func (r *loopRig) leadAnswer(callID, text string) (string, error) {
-	return wire.Verdict(context.Background(), r.sock, &wire.ResumeReq{Envelope: wire.Envelope{Root: r.p.Root,
+	return r.ask(&wire.ResumeReq{Envelope: wire.Envelope{Root: r.p.Root,
 		Agent: "pj-lead", Role: "lead", CallID: callID}, Task: "T-1", Text: text})
 }
 
 // dropSpec is the lead's obor drop of task (a spec stored and never dispatched) with why; fatal unless DROPPED.
 func (r *loopRig) dropSpec(callID, task, why string) {
 	r.t.Helper()
-	reply, err := wire.Verdict(context.Background(), r.sock, &wire.DropReq{Envelope: wire.Envelope{Root: r.p.Root,
+	reply, err := r.ask(&wire.DropReq{Envelope: wire.Envelope{Root: r.p.Root,
 		Role: "lead", CallID: callID}, Task: task, Why: why})
 	if err != nil || reply != "DROPPED "+task {
 		r.t.Fatalf("drop of %s: %q, %v; want DROPPED %s", task, reply, err, task)
@@ -1022,7 +1052,7 @@ func (r *loopRig) call(method, agent, role, lane, callID, job string) (string, e
 	if method == wire.MethodJobNext {
 		c = &wire.JobNextReq{Envelope: id, Job: job, Lane: lane}
 	}
-	return wire.Verdict(context.Background(), r.sock, c)
+	return r.ask(c)
 }
 
 // jobNext is job_next by agent with call id, its reply decoded.
@@ -1113,7 +1143,7 @@ func fetched(t *testing.T) (*loopRig, string) {
 
 // callDone is agent's task_done for T-1 (role, lane L-01) with call id and report.
 func (r *loopRig) callDone(agent, role, callID, report string) (string, error) {
-	return wire.Verdict(context.Background(), r.sock, &wire.TaskDoneReq{Envelope: wire.Envelope{Root: r.p.Root,
+	return r.ask(&wire.TaskDoneReq{Envelope: wire.Envelope{Root: r.p.Root,
 		Agent: agent, Role: role, CallID: callID}, Lane: "L-01", Task: "T-1", Report: report})
 }
 
@@ -1123,7 +1153,7 @@ func (r *loopRig) callDone(agent, role, callID, report string) (string, error) {
 
 // dropCall is obor drop of T-1 by the lead (its reply or refusal).
 func (r *loopRig) dropCall(callID, why string) (string, error) {
-	return wire.Verdict(context.Background(), r.sock, &wire.DropReq{Envelope: wire.Envelope{Root: r.p.Root,
+	return r.ask(&wire.DropReq{Envelope: wire.Envelope{Root: r.p.Root,
 		Role: "lead", Agent: "pj-lead", CallID: callID}, Task: "T-1", Why: why})
 }
 
@@ -1460,7 +1490,7 @@ func (r *loopRig) resume(callID, to string) (string, error) {
 
 // resumeWith is the lead's obor resume of T-1 with flag to and text note.
 func (r *loopRig) resumeWith(callID, to, note string) (string, error) {
-	return wire.Verdict(context.Background(), r.sock, &wire.ResumeReq{Envelope: wire.Envelope{Root: r.p.Root,
+	return r.ask(&wire.ResumeReq{Envelope: wire.Envelope{Root: r.p.Root,
 		Agent: "pj-lead", Role: "lead", CallID: callID}, Task: "T-1", Flag: to, Text: note})
 }
 
@@ -1517,7 +1547,7 @@ func (r *loopRig) runToMerge(task string, inReview func()) {
 	r.t.Helper()
 	r.work(strings.ToLower(task)+".txt", task+"\n")
 	r.waitFor(task+" working", func() bool { return r.stateOf(task) == "working" })
-	reply, err := wire.Verdict(context.Background(), r.sock, &wire.TaskDoneReq{Envelope: wire.Envelope{Root: r.p.Root,
+	reply, err := r.ask(&wire.TaskDoneReq{Envelope: wire.Envelope{Root: r.p.Root,
 		Agent: "pj-l-01", Role: "worker", CallID: "done-" + task}, Lane: "L-01", Task: task, Report: report})
 	if err != nil || reply != "submitted" {
 		r.t.Fatalf("%s's task_done: %q, %v", task, reply, err)
@@ -1526,7 +1556,7 @@ func (r *loopRig) runToMerge(task string, inReview func()) {
 	if inReview != nil {
 		inReview()
 	}
-	if reply, err := wire.Verdict(context.Background(), r.sock, &wire.VerdictReq{Envelope: wire.Envelope{Root: r.p.Root,
+	if reply, err := r.ask(&wire.VerdictReq{Envelope: wire.Envelope{Root: r.p.Root,
 		Agent: "pj-int", Role: "integrator", CallID: "accept-" + task}, Verb: wire.MethodAccept, Task: task,
 		Patch: r.patch(job)}); err != nil ||
 		!strings.HasPrefix(reply, "ACCEPT "+task) {
@@ -1545,7 +1575,7 @@ func (r *loopRig) runToMerge(task string, inReview func()) {
 // specOf stores task's spec (obor spec set).
 func (r *loopRig) specOf(task, text string) {
 	r.t.Helper()
-	if _, err := wire.Verdict(context.Background(), r.sock, &wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root,
+	if _, err := r.ask(&wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root,
 		Agent: "lead", Role: "lead", CallID: "s-" + task}, Task: task, Spec: text}); err != nil {
 		r.t.Fatalf("spec set %s: %v", task, err)
 	}
@@ -1622,7 +1652,8 @@ type loopRig struct {
 	clock  *clock // the app's clock, kept across restarts
 	app    *app.App
 	out    *syncBuf
-	sock   string
+	sock   string        // the app's socket outside a bubble ("" in one, and before the first start)
+	mem    *app.MemServe // the app's socket in a bubble (nil outside one)
 	cancel context.CancelFunc
 	done   chan struct{}
 }
@@ -1681,7 +1712,7 @@ func newLoopRig(t *testing.T, opts ...rigOpt) *loopRig {
 	r.f.Group("w1", "proj")
 	w := r.f.Agent("w1:p1", "pj-l-01", "idle", r.lane)
 	w.Label = "pj-l-01" // labelled by its launch: serve's identity of it (registry.go)
-	r.srv = herdrtest.Serve(t, r.f)
+	r.srv = serveHerdr(t, r.f)
 	r.srv.Reply("notification.show", map[string]any{"type": "notification_show", "shown": true, "reason": "shown"})
 	r.srv.Reply("agent.prompt", prompted)
 	r.scratch = app.NewFakeWorkflow("")
@@ -1824,7 +1855,30 @@ func (r *loopRig) start() {
 	r.t.Helper()
 	r.launch()
 	r.firstCheck()
+	r.serve()
+}
+
+// serve opens the running app's socket: in memory in a bubble (mem), on a new socket path outside one (sock).
+func (r *loopRig) serve() {
+	r.t.Helper()
+	if inBubble(r.t) {
+		r.mem = app.ServeMem(r.t, r.app)
+		return
+	}
 	r.sock = (&rig{t: r.t, app: r.app}).listen()
+}
+
+// answering is whether the app's socket was opened (the rig started once).
+func (r *loopRig) answering() bool { return r.sock != "" || r.mem != nil }
+
+// ask sends c to the app's socket as wire.Verdict does: the reply line, or the app's refusal as the error. In a
+// bubble it is one request on an in-memory connection, with none of the wire client's retries or deadlines.
+func (r *loopRig) ask(c wire.Req) (string, error) {
+	r.t.Helper()
+	if r.mem != nil {
+		return r.mem.Call(r.t, c)
+	}
+	return wire.Verdict(context.Background(), r.sock, c)
 }
 
 // firstCheck waits for the app's first full check (every project and open task sampled once).
@@ -1900,6 +1954,9 @@ func (r *loopRig) stop() {
 const waitCap = 60 * time.Second
 
 func (r *loopRig) patience() time.Duration {
+	if inBubble(r.t) { // the wait is on the bubble's clock, which load cannot move; t.Deadline is not allowed in one
+		return waitCap
+	}
 	d, ok := r.t.Deadline()
 	if !ok {
 		return 20 * time.Second
@@ -1934,7 +1991,7 @@ const report = "Summary: done.\nSelf-check: ok.\nSkipped: none.\nOpen questions:
 // the start replays (unless the test writes the log itself).
 func (r *loopRig) submit() {
 	r.t.Helper()
-	if r.sock == "" {
+	if !r.answering() {
 		r.early = true
 		return
 	}
@@ -1945,7 +2002,7 @@ func (r *loopRig) submit() {
 
 // taskDone is pj-l-01's task_done for T-1 with text as its report, under a new call id.
 func (r *loopRig) taskDone(text string) (string, error) {
-	return wire.Verdict(context.Background(), r.sock, &wire.TaskDoneReq{Envelope: wire.Envelope{Root: r.p.Root,
+	return r.ask(&wire.TaskDoneReq{Envelope: wire.Envelope{Root: r.p.Root,
 		Agent: "pj-l-01", Role: "worker", CallID: fmt.Sprintf("rig-%d", r.callIDs.Add(1))}, Lane: "L-01", Task: "T-1",
 		Report: text})
 }
@@ -2086,7 +2143,7 @@ func (r *loopRig) patch(text string) string {
 
 // verdict is pj-int's verdict on T-1 (no job id: the current job, as the CLI sends it).
 func (r *loopRig) verdict(method, callID, patch, note string) (string, error) {
-	return wire.Verdict(context.Background(), r.sock, &wire.VerdictReq{Verb: method,
+	return r.ask(&wire.VerdictReq{Verb: method,
 		Envelope: wire.Envelope{Root: r.p.Root,
 			Agent: "pj-int", Role: "integrator", CallID: callID}, Task: "T-1", Patch: patch, Note: note})
 }
@@ -2177,7 +2234,7 @@ func countReq(srv *herdrtest.Server, method string) int {
 // setSpec stores text as T-1's spec through serve's socket, as the lead (obor spec set).
 func (r *loopRig) setSpec(callID, text string) string {
 	r.t.Helper()
-	reply, err := wire.Verdict(context.Background(), r.sock, &wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root,
+	reply, err := r.ask(&wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root,
 		Agent: "lead", Role: "lead", CallID: callID}, Task: "T-1", Spec: text})
 	if err != nil {
 		r.t.Fatalf("spec set: %v", err)
@@ -2192,13 +2249,13 @@ func TestMain(m *testing.M) { os.Exit(testkit.Run(m)) }
 
 // watch is a watch request to the rig's serve from the lead (role lead, agent pj-lead).
 func (r *loopRig) watch(callID, task string, rm bool) (string, error) {
-	return wire.Verdict(context.Background(), r.sock, &wire.WatchReq{Envelope: wire.Envelope{Root: r.p.Root,
+	return r.ask(&wire.WatchReq{Envelope: wire.Envelope{Root: r.p.Root,
 		Role: "lead", Agent: "pj-lead", CallID: callID}, Task: task, Clear: rm})
 }
 
 // watchNote is a watch request carrying the lead's note (T-666).
 func (r *loopRig) watchNote(callID, task, note string) (string, error) {
-	return wire.Verdict(context.Background(), r.sock, &wire.WatchReq{Envelope: wire.Envelope{Root: r.p.Root,
+	return r.ask(&wire.WatchReq{Envelope: wire.Envelope{Root: r.p.Root,
 		Role: "lead", Agent: "pj-lead", CallID: callID}, Task: task, Note: note})
 }
 
@@ -2264,7 +2321,7 @@ func (r *loopRig) dropSettled(task, note string) {
 	var reply string
 	var err error
 	r.waitFor("the drop of "+task+" accepted", func() bool {
-		reply, err = wire.Verdict(context.Background(), r.sock, &wire.DropReq{Envelope: wire.Envelope{Root: r.p.Root,
+		reply, err = r.ask(&wire.DropReq{Envelope: wire.Envelope{Root: r.p.Root,
 			Role: "lead", CallID: "x1"}, Task: task, Why: note})
 		return err == nil || !strings.Contains(err.Error(), "retry when it settles")
 	})
@@ -2440,7 +2497,7 @@ func (r *loopRig) line(callID string, c wire.Req) (string, error) {
 	if e.Role == "" {
 		e.Role, e.Agent = "lead", "pj-lead"
 	}
-	return wire.Verdict(context.Background(), r.sock, c)
+	return r.ask(c)
 }
 
 // typedTo is the prompts the fake herdr got for agent (its name, or its pane: typed lines address the pane id, the
@@ -2637,7 +2694,7 @@ func (r *loopRig) startWithAgents(agents port.Agents) {
 	}()
 	r.t.Cleanup(r.stop)
 	r.waitFor("the first check", func() bool { checks, _ := app.Counts(r.app); return checks >= 1 })
-	r.sock = (&rig{t: r.t, app: r.app}).listen()
+	r.serve()
 }
 
 // pause is a pause request to the rig's serve (role "": the owner).
@@ -2646,7 +2703,7 @@ func (r *loopRig) pause(role, callID string, c wire.PauseReq) (string, error) {
 	if role != "" {
 		c.Agent = "pj-" + role
 	}
-	return wire.Verdict(context.Background(), r.sock, &c)
+	return r.ask(&c)
 }
 
 // The prompts table (T-665, T-670): the text of every job, brief and start prompt serve sent is recorded right after
@@ -2699,7 +2756,7 @@ const (
 // spec sets spec as T-1's spec, by the lead with call id.
 func (r *loopRig) spec(callID, text string) string {
 	r.t.Helper()
-	reply, err := wire.Verdict(context.Background(), r.sock, &wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root,
+	reply, err := r.ask(&wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root,
 		Agent: "pj-lead", Role: "lead", CallID: callID}, Task: "T-1", Spec: text})
 	if err != nil {
 		r.t.Fatalf("spec set %s: %v", callID, err)
@@ -2771,7 +2828,7 @@ func (r *loopRig) fetch(agent, job string) (string, bool) {
 	if agent == "pj-int" {
 		role, lane = "integrator", ""
 	}
-	raw, err := wire.Verdict(context.Background(), r.sock, &wire.JobNextReq{Envelope: wire.Envelope{Root: r.p.Root,
+	raw, err := r.ask(&wire.JobNextReq{Envelope: wire.Envelope{Root: r.p.Root,
 		Agent: agent, Role: role, CallID: fmt.Sprintf("rig-%d", r.callIDs.Add(1))}, Lane: lane})
 	var jr wire.JobReply
 	if err != nil || json.Unmarshal([]byte(raw), &jr) != nil || jr.Job != job {
@@ -2863,7 +2920,7 @@ func (r *loopRig) msgFailed() int {
 
 // setSpecTask is the lead's obor spec set of task with note, text as its spec.
 func (r *loopRig) setSpecTask(callID, task, text, note string) (string, error) {
-	return wire.Verdict(context.Background(), r.sock, &wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root,
+	return r.ask(&wire.SpecSetReq{Envelope: wire.Envelope{Root: r.p.Root,
 		Agent: "lead", Role: "lead", CallID: callID}, Task: task, Spec: text, Changed: note})
 }
 
@@ -3157,6 +3214,9 @@ func verbsRig(t *testing.T) *loopRig {
 func feed(t *testing.T, r *loopRig, seq int64) []wire.FeedRecord {
 	t.Helper()
 	var out []wire.FeedRecord
+	if inBubble(r.t) {
+		r.t.Fatal("the event feed needs the unix socket: this test stays outside a bubble")
+	}
 	last, err := wire.Feed(context.Background(), r.sock, r.p.Root, seq, false, func(f wire.FeedRecord) error {
 		out = append(out, f)
 		return nil
@@ -3170,9 +3230,33 @@ func feed(t *testing.T, r *loopRig, seq int64) []wire.FeedRecord {
 	return out
 }
 
-// listen answers the app socket of the running app on a new socket path.
+// serve opens the running app's socket for ask: in memory in a bubble (mem), on a new socket path outside one
+// (sock).
+func (r *rig) serve() {
+	r.t.Helper()
+	if inBubble(r.t) {
+		r.mem = app.ServeMem(r.t, r.app)
+		return
+	}
+	r.sock = r.listen()
+}
+
+// ask sends c to the app's socket (serve opened it) as wire.Verdict does; see loopRig.ask.
+func (r *rig) ask(c wire.Req) (string, error) {
+	r.t.Helper()
+	if r.mem != nil {
+		return r.mem.Call(r.t, c)
+	}
+	return wire.Verdict(context.Background(), r.sock, c)
+}
+
+// listen answers the app socket of the running app on a new socket path. Not in a bubble (a unix socket's accept
+// stalls its clock): serve and ask are the pair that follows the bubble.
 func (r *rig) listen() string {
 	r.t.Helper()
+	if inBubble(r.t) {
+		r.t.Fatal("listen opens a unix socket: in a bubble use serve and ask")
+	}
 	dir, err := os.MkdirTemp("", "app") // short: a unix socket path is limited
 	if err != nil {
 		r.t.Fatal(err)
