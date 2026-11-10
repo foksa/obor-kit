@@ -46,12 +46,12 @@ func Main(m *testing.M) {
 
 // Run is m.Run followed by the removal of the project template New copies (T-1009), for a TestMain that does more than
 // Main: it returns m.Run's code. It also arms New (T-1019): only a TestMain that calls it removes the template. It sets
-// OBOR_CALL_DEADLINE=0.2 for the whole binary, as cmd/obor and internal/setup do (T-1144): a wire call in a test
-// without a deadline of its own ends at once, not after the deadline table's 15 s; a test that needs the real deadline
-// sets its own.
+// no wire deadline (T-1166): a call to a serve that is running gets its method's deadline from wire/client.go's table,
+// seconds, where T-1144's 0.2 s for the whole binary timed the app tests out under the nightly's load. A test whose call
+// means to hit a serve that is not there, and must end at once, sets the short deadline itself: a ctx deadline, or
+// t.Setenv("OBOR_CALL_DEADLINE", …) as cmd/obor's callDown and internal/setup do.
 func Run(m *testing.M) int {
 	hooked.Store(true)
-	os.Setenv("OBOR_CALL_DEADLINE", "0.2")
 	code := m.Run()
 	if tmpl.base != "" {
 		os.RemoveAll(tmpl.base)

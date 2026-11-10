@@ -68,12 +68,10 @@ func fakeApp(t *testing.T, reply func(n int) string) (sock string, seen func() [
 	return sock, seen
 }
 
-// TestWireRetryDeadlines runs the tests of the socket's retries (T-659) with the deadline table (T-1144): testkit.Run
-// sets OBOR_CALL_DEADLINE=0.2 for every call in the binary, and these wait out a serve restart over seconds. The
-// variable is the process's, so this test sets it and is not parallel; its subtests, which do not set it, run parallel
-// as before (a test that set it itself would have to run alone).
+// TestWireRetryDeadlines runs the tests of the socket's retries (T-659): each waits out a serve restart over seconds on
+// the deadline table's time for its method (T-1166: nothing in the test binary shortens it, and a blanket deadline would
+// fail these). Its subtests run parallel.
 func TestWireRetryDeadlines(t *testing.T) {
-	t.Setenv("OBOR_CALL_DEADLINE", "")
 	for _, c := range []struct {
 		name string
 		test func(*testing.T)
@@ -88,6 +86,40 @@ func TestWireRetryDeadlines(t *testing.T) {
 		{"LostReplyAnsweredFromStore", testLostReplyAnsweredFromStore},
 	} {
 		t.Run(c.name, c.test)
+	}
+}
+
+// T-1166: a test's wire call to a serve that is running waits for it seconds, not the 0.2 s a deadline for the whole
+// test binary gave it (T-1144): the app tests' calls to their own serve hit that 0.2 s under the nightly's load, and
+// this serve takes well past 0.2 s to answer.
+func TestCallToARunningServeWaitsForIt(t *testing.T) {
+	t.Parallel()
+	const answerAfter = 300 * time.Millisecond // past T-1144's 0.2 s, well under the table's 15 s
+	sock := filepath.Join(sockDir(t), "serve.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		if _, err := bufio.NewReader(c).ReadBytes('\n'); err != nil {
+			return
+		}
+		time.Sleep(answerAfter) // serve still working on it: the call has no answer yet
+		_, _ = c.Write([]byte(`{"reply":"accepted T-1"}` + "\n"))
+	}()
+	start := time.Now()
+	reply, err := wire.Verdict(context.Background(), sock, askCall("c1"))
+	if err != nil || reply != "accepted T-1" {
+		t.Fatalf("Verdict = %q, %v; want the answer it gives after %v", reply, err, answerAfter)
+	}
+	if d := time.Since(start); d < answerAfter {
+		t.Errorf("answered after %v, before the serve's %v: nothing tested the wait", d, answerAfter)
 	}
 }
 

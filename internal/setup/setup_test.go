@@ -33,7 +33,8 @@ func TestMain(m *testing.M) {
 		os.Setenv(k, v)
 	}
 	// A start reports its session to the project's serve, which no test here runs: the call ends in 0.2 s, not after
-	// retrying for the report's 2 s (T-685's knob; T-1009: 1.8 s per pane start).
+	// retrying for the report's 2 s (T-685's knob; T-1009: 1.8 s per pane start). T-1166: this is the short deadline
+	// for calls meant to miss a serve; it is the binary's, so a test here that served would clear it for its calls.
 	testkit.Isolate() // before the Setenv: it clears OBOR_*
 	os.Setenv("OBOR_CALL_DEADLINE", "0.2")
 	os.Exit(testkit.Run(m))
