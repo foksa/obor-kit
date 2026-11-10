@@ -119,7 +119,6 @@ process (`plugin.Local`).
   `lanepick.go` (the lane a dispatch takes and the replies that say why none was free), `drive.go` (the owner's drive and land: `obor drive`, `obor land`, the driving state), `messages.go` (the lines' delivery over `app/outbox`'s state: `deliver`, `route`, `recordBrief`, `foldMsg` applying what `Fold` ended), `mergewatch.go`,
   `review.go` (a review request: `obor review` records it and the merge loop fires the reviewer's start),
   `reviewclose.go` (a review's close is a call to serve, which commits it and records `review.closed`),
-  `reviewfold.go` (the reviews and the merges as the log holds them: coverage and what is due),
   `reviewonmerge.go` (the Review: on merge rule: a hard or risky task's spec asks for a review at its merge),
   `reviewverify.go` (a review's fix round and its verify, briefed in the reviewer's session),
   `rules.go` (the rule pass: rule-tier steps), `idle.go` (the idle rules and `obor idle`), `stopped.go`, `stopwake.go`, `stopstep.go` (a task worker's stop as a step of the merge loop, for a move or a drop), `move.go` (`obor dispatch --model` on a working task: a redo dispatch on the same lane and worktree), `rolestop.go` (the role stop rules: serve stops the integrator and the reviewer once done, and a fresh brief's stop), `workerstart.go` (the worker start rule: a lane's worker started again while its job is outstanding), `keeplane.go` (a keep lane's agent between its tasks: its live agent takes the next job, the handoff rule stops one past handoff_tokens), `nightly.go`,
@@ -160,6 +159,15 @@ process (`plugin.Local`).
   `Briefs`, `Line`, `Queued`, `Waits`, `Delivered`, `Post`, `BriefStatus`, `MessageStatus`. Its maps are unexported, so
   only it names them. No lock: under `App.mu`. It imports `app/event` and `app/wire` only, never `app`; delivery
   stays in `app`'s `messages.go`.
+- `app/review` (core, a leaf below `app`): a project's review cycle, `State`: the reviews the log started (start,
+  finished verifies, close snapshot, close), the kernel's merges and the open verify briefs, and `Fold`: a record
+  folded, returning a review fact's data (`Data`) for `app`'s `foldReview` (the requests, a call's stored reply) to
+  apply in its fold order. What a review covered and the next one's scope are decided here only: the queries `Cycle`
+  (covered, reviewed head, `Pending` over the fix `Link`s) and `Next` (id, scope, the review it follows), with `Last`,
+  `Prev`, `Closing`, `Failed`, `MergeOf`, `BriefFile`; `Round` is the fix round's status line, `ID`/`Number` a review's
+  id. Its fields are unexported, so only it names them. No lock: under `App.mu`. It imports `app/event` and
+  `app/outbox` (a stop's data) only, never `app`; the effects (the start and its brief, the verify, the close's commit
+  and crash read, the reviewer's stop, the on-merge request, dispatch's `Fixes:` check) stay in `app`'s review files.
 - `app/wire` (core, a leaf above `app/event`): the app socket's client half, what a caller can ask serve: every
   `Method*`, `Call`, `Request`/`Answer`, `Ask`, `Verdict` (with its retries and `OBOR_CALL_DEADLINE`), `SocketPath`,
   `NewCallID`, `JobReply`, `ResumeArgs` and `Resume*`, the status types (`Status`, `ProjectStatus`, `TaskStatus` …,

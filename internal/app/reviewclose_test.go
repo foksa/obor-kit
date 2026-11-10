@@ -63,9 +63,9 @@ func TestReviewCloseRefusals(t *testing.T) {
 			if err != nil || !strings.HasPrefix(reply, "CLOSED RV-5 closed · 1234567 · approved · forced") {
 				t.Errorf("--force: %q, %v; want CLOSED", reply, err)
 			}
-			if r.commits() != 1 || len(r.closedFacts()) != 1 || r.p.folded.rv.last().open() != "" {
+			if r.commits() != 1 || len(r.closedFacts()) != 1 || r.p.folded.rv.Last().Open() != "" {
 				t.Errorf("--force: %d commits, %d facts, open %q; want one, one, none", r.commits(), len(r.closedFacts()),
-					r.p.folded.rv.last().open())
+					r.p.folded.rv.Last().Open())
 			}
 		})
 	}
@@ -81,8 +81,8 @@ func TestReviewCloseUnwritten(t *testing.T) {
 		t.Parallel()
 		r := newReviewRig(t)
 		r.fact(event.ReviewTask, event.StepReviewStarted, ReviewData{ID: "RV-5", Head: startHead}) // covers no task
-		if r.p.folded.rv.last().open() != "RV-5" {
-			t.Fatalf("precondition: %+v, want RV-5 open", r.p.folded.rv.last())
+		if r.p.folded.rv.Last().Open() != "RV-5" {
+			t.Fatalf("precondition: %+v, want RV-5 open", r.p.folded.rv.Last())
 		}
 		_, err := r.close("c1", "never written", false)
 		want := fmt.Sprintf("no open review: no reviews/RV-5.md in %s (RV-5 is not written yet: obor review close"+
@@ -106,8 +106,8 @@ func TestReviewCloseUnwritten(t *testing.T) {
 		if f := r.closedFacts(); len(f) != 1 || f[0].ID != "RV-5" || f[0].Reply != "CLOSED "+subject || f[0].Head != startHead {
 			t.Errorf("review.closed facts %+v, want RV-5's once at %s", f, startHead)
 		}
-		if r.p.folded.rv.last().open() != "" {
-			t.Errorf("the fold %+v, want RV-5 closed", r.p.folded.rv.last())
+		if r.p.folded.rv.Last().Open() != "" {
+			t.Errorf("the fold %+v, want RV-5 closed", r.p.folded.rv.Last())
 		}
 		if got := r.mustCall("r2", nil, "", false); got != "REVIEW REQUESTED (now)" {
 			t.Fatalf("obor review after the close: %q", got)
@@ -138,8 +138,8 @@ func TestReviewCloseUnwritten(t *testing.T) {
 			if n, f, s := r.commits(), r.closedFacts(), r.facts(event.StepReviewClosing); n != 0 || len(f) != 0 || s != 0 {
 				t.Errorf("a refused --force close: %d commits, %d closing facts, facts %+v; want none", n, s, f)
 			}
-			if r.p.folded.rv.last().open() != "RV-5" {
-				t.Errorf("a refused --force close took RV-5 out of the fold: %+v", r.p.folded.rv.last())
+			if r.p.folded.rv.Last().Open() != "RV-5" {
+				t.Errorf("a refused --force close took RV-5 out of the fold: %+v", r.p.folded.rv.Last())
 			}
 		}
 		force()
@@ -177,8 +177,8 @@ func TestReviewCloseCommitsAndRecords(t *testing.T) {
 	if len(f) != 1 || f[0].ID != "RV-5" || f[0].Reply != "CLOSED "+subject {
 		t.Errorf("review.closed facts %+v", f)
 	}
-	if r.p.folded.rv.last().open() != "" || r.p.folded.rv.last().closed == 0 {
-		t.Errorf("the fold %+v, want RV-5 closed", r.p.folded.rv.last())
+	if r.p.folded.rv.Last().Open() != "" || r.p.folded.rv.Last().Closed == 0 {
+		t.Errorf("the fold %+v, want RV-5 closed", r.p.folded.rv.Last())
 	}
 	if again, err := r.close("c1", "fixed", false, "rare case"); err != nil || again != reply || r.commits() != 1 {
 		t.Errorf("the repeated call: %q, %v, %d commits; want the stored reply, one commit", again, err, r.commits())
@@ -263,8 +263,8 @@ func TestReviewCloseCrashBeforeFact(t *testing.T) {
 		}
 		r.p.log.Refuse = nil
 		r.reload()
-		if r.p.folded.rv.last().open() != "RV-5" {
-			t.Fatalf("precondition: RV-5 not open after the restart: %+v", r.p.folded.rv.last())
+		if r.p.folded.rv.Last().Open() != "RV-5" {
+			t.Fatalf("precondition: RV-5 not open after the restart: %+v", r.p.folded.rv.Last())
 		}
 		return r
 	}
@@ -276,7 +276,7 @@ func TestReviewCloseCrashBeforeFact(t *testing.T) {
 		if f := r.closedFacts(); len(f) != 1 || f[0].ID != "RV-5" || f[0].Reply != "CLOSED "+r.git.closes[0].Subject {
 			t.Fatalf("review.closed facts %+v, want RV-5's once, from its commit", f)
 		}
-		if r.p.folded.rv.last().open() != "" {
+		if r.p.folded.rv.Last().Open() != "" {
 			t.Fatal("RV-5 still open")
 		}
 		if got := r.mustCall("r2", nil, "", false); got != "REVIEW REQUESTED (now)" {
@@ -371,9 +371,9 @@ func TestReviewCloseSnapshotStands(t *testing.T) {
 			}
 			finish() // the verify ends after the snapshot
 			r.a.mu.Lock()
-			open := r.p.folded.rv.open["pj-rev"]
+			open := r.p.folded.rv.BriefFile("pj-rev", 0) // a verify file's name: the reviewer's verify brief is open
 			r.a.mu.Unlock()
-			if open != nil {
+			if open != "" {
 				t.Fatal("precondition: the verify is still open")
 			}
 			if c.crash {
@@ -387,11 +387,11 @@ func TestReviewCloseSnapshotStands(t *testing.T) {
 			}
 			r.a.mu.Lock()
 			defer r.a.mu.Unlock()
-			l := &r.p.folded.rv
-			if got := l.cur().cycle(); l.cur().closed == 0 || !slices.Equal(got, tasks) {
-				t.Errorf("RV-5 (closed %d) covered %q, want %q", l.cur().closed, got, tasks)
+			cur := r.p.folded.rv.Cycle()
+			if got := cur.Covered; cur.Closed == 0 || !slices.Equal(got, tasks) {
+				t.Errorf("RV-5 (closed %d) covered %q, want %q", cur.Closed, got, tasks)
 			}
-			if got := tasksOf(l.scope()); !slices.Equal(got, scope) {
+			if got := tasksOf(r.p.folded.rv.Next().Scope); !slices.Equal(got, scope) {
 				t.Errorf("the next review's scope %q, want the late verify's %q", got, scope)
 			}
 		})
@@ -408,8 +408,8 @@ func TestReviewCloseLeadOnly(t *testing.T) {
 	r.verifyPass()
 	r.finish()
 	r.verifyPass()
-	if r.p.folded.rv.last().open() != "RV-5" {
-		t.Fatalf("precondition: %+v, want RV-5 open", r.p.folded.rv.last())
+	if r.p.folded.rv.Last().Open() != "RV-5" {
+		t.Fatalf("precondition: %+v, want RV-5 open", r.p.folded.rv.Last())
 	}
 	for _, role := range []string{"reviewer", "worker"} {
 		for _, force := range []bool{false, true} {
@@ -420,9 +420,9 @@ func TestReviewCloseLeadOnly(t *testing.T) {
 			}
 		}
 	}
-	if r.commits() != 0 || len(r.closedFacts()) != 0 || r.p.folded.rv.last().open() != "RV-5" {
+	if r.commits() != 0 || len(r.closedFacts()) != 0 || r.p.folded.rv.Last().Open() != "RV-5" {
 		t.Fatalf("a refused close changed something: %d commits, %d facts, open %q", r.commits(), len(r.closedFacts()),
-			r.p.folded.rv.last().open())
+			r.p.folded.rv.Last().Open())
 	}
 	if reply, err := r.close("c1", "fixed", false); err != nil || !strings.HasPrefix(reply, "CLOSED RV-5 closed") {
 		t.Fatalf("the lead's close: %q, %v", reply, err)

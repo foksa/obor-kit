@@ -185,8 +185,8 @@ func TestReviewRequest(t *testing.T) {
 		{"the open check survives a replay", func(t *testing.T, r *reviewRig) {
 			r.started()
 			r.reload()
-			if r.p.folded.rv.last().id != "RV-5" {
-				t.Fatalf("precondition: the replay lost RV-5's start: %+v", r.p.folded.rv.last())
+			if r.p.folded.rv.Last().ID != "RV-5" {
+				t.Fatalf("precondition: the replay lost RV-5's start: %+v", r.p.folded.rv.Last())
 			}
 			if _, err := r.call("r2", nil, "", false); err == nil || err.Error() != "RV-5 is open (not closed): close it first" {
 				t.Errorf("request after a replay with RV-5 open: %v", err)
@@ -443,4 +443,31 @@ func TestReviewVerifyOutsideScope(t *testing.T) {
 		t.Errorf("the brief: %q", text)
 	}
 	assertNoKitVocabulary(t, text) // the kit's three sentences are not serve's
+}
+
+// obor status' "review due" line is the fold's scope, counted on every pass: at 3 merges none, at 4 "review
+// due: 4 merges since RV-4", none once RV-5 started on them.
+func TestReviewDueFromTheFold(t *testing.T) {
+	t.Parallel()
+	r := newReviewRig(t) // RV-4 closed, T-a and T-b merged since
+	r.mergedAt("T-c", "ccccccc3")
+	r.tick()
+	if got := r.a.Status().Project.Review; got != "" {
+		t.Fatalf("at 3 merges: %q, want none", got)
+	}
+	r.mergedAt("T-d", "ddddddd4")
+	r.tick()
+	if got := r.a.Status().Project.Review; got != "review due: 4 merges since RV-4" {
+		t.Errorf("at 4 merges: %q", got)
+	}
+	r.mustCall("r1", nil, "", false)
+	r.pass()
+	if l := r.agents.launches; len(l) != 1 ||
+		!strings.Contains(l[0].Prompt, "In scope: T-a (aaaaaaa), T-b (bbbbbbb), T-c (ccccccc), T-d (ddddddd);") {
+		t.Fatalf("RV-5's brief: %+v, want the 4 merges in scope", l)
+	}
+	r.tick()
+	if got := r.a.Status().Project.Review; got != "" {
+		t.Errorf("RV-5 started on them: %q, want none", got)
+	}
 }

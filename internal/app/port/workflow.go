@@ -19,7 +19,7 @@ type Workflow interface {
 }
 
 // Review is the git a review's start and close do on the project (scratch-ff: the main checkout, cmd/obor's
-// reviewGit). No method decides what a review covered: that is the app's fold (reviewfold.go).
+// reviewGit). No method decides what a review covered: that is the app's fold (package app/review).
 type Review interface {
 	// Head is branch's sha.
 	Head(ctx context.Context, branch string) (string, error)

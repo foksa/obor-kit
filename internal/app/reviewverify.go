@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
+	"obor/internal/app/review"
 	"obor/internal/spec"
 	"obor/internal/store"
 	"os"
@@ -23,11 +24,11 @@ import (
 // is a rule (verifyRule, rules.go): while RV-n is open, its linked tasks have all merged or ended unmerged, at least
 // one merged and a finished verify does not cover it, and the reviewer has no open brief and is idle, serve reads the
 // integration head, moves the reviewer's worktree there and briefs the verify in the same session. The brief's fact
-// (briefed with Task, the tasks it verifies, and Reviewed, that head) is the verify; reviewLog reads the rest from the
+// (briefed with Task, the tasks it verifies, and Reviewed, that head) is the verify; review.State reads the rest from the
 // brief facts: open, finished (its finished line, Ends: its tasks covered, its head reviewed), stopped (a stop with
 // Ends) or replaced (a newer brief). A verify that did not finish leaves the condition true: the next pass briefs again.
 // Its written failure mode: after a crash a verify may be briefed twice, or one pass late. obor review close refuses
-// while a linked task is open, or merged and not covered (reviewCycle.pending, reviewclose.go), --force closes anyway.
+// while a linked task is open, or merged and not covered (review.Cycle.Pending, reviewclose.go), --force closes anyway.
 
 // ruleVerify is the verify rule's name in the rule pass (rules.go); ruleVerifyGit keys its git failure's line.
 const (
@@ -38,101 +39,49 @@ const (
 // verifyGitWait bounds a verify's git.
 const verifyGitWait = 30 * time.Second
 
-// verifyBrief is a verify's brief: its fact's seq, the tasks it verifies and the head it hands the reviewer; why it
-// ended unfinished ("": it did not).
+// verifyBrief is what a verify's brief fact carries (recordBrief): the tasks it verifies and the head it hands the
+// reviewer.
 type verifyBrief struct {
-	seq   int64
 	tasks []string
 	head  string
-	why   string
-}
-
-// fixLink is one task linked to a review by its spec's Fixes: line: the task, its note (the line's free text), the
-// seq of its newest dispatch, of its merge (0: not merged), and how it ended unmerged (dropped, rejected; "": it did
-// not).
-type fixLink struct {
-	task, note string
-	disp       int64
-	merged     int64
-	end        string
 }
 
 // fixCandidates is the loop's tasks that can be linked to the review started at start (in task order): those still
 // open and those dispatched since it (a fix task is dispatched while its review is open), with their outcome.
-func fixCandidates(loop map[string]*mtask, start int64) []fixLink {
-	var out []fixLink
+func fixCandidates(loop map[string]*mtask, start int64) []review.Link {
+	var out []review.Link
 	for _, mt := range loop {
 		ended := states[mt.state].ended
 		if ended && mt.dispSeq <= start {
 			continue
 		}
-		f := fixLink{task: mt.task, disp: mt.dispSeq}
+		f := review.Link{Task: mt.task, Dispatched: mt.dispSeq}
 		switch mt.state {
 		case stMerged:
-			f.merged = mt.mergedSeq
+			f.Merged = mt.mergedSeq
 		case stDropped, stRejected:
-			f.end = mt.state
+			f.End = mt.state
 		}
 		out = append(out, f)
 	}
-	slices.SortFunc(out, func(a, b fixLink) int { return cmp.Compare(a.task, b.task) })
+	slices.SortFunc(out, func(a, b review.Link) int { return cmp.Compare(a.Task, b.Task) })
 	return out
 }
 
 // linkFixes is the candidates whose spec (read) has the line `Fixes: <id>`, its free text their note.
-func linkFixes(cands []fixLink, id string, read func(task string) (store.SpecRow, bool, error)) ([]fixLink, error) {
-	var out []fixLink
+func linkFixes(cands []review.Link, id string, read func(task string) (store.SpecRow, bool, error)) ([]review.Link, error) {
+	var out []review.Link
 	for _, f := range cands {
-		row, _, err := read(f.task)
+		row, _, err := read(f.Task)
 		if err != nil {
-			return nil, fmt.Errorf("the spec of %s: %v", f.task, err)
+			return nil, fmt.Errorf("the spec of %s: %v", f.Task, err)
 		}
 		if row.Spec.FixesOK && row.Spec.FixesReview == id {
-			f.note = row.Spec.FixesNote
+			f.Note = row.Spec.FixesNote
 			out = append(out, f)
 		}
 	}
 	return out, nil
-}
-
-// pendingFixes is the links neither ended unmerged nor merged and covered: what obor review close waits for.
-func pendingFixes(links []fixLink, covered []string) []string {
-	var out []string
-	for _, f := range links {
-		if f.end == "" && (f.merged == 0 || !slices.Contains(covered, f.task)) {
-			out = append(out, f.task)
-		}
-	}
-	return out
-}
-
-// fixState is the open review's fix round as the verify rule last read it (live, for obor status): the review, its
-// links and the tasks a finished verify covered.
-type fixState struct {
-	id      string
-	links   []fixLink
-	covered []string
-}
-
-// line is the round as obor status' review line shows it: "RV-n fixes: T-a merged, verified · T-b open" ("": no link).
-func (f fixState) line() string {
-	if len(f.links) == 0 {
-		return ""
-	}
-	items := make([]string, 0, len(f.links))
-	for _, l := range f.links {
-		switch {
-		case l.end != "":
-			items = append(items, l.task+" "+l.end)
-		case l.merged == 0:
-			items = append(items, l.task+" open")
-		case slices.Contains(f.covered, l.task):
-			items = append(items, l.task+" verified")
-		default:
-			items = append(items, l.task+" merged")
-		}
-	}
-	return f.id + " fixes: " + strings.Join(items, " · ")
 }
 
 // verifyRule is the verify: while the review started last is open and has linked tasks, it lines the lead
@@ -146,21 +95,21 @@ func verifyRule(_ context.Context, a *App, p *proj, fx *Loop, _ time.Time) (int6
 		return 0, action{}, false
 	}
 	a.mu.Lock()
-	started, cur := p.folded.rv.last(), p.folded.rv.cur()
-	covered, failed := cur.cycle(), p.folded.rv.failed
-	closed := started.open() == ""
-	var cands []fixLink
+	started, failed := p.folded.rv.Cycle(), p.folded.rv.Failed()
+	covered := started.Covered
+	closed := started.Open() == ""
+	var cands []review.Link
 	if !closed {
-		cands = fixCandidates(p.folded.loop, started.seq)
+		cands = fixCandidates(p.folded.loop, started.Seq)
 	}
 	a.mu.Unlock()
-	links, err := linkFixes(cands, started.id, func(task string) (store.SpecRow, bool, error) { return specOf(p, task) })
+	links, err := linkFixes(cands, started.ID, func(task string) (store.SpecRow, bool, error) { return specOf(p, task) })
 	if err != nil {
-		a.logf("%s: verify of %s: %v", p.name, started.id, err)
+		a.logf("%s: verify of %s: %v", p.name, started.ID, err)
 		return 0, action{}, false
 	}
 	a.mu.Lock()
-	p.fixes, p.verifyDue = fixState{id: started.id, links: links, covered: covered}, false
+	p.fixes, p.verifyDue = review.Round{ID: started.ID, Links: links, Covered: covered}, false
 	a.mu.Unlock()
 	if len(links) == 0 {
 		return 0, action{}, false
@@ -170,28 +119,28 @@ func verifyRule(_ context.Context, a *App, p *proj, fx *Loop, _ time.Time) (int6
 	waits := false
 	for _, f := range links {
 		switch {
-		case f.end != "":
-		case f.merged == 0:
+		case f.End != "":
+		case f.Merged == 0:
 			waits = true
-		case !slices.Contains(covered, f.task):
-			tasks, newest = append(tasks, f.task), max(newest, f.merged)
-			if f.note != "" {
-				notes = append(notes, f.task+": "+f.note)
+		case !slices.Contains(covered, f.Task):
+			tasks, newest = append(tasks, f.Task), max(newest, f.Merged)
+			if f.Note != "" {
+				notes = append(notes, f.Task+": "+f.Note)
 			}
 		}
 	}
 	key, act := int64(0), action{}
 	a.mu.Lock()
 	for _, f := range links {
-		if of := (event.Of{Kind: ruleVerify, Seq: f.disp}); f.end != "" && key == 0 && !p.didLine(of) {
-			key, act = f.disp, action{line: "[obor] " + started.id + " fix " + f.task + " ended unmerged (" + f.end + "): " +
-				fixRest(links, f.task)}
+		if of := (event.Of{Kind: ruleVerify, Seq: f.Dispatched}); f.End != "" && key == 0 && !p.didLine(of) {
+			key, act = f.Dispatched, action{line: "[obor] " + started.ID + " fix " + f.Task + " ended unmerged (" + f.End + "): " +
+				fixRest(links, f.Task)}
 		}
 	}
-	if v := failed; key == 0 && v != nil && !p.didLine(event.Of{Kind: ruleVerify, Seq: v.seq}) &&
-		slices.ContainsFunc(v.tasks, func(t string) bool { return !slices.Contains(covered, t) }) {
-		key, act = v.seq, action{line: "[obor] " + started.id + " verify of " + strings.Join(v.tasks, ",") +
-			" did not finish (" + v.why + "): serve briefs it again once the reviewer is idle"}
+	if v := failed; key == 0 && v != nil && !p.didLine(event.Of{Kind: ruleVerify, Seq: v.Seq()}) &&
+		slices.ContainsFunc(v.Tasks(), func(t string) bool { return !slices.Contains(covered, t) }) {
+		key, act = v.Seq(), action{line: "[obor] " + started.ID + " verify of " + strings.Join(v.Tasks(), ",") +
+			" did not finish (" + v.Why() + "): serve briefs it again once the reviewer is idle"}
 	}
 	due := !waits && len(tasks) > 0
 	p.verifyDue = due // idle waits for it (idle.go)
@@ -210,17 +159,17 @@ func verifyRule(_ context.Context, a *App, p *proj, fx *Loop, _ time.Time) (int6
 		if !idle {
 			return 0, action{}, false
 		}
-		key, act = newest, verifyAction(a, p, fx.Workflow, s, started.id, tasks, notes, newest)
+		key, act = newest, verifyAction(a, p, fx.Workflow, s, started.ID, tasks, notes, newest)
 	}
 	return key, act, true
 }
 
 // fixRest is what a link's unmerged end leaves: the links still to merge, or nothing.
-func fixRest(links []fixLink, task string) string {
+func fixRest(links []review.Link, task string) string {
 	var rest []string
 	for _, f := range links {
-		if f.task != task && f.end == "" && f.merged == 0 {
-			rest = append(rest, f.task)
+		if f.Task != task && f.End == "" && f.Merged == 0 {
+			rest = append(rest, f.Task)
 		}
 	}
 	if len(rest) == 0 {
@@ -287,7 +236,7 @@ var errNoOpenReview = errors.New("no open review")
 // an error (errNoOpenReview). hint, when not "", is the way out the missing-file refusal names (the close's --force).
 func (a *App) openReview(p *proj, s ReviewSetup, hint string) (openCycle, error) {
 	a.mu.Lock()
-	id, prev := p.folded.rv.last().open(), p.folded.rv.prev().id
+	id, prev := p.folded.rv.Last().Open(), p.folded.rv.Prev()
 	a.mu.Unlock()
 	if id == "" {
 		return openCycle{}, fmt.Errorf("%w (the last review is closed)", errNoOpenReview)
@@ -341,12 +290,12 @@ func (a *App) verifyText(ctx context.Context, p *proj, g port.Review, s ReviewSe
 	fixed := make([]string, 0, len(tasks))
 	a.mu.Lock()
 	for _, task := range tasks {
-		m := p.folded.rv.mergeOf(task)
-		if m.sha == "" {
+		m := p.folded.rv.MergeOf(task)
+		if m.SHA() == "" {
 			a.mu.Unlock()
 			return "", "", fmt.Errorf("%s has no merge on %s since %s", task, s.Branch, cmp.Or(c.Prev, "the first review"))
 		}
-		fixed = append(fixed, task+" ("+short(m.sha)+")")
+		fixed = append(fixed, task+" ("+short(m.SHA())+")")
 	}
 	a.mu.Unlock()
 	if head, err = g.Head(ctx, s.Branch); err != nil {
@@ -366,19 +315,6 @@ func verifyBriefText(id string, s ReviewSetup, short string, fixed, notes []stri
 		text += "\nLead's note: " + n
 	}
 	return text
-}
-
-// briefFile is the review file the reviewer's open brief (its fact's seq) asked for, as "RV-<n>" or "RV-<n>-verify"
-// ("": none known): a verify's brief names the open review's verify file, a brief recorded after the last review's
-// start (its fresh start's own) the review file. Under mu.
-func (l *reviewLog) briefFile(agent string, seq int64) string {
-	switch cur := l.cur(); {
-	case l.open[agent] != nil && cur.id != "":
-		return cur.id + "-verify"
-	case cur.id != "" && seq > cur.seq:
-		return cur.id
-	}
-	return ""
 }
 
 // resultScan is how many of a review file's first non-empty lines are searched for the Result label: the reviewer puts

@@ -3,11 +3,11 @@ package app
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
+	"obor/internal/app/review"
 	"obor/internal/app/wire"
 	"strconv"
 	"strings"
@@ -46,21 +46,8 @@ const reviewDue = 3
 // maxBriefFiles caps the files a brief lists; the rest is named by the git command that lists them.
 const maxBriefFiles = 100
 
-// ReviewData is a review fact's data: the request's tasks and note, who asked, the request a firing or start is of,
-// the review's id, head and tasks once started (a close's covered tasks and start are the fold's cycle: its
-// commit renders them), and the call that recorded it with its reply (a close's: CLOSED <its commit's subject>, also
-// when the crash cut's read records it).
-type ReviewData struct {
-	After   []string `json:"after,omitempty"`
-	Note    string   `json:"note,omitempty"`
-	By      string   `json:"by,omitempty"`
-	Request int64    `json:"request,omitempty"`
-	ID      string   `json:"id,omitempty"`
-	Head    string   `json:"head,omitempty"`
-	Tasks   []string `json:"tasks,omitempty"`
-	Call    string   `json:"call,omitempty"`
-	Reply   string   `json:"reply,omitempty"`
-}
+// ReviewData is a review fact's data (review.Data: the package that folds the reviews owns it).
+type ReviewData = review.Data
 
 // reviewReq is the open review request: its fact's seq and time, its tasks, note and asker, and the open review it
 // waits for once due (held: the last pass's, not folded; "": none).
@@ -83,31 +70,10 @@ type reviewClaim struct {
 	claimed func()
 }
 
-// lastReview is the newest review the log started: its fact's seq, its id and the head it reviews (seq 0: none), and
-// the seq of the review.closed fact that closed it (0: open).
-type lastReview struct {
-	seq      int64
-	id, head string
-	closed   int64
-}
-
-// open is the review's id while it is open: started and no review.closed fact for it ("": none open).
-func (r lastReview) open() string {
-	if r.seq == 0 || r.closed != 0 {
-		return ""
-	}
-	return r.id
-}
-
-// foldReview folds r, a record of the project's review requests: a request opens (replacing the open one) and ends
-// a failed start's needs-you; --rm and a firing end it. A start and a close are the review fold's
-// (reviewLog.fold); here a close's call is stored.
-func (p *proj) foldReview(r event.Record) {
-	if r.Task != event.ReviewTask || r.Kind != event.KindFact {
-		return
-	}
-	var d ReviewData
-	_ = json.Unmarshal(r.Data, &d)
+// foldReview folds r, a fact of the review key, and its data d (review.State.Fold's result) into the project's
+// review requests: a request opens (replacing the open one) and ends a failed start's needs-you; --rm and a firing
+// end it. A start and a close are the review fold's (review.State.Fold); here a close's call is stored.
+func (p *proj) foldReview(r event.Record, d ReviewData) {
 	method := wire.MethodReview
 	switch r.Step {
 	case event.StepReviewClosed:
@@ -200,7 +166,7 @@ func ReviewConfig(cfg *config.Config) (ReviewSetup, error) {
 // request open: it is listed, REVIEW REQUEST since <age> (now | after T-a,T-b[, waiting T-b])[, note: <note>]. Else a
 // request (fact review.request): REVIEW REQUESTED (now | after T-a,T-b), " (replaces the request of <age> ago)" when
 // one was open; a task neither dispatched nor specified, a task of --after dropped or rejected already, no reviewer
-// configured, or a review open (lastReview.open): refused, nothing recorded. A pass's claim held (reviewClaim): --rm
+// configured, or a review open (review.Last.Open): refused, nothing recorded. A pass's claim held (reviewClaim): --rm
 // and a request are refused.
 func (a *App) reviewCall(c wire.ReviewReq) (string, error) {
 	if c.CallID == "" {
@@ -255,7 +221,7 @@ func (a *App) reviewCall(c wire.ReviewReq) (string, error) {
 		if cfgErr != nil {
 			return "", fmt.Errorf("review: %v", cfgErr)
 		}
-		if id := p.folded.rv.last().open(); id != "" {
+		if id := p.folded.rv.Last().Open(); id != "" {
 			return "", fmt.Errorf("%s is open (not closed): close it first", id)
 		}
 		for _, task := range c.After {
@@ -301,7 +267,7 @@ func (p *proj) reviewStatus(now time.Time) string {
 	return p.due
 }
 
-// reviewDueTick counts, on every pass, the merges in the next review's scope (reviewLog.scope: since the review before
+// reviewDueTick counts, on every pass, the merges in the next review's scope (review.Next.Scope: since the review before
 // the last one started, the tasks no review since covered). More than reviewDue: obor status' line "review due: N
 // merges since <the last review>". Reviews not set up: no line.
 func (a *App) reviewDueTick(_ context.Context, p *proj, fx *Loop) {
@@ -312,20 +278,21 @@ func (a *App) reviewDueTick(_ context.Context, p *proj, fx *Loop) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	p.due = ""
-	if n := len(p.folded.rv.scope()); err == nil && n > reviewDue {
-		prev := cmp.Or(p.folded.rv.last().id, "the first commit (no RV started yet)")
+	next := p.folded.rv.Next()
+	if n := len(next.Scope); err == nil && n > reviewDue {
+		prev := cmp.Or(next.After.ID, "the first commit (no RV started yet)")
 		p.due = fmt.Sprintf("review due: %d merges since %s", n, prev)
 	}
 }
 
 // reviewPass fires p's open review request when it is due, or ends it when a task of its --after ended unmerged. Due:
-// every --after task merged, no review open (lastReview.open: the last start has no review.closed fact; one
+// every --after task merged, no review open (review.Last.Open: the last start has no review.closed fact; one
 // open: the request waits, held) and the reviewer idle; a publish running does not hold it (the start reads the head once, roleworktree.go). A pass claims
 // the request (reviewClaim) before it records: fired, its fact ends it and the claim holds until the start returned;
 // an ended line, its fold does.
 func (a *App) reviewPass(ctx context.Context, p *proj, fx *Loop) {
 	a.mu.Lock()
-	q, started := p.folded.review, p.folded.rv.last()
+	q, started := p.folded.review, p.folded.rv.Last()
 	run := q != nil && p.rv.what == "" && p.merging && p.out.Lead() != "" && fx.Workflow != nil && fx.Agents != nil
 	ready := run && p.reviewOutcome(q.after) == "" && len(p.reviewWaits(q.after)) == 0
 	a.mu.Unlock()
@@ -335,10 +302,10 @@ func (a *App) reviewPass(ctx context.Context, p *proj, fx *Loop) {
 	setup, cfgErr := reviewConfig(p.root)
 	open, checked := "", ready && cfgErr == nil
 	if checked {
-		open = started.open()
+		open = started.Open()
 	}
 	a.mu.Lock()
-	if q != p.folded.review || p.rv.what != "" || p.folded.rv.last() != started {
+	if q != p.folded.review || p.rv.what != "" || p.folded.rv.Last() != started {
 		a.mu.Unlock()
 		return
 	}
@@ -427,26 +394,8 @@ func (a *App) fireReview(ctx context.Context, p *proj, fx *Loop, q *reviewReq, s
 	}
 }
 
-// The close commit's format lives here only: CloseCommit writes it (rendered from the fold's cycle),
-// ClosesReview (reviewclose.go) knows a review's own close commit by it, and reviewID/reviewNumber name a review's id.
-
-// reviewID is review n's id: "RV-<n>".
-func reviewID(n int) string { return "RV-" + strconv.Itoa(n) }
-
-// reviewNumber is id's number (ok false: id is not "RV-<n>").
-func reviewNumber(id string) (n int, ok bool) {
-	digits, found := strings.CutPrefix(id, "RV-")
-	if !found || digits == "" {
-		return 0, false
-	}
-	for _, c := range digits {
-		if c < '0' || c > '9' {
-			return 0, false
-		}
-	}
-	n, err := strconv.Atoi(digits)
-	return n, err == nil
-}
+// The close commit's format lives here only: CloseCommit writes it (rendered from the fold's cycle) and
+// ClosesReview (reviewclose.go) knows a review's own close commit by it; review.ID and review.Number name a review's id.
 
 // CloseCommit is review id's close commit: the subject "RV-<n> closed · <reviewed sha> · approved · <summary>",
 // "accepted <n>" in place of "approved" when the close carried accepted findings (the verify requested changes
@@ -474,16 +423,16 @@ func CloseCommit(id, sha, summary string, covered []string, start string, accept
 func (a *App) prepareReview(ctx context.Context, p *proj, g port.Review, q *reviewReq, s ReviewSetup, cfgErr error) (id,
 	brief string, tasks []string, head string, err error) {
 	a.mu.Lock()
-	l := &p.folded.rv
-	id, prev, merges := l.nextID(), *l.cur(), l.scope()
+	next := p.folded.rv.Next()
 	a.mu.Unlock()
+	id, prev := next.ID, next.After
 	if cfgErr != nil {
 		return id, "", nil, "", cfgErr
 	}
 	if head, err = g.Head(ctx, s.Branch); err != nil {
 		return id, "", nil, "", err
 	}
-	files, err := g.Files(ctx, prev.head, head)
+	files, err := g.Files(ctx, prev.Head, head)
 	if err != nil {
 		return id, "", nil, "", err
 	}
@@ -491,15 +440,15 @@ func (a *App) prepareReview(ctx context.Context, p *proj, g port.Review, q *revi
 		return id, "", nil, "", err
 	}
 	var scope []string
-	for _, m := range merges {
-		tasks = append(tasks, m.task)
-		scope = append(scope, m.task+" ("+short(m.sha)+")")
+	for _, m := range next.Scope {
+		tasks = append(tasks, m.Task())
+		scope = append(scope, m.Task()+" ("+short(m.SHA())+")")
 	}
-	last := prev.subject
-	if last == "" && prev.id != "" {
-		last = prev.id + " closed"
+	last := next.Subject
+	if last == "" && prev.ID != "" {
+		last = prev.ID + " closed"
 	}
-	return id, reviewBrief(id, s, short(head), prev.head, prev.id, last, scope, files, q.note), tasks, head, nil
+	return id, reviewBrief(id, s, short(head), prev.Head, prev.ID, last, scope, files, q.note), tasks, head, nil
 }
 
 // resultLine is the review file's first line, in every review and verify brief: the reviewer's role text

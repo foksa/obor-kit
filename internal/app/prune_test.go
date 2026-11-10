@@ -391,7 +391,7 @@ func TestPruneKeepsTheLastTerminalFact(t *testing.T) {
 	if mt := r.then.folded.loop["T-x"]; mt == nil || mt.state != stMerged || mt.attempt != 2 {
 		t.Errorf("T-x after the prune: %+v; want merged at attempt 2", mt)
 	}
-	if m := r.then.folded.rv.merges; len(m) != 1 || m[0].task != "T-x" || m[0].sha != "hT-x" {
+	if m := r.then.folded.rv.Next().Scope; len(m) != 1 || m[0].Task() != "T-x" || m[0].SHA() != "hT-x" {
 		t.Errorf("the reviews' merges %+v, want T-x's", m)
 	}
 }
