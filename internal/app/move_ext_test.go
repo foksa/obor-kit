@@ -15,77 +15,83 @@ import (
 	"obor/internal/store"
 )
 
-// A task gating, under review or merging is not moved: refused by its state, nothing recorded or stopped (T-773).
+// A task gating, under review or merging is not moved: refused by its state, nothing recorded or stopped.
 func TestMoveWhileGatingRefused(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, dispatching())
-	r.work("feature.txt", "feature\n")
-	r.start()
-	r.setSpec("s1", "# T-1 — Work\n\nDifficulty: medium\n")
-	r.mustDispatch("d1")
-	r.waitJob("pj-l-01", "T-1/1/work")
-	release := make(chan struct{})
-	t.Cleanup(func() { close(release) })
-	r.scratch.Arm("Gate", func(ctx context.Context) error {
-		select {
-		case <-release:
-		case <-ctx.Done():
+	bubble(t, func(t *testing.T) {
+		r := newLoopRig(t, dispatching())
+		r.work("feature.txt", "feature\n")
+		r.start()
+		r.setSpec("s1", "# T-1 — Work\n\nDifficulty: medium\n")
+		r.mustDispatch("d1")
+		r.waitJob("pj-l-01", "T-1/1/work")
+		release := make(chan struct{})
+		t.Cleanup(func() { close(release) })
+		r.scratch.Arm("Gate", func(ctx context.Context) error {
+			select {
+			case <-release:
+			case <-ctx.Done():
+			}
+			return nil
+		})
+		r.submit()
+		r.waitStep("1 intent gate")
+		n := len(r.records())
+		if _, err := r.moveTo("m1", "opus"); err == nil || !strings.Contains(err.Error(), "not one gating, merging or under review") {
+			t.Fatalf("move while gating: %v, want refused", err)
 		}
-		return nil
+		if len(r.records()) != n || r.count("2 fact dispatch") != 0 {
+			t.Errorf("a refused move recorded: %q", r.steps())
+		}
+		if stops := r.workerStops(); len(stops) != 0 {
+			t.Errorf("a refused move stopped %q", stops)
+		}
 	})
-	r.submit()
-	r.waitStep("1 intent gate")
-	n := len(r.records())
-	if _, err := r.moveTo("m1", "opus"); err == nil || !strings.Contains(err.Error(), "not one gating, merging or under review") {
-		t.Fatalf("move while gating: %v, want refused", err)
-	}
-	if len(r.records()) != n || r.count("2 fact dispatch") != 0 {
-		t.Errorf("a refused move recorded: %q", r.steps())
-	}
-	if stops := r.workerStops(); len(stops) != 0 {
-		t.Errorf("a refused move stopped %q", stops)
-	}
 }
 
 // Move, drop while its stop is pending: refused; the move goes on.
 func TestMoveDropWhileStopPending(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, working())
-	tried, settle := r.cutStops()
-	if reply, err := r.moveTo("m1", "opus"); err != nil || !strings.HasPrefix(reply, "MOVING T-1 on L-01") {
-		t.Fatalf("move: %q, %v", reply, err)
-	}
-	awaitStop(t, tried)
-	if ts := r.task("T-1"); ts.Stopping != "pj-l-01" || ts.Attempt != 2 || r.has("2 result worker.stop") {
-		t.Fatalf("precondition: T-1 %+v, steps %q; want attempt 2 stopping pj-l-01, no stop result", ts, r.steps())
-	}
-	r.refusedWhileStopPending("drop", func() (string, error) { return r.dropCall("x1", "not needed") })
-	settle()
-	r.waitJob("pj-l-01", "T-1/2/work")
-	if r.disp.called("free") != 0 || r.stateOf("T-1") == "dropped" {
-		t.Errorf("the refused drop freed or dropped T-1: %q", r.steps())
-	}
+	bubble(t, func(t *testing.T) {
+		r := newLoopRig(t, working())
+		tried, settle := r.cutStops()
+		if reply, err := r.moveTo("m1", "opus"); err != nil || !strings.HasPrefix(reply, "MOVING T-1 on L-01") {
+			t.Fatalf("move: %q, %v", reply, err)
+		}
+		awaitStop(t, tried)
+		if ts := r.task("T-1"); ts.Stopping != "pj-l-01" || ts.Attempt != 2 || r.has("2 result worker.stop") {
+			t.Fatalf("precondition: T-1 %+v, steps %q; want attempt 2 stopping pj-l-01, no stop result", ts, r.steps())
+		}
+		r.refusedWhileStopPending("drop", func() (string, error) { return r.dropCall("x1", "not needed") })
+		settle()
+		r.waitJob("pj-l-01", "T-1/2/work")
+		if r.disp.called("free") != 0 || r.stateOf("T-1") == "dropped" {
+			t.Errorf("the refused drop freed or dropped T-1: %q", r.steps())
+		}
+	})
 }
 
 // Move whose stop fails (needs-you), then drop: the old worker stopped (the halt's agent, with force), then the lane
 // freed; the move's start never runs.
 func TestMoveStopFailedThenDrop(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, working())
-	r.failStops(true)
-	if reply, err := r.moveTo("m1", "opus"); err != nil || !strings.HasPrefix(reply, "MOVING T-1 on L-01") {
-		t.Fatalf("move: %q, %v", reply, err)
-	}
-	r.waitFor("the stop's needs-you", func() bool { return r.task("T-1").Phase == wire.PhaseNeedsYou })
-	// the refused stop records its needs-you inside its step, which holds T-1 ("the drive") until it returns: a drop
-	// in that instant is refused busy (T-907's sendback)
-	r.waitFor("the refused stop's step ended", func() bool { return app.Settled(r.app, r.p.Root, "T-1") })
-	r.failStops(false)
-	r.dropFrees("x1", "pj-l-01")
-	r.oldWorkerStoppedFirst(2)
-	if r.has("2 intent agent.start") || len(r.workerLaunches()) != 1 {
-		t.Errorf("the move's start ran: %q, %d launches", r.steps(), len(r.workerLaunches()))
-	}
+	bubble(t, func(t *testing.T) {
+		r := newLoopRig(t, working())
+		r.failStops(true)
+		if reply, err := r.moveTo("m1", "opus"); err != nil || !strings.HasPrefix(reply, "MOVING T-1 on L-01") {
+			t.Fatalf("move: %q, %v", reply, err)
+		}
+		r.waitFor("the stop's needs-you", func() bool { return r.task("T-1").Phase == wire.PhaseNeedsYou })
+		// the refused stop records its needs-you inside its step, which holds T-1 ("the drive") until it returns: a drop
+		// in that instant is refused busy
+		r.waitFor("the refused stop's step ended", func() bool { return app.Settled(r.app, r.p.Root, "T-1") })
+		r.failStops(false)
+		r.dropFrees("x1", "pj-l-01")
+		r.oldWorkerStoppedFirst(2)
+		if r.has("2 intent agent.start") || len(r.workerLaunches()) != 1 {
+			t.Errorf("the move's start ran: %q, %d launches", r.steps(), len(r.workerLaunches()))
+		}
+	})
 }
 
 // A working task moved to opus: MOVING with both models, the worker stopped at its pane, the
@@ -93,92 +99,98 @@ func TestMoveStopFailedThenDrop(t *testing.T) {
 // T-1/2/work, which the new agent fetches. The lane row names opus. A repeated call id gets the stored reply.
 func TestMoveWorkingTaskToAnotherModel(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, working())
-	if ls := r.workerLaunches(); len(ls) != 1 || ls[0].Type != "sonnet" || r.task("T-1").Attempt != 1 {
-		t.Fatalf("precondition: one sonnet start of attempt 1: %+v, attempt %d", ls, r.task("T-1").Attempt)
-	}
-	reply, err := r.moveTo("m1", "opus")
-	if want := "MOVING T-1 on L-01: sonnet → opus (stopping pj-l-01)"; err != nil || reply != want {
-		t.Fatalf("move: %q, %v; want %q", reply, err, want)
-	}
-	r.waitJob("pj-l-01", "T-1/2/work")
-	if !slices.Contains(r.workerStops(), "pj-l-01 w1:p1") {
-		t.Errorf("the worker was not stopped at its pane: %q", r.workerStops())
-	}
-	r.waitFor("T-1 working on attempt 2", func() bool {
-		ts := r.task("T-1")
-		return ts.State == "working" && ts.Attempt == 2
+	bubble(t, func(t *testing.T) {
+		r := newLoopRig(t, working())
+		if ls := r.workerLaunches(); len(ls) != 1 || ls[0].Type != "sonnet" || r.task("T-1").Attempt != 1 {
+			t.Fatalf("precondition: one sonnet start of attempt 1: %+v, attempt %d", ls, r.task("T-1").Attempt)
+		}
+		reply, err := r.moveTo("m1", "opus")
+		if want := "MOVING T-1 on L-01: sonnet → opus (stopping pj-l-01)"; err != nil || reply != want {
+			t.Fatalf("move: %q, %v; want %q", reply, err, want)
+		}
+		r.waitJob("pj-l-01", "T-1/2/work")
+		if !slices.Contains(r.workerStops(), "pj-l-01 w1:p1") {
+			t.Errorf("the worker was not stopped at its pane: %q", r.workerStops())
+		}
+		r.waitFor("T-1 working on attempt 2", func() bool {
+			ts := r.task("T-1")
+			return ts.State == "working" && ts.Attempt == 2
+		})
+		r.disp.mu.Lock()
+		inputs := append([]port.PrepareInput(nil), r.disp.inputs...)
+		r.disp.mu.Unlock()
+		if len(inputs) != 2 || !inputs[1].Redo || inputs[1].Lane != "L-01" || inputs[1].Branch != inputs[0].Branch ||
+			inputs[1].Target != inputs[0].Target {
+			t.Errorf("the prepares %+v; want the move's a redo on L-01, its branch and target kept", inputs)
+		}
+		ls := r.workerLaunches()
+		if len(ls) != 2 || ls[1].Type != "opus" || !ls[1].Fresh || ls[1].Prompt != "[obor job T-1/2/work] call the obor job_next tool" {
+			t.Errorf("the worker's launches %+v; want the move's fresh opus start with T-1/2/work's wake", ls)
+		}
+		if row, _, _ := store.ReadLaneAt(r.p.Root, "L-01"); row.Task != "T-1" || row.Type != "opus" {
+			t.Errorf("L-01's row %+v after the move; want T-1 as opus", row)
+		}
+		// The loop records on its own meanwhile (the stop's lead line, its delivery), so the repeat is checked by
+		// what it alone could record: a dispatch fact.
+		n := r.dispatchFacts()
+		if again, err := r.moveTo("m1", "opus"); err != nil || again != reply || r.dispatchFacts() != n {
+			t.Errorf("the same call id again: %q, %v (%d dispatch facts, was %d); want the stored reply, nothing recorded",
+				again, err, r.dispatchFacts(), n)
+		}
 	})
-	r.disp.mu.Lock()
-	inputs := append([]port.PrepareInput(nil), r.disp.inputs...)
-	r.disp.mu.Unlock()
-	if len(inputs) != 2 || !inputs[1].Redo || inputs[1].Lane != "L-01" || inputs[1].Branch != inputs[0].Branch ||
-		inputs[1].Target != inputs[0].Target {
-		t.Errorf("the prepares %+v; want the move's a redo on L-01, its branch and target kept", inputs)
-	}
-	ls := r.workerLaunches()
-	if len(ls) != 2 || ls[1].Type != "opus" || !ls[1].Fresh || ls[1].Prompt != "[obor job T-1/2/work] call the obor job_next tool" {
-		t.Errorf("the worker's launches %+v; want the move's fresh opus start with T-1/2/work's wake", ls)
-	}
-	if row, _, _ := store.ReadLaneAt(r.p.Root, "L-01"); row.Task != "T-1" || row.Type != "opus" {
-		t.Errorf("L-01's row %+v after the move; want T-1 as opus", row)
-	}
-	// The loop records on its own meanwhile (the stop's lead line, its delivery: T-852), so the repeat is checked by
-	// what it alone could record: a dispatch fact.
-	n := r.dispatchFacts()
-	if again, err := r.moveTo("m1", "opus"); err != nil || again != reply || r.dispatchFacts() != n {
-		t.Errorf("the same call id again: %q, %v (%d dispatch facts, was %d); want the stored reply, nothing recorded",
-			again, err, r.dispatchFacts(), n)
-	}
 }
 
 // A move to the model the task runs is refused ("already on"); nothing is recorded or stopped.
 func TestMoveToTheSameModelRefused(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, working())
-	n := len(r.records())
-	_, err := r.moveTo("m1", "sonnet")
-	if err == nil || err.Error() != "dispatch T-1: T-1 is already on sonnet (lane L-01)" {
-		t.Fatalf("move to sonnet: %v; want refused: already on sonnet", err)
-	}
-	if len(r.records()) != n || len(r.workerStops()) != 0 {
-		t.Errorf("a refused move recorded %q or stopped %q", r.steps()[n:], r.workerStops())
-	}
+	bubble(t, func(t *testing.T) {
+		r := newLoopRig(t, working())
+		n := len(r.records())
+		_, err := r.moveTo("m1", "sonnet")
+		if err == nil || err.Error() != "dispatch T-1: T-1 is already on sonnet (lane L-01)" {
+			t.Fatalf("move to sonnet: %v; want refused: already on sonnet", err)
+		}
+		if len(r.records()) != n || len(r.workerStops()) != 0 {
+			t.Errorf("a refused move recorded %q or stopped %q", r.steps()[n:], r.workerStops())
+		}
+	})
 }
 
 // Serve restarted in the middle of a move (the move recorded, the worker stopped, the new agent's start cut before it
-// ran) replays the move: no second stop (T-852), the start runs again, with the new model and the new attempt's job.
+// ran) replays the move: no second stop, the start runs again, with the new model and the new attempt's job.
 func TestMoveReplayedToTheNewModel(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, working())
-	r.disp.set(func(d *dispatchFakes) { d.cut["start"] = "before" })
-	if reply, err := r.moveTo("m1", "opus"); err != nil || !strings.HasPrefix(reply, "MOVING T-1 on L-01: sonnet → opus") {
-		t.Fatalf("move: %q, %v", reply, err)
-	}
-	r.waitFor("the move's start cut", func() bool { r.disp.mu.Lock(); defer r.disp.mu.Unlock(); return r.disp.hit["start"] })
-	r.stop()
-	if !r.has("2 result worker.stop") || !r.has("2 intent agent.start") || r.has("2 result agent.start") {
-		t.Fatalf("precondition: the worker stopped, the move's start pending: %q", r.steps())
-	}
-	stops := r.workerStops()
-	before := len(r.workerLaunches())
-	r.disp.set(func(d *dispatchFakes) { delete(d.cut, "start") })
-	r.start()
-	r.waitJob("pj-l-01", "T-1/2/work")
-	ls := r.workerLaunches()[before:]
-	if len(ls) != 1 || ls[0].Type != "opus" || ls[0].Prompt != "[obor job T-1/2/work] call the obor job_next tool" {
-		t.Errorf("the replay's launches %+v; want one opus start with T-1/2/work's wake", ls)
-	}
-	if ts := r.task("T-1"); ts.Attempt != 2 {
-		t.Errorf("T-1's attempt %d after the replay, want 2", ts.Attempt)
-	}
-	if got := r.workerStops(); !slices.Equal(got, stops) || len(got) != 1 || r.count("2 intent worker.stop") != 1 {
-		t.Errorf("stops %q after the replay (before %q), %d stop intents; want the one stop, no second",
-			got, stops, r.count("2 intent worker.stop"))
-	}
+	bubble(t, func(t *testing.T) {
+		r := newLoopRig(t, working())
+		r.disp.set(func(d *dispatchFakes) { d.cut["start"] = "before" })
+		if reply, err := r.moveTo("m1", "opus"); err != nil || !strings.HasPrefix(reply, "MOVING T-1 on L-01: sonnet → opus") {
+			t.Fatalf("move: %q, %v", reply, err)
+		}
+		r.waitFor("the move's start cut", func() bool { r.disp.mu.Lock(); defer r.disp.mu.Unlock(); return r.disp.hit["start"] })
+		r.stop()
+		if !r.has("2 result worker.stop") || !r.has("2 intent agent.start") || r.has("2 result agent.start") {
+			t.Fatalf("precondition: the worker stopped, the move's start pending: %q", r.steps())
+		}
+		stops := r.workerStops()
+		before := len(r.workerLaunches())
+		r.disp.set(func(d *dispatchFakes) { delete(d.cut, "start") })
+		r.start()
+		r.waitJob("pj-l-01", "T-1/2/work")
+		ls := r.workerLaunches()[before:]
+		if len(ls) != 1 || ls[0].Type != "opus" || ls[0].Prompt != "[obor job T-1/2/work] call the obor job_next tool" {
+			t.Errorf("the replay's launches %+v; want one opus start with T-1/2/work's wake", ls)
+		}
+		if ts := r.task("T-1"); ts.Attempt != 2 {
+			t.Errorf("T-1's attempt %d after the replay, want 2", ts.Attempt)
+		}
+		if got := r.workerStops(); !slices.Equal(got, stops) || len(got) != 1 || r.count("2 intent worker.stop") != 1 {
+			t.Errorf("stops %q after the replay (before %q), %d stop intents; want the one stop, no second",
+				got, stops, r.count("2 intent worker.stop"))
+		}
+	})
 }
 
-// T-778 (RV-98 #1): a move of a sent-back attempt (working again after the integrator's sendback or a red gate, so after
+// A move of a sent-back attempt (working again after the integrator's sendback or a red gate, so after
 // a submission) redoes the task on the dispatch's branch and target and carries the outstanding fix into the moved
 // attempt's work job; serve restarted before the move (the log replayed past the submission) and after it gives the
 // same.
@@ -190,72 +202,74 @@ func TestMoveAfterSendbackKeepsTheDispatch(t *testing.T) {
 	}{{"integrator sendback", false}, {"red gate", true}} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			r := newLoopRig(t, dispatching())
-			r.work("feature.txt", "feature\n")
-			if c.red {
-				r.scratch.Script("Test", "T-1", port.OutcomeRed)
-			}
-			r.start()
-			r.setSpec("s1", "# T-1 — Work\n\nDifficulty: medium\n")
-			r.mustDispatch("d1")
-			r.waitJob("pj-l-01", "T-1/1/work")
-			r.submit()
-			fix := "add a test"
-			if c.red {
-				r.waitStep("1 fact sendback")
-				fix = "RED check"
-			} else {
-				r.waitJob("pj-int", "T-1/1/review")
-				if reply, err := r.verdict(wire.MethodSendback, "v1", "", fix); err != nil ||
-					!strings.HasPrefix(reply, "SENDBACK T-1") {
-					t.Fatalf("sendback: %q, %v", reply, err)
+			bubble(t, func(t *testing.T) {
+				r := newLoopRig(t, dispatching())
+				r.work("feature.txt", "feature\n")
+				if c.red {
+					r.scratch.Script("Test", "T-1", port.OutcomeRed)
 				}
-				r.integratorStops()
-			}
-			if job := r.waitJob("pj-l-01", "T-1/2/fix"); !strings.Contains(job, fix) {
-				t.Fatalf("precondition: the fix job names %q:\n%s", fix, job)
-			}
-			if ts := r.task("T-1"); ts.State != "working" || ts.Attempt != 2 {
-				t.Fatalf("precondition: T-1 working on attempt 2: %+v", ts)
-			}
-			r.stop() // the replay folds the submission again: the dispatch it keeps comes from the log
-			r.start()
-			r.connectedAgain()
-			reply, err := r.moveTo("m1", "opus")
-			if want := "MOVING T-1 on L-01: sonnet → opus (stopping pj-l-01)"; err != nil || reply != want {
-				t.Fatalf("move: %q, %v; want %q (the old model read from the kept dispatch)", reply, err, want)
-			}
-			job := r.waitJob("pj-l-01", "T-1/3/work")
-			r.disp.mu.Lock()
-			inputs := append([]port.PrepareInput(nil), r.disp.inputs...)
-			r.disp.mu.Unlock()
-			if n := len(inputs); n < 2 || inputs[0].Branch == "" || inputs[0].Target == "" || !inputs[n-1].Redo ||
-				inputs[n-1].Branch != inputs[0].Branch || inputs[n-1].Target != inputs[0].Target {
-				t.Errorf("the prepares %+v; want the move's a redo on the dispatch's branch and target", inputs)
-			}
-			wantFix := "T-1 moved to you (attempt 3) while it was sent back to the previous worker: "
-			if !strings.Contains(job, wantFix) || !strings.Contains(job, fix) {
-				t.Errorf("the moved attempt's work job lacks the fix (%q, %q):\n%s", wantFix, fix, job)
-			}
-			var d map[string]any
-			for _, rec := range r.records() {
-				if rec.Task == "T-1" && rec.Attempt == 3 && rec.Kind == event.KindFact && rec.Step == event.StepDispatched {
-					_ = json.Unmarshal(rec.Data, &d)
+				r.start()
+				r.setSpec("s1", "# T-1 — Work\n\nDifficulty: medium\n")
+				r.mustDispatch("d1")
+				r.waitJob("pj-l-01", "T-1/1/work")
+				r.submit()
+				fix := "add a test"
+				if c.red {
+					r.waitStep("1 fact sendback")
+					fix = "RED check"
+				} else {
+					r.waitJob("pj-int", "T-1/1/review")
+					if reply, err := r.verdict(wire.MethodSendback, "v1", "", fix); err != nil ||
+						!strings.HasPrefix(reply, "SENDBACK T-1") {
+						t.Fatalf("sendback: %q, %v", reply, err)
+					}
+					r.integratorStops()
 				}
-			}
-			if d["branch"] != inputs[0].Branch || d["target"] != inputs[0].Target ||
-				!strings.Contains(fmt.Sprint(d["fix"]), fix) {
-				t.Errorf("the move's dispatch fact %v; want the branch, target and fix", d)
-			}
-			r.stop()
-			r.start()
-			if again := r.workerNext("n2"); again.Job != "T-1/3/work" || !strings.Contains(again.Text, wantFix) ||
-				!strings.Contains(again.Text, fix) {
-				t.Errorf("after a replay of the move the work job is %+v; want the same fix", again)
-			}
-			if ts := r.task("T-1"); ts.Attempt != 3 || ts.Lane != "L-01" {
-				t.Errorf("after the replay T-1 is %+v; want attempt 3 on L-01", ts)
-			}
+				if job := r.waitJob("pj-l-01", "T-1/2/fix"); !strings.Contains(job, fix) {
+					t.Fatalf("precondition: the fix job names %q:\n%s", fix, job)
+				}
+				if ts := r.task("T-1"); ts.State != "working" || ts.Attempt != 2 {
+					t.Fatalf("precondition: T-1 working on attempt 2: %+v", ts)
+				}
+				r.stop() // the replay folds the submission again: the dispatch it keeps comes from the log
+				r.start()
+				r.connectedAgain()
+				reply, err := r.moveTo("m1", "opus")
+				if want := "MOVING T-1 on L-01: sonnet → opus (stopping pj-l-01)"; err != nil || reply != want {
+					t.Fatalf("move: %q, %v; want %q (the old model read from the kept dispatch)", reply, err, want)
+				}
+				job := r.waitJob("pj-l-01", "T-1/3/work")
+				r.disp.mu.Lock()
+				inputs := append([]port.PrepareInput(nil), r.disp.inputs...)
+				r.disp.mu.Unlock()
+				if n := len(inputs); n < 2 || inputs[0].Branch == "" || inputs[0].Target == "" || !inputs[n-1].Redo ||
+					inputs[n-1].Branch != inputs[0].Branch || inputs[n-1].Target != inputs[0].Target {
+					t.Errorf("the prepares %+v; want the move's a redo on the dispatch's branch and target", inputs)
+				}
+				wantFix := "T-1 moved to you (attempt 3) while it was sent back to the previous worker: "
+				if !strings.Contains(job, wantFix) || !strings.Contains(job, fix) {
+					t.Errorf("the moved attempt's work job lacks the fix (%q, %q):\n%s", wantFix, fix, job)
+				}
+				var d map[string]any
+				for _, rec := range r.records() {
+					if rec.Task == "T-1" && rec.Attempt == 3 && rec.Kind == event.KindFact && rec.Step == event.StepDispatched {
+						_ = json.Unmarshal(rec.Data, &d)
+					}
+				}
+				if d["branch"] != inputs[0].Branch || d["target"] != inputs[0].Target ||
+					!strings.Contains(fmt.Sprint(d["fix"]), fix) {
+					t.Errorf("the move's dispatch fact %v; want the branch, target and fix", d)
+				}
+				r.stop()
+				r.start()
+				if again := r.workerNext("n2"); again.Job != "T-1/3/work" || !strings.Contains(again.Text, wantFix) ||
+					!strings.Contains(again.Text, fix) {
+					t.Errorf("after a replay of the move the work job is %+v; want the same fix", again)
+				}
+				if ts := r.task("T-1"); ts.Attempt != 3 || ts.Lane != "L-01" {
+					t.Errorf("after the replay T-1 is %+v; want attempt 3 on L-01", ts)
+				}
+			})
 		})
 	}
 }
