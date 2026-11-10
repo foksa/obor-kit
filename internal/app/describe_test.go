@@ -60,6 +60,10 @@ func TestDescribeWordsEveryKind(t *testing.T) {
 		{"a review's start", event.KindFact, event.StepReviewStarted, `{"id":"RV-9"}`,
 			Described{Line: "review started RV-9", Kind: KindOther}},
 		{"a review request's end", event.KindFact, event.StepReviewRm, ``, Described{Line: "review request ended", Kind: KindOther}},
+		{"a tool's first version", event.KindFact, event.StepVersion, `{"what":"claude","version":"2.1.322 (Claude Code)"}`,
+			Described{Line: "claude 2.1.322 (Claude Code)", Kind: KindOther, Text: "2.1.322 (Claude Code)"}},
+		{"a tool's changed version", event.KindFact, event.StepVersion, `{"what":"herdr","version":"0.9.6","was":"0.9.5"}`,
+			Described{Line: "herdr 0.9.6 (was 0.9.5)", Kind: KindOther, Text: "0.9.6"}},
 		{"a line", event.KindFact, event.StepMessage, `{"to":"pj-l-01","line":"look","from":"pj-lead"}`,
 			Described{Line: "line to pj-l-01: look", To: "pj-l-01", From: "pj-lead", Text: "look", Kind: KindMessage}},
 		{"an intent is not worded", event.KindIntent, event.StepGate, `{"kind":"lane"}`, Described{}},
@@ -102,6 +106,7 @@ func TestDescribeWordsEveryKind(t *testing.T) {
 		"intent " + event.StepPromote:     KindOther,
 		"result " + event.StepPromote:     KindOther,
 		"fact " + event.StepPromoted:      KindOther,
+		"fact " + event.StepVersion:       KindOther,
 		"fact " + event.StepMessage:       KindMessage,
 	}
 	kinded := map[string]bool{}

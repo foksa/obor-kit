@@ -167,6 +167,17 @@ var worded = map[string]worder{
 		d.Line, d.Kind = "review request ended", KindOther
 		return nil
 	},
+	"fact " + event.StepVersion: func(r event.Record, d *Described) error { // a tool's version as read (T-1176)
+		var v versionData
+		if err := decode(r, &v); err != nil {
+			return err
+		}
+		d.Line, d.Kind, d.Text = v.What+" "+v.Version, KindOther, v.Version
+		if v.Was != "" {
+			d.Line += " (was " + v.Was + ")"
+		}
+		return nil
+	},
 	// An older log's promotion (T-974, deleted T-1076): its records stay readable, plain lines.
 	"intent " + event.StepPromote: func(r event.Record, d *Described) error {
 		var in oldPromotion

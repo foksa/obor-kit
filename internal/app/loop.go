@@ -47,6 +47,9 @@ type Loop struct {
 	Nightly *Nightly
 	// Disk is the project volume's free space (nil: not watched, T-564).
 	Disk *Disk
+	// Versions is the version line of each agent CLI the config uses, by kind; a kind with no entry was not read
+	// (versions.go, T-1176). Nil: not watched.
+	Versions func(ctx context.Context) map[string]string
 	// Inbox posts the project's lines to its lead into the lead's Claude session (obor send, a brief's finished
 	// line; nil: none posted, T-485): nothing is typed into the pane the owner writes in.
 	Inbox Poster
@@ -344,6 +347,7 @@ func (a *App) advance(ctx context.Context) *Loop {
 	tasks := p.passOrder()
 	a.mu.Unlock()
 	a.diskTick(p, fx)
+	a.versionTick(ctx, p, fx)
 	for _, task := range tasks {
 		if ctx.Err() != nil {
 			return nil

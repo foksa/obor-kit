@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -192,6 +193,7 @@ func mergeLoop(env project.Env, panes herdr.Panes, end *serveEnd, kinds *kindCac
 		dispatchLoop(l, env, cfg)
 		l.Config = configFile{root: repo.Root, main: cfg.MainBranch()}
 		l.Restart = serveRestarter(cfg, env, end)
+		l.Versions = func(ctx context.Context) map[string]string { return launch.CLIVersions(ctx, env, usedKinds(cfg)) }
 		return l, nil
 	}
 }
@@ -258,6 +260,19 @@ func diskOf(root string) *app.Disk {
 			}
 			return uint64(st.Bavail) * uint64(st.Bsize), nil
 		}}
+}
+
+// usedKinds are the agent kinds of the models cfg's levels and roles name, unique and sorted: the CLIs this project
+// starts, so the ones whose version serve reads (T-1176). A model the config does not know is skipped.
+func usedKinds(cfg *config.Config) []string {
+	var kinds []string
+	for _, name := range cfg.UsedModels() {
+		if m, ok := cfg.Model(name); ok && m.Kind != "" {
+			kinds = append(kinds, m.Kind)
+		}
+	}
+	slices.Sort(kinds)
+	return slices.Compact(kinds)
 }
 
 // nightly is the merge loop's nightly full check of o's project: what obor nightly runs, cut off when ctx ends (as by

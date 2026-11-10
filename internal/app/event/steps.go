@@ -39,6 +39,9 @@ const (
 	// PromoteTask is the task key of the deleted promotion (T-974, deleted T-1076): an older log's records, the
 	// project's, only worded (describe.go), never written.
 	PromoteTask = "promote"
+	// VersionTask is the task key of the versions of the tools obor drives (the agent CLIs, the terminal): the
+	// project's facts, one per change (internal/app/versions.go, T-1176).
+	VersionTask = "version"
 )
 
 // StepAnswered is the fact of an answer (task MsgTask; data: Message, Task the task whose question it ends).
@@ -142,6 +145,9 @@ const (
 	StepIdle    = "idle"     // compat until v0.28: an idle epoch fact (before T-866), folded to nothing
 	StepIdleAck = "idle.ack" // fact: the lead or the owner acknowledged it with a why (data: idleAck, Key and Why)
 )
+
+// StepVersion is the fact of a tool's version as serve read it (task VersionTask; data: versionData; T-1176).
+const StepVersion = "version"
 
 // Job steps: the integrator's jobs, prompted by the merge loop as intents with these steps (a later job of the same
 // attempt: review.2, resolve.2 …); their data is JobData.

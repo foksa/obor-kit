@@ -137,6 +137,7 @@ type proj struct {
 	scan       laneScan             // the lane table as last scanned: the watchdogs' cached observation (lanescan.go)
 	tasks      map[string]*watch    // the open tasks (a lane holds it, not in the merge loop), by task
 	diskAt     time.Time            // when the free space was last read (disk.go)
+	versionsAt time.Time            // when the tools' versions were last read (versions.go)
 	due        string               // obor status' "review due" line, counted from the fold on each pass (review.go)
 	rv         reviewClaim          // a pass's claim of the open review request (review.go)
 	integrator string               // the project's integrator agent: the one caller of the verdicts
@@ -257,13 +258,15 @@ type folded struct {
 	briefEnds     map[string]idleEnd
 	reviewIdleEnd idleEnd
 	reviewEnd     idleEnd
+	// versions: each tool's newest version fact, by tool (versions.go, T-1176).
+	versions map[string]versionAt
 }
 
 // newFolded is the folded state before the log's first record.
 func newFolded() folded {
 	return folded{active: map[string][]event.Record{}, woke: map[string]time.Time{}, calls: map[string]string{},
 		refusals: map[string]string{}, loop: map[string]*mtask{}, starts: map[string]time.Time{}, delivered: map[string]idleEnd{}, watches: map[string]*mergeWatch{}, did: map[event.Of]time.Time{},
-		briefEnds: map[string]idleEnd{}, lr: laneRows{rows: map[string]store.LaneRow{}, submitted: map[string]int64{}}}
+		briefEnds: map[string]idleEnd{}, versions: map[string]versionAt{}, lr: laneRows{rows: map[string]store.LaneRow{}, submitted: map[string]int64{}}}
 }
 
 // watch is what the watchdogs know of one open task beyond its facts. A new task, a replay and a new lane start one
