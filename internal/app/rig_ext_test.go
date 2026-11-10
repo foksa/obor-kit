@@ -327,22 +327,12 @@ func (c *clock) Move(d time.Duration, f func(now time.Time)) {
 type laneTable struct {
 	mu    sync.Mutex
 	lanes []port.Lane
-	pace  time.Duration // how long a read takes (0: no time)
 }
 
 func (l *laneTable) Lanes(context.Context, string) ([]port.Lane, error) {
 	l.mu.Lock()
-	ls, pace := append([]port.Lane(nil), l.lanes...), l.pace
-	l.mu.Unlock()
-	time.Sleep(pace)
-	return ls, nil
-}
-
-// paced sets how long each read of the table takes.
-func (l *laneTable) paced(d time.Duration) {
-	l.mu.Lock()
-	l.pace = d
-	l.mu.Unlock()
+	defer l.mu.Unlock()
+	return append([]port.Lane(nil), l.lanes...), nil
 }
 
 // syncBuf is the app's output, read while it writes.
@@ -456,6 +446,7 @@ func (r *rig) start() {
 	}}
 	r.out = &syncBuf{}
 	r.app = app.New(app.Options{Root: r.root, Tick: 2 * time.Millisecond, Retry: 5 * time.Millisecond,
+		StepRetry: 5 * time.Millisecond, StepRetryMax: 40 * time.Millisecond,
 		Now: r.clock.Now, Out: r.out, Refresh: func(err error) bool {
 			var e *herdr.Error
 			return errors.As(err, &e) && e.Code == "refresh"
@@ -1341,14 +1332,11 @@ func (r *loopRig) refusedWhileStopPending(verb string, call func() (string, erro
 	}
 }
 
-// cutStops makes each stop cut (serve's own stop cut it: no result, its intent pending, tried again on the next
-// pass) until the returned settle lets the stops act; tried gets one value per try. The app tries a cut step again
-// as soon as it has read the lane table the step marked, on no timer: each read takes a millisecond while the stops
-// are cut, so the app rests between two tries with the stop pending and the test's clock moves (a loop that never
-// rests holds a bubble's clock still, and every wait on it with it).
+// cutStops makes each stop cut (it returns a cancellation while serve runs: no result, its intent pending, tried
+// again after its wait) until the returned settle lets the stops act; tried gets one value per try. The app rests
+// between two tries with the stop pending (the wait of an uncounted step, the rig's stepRetry).
 func (r *loopRig) cutStops() (tried <-chan struct{}, settle func()) {
 	in := make(chan struct{}, 1)
-	r.lanes.paced(time.Millisecond)
 	r.mu.Lock()
 	r.onStop = func() error {
 		select {
@@ -1362,7 +1350,6 @@ func (r *loopRig) cutStops() (tried <-chan struct{}, settle func()) {
 		r.mu.Lock()
 		r.onStop = nil
 		r.mu.Unlock()
-		r.lanes.paced(0)
 	}
 }
 
@@ -1795,9 +1782,12 @@ type loopRig struct {
 	onStart, onStop func() error
 	loopErr         error // what the Loop adapters' constructor fails with (nil: none; under mu)
 
-	disp  *dispatchFakes // the dispatch's adapters (nil: none, the loop has no dispatch)
-	tick  time.Duration  // the watchdogs' tick, each a merge-loop pass (0: 2 ms); set before start
-	night *app.Nightly   // the loop's Nightly (nil: none; off is At ""); set before start
+	disp *dispatchFakes // the dispatch's adapters (nil: none, the loop has no dispatch)
+	tick time.Duration  // the watchdogs' tick, each a merge-loop pass (0: 2 ms); set before start
+	// stepRetry, stepRetryMax: the wait before an uncounted step's next try and its cap (0: 5 ms, 40 ms); set
+	// before start
+	stepRetry, stepRetryMax time.Duration
+	night                   *app.Nightly // the loop's Nightly (nil: none; off is At ""); set before start
 	// nightOf, when set, is the loop's Nightly built on each pass (serve's: from the config as it is); set
 	// before start
 	nightOf func() *app.Nightly
@@ -2086,7 +2076,12 @@ func (r *loopRig) launch() {
 	if r.tick != 0 {
 		tick = r.tick
 	}
+	retry, retryMax := 5*time.Millisecond, 40*time.Millisecond
+	if r.stepRetry != 0 {
+		retry, retryMax = r.stepRetry, r.stepRetryMax
+	}
 	r.app = app.New(app.Options{Root: r.p.Root, Tick: tick, Retry: 5 * time.Millisecond, RetryMax: 40 * time.Millisecond,
+		StepRetry: retry, StepRetryMax: retryMax,
 		Now: r.clock.Now, Out: r.out, Inboxed: r.inbox.recorded, Exit: r.exit, Binary: r.binary, Follow: tick, Tokens: r.tokens,
 		Refresh: func(err error) bool {
 			var e *herdr.Error
@@ -2531,6 +2526,7 @@ type rigInbox struct {
 	partial  bool
 	once     bool // refused and partial end after the next post (failOnce)
 	cutting  bool // the next post waits for serve's ctx and fails with its error (cut)
+	cancels  int  // the next cancels posts fail at once as a cancellation, serve running
 }
 
 func (in *rigInbox) Post(ctx context.Context, _, agent, line string) (bool, error) {
@@ -2540,7 +2536,14 @@ func (in *rigInbox) Post(ctx context.Context, _, agent, line string) (bool, erro
 	if cut {
 		in.cutting = false
 	}
+	canceled := in.cancels > 0
+	if canceled {
+		in.cancels--
+	}
 	in.mu.Unlock()
+	if canceled {
+		return false, context.Canceled
+	}
 	if cut { // a post serve's own stop cut before a byte went out, as its inbox's ctx ends
 		<-ctx.Done()
 		return false, ctx.Err()
@@ -2867,6 +2870,7 @@ func (r *loopRig) startWithAgents(agents port.Agents) {
 	panes := herdr.Panes{S: r.srv.Client(), PS: func(context.Context) ([]byte, error) { return []byte("2 1 2\n"), nil }}
 	r.out = &syncBuf{}
 	r.app = app.New(app.Options{Root: r.p.Root, Tick: 20 * time.Millisecond, Retry: 5 * time.Millisecond,
+		StepRetry: 5 * time.Millisecond, StepRetryMax: 40 * time.Millisecond,
 		Now: r.clock.Now, Out: r.out, Refresh: func(err error) bool {
 			var e *herdr.Error
 			return errors.As(err, &e) && e.Code == "refresh"

@@ -41,8 +41,11 @@ type Options struct {
 	Retry time.Duration // the first wait before subscribing again after a subscribe error (2 s)
 	// RetryMax caps the wait while herdr stays down: it doubles from Retry up to this (5 s)
 	RetryMax time.Duration
-	Now      func() time.Time
-	Out      io.Writer // one line per connect, stream end, herdr gone and back, and fact (nil: none)
+	// StepRetry is the wait before a step whose attempt was not counted is tried again (5 s); it doubles per such
+	// attempt in a row up to StepRetryMax (1 min; cutwait.go).
+	StepRetry, StepRetryMax time.Duration
+	Now                     func() time.Time
+	Out                     io.Writer // one line per connect, stream end, herdr gone and back, and fact (nil: none)
 	// Refresh: the stream ended with err only so the app works from a new snapshot (herdr's Code refresh): it
 	// subscribes again with no line in Out (nil: never).
 	Refresh func(err error) bool
@@ -202,6 +205,8 @@ type proj struct {
 	ended map[string]bool
 	// roleFail: when a fresh brief's stop of a role agent last failed, by agent (rolestop.go). Under mu.
 	roleFail map[string]time.Time
+	// cuts: the steps that wait after an attempt that was not counted, by their intent's key (cutwait.go). Under mu.
+	cuts map[event.Key]*cutWait
 	// reg, out, night: the identity table (package identity), the lines to the project's agents (package outbox;
 	// delivered by messages.go) and the nightly full check (nightly.go): each folds its records itself
 	// and keeps live state beside them.

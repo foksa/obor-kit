@@ -256,8 +256,12 @@ func TestLoopFailureNotCounted(t *testing.T) {
 			if r.hasPrefix("1 fact failed") || r.has("1 result gate") {
 				t.Fatalf("a cut-off gate counted or decided: %q", r.steps())
 			}
-			if out := r.out.String(); !strings.Contains(out, "shutting down: T-1 failed{gate: context canceled} not recorded") {
+			out := r.out.String()
+			if !strings.Contains(out, "shutting down: T-1 failed{gate: context canceled} not recorded") {
 				t.Errorf("the cut-off gate's failure was not logged as not recorded:\n%s", out)
+			}
+			if strings.Contains(out, "tried again in") {
+				t.Errorf("serve's own stop set a wait for the cut gate's next try:\n%s", out)
 			}
 			r.start()
 			r.waitJob("pj-int", "T-1/1/review")

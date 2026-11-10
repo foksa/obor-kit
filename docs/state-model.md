@@ -133,7 +133,11 @@ only for an outcome final for its step (below). Anything else is an error: no re
 tried again on the next pass. Each counted failure is a fact `failed{<step>: <why>}` (data `step`: the key), so a
 restart keeps the count; the 3rd is `needs-you{<step> failed: <why>}` (cause `<step> failed`). A merge-loop needs-you carries `merge: true` and its `cause`; a watchdog's facts do not. While a merge-loop needs-you is in force no pending step of the task is attempted. The count resets only on `unblocked`;
 `obor resume`'s default for `<step> failed` is `retry` (back to the state the needs-you left: the pending step runs
-again). An attempt cut off by ctx (obor serve stops) or ending while herdr is disconnected is not counted. A git
+again). An attempt cut off by ctx (obor serve stops) or ending while herdr is disconnected is not counted, nor one
+whose effect returns a cancellation while serve runs. An uncounted attempt while serve runs is not tried again on the
+next pass but after a delay (`uncounted` in `internal/app/cutwait.go`: 5 s, doubling per uncounted attempt of the
+step in a row up to 1 min; any fact of the task, a counted failure or `unblocked` among them, ends the row; in
+memory only, so a restart tries at once); a line's post and the nightly run cut that way wait the same. A git
 step's adapter returns `(outcome, error)`: an outcome is final, a Go error is the retry (no error types, no text
 classification). A later after-merge step never runs while an earlier one is pending (no lane reuse after a failed
 stop). An effect that ran and whose result's write failed is not run again in that process: the

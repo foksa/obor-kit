@@ -438,7 +438,8 @@ func sameSession(a, b string) bool {
 // deliverLine posts q's line to target's session through kind post's inbox (the lead, or an agent whose kind has
 // one) or, post "", types it into target (its pane) under its delivery key (P, transmit). Refused before a byte went
 // out: fact failed, no result, delivered again on a later pass; a byte went out and then an error: result "sent: …".
-// A post serve's own stop cut before a byte: nothing recorded, the line still queued. sent: its delivery's
+// A post cut before a byte (serve's own stop, or the post's own cancellation): nothing recorded, the line still
+// queued, and while serve runs not posted again before a delay (uncounted). sent: its delivery's
 // result is in the log and it went out (not closed unsent); a line another deliverLine is sending now is left to it.
 func (a *App) deliverLine(ctx context.Context, p *proj, fx *Loop, q outbox.Line, post, target string) (sent bool) {
 	key := event.Key{Task: event.MsgTask, Step: outbox.StepDeliver + strconv.FormatInt(q.Seq(), 10)}
@@ -447,7 +448,7 @@ func (a *App) deliverLine(ctx context.Context, p *proj, fx *Loop, q outbox.Line,
 	a.mu.Lock()
 	m := p.out.Line(q.Seq())
 	closing := false
-	if m != nil && m.Sending { // obor spec set's delivery and the pass's at once: one sends it
+	if m != nil && (m.Sending || p.cutWaits(key)) { // obor spec set's delivery and the pass's at once: one sends it; a cut post waits
 		m = nil
 	}
 	if m != nil {
@@ -488,8 +489,8 @@ func (a *App) deliverLine(ctx context.Context, p *proj, fx *Loop, q outbox.Line,
 			return sentResult(began, err)
 		})
 	if err != nil && !began { // nothing went out: the next pass delivers it
-		if cutByServe(ctx, err) { // serve is stopping: the post was cut, not refused
-			a.shutDown(event.MsgTask + " " + event.StepFailed + "{" + key.Step + ": " + err.Error() + "}")
+		if cutByServe(ctx, err) { // the post was cut, not refused
+			a.uncounted(ctx, p, key, event.MsgTask+" "+event.StepFailed+"{"+key.Step+": "+err.Error()+"}")
 			return false
 		}
 		via := "" // a refused post: the next attempt types it
@@ -545,6 +546,12 @@ func (a *App) deliverLead(ctx context.Context, p *proj, fx *Loop, qs []outbox.Li
 		if len(lines) == 0 {
 			return
 		}
+		a.mu.Lock()
+		waits := p.cutWaits(key(head))
+		a.mu.Unlock()
+		if waits { // its last post was cut: posted again after the delay (uncounted)
+			return
+		}
 		members := make([]int64, len(lines))
 		text := make([]string, len(lines))
 		for i, q := range lines {
@@ -558,12 +565,12 @@ func (a *App) deliverLead(ctx context.Context, p *proj, fx *Loop, qs []outbox.Li
 				return sentResult(began, err)
 			})
 		if err != nil && !began && !recovered { // nothing went out: the next pass posts them again, as one
-			if cutByServe(ctx, err) { // serve is stopping: the post was cut, not refused
+			if cutByServe(ctx, err) { // the post was cut, not refused
 				what := event.MsgTask + " " + event.StepFailed + "{" + key(head).Step + ": " + err.Error() + "}"
 				if len(lines) > 1 { // one line is named as its own record; a batched post says how many it was
 					what += fmt.Sprintf(" for %d lines", len(lines))
 				}
-				a.shutDown(what)
+				a.uncounted(ctx, p, key(head), what)
 			} else {
 				for _, q := range lines {
 					a.record(p, event.Record{Task: event.MsgTask, Step: event.StepFailed, Kind: event.KindFact},

@@ -94,6 +94,7 @@ func (a *App) nightly(ctx context.Context, p *proj, fx *Loop) {
 	a.mu.Lock()
 	st, busy := p.night, p.night.running || p.running.Task != ""
 	spent := st.fails[st.step] >= tries
+	cut := p.cutWaits(event.Key{Task: event.NightlyTask, Step: st.step})
 	a.mu.Unlock()
 	if st.running {
 		return // the run settles its own outcome
@@ -120,8 +121,8 @@ func (a *App) nightly(ctx context.Context, p *proj, fx *Loop) {
 		if step == st.step {
 			return // today's has run, or failed tries times
 		}
-	} else if st.fails[step] > 0 && now.Sub(st.failedAt) < nightlyRetry {
-		return // a failed try: the next one after nightlyRetry
+	} else if st.fails[step] > 0 && now.Sub(st.failedAt) < nightlyRetry || cut {
+		return // a failed try: the next one after nightlyRetry; a cut one: after its delay (uncounted)
 	}
 	if a.diskIsLow(p, fx) {
 		return
@@ -178,8 +179,8 @@ func (a *App) runNightly(ctx context.Context, p *proj, n *Nightly, step string) 
 		return out, err
 	})
 	if err != nil {
-		if cutByServe(ctx, err) { // serve is stopping: the check was cut, not failed
-			a.shutDown(event.NightlyTask + " " + event.StepFailed + "{" + step + ": " + err.Error() + "}")
+		if cutByServe(ctx, err) { // the check was cut, not failed
+			a.uncounted(ctx, p, in.Key, event.NightlyTask+" "+event.StepFailed+"{"+step+": "+err.Error()+"}")
 			return
 		}
 		a.nightlyFailed(p, step, err)
