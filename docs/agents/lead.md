@@ -5,21 +5,20 @@ Role text: the `obor:lead` skill (`/obor:lead`). This file holds only what diffe
 ## Project
 - Session start (after the skill's step 4): read `docs/observations.md`, the lead's curated patterns (where we went in
   circles, the load tax, premises that were wrong, local traps). At each handoff rewrite it: merge, update, delete
-  items whose cause is fixed; keep it under ~40 lines (owner 2026-11-05: new sessions lack the old one's experience).
+  items whose cause is fixed; keep it under ~40 lines (owner 2026-11-05: new sessions lack the previous one's experience).
 - obor-kit is a Claude Code plugin; contracts in `docs/design.md` (lead-owned: read it at the start; change it before
   dispatching dependent tasks); config keys: `config.Data`'s field comments (`internal/config/config.go`). Specs from
   the kit's `templates/task-spec.md`. Changes to how a role works need the user's approval.
 - Main checkout `~/Work/obor-kit` (branch `main`); lanes `~/Work/obor-kit-wt/<LANE>`; who runs where:
   `obor status` (or obor web). The `obor` on PATH is the stable checkout: in obor-kit use `./bin/obor` for main's code.
 - Milestone end: tag `m<n>-<name>` after the deep dive's easy findings are fixed and verified.
-- Integrator: ob-int (`agents.roles.integrator`) since 2026-10-13. The lead never merges by hand (user: "why are you doing
-  integrators job?" after finished lanes sat unmerged); `obor serve` gates a finished lane and sends ob-int its review
-  job (`obor status --facts` shows the task move through gate → review).
+- Integrator: ob-int (`agents.roles.integrator`). The lead never merges by hand; `obor serve` gates a finished lane and
+  sends ob-int its review job (`obor status --facts` shows the task move through gate → review).
 - A merge-loop needs-you of obor serve (`obor status --facts`: held, job not delivered/stalled, red past K, publish,
   after_merge, scratch busy) ends with `obor resume <T-xx> ["<text>"] [--regate|--sendback]` once its cause is dealt with (serve picks the action
-  from the state, T-775; a held review: the decision text is required and reaches the integrator's next job; red past
+  from the state; a held review: the decision text is required and reaches the integrator's next job; red past
   K: say `--regate` or `--sendback`). A report's open questions go to the integrator's review job: it
-  decides the in-goal ones and holds the rest for you (T-649).
+  decides the in-goal ones and holds the rest for you.
 - axis-alies (`~/Gamedev/axis-alies`) is source material only, read-only for obor-kit; its lead is the Claude session
   `axis-alies-30` or its successor; changes go to it as a change list.
 
@@ -44,14 +43,14 @@ repetitive bulk tasks with a mechanical oracle (review-finding fixes, small foll
 concrete spec: as rigorous as Opus there); Codex Luna sparingly (user 2026-10-13: "let's slow down on luna tasks,
 not worth it"): only small mechanical tasks with a complete oracle; Fable advisor (`ob-advisor`) for hard-to-reverse
 decisions and the second strike of a fix chain; Sol for batch reviews (the expensive Codex part: targeted, few). Max 4
-panes per tab. No per-model caps (owner 2026-11-03, T-765): a model out of quota is paused (`obor pause --model <name>
+panes per tab. No per-model caps (owner 2026-11-03): a model out of quota is paused (`obor pause --model <name>
 --for 3h "<why>"`), and the level's next model runs.
 
 - Difficulty (owner 2026-10-30, after 3 of 8 "hard" tasks in one day were medium): hard = state machines,
   crash/replay, concurrency, a cross-package redesign. Wide but mechanical (a rename with a script), one function with
   a full test table, or a probe plus a mapping onto existing calls is medium, however risky its deployment: the
   lead carries the deploy risk, not the lane's model.
-- Effort beside the model (T-695, T-765): wherever a model is named (spec `Model:`, `--model`, `agents.difficulty`,
+- Effort beside the model: wherever a model is named (spec `Model:`, `--model`, `agents.difficulty`,
   `agents.roles.<role>`), `opus:high` is opus at effort high (the lead and deep dive run on `opus:high`). The config names
   models directly (built-in table in `internal/config/models.go`; `agents.models.<name>` adds one); lanes are a count.
 
@@ -62,20 +61,18 @@ panes per tab. No per-model caps (owner 2026-11-03, T-765): a model out of quota
   entry + check (the classify audit fails otherwise; committing the rule on main ahead of the merge names a test that
   doesn't exist yet and turns every other merge RED).
 
-- No "Files you may touch" enforcement (T-496): no guard deny, no gate FAIL, a spec without the section dispatches; a protected file a task must edit goes under "Protected files this task may edit" (exact paths).
+- No enforced file list: no guard deny, no gate FAIL, a spec without a files section dispatches; a protected file a task must edit goes under "Protected files this task may edit" (exact paths).
 - `obor serve` is the only dispatcher: `obor dispatch` is a request to it (`DISPATCHED … (queued)`; `obor resume`
   retries a needs-you) and `obor drop <T-xx>` is serve's (it ends the task and frees its lane).
 - A spec that adds code nothing calls yet (an adapter before its wiring) lists `Makefile` and allows deadcode
-  exclusions marked "until T-xx wires it; remove then"; the wiring task removes them (T-341 hit the gate without it).
+  exclusions marked "until T-xx wires it; remove then"; the wiring task removes them.
 
 ## Reviews
 Review files are in the main checkout's `docs/reviews/` (gitignored: never committed, owner 2026-10-30); the reviewer
-and the deep dive run in their role worktrees `~/Work/obor-kit-wt/reviewer` and `~/Work/obor-kit-wt/deep_dive` since
-T-853 (serve moves each to the head it hands the role; merges never wait), the integrator in
+and the deep dive run in their role worktrees `~/Work/obor-kit-wt/reviewer` and `~/Work/obor-kit-wt/deep_dive`
+(serve moves each to the head it hands the role; merges never wait), the integrator in
 `~/Work/obor-kit-wt/integrator` (its resolves in the merge scratch). `obor review close` deletes the cycle's files by
-name. The old worktrees
-`~/Work/obor-kit-wt/review` and `~/Work/obor-kit-wt/deep-dive` are unused: remove them with `git worktree remove`
-once nothing runs there.
+name.
 
 ## Releases (owner 2026-10-30, v0.16)
 - Public repo `foksa/obor-kit`; users install with `install.sh` into `~/.obor/kit` (the newest tag), marketplace
@@ -83,7 +80,7 @@ once nothing runs there.
   axis-alies runs `~/.obor/kit` since 10-31 (migrated, 54543f08).
 - obor-kit's `scripts/release` refuses while a review is due; `UNREVIEWED="<why>"` overrides it, only on the owner's word.
 - Tag only after the merges since the last tag are reviewed and verified, and `make check` is green. Steps
-  (`RELEASING.md`, T-640, T-1035): in the main checkout, on the loop's branch (`staging`), write
+  (`RELEASING.md`): in the main checkout, on the loop's branch (`staging`), write
   `docs/UPGRADE-v<x.y>.md` (with the `v<x.y.z>` heading) and
   `docs/releases/v<x.y.z>.md` (the GitHub notes: a summary line, `- **Name:**` bullets, no task ids) and commit both;
   then `make release V=x.y.z` does the rest (version commit, full check, scratch worktree with marketplace `name`
@@ -98,6 +95,6 @@ once nothing runs there.
   owner-approved config change; `obor send <project> "<the exact change and why>"` and the lead applies it. Hold a
   serve restart that needs the change until that lead confirms it.
 - Before each tag: a Codex smoke with main's code (`~/Work/obor-kit/bin/obor dispatch <smoke T-xx> --model luna
-  --force`: the job arrives over MCP `job_next`, nothing is typed into its input, the worker finishes with `task_done`; spec
-  like T-461; the gate runs in serve's scratch, not the sandbox, and `obor run check` fails in Codex's sandbox: unix
+  --force`: the job arrives over MCP `job_next`, nothing is typed into its input, the worker finishes with `task_done`; its
+  spec is a one-file trivial task that ends with `task_done`; the gate runs in serve's scratch, not the sandbox, and `obor run check` fails in Codex's sandbox: unix
   socket binds denied, 2026-10-27).

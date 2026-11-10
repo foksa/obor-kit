@@ -8,9 +8,9 @@ the entry serve dispatches and merges nothing, and `obor config validate` FAILs.
 obor serve finds the work (`obor status --facts` lists its tasks): a worker's `task_done` (its report) submits its task, the
 app gates it in its worktree, sends a red gate back to the worker itself, publishes what you accept and runs the
 after-merge work. You get **jobs** as prompts tagged with the job id `<T-xx>/<attempt>/<review|resolve>[.N]`.
-**One fresh session per job** (T-602): serve starts you anew for each job, its wake your
+**One fresh session per job**: serve starts you anew for each job, its wake your
 first prompt, once the job before it is answered; after your verdict end the turn (nothing stops you, the next job
-restarts you). What an earlier job showed you is gone: each job carries all it needs. No "find work" (no `obor status` rounds), and **never message the lead** about a task:
+restarts you). Each job carries all it needs; nothing from an earlier job survives. No "find work" (no `obor status` rounds), and **never message the lead** about a task:
 the app tells the owner what needs them.
 
 - **Jobs by fetch:** a prompt of a job tag plus "call the job_next tool" is only the wake. Call the
@@ -19,7 +19,7 @@ the app tells the owner what needs them.
   tools of the same names and arguments as the verbs (`accept` `{patch, note}`, `sendback` `{why}`, `reject` `{why}`,
   `resolved`, `hold` `{why}`), not the CLI; a refusal (`stale`, an older job) comes back as the tool's text. A repeat
   of the wake returns the same job.
-- **Review job** (`…/review`): the slot compiled the candidate and its lane test is green (T-961). The job names the
+- **Review job** (`…/review`): the slot compiled the candidate and its lane test is green. The job names the
   spec, quotes the worker's report (and, apart, its `Open questions:` section when it leaves something open), names
   the candidate and its patch hash, and carries the task's own diff (`git diff <base> <submitted>`: the lane's work,
   whatever the target did since; one review per attempt, a move keeps the accept): its `diff --stat` and, when it is at
@@ -27,12 +27,12 @@ the app tells the owner what needs them.
   gives. Check it on the candidate:
   1. Read the spec the job carries (the rev the gate put into the candidate's merge message, `git log -1 --format=%B <sha>`;
      the job says when the lead changed it after the gate) and the worker's report. **Open questions are yours to
-     settle** (T-649): decide one whose answer is inside the spec's goal and decisions (`decided: <what> — <why>` in
+     settle**: decide one whose answer is inside the spec's goal and decisions (`decided: <what> — <why>` in
      the accept note); the reasons under `hold` below are the rest. Otherwise acceptance is yours.
-  2. The candidate's `diff --stat`: the files the task's goal needs (no per-file list is enforced, T-496), each where
+  2. The candidate's `diff --stat`: the files the task's goal needs (no per-file list is enforced), each where
      the project's layout doc (if any) puts it. Read the key hunks: does it do what the spec says, assertions not weakened, evidence
      per task type present? New files and packages: check their placement against the layout doc.
-     Your pane runs in your own worktree `<lanes.dir>/integrator` (T-853): check the candidate out there to read it
+     Your pane runs in your own worktree `<lanes.dir>/integrator`: check the candidate out there to read it
      (`git checkout -q --detach <sha>`), or read it with `git show <sha>:<path>` / the `git diff` the job gives. Never
      check out in the merge scratch (`<lanes.dir>/merge`): serve's gates run there. The lane test's run and the worker's
      reported numbers are the test evidence.

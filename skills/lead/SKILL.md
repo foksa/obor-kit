@@ -19,8 +19,8 @@ To (re)start the lead (none running, or after a Claude Code update): `obor lead`
    the project's first session: show that table to the owner and ask about it — the models per difficulty level, the
    effort, how many lanes, the lead's, integrator's and reviewer's models. Write the answers into `.obor/config.json`
    (`agents.difficulty`, `lanes.count`, `agents.roles`, model refs `<model>[:<effort>]`; `agents.kinds`, `agents.models` when asked), then set
-   `agents.confirmed: true` and commit. A config of the shape before T-765 (lane types) is refused, naming the unknown
-   key: an old-shape key is just a key this obor does not know, not one it can migrate.
+   `agents.confirmed: true` and commit. A config with a key this obor does not know (`lanes.types`, say) is refused,
+   naming that key: an unknown key is not one obor can migrate.
    Never change a model setting without the owner's answer; `obor init` wrote what it found, not what they chose.
 4. Read `BACKLOG.md` (Handoff, Owner decisions pending, Concerns), the top of `docs/decisions.md`, the day's plan
    (`docs/plan/<date>.md`) if there is one, and `AGENTS.md`. Continue from the Handoff's next steps.
@@ -35,7 +35,7 @@ To (re)start the lead (none running, or after a Claude Code update): `obor lead`
   reply's `idle: …` names lanes still free: use them or say why not.
 - `obor spec set T-xx .obor/drafts/T-xx.md [--note "<what changed>"]` stores it in serve (a new rev reaches a running
   task's next job; its protected unlocks apply at the guard's next call). A working worker's `task_done` at the older
-  rev is refused once, with the rev and the note, so it reads the change before submitting (T-819, T-824).
+  rev is refused once, with the rev and the note, so it reads the change before submitting.
 - `--note` is for a small change the worker can fold in after its work, at the `task_done` refusal; anything that
   changes what it is building is a move (`obor dispatch T-xx --model <ref>`, a fresh attempt).
 - Every spec carries `Difficulty: hard|medium|simple` under its title (hard: state machines, crash/replay,
@@ -76,8 +76,7 @@ one line once all merged (or the first dropped). `obor watch` lists them with th
   - a merge-loop needs-you: what its cause takes once it is dealt with: held → your decision (required) goes into the
     integrator's next job ("Lead's decision on your hold: …"); a failed step → retried; a gate or publish failure →
     gated again; red past K, sendbacks past K, a resolve rejected → you choose `--regate` or `--sendback "<why>"`.
-  A flag where it does not fit is refused, naming what `obor resume` would do. `obor answer`, `obor sendback` and the
-  `regate`/`reprompt`/`retry` words are gone.
+  A flag where it does not fit is refused, naming what `obor resume` would do.
 - `obor drop <T-xx> "<why>" [--discard] [--force]` — abandon a task: serve stops its worker and frees its lane
   (`--discard` for a dirty lane or unmerged commits, `--force` only for a worker that ignores Escape); a task with no
   lane yet (a waiting dispatch) is just cancelled. Every task command takes the task id, never a lane.
@@ -90,20 +89,19 @@ Before a release, `obor review` and close it.
 Every ~3 merges (`obor status` says `review due: N merges since <the last review>` once more than 3 merged; nothing
 enforces a maximum): `obor review [--after T-a,T-b] [--note "<out of scope, contracts>"]`, serve starts it
 (`review-brief.md`). A `Difficulty: hard` spec is reviewed on merge
-without any line (T-932); a medium or simple task that is judgement-heavy (identity, MCP, launch) gets there with the
-spec line `Review: on merge` — serve requests that review itself once the task merges (T-878). Either way your watch
-and hand-run `obor review` are replaced, and `obor review` stays for the every-~3-merges reviews. A fix spec carries
-`Fixes: RV-<n>` instead and never `Review: on merge`: `obor spec set` refuses the pair (T-932).
+without any line; a medium or simple task that is judgement-heavy (identity, MCP, launch) gets there with the
+spec line `Review: on merge` — serve requests that review itself once the task merges. A fix spec carries
+`Fixes: RV-<n>` instead and never `Review: on merge`: `obor spec set` refuses the pair.
 Reviewer and deep dive are role panes in their own
-role worktree (`<lanes.dir>/reviewer`, `<lanes.dir>/deep_dive`; T-853), never lanes: serve moves it to the head it hands
+role worktree (`<lanes.dir>/reviewer`, `<lanes.dir>/deep_dive`), never lanes: serve moves it to the head it hands
 them (a review's start, a verify, a brief to an idle deep dive), so merges never wait; their files go to the main
 checkout's reviews dir;
-a review's fix specs carry `Fixes: RV-<n>[ <what to check>]` (T-924; `obor review fix` is gone): dispatching them
+a review's fix specs carry `Fixes: RV-<n>[ <what to check>]`: dispatching them
 links them, and serve briefs the verify in the reviewer's same session once they merged. At most two review rounds
 per feature; then accept the rest with `obor review close --accept` (they go to `docs/accepted.md`)
 (`review-brief.md` §3). Before filing a bug or a finding, `grep` its symptom in `docs/accepted.md`: an accepted line
 names its fix cost. Serve stops the reviewer once the review is closed
-(`RV-<n> closed`) and the integrator after its last verdict (T-672). A deep dive whose verify approves:
+(`RV-<n> closed`) and the integrator after its last verdict. A deep dive whose verify approves:
 `obor restart <deep-dive> --stop`; the next one starts clean on its brief (`obor brief <deep-dive> "<text>"`, and
 `--fresh` stops a running one first). `obor brief` is the one way to brief a role agent.
 Milestone end: deep dive, then tag. Messages to another project's lead: `obor send <name> "<text>"` (the names

@@ -23,19 +23,18 @@ otherwise.
 
 ## Claude Code
 - Workers often run long checks as a background shell and go idle → the idle state proves nothing: the worker's
-  `task_done` (obor serve's submission, `obor status --facts`), not the idle state, is the signal. (The old watch-for-idle
-  command is gone, T-465.)
+  `task_done` (obor serve's submission, `obor status --facts`), not the idle state, is the signal.
 - Auto mode can't check `bash -c '…'` scripts that contain `rm` → a permission prompt that auto-denies after ~2 min.
   Write probes to a script file in the scratchpad and run it.
 - Spawning panes/agents can be blocked by the auto-mode classifier → ask the user.
 - An agent can't `/clear` itself; send `/clear` via `herdr agent prompt <pane id> "/clear"` — the pane id, not the
-  agent name (herdr drops a name at times, and obor never reads it, T-952). If the pane shows the Background tasks
+  agent name (herdr drops a name at times, and obor never reads it). If the pane shows the Background tasks
   panel, send `esc` first — only while the agent is idle: Esc interrupts a working turn.
 - TaskStop on a background shell can leave its child script running → check by script path, kill by PID.
 - Claude panes except leads start with `--settings '{"autoMemoryEnabled":false,"remoteControlAtStartup":false}'` (only the lead
   on the phone and with auto memory); `agents.kinds.claude.args` adds args to every Claude start.
-- Ctrl+Z suspends Claude Code (2026-10-10) → type `fg` in the pane. `obor restart` no longer resumes it: it refuses a
-  stopped job, so `fg` and `/exit` it (or end it), then `obor restart <agent> --fresh`.
+- Ctrl+Z suspends Claude Code (2026-10-10) → type `fg` in the pane. `obor restart` refuses a stopped job, so `fg`
+  and `/exit` it (or end it), then `obor restart <agent> --fresh`.
 - After a usage-limit reset Claude Code resumes the session by itself ("Your claude.ai usage limit has reset. Continue
   …", 2026-10-11); the wrong-tab guard lets that turn through, so an idle worker after a reset is a different problem.
 - Hooks only cover Claude Code panes; Codex/opencode lanes rely on their sandbox and the worker prompt, so the
@@ -46,7 +45,7 @@ otherwise.
 - Can't write git metadata in worktrees → never commits (fine: the integrator commits).
 - Can't `git checkout` inside a linked worktree (the parent's `.git/worktrees/<wt>/index.lock`) → a Codex reviewer or
   deep dive reads another commit with `git show <sha>:<path>` / `git diff`; serve moves its role worktree to the head
-  it hands it. Its sandbox writes the cwd only: its start adds the main checkout's reviews dir (`--add-dir`, T-853).
+  it hands it. Its sandbox writes the cwd only: its start adds the main checkout's reviews dir (`--add-dir`).
 - No network for installs.
 - First Codex start in a new repo shows a "Trust this folder?" dialog → `herdr agent start` reports `agent_not_ready`
   (blocked); answer it (Enter = trust) once per repo.

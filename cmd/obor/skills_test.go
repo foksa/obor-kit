@@ -246,7 +246,7 @@ func TestMentionsCountBackticksAndFencesNotProse(t *testing.T) {
 func TestEveryOborSubcommandInSkillsAndTemplatesExists(t *testing.T) {
 	found := oborMentions(t, filepath.Join(pluginRoot, "skills"), filepath.Join(pluginRoot, "templates"),
 		filepath.Join(pluginRoot, "docs", "agents"))
-	for _, want := range []string{"dispatch", "sendback"} {
+	for _, want := range []string{"dispatch", "review"} {
 		if !contains(found, want) {
 			t.Fatalf("precondition: mentions %v lack %q", found, want)
 		}

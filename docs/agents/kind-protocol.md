@@ -1,11 +1,11 @@
 # The kind protocol
 
 An agent kind is the part of obor that differs per agent CLI (`agents.Kind`, `internal/agents/agents.go`). Two are
-compiled in (claude, codex). A **plugin kind** (T-1036) is an executable, in any language, that answers this
+compiled in (claude, codex). A **plugin kind** is an executable, in any language, that answers this
 protocol; obor's `internal/agents/plugin` package implements `agents.Kind` by running it, so nothing above the bridge
 changes (`docs/plan/architecture-target.md` §2a).
 
-**OpenCode is the reference plugin kind** (T-1046): `kinds/opencode/` in the kit, a Go binary of its own
+**OpenCode is the reference plugin kind**: `kinds/opencode/` in the kit, a Go binary of its own
 (`kinds/opencode/main.go`; the kind itself is package `kinds/opencode/kind`, standard library and obor's `agents` only).
 `make build` writes it as `dist/obor-kind-opencode` beside `dist/obor`; a release ships it beside obor's binary
 (`obor-kind-opencode-<v>-<os>-<arch>`, fetched by `bin/obor` into `~/.obor/bin` with obor's). `opencode/obor.js` stays
@@ -23,11 +23,11 @@ its hook transport. A test binary answers it in process (`plugin.Local`, testkit
   `dist/obor-kind-opencode`, a release binary's same-suffixed file in `~/.obor/bin`). `obor init` writes
   `"opencode": {"plugin": "obor-kind-opencode"}`.
 - A config that uses OpenCode may name `agents.kinds.opencode.plugin` (`"plugin": "obor-kind-opencode"`); with no
-  line it runs the kit's binary all the same (`config.KitKinds`, the default, T-1155). `obor setup agents` caches the
-  resolved command's manifest and writes nothing to the config (RV-171: a value obor derives needs no line).
+  line it runs the kit's binary all the same (`config.KitKinds`, the default). `obor setup agents` caches the
+  resolved command's manifest and writes nothing to the config (a value obor derives needs no line).
 - `obor config validate` checks the file is executable and that its `describe` answers with a manifest of `<name>`.
 - obor serve runs `describe` and caches the reply (the **manifest**) as `.obor/state/kinds/<name>.json` at its start
-  and again once the command's mtime (or its path) differs from the cached one (T-1054); `obor init` and
+  and again once the command's mtime (or its path) differs from the cached one; `obor init` and
   `obor setup agents` cache it too (setup agents then runs `install`, whose answer `obor setup mcp` checks). A call that runs
   the command describes it again by itself, too, once the command changed.
 - What the manifest answers is read from the cache, never by running the command: hooks and the guard load the config
@@ -54,16 +54,16 @@ obor runs `<command> <call>` with one JSON object on stdin and reads one JSON ob
 | Call | Request fields | Reply | Replaces (`agents.Kind`) | When |
 |---|---|---|---|---|
 | `describe` | — | the manifest (below) | `Name`, `Caps`, `Efforts`, `Vars`, `Stop`, `Headless`, `Transcript`, `InboxRecord`, `MCPRegistration.Lane` | `obor setup agents`, `obor config validate`, a changed command |
-| `start` | `env`, `kit`, `args`, `settings`, `resume`, `prompt`, `effort`, `strict_mcp`, `session`, `write_dirs`, `dir` | `args` (argv after the binary), `env` (variable → value, "" unsets), `files: [{name, bytes}]` | `StartWhole` (a compiled kind's `Start` and `StartEnv`, `agents.Split`) | once per agent start, with every field of the start: its argv, env and files applied together (T-1042); also obor config validate's effort check (`args` and `effort` alone, its files not written: `agents.ArgsChecker`) |
+| `start` | `env`, `kit`, `args`, `settings`, `resume`, `prompt`, `effort`, `strict_mcp`, `session`, `write_dirs`, `dir` | `args` (argv after the binary), `env` (variable → value, "" unsets), `files: [{name, bytes}]` | `StartWhole` (a compiled kind's `Start` and `StartEnv`, `agents.Split`) | once per agent start, with every field of the start: its argv, env and files applied together; also obor config validate's effort check (`args` and `effort` alone, its files not written: `agents.ArgsChecker`) |
 | `not-ready` | `screen` | `why` ("" ready) | `NotReady` | per poll during a start, when the manifest says `not_ready: {call: true}` |
 | `install` | `kit`, `env` | `mcp: {where, path, key, entry, unpinned}` | `Install` | `obor setup agents`, `obor setup mcp` |
 | `turn` | `what: last` + `tail`; `what: session` + `first`; `what: reset` + `error`, `details`, `at` | last: `ok`, `turn: {id, error, details, ended, reset}`; session: `ok`, `session: {id, cwd, started}`; reset: `limited`, `reset` | `LastTurn`, `Session`, `Reset` | per transcript poll (status `transcript`), a launch finding a session, a stop on an error |
 | `deliver` | `text`, `record` | `ok`, `delivery: {typed, socket, lines}` | `Deliver` | per line delivered, unless the manifest says `typed: true` |
-| `project-warnings` | `dir` | `warnings: ["<file>: <why>", …]` | `agents.ProjectChecker` | `obor config validate`, when the manifest says `project_warnings: true` (the kind reads the project's CLI files in `dir` itself, T-1033) |
+| `project-warnings` | `dir` | `warnings: ["<file>: <why>", …]` | `agents.ProjectChecker` | `obor config validate`, when the manifest says `project_warnings: true` (the kind reads the project's CLI files in `dir` itself) |
 
-An install reply registers nothing user-global (T-1119: the user-config install path was removed): `mcp.where` is
-`manifest` or `start`, never `config`, and no `plugin` link is in it. A reply that still carries either is refused with
-an error naming the removal; a kind registers per launch or through the project's own files.
+An install reply registers nothing user-global: `mcp.where` is
+`manifest` or `start`, never `config`, and no `plugin` link is in it. A reply that carries either is refused with
+an error naming the field; a kind registers per launch or through the project's own files.
 
 Times are RFC 3339 strings ("" none).
 
@@ -72,13 +72,13 @@ Times are RFC 3339 strings ("" none).
 The compiled kinds get three Go functions; a process gets data instead.
 
 1. **Read a file** (`Start.Read`): the plugin reads it itself. `dir` is the start dir (the agent's cwd), where a project's
-   committed CLI config lives; the plugin decides what of it outranks obor's flags (T-1033).
+   committed CLI config lives; the plugin decides what of it outranks obor's flags.
 2. **Write a state file** (`Start.WriteState`): each of `files` is written as `<name>` in the project's state dir
    (`.obor/state/<name>`, a name, no `..`), and every `{file:<name>}` in the reply's `args` and `env` values is replaced
    with its path.
 3. **Whether a lane's start gets obor's MCP server** (`MCPRegistration.Lane`): the manifest's `mcp_lane`.
 
-Every variable in `env` must be among the manifest's `vars` (`agents.Vars`, T-812: a start unsets every registry var
+Every variable in `env` must be among the manifest's `vars` (`agents.Vars`: a start unsets every registry var
 it does not set).
 
 ## The manifest
@@ -123,7 +123,7 @@ it does not set).
 
 ## Where the core branches on status
 
-`Caps.Status` replaced `Caps.Turns` (T-1036). The core reads it through `agents.TurnsRead` (status `transcript`) in
+`Caps.Status` says where a kind's agent status and turns come from. The core reads it through `agents.TurnsRead` (status `transcript`) in
 `internal/herdr/panes.go` (`Panes.Turn`: a pane's last turn is read from its transcript) and `internal/app/stopped.go`
 (`turnsRead`: a worker's or role agent's stop and its end are read from the transcript). `terminal` and `hooks` change
 nothing yet: herdr's agent detection still gives every pane its status. The compiled kinds: claude `terminal`, codex
