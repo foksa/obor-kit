@@ -48,44 +48,13 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
-- (RV-172 design, accepted) `checks.ScratchFF` still embeds `Scratch.Cfg` and `Lane.Cfg`, set once from the same pointer by its constructor (T-1161); drop the second stored pointer on a later touch if that stays simpler.
-- (RV-170, accepted) (RV-170, constructed) a shape-2 config with merge.retest as a string plus a second clone's shape-1 local.json holding only merge.retest_join loses the command (the reshaped local object replaces the string); no real project has that combination
-- (RV-166, accepted) (RV-166 verify 2, accepted) design.md's pre-push paragraph fixed by the lead after the first verify (e224c5ee), not re-verified; also accepted (constructed): no merge.neutral plus a class overlapping docs/** gets no validate warning
 - (T-1135, lead 11-09) Serve tells a herdr restart by the herdr socket file's mtime (`.obor/state/herdr-instance`): herdr's API has no pid, start time or instance id (protocol 22 pong, SessionSnapshot). Undocumented: if `herdr update --handoff` recreates the socket, serve restores once (stopped role agents restart once, as the old plugin did at every herdr start). Owner action when convenient: ask herdr upstream for an instance id in pong/snapshot (with discussion #5684); then switch to it.
-- (RV-162, accepted) (RV-162, accepted, constructed) pruning an integrator's only old verdict can change its verdicts > StartRow.Verdicts stop predicate on replay; needs an idle integrator running 30 days despite the stop rule
-- (RV-161, accepted) (RV-161, accepted) an unparseable per-lane name (run-changed-<not a lane>) is removed though the spec said it stays; no writer makes such a name (likelihood: none today)
-- (RV-154, accepted) RV-154 verify V1 (design.md slot sentence implied compile/nightly avoid the merge marker): fixed by the lead after the second verify (design.md, one sentence), not re-verified
-- (RV-151, accepted) herdr adapter decodes an omitted launch_pending as false (launched): true for herdr 0.9.5 (live H-L12/H-L13); a herdr that stops sending the field would fall back to listing evidence — recheck the probe on each herdr upgrade (likelihood: low, at upgrade only; fix: a version check, ~10 lines)
-- (RV-149, accepted) (RV-149 verify, unlikely: a Codex lead) an unattended restore (serve reconnect or the herdr plugin) of a Codex lead with a quarantined helper only logs the warning to the restore log and starts; fix when a project runs a Codex lead: restore refuses it and raises an owner-visible line (~30-70 lines)
-- (RV-148, accepted) (RV-148 verify 2, unlikely: a config edit during an in-progress worker start on a keep lane, then the same alias next) the start result records the config rev re-read after the launch (dispatch.go:1167), not the one the launcher used; fix: carry the launch's config rev through the launcher result (~20-40 lines) when keep lanes are in real use
-- (RV-147, accepted) (RV-147 verify design) plugin Start/StartEnv remain only to satisfy agents.Kind and could each run the plugin; drop them with plugin.Whole once agents.Kind has one combined start for every kind (with step 9b)
-- (RV-146, accepted) (RV-146 design) a Claude lane that opts into project MCP servers starts non-strict, so it also loads the user's and plugins' MCP servers (CC-L9 listed many): document it in Customizing agents; revisit if Claude gains a narrower flag
 - (RV-145 design) the workflow contract table (T-1029) covers scratch, lane and target, not the review methods (tested on their own today): extend it with their portable outcomes before a second workflow implementation. Also `checks.ScratchFF` holds the config twice (`Scratch.Options.Cfg`, `Lane.Cfg`): one when next touched.
 - (RV-143 verify design) `specSetRev` parses the rev from the spec-set reply's text (T-1026), coupling replay to reply wording: keep the format, or a structured rev when the record is next revised.
-- (RV-141, accepted) (RV-141 verify design) the prepare-time head is no longer read: checks.Lane.Prepare's git merge-base and prepareOut.Head remain, and docs/state-model.md:293 and port/effects.go:380 still describe the old head; deleted in T-1017
-- (RV-141 #2, accepted) A rejected task whose branch the owner merges by hand keeps its lane `working` until `obor drop` (T-1012 removed the ancestry read that freed it); the drop is the explicit step. Also accepted: view/dispatch/restore still compare lane state strings (one decider in port, several readers of its output).
-- (RV-140, accepted) (RV-140 design) internal/run TestRunRcArgsTimeout and TestExecuteLeavesNoGroup mix a real wait with quick assertions; split the quick cases out of the Slow tests when next touching them (plan step 2 covers run's tests)
-- (RV-139, accepted) (RV-139 verify 2, P2) OBOR_FULL=1 forced full returns before scanning files, so with_full release/web checks are skipped (classify.go:~43); fix in T-1008
-- (RV-139, accepted) (RV-139 verify 2, P1) the Makefile's -seed recipe redirects into tests/budget.json, truncating it before -seed reads its caps; fix in T-1008 (seed writes the file itself, atomically)
-- (RV-139, accepted) (RV-139 #3) restricted-PATH tests hide child git calls from the budget counter (already accepted)
 - (lead 11-08) `TestScratchCutTable` costs 31 s of work at 2 cores even after T-1000 (TestNightly 6.7 s, lane tests 2-4 s): they stay in -short with caps (T-1004 rev 5); a speed-up task for them lets the caps drop.
-- (RV-139, accepted) #3: tests that replace PATH (cmd/obor TestInitEndToEnd) hide their child's git calls from the budget's counting wrapper; one fixed test, its count does not grow by itself. Design notes: `release_tests` duplicates `check_release` only to drop `heavy` (merge if a second such duplicate appears); T-1001 lost TestUpgradeBrokenBuild's negative case (`make upgrade-check` runs the real upgrade).
 - (lead 11-07) opencode (deepseek) workers ignored Escape twice (T-958, T-992), both needed `obor drop --force`.
-- (RV-131, accepted) RV-131 #1: a crash between SetSpec's commit and the spec.set receipt, then another writer's spec within the 15 s retry, lets the retry write the old text as a new rev (internal/app/specs.go:88-100; docs/state-model.md:396-400). Very low likelihood; fix = spec + receipt in one transaction, 60-120 prod lines
 - (lead 11-06) Empty `index.lock` files appeared in all four lane worktrees (`.git/worktrees/L-0x/index.lock`) at 12:31, with no git running; every dispatch then failed `lane.prepare … checkout -B … exit status 128`. Serve had not restarted (up since 12:15); the deep dive (12:22) and the RV-127 verify (Codex sandbox) were the only other agents. Removed by hand. If it recurs: find who runs git in the lanes and dies; `lane.prepare` could name the lock in its FAIL.
-- (RV-126, accepted) #2 rest: a process crash inside the close's commit window leaves an --accept line staged (a retry commits it twice) or the review file orphaned (post-commit crash; gitignored here); a removal error after the commit keeps the fold open until serve restarts. Crash-only; a durable close transaction is 60-120 prod lines
-- (RV-126, accepted) #3 a lost reply's same-id retry after a recovered close says 'no open review' although the close committed (one commit, one fact); needs a crash between commit and fact plus a retry; fix 30-70 lines
-- (RV-125, accepted) #1 upgrade with a released fix round open loses its links and verify: covered by docs/UPGRADE-v0.29.md (close the round first or add Fixes: lines); a legacy fold would be 70-140 prod lines of compat for one upgrade moment
-- (RV-125, accepted) #2 a closed review's fixes stay in obor status until the next review starts (stale line, every cycle): goes with T-926 (close through serve: the review.closed fact clears the fix snapshot)
-- (RV-125, accepted) design: a fix spec that also carries Review: on merge queues a fresh review its verify already covers; lead rule: a Fixes: spec carries no Review: on merge
-- (RV-124, accepted) verify #1 reverse direction: a client built between T-896 and T-921 (open/locked fields) misreads a new serve's ended/free; no release ever shipped open/locked (v0.28.0 clients read state strings, which serve still ships) and the running obor web predates T-896; dev-only window, no legacy fields (they would be compat code for an unreleased shape)
-- (RV-124, accepted) design concern: the lane section classifies waiting from the displayed state string (`cmd/obor/status.go`, `t.TaskState != "waiting"`); a waiting task whose dependency dropped shows as needs-you instead (waiting_test.go:232), pre-existing; serve ships a waiting predicate on the next touch of that line (the queue's half is T-1043)
 - (lead 11-05) An empty untracked `.obor/obor.db` (0 bytes, 21:54) appeared in the main checkout and blocked `obor review close` (dirty); moved to the lead's scratchpad. Not `obor serve dump`. Something opened the store at `.obor/` instead of `.obor/state/` (an empty derived dir?): find the caller if it recurs (AGENTS.md: empty derived value fails closed).
-- (RV-123, accepted) RV-123 #3: scripts/ship parses obor projects' rows with awk; wrong for a spaced path or an empty registry; ship runs only in obor-kit; fix 5-15 shell lines if a second shipper appears
-- (RV-120, accepted) RV-120 V1 (P2, low): an unknown lane keeps its quiet/blocked/lost timestamps, so the unobserved interval counts on recovery (false stall/blocked needs-you) — folded into T-879 (unknown or stale observation resets every elapsed-time baseline, case table).
-- (RV-119, accepted) RV-119 #1 rest (P2, low likelihood): a resumed worker whose job wake herdr refuses (blocked agent) stays idle; launch's warning goes to serve's io.Discard and the start rule counts it a success. Covered by the stalled-worker needs-you; fix only if seen (wake outcome back to the rule, 30-70 lines).
-- (RV-118, accepted) (RV-118, accepted) idle's key/time ignore the record that clears a non-rule needs-you (e.g. the disk watcher's below-5-GiB needs-you, internal/app/disk.go:38-67; its resumed fact is not an idle end candidate, idle.go:138-145): after such a needs-you clears, the old key, age and acknowledgement stay and no new idle line comes. Rare (disk < 5 GiB); fix 25-50 lines (count the clearing record when it empties the pipeline)
-- (RV-113, accepted) (RV-113, accepted) 4b: an open review started by an obor older than the review.started fact closes at an unfinished manual verify's head (refs/obor/reviewed moves at brief time, reviewverify.go:519; reviewcycle.go:233 falls back to it); needs such an old open review + an unlinked manual verify that fails or is superseded; none exists; fix 25-55 lines (move the fallback ref only on a finished verify)
 - (11-05) Load flakes in internal/app's role-brief tests, only on T-852's gates so far (load ~30): TestReviewerBriefEndsIdleAndANewEpochStarts,
   TestBriefEndsWhenItsAgentIsGone/not_identified (62 s wait); both pass alone and in the package at load 19. If one
   recurs on another task: a flake task (what the test waits on under load).
@@ -97,68 +66,20 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
 - (11-05) `obor drop T-851 --discard` failed halfway: `FAIL drop: git branch -D task/T-851: signal: terminated` left
   the lane freed but the task `working`; the same drop again finished it. A drop that fails after freeing the lane
   should say "retry the same obor drop" (or record the drop before the branch delete). Likely under load; fix small.
-- (RV-112, accepted) (RV-112, constructed) guard skips combined short (git checkout -qd) and abbreviated long (--det) detach spellings in the main checkout; no workflow uses them; fix in internal/guard/shell.go:830 if one shows up
-- (RV-110, accepted) (RV-110, accepted) #1 T-840's schema-8 refusal test reads old rows only through ReadLanes; ReadLaneAt/ReadLanesAt (guard, Stop hook, whoami) are not exercised on schema 8; needs a pre-v0.22 serve during an upgrade (no project runs one); fix 10-15 test lines in internal/store/store_test.go if it ever matters
-- (RV-108, accepted) (RV-108, accepted) #1 the stop bound (T-829) does not bound the herdr calls inside Launcher.Stop: a forced stop with a slow herdr can outlast the CLI's 75 s (drop) or be cut by drive/move's 60 s request context; second review round on T-825/T-829, low likelihood; fix: one derived deadline through every herdr call of Stop (20-40 prod + 40-70 test lines)
-- (RV-106, accepted) review close leaves a still-queued verify brief alive (reviewverify.go:77, reviewcycle.go:132): it can start the stopped reviewer on a deleted review and hold merges up to the cap; low (close while a verify waits on a busy/unavailable reviewer); fix 40-80 lines (close retires it). Workaround: wait for the verify, or obor brief <reviewer> --fresh before closing.
-- (RV-106, accepted) a verify brief whose delivery broke after some bytes (sent: <error>) counts its tasks as covered (review.go:641-653); low; fix 20-50 lines (uncertain delivery not counted).
-- (RV-104, accepted) #2 remainder: obor idle's ack call reads the epoch under a.mu and records after releasing it, so an ack racing a brief/dispatch replies ACKED for an epoch that just ended (folding ignores it); low (two actions within ms), fix 20-50 lines.
-- (RV-104, accepted) #3 remainder: Ctrl-C/SIGTERM during a live conformance run: cancellation is checked only before the kinds start, so setup or H-L6 can race the cleanup; occasional, recovery is a rerun (setup stops a pre-existing obor-conf-<kind> session), fix 40-100 lines.
-- (RV-104, accepted) #4 remainder: obor status does not read .obor/state/conformance.json (passed/partial/failed); the run output and the file carry it; a status line is a 40-100 line feature, not asked for.
-- (RV-103, accepted) conformance live runner uses fixed session names (obor-conf-<kind>) and stops a pre-existing one: two runs at once collide; unlikely (lead/owner run it by hand), fix: a per-run suffix if it ever bites.
 - (lead 11-04) **Flake**: `TestHoldAndResume/resume_reprompts` (internal/app/jobs_test.go:394) failed under full-check load in T-804's gate ("resume T-1: T-1 has review.2 running; retry when it settles", 5.1 s), passes alone; T-804 touches no internal/app. Fix if it recurs: wait for the review step to settle instead of a fixed deadline.
-- (RV-102, accepted) #2 remainder: setup rename interrupted between config.json and local.json, then rerun, leaves a legacy derived allow_push entry (e.g. ob-lead) unconverted; unlikely (an interrupted rename with the entry in local.json only), fix ~20-40 lines (normalize both files before any prefix write); fix by hand: write the role name (lead).
-- (RV-102, accepted) T-793: a lead's git -C <lane> push passes the shell guard but the pre-push hook (run in the lane) classifies the caller as the lane's worker and refuses; unlikely (leads push main from the main checkout), fails closed, fix 20-50 lines (one identity contract for guard and hook).
-- (RV-101, accepted) (RV-101 #2 rest, low) a no-pane reread can overwrite a newer stream label of the same pane (concurrent relabel); the launcher refuses the wrong pane, so at worst a needs-you. Fix if seen: observation generation per pane (internal/app/dispatch.go waitPane)
-- (RV-101, accepted) (RV-101 #3, low) `no-plugin` can show right after a manual `obor restart` of an opencode worker whose marker predates the dispatch: the 2-min grace counts only serve's `agent.start` events. It clears once the new session's first event writes the marker. Fix if it confuses: record manual starts too (internal/view/view.go lastStarts).
-- (RV-100, accepted) (RV-100 #2, low) obor status shows the next nightly as tomorrow while today's waits on a gate/publish or was just switched on
-- (RV-99, accepted) (RV-99 #2 rest, low) setup migrate straight from a pre-v0.23 config: an agents entry mapped to a role by its name (fable-advisor) gets the bare model, dropping its old lane type's --effort. No live project needs it (axis-alies is v0.23-shaped with fable:high). Fix if seen: use ref(typ) for name-inferred roles (internal/config/migrate.go:454).
-- (RV-98, accepted) (RV-98 #3 rest, low) obor restart with serve down AND an unreadable state db reads as 'no task' and restarts the lane agent idle. Fix if seen: propagate ReadLaneAt's error in resolveLaneJob (cmd/obor/restart.go).
-- (RV-98, accepted) (RV-98 #2 rest, low; RV-93 class) a worker with no identity proof (hand-started, no session, pane relabelled) reads as gone, so drop/move/takeover free its lane without stopping it. Fix if seen: whereIs 'no proof' with a live pane in the lane → refuse, not gone (internal/app/steps.go stopAgent).
-- (RV-95, accepted) (RV-95 #2, low) project list: a renamed project (name ≠ dir) whose config does not parse is dropped if another project registers meanwhile; NameAt falls back to the dir name. Fix if it happens: keep the stored name when the name cannot be read.
-- (RV-93, accepted) (RV-93 verify #1, accepted) a worker started by hand in a replacement pane with no recorded session whose label is then cleared reads as gone (whereIs 'unavailable exited/no proof'): obor drive T-xx can start a driver beside it, drop omits its warning; post-merge stopWorker shares it (predates T-758). Needs three manual steps; fix would add a lane-wide live-agent check
-- (RV-92, accepted) (RV-92 #5, accepted) a hand edit of .obor/config.json saved while a Setup edit commits can be overwritten: needs both at once
-- (RV-92, accepted) (RV-92 #6 remainder, accepted) a Setup edit whose POST succeeds but whose refresh fails re-enables the controls on the stale list; a second edit can undo the first. Local server, rare; separate tabs keep their own snapshots (last writer wins)
-- (RV-90, accepted) obor drop fails while the lane's agent still runs (git checkout --detach exit 128, the FAIL text does not say why); stop the agent first. Seen 2026-11-02 dropping smoke T-743
-- (RV-89, accepted) #1 rest: a successful empty pane re-read followed by serve shutdown before the step applies it records needs-you{no pane in lane}: unlikely (shutdown in that interval); fix 3-8 lines (ctx.Err() check before the fact)
-- (RV-89, accepted) #2 rest: an older re-read can overwrite the lane pane's cwd from a newer stream event during the read: unlikely; fix 20-40 lines (per-pane observation generation)
-- (RV-87, accepted) #2 replayed worked brief with a closed pane ends after the 1-min grace, not on the first pass: unlikely (serve restart + pane closed), costs a minute; fix 30-70 lines
-- (RV-87, accepted) verify: docs/design.md ~471 says a hold-role brief holds publishes while open without the 30-min cap (stated at ~241-245): one line, fold into the next task that edits docs/design.md
-- (RV-86, accepted) #4 bg label lost for later commands in a background shell (make build && go test): display only, likely; third round on the bg label (RV-85 #3, T-728); fix ~15-30 lines if it bites
-- (RV-84 2nd verify #3, accepted: rare) `obor stop`: if unregister or the marker write fails after serve exited,
-  the prior pause is lost (persist it in a recovery record before shutting serve down, ~20-50 lines).
-- (RV-84 2nd verify #4, accepted: rare) macOS: an installed but unloaded plist plus a pane serve: stop exits the
-  serve but leaves the plist (run the ownership-checked Uninstall even when unloaded, ~3-10 lines). Next time
-  cmd/obor/sleep.go is touched.
-- (RV-84 verify, accepted) `obor stop`: a pause cleared by another client during the stop transition is not
-  guarded; a serve-owned stopping state would be (design concern), not worth it for a convenience command now.
 - (T-684 concern) `patience()` lets one hung test eat the whole package deadline, so parallel siblings fail on the
   1 s floor (one failure read as eight at v0.18.1). A per-wait cap (~60 s) keeps failures local. Small; next test task.
 - (RV-77 design concern, logged) `scripts/ship` counts a release done by draft state and asset names only, not its
   title/notes; a partly published release stays incomplete on rerun. Low once T-683 refuses before create.
 - (v0.18.0 release, 11-02) `TestStopForceTerminates` failed once under the full check (60 ms waits for a fake agent;
   passes alone): same family as the flaky `TestStopEveryKind`. Widen the test's waits if it fails again.
-- (RV-68 #3, accepted: low) A needs-you repeat claimed before a task closes can be appended after the close (claim
-  and append are not serialized with the close); fixing needs a lock-order change.
 - (RV-67-verify-2 #2, owner 11-01: ship + document) init placement infers ownership from pane cwds: (a) a workspace
   whose only pane is a shell cd'd into the project counts as the project's; (b) on a rerun after an earlier
   misplacement S-01 can follow O-01's clean tab inside a mixed workspace. Documented (README, design Setup); a stored
   project→workspace identity only if it bites.
-- (RV-67-verify #1, accepted) `obor init` appends its lines to an existing `.gitignore` in a repo with commits (by
-  design, printed, not committed); byte-identical pre-existing template files in an unborn repo count as init's
-  (constructed).
-- (RV-66 #1, accepted: by design) A pane labelled with an agent the config no longer names is still identified by
-  its label: T-605 removed start-row and session proof only; labels name hand-started panes.
-- (RV-65-verify #2, accepted: rare) The "session not recorded" warnings say a restart resumes the last recorded
-  session; with none recorded it resumes herdr's, else asks for `--fresh` (state-model row 51 is the contract; T-599's
-  "starts fresh" promise is dropped).
 - (T-606) Other "oldest/first" choices that range over `p.loop` (a map) go by Go's map order: job_next's did
   (T-602 → T-606, a flaky gate). Sweep: each such choice orders by intent seq or task; a candidate for the `proj`
   split's folded-state step.
-- (RV-64, accepted: unlikely, fixes add code) #1 a hand relabel of an idle pane reaches serve only with its next
-  status/update event or a reconnect (herdr's rename emits no event; serve's own relabels are followed by an agent
-  start's events); #2 an interrupted `obor setup rename` rerun reads the new prefix as the old one (rename is once per
-  project: finish it by hand); #5 rename's lane `opencode.json` loop skips an unreadable file silently.
 - (T-596) Under launchd `.obor/state/logs/serve.log` is never rotated (worker: rotate at serve start, keep `.1`); and
   `obor status` tests on darwin run a real read-only `launchctl print`. Small follow-ups, not urgent. While herdr is
   down serve stays up but gates/merges nothing (lead's call 10-31: outages are short).
@@ -177,8 +98,6 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
 - (10-30) The lead's handoff reminder rides only on prompts: an idle lead (or one in a long tool run) gets none
   until its next prompt. Fold into phase 6's context % (status-line JSON).
 - (T-563) opencode usage limits are still not read (its session store is not parsed); Codex done (T-563..T-569).
-- (RV-56 #4, accepted) A StopFailure that arrives after serve already queued a role's `finished` line gives the lead
-  both lines; both are true, the `stopped` one says why. A guaranteed order needs a turn-outcome signal (40-70 lines).
 - (T-524, low) The job intent's outer `a.do` around a start logs an extra error line when the start returns
   "running" or is refused; old logs' pending prompt intents stay pending and count in serve's load line (S1b removes
   them).
