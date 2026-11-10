@@ -38,7 +38,7 @@ func UserDir(env map[string]string) string {
 func Overridden(kit string, over *agents.Override, userDir string, read func(string) ([]byte, error),
 	list func(string) ([]os.DirEntry, error)) []byte {
 	doc := map[string]any{}
-	plugins := []any{"file://" + filepath.Join(kit, Name)}
+	plugins := []any{pluginEntry(kit)}
 	servers := map[string]any{}
 	if over != nil {
 		doc = agents.Merge(nil, over.Settings)
