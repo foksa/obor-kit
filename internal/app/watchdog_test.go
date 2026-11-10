@@ -485,8 +485,8 @@ func TestBlockedNeedsYouCarriesTheQuestion(t *testing.T) {
 	}
 }
 
-// question is what a blocked pane shows: its last non-empty lines, trimmed, at most questionLines of them and
-// questionChars runes; a Screen error is no text.
+// question is what a blocked pane shows: its last non-empty lines from a questionScreen-line window, trimmed, at most
+// questionLines of them and questionChars runes; a Screen error is no text.
 func TestPaneQuestion(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -498,6 +498,9 @@ func TestPaneQuestion(t *testing.T) {
 			screen: "\n  Do you want to proceed?  \n\n  1. Yes\n2. No\n\n", want: "Do you want to proceed?\n1. Yes\n2. No"},
 		{name: "at most questionLines lines",
 			screen: "1\n2\n3\n4\n5\n6\n7", want: "2\n3\n4\n5\n6\n7"},
+		{name: "the question above blank rows, a border and a footer deeper than questionLines raw lines",
+			screen: "Do you want to proceed?\n❯ 1. Yes\n  2. No\n" + strings.Repeat("\n", 6) + "────────\n? for shortcuts",
+			want:   "Do you want to proceed?\n❯ 1. Yes\n2. No\n────────\n? for shortcuts"},
 		{name: "at most questionChars runes",
 			screen: strings.Repeat("é", questionChars+1), want: strings.Repeat("é", questionChars)},
 		{name: "a Screen error is no text", err: errors.New("pane.read: no such pane")},

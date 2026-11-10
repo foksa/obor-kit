@@ -3878,9 +3878,19 @@ func (f *fakePanes) Activity(context.Context, port.Pane) (time.Time, bool) {
 	return f.last, !f.last.IsZero()
 }
 
+// Screen is what the pane shows, its last lines raw (lines is honoured, as herdr's pane.read does): the question a
+// blocked pane shows sits above the TUI's blank rows and footer.
 func (f *fakePanes) Screen(_ context.Context, pane string, lines int) (string, error) {
 	f.screens = append(f.screens, pane)
-	return f.screen, f.screenErr
+	text := f.screen
+	if lines > 0 {
+		raw := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
+		if len(raw) > lines {
+			raw = raw[len(raw)-lines:]
+		}
+		text = strings.Join(raw, "\n")
+	}
+	return text, f.screenErr
 }
 
 func (f *fakePanes) Turn(context.Context, port.Pane, string) (agents.Turn, bool) {

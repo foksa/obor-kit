@@ -299,16 +299,20 @@ type evidence struct {
 	turned bool
 }
 
-// questionLines is how many of a blocked pane's screen lines its needs-you carries, questionChars their cap.
+// questionScreen is the visible lines question reads: an agent TUI's bottom rows are blank rows, a border and the
+// footer, so the question sits well above the last questionLines raw lines. questionLines is how many non-empty lines
+// of that window the needs-you carries, questionChars their cap.
 const (
-	questionLines = 6
-	questionChars = 300
+	questionScreen = 40
+	questionLines  = 6
+	questionChars  = 300
 )
 
 // question is what a blocked pane shows: its last non-empty screen lines, trimmed, at most questionLines of them and
-// questionChars runes. "" when the screen cannot be read: the fact is recorded without it.
+// questionChars runes. The cap cuts the end (the options) deliberately: the question comes first. "" when the screen
+// cannot be read: the fact is recorded without it.
 func (a *App) question(ctx context.Context, pane string) string {
-	screen, err := a.panes.Screen(ctx, pane, questionLines)
+	screen, err := a.panes.Screen(ctx, pane, questionScreen)
 	if err != nil {
 		a.logf("screen of %s: %v (the blocked needs-you without its question)", pane, err)
 		return ""
