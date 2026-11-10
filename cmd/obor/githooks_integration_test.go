@@ -71,7 +71,11 @@ func TestGithooksRealBinary(t *testing.T) {
 	kit := testkit.Dir(t)
 	kitWithHooks(t, kit, build(t))
 	p.Git(p.Root, "config", "--local", "core.hooksPath", filepath.Join(kit, "githooks"))
-	env := []string{"HOME=" + filepath.Join(p.Base, "home"), "GIT_TERMINAL_PROMPT=0"}
+	// The same 30 s the hooks' own tests (internal/setup) give whoami: this test asserts the rules, not the hook's
+	// watchdog, and a loaded machine's cold build must not be mistaken for a hang (the timeout refusal has its own
+	// test there, with a 1 s bound).
+	env := []string{"HOME=" + filepath.Join(p.Base, "home"), "GIT_TERMINAL_PROMPT=0",
+		"OBOR_PRE_COMMIT_WHOAMI_TIMEOUT=30"}
 
 	// A worker's commit in its lane: the hook asks the binary (whoami: role worker, source cwd) and refuses.
 	p.Write(filepath.Join(lane, "feature.txt"), "feature\n")
