@@ -92,7 +92,7 @@ func (p *proj) foldJob(r event.Record) {
 		if d.Call != "" {
 			p.folded.calls[verdictStep(wire.MethodDrop, d.Call)] = dropReply(r.Task)
 		}
-	case r.Kind == event.KindFact && r.Step == event.StepDropping: // Its DROPPING reply
+	case r.Kind == event.KindFact && r.Step == event.StepDropping: // its DROPPING reply
 		var d dropData
 		_ = json.Unmarshal(r.Data, &d)
 		if d.Call != "" {

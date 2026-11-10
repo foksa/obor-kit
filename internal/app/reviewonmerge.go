@@ -1,5 +1,5 @@
 // reviewonmerge.go: the Review: on merge rule: a hard or risky task's spec asks serve for a review as
-// soon as it merges. It replaces the lead's per-task watch and hand-run obor review for these tasks
+// soon as it merges, so the lead need neither watch the task nor ask for the review by hand
 // (skills/lead/SKILL.md).
 package app
 

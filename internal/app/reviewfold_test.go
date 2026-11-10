@@ -159,10 +159,10 @@ func TestReviewFold(t *testing.T) {
 }
 
 // obor status' "review due" line is the fold's scope, counted on every pass: at 3 merges none, at 4 "review
-// due: 4 merges since the last review", none once a review started on them.
+// due: 4 merges since RV-4", none once RV-5 started on them.
 func TestReviewDueFromTheFold(t *testing.T) {
 	t.Parallel()
-	r := newReviewRig(t) // a review closed, T-a and T-b merged since
+	r := newReviewRig(t) // RV-4 closed, T-a and T-b merged since
 	r.mergedAt("T-c", "ccccccc3")
 	r.tick()
 	if got := r.a.Status().Project.Review; got != "" {

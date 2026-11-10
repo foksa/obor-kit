@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// the project's pause (docs/state-model.md row 46): `obor pause [--for <dur>] "<why>"` records fact
+// The project's pause (docs/state-model.md row 46): `obor pause [--for <dur>] "<why>"` records fact
 // paused{why, until} on the project's task key pause; while it holds (no until, or until still ahead) a dispatch is
 // refused with its reason and a waiting task stays waiting (both through dispatchTask). Running gates, accepts and
 // merges finish. `obor pause --clear` records fact unpaused; a pause past its until ends by itself.

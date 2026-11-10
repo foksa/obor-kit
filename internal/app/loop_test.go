@@ -391,7 +391,7 @@ func TestPendingRestartGoesInTheFirstGap(t *testing.T) {
 		t.Fatalf("restarted %d times with T-1's lane test running, want 0", n)
 	}
 
-	// t-5's gate goes green while the restart waits: its lane test starts beside the pending restart (no
+	// T-5's gate goes green while the restart waits: its lane test starts beside the pending restart (no
 	// drain), runs and ends, and the restart holds for it.
 	close(f.release)
 	r.waitFor("T-5's lane test", func() bool { return f.count(f.tests, "T-5") == 1 })
@@ -400,7 +400,7 @@ func TestPendingRestartGoesInTheFirstGap(t *testing.T) {
 		t.Fatalf("restarted %d times while T-1's lane test runs, want 0", n)
 	}
 
-	// A task submitted now goes through its gate to a lane test beside the pending restart, in turn with
+	// A task submitted now (T-6) goes through its gate to a lane test beside the pending restart, in turn with
 	// T-5's: the restart still waits.
 	r.add("pj", "T-6", event.StepSubmitted, event.KindFact, submitData{Lane: "L-06"})
 	r.add("pj", "T-6", event.StepSubmit, event.KindResult, submitOut{SHA: "s6"})

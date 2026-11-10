@@ -207,9 +207,9 @@ func settledThenIdle(t *testing.T, h *harness) {
 	}
 }
 
-// an undelivered answer ends when its question is settled another way (axis-alies' 23-min-old answer was to be
-// delivered late into the working session): the worker submits (task_done), asks again (a new Blocked: report), or the
-// task is unblocked (obor resume of a merge-loop needs-you). One case per trigger.
+// An undelivered answer ends when its question is settled another way: the worker submits (task_done), asks again
+// (a new Blocked: report), or the task is unblocked (obor resume of a merge-loop needs-you); a settled answer is
+// never delivered, not even into the session that asks next. One case per trigger.
 func TestUndeliveredAnswerEndsWhenSettled(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {

@@ -96,8 +96,8 @@ type (
 	// startOut is agent.start's result, and the integrator's start.<job> (not "running"): not refused, its job's
 	// delivery (startJob). Agent, Pane, Terminal, Kind, Session: the agent started there, the pane's terminal id, its
 	// kind and herdr's session id of it ("": none reported, or a replay that saw it in the snapshot): the start row of
-	// the identity table (foldStart). Config is the config revision the start was launched under (config.Config.Rev,
-	// the start's row keeps it, so a keep lane reuses the agent only while the config is that same config
+	// the identity table (foldStart). Config is the config revision the start was launched under (config.Config.Rev).
+	// The start's row keeps it, so a keep lane reuses the agent only while the config is that same config
 	// (startFits). agent.start's alone: the integrator's start.<job>, and an older record, carry none.
 	startOut struct {
 		Line     string `json:"line,omitempty"`
@@ -382,7 +382,7 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Dispat
 	if err != nil {
 		return "", fmt.Errorf("dispatch %s: %v", c.Task, err)
 	}
-	if why := a.specDropped(p, c.Task); why != "" { // A spec-only drop, until a new rev
+	if why := a.specDropped(p, c.Task); why != "" { // a spec-only drop, until a new rev
 		return "", fmt.Errorf("dispatch %s: %s", c.Task, why)
 	}
 	if why, err := fx.Specs.Check(ctx, c.Task, row.Text); err != nil || why != "" {
@@ -391,7 +391,7 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Dispat
 		}
 		return "", fmt.Errorf("dispatch %s: %s", c.Task, why)
 	}
-	if err := a.fixesCheck(p, c.Task, row.Spec); err != nil { // A fix links to the open review only
+	if err := a.fixesCheck(p, c.Task, row.Spec); err != nil { // a fix links to the open review only
 		return "", err
 	}
 	cfg, err := config.Load(p.root)
@@ -412,7 +412,7 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Dispat
 	if err != nil {
 		return "", fmt.Errorf("dispatch: lanes of %s: %v", p.name, err)
 	}
-	keep := c.Lane != "" && cfg.KeepLane(c.Lane) // A dispatch naming a busy keep lane queues
+	keep := c.Lane != "" && cfg.KeepLane(c.Lane) // a dispatch naming a busy keep lane queues
 	if len(c.After) > 0 {
 		if reply, err := a.waitTask(p, c, ls, keep); err != nil || reply != "" {
 			return reply, err

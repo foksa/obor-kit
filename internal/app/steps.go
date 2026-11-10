@@ -210,7 +210,7 @@ func (a *App) gate(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 	case stMoved:
 		// The submitted sha, never the old candidate (one merge commit per task); the subject rule stays.
 		g.Kind, g.Input = port.InputMoved, mt.input
-		g.Resolved = mt.resolved // A replayed resolution must equal the checked one
+		g.Resolved = mt.resolved // a replayed resolution must equal the checked one
 	}
 	in := event.Intent{Key: event.Key{Task: mt.task, Attempt: mt.attempt, Step: nth(event.StepGate, mt.gates+1)}, Class: event.ClassGit,
 		Data: gateIn{Kind: g.Kind, Lane: mt.lane, Input: g.Input}}
@@ -255,7 +255,7 @@ func gateResult(task string, o port.GateOutcome) gateOut {
 	case port.OutcomeRed:
 		return gateOut{Outcome: outRed, Line: o.Line}
 	case port.OutcomeConflict:
-		if o.Mismatch != nil { // The reason and the checked resolution reach the resolve job
+		if o.Mismatch != nil { // the reason and the checked resolution reach the resolve job
 			return gateOut{Outcome: outConflict, Line: o.Line, Mismatch: o.Mismatch}
 		}
 		return gateOut{Outcome: outConflict, Line: fmt.Sprintf("CONFLICT in %s: %s", o.Dir, strings.Join(o.Files, ", "))}

@@ -14,7 +14,7 @@ import (
 	"obor/internal/agents"
 )
 
-// a Claude agent whose turn ended on an API error (docs/state-model.md row 50): Claude Code fires StopFailure
+// A Claude agent whose turn ended on an API error (docs/state-model.md row 50): Claude Code fires StopFailure
 // instead of Stop, and its hook (`obor hook stop-failure`) sends serve the agent, the error (rate_limit, overloaded,
 // billing_error, … unknown: any value, no mapping) and its details. Serve records fact stopped{agent, error, details}:
 //   - a role agent (the reviewer, the deep dive, the advisor, the integrator, …): the fact carries the lead's line
@@ -39,7 +39,7 @@ import (
 // Reset) until the agent's next turn (fact turned: its UserPromptSubmit or Stop hook's turn request, or a Codex
 // rollout's later turn, roleTurns), and serve wakes it after the reset (stopwake.go). Its finished line comes after.
 //
-// a turn's start and its end are different evidence. The evidence: a hook's turn request
+// A turn's start and its end are different evidence. The evidence: a hook's turn request
 // (UserPromptSubmit: the start; Stop: the end, TurnReq.Ended), or a transcript's last turn (Codex: task_started the
 // start; task_complete, turn_aborted the end, with its error; agents.Turn.Ended). What it does is decided in one place,
 // turnDecide, from the state it meets: a stop in force; for a role agent's open brief, a turn followed (one started

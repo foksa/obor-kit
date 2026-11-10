@@ -405,7 +405,7 @@ func TestDropStopsTheWorker(t *testing.T) {
 	})
 }
 
-// The old case (11-05: a cut git branch -D left the lane free and the task working): the drop is recorded before its
+// A cut git branch -D must not leave the lane free while the task works: the drop is recorded before its
 // lane steps, so a lane.free that fails after the record is the loop's to retry, counted, and the third failure is one
 // needs-you{lane.free failed} that obor resume retries; throughout the task is dropping (no task_done, no step of its
 // old state) with its lane row its own, and its worker is stopped once. Never a half-done drop.

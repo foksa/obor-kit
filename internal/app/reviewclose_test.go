@@ -270,7 +270,7 @@ func TestReviewCloseSnapshotStands(t *testing.T) {
 				head, tasks, scope, finish = startHead, []string{"T-start"}, []string{"T-a", "T-b"}, r.finish
 			} else {
 				r = newReviewRig(t)
-				r.started() // the review at headSHA, T-a and T-b in scope
+				r.started() // RV-5 at headSHA, T-a and T-b in scope
 				openReviewFile(t, r.p.root)
 				r.mergedAt("T-fix", h2)
 				r.fact(event.MsgTask, event.StepBriefed, event.Message{To: "pj-rev", Line: "verify", Task: "T-fix",

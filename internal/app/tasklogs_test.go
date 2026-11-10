@@ -215,7 +215,7 @@ func TestTaskLogsGoWhenTheTaskEnds(t *testing.T) {
 	})
 }
 
-// testTaskLogsGoAtLoad: serve's load removes the logs of every task the replayed log folds as ended (what an
+// TestTaskLogsGoAtLoad: serve's load removes the logs of every task the replayed log folds as ended (what an
 // upgrade or a serve down at its end left); an open task's logs and a task the log does not know keep theirs.
 // load reads the logs dir once for all of them, not once per ended task.
 func TestTaskLogsGoAtLoad(t *testing.T) {
@@ -235,7 +235,7 @@ func TestTaskLogsGoAtLoad(t *testing.T) {
 		logFile(t, h, "T-2", "after_merge"),
 		logFile(t, h, "T-3", "stop"),
 	}
-	open, unknown := logFile(t, h, "T-4", "check"), logFile(t, h, "T-5", "check") // No record at all
+	open, unknown := logFile(t, h, "T-4", "check"), logFile(t, h, "T-5", "check") // T-5: no record at all
 	reads := 0
 	h.a.opt.ReadDir = func(dir string) ([]os.DirEntry, error) {
 		reads++

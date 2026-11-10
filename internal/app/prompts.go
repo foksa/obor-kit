@@ -6,7 +6,7 @@ import (
 	"obor/internal/store"
 )
 
-// the text of every prompt serve sent (the store's prompts table, store/prompts.go): a job's text (job_next's
+// The text of every prompt serve sent (the store's prompts table, store/prompts.go): a job's text (job_next's
 // reply, one row per distinct text a job's fetch returned), a brief's line, a fresh start's first prompt. A
 // payload, not state: never folded or replayed, so a restart keeps only what the log carries. A failed write is logged
 // and never fails the job or brief it belongs to.

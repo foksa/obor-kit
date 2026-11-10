@@ -161,7 +161,7 @@ func TestPausedScratchReleased(t *testing.T) {
 			h.pass(ctx)
 			p := h.a.p
 			cause := event.CauseHeld
-			if release == "regate" { // A hold takes the decision; --regate is the owner's choice past K
+			if release == "regate" { // a hold takes the decision; --regate is the owner's choice past K
 				cause = causeSendbacks
 			}
 			h.a.needsYou(p, p.folded.loop["T-1"], cause, "held")

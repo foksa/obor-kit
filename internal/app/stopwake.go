@@ -26,7 +26,7 @@ import (
 // The stop ends with the worker's next turn as before (turnCall, turnStop); a limit hit again is a new stop with its
 // own reset. A stop that is no limit (billing, unknown) gets no wake: the needs-you it is.
 //
-// a role agent (not the lead) stopped on a usage limit with its brief open (stopped.go roleStop: the brief
+// A role agent (not the lead) stopped on a usage limit with its brief open (stopped.go roleStop: the brief
 // stays open, the stop on it) gets the same, from deliver's pass (roleWakes): the wake, a line to the agent under the
 // key continue.<the wake's time>.<agent> of the project's lines, sent as the worker's is; the alarm, still stopped
 // wakeAlarm after the first wake: the lead's line "<the stop's line>; still stopped 30m after the reset wake" (fact

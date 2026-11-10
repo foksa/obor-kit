@@ -75,12 +75,12 @@ func (a *App) Status() wire.Status {
 		}
 		for _, mt := range p.folded.loop {
 			if mt.state != stMerged {
-				waiting := mt.is(stWaiting) // The predicate the view's queue lists, never State
+				waiting := mt.is(stWaiting) // the predicate the view's queue lists, never State
 				ts := wire.TaskStatus{Task: mt.task, Lane: mt.lane, Attempt: mt.attempt, State: mt.shown(),
 					Ended: states[mt.state].ended, Phase: a.phaseOf(p, mt, steps), Stage: a.stageOf(p, mt, steps),
 					Effort: mt.disp.Effort, Waiting: waiting}
 				row, hasSpec, err := specOf(p, mt.task)
-				if err == nil && hasSpec { // The spec's external id
+				if err == nil && hasSpec { // the spec's external id
 					ts.Ref = row.Spec.Ref
 				}
 				if p.running.Task == mt.task {
@@ -131,7 +131,7 @@ func (a *App) Status() wire.Status {
 		} else {
 			ps.Review = s
 		}
-		if f := p.fixes.line(); f != "" { // The open review's fix tasks, linked by their specs' Fixes: lines
+		if f := p.fixes.line(); f != "" { // the open review's fix tasks, linked by their specs' Fixes: lines
 			ps.Review = strings.TrimPrefix(ps.Review+" · "+f, " · ")
 		}
 		if q := p.folded.review; q != nil {

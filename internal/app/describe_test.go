@@ -143,7 +143,7 @@ func TestDescribeWordsEveryKind(t *testing.T) {
 	}
 }
 
-// a record whose data is not its kind's shape is shown as unreadable, bad news, never dropped (a message's drive
+// A record whose data is not its kind's shape is shown as unreadable, bad news, never dropped (a message's drive
 // is an attempt number; a bool there was the view's mirror's silent mistake).
 func TestDescribeShowsADecodeError(t *testing.T) {
 	t.Parallel()

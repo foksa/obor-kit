@@ -5,7 +5,7 @@
 // A drive is a task on a lane, so the dispatch's machinery does the work. A new drive (obor drive <name>) is a new
 // task id with the spec "Owner drive: <name>", recorded as fact dispatch{drive} on the first free untyped lane: the
 // merge loop prepares the lane (lane.prepare), and the task is driving; the CLI then starts the drive agent in the
-// owner's tab, once the lane is prepared: serve sends no job. A drive is new work only (owner 11-05): obor drive
+// owner's tab, once the lane is prepared: serve sends no job. A drive is new work only: obor drive
 // <T-xx> on a task that is not a drive is refused, never a take-over of a worker's task. While driving, serve sends
 // the task no jobs, its watchdog does not watch it, and a merge watch has no line for it.
 // obor land submits it (fact submitted{land}, the owner's summary as its report); from there it is an ordinary

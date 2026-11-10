@@ -1,8 +1,8 @@
 // stopstep.go: the stop of a task's worker as a step of the merge loop. A move (obor dispatch --model) and a
 // drop (obor drop) record their decision and answer at once; the worker's stop is then the intent worker.stop of the
 // task's next pass, before the step that needs its lane (the redo's lane.prepare and agent.start, the drop's
-// lane.free). A done stop (stopped, not running) tells the lead nothing: its own command's reply said it (a chatter
-// census); a stop that fails is the needs-you's line, which obor resume retries (a drop's that needs --force: obor drop
+// lane.free). A done stop (stopped, not running) tells the lead nothing: its own command's reply said it.
+// A stop that fails is the needs-you's line, which obor resume retries (a drop's that needs --force: obor drop
 // --force). A restart replays it: a pending intent runs again, a result is never run twice.
 // A drop is recorded before its lane steps (fact dropping): a step that fails after it is retried by the loop, or is
 // one needs-you, and the task stays dropping, its lane row its own, until fact dropped: never a half-done drop.

@@ -23,7 +23,7 @@ import (
 // which the line, `obor watch` and `obor status` add after the outcome. `obor watch --rm <list>` ends one
 // (fact unwatch); `obor watch` lists the open ones.
 
-// watchData is a watch fact's data: the task or comma list watched, who watches it, the lead's note (what it
+// WatchData is a watch fact's data: the task or comma list watched, who watches it, the lead's note (what it
 // meant to do when the set ends; one line), and the call that recorded it with its reply.
 type WatchData struct {
 	Task  string `json:"task"`

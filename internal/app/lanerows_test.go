@@ -86,7 +86,7 @@ func TestLaneRowsProjectTheLog(t *testing.T) {
 	add("T-1", 1, nth(event.StepSubmit, 3), event.KindResult, submitOut{Refused: "no"})
 	table("a refused submit keeps s2", row)
 	add("T-1", 1, event.StepMerged, event.KindFact, event.MergedData{})
-	row.Landed = true // The free rule's landed fact
+	row.Landed = true // the free rule's landed fact
 	table("merged: the row stays, landed", row)
 
 	add("T-2", 1, event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"), Agent: "pj-l-01",
@@ -355,7 +355,7 @@ var freeIn = port.FreeInput{Dispatch: port.Dispatch{Lane: "L-01"}, Discard: true
 
 func TestLaneRecordShapes(t *testing.T) {
 	t.Parallel()
-	// The dispatch fact as a log of 11-04 holds it (its keys, order and omitted empties).
+	// The dispatch fact as an older log holds it (its keys, order and omitted empties).
 	d := dispatchData{Dispatch: port.Dispatch{Lane: "L-03", Dir: "/wt/L-03", Agent: "ob-l-03", Branch: "task/T-849",
 		Target: "4cac"}, Level: "simple", Types: []string{"deepseek", "opus:medium"}, Type: "deepseek", Caller: "ob-lead",
 		Call: "c00d", Reply: "DISPATCHED"}

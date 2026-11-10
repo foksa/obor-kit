@@ -22,7 +22,7 @@ import (
 // stream that ended so (its socket went); a stream ended by the terminal's answer (a refresh, events_lost) or by ctx
 // is no loss. The first stream after a loss is the reconnect: the restore starts once its snapshot is applied.
 //
-// the terminal restarted while serve was down (a machine restart, herdr first and serve later; herdr restarted
+// The terminal restarted while serve was down (a machine restart, herdr first and serve later; herdr restarted
 // while serve was stopped or re-execing): its panes came back as shells and no stream of this serve saw the loss.
 // Serve keeps the instance of the terminal it last connected to in InstanceFile (the snapshot's Started: herdr's socket
 // file time, port.Snapshot), written at every connect where it changed. At its first connect it restores when the

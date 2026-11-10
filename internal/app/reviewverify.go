@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-// a review's fix round and its verify (docs/design.md "Role worktrees"; skills/lead/review-brief.md §3–4).
+// A review's fix round and its verify (docs/design.md "Role worktrees"; skills/lead/review-brief.md §3–4).
 // The link is derived, no record: the linked tasks of review RV-n are the dispatched tasks whose stored spec (current
 // rev) carries the line `Fixes: RV-n` (obor dispatch refuses one naming a review that is not the open one). The verify
 // is a rule (verifyRule, rules.go): while RV-n is open, its linked tasks have all merged or ended unmerged, at least

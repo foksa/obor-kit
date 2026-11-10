@@ -103,7 +103,7 @@ func TestBackup(t *testing.T) {
 	// The nightly backup prunes the prompts older than 3 days, keeps the rest.
 	for _, r := range []store.PromptRow{
 		{Seq: 1, Agent: "pj-l-01", Kind: store.PromptJob, Job: "T-1/1/work", Task: "T-1", TS: "2026-10-10T12:00:00Z", Text: "old"},
-		// 4 days old: kept under the old 14 days, pruned under the 3 this test holds.
+		// 4 days old: past promptKeep's 3 days, so the prune drops it.
 		{Seq: 3, Agent: "pj-l-01", Kind: store.PromptJob, Job: "T-1/3/work", Task: "T-1", TS: "2026-10-20T12:00:00Z", Text: "stale"},
 		{Seq: 2, Agent: "pj-l-01", Kind: store.PromptJob, Job: "T-1/2/work", Task: "T-1", TS: "2026-10-22T12:00:00Z", Text: "fresh"},
 	} {

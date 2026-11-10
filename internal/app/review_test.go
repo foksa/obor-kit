@@ -194,7 +194,7 @@ func TestReviewRequest(t *testing.T) {
 		}},
 		{"a queued request waits while RV-5 is open, then fires after its close fact", func(t *testing.T, r *reviewRig) {
 			r.started()
-			// A request already in the log (one obor review recorded before the review's start, or an older serve's).
+			// A request already in the log (one obor review recorded before RV-5's start, or an older serve's).
 			r.a.record(r.p, event.Record{Task: event.ReviewTask, Step: event.StepReviewRequest, Kind: event.KindFact}, ReviewData{By: "pj-lead", Note: "next"})
 			if r.p.folded.review == nil || !r.a.roleIdle(r.p, "pj-rev") {
 				t.Fatal("precondition: no request open, or the reviewer is not idle")
@@ -207,7 +207,7 @@ func TestReviewRequest(t *testing.T) {
 				t.Errorf("status %q", got)
 			}
 			if q := r.a.Status().Project.ReviewRequest; q == nil || q.Held != "RV-5" || q.Note != "next" || q.By != "pj-lead" ||
-				q.Since == 0 || len(q.After) != 0 { // The request as data
+				q.Since == 0 || len(q.After) != 0 { // the request as data
 				t.Errorf("status review_request %+v; want held by RV-5, note next, by pj-lead, its time", q)
 			}
 			r.closedBy("RV-5", "RV-5 closed · abcdef0 · approved · T-7")
@@ -407,7 +407,7 @@ func assertNoKitVocabulary(t *testing.T, text string) {
 }
 
 // A verify of a task merged since the previous review's start (here: during the previous verify, so not in
-// an earlier start's scope) is allowed: the verify's range is the next review's scope, read from the fold.
+// RV-5's start scope) is allowed: the verify's range is the next review's scope, read from the fold.
 func TestReviewVerifyOutsideScope(t *testing.T) {
 	t.Parallel()
 	r := newReviewRig(t)
@@ -432,9 +432,9 @@ func TestReviewVerifyOutsideScope(t *testing.T) {
 		t.Fatalf("verify of T-c, merged since the previous review started: %v", err)
 	}
 	if !strings.Contains(text, "fixed in T-c (ccccccc)") || !strings.Contains(text, " every finding ") ||
-		!strings.Contains(text, " "+redundantLine+" ") { // Design.md "Change rules" rule 6
+		!strings.Contains(text, " "+redundantLine+" ") { // design.md "Change rules" rule 6
 
 		t.Errorf("the brief: %q", text)
 	}
-	assertNoKitVocabulary(t, text) // The kit's three sentences are not serve's
+	assertNoKitVocabulary(t, text) // the kit's three sentences are not serve's
 }

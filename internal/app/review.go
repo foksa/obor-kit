@@ -16,7 +16,7 @@ import (
 	"obor/internal/config"
 )
 
-// a review request (docs/state-model.md row 52): `obor review [--after T-a,T-b] [--note "<text>"]` (the lead or
+// A review request (docs/state-model.md row 52): `obor review [--after T-a,T-b] [--note "<text>"]` (the lead or
 // the owner) records fact review.request{after, note, by} on the task key review; one is open at a time, a second
 // call replaces it, `obor review --rm` ends it (fact review.rm). A merge-loop pass fires the open request once every
 // --after task merged and the reviewer role agent is idle (no open brief, its pane idle or not running): fact
@@ -117,13 +117,13 @@ func (p *proj) foldReview(r event.Record) {
 		p.clear(event.ReviewTask)
 	case event.StepReviewRm:
 		p.folded.review = nil
-		p.folded.reviewEnd = idleEnd{r.Seq, event.RecordTime(r)}     // The request's end
-		p.folded.reviewIdleEnd = idleEnd{r.Seq, event.RecordTime(r)} // Idle's own end
+		p.folded.reviewEnd = idleEnd{r.Seq, event.RecordTime(r)}     // the request's end
+		p.folded.reviewIdleEnd = idleEnd{r.Seq, event.RecordTime(r)} // idle's own end
 		p.clear(event.ReviewTask)
 	case event.StepReviewFire:
 		p.reviewEnded(d.Request)
-		p.folded.reviewEnd = idleEnd{r.Seq, event.RecordTime(r)}     // The request's end
-		p.folded.reviewIdleEnd = idleEnd{r.Seq, event.RecordTime(r)} // Idle's own end
+		p.folded.reviewEnd = idleEnd{r.Seq, event.RecordTime(r)}     // the request's end
+		p.folded.reviewIdleEnd = idleEnd{r.Seq, event.RecordTime(r)} // idle's own end
 	default:
 		return
 	}
@@ -163,7 +163,7 @@ func (p *proj) reviewWaits(after []string) []string {
 }
 
 // ReviewSetup is what a review of a project needs from its config: the reviewer agent, its role worktree (absolute,
-// Serve moves it to the reviewed head), the main checkout (Root), the reviews dir in it and the
+// serve moves it to the reviewed head), the main checkout (Root), the reviews dir in it and the
 // integration branch.
 type ReviewSetup struct {
 	Agent, Worktree, Root, Reviews, Branch string

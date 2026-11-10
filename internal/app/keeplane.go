@@ -67,8 +67,8 @@ func (a *App) keepWaits(p *proj, mt mtask) bool {
 	return ok && a.pastHandoff(p, pane)
 }
 
-// keepStop is the agent a dispatch of keep lane l running model ref ref stops before its start (dispatchData.Stop;
-// keepStop): l's agent, live in its worktree, when its recorded start does not run ref (startFits). "": l is no keep
+// keepStop is the agent a dispatch of keep lane l running model ref ref stops before its start (dispatchData.Stop):
+// l's agent, live in its worktree, when its recorded start does not run ref (startFits). "": l is no keep
 // lane, its agent is not live (the dispatch starts one), or it runs ref (its work job goes to it).
 func (a *App) keepStop(p *proj, cfg *config.Config, l port.Lane, agent, ref string) string {
 	if !cfg.KeepLane(l.Name) {
