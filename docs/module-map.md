@@ -106,19 +106,35 @@ process (`plugin.Local`).
   `watchdog.go`, `lanescan.go` (the lane table as a cached observation: scanned on the tick and by a refresher, never
   per pane event; T-879), `toast.go` (the owner's herdr toast, a rule action's best-effort after, T-949), `status.go` (the status snapshot and `Listen`: the socket's server half); the merge loop: `loop.go` (wake, advance, record, do, drive, the picks),
   `mtask.go` (loop state fold), `states.go` (the state table), `steps.go` (scratch/after steps, submit, gate, publish,
-  unpin, fix), `jobstart.go` (job start, texts), `settle.go`; `registry.go` (agent identity: `reconcile` collects the proofs
+  unpin, fix), `jobstart.go` (job start, texts), `fetch.go` (jobs by fetch: the wake, the first fetch's delivered fact,
+  the job a call names, T-437), `finish.go` (`awaitsTaskDone`: whose attempt is its worker's and no task_done yet;
+  `inLoop`: what the merge loop holds), `worktext.go` (the work job's wake: its text, the send to the worker and the
+  watch on its delivery), `settle.go`; `registry.go` (agent identity: `reconcile` collects the proofs
   the `app/identity` table accepts; `whereIs` and the table's `WhoIs` the only lookups, never herdr's name; T-504);
   `lanerows.go` (the `lanes` table projection), `specs.go`, `prompts.go` (the `prompts` table's writes and prune,
   T-665, T-670), `prune.go` (the nightly prune of ended tasks' records and old sessions, 30 days on: which tasks; the
   rows' SQL is `event.PruneTasks` and `store.PruneSessions`; `mtask.ended` is the end both it and the logs' removal
   read, T-1089, T-1098), `logs.go` (a task's step logs go when it ends, and at load for every task the replayed log
-  folds as ended: merged with its after-merge steps done, or dropped, T-1098, T-1104), `dispatch.go`, `drive.go` (the owner's drive and land: `obor drive`, `obor land`, the driving state, T-751), `messages.go` (the lines' delivery over `app/outbox`'s state: `deliver`, `route`, `recordBrief`, `foldMsg` applying what `Fold` ended; T-1067), `mergewatch.go`,
-  `rules.go` (the rule pass: rule-tier steps, T-866), `idle.go` (the idle rules and `obor idle`), `stopped.go`, `stopwake.go`, `rolestop.go` (the role stop rules: serve stops the integrator and the reviewer once done, and a fresh brief's stop; T-672, T-870), `workerstart.go` (the worker start rule: a lane's worker started again while its job is outstanding; T-874), `keeplane.go` (a keep lane's agent between its tasks: its live agent takes the next job, the handoff rule stops one past handoff_tokens; T-1031), `nightly.go`,
+  folds as ended: merged with its after-merge steps done, or dropped, T-1098, T-1104), `dispatch.go`,
+  `waiting.go` (a dispatch that waits for the tasks it names (`--after`) or for a lane: fold, pick, dispatch),
+  `lanepick.go` (the lane a dispatch takes and the replies that say why none was free, T-738), `drive.go` (the owner's drive and land: `obor drive`, `obor land`, the driving state, T-751), `messages.go` (the lines' delivery over `app/outbox`'s state: `deliver`, `route`, `recordBrief`, `foldMsg` applying what `Fold` ended; T-1067), `mergewatch.go`,
+  `review.go` (a review request: `obor review` records it and the merge loop fires the reviewer's start, T-638),
+  `reviewclose.go` (a review's close is a call to serve, which commits it and records `review.closed`, T-926),
+  `reviewfold.go` (the reviews and the merges as the log holds them: coverage and what is due, T-1023),
+  `reviewonmerge.go` (the Review: on merge rule: a hard or risky task's spec asks for a review at its merge, T-878, T-932),
+  `reviewverify.go` (a review's fix round and its verify, briefed in the reviewer's session, T-924),
+  `rules.go` (the rule pass: rule-tier steps, T-866), `idle.go` (the idle rules and `obor idle`), `stopped.go`, `stopwake.go`, `stopstep.go` (a task worker's stop as a step of the merge loop, for a move or a drop, T-852), `move.go` (`obor dispatch --model` on a working task: a redo dispatch on the same lane and worktree, T-773), `rolestop.go` (the role stop rules: serve stops the integrator and the reviewer once done, and a fresh brief's stop; T-672, T-870), `workerstart.go` (the worker start rule: a lane's worker started again while its job is outstanding; T-874), `keeplane.go` (a keep lane's agent between its tasks: its live agent takes the next job, the handoff rule stops one past handoff_tokens; T-1031), `nightly.go`,
   `configset.go` (the owner's setup edit from obor web, through the `ConfigFile` port, T-753),
   `verbs.go` (`leadOr`: the admission of a lead's and the owner's method, a custom role's by its `roles.<name>.verbs`, T-1039),
   `feed.go` (the socket's `events` request: the event feed after a seq, streamed with `--follow`, T-1039),
   `pause.go`, `exit.go` (the socket's exit request: serve ends gracefully, obor stop, T-711), `sessions.go` (the agents' recorded sessions, T-577),
   `resume.go`, `verdict.go`, `jobs.go`, `prompt.go`,
+  `roleworktree.go` (role worktrees: serve moves the reviewer's and the deep dive's to the head it hands them, T-853),
+  `block.go` (the merge loop's needs-you as a block on a task's phase, T-827), `disk.go` (low disk: free space below
+  diskLow is a needs-you that holds the gate and the nightly, T-564), `fold.go` (`foldStart`: a start's result into the
+  identity table: agent, pane, kind, session, model, T-1050), `follow.go` (serve follows a new obor binary and takes the
+  self-restart path, preferring an idle moment, T-719), `scheduler.go` (the scheduler's rule for serve's worktree: pass
+  order, who holds the scratch, what a step waits, T-669),
   `effects.go` (`JobID`), `describe.go` (`Describe`: a record as the readers word it, decoded with the types serve
   writes it with; the view's one reader of record data, T-893): one concern each.
 - `app/port` (core, a leaf below `app`; T-690): the ports and the types they exchange, with no logic: the terminal's `Pane`
@@ -126,13 +142,11 @@ process (`plugin.Local`).
   `TerminalSetup` (setup's terminal: `Agents`, `Place` a `Placement`, `Integrate`, `RenameProject`, T-1044); and the
   effects (`Agents`, `Typer`, `PaneControl`, `Starter`,
   `Scratch`, `LaneSetup`, `Review` and their inputs and outcomes, and `Workflow`, the git workflow behind one
-  interface: those three and the dispatch's `Target`, T-1029). Adapters import it instead of `app`; `app` keeps type and const
-  aliases of it until a later task removes them (`app/ports.go`).
+  interface: those three and the dispatch's `Target`, T-1029). Adapters import it instead of `app`.
 - `app/event` (core, a leaf below `app`; T-691): the event log's vocabulary and its store: `Record`, `Key`, `Intent`,
   `FactData`, the `Kind*`/`Class*` constants, every exported `Step*` and the task keys (`MsgTask` …), the fact data
   types readers decode (`Pause`, `Message`, `MergedData`), `Log` (`OpenLog`, `Append`, `Do` …), the readers (`ReadLog`,
-  `Dump`, `RecentEvents`, `RecordsOf`, `MessagesTo`, `Since`, `Facts`, `FactTasks`, `DBFile`: the view's queries, T-893) and `Merge`/`ReadMerges`, and `StepN`. It imports `store` only. `app` keeps type, var and const
-  aliases of it until a later task removes them (`app/events.go`).
+  `Dump`, `RecentEvents`, `RecordsOf`, `MessagesTo`, `Since`, `Facts`, `FactTasks`, `DBFile`: the view's queries, T-893) and `Merge`/`ReadMerges`, and `StepN`. It imports `store` only.
 - `app/identity` (core, a leaf below `app`; T-1066): a project's identity table, `Registry`, and its rules: the start
   rows (`RecordStart`, `Start`), `Reconcile` (the tie rules over `Claims`, the strongest proof of each agent and
   terminal), `Proof`, `CrossCheck`, the lookups `WhoIs` and `Lookup` (`whereIs`'s one query), `TermOf`, `SameSession`.
@@ -151,8 +165,7 @@ process (`plugin.Local`).
   `NewCallID`, `JobReply`, `ResumeArgs` and `Resume*`, the status types (`Status`, `ProjectStatus`, `TaskStatus` …,
   `Scratch*`) and the `Backup` client. The event feed (`feed.go`, T-1039): `FeedRecord` (a record and its task's spec `Ref`), `FeedSince` (the
   one read of it: serve's and `obor events`' while serve is down) and the `Feed` client. It imports `app/event`, `store` and `project`, never `app`; `mcp`, `launch`,
-  `checks`, `view` and `web` import it instead of `app`. `app` keeps type, var and const aliases of it until a later task
-  removes them (`app/wire.go`). `Listen` and the handlers stay in `app`.
+  `checks`, `view` and `web` import it instead of `app`. `Listen` and the handlers stay in `app`.
 - Task state and the per-project event log (the `events` table of `.obor/state/obor.db`; intent before an effect,
   result after).
 - Scheduler rules: readiness (`--after`), dispatch, accept/reject/sendback, moved target, the integrator slot (no cap
@@ -178,7 +191,7 @@ process (`plugin.Local`).
   target, the review git cmd/obor gives it). `Scratch` decides over git's answers; its git goes through `gitReader`/`gitWriter`
   (`gitio.go`: `realGit`, the one adapter over real git), so its decision tests run on `fakegit_test.go`'s fake; the
   workflow contract table (`testkit.WorkflowContract`, run on internal/app's `FakeWorkflow` too) and the real-git cases
-  are behind `//go:build integration` (`workflow_integration_test.go`, `scratch_integration_test.go`, `gitlock_test.go`; T-1011, T-1029).
+  are behind `//go:build integration` (`workflow_integration_test.go`, `scratch_integration_test.go`, `gitlock_integration_test.go`; T-1011, T-1029).
 - `launch`: start, stop (the kill sequence) and restart an agent CLI in its pane (`Launcher`, panes via
   `app.PaneControl`; implements `app.Agents` and `app.Starter`); the per-lane restart lock (`restartlock.go`:
   `RestartLock`, T-500); the restore after the terminal restarts (`Restorer`: serve's run for its project, after a
