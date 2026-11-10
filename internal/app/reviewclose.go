@@ -100,9 +100,13 @@ func (a *App) reviewCloseCall(c wire.ReviewCloseReq) (string, error) {
 // closedReply starts a close's reply, CLOSED <the close commit's subject>: the fold reads the subject back from it.
 const closedReply = "CLOSED "
 
+// closeUnwrittenHint is the way out an unwritten review's file refusal names (openReview's missing-file refusal).
+const closeUnwrittenHint = `obor review close "<summary>" --force closes it unwritten`
+
 // reviewClose checks the open review (admitted): its own close commit not in git already (closeCommitted: one a crash
 // cut from its fact is recorded now, and the call refused as no review is open), the fold's open review, its file in
-// the main checkout (openReview), its linked fixes verified (--force: closes anyway); then the main checkout commits
+// the main checkout (openReview; --force closes a review whose file was never written: nothing to delete, the reviewed
+// sha its start's head), its linked fixes verified (--force: closes anyway); then the main checkout commits
 // it (port.Review.Close: its own refusals, the branch named) and fact review.closed{id} is recorded, the reviewer's stop
 // rule woken at once. Before the commit, fact review.closing{id, head, tasks} records its snapshot: the head
 // and the tasks the commit names, the fact carries and the fold freezes the review at. Any refusal changes nothing
@@ -115,8 +119,9 @@ func (a *App) reviewClose(ctx context.Context, p *proj, g port.Review, s ReviewS
 	if err := a.closeCommitted(ctx, p, g, open); err != nil { // a commit whose fact a crash cut: never committed twice
 		return "", fmt.Errorf("review close: is %s closed in git: %v: nothing changed", open.id, err)
 	}
-	o, err := a.openReview(p, s)
-	if err != nil {
+	o, err := a.openReview(p, s, closeUnwrittenHint)
+	unwritten := err != nil && errors.Is(err, errNoOpenReview) && o.ID != ""
+	if err != nil && !(unwritten && c.Force) {
 		return "", err
 	}
 	cycle, err := a.reviewCycle(p, o.ID)
@@ -138,7 +143,7 @@ func (a *App) reviewClose(ctx context.Context, p *proj, g port.Review, s ReviewS
 			event.StepReviewClosing)
 	}
 	sha := short(cycle.reviewed) // the head the reviewer last finished (its start's or a done verify's)
-	subject, body := CloseCommit(o.ID, sha, summary, cycle.covered, cycle.start, len(c.Accept))
+	subject, body := CloseCommit(o.ID, sha, summary, cycle.covered, cycle.start, len(c.Accept), unwritten)
 	if err := g.Close(ctx, port.ReviewCommit{Branch: s.Branch, ID: o.ID, File: o.File, Reviewed: cycle.reviewed,
 		Subject: subject, Body: body, Accepts: c.Accept}); err != nil {
 		return "", err

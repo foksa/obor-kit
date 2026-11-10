@@ -348,7 +348,7 @@ func TestReviewStartRefusedNamesTheFix(t *testing.T) {
 // no one but the crash cut's ClosesReview), and the "accepted <n>" verdict a close with --accept lines writes.
 func TestCloseCommitText(t *testing.T) {
 	t.Parallel()
-	subject, body := CloseCommit("RV-7", "abcdef0", "T-1, T-2 (fix)", []string{"T-1", "T-2"}, "1234567", 0)
+	subject, body := CloseCommit("RV-7", "abcdef0", "T-1, T-2 (fix)", []string{"T-1", "T-2"}, "1234567", 0, false)
 	if want := "RV-7 closed · abcdef0 · approved · T-1, T-2 (fix)"; subject != want {
 		t.Errorf("subject %q, want %q", subject, want)
 	}
@@ -360,8 +360,14 @@ func TestCloseCommitText(t *testing.T) {
 	}
 
 	// A close with two accepted findings says so
-	subject, _ = CloseCommit("RV-8", "abcdef0", "T-9 (fix)", nil, "1234567", 2)
+	subject, _ = CloseCommit("RV-8", "abcdef0", "T-9 (fix)", nil, "1234567", 2, false)
 	if want := "RV-8 closed · abcdef0 · accepted 2 · T-9 (fix)"; subject != want {
+		t.Fatalf("subject %q, want %q", subject, want)
+	}
+
+	// A review closed unwritten says it was not approved
+	subject, _ = CloseCommit("RV-9", "abcdef0", "never written", nil, "1234567", 0, true)
+	if want := "RV-9 closed · abcdef0 · abandoned · never written"; subject != want {
 		t.Fatalf("subject %q, want %q", subject, want)
 	}
 }

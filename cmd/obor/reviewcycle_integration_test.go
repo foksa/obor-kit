@@ -89,7 +89,7 @@ func closeOf(p *testkit.Project, reviewed string, accepts ...string) port.Review
 
 // closeOfID is review id's close on the fixture (a second close, another id).
 func closeOfID(p *testkit.Project, id, reviewed string, accepts ...string) port.ReviewCommit {
-	subject, body := app.CloseCommit(id, reviewed[:7], "T-5 (fix)", []string{"T-5"}, reviewed, len(accepts))
+	subject, body := app.CloseCommit(id, reviewed[:7], "T-5 (fix)", []string{"T-5"}, reviewed, len(accepts), false)
 	return port.ReviewCommit{Branch: "main", ID: id, File: p.Path("docs/reviews/" + id + ".md"), Reviewed: reviewed,
 		Subject: subject, Body: body, Accepts: accepts}
 }
