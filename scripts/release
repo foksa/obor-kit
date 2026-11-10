@@ -118,11 +118,13 @@ run_check() {
 
 # failed_tests: from go test output on stdin, one "<pkg> <test>" line per failed top-level test, in order (<test> is
 # "(package)" for a package that failed without a test line: a panic, a timeout). A "--- FAIL: <name>" line belongs to the
-# next "FAIL<TAB><pkg>" line.
+# next package line. A package line is go test's own, in the line's first column: "FAIL<TAB><pkg><TAB><duration>" or
+# "FAIL<TAB><pkg> [build failed|setup failed]". FAIL text a failing test's own log prints (an indented "FAIL herdr agent
+# start …") names no package.
 failed_tests() {
   awk '
     /^--- FAIL: / { pend[++n] = $3; next }
-    $1 == "FAIL" && NF >= 2 {
+    /^FAIL\t[^[:space:]]+\t/ || /^FAIL\t[^[:space:]]+ \[(build|setup) failed\]$/ {
       if (n == 0) print $2, "(package)"
       for (i = 1; i <= n; i++) print $2, pend[i]
       n = 0

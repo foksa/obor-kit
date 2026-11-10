@@ -15,6 +15,15 @@ import (
 // redPackage is go test's output for one failed test in one package.
 const redPackage = "--- FAIL: TestRace (0.01s)\n    race_test.go:9: timing\nFAIL\nFAIL\tobor/internal/racy\t0.02s\nFAIL\n"
 
+// failInLog is go test's output for a red test whose own log prints a FAIL line of its own (a hanging test's message
+// "FAIL herdr agent start …" inside the package's output), beside go test's package line.
+const failInLog = "--- FAIL: TestHerder (60.01s)\n" +
+	"    herdr_test.go:42: the agent did not start\n" +
+	"             FAIL herdr agent start pj-l-01 failed (pane w1:p1)\n" +
+	"FAIL\n" +
+	"FAIL\tobor/internal/setup\t15s\n" +
+	"FAIL\n"
+
 // goTests is how many go tests the check and its rerun ran (the upgrade check's and check-release's
 // go test are not ones of them).
 func (f *releaseFixture) goTests() int {
@@ -58,6 +67,24 @@ func TestMakeReleaseFlakyPackagePassesOnRerun(t *testing.T) {
 		if !strings.Contains(flakes, want) {
 			t.Errorf("flake record lacks %s: %q", want, flakes)
 		}
+	}
+}
+
+// Only go test's own package line names a package to rerun: the FAIL text of a test's own log is no package, so the
+// rerun asks go test for obor/internal/setup alone and the flake is that package's test.
+func TestMakeReleaseRerunIgnoresFailTextInTestLog(t *testing.T) {
+	t.Parallel()
+	f := newReleaseFixture(t)
+	f.Write(filepath.Join(f.Base, "go-fail-once"), failInLog)
+	out, failed := f.release(t, "V=1.2.4")
+	if failed {
+		t.Fatalf("a package that passes on rerun must not stop the release:\n%s", out)
+	}
+	if !regexp.MustCompile(`(?m)^test -tags integration (-p [0-9]+ )?obor/internal/setup$`).MatchString(readFileOr(f.log)) {
+		t.Errorf("the rerun is not `go test -tags integration obor/internal/setup` with nothing else:\n%s", readFileOr(f.log))
+	}
+	if !strings.Contains(out, "FLAKY: obor/internal/setup TestHerder (failed, passed on rerun)") {
+		t.Errorf("the flake is not obor/internal/setup's TestHerder:\n%s", out)
 	}
 }
 
