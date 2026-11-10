@@ -53,7 +53,7 @@ read in place from the kit (projects keep only short `docs/agents/<role>.md` stu
    tests are pruned.
 7. **Readers while serve is down read a projection.** A hook or reader that needs serve's state when serve may be
    down reads a column serve projects (as the lanes table: serve rewrites it on every change), never a query that
-   re-folds the `events` table (owner 11-05; `HasBlockedReportAt` is one such projection).
+   re-folds the `events` table (owner 11-05).
 
 ## Layout (plugin root)
 ```
@@ -412,8 +412,8 @@ full check and the pause.
 Many lanes on one machine (load 20–50 on 10 cores; obor-kit and axis-alies share it) turn timing-based tests RED.
 - **Merge window:** serve's gate runs the checks (`docs/state-model.md`, rows 18–33). Worker prompts/skills say: focused
   tests while iterating; before `task_done` the tests the project's worker doc names (obor-kit: its packages only,
-  2026-11-05); the gate runs the class check. The load measure is a gate that skips
-  re-runs on a non-overlapping move.
+  2026-11-05); the gate runs the class check. A moved target is merged and compiled again in the gate, never
+  tested again: the accept binds to the task's own patch, which a move keeps.
 - **Watchdogs:** a stalled or blocked worker and a pane that exits are serve's facts (`needs-you`), recorded and
   notified by the merge loop (`docs/state-model.md` "Timers").
 - **Dispatch:** refuses a lane with uncommitted leftovers (`dirty-free` → FAIL unless `--force`).

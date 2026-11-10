@@ -95,6 +95,6 @@ name.
   owner-approved config change; `obor send <project> "<the exact change and why>"` and the lead applies it. Hold a
   serve restart that needs the change until that lead confirms it.
 - Before each tag: a Codex smoke with main's code (`~/Work/obor-kit/bin/obor dispatch <smoke T-xx> --model luna
-  --force`: the job arrives over MCP `job_next`, nothing is typed into its input, the worker finishes with `task_done`; spec
-  like a smoke test's; the gate runs in serve's scratch, not the sandbox, and `obor run check` fails in Codex's sandbox: unix
+  --force`: the job arrives over MCP `job_next`, nothing is typed into its input, the worker finishes with `task_done`; its
+  spec is a one-file trivial task that ends with `task_done`; the gate runs in serve's scratch, not the sandbox, and `obor run check` fails in Codex's sandbox: unix
   socket binds denied, 2026-10-27).
