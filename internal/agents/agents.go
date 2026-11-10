@@ -605,6 +605,23 @@ type Uncached interface {
 	Uncached() error
 }
 
+// Current is a kind whose description can change between two starts (a plugin kind's command): AsNow is the kind as
+// its command describes it now, described again when the command changed, and fixed from then on: every answer and
+// call of the kind it returns is of that one description. An error: the command cannot be described.
+type Current interface {
+	AsNow() (Kind, error)
+}
+
+// AsNow is k for one start, built at the launch boundary: a Current kind as its command describes it now, any other
+// kind itself. What the start reads of the kind (its override files, its caps) and the start call are of one
+// description.
+func AsNow(k Kind) (Kind, error) {
+	if c, ok := k.(Current); ok {
+		return c.AsNow()
+	}
+	return k, nil
+}
+
 // Fallible is a kind whose install can fail (a plugin kind runs a process): Install with its error. Its
 // Install gives the failure's zero form (no registration, Lane saying why).
 type Fallible interface {

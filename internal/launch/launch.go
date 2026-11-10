@@ -885,7 +885,9 @@ func (l *Launcher) build(t *target, effort, resume, prompt string) ([]string, er
 // effort, the cwd, the dirs the agent writes,
 // which it makes, the resume or the first prompt as one line, the session obor names for a kind that takes one, the
 // env and state writer), handed to the kind once (config.Model.Launch, agents.StartOf): the argv, the env and the files
-// a plugin kind writes come from one start call. An unknown kind: the args as given (Start refuses it).
+// a plugin kind writes come from one start call. The kind is the one of this moment (agents.AsNow: a plugin kind whose
+// command changed is described again here, once), so the override files read and the start call are of one manifest.
+// An unknown kind: the args as given (Start refuses it).
 func (l *Launcher) Build(b port.Build) (port.Built, error) {
 	return l.startOf(b, false)
 }
@@ -896,6 +898,10 @@ func (l *Launcher) startOf(b port.Build, bare bool) (port.Built, error) {
 	k, ok := agents.Lookup(b.Kind)
 	if !ok {
 		return port.Built{Args: append([]string(nil), b.Args...)}, nil
+	}
+	k, err := agents.AsNow(k)
+	if err != nil {
+		return port.Built{}, err
 	}
 	for _, d := range b.WriteDirs { // a dir a start lets the agent write (Codex's --add-dir) must be there
 		if err := os.MkdirAll(d, 0o755); err != nil {
@@ -916,13 +922,12 @@ func (l *Launcher) startOf(b port.Build, bare bool) (port.Built, error) {
 		WriteDirs: b.WriteDirs, Dir: b.Dir, Root: l.Cfg.Root, Read: os.ReadFile, Env: l.envOrOS().Get,
 		Dirs: project.SubDirs, WriteState: project.StateWriter(l.Cfg.Root)}
 	var r agents.Launch
-	var err error
 	if bare {
 		r, err = agents.StartOf(k, in)
 	} else {
 		var overrides map[string]string
-		if overrides, err = l.Cfg.Overrides(b.Kind); err == nil {
-			r, err = config.Model{Kind: b.Kind, Args: b.Args}.Launch(b.Role, overrides, in)
+		if overrides, err = l.Cfg.OverridesOf(k); err == nil {
+			r, err = config.Model{Kind: b.Kind, Args: b.Args}.LaunchOf(k, b.Role, overrides, in)
 		}
 	}
 	if err != nil {
