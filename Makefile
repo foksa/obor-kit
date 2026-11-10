@@ -115,12 +115,14 @@ GO_GATE = $(GO_CACHE); \
 	$(MAKE) -s build || { echo "FAIL make build"; exit 1; }; \
 	f=$$(gofmt -l cmd internal tools kinds); test -z "$$f" || { echo "FAIL gofmt: $$(printf '%s\n' "$$f" | tr '\n' ' ')"; exit 1; }; \
 	$(GO) vet -tags integration ./... || { echo "FAIL go vet"; exit 1; }
+# check runs deadcode before its go test (T-1173, RV-173 #1): a suite the nightly's retest turns green still had the
+# dead-code check run at its commit, and the tests' summary stays the target's last line (the nightly reads it).
 check:
 	@$(GO_GATE); \
+	$(MAKE) -s deadcode || { echo "FAIL deadcode"; exit 1; }; \
 	rc=0; out=$$($(GO) test -count=1 -tags integration $${CHECK_CPUS:+-p $$CHECK_CPUS} ./... 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
 	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
-	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"; \
-	$(MAKE) -s deadcode || { echo "FAIL deadcode"; exit 1; }
+	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"
 
 check-affected:
 	@$(GO_CACHE); \
