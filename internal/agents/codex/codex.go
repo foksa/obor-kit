@@ -35,11 +35,11 @@ func EnvVarsTOML() string {
 }
 
 // Start: `resume <sid>` before the type's args (with in.Effort: their model_reasoning_effort replaced by
-// -c model_reasoning_effort=<effort>), then --add-dir per write dir, then the override's switches (in.Override != nil:
-// trimKeys false: no plugins, no app connectors, no bundled skills; skills.config with the user's skills off,
-// skillsOff; then overrideArgs: the plugins, settings, hooks and MCP servers the override names; the rest of the
-// user's config applies), then obor's server (with a kit), then the update check off, then the prompt (a resume
-// carries none). Codex takes no settings.
+// -c model_reasoning_effort=<effort>), then --add-dir per write dir, then the override's options (in.Override != nil:
+// settingArgs: the plugins and settings the override names; trimKeys false: no plugins, no app connectors, no bundled
+// skills; skills.config with the user's skills off, skillsOff; offArgs: the hooks and MCP servers the override
+// names; the rest of the user's config applies), then obor's server (with a kit), then the update check off, then
+// the prompt (a resume carries none). Codex takes no settings.
 //
 // The project's committed .codex/config.toml in in.Dir outranks obor's policy: a top-level sandbox_mode drops
 // the base args' -s workspace-write, a top-level check_for_update_on_startup leaves the update check as the file sets
@@ -65,17 +65,17 @@ func (kind) Start(in agents.Start) []string {
 	if in.Override != nil {
 		given = settingKeys(in.Override.Settings)
 		left := func(k string) bool { return argSets(in.Args, k) || sets(top, k) || sets(given, k) }
-		pluginsOff := false
+		userConfig := userConfigLines(in)
+		out = append(out, settingArgs(in, top, userConfig, !left(pluginsKey))...)
 		for _, k := range trimKeys {
 			if !left(k) {
 				out = append(out, "-c", k+"=false")
-				pluginsOff = pluginsOff || k == pluginsKey
 			}
 		}
 		if off := skillsOff(in); off != "" && !left(skillsKey) {
 			out = append(out, "-c", skillsKey+"="+off)
 		}
-		out = append(out, overrideArgs(in, top, pluginsOff)...)
+		out = append(out, offArgs(in, top, userConfig)...)
 	}
 	if in.Kit != "" {
 		out = append(out,
@@ -153,26 +153,34 @@ func skillsOff(in agents.Start) string {
 	return "[" + strings.Join(entries, ",") + "]"
 }
 
-// overrideArgs are the -c options of the start's override beyond the trim, in this order:
+// userConfigLines are the lines of the user's config.toml (userDir), read only for an override whose off.plugins or
+// off.mcp name entries of it; nil: none is read.
+func userConfigLines(in agents.Start) []string {
+	dir := userDir(in)
+	if dir == "" || in.Read == nil || len(in.Override.Off.Plugins)+len(in.Override.Off.MCP) == 0 {
+		return nil
+	}
+	b, _ := in.Read(filepath.Join(dir, "config.toml"))
+	return strings.Split(string(b), "\n")
+}
+
+// A table Codex's -c is given inline replaces what earlier -c options set under its key (a dotted key after it
+// stays, and the user's config still merges in key by key), and -c does not honor a quoted part of a dotted key. So
+// an inline table is passed only where a key part needs quotes, never for a key the type's args set a key under
+// (argSetsUnder), and before every dotted key obor passes: settingArgs' tables, then its dotted keys, then the trim.
+
+// settingArgs are the -c options of the override's off.plugins and settings, in this order:
 //   - off.plugins, only when obor's features.plugins=false does not go (pluginsOff false: the project's config, the
 //     type's args or the settings keep plugins on): one plugins={"<id>"={enabled=false},…} for the matching
-//     [plugins."<id>"] tables of the user's config.toml;
-//   - settings: -c <key>=<value> per key, sorted, the value as TOML (tomlValue), without each entry the project's
-//     config sets (unset) and without the effort key when the start names an effort;
-//   - off.hooks: one hooks.state table naming each matching hook of the user's hooks.json (hooksOff);
-//   - off.mcp: mcp_servers.<name>.enabled=false per matching [mcp_servers.<name>] table of the user's config.toml,
-//     never obor's own server.
-//
-// A plugin or server the project's config has keys for, or the type's args switch, is left as they set it. Tables are
-// passed inline where a key needs quotes: Codex's -c does not honor a quoted part of a dotted key, and it merges an
-// inline table into the config's table key by key.
-func overrideArgs(in agents.Start, top map[string]bool, pluginsOff bool) []string {
+//     [plugins."<id>"] tables of the user's config.toml (userConfig), a plugin the project's config has keys for
+//     left to it;
+//   - settings: each entry as -c <dotted key>=<value>, sorted, an object entry by entry down to its leaves, the value
+//     as TOML (tomlValue); the entries of an object whose key needs quotes as one inline table at the object's key,
+//     those tables first. Without each entry the project's config sets (unset) and without the effort key when the
+//     start names an effort.
+func settingArgs(in agents.Start, top map[string]bool, userConfig []string, pluginsOff bool) []string {
 	over := *in.Override
-	var out, userConfig []string
-	if dir := userDir(in); dir != "" && in.Read != nil && len(over.Off.Plugins)+len(over.Off.MCP) > 0 {
-		b, _ := in.Read(filepath.Join(dir, "config.toml"))
-		userConfig = strings.Split(string(b), "\n")
-	}
+	var tables, leaves []string
 	if !pluginsOff {
 		var off []string
 		for _, id := range tableNames(userConfig, "plugins") {
@@ -180,8 +188,27 @@ func overrideArgs(in agents.Start, top map[string]bool, pluginsOff bool) []strin
 				off = append(off, tomlKeyPart(id)+"={enabled=false}")
 			}
 		}
-		if len(off) > 0 && !argSets(in.Args, "plugins") {
-			out = append(out, "-c", "plugins={"+strings.Join(off, ",")+"}")
+		if len(off) > 0 && !argSetsUnder(in.Args, "plugins") {
+			tables = append(tables, "plugins={"+strings.Join(off, ",")+"}")
+		}
+	}
+	var walk func(path string, v any)
+	walk = func(path string, v any) {
+		m, ok := v.(map[string]any)
+		if !ok {
+			leaves = append(leaves, path+"="+tomlValue(v))
+			return
+		}
+		quoted := map[string]any{}
+		for _, k := range slices.Sorted(maps.Keys(m)) {
+			if bareKey.MatchString(k) {
+				walk(path+"."+k, m[k])
+			} else {
+				quoted[k] = m[k]
+			}
+		}
+		if len(quoted) > 0 && !argSetsUnder(in.Args, path) {
+			tables = append(tables, path+"="+tomlValue(quoted))
 		}
 	}
 	for _, k := range slices.Sorted(maps.Keys(over.Settings)) {
@@ -189,9 +216,23 @@ func overrideArgs(in agents.Start, top map[string]bool, pluginsOff bool) []strin
 			continue
 		}
 		if v, ok := unset(over.Settings[k], k, top); ok {
-			out = append(out, "-c", k+"="+tomlValue(v))
+			walk(k, v)
 		}
 	}
+	var out []string
+	for _, o := range slices.Concat(tables, leaves) {
+		out = append(out, "-c", o)
+	}
+	return out
+}
+
+// offArgs are the -c options of the override's off.hooks and off.mcp: one hooks.state table naming each matching
+// hook of the user's hooks.json (hooksOff), then mcp_servers.<name>.enabled=false per matching [mcp_servers.<name>]
+// table of the user's config.toml (userConfig) whose name needs no quotes, never obor's own server; a server the
+// project's config has keys for, or the type's args switch, is left as they set it.
+func offArgs(in agents.Start, top map[string]bool, userConfig []string) []string {
+	over := *in.Override
+	var out []string
 	if off := hooksOff(in); off != "" {
 		out = append(out, "-c", "hooks.state="+off)
 	}
@@ -609,6 +650,18 @@ func withEffort(args []string, effort string) []string {
 
 // updateCheck is Codex's setting for the update check it runs on startup.
 const updateCheck = "check_for_update_on_startup"
+
+// argSetsUnder: the type's args set key or a key under it.
+func argSetsUnder(args []string, key string) bool {
+	for _, a := range args {
+		a = strings.TrimPrefix(a, "-c=")
+		a = strings.TrimPrefix(a, "--config=")
+		if k, _, ok := strings.Cut(a, "="); ok && (strings.TrimSpace(k) == key || strings.HasPrefix(strings.TrimSpace(k), key+".")) {
+			return true
+		}
+	}
+	return false
+}
 
 // argSets: the type's args set key themselves (`-c key=value`, `--config key=value` or their `key=value` word,
 // either spelling of the flag with =).

@@ -153,11 +153,12 @@ passes its own `--settings`).
 
 Codex agents (all but the lead) keep your `~/.codex/config.toml` (`$CODEX_HOME`) and get `-c` options over it: the
 switches of the Codex rows above, then the override. `settings` are `config.toml` keys, one `-c <key>=<value>` each
-(`{"model_reasoning_summary": "none"}`; a nested object is passed as an inline table; `model_reasoning_effort` gives
-way to the effort of the agent's model reference). `off.hooks` switches off each hook of your `hooks.json` whose
+(`{"model_reasoning_summary": "none"}`; a nested object is passed key by key, `{"features": {"web_search": true}}`
+as `-c features.web_search=true`, so it leaves the switches above and your other keys of that table alone;
+`model_reasoning_effort` gives way to the effort of the agent's model reference). `off.hooks` switches off each hook of your `hooks.json` whose
 command matches, by its position in the file (`-c hooks.state={…={enabled=false}}`, read at every start; hooks declared
 inline in `config.toml` are not reached). `off.mcp` passes `-c mcp_servers.<name>.enabled=false` for each matching
-`[mcp_servers.<name>]` of your `config.toml`. `off.skills` adds the matching skills of `~/.agents/skills` to the
+`[mcp_servers.<name>]` of your `config.toml` (not for a server whose name needs quotes in TOML). `off.skills` adds the matching skills of `~/.agents/skills` to the
 switched-off list (those of `~/.codex/skills` are all off already). `off.plugins` matters only where the project's
 `.codex/config.toml` sets `features.plugins` (all plugins are off otherwise): each matching `[plugins."<id>"]` of
 your `config.toml` is then switched off.

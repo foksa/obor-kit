@@ -179,15 +179,19 @@ stays, Claude adds lists up). So env, hooks, the status line and permissions app
 the project or `settings` enables one, and what is not in `settings.json` does not load: the user's `CLAUDE.md`,
 rules, skills and the skills Claude syncs from claude.ai (`off.skills` names nothing on Claude). Codex: `-c features.plugins=false -c features.apps=false -c skills.bundled.enabled=false` and
 `-c skills.config=[{name="<skill>",enabled=false},…]` for each skill of the user's skills dir (`$CODEX_HOME` or
-`~/.codex`, `skills/`: a dir holding a `SKILL.md`) and each skill of `~/.agents/skills` matching `off.skills`; then
-the override: `-c plugins={"<id>"={enabled=false},…}` for the `[plugins."<id>"]` tables of the user's `config.toml`
-matching `off.plugins` (only where `features.plugins=false` does not go); `-c <key>=<value>` per `settings` key (the
-value as TOML, a nested object an inline table; the effort key gives way to the start's own effort);
+`~/.codex`, `skills/`: a dir holding a `SKILL.md`) and each skill of `~/.agents/skills` matching `off.skills`. The
+override, before those switches: `-c plugins={"<id>"={enabled=false},…}` for the `[plugins."<id>"]` tables of the
+user's `config.toml` matching `off.plugins` (only where `features.plugins=false` does not go); `-c <key>=<value>` per
+`settings` entry, the value as TOML and a nested object as dotted keys down to its leaves
+(`-c features.web_search=true`), with an inline table only for the entries whose key needs quotes, passed first and
+not at all under a key the type's args set (an inline table replaces what earlier `-c` options set under its key, a
+dotted key after it stays: so no `settings` entry cancels a trim switch or an args key); the effort key gives way to
+the start's own effort. After the switches:
 `-c hooks.state={"<hooks.json path>:<event>:<group>:<index>"={enabled=false},…}` for each hook of the user's
 `hooks.json` whose command matches `off.hooks` (the key is the hook's position, read on every start; an inline table,
 since `-c` does not honor a quoted part of a dotted key; never `features.hooks=false`, which would stop the project's
 hooks too); `-c mcp_servers.<name>.enabled=false` for each `[mcp_servers.<name>]` table of the user's `config.toml`
-matching `off.mcp`. A key the project's `.codex/config.toml` sets is left to it: a trim key, a `settings` entry, a
+matching `off.mcp` (a name that needs quotes is not switched). A key the project's `.codex/config.toml` sets is left to it: a trim key, a `settings` entry, a
 plugin or server it has keys for. OpenCode:
 `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` hides `~/.claude/skills` and the project's `.claude/skills`. The trim is best
 effort, not a project-only view: Codex's `~/.agents/skills`, and OpenCode's user config, plugins,

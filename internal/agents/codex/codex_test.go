@@ -473,8 +473,10 @@ func TestStartTrimUserSkills(t *testing.T) {
 	}
 }
 
-// a start's override becomes -c options after the trim switches: each settings key with its value as TOML (a nested
-// object an inline table), skipped where the project's .codex/config.toml sets it; off.hooks as one hooks.state
+// a start's override becomes -c options around the trim switches. Before them: each settings key with its value as
+// TOML, a nested object as dotted keys down to its leaves (an inline table only for the entries whose key needs quotes,
+// first), skipped where the project's .codex/config.toml sets it, so that no settings object cancels a trim switch
+// under the same table. After them: off.hooks as one hooks.state
 // table keyed by the matching hook's position in the user's hooks.json, none without that file; off.mcp as
 // mcp_servers.<name>.enabled=false per matching server of the user's config.toml; off.skills adding ~/.agents/skills
 // dirs to skills.config; off.plugins as a plugins table only where the project keeps plugins on. A lead's start
@@ -484,13 +486,18 @@ func TestStartOverride(t *testing.T) {
 	base := []string{"-a", "never"}
 	trim := []string{"-c", "features.plugins=false", "-c", "features.apps=false", "-c", "skills.bundled.enabled=false"}
 	const update = "check_for_update_on_startup=false"
-	want := func(opts ...string) []string {
-		out := append(slices.Clone(base), trim...)
-		for _, o := range opts {
-			out = append(out, "-c", o)
+	opts := func(keys ...string) []string {
+		var out []string
+		for _, k := range keys {
+			out = append(out, "-c", k)
 		}
-		return append(out, "-c", update)
+		return out
 	}
+	// settings are the options before the trim, want's own the ones after it.
+	settings := func(before []string, after ...string) []string {
+		return slices.Concat(base, before, trim, opts(after...), opts(update))
+	}
+	want := func(after ...string) []string { return settings(nil, after...) }
 	home := func(k string) string { return map[string]string{"HOME": "/home/u"}[k] }
 	const hooksFile = `{"hooks": {
 		"SessionStart": [{"hooks": [{"type": "command", "command": "bash /home/u/.codex/herdr-agent-state.sh session"}]}],
@@ -516,23 +523,29 @@ func TestStartOverride(t *testing.T) {
 		want []string
 	}{
 		{"an empty override: the trim alone", agents.Override{}, with(""), want()},
-		{"a settings key: -c key=value, sorted, values as TOML",
+		{"a settings key: -c key=value, sorted, values as TOML, an object as dotted keys, its quoted entry as a table first",
 			agents.Override{Settings: map[string]any{"model_reasoning_summary": "none", "tool_output_token_limit": float64(9000),
 				"hide_agent_reasoning": true, "notify": []any{"a", "b c"},
 				"shell_environment_policy": map[string]any{"inherit": "core", "set": map[string]any{"A.B": "1"}}}},
 			with(""),
-			want("hide_agent_reasoning=true", `model_reasoning_summary="none"`, `notify=["a","b c"]`,
-				`shell_environment_policy={inherit="core",set={"A.B"="1"}}`, "tool_output_token_limit=9000")},
+			settings(opts(`shell_environment_policy.set={"A.B"="1"}`, "hide_agent_reasoning=true", `model_reasoning_summary="none"`,
+				`notify=["a","b c"]`, `shell_environment_policy.inherit="core"`, "tool_output_token_limit=9000"))},
 		{"a settings key the project's config sets is skipped, an object entry by entry",
 			agents.Override{Settings: map[string]any{"model_reasoning_summary": "none", "web_search": "live",
 				"tui": map[string]any{"notifications": false, "theme": "dark"}, "history": map[string]any{"persistence": "none"}}},
 			with("model_reasoning_summary = \"detailed\"\n[tui]\ntheme = \"light\"\n[history]\npersistence = \"save-all\"\n"),
-			want("tui={notifications=false}", `web_search="live"`)},
-		{"settings set a trim key and the update check: theirs alone",
+			settings(opts("tui.notifications=false", `web_search="live"`))},
+		{"settings set a trim key and the update check: theirs alone, as a dotted key that leaves the other trim switches standing",
 			agents.Override{Settings: map[string]any{"features": map[string]any{"plugins": true}, "check_for_update_on_startup": true}},
 			with(""),
-			append(slices.Clone(base), "-c", "features.apps=false", "-c", "skills.bundled.enabled=false",
-				"-c", "check_for_update_on_startup=true", "-c", "features={plugins=true}")},
+			slices.Concat(base, opts("check_for_update_on_startup=true", "features.plugins=true", "features.apps=false", "skills.bundled.enabled=false"))},
+		{"a skills settings object next to the skills trim: dotted, the trim's skills switch after it",
+			agents.Override{Settings: map[string]any{"skills": map[string]any{"include_instructions": false}}},
+			with(""), settings(opts("skills.include_instructions=false"))},
+		{"a quoted entry of an object: one table at the object's key, before its dotted keys and the trim's (the project sets apps)",
+			agents.Override{Settings: map[string]any{"features": map[string]any{"x.y": true, "web_search": true}}},
+			with("features.apps = false\n"),
+			slices.Concat(base, opts(`features={"x.y"=true}`, "features.web_search=true", "features.plugins=false", "skills.bundled.enabled=false", update))},
 		{"off.hooks matching the second hook of a group: its positional key",
 			agents.Override{Off: agents.Off{Hooks: []string{"notify.sh"}}}, with(""), want(notifyOff)},
 		{"off.hooks matching two hooks: one table, events sorted",
@@ -551,7 +564,7 @@ func TestStartOverride(t *testing.T) {
 			agents.Override{Off: agents.Off{Plugins: []string{"pdf@"}}}, with(""), want()},
 		{"settings, hooks and mcp together: in that order",
 			agents.Override{Settings: map[string]any{"web_search": "live"}, Off: agents.Off{Hooks: []string{"notify.sh"}, MCP: []string{"blender"}}},
-			with(""), want(`web_search="live"`, notifyOff, "mcp_servers.blender.enabled=false")},
+			with(""), settings(opts(`web_search="live"`), notifyOff, "mcp_servers.blender.enabled=false")},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			got := k.Start(agents.Start{Args: base, Override: &c.over, Dir: "/lane", Env: home, Read: c.read})
@@ -566,8 +579,8 @@ func TestStartOverride(t *testing.T) {
 	// The project keeps plugins on: the plugins off.plugins names go off one by one, in one table.
 	got := k.Start(agents.Start{Args: base, Override: &agents.Override{Off: agents.Off{Plugins: []string{"pdf@"}}}, Dir: "/lane",
 		Env: home, Read: with("[features]\nplugins = true\n")})
-	if w := append(slices.Clone(base), "-c", "features.apps=false", "-c", "skills.bundled.enabled=false",
-		"-c", `plugins={"pdf@openai-primary-runtime"={enabled=false}}`, "-c", update); !slices.Equal(got, w) {
+	if w := slices.Concat(base, opts(`plugins={"pdf@openai-primary-runtime"={enabled=false}}`, "features.apps=false",
+		"skills.bundled.enabled=false", update)); !slices.Equal(got, w) {
 		t.Errorf("off.plugins under a project that keeps plugins on:\n %q\nwant\n %q", got, w)
 	}
 	// off.skills adds the matching skills of ~/.agents/skills to the user's skills dir's.
@@ -581,6 +594,12 @@ func TestStartOverride(t *testing.T) {
 	in.Override = &agents.Override{Off: agents.Off{Skills: []string{"print"}}}
 	if got, w := k.Start(in), want(`skills.config=[{name="codex-img",enabled=false},{name="print-art",enabled=false}]`); !slices.Equal(got, w) {
 		t.Errorf("off.skills:\n %q\nwant\n %q", got, w)
+	}
+	// The type's args set a key under features: a settings table there would cancel it, so it is not passed.
+	typed := append(slices.Clone(base), "-c", "features.web_search=true")
+	got = k.Start(agents.Start{Args: typed, Override: &agents.Override{Settings: map[string]any{"features": map[string]any{"x.y": true, "js_repl": false}}}})
+	if w := slices.Concat(typed, opts("features.js_repl=false"), trim, opts(update)); !slices.Equal(got, w) {
+		t.Errorf("a quoted settings entry under a key of the type's args:\n %q\nwant\n %q", got, w)
 	}
 	// The start's own effort wins over the settings' effort key.
 	got = k.Start(agents.Start{Args: base, Effort: "high", Override: &agents.Override{Settings: map[string]any{"model_reasoning_effort": "low"}}})
