@@ -3234,7 +3234,7 @@ func TestStopEveryKind(t *testing.T) {
 		eqInt(t, len(x.kills), 0, "no signal")
 		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
 	})
-	// Claude Code's slash-command menu (many plugin commands) took the Enter in the owner's run: the second Enter submits.
+	// Claude Code's slash-command menu (many plugin commands) takes the Enter: the second Enter submits.
 	t.Run("claude, the slash-command menu takes the first Enter, no --force: the second Enter exits it, STOPPED", func(t *testing.T) {
 		t.Parallel()
 		x, p := kind(t, "claude", herdr.Process{PID: 2, Argv0: "claude"})

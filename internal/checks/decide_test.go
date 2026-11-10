@@ -743,10 +743,10 @@ func TestPublishDecisions(t *testing.T) {
 }
 
 // after_merge runs commands.after_merge in the main checkout (the directory publish fast-forwards), never in serve's
-// worktree; its when globs decide; a failed run's full output goes to .obor/state/logs/<task>-after_merge.log, a
-// passing one writes no log (a stale dist/obor after a merge had no trace): a pass has
-// nothing to trace. It keeps no record of its own (its intent in the store is the once), so a second call runs
-// it again. The main checkout must be on a branch at the published merge, else a WARN line, again on a second call.
+// worktree; its when globs decide; a failed run's full output goes to .obor/state/logs/<task>-after_merge.log, while
+// a pass writes no log: it has nothing to trace. It keeps no record of its own (its intent in the store is the once),
+// so a second call runs it again. The main checkout must be on a branch at the published merge, else a WARN line,
+// again on a second call.
 func TestAfterMergeDecisions(t *testing.T) {
 	t.Parallel()
 	setup := func(t *testing.T, v any) (*fk, port.Candidate) {

@@ -282,7 +282,7 @@ deps:
 
 # release: with V=x.y.z the lead's one command (scripts/release: the version commit and full check on the loop's branch,
 # the scratch worktree with marketplace obor-kit and the eight binaries (obor and each kind, per platform), the tag, the catalog committed on the branch and
-# main fast-forwarded to it); without V only the local release files, as before. DRY=1 (with V) prints the steps and
+# main fast-forwarded to it); without V it writes only the local release files. DRY=1 (with V) prints the steps and
 # changes nothing. The owner's next command: ship.
 release:
 ifeq ($(strip $(V)),)

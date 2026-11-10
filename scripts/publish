@@ -1,11 +1,11 @@
 #!/bin/sh
-# publish <version>: upload the eight release binaries of v<version> (obor and the OpenCode kind, per platform, T-1046)
+# publish <version>: upload the eight release binaries of v<version> (obor and the OpenCode kind, per platform)
 # to its GitHub release (`make publish`). The paths are a literal list (release-lib.sh's binaries and platforms), not
 # GOOS_LIST/GOARCH_LIST and not a glob, and each is checked against the tag's own
 # bin/checksums.txt before gh runs, so what is uploaded is what the tag's catalog names. The release carries a title
-# "obor <version>" and the notes of docs/releases/v<version>.md at the tag (T-682), plus a Full Changelog line to the
-# newest earlier GitHub release; a tag without the notes, or a failed release list, refuses before anything is created
-# (T-683). POSIX sh.
+# "obor <version>" and the notes of docs/releases/v<version>.md at the tag, plus a Full Changelog line to the
+# newest earlier GitHub release; a tag without the notes, or a failed release list, refuses before anything is created.
+# POSIX sh.
 #   publish <version> --check: only the checks (scripts/ship runs them before it pushes the tag);
 #   publish <version> --upload <asset>…: the checks, then only those assets (<binary>-<version>-<os>-<arch>) to the
 #   existing release (scripts/ship, for a release that lacks some of its assets).
@@ -46,7 +46,7 @@ tagver=$(git show "$tag:VERSION" 2> /dev/null | tr -d '[:space:]') || tagver=
 plugin=$(git show "$tag:.claude-plugin/plugin.json" 2> /dev/null |
   sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1) || plugin=
 [ "$plugin" = "$v" ] || fail ".claude-plugin/plugin.json version at $tag is '$plugin', want $v"
-# T-592: the release tag ships the marketplace name users install (main's obor-kit-dev names the dev checkout); T-645:
+# the release tag ships the marketplace name users install (main's obor-kit-dev names the dev checkout),
 # and nothing else of main's marketplace.json changes (its plugin entry is still plugin.json's name).
 require_tag_market
 catalog=$(git show "$tag:bin/checksums.txt" 2> /dev/null) || fail "no bin/checksums.txt at $tag: commit the release's catalog before tagging"
@@ -78,7 +78,7 @@ problem=$(tag_notes_problem "$notes")
 
 # newest_release: the newest GitHub release tag below this one (empty when there is none). It reads the releases, not the
 # tags: a tag that was never released (v0.17.3, v0.17.4) is no baseline for the changelog link. A failed list is an
-# error, not an empty one (T-683): publishing without the line could not be repaired by a re-run.
+# error, not an empty one: publishing without the line could not be repaired by a re-run.
 newest_release() {
   releases=$(gh release list --limit 100 --json tagName --jq '.[].tagName' 2> /dev/null) || return 1
   best=

@@ -125,9 +125,8 @@ type Request = port.Launch
 var _ port.Agents = (*Launcher)(nil)
 
 // Args writes r into argv (after the "restart" subcommand): schedule puts it into the detached run's argv and
-// ParseRequest reads that back, so a flag cannot be carried on one side only (a handoff flag once was, and the
-// scheduled run lost it). The Prompt, Effort and Type are not restart's (a brief's or a dispatch's start): a
-// scheduled run is the CLI's restart, which carries none of them.
+// ParseRequest reads that back, so a flag cannot be carried on one side only. The Prompt, Effort and Type are not
+// restart's (a brief's or a dispatch's start): a scheduled run is the CLI's restart, which carries none of them.
 func Args(r Request) []string {
 	args := []string{r.Agent}
 	if r.Pane != "" {

@@ -1,23 +1,22 @@
 #!/bin/sh
 # ship <x.y.z>: the owner's one command after `make release V=<x.y.z>` (RELEASING.md), in the main checkout. It runs on
-# whatever branch that checkout has (staging when the loop merges there, T-1035): release already fast-forwarded
+# whatever branch that checkout has (staging when the loop merges there): release already fast-forwarded
 # refs/heads/main to the release commit, so no checkout of main is needed and this script never switches or resets the
 # checkout's branch or working tree. Before anything leaves this machine the tag must be this release's (scripts/publish
 # --check: its contents and the eight dist files' bytes) and not predate code in the release (scripts/release-lib.sh).
 # The release is the tag plus its `checksums: v<version>` commit on main (the newest with that subject on main's
-# first-parent line, T-661): ship pushes main up to that commit, never main's tip, so merges after `make release` wait
-# for the next release. Then three steps, each skipped when its done evidence holds and proven by it after it runs
-# (T-643):
+# first-parent line): ship pushes main up to that commit, never main's tip, so merges after `make release` wait
+# for the next release. Then three steps, each skipped when its done evidence holds and proven by it after it runs:
 #   push     done: origin has tag v<version> (the same object) and origin's main contains the checksums commit
 #            run: git push origin <checksums commit>:refs/heads/main and/or the tag, whichever origin lacks
 #            fail: stop
-#   publish  done: the GitHub release is not a draft and has its eight assets (obor and the OpenCode kind, T-1046)
+#   publish  done: the GitHub release is not a draft and has its eight assets (obor and the OpenCode kind)
 #            run: scripts/publish (no release), or scripts/publish --upload of the missing assets only (its byte
 #            checks first)                                       fail: stop with the repair command
 #   install  done: `obor version` is v<version>     run: install.sh     fail: stop
 # A pushed tag never moves. The last line is the one follow-up: `obor serve restart` in the projects whose serve this
 # machine knows (obor projects, else launchd's labels; the generic line when it knows none), then the leads are told what
-# changed (one `obor send` per other project, T-903). POSIX sh.
+# changed (one `obor send` per other project). POSIX sh.
 set -eu
 
 usage() { echo "usage: ship <x.y.z>" >&2; exit 2; }
@@ -138,7 +137,7 @@ else
   say "installed the kit (install.sh): obor $tag"
 fi
 
-# --- tell the leads (T-715, T-903)
+# --- tell the leads
 # The release notes (docs/releases/v<version>.md at the tag) to each project's lead but this kit's: `obor send
 # <project> "obor v<version> is installed. <the notes on one line>"`, one per project of `obor projects`. A send that
 # fails is reported and the rest go out; the failure ends ship after the reminder below, with the repair command.
@@ -155,7 +154,7 @@ for name in $names; do
 done
 [ "$told" = 0 ] && say "told the leads of this machine's projects"
 
-# Nothing to restart (T-719): serve and web watch the kit's binary and exec the new one themselves.
+# Nothing to restart: serve and web watch the kit's binary and exec the new one themselves.
 echo "serves and web follow the new binary within a minute"
 [ "$told" = 0 ] ||
   fail "a lead was not told (above): obor send <project> \"obor $tag is installed. <the notes: git show $tag:docs/releases/$tag.md>\""

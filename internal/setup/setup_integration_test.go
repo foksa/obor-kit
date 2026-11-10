@@ -121,7 +121,7 @@ func TestInitCreatesConfigDocsAndGitignoreUncommitted(t *testing.T) {
 	if count(gi, ".obor/pause") != 0 { // the pause is serve's fact, no file
 		t.Errorf(".gitignore has no .obor/pause:\n%s", gi)
 	}
-	// no queue lock any more (the queue is the store); the fixture's own .task-done.md line is left alone.
+	// no queue lock (the queue is the store); the fixture's own .task-done.md line is left alone.
 	if count(gi, "QUEUE.md.lock") != 0 {
 		t.Errorf(".gitignore has no QUEUE.md.lock:\n%s", gi)
 	}

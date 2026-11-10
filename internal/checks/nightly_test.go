@@ -7,7 +7,7 @@ import (
 
 // a non-gating command's result line carries the command's own summary — its last "<name>: " line —
 // not the wrapper's trailer: make appends `make: *** [check-race] Error 1` to a failed recipe, and the line is what the
-// nightly's result (and last-full-check) carries. The WARN shape and the rc stay as they were.
+// nightly's result (and last-full-check) carries. The WARN line keeps its shape and the rc is the command's.
 func TestNonGatingLine(t *testing.T) {
 	t.Parallel()
 	const raceSummary = "race: 1 data race report(s), 1 package(s) with failing tests under -race"

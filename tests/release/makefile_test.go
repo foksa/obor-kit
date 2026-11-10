@@ -102,9 +102,9 @@ func repo(t *testing.T) *testkit.Project {
 	return p
 }
 
-// releaseRepo is main past the old tag v0.4.0 while the newest release tag, v0.14.0, sits on a release commit off main
-// (the release procedure's shape); it returns the repo and main's short sha. It fails unless the fixture reproduces
-// the bug the stamp fixes: `git describe` on main names v0.4.0.
+// releaseRepo is main past tag v0.4.0 while the newest release tag, v0.14.0, sits on a release commit off main
+// (the release procedure's shape); it returns the repo and main's short sha. It fails unless the fixture has the shape
+// the stamp must handle: `git describe` on main names v0.4.0.
 func releaseRepo(t *testing.T) (*testkit.Project, string) {
 	t.Helper()
 	p := repo(t)
