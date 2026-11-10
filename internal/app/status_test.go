@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"net"
 	"path/filepath"
 	"regexp"
@@ -510,8 +509,9 @@ func TestSkewLoggedOncePerAgentAndVersion(t *testing.T) {
 	}
 }
 
-// obor status names the agents whose calls carry another obor release than serve's, until the agent reports its
-// session; an agent serve no longer observes in a pane is not named, and the owner is not an agent.
+// obor status names the agents whose calls carry another obor release than serve's, until a launcher reports that agent's
+// start or the agent reports its session; an agent serve no longer observes in a pane is not named, and the owner is not
+// an agent.
 func TestStatusNamesAgentsOnAnotherRelease(t *testing.T) {
 	t.Parallel()
 	if version.Release(version.Version) == "v0.1.0" {
@@ -607,74 +607,68 @@ func TestStatusSkewEndsAtTheStartsSession(t *testing.T) {
 	}
 }
 
-// A start serve makes ends the agent's skew entry: the loop's Agents wrap a Launch that returned with the pane the agent
-// now runs in — a new process, fresh or resumed. A start that failed, or one that started nothing ("running": the
-// integrator answers another job), ends nothing.
-func TestStatusSkewEndsAtAServeStart(t *testing.T) {
+// A launcher's confirmed start ends the agent's skew entry: obor restart and serve's own starts report it as a started
+// request naming the agent that began, whatever session it runs — a fresh Codex start with no prompt has none yet. The
+// request carries no session fact, so serve records nothing; its reporter's release is not the agent's, so it logs no
+// skew and holds no entry; and a request naming no agent is refused, the entry staying.
+func TestStatusSkewEndsAtAStartedRequest(t *testing.T) {
 	t.Parallel()
 	if version.Release(version.Version) == "v0.1.0" {
 		t.Fatalf("precondition: the test versions differ from serve's release %q", version.Version)
 	}
 	h := newHarness(t)
+	var log bytes.Buffer
+	h.a.opt.Out = &log
 	h.connect()
 	ask := askApp(t, h.a)
-	call := func(callID string) {
+	old := func(callID string) {
 		t.Helper()
 		if ans := ask(&wire.JobNextReq{Envelope: wire.Envelope{Root: h.root, Agent: "pj-l-01", Role: "worker",
 			CallID: callID, Version: "v0.1.0"}}); ans.Error != "" {
 			t.Fatalf("job_next %s: %q", callID, ans.Error)
 		}
 	}
-	want := "pj-l-01 runs obor v0.1.0 (serve " + version.Version + ")"
-	ag := &startFake{}
-	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Agents: ag}, nil }
-	fx, err := h.a.loopOf(h.proj())
-	if err != nil {
-		t.Fatalf("the loop: %v", err)
-	}
-	start := func(out port.Started, err error) {
+	started := func(agent, ver, callID string) wire.Answer {
 		t.Helper()
-		ag.out, ag.err = out, err
-		if _, got := fx.Agents.Launch(context.Background(), port.Launch{Agent: "pj-l-01", Pane: "w1:p1"}); got != err {
-			t.Fatalf("the start: %v, want %v", got, err)
-		}
+		r := wire.StartedRequest(h.root, agent)
+		r.Version, r.CallID = ver, callID
+		return ask(r)
 	}
-	call("c1")
+	want := "pj-l-01 runs obor v0.1.0 (serve " + version.Version + ")"
+	old("c1")
 	if got := h.a.Status().Skew; got != want {
 		t.Fatalf("a call of another release: skew %q, want %q", got, want)
 	}
-	start(port.Started{}, errors.New("pane busy")) // a failed start: nothing runs
-	if got := h.a.Status().Skew; got != want {
-		t.Errorf("a failed start: skew %q, want %q", got, want)
-	}
-	start(port.Started{Line: "running"}, nil) // the integrator answers another job: nothing started
-	if got := h.a.Status().Skew; got != want {
-		t.Errorf("a start that started nothing: skew %q, want %q", got, want)
-	}
-	start(port.Started{Line: "STARTED pj-l-01", Pane: "w1:p1"}, nil)
-	if ag.calls != 3 {
-		t.Fatalf("the loop's Agents got %d launches, want 3", ag.calls)
+	if ans := started("pj-l-01", version.Version, "s1"); ans.Error != "" || ans.Reply != "STARTED pj-l-01" {
+		t.Fatalf("the started request: reply %q, error %q", ans.Reply, ans.Error)
 	}
 	if got := h.a.Status().Skew; got != "" {
-		t.Errorf("a start: skew %q, want none (the entry of the process it replaced went)", got)
+		t.Errorf("a started request: skew %q, want none (the entry of the process the start replaced went)", got)
 	}
-	call("c2") // a call after the start is collected afresh
+	if got := h.sessions("pj-l-01"); len(got) != 0 {
+		t.Errorf("a started request recorded sessions %v, want none (a session is the session request's)", got)
+	}
+	old("c2") // a call after the start is collected afresh
 	if got := h.a.Status().Skew; got != want {
 		t.Errorf("a call of the other release after the start: skew %q, want %q", got, want)
 	}
-}
-
-// startFake is an Agents whose Launch answers out and err, and counts its calls.
-type startFake struct {
-	port.Agents
-	out   port.Started
-	err   error
-	calls int
-}
-
-func (f *startFake) Launch(context.Context, port.Launch) (port.Started, error) {
-	f.calls++
-	return f.out, f.err
+	if ans := started("pj-l-01", "v0.1.0", "s2"); ans.Error != "" { // its reporter runs another release
+		t.Fatalf("the started request at another release: %q", ans.Error)
+	}
+	if got := h.a.Status().Skew; got != "" {
+		t.Errorf("a started request from another release: skew %q, want none (the start replaced that process)", got)
+	}
+	if got := strings.Count(log.String(), "caller pj-l-01 runs"); got != 1 {
+		t.Errorf("the log has %d skew lines for pj-l-01, want 1: only its call, not a start report's reporter:\n%s",
+			got, log.String())
+	}
+	if ans := started("", version.Version, "s3"); ans.Error != "started: the agent is required" {
+		t.Errorf("a started request with no agent: error %q, want the refusal naming it", ans.Error)
+	}
+	old("c3")
+	if got := h.a.Status().Skew; got != want {
+		t.Errorf("after a started request with no agent: skew %q, want %q (the entry stays)", got, want)
+	}
 }
 
 // Two builds of one release are no skew (a dev suffix), and a dev build of another release reads as that

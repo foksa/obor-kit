@@ -35,6 +35,7 @@ const (
 	MethodPause       = "pause"        // PauseReq
 	MethodReview      = "review"       // ReviewReq
 	MethodSession     = "session"      // SessionReq
+	MethodStarted     = "started"      // StartedReq
 	MethodSpecSet     = "spec_set"     // SpecSetReq
 	MethodConfig      = "config_set"   // ConfigSetReq
 	MethodBackup      = "backup"       // BackupReq
@@ -74,6 +75,12 @@ type JobReply struct {
 // SessionRequest is the session request reporting s, began in the project at root: its caller is s's agent.
 func SessionRequest(root string, s store.Session) *SessionReq {
 	return &SessionReq{Envelope: Envelope{Root: root, Agent: s.Agent}, Session: &s}
+}
+
+// StartedRequest is the started request reporting agent's start in the project at root: as a session request, it names
+// the agent that began, not the process that started it.
+func StartedRequest(root, agent string) *StartedReq {
+	return &StartedReq{Envelope: Envelope{Root: root, Agent: agent}}
 }
 
 // What obor resume does with a merge-loop needs-you (docs/state-model.md row 40), the reason of its unblocked fact:

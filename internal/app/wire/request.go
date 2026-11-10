@@ -143,6 +143,15 @@ type SessionReq struct {
 
 func (SessionReq) Method() string { return MethodSession }
 
+// StartedReq is a launcher's confirmed start (launch's one success path): the envelope's agent runs in a new process now,
+// fresh or resumed, whatever session it reports — a fresh Codex start with no prompt writes no rollout before its first
+// prompt, so a start is no session's to report. Serve ends that agent's skew entry for it. Reply: STARTED <agent>.
+type StartedReq struct {
+	Envelope
+}
+
+func (StartedReq) Method() string { return MethodStarted }
+
 // SpecSetReq is the lead's or the owner's spec (obor spec set; specs.go): Spec stored as Task's spec, Changed what
 // changed. Reply: SET <task> rev <n>, or UNCHANGED <task> rev <n>.
 type SpecSetReq struct {

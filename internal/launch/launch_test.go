@@ -71,6 +71,9 @@ type fx struct {
 	// sessions: the recorded sessions the launcher reads (nil: serve's store); reported: the sessions it reported.
 	sessions map[string]store.Session
 	reported []store.Session
+	// started: the agents whose confirmed start the launcher reported (Started); startErr: what that report returns.
+	started  []string
+	startErr error
 	// rollout: the launcher's rollout bound (0: 20 ms); background: its rollout search runs in a goroutine, each
 	// report also sent on reports (nil: not sent); capture keeps that search in searches for the test to run with
 	// runSearches (T-849: after the pane changed).
@@ -114,6 +117,13 @@ func (x *fx) log() string {
 	x.mu.Lock()
 	defer x.mu.Unlock()
 	return x.logged.String()
+}
+
+// startReports is the agents whose confirmed start the launcher reported so far.
+func (x *fx) startReports() []string {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	return append([]string(nil), x.started...)
 }
 
 // runSearches runs the background searches x captured (capture), here in the test's goroutine, and returns how many
@@ -262,6 +272,12 @@ func (x *fx) launcher(out io.Writer) *launch.Launcher {
 				x.reports <- s
 			}
 			return x.reportErr
+		},
+		Started: func(_ context.Context, agent string) error {
+			x.mu.Lock()
+			x.started = append(x.started, agent)
+			x.mu.Unlock()
+			return x.startErr
 		},
 		Install: func() agents.InstallHost { return x.install }}
 }

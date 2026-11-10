@@ -92,6 +92,49 @@ func TestVerdictDeadlineLine(t *testing.T) {
 	}
 }
 
+// Notify makes one request: a request whose effect is serve's memory recovers nothing from a retry, and a caller's
+// start is not held up by a serve that is not there. A connection that ends before its answer is the retry class a
+// verdict is sent again on; Notify answers that error instead.
+func TestNotifySendsOnce(t *testing.T) {
+	t.Parallel()
+	dir, err := os.MkdirTemp("", "wire") // a short dir: a unix socket path is limited
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	sock := dir + "/serve.sock"
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	var mu sync.Mutex
+	conns := 0
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			conns++
+			mu.Unlock()
+			c.Close() // a reply lost before its answer: what a verdict sends again
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := Notify(ctx, sock, StartedRequest("/p", "ag")); err == nil {
+		t.Fatal("Notify answered from a socket that closed without a reply")
+	}
+	mu.Lock()
+	got := conns
+	mu.Unlock()
+	if got != 1 {
+		t.Errorf("Notify made %d requests, want 1 (it is not retried)", got)
+	}
+}
+
 // A verdict is retried for the transport failures that carried nothing (the socket is not there) or may have
 // carried the call to a serve that then went away (a connection closed before its line: a reset, an EOF, and the EPIPE
 // of a write to a connection the app closed). Any other failure is the app's answer and is not retried.
