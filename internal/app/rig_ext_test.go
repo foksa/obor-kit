@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -95,22 +96,194 @@ func (r *loopRig) runPath(fact event.Record, verb, callID, text string) (string,
 	return "", nil
 }
 
-// bubbles holds the tests running in a bubble (bubble): a rig built by one uses in-memory connections.
-var bubbles sync.Map // *testing.T → true
+// bubbles holds the tests running in a bubble (bubble), each with its wall watch: a rig built by one uses in-memory
+// connections.
+var bubbles sync.Map // *testing.T → *wallWatch
 
 // bubble runs f in a testing/synctest bubble. A rig built inside it has no unix socket: the fake herdr and the app's
 // socket are in-memory pipes, so every wait of the test and of the app is on the bubble's clock, which stands still
-// while anything runs. Machine load cannot expire such a wait. No t.Run, t.Parallel or t.Deadline inside.
+// while anything runs. Machine load cannot expire such a wait; a wall watch ends it in real time (wallWatch). No
+// t.Run, t.Parallel or t.Deadline inside.
 func bubble(t *testing.T, f func(t *testing.T)) {
 	t.Helper()
+	bubbleWatched(t, newWallWatch(t.Name(), waitWall, stallGrace, bubbleWall, func(msg string) { panic(msg) }), f)
+}
+
+// bubbleWatched is bubble under the wall watch w, which it stops when the bubble ends.
+func bubbleWatched(t *testing.T, w *wallWatch, f func(t *testing.T)) {
+	t.Helper()
+	defer w.stop()
 	synctest.Test(t, func(t *testing.T) {
-		bubbles.Store(t, true)
+		bubbles.Store(t, w)
 		defer bubbles.Delete(t)
 		f(t)
 	})
 }
 
-func inBubble(t *testing.T) bool { _, ok := bubbles.Load(t); return ok }
+func inBubble(t *testing.T) bool { return watchOf(t) != nil }
+
+// watchOf is the wall watch of t's bubble (nil outside one).
+func watchOf(t *testing.T) *wallWatch {
+	w, _ := bubbles.Load(t)
+	watch, _ := w.(*wallWatch)
+	return watch
+}
+
+// The wall limits of a bubble: a polling wait is over after waitWall of real time; one still asleep stallGrace later,
+// or a bubble still running after bubbleWall, is reported as stalled. All are well under go test's timeout, so a
+// stuck test fails as itself and not as the package's deadline.
+const (
+	waitWall   = 2 * time.Minute
+	stallGrace = 10 * time.Second
+	bubbleWall = 5 * time.Minute
+)
+
+// wallWatch ends a bubble's waits in real time. A bubble's clock stands still while one of its goroutines is blocked
+// on something that is not the bubble's own (a lock, real I/O), so a wait sleeping on that clock never wakes, and
+// nothing outside a bubble can wake it. The watch is a goroutine outside the bubble on the real clock:
+//   - a polling wait open for wait is over: its poll sees that at its next try and fails with its records;
+//   - a wait still open grace later sleeps on a clock that stands still, and so does a bubble running for whole:
+//     stalled gets the report (what was waited for, its records, every goroutine's stack). bubble's stalled panics:
+//     the package fails then, with the report, and no other way ends a test whose goroutines cannot run.
+type wallWatch struct {
+	name               string
+	wait, grace, whole time.Duration
+	stalled            func(report string)
+	quit               chan struct{}
+
+	mu   sync.Mutex
+	ids  int
+	open map[int]*wallWait
+}
+
+// wallWait is one open polling wait of a bubble.
+type wallWait struct {
+	what    string
+	records func() string
+	seen    time.Time // the watch's first sight of it, on the real clock
+	over    bool
+	told    bool // reported as stalled
+}
+
+// newWallWatch starts a wall watch for the bubble of the test name. It is called outside the bubble: the watch's
+// goroutine and its clock are real.
+func newWallWatch(name string, wait, grace, whole time.Duration, stalled func(report string)) *wallWatch {
+	w := &wallWatch{name: name, wait: wait, grace: grace, whole: whole, stalled: stalled, quit: make(chan struct{}),
+		open: map[int]*wallWait{}}
+	go w.run()
+	return w
+}
+
+func (w *wallWatch) stop() { close(w.quit) }
+
+func (w *wallWatch) run() {
+	tick := time.NewTicker(min(w.wait/10, 100*time.Millisecond))
+	defer tick.Stop()
+	start := time.Now()
+	for {
+		select {
+		case <-w.quit:
+			return
+		case now := <-tick.C:
+			for _, s := range w.check(now) {
+				w.report(fmt.Sprintf("waiting for %s for %s of real time and its poll never woke", s.what, now.Sub(s.seen).Round(time.Millisecond)), s.records)
+			}
+			if now.Sub(start) >= w.whole {
+				w.report(fmt.Sprintf("still running after %s of real time", w.whole), nil)
+				return
+			}
+		}
+	}
+}
+
+// check ages the open waits to now: a wait open for the limit is over, and the ones open grace longer are returned
+// once.
+func (w *wallWatch) check(now time.Time) []*wallWait {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	var stalled []*wallWait
+	for _, s := range w.open {
+		if s.seen.IsZero() {
+			s.seen = now
+		}
+		age := now.Sub(s.seen)
+		s.over = s.over || age >= w.wait
+		if age >= w.wait+w.grace && !s.told {
+			s.told = true
+			stalled = append(stalled, s)
+		}
+	}
+	return stalled
+}
+
+// report hands stalled what the bubble is stuck in, the wait's records (read for at most a second: a reader may need
+// what the bubble holds) and every goroutine's stack: the one blocked outside the bubble is among them.
+func (w *wallWatch) report(what string, records func() string) {
+	recs := "none"
+	if records != nil {
+		read := make(chan string, 1)
+		go func() { read <- records() }()
+		select {
+		case recs = <-read:
+		case <-time.After(time.Second):
+			recs = "not read within 1s"
+		}
+	}
+	stacks := make([]byte, 8<<20)
+	stacks = stacks[:runtime.Stack(stacks, true)]
+	w.stalled(fmt.Sprintf("%s: %s: the bubble's clock stands still (a goroutine of the bubble is blocked on a lock or "+
+		"on real I/O)\n%s\ngoroutines:\n%s", w.name, what, recs, stacks))
+}
+
+// begin opens a polling wait for what (records: what its failure prints); end closes it. Outside a bubble (a nil
+// watch) there is nothing to open: the test's clock is the real one.
+func (w *wallWatch) begin(what string, records func() string) int {
+	if w == nil {
+		return 0
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.ids++
+	w.open[w.ids] = &wallWait{what: what, records: records}
+	return w.ids
+}
+
+func (w *wallWatch) end(id int) {
+	if w == nil {
+		return
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	delete(w.open, id)
+}
+
+// over is whether the wait id has been open for the wall limit.
+func (w *wallWatch) over(id int) bool {
+	if w == nil {
+		return false
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.open[id].over
+}
+
+// poll calls ok every step until it holds, for at most limit on t's clock and, in a bubble, the bubble's wall limit:
+// "" once ok held, else how the wait ended ("timed out", for a failure's first words). records is what the wait's
+// failure prints (nil: nothing).
+func poll(t *testing.T, what string, limit, step time.Duration, records func() string, ok func() bool) string {
+	w := watchOf(t)
+	id := w.begin(what, records)
+	defer w.end(id)
+	for deadline := time.Now().Add(limit); time.Now().Before(deadline); time.Sleep(step) {
+		if ok() {
+			return ""
+		}
+		if w.over(id) {
+			return fmt.Sprintf("timed out (%s of real time, the bubble's clock short of %s)", w.wait, limit)
+		}
+	}
+	return "timed out"
+}
 
 // serveHerdr is the fake herdr on f: in memory in a bubble, on a unix socket outside one.
 func serveHerdr(t *testing.T, f *herdrtest.Fake) *herdrtest.Server {
@@ -154,12 +327,22 @@ func (c *clock) Move(d time.Duration, f func(now time.Time)) {
 type laneTable struct {
 	mu    sync.Mutex
 	lanes []port.Lane
+	pace  time.Duration // how long a read takes (0: no time)
 }
 
 func (l *laneTable) Lanes(context.Context, string) ([]port.Lane, error) {
 	l.mu.Lock()
-	defer l.mu.Unlock()
-	return append([]port.Lane(nil), l.lanes...), nil
+	ls, pace := append([]port.Lane(nil), l.lanes...), l.pace
+	l.mu.Unlock()
+	time.Sleep(pace)
+	return ls, nil
+}
+
+// paced sets how long each read of the table takes.
+func (l *laneTable) paced(d time.Duration) {
+	l.mu.Lock()
+	l.pace = d
+	l.mu.Unlock()
 }
 
 // syncBuf is the app's output, read while it writes.
@@ -303,12 +486,10 @@ func (r *rig) waitConnected() {
 
 func (r *rig) waitFor(what string, ok func() bool) {
 	r.t.Helper()
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
-		if ok() {
-			return
-		}
+	trail := func() string { return "app output:\n" + r.out.String() }
+	if how := poll(r.t, what, 5*time.Second, time.Millisecond, trail, ok); how != "" {
+		r.t.Fatalf("%s waiting for %s; %s", how, what, trail())
 	}
-	r.t.Fatalf("timed out waiting for %s; app output:\n%s", what, r.out)
 }
 
 // records is pj's event log.
@@ -1140,8 +1321,8 @@ func (r *loopRig) dropCall(callID, why string) (string, error) {
 }
 
 // refusedWhileStopPending: verb's call (T-1, its stop pending, not running: cutStops) is refused busy, naming the
-// pending worker.stop of pj-l-01, and records nothing. It is called until a call lands between two tries of the stop
-// (the one running is busy too, as a held step); any call accepted fails the test.
+// pending worker.stop of pj-l-01, and records nothing. It is called until a call lands between two tries of the stop,
+// where the app rests (cutStops); a call during a try is busy too, as a held step. Any call accepted fails the test.
 func (r *loopRig) refusedWhileStopPending(verb string, call func() (string, error)) {
 	r.t.Helper()
 	want := verb + " T-1: T-1 has worker.stop of pj-l-01 pending; retry when it settles"
@@ -1161,9 +1342,13 @@ func (r *loopRig) refusedWhileStopPending(verb string, call func() (string, erro
 }
 
 // cutStops makes each stop cut (serve's own stop cut it: no result, its intent pending, tried again on the next
-// pass) until the returned settle lets the stops act; tried gets one value per try.
+// pass) until the returned settle lets the stops act; tried gets one value per try. The app tries a cut step again
+// as soon as it has read the lane table the step marked, on no timer: each read takes a millisecond while the stops
+// are cut, so the app rests between two tries with the stop pending and the test's clock moves (a loop that never
+// rests holds a bubble's clock still, and every wait on it with it).
 func (r *loopRig) cutStops() (tried <-chan struct{}, settle func()) {
 	in := make(chan struct{}, 1)
+	r.lanes.paced(time.Millisecond)
 	r.mu.Lock()
 	r.onStop = func() error {
 		select {
@@ -1177,6 +1362,7 @@ func (r *loopRig) cutStops() (tried <-chan struct{}, settle func()) {
 		r.mu.Lock()
 		r.onStop = nil
 		r.mu.Unlock()
+		r.lanes.paced(0)
 	}
 }
 
@@ -1758,17 +1944,25 @@ func (r *loopRig) Launch(ctx context.Context, req port.Launch) (port.Started, er
 		a := r.f.Agent("w1:p9", "pj-int", "idle", r.p.Root)
 		a.Label, a.Session = "pj-int", "int-1" // launch labels the pane
 	}
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+	seen := false
+	poll(r.t, "pj-int in the app's status", 5*time.Second, 5*time.Millisecond, nil, func() bool {
 		if ctx.Err() != nil { // the app is shutting down: its main loop is gone, no snapshot will show the pane
-			return port.Started{}, ctx.Err()
+			return true
 		}
 		for _, a := range r.app.Status().Project.Agents {
-			if a.Name == "pj-int" {
-				return port.Started{Line: "STARTED pj-int", Pane: "w1:p9", Kind: "claude", Session: "int-1"}, nil
-			}
+			seen = seen || a.Name == "pj-int"
 		}
-		r.srv.Push("workspace_created", map[string]any{"type": "workspace_created",
-			"workspace": map[string]any{"workspace_id": "w1", "label": "proj"}})
+		if !seen {
+			r.srv.Push("workspace_created", map[string]any{"type": "workspace_created",
+				"workspace": map[string]any{"workspace_id": "w1", "label": "proj"}})
+		}
+		return seen
+	})
+	switch {
+	case seen:
+		return port.Started{Line: "STARTED pj-int", Pane: "w1:p9", Kind: "claude", Session: "int-1"}, nil
+	case ctx.Err() != nil:
+		return port.Started{}, ctx.Err()
 	}
 	return port.Started{}, errors.New("pj-int never seen")
 }
@@ -1795,19 +1989,26 @@ func (r *loopRig) Stop(ctx context.Context, agent, pane string, _ bool) (string,
 		})
 	}
 	r.f.Set(pane, func(p *herdrtest.Pane) { p.Kind, p.Name, p.Status = "", "", "" })
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+	gone := false
+	poll(r.t, agent+" gone from the app's status", 5*time.Second, 5*time.Millisecond, nil, func() bool {
 		if ctx.Err() != nil { // the app is shutting down: its main loop is gone, no snapshot will show the pane gone
-			return "", ctx.Err()
+			return true
 		}
-		gone := true
+		gone = true
 		for _, a := range r.app.Status().Project.Agents {
 			gone = gone && a.Name != agent
 		}
-		if gone {
-			return "STOPPED " + agent, nil
+		if !gone {
+			r.srv.Push("workspace_created", map[string]any{"type": "workspace_created",
+				"workspace": map[string]any{"workspace_id": "w1", "label": "proj"}})
 		}
-		r.srv.Push("workspace_created", map[string]any{"type": "workspace_created",
-			"workspace": map[string]any{"workspace_id": "w1", "label": "proj"}})
+		return gone
+	})
+	switch {
+	case gone:
+		return "STOPPED " + agent, nil
+	case ctx.Err() != nil:
+		return "", ctx.Err()
 	}
 	return "", errors.New(agent + " never seen gone")
 }
@@ -1951,12 +2152,12 @@ func (r *loopRig) patience() time.Duration {
 
 func (r *loopRig) waitFor(what string, ok func() bool) {
 	r.t.Helper()
-	for deadline := time.Now().Add(r.patience()); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
-		if ok() {
-			return
-		}
+	trail := func() string {
+		return fmt.Sprintf("records:\n%s\napp output:\n%s", strings.Join(r.steps(), "\n"), r.out)
 	}
-	r.t.Fatalf("timed out waiting for %s; records:\n%s\napp output:\n%s", what, strings.Join(r.steps(), "\n"), r.out)
+	if how := poll(r.t, what, r.patience(), 5*time.Millisecond, trail, ok); how != "" {
+		r.t.Fatalf("%s waiting for %s; %s", how, what, trail())
+	}
 }
 
 // setLane changes L-01's row in the lane table.
