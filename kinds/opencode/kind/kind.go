@@ -170,7 +170,11 @@ func start(in request) map[string]any {
 	files := []map[string]string{}
 	if in.Kit != "" {
 		env[ConfigVar] = "{file:" + ConfigFile + "}"
-		files = append(files, map[string]string{"name": ConfigFile, "bytes": string(Overridden(in.Kit, in.Override, UserDir(in.Env), os.ReadFile, os.ReadDir))})
+		conf := Config(in.Kit)
+		if in.Override != nil {
+			conf = Overridden(in.Kit, in.Override, UserDir(in.Env), os.ReadFile, os.ReadDir)
+		}
+		files = append(files, map[string]string{"name": ConfigFile, "bytes": string(conf)})
 	}
 	return map[string]any{"args": args, "env": env, "files": files}
 }
