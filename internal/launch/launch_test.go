@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -771,6 +772,69 @@ func TestRestartLinksLaneLinksIntoTheRoleWorktree(t *testing.T) {
 			t.Fatal("the worktree's file and the main checkout's are the same text: the test cannot tell them apart")
 		}
 	})
+}
+
+// restartIntegrator restarts pj-int, whose cwd is its role worktree, in a project whose main checkout has an
+// untracked .claude/settings.json that lanes.links does not list.
+func restartIntegrator(t *testing.T, x *fx) {
+	t.Helper()
+	cfg, err := config.Load(x.p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(cfg.LaneLinks(), project.PluginSettings) {
+		t.Fatalf("precondition: lanes.links %q does not list the settings file", cfg.LaneLinks())
+	}
+	if !project.SettingsUntracked(x.p.Root) {
+		t.Fatal("precondition: the main checkout has an untracked settings file")
+	}
+	x.sid("pj-int", "sid-i")
+	x.shell("w1:p5", "pj-int", "").Session = "sid-i"
+	if out, ok := x.restart(launch.Request{Agent: "pj-int"}); !ok {
+		t.Fatalf("restart failed:\n%s", out)
+	}
+}
+
+// settingsLinked fails unless the role worktree wt has .claude/settings.json as a link to the main checkout's.
+func settingsLinked(t *testing.T, x *fx, wt string) {
+	t.Helper()
+	got, err := os.Readlink(filepath.Join(wt, project.PluginSettings))
+	if want := filepath.Join(x.p.Root, project.PluginSettings); err != nil || project.Physical(got) != project.Physical(want) {
+		t.Errorf("the role worktree's settings file: link to %q (%v), want a link to %s", got, err, want)
+	}
+}
+
+// A restart of a role agent whose worktree is there links the main checkout's untracked settings file into it, though
+// lanes.links does not list the file: the agent starts with obor's plugin.
+func TestRestartLinksUnlistedUntrackedSettingsIntoAnExistingRoleWorktree(t *testing.T) {
+	t.Parallel()
+	x := setup(t)
+	x.p.Write(filepath.Join(x.p.Root, ".claude", "settings.json"), `{"main":true}`+"\n")
+	wt := x.p.LaneDir("integrator")
+	if fi, err := os.Stat(wt); err != nil || !fi.IsDir() {
+		t.Fatalf("precondition: the role worktree %s is there: %v", wt, err)
+	}
+	if err := os.RemoveAll(filepath.Join(wt, ".claude")); err != nil {
+		t.Fatal(err)
+	}
+	restartIntegrator(t, x)
+	settingsLinked(t, x, wt)
+}
+
+// A restart that adds the missing role worktree links the unlisted, untracked settings file into it too.
+func TestRestartLinksUnlistedUntrackedSettingsIntoTheRoleWorktreeItAdds(t *testing.T) {
+	t.Parallel()
+	x := setupGit(t)
+	x.p.Write(filepath.Join(x.p.Root, ".claude", "settings.json"), `{"main":true}`+"\n")
+	wt := x.p.LaneDir("integrator")
+	if _, err := os.Stat(wt); err == nil {
+		t.Fatalf("precondition: no role worktree %s", wt)
+	}
+	restartIntegrator(t, x)
+	if top := strings.TrimSpace(x.p.Git(wt, "rev-parse", "--show-toplevel")); project.Physical(top) != project.Physical(wt) {
+		t.Fatalf("the role worktree %s was not added (toplevel %q)", wt, top)
+	}
+	settingsLinked(t, x, wt)
 }
 
 // Request.Args and ParseRequest are one pair; the CLI's fields (agent, pane, fresh, force) go through both and

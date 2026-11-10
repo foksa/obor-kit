@@ -127,23 +127,10 @@ func (s *Setup) addLane(n int) error {
 	return s.editConfig(func(doc []byte) (config.Write, error) { return config.SetLanes(doc, n) })
 }
 
-// pluginSettings is the project settings file that enables obor's plugin; lanes are worktrees, so an untracked one
-// reaches them only as a link.
-const pluginSettings = ".claude/settings.json"
-
-// laneLinks are lane_links plus pluginSettings while it is untracked in the main checkout and not listed.
-func (s *Setup) laneLinks() []string {
-	links := s.cfg.LaneLinks()
-	if slices.Contains(links, pluginSettings) || !s.settingsUntracked() {
-		return links
-	}
-	return append(slices.Clone(links), pluginSettings)
-}
-
-// linkWorktree links laneLinks into the worktree dir (a lane, a role worktree) with project.LinkInto and says what
-// became of each entry: linked, already there, or not in the main checkout.
+// linkWorktree links project.WorktreeLinks into the worktree dir (a lane, a role worktree) with project.LinkInto and
+// says what became of each entry: linked, already there, or not in the main checkout.
 func (s *Setup) linkWorktree(dir string) error {
-	links := s.laneLinks()
+	links := project.WorktreeLinks(s.cfg)
 	linked, err := project.LinkInto(s.root, dir, links)
 	if err != nil {
 		return project.Failf("%v", err)
@@ -161,13 +148,4 @@ func (s *Setup) linkWorktree(dir string) error {
 		}
 	}
 	return nil
-}
-
-// settingsUntracked: the main checkout has pluginSettings and git does not track it.
-func (s *Setup) settingsUntracked() bool {
-	if _, err := os.Stat(filepath.Join(s.root, pluginSettings)); err != nil {
-		return false
-	}
-	_, err := project.Git(s.root, "ls-files", "--error-unmatch", "--", pluginSettings)
-	return err != nil
 }

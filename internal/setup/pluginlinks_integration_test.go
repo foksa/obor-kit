@@ -98,15 +98,3 @@ func TestOborInitLeavesATrackedSettingsFileToGit(t *testing.T) {
 		t.Error("L-01 does not get the tracked file from git")
 	}
 }
-
-// obor setup lane links an untracked .claude/settings.json even when lane_links does not list it (a project set up
-// before this).
-func TestSetupLaneLinksAnUntrackedPluginSettings(t *testing.T) {
-	t.Parallel()
-	x := newGitFx(t)
-	x.Write(filepath.Join(x.Root, ".claude", "settings.json"), `{"enabledPlugins":{"obor@obor-kit":true}}`+"\n")
-	x.ok(t, "lane", "L-01")
-	if !config.PluginEnabledIn(x.LaneDir("L-01")) {
-		t.Error("the new lane does not see the enabled plugin")
-	}
-}

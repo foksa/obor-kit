@@ -218,10 +218,11 @@ func (s *session) reset(rev string) bool {
 	return s.ok(s.scratch, "reset", "-q", "--hard", rev) && s.ok(s.scratch, "clean", "-fdq")
 }
 
-// linkLaneLinks symlinks each lane_links entry from root into dir (project.LinkInto: missing ones only), best
-// effort: a link that cannot be made shows as the failure of the check that needs it.
+// linkLaneLinks symlinks each of the project's worktree links (project.WorktreeLinks) from root into dir
+// (project.LinkInto: missing ones only), best effort: a link that cannot be made shows as the failure of the check
+// that needs it.
 func linkLaneLinks(cfg *config.Config, root, dir string) {
-	_, _ = project.LinkInto(root, dir, cfg.LaneLinks())
+	_, _ = project.LinkInto(root, dir, project.WorktreeLinks(cfg))
 }
 
 func secs(d time.Duration) int { return int(d / time.Second) }
