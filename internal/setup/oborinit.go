@@ -708,12 +708,12 @@ func (s *Setup) laneWorker(lane string) string {
 // from removing the links) and lane_links is linked into the existing lanes; tracked or absent → nothing to do. A
 // role worktree gets the links where it is made (rolePane; the launcher at its agent's start).
 func (s *Setup) initPluginLinks() (state, what string, err error) {
-	if !s.settingsUntracked() {
-		return "already", pluginSettings + " is tracked or absent: lanes get it from git", nil
+	if !project.SettingsUntracked(s.root) {
+		return "already", project.PluginSettings + " is tracked or absent: lanes get it from git", nil
 	}
 	changed := false
-	if !slices.Contains(s.cfg.LaneLinks(), pluginSettings) {
-		links := append(slices.Clone(s.cfg.LaneLinks()), pluginSettings)
+	if !slices.Contains(s.cfg.LaneLinks(), project.PluginSettings) {
+		links := append(slices.Clone(s.cfg.LaneLinks()), project.PluginSettings)
 		if err := s.editConfig(func(doc []byte) (config.Write, error) {
 			return config.SetLaneLinks(doc, links)
 		}); err != nil {
@@ -733,7 +733,7 @@ func (s *Setup) initPluginLinks() (state, what string, err error) {
 		if _, err := os.Stat(l.Dir); err != nil {
 			continue
 		}
-		linked, err := project.LinkInto(s.root, l.Dir, s.cfg.LaneLinks())
+		linked, err := project.LinkInto(s.root, l.Dir, project.WorktreeLinks(s.cfg))
 		if err != nil {
 			return "", "", project.Failf("%v", err)
 		}
@@ -742,5 +742,5 @@ func (s *Setup) initPluginLinks() (state, what string, err error) {
 			changed = true
 		}
 	}
-	return doneOr(changed), pluginSettings + " is untracked: in lane_links, linked into the lanes and, as each is made, the role worktrees (commit it to share it by git instead)", nil
+	return doneOr(changed), project.PluginSettings + " is untracked: in lane_links, linked into the lanes and, as each is made, the role worktrees (commit it to share it by git instead)", nil
 }

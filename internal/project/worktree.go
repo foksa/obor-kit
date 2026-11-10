@@ -2,11 +2,15 @@ package project
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
+
+	"obor/internal/config"
 )
 
 // AddWorktree makes dir a worktree of the repo whose main checkout is root, added detached at ref when dir is missing
@@ -32,12 +36,39 @@ func AddWorktree(ctx context.Context, root, dir, ref string) (added bool, err er
 	return true, nil
 }
 
-// LinkInto symlinks each entry of links (lanes.links: paths relative to root, the main checkout) into the worktree
+// PluginSettings is the project settings file that enables obor's plugin, relative to a checkout. A worktree has
+// the files git tracks: one git does not track reaches it only as a link.
+const PluginSettings = ".claude/settings.json"
+
+// WorktreeLinks are the links every worktree of cfg's project gets: lanes.links, plus PluginSettings while the main
+// checkout has it, git does not track it and lanes.links does not list it. The one choice of LinkInto's list: every
+// caller (obor setup's lanes and role worktrees, obor init, the launcher's start of a role agent, the checks'
+// scratch worktrees and lane tests) passes this.
+func WorktreeLinks(cfg *config.Config) []string {
+	links := cfg.LaneLinks()
+	if slices.Contains(links, PluginSettings) || !SettingsUntracked(cfg.Root) {
+		return links
+	}
+	return append(slices.Clone(links), PluginSettings)
+}
+
+// SettingsUntracked: the main checkout root has PluginSettings and git does not track it.
+func SettingsUntracked(root string) bool {
+	if _, err := os.Stat(filepath.Join(root, PluginSettings)); err != nil {
+		return false
+	}
+	_, err := Git(root, "ls-files", "--error-unmatch", "--", PluginSettings)
+	return err != nil
+}
+
+// LinkInto symlinks each entry of links (WorktreeLinks: paths relative to root, the main checkout) into the worktree
 // dir and returns the entries it linked. Only a missing entry is linked: whatever is at its path in dir (a file git
-// tracks, the project's own file, an earlier link) stays as it is, and an entry root does not have is skipped. The
-// one linker of every worktree obor makes or meets: lanes and role worktrees (obor setup, the launcher's start of a
-// role agent) and the checks' scratch worktrees.
+// tracks, the project's own file, an earlier link) stays as it is, and an entry root does not have is skipped. Every
+// entry is tried: one that cannot be linked does not stop the next, and err joins the failures, each naming its
+// path. The one linker of every worktree obor makes or meets: lanes and role worktrees (obor setup, the launcher's
+// start of a role agent) and the checks' scratch worktrees.
 func LinkInto(root, dir string, links []string) (linked []string, err error) {
+	var errs []error
 	for _, link := range links {
 		if link == "" {
 			continue
@@ -50,12 +81,14 @@ func LinkInto(root, dir string, links []string) (linked []string, err error) {
 			continue
 		}
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return linked, fmt.Errorf("cannot link %s: %v", dst, err)
+			errs = append(errs, fmt.Errorf("cannot link %s: %v", dst, err))
+			continue
 		}
 		if err := os.Symlink(src, dst); err != nil {
-			return linked, fmt.Errorf("cannot link %s: %v", dst, err)
+			errs = append(errs, fmt.Errorf("cannot link %s: %v", dst, err))
+			continue
 		}
 		linked = append(linked, link)
 	}
-	return linked, nil
+	return linked, errors.Join(errs...)
 }

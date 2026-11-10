@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"obor/internal/app/port"
+	"obor/internal/project"
 	"obor/internal/testkit"
 )
 
@@ -240,6 +241,25 @@ func TestGateReportsItsCommands(t *testing.T) {
 				t.Errorf("the lane test told %q, want %q", got, want)
 			}
 		})
+	}
+}
+
+// The gate's scratch worktree gets the main checkout's untracked settings file as a link, though lanes.links does not
+// list it: the checks take their links from the one choice every worktree's linker uses.
+func TestGateLinksUnlistedUntrackedSettingsIntoTheScratch(t *testing.T) {
+	t.Parallel()
+	y := newSx(t, cmd("check", "echo 1 pass"))
+	y.Write(filepath.Join(y.Root, project.PluginSettings), "{}\n")
+	if slices.Contains(y.s.Cfg.LaneLinks(), project.PluginSettings) {
+		t.Fatalf("precondition: lanes.links %q does not list the settings file", y.s.Cfg.LaneLinks())
+	}
+	if !project.SettingsUntracked(y.Root) {
+		t.Fatal("precondition: the main checkout has an untracked settings file")
+	}
+	y.green(lane(y.submit()))
+	got, err := os.Readlink(filepath.Join(y.serve, project.PluginSettings))
+	if want := filepath.Join(y.Root, project.PluginSettings); err != nil || project.Physical(got) != project.Physical(want) {
+		t.Errorf("the scratch's settings file: link to %q (%v), want a link to %s", got, err, want)
 	}
 }
 
