@@ -2,6 +2,7 @@ package herdrtest
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"maps"
 	"net"
@@ -12,13 +13,15 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
 	"obor/internal/herdr"
 )
 
-// Server is a fake herdr socket: newline JSON over a unix socket in a temp dir, answering as herdr's API does. It
+// Server is a fake herdr socket: newline JSON over a unix socket in a temp dir (Serve) or over in-memory connections
+// (ServeMem, Path ""), answering as herdr's API does. It
 // answers ping, session.snapshot, agent.list, agent.get, agent.wait, pane.list, pane.get, pane.process_info,
 // pane.wait_for_output, pane.layout and pane.read from F's panes, plays agent.prompt and agent.send_keys on them
 // (Pane.OnPrompt, Prompts, Draft, Submitted, OnEnter; a "fail-typed" prompt is typed, then its connection drops
@@ -143,11 +146,83 @@ func Serve(t testing.TB, f *Fake) *Server {
 	return s
 }
 
-// listen opens the socket at Path and accepts on it until Die.
+// ServeMem is Serve in memory: no socket file (Path stays ""), the server's Client opens each connection as an
+// in-memory pipe, which a testing/synctest bubble can wait on (T-1175). Die and Revive work as on a socket (a dial
+// between them is refused); Restart does not: herdr's instance is its socket file's time.
+func ServeMem(t testing.TB, f *Fake) *Server {
+	t.Helper()
+	s := &Server{F: f, protocol: herdr.Protocol,
+		replies: map[string]map[string]any{}, once: map[string][]Failure{}, held: map[string]*hold{},
+		conns: map[net.Conn]bool{}}
+	if err := s.listen(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(s.Die)
+	return s
+}
+
+// memListener is an in-memory net.Listener: dial hands Accept one end of a net.Pipe.
+type memListener struct {
+	conns chan net.Conn
+	once  sync.Once
+	done  chan struct{}
+}
+
+func newMemListener() *memListener {
+	return &memListener{conns: make(chan net.Conn), done: make(chan struct{})}
+}
+
+func (l *memListener) Accept() (net.Conn, error) {
+	select {
+	case c := <-l.conns:
+		return c, nil
+	case <-l.done:
+		return nil, net.ErrClosed
+	}
+}
+
+func (l *memListener) Close() error { l.once.Do(func() { close(l.done) }); return nil }
+
+func (l *memListener) Addr() net.Addr { return &net.UnixAddr{Name: "mem", Net: "unix"} }
+
+// dial is a connection to the listener: refused once it is closed (what a dial of a dead herdr's socket gives), ctx's
+// error when ctx ends first.
+func (l *memListener) dial(ctx context.Context) (net.Conn, error) {
+	select {
+	case <-l.done: // closed: never race a pending Accept for it
+		return nil, syscall.ECONNREFUSED
+	default:
+	}
+	client, server := net.Pipe()
+	select {
+	case l.conns <- server:
+		return client, nil
+	case <-l.done:
+		return nil, syscall.ECONNREFUSED
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// dialMem dials the in-memory server's listener as it is now: refused while the server is down (Die).
+func (s *Server) dialMem(ctx context.Context) (net.Conn, error) {
+	s.mu.Lock()
+	ln, _ := s.ln.(*memListener)
+	s.mu.Unlock()
+	if ln == nil {
+		return nil, syscall.ECONNREFUSED
+	}
+	return ln.dial(ctx)
+}
+
+// listen opens the socket at Path (in memory when Path is "") and accepts on it until Die.
 func (s *Server) listen() error {
-	ln, err := net.Listen("unix", s.Path)
-	if err != nil {
-		return err
+	var ln net.Listener = newMemListener()
+	if s.Path != "" {
+		var err error
+		if ln, err = net.Listen("unix", s.Path); err != nil {
+			return err
+		}
 	}
 	s.mu.Lock()
 	s.ln = ln
@@ -175,7 +250,9 @@ func (s *Server) Die() {
 	s.mu.Unlock()
 	if ln != nil {
 		ln.Close()
-		_ = os.Remove(s.Path)
+		if s.Path != "" {
+			_ = os.Remove(s.Path)
+		}
 	}
 	s.DropConns()
 }
@@ -193,6 +270,9 @@ func (s *Server) Revive(t testing.TB) {
 // (a test's setup before serve starts).
 func (s *Server) Restart(t testing.TB, at time.Time) {
 	t.Helper()
+	if s.Path == "" {
+		t.Fatal("Restart needs herdr's socket file: this test stays on Serve")
+	}
 	s.Die()
 	s.Revive(t)
 	if err := os.Chtimes(s.Path, at, at); err != nil {
@@ -201,7 +281,12 @@ func (s *Server) Restart(t testing.TB, at time.Time) {
 }
 
 // Client is a socket client on this server.
-func (s *Server) Client() *herdr.Socket { return &herdr.Socket{Path: s.Path, Timeout: 5 * time.Second} }
+func (s *Server) Client() *herdr.Socket {
+	if s.Path == "" {
+		return &herdr.Socket{Conn: s.dialMem, Timeout: 5 * time.Second}
+	}
+	return &herdr.Socket{Path: s.Path, Timeout: 5 * time.Second}
+}
 
 // Protocol makes ping and session.snapshot answer protocol p.
 func (s *Server) Protocol(p int) {

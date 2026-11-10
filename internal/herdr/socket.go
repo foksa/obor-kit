@@ -141,14 +141,24 @@ func CheckSocketPath(path string) error {
 type Socket struct {
 	Path    string
 	Timeout time.Duration // per request (default 10 s); slow requests take their own bound
+	// Conn, when set, opens each connection in place of dialing Path: a herdr served in memory (herdrtest.ServeMem),
+	// whose connections a testing/synctest bubble can wait on (T-1175; a unix socket's it cannot). Production leaves it
+	// nil.
+	Conn func(ctx context.Context) (net.Conn, error)
 }
 
 // Dial is the socket client for path once herdr answers ping with this client's Protocol or a newer one.
 func Dial(ctx context.Context, path string) (*Socket, error) {
-	if err := CheckSocketPath(path); err != nil {
-		return nil, &Error{Kind: Unavailable, Op: "ping", Msg: err.Error()}
+	return (&Socket{Path: path}).checked(ctx)
+}
+
+// checked is s once herdr answers ping with this client's Protocol or a newer one.
+func (s *Socket) checked(ctx context.Context) (*Socket, error) {
+	if s.Conn == nil {
+		if err := CheckSocketPath(s.Path); err != nil {
+			return nil, &Error{Kind: Unavailable, Op: "ping", Msg: err.Error()}
+		}
 	}
-	s := &Socket{Path: path}
 	var r struct {
 		Version  string `json:"version"`
 		Protocol int    `json:"protocol"`
@@ -191,6 +201,13 @@ type line struct {
 }
 
 func (s *Socket) dial(ctx context.Context, op string) (net.Conn, error) {
+	if s.Conn != nil {
+		c, err := s.Conn(ctx)
+		if err != nil {
+			return nil, &Error{Kind: Unavailable, Op: op, Msg: err.Error()}
+		}
+		return c, nil
+	}
 	if err := CheckSocketPath(s.Path); err != nil {
 		return nil, &Error{Kind: Unavailable, Op: op, Msg: err.Error()}
 	}
