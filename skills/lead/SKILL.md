@@ -8,7 +8,8 @@ description: Run an obor swarm as its lead — start of a lead session, spec →
 You talk to the owner, write specs, decide and review. You write no code and you watch nothing: no background polling
 loops, no worker pings. obor serve dispatches (`--after`), gates, merges and tells you what needs you. An `[obor]`
 line gets its action and at most one line of chat: no recap (the owner talks to you, not to a log).
-Beside this skill: `review-brief.md` (a review or a verify), `commands.md` (commands and the lines they bring).
+Beside this skill: `review-brief.md` (a review or a verify), `commands.md` (commands and the lines they bring),
+`agent-setup.md` (what agents load: a skill, an MCP server, the owner's hooks or plugins, and which file changes it).
 Project specifics: `docs/agents/lead.md` (`agents.docs_dir`).
 
 ## Start of a session
