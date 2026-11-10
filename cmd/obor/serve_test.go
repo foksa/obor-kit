@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -12,6 +13,7 @@ import (
 
 	"obor/internal/app/event"
 	"obor/internal/checks"
+	"obor/internal/config"
 	"obor/internal/herdr"
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/store"
@@ -194,5 +196,34 @@ func TestMergeLoopWorkflowWiring(t *testing.T) {
 	if _, err := mergeLoop(p.Env(), herdr.Panes{}, &serveEnd{stop: func() {}}, &kindCache{})(p.Root); err == nil ||
 		!strings.Contains(err.Error(), "serve knows scratch-ff") {
 		t.Errorf("kind x: %v; want refused naming the known kinds", err)
+	}
+}
+
+// The version watch covers the kinds of every model the config knows, not only the models its levels and roles name:
+// dispatch, a spec's Model: line and drive --model start any known model, so a CLI reached only that way gets its
+// baseline and its change line too. herdr is unaffected: serve reads its version from the terminal's own snapshot.
+func TestWatchKindsAreEveryKnownModelsKind(t *testing.T) {
+	t.Parallel()
+	p := testkit.NewPlain(t)
+	p.Config(
+		testkit.Set("agents.difficulty.hard", []any{"opus:high"}),
+		testkit.Set("agents.difficulty.medium", []any{"sonnet"}),
+		testkit.Set("agents.difficulty.simple", []any{"haiku"}),
+		testkit.Set("agents.roles.lead.model", "fable"),
+		testkit.Set("agents.kinds.hermes.plugin", "obor-kind-hermes"),
+		testkit.Set("agents.models.hermes", map[string]any{"kind": "hermes", "id": "h-1"}),
+	)
+	cfg, err := config.Load(p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range cfg.UsedModels() { // precondition: the levels and roles reach claude models only
+		if m, ok := cfg.Model(name); !ok || m.Kind != "claude" {
+			t.Fatalf("precondition: used model %s resolves to %+v, not a claude model", name, m)
+		}
+	}
+	want := []string{"claude", "codex", "hermes", "opencode"}
+	if got := watchKinds(cfg); !slices.Equal(got, want) {
+		t.Errorf("watchKinds: %v; want %v, the kinds of every known model", got, want)
 	}
 }
