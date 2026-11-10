@@ -725,7 +725,7 @@ func TestOborInitWritesDetectedCommandsOnce(t *testing.T) {
 	out := x.init(t)
 	cfg, _ := config.Load(x.Root)
 	if c := cfg.Data.Merge.Check; c.Cmd != "go test ./..." {
-		t.Errorf("commands.check %+v", c)
+		t.Errorf("merge.check %+v", c)
 	}
 	if stateOf(out, "commands") != "done" {
 		t.Errorf("commands step %q", summary(out, "commands"))
@@ -733,12 +733,12 @@ func TestOborInitWritesDetectedCommandsOnce(t *testing.T) {
 	if !strings.Contains(out, "OK init proj (prefix proj); next: obor lead\n") {
 		t.Errorf("a detected stack's next line is not the OK line:\n%s", out)
 	}
-	// the summary says what commands.check is for, so an adopter keeps it to a few minutes.
-	has(t, out, "commands.check is what every merge must pass, keep it to a few minutes; slower tests go in "+
+	// the summary says what merge.check is for, so an adopter keeps it to a few minutes.
+	has(t, out, "merge.check is what every merge must pass, keep it to a few minutes; slower tests go in "+
 		"check_milestone (the nightly), and obor nightly off if CI on main already does that", "the check line")
 	// obor's commits pass --no-verify, so the summary says an adopter's hooks never run on them.
 	has(t, out, "obor commits with --no-verify: your pre-commit and commit-msg hooks do not run on them; put "+
-		"formatting and secret scans in commands.check (the merge check)", "the hooks line")
+		"formatting and secret scans in merge.check", "the hooks line")
 	has(t, out, "go.mod", "detected line")
 	doc, _ := config.EditJSON([]byte(x.Read(".obor/config.json")), []string{"merge", "check"}, "make mine")
 	x.Write(".obor/config.json", string(doc))

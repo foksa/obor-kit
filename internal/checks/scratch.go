@@ -51,7 +51,7 @@ var rerere = []string{"-c", "rerere.enabled=true", "-c", "rerere.autoupdate=true
 // Submit commits the lane's uncommitted work ("<task>: <summary>") and pins the lane's HEAD at
 // refs/obor/submitted/<task>/<id>. A pin there is this submit's result already: it is returned, nothing touched (a
 // later worker commit stays out). A cut between the commit and the pin reads HEAD again (a residual race). The commit
-// passes --no-verify: the project's checking step is commands.check, not its commit hooks (prepare-commit-msg
+// passes --no-verify: the project's checking step is merge.check, not its commit hooks (prepare-commit-msg
 // still runs).
 func (s Scratch) Submit(ctx context.Context, task, id, lane, summary string) (string, error) {
 	s.gitCtx = ctx

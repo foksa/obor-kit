@@ -1071,7 +1071,7 @@ var PickLane = pickLane
 // branch is its head) and records the role worktrees it detached and the closes it committed. A test's own fake of one part is combined with it by WorkflowOf.
 type FakeWorkflow struct {
 	Dir    string // serve's worktree, the one a conflict names (nothing is written there)
-	Checks string // a green lane test's checks summary ("": "rc=0", commands.check ran)
+	Checks string // a green lane test's checks summary ("": "rc=0", merge.check ran)
 
 	Submits, Gates, Tests, Publishes, AfterMerges atomic.Int32 // calls, a failed one too
 

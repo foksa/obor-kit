@@ -18,7 +18,7 @@ import (
 // port does not show (a commit's subject, serve's worktree clean) is the git rig's Saw.
 
 // WorkflowRig is one port.Workflow under the contract table, fresh per row: lane Lane on task ContractTask's branch at
-// the target, nothing of its own yet, commands.check passing.
+// the target, nothing of its own yet, merge.check passing.
 type WorkflowRig interface {
 	Workflow() port.Workflow
 	// Lane is the lane the rows work in: its name, dir and branch (task ContractTask's); Lane2 another on
