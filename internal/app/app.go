@@ -96,12 +96,15 @@ type App struct {
 	p         *proj            // Options.Root's project once loaded (loadProject); nil before
 	obs       map[string]*seen // by pane id: every pane of the last snapshot and the events since
 	skews     map[string]bool  // by agent and version: the wire callers whose obor differs from serve's and were logged (T-826)
-	stopped   bool             // Serve has ended: the socket takes no more requests
-	checks    int              // full checks done (a tick's, a connect's), for the tests to wait on
-	follows   int              // the binary watch's ticks (Options.Follow, follow.go), for it and the tests
-	passes    int              // merge loop passes done, for the tests to wait on
-	onStream  int              // of those, the passes that ran connected to one herdr stream (mergeLoop), for the tests to wait on
-	scratched int              // scratch effects started in their own goroutine, for the tests to wait on
+	// behind is, by agent, the obor version its calls carry when that is another release than serve's (version.Release):
+	// Status's skew line. An agent's entry goes when it reports a new session (status.go, noteSkew).
+	behind    map[string]string
+	stopped   bool // Serve has ended: the socket takes no more requests
+	checks    int  // full checks done (a tick's, a connect's), for the tests to wait on
+	follows   int  // the binary watch's ticks (Options.Follow, follow.go), for it and the tests
+	passes    int  // merge loop passes done, for the tests to wait on
+	onStream  int  // of those, the passes that ran connected to one herdr stream (mergeLoop), for the tests to wait on
+	scratched int  // scratch effects started in their own goroutine, for the tests to wait on
 
 	life     context.Context    // the daemon's lifetime: the socket requests' effects run under it
 	stop     context.CancelFunc // ends life (Serve's end)

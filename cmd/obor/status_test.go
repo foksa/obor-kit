@@ -235,6 +235,55 @@ func TestStatusServeLine(t *testing.T) {
 	}
 }
 
+// T-1177: a serve whose callers still run another obor release gets one line under serve's (the running line follows
+// it), and none when no observed agent is behind.
+func TestServeLineSkew(t *testing.T) {
+	t.Parallel()
+	skew := "pj-l-01 runs obor v0.1.0 (serve v0.2.0)"
+	var b bytes.Buffer
+	writeStatus(&b, view.Project{Serve: view.Serve{Up: true, Herdr: true, Project: true, Merging: true, Skew: skew}},
+		time.Now())
+	lines := strings.Split(b.String(), "\n")
+	want := "serve: another obor release: " + skew + "; restart them (obor restart <agent>)"
+	if len(lines) < 2 {
+		t.Fatalf("status has %d lines, want serve's line and the skew line under it (in\n%s)", len(lines), b.String())
+	}
+	if lines[1] != want {
+		t.Errorf("second line is %q, want %q (in\n%s)", lines[1], want, b.String())
+	}
+	var none bytes.Buffer
+	writeStatus(&none, view.Project{Serve: view.Serve{Up: true, Herdr: true, Project: true, Merging: true}}, time.Now())
+	for _, l := range strings.Split(none.String(), "\n") {
+		if strings.HasPrefix(l, "serve: another obor release") {
+			t.Errorf("no skew: unexpected line %q (in\n%s)", l, none.String())
+		}
+	}
+	// --json carries the same field, and no key at all when there is no skew.
+	bJSON, err := json.Marshal(view.Project{Serve: view.Serve{Up: true, Herdr: true, Project: true, Merging: true,
+		Skew: skew}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var js struct {
+		Serve struct {
+			Skew string `json:"skew"`
+		} `json:"serve"`
+	}
+	if err := json.Unmarshal(bJSON, &js); err != nil {
+		t.Fatal(err)
+	}
+	if js.Serve.Skew != skew {
+		t.Errorf("--json serve.skew = %q, want %q (%s)", js.Serve.Skew, skew, bJSON)
+	}
+	bJSON, err = json.Marshal(view.Project{Serve: view.Serve{Up: true, Herdr: true, Project: true, Merging: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(bJSON), `"skew"`) {
+		t.Errorf("no skew: --json has a skew key: %s", bJSON)
+	}
+}
+
 // T-657: the running line right under serve's says what serve does without an agent: an open gate intent with the
 // command it runs and its elapsed time, two steps at once both, a publish (git alone) and the nightly check, a pending
 // self-restart, and `running: nothing` when none is open.
