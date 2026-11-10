@@ -7,24 +7,25 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 
 ## Handoff (lead; rewrite at each handoff)
 Read `docs/observations.md` first (patterns from past sessions: where we went in circles, the load tax, traps).
-- 2026-11-10 ~11:45 (lead; previous Handoff: `git show 4163dc6a:BACKLOG.md`). Every lane free, nothing queued, no
-  watch. **v0.34.0 shipped** (origin/main 510405c4). Since: the owner's Fable audit (`docs/research/improve-plans.md`,
-  plans 001-008 all DONE): nightly race run, web Host allowlist, Linux no longer claimed, the in-process synctest rig
-  for internal/app (P0-P10), CLI/herdr version watch, `docs/accepted.md` for accepted findings, the status skew line
-  (one `started` signal per confirmed start, T-1197), and the text sweeps (no ids, no previous states in texts and
-  comments; rule in AGENTS.md). Config: `agents.difficulty.hard = fable:medium, opus:high`; deep_dive fable:medium,
-  integrator fable:low (Fable and opus share the 5h limit: no fallback between them; resume after the reset). RV-175 closed approved. **A review is running** (13 merges: comment sweeps T-1180,
-  T-1181, T-1183, T-1184 and rig P4-P10, T-1188-T-1194); its finish line comes to the next lead.
-  **Next steps:** (1) The review: fix tasks with `Fixes: RV-<n>` (its id), verify, close; findings in comments only are cheap
-  to accept. (2) Ask the owner whether to keep Fable first when the usage resets end. (3) Owner decisions below:
-  agent skills scope. (4) v0.35: delete the baseline/gate/e2e validate WARN (Later candidates), then cut a release
-  (the audit wave is unreleased). (5) Owner when convenient: herdr instance id (T-1135). BACKLOG Open triaged 11-10
-  (15 left).
+- 2026-11-10 ~17:30 (lead; previous Handoff: `git show d4243e44:BACKLOG.md`). Every lane free, nothing queued, no
+  watch. **v0.35.0 tagged** (447c629a, `main` moved locally); **the owner runs `! make ship`** (origin/main was still
+  v0.34.0 at handoff). In v0.35: non-lead agents start with the owner's plugins and skills off and the rest of the
+  user settings kept (Claude: merged copy `.obor/state/settings/<agent>.json` under `--setting-sources project,local`);
+  native override files `.obor/<kind>/*_override.*` (JSON Merge Patch) replace the short-lived `agents.overrides`;
+  role worktrees get `lanes.links`; start decisions read obor's own session record; compat C2-C14 deleted; lead skill
+  `agent-setup.md`. Reviews RV-176..180 closed, DD-v0.35 verified. Live-checked: a non-lead Claude reports herdr's
+  `agent_session`; the Codex reviewer's catalog has no user skills.
+  **Next steps:** (1) After the ship: `obor send axis-alies` the upgrade note (UPGRADE-v0.35: trim, override files;
+  DD-v0.35 asks one live role start there to confirm obor's plugin and hooks load). (2) P1 (owner 11-10: the lead runs
+  obor-kit's, axis' lead its own): DD-v0.35 §"one-off delete", serve stopped, the day's backup first; send axis' lead
+  the statement after it upgrades; then one task for C15-C18. (3) C1 store migrations not before 11-16. (4) BACKLOG
+  Open: the cut-step retry with no timer (T-1221's finding). (5) Owner by hand when convenient: unlink herdr's old
+  `herd.events` plugin (`~/.config/herdr/plugins.json`, `~/.obor/herdr-plugin`); herdr instance id (T-1135).
 ## Owner decisions pending
 - none (agent skills scope decided 11-10: 1A, T-1201).
 
 ## Later candidates
-- **Compat after v0.35** (DD-v0.35): C1 store migrations (not before 2026-11-16: older backups are schema 13); P1 one-off SQL record delete per project (owner, serve stopped, backup first), then C15-C18 replay branches; C25 `tests/upgrade` kept for v0.35, decide after. Optional: `obor serve prune-retired` if more project-key shapes retire.
+- **Compat after v0.35** (DD-v0.35): C1 store migrations (not before 2026-11-16: older backups are schema 13); P1 one-off SQL record delete per project (owner 11-10: the lead runs obor-kit's, axis' lead its own; serve stopped, backup first), then C15-C18 replay branches; C25 `tests/upgrade` kept for v0.35, decide after. Optional: `obor serve prune-retired` if more project-key shapes retire.
 - **Per-role skills** (decisions 11-10: config `agents.roles.<role>.skills`, skills unchanged; ~150-250 lines on top of T-1201's start input; OpenCode's global `permissions` deny unverified: probe first). Build when the first project has role-specific skills (e.g. the owner's 3D game) or a role pulls another role's skill.
 - **Un-defer `job_next`** (chatter census proposal 2; advisor 11-07 docs/research/job-in-first-prompt-advice.md: no job-in-prompt; T-959/T-960/T-941 did the kind-neutral parts). Left: `alwaysLoad: true` on obor's MCP entry, Claude-only, so parked under the owner's agent-neutral rule (11-07); revisit if another kind gets the same deferral.
 - **Log snapshot at upgrade** (parked 11-05, docs/research/log-snapshot.md): build when compat branches pass ~300
@@ -46,6 +47,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (T-1221, lead 11-10) A step that fails at once (a cut stop returning `context.Canceled`) is retried on no timer: `do` marks the lane table dirty → the refresher scans → `a.wake()` → the next pass tries again, as fast as a lane scan runs. Found as a synctest hang (the test now paces the fake); in production a stop failing instantly would spin. Fix if seen: a backoff on a failed step's retry.
 - (T-1135, lead 11-09) Serve tells a herdr restart by the herdr socket file's mtime (`.obor/state/herdr-instance`): herdr's API has no pid, start time or instance id (protocol 22 pong, SessionSnapshot). Undocumented: if `herdr update --handoff` recreates the socket, serve restores once (stopped role agents restart once, as the old plugin did at every herdr start). Owner action when convenient: ask herdr upstream for an instance id in pong/snapshot (with discussion #5684); then switch to it.
 - (RV-145 design) the workflow contract table (T-1029) covers scratch, lane and target, not the review methods (tested on their own today): extend it with their portable outcomes before a second workflow implementation. Also `checks.ScratchFF` holds the config twice (`Scratch.Options.Cfg`, `Lane.Cfg`): one when next touched.
 - (RV-143 verify design) `specSetRev` parses the rev from the spec-set reply's text (T-1026), coupling replay to reply wording: keep the format, or a structured rev when the record is next revised.
