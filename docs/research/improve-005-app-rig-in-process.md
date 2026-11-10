@@ -190,6 +190,19 @@ What cannot run in a bubble, and stays on the sockets: a test of the wire client
 test that restarts herdr by its socket file (`srv.Restart`: the instance is the file's modification time); a test
 that starts a process.
 
+### What the pilot (P0) settled, for P1 to P9
+
+- The request helper is `r.ask(method, …)`, not `r.verdict` (`loopRig.verdict` exists with other callers). Step 3
+  below means `r.ask`.
+- Inside a bubble the rig serves with `r.serve()`, not `r.listen()` (P7's status tests).
+- `r.ask` has no retries and no deadlines: inside a bubble a call is answered or the bubble deadlocks (a test
+  failure naming the blocked goroutine), never a timeout.
+- `r.sock` is "" in a bubble: a test that needs a socket path stays outside (the STOP rule).
+- Bubble time starts at 2000-01-01 UTC: a test comparing against a real date stays outside or uses the rig's clock.
+- `t.TempDir` and the other helpers work unchanged inside a bubble.
+- Not covered by the pilot (expect them to stay on sockets): `srv.Die`/`Revive`, held herdr answers, a call to a
+  stopped app, the event feed.
+
 ## Commands you will need
 
 | Purpose | Command | Expected on success |
@@ -421,7 +434,7 @@ Precondition: P0 is DONE, and the lead has added to "How a converted test looks"
 2. Convert test by test with the rules of "How a converted test looks". Constructors that your tests call and that
    live in `rig_ext_test.go` (`reviewed`, `fetchRig`, `startWithT2`, `workingRig`, …) need no change: they build
    the rig with the `t` they are given, so they follow the bubble.
-3. A helper defined **in one of your files** that calls `wire.Verdict(…, r.sock, …)`: change it to `r.verdict(…)`.
+3. A helper defined **in one of your files** that calls `wire.Verdict(…, r.sock, …)`: change it to `r.ask(…)`.
 4. After each file: run that file's tests. After all: `go test -count=1 -tags integration ./internal/app`, then
    `make -s check-affected`.
 5. Report: the before and after times per file; every test left on sockets with its reason; anything that blocked.
