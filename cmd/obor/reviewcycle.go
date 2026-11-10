@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -19,10 +21,10 @@ import (
 // is the close's crash cut, its one read.
 
 // Close is port.Review's close on the main checkout (serve calls it admitted): refused before any change when
-// the checkout is not on c.Branch, dirty outside BACKLOG.md, docs/accepted.md and c's files, or c.Reviewed is no
-// commit; then c's files deleted (its review file and, when there, its verify file), each accepted line appended to
-// docs/accepted.md naming the review (the file created when missing), and the commit c.Subject / c.Body with
-// BACKLOG.md and docs/accepted.md (a dirty one of either is committed too).
+// the checkout is not on c.Branch, dirty outside a BACKLOG.md (in any directory), docs/accepted.md and c's files, or
+// c.Reviewed is no commit; then c's files deleted (its review file and, when there, its verify file), each accepted
+// line appended to docs/accepted.md naming the review (the file created when missing), and the commit c.Subject /
+// c.Body with each dirty BACKLOG.md and docs/accepted.md.
 func (g reviewGit) Close(ctx context.Context, c port.ReviewCommit) error {
 	root := g.root
 	if on, err := g.git(ctx, "symbolic-ref", "-q", "--short", "HEAD"); err != nil || strings.TrimSpace(on) != c.Branch {
@@ -41,14 +43,15 @@ func (g reviewGit) Close(ctx context.Context, c port.ReviewCommit) error {
 	if err != nil {
 		return err
 	}
-	docs := map[string]bool{} // of BACKLOG.md and app.AcceptedFile: the ones the close commit carries
+	docs := map[string]bool{} // of a BACKLOG.md and app.AcceptedFile: the ones the close commit carries
 	for _, l := range porcelainLines(st) {
+		p := l[3:]
 		switch {
-		case l[3:] == "BACKLOG.md" || l[3:] == app.AcceptedFile:
-			docs[l[3:]] = true
-		case strings.HasPrefix(l, "?? ") && own[l[3:]]:
+		case filepath.Base(p) == "BACKLOG.md" || p == app.AcceptedFile:
+			docs[p] = true
+		case strings.HasPrefix(l, "?? ") && own[p]:
 		default:
-			return fmt.Errorf("the main checkout is dirty outside BACKLOG.md, %s and %s's files (%s): nothing changed",
+			return fmt.Errorf("the main checkout is dirty outside a BACKLOG.md, %s and %s's files (%s): nothing changed",
 				app.AcceptedFile, c.ID, l)
 		}
 	}
@@ -66,13 +69,7 @@ func (g reviewGit) Close(ctx context.Context, c port.ReviewCommit) error {
 			c.Reviewed)
 	}
 	if len(docs) > 0 {
-		var paths []string
-		for _, p := range []string{"BACKLOG.md", app.AcceptedFile} {
-			if docs[p] {
-				paths = append(paths, p)
-			}
-		}
-		return g.commitDocs(ctx, c, paths, accepted, files)
+		return g.commitDocs(ctx, c, slices.Sorted(maps.Keys(docs)), accepted, files)
 	}
 	if _, err = g.git(ctx, "commit", "-q", "--allow-empty", "-m", c.Subject, "-m", c.Body); err != nil {
 		return err
@@ -80,7 +77,7 @@ func (g reviewGit) Close(ctx context.Context, c port.ReviewCommit) error {
 	return removeFiles(files)
 }
 
-// commitDocs stages paths (BACKLOG.md and/or docs/accepted.md, with accepted written to docs/accepted.md when not ""),
+// commitDocs stages paths (a BACKLOG.md and/or docs/accepted.md, with accepted written to docs/accepted.md when not ""),
 // commits, and only then removes files: a failed commit (a hook, git, a cancelled ctx) restores each path's content
 // (a file that did not exist is removed) and its index entry as they were and returns the error, the review files
 // untouched (they are gitignored: the only copy of the findings). A crash after the commit leaves the files: inert

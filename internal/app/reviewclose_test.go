@@ -37,8 +37,8 @@ func TestReviewCloseRefusals(t *testing.T) {
 		{"dirty outside the allowed files", func(r *reviewRig) {
 			r.started()
 			openReviewFile(r.t, r.p.root)
-			r.git.closeErr = errors.New("the main checkout is dirty outside BACKLOG.md and RV-5's files (?? x): nothing changed")
-		}, "the main checkout is dirty outside BACKLOG.md and RV-5's files (?? x): nothing changed"},
+			r.git.closeErr = errors.New("the main checkout is dirty outside a BACKLOG.md and RV-5's files (?? x): nothing changed")
+		}, "the main checkout is dirty outside a BACKLOG.md and RV-5's files (?? x): nothing changed"},
 		{"a linked fix pending", func(r *reviewRig) {
 			openReviewFile(r.t, r.p.root)
 			startedReview(r.t, r)

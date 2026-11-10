@@ -95,10 +95,10 @@ func closeOfID(p *testkit.Project, id, reviewed string, accepts ...string) port.
 }
 
 // the main checkout's close (reviewGit.Close, serve's adapter) refuses before any change: not on
-// the integration branch, a file dirty outside BACKLOG.md, docs/accepted.md and the review's files, or a reviewed head
-// that is no commit. Then it deletes the review's files, appends each accepted line to docs/accepted.md naming
-// the review (created when missing) and commits the subject and body as one commit on main's head with it; BACKLOG.md
-// keeps no accepted line; the checkout is clean after it; a second close appends below the first.
+// the integration branch, a file dirty outside a BACKLOG.md, docs/accepted.md and the review's files, or a reviewed
+// head that is no commit. Then it deletes the review's files, appends each accepted line to docs/accepted.md naming
+// the review (created when missing) and commits the subject and body as one commit on main's head with it; a
+// BACKLOG.md keeps no accepted line; the checkout is clean after it; a second close appends below the first.
 func TestReviewGitClose(t *testing.T) {
 	t.Parallel()
 	p, head := reviewFixture(t)
@@ -125,7 +125,7 @@ func TestReviewGitClose(t *testing.T) {
 
 	p.Write("stray.txt", "x\n")
 	if err := g.Close(ctx, closeOf(p, head, "rare case")); err == nil ||
-		err.Error() != "the main checkout is dirty outside BACKLOG.md, docs/accepted.md and RV-4's files (?? stray.txt): nothing changed" {
+		err.Error() != "the main checkout is dirty outside a BACKLOG.md, docs/accepted.md and RV-4's files (?? stray.txt): nothing changed" {
 		t.Errorf("a stray file: %v", err)
 	}
 	unchanged("a stray file")
@@ -214,51 +214,64 @@ func TestReviewGitCloseCreatesAccepted(t *testing.T) {
 	}
 }
 
-// the close accepts a dirty BACKLOG.md in the main checkout, unstaged (" M BACKLOG.md", whose leading
-// space a trimmed line lost) or staged ("M  BACKLOG.md"), and commits that edit with the close; another modified
-// tracked file is refused, named by its untrimmed status line. The accepted lines go to docs/accepted.md.
+// the close accepts a dirty BACKLOG.md in the main checkout, at the root or in any directory (here docs/), unstaged
+// (" M docs/BACKLOG.md", whose leading space a trimmed line lost) or staged ("M  docs/BACKLOG.md"), and commits that
+// edit with the close; another modified tracked file is refused, named by its untrimmed status line. The accepted
+// lines go to docs/accepted.md.
 func TestReviewGitCloseDirtyBacklog(t *testing.T) {
 	t.Parallel()
-	for _, staged := range []bool{false, true} {
-		name := map[bool]string{false: "unstaged", true: "staged"}[staged]
-		t.Run(name, func(t *testing.T) {
+	for _, tc := range []struct {
+		name, path string
+		staged     bool
+	}{
+		{"root unstaged", "BACKLOG.md", false},
+		{"root staged", "BACKLOG.md", true},
+		{"directory unstaged", "docs/BACKLOG.md", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			p, head := reviewFixture(t)
 			g := reviewGit{root: p.Root}
 			ctx := context.Background()
 			p.Write("docs/reviews/RV-4.md", "# RV-4\n") // in the main checkout: untracked, RV-4's own
+			if tc.path != "BACKLOG.md" {                // the project's backlog lives in a directory: tracked, then dirty below
+				p.Write(tc.path, "# Backlog\n\n## Open\n- old line\n\n## Concerns\n")
+				p.Git(p.Root, "add", tc.path)
+				p.Git(p.Root, "commit", "-q", "-m", "backlog at "+tc.path)
+			}
+			before := p.Git(p.Root, "rev-parse", "HEAD")
 
 			p.Write("fix.txt", "changed\n")
 			if st := p.Git(p.Root, "status", "--porcelain", "--untracked-files=no"); st != "M fix.txt" { // p.Git trims: the line is " M fix.txt"
 				t.Fatalf("precondition: fix.txt modified unstaged, status %q", st)
 			}
 			if err := g.Close(ctx, closeOf(p, head)); err == nil ||
-				err.Error() != "the main checkout is dirty outside BACKLOG.md, docs/accepted.md and RV-4's files ( M fix.txt): nothing changed" {
+				err.Error() != "the main checkout is dirty outside a BACKLOG.md, docs/accepted.md and RV-4's files ( M fix.txt): nothing changed" {
 				t.Errorf("a modified fix.txt: %v; want refused", err)
 			}
-			if p.Git(p.Root, "rev-parse", "HEAD") != head {
+			if p.Git(p.Root, "rev-parse", "HEAD") != before {
 				t.Fatalf("a refused close committed")
 			}
 			p.Git(p.Root, "checkout", "-q", "--", "fix.txt")
 
-			p.Write("BACKLOG.md", "# Backlog\n\n## Open\n- lead's line\n- old line\n\n## Concerns\n")
-			want := " M BACKLOG.md"
-			if staged {
-				p.Git(p.Root, "add", "BACKLOG.md")
-				want = "M  BACKLOG.md"
+			p.Write(tc.path, "# Backlog\n\n## Open\n- lead's line\n- old line\n\n## Concerns\n")
+			want := " M " + tc.path
+			if tc.staged {
+				p.Git(p.Root, "add", tc.path)
+				want = "M  " + tc.path
 			}
 			if st := p.Git(p.Root, "status", "--porcelain", "--untracked-files=no"); st != strings.TrimSpace(want) {
-				t.Fatalf("precondition: BACKLOG.md %s, status %q", name, st)
+				t.Fatalf("precondition: %s, status %q", tc.name, st)
 			}
 			if err := g.Close(ctx, closeOf(p, head, "rare case")); err != nil {
-				t.Fatalf("close with BACKLOG.md %s: %v; want accepted", name, err)
+				t.Fatalf("close with %s: %v; want accepted", tc.name, err)
 			}
-			backlog := p.Git(p.Root, "show", "HEAD:BACKLOG.md")
+			backlog := p.Git(p.Root, "show", "HEAD:"+tc.path)
 			if !strings.Contains(backlog, "## Open\n- lead's line\n- old line\n") {
-				t.Errorf("BACKLOG.md committed without the %s edit:\n%s", name, backlog)
+				t.Errorf("%s committed without the %s edit:\n%s", tc.path, tc.name, backlog)
 			}
 			if strings.Contains(backlog, "accepted)") {
-				t.Errorf("BACKLOG.md committed carries an accepted line:\n%s", backlog)
+				t.Errorf("%s committed carries an accepted line:\n%s", tc.path, backlog)
 			}
 			if accepted, want := p.Git(p.Root, "show", "HEAD:"+app.AcceptedFile),
 				strings.TrimSpace(acceptedHeadText+"- (RV-4, accepted) rare case\n"); accepted != want {
