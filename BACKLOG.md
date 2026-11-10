@@ -25,6 +25,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
 - none (agent skills scope decided 11-10: 1A, T-1201).
 
 ## Later candidates
+- **Compat after v0.35** (DD-v0.35): C1 store migrations (not before 2026-11-16: older backups are schema 13); P1 one-off SQL record delete per project (owner, serve stopped, backup first), then C15-C18 replay branches; C25 `tests/upgrade` kept for v0.35, decide after. Optional: `obor serve prune-retired` if more project-key shapes retire.
 - **Per-role skills** (decisions 11-10: config `agents.roles.<role>.skills`, skills unchanged; ~150-250 lines on top of T-1201's start input; OpenCode's global `permissions` deny unverified: probe first). Build when the first project has role-specific skills (e.g. the owner's 3D game) or a role pulls another role's skill.
 - **Un-defer `job_next`** (chatter census proposal 2; advisor 11-07 docs/research/job-in-first-prompt-advice.md: no job-in-prompt; T-959/T-960/T-941 did the kind-neutral parts). Left: `alwaysLoad: true` on obor's MCP entry, Claude-only, so parked under the owner's agent-neutral rule (11-07); revisit if another kind gets the same deferral.
 - **Log snapshot at upgrade** (parked 11-05, docs/research/log-snapshot.md): build when compat branches pass ~300
