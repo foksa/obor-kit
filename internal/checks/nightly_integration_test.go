@@ -195,6 +195,93 @@ func TestNightly(t *testing.T) {
 	}
 }
 
+// T-1168: the nightly's check and check_milestone rerun a red's named failing tests once with commands.retest, as a
+// lane test does (T-964), inside the slot the check already holds: green then is the step's green, the GREEN line names
+// the rerun ("retest saved <n>") and the flake is logged retried and passed. A retest that fails leaves the original
+// red with its flake line retried, not passed; a project without commands.retest reds as before.
+func TestNightlyRetest(t *testing.T) {
+	t.Parallel()
+	// redOne is a check that records the slot it held and names one failing test and its package (T-1047's lines).
+	const redOne = `echo "${CHECK_SLOT_HELD:-none}" > "$TMP_DIR/check-slot"; ` +
+		`echo "--- FAIL: TestAlpha (0.01s)"; echo "FAIL example.com/pkg 0.03s"; exit 1`
+	// retestCmd is commands.retest: it counts its runs and records where and how it ran under $TMP_DIR, then exits rc.
+	retestCmd := func(rc string) string {
+		return `n=$(cat "$TMP_DIR/retests" 2>/dev/null || echo 0); echo $((n + 1)) > "$TMP_DIR/retests"; ` +
+			`pwd -P > "$TMP_DIR/retest-pwd"; git rev-parse HEAD > "$TMP_DIR/retest-head"; ` +
+			`echo "${CHECK_PRIORITY:-none}" > "$TMP_DIR/retest-prio"; echo "${CHECK_SLOT_HELD:-none}" > "$TMP_DIR/retest-slot"; ` +
+			`echo "^({tests})$" > "$TMP_DIR/retest-tests"; echo "$OBOR_FAILED_PKGS" > "$TMP_DIR/retest-pkgs"; ` +
+			`echo "1 pass"; exit ` + rc
+	}
+	t.Run("check: the retest saves it, GREEN names the rerun, the flake passed on retry", func(t *testing.T) {
+		t.Parallel()
+		x := newFx(t, goLines(), cmd("check", redOne), cmd("retest", retestCmd("0")))
+		head := x.head(x.Root)
+		x.is(x.nightly(), OK, `^NIGHTLY GREEN `+head[:7]+` on main \(check 1 pass, retest saved 1, [0-9]+s\)$`)
+		x.match(x.Read(".obor/state/last-full-check"),
+			`^`+head+` [0-9]+ GREEN check 1 pass, retest saved 1, [0-9]+s\n$`, "state file")
+		x.eq(x.Read(filepath.Join(x.Base, "retests")), "1\n", "one retest, never more")
+		x.eq(strings.TrimSpace(x.Read(filepath.Join(x.Base, "retest-tests"))), "^(TestAlpha)$",
+			"{tests}: the failing test, in commands.retest's template")
+		x.eq(strings.TrimSpace(x.Read(filepath.Join(x.Base, "retest-pkgs"))), "example.com/pkg", "OBOR_FAILED_PKGS: its package")
+		dir, _ := filepath.EvalSymlinks(x.nightlyDir())
+		x.eq(strings.TrimSpace(x.Read(filepath.Join(x.Base, "retest-pwd"))), dir, "the retest ran in the nightly's worktree")
+		x.eq(strings.TrimSpace(x.Read(filepath.Join(x.Base, "retest-head"))), head, "at the nightly's head")
+		x.eq(strings.TrimSpace(x.Read(filepath.Join(x.Base, "retest-prio"))), "merge", "at merge priority")
+		x.eq(strings.TrimSpace(x.Read(filepath.Join(x.Base, "retest-slot"))),
+			strings.TrimSpace(x.Read(filepath.Join(x.Base, "check-slot"))), "inside the slot the check already held")
+		got := x.flakes()
+		if len(got) != 1 {
+			t.Fatalf("flake lines %d, want 1: %+v", len(got), got)
+		}
+		x.eq(got[0].Test, "TestAlpha", "the flake's test")
+		x.eq(got[0].Check, "check", "the flake's command")
+		x.eq(got[0].Task, "nightly", "the flake's task")
+		x.eq(got[0].SHA, head, "the flake's sha")
+		x.eqBool(got[0].Retried, true, "retried")
+		x.eqBool(got[0].PassedOnRetry, true, "passed_on_retry")
+	})
+	t.Run("check: the retest fails too, the original RED, the flake not passed", func(t *testing.T) {
+		t.Parallel()
+		x := newFx(t, goLines(), cmd("check", redOne), cmd("retest", retestCmd("1")))
+		head := x.head(x.Root)
+		x.is(x.nightly(), Red, `^NIGHTLY RED `+head[:7]+` on main \(failed: check; check rc=1, [0-9]+s\) — `+
+			`check: failing: --- FAIL: TestAlpha \(0\.01s\), FAIL example\.com/pkg 0\.03s; log `)
+		x.eq(x.Read(filepath.Join(x.Base, "retests")), "1\n", "one retest, never more")
+		got := x.flakes()
+		if len(got) != 1 {
+			t.Fatalf("flake lines %d, want 1: %+v", len(got), got)
+		}
+		x.eqBool(got[0].Retried, true, "retried")
+		x.eqBool(got[0].PassedOnRetry, false, "passed_on_retry: the retest failed too")
+	})
+	t.Run("check_milestone: the retest saves it too", func(t *testing.T) {
+		t.Parallel()
+		x := newFx(t, goLines(), cmd("check", "echo 7 pass"), cmd("check_milestone", redOne), cmd("retest", retestCmd("0")))
+		head := x.head(x.Root)
+		x.is(x.nightly(), OK, `^NIGHTLY GREEN `+head[:7]+` on main \(check 7 pass, check_milestone 1 pass, retest saved 1, [0-9]+s\)$`)
+		x.eq(x.Read(filepath.Join(x.Base, "retests")), "1\n", "one retest")
+		got := x.flakes()
+		if len(got) != 1 {
+			t.Fatalf("flake lines %d, want 1: %+v", len(got), got)
+		}
+		x.eq(got[0].Check, "check_milestone", "the flake's command")
+		x.eqBool(got[0].PassedOnRetry, true, "passed_on_retry")
+	})
+	t.Run("no commands.retest: RED as before, nothing rerun", func(t *testing.T) {
+		t.Parallel()
+		x := newFx(t, goLines(), cmd("check", redOne))
+		head := x.head(x.Root)
+		x.is(x.nightly(), Red, `^NIGHTLY RED `+head[:7]+` on main \(failed: check; check rc=1, [0-9]+s\) — `+
+			`check: failing: --- FAIL: TestAlpha \(0\.01s\), FAIL example\.com/pkg 0\.03s; log `)
+		x.gone(filepath.Join(x.Base, "retests"), "no retest without commands.retest")
+		got := x.flakes()
+		if len(got) != 1 {
+			t.Fatalf("flake lines %d, want 1: %+v", len(got), got)
+		}
+		x.eqBool(got[0].Retried || got[0].PassedOnRetry, false, "no retry")
+	})
+}
+
 // T-435: NIGHTLY backs up the project's database (no serve runs: directly) into .obor/state/backup and names it in
 // its summary; a project without one has nothing to back up.
 func TestNightlyBackup(t *testing.T) {

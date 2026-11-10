@@ -16,7 +16,8 @@ import (
 // Nightly is `obor nightly`: the milestone check tier in
 // its own worktree (<lanes_dir>/merge-nightly, added when missing) reset to the head of the main checkout's current
 // branch: commands.lane_setup, then check and check_milestone, each skipped when unset. Non-blocking: every command
-// runs even after a failure (a failed lane_setup stops the rest).
+// runs even after a failure (a failed lane_setup stops the rest). A red check reruns its named failing tests once by
+// merge.retest inside the slot it holds (T-1168); green then is the step's green and its line names the rerun.
 // It then backs up the project's database (wire.Backup), sweeps .obor (project.Sweep, T-1085: each removal it could not
 // make is one detail line, never RED; its backup step only after a backup with a nonempty reply, T-1086) and runs
 // merge.nightly_commands in order (T-817: each a
@@ -51,8 +52,18 @@ func (s *session) nightly() *Result {
 	linkLaneLinks(s.Cfg, s.root, s.scratch)
 
 	var results, failed, details, evidence []string
-	step := func(name string) *Result {
-		o, ok, h := s.run(name)
+	// step runs commands.<name>; retest is whether a red's failing tests are rerun once (T-1168: the nightly's check and
+	// check_milestone, as a lane test does; lane_setup and merge.nightly_commands never are).
+	step := func(name string, retest bool) *Result {
+		var o output
+		var ok bool
+		var h *halt
+		var saved int
+		if retest {
+			o, ok, h, saved = s.retested(name)
+		} else {
+			o, ok, h = s.run(name)
+		}
 		if h != nil {
 			return h.result()
 		}
@@ -60,6 +71,10 @@ func (s *session) nightly() *Result {
 			return nil
 		}
 		results = append(results, name+" "+s.what(o))
+		if saved > 0 {
+			// A retest that saved the run: the GREEN line names the rerun, so a flaky night shows in obor status (T-1168).
+			results = append(results, fmt.Sprintf("retest saved %d", saved))
+		}
 		if o.rc == 0 {
 			return nil
 		}
@@ -71,12 +86,13 @@ func (s *session) nightly() *Result {
 		details = append(details, s.details(o)...)
 		return nil
 	}
-	if r := step("lane_setup"); r != nil {
+	if r := step("lane_setup", false); r != nil {
 		return r
 	}
 	if len(failed) == 0 {
+		s.retest = true // the nightly reruns a red check's failing tests once, inside the slot it holds (T-1168)
 		for _, name := range []string{"check", "check_milestone"} {
-			if r := step(name); r != nil {
+			if r := step(name, true); r != nil {
 				return r
 			}
 		}

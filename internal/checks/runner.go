@@ -30,7 +30,7 @@ type runner struct {
 	slot        string
 	env         []string // extra command environment (OBOR_CHANGED_FILES, a lane test's CPU budget)
 	prio        string   // the check slot's priority: "merge" (the merge marker; "" too) or "worker" (a pool slot: a lane test, T-961)
-	retest      bool     // a lane test: a red run's failing tests are rerun once (commands.retest, T-964)
+	retest      bool     // a lane test or the nightly: a red run's failing tests are rerun once (commands.retest, T-964, T-1168)
 	pre         string   // the target side of the merge
 	class       Class
 	mode        string            // class.Mode() once classified
@@ -445,52 +445,66 @@ func (r *runner) runChecks() *halt {
 }
 
 // must runs commands.<name>; a failure is red. ok false: not configured. Every red run's failing tests go to the flake
-// log (T-350). A lane test reruns a red's failing tests once (retestOnRed, T-964). The load retry that used to save a
-// red with only timeouts failing under load is gone (T-864).
+// log (T-350). A lane test or the nightly reruns a red's failing tests once (retested, retestOnRed, T-964, T-1168). The
+// load retry that used to save a red with only timeouts failing under load is gone (T-864).
 func (r *runner) must(name string) (output, bool, *halt) {
-	o, ok, h := r.exec(name)
+	o, ok, h, _ := r.retested(name)
 	if h != nil || !ok {
 		return o, ok, h
 	}
 	if o.rc == 0 {
 		return o, ok, nil
 	}
+	return o, ok, &halt{red: &o}
+}
+
+// retested is must before its red halt: commands.<name> run once, and a red whose failing tests and packages it names
+// rerun once (retestOnRed) when the runner retests — green then is the run's, saved the failing tests it reran, 0 when
+// none was saved (a red that names no test, no commands.retest, a retest that failed). ok false: not configured. Every
+// red run's failing tests go to the flake log, retried and passed when the retest saved it (T-350, T-964, T-1168: the
+// nightly's GREEN line names the rerun).
+func (r *runner) retested(name string) (o output, ok bool, h *halt, saved int) {
+	o, ok, h = r.exec(name)
+	if h != nil || !ok || o.rc == 0 {
+		return o, ok, h, 0
+	}
 	if r.retest {
-		if out, green, ran := r.retestOnRed(o); ran {
+		if out, green, ran, tests := r.retestOnRed(o); ran {
 			r.logFlakes(name, true, green, o)
 			if green {
-				return out, true, nil
+				return out, true, nil, tests
 			}
-			return o, true, &halt{red: &o}
+			return o, true, nil, 0
 		}
 	}
 	r.logFlakes(name, false, false, o)
-	return o, true, &halt{red: &o}
+	return o, true, nil, 0
 }
 
-// retestOnRed runs a red lane test's failures once more (T-964, one retest, never more): the tests and packages the run
-// named, commands.retest in the same dir at the same commit — its {tests} the failing tests joined by
-// merge.retest_join, OBOR_FAILED_PKGS the failing packages — the runner's CPU budget. green: the retest passed and ran
-// at least one test (a run that tested nothing, "0 pass, 0 fail", is not green, T-976); ran false: none ran (no name or
-// package, no commands.retest), so the red stands as before.
-func (r *runner) retestOnRed(red output) (out output, green, ran bool) {
+// retestOnRed runs a red run's failures once more (T-964, T-1168: a lane test and the nightly, one retest, never
+// more): the tests and packages the run named, commands.retest in the same dir at the same commit — its {tests} the
+// failing tests joined by merge.retest_join, OBOR_FAILED_PKGS the failing packages — the runner's CPU budget, inside
+// the slot it already holds. green: the retest passed and ran at least one test (a run that tested nothing, "0 pass,
+// 0 fail", is not green, T-976); ran false: none ran (no name or package, no commands.retest), so the red stands as
+// before; n: how many failing tests it reran.
+func (r *runner) retestOnRed(red output) (out output, green, ran bool, n int) {
 	_, tests, pkgs := r.flakeParse(red)
 	if len(tests) == 0 || len(pkgs) == 0 {
-		return output{}, false, false
+		return output{}, false, false, 0
 	}
 	c, ok := r.command("retest")
 	if !ok {
-		return output{}, false, false
+		return output{}, false, false, 0
 	}
 	c = r.retestCommand(c, tests)
-	n := len(r.env)
+	env := len(r.env)
 	r.env = append(r.env, "OBOR_FAILED_PKGS="+strings.Join(pkgs, " "))
 	o, h := r.execCommand(c)
-	r.env = r.env[:n]
+	r.env = r.env[:env]
 	if h != nil {
-		return output{}, false, false
+		return output{}, false, false, 0
 	}
-	return o, o.rc == 0 && ranTests(r.counts(o)), true
+	return o, o.rc == 0 && ranTests(r.counts(o)), true, len(tests)
 }
 
 // ranTests is whether a retest's counts (merge.summary_regex) show at least one test: the retry's own "go test: 0
