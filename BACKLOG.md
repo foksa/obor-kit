@@ -16,7 +16,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   integrator fable:low (no fallback model: if Fable's quota ends, `obor pause --model fable` and move both roles back
   to opus with the owner's OK). RV-175 closed approved. **A review is running** (13 merges: comment sweeps T-1180,
   T-1181, T-1183, T-1184 and rig P4-P10, T-1188-T-1194); its finish line comes to the next lead.
-  **Next steps:** (1) The review: fix tasks with `Fixes: RV-176`, verify, close; findings in comments only are cheap
+  **Next steps:** (1) The review: fix tasks with `Fixes: RV-<n>` (its id), verify, close; findings in comments only are cheap
   to accept. (2) Ask the owner whether to keep Fable first when the usage resets end. (3) Owner decisions below:
   agent skills scope. (4) v0.35: delete the baseline/gate/e2e validate WARN (Later candidates), then cut a release
   (the audit wave is unreleased). (5) Owner when convenient: herdr instance id (T-1135). BACKLOG Open triaged 11-10
