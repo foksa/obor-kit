@@ -161,7 +161,7 @@ func TestIdentStartedByHand(t *testing.T) {
 }
 
 // 8: herdr drops the agent's name mid-task (app.Pane has no name field: nothing can read it): unchanged, and a typed
-// line still addresses the pane id (RV-53 #5).
+// line still addresses the pane id.
 func TestIdentNameDropped(t *testing.T) {
 	t.Parallel()
 	h, _ := newIdentHarness(t)
@@ -233,7 +233,7 @@ func TestIdentAtShell(t *testing.T) {
 	}
 }
 
-// 12 (RV-53 #1): move → stop through the after-merge step: the start row says w1:p1, the pane moved to w1:p7; Stop
+// 12: move → stop through the after-merge step: the start row says w1:p1, the pane moved to w1:p7; Stop
 // is called with w1:p7, never w1:p1, and the stop's intent records no pane.
 func TestIdentMoveThenStop(t *testing.T) {
 	t.Parallel()
@@ -277,7 +277,7 @@ func TestIdentMoveAddressReused(t *testing.T) {
 	}
 }
 
-// 14 (RV-53 #2): a session claim and a label claim on one terminal: the lead's recorded session s1 is w1:p1's session, w1:p1 is
+// 14: a session claim and a label claim on one terminal: the lead's recorded session s1 is w1:p1's session, w1:p1 is
 // labelled pj-advisor: the lead owns t1, pj-advisor has no proof; whoIs(w1:p1) is the lead.
 func TestIdentSessionBeatsLabel(t *testing.T) {
 	t.Parallel()
@@ -300,7 +300,7 @@ func TestIdentSessionBeatsLabel(t *testing.T) {
 	}
 }
 
-// 15 (RV-53 #2): row 6, then a second pane labelled pj-l-01 appears: Ambiguous (the old pane not kept), logged
+// 15: row 6, then a second pane labelled pj-l-01 appears: Ambiguous (the old pane not kept), logged
 // once; deliveries are held.
 func TestIdentDuplicateLater(t *testing.T) {
 	t.Parallel()
@@ -366,10 +366,10 @@ func TestIdentStartRowRetired(t *testing.T) {
 	}
 }
 
-// T-605: an agent the config does not name owns no pane (the lane H-01 case: its worker before the rename, hk-h1,
+// An agent the config does not name owns no pane (the lane H-01 case: its worker before the rename, hk-h1,
 // left a start row on the pane D-02 took over).
 
-// T-605 #1: a stale start row of hk-h1 (the config names no such agent) on w1:p1, labelled pj-l-01: the label wins,
+// A stale start row of hk-h1 (the config names no such agent) on w1:p1, labelled pj-l-01: the label wins,
 // and the stale row is retired in memory.
 func TestIdentUnnamedStartRetired(t *testing.T) {
 	t.Parallel()
@@ -387,7 +387,7 @@ func TestIdentUnnamedStartRetired(t *testing.T) {
 	}
 }
 
-// T-605 #2: nothing else in the ranking changes: a configured agent's start row still beats a label (pj-l-01's start
+// Nothing else in the ranking changes: a configured agent's start row still beats a label (pj-l-01's start
 // on w1:p1, labelled pj-l-02; both are lane agents of the config).
 func TestIdentNamedStartBeatsLabel(t *testing.T) {
 	t.Parallel()
@@ -402,7 +402,7 @@ func TestIdentNamedStartBeatsLabel(t *testing.T) {
 	eqs(t, h.where("pj-l-02"), "unavailable no proof", "pj-l-02")
 }
 
-// T-605 #3: an unconfigured agent's recorded session gives no session proof either: hk-sol's record is w1:p1's session
+// An unconfigured agent's recorded session gives no session proof either: hk-sol's record is w1:p1's session
 // s1, and it has a brief (a candidate), yet no pane proves it.
 func TestIdentUnnamedSessionNoProof(t *testing.T) {
 	t.Parallel()
@@ -416,7 +416,7 @@ func TestIdentUnnamedSessionNoProof(t *testing.T) {
 	eqs(t, h.who("w1:p1"), "", "whoIs(w1:p1)")
 }
 
-// 18 (RV-53 #4): replay → brief work: a brief recorded, serve restarts, the first snapshot shows w1:p1 working with
+// 18: replay → brief work: a brief recorded, serve restarts, the first snapshot shows w1:p1 working with
 // no label, its recorded session s1: identified by session and the brief's work marked (and logged) on that first snapshot.
 func TestIdentReplayBriefWork(t *testing.T) {
 	t.Parallel()
@@ -438,7 +438,7 @@ func TestIdentReplayBriefWork(t *testing.T) {
 	}
 }
 
-// 19 (RV-53 #3): a wake pending, two labels appear before the send: Ambiguous; the key stays pending, nothing typed
+// 19: a wake pending, two labels appear before the send: Ambiguous; the key stays pending, nothing typed
 // or recorded; sent once the ambiguity ends.
 func TestIdentAmbiguityDuringWake(t *testing.T) {
 	t.Parallel()
@@ -580,7 +580,7 @@ func TestIdentOrderIndependent(t *testing.T) {
 	}
 }
 
-// DD-v0.13 A2: the after-merge stop while serve is cut off from herdr (identified at w1:p1, then the stream ends) is
+// The after-merge stop while serve is cut off from herdr (identified at w1:p1, then the stream ends) is
 // not settled as "no agent": no Stop, no result, the step pending; connected again, it stops w1:p1.
 func TestIdentStopWhileDisconnected(t *testing.T) {
 	t.Parallel()
@@ -610,9 +610,9 @@ func TestIdentStopWhileDisconnected(t *testing.T) {
 	}
 }
 
-// DD-v0.13 A3 (and B1's kind): a wake and a line are posted, with the pane's kind, only when pj-l-01's inbox record
+// A wake and a line are posted with the pane's kind, only when pj-l-01's inbox record
 // names the identified pane's session (s1) or none; a record of another session (s9): the wake and the line are typed
-// into w1:p1 (T-746: a line to a ready agent is delivered, never held on a session mismatch).
+// into w1:p1 (a line to a ready agent is delivered, never held on a session mismatch).
 func TestIdentInboxOfAnotherSession(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct{ rec, want string }{{"s1", "posted"}, {"", "posted"}, {"s9", "typed"}} {
@@ -646,10 +646,10 @@ func TestIdentInboxOfAnotherSession(t *testing.T) {
 	}
 }
 
-// DD-v0.13 R1: a line is held only on a known mismatch. The lead's pane identified by label with no session from
+// A line is held only on a known mismatch. The lead's pane identified by label with no session from
 // herdr: its line is posted (even against another session's record: its record is its own latest SessionStart). A
 // role pane with no session: posted. A role pane whose session (s1) differs from the record's (s9): typed into its
-// pane (T-746: no longer held).
+// pane (no longer held).
 func TestIdentSessionUnknown(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -703,7 +703,7 @@ func TestIdentSessionUnknown(t *testing.T) {
 	}
 }
 
-// DD-v0.13 A5: a second agent pane in the lane (w1:p0, sorting first, a session the owner opened) is not the
+// A second agent pane in the lane (w1:p0, sorting first, a session the owner opened) is not the
 // dispatch's place while the table identifies the lane's agent at w1:p1; with no agent identified, the rule as before.
 func TestIdentPlacementPrefersTheLaneAgent(t *testing.T) {
 	t.Parallel()
@@ -722,7 +722,7 @@ func TestIdentPlacementPrefersTheLaneAgent(t *testing.T) {
 	}
 }
 
-// DD-v0.13 D1: the integrator's type names a kind obor has no bridge for: its start is refused (no Launch), naming
+// The integrator's type names a kind obor has no bridge for: its start is refused (no Launch), naming
 // obor config validate.
 func TestIdentIntegratorWithoutBridge(t *testing.T) {
 	t.Parallel()
@@ -751,7 +751,7 @@ func (f *launchSpy) Launch(context.Context, port.Launch) (port.Started, error) {
 	return port.Started{Line: "STARTED"}, nil
 }
 
-// T-504: the identity table's cases; each failed on the code it was found on.
+// The identity table's cases; each failed on the code it was found on.
 // #4: an unlabelled pane identified by session works on its brief: worked.
 func TestIdentBriefWorkByRegistry(t *testing.T) {
 	t.Parallel()
@@ -767,7 +767,7 @@ func TestIdentBriefWorkByRegistry(t *testing.T) {
 	}
 }
 
-// T-505: the identity table's transitions; each failed on the code it was found on.
+// The identity table's transitions; each failed on the code it was found on.
 // V1: pj-l-01's and the lead's recorded session are both w1:p1's session s1 (equal proof of t1): t1 is unowned whatever its
 // label names, a third label (pj-advisor) included; neither tied claimant is identified.
 func TestIdentEqualProofTerminal(t *testing.T) {
@@ -1016,7 +1016,7 @@ func TestIdentRelabelledPane(t *testing.T) {
 }
 
 // labelRig is pj connected with lanes L-01 and L-02 (workers pj-l-01 and pj-l-02) and herdr's session exactly panes(h);
-// before acts on the harness after the panes are in and before the connect takes them (a start row, T-504).
+// before acts on the harness after the panes are in and before the connect takes them (a start row).
 func labelRig(t *testing.T, panes func(h *harness) []port.Pane, before ...func(h *harness)) *harness {
 	t.Helper()
 	h := newHarness(t)
@@ -1045,11 +1045,11 @@ func labelPane(id, cwd, label string) port.Pane {
 	return port.Pane{ID: id, Group: "pj", Cwd: cwd, Label: label}
 }
 
-// placement_test.go: which pane of a lane dir serve starts the lane's agent in (paneIn, T-783): the label is the
+// placement_test.go: which pane of a lane dir serve starts the lane's agent in (paneIn): the label is the
 // pane's identity (R-28 §2), so `obor setup pane L-0N` — a labelled shell with no agent in it yet — is the place the
 // lane's first dispatch uses, not a pane of a lower id or one someone left an agent in.
 
-// T-783: the pane labelled for the lane's agent wins over a pane at its shell of a lower id, and over one that runs an
+// The pane labelled for the lane's agent wins over a pane at its shell of a lower id, and over one that runs an
 // agent; a pane labelled for another agent is never chosen (not even when the table identifies it as the lane's), and
 // identification still beats a label.
 func TestPaneInRanksTheLabel(t *testing.T) {
@@ -1116,7 +1116,7 @@ func TestPaneInRanksTheLabel(t *testing.T) {
 	})
 }
 
-// T-783: a lane dir whose only pane is labelled for another agent is no start: the dispatch's agent.start waits for a
+// A lane dir whose only pane is labelled for another agent is no start: the dispatch's agent.start waits for a
 // pane of its own (the no-pane clock) instead of launching into it and being refused.
 func TestLabelOfAnotherAgentWaitsForItsOwnPane(t *testing.T) {
 	t.Parallel()
@@ -1145,13 +1145,13 @@ func pendingStart(t *testing.T, h *harness, pane string) {
 	addRecord(t, h, "T-1", event.StepStartWork, event.KindIntent, startData{Lane: "L-01", Agent: "pj-l-01", Pane: pane})
 }
 
-// replays_test.go: agent.start's replay of a pending intent whose recorded pane is gone (T-783, rev 2): the start
+// replays_test.go: agent.start's replay of a pending intent whose recorded pane is gone: the start
 // chooses the pane again through paneIn — a new labelled pane in the lane dir is where the agent starts — and no
 // launch names the dead id.
 
-// T-783 (rev 2): the pane an agent.start intent recorded is gone (its tab closed, then obor setup pane made a new
+// The pane an agent.start intent recorded is gone (its tab closed, then obor setup pane made a new
 // labelled one, at its shell): the replay starts the agent once in the pane chosen again, records it in the start's
-// result, and is no needs-you (RV-101 #1: a pane at its shell is still a launch).
+// result, and is no needs-you (a pane at its shell is still a launch).
 func TestStartReplayStartsInThePaneChosenAgain(t *testing.T) {
 	t.Parallel()
 	h, fx, _, ag := promptRig(t, false, func(h *harness) {
@@ -1183,7 +1183,7 @@ func TestStartReplayStartsInThePaneChosenAgain(t *testing.T) {
 	}
 }
 
-// T-783 (rev 2): the same replay with no pane left in the lane takes the usual no-pane wait — no launch, no needs-you
+// The same replay with no pane left in the lane takes the usual no-pane wait — no launch, no needs-you
 // on the first pass — not a start into the recorded, dead id.
 func TestStartReplayWithNoPaneLeftWaits(t *testing.T) {
 	t.Parallel()
@@ -1203,7 +1203,7 @@ func TestStartReplayWithNoPaneLeftWaits(t *testing.T) {
 	}
 }
 
-// RV-101 #1: the same replay when the pane chosen again already runs an agent — the start that ran there before a
+// The same replay when the pane chosen again already runs an agent — the start that ran there before a
 // crash (or a launch error after its side effect), its result never recorded: the intent is still the gone pane's, so
 // nothing tells that agent from another one. cannot tell, never a launch that would stop a worker at its job; the
 // needs-you names the gone pane, the pane chosen again and what runs there.

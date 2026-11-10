@@ -14,32 +14,32 @@ import (
 	"obor/internal/agents"
 )
 
-// A Claude agent whose turn ended on an API error (T-532; docs/state-model.md row 50): Claude Code fires StopFailure
+// a Claude agent whose turn ended on an API error (docs/state-model.md row 50): Claude Code fires StopFailure
 // instead of Stop, and its hook (`obor hook stop-failure`) sends serve the agent, the error (rate_limit, overloaded,
 // billing_error, … unknown: any value, no mapping) and its details. Serve records fact stopped{agent, error, details}:
 //   - a role agent (the reviewer, the deep dive, the advisor, the integrator, …): the fact carries the lead's line
 //     "[obor] <agent> stopped: <error> (<details>)" and ends the agent's open brief, so no finished line follows for it
-//     (T-857: a verify's brief ends failed, the line "[obor] <RV-n> verify failed: <agent> stopped: …; serve retries
+//     (a verify's brief ends failed, the line "[obor] <RV-n> verify failed: <agent> stopped: …; serve retries
 //     when the reviewer is idle", reviewverify.go);
 //   - a worker with an open task: the fact carries the task and the watchdog's needs-you{<agent> stopped: <error>
-//     (<details>)} of it (cause stopped), folded from the fact itself, live and on replay (T-540: one record, no second
+//     (<details>)} of it (cause stopped), folded from the fact itself, live and on replay (one record, no second
 //     append to lose); its needs-you line "[obor] needs-you <T-xx> (<LANE>): …" to the lead as any other's.
 //
 // The stop ends with the agent's next turn. A role agent's next brief is a new one, its finished line as usual. A
 // worker's needs-you ends (fact resumed, cause stopped) on evidence of a new turn: its next UserPromptSubmit or Stop
 // hook sends serve a turn request (turnCall). Its pane's working status never ends it (judge): herdr's status and the
-// time it was seen say nothing of which turn it is (T-540).
+// time it was seen say nothing of which turn it is.
 //
-// A worker of a kind with no such hook whose transcript records its turns (agents.Caps.Status transcript: Codex, T-563) is read
+// A worker of a kind with no such hook whose transcript records its turns (agents.Caps.Status transcript: Codex) is read
 // instead: idle with an open task, its transcript's last turn ended on an error (a usage limit) → the same fact
 // stopped, its needs-you and lead line, with the turn (turnStop); once per turn, as its call id is the turn's. A later
 // turn in the transcript (its start, read whatever the pane's status) ends it: fact resumed (cause stopped).
 //
-// A role agent's stop on a usage limit with its brief open (T-569) keeps the brief open: the stop is on it (Brief,
+// A role agent's stop on a usage limit with its brief open keeps the brief open: the stop is on it (Brief,
 // Reset) until the agent's next turn (fact turned: its UserPromptSubmit or Stop hook's turn request, or a Codex
 // rollout's later turn, roleTurns), and serve wakes it after the reset (stopwake.go). Its finished line comes after.
 //
-// A turn's start and its end are different evidence (T-571; RV-60 #1, #3). The evidence: a hook's turn request
+// a turn's start and its end are different evidence. The evidence: a hook's turn request
 // (UserPromptSubmit: the start; Stop: the end, TurnReq.Ended), or a transcript's last turn (Codex: task_started the
 // start; task_complete, turn_aborted the end, with its error; agents.Turn.Ended). What it does is decided in one place,
 // turnDecide, from the state it meets: a stop in force; for a role agent's open brief, a turn followed (one started
@@ -140,7 +140,7 @@ func (a *App) workerStop(p *proj, d *outbox.Stopped, said, task string, w *watch
 // roleStop makes d the stop of role agent d.Agent (not the lead), its kind kind ("": the default), the reset its
 // transcript read turn (zero: none): the lead's line; with a brief open, a usage limit stops the brief (Brief, Reset:
 // it stays open, its agent woken after the reset), any other error ends it (no finished line for it; a verify's brief:
-// the verify rule briefs it again, T-924). Under mu.
+// the verify rule briefs it again). Under mu.
 func (a *App) roleStop(p *proj, d *outbox.Stopped, said, kind string, turn time.Time) {
 	d.To, d.Line = p.out.Lead(), "[obor] "+said
 	d.Reply = "STOPPED " + d.Agent + " (the lead is told)"
@@ -174,7 +174,7 @@ func limitOf(kind, errText, details string, turn, at time.Time) (limit bool, res
 	return true, r.Unix()
 }
 
-// turnsRead: the agents of kind have their turns read from their transcripts (agents.TurnsRead: Caps.Status transcript, T-1036).
+// turnsRead: the agents of kind have their turns read from their transcripts (agents.TurnsRead: Caps.Status transcript).
 func turnsRead(kind string) bool {
 	k, ok := agents.Lookup(kind)
 	return ok && agents.TurnsRead(k)
@@ -268,7 +268,7 @@ func (a *App) turnStop(p *proj, task string, w *watch, ev map[string]*evidence) 
 }
 
 // foldStop puts in force the worker's needs-you a stopped fact r with data d carries (foldMsg): a fact of d's task
-// with r's seq and time, unless the task has the same one in force or is closed (T-636: the task was picked before
+// with r's seq and time, unless the task has the same one in force or is closed (the task was picked before
 // its merge, drop or reject and the stop recorded after it).
 func (p *proj) foldStop(r event.Record, d outbox.Stopped) {
 	if d.Task == "" || d.NeedsYou == nil || p.has(d.Task, event.StepNeedsYou, d.NeedsYou.Reason) || p.closed(d.Task) {
@@ -312,7 +312,7 @@ func (a *App) turnCall(c wire.TurnReq) (string, error) {
 // roleTurn is turnCall for role agent c.Agent (under mu, released while the fact is recorded), by turnDecide: its
 // brief's stop in force ends at the turn's start (fact turned: the brief follows the turn, its finished line waits for
 // the turn's end or its work), the turn's end finishes it (fact turned, worked: the finished line when idle), also when
-// the start was missed (RV-60 #3). Neither: nothing.
+// the start was missed. Neither: nothing.
 func (a *App) roleTurn(p *proj, c wire.TurnReq) (string, error) {
 	b := p.out.Brief(c.Agent)
 	if b == nil {
@@ -339,8 +339,8 @@ func (a *App) roleTurn(p *proj, c wire.TurnReq) (string, error) {
 // stoppedTask is the open task of the worker a call names (its lane on, else the lane its agent works in) and its
 // watch; "" and nil when it has none (under mu). The loop decides which task that is (workerTask): a watch is used only
 // if it is that task's, and a watch of another task on its lane is stale (the lane's old task ended and this one was dispatched
-// since the watchdog's last look, T-617), dropped as the next check would. A task dispatched since that look has no
-// watch yet: one is installed as the check would (T-612: a worker may stop before that look). With no such loop task
+// since the watchdog's last look), dropped as the next check would. A task dispatched since that look has no
+// watch yet: one is installed as the check would (a worker may stop before that look). With no such loop task
 // the watch on the call's lane stands.
 func (p *proj) stoppedTask(on, agent string) (string, *watch) {
 	if task, lane := p.workerTask(on, agent); task != "" {
@@ -375,7 +375,7 @@ func (p *proj) stoppedTask(on, agent string) (string, *watch) {
 
 // workerTask is the current task of the worker a call names and its lane, as the loop holds it (under mu): the task
 // whose attempt awaits its worker's task_done on the call's lane on, else on the lane its agent works in; "" when none
-// does. Of two such tasks the newest dispatch (highest dispSeq) is the current one, as T-615 settles a lane's task.
+// does. Of two such tasks the newest dispatch (highest dispSeq) is the current one, as a lane's task is settled.
 func (p *proj) workerTask(on, agent string) (task, lane string) {
 	var newest int64
 	for _, t := range p.loopTasks() {

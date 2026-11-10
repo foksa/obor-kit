@@ -34,13 +34,13 @@ func (a *App) sendWorkJob(ctx context.Context, p *proj, fx *Loop, mt mtask, key,
 }
 
 // workText is mt's worker prompt, from the project's config and the obor kit at kit as they are now: the prompt
-// template (its prompt_extra the dispatch's model's kind's), then the worker's role texts (T-603: one read of them instead of two turns).
+// template (its prompt_extra the dispatch's model's kind's), then the worker's role texts (one read of them instead of two turns).
 func workText(p *proj, mt mtask, kit string) (string, error) {
 	cfg, err := config.Load(p.root)
 	if err != nil {
 		return "", err
 	}
-	typ, _ := config.ParseModelRef(mt.disp.Type) // T-721, T-738
+	typ, _ := config.ParseModelRef(mt.disp.Type) // the dispatch's type reference
 	lt, _ := cfg.Model(typ)
 	text, err := workerPrompt(cfg, kit, mt.task, lt)
 	if err != nil {
@@ -49,7 +49,7 @@ func workText(p *proj, mt mtask, kit string) (string, error) {
 	return withRoleTexts(text, cfg, kit, "worker")
 }
 
-// withRoleTexts is text with the role's role texts after it (T-603, T-941): a too-large one named for a read, the
+// withRoleTexts is text with the role's role texts after it: a too-large one named for a read, the
 // others inlined under their path lines.
 func withRoleTexts(text string, cfg *config.Config, kit, role string) (string, error) {
 	roles, read, err := roleTexts(cfg, kit, role)
@@ -162,7 +162,7 @@ func workerPrompt(cfg *config.Config, kit, task string, lt config.Model) (string
 	return strings.ReplaceAll(strings.Join(parts, " "), "`", "'"), nil
 }
 
-// pluginNote warns, in dispatch's reply, that a Claude lane's worktree has no enabled obor plugin (T-705): its worker
+// pluginNote warns, in dispatch's reply, that a Claude lane's worktree has no enabled obor plugin: its worker
 // would run without obor's hooks and MCP tools (no job_next).
 func pluginNote(cfg *config.Config, l port.Lane, typ string) string {
 	kind := project.RunningKind(cfg, config.AgentInfo{Type: typ})

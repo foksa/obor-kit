@@ -18,7 +18,7 @@ import (
 	"obor/internal/version"
 )
 
-// T-577: a Claude start records one session fact with its id and transcript; a second start of the agent a second
+// A Claude start records one session fact with its id and transcript; a second start of the agent a second
 // fact, the newest its current one; a repeat of a session records none; a replay folds the same; the store's readers
 // (launch, the hooks) read the same facts.
 func TestSessionFacts(t *testing.T) {
@@ -58,7 +58,7 @@ func TestSessionFacts(t *testing.T) {
 	eqs(t, h.current("pj-l-01"), "s2", "replay: current")
 }
 
-// T-577: the identity reads the recorded session first: a pane whose herdr session is the record is identified by
+// The identity reads the recorded session first: a pane whose herdr session is the record is identified by
 // session; one whose herdr session differs is still identified by its label, or its start, as before, and the
 // difference is logged once (not adopted).
 func TestSessionIdentityCrossCheck(t *testing.T) {
@@ -95,7 +95,7 @@ func TestSessionIdentityCrossCheck(t *testing.T) {
 	})
 }
 
-// T-577: obor status shows an identified agent's current session: its id, transcript and start.
+// obor status shows an identified agent's current session: its id, transcript and start.
 func TestSessionInStatus(t *testing.T) {
 	t.Parallel()
 	h, _ := newIdentHarness(t)
@@ -118,7 +118,7 @@ func TestSessionInStatus(t *testing.T) {
 	}
 }
 
-// T-813: a session obor named before a start (no transcript yet) is confirmed by its SessionStart hook. The same id
+// A session obor named before a start (no transcript yet) is confirmed by its SessionStart hook. The same id
 // fills the transcript in, one record for the agent, nothing logged; another id — Claude ran what it was not given —
 // wins, one log line, and the pre-record stays in the history.
 func TestSessionConfirmation(t *testing.T) {
@@ -179,7 +179,7 @@ func TestSessionConfirmation(t *testing.T) {
 	})
 }
 
-// T-586: one session id belongs to one agent: an id that is another agent's current session is refused (nothing
+// One session id belongs to one agent: an id that is another agent's current session is refused (nothing
 // recorded, both agents in serve's log, the first agent unchanged); a repeat by its owner is one fact; a log holding
 // such a duplicate replays with one owner; the registry-failure shape (two starts, one rollout) records the id for
 // the agent that reported it first only.
@@ -237,7 +237,7 @@ func TestSessionOneOwner(t *testing.T) {
 		eqs(t, h2.current("pj-a"), "zzzz0001", "replay: A owns zzzz0001")
 		eqs(t, h2.current("pj-b"), "", "replay: B does not")
 
-		// T-588: the store's readers apply the same rule (the session fold): the owner's only.
+		// The store's readers apply the same rule (the session fold): the owner's only.
 		if s, ok := store.CurrentAt(h2.root, "pj-a"); !ok || s.ID != "zzzz0001" || s.Transcript != own {
 			t.Errorf("CurrentAt A: %+v %v, want zzzz0001 at %s", s, ok, own)
 		}
@@ -260,12 +260,12 @@ func TestSessionOneOwner(t *testing.T) {
 	})
 }
 
-// sessionFactGolden is a session fact's data as serve recorded it before T-887 (the flat session call): the stored
+// sessionFactGolden is a session fact's data as an older serve recorded it (the flat session call): the stored
 // shape the one session type keeps, key for key.
 const sessionFactGolden = `{"agent":"pj-l-01","kind":"claude","id":"sid-1","transcript":"/t/sid-1.jsonl","pane":"w1:p1",` +
 	`"lane":"L-01","task":"T-1","started":1700000000,"source":"SessionStart hook"}`
 
-// T-887: a stored session fact from before folds the same, and a session recorded now is stored in that shape.
+// A stored session fact from before folds the same, and a session recorded now is stored in that shape.
 func TestSessionFactGoldenFolds(t *testing.T) {
 	t.Parallel()
 	want := store.Session{Agent: "pj-l-01", Kind: "claude", ID: "sid-1", Transcript: "/t/sid-1.jsonl", Pane: "w1:p1",
@@ -290,7 +290,7 @@ func TestSessionFactGoldenFolds(t *testing.T) {
 	}
 }
 
-// T-887: the session call's shape changed with its key (session_fact, not the flat session id): a hook older than
+// The session call's shape changed with its key (session_fact, not the flat session id): a hook older than
 // serve sends the flat fields, and serve refuses it naming both versions, recording nothing; a serve older than its
 // hook reads the new call as one without a session id (its refusal names both versions, as above), never as an
 // unreadable request.
@@ -322,7 +322,7 @@ func TestSessionCallShapeSkewRefusedByVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := json.Marshal(wire.Request{Method: wire.MethodSession, Call: call})
-	var older struct { // the call as an obor before T-887 decodes it
+	var older struct { // the call as an older obor decodes it
 		Call struct {
 			Agent   string `json:"agent"`
 			Session string `json:"session"`

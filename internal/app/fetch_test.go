@@ -18,7 +18,7 @@ import (
 	"obor/internal/store"
 )
 
-// T-396: the worker's job is open before its start: a fetch and a task_done during the start are taken, and the
+// The worker's job is open before its start: a fetch and a task_done during the start are taken, and the
 // start's result after that keeps the submission (state submitted, the work step sent (start prompt), nothing typed).
 func TestEarlyTaskDone(t *testing.T) {
 	t.Parallel()
@@ -72,7 +72,7 @@ func TestEarlyTaskDone(t *testing.T) {
 	same(t, len(f.typed), 0, "Prompter calls")
 }
 
-// T-396: a work job open before a start that was refused stays the job: after obor resume the next start carries the
+// A work job open before a start that was refused stays the job: after obor resume the next start carries the
 // same job's wake (no work.2), and its result sends it.
 func TestStartAgainSameJob(t *testing.T) {
 	t.Parallel()
@@ -172,7 +172,7 @@ func TestFreshIntegratorPerJob(t *testing.T) {
 	same(t, resultOf(p, event.Key{Task: "T-5", Attempt: 1, Step: event.StepReview}), `"sent (start prompt)"`, "T-5's review result")
 }
 
-// The wait for an integrator that does not go idle after the last verdict is bounded (T-602): for Gone from the first
+// The wait for an integrator that does not go idle after the last verdict is bounded: for Gone from the first
 // look the next job waits; past it the fresh start forces (stops the turn), with one log line.
 func TestFreshIntegratorIdleBound(t *testing.T) {
 	t.Parallel()
@@ -216,7 +216,7 @@ func TestFreshIntegratorIdleBound(t *testing.T) {
 	}
 }
 
-// T-606 (RV-65 #1): the idle wait is the integrator's pane's, not a job's. Two queued jobs alternating across Gone
+// The idle wait is the integrator's pane's, not a job's. Two queued jobs alternating across Gone
 // share one busy interval, so one of them forces a fresh start after one Gone; the other waits for its verdict.
 func TestFreshIntegratorIdleBoundTwoJobs(t *testing.T) {
 	t.Parallel()
@@ -284,8 +284,8 @@ func TestFreshIntegratorIdleBoundTwoJobs(t *testing.T) {
 	}
 }
 
-// job_next hands out the job the call names when it is open, else the oldest open one, never a held one (T-602): a
-// fresh session started for job B fetches B, also while an older job A is held (the T-598 resolve.2 shape).
+// job_next hands out the job the call names when it is open, else the oldest open one, never a held one: a
+// fresh session started for job B fetches B, also while an older job A is held (the resolve.2 shape).
 func TestJobNextNamedNotHeld(t *testing.T) {
 	t.Parallel()
 	r := newConcRig(t)
@@ -319,7 +319,7 @@ func TestJobNextNamedNotHeld(t *testing.T) {
 	same(t, jr.State+" "+jr.Current, "superseded T-5/1/resolve.2", "the held job named: not handed out")
 }
 
-// T-606: the unnamed job_next hands out the oldest open job on every call. Two sent jobs have no pending intent, so
+// The unnamed job_next hands out the oldest open job on every call. Two sent jobs have no pending intent, so
 // their order must be the log's, not the map's: each call ranges the loop afresh and must still name the first.
 func TestJobNextOldestNotTheMapsFirst(t *testing.T) {
 	t.Parallel()
@@ -467,7 +467,7 @@ func TestIntegratorJobNextEqualSeqsTakesFirstTaskByName(t *testing.T) {
 	}
 }
 
-// RV-133 #1 (T-959): restart_job is callerJob's answer, never the status list's first review job. A held (earlier)
+// Restart_job is callerJob's answer, never the status list's first review job. A held (earlier)
 // review and a later active one leave the integrator's restart with the active job — the one its job_next would hand
 // it — although the status list shows the held task first (by task name) with its job open.
 func TestRestartJobSkipsHeld(t *testing.T) {
@@ -575,8 +575,8 @@ func TestRoleTextAtTheCapIsInlined(t *testing.T) {
 	}
 }
 
-// T-721, T-765: the job's prompt_extra is the kind's of the model its dispatch chose (kinds.<kind>.prompt_extra); a
-// dispatch recorded before T-721 (no model) carries none.
+// The job's prompt_extra is the kind's of the model its dispatch chose (kinds.<kind>.prompt_extra); a
+// dispatch that recorded no model carries none.
 func TestWorkTextPromptExtraIsTheDispatchsModels(t *testing.T) {
 	t.Parallel()
 	p, kit := roleFixture(t, "# Role: worker\nkit rules\n", "")
@@ -626,7 +626,7 @@ func TestWorkerPromptNamesNoRoleText(t *testing.T) {
 	}
 }
 
-// T-674: only an empty "## This project" section is dropped from the job; a project's filled one is carried.
+// Only an empty "## This project" section is dropped from the job; a project's filled one is carried.
 func TestWorkTextDropsOnlyAnEmptyProjectSection(t *testing.T) {
 	t.Parallel()
 	kitRole := "# Role: worker\nkit rules\n\n## This project\n<!-- fill in: kit note -->\n"
@@ -647,7 +647,7 @@ func TestWorkTextDropsOnlyAnEmptyProjectSection(t *testing.T) {
 	}
 }
 
-// T-674: the work job of this kit (templates/worker-prompt.txt, templates/agents/worker.md and obor-kit's
+// The work job of this kit (templates/worker-prompt.txt, templates/agents/worker.md and obor-kit's
 // docs/agents/worker.md) says each rule once, carries no empty "This project" section and does not tell a worker to
 // fetch the job it is reading.
 func TestWorkJobSaysEachRuleOnce(t *testing.T) {
@@ -716,7 +716,7 @@ func workJobText(t *testing.T, kit, cfg string) string {
 	return text
 }
 
-// T-678: the work job names the built-in report sections (config.ReportSections) once.
+// The work job names the built-in report sections (config.ReportSections) once.
 func TestWorkJobNamesTheReportSections(t *testing.T) {
 	t.Parallel()
 	kit, err := filepath.Abs("../..")
@@ -730,7 +730,7 @@ func TestWorkJobNamesTheReportSections(t *testing.T) {
 	}
 }
 
-// The fix job names the role texts for a worker started fresh (T-603): the kit's and the project's when the checkout has
+// The fix job names the role texts for a worker started fresh: the kit's and the project's when the checkout has
 // one, the kit's alone when it does not.
 func TestFixJobNamesBothRoleTexts(t *testing.T) {
 	t.Parallel()
@@ -766,7 +766,7 @@ func TestFixJobNamesBothRoleTexts(t *testing.T) {
 	}
 }
 
-// T-819: a fix job whose worker never had the spec's rev carries it (a change made while the task was not working);
+// A fix job whose worker never had the spec's rev carries it (a change made while the task was not working);
 // at the rev it already has, it does not.
 func TestFixJobCarriesAChangedRevOnly(t *testing.T) {
 	t.Parallel()

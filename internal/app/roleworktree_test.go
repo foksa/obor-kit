@@ -24,7 +24,7 @@ func startedHead(t *testing.T, h *harness) string {
 	return ""
 }
 
-// T-853: the reviewer or the deep dive working — its pane working, a brief open to it — holds no merge: T-1 publishes
+// The reviewer or the deep dive working — its pane working, a brief open to it — holds no merge: T-1 publishes
 // in the same pass, and obor status shows no hold phase.
 func TestMergeDuringAReviewPublishesAtOnce(t *testing.T) {
 	t.Parallel()
@@ -103,7 +103,7 @@ func TestWorktreeAgentsFollowTheConfig(t *testing.T) {
 	}
 }
 
-// T-733: an admission in force (config_set's, T-872: the only one) between the publish's selection and its execution
+// An admission in force (config_set's: the only one) between the publish's selection and its execution
 // refuses the publish's start (scratchStep decides at the start, not pickAccepted at the selection); released, the
 // next pass publishes.
 func TestAdmissionDecidedAtPublishStart(t *testing.T) {
@@ -127,7 +127,7 @@ func TestAdmissionDecidedAtPublishStart(t *testing.T) {
 	}
 }
 
-// T-872: a publish runs during a review's start and both complete. The start reads the head (base1) and goes on with
+// A publish runs during a review's start and both complete. The start reads the head (base1) and goes on with
 // it while T-1's publish runs: the review starts on base1, the reviewer's worktree there, before the publish ends;
 // released, T-1 merges, and its merge falls into the next review's scope.
 func TestPublishDuringAReviewStart(t *testing.T) {

@@ -9,7 +9,7 @@ import (
 	"obor/internal/app/wire"
 )
 
-// T-751: no watchdog watches a driving task. The same seed as a worker's prepared dispatch (askSeed, whose idle worker
+// No watchdog watches a driving task. The same seed as a worker's prepared dispatch (askSeed, whose idle worker
 // stalls after Idle, then needs the owner) with the dispatch a drive's: the lane's idle agent is never stalled{idle} or
 // needs-you{stalled}, live or after a replay, while the control (a worker's dispatch) is.
 func TestDriveNoStallWhileDriving(t *testing.T) {
@@ -91,7 +91,7 @@ func landSeed(t *testing.T, adapters bool) (*harness, *proj) {
 	return h, p
 }
 
-// RV-132 #2 (T-945): a drop recorded between obor land's checks and its submission is the terminal fact. The fold
+// A drop recorded between obor land's checks and its submission is the terminal fact. The fold
 // ignores land's submission, so land checks its own receipt and answers superseded instead of LANDED: both a drop
 // still dropping (its lane adapters) and one already dropped.
 func TestLandSupersededByConcurrentDrop(t *testing.T) {

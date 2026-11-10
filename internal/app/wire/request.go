@@ -2,22 +2,22 @@ package wire
 
 import "obor/internal/store"
 
-// The app socket's requests (T-1055): one type per method, each an Envelope and its method's fields only, its doc
-// comment the method's documented request. The JSON keys are the union's (one struct before the split, a key per field:
+// The app socket's requests: one type per method, each an Envelope and its method's fields only, its doc
+// comment the method's documented request. The JSON keys are the union's (a key per field:
 // "note" carries a hold's why, resume's text, spec_set's what-changed …), less the keys no serve of either version
-// reads for that method (T-1060: a no-task method sends no empty "task", task_done and the verdicts no "pane", web
+// reads for that method (a no-task method sends no empty "task", task_done and the verdicts no "pane", web
 // pause no "source"); the golden test names each one and why it is unread. The wire guarantee is not byte-for-byte
-// equality with the old line: every key a serve of either version reads for the method is sent, and every old line
+// equality with an older line: every key a serve of either version reads for the method is sent, and every older line
 // decodes here; a key a method does not use is ignored, as any unknown key.
 
-// Envelope is every request's caller: who calls (its derived agent name, project.Self, T-786, and its role; both empty:
+// Envelope is every request's caller: who calls (its derived agent name, project.Self, and its role; both empty:
 // the owner), from which project, and the call's id (a repeated id gets serve's stored reply, so every call has its
 // own: NewCallID). It is embedded first in each request type, its keys flat in the request's JSON.
 type Envelope struct {
 	Root  string `json:"root"`
 	Agent string `json:"agent"`
 	Role  string `json:"role"`
-	// Version is the calling binary's version.Version (T-826), stamped by the client on every call (Verdict): an empty
+	// Version is the calling binary's version.Version, stamped by the client on every call (Verdict): an empty
 	// one is a binary older than the field, and serve names either difference in its refusal.
 	Version string `json:"version,omitempty"`
 	CallID  string `json:"call_id"`
@@ -56,7 +56,7 @@ type VerdictReq struct {
 func (r VerdictReq) Method() string { return r.Verb }
 
 // DropReq is the lead's or the owner's drop (obor drop): the task Task ended for good, whatever it waits for, Why why.
-// Force also stops a busy worker; Discard (T-439) discards the task's lane's uncommitted changes and unmerged commits.
+// Force also stops a busy worker; Discard discards the task's lane's uncommitted changes and unmerged commits.
 // Reply: DROPPED <task>, or DROPPING <task> while its worker stops.
 type DropReq struct {
 	Envelope
@@ -110,7 +110,7 @@ type WatchReq struct {
 func (WatchReq) Method() string { return MethodWatch }
 
 // PauseReq is a pause (obor pause; pause.go): Why its why, Until its end (epoch seconds, 0: until cleared), Model the
-// model it holds (obor pause --model, T-765; "": the project's pause); Clear ends the pause in force.
+// model it holds (obor pause --model; "": the project's pause); Clear ends the pause in force.
 type PauseReq struct {
 	Envelope
 	Why   string `json:"note,omitempty"`
@@ -132,9 +132,9 @@ type ReviewReq struct {
 
 func (ReviewReq) Method() string { return MethodReview }
 
-// SessionReq is an agent's session that began (its SessionStart hook, a launch; sessions.go, T-887): the session as
+// SessionReq is an agent's session that began (its SessionStart hook, a launch; sessions.go): the session as
 // serve records it, the one session shape (SessionRequest builds it: the envelope's Agent is its agent). Its key is not
-// the flat "session" id of the obor before it: a serve of either side reads the other's request and refuses it with
+// the flat "session" id a request may carry: a serve of either side reads the other's request and refuses it with
 // both versions named (no session), never as an unreadable request.
 type SessionReq struct {
 	Envelope
@@ -144,7 +144,7 @@ type SessionReq struct {
 func (SessionReq) Method() string { return MethodSession }
 
 // SpecSetReq is the lead's or the owner's spec (obor spec set; specs.go): Spec stored as Task's spec, Changed what
-// changed (T-819). Reply: SET <task> rev <n> (T-824), or UNCHANGED <task> rev <n>.
+// changed. Reply: SET <task> rev <n>, or UNCHANGED <task> rev <n>.
 type SpecSetReq struct {
 	Envelope
 	Task    string `json:"task"`
@@ -154,7 +154,7 @@ type SpecSetReq struct {
 
 func (SpecSetReq) Method() string { return MethodSpecSet }
 
-// ConfigSetReq is the owner's setup edits (obor web, obor checks; configset.go, T-753, T-760): Changes in
+// ConfigSetReq is the owner's setup edits (obor web, obor checks; configset.go): Changes in
 // .obor/config.json, applied in order as one commit on main; Base the config.json revision (config.Rev) they were made
 // on ("": not checked); Source where the owner made them ("web").
 type ConfigSetReq struct {
@@ -166,7 +166,7 @@ type ConfigSetReq struct {
 
 func (ConfigSetReq) Method() string { return MethodConfig }
 
-// BackupReq asks serve to take a backup of the envelope's Root's database (obor nightly, T-435): serve is its one
+// BackupReq asks serve to take a backup of the envelope's Root's database (obor nightly): serve is its one
 // writer.
 type BackupReq struct {
 	Envelope
@@ -186,7 +186,7 @@ func (SendReq) Method() string { return MethodSend }
 
 // BriefReq is the lead's or the owner's brief (obor brief; messages.go): To the role agent, Text the brief ("": the
 // restart's first prompt carried it). Prompt is a fresh start's first prompt (a review's start, the one brief without a
-// line): recorded as the start's text (T-665, T-785). Fresh (obor brief --fresh, T-794): serve stops the running agent
+// line): recorded as the start's text. Fresh (obor brief --fresh): serve stops the running agent
 // and starts it fresh on the brief, once the brief is recorded.
 type BriefReq struct {
 	Envelope
@@ -198,7 +198,7 @@ type BriefReq struct {
 
 func (BriefReq) Method() string { return MethodBrief }
 
-// StoppedReq is the StopFailure hook's (stopped.go, T-532): the envelope's agent (and role) stopped, Lane a worker's
+// StoppedReq is the StopFailure hook's (stopped.go): the envelope's agent (and role) stopped, Lane a worker's
 // lane, Error the API error that ended its turn and Details its details.
 type StoppedReq struct {
 	Envelope
@@ -210,7 +210,7 @@ type StoppedReq struct {
 func (StoppedReq) Method() string { return MethodStopped }
 
 // TurnReq is an agent's next turn that began or ended (its UserPromptSubmit or Stop hook; stopped.go): Lane a worker's
-// lane, Ended the hook is the turn's end (Stop); false: its start (UserPromptSubmit; T-571).
+// lane, Ended the hook is the turn's end (Stop); false: its start (UserPromptSubmit).
 type TurnReq struct {
 	Envelope
 	Lane  string `json:"lane,omitempty"`
@@ -219,7 +219,7 @@ type TurnReq struct {
 
 func (TurnReq) Method() string { return MethodTurn }
 
-// RestartJobReq is obor restart's (T-959): the job an agent's restart carries as its wake — the job job_next would
+// RestartJobReq is obor restart's: the job an agent's restart carries as its wake — the job job_next would
 // hand the envelope's agent (with its role; Lane a worker's lane), with the same predicate and order. Reply: that job
 // id, or "" when the agent has none.
 type RestartJobReq struct {
@@ -229,8 +229,8 @@ type RestartJobReq struct {
 
 func (RestartJobReq) Method() string { return MethodRestartJob }
 
-// ExitReq is the owner's or the lead's (obor stop, T-711): serve ends gracefully, as a signal ends it and as its
-// self-restart does (T-652, T-656): the envelope's Root its project, Why why. The reply is EXITING; the caller
+// ExitReq is the owner's or the lead's (obor stop): serve ends gracefully, as a signal ends it and as its
+// self-restart does: the envelope's Root its project, Why why. The reply is EXITING; the caller
 // confirms serve down by its serve.flock and socket.
 type ExitReq struct {
 	Envelope
@@ -239,9 +239,9 @@ type ExitReq struct {
 
 func (ExitReq) Method() string { return MethodExit }
 
-// DriveReq is the owner's or the lead's (obor drive, T-751): Name the drive's name for a new drive (a new task on the
+// DriveReq is the owner's or the lead's (obor drive): Name the drive's name for a new drive (a new task on the
 // first free untyped lane, Types its one type reference), else Task a drive's own task (its retry; any other task
-// refused, T-912). The reply is DRIVE <task> → <lane> (<agent>, <type>): the CLI starts the drive agent.
+// refused). The reply is DRIVE <task> → <lane> (<agent>, <type>): the CLI starts the drive agent.
 type DriveReq struct {
 	Envelope
 	Task  string   `json:"task"`
@@ -261,7 +261,7 @@ type LandReq struct {
 
 func (LandReq) Method() string { return MethodLand }
 
-// TellLeadReq is the drive agent's (obor tell-lead, T-761): Lane the drive's lane, Text the text. Serve posts
+// TellLeadReq is the drive agent's (obor tell-lead): Lane the drive's lane, Text the text. Serve posts
 // "[obor <task> drive] <text> (reply: obor resume <task> "…")" to the lead as a lead line. The reply is TOLD ….
 type TellLeadReq struct {
 	Envelope
@@ -271,7 +271,7 @@ type TellLeadReq struct {
 
 func (TellLeadReq) Method() string { return MethodTellLead }
 
-// IdleReq is the lead's or the owner's (obor idle, T-803): Why the why nothing is in flight acknowledges the idle state
+// IdleReq is the lead's or the owner's (obor idle): Why the why nothing is in flight acknowledges the idle state
 // ("" shows it). The reply is ACKED idle: <why>, or the state (NOT IDLE, IDLE …).
 type IdleReq struct {
 	Envelope
@@ -280,8 +280,8 @@ type IdleReq struct {
 
 func (IdleReq) Method() string { return MethodIdle }
 
-// ReviewCloseReq is the lead's or the owner's (obor review close, T-926): Summary the summary, Accept each accepted
-// finding's line for docs/accepted.md (T-1178), Force closes with fixes pending. Serve commits the close on the
+// ReviewCloseReq is the lead's or the owner's (obor review close): Summary the summary, Accept each accepted
+// finding's line for docs/accepted.md, Force closes with fixes pending. Serve commits the close on the
 // integration branch and records fact review.closed; the reply is CLOSED <subject>.
 type ReviewCloseReq struct {
 	Envelope
@@ -292,7 +292,7 @@ type ReviewCloseReq struct {
 
 func (ReviewCloseReq) Method() string { return MethodReviewClose }
 
-// EventsReq is anyone's, as status is (obor events, T-1039): the event feed, the records after Seq (the last seq the
+// EventsReq is anyone's, as status is (obor events): the event feed, the records after Seq (the last seq the
 // caller has; 0: from the first record) in seq order, one Answer{Record} line each, then Answer{Reply: FeedEnd};
 // Follow keeps the connection and streams each new record until the caller or serve closes it (feed.go).
 type EventsReq struct {
@@ -317,7 +317,7 @@ type JobNextReq struct {
 func (JobNextReq) Method() string { return MethodJobNext }
 
 // TaskDoneReq is the MCP task_done tool's: the worker's Report submits its task (row 16), Task the task, else the one
-// Lane (the caller's OBOR_LANE) holds (T-439). The reply is "submitted" or the refusal.
+// Lane (the caller's OBOR_LANE) holds. The reply is "submitted" or the refusal.
 type TaskDoneReq struct {
 	Envelope
 	Task   string `json:"task"`

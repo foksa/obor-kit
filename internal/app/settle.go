@@ -18,11 +18,11 @@ func notRunResult(r event.Record) bool {
 }
 
 // settleEnded settles as nothing every pending intent of an ended task (task; "": every task), never run again
-// (docs/state-model.md "Replay"; T-400): result "not run: <task> <state>", folded as no outcome (foldRecord). The
+// (docs/state-model.md "Replay"): result "not run: <task> <state>", folded as no outcome (foldRecord). The
 // loop runs no step of a dropped task and only the after-merge steps of a merged one, so nothing else would close
 // them: a superseded attempt's (a redispatch, a later submission) or the ended attempt's own (a prompt refused
-// before typing, a start that failed); an old log's notification intents (T-949: nothing sends them now) are settled
-// with them. Of a rejected task only its old notification intents are (T-636: a new dispatch reopens it). Kept: a
+// before typing, a start that failed); an old log's notification intents (nothing sends them now) are settled
+// with them. Of a rejected task only its old notification intents are (a new dispatch reopens it). Kept: a
 // merged attempt's after-merge steps (the loop runs them), a verdict's (its call id's reply is its caller's), and one
 // whose effect ran with its result unwritten (App.do writes that).
 // Called at replay and live once a merged or dropped fact (record) or a reject (verdict) is folded; under mu when the
@@ -37,7 +37,7 @@ func (a *App) settleEnded(p *proj, task string) int {
 		case task != "" && r.Task != task, mt == nil, lost:
 			continue
 		case mt.state == stDropped:
-		case mt.state == stRejected: // only its old notifications: a new dispatch reopens the task (T-636)
+		case mt.state == stRejected: // only its old notifications: a new dispatch reopens the task
 			if !strings.HasPrefix(r.Step, "notify.") {
 				continue
 			}

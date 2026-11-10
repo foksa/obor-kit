@@ -10,9 +10,9 @@ import (
 	"obor/internal/app/wire"
 )
 
-// T-893 (DD-encapsulation E1): Describe words every record kind the readers show from the keys serve writes. Each case
+// Describe words every record kind the readers show from the keys serve writes. Each case
 // is the data as a log holds it, so a renamed or retyped key in one record type fails here; the table must cover every
-// worded kind. T-688: a gate that is not green and a hold are bad; a green gate is not, even when its summary counts a
+// worded kind. A gate that is not green and a hold are bad; a green gate is not, even when its summary counts a
 // failure.
 
 func TestDescribeWordsEveryKind(t *testing.T) {
@@ -41,7 +41,7 @@ func TestDescribeWordsEveryKind(t *testing.T) {
 			`{"lane":"L-01","agent":"pj-l-01","level":"hard","types":["opus","sonnet"],"type":"opus:high"}`,
 			Described{Line: "dispatched T-1 (L-01)", Lane: "L-01", Agent: "pj-l-01", Level: "hard", Kind: KindDispatch,
 				Types: []string{"opus", "sonnet"}, Type: "opus:high"}},
-		// T-751: the owner's drive
+		// The owner's drive
 		{"a drive", event.KindFact, event.StepDispatched, `{"lane":"L-01","drive":true}`,
 			Described{Line: "drive T-1 (L-01)", Lane: "L-01", Kind: KindDrive}},
 		{"a submission", event.KindFact, event.StepSubmitted, `{"lane":"L-01","agent":"pj-l-01","report":"Summary: x"}`,
@@ -67,7 +67,7 @@ func TestDescribeWordsEveryKind(t *testing.T) {
 		{"a line", event.KindFact, event.StepMessage, `{"to":"pj-l-01","line":"look","from":"pj-lead"}`,
 			Described{Line: "line to pj-l-01: look", To: "pj-l-01", From: "pj-lead", Text: "look", Kind: KindMessage}},
 		{"an intent is not worded", event.KindIntent, event.StepGate, `{"kind":"lane"}`, Described{}},
-		// T-1076: an older log's promotion records (the promotion is deleted) stay worded, plain lines of kind other,
+		// An older log's promotion records (the promotion is deleted) stay worded, plain lines of kind other,
 		// never an unreadable record
 		{"a promotion's start", event.KindIntent, event.StepPromote + ".3",
 			`{"sha":"abcdef0123","since":"0123456789","merges":["T-1","T-2"],"weight":4}`,
@@ -88,7 +88,7 @@ func TestDescribeWordsEveryKind(t *testing.T) {
 			Described{}},
 	}
 	covered := map[string]bool{}
-	// T-1074: every worded key names its kind here; a new worded key with no entry fails, and a case must word it as
+	// Every worded key names its kind here; a new worded key with no entry fails, and a case must word it as
 	// that kind. A dispatched record is the one key with two: a drive is KindDrive, the rest KindDispatch.
 	kinds := map[string]string{
 		"result " + event.StepGate:        KindGate,
@@ -143,7 +143,7 @@ func TestDescribeWordsEveryKind(t *testing.T) {
 	}
 }
 
-// A record whose data is not its kind's shape is shown as unreadable, bad news, never dropped (T-893: a message's drive
+// a record whose data is not its kind's shape is shown as unreadable, bad news, never dropped (a message's drive
 // is an attempt number; a bool there was the view's mirror's silent mistake).
 func TestDescribeShowsADecodeError(t *testing.T) {
 	t.Parallel()
@@ -159,7 +159,7 @@ func TestDescribeShowsADecodeError(t *testing.T) {
 	}
 }
 
-// T-1076: the promotion is deleted; an older log's promotion records (task promote, each with the data the promotion
+// The promotion is deleted; an older log's promotion records (task promote, each with the data the promotion
 // wrote) are worded as plain lines, never an unreadable record and never dropped.
 func TestDescribeWordsAnOldPromotionRecord(t *testing.T) {
 	t.Parallel()

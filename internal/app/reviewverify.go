@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-// A review's fix round and its verify (T-924; docs/design.md "Role worktrees"; skills/lead/review-brief.md §3–4).
+// a review's fix round and its verify (docs/design.md "Role worktrees"; skills/lead/review-brief.md §3–4).
 // The link is derived, no record: the linked tasks of review RV-n are the dispatched tasks whose stored spec (current
 // rev) carries the line `Fixes: RV-n` (obor dispatch refuses one naming a review that is not the open one). The verify
 // is a rule (verifyRule, rules.go): while RV-n is open, its linked tasks have all merged or ended unmerged, at least
@@ -135,12 +135,12 @@ func (f fixState) line() string {
 	return f.id + " fixes: " + strings.Join(items, " · ")
 }
 
-// verifyRule is the verify (T-924): while the review started last is open and has linked tasks, it lines the lead
+// verifyRule is the verify: while the review started last is open and has linked tasks, it lines the lead
 // once for each linked task that ended unmerged (key: its dispatch's seq) and for each verify brief that did not
 // finish (key: its brief's seq); then, every link merged or ended unmerged, one merged that no finished verify covers,
 // and the reviewer without an open brief and idle, it briefs the verify of the merged, uncovered links (key: the newest
-// of their merges; no line: the brief's fact is its effect). A closed review (its review.closed fact, T-926) runs none
-// of it and its round leaves obor status: the snapshot it reads is empty (RV-125 #2).
+// of their merges; no line: the brief's fact is its effect). A closed review (its review.closed fact) runs none
+// of it and its round leaves obor status: the snapshot it reads is empty.
 func verifyRule(_ context.Context, a *App, p *proj, fx *Loop, _ time.Time) (int64, action, bool) {
 	if fx == nil || fx.Workflow == nil {
 		return 0, action{}, false
@@ -230,7 +230,7 @@ func fixRest(links []fixLink, task string) string {
 }
 
 // verifyAction is the verify's brief: the integration head read once, the reviewer's worktree detached there
-// (port.Review.Detach, idempotent; T-853), the verify brief recorded to the same session. Its git failing is the error
+// (port.Review.Detach, idempotent), the verify brief recorded to the same session. Its git failing is the error
 // and, once per key, the lead's line (Of{ruleVerifyGit, key}); a brief to the reviewer recorded meanwhile skips it
 // (recordBrief).
 func verifyAction(a *App, p *proj, g port.Review, s ReviewSetup, id string, tasks, notes []string, key int64) action {
@@ -273,7 +273,7 @@ func (a *App) didLine(p *proj, of event.Of) bool {
 	return p.didLine(of)
 }
 
-// openCycle is the open review by the fold (T-1023): its id (the newest review started, not closed), the review
+// openCycle is the open review by the fold: its id (the newest review started, not closed), the review
 // before it ("": none) and its review file in the main checkout.
 type openCycle struct {
 	ID, Prev, File string
@@ -283,7 +283,7 @@ type openCycle struct {
 var errNoOpenReview = errors.New("no open review")
 
 // openReview is p's open review (obor dispatch's Fixes: check, the verify, obor review close): none open in the fold,
-// or no review file <reviews>/RV-<n>.md in the main checkout (T-718: the reviewer writes it there), is no open review,
+// or no review file <reviews>/RV-<n>.md in the main checkout (the reviewer writes it there), is no open review,
 // an error (errNoOpenReview).
 func (a *App) openReview(p *proj, s ReviewSetup) (openCycle, error) {
 	a.mu.Lock()
@@ -299,7 +299,7 @@ func (a *App) openReview(p *proj, s ReviewSetup) (openCycle, error) {
 	return c, nil
 }
 
-// fixesCheck is obor dispatch's refusal of a spec whose Fixes: line names a review that is not the open one (T-924);
+// fixesCheck is obor dispatch's refusal of a spec whose Fixes: line names a review that is not the open one;
 // nil without such a line, or when it names the open review.
 func (a *App) fixesCheck(p *proj, task string, sp spec.Spec) error {
 	if !sp.FixesOK {
@@ -323,7 +323,7 @@ func (a *App) fixesCheck(p *proj, task string, sp spec.Spec) error {
 }
 
 // verifyText finds the open review (it must be id) and each task's merge in the fold since the review before it
-// (T-822: a task merged after the review started, which it does not cover, is allowed), then reads the integration
+// (a task merged after the review started, which it does not cover, is allowed), then reads the integration
 // branch's head: the verify brief and that head.
 func (a *App) verifyText(ctx context.Context, p *proj, g port.Review, s ReviewSetup, id string, tasks, notes []string) (text,
 	head string, err error) {
@@ -385,7 +385,7 @@ const resultScan = 10
 const resultWidth = 100
 
 // resultText is the text after the first "Result:" among b's first resultScan non-empty lines ("" when there is none),
-// wherever the label sits on its line: a review file starts it, a verify file writes it mid-sentence (T-956). Bold
+// wherever the label sits on its line: a review file starts it, a verify file writes it mid-sentence. Bold
 // markers are stripped.
 func resultText(b []byte) string {
 	n := 0
@@ -407,7 +407,7 @@ func resultText(b []byte) string {
 	return ""
 }
 
-// finishedReview is the reviewer's finished line (T-942): "[obor] <agent> finished <RV-n>: <reviews>/<file>.md —
+// finishedReview is the reviewer's finished line: "[obor] <agent> finished <RV-n>: <reviews>/<file>.md —
 // <result>", the result the file's Result label text (bold markers stripped, cut to resultWidth runes), or "(no Result
 // line)" when the file is missing or has none. The file is read once, here.
 func finishedReview(root, reviews, file, agent string) string {

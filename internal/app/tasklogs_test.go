@@ -14,8 +14,8 @@ import (
 	"obor/internal/app/wire"
 )
 
-// T-1098: a task's step logs go when the task ends (logs.go): merged with its after-merge steps done, or dropped; a
-// rejected task is not ended, a merged one still running its after-merge steps is not either. T-1104: the end's
+// A task's step logs go when the task ends (logs.go): merged with its after-merge steps done, or dropped; a
+// rejected task is not ended, a merged one still running its after-merge steps is not either. The end's
 // transition removes them, and serve's load removes the leftovers of every task it folds as ended. The sweep's
 // leftovers are internal/project's tests; these are serve's own ends.
 
@@ -215,8 +215,8 @@ func TestTaskLogsGoWhenTheTaskEnds(t *testing.T) {
 	})
 }
 
-// TestTaskLogsGoAtLoad: serve's load removes the logs of every task the replayed log folds as ended (T-1104: what an
-// upgrade or a serve down at its end left); an open task's logs and a task the log does not know keep theirs. T-1132:
+// testTaskLogsGoAtLoad: serve's load removes the logs of every task the replayed log folds as ended (what an
+// upgrade or a serve down at its end left); an open task's logs and a task the log does not know keep theirs.
 // load reads the logs dir once for all of them, not once per ended task.
 func TestTaskLogsGoAtLoad(t *testing.T) {
 	t.Parallel()
@@ -235,7 +235,7 @@ func TestTaskLogsGoAtLoad(t *testing.T) {
 		logFile(t, h, "T-2", "after_merge"),
 		logFile(t, h, "T-3", "stop"),
 	}
-	open, unknown := logFile(t, h, "T-4", "check"), logFile(t, h, "T-5", "check") // T-5: no record at all
+	open, unknown := logFile(t, h, "T-4", "check"), logFile(t, h, "T-5", "check") // No record at all
 	reads := 0
 	h.a.opt.ReadDir = func(dir string) ([]os.DirEntry, error) {
 		reads++

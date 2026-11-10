@@ -16,28 +16,28 @@ import (
 	"obor/internal/config"
 )
 
-// A review request (T-638; docs/state-model.md row 52): `obor review [--after T-a,T-b] [--note "<text>"]` (the lead or
+// a review request (docs/state-model.md row 52): `obor review [--after T-a,T-b] [--note "<text>"]` (the lead or
 // the owner) records fact review.request{after, note, by} on the task key review; one is open at a time, a second
 // call replaces it, `obor review --rm` ends it (fact review.rm). A merge-loop pass fires the open request once every
 // --after task merged and the reviewer role agent is idle (no open brief, its pane idle or not running): fact
 // review.fire{request: its seq} first (its fold ends the request, so a replay never fires it again), then the facts
-// (the fold, T-1023: the next id and the merges no review covered; port.Review: the integration branch's head and the
+// (the fold: the next id and the merges no review covered; port.Review: the integration branch's head and the
 // files since the previous review's start),
-// the reviewer's role worktree detached at the head (port.Review.Detach, T-853: merges never wait for the reviewer), and
+// the reviewer's role worktree detached at the head (port.Review.Detach: merges never wait for the reviewer), and
 // the reviewer's fresh start with the brief as its first prompt (the same path as obor brief's fresh start, its brief
-// recorded the same way: briefed with no line). Then fact review.started{id, head, tasks}: no line to the lead (T-650;
-// obor status counts from its head), and the brief. Any step
-// failing: no start, needs-you{RV-xx: <error>} on the key review (a new request ends it). The first --after task
+// recorded the same way: briefed with no line). Then fact review.started{id, head, tasks}: no line to the lead (obor
+// status counts from its head), and the brief. Any step
+// failing: no start, needs-you{<id>: <error>} on the key review (a new request ends it). The first --after task
 // dropped or rejected ends the request with the lead's line "[obor] review request ended: T-b dropped" (fact message
 // {review: the request's seq}, whose fold ends it).
 //
-// One review cycle is open at a time (RV-69 #3): the last review serve started (fact review.started, so a replay
+// One review cycle is open at a time: the last review serve started (fact review.started, so a replay
 // keeps it) is open until fact review.closed for it (or a later one): obor review close's call, which serve commits and
-// records (reviewclose.go, T-926). While one is open, obor review refuses a new request ("RV-69 is open (not closed): close
-// it first"), and a request that comes due waits (obor status: "waiting RV-69 to close"): a fresh start would replace
-// the session its verify needs. A request a pass claimed (RV-69 #1: to fire it, or for its ended line) cannot change
+// records (reviewclose.go). While one is open, obor review refuses a new request ("<id> is open (not closed): close
+// it first"), and a request that comes due waits (obor status: "waiting <id> to close"): a fresh start would replace
+// the session its verify needs. A request a pass claimed (to fire it, or for its ended line) cannot change
 // until the claim ends: obor review's replace and --rm are refused while it holds (reviewClaim). A crash between the
-// reviewer's launch and fact review.started is accepted (RV-69 #2): the launch is not exactly-once; a failing append
+// reviewer's launch and fact review.started is accepted: the launch is not exactly-once; a failing append
 // after the launch is a needs-you "<RV-xx>: started but not recorded: <error>".
 
 // reviewDue is how many merges since the last review make obor status say a review is due (more than it).
@@ -47,7 +47,7 @@ const reviewDue = 3
 const maxBriefFiles = 100
 
 // ReviewData is a review fact's data: the request's tasks and note, who asked, the request a firing or start is of,
-// the review's id, head and tasks once started (a close's covered tasks and start are the fold's cycle, T-1023: its
+// the review's id, head and tasks once started (a close's covered tasks and start are the fold's cycle: its
 // commit renders them), and the call that recorded it with its reply (a close's: CLOSED <its commit's subject>, also
 // when the crash cut's read records it).
 type ReviewData struct {
@@ -84,7 +84,7 @@ type reviewClaim struct {
 }
 
 // lastReview is the newest review the log started: its fact's seq, its id and the head it reviews (seq 0: none), and
-// the seq of the review.closed fact that closed it (0: open; T-926).
+// the seq of the review.closed fact that closed it (0: open).
 type lastReview struct {
 	seq      int64
 	id, head string
@@ -100,7 +100,7 @@ func (r lastReview) open() string {
 }
 
 // foldReview folds r, a record of the project's review requests: a request opens (replacing the open one) and ends
-// a failed start's needs-you; --rm and a firing end it. A start and a close (T-926) are the review fold's
+// a failed start's needs-you; --rm and a firing end it. A start and a close are the review fold's
 // (reviewLog.fold); here a close's call is stored.
 func (p *proj) foldReview(r event.Record) {
 	if r.Task != event.ReviewTask || r.Kind != event.KindFact {
@@ -117,13 +117,13 @@ func (p *proj) foldReview(r event.Record) {
 		p.clear(event.ReviewTask)
 	case event.StepReviewRm:
 		p.folded.review = nil
-		p.folded.reviewEnd = idleEnd{r.Seq, event.RecordTime(r)}     // T-868: the request's end
-		p.folded.reviewIdleEnd = idleEnd{r.Seq, event.RecordTime(r)} // T-909: idle's own end
+		p.folded.reviewEnd = idleEnd{r.Seq, event.RecordTime(r)}     // The request's end
+		p.folded.reviewIdleEnd = idleEnd{r.Seq, event.RecordTime(r)} // Idle's own end
 		p.clear(event.ReviewTask)
 	case event.StepReviewFire:
 		p.reviewEnded(d.Request)
-		p.folded.reviewEnd = idleEnd{r.Seq, event.RecordTime(r)}     // T-868: the request's end
-		p.folded.reviewIdleEnd = idleEnd{r.Seq, event.RecordTime(r)} // T-909: idle's own end
+		p.folded.reviewEnd = idleEnd{r.Seq, event.RecordTime(r)}     // The request's end
+		p.folded.reviewIdleEnd = idleEnd{r.Seq, event.RecordTime(r)} // Idle's own end
 	default:
 		return
 	}
@@ -163,7 +163,7 @@ func (p *proj) reviewWaits(after []string) []string {
 }
 
 // ReviewSetup is what a review of a project needs from its config: the reviewer agent, its role worktree (absolute,
-// T-853: serve moves it to the reviewed head), the main checkout (Root), the reviews dir in it (T-718) and the
+// Serve moves it to the reviewed head), the main checkout (Root), the reviews dir in it and the
 // integration branch.
 type ReviewSetup struct {
 	Agent, Worktree, Root, Reviews, Branch string
@@ -178,7 +178,7 @@ func reviewConfig(root string) (ReviewSetup, error) {
 	return ReviewConfig(cfg)
 }
 
-// ReviewConfig is cfg's review setup (serve's review start and verify; obor review close, T-716); an error names what
+// ReviewConfig is cfg's review setup (serve's review start and verify; obor review close); an error names what
 // is missing.
 func ReviewConfig(cfg *config.Config) (ReviewSetup, error) {
 	rc, _ := cfg.Role("reviewer")
@@ -319,8 +319,8 @@ func (a *App) reviewDueTick(_ context.Context, p *proj, fx *Loop) {
 }
 
 // reviewPass fires p's open review request when it is due, or ends it when a task of its --after ended unmerged. Due:
-// every --after task merged, no review open (lastReview.open: the last start has no review.closed fact, T-926; one
-// open: the request waits, held) and the reviewer idle; a publish running does not hold it (T-872: the start reads the head once, roleworktree.go). A pass claims
+// every --after task merged, no review open (lastReview.open: the last start has no review.closed fact; one
+// open: the request waits, held) and the reviewer idle; a publish running does not hold it (the start reads the head once, roleworktree.go). A pass claims
 // the request (reviewClaim) before it records: fired, its fact ends it and the claim holds until the start returned;
 // an ended line, its fold does.
 func (a *App) reviewPass(ctx context.Context, p *proj, fx *Loop) {
@@ -393,7 +393,7 @@ func (a *App) roleIdle(p *proj, agent string) bool {
 
 // fireReview starts the review of the fired request q: the facts, the reviewer's fresh start on the brief, its brief recorded, fact review.started; a step failing records needs-you {<id>: <error>} instead and
 // starts nothing. A fact after the launch the log refuses is logged and a needs-you {<id>: started but not recorded:
-// <error>} (RV-69 #2: the review runs, serve does not know it). The lead gets no line (T-650): obor status counts the
+// <error>} (the review runs, serve does not know it). The lead gets no line: obor status counts the
 // merges since the review's head.
 func (a *App) fireReview(ctx context.Context, p *proj, fx *Loop, q *reviewReq, s ReviewSetup, cfgErr error) {
 	id, brief, tasks, head, err := a.prepareReview(ctx, p, fx.Workflow, q, s, cfgErr)
@@ -405,7 +405,7 @@ func (a *App) fireReview(ctx context.Context, p *proj, fx *Loop, q *reviewReq, s
 		if id != "" {
 			reason = id + ": " + err.Error()
 		}
-		if cutByServe(ctx, err) { // serve is stopping: the review's start was cut, not refused (T-660)
+		if cutByServe(ctx, err) { // serve is stopping: the review's start was cut, not refused
 			a.shutDown(event.ReviewTask + " " + event.StepNeedsYou + "{" + reason + "}")
 			return
 		}
@@ -427,7 +427,7 @@ func (a *App) fireReview(ctx context.Context, p *proj, fx *Loop, q *reviewReq, s
 	}
 }
 
-// The close commit's format lives here only (T-895): CloseCommit writes it (rendered from the fold's cycle, T-1023),
+// The close commit's format lives here only: CloseCommit writes it (rendered from the fold's cycle),
 // ClosesReview (reviewclose.go) knows a review's own close commit by it, and reviewID/reviewNumber name a review's id.
 
 // reviewID is review n's id: "RV-<n>".
@@ -449,9 +449,9 @@ func reviewNumber(id string) (n int, ok bool) {
 }
 
 // CloseCommit is review id's close commit: the subject "RV-<n> closed · <reviewed sha> · approved · <summary>", or
-// "accepted <n>" in place of "approved" when the close carried accepted findings (T-909: the verify requested changes
+// "accepted <n>" in place of "approved" when the close carried accepted findings (the verify requested changes
 // and the close carries them, so the subject does not say the review approved), and the body "Covered: <tasks>\nStart:
-// <review start sha>" (T-822: the cycle's coverage, so the next review's scope takes the merges it did not cover).
+// <review start sha>" (the cycle's coverage, so the next review's scope takes the merges it did not cover).
 func CloseCommit(id, sha, summary string, covered []string, start string, accepted int) (subject, body string) {
 	verdict := "approved"
 	if accepted > 0 {
@@ -464,7 +464,7 @@ func CloseCommit(id, sha, summary string, covered []string, start string, accept
 
 // prepareReview collects a review's facts in order (from the fold: the next id, the previous review and the merges
 // no review covered; then git: the head, the files since the previous review's start) and detaches the reviewer's
-// role worktree at the head (port.Review.Detach, T-853): the id, the brief, the in-scope tasks and the head; an error
+// role worktree at the head (port.Review.Detach): the id, the brief, the in-scope tasks and the head; an error
 // from the first step that fails (id "" when the id is not known yet). The fold is read before the head: every merge
 // it names is in the head (its fact follows its publish), so a review never covers a merge it does not hold.
 func (a *App) prepareReview(ctx context.Context, p *proj, g port.Review, q *reviewReq, s ReviewSetup, cfgErr error) (id,
@@ -498,18 +498,18 @@ func (a *App) prepareReview(ctx context.Context, p *proj, g port.Review, q *revi
 	return id, reviewBrief(id, s, short(head), prev.head, prev.id, last, scope, files, q.note), tasks, head, nil
 }
 
-// resultLine is the review file's first line, in every review and verify brief (T-1072): the reviewer's role text
+// resultLine is the review file's first line, in every review and verify brief: the reviewer's role text
 // carries the rule too, but two reviews came back without the line when only the role text said it.
 const resultLine = "The file's first line is `Result: approved | changes requested · <sha reviewed> · <scope>`."
 
-// redundantLine is docs/design.md "Change rules" rule 6, in every review and verify brief (T-869): what the change
+// redundantLine is docs/design.md "Change rules" rule 6, in every review and verify brief: what the change
 // made redundant. Rule 6's kit vocabulary (rule-tier steps, the owner type, serve's predicate) is obor-kit's own and
-// lives in its docs/agents/reviewer.md (T-1118): every project's reviewer read it here.
+// lives in its docs/agents/reviewer.md: every project's reviewer read it here.
 const redundantLine = "What did this make redundant? Name it or confirm it is gone."
 
 // reviewBrief is the reviewer's first prompt: skills/lead/review-brief.md §2's template with the facts filled in, the
 // redundancy question (redundantLine) and the lead's note appended (its out of scope and contracts). prev is the
-// previous review's id ("": none) and last its close commit's subject: its file is deleted at close (RV-69 #4), so the
+// previous review's id ("": none) and last its close commit's subject: its file is deleted at close, so the
 // brief names what is kept, the close commit and BACKLOG. from is where the brief's range starts ("": the first
 // commit).
 func reviewBrief(id string, s ReviewSetup, short, from, prev, last string, scope, files []string, note string) string {

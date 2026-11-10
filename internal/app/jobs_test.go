@@ -9,8 +9,8 @@ import (
 	"obor/internal/app/port"
 )
 
-// T-956: the integrator's job is lost only on proof its pane exited. A pass between two herdr streams (a refresh's gap,
-// T-759) knows nothing of that pane, so it neither starts nor moves the Gone clock, however far the clock moves; an
+// The integrator's job is lost only on proof its pane exited. A pass between two herdr streams (a refresh's gap,
+// now) knows nothing of that pane, so it neither starts nor moves the Gone clock, however far the clock moves; an
 // integrator whose pane is really gone still loses the job after Gone.
 
 // reviewOut puts T-1's review job out to pj-int.

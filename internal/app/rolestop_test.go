@@ -17,7 +17,7 @@ import (
 	"obor/internal/app/wire"
 )
 
-// T-672, T-870: serve stops the integrator once a verdict leaves no job for it, and the reviewer once its review
+// Serve stops the integrator once a verdict leaves no job for it, and the reviewer once its review
 // closes: two rules on the rule pass (rules.go, rolestop.go), whose action runs on an idle pane and is done when the
 // pane is at its shell. A brief to a stopped role agent starts it fresh on the brief.
 
@@ -93,7 +93,7 @@ func stopRig(t *testing.T) (*harness, *reviewStopSpy) {
 	return h, &reviewStopSpy{}
 }
 
-// T-870: the integrator's stop rule, one table (condition → action). Its pane runs it and is idle, no task has an
+// The integrator's stop rule, one table (condition → action). Its pane runs it and is idle, no task has an
 // integrator job open or queued, and a verdict came since its start: only then does it stop it, and only once the
 // pane is at its shell is the action done.
 func TestRoleStopIntegratorRule(t *testing.T) {
@@ -171,8 +171,8 @@ func TestRoleStopIntegratorRule(t *testing.T) {
 	}
 }
 
-// T-870, T-875: an older log's role stop (stop.<agent>[.N], task key roles) folds to nothing (compat until v0.28): no
-// fold reads it (T-875 removed the no-op foldRoles), and the rule still stops an integrator whose job was answered;
+// An older log's role stop (stop.<agent>[.N], task key roles) folds to nothing (compat until v0.28): no
+// fold reads it, and the rule still stops an integrator whose job was answered;
 // status never reads a record for "stopped" (the pane says).
 func TestRoleStopOldRecordsFoldToNothing(t *testing.T) {
 	t.Parallel()
@@ -305,7 +305,7 @@ func TestBriefToStoppedRoleAgent(t *testing.T) {
 	}
 }
 
-// T-801: a custom role's agent is reached by obor brief like the advisor: a brief to it stopped (its labelled pane at a
+// A custom role's agent is reached by obor brief like the advisor: a brief to it stopped (its labelled pane at a
 // shell) starts it fresh with the brief's line, and serve never stops it once the brief is finished (the lead does).
 func TestBriefReachesCustomRole(t *testing.T) {
 	t.Parallel()
@@ -353,7 +353,7 @@ func reviewStopRig(t *testing.T) (*reviewRig, *reviewStopSpy) {
 	return r, s
 }
 
-// T-870, T-926: the reviewer's stop rule, one table (condition → action). The last review serve started is closed (its
+// The reviewer's stop rule, one table (condition → action). The last review serve started is closed (its
 // review.closed fact; no rule pass reads git), the reviewer has no open brief and its pane runs it and is idle: only
 // then does it stop it, on the first pass after the close, and only once the pane is at its shell is the action done.
 func TestRoleStopReviewerRule(t *testing.T) {
@@ -426,7 +426,7 @@ func TestRoleStopReviewerRule(t *testing.T) {
 	}
 }
 
-// T-875: a reviewer stop that keeps failing is a needs-you after ruleFails passes in a row: a closed review stays
+// A reviewer stop that keeps failing is a needs-you after ruleFails passes in a row: a closed review stays
 // eligible on every pass until the stop's effect shows, not only on the pass that saw the close (before, the second
 // pass had no condition, so rulePass dropped the live count and three failures never happened).
 func TestRoleStopReviewerFailuresAccumulate(t *testing.T) {
@@ -450,7 +450,7 @@ func TestRoleStopReviewerFailuresAccumulate(t *testing.T) {
 	}
 }
 
-// A brief to a lane's worker whose labelled pane is at a shell (stopped after its merge) starts nothing (T-672
+// A brief to a lane's worker whose labelled pane is at a shell (stopped after its merge) starts nothing (
 // sendback: only a role agent is started on a brief; workers are dispatched): its line stays queued, nothing typed.
 func TestBriefToStoppedWorkerStartsNothing(t *testing.T) {
 	t.Parallel()
@@ -535,10 +535,10 @@ func shell(root, id, agent string) port.Pane {
 	return port.Pane{ID: id, Group: "proj", Cwd: root, Label: agent}
 }
 
-// T-677: a role agent whose only labelled pane is at its shell is stopped in status, whoever stopped it — serve once its
-// work was done (T-672) or the lead's obor restart <agent> --stop — for every role, not only the two serve stops.
+// A role agent whose only labelled pane is at its shell is stopped in status, whoever stopped it — serve once its
+// work was done or the lead's obor restart <agent> --stop — for every role, not only the two serve stops.
 
-// T-677: status calls a role agent stopped only when herdr shows exactly one labelled pane of it at its shell — whoever
+// Status calls a role agent stopped only when herdr shows exactly one labelled pane of it at its shell — whoever
 // stopped it (serve after its work, or the lead's obor restart <agent> --stop), for every role and with no role.stop
 // result in the log. Two labelled panes (which runs it is unknown), herdr down and no pane are not stopped.
 func TestStoppedRoles(t *testing.T) {

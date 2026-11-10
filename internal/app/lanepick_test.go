@@ -22,7 +22,7 @@ func TestHeldLaneOfTwoDispatchesIsNewestDispatch(t *testing.T) {
 	}
 }
 
-// TestPickLaneTakesALandedCleanLane (T-1012): dispatch picks by the one free rule's state: of lanes whose states are
+// TestPickLaneTakesALandedCleanLane: dispatch picks by the one free rule's state: of lanes whose states are
 // port.FreeState over their rows, a fresh dispatch takes the first whose task landed and that is clean, skips one whose
 // task has not landed (working) and one landed but dirty (dirty-free) unless forced, then the dirty-free one first in
 // config order.

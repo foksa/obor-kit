@@ -1,4 +1,4 @@
-// reviewfold.go: the reviews and the merges as the log holds them (T-1023; docs/plan/architecture-target.md §3 "Lane
+// reviewfold.go: the reviews and the merges as the log holds them (docs/plan/architecture-target.md §3 "Lane
 // free and review coverage come from the workflow", §6 "Review"). What a review covered, the "review due" count, a
 // review's and a verify's task lists are recomputed from this fold on every pass: no git read decides them. The merges are the merge kernel's facts (merged{head}); a merge outside the app (by hand
 // in git, merged{outside}) has no head and is not one: a by-hand twin (design rule 4), no review counts it.
@@ -19,11 +19,11 @@ type mergeRec struct {
 }
 
 // review is one review the log started, one value (plan §6): its start's seq, id and head; covered, the in-scope
-// tasks its start named; fixes, the tasks its finished verifies covered (T-924); reviewed, the head the reviewer last
-// finished (the start's, then each finished verify's: T-857; an open review's only, RV-158); closed, its review.closed
+// tasks its start named; fixes, the tasks its finished verifies covered; reviewed, the head the reviewer last
+// finished (the start's, then each finished verify's; an open review's only); closed, its review.closed
 // fact's seq (its state; 0: open) and subject, its close commit's subject as the close's reply names it ("": open, or
 // a close recorded without one); closing, the snapshot its close recorded before the commit (fact review.closing,
-// T-1032; nil: none, and once closed). A closed review is frozen at its close's snapshot: a verify ending after it
+// the close's snapshot; nil: none, and once closed). A closed review is frozen at its close's snapshot: a verify ending after it
 // changes nothing.
 type review struct {
 	seq      int64
@@ -36,14 +36,14 @@ type review struct {
 	closing  *closeSnap
 }
 
-// closeSnap is a close's snapshot: the reviewed head its commit names and the tasks it covers (T-1032).
+// closeSnap is a close's snapshot: the reviewed head its commit names and the tasks it covers.
 type closeSnap struct {
 	head  string
 	tasks []string
 }
 
 // freeze sets rv's coverage to s, the close's: its fixes are s's tasks beyond its start's. Its reviewed head is not
-// set: only an open review's is read (reviewclose.go's reviewCycle), and a close ends that (RV-158).
+// set: only an open review's is read (reviewclose.go's reviewCycle), and a close ends that.
 func (rv *review) freeze(s closeSnap) {
 	rv.fixes = nil
 	for _, t := range s.tasks {
@@ -53,7 +53,7 @@ func (rv *review) freeze(s closeSnap) {
 	}
 }
 
-// reviewLog is the reviews' and the merges' records folded (T-856, T-924, T-1023): every review the log started, in
+// reviewLog is the reviews' and the merges' records folded: every review the log started, in
 // order; every merge, in order; per agent its open verify brief, and the last verify brief since the last start that
 // ended unfinished.
 type reviewLog struct {
@@ -64,10 +64,10 @@ type reviewLog struct {
 }
 
 // fold folds r: a merge; a review start (a new review); its close's snapshot (review.closing,
-// T-1032); its close (closes the newest review when it names it or a later one, the first close counting, and freezes
+// the close's snapshot); its close (closes the newest review when it names it or a later one, the first close counting, and freezes
 // it at the close's snapshot); a brief (a verify's, when it names tasks and a head; any brief
 // replaces the agent's open verify brief); the finished line that ends a brief; a stop that ends one. Records of an
-// older obor (review.fix, review.verify.request, a brief's verify_of) fold as nothing (T-924: a closed cycle needs
+// older obor (review.fix, review.verify.request, a brief's verify_of) fold as nothing (a closed cycle needs
 // none of them).
 func (l *reviewLog) fold(r event.Record) {
 	if l.open == nil {
@@ -110,7 +110,7 @@ func (l *reviewLog) fold(r event.Record) {
 			case cur.closing != nil:
 				cur.freeze(*cur.closing)
 			}
-			cur.closing = nil // recovery reads it only while the review is open (RV-144, T-1032)
+			cur.closing = nil // recovery reads it only while the review is open
 		}
 	case r.Task != event.MsgTask:
 	case r.Step == event.StepBriefed:
@@ -136,7 +136,7 @@ func (l *reviewLog) fold(r event.Record) {
 }
 
 // ended folds the end of agent's open verify brief, finished (why "": its tasks covered, its head reviewed, unless
-// the review is closed: T-1032, its close's snapshot stands) or not (why: nothing of it counted, T-857).
+// the review is closed: its close's snapshot stands) or not (why: nothing of it counted).
 func (l *reviewLog) ended(agent, why string) {
 	v := l.open[agent]
 	delete(l.open, agent)
@@ -179,7 +179,7 @@ func (l *reviewLog) prev() review {
 // reviews, every merge). A merge before it was in the newest review's scope or an earlier one's.
 func (l *reviewLog) base() int64 { return l.prev().seq }
 
-// nextID is the next review's id: one past the newest review the log started (RV-1: none).
+// nextID is the next review's id: one past the newest review the log started (RV-1 when it started none).
 func (l *reviewLog) nextID() string {
 	n, _ := reviewNumber(l.cur().id)
 	return reviewID(n + 1)

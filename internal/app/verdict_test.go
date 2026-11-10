@@ -116,15 +116,15 @@ func TestAcceptKeptAfterRevChangeReplaysToReview(t *testing.T) {
 	}
 }
 
-// isDropped: reply is a drop's of task: DROPPED <task> (no lane), or DROPPING <task> from <lane> (… : its lane's, T-852).
+// isDropped: reply is a drop's of task: DROPPED <task> (no lane), or DROPPING <task> from <lane> (… : its lane's).
 func isDropped(reply, task string) bool {
 	return reply == dropReply(task) || strings.HasPrefix(reply, "DROPPING "+task+" from ")
 }
 
-// dropGone: st is a dropped task's, or a dropping one's (its lane's steps to come: T-852).
+// dropGone: st is a dropped task's, or a dropping one's (its lane's steps to come).
 func dropGone(st string) bool { return st == stDropped || st == stDropping }
 
-// obor drop of a task serve holds (T-388): a needs-you with no job open ends in dropped, which survives a replay; the
+// obor drop of a task serve holds: a needs-you with no job open ends in dropped, which survives a replay; the
 // needs-you leaves the facts in force; only the lead or the owner may drop, and not twice.
 func TestDropNeedsYouTask(t *testing.T) {
 	t.Parallel()
@@ -229,7 +229,7 @@ func TestDropRefusedWhilePendingThenSupersedesTheJob(t *testing.T) {
 		got, err = r.dropCall("pj", "T-1", "g2")
 		return err == nil || !strings.Contains(err.Error(), "running; retry when it settles")
 	})
-	// its lane's row holds it: freed by the merge loop's lane.free (T-775, T-852; the lane names no worker to stop)
+	// its lane's row holds it: freed by the merge loop's lane.free (the lane names no worker to stop)
 	if err != nil || got != "DROPPING T-1 from L-01 (abandoned)" {
 		t.Fatalf("drop with the review job open: %q, %v", got, err)
 	}
@@ -268,7 +268,7 @@ func dropT2(r *concRig, id string, force, discard bool) (reply string, err error
 	return reply, err
 }
 
-// T-439, T-775, T-852: obor drop names the task; serve knows its lane (its row holds it) and answers DROPPING at once
+// obor drop names the task; serve knows its lane (its row holds it) and answers DROPPING at once
 // (fact dropping); the merge loop stops its worker (worker.stop), frees the lane (lane.free: the lane adapter's Free)
 // and records dropped: the lane row clears. A refused Free is the owner's needs-you{lane} naming --discard: the task
 // dropping, its row kept; the drop given again frees it (no second stop: the worker is stopped already).
@@ -323,7 +323,7 @@ func TestDropByTaskFreesItsLane(t *testing.T) {
 	}
 }
 
-// T-773, T-852: the drop's stop of the task's worker, without --force too; a worker still working after Escape is
+// The drop's stop of the task's worker, without --force too; a worker still working after Escape is
 // stopped only with --force: without it the stop is refused, a needs-you naming obor drop --force, and nothing freed
 // or dropped; obor drop --force then stops it, frees the lane and drops it.
 func TestDropStopsTheWorker(t *testing.T) {
@@ -341,7 +341,7 @@ func TestDropStopsTheWorker(t *testing.T) {
 			t.Errorf("stops %q, frees %d; want pj-l-02 once without force, then the free", f.stops, len(f.frees))
 		}
 	})
-	// RV-98 #2: any stop that fails holds the drop (the worker may still run in the lane the next task gets): a
+	// Any stop that fails holds the drop (the worker may still run in the lane the next task gets): a
 	// needs-you naming the error and the retry, nothing freed or dropped, the row kept.
 	for _, c := range []struct {
 		name  string
@@ -405,7 +405,7 @@ func TestDropStopsTheWorker(t *testing.T) {
 	})
 }
 
-// T-852 rev 2 (11-05: a cut git branch -D left the lane free and the task working): the drop is recorded before its
+// The old case (11-05: a cut git branch -D left the lane free and the task working): the drop is recorded before its
 // lane steps, so a lane.free that fails after the record is the loop's to retry, counted, and the third failure is one
 // needs-you{lane.free failed} that obor resume retries; throughout the task is dropping (no task_done, no step of its
 // old state) with its lane row its own, and its worker is stopped once. Never a half-done drop.
@@ -468,7 +468,7 @@ func needsYouT7(r *concRig) {
 // raceDrop is the reviewer's probe (TestVerifyRV42DropAgainstDecidedSubmission): a submission of T-7 passes its guards
 // and pauses before its append; drop decides against attempt 1 and pauses before its; the submission records
 // submitted at attempt 2, then drop records dropped at attempt 1. The barrier before each append is the hook at the end
-// of its decision (task_done's check, the drop's mark), outside mu: the append and its fold are one mu section (T-944).
+// of its decision (task_done's check, the drop's mark), outside mu: the append and its fold are one mu section.
 func raceDrop(t *testing.T, r *concRig) (sub, drop callAnswer) {
 	p := r.proj("pq")
 	lane := port.Lane{Name: "L-07", Task: "T-7", Agent: "pq-l-07"}
@@ -607,7 +607,7 @@ func TestDroppedEndsTheTask(t *testing.T) {
 	}
 }
 
-// T-1026: obor review --after T-1, T-1 a spec stored and never dispatched, then dropped (T-1016's record: the drop at
+// obor review --after T-1, T-1 a spec stored and never dispatched, then dropped (the drop's record, with
 // its rev): an open request ends with the line a dropped dispatched task gives, also after a replay, and a new request
 // --after T-1 is refused as for a dropped task.
 func TestReviewAfterASpecOnlyDrop(t *testing.T) {
@@ -643,7 +643,7 @@ func TestReviewAfterASpecOnlyDrop(t *testing.T) {
 	}
 }
 
-// RV-42 #1 (T-392, T-395): a step the merge loop selected starts only after one atomic check that its task/attempt
+// A step the merge loop selected starts only after one atomic check that its task/attempt
 // is current and not ended, which also holds the task; drop never waits: under the same lock it is refused while a
 // step holds the task, or marks the task ended before it records dropped.
 
@@ -724,7 +724,7 @@ func (f *dropFx) loop(kit string) *Loop {
 	return &Loop{Workflow: WorkflowOf(f), Agents: f, Typer: f, Specs: f, Kit: kit}
 }
 
-// dropStartCases is one per selected step kind (RV-42 #1's Extent): the setup leaves task of project proj with that
+// dropStartCases is one per selected step kind: the setup leaves task of project proj with that
 // step next, and effect is what the step does first.
 var dropStartCases = []struct {
 	name, proj, task, effect string
@@ -863,7 +863,7 @@ func TestDropAfterScratchStepStarted(t *testing.T) {
 	}
 }
 
-// Step first (T-395's table): a drop while a selected step holds the task (gate, publish, start, a prompt) is
+// The step's table first: a drop while a selected step holds the task (gate, publish, start, a prompt) is
 // refused at once, naming the step, and changes nothing; once the step has returned, a drop goes through.
 func TestDropRefusedWhileStepHeld(t *testing.T) {
 	t.Parallel()
@@ -911,7 +911,7 @@ func TestDropRefusedWhileStepHeld(t *testing.T) {
 	}
 }
 
-// The reviewer's probe (RV-42-verify #1), rewritten to its outcome: a drop during a held integrator start whose agent
+// The reviewer's probe, rewritten to its outcome: a drop during a held integrator start whose agent
 // fetches its job early is refused at once, and the fetch answers: no lock cycle.
 func TestDropDuringEarlyFetch(t *testing.T) {
 	t.Parallel()
@@ -971,7 +971,7 @@ func submitT7(r *concRig) (string, error) {
 }
 
 // Submission vs drop (both orders, no shared verb lock): while a drop is being recorded (the task marked ended) the
-// write and its fold hold mu (T-944), so a submission begun meanwhile decides on the dropped task and records nothing;
+// write and its fold hold mu, so a submission begun meanwhile decides on the dropped task and records nothing;
 // one recorded before the drop leaves the drop to go through. A submitted fact after dropped, at the same or the next
 // attempt, leaves the task dropped (live and on replay).
 func TestDropAndSubmission(t *testing.T) {
@@ -1081,7 +1081,7 @@ func TestDropWriteFailure(t *testing.T) {
 		if rec.Step != event.StepDropped {
 			return nil
 		}
-		// The write runs in the drop's mu section with its fold (T-944): no step's start check (begin, under mu) runs
+		// The write runs in the drop's mu section with its fold: no step's start check (begin, under mu) runs
 		// meanwhile.
 		during.ended = p.ended["T-3"]
 		if during.open = r.app("pq").mu.TryLock(); during.open {
@@ -1113,7 +1113,7 @@ func TestDropWriteFailure(t *testing.T) {
 	}
 }
 
-// T-396 (RV-42-verify #2, the reviewer's TestVerifyRV42EarlyVerdict to the fixed outcome): the job is open before its
+// The reviewer's early-verdict probe to the fixed outcome: the job is open before its
 // start, so an integrator that fetches its job while it starts can answer it then; the start's result after that is
 // its delivery only and keeps the state the verdict set. Fresh review and resolve jobs, every method, and the
 // numbered and recovery jobs (review.2 / resolve.2 after job.lost, the owner's reprompt).

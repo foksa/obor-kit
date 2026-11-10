@@ -32,7 +32,7 @@ func Ask(ctx context.Context, path string) (Status, error) {
 }
 
 // SocketPath is the app socket of the serve of the project at root: <root>/.obor/state/serve.sock (one serve per
-// project, T-522).
+// project).
 func SocketPath(root string) string { return filepath.Join(root, ".obor", "state", "serve.sock") }
 
 // NewCallID is a new call's id: a repeated call id gets the app's stored reply, so every call (a CLI request, an MCP
@@ -44,10 +44,10 @@ func NewCallID() string {
 }
 
 // Verdict sends the request r (a VerdictReq, a DispatchReq, …) to the app listening at path, its envelope stamped
-// with this binary's version (T-826): its reply line, or the app's refusal as the error. r's JSON is the socket line: the
-// union's keys less the ones no serve reads for its method (T-1060, request_test.go's drops), never a promise of the old
+// with this binary's version: its reply line, or the app's refusal as the error. r's JSON is the socket line: the
+// union's keys less the ones no serve reads for its method (request_test.go's drops), never a promise of the old
 // bytes. The call has its method's deadline
-// (callDeadline) or ctx's, the earlier. A call its deadline ends says serve may still be working on it (T-825).
+// (callDeadline) or ctx's, the earlier. A call its deadline ends says serve may still be working on it.
 func Verdict(ctx context.Context, path string, r Req) (string, error) {
 	method := r.Method()
 	d := callDeadline(method)
@@ -58,7 +58,7 @@ func Verdict(ctx context.Context, path string, r Req) (string, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, d)
 	defer cancel()
-	// Every call names the binary that sent it (T-826): one place, so a serve that answers another version says so.
+	// Every call names the binary that sent it: one place, so a serve that answers another version says so.
 	r.Env().Version = version.Version
 	b, err := json.Marshal(r)
 	if err != nil {
@@ -75,10 +75,10 @@ func Verdict(ctx context.Context, path string, r Req) (string, error) {
 	return ans.Reply, nil
 }
 
-// The deadlines of the socket's callers, the one table (T-659): a call is retried inside its own deadline, so a serve
+// The deadlines of the socket's callers, the one table: a call is retried inside its own deadline, so a serve
 // restart that ends before it loses nothing. The hooks' are under their timeouts (10 s and 15 s); status has none: a
 // read fails at once. OBOR_CALL_DEADLINE, in seconds (fractions allowed: 0.2), is every method's deadline when set: a
-// test's call to a serve that is not running ends in that time, not in the table's (T-685); unset, the table.
+// test's call to a serve that is not running ends in that time, not in the table's; unset, the table.
 const (
 	verdictDeadline     = 15 * time.Second // a CLI verdict, an MCP tool's call
 	turnDeadline        = 8 * time.Second  // a hook's turn and SessionStart (session) calls
@@ -102,7 +102,7 @@ func callDeadline(method string) time.Duration {
 	return verdictDeadline
 }
 
-// ask's retries (T-659): every askRetryWait, flat, and none later than askMargin before the call's deadline, so the
+// ask's retries: every askRetryWait, flat, and none later than askMargin before the call's deadline, so the
 // last attempt still has time to be answered.
 const (
 	askRetryWait = 500 * time.Millisecond
@@ -144,24 +144,24 @@ func verdictAsk(ctx context.Context, path string, req Request) (Answer, error) {
 
 // lostReply is a transport failure that may follow an app which recorded the call and then went away unanswered: the
 // connection closed before a line, reset, or a write to a connection the app has closed (EPIPE: a serve that went away
-// between the dial and the request, T-767). The call is sent again with its call id, which the app's stored reply
+// between the dial and the request). The call is sent again with its call id, which the app's stored reply
 // answers.
 func lostReply(err error) bool {
 	return errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE) || errors.Is(err, io.EOF)
 }
 
 // absent is a request that certainly did not land: the dial was refused or the socket missing (no serve, or one that
-// has not loaded its project yet: it binds after its replay, T-659).
+// has not loaded its project yet: it binds after its replay).
 func absent(err error) bool {
 	return errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ENOENT)
 }
 
 // Absent: err is a call that certainly did not land (absent(): no serve is listening): a caller may then leave a
-// record to the agent's own hook (T-813: a Claude start's session, its SessionStart hook records it anyway).
+// record to the agent's own hook (a Claude start's session: its SessionStart hook records it anyway).
 func Absent(err error) bool { return absent(err) }
 
 // cut is a transport failure the call's own deadline caused: ctx closed the connection under the read (net.ErrClosed,
-// "use of closed network connection") or ended the dial. A verdict maps it to the deadline's own line (T-825).
+// "use of closed network connection") or ended the dial. A verdict maps it to the deadline's own line.
 func cut(err error) bool {
 	return errors.Is(err, net.ErrClosed) || errors.Is(err, os.ErrDeadlineExceeded) || errors.Is(err, context.DeadlineExceeded)
 }

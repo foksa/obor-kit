@@ -43,10 +43,10 @@ func noPaneFacts(h *harness) int {
 	return n
 }
 
-// reread_test.go: the re-read a lane's start makes when no pane of the lane is in the snapshot (T-745) — what it may
-// change and what it may not (T-747, RV-89 #1 and #2).
+// reread_test.go: the re-read a lane's start makes when no pane of the lane is in the snapshot — what it may
+// change and what it may not.
 
-// RV-89 #1: a failed re-read is no answer. It starts no start and no needs-you, leaves the no-pane clock where it was
+// A failed re-read is no answer. It starts no start and no needs-you, leaves the no-pane clock where it was
 // (so the wait is the same), and the next pass reads herdr's panes again: the pane found then starts the agent.
 func TestRereadErrorRecordsNothingAndRetries(t *testing.T) {
 	t.Parallel()
@@ -83,7 +83,7 @@ func TestRereadErrorRecordsNothingAndRetries(t *testing.T) {
 	}
 }
 
-// RV-89 #1: a canceled re-read (serve shutting down, herdr gone) records nothing either: no needs-you, the clock kept,
+// A canceled re-read (serve shutting down, herdr gone) records nothing either: no needs-you, the clock kept,
 // and a pass with a live context reads again.
 func TestRereadCanceledContextRecordsNothing(t *testing.T) {
 	t.Parallel()
@@ -123,7 +123,7 @@ func TestRereadCanceledContextRecordsNothing(t *testing.T) {
 	}
 }
 
-// RV-89 #2: a pane the stream closes between the read and its use is not raised again: the fresh list answers only
+// A pane the stream closes between the read and its use is not raised again: the fresh list answers only
 // which pane is in the lane, never what the snapshot knows of it. A later read that finds none is the needs-you.
 func TestRereadDoesNotResurrectAClosedPane(t *testing.T) {
 	t.Parallel()
@@ -161,7 +161,7 @@ func TestRereadDoesNotResurrectAClosedPane(t *testing.T) {
 	}
 }
 
-// RV-89 #2: the re-read updates one pane's cwd and nothing else: the pane's other fields and every other pane stay
+// The re-read updates one pane's cwd and nothing else: the pane's other fields and every other pane stay
 // what the stream last said, not what the older read lists.
 func TestRereadUpdatesOnlyThePanesCwd(t *testing.T) {
 	t.Parallel()
@@ -207,7 +207,7 @@ func relabelRig(t *testing.T, lanes int) (*harness, *Loop, *startAgents) {
 	return h, fx, ag
 }
 
-// RV-101 #2: the lane's only pane, labelled for another agent, is relabelled to the lane's agent (a rename gives no
+// The lane's only pane, labelled for another agent, is relabelled to the lane's agent (a rename gives no
 // event: only the fresh read has it). The re-read brings the label into the snapshot, the wait ends, and the next
 // pass launches there once — not the clock started again with no launch and no needs-you.
 func TestRereadSeesAPaneRelabelledToTheLanesAgent(t *testing.T) {
@@ -238,7 +238,7 @@ func TestRereadSeesAPaneRelabelledToTheLanesAgent(t *testing.T) {
 	}
 }
 
-// RV-101 #2: relabelled to yet another agent of the project (pj-l-03), the pane is still not the lane's: the re-read
+// Relabelled to yet another agent of the project (pj-l-03), the pane is still not the lane's: the re-read
 // finds none and the owner is told — needs-you{no pane in lane}, no launch, and the loop takes no further step (no
 // wait started again).
 func TestRereadOfAPaneRelabelledToAnotherAgentIsNeedsYou(t *testing.T) {

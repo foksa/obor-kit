@@ -12,7 +12,7 @@ import (
 	"obor/internal/app/port"
 )
 
-// T-1135: the first connect's rule: another instance than recorded restores; the same one, a woken project (obor
+// The first connect's rule: another instance than recorded restores; the same one, a woken project (obor
 // stop's pause at the load) and, with nothing recorded, a herdr that started before serve's last activity (or no
 // activity known: a new project) do not; nothing recorded and a herdr started after it restores.
 func TestFirstRestore(t *testing.T) {
@@ -66,7 +66,7 @@ func firstConnect(t *testing.T, h *harness, started time.Time) (int, string) {
 	return fr.calls, strings.TrimSpace(string(b))
 }
 
-// T-1136 (RV-165 verify #1): the first start after the upgrade (no instance recorded) with the old serve's failed
+// The first start after the upgrade (no instance recorded) with the old serve's failed
 // self-restart needs-you pending and herdr restarted after it: the load's settlement (a resumed fact, newer than herdr's
 // start) does not hide the restart: the restore runs once and the instance is recorded.
 func TestRV165UpgradeAfterFailedServeRestart(t *testing.T) {
@@ -89,7 +89,7 @@ func TestRV165UpgradeAfterFailedServeRestart(t *testing.T) {
 	}
 }
 
-// T-1136: nothing recorded and herdr started before the log's last activity from before serve's start: no restore,
+// Nothing recorded and herdr started before the log's last activity from before serve's start: no restore,
 // and the instance is recorded.
 func TestFirstConnectNoRestoreHerdrBeforeLastActivity(t *testing.T) {
 	t.Parallel()

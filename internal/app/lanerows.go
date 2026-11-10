@@ -9,12 +9,13 @@ import (
 	"obor/internal/store"
 )
 
-// The lane projection (T-439): each lane's row in the store's lanes table, derived from the log alone. A successful
-// lane.prepare puts its task on the lane (no head yet: each submit result sets it, T-1015) (and off any other lane), as does a submission from a lane whose row does not
-// hold its task (a task dispatched before serve dispatched: no branch or base known), a dropped fact takes it off; finished is when the
-// attempt's task_done was recorded. serve is the only writer: it writes the table after the load's replay and after
+// The lane projection: each lane's row in the store's lanes table, derived from the log alone. A successful
+// lane.prepare puts its task on the lane (no head yet: each submit result sets it) and off any other lane, as does a
+// submission from a lane whose row does not hold its task (a task dispatched before serve dispatched: no branch or
+// base known); a dropped fact takes it off. finished is when the attempt's task_done was recorded. serve is the only
+// writer: it writes the table after the load's replay and after
 // every record that changes a row (syncLanes), so hooks and CLIs read one row instead of folding the log. The table
-// holds configured lanes only (T-865): a row comes from a dispatch, and the loop dispatches to a configured lane.
+// holds configured lanes only: a row comes from a dispatch, and the loop dispatches to a configured lane.
 
 // laneRows are p's projected rows (under mu).
 type laneRows struct {
@@ -77,7 +78,7 @@ func (p *proj) foldLanes(r event.Record) {
 	}
 }
 
-// foldSubmitHead sets the head of the row holding r's task to the lane commit r's submit pinned (T-1015: the commit the
+// foldSubmitHead sets the head of the row holding r's task to the lane commit r's submit pinned (the commit the
 // gate merges; a resubmission moves it): port.FreeState frees a landed lane only while its HEAD is that commit. A
 // refused submit pins none and changes nothing; a new prepare clears it.
 func (p *proj) foldSubmitHead(r event.Record) {
@@ -93,8 +94,8 @@ func (p *proj) foldSubmitHead(r event.Record) {
 	}
 }
 
-// dropLaneRows deletes the rows of lanes the config does not name (T-865): the load's replay rebuilds them from old
-// dispatch records (a lane T-765 removed from the config), and they would be the table's only rows without a type.
+// dropLaneRows deletes the rows of lanes the config does not name: the load's replay rebuilds them from old
+// dispatch records (a lane removed from the config), and they would be the table's only rows without a type.
 func (p *proj) dropLaneRows(cfg *config.Config) {
 	lanes := make(map[string]bool, len(cfg.Lanes()))
 	for _, l := range cfg.Lanes() {
@@ -109,12 +110,12 @@ func (p *proj) dropLaneRows(cfg *config.Config) {
 
 // laneTable is p's rows by lane, finished set: 0 while the task awaits its task_done, else when its last submission
 // was recorded (the dispatch's time when it ended without one: a merge outside, a reject). Blocked is the fold's
-// question in force (asks): the worker's Blocked: report, ended by the facts this package's fold ends it on (T-894: the
+// question in force (asks): the worker's Blocked: report, ended by the facts this package's fold ends it on (the
 // Stop hook reads it instead of folding the log itself).
 func (p *proj) laneTable() []store.LaneRow {
 	out := make([]store.LaneRow, 0, len(p.folded.lr.rows))
 	for _, row := range p.folded.lr.rows {
-		if mt := p.folded.loop[row.Task]; mt != nil && !mt.awaitsTaskDone() && !mt.is(stDriving) { // a drive works on (T-751)
+		if mt := p.folded.loop[row.Task]; mt != nil && !mt.awaitsTaskDone() && !mt.is(stDriving) { // a drive works on
 			row.Finished = p.folded.lr.submitted[row.Task]
 			if row.Finished == 0 {
 				row.Finished = max(row.DispatchedAt, 1)
@@ -136,7 +137,7 @@ func (p *proj) laneTable() []store.LaneRow {
 	return out
 }
 
-// landedTask: the fold ended task on its target or off it (T-1012), merged (by the gate, or by hand: drive's
+// landedTask: the fold ended task on its target or off it, merged (by the gate, or by hand: drive's
 // merge-evidence read records the merged fact) or dropped, whatever a needs-you still holds; the lane row's landed
 // fact, which port.FreeState reads. A rejected task has not landed: its work is still only in its lane.
 func (p *proj) landedTask(task string) bool {
@@ -174,7 +175,7 @@ func (p *proj) laneRowsErr() error {
 func (p *proj) laneTask(lane string) string { return p.folded.lr.rows[lane].Task }
 
 // finishedIn: task's lane row reads it finished (laneTable, under mu): its task_done submitted it, or it ended without
-// one and its row stays. A dispatch redoes no finished task in its lane (T-788: the lane table's done state before).
+// one and its row stays. A dispatch redoes no finished task in its lane (the lane table's done state before).
 func (p *proj) finishedIn(task string) bool {
 	for _, row := range p.laneTable() {
 		if row.Task == task && row.Finished != 0 {

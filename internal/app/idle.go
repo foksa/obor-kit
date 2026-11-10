@@ -12,20 +12,20 @@ import (
 	"time"
 )
 
-// Idle (T-803, T-815, T-866, T-868): serve says when the pipeline empties, and the lead answers. Two rules (rules.go)
+// Idle: serve says when the pipeline empties, and the lead answers. Two rules (rules.go)
 // carry it, keyed by the newest record that ended work the pipeline waited on (idleNow's end: a merge, a drop, a
 // finished brief, a verify's end, the last after-merge step, a review request's end): once nothing has been in flight
 // for idleSettle, the lead's line ("[obor] idle: nothing in flight (last: T-xx merged <sha7>) — dispatch next, or obor
 // idle \"<why nothing>\""); idlePingAfter after that line, the ping (the line again) and the owner's herdr
 // notification. Each goes once per key, neither once the lead acknowledged the key: obor idle "<why>" records fact
 // idle.ack{key, why}. Work in the settle window (a verify the merge loop requests seconds after the last merge, a review
-// request made just then, T-859) restarts it; a new end is a new key, with its own line (T-868: a long verify's or
+// request made just then) restarts it; a new end is a new key, with its own line (a long verify's or
 // brief's end after the merge is one, so an acknowledgement of the merge before it does not cover it).
 
 // idlePingAfter is how long after its line an unacknowledged idle state waits before the ping.
 const idlePingAfter = 30 * time.Minute
 
-// idleSettle is how long the pipeline must stay empty before the idle line goes out (T-859).
+// idleSettle is how long the pipeline must stay empty before the idle line goes out.
 const idleSettle = time.Minute
 
 // The idle rules' names: their lines' Of kinds.
@@ -44,7 +44,7 @@ type idleAck struct {
 	Reply string `json:"reply,omitempty"`
 }
 
-// idleEnd is one record that ended work the pipeline waited on (T-868): its seq (the idle key) and its time (the age's
+// idleEnd is one record that ended work the pipeline waited on: its seq (the idle key) and its time (the age's
 // start).
 type idleEnd struct {
 	seq int64
@@ -68,8 +68,8 @@ func (p *proj) foldIdle(r event.Record) {
 		return
 	}
 	switch r.Step {
-	case event.StepIdle: // compat until v0.28: an idle epoch fact (before T-866) folds to nothing
-	case event.StepIdleAck: // one from before T-866 names an epoch, no key: it acknowledges nothing
+	case event.StepIdle: // compat until v0.28: an idle epoch fact (an older log) folds to nothing
+	case event.StepIdleAck: // an older one names an epoch, no key: it acknowledges nothing
 		var d idleAck
 		_ = json.Unmarshal(r.Data, &d)
 		if d.Call != "" {
@@ -84,9 +84,9 @@ func (p *proj) foldIdle(r event.Record) {
 // idleNow is the pipeline's state now (under mu): idle with the last merge or drop's line, the newest end record's seq
 // (the idle key) and time when nothing is in flight, no needs-you is in force, no review request or verify is pending
 // and no reviewer or deep dive holds a brief. A task merged but still on its after-merge steps is in flight; a rejected
-// one is no cause of idle (its needs-you ends it). The end is the newest of the records that ended what it waited on
-// (T-868): a merge, a drop, the last after-merge step, a role worktree agent's finished or stopped brief, a
-// review request's end (every end: a failed --after end, a --rm or a firing, T-909).
+// one is no cause of idle (its needs-you ends it). The end is the newest of the records that ended what it waited on:
+// a merge, a drop, the last after-merge step, a role worktree agent's finished or stopped brief, a
+// review request's end (every end: a failed --after end, a --rm or a firing).
 func (p *proj) idleNow() idle {
 	var last string
 	var merge idleEnd // the newest merge or drop: what the line names
@@ -111,12 +111,12 @@ func (p *proj) idleNow() idle {
 			return idle{}
 		}
 	}
-	// A review request is work until it ends (skills/lead/commands.md: a review request ends idle, T-818), and a pass
+	// A review request is work until it ends (skills/lead/commands.md: a review request ends idle), and a pass
 	// starting one is in flight from its claim to the reviewer's brief (its fire fact ends the request first).
 	if p.folded.review != nil || p.rv.what != "" {
 		return idle{}
 	}
-	// A verify owed (the verify rule's condition, T-924) is in flight until its brief: its tasks are not verified yet.
+	// A verify owed (the verify rule's condition) is in flight until its brief: its tasks are not verified yet.
 	if p.verifyDue {
 		return idle{}
 	}
@@ -135,7 +135,7 @@ func (p *proj) idleNow() idle {
 
 // idleEnd is the newest record that ended what the pipeline waited on (under mu): idleNow's key once nothing is in
 // flight, whether or not it is now; and the task whose record it is ("": a review request's or a brief's end, or
-// none). The prune keeps that task whole (T-1101): its pruned replay would move the key back to its merged fact.
+// none). The prune keeps that task whole: its pruned replay would move the key back to its merged fact.
 func (p *proj) idleEnd() (idleEnd, string) {
 	var end idleEnd
 	by := ""

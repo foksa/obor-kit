@@ -1,4 +1,4 @@
-// Package outbox is one project's lines to its agents (app's proj.out; T-610; its own package since T-1067): the lines
+// Package outbox is one project's lines to its agents (app's proj.out), its own package: the lines
 // not delivered yet, the open briefs by role agent, each needs-you line's delivery time, and the fold of the records
 // that change them (Fold). Its maps are unexported, so only this package names them: package app reads them through
 // the queries (Lead, Brief, Briefs, Line, Queued, Waits, Delivered, Post, BriefStatus, MessageStatus) and delivers the
@@ -26,23 +26,23 @@ import (
 // (posted or typed).
 const StepDeliver = "deliver."
 
-// ViaInbox is fact failed's Via for a line whose refused delivery was an inbox post (T-748): the next attempt types it.
+// ViaInbox is fact failed's Via for a line whose refused delivery was an inbox post: the next attempt types it.
 const ViaInbox = "inbox"
 
 // RetiredResult is the result that closes a settled line's open delivery unsent (Closed).
 const RetiredResult = "retired: its question was settled while its delivery was open"
 
-// RuleNeeds is the needs-you line's rule in app's rule pass (rules.go, T-927): its lines' delivery times are kept
-// (Delivered, T-624).
+// RuleNeeds is the needs-you line's rule in app's rule pass (rules.go): its lines' delivery times are kept
+// (Delivered).
 const RuleNeeds = "needs"
 
 // Outbox is one project's lines to its agents: leadAgent, the lead's agent (config.AgentName), and leadKind, its kind
 // as configured (its role's type, else agents.Default): its lines' inbox; msgs, the lines not delivered yet by their
-// fact's seq; delivered, when each needs-you line was delivered, by its did key (T-624: the repeat's clock, folded from
+// fact's seq; delivered, when each needs-you line was delivered, by its did key (the repeat's clock, folded from
 // the delivery's result); briefs, the open briefs by role agent; posts, a delivery intent's members by its key's seq,
-// its result not folded yet (T-654). A line's delivery claim (app's deliverLine: its state Sending) and a brief's
+// its result not folded yet. A line's delivery claim (app's deliverLine: its state Sending) and a brief's
 // supersede of the agent's undelivered brief lines (app's recordBrief: the choice and the append in one App.mu
-// section) exclude each other (RV-61 #3).
+// section) exclude each other.
 type Outbox struct {
 	leadAgent string
 	leadKind  string
@@ -106,11 +106,11 @@ func (o *Outbox) Queued() []*Line {
 // Line is a line not delivered yet: its fact's seq and time, its data, whether it is a lead line (fact message,
 // posted to the inbox whatever today's lead name; fact briefed: a role brief), whether it is a brief's line (fact
 // briefed with a line: a newer brief ends it), whether it is an answer's line (fact answered: RetireAnswers ends it
-// once its question is settled another way, T-746), where its delivery is (state, T-748), the seq of the delivery
-// intent whose post carries it (0: none; T-654: only that post's result settles it, and a post refused before a byte
+// once its question is settled another way), where its delivery is (state), the seq of the delivery
+// intent whose post carries it (0: none; only that post's result settles it, and a post refused before a byte
 // goes again with exactly its members), and its last refusal before a byte went out (refused: the reason; refusedPost:
 // it was an inbox post, so the next attempt to an idle identified agent types it; folded from fact failed). Those are
-// the fold's. Held (why the last delivery pass held it; "": not held; T-746: not folded) and Sending (a deliverLine is
+// the fold's. Held (why the last delivery pass held it; "": not held; not folded) and Sending (a deliverLine is
 // sending it now) are the delivery's, live. obor status and the line's needs-you say why it waits (Why).
 type Line struct {
 	seq         int64
@@ -169,7 +169,7 @@ func (q *Line) Why() string {
 	return ""
 }
 
-// State is where a queued line's delivery is (T-748: one field, its moves all in Next; RV-90). A line sent or retired
+// State is where a queued line's delivery is (one field, its moves all in Next). A line sent or retired
 // leaves the outbox.
 type State uint8
 
@@ -192,7 +192,7 @@ const (
 	Closed                 // its intent's result RetiredResult: closed unsent (a settled line's open delivery)
 )
 
-// Next is the state a line in s moves to on e (T-748; the case → test table: app's TestLineStateTable).
+// Next is the state a line in s moves to on e (the case → test table: app's TestLineStateTable).
 func (s State) Next(e Event) State {
 	switch {
 	case s == Sent || s == Retired: // ended: nothing moves it
@@ -209,7 +209,7 @@ func (s State) Next(e Event) State {
 		return Waiting
 	case e == Settled && s == Waiting:
 		return Retired
-	case e == Settled: // a byte may have gone out: it may have landed, so it stays until its outcome (as T-575)
+	case e == Settled: // a byte may have gone out: it may have landed, so it stays until its outcome
 		return SendingSettled
 	}
 	return s
@@ -225,10 +225,10 @@ func (o *Outbox) Move(q *Line, e Event) {
 
 // Brief is a role agent's open brief: its fact's seq, when its line was delivered (else the fact's time), whether its
 // pane worked since (its line delivered; since its stop, when it had one), whether that work is in the log (fact
-// worked), its agent's stop on a usage limit in force (nil: none; T-569), and whether a turn that ended that stop is
-// followed (its start seen, its end not yet: T-571, app's stopped.go turnDecide). Those are the fold's (worked also
+// worked), its agent's stop on a usage limit in force (nil: none), and whether a turn that ended that stop is
+// followed (its start seen, its end not yet: app's stopped.go turnDecide). Those are the fold's (worked also
 // SawWork's). Logging (app's logWorked records its fact worked now: its claim, not folded) and where its agent was
-// last seen (Term, PaneID, Lost; T-732, app's gone) are the delivery's, live.
+// last seen (Term, PaneID, Lost; app's gone) are the delivery's, live.
 type Brief struct {
 	seq      int64
 	at       time.Time
@@ -306,7 +306,7 @@ type Worked struct {
 }
 
 // LineData is a delivery intent's data: the line's agent (the post's target), and the seqs of the lines its post
-// carries (T-654; none: its own line alone, as before T-654 and for a single line).
+// carries (none: its own line alone, one line with no batch).
 type LineData struct {
 	To    string  `json:"to"`
 	Lines []int64 `json:"lines,omitempty"`
@@ -350,7 +350,7 @@ type Turned struct {
 // call that recorded it (nil: none); Msg, a message or briefed fact's data (its Drive tells a drive came back, its
 // Review ends that review request: nil, another record); Stopped, a stopped fact's data (its worker's needs-you);
 // Answered, the task whose question an answer ends ("": none); BriefEnd, the role agent whose brief the record ended
-// ("": none; T-868). A role agent's stop's alarm (a message's Stop) is the outbox's own: folded here.
+// ("": none). A role agent's stop's alarm (a message's Stop) is the outbox's own: folded here.
 type Ended struct {
 	Of       event.Of
 	At       time.Time
@@ -367,7 +367,7 @@ type Reply struct {
 }
 
 // Fold folds r, a record of the project's lines (Task event.MsgTask; app's foldMsg retires the answers a record of
-// another task settles first, RetireAnswers). oldOf is the did key of a message recorded before T-927 (its own field,
+// another task settles first, RetireAnswers). oldOf is the did key of an older message (its own field,
 // no Of; app's oldLineOf), read only for such a message.
 func (o *Outbox) Fold(r event.Record, oldOf func(json.RawMessage) event.Of) Ended {
 	if r.Task != event.MsgTask {
@@ -381,13 +381,13 @@ func (o *Outbox) Fold(r event.Record, oldOf func(json.RawMessage) event.Of) Ende
 		if m.Of.Kind == "" && r.Step == event.StepMessage {
 			m.Of = oldOf(r.Data)
 		}
-		e.Of = m.Of // a rule's line: its did key (rules.go, T-866)
+		e.Of = m.Of // a rule's line: its did key (rules.go)
 		if m.Call != "" {
 			method := wire.MethodSend
 			switch {
 			case r.Step == event.StepBriefed:
 				method = wire.MethodBrief
-			case m.Driver: // obor tell-lead's (T-761)
+			case m.Driver: // obor tell-lead's
 				method = wire.MethodTellLead
 			}
 			e.Reply = &Reply{Method: method, Call: m.Call, Text: m.Reply}
@@ -407,7 +407,7 @@ func (o *Outbox) Fold(r event.Record, oldOf func(json.RawMessage) event.Of) Ende
 		}
 		if m.Ends != "" {
 			delete(o.briefs, m.Ends)
-			e.BriefEnd = m.Ends // T-868: the brief's end
+			e.BriefEnd = m.Ends // the brief's end
 		}
 		e.Msg = &m
 	case r.Kind == event.KindFact && r.Step == event.StepStopped: // a role agent's: the lead's line, ending its brief; a
@@ -421,7 +421,7 @@ func (o *Outbox) Fold(r event.Record, oldOf func(json.RawMessage) event.Of) Ende
 		}
 		if d.Ends != "" {
 			delete(o.briefs, d.Ends)
-			e.BriefEnd = d.Ends // T-868: the stop that ended the brief
+			e.BriefEnd = d.Ends // the stop that ended the brief
 		}
 		if b := o.briefs[d.Agent]; b != nil && d.Brief != 0 && b.seq == d.Brief { // a usage limit: the brief stays
 			// open, stopped; the work before the stop is not its finish
@@ -440,7 +440,7 @@ func (o *Outbox) Fold(r event.Record, oldOf func(json.RawMessage) event.Of) Ende
 		var m event.Message
 		_ = json.Unmarshal(r.Data, &m)
 		e.Reply = &Reply{Method: wire.MethodResume, Call: m.Call, Text: m.Reply}
-		if !m.Driver { // a drive's answers (T-761) answer no question: each is its own line
+		if !m.Driver { // a drive's answers answer no question: each is its own line
 			o.RetireAnswers(m.Task, r.Seq) // a newer answer (or a stalled worker's resume) ends an older undelivered one
 			e.Answered = m.Task
 		}
@@ -451,14 +451,14 @@ func (o *Outbox) Fold(r event.Record, oldOf func(json.RawMessage) event.Of) Ende
 		if b := o.briefs[d.To]; b != nil && b.seq == d.Brief { // an older brief's work does not arm a newer one
 			b.worked, b.logged = true, true
 		}
-	case r.Kind == event.KindFact && r.Step == event.StepFailed: // refused before a byte: its reason kept (T-748)
+	case r.Kind == event.KindFact && r.Step == event.StepFailed: // refused before a byte: its reason kept
 		d := r.Fact()
 		seq, _ := strconv.ParseInt(strings.TrimPrefix(d.Step, StepDeliver), 10, 64)
 		if q := o.msgs[seq]; q != nil {
 			q.refused, q.refusedPost = strings.TrimPrefix(d.Reason, d.Step+": "), d.Via == ViaInbox
 			o.Move(q, Refused)
 		}
-	case strings.HasPrefix(r.Step, StepDeliver): // T-654: a post's result settles exactly the lines its intent names
+	case strings.HasPrefix(r.Step, StepDeliver): // a post's result settles exactly the lines its intent names
 		seq, _ := strconv.ParseInt(strings.TrimPrefix(r.Step, StepDeliver), 10, 64)
 		switch r.Kind {
 		case event.KindIntent:
@@ -491,9 +491,9 @@ func (o *Outbox) Fold(r event.Record, oldOf func(json.RawMessage) event.Of) Ende
 	return e
 }
 
-// RetireAnswers settles task's undelivered answer lines but keep's (T-746, T-748): their question was settled another
+// RetireAnswers settles task's undelivered answer lines but keep's: their question was settled another
 // way (app's settles, or a newer answer or a stalled worker's resume came), so a line is never delivered late and obor
-// status lists it no more. A waiting line retires; a sending one may have landed and stays until its outcome (as T-575
+// status lists it no more. A waiting line retires; a sending one may have landed and stays until its outcome (as a
 // keeps a brief's): sent, or retired by a refusal before a byte or by its open delivery's close (app's deliverLine).
 // Folded live and on replay alike.
 func (o *Outbox) RetireAnswers(task string, keep int64) {
@@ -511,7 +511,7 @@ func (o *Outbox) settleLine(q *Line, r event.Record) {
 		o.Move(q, Closed)
 		return
 	}
-	if q.msg.Of.Kind == RuleNeeds { // a needs-you's line delivered: its next repeat counts from now (T-624)
+	if q.msg.Of.Kind == RuleNeeds { // a needs-you's line delivered: its next repeat counts from now
 		o.delivered[q.msg.Of] = event.RecordTime(r)
 	}
 	if b := o.briefs[q.msg.To]; b != nil && b.seq == q.seq { // the brief's line delivered: its age starts

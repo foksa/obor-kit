@@ -34,7 +34,7 @@ func TestPromptFreshDelivered(t *testing.T) {
 
 // Enter lost → submit-only is the Typer's own row: herdr.TestPanesPromptDelivery ("enter lost: one submit-only").
 
-// RV-40 #3 (TestRV40PromptResultLost, fixed): the send succeeds, its result's write fails: the next pass writes the
+// The send succeeds, its result's write fails: the next pass writes the
 // result, nothing is typed again and no failure is counted.
 func TestPromptResultLost(t *testing.T) {
 	t.Parallel()
@@ -85,7 +85,7 @@ func TestPromptRefusedBeforeTyping(t *testing.T) {
 	}
 }
 
-// RV-40 #4 (TestRV40ResumeUndeliveredClears, fixed): after two delivery waits obor resume sends work.2; the old
+// After two delivery waits obor resume sends work.2; the old
 // job's text still in the box is cleared first, so the box holds work.2 once.
 func TestPromptResumeClears(t *testing.T) {
 	t.Parallel()
@@ -107,7 +107,7 @@ func TestPromptResumeClears(t *testing.T) {
 	}
 }
 
-// T-524: a replayed log with a pending prompt intent (a crash after typing began, its result unwritten), an old
+// A replayed log with a pending prompt intent (a crash after typing began, its result unwritten), an old
 // log's fact typing after it: the replay sends the wake once more under its key, and the worker's job_next delivers
 // the job.
 func TestPromptReplayResends(t *testing.T) {
@@ -157,7 +157,7 @@ func TestPromptIntegratorJob(t *testing.T) {
 		t.Fatal(err)
 	}
 	p.foldRecord(r)
-	// T-602: a job's first start is a fresh session; this job's start ran already ("running"), so its wake is typed.
+	// A job's first start is a fresh session; this job's start ran already ("running"), so its wake is typed.
 	for _, rec := range []event.Record{
 		{Task: "T-1", Attempt: 1, Step: stepStart + event.StepResolve, Kind: event.KindIntent, Class: event.ClassStart,
 			Data: mustJSON(startData{Agent: "pj-int"})},
@@ -182,7 +182,7 @@ func TestPromptIntegratorJob(t *testing.T) {
 	}
 }
 
-// Row 4's replay (RV-40 #2): a pending agent.start reads the snapshot's session id, never the transcript file.
+// Row 4's replay: a pending agent.start reads the snapshot's session id, never the transcript file.
 func TestStartReplay(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -232,7 +232,7 @@ func TestStartReplay(t *testing.T) {
 	}
 }
 
-// RV-40 #2 (TestRV40StartWithoutTranscript, fixed): the intent records herdr's session id, not the transcript (none
+// The intent records herdr's session id, not the transcript (none
 // found); the start succeeds, its result's write fails: the next pass writes the result and does not start a second
 // agent, even while the snapshot still shows the old session.
 func TestStartResultLost(t *testing.T) {

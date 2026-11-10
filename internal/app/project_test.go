@@ -15,7 +15,7 @@ import (
 )
 
 // TestActivityKeepsAnUnansweredAsk: a worker's activity ends the watchdog facts whose lifecycle activity ends (stalled,
-// blocked, exited), never its open question (RV-54 #1, state model row 12), on the status path (working) and the
+// blocked, exited), never its open question (state model row 12), on the status path (working) and the
 // sampled path (a child runs, a transcript write); the question stays after a replay and obor answer still takes it.
 func TestActivityKeepsAnUnansweredAsk(t *testing.T) {
 	t.Parallel()
@@ -105,7 +105,7 @@ var closedCases = []struct {
 	{"replay rejected", "pr", "T-4", stRejected, false},
 }
 
-// T-636 (RV-68 #1): a worker's stop recorded after its task closed (picked before the merge, drop or reject) puts no
+// A worker's stop recorded after its task closed (picked before the merge, drop or reject) puts no
 // watchdog needs-you in force under the closed task, live or on replay, nor does a watchdog's stalled fact: no lead
 // line and nothing for the needs rule to toast. Both of an open task still do.
 func TestStopAfterCloseNoFact(t *testing.T) {
@@ -159,7 +159,7 @@ func TestStopAfterCloseNoFact(t *testing.T) {
 	}
 }
 
-// T-636 (T-401's old case): a closed task's merge-loop needs-you in force (an after-merge step's, a reject's) posts its
+// The old case: a closed task's merge-loop needs-you in force (an after-merge step's, a reject's) posts its
 // lead line and toasts the owner once, live and on replay.
 func TestClosedTaskMergeNeedsYouLine(t *testing.T) {
 	t.Parallel()
@@ -207,7 +207,7 @@ func TestClosedTaskMergeNeedsYouLine(t *testing.T) {
 	}
 }
 
-// T-944 (RV-132 #1): a record that ends T-1 (an outside merge, a drop's dropping, a reject verdict's result) races
+// A record that ends T-1 (an outside merge, a drop's dropping, a reject verdict's result) races
 // task_done's submitted: task_done decides first (its checks pass), the other writer appends before task_done's record
 // and is held at its fold (hookAppended). Live, the folds follow the log's order as replay does: the live state and the
 // task_done receipt equal replay's, and task_done answers superseded iff replay has no receipt.
@@ -272,8 +272,8 @@ func TestRecordFoldsInLogOrder(t *testing.T) {
 	}
 }
 
-// T-955 (RV-132 #1): an effect whose result's write failed keeps it in p.unwritten; the retry appends that result and
-// folds it in doBegin's one section (T-944 left the fold after do's relock). A task_done right after that section
+// An effect whose result's write failed keeps it in p.unwritten; the retry appends that result and
+// folds it in doBegin's one section (the fold stays inside the relock). A task_done right after that section
 // appends its submitted fact next, so the live fold drops the start's try as replay does, not onto the submitted task.
 func TestRecoveredStartVsSubmission(t *testing.T) {
 	t.Parallel()
@@ -363,7 +363,7 @@ func seedHeldReview(t *testing.T, h *harness, p *proj) {
 
 // raceSubmit runs T-1's task_done (call id s1) and, at its decision (hookTaskDoneCheck), other in a goroutine:
 // task_done records only once other's record is in the log (hookAppended). Held there, other's writer waits for
-// task_done's answer when it holds no a.mu (the boundary before T-944, where task_done's record folded first); under
+// task_done's answer when it holds no a.mu (the boundary where task_done's record folds first); under
 // mu, task_done's record waits for this one's fold. raced: other's record was appended during the decision.
 func raceSubmit(t *testing.T, h *harness, other func() error) (error, bool) {
 	t.Helper()

@@ -1,4 +1,4 @@
-// prune.go: the nightly prune of the event log (T-1089, docs/research/event-log-pruning.md §3): serve's backup request
+// prune.go: the nightly prune of the event log (docs/research/event-log-pruning.md §3): serve's backup request
 // deletes the records of the tasks that ended eventKeep ago, all but each one's last terminal fact, and the session
 // facts as old that are no agent's current session. Serve's memory is not touched: the next start folds the smaller
 // table. Package event owns the task rows' SQL, store the session rows'; this file owns which tasks.
@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-// eventKeep is how long the log keeps an ended task's records after its end, and an old session's (T-1089): longer
+// eventKeep is how long the log keeps an ended task's records after its end, and an old session's: longer
 // than promptKeep, so a prompt row never names a deleted fact.
 const eventKeep = 30 * 24 * time.Hour
 
@@ -82,7 +82,7 @@ func (a *App) pruneLogIn(p *proj, now time.Time, batch int) {
 
 // pruneCandidates is p's tasks the prune may delete at cutoff (under mu), each as the fold holds it now: dropped, or
 // merged with its after-merge steps done, no needs-you held or due, its end before cutoff; no lanes row names it, no
-// agent's start row was recorded by it, its record is not the idle key (idleEnd, T-1101), idle or not now (T-1102), no step of it runs or drop
+// agent's start row was recorded by it, its record is not the idle key (idleEnd), idle or not now, no step of it runs or drop
 // of it is decided, and with a review open it was not dispatched after the review started (fixCandidates would link
 // it). A rejected task is not ended for this: the owner
 // still owes it a drop.
@@ -96,8 +96,8 @@ func (p *proj) pruneCandidates(cutoff time.Time) map[string]mtask {
 			pinned[row.Task] = true
 		}
 	}
-	// The task whose record is the idle key (T-1101), idle or not now: a needs-you that suppresses idle keeps its end
-	// (T-1102); a retained newer end supersedes it.
+	// The task whose record is the idle key, idle or not now: a needs-you that suppresses idle keeps its end; a
+	// retained newer end supersedes it.
 	if _, task := p.idleEnd(); task != "" {
 		pinned[task] = true
 	}
@@ -122,7 +122,7 @@ func (p *proj) pruneCandidates(cutoff time.Time) map[string]mtask {
 
 // pruneCheck is the candidates whose records may go, each with the seq of the one record that stays (its last
 // terminal fact below horizon), and those kept whole, sorted: a task is pruned only when folding that fact alone gives
-// the task the fold holds (endsAlike) and it has no merged fact but that one (T-789: merged, dispatched again,
+// the task the fold holds (endsAlike) and it has no merged fact but that one (merged, dispatched again,
 // dropped; its merge would leave the reviews' merge list).
 func pruneCheck(db *sql.DB, cands map[string]mtask, horizon int64) (map[string]int64, []string, error) {
 	keep := map[string]int64{}

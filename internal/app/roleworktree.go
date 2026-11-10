@@ -10,12 +10,12 @@ import (
 	"obor/internal/config"
 )
 
-// Role worktrees (T-853, E2; T-718's merge hold deleted): the reviewer and the deep dive read their own worktree,
+// Role worktrees: the reviewer and the deep dive read their own worktree,
 // <lanes_dir>/<role> (config.RoleWorktree), detached at the head serve hands them, so a merge never waits for them
 // (the integrator has one too, which serve does not move: a review job checks out its candidate there itself).
 // Serve moves a role worktree (port.Review.Detach, which adds it when it is missing) at the start that hands the role a
-// head, to the sha that start read (T-872: no publish admission): the reviewer's at a review's start and at each
-// verify once it is idle (T-856: never under its turn), to the head it reviews; the deep dive's at a brief while it is
+// head, to the sha that start read (no publish admission): the reviewer's at a review's start and at each
+// verify once it is idle (never under its turn), to the head it reviews; the deep dive's at a brief while it is
 // idle, to the integration branch's head. A brief to a working deep dive leaves its worktree where it is (the code
 // does not move under its turn), and a plain brief to the reviewer never moves it (its head is the reviewed one). The
 // role may check out any commit there (the guard); its files go to the main checkout's paths.reviews.
@@ -39,7 +39,7 @@ func wtAgents(cfg *config.Config) []wtAgent {
 
 // wtAgentsNow is the role worktree agents by the current config (config.Load, the load reconcile's names use),
 // kept in p.wtAgents: a role renamed, added or removed while serve runs counts at the next check; a config that does
-// not load keeps the last good set (T-730; under mu).
+// not load keeps the last good set (under mu).
 func (p *proj) wtAgentsNow() []wtAgent {
 	if cfg, err := config.Load(p.root); err == nil {
 		p.wtAgents = wtAgents(cfg)
@@ -85,12 +85,12 @@ func (a *App) briefMove(ctx context.Context, p *proj, role, agent string) error 
 	return fx.Workflow.Detach(ctx, cfg.RoleWorktree(role), head)
 }
 
-// Admission (T-730, T-872): a call that commits in the main checkout (config_set) passes one serve-owned point first.
+// Admission: a call that commits in the main checkout (config_set) passes one serve-owned point first.
 // It waits while a publish runs (both move main there), and once admitted no publish starts (scratchStep refuses one)
 // until its commit is in and it released. The admission and a publish's start are decided together under App.mu at
-// the publish's actual start (scratchStep, T-733), so one of them is first. A call waits at most admitWait. A start
-// that hands a role a head (a review's start, a verify, a brief to the reviewer or the deep dive) is not admitted
-// (T-872): it reads the head once and uses that sha after (the merges, the files, Detach, the brief), the role reads
+// the publish's actual start (scratchStep), so one of them is first. A call waits at most admitWait. A start
+// that hands a role a head (a review's start, a verify, a brief to the reviewer or the deep dive) is not admitted:
+// it reads the head once and uses that sha after (the merges, the files, Detach, the brief), the role reads
 // its own worktree, and a publish moves only main in the main checkout; a merge published meanwhile falls into the
 // next review's scope.
 
@@ -106,7 +106,7 @@ func (p *proj) publishing() bool {
 
 // admit waits until no publish runs, then admits one call: no publish starts until release, called once its commit is
 // in (or it failed). ctx ending the wait: an error naming the publish, nothing admitted. A restart on a new obor binary
-// claimed (p.restartClaim, T-934): refused, nothing admitted (the restart would cancel the commit).
+// claimed (p.restartClaim): refused, nothing admitted (the restart would cancel the commit).
 func (a *App) admit(ctx context.Context, p *proj) (release func(), err error) {
 	for {
 		a.mu.Lock()

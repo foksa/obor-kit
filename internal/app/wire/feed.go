@@ -16,13 +16,13 @@ import (
 	"obor/internal/version"
 )
 
-// The event feed (T-1039, plan §2c "Integrations"): an integration reads the project's event log from a cursor of its
+// The event feed (plan §2c "Integrations"): an integration reads the project's event log from a cursor of its
 // own, the seq of the last record it handled. A record is handed on once per cursor, in seq order, with nothing
 // skipped: serve's MethodEvents streams it, and while serve is down obor events reads the store (FeedSince, the one
 // read of both). A restart of the reader repeats nothing it had and misses nothing after it.
 
 // FeedRecord is one record of the feed: the log's record as serve wrote it (its seq the cursor) and Ref, its task's
-// spec's Ref: line (an external tracker's id, T-1022; "": the task has no stored spec or no Ref:).
+// spec's Ref: line (an external tracker's id; "": the task has no stored spec or no Ref:).
 type FeedRecord struct {
 	event.Record
 	Ref string `json:"ref,omitempty"`

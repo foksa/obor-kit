@@ -1,5 +1,5 @@
-// restore.go: serve restores its project's panes when the terminal comes back (T-1051) or restarted while serve was
-// down (T-1135).
+// restore.go: serve restores its project's panes when the terminal comes back or restarted while serve was
+// down.
 package app
 
 import (
@@ -22,13 +22,13 @@ import (
 // stream that ended so (its socket went); a stream ended by the terminal's answer (a refresh, events_lost) or by ctx
 // is no loss. The first stream after a loss is the reconnect: the restore starts once its snapshot is applied.
 //
-// The terminal restarted while serve was down (T-1135: a machine restart, herdr first and serve later; herdr restarted
+// the terminal restarted while serve was down (a machine restart, herdr first and serve later; herdr restarted
 // while serve was stopped or re-execing): its panes came back as shells and no stream of this serve saw the loss.
 // Serve keeps the instance of the terminal it last connected to in InstanceFile (the snapshot's Started: herdr's socket
 // file time, port.Snapshot), written at every connect where it changed. At its first connect it restores when the
 // terminal is another one than recorded, or when nothing is recorded and the terminal started after serve's last
 // activity (the newest record of the project's log as its replay left it, before this serve's start-up appended any:
-// T-1136; a brand-new project, or a terminal that ran before it, restores nothing). The same instance restores nothing: a serve re-exec (every build) or restart leaves a role agent stopped on
+// a brand-new project, or a terminal that ran before it, restores nothing). The same instance restores nothing: a serve re-exec (every build) or restart leaves a role agent stopped on
 // purpose at its shell. Never at the first connect after obor stop (its pause in force when serve loaded the project:
 // obor start wakes the project and its agents start on first use), nor when the terminal's start is not known.
 //
@@ -120,7 +120,7 @@ func firstRestore(was string, started, last time.Time, woke bool) string {
 // lastActivity is the time of the newest record of the served project's log as its replay left it, before serve's
 // start-up appended any (under mu; zero: not loaded, no record, or unreadable). A settlement at the load (a failed
 // self-restart's needs-you ended: endServeNeeds) or the first connect's own facts are this serve's, never the last
-// serve's activity, and would hide a terminal restarted while serve was down (T-1136).
+// serve's activity, and would hide a terminal restarted while serve was down.
 func (a *App) lastActivity() time.Time {
 	if a.p == nil {
 		return time.Time{}

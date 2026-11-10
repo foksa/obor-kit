@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// A worker stopped on a usage limit continues by itself (T-568). Its stop (stopped.go: fact stopped, a worker's
+// A worker stopped on a usage limit continues by itself. Its stop (stopped.go: fact stopped, a worker's
 // needs-you of cause stopped) carries Limit and, when the agent's kind read one, its Reset (FactData). Each merge-loop
 // pass (stopWakes):
 //   - wake: wakeAfter past the reset, or, a reset unknown, every wakeEvery since the stop, the worker gets a continue
@@ -26,12 +26,12 @@ import (
 // The stop ends with the worker's next turn as before (turnCall, turnStop); a limit hit again is a new stop with its
 // own reset. A stop that is no limit (billing, unknown) gets no wake: the needs-you it is.
 //
-// A role agent (not the lead) stopped on a usage limit with its brief open (T-569; stopped.go roleStop: the brief
+// a role agent (not the lead) stopped on a usage limit with its brief open (stopped.go roleStop: the brief
 // stays open, the stop on it) gets the same, from deliver's pass (roleWakes): the wake, a line to the agent under the
 // key continue.<the wake's time>.<agent> of the project's lines, sent as the worker's is; the alarm, still stopped
 // wakeAlarm after the first wake: the lead's line "<the stop's line>; still stopped 30m after the reset wake" (fact
-// message, its Stop the stop's seq) and the owner's toast, one rule action's call (stopAlarmRule, T-949), once. A
-// Codex role agent's stop, its next turn's start and that turn's end are read from its rollout (roleTurns, T-571).
+// message, its Stop the stop's seq) and the owner's toast, one rule action's call (stopAlarmRule), once. A
+// Codex role agent's stop, its next turn's start and that turn's end are read from its rollout (roleTurns).
 // With no brief open there is nothing to continue: the stopped line only. The lead is never woken.
 
 const (
@@ -172,7 +172,7 @@ func (p *proj) alarmed(task string) bool {
 // (stopped.go), as turnStop does a worker's (each read outside mu, the facts recorded after). Read: a stop in force
 // read from the transcript, a turn followed since (until its end is read), or the brief's work seen with the pane
 // idle. The stopped turn itself decides nothing; a later turn's start ends the stop (fact turned, the brief open, no
-// finish armed: RV-60 #1), its end finishes the brief (fact turned, worked); an end on an error with the pane idle,
+// finish armed), its end finishes the brief (fact turned, worked); an end on an error with the pane idle,
 // not recorded for that turn, is a new stop (fact stopped, call id "turn.<id>"), as the StopFailure hook's for a
 // Claude role agent (roleStop).
 func (a *App) roleTurns(ctx context.Context, p *proj) {
@@ -228,7 +228,7 @@ func (a *App) roleTurns(ctx context.Context, p *proj) {
 }
 
 // roleWakes is one pass of the stopped role agents' wakes (see above): the wakes due sent (sendWake), each outside mu.
-// The alarm line and the owner's toast are the stop alarm's rule (stopAlarmRule, rules.go; T-949).
+// The alarm line and the owner's toast are the stop alarm's rule (stopAlarmRule, rules.go).
 func (a *App) roleWakes(ctx context.Context, p *proj, fx *Loop) {
 	now := a.opt.Now()
 	var wakes []wakeTo
@@ -255,11 +255,11 @@ func (a *App) roleWakes(ctx context.Context, p *proj, fx *Loop) {
 	}
 }
 
-// ruleStopAlarm is the stopped role agent's alarm rule (stopwake.go, T-949): its stop's toast and the lead's line.
+// ruleStopAlarm is the stopped role agent's alarm rule (stopwake.go): its stop's toast and the lead's line.
 const ruleStopAlarm = "stopalarm"
 
 // stopAlarmRule is the alarm's rule: the stop of a briefed role agent, woken, still stopped wakeAlarm later; key its
-// stop's fact seq. The lead's line records first; the toast is its best-effort after (T-949). A stop whose alarm is
+// stop's fact seq. The lead's line records first; the toast is its best-effort after. A stop whose alarm is
 // already recorded is skipped, so the next stopped agent gets its turn (the rule's did is not enough: the condition
 // would keep keying the first one).
 func stopAlarmRule(_ context.Context, a *App, p *proj, _ *Loop, now time.Time) (int64, action, bool) {

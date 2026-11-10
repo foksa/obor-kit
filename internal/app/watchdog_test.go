@@ -90,7 +90,7 @@ var rows = []row{
 			}
 		}},
 
-	// RV-36 #2 (app side): events apply after the snapshot they follow; a new snapshot replaces what came before.
+	// App side: events apply after the snapshot they follow; a new snapshot replaces what came before.
 	{name: "#2 a status event after the snapshot wins: blocked replaces the snapshot's idle", setup: connect,
 		event: func(h *harness) { h.status("w1:p1", func(p *port.Pane) { p.Status = "blocked" }) },
 		then:  tick(11 * minute), later: []string{"T-1 needs-you{blocked}"}},
@@ -111,7 +111,7 @@ var rows = []row{
 		},
 		then: tick(11 * minute), later: []string{"T-1 stalled{idle}"}},
 
-	// RV-36 #4: metadata refresh.
+	// Metadata refresh.
 	{name: "#4 a status event's metadata replaces the pane's: its new cwd puts it in L-01, its new name in the fact",
 		setup: func(h *harness) { h.pane("w1:p1").Cwd = filepath.Join(h.wt, "elsewhere"); h.connect() },
 		event: func(h *harness) { h.status("w1:p1", func(p *port.Pane) { p.Cwd, p.Label = h.lane("L-01"), "pj-new" }) },
@@ -142,7 +142,7 @@ var rows = []row{
 			}
 		}},
 
-	// RV-36 #5: a failed Busy is unknown, never idle.
+	// A failed Busy is unknown, never idle.
 	{name: "#5 Busy fails: no stalled, however long",
 		setup: func(h *harness) { h.panes.busyErr = errors.New("process_info unavailable"); h.connect() },
 		event: tick(11 * minute), then: tick(30 * minute)},
@@ -157,7 +157,7 @@ var rows = []row{
 		},
 		event: tick(3 * minute), facts: []string{"T-1 resumed"}},
 
-	// RV-36-verify #10, the timer rule: a timer counts only the time between two consecutive known-quiet
+	// The timer rule: a timer counts only the time between two consecutive known-quiet
 	// observations; an unknown one stops it, and the next known-quiet one starts a fresh period at its own time.
 	{name: "#10 unknown before quiet: an hour of failed Busy, then the first quiet check stalls nothing",
 		setup: func(h *harness) {
@@ -210,7 +210,7 @@ var rows = []row{
 		},
 		event: tick(0), then: steps(tick(9*minute), tick(minute)), later: []string{"T-1 needs-you{stalled}"}},
 
-	// T-335, the stall timer as a state machine over observed quiet time (minutes; Q quiet, U unknown, B busy,
+	// The stall timer as a state machine over observed quiet time (minutes; Q quiet, U unknown, B busy,
 	// A active). The connect samples at 0.
 	{name: "T-335 Q0 Q9: nothing", event: tick(9 * minute)},
 	{name: "T-335 Q0 Q10 → stalled", event: tick(10 * minute), facts: []string{"T-1 stalled{idle}"}},
@@ -245,7 +245,7 @@ var rows = []row{
 	{name: "T-335 working at 5, idle at 6: Q6 Q15 nothing", setup: workingAt5IdleAt6, event: tick(9 * minute)},
 	{name: "T-335 working at 5, idle at 6: Q6 Q15 Q16 → stalled", setup: workingAt5IdleAt6,
 		event: tick(9 * minute), then: tick(minute), later: []string{"T-1 stalled{idle}"}},
-	// RV-36-verify-3 #15 (T-337): a transcript watermark (seenWrite) separate from the quiet baseline; an unknown
+	// A transcript watermark (seenWrite) separate from the quiet baseline; an unknown
 	// sample drops the baseline, not the watermark (minutes; W a transcript write).
 	{name: "#15 FreshTranscriptAfterUnknown: stalled 11, U12, W12.5, U13 → resumed", setup: stalled,
 		event: freshWriteBetweenUnknowns, facts: []string{"T-1 resumed"}},
@@ -264,7 +264,7 @@ var rows = []row{
 		setup: agentChangedAt5AfterAWriteAt4,
 		event: func(h *harness) { h.panes.last = h.now.Add(3 * minute); h.tick(10 * minute) }},
 
-	// RV-36-verify-2 #13 (Sol's probes): the first quiet sample is a baseline, never also the verdict.
+	// The first quiet sample is a baseline, never also the verdict.
 	{name: "#13 first quiet only: a child ran until 9.5 min, the first quiet sample at 10 stalls nothing",
 		setup: func(h *harness) {
 			h.panes.busy = true
@@ -290,10 +290,10 @@ var rows = []row{
 		event: func(h *harness) { h.panes.busy = false; h.tick(10 * minute) },
 		then:  tick(10 * minute), later: []string{"T-1 stalled{idle}"}},
 
-	// RV-36 #6: a needs-you's owner toast is the needs rule's call (T-949, linerules_test.go), not a watchdog's: a
+	// A needs-you's owner toast is the needs rule's call (linerules_test.go), not a watchdog's: a
 	// replayed fact is a fact in force, and old notification records fold as nothing.
 
-	// RV-36 #7: an exit decides on the lane as it is now, not as the last tick read it.
+	// An exit decides on the lane as it is now, not as the last tick read it.
 	{name: "#7 the pane closes after its done file was written: no alarm",
 		setup: func(h *harness) { h.connect(); h.tick(minute); h.setLane("T-1", true) },
 		event: func(h *harness) { h.remove("w1:p1", port.EventClosed) }},
@@ -312,7 +312,7 @@ var rows = []row{
 		},
 		event: connect},
 
-	// RV-36 #8: idle time is per task.
+	// Idle time is per task.
 	{name: "#8 a taskless idle lane takes a task: no stall at once",
 		setup: func(h *harness) { h.setLane("", false); h.connect(); h.tick(60 * minute); h.setLane("T-99", false) },
 		event: tick(minute), then: tick(9 * minute)},
@@ -332,7 +332,7 @@ var rows = []row{
 		},
 		event: tick(minute), then: steps(tick(9*minute), tick(minute)), later: []string{"T-99 needs-you{blocked}"}},
 
-	// RV-36 #9: observed activity ends a stall.
+	// Observed activity ends a stall.
 	{name: "#9 a busy child after the stall → resumed; quiet again → stalled afresh, not needs-you",
 		setup: func(h *harness) { stalled(h); h.panes.busy = true },
 		event: tick(11 * minute), facts: []string{"T-1 resumed"},

@@ -132,7 +132,7 @@ func TestVerifyBriefsOnceAtTheHead(t *testing.T) {
 		!strings.HasSuffix(b.Line, resultLine+" Do not commit.\nLead's note: T-a: #1, #3 — re-run with an old status JSON") {
 		t.Errorf("the verify brief %+v", b)
 	}
-	// T-1072: the verify brief itself, not only the role text, asks for the file's Result first line.
+	// The verify brief itself, not only the role text, asks for the file's Result first line.
 	if !strings.Contains(b.Line, "Result: approved | changes requested · <sha reviewed> · <scope>") {
 		t.Errorf("the verify brief does not ask for the Result line: %q", b.Line)
 	}
@@ -331,7 +331,7 @@ func TestVerifyCrashBetweenDetachAndBrief(t *testing.T) {
 	}
 }
 
-// T-942: the reviewer's finished line names its review file and the file's Result line; other roles keep
+// The reviewer's finished line names its review file and the file's Result line; other roles keep
 // "[obor] <agent> finished (briefed <age> ago)" (messages_test.go TestBriefFinishedLineToTheLead and the advisor's).
 
 // finishedLines are the log's finished lines (messages that end an agent) of agent, in order.

@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// The versions of the tools obor drives (T-1176): the agent CLIs and the terminal update themselves, and a start or
+// The versions of the tools obor drives: the agent CLIs and the terminal update themselves, and a start or
 // a stop that worked yesterday may not today (a Codex self-upgrade broke unattended starts, docs/observations.md).
 // Every versionsEvery the pass reads each tool's version, records a change as fact version{what, version, was}, and
 // the rule version.changed sends the lead one line per change. It gates and refuses nothing. A tool that was not read
@@ -20,7 +20,7 @@ import (
 // versionsEvery is how often the tools' versions are read on a pass.
 const versionsEvery = 10 * time.Minute
 
-// terminalTool is the terminal's name among the tools (the one terminal adapter, T-1044).
+// terminalTool is the terminal's name among the tools (the one terminal adapter).
 const terminalTool = config.DefaultTerminal
 
 // ruleVersion is the version rule's name: its key in the rule pass.
@@ -92,7 +92,7 @@ func (p *proj) foldVersion(r event.Record) {
 	p.folded.versions[d.What] = versionAt{d, r.Seq}
 }
 
-// versionRule is the version rule (T-1176, rule tier). Condition: a tool's newest version fact names a version
+// versionRule is the version rule (rule tier). Condition: a tool's newest version fact names a version
 // before it (a first sighting names none) and its line is not recorded. Action: one line to the lead; no call.
 // Keyed by the fact's seq, the oldest unlined change first: two changes are lined on two passes.
 func versionRule(_ context.Context, a *App, p *proj, _ *Loop, _ time.Time) (int64, action, bool) {

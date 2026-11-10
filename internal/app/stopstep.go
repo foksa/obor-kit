@@ -1,8 +1,8 @@
-// stopstep.go: the stop of a task's worker as a step of the merge loop (T-852). A move (obor dispatch --model) and a
+// stopstep.go: the stop of a task's worker as a step of the merge loop. A move (obor dispatch --model) and a
 // drop (obor drop) record their decision and answer at once; the worker's stop is then the intent worker.stop of the
 // task's next pass, before the step that needs its lane (the redo's lane.prepare and agent.start, the drop's
-// lane.free). A done stop (stopped, not running) tells the lead nothing: its own command's reply said it (chatter census,
-// T-943); a stop that fails is the needs-you's line, which obor resume retries (a drop's that needs --force: obor drop
+// lane.free). A done stop (stopped, not running) tells the lead nothing: its own command's reply said it (a chatter
+// census); a stop that fails is the needs-you's line, which obor resume retries (a drop's that needs --force: obor drop
 // --force). A restart replays it: a pending intent runs again, a result is never run twice.
 // A drop is recorded before its lane steps (fact dropping): a step that fails after it is retried by the loop, or is
 // one needs-you, and the task stays dropping, its lane row its own, until fact dropped: never a half-done drop.
@@ -41,7 +41,7 @@ func (h *halt) ask(agent string, force bool) { *h = halt{agent: agent, force: fo
 func (h halt) pending() bool { return h.agent != "" && !h.done }
 
 // stopOut is worker.stop's result: why it was not stopped and how to retry (Refused, final: a needs-you). A done stop
-// records just that; its line and the agent gone are not read (T-943), so they are not written (T-960).
+// records just that; its line and the agent gone are not read, so they are not written.
 type stopOut struct {
 	Refused string `json:"refused,omitempty"`
 }
@@ -83,7 +83,7 @@ func (a *App) pickStop(p *proj, mt mtask) step {
 }
 
 // stopStep stops mt's worker (halt.agent, with halt.force) through serve's identity of it (stopAgent; a stop that says
-// not found while the agent is still identified is no success, RV-93 #1): result stopped, gone (no agent there), or
+// not found while the agent is still identified is no success): result stopped, gone (no agent there), or
 // refused with the retry (any stop that fails: a working agent without force, a quit timeout, two panes claiming it,
 // herdr refusing the stop). Cut by serve's own stop, or serve not connected to herdr (a reconnect's gap: nothing is
 // known of the agent): no result, the intent pending, tried again on the next pass (failed: uncounted while cut off).
@@ -108,7 +108,7 @@ func (a *App) stopStep(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 	return true
 }
 
-// dropData is fact dropping's data (T-852): obor drop's decision on a task that holds a lane. Worker is the agent to
+// dropData is fact dropping's data: obor drop's decision on a task that holds a lane. Worker is the agent to
 // stop first ("": none known), with Force; Discard frees a dirty lane; Agent who dropped it, Reason why; Call and Reply
 // the call's id and its stored reply.
 type dropData struct {
@@ -179,7 +179,7 @@ func lineTail(line string) string {
 	return ": " + oneLine(line)
 }
 
-// freeStep gives a dropping task's lane back (lane.free, G; T-439): the lane adapter's Free with the lane's dir, the
+// freeStep gives a dropping task's lane back (lane.free, G): the lane adapter's Free with the lane's dir, the
 // task branch and the target read now, refused for uncommitted changes or unmerged commits unless --discard (its
 // worker stopped already), else the lane detached at the target and the task branch deleted.
 func (a *App) freeStep(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {

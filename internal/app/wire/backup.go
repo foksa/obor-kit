@@ -15,7 +15,7 @@ func BackupDir(root string) string { return filepath.Join(root, ".obor", "state"
 
 // Backup is obor nightly's backup of root's database: through the serve at sock when it has the project loaded, else
 // directly on a read-only open (WAL: a consistent copy while another serve writes). A project without a database
-// ("": serve never loaded it) has nothing to back up. The prompts table's 14-day prune (T-665) is serve's, its one
+// ("": serve never loaded it) has nothing to back up. The prompts table's 14-day prune is serve's, its one
 // writer: a read-only backup here prunes nothing. The older backups and the rest of .obor/state are project.Sweep's,
 // which obor nightly runs right after this.
 func Backup(ctx context.Context, sock, root string, now time.Time) (string, error) {

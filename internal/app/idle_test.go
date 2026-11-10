@@ -12,7 +12,7 @@ import (
 	"obor/internal/app/wire"
 )
 
-// T-983 census: the idle epoch compat branch (before T-866) is kept (the store holds its records), so it keeps its
+// The idle epoch compat branch (an older log's) is kept (the store holds its records), so it keeps its
 // test: an idle epoch fact folds to nothing, and a keyless idle.ack names an epoch, no key: it acknowledges nothing,
 // while its call's reply still folds for the caller.
 func TestIdleEpochFactsFoldNothing(t *testing.T) {
@@ -30,8 +30,8 @@ func TestIdleEpochFactsFoldNothing(t *testing.T) {
 	}
 }
 
-// T-1082 (DD-v0.32 #2): a log from before the upgrade holds an open promotion needs-you (T-1013; T-1076 deleted the
-// promotion). The fold drops it, so the pass sees no needs-you and the idle check it used to hold off fires.
+// An older log from before the upgrade holds an open promotion needs-you (the deletion of the
+// promotion). The fold drops it, so the pass sees no needs-you and the idle check it holds off fires.
 func TestPromoteNeedsYouEndsAtUpgrade(t *testing.T) {
 	t.Parallel()
 	r := newReviewRigWith(t, false)
@@ -62,7 +62,7 @@ func TestPromoteNeedsYouEndsAtUpgrade(t *testing.T) {
 	}
 }
 
-// T-858, T-924: the last linked fix merged, the verify owed but not briefed (the reviewer working): no idle line.
+// The last linked fix merged, the verify owed but not briefed (the reviewer working): no idle line.
 // Briefed, the reviewer working: still none. Finished, nothing else in flight: one idle line.
 func TestIdleWaitsForTheVerifyBrief(t *testing.T) {
 	t.Parallel()
@@ -109,7 +109,7 @@ func TestIdleWaitsForTheVerifyBrief(t *testing.T) {
 	}
 }
 
-// T-858, T-924, T-926: the review force-closed under a verify that did not finish: the pass finds it closed (its
+// The review force-closed under a verify that did not finish: the pass finds it closed (its
 // review.closed fact), owes no verify, lines nothing of it, and the one idle line comes out; later passes add none.
 func TestIdleClosedRoundStopsCounting(t *testing.T) {
 	t.Parallel()
@@ -157,7 +157,7 @@ func lastFinished(t *testing.T, root string) (seq int64, at time.Time) {
 	return seq, at
 }
 
-// T-868: a merge, then an hour-long verify: the idle state is keyed by the verify's finished line, not the merge, so
+// A merge, then an hour-long verify: the idle state is keyed by the verify's finished line, not the merge, so
 // its age counts from the verify's end and the acknowledgement of the merge's state does not cover it.
 func TestIdleKeyIsTheVerifyEnd(t *testing.T) {
 	t.Parallel()
@@ -205,7 +205,7 @@ func TestIdleKeyIsTheVerifyEnd(t *testing.T) {
 	}
 }
 
-// T-909: a review request ended by a failed --after task is an idle end of its own: T-906 kept that end from setting
+// A review request ended by a failed --after task is an idle end of its own: that end is kept from setting
 // the on-merge marker (reviewEnd), but idle reads its own (reviewIdleEnd), so the key and age count from the request's
 // end (12:10), not from the task's drop (12:00). A --rm and a firing are ends of both markers.
 func TestIdleKeyIsTheRequestEnd(t *testing.T) {
@@ -280,7 +280,7 @@ func lastFact(t *testing.T, root, task, step string) (int64, time.Time) {
 	return seq, at
 }
 
-// T-868: with no work after it, the state is keyed as before: the merge (or the drop), and a merge's last after-merge
+// With no work after it, the state is keyed as before: the merge (or the drop), and a merge's last after-merge
 // step once that is newer. `last` names the last merge or drop.
 func TestIdleKeyIsTheNewestEnd(t *testing.T) {
 	t.Parallel()

@@ -12,14 +12,14 @@ import (
 	"time"
 )
 
-// obor resume <T-xx> ["<text>"] [--regate|--sendback] (T-775) is the one verb that sends the lead's or the owner's word
+// obor resume <T-xx> ["<text>"] [--regate|--sendback] is the one verb that sends the lead's or the owner's word
 // to a task; serve picks the action from the task's state (resumeAct):
 //   - a worker's question in force (its Blocked: report, needs-you{asks}, row 16b): the answer, fact answered{to: the
 //     worker, line "[obor answer] <text>"}, delivered in the same attempt as its kind takes a line; --regate instead
 //     gates the lane as it is (a Blocked "re-gate, not my diff");
-//   - a stalled or stopped worker (the watchdog's needs-you{stalled}, a stop on an API error; T-746): the text as the
+//   - a stalled or stopped worker (the watchdog's needs-you{stalled}, a stop on an API error): the text as the
 //     same line;
-//   - a driving task (T-761): the text as the line to the drive agent (answered{driver}), each its own line;
+//   - a driving task: the text as the line to the drive agent (answered{driver}), each its own line;
 //   - a green candidate, a review or resolve job out: the lead's sendback (the text its why);
 //   - a merge-loop needs-you (row 40): what its cause takes: held → the decision to the integrator (reprompt), a
 //     failed step → retry, a gate or publish failure → regate, an undelivered or stalled job → reprompt; a red gate or
@@ -60,7 +60,7 @@ func answerReply(task, agent string) string {
 
 // resume answers obor resume (under a.verdicts, then a.submitMu: task_done's and land's lock, in their order):
 // resumeDecide's refusal or stored reply, else its action's one fact. Every action records a fact, so the decision is
-// taken under both locks (RV-99 #4): a task that moved meanwhile (a task_done decided before it: submitted) is refused
+// taken under both locks: a task that moved meanwhile (a task_done decided before it: submitted) is refused
 // by its state as it is now, nothing recorded, and a task_done waiting on the lock decides on the state the resume
 // left (a --regate's submitted takes no submission), so a late submission never brings a gated task back.
 func (a *App) resume(c wire.ResumeReq) (string, error) {
@@ -287,7 +287,7 @@ func (a *App) resumeLine(p *proj, c wire.ResumeReq, mt mtask, act string) (strin
 	return m.Reply, nil
 }
 
-// leadSendback records the lead's or the owner's sendback of a task (obor resume's actSendback; c.Text: why; RV-45 #1),
+// leadSendback records the lead's or the owner's sendback of a task (obor resume's actSendback; c.Text: why),
 // under a.verdicts, the task held (p.held) since the decision: the integrator's sendback transition, from a green
 // candidate, an open job (awaiting-accept, resolving) or a needs-you of the owner's choice. The fold ends the job, the
 // candidate and the needs-you and starts the next attempt; the merge loop sends the worker its fix job. K is the
@@ -320,7 +320,7 @@ func (a *App) leadSendback(p *proj, c wire.ResumeReq, mt mtask) (string, error) 
 
 // driveAnswerable is why a drive cannot take the lead's line now (under mu; "": it can): only while it is driving; a
 // drive that is dispatched (not yet driving) or landed (submitted, a gate, a review, a needs-you) has no line path
-// until the merge loop sends it back to driving. obor resume and obor tell-lead share it (T-764): the reply tell-lead
+// until the merge loop sends it back to driving. obor resume and obor tell-lead share it: the reply tell-lead
 // advertises must be one the drive can get.
 func driveAnswerable(mt mtask) string {
 	if mt.is(stDriving) {

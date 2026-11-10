@@ -1,4 +1,4 @@
-// block.go: the merge loop's needs-you as a block on a task's phase (T-827, DD-consolidation S2).
+// block.go: the merge loop's needs-you as a block on a task's phase.
 package app
 
 import (

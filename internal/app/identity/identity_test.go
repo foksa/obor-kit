@@ -37,7 +37,7 @@ type proofOf struct {
 
 func all(string) bool { return true }
 
-// The reconcile tie rules (RV-53-verify V1, T-504, T-505) as a table: each row's claims are accepted in one pass;
+// The reconcile tie rules as a table: each row's claims are accepted in one pass;
 // the result is the same for every order the claims are added in.
 func TestReconcileRules(t *testing.T) {
 	t.Parallel()

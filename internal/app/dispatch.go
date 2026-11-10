@@ -28,7 +28,7 @@ import (
 // the work job's wake (job <task>/<attempt>/work: the start's first prompt, else typed; prompt.go). The worker's job_next is fact delivered: the task is working, and its task_done then
 // submits it. Undelivered 5 min: retry.work, 5 more: needs-you{job not delivered}. A
 // step's final refusal (Prepare's or the launch's) or its third counted failure is a needs-you that obor resume
-// retries. obor serve is the only dispatcher (T-408); a loop without the dispatch adapters (Loop.Workflow, Loop.Specs)
+// retries. obor serve is the only dispatcher; a loop without the dispatch adapters (Loop.Workflow, Loop.Specs)
 // refuses the request and ignores a dispatched task until its task_done submits it.
 
 // The causes of the dispatch's needs-you; obor resume retries each (the step runs again, a refused one under its next
@@ -41,10 +41,10 @@ const (
 )
 
 // Specs is what a dispatch reads of the project's task ids (wired by obor serve); the target it reads is the
-// workflow's (port.Workflow.Target, T-1029).
+// workflow's (port.Workflow.Target).
 type Specs interface {
 	// Check is why task cannot be dispatched by its id or its spec ("" when it can): a bad task id, no stored spec
-	// (text "": the store has none, T-440). An error: it cannot tell.
+	// (text "": the store has none). An error: it cannot tell.
 	Check(ctx context.Context, task, text string) (refusal string, err error)
 }
 
@@ -54,24 +54,24 @@ type (
 		port.Dispatch          // first: the record's lane, dir, agent, branch, target, redo
 		Force         bool     `json:"force,omitempty"`
 		Level         string   `json:"level,omitempty"`  // the spec's difficulty level the models came from
-		Types         []string `json:"types,omitempty"`  // model refs, `<model>[:<effort>]` (T-695, T-765)
-		Effort        string   `json:"effort,omitempty"` // the effort the lane's agent starts with ("": its kind's default; T-695)
-		// Type is the model ref the dispatch chose, `<model>[:<effort>]` (T-721): the lane row's type. "": a record
-		// from before T-721 or a waiting one.
+		Types         []string `json:"types,omitempty"`  // model refs, `<model>[:<effort>]`
+		Effort        string   `json:"effort,omitempty"` // the effort the lane's agent starts with ("": its kind's default)
+		// Type is the model ref the dispatch chose, `<model>[:<effort>]`: the lane row's type. "": a record
+		// that records none, or a waiting one.
 		Type  string   `json:"type,omitempty"`
 		After []string `json:"after,omitempty"` // waiting: the tasks it waits for
-		// Drive: the owner's drive (obor drive, T-751): no worker, no work job; after lane.prepare the task is driving.
+		// Drive: the owner's drive (obor drive): no worker, no work job; after lane.prepare the task is driving.
 		Drive bool `json:"drive,omitempty"`
-		// Fix: a move's (T-778) outstanding fix of the attempt it moved, a sendback's or a red gate's text; the moved
+		// Fix: a move's outstanding fix of the attempt it moved, a sendback's or a red gate's text; the moved
 		// attempt's work job carries it.
 		Fix string `json:"fix,omitempty"`
-		// Stop: the worker the merge loop stops (with force) before the step that needs the lane (T-852): a move's (the
+		// Stop: the worker the merge loop stops (with force) before the step that needs the lane: a move's (the
 		// redo's, before lane.prepare), or a keep lane's live agent whose recorded start does not run this dispatch's
-		// model (keepStop, T-1048: stopped between tasks, the dispatch's model started). "": none.
+		// model (keepStop: stopped between tasks, the dispatch's model started). "": none.
 		Stop string `json:"stop,omitempty"`
-		// Keep: the lane is a keep lane (T-1031, config.LaneKeep), as the config said at the dispatch: the merged task's
+		// Keep: the lane is a keep lane (config.LaneKeep), as the config said at the dispatch: the merged task's
 		// after-merge steps keep its agent (afterList), the start runs only when the lane has no live agent
-		// (nextDispatch: only when its recorded start runs this dispatch's model, T-1048), and a waiting one queues for its
+		// (nextDispatch: only when its recorded start runs this dispatch's model), and a waiting one queues for its
 		// lane in the scheduler's order (keepAhead).
 		Keep   bool   `json:"keep,omitempty"`
 		Caller string `json:"caller,omitempty"`
@@ -83,7 +83,7 @@ type (
 		Refused string `json:"refused,omitempty"`
 	}
 	// startData is agent.start's intent: the lane's pane and the agent in it at intent time (Ran; Session herdr's
-	// session id of it, "": none known), what a replay compares the snapshot with. (Before T-371 the intent held the
+	// session id of it, "": none known), what a replay compares the snapshot with. (An older intent held the
 	// transcript under "session": such an intent has no session id, a replay of it cannot tell.) It runs under its
 	// job's intent and carries its wake (startJob); older intents carry the job's id as "wake", ignored.
 	startData struct {
@@ -97,8 +97,8 @@ type (
 	// delivery (startJob). Agent, Pane, Terminal, Kind, Session: the agent started there, the pane's terminal id, its
 	// kind and herdr's session id of it ("": none reported, or a replay that saw it in the snapshot): the start row of
 	// the identity table (foldStart). Config is the config revision the start was launched under (config.Config.Rev,
-	// T-1050): the start's row keeps it, so a keep lane reuses the agent only while the config is that same config
-	// (startFits). agent.start's alone: the integrator's start.<job>, and a record from before T-1050, carry none.
+	// the start's row keeps it, so a keep lane reuses the agent only while the config is that same config
+	// (startFits). agent.start's alone: the integrator's start.<job>, and an older record, carry none.
 	startOut struct {
 		Line     string `json:"line,omitempty"`
 		Agent    string `json:"agent,omitempty"`
@@ -112,8 +112,8 @@ type (
 )
 
 // dispatchCall answers the socket's dispatch request: a call id is required and a repeated one gets the stored reply,
-// as does a dispatch of a waiting task (whatever its call id). --model on a task its worker works on moves it (T-773,
-// move.go): the move is recorded at once, and the merge loop stops the worker before the new model's start (T-852).
+// as does a dispatch of a waiting task (whatever its call id). --model on a task its worker works on moves it
+// (move.go): the move is recorded at once, and the merge loop stops the worker before the new model's start.
 // It decides and records under a.verdicts, a move under a.submitMu too (lock order a.verdicts, then a.submitMu:
 // task_done's lock).
 func (a *App) dispatchCall(ctx context.Context, c wire.DispatchReq) (string, error) {
@@ -161,7 +161,7 @@ func (a *App) dispatchCall(ctx context.Context, c wire.DispatchReq) (string, err
 	return reply, err
 }
 
-// queueError is dispatchTask's answer to a dispatch naming a keep lane that is busy (T-1031): a task holds it (its
+// queueError is dispatchTask's answer to a dispatch naming a keep lane that is busy: a task holds it (its
 // dispatch, or its work not landed yet), or an older dispatch waits for it; the task queues behind (waitQueue records
 // it waiting, waitDispatch tries again in dispatch order). Level and types are the request's, resolved; ls the lanes read.
 type queueError struct {
@@ -228,7 +228,7 @@ func (p *proj) afterMerged(m *mtask) bool {
 }
 
 // laneQueues is each keep lane's queue (under mu): the tasks waiting for it, in the pass's order (passOrder: the
-// order keepAhead admits them in; T-1031: obor status' lane line and the view, its owner of a task's keep lane).
+// order keepAhead admits them in; obor status' lane line and the view, its owner of a task's keep lane).
 func (p *proj) laneQueues() map[string][]string {
 	var out map[string][]string
 	for _, t := range p.passOrder() { // the waiting ones last, a high one first, then oldest wait first
@@ -314,7 +314,7 @@ func knownModels(cfg *config.Config, refs []string) []string {
 }
 
 // specFirst is refs with the spec's `Model:` refs in front (those naming a model of cfg): a named model wins, else
-// the level's first unpaused one (T-689).
+// the level's first unpaused one.
 func specFirst(cfg *config.Config, sp spec.Spec, refs []string) []string {
 	out := knownModels(cfg, sp.Models)
 	for _, t := range refs {
@@ -328,7 +328,7 @@ func specFirst(cfg *config.Config, sp spec.Spec, refs []string) []string {
 // waitLane records fact waiting for c.Task's request (under a.verdicts) when none of its level's models gets a lane
 // (nl): the reply WAITING <task> (queued): <why> (<level>: <models>) and the lanes still idle. It replaces a waiting
 // fact of the task (a new request: models, after). The merge loop dispatches it when a lane frees or a pause ends
-// (passOrder: a high task first, then oldest wait first, T-1030).
+// (passOrder: a high task first, then oldest wait first).
 func (a *App) waitLane(p *proj, c wire.DispatchReq, nl noLaneError) (string, error) {
 	mt, held := a.held(p, c.Task)
 	if !mt.dispatchable() {
@@ -367,7 +367,7 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Dispat
 	case fx.Workflow == nil || fx.Specs == nil:
 		return "", fmt.Errorf("dispatch off for %s (no lane adapter)", p.name)
 	}
-	// A merged task takes no new attempt, whatever flags the request has (T-792); a rejected or dropped one may.
+	// A merged task takes no new attempt, whatever flags the request has; a rejected or dropped one may.
 	if mt, _ := a.held(p, c.Task); mt.state == stMerged {
 		sha := mt.head
 		if len(sha) > 7 {
@@ -382,7 +382,7 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Dispat
 	if err != nil {
 		return "", fmt.Errorf("dispatch %s: %v", c.Task, err)
 	}
-	if why := a.specDropped(p, c.Task); why != "" { // T-1016: a spec-only drop, until a new rev
+	if why := a.specDropped(p, c.Task); why != "" { // A spec-only drop, until a new rev
 		return "", fmt.Errorf("dispatch %s: %s", c.Task, why)
 	}
 	if why, err := fx.Specs.Check(ctx, c.Task, row.Text); err != nil || why != "" {
@@ -391,7 +391,7 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Dispat
 		}
 		return "", fmt.Errorf("dispatch %s: %s", c.Task, why)
 	}
-	if err := a.fixesCheck(p, c.Task, row.Spec); err != nil { // T-924: a fix links to the open review only
+	if err := a.fixesCheck(p, c.Task, row.Spec); err != nil { // A fix links to the open review only
 		return "", err
 	}
 	cfg, err := config.Load(p.root)
@@ -402,7 +402,7 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Dispat
 		return "", fmt.Errorf("dispatch %s: %v", c.Task, err)
 	}
 	// Refused before a lane is picked (nothing recorded): a model ref naming no model of this config, or an effort
-	// its kind does not take (T-695).
+	// its kind does not take.
 	for _, t := range c.Types {
 		if err := cfg.CheckModelRef(t); err != nil {
 			return "", fmt.Errorf("dispatch %s: %v", c.Task, err)
@@ -412,7 +412,7 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Dispat
 	if err != nil {
 		return "", fmt.Errorf("dispatch: lanes of %s: %v", p.name, err)
 	}
-	keep := c.Lane != "" && cfg.KeepLane(c.Lane) // T-1031: a dispatch naming a busy keep lane queues
+	keep := c.Lane != "" && cfg.KeepLane(c.Lane) // A dispatch naming a busy keep lane queues
 	if len(c.After) > 0 {
 		if reply, err := a.waitTask(p, c, ls, keep); err != nil || reply != "" {
 			return reply, err
@@ -467,7 +467,7 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Dispat
 		return "", fmt.Errorf("dispatch %s: %s is open in obor serve (%s): obor resume or obor drop it first", c.Task,
 			c.Task, mt.shown())
 	}
-	agent := cfg.AgentName("worker", l.Name) // derived (T-777: a lane pane's old label is no name of the worker; T-1031)
+	agent := cfg.AgentName("worker", l.Name) // derived (a lane pane's old label is no name of the worker)
 	caller := callerOf(c.Envelope)
 	d := dispatchData{Lane: l.Name, Dir: l.Dir, Agent: agent, Branch: branch, Target: target, Redo: redo, Force: c.Force,
 		Level: c.Level, Types: c.Types, Effort: effort, Type: ref, Keep: cfg.KeepLane(l.Name), Stop: a.keepStop(p, cfg, l, agent, ref),
@@ -482,7 +482,7 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Dispat
 }
 
 // unbridged is the kind of model typ when obor has no bridge for it (obor config validate refuses it; serve refuses
-// to start one, DD-v0.13 D1); "": a bridged kind, or no such model (the start says so).
+// to start one); "": a bridged kind, or no such model (the start says so).
 func unbridged(cfg *config.Config, typ string) string {
 	lt, ok := cfg.Model(typ)
 	if !ok {
@@ -502,7 +502,7 @@ func (m *mtask) refusedCause() string {
 	return causeStart
 }
 
-// dispatching: mt is a dispatch not yet submitted (its lane is reserved for it), a drive (T-751), also while a
+// dispatching: mt is a dispatch not yet submitted (its lane is reserved for it), a drive, also while a
 // needs-you holds one.
 func (m *mtask) dispatching() bool {
 	return m.state == stDispatched || m.state == stWorking && m.work != "" || m.is(stDriving)
@@ -523,7 +523,7 @@ func (p *proj) foldDispatch(r event.Record) {
 	if mt := p.folded.loop[r.Task]; mt != nil && !states[mt.state].ended {
 		next.sendbacks = mt.sendbacks
 	}
-	if d.Stop != "" { // a move: the old worker stopped first (T-852)
+	if d.Stop != "" { // a move: the old worker stopped first
 		next.halt.ask(d.Stop, true)
 	}
 	p.folded.loop[r.Task] = next

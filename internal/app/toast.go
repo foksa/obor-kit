@@ -1,4 +1,4 @@
-// toast.go: the owner's herdr toast, a rule action's best-effort after (T-949; rules.go).
+// toast.go: the owner's herdr toast, a rule action's best-effort after (rules.go).
 package app
 
 import (

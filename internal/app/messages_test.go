@@ -48,7 +48,7 @@ func readBriefLine(t *testing.T, h *harness, agent string) string {
 	return line
 }
 
-// T-853: a brief moves only an idle deep dive's worktree: a working one (its pane working, or a brief open) keeps its
+// A brief moves only an idle deep dive's worktree: a working one (its pane working, or a brief open) keeps its
 // head for its turn, and a plain brief to the reviewer never moves the reviewer's (its head is the reviewed one). A
 // worktree's git failing refuses the brief, nothing recorded.
 func TestBriefMovesAnIdleDeepDive(t *testing.T) {
@@ -101,7 +101,7 @@ func TestBriefMovesAnIdleDeepDive(t *testing.T) {
 	})
 }
 
-// T-794: obor brief --fresh is serve's: the brief is validated, admitted and recorded first, and only then does the
+// obor brief --fresh is serve's: the brief is validated, admitted and recorded first, and only then does the
 // delivery stop the running role agent (serve's role stop) and start it fresh on the brief's line.
 
 // freshSpy is the agents, typer of a fresh brief's delivery: every stop and start in order, the starts, the lines
@@ -149,7 +149,7 @@ func freshApp(t *testing.T, now *time.Time, agent, kind, status string) (*App, *
 		{ID: "w:lead", Group: "proj", Cwd: root, Agent: "claude", Label: p.out.Lead(), Status: "idle"},
 		{ID: "w:role", Group: "proj", Cwd: root, Agent: kind, Label: agent, Status: status},
 	}})
-	// An idle deep dive's brief moves its role worktree first (T-853).
+	// An idle deep dive's brief moves its role worktree first.
 	a.opt.Loop = func(string) (*Loop, error) { return &Loop{Workflow: WorkflowOf(&reviewGitFake{head: "base1"})}, nil }
 	return a, p
 }
@@ -411,7 +411,7 @@ func deliveredResults(t *testing.T, p *proj) int {
 	return n
 }
 
-// TestLeadLinesOnePost (T-651): the lines queued for the lead go out as one post, one per row in order, each with
+// TestLeadLinesOnePost: the lines queued for the lead go out as one post, one per row in order, each with
 // its delivery fact; a worker's line stays its own post.
 func TestLeadLinesOnePost(t *testing.T) {
 	t.Parallel()
@@ -511,7 +511,7 @@ func oneLeadPost(call string) bool {
 	return true
 }
 
-// T-654 (RV-72 #1 #2): a post's intent names its members and its target; only its result settles them.
+// A post's intent names its members and its target; only its result settles them.
 
 // leadSend queues one obor send line "[obor other] <note>" for the lead (as it is now), and is its seq.
 func leadSend(t *testing.T, a *App, p *proj, note string) int64 {
@@ -697,7 +697,7 @@ func lineTyped(calls []string, kind string) bool {
 }
 
 // TestRefusedLineReplay: a line refused before typing stays queued across a restart (orderly and SIGKILL) and is
-// typed once after it, for each kind of line (RV-50 #1).
+// typed once after it, for each kind of line.
 func TestRefusedLineReplay(t *testing.T) {
 	t.Parallel()
 	for _, kind := range lineKinds {
@@ -738,7 +738,7 @@ func TestRefusedLineReplay(t *testing.T) {
 }
 
 // TestRefusedLineRetryKilled: a refused line's retry cut by a SIGKILL once its typing began is delivered once more
-// after the restart (T-524: a line is never lost; it may reach its agent twice); a line queued without a delivery is
+// after the restart (a line is never lost; it may reach its agent twice); a line queued without a delivery is
 // typed once (control).
 func TestRefusedLineRetryKilled(t *testing.T) {
 	t.Parallel()
@@ -833,7 +833,7 @@ func TestRefusedLineKillChild(t *testing.T) {
 }
 
 // TestBriefCompletionReplay: a brief whose work serve saw before a restart (orderly and SIGKILL) gets its
-// finished line when its agent is idle on reconnect, for a brief with a text and a fresh start's brief (RV-50 #3).
+// finished line when its agent is idle on reconnect, for a brief with a text and a fresh start's brief.
 func TestBriefCompletionReplay(t *testing.T) {
 	t.Parallel()
 	for _, note := range []string{"verify finding 1", ""} {
@@ -908,7 +908,7 @@ func TestWorkedNotNewerBrief(t *testing.T) {
 	}
 }
 
-// TestBriefKeepsAStartedDelivery (T-575): a line whose delivery is in flight (its intent is pending: it may have
+// TestBriefKeepsAStartedDelivery: a line whose delivery is in flight (its intent is pending: it may have
 // landed) is not superseded by a newer brief.
 func TestBriefKeepsAStartedDelivery(t *testing.T) {
 	t.Parallel()
@@ -955,7 +955,7 @@ func TestBriefKeepsAStartedDelivery(t *testing.T) {
 	}
 }
 
-// TestBriefSupersededEndsNeedsYou (T-575): the 24 h needs-you of a brief line ends when a newer brief supersedes it;
+// TestBriefSupersededEndsNeedsYou: the 24 h needs-you of a brief line ends when a newer brief supersedes it;
 // the newer brief's own line waits as usual.
 func TestBriefSupersededEndsNeedsYou(t *testing.T) {
 	t.Parallel()
@@ -987,7 +987,7 @@ func TestBriefSupersededEndsNeedsYou(t *testing.T) {
 	}
 }
 
-// TestBriefSupersedeSurvivesACrash (RV-61 #2): a brief's supersede is its own fact: with the log refusing every
+// A brief's supersede is its own fact: with the log refusing every
 // append after the new brief's, a restart right after it keeps the old line retired (never delivered), with a line
 // or a fresh start's brief; a retry of the new brief's call id gets the stored reply.
 func TestBriefSupersedeSurvivesACrash(t *testing.T) {
@@ -1065,7 +1065,7 @@ func (d *duringSpy) Post(ctx context.Context, _, agent, line string) (bool, erro
 	return d.Type(ctx, agent, line, false)
 }
 
-// TestBriefRetiresARoutedLine (RV-61 #3): a line routed for delivery (no intent yet) that a newer brief supersedes
+// A line routed for delivery (no intent yet) that a newer brief supersedes
 // before its claim is not transmitted, and only the newer one is delivered; the inverse, a line claimed first, is
 // kept by the newer brief and delivered once, and the newer brief after it.
 func TestBriefRetiresARoutedLine(t *testing.T) {
@@ -1136,7 +1136,7 @@ func TestBriefRetiresARoutedLine(t *testing.T) {
 	})
 }
 
-// TestBriefSupersedesSeveralLines (T-580): every undelivered brief line of the agent is retired by the one briefed
+// TestBriefSupersedesSeveralLines: every undelivered brief line of the agent is retired by the one briefed
 // fact, live and on replay.
 func TestBriefSupersedesSeveralLines(t *testing.T) {
 	t.Parallel()
@@ -1194,7 +1194,7 @@ func TestBriefSupersedesSeveralLines(t *testing.T) {
 
 // TestBriefWorkDurableAtOnce: the work a brief's agent is seen doing is in the log as soon as its caller (a herdr status
 // event, a snapshot, a fresh start's brief) returns, before any delivery pass: a restart right then still gets the
-// finished line once the agent is idle on reconnect, for a brief with a text and a fresh start's brief (RV-50 #3,
+// finished line once the agent is idle on reconnect, for a brief with a text and a fresh start's brief (the
 // the retained observation → reload probes).
 func TestBriefWorkDurableAtOnce(t *testing.T) {
 	t.Parallel()
@@ -1293,7 +1293,7 @@ func TestFinishedLineAgeFromTyping(t *testing.T) {
 	}
 }
 
-// registerLead rewrites root's config with prefix: the lead is <prefix>-lead (obor setup rename's change, T-765: a
+// registerLead rewrites root's config with prefix: the lead is <prefix>-lead (obor setup rename's change: a
 // lead's agent name is its prefix's).
 func registerLead(t *testing.T, root, prefix string) {
 	t.Helper()
@@ -1381,7 +1381,7 @@ func TestRunningLeadHint(t *testing.T) {
 	}
 }
 
-// TestBriefStatus (T-664): the app's status lists a role agent's open brief: not delivered while its line is queued,
+// TestBriefStatus: the app's status lists a role agent's open brief: not delivered while its line is queued,
 // delivered once typed, worked on once its pane worked; none once it finished.
 func TestBriefStatus(t *testing.T) {
 	t.Parallel()
@@ -1412,7 +1412,7 @@ func TestBriefStatus(t *testing.T) {
 	}
 }
 
-// T-748 (RV-90): a queued line's delivery as explicit states. The case → test table: each state a line can be in
+// A queued line's delivery as explicit states. The case → test table: each state a line can be in
 // while queued (waiting, sending, sending with its question settled) × each event (delivered, a refusal before a byte,
 // an error after a byte, its question settled, its task dropped, replay), one subtest per row, run through the log's
 // records on T-1's answer to pj-l-01 (busyAnswered). Sent and retired lines leave the outbox: next names which.
@@ -1523,7 +1523,7 @@ func TestLineStateTable(t *testing.T) {
 		{outbox.Sending, "dropped", outbox.SendingSettled},
 		{outbox.Sending, "replay", outbox.Sending},
 		{outbox.SendingSettled, "delivered", outbox.Sent},
-		{outbox.SendingSettled, "refused before a byte", outbox.Retired}, // RV-90 #1's race: settled, then refused
+		{outbox.SendingSettled, "refused before a byte", outbox.Retired}, // the refusal-and-settle race: settled, then refused
 		{outbox.SendingSettled, "error after a byte", outbox.Sent},
 		{outbox.SendingSettled, "settled", outbox.SendingSettled},
 		{outbox.SendingSettled, "dropped", outbox.SendingSettled},
@@ -1576,7 +1576,7 @@ func TestLineStateEndedStays(t *testing.T) {
 	}
 }
 
-// RV-90 #1 (probe TestRV90RefusedAndSettled): a post refused before a byte, then the question settled (task_done):
+// A post refused before a byte, then the question settled (task_done):
 // the answer retires, the next idle sends nothing, and replay keeps it retired.
 func TestRV90RefusedAndSettled(t *testing.T) {
 	t.Parallel()
@@ -1603,7 +1603,7 @@ func TestRV90RefusedAndSettled(t *testing.T) {
 	}
 }
 
-// RV-90 #2 (probe TestRV90RefusedReason): a refused post keeps its reason (obor status, the needs-you), and the next
+// A refused post keeps its reason (obor status, the needs-you), and the next
 // attempt to the idle identified worker types it instead of dialling the dead socket again.
 func TestRV90RefusedReason(t *testing.T) {
 	t.Parallel()
@@ -1669,7 +1669,7 @@ func TestRefusedPostTypedOnlyWhenIdle(t *testing.T) {
 	}
 }
 
-// A lead line's refused post keeps its reason too (obor status), and is posted again, never typed (T-748).
+// A lead line's refused post keeps its reason too (obor status), and is posted again, never typed.
 func TestLeadLineRefusedReason(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
@@ -1691,7 +1691,7 @@ func TestLeadLineRefusedReason(t *testing.T) {
 	}
 }
 
-// RV-90 #3 (probe TestRV90Drop): obor drop retires the task's undelivered answer; the lane's worker idle again gets
+// obor drop retires the task's undelivered answer; the lane's worker idle again gets
 // nothing. A reject retires it the same way.
 func TestRV90Drop(t *testing.T) {
 	t.Parallel()
@@ -1762,7 +1762,7 @@ func msgNeeds(h *harness) []string {
 }
 
 // A line settled while its delivery was open (a crash cut it: its intent pending, no result) is never sent again:
-// the next pass closes its delivery unsent (result retired), whatever its worker's pane (T-749, RV-91 #1: idle,
+// the next pass closes its delivery unsent (result retired), whatever its worker's pane (idle,
 // working, not identified, two panes claiming it, its lane released), live and on replay; it leaves obor status and
 // raises no needs-you, even past msgWait.
 func TestSettledOpenDeliveryClosedUnsent(t *testing.T) {
@@ -1821,7 +1821,7 @@ func TestSettledOpenDeliveryClosedUnsent(t *testing.T) {
 }
 
 // A serve restart replays the settled open delivery (sending, settled); the new serve's first pass closes it, its
-// worker still working, and a replay after that keeps it closed (T-749).
+// worker still working, and a replay after that keeps it closed.
 func TestSettledOpenDeliveryClosedAfterReplay(t *testing.T) {
 	t.Parallel()
 	h, seq := answerIn(t, outbox.SendingSettled)
@@ -1853,7 +1853,7 @@ func TestSettledOpenDeliveryClosedAfterReplay(t *testing.T) {
 }
 
 // A delivery whose effect is in flight (its post runs now) when its question is settled is left to its outcome: a
-// pass meanwhile closes nothing, and the post's result (sent) is what ends the line (T-749).
+// pass meanwhile closes nothing, and the post's result (sent) is what ends the line.
 func TestSettledInFlightDeliveryLeftAlone(t *testing.T) {
 	t.Parallel()
 	h := busyAnswered(t)
@@ -1889,7 +1889,7 @@ func TestSettledInFlightDeliveryLeftAlone(t *testing.T) {
 }
 
 // Two passes logging a brief's seen work at once (the merge loop's and the watchdog's) record its fact worked once:
-// the brief is claimed under mu while its fact is recorded (T-615 attempt 3; the gate saw two).
+// the brief is claimed under mu while its fact is recorded (attempt 3; the gate saw two).
 func TestLogWorkedTwoPassesAtOnceRecordOneFact(t *testing.T) {
 	t.Parallel()
 	root := logRoot(t)
@@ -1955,7 +1955,7 @@ func TestLogWorkedTwoPassesAtOnceRecordOneFact(t *testing.T) {
 }
 
 // relead renames p's lead to lead as a restart with that config would: its outbox folded anew from the log's records
-// (the outbox's lead is its configured one; T-1067).
+// (the outbox's lead is its configured one).
 func relead(t *testing.T, a *App, p *proj, lead string) {
 	t.Helper()
 	recs, err := event.ReadLog(p.root)

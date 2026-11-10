@@ -12,7 +12,7 @@ import (
 )
 
 // connect works from a fresh snapshot: every pane observed, the project's identity table reconciled, then the work
-// its owned panes show noted for their briefs (RV-53 #4: the first snapshot after a replay too), then a check. One that shares no pane id with the panes known is a new herdr session (herdr
+// its owned panes show noted for their briefs (the first snapshot after a replay too), then a check. One that shares no pane id with the panes known is a new herdr session (herdr
 // restarted): nothing of the old one is evidence for it, so no pane of it "exited" and no lane "lost" its agent; the
 // lanes find their panes again by group (the project's name) and cwd. Otherwise a known pane gone from it exited, and a pane
 // whose status and agent are unchanged keeps its timer.
@@ -57,7 +57,7 @@ func (a *App) connect(ctx context.Context, snap port.Snapshot) {
 		}
 	}
 	a.mu.Unlock()
-	if p != nil { // a brief's work seen in the snapshot is in the log at once (RV-50 #3)
+	if p != nil { // a brief's work seen in the snapshot is in the log at once
 		a.logWorked(p)
 	}
 	a.check(ctx, true)
@@ -94,10 +94,10 @@ func (a *App) observe(pane port.Pane, now time.Time) {
 }
 
 // rereadPanes reads herdr's panes again, as a list: a pane's cwd changes with no event (a cd in its shell, obor setup
-// pane moving it into a lane), so the snapshot the stream gave can keep it out of the lane (T-745). One call, the same
+// pane moving it into a lane), so the snapshot the stream gave can keep it out of the lane. One call, the same
 // source the snapshot is built from. The list answers one question only, which pane is in a lane's dir now: it is never
-// applied to the snapshot, whose panes and fields stay the stream's (RV-89 #2). An error (herdr restarting, a timeout,
-// the context ending) leaves the caller on what it knows, with nothing recorded (RV-89 #1).
+// applied to the snapshot, whose panes and fields stay the stream's. An error (herdr restarting, a timeout,
+// the context ending) leaves the caller on what it knows, with nothing recorded.
 func (a *App) rereadPanes(ctx context.Context) ([]port.Pane, error) {
 	snap, err := a.panes.Snapshot(ctx)
 	if err != nil {
@@ -109,7 +109,7 @@ func (a *App) rereadPanes(ctx context.Context) ([]port.Pane, error) {
 
 // event applies one herdr event; when the pane was or is in the project, it reconciles the project's identity table,
 // notes the work the pane shows for its agent's brief and marks the lane table dirty: the decision for the project
-// follows the refresher's scan (lanescan.go, T-879), never a git read on the stream's path.
+// follows the refresher's scan (lanescan.go), never a git read on the stream's path.
 func (a *App) event(ctx context.Context, ev port.Event) {
 	a.mu.Lock()
 	var p *proj // the project, when the pane was or is in it
@@ -150,7 +150,7 @@ func (a *App) event(ctx context.Context, ev port.Event) {
 	}
 	a.markLanes(p)
 	a.mu.Unlock()
-	a.logWorked(p) // a brief's work this event showed is in the log at once (RV-50 #3)
+	a.logWorked(p) // a brief's work this event showed is in the log at once
 }
 
 // projectOf is the served project whose group (the terminal's, by name: herdr's workspace label) holds pane (nil:

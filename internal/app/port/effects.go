@@ -29,16 +29,16 @@ type Started struct {
 }
 
 // Launch is one agent (re)start: Agent in Pane ("": the pane labelled Agent), resuming the recorded session or Fresh;
-// Force stops a working agent first. A CLI restart sets only these (T-785: no --sid, --prompt, --type or --effort).
+// Force stops a working agent first. A CLI restart sets only these (no --sid, --prompt, --type or --effort).
 type Launch struct {
 	Agent, Pane  string
 	Fresh, Force bool
 	// Prompt is the first prompt for a fresh session: a job's wake, or a brief's text (serve's).
 	Prompt string
-	// Effort is the effort to start with (a dispatch's model ref, T-695); "": a role's configured effort (roles.<role>),
+	// Effort is the effort to start with (a dispatch's model ref); "": a role's configured effort (roles.<role>),
 	// else the kind's default.
 	Effort string
-	// Type is the model to start with (a dispatch's choice, T-722); "": a lane agent's lane row model (its last
+	// Type is the model to start with (a dispatch's choice); "": a lane agent's lane row model (its last
 	// dispatch's), else the configured one (a role's).
 	Type string
 }
@@ -86,10 +86,10 @@ func NotFound(err error) bool {
 }
 
 // CodeNeedsForce is the ErrorCode of a stop without force that refused an agent only a forced stop ends: still working
-// after Escape, or its exit dialog names background tasks (launch's Stop, T-773).
+// after Escape, or its exit dialog names background tasks (launch's Stop).
 const CodeNeedsForce = "needs_force"
 
-// The stop's waits and the one bound they fit in (T-829): launch's Stop keeps to the bound whatever
+// The stop's waits and the one bound they fit in: launch's Stop keeps to the bound whatever
 // OBOR_RESTART_WAIT says.
 
 // StopIdle is how long a stop waits for a working agent to go idle after Escape before it refuses without force, or
@@ -116,15 +116,15 @@ func NotRunning(err error) bool {
 	return errors.As(err, &e) && e.Unavailable()
 }
 
-// Restorer restarts a project's labelled panes that run no agent (launch.Restorer, T-1051): serve calls it once its
+// Restorer restarts a project's labelled panes that run no agent (launch.Restorer): serve calls it once its
 // subscription is back from a lost terminal connection (a Subscribe or a stream's end with NotRunning), and at its
-// first connect when the terminal restarted since serve last recorded it (T-1135). It is
+// first connect when the terminal restarted since serve last recorded it. It is
 // idempotent: a pane whose agent runs is left alone, and runs for one project are one at a time. It returns when the run has ended (or ctx has).
 type Restorer interface {
 	RestoreProject(ctx context.Context, root string)
 }
 
-// TerminalSetup is what obor setup and obor init ask of the terminal (T-1044), in terminal-neutral terms: the pane
+// TerminalSetup is what obor setup and obor init ask of the terminal, in terminal-neutral terms: the pane
 // operations launch needs, the agents running now, a new pane for an agent placed by the adapter's own layout, what an
 // older obor installed there (and its removal), and a project rename's share. The herdr adapter (herdr.Setup) implements it; setup
 // decides whose pane and near what, never a tab, a workspace or a split.
@@ -136,7 +136,7 @@ type TerminalSetup interface {
 	// and failures are the lines setup prints after FAIL.
 	Place(ctx context.Context, p Placement) (string, error)
 	// RemoveIntegration removes, once per user and idempotent, what an older obor installed in the terminal to bring
-	// its agents back after it restarts (herdr: the obor.events plugin, which serve's own restore replaced, T-1117);
+	// its agents back after it restarts (herdr: the obor.events plugin, which serve's own restore runs instead);
 	// its progress lines go to say.
 	RemoveIntegration(ctx context.Context, say func(line string)) (Integration, error)
 	// RenameProject renames the terminal's group of the project from old to name (herdr: the workspace labelled old)
@@ -189,13 +189,13 @@ type Renamed struct {
 
 // AgentEnv is whose env and cwd a pane's shell is set to: the agent's name, its role (a role name; "" for none), its
 // lane ("" for none) and the directory it works in ("" keeps the shell's); Vars the start's own variables
-// (agents.Kind.StartEnv, T-695; "" unsets one).
+// (agents.Kind.StartEnv; "" unsets one).
 type AgentEnv struct {
 	Agent, Role, Lane, Cwd string
 	Vars                   map[string]string
 }
 
-// Build is an agent's start to build (Starter.Build, T-1042): its type (the model's kind and args), its role ("": none),
+// Build is an agent's start to build (Starter.Build): its type (the model's kind and args), its role ("": none),
 // effort ("": the type's), cwd, the dirs outside it the agent writes, and the session to resume or the first prompt.
 type Build struct {
 	Agent, Kind       string
@@ -226,7 +226,7 @@ type Start struct {
 	Prompt  string // the CLI's first prompt (a job's wake), in Args already; "" for none
 	Lane    string // the agent's lane: a session a fresh start reports is recorded with it
 	// Shell bounds the wait for the pane's shell (Await) and the retries of a start the terminal answered
-	// agent_pane_busy (T-628, T-1053): one bound for both, from the start's beginning; 0: neither, a pane the caller
+	// agent_pane_busy: one bound for both, from the start's beginning; 0: neither, a pane the caller
 	// knows is its shell. The callers' bounds differ (obor setup's new pane: 10 s, its shell comes up in moments; a
 	// restart: 30 s, the old agent's exit is reaped first).
 	Shell time.Duration
@@ -273,7 +273,7 @@ func ErrorCode(err error) string {
 }
 
 // NotShown is the reason a Panes adapter gives when its toast was not shown: herdr's busy, rate_limited, disabled or
-// no_foreground_client. A best-effort toast (T-949): the caller logs it and goes on.
+// no_foreground_client. A best-effort toast: the caller logs it and goes on.
 type NotShown struct {
 	Reason string
 }
@@ -325,20 +325,20 @@ func (p Process) Program() string {
 }
 
 // Candidate is a compiled merge waiting to be tested and published, pinned at refs/obor/candidate/<task> until it is
-// published or rejected: the commit the slot made and the target it merged onto (T-961). Patch, Stat and Diff are of
+// published or rejected: the commit the slot made and the target it merged onto. Patch, Stat and Diff are of
 // the task's own diff Base..S (S: the submitted sha, the merge's second parent), so a move keeps them (row 20).
 type Candidate struct {
 	Task, Lane string
 	SHA        string // the merge commit (its first parent is Target, its second the submitted sha)
 	Target     string // the target sha the merge went onto
-	Base       string // merge-base(S, Target): the task's own diff is Base..S ("": a gate before T-961)
+	Base       string // merge-base(S, Target): the task's own diff is Base..S ("" on a candidate whose base is not recorded)
 	Patch      string // sha256 of git diff Base S: an accept is bound to it (docs/state-model.md row 20)
 	Checks     string // the slot's compile summary ("" when no compile ran)
 	Stat       string // git diff --stat Base S
-	Diff       string // git diff Base S when at most InlineDiff bytes, else "" (the review job carries it, T-602)
+	Diff       string // git diff Base S when at most InlineDiff bytes, else "" (the review job carries it)
 }
 
-// InlineDiff is the largest candidate diff the review job carries whole (T-602): larger, the job says to read it.
+// InlineDiff is the largest candidate diff the review job carries whole: larger, the job says to read it.
 const InlineDiff = 15 << 10
 
 // Scratch is the merge loop's git side: serve's own worktree, the target branch, the pins under refs/obor/.
@@ -350,9 +350,9 @@ type Scratch interface {
 	// Refused error.
 	Submit(ctx context.Context, task, id, lane, summary string) (sha string, err error)
 	// Gate resets serve's worktree, merges or takes in.Input there, compiles it (commands.compile), commits and pins
-	// the candidate (T-961: no test runs there).
+	// the candidate (the gate runs no test there).
 	Gate(ctx context.Context, in GateInput) (GateOutcome, error)
-	// Test runs the class's checks for the candidate in.SHA in the task's lane worktree (T-961, row 18b): checked out
+	// Test runs the class's checks for the candidate in.SHA in the task's lane worktree (row 18b): checked out
 	// detached there, the lane's branch restored after. A lane with uncommitted changes is an error (tried again: the
 	// lane is never touched); an outcome is green, red or fail.
 	Test(ctx context.Context, in TestInput) (TestOutcome, error)
@@ -360,7 +360,7 @@ type Scratch interface {
 	// its sha (the verdict's pin). It must be the merge of input (the conflicting gate's) onto the target; anything
 	// else (an open merge, HEAD in the target, another merge) is a Refused error.
 	// A non-nil m (the last gate's Mismatch) is refused while the committed merge still lacks the checked resolution's
-	// edits in m.Files and is unchanged from the replay (T-917).
+	// edits in m.Files and is unchanged from the replay.
 	Resolved(ctx context.Context, task, input string, m *Mismatch) (sha string, err error)
 	// Publish fast-forwards the target to c.SHA when it is still c.Target, then deletes the task's pins.
 	Publish(ctx context.Context, c Candidate) (PublishOutcome, error)
@@ -375,27 +375,27 @@ type Scratch interface {
 
 // GateInput is one gate: Input is the sha gated, per Kind: InputLane submit's sha (merged onto the target),
 // InputResolved the verdict's pin (checked as committed), InputMoved submit's sha again (merged onto the moved target,
-// never the old candidate: one merge commit per task, T-403). The merge's subject is "Merge <task>: <Title>" (no title
-// stored: the Summary's first line), the same for a moved and a resolved gate (T-360, T-802); the report's whole Summary
-// section (Body, T-807) stays in the body. Spec is the task's spec and SpecRev its rev, the store's current one (T-440): the
-// gate puts both into the merge commit's message (T-521; a resolved gate amends the integrator's message), and the
-// review job names that rev; "" (none stored, a task dispatched before T-440) adds nothing.
+// never the old candidate: one merge commit per task). The merge's subject is "Merge <task>: <Title>" (no title
+// stored: the Summary's first line), the same for a moved and a resolved gate; the report's whole Summary
+// section (Body) stays in the body. Spec is the task's spec and SpecRev its rev, the store's current one: the
+// gate puts both into the merge commit's message (a resolved gate amends the integrator's message), and the
+// review job names that rev; "" (none stored) adds nothing.
 type GateInput struct {
 	Task, Lane, Kind, Input string
 	Summary, Title          string // the worker's summary line (the no-title subject); the spec's title ("": none stored)
-	Body                    string // the worker report's whole Summary section, the merge's body ("": Summary, T-807)
+	Body                    string // the worker report's whole Summary section, the merge's body ("": Summary)
 	Spec                    string
 	SpecRev                 int
-	// Resolved, on an InputMoved gate, is the attempt's last checked resolution (the resolved gate's input, T-915; "":
+	// Resolved, on an InputMoved gate, is the attempt's last checked resolution (the resolved gate's input; "":
 	// none). A merge that needed a rerere replay is clean only when its patch equals that resolution's: else, or with
 	// none, a conflict naming the files whose patch differs (rerere replays hunks, not the resolution's other edits).
 	Resolved string
 	// Command, when set, is told the name of each command the gate starts (commands.<name>: lane_setup, compile), for
-	// obor status' running line (T-669).
+	// obor status' running line.
 	Command func(name string)
 }
 
-// TestInput is one lane test (T-961, row 18b): the task's candidate SHA, compiled onto Target, tested in Lane's
+// TestInput is one lane test (row 18b): the task's candidate SHA, compiled onto Target, tested in Lane's
 // worktree; Branch is the lane's branch as the dispatch recorded it, restored when the lane is found detached already
 // (a test cut before its restore). Command is told each command it starts, as GateInput's.
 type TestInput struct {
@@ -426,11 +426,11 @@ type GateOutcome struct {
 	Line      string
 	Files     []string
 	Dir       string
-	// Mismatch: a conflict that is no unmerged path but a replayed resolution lost edits of the checked one (T-917).
+	// Mismatch: a conflict that is no unmerged path but a replayed resolution lost edits of the checked one.
 	Mismatch *Mismatch
 }
 
-// Mismatch is a replayed resolution that differs from the checked one (T-915, T-917): the checked resolution's sha,
+// Mismatch is a replayed resolution that differs from the checked one: the checked resolution's sha,
 // the files whose patch differs, the tree of the replayed merge in Dir (what "unchanged from the replay" is compared
 // with).
 type Mismatch struct {
@@ -451,7 +451,7 @@ const (
 // PublishOutcome is a publish's final outcome: PublishMerged, PublishAlready (the target holds the candidate),
 // PublishMoved (the target is at Head, not the candidate's), PublishHold (uncommitted Files in the main checkout are
 // among the merged ones: nothing merged), PublishPending (the merge was asked for and is not done yet: the task waits
-// published until Landed says the target holds it, T-1029; no implementation returns it yet).
+// published until Landed says the target holds it; no implementation returns it yet).
 type PublishOutcome struct {
 	Kind  string
 	Head  string
@@ -476,11 +476,11 @@ func (r Refused) Error() string { return r.Line }
 type LaneSetup interface {
 	// Prepare puts the lane at in.Dir on in.Branch at in.Target (in.Redo: the branch is kept as it is), runs
 	// lane_ready, then lane_setup and lane_ready again when it was red. It returns the base sha: its lane row's
-	// (serve's projection, T-439; its head is the submitted head, T-1015). Repeating it converges on the same state.
+	// (serve's projection; its head is the submitted head). Repeating it converges on the same state.
 	// A final refusal (no lane dir, lane_setup red, lane_ready still red) is a Refused error; anything else (git I/O)
 	// is an error to retry.
 	Prepare(ctx context.Context, in PrepareInput) (Prepared, error)
-	// Free gives a dropped task's lane back (obor drop, T-439): refused (Refused) when it has uncommitted changes or
+	// Free gives a dropped task's lane back (obor drop): refused (Refused) when it has uncommitted changes or
 	// its branch has commits not in in.Target, unless in.Discard (then they are discarded); the lane is detached at
 	// in.Target and its branch deleted. Repeating it converges (a missing branch is gone already). Its line says
 	// what it discarded ("" nothing).
@@ -492,8 +492,8 @@ type Prepared struct{ Base string }
 
 // Dispatch is what a dispatch chose for the lane: the lane and its worktree, its worker agent, the task branch and the
 // target sha read when the dispatch fact was recorded (Redo: the branch is kept as it is). The app's dispatch fact
-// embeds it first, so its tags are that record's; the lane intents (PrepareInput, FreeInput) embed it too (T-891: an
-// intent from before stored these as Lane, Dir, …, which decode into it, encoding/json matching keys case-insensitively).
+// embeds it first, so its tags are that record's; the lane intents (PrepareInput, FreeInput) embed it too (an
+// intent that stored these as Lane, Dir, …, which decode into it, encoding/json matching keys case-insensitively).
 type Dispatch struct {
 	Lane   string `json:"lane"`
 	Dir    string `json:"dir"`

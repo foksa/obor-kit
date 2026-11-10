@@ -13,7 +13,7 @@ import (
 	"obor/internal/store"
 )
 
-// RV-56 #1: a waiting task's step selected for one request (App.next) does nothing once an obor dispatch replaced that
+// A waiting task's step selected for one request (App.next) does nothing once an obor dispatch replaced that
 // request (same attempt, a new call id): the next pass picks the request in force.
 
 type staleFx struct{}

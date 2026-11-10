@@ -20,12 +20,12 @@ func (p *proj) foldLoop(r event.Record) {
 		p.foldWaiting(r)
 		return
 	}
-	// A dropped fact is terminal for the task whatever attempt it names (RV-42-verify-2 #1: a submission decided
+	// A dropped fact is terminal for the task whatever attempt it names (a submission decided
 	// before the drop may record the next attempt first): live fold and replay end the task, and every later record of
 	// it (submitted, a step result, a verdict) is ignored; only a new dispatch reopens it. A drop of a task the fold
-	// does not know is the task's outcome too: a spec stored and never dispatched (its rev recorded, T-1016, T-1026: a
-	// dropped task carrying the rev, which every outcome reader sees as any drop; a spec.set of a later rev revives it,
-	// foldSpecSet), or a task whose records the nightly prune deleted but this fact (T-1089), whatever its rev.
+	// does not know is the task's outcome too: a spec stored and never dispatched (its rev recorded: a dropped
+	// task carries the rev, which every outcome reader sees as any drop; a spec.set of a later rev revives it,
+	// foldSpecSet), or a task whose records the nightly prune deleted but this fact, whatever its rev.
 	if r.Kind == event.KindFact && r.Step == event.StepDropped {
 		if mt == nil {
 			mt = &mtask{task: r.Task, attempt: r.Attempt, droppedRev: r.Fact().Rev}
@@ -37,7 +37,7 @@ func (p *proj) foldLoop(r event.Record) {
 		}
 		return
 	}
-	// Fact dropping (T-852) is the drop's decision on a task holding a lane, whatever attempt it names (as dropped):
+	// Fact dropping is the drop's decision on a task holding a lane, whatever attempt it names (as dropped):
 	// its steps (the worker's stop, lane.free) run under the task's attempt, then fact dropped ends it.
 	if r.Kind == event.KindFact && r.Step == event.StepDropping {
 		if mt != nil && mt.state != stDropped {
@@ -51,17 +51,17 @@ func (p *proj) foldLoop(r event.Record) {
 		next := &mtask{task: r.Task, lane: d.Lane, agent: d.Agent, attempt: r.Attempt, state: stSubmitted,
 			report: d.Report}
 		if mt != nil {
-			// The worker's spec rev outlives its attempt; a drive stays one (T-751).
+			// The worker's spec rev outlives its attempt; a drive stays one.
 			next.sendbacks, next.specRev, next.drive = mt.sendbacks, mt.specRev, mt.drive
-			next.dispSeq = mt.dispSeq // the lane's current task is its newest dispatch's (T-615)
-			// The dispatch's identity outlives the submission (T-778): a move after a red gate or a sendback redoes the
+			next.dispSeq = mt.dispSeq // the lane's current task is its newest dispatch's
+			// The dispatch's identity outlives the submission: a move after a red gate or a sendback redoes the
 			// task on its branch and target with the type it runs.
 			next.disp, next.at = mt.disp, mt.at
 		}
 		p.folded.loop[r.Task] = next
 		return
 	}
-	// A merged fact of a task the fold does not know is a task the nightly prune kept only this fact of (T-1089): it
+	// A merged fact of a task the fold does not know is a task the nightly prune kept only this fact of: it
 	// makes the task, merged at the fact's attempt, its after-merge steps done (as a merge outside the app's).
 	if r.Kind == event.KindFact && r.Step == event.StepMerged && mt == nil {
 		mt = &mtask{task: r.Task, attempt: r.Attempt, after: len(afterSteps)}
@@ -101,12 +101,12 @@ func (p *proj) foldLoop(r event.Record) {
 			f.n, f.at, f.why = f.n+1, event.RecordTime(r), r.Fact().Reason
 			mt.fails[r.Fact().Step] = f
 		case event.StepNeedsYou:
-			// An older log's hold of the open questions before review (T-604) ends here: the review job goes out (T-649).
+			// An older log's hold of the open questions before review ends here: the review job goes out.
 			if r.Fact().Merge && r.Fact().Cause != causeOpen {
 				mt.block(block{fact: r})
 			}
 		case event.StepSpecSeen:
-			if rev := r.Fact().Rev; rev > mt.specRev { // the newer rev task_done's refusal showed the worker (T-819)
+			if rev := r.Fact().Rev; rev > mt.specRev { // the newer rev task_done's refusal showed the worker
 				mt.specRev = rev
 			}
 		case event.StepDelivered:
@@ -173,11 +173,11 @@ func (p *proj) foldLoop(r event.Record) {
 			switch g.Outcome {
 			case outGreen:
 				if g.SpecRev != mt.gateRev {
-					mt.accepted = "" // the accept was of another spec rev: review again (RV-55 #1)
+					mt.accepted = "" // the accept was of another spec rev: review again
 				}
 				mt.cand, mt.gateRev, mt.state = g.Candidate, g.SpecRev, stGreen
-				// T-961: a lane or resolved merge the slot compiled is tested in the lane next; a moved one is not (row
-				// 32). A gate before T-961 (no Base) ran the checks itself: green as it folded then.
+				// A lane or resolved merge the slot compiled is tested in the lane next; a moved one is not (row
+				// 32). A gate of a candidate without a Base ran the checks itself: green as it folded then.
 				if g.Candidate.Base != "" && mt.kind != port.InputMoved {
 					mt.state = stCandidate
 				}
@@ -207,7 +207,7 @@ func (p *proj) foldLoop(r event.Record) {
 			if d.Refused != "" {
 				mt.refused = "lane: " + d.Refused
 			} else if mt.drive && mt.is(stDispatched) && d.Base != "" {
-				mt.state = stDriving // a new drive: the lane is the owner's now (T-751)
+				mt.state = stDriving // a new drive: the lane is the owner's now
 			}
 		case event.StepWorkerStop:
 			mt.foldStop(n, r.Data)
@@ -237,7 +237,7 @@ func (p *proj) foldLoop(r event.Record) {
 		default:
 			if i := slices.Index(afterSteps, r.Step); i >= 0 {
 				mt.after = max(mt.after, i+1)
-				if r.Seq > mt.afterSeq { // the last after-merge step (T-868: the idle key once it is the newest end)
+				if r.Seq > mt.afterSeq { // the last after-merge step (the idle key once it is the newest end)
 					mt.afterSeq, mt.afterAt = r.Seq, event.RecordTime(r)
 				}
 			}
@@ -257,13 +257,13 @@ const (
 	outPending  = "pending"
 )
 
-// ended: the task is over (T-1089's prune, T-1098's logs): dropped, or merged with its after-merge steps done. A
+// ended: the task is over (the nightly prune, its logs' end): dropped, or merged with its after-merge steps done. A
 // rejected task is not ended (the owner still owes it a drop), nor is a merged one still running its steps.
 func (mt *mtask) ended() bool {
 	return mt.state == stDropped || mt.state == stMerged && mt.after >= len(afterSteps)
 }
 
-// taskEnded: the fold has the task ended now (mtask.ended); a task it does not know is not ended (T-1104: its logs are
+// taskEnded: the fold has the task ended now (mtask.ended); a task it does not know is not ended (its logs are
 // nobody's to remove).
 func (p *proj) taskEnded(task string) bool {
 	mt := p.folded.loop[task]
@@ -280,7 +280,7 @@ func (mt *mtask) sendback(note string) {
 func (mt *mtask) next(note string) {
 	mt.attempt++
 	mt.state = stWorking
-	if mt.drive { // a drive goes back to its owner, never to a worker (T-751)
+	if mt.drive { // a drive goes back to its owner, never to a worker
 		mt.state = stDriving
 	}
 	mt.attemptVars = attemptVars{line: note}
@@ -330,7 +330,7 @@ func (mt *mtask) resumed(d event.FactData) {
 	if mt.state == stSubmitted && d.Reason != wire.ResumeRetry {
 		mt.input = "" // the lane may have moved on: submit it again
 	}
-	if d.Cause == causeStop { // a refused worker.stop runs again under its next key (T-852)
+	if d.Cause == causeStop { // a refused worker.stop runs again under its next key
 		mt.halt.refused = ""
 	}
 	if mt.state == stDropping { // a refused lane.free too
@@ -364,7 +364,7 @@ func (mt *mtask) verdict(method string, v verdictResult) {
 	if method == wire.MethodSendback && v.Lead {
 		if mt.is(stGreen) || mt.is(stAwaiting) || mt.is(stResolving) || mt.onHold() {
 			// The lead's sendback starts the next attempt but does not count toward K: K counts the gate's and the
-			// integrator's sendbacks (T-619).
+			// integrator's sendbacks.
 			mt.unblock()
 			mt.next(v.Note)
 		}
@@ -382,8 +382,7 @@ func (mt *mtask) verdict(method string, v verdictResult) {
 }
 
 // loopTasks is p's merge-loop tasks by task name (under mu): a choice of the first, oldest or any one of them ranges
-// over this, never over the map, so it never depends on Go's map order (T-615; the oldest job is by intent seq,
-// T-606).
+// over this, never over the map, so it never depends on Go's map order (the oldest job is by intent seq).
 func (p *proj) loopTasks() []string {
 	out := make([]string, 0, len(p.folded.loop))
 	for task := range p.folded.loop {

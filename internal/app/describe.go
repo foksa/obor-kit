@@ -9,9 +9,9 @@ import (
 	"obor/internal/app/wire"
 )
 
-// Described is a record as the readers show it (T-893, DD-encapsulation E1): decoded here, with the types serve writes
+// Described is a record as the readers show it: decoded here, with the types serve writes
 // it with, so the view never reads a record's data by hand. Line is the event list's wording ("": a record the list
-// does not word), Bad whether that line is bad news (T-688: a gate that is not green, a hold, an unreadable record);
+// does not word), Bad whether that line is bad news (a gate that is not green, a hold, an unreadable record);
 // the other fields are the facts the pages read, each filled by the kinds that have it.
 type Described struct {
 	Line    string
@@ -21,16 +21,16 @@ type Described struct {
 	Lane    string   // a dispatch's, a drive's, a submission's or a needs-you's lane
 	Agent   string   // a dispatch's or a submission's agent
 	Report  string   // a submission's report
-	SpecRev int      // a gate's spec rev (T-521)
+	SpecRev int      // a gate's spec rev
 	To      string   // a line's agent
 	From    string   // a line's sender
 	Level   string   // a dispatch's difficulty level
 	Types   []string // a dispatch's model refs (--model or the level's)
-	Type    string   // the model ref a dispatch chose (T-721)
-	Kind    string   // the event's kind (T-1074): one of the Kind* constants, always set on a worded record
+	Type    string   // the model ref a dispatch chose
+	Kind    string   // the event's kind: one of the Kind* constants, always set on a worded record
 }
 
-// The event kinds (T-1074): Described.Kind of every worded record, the web's icons and filters (EventKind).
+// The event kinds: Described.Kind of every worded record, the web's icons and filters (EventKind).
 const (
 	KindMerge    = "merge"
 	KindGate     = "gate" // a gate or lane test result
@@ -167,7 +167,7 @@ var worded = map[string]worder{
 		d.Line, d.Kind = "review request ended", KindOther
 		return nil
 	},
-	"fact " + event.StepVersion: func(r event.Record, d *Described) error { // a tool's version as read (T-1176)
+	"fact " + event.StepVersion: func(r event.Record, d *Described) error { // a tool's version as read
 		var v versionData
 		if err := decode(r, &v); err != nil {
 			return err
@@ -178,7 +178,7 @@ var worded = map[string]worder{
 		}
 		return nil
 	},
-	// An older log's promotion (T-974, deleted T-1076): its records stay readable, plain lines.
+	// An older log's promotion: its records stay readable, plain lines.
 	"intent " + event.StepPromote: func(r event.Record, d *Described) error {
 		var in oldPromotion
 		if err := decode(r, &in); err != nil {
@@ -238,7 +238,7 @@ func Describe(r event.Record) Described {
 // describedKey is r's key in worded: "<kind> <step>", a result's step without its .N, a verdict's its method (the
 // step is <method>.<call id>).
 func describedKey(r event.Record) string {
-	if strings.HasPrefix(r.Step, event.StepPromote+".") { // an older log's promote.<seq>, intent and result (T-977)
+	if strings.HasPrefix(r.Step, event.StepPromote+".") { // an older log's promote.<seq>, intent and result
 		return r.Kind + " " + event.StepPromote
 	}
 	if r.Kind != event.KindResult {
@@ -251,7 +251,7 @@ func describedKey(r event.Record) string {
 	return r.Kind + " " + method
 }
 
-// oldPromotion is an older log's promotion record's data (T-974, deleted T-1076): a run's intent (sha, merges) or
+// oldPromotion is an older log's promotion record's data: a run's intent (sha, merges) or
 // result (sha, verdict, line), or fact promoted (sha, branch).
 type oldPromotion struct {
 	SHA     string   `json:"sha"`

@@ -28,7 +28,7 @@ func schedStatus(t *testing.T, h *harness) (string, []wire.ScratchWait) {
 	return owner, ps.ScratchQueue
 }
 
-// T-669 (RV-75 #1), T-673: two submitted tasks and a free scratch name no task as next: which one the pass gates
+// Two submitted tasks and a free scratch name no task as next: which one the pass gates
 // first is the scheduler's admission (here low disk refuses both), and copying that rule into status went stale. The
 // queue keeps the facts: no owner, the tasks in the pass's order, nothing they wait for.
 func TestScratchQueuePredictsNothing(t *testing.T) {
@@ -58,7 +58,7 @@ func TestScratchQueuePredictsNothing(t *testing.T) {
 	}
 }
 
-// T-669 (RV-75 #2), T-673: a task in conflict, resolving or resolved, or a needs-you keeping one of those owns the
+// A task in conflict, resolving or resolved, or a needs-you keeping one of those owns the
 // scratch; a submitted task waits on it (and the pass does not gate it), as status says. At resolved the owner's own
 // gate needs the scratch and nothing holds it back: it is listed with nothing to wait for, never as next.
 func TestScratchOwnedByAnOpenMerge(t *testing.T) {
@@ -124,13 +124,13 @@ func (f *cmdScratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutc
 	in.Command("check_affected")
 	close(f.started)
 	<-f.blank
-	in.Command("") // the command ended: the gate runs on, no command does (the runner's clear, T-673)
+	in.Command("") // the command ended: the gate runs on, no command does (the runner's clear)
 	close(f.blanked)
 	<-f.release
 	return f.schedScratch.Gate(ctx, in)
 }
 
-// T-669 (RV-75 #4), T-673: a gate running reports the command its gate told (the class's), and the gating task owns the
+// A gate running reports the command its gate told (the class's), and the gating task owns the
 // scratch; between two commands the gate runs with no command; none once it ended.
 func TestRunningGateCommand(t *testing.T) {
 	t.Parallel()
@@ -182,7 +182,7 @@ func waitSpec(task, level string, lines ...string) string {
 	return text
 }
 
-// T-1030: the pass order's waiting part is the lane's pick order (a freed lane goes to the first waiting task there):
+// The pass order's waiting part is the lane's pick order (a freed lane goes to the first waiting task there):
 // a high task before every ordinary one — its spec's `Priority: high` — then the waiting fact's order (dispatch order). Its first is the task that starts on the
 // next free lane. T-2 waits before T-3, and status marks exactly the high ones.
 func TestPassOrderPutsAHighWaitingTaskFirst(t *testing.T) {

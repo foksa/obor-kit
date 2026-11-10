@@ -76,7 +76,7 @@ func TestBackup(t *testing.T) {
 	t.Parallel()
 	sock := filepath.Join(t.TempDir(), "none.sock")
 	day := time.Date(2026, 10, 27, 3, 0, 0, 0, time.UTC)
-	// No serve listens on sock: the calls end at once (T-685), not at the deadline table's 15 s.
+	// No serve listens on sock: the calls end at once, not at the deadline table's 15 s.
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 	if reply, err := wire.Backup(ctx, sock, logRoot(t), day); reply != "" || err != nil {
@@ -100,10 +100,10 @@ func TestBackup(t *testing.T) {
 	h := newHarness(t)
 	h.connect()
 	h.tick(11 * time.Minute) // a record to back up
-	// T-665, T-1092: the nightly backup prunes the prompts older than 3 days, keeps the rest.
+	// The nightly backup prunes the prompts older than 3 days, keeps the rest.
 	for _, r := range []store.PromptRow{
 		{Seq: 1, Agent: "pj-l-01", Kind: store.PromptJob, Job: "T-1/1/work", Task: "T-1", TS: "2026-10-10T12:00:00Z", Text: "old"},
-		// 4 days old: kept under the old 14 days, pruned under the 3 this test holds (T-1092).
+		// 4 days old: kept under the old 14 days, pruned under the 3 this test holds.
 		{Seq: 3, Agent: "pj-l-01", Kind: store.PromptJob, Job: "T-1/3/work", Task: "T-1", TS: "2026-10-20T12:00:00Z", Text: "stale"},
 		{Seq: 2, Agent: "pj-l-01", Kind: store.PromptJob, Job: "T-1/2/work", Task: "T-1", TS: "2026-10-22T12:00:00Z", Text: "fresh"},
 	} {

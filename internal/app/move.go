@@ -1,6 +1,6 @@
-// move.go: obor dispatch T-xx --model <ref> on a task its worker works on moves it to that model (T-773): serve records
+// move.go: obor dispatch T-xx --model <ref> on a task its worker works on moves it to that model: serve records
 // a redo dispatch of the task's next attempt on the same lane, branch, worktree and spec with the new model, its old
-// worker to stop (T-852), and answers at once. The merge loop runs that dispatch's steps as any redo's, the stop first:
+// worker to stop, and answers at once. The merge loop runs that dispatch's steps as any redo's, the stop first:
 // worker.stop stops the old worker through serve's identity of it (stopstep.go), lane.prepare keeps the branch,
 // agent.start starts the new model's agent fresh with the new attempt's work job. A serve restart after the record
 // replays the dispatch: the stop runs once, then the start runs the new model.
@@ -36,8 +36,8 @@ func moveReply(task, lane, from, to, worker string) string {
 // (working, or dispatched with its lane prepared; never a drive), no step of it running or pending, the merge loop on
 // and not paused, to c's first unpaused model, a model ref of the config whose kind has a bridge and that is not the
 // one it runs ("already on"). Recorded: fact dispatch{redo, stop: its worker} of the next attempt on the task's lane,
-// branch and target with the new model, with the moved attempt's outstanding fix (a sendback's or red gate's text,
-// T-778). Refused, nothing recorded: gating, merging, under review or any other state of the merge loop (submitted
+// branch and target with the new model, with the moved attempt's outstanding fix (a sendback's or red gate's text).
+// Refused, nothing recorded: gating, merging, under review or any other state of the merge loop (submitted
 // meanwhile included).
 func (a *App) moveTask(p *proj, fx *Loop, c wire.DispatchReq) (string, error) {
 	a.mu.Lock()

@@ -34,7 +34,7 @@ func (a *App) watchJob(p *proj, mt mtask) step {
 	key := mt.jobKey()
 	t := a.timerOf(p, key)
 	w := a.whereIs(p, p.integrator)
-	if w.Why == notConnected { // nothing is known between two streams (T-759): not the integrator exiting (T-956)
+	if w.Why == notConnected { // nothing is known between two streams: not the integrator exiting
 		t.gone = time.Time{}
 		return nil
 	}
@@ -101,7 +101,7 @@ func (a *App) heldJob(ctx context.Context, p *proj, fx *Loop, mt mtask, key even
 
 // timerOf is the timer of p's open job key (under mu): the one running, else a new one from now (a replay, or the job
 // sent in an earlier process), retried when its retry is in the log. A delivered job's quiet time starts at the newest
-// of its delivered fact's time and its nudge's result when that is older than now (T-946, T-960): a restart does not
+// of its delivered fact's time and its nudge's result when that is older than now: a restart does not
 // start the nudge's wait over.
 func (a *App) timerOf(p *proj, key event.Key) *jobTimer {
 	t := p.timers[key.Task]
@@ -178,7 +178,7 @@ func retryKey(job event.Key) event.Key {
 }
 
 // sampleJob takes one sample of the ready integrator's activity (outside mu) for mt's delivered job: quiet with it for
-// Idle → one nudge (the quiet time counts again from it), then the owner. The read holds nothing (T-861): it runs on
+// Idle → one nudge (the quiet time counts again from it), then the owner. The read holds nothing: it runs on
 // most passes while the integrator idles with the job, so a hold of the task across it refused a verb given then
 // ("T-1 has review running"); the task is held again only to act, and not when a verb changed it meanwhile (heldAgain).
 func (a *App) sampleJob(ctx context.Context, p *proj, fx *Loop, mt mtask, t *jobTimer, pane port.Pane) bool {

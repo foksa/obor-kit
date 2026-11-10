@@ -38,7 +38,7 @@ type Options struct {
 	Gone  time.Duration // how long a lane's panes may run no agent before its task needs the owner (1 min: a restart)
 	Tick  time.Duration // how often the watchdogs look (30 s)
 	Retry time.Duration // the first wait before subscribing again after a subscribe error (2 s)
-	// RetryMax caps the wait while herdr stays down: it doubles from Retry up to this (5 s; T-596)
+	// RetryMax caps the wait while herdr stays down: it doubles from Retry up to this (5 s)
 	RetryMax time.Duration
 	Now      func() time.Time
 	Out      io.Writer // one line per connect, stream end, herdr gone and back, and fact (nil: none)
@@ -48,24 +48,24 @@ type Options struct {
 	// Loop is the merge loop's adapters for the project at root, asked once per pass (nil: no merge loop, observe
 	// only). A project without an integrator role (read at its load) has no merge loop either.
 	Loop func(root string) (*Loop, error)
-	// Inboxed: agent's session inbox is recorded (its SessionStart hook's record of the agent's slot in the project,
-	// T-485, DD-consolidation I4), and the session that recorded it ("": none named). A lead line waits, untried,
+	// Inboxed: agent's session inbox is recorded (its SessionStart hook's record of the agent's slot in the project),
+	// and the session that recorded it ("": none named). A lead line waits, untried,
 	// while it is not; nil: always tried.
 	Inboxed func(agent string) (session string, ok bool)
-	// Exit ends serve gracefully, as a signal does (the socket's exit request, obor stop, T-711; nil: refused).
+	// Exit ends serve gracefully, as a signal does (the socket's exit request, obor stop; nil: refused).
 	Exit func()
-	// Binary: the obor binary the kit's shim would run now is another file than this serve's (selfexec, T-719; nil:
+	// Binary: the obor binary the kit's shim would run now is another file than this serve's (selfexec; nil:
 	// not watched). Asked once per Follow; serve then restarts itself on it (follow.go).
 	Binary func() bool
-	// Follow is how often the binary watch asks Binary (30 s): its own timer, herdr connected or not (T-737).
+	// Follow is how often the binary watch asks Binary (30 s): its own timer, herdr connected or not.
 	Follow time.Duration
-	// Tokens is a session transcript's context size (the keep lane handoff rule, T-1031; ok false: none read). Nil:
+	// Tokens is a session transcript's context size (the keep lane handoff rule; ok false: none read). Nil:
 	// project.ContextTokens' read of the file.
 	Tokens func(transcript string) (int, bool)
 	// Restore restarts the project's labelled panes that run no agent, after the terminal connection came back
-	// (restore.go, T-1051; nil: never).
+	// (restore.go; nil: never).
 	Restore port.Restorer
-	// ReadDir is how load reads the state's logs dir once for the tasks it folds as ended (logs.go, T-1132;
+	// ReadDir is how load reads the state's logs dir once for the tasks it folds as ended (logs.go;
 	// nil: os.ReadDir).
 	ReadDir func(dir string) ([]os.DirEntry, error)
 }
@@ -80,11 +80,11 @@ type App struct {
 	// table outside it (Busy, Activity, Lanes and Notify are never called while mu is held). The rule for a verb (J1):
 	// it reads (git, config, lanes, the spec store) with no lock, then checks, appends, folds and replies in one mu
 	// section (recordLocked); only an effect in flight is a claim (held, running, rv.what, a line's sending). Every
-	// append is inside mu with its fold (record, do's intent and result, a verdict's: T-944), so the live fold order is
+	// append is inside mu with its fold (record, do's intent and result, a verdict's), so the live fold order is
 	// the log's seq order; only the store write joins the section, never an effect (git, herdr, a launch). The
 	// event log's lock is taken inside mu, never the other way round. The dispatch-class verbs (verdict, drop,
 	// dispatch, drive, pause, job_next, resume, task_done, land, spec set, move) take a lock besides mu to order those
-	// verbs across their git reads (RV-129): `verdicts` for dispatch, drop, drive, pause, job_next and resume;
+	// verbs across their git reads: `verdicts` for dispatch, drop, drive, pause, job_next and resume;
 	// `submitMu` for task_done, land, spec set and move (a resume and a move take both: verdicts, then submitMu).
 	mu        sync.Mutex
 	since     time.Time // when New made it: obor status's "serve: up since"
@@ -95,7 +95,7 @@ type App struct {
 	herdrOwn  int              // obor's own protocol, as that snapshot said
 	p         *proj            // Options.Root's project once loaded (loadProject); nil before
 	obs       map[string]*seen // by pane id: every pane of the last snapshot and the events since
-	skews     map[string]bool  // by agent and version: the wire callers whose obor differs from serve's and were logged (T-826)
+	skews     map[string]bool  // by agent and version: the wire callers whose obor differs from serve's and were logged
 	// behind is, by agent, the obor version its calls carry when that is another release than serve's (version.Release):
 	// Status's skew line. An agent's entry goes when it reports a new session (status.go, noteSkew).
 	behind    map[string]string
@@ -109,18 +109,18 @@ type App struct {
 	life     context.Context    // the daemon's lifetime: the socket requests' effects run under it
 	stop     context.CancelFunc // ends life (Serve's end)
 	reqs     sync.WaitGroup     // the socket requests being answered (Serve's end waits for them)
-	loaded   chan struct{}      // closed at the project's first load: serve binds its socket then (Loaded, T-659)
+	loaded   chan struct{}      // closed at the project's first load: serve binds its socket then (Loaded)
 	loadOnce sync.Once          // closes loaded once
 	verdicts sync.Mutex         // the integrator's verdicts are answered one at a time
 	submitMu sync.Mutex         // a submission's decision and its record are one step (task_done)
-	configMu sync.Mutex         // one main-checkout writer at a time: a setup edit, a review's close (T-753, T-926)
+	configMu sync.Mutex         // one main-checkout writer at a time: a setup edit, a review's close
 	kick     chan struct{}      // wakes the merge loop (buffered: kicks while it runs coalesce)
 	rescan   chan struct{}      // wakes the lane table's refresher (buffered: kicks while it scans coalesce; lanescan.go)
 	scanned  chan struct{}      // the refresher scanned: the run loop decides (buffered: coalesced)
 	effects  sync.WaitGroup     // the scratch effects running in their own goroutine (the merge loop's end waits)
 	admitted int                // the verdict calls in progress, waiting for the verdict lock included (under mu)
-	follow   follow             // the watch of a new obor binary (follow.go, T-719; the merge loop's goroutine only)
-	rst      restoreState       // the restore after a reconnect (restore.go, T-1051; under mu)
+	follow   follow             // the watch of a new obor binary (follow.go; the merge loop's goroutine only)
+	rst      restoreState       // the restore after a reconnect (restore.go; under mu)
 
 	hooked atomic.Pointer[func(string)] // a test's hook at the points App.hook names (nil: none; drive.go)
 }
@@ -132,7 +132,7 @@ type proj struct {
 	root, name string
 	log        *event.Log
 	folded     folded
-	// The live state (T-615): none of it is rebuilt by a replay; a restart starts it afresh (docs/state-model.md "Not
+	// The live state: none of it is rebuilt by a replay; a restart starts it afresh (docs/state-model.md "Not
 	// recorded"), or it is the project's config, a read of the lanes or herdr, or a claim held while a step runs. A fold
 	// may reset a live entry its record ends (resume and clear a task's retries, answered its stall timer, a dispatch
 	// or a wait its refused dispatch line).
@@ -147,21 +147,21 @@ type proj struct {
 	merging    bool                 // the merge loop runs for it (Options.Loop and an integrator role)
 	timers     map[string]*jobTimer // the work jobs' delivery timers, the integrator's jobs' timers, by task
 	// fixes: the open review's fix round as the verify rule last read it (obor status' review line); verifyDue: a
-	// verify is owed, which idle waits for (reviewverify.go, T-924); closeRead: this process read git once for the open
-	// review's close commit, the close's crash cut (reviewclose.go, T-926, T-1023).
+	// verify is owed, which idle waits for (reviewverify.go); closeRead: this process read git once for the open
+	// review's close commit, the close's crash cut (reviewclose.go).
 	fixes     fixState
 	verifyDue bool
 	closeRead bool
 	// lastBefore: the newest record's time when the replay ended, before this serve's start-up appended any (zero: no
-	// record, or its time unreadable): serve's first connect compares the terminal's start with it (restore.go, T-1136).
+	// record, or its time unreadable): serve's first connect compares the terminal's start with it (restore.go).
 	lastBefore time.Time
 	// replies: the stored replies of the calls no fact records (job_next, spec set), by <method>.<call id>; a restart
 	// forgets them (folded.calls holds the recorded calls').
 	replies map[string]string
 	// idleWait: since when the integrator's pane has been identified and not Ready, the interval its jobs' fresh
-	// starts wait out (not recorded: a replay starts it afresh; T-602, T-606).
+	// starts wait out (not recorded: a replay starts it afresh).
 	idleWait idleWait
-	// rules: each rule's live state in the rule pass (rules.go, T-866): the key its condition holds with, since when,
+	// rules: each rule's live state in the rule pass (rules.go): the key its condition holds with, since when,
 	// and its failed actions in a row. Not recorded: a restart starts it again; under mu.
 	rules map[string]ruleLive
 	// dispatching: the merge loop's last pass had the dispatch adapters (Loop.Workflow, Loop.Specs); nopane: since when a
@@ -181,42 +181,42 @@ type proj struct {
 	scratch chan struct{}
 	running event.Key
 	runCmd  string
-	// tests: the lane tests running now in their own goroutines (T-961: outside the scratch token, one per lane), the
+	// tests: the lane tests running now in their own goroutines (outside the scratch token, one per lane), the
 	// step's key by task; testCmd the command each runs now (TestInput.Command; "": none). Under mu.
 	tests   map[string]event.Key
 	testCmd map[string]string
 	// exec: the effects running now, each with when its start began (App.do). obor status' running line lists the
-	// command steps among them; an open intent not here is pending (T-662). Under mu.
+	// command steps among them; an open intent not here is pending. Under mu.
 	exec map[event.Key]time.Time
-	// restarting: since when serve ends itself on a new obor binary (T-719, claimed by the binary follow, T-934): a
-	// status request answered meanwhile shows "restarting serve" (T-657; zero: no self-restart pending).
+	// restarting: since when serve ends itself on a new obor binary (claimed by the binary follow): a
+	// status request answered meanwhile shows "restarting serve" (zero: no self-restart pending).
 	restarting time.Time
-	// restartClaim: followBinary decided to restart on a new obor binary (T-934): admit refuses until it clears (a
+	// restartClaim: followBinary decided to restart on a new obor binary: admit refuses until it clears (a
 	// failed restart). Under mu.
 	restartClaim bool
 	// held: the tasks whose selected step runs now (from its start's check to its return, App.next), each with the
 	// step's name; ended: the tasks whose drop is decided and being recorded (App.drop). Both under mu.
 	held  map[string]string
 	ended map[string]bool
-	// roleFail: when a fresh brief's stop of a role agent last failed, by agent (rolestop.go, T-672, T-870). Under mu.
+	// roleFail: when a fresh brief's stop of a role agent last failed, by agent (rolestop.go). Under mu.
 	roleFail map[string]time.Time
-	// reg, out, night: the identity table (package identity), the lines to the project's agents (package outbox,
-	// T-466, T-610; delivered by messages.go) and the nightly full check (nightly.go): each folds its records itself
+	// reg, out, night: the identity table (package identity), the lines to the project's agents (package outbox;
+	// delivered by messages.go) and the nightly full check (nightly.go): each folds its records itself
 	// and keeps live state beside them.
 	reg   identity.Registry
 	out   outbox.Outbox
 	night nightlyState
 	// wtAgents: the configured reviewer and deep dive as the config last loaded names them (wtAgentsNow): the role
-	// agents whose role worktree serve moves (roleworktree.go, T-853). Under mu.
+	// agents whose role worktree serve moves (roleworktree.go). Under mu.
 	wtAgents []wtAgent
 	// admits: the admissions in force (a config_set, from its wait for the running publish to its commit in: no
 	// publish starts meanwhile); published: closed when the running publish ends (nil: none runs). Under mu
-	// (roleworktree.go, T-730, T-872).
+	// (roleworktree.go).
 	admits    int
 	published chan struct{}
 }
 
-// folded is a project's state that a replay of its event log alone rebuilds (T-615): foldRecord's folds write it, live
+// folded is a project's state that a replay of its event log alone rebuilds: foldRecord's folds write it, live
 // code reads it. Two exceptions, both named where they live: a lanes read ends the watchdog facts (active, woke) of a
 // task no lane holds (setLanes: nothing recorded), and lr carries a live claim (its write state). The identity table (identity.Registry), the lines (outbox) and the nightly check (nightlyState) hold folded parts of
 // their own beside their live state.
@@ -224,44 +224,44 @@ type folded struct {
 	active map[string][]event.Record // task → its watchdog facts since the last resumed
 	woke   map[string]time.Time      // task → its stopped worker's first wake since the last resumed (stopwake.go)
 	// calls: answered verdict calls: the stored reply by <method>.<call id>; verdicts: how many verdict results were
-	// folded (a start row holds the count at its start: "a verdict came since its start", rolestop.go T-870).
+	// folded (a start row holds the count at its start: "a verdict came since its start", rolestop.go).
 	calls    map[string]string
 	verdicts int
 	// refusals: refused calls whose refusal is recorded, by <method>.<call id>: a task_done of an older spec rev
-	// (spec.seen, T-821), refused again on a retry.
+	// (spec.seen), refused again on a retry.
 	refusals map[string]string
 	loop     map[string]*mtask // the merge loop's tasks, by task
 	pause    *event.Pause      // the project's last pause fact (pause.go; nil: none or cleared)
 	// starts: each task's newest agent.start record time, intent or result (foldStart; wire.TaskStatus.Started).
 	starts map[string]time.Time
-	// models: each model's last pause fact (obor pause --model, T-765; a cleared one is gone).
+	// models: each model's last pause fact (obor pause --model; a cleared one is gone).
 	models map[string]*event.Pause
 	// Jobs by fetch (fetch.go): delivered, the job id a fact delivered names, the fact's seq and its time (a zero
 	// seq: not delivered).
 	delivered map[string]idleEnd
-	// lr: the lanes table's projection (lanerows.go, T-439; its write state is live).
+	// lr: the lanes table's projection (lanerows.go; its write state is live).
 	lr      laneRows
 	watches map[string]*mergeWatch // each set's last watch, open or closed (mergewatch.go; current state: openWatch)
 	// review: the open review request (review.go; nil: none; held is live).
 	review *reviewReq
-	// rv: the reviews (started, verified, closed) and the merges, one fold (reviewfold.go, T-856, T-924, T-1023).
+	// rv: the reviews (started, verified, closed) and the merges, one fold (reviewfold.go).
 	rv reviewLog
-	// sessions: the agents' recorded sessions as one fold in log order (sessions.go, T-577, T-1088).
+	// sessions: the agents' recorded sessions as one fold in log order (sessions.go).
 	sessions store.SessionFold
-	// did: the rules' lines by their key (rules.go, T-866: a lead line's Of) and when each was recorded.
+	// did: the rules' lines by their key (rules.go: a lead line's Of) and when each was recorded.
 	did map[event.Of]time.Time
-	// idleAck: the lead's last acknowledgement of an idle state (idle.go, T-803, T-866; zero: none).
+	// idleAck: the lead's last acknowledgement of an idle state (idle.go; zero: none).
 	idleAck idleAck
-	// ends: the records that ended work idleNow waits on besides a task's merge or drop (T-868), so the idle key and
+	// ends: the records that ended work idleNow waits on besides a task's merge or drop, so the idle key and
 	// its age are the newest of them: briefEnds, each role worktree agent's last brief end (its finished line, or the
 	// stop that ended it); reviewIdleEnd, the last review
-	// request's end (a failed --after end, a --rm or a firing, T-909: every end, so idle does not read the marker
+	// request's end (a failed --after end, a --rm or a firing: every end, so idle does not read the marker
 	// below); reviewEnd, the last end that suppresses the on-merge rule (a --rm or a firing, not a failed --after
-	// end, T-906).
+	// end).
 	briefEnds     map[string]idleEnd
 	reviewIdleEnd idleEnd
 	reviewEnd     idleEnd
-	// versions: each tool's newest version fact, by tool (versions.go, T-1176).
+	// versions: each tool's newest version fact, by tool (versions.go).
 	versions map[string]versionAt
 }
 
@@ -282,13 +282,13 @@ type watch struct {
 	blocked    time.Time // since when the agent is seen blocked for the task (zero: it is not)
 }
 
-// unread: w's lane could not be read at the last check (unknown, T-871): the watchdog keeps its task and facts and
-// observes nothing there until a read succeeds (T-897).
+// unread: w's lane could not be read at the last check (unknown): the watchdog keeps its task and facts and
+// observes nothing there until a read succeeds.
 func (w *watch) unread() bool { return w.lane.State == port.LaneUnknown }
 
 // forget drops w's elapsed-time baselines (the quiet time, the stall's escalation counting from it, blocked, lost):
-// an unknown or stale observation of its lane, so the next good read starts new ones and no unobserved interval counts
-// (T-879). Its facts stay (T-897); seenWrite stays, a watermark, not a time counted.
+// an unknown or stale observation of its lane, so the next good read starts new ones and no unobserved interval
+// counts. Its facts stay; seenWrite stays, a watermark, not a time counted.
 func (w *watch) forget() {
 	w.quietSince, w.blocked, w.lost = time.Time{}, time.Time{}, time.Time{}
 }

@@ -14,10 +14,10 @@ import (
 // pending prompt intent (a crash, a refusal) is sent again by the next pass that reaches its step.
 //
 // A job's wake to an agent whose pane's kind has an inbox (agents.Caps.Inbox: Claude) and whose session has an inbox
-// record is posted there, "[obor job <id>] <text>" as typed (T-499): nothing typed. The text cannot land in a
+// record is posted there, "[obor job <id>] <text>" as typed: nothing typed. The text cannot land in a
 // dialog: a session behind an open permission dialog reads it when its turn continues. Any other kind, or a session
 // with no inbox record, is typed, its input line cleared first (an earlier wake a dialog ate may sit there): the record
-// is missing only for a session its SessionStart hook did not register (a kit before T-485, a failed hook), and a
+// is missing only for a session its SessionStart hook did not register (an older kit, a failed hook), and a
 // wake refused there would leave the worker without its job until a restart (lines instead stay queued: deliver).
 
 // promptData is every prompt intent's data: the agent prompted and its job; a review or resolve job's patch (folded
@@ -36,7 +36,7 @@ type promptData struct {
 //
 // The wake goes to the agent's pane as whereIs resolves it right before the send (never by herdr's agent name, which
 // herdr drops at times). Not identified (two panes claim it, or none proves it): nothing is sent or recorded, the key
-// stays pending and a later pass sends it (RV-53 #3).
+// stays pending and a later pass sends it.
 //
 // what names the prompt in a counted failure ("work job T-1/1/work not sent to pj-o-01").
 func (a *App) send(ctx context.Context, p *proj, fx *Loop, mt mtask, key event.Key, job string, data promptData,
@@ -72,7 +72,7 @@ func (a *App) send(ctx context.Context, p *proj, fx *Loop, mt mtask, key event.K
 
 // via is how a wake or a line reaches agent, identified at w (under mu): posted to its session's inbox as kind post
 // (w's pane's kind has one: posted) or typed into w's pane (post ""). inboxed: post's inbox can take it (fx.Inbox, and
-// agent's record is the session live in w's pane (liveSession, T-746) or names none, DD-v0.13 A3); false for a typed
+// agent's record is the session live in w's pane (liveSession) or names none); false for a typed
 // one when fx has no Typer.
 func (a *App) via(fx *Loop, p *proj, w Where, agent string) (post string, inboxed bool) {
 	if w.State == Identified && posted(w.Pane.Agent) {
@@ -91,7 +91,7 @@ func (fx *Loop) transmit(ctx context.Context, post, target, text string, clear b
 }
 
 // sentStart is the result of a delivery an agent's start carried: a job's wake as its first prompt (startJob), or a
-// brief's line as a stopped role agent's (T-672).
+// brief's line as a stopped role agent's.
 const sentStart = "sent (start prompt)"
 
 // sentResult is a send's result: "sent"; an error after a byte went out: "sent: <error>" (sent; the delivery timers or

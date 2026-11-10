@@ -1,4 +1,4 @@
-// lanescan.go: the lane table as a cached observation (T-879). A pane event never scans git: it marks the table dirty;
+// lanescan.go: the lane table as a cached observation. A pane event never scans git: it marks the table dirty;
 // the refresher (its own goroutine) scans a dirty table, one scan per pass, so a burst of events shares one scan, and
 // the run loop then decides on the table it read: a judgement never rests on a table older than the event that asked
 // for it. The tick and a connect scan before they decide; obor's own operations (every effect App.do ran: a dispatch's
@@ -24,7 +24,7 @@ type laneScan struct {
 }
 
 // lanesBound is how old the lane table may be and still be an observation: past it, the watchdogs know nothing of
-// the lanes (a failed or missed scan; T-879), as for an unknown lane.
+// the lanes (a failed or missed scan), as for an unknown lane.
 func (a *App) lanesBound() time.Duration { return 2 * a.opt.Tick }
 
 // scan reads p's lanes now (outside mu) and stores them, the newest scan winning; a failed read keeps the last good

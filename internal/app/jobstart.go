@@ -16,13 +16,13 @@ import (
 
 // job sends the integrator a review or resolve job (rows 25, 36) through the one start sequence (startJob: the start
 // runs under the job's intent and carries its wake). Each job's first start (start.<job step>) is a fresh session of
-// the integrator (T-602), also when one runs, so a job being answered is never cut off: it waits (false, nothing
+// the integrator, also when one runs, so a job being answered is never cut off: it waits (false, nothing
 // recorded) while another task's job is out, then while the integrator's pane is not idle, for at most Gone; past
 // that the start forces (stops a turn that hangs or is blocked: the verdict is recorded). Its intent records the
 // integrator's pane and session then; a pending one (a crash, a failed start) starts fresh again only when the
 // snapshot shows that no new session runs (none runs, or the same session as at the intent), else it no-ops
 // ("running": no second start of the job). A later start of the job (start.<job step>.2 … once its start is done
-// and the integrator is gone again) runs when the snapshot shows it does not run, as before. An integrator that
+// and the integrator is gone again) runs when the snapshot shows it does not run. An integrator that
 // runs, or a start that did not carry the wake, gets the job's wake typed (send); a job whose prompt failed is sent
 // again under its key.
 func (a *App) job(ctx context.Context, p *proj, fx *Loop, mt mtask, jobStep string) bool {
@@ -102,16 +102,16 @@ func freshAgain(d startData, w Where) bool {
 }
 
 // idleWait is since when the integrator's pane has been identified and not Ready: the busy interval belongs to the
-// pane, not to a job (T-606), so two queued jobs share it and one Gone bounds the wait for both.
+// pane, not to a job, so two queued jobs share it and one Gone bounds the wait for both.
 type idleWait struct {
 	since time.Time
 }
 
 // integratorWait is whether a fresh start of p's integrator (w) for task's job would cut off a job it answers now
-// (under mu, T-602): wait while another task's integrator job is out (awaiting-accept, resolving; one a needs-you
+// (under mu): wait while another task's integrator job is out (awaiting-accept, resolving; one a needs-you
 // left is the owner's, it waits for no one); then, while the integrator's pane is identified and not idle (it ends
 // its turn after a verdict), wait for at most Gone from the first such look, then force: the start stops that turn.
-// The interval is the pane's, not the job's (T-606): alternating jobs cannot postpone it by replacing each other.
+// The interval is the pane's, not the job's: alternating jobs cannot postpone it by replacing each other.
 func (a *App) integratorWait(p *proj, task string, w Where) (force, wait bool) {
 	for _, mt := range p.folded.loop {
 		if mt.task != task && mt.openJob() && !mt.paused() {
@@ -177,7 +177,7 @@ func (a *App) startJob(ctx context.Context, p *proj, mt mtask, in event.Intent, 
 }
 
 // reviewText is the review job (row 25): the spec to review (the rev the gate put into the candidate's message,
-// T-521), the worker's report, the candidate and its patch hash.
+// the merge message), the worker's report, the candidate and its patch hash.
 func (a *App) reviewText(p *proj, mt mtask, kit string) (string, error) {
 	c := mt.cand
 	row, _, err := specOf(p, mt.task)
@@ -204,7 +204,7 @@ func (a *App) reviewText(p *proj, mt mtask, kit string) (string, error) {
 	return integratorRoles(p, text, kit)
 }
 
-// integratorRoles is the integrator job's text with the integrator's role texts after it (T-941: one fresh session
+// integratorRoles is the integrator job's text with the integrator's role texts after it (one fresh session
 // per job, so a Bash read of them per job is a call saved).
 func integratorRoles(p *proj, text, kit string) (string, error) {
 	cfg, err := config.Load(p.root)
@@ -214,7 +214,7 @@ func integratorRoles(p *proj, text, kit string) (string, error) {
 	return withRoleTexts(text, cfg, kit, "integrator")
 }
 
-// questionsText is the review job's part for the report's Open questions: section (T-649; "": it leaves nothing
+// questionsText is the review job's part for the report's Open questions: section ("": it leaves nothing
 // open): the section verbatim, cut like the diff at InlineDiff bytes, and what to do with it: decide a question
 // the spec's goal and decisions answer in the accept note, hold one that changes scope, a contract, config or a
 // protected file.
@@ -231,8 +231,8 @@ func questionsText(report string) string {
 		"\n(end of the open questions)\n"
 }
 
-// greenText is what the review job says made the candidate green: the slot's compile and the lane test's checks
-// (T-961), or the gate's checks (a candidate gated before T-961: it ran them itself).
+// greenText is what the review job says made the candidate green: the slot's compile and the lane test's checks, or
+// the gate's checks (a candidate without a Base: the gate ran them itself).
 func greenText(mt mtask) string {
 	if mt.cand.Base == "" {
 		return "the gate is green (" + mt.cand.Checks + ")"
@@ -244,9 +244,9 @@ func greenText(mt mtask) string {
 	return "the slot compiled it (" + compiled + ") and its lane test is green (" + mt.tested + ")"
 }
 
-// diffText is the review job's diff part (T-602): the stat, then the whole diff when the gate kept it (at most
+// diffText is the review job's diff part: the stat, then the whole diff when the gate kept it (at most
 // InlineDiff bytes: no git diff call needed), else the stat and the git diff to read it with. The diff is the task's
-// own, Base..submitted (T-961: whatever the target did since), or a candidate's gated before T-961 Target..SHA.
+// own, Base..submitted (whatever the target did since), or a candidate's without a Base Target..SHA.
 func diffText(c port.Candidate, submitted string) string {
 	from, to, what := c.Target, c.SHA, "the candidate's diff"
 	if c.Base != "" {
@@ -260,7 +260,7 @@ func diffText(c port.Candidate, submitted string) string {
 }
 
 // decisionText is the line of the lead's decision on mt's last obor resume of the attempt ("": none), for the
-// integrator's next job (T-511).
+// integrator's next job.
 func decisionText(mt mtask) string {
 	if mt.decision == "" {
 		return ""
@@ -281,8 +281,8 @@ func resolveText(p *proj, mt mtask, kit string) (string, error) {
 		mt.task, mt.attempt, mt.lane, strings.TrimSpace(line), decisionText(mt)), kit)
 }
 
-// subjectOf is the subject text of the lane's commit and its merge (T-355): the task spec's title (the store's, T-440;
-// never the checkout on disk, T-360), else the report's summary.
+// subjectOf is the subject text of the lane's commit and its merge: the task spec's title (the store's,
+// never the checkout on disk), else the report's summary.
 func subjectOf(title, report string) string {
 	if title != "" {
 		return title
@@ -290,7 +290,7 @@ func subjectOf(title, report string) string {
 	return summaryOf(report)
 }
 
-// summaryOf is the report's summary line, a subject (T-807: never the merge's body): the rest of its Summary line,
+// summaryOf is the report's summary line, a subject (never the merge's body): the rest of its Summary line,
 // else the line after it, without a list marker, cut at a word boundary within 100 characters.
 func summaryOf(report string) string {
 	lines := strings.Split(report, "\n")
@@ -322,7 +322,7 @@ func summaryOf(report string) string {
 	return "merged by obor serve"
 }
 
-// summarySection is the report's whole Summary section, the merge's body (T-807): its heading's own text and every
+// summarySection is the report's whole Summary section, the merge's body: its heading's own text and every
 // line up to the next section (fetch.go's reportSection; a multi-line Summary with bullets stays whole). A report with
 // no Summary heading: its first paragraph.
 func summarySection(report string) string {

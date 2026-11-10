@@ -14,9 +14,9 @@ import (
 	"obor/internal/app/wire"
 )
 
-// RV-54 #4, T-775: obor resume's arguments: --regate and --sendback are its flags (one, anywhere after the task); any
-// other nonblank argument is the text, a single word too, the old keywords included, one starting with - or -- too
-// (RV-99 #5); after -- every argument is the text; nothing else parses.
+// obor resume's arguments: --regate and --sendback are its flags (one, anywhere after the task); any
+// other nonblank argument is the text, a single word too, a former keyword included, one starting with - or -- too
+// after -- every argument is the text; nothing else parses.
 func TestResumeArgs(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -28,7 +28,7 @@ func TestResumeArgs(t *testing.T) {
 		{[]string{"T-1", "yes"}, "", "yes", true},
 		{[]string{"T-1", "no"}, "", "no", true},
 		{[]string{"T-1", "approved"}, "", "approved", true},
-		{[]string{"T-1", "retry"}, "", "retry", true}, // the old keywords are a text now (T-775)
+		{[]string{"T-1", "retry"}, "", "retry", true}, // a former keyword is the text
 		{[]string{"T-1", "regate"}, "", "regate", true},
 		{[]string{"T-1", "yes please"}, "", "yes please", true},
 		{[]string{"T-1", "--regate"}, wire.ResumeRegate, "", true},
@@ -41,7 +41,7 @@ func TestResumeArgs(t *testing.T) {
 		{[]string{"T-1", " "}, "", "", false},
 		{[]string{"T-1", "--regate", ""}, "", "", false},
 		{[]string{"--regate", "T-1"}, "", "", false},
-		// RV-99 #5: only --regate and --sendback are flags; any other argument is the text, -- ends the flags
+		// Only --regate and --sendback are flags; any other argument is the text, -- ends the flags
 		{[]string{"T-1", "- use A\n- use B"}, "", "- use A\n- use B", true},
 		{[]string{"T-1", "--force is safe"}, "", "--force is safe", true},
 		{[]string{"T-1", "--force is safe", "--sendback"}, wire.ResumeSendback, "--force is safe", true},
@@ -76,7 +76,7 @@ func TestAnswerReachesIdleWorkerHerdrSessionStale(t *testing.T) {
 	}
 }
 
-// A record reported from another pane (a second session of that name, DD-v0.13 A3) is not the pane's: herdr's view
+// A record reported from another pane (a second session of that name) is not the pane's: herdr's view
 // decides, the inbox (s-live) is not w1:p1's, and the answer is typed into w1:p1 as the kind takes a typed line.
 func TestAnswerTypedWhenInboxIsAnotherPanes(t *testing.T) {
 	t.Parallel()
@@ -144,7 +144,7 @@ func TestAnswerToWorkingWorkerAtNextIdle(t *testing.T) {
 
 // obor resume takes the watchdog's needs-you{stalled} (axis-alies: refused as "no needs-you of the merge loop"): the
 // decision goes to the worker as "[obor answer] <decision>", the needs-you ends, a repeated call id gets the stored
-// reply; --regate, and no text, are refused (T-775: obor resume's line to the worker); with nothing in force the
+// reply; --regate, and no text, are refused (obor resume's line to the worker); with nothing in force the
 // refusal is the state's.
 func TestResumeStalledWorker(t *testing.T) {
 	t.Parallel()
@@ -207,7 +207,7 @@ func settledThenIdle(t *testing.T, h *harness) {
 	}
 }
 
-// An undelivered answer ends when its question is settled another way (T-746: axis-alies' 23-min-old answer was to be
+// an undelivered answer ends when its question is settled another way (axis-alies' 23-min-old answer was to be
 // delivered late into the working session): the worker submits (task_done), asks again (a new Blocked: report), or the
 // task is unblocked (obor resume of a merge-loop needs-you). One case per trigger.
 func TestUndeliveredAnswerEndsWhenSettled(t *testing.T) {
@@ -235,7 +235,7 @@ func TestUndeliveredAnswerEndsWhenSettled(t *testing.T) {
 	}
 }
 
-// A line whose delivery is in flight (claimed: typing) may have landed: a settling fact leaves it (as T-575 keeps a
+// A line whose delivery is in flight (claimed: typing) may have landed: a settling fact leaves it (as a
 // brief's); an answer to another task is not this question's.
 func TestSettledAnswerInFlightOrOtherTaskStays(t *testing.T) {
 	t.Parallel()
@@ -327,7 +327,7 @@ func fixJob(t *testing.T, h *harness) wire.JobReply {
 		CallID: "n1"}, Lane: "L-01"})
 }
 
-// RV-99 #4: obor resume --regate of a worker's question and its task_done interleaved (hooks at their decisions): one
+// obor resume --regate of a worker's question and its task_done interleaved (hooks at their decisions): one
 // is recorded, the other refused by the state the first left, and a late submission never brings the gated task back
 // from green to submitted. Both orders: resume waiting on the lock while task_done records (task_done wins, the resume
 // is refused: submitted), task_done waiting while the resume records (the regate wins, task_done refused: submitted).
@@ -496,7 +496,7 @@ func TestTaskDoneCannotReopenConcurrentOutsideMerge(t *testing.T) {
 	}
 }
 
-// T-775: a busy claim on a task refuses every task verb whose state takes it, with busy's why: a drop being recorded
+// A busy claim on a task refuses every task verb whose state takes it, with busy's why: a drop being recorded
 // (p.ended), a step holding it (p.held), its scratch step running (p.running), its next gate intent open. Each verb on
 // a working T-1 (resume of its stalled worker, drop, move, submit) and land on a driving one; submit only by a
 // drop, since the step holding a working task is the one that sent the worker its job.
@@ -584,7 +584,7 @@ func TestBusyRefusesEveryVerb(t *testing.T) {
 	}
 }
 
-// T-775 (the BACKLOG deadlock): a worker's Blocked "re-gate, not my diff" is a question in force; obor resume
+// The BACKLOG deadlock: a worker's Blocked "re-gate, not my diff" is a question in force; obor resume
 // --regate gates the lane as it is (fact unblocked{regate}: submitted, the lane submitted afresh), the question ends;
 // with no flag the text is the answer (the question ends, the task stays working), and --sendback does not fit.
 func TestResumeRegateOfABlockedReport(t *testing.T) {
@@ -647,7 +647,7 @@ func TestResumeRegateOfABlockedReport(t *testing.T) {
 	})
 }
 
-// T-775: resumeAct by state: each state that takes no resume is refused by its state; a hold's decision reaches the
+// ResumeAct by state: each state that takes no resume is refused by its state; a hold's decision reaches the
 // integrator (reprompt, its text required); red past K with neither flag is refused naming both, each flag fits; a
 // flag that does not fit names what resume does; a driving task's line goes to the drive agent.
 func TestResumeActByState(t *testing.T) {
@@ -707,7 +707,7 @@ func TestResumeActByState(t *testing.T) {
 	}
 }
 
-// The lead's sendback (obor resume --sendback, T-775) is serve's own transition (T-410, RV-45 #1): from a green
+// The lead's sendback (obor resume --sendback) is serve's own transition: from a green
 // candidate, an open job or a needs-you of the owner's choice (red past K) the task goes back to its worker as the next
 // attempt, its job, candidate and needs-you ended; a needs-you whose cause takes another action is refused naming it,
 // any other state by name, with nothing recorded.
@@ -829,8 +829,8 @@ func TestLeadSendback(t *testing.T) {
 	}
 }
 
-// T-619: the lead cannot type a change into the worker's pane. From a needs-you of the owner's choice (sendbacks past
-// K, a red gate; T-775: a hold takes the lead's decision, not a sendback) obor resume --sendback ends it and starts the next attempt, the worker's
+// The lead cannot type a change into the worker's pane. From a needs-you of the owner's choice (sendbacks past
+// K, a red gate; a hold takes the lead's decision, not a sendback) obor resume --sendback ends it and starts the next attempt, the worker's
 // fix job carrying the lead's text; the lead's sendback does not increment sendbacks (K counts the gate's and the integrator's).
 func TestLeadSendbackFromNeedsYou(t *testing.T) {
 	t.Parallel()
@@ -878,7 +878,7 @@ func TestLeadSendbackFromNeedsYou(t *testing.T) {
 	}
 }
 
-// T-619: K still counts the integrator's sendbacks: one more below K starts the next attempt and increments the count;
+// K still counts the integrator's sendbacks: one more below K starts the next attempt and increments the count;
 // at K a further sendback goes to the owner, no attempt.
 func TestIntegratorSendbackStillCounts(t *testing.T) {
 	t.Parallel()
@@ -923,7 +923,7 @@ func TestIntegratorSendbackStillCounts(t *testing.T) {
 	}
 }
 
-// The reviewer's probe (RV-45 #1): the lead sends back T-4 with its review job out; the integrator's accept of the old
+// The reviewer's probe: the lead sends back T-4 with its review job out; the integrator's accept of the old
 // candidate is refused, nothing is published, and the worker gets its fix job from serve.
 func TestLeadSendbackEndsTheReview(t *testing.T) {
 	t.Parallel()

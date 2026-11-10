@@ -1,6 +1,6 @@
 // Package event is the event log's leaf: the records a project's serve appends, their keys, steps and fact data, the
 // append-only Log over the store's events table, and the readers (ReadLog, Dump, ReadMerges). It imports no other
-// obor package but store, so readers and adapters take the log without the core (T-691, app split 2/5).
+// obor package but store, so readers and adapters take the log without the core (the app split).
 package event
 
 import (
@@ -50,31 +50,30 @@ const (
 type FactData struct {
 	Lane    string `json:"lane,omitempty"`
 	Machine string `json:"machine,omitempty"`
-	// Group is the terminal's group of the agent's pane, by its name (herdr: the workspace's label; "workspace" in the
-	// log since before T-1044).
+	// Group is the terminal's group of the agent's pane, by its name (herdr: the workspace's label; "workspace" in an
+	// older log).
 	Group  string `json:"workspace,omitempty"`
 	Pane   string `json:"pane,omitempty"`
 	Agent  string `json:"agent,omitempty"`
 	Reason string `json:"reason,omitempty"`
 	Merge  bool   `json:"merge,omitempty"` // a merge-loop fact, not a watchdog's
 	// A merge-loop needs-you's cause (what obor resume does by default), an unblocked's too (of a watchdog's, only a
-	// worker's stop has one: causeStopped, T-532); Job is the integrator job
+	// worker's stop has one: causeStopped); Job is the integrator job
 	// it names, Call the call id of the hold or resume that recorded it, Step the key of the step a failed fact counts.
 	Cause string `json:"cause,omitempty"`
 	Job   string `json:"job,omitempty"`
 	Call  string `json:"call,omitempty"`
 	Step  string `json:"step,omitempty"`
-	// Via is how a job was delivered: "mcp" when the agent's job_next fetched it ("": its herdr status, T-339).
+	// Via is how a job was delivered: "mcp" when the agent's job_next fetched it ("": its herdr status).
 	Via string `json:"via,omitempty"`
-	// Rev is the spec rev a worker's fetched job carried, a newer one task_done's refusal showed it (spec.seen,
-	// T-819), or the one a drop of a spec stored and never dispatched recorded (T-1016; 0: none, or a delivery before
-	// T-440).
+	// Rev is the spec rev a worker's fetched job carried, a newer one task_done's refusal showed it (spec.seen),
+	// or the one a drop of a spec stored and never dispatched recorded (0: none, or an older delivery).
 	Rev int `json:"rev,omitempty"`
-	// Note is an unblocked's decision: the text of obor resume T-xx [regate|reprompt] "<decision>" (T-511).
+	// Note is an unblocked's decision: the text of obor resume T-xx [regate|reprompt] "<decision>".
 	Note string `json:"note,omitempty"`
-	// Turn is the turn a worker's stop read from its transcript ended (T-563): a later turn ends the stop.
+	// Turn is the turn a worker's stop read from its transcript ended: a later turn ends the stop.
 	Turn string `json:"turn,omitempty"`
-	// Limit: a worker's stop is a usage or rate limit, so serve wakes the worker once it resets (T-568); Reset is when
+	// Limit: a worker's stop is a usage or rate limit, so serve wakes the worker once it resets; Reset is when
 	// (Unix seconds; 0: unknown, a wake every wakeEvery).
 	Limit bool  `json:"limit,omitempty"`
 	Reset int64 `json:"reset,omitempty"`
@@ -182,7 +181,7 @@ func Dump(w io.Writer, root string) error {
 	return nil
 }
 
-// RecentEvents is db's newest limit records, newest first: the view's event list (T-658). The caller opens the
+// RecentEvents is db's newest limit records, newest first: the view's event list. The caller opens the
 // store read-only (store.OpenRO) and keeps it while it polls; limit ≤ 0: none. Events must exist for it to have any.
 func RecentEvents(db *sql.DB, limit int) ([]Record, error) {
 	if limit <= 0 {
@@ -191,7 +190,7 @@ func RecentEvents(db *sql.DB, limit int) ([]Record, error) {
 	return queryRecords(db, recordQuery+" ORDER BY seq DESC LIMIT ?", limit)
 }
 
-// The view's other reads (T-893): each is one query of the events table, so no reader outside this package knows its
+// The view's other reads: each is one query of the events table, so no reader outside this package knows its
 // columns or a record's keys.
 
 // RecordsOf is task's newest limit records, newest first (a task's page).
@@ -216,7 +215,7 @@ func Facts(db *sql.DB, step string) ([]Record, error) {
 }
 
 // ResultsUnder is every result whose step is one of bases or a step under it (<base>.N, <base>.<job>), in seq order
-// (the nightly prune's start results, T-1089).
+// (the nightly prune's start results).
 func ResultsUnder(db *sql.DB, bases ...string) ([]Record, error) {
 	if len(bases) == 0 {
 		return nil, nil
@@ -233,8 +232,8 @@ func ResultsUnder(db *sql.DB, bases ...string) ([]Record, error) {
 	return queryRecords(db, q+") ORDER BY seq", args...)
 }
 
-// ModelPauses is the model pauses in force in db at now (obor pause --model, T-765), by model name: the newest pause
-// fact per model, one cleared or past its end dropped (T-979: obor setup show marks them).
+// ModelPauses is the model pauses in force in db at now (obor pause --model), by model name: the newest pause
+// fact per model, one cleared or past its end dropped (obor setup show marks them).
 func ModelPauses(db *sql.DB, now time.Time) (map[string]*Pause, error) {
 	recs, err := queryRecords(db, recordQuery+" WHERE kind = ? AND task = ? AND step IN (?, ?) ORDER BY seq",
 		KindFact, PauseTask, StepPaused, StepUnpaused)
@@ -282,7 +281,7 @@ func FactTasks(db *sql.DB, steps ...string) (map[string]bool, error) {
 }
 
 // PruneTasks deletes, in one transaction, every record of each task in keep whose seq is below horizon, except the
-// one keep names for it (T-1089: the nightly prune of the tasks that ended 30 days ago; a task's kept record is its
+// one keep names for it (the nightly prune of the tasks that ended 30 days ago; a task's kept record is its
 // last terminal fact). horizon is the log's last seq when the tasks were chosen: a record written since stays, and so
 // does the table's newest row, so the next record's seq never reuses a deleted one. Each task goes whole or, with the
 // transaction, not at all; a second run deletes nothing. The count of rows deleted.
@@ -395,7 +394,7 @@ func (l *Log) append(r Record, now time.Time) (Record, error) {
 	return r, err
 }
 
-// LastSeq is the last record's seq in the table (0: none): the nightly prune's horizon (T-1089).
+// LastSeq is the last record's seq in the table (0: none): the nightly prune's horizon.
 func (l *Log) LastSeq() int64 {
 	l.Mu.Lock()
 	defer l.Mu.Unlock()
@@ -431,7 +430,7 @@ func (l *Log) write(r Record, now time.Time) (Record, error) {
 	return r, nil
 }
 
-// Changed is closed by the next record written (T-1039: the event feed waits on it). Take it before reading the
+// Changed is closed by the next record written (the event feed waits on it). Take it before reading the
 // records after a cursor: a record written between the read and the wait still closes it.
 func (l *Log) Changed() <-chan struct{} {
 	l.Mu.Lock()
@@ -514,7 +513,7 @@ func (l *Log) Intent(k Key) (Record, bool) {
 }
 
 // IntentOf is k's intent as written, with or without its result (false: none): its seq orders job_next's open jobs,
-// the oldest first (T-606).
+// the oldest first.
 func (l *Log) IntentOf(k Key) (Record, bool) {
 	l.Mu.Lock()
 	defer l.Mu.Unlock()
@@ -540,7 +539,7 @@ func (l *Log) Result(k Key) (Record, bool) {
 
 // OpenIntents is every intent without a result, running or not, in seq order: the steps whose effect runs now, or was
 // left to run again after a crash (App.do). obor status' running line lists the command steps among them whose effect
-// runs now, its pending line the others (T-657, T-662).
+// runs now, its pending line the others.
 func (l *Log) OpenIntents() []Record {
 	l.Mu.Lock()
 	defer l.Mu.Unlock()

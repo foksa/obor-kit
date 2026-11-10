@@ -10,9 +10,8 @@ import (
 	"obor/internal/app/outbox"
 )
 
-// T-1023: what a review covered is the log's, one table over the fold (records → the next review's scope, which is
-// both the brief's in-scope tasks and the "review due" count; the next id; the closed head R). It replaces the tests that drove these through a port.Review fake's Merges, Closes and
-// Last.
+// What a review covered is the log's, one table over the fold (records → the next review's scope, which is
+// both the brief's in-scope tasks and the "review due" count; the next id; the closed head R).
 
 // foldLog builds records in seq order for a reviewLog.
 type foldLog struct{ recs []event.Record }
@@ -60,7 +59,7 @@ func (f *foldLog) ends() *foldLog {
 	return f.add(event.MsgTask, event.StepMessage, event.KindFact, event.Message{To: "pj-lead", Ends: "pj-rev"})
 }
 
-// closing is a close's snapshot before its commit (T-1032); closedAt a close fact carrying it, as serve's close
+// closing is a close's snapshot before its commit; closedAt a close fact carrying it, as serve's close
 // records it.
 func (f *foldLog) closing(id, head string, tasks ...string) *foldLog {
 	return f.add(event.ReviewTask, event.StepReviewClosing, event.KindFact, ReviewData{ID: id, Head: head, Tasks: tasks})
@@ -120,7 +119,7 @@ func TestReviewFold(t *testing.T) {
 			log:   (&foldLog{}).started("RV-4", "h4").closed("RV-3").started("RV-5", "h5").closed("RV-6"),
 			next:  "RV-6",
 			scope: nil},
-		// RV-144 #1 (T-1032): the close's snapshot stands; a verify finishing after it changes nothing.
+		// The close's snapshot stands; a verify finishing after it changes nothing.
 		{name: "a verify finishing after the close: RV-1 covered T-1, T-fix is the next scope",
 			log: (&foldLog{}).merged("T-1", "h1").started("RV-1", "h1", "T-1").merged("T-fix", "h2").
 				briefed("h2", "T-fix").closing("RV-1", "h1", "T-1").closedAt("RV-1", "h1", "T-1").ends(),
@@ -159,11 +158,11 @@ func TestReviewFold(t *testing.T) {
 	}
 }
 
-// T-1023: obor status' "review due" line is the fold's scope, counted on every pass: at 3 merges none, at 4 "review
-// due: 4 merges since RV-4", none once a review started on them.
+// obor status' "review due" line is the fold's scope, counted on every pass: at 3 merges none, at 4 "review
+// due: 4 merges since the last review", none once a review started on them.
 func TestReviewDueFromTheFold(t *testing.T) {
 	t.Parallel()
-	r := newReviewRig(t) // RV-4 closed, T-a and T-b merged since
+	r := newReviewRig(t) // a review closed, T-a and T-b merged since
 	r.mergedAt("T-c", "ccccccc3")
 	r.tick()
 	if got := r.a.Status().Project.Review; got != "" {

@@ -1,7 +1,7 @@
-// keeplane.go: a keep lane's agent between its tasks (T-1031, config.LaneKeep). A keep lane's merged task stops no
+// keeplane.go: a keep lane's agent between its tasks (config.LaneKeep). A keep lane's merged task stops no
 // agent (afterList); its next dispatch prepares the lane (clean: lane.prepare requires it) and sends the work job's wake
 // to the live agent (nextDispatch: no agent.start) when its recorded start runs the dispatch's model under the same
-// config revision (startFits, T-1048, T-1050; else the dispatch stops it first, keepStop), or starts one as a fresh
+// config revision (startFits; else the dispatch stops it first, keepStop), or starts one as a fresh
 // lane does when the lane has none. The
 // handoff rule stops a kept agent that is idle between tasks with its session past handoff_tokens; the next dispatch's
 // agent.start is its fresh start (one starter per lane: a rule's start can never race a dispatch's).
@@ -37,7 +37,7 @@ func (a *App) keepLive(p *proj, mt mtask) (port.Pane, bool) {
 
 // keptPane is the pane of mt's keep lane's live agent when its work job goes to that session, no agent.start (under
 // mu): mt is a keep lane's dispatch, the lane's agent is live (keepLive) and its recorded start runs mt's dispatch's
-// model (startFits, T-1048). ok false: the dispatch starts the agent (a mismatched one is stopped first: keepStop).
+// model (startFits). ok false: the dispatch starts the agent (a mismatched one is stopped first: keepStop).
 func (a *App) keptPane(p *proj, mt mtask) (port.Pane, bool) {
 	if !mt.disp.Keep {
 		return port.Pane{}, false
@@ -61,14 +61,14 @@ func (a *App) kept(p *proj, mt mtask) bool {
 
 // keepWaits: mt's keep lane dispatch, its work not sent yet, waits for the handoff rule (under mu): the lane's kept
 // agent (keptPane) is past handoff_tokens, so its job goes to a fresh session once the rule stopped this one (never
-// typed into a session past the threshold, T-1031).
+// typed into a session past the threshold).
 func (a *App) keepWaits(p *proj, mt mtask) bool {
 	pane, ok := a.keptPane(p, mt)
 	return ok && a.pastHandoff(p, pane)
 }
 
 // keepStop is the agent a dispatch of keep lane l running model ref ref stops before its start (dispatchData.Stop;
-// T-1048): l's agent, live in its worktree, when its recorded start does not run ref (startFits). "": l is no keep
+// keepStop): l's agent, live in its worktree, when its recorded start does not run ref (startFits). "": l is no keep
 // lane, its agent is not live (the dispatch starts one), or it runs ref (its work job goes to it).
 func (a *App) keepStop(p *proj, cfg *config.Config, l port.Lane, agent, ref string) string {
 	if !cfg.KeepLane(l.Name) {
@@ -83,13 +83,13 @@ func (a *App) keepStop(p *proj, cfg *config.Config, l port.Lane, agent, ref stri
 	return agent
 }
 
-// startFits: agent, live in pane, runs model ref ref as serve's own start of it recorded (under mu; T-1048): its start
+// startFits: agent, live in pane, runs model ref ref as serve's own start of it recorded (under mu): its start
 // row (agent.start's result, foldStart) names the model ref the start ran (its dispatch's) with ref's model and effort,
 // the kind of ref's model, and a session that is pane's now (the agent the start launched, not one started since by
-// hand), and the config revision the start was launched under is the config's now (T-1050: a model's id or a kind's
+// hand), and the config revision the start was launched under is the config's now (a model's id or a kind's
 // args edited since would make a new start of ref another launch). Unknown or unprovable is no fit: no start row (an
-// agent serve did not start), no ref (the integrator's, a start before T-1048), no config revision (a start before
-// T-1050), a kind that reports no session id (it cannot prove the live agent is the start's, T-418), or herdr reporting
+// agent serve did not start), no ref (the integrator's), no config revision (an older start),
+// a kind that reports no session id (it cannot prove the live agent is the start's), or herdr reporting
 // none for the pane now.
 func (p *proj) startFits(cfg *config.Config, agent string, pane port.Pane, ref string) bool {
 	row, ok := p.reg.Start(agent)
@@ -103,7 +103,7 @@ func (p *proj) startFits(cfg *config.Config, agent string, pane port.Pane, ref s
 	return ok && typ != "" && typ == ran && effort == ranEffort && lt.Kind != "" && lt.Kind == row.Kind
 }
 
-// configRev is p's config revision now (config.Config.Rev, T-1050): what a start records, and what a keep lane's reuse
+// configRev is p's config revision now (config.Config.Rev): what a start records, and what a keep lane's reuse
 // compares. "": the config does not load (a start then records none, and no reuse is a fit).
 func (p *proj) configRev() string {
 	cfg, err := config.Load(p.root)
@@ -163,7 +163,7 @@ func (p *proj) keepBetween(lane string) (int64, bool) {
 	return key, key != 0
 }
 
-// handoffRule is the keep lane handoff rule (T-1031, rule tier). Condition: a keep lane of the config between tasks
+// handoffRule is the keep lane handoff rule (rule tier). Condition: a keep lane of the config between tasks
 // (keepBetween), its agent live in the lane (identified in its worktree), idle, its session past handoff_tokens
 // (pastHandoff), no claim on the lane's tasks and the project's pause not in force. Action: agent.stop of that agent
 // (stopAgent: a gone one is done); the lane's next dispatch starts a fresh one (nextDispatch, as a fresh lane does).

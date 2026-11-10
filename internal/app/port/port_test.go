@@ -2,7 +2,7 @@ package port
 
 import "testing"
 
-// The one place a pane's status becomes ready or busy (T-888): every spelled-out "idle"/"done" and "working"/
+// The one place a pane's status becomes ready or busy: every spelled-out "idle"/"done" and "working"/
 // "blocked" check in the app and launch reads these two.
 func TestPaneReadyBusy(t *testing.T) {
 	t.Parallel()

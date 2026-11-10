@@ -42,14 +42,13 @@ func (a *App) load(root string) (*proj, error) {
 	for _, r := range recs {
 		p.foldRecord(r)
 	}
-	if len(recs) > 0 { // the replay's last activity, before the settlements below or the first connect append (T-1136)
+	if len(recs) > 0 { // the replay's last activity, before the settlements below or the first connect append
 		p.lastBefore, _ = time.Parse(time.RFC3339, recs[len(recs)-1].TS)
 	}
-	// A task the log folds as ended keeps no step logs (T-1104): the ones an upgrade or a serve down at its end left
-	// (T-1094, T-1098). A task it does not know is not guessed at: its logs stay. One read of the logs dir for all of
-	// them (T-1132).
+	// A task the log folds as ended keeps no step logs: the ones an upgrade or a serve down at its end left. A task
+	// it does not know is not guessed at: its logs stay. One read of the logs dir for all of them.
 	a.endTaskLogsAtLoad(p)
-	p.dropLaneRows(cfg) // the rows of lanes the config no longer names (T-865)
+	p.dropLaneRows(cfg) // the rows of lanes the config no longer names
 	p.folded.lr.live = true
 	if err := p.syncLanes(); err != nil {
 		a.logf("project %s: lanes table: %v", name, err)
@@ -108,7 +107,7 @@ func (p *proj) foldRecord(r event.Record) {
 	p.foldMsg(r)
 	p.foldWatch(r)
 	p.folded.rv.fold(r)
-	p.foldReview(r) // before idle: a review request in flight ends the idle epoch (T-818)
+	p.foldReview(r) // before idle: a review request in flight ends the idle epoch
 	p.foldIdle(r)
 	p.foldVersion(r)
 	p.foldWake(r)
@@ -118,8 +117,8 @@ func (p *proj) foldRecord(r event.Record) {
 }
 
 // fold folds a watchdog fact (a merge-loop needs-you is the loop's: foldLoop); one of a closed task is discarded
-// (T-636: recorded after its end, as a stop picked before it; a new dispatch reopens the task), and so is one of the
-// promotion T-1076 deleted (T-1082: nothing runs or answers it, so its needs-you ends here rather than at each pass).
+// (recorded after its end, as a stop picked before it; a new dispatch reopens the task), and so is one of the
+// promotion the config does not run (nothing runs or answers it, so its needs-you ends here rather than at each pass).
 func (p *proj) fold(r event.Record) {
 	if r.Task == event.PromoteTask {
 		return
@@ -132,7 +131,7 @@ func (p *proj) fold(r event.Record) {
 	case event.StepResumed:
 		p.resume(r.Task)
 	case event.StepUnblocked:
-		if p.asks(r.Task) { // obor resume --regate of a worker's question (T-775): the question ends with it
+		if p.asks(r.Task) { // obor resume --regate of a worker's question: the question ends with it
 			p.answered(r.Task)
 		}
 	}
@@ -184,7 +183,7 @@ func isAsk(f event.Record) bool {
 }
 
 // watched: task has a watchdog fact in force that its worker's activity ends: any but a question (asks: obor resume
-// ends it, T-511).
+// ends it).
 func (p *proj) watched(task string) bool {
 	for _, f := range p.folded.active[task] {
 		if !isAsk(f) {
@@ -206,8 +205,8 @@ func (p *proj) has(task, step, reason string) bool {
 
 // setLanes installs p's lanes as read now. A task a lane took since the last read starts with no timer running; a
 // task no lane holds open any more (submitted and in the merge loop, lane freed or moved on) has no watchdog in force
-// (nothing recorded). An unknown lane (its read failed, T-871) is no observation: it keeps the task it held (keptTask)
-// and that task its facts (T-897); a lane read now that holds the task wins.
+// (nothing recorded). An unknown lane (its read failed) is no observation: it keeps the task it held (keptTask)
+// and that task its facts; a lane read now that holds the task wins.
 func (p *proj) setLanes(ls []port.Lane) {
 	ls = append([]port.Lane(nil), ls...)
 	for i, l := range ls {
@@ -243,7 +242,7 @@ func (p *proj) setLanes(ls []port.Lane) {
 	}
 }
 
-// keptTask is unknown lane l with the task it held before its read failed (T-897): its watch's (the watchdog's last
+// keptTask is unknown lane l with the task it held before its read failed: its watch's (the watchdog's last
 // look, or a worker's stop since), else the last read's, else (a restart: none of those) the newest folded dispatch on
 // it whose attempt awaits its worker's task_done; none of these: l as read. Its agent, the store's row unread, is the
 // last read's.
@@ -278,8 +277,8 @@ func (p *proj) keptTask(l port.Lane) port.Lane {
 }
 
 // projectKey: task is a key of the project's own facts (the merge loop's, the nightly's, the lines', the disk's, the
-// review requests', a failed self-restart's, a failing rule's, the config rewrite's, an old log's promotion's: T-1076
-// deleted it), not a task's.
+// review requests', a failed self-restart's, a failing rule's, the config rewrite's, an old log's promotion's), not a
+// task's.
 func projectKey(task string) bool {
 	return task == event.LoopTask || task == event.NightlyTask || task == event.MsgTask || task == event.DiskTask || task == event.ReviewTask ||
 		task == event.ServeTask || task == event.RuleTask || task == event.PromoteTask || task == event.ConfigTask

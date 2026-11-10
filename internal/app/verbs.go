@@ -8,7 +8,7 @@ import (
 )
 
 // leadOr is the admission of a lead's and the owner's method (spec_set, dispatch, watch, send, brief: roles.Verbs): nil
-// when c's caller is the owner (no role), the lead, or a custom role whose roles.<name>.verbs names method (T-1039: an
+// when c's caller is the owner (no role), the lead, or a custom role whose roles.<name>.verbs names method (an
 // integration's role; the verbs add rights, never remove one). Else refused, the method's own refusal line: for a
 // custom role followed by the verb it lacks and the config key that grants it. The config is read only for a custom
 // role's call.

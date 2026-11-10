@@ -6,7 +6,7 @@ import (
 	"obor/internal/store"
 )
 
-// TestFreeState (T-1012, T-1015): the one free rule, case → state. A lane is free by serve's facts (its row: whether
+// TestFreeState: the one free rule, case → state. A lane is free by serve's facts (its row: whether
 // its task landed, the head its submission pinned) and its own git (HEAD, dirty status) alone: a landed task frees
 // its lane only while the lane's HEAD is the submitted head.
 func TestFreeState(t *testing.T) {
@@ -45,7 +45,7 @@ func TestFreeState(t *testing.T) {
 	}
 }
 
-// TestFreeStateReadsEvidenceOnlyWithoutHead (T-1015): the merge-evidence read (a git call) runs only for a landed row
+// TestFreeStateReadsEvidenceOnlyWithoutHead: the merge-evidence read (a git call) runs only for a landed row
 // with no recorded head, never for a row whose head decides.
 func TestFreeStateReadsEvidenceOnlyWithoutHead(t *testing.T) {
 	t.Parallel()
