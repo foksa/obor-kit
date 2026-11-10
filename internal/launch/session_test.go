@@ -42,6 +42,9 @@ func TestOpencodeStartsFresh(t *testing.T) {
 	if strings.Contains(start, "resume") || strings.Contains(start, "sid-o") || strings.Contains(start, "--session") {
 		t.Errorf("a resume reached the start: %s", start)
 	}
+	if len(x.reported) != 0 { // its plugin reports the session on its first event
+		t.Errorf("the start reports a session itself: %+v", x.reported)
+	}
 }
 
 // setupRunning is setup with lane L-01's open dispatch running model (its lane row's task and type, T-722): a start
@@ -107,7 +110,7 @@ func TestCodexStartReportsRollout(t *testing.T) {
 	}
 	contains(t, out, "session cx-new ("+fresh+", open in pid 2)", "said")
 
-	t.Run("a resume reports none", func(t *testing.T) {
+	t.Run("a resume reports the session it resumed", func(t *testing.T) {
 		x.reset()
 		x.reported = nil
 		x.shell("w1:p3", "pj-l-01", "").Session = "cx-new"
@@ -116,10 +119,35 @@ func TestCodexStartReportsRollout(t *testing.T) {
 			t.Fatal(out)
 		}
 		contains(t, x.startCall(), "resume cx-new", "resumed")
-		if len(x.reported) != 0 {
-			t.Errorf("nothing reported: %+v", x.reported)
+		if len(x.reported) != 1 {
+			t.Fatalf("one report of the resumed session (serve ends the agent's skew line at it), got %+v\n%s",
+				x.reported, out)
 		}
+		s := x.reported[0]
+		eq(t, s.Agent+" "+s.Kind+" "+s.ID+" "+s.Lane+" "+s.Pane, "pj-l-01 codex cx-new L-01 w1:p3",
+			"the session it resumed")
 	})
+}
+
+// A resumed start reports the session it resumed from obor serve's launcher too: serve's fresh starts search a rollout in
+// the background, and a resume's report waits for no search.
+func TestServeResumeReportsItsSession(t *testing.T) {
+	t.Parallel()
+	x := setupRunning(t, "luna")
+	x.background = true
+	x.shell("w1:p3", "pj-l-01", "").Session = "cx-1"
+	out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
+	if !ok {
+		t.Fatal(out)
+	}
+	contains(t, x.startCall(), "resume cx-1", "the recorded session")
+	if len(x.reported) != 1 {
+		t.Fatalf("one report of the resumed session (serve ends the agent's skew line at it), got %+v\n%s",
+			x.reported, out)
+	}
+	s := x.reported[0]
+	eq(t, s.Agent+" "+s.Kind+" "+s.ID+" "+s.Lane+" "+s.Pane, "pj-l-01 codex cx-1 L-01 w1:p3",
+		"the session it resumed")
 }
 
 // writeRollout writes a Codex rollout of session id begun in cwd at at under x's home: its path.

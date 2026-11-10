@@ -434,12 +434,20 @@ func mergeOff(p *proj) error {
 	return fmt.Errorf("merge loop off for %s (no integrator role)", p.name)
 }
 
-// loopOf is p's merge-loop adapters.
+// loopOf is p's merge-loop adapters, their Agents a startedAgents: a start of an agent through them ends that agent's
+// skew entry (started).
 func (a *App) loopOf(p *proj) (*Loop, error) {
 	if a.opt.Loop == nil {
 		return nil, fmt.Errorf("%s has no merge loop", p.name)
 	}
-	return a.opt.Loop(p.root)
+	fx, err := a.opt.Loop(p.root)
+	if err != nil {
+		return nil, err
+	}
+	if fx.Agents != nil {
+		fx.Agents = startedAgents{Agents: fx.Agents, a: a}
+	}
+	return fx, nil
 }
 
 // Dash is s, "-" for "".

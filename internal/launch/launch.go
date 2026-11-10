@@ -94,7 +94,8 @@ type Launcher struct {
 	Spawn func(dir string, args []string, out string) error
 	// Sessions is agent's current recorded session (T-577); nil: serve's store at Cfg.Root (store.CurrentAt).
 	Sessions func(agent string) (store.Session, bool)
-	// Report records a session a start found (a Codex rollout, T-577); nil: the session request to Cfg.Root's serve.
+	// Report records a session a start found (a Codex rollout) or the session a start resumed; nil: the session
+	// request to Cfg.Root's serve.
 	Report func(ctx context.Context, s store.Session) error
 	// Rollout is how long a fresh start looks for its new session's transcript (default 10 s).
 	Rollout time.Duration

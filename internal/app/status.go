@@ -484,15 +484,16 @@ func versionSkew(c wire.Envelope) string {
 }
 
 // noteSkew writes serve's one log line for a call whose caller runs another obor: the first per (agent, version), not
-// each call. It also keeps, per agent, the version of the other release its calls carry (behind): a new session
-// clears what the last one ran. An entry is only set here, never cleared by a later call of serve's own release: one
-// agent calls through several processes, and the line must not flicker between them.
+// each call. It also keeps, per agent, the version of the other release its calls carry (behind): a session request
+// clears it — a hook's, a plugin's, or a start's of the session the agent runs, a repeat of one already recorded
+// included — and so does a start serve makes itself (started). A call of serve's own release never clears it: one agent
+// calls through several processes, and the line must not flicker between them.
 func (a *App) noteSkew(method string, c wire.Envelope) {
 	if c.Agent != "" { // the owner's own CLI is not an agent: nothing to restart
 		other := version.Release(c.Version) != version.Release(version.Version)
 		a.mu.Lock()
 		if method == wire.MethodSession {
-			delete(a.behind, c.Agent) // a new session: what the last one ran is gone
+			delete(a.behind, c.Agent) // a session began: the process before it is not the one running now
 		}
 		if other {
 			if a.behind == nil {
@@ -518,6 +519,18 @@ func (a *App) noteSkew(method string, c wire.Envelope) {
 	if !seen {
 		a.logf("caller %s runs %s, serve %s", agent, skew, version.Version)
 	}
+}
+
+// started ends agent's skew entry: a start (fresh or resumed) runs a new process for it, so the release its earlier
+// calls carried is not the one serving its calls now, and the line naming it asks for a restart that happened. A start
+// that names no agent ends nothing. Under mu.
+func (a *App) started(agent string) {
+	if agent == "" {
+		return
+	}
+	a.mu.Lock()
+	delete(a.behind, agent)
+	a.mu.Unlock()
 }
 
 // skewNote is the status note for the agents in a pane whose calls carry another obor release than serve's (behind):

@@ -3471,6 +3471,9 @@ func TestStartNamesItsSession(t *testing.T) {
 		}
 		contains(t, x.startCall(), "--resume sid-1", "the record")
 		lacks(t, x.startCall(), "--session-id", "a resume names no session")
+		if len(x.reported) != 0 { // its SessionStart hook reports the resumed session, as it does a fresh one
+			t.Errorf("the start reports a session itself: %+v", x.reported)
+		}
 	})
 	t.Run("a refused record: said, the start keeps its id", func(t *testing.T) {
 		t.Parallel()
