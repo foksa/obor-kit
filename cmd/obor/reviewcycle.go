@@ -21,10 +21,10 @@ import (
 // is the close's crash cut, its one read.
 
 // Close is port.Review's close on the main checkout (serve calls it admitted): refused before any change when
-// the checkout is not on c.Branch, dirty outside a BACKLOG.md (in any directory), docs/accepted.md and c's files, or
-// c.Reviewed is no commit; then c's files deleted (its review file and, when there, its verify file), each accepted
-// line appended to docs/accepted.md naming the review (the file created when missing), and the commit c.Subject /
-// c.Body with each dirty BACKLOG.md and docs/accepted.md.
+// the checkout is not on c.Branch, dirty outside a tracked BACKLOG.md (in any directory), docs/accepted.md and c's
+// files, or c.Reviewed is no commit; then c's files deleted (its review file and, when there, its verify file), each
+// accepted line appended to docs/accepted.md naming the review (the file created when missing), and the commit
+// c.Subject / c.Body with each dirty tracked BACKLOG.md and docs/accepted.md.
 func (g reviewGit) Close(ctx context.Context, c port.ReviewCommit) error {
 	root := g.root
 	if on, err := g.git(ctx, "symbolic-ref", "-q", "--short", "HEAD"); err != nil || strings.TrimSpace(on) != c.Branch {
@@ -43,11 +43,13 @@ func (g reviewGit) Close(ctx context.Context, c port.ReviewCommit) error {
 	if err != nil {
 		return err
 	}
-	docs := map[string]bool{} // of a BACKLOG.md and app.AcceptedFile: the ones the close commit carries
+	docs := map[string]bool{} // of a tracked BACKLOG.md and app.AcceptedFile: the ones the close commit carries
 	for _, l := range porcelainLines(st) {
 		p := l[3:]
 		switch {
-		case filepath.Base(p) == "BACKLOG.md" || p == app.AcceptedFile:
+		case p == app.AcceptedFile:
+			docs[p] = true
+		case filepath.Base(p) == "BACKLOG.md" && !strings.HasPrefix(l, "?? "):
 			docs[p] = true
 		case strings.HasPrefix(l, "?? ") && own[p]:
 		default:

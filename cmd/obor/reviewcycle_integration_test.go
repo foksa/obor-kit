@@ -284,6 +284,47 @@ func TestReviewGitCloseDirtyBacklog(t *testing.T) {
 	}
 }
 
+// the BACKLOG.md allowance is for a tracked backlog: an untracked one at the root or in a directory (here notes/)
+// refuses the close like any other stray file, naming its porcelain line, with nothing committed and the file left
+// untracked. A dirty tracked one still commits (TestReviewGitCloseDirtyBacklog).
+func TestReviewGitCloseUntrackedBacklog(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ name, path string }{
+		{"root", "BACKLOG.md"},
+		{"directory", "notes/BACKLOG.md"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p, head := reviewFixture(t)
+			if tc.path == "BACKLOG.md" { // the fixture's root backlog is tracked: untrack it, so this one is a new file
+				p.Git(p.Root, "rm", "-q", "BACKLOG.md")
+				p.Git(p.Root, "commit", "-q", "-m", "backlog moves")
+			}
+			g := reviewGit{root: p.Root}
+			p.Write("docs/reviews/RV-4.md", "# RV-4\n")
+			p.Write(tc.path, "# Backlog\n\n## Open\n- a stray backlog\n")
+			if st := p.Git(p.Root, "status", "--porcelain", "--untracked-files=all"); !strings.Contains(st, "?? "+tc.path) {
+				t.Fatalf("precondition: %s untracked, status %q", tc.path, st)
+			}
+			before := p.Git(p.Root, "rev-parse", "HEAD")
+
+			err := g.Close(context.Background(), closeOf(p, head, "rare case"))
+			if err == nil || err.Error() != "the main checkout is dirty outside a BACKLOG.md, docs/accepted.md and RV-4's files (?? "+tc.path+"): nothing changed" {
+				t.Errorf("an untracked %s: %v; want refused", tc.path, err)
+			}
+			if got := p.Git(p.Root, "rev-parse", "HEAD"); got != before {
+				t.Errorf("a refused close committed: HEAD %s, want %s", got, before)
+			}
+			if st := p.Git(p.Root, "status", "--porcelain", "--untracked-files=all"); !strings.Contains(st, "?? "+tc.path) {
+				t.Errorf("%s after the refusal is no longer untracked: %q", tc.path, st)
+			}
+			if !p.Exists("docs/reviews/RV-4.md") || p.Exists(app.AcceptedFile) {
+				t.Errorf("a refused close changed the checkout")
+			}
+		})
+	}
+}
+
 // obor review fix is no subcommand (a fix task's spec line Fixes: RV-<n> links it), and there is no verify
 // by hand: each is a usage error of obor review, which names neither; nothing is sent.
 func TestReviewFixGone(t *testing.T) {

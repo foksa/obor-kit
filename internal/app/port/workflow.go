@@ -30,9 +30,9 @@ type Review interface {
 	// again): the role's tests run in that worktree.
 	Detach(ctx context.Context, dir, sha string) error
 	// Close commits c in the main checkout (serve calls it admitted, reviewclose.go). Refused, an error ending
-	// "nothing changed": the checkout not on c.Branch, dirty outside a BACKLOG.md, docs/accepted.md and c's files, or
-	// c.Reviewed no commit. Else c's files deleted, c.Accepts appended to docs/accepted.md (created when missing) and
-	// the commit, each dirty BACKLOG.md and docs/accepted.md with it.
+	// "nothing changed": the checkout not on c.Branch, dirty outside a tracked BACKLOG.md, docs/accepted.md and c's
+	// files, or c.Reviewed no commit. Else c's files deleted, c.Accepts appended to docs/accepted.md (created when
+	// missing) and the commit, each dirty tracked BACKLOG.md and docs/accepted.md with it.
 	Close(ctx context.Context, c ReviewCommit) error
 	// Closed is the subject of review id's close commit on branch since from (its start's head; "": all of branch),
 	// newest first ("": none): the close's crash cut, its one read (reviewCloseRead).

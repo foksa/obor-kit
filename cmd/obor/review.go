@@ -53,9 +53,9 @@ func reviewCmd(args []string) int {
 // written) on the integration branch. --force also closes an unwritten review that covers no task (nothing to delete,
 // the reviewed sha its start's head); one that covers tasks is refused until its reviewer writes it. FAIL:
 // serve down, its refusal (no open review, no review start for it in the log, the main checkout not on the
-// integration branch or dirty outside a BACKLOG.md, docs/accepted.md and the review's files, a linked fix not verified
-// without --force, a review with no file without --force, or an unwritten review that covers tasks even with --force)
-// or a usage error (exit 1).
+// integration branch or dirty outside a tracked BACKLOG.md, docs/accepted.md and the review's files, a linked fix not
+// verified without --force, a review with no file without --force, or an unwritten review that covers tasks even with
+// --force) or a usage error (exit 1).
 func reviewCloseCmd(args []string) int {
 	var summary string
 	var accepts []string
