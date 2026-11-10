@@ -346,7 +346,7 @@ func stoppedBrief(p *proj, agent string, brief, stop int64, at time.Time) {
 	fold := func(seq int64, step string, data any) {
 		d, _ := json.Marshal(data)
 		p.out.Fold(event.Record{Seq: seq, TS: at.Format(time.RFC3339Nano), Task: event.MsgTask, Step: step,
-			Kind: event.KindFact, Data: d})
+			Kind: event.KindFact, Data: d}, p.oldLineOf)
 	}
 	fold(brief, event.StepBriefed, event.Message{To: agent})
 	fold(stop, event.StepStopped, outbox.Stopped{Agent: agent, Error: "usage_limit_exceeded", Brief: brief,
@@ -374,7 +374,7 @@ func deliverLines(t *testing.T, h *harness) {
 // The needs-you line's rule, one table (condition → action). The first line at once; a repeat 30 min after
 // the first line's delivery, then 60 after each repeat's, never while the last line waits; nothing once the needs-you
 // is answered, for a closed task's watchdog fact or for the project's own lines' needs-you; a restart sends nothing
-// again.
+// again; an older line (message{needs}, no of) counts as the rule's.
 func TestNeedsRule(t *testing.T) {
 	t.Parallel()
 	needs := rule{name: ruleNeeds, when: needsRule}
@@ -410,6 +410,11 @@ func TestNeedsRule(t *testing.T) {
 			t.Fatalf("precondition: T-1 closed %v, needs-yous in force %v; want closed with its fact", p.closed("T-1"),
 				p.needsYou())
 		}
+	}
+	oldLine := func(t *testing.T, h *harness) { // a line of T-1's needs-you as an older obor recorded it
+		seq := h.proj().needsYou()[0].Seq
+		addRecord(t, h, event.MsgTask, event.StepMessage, event.KindFact, map[string]any{"to": "pj-lead", "from": "obor",
+			"line": "[obor] needs-you T-1 (L-01): old", "needs": seq})
 	}
 	const first = "[obor] needs-you T-1 (L-01): lane: lane_setup boom"
 	cases := []struct {
@@ -448,6 +453,10 @@ func TestNeedsRule(t *testing.T) {
 			steps: []lineStep{fact("T-1"), pass(0), deliverLines, restartRig, pass(0), pass(29 * time.Minute),
 				restartRig, pass(time.Minute), pass(0)},
 			lines: []string{"T-1", "T-1 (again, 30m)"}, ns: []int{0, 1}},
+		{name: "a line recorded without of: no second first line, its repeat counts from its delivery",
+			steps: []lineStep{fact("T-1"), oldLine, deliverLines, restartRig, pass(0), pass(29 * time.Minute),
+				pass(time.Minute)},
+			lines: []string{"T-1 (again, 30m)"}, ns: []int{1}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -545,6 +554,41 @@ func TestNeedsRuleToast(t *testing.T) {
 				t.Errorf("a rule needs-you after failed toasts: %v", active)
 			}
 		})
+	}
+}
+
+// An old log's notify.* and alarm.* records replay and fold as nothing: the needs line it recorded before
+// The folded line is what keeps the rule from toasting again, and an older log's steps are no error.
+func TestOldNotifyRecordsReplay(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	h.withLead()
+	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{}, nil }
+	t.Cleanup(func() {
+		if p := h.a.p; p != nil {
+			p.log.Close()
+		}
+		h.a.closeLog()
+	})
+	factData, _ := json.Marshal(event.FactData{Lane: "L-01", Reason: "blocked"})
+	oldLine, _ := json.Marshal(map[string]any{"to": "pj-lead", "from": "obor",
+		"line": "[obor] needs-you T-1 (L-01): blocked", "needs": 1})
+	h.log(
+		event.Record{Task: "T-1", Step: event.StepNeedsYou, Kind: event.KindFact, Data: factData},
+		event.Record{Task: event.MsgTask, Step: event.StepMessage, Kind: event.KindFact, Data: oldLine},
+		event.Record{Task: "T-1", Step: "notify.1", Kind: event.KindIntent, Class: event.ClassFact},
+		event.Record{Task: "T-1", Step: "notify.1", Kind: event.KindResult, Data: []byte(`"shown"`)},
+		event.Record{Task: event.MsgTask, Step: "alarm.9", Kind: event.KindIntent, Class: event.ClassFact},
+		event.Record{Task: event.MsgTask, Step: "alarm.9", Kind: event.KindResult, Data: []byte(`"shown"`)},
+	)
+	h.connect()
+	p := h.proj()
+	if !p.merging || p.out.Lead() == "" || len(p.needsYou()) != 1 {
+		t.Fatalf("precondition: merging %v, lead %q, needs-yous %d", p.merging, p.out.Lead(), len(p.needsYou()))
+	}
+	h.a.rulePass(context.Background(), []rule{{name: ruleNeeds, when: needsRule}, {name: ruleStopAlarm, when: stopAlarmRule}}, &Loop{})
+	if notes := h.panes.notes; len(notes) != 0 {
+		t.Errorf("notifications after the replay: %q, want none", notes)
 	}
 }
 
