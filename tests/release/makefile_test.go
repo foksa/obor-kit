@@ -197,6 +197,72 @@ func TestMakeCheckFailsOnBrokenBuild(t *testing.T) {
 	}
 }
 
+// checkDeadcode runs `make -s check` on a kit copy whose fake go marks deadcode's run in dir/deadcode.ran (a
+// precondition: the marker is absent before the run), logs its calls, answers deadcode with deadcodeRC and go test with
+// testOut (its stdout) and testRC. It returns the output, whether make failed, whether deadcode ran and the go calls.
+func checkDeadcode(t *testing.T, deadcodeRC int, testOut string, testRC int) (string, bool, bool, []string) {
+	t.Helper()
+	dir := testkit.Dir(t)
+	writeFile(t, filepath.Join(dir, "Makefile"), string(treeFile(t, "Makefile")))
+	writeFile(t, filepath.Join(dir, "VERSION"), "1.2.3\n")
+	log := filepath.Join(dir, "go.log")
+	marker := filepath.Join(dir, "deadcode.ran")
+	writeExec(t, filepath.Join(dir, "fake-go"), `#!/bin/bash
+echo "$*" >> "`+log+`"
+case "$1" in
+  run) case "$2" in
+         golang.org/x/tools/cmd/deadcode*) : > "`+marker+`"; exit `+strconv.Itoa(deadcodeRC)+` ;;
+       esac ;;
+  test) printf '%s\n' "`+testOut+`"; exit `+strconv.Itoa(testRC)+` ;;
+esac
+`)
+	writeExec(t, filepath.Join(dir, "stub", "gofmt"), "#!/bin/bash\nexit 0\n")
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("precondition: %s exists before make: %v", marker, err)
+	}
+	cmd := exec.Command("make", "-s", "-C", dir, "check", "GO="+filepath.Join(dir, "fake-go"))
+	cmd.Env = append(plainMakeEnv(), "PATH="+filepath.Join(dir, "stub")+string(os.PathListSeparator)+os.Getenv("PATH"))
+	out, err := cmd.CombinedOutput()
+	_, statErr := os.Stat(marker)
+	return string(out), err != nil, statErr == nil, strings.Split(strings.TrimSpace(readFile(t, log)), "\n")
+}
+
+// RV-173 #1 (T-1173): check runs deadcode before its go test. A red suite the nightly's retest turns green used to exit
+// check on the failed go test, so the commit a saved nightly pins never had its dead-code check run; and when deadcode
+// fails the tests do not run. The tests' summary stays the target's last line, which the nightly's report reads.
+func TestMakeCheckRunsDeadcodeBeforeGoTest(t *testing.T) {
+	t.Parallel()
+	t.Run("a failing go test still ran deadcode", func(t *testing.T) {
+		t.Parallel()
+		out, failed, ran, calls := checkDeadcode(t, 0, "FAIL\texample.com/fx\t0.01s", 1)
+		if !failed {
+			t.Fatalf("a failing go test passed make check:\n%s", out)
+		}
+		if !ran {
+			t.Errorf("check stopped before deadcode ran (calls %q):\n%s", calls, out)
+		}
+		if got, want := decisionLine(out), "go test: 0 pass, 1 fail"; got != want {
+			t.Errorf("the target's last line %q; want the tests' summary %q (the nightly reads it):\n%s", got, want, out)
+		}
+	})
+	t.Run("deadcode failing: FAIL deadcode, no go test", func(t *testing.T) {
+		t.Parallel()
+		out, failed, ran, calls := checkDeadcode(t, 1, "ok\texample.com/fx\t0.01s", 0)
+		if !failed {
+			t.Fatalf("a failing deadcode passed make check:\n%s", out)
+		}
+		if !ran {
+			t.Errorf("precondition: the fake deadcode ran: %q", calls)
+		}
+		if got, want := decisionLine(out), "FAIL deadcode"; got != want {
+			t.Errorf("the target's last line %q; want %q:\n%s", got, want, out)
+		}
+		if got := goCall(calls, "test "); got != "" {
+			t.Errorf("go test ran after deadcode failed: %q", got)
+		}
+	})
+}
+
 func TestMakeCheckGocacheFallback(t *testing.T) {
 	t.Parallel()
 	writable := filepath.Join(t.TempDir(), "cache")
@@ -1194,8 +1260,8 @@ func TestOborKitCheckRace(t *testing.T) {
 
 // makeErrorLine is make's trailing line for a failed recipe, both formats in use where this kit runs: GNU Make 3.81
 // prints `make: *** [check-race] Error N`, GNU Make 4.x `make: *** [Makefile:165: check-race] Error N` (and a sub-make
-// prefixes its own `make[1]:`). Group 1 is the recipe's exit status.
-var makeErrorLine = regexp.MustCompile(`^make(?:\[\d+\])?: \*\*\* \[(?:.+: )?check-race\] Error (\d+)$`)
+// prefixes its own `make[1]:`). Group 1 is the recipe's exit status; the target is any (check, check-race).
+var makeErrorLine = regexp.MustCompile(`^make(?:\[\d+\])?: \*\*\* \[(?:.+: )?[^\]]+\] Error (\d+)$`)
 
 // decisionLine is the target's own last non-blank line: the output above make's trailing error line, which make appends
 // to every failed recipe (and which the nightly's last-line report reads instead).
