@@ -547,6 +547,8 @@ func TestStartOverride(t *testing.T) {
 				`"/home/u/.codex/hooks.json:session_start:0:0"={enabled=false}}`)},
 		{"a hooks override that keeps every user hook: no hooks key", "", `{"hooks": {"Stop": []}}`, with(""), want()},
 		{"no user hooks.json: no hooks key", "", `{"hooks": {"PreToolUse": []}}`, files(nil), want()},
+		{"no user hooks.json, the override adds a SessionStart hook: no hooks key", "",
+			`{"hooks": {"SessionStart": [{"hooks": [` + a + `]}]}}`, files(nil), want()},
 		{"both files: the config's options, the trim, then the hooks", "web_search = \"live\"\n",
 			`{"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [` + a + `]}, {"hooks": [` + b + `]}]}}`, with(""),
 			config(opts(`web_search="live"`), notifyOff)},
@@ -598,7 +600,8 @@ func TestStartOverride(t *testing.T) {
 }
 
 // config validate's notes on the hooks override: one per hook it adds to the user's (to an event the user has, or
-// a new one), none for a hook it keeps or drops, none without the file.
+// a new one), none for a hook it keeps or drops, none without the file. An absent user hooks.json counts as empty, so
+// every hook the override adds warns; a malformed one warns nothing.
 func TestOverrideWarnings(t *testing.T) {
 	k, _ := split()
 	checker := k.(agents.OverrideChecker)
@@ -617,6 +620,22 @@ func TestOverrideWarnings(t *testing.T) {
 	}
 	if got := checker.OverrideWarnings(agents.Start{TrimUser: true, Env: home, Read: read}); len(got) != 0 {
 		t.Errorf("no hooks override: %q, want no warning", got)
+	}
+	const sessionStart = `{"hooks": {"SessionStart": [{"hooks": [{"command": "s.sh"}]}]}}`
+	none := func(hooks string) agents.Start {
+		return agents.Start{TrimUser: true, Env: home, Read: files(nil), Overrides: map[string]string{codex.HooksOverride: hooks}}
+	}
+	got = checker.OverrideWarnings(none(sessionStart))
+	if len(got) != 1 || !strings.HasPrefix(got[0], "hooks_override.json: adds a SessionStart hook") {
+		t.Errorf("no user hooks file, the override adds a hook: %q, want one warning", got)
+	}
+	bad := func(hooks string) agents.Start {
+		in := none(hooks)
+		in.Read = files(map[string]string{"/home/u/.codex/hooks.json": `{"hooks": `})
+		return in
+	}
+	if got := checker.OverrideWarnings(bad(sessionStart)); len(got) != 0 {
+		t.Errorf("a malformed user hooks file: %q, want no warning", got)
 	}
 }
 

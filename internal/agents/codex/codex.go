@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"math"
 	"path/filepath"
@@ -214,7 +215,9 @@ type hookFile struct {
 // events sorted: a hook's key is its position in the user's file, so it is built on every start. added are the
 // events of the hooks the merged document has and the user's file lacks, one per hook: Codex runs no hook from a -c
 // option, so they have no effect. A hook is the same when it is equal, key by key, to one of the same event (each
-// counted once). Both nil: no HooksOverride, or no user hooks.json (or one that is no hooks file).
+// counted once). An absent user hooks.json is an empty document, so every hook of the merged one is added and none is
+// switched off. Both nil: no HooksOverride, no user dir, or a user file that cannot be read or is no hooks file (its
+// hooks stay as they are).
 func hooksOff(in agents.Start) (off, added []string) {
 	patch := in.Override(HooksOverride)
 	dir := userDir(in)
@@ -223,7 +226,9 @@ func hooksOff(in agents.Start) (off, added []string) {
 	}
 	path := filepath.Join(dir, "hooks.json")
 	b, err := in.Read(path)
-	if err != nil {
+	if errors.Is(err, fs.ErrNotExist) {
+		b = []byte("{}") // no user hooks: every hook of the merged document is added
+	} else if err != nil {
 		return nil, nil
 	}
 	doc, err := agents.JSONObject(b)
