@@ -99,8 +99,10 @@ role worktree (`<lanes.dir>/reviewer`, `<lanes.dir>/deep_dive`; T-853), never la
 them (a review's start, a verify, a brief to an idle deep dive), so merges never wait; their files go to the main
 checkout's reviews dir;
 a review's fix specs carry `Fixes: RV-<n>[ <what to check>]` (T-924; `obor review fix` is gone): dispatching them
-links them, and serve briefs the verify in the reviewer's same session once they merged. At most two review rounds per feature; then accept the rest in `BACKLOG.md`
-(`review-brief.md` §3). Serve stops the reviewer once the review is closed
+links them, and serve briefs the verify in the reviewer's same session once they merged. At most two review rounds
+per feature; then accept the rest with `obor review close --accept` (they go to `docs/accepted.md`)
+(`review-brief.md` §3). Before filing a bug or a finding, `grep` its symptom in `docs/accepted.md`: an accepted line
+names its fix cost. Serve stops the reviewer once the review is closed
 (`RV-<n> closed`) and the integrator after its last verdict (T-672). A deep dive whose verify approves:
 `obor restart <deep-dive> --stop`; the next one starts clean on its brief (`obor brief <deep-dive> "<text>"`, and
 `--fresh` stops a running one first). `obor brief` is the one way to brief a role agent.

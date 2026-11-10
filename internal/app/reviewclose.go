@@ -221,22 +221,26 @@ func ClosesReview(subject, id string) bool {
 	return strings.HasPrefix(subject, id+" closed · ")
 }
 
-// AcceptLines is backlog with one line "- (<id>, accepted) <line>" per accepted finding at the top of its "## Open"
-// section (the close's BACKLOG lines, rendered here and committed by port.Review.Close); no such section: an error.
-func AcceptLines(backlog, id string, accepts []string) (string, error) {
-	ls := strings.SplitAfter(backlog, "\n")
-	for i, l := range ls {
-		if strings.TrimSpace(l) != "## Open" {
-			continue
-		}
-		var add []string
-		for _, a := range accepts {
-			add = append(add, "- ("+id+", accepted) "+a+"\n")
-		}
-		if !strings.HasSuffix(l, "\n") {
-			ls[i] += "\n"
-		}
-		return strings.Join(ls[:i+1], "") + strings.Join(add, "") + strings.Join(ls[i+1:], ""), nil
+// AcceptedFile is where a close's accepted findings go (the main checkout's docs/accepted.md): a file no role reads
+// at session start, looked up when a finding's symptom shows.
+const AcceptedFile = "docs/accepted.md"
+
+// acceptedHead starts a new AcceptedFile.
+const acceptedHead = "# Accepted findings\n\n" +
+	"Review findings accepted instead of fixed, one line each, written by `obor review close --accept` (newest\n" +
+	"last). Nobody reads this file at session start: look a line up when its symptom shows, and fix it then.\n\n"
+
+// AcceptedLines is the accepted-findings file old ("": none yet, started with its head) with one line
+// "- (<id>, accepted) <line>" per accepted finding at its end (rendered here, committed by port.Review.Close).
+func AcceptedLines(old, id string, accepts []string) string {
+	if old == "" {
+		old = acceptedHead
 	}
-	return "", errors.New("--accept: BACKLOG.md has no \"## Open\" section: nothing changed")
+	if !strings.HasSuffix(old, "\n") {
+		old += "\n"
+	}
+	for _, a := range accepts {
+		old += "- (" + id + ", accepted) " + a + "\n"
+	}
+	return old
 }

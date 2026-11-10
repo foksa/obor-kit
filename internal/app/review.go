@@ -535,8 +535,8 @@ func reviewBrief(id string, s ReviewSetup, short, from, prev, last string, scope
 	var b strings.Builder
 	fmt.Fprintf(&b, "Review %s. %s is at %s. In scope: %s; files: %s.", id, s.Branch, short, inScope, fileList)
 	if prev != "" {
-		fmt.Fprintf(&b, " Previous review: %s (its close commit: %s; its accepted findings are the BACKLOG lines that name %s)"+
-			" — don't repeat them.", prev, last, prev)
+		fmt.Fprintf(&b, " Previous review: %s (its close commit: %s; its accepted findings are the lines of %s that name %s)"+
+			" — don't repeat them.", prev, last, AcceptedFile, prev)
 	} else {
 		b.WriteString(" Previous review: none.")
 	}

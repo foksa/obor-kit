@@ -1,7 +1,7 @@
 # Backlog
 
-<!-- The lead's working file, prose only. The lead appends; nothing else writes except `obor review close --accept
-"<line>"`, which adds its accepted lines under Open and commits them with the close.
+<!-- The lead's working file, prose only. The lead appends; nothing else writes. Accepted review findings are not here:
+`obor review close --accept` writes them to docs/accepted.md.
 Running and waiting tasks come from `obor status`; a task that waits for others is `obor dispatch T-xx --after T-yy`.
 Finished items leave this file (history: git log, task specs, reviews). Owner decisions go to docs/decisions.md. -->
 

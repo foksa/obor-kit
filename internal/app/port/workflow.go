@@ -28,9 +28,9 @@ type Review interface {
 	// Detach puts the role worktree at dir on sha, detached, adding it when it is missing (T-853).
 	Detach(ctx context.Context, dir, sha string) error
 	// Close commits c in the main checkout (T-926; serve calls it admitted, reviewclose.go). Refused, an error ending
-	// "nothing changed": the checkout not on c.Branch, dirty outside BACKLOG.md and c's files, no "## Open" section
-	// in BACKLOG.md for c.Accepts, or c.Reviewed no commit. Else c's files deleted, c.Accepts at the top of
-	// BACKLOG.md's Open section and the commit, BACKLOG.md with it.
+	// "nothing changed": the checkout not on c.Branch, dirty outside BACKLOG.md, docs/accepted.md and c's files, or
+	// c.Reviewed no commit. Else c's files deleted, c.Accepts appended to docs/accepted.md (created when missing) and
+	// the commit, BACKLOG.md and docs/accepted.md with it.
 	Close(ctx context.Context, c ReviewCommit) error
 	// Closed is the subject of review id's close commit on branch since from (its start's head; "": all of branch),
 	// newest first ("": none): the close's crash cut, its one read (reviewCloseRead).
