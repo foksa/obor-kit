@@ -168,12 +168,13 @@ type cache struct {
 func CacheFile(stateDir, name string) string { return filepath.Join(stateDir, "kinds", name+".json") }
 
 // Kind is a plugin kind: agents.Kind (and agents.Whole, agents.Fallible, agents.ArgsChecker, agents.ProjectChecker,
-// agents.Overridable) by
+// agents.Overridable, agents.Current) by
 // running its command.
 type Kind struct {
 	name, command, stateDir string
 	local                   Handler // non-nil: the kind answers in process (Local), no command runs
 
+	fixed   bool // one start's kind (AsNow): m is its manifest for every call, the command not looked at again
 	mu      sync.Mutex
 	m       *manifest // nil: no usable cache (missing says why)
 	missing error
@@ -276,12 +277,23 @@ func executable(command string) (os.FileInfo, error) {
 	return fi, nil
 }
 
+// AsNow (agents.Current) is k for one start: its manifest as a call that runs the command gets it (described again
+// when the command changed), fixed in the kind returned, so the start's override files and its start call are of one
+// manifest. An error: no manifest, or the changed command's describe failed.
+func (k *Kind) AsNow() (agents.Kind, error) {
+	m, err := k.manifest()
+	if err != nil {
+		return nil, err
+	}
+	return &Kind{name: k.name, command: k.command, stateDir: k.stateDir, local: k.local, fixed: true, m: m}, nil
+}
+
 // manifest is k's manifest for a call that runs the command: described again first when the command changed since the
-// cache (another path, another mtime).
+// cache (another path, another mtime). A fixed kind's is the one it was made with.
 func (k *Kind) manifest() (*manifest, error) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	if k.m == nil || k.local != nil {
+	if k.m == nil || k.local != nil || k.fixed {
 		return k.m, k.missing
 	}
 	if fi, err := os.Stat(k.command); err != nil || k.cmdAt != k.command || !fi.ModTime().Equal(k.mtimeAt) {

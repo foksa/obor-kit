@@ -242,12 +242,21 @@ func (c *Config) checkModelRef(ref string, described map[string]agents.Kind) err
 // (agents.ParseOverride); it names the file, and no agent of the kind starts on it.
 func (c *Config) Overrides(kind string) (map[string]string, error) {
 	k, ok := agents.Lookup(kind)
-	if !ok || c.Root == "" {
+	if !ok {
+		return nil, nil
+	}
+	return c.OverridesOf(k)
+}
+
+// OverridesOf is Overrides of the kind k as given: the files k names, not the registry's kind of its name (a start's
+// kind, agents.AsNow).
+func (c *Config) OverridesOf(k agents.Kind) (map[string]string, error) {
+	if c.Root == "" {
 		return nil, nil
 	}
 	var out map[string]string
 	for _, name := range agents.OverrideFiles(k) {
-		rel := filepath.Join(agents.OverrideDir(kind), name)
+		rel := filepath.Join(agents.OverrideDir(k.Name()), name)
 		b, err := os.ReadFile(filepath.Join(c.Root, rel))
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
@@ -283,6 +292,12 @@ func (m Model) Launch(role string, overrides map[string]string, in agents.Start)
 	if !ok {
 		return agents.Launch{Args: append([]string(nil), m.Args...)}, nil
 	}
+	return m.LaunchOf(k, role, overrides, in)
+}
+
+// LaunchOf is Launch as the kind k builds it, k the model's kind as the start has it (agents.AsNow), not the
+// registry's.
+func (m Model) LaunchOf(k agents.Kind, role string, overrides map[string]string, in agents.Start) (agents.Launch, error) {
 	in.Args, in.Settings, in.StrictMCP, in.TrimUser, in.Overrides = m.Args, nil, roles.LaneBound(role), role != "lead", nil
 	if in.TrimUser {
 		in.Settings = map[string]any{"remoteControlAtStartup": false, "autoMemoryEnabled": false}
