@@ -489,7 +489,7 @@ func TestLaneRefusesAFailingSetup(t *testing.T) {
 
 // --- pane -------------------------------------------------------------------------------------------------------------
 
-const settings = `--setting-sources project,local --settings {"autoMemoryEnabled":false,"remoteControlAtStartup":false}`
+const settings = `--settings {"autoMemoryEnabled":false,"remoteControlAtStartup":false}`
 
 // laneArgs is a lane agent's start args before its first prompt: obor's MCP server, then the strict flag that
 // hides every other one, then the settings.

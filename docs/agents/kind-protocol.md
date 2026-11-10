@@ -81,10 +81,10 @@ The compiled kinds get three Go functions; a process gets data instead.
 Every variable in `env` must be among the manifest's `vars` (`agents.Vars`: a start unsets every registry var
 it does not set).
 
-`trim_user` (true for every agent but a lead, `agents.Start.TrimUser`): the start drops what the user's own scope holds
-as far as the kind's CLI lets it, and the kind says which sources its switch hides and which stay (OpenCode:
-`OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` in `env`, "" when false, hides the Claude skill dirs only). A user source the
-CLI has no switch for stays visible.
+`trim_user` (true for every agent but a lead, `agents.Start.TrimUser`): obor switches off the user's plugins and
+skills; every other user setting applies. The kind says what its switch names and what stays (OpenCode:
+`OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` in `env`, "" when false, hides the Claude skill dirs only). What the CLI has no
+switch for stays visible.
 
 ## The manifest
 

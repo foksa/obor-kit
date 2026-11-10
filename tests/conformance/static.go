@@ -178,7 +178,7 @@ func ccS1(help, where string) {
 	} else {
 		report("PASS", "CC-S1", "--effort lists exactly "+strings.Join(want, " "), where)
 	}
-	flags := []string{"--mcp-config", "--strict-mcp-config", "--settings", "--setting-sources", "--resume", "--session-id", "--print", "--permission-mode", "--plugin-dir"}
+	flags := []string{"--mcp-config", "--strict-mcp-config", "--settings", "--resume", "--session-id", "--print", "--permission-mode", "--plugin-dir"}
 	var gone []string
 	for _, f := range flags {
 		if !hasOption(help, f) {

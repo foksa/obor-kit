@@ -32,7 +32,7 @@ import (
 
 func TestMain(m *testing.M) { testkit.Main(m) }
 
-const settings = `--setting-sources project,local --settings {"autoMemoryEnabled":false,"remoteControlAtStartup":false}`
+const settings = `--settings {"autoMemoryEnabled":false,"remoteControlAtStartup":false}`
 
 // laneMCP is a lane agent's own args before its settings: obor's MCP server, then the strict flag that hides
 // every server the command line does not name.
@@ -571,7 +571,7 @@ func TestRestartWho(t *testing.T) {
 		env: func(x *fx) string {
 			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=cd " + q(x.lane) + " && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:p3 OBOR_LANE_CPUS=2"
 		},
-		start: "agent.start args=[" + laneMCP + "--setting-sources project,local --settings {\"autoMemoryEnabled\":false,\"remoteControlAtStartup\":false} --resume sid-1] kind=claude name=pj-l-01 pane_id=w1:p3",
+		start: "agent.start args=[" + laneMCP + "--settings {\"autoMemoryEnabled\":false,\"remoteControlAtStartup\":false} --resume sid-1] kind=claude name=pj-l-01 pane_id=w1:p3",
 		line:  "RESTARTED pj-l-01 (pane w1:p3, session sid-1)",
 	}, {
 		// another project's agent may be named like a lane; no lane env, no lane settings

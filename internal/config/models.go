@@ -240,8 +240,8 @@ func (c *Config) checkModelRef(ref string, described map[string]agents.Kind) err
 // writer), with the model's args, the settings and a lane's strictness. The args with effort: the kind sets it
 // the settings as the kind takes them (Claude's --settings <settings>); a lane's agent starts strict (its obor
 // MCP server alone). Every agent but a lead starts with {"remoteControlAtStartup":false,"autoMemoryEnabled":false}
-// (only the lead on the phone, and only the lead keeps auto memory) and trimmed (agents.Start.TrimUser: without
-// the user's own plugins, skills and hooks; only the lead keeps them). role is the agent's
+// (only the lead on the phone, and only the lead keeps auto memory) and trimmed (agents.Start.TrimUser: the
+// user's plugins and skills switched off, every other user setting applying; only the lead keeps them). role is the agent's
 // (roles.Role.Name; "": none). A kind obor has no bridge for: the args alone, no env. What the env does not set the
 // start unsets (agents.StartVars): an earlier OpenCode start's model never carries into another kind's.
 // An error: the start cannot carry the effort, or a plugin kind's start failed.
