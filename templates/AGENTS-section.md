@@ -9,5 +9,7 @@ names both; read them before acting. The lead runs `/obor:lead`.
   that keeps causing friction, a bug pattern, your own mistake)? Say so with a recommendation, unprompted (workers: a
   `Concerns:` line in the `task_done` report).
 - **Never `pkill`/`killall` by pattern**: stop only processes you started, by PID. Never `git push`.
+- **Text says what is, never what was**: docs, comments and reports describe the current behaviour, with no previous
+  states ("it used to…", "no longer…") and no task or review ids.
 
 <!-- fill in: project-specific rules — runtime constraints, layout, how to run the checks, protected files. -->

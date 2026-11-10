@@ -1,13 +1,13 @@
 # Integrations
 
 An integration (a ticket tracker such as Jira, a chat bot, a dashboard) is a process the project runs next to obor:
-a script or a service, out of process, nothing compiled in (`docs/plan/architecture-target.md` §2c, T-1039). It uses
+a script or a service, out of process, nothing compiled in (`docs/plan/architecture-target.md` §2c). It uses
 three things obor provides: a custom role with **verbs** to take a task and brief the lead, the **event feed** to
 follow what happens, and a spec's **`Ref:` line** to tie a task to the external id.
 
 ## The role and its verbs
 
-The integration runs as a custom role (T-801): an `agents.roles.<name>` row with a doc `docs/agents/<name>.md`, and
+The integration runs as a custom role: an `agents.roles.<name>` row with a doc `docs/agents/<name>.md`, and
 `OBOR_ROLE=<name>` in its environment. Its `verbs` are the wire methods serve admits it to as it admits the lead and
 the owner:
 
@@ -44,7 +44,7 @@ the owner:
 default: from the first record), one line per record, in seq order.
 
 - `--json`: each line is one record as serve wrote it plus its task's ref:
-  `{"seq":42,"ts":"2026-11-08T10:00:00Z","task":"T-7","attempt":1,"step":"merged","kind":"fact","data":{"head":"…"},"ref":"TICKET-1"}`.
+  `{"seq":42,"ts":"2026-11-08T10:00:00Z","task":"T-xx","attempt":1,"step":"merged","kind":"fact","data":{"head":"…"},"ref":"TICKET-1"}`.
   `seq` is the cursor; `kind` is `intent`, `result` or `fact`; `step` and `data` are the log's
   (`internal/app/event`: `merged`, `dispatched`, `submitted`, `needs-you` …); `ref` is the task's stored spec's
   `Ref:` line (absent when the task has none, and on records of no task: messages, sessions, pauses).
@@ -67,8 +67,8 @@ from its cursor, and on the task's `merged` record marks the ticket done. The sa
 ```sh
 export OBOR_ROLE=tracker
 cursor=$(cat .tracker-cursor 2>/dev/null || echo 0)
-printf '# T-7 — Fix the widget\n\nDifficulty: medium\nRef: TICKET-1\n' > /tmp/T-7.md
-obor spec set T-7 /tmp/T-7.md && obor dispatch T-7
+printf '# T-xx — Fix the widget\n\nDifficulty: medium\nRef: TICKET-1\n' > /tmp/T-xx.md
+obor spec set T-xx /tmp/T-xx.md && obor dispatch T-xx
 obor events --follow --json --after "$cursor" | while read -r line; do
   seq=$(printf '%s' "$line" | jq -r .seq)
   if [ "$(printf '%s' "$line" | jq -r '.step + " " + .kind')" = "merged fact" ]; then
