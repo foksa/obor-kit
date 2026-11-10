@@ -31,14 +31,15 @@ func EnvVarsTOML() string {
 
 // Start: `resume <sid>` before the type's args (with in.Effort: their model_reasoning_effort replaced by
 // -c model_reasoning_effort=<effort>), then --add-dir per write dir, then a trimmed start's switches (in.TrimUser:
-// trimKeys false: no plugins, no app connectors, no bundled skills), then obor's server (with a kit), then the update
-// check off, then the prompt (a resume carries none). Codex takes no settings.
+// trimKeys false: no plugins, no app connectors, no bundled skills; skills.config with every dir of the user's
+// skills dir off, skillsOff; the rest of the user's config applies), then obor's server (with a kit), then the
+// update check off, then the prompt (a resume carries none). Codex takes no settings.
 //
 // The project's committed .codex/config.toml in in.Dir outranks obor's policy: a top-level sandbox_mode drops
 // the base args' -s workspace-write, a top-level check_for_update_on_startup leaves the update check as the file sets
-// it, and a trim key the file sets (in any form: dotted, in a [table], or inside a table it assigns whole) is left as
-// the file sets it. A key the type's args set (-c) is left as they set it too. A file that does not parse counts as
-// absent (config validate warns).
+// it, and a trim key the file sets (in any form: dotted, in a [table], inside a table it assigns whole, or as
+// [[skills.config]] tables) is left as the file sets it. A key the type's args set (-c) is left as they set it too.
+// A file that does not parse counts as absent (config validate warns).
 func (kind) Start(in agents.Start) []string {
 	top, _ := projectKeys(in)
 	args := in.Args
@@ -58,6 +59,9 @@ func (kind) Start(in agents.Start) []string {
 			if !argSets(in.Args, k) && !sets(top, k) {
 				out = append(out, "-c", k+"=false")
 			}
+		}
+		if off := skillsOff(in); off != "" && !argSets(in.Args, skillsKey) && !sets(top, skillsKey) {
+			out = append(out, "-c", skillsKey+"="+off)
 		}
 	}
 	if in.Kit != "" {
@@ -103,6 +107,27 @@ func withoutSandbox(args []string) []string {
 // connectors, the bundled system skills. The project's skills and obor's -c MCP server stay.
 var trimKeys = []string{"features.plugins", "features.apps", "skills.bundled.enabled"}
 
+// skillsKey is Codex's per-skill switch list: [{name = "<skill>", enabled = false}, …].
+const skillsKey = "skills.config"
+
+// skillsOff is the skillsKey value that switches off every skill of the user's skills dir ($CODEX_HOME, default
+// ~/.codex: skills/), one entry per dir by its name; "": the dir has none (or the start names no user dir).
+func skillsOff(in agents.Start) string {
+	dir := agents.UserDir(in, "CODEX_HOME", ".codex")
+	if dir == "" {
+		return ""
+	}
+	var entries []string
+	for _, n := range agents.UserSkills(in, filepath.Join(dir, "skills")) {
+		name, _ := json.Marshal(n) // a JSON string is a TOML basic string
+		entries = append(entries, "{name="+string(name)+",enabled=false}")
+	}
+	if len(entries) == 0 {
+		return ""
+	}
+	return "[" + strings.Join(entries, ",") + "]"
+}
+
 // projectKeys are the keys the start dir's ConfigFile sets, as configKeys (nil: no file, or one that does not parse).
 func projectKeys(in agents.Start) (map[string]bool, error) {
 	b, found, err := agents.ProjectFile(in, ConfigFile)
@@ -112,8 +137,14 @@ func projectKeys(in agents.Start) (map[string]bool, error) {
 	return configKeys(string(b))
 }
 
-// sets: keys (configKeys) set key, or a table above it as one value (`features = {…}` sets features.plugins).
+// sets: keys (configKeys) set key, a table above it as one value (`features = {…}` sets features.plugins), or a key
+// below it (`[[skills.config]]` then `name = …` sets skills.config).
 func sets(keys map[string]bool, key string) bool {
+	for k := range keys {
+		if strings.HasPrefix(k, key+".") {
+			return true
+		}
+	}
 	for p := key; ; {
 		if keys[p] {
 			return true

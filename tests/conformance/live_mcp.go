@@ -25,6 +25,7 @@ import (
 	"obor/internal/agents"
 	"obor/internal/app/wire"
 	"obor/internal/config"
+	"obor/internal/project"
 )
 
 // The job the stub serve answers job_next with. The prompt names neither, so only the tool result can carry them.
@@ -112,7 +113,7 @@ func (l *lab) launchOf(kind, model, kit string, writeState func(string, []byte) 
 	if err != nil {
 		return liveStart{}, err
 	}
-	noKit, err := m.Launch("worker", agents.Start{Dir: l.lane, Read: os.ReadFile})
+	noKit, err := m.Launch("worker", agents.Start{Dir: l.lane, Read: os.ReadFile, Env: os.Getenv, Dirs: project.SubDirs})
 	if err != nil {
 		return liveStart{}, err
 	}

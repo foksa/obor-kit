@@ -208,7 +208,8 @@ func (s *Setup) mcpLane(name string) error {
 	// unless the project's committed CLI config opts out (the main checkout's copy stands for a lane's). A kind
 	// whose start is one call (a plugin kind) gets the complete start, the kit too; a compiled kind's Lane reads
 	// the type's launch args, before the start registers obor's server for the kit.
-	start := agents.Start{Dir: s.cfg.Root, Read: os.ReadFile, Env: s.Env.Get, WriteState: project.StateWriter(s.cfg.Root)}
+	start := agents.Start{Dir: s.cfg.Root, Read: os.ReadFile, Env: s.Env.Get, Dirs: project.SubDirs,
+		WriteState: project.StateWriter(s.cfg.Root)}
 	if _, whole := k.(agents.Whole); whole {
 		start.Kit = s.Kit
 	}

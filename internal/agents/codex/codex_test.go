@@ -383,6 +383,68 @@ func TestStartTrimUser(t *testing.T) {
 	}
 }
 
+// a trimmed start switches off each skill of the user's skills dir by name ($CODEX_HOME, default ~/.codex: skills/,
+// its dot dirs left out) in one -c skills.config after the three feature keys; not passed when the project's
+// config sets skills.config (as a key or as [[skills.config]] tables) or the type's args do, with no skill dir, or
+// on an untrimmed start.
+func TestStartTrimUserSkills(t *testing.T) {
+	k, _ := split()
+	base := []string{"-a", "never"}
+	dirs := func(at string, names ...string) agents.ListDirs {
+		return func(dir string) ([]string, error) {
+			if dir == at {
+				return names, nil
+			}
+			return nil, fs.ErrNotExist
+		}
+	}
+	home := func(k string) string { return map[string]string{"HOME": "/home/u"}[k] }
+	trim := []string{"-c", "features.plugins=false", "-c", "features.apps=false", "-c", "skills.bundled.enabled=false"}
+	want := func(args []string, skills ...string) []string {
+		out := append(slices.Clone(args), trim...)
+		for _, s := range skills {
+			out = append(out, "-c", s)
+		}
+		return append(out, "-c", "check_for_update_on_startup=false")
+	}
+	const img = `skills.config=[{name="codex-img",enabled=false}]`
+	for _, c := range []struct {
+		name string
+		in   agents.Start
+		want []string
+	}{
+		{"the user's skills dir has codex-img, the project sets nothing",
+			agents.Start{Args: base, Env: home, Dirs: dirs("/home/u/.codex/skills", "codex-img", ".system")}, want(base, img)},
+		{"two skills, under $CODEX_HOME: one list, sorted",
+			agents.Start{Args: base, Env: func(k string) string { return map[string]string{"HOME": "/home/u", "CODEX_HOME": "/cx"}[k] },
+				Dirs: dirs("/cx/skills", "b", "a")},
+			want(base, `skills.config=[{name="a",enabled=false},{name="b",enabled=false}]`)},
+		{"the project's config sets skills.config: not passed",
+			agents.Start{Args: base, Env: home, Dirs: dirs("/home/u/.codex/skills", "codex-img"),
+				Read: projectFS("[skills]\nconfig = [{ name = \"x\", enabled = true }]\n")}, want(base)},
+		{"the project's config sets it as tables: not passed",
+			agents.Start{Args: base, Env: home, Dirs: dirs("/home/u/.codex/skills", "codex-img"),
+				Read: projectFS("[[skills.config]]\nname = \"x\"\nenabled = true\n")}, want(base)},
+		{"the type's args set it: theirs alone",
+			agents.Start{Args: append(slices.Clone(base), "-c", "skills.config=[]"), Env: home,
+				Dirs: dirs("/home/u/.codex/skills", "codex-img")}, want(append(slices.Clone(base), "-c", "skills.config=[]"))},
+		{"no skills dir", agents.Start{Args: base, Env: home, Dirs: dirs("/elsewhere", "codex-img")}, want(base)},
+		{"no home in the environment", agents.Start{Args: base, Env: func(string) string { return "" },
+			Dirs: dirs("skills", "codex-img")}, want(base)},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			c.in.TrimUser, c.in.Dir = true, "/lane"
+			if got := k.Start(c.in); !slices.Equal(got, c.want) {
+				t.Errorf("Start =\n %q\nwant\n %q", got, c.want)
+			}
+		})
+	}
+	got := k.Start(agents.Start{Args: base, Env: home, Dirs: dirs("/home/u/.codex/skills", "codex-img")})
+	if w := append(slices.Clone(base), "-c", "check_for_update_on_startup=false"); !slices.Equal(got, w) {
+		t.Errorf("an untrimmed start = %q, want %q", got, w)
+	}
+}
+
 // config validate notes a config file that does not parse; none for a clean or absent one.
 func TestProjectWarnings(t *testing.T) {
 	k, _ := split()

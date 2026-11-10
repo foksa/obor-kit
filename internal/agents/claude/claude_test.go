@@ -21,9 +21,7 @@ func kind(t *testing.T) agents.Split {
 	return k.(agents.Split)
 }
 
-// Claude's start argv, fresh, resumed, strict and trimmed: the settings after the args, a trimmed start's
-// --setting-sources project,local before them (not on an untrimmed start; not when the args name the flag, either
-// spelling: the project's opt-out), obor's --mcp-config right before
+// Claude's start argv, fresh, resumed and strict: the settings after the args, obor's --mcp-config right before
 // the strict flag (with a kit, unless a config names obor), `--` before a prompt a config flag could take, --resume
 // with no prompt.
 func TestStart(t *testing.T) {
@@ -83,20 +81,6 @@ func TestStart(t *testing.T) {
 		{"a lane's start, an explicit obor entry in the args: the flag once, no second config", agents.Start{Kit: "/kit", StrictMCP: true,
 			Args: []string{"--mcp-config", obor}},
 			[]string{"--mcp-config", obor, "--strict-mcp-config"}},
-		{"trimmed: the project and local sources, before the settings",
-			agents.Start{Kit: "/kit", Args: []string{"--model", "opus"}, Settings: map[string]any{"autoMemoryEnabled": false},
-				TrimUser: true, Prompt: "go"},
-			[]string{"--model", "opus", "--setting-sources", "project,local", "--settings", `{"autoMemoryEnabled":false}`, "go"}},
-		{"trimmed, a lane's start: after the strict flag", agents.Start{Kit: "/kit", Args: []string{"--model", "opus"},
-			StrictMCP: true, TrimUser: true, Resume: "sid-1"},
-			[]string{"--model", "opus", "--mcp-config", ours, "--strict-mcp-config", "--setting-sources", "project,local",
-				"--resume", "sid-1"}},
-		{"trimmed, the args name the sources: theirs alone",
-			agents.Start{Kit: "/kit", Args: []string{"--setting-sources", "user,project,local", "--model", "opus"}, TrimUser: true, Prompt: "go"},
-			[]string{"--setting-sources", "user,project,local", "--model", "opus", "go"}},
-		{"trimmed, the args name the sources with =: theirs alone",
-			agents.Start{Kit: "/kit", Args: []string{"--setting-sources=user,project,local"}, TrimUser: true, Prompt: "go"},
-			[]string{"--setting-sources=user,project,local", "go"}},
 		{"a lane's start, no kit: the flag alone", agents.Start{StrictMCP: true, Args: []string{"--model", "opus"}, Prompt: "go"},
 			[]string{"--model", "opus", "--strict-mcp-config", "go"}},
 	} {
@@ -112,6 +96,122 @@ func TestStart(t *testing.T) {
 	}
 	if !strings.Contains(ours, `"command":"/kit/bin/obor"`) || !strings.Contains(ours, `"OBOR_NO_SELF_HOST":"1"`) {
 		t.Errorf("MCPConfig names the kit's bin/obor with the pin: %s", ours)
+	}
+}
+
+// userFS is a user's machine and a project for a trimmed start: files by path, the skills dirs by their parent dir.
+type userFS struct {
+	files map[string]string
+	dirs  map[string][]string
+}
+
+func (u userFS) read(path string) ([]byte, error) {
+	if b, ok := u.files[path]; ok {
+		return []byte(b), nil
+	}
+	return nil, fs.ErrNotExist
+}
+
+func (u userFS) list(dir string) ([]string, error) {
+	if d, ok := u.dirs[dir]; ok {
+		return d, nil
+	}
+	return nil, fs.ErrNotExist
+}
+
+// start is a trimmed start in /lane with obor's two settings, the user's home /home/u (or env's own variables).
+func (u userFS) start(env map[string]string) agents.Start {
+	if env == nil {
+		env = map[string]string{"HOME": "/home/u"}
+	}
+	return agents.Start{Args: []string{"--model", "opus"}, TrimUser: true, Dir: "/lane", Read: u.read, Dirs: u.list,
+		Env:      func(k string) string { return env[k] },
+		Settings: map[string]any{"remoteControlAtStartup": false, "autoMemoryEnabled": false}}
+}
+
+// A trimmed start switches off the user's own plugins and skills in its one --settings flag, beside obor's two
+// settings, and names no --setting-sources (the user's env, hooks and every other setting apply): enabledPlugins
+// false per plugin the user's settings enable, skillOverrides "off" per dir of the user's skills dir. The project
+// wins per entry (its settings.json or settings.local.json naming a plugin or a skill keeps that one, the others
+// still go), obor's own plugin is never switched off, and a plugin the user already has off is not named. With no
+// user settings file and no skills dir neither key is there. A lead's start (untrimmed) carries none of it.
+func TestStartTrimUser(t *testing.T) {
+	k := kind(t)
+	const obor = `"autoMemoryEnabled":false,` // obor's settings sort around the two maps
+	const remote = `,"remoteControlAtStartup":false}`
+	const userSettings = "/home/u/.claude/settings.json"
+	for _, c := range []struct {
+		name string
+		fs   userFS
+		env  map[string]string
+		want string // the --settings value
+	}{
+		{"user enables a and b, the project enables b: a alone goes",
+			userFS{files: map[string]string{
+				userSettings:                   `{"enabledPlugins":{"a@m":true,"b@m":true},"env":{"X":"1"},"hooks":{"SessionStart":[]}}`,
+				"/lane/" + claude.SettingsFile: `{"enabledPlugins":{"b@m":true}}`}}, nil,
+			`{` + obor + `"enabledPlugins":{"a@m":false}` + remote},
+		{"the project's local settings name a plugin (off there): left to them",
+			userFS{files: map[string]string{
+				userSettings:                        `{"enabledPlugins":{"a@m":true,"b@m":true}}`,
+				"/lane/" + claude.LocalSettingsFile: `{"enabledPlugins":{"a@m":false}}`}}, nil,
+			`{` + obor + `"enabledPlugins":{"b@m":false}` + remote},
+		{"obor's own plugin and a plugin the user has off: neither named",
+			userFS{files: map[string]string{
+				userSettings: `{"enabledPlugins":{"obor@obor-kit":true,"off@m":false,"a@m":true}}`}}, nil,
+			`{` + obor + `"enabledPlugins":{"a@m":false}` + remote},
+		{"skills x and y, the project's skillOverrides name y: x alone goes",
+			userFS{dirs: map[string][]string{"/home/u/.claude/skills": {"y", "x", ".cache"}},
+				files: map[string]string{"/lane/" + claude.SettingsFile: `{"skillOverrides":{"y":"on"}}`}}, nil,
+			`{` + obor + `"remoteControlAtStartup":false,"skillOverrides":{"x":"off"}}`},
+		{"plugins and skills under $CLAUDE_CONFIG_DIR",
+			userFS{dirs: map[string][]string{"/cfg/skills": {"x"}},
+				files: map[string]string{"/cfg/settings.json": `{"enabledPlugins":{"a@m":true}}`}},
+			map[string]string{"HOME": "/home/u", "CLAUDE_CONFIG_DIR": "/cfg"},
+			`{` + obor + `"enabledPlugins":{"a@m":false},"remoteControlAtStartup":false,"skillOverrides":{"x":"off"}}`},
+		{"no user settings file, no skills dir: neither key", userFS{}, nil, `{"autoMemoryEnabled":false` + remote},
+		{"a user settings file that does not parse, an empty skills dir: neither key",
+			userFS{files: map[string]string{userSettings: `{"enabledPlugins":`}, dirs: map[string][]string{"/home/u/.claude/skills": nil}},
+			nil, `{"autoMemoryEnabled":false` + remote},
+		{"no home in the environment: nothing of the user's is read",
+			userFS{files: map[string]string{".claude/settings.json": `{"enabledPlugins":{"a@m":true}}`}},
+			map[string]string{}, `{"autoMemoryEnabled":false` + remote},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got := k.Start(c.fs.start(c.env))
+			if want := []string{"--model", "opus", "--settings", c.want}; !slices.Equal(got, want) {
+				t.Errorf("Start =\n %q\nwant\n %q", got, want)
+			}
+		})
+	}
+
+	u := userFS{files: map[string]string{userSettings: `{"enabledPlugins":{"a@m":true}}`},
+		dirs: map[string][]string{"/home/u/.claude/skills": {"x"}}}
+	// The project sets one of obor's settings whole and names nothing of the maps: that key goes, the maps stay.
+	u.files["/lane/"+claude.SettingsFile] = `{"autoMemoryEnabled":true}`
+	if got, want := k.Start(u.start(nil)), []string{"--model", "opus", "--settings",
+		`{"enabledPlugins":{"a@m":false},"remoteControlAtStartup":false,"skillOverrides":{"x":"off"}}`}; !slices.Equal(got, want) {
+		t.Errorf("the project sets autoMemoryEnabled:\n %q\nwant\n %q", got, want)
+	}
+	delete(u.files, "/lane/"+claude.SettingsFile)
+	// A lead's start: the same machine, untrimmed and without obor's settings.
+	lead := u.start(nil)
+	lead.TrimUser, lead.Settings = false, nil
+	if got := k.Start(lead); !slices.Equal(got, []string{"--model", "opus"}) {
+		t.Errorf("a lead's start = %q, want the args alone", got)
+	}
+	// The whole start (agents.StartOf, its two passes): one --settings flag with obor's settings and the two maps.
+	whole := u.start(nil)
+	whole.Kit, whole.StrictMCP, whole.Prompt = "/kit", true, "go"
+	l, err := agents.StartOf(k, whole)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"--model", "opus", "--mcp-config", claude.MCPConfig("/kit"), "--strict-mcp-config", "--settings",
+		`{"autoMemoryEnabled":false,"enabledPlugins":{"a@m":false},"remoteControlAtStartup":false,"skillOverrides":{"x":"off"}}`,
+		"--", "go"}
+	if !slices.Equal(l.Args, want) {
+		t.Errorf("StartOf =\n %q\nwant\n %q", l.Args, want)
 	}
 }
 

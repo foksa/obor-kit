@@ -913,7 +913,7 @@ func (l *Launcher) startOf(b port.Build, bare bool) (port.Built, error) {
 	}
 	in := agents.Start{Kit: kit, Effort: b.Effort, Resume: b.Resume, Prompt: oneLine(b.Prompt), Session: session,
 		WriteDirs: b.WriteDirs, Dir: b.Dir, Read: os.ReadFile, Env: l.envOrOS().Get,
-		WriteState: project.StateWriter(l.Cfg.Root)}
+		Dirs: project.SubDirs, WriteState: project.StateWriter(l.Cfg.Root)}
 	var r agents.Launch
 	var err error
 	if bare {

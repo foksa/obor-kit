@@ -4,6 +4,8 @@ package claude
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -37,10 +39,9 @@ func MCPConfig(kit string) string {
 }
 
 // Start is the type's args (with in.Effort: their --effort replaced by --effort <effort>), then
-// --strict-mcp-config for a lane's agent (in.StrictMCP: once, also when the args name it), then
-// --setting-sources project,local for a trimmed start (in.TrimUser: no user settings, user hooks, user plugins or
-// ~/.claude/skills; the project's settings, its enabledPlugins with obor's plugin, and --settings stay) unless the args
-// name --setting-sources (the project's opt-out, agents.kinds.claude.args), then --settings <settings>, then --session-id <in.Session> (a fresh start obor names) or --resume <sid>, with obor's
+// --strict-mcp-config for a lane's agent (in.StrictMCP: once, also when the args name it), then --settings <settings>:
+// in.Settings and, on a trimmed start (in.TrimUser), the user's plugins and skills switched off (userOff; every
+// other user setting applies), then --session-id <in.Session> (a fresh start obor names) or --resume <sid>, with obor's
 // --mcp-config pair spliced in before the strict flag (the flag stops --mcp-config's variadic value), then one `--`
 // when a config flag could take the prompt, then the prompt. The prompt is positional, never a config value; a
 // resume carries none. The only `--` is obor's own (config validate refuses one in the args).
@@ -49,17 +50,21 @@ func MCPConfig(kit string) string {
 // .mcp.json servers (enableAllProjectMcpServers true, or a non-empty enabledMcpjsonServers, which also approves them,
 // so an unattended lane does not sit on the approval prompt) starts without the strict flag, obor's server then the
 // plugin manifest's as for a role; a settings key the file sets is left out of --settings (no --settings when it sets
-// all). A file that does not parse counts as absent (config validate warns).
+// all). The two maps of a trimmed start give way per entry, not per key: only the plugins and skills the project's
+// settings name are left out. A file that does not parse counts as absent (config validate warns).
 func (kind) Start(in agents.Start) []string {
 	proj, _ := projectSettings(in)
 	args := withEffort(in.Args, in.Effort)
 	if in.StrictMCP && !proj.mcpOptIn() {
 		args = withStrict(args)
 	}
-	if in.TrimUser && !hasFlag(args, sourcesFlag) {
-		args = append(args, sourcesFlag, trimmedSources)
+	settings := proj.unset(in.Settings)
+	if in.TrimUser {
+		for key, off := range userOff(in, proj) {
+			settings[key] = off
+		}
 	}
-	if settings := proj.unset(in.Settings); len(settings) > 0 {
+	if len(settings) > 0 {
 		args = append(args, "--settings", compact(settings))
 	}
 	prompt := in.Prompt
@@ -95,16 +100,15 @@ const SettingsFile = ".claude/settings.json"
 type settings map[string]json.RawMessage
 
 // projectSettings is the start dir's SettingsFile; err: it is there but does not read or parse (nil settings then).
-func projectSettings(in agents.Start) (settings, error) {
-	b, found, err := agents.ProjectFile(in, SettingsFile)
-	if !found || err != nil {
-		return nil, err
+func projectSettings(in agents.Start) (settings, error) { return projectFile(in, SettingsFile) }
+
+// projectFile is the settings file rel of the start's dir; nil settings: no dir, no reader, no such file, or one
+// that does not read or parse (err then).
+func projectFile(in agents.Start, rel string) (settings, error) {
+	if in.Dir == "" {
+		return nil, nil
 	}
-	var s settings
-	if err := json.Unmarshal(b, &s); err != nil {
-		return nil, err
-	}
-	return s, nil
+	return settingsFile(in.Read, filepath.Join(in.Dir, rel))
 }
 
 // mcpOptIn: the project opts into its .mcp.json servers and approves them (enableAllProjectMcpServers true, or a
@@ -127,6 +131,90 @@ func (s settings) unset(want map[string]any) map[string]any {
 		}
 	}
 	return out
+}
+
+// LocalSettingsFile is the project's own uncommitted settings file, relative to the start dir.
+const LocalSettingsFile = ".claude/settings.local.json"
+
+// The two settings maps a trimmed start writes: a plugin id → false, a skill name → "off".
+const (
+	pluginsKey = "enabledPlugins"
+	skillsKey  = "skillOverrides"
+)
+
+// userOff are the --settings keys that switch off the user's own plugins and skills: enabledPlugins false for every
+// plugin the user's settings file enables ($CLAUDE_CONFIG_DIR, default ~/.claude: settings.json) and skillOverrides
+// "off" for every dir of the user's skills dir beside it. Left alone: an entry the project's settings (proj, and the
+// start dir's LocalSettingsFile) name in the same map, and obor's own plugin. A map with no entry has no key; with
+// no user settings file and no skills dir there is none. A plugin's skills go with their plugin; the skills Claude
+// syncs from claude.ai are not in the skills dir and stay.
+func userOff(in agents.Start, proj settings) map[string]any {
+	dir := agents.UserDir(in, "CLAUDE_CONFIG_DIR", ".claude")
+	if dir == "" {
+		return nil
+	}
+	local, _ := projectFile(in, LocalSettingsFile)
+	named := func(key, entry string) bool {
+		_, p := proj.entries(key)[entry]
+		_, l := local.entries(key)[entry]
+		return p || l
+	}
+	out := map[string]any{}
+	plugins := map[string]bool{}
+	user, _ := settingsFile(in.Read, filepath.Join(dir, "settings.json"))
+	for id, v := range user.entries(pluginsKey) {
+		if string(v) != "false" && !isObor(id) && !named(pluginsKey, id) {
+			plugins[id] = false
+		}
+	}
+	if len(plugins) > 0 {
+		out[pluginsKey] = plugins
+	}
+	skills := map[string]string{}
+	for _, n := range agents.UserSkills(in, filepath.Join(dir, "skills")) {
+		if !named(skillsKey, n) {
+			skills[n] = "off"
+		}
+	}
+	if len(skills) > 0 {
+		out[skillsKey] = skills
+	}
+	return out
+}
+
+// isObor: id (<plugin>@<marketplace>) is obor's own plugin, from any marketplace.
+func isObor(id string) bool {
+	plugin, _, _ := strings.Cut(id, "@")
+	return plugin == "obor"
+}
+
+// settingsFile is the settings file at path, read with read; nil settings: no reader, no such file, or one that does
+// not read or parse (err then, unless it is absent).
+func settingsFile(read agents.ReadFile, path string) (settings, error) {
+	if read == nil {
+		return nil, nil
+	}
+	b, err := read(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var s settings
+	if err := json.Unmarshal(b, &s); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// entries are the entries of the map s sets as key (enabledPlugins, skillOverrides); nil: no such key, or no map.
+func (s settings) entries(key string) map[string]json.RawMessage {
+	var m map[string]json.RawMessage
+	if json.Unmarshal(s[key], &m) != nil {
+		return nil
+	}
+	return m
 }
 
 // ProjectWarnings: a settings file that does not parse (obor's start flags then apply as without it), and
@@ -177,13 +265,6 @@ func withEffort(args []string, effort string) []string {
 	}
 	return append(out, "--effort", effort)
 }
-
-// sourcesFlag is Claude's flag that names the setting sources a start loads (user, project, local); trimmedSources
-// leaves out the user's.
-const (
-	sourcesFlag    = "--setting-sources"
-	trimmedSources = "project,local"
-)
 
 // withStrict is args with the strict flag last, unless they already name it (either spelling): a lane's agent starts
 // with obor's MCP server alone.

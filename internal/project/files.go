@@ -274,6 +274,21 @@ func SafeName(name string) string {
 	}, name)
 }
 
+// SubDirs are the names of dir's subdirectories (agents.Start.Dirs), a symlink to a dir among them.
+func SubDirs(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, e := range entries {
+		if fi, err := os.Stat(filepath.Join(dir, e.Name())); err == nil && fi.IsDir() {
+			out = append(out, e.Name())
+		}
+	}
+	return out, nil
+}
+
 // StateWriter writes a start's file (agents.Start.WriteState) as name in root's state dir, atomically, and returns its
 // path.
 func StateWriter(root string) func(name string, data []byte) (string, error) {

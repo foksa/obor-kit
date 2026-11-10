@@ -85,16 +85,20 @@ type Start struct {
 	// its command line does not name starts that way, obor's own registered on the start (claude: --strict-mcp-config
 	// with --mcp-config MCPConfig; a kind that hides nothing ignores it).
 	StrictMCP bool
-	// TrimUser is a start that drops as much of the user's own plugins, skills and hooks as the kind's CLI lets it
-	// (every agent but a lead, config.Model.Launch): the kind's switch names what it hides and which user sources
-	// stay (claude: --setting-sources project,local drops the user's settings, hooks, plugins, ~/.claude/skills and
-	// user CLAUDE.md, while the project's settings and skills stay; codex: -c features.plugins/features.apps/
-	// skills.bundled.enabled false drops the user's plugins with their skills, the app connectors and the bundled
-	// skills, while ~/.codex/skills stays; opencode: OPENCODE_DISABLE_CLAUDE_CODE_SKILLS hides ~/.claude/skills and
-	// the project's .claude/skills, while .agents/skills stays), the project's own config and obor's wiring kept.
+	// TrimUser is a start with the user's own plugins and skills switched off (every agent but a lead,
+	// config.Model.Launch); every other user setting applies (env, hooks, status line, model, …), and so do the
+	// project's own config and obor's wiring. Each kind names what it switches off (claude: --settings with
+	// enabledPlugins false per plugin the user's settings enable and skillOverrides "off" per dir of the user's skills
+	// dir, an entry the project's settings name left alone; codex: -c features.plugins/features.apps/
+	// skills.bundled.enabled false and skills.config with enabled false per dir of the user's skills dir; opencode:
+	// OPENCODE_DISABLE_CLAUDE_CODE_SKILLS hides ~/.claude/skills and the project's .claude/skills, while
+	// .agents/skills stays).
 	TrimUser bool
 	// Env is the start's environment (HOME, XDG_CONFIG_HOME, …), for a kind that reads its own config; nil: none.
 	Env func(string) string
+	// Dirs lists a dir's subdirectories by name (a user's skills dir, for a trimmed start): the adapter's I/O; nil:
+	// none is listed.
+	Dirs ListDirs
 	// Session is the session id this start runs as, for a kind that takes one on its command line (Claude's
 	// --session-id: obor chooses it and records it before the start); "" for one that takes none. A resume
 	// names Resume instead.
@@ -114,6 +118,44 @@ type Start struct {
 
 // ReadFile reads a file for a kind (os.ReadFile): the adapter's I/O, handed to a pure function.
 type ReadFile func(path string) ([]byte, error)
+
+// ListDirs is the names of dir's subdirectories (project.SubDirs): the adapter's I/O, handed to a pure function.
+type ListDirs func(dir string) ([]string, error)
+
+// UserDir is the user's config dir of a kind's CLI: $<envVar> when the start's environment sets it, else
+// $HOME/<dflt>; "": the start has no environment, or it names neither (nothing of the user's is read then).
+func UserDir(in Start, envVar, dflt string) string {
+	if in.Env == nil {
+		return ""
+	}
+	if d := in.Env(envVar); d != "" {
+		return d
+	}
+	if home := in.Env("HOME"); home != "" {
+		return filepath.Join(home, dflt)
+	}
+	return ""
+}
+
+// UserSkills are the skills of a user's skills dir: the names of its subdirectories, sorted, without the dot dirs
+// (a CLI's own, such as Codex's .system). nil: no dir (""), no lister, or a dir that does not list.
+func UserSkills(in Start, dir string) []string {
+	if dir == "" || in.Dirs == nil {
+		return nil
+	}
+	names, err := in.Dirs(dir)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, n := range names {
+		if !strings.HasPrefix(n, ".") {
+			out = append(out, n)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
 
 // ProjectFile is the file rel of the start's dir (in.Dir), read with in.Read. found false: no dir or reader,
 // or no such file; err: a file there that could not be read (the kind then starts as if it set nothing).
@@ -477,8 +519,8 @@ type Split interface {
 
 // StartOf is k's start of in, a complete Start built once at the launch boundary: a Whole kind's one call;
 // a Split kind's env (StartEnv) and its argv in two passes of Start: the type's launch args (Args with
-// Settings, Effort, StrictMCP, TrimUser, WriteDirs), then the start over them (Kit, Resume, Session, Prompt), Dir and Read in
-// both. An error: the start cannot carry in.Effort, a plugin kind's start failed, or k has no start.
+// Settings, Effort, StrictMCP, TrimUser with Env and Dirs, WriteDirs), then the start over them (Kit, Resume,
+// Session, Prompt), Dir and Read in both. An error: the start cannot carry in.Effort, a plugin kind's start failed, or k has no start.
 func StartOf(k Kind, in Start) (Launch, error) {
 	if w, ok := k.(Whole); ok {
 		return w.StartWhole(in)
@@ -492,7 +534,7 @@ func StartOf(k Kind, in Start) (Launch, error) {
 		return Launch{}, err
 	}
 	args := s.Start(Start{Args: in.Args, Settings: in.Settings, Effort: in.Effort, StrictMCP: in.StrictMCP,
-		TrimUser: in.TrimUser, WriteDirs: in.WriteDirs, Dir: in.Dir, Read: in.Read})
+		TrimUser: in.TrimUser, Env: in.Env, Dirs: in.Dirs, WriteDirs: in.WriteDirs, Dir: in.Dir, Read: in.Read})
 	args = s.Start(Start{Kit: in.Kit, Args: args, Resume: in.Resume, Session: in.Session, Prompt: in.Prompt,
 		Dir: in.Dir, Read: in.Read})
 	return Launch{Args: args, Env: env}, nil
