@@ -75,7 +75,7 @@ const StepNightly = "nightly"
 const (
 	StepPromote      = "promote"       // intent/result, promote.<seq>: the full suite on the target's head
 	StepPromoted     = "promoted"      // fact: the promoted branch fast-forwarded to a GREEN sha
-	StepAfterPromote = "after_promote" // intent/result, after_promote.<seq>: commands.after_merge after a promotion
+	StepAfterPromote = "after_promote" // intent/result, after_promote.<seq>: merge.after after a promotion
 )
 
 // StepConfigSet is the fact of a setup edit serve wrote and committed (task ConfigTask; data: ConfigSet).
@@ -98,7 +98,7 @@ const (
 	StepPublish    = "publish"      // intent/result (G), publish.N: the candidate → gateOut
 	StepMoved      = "target.moved" // fact: the target moved under the candidate
 	StepMerged     = "merged"       // fact (data: mergedData)
-	StepAfterMerge = "after_merge"  // intent/result (G): commands.after_merge
+	StepAfterMerge = "after_merge"  // intent/result (G): merge.after
 	StepStop       = "agent.stop"   // intent/result (S): the lane's worker stopped (data: stopData)
 	StepUnpin      = "unpin"        // intent/result (G): a rejected task's pins deleted
 	StepDelivered  = "delivered"    // fact: the agent fetched its job (job_next)

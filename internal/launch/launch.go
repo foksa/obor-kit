@@ -598,7 +598,7 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	if err != nil {
 		return port.Started{}, err
 	}
-	if t.info.Lane != "" { // a lane's env: the generic facts and the project's slots.lane_env
+	if t.info.Lane != "" { // a lane's env: the generic facts and the project's lanes.env
 		t.env = config.WithLaneEnv(t.env, l.Cfg)
 	}
 	if err := l.stop(ctx, t, req.Force, false, "--force to restart anyway"); err != nil {

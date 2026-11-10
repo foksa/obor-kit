@@ -377,7 +377,7 @@ func TestTaskFromBranch(t *testing.T) {
 	}
 }
 
-// a lane's env is the generic fact OBOR_LANE_CPUS (slots.lane_cpus) and the project's slots.lane_env, its
+// a lane's env is the generic fact OBOR_LANE_CPUS (slots.lane_cpus) and the project's lanes.env, its
 // {cpus} replaced by that budget, names in order; a project without lane_env gets the fact alone (no Go names), and a
 // value with no placeholder is kept as it is.
 func TestLaneEnv(t *testing.T) {
@@ -405,7 +405,7 @@ func TestLaneEnv(t *testing.T) {
 	}
 }
 
-// a var of the start's kind env that slots.lane_env also names takes the config's value: obor merges nothing
+// a var of the start's kind env that lanes.env also names takes the config's value: obor merges nothing
 // into it (the config line is the policy).
 func TestWithLaneEnv(t *testing.T) {
 	cfg := load(t, `{"version":2,"lanes":{"env":{"GOFLAGS":"-p={cpus}"}}}`, "")
@@ -419,7 +419,7 @@ func TestWithLaneEnv(t *testing.T) {
 	}
 }
 
-// slots.lane_env's names are env names and {cpus} its one placeholder: an unknown {…} or a name that is no env
+// lanes.env's names are env names and {cpus} its one placeholder: an unknown {…} or a name that is no env
 // name fails validate, a value with no placeholder is fine.
 func TestLaneEnvValidate(t *testing.T) {
 	for _, c := range []struct {
