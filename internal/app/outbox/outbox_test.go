@@ -33,7 +33,7 @@ func failed(seq int64, via string) event.Record {
 	return fact(0, event.StepFailed, event.FactData{Reason: step + ": refused", Step: step, Via: via})
 }
 
-// noOld is a test's oldOf: a pre-T-927 message has no did key here.
+// noOld is a test's oldOf: an older message has no did key here.
 func noOld(json.RawMessage) event.Of { return event.Of{} }
 
 // lines is o's queued lines as seq → state.
@@ -55,8 +55,8 @@ func briefs(o *Outbox) map[string]int64 {
 }
 
 // TestFold: records in, the outbox's state and what each record ended out (Fold alone, no app): a newer brief's
-// supersede (T-575/T-580), a lead batch's post and its outcomes (T-654), an answer's retire (T-746/T-748), a role
-// agent's stop, alarm and turn (T-569/T-571), a brief's end (T-868) and a needs-you line's delivery (T-624).
+// supersede, a lead batch's post and its outcomes, an answer's retire, a role
+// agent's stop, alarm and turn, a brief's end and a needs-you line's delivery.
 func TestFold(t *testing.T) {
 	t.Parallel()
 	needs := event.Of{Kind: RuleNeeds, Seq: 7_000_000}
@@ -121,7 +121,7 @@ func TestFold(t *testing.T) {
 				fact(4, event.StepMessage, event.Message{To: "pj-lead", Line: "four"}),
 				deliver(1, event.KindIntent, LineData{To: "pj-lead", Lines: []int64{1, 2}}),
 				deliver(1, event.KindResult, "sent"),
-				deliver(3, event.KindResult, "sent"), // no intent folded (a record from before T-654)
+				deliver(3, event.KindResult, "sent"), // no intent folded (an older record)
 			},
 			lines: map[int64]State{4: Waiting},
 			check: func(t *testing.T, o *Outbox) {
@@ -303,7 +303,7 @@ func TestFold(t *testing.T) {
 	}
 }
 
-// TestFoldOldOf: a message recorded before T-927 takes its did key from oldOf; one with its own Of, a brief, or
+// TestFoldOldOf: an older message takes its did key from oldOf; one with its own Of, a brief, or
 // another step never asks.
 func TestFoldOldOf(t *testing.T) {
 	t.Parallel()

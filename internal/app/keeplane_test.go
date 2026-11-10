@@ -16,19 +16,19 @@ func dispatchSonnet(t *testing.T, h *harness) {
 		Agent: "pj-l-01", Type: "sonnet", Target: "target", Branch: "task/T-1"})
 }
 
-// startReported folds pj-l-01's agent.start result in w1:p1 with the config revision rev ("" : a record from before
-// T-1050, which carried none).
+// startReported folds pj-l-01's agent.start result in w1:p1 with the config revision rev ("": an older record, which
+// carries none).
 func startReported(t *testing.T, h *harness, rev string) {
 	t.Helper()
 	addRecord(t, h, "T-1", event.StepStartWork, event.KindResult, startOut{Line: "STARTED", Agent: "pj-l-01",
 		Pane: "w1:p1", Kind: "claude", Session: "new-session", Config: rev})
 }
 
-// startconfig_test.go: the config revision a start records (T-1050). The identity table's start row keeps the revision
+// startconfig_test.go: the config revision a start records. The identity table's start row keeps the revision
 // the start's result carried, never the file's now: a keep lane's reuse checks the config its agent was launched under
 // (startFits), and a replay of the log gives the same answer after the config changed under it.
 
-// T-1050: a start record without a config revision (one from before T-1050) is no fit — the kept agent is stopped and
+// A start record without a config revision (an older one) is no fit — the kept agent is stopped and
 // started fresh, the safe path — while the same start with the revision now recorded fits the same config: the
 // revision is the one thing that differs.
 func TestStartFitsNeedsTheRecordedConfigRev(t *testing.T) {
@@ -62,7 +62,7 @@ func TestStartFitsNeedsTheRecordedConfigRev(t *testing.T) {
 	}
 }
 
-// T-1050: the start row's config revision is the record's, not the config file's: after the config changes under the
+// The start row's config revision is the record's, not the config file's: after the config changes under the
 // agent (models.sonnet.model another model id) and the log is replayed, the row keeps the revision it recorded and no
 // reuse is a fit.
 func TestStartRowKeepsItsConfigRevAcrossAReplay(t *testing.T) {

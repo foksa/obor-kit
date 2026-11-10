@@ -18,7 +18,7 @@ import (
 	"obor/internal/store"
 )
 
-// T-866: the rule pass, one table. A rule's condition is recomputed each pass: it acts once the condition has held
+// The rule pass, one table. A rule's condition is recomputed each pass: it acts once the condition has held
 // for its settle; a line records did{key} (its Of) and no second line goes for that key; an action with no line runs
 // until its effect shows in state; a failed call records no line, and ruleFails failures in a row put one needs-you
 // naming the rule in force, ended by its next success.
@@ -98,7 +98,7 @@ func TestRulePass(t *testing.T) {
 	}
 }
 
-// T-866: the idle rules, one table. The pipeline empties (T-1 merged): the line once it stayed empty for idleSettle;
+// The idle rules, one table. The pipeline empties (T-1 merged): the line once it stayed empty for idleSettle;
 // work inside the window: none; acknowledged: no ping; unacknowledged: the ping and the owner's notification
 // idlePingAfter after the line; a new emptying (T-2 merged) is a new key with its own line.
 func TestIdleRules(t *testing.T) {
@@ -183,7 +183,7 @@ func TestIdleRules(t *testing.T) {
 	}
 }
 
-// T-874, T-908: the worker start rule's condition, one table (condition → action). T-1 on L-01, its worker pj-l-01's
+// The worker start rule's condition, one table (condition → action). T-1 on L-01, its worker pj-l-01's
 // pane w1:p1 labelled, at its shell unless the case's worker runs: a worker job outstanding, no block, no claim and no
 // project pause start pj-l-01 there without --fresh, with that job's wake, keyed by the dispatch fact; a model's pause
 // holds nothing.
@@ -267,7 +267,7 @@ func TestWorkerStartRuleCondition(t *testing.T) {
 	}
 }
 
-// T-949: a stopped role agent's alarm is one rule: the lead's line records, and its toast is the action's best-effort
+// A stopped role agent's alarm is one rule: the lead's line records, and its toast is the action's best-effort
 // after, once per stop. A toast herdr does not show is logged and dropped: the line stays, no retry, no rule failure.
 func TestStopAlarmRule(t *testing.T) {
 	t.Parallel()
@@ -371,10 +371,10 @@ func deliverLines(t *testing.T, h *harness) {
 	}
 }
 
-// T-927: the needs-you line's rule, one table (condition → action). The first line at once; a repeat 30 min after
+// The needs-you line's rule, one table (condition → action). The first line at once; a repeat 30 min after
 // the first line's delivery, then 60 after each repeat's, never while the last line waits; nothing once the needs-you
 // is answered, for a closed task's watchdog fact or for the project's own lines' needs-you; a restart sends nothing
-// again; a line recorded before T-927 (message{needs}, no of) counts as the rule's.
+// again; an older line (message{needs}, no of) counts as the rule's.
 func TestNeedsRule(t *testing.T) {
 	t.Parallel()
 	needs := rule{name: ruleNeeds, when: needsRule}
@@ -401,7 +401,7 @@ func TestNeedsRule(t *testing.T) {
 			}
 		}
 	}
-	closedStale := func(t *testing.T, h *harness) { // T-1 merged with its watchdog fact still in force (T-635)
+	closedStale := func(t *testing.T, h *harness) { // T-1 merged with its watchdog fact still in force
 		p := h.proj()
 		r := p.folded.active["T-1"]
 		taskMerged("T-1", "")(t, h)
@@ -411,7 +411,7 @@ func TestNeedsRule(t *testing.T) {
 				p.needsYou())
 		}
 	}
-	oldLine := func(t *testing.T, h *harness) { // a line of T-1's needs-you as obor before T-927 recorded it
+	oldLine := func(t *testing.T, h *harness) { // a line of T-1's needs-you as an older obor recorded it
 		seq := h.proj().needsYou()[0].Seq
 		addRecord(t, h, event.MsgTask, event.StepMessage, event.KindFact, map[string]any{"to": "pj-lead", "from": "obor",
 			"line": "[obor] needs-you T-1 (L-01): old", "needs": seq})
@@ -489,7 +489,7 @@ func TestNeedsRule(t *testing.T) {
 	}
 }
 
-// T-949: the needs rule carries the owner's toast as its action's after (a best effort), once for a key's first line;
+// The needs rule carries the owner's toast as its action's after (a best effort), once for a key's first line;
 // a repeat line does not toast again. A toast herdr does not show (busy, rate_limited, disabled) or a Notify error is
 // logged once and dropped: the lead's line is recorded all the same, is never retried and is no rule failure.
 func TestNeedsRuleToast(t *testing.T) {
@@ -557,8 +557,8 @@ func TestNeedsRuleToast(t *testing.T) {
 	}
 }
 
-// T-949: an old log's notify.* and alarm.* records replay and fold as nothing: the needs line it recorded before
-// T-927 is what keeps the rule from toasting again, and the old steps are no error.
+// An old log's notify.* and alarm.* records replay and fold as nothing: the needs line it recorded before
+// The folded line is what keeps the rule from toasting again, and an older log's steps are no error.
 func TestOldNotifyRecordsReplay(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
@@ -608,7 +608,7 @@ func (c *countPoster) Type(context.Context, string, string, bool) (bool, error) 
 	return true, nil
 }
 
-// RV-52-verify V1: a needs-you's line whose append succeeds while the lanes table's write fails (record false) stays
+// A needs-you's line whose append succeeds while the lanes table's write fails (record false) stays
 // recorded: a later pass appends no second line, and once the table writes again the lead gets the line once.
 func TestRV52VerifyProjectionFailureDoesNotDuplicate(t *testing.T) {
 	t.Parallel()

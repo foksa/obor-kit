@@ -90,7 +90,7 @@ func TestLogAppendErrorInStatus(t *testing.T) {
 	}
 }
 
-// RV-38 #9: a needs-you that pauses T-1's conflict or resolve job keeps the scratch reserved, across a reload: a
+// A needs-you that pauses T-1's conflict or resolve job keeps the scratch reserved, across a reload: a
 // submitted T-2 is not gated (the gate would reset the worktree holding T-1's resolution). T-1 resumed, its resolved
 // verdict pins with T-1's own input (submit's s1); once T-1's resolution is gated green, T-2 is.
 func TestPausedScratchReservation(t *testing.T) {
@@ -149,7 +149,7 @@ func TestPausedScratchReservation(t *testing.T) {
 	}
 }
 
-// RV-38 #9: abandoning the paused work releases the scratch: regate, reject, a new attempt.
+// Abandoning the paused work releases the scratch: regate, reject, a new attempt.
 func TestPausedScratchReleased(t *testing.T) {
 	t.Parallel()
 	for _, release := range []string{"regate", "reject", "sendback"} {
@@ -161,7 +161,7 @@ func TestPausedScratchReleased(t *testing.T) {
 			h.pass(ctx)
 			p := h.a.p
 			cause := event.CauseHeld
-			if release == "regate" { // T-775: a hold takes the decision; --regate is the owner's choice past K
+			if release == "regate" { // a hold takes the decision; --regate is the owner's choice past K
 				cause = causeSendbacks
 			}
 			h.a.needsYou(p, p.folded.loop["T-1"], cause, "held")
@@ -262,7 +262,7 @@ func resolveJobHarness(t *testing.T) (*harness, *schedScratch, string) {
 	return h, f, JobID(mt.jobKey())
 }
 
-// RV-38-verify #12: a socket resolved runs its effect under the daemon's lifetime (with a request deadline):
+// A socket resolved runs its effect under the daemon's lifetime (with a request deadline):
 // Serve canceled, the blocked effect's ctx is canceled and Serve returns only after the effect has ended.
 func TestSocketEffectEndsWithServe(t *testing.T) {
 	t.Parallel()
@@ -325,7 +325,7 @@ func TestSocketEffectEndsWithServe(t *testing.T) {
 	}
 }
 
-// T-659: Loaded is closed only once the project's log is replayed (obor serve binds its socket then), and a request
+// Loaded is closed only once the project's log is replayed (obor serve binds its socket then), and a request
 // that reaches an app before its load is answered at once, never held for the replay.
 func TestLoadedAfterReplay(t *testing.T) {
 	t.Parallel()
@@ -390,7 +390,7 @@ func countRecords(t *testing.T, h *harness) int {
 
 const mergeOffReply = "merge loop off for pj (no integrator role)"
 
-// RV-38-verify #13: an open resolve job, the merge loop turned off (the integrator role removed) and reloaded: its resolved is refused before any
+// An open resolve job, the merge loop turned off (the integrator role removed) and reloaded: its resolved is refused before any
 // effect or record (no Scratch call, no new record, T-1 still resolving), a call id answered while on gets its stored
 // reply; turned on again, the same resolved is answered.
 func TestMergeLoopOffRefusesOldVerdict(t *testing.T) {
@@ -437,7 +437,7 @@ func TestMergeLoopOffRefusesOldVerdict(t *testing.T) {
 	}
 }
 
-// RV-38-verify #13: all six calls on a job (or needs-you) open before the merge loop is turned off are refused while off
+// All six calls on a job (or needs-you) open before the merge loop is turned off are refused while off
 // (no Scratch call, no new record, no state change) and answered once it is on again.
 func TestMergeLoopOffRefusesAllCalls(t *testing.T) {
 	t.Parallel()
@@ -498,7 +498,7 @@ func TestMergeLoopOffRefusesAllCalls(t *testing.T) {
 	}
 }
 
-// T-656: serve's self-restart is a graceful exit, not a `launchctl kickstart -k` (a SIGKILL) on itself. The restarter
+// Serve's self-restart is a graceful exit, not a `launchctl kickstart -k` (a SIGKILL) on itself. The restarter
 // (cmd/obor's serveRestarter) cancels serve's context; serve then ends as on a signal — here with a gate running in a
 // process group of its own, as checks.Scratch runs one — and Serve returns only after that group is gone.
 

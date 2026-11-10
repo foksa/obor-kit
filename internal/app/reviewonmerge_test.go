@@ -12,7 +12,7 @@ import (
 	"obor/internal/store"
 )
 
-// T-878, T-932: the Review: on merge rule, one table (condition → action). A task whose spec asks for a review and
+// The Review: on merge rule, one table (condition → action). A task whose spec asks for a review and
 // merged after the last review start gets one review request (no --after, the note naming the newest such task); the
 // spec asks for it with the line `Review: on merge` or with `Difficulty: hard`, and never when it has a `Fixes:` line;
 // an open request (the lead's included) or a review started after the merge leaves nothing to do; a request recorded
@@ -71,7 +71,7 @@ func TestReviewOnMergeRule(t *testing.T) {
 		r.dropped("T-b")
 		ended(t, r, "[obor] review request ended: T-b dropped")
 	}
-	// rejectedB walks T-b to the integrator's rejection of its review job (T-906: the same failure end).
+	// rejectedB walks T-b to the integrator's rejection of its review job (the same failure end).
 	rejectedB := func(t *testing.T, r *reviewRig) {
 		t.Helper()
 		r.a.record(r.p, event.Record{Task: "T-b", Attempt: 1, Step: event.StepGate, Kind: event.KindResult},

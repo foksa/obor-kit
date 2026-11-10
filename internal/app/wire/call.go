@@ -8,8 +8,8 @@ import (
 )
 
 // The app socket's protocol, client side: what a caller can ask serve (the methods), the request it sends for each
-// and the answers it gets. The server (Listen and the handlers) is in internal/app. Moved here from internal/app
-// (T-692, app split 3/5). Each method has its own request type (T-1055, request.go): an Envelope and that method's fields, its doc
+// and the answers it gets. The server (Listen and the handlers) is in internal/app. Its own package, so a caller takes
+// the protocol without the core. Each method has its own request type (request.go): an Envelope and that method's fields, its doc
 // comment the method's documented request.
 
 // Verdict methods of the app socket: the integrator's (VerdictReq), the lead's and the owner's (DropReq, ResumeReq).
@@ -23,8 +23,8 @@ const (
 	MethodResume   = "resume"
 )
 
-// StopPause is the why of the pause obor stop sets (T-709): obor start ends a pause in force with this why only, and
-// serve starts no lane worker again while it holds (T-874: the stop stops them).
+// StopPause is the why of the pause obor stop sets: obor start ends a pause in force with this why only, and
+// serve starts no lane worker again while it holds (a stop stops them).
 const StopPause = "stopping (obor stop)"
 
 // The other methods of the app socket, each documented on its request type; the server's handler for each is in
@@ -88,8 +88,8 @@ const (
 )
 
 // ResumeArgs is obor resume's arguments, <T-xx> ["<text>"] [--regate|--sendback], as a resume request's Task, Text and
-// Flag: the flag anywhere after the task, at most one, and at most one nonblank text (obor resume T-xx "yes", RV-54
-// #4). An argument is a flag only if it is exactly --regate or --sendback (RV-99 #5): anything else is the text, one
+// Flag: the flag anywhere after the task, at most one, and at most one nonblank text (obor resume T-xx "yes"). An
+// argument is a flag only if it is exactly --regate or --sendback: anything else is the text, one
 // starting with - or -- too ("- use A", "--force is safe"), and after -- every argument is (obor resume T-xx --
 // --regate). False: not that form.
 func ResumeArgs(args []string) (ResumeReq, bool) {
@@ -144,5 +144,5 @@ const WakeText = "call the obor job_next tool"
 func JobLine(job, text string) string { return "[obor job " + job + "] " + text }
 
 // WakeLine is job's wake as one line with its tag, as serve types it and as a fresh start's first prompt: obor restart
-// of a lane agent sends it too (T-773).
+// of a lane agent sends it too.
 func WakeLine(job string) string { return JobLine(job, WakeText) }

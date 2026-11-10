@@ -74,7 +74,7 @@ func TestReviewCloseRefusals(t *testing.T) {
 // cycle's covered tasks and its start; accepted 1 for one --accept line), the review file and the accepted line handed
 // to it; fact review.closed{id, sha, covered, start} recorded; a repeated call id gets the reply and commits nothing
 // again. The next rule pass stops the reviewer (no git read) and obor status shows no fix line of the closed review
-// (RV-125 #2).
+// a round that reads an empty snapshot.
 func TestReviewCloseCommitsAndRecords(t *testing.T) {
 	t.Parallel()
 	r := fixRig(t)
@@ -121,7 +121,7 @@ func TestReviewCloseCommitsAndRecords(t *testing.T) {
 	}
 }
 
-// T-930: a repeated close call id waits for the close in flight (configMu is taken before the stored-reply lookup): the
+// A repeated close call id waits for the close in flight (configMu is taken before the stored-reply lookup): the
 // second gets the first's CLOSED reply and commits nothing again.
 func TestReviewCloseSameCallWhileInFlight(t *testing.T) {
 	t.Parallel()
@@ -167,10 +167,10 @@ func commitEqual(a, b port.ReviewCommit) bool {
 		a.Body == b.Body && slices.Equal(a.Accepts, b.Accepts)
 }
 
-// The close's crash cut (kernel, T-1023): its commit is in and its fact is not (a crash, here a refused append). The
+// The close's crash cut: its commit is in and its fact is not (a crash, here a refused append). The
 // next pass after a restart records the close once from the commit (port.Review.Closed, the one read) and commits
 // nothing; a close call retried before any pass reads it too: refused, no second commit, the close recorded once.
-// Either way obor review then starts RV-6 with no merge in scope (RV-5 covered T-a and T-b).
+// Either way obor review then starts the next review with no merge in scope (the closed one covered T-a and T-b).
 func TestReviewCloseCrashBeforeFact(t *testing.T) {
 	t.Parallel()
 	cut := func(t *testing.T) *reviewRig {
@@ -234,7 +234,7 @@ func TestReviewCloseCrashBeforeFact(t *testing.T) {
 	})
 }
 
-// RV-144 #1 (T-1032): the close's snapshot (its reviewed head and covered tasks) is decided once and recorded before
+// The close's snapshot (its reviewed head and covered tasks) is decided once and recorded before
 // the commit (fact review.closing): a verify finishing after the close, or between the snapshot and a fact recovered
 // from the commit after a crash, changes neither what the review covered nor the next review's scope. --force (the
 // linked fixes' verify still running) and a normal close (a verify of an unlinked fix), each without and with the
@@ -321,7 +321,7 @@ func TestReviewCloseSnapshotStands(t *testing.T) {
 	}
 }
 
-// RV-126 #1: only the lead closes a review (the owner's call has no role): a reviewer or a worker is refused, plain and
+// Only the lead closes a review (the owner's call has no role): a reviewer or a worker is refused, plain and
 // with --force, before any effect (no commit, no fact, the review still open); the lead's close goes through.
 func TestReviewCloseLeadOnly(t *testing.T) {
 	t.Parallel()

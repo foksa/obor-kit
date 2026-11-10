@@ -13,7 +13,7 @@ import (
 	"obor/internal/app/wire"
 )
 
-// T-879 (RV-120 V1): an unknown or stale observation keeps the task's facts but drops every elapsed-time baseline
+// An unknown or stale observation keeps the task's facts but drops every elapsed-time baseline
 // (quiet, the stall's escalation, blocked, lost); the next good read starts new ones. Each row: a baseline running,
 // then no observation for longer than its interval (the lane's read fails, the whole scan fails, or the table is
 // older than its bound), then recovery: no judgement at recovery, the fact only once a new baseline has elapsed, and
@@ -126,7 +126,7 @@ func factReason(f string) string {
 	return f[len(s)+1 : len(f)-1]
 }
 
-// T-879: a failed scan keeps a worker's question (T-897's rule for an unknown lane, for the whole table): obor
+// A failed scan keeps a worker's question (the rule for an unknown lane, for the whole table): obor
 // answer still takes it once the scan recovers.
 func TestFailedScanKeepsFacts(t *testing.T) {
 	t.Parallel()
@@ -151,7 +151,7 @@ func TestFailedScanKeepsFacts(t *testing.T) {
 	}
 }
 
-// T-879: the lane table is an observation while it is at most lanesBound old and its last scan read it.
+// The lane table is an observation while it is at most lanesBound old and its last scan read it.
 func TestLaneTableBound(t *testing.T) {
 	t.Parallel()
 	at := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
@@ -211,7 +211,7 @@ func burst(h *harness, n int) {
 	}
 }
 
-// T-879: a pane event never scans the lanes; a burst of them marks the table once and the refresher's next pass
+// A pane event never scans the lanes; a burst of them marks the table once and the refresher's next pass
 // scans it once; the decision follows that scan.
 func TestEventBurstSharesOneScan(t *testing.T) {
 	t.Parallel()
@@ -241,7 +241,7 @@ func TestEventBurstSharesOneScan(t *testing.T) {
 	}
 }
 
-// T-879: with the refresher running, events while it scans never wait for git: they return at once, and they make
+// With the refresher running, events while it scans never wait for git: they return at once, and they make
 // one more scan, one per pass, however many they are; an own operation's mark does too.
 func TestEventsDuringAScanWaitForNoGit(t *testing.T) {
 	t.Parallel()
@@ -295,7 +295,7 @@ func TestEventsDuringAScanWaitForNoGit(t *testing.T) {
 	waitFor(t, "the own operation's scan", func() bool { return c.n() == 4 })
 }
 
-// T-879: obor status shows the lane table's age and its last scan's error once it is older than the tick.
+// obor status shows the lane table's age and its last scan's error once it is older than the tick.
 func TestLanesNote(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
@@ -312,7 +312,7 @@ func TestLanesNote(t *testing.T) {
 	}
 }
 
-// unknownReads are the failed lane reads that make a lane unknown (T-871: checks.Lanes, TestLaneUnknownOnFailedRead
+// unknownReads are the failed lane reads that make a lane unknown (checks.Lanes, TestLaneUnknownOnFailedRead
 // proves each one reads as an unknown lane with no task); a failed store read also loses the row's agent.
 var unknownReads = []struct{ name, reason string }{
 	{"git status", "git status: fatal: index file corrupt"},
@@ -330,7 +330,7 @@ func unknownLane(l port.Lane, reason string) port.Lane {
 	return u
 }
 
-// T-897 (RV-120 #1): a lane whose read failed is no observation of its task: the task's watchdog facts (a worker's
+// A lane whose read failed is no observation of its task: the task's watchdog facts (a worker's
 // question, a stopped worker, a pending notification retry) stay in force through it on each entry point that reaches
 // decideLanes (the periodic check, the check on connect, a restart's first check), and once the read recovers obor
 // resume still takes them. A restart with the lane unknown keeps the folded dispatch's task on it.
@@ -427,7 +427,7 @@ func TestUnknownLaneKeepsItsTasksFacts(t *testing.T) {
 	}
 }
 
-// T-897: an unknown lane is not judged: its pane closing while its read fails records nothing (no needs-you{pane
+// An unknown lane is not judged: its pane closing while its read fails records nothing (no needs-you{pane
 // exited}); once the read recovers the watchdog sees the closed pane.
 func TestUnknownLaneIsNotJudged(t *testing.T) {
 	t.Parallel()

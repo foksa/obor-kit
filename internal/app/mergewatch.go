@@ -12,18 +12,18 @@ import (
 	"time"
 )
 
-// Watches of a set of tasks' merges (T-523, T-528; docs/state-model.md row 49): clean merges stay quiet for the lead
+// Watches of a set of tasks' merges (docs/state-model.md row 49): clean merges stay quiet for the lead
 // (docs/decisions.md "Lead noise"), so a lead that must act on a merge subscribes to it. `obor watch <T-xx>` or
 // `obor watch T-a,T-b` (the lead or the owner) records fact watch{task: the comma list, by} on the task key watch; a
 // single task is a set of one. Once every task of the set merged, or the first one is dropped or rejected, the watch
-// rule (watchRule, T-927) records the lead line (outcome: "[obor] T-xx merged <short sha>", "[obor] T-a,T-b merged
+// rule (watchRule) records the lead line (outcome: "[obor] T-xx merged <short sha>", "[obor] T-a,T-b merged
 // (<last short sha>)", "[obor] T-b dropped: <why>" with " (watch T-a,T-b ended)" for a set; fact message{of: watch
 // and the watch's seq}, delivered as every lead line, messages.go); that line recorded (its did key) ends the watch.
-// A watch may carry the lead's note (T-666): what it meant to do when the set ends,
+// A watch may carry the lead's note: what it meant to do when the set ends,
 // which the line, `obor watch` and `obor status` add after the outcome. `obor watch --rm <list>` ends one
 // (fact unwatch); `obor watch` lists the open ones.
 
-// WatchData is a watch fact's data: the task or comma list watched, who watches it, the lead's note (T-666: what it
+// WatchData is a watch fact's data: the task or comma list watched, who watches it, the lead's note (what it
 // meant to do when the set ends; one line), and the call that recorded it with its reply.
 type WatchData struct {
 	Task  string `json:"task"`
@@ -87,8 +87,8 @@ func (p *proj) openWatches() []string {
 
 // outcome is how the watch of set (a task or a comma list) ended in p, as its line names it after "[obor] ": its
 // first task dropped or rejected, "T-b dropped: <why>" (a set adds " (watch <set> ended)"); every task merged,
-// "T-xx merged <short sha>" or "T-a,T-b merged (<the last merge's short sha>)"; an open watch with a note (T-666)
-// adds " — <note>" (T-929: a closed watch's note is gone, so a later watch gets the outcome alone). "" while it has
+// "T-xx merged <short sha>" or "T-a,T-b merged (<the last merge's short sha>)"; an open watch with a note
+// adds " — <note>" (a closed watch's note is gone, so a later watch gets the outcome alone). "" while it has
 // not (under mu).
 func (p *proj) outcome(set string) string {
 	note := ""
@@ -251,7 +251,7 @@ func (a *App) watchList(p *proj) string {
 	return strings.Join(lines, "\n")
 }
 
-// ruleWatch is the merge watch's rule in the rule pass (rules.go, T-927).
+// ruleWatch is the merge watch's rule in the rule pass (rules.go).
 const ruleWatch = "watch"
 
 // watchRule lines p's lead once per open watch that ended (outcome), the oldest first. Key: the watch fact's seq; the

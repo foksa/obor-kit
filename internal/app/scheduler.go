@@ -8,12 +8,12 @@ import (
 	"time"
 )
 
-// The scheduler's rule for serve's worktree (the scratch), in one place (T-669, RV-75): the pass's order (passOrder),
+// The scheduler's rule for serve's worktree (the scratch), in one place: the pass's order (passOrder),
 // who holds the scratch (scratchHolder) and what a task's scratch step waits on (scratchWait). pickGate, pickAccepted
 // and advance decide with them, and obor status reports the same (scratchQueue): the view copies it, never predicts.
 
 // passOrder is the order a pass drives p's tasks in (advance): by id as strings (T-10 before T-9), the waiting ones
-// last (a task they wait for may merge in the same pass), in the order waitFirst gives them (T-1030, T-723). Under mu.
+// last (a task they wait for may merge in the same pass), in the order waitFirst gives them. Under mu.
 func (p *proj) passOrder() []string {
 	var tasks []string
 	var waiting []waitPlace
@@ -40,8 +40,8 @@ type waitPlace struct {
 	seq  int64
 }
 
-// waitFirst: the wait a comes before b in the pass's order: a high one before every ordinary one (T-1030: its spec says
-// so), then oldest wait first (its waiting fact's seq; T-723: a freed lane goes to the oldest waiting task not at its
+// waitFirst: the wait a comes before b in the pass's order: a high one before every ordinary one (its spec says
+// so), then oldest wait first (its waiting fact's seq: a freed lane goes to the oldest waiting task not at its
 // type's max), then by task id.
 func waitFirst(a, b waitPlace) bool {
 	if a.high != b.high {
@@ -53,7 +53,7 @@ func waitFirst(a, b waitPlace) bool {
 	return a.task < b.task
 }
 
-// keepAhead is the waiting dispatch keep lane lane goes to before task (under mu; T-1048: the scheduler's choice,
+// keepAhead is the waiting dispatch keep lane lane goes to before task (under mu: the scheduler's choice,
 // never a second order): of the dispatches waiting for the lane, the first in the pass's order (waitFirst) placed
 // before task's own wait (task not waiting: a new wait's place, after every wait of its priority) and eligible now:
 // its --after tasks merged and a model of its request not paused (firstUnpaused). "": none, the lane is task's to take.
@@ -77,8 +77,8 @@ func (p *proj) keepAhead(task, lane string, now time.Time) string {
 }
 
 // scratchHolder is the task of p other than except whose merge is open in the scratch (rule: one merge there at a
-// time) and why: a conflict, its resolve job, the merge resolved, also while a needs-you pauses that work (held,
-// RV-38 #9). It is released when the task abandons it (reject, a closed block, regate, a new attempt) or merges. "":
+// time) and why: a conflict, its resolve job, the merge resolved, also while a needs-you pauses that work (held). It
+// is released when the task abandons it (reject, a closed block, regate, a new attempt) or merges. "":
 // none. Under mu.
 func (p *proj) scratchHolder(except string) (task, why string) {
 	for _, t := range p.passOrder() {
@@ -126,7 +126,7 @@ func runningUse(step string) string {
 
 // scratchQueue is the scheduler's state (obor status): who holds the scratch and why (nil: free) and, in the pass's
 // order, each task whose next step needs it with what it waits for (scratchWait). A task nothing known holds says
-// nothing more: the queue names no task as next (T-673: the admission rules are the scheduler's, and copying them
+// nothing more: the queue names no task as next (the admission rules are the scheduler's, and copying them
 // was a second, partial copy that went stale). Under mu.
 func (p *proj) scratchQueue() (*wire.ScratchStatus, []wire.ScratchWait) {
 	var owner *wire.ScratchStatus
@@ -149,7 +149,7 @@ func (p *proj) scratchQueue() (*wire.ScratchStatus, []wire.ScratchWait) {
 }
 
 // scratchCommand is the command the running gate runs now (Scratch.Gate reports each as it starts and "" as it ends:
-// lane_setup, compile); "" when none runs now, between two commands too (T-673). Under mu.
+// lane_setup, compile); "" when none runs now, between two commands too. Under mu.
 func (p *proj) scratchCommand(k event.Key) string {
 	if base, _ := event.StepN(k.Step); k != p.running || base != event.StepGate {
 		return ""
@@ -158,7 +158,7 @@ func (p *proj) scratchCommand(k event.Key) string {
 }
 
 // stepCommand is the command the running step k runs now: its gate's (scratchCommand) or its lane test's (the
-// class's checks, the guard, lane_setup: TestInput.Command, T-961); "" when none runs now. Under mu.
+// class's checks, the guard, lane_setup: TestInput.Command); "" when none runs now. Under mu.
 func (p *proj) stepCommand(k event.Key) string {
 	if t, ok := p.tests[k.Task]; ok && t == k {
 		return p.testCmd[k.Task]

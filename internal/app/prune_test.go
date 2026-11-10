@@ -18,7 +18,7 @@ import (
 	"obor/internal/store"
 )
 
-// T-1089: the nightly prune (prune.go, docs/research/event-log-pruning.md §4). Each test builds a history in a store,
+// The nightly prune (prune.go, docs/research/event-log-pruning.md §4). Each test builds a history in a store,
 // loads it as serve does, prunes it and loads it again; the oracle (pruneOracle) compares the two folds. No test
 // writes a pruned log by hand.
 
@@ -113,7 +113,7 @@ func (h *history) merge(task string, attempt int, at time.Time, done bool) {
 }
 
 // supersedeIdleKey is a review request withdrawn at at: a retained end newer than every task's end before it, so none
-// of those tasks holds the idle key the prune keeps whole (T-1101, T-1102).
+// of those tasks holds the idle key the prune keeps whole.
 func (h *history) supersedeIdleKey(at time.Time) {
 	h.add(at, event.ReviewTask, 0, event.StepReviewRequest, event.KindFact, ReviewData{By: "pj-lead"})
 	h.add(at, event.ReviewTask, 0, event.StepReviewRm, event.KindFact, ReviewData{By: "pj-lead"})
@@ -142,7 +142,7 @@ func (h *history) rejected(task, lane string, at time.Time) {
 		verdictResult{Job: JobID(event.Key{Task: task, Attempt: 1, Step: event.StepReview}), Note: "not this"})
 }
 
-// session is agent's session fact id at at (transcript "": not known yet; given: the T-813 confirmation).
+// session is agent's session fact id at at (transcript "": not known yet; a given one is the session's own confirmation).
 func (h *history) session(agent, id, transcript string, at time.Time) {
 	h.add(at, store.SessionTask, 0, store.StepSession, event.KindFact,
 		store.Session{Agent: agent, ID: id, Transcript: transcript, Started: at.Unix(), Source: "hook"})
@@ -396,7 +396,7 @@ func TestPruneKeepsTheLastTerminalFact(t *testing.T) {
 	}
 }
 
-// T-789's shape: merged at attempt 1, dispatched again and dropped at attempt 2, 31 days ago. The per-task check
+// Merged at attempt 1, dispatched again and dropped at attempt 2, 31 days ago. The per-task check
 // fails (a merged fact other than the one that would stay): the task stays whole.
 func TestPruneKeepsAMergedThenDroppedTaskWhole(t *testing.T) {
 	t.Parallel()
@@ -537,7 +537,7 @@ func TestPruneKeepsAStartThatDisplacedARow(t *testing.T) {
 }
 
 // The newest rows of the table are the pruned task's: the newest stays, and the next record's seq is the old maximum
-// plus one (no seq is handed out again). T-m's end is not the idle key (T-1101, T-1102: that task is kept whole): a
+// plus one (no seq is handed out again). T-m's end is not the idle key (that task is kept whole): a
 // review request's end supersedes it, and the newest row is the receipt of a later spec_set on T-m.
 func TestPruneKeepsTheNewestRow(t *testing.T) {
 	t.Parallel()
@@ -671,7 +671,7 @@ func TestPruneRunsOnlyAfterServesBackup(t *testing.T) {
 	h.dispatched("T-later", 1, "L-01", daysAgo(1))
 	h.done()
 	whole := readLog(t, root)
-	// No serve listens on the socket: the call ends at once (T-685), not at the deadline table's 15 s (T-1144).
+	// No serve listens on the socket: the call ends at once, not at the deadline table's 15 s.
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 	if _, err := wire.Backup(ctx, filepath.Join(t.TempDir(), "none.sock"), root, pruneNow); err != nil {
@@ -735,7 +735,7 @@ func idleOf(a *App, p *proj) (idle, bool) {
 	return p.idleOpen()
 }
 
-// T-1101 (RV-162 #1): an idle project whose last merged task, 40 days old, holds the idle key the lead acknowledged:
+// An idle project whose last merged task, 40 days old, holds the idle key the lead acknowledged:
 // the prune keeps it whole, the key is the same after the prune and a restart, and the idle line does not come again.
 func TestPruneKeepsTheIdleKeysTask(t *testing.T) {
 	t.Parallel()
@@ -758,7 +758,7 @@ func TestPruneKeepsTheIdleKeysTask(t *testing.T) {
 	}
 }
 
-// T-1101: a later end the prune keeps supersedes T-old's: T-old is pruned to its merged fact and the idle key is
+// A later end the prune keeps supersedes T-old's: T-old is pruned to its merged fact and the idle key is
 // the same before and after.
 func TestPruneIdleKeySuperseded(t *testing.T) {
 	t.Parallel()
@@ -795,7 +795,7 @@ func TestPruneIdleKeySuperseded(t *testing.T) {
 	}
 }
 
-// T-1101: after the first case's prune, a pass of the idle rule and an hour: the ping rule does not fire (no line went
+// After the first case's prune, a pass of the idle rule and an hour: the ping rule does not fire (no line went
 // out on a moved key, so none is due again).
 func TestPruneIdleNoPing(t *testing.T) {
 	t.Parallel()
@@ -816,7 +816,7 @@ func TestPruneIdleNoPing(t *testing.T) {
 	}
 }
 
-// T-1102 (RV-162 verify): a project needs-you held at the prune suppresses idle but does not end the acknowledged
+// A project needs-you held at the prune suppresses idle but does not end the acknowledged
 // idle period: T-old, whose record is its key, stays whole, and once the needs-you is cleared (its resumed fact is no
 // idle end) the key is the acknowledged one, the same after a reload.
 func TestPruneIdleKeyHeldThroughNeedsYou(t *testing.T) {

@@ -140,7 +140,7 @@ func TestDoCrashBetweenEffectAndResult(t *testing.T) {
 	}
 }
 
-// The replay probe (T-869, DD-architecture R3, §6.6 rule 2): a store's records folded the way a restart folds them
+// The replay probe (docs/design.md §6.6 rule 2): a store's records folded the way a restart folds them
 // (foldRecord, as load does), the folded state written as text. Run on the same store before and after a change to a
 // fold (a compat branch deleted, a record shape merged), the two texts must be equal: the change folds every record
 // the store holds the same. The probe reads a copy of a store as `obor serve dump` writes it (JSONL, one record per
@@ -310,7 +310,7 @@ func firstDiff(want, got string) string {
 }
 
 // The probe's own oracle: the same records fold to the same text, a record that changes a fold changes it (a verify's
-// brief: an open verify brief in the review fold), and the verify records of an older obor (T-924: review.fix,
+// brief: an open verify brief in the review fold), and the verify records of an older obor (review.fix,
 // review.verify.request) fold as nothing.
 func TestReplayStateText(t *testing.T) {
 	t.Parallel()
@@ -348,8 +348,8 @@ func TestReplayStateText(t *testing.T) {
 	}
 }
 
-// T-972: a pending self-restart holds nothing back. While it waits, lane tests start and end in turn, and the restart
-// goes in the first pass where none runs, never cutting one. (T-965's drain and the 10-minute deadline are gone.)
+// A pending self-restart holds nothing back. While it waits, lane tests start and end in turn, and the restart
+// goes in the first pass where none runs, never cutting one.
 func TestPendingRestartGoesInTheFirstGap(t *testing.T) {
 	t.Parallel()
 	r := newConcRig(t)
@@ -391,7 +391,7 @@ func TestPendingRestartGoesInTheFirstGap(t *testing.T) {
 		t.Fatalf("restarted %d times with T-1's lane test running, want 0", n)
 	}
 
-	// T-5's gate goes green while the restart waits: its lane test starts beside the pending restart (T-972: no
+	// T-5's gate goes green while the restart waits: its lane test starts beside the pending restart (no
 	// drain), runs and ends, and the restart holds for it.
 	close(f.release)
 	r.waitFor("T-5's lane test", func() bool { return f.count(f.tests, "T-5") == 1 })

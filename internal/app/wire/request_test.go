@@ -12,7 +12,7 @@ import (
 // env is the golden rows' envelope.
 var env = Envelope{Root: "/p", Agent: "ag", Role: "ro", Version: "v1", CallID: "c1"}
 
-// droppedKey is a key a method's request type no longer sends, with why no serve of either version reads it for that
+// droppedKey is a key a method's request type does not send, with why no serve of either version reads it for that
 // method. A key a method's handler does read belongs in no row.
 type droppedKey struct{ key, why string }
 
@@ -27,7 +27,7 @@ var (
 )
 
 // requestLine is one row of the socket's oracle: the request a caller (or the test) builds, the exact line the union
-// Call of the obor before the split marshalled for it, and every key the new type no longer sends with why no serve of
+// Call of an older obor marshalled for it, and every key the type does not send with why no serve of
 // either version reads it for the method.
 type requestLine struct {
 	req   Req
@@ -35,12 +35,12 @@ type requestLine struct {
 	drops []droppedKey
 }
 
-// goldenRequests is the socket's oracle (T-1055, T-1060): per method a request with every field the method uses set, and
-// the exact line the union Call of the obor before the split marshalled for it (captured from that code, as
-// Request{Method, Call: &Call{…}}, in the union's key order; T-1060 leaves these lines as they were). drops names every
-// key its old line carries that the new type no longer sends, each with why no serve of either version reads it for the
-// method: the guarantee is that every key a serve of either version reads is sent and every old line decodes into the
-// new type, not that the bytes are equal.
+// goldenRequests is the socket's oracle: per method a request with every field the method uses set, and
+// the exact line the union Call of an older obor marshalled for it (captured from that code, as
+// Request{Method, Call: &Call{…}}, in the union's key order, kept as captured). drops names every
+// key its line carries that the type does not send, each with why no serve of either version reads it for the
+// method: the guarantee is that every key a serve of either version reads is sent and every older line decodes into the
+// type, not that the bytes are equal.
 var goldenRequests = []requestLine{
 	{&VerdictReq{Envelope: env, Verb: MethodAccept, Task: "T-1", Job: "T-1/1/review", Patch: "ph", Note: "n"},
 		`{"method":"accept","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"T-1","job":"T-1/1/review","patch":"ph","note":"n"}}`, nil},
@@ -105,15 +105,15 @@ var goldenRequests = []requestLine{
 		`{"method":"task_done","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"T-1","lane":"L-01","report":"r"}}`, nil},
 }
 
-// callerRequests is the same oracle for the requests a real caller builds with the fields it sets (T-1060): the MCP
-// tools' (mcp.go at 58a8d75^1 set Pane, from project.Pane, on every tool call, and Lane from OBOR_LANE) and the web's
-// (web.go's ask set Source "web" on every page's call). These rows are separate from goldenRequests because those old
-// lines stay exactly as captured; a caller that set "pane" or "source" is a different old line, not an edit to them.
+// callerRequests is the same oracle for the requests a real caller builds with the fields it sets: the MCP
+// tools' (Pane, from project.Pane, on every tool call, and Lane from OBOR_LANE) and the web's
+// (Source "web" on every page's call). These rows are separate from goldenRequests because those lines stay exactly as
+// captured; a caller that sets "pane" or "source" is a different line, not an edit to them.
 //
 // The builders are not called here: this package cannot import internal/mcp or internal/web (both import wire), and each
 // sits behind a serve call: MCP's task_done request is a closure inside mcp.register, reached through s.call and
 // wire.Verdict, and web's pause is pauseAPI, reachable only with a project and an http request (its s.Call hook replaces
-// the socket). Each row is the value that builder makes, with the pane or source the old caller added; the integrator is
+// the socket). Each row is the value that builder makes, with the pane or source that caller added; the integrator is
 // not lane-bound, so an old verdict's Lane is empty and its line carries none.
 var callerRequests = []requestLine{
 	{&VerdictReq{Envelope: env, Verb: MethodAccept, Task: "T-1", Job: "T-1/1/review", Patch: "ph", Note: "n"},
@@ -214,13 +214,13 @@ func decodeAs(t *testing.T, line string, want Req) (string, Req) {
 	return req.Method, got
 }
 
-// T-1060: every method's request sends every key a serve of either version reads for it, and every old line decodes into
-// the request type with the fields the method reads equal. The only keys a new line may lack are its row's drops, each
-// named with why no serve reads it for the method: the byte-for-byte equality T-1055 promised is not the guarantee.
+// Every method's request sends every key a serve of either version reads for it, and every older line decodes into
+// the request type with the fields the method reads equal. The only keys a line may lack are its row's drops, each
+// named with why no serve reads it for the method: byte-for-byte equality with an older line is not the guarantee.
 //
 // A drops entry that names a key the method's handler does read would pass here: the handlers are in internal/app, which
 // imports this package, so this test cannot inspect them. The rows' drops were checked against them by hand instead
-// (T-1060: v0.30.0's verdict and taskDone handlers read no Pane, pause reads no Source, and every no-task method reads
+// (v0.30.0's verdict and taskDone handlers read no Pane, pause reads no Source, and every no-task method reads
 // no Task).
 func TestRequestLinesDropOnlyUnreadKeys(t *testing.T) {
 	t.Parallel()
@@ -247,8 +247,8 @@ func TestRequestLinesDropOnlyUnreadKeys(t *testing.T) {
 	}
 }
 
-// T-1060: the caller-built rows keep the same guarantee, and each differs from its golden row (it has a dropped key the
-// old caller set and the new type cannot send).
+// The caller-built rows keep the same guarantee, and each differs from its golden row (it has a dropped key the
+// caller set and the type cannot send).
 func TestCallerBuiltRequestLinesDropOnlyUnreadKeys(t *testing.T) {
 	t.Parallel()
 	for _, g := range callerRequests {
@@ -259,7 +259,7 @@ func TestCallerBuiltRequestLinesDropOnlyUnreadKeys(t *testing.T) {
 	}
 }
 
-// T-1055: an old binary's line may carry any key of the union Call, one its method does not use among them: it still
+// An older binary's line may carry any key of the union Call, one its method does not use among them: it still
 // decodes into the method's request, the unused keys ignored (as any unknown key).
 func TestRequestIgnoresTheUnionsOtherKeys(t *testing.T) {
 	t.Parallel()

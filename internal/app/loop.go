@@ -16,7 +16,7 @@ import (
 
 // The merge loop (docs/state-model.md rows 16–38, rules 3–5). A worker's task_done submits its task; submit
 // pins the lane's commit, the gate merges and compiles it in the scratch (Scratch: serve's own worktree, seconds) and
-// the test runs the class's checks on that candidate in the task's lane (T-961, in parallel across lanes); a tested
+// the test runs the class's checks on that candidate in the task's lane (in parallel across lanes); a tested
 // candidate is a review job for the integrator, whose verdict accepts, sends back or rejects it; an accepted candidate
 // is published, then the after-merge work runs. A red gate or test sends the task back to its worker (K times, then the
 // owner decides), a conflict is a resolve job for the integrator, a moved target is merged and compiled again (the
@@ -31,7 +31,7 @@ import (
 
 // Loop is what the merge loop drives in one project.
 type Loop struct {
-	// Workflow is the project's git workflow (T-1029, port.Workflow: the merge slot, the lanes, the target, the
+	// Workflow is the project's git workflow (port.Workflow: the merge slot, the lanes, the target, the
 	// review's git; workflow.kind picks it at serve start). Nil: a Loop without one (tests): nothing
 	// is gated, published, dispatched or reviewed.
 	Workflow port.Workflow
@@ -42,22 +42,22 @@ type Loop struct {
 	// Without Workflow and Specs the app dispatches nothing (dispatch.go).
 	Specs Specs
 	Kit   string
-	// Nightly is the project's nightly full check (merge.nightly_at; off is At "", T-464, T-782; nil: a Loop without
+	// Nightly is the project's nightly full check (merge.nightly_at; off is At ""; nil: a Loop without
 	// one, tests).
 	Nightly *Nightly
-	// Disk is the project volume's free space (nil: not watched, T-564).
+	// Disk is the project volume's free space (nil: not watched).
 	Disk *Disk
 	// Versions is the version line of each agent CLI a model of the config can start, by kind; a kind with no entry
 	// was not read (versions.go). Nil: not watched.
 	Versions func(ctx context.Context) map[string]string
 	// Inbox posts the project's lines to its lead into the lead's Claude session (obor send, a brief's finished
-	// line; nil: none posted, T-485): nothing is typed into the pane the owner writes in.
+	// line; nil: none posted): nothing is typed into the pane the owner writes in.
 	Inbox Poster
-	// Restart restarts this serve on a new obor binary (T-719, claimed by the binary follow, T-934). The adapter ends
+	// Restart restarts this serve on a new obor binary (claimed by the binary follow). The adapter ends
 	// serve as a signal does (it cancels; then launchd starts it again, or serve execs the kit's shim itself) and
 	// returns nil once it did. Nil: never restarted.
 	Restart func(ctx context.Context) error
-	// Config is the main checkout's config file and its git: the owner's setup edits (configset.go, T-753; nil: none).
+	// Config is the main checkout's config file and its git: the owner's setup edits (configset.go; nil: none).
 	Config ConfigFile
 }
 
@@ -86,7 +86,7 @@ const (
 	causeResolveRejected = "resolve rejected"
 	causeFix             = "fix job not sent"
 	causeRejected        = "rejected"
-	// causeOpen: an older log's hold of a report's open questions before the review job (T-604, reversed by T-649):
+	// causeOpen: an older log's hold of a report's open questions before the review job:
 	// the fold ends it, and the task gets its review job.
 	causeOpen    = "open questions"
 	failedSuffix = " failed"
@@ -106,11 +106,11 @@ func resumeDefaultOf(cause string) string {
 }
 
 // afterSteps are a merged task's steps, in order (a keep lane's task runs the first only: afterList). An older log's
-// dispatch.next (the legacy queue dispatch, T-408) and archive (the done file's, before T-437) are none of them: their
+// dispatch.next (the legacy queue dispatch) and archive (the done file's) are none of them: their
 // results fold as no step's.
 var afterSteps = []string{event.StepAfterMerge, event.StepStop}
 
-// afterList is mt's after-merge steps: a keep lane's task (its dispatch's Keep, T-1031) runs after_merge only, its
+// afterList is mt's after-merge steps: a keep lane's task (its dispatch's Keep) runs after_merge only, its
 // agent stays, idle, for the lane's next task; every other task's are afterSteps.
 func (m *mtask) afterList() []string {
 	if m.disp.Keep {
@@ -125,7 +125,7 @@ const tries = 3
 // The states of a merge-loop task: each a phase; a needs-you is a block on it (mtask.needs, block.go), never a state.
 const (
 	stSubmitted  = "submitted"           // submit it (pin the lane's commit), then gate it
-	stCandidate  = "candidate"           // the slot merged and compiled it: its lane test is next (T-961)
+	stCandidate  = "candidate"           // the slot merged and compiled it: its lane test is next
 	stGreen      = "green"               // tested green, or a move compiled: keep the accept, or a review job
 	stAwaiting   = "awaiting-accept"     // the review job is out
 	stRed        = "red"                 // gate red: a sendback, or the owner after K
@@ -133,7 +133,7 @@ const (
 	stResolving  = wire.ScratchResolving // the resolve job is out
 	stResolved   = wire.ScratchResolved  // gate the merge the integrator committed in the scratch
 	stAccepted   = "accepted"            // publish it
-	stMoved      = "moved"               // merge and compile the candidate again on the new target (no test, T-961)
+	stMoved      = "moved"               // merge and compile the candidate again on the new target (no test)
 	stPublished  = "published"           // the target holds the candidate
 	stPending    = "pending"             // published, the merge not done yet (port.PublishPending): the Landed rule ends it
 	stMerged     = "merged"              // terminal (then after_merge)
@@ -142,8 +142,8 @@ const (
 	stWaiting    = "waiting"             // a dispatch waiting for its After tasks to merge (readiness rule 1)
 	stDispatched = "dispatched"          // a dispatch's steps: lane.prepare, agent.start, the work job
 	stWorking    = "working"             // the work job delivered, or sent back: the fix job; then task_done
-	stDriving    = wire.TaskDriving      // the owner's drive agent works on it (T-751): no jobs, no watchdog; obor land submits it
-	stDropping   = wire.PhaseDropping    // obor drop decided (T-852): its worker stopped, its lane freed, then dropped
+	stDriving    = wire.TaskDriving      // the owner's drive agent works on it: no jobs, no watchdog; obor land submits it
+	stDropping   = wire.PhaseDropping    // obor drop decided: its worker stopped, its lane freed, then dropped
 )
 
 // mtask is one task in the merge loop, folded from its records.
@@ -159,18 +159,18 @@ type mtask struct {
 	head              string // stMerged: the merge's sha (mergedData.Head; "": a merge outside the app)
 	mergedSeq         int64  // stMerged: the merged fact's seq (a watched set's last merge, mergewatch.go)
 	dropped           string // stDropped: obor drop's why
-	droppedSeq        int64  // stDropped: the dropped fact's seq (the idle line's last end, T-803)
+	droppedSeq        int64  // stDropped: the dropped fact's seq (the idle line's last end)
 	needs             block  // the needs-you on its phase (block.go; none: it goes on)
-	// droppedRev: stDropped of a spec stored and never dispatched (T-1016, T-1026): the spec rev the drop recorded; a
+	// droppedRev: stDropped of a spec stored and never dispatched: the spec rev the drop recorded; a
 	// spec.set of a later rev revives the task (foldSpecSet), a dispatch is refused until then. 0: a loop task's drop.
 	droppedRev int
-	// endedAt: stMerged, stDropped: its merged or dropped fact's time (the idle state's since, T-866); afterSeq,
-	// afterAt: stMerged: the last after-merge step's result record (T-868: an idle key).
+	// endedAt: stMerged, stDropped: its merged or dropped fact's time (the idle state's since); afterSeq,
+	// afterAt: stMerged: the last after-merge step's result record (an idle key).
 	endedAt  time.Time
 	afterSeq int64
 	afterAt  time.Time
 	// A dispatched attempt (dispatch.go): the fact's data, time and seq (a waiting task: its waiting fact's data and
-	// seq, which orders the waits; a submission keeps the seq: the lane's current task is its newest dispatch's, T-615); lane.prepare's
+	// seq, which orders the waits; a submission keeps the seq: the lane's current task is its newest dispatch's); lane.prepare's
 	// base (""), its refusal or agent.start's (refused; its cause: refusedCause); the step counters (the last N used); agent.start done.
 	disp                    dispatchData
 	at                      time.Time
@@ -180,11 +180,11 @@ type mtask struct {
 	started                 bool
 	startAt                 time.Time // when the last start that started its agent was written
 	specRev                 int       // the spec rev the worker's last fetched job carried, or the newer one a task_done refusal showed it (0: none)
-	// drive: the owner drives the task (obor drive, T-751): every attempt's, from its dispatch on; a red
+	// drive: the owner drives the task (obor drive): every attempt's, from its dispatch on; a red
 	// gate, a sendback or a hold go back to driving, never to a worker.
 	drive bool
-	halt  halt // the stop of its worker a move or a drop asked for (T-852, stopstep.go)
-	// A dropping task (T-852): obor drop's decision (dropData), lane.free's last N, its result in (freed) and its line.
+	halt  halt // the stop of its worker a move or a drop asked for (stopstep.go)
+	// A dropping task: obor drop's decision (dropData), lane.free's last N, its result in (freed) and its line.
 	drop     dropData
 	frees    int
 	freed    bool
@@ -198,12 +198,12 @@ type attemptVars struct {
 	submits        int
 	input          string             // submit's sha, the lane gate's and the moved gate's input ("": submit first)
 	cand           port.Candidate     // the attempt's last green candidate
-	tests          int                // the attempt's last test step's N (T-961)
+	tests          int                // the attempt's last test step's N
 	tested         string             // the attempt's last green lane test's checks (the review job names them; "": none)
-	gateRev        int                // the spec rev in cand's merge message (T-521; 0: none)
+	gateRev        int                // the spec rev in cand's merge message (0: none)
 	accepted       string             // the patch hash the integrator accepted in this attempt
 	line           string             // the last gate or publish line, or the integrator's note
-	mismatch       *port.Mismatch     // the last gate's replay mismatch (T-917; nil: none)
+	mismatch       *port.Mismatch     // the last gate's replay mismatch (nil: none)
 	kind           string             // the attempt's last gate's kind: lane, resolved, moved
 	job            string             // the attempt's last integrator job's step (review, resolve.2 …; "": none yet)
 	patch          string             // the patch hash that job was prompted with (its intent's JobData)
@@ -214,11 +214,11 @@ type attemptVars struct {
 	fixes          int                // the attempt's last fix job's N (fix, fix.2 … after obor resume)
 	fails          map[string]failure // counted failures per step key since the attempt began or the last resume
 	work           string             // a dispatched attempt's work job step ("": not sent in this attempt, or sent anew after obor resume)
-	lined          bool               // stDriving: the lead's line that the drive came back (line: why) is recorded (T-751)
+	lined          bool               // stDriving: the lead's line that the drive came back (line: why) is recorded
 }
 
 // failure is one step's counted failures in an attempt: how many, and the last one's reason and time (obor status'
-// pending line names them, T-662).
+// pending line names them).
 type failure struct {
 	n   int
 	at  time.Time
@@ -231,16 +231,16 @@ type (
 		Lane  string `json:"lane"`
 		Agent string `json:"agent,omitempty"`
 		Pane  string `json:"pane,omitempty"`
-		Call  string `json:"call,omitempty"` // task_done's call id ("": a done file's watch, before T-437)
-		// Report is task_done's report ("": a done file's submission, before T-437).
+		Call  string `json:"call,omitempty"` // task_done's call id ("": a done file's watch)
+		// Report is task_done's report ("": a done file's submission).
 		Report string `json:"report,omitempty"`
-		// Land: obor land's submission of the owner's drive (T-751), Report its summary, Call its call id.
+		// Land: obor land's submission of the owner's drive, Report its summary, Call its call id.
 		Land bool `json:"land,omitempty"`
 	}
 	stopData struct {
 		Lane  string `json:"lane"`
 		Agent string `json:"agent,omitempty"`
-		Force bool   `json:"force,omitempty"` // worker.stop's: a working agent stopped too (T-852)
+		Force bool   `json:"force,omitempty"` // worker.stop's: a working agent stopped too
 	}
 	gateIn struct {
 		Kind  string `json:"kind"` // lane, resolved, moved
@@ -255,11 +255,11 @@ type (
 		Outcome   string         `json:"outcome"` // a gate's green, red, conflict, fail; a publish's merged, moved, hold
 		Line      string         `json:"line"`
 		Candidate port.Candidate `json:"candidate"`
-		SpecRev   int            `json:"spec_rev,omitempty"` // a gate's: the spec rev in its merge's message (T-521)
-		// Mismatch: a conflict whose replayed resolution lost edits of the checked one (T-917)
+		SpecRev   int            `json:"spec_rev,omitempty"` // a gate's: the spec rev in its merge's message
+		// Mismatch: a conflict whose replayed resolution lost edits of the checked one
 		Mismatch *port.Mismatch `json:"mismatch,omitempty"`
 	}
-	// testIn is a lane test's intent (T-961, row 18b): the candidate it tests, the target it was merged onto, the lane.
+	// testIn is a lane test's intent (row 18b): the candidate it tests, the target it was merged onto, the lane.
 	testIn struct {
 		Candidate string `json:"candidate"`
 		Target    string `json:"target"`
@@ -294,7 +294,7 @@ func (a *App) wake() {
 
 // mergeLoop runs a pass (advance) at each kick until ctx ends; at its end it waits for the scratch effects still running (ctx cut them: their intents stay pending).
 // Every pass counts in a.passes; one that ran connected to one herdr stream from its start to its end also counts in
-// a.onStream (T-861): a pass in a resubscribe's gap (a refresh, herdr gone) skipped the project or read its agents as
+// a.onStream: a pass in a resubscribe's gap (a refresh, herdr gone) skipped the project or read its agents as
 // "not connected", so it saw nothing a test set before it.
 func (a *App) mergeLoop(ctx context.Context) {
 	defer a.effects.Wait()
@@ -355,14 +355,14 @@ func (a *App) advance(ctx context.Context) *Loop {
 		a.drive(ctx, p, fx, task)
 	}
 	a.nightly(ctx, p, fx)
-	a.reviewCloseRead(ctx, p, fx) // once per process: the open review's close commit a crash cut from its fact (T-926)
+	a.reviewCloseRead(ctx, p, fx) // once per process: the open review's close commit a crash cut from its fact
 	a.reviewPass(ctx, p, fx)
 	a.reviewDueTick(ctx, p, fx)
 	return fx
 }
 
 // record appends the fact r with data and folds it, in one a.mu section (the append is inside mu: the live fold order
-// is the log order, T-944); false when the log failed. A verb that decides on folded state records with recordLocked
+// is the log order); false when the log failed. A verb that decides on folded state records with recordLocked
 // in its own a.mu section instead (the rule at App.mu).
 func (a *App) record(p *proj, r event.Record, data any) bool {
 	_, ok := a.recordSeq(p, r, data)
@@ -393,7 +393,7 @@ func (a *App) recordIn(p *proj, r event.Record, data any) (int64, bool) {
 	a.hook(hookAppended)
 	was := p.taskEnded(r.Task)
 	p.foldRecord(r)
-	a.endTaskLogs(p, r.Task, was) // a merged or dropped fact, or an outside merge that needs none, ends it (T-1098, T-1104)
+	a.endTaskLogs(p, r.Task, was) // a merged or dropped fact, or an outside merge that needs none, ends it
 	if r.Kind == event.KindFact && (r.Step == event.StepMerged || r.Step == event.StepDropped) {
 		a.settleEnded(p, r.Task) // the task ended: its pending intents never run
 	}
@@ -408,7 +408,7 @@ func (a *App) recordIn(p *proj, r event.Record, data any) (int64, bool) {
 // do runs effect once for in (the log's Begin and Finish) and folds its intent (once written: the effect runs) and its
 // result, each in the a.mu section that wrote it; the effect runs outside mu. An effect that fails, or a ctx that ended
 // (obor serve stops: nothing is decided on a cut-off effect), leaves the intent pending. A stored result is not folded
-// again (it was folded where it was appended: folded after a later record it would undo that record, T-955); an intent
+// again (it was folded where it was appended: folded after a later record it would undo that record); an intent
 // already in the log is not folded again (a job's intent before its start: a verdict given since stays).
 //
 // The failure rule (every merge-loop effect; the table in docs/state-model.md "Crash classes"): an effect returns a
@@ -419,7 +419,7 @@ func (a *App) recordIn(p *proj, r event.Record, data any) (int64, bool) {
 // result it had (p.unwritten). A restart has only the log: the intent's crash class settles it.
 //
 // From the moment the effect runs until it returns its key is p.exec: obor status' running line lists those, and every
-// other open intent as pending (T-662).
+// other open intent as pending.
 func (a *App) do(ctx context.Context, p *proj, in event.Intent, effect func(context.Context) (any, error)) (json.RawMessage, error) {
 	a.mu.Lock()
 	r, run, err := a.doBegin(p, in)
@@ -438,13 +438,13 @@ func (a *App) do(ctx context.Context, p *proj, in event.Intent, effect func(cont
 	defer a.mu.Unlock()
 	if run {
 		delete(p.exec, in.Key)
-		a.markLanes(p) // obor's own operation: a worktree may have changed (T-879)
+		a.markLanes(p) // obor's own operation: a worktree may have changed
 		if r, err = a.doFinish(p, in, v, err); err != nil {
 			return nil, err
 		}
 		was := p.taskEnded(r.Task)
 		p.foldRecord(r)               // its append and this fold are one section: the live fold order is the log's
-		a.endTaskLogs(p, r.Task, was) // the last after-merge step's result ends a merged task (T-1098, T-1104)
+		a.endTaskLogs(p, r.Task, was) // the last after-merge step's result ends a merged task
 	}
 	if err := p.laneRowsErr(); err != nil { // the result is in the log: the next pass finds it done and proceeds once the rows are written
 		a.logf("%s %s %s: lane rows: %v", p.name, in.Task, in.Step, err)
@@ -466,8 +466,8 @@ func (a *App) doBegin(p *proj, in event.Intent) (event.Record, bool, error) {
 		}
 		delete(p.unwritten, in.Key)
 		was := p.taskEnded(r.Task)
-		p.foldRecord(r)               // here, not after do's next lock: a record appended meanwhile folds after it (T-955)
-		a.endTaskLogs(p, r.Task, was) // a stored after-merge result ends a merged task too (T-1098, T-1104)
+		p.foldRecord(r)               // here, not after do's next lock: a record appended meanwhile folds after it
+		a.endTaskLogs(p, r.Task, was) // a stored after-merge result ends a merged task too
 		if err := p.laneRowsErr(); err != nil {
 			a.logf("%s %s %s: lane rows: %v", p.name, in.Task, in.Step, err)
 			return r, false, err
@@ -484,7 +484,7 @@ func (a *App) doBegin(p *proj, in event.Intent) (event.Record, bool, error) {
 	case wrote: // before the effect: a verdict on a job the prompt just delivered finds it open (a start's try: folded.starts)
 		p.foldRecord(r)
 	}
-	p.exec[in.Key] = a.opt.Now() // obor status' running line shows it, elapsed from now (T-662)
+	p.exec[in.Key] = a.opt.Now() // obor status' running line shows it, elapsed from now
 	return r, true, nil
 }
 
@@ -505,13 +505,13 @@ func (a *App) doFinish(p *proj, in event.Intent, v any, err error) (event.Record
 }
 
 // cutByServe: err is serve's own cancellation (its ctx ended: a restart, a stop), so the effect was cut off, not
-// failed (T-660): nothing is recorded as a failure or needs-you, and the intent stays pending for the next serve's
+// failed: nothing is recorded as a failure or needs-you, and the intent stays pending for the next serve's
 // replay, as after a crash.
 func cutByServe(ctx context.Context, err error) bool {
 	return ctx.Err() != nil || errors.Is(err, context.Canceled)
 }
 
-// shutDown logs the one line a failure or needs-you leaves behind when serve is stopping (T-660) instead of being
+// shutDown logs the one line a failure or needs-you leaves behind when serve is stopping instead of being
 // recorded: nothing was decided on the cut-off effect.
 func (a *App) shutDown(what string) {
 	a.logf("shutting down: %s not recorded", what)
@@ -523,7 +523,7 @@ func (a *App) shutDown(what string) {
 // agent_not_found within startSettle of the start of mt's agent (herdr may not know a new agent's name yet). The task
 // waits either way.
 func (a *App) failed(ctx context.Context, p *proj, mt mtask, step string, err error) bool {
-	if cutByServe(ctx, err) { // serve is stopping: the step was cut, not failed (T-660)
+	if cutByServe(ctx, err) { // serve is stopping: the step was cut, not failed
 		a.shutDown(mt.task + " " + event.StepFailed + "{" + step + ": " + err.Error() + "}")
 		return false
 	}
@@ -555,7 +555,7 @@ const startSettle = 30 * time.Second
 // loopStatus notes that a pass over p failed (err) or did not (nil) at one source (the loop's adapters, the lanes
 // read): a failure is recorded as a needs-you "loop: <error>" once per distinct error (the owner is notified, the
 // lead has a reason), and it ends with the first pass in which no source fails. A pass cut by serve's own stop
-// records nothing (T-660): it was not a failure, and the next serve's pass decides again.
+// records nothing: it was not a failure, and the next serve's pass decides again.
 func (a *App) loopStatus(ctx context.Context, p *proj, src *bool, err error) {
 	if err != nil && cutByServe(ctx, err) {
 		a.shutDown("loop " + event.StepNeedsYou + "{loop: " + err.Error() + "}")
@@ -624,7 +624,7 @@ func (a *App) drive(ctx context.Context, p *proj, fx *Loop, task string) {
 		}
 		if landed {
 			merged := event.MergedData{Outside: true}
-			if mt.is(stPending) { // the merge its publish asked for is done (T-1029)
+			if mt.is(stPending) { // the merge its publish asked for is done
 				merged = event.MergedData{Head: mt.cand.SHA}
 			}
 			a.record(p, event.Record{Task: task, Attempt: mt.attempt, Step: event.StepMerged, Kind: event.KindFact}, merged)
@@ -649,7 +649,7 @@ const maxSteps = 32
 type step func(ctx context.Context, fx *Loop) bool
 
 // next is mt's next step (under mu), nil when it waits. A selected step starts only after begin's atomic check (one
-// rule for every kind, RV-42 #1): its task/attempt is still current and not ended (dropped, or a drop of it decided:
+// rule for every kind): its task/attempt is still current and not ended (dropped, or a drop of it decided:
 // p.ended); the same check holds the task (p.held) until the step returns (a job sample's read excepted: sampleJob),
 // and a drop is refused meanwhile. Drop decides under the same lock (App.drop), so no effect starts after DROPPED, and
 // none is still starting when DROPPED is returned.
@@ -669,8 +669,8 @@ func (a *App) next(p *proj, m *mtask) step {
 }
 
 // begin checks that mt (as selected) is still p's current attempt, not dropped, not dropping since its selection (a
-// drop's own steps are a dropping task's: T-852) and not claimed (proj.claim), and holds it: false, the step does not
-// start. The lane rows are written first (RV-48 #1): a step whose record moved a row does not run on a
+// drop's own steps are a dropping task's) and not claimed (proj.claim), and holds it: false, the step does not
+// start. The lane rows are written first: a step whose record moved a row does not run on a
 // missing or stale row, so a failing write holds every step until it is repaired.
 func (a *App) begin(p *proj, mt mtask) bool {
 	a.mu.Lock()
@@ -742,9 +742,9 @@ func (a *App) pickGate(p *proj, mt mtask) step {
 	}
 }
 
-// pickTest runs the candidate's lane test (row 18b, T-961): outside the scratch token, one per lane, in parallel with
-// the other lanes' tests and with the slot's gates and publishes (laneStep). A pending self-restart holds nothing back
-// (T-972): the test starts, and the restart goes in the first pass after the last one ends.
+// pickTest runs the candidate's lane test (row 18b): outside the scratch token, one per lane, in parallel with
+// the other lanes' tests and with the slot's gates and publishes (laneStep). A pending self-restart holds nothing
+// back: the test starts, and the restart goes in the first pass after the last one ends.
 func (a *App) pickTest(p *proj, mt mtask) step {
 	return func(ctx context.Context, fx *Loop) bool {
 		if a.diskIsLow(p, fx) {
@@ -755,7 +755,7 @@ func (a *App) pickTest(p *proj, mt mtask) step {
 }
 
 // pickGreen keeps the accept bound to the patch (row 20), else sends a review job (row 19): a report's open questions
-// go with it, for the integrator to decide or hold (T-649).
+// go with it, for the integrator to decide or hold.
 func (a *App) pickGreen(p *proj, mt mtask) step {
 	if mt.accepted != "" && mt.accepted == mt.cand.Patch {
 		return func(context.Context, *Loop) bool {
@@ -775,7 +775,7 @@ func (a *App) pickConflict(p *proj, mt mtask) step {
 	}
 }
 
-// pickRed sends the task back (row 21), or to the owner after K (row 22); a drive back to driving, always (T-751).
+// pickRed sends the task back (row 21), or to the owner after K (row 22); a drive back to driving, always.
 func (a *App) pickRed(p *proj, mt mtask) step {
 	if mt.sendbacks < K || mt.drive {
 		return func(context.Context, *Loop) bool {
@@ -805,10 +805,10 @@ func (a *App) pickDue(p *proj, mt mtask) step {
 	}
 }
 
-// pickAccepted publishes the candidate (row 33) once the scratch is free and no config_set is admitted (T-730); a
-// role's start and the reviewer or the deep dive working hold nothing (T-853, T-872: they read their own worktree).
+// pickAccepted publishes the candidate (row 33) once the scratch is free and no config_set is admitted; a
+// role's start and the reviewer or the deep dive working hold nothing (they read their own worktree).
 // This is a cheap filter at selection: scratchStep decides the admissions again at the publish's actual start, under
-// the same lock that sets p.running (T-733).
+// the same lock that sets p.running.
 func (a *App) pickAccepted(p *proj, mt mtask) step {
 	if holder, _ := p.scratchWait(mt); holder != "" || p.admits > 0 {
 		return nil

@@ -97,7 +97,7 @@ func (p *proj) foldWaiting(r event.Record) {
 	delete(p.waitLine, r.Task) // a new wait: no refusal of the one it replaces (its reason, its hour)
 }
 
-// waitHigh is whether task's waiting dispatch takes the next free lane before every ordinary waiting one (T-1030): its
+// waitHigh is whether task's waiting dispatch takes the next free lane before every ordinary waiting one: its
 // stored spec is high (highPriority). A project with no log or store (a hand-built one in a test) has no specs. Under mu.
 func (p *proj) waitHigh(task string) bool {
 	if p.log == nil || p.log.DB() == nil {
@@ -107,7 +107,7 @@ func (p *proj) waitHigh(task string) bool {
 	return err == nil && ok && highPriority(row.Spec)
 }
 
-// highPriority is whether spec's task is high (T-1030): its `Priority: high` line.
+// highPriority is whether spec's task is high: its `Priority: high` line.
 func highPriority(sp spec.Spec) bool { return sp.Priority == spec.PriorityHigh }
 
 // pickWaiting is a waiting task's next step (under mu; readiness rule 1): nothing while a task it waits for is not
@@ -192,8 +192,8 @@ func (a *App) waitDispatch(ctx context.Context, p *proj, fx *Loop, mt mtask) boo
 	laneWait := errors.As(err, &nl)
 	switch {
 	case laneWait:
-		line = nl.laneWait() // the status line reads it after the level (T-723)
-	case errors.As(err, &qe): // queued behind a keep lane's task (T-1031): the wait itself, as a busy lane's
+		line = nl.laneWait() // the status line reads it after the level
+	case errors.As(err, &qe): // queued behind a keep lane's task: the wait itself, as a busy lane's
 		line, laneWait = qe.why(), true
 	}
 	changed := !ok || w.line != line
@@ -217,7 +217,7 @@ func (a *App) waitDispatch(ctx context.Context, p *proj, fx *Loop, mt mtask) boo
 }
 
 // waitCurrent: the waiting request mt was selected for is still the one in force (under a.verdicts, which an obor
-// dispatch replacing it takes): its call id and attempt (a replacement keeps the attempt; RV-56 #1). A stale step
+// dispatch replacing it takes): its call id and attempt (a replacement keeps the attempt). A stale step
 // records nothing: the next pass picks the request in force.
 func (a *App) waitCurrent(p *proj, mt mtask) bool {
 	a.mu.Lock()

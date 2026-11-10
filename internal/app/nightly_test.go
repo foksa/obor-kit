@@ -25,7 +25,7 @@ func replayProj(t *testing.T, r *concRig, p *proj) (*App, *proj) {
 }
 
 // notifyNightly appends an old log's notification intent of p's nightly needs-you in force, with its result when done
-// (T-949: nothing runs these steps now; the replay must still ignore them).
+// (nothing runs these steps now; the replay must still ignore them).
 func notifyNightly(t *testing.T, r *concRig, p *proj, done bool) {
 	t.Helper()
 	if len(p.folded.active[event.NightlyTask]) == 0 {
@@ -43,7 +43,7 @@ func notifyNightly(t *testing.T, r *concRig, p *proj, done bool) {
 	}
 }
 
-// RV-49 #1 (T-468): the nightly's notification records (notify.<seq>, task key nightly) never move its run cursor: a
+// The nightly's notification records (notify.<seq>, task key nightly) never move its run cursor: a
 // restart replays the run's own step, and a day with a result, or with tries failures, runs no further check.
 func TestNightlyNotificationsKeepRunCursor(t *testing.T) {
 	t.Parallel()

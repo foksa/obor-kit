@@ -1,11 +1,11 @@
-// drive.go: the owner's drive (T-751): `obor drive` puts a task on a lane for the owner to iterate on by hand, in a
+// drive.go: the owner's drive: `obor drive` puts a task on a lane for the owner to iterate on by hand, in a
 // plain interactive agent (role driver) on its own branch; `obor land` sends the branch through the same gate,
 // integrator and merge as any task.
 //
 // A drive is a task on a lane, so the dispatch's machinery does the work. A new drive (obor drive <name>) is a new
 // task id with the spec "Owner drive: <name>", recorded as fact dispatch{drive} on the first free untyped lane: the
 // merge loop prepares the lane (lane.prepare), and the task is driving; the CLI then starts the drive agent in the
-// owner's tab, once the lane is prepared: serve sends no job. A drive is new work only (owner 11-05, T-912): obor drive
+// owner's tab, once the lane is prepared: serve sends no job. A drive is new work only: obor drive
 // <T-xx> on a task that is not a drive is refused, never a take-over of a worker's task. While driving, serve sends
 // the task no jobs, its watchdog does not watch it, and a merge watch has no line for it.
 // obor land submits it (fact submitted{land}, the owner's summary as its report); from there it is an ordinary
@@ -56,7 +56,7 @@ func (a *App) hook(point string) {
 
 // driveCall answers the socket's drive request (the owner or the lead): a call id is required and a repeated one gets
 // the stored reply. DriveReq.Task: that task, a drive already (driveAgain; any other task refused: a drive is new work
-// only, T-912); else a new drive named DriveReq.Name (newDrive). A task already driving (or the open drive of that
+// only); else a new drive named DriveReq.Name (newDrive). A task already driving (or the open drive of that
 // name) whose drive agent is not running is started again (driveAgain: nothing recorded). The reply is DRIVE <task> → <lane>
 // (<drive agent>, <type ref>): the CLI starts the drive agent; DRIVING …: <agent> runs already: it runs.
 // It decides and records under a.verdicts.
@@ -182,8 +182,8 @@ func (a *App) newDrive(ctx context.Context, p *proj, fx *Loop, c wire.DriveReq) 
 // driveAgain answers obor drive on task, a drive already (driving, or a new drive's dispatch; under a.verdicts):
 // nothing recorded. Its drive agent running: DRIVING <task> → <lane>: <agent> runs already (the CLI starts nothing);
 // else DRIVE <task> → <lane> (<agent>, <type ref>) on its recorded lane and type, and the CLI starts the agent again
-// (RV-92 #2: a start that failed is retried by the same command). Refused, nothing recorded: a task that is not a drive
-// (a worker's, whatever its state, or none open: T-912), a drive no longer driving (landed).
+// (a start that failed is retried by the same command). Refused, nothing recorded: a task that is not a drive
+// (a worker's, whatever its state, or none open), a drive no longer driving (landed).
 func (a *App) driveAgain(p *proj, task string) (string, error) {
 	a.mu.Lock()
 	var mt mtask
@@ -303,7 +303,7 @@ func (a *App) driveNamed(p *proj, name string) string {
 	return ""
 }
 
-// taskNum is a task id's trailing number and what comes before it (T-751's "T-", 751).
+// taskNum matches a task id's trailing number and what comes before it ("T-7": "T-", 7).
 var taskNum = regexp.MustCompile(`^(.*?)([0-9]+)$`)
 
 // nextTaskID is the id after the highest one p knows (its stored specs, its loop's tasks): the same prefix, the number
@@ -356,17 +356,17 @@ func laneStates(ls []port.Lane, held map[string]string) string {
 	return strings.Join(out, ", ")
 }
 
-// tellLine is the line obor tell-lead posts to the lead (T-761): the drive's task and the text, then the reply in one
+// tellLine is the line obor tell-lead posts to the lead: the drive's task and the text, then the reply in one
 // command.
 func tellLine(task, text string) string {
 	return "[obor " + task + " drive] " + strings.Join(strings.Fields(text), " ") + ` (reply: obor resume ` + task + ` "…")`
 }
 
-// tellLeadCall answers the socket's tell_lead request (T-761): the drive agent's text to its own project's lead, a lead
+// tellLeadCall answers the socket's tell_lead request: the drive agent's text to its own project's lead, a lead
 // line (fact message{driver}) posted to the lead's session as every lead line is. The caller is the drive agent (role
 // driver) of an open drive on c.Lane, its lane; the lead's obor resume on that task comes back to it as a line. A call
 // id is required and a repeated one gets the stored reply. Refused: any other caller (a worker, a reviewer, the lead,
-// the owner), no open drive on the lane, a drive the lead cannot answer (T-764: driveAnswerable, the predicate obor
+// the owner), no open drive on the lane, a drive the lead cannot answer (driveAnswerable, the predicate obor
 // resume uses: only while driving; else the line would advertise a reply that is refused), no text, no lead configured.
 func (a *App) tellLeadCall(c wire.TellLeadReq) (string, error) {
 	if c.CallID == "" {

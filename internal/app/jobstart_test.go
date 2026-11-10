@@ -36,7 +36,7 @@ func TestReviewTextDiff(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		text, _, _ = strings.Cut(text, "Your role text (") // the integrator's role texts (T-941) are not the diff part
+		text, _, _ = strings.Cut(text, "Your role text (") // the integrator's role texts are not the diff part
 		for _, w := range c.want {
 			if !strings.Contains(text, w) {
 				t.Errorf("%s: the review job has no %q:\n%s", c.name, w, text)
@@ -50,7 +50,7 @@ func TestReviewTextDiff(t *testing.T) {
 	}
 }
 
-// T-917 (RV-123 V1): the replay mismatch reaches the resolve job with the reason, the checked resolution and the file.
+// The replay mismatch reaches the resolve job with the reason, the checked resolution and the file.
 func TestResolveJobNamesReplayMismatch(t *testing.T) {
 	m := &port.Mismatch{Checked: "0123456789abcdef", Tree: "t", Files: []string{"b/b.go"}, Dir: "/scratch"}
 	o := port.GateOutcome{Kind: port.OutcomeConflict, Files: m.Files, Dir: "/scratch", Mismatch: m,
@@ -115,7 +115,7 @@ func resolveFetched(t *testing.T, out gateOut) (string, string) {
 	return first, again
 }
 
-// T-918 (RV-123 V1 rest): the job job_next fetches after the resolve intent folded (stResolving) names the mismatch too.
+// The job job_next fetches after the resolve intent folded (stResolving) names the mismatch too.
 func TestFetchedResolveJobNamesReplayMismatch(t *testing.T) {
 	m := &port.Mismatch{Checked: "0123456789abcdef", Tree: "t", Files: []string{"b/b.go"}, Dir: "/scratch"}
 	first, again := resolveFetched(t, gateOut{Outcome: outConflict, Mismatch: m,
@@ -154,7 +154,7 @@ func questionsPart(q string) string {
 		"\n(end of the open questions)\n"
 }
 
-// A report's open questions no longer hold the task: the review job goes out at once, carrying the section verbatim
+// A report's open questions do not hold the task: the review job goes out at once, carrying the section verbatim
 // (cut like the diff); a section that leaves nothing open adds no part.
 func TestOpenQuestionsGoWithTheReviewJob(t *testing.T) {
 	t.Parallel()
@@ -260,7 +260,7 @@ func TestOpenQuestionsHoldReachesTheLead(t *testing.T) {
 	}
 }
 
-// An older log's hold of the open questions before review (T-604) still folds: the hold ends, the task is green and
+// An older log's hold of the open questions before review still folds: the hold ends, the task is green and
 // gets its review job carrying the questions (and the lead's decision when the old log has one), live and on replay.
 func TestOldPreReviewHoldFolds(t *testing.T) {
 	t.Parallel()
@@ -310,7 +310,7 @@ func TestOldPreReviewHoldFolds(t *testing.T) {
 	}
 }
 
-// T-616, T-649: an Open questions section whose first word is none, n/a, no or - leaves nothing open, whatever
+// An Open questions section whose first word is none, n/a, no or - leaves nothing open, whatever
 // follows; one that leaves something open comes back verbatim.
 func TestOpenQuestionsFirstWord(t *testing.T) {
 	t.Parallel()
@@ -333,9 +333,9 @@ func TestOpenQuestionsFirstWord(t *testing.T) {
 	}
 }
 
-// T-808 (RV-103 #4): a report's section ends only at a heading that names one of the report's own sections, so a real
-// Summary's own labels stay in it. Before, reportSection ended at any short Name: label, and T-789's merge body kept 91
-// of its 2,245 Summary bytes. Both reports are the ones their workers submitted (obor serve's event log).
+// A report's section ends only at a heading that names one of the report's own sections, so a real
+// Summary's own labels stay in it: a short Name: label of another kind does not end it, and the merge body keeps the
+// whole Summary. Both reports are the ones their workers submitted (obor serve's event log).
 func TestReportSectionKeepsARealSummary(t *testing.T) {
 	for _, c := range []struct {
 		name, report string
@@ -364,7 +364,7 @@ func TestReportSectionKeepsARealSummary(t *testing.T) {
 	}
 }
 
-// T-808: a section ends at any heading form of one of the report's own sections (Name:, ## Name, **Name**, **Name:**,
+// A section ends at any heading form of one of the report's own sections (Name:, ## Name, **Name**, **Name:**,
 // any case), and not at a label or a nested heading inside it.
 func TestReportSectionEndsOnlyAtAReportSection(t *testing.T) {
 	t.Parallel()
@@ -397,7 +397,7 @@ func TestReportSectionEndsOnlyAtAReportSection(t *testing.T) {
 	}
 }
 
-// T-808: a report with no Summary heading is "" (summarySection keeps its first-paragraph fallback), an Open questions
+// A report with no Summary heading is "" (summarySection keeps its first-paragraph fallback), an Open questions
 // section with inner labels comes back whole, and "none" still leaves nothing open (questions_test.go's cases).
 func TestReportSectionMissingSummaryAndInnerLabels(t *testing.T) {
 	t.Parallel()
@@ -419,7 +419,7 @@ func TestReportSectionMissingSummaryAndInnerLabels(t *testing.T) {
 	}
 }
 
-// t789Report is T-789's report as its worker submitted it.
+// t789Report is a long report as its worker submitted it, its Summary full of Name: labels.
 const t789Report = "Summary: deleted the one-time `obor setup migrate` code and made a pre-v0.23 config plainly invalid.\n" +
 	"Deleted (sizes only): internal/setup/migrate.go (238 lines), internal/config/migrate.go (669), and their tests\n" +
 	"internal/setup/migrate_test.go (211) and internal/config/migrate_test.go (274) — 1392 lines in four files. With them:\n" +
@@ -475,7 +475,7 @@ const t789Report = "Summary: deleted the one-time `obor setup migrate` code and 
 	"derived name when a client sends none — the cross-version assumption (\"a release with T-786 ships\") is what is\n" +
 	"fragile, and it silently blocks a whole agent kind."
 
-// t789Summary is T-789's whole Summary section: its inner labels kept, as the merge's body has it.
+// t789Summary is the same report's whole Summary section: its inner labels kept, as the merge's body has it.
 const t789Summary = "deleted the one-time `obor setup migrate` code and made a pre-v0.23 config plainly invalid.\n" +
 	"Deleted (sizes only): internal/setup/migrate.go (238 lines), internal/config/migrate.go (669), and their tests\n" +
 	"internal/setup/migrate_test.go (211) and internal/config/migrate_test.go (274) — 1392 lines in four files. With them:\n" +
@@ -499,7 +499,7 @@ const t789Summary = "deleted the one-time `obor setup migrate` code and made a p
 	"predates v0.23: migrate it with obor v0.24 (`obor setup migrate`), then upgrade\" (exit 1) — so the new tests fail on\n" +
 	"the old code. `obor run check_affected`: 18 packages, 18 pass, 0 fail, on the tree submitted."
 
-// t802Report is T-802's report as its worker submitted it.
+// t802Report is another long report as its worker submitted it.
 const t802Report = "Summary: Every merge's subject is now \"Merge T-xx: <spec title>\" on the normal, moved and resolved paths. With no stored title it falls back to the summary's first line.\n" +
 	"- internal/checks/scratch.go: new `mergeMessage(in, moved, resolver)`, used by `Gate` (normal and moved) and `specResolved`. Message order: subject, then `specBody`, then the \"Merged onto the moved …\" line, then the resolver's body with git's `#` lines dropped, then \"Summary: <worker summary>\". The Summary line is left out when the summary is already the subject. `specResolved` now always amends, with the same parents, tree and author and the committer date unchanged. Before, it amended only when a spec was stored.\n" +
 	"- internal/app/port/effects.go: `GateInput.Title` added (doc comment updated).\n" +
@@ -524,7 +524,7 @@ const t802Report = "Summary: Every merge's subject is now \"Merge T-xx: <spec ti
 	"\n" +
 	"Open questions: none."
 
-// t802Summary is T-802's whole Summary section, its inner "Tests:" kept.
+// t802Summary is that report's whole Summary section, its inner "Tests:" kept.
 const t802Summary = "Every merge's subject is now \"Merge T-xx: <spec title>\" on the normal, moved and resolved paths. With no stored title it falls back to the summary's first line.\n" +
 	"- internal/checks/scratch.go: new `mergeMessage(in, moved, resolver)`, used by `Gate` (normal and moved) and `specResolved`. Message order: subject, then `specBody`, then the \"Merged onto the moved …\" line, then the resolver's body with git's `#` lines dropped, then \"Summary: <worker summary>\". The Summary line is left out when the summary is already the subject. `specResolved` now always amends, with the same parents, tree and author and the committer date unchanged. Before, it amended only when a spec was stored.\n" +
 	"- internal/app/port/effects.go: `GateInput.Title` added (doc comment updated).\n" +
@@ -536,11 +536,11 @@ const t802Summary = "Every merge's subject is now \"Merge T-xx: <spec title>\" o
 	"  - internal/checks/lanetable_test.go: `TestMergeEvidenceResolvedMerge`.\n" +
 	"  - internal/app/review_test.go: `TestMergeSubjectResolved`."
 
-// T-393 (RV-42 #2), T-396: the one start sequence (startJob). An integrator that does not run is started with its
+// The one start sequence (startJob). An integrator that does not run is started with its
 // job's wake as the first prompt, the job open from its own intent, written before the start: a fetch during the start gets the job and
 // records delivered once, the job's step is sent (start prompt), nothing typed. The same for review and resolve, a
 // numbered job after job.lost and the owner's reprompt; an integrator that runs (idle, no other job out) is started
-// fresh as well (T-602).
+// fresh as well.
 func TestStartJobIntegrator(t *testing.T) {
 	t.Parallel()
 	gate := func(outcome string) func(r *concRig) {
@@ -652,7 +652,7 @@ func TestStartJobIntegrator(t *testing.T) {
 	}
 }
 
-// T-393, T-396: a start alone hands out no job (no lookup beside the open job); the job's intent, which its step
+// A start alone hands out no job (no lookup beside the open job); the job's intent, which its step
 // writes before the start, does, with the job's patch.
 func TestStartJobOtherPatch(t *testing.T) {
 	t.Parallel()
@@ -681,7 +681,7 @@ func TestStartJobOtherPatch(t *testing.T) {
 	same(t, patch, "p", "the open job's patch")
 }
 
-// RV-42 #2 (the reviewer's probe, fixed outcome, T-393): a fresh integrator's job is fetchable while the start that
+// A fresh integrator's job is fetchable while the start that
 // carries its wake runs, and no second wake is typed.
 func TestIntegratorJobFetchableDuringStart(t *testing.T) {
 	t.Parallel()
@@ -725,7 +725,8 @@ func TestIntegratorJobFetchableDuringStart(t *testing.T) {
 	}
 }
 
-// RV-42 #2's control: the worker's early fetch during its start, delivered, the work step sent with nothing typed.
+// The control for the early-fetch probe: the worker's fetch during its start is delivered, and the work step is sent
+// with nothing typed.
 func TestWorkerEarlyFetchDuringStart(t *testing.T) {
 	t.Parallel()
 	r := newConcRig(t)
@@ -760,7 +761,7 @@ func TestWorkerEarlyFetchDuringStart(t *testing.T) {
 	}
 }
 
-// T-405 (RV-44 #1–#3): a start runs in its step again, as before T-404: the step returns when the launch has, so the
+// A start runs in its step: the step returns when the launch has, so the
 // task, the merge loop pass and its shutdown own the whole launch, two tasks never start the integrator at once, and a
 // typed integrator's start goes on to its job's send in the same step.
 
@@ -839,7 +840,7 @@ func gateDone(r *concRig, task, outcome string) {
 }
 
 // The reviewer's TestRV44DeliveryReleasesLiveLaunch, fixed: a worker that fetches its job while its start runs gets
-// the job (T-396), but the start goes on in its step: no result before the launch's, a drop is refused, and the merge
+// the job, but the start goes on in its step: no result before the launch's, a drop is refused, and the merge
 // loop's shutdown waits for the launch.
 func TestDeliveryKeepsTheStartOwned(t *testing.T) {
 	t.Parallel()
@@ -888,7 +889,7 @@ func TestDeliveryKeepsTheStartOwned(t *testing.T) {
 
 // The reviewer's TestRV44IntegratorStartOwnership, fixed: two tasks whose jobs need the integrator, which does not
 // run: one pass starts it once (the second task's step waits for the first's start); the second job then waits for
-// the first job's verdict (T-602: nothing typed into the session the first job runs in, no second start).
+// the first job's verdict (nothing typed into the session the first job runs in, no second start).
 func TestIntegratorStartsOneAtATime(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct{ name, first, second, job string }{
@@ -943,7 +944,7 @@ func TestIntegratorStartsOneAtATime(t *testing.T) {
 	}
 }
 
-// T-355: the subject is the spec's title (T-360: read from the target branch); without one the done file's summary,
+// The subject is the spec's title (read from the target branch); without one the done file's summary,
 // list marker stripped, cut on a word.
 func TestSubjectOf(t *testing.T) {
 	t.Parallel()
@@ -968,7 +969,7 @@ func TestSubjectOf(t *testing.T) {
 	}
 }
 
-// T-807: the merge's body is the report's whole Summary section (an opening sentence and its bullets stay whole),
+// The merge's body is the report's whole Summary section (an opening sentence and its bullets stay whole),
 // while summaryOf is still the one-line subject; a report with no Summary heading gives its first paragraph.
 func TestSummarySection(t *testing.T) {
 	t.Parallel()
@@ -993,7 +994,7 @@ func TestSummarySection(t *testing.T) {
 	}
 }
 
-// T-941: the integrator's review and resolve jobs carry its role texts the way the work job carries the worker's.
+// The integrator's review and resolve jobs carry its role texts the way the work job carries the worker's.
 
 // roleRoot is a project root like roleFixture's, with the integrator's project doc.
 func roleRoot(t *testing.T) string {

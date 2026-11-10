@@ -15,7 +15,7 @@ import (
 
 // check is one decision over the project (full: a tick's or a connect's, counted for the tests, which scans its lanes
 // first; else the refresher's, on the table it just scanned for the pane events and own operations that marked it:
-// lanescan.go, T-879). It asks herdr about the agents whose idle timers are due and records the facts due. Only the
+// lanescan.go). It asks herdr about the agents whose idle timers are due and records the facts due. Only the
 // steps that decide hold mu.
 func (a *App) check(ctx context.Context, full bool) {
 	a.mu.Lock()
@@ -90,8 +90,8 @@ func (p *proj) openTasks() []string {
 	return tasks
 }
 
-// plan installs the lanes read and observes each open task's agent (a task on an unknown lane: none, T-897, its
-// baselines dropped, T-879): another agent or pane, none, or a status that is not ready resets the stall timer (see
+// plan installs the lanes read and observes each open task's agent (a task on an unknown lane: none, its
+// baselines dropped): another agent or pane, none, or a status that is not ready resets the stall timer (see
 // sample). It is the panes to sample: every ready agent with an open task, at every check, and a stopped worker of a
 // kind whose turns are read whatever its status (its next turn ends the stop: turnStop).
 func (a *App) plan(p *proj, ls []port.Lane, now time.Time) []port.Pane {
@@ -100,7 +100,7 @@ func (a *App) plan(p *proj, ls []port.Lane, now time.Time) []port.Pane {
 	a.reconcile(p) // the lanes' agents are candidates
 	for _, task := range p.openTasks() {
 		w := p.tasks[task]
-		if w.unread() { // no observation: its facts stay (T-897), no time counts until a read succeeds (T-879)
+		if w.unread() { // no observation: its facts stay, no time counts until a read succeeds
 			w.forget()
 			continue
 		}
@@ -141,7 +141,7 @@ func (a *App) plan(p *proj, ls []port.Lane, now time.Time) []port.Pane {
 func (a *App) decide(p *proj, ev map[string]*evidence, now time.Time) {
 	for _, task := range p.openTasks() {
 		w := p.tasks[task]
-		if w.unread() { // an unknown lane is never judged (T-897)
+		if w.unread() { // an unknown lane is never judged
 			continue
 		}
 		if a.turnStop(p, task, w, ev) {
@@ -192,8 +192,8 @@ func (a *App) judge(p *proj, task string, w *watch, now time.Time, ev map[string
 	v := verdict{pane: o}
 	switch {
 	case o.Status == "working":
-		if p.watched(task) && !p.stops(task) { // a worker's question stays: working does not end it (T-511); nor does
-			// it end a stop: only the next turn's hook does (turnCall, T-540)
+		if p.watched(task) && !p.stops(task) { // a worker's question stays: working does not end it; nor does
+			// it end a stop: only the next turn's hook does (turnCall)
 			v.step = event.StepResumed
 		}
 	case o.Status == "blocked":
@@ -208,8 +208,7 @@ func (a *App) judge(p *proj, task string, w *watch, now time.Time, ev map[string
 	return v
 }
 
-// reasonStalled is the reason of the watchdog's needs-you on a stalled worker (needs-you{stalled}; obor resume ends it,
-// T-746).
+// reasonStalled is the reason of the watchdog's needs-you on a stalled worker (needs-you{stalled}; obor resume ends it).
 const reasonStalled = "stalled"
 
 // sample is the stall timer (rows 10, 12, 14), a state machine over observed quiet time. Its state per open task is
@@ -226,7 +225,7 @@ const reasonStalled = "stalled"
 // or blocked, the agent or its pane changed, the task changed, a replay.
 //
 //	active                                       → quietSince = 0; stalled or escalated in force: fact resumed (asks
-//	                                             stays: obor resume ends it, T-511)
+//	                                             stays: obor resume ends it)
 //	unknown, or a reset event                    → quietSince = 0 (unknown keeps seenWrite)
 //	quiet, no baseline                           → quietSince = now (no fact)
 //	quiet, asks in force                         → nothing (the worker waits on its question, row 16a)
@@ -239,7 +238,7 @@ const reasonStalled = "stalled"
 func (a *App) sample(p *proj, task string, w *watch, now time.Time, e *evidence, v *verdict) {
 	stalled := p.has(task, event.StepStalled, "idle")
 	escalated := p.has(task, event.StepNeedsYou, reasonStalled)
-	asked := p.asks(task) || p.stops(task) // a stopped worker waits on its API error, not stalled (T-532)
+	asked := p.asks(task) || p.stops(task) // a stopped worker waits on its API error, not stalled
 	active, due := w.sample(now, e, a.opt.Idle)
 	switch {
 	case active:
@@ -285,13 +284,13 @@ type evidence struct {
 	err   error     // Busy failed
 	last  time.Time // the transcript's last write
 	known bool      // last is known
-	// turn is the last turn the transcript records, of a kind whose turns are read (turned: it is known; T-563)
+	// turn is the last turn the transcript records, of a kind whose turns are read (turned: it is known)
 	turn   agents.Turn
 	turned bool
 }
 
 // evidence asks herdr about pane's activity (outside mu): the child-process check is a herdr call, its transcript the
-// observed pane's (T-951).
+// observed pane's.
 func (a *App) evidence(ctx context.Context, pane port.Pane) *evidence {
 	e := &evidence{}
 	e.busy, e.err = a.panes.Busy(ctx, pane.ID)

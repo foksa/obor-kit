@@ -1,4 +1,4 @@
-// logs.go: a task's step logs go when the task ends (T-1098, T-1104).
+// logs.go: a task's step logs go when the task ends.
 package app
 
 import (
@@ -12,7 +12,7 @@ import (
 // endTaskLogs removes task's step logs (.obor/state/logs/<task>-*.log) when the fold has just ended it (mtask.ended):
 // merged with its after-merge steps done, or dropped; a rejected task is not ended. was is the task's ended state
 // before the fold, so a task still running its after-merge steps keeps its failed step's log and the transition is what
-// removes it (T-1104: no per-task marker). The id is the name's prefix, so T-10's logs are never T-100's. A log is for a
+// removes it (no per-task marker). The id is the name's prefix, so T-10's logs are never T-100's. A log is for a
 // person, never a step: a failed removal is one serve line, and the next start's load tries again. A task the fold does
 // not know keeps its logs (nothing says it ended). Under mu, as its callers are.
 func (a *App) endTaskLogs(p *proj, task string, was bool) {
@@ -31,8 +31,8 @@ func (a *App) endTaskLogs(p *proj, task string, was bool) {
 	a.removeTaskLogs(p, dir, task, entries)
 }
 
-// endTaskLogsAtLoad removes the step logs of every task the replay folds as ended (T-1104: what an upgrade or a serve
-// down at its end left), with one read of the logs dir for all of them (T-1132: not one per ended task). A task the
+// endTaskLogsAtLoad removes the step logs of every task the replay folds as ended (what an upgrade or a serve
+// down at its end left), with one read of the logs dir for all of them (not one per ended task). A task the
 // fold does not know keeps its logs, as in endTaskLogs.
 func (a *App) endTaskLogsAtLoad(p *proj) {
 	var ended []string
@@ -71,7 +71,7 @@ func (a *App) removeTaskLogs(p *proj, dir, task string, entries []os.DirEntry) {
 	}
 }
 
-// readLogs reads dir, the state's logs dir (Options.ReadDir: a test counts the load's one read; T-1132).
+// readLogs reads dir, the state's logs dir (Options.ReadDir: a test counts the load's one read).
 func (a *App) readLogs(dir string) ([]os.DirEntry, error) {
 	if a.opt.ReadDir != nil {
 		return a.opt.ReadDir(dir)

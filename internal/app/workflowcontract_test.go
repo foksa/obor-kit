@@ -11,7 +11,7 @@ import (
 	"obor/internal/testkit"
 )
 
-// TestWorkflowContractFake runs the workflow contract table (testkit.WorkflowContract, T-1029) on FakeWorkflow: its
+// TestWorkflowContractFake runs the workflow contract table (testkit.WorkflowContract) on FakeWorkflow: its
 // arrangements are scripts (a target move over a file the lane changed: the next gate conflicts there; a dirty main
 // checkout: the publish holds), as the rows' git is internal/checks' (TestWorkflowContractScratchFF).
 func TestWorkflowContractFake(t *testing.T) {

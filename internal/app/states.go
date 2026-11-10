@@ -35,7 +35,7 @@ type verdictRule struct {
 	fold   func(mt *mtask, v verdictResult)
 }
 
-// verb is one of the task verbs of the lead, the owner or the worker (T-775): a state's row says which it takes, and
+// verb is one of the task verbs of the lead, the owner or the worker: a state's row says which it takes, and
 // each verb is mt.may(v) && p.busy(task) == "", with its own refusal text.
 type verb uint8
 
@@ -59,7 +59,7 @@ func (mt mtask) may(v verb) bool {
 	switch {
 	case mt.needs.due():
 		vs = vDrop
-	case mt.paused() && mt.state != stDropping: // a dropping task takes no task_done, blocked or not (T-852)
+	case mt.paused() && mt.state != stDropping: // a dropping task takes no task_done, blocked or not
 		vs = vResume | vDrop | vSubmit
 	}
 	return vs&v != 0
@@ -82,7 +82,7 @@ func init() {
 		// rows 16, 18, 34: submit the lane's commit, then gate it (a conflict open in the scratch: wait)
 		stSubmitted: {pick: (*App).pickGate, name: gateName, verbs: vDrop, landed: true, uses: wire.ScratchGating,
 			phase: wire.PhaseSubmitted},
-		// row 18b: the slot merged and compiled it; its lane test runs outside the scratch, one per lane (T-961)
+		// row 18b: the slot merged and compiled it; its lane test runs outside the scratch, one per lane
 		stCandidate: {pick: (*App).pickTest, name: func(mt mtask) string { return nth(event.StepTest, mt.tests+1) },
 			verbs: vDrop, landed: true, phase: wire.PhaseTesting},
 		// rows 19–20: an accept bound to the patch is kept, else a review job
@@ -114,11 +114,11 @@ func init() {
 		// rows 20, 26, 33, 35: publish it
 		stAccepted: {pick: (*App).pickAccepted, name: func(mt mtask) string { return nth(event.StepPublish, mt.pubs+1) },
 			verbs: vDrop, uses: wire.ScratchPublishing, phase: wire.PhasePublish},
-		// rows 32, 18: merge and compile the candidate again on the new target (no test, T-961)
+		// rows 32, 18: merge and compile the candidate again on the new target (no test)
 		stMoved: {pick: (*App).pickGate, name: gateName, verbs: vDrop, uses: wire.ScratchGating, phase: wire.PhaseGating},
 		// rows 33–34: the target holds the candidate
 		stPublished: {pick: (*App).pickPublished, verbs: vDrop, phase: wire.PhasePublish},
-		// T-1029: the publish asked for the merge, not done yet: no step; each pass's Landed rule (drive) records it
+		// The publish asked for the merge, not done yet: no step; each pass's Landed rule (drive) records it
 		// merged once the target holds it. Shown as a publish, as published is
 		stPending: {verbs: vDrop, landed: true, phase: wire.PhasePublish},
 		// rows 34, 37–38: the after-merge steps; a needs-you of one has no job to re-prompt
@@ -153,12 +153,12 @@ func init() {
 				}
 				return resumeRule{}
 			}},
-		// T-751: the owner's drive agent works in the lane; obor land submits it. Its one step is the lead's line when a
+		// The owner's drive agent works in the lane; obor land submits it. Its one step is the lead's line when a
 		// red gate, a sendback or a hold sent it back; no jobs, no watchdog; obor resume is a line to the drive agent
 		stDriving: {pick: (*App).pickDriving, name: func(mtask) string { return "the drive" }, verbs: vResume | vDrop | vLand,
 			phase:  wire.PhaseDriving,
 			resume: func(_ mtask, cause string) resumeRule { return resumeRule{retry: cause == causeStop} }},
-		// T-852: obor drop decided on a task holding a lane: its worker's stop, lane.free, then dropped; a needs-you of
+		// obor drop decided on a task holding a lane: its worker's stop, lane.free, then dropped; a needs-you of
 		// one (a refused stop, a refused free) is retried, or the drop given again (--force, --discard)
 		stDropping: {pick: (*App).pickDropping, name: func(mtask) string { return "the drop" }, verbs: vResume | vDrop,
 			failed: true, phase: wire.PhaseDropping,
@@ -168,7 +168,7 @@ func init() {
 	}
 }
 
-// phaseOf is mt's phase now (under mu; T-788), the one place obor status, the view and web get it from: phase of its
+// phaseOf is mt's phase now (under mu), the one place obor status, the view and web get it from: phase of its
 // live overlays — a watchdog's needs-you on its task or its lane (blocked), its gate or publish running or pending
 // (steps: stepPhases).
 func (a *App) phaseOf(p *proj, mt *mtask, steps map[string]string) string {
@@ -176,7 +176,7 @@ func (a *App) phaseOf(p *proj, mt *mtask, steps map[string]string) string {
 }
 
 // stageOf is mt's merge-loop stage ("": not in the merge loop), from its state and its steps, and the
-// merge loop's needs-you (a block on a merge-loop state: held, red past K); a watchdog's needs-you on a working or dispatching task is not the merge loop's (T-797).
+// merge loop's needs-you (a block on a merge-loop state: held, red past K); a watchdog's needs-you on a working or dispatching task is not the merge loop's.
 func (a *App) stageOf(p *proj, mt *mtask, steps map[string]string) string {
 	if mt.paused() && (mt.state == stWaiting || mt.state == stDispatched || mt.state == stWorking) {
 		return "" // a needs-you its dispatch or worker left (redoable): the worker's, never the merge loop's
@@ -218,7 +218,7 @@ func (p *proj) blocked(mt *mtask) bool {
 }
 
 // stepPhases is, by task, the phase its open gate, lane test or publish gives it (open: the log's open intents):
-// gating, testing or merging while its effect runs, else gate pending, test pending or publish pending (T-662: a
+// gating, testing or merging while its effect runs, else gate pending, test pending or publish pending (a
 // failed step, a replay to run).
 func (p *proj) stepPhases(open []event.Record) map[string]string {
 	running := map[string]string{event.StepGate: wire.PhaseGating, event.StepTest: wire.PhaseTesting,
@@ -244,7 +244,7 @@ func (p *proj) stepPhases(open []event.Record) map[string]string {
 // busy is why no task verb may act on task now ("": one may): the one reader of the live claims on it. A drop of it is
 // being recorded (p.ended), a step or a decision holds it (p.held: claim), its scratch step or lane test runs (p.running, p.tests), or its
 // attempt's next gate, test or publish intent is open (a step a restart replays; not a needs-you's, which runs no step), or
-// a move's or drop's stop of its worker is pending (T-855: recorded, not settled; a refused stop, its
+// a move's or drop's stop of its worker is pending (recorded, not settled; a refused stop, its
 // needs-you, is settled). Each verb refuses with "<verb> <T>: <busy>; retry when it settles" (busyErr).
 func (p *proj) busy(task string) string {
 	if why := p.claim(task); why != "" {
@@ -303,7 +303,7 @@ func gateName(mt mtask) string {
 func jobName(mt mtask) string { return mt.job }
 
 // foldSendback folds the integrator's sendback: the next attempt, or the owner past K (row 22). A drive goes back to
-// driving whatever its count (T-751): its owner fixes it.
+// driving whatever its count: its owner fixes it.
 func foldSendback(mt *mtask, v verdictResult) {
 	if mt.sendbacks < K || mt.drive {
 		mt.sendback(v.Note)

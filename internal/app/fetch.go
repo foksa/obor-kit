@@ -20,7 +20,7 @@ import (
 )
 
 // Jobs by fetch (docs/state-model.md rows 5–8 and 16–17). Every agent fetches its
-// jobs (T-437): a job's prompt is its wake, one constant line with no content ([obor job <id>] call the obor job_next
+// jobs: a job's prompt is its wake, one constant line with no content ([obor job <id>] call the obor job_next
 // tool), harmless typed twice, lost or eaten by a dialog. The agent fetches the job with obor mcp's job_next tool (a
 // socket request here); its first fetch is fact delivered{job, via: mcp}, the job's only delivery. A worker finishes
 // only by task_done, its report the argument: fact submitted carries it, and the review job, the merge subject's
@@ -58,7 +58,7 @@ func (mt *mtask) integratorJob() (event.Key, bool) { return mt.jobKey(), mt.open
 // older job id. The caller is the job's agent: the integrator for its jobs, the lane's worker for a work or fix job
 // (OBOR_LANE, when set, its lane; its pane, when herdr shows it, in the lane). The first fetch of a job is fact
 // delivered{job, via: mcp}; a repeat records nothing, and a repeated call id gets the stored reply. Every fetch keeps
-// its text in the prompts table: a refetch whose text changed adds a row (T-670).
+// its text in the prompts table: a refetch whose text changed adds a row.
 func (a *App) jobNext(c wire.JobNextReq) (string, error) {
 	a.verdicts.Lock() // two fetches never both record a delivery
 	defer a.verdicts.Unlock()
@@ -102,8 +102,8 @@ func (a *App) jobNext(c wire.JobNextReq) (string, error) {
 			agent = p.integrator
 		}
 		// The first fetch records the delivery; every fetch after it records nothing (the job is delivered) but keeps
-		// the text: a refetch whose text changed since the newest row (a new spec rev, a restart) gets its own row
-		// (T-670), an identical one none.
+		// the text: a refetch whose text changed since the newest row (a new spec rev, a restart) gets its own row,
+		// an identical one none.
 		seq := delivered
 		if seq == 0 {
 			var ok bool
@@ -133,7 +133,7 @@ func (a *App) callerJob(p *proj, c wire.JobNextReq) (mtask, event.Key, bool, err
 				p.integrator, Dash(c.Agent))
 		}
 		// The job the call names (its wake's id) when it is open, else the oldest open one; never a held one (a
-		// needs-you holds it: the owner's, T-602): a fresh session started for one job gets that job.
+		// needs-you holds it: the owner's): a fresh session started for one job gets that job.
 		var best *mtask
 		var seq int64
 		var bestKey event.Key
@@ -147,7 +147,7 @@ func (a *App) callerJob(p *proj, c wire.JobNextReq) (mtask, event.Key, bool, err
 				return *mt, k, true, nil
 			}
 			// The intent's seq, with its result or not: a sent job has one too, so the oldest is the log's order,
-			// never the map's (T-606).
+			// never the map's.
 			r, _ := p.log.IntentOf(k)
 			if best == nil || r.Seq < seq {
 				best, bestKey, seq = mt, k, r.Seq
@@ -160,7 +160,7 @@ func (a *App) callerJob(p *proj, c wire.JobNextReq) (mtask, event.Key, bool, err
 	case "worker":
 		var found *mtask
 		var key event.Key
-		for _, t := range p.loopTasks() { // two jobs for one lane or agent: the first task by name (T-615)
+		for _, t := range p.loopTasks() { // two jobs for one lane or agent: the first task by name
 			mt := p.folded.loop[t]
 			k, ok := mt.workerJob()
 			if ok && (c.Lane != "" && mt.lane == c.Lane || c.Lane == "" && mt.agent == c.Agent) {
@@ -184,7 +184,7 @@ func (a *App) callerJob(p *proj, c wire.JobNextReq) (mtask, event.Key, bool, err
 	return mtask{}, event.Key{}, false, fmt.Errorf("job_next: no jobs for the role %s", Dash(c.Role))
 }
 
-// restartJob answers restart_job (T-959): the job obor restart of c's agent carries as its wake, by callerJob's own
+// restartJob answers restart_job: the job obor restart of c's agent carries as its wake, by callerJob's own
 // predicate and order ("" none). A client parsing the status JSON's step strings could only guess: a task's job is
 // its worker's or its integrator's, and a held one is no job a restart may wake its agent on.
 func (a *App) restartJob(c wire.RestartJobReq) (string, error) {
@@ -242,7 +242,7 @@ func (a *App) fetchText(p *proj, mt mtask, key event.Key) (string, int, error) {
 	return text, row.Rev, nil
 }
 
-// movedFix is the work job's part for an attempt a move started (T-778) while the attempt it moved had a fix
+// movedFix is the work job's part for an attempt a move started while the attempt it moved had a fix
 // outstanding (dispatchData.Fix): what to fix, as the fix job said it; "": none.
 func movedFix(mt mtask) string {
 	if mt.disp.Fix == "" {
@@ -253,7 +253,7 @@ func movedFix(mt mtask) string {
 		mt.disp.Fix)
 }
 
-// fixRead is the fix job's line for a worker started fresh (T-603): the work job carried the role texts, so only a
+// fixRead is the fix job's line for a worker started fresh: the work job carried the role texts, so only a
 // session that did not get it needs the paths. The project's worker doc only when the main checkout has one.
 func fixRead(p *proj, kit string) (string, error) {
 	cfg, err := config.Load(p.root)
@@ -269,7 +269,7 @@ func fixRead(p *proj, kit string) (string, error) {
 		" first.", nil
 }
 
-// workerIn is the worker agent of lane as the lanes were last read (its derived name, T-1031; under mu).
+// workerIn is the worker agent of lane as the lanes were last read (its derived name; under mu).
 func (p *proj) workerIn(lane string) string {
 	for _, l := range p.lanes {
 		if l.Name == lane {
@@ -294,11 +294,11 @@ func (p *proj) laneDir(mt mtask) string {
 
 // taskDone answers task_done (rows 16–17): the worker's report submits its task: fact submitted{lane, agent, pane,
 // call id, report}, then the merge loop gates it. Refused (nothing recorded): not the caller's task, no attempt open
-// for it, the report empty or a section missing, or the job fetched at an older spec rev than the store's (T-819: the
+// for it, the report empty or a section missing, or the job fetched at an older spec rev than the store's (the
 // refusal records spec.seen and names the rev and the set's note, so the next task_done submits). A Blocked: report
 // submits nothing: it records the watchdog fact needs-you{asks: <what it needs>} (row 16a; the task stays working, the
 // owner is notified) and is never refused for the rev. A repeated call id gets the stored reply, or the stored
-// refusal of an older rev (T-821).
+// refusal of an older rev.
 func (a *App) taskDone(c wire.TaskDoneReq) (string, error) {
 	a.hook(hookTaskDoneWaits)
 	a.submitMu.Lock() // one submission decision at a time
@@ -313,7 +313,7 @@ func (a *App) taskDone(c wire.TaskDoneReq) (string, error) {
 	if p != nil {
 		reply, stored = p.folded.calls[verdictStep(wire.MethodTaskDone, c.CallID)]
 		refusal, refused = p.folded.refusals[verdictStep(wire.MethodTaskDone, c.CallID)]
-		if c.Task == "" { // obor mcp names the caller's lane (OBOR_LANE): its row's task (T-439)
+		if c.Task == "" { // obor mcp names the caller's lane (OBOR_LANE): its row's task
 			c.Task = p.laneTask(c.Lane)
 		}
 	}
@@ -321,7 +321,7 @@ func (a *App) taskDone(c wire.TaskDoneReq) (string, error) {
 	switch {
 	case p == nil:
 		return "", fmt.Errorf("task_done: no served project at %s", c.Root)
-	case refused: // a stale rev's refusal (T-821): a retry of its lost reply, or a replay, gets it again
+	case refused: // a stale rev's refusal: a retry of its lost reply, or a replay, gets it again
 		return "", errors.New(refusal)
 	case stored:
 		return reply, nil
@@ -384,9 +384,9 @@ func (a *App) taskDone(c wire.TaskDoneReq) (string, error) {
 	case blocked:
 		return a.ask(p, c.Task, l, asks)
 	}
-	// A job carried at an older spec rev than the store's: the lead changed the spec under the worker (T-819). The
+	// A job carried at an older spec rev than the store's: the lead changed the spec under the worker. The
 	// refusal shows the newer rev (and what the set changed), nothing is submitted, and the fact marks it seen for
-	// this attempt, so the worker's next task_done submits. The fact keeps the call id and the refusal (T-821): the
+	// this attempt, so the worker's next task_done submits. The fact keeps the call id and the refusal: the
 	// same call id, retried after a lost reply or replayed, is refused the same; only a new call submits.
 	row, hasSpec, err := specOf(p, c.Task)
 	if err != nil {
@@ -417,7 +417,7 @@ func (a *App) taskDone(c wire.TaskDoneReq) (string, error) {
 }
 
 // receipt is whether the fold kept the call's receipt of method for task, and the task's shown state (task_done's and
-// land's check after their record: a fold that ignored the submission leaves no receipt, T-938).
+// land's check after their record: a fold that ignored the submission leaves no receipt).
 func (a *App) receipt(p *proj, task, method, callID string) (bool, string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -436,7 +436,7 @@ const taskDoneReply = "submitted"
 const askedReply = "not submitted: the owner is told what you need; stop and wait for the answer"
 
 // ask records the watchdog fact needs-you{asks: what} for task in lane l (row 16a), once while one is in force: the
-// owner is notified. Its worker's activity does not end it (T-511: the Stop hook's turn after the report is no
+// owner is notified. Its worker's activity does not end it (the Stop hook's turn after the report is no
 // answer); obor resume, the task's submission (its lane no longer holds it open) or a drop does.
 func (a *App) ask(p *proj, task string, l port.Lane, what string) (string, error) {
 	a.mu.Lock()
@@ -517,7 +517,7 @@ func headingPattern(q string) string {
 
 // reportSections are the headings a report's section ends at: the report's own sections (config.ReportSections, the
 // worker template's list, one place), and Blocked and Concerns, which a worker writes but a submitted report's section
-// list does not name (T-808). Concerns is optional, so the template spells it "Concerns (optional):" too.
+// list does not name. Concerns is optional, so the template spells it "Concerns (optional):" too.
 var reportSections = slices.Concat(config.ReportSections, []string{"Blocked", "Concerns", "Concerns (optional)"})
 
 // reportHeadingRe is the heading of any of reportSections, in headingRe's forms: a Name: label, a ## Name or **Name**
@@ -532,7 +532,7 @@ var reportHeadingRe = func() *regexp.Regexp {
 
 // reportSection is the body of text's labelled section name: the rest of its heading line, then the lines up to the
 // next heading that names one of the report's own sections (reportSections), trimmed. Labels and nested headings inside
-// the section stay in it: a Summary's own "Tests:" or "## Notes" is no section (T-808). "" when text has no heading for
+// the section stay in it: a Summary's own "Tests:" or "## Notes" is no section. "" when text has no heading for
 // name.
 func reportSection(text, name string) string {
 	lines := strings.Split(text, "\n")
@@ -559,7 +559,7 @@ func reportSection(text, name string) string {
 var noOpenQuestionRe = regexp.MustCompile(`(?i)^(?:(?:none|n/a)(?:$|[^\p{L}\p{N}])|-$|no(?:$|\s*[^\p{L}\p{N}\s]))`)
 
 // openQuestions is report's Open questions: section when it leaves something open — anything not starting with the
-// word none, n/a, - or no (see noOpenQuestionRe), verbatim; "" when it leaves nothing open (T-616, T-649).
+// word none, n/a, - or no (see noOpenQuestionRe), verbatim; "" when it leaves nothing open.
 func openQuestions(report string) string {
 	q := reportSection(report, "Open questions")
 	if q == "" || noOpenQuestionRe.MatchString(q) {

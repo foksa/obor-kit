@@ -96,7 +96,7 @@ func TestStateSubmittedRow18(t *testing.T) {
 		refuse: "T-1 is submitted; retry when it settles", landed: true})
 }
 
-// T-961: a candidate (the slot merged and compiled it) runs its lane test next, test.N; only a drop takes it while it
+// A candidate (the slot merged and compiled it) runs its lane test next, test.N; only a drop takes it while it
 // waits, and a merge outside may have landed it.
 func TestStateCandidateRow18b(t *testing.T) {
 	t.Parallel()
@@ -120,7 +120,7 @@ func TestStateAwaitingAcceptRow26(t *testing.T) {
 		landed: true, verdicts: map[string]string{wire.MethodAccept: stAccepted, wire.MethodSendback: "fail", wire.MethodReject: stRejected}})
 }
 
-// T-751: the owner's drive waits for obor land (its only step, the lead's line when it came back, needs a line); the
+// The owner's drive waits for obor land (its only step, the lead's line when it came back, needs a line); the
 // lead cannot send it back (no worker), no verdict moves it, drop takes it. The integrator's sendback of a drive goes
 // back to driving whatever the count: never the owner's needs-you past K, never a worker.
 func TestStateDrivingRowT751(t *testing.T) {
@@ -180,7 +180,7 @@ func TestStatePublishedRow34(t *testing.T) {
 		refuse: "T-1 is published; retry when it settles"})
 }
 
-// T-1029: a pending publish has no step of its own; drive's Landed rule ends it (landed).
+// A pending publish has no step of its own; drive's Landed rule ends it (landed).
 func TestStatePendingRow34(t *testing.T) {
 	t.Parallel()
 	checkRow(t, rowWant{verbs: vDrop, mt: mtask{state: stPending}, waits: true, name: "a step (pending)",
@@ -209,7 +209,7 @@ func TestStateDroppedRow44(t *testing.T) {
 		ended: true})
 }
 
-// T-852: a dropping task runs the drop's steps (its worker's stop, lane.free, then dropped): no task_done, blocked or
+// A dropping task runs the drop's steps (its worker's stop, lane.free, then dropped): no task_done, blocked or
 // not; a drop again (--force, --discard) and obor resume (retry) take it; a needs-you of a step waits for those.
 func TestStateDroppingRowT852(t *testing.T) {
 	t.Parallel()
@@ -319,7 +319,7 @@ func TestBlockHeldRow40(t *testing.T) {
 		cause: causeAfter, resume: resumeRule{to: wire.ResumeRetry, only: wire.ResumeRetry, retry: true}})
 }
 
-// statePhase is each state's phase with no live overlay (T-788): the states table's phase column, spelled out so a
+// statePhase is each state's phase with no live overlay: the states table's phase column, spelled out so a
 // changed row is a changed test.
 var statePhase = map[string]string{
 	stWaiting: wire.PhaseWaiting, stDispatched: wire.PhaseDispatching, stWorking: wire.PhaseWorking,
@@ -330,9 +330,9 @@ var statePhase = map[string]string{
 	stDropping: wire.PhaseDropping,
 }
 
-// T-788 (S5): every state of the table, with and without each live overlay, has exactly one phase: a needs-you in
+// Every state of the table, with and without each live overlay, has exactly one phase: a needs-you in
 // force wins (held only for the integrator's hold verdict, C7), then the gate or publish running or pending, else the
-// state's row. A green task is in review. T-827: the merge loop's needs-you is a block on any
+// state's row. A green task is in review. The merge loop's needs-you is a block on any
 // state (due or held), and wins over every overlay but on an ended state (merged, rejected), whose row it leaves.
 func TestPhaseOfEveryStateAndOverlay(t *testing.T) {
 	t.Parallel()
@@ -395,7 +395,7 @@ func TestPhaseOfEveryStateAndOverlay(t *testing.T) {
 	}
 }
 
-// T-788: the step overlay is the task's open gate or publish: gating or merging while its effect runs (a running one
+// The step overlay is the task's open gate or publish: gating or merging while its effect runs (a running one
 // wins over a pending one), else gate pending or publish pending; another step's intent (a prompt) or a task-less one
 // (nightly) gives none. A watchdog's needs-you blocks its task and any task on its lane.
 func TestPhaseOverlaysFromTheLog(t *testing.T) {
@@ -436,7 +436,7 @@ func TestPhaseOverlaysFromTheLog(t *testing.T) {
 	}
 }
 
-// T-788: serve's status ships the phase: a green task reads review (not the lane table's done of before), and its
+// Serve's status ships the phase: a green task reads review (not the lane table's finished row), and its
 // lane row reads it finished, so a dispatch of it is no redo in its lane.
 func TestStatusShipsTheGreenTasksPhase(t *testing.T) {
 	h, _ := seedQuestions(t, "Summary: done.")
@@ -459,7 +459,7 @@ func TestStatusShipsTheGreenTasksPhase(t *testing.T) {
 	}
 }
 
-// T-797 (RV-102 #4): the merge stage is the task's own, not the display phase's: a watchdog's needs-you (a stalled
+// The merge stage is the task's own, not the display phase's: a watchdog's needs-you (a stalled
 // worker, a question) turns a working or dispatching task's phase to needs-you but leaves it out of the merge loop;
 // the merge loop's needs-you (held, red past K) keeps its stage; a gate or publish step gives its stage.
 func TestStageIgnoresTheWatchdogsNeedsYou(t *testing.T) {

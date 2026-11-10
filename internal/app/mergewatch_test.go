@@ -8,9 +8,9 @@ import (
 	"obor/internal/app/wire"
 )
 
-// T-927: the merge watch's rule, one table (condition → action). A watch whose set all merged, or one of it dropped,
+// The merge watch's rule, one table (condition → action). A watch whose set all merged, or one of it dropped,
 // gets one line naming it (its note after it), and the line ends the watch; an unwatched one or one not ended gets
-// none; a restart, or a line recorded before T-927 (message{watch}, no of), sends it no second time.
+// none; a restart, or an older line (message{watch}, no of), sends it no second time.
 func TestWatchRule(t *testing.T) {
 	t.Parallel()
 	watchR := rule{name: ruleWatch, when: watchRule}
@@ -32,7 +32,7 @@ func TestWatchRule(t *testing.T) {
 			addRecord(t, h, task, event.StepDropped, event.KindFact, event.FactData{Reason: why, Merge: true})
 		}
 	}
-	oldLine := func(t *testing.T, h *harness) { // T-1's watch line as obor before T-927 recorded it
+	oldLine := func(t *testing.T, h *harness) { // T-1's watch line as an older obor recorded it
 		w := h.proj().folded.watches["T-1"]
 		addRecord(t, h, event.MsgTask, event.StepMessage, event.KindFact, map[string]any{"to": "pj-lead", "from": "obor",
 			"line": "[obor] T-1 merged", "task": "T-1", "watch": w.seq})
@@ -83,7 +83,7 @@ func TestWatchRule(t *testing.T) {
 	}
 }
 
-// T-929 (RV-127 #1): a watch's note belongs to its watch, not to the task: the open watch's line carries it, and a
+// A watch's note belongs to its watch, not to the task: the open watch's line carries it, and a
 // later watch of the same task (a new call id) gets the outcome alone, before a restart and after one (a replay
 // keeps the watch closed).
 func TestWatchNoteEndsWithItsLine(t *testing.T) {

@@ -39,17 +39,17 @@ func TestReviewRequest(t *testing.T) {
 			l := r.agents.launches[0]
 			if l.Agent != "pj-rev" || !l.Fresh || !strings.HasPrefix(l.Prompt, "Review RV-5. main is at abcdef0. In scope: T-a (ccccccc), T-b (ccccccc); files: internal/app/x.go, docs/y.md.") ||
 				!strings.Contains(l.Prompt, "Previous review: RV-4 (") || !strings.Contains(l.Prompt, "write only reviews/RV-5.md") ||
-				// T-716: real findings only; constructed ones a one-line list without a fix.
+				// Real findings only; constructed ones a one-line list without a fix.
 				!strings.Contains(l.Prompt, " Report only findings a real config or workflow hits; ") ||
 				!strings.Contains(l.Prompt, `goes in a short "Not reported (constructed)" list instead: one line each, no fix proposal.`) ||
-				// T-869/T-1118: design.md "Change rules" rule 6; only the generic half stays in serve's brief.
+				// docs/design.md "Change rules" rule 6; only the generic half stays in serve's brief.
 				!strings.Contains(l.Prompt, " "+redundantLine+" ") ||
 				!strings.HasSuffix(l.Prompt, "\nLead's note: skip docs") ||
 				!strings.Contains(l.Prompt, " Previous review: RV-4 (its close commit: RV-4 closed · 1111111 · approved · T-9; its accepted"+
 					" findings are the lines of docs/accepted.md that name RV-4) — don't repeat them. ") || strings.Contains(l.Prompt, ".md, or the file") {
 				t.Errorf("launch %+v", l)
 			}
-			// T-853: the reviewer's role worktree is moved to the head before its start.
+			// The reviewer's role worktree is moved to the head before its start.
 			if wt := filepath.Join(filepath.Dir(r.p.root), filepath.Base(r.p.root)+"-wt", "reviewer"); len(r.git.detached) != 1 ||
 
 				r.git.detached[0] != wt+"@abcdef0123456789abcdef0123456789abcdef01" {
@@ -59,11 +59,11 @@ func TestReviewRequest(t *testing.T) {
 				" reviews/RV-5.md in the main checkout "+r.p.root+". "+resultLine+" Do not commit.") {
 				t.Errorf("the brief does not name the worktree and the main checkout: %q", l.Prompt)
 			}
-			// T-1072: the brief itself, not only the role text, asks for the file's Result first line.
+			// The brief itself, not only the role text, asks for the file's Result first line.
 			if !strings.Contains(l.Prompt, "Result: approved | changes requested · <sha reviewed> · <scope>") {
 				t.Errorf("the brief does not ask for the Result line: %q", l.Prompt)
 			}
-			// T-1118: obor-kit's own three sentences left serve's brief for its docs/agents/reviewer.md.
+			// serve's brief carries none of obor-kit's own three sentences: they are in its docs/agents/reviewer.md.
 			assertNoKitVocabulary(t, l.Prompt)
 
 			if lines := r.leadLines(); len(lines) != 0 {
@@ -207,7 +207,7 @@ func TestReviewRequest(t *testing.T) {
 				t.Errorf("status %q", got)
 			}
 			if q := r.a.Status().Project.ReviewRequest; q == nil || q.Held != "RV-5" || q.Note != "next" || q.By != "pj-lead" ||
-				q.Since == 0 || len(q.After) != 0 { // T-664: the request as data
+				q.Since == 0 || len(q.After) != 0 { // the request as data
 				t.Errorf("status review_request %+v; want held by RV-5, note next, by pj-lead, its time", q)
 			}
 			r.closedBy("RV-5", "RV-5 closed · abcdef0 · approved · T-7")
@@ -319,7 +319,7 @@ func TestReviewRequest(t *testing.T) {
 	}
 }
 
-// T-1052: a reviewer start the launch refuses (a quarantined Codex install: port.Refused) starts nothing, records the
+// A reviewer start the launch refuses (a quarantined Codex install: port.Refused) starts nothing, records the
 // review's needs-you naming the files and the fix, and ends the request; the lead's line is that reason (needsRule
 // copies it verbatim), so the owner sees the fix without a tool call of the agent that never ran.
 func TestReviewStartRefusedNamesTheFix(t *testing.T) {
@@ -344,7 +344,7 @@ func TestReviewStartRefusedNamesTheFix(t *testing.T) {
 	}
 }
 
-// T-895, T-909: the close commit's writer: its subject and body (rendered from the fold's cycle, T-1023, read back by
+// The close commit's writer: its subject and body (rendered from the fold's cycle, read back by
 // no one but the crash cut's ClosesReview), and the "accepted <n>" verdict a close with --accept lines writes.
 func TestCloseCommitText(t *testing.T) {
 	t.Parallel()
@@ -359,14 +359,14 @@ func TestCloseCommitText(t *testing.T) {
 		t.Errorf("ClosesReview: %q is RV-7's close only", subject)
 	}
 
-	// T-909: a close with two accepted findings says so
+	// A close with two accepted findings says so
 	subject, _ = CloseCommit("RV-8", "abcdef0", "T-9 (fix)", nil, "1234567", 2)
 	if want := "RV-8 closed · abcdef0 · accepted 2 · T-9 (fix)"; subject != want {
 		t.Fatalf("subject %q, want %q", subject, want)
 	}
 }
 
-// T-818: a pass's claim of the request is in flight too: its fire fact ends the request before the reviewer's brief
+// A pass's claim of the request is in flight too: its fire fact ends the request before the reviewer's brief
 // opens, so from the claim to the brief nothing may call the pipeline idle.
 func TestReviewClaimIsInFlight(t *testing.T) {
 	t.Parallel()
@@ -392,7 +392,7 @@ func TestReviewClaimIsInFlight(t *testing.T) {
 }
 
 // assertNoKitVocabulary fails when a brief carries obor-kit's own review vocabulary, which lives in its
-// docs/agents/reviewer.md, not in the brief every project's reviewer gets (T-1118).
+// docs/agents/reviewer.md, not in the brief every project's reviewer gets.
 func assertNoKitVocabulary(t *testing.T, text string) {
 	t.Helper()
 	for _, sentence := range []string{
@@ -406,8 +406,8 @@ func assertNoKitVocabulary(t *testing.T, text string) {
 	}
 }
 
-// T-822: a verify of a task merged since the previous review's start (here: during the previous verify, so not in
-// RV-5's start scope) is allowed: the verify's range is the next review's scope, read from the fold (T-1023).
+// A verify of a task merged since the previous review's start (here: during the previous verify, so not in
+// RV-5's start scope) is allowed: the verify's range is the next review's scope, read from the fold.
 func TestReviewVerifyOutsideScope(t *testing.T) {
 	t.Parallel()
 	r := newReviewRig(t)
@@ -432,9 +432,9 @@ func TestReviewVerifyOutsideScope(t *testing.T) {
 		t.Fatalf("verify of T-c, merged since the previous review started: %v", err)
 	}
 	if !strings.Contains(text, "fixed in T-c (ccccccc)") || !strings.Contains(text, " every finding ") ||
-		!strings.Contains(text, " "+redundantLine+" ") { // T-869: design.md "Change rules" rule 6
+		!strings.Contains(text, " "+redundantLine+" ") { // design.md "Change rules" rule 6
 
 		t.Errorf("the brief: %q", text)
 	}
-	assertNoKitVocabulary(t, text) // T-1118: the kit's three sentences are not serve's
+	assertNoKitVocabulary(t, text) // the kit's three sentences are not serve's
 }

@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// Low disk (T-564): the project volume's free space below diskLow is the project's needs-you{disk low: …} until it is
+// Low disk: the project volume's free space below diskLow is the project's needs-you{disk low: …} until it is
 // back above it. A gate or a nightly would only fail on a full disk (the RED line looked like a test failure), so
 // neither starts while it is in force; they start once space is back, as a deferred one does.
 
@@ -36,7 +36,7 @@ func (a *App) diskTick(p *proj, fx *Loop) {
 
 // diskIsLow reads the free space now and settles the needs-you: one record per transition (low → ok → low), none
 // while it stays. True: the disk is low (a read that fails leaves the state as it is). Below the bound the reading
-// alone holds a gate or nightly: a refused needs-you append is tried again on the next read (RV-59 #1).
+// alone holds a gate or nightly: a refused needs-you append is tried again on the next read.
 func (a *App) diskIsLow(p *proj, fx *Loop) bool {
 	d := fx.Disk
 	if d == nil {

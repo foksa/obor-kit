@@ -67,7 +67,7 @@ func (a *App) Status() wire.Status {
 		ps.Facts = append(ps.Facts, p.needsYou()...)
 		intents := p.log.OpenIntents()
 		steps := p.stepPhases(intents)
-		// T-1043: each task's place in the pass's order (passOrder), shipped so the view's queue lists the waiting
+		// Each task's place in the pass's order (passOrder), shipped so the view's queue lists the waiting
 		// dispatches in the order serve starts them instead of sorting them by id.
 		rank := make(map[string]int, len(p.folded.loop))
 		for i, task := range p.passOrder() {
@@ -75,12 +75,12 @@ func (a *App) Status() wire.Status {
 		}
 		for _, mt := range p.folded.loop {
 			if mt.state != stMerged {
-				waiting := mt.is(stWaiting) // T-1043: the predicate the view's queue lists, never State
+				waiting := mt.is(stWaiting) // the predicate the view's queue lists, never State
 				ts := wire.TaskStatus{Task: mt.task, Lane: mt.lane, Attempt: mt.attempt, State: mt.shown(),
 					Ended: states[mt.state].ended, Phase: a.phaseOf(p, mt, steps), Stage: a.stageOf(p, mt, steps),
 					Effort: mt.disp.Effort, Waiting: waiting}
 				row, hasSpec, err := specOf(p, mt.task)
-				if err == nil && hasSpec { // T-1022: the spec's external id
+				if err == nil && hasSpec { // the spec's external id
 					ts.Ref = row.Spec.Ref
 				}
 				if p.running.Task == mt.task {
@@ -131,7 +131,7 @@ func (a *App) Status() wire.Status {
 		} else {
 			ps.Review = s
 		}
-		if f := p.fixes.line(); f != "" { // T-924: the open review's fix tasks, linked by their specs' Fixes: lines
+		if f := p.fixes.line(); f != "" { // the open review's fix tasks, linked by their specs' Fixes: lines
 			ps.Review = strings.TrimPrefix(ps.Review+" · "+f, " · ")
 		}
 		if q := p.folded.review; q != nil {
@@ -176,14 +176,14 @@ func (a *App) Status() wire.Status {
 	return st
 }
 
-// commandStep is a record's step as the running and pending lines show it (T-657, T-662): the merge loop's command
+// commandStep is a record's step as the running and pending lines show it: the merge loop's command
 // steps — gate, a lane test, publish the merge, after_merge, the nightly check — by their base name, the nightly one with no task.
 // false: another step's record (a prompt, a start) runs no command the lines show.
 func commandStep(r event.Record) (step, task string, ok bool) {
 	if strings.HasPrefix(r.Step, event.StepNightly+".") {
 		return event.StepNightly, "", true
 	}
-	if r.Task == event.PromoteTask { // an old log's promotion (deleted, T-1076): nothing runs it
+	if r.Task == event.PromoteTask { // an old log's promotion (deleted): nothing runs it
 		return "", "", false
 	}
 	switch step, _ = event.StepN(r.Step); step {
@@ -194,7 +194,7 @@ func commandStep(r event.Record) (step, task string, ok bool) {
 }
 
 // runningSteps is the steps that run without an agent, in seq order: the open intents of the merge loop's command
-// steps whose effect runs now (p.exec, T-662) and, last, a pending self-restart (p.restarting). Since is the start of
+// steps whose effect runs now (p.exec) and, last, a pending self-restart (p.restarting). Since is the start of
 // that execution, not the intent's write time (a replay's is older). An intent with a result is no open intent; an
 // open one not running is pending. Under mu.
 func (p *proj) runningSteps(open []event.Record) []wire.RunningStep {
@@ -216,7 +216,7 @@ func (p *proj) runningSteps(open []event.Record) []wire.RunningStep {
 	return out
 }
 
-// pendingSteps is the steps that wait, in seq order (T-662): the merge loop's command steps whose intent has no result
+// pendingSteps is the steps that wait, in seq order: the merge loop's command steps whose intent has no result
 // and whose effect does not run now — one whose last try failed (Error, FailedAt: the failed fact's reason without its
 // step prefix, and its time) or one the next pass or a replay has yet to run (no error: queued). Under mu.
 func (p *proj) pendingSteps(open []event.Record) []wire.PendingStep {
@@ -246,7 +246,7 @@ func (p *proj) pendingSteps(open []event.Record) []wire.PendingStep {
 }
 
 // answerPath is the commands that answer the needs-you fact r (obor status, the lead's needs-you line), in the state
-// mt of r's task (zero: the loop holds none), by the rules the verbs themselves check (T-775): the one obor resume form
+// mt of r's task (zero: the loop holds none), by the rules the verbs themselves check: the one obor resume form
 // resumeFits takes (its text where its action needs one; with no default, the owner's choice of --regate or
 // --sendback; a worker's question also --regate), then obor drop when the task's state takes one (mtask.may); a
 // watchdog fact its pane first; a loop error none ("": fix what it names). p (nil: none) is r's project, under mu.
@@ -262,7 +262,7 @@ func answerPath(p *proj, r event.Record, mt mtask) string {
 		return resumeCmds(p, r.Task, mt)
 	case !d.Merge:
 		if !mt.needs.held() && (d.Reason == reasonStalled || d.Cause == causeStopped) && p != nil {
-			cmds = append(cmds, resumeCmds(p, r.Task, mt)) // the worker gets the line (T-746)
+			cmds = append(cmds, resumeCmds(p, r.Task, mt)) // the worker gets the line
 		}
 	default:
 		cmds = append(cmds, resumeCmds(p, r.Task, mt))
@@ -325,7 +325,7 @@ const requestTimeout = time.Minute
 
 // Listen answers the app socket's requests on ln until it is closed: one request line per connection. A request's
 // effect runs under the daemon's lifetime and requestTimeout; once Serve has ended, a connection is closed unanswered.
-// Serve binds the socket only once its project is loaded (cmd/obor/serve.go, Loaded; T-659): a request never waits
+// Serve binds the socket only once its project is loaded (cmd/obor/serve.go, Loaded): a request never waits
 // for the replay, a client retries the socket that is not there yet inside its own deadline.
 func (a *App) Listen(ln net.Listener) {
 	for {
@@ -370,7 +370,7 @@ func (a *App) Listen(ln net.Listener) {
 			case req.Method == "status":
 				st := a.Status()
 				ans.Status = &st
-			case req.Method == wire.MethodEvents: // a stream of lines, its own writes (T-1039)
+			case req.Method == wire.MethodEvents: // a stream of lines, its own writes
 				var r *wire.EventsReq
 				if env != nil {
 					r = &wire.EventsReq{}
@@ -394,7 +394,7 @@ func (a *App) Listen(ln net.Listener) {
 				}
 			}
 			out, _ := json.Marshal(ans)
-			// The answer is written once its effect is done, which may wait for a stop (T-825): its own bound, not the
+			// The answer is written once its effect is done, which may wait for a stop: its own bound, not the
 			// request line's.
 			_ = c.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			_, _ = c.Write(append(out, '\n'))
@@ -406,7 +406,7 @@ func (a *App) Listen(ln net.Listener) {
 type handler func(method string, call json.RawMessage) (string, error)
 
 // handlers is the socket's methods but status and events (Listen's own): each decodes the call into its request type
-// (T-1055) and answers it; dispatch, drive and the integrator's verdicts run under the daemon's lifetime and
+// and answers it; dispatch, drive and the integrator's verdicts run under the daemon's lifetime and
 // requestTimeout.
 func (a *App) handlers() map[string]handler {
 	verdict := handle(func(c wire.VerdictReq) (string, error) {
@@ -470,7 +470,7 @@ func timed[R any](a *App, f func(context.Context, R) (string, error)) func(R) (s
 	}
 }
 
-// versionSkew is c's caller's obor as text when it differs from this serve's (T-826): its version, or "an older obor"
+// versionSkew is c's caller's obor as text when it differs from this serve's: its version, or "an older obor"
 // for a call that carried none (a binary before the field); "" when they match. A difference alone refuses nothing:
 // obor-kit's dev builds differ after every merge, so only a refusal names it and serve's log says it once.
 func versionSkew(c wire.Envelope) string {
@@ -484,7 +484,7 @@ func versionSkew(c wire.Envelope) string {
 }
 
 // noteSkew writes serve's one log line for a call whose caller runs another obor: the first per (agent, version), not
-// each call (T-826). It also keeps, per agent, the version of the other release its calls carry (behind): a new session
+// each call. It also keeps, per agent, the version of the other release its calls carry (behind): a new session
 // clears what the last one ran. An entry is only set here, never cleared by a later call of serve's own release: one
 // agent calls through several processes, and the line must not flicker between them.
 func (a *App) noteSkew(method string, c wire.Envelope) {
@@ -552,7 +552,7 @@ func (a *App) herdrNote() string {
 }
 
 // waitDifficulty is a waiting task's Difficulty level: its dispatch's level, else (a --model override, which names
-// none) its stored spec's Difficulty line; "": neither (T-977). Under mu.
+// none) its stored spec's Difficulty line; "": neither. Under mu.
 func (p *proj) waitDifficulty(mt *mtask) string {
 	if mt.disp.Level != "" {
 		return mt.disp.Level

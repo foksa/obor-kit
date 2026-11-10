@@ -13,7 +13,7 @@ import (
 	"obor/internal/spec"
 )
 
-// The setup edit (T-753, T-760): the owner changes setup values from obor web's Setup page (config.Edit names the
+// The setup edit: the owner changes setup values from obor web's Setup page (config.Edit names the
 // keys), and serve, the one writer, applies them in order to the current .obor/config.json, validates the result, writes
 // the file in its own layout and commits that one file on the main branch, all of them in one commit or none. The
 // write and its commit pass the publish admission (admit): never while a publish moves the main branch, and no publish
@@ -46,7 +46,7 @@ func (a *App) configCall(c wire.ConfigSetReq) (string, error) {
 		}
 	}
 	a.configMu.Lock() // one main-checkout writer at a time: each reads the file the last one wrote, and a repeated call
-	// id waits for the call in flight before its stored-reply lookup (T-930)
+	// id waits for the call in flight before its stored-reply lookup
 	defer a.configMu.Unlock()
 	p, reply, stored := a.callProj(wire.MethodConfig, c.Envelope)
 	switch {

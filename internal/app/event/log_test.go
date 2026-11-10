@@ -69,7 +69,7 @@ func openLog(t *testing.T, root string) (*Log, []Record) {
 	return l, recs
 }
 
-// T-881: ReadMerges takes the merge facts only (the store filters them before decoding), in seq order: a merge
+// ReadMerges takes the merge facts only (the store filters them before decoding), in seq order: a merge
 // recorded outside the app (no head) is none, and other records' steps are not read. No store: no merges.
 func TestReadMerges(t *testing.T) {
 	t.Parallel()

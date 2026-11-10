@@ -11,12 +11,12 @@ import (
 	"obor/internal/config"
 )
 
-// The nightly full check (T-464, T-781, T-782; docs/state-model.md row 45): merge.nightly_at is its switch, the lead's
+// The nightly full check (docs/state-model.md row 45): merge.nightly_at is its switch, the lead's
 // (obor nightly on HH:MM | off, through config_set): set, the merge loop runs what obor nightly runs every night at or
 // after that time, in its own worktree (not the scratch), while no gate or publish runs. Off stops new runs, not
 // settling: every pass settles a result's missing needs-you and a hand GREEN, on or off. Nothing else decides whether
 // it runs (the nightly runs more than the merge gate: check_milestone, the store backup, then
-// merge.nightly_commands, each non-gating, T-817). The Loop is built each pass from the config as it is,
+// merge.nightly_commands, each non-gating). The Loop is built each pass from the config as it is,
 // so a switch counts from the next pass; a run in progress is not stopped by off. Its intent/result is the day's key
 // nightly.<YYYY-MM-DD> (G): a restart runs a pending one again, a day with a result runs none. A RED one is the
 // project's needs-you{full-check RED <sha7>} until a GREEN one ends it; a run that ends neither GREEN nor RED is a
@@ -31,7 +31,7 @@ const nightlyRetry = 10 * time.Minute
 const redPrefix = "full-check RED "
 
 // Nightly is a project's nightly full check (merge.nightly_at); a merge loop's project always has one. Off is At "":
-// no new run, but the pass still settles one (T-782).
+// no new run, but the pass still settles one.
 type Nightly struct {
 	At  string                                        // "HH:MM", local time: it runs every night at or after it; "": off
 	Run func(ctx context.Context) (NightlyOut, error) // obor nightly's run; an error: it ended neither GREEN nor RED
@@ -55,13 +55,13 @@ type nightlyState struct {
 	done      bool
 	fails     map[string]int
 	failedAt  time.Time
-	failedWhy string // the last failed fact's reason: "nightly.<date>: <err>" (obor status' pending line, T-662)
+	failedWhy string // the last failed fact's reason: "nightly.<date>: <err>" (obor status' pending line)
 	unsettled *NightlyOut
 	running   bool // runNightly runs (under mu; only the merge loop's pass starts one)
 }
 
 // foldNightly folds r, a record of the nightly full check. Only nightly.<date> steps are its runs: an old log's
-// notification step of its needs-you (notify.<seq>, the same task key) never moves the run cursor (T-468).
+// notification step of its needs-you (notify.<seq>, the same task key) never moves the run cursor.
 func (p *proj) foldNightly(r event.Record) {
 	if r.Task != event.NightlyTask {
 		return
@@ -178,7 +178,7 @@ func (a *App) runNightly(ctx context.Context, p *proj, n *Nightly, step string) 
 		return out, err
 	})
 	if err != nil {
-		if cutByServe(ctx, err) { // serve is stopping: the check was cut, not failed (T-660)
+		if cutByServe(ctx, err) { // serve is stopping: the check was cut, not failed
 			a.shutDown(event.NightlyTask + " " + event.StepFailed + "{" + step + ": " + err.Error() + "}")
 			return
 		}

@@ -12,7 +12,7 @@ import (
 	"obor/internal/app/wire"
 )
 
-// T-369: while pj's T-1 gate is held, T-2's dispatch in pj runs lane.prepare, agent.start and its work prompt, pq's
+// While pj's T-1 gate is held, T-2's dispatch in pj runs lane.prepare, agent.start and its work prompt, pq's
 // T-3 gates, and a verdict on pr's T-4 publishes it; pj's T-5 does not gate (one scratch). Released, T-1's gate folds
 // once (one intent, one result: its review job follows), then T-5 gates; pj's scratch calls never overlapped.
 func TestHeldGateBlocksNothingElse(t *testing.T) {
@@ -83,7 +83,7 @@ func TestHeldGateBlocksNothingElse(t *testing.T) {
 	}
 }
 
-// T-369: a stop (a crash's cut) with T-1's gate running leaves its intent pending, no failure counted; a replay
+// A stop (a crash's cut) with T-1's gate running leaves its intent pending, no failure counted; a replay
 // re-runs the gate once under the same key: one intent, one result.
 func TestGateCutReplayRunsOnce(t *testing.T) {
 	t.Parallel()
@@ -120,7 +120,7 @@ func TestGateCutReplayRunsOnce(t *testing.T) {
 	}
 }
 
-// T-961: a lane test runs outside the scratch token (docs/state-model.md "Concurrency"): while pj's T-1 test is held,
+// A lane test runs outside the scratch token (docs/state-model.md "Concurrency"): while pj's T-1 test is held,
 // T-5 gates in the scratch, tests in its own lane and reaches its review; obor status shows T-1 testing, its test on
 // the running line, and a drop of it is refused while the test runs. Released, T-1's test folds once: green, its
 // review next.
@@ -174,8 +174,8 @@ func TestLaneTestRunsBesideTheSlot(t *testing.T) {
 	}
 }
 
-// T-961: a green gate folds by its kind and its age (row 18): a lane or resolved merge the slot compiled is a candidate
-// (its lane test next), a moved one is green (no test on a move), and a gate before T-961 (its candidate has no Base:
+// A green gate folds by its kind and its age (row 18): a lane or resolved merge the slot compiled is a candidate
+// (its lane test next), a moved one is green (no test on a move), and a gate of a candidate without a Base:
 // it ran the checks itself) folds green as it did then. The test's result folds the candidate: green (its checks kept
 // for the review job), red (a sendback next) or fail (a needs-you).
 func TestGateAndTestResultsFold(t *testing.T) {

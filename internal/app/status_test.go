@@ -19,7 +19,7 @@ import (
 	"obor/internal/version"
 )
 
-// T-896, T-921: serve ships whether a task ended: the state table's ended column, not a list of state names its
+// Serve ships whether a task ended: the state table's ended column, not a list of state names its
 // readers keep. A dispatched task has not ended; a dropped one has, and stays in the list (obor status --json shows
 // it).
 func TestStatusEndedIsTheStateTablesEnded(t *testing.T) {
@@ -44,7 +44,7 @@ func TestStatusEndedIsTheStateTablesEnded(t *testing.T) {
 	}
 }
 
-// T-1043: serve ships the queue's order and its waiting predicate, so the view's queue lists the dispatched waits in
+// Serve ships the queue's order and its waiting predicate, so the view's queue lists the dispatched waits in
 // the order serve starts them instead of reconstructing both from the state string: a waiting dispatch is flagged
 // Waiting and ranked by passOrder — T-20, dispatched first, ranks before T-10.
 func TestStatusShipsTheWaitingRank(t *testing.T) {
@@ -73,7 +73,7 @@ func TestStatusShipsTheWaitingRank(t *testing.T) {
 	}
 }
 
-// T-896, T-921: serve ships the lanes its config-change rule would not refuse to drop (laneHolds), so obor web's
+// Serve ships the lanes its config-change rule would not refuse to drop (laneHolds), so obor web's
 // setup page warns without a list of lane states: a lane holding a task is not free, a free one is, and an ended task
 // frees its lane.
 func TestStatusFreeLanesFollowLaneHolds(t *testing.T) {
@@ -99,7 +99,7 @@ func TestStatusFreeLanesFollowLaneHolds(t *testing.T) {
 	}
 }
 
-// RV-49 #4: a waiting task has no lane, so the drop its needs-you advertises names the task (obor drop <T-xx>, T-462),
+// A waiting task has no lane, so the drop its needs-you advertises names the task (obor drop <T-xx>),
 // whichever dependency ended the wait.
 func TestAnswerPathWaitingTaskNamesTheTask(t *testing.T) {
 	t.Parallel()
@@ -119,7 +119,7 @@ func TestAnswerPathWaitingTaskNamesTheTask(t *testing.T) {
 	}
 }
 
-// T-775: a stalled worker's needs-you names the task, never its lane: obor resume with the line, obor drop by task id.
+// A stalled worker's needs-you names the task, never its lane: obor resume with the line, obor drop by task id.
 func TestAnswerPathNamesTheTaskNotTheLane(t *testing.T) {
 	t.Parallel()
 	raw, _ := json.Marshal(event.FactData{Lane: "L-02", Reason: "stalled"})
@@ -131,7 +131,7 @@ func TestAnswerPathNamesTheTaskNotTheLane(t *testing.T) {
 	}
 }
 
-// T-657/T-662: the running line's steps are the merge loop's command steps whose effect runs now (p.exec), in seq
+// The running line's steps are the merge loop's command steps whose effect runs now (p.exec), in seq
 // order — a numbered gate, a numbered publish, the nightly check — and a pending self-restart last, elapsed from the
 // start of each execution. An open intent whose effect does not run now is pending, not running; an intent with a
 // result, a prompt and a start are neither.
@@ -211,7 +211,7 @@ func TestRunningStepsAreTheCommandStepsWhoseEffectRuns(t *testing.T) {
 	}
 }
 
-// T-662: a pending step names its last failure (the fold's reason without the step's prefix, and the fact's time) and
+// A pending step names its last failure (the fold's reason without the step's prefix, and the fact's time) and
 // reads queued when it never failed; an intent written before a restart is pending until its effect starts, then
 // running, elapsed from that start — not from the intent's older time.
 func TestPendingStepsWaitForTheirEffect(t *testing.T) {
@@ -264,7 +264,7 @@ func TestPendingStepsWaitForTheirEffect(t *testing.T) {
 	}
 }
 
-// T-1022: a task's status carries its spec's Ref: line as ref (obor status --json only); a task whose spec has none
+// A task's status carries its spec's Ref: line as ref (obor status --json only); a task whose spec has none
 // ships no ref key at all.
 func TestStatusCarriesTheSpecsRef(t *testing.T) {
 	t.Parallel()
@@ -308,7 +308,7 @@ func TestStatusCarriesTheSpecsRef(t *testing.T) {
 }
 
 // runAnswer runs cmd, one command of an answerPath, as the lead does: obor resume through its own parser (ResumeArgs)
-// with a one-word text for its placeholder (RV-54 #4), obor drop as its CLI calls serve (by task id, T-775).
+// with a one-word text for its placeholder, obor drop as its CLI calls serve (by task id).
 func runAnswer(h *harness, fact event.Record, cmd string) (string, error) {
 	id := wire.Envelope{Root: h.root, Agent: "pj-lead", Role: "lead", CallID: "c1"}
 	args := strings.Fields(regexp.MustCompile(`"<[a-z]+>"`).ReplaceAllString(cmd, "yes"))
@@ -330,7 +330,7 @@ type usageError struct{ cmd string }
 
 func (e *usageError) Error() string { return "not an obor command: " + e.cmd }
 
-// RV-54 #2 (T-515), T-775: each cause's suggested commands are the ones its verbs take in the state the needs-you
+// Each cause's suggested commands are the ones its verbs take in the state the needs-you
 // leaves (resumeFits, mtask.may): the one obor resume form (its text where it needs one; the owner's choice of --regate
 // or --sendback where there is no default: red or sendbacks past K, a resolve rejected, a fix job not sent), no drop
 // for a merged task (after-merge failures), only drop for a reject; every command names the task, never the lane.
@@ -362,7 +362,7 @@ func TestAnswerPathEveryCause(t *testing.T) {
 		{event.StepAfterMerge + failedSuffix, stMerged, "", false, resume},
 		{event.StepStop + failedSuffix, stMerged, "", false, resume},
 		{causeRejected, stRejected, "", false, `obor drop T-1 "<why>"`},
-		{"stalled", "", "", true, `its pane, or obor resume T-1 "<text>"` + drop}, // T-746
+		{"stalled", "", "", true, `its pane, or obor resume T-1 "<text>"` + drop}, // a stalled or blocked worker
 		{"blocked", "", "", true, `its pane, or obor drop T-1 "<why>"`},
 		{"pane exited", "", "", true, `its pane, or obor drop T-1 "<why>"`},
 	} {
@@ -383,7 +383,7 @@ func TestAnswerPathEveryCause(t *testing.T) {
 					continue
 				}
 				h, _, fact := answerSeed(t, row.cause, row.state, row.job, row.watch)
-				// a drop answers DROPPED, or DROPPING for a task holding a lane (T-852)
+				// a drop answers DROPPED, or DROPPING for a task holding a lane
 				if reply, err := runAnswer(h, fact, cmd); err != nil {
 					t.Errorf("%s: refused: %v", cmd, err)
 				} else if want := map[bool]string{true: "SENDBACK", false: map[string]string{"resume": "RESUMED",
@@ -400,7 +400,7 @@ func TestAnswerPathEveryCause(t *testing.T) {
 	}
 }
 
-// T-826: a call names its binary's version, and a serve that runs another one names both versions in its refusal; a
+// A call names its binary's version, and a serve that runs another one names both versions in its refusal; a
 // call from a binary older than the field ("", no version) is "an older obor". A difference alone refuses nothing.
 
 // askApp sends one call to a's socket (Listen on an in-memory listener) and gives its answer.
@@ -509,7 +509,7 @@ func TestSkewLoggedOncePerAgentAndVersion(t *testing.T) {
 	}
 }
 
-// T-1177: obor status names the agents whose calls carry another obor release than serve's, until the agent reports a
+// obor status names the agents whose calls carry another obor release than serve's, until the agent reports a
 // new session; an agent serve no longer observes in a pane is not named, and the owner is not an agent.
 func TestStatusNamesAgentsOnAnotherRelease(t *testing.T) {
 	t.Parallel()
@@ -564,7 +564,7 @@ func TestStatusNamesAgentsOnAnotherRelease(t *testing.T) {
 	}
 }
 
-// T-1177: two builds of one release are no skew (a dev suffix), and a dev build of another release reads as that
+// Two builds of one release are no skew (a dev suffix), and a dev build of another release reads as that
 // release with its own version text.
 func TestStatusSkewComparesReleases(t *testing.T) {
 	t.Parallel()
@@ -597,7 +597,7 @@ func TestStatusSkewComparesReleases(t *testing.T) {
 	}
 }
 
-// T-1055: Listen reads a request's envelope, then its method's request type. A request with no call (none, or null)
+// Listen reads a request's envelope, then its method's request type. A request with no call (none, or null)
 // is refused as before the split, an unknown method is, and an old binary's line with keys of the union its method
 // does not use (task, patch on a pause) reaches the method's handler, those keys ignored.
 func TestListenDecodesTheMethodsRequest(t *testing.T) {
@@ -642,7 +642,7 @@ func TestListenDecodesTheMethodsRequest(t *testing.T) {
 	}
 }
 
-// T-806: the herdr notice follows the server serve is connected to: each snapshot records its version and protocol,
+// The herdr notice follows the server serve is connected to: each snapshot records its version and protocol,
 // a change is logged once, and the status note comes from that state.
 func TestHerdrNoteFollowsTheConnectedServer(t *testing.T) {
 	t.Parallel()

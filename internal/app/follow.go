@@ -1,4 +1,4 @@
-// follow.go: serve follows a new obor binary (T-719): on its own tick (Options.Follow, T-737: herdr connected or not,
+// follow.go: serve follows a new obor binary: on its own tick (Options.Follow: herdr connected or not,
 // the watchdogs' tick counts only while it is) it asks Options.Binary and takes the self-restart path (Loop.Restart),
 // preferring a moment when nothing runs.
 package app
@@ -18,7 +18,7 @@ type follow struct {
 
 // followTicks is the binary watch's timer until ctx ends: each Options.Follow counts a tick (App.follows) and wakes
 // the merge loop, whose pass asks (followBinary). It runs off herdr's subscription and the watchdogs' count, so a
-// serve started without herdr, or whose stream dropped, still follows (T-737).
+// serve started without herdr, or whose stream dropped, still follows.
 func (a *App) followTicks(ctx context.Context) {
 	t := time.NewTicker(a.opt.Follow)
 	defer t.Stop()
@@ -37,8 +37,8 @@ func (a *App) followTicks(ctx context.Context) {
 
 // followBinary restarts serve on a new obor binary (Options.Binary): each tick asks, and once one is seen the restart
 // goes at the first pass where serve is idle (no slot step running, no lane test, no nightly, no verdict call
-// admitted), however long that takes (T-972: no deadline, and nothing new is held back for it). Never while a
-// main-checkout writer is admitted (p.admits: a config_set's or a review close's commit, T-930, T-934), whatever runs
+// admitted), however long that takes (no deadline, and nothing new is held back for it). Never while a
+// main-checkout writer is admitted (p.admits: a config_set's or a review close's commit), whatever runs
 // (a writer is bounded by its own request timeout). One a.mu section decides and claims the restart (p.restartClaim):
 // admit refuses while it is claimed, so no writer starts under the restart's cancel. While it waits, p.restarting
 // shows it in obor status. A failed restart is a needs-you
@@ -68,8 +68,8 @@ func (a *App) followBinary(ctx context.Context, p *proj) bool {
 	if p.restarting.IsZero() {
 		p.restarting = a.opt.Now()
 	}
-	// A lane test counts as running too (p.tests, T-965): it runs minutes, and a test whose start has not reached
-	// p.exec yet is still no idle moment. A new one starts beside the pending restart (T-972), and the restart goes
+	// A lane test counts as running too (p.tests): it runs minutes, and a test whose start has not reached
+	// p.exec yet is still no idle moment. A new one starts beside the pending restart, and the restart goes
 	// in the first pass (the gap) after the last ends.
 	idle := p.running.Task == "" && len(p.exec) == 0 && len(p.tests) == 0 && !p.night.running &&
 		a.admitted == 0

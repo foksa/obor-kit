@@ -15,11 +15,11 @@ import (
 	"obor/internal/app/wire"
 )
 
-// T-617 (RV-66): a worker's stop, and its next turn clearing it, are recorded against the lane's current task — the
+// A worker's stop, and its next turn clearing it, are recorded against the lane's current task — the
 // one the loop has awaiting its task_done there — never an old watch: the lane's old task ended and T-1 was dispatched
-// before the watchdog's next look, its watch of the old task still on the lane. No watch yet (T-612) still works; a
+// before the watchdog's next look, its watch of the old task still on the lane. No watch yet still works; a
 // watch of the current task is the one used. Of two tasks awaiting task_done on the lane, the newest dispatch is the
-// current one, though its name sorts later (T-615's rule).
+// current one, though its name sorts later.
 func TestStoppedCurrentTaskNotAnOldWatch(t *testing.T) {
 	t.Parallel()
 	old := func() *watch { return &watch{lane: port.Lane{Name: "L-01", Agent: "pj-l-01", Task: "T-0"}} }
@@ -120,7 +120,7 @@ func TestStoppedCurrentTaskNotAnOldWatch(t *testing.T) {
 	}
 }
 
-// T-571 (RV-60 #1, #3): a turn's start and its end are different evidence, decided by one table (turnDecide). The
+// A turn's start and its end are different evidence, decided by one table (turnDecide). The
 // rows below run the socket-free core (lineApp: pj-rev, a briefed reviewer, over the fake herdr) with the real log and
 // folds; each ends with a replay that must give no second line and the same state.
 
@@ -264,7 +264,7 @@ func (r *turnRig) replayed() {
 	}
 }
 
-// RV-60 #1: a Codex role's next turn starts while herdr still says idle → the stop ends, the brief stays open, no
+// A Codex role's next turn starts while herdr still says idle → the stop ends, the brief stays open, no
 // finished line; that turn's task_complete → the finished line, once.
 func TestTurnCodexStartWhileIdle(t *testing.T) {
 	t.Parallel()
@@ -286,7 +286,7 @@ func TestTurnCodexStartWhileIdle(t *testing.T) {
 	r.replayed()
 }
 
-// RV-60 #1: the resumed turn starts, then hits its limit too → a second stop, the brief open, its wake due after the
+// The resumed turn starts, then hits its limit too → a second stop, the brief open, its wake due after the
 // new reset (and not before).
 func TestTurnCodexStartThenLimit(t *testing.T) {
 	t.Parallel()
@@ -330,8 +330,8 @@ func typedTo(l *linerSpy, line string) int {
 	return n
 }
 
-// Control: the Codex role is seen working first (its start read with it), then idle with the turn's end → the
-// finished line once.
+// The control for the Codex turn: the role is seen working first (its start read with it), then idle with the turn's
+// end → the finished line once.
 func TestTurnCodexWorkingFirst(t *testing.T) {
 	t.Parallel()
 	r := newTurnRig(t, "codex")
@@ -351,7 +351,7 @@ func TestTurnCodexWorkingFirst(t *testing.T) {
 	r.replayed()
 }
 
-// RV-60 #3: a Claude role's start hook was missed (serve down, the request timed out); its work is seen while the
+// A Claude role's start hook was missed (serve down, the request timed out); its work is seen while the
 // stop is in force, then its Stop hook → the stop ends and the finished line follows, once.
 func TestTurnClaudeMissedStart(t *testing.T) {
 	t.Parallel()
@@ -376,7 +376,8 @@ func TestTurnClaudeMissedStart(t *testing.T) {
 	r.replayed()
 }
 
-// Control: the Claude role's start hook, then its Stop hook (no status seen between) → the finished line once.
+// The control for the Claude turn: its start hook, then its Stop hook (no status seen between) → the finished line
+// once.
 func TestTurnClaudeStartThenStop(t *testing.T) {
 	t.Parallel()
 	r := newTurnRig(t, "claude")

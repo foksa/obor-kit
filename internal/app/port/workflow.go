@@ -2,7 +2,7 @@ package port
 
 import "context"
 
-// Workflow is the project's git workflow behind one interface (T-1029, docs/plan/architecture-target.md §3): how a
+// Workflow is the project's git workflow behind one interface (docs/plan/architecture-target.md §3): how a
 // task's work becomes a candidate, is tested and published onto the target, the lanes it runs in, the target a
 // dispatch reads, and the git of a review's start and close. Config workflow.kind selects the
 // implementation at serve start; scratch-ff (internal/checks' ScratchFF, the default) is the one today.
@@ -19,15 +19,15 @@ type Workflow interface {
 }
 
 // Review is the git a review's start and close do on the project (scratch-ff: the main checkout, cmd/obor's
-// reviewGit). No method decides what a review covered: that is the app's fold (reviewfold.go, T-1023).
+// reviewGit). No method decides what a review covered: that is the app's fold (reviewfold.go).
 type Review interface {
 	// Head is branch's sha.
 	Head(ctx context.Context, branch string) (string, error)
 	// Files is the files changed from from to to (from "": every file of to).
 	Files(ctx context.Context, from, to string) ([]string, error)
-	// Detach puts the role worktree at dir on sha, detached, adding it when it is missing (T-853).
+	// Detach puts the role worktree at dir on sha, detached, adding it when it is missing.
 	Detach(ctx context.Context, dir, sha string) error
-	// Close commits c in the main checkout (T-926; serve calls it admitted, reviewclose.go). Refused, an error ending
+	// Close commits c in the main checkout (serve calls it admitted, reviewclose.go). Refused, an error ending
 	// "nothing changed": the checkout not on c.Branch, dirty outside BACKLOG.md, docs/accepted.md and c's files, or
 	// c.Reviewed no commit. Else c's files deleted, c.Accepts appended to docs/accepted.md (created when missing) and
 	// the commit, BACKLOG.md and docs/accepted.md with it.
@@ -39,7 +39,7 @@ type Review interface {
 
 // ReviewCommit is a review's close as the main checkout takes it: the integration branch, the review's id and its
 // review file (absolute; its verify file <id>-verify.md beside it goes too when there), the accepted findings' lines
-// for BACKLOG.md, the head the reviewer last finished (full sha) and the commit's subject and body (CloseCommit).
+// for docs/accepted.md, the head the reviewer last finished (full sha) and the commit's subject and body (CloseCommit).
 type ReviewCommit struct {
 	Branch, ID, File, Reviewed, Subject, Body string
 	Accepts                                   []string

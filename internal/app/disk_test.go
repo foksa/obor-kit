@@ -13,7 +13,7 @@ import (
 	"obor/internal/app/wire"
 )
 
-// RV-59 #1: the free-space reading alone holds a gate or nightly; recording the needs-you is best effort, so a refused
+// The free-space reading alone holds a gate or nightly; recording the needs-you is best effort, so a refused
 // append (a full disk) must not let either start.
 
 // diskCount is a Loop's Disk: the free bytes scripted, each reading counted (a test asserts the admission read it).
@@ -29,7 +29,7 @@ func (f *diskCount) disk() *Disk {
 	}}
 }
 
-// RV-59 #1, direct: free 1 GiB with the needs-you append refused is still low and leaves no fact in force; the next
+// The direct case: free 1 GiB with the needs-you append refused is still low and leaves no fact in force; the next
 // reading, appends working again, records the needs-you.
 func TestRV59DiskRecordFailure(t *testing.T) {
 	t.Parallel()
@@ -62,7 +62,7 @@ func TestRV59DiskRecordFailure(t *testing.T) {
 	}
 }
 
-// RV-59 #1: a gate whose intent a crash or refused result left pending runs on the next pass; with every append
+// A gate whose intent a crash or refused result left pending runs on the next pass; with every append
 // refused and free 1 GiB it does not, whether its step is a submitted lane's gate, a resolved merge's or a moved
 // target's (all pickGate). Once the log takes appends and space is back, the same pending gate runs and reuses its
 // intent.
@@ -144,7 +144,7 @@ func TestRV59LowDiskPendingGate(t *testing.T) {
 	}
 }
 
-// RV-59 #1: the nightly's admission is the same call. With every append refused and free 1 GiB neither a pending
+// The nightly's admission is the same call. With every append refused and free 1 GiB neither a pending
 // nightly intent (a crash mid-run) nor a retry after a failed try starts the run; once appends work and space is back
 // it runs.
 func TestRV59LowDiskPendingNightly(t *testing.T) {

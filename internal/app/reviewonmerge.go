@@ -1,5 +1,5 @@
-// reviewonmerge.go: the Review: on merge rule (T-878, T-932): a hard or risky task's spec asks serve for a review as
-// soon as it merges. It replaces the lead's per-task watch and hand-run obor review for these tasks
+// reviewonmerge.go: the Review: on merge rule: a hard or risky task's spec asks serve for a review as
+// soon as it merges, so the lead need neither watch the task nor ask for the review by hand
 // (skills/lead/SKILL.md).
 package app
 
@@ -16,7 +16,7 @@ import (
 const ruleReviewOnMerge = "review.on.merge"
 
 // reviewOnMergeRule requests a review for the newest task merged after the last review start whose current spec asks
-// for one, while no review request is open (T-878, T-932): the line `Review: on merge` or `Difficulty: hard`, and no
+// for one, while no review request is open: the line `Review: on merge` or `Difficulty: hard`, and no
 // `Fixes:` line (a fix is covered by its review's verify). Fact review.request{note: "Review: on merge (T-xx)", by:
 // obor}, no --after. Key: that merge's seq. Done when a request is open (the lead's covers it too: a
 // review's scope is every merge since the previous one) or a review started after the merge. A request recorded while
@@ -24,7 +24,7 @@ const ruleReviewOnMerge = "review.on.merge"
 // is the lead's refusal, which this rule does not go through. After a crash the request may be recorded twice: the
 // second replaces the first, harmless. A request that ended after the merge (the lead's --rm, or a fire, reviewEnd)
 // also holds it: the lead can cancel the rule's request, and a failed start is not retried every pass. A request that
-// ended because a task of its --after was dropped or rejected does not hold it (T-906): the merges it waited on still
+// ended because a task of its --after was dropped or rejected does not hold it: the merges it waited on still
 // need their review.
 func reviewOnMergeRule(_ context.Context, a *App, p *proj, _ *Loop, _ time.Time) (int64, action, bool) {
 	a.mu.Lock()

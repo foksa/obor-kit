@@ -11,7 +11,7 @@ import (
 	"obor/internal/version"
 )
 
-// T-826: every call the client sends names the calling binary's version, set in one place (Verdict): a serve can then
+// Every call the client sends names the calling binary's version, set in one place (Verdict): a serve can then
 // name the skew instead of leaving a wrong answer to be diagnosed.
 func TestVerdictCarriesTheCallerVersion(t *testing.T) {
 	dir, err := os.MkdirTemp("", "wire")

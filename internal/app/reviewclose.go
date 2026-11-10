@@ -1,4 +1,4 @@
-// reviewclose.go: a review's close is a call to serve (T-926; DD-architecture M2, D1-B). obor review close sends it;
+// reviewclose.go: a review's close is a call to serve. obor review close sends it;
 // serve checks it against its own fold, commits the close in the main checkout and records fact review.closed. The
 // fact is what "is a review open" reads (review.go: obor review's refusal, a due request's wait, obor status), and what
 // the verify rule (reviewverify.go) and the reviewer's stop rule (rolestop.go) are keyed by.
@@ -20,9 +20,9 @@ import (
 // between its checks and its commit; the fact is recorded only after the commit is in. The refusals are the command's
 // (skills/lead/review-brief.md §5). The reviewer's stop is the existing rule, keyed by the fact.
 
-// reviewCycle is the open review's cycle as serve's fold holds it (reviewLog, T-856, T-924, T-1023): the tasks it
+// reviewCycle is the open review's cycle as serve's fold holds it (reviewLog): the tasks it
 // covered (its in-scope tasks plus each finished verify's, once each), the head it started at, the head the reviewer
-// last finished (T-857: never the head of a verify that did not finish; "": the last start is not id's, or it is
+// last finished (never the head of a verify that did not finish; "": the last start is not id's, or it is
 // closed) and the linked tasks still open, or merged and not covered (the close's refusal).
 type reviewCycle struct {
 	covered  []string
@@ -63,7 +63,7 @@ func (a *App) reviewCloseCall(c wire.ReviewCloseReq) (string, error) {
 		return "", fmt.Errorf("review close: only the lead closes a review (%s)", c.Role)
 	}
 	a.configMu.Lock() // one main-checkout writer at a time; a repeated call id waits for the close in flight before its
-	// stored-reply lookup (T-930)
+	// stored-reply lookup
 	defer a.configMu.Unlock()
 	p, reply, stored := a.callProj(wire.MethodReviewClose, c.Envelope)
 	switch {
@@ -104,7 +104,7 @@ const closedReply = "CLOSED "
 // cut from its fact is recorded now, and the call refused as no review is open), the fold's open review, its file in
 // the main checkout (openReview), its linked fixes verified (--force: closes anyway); then the main checkout commits
 // it (port.Review.Close: its own refusals, the branch named) and fact review.closed{id} is recorded, the reviewer's stop
-// rule woken at once. Before the commit, fact review.closing{id, head, tasks} records its snapshot (T-1032): the head
+// rule woken at once. Before the commit, fact review.closing{id, head, tasks} records its snapshot: the head
 // and the tasks the commit names, the fact carries and the fold freezes the review at. Any refusal changes nothing
 // (a review.closing whose commit was refused is replaced by the next close's).
 func (a *App) reviewClose(ctx context.Context, p *proj, g port.Review, s ReviewSetup, c wire.ReviewCloseReq, summary string) (string,
@@ -131,13 +131,13 @@ func (a *App) reviewClose(ctx context.Context, p *proj, g port.Review, s ReviewS
 			" closes anyway): nothing changed", o.ID, strings.Join(cycle.pending, ", "))
 	}
 	// The snapshot, decided once: the commit, the fact and a fact recovered from the commit after a crash all carry it
-	// (T-1032: a verify ending after it changes nothing of the close).
+	// (a verify ending after it changes nothing of the close).
 	snap := ReviewData{ID: o.ID, Head: cycle.reviewed, Tasks: cycle.covered}
 	if !a.record(p, event.Record{Task: event.ReviewTask, Step: event.StepReviewClosing, Kind: event.KindFact}, snap) {
 		return "", fmt.Errorf("review close: the event log of %s refused fact %s: nothing changed", p.name,
 			event.StepReviewClosing)
 	}
-	sha := short(cycle.reviewed) // the head the reviewer last finished (its start's or a done verify's, T-857)
+	sha := short(cycle.reviewed) // the head the reviewer last finished (its start's or a done verify's)
 	subject, body := CloseCommit(o.ID, sha, summary, cycle.covered, cycle.start, len(c.Accept))
 	if err := g.Close(ctx, port.ReviewCommit{Branch: s.Branch, ID: o.ID, File: o.File, Reviewed: cycle.reviewed,
 		Subject: subject, Body: body, Accepts: c.Accept}); err != nil {
@@ -201,7 +201,7 @@ func (a *App) closeCommitted(ctx context.Context, p *proj, g port.Review, open l
 	d := ReviewData{ID: open.id, Reply: closedReply + subject}
 	a.mu.Lock()
 	same := p.folded.rv.last() == open
-	if s := p.folded.rv.cur().closing; s != nil { // the snapshot the close recorded before its commit (T-1032)
+	if s := p.folded.rv.cur().closing; s != nil { // the snapshot the close recorded before its commit
 		d.Head, d.Tasks = s.head, s.tasks
 	}
 	a.mu.Unlock()

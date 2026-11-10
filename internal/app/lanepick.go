@@ -19,7 +19,7 @@ func (a *App) held(p *proj, task string) (mtask, map[string]string) {
 	defer a.mu.Unlock()
 	held := map[string]string{}
 	var mt mtask
-	newest := map[string]int64{} // a lane two dispatches name: the newest dispatch's task holds it (T-615)
+	newest := map[string]int64{} // a lane two dispatches name: the newest dispatch's task holds it
 	for _, t := range p.loopTasks() {
 		if m := p.folded.loop[t]; t == task {
 			mt = *m
@@ -31,13 +31,13 @@ func (a *App) held(p *proj, task string) (mtask, map[string]string) {
 }
 
 // freeFor: lane l can take a new dispatch: the one free rule (port.FreeState, the lane table's state: its row's task
-// landed, T-1012) says it is free (force: dirty-free too) and no other task's dispatch holds it (held, a.held's).
+// landed) says it is free (force: dirty-free too) and no other task's dispatch holds it (held, a.held's).
 func freeFor(l port.Lane, held map[string]string, force bool) bool {
 	return held[l.Name] == "" && (l.State == port.LaneFree || force && l.State == port.LaneDirtyFree)
 }
 
 // idleNote is a dispatch reply's tail "; idle: <LANE>, …": the lanes of ls still free after it (not taken, freeFor
-// without force: dirty-free is not idle); "" when none (T-483).
+// without force: dirty-free is not idle); "" when none.
 func idleNote(ls []port.Lane, taken string, held map[string]string) string {
 	var idle []string
 	for _, l := range ls {
@@ -59,7 +59,7 @@ func typeNote(typ string) string {
 	return " as " + typ
 }
 
-// pausedModels is the models of types (model refs) that obor pause --model holds now (T-765), each with its reason
+// pausedModels is the models of types (model refs) that obor pause --model holds now, each with its reason
 // "<model> paused: <why> (until HH:MM|cleared)": dispatch skips them, a level's next model is used.
 func (a *App) pausedModels(p *proj, types []string) map[string]string {
 	a.mu.Lock()
@@ -74,7 +74,7 @@ func (a *App) pausedModels(p *proj, types []string) map[string]string {
 	return out
 }
 
-// effortNote is a dispatch reply's " effort <effort>" (T-695); "" for none.
+// effortNote is a dispatch reply's " effort <effort>"; "" for none.
 func effortNote(effort string) string {
 	if effort == "" {
 		return ""
@@ -82,12 +82,12 @@ func effortNote(effort string) string {
 	return " effort " + effort
 }
 
-// pickLane is c's lane in ls and the model ref its dispatch runs (every lane is pooled, T-765): the lane it names
+// pickLane is c's lane in ls and the model ref its dispatch runs (every lane is pooled): the lane it names
 // (c's first model), else the lane that holds c.Task (working or blocked on it, and the task not finished: a redo,
-// T-545) with ran, the model ref the task's dispatch ran (effort kept, T-738), unless c's explicit models (no level)
+// a redo) with ran, the model ref the task's dispatch ran (effort kept), unless c's explicit models (no level)
 // name another (c's first), else for each model of c in order, skipped while paused, the first lane in config order
 // that is free (dirty-free with force) and not held for another task's dispatch; else why not. A redo that changes the
-// model it runs is held to the new model's pause like a fresh dispatch of it (T-742).
+// model it runs is held to the new model's pause like a fresh dispatch of it.
 func pickLane(ls []port.Lane, c wire.DispatchReq, held map[string]string, paused map[string]string, ran string,
 	finished bool) (port.Lane, string, string) {
 	first := ""
@@ -138,7 +138,7 @@ func pickLane(ls []port.Lane, c wire.DispatchReq, held map[string]string, paused
 	return port.Lane{}, "", noLane(paused, c.Types) + unknownNote(ls)
 }
 
-// unknownNote is a lane refusal's tail naming the lanes whose state is unknown (T-871): dispatch never picks one, and
+// unknownNote is a lane refusal's tail naming the lanes whose state is unknown: dispatch never picks one, and
 // its reply says which lane and why. "" when none.
 func unknownNote(ls []port.Lane) string {
 	var out []string
@@ -153,7 +153,7 @@ func unknownNote(ls []port.Lane) string {
 	return "; " + strings.Join(out, "; ")
 }
 
-// laneWhy is a lane's state for a refusal: its state, and for an unknown one why (T-871).
+// laneWhy is a lane's state for a refusal: its state, and for an unknown one why.
 func laneWhy(l port.Lane) string {
 	if l.State == port.LaneUnknown {
 		return "unknown: " + l.Reason

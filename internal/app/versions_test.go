@@ -11,7 +11,7 @@ import (
 	"obor/internal/app/event"
 )
 
-// T-1176: the versions of the tools obor drives. The pass reads them every versionsEvery, records a change as fact
+// The versions of the tools obor drives. The pass reads them every versionsEvery, records a change as fact
 // version and the rule version.changed lines the lead once per change. On the rule harness (a lead, a clock the test
 // moves, the rule pass run by hand): no process, no socket, no sleep.
 

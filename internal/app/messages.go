@@ -19,43 +19,43 @@ import (
 	"obor/internal/store"
 )
 
-// Lines to a project's agents (T-466; docs/state-model.md row 47): the two kinds the lead still gets, a brief's, and
-// an answer's (obor resume <T-xx> "<text>": fact answered{to: the task's worker, line "[obor answer] <text>"}, T-511;
+// Lines to a project's agents (docs/state-model.md row 47): the two kinds the lead still gets, a brief's, and
+// an answer's (obor resume <T-xx> "<text>": fact answered{to: the task's worker, line "[obor answer] <text>"};
 // answer.go).
-//   - obor send <project> "<text>" (a lead or the owner of another project; the project by a known name or a path,
-//     T-646): fact message{to: the lead, line "[obor <sender project>] <text> (reply: obor send <sender> "…")"} in the
+//   - obor send <project> "<text>" (a lead or the owner of another project; the project by a known name or a path):
+//     fact message{to: the lead, line "[obor <sender project>] <text> (reply: obor send <sender> "…")"} in the
 //     target project's log, recorded by the serve holding it.
 //   - obor brief <role-agent> "<text>": fact briefed{to: the role agent, line "[obor <caller>] <text>"}; a review's
 //     fresh start records the same fact without a line (its first prompt carried the brief).
-//     A new brief of that agent also ends its undelivered brief lines (T-575: a newer brief makes an older
+//     A new brief of that agent also ends its undelivered brief lines (a newer brief makes an older
 //     undelivered one obsolete; lead lines and needs-you lines are never superseded, and a line whose delivery is in
 //     flight may have landed and stays): its fact names their seqs (supersedes) and its fold retires them, live and on
-//     replay, so the brief and its supersede are one append (T-580).
+//     replay, so the brief and its supersede are one append.
 //     Once that agent's pane has worked after the brief (after its line was delivered) and is idle again, serve records
 //     message{to: the lead, line "[obor] <agent> finished (briefed <age> ago)", ends: the agent}: the brief is over.
 //
 // The first work serve sees after a brief is recorded as fact worked{to, brief: the brief's seq} as soon as the
 // observation's caller releases mu (a herdr event, a snapshot, a fresh start's brief; each delivery pass retries a
 // failed write), so a restart keeps it: an agent that finished while serve was down gets its finished line on
-// reconnect (RV-50 #3). The finished line's age counts from when the brief's line was delivered (or the fresh start).
+// reconnect. The finished line's age counts from when the brief's line was delivered (or the fresh start).
 //
-// deliver posts each line to the lead into its Claude session's inbox socket (T-485: recorded by its SessionStart
+// deliver posts each line to the lead into its Claude session's inbox socket (recorded by its SessionStart
 // hook; no pane, no idle rule, nothing typed into the pane the owner writes in) and delivers each role agent's line
 // when its pane is idle (Ready: the rule of job delivery, no Escape, no screen read) as the pane's kind takes it
-// (T-499, posted): a kind with an inbox (agents.Caps.Inbox) gets it posted to its session's inbox like the lead's when
-// that inbox is the live session's in its pane (liveSession), else typed into its pane as its job wakes are (T-746: a
+// (posted): a kind with an inbox (agents.Caps.Inbox) gets it posted to its session's inbox like the lead's when
+// that inbox is the live session's in its pane (liveSession), else typed into its pane as its job wakes are (a
 // line to an idle agent is never held on a missing or mismatched record); any other kind gets it typed into its pane
 // (the herdr call of job delivery). A line held (its agent busy, not identified; a lead line with no inbox record)
 // notes why (outbox.Line.Held: obor status, the line's needs-you). The oldest first and one per agent per pass, under
 // deliver.<seq> (P, a wake's transport: prompt.go).
 //
-// A queued line is in one state (T-748, outbox.State; its moves: State.Next): waiting (nothing went out; why: the
+// A queued line is in one state (outbox.State; its moves: State.Next): waiting (nothing went out; why: the
 // pass's hold, else its last refusal's reason), sending (its delivery claimed or its intent in the log: a byte may
 // have gone out), sent and retired (both leave the outbox). A refusal before any byte went out (no inbox record, a
 // refused dial, a refused typing) is fact failed{step: deliver.<seq>, reason, via: inbox for a post}: the line waits
-// again with that reason (obor status, its needs-you) and is delivered again on a later pass, also after a restart
-// (RV-50 #1), typed when the refused one was a post to an idle identified agent (a lead line is posted again); a post
-// serve's own stop cut before a byte records nothing (T-660) and waits the same. An answer's line retires once its
+// again with that reason (obor status, its needs-you) and is delivered again on a later pass, also after a restart,
+// typed when the refused one was a post to an idle identified agent (a lead line is posted again); a post
+// serve's own stop cut before a byte records nothing and waits the same. An answer's line retires once its
 // question is settled another way (outbox.RetireAnswers): waiting, at once; sending, it is marked, and then a refusal before a
 // byte retires it, a delivery sends it, and a later pass closes its open delivery unsent (result outbox.RetiredResult). A
 // delivery a crash cut (its intent pending) is delivered again too: a line may reach its agent twice, never not at
@@ -67,8 +67,8 @@ import (
 // msgWait is how long a line may wait for its delivery before it needs the owner.
 const msgWait = 24 * time.Hour
 
-// A needs-you line to the lead is posted again while the needs-you stays in force and unanswered (T-621): 30 min
-// after the line's delivery, then every needsAgainEvery after each repeat's delivery (T-624: no repeat while a line
+// A needs-you line to the lead is posted again while the needs-you stays in force and unanswered: 30 min
+// after the line's delivery, then every needsAgainEvery after each repeat's delivery (no repeat while a line
 // of that needs-you waits undelivered). Constants, not config; the deadline is folded from the delivery's record.
 const (
 	needsAgain      = 30 * time.Minute
@@ -78,16 +78,16 @@ const (
 // foldMsg folds r, a record of the project's lines, into the outbox (outbox.Fold; first, the answers a record of
 // another task settles retire) and applies what the record ended to the rest of p (outbox.Ended), in this order: the
 // rule line's did key, the call's stored reply, a drive's come-back line, a review request's end, a worker's stop's
-// needs-you, an answer's question, a brief's end (T-868).
+// needs-you, an answer's question, a brief's end.
 func (p *proj) foldMsg(r event.Record) {
-	if settles(r) { // the question is settled another way: its answer ends (T-746, T-748)
+	if settles(r) { // the question is settled another way: its answer ends
 		p.out.RetireAnswers(r.Task, 0)
 	}
 	if r.Task != event.MsgTask {
 		return
 	}
 	e := p.out.Fold(r, p.oldLineOf)
-	if e.Of.Kind != "" { // a rule's line: its did key (rules.go, T-866)
+	if e.Of.Kind != "" { // a rule's line: its did key (rules.go)
 		p.folded.did[e.Of] = e.At
 	}
 	if e.Reply != nil {
@@ -97,8 +97,8 @@ func (p *proj) foldMsg(r event.Record) {
 		p.foldDriveLine(*m)
 	}
 	if m := e.Msg; m != nil && m.Review != 0 {
-		// T-906: a request ended by a failed --after still ends here, but only --rm and a firing count as review
-		// ends that suppress the on-merge rule (review.on.merge). T-909: idle counts this end too (its own marker).
+		// A request ended by a failed --after ends here too, but only --rm and a firing count as review
+		// ends that suppress the on-merge rule (review.on.merge). Idle counts this end too (its own marker).
 		p.reviewEnded(m.Review)
 		p.folded.reviewIdleEnd = idleEnd{r.Seq, e.At}
 	}
@@ -109,12 +109,12 @@ func (p *proj) foldMsg(r event.Record) {
 		p.answered(e.Answered)
 	}
 	if e.BriefEnd != "" {
-		p.folded.briefEnds[e.BriefEnd] = idleEnd{r.Seq, e.At} // T-868: the brief's end, or the stop that ended it
+		p.folded.briefEnds[e.BriefEnd] = idleEnd{r.Seq, e.At} // the brief's end, or the stop that ended it
 	}
 }
 
-// settles: r settles its task's question another way (T-746, T-748): the worker submitted or asked again, the task
-// was unblocked, dropped, rejected or merged (T-1089: a pruned task keeps only its merged fact, which ends the question
+// settles: r settles its task's question another way: the worker submitted or asked again, the task
+// was unblocked, dropped, rejected or merged (a pruned task keeps only its merged fact, which ends the question
 // a lead's answer to it would otherwise reopen).
 func settles(r event.Record) bool {
 	if r.Task == event.MsgTask {
@@ -128,7 +128,7 @@ func settles(r event.Record) bool {
 		r.Step == event.StepDropped || r.Step == event.StepMerged || isAsk(r))
 }
 
-// sawWork notes pane's status for an open brief of the agent whoIs finds in it (no label read, RV-53 #4): working
+// sawWork notes pane's status for an open brief of the agent whoIs finds in it (no label read): working
 // after the brief's line was delivered (or with no line) is the work the brief asked for (outbox.SawWork; under mu,
 // after reconcile).
 func (a *App) sawWork(p *proj, pane port.Pane) {
@@ -139,8 +139,8 @@ func (a *App) sawWork(p *proj, pane port.Pane) {
 	p.out.SawWork(agent)
 }
 
-// Poster posts a line into agent's session through its inbox socket (T-485), as kind posts it (its pane's, B1): the
-// lead's lines, and the lines and job wakes of an agent whose kind has an inbox (T-499). began: a byte of it went out (an error after that may have
+// Poster posts a line into agent's session through its inbox socket, as kind posts it (its pane's, B1): the
+// lead's lines, and the lines and job wakes of an agent whose kind has an inbox. began: a byte of it went out (an error after that may have
 // delivered it); an error with began false (no record, a refused dial) delivered nothing.
 type Poster interface {
 	Post(ctx context.Context, kind, agent, line string) (began bool, err error)
@@ -174,8 +174,8 @@ func (a *App) logWorked(p *proj) {
 
 // deliver is one pass over p's lines: the seen work of briefs not in the log yet recorded (logWorked's retry), the
 // briefed Codex agents' stops read from their transcripts (roleTurns), the finished briefs' lines recorded (idle, or
-// their agent gone: T-732; none while a stop is in force), the lead's lines posted as one per target when its inbox is
-// recorded (T-651, T-654), each role agent's oldest line delivered when its pane is idle (posted or typed as its kind takes it), the stopped role agents' wakes and
+// their agent gone; none while a stop is in force), the lead's lines posted as one per target when its inbox is
+// recorded, each role agent's oldest line delivered when its pane is idle (posted or typed as its kind takes it), the stopped role agents' wakes and
 // alarms (roleWakes), and the needs-you of lines waiting longer than msgWait.
 func (a *App) deliver(ctx context.Context, p *proj, fx *Loop) {
 	a.closeSettled(ctx, p)
@@ -221,7 +221,7 @@ func (a *App) deliver(ctx context.Context, p *proj, fx *Loop) {
 	a.mu.Lock()
 	var oldest []outbox.Line // each agent's oldest line
 	var targets []string
-	leadLines := map[string][]outbox.Line{} // the lines queued for the lead by their target (T-651: one post; T-654: per target)
+	leadLines := map[string][]outbox.Line{} // the lines queued for the lead by their target (one post per target)
 	taken := map[string]bool{}
 	for _, q := range p.out.Queued() {
 		if q.IsLead() || q.Msg().To == p.out.Lead() {
@@ -244,7 +244,7 @@ func (a *App) deliver(ctx context.Context, p *proj, fx *Loop) {
 		}
 	}
 	for _, q := range oldest {
-		// Resolved right before its own delivery (RV-53-verify V3): an earlier delivery of this pass may have moved,
+		// Resolved right before its own delivery: an earlier delivery of this pass may have moved,
 		// duplicated or busied its agent.
 		a.mu.Lock()
 		post, target, ok := a.route(p, fx, q)
@@ -257,7 +257,7 @@ func (a *App) deliver(ctx context.Context, p *proj, fx *Loop) {
 	a.msgNeedsYou(p, now)
 }
 
-// closeSettled closes unsent every settled open delivery of p (T-749, RV-91 #1): a line whose question was settled
+// closeSettled closes unsent every settled open delivery of p: a line whose question was settled
 // while its own delivery's intent is in the log with no result (a serve restart cut it) gets result outbox.RetiredResult,
 // whatever its agent's pane (busy, not identified, ambiguous, its lane released) and whatever route it would take;
 // it then leaves obor status and its needs-you. Through App.do: a result this process kept unwritten (the effect
@@ -280,10 +280,10 @@ func (a *App) closeSettled(ctx context.Context, p *proj) {
 }
 
 // goneAfter is how long a worked brief's agent may stay unidentified with its pane still running an agent before its
-// brief ends (T-732): a short reconnect, or a relabel after a serve restart, does not end it.
+// brief ends: a short reconnect, or a relabel after a serve restart, does not end it.
 const goneAfter = time.Minute
 
-// gone: agent of brief b, resolved now as w, is gone (under mu; T-732): its last pane runs no agent (at its shell, or
+// gone: agent of brief b, resolved now as w, is gone (under mu): its last pane runs no agent (at its shell, or
 // closed), its only labelled pane is at its shell (a brief replayed from the log: no pane seen yet), or no pane has
 // identified it for goneAfter while serve is connected. It notes where the agent is seen (b.Term, b.PaneID, b.Lost).
 // Two panes claiming it (Ambiguous) are no gone agent.
@@ -312,10 +312,10 @@ func (a *App) gone(p *proj, agent string, b *outbox.Brief, w Where, now time.Tim
 
 // route is how q's line goes out now (under mu): posted to its agent's session (post: the kind whose inbox takes it;
 // a lead line, or a ready agent whose kind has an inbox and whose inbox record is its pane's live session's), or
-// typed into its ready agent's pane (post "", target: the pane's address, never herdr's name, RV-53 #5): via. A ready
-// agent whose kind has an inbox but whose record cannot take the line gets it typed, as its job wakes are (T-746: a
+// typed into its ready agent's pane (post "", target: the pane's address, never herdr's name): via. A ready
+// agent whose kind has an inbox but whose record cannot take the line gets it typed, as its job wakes are (a
 // line to an idle worker is delivered, never held on a session mismatch); so does one whose last post of the line was
-// refused before a byte went out (T-748: a refused dial of a dead socket is not tried again and again). ok false: held, no intent, nothing typed
+// refused before a byte went out (a refused dial of a dead socket is not tried again and again). ok false: held, no intent, nothing typed
 // (delivered already, a lead line whose inbox is not recorded, its agent not identified (two panes claim it, or none
 // proves it) or not ready); the line's held notes why (obor status, its needs-you).
 func (a *App) route(p *proj, fx *Loop, q outbox.Line) (post, target string, ok bool) {
@@ -337,12 +337,12 @@ func (a *App) routeOf(p *proj, fx *Loop, q outbox.Line) (post, target, held stri
 		return "", "", "no inbox recorded for " + to + ": its SessionStart hook records one"
 	case lead && w.State != Identified: // a lead line goes out whatever its pane: through the lead's configured kind
 		return p.out.LeadKind(), to, ""
-	case lead: // its record is its own latest SessionStart, fresher than herdr's view: no pane check (DD-v0.13 R1)
+	case lead: // its record is its own latest SessionStart, fresher than herdr's view: no pane check
 		return w.Pane.Agent, to, ""
 	case q.IsBrief() && q.Msg().Fresh && w.State == Identified:
 		return a.freshRoute(p, fx, q, w)
 	case q.IsBrief() && to != p.integrator && fx.Agents != nil && w.State == Unavailable:
-		if pane, ok := a.shellPane(p, to); ok { // a stopped role agent: started fresh on the brief (T-672)
+		if pane, ok := a.shellPane(p, to); ok { // a stopped role agent: started fresh on the brief
 			return startRoute, pane.ID, ""
 		}
 		return "", "", to + " is not running and no shell pane of it is there to start it in"
@@ -355,7 +355,7 @@ func (a *App) routeOf(p *proj, fx *Loop, q outbox.Line) (post, target, held stri
 	}
 	post, inboxed := a.via(fx, p, w, to)
 	switch {
-	case post != "" && inboxed && !(q.RefusedPost() && fx.Typer != nil): // after a refused post: typed (T-748)
+	case post != "" && inboxed && !(q.RefusedPost() && fx.Typer != nil): // after a refused post: typed
 		return post, to, ""
 	case fx.Typer != nil:
 		return "", w.Pane.ID, ""
@@ -371,7 +371,7 @@ func busyHeld(agent, pane string) string {
 	return fmt.Sprintf("%s is busy in pane %s (delivered once it is idle)", agent, pane)
 }
 
-// freshRoute is routeOf's choice for q, a fresh brief's line to its running agent w (under mu; T-794): stopped, then
+// freshRoute is routeOf's choice for q, a fresh brief's line to its running agent w (under mu): stopped, then
 // started fresh on the line in its pane (deliverLine), busy or idle. Held while its last stop failed less than
 // roleStopRetry ago (a newer fresh brief is a line never refused: not held), or with no agent starts.
 func (a *App) freshRoute(p *proj, fx *Loop, q outbox.Line, w Where) (post, target, held string) {
@@ -392,7 +392,7 @@ func (a *App) freshRoute(p *proj, fx *Loop, q outbox.Line, w Where) (post, targe
 const freshStart = "fresh"
 
 // posted: a running agent of kind (herdr's, its pane's) gets serve's lines and job wakes posted to its session's inbox
-// (its bridge's Deliver posts, agents.Caps.Inbox), not typed into its pane (T-499).
+// (its bridge's Deliver posts, agents.Caps.Inbox), not typed into its pane.
 func posted(kind string) bool {
 	k, ok := agents.Lookup(kind)
 	return ok && k.Caps().Inbox
@@ -404,8 +404,8 @@ func (a *App) inboxed(agent string) bool {
 }
 
 // inboxedAt: agent's session inbox is recorded and, when w identifies agent's pane, the record's session is that
-// pane's or names none, or herdr reports none for the pane (DD-v0.13 A3: a record another session of that name wrote
-// is not this pane's; R1: an unknown session cannot tell).
+// pane's or names none, or herdr reports none for the pane (a record another session of that name wrote
+// is not this pane's; an unknown session cannot tell).
 func (a *App) inboxedAt(p *proj, agent string, w Where) bool {
 	if a.opt.Inboxed == nil {
 		return true
@@ -418,10 +418,10 @@ func (a *App) inboxedAt(p *proj, agent string, w Where) bool {
 	return live == "" || identity.SameSession(live, session)
 }
 
-// liveSession is the session running in pane, agent's (under mu; T-746): its recorded current session when that
+// liveSession is the session running in pane, agent's (under mu): its recorded current session when that
 // session was reported from pane (its SessionStart hook ran there: first-hand, and fresher than herdr's view), else
-// herdr's agent_session for pane ("": unknown). herdr's value can be stale (axis-alies T-1421: it named a session
-// with no transcript while the pane ran the one its hook recorded), so it decides only when the record is not pane's.
+// herdr's agent_session for pane ("": unknown). herdr's value can be stale (it can name a session
+// with no transcript while the pane runs the one its hook recorded), so it decides only when the record is not pane's.
 func (p *proj) liveSession(agent string, pane port.Pane) string {
 	if s, ok := p.session(agent); ok && s.Pane != "" && s.Pane == pane.ID {
 		return s.ID
@@ -432,16 +432,16 @@ func (p *proj) liveSession(agent string, pane port.Pane) string {
 // deliverLine posts q's line to target's session through kind post's inbox (the lead, or an agent whose kind has
 // one) or, post "", types it into target (its pane) under its delivery key (P, transmit). Refused before a byte went
 // out: fact failed, no result, delivered again on a later pass; a byte went out and then an error: result "sent: …".
-// A post serve's own stop cut before a byte (T-660): nothing recorded, the line still queued. sent: its delivery's
+// A post serve's own stop cut before a byte: nothing recorded, the line still queued. sent: its delivery's
 // result is in the log and it went out (not closed unsent); a line another deliverLine is sending now is left to it.
 func (a *App) deliverLine(ctx context.Context, p *proj, fx *Loop, q outbox.Line, post, target string) (sent bool) {
 	key := event.Key{Task: event.MsgTask, Step: outbox.StepDeliver + strconv.FormatInt(q.Seq(), 10)}
-	// The claim (RV-61 #3): a brief recorded since route superseded the line: nothing is sent; else its claim (sending)
+	// The claim: a brief recorded since route superseded the line: nothing is sent; else its claim (sending)
 	// keeps any brief from superseding it from here on (the line may reach the pane).
 	a.mu.Lock()
 	m := p.out.Line(q.Seq())
 	closing := false
-	if m != nil && m.Sending { // obor spec set's delivery and the pass's at once (T-821): one sends it
+	if m != nil && m.Sending { // obor spec set's delivery and the pass's at once: one sends it
 		m = nil
 	}
 	if m != nil {
@@ -458,7 +458,7 @@ func (a *App) deliverLine(ctx context.Context, p *proj, fx *Loop, q outbox.Line,
 		m.Sending = false
 		a.mu.Unlock()
 	}()
-	if post == freshStart && !closing { // T-794: the running agent stopped first (serve's role stop), then started
+	if post == freshStart && !closing { // the running agent stopped first (serve's role stop), then started
 		if err := a.freshStop(ctx, p, fx, q, key); err != nil {
 			return false
 		}
@@ -470,7 +470,7 @@ func (a *App) deliverLine(ctx context.Context, p *proj, fx *Loop, q outbox.Line,
 			if closing {
 				return outbox.RetiredResult, nil
 			}
-			if post == startRoute { // the stopped agent's fresh start in its pane carries the line (T-672)
+			if post == startRoute { // the stopped agent's fresh start in its pane carries the line
 				_, err := fx.Agents.Launch(ctx, port.Launch{Agent: q.Msg().To, Pane: target, Fresh: true, Prompt: q.Msg().Line})
 				if err != nil {
 					return nil, fmt.Errorf("%s not started on its brief: %w", q.Msg().To, err)
@@ -482,11 +482,11 @@ func (a *App) deliverLine(ctx context.Context, p *proj, fx *Loop, q outbox.Line,
 			return sentResult(began, err)
 		})
 	if err != nil && !began { // nothing went out: the next pass delivers it
-		if cutByServe(ctx, err) { // serve is stopping: the post was cut, not refused (T-660)
+		if cutByServe(ctx, err) { // serve is stopping: the post was cut, not refused
 			a.shutDown(event.MsgTask + " " + event.StepFailed + "{" + key.Step + ": " + err.Error() + "}")
 			return false
 		}
-		via := "" // a refused post: the next attempt types it (T-748)
+		via := "" // a refused post: the next attempt types it
 		if post != "" && post != startRoute {
 			via = outbox.ViaInbox
 		}
@@ -496,7 +496,7 @@ func (a *App) deliverLine(ctx context.Context, p *proj, fx *Loop, q outbox.Line,
 	return err == nil && !closing
 }
 
-// freshStop stops q's agent before its fresh brief's start (deliverLine, T-794; q claimed): serve's one stop decision
+// freshStop stops q's agent before its fresh brief's start (deliverLine; q claimed): serve's one stop decision
 // (stopAgent; the pane resolved now, the agent interrupted if it works). A failed stop starts the agent's retry clock
 // (roleFail, freshRoute) and records fact failed for the line (key: its delivery), so the brief stays queued, its
 // needs-you raised (msgNeedsYou) and the stop tried again; nothing is started.
@@ -523,7 +523,7 @@ func (a *App) freshStop(ctx context.Context, p *proj, fx *Loop, q outbox.Line, k
 }
 
 // deliverLead posts qs, the lines queued for one lead target (oldest first), as one message, one line per row, in
-// order (T-651). A post's intent names its members and its target (T-654); its result settles exactly those members
+// order. A post's intent names its members and its target; its result settles exactly those members
 // (the fold), so a line queued later waits for its own post. A post still open (its intent pending: refused before a
 // byte, or cut by a crash; or its result kept unwritten in this process) goes again with exactly its members, or its
 // kept result is written without a transmit, before any new post of the target (a recovery that transmitted nothing
@@ -552,7 +552,7 @@ func (a *App) deliverLead(ctx context.Context, p *proj, fx *Loop, qs []outbox.Li
 				return sentResult(began, err)
 			})
 		if err != nil && !began && !recovered { // nothing went out: the next pass posts them again, as one
-			if cutByServe(ctx, err) { // serve is stopping: the post was cut, not refused (T-660)
+			if cutByServe(ctx, err) { // serve is stopping: the post was cut, not refused
 				what := event.MsgTask + " " + event.StepFailed + "{" + key(head).Step + ": " + err.Error() + "}"
 				if len(lines) > 1 { // one line is named as its own record; a batched post says how many it was
 					what += fmt.Sprintf(" for %d lines", len(lines))
@@ -621,7 +621,7 @@ func (a *App) msgNeedsYou(p *proj, now time.Time) {
 	a.mu.Lock()
 	reason := ""
 	for _, q := range p.out.Queued() {
-		if q.Msg().Fresh && q.Refused() != "" { // a fresh brief's stop or start failed (T-794): at once, naming the agent
+		if q.Msg().Fresh && q.Refused() != "" { // a fresh brief's stop or start failed: at once, naming the agent
 			reason = fmt.Sprintf("fresh brief to %s from %s not started: %s (the next delivery tries again; obor brief %s "+
 				"--fresh briefs it anew)", q.Msg().To, q.Msg().From, q.Refused(), q.Msg().To)
 			break
@@ -629,8 +629,8 @@ func (a *App) msgNeedsYou(p *proj, now time.Time) {
 		if now.Sub(q.At()) >= msgWait {
 			reason = fmt.Sprintf("line to %s from %s waiting over %s for its delivery: %s", q.Msg().To, q.Msg().From,
 				Age(msgWait), q.Msg().Line)
-			if why := q.Why(); why != "" { // why the last pass held it (T-746; two panes claiming its agent among
-				// them), or its last refusal (T-748)
+			if why := q.Why(); why != "" { // why the last pass held it (two panes claiming its agent among
+				// them), or its last refusal
 				reason += " (undelivered: " + why + ")"
 			}
 			break
@@ -640,7 +640,7 @@ func (a *App) msgNeedsYou(p *proj, now time.Time) {
 	a.settleNeeds(p, event.MsgTask, reason)
 }
 
-// ruleNeeds is the needs-you line's rule in the rule pass (rules.go, T-927).
+// ruleNeeds is the needs-you line's rule in the rule pass (rules.go).
 const ruleNeeds = outbox.RuleNeeds
 
 // needsSpan: a needs-you line's did key is its needs-you's seq times needsSpan plus the line's number (0 the first,
@@ -661,13 +661,13 @@ func (p *proj) needsLined(seq int64) int {
 	}
 }
 
-// needsRule lines p's lead about each needs-you fact in force, naming the commands that answer it (T-497: the lead is
-// the one who acts), and toasts the owner as the first line's best-effort after (T-949: a repeat does not toast again),
-// and lines it again while it stays in force (T-621):
-// 30 min after the first line's delivery, then 60 after each repeat's (T-624: the delivery's result, folded; never
+// needsRule lines p's lead about each needs-you fact in force, naming the commands that answer it (the lead is
+// the one who acts), and toasts the owner as the first line's best-effort after (a repeat does not toast again),
+// and lines it again while it stays in force:
+// 30 min after the first line's delivery, then 60 after each repeat's (the delivery's result, folded; never
 // while its last line waits undelivered), the line ending in " (again, <its age>)". The needs-you of the project's
-// own lines gets none (a lead line waiting would only queue another one), nor a closed task's watchdog fact (T-635:
-// one older than its end's clear). Key: needsKey(the needs-you's seq, the line's number); the oldest needs-you due
+// own lines gets none (a lead line waiting would only queue another one), nor a closed task's watchdog fact (one
+// older than its end's clear). Key: needsKey(the needs-you's seq, the line's number); the oldest needs-you due
 // goes first, the next one in the next pass (the line's record wakes it).
 func needsRule(_ context.Context, a *App, p *proj, _ *Loop, now time.Time) (int64, action, bool) {
 	a.mu.Lock()
@@ -700,7 +700,7 @@ func needsRule(_ context.Context, a *App, p *proj, _ *Loop, now time.Time) (int6
 			}
 		}
 		act := action{line: p.needsLine(r, n, now)}
-		if n == 0 { // the owner's toast rides the key's first line; a repeat does not toast again (T-949)
+		if n == 0 { // the owner's toast rides the key's first line; a repeat does not toast again
 			title, body := needsToast(p, r)
 			act.after = func(ctx context.Context) { a.toast(ctx, title, body) }
 		}
@@ -757,7 +757,7 @@ func (p *proj) needsLine(r event.Record, n int, now time.Time) string {
 	return line
 }
 
-// oldLineOf is the did key of a needs-you's or a watch's line recorded before T-927 (its own field, no Of; under
+// oldLineOf is the did key of a needs-you's or a watch's line an older log recorded (its own field, no Of; under
 // mu): needs, the needs-you's seq and the lines of it folded so far; watch, the watch's seq. Compat until v0.29
 // (change rule 5).
 func (p *proj) oldLineOf(data json.RawMessage) event.Of {
@@ -789,8 +789,8 @@ func Age(d time.Duration) string {
 	return strconv.FormatInt(s/86400, 10) + "d"
 }
 
-// sendLine is the line obor send posts in the target project (T-466): the sender and the text, then the reply in one
-// command (T-646: the target lead answers with a known name instead of a path).
+// sendLine is the line obor send posts in the target project: the sender and the text, then the reply in one
+// command (the target lead answers with a known name instead of a path).
 func sendLine(from, text string) string {
 	return "[obor " + from + "] " + text + ` (reply: obor send ` + from + ` "…")`
 }
@@ -835,11 +835,11 @@ func (a *App) sendCall(c wire.SendReq) (string, error) {
 
 // briefCall answers the socket's brief request (the lead or the owner): BriefReq.To, a role agent, is briefed; with a
 // text, its line is delivered to that agent when its pane is idle (posted or typed as its kind takes it, deliver).
-// The new brief ends the agent's undelivered brief lines (T-575; its fact's supersedes, T-580) and says so in its
+// The new brief ends the agent's undelivered brief lines (its fact's supersedes) and says so in its
 // reply. The lead hears once the agent has finished. A brief to an idle deep dive moves its worktree to the
-// integration branch's head first (briefMove, T-853; a publish running does not hold it, T-872); that git failing:
+// integration branch's head first (briefMove; a publish running does not hold it); that git failing:
 // refused, nothing recorded.
-// BriefReq.Fresh (obor brief --fresh, T-794): the brief, once recorded, starts the agent fresh with its line as the
+// BriefReq.Fresh (obor brief --fresh): the brief, once recorded, starts the agent fresh with its line as the
 // first prompt, stopping it first when it runs (routeOf, deliverLine); a refused call stops nothing.
 func (a *App) briefCall(c wire.BriefReq) (string, error) {
 	if c.CallID == "" {
@@ -895,15 +895,15 @@ func (a *App) briefCall(c wire.BriefReq) (string, error) {
 
 // recordBrief records fact briefed of the role agent to from from (note "": the restart's or a review's fresh start
 // carried the brief; call "": no call; prompt: that start's first prompt, its text when there is no line): its reply,
-// false when the log refused it. The new brief ends the agent's undelivered brief lines (T-575; its fact's supersedes,
-// T-580). Without a note, a pane already identified as the agent's may be working on it: that work is noted at once.
-// The text sent is a row of the project's prompts table (T-665): the line for a brief, the start's prompt for a start.
-// fresh: its line starts the agent fresh, the running agent stopped first (T-794). v: a verify's brief (nil: none; T-924,
+// false when the log refused it. The new brief ends the agent's undelivered brief lines (its fact's supersedes).
+// Without a note, a pane already identified as the agent's may be working on it: that work is noted at once.
+// The text sent is a row of the project's prompts table: the line for a brief, the start's prompt for a start.
+// fresh: its line starts the agent fresh, the running agent stopped first. v: a verify's brief (nil: none;
 // reviewverify.go): its tasks and head in the fact (Task, Reviewed), and not recorded (false) while the agent has an
 // open brief, decided in the a.mu section that records it.
 func (a *App) recordBrief(p *proj, to, from, note, call, prompt string, fresh bool, v *verifyBrief) (string, bool) {
-	// A newer brief makes an older undelivered brief obsolete (T-575): the agent's undelivered brief lines are named
-	// in the new brief's fact, whose fold retires them (T-580: one append, so a crash or a refused append cannot
+	// A newer brief makes an older undelivered brief obsolete: the agent's undelivered brief lines are named
+	// in the new brief's fact, whose fold retires them (one append, so a crash or a refused append cannot
 	// bring one back). A line whose delivery is claimed (sending: it may have landed) stays; a lead line is
 	// never superseded. The choice and the append are one a.mu section: no delivery claims a chosen line meanwhile.
 	a.mu.Lock()

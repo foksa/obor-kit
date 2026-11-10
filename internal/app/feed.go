@@ -11,7 +11,7 @@ import (
 	"obor/internal/store"
 )
 
-// feed answers an events request on conn (wire.MethodEvents, T-1039): the project's records after c.Seq, in seq order,
+// feed answers an events request on conn (wire.MethodEvents): the project's records after c.Seq, in seq order,
 // one line each (wire.FeedSince: serve's down path reads the same), then wire.FeedEnd; with c.Follow it waits for the
 // next record written (event.Log.Changed) and streams on until the caller closes the connection or serve ends. Anyone
 // may read it, as status. It reads on its own read-only handle: serve's one connection stays the writer's.

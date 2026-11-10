@@ -1,5 +1,5 @@
-// rolestop.go: serve stops the integrator and the reviewer once their work is done (T-672), as rules (T-870), and a
-// role agent a fresh brief is sent to (T-794).
+// rolestop.go: serve stops the integrator and the reviewer once their work is done, as rules, and a
+// role agent a fresh brief is sent to.
 package app
 
 import (
@@ -11,15 +11,15 @@ import (
 	"obor/internal/config"
 )
 
-// Idle role agents hold memory, and nothing of a stopped one is resumed: its next use starts fresh (T-672;
+// Idle role agents hold memory, and nothing of a stopped one is resumed: its next use starts fresh (see
 // docs/state-model.md "Role agents stopped"). Serve stops two of them itself, each with launch.Stop (the agent quits,
-// its labelled pane stays at a shell), as two rules on the rule pass (rules.go, T-870):
+// its labelled pane stays at a shell), as two rules on the rule pass (rules.go):
 //   - the integrator, once a verdict came since its last start and no job is open or queued for it (a green task to
-//     review, a conflict to resolve): each job starts a fresh session anyway (T-602), so the next job's start starts
+//     review, a conflict to resolve): each job starts a fresh session anyway, so the next job's start starts
 //     it again. A stopped integrator with no open job is the normal state: no timer watches it (watchJob only runs for
 //     an open job), and obor status shows it as stopped;
 //   - the reviewer, once its review cycle closes (fact review.closed for the review serve started: obor review
-//     close's call, T-926), never before: its verify runs in the same session.
+//     close's call), never before: its verify runs in the same session.
 //
 // A stop is a rule action: no intent, no result, no retry clock; the agent's labelled pane left at its shell is what
 // obor status shows as stopped, whoever stopped it (stoppedRoles: serve, or the lead's obor restart <agent> --stop).
@@ -27,10 +27,10 @@ import (
 // pass, and three failures in a row are the rule pass's needs-you. A wrong stop heals through the job's delivery retry.
 // The advisor and the deep dive are the lead's to stop (skills/lead/SKILL.md); a brief to any stopped role agent but
 // the integrator starts it fresh with the brief's line as its first prompt (messages.go, deliverLine). A fresh brief
-// (obor brief --fresh, T-794) to a running one stops it right before that start, once the brief is recorded: that stop
+// (obor brief --fresh) to a running one stops it right before that start, once the brief is recorded: that stop
 // is part of the brief's delivery (freshStop), not a rule.
 
-// stepRoleStop is the step prefix of an older log's role stop: stop.<agent>[.N] (before T-870).
+// stepRoleStop is the step prefix of an older log's role stop: stop.<agent>[.N].
 const stepRoleStop = "stop."
 
 // roleStopRetry is how long after a failed stop of a fresh brief serve tries it again.
@@ -62,9 +62,9 @@ func integratorStopRule(_ context.Context, a *App, p *proj, fx *Loop, _ time.Tim
 }
 
 // reviewerStopRule is the reviewer's stop rule: the last review serve started is closed (its review.closed fact, the
-// rule's key: T-926, no git read), the reviewer has no open brief (its verify runs in the same session), and its pane
+// rule's key: no git read), the reviewer has no open brief (its verify runs in the same session), and its pane
 // runs it and is idle. A failing stop counts on every pass while the condition holds, so ruleFails in a row are the
-// rule pass's needs-you (T-875). Done when the pane is at its shell.
+// rule pass's needs-you. Done when the pane is at its shell.
 func reviewerStopRule(_ context.Context, a *App, p *proj, fx *Loop, _ time.Time) (int64, action, bool) {
 	if fx == nil || fx.Agents == nil {
 		return 0, action{}, false
@@ -104,7 +104,7 @@ func stopAction(a *App, p *proj, fx *Loop, agent string) action {
 }
 
 // stoppedRoles is the role agents whose only labelled pane is at its shell (the one launch.Stop leaves), whoever
-// stopped them — serve once their work was done (T-672) or the lead with obor restart <agent> --stop (T-677) — sorted
+// stopped them — serve once their work was done or the lead with obor restart <agent> --stop — sorted
 // (under mu): obor status, its --json and the view show them all as stopped. An agent two panes are
 // labelled with, or one serve cannot see while herdr is not connected, is unknown, not stopped; no labelled pane at all
 // leaves it "no pane".

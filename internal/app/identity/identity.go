@@ -1,4 +1,4 @@
-// Package identity is a project's identity table (P5-3, T-504, redesigned after RV-53; its own package since T-1066):
+// Package identity is a project's identity table, its own package so a reader takes it without package app:
 // which terminal each agent runs in, derived every pass from proofs (Reconcile), never a fact. Its maps are unexported,
 // so only this package names them: package app reads it through WhoIs, Lookup, Start and StartedAgents. herdr's agent
 // name is never read (herdr drops it at times; nothing renames it back).
@@ -84,13 +84,13 @@ func (r *Registry) StartedAgents() []string {
 }
 
 // StartRow is serve's own start of an agent (agent.start's or start.<job>'s result, app's foldStart): the pane it
-// placed the agent in, that pane's terminal id ("": a result from before T-504, until its pane is seen), the kind, the
-// session, the verdicts folded at its start ("a verdict came since its start", rolestop.go T-870) and Ref, the model
+// placed the agent in, that pane's terminal id ("": an older result, until its pane is seen), the kind, the
+// session, the verdicts folded at its start ("a verdict came since its start", rolestop.go) and Ref, the model
 // ref an agent.start ran: its attempt's dispatch's (dispatchData.Type, read at the fold, not stored again; "":
-// start.<job>'s, or unknown), and Config, the config revision the start was launched under (startOut.Config, T-1050;
-// "": a start.<job> or a record from before T-1050), what a keep lane's reuse checks (startFits, T-1048, T-1050), and
+// start.<job>'s, or unknown), and Config, the config revision the start was launched under (startOut.Config;
+// "": a start.<job> or an older record), what a keep lane's reuse checks (startFits), and
 // Task, the task key of the record it was folded from: the nightly prune keeps that task whole while the row is its
-// agent's (T-1089: deleting the record would drop the agent's identity proof).
+// agent's (deleting the record would drop the agent's identity proof).
 type StartRow struct {
 	Pane, Terminal, Kind, Session, Ref, Config, Task string
 	Verdicts                                         int
@@ -162,9 +162,9 @@ func (cs Claims) Add(agent string, pane port.Pane, src string) {
 // log takes each line it logs; named is whether the config names an agent. A claim is accepted when
 // neither its agent nor its terminal is taken; an agent whose strongest free claims name two or more terminals is
 // ambiguous and takes none; two agents with equal proof of one terminal take it neither, and no weaker claim takes it
-// in this pass (RV-53-verify V1: it is owned again once the tie ends). The result does
+// in this pass (it is owned again once the tie ends). The result does
 // not depend on any iteration order. A start row whose terminal another agent now owns is retired, as is the row of an
-// agent the config does not name (that retirement is silent: T-1099, nothing acts on it and it repeats at every
+// agent the config does not name (that retirement is silent: nothing acts on it and it repeats at every
 // start). Each change is logged once.
 func (r *Registry) Reconcile(best Claims, named func(string) bool, log func(string)) {
 	owners, agents, ambiguous := map[string]owner{}, map[string]string{}, map[string][]string{}
@@ -255,7 +255,7 @@ func (r *Registry) logOwners(owners map[string]owner, agents map[string]string, 
 }
 
 // CrossCheck logs, once per value, that herdr reports another session than agent's recorded sid for pane, the pane
-// agent's start or label names (log takes the line): herdr's agent_session is a cross-check only (T-577), never
+// agent's start or label names (log takes the line): herdr's agent_session is a cross-check only, never
 // adopted. A start row of an agent the config does not name (named false) is no cross-check: it is being retired.
 func (r *Registry) CrossCheck(agent, sid string, pane port.Pane, named bool, log func(string)) {
 	row, started := r.Start(agent)

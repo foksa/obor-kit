@@ -19,28 +19,28 @@ const (
 	NightlyTask = "nightly"
 	// PauseTask is the task key of a project's pause facts.
 	PauseTask = "pause"
-	// LoopTask is the task key of a project's loop error (T-377): a needs-you of the project, not of a task.
+	// LoopTask is the task key of a project's loop error: a needs-you of the project, not of a task.
 	LoopTask = "loop"
 	// ReviewTask is the task key of a project's review requests and of a failed start's needs-you.
 	ReviewTask = "review"
 	// MsgTask is the task key of a project's lines: their facts, deliveries and needs-you.
 	MsgTask = "msg"
-	// ServeTask is the task key of a failed self-restart's needs-you (T-719): the project's serve, not a task's.
+	// ServeTask is the task key of a failed self-restart's needs-you: the project's serve, not a task's.
 	ServeTask = "serve"
 	// RoleTask is the task key of serve's stops of role agents: compat until v0.28, an older log's stop.<agent>[.N]
-	// (T-672; the stops are rules since T-870), folded to nothing.
+	// (the stops are rules), folded to nothing.
 	RoleTask = "roles"
-	// ConfigTask is the task key of the owner's setup edits (obor web, T-753).
+	// ConfigTask is the task key of the owner's setup edits (obor web).
 	ConfigTask = "config"
-	// IdleTask is the task key of the lead's acknowledgement of the project's idle state (T-803, T-866).
+	// IdleTask is the task key of the lead's acknowledgement of the project's idle state.
 	IdleTask = "idle"
-	// RuleTask is the task key of the needs-you of a rule whose action failed ruleFails passes in a row (T-866).
+	// RuleTask is the task key of the needs-you of a rule whose action failed ruleFails passes in a row.
 	RuleTask = "rule"
-	// PromoteTask is the task key of the deleted promotion (T-974, deleted T-1076): an older log's records, the
+	// PromoteTask is the task key of the deleted promotion: an older log's records, the
 	// project's, only worded (describe.go), never written.
 	PromoteTask = "promote"
 	// VersionTask is the task key of the versions of the tools obor drives (the agent CLIs, the terminal): the
-	// project's facts, one per change (internal/app/versions.go, T-1176).
+	// project's facts, one per change (internal/app/versions.go).
 	VersionTask = "version"
 )
 
@@ -54,13 +54,13 @@ const (
 	StepPrepare    = "lane.prepare" // intent/result (G), lane.prepare.N after a refusal: PrepareInput → prepareOut
 	StepStartWork  = "agent.start"  // intent/result (S), agent.start.N after a refusal: startData → startOut
 	StepWork       = "work"         // prompt intent (P), work.N after obor resume: the worker's job
-	// StepWorkerStop is the merge loop's stop of a task's worker before the step that needs its lane (T-852): a move's
+	// StepWorkerStop is the merge loop's stop of a task's worker before the step that needs its lane: a move's
 	// (before the redo's lane.prepare) or a drop's (before lane.free).
 	// intent/result (S), worker.stop.N after a refusal obor resume retries: stopData → stopOut.
 	StepWorkerStop = "worker.stop"
 )
 
-// A drop of a task that holds a lane (T-852): the decision, then its steps, then fact dropped.
+// A drop of a task that holds a lane: the decision, then its steps, then fact dropped.
 const (
 	StepDropping = "dropping"  // fact: obor drop decided on a task holding a lane (data: dropData): stop, free, dropped
 	StepFree     = "lane.free" // intent/result (G), lane.free.N after a refusal: a dropping task's lane given back → freeOut
@@ -74,14 +74,14 @@ const (
 // StepNightly is the nightly full check's intent/result (G), one key a day: nightly.<YYYY-MM-DD> → NightlyOut.
 const StepNightly = "nightly"
 
-// The deleted promotion's steps (T-974, deleted T-1076; task PromoteTask): an older log's records, only worded.
+// The deleted promotion's steps (task PromoteTask): an older log's records, only worded.
 const (
 	StepPromote      = "promote"       // intent/result, promote.<seq>: the full suite on the target's head
 	StepPromoted     = "promoted"      // fact: the promoted branch fast-forwarded to a GREEN sha
 	StepAfterPromote = "after_promote" // intent/result, after_promote.<seq>: commands.after_merge after a promotion
 )
 
-// StepConfigSet is the fact of a setup edit serve wrote and committed (task ConfigTask; data: ConfigSet; T-753).
+// StepConfigSet is the fact of a setup edit serve wrote and committed (task ConfigTask; data: ConfigSet).
 const StepConfigSet = "config.set"
 
 const (
@@ -94,7 +94,7 @@ const (
 	StepSubmitted  = "submitted"    // fact: the worker's task_done submits the task (data: submitData, its report)
 	StepSubmit     = "submit"       // intent/result (G), submit.N: the lane's commit pinned → submitOut
 	StepGate       = "gate"         // intent/result (G), gate.N within an attempt: the slot's merge and compile, gateIn → gateOut
-	StepTest       = "test"         // intent/result (G), test.N: the class's checks in the lane (T-961), testIn → testOut
+	StepTest       = "test"         // intent/result (G), test.N: the class's checks in the lane, testIn → testOut
 	StepKept       = "accept.kept"  // fact: the re-gated patch is the one accepted
 	StepSendback   = "sendback"     // fact: the gate is red, back to the worker (data: noteData)
 	StepFix        = "fix"          // prompt intent (P) of the new attempt: the worker's fix job (data: noteData)
@@ -110,15 +110,15 @@ const (
 	StepUnblocked  = "unblocked"    // fact: obor resume ended the needs-you (data: FactData, Reason regate|reprompt|retry)
 	StepFailed     = "failed"       // fact: a step's effect failed, counted (data: FactData, Step the step's key)
 	// StepSpecSeen is task_done's refusal of a job carried at an older spec rev: the worker was told the newer rev
-	// (data: FactData, Rev: the rev now seen; T-819), so its next task_done on that rev submits.
+	// (data: FactData, Rev: the rev now seen), so its next task_done on that rev submits.
 	StepSpecSeen = "spec.seen"
 	// StepSpecSet is the fact of a spec_set serve stored (task's attempt 0; data: SpecSet): its call's receipt, so a
-	// retry of the call id after a restart answers the original reply (SM-02, T-939).
+	// retry of the call id after a restart answers the original reply (SM-02).
 	StepSpecSet = "spec.set"
 )
 
 // CauseHeld is the integrator's hold, the one cause of a merge-loop needs-you obor status lists as an event of its
-// own (T-658: "held T-xx: why"; every cause is in obor status' needs-you line).
+// own ("held T-xx: why"; every cause is in obor status' needs-you line).
 const CauseHeld = "held"
 
 const (
@@ -126,8 +126,8 @@ const (
 	StepReviewRm      = "review.rm"      // fact: obor review --rm ended it (data: ReviewData)
 	StepReviewFire    = "review.fire"    // fact: a pass fires the request (data: ReviewData, Request its seq)
 	StepReviewStarted = "review.started" // fact: the reviewer started on the brief (data: ReviewData)
-	StepReviewClosed  = "review.closed"  // fact: serve committed the review's close (T-926; data: ReviewData)
-	// StepReviewClosing is the close's snapshot, recorded before its commit (T-1032; data: ReviewData, ID, Head the
+	StepReviewClosed  = "review.closed"  // fact: serve committed the review's close (data: ReviewData)
+	// StepReviewClosing is the close's snapshot, recorded before its commit (data: ReviewData, ID, Head the
 	// reviewed head, Tasks the covered tasks): what the commit, its review.closed fact and every later reader see, also
 	// when a crash cuts the fact from the commit.
 	StepReviewClosing = "review.closing"
@@ -139,14 +139,14 @@ const (
 	StepWorked  = "worked"  // fact: a briefed agent's pane worked since its brief (data: workedData)
 )
 
-// The project's idle state (T-803, T-866): no task in flight, no needs-you and no brief open to the reviewer or the
+// The project's idle state: no task in flight, no needs-you and no brief open to the reviewer or the
 // deep dive.
 const (
-	StepIdle    = "idle"     // compat until v0.28: an idle epoch fact (before T-866), folded to nothing
+	StepIdle    = "idle"     // compat until v0.28: an idle epoch fact (an older log), folded to nothing
 	StepIdleAck = "idle.ack" // fact: the lead or the owner acknowledged it with a why (data: idleAck, Key and Why)
 )
 
-// StepVersion is the fact of a tool's version as serve read it (task VersionTask; data: versionData; T-1176).
+// StepVersion is the fact of a tool's version as serve read it (task VersionTask; data: versionData).
 const StepVersion = "version"
 
 // Job steps: the integrator's jobs, prompted by the merge loop as intents with these steps (a later job of the same
@@ -156,8 +156,8 @@ const (
 	StepResolve = "resolve" // resolving: resolved or reject
 )
 
-// StepServeRestart is the running line's item for a pending self-restart (T-657): serve ends itself on the new build
-// once after_merge ran green (T-652).
+// StepServeRestart is the running line's item for a pending self-restart: serve ends itself on the new build
+// once after_merge ran green.
 const StepServeRestart = "restart"
 
 const (

@@ -1,6 +1,6 @@
-// rules.go: the rule pass (T-866; docs/design.md "Change rules" 1, the rule tier). Serve recomputes each rule's
+// rules.go: the rule pass (docs/design.md "Change rules" 1, the rule tier). Serve recomputes each rule's
 // condition from the current state on every merge-loop pass and acts: a line, one idempotent call, or a best-effort
-// after the line (T-949). A rule is done when its action's effect shows in state; only a line records did{key} (its
+// after the line. A rule is done when its action's effect shows in state; only a line records did{key} (its
 // message fact's Of). A rule has no intent, crash class, replay case, claim or fold of its own; its written failure
 // mode: after a crash an action may run twice, or one pass late.
 package app
@@ -24,7 +24,7 @@ type rule struct {
 }
 
 // action is a rule's effect: call (nil: none), then the lead's line, recorded with Of{the rule's name, its key} ("":
-// none), then after, a best-effort effect whose failure is logged and dropped (the owner's toast, T-949). A failed
+// none), then after, a best-effort effect whose failure is logged and dropped (the owner's toast). A failed
 // call records no line, so the next pass runs both again; after runs only once the line is recorded, so it never
 // delays or fails it.
 type action struct {
@@ -56,8 +56,8 @@ var rules = []rule{
 	{name: ruleIntegratorStop, when: integratorStopRule},
 	{name: ruleReviewerStop, when: reviewerStopRule},
 	{name: ruleWorkerStart, settle: workerStartSettle, when: workerStartRule},
-	{name: ruleHandoff, when: handoffRule}, // a keep lane's agent past handoff_tokens between tasks (T-1031)
-	{name: ruleVersion, when: versionRule}, // a tool obor drives changed version (T-1176)
+	{name: ruleHandoff, when: handoffRule}, // a keep lane's agent past handoff_tokens between tasks
+	{name: ruleVersion, when: versionRule}, // a tool obor drives changed version
 }
 
 // rulePass runs each of rs on the project once (the merge loop's goroutine, after the pass's lines, on the pass's
@@ -90,7 +90,7 @@ func (a *App) rulePass(ctx context.Context, rs []rule, fx *Loop) {
 				fails = live.fails + 1
 				a.logf("%s rule %s (key %d): %v", p.name, r.name, key, err)
 			} else {
-				live.since = now // its settle again before the next: the snapshot may not show the effect yet (T-874)
+				live.since = now // its settle again before the next: the snapshot may not show the effect yet
 			}
 		}
 		live.fails = fails

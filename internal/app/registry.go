@@ -1,5 +1,5 @@
-// registry.go: which pane each agent of a project runs in, and which agent a pane runs (P5-3, T-504, redesigned after RV-53).
-// The table and its rules are package identity's (proj.reg, T-1066); here are the lookups that read the observed panes:
+// registry.go: which pane each agent of a project runs in, and which agent a pane runs.
+// The table and its rules are package identity's (proj.reg); here are the lookups that read the observed panes:
 // whereIs (agent → pane) and the table's WhoIs (pane → agent) are the app's only identity lookups, and reconcile
 // collects the proofs the table accepts.
 package app
@@ -121,7 +121,7 @@ func (a *App) reconcile(p *proj) {
 	names := namedAgents(p.root)
 	best := identity.Claims{} // by agent and terminal: the strongest proof
 	for _, agent := range a.candidates(p, mine, names) {
-		sid := a.recordedSid(p, agent) // read once per candidate, not per pane (DD-v0.13 A6)
+		sid := a.recordedSid(p, agent) // read once per candidate, not per pane
 		named := names(agent)
 		for _, pane := range mine {
 			p.reg.CrossCheck(agent, sid, pane, named, logp)
@@ -147,7 +147,7 @@ func namedAgents(root string) func(string) bool {
 	}
 }
 
-// recordedSid is agent's recorded session id (under mu): its current session fact (sessions.go, T-577); "": none.
+// recordedSid is agent's recorded session id (under mu): its current session fact (sessions.go); "": none.
 func (a *App) recordedSid(p *proj, agent string) string {
 	s, _ := p.session(agent)
 	return s.ID

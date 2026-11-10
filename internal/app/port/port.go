@@ -13,7 +13,7 @@ import (
 
 // Pane is one terminal pane as the core sees it: the pane's own fields and those of the agent that runs in it (none:
 // the agent fields are empty). It is the one shape the terminal adapter's agent and pane answers, its snapshot and its
-// stream's events use (T-888), in terminal-neutral terms (T-1044: the herdr adapter keeps herdr's own tab and workspace
+// stream's events use, in terminal-neutral terms (the herdr adapter keeps herdr's own tab and workspace
 // ids to itself).
 type Pane struct {
 	ID string
@@ -36,7 +36,7 @@ type Pane struct {
 	// Terminal is the terminal's own id of what runs in the pane, kept when the pane moves (herdr: terminal_id): the
 	// identity table's key (registry.go); "" when the terminal reports none. Kept when an event has none.
 	Terminal string
-	// Launched is the terminal's word that no agent launch it made in the pane is pending (T-1058; herdr:
+	// Launched is the terminal's word that no agent launch it made in the pane is pending (herdr:
 	// launch_pending false, or interactive_ready true): read after a start the terminal accepted, an agent listed with
 	// it is the one that start launched, however stale its status. false while the launch is pending, and for a
 	// terminal that reports no such fact: a start never counts a listing without it (it fails at its bound), so the
@@ -57,7 +57,7 @@ type Snapshot struct {
 	Speaks   int // the protocol obor itself speaks: Protocol above it is a newer terminal
 	// Started is when the terminal's server started (herdr: its socket file's modification time, set when the server
 	// creates the socket at its start and untouched while it runs; herdr's API names no instance): a terminal restart
-	// changes it, so it is the instance serve's restore compares (internal/app/restore.go, T-1135). Zero: not known.
+	// changes it, so it is the instance serve's restore compares (internal/app/restore.go). Zero: not known.
 	Started time.Time
 	Panes   []Pane
 }
@@ -92,26 +92,26 @@ type Panes interface {
 	Subscribe(ctx context.Context) (*Stream, error)
 	// Snapshot reads herdr's session now: one session.snapshot, the same source Subscribe's Snapshot is built from.
 	// A pane's cwd can change with no event (a cd in it, obor setup pane moving it into a lane), so the snapshot the
-	// stream gave can be stale (T-745).
+	// stream gave can be stale.
 	Snapshot(ctx context.Context) (Snapshot, error)
 	// Busy: the agent in pane still runs a child besides the agent CLI (a command, a background job). An error means
 	// unknown, not idle.
 	Busy(ctx context.Context, pane string) (bool, error)
 	// Activity is when pane's agent last wrote its transcript; known is false when obor cannot tell. pane is the one
-	// the caller observed (its Session and Transcript): no herdr call (T-951).
+	// the caller observed (its Session and Transcript): no herdr call.
 	Activity(ctx context.Context, pane Pane) (last time.Time, known bool)
 	// Turn is the last turn pane's agent's transcript records, for a kind whose turns are read (agents.TurnsRead):
-	// the file transcript names (its agent's recorded session's, T-577), else the one herdr's session names; ok false
-	// when obor cannot tell. pane is the one the caller observed (T-951).
+	// the file transcript names (its agent's recorded session's), else the one herdr's session names; ok false
+	// when obor cannot tell. pane is the one the caller observed.
 	Turn(ctx context.Context, pane Pane, transcript string) (t agents.Turn, ok bool)
 	Notify(ctx context.Context, title, body string) error
 }
 
 // Lane is one lane of a project, the lane table's row (checks.LaneTable; obor status --json's lane, which view.Lane
 // embeds): its worktree, branch and the task id in it ("": detached, no task id), its state (the Lane* constants;
-// Reason says why it is unknown, T-871), the model it runs (Type: the dispatch's while it works, T-765, else none),
+// Reason says why it is unknown), the model it runs (Type: the dispatch's while it works, else none),
 // how long ago its task's task_done was recorded (nil: none), uncommitted changes, a live warning ("": none), its
-// agent (derived from the lane, T-1031) and its mode (config.LaneKeep for a keep lane, "" a fresh one; T-1031). Lanes,
+// agent (derived from the lane) and its mode (config.LaneKeep for a keep lane, "" a fresh one). Lanes,
 // the app's read of it, holds Task only while the lane works and Dir as the physical path a pane's cwd reports.
 type Lane struct {
 	Name    string `json:"lane"`
@@ -128,12 +128,12 @@ type Lane struct {
 	Mode    string `json:"mode,omitempty"`
 }
 
-// The lane states Lane.State holds (FreeState's rule, T-1012; checks.LaneTable.LaneState's doc): a lane is free once
-// no task holds it (its row's task landed at the lane's HEAD, T-1015, or it has none) and nothing is uncommitted,
+// The lane states Lane.State holds (FreeState's rule; checks.LaneTable.LaneState's doc): a lane is free once
+// no task holds it (its row's task landed at the lane's HEAD, or it has none) and nothing is uncommitted,
 // dirty-free when no task holds it but it has uncommitted changes, working while its row's task has not landed or the
 // lane's HEAD is not what landed, missing when its dir is no worktree,
 // unknown when git or the store cannot say. The page's free set (web/src/lib/format.ts) is the two free
-// ones, and internal/web's TestTSStringSetsMatchGo keeps it so (T-885).
+// ones, and internal/web's TestTSStringSetsMatchGo keeps it so.
 const (
 	LaneFree      = "free"
 	LaneDirtyFree = "dirty-free"
@@ -142,7 +142,7 @@ const (
 	LaneUnknown   = "unknown"
 )
 
-// Lanes reads a project's lanes (its git reads end with ctx, T-873).
+// Lanes reads a project's lanes (its git reads end with ctx).
 type Lanes interface {
 	Lanes(ctx context.Context, root string) ([]Lane, error)
 }

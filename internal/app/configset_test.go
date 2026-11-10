@@ -17,14 +17,14 @@ import (
 	"obor/internal/store"
 )
 
-// T-753, T-760: the owner's setup edit (config_set): serve applies a list of changes to .obor/config.json, validates
+// The owner's setup edit (config_set): serve applies a list of changes to .obor/config.json, validates
 // them together, writes and commits that one file once (ConfigFile), records fact config.set and sends the lead one
 // line; any change refused refuses them all.
 
 // configJSON is the edit tests' config.json: an opencode model a level names with an effort, a kind's args, two lanes,
 // and no trunk (branches.main ""): these edits test the config_set mechanism, not validate's trunk check (config's
 // TestValidateTrunkRef), and this plain dir has no repository for that check to read, so it starts no git process here
-// (T-1024: the app package's tests run no git).
+// (the app package's tests run no git).
 const configJSON = `{
   "version": 2,
   "project": {
@@ -72,7 +72,7 @@ const configJSON = `{
 
 // fakeConfig is a ConfigFile on the harness's config.json: Read answers refused, Commit writes the file and records
 // the message (failCommit: refused, the file left as it was). commitGate, when set, holds Commit until it is closed
-// and commitBegan gets a value when a Commit reaches it: a call in flight inside configMu (T-930).
+// and commitBegan gets a value when a Commit reaches it: a call in flight inside configMu.
 type fakeConfig struct {
 	mu          sync.Mutex
 	path        string
@@ -228,7 +228,7 @@ func TestConfigSetRefused(t *testing.T) {
 		{name: "worker", key: "lanes.count", val: `3`, role: "worker", want: "the owner or the lead changes the setup"},
 		{name: "commit", key: "lanes.count", val: `3`, failCommit: errors.New("git commit: hook said no"), want: "hook said no"},
 		{name: "not editable", key: "commands.check", val: `"x"`, want: "is not an editable key"},
-		// T-781: obor nightly on|off's change
+		// obor nightly on|off's change
 		{name: "nightly 25:00", key: "nightly.at", val: `"25:00"`, want: "nightly.at takes a local time HH:MM"},
 		{name: "nightly no time", key: "nightly.at", val: `""`, want: "nightly.at takes a local time HH:MM"},
 		{name: "nightly by a worker", key: "nightly.at", val: `"03:00"`, role: "worker",
@@ -259,7 +259,7 @@ func TestConfigSetRefused(t *testing.T) {
 	}
 }
 
-// T-765: the lanes count is not lowered while a lane it drops has a task (the lanes read's, its row's or the merge
+// The lanes count is not lowered while a lane it drops has a task (the lanes read's, its row's or the merge
 // loop's open task there); once the task ended, it is.
 func TestConfigSetLanesWithTask(t *testing.T) {
 	t.Parallel()
@@ -329,7 +329,7 @@ func TestConfigSetWaitsForPublish(t *testing.T) {
 	}
 }
 
-// T-930: a repeated call id waits for the call in flight (configMu is taken before the stored-reply lookup): the second
+// A repeated call id waits for the call in flight (configMu is taken before the stored-reply lookup): the second
 // gets the first's reply and nothing is written or committed again.
 func TestConfigSetSameCallWhileInFlight(t *testing.T) {
 	t.Parallel()
@@ -368,7 +368,7 @@ func TestConfigSetSameCallWhileInFlight(t *testing.T) {
 	}
 }
 
-// T-760: several changes are one commit — applied in order, each to the file the one before wrote (a level and a
+// Several changes are one commit — applied in order, each to the file the one before wrote (a level and a
 // role both land) — with a subject naming the keys, one body line per change, one fact listing them, one line to the
 // lead and one reply. A change that leaves its key as it is is left out.
 func TestConfigSetBatchIsOneCommit(t *testing.T) {
@@ -411,7 +411,7 @@ func TestConfigSetBatchIsOneCommit(t *testing.T) {
 	}
 }
 
-// T-760: one refused change refuses the batch (the others before it applied in memory only): nothing written,
+// One refused change refuses the batch (the others before it applied in memory only): nothing written,
 // committed, recorded or told; and a batch the whole fails Validate on is refused naming its keys.
 func TestConfigSetBatchAllOrNothing(t *testing.T) {
 	t.Parallel()
@@ -441,7 +441,7 @@ func TestConfigSetBatchAllOrNothing(t *testing.T) {
 	}
 }
 
-// T-760: a call names the config.json revision its page read; once the file is another one (another tab saved, the
+// A call names the config.json revision its page read; once the file is another one (another tab saved, the
 // lead or a hand edit changed it) the call is refused and nothing is written. The current revision is taken.
 func TestConfigSetBaseIsTheFileRead(t *testing.T) {
 	t.Parallel()

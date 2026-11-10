@@ -56,13 +56,13 @@ func (a *App) logf(format string, args ...any) {
 // Serve runs until ctx ends: it loads the project at Options.Root (replaying its log), subscribes to herdr, works
 // from the stream's snapshot, and subscribes again whenever the stream ends; the watchdogs look every Tick, and each
 // look wakes the merge loop (its own goroutine: a gate takes minutes). Herdr down (at the start, or its socket gone
-// under the stream) never ends it (T-596): one line when herdr goes away, subscribes again with a backoff (Retry
+// under the stream) never ends it: one line when herdr goes away, subscribes again with a backoff (Retry
 // doubling up to RetryMax), one line when it is back, then it works from the fresh snapshot; the socket requests
 // and the merge loop's goroutine go on meanwhile. It returns once the merge loop has stopped and the socket requests
 // in progress, canceled, have ended (their process groups cleaned up). The binary watch (follow.go) has its own timer,
-// herdr connected or not (T-737). The first stream after a lost connection (port.NotRunning: a failed subscribe, or
-// the stream's end) starts the restore of the project's panes (restore.go, T-1051), and so does the first stream of
-// serve's life when herdr restarted since serve last connected to it (T-1135).
+// herdr connected or not. The first stream after a lost connection (port.NotRunning: a failed subscribe, or
+// the stream's end) starts the restore of the project's panes (restore.go), and so does the first stream of
+// serve's life when herdr restarted since serve last connected to it.
 func (a *App) Serve(ctx context.Context) error {
 	defer a.shutdown()
 	tick := time.NewTicker(a.opt.Tick)
@@ -165,7 +165,7 @@ func (a *App) closeLog() {
 	}
 }
 
-// run handles one stream's events, the ticks and the refresher's scans (a decision on the table it read, T-879) until
+// run handles one stream's events, the ticks and the refresher's scans (a decision on the table it read) until
 // the stream or ctx ends. The stream's snapshot is applied before: an event is never older than the snapshot it
 // follows.
 func (a *App) run(ctx context.Context, st *port.Stream, tick <-chan time.Time) {
@@ -211,7 +211,7 @@ func (a *App) loadProject() {
 }
 
 // Loaded is closed once Serve has loaded the project (its log replayed, loadProject): obor serve binds its socket
-// only then (T-659), so no request is ever admitted to wait for the replay.
+// only then, so no request is ever admitted to wait for the replay.
 func (a *App) Loaded() <-chan struct{} { return a.loaded }
 
 // projAt is the served project when root is its root (nil: not loaded yet, or another project's root; under mu).
