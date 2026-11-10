@@ -101,12 +101,21 @@ func (a *App) reviewCloseCall(c wire.ReviewCloseReq) (string, error) {
 const closedReply = "CLOSED "
 
 // closeUnwrittenHint is the way out an unwritten review's file refusal names (openReview's missing-file refusal).
-const closeUnwrittenHint = `obor review close "<summary>" --force closes it unwritten`
+const closeUnwrittenHint = `obor review close "<summary>" --force closes it unwritten if it covers no task`
+
+// unwrittenCovered is the refusal of an unwritten review that covers tasks: an abandoned cycle loses them (the close's
+// snapshot takes them out of the next review's scope), so its reviewer writes it first.
+func unwrittenCovered(s ReviewSetup, o openCycle, c reviewCycle) error {
+	tasks := strings.Join(c.covered, ", ")
+	return fmt.Errorf("%s is not written yet and covers %s: have its reviewer write it (obor brief %s \"Write %s/%s.md:"+
+		" the review of %s at %s\"), then close it", o.ID, tasks, s.Agent, s.Reviews, o.ID, tasks, short(c.start))
+}
 
 // reviewClose checks the open review (admitted): its own close commit not in git already (closeCommitted: one a crash
 // cut from its fact is recorded now, and the call refused as no review is open), the fold's open review, its file in
-// the main checkout (openReview; --force closes a review whose file was never written: nothing to delete, the reviewed
-// sha its start's head), its linked fixes verified (--force: closes anyway); then the main checkout commits
+// the main checkout (openReview; --force closes a review whose file was never written and that covers no task: nothing
+// to delete, the reviewed sha its start's head), its linked fixes verified (--force: closes anyway); then the main
+// checkout commits
 // it (port.Review.Close: its own refusals, the branch named) and fact review.closed{id} is recorded, the reviewer's stop
 // rule woken at once. Before the commit, fact review.closing{id, head, tasks} records its snapshot: the head
 // and the tasks the commit names, the fact carries and the fold freezes the review at. Any refusal changes nothing
@@ -130,6 +139,9 @@ func (a *App) reviewClose(ctx context.Context, p *proj, g port.Review, s ReviewS
 	}
 	if cycle.reviewed == "" {
 		return "", fmt.Errorf("no review start for %s in the log: nothing changed", o.ID)
+	}
+	if unwritten && len(cycle.covered) > 0 {
+		return "", unwrittenCovered(s, o, cycle)
 	}
 	if len(cycle.pending) > 0 && !c.Force {
 		return "", fmt.Errorf("%s's fixes are not verified: %s (open, or merged and its verify not finished; --force"+
