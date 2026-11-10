@@ -98,10 +98,9 @@ the flag for it:
 | CLI | Project file | Key it sets | obor then leaves out |
 | --- | --- | --- | --- |
 | Claude | `.claude/settings.json` | `enableAllProjectMcpServers: true` or a non-empty `enabledMcpjsonServers` | `--strict-mcp-config` on a lane's agent: the project's `.mcp.json` servers load (the list also approves them, so no prompt waits) |
-| Claude | `.claude/settings.json` | `remoteControlAtStartup`, `autoMemoryEnabled` | that key of `--settings` (non-lead roles) |
+| Claude | `.claude/settings.json` or `.claude/settings.local.json` | any settings entry (`remoteControlAtStartup`, `autoMemoryEnabled`, an `env` variable, a plugin in `enabledPlugins`, `statusLine`, …) | that entry of the agent's settings file (non-lead roles, below): the project's value applies |
 | Codex | `.codex/config.toml`, top-level (before any `[table]`) | `sandbox_mode` | `-s workspace-write` |
 | Codex | same | `check_for_update_on_startup` | `-c check_for_update_on_startup=false` |
-| Claude | `.claude/settings.json` or `.claude/settings.local.json` | a plugin in `enabledPlugins`, a skill in `skillOverrides` (either value) | that entry of `--settings` (non-lead roles): obor switches off the user's plugins and skills, `enabledPlugins` `false` for each plugin the user's `~/.claude/settings.json` enables and `skillOverrides` `"off"` for each dir in `~/.claude/skills`; every other user setting applies (env, hooks, status line, model, `~/.claude/CLAUDE.md`). obor's own plugin is never switched off; skills Claude syncs from claude.ai stay |
 | Codex | `.codex/config.toml`, anywhere (dotted, or under its `[table]`) | `features.plugins`, `features.apps`, `skills.bundled.enabled`, `skills.config` | that key's `-c` option (non-lead roles): `-c <key>=false` for the user's plugins with their skills, the app connectors and the bundled skills, and `-c skills.config=[{name="<skill>",enabled=false},…]` for each dir in `~/.codex/skills`; the rest of the user's config applies, and user skills in `~/.agents/skills` stay |
 | OpenCode | none | none (no opt-out) | nothing: `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` is in every non-lead start's env and hides the Claude skill dirs, `~/.claude/skills` and the project's `.claude/skills`; the user's `opencode.json`, plugins, `~/.config/opencode/skills` and `~/.agents/skills` stay |
 
@@ -113,13 +112,47 @@ absent. `obor config validate` warns on such a file, on `disableAllHooks: true` 
 off obor's guard hooks) and on an OpenCode project config (`opencode.json[c]`, `.opencode/opencode.json[c]`) that
 defines `mcp.servers.obor` (it replaces obor's server).
 
-**Project skills and MCP servers.** For every agent but the lead, obor switches off the user's plugins and skills;
-every other user setting applies. The three rows above say what each switch names and what stays (Codex keeps
-`~/.agents/skills`, OpenCode its user config, plugins and skill roots). The trim is best effort, not a project-only
-view: whatever a CLI has no switch for stays visible, and the lead keeps the user's setup.
-To keep one of the user's Claude plugins or skills for the agents, name it in the project's own settings
-(`enabledPlugins`, `skillOverrides`): obor leaves that entry alone. `--settings` in `agents.kinds.claude.args` is no
-way to do it (obor passes its own `--settings`).
+**Your own user settings.** The lead starts on your user-level settings as they are. Every other agent keeps them
+too, except what obor overrides: your plugins and skills are off by default, and `agents.overrides.<kind>` in
+`.obor/config.json` names anything else to set or switch off for that CLI's agents. A role's own `overrides` are laid
+over the kind's (its `settings` keys win, its `off` lists are added); a built-in role then takes the object form
+`{"model": "<ref>", "overrides": {…}}` in place of its model ref string.
+
+```json
+"agents": {
+  "overrides": {
+    "claude": {
+      "settings": {"env": {"MAX_THINKING_TOKENS": "8000"}},
+      "off": {"hooks": ["notify.sh"], "plugins": ["openseo@openseo"], "mcp": ["blender"]}
+    }
+  },
+  "roles": {
+    "reviewer": {"model": "opus:high", "overrides": {"claude": {"settings": {"env": {"MAX_THINKING_TOKENS": "32000"}}}}}
+  }
+}
+```
+
+- `settings` are keys in the CLI's own shape (Claude: `settings.json` keys), set over yours; an object merges key by
+  key, so the `env` above changes one variable and keeps your others.
+- `off` lists name entries of your own config by a substring: a hook by its command, a plugin by its id, a skill by
+  its dir name, an MCP server by its name (`off: {hooks, plugins, skills, mcp}`).
+
+Claude agents (all but the lead) start with `--setting-sources project,local --settings <file>`: the file,
+`.obor/state/settings/<agent>.json`, is written at each start from your `settings.json` (`$CLAUDE_CONFIG_DIR` or
+`~/.claude`). They keep every key of it (`env`, hooks, `statusLine`, permissions, …) except: each plugin you enable
+is off (obor's own stays; `settings` with `enabledPlugins` switches one back on, and so does the project's own
+`enabledPlugins`), the hooks `off.hooks` names are removed, the servers `off.mcp` names are removed from the file's
+`mcpServers` and `enabledMcpjsonServers` (servers in `~/.claude.json` are no settings: a lane's agent starts without
+them anyway, a role agent keeps them), `settings` are merged in, and obor sets `remoteControlAtStartup` and
+`autoMemoryEnabled` false. An entry the project's own settings set is left to the project
+(the first Claude row above). They lose what is not in `settings.json`: your `~/.claude/CLAUDE.md`, your rules
+(`~/.claude/rules`), your skills (`~/.claude/skills`) and the skills Claude syncs from claude.ai do not reach them, so
+`off.skills` has nothing to do on Claude. `--settings` in `agents.kinds.claude.args` is no way around the file (obor
+passes its own `--settings`). Codex and OpenCode agents: the two rows above say what is switched off and what stays
+(Codex keeps `~/.agents/skills`, OpenCode its user config, plugins and skill roots); that trim is best effort, not a
+project-only view: whatever a CLI has no switch for stays visible.
+
+**Project skills and MCP servers.**
 - Skills: one tree, `.agents/skills/<name>/SKILL.md` (Codex and OpenCode read it), with `.claude/skills` a symlink to
   `../.agents/skills` (Claude reads that). Keep the tree in `.agents/skills`, not in `.claude/skills`: OpenCode's
   switch hides the project's `.claude/skills` too. The role text (`docs/agents/<role>.md`) names which skills a role

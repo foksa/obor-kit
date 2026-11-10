@@ -364,20 +364,20 @@ func TestStartTrimUser(t *testing.T) {
 		{"does not parse: as absent", "what ever\nfeatures.plugins = true\n", want(plugins, apps, bundled)},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			got := k.Start(agents.Start{Args: base, TrimUser: true, Dir: "/lane", Read: projectFS(c.file)})
+			got := k.Start(agents.Start{Args: base, Override: &agents.Override{}, Dir: "/lane", Read: projectFS(c.file)})
 			if !slices.Equal(got, c.want) {
 				t.Errorf("Start =\n %q\nwant\n %q", got, c.want)
 			}
 		})
 	}
 	// The write dirs come first; a resume is trimmed like a fresh start.
-	got := k.Start(agents.Start{Args: base, TrimUser: true, WriteDirs: []string{"/reviews"}, Resume: "cx-1"})
+	got := k.Start(agents.Start{Args: base, Override: &agents.Override{}, WriteDirs: []string{"/reviews"}, Resume: "cx-1"})
 	if w := append([]string{"resume", "cx-1", "-a", "never", "--add-dir", "/reviews"}, want(plugins, apps, bundled)[2:]...); !slices.Equal(got, w) {
 		t.Errorf("a trimmed resume with a write dir:\n %q\nwant\n %q", got, w)
 	}
 	// A key the type's args set stays as they set it.
 	typed := append(slices.Clone(base), "-c", "features.apps=true")
-	if got, w := k.Start(agents.Start{Args: typed, TrimUser: true}), append(slices.Clone(typed),
+	if got, w := k.Start(agents.Start{Args: typed, Override: &agents.Override{}}), append(slices.Clone(typed),
 		"-c", plugins, "-c", bundled, "-c", "check_for_update_on_startup=false"); !slices.Equal(got, w) {
 		t.Errorf("the args set features.apps:\n %q\nwant\n %q", got, w)
 	}
@@ -433,7 +433,7 @@ func TestStartTrimUserSkills(t *testing.T) {
 			Dirs: dirs("/home/u/.codex/skills", "codex-img")}, want(base)},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			c.in.TrimUser, c.in.Dir = true, "/lane"
+			c.in.Override, c.in.Dir = &agents.Override{}, "/lane"
 			if got := k.Start(c.in); !slices.Equal(got, c.want) {
 				t.Errorf("Start =\n %q\nwant\n %q", got, c.want)
 			}

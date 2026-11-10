@@ -30,7 +30,7 @@ func EnvVarsTOML() string {
 }
 
 // Start: `resume <sid>` before the type's args (with in.Effort: their model_reasoning_effort replaced by
-// -c model_reasoning_effort=<effort>), then --add-dir per write dir, then a trimmed start's switches (in.TrimUser:
+// -c model_reasoning_effort=<effort>), then --add-dir per write dir, then a trimmed start's switches (in.Override != nil:
 // trimKeys false: no plugins, no app connectors, no bundled skills; skills.config with every dir of the user's
 // skills dir off, skillsOff; the rest of the user's config applies), then obor's server (with a kit), then the
 // update check off, then the prompt (a resume carries none). Codex takes no settings.
@@ -54,7 +54,7 @@ func (kind) Start(in agents.Start) []string {
 	for _, d := range in.WriteDirs { // workspace-write writes the cwd only
 		out = append(out, "--add-dir", d)
 	}
-	if in.TrimUser {
+	if in.Override != nil {
 		for _, k := range trimKeys {
 			if !argSets(in.Args, k) && !sets(top, k) {
 				out = append(out, "-c", k+"=false")

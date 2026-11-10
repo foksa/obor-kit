@@ -159,14 +159,25 @@ the lanes instead (each `{name, keep_agent}`). There are no caps. A key obor doe
 an object of typed lanes) is dropped with a WARN by every command and serve (its setting does not apply);
 `obor config validate` alone fails, naming the key: delete it from the file it names.
 
-Per-kind defaults live in the plugin: Claude `--settings '{"autoMemoryEnabled":false,"remoteControlAtStartup":false}'`
-for every agent except leads (only the lead keeps Remote Control and auto memory). For every agent except leads
-obor also switches off the user's plugins and skills; every other user setting applies (env, hooks, status line, …).
-Claude: the same `--settings` carries `enabledPlugins` `false` for each plugin the user's settings enable
-(`$CLAUDE_CONFIG_DIR` or `~/.claude`, `settings.json`) and `skillOverrides` `"off"` for each dir of the user's `skills`
-dir; the project wins per entry (a plugin or skill its `.claude/settings.json` or `.claude/settings.local.json` names
-is left alone: that is how a project keeps one), obor's own plugin is never switched off, and the skills Claude syncs
-from claude.ai stay. Codex: `-c features.plugins=false -c features.apps=false -c skills.bundled.enabled=false` and
+Per-kind defaults live in the plugin. A lead starts on the user's own settings as they are. Every other agent's start
+carries an override of them (`agents.Start.Override`): `agents.overrides.<kind>` with
+`agents.roles.<role>.overrides.<kind>` laid over it (the role's `settings` keys win, objects merged key by key; its
+`off` lists are added), each `{settings: {…}, off: {hooks, plugins, skills, mcp}}`: `settings` in the kind's own
+shape, an `off` entry a substring of the user's own entry (a hook's command, a plugin id, a skill dir name, an MCP
+server name). The override is empty when the config names none: the kind's defaults below alone. A role entry is a
+model ref string or an object `{model, overrides}`; `obor config validate` fails an override of a kind obor does not
+know and an unknown key in it.
+Claude: `--setting-sources project,local --settings <file>`, the file `.obor/state/settings/<agent>.json`, written at
+each start (a write that fails refuses the start, naming the file). It is the user's `settings.json`
+(`$CLAUDE_CONFIG_DIR` or `~/.claude`; none: empty) with, in order: every plugin it enables set `false` (obor's own
+stays) and every plugin matching `off.plugins`; the hooks whose command matches `off.hooks` removed; the servers
+matching `off.mcp` removed from its `mcpServers` and `enabledMcpjsonServers`; the override's `settings` merged in;
+`{"autoMemoryEnabled":false,"remoteControlAtStartup":false}` merged in (only the lead keeps Remote Control and auto
+memory); then every entry the project's `.claude/settings.json` or `.claude/settings.local.json` sets dropped,
+object by object (the file ranks above the project's settings, the user's own rank below them; a list both hold
+stays, Claude adds lists up). So env, hooks, the status line and permissions apply, the user's plugins are off unless
+the project or `settings` enables one, and what is not in `settings.json` does not load: the user's `CLAUDE.md`,
+rules, skills and the skills Claude syncs from claude.ai (`off.skills` names nothing on Claude). Codex: `-c features.plugins=false -c features.apps=false -c skills.bundled.enabled=false` and
 `-c skills.config=[{name="<skill>",enabled=false},…]` for each dir of the user's skills dir (`$CODEX_HOME` or
 `~/.codex`, `skills/`); a key the project's `.codex/config.toml` sets is left to it. OpenCode:
 `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` hides `~/.claude/skills` and the project's `.claude/skills`. The trim is best

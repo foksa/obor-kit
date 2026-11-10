@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path"
@@ -165,7 +166,8 @@ func (v *validator) lanes() {
 // LaneNameRE is a lane's name as LaneName writes it: L-01 … L-99, L-100 ….
 var LaneNameRE = regexp.MustCompile(`^L-(0[1-9]|[1-9][0-9]+)$`)
 
-// models: every agents.models entry and agents.kinds key names a kind with a bridge (agents.Lookup), no kinds args carry a bare
+// models: every agents.models entry, agents.kinds key and overrides key (agents.overrides, a role's overrides) names
+// a kind with a bridge (agents.Lookup), no kinds args carry a bare
 // `--` (obor adds the first prompt after its own options, so a `--` would turn --settings and --resume into
 // positionals); each role names a known model with an effort its kind takes.
 func (v *validator) models() {
@@ -195,8 +197,17 @@ func (v *validator) models() {
 			v.fail(".agents.kinds"+key(k)+".args", "`--` is not allowed: obor adds the first prompt itself")
 		}
 	}
+	overridden := func(path string, over map[string]agents.Override) {
+		for _, k := range slices.Sorted(maps.Keys(over)) {
+			if _, kit := KitKinds[k]; !kit && a.Kinds.M[k].Plugin == "" {
+				bridged(path+key(k), k)
+			}
+		}
+	}
+	overridden(".agents.overrides", a.Overrides)
 	for _, k := range a.Roles.Keys {
 		e, path := a.Roles.M[k], ".agents.roles"+key(k)
+		overridden(path+".overrides", e.Overrides)
 		if e.Object {
 			path += ".model"
 		}
@@ -389,8 +400,8 @@ func (v *validator) denyCommands(rules []DenyCommand) {
 
 // customRoles: each agents.roles.<name> that is no table role defines a custom role: a name
 // roles.CheckCustomName takes, write paths inside the project and outside .obor/, and its doc
-// <agents.docs_dir>/<name>.md (a kit default row may use the kit's). A table role takes a model ref string; the
-// driver's is never configured (obor drive starts it).
+// <agents.docs_dir>/<name>.md (a kit default row may use the kit's). A table role takes a model ref string or an
+// object {model, overrides}; the driver's is never configured (obor drive starts it).
 func (v *validator) customRoles() {
 	for _, k := range v.d.Agents.Roles.Keys {
 		e, path := v.d.Agents.Roles.M[k], ".agents.roles"+key(k)
@@ -400,8 +411,8 @@ func (v *validator) customRoles() {
 				v.fail(path, "the drive agent's role is not configured: obor drive starts it")
 			case len(e.Verbs) > 0:
 				v.fail(path+".verbs", "a built-in role's rights are its own: verbs are a custom role's (T-1039)")
-			case e.Object:
-				v.fail(path, "a built-in role takes a model ref string, not an object")
+			case e.Write != nil:
+				v.fail(path+".write", "a built-in role's write paths are its own: an object here takes model and overrides")
 			}
 			continue
 		}

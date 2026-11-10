@@ -54,7 +54,7 @@ obor runs `<command> <call>` with one JSON object on stdin and reads one JSON ob
 | Call | Request fields | Reply | Replaces (`agents.Kind`) | When |
 |---|---|---|---|---|
 | `describe` | — | the manifest (below) | `Name`, `Caps`, `Efforts`, `Vars`, `Stop`, `Headless`, `Transcript`, `InboxRecord`, `MCPRegistration.Lane` | `obor setup agents`, `obor config validate`, a changed command |
-| `start` | `env`, `kit`, `args`, `settings`, `resume`, `prompt`, `effort`, `strict_mcp`, `trim_user`, `session`, `write_dirs`, `dir` | `args` (argv after the binary), `env` (variable → value, "" unsets), `files: [{name, bytes}]` | `StartWhole` (a compiled kind's `Start` and `StartEnv`, `agents.Split`) | once per agent start, with every field of the start: its argv, env and files applied together; also obor config validate's effort check (`args` and `effort` alone, its files not written: `agents.ArgsChecker`) |
+| `start` | `env`, `kit`, `args`, `settings`, `resume`, `prompt`, `effort`, `strict_mcp`, `trim_user`, `override`, `session`, `write_dirs`, `dir` | `args` (argv after the binary), `env` (variable → value, "" unsets), `files: [{name, bytes}]` | `StartWhole` (a compiled kind's `Start` and `StartEnv`, `agents.Split`) | once per agent start, with every field of the start: its argv, env and files applied together; also obor config validate's effort check (`args` and `effort` alone, its files not written: `agents.ArgsChecker`) |
 | `not-ready` | `screen` | `why` ("" ready) | `NotReady` | per poll during a start, when the manifest says `not_ready: {call: true}` |
 | `install` | `kit`, `env` | `mcp: {where, path, key, entry, unpinned}` | `Install` | `obor setup agents`, `obor setup mcp` |
 | `turn` | `what: last` + `tail`; `what: session` + `first`; `what: reset` + `error`, `details`, `at` | last: `ok`, `turn: {id, error, details, ended, reset}`; session: `ok`, `session: {id, cwd, started}`; reset: `limited`, `reset` | `LastTurn`, `Session`, `Reset` | per transcript poll (status `transcript`), a launch finding a session, a stop on an error |
@@ -81,10 +81,20 @@ The compiled kinds get three Go functions; a process gets data instead.
 Every variable in `env` must be among the manifest's `vars` (`agents.Vars`: a start unsets every registry var
 it does not set).
 
-`trim_user` (true for every agent but a lead, `agents.Start.TrimUser`): obor switches off the user's plugins and
-skills; every other user setting applies. The kind says what its switch names and what stays (OpenCode:
-`OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` in `env`, "" when false, hides the Claude skill dirs only). What the CLI has no
-switch for stays visible.
+`override` (`agents.Start.Override`) is what obor overrides of the user's own settings on this start: an object for
+every agent but a lead, `null` for a lead (the user's settings as they are); `trim_user` is true when there is one.
+
+```json
+{"settings": {"<key in the kind's own shape>": "…"},
+ "off": {"hooks": ["<substring>"], "plugins": ["…"], "skills": ["…"], "mcp": ["…"]}}
+```
+
+It is the config's `agents.overrides.<kind>` with the role's `overrides.<kind>` laid over it; a member the config
+does not name is absent (`{}`: no override named, the kind's defaults alone). `settings` are set over the user's;
+each `off` entry is a substring of the user's own entry (a hook's command, a plugin id, a skill dir name, an MCP
+server name) to switch off. With any override obor switches off the user's plugins and skills; every other user
+setting applies. The kind says what its switch names and what stays (OpenCode: `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1`
+in `env`, "" for a lead, hides the Claude skill dirs only). What the CLI has no switch for stays visible.
 
 ## The manifest
 

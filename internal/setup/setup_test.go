@@ -310,7 +310,13 @@ func last(out string) string {
 // it NEW.
 var namedRE = regexp.MustCompile(`--session-id [0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}`)
 
-func named(text string) string { return namedRE.ReplaceAllString(text, "--session-id NEW") }
+// settingsFileRE is a start's --settings <the agent's settings file in the state dir>: the expectations write the
+// path <file>.
+var settingsFileRE = regexp.MustCompile(`--settings \S+/\.obor/state/settings/[^/ ]+\.json`)
+
+func named(text string) string {
+	return settingsFileRE.ReplaceAllString(namedRE.ReplaceAllString(text, "--session-id NEW"), "--settings <file>")
+}
 
 func has(t *testing.T, text, want, what string) {
 	t.Helper()
@@ -489,7 +495,7 @@ func TestLaneRefusesAFailingSetup(t *testing.T) {
 
 // --- pane -------------------------------------------------------------------------------------------------------------
 
-const settings = `--settings {"autoMemoryEnabled":false,"remoteControlAtStartup":false}`
+const settings = `--setting-sources project,local --settings <file>`
 
 // laneArgs is a lane agent's start args before its first prompt: obor's MCP server, then the strict flag that
 // hides every other one, then the settings.

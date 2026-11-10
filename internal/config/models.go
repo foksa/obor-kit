@@ -234,24 +234,33 @@ func (c *Config) checkModelRef(ref string, described map[string]agents.Kind) err
 	return nil
 }
 
+// Override is what obor overrides of the user's own settings for a start of an agent of role on kind:
+// agents.overrides.<kind> with agents.roles.<role>.overrides.<kind> laid over it (agents.Override.Over: the role's
+// settings win, its off lists are added); the zero Override when the config names neither.
+func (c *Config) Override(role, kind string) agents.Override {
+	return c.Data.Agents.Overrides[kind].Over(c.Data.Agents.Roles.M[role].Overrides[kind])
+}
+
 // Launch is a start of this model as its kind builds it (agents.StartOf: one call of a plugin kind): in, the
 // launch boundary's complete start (kit, effort, dir, write dirs, resume or first prompt, session, env, readers and
 // writer), with the model's args, the settings and a lane's strictness. The args with effort: the kind sets it
 // the settings as the kind takes them (Claude's --settings <settings>); a lane's agent starts strict (its obor
 // MCP server alone). Every agent but a lead starts with {"remoteControlAtStartup":false,"autoMemoryEnabled":false}
-// (only the lead on the phone, and only the lead keeps auto memory) and trimmed (agents.Start.TrimUser: the
-// user's plugins and skills switched off, every other user setting applying; only the lead keeps them). role is the agent's
+// (only the lead on the phone, and only the lead keeps auto memory) and with over, the config's override of the
+// user's own settings for role on this kind (Config.Override; agents.Start.Override: empty, the kind's defaults
+// alone); a lead's start carries none (the user's settings as they are). role is the agent's
 // (roles.Role.Name; "": none). A kind obor has no bridge for: the args alone, no env. What the env does not set the
 // start unsets (agents.StartVars): an earlier OpenCode start's model never carries into another kind's.
-// An error: the start cannot carry the effort, or a plugin kind's start failed.
-func (m Model) Launch(role string, in agents.Start) (agents.Launch, error) {
+// An error: the start cannot carry the effort, or a kind's start failed.
+func (m Model) Launch(role string, over agents.Override, in agents.Start) (agents.Launch, error) {
 	k, ok := agents.Lookup(m.Kind)
 	if !ok {
 		return agents.Launch{Args: append([]string(nil), m.Args...)}, nil
 	}
-	in.Args, in.Settings, in.StrictMCP, in.TrimUser = m.Args, nil, roles.LaneBound(role), role != "lead"
-	if in.TrimUser {
+	in.Args, in.Settings, in.StrictMCP, in.Override = m.Args, nil, roles.LaneBound(role), nil
+	if role != "lead" {
 		in.Settings = map[string]any{"remoteControlAtStartup": false, "autoMemoryEnabled": false}
+		in.Override = &over
 	}
 	return agents.StartOf(k, in)
 }

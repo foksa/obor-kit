@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"obor/internal/agents"
 	"obor/internal/roles"
 )
 
@@ -93,8 +94,13 @@ type Lanes struct {
 
 // Agents is `agents`: which model does what, and how each agent CLI starts.
 type Agents struct {
-	// Roles is the model of each role, `<model>[:<effort>]`; an object {model, write, verbs} defines a custom role.
+	// Roles is the model of each role, `<model>[:<effort>]`, or an object {model, overrides}; an object with write
+	// or verbs defines a custom role.
 	Roles Roles `json:"roles"`
+	// Overrides is overrides.<kind>: what obor overrides of the user's own settings for every agent of that CLI but a
+	// lead (settings: keys in the CLI's own shape; off: the user's hooks, plugins, skills and MCP servers to switch
+	// off, each a substring of the entry). What it does not name applies.
+	Overrides map[string]agents.Override `json:"overrides,omitempty"`
 	// Difficulty is the models a hard, medium or simple task goes to, first free one first; a level it omits has the
 	// built-in default (DifficultyDefault).
 	Difficulty map[string][]string `json:"difficulty,omitempty"`
@@ -317,15 +323,18 @@ func (r *Roles) entry(name string) (RoleEntry, bool) {
 	return e, ok
 }
 
-// RoleEntry is agents.roles.<name>: a model ref string ("": configured, no model named), or a custom role's
-// object {"model": "<ref>", "write": ["<dir>/", "<file>"], "verbs": ["spec_set", …]} (Object). Write is nil when the
-// entry names no write list (a string, or an object without write: a kit default row keeps its own). Verbs are the
-// wire methods serve admits the role to (roles.Verbs; a built-in role has none: validate fails them).
+// RoleEntry is agents.roles.<name>: a model ref string ("": configured, no model named), or an object (Object):
+// {"model": "<ref>", "overrides": {"<kind>": {…}}} for any role, a custom role's also with "write": ["<dir>/",
+// "<file>"] and "verbs": ["spec_set", …]. Write is nil when the entry names no write list (a string, or an object
+// without write: a kit default row keeps its own). Verbs are the wire methods serve admits the role to (roles.Verbs;
+// a built-in role has none: validate fails them). Overrides are laid over agents.overrides for the role's agents
+// (Config.Override).
 type RoleEntry struct {
-	Model  string   `json:"model"`
-	Write  []string `json:"write,omitzero"`
-	Verbs  []string `json:"verbs,omitzero"`
-	Object bool     `json:"-"`
+	Model     string                     `json:"model"`
+	Write     []string                   `json:"write,omitzero"`
+	Verbs     []string                   `json:"verbs,omitzero"`
+	Overrides map[string]agents.Override `json:"overrides,omitempty"`
+	Object    bool                       `json:"-"`
 }
 
 func (e *RoleEntry) UnmarshalJSON(b []byte) error {
@@ -334,14 +343,15 @@ func (e *RoleEntry) UnmarshalJSON(b []byte) error {
 		return json.Unmarshal(b, &e.Model)
 	}
 	var o struct {
-		Model string    `json:"model"`
-		Write *[]string `json:"write"`
-		Verbs []string  `json:"verbs"`
+		Model     string                     `json:"model"`
+		Write     *[]string                  `json:"write"`
+		Verbs     []string                   `json:"verbs"`
+		Overrides map[string]agents.Override `json:"overrides"`
 	}
 	if err := strict(b, &o); err != nil {
 		return err
 	}
-	e.Model, e.Object, e.Verbs = o.Model, true, o.Verbs
+	e.Model, e.Object, e.Verbs, e.Overrides = o.Model, true, o.Verbs, o.Overrides
 	if o.Write != nil {
 		e.Write = append([]string{}, *o.Write...)
 	}

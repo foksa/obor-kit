@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -8,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"obor/internal/agents"
 )
 
 func writeProject(t *testing.T, cfg, local string) string {
@@ -282,10 +285,9 @@ func TestAgentLookupPrecedence(t *testing.T) {
 	}
 }
 
-// Remote Control off and auto memory off for every claude agent but a lead; a lane's agent (a worker, the
-// owner's drive agent) starts with --strict-mcp-config, obor's MCP server alone. Every agent but a lead starts
-// trimmed, each kind with its own switches (claude its --settings maps, here none: no user dir is read; codex its three -c keys); a lead
-// start carries none of them.
+// A lane's agent (a worker, the owner's drive agent) starts with --strict-mcp-config, obor's MCP server alone. Every
+// agent but a lead starts with an override of the user's settings, each kind with its own switches (claude its
+// settings file in place of the user's source; codex its three -c keys); a lead start carries none of them.
 func TestLaunchArgs(t *testing.T) {
 	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"}}`, "")
 	opus, _ := c.Model("opus")
@@ -296,13 +298,13 @@ func TestLaunchArgs(t *testing.T) {
 		role string
 		want string
 	}{
-		{"worker: strict, trimmed, the settings", opus, "worker",
-			`--permission-mode auto --model opus --strict-mcp-config --settings {"autoMemoryEnabled":false,"remoteControlAtStartup":false}`},
-		{"drive agent: strict and trimmed too", opus, "driver",
-			`--permission-mode auto --model opus --strict-mcp-config --settings {"autoMemoryEnabled":false,"remoteControlAtStartup":false}`},
-		{"lead: no --settings, no strict, no trim", opus, "lead", "--permission-mode auto --model opus"},
-		{"integrator: no strict, trimmed", opus, "integrator",
-			`--permission-mode auto --model opus --settings {"autoMemoryEnabled":false,"remoteControlAtStartup":false}`},
+		{"worker: strict, the settings file", opus, "worker",
+			"--permission-mode auto --model opus --strict-mcp-config --setting-sources project,local --settings /state/settings/a.json"},
+		{"drive agent: strict, the settings file too", opus, "driver",
+			"--permission-mode auto --model opus --strict-mcp-config --setting-sources project,local --settings /state/settings/a.json"},
+		{"lead: no settings file, no strict", opus, "lead", "--permission-mode auto --model opus"},
+		{"integrator: no strict, the settings file", opus, "integrator",
+			"--permission-mode auto --model opus --setting-sources project,local --settings /state/settings/a.json"},
 		{"codex: no --settings, trimmed", luna, "integrator", "-s workspace-write -a never --no-daemon -m gpt-6-luna -c features.plugins=false -c features.apps=false -c skills.bundled.enabled=false -c check_for_update_on_startup=false"},
 		{"codex worker: its kind's start, strict means nothing to it", luna, "worker",
 			"-s workspace-write -a never --no-daemon -m gpt-6-luna -c features.plugins=false -c features.apps=false -c skills.bundled.enabled=false -c check_for_update_on_startup=false"},
@@ -314,6 +316,74 @@ func TestLaunchArgs(t *testing.T) {
 	}
 	if len(opus.Args) != 4 {
 		t.Errorf("Launch changed the model's args: %q", opus.Args)
+	}
+}
+
+// The override of the user's settings for a role on a kind is agents.overrides.<kind> with the role's own laid over
+// it: both settings (an object's keys merged, the role's value winning), the off lists added up; another kind's or
+// another role's is not in it. Launch hands it to the kind: a worker's Claude settings file holds both env keys beside
+// obor's own, a lead's start writes none.
+func TestOverride(t *testing.T) {
+	c := load(t, `{"version":2,"project":{"agent_prefix":"pj"},"agents":{
+		"overrides":{"claude":{"settings":{"env":{"KIND":"k","BOTH":"kind"},"model":"sonnet"},"off":{"hooks":["x.sh"],"plugins":["p@m"]}},
+			"codex":{"settings":{"model_reasoning_effort":"low"}}},
+		"roles":{"lead":"opus","integrator":"opus",
+			"reviewer":{"model":"opus","overrides":{"claude":{"settings":{"env":{"ROLE":"r","BOTH":"role"}},"off":{"hooks":["y.sh"],"mcp":["herd"]}}}}}}}`, "")
+	env := func(kv ...string) map[string]any {
+		m := map[string]any{}
+		for i := 0; i < len(kv); i += 2 {
+			m[kv[i]] = kv[i+1]
+		}
+		return m
+	}
+	kindOnly := agents.Override{Settings: map[string]any{"env": env("KIND", "k", "BOTH", "kind"), "model": "sonnet"},
+		Off: agents.Off{Hooks: []string{"x.sh"}, Plugins: []string{"p@m"}}}
+	for _, tc := range []struct {
+		role, kind string
+		want       agents.Override
+	}{
+		{"reviewer", "claude", agents.Override{Settings: map[string]any{"env": env("KIND", "k", "ROLE", "r", "BOTH", "role"), "model": "sonnet"},
+			Off: agents.Off{Hooks: []string{"x.sh", "y.sh"}, Plugins: []string{"p@m"}, MCP: []string{"herd"}}}},
+		{"integrator", "claude", kindOnly},
+		{"worker", "claude", kindOnly},
+		{"reviewer", "codex", agents.Override{Settings: map[string]any{"model_reasoning_effort": "low"}}},
+		{"reviewer", "opencode", agents.Override{Settings: map[string]any{}}},
+	} {
+		if got := c.Override(tc.role, tc.kind); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("Override(%s, %s) = %+v, want %+v", tc.role, tc.kind, got, tc.want)
+		}
+	}
+	if e, ok := c.Data.Agents.Roles.M["reviewer"]; !ok || e.Model != "opus" {
+		t.Errorf("roles.reviewer = %+v, want the object's model opus", e)
+	}
+	if rc, ok := c.Role("reviewer"); !ok || rc.Type != "opus" {
+		t.Errorf("Role(reviewer) = %+v, %v: want the object's model", rc, ok)
+	}
+
+	opus, _ := c.Model("opus")
+	files := map[string]string{}
+	in := agents.Start{Agent: "pj-rev", WriteState: func(name string, data []byte) (string, error) {
+		files[name] = string(data)
+		return "/state/" + name, nil
+	}}
+	l, err := opus.Launch("reviewer", c.Override("reviewer", "claude"), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "--permission-mode auto --model opus --setting-sources project,local --settings /state/settings/pj-rev.json"; strings.Join(l.Args, " ") != want {
+		t.Errorf("a reviewer's launch args %q, want %q", l.Args, want)
+	}
+	var file any
+	if err := json.Unmarshal([]byte(files["settings/pj-rev.json"]), &file); err != nil {
+		t.Fatalf("settings file %q of %v: %v", files["settings/pj-rev.json"], files, err)
+	}
+	if want := `{"autoMemoryEnabled":false,"env":{"BOTH":"role","KIND":"k","ROLE":"r"},"model":"sonnet","remoteControlAtStartup":false}`; Compact(file) != want {
+		t.Errorf("a reviewer's settings file %s, want %s", Compact(file), want)
+	}
+	clear(files)
+	if l, err = opus.Launch("lead", c.Override("lead", "claude"), in); err != nil || len(files) != 0 ||
+		strings.Join(l.Args, " ") != "--permission-mode auto --model opus" {
+		t.Errorf("a lead's launch: args %q, files %v, err %v; want the model's args alone and no file", l.Args, files, err)
 	}
 }
 

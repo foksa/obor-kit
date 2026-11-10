@@ -75,9 +75,12 @@ type Start struct {
 	Kit      string         // this kit's root ("": no kit to name; no MCP registration on the command line)
 	Args     []string       // the type's args as given
 	Settings map[string]any // the settings to start with (config.Model.Launch); nil: none
-	Resume   string         // the session id to resume ("": fresh)
-	Prompt   string         // the first prompt of a fresh start, one line ("": none)
-	Read     ReadFile       // reads a file an arg names (a config file); nil: none is read
+	// SettingsFile is the file that holds the start's settings in place of Settings and of the user's own (a
+	// Preparer wrote it: claude's settings file); "": none.
+	SettingsFile string
+	Resume       string   // the session id to resume ("": fresh)
+	Prompt       string   // the first prompt of a fresh start, one line ("": none)
+	Read         ReadFile // reads a file an arg names (a config file); nil: none is read
 	// Effort is the effort to start with (a type reference's `:<effort>`): the kind sets it, replacing the one
 	// Args set; "": Args as given.
 	Effort string
@@ -85,18 +88,20 @@ type Start struct {
 	// its command line does not name starts that way, obor's own registered on the start (claude: --strict-mcp-config
 	// with --mcp-config MCPConfig; a kind that hides nothing ignores it).
 	StrictMCP bool
-	// TrimUser is a start with the user's own plugins and skills switched off (every agent but a lead,
-	// config.Model.Launch); every other user setting applies (env, hooks, status line, model, …), and so do the
-	// project's own config and obor's wiring. Each kind names what it switches off (claude: --settings with
-	// enabledPlugins false per plugin the user's settings enable and skillOverrides "off" per dir of the user's skills
-	// dir, an entry the project's settings name left alone; codex: -c features.plugins/features.apps/
-	// skills.bundled.enabled false and skills.config with enabled false per dir of the user's skills dir; opencode:
-	// OPENCODE_DISABLE_CLAUDE_CODE_SKILLS hides ~/.claude/skills and the project's .claude/skills, while
-	// .agents/skills stays).
-	TrimUser bool
+	// Override is what obor overrides of the user's own settings on this start (every agent but a lead,
+	// config.Model.Launch: the config's agents.overrides.<kind> with the role's laid over, empty when the config
+	// names none); every user setting it does not name applies, and so do the project's own config and obor's
+	// wiring. nil: the user's settings as they are (a lead). Each kind applies it its own way (claude: Prepare's
+	// merged settings file; codex: -c features.plugins/features.apps/skills.bundled.enabled false and skills.config
+	// with enabled false per dir of the user's skills dir; opencode: OPENCODE_DISABLE_CLAUDE_CODE_SKILLS hides
+	// ~/.claude/skills and the project's .claude/skills, while .agents/skills stays).
+	Override *Override
+	// Agent is the agent's name, for a kind that writes a state file per agent (claude's settings file); "": none
+	// is named.
+	Agent string
 	// Env is the start's environment (HOME, XDG_CONFIG_HOME, …), for a kind that reads its own config; nil: none.
 	Env func(string) string
-	// Dirs lists a dir's subdirectories by name (a user's skills dir, for a trimmed start): the adapter's I/O; nil:
+	// Dirs lists a dir's subdirectories by name (a user's skills dir, for a start with an override): the adapter's I/O; nil:
 	// none is listed.
 	Dirs ListDirs
 	// Session is the session id this start runs as, for a kind that takes one on its command line (Claude's
@@ -114,6 +119,63 @@ type Start struct {
 	// kind reads the project's committed CLI config there with Read, for the keys its policy flags give way to (
 	// a project customizes its agents natively); "" or Read nil: no project file is read, the flags as before.
 	Dir string
+}
+
+// Override is one kind's override of the user's own settings (config agents.overrides.<kind>, a role's laid over
+// it). Settings are keys in the kind's native shape, set over the user's. Off switches off entries of the user's own
+// config, each named by a substring of the entry.
+type Override struct {
+	Settings map[string]any `json:"settings,omitempty"`
+	Off      Off            `json:"off,omitzero"`
+}
+
+// Off are the user's entries an override switches off, each a substring of the entry it names: a hook's command, a
+// plugin's id, a skill's dir name, an MCP server's name.
+type Off struct {
+	Hooks   []string `json:"hooks,omitempty"`
+	Plugins []string `json:"plugins,omitempty"`
+	Skills  []string `json:"skills,omitempty"`
+	MCP     []string `json:"mcp,omitempty"`
+}
+
+// Over is o with over laid over it: over's settings win key by key (Merge), its off lists are added.
+func (o Override) Over(over Override) Override {
+	return Override{Settings: Merge(o.Settings, over.Settings), Off: Off{
+		Hooks:   slices.Concat(o.Off.Hooks, over.Off.Hooks),
+		Plugins: slices.Concat(o.Off.Plugins, over.Off.Plugins),
+		Skills:  slices.Concat(o.Off.Skills, over.Off.Skills),
+		MCP:     slices.Concat(o.Off.MCP, over.Off.MCP),
+	}}
+}
+
+// Merge is a with b laid over it, as a new map that shares no object with either: where both hold an object under a
+// key the two merge the same way, anything else in b replaces a's value.
+func Merge(a, b map[string]any) map[string]any {
+	out := make(map[string]any, len(a)+len(b))
+	for k, v := range a {
+		if m, ok := v.(map[string]any); ok {
+			v = Merge(m, nil)
+		}
+		out[k] = v
+	}
+	for k, v := range b {
+		if bm, ok := v.(map[string]any); ok {
+			am, _ := out[k].(map[string]any)
+			v = Merge(am, bm)
+		}
+		out[k] = v
+	}
+	return out
+}
+
+// Matches: entry holds one of subs (an Off list's match of a user's entry).
+func Matches(subs []string, entry string) bool {
+	for _, s := range subs {
+		if s != "" && strings.Contains(entry, s) {
+			return true
+		}
+	}
+	return false
 }
 
 // ReadFile reads a file for a kind (os.ReadFile): the adapter's I/O, handed to a pure function.
@@ -507,6 +569,12 @@ type Whole interface {
 	StartWhole(in Start) (Launch, error)
 }
 
+// Preparer is a Split kind whose start reads or writes files before its argv is built (claude's merged settings
+// file): Prepare is in with that done and what it wrote named (Start.SettingsFile). An error refuses the start.
+type Preparer interface {
+	Prepare(in Start) (Start, error)
+}
+
 // Split is a compiled kind's start: its argv and its env by two methods (a plugin kind is Whole and has
 // neither).
 type Split interface {
@@ -521,8 +589,9 @@ type Split interface {
 
 // StartOf is k's start of in, a complete Start built once at the launch boundary: a Whole kind's one call;
 // a Split kind's env (StartEnv) and its argv in two passes of Start: the type's launch args (Args with
-// Settings, Effort, StrictMCP, TrimUser with Env and Dirs, WriteDirs), then the start over them (Kit, Resume,
-// Session, Prompt), Dir and Read in both. An error: the start cannot carry in.Effort, a plugin kind's start failed, or k has no start.
+// Settings or SettingsFile, Effort, StrictMCP, Override with Env and Dirs, WriteDirs), then the start over them (Kit, Resume,
+// Session, Prompt), Dir and Read in both; a Preparer's Prepare comes first. An error: the start cannot carry
+// in.Effort, a plugin kind's start or a Prepare failed, or k has no start.
 func StartOf(k Kind, in Start) (Launch, error) {
 	if w, ok := k.(Whole); ok {
 		return w.StartWhole(in)
@@ -535,8 +604,13 @@ func StartOf(k Kind, in Start) (Launch, error) {
 	if err != nil {
 		return Launch{}, err
 	}
-	args := s.Start(Start{Args: in.Args, Settings: in.Settings, Effort: in.Effort, StrictMCP: in.StrictMCP,
-		TrimUser: in.TrimUser, Env: in.Env, Dirs: in.Dirs, WriteDirs: in.WriteDirs, Dir: in.Dir, Read: in.Read})
+	if p, ok := k.(Preparer); ok {
+		if in, err = p.Prepare(in); err != nil {
+			return Launch{}, err
+		}
+	}
+	args := s.Start(Start{Args: in.Args, Settings: in.Settings, SettingsFile: in.SettingsFile, Effort: in.Effort, StrictMCP: in.StrictMCP,
+		Override: in.Override, Env: in.Env, Dirs: in.Dirs, WriteDirs: in.WriteDirs, Dir: in.Dir, Read: in.Read})
 	args = s.Start(Start{Kit: in.Kit, Args: args, Resume: in.Resume, Session: in.Session, Prompt: in.Prompt,
 		Dir: in.Dir, Read: in.Read})
 	return Launch{Args: args, Env: env}, nil
