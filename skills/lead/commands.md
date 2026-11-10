@@ -132,11 +132,13 @@ itself when it merges, and `obor review` stays for the every-~3-merges reviews.
 - When a verify approves: `obor review close "<summary>" [--accept "<line>"]… [--force]` deletes the review's files, appends
   each accepted line to `docs/accepted.md` naming the RV (created when missing) and commits
   `RV-xx closed · <sha> · approved · <summary>`
-  (`CLOSED <subject>`; `accepted <n>` in place of `approved` when it carries `--accept` lines). It is a call to serve,
+  (`CLOSED <subject>`; `accepted <n>` in place of `approved` when it carries `--accept` lines, `abandoned` when the
+  review's file was never written). It is a call to serve,
   which commits the close, records it and stops the reviewer on its next pass.
   Refused, nothing changed: no open review, no review start for it in serve's log, a main checkout dirty outside
   `BACKLOG.md`, `docs/accepted.md`, a linked fix task open, or merged and no finished verify covering it (named;
-  `--force`, the owner's word, closes anyway).
+  `--force`, the owner's word, closes anyway). `--force` also closes a review whose file was never written: nothing is
+  deleted and the reviewed sha is its start's head.
   Steps and texts: review-brief.md §3–5.
 
 ## An agent stopped by an API error

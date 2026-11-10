@@ -111,11 +111,11 @@ When a verify approves with nothing left to do (or the review found nothing): `o
 deletes `<RV-xx>.md` and `<RV-xx>-verify.md` from the main checkout, appends each `--accept` line to `docs/accepted.md`
 as `- (<RV-xx>, accepted) <line>` (the file created when missing), commits
 `RV-xx closed · <reviewed sha> · approved · <summary>` on the
-integration branch in the main checkout (`accepted <n>` in place of `approved` when the close carries `--accept` lines;
-with `docs/accepted.md`, and a dirty `BACKLOG.md`; the reviewed sha is the head serve's log says the reviewer
-last finished: the last done verify's (never one replaced or failed), else the review's, not your doc commits
-since), then records the close (fact `review.closed`): the next review may start, and serve stops the reviewer on its
-next pass. The commit's body records the tasks the cycle covered (its in-scope tasks and each verify's)
+integration branch in the main checkout (`accepted <n>` in place of `approved` when the close carries `--accept` lines,
+`abandoned` when the review's file was never written; with `docs/accepted.md`, and a dirty `BACKLOG.md`; the reviewed
+sha is the head serve's log says the reviewer last finished: the last done verify's (never one replaced or failed),
+else the review's, not your doc commits since), then records the close (fact `review.closed`): the next review may
+start, and serve stops the reviewer on its next pass. The commit's body records the tasks the cycle covered (its in-scope tasks and each verify's)
 and the sha its review started at:
 
 ```
@@ -129,5 +129,6 @@ unreviewed until a cycle covers it; `obor status`' `review due` counts it). A cl
 no review start for it in serve's log, the main checkout not on the integration branch or dirty outside
 `BACKLOG.md`, `docs/accepted.md` and the review's files, or a task linked by its `Fixes:` line open, or merged and not
 covered (named;
-`--force`, the owner's word, closes anyway). Nothing else of the review
-is kept; the reviewer's evidence lives only in its session.
+`--force`, the owner's word, closes anyway). `--force` also closes a review whose file was never written (the reviewer
+stopped before writing it): nothing is deleted, the reviewed sha is its start's head and the subject says `abandoned`.
+Nothing else of the review is kept; the reviewer's evidence lives only in its session.

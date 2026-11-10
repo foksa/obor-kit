@@ -49,10 +49,12 @@ func reviewCmd(args []string) int {
 
 // reviewCloseCmd is `obor review close "<summary>" [--accept "<line>"]… [--force]`: one request to obor serve
 // (wire.MethodReviewClose). Serve's reply: CLOSED <subject>, the commit "RV-<n> closed · <reviewed sha> · approved ·
-// <summary>" (with --accept lines: "accepted <n>" in place of "approved") on the integration branch. FAIL:
+// <summary>" (with --accept lines: "accepted <n>" in place of "approved"; "abandoned" for a review whose file was never
+// written) on the integration branch. --force also closes a review whose file was never written: nothing to delete,
+// the reviewed sha its start's head. FAIL:
 // serve down, its refusal (no open review, no review start for it in the log, the main checkout not on the
 // integration branch or dirty outside BACKLOG.md, docs/accepted.md and the review's files, a linked fix not verified
-// without --force) or a usage error (exit 1).
+// without --force, a review with no file without --force) or a usage error (exit 1).
 func reviewCloseCmd(args []string) int {
 	var summary string
 	var accepts []string

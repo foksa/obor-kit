@@ -284,8 +284,8 @@ var errNoOpenReview = errors.New("no open review")
 
 // openReview is p's open review (obor dispatch's Fixes: check, the verify, obor review close): none open in the fold,
 // or no review file <reviews>/RV-<n>.md in the main checkout (the reviewer writes it there), is no open review,
-// an error (errNoOpenReview).
-func (a *App) openReview(p *proj, s ReviewSetup) (openCycle, error) {
+// an error (errNoOpenReview). hint, when not "", is the way out the missing-file refusal names (the close's --force).
+func (a *App) openReview(p *proj, s ReviewSetup, hint string) (openCycle, error) {
 	a.mu.Lock()
 	id, prev := p.folded.rv.last().open(), p.folded.rv.prev().id
 	a.mu.Unlock()
@@ -294,7 +294,11 @@ func (a *App) openReview(p *proj, s ReviewSetup) (openCycle, error) {
 	}
 	c := openCycle{ID: id, Prev: prev, File: filepath.Join(p.root, s.Reviews, id+".md")}
 	if _, err := os.Stat(c.File); err != nil {
-		return c, fmt.Errorf("%w: no %s/%s.md in %s (%s is not written yet)", errNoOpenReview, s.Reviews, c.ID, p.root, c.ID)
+		why := c.ID + " is not written yet"
+		if hint != "" {
+			why += ": " + hint
+		}
+		return c, fmt.Errorf("%w: no %s/%s.md in %s (%s)", errNoOpenReview, s.Reviews, c.ID, p.root, why)
 	}
 	return c, nil
 }
@@ -310,7 +314,7 @@ func (a *App) fixesCheck(p *proj, task string, sp spec.Spec) error {
 	if err != nil {
 		return fmt.Errorf("%s: Fixes: %s: %v", task, id, err)
 	}
-	c, err := a.openReview(p, s)
+	c, err := a.openReview(p, s, "")
 	switch {
 	case errors.Is(err, errNoOpenReview) && c.ID == "":
 		return fmt.Errorf("%s: Fixes: %s is not the open review (none is open)", task, id)
@@ -327,7 +331,7 @@ func (a *App) fixesCheck(p *proj, task string, sp spec.Spec) error {
 // branch's head: the verify brief and that head.
 func (a *App) verifyText(ctx context.Context, p *proj, g port.Review, s ReviewSetup, id string, tasks, notes []string) (text,
 	head string, err error) {
-	c, err := a.openReview(p, s)
+	c, err := a.openReview(p, s, "")
 	if err != nil {
 		return "", "", err
 	}

@@ -448,14 +448,18 @@ func reviewNumber(id string) (n int, ok bool) {
 	return n, err == nil
 }
 
-// CloseCommit is review id's close commit: the subject "RV-<n> closed · <reviewed sha> · approved · <summary>", or
+// CloseCommit is review id's close commit: the subject "RV-<n> closed · <reviewed sha> · approved · <summary>",
 // "accepted <n>" in place of "approved" when the close carried accepted findings (the verify requested changes
-// and the close carries them, so the subject does not say the review approved), and the body "Covered: <tasks>\nStart:
-// <review start sha>" (the cycle's coverage, so the next review's scope takes the merges it did not cover).
-func CloseCommit(id, sha, summary string, covered []string, start string, accepted int) (subject, body string) {
+// and the close carries them, so the subject does not say the review approved), or "abandoned" for a review whose file
+// was never written (nothing was approved), and the body "Covered: <tasks>\nStart: <review start sha>" (the cycle's
+// coverage, so the next review's scope takes the merges it did not cover).
+func CloseCommit(id, sha, summary string, covered []string, start string, accepted int, unwritten bool) (subject, body string) {
 	verdict := "approved"
-	if accepted > 0 {
+	switch {
+	case accepted > 0:
 		verdict = "accepted " + strconv.Itoa(accepted)
+	case unwritten:
+		verdict = "abandoned"
 	}
 	subject = id + " closed · " + strings.TrimSpace(sha) + " · " + verdict + " · " + summary
 	body = "Covered: " + strings.Join(covered, ", ") + "\nStart: " + start

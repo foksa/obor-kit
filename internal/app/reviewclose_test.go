@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -67,6 +68,50 @@ func TestReviewCloseRefusals(t *testing.T) {
 					r.p.folded.rv.last().open())
 			}
 		})
+	}
+}
+
+// A review serve started whose file the reviewer never wrote: without --force the close is refused with the one way out
+// and records nothing; --force closes it unwritten (nothing to delete, the reviewed sha its start's head, the subject's
+// verdict "abandoned") and the next review starts.
+func TestReviewCloseUnwritten(t *testing.T) {
+	t.Parallel()
+	r := newReviewRig(t)
+	startedReview(t, r) // RV-5 at startHead, and no reviews/RV-5.md
+	if r.p.folded.rv.last().open() != "RV-5" {
+		t.Fatalf("precondition: %+v, want RV-5 open", r.p.folded.rv.last())
+	}
+	_, err := r.close("c1", "never written", false)
+	want := fmt.Sprintf("no open review: no reviews/RV-5.md in %s (RV-5 is not written yet: obor review close"+
+		" \"<summary>\" --force closes it unwritten)", r.p.root)
+	if err == nil || err.Error() != want {
+		t.Fatalf("close without --force: %v; want %q", err, want)
+	}
+	if n, f := r.commits(), r.closedFacts(); n != 0 || len(f) != 0 {
+		t.Fatalf("a refused close: %d commits, facts %+v; want none", n, f)
+	}
+	subject := "RV-5 closed · 1234567 · abandoned · never written"
+	reply, err := r.close("c2", "never written", true)
+	if err != nil || reply != "CLOSED "+subject {
+		t.Fatalf("--force: %q, %v; want CLOSED %q", reply, err, subject)
+	}
+	wantCommit := port.ReviewCommit{Branch: "main", ID: "RV-5", File: r.p.root + "/reviews/RV-5.md",
+		Reviewed: startHead, Subject: subject, Body: "Covered: T-start\nStart: " + startHead}
+	if r.commits() != 1 || !commitEqual(r.git.closes[0], wantCommit) {
+		t.Errorf("committed %+v, want %+v", r.git.closes, wantCommit)
+	}
+	if f := r.closedFacts(); len(f) != 1 || f[0].ID != "RV-5" || f[0].Reply != "CLOSED "+subject || f[0].Head != startHead {
+		t.Errorf("review.closed facts %+v, want RV-5's once at %s", f, startHead)
+	}
+	if r.p.folded.rv.last().open() != "" {
+		t.Errorf("the fold %+v, want RV-5 closed", r.p.folded.rv.last())
+	}
+	if got := r.mustCall("r2", nil, "", false); got != "REVIEW REQUESTED (now)" {
+		t.Fatalf("obor review after the close: %q", got)
+	}
+	r.pass()
+	if l := r.agents.launches; len(l) != 1 || !strings.HasPrefix(l[0].Prompt, "Review RV-6. ") {
+		t.Errorf("launches %+v, want the next review RV-6 started", l)
 	}
 }
 
