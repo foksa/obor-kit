@@ -92,10 +92,10 @@ type Start struct {
 	// config.Model.Launch: the config's agents.overrides.<kind> with the role's laid over, empty when the config
 	// names none); every user setting it does not name applies, and so do the project's own config and obor's
 	// wiring. nil: the user's settings as they are (a lead). Each kind applies it its own way (claude: Prepare's
-	// merged settings file; codex: -c features.plugins/features.apps/skills.bundled.enabled false and skills.config
-	// with enabled false per dir of the user's skills dir; opencode: OPENCODE_DISABLE_CLAUDE_CODE_SKILLS hides
-	// ~/.claude/skills and the project's .claude/skills, while .agents/skills stays, and settings, off.plugins and
-	// off.mcp go into its generated config).
+	// merged settings file; codex: -c features.plugins/features.apps/skills.bundled.enabled false, skills.config
+	// with enabled false per skill of the user's skills dir, then -c options for its settings and off lists;
+	// opencode: OPENCODE_DISABLE_CLAUDE_CODE_SKILLS hides ~/.claude/skills and the project's .claude/skills, while
+	// .agents/skills stays, and settings, off.plugins and off.mcp go into its generated config).
 	Override *Override
 	// Agent is the agent's name, for a kind that writes a state file per agent (claude's settings file); "": none
 	// is named.
@@ -200,11 +200,11 @@ func UserDir(in Start, envVar, dflt string) string {
 	return ""
 }
 
-// UserSkills are the skills of a user's config dir (UserDir): the names of the subdirectories of its skills dir,
-// sorted, without the dot dirs (a CLI's own, such as Codex's .system). nil: no config dir (""), no lister, or a
-// skills dir that does not list.
+// UserSkills are the skills of a user's config dir (UserDir): the names of the subdirectories of its skills dir
+// that hold a SKILL.md (a dir without one is no skill), sorted, without the dot dirs (a CLI's own, such as Codex's
+// .system). nil: no config dir (""), no lister or reader, or a skills dir that does not list.
 func UserSkills(in Start, userDir string) []string {
-	if userDir == "" || in.Dirs == nil {
+	if userDir == "" || in.Dirs == nil || in.Read == nil {
 		return nil
 	}
 	dir := filepath.Join(userDir, "skills")
@@ -214,7 +214,10 @@ func UserSkills(in Start, userDir string) []string {
 	}
 	var out []string
 	for _, n := range names {
-		if !strings.HasPrefix(n, ".") {
+		if strings.HasPrefix(n, ".") {
+			continue
+		}
+		if _, err := in.Read(filepath.Join(dir, n, "SKILL.md")); err == nil {
 			out = append(out, n)
 		}
 	}

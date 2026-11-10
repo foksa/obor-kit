@@ -8,10 +8,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"math"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"obor/internal/agents"
 )
@@ -30,15 +35,17 @@ func EnvVarsTOML() string {
 }
 
 // Start: `resume <sid>` before the type's args (with in.Effort: their model_reasoning_effort replaced by
-// -c model_reasoning_effort=<effort>), then --add-dir per write dir, then a trimmed start's switches (in.Override != nil:
-// trimKeys false: no plugins, no app connectors, no bundled skills; skills.config with every dir of the user's
-// skills dir off, skillsOff; the rest of the user's config applies), then obor's server (with a kit), then the
-// update check off, then the prompt (a resume carries none). Codex takes no settings.
+// -c model_reasoning_effort=<effort>), then --add-dir per write dir, then the override's options (in.Override != nil:
+// settingArgs: the plugins and settings the override names; trimKeys false: no plugins, no app connectors, no bundled
+// skills; skills.config with the user's skills off, skillsOff; offArgs: the hooks and MCP servers the override
+// names; the rest of the user's config applies), then obor's server (with a kit), then the update check off, then
+// the prompt (a resume carries none). Codex takes no settings.
 //
 // The project's committed .codex/config.toml in in.Dir outranks obor's policy: a top-level sandbox_mode drops
 // the base args' -s workspace-write, a top-level check_for_update_on_startup leaves the update check as the file sets
 // it, and a trim key the file sets (in any form: dotted, in a [table], inside a table it assigns whole, or as
-// [[skills.config]] tables) is left as the file sets it. A key the type's args set (-c) is left as they set it too.
+// [[skills.config]] tables) is left as the file sets it. A key the type's args set (-c) is left as they set it too,
+// and so is a trim key or the update check when the override's settings set it (their -c carries it).
 // A file that does not parse counts as absent (config validate warns).
 func (kind) Start(in agents.Start) []string {
 	top, _ := projectKeys(in)
@@ -54,15 +61,21 @@ func (kind) Start(in agents.Start) []string {
 	for _, d := range in.WriteDirs { // workspace-write writes the cwd only
 		out = append(out, "--add-dir", d)
 	}
+	var given map[string]bool // the keys the override's settings set
 	if in.Override != nil {
+		given = settingKeys(in.Override.Settings)
+		left := func(k string) bool { return argSets(in.Args, k) || sets(top, k) || sets(given, k) }
+		userConfig := userConfigLines(in)
+		out = append(out, settingArgs(in, top, userConfig, !left(pluginsKey))...)
 		for _, k := range trimKeys {
-			if !argSets(in.Args, k) && !sets(top, k) {
+			if !left(k) {
 				out = append(out, "-c", k+"=false")
 			}
 		}
-		if off := skillsOff(in); off != "" && !argSets(in.Args, skillsKey) && !sets(top, skillsKey) {
+		if off := skillsOff(in); off != "" && !left(skillsKey) {
 			out = append(out, "-c", skillsKey+"="+off)
 		}
+		out = append(out, offArgs(in, top, userConfig)...)
 	}
 	if in.Kit != "" {
 		out = append(out,
@@ -75,7 +88,7 @@ func (kind) Start(in agents.Start) []string {
 	}
 	// Codex's own "Update available" menu blocks a fresh start until someone picks "Skip"; a type arg that
 	// sets the key wins.
-	if !argSets(in.Args, updateCheck) && !top[updateCheck] {
+	if !argSets(in.Args, updateCheck) && !top[updateCheck] && !given[updateCheck] {
 		out = append(out, "-c", updateCheck+"=false")
 	}
 	if in.Prompt != "" && in.Resume == "" {
@@ -105,20 +118,32 @@ func withoutSandbox(args []string) []string {
 
 // trimKeys are the switches of a trimmed start, each set false: the user's plugins (their skills too), the app
 // connectors, the bundled system skills. The project's skills and obor's -c MCP server stay.
-var trimKeys = []string{"features.plugins", "features.apps", "skills.bundled.enabled"}
+var trimKeys = []string{pluginsKey, "features.apps", "skills.bundled.enabled"}
+
+// pluginsKey is Codex's switch for every plugin.
+const pluginsKey = "features.plugins"
 
 // skillsKey is Codex's per-skill switch list: [{name = "<skill>", enabled = false}, …].
 const skillsKey = "skills.config"
 
-// skillsOff is the skillsKey value that switches off every skill of the user's skills dir ($CODEX_HOME, default
-// ~/.codex: skills/), one entry per dir by its name; "": the dir has none (or the start names no user dir).
+// userDir is the user's Codex home: $CODEX_HOME, default ~/.codex ("": the start names neither).
+func userDir(in agents.Start) string { return agents.UserDir(in, "CODEX_HOME", ".codex") }
+
+// skillsOff is the skillsKey value that switches off every skill of the user's skills dir (userDir: skills/) and
+// each skill of ~/.agents/skills the override's off.skills names, one entry per skill by its dir name, sorted; "":
+// there is none (or the start names no user dir).
 func skillsOff(in agents.Start) string {
-	dir := agents.UserDir(in, "CODEX_HOME", ".codex")
-	if dir == "" {
-		return ""
+	names := agents.UserSkills(in, userDir(in))
+	if in.Env != nil && in.Env("HOME") != "" {
+		for _, n := range agents.UserSkills(in, filepath.Join(in.Env("HOME"), ".agents")) {
+			if agents.Matches(in.Override.Off.Skills, n) && !slices.Contains(names, n) {
+				names = append(names, n)
+			}
+		}
 	}
+	slices.Sort(names)
 	var entries []string
-	for _, n := range agents.UserSkills(in, dir) {
+	for _, n := range names {
 		name, _ := json.Marshal(n) // a JSON string is a TOML basic string
 		entries = append(entries, "{name="+string(name)+",enabled=false}")
 	}
@@ -126,6 +151,250 @@ func skillsOff(in agents.Start) string {
 		return ""
 	}
 	return "[" + strings.Join(entries, ",") + "]"
+}
+
+// userConfigLines are the lines of the user's config.toml (userDir), read only for an override whose off.plugins or
+// off.mcp name entries of it; nil: none is read.
+func userConfigLines(in agents.Start) []string {
+	dir := userDir(in)
+	if dir == "" || in.Read == nil || len(in.Override.Off.Plugins)+len(in.Override.Off.MCP) == 0 {
+		return nil
+	}
+	b, _ := in.Read(filepath.Join(dir, "config.toml"))
+	return strings.Split(string(b), "\n")
+}
+
+// A table Codex's -c is given inline replaces what earlier -c options set under its key (a dotted key after it
+// stays, and the user's config still merges in key by key), and -c does not honor a quoted part of a dotted key. So
+// an inline table is passed only where a key part needs quotes, never for a key the type's args set a key under
+// (argSetsUnder), and before every dotted key obor passes: settingArgs' tables, then its dotted keys, then the trim.
+
+// settingArgs are the -c options of the override's off.plugins and settings, in this order:
+//   - off.plugins, only when obor's features.plugins=false does not go (pluginsOff false: the project's config, the
+//     type's args or the settings keep plugins on): one plugins={"<id>"={enabled=false},…} for the matching
+//     [plugins."<id>"] tables of the user's config.toml (userConfig), a plugin the project's config has keys for
+//     left to it;
+//   - settings: each entry as -c <dotted key>=<value>, sorted, an object entry by entry down to its leaves, the value
+//     as TOML (tomlValue); the entries of an object whose key needs quotes as one inline table at the object's key,
+//     those tables first. Without each entry the project's config sets (unset) and without the effort key when the
+//     start names an effort.
+func settingArgs(in agents.Start, top map[string]bool, userConfig []string, pluginsOff bool) []string {
+	over := *in.Override
+	var tables, leaves []string
+	if !pluginsOff {
+		var off []string
+		for _, id := range tableNames(userConfig, "plugins") {
+			if agents.Matches(over.Off.Plugins, id) && !sets(top, "plugins."+id) {
+				off = append(off, tomlKeyPart(id)+"={enabled=false}")
+			}
+		}
+		if len(off) > 0 && !argSetsUnder(in.Args, "plugins") {
+			tables = append(tables, "plugins={"+strings.Join(off, ",")+"}")
+		}
+	}
+	var walk func(path string, v any)
+	walk = func(path string, v any) {
+		m, ok := v.(map[string]any)
+		if !ok {
+			leaves = append(leaves, path+"="+tomlValue(v))
+			return
+		}
+		quoted := map[string]any{}
+		for _, k := range slices.Sorted(maps.Keys(m)) {
+			if bareKey.MatchString(k) {
+				walk(path+"."+k, m[k])
+			} else {
+				quoted[k] = m[k]
+			}
+		}
+		if len(quoted) > 0 && !argSetsUnder(in.Args, path) {
+			tables = append(tables, path+"="+tomlValue(quoted))
+		}
+	}
+	for _, k := range slices.Sorted(maps.Keys(over.Settings)) {
+		if k == effortKey && in.Effort != "" {
+			continue
+		}
+		if v, ok := unset(over.Settings[k], k, top); ok {
+			walk(k, v)
+		}
+	}
+	var out []string
+	for _, o := range slices.Concat(tables, leaves) {
+		out = append(out, "-c", o)
+	}
+	return out
+}
+
+// offArgs are the -c options of the override's off.hooks and off.mcp: one hooks.state table naming each matching
+// hook of the user's hooks.json (hooksOff), then mcp_servers.<name>.enabled=false per matching [mcp_servers.<name>]
+// table of the user's config.toml (userConfig) whose name needs no quotes, never obor's own server; a server the
+// project's config has keys for, or the type's args switch, is left as they set it.
+func offArgs(in agents.Start, top map[string]bool, userConfig []string) []string {
+	over := *in.Override
+	var out []string
+	if off := hooksOff(in); off != "" {
+		out = append(out, "-c", "hooks.state="+off)
+	}
+	for _, name := range tableNames(userConfig, "mcp_servers") {
+		key := "mcp_servers." + name + ".enabled"
+		if name != "obor" && bareKey.MatchString(name) && agents.Matches(over.Off.MCP, name) &&
+			!sets(top, "mcp_servers."+name) && !argSets(in.Args, key) {
+			out = append(out, "-c", key+"=false")
+		}
+	}
+	return out
+}
+
+// hooksOff is the hooks.state value that switches off each hook of the user's hooks.json (userDir) whose command
+// holds one of the override's off.hooks: {"<hooks.json path>:<event, snake case>:<group index>:<hook index>"=
+// {enabled=false},…}, the events sorted. The key is the hook's position in the file, so it is built on every start.
+// "": no off.hooks, no such file (or one that is no hooks file), or no match.
+func hooksOff(in agents.Start) string {
+	dir := userDir(in)
+	if len(in.Override.Off.Hooks) == 0 || dir == "" || in.Read == nil {
+		return ""
+	}
+	path := filepath.Join(dir, "hooks.json")
+	b, err := in.Read(path)
+	if err != nil {
+		return ""
+	}
+	var file struct {
+		Hooks map[string][]struct {
+			Hooks []struct {
+				Command string `json:"command"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if json.Unmarshal(b, &file) != nil {
+		return ""
+	}
+	var off []string
+	for _, event := range slices.Sorted(maps.Keys(file.Hooks)) {
+		for g, group := range file.Hooks[event] {
+			for i, hook := range group.Hooks {
+				if agents.Matches(in.Override.Off.Hooks, hook.Command) {
+					off = append(off, tomlKeyPart(fmt.Sprintf("%s:%s:%d:%d", path, snake(event), g, i))+"={enabled=false}")
+				}
+			}
+		}
+	}
+	if len(off) == 0 {
+		return ""
+	}
+	return "{" + strings.Join(off, ",") + "}"
+}
+
+// snake is a hook event's name as hooks.state spells it: SessionStart → session_start.
+func snake(event string) string {
+	var b strings.Builder
+	for i, r := range event {
+		if unicode.IsUpper(r) && i > 0 {
+			b.WriteByte('_')
+		}
+		b.WriteRune(unicode.ToLower(r))
+	}
+	return b.String()
+}
+
+// tableNames are the names of root's tables in a TOML document's lines: the second part of each [root.<name>…]
+// header, quotes off, sorted, each once.
+func tableNames(lines []string, root string) []string {
+	var out []string
+	for _, line := range lines {
+		m := tomlTable.FindStringSubmatch(strings.TrimSpace(line))
+		if m == nil {
+			continue
+		}
+		parts := keyParts.FindAllString(m[1], -1)
+		if len(parts) < 2 || strings.Trim(parts[0], `"'`) != root {
+			continue
+		}
+		if name := strings.Trim(parts[1], `"'`); !slices.Contains(out, name) {
+			out = append(out, name)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// settingKeys are the keys settings set, each leaf as its dotted path (an object's entries, not the object).
+func settingKeys(settings map[string]any) map[string]bool {
+	keys := map[string]bool{}
+	var walk func(path string, v any)
+	walk = func(path string, v any) {
+		m, ok := v.(map[string]any)
+		if !ok {
+			keys[path] = true
+			return
+		}
+		for k, c := range m {
+			walk(path+"."+k, c)
+		}
+	}
+	for k, v := range settings {
+		walk(k, v)
+	}
+	return keys
+}
+
+// unset is a setting's value v (at the dotted path) without what the project's config sets (keys): an object
+// entry by entry, any other value as a whole. ok false: nothing of it is left (or it is null, which TOML lacks).
+func unset(v any, path string, keys map[string]bool) (rest any, ok bool) {
+	m, isObject := v.(map[string]any)
+	if !isObject {
+		return v, v != nil && !sets(keys, path)
+	}
+	out := map[string]any{}
+	for k, c := range m {
+		if r, ok := unset(c, path+"."+k, keys); ok {
+			out[k] = r
+		}
+	}
+	return out, len(out) > 0
+}
+
+// bareKey is a TOML key part that needs no quotes.
+var bareKey = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// tomlKeyPart is one part of a TOML key: bare, or quoted when it must be (a JSON string is a TOML basic string).
+func tomlKeyPart(k string) string {
+	if bareKey.MatchString(k) {
+		return k
+	}
+	b, _ := json.Marshal(k)
+	return string(b)
+}
+
+// tomlValue is a decoded JSON value as one line of TOML: an object as an inline table (keys sorted), a list as an
+// array (a null in it left out), a whole number without a fraction, a string as a basic string.
+func tomlValue(v any) string {
+	switch x := v.(type) {
+	case map[string]any:
+		var parts []string
+		for _, k := range slices.Sorted(maps.Keys(x)) {
+			if x[k] != nil {
+				parts = append(parts, tomlKeyPart(k)+"="+tomlValue(x[k]))
+			}
+		}
+		return "{" + strings.Join(parts, ",") + "}"
+	case []any:
+		var parts []string
+		for _, e := range x {
+			if e != nil {
+				parts = append(parts, tomlValue(e))
+			}
+		}
+		return "[" + strings.Join(parts, ",") + "]"
+	case float64:
+		if x == math.Trunc(x) && math.Abs(x) < 1e15 {
+			return strconv.FormatInt(int64(x), 10)
+		}
+		return strconv.FormatFloat(x, 'g', -1, 64)
+	}
+	b, _ := json.Marshal(v) // a string, a bool
+	return string(b)
 }
 
 // projectKeys are the keys the start dir's ConfigFile sets, as configKeys (nil: no file, or one that does not parse).
@@ -381,6 +650,18 @@ func withEffort(args []string, effort string) []string {
 
 // updateCheck is Codex's setting for the update check it runs on startup.
 const updateCheck = "check_for_update_on_startup"
+
+// argSetsUnder: the type's args set key or a key under it.
+func argSetsUnder(args []string, key string) bool {
+	for _, a := range args {
+		a = strings.TrimPrefix(a, "-c=")
+		a = strings.TrimPrefix(a, "--config=")
+		if k, _, ok := strings.Cut(a, "="); ok && (strings.TrimSpace(k) == key || strings.HasPrefix(strings.TrimSpace(k), key+".")) {
+			return true
+		}
+	}
+	return false
+}
 
 // argSets: the type's args set key themselves (`-c key=value`, `--config key=value` or their `key=value` word,
 // either spelling of the flag with =).
