@@ -13,6 +13,10 @@ obor spec. Executors: read the plan fully before starting, honor its STOP condit
 | [002](improve-002-web-host-allowlist.md) | obor web answers only to loopback names and `--allow-host` names | P1 | S | none | DONE (T-1170, 2ecee62) |
 | [003](improve-003-contract-docs-drift.md) | `docs/module-map.md` and `AGENTS.md` say what the code is today | P2 | S | none | DONE (T-1171, 2ecee62) |
 | [004](improve-004-linux-decision.md) | Decide Linux: run the suite there once, then test it or stop claiming it | P3 | S-M | none | DONE (decided: stop claiming Linux, T-1172) |
+| [005](improve-005-app-rig-in-process.md) | `internal/app`'s rig tests run in `testing/synctest` bubbles on in-memory connections (A1 step 2; 11 pieces, P0 the pilot) | P1 | L (P0: M) | none; its pieces: P1-P9 after P0, P10 last | TODO |
+| [006](improve-006-cli-version-change.md) | Serve tells the lead when an agent CLI or the terminal changed version (A8) | P2 | M | none | TODO |
+| [007](improve-007-accepted-findings-file.md) | `obor review close --accept` writes `docs/accepted.md`, not `BACKLOG.md` (A7) | P2 | S-M | none | TODO |
+| [008](improve-008-status-obor-skew.md) | `obor status` names the agents whose calls come from another obor release (A5) | P2 | S | none | TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 
@@ -26,6 +30,41 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 - 001 reports data races; fixing each one is a later task of its own.
 - Three of the plans leave a sentence of `docs/design.md` for the lead (it is protected): each plan's Maintenance
   notes names it.
+
+### Plans 005-008 (the owner's four architecture ideas, planned 2026-11-10 at `65389c8c`)
+
+- **A5 and A8 are two plans, not one.** They do not share data: 008 reads the callers' obor version from request
+  envelopes (serve has it in memory); 006 reads each CLI's own version with `--version` and herdr's from the
+  snapshot, which serve does not hold today for the CLIs. They also end in different places (a status line; a line
+  to the lead). Their one shared file is `internal/app/app.go`, each adding one field to a different struct.
+- **A8's first step is answered**: every agent CLI prints its version with `--version` in 23-80 ms, so the kind
+  protocol and the manifest need no new field (plan 006, "Why this matters").
+- **All four can start at once**: 005's pilot (P0), 006, 007 and 008 own different files:
+  - 005 P0: `internal/herdr/socket.go`, `internal/herdr/panes.go`, `internal/herdr/herdrtest/socket.go`,
+    `internal/herdr/socket_test.go`, `internal/app/rig_ext_test.go`, `internal/app/rig_test.go`, three
+    `internal/app/*_ext_test.go` files. P1-P9: other `internal/app/*_ext_test.go` files only, one family each, no
+    rig file (plan 005's "Pieces" table has the list). P10: four `_ext_test.go` files, the rig, `tests/budget.json`,
+    one sentence each in `AGENTS.md` and `docs/module-map.md`.
+  - 006: `internal/app/versions.go` (new) and its test, `internal/app/{app,loop,project,rules,describe}.go`,
+    `internal/app/describe_test.go`, `internal/app/event/steps.go`, `internal/launch/versions.go` (new) and its
+    test, `cmd/obor/serve.go`, one entry in `docs/module-map.md`.
+  - 007: `cmd/obor/reviewcycle.go` and its integration test, `cmd/obor/review.go` (a comment),
+    `internal/app/{reviewclose,review}.go` and their in-package tests, `internal/app/port/workflow.go` (comments),
+    `skills/lead/{SKILL,commands,review-brief}.md`, `templates/README.md`, `templates/BACKLOG.md`.
+  - 008: `internal/version/`, `internal/app/{app,status}.go`, `internal/app/status_test.go`,
+    `internal/app/wire/status.go`, `internal/view/view.go`, `cmd/obor/status.go`, `cmd/obor/status_test.go`.
+- Shared files, all trivial merges: `internal/app/app.go` (006 and 008, different structs); `docs/module-map.md`
+  (006 and 005's P10, different sentences; P10 runs last anyway).
+- Against the tasks running at planning time: T-1170 (`internal/web`) and T-1171 (`docs/module-map.md`) had merged;
+  none of the four touches `internal/web`, the `Makefile` or the config. `AGENTS.md` is touched only by 005's P10
+  (one sentence in "Tests"), after T-1169 and T-1172.
+- **005 needs one decision before its pilot is dispatched**: P0 adds an optional field to the herdr client
+  (`herdr.Socket.Conn`, about 15 production lines) so the fake herdr can be reached without a unix socket. The
+  plan's section "One decision for the lead" has the alternative and why it costs more.
+- **007 leaves the one-time move to the lead**: the task does not touch `BACKLOG.md` (the lead edits it in the main
+  checkout); the plan's Maintenance notes have the command (a dry run moved 67 of the 91 Open bullets, 38 KB to 20 KB).
+- 006 and 008 each leave sentences of `docs/design.md` and `docs/state-model.md` for the lead (Maintenance notes).
+- Numbering: 005 is A1 step 2, 006 is A8, 007 is A7, 008 is A5.
 
 ## How the audit was done
 
@@ -48,14 +87,14 @@ Where an idea starts with a plan above:
 
 | Idea | First step | Linked plan |
 |------|------------|-------------|
-| A1. A single-threaded, deterministic core | The nightly's race count, then an in-process path for the test rig | 001 is step 1; step 2 needs a plan of its own |
+| A1. A single-threaded, deterministic core | The nightly's race count, then an in-process path for the test rig | 001 is step 1; 005 is step 2 |
 | A2. Second implementations (rex or herdr-core, pi) against the contract tables | A "what obor needs from a terminal" list, a research note | none |
 | A3. obor-kit's serve follows a quieter build | Decide only if one of its four costs recurs | none |
 | A4. The review cycle as its own leaf package | A split in the `app/identity` / `app/outbox` pattern | none |
-| A5. Version skew visible in `obor status` | A status line from data serve already has | none |
+| A5. Version skew visible in `obor status` | A status line from data serve already has | 008 |
 | A6. `obor stats`: weekly numbers, rule firings first | List the rule steps the log records | none |
-| A7. Accepted findings out of `BACKLOG.md` | Where `obor review close --accept` writes | none |
-| A8. Serve says when an agent CLI or the terminal changed version | Whether a kind can report its CLI version | none |
+| A7. Accepted findings out of `BACKLOG.md` | Where `obor review close --accept` writes | 007 |
+| A8. Serve says when an agent CLI or the terminal changed version | Whether a kind can report its CLI version | 006 (answered: `--version`, no manifest field) |
 | A9. Needs-you answered from another device | One more write route on `obor web` | after 002 and a login |
 | One serve, several devices | Viewer devices, then remote checks, then remote lanes | 002 (viewers), 004 (a Linux check machine) |
 

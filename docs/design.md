@@ -272,6 +272,11 @@ every reader: `docs/state-model.md` ("The log", the `lanes` bullet). Fields per 
 dispatch runs, "" none): `lane, type, dir, branch, task,
 state, done_age, dirty, warning, op, task_state, attempt, running, agent, agent_status`. Text output: serve's line, one line per
 lane, serve's tasks on no lane, needs-you with the commands that answer them, the full check, the pause.
+A skew line names each agent whose calls come from another obor release than serve's, until it starts a new session
+(T-1177; serve has the caller's version from every request envelope; `wire.Status.Skew`). Agent CLI and terminal
+versions are a rule (T-1176): serve reads each kind's `<program> --version` (first line) and herdr's snapshot
+version every ten minutes, records a change as fact `version`, and sends the lead one line per change ("watch its
+next start"); it holds or refuses nothing.
 
 ## obor web's write path (T-753, T-760)
 `obor web` reads the read model like `obor status` and has two verbs, the Setup page's edits: `POST /api/config`
