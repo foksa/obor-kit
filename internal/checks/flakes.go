@@ -187,16 +187,17 @@ type Flaky struct {
 	Last  int64
 }
 
-// flakeRule is the rule for a passed-on-retry line a later fix ended: a merge after the line whose spec title names the
-// test, or whose diff touched the file that defines it. Its reads (git, the specs, the merges) are lazy and remembered
-// per rule, so one `obor flakes` round pays for each task, test and sha once.
+// flakeRule is the rule for a passed-on-retry line a fix ended: a merge after the line whose spec title names the test,
+// or one whose diff touched a file that defines it and whose commit the line's sha does not contain. Its reads (git, the
+// specs, the merges) are lazy and remembered per rule, so one `obor flakes` round pays for each task, test and sha once.
 type flakeRule struct {
-	cfg    *config.Config
-	loaded bool                // the specs and the merges are read
-	specs  []flakeSpec         // the task specs' titles
-	merged map[string]flakeFix // task → its newest merge (fact merged)
-	diffs  map[string][]string // "<task>\0<sha>" → the task diff's files (nil: git cannot tell)
-	defs   map[string][]string // "<test>\0<sha>" → the files defining the test (empty: a package name)
+	cfg      *config.Config
+	loaded   bool                // the specs and the merges are read
+	specs    []flakeSpec         // the task specs' titles
+	merged   map[string]flakeFix // task → its newest merge (fact merged)
+	diffs    map[string][]string // "<task>\0<sha>" → the task diff's files (nil: git cannot tell)
+	defs     map[string][]string // "<test>\0<sha>" → the files defining the test (empty: a package name)
+	ancestry map[string]bool     // "<fix>\0<sha>" → sha's history holds fix
 }
 
 // flakeFix is a task's newest merge: its time and the merge's head, the sha its diff reads from.
@@ -209,38 +210,56 @@ type flakeFix struct {
 type flakeSpec struct{ task, title string }
 
 func newFlakeRule(cfg *config.Config) *flakeRule {
-	return &flakeRule{cfg: cfg, diffs: map[string][]string{}, defs: map[string][]string{}}
+	return &flakeRule{cfg: cfg, diffs: map[string][]string{}, defs: map[string][]string{},
+		ancestry: map[string]bool{}}
 }
 
-// explained reports whether a merge after e ended the test's flakes: a task merged after the line whose spec title
-// names the test, or whose diff touched a file that defines it. A line git, the specs or the merges cannot place counts
-// as no fix.
+// explained reports whether a merge ended the test's flakes: a task merged after the line whose spec title names the
+// test, or one whose diff touched a file that defines it and whose commit the line's sha does not contain. A line git,
+// the specs or the merges cannot place counts as no fix.
 func (r *flakeRule) explained(e Flake) bool {
 	if e.SHA == "" || e.Task == "" {
 		return false
 	}
-	return r.beforeFix(e.Test, e.Time) || r.fixedAfter(e.Test, e.Time)
+	return r.beforeFix(e.Test, e.Time) || r.fixedSince(e.Test, e.SHA)
 }
 
-// fixedAfter reports whether a task merged after at changed a file that defines the test.
-func (r *flakeRule) fixedAfter(test string, at int64) bool {
+// fixedSince reports whether a task merged a change to a file that defines the test at sha, and that sha does not
+// contain the merge: gates run on older bases, so a merge newer than the base can fix a test a line older in time
+// still flaked on.
+func (r *flakeRule) fixedSince(test, sha string) bool {
 	r.load()
+	defs := r.defines(test, sha)
+	if len(defs) == 0 {
+		return false
+	}
 	for task, m := range r.merged {
-		if m.at > at && r.touched(task, m.sha, test) {
+		if r.touches(task, m.sha, defs) && !r.contains(m.sha, sha) {
 			return true
 		}
 	}
 	return false
 }
 
-// touched reports whether the task's merged diff touched a file that defines the test at its merge's sha.
-func (r *flakeRule) touched(task, sha, test string) bool {
-	files := r.diff(task, sha)
-	if files == nil {
-		return false
+// contains reports whether sha's history holds fix (git merge-base --is-ancestor), cached per pair. A pair git cannot
+// answer counts as holding it: a fix this rule cannot place never ends a flake.
+func (r *flakeRule) contains(fix, sha string) bool {
+	key := fix + "\x00" + sha
+	if ok, seen := r.ancestry[key]; seen {
+		return ok
 	}
-	for _, f := range r.defines(test, sha) {
-		if slices.Contains(files, f) {
+	_, err := project.Git(r.cfg.Root, "merge-base", "--is-ancestor", fix, sha)
+	yes, unknown := exit1(err)
+	ok := yes || unknown != nil
+	r.ancestry[key] = ok
+	return ok
+}
+
+// touches reports whether the task's merged diff changed one of files.
+func (r *flakeRule) touches(task, sha string, files []string) bool {
+	changed := r.diff(task, sha)
+	for _, f := range files {
+		if slices.Contains(changed, f) {
 			return true
 		}
 	}
@@ -374,8 +393,8 @@ func (r *flakeRule) load() {
 }
 
 // FlakyTests is the flaky tests among entries as of now, sorted by name: a test with a passed_on_retry line in the
-// window that no later fix ended — it failed and then passed on a retry (flakeRule). Red lines are no flake evidence on
-// their own, and the race check's lines are none at all.
+// window that no fix ended (flakeRule). Red lines are no flake evidence on their own, and the race check's lines are
+// none at all.
 func FlakyTests(cfg *config.Config, entries []Flake, now time.Time) []Flaky {
 	type acc struct {
 		n     int
