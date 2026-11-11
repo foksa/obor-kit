@@ -128,7 +128,9 @@ func TestRestoreLabelledOborPanes(t *testing.T) {
 	f.shell("w1:p4", other, "pj-l-01")
 	f.shell("w1:p5", f.p.Root, "my notes")
 	f.h.Agent("w1:p6", "pj-int", "idle", f.p.Root).Label = "pj-int"
-	recordSessions(t, f.p.Root, store.Session{Agent: "pj-l-01", Kind: "claude", ID: "sid-l-01", Started: time.Now().Unix()})
+	f.shell("w1:p7", lane, "pj-l-01-drive") // the owner's drive: obor drive starts it again, the restore does not
+	recordSessions(t, f.p.Root, store.Session{Agent: "pj-l-01", Kind: "claude", ID: "sid-l-01", Started: time.Now().Unix()},
+		store.Session{Agent: "pj-l-01-drive", Kind: "claude", ID: "sid-drive", Started: time.Now().Unix()})
 	f.pl.RestoreProject(context.Background(), f.p.Root)
 	f.wantCalls(f.p.Root+" restart pj-l-01 --pane w1:p1", f.p.Root+" restart pj-lead --pane w1:p2 --fresh")
 	log := f.restoreLog()
@@ -138,7 +140,7 @@ func TestRestoreLabelledOborPanes(t *testing.T) {
 		"a role with no recorded session starts fresh (T-627)")
 	has(t, log, " skip pj-int (pane w1:p6): runs claude", "busy pane: skipped, logged")
 	if n := strings.Count(log, " restore ") + strings.Count(log, " skip "); n != 3 {
-		t.Errorf("%d restore/skip lines, want 3 (unlabelled, non-obor and foreign-label panes: none):\n%s", n, log)
+		t.Errorf("%d restore/skip lines, want 3 (unlabelled, non-obor, foreign-label and drive panes: none):\n%s", n, log)
 	}
 	if _, err := os.Stat(filepath.Join(other, ".obor")); err == nil {
 		t.Error("something written in the other repo")

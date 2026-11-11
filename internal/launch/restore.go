@@ -4,7 +4,7 @@ package launch
 // connection, restarts its project's panes (port.Restorer). It acts only on panes whose label is an agent of the obor
 // project they work in (R-28 §2: obor setup and obor restart label the pane): the main checkout of the pane cwd's
 // repository, when its config knows the label. Anything else (no label, no git, no .obor/config.json, a label the
-// project has no agent for, another project's pane) is silent.
+// project has no agent for, a drive agent's (obor drive <T-xx> starts it again), another project's pane) is silent.
 //
 // After herdr restores a session (with [session] resume_agents_on_restore = false obor panes come back as shells):
 // each labelled obor pane that runs no agent is restarted with obor restart, one at a time (a project's under its
@@ -30,6 +30,7 @@ import (
 	"obor/internal/app/port"
 	"obor/internal/config"
 	"obor/internal/project"
+	"obor/internal/roles"
 	"obor/internal/store"
 )
 
@@ -155,7 +156,8 @@ func (p *Restorer) panes(ctx context.Context) ([]port.Pane, bool) {
 }
 
 // oborPane is the config of the obor project whose agent pane's label names (paneConfig); false for an unlabelled
-// pane, one outside an obor project, or a label the project has no agent for.
+// pane, one outside an obor project, a label the project has no agent for, or a drive agent's (the owner's: obor
+// drive <T-xx> starts it again).
 func oborPane(pane port.Pane) (*config.Config, bool) {
 	if pane.Label == "" {
 		return nil, false
@@ -164,7 +166,7 @@ func oborPane(pane port.Pane) (*config.Config, bool) {
 	if !ok {
 		return nil, false
 	}
-	if _, ok := cfg.AgentLookup(pane.Label, ""); !ok {
+	if info, ok := cfg.AgentLookup(pane.Label, ""); !ok || info.Role == roles.Driver {
 		return nil, false
 	}
 	return cfg, true

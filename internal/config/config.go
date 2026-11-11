@@ -1207,12 +1207,13 @@ func (c *Config) LaneAgentAliases(lane string) []string {
 	return roles.LaneAgentAliases(lane, c.Data.Project.AgentPrefix)
 }
 
-// Agents is every agent name c names, by the name rules AgentLookup resolves: each lane's worker, then each role
-// agent's (the lead, the integrator, every configured role), without repeats.
+// Agents is every agent name c names, by the name rules AgentLookup resolves: each lane's worker and drive agent, then
+// each role agent's (the lead, the integrator, every configured role), without repeats.
 func (c *Config) Agents() []string {
 	var names []string
 	for _, lane := range c.Lanes() {
 		names = append(names, c.LaneAgentAliases(lane.Name)...)
+		names = append(names, c.Self(roles.Driver, lane.Name))
 	}
 	for _, rc := range c.RoleAgents() {
 		names = append(names, rc.Agent)
@@ -1231,13 +1232,17 @@ func (c *Config) NamesOtherAgent(label string, names ...string) bool {
 	return ok
 }
 
-// AgentLookup follows lane → role precedence, then resolves an unmatched cwd at to a lane.
+// AgentLookup follows lane → role precedence (a lane's worker, then its drive agent: Self's driver name of the lane,
+// role driver in the lane's worktree), then resolves an unmatched cwd at to a lane's worker.
 func (c *Config) AgentLookup(agent, at string) (AgentInfo, bool) {
 	for _, lane := range c.Lanes() {
 		for _, name := range c.LaneAgentAliases(lane.Name) {
 			if agent == name {
 				return AgentInfo{Role: "worker", Lane: lane.Name, Cwd: lane.Dir}, true
 			}
+		}
+		if d := c.Self(roles.Driver, lane.Name); d != "" && agent == d {
+			return AgentInfo{Role: roles.Driver, Lane: lane.Name, Cwd: lane.Dir}, true
 		}
 	}
 	for _, rc := range c.RoleAgents() {

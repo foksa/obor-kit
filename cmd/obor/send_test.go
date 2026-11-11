@@ -174,6 +174,7 @@ func TestBriefRequest(t *testing.T) {
 		{[]string{"brief", "pj-lead", "x"}, "FAIL pj-lead is no role agent"},
 		{[]string{"brief", "pj-int", "x"}, "FAIL pj-int is no role agent"},
 		{[]string{"brief", "pj-l-01", "x"}, "FAIL pj-l-01 is no role agent"},
+		{[]string{"brief", "pj-l-01-drive", "x"}, "FAIL pj-l-01-drive is no role agent"}, // a lane's drive
 		{[]string{"brief", "nobody", "x"}, "FAIL nobody is no role agent"},
 		// A role agent is checked before anything is stopped: --fresh stops nothing for an invalid target.
 		{[]string{"brief", "pj-lead", "--fresh", "x"}, "FAIL pj-lead is no role agent"},

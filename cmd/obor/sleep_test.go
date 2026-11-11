@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -497,6 +498,7 @@ func TestStopStepsAndStart(t *testing.T) {
 	fk.Shell("w1:p4", "pj-advisor", p.Root)                                      // at its shell
 	fk.Agent("w1:p5", "someone", "idle", p.Root).Label = "someone"               // no agent of this project
 	fk.Agent("w1:p6", "pj-advisor2", "idle", t.TempDir()).Label = "pj-deep-dive" // another project's pane
+	fk.Agent("w1:p7", "pj-l-01-drive", "idle", o1).Label = "pj-l-01-drive"       // the lane's drive: an agent too
 	s.Env = p.Env("PATH="+os.Getenv("PATH"), "OBOR_PANE=w1:p9", "OBOR_AGENT=pj-lead", "OBOR_ROLE=lead")
 	s.Force = true
 	f.tasks = []wire.TaskStatus{{Task: "T-02", Lane: "L-01", State: "gating"},
@@ -509,8 +511,8 @@ func TestStopStepsAndStart(t *testing.T) {
 	if want := []string{"pause " + stopPause}; strings.Join(f.calls, "|") != strings.Join(want, "|") {
 		t.Errorf("calls %q, want %q (the pause kept: serve is down; --force drops nothing)", f.calls, want)
 	}
-	want := []stopCall{{"pj-l-01", "w1:p1", true}, {"pj-int", "w1:p2", true}}
-	if len(*stops) != 2 || (*stops)[0] != want[0] || (*stops)[1] != want[1] {
+	want := []stopCall{{"pj-l-01", "w1:p1", true}, {"pj-int", "w1:p2", true}, {"pj-l-01-drive", "w1:p7", true}}
+	if !slices.Equal(*stops, want) {
 		t.Errorf("agents stopped %+v, want %+v", *stops, want)
 	}
 	ps, err := s.status(context.Background())

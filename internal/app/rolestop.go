@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"obor/internal/config"
+	"obor/internal/roles"
 )
 
 // Idle role agents hold memory, and nothing of a stopped one is resumed: its next use starts fresh (see
@@ -187,7 +188,7 @@ func (p *proj) roleAgentOf(agent string) bool {
 }
 
 // roleAgent: agent is a role agent of p's config on no lane, the integrator included: a role's or an agents entry's,
-// not the lead and not a lane's worker (under mu): the agents obor status may report stopped.
+// not the lead and not a lane's agent (a worker, a drive; under mu): the agents obor status may report stopped.
 func (p *proj) roleAgent(agent string) bool {
 	if agent == "" || agent == p.out.Lead() {
 		return false
@@ -197,7 +198,7 @@ func (p *proj) roleAgent(agent string) bool {
 		return false
 	}
 	info, ok := cfg.AgentLookup(agent, "")
-	if !ok || info.Role == "lead" || info.Role == "worker" {
+	if !ok || info.Role == "lead" || roles.LaneBound(info.Role) {
 		return false
 	}
 	for _, l := range p.lanes {

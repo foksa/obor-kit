@@ -15,6 +15,7 @@ import (
 	"obor/internal/config"
 	"obor/internal/help"
 	"obor/internal/project"
+	"obor/internal/roles"
 )
 
 // sendCmd is `obor send <project> "<text>"`, a lead's or the owner's: a request to the target project's serve
@@ -127,10 +128,10 @@ func brief(ctx context.Context, cfg *config.Config, agent, text string, fresh bo
 }
 
 // roleAgent: agent is an agent of cfg (a role's or an agents entry) that serve sends no jobs to: not the lead, the
-// integrator or a worker.
+// integrator or a lane's agent (a worker, a drive).
 func roleAgent(cfg *config.Config, agent string) bool {
 	info, ok := cfg.AgentLookup(agent, "")
-	return ok && info.Role != "lead" && info.Role != "integrator" && info.Role != "worker"
+	return ok && info.Role != "lead" && info.Role != "integrator" && !roles.LaneBound(info.Role)
 }
 
 // poster posts serve's lines and job wakes into an agent's session whose kind has an inbox (app.Poster):
