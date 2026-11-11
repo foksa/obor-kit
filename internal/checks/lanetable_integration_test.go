@@ -5,6 +5,7 @@ package checks
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,7 +22,7 @@ import (
 	"obor/internal/store"
 )
 
-func ltGit(t *testing.T, dir string, args ...string) {
+func ltGit(t testing.TB, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@x"}, args...)...)
 	cmd.Dir = dir
@@ -35,23 +36,30 @@ func ltGit(t *testing.T, dir string, args ...string) {
 // at main. Returns the project.
 func ltFixture(t *testing.T, extra string, lanes map[string]string) *LaneTable {
 	t.Helper()
-	base := project.Physical(t.TempDir())
-	root := filepath.Join(base, "proj")
-	os.MkdirAll(filepath.Join(root, ".obor"), 0o755)
-	cfg := `{"version":2,"project":{"agent_prefix":"pj"},"lanes":{"count":` + strconv.Itoa(len(lanes)) + extra + "}}"
-	os.WriteFile(filepath.Join(root, ".obor", "config.json"), []byte(cfg), 0o644)
-	os.WriteFile(filepath.Join(root, ".gitignore"), []byte(".task-done.md\n"), 0o644)
-	ltGit(t, base, "-c", "init.defaultBranch=main", "init", "-q", root)
-	ltGit(t, root, "add", "-A")
-	ltGit(t, root, "commit", "-q", "-m", "init")
-	for l, id := range lanes {
-		wt := filepath.Join(base, "proj-wt", l)
-		if id == "" {
-			ltGit(t, root, "worktree", "add", "-q", "--detach", wt, "main")
-		} else {
-			ltGit(t, root, "worktree", "add", "-q", "-b", "task/"+id, wt, "main")
+	key := fmt.Sprintf("lanetable %s %v", extra, lanes) // a map prints with its keys sorted
+	base := snapshot(t, builtBase(key, func(base string) string {
+		root := filepath.Join(base, "proj")
+		os.MkdirAll(filepath.Join(root, ".obor"), 0o755)
+		cfg := `{"version":2,"project":{"agent_prefix":"pj"},"lanes":{"count":` + strconv.Itoa(len(lanes)) + extra + "}}"
+		os.WriteFile(filepath.Join(root, ".obor", "config.json"), []byte(cfg), 0o644)
+		os.WriteFile(filepath.Join(root, ".gitignore"), []byte(".task-done.md\n"), 0o644)
+		ltGit(mainTB{}, base, "-c", "init.defaultBranch=main", "init", "-q", root)
+		ltGit(mainTB{}, root, "add", "-A")
+		ltGit(mainTB{}, root, "commit", "-q", "-m", "init")
+		for l, id := range lanes {
+			wt := filepath.Join(base, "proj-wt", l)
+			if id == "" {
+				ltGit(mainTB{}, root, "worktree", "add", "-q", "--detach", wt, "main")
+			} else {
+				ltGit(mainTB{}, root, "worktree", "add", "-q", "-b", "task/"+id, wt, "main")
+			}
 		}
+		return base
+	}))
+	if len(lanes) > 0 {
+		repairWorktrees(t, base)
 	}
+	root := filepath.Join(base, "proj")
 	c, err := config.Load(root)
 	if err != nil {
 		t.Fatal(err)

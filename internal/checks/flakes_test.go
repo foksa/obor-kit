@@ -1,6 +1,9 @@
 package checks
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -111,5 +114,60 @@ func TestRetestCommand(t *testing.T) {
 	if got := (&runner{Options: &Options{Cfg: &config.Config{}}}).
 		retestCommand(config.Command{Cmd: "make -s check-retest"}, []string{"TestA"}); got.Cmd != "make -s check-retest" {
 		t.Errorf("a template with no placeholder = %q, want it unchanged", got.Cmd)
+	}
+}
+
+// logFlakes writes what flakeParse names, one line per name (a test and the package that did not build, both), and
+// nothing, with no warning, for a project with no checks.output.failed_test: the red's report still names the failing
+// lines (the gate tests). No git: the sha is "" when git cannot name one.
+func TestLogFlakes(t *testing.T) {
+	t.Parallel()
+	const mixed = "--- FAIL: TestUnit timed out (0.01s)\nFAIL example.com/unit 0.02s\nFAIL example.com/build [build failed]\n"
+	for _, c := range []struct {
+		name string
+		o    *Options
+		out  string
+		want string // the log's tests, joined; "" none
+	}{
+		{"a test and the package that did not build", flakeOptions(goFailGrep, goTestLine, goPkgLine), mixed,
+			"TestUnit/check example.com/build/check"},
+		{"no failed_test: no names, no log", flakeOptions(goFailGrep), mixed, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			var warn strings.Builder
+			c.o.Git, c.o.Out = "false", &warn // git cannot name a sha
+			r := newRunner(t.Context(), c.o, root, "T-05")
+			r.root, r.state = root, filepath.Join(root, "state")
+			r.logFlakes("check", false, false, output{text: c.out})
+			if warn.Len() != 0 {
+				t.Errorf("warning %q, want none", warn.String())
+			}
+			b, err := os.ReadFile(filepath.Join(r.state, "flakes.jsonl"))
+			if c.want == "" {
+				if err == nil {
+					t.Errorf("flake log written: %q", b)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("flake log: %v", err)
+			}
+			var got []string
+			for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+				var f Flake
+				if err := json.Unmarshal([]byte(l), &f); err != nil {
+					t.Fatalf("flake line %q: %v", l, err)
+				}
+				if f.Task != "T-05" || f.SHA != "" || f.Retried || f.PassedOnRetry {
+					t.Errorf("flake %+v: want task T-05, no sha, no retry", f)
+				}
+				got = append(got, f.Test+"/"+f.Check)
+			}
+			if strings.Join(got, " ") != c.want {
+				t.Errorf("logged %q, want %q", got, c.want)
+			}
+		})
 	}
 }

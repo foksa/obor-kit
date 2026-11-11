@@ -3,6 +3,7 @@ package checks
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -104,9 +105,7 @@ func (s *shared) resolved(t *testing.T) (*sx, string, string, port.Candidate) {
 func snapshot(t testing.TB, src string) string {
 	t.Helper()
 	dst := testkit.Dir(t)
-	if out, err := exec.Command("cp", "-R", src+"/.", dst).CombinedOutput(); err != nil {
-		t.Fatalf("copy the fixture template: %v\n%s", err, out)
-	}
+	copyDir(t, src, dst)
 	return dst
 }
 
@@ -117,7 +116,7 @@ func copySx(t *testing.T, src string) *sx {
 	p := testkit.Adopt(t, base)
 	x := &fx{Project: p, t: t, lane: p.LaneDir("L-01"), scratch: filepath.Join(base, "proj-wt", "merge"),
 		slots: filepath.Join(base, "slots"), sig: make(chan int, 1)}
-	repairWorktrees(t, p, base)
+	repairWorktrees(t, base)
 	if err := os.MkdirAll(p.Path(".obor/state"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -128,22 +127,82 @@ func copySx(t *testing.T, src string) *sx {
 	return &sx{fx: x, s: Scratch{Options: x.opts()}, cut: filepath.Join(base, "cut"), serve: x.scratch, real: real}
 }
 
-// repairWorktrees points every copied worktree under proj-wt at base.
-func repairWorktrees(t testing.TB, p *testkit.Project, base string) {
+// repairWorktrees points every copied worktree under base/proj-wt at base: its .git file at the repo's copied admin
+// dir, and that admin dir's gitdir at the worktree (what `git worktree repair` writes, with no git process).
+func repairWorktrees(t testing.TB, base string) {
 	t.Helper()
 	entries, err := os.ReadDir(filepath.Join(base, "proj-wt"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var paths []string
 	for _, e := range entries {
-		if e.IsDir() {
-			paths = append(paths, filepath.Join(base, "proj-wt", e.Name()))
+		wt := filepath.Join(base, "proj-wt", e.Name())
+		dotgit := filepath.Join(wt, ".git")
+		b, err := os.ReadFile(dotgit)
+		if err != nil {
+			continue // not a worktree
+		}
+		old, ok := strings.CutPrefix(strings.TrimSpace(string(b)), "gitdir: ")
+		if !ok {
+			t.Fatalf("repair worktrees: %s is not a gitdir file: %q", dotgit, b)
+		}
+		admin := filepath.Join(base, "proj", ".git", "worktrees", filepath.Base(old))
+		if err := os.WriteFile(dotgit, []byte("gitdir: "+admin+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(admin, "gitdir"), []byte(dotgit+"\n"), 0o644); err != nil {
+			t.Fatal(err)
 		}
 	}
-	if len(paths) > 0 {
-		p.Git(p.Root, append([]string{"worktree", "repair"}, paths...)...)
+}
+
+// built holds the fixture bases built once per key for the run (key -> func() string): a fixture that only differs
+// by its config or its lanes is built, with its git, once and copied by every test that asks for it.
+var built sync.Map
+
+// builtBase is the base of the fixture key names, built by build on its first use.
+func builtBase(key string, build func(base string) string) string {
+	f, _ := built.LoadOrStore(key, sync.OnceValue(func() string {
+		base := mainTB{}.TempDir()
+		build(base)
+		return base
+	}))
+	return f.(func() string)()
+}
+
+// editsKey names the config edits by what they write: the edits applied to an empty config, as JSON.
+func editsKey(edits []func(map[string]any)) string {
+	c := map[string]any{}
+	for _, e := range edits {
+		e(c)
 	}
+	b, err := json.Marshal(c)
+	if err != nil {
+		panic(err)
+	}
+	return string(b)
+}
+
+// copyDir copies src's tree into dst (cp -R: no git process).
+func copyDir(t testing.TB, src, dst string) {
+	t.Helper()
+	if out, err := exec.Command("cp", "-R", src+"/.", dst).CombinedOutput(); err != nil {
+		t.Fatalf("copy the fixture template: %v\n%s", err, out)
+	}
+}
+
+// editedTemplate is the base of the fixture template with edits committed on main after its lane: the template itself
+// for none, else one copy of it per distinct edits, config commit made once.
+func editedTemplate(edits []func(map[string]any)) string {
+	if len(edits) == 0 {
+		return tmpl()
+	}
+	return builtBase("fx "+editsKey(fxConfig(edits...)), func(base string) string {
+		copyDir(mainTB{}, tmpl(), base)
+		repairWorktrees(mainTB{}, base)
+		testkit.Adopt(mainTB{}, base).Config(fxConfig(edits...)...)
+		return base
+	})
 }
 
 // fxConfig is the fixture's whole config: its defaults, then edits.
@@ -210,13 +269,10 @@ type fx struct {
 // lane; a test that needs L-02 asks lane2, which adds it then.
 func newFx(t testing.TB, edits ...func(map[string]any)) *fx {
 	t.Helper()
-	base := snapshot(t, tmpl())
+	base := snapshot(t, editedTemplate(edits))
 	p := testkit.Adopt(t, base)
 	x := &fx{Project: p, t: t, lane: p.LaneDir("L-01"), sig: make(chan int, 1)}
-	repairWorktrees(t, p, base)
-	if len(edits) > 0 {
-		p.Config(fxConfig(edits...)...)
-	}
+	repairWorktrees(t, base)
 	x.scratch = filepath.Join(p.Base, "proj-wt", "merge")
 	x.slots = filepath.Join(p.Base, "slots")
 	if err := os.MkdirAll(p.Path(".obor/state"), 0o755); err != nil { // serve's state dir (its database lives there)

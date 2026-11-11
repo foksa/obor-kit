@@ -25,13 +25,18 @@ var laneAt = time.Unix(1760000000, 0)
 // made: what a lane.prepare finds. target is main's HEAD (the dispatch fact's target).
 func laneFx(t *testing.T, edits ...func(map[string]any)) (*testkit.Project, string, string) {
 	t.Helper()
-	p := testkit.NewAt(t, testkit.Dir(t))
-	p.Write(".gitignore", ".obor/state/\n.task-done.md\n")
-	p.Git(p.Root, "add", "-A")
-	p.Git(p.Root, "commit", "-q", "-m", "fixture")
-	lane := p.Lane("L-01", "task/T-01")
-	p.Config(edits...)
-	return p, lane, p.Git(p.Root, "rev-parse", "HEAD")
+	base := snapshot(t, builtBase("lane "+editsKey(edits), func(base string) string {
+		p := testkit.NewAt(mainTB{}, base)
+		p.Write(".gitignore", ".obor/state/\n.task-done.md\n")
+		p.Git(p.Root, "add", "-A")
+		p.Git(p.Root, "commit", "-q", "-m", "fixture")
+		p.Lane("L-01", "task/T-01")
+		p.Config(edits...)
+		return base
+	}))
+	repairWorktrees(t, base)
+	p := testkit.Adopt(t, base)
+	return p, p.LaneDir("L-01"), strings.TrimSpace(p.Read(".git/refs/heads/main"))
 }
 
 // laneAdapter is checks.Lane over p's config; git "" is real git.
