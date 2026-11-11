@@ -253,7 +253,7 @@ func TestGateLinksUnlistedUntrackedSettingsIntoTheScratch(t *testing.T) {
 	if slices.Contains(y.s.Cfg.LaneLinks(), project.PluginSettings) {
 		t.Fatalf("precondition: lanes.links %q does not list the settings file", y.s.Cfg.LaneLinks())
 	}
-	if !project.SettingsUntracked(y.Root) {
+	if !project.SettingsUntrackedWith(y.Root, project.Git) {
 		t.Fatal("precondition: the main checkout has an untracked settings file")
 	}
 	y.green(lane(y.submit()))

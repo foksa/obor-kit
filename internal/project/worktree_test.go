@@ -55,7 +55,7 @@ func TestWorktreeLinksListsAListedUntrackedSettingsFileOnceAndItIsLinked(t *test
 	t.Parallel()
 	cfg, dir := plainProject(t, `{"version":2,"project":{"agent_prefix":"pj"},"lanes":{"links":["local.env",".claude/settings.json"]}}`)
 	put(t, filepath.Join(cfg.Root, PluginSettings), "{}\n")
-	if !SettingsUntracked(cfg.Root) {
+	if !SettingsUntrackedWith(cfg.Root, Git) {
 		t.Fatal("precondition: the main checkout has an untracked settings file")
 	}
 	links := WorktreeLinks(cfg)

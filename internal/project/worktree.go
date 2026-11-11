@@ -58,12 +58,8 @@ func WorktreeLinksWith(cfg *config.Config, git func(dir string, args ...string) 
 	return append(slices.Clone(links), PluginSettings)
 }
 
-// SettingsUntracked: the main checkout root has PluginSettings and git does not track it.
-func SettingsUntracked(root string) bool {
-	return SettingsUntrackedWith(root, Git)
-}
-
-// SettingsUntrackedWith is SettingsUntracked, its git query run by git.
+// SettingsUntrackedWith: the main checkout root has PluginSettings and git does not track it; git is the query, so a
+// caller with its own seam (obor setup's fake) keeps it.
 func SettingsUntrackedWith(root string, git func(dir string, args ...string) (string, error)) bool {
 	if _, err := os.Stat(filepath.Join(root, PluginSettings)); err != nil {
 		return false

@@ -880,7 +880,7 @@ func restartIntegrator(t *testing.T, x *fx) {
 	if slices.Contains(cfg.LaneLinks(), project.PluginSettings) {
 		t.Fatalf("precondition: lanes.links %q does not list the settings file", cfg.LaneLinks())
 	}
-	if !project.SettingsUntracked(x.p.Root) {
+	if !project.SettingsUntrackedWith(x.p.Root, project.Git) {
 		t.Fatal("precondition: the main checkout has an untracked settings file")
 	}
 	x.sid("pj-int", "sid-i")
