@@ -15,13 +15,11 @@ import (
 // testkit.WorkflowContract).
 func TestSpecs(t *testing.T) {
 	t.Parallel()
-	p := testkit.New(t)
+	p := testkit.NewDir(t)
 	p.Lane("L-01", "task/T-01")
 	p.Config()
 	const stored = "# T\n\na spec\n"
-	p.Write("docs/tasks/T-5.md", stored) // committed, not stored
-	p.Git(p.Root, "add", "docs/tasks/T-5.md")
-	p.Git(p.Root, "commit", "-q", "-m", "spec in git")
+	p.Write("docs/tasks/T-5.md", stored) // a file in the tree, not stored
 
 	load := func(edits ...func(map[string]any)) specs {
 		p.Config(edits...)
@@ -40,7 +38,7 @@ func TestSpecs(t *testing.T) {
 		{"stored spec", "T-1", stored, ""},
 		{"stored spec without a files section", "T-2", "# T\n\nno files section\n", ""},
 		{"no stored spec", "T-4", "", "no spec for T-4 in obor serve's store (obor spec set T-4 <path>)"},
-		{"committed in git, not stored", "T-5", "", "no spec for T-5 in obor serve's store (obor spec set T-5 <path>)"},
+		{"a file in the tree, not stored", "T-5", "", "no spec for T-5 in obor serve's store (obor spec set T-5 <path>)"},
 		{"not a task id", "X-1", stored, "X-1 is no task id (task_id_pattern T-[0-9]+[a-z]?)"},
 	} {
 		got, err := s.Check(ctx, c.task, c.text)

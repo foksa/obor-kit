@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -393,23 +394,42 @@ func TestStopRefusesAServeThatStaysUp(t *testing.T) {
 	}
 }
 
-// fakeLaunchctl puts a launchctl on PATH (the test's process env: no t.Parallel) that logs each call to the returned
-// file and keeps one label loaded while its state file exists (as internal/service's own fake). Its calls and state
-// live next to the script, so its body is the same in every test and testkit.Script runs it once.
+// fakeLaunchctl answers for launchctl in process (service.ExecLaunchctl): each call's arguments are a line in log, and
+// one label stays loaded while the state file exists, as launchd keeps it (internal/service's own fake does the
+// same with fields). The replaced call is the process's: a test that uses it does not call t.Parallel.
 func fakeLaunchctl(t *testing.T) (log, state string) {
 	dir := t.TempDir()
 	log, state = filepath.Join(dir, "calls"), filepath.Join(dir, "loaded")
-	testkit.Script(t, dir, "launchctl", `#!/bin/sh
-dir=$(dirname "$0")
-echo "$*" >> "$dir/calls"
-state="$dir/loaded"
-case "$1" in
-bootstrap) : > "$state" ;;
-bootout) [ -f "$state" ] || exit 3; rm "$state" ;;
-print) [ -f "$state" ] || exit 113; printf 'pid = 4242\n' ;;
-esac
-`)
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	var mu sync.Mutex
+	was := service.ExecLaunchctl
+	service.ExecLaunchctl = func(_ context.Context, args ...string) ([]byte, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		f, err := os.OpenFile(log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		if err != nil {
+			return nil, err
+		}
+		fmt.Fprintln(f, strings.Join(args, " "))
+		f.Close()
+		_, err = os.Stat(state)
+		loaded := err == nil
+		switch args[0] {
+		case "bootstrap":
+			return nil, os.WriteFile(state, nil, 0o644)
+		case "bootout":
+			if !loaded {
+				return nil, errors.New("exit status 3")
+			}
+			return nil, os.Remove(state)
+		case "print":
+			if !loaded {
+				return nil, errors.New("exit status 113")
+			}
+			return []byte("pid = 4242\n"), nil
+		}
+		return nil, nil
+	}
+	t.Cleanup(func() { service.ExecLaunchctl = was })
 	return log, state
 }
 

@@ -274,7 +274,7 @@ func TestLeadPromptOnlyForAFreshClaudeLead(t *testing.T) {
 // no lead; a running project runs no start at all.
 func TestLeadWakesAStoppedProjectFirst(t *testing.T) {
 	t.Run("stopped", func(t *testing.T) {
-		fakeLaunchctl(t) // the start installs serve (darwin); no t.Parallel: it sets PATH
+		fakeLaunchctl(t) // the start installs serve (darwin); no t.Parallel: the fake is the process's
 		x := newLeadFx(t)
 		if err := project.WriteStopMarker(x.p.Root, project.StopMarker{At: time.Now(), Why: "test"}); err != nil {
 			t.Fatal(err)

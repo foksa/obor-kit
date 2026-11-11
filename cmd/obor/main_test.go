@@ -29,6 +29,10 @@ import (
 // oborBin is the binary under test, built once by TestMain.
 var oborBin string
 
+// afterRun are the cleanups of fixtures a test file builds once per binary (set before the tests run or under their
+// own sync.Once, run by TestMain after the last test).
+var afterRun []func()
+
 func TestMain(m *testing.M) {
 	testkit.Isolate()
 	dir, err := os.MkdirTemp("", "obor-bin")
@@ -47,6 +51,9 @@ func TestMain(m *testing.M) {
 		panic("go build kinds/opencode: " + err.Error() + "\n" + string(out))
 	}
 	code := testkit.Run(m) // removes the project template testkit.New copies
+	for _, f := range afterRun {
+		f()
+	}
 	os.RemoveAll(dir)
 	os.Exit(code)
 }

@@ -70,3 +70,44 @@ func TestResumeRequest(t *testing.T) {
 		t.Errorf("serve's refusal: exit %d, %q", rc, stdout)
 	}
 }
+
+// obor resume with obor serve not running: the arguments that are no request are the usage (a blank text, a flag
+// with a text, two texts, no task), a bad task id is its own line, and every request that reaches serve is the one
+// FAIL line saying it is down (a word that is no mode is a text); the integrator's verdicts are no subcommands.
+// With serve answering: TestResumeRequest.
+func TestResumeServeDownAndNoVerdictVerbs(t *testing.T) {
+	t.Parallel()
+	p := testkit.NewPlain(t)
+	p.Config()
+	env := []string{"OBOR_STATE_HOME=" + t.TempDir(), "OBOR_ROLE=integrator", "OBOR_AGENT=pj-int", callDown}
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"resume", "T-01", " "}, "FAIL " + help.Usage("resume")},        // a blank text
+		{[]string{"resume", "T-01", "yes"}, "FAIL obor serve is not running"},    // a one-word text
+		{[]string{"resume", "T-01", "regate"}, "FAIL obor serve is not running"}, // no keyword: a text
+		{[]string{"resume", "T-01", "--regate", " "}, "FAIL usage: obor resume"},
+		{[]string{"resume"}, "FAIL usage: obor resume"},
+		{[]string{"resume", "X-1"}, "FAIL X-1 is no task id (task_id_pattern T-[0-9]+[a-z]?)"},
+		{[]string{"resume", "T-01", "--regate"}, "FAIL obor serve is not running"},
+		{[]string{"resume", "T-01", "--sendback", "why"}, "FAIL obor serve is not running"},
+		{[]string{"resume", "T-01", "yes", "more"}, "FAIL usage: obor resume"},
+		{[]string{"resume", "T-01", "--reprompt", "yes"}, "FAIL usage: obor resume"}, // no keyword: a text
+		{[]string{"resume", "T-01", "the owner says yes"}, "FAIL obor serve is not running"},
+	} {
+		rc, stdout, _ := run(t, p.Root, env, c.args...)
+		if got := strings.TrimSpace(stdout); rc != 1 || !strings.HasPrefix(got, c.want) {
+			t.Errorf("obor %v: exit %d, %q; want 1 and %q", c.args, rc, got, c.want)
+		}
+	}
+	for _, verb := range []string{"accept", "reject", "resolved", "hold"} {
+		rc, _, stderr := run(t, p.Root, env, verb, "T-01", "why")
+		if rc != 2 || !strings.Contains(stderr, "unknown subcommand: "+verb) {
+			t.Errorf("obor %s: exit %d, %q; want 2 and unknown subcommand", verb, rc, stderr)
+		}
+		if rc, _, _ := run(t, p.Root, env, "has", verb); rc != 1 {
+			t.Errorf("obor has %s: exit %d, want 1", verb, rc)
+		}
+	}
+}

@@ -19,7 +19,7 @@ func TestServeServiceVerbs(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("launchd: darwin only")
 	}
-	p := servedGitProject(t)
+	p := servedProject(t)
 	home := t.TempDir()
 	bin := t.TempDir()
 	log := filepath.Join(bin, "calls")

@@ -3,11 +3,13 @@
 package main
 
 import (
+	"os"
 	"reflect"
 	"strings"
 	"testing"
 
 	"obor/internal/app/wire"
+	"obor/internal/testkit"
 	"obor/internal/version"
 )
 
@@ -17,7 +19,8 @@ import (
 // options that mean nothing to a queued dispatch are usage errors; its refusal is the caller's FAIL.
 func TestDispatchServeRequest(t *testing.T) {
 	t.Parallel()
-	p := servedGitProject(t)
+	p := servedProject(t)
+	laneBefore := laneEntries(t, p)
 	home, serve := startFakeServe(t, p.Root, wire.Status{}, "DISPATCHED T-07 → L-01 (queued)", "")
 	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
 
@@ -108,8 +111,8 @@ func TestDispatchServeRequest(t *testing.T) {
 		!strings.HasPrefix(stdout, "FAIL obor serve is not running") {
 		t.Errorf("serve down: exit %d, %q", rc, stdout)
 	}
-	if b := p.Git(p.LaneDir("L-01"), "branch", "--show-current"); b != "task/T-01" {
-		t.Errorf("serve down: lane L-01 touched (on %q)", b)
+	if got := laneEntries(t, p); got != laneBefore {
+		t.Errorf("serve down: lane L-01 touched (%q, was %q)", got, laneBefore)
 	}
 }
 
@@ -118,7 +121,8 @@ func TestDispatchServeRequest(t *testing.T) {
 // down is FAIL with the lane untouched; a usage error or a lane instead of a task id asks serve nothing.
 func TestDropServeRequest(t *testing.T) {
 	t.Parallel()
-	p := servedGitProject(t)
+	p := servedProject(t)
+	laneBefore := laneEntries(t, p)
 	home, serve := startFakeServe(t, p.Root, wire.Status{}, "DROPPED T-01 from L-01 (abandoned)", "")
 	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
 	rc, stdout, _ := run(t, p.Root, env, "drop", "T-01", "abandoned", "--discard", "--force")
@@ -160,7 +164,22 @@ func TestDropServeRequest(t *testing.T) {
 		!strings.HasPrefix(stdout, "FAIL obor serve is not running") {
 		t.Errorf("serve down: exit %d, %q", rc, stdout)
 	}
-	if b := p.Git(p.LaneDir("L-01"), "branch", "--show-current"); b != "task/T-01" {
-		t.Errorf("serve down: lane L-01 moved to %q", b)
+	if got := laneEntries(t, p); got != laneBefore {
+		t.Errorf("serve down: lane L-01 touched (%q, was %q)", got, laneBefore)
 	}
+}
+
+// laneEntries is the names in lane L-01's dir, one line: a command that only asks serve leaves the lane as it was (it
+// runs no git there).
+func laneEntries(t *testing.T, p *testkit.Project) string {
+	t.Helper()
+	es, err := os.ReadDir(p.LaneDir("L-01"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range es {
+		names = append(names, e.Name())
+	}
+	return strings.Join(names, " ")
 }
