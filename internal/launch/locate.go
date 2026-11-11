@@ -31,15 +31,8 @@ const whereWait = 3 * time.Second
 // table's sources (session, start, label).
 const proofName = "name"
 
-// Located is Locate's answer: the pane a start or stop of the agent goes to ("": none, no pane is the agent's) and why.
-type Located struct {
-	Pane string
-	// Runs: the agent runs in Pane now (a start there is a restart in place); Proof is what proves it (session, start,
-	// label, name). Not Runs: Pane is the agent's home (the pane labelled with its name at its shell) or the target.
-	Runs  bool
-	Proof string
-	Label string // Pane's label as the pane list read now shows it
-}
+// Located is Locate's answer, the core's type (port.Starter), so setup asks Locate without importing launch.
+type Located = port.Located
 
 // locateIn is what decide decides from.
 type locateIn struct {
@@ -62,7 +55,8 @@ type locateIn struct {
 
 // decide is Locate's decision, with no I/O. Serve's answer counts only for a pane that runs an agent in the list read
 // now. The agent runs in Q: serve identifies Q; else one live pane of the project labelled with its name that serve
-// gives to no other agent; else the terminal holds its name in a live pane. Two of those disagreeing is ambiguous. A
+// gives to no other agent; else the terminal holds its name in a live pane of the project (a holder whose cwd is
+// another project's is that project's namesake, refused as a label there is). Two of those disagreeing is ambiguous. A
 // target other than Q is refused, naming Q, its proof and the command that works. Free: the target, else the home pane;
 // a target that is not the home while the home exists, that serve gives to another agent or that is labelled for
 // another agent is refused. A refusal is port.Refused (a final one: nothing was touched).
@@ -125,6 +119,11 @@ func decide(in locateIn) (Located, error) {
 	}
 	if h := in.holder; h != "" && live(h) {
 		switch {
+		case !in.ours(byID[h]) && h != in.target: // another project's agent of that name: no proof, the foreign line
+			// below (a target outside the project is resolve's to refuse, with the pane's evidence)
+			if foreign.ID == "" {
+				foreign = byID[h]
+			}
 		case q == "":
 			q, proof = h, proofName
 		case h != q:

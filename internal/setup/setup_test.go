@@ -635,9 +635,10 @@ func TestPaneSplitsTheTabAndStartsTheAgentInOrder(t *testing.T) {
 	if last(out) != "OK L-01: pj-l-01 in pane w1:n1" {
 		t.Errorf("last line %q", last(out))
 	}
-	// the new pane's id is herdr's answer to the split, so its shell, once up, gets the env line with OBOR_PANE
-	// before the start.
-	want := []string{"agent.list", "pane.list", "pane.list", "pane.layout pane_id=w1:p1",
+	// the lane's agents, then Locate (the pane list, the terminal's holder of the name) before anything is placed; the
+	// new pane's id is herdr's answer to the split, so its shell, once up, gets the env line with OBOR_PANE before the
+	// start.
+	want := []string{"agent.list", "pane.list", "pane.list", "agent.get target=pj-l-01", "pane.list", "pane.layout pane_id=w1:p1",
 		"pane.split cwd=" + lane + " direction=right env={OBOR_AGENT=,OBOR_LANE=L-01,OBOR_LANE_CPUS=2,OBOR_OPENCODE_MODEL=,OBOR_PANE=,OBOR_ROLE=worker,OPENCODE_CONFIG=,OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=} target_pane_id=w1:p1",
 		"pane.process_info pane_id=w1:n1", "pane.process_info pane_id=w1:n1",
 		"pane.send_input keys=[Enter] pane_id=w1:n1 text=cd " + lane + " && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:n1 OBOR_LANE_CPUS=2 && echo obor-env-M || echo obor-env-M",
@@ -722,8 +723,9 @@ func TestPaneRefusesAFullTab(t *testing.T) {
 	hasNot(t, calls, "agent.start", "no agent start")
 }
 
-// R-28 §2: the new pane is labelled the agent name before the start; a label another pane holds, or --pane labelled
-// for another agent → FAIL before any split or start; a failing rename → FAIL, no start.
+// R-28 §2: the new pane is labelled the agent name before the start; a pane labelled with its name at its shell is
+// its home: the start goes there, no split, and --pane naming another pane → FAIL; --pane labelled for another agent
+// → FAIL before any split or start; a failing rename → FAIL, no start.
 // bash setup.test.sh case_pane_label_set_and_refused
 func TestPaneLabelSetAndRefused(t *testing.T) {
 	t.Parallel()
@@ -744,16 +746,26 @@ func TestPaneLabelSetAndRefused(t *testing.T) {
 
 	x.noAgents()
 	x.reset()
-	x.failing(t, "FAIL pane w1:p1 is already labelled pj-l-01 (obor restart pj-l-01)",
-		"pane", "--start", "L-01", "--tab", "w1:t1")
+	x.failing(t, "FAIL pane w1:p1 is already labelled pj-l-01 (obor restart pj-l-01 there)",
+		"pane", "--start", "L-01", "--pane", "w1:q1")
 	calls := strings.Join(x.reqs(), "\n")
-	hasNot(t, calls, "pane.split", "held label → no split")
-	hasNot(t, calls, "agent.start", "held label → no start")
+	hasNot(t, calls, "pane.rename", "--pane beside the home → no label")
+	hasNot(t, calls, "agent.start", "--pane beside the home → no start")
 
+	x.reset()
+	if out := x.ok(t, "pane", "--start", "L-01", "--tab", "w1:t1"); last(out) != "OK L-01: pj-l-01 in pane w1:p1" {
+		t.Errorf("the home pane: %q", out)
+	}
+	calls = strings.Join(x.reqs(), "\n")
+	hasNot(t, calls, "pane.split", "the home pane → no split")
+	has(t, named(calls), "agent.start args=["+laneArgs+" --session-id NEW] kind=claude name=pj-l-01 pane_id=w1:p1",
+		"the home pane → the start there")
+
+	x.noAgents()
 	x.h.Pane("w1:p1").Label = ""
 	x.h.Pane("w1:q1").Label = "advisor"
 	x.reset()
-	x.failing(t, "FAIL pane w1:q1 is labelled advisor, not pj-l-01 (advisor holds it: use another pane for pj-l-01, or clear the pane's label in the terminal)",
+	x.failing(t, "FAIL pane w1:q1 is labelled advisor, not pj-l-01",
 		"pane", "--start", "L-01", "--pane", "w1:q1")
 	hasNot(t, strings.Join(x.reqs(), "\n"), "agent.start", "foreign label on --pane → no start")
 
@@ -951,29 +963,36 @@ func TestRoleLeadNewTabGetsRoleEnv(t *testing.T) {
 	has(t, named(calls), "agent.start args=[--permission-mode auto --model opus --session-id NEW /obor:lead] kind=claude name=pj-lead pane_id=w1:n1", "the agent named by its derived name, no Remote Control default (T-280)")
 }
 
-// A role start under a name a live agent in another pane holds is refused for good: its FAIL names the holder pane and
-// that pane's label, nothing of the holder is cleared or stopped, and the placed pane runs no agent.
-func TestRoleStartRefusedWhenALiveAgentHoldsTheName(t *testing.T) {
+// A role start while its agent runs in a pane a person relabelled (a live agent holds its name there) is that agent
+// running: OK already running, and no pane is placed or renamed, nothing typed or started; with --pane naming another
+// pane it is refused with Locate's line, the same nothing touched.
+func TestRoleStartWhenALiveAgentHoldsTheName(t *testing.T) {
 	t.Parallel()
 	x := newFx(t, testkit.Set("agents.roles", `{"lead": "opus"}`))
 	holder := x.h.Agent("w1:x1", "pj-lead", "idle", x.Root)
 	holder.Label = "notes"
+	untouched := func(what string) {
+		t.Helper()
+		calls := strings.Join(x.reqs(), "\n")
+		for _, m := range []string{"tab.create", "pane.split", "pane.rename", "agent.rename", "pane.send_input", "agent.start"} {
+			hasNot(t, calls, m, what+": no "+m)
+		}
+		if p := x.h.Pane("w1:x1"); p.Name != "pj-lead" || p.Kind != "claude" || p.Label != "notes" {
+			t.Errorf("%s: the holder = %+v, want pj-lead (label notes) still running in w1:x1", what, p)
+		}
+	}
+	if out := x.ok(t, "role", "lead", "--new-tab", "lead", "--start"); last(out) != "OK lead: pj-lead already running" {
+		t.Errorf("relabelled pane: %q", out)
+	}
+	untouched("relabelled pane")
+	if x.h.Pane("w1:n1") != nil {
+		t.Error("relabelled pane: a new pane was placed")
+	}
+
+	x.reset()
 	x.failing(t, "FAIL pj-lead already runs in pane w1:x1 (proof: name; label notes): obor restart pj-lead --pane w1:x1 "+
-		"restarts it there, or quit it there first",
-		"role", "lead", "--new-tab", "lead", "--start")
-	calls := strings.Join(x.reqs(), "\n")
-	if n := strings.Count(calls, "agent.start "); n != 1 {
-		t.Errorf("%d agent.start calls, want the one refusal (not retried):\n%s", n, calls)
-	}
-	if strings.Contains(calls, "agent.rename ") {
-		t.Errorf("the holder's name was cleared:\n%s", calls)
-	}
-	if p := x.h.Pane("w1:x1"); p.Name != "pj-lead" || p.Kind != "claude" || p.Label != "notes" {
-		t.Errorf("the holder = %+v, want pj-lead (label notes) still running in w1:x1", p)
-	}
-	if p := x.h.Pane("w1:n1"); p == nil || p.Kind != "" {
-		t.Errorf("the placed pane = %+v, want no agent started in it", p)
-	}
+		"restarts it there, or quit it there first", "role", "lead", "--pane", "w1:p1", "--start")
+	untouched("--pane elsewhere")
 }
 
 // a lead of a type without settings keeps Remote Control; a worker does not. (Setup role lead, the one lead.)

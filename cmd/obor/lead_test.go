@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/help"
 	"obor/internal/herdr/herdrtest"
@@ -26,6 +27,8 @@ type leadFx struct {
 	srv   *herdrtest.Server // f over the socket: what `obor lead` itself asks
 	env   []string          // more env ("VAR=value")
 	spawn [][]string        // the detached runs started
+	// where is serve's answer to Locate's where request (nil: serve is not running)
+	where func(ctx context.Context, req wire.WhereReq) (wire.WhereReply, error)
 }
 
 func newLeadFx(t *testing.T, edits ...func(map[string]any)) *leadFx {
@@ -44,6 +47,7 @@ func (x *leadFx) launcher(l *launch.Launcher) {
 	l.Wait, l.Poll, l.Sched, l.Rollout = time.Second, time.Millisecond, time.Second, time.Millisecond
 	l.PS = func(args ...string) ([]byte, error) { return nil, nil }
 	l.Spawn = func(dir string, args []string, out string) error { x.spawn = append(x.spawn, args); return nil }
+	l.Where = x.where
 }
 
 // run is `obor lead <args>` in the main checkout: its output and exit code.
@@ -108,16 +112,15 @@ func TestLeadRunningTouchesNothing(t *testing.T) {
 		}
 	}
 	for _, c := range strings.Split(x.calls(), "\n") {
-		if c != "agent.list {}" && c != "pane.list {}" {
-			t.Errorf("running lead: only the agents and their panes' labels asked, no input sent: %q", x.calls())
+		if c != "pane.list {}" && c != `agent.get {"target":"pj-lead"}` {
+			t.Errorf("running lead: only the panes and the terminal's holder of the name asked, no input sent: %q", x.calls())
 		}
 	}
 }
 
-// The lead that already runs is the agent in the pane labelled with its name, whatever name the terminal runs that
-// agent under: a labelled pane whose agent herdr names otherwise (or not at all) is the running lead, and an agent
-// herdr names pj-lead in a pane labelled for something else is not: obor lead then opens a lead pane of its own, where
-// the start is refused (the name is a live agent's in another pane) and the FAIL names that pane: no second lead.
+// The lead that already runs is the agent Locate finds: in the pane labelled with its name, whatever name the terminal
+// runs that agent under; and in a pane a person relabelled, by serve's proof (its recorded session) and the terminal's
+// name: OK naming the pane and its label, and nothing is placed, renamed, typed or started.
 func TestLeadRunsByItsPaneLabel(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{"", "someone"} {
@@ -133,28 +136,29 @@ func TestLeadRunsByItsPaneLabel(t *testing.T) {
 
 	x := newLeadFx(t)
 	x.f.Agent("w1:p1", "pj-lead", "working", x.p.Root).Label = "notes"
+	x.p.Session("pj-lead", "s1")
+	asked := false
+	x.where = func(_ context.Context, req wire.WhereReq) (wire.WhereReply, error) {
+		asked = req.Name == "pj-lead"
+		return wire.WhereReply{State: wire.WhereIdentified, Pane: "w1:p1", Source: "session", Label: "notes",
+			Runs: map[string]string{"w1:p1": "pj-lead"}}, nil
+	}
 	out, rc := x.run(t)
-	if rc != 1 || lastLine(out) != "FAIL pj-lead already runs in pane w1:p1 (proof: name; label notes): obor restart "+
-		"pj-lead --pane w1:p1 restarts it there, or quit it there first" {
-		t.Fatalf("herdr name pj-lead in a pane labelled notes: exit %d, want the start refused naming the holder\n%s", rc, out)
+	if !asked {
+		t.Fatalf("precondition: serve was asked where pj-lead runs\n%s", out)
+	}
+	if rc != 0 || lastLine(out) != "OK pj-lead runs (pane w1:p1, labelled notes)" {
+		t.Fatalf("pj-lead in a pane labelled notes: exit %d, want OK naming the pane and its label\n%s", rc, out)
 	}
 	c := x.calls()
-	if n := strings.Count(c, "agent.start"); n != 1 {
-		t.Errorf("%d agent.start calls, want one refusal:\n%s", n, c)
-	}
-	for _, line := range strings.Split(c, "\n") {
-		if strings.HasPrefix(line, "agent.rename ") && strings.Contains(line, `"target":"w1:p1"`) {
-			t.Errorf("the live holder's name was cleared:\n%s", c)
+	for _, m := range []string{"tab.create", "pane.split", "pane.rename", "agent.rename", "pane.send_input",
+		"pane.send_keys", "agent.start"} {
+		if strings.Contains(c, m) {
+			t.Errorf("relabelled lead: no %s, nothing touched:\n%s", m, c)
 		}
 	}
-	if strings.Contains(c, `"pane_id":"w1:p1","text"`) || strings.Contains(c, `pane.send_keys {"keys":["esc"],"pane_id":"w1:p1"`) {
-		t.Errorf("the relabelled pane's agent was typed at or stopped:\n%s", c)
-	}
-	if p := x.f.Pane("w1:p1"); p.Kind == "" || p.Name != "pj-lead" {
-		t.Errorf("the relabelled pane's agent = %+v, want pj-lead still running", p)
-	}
-	if p := x.f.Pane("w1:n1"); p == nil || p.Kind != "" {
-		t.Errorf("the new pane = %+v, want no second lead started in it", p)
+	if p := x.f.Pane("w1:p1"); p.Kind == "" || p.Name != "pj-lead" || p.Label != "notes" {
+		t.Errorf("the relabelled pane's agent = %+v, want pj-lead still running, label notes", p)
 	}
 }
 

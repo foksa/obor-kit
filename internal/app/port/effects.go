@@ -306,10 +306,25 @@ func (e *StartError) Error() string {
 	return e.Err.Error()
 }
 
+// Located is where a start or stop of an agent goes (Starter.Locate): the pane ("": none, no pane is the agent's) and
+// why.
+type Located struct {
+	Pane string
+	// Runs: the agent runs in Pane now (a start there is a restart in place); Proof is what proves it (session, start,
+	// label, name). Not Runs: Pane is the agent's home (the pane labelled with its name at its shell) or the target.
+	Runs  bool
+	Proof string
+	Label string // Pane's label as the pane list read now shows it
+}
+
 // Starter starts an agent in a pane the caller placed (launch.Launcher implements it; `obor setup pane` and `role`
-// are its callers): Build builds the start once (its argv and env), SetEnv types the agent's env line at the pane's
+// are its callers): Locate decides first, before a pane is placed or labelled, where the agent runs or where its start
+// goes (pane: the caller's target, "": none; adds: a start that adds an agent, false: one that only labels a pane);
+// it returns holding the agent's restart lock, release after the caller's last step, and a refusal is a Refused error
+// with nothing touched. Build builds the start once (its argv and env), SetEnv types the agent's env line at the pane's
 // shell, Start runs the agent with the built argv.
 type Starter interface {
+	Locate(ctx context.Context, agent, pane string, adds bool) (Located, func(), error)
 	Build(b Build) (Built, error)
 	SetEnv(ctx context.Context, pane string, e AgentEnv) error
 	Start(ctx context.Context, s Start) error

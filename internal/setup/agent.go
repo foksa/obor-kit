@@ -211,48 +211,52 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	if what == "" {
 		what = a.role.Name
 	}
-	running, err := s.T.Agents(ctx)
-	if err != nil {
-		return project.Failf("terminal agent list failed (is the terminal running?)")
-	}
 	s.placed, s.running, s.started, s.idle = "", false, false, false
-	for _, r := range running {
-		who := cmp.Or(r.Label, r.Agent)                                         // its pane's label, else (a pane nobody labelled) its kind
-		if a.role.Name == roles.Driver && r.Label != a.name && r.Cwd == a.cwd { // one agent in a lane
-			if r.Label == "" { // a pane nobody labelled: its kind is no agent to restart
-				return project.Failf("%s still runs in lane %s (pane %s): quit the agent in pane %s first", who, a.lane, r.ID, r.ID)
-			}
-			return project.Failf("%s still runs in lane %s (pane %s): obor restart %s --stop first", who, a.lane, r.ID, who)
+	// One agent in a lane: an agent running in the lane's worktree under another label is the lane's (a lane pane: OK,
+	// nothing to do) or in the drive's way (refused). Neither touches a pane.
+	if a.lane != "" {
+		running, err := s.T.Agents(ctx)
+		if err != nil {
+			return project.Failf("terminal agent list failed (is the terminal running?)")
 		}
-		if r.Label == a.name || (a.lane != "" && r.Cwd == a.cwd) {
+		for _, r := range running {
+			if r.Cwd != a.cwd || r.Label == a.name {
+				continue
+			}
+			who := cmp.Or(r.Label, r.Agent) // its pane's label, else (a pane nobody labelled) its kind
+			switch {
+			case a.role.Name == roles.Driver && r.Label == "": // a pane nobody labelled: its kind is no agent to restart
+				return project.Failf("%s still runs in lane %s (pane %s): quit the agent in pane %s first", who, a.lane, r.ID, r.ID)
+			case a.role.Name == roles.Driver:
+				return project.Failf("%s still runs in lane %s (pane %s): obor restart %s --stop first", who, a.lane, r.ID, who)
+			}
 			s.placed, s.running = r.ID, true
 			s.say("skip agent start: %s already running (pane %s)", who, r.ID)
 			s.say("OK %s: %s already running", what, who)
 			return nil
 		}
 	}
-	panes, err := s.T.Panes(ctx)
+	// The decision before a pane is placed or labelled (launch's Locate, under the agent's restart lock, held to the
+	// start's last step): where the agent runs, else its home or the --pane target. A pane without --start adds no
+	// agent: serve down does not refuse its label.
+	l := s.Starter(s.cfg)
+	loc, end, err := l.Locate(ctx, a.name, w.pane, !a.noStart)
 	if err != nil {
-		return project.Failf("terminal pane list failed")
+		return err
 	}
-	label := ""
-	for _, p := range panes {
-		if a.noStart && w.pane == "" && p.Label == a.name { // a rerun: the pane is there, labelled, with no agent
-			s.placed, s.idle = p.ID, true
-			s.say("skip pane: %s already labelled %s (pane %s)", a.name, a.name, p.ID)
-			s.say("OK %s: pane %s", what, p.ID)
-			return nil
-		}
-		if p.Label == a.name && p.ID != w.pane {
-			return project.Failf("pane %s is already labelled %s (obor restart %s)", p.ID, a.name, a.name)
-		}
-		if p.ID == w.pane && p.Label != "" && p.Label != a.name {
-			return project.Failf("pane %s is labelled %s, not %s (%s holds it: use another pane for %s, or clear the "+
-				"pane's label in the terminal)", p.ID, p.Label, a.name, p.Label, a.name)
-		}
-		if p.ID == w.pane {
-			label = p.Label
-		}
+	defer end()
+	if loc.Runs {
+		s.placed, s.running = loc.Pane, true
+		s.say("skip agent start: %s already running (pane %s)", a.name, loc.Pane)
+		s.say("OK %s: %s already running", what, a.name)
+		return nil
+	}
+	label := loc.Label
+	if a.noStart && w.pane == "" && loc.Pane != "" { // a rerun: the pane is there, labelled, with no agent
+		s.placed, s.idle = loc.Pane, true
+		s.say("skip pane: %s already labelled %s (pane %s)", a.name, a.name, loc.Pane)
+		s.say("OK %s: pane %s", what, loc.Pane)
+		return nil
 	}
 
 	if err := agents.CheckEffort(lt.Kind, a.effort); err != nil { // one the args cannot carry: the start's error
@@ -260,7 +264,6 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	}
 	// The start, built once: its argv for the start and its env for the new pane or the env line, from one
 	// complete start (a plugin kind's one start call).
-	l := s.Starter(s.cfg)
 	prompt := a.prompt
 	if prompt == "" {
 		prompt = a.role.StartPrompt(lt.Kind)
@@ -286,7 +289,7 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	for _, v := range unset {
 		env = append(env, v+"=")
 	}
-	pane := w.pane
+	pane := loc.Pane // the --pane target, else the agent's home (the pane labelled with its name at its shell)
 	fresh := pane == ""
 	if fresh {
 		if pane, err = s.T.Place(ctx, s.placement(a, w, env)); err != nil {
@@ -300,7 +303,7 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	setEnv := func() error {
 		return l.SetEnv(ctx, pane, port.AgentEnv{Agent: a.name, Role: a.role.Name, Lane: a.lane, Cwd: a.cwd, Vars: vars})
 	}
-	if w.pane != "" { // a reused pane: its shell may hold the env of the agent that ran there before
+	if !fresh { // a reused pane: its shell may hold the env of the agent that ran there before
 		if err := setEnv(); err != nil {
 			return err
 		}

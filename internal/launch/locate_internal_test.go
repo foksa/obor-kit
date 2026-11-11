@@ -75,6 +75,14 @@ func TestLocate(t *testing.T) {
 			panes: []port.Pane{at(agent("w1:p1", "pj-lead"), "/other")}, serve: none,
 			refuse: "pj-lead runs in pane w1:p1 with cwd /other, outside /p (another project's agent of that name? the " +
 				"config's prefix names every agent: obor setup rename changes it)"},
+		{name: "17 the agent's label and the terminal's name on a live pane outside the project: refused", agent: "pj-lead",
+			panes: []port.Pane{at(agent("w1:p1", "pj-lead"), "/other")}, serve: none, holder: "w1:p1",
+			refuse: "pj-lead runs in pane w1:p1 with cwd /other, outside /p (another project's agent of that name? the " +
+				"config's prefix names every agent: obor setup rename changes it)"},
+		{name: "17 the terminal's name alone on a live pane outside the project: refused", agent: "pj-lead",
+			panes: []port.Pane{at(agent("w1:p1", ""), "/other")}, serve: none, holder: "w1:p1",
+			refuse: "pj-lead runs in pane w1:p1 with cwd /other, outside /p (another project's agent of that name? the " +
+				"config's prefix names every agent: obor setup rename changes it)"},
 		{name: "free: its home, the pane labelled with its name at its shell", agent: "pj-l-01",
 			panes: []port.Pane{shell("w1:p2", "pj-l-01"), agent("w1:p1", "notes")}, serve: none,
 			want: Located{Pane: "w1:p2", Label: "pj-l-01"}},

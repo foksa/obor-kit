@@ -30,12 +30,14 @@ type leadRun struct {
 
 // lead is `obor lead [--resume]`: (re)start the project's lead (roles.lead) in a fresh session;
 // --resume continues its last one. A stopped project is woken first: obor start's steps run, its STARTED said,
-// and only then the lead starts; a start that fails ends obor lead with its error and starts no lead. Its agent already
-// running → OK, nothing touched; an agent of that name running outside the project → FAIL. A pane labelled
-// with its agent (the session ended, or Claude was quit to update it) → obor restart's start in that pane; from that
-// pane itself the start runs once this command has exited (herdr starts an agent only at the shell prompt). No such
-// pane → obor setup role lead's start in a new tab, fresh; only this needs roles.lead.type (a running or
-// labelled untyped lead is restarted as any other).
+// and only then the lead starts; a start that fails ends obor lead with its error and starts no lead. Where the lead
+// runs is launch's Locate (serve's identity table, the pane labels, the terminal's name): its agent already running →
+// OK naming its pane (and the pane's label when a person relabelled it), nothing touched; ambiguous, not decidable
+// (serve down beside an unaccounted agent of the project) or an agent of that name running outside the project →
+// FAIL, no pane made. A pane labelled with its agent at its shell (the session ended, or Claude was quit to update
+// it) → obor restart's start in that pane; from that pane itself the start runs once this command has exited (herdr
+// starts an agent only at the shell prompt). No such pane → obor setup role lead's start in a new tab, fresh; only
+// this needs roles.lead.type (a running or labelled untyped lead is restarted as any other).
 func lead(args []string) int {
 	cwd, _ := os.Getwd()
 	r := leadRun{dir: cwd, kit: project.KitRoot(project.OSEnv), env: project.OSEnv, out: out}
@@ -79,27 +81,30 @@ func (r leadRun) run(ctx context.Context, args []string) int {
 	}
 	agent := cfg.AgentName("lead", "")
 
-	running, err := r.t.Setup.Agents(ctx)
-	if err != nil {
-		return fail("terminal agent list failed (is the terminal running?)")
-	}
-	// The lead that already runs is the agent in the pane labelled with its name.
-	for _, a := range running {
-		if a.Label == agent && !leadOurs(cfg, agent, a.Cwd) {
-			return fail("%s runs in pane %s with cwd %s, outside %s (another project's agent of that name? the "+
-				"config's prefix names every agent: obor setup rename changes it)", agent, a.ID, a.Cwd, cfg.Root)
-		}
-		if a.Label == agent {
-			fmt.Fprintf(r.out, "OK %s runs (pane %s)\n", agent, a.ID)
-			return 0
-		}
-	}
-
 	l := &launch.Launcher{Cfg: cfg, Env: r.env, H: r.t.Control, Out: r.out}
 	if r.tune != nil {
 		r.tune(l)
 	}
-	if pane, err := l.PaneOf(ctx, agent, ""); err == nil {
+	// The decision before anything is touched (launch's Locate): the lead runs (nothing touched), or its home pane, or
+	// none (a new tab). Its lock is released here: the restart or setup's start below asks Locate again under it.
+	loc, end, err := l.Locate(ctx, agent, "", true)
+	if err != nil {
+		return launchResult(r.out, "", err)
+	}
+	end()
+	if loc.Runs {
+		labelled := ""
+		switch loc.Label {
+		case agent:
+		case "":
+			labelled = ", unlabelled"
+		default:
+			labelled = ", labelled " + loc.Label
+		}
+		fmt.Fprintf(r.out, "OK %s runs (pane %s%s)\n", agent, loc.Pane, labelled)
+		return 0
+	}
+	if pane := loc.Pane; pane != "" {
 		req := launch.Request{Agent: agent, Pane: pane, Fresh: fresh}
 		if rc, _ := cfg.Role("lead"); fresh && rc.Type != "" { // a fresh Claude lead loads its skill itself
 			lt, _ := cfg.Model(rc.Type)
@@ -117,18 +122,4 @@ func (r leadRun) run(ctx context.Context, args []string) int {
 	}
 	s := &setup.Setup{Kit: r.kit, Dir: r.dir, Env: r.env, T: r.t.Setup, Out: r.out, Starter: launcherFor(r.env, r.kit, r.t.Control, r.out, r.tune)}
 	return s.Run(ctx, []string{"role", "lead", "--new-tab", "lead", "--start"})
-}
-
-// leadOurs: the running agent with cwd is this project's lead, by the launcher's ownership rule (agent names are
-// machine-wide): its cwd in the main checkout, a lanes.dir worktree, the lead's configured cwd or
-// another worktree of this repository. No cwd known: yes.
-func leadOurs(cfg *config.Config, agent, cwd string) bool {
-	if cwd == "" || project.LabelOurs(cfg, agent, cwd, "") {
-		return true
-	}
-	if info, ok := cfg.AgentLookup(agent, ""); ok && info.Cwd != "" && project.LabelOurs(cfg, agent, cwd, info.Cwd) {
-		return true
-	}
-	r, err := project.Find(cwd)
-	return err == nil && r.Root == project.Physical(cfg.Root)
 }
