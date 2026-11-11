@@ -51,6 +51,7 @@ const (
 	MethodIdle        = "idle"         // IdleReq
 	MethodReviewClose = "review_close" // ReviewCloseReq
 	MethodEvents      = "events"       // EventsReq
+	MethodWhere       = "where"        // WhereReq
 )
 
 // The MCP job tools' socket methods: `obor mcp` sends each tool call as one request (JobNextReq, TaskDoneReq,
@@ -70,6 +71,29 @@ type JobReply struct {
 	Step    string `json:"step,omitempty"`
 	Text    string `json:"text,omitempty"`
 	Current string `json:"current,omitempty"`
+}
+
+// The states of a WhereReply: the agent is in one pane (Pane), two or more panes claim it with equal proof (Panes),
+// no pane proves it now (Why), or serve is not connected to the terminal: nothing is known, not "no agent".
+const (
+	WhereIdentified   = "identified"
+	WhereAmbiguous    = "ambiguous"
+	WhereNone         = "none"
+	WhereNotConnected = "not connected"
+)
+
+// WhereReply is where's answer (WhereReq), serve's identity table as it is: State; Identified: Pane the pane id, Source
+// the proof that holds it (session, start, label) and Label the pane's label as last observed; Ambiguous: Panes, the
+// panes that claim the agent (sorted); None: Why (at its shell, exited, no proof). Runs is, for each pane the request
+// named, the agent the table gives it ("": none, or not a pane of the project); empty while not connected.
+type WhereReply struct {
+	State  string            `json:"state"`
+	Pane   string            `json:"pane,omitempty"`
+	Source string            `json:"source,omitempty"`
+	Label  string            `json:"label,omitempty"`
+	Panes  []string          `json:"panes,omitempty"`
+	Why    string            `json:"why,omitempty"`
+	Runs   map[string]string `json:"runs,omitempty"`
 }
 
 // SessionRequest is the session request reporting s, began in the project at root: its caller is s's agent.

@@ -107,6 +107,9 @@ var goldenRequests = []requestLine{
 		`{"method":"job_next","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","job":"T-1/1/work","lane":"L-01","pane":"p1"}}`, []droppedKey{dropTask}},
 	{&TaskDoneReq{Envelope: env, Task: "T-1", Lane: "L-01", Report: "r"},
 		`{"method":"task_done","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"T-1","lane":"L-01","report":"r"}}`, nil},
+	// where is a method this release's serve answers: as started's, its row is the union's line with its own fields.
+	{&WhereReq{Envelope: env, Name: "pj-lead", Panes: []string{"w1:p1", "w1:p3"}},
+		`{"method":"where","call":{"root":"/p","agent":"ag","role":"ro","version":"v1","call_id":"c1","task":"","name":"pj-lead","panes":["w1:p1","w1:p3"]}}`, []droppedKey{dropTask}},
 }
 
 // callerRequests is the same oracle for the requests a real caller builds with the fields it sets: the MCP
@@ -245,7 +248,7 @@ func TestRequestLinesDropOnlyUnreadKeys(t *testing.T) {
 		MethodResume, MethodDispatch, MethodWatch, MethodPause, MethodReview, MethodSession, MethodStarted, MethodSpecSet,
 		MethodConfig,
 		MethodBackup, MethodSend, MethodBrief, MethodStopped, MethodTurn, MethodRestartJob, MethodExit, MethodDrive,
-		MethodLand, MethodTellLead, MethodIdle, MethodReviewClose, MethodEvents, MethodJobNext, MethodTaskDone} {
+		MethodLand, MethodTellLead, MethodIdle, MethodReviewClose, MethodEvents, MethodJobNext, MethodTaskDone, MethodWhere} {
 		if !methods[m] {
 			t.Errorf("no golden row for %s", m)
 		}
