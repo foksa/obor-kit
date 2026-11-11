@@ -398,25 +398,17 @@ var (
 	pollEvery   = 250 * time.Millisecond
 )
 
-// execLaunchctl runs launchctl (from PATH) under ctx: its combined output. The verbs' every launchctl call goes through
-// it, so a test answers for launchd in process and records the calls. A test replaces it.
-var execLaunchctl = func(ctx context.Context, args ...string) ([]byte, error) {
+// ExecLaunchctl runs launchctl (from PATH) under ctx: its combined output. The verbs' every launchctl call goes through
+// it, so a test answers for launchd in process and records the calls. A test replaces it (and puts it back).
+var ExecLaunchctl = func(ctx context.Context, args ...string) ([]byte, error) {
 	return exec.CommandContext(ctx, "launchctl", args...).CombinedOutput()
-}
-
-// SetLaunchctl replaces the launchctl call with f (a test of another package answers for launchd in process); it
-// returns the call it replaced. The default runs launchctl from PATH.
-func SetLaunchctl(f func(ctx context.Context, args ...string) ([]byte, error)) (restore func()) {
-	was := execLaunchctl
-	execLaunchctl = f
-	return func() { execLaunchctl = was }
 }
 
 // launchctl runs launchctl (from PATH) under timeout; its error carries its output.
 func launchctl(ctx context.Context, timeout time.Duration, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	out, err := execLaunchctl(ctx, args...)
+	out, err := ExecLaunchctl(ctx, args...)
 	if err != nil {
 		msg := fmt.Sprintf("launchctl %s: %v", strings.Join(args, " "), err)
 		if said := strings.TrimSpace(string(out)); said != "" {

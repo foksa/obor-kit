@@ -394,14 +394,15 @@ func TestStopRefusesAServeThatStaysUp(t *testing.T) {
 	}
 }
 
-// fakeLaunchctl answers for launchctl in process (service.SetLaunchctl): each call's arguments are a line in log, and
+// fakeLaunchctl answers for launchctl in process (service.ExecLaunchctl): each call's arguments are a line in log, and
 // one label stays loaded while the state file exists, as launchd keeps it (internal/service's own fake does the
 // same with fields). The replaced call is the process's: a test that uses it does not call t.Parallel.
 func fakeLaunchctl(t *testing.T) (log, state string) {
 	dir := t.TempDir()
 	log, state = filepath.Join(dir, "calls"), filepath.Join(dir, "loaded")
 	var mu sync.Mutex
-	restore := service.SetLaunchctl(func(_ context.Context, args ...string) ([]byte, error) {
+	was := service.ExecLaunchctl
+	service.ExecLaunchctl = func(_ context.Context, args ...string) ([]byte, error) {
 		mu.Lock()
 		defer mu.Unlock()
 		f, err := os.OpenFile(log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
@@ -427,8 +428,8 @@ func fakeLaunchctl(t *testing.T) (log, state string) {
 			return []byte("pid = 4242\n"), nil
 		}
 		return nil, nil
-	})
-	t.Cleanup(restore)
+	}
+	t.Cleanup(func() { service.ExecLaunchctl = was })
 	return log, state
 }
 

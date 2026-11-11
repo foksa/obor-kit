@@ -32,7 +32,7 @@ func TestPlistGolden(t *testing.T) {
 	}
 }
 
-// fakeLaunchd is an in-process launchctl (execLaunchctl): it records every call in calls and keeps one label's state:
+// fakeLaunchd is an in-process launchctl (ExecLaunchctl): it records every call in calls and keeps one label's state:
 // loaded and pid (print's answer while loaded; 0: loaded, no serve). Its knobs are launchd's states a test needs: eio,
 // the number of bootstraps that fail with launchd's "5: Input/output error"; noload, a bootstrap that returns 0 loading
 // nothing; and kick, what kickstart -k does to a loaded label.
@@ -62,13 +62,13 @@ func pidOf(p int) *int { return &p }
 func fakeLaunchctl(t *testing.T) *fakeLaunchd {
 	t.Helper()
 	f := &fakeLaunchd{pid: 4242}
-	was := execLaunchctl
-	execLaunchctl = f.run
-	t.Cleanup(func() { execLaunchctl = was })
+	was := ExecLaunchctl
+	ExecLaunchctl = f.run
+	t.Cleanup(func() { ExecLaunchctl = was })
 	return f
 }
 
-// run is the fake's execLaunchctl: one launchctl call's output and error. kickstart's wait is the bubble's clock in the
+// run is the fake's ExecLaunchctl: one launchctl call's output and error. kickstart's wait is the bubble's clock in the
 // tests that set it (synctest.Test), so a slow or a killed kickstart costs no wall time.
 func (f *fakeLaunchd) run(ctx context.Context, args ...string) ([]byte, error) {
 	f.calls = append(f.calls, strings.Join(args, " "))
