@@ -293,7 +293,7 @@ func (a *App) startWorker(ctx context.Context, p *proj, fx *Loop, mt mtask, key 
 				return startOut{Line: "started (seen in the snapshot)", Agent: d.Agent, Pane: d.Pane}, nil
 			case seenUnknown:
 				return startOut{Refused: "cannot tell whether the agent in " + d.Pane + " is the one started (no " +
-					"session id recorded from the pane, and herdr reports none): look at the pane, then obor resume " +
+					"session id recorded from the pane, and the terminal reports none): look at the pane, then obor resume " +
 					mt.task}, nil
 			}
 		}

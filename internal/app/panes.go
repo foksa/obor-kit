@@ -26,7 +26,7 @@ func (a *App) connect(ctx context.Context, snap port.Snapshot) {
 				w.agent, w.lost = port.Pane{}, time.Time{} // the next check resets the task's timers
 			}
 		}
-		a.logf("herdr: a new session (no pane id known): watching it afresh")
+		a.logf("terminal: a new session (no pane id known): watching it afresh")
 	}
 	in := map[string]bool{}
 	for _, p := range snap.Panes {
@@ -49,7 +49,7 @@ func (a *App) connect(ctx context.Context, snap port.Snapshot) {
 		a.logf("terminal: %s", snap.Note)
 	}
 	a.termVer, a.termNote = snap.Version, snap.Note
-	a.logf("herdr: connected; %d panes, %d in the project", len(snap.Panes), a.projectPanes())
+	a.logf("terminal: connected; %d panes, %d in the project", len(snap.Panes), a.projectPanes())
 	p := a.p
 	if p != nil {
 		a.reconcile(p)
@@ -104,7 +104,7 @@ func (a *App) observe(pane port.Pane, now time.Time) {
 func (a *App) rereadPanes(ctx context.Context) ([]port.Pane, error) {
 	snap, err := a.panes.Snapshot(ctx)
 	if err != nil {
-		a.logf("herdr: panes: %v", err)
+		a.logf("terminal: panes: %v", err)
 		return nil, err
 	}
 	return snap.Panes, nil

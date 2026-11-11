@@ -68,7 +68,7 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 	end := &serveEnd{stop: stop}
 	root := repo.Root
 	sock := wire.SocketPath(root)
-	if err := wire.CheckSocketPath(sock); err != nil {
+	if err := project.CheckSocketPath(sock); err != nil {
 		errf("FAIL obor serve: %v", err)
 		return 1
 	}
@@ -188,9 +188,6 @@ func mergeLoop(env project.Env, term port.Terminal, end *serveEnd, kinds *kindCa
 		wf, err := workflowOf(o)
 		if err != nil {
 			return nil, err
-		}
-		if k := cfg.TerminalKind(); k != config.DefaultTerminal { // herdr is the one terminal adapter
-			return nil, fmt.Errorf("terminal.kind %q: serve knows %s", k, strings.Join(config.TerminalKinds, ", "))
 		}
 		l := &app.Loop{Workflow: wf, Agents: agents, Prompter: term.Control, Nightly: nightly(o), Disk: diskOf(repo.Root),
 			Inbox: poster{repo.Root}}

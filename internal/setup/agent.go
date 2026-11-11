@@ -219,6 +219,9 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	for _, r := range running {
 		who := cmp.Or(r.Label, r.Agent)                                         // its pane's label, else (a pane nobody labelled) its kind
 		if a.role.Name == roles.Driver && r.Label != a.name && r.Cwd == a.cwd { // one agent in a lane
+			if r.Label == "" { // a pane nobody labelled: its kind is no agent to restart
+				return project.Failf("%s still runs in lane %s (pane %s): quit the agent in pane %s first", who, a.lane, r.ID, r.ID)
+			}
 			return project.Failf("%s still runs in lane %s (pane %s): obor restart %s --stop first", who, a.lane, r.ID, who)
 		}
 		if r.Label == a.name || (a.lane != "" && r.Cwd == a.cwd) {

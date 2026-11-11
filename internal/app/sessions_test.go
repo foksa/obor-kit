@@ -74,7 +74,7 @@ func TestSessionIdentityCrossCheck(t *testing.T) {
 		h.status("w1:p1", func(p *port.Pane) { p.Session = "s-herdr" })
 		eqs(t, h.where("pj-l-01"), "identified w1:p1 label", "a differing herdr session: by label")
 		h.status("w1:p1", func(p *port.Pane) { p.Status = "working" })
-		const line = "herdr reports session s-herdr for pj-l-01 at pane w1:p1; its recorded session is s1 (kept)"
+		const line = "the terminal reports session s-herdr for pj-l-01 at pane w1:p1; its recorded session is s1 (kept)"
 		if n := strings.Count(out.String(), line); n != 1 {
 			t.Errorf("logged %d times, want once:\n%s", n, out)
 		}
@@ -89,7 +89,7 @@ func TestSessionIdentityCrossCheck(t *testing.T) {
 		h.session("pj-l-01", "s1", "", time.Now().Unix())
 		h.connect()
 		eqs(t, h.where("pj-l-01"), "identified w1:p1 start", "a differing herdr session: by start")
-		if !strings.Contains(out.String(), "herdr reports session s-herdr for pj-l-01 at pane w1:p1; its recorded session is s1 (kept)") {
+		if !strings.Contains(out.String(), "the terminal reports session s-herdr for pj-l-01 at pane w1:p1; its recorded session is s1 (kept)") {
 			t.Errorf("not logged:\n%s", out)
 		}
 	})
@@ -121,7 +121,7 @@ func TestSessionIdentityWithoutHerdrSession(t *testing.T) {
 			eqs(t, h.current("pj-l-01"), "s1", "the recorded session is its current one")
 			h.status("w1:p1", func(p *port.Pane) { p.Status = "working" })
 			eqs(t, h.where("pj-l-01"), c.want, "still identified after a pane event")
-			if strings.Contains(out.String(), "herdr reports session") {
+			if strings.Contains(out.String(), "the terminal reports session") {
 				t.Errorf("a cross-check line with no herdr session:\n%s", out)
 			}
 		})

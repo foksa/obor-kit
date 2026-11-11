@@ -124,7 +124,7 @@ func TestRenameMapsConfigStoreFilesAndTerminal(t *testing.T) {
 	if b, _ := os.ReadFile(filepath.Join(dir, "label")); strings.TrimSpace(string(b)) != "newp" {
 		t.Errorf("workspace label = %q, want newp", b)
 	}
-	for _, want := range []string{"OK 1 config: ", "OK 4 herdr: workspace w9: proj → newp",
+	for _, want := range []string{"OK 1 config: ", "OK 4 terminal: workspace w9: proj → newp",
 		"  pj-l-01 → ob-l-01", "  pj-l-02 → ob-l-02", "  pj-lead → ob-lead", "mv ", "proj-wt"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
@@ -238,7 +238,7 @@ func TestRenameRelabelsTheMappedPanesOnly(t *testing.T) {
 	if n := strings.Count(log, "pane rename"); n != 2 {
 		t.Errorf("%d pane renames, want 2 (advisor, the unlabelled pane and another workspace's pane stay):\n%s", n, log)
 	}
-	if !strings.Contains(out, "OK 4 herdr: workspace w9: proj → newp; pane labels w9:p1 pj-int → ob-int, w9:p2 pj-lead → ob-lead") {
+	if !strings.Contains(out, "OK 4 terminal: workspace w9: proj → newp; pane labels w9:p1 pj-int → ob-int, w9:p2 pj-lead → ob-lead") {
 		t.Errorf("step 4 line missing:\n%s", out)
 	}
 }

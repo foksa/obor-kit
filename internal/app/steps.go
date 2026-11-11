@@ -155,7 +155,7 @@ func (a *App) stopAgent(ctx context.Context, p *proj, fx *Loop, agent string, fo
 }
 
 // errCutOff is stopAgent's error while serve is not connected to herdr: nothing is known of the agent.
-var errCutOff = errors.New("serve is " + notConnected + " to herdr")
+var errCutOff = errors.New("serve is " + notConnected + " to the terminal")
 
 // where is whereIs taking mu.
 func (a *App) where(p *proj, agent string) Where {

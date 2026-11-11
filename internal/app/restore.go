@@ -158,7 +158,7 @@ func (a *App) restore(ctx context.Context, wg *sync.WaitGroup, why string) {
 	if a.rst.running {
 		a.rst.again = true
 		a.mu.Unlock()
-		a.logf("herdr: reconnected again: one more restore after the one in progress")
+		a.logf("terminal: reconnected again: one more restore after the one in progress")
 		return
 	}
 	a.rst.running = true
@@ -167,7 +167,7 @@ func (a *App) restore(ctx context.Context, wg *sync.WaitGroup, why string) {
 	go func() {
 		defer wg.Done()
 		for {
-			a.logf("herdr: %s: restoring the project's labelled panes that run no agent", why)
+			a.logf("terminal: %s: restoring the project's labelled panes that run no agent", why)
 			a.opt.Restore.RestoreProject(ctx, a.opt.Root)
 			a.mu.Lock()
 			again := a.rst.again && ctx.Err() == nil
@@ -176,7 +176,7 @@ func (a *App) restore(ctx context.Context, wg *sync.WaitGroup, why string) {
 			a.mu.Unlock()
 			if !again {
 				if ctx.Err() == nil {
-					a.logf("herdr: restore done")
+					a.logf("terminal: restore done")
 				}
 				return
 			}

@@ -85,7 +85,7 @@ func (s *Setup) renameCmd(ctx context.Context, args []string) error {
 		run  func(context.Context) error
 	}{
 		{"0 stop", r.stop}, {"1 config", r.config}, {"3 files", r.files},
-		{"4 herdr", r.terminal}, {"5 finish", r.finish},
+		{"4 terminal", r.terminal}, {"5 finish", r.finish},
 	}
 	for _, st := range steps {
 		if err := st.run(ctx); err != nil {
@@ -123,7 +123,7 @@ func (r *renamer) stop(ctx context.Context) error {
 	switch {
 	case port.NotRunning(err): // herdr is not running: no agent either
 	case err != nil:
-		return project.Failf("cannot ask herdr for the running agents: %v", err)
+		return project.Failf("cannot ask the terminal for the running agents: %v", err)
 	}
 	for _, a := range running {
 		if r.inProject(a.Cwd) {
@@ -306,9 +306,9 @@ func (r *renamer) terminal(ctx context.Context) error {
 	case err != nil:
 		return err
 	case done.Warn:
-		r.say("WARN 4 herdr: %s", done.Line)
+		r.say("WARN 4 terminal: %s", done.Line)
 	default:
-		r.ok("4 herdr", done.Already, "%s", done.Line)
+		r.ok("4 terminal", done.Already, "%s", done.Line)
 	}
 	return nil
 }

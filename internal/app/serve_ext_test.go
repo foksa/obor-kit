@@ -19,12 +19,12 @@ func TestServeWaitsForHerdr(t *testing.T) {
 		r := newLoopRig(t, dispatching())
 		r.start()
 		r.setSpec("s1", "# T-1 — Waits\n\nDifficulty: medium\n")
-		if out := r.out.String(); !strings.Contains(out, "herdr: connected") || strings.Contains(out, "herdr: gone") {
+		if out := r.out.String(); !strings.Contains(out, "terminal: connected") || strings.Contains(out, "terminal: gone") {
 			t.Fatalf("precondition: not connected, or gone already:\n%s", out)
 		}
 
 		r.srv.Die()
-		r.waitFor("the gone line", func() bool { return strings.Contains(r.out.String(), "herdr: gone") })
+		r.waitFor("the gone line", func() bool { return strings.Contains(r.out.String(), "terminal: gone") })
 		r.waitFor("disconnected", func() bool { return !r.app.Status().Connected })
 		if reply, err := r.dispatch("d1", "L-01"); err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as sonnet" {
 			t.Fatalf("dispatch with herdr down: %q, %v", reply, err)
@@ -39,7 +39,7 @@ func TestServeWaitsForHerdr(t *testing.T) {
 		if p, _ := r.disp.applied(); p != 0 {
 			t.Errorf("lane prepared with herdr down: %d prepares", p)
 		}
-		if n := strings.Count(r.out.String(), "herdr: gone"); n != 1 {
+		if n := strings.Count(r.out.String(), "terminal: gone"); n != 1 {
 			t.Errorf("%d gone lines, want 1:\n%s", n, r.out)
 		}
 		if len(subs) != 0 {
@@ -47,11 +47,11 @@ func TestServeWaitsForHerdr(t *testing.T) {
 		}
 
 		r.srv.Revive(t)
-		r.waitFor("the back line", func() bool { return strings.Contains(r.out.String(), "herdr: back") })
+		r.waitFor("the back line", func() bool { return strings.Contains(r.out.String(), "terminal: back") })
 		r.waitStep("1 result work")
 		r.waitJob("pj-l-01", "T-1/1/work")
 		out := r.out.String()
-		if n, m := strings.Count(out, "herdr: gone"), strings.Count(out, "herdr: back"); n != 1 || m != 1 {
+		if n, m := strings.Count(out, "terminal: gone"), strings.Count(out, "terminal: back"); n != 1 || m != 1 {
 			t.Errorf("%d gone and %d back lines, want one each:\n%s", n, m, out)
 		}
 		if !strings.Contains(out, "stream ended") {
@@ -75,7 +75,7 @@ func TestServeStartsWithHerdrDown(t *testing.T) {
 		out := r.out
 		go func() {
 			for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
-				if strings.Contains(out.String(), "herdr: gone") {
+				if strings.Contains(out.String(), "terminal: gone") {
 					r.srv.Revive(t)
 					return
 				}
@@ -83,10 +83,10 @@ func TestServeStartsWithHerdrDown(t *testing.T) {
 		}()
 		r.firstCheck() // returns after the first check: herdr is back
 		got := out.String()
-		if n, m := strings.Count(got, "herdr: gone"), strings.Count(got, "herdr: back"); n != 1 || m != 1 {
+		if n, m := strings.Count(got, "terminal: gone"), strings.Count(got, "terminal: back"); n != 1 || m != 1 {
 			t.Errorf("%d gone and %d back lines, want one each:\n%s", n, m, got)
 		}
-		if strings.Index(got, "herdr: gone") > strings.Index(got, "herdr: connected") {
+		if strings.Index(got, "terminal: gone") > strings.Index(got, "terminal: connected") {
 			t.Errorf("connected before gone:\n%s", got)
 		}
 	})
