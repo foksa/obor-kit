@@ -53,9 +53,9 @@ func (s *Setup) githooksStep(args []string) (changed bool, err error) {
 	}
 	dir := filepath.Join(s.Kit, "githooks")
 	chainDir := filepath.Join(dir, "chain")
-	cur, _ := project.Git(s.root, "config", "--local", "--get", "core.hooksPath")
+	cur, _ := s.git().Git(s.root, "config", "--local", "--get", "core.hooksPath")
 	cur = strings.TrimSpace(cur)
-	chain, _ := project.Git(s.root, "config", "--local", "--get", "obor.hooksChain")
+	chain, _ := s.git().Git(s.root, "config", "--local", "--get", "obor.hooksChain")
 	chain = strings.TrimSpace(chain)
 	if remove {
 		switch {
@@ -66,16 +66,16 @@ func (s *Setup) githooksStep(args []string) (changed bool, err error) {
 			return false, nil
 		}
 		if chain != "" {
-			if _, err := project.Git(s.root, "config", "--local", "core.hooksPath", chain); err != nil {
+			if _, err := s.git().Git(s.root, "config", "--local", "core.hooksPath", chain); err != nil {
 				return false, project.Failf("cannot set core.hooksPath in %s", s.root)
 			}
-			if _, err := project.Git(s.root, "config", "--local", "--unset", "obor.hooksChain"); err != nil {
+			if _, err := s.git().Git(s.root, "config", "--local", "--unset", "obor.hooksChain"); err != nil {
 				return false, project.Failf("cannot unset obor.hooksChain in %s", s.root)
 			}
 			s.say("OK githooks removed (core.hooksPath = %s, the project's own)", chain)
 			return true, nil
 		}
-		if _, err := project.Git(s.root, "config", "--local", "--unset", "core.hooksPath"); err != nil {
+		if _, err := s.git().Git(s.root, "config", "--local", "--unset", "core.hooksPath"); err != nil {
 			return false, project.Failf("cannot unset core.hooksPath in %s", s.root)
 		}
 		s.say("OK githooks removed (core.hooksPath unset)")
@@ -84,7 +84,7 @@ func (s *Setup) githooksStep(args []string) (changed bool, err error) {
 	// The project's own hooks dir is chained, rather than make it choose.
 	own := cur != "" && cur != dir && cur != chainDir && !kitHooks(cur)
 	if own {
-		if _, err := project.Git(s.root, "config", "--local", "obor.hooksChain", cur); err != nil {
+		if _, err := s.git().Git(s.root, "config", "--local", "obor.hooksChain", cur); err != nil {
 			return false, project.Failf("cannot set obor.hooksChain in %s", s.root)
 		}
 		chain = cur
@@ -92,14 +92,14 @@ func (s *Setup) githooksStep(args []string) (changed bool, err error) {
 	// The full set only when there is something to chain: git runs one dir, and the small set ships pre-commit and
 	// pre-push alone.
 	target := dir
-	if chain != "" || dotgitHooks(s.root) {
+	if chain != "" || s.dotgitHooks(s.root) {
 		target = chainDir
 	}
 	if cur == target {
 		s.say("OK githooks: core.hooksPath already %s", target)
 		return false, nil
 	}
-	if _, err := project.Git(s.root, "config", "--local", "core.hooksPath", target); err != nil {
+	if _, err := s.git().Git(s.root, "config", "--local", "core.hooksPath", target); err != nil {
 		return false, project.Failf("cannot set core.hooksPath in %s", s.root)
 	}
 	switch {
@@ -118,8 +118,8 @@ func (s *Setup) githooksStep(args []string) (changed bool, err error) {
 // dotgitHooks: .git/hooks holds an executable hook (not a *.sample) that the small githooks/ set lacks, other than
 // pre-commit and pre-push. git never runs .git/hooks once core.hooksPath is set, so only githooks/chain/ can
 // run it.
-func dotgitHooks(root string) bool {
-	repo, err := project.Find(root)
+func (s *Setup) dotgitHooks(root string) bool {
+	repo, err := s.git().Find(root)
 	if err != nil {
 		return false
 	}
@@ -140,9 +140,9 @@ func dotgitHooks(root string) bool {
 }
 
 // hooksLine is obor init's githooks step: core.hooksPath, and the chain when one is recorded.
-func hooksLine(root string) string {
-	cur, _ := project.Git(root, "config", "--local", "--get", "core.hooksPath")
-	chain, _ := project.Git(root, "config", "--local", "--get", "obor.hooksChain")
+func (s *Setup) hooksLine(root string) string {
+	cur, _ := s.git().Git(root, "config", "--local", "--get", "core.hooksPath")
+	chain, _ := s.git().Git(root, "config", "--local", "--get", "obor.hooksChain")
 	line := "core.hooksPath = " + strings.TrimSpace(cur)
 	if chain = strings.TrimSpace(chain); chain != "" {
 		line += ", chaining " + chain

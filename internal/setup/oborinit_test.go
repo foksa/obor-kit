@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"obor/internal/config"
+	"obor/internal/testkit"
 )
 
 // initFx is a bare project (no config) for obor init: a fake `claude` (and, with codex, a fake `codex`) first on the
@@ -31,6 +32,13 @@ func newGitInitFx(t *testing.T, codex bool) *initFx {
 	return initFxOn(t, bareGit(t), codex)
 }
 
+// newFakeGitInitFx is newGitInitFx with no git process: bareFakeGit, for the tests of what init decides (the steps, the
+// lanes it adds, the panes it places). A test of git's own result keeps newGitInitFx.
+func newFakeGitInitFx(t *testing.T, codex bool) *initFx {
+	t.Helper()
+	return initFxOn(t, bareFakeGit(t), codex)
+}
+
 // initFxOn is newInitFx on the project of f.
 func initFxOn(t *testing.T, f *fx, codex bool) *initFx {
 	t.Helper()
@@ -51,11 +59,9 @@ esac
 	if err := os.MkdirAll(x.bin, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	x.Write(filepath.Join(x.bin, "claude"), script)
-	os.Chmod(filepath.Join(x.bin, "claude"), 0o755)
+	testkit.Script(t, x.bin, "claude", script) // one cached copy (no exec scan per test): its paths come from $0
 	if codex {
-		x.Write(filepath.Join(x.bin, "codex"), "#!/bin/sh\nexit 0\n")
-		os.Chmod(filepath.Join(x.bin, "codex"), 0o755)
+		testkit.Script(t, x.bin, "codex", "#!/bin/sh\nexit 0\n")
 	}
 	x.env = append(x.env, "PATH="+x.bin+":/usr/bin:/bin")
 	x.serve = func(context.Context, *config.Config) (string, string, error) {

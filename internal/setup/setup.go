@@ -90,6 +90,9 @@ type Setup struct {
 	// ShellWait bounds the wait for a pane a new tab or a split made to be an available shell (0: 10 s).
 	ShellWait time.Duration
 
+	// host is the git seam (nil: realGit): a test of what setup decides gives it a fake.
+	host gitHost
+
 	root  string // the main checkout, once found
 	cfg   *config.Config
 	wrote bool // init: a file was created or appended to
@@ -190,7 +193,7 @@ func (s *Setup) inProject(cwd string) bool {
 
 // findRoot sets the main checkout of the project around Dir.
 func (s *Setup) findRoot() error {
-	repo, err := project.Find(s.Dir)
+	repo, err := s.git().Find(s.Dir)
 	if err != nil {
 		return project.Failf("not in a git repository")
 	}
@@ -235,12 +238,12 @@ func (s *Setup) projectConfig() (*config.Config, error) {
 func (s *Setup) ensureWorktree(dir string) error {
 	branch := ""
 	if _, err := os.Stat(dir); err != nil {
-		out, _ := project.Git(s.root, "branch", "--show-current")
+		out, _ := s.git().Git(s.root, "branch", "--show-current")
 		if branch = strings.TrimSpace(out); branch == "" {
 			return project.Failf("the main checkout %s is not on a branch", s.root)
 		}
 	}
-	added, err := project.AddWorktree(context.Background(), s.root, dir, branch)
+	added, err := s.git().AddWorktree(context.Background(), s.root, dir, branch)
 	switch {
 	case err != nil:
 		return project.Failf("%v", err)

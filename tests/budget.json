@@ -101,8 +101,8 @@
       "git_procs": 0
     },
     "obor/internal/setup": {
-      "full_s": 27.4,
-      "git_procs": 1838
+      "full_s": 21.8,
+      "git_procs": 875
     },
     "obor/internal/spec": {
       "full_s": 0.4,

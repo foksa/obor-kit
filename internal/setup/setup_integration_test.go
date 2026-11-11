@@ -7,7 +7,6 @@ package setup
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -385,7 +384,3 @@ func TestRoleSetupLeavesAnExistingReviewsLineAlone(t *testing.T) {
 }
 
 // gitIn is git -C dir args…: its trimmed stdout and error (testkit's Git fails the test instead).
-func gitIn(dir string, args ...string) (string, error) {
-	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).Output()
-	return strings.TrimSpace(string(out)), err
-}

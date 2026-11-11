@@ -2,12 +2,10 @@ package setup
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -203,7 +201,7 @@ func (s *Setup) initBranch() string {
 // gitInit makes dir a repository when it is in none: branch is merge.target_branch from a config already there, else main
 func (s *Setup) gitInit() error {
 	branch := s.initBranch()
-	if _, err := project.Git(s.Dir, "init", "-q", "-b", branch); err != nil {
+	if _, err := s.git().Git(s.Dir, "init", "-q", "-b", branch); err != nil {
 		return project.Failf("git init -b %s in %s", branch, s.Dir)
 	}
 	s.say("git init -b %s in %s", branch, s.Dir)
@@ -216,7 +214,7 @@ func (s *Setup) gitInit() error {
 // user's files). A repository with a commit: false. repo: root is a git repository (else a plain directory).
 func (s *Setup) autoCommit(root string, repo bool) (bool, error) {
 	if repo {
-		if _, err := project.Git(root, "rev-parse", "-q", "--verify", "HEAD"); err == nil {
+		if _, err := s.git().Git(root, "rev-parse", "-q", "--verify", "HEAD"); err == nil {
 			return false, nil
 		}
 	}
@@ -228,7 +226,7 @@ func (s *Setup) autoCommit(root string, repo bool) (bool, error) {
 	if !onlyFiles(root, want) {
 		branch := s.initBranch()
 		if repo {
-			if b, err := project.Git(root, "symbolic-ref", "--short", "HEAD"); err == nil && strings.TrimSpace(b) != "" {
+			if b, err := s.git().Git(root, "symbolic-ref", "--short", "HEAD"); err == nil && strings.TrimSpace(b) != "" {
 				branch = strings.TrimSpace(b)
 			}
 		}
@@ -320,17 +318,8 @@ func (s *Setup) initCommit(auto bool) (committed []string, err error) {
 		return nil, nil
 	}
 	sort.Strings(committed)
-	if _, err := project.Git(s.root, append([]string{"add", "--"}, committed...)...); err != nil {
-		return nil, project.Failf("git add %s", strings.Join(committed, " "))
-	}
-	args := append([]string{"-C", s.root, "commit", "-q", "-m", "obor init", "--"}, committed...)
-	cmd := exec.CommandContext(context.Background(), "git", args...)
-	var out bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &out
-	cleanup := project.Group(cmd)
-	defer cleanup()
-	if err := cmd.Run(); err != nil {
-		return nil, project.Failf("git commit -m obor init: %s", lastLine(out.String(), err))
+	if err := s.git().Commit(s.root, "obor init", committed); err != nil {
+		return nil, err
 	}
 	return committed, nil
 }
