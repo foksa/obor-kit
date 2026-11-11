@@ -117,7 +117,7 @@ func TestLeadRunningTouchesNothing(t *testing.T) {
 // The lead that already runs is the agent in the pane labelled with its name, whatever name the terminal runs that
 // agent under: a labelled pane whose agent herdr names otherwise (or not at all) is the running lead, and an agent
 // herdr names pj-lead in a pane labelled for something else is not: obor lead then opens a lead pane of its own, where
-// herdr refuses the start (the name is the live agent's).
+// the name herdr still holds for the relabelled pane is cleared and the new lead starts.
 func TestLeadRunsByItsPaneLabel(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{"", "someone"} {
@@ -134,12 +134,18 @@ func TestLeadRunsByItsPaneLabel(t *testing.T) {
 	x := newLeadFx(t)
 	x.f.Agent("w1:p1", "pj-lead", "working", x.p.Root).Label = "notes"
 	out, rc := x.run(t)
-	if rc == 0 || strings.Contains(out, "OK pj-lead runs") {
-		t.Fatalf("herdr name pj-lead in a pane labelled notes: exit %d, want no running lead found and the start refused\n%s", rc, out)
+	if rc != 0 || lastLine(out) != "OK lead: pj-lead in pane w1:n1" {
+		t.Fatalf("herdr name pj-lead in a pane labelled notes: exit %d, want a new lead pane started\n%s", rc, out)
+	}
+	if !strings.Contains(out, "agent start: name pj-lead taken (pane w1:p1): clearing it and retrying") {
+		t.Errorf("the retried start said nothing:\n%s", out)
 	}
 	c := x.calls()
 	if !strings.Contains(c, "tab.create") || !strings.Contains(c, `"name":"pj-lead"`) {
 		t.Errorf("a lead pane of its own asked for and a start tried there:\n%s", c)
+	}
+	if !strings.Contains(c, `"target":"w1:p1"`) {
+		t.Errorf("the relabelled pane's stale name not cleared:\n%s", c)
 	}
 	if strings.Contains(c, `"pane_id":"w1:p1","text"`) || strings.Contains(c, `pane.send_keys {"keys":["esc"],"pane_id":"w1:p1"`) {
 		t.Errorf("the relabelled pane's agent was typed at or stopped:\n%s", c)

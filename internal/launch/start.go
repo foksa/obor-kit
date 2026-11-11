@@ -30,7 +30,8 @@ type (
 // up to 30 s for an agent ready for input, which an agent busy on its first prompt never is); a start with a first
 // prompt whose agent works on it is a start, its launch pending or herdr's call given up on (attempt.counts,
 // busyStart). herdr's agent name is neither required nor renamed back (herdr drops it at times and obor
-// addresses the pane by id); a name herdr still holds is cleared and the start retried once, the adapter's line for it
+// addresses the pane by id); a name herdr still holds, in this pane or another, is cleared and the start retried once,
+// the adapter's line for it
 // (and a failed clear's warning) said through Diag (else Out). A failed start is a *StartError, herdr's error
 // printed: NoShell when the pane never became its shell, NotReady with a hint when the pane shows a trust dialog or a
 // Codex self-update, or herdr says NotReady. A failed env line is its own error; a failed pane label is a Fail (nothing

@@ -89,7 +89,7 @@ func (e *Error) TimedOut() bool { return e.Code == "timeout" }
 // Answered: herdr sent this error itself, its code with it (an unreadable answer or a lost connection has none).
 func (e *Error) Answered() bool { return e.Code != "" }
 
-// nameTaken: herdr refused a start name this pane ran the agent under before, or one another live agent holds
+// nameTaken: herdr refused a start name this pane ran the agent under before, or one another pane holds
 // (agent_name_taken).
 func (e *Error) nameTaken() bool { return e.Code == "agent_name_taken" }
 
@@ -581,10 +581,11 @@ func orNil(s string) any {
 
 // Start is agent.start: name a new agent of kind in pane and type its command line (kind and args) at the pane's
 // shell. herdr answers at once, before the agent runs (launch_pending, live): the answer is no proof the agent
-// came up, the caller polls for it (launch.started). herdr lags in noticing an exit and may still hold the name from a
-// pane that ran the agent before: a name it refuses as taken while no live agent elsewhere holds it is cleared, said
-// on say, and the start retried once (a clear that fails warns on say too). Sent once otherwise, never retried: a
-// request that timed out may have been typed (Reached).
+// came up, the caller polls for it (launch.started). herdr lags in noticing an exit and holds a name from a pane that
+// ran the agent before, or from a pane whose agent obor no longer identifies there: the label is obor's identity, so a
+// name taken by another pane is stale to obor too, and is cleared, said on say, and the start retried once (a clear
+// that fails warns on say too). Sent once otherwise, never retried: a request that timed out may have been typed
+// (Reached).
 func (s *Socket) Start(ctx context.Context, name, kind, pane string, say func(format string, args ...any), args ...string) (port.Pane, error) {
 	a, err := s.start(ctx, name, kind, pane, args...)
 	var e *Error
@@ -595,10 +596,8 @@ func (s *Socket) Start(ctx context.Context, name, kind, pane string, say func(fo
 	if h, herr := s.agentAt(ctx, name); herr == nil {
 		holder = h.ID
 	}
-	if holder != "" && holder != pane { // a live agent elsewhere holds it: the start stays refused
-		return a, err
-	}
-	// herdr kept the name of this pane's own agent, or one no agent holds: clear it and retry.
+	// herdr kept the name of this pane's own agent, or one another pane holds, or one no agent holds: clear it and
+	// retry.
 	at := ""
 	if holder != "" {
 		at = " (pane " + holder + ")"

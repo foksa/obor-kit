@@ -1971,6 +1971,26 @@ func TestRestartAgentNameTaken(t *testing.T) {
 			t.Errorf("restarted:\n%s", out)
 		}
 	})
+	t.Run("a live unlabelled holder elsewhere: cleared there, the agent starts in the target pane, retried", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.sid("pj-l-01", "sid-1")
+		x.shell("w1:p3", "pj-l-01", "")
+		// A live agent under the name in a pane obor does not label pj-l-01: its name is stale, the label is identity.
+		x.f.Agent("w1:p1", "pj-l-01", "idle", "")
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01", Pane: "w1:p3"})
+		contains(t, out, "agent start: name pj-l-01 taken (pane w1:p1): clearing it and retrying", "said")
+		eqInt(t, len(x.calls("agent.start")), 2, "retried once")
+		if clr, start := x.index("agent.rename name=null target=w1:p1"), x.lastIndex("agent.start"); clr < 0 || clr > start {
+			t.Errorf("cleared before the retry: %q", x.srv.Calls())
+		}
+		eq(t, x.f.Pane("w1:p3").Name, "pj-l-01", "the agent started in the target pane")
+		eq(t, x.f.Pane("w1:p1").Name, "", "the holder's name")
+		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
+		if !ok {
+			t.Errorf("restarted:\n%s", out)
+		}
+	})
 	t.Run("start blocked at a startup dialog (agent_not_ready): FAIL that says so, not retried", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
