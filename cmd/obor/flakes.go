@@ -8,7 +8,8 @@ import (
 	"obor/internal/help"
 )
 
-// flakesCmd is `obor flakes`: one line per flaky test (7 days, .obor/state/flakes.jsonl), read-only.
+// flakesCmd is `obor flakes`: one line per flaky test (7 days, .obor/state/flakes.jsonl) — a test that failed and then
+// passed on a retry — read-only.
 func flakesCmd(args []string) int {
 	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
 		fmt.Fprintln(out, help.Usage("flakes"))

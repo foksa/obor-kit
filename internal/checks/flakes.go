@@ -31,6 +31,11 @@ type Flake struct {
 // flakeWindow is how far back obor flakes looks: the window the nightly sweep prunes flakes.jsonl with.
 const flakeWindow = project.FlakeKeep
 
+// raceCheck is the nightly's race command (nightly.also_run's race, commands.race): its failures are the race detector's
+// reports, which have their own WARN line, not flakes, so a race run logs no flake lines and the reader ignores the ones
+// older runs logged.
+const raceCheck = "race"
+
 // flakeRegexp compiles merge.flake_regex: the failed-test line and the failed-package line. A nil entry is
 // no regex configured, or one that does not compile (validate refuses that): that line is not parsed.
 func (opt *Options) flakeRegexp() (test, pkg *regexp.Regexp) {
@@ -99,8 +104,11 @@ func (opt *Options) flakeParse(outs ...output) (names, tests, pkgs []string) {
 
 // logFlakes appends the failing tests of outs (one logical record: a red run) to the project's flake log; a write error
 // is a warning line, never the check's result. retried: commands.retest ran the failures once more (a lane test);
-// passed: and they passed there.
+// passed: and they passed there. The race check logs nothing: its failure is a race report, not flake evidence.
 func (r *runner) logFlakes(name string, retried, passed bool, outs ...output) {
+	if name == raceCheck {
+		return
+	}
 	names, _, _ := r.flakeParse(outs...)
 	if len(names) == 0 {
 		return
@@ -170,7 +178,7 @@ func Flakes(root string) ([]Flake, error) {
 	return out, nil
 }
 
-// Flaky is a test obor flakes prints: n log lines in the window, the tasks they name and
+// Flaky is a test obor flakes prints: n passed-on-retry lines in the window, the tasks they name and
 // the newest line's time.
 type Flaky struct {
 	Test  string
@@ -179,17 +187,22 @@ type Flaky struct {
 	Last  int64
 }
 
-// flakeRule is the rule for the reds that are not flake evidence: the red task's own diff touched the file that
-// defines the test, or the red came before the merge of a task whose spec title names the test (a fix ended it). Its
-// reads (git, the specs, the merges) are lazy and remembered per rule, so one `obor flakes` round
-// pays for each test and sha once.
+// flakeRule is the rule for a passed-on-retry line a later fix ended: a merge after the line whose spec title names the
+// test, or whose diff touched the file that defines it. Its reads (git, the specs, the merges) are lazy and remembered
+// per rule, so one `obor flakes` round pays for each task, test and sha once.
 type flakeRule struct {
 	cfg    *config.Config
 	loaded bool                // the specs and the merges are read
 	specs  []flakeSpec         // the task specs' titles
-	merged map[string]int64    // task → its newest merge's time (fact merged)
+	merged map[string]flakeFix // task → its newest merge (fact merged)
 	diffs  map[string][]string // "<task>\0<sha>" → the task diff's files (nil: git cannot tell)
 	defs   map[string][]string // "<test>\0<sha>" → the files defining the test (empty: a package name)
+}
+
+// flakeFix is a task's newest merge: its time and the merge's head, the sha its diff reads from.
+type flakeFix struct {
+	at  int64
+	sha string
 }
 
 // flakeSpec is one task spec: its task and the title after the dash of its "# <task> — <title>" heading.
@@ -199,16 +212,28 @@ func newFlakeRule(cfg *config.Config) *flakeRule {
 	return &flakeRule{cfg: cfg, diffs: map[string][]string{}, defs: map[string][]string{}}
 }
 
-// explained reports whether e is a red the project explains, so it is no flake evidence. A passed_on_retry line is
-// evidence on its own; a line git, the specs or the merges cannot place counts as no explanation.
+// explained reports whether a merge after e ended the test's flakes: a task merged after the line whose spec title
+// names the test, or whose diff touched a file that defines it. A line git, the specs or the merges cannot place counts
+// as no fix.
 func (r *flakeRule) explained(e Flake) bool {
-	if e.PassedOnRetry || e.SHA == "" || e.Task == "" {
+	if e.SHA == "" || e.Task == "" {
 		return false
 	}
-	return r.beforeFix(e.Test, e.Time) || r.touched(e.Task, e.SHA, e.Test)
+	return r.beforeFix(e.Test, e.Time) || r.fixedAfter(e.Test, e.Time)
 }
 
-// touched reports whether the red task's diff touched a file that defines the test at the red's sha.
+// fixedAfter reports whether a task merged after at changed a file that defines the test.
+func (r *flakeRule) fixedAfter(test string, at int64) bool {
+	r.load()
+	for task, m := range r.merged {
+		if m.at > at && r.touched(task, m.sha, test) {
+			return true
+		}
+	}
+	return false
+}
+
+// touched reports whether the task's merged diff touched a file that defines the test at its merge's sha.
 func (r *flakeRule) touched(task, sha, test string) bool {
 	files := r.diff(task, sha)
 	if files == nil {
@@ -222,11 +247,11 @@ func (r *flakeRule) touched(task, sha, test string) bool {
 	return false
 }
 
-// beforeFix reports whether a red at at came before the merge of a task whose spec title names test.
+// beforeFix reports whether a line at at came before the merge of a task whose spec title names test.
 func (r *flakeRule) beforeFix(test string, at int64) bool {
 	r.load()
 	for _, s := range r.specs {
-		if m, ok := r.merged[s.task]; ok && at < m && mentions(s.title, test) {
+		if m, ok := r.merged[s.task]; ok && at < m.at && mentions(s.title, test) {
 			return true
 		}
 	}
@@ -254,10 +279,10 @@ func ident(c byte) bool {
 	return c == '_' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
 }
 
-// diff is the files of the red task's change: from the merge-base of the target branch and sha to sha, so a lane's
-// commit and the gate's merge of it read as the task's work. When sha is already in the branch (a merge's target: the
-// old merge runs the checks before its merge commit exists), it is the task's merge commit on the branch, first parent
-// to it, as "Merge <task>: …". Nil: git cannot tell, so the red counts.
+// diff is the files of the task's change: from the merge-base of the target branch and sha to sha, so a lane's commit
+// and the gate's merge of it read as the task's work. When sha is already in the branch (a merge's head: the old merge
+// runs the checks before its merge commit exists), it is the task's merge commit on the branch, first parent to it, as
+// "Merge <task>: …". Nil: git cannot tell, so no fix is seen.
 func (r *flakeRule) diff(task, sha string) []string {
 	key := task + "\x00" + sha
 	if files, ok := r.diffs[key]; ok {
@@ -325,18 +350,18 @@ func nonBlank(s string) []string {
 	return out
 }
 
-// load reads the task specs' titles and the tasks' merge times (fact merged), both the store's, read-only; no
-// store leaves them empty, so only the diff rule applies.
+// load reads the task specs' titles and the tasks' newest merge (fact merged), both the store's, read-only; no
+// store leaves them empty, so no fix is seen.
 func (r *flakeRule) load() {
 	if r.loaded {
 		return
 	}
 	r.loaded = true
-	r.merged = map[string]int64{}
+	r.merged = map[string]flakeFix{}
 	if merges, err := event.ReadMerges(r.cfg.Root); err == nil {
 		for _, m := range merges {
-			if at := m.At.Unix(); at > r.merged[m.Task] {
-				r.merged[m.Task] = at
+			if at := m.At.Unix(); at > r.merged[m.Task].at {
+				r.merged[m.Task] = flakeFix{at: at, sha: m.SHA}
 			}
 		}
 	}
@@ -349,19 +374,19 @@ func (r *flakeRule) load() {
 }
 
 // FlakyTests is the flaky tests among entries as of now, sorted by name: a test with a passed_on_retry line in the
-// window, or red lines on two or more tasks in it — a red the project explains does not count (flakeRule).
+// window that no later fix ended — it failed and then passed on a retry (flakeRule). Red lines are no flake evidence on
+// their own, and the race check's lines are none at all.
 func FlakyTests(cfg *config.Config, entries []Flake, now time.Time) []Flaky {
 	type acc struct {
 		n     int
 		tasks []string
 		last  int64
-		saved bool
 	}
 	cutoff := now.Add(-flakeWindow).Unix()
 	rule := newFlakeRule(cfg)
 	byTest := map[string]*acc{}
 	for _, e := range entries {
-		if e.Test == "" || e.Time < cutoff || rule.explained(e) {
+		if e.Test == "" || e.Check == raceCheck || !e.PassedOnRetry || e.Time < cutoff || rule.explained(e) {
 			continue
 		}
 		a := byTest[e.Test]
@@ -371,16 +396,12 @@ func FlakyTests(cfg *config.Config, entries []Flake, now time.Time) []Flaky {
 		}
 		a.n++
 		a.last = max(a.last, e.Time)
-		a.saved = a.saved || e.PassedOnRetry
 		if e.Task != "" && !slices.Contains(a.tasks, e.Task) {
 			a.tasks = append(a.tasks, e.Task)
 		}
 	}
 	var out []Flaky
 	for test, a := range byTest {
-		if !a.saved && len(a.tasks) < 2 {
-			continue
-		}
 		out = append(out, Flaky{Test: test, N: a.n, Tasks: a.tasks, Last: a.last})
 	}
 	slices.SortFunc(out, func(a, b Flaky) int { return strings.Compare(a.Test, b.Test) })

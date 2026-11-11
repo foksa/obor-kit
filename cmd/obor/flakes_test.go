@@ -23,8 +23,9 @@ func flakeLine(t *testing.T, at int64, test, task string, saved bool) string {
 	return string(b)
 }
 
-// obor flakes prints exactly the flaky tests of the last 7 days (a passed_on_retry line, or red lines on two
-// tasks), one line each with the tasks and the newest time; none → "no flaky tests (7d)"; read-only, no arguments.
+// obor flakes prints exactly the flaky tests of the last 7 days (a passed-on-retry line no later fix ended), one line
+// each with the tasks and the newest time; reds alone, even on several tasks, are no flake. None → "no flaky tests
+// (7d)"; read-only, no arguments.
 func TestFlakesCommand(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)
@@ -32,11 +33,11 @@ func TestFlakesCommand(t *testing.T) {
 	now := time.Now().Unix()
 	day := int64(24 * 60 * 60)
 	p.Write(".obor/state/flakes.jsonl", strings.Join([]string{
-		flakeLine(t, now-day, "TestTwo", "T-01", false),    // two tasks in 7 days → flaky
+		flakeLine(t, now-day, "TestTwo", "T-01", false),    // red on two tasks, no retry pass → not flaky
 		flakeLine(t, now-2*day, "TestTwo", "T-02", false),  // (the older one: the newest time is the other's)
-		flakeLine(t, now-day, "TestOnce", "T-01", false),   // one task, no retry → not flaky
-		flakeLine(t, now-8*day, "TestOld", "T-01", false),  // older than 7 days → not flaky
-		flakeLine(t, now-day, "TestRetried", "T-03", true), // passed on a rerun (release's) → flaky
+		flakeLine(t, now-day, "TestOnce", "T-01", false),   // one red, no retry → not flaky
+		flakeLine(t, now-8*day, "TestOld", "T-01", true),   // passed on a retry, older than 7 days → not flaky
+		flakeLine(t, now-day, "TestRetried", "T-03", true), // failed, passed on a retry → flaky
 	}, "\n")+"\n")
 
 	rc, stdout, stderr := run(t, p.Root, nil, "flakes")
@@ -46,7 +47,6 @@ func TestFlakesCommand(t *testing.T) {
 	got := strings.Split(strings.TrimRight(stdout, "\n"), "\n")
 	want := []string{
 		`^FLAKY TestRetried ×1 \(7d\) tasks: T-03 last: .+$`,
-		`^FLAKY TestTwo ×2 \(7d\) tasks: T-01,T-02 last: .+$`,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("flakes lines %d, want %d:\n%s", len(got), len(want), stdout)
@@ -56,7 +56,7 @@ func TestFlakesCommand(t *testing.T) {
 			t.Errorf("line %d = %q, want /%s/", i, got[i], want[i])
 		}
 	}
-	for _, not := range []string{"TestOnce", "TestOld"} {
+	for _, not := range []string{"TestOnce", "TestOld", "TestTwo"} {
 		if strings.Contains(stdout, not) {
 			t.Errorf("%s in the output:\n%s", not, stdout)
 		}

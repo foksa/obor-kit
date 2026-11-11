@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"obor/internal/config"
 )
@@ -119,19 +120,22 @@ func TestRetestCommand(t *testing.T) {
 
 // logFlakes writes what flakeParse names, one line per name (a test and the package that did not build, both), and
 // nothing, with no warning, for a project with no checks.output.failed_test: the red's report still names the failing
-// lines (the gate tests). No git: the sha is "" when git cannot name one.
+// lines (the gate tests), and nothing for the race check (a race report is no flake). No git: the sha is "" when git
+// cannot name one.
 func TestLogFlakes(t *testing.T) {
 	t.Parallel()
 	const mixed = "--- FAIL: TestUnit timed out (0.01s)\nFAIL example.com/unit 0.02s\nFAIL example.com/build [build failed]\n"
 	for _, c := range []struct {
-		name string
-		o    *Options
-		out  string
-		want string // the log's tests, joined; "" none
+		name  string
+		check string
+		o     *Options
+		out   string
+		want  string // the log's tests, joined; "" none
 	}{
-		{"a test and the package that did not build", flakeOptions(goFailGrep, goTestLine, goPkgLine), mixed,
+		{"a test and the package that did not build", "check", flakeOptions(goFailGrep, goTestLine, goPkgLine), mixed,
 			"TestUnit/check example.com/build/check"},
-		{"no failed_test: no names, no log", flakeOptions(goFailGrep), mixed, ""},
+		{"a race run: no log", "race", flakeOptions(goFailGrep, goTestLine, goPkgLine), mixed, ""},
+		{"no failed_test: no names, no log", "check", flakeOptions(goFailGrep), mixed, ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -140,7 +144,7 @@ func TestLogFlakes(t *testing.T) {
 			c.o.Git, c.o.Out = "false", &warn // git cannot name a sha
 			r := newRunner(t.Context(), c.o, root, "T-05")
 			r.root, r.state = root, filepath.Join(root, "state")
-			r.logFlakes("check", false, false, output{text: c.out})
+			r.logFlakes(c.check, false, false, output{text: c.out})
 			if warn.Len() != 0 {
 				t.Errorf("warning %q, want none", warn.String())
 			}
@@ -167,6 +171,52 @@ func TestLogFlakes(t *testing.T) {
 			}
 			if strings.Join(got, " ") != c.want {
 				t.Errorf("logged %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+// FlakyTests: a test is flaky only when it failed and then passed on a retry. Red lines, even on several tasks, are
+// reds the gate caught, not flakes; the race check's lines are no evidence at all; a passed-on-retry line counts, and
+// its reds do not.
+func TestFlakyTests(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	const hour = int64(3600)
+	at := func(h int64) int64 { return now.Unix() - h*hour }
+	for _, c := range []struct {
+		name    string
+		entries []Flake
+		want    string // the names, joined
+		wantN   int
+	}{
+		{name: "red on two tasks, no retry pass: no flake", entries: []Flake{
+			{Time: at(2), Test: "TestRed", Check: "check", Task: "T-01"},
+			{Time: at(1), Test: "TestRed", Check: "check_affected", Task: "T-02"},
+		}},
+		{name: "a passed-on-retry line and its red: a flake, ×1", want: "TestSaved", wantN: 1, entries: []Flake{
+			{Time: at(2), Test: "TestSaved", Check: "check", Task: "T-01"},
+			{Time: at(1), Test: "TestSaved", Check: "check", Task: "T-01", Retried: true, PassedOnRetry: true},
+		}},
+		{name: "the race check's lines: no flake", entries: []Flake{
+			{Time: at(1), Test: "TestRace", Check: "race", Task: "nightly", Retried: true, PassedOnRetry: true},
+		}},
+		{name: "older than the window: no flake", entries: []Flake{
+			{Time: at(8 * 24), Test: "TestOld", Check: "check", Task: "T-01", Retried: true, PassedOnRetry: true},
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			got := FlakyTests(&config.Config{}, c.entries, now)
+			var names []string
+			for _, f := range got {
+				names = append(names, f.Test)
+			}
+			if strings.Join(names, " ") != c.want {
+				t.Fatalf("flaky %q, want %q", strings.Join(names, " "), c.want)
+			}
+			if c.wantN != 0 && got[0].N != c.wantN {
+				t.Errorf("×%d, want ×%d", got[0].N, c.wantN)
 			}
 		})
 	}

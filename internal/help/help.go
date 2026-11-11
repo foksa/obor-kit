@@ -66,7 +66,7 @@ var Commands = []Command{
 	{"run", "obor run <command-name> [args…]", "run a configured command (commands.<name>) under its timeout (obor run <name> --help: its configured line, runs nothing)", "project"},
 	{"events", "obor events [--follow] [--after <seq>] [--json]",
 		"the event log after a seq, one line per record (--follow: new ones as serve writes them; --json: an integration's JSON lines)", "project"},
-	{"flakes", "obor flakes", "the flaky tests the checks logged in the last 7 days (merge.flake_regex's names)", "project"},
+	{"flakes", "obor flakes", "the tests that failed and then passed on a retry in the last 7 days (merge.flake_regex's names)", "project"},
 	{"nightly", "obor nightly [on HH:MM | off]", "run the nightly checks now, or schedule or unschedule them", "project"},
 	{"version", "obor version", "this binary's version and where it came from", "project"},
 	{"help", "obor help", "this list", "project"},
