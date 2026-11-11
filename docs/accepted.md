@@ -54,8 +54,7 @@ wave (owner 2026-11-11).
   "starts fresh" promise is dropped).
 - (RV-64, accepted: unlikely, fixes add code) #1 a hand relabel of an idle pane reaches serve only with its next
   status/update event or a reconnect (herdr's rename emits no event; serve's own relabels are followed by an agent
-  start's events); #2 an interrupted `obor setup rename` rerun reads the new prefix as the old one (rename is once per
-  project: finish it by hand); #5 rename's lane `opencode.json` loop skips an unreadable file silently.
+  start's events). (#2, an interrupted rename: the RV-195 #1 line; #5 fixed by T-1276.)
 - (RV-56 #4, accepted) A StopFailure that arrives after serve already queued a role's `finished` line gives the lead
   both lines; both are true, the `stopped` one says why. A guaranteed order needs a turn-outcome signal (40-70 lines).
 - (RV-77, accepted) `scripts/ship` counts a release done by draft state and asset names only, not its title/notes; a partly published release stays incomplete on rerun. Low once T-683 refuses before create.
