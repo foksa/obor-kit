@@ -79,6 +79,8 @@ type Server struct {
 	Call func(ctx context.Context, root string, r wire.Req) (string, error)
 	// Kit is the kit's root, whose README.md /api/help reads ("": project.KitRoot).
 	Kit string
+	// Docs is each project's doc list, cached per HEAD (zero value: real git), for /api/docs and /api/doc.
+	Docs view.DocCache
 }
 
 // errServeDown is a request the project's serve cannot take: it is not running (503).
@@ -88,7 +90,7 @@ var errServeDown = errors.New("obor serve is not running")
 const callWait = 12 * time.Second
 
 // Handler is the page and the API: /api/projects, /api/view, /api/setup, /api/task, /api/tasks, /api/agent, /api/job,
-// /api/events and /api/help, the two POST routes /api/config and /api/pause, and the page for every other path ("/" plus the hash
+// /api/events, /api/help, /api/docs and /api/doc, the two POST routes /api/config and /api/pause, and the page for every other path ("/" plus the hash
 // routes the page itself reads).
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -101,6 +103,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/job", s.jobAPI)
 	mux.HandleFunc("/api/events", s.eventsAPI)
 	mux.HandleFunc("/api/help", s.helpAPI)
+	mux.HandleFunc("/api/docs", s.docsAPI)
+	mux.HandleFunc("/api/doc", s.docAPI)
 	mux.HandleFunc("/api/config", s.configAPI)
 	mux.HandleFunc("/api/pause", s.pauseAPI)
 	mux.HandleFunc("/", s.page)
@@ -391,6 +395,59 @@ func (s *Server) helpAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, Help{Groups: help.Groups, Commands: help.Commands, Sections: sections})
+}
+
+// docsAPI is /api/docs?project=<name>: the markdown files git tracks in the project's main checkout (view.DocList),
+// read again when its HEAD moves.
+func (s *Server) docsAPI(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.project(w, r)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), askTimeout)
+	defer cancel()
+	l, err := s.Docs.List(ctx, p.Root)
+	if err != nil {
+		fail(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, l)
+}
+
+// DocText is /api/doc's answer: one doc's path and text.
+type DocText struct {
+	Path string `json:"path"`
+	Text string `json:"text"`
+}
+
+// docAPI is /api/doc?project=<name>&path=<path>: one doc's text, read-only. A path that is not in the project's doc
+// list (an untracked or ignored file, anything outside the root) is refused (403).
+func (s *Server) docAPI(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.project(w, r)
+	if !ok {
+		return
+	}
+	doc := r.URL.Query().Get("path")
+	if doc == "" {
+		fail(w, http.StatusBadRequest, "missing path")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), askTimeout)
+	defer cancel()
+	l, err := s.Docs.List(ctx, p.Root)
+	if err != nil {
+		fail(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	text, err := view.ReadDoc(p.Root, l, doc)
+	switch {
+	case errors.Is(err, view.ErrNotADoc):
+		fail(w, http.StatusForbidden, err.Error()+": obor web serves only the markdown files git tracks")
+	case err != nil:
+		fail(w, http.StatusInternalServerError, err.Error())
+	default:
+		writeJSON(w, http.StatusOK, DocText{Path: doc, Text: text})
+	}
 }
 
 // configBody is POST /api/config's body: the changes, each a key path (config.EditKeys) and its new value, and

@@ -25,6 +25,14 @@ describe("routes", () => {
     expect(parseRoute(href.tasks("a b"))).toEqual({ kind: "tasks", project: "a b", id: "" });
     for (const h of ["#/tasks", "#/tasks/", "#/task/pj"]) expect(parseRoute(h).kind).toBe("");
   });
+  it("parses a project's docs page, docs/<project>[/<path>], and links to it with the path's slashes kept", () => {
+    expect(parseRoute("#/docs/pj")).toEqual({ kind: "docs", project: "pj", id: "" });
+    expect(parseRoute("#/docs/pj/docs/plan/a.md")).toEqual({ kind: "docs", project: "pj", id: "docs/plan/a.md" });
+    expect(href.docs("a b", "docs/x y.md")).toBe("#/docs/a%20b/docs/x%20y.md");
+    expect(parseRoute(href.docs("a b", "docs/x y.md"))).toEqual({ kind: "docs", project: "a b", id: "docs/x y.md" });
+    expect(parseRoute(href.docs("pj"))).toEqual({ kind: "docs", project: "pj", id: "" });
+    for (const h of ["#/docs", "#/docs/"]) expect(parseRoute(h).kind).toBe("");
+  });
   it("links every kind the router handles, and back", () => {
     const links = [href.project("a b"), href.setup("pj"), href.task("pj", "T-1"), href.agent("pj", "x"), href.job("pj", "T-1/1/work")];
     expect(links.map((l) => parseRoute(l).kind)).toEqual(["p", "s", "t", "a", "j"]);

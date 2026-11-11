@@ -1,14 +1,14 @@
 // Routes: a hash as a page and the hash of every page a link points to. Help ("h") is the one page of no project;
-// "tasks" is a project's list of every task.
+// "tasks" is a project's list of every task, "docs" its tracked markdown (the id: a doc's path, "" the list).
 
-export type Kind = "" | "p" | "s" | "tasks" | "t" | "a" | "j" | "h";
+export type Kind = "" | "p" | "s" | "tasks" | "docs" | "t" | "a" | "j" | "h";
 export interface Route {
   kind: Kind;
   project: string;
   id: string;
 }
 
-const KINDS = new Set(["", "p", "s", "tasks", "t", "a", "j"]); // the kinds parseRoute splits ("h", help, is matched whole)
+const KINDS = new Set(["", "p", "s", "tasks", "docs", "t", "a", "j"]); // the kinds parseRoute splits ("h", help, is matched whole)
 
 const dec = (s: string | undefined) => {
   try { return decodeURIComponent(s || ""); } catch { return s || ""; }
@@ -36,6 +36,8 @@ export const href = {
   project: (p: string) => `#/p/${enc(p)}`,
   setup: (p: string) => `#/s/${enc(p)}`,
   tasks: (p: string) => `#/tasks/${enc(p)}`,
+  // docs is the docs page, at one doc when path is given (its slashes kept)
+  docs: (p: string, path = "") => `#/docs/${enc(p)}` + (path ? "/" + path.split("/").map(enc).join("/") : ""),
   task: (p: string, t: string) => `#/t/${enc(p)}/${enc(t)}`,
   agent: (p: string, a: string) => `#/a/${enc(p)}/${enc(a)}`,
   job: (p: string, j: string) => `#/j/${enc(p)}/${enc(j)}`,

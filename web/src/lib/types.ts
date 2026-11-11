@@ -520,3 +520,28 @@ export interface TaskRow {
   fixes?: TaskFixes;
   last?: number; // last activity, epoch seconds
 }
+
+// Doc is one markdown file git tracks in a project (view.Doc): its path from the root, its newest commit's time.
+export interface Doc {
+  path: string;
+  updated?: number; // epoch seconds; absent: staged, not committed yet
+}
+
+// DocGroup is one directory's docs (view.DocGroup; "" the root), newest commit first.
+export interface DocGroup {
+  dir: string;
+  docs: Doc[];
+}
+
+// DocList is /api/docs (view.DocList): the pinned docs first, then the rest by directory, at HEAD.
+export interface DocList {
+  head: string;
+  pinned: Doc[];
+  groups: DocGroup[];
+}
+
+// DocText is /api/doc: one doc's text.
+export interface DocText {
+  path: string;
+  text: string;
+}

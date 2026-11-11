@@ -198,7 +198,7 @@ process (`plugin.Local`).
   gate: merge and compile, resolved, publish, after_merge over pins under `refs/obor/`), the lane test of a candidate in
   the task's lane worktree (`lanetest.go`, `Scratch.Test`: the class's checks), nightly/milestone checks in their own worktree,
   flakes, and the lane table (`LaneTable`: worktree facts for `obor status` and `app.Lanes`, merge evidence; `Lanes` is serve's
-  `app.Lanes` adapter, each lane's configured type).
+  `app.Lanes` adapter, each lane's configured type), and the docs page's git (`docs.go`: `TrackedDocs`, `DocsHead`).
   Implements `port.Workflow` as `ScratchFF` (`workflow.go`, workflow.kind `scratch-ff`: `Scratch`, `Lane`, the
   target, the review git cmd/obor gives it). `Scratch` decides over git's answers; its git goes through `gitReader`/`gitWriter`
   (`gitio.go`: `realGit`, the one adapter over real git), so its decision tests run on `fakegit_test.go`'s fake; the
@@ -242,7 +242,9 @@ needs-you, records and jobs; every task the store knows (`TaskList`, the tasks p
 dispatch, merge, drop and review facts and the log's activity per task); an agent's sessions (a transcript path and last write, never contents), briefs, lines and
 jobs; a job's text (a `prompts` row). The pages read narrow: `view.LoadTask`, `view.LoadAgent` and
 `view.LoadSetup` build only their page's facts (a task or agent page runs no git and no ps; setup reads the lane
-states). `EventsSince` pages the log by seq for the page's long poll. It may import base,
+states). `EventsSince` pages the log by seq for the page's long poll. `docs.go` is the docs page's list (`DocCache`: the
+tracked `.md` files `checks.TrackedDocs` reads, pinned and grouped by `BuildDocs`, read again when HEAD moves) and
+`ReadDoc`, the one read of a doc's text (only a listed path, never out of the root). It may import base,
 core and the adapters; only entry packages import it. **Every reader of project state goes through `view`**:
 `obor status` (`--json` prints `view.Project` as is) and `obor web` render the same struct, so a field added for one
 appears in both; the narrow page reads share its mapping helpers, and there is no second Project builder.
@@ -261,7 +263,8 @@ builds the project's terminal (`port.Terminal`, herdr its one kind), and no othe
 `hook`, `whoami`).
 - `web` (`internal/web`): `obor web`'s HTTP server over the read model — the API (`/api/projects`,
   `/api/view`, `/api/setup`, `/api/task`, `/api/tasks`, `/api/agent`, `/api/job`, `/api/events` with a long poll on the store's seq,
-  `/api/help`: `help.Commands` and the kit's README sections, read at the request)
+  `/api/help`: `help.Commands` and the kit's README sections, read at the request; `/api/docs` and `/api/doc`: the
+  markdown files git tracks in the main checkout, `view.DocCache` per HEAD, a path outside that list refused)
   and the page: a Svelte app whose source is `web/` at the repo's root, built by `make web` into
   `internal/web/dist` (committed, `embed`; the Go build needs no Node, `TestDistFresh` fails on a stale build).
   Localhost only; its own process, never inside serve. Its two verbs, `POST /api/config` (a list of changes and
