@@ -67,6 +67,64 @@ func TestTypedDispatchStartsOnOneLine(t *testing.T) {
 	})
 }
 
+// A dispatch's start under an agent name another pane still holds (a live agent there, a pane obor does not label for
+// it: herdr's name is stale to obor) clears that name and retries once: the worker starts in its lane's pane, and no
+// counted failure reaches the loop.
+func TestDispatchStartClearsANameAnotherPaneHolds(t *testing.T) {
+	t.Parallel()
+	bubble(t, func(t *testing.T) {
+		r := newLoopRig(t, dispatching())
+		r.f.Agent("w1:p7", "pj-l-01", "idle", r.lane) // no pane label backs it: stale
+		cfg, err := config.Load(r.p.Root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		kit, err := filepath.Abs("../..")
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.startWithAgents(&launch.Launcher{Cfg: cfg, Env: r.p.Env(), Kit: kit, H: r.srv.Client(), Out: io.Discard,
+			Wait: time.Second, Poll: time.Millisecond, PS: func(...string) ([]byte, error) { return nil, nil }})
+		if r.f.Pane("w1:p7").Name != "pj-l-01" {
+			t.Fatalf("precondition: no holder of the name: %+v", r.f.Panes)
+		}
+		r.mustDispatch("d1")
+		r.waitStep("1 result work")
+		r.passes()
+		if r.hasPrefix("1 fact needs-you") || r.hasPrefix("1 fact failed") {
+			t.Errorf("the taken name was counted: %q", r.steps())
+		}
+		same(t, r.result("work"), `"sent (start prompt)"`, "work result")
+		starts, cleared := 0, false
+		for _, q := range r.srv.Requests() {
+			switch q.Method {
+			case "agent.start":
+				var p struct {
+					Name string `json:"name"`
+				}
+				if json.Unmarshal(q.Params, &p) == nil && p.Name == "pj-l-01" {
+					starts++
+				}
+			case "agent.rename":
+				var p struct {
+					Target string  `json:"target"`
+					Name   *string `json:"name"`
+				}
+				if json.Unmarshal(q.Params, &p) == nil && p.Target == "w1:p7" && p.Name == nil {
+					cleared = true
+				}
+			}
+		}
+		same(t, starts, 2, "agent.start of pj-l-01")
+		if !cleared {
+			t.Errorf("the holder w1:p7's name not cleared: %+v", r.srv.Requests())
+		}
+		same(t, r.f.Pane("w1:p1").Name, "pj-l-01", "the agent started in its pane")
+		same(t, r.f.Pane("w1:p7").Name, "", "the holder's name")
+		same(t, r.f.Pane("w1:p7").Kind, "claude", "the holder's agent")
+	})
+}
+
 // A fresh start whose first prompt is the work job's wake delivers that job (no second send through herdr), also after
 // a replay that finds the start ran (seen in the snapshot); a work.N with no start keeps the typed path. A lane of a
 // kind obor has no bridge for is not dispatched (DD-v0.13 D1: every bridged kind takes a first prompt).

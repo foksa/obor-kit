@@ -26,10 +26,10 @@
 //	         agent_pane_busy is retried like that within the same bound; past it, no start and a FAIL naming the pane.
 //	         RESTARTED only when the start succeeded and its agent is seen.
 //	Start    the env line typed at the shell (never into another program), then Start (the one start, shared with
-//	         obor setup): the pane labelled <agent>, herdr agent start (a name herdr kept from a pane that ran the
-//	         agent before: cleared and retried once), a look for a startup dialog. The start ends when its agent runs
-//	         in the pane, not at herdr's own bound for an agent ready for input. herdr's agent name is neither
-//	         required nor renamed back.
+//	         obor setup): the pane labelled <agent>, herdr agent start (a name another pane holds, or the one this
+//	         pane kept from the agent before: cleared and retried once), a look for a startup dialog. The start ends
+//	         when its agent runs in the pane, not at herdr's own bound for an agent ready for input. herdr's agent name
+//	         is neither required nor renamed back.
 //	Self     the caller's own pane (project.Pane): scheduled, see self.go.
 //
 // Every operation registers one op record (kind restart) for its whole run.

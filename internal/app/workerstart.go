@@ -266,7 +266,7 @@ func otherAgent(root, label string, names []string) bool {
 // start does there when that pane is at its shell; one that runs an agent is cannot tell (moved): the intent
 // stays the gone pane's (its key is pending), so a start there that ran and left no result cannot be told from any
 // other agent, and a second start would stop a worker already at its job. A launch refusal (background
-// tasks without force, the name held by another pane) is final: needs-you{start: why}. It runs under work job's intent
+// tasks without force) is final: needs-you{start: why}. It runs under work job's intent
 // and carries its wake (startJob).
 func (a *App) startWorker(ctx context.Context, p *proj, fx *Loop, mt mtask, key event.Key, d startData, work event.Key) bool {
 	pending := p.log.Open(key)

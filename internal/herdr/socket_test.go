@@ -319,9 +319,8 @@ func TestErrorCodesAsPredicates(t *testing.T) {
 	}
 }
 
-// agent.start's name-taken retry: a name herdr still holds from a pane that ran the agent before (or that no agent
-// holds) is cleared and the start retried once, said on the start's say; a live agent elsewhere holding it is the
-// refusal.
+// agent.start's name-taken retry: a name herdr still holds from a pane that ran the agent before, from a pane obor
+// does not label for it, or one no agent holds, is cleared and the start retried once, said on the start's say.
 func TestSocketStartNameTaken(t *testing.T) {
 	t.Parallel()
 	t.Run("a name no agent holds: cleared by name, retried once", func(t *testing.T) {
@@ -385,17 +384,34 @@ func TestSocketStartNameTaken(t *testing.T) {
 			t.Errorf("say warning = %q, want it to name the agent and the clear's error", said[1])
 		}
 	})
-	t.Run("a live agent elsewhere holds the name: refused, not retried", func(t *testing.T) {
+	t.Run("a live agent elsewhere holds the name: cleared there and retried once", func(t *testing.T) {
 		t.Parallel()
-		srv := herdrtest.Serve(t, fixture())
-		if _, err := srv.Client().Start(ctx, "pj-l-01", "claude", "w1:p2", nil); herdrErr(t, err).Code != "agent_name_taken" {
-			t.Errorf("Start into w1:p2 under a name w1:p1's agent holds = %v, want the name-taken refusal", err)
+		f := fixture()
+		srv := herdrtest.Serve(t, f)
+		var said []string
+		say := func(format string, args ...any) { said = append(said, fmt.Sprintf(format, args...)) }
+		a, err := srv.Client().Start(ctx, "pj-l-01", "claude", "w1:p2", say)
+		if err != nil || a.ID != "w1:p2" || f.Pane("w1:p2").Name != "pj-l-01" {
+			t.Fatalf("Start = %+v, %v; want the agent started in w1:p2 after the live holder's name was cleared", a, err)
 		}
-		if n := count(srv, "agent.start"); n != 1 {
-			t.Errorf("agent.start sent %d times, want the refusal at once", n)
+		if n := count(srv, "agent.start"); n != 2 {
+			t.Errorf("agent.start sent %d times, want the retry after the taken name", n)
 		}
-		if n := count(srv, "agent.rename"); n != 0 {
-			t.Errorf("agent.rename sent %d times, want the live holder's name left alone", n)
+		cleared := false
+		for _, r := range srv.Requests() {
+			if r.Method == "agent.rename" && strings.Contains(string(r.Params), `"target":"w1:p1"`) &&
+				strings.Contains(string(r.Params), `"name":null`) {
+				cleared = true
+			}
+		}
+		if !cleared {
+			t.Errorf("no agent.rename of the holder w1:p1: %q", srv.Calls())
+		}
+		if f.Pane("w1:p1").Kind == "" {
+			t.Error("the holder's agent was stopped: a rename of its name suffices")
+		}
+		if want := "agent start: name pj-l-01 taken (pane w1:p1): clearing it and retrying"; len(said) != 1 || said[0] != want {
+			t.Errorf("say got %q, want only %q", said, want)
 		}
 	})
 	t.Run("the pane's own lingering name: cleared by its pane, retried once", func(t *testing.T) {

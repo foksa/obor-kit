@@ -88,8 +88,8 @@ type PaneControl interface {
 	SendKeys(ctx context.Context, pane string, keys ...string) error
 	// Start starts agent CLI kind in pane for the agent name, returning once the terminal took the start: the pane as
 	// it answered, or as it shows it when the answer came later (its ID "" when neither showed one). What the terminal
-	// keeps of an earlier start of name in that pane is cleared and the start retried once, say taking the adapter's
-	// lines for it and for a failed clear (nil: silent); a live agent elsewhere started as name is a refusal.
+	// keeps of an earlier start of name, in that pane or in another, is cleared and the start retried once, say taking
+	// the adapter's lines for it and for a failed clear (nil: silent).
 	Start(ctx context.Context, name, kind, pane string, say func(format string, args ...any), args ...string) (Pane, error)
 }
 
