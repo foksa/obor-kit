@@ -17,6 +17,7 @@ import (
 	"obor/internal/config"
 	"obor/internal/herdr"
 	"obor/internal/project"
+	"obor/internal/testkit"
 )
 
 // obor init writes setup.confirmed: false when the config has no such key, and a rerun keeps the owner's true.
@@ -464,6 +465,56 @@ func TestOborInitRerunKeepsTheLanes(t *testing.T) {
 	}
 	if cfg, _ := config.Load(x.Root); cfg.LaneCount() != 2 {
 		t.Errorf("lanes after the recreation %d", cfg.LaneCount())
+	}
+}
+
+// A config that counts four lanes gets all four worktrees: init leaves no configured lane missing (L-03 and L-04
+// waited for a hand-run of obor setup lane). A fresh config still makes two (TestOborInitSetsUpTheProject), and a
+// rerun with every lane done adds nothing.
+func TestOborInitSetsUpEveryConfiguredLane(t *testing.T) {
+	t.Parallel()
+	x := newGitInitFx(t, true)
+	x.Config(testkit.Set("lanes.count", 4))
+	if cfg, err := config.Load(x.Root); err != nil || cfg.LaneCount() != 4 {
+		t.Fatalf("precondition: a config counting four lanes (%v)", err)
+	}
+	for _, lane := range []string{"L-01", "L-02", "L-03", "L-04"} {
+		if _, err := os.Stat(x.LaneDir(lane)); err == nil {
+			t.Fatalf("precondition: no worktree for %s yet", lane)
+		}
+	}
+	out := x.init(t)
+	cfg, err := config.Load(x.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.LaneCount() != 4 {
+		t.Errorf("lanes = %d, want the config's 4", cfg.LaneCount())
+	}
+	for _, lane := range []string{"L-01", "L-02", "L-03", "L-04"} {
+		if _, err := os.Stat(filepath.Join(cfg.LanesDir(), lane, ".git")); err != nil {
+			t.Errorf("no worktree for %s: %v", lane, err)
+		}
+	}
+	if got := summary(out, "lanes"); stateOf(out, "lanes") != "done" ||
+		!strings.Contains(got, "L-01, L-02, L-03, L-04") {
+		t.Errorf("lanes step %q", got)
+	}
+	// Panes stay as they are: init places L-01's and L-02's, a later lane's pane comes at dispatch.
+	for _, lane := range []string{"L-03", "L-04"} {
+		if p := x.paneOf(cfg.AgentName("worker", lane)); p != "" {
+			t.Errorf("%s has a pane at init: %q", lane, p)
+		}
+	}
+	// A rerun with all four done skips them: no worktree added, nothing reported done.
+	worktrees := x.Git(x.Root, "worktree", "list")
+	x.reset()
+	out = x.init(t)
+	if stateOf(out, "lanes") != "already" {
+		t.Errorf("lanes step on the rerun %q", summary(out, "lanes"))
+	}
+	if got := x.Git(x.Root, "worktree", "list"); got != worktrees {
+		t.Errorf("the rerun changed the worktrees:\n%s\nwere:\n%s", got, worktrees)
 	}
 }
 
