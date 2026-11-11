@@ -1951,8 +1951,8 @@ func eqInt(t *testing.T, got, want int, what string) {
 	}
 }
 
-// The start's agent_name_taken retry (herdr keeps a name from a pane that ran agent before, and lags in
-// noticing an exit; obor itself renames nothing back).
+// The start's name-taken retry (herdr keeps a name from a pane that ran agent before, and lags in
+// noticing an exit; obor itself renames nothing back): herdr's Start clears the name it kept and retries once.
 func TestRestartAgentNameTaken(t *testing.T) {
 	t.Parallel()
 	t.Run("start fails twice: retried once, herdr's error, FAIL", func(t *testing.T) {
@@ -1979,7 +1979,6 @@ func TestRestartAgentNameTaken(t *testing.T) {
 		x.shell("w1:p3", "pj-l-01", "")
 		x.srv.Once("agent.start", herdrtest.Failure{Code: "agent_name_taken", Message: "name pj-l-01 taken"})
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
-		contains(t, out, "agent start: name pj-l-01 taken: clearing it and retrying", "said")
 		eqInt(t, len(x.calls("agent.start")), 2, "retried once")
 		if clr, start := x.index("agent.rename name=null target=pj-l-01"), len(x.srv.Calls())-1; clr < 0 || clr > start {
 			t.Errorf("cleared before the retry: %q", x.srv.Calls())
@@ -2012,7 +2011,6 @@ func TestRestartAgentNameTaken(t *testing.T) {
 		out, ok := x.restart(launch.Request{Agent: "pj-rev", Fresh: true, Force: true})
 		contains(t, strings.Join(x.calls("pane.send_input"), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p7 text=/quit", "precondition: Codex stopped")
 		eq(t, strings.Join(x.calls("agent.rename"), "\n"), "agent.rename name=null target=w1:p7", "the stale name cleared by its pane")
-		contains(t, out, "agent start: name pj-rev taken (pane w1:p7): clearing it and retrying", "said")
 		eqInt(t, len(x.calls("agent.start")), 2, "retried once")
 		eq(t, last(out), "RESTARTED pj-rev (pane w1:p7, session new)", "result")
 		if !ok {
@@ -2441,9 +2439,9 @@ func TestStop(t *testing.T) {
 		if n := len(x.calls("agent.wait")); n != 1 {
 			t.Errorf("%d idle waits, want the one herdr timed out", n)
 		}
-		// serve's drop refuses on this refusal alone: it carries port.CodeNeedsForce.
+		// serve's drop refuses on this refusal alone: port.NeedsForce reads it.
 		if _, err := x.launcher(io.Discard).Stop(context.Background(), "pj-l-01", "", false); !port.NeedsForce(err) {
-			t.Errorf("the refusal %v carries no %s", err, port.CodeNeedsForce)
+			t.Errorf("the refusal %v is no stop only force ends", err)
 		}
 	})
 	t.Run("working, --force: Escape, idle, input cleared, /exit (one step)", func(t *testing.T) {

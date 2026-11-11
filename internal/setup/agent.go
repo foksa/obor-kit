@@ -319,7 +319,7 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	err = l.Start(ctx, st)
 	var se *port.StartError
 	switch {
-	case errors.As(err, &se) && se.NoShell, fresh && startCode(err) == "agent_pane_busy":
+	case errors.As(err, &se) && se.NoShell, fresh && startBusy(err):
 		return s.notShell(pane, a.name, lt.Kind)
 	case errors.As(err, &se) && se.NotReady:
 		return project.Failf("agent not ready: %s", se.Hint)
@@ -333,13 +333,14 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	return nil
 }
 
-// startCode is herdr's error code of a failed start (a StartError wraps herdr's own error), "" when none.
-func startCode(err error) string {
+// startBusy: err is a start the terminal refused because the pane is not an available shell (launch's start wraps the
+// terminal's own error in a StartError).
+func startBusy(err error) bool {
 	var se *port.StartError
 	if errors.As(err, &se) {
-		return port.ErrorCode(se.Err)
+		return port.PaneBusy(se.Err)
 	}
-	return port.ErrorCode(err)
+	return port.PaneBusy(err)
 }
 
 // notShell is the refusal for a new pane whose shell did not come up within the bound.

@@ -140,7 +140,7 @@ func (a *App) Serve(ctx context.Context) error {
 		a.mu.Unlock()
 		switch err := st.Err(); {
 		case ctx.Err() != nil || a.opt.Refresh(err):
-		case port.ErrorCode(err) != "": // herdr ended it with an answer (events_lost): it is there, say so now
+		case port.Answered(err): // herdr ended it with an answer (events_lost): it is there, say so now
 			a.logf("herdr stream ended: %v; subscribing again", err)
 		case err == nil:
 			ended = errors.New("closed")

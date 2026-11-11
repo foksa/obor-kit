@@ -662,12 +662,11 @@ func (f *concFakes) loopWithSpecs(kit string) *Loop {
 	return &Loop{Workflow: WorkflowOf(f), Agents: f, Typer: f, Specs: f, Kit: kit}
 }
 
-// needsForceErr is launch's refusal of a stop without force that only force gets past (port.CodeNeedsForce).
+// needsForceErr is launch's refusal of a stop without force that only force gets past (port.NeedsForce).
 type needsForceErr string
 
-func (e needsForceErr) Error() string { return string(e) }
-
-func (needsForceErr) ErrorCode() string { return port.CodeNeedsForce }
+func (e needsForceErr) Error() string  { return string(e) }
+func (needsForceErr) NeedsForce() bool { return true }
 
 // set is the owner's config_set of key to val (JSON) from the web.
 func (h *harness) set(callID, key, val string) (string, error) {

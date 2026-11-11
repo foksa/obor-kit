@@ -364,10 +364,9 @@ func (a *App) runsIn(pane string) string {
 	return o.pane.Agent + " (" + strings.Join(of, ", ") + ")"
 }
 
-// startRefused: the launch refused for good: the agent has background tasks (no force), its name is held by another
-// pane, or the start check refused it (a quarantined Codex install: a needs-you, not a counted failure).
+// startRefused: the launch refused for good: the agent has background tasks (no force), or the start check refused it
+// (a quarantined Codex install: a needs-you, not a counted failure).
 func startRefused(err error) bool {
 	var refused port.Refused
-	return errors.As(err, &refused) || port.ErrorCode(err) == "agent_name_taken" ||
-		strings.Contains(err.Error(), "has background tasks")
+	return errors.As(err, &refused) || strings.Contains(err.Error(), "has background tasks")
 }

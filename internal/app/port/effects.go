@@ -52,18 +52,19 @@ type Typer interface {
 }
 
 // PaneControl is the pane operations launch needs: find agents and panes, look at a pane, type into it, start an
-// agent CLI in it. A "not found" error matches NotFound; ErrorCode reads the adapter's error code.
+// agent CLI in it. A "not found" error matches NotFound; every other kind of failure the callers ask about is a
+// predicate below (PaneBusy, NotReady, TimedOut, …), never a code of the terminal's.
 type PaneControl interface {
 	Agent(ctx context.Context, target string) (Pane, error)
 	Panes(ctx context.Context) ([]Pane, error)
 	ProcessInfo(ctx context.Context, pane string) (ProcessInfo, error)
 	// Screen is the pane's visible text, its last lines.
 	Screen(ctx context.Context, pane string, lines int) (string, error)
-	// Wait waits (up to timeout) for the agent at target to be in one of until (idle, done): the error's code is
-	// "timeout" when it is not, agent_not_running when it left the pane.
+	// Wait waits (up to timeout) for the agent at target to be in one of until (idle, done): the error matches
+	// TimedOut when it is not, NotRunning when it left the pane.
 	Wait(ctx context.Context, target string, until []string, timeout time.Duration) error
 	// WaitForOutput waits (up to timeout) for a line of the pane's recent text to match regex, and returns the text
-	// as it then reads: the error's code is "timeout" when nothing matched.
+	// as it then reads: the error matches TimedOut when nothing matched.
 	WaitForOutput(ctx context.Context, pane, regex string, timeout time.Duration) (string, error)
 	RenamePane(ctx context.Context, pane, label string) error   // label "" clears it
 	RenameAgent(ctx context.Context, target, name string) error // name "" clears it
@@ -75,7 +76,8 @@ type PaneControl interface {
 	SendKeys(ctx context.Context, pane string, keys ...string) error
 	// Start starts agent CLI kind in pane under name, returning once the agent runs there and is named: the agent as
 	// the multiplexer answered, or as it shows it in the pane when the answer came later (its ID "" when neither
-	// named one).
+	// named one). A name the terminal still holds from a pane that ran the agent before is cleared and the start
+	// retried once; a live agent elsewhere holding the name is a refusal.
 	Start(ctx context.Context, name, kind, pane string, args ...string) (Pane, error)
 }
 
@@ -85,9 +87,51 @@ func NotFound(err error) bool {
 	return errors.As(err, &e) && e.NotFound()
 }
 
-// CodeNeedsForce is the ErrorCode of a stop without force that refused an agent only a forced stop ends: still working
-// after Escape, or its exit dialog names background tasks (launch's Stop).
-const CodeNeedsForce = "needs_force"
+// PaneBusy: err says the pane is not an available shell to start an agent in (an error in the chain with PaneBusy()
+// true): its shell is not up yet, or a program or an agent holds it.
+func PaneBusy(err error) bool {
+	var e interface{ PaneBusy() bool }
+	return errors.As(err, &e) && e.PaneBusy()
+}
+
+// NotReady: err says the agent started but waits at a startup dialog (an error in the chain with NotReady() true).
+func NotReady(err error) bool {
+	var e interface{ NotReady() bool }
+	return errors.As(err, &e) && e.NotReady()
+}
+
+// Blocked: err says the agent is blocked on a dialog, so input to it is refused (an error in the chain with Blocked()
+// true).
+func Blocked(err error) bool {
+	var e interface{ Blocked() bool }
+	return errors.As(err, &e) && e.Blocked()
+}
+
+// TimedOut: err says the terminal's wait ended at its own timeout (an error in the chain with TimedOut() true).
+func TimedOut(err error) bool {
+	var e interface{ TimedOut() bool }
+	return errors.As(err, &e) && e.TimedOut()
+}
+
+// Answered: err is the terminal's own answer, an error it sent (an error in the chain with Answered() true), not a
+// connection that went.
+func Answered(err error) bool {
+	var e interface{ Answered() bool }
+	return errors.As(err, &e) && e.Answered()
+}
+
+// NotRunning: err says the multiplexer is not running or not reachable (an error in the chain with Unavailable() true).
+func NotRunning(err error) bool {
+	var e interface{ Unavailable() bool }
+	return errors.As(err, &e) && e.Unavailable()
+}
+
+// NeedsForce: err is a stop without force that refused an agent only a forced stop ends: still working after Escape,
+// or its exit dialog names background tasks (launch's Stop; an error in the chain with NeedsForce() true).
+func NeedsForce(err error) bool {
+	var e interface{ NeedsForce() bool }
+	return errors.As(err, &e) && e.NeedsForce()
+}
 
 // The stop's waits and the one bound they fit in: launch's Stop keeps to the bound whatever
 // OBOR_RESTART_WAIT says.
@@ -106,15 +150,6 @@ const StopTerminate = 10 * time.Second
 
 // StopBound is the most a stop may take: its idle wait, its quit wait and its terminate together.
 const StopBound = StopIdle + StopQuit + StopTerminate
-
-// NeedsForce: err is such a refusal (CodeNeedsForce in the chain).
-func NeedsForce(err error) bool { return ErrorCode(err) == CodeNeedsForce }
-
-// NotRunning: err says the multiplexer is not running or not reachable (an error in the chain with Unavailable() true).
-func NotRunning(err error) bool {
-	var e interface{ Unavailable() bool }
-	return errors.As(err, &e) && e.Unavailable()
-}
 
 // Restorer restarts a project's labelled panes that run no agent (launch.Restorer): serve calls it once its
 // subscription is back from a lost terminal connection (a Subscribe or a stream's end with NotRunning), and at its
@@ -216,8 +251,8 @@ type Start struct {
 	Session string
 	Prompt  string // the CLI's first prompt (a job's wake), in Args already; "" for none
 	Lane    string // the agent's lane: a session a fresh start reports is recorded with it
-	// Shell bounds the wait for the pane's shell (Await) and the retries of a start the terminal answered
-	// agent_pane_busy: one bound for both, from the start's beginning; 0: neither, a pane the caller
+	// Shell bounds the wait for the pane's shell (Await) and the retries of a start the terminal refused as PaneBusy:
+	// one bound for both, from the start's beginning; 0: neither, a pane the caller
 	// knows is its shell. The callers' bounds differ (obor setup's new pane: 10 s, its shell comes up in moments; a
 	// restart: 30 s, the old agent's exit is reaped first).
 	Shell time.Duration
@@ -252,15 +287,6 @@ type Starter interface {
 	Build(b Build) (Built, error)
 	SetEnv(ctx context.Context, pane string, e AgentEnv) error
 	Start(ctx context.Context, s Start) error
-}
-
-// ErrorCode is the adapter's error code in err (herdr's agent_name_taken, agent_not_ready, …), "" when none.
-func ErrorCode(err error) string {
-	var e interface{ ErrorCode() string }
-	if errors.As(err, &e) {
-		return e.ErrorCode()
-	}
-	return ""
 }
 
 // NotShown is the reason a Panes adapter gives when its toast was not shown: herdr's busy, rate_limited, disabled or

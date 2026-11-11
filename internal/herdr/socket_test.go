@@ -275,6 +275,129 @@ func TestSocketStartSentOnce(t *testing.T) {
 	}
 }
 
+// The terminal's error codes read as the port's predicates, and nothing else: the core asks the predicate, never the
+// code.
+func TestErrorCodesAsPredicates(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		code                              string
+		busy, notReady, blocked, timedOut bool
+		answered                          bool
+	}{
+		{"agent_pane_busy", true, false, false, false, true},
+		{"pane_not_available", true, false, false, false, true},
+		{"agent_not_ready", false, true, false, false, true},
+		{"agent_blocked", false, false, true, false, true},
+		{"blocked", false, false, true, false, true},
+		{"timeout", false, false, false, true, true},
+		{"agent_name_taken", false, false, false, false, true},
+		{"", false, false, false, false, false},
+	} {
+		err := &herdr.Error{Kind: herdr.Failed, Op: "agent.start", Code: c.code, Msg: "x"}
+		if got := port.PaneBusy(err); got != c.busy {
+			t.Errorf("%q: PaneBusy = %t, want %t", c.code, got, c.busy)
+		}
+		if got := port.NotReady(err); got != c.notReady {
+			t.Errorf("%q: NotReady = %t, want %t", c.code, got, c.notReady)
+		}
+		if got := port.Blocked(err); got != c.blocked {
+			t.Errorf("%q: Blocked = %t, want %t", c.code, got, c.blocked)
+		}
+		if got := port.TimedOut(err); got != c.timedOut {
+			t.Errorf("%q: TimedOut = %t, want %t", c.code, got, c.timedOut)
+		}
+		if got := port.Answered(err); got != c.answered {
+			t.Errorf("%q: Answered = %t, want %t", c.code, got, c.answered)
+		}
+	}
+	if !port.NotFound(&herdr.Error{Kind: herdr.NotFound, Op: "agent.get", Code: "agent_not_found"}) {
+		t.Error("an agent_not_found answer is not NotFound")
+	}
+	if port.NotFound(&herdr.Error{Kind: herdr.Unavailable, Op: "agent.get", Msg: "connection closed"}) {
+		t.Error("a lost connection reads as NotFound")
+	}
+}
+
+// agent.start's name-taken retry: a name herdr still holds from a pane that ran the agent before (or that no agent
+// holds) is cleared and the start retried once; a live agent elsewhere holding it is the refusal.
+func TestSocketStartNameTaken(t *testing.T) {
+	t.Parallel()
+	t.Run("a name no agent holds: cleared by name, retried once", func(t *testing.T) {
+		t.Parallel()
+		srv := herdrtest.Serve(t, fixture())
+		srv.Once("agent.start", herdrtest.Failure{Code: "agent_name_taken", Message: "name pj-l-04 taken"})
+		if count(srv, "agent.start") != 0 || count(srv, "agent.rename") != 0 {
+			t.Fatal("precondition: no start or rename yet")
+		}
+		a, err := srv.Client().Start(ctx, "pj-l-04", "claude", "w1:p2", "--model", "haiku")
+		if err != nil || a.ID != "w1:p2" || a.Name != "pj-l-04" {
+			t.Fatalf("Start = %+v, %v; want the agent started in w1:p2 after the retry", a, err)
+		}
+		if n := count(srv, "agent.start"); n != 2 {
+			t.Errorf("agent.start sent %d times, want the retry after the taken name", n)
+		}
+		cleared := false
+		for _, r := range srv.Requests() {
+			if r.Method == "agent.rename" && strings.Contains(string(r.Params), `"target":"pj-l-04"`) &&
+				strings.Contains(string(r.Params), `"name":null`) {
+				cleared = true
+			}
+		}
+		if !cleared {
+			t.Errorf("no agent.rename by name: %q", srv.Calls())
+		}
+	})
+	t.Run("a live agent elsewhere holds the name: refused, not retried", func(t *testing.T) {
+		t.Parallel()
+		srv := herdrtest.Serve(t, fixture())
+		if _, err := srv.Client().Start(ctx, "pj-l-01", "claude", "w1:p2"); herdrErr(t, err).Code != "agent_name_taken" {
+			t.Errorf("Start into w1:p2 under a name w1:p1's agent holds = %v, want the name-taken refusal", err)
+		}
+		if n := count(srv, "agent.start"); n != 1 {
+			t.Errorf("agent.start sent %d times, want the refusal at once", n)
+		}
+		if n := count(srv, "agent.rename"); n != 0 {
+			t.Errorf("agent.rename sent %d times, want the live holder's name left alone", n)
+		}
+	})
+	t.Run("the pane's own lingering name: cleared by its pane, retried once", func(t *testing.T) {
+		t.Parallel()
+		f := fixture()
+		p := f.Agent("w1:p4", "pj-l-04", "idle", "/proj-wt/L-04")
+		p.Foreground = 1 // herdr has not reaped the agent's exit: it still holds the name, the shell has the fg
+		srv := herdrtest.Serve(t, f)
+		srv.Once("agent.start", herdrtest.Failure{Code: "agent_name_taken", Message: "name pj-l-04 taken"})
+		a, err := srv.Client().Start(ctx, "pj-l-04", "claude", "w1:p4")
+		if err != nil || a.ID != "w1:p4" || a.Name != "pj-l-04" {
+			t.Fatalf("Start = %+v, %v; want the agent restarted in its pane", a, err)
+		}
+		if n := count(srv, "agent.start"); n != 2 {
+			t.Errorf("agent.start sent %d times, want the retry after the clearing", n)
+		}
+		cleared := false
+		for _, r := range srv.Requests() {
+			if r.Method == "agent.rename" && strings.Contains(string(r.Params), `"target":"w1:p4"`) {
+				cleared = true
+			}
+		}
+		if !cleared {
+			t.Errorf("the lingering name not cleared by its pane: %q", srv.Calls())
+		}
+	})
+	t.Run("taken twice: the refusal, no third start", func(t *testing.T) {
+		t.Parallel()
+		srv := herdrtest.Serve(t, fixture())
+		taken := herdrtest.Failure{Code: "agent_name_taken", Message: "name pj-l-04 taken"}
+		srv.Once("agent.start", taken, taken)
+		if _, err := srv.Client().Start(ctx, "pj-l-04", "claude", "w1:p2"); err == nil {
+			t.Fatal("a start refused twice succeeded")
+		}
+		if n := count(srv, "agent.start"); n != 2 {
+			t.Errorf("agent.start sent %d times, want one retry and no more", n)
+		}
+	})
+}
+
 // herdr's own waits: agent.wait ends when the agent reaches the state asked for (text already on the screen
 // matches at once), times out while it does not, and ends agent_not_running when the agent leaves the pane;
 // pane.wait_for_output reads the text when the regex matches. Each is one request: obor does not poll.

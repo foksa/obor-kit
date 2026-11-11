@@ -25,15 +25,14 @@ type (
 // (Launch), and restore's restart: the pane's shell waited for (s.Await, within s.Shell), the env line
 // (s.Env), the pane labelled, the launch line printed (a wrong model or permission mode is visible before the
 // agent starts; s.Args as its Build built them: no kind is asked again), the session obor chose recorded
-// (s.Session), then herdr agent start: agent_pane_busy retried once the pane is its shell again, within s.Shell
-// agent_name_taken: the stale name cleared and retried once, unless a live agent elsewhere holds it.
+// (s.Session), then herdr agent start: a PaneBusy answer retried once the pane is its shell again, within s.Shell.
 // A start ends as soon as its agent runs in the pane (started), never at a fixed wait (herdr's own answer waits
 // up to 30 s for an agent ready for input, which an agent busy on its first prompt never is); a start with a first
 // prompt whose agent works on it is a start, its launch pending or herdr's call given up on (attempt.counts,
 // busyStart). herdr's agent name is neither required nor renamed back (herdr drops it at times and obor
 // addresses the pane by id). A failed start is a *StartError, herdr's error printed: NoShell when the pane never
 // became its shell, NotReady with a hint when the pane shows a trust dialog or a Codex self-update, or herdr says
-// agent_not_ready. A failed env line is its own error; a failed pane label is a Fail (nothing started). A start reports
+// NotReady. A failed env line is its own error; a failed pane label is a Fail (nothing started). A start reports
 // the confirmed start (serve ends the agent's skew entry) and, for a kind whose sessions its transcript names, its
 // session (done).
 func (l *Launcher) Start(ctx context.Context, s Start) error {
@@ -80,7 +79,7 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
 	l.say("args (%s): %s", s.Kind, shown)
 	t := l.started(ctx, s)
 	said := false
-	for s.Shell > 0 && port.ErrorCode(t.err) == "agent_pane_busy" {
+	for s.Shell > 0 && port.PaneBusy(t.err) {
 		if !said {
 			l.say("pane %s is not an available shell yet (herdr: agent_pane_busy): waiting for it", s.Pane)
 			said = true
@@ -90,31 +89,12 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
 		}
 		t = l.started(ctx, s)
 	}
-	if port.ErrorCode(t.err) == "agent_name_taken" {
-		holder := ""
-		if a, gerr := l.H.Agent(ctx, s.Agent); gerr == nil {
-			holder = a.ID
-		}
-		if holder == "" || holder == s.Pane {
-			at := ""
-			if holder != "" {
-				at = " (pane " + holder + ")"
-			}
-			l.say("agent start: name %s taken%s: clearing it and retrying", s.Agent, at)
-			// herdr lags in noticing an exit: the name may still belong to a pane that ran the agent before.
-			if cleared := holder != "" && l.H.RenameAgent(ctx, holder, "") == nil; !cleared &&
-				l.H.RenameAgent(ctx, s.Agent, "") != nil {
-				l.say("warning: herdr kept the name %s", s.Agent)
-			}
-			t = l.started(ctx, s)
-		}
-	}
 	if t.err == nil {
 		return l.done(ctx, s, t.a), nil
 	}
 	err := t.err
 	l.say("%v", err)
-	if s.Prompt != "" && port.ErrorCode(err) != "agent_not_ready" {
+	if s.Prompt != "" && !port.NotReady(err) {
 		if a, ok := l.busyStart(ctx, s, t); ok {
 			return l.done(ctx, s, a), nil
 		}
@@ -124,7 +104,7 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
 	if hint := notReady(screen, s.Kind, s.Agent, s.Pane); hint != "" {
 		return port.Pane{}, &StartError{Err: err, NotReady: true, Hint: hint}
 	}
-	if port.ErrorCode(err) == "agent_not_ready" {
+	if port.NotReady(err) {
 		// Started, but waiting at a startup dialog the screen does not name (live 2026-10-13): the agent runs.
 		return port.Pane{}, &StartError{Err: err, NotReady: true, Hint: s.Agent + " waits at a startup dialog in pane " + s.Pane + ": answer it there"}
 	}
@@ -133,8 +113,8 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
 
 // attempt is one agent start as started saw it: the agent it ended with, the terminal's error, and whether the
 // terminal accepted it: it answered a start it made (success, a pending launch included, or one it gave up
-// waiting on: timeout, agent_not_ready), or, before its answer, listed the record it resets the pane's agent to when
-// it accepts a start (launching); never a refusal (agent_pane_busy, agent_name_taken, pane_not_available).
+// waiting on: TimedOut, NotReady), or, before its answer, listed the record it resets the pane's agent to when
+// it accepts a start (launching); never a PaneBusy refusal.
 type attempt struct {
 	a        port.Pane
 	err      error
@@ -199,12 +179,12 @@ func (l *Launcher) started(ctx context.Context, s Start) attempt {
 			return t
 		case r := <-res:
 			answered = true
-			switch port.ErrorCode(r.err) {
-			case "":
-				t.accepted = t.accepted || r.err == nil
-			case "timeout", "agent_not_ready":
+			switch {
+			case r.err == nil:
 				t.accepted = true
-			case "agent_pane_busy", "agent_name_taken", "pane_not_available":
+			case port.TimedOut(r.err), port.NotReady(r.err):
+				t.accepted = true // the terminal stopped waiting on a start it accepted: the agent may still come up
+			case port.PaneBusy(r.err):
 				t.accepted = false // refused: what the poll took for its launch was not this start's
 			}
 			if r.err != nil || detected(r.a, s) {
