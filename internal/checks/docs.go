@@ -2,6 +2,10 @@ package checks
 
 import (
 	"context"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -18,10 +22,46 @@ type TrackedDoc struct {
 // docsSpec is the pathspec of the docs: every .md file, in every directory.
 const docsSpec = "*.md"
 
-// DocsHead is HEAD's sha in the repository at root: the key a doc list is cached by.
+// DocsHead is HEAD's sha in the repository at root: a doc list is cached by it and by DocsIndex.
 func DocsHead(ctx context.Context, root string) (string, error) {
 	out, err := project.GitCtx(ctx, root, "rev-parse", "HEAD")
 	return strings.TrimSpace(out), err
+}
+
+// DocsIndex is the key of the repository at root's index: the `.git/index` file's modification time (unix nanoseconds)
+// and size. A git command that changes what the index tracks writes that file, so a list cached under the key is read
+// again even at the same HEAD.
+func DocsIndex(root string) (mtime, size int64, err error) {
+	r, err := project.Find(root)
+	if err != nil {
+		return 0, 0, err
+	}
+	fi, err := os.Stat(filepath.Join(r.GitDir, "index"))
+	if err != nil {
+		return 0, 0, err
+	}
+	return fi.ModTime().UnixNano(), fi.Size(), nil
+}
+
+// IndexFile is whether git's index in the repository at root tracks p as a regular file: mode 100644 or 100755, never a
+// symlink (120000) or a submodule (160000). One `git ls-files --error-unmatch`, whose exit 1 is a plain no; p is a path
+// read from the index, so its name matches literally (a `*` or `[` in it is not a pattern).
+func IndexFile(ctx context.Context, root, p string) (bool, error) {
+	out, err := project.GitCtx(ctx, root, "--literal-pathspecs", "ls-files", "--error-unmatch", "-s", "-z", "--", p)
+	if err != nil {
+		var exit *exec.ExitError
+		if errors.As(err, &exit) && exit.ExitCode() == 1 {
+			return false, nil
+		}
+		return false, err
+	}
+	for _, entry := range strings.Split(out, "\x00") {
+		meta, path, ok := strings.Cut(entry, "\t")
+		if ok && path == p && strings.HasPrefix(meta, "100") {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // TrackedDocs is the markdown files git tracks under root (ls-files: untracked and ignored files are not in it;

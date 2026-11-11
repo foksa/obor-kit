@@ -29,9 +29,13 @@ func TestDocsAPI(t *testing.T) {
 	s := &Server{
 		Projects: func() []project.Project { return []project.Project{{Name: "pj", Root: root}} },
 		Docs: view.DocCache{
-			Head: func(context.Context, string) (string, error) { return "h1", nil },
+			Head:  func(context.Context, string) (string, error) { return "h1", nil },
+			Index: func(string) (int64, int64, error) { return 1, 1, nil },
 			Files: func(context.Context, string) ([]checks.TrackedDoc, error) {
 				return []checks.TrackedDoc{{Path: "docs/plan/a.md", Updated: 5}, {Path: "BACKLOG.md", Updated: 9}}, nil
+			},
+			Tracked: func(_ context.Context, _, p string) (bool, error) {
+				return p == "docs/plan/a.md" || p == "BACKLOG.md", nil
 			},
 		},
 	}
