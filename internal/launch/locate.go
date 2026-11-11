@@ -48,9 +48,9 @@ type locateIn struct {
 	// failed.
 	holder    string
 	holderErr error
-	ours      func(p port.Pane) bool // p's cwd is this project's, by the agent's ownership rule (inProject's)
-	project   func(p port.Pane) bool // p's cwd is inside this project (any agent's)
-	named     func(label string) bool
+	ours      func(p port.Pane) bool  // p's cwd is this project's, by the agent's ownership rule (inProject's)
+	project   func(p port.Pane) bool  // p's cwd is inside this project (any agent's)
+	other     func(label string) bool // label names a configured agent other than agent (config.NamesOtherAgent)
 }
 
 // decide is Locate's decision, with no I/O. Serve's answer counts only for a pane that runs an agent in the list read
@@ -59,7 +59,7 @@ type locateIn struct {
 // another project's is that project's namesake, refused as a label there is). Two of those disagreeing is ambiguous. A
 // target other than Q is refused, naming Q, its proof and the command that works. Free: the target, else the home pane;
 // a target that is not the home while the home exists, that serve gives to another agent or that is labelled for
-// another agent is refused. A refusal is port.Refused (a final one: nothing was touched).
+// another agent the config names is refused. A refusal is port.Refused (a final one: nothing was touched).
 func decide(in locateIn) (Located, error) {
 	x := in.agent
 	if in.holderErr != nil {
@@ -155,13 +155,13 @@ func decide(in locateIn) (Located, error) {
 		if r := runs(target); r != "" && r != x {
 			return Located{}, port.Refused{Line: fmt.Sprintf("pane %s runs %s, not %s", target, r, x)}
 		}
-		if l := byID[target].Label; l != "" && l != x {
+		if l := byID[target].Label; in.other(l) {
 			return Located{}, port.Refused{Line: fmt.Sprintf("pane %s is labelled %s, not %s", target, l, x)}
 		}
 	}
 	if in.serve == nil && in.adds {
 		for _, p := range in.panes {
-			if p.ID == target || p.Agent == "" || !in.project(p) || p.Label != "" && p.Label != x && in.named(p.Label) {
+			if p.ID == target || p.Agent == "" || !in.project(p) || in.other(p.Label) {
 				continue
 			}
 			label := p.Label
@@ -241,7 +241,7 @@ func (l *Launcher) locate(ctx context.Context, agent, pane string, adds bool, in
 	}
 	in := locateIn{agent: agent, target: pane, adds: adds, panes: panes,
 		ours: func(port.Pane) bool { return true }, project: func(port.Pane) bool { return false },
-		named: func(string) bool { return false }}
+		other: func(string) bool { return false }}
 	ask := []string{}
 	if pane != "" {
 		ask = append(ask, pane)
@@ -256,7 +256,7 @@ func (l *Launcher) locate(ctx context.Context, agent, pane string, adds bool, in
 		in.root = l.Cfg.Root
 		in.ours = func(p port.Pane) bool { return !known || l.ours(agent, info, p.Cwd) }
 		in.project = func(p port.Pane) bool { return p.Cwd != "" && l.ours("", config.AgentInfo{}, p.Cwd) }
-		in.named = func(label string) bool { _, ok := l.Cfg.AgentLookup(label, ""); return ok }
+		in.other = func(label string) bool { return l.Cfg.NamesOtherAgent(label, agent) }
 	}
 	switch h, err := l.H.Named(ctx, agent); {
 	case err == nil:

@@ -725,11 +725,11 @@ func TestPaneRefusesAFullTab(t *testing.T) {
 
 // R-28 §2: the new pane is labelled the agent name before the start; a pane labelled with its name at its shell is
 // its home: the start goes there, no split, and --pane naming another pane → FAIL; --pane labelled for another agent
-// → FAIL before any split or start; a failing rename → FAIL, no start.
+// the config names → FAIL before any split or start; a failing rename → FAIL, no start.
 // bash setup.test.sh case_pane_label_set_and_refused
 func TestPaneLabelSetAndRefused(t *testing.T) {
 	t.Parallel()
-	x := newFx(t)
+	x := newFx(t, testkit.Set("agents.roles.advisor", "opus"))
 	x.lane(t, "L-01")
 	out := x.ok(t, "pane", "--start", "L-01", "--pane", "w1:p1")
 	has(t, out, "labelled pane w1:p1 pj-l-01", "said")
@@ -763,9 +763,9 @@ func TestPaneLabelSetAndRefused(t *testing.T) {
 
 	x.noAgents()
 	x.h.Pane("w1:p1").Label = ""
-	x.h.Pane("w1:q1").Label = "advisor"
+	x.h.Pane("w1:q1").Label = "pj-advisor"
 	x.reset()
-	x.failing(t, "FAIL pane w1:q1 is labelled advisor, not pj-l-01",
+	x.failing(t, "FAIL pane w1:q1 is labelled pj-advisor, not pj-l-01",
 		"pane", "--start", "L-01", "--pane", "w1:q1")
 	hasNot(t, strings.Join(x.reqs(), "\n"), "agent.start", "foreign label on --pane → no start")
 

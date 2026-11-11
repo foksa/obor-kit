@@ -283,6 +283,25 @@ func TestAgentLookupPrecedence(t *testing.T) {
 			t.Errorf("AgentLookup(%q) = %+v; want unknown", name, got)
 		}
 	}
+	// NamesOtherAgent: a label the config names other than the agent reserves the pane; the agent's own name, an
+	// old alias and a person's label name nobody.
+	for _, tc := range []struct {
+		name, label string
+		names       []string
+		want        bool
+	}{
+		{"another lane's worker", "pj-l-02", []string{"pj-l-01"}, true},
+		{"a role's agent", "pj-int", []string{"pj-l-01"}, true},
+		{"its own name", "pj-l-01", []string{"pj-l-01"}, false},
+		{"its own name, another agent's list", "pj-l-01", []string{"pj-l-02"}, true},
+		{"an old alias", "pj-l1", []string{"pj-l-01"}, false},
+		{"a person's label", "notes", []string{"pj-l-01"}, false},
+		{"no label", "", []string{"pj-l-01"}, false},
+	} {
+		if got := c.NamesOtherAgent(tc.label, tc.names...); got != tc.want {
+			t.Errorf("%s: NamesOtherAgent(%q, %v) = %v, want %v", tc.name, tc.label, tc.names, got, tc.want)
+		}
+	}
 }
 
 // A lane's agent (a worker, the owner's drive agent) starts with --strict-mcp-config, obor's MCP server alone. Every

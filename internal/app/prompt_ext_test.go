@@ -130,6 +130,49 @@ func TestDispatchStartRefusedWhileALiveAgentHoldsTheName(t *testing.T) {
 	})
 }
 
+// A dispatch into a lane pane at its shell whose label names nobody (notes) is started there: serve's placement takes
+// the pane, and the start's decision (Locate, the real launcher) refuses only a label naming another configured
+// agent. Nothing is a needs-you, and the start labels the pane with its agent.
+func TestDispatchIntoALaneShellLabelledNotes(t *testing.T) {
+	t.Parallel()
+	bubble(t, func(t *testing.T) {
+		r := newLoopRig(t, dispatching())
+		r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Label, p.Name, p.Kind, p.Status = "notes", "", "", "" })
+		cfg, err := config.Load(r.p.Root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		kit, err := filepath.Abs("../..")
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.startWithAgents(&launch.Launcher{Cfg: cfg, Env: r.p.Env(), Kit: kit, H: r.srv.Client(), Out: io.Discard,
+			Wait: time.Second, Poll: time.Millisecond, PS: func(...string) ([]byte, error) { return nil, nil },
+			Where: func(_ context.Context, req wire.WhereReq) (wire.WhereReply, error) {
+				var w wire.WhereReply
+				raw, err := r.ask(&req)
+				if err == nil {
+					err = json.Unmarshal([]byte(raw), &w)
+				}
+				return w, err
+			}})
+		if p := r.f.Pane("w1:p1"); p.Label != "notes" || p.Kind != "" {
+			t.Fatalf("precondition: the lane's pane is a shell labelled notes: %+v", p)
+		}
+		r.mustDispatch("d1")
+		r.waitStep("1 result work")
+		r.passes()
+		same(t, r.result("work"), `"sent (start prompt)"`, "work result")
+		if n := r.countPrefix("1 fact needs-you"); n != 0 {
+			t.Errorf("needs-you records = %d, want none: %q", n, r.steps())
+		}
+		p := r.f.Pane("w1:p1")
+		same(t, p.Label, "pj-l-01", "the pane's label")
+		same(t, p.Kind, "claude", "the agent started there")
+		same(t, p.Name, "pj-l-01", "its herdr name")
+	})
+}
+
 // A fresh start whose first prompt is the work job's wake delivers that job (no second send through herdr), also after
 // a replay that finds the start ran (seen in the snapshot); a work.N with no start keeps the typed path. A lane of a
 // kind obor has no bridge for is not dispatched (DD-v0.13 D1: every bridged kind takes a first prompt).

@@ -426,8 +426,8 @@ func TestScheduledWaitsThenDecidesFresh(t *testing.T) {
 			change func(a *herdrtest.Pane)
 			fail   string
 		}{
-			{"relabelled", func(a *herdrtest.Pane) { a.Label, a.Name = "other-agent", "other-agent" },
-				"FAIL pane w1:p3 is labelled other-agent, not pj-l-01"},
+			{"relabelled for another configured agent", func(a *herdrtest.Pane) { a.Label, a.Name = "pj-rev", "pj-rev" },
+				"FAIL pane w1:p3 is labelled pj-rev, not pj-l-01"},
 		} {
 			for _, stop := range []bool{false, true} {
 				for _, force := range []bool{false, true} {

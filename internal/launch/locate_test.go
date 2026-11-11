@@ -191,6 +191,36 @@ func TestStopAsksLocate(t *testing.T) {
 	eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "the pane it is proven in")
 }
 
+// A --pane whose label names nobody (notes, an alias the config no longer names) is a place for a start or a stop:
+// only a label naming another agent the config names reserves the pane. The restart starts there and puts the agent's
+// label back; the stop quits the pane's shell.
+func TestRestartAndStopIntoAPaneLabelledNobody(t *testing.T) {
+	t.Parallel()
+	t.Run("restart: started there, the label put back", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.sid("pj-l-01", "sid-1")
+		x.shell("w1:p4", "notes", x.lane)
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01", Pane: "w1:p4"})
+		if !ok {
+			t.Fatalf("not started:\n%s", out)
+		}
+		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p4, session sid-1)", "result")
+		contains(t, out, "label of pane w1:p4 put back: pj-l-01 (it was notes)", "the label put back, said")
+		eq(t, x.f.Pane("w1:p4").Label, "pj-l-01", "the pane's label")
+	})
+	t.Run("--stop: stopped there", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.shell("w1:p4", "notes", x.lane)
+		out, ok := x.stop("pj-l-01", "w1:p4", false)
+		if !ok {
+			t.Fatalf("not stopped:\n%s", out)
+		}
+		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p4, already at a shell)", "result")
+	})
+}
+
 // Serve down (no socket at the project): a start beside a live agent of the project that no label accounts for is
 // refused with the serve-down line, before anything is touched; the default where request to Cfg.Root's serve is what
 // says it is down.

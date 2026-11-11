@@ -1220,6 +1220,17 @@ func (c *Config) Agents() []string {
 	return Unique(names...)
 }
 
+// NamesOtherAgent is whether label names an agent c configures (AgentLookup's names) other than any of names: a pane
+// labelled it belongs to that agent, so it is no place for one of names. A label c does not name — an old alias, a
+// person's note — names nobody. It is the one label rule of a start's placement and of Locate.
+func (c *Config) NamesOtherAgent(label string, names ...string) bool {
+	if label == "" || slices.Contains(names, label) {
+		return false
+	}
+	_, ok := c.AgentLookup(label, "")
+	return ok
+}
+
 // AgentLookup follows lane → role precedence, then resolves an unmatched cwd at to a lane.
 func (c *Config) AgentLookup(agent, at string) (AgentInfo, bool) {
 	for _, lane := range c.Lanes() {
