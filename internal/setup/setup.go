@@ -14,13 +14,17 @@
 //	        project anywhere a new herdr workspace named after the project, cwd the root (never the caller's or
 //	        herdr's active one), and another project's pane is never split; cwd the lane, env
 //	        OBOR_ROLE / OBOR_LANE and the kind's vars, every other var of the registry empty (agents.StartVars; no
-//	        OBOR_AGENT: a name is derived); then the pane label (= the agent, R-28 §2: refused when another pane
-//	        holds it or --pane is labelled otherwise) and herdr agent start with the model's kind and args (+ Claude
-//	        --settings), both through launch.Start (the one start, shared with obor restart). A pane a new tab or a split
+//	        OBOR_AGENT: a name is derived); then the pane label (= the agent) and herdr agent start with the
+//	        model's kind and args (+ Claude --settings), both through launch.Start (the one start, shared with obor restart). A pane a new tab or a split
 //	        made is used once herdr reports it an available shell (bounded at 10 s, agent_pane_busy retried).
 //	        Refuses a full tab
 //	        (4 panes, a constant). A failed start with a trust dialog or a Codex self-update in the
-//	        pane (or herdr's agent_not_ready) → FAIL agent not ready: <hint>. A running agent → OK, no-op.
+//	        pane (or herdr's agent_not_ready) → FAIL agent not ready: <hint>. First of all, before a pane is placed
+//	        or labelled, launch's Locate (port.Starter) decides: the agent running (serve's identity table, its
+//	        label, the terminal's name; a relabelled pane too) or any agent running in the lane's worktree → OK,
+//	        no-op; its home (the pane labelled with its name at its shell) → the start goes there; refused
+//	        (ambiguous, another pane labelled for it than --pane, --pane labelled or run by another agent, serve
+//	        down beside an unaccounted agent of the project for --start) → FAIL with Locate's line, nothing placed.
 //	role <role> [same placement] [--start]  the same (no agent unless --start) for a role of the roles table (not worker): agent and type from
 //	        roles.<role>, env OBOR_ROLE (the role's env value, triage too), cwd the role's (config.RoleDir):
 //	        the reviewer, the deep dive and the integrator their role worktree <lanes.dir>/<role>, added

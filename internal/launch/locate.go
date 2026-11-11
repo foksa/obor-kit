@@ -31,15 +31,8 @@ const whereWait = 3 * time.Second
 // table's sources (session, start, label).
 const proofName = "name"
 
-// Located is Locate's answer: the pane a start or stop of the agent goes to ("": none, no pane is the agent's) and why.
-type Located struct {
-	Pane string
-	// Runs: the agent runs in Pane now (a start there is a restart in place); Proof is what proves it (session, start,
-	// label, name). Not Runs: Pane is the agent's home (the pane labelled with its name at its shell) or the target.
-	Runs  bool
-	Proof string
-	Label string // Pane's label as the pane list read now shows it
-}
+// Located is Locate's answer, the core's type (port.Starter), so setup asks Locate without importing launch.
+type Located = port.Located
 
 // locateIn is what decide decides from.
 type locateIn struct {
