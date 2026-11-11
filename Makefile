@@ -163,15 +163,16 @@ check-retest:
 # keeps the whole output, .obor/state/logs/nightly-race.log). A run in which no package ran (-race needs cgo off
 # macOS; a build error) is itself a `race: ` line naming the failure, "the race build did not run (FAIL)", and exit 2,
 # never "0 reports": the nightly's WARN line carries that line, not make's trailer. RACE_PKGS narrows it to a
-# task's own package.
+# task's own package. A package's summary line is `ok<TAB><pkg>` or `FAIL<TAB><pkg>`; the tab is what tells it from a
+# test's own output line (`FAIL obor serve dump …`).
 RACE_PKGS ?= ./...
 check-race:
 	@$(GO_CACHE); \
 	out=$$($(GO) test -race -count=1 -tags integration $${CHECK_CPUS:+-p $$CHECK_CPUS} $(RACE_PKGS) 2>&1) || true; printf '%s\n' "$$out" >&2; \
-	ran=$$(printf '%s\n' "$$out" | grep -c -e '^ok' -e '^FAIL[[:space:]]' || true); \
+	ran=$$(printf '%s\n' "$$out" | grep -c -e '^ok' -e "^FAIL	" || true); \
 	if [ "$$ran" = 0 ] || printf '%s\n' "$$out" | grep -q -e '\[build failed\]' -e '\[setup failed\]'; then echo "race: the race build did not run (FAIL)"; exit 2; fi; \
 	n=$$(printf '%s\n' "$$out" | grep -c 'WARNING: DATA RACE' || true); \
-	f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
+	f=$$(printf '%s\n' "$$out" | grep -c "^FAIL	" || true); \
 	echo "race: $$n data race report(s), $$f package(s) with failing tests under -race"; test "$$n" = 0
 
 # check-readers: the packages that read the non-Go files outside a Go rule (merge.classes "readers"). The survey

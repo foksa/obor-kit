@@ -484,12 +484,12 @@ func TestSessionStartOpencodeLaneReportsNoSid(t *testing.T) {
 	}
 	c := calls[0]
 	if c.Session == nil {
-		t.Fatalf("serve got %s %+v: no session", serve.methods[0], c)
+		t.Fatalf("serve got %s %+v: no session", serve.sentMethods()[0], c)
 	}
 	s := *c.Session
-	if serve.methods[0] != wire.MethodSession || c.Agent != "pj-l-01" || s.Agent != "pj-l-01" || s.Kind != "opencode" ||
+	if serve.sentMethods()[0] != wire.MethodSession || c.Agent != "pj-l-01" || s.Agent != "pj-l-01" || s.Kind != "opencode" ||
 		s.ID != "sid-oc" || s.Transcript != "/data/opencode/opencode.db" || s.Lane != "L-01" || c.Root != p.Root {
-		t.Errorf("serve got %s %+v (session %+v)", serve.methods[0], c, s)
+		t.Errorf("serve got %s %+v (session %+v)", serve.sentMethods()[0], c, s)
 	}
 	if _, err := os.Stat(filepath.Join(state, "agents", "pj-l-01.sid")); err == nil {
 		t.Error("an OpenCode session wrote a .sid")
@@ -538,13 +538,13 @@ func TestSessionStartHookReports(t *testing.T) {
 	}
 	c := calls[0]
 	if c.Session == nil {
-		t.Fatalf("serve got %s %+v: no session", serve.methods[0], c)
+		t.Fatalf("serve got %s %+v: no session", serve.sentMethods()[0], c)
 	}
 	s := *c.Session
-	if serve.methods[0] != wire.MethodSession || c.Agent != "pj-l-01" || s.Agent != "pj-l-01" || s.Kind != "claude" ||
+	if serve.sentMethods()[0] != wire.MethodSession || c.Agent != "pj-l-01" || s.Agent != "pj-l-01" || s.Kind != "claude" ||
 		s.ID != "sid-77" || s.Transcript != "/claude/projects/x/sid-77.jsonl" || s.Pane != "w1:p3" || s.Lane != "L-01" ||
 		c.Root != p.Root || s.Started == 0 || s.Source != "SessionStart hook" {
-		t.Errorf("serve got %s %+v (session %+v)", serve.methods[0], c, s)
+		t.Errorf("serve got %s %+v (session %+v)", serve.sentMethods()[0], c, s)
 	}
 }
 
@@ -599,9 +599,9 @@ func TestStopFailureHook(t *testing.T) {
 		t.Fatalf("serve got %d requests, want one", len(calls))
 	}
 	c := calls[0]
-	if serve.methods[0] != wire.MethodStopped || c.Agent != "pj-l-01" || c.Role != "worker" || c.Lane != "L-01" ||
+	if serve.sentMethods()[0] != wire.MethodStopped || c.Agent != "pj-l-01" || c.Role != "worker" || c.Lane != "L-01" ||
 		c.Error != "rate_limit" || c.Details != "429 Too Many Requests" || c.CallID == "" || c.Root != p.Root {
-		t.Errorf("serve got %s %+v", serve.methods[0], c)
+		t.Errorf("serve got %s %+v", serve.sentMethods()[0], c)
 	}
 	if n := len(logLines()); n != 2 {
 		t.Errorf("log lines %d, want 2", n)
@@ -643,9 +643,9 @@ func TestTurnHooks(t *testing.T) {
 		t.Errorf("user-prompt-submit: exit %d, stdout %q; want 0, nothing", rc, stdout)
 	}
 	calls, _ := serve.requests()
-	if len(calls) != 1 || serve.methods[0] != wire.MethodTurn || calls[0].Agent != "pj-l-01" || calls[0].Role != "worker" ||
+	if len(calls) != 1 || serve.sentMethods()[0] != wire.MethodTurn || calls[0].Agent != "pj-l-01" || calls[0].Role != "worker" ||
 		calls[0].Lane != "L-01" || calls[0].Root != p.Root || calls[0].Ended {
-		t.Fatalf("after user-prompt-submit serve got %v %+v, want one turn request", serve.methods, calls)
+		t.Fatalf("after user-prompt-submit serve got %v %+v, want one turn request", serve.sentMethods(), calls)
 	}
 
 	p.Dispatched("L-01") // a task without task_done: the Stop hook blocks, and tells serve all the same
@@ -653,9 +653,9 @@ func TestTurnHooks(t *testing.T) {
 	if rc != 0 || !strings.Contains(stdout, `"decision":"block"`) {
 		t.Errorf("stop: exit %d, stdout %q; want the block verdict", rc, stdout)
 	}
-	if calls, _ = serve.requests(); len(calls) != 2 || serve.methods[1] != wire.MethodTurn || calls[1].Agent != "pj-l-01" ||
+	if calls, _ = serve.requests(); len(calls) != 2 || serve.sentMethods()[1] != wire.MethodTurn || calls[1].Agent != "pj-l-01" ||
 		!calls[1].Ended {
-		t.Fatalf("after stop serve got %v %+v, want a second turn request, its end", serve.methods, calls)
+		t.Fatalf("after stop serve got %v %+v, want a second turn request, its end", serve.sentMethods(), calls)
 	}
 
 	shimRun(t, lane, event("SessionStart"), worker, oborBin, "hook", "session-start")
@@ -663,7 +663,7 @@ func TestTurnHooks(t *testing.T) {
 	shimRun(t, p.Root, event("UserPromptSubmit", p.Root), lead, oborBin, "hook", "user-prompt-submit")
 	shimRun(t, p.Root, event("Stop", p.Root), lead, oborBin, "hook", "stop")
 	if calls, _ = serve.requests(); len(calls) != 2 {
-		t.Fatalf("session-start and the lead's hooks sent %v, want none", serve.methods[2:])
+		t.Fatalf("session-start and the lead's hooks sent %v, want none", serve.sentMethods()[2:])
 	}
 
 	reviewer := []string{"OBOR_ROLE=reviewer", "OBOR_AGENT=pj-rev"}
@@ -671,12 +671,12 @@ func TestTurnHooks(t *testing.T) {
 	shimRun(t, p.Root, event("Stop", p.Root), reviewer, oborBin, "hook", "stop")
 	calls, _ = serve.requests()
 	if len(calls) != 4 {
-		t.Fatalf("the reviewer's hooks sent %v, want two turn requests", serve.methods[2:])
+		t.Fatalf("the reviewer's hooks sent %v, want two turn requests", serve.sentMethods()[2:])
 	}
 	for i, c := range calls[2:] {
-		if serve.methods[2+i] != wire.MethodTurn || c.Agent != "pj-rev" || c.Role != "reviewer" || c.Root != p.Root ||
+		if serve.sentMethods()[2+i] != wire.MethodTurn || c.Agent != "pj-rev" || c.Role != "reviewer" || c.Root != p.Root ||
 			c.Ended != (i == 1) {
-			t.Errorf("the reviewer's hook %d sent %s %+v, want a turn request (the second its end)", i, serve.methods[2+i], c)
+			t.Errorf("the reviewer's hook %d sent %s %+v, want a turn request (the second its end)", i, serve.sentMethods()[2+i], c)
 		}
 	}
 }
@@ -711,9 +711,9 @@ func TestOpencodeHooksResolveTheLaneAgent(t *testing.T) {
 	run(lane, "stop", stop(lane))
 	run(lane, "stop-failure", failure(lane))
 	calls, _ := serve.requests()
-	if len(calls) != 3 || serve.methods[0] != wire.MethodTurn || serve.methods[1] != wire.MethodTurn ||
-		serve.methods[2] != wire.MethodStopped {
-		t.Fatalf("serve got %v %+v, want two turns and a stopped", serve.methods, calls)
+	if len(calls) != 3 || serve.sentMethods()[0] != wire.MethodTurn || serve.sentMethods()[1] != wire.MethodTurn ||
+		serve.sentMethods()[2] != wire.MethodStopped {
+		t.Fatalf("serve got %v %+v, want two turns and a stopped", serve.sentMethods(), calls)
 	}
 	for _, c := range calls {
 		if c.Agent != "pj-l-01" || c.Role != "worker" || c.Lane != "L-01" || c.Root != p.Root {
@@ -729,7 +729,7 @@ func TestOpencodeHooksResolveTheLaneAgent(t *testing.T) {
 	run(p.Root, "stop", stop(p.Root))
 	run(p.Root, "stop-failure", failure(p.Root))
 	if calls, _ = serve.requests(); len(calls) != 3 {
-		t.Errorf("outside a lane serve got %v %+v, want none", serve.methods[3:], calls[3:])
+		t.Errorf("outside a lane serve got %v %+v, want none", serve.sentMethods()[3:], calls[3:])
 	}
 }
 
@@ -776,9 +776,9 @@ func TestTriageSessionStartRecordsItsInbox(t *testing.T) {
 		t.Errorf("session-start output names no triage role:\n%s", stdout)
 	}
 	calls, _ := serve.requests()
-	if len(calls) != 1 || serve.methods[0] != wire.MethodSession || calls[0].Agent != "pj-triage" ||
+	if len(calls) != 1 || serve.sentMethods()[0] != wire.MethodSession || calls[0].Agent != "pj-triage" ||
 		calls[0].Session == nil || calls[0].Session.ID != "sid-t1" || calls[0].Root != p.Root {
-		t.Fatalf("serve got %v %+v; want pj-triage's session sid-t1", serve.methods, calls)
+		t.Fatalf("serve got %v %+v; want pj-triage's session sid-t1", serve.sentMethods(), calls)
 	}
 	if s, ok := inboxed(p.Root)("pj-triage"); !ok || s != "sid-t1" {
 		t.Fatalf("inboxed(pj-triage) = %q, %v; want the session's record", s, ok)
@@ -812,8 +812,8 @@ func TestTriageStopFailureNamesIt(t *testing.T) {
 		t.Errorf("exit %d, stdout %q; want 0, nothing", rc, stdout)
 	}
 	calls, _ := serve.requests()
-	if len(calls) != 1 || serve.methods[0] != wire.MethodStopped || calls[0].Agent != "pj-triage" ||
+	if len(calls) != 1 || serve.sentMethods()[0] != wire.MethodStopped || calls[0].Agent != "pj-triage" ||
 		calls[0].Role != "triage" || calls[0].Error != "rate_limit" {
-		t.Errorf("serve got %v %+v; want one stopped request of pj-triage (role triage)", serve.methods, calls)
+		t.Errorf("serve got %v %+v; want one stopped request of pj-triage (role triage)", serve.sentMethods(), calls)
 	}
 }

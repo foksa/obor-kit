@@ -66,8 +66,8 @@ func TestReviewCloseCall(t *testing.T) {
 		t.Errorf("close: exit %d, %q; want serve's reply", rc, stdout)
 	}
 	calls, n := serve.requests()
-	if n != 1 || len(calls) != 1 || serve.methods[0] != wire.MethodReviewClose {
-		t.Fatalf("requests %d %+v (%q), want one review_close", n, calls, serve.methods)
+	if n != 1 || len(calls) != 1 || serve.sentMethods()[0] != wire.MethodReviewClose {
+		t.Fatalf("requests %d %+v (%q), want one review_close", n, calls, serve.sentMethods())
 	}
 	if c := calls[0]; c.Note != "T-5 (fix)" || !slices.Equal(c.Accept, []string{"rare case", "other"}) || !c.Force ||
 		c.CallID == "" || c.Root != p.Root {

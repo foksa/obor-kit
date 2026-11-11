@@ -85,9 +85,9 @@ func TestSendRequest(t *testing.T) {
 		if len(calls) != i+1 {
 			t.Fatalf("send by %s: %d requests to the target's serve, want %d", by, len(calls), i+1)
 		}
-		if c := calls[i]; target.methods[i] != wire.MethodSend || c.Root != q.Root || c.From != "proj" ||
+		if c := calls[i]; target.sentMethods()[i] != wire.MethodSend || c.Root != q.Root || c.From != "proj" ||
 			c.Note != "v0.12 is out" || c.Role != "lead" || c.Agent != "pj-lead" || c.CallID == "" {
-			t.Errorf("send by %s: request %s %+v", by, target.methods[i], c)
+			t.Errorf("send by %s: request %s %+v", by, target.sentMethods()[i], c)
 		}
 	}
 	if calls, _ := own.requests(); len(calls) != 0 {
@@ -130,9 +130,9 @@ func TestSendToProjectWhoseConfigDoesNotLoad(t *testing.T) {
 			t.Errorf("send by %s: %d requests to the target's serve, want %d", by, len(calls), i+1)
 			continue
 		}
-		if c := calls[i]; target.methods[i] != wire.MethodSend || c.Root != q.Root || c.From != "proj" ||
+		if c := calls[i]; target.sentMethods()[i] != wire.MethodSend || c.Root != q.Root || c.From != "proj" ||
 			c.Note != "v0.22 is out" {
-			t.Errorf("send by %s: request %s %+v", by, target.methods[i], c)
+			t.Errorf("send by %s: request %s %+v", by, target.sentMethods()[i], c)
 		}
 	}
 	if changed, err := project.Register(q.Root, penv); err != nil || changed {
@@ -189,9 +189,9 @@ func TestBriefRequest(t *testing.T) {
 		t.Errorf("brief: exit %d, %q", rc, stdout)
 	}
 	calls, _ := serve.requests()
-	if len(calls) != 1 || serve.methods[0] != wire.MethodBrief || calls[0].To != "pj-rev" || calls[0].Note != "verify finding 3" ||
+	if len(calls) != 1 || serve.sentMethods()[0] != wire.MethodBrief || calls[0].To != "pj-rev" || calls[0].Note != "verify finding 3" ||
 		calls[0].Root != p.Root || calls[0].Role != "lead" {
-		t.Errorf("requests %v %+v", serve.methods, calls)
+		t.Errorf("requests %v %+v", serve.sentMethods(), calls)
 	}
 }
 
@@ -217,9 +217,9 @@ func TestBriefFresh(t *testing.T) {
 		t.Fatalf("brief --fresh: exit %d\n%s", rc, stdout)
 	}
 	got, _ := serve.requests()
-	if len(got) != 1 || serve.methods[0] != wire.MethodBrief || got[0].To != "pj-advisor" || got[0].Note != "review the module map" ||
+	if len(got) != 1 || serve.sentMethods()[0] != wire.MethodBrief || got[0].To != "pj-advisor" || got[0].Note != "review the module map" ||
 		got[0].Role != "lead" || !got[0].Fresh {
-		t.Errorf("requests %v %+v, want one fresh brief of pj-advisor with the text", serve.methods, got)
+		t.Errorf("requests %v %+v, want one fresh brief of pj-advisor with the text", serve.sentMethods(), got)
 	}
 	if pane := f.Pane("w1:p5"); pane.Kind == "" {
 		t.Errorf("the CLI stopped pj-advisor in w1:p5: %+v", pane)

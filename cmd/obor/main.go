@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -31,8 +32,15 @@ import (
 // out is the one stdout writer: buffered, flushed by exit; a closed pipe (`obor status | head`) exits 0 quietly.
 var out = bufio.NewWriterSize(os.Stdout, 64<<10)
 
+// outMu serializes out's writes and flushes: serve writes through flushWriter on its own goroutine and on the
+// app's (Options.Out), and a bufio.Writer is not safe for that.
+var outMu sync.Mutex
+
 func exit(code int) {
-	if err := out.Flush(); err != nil {
+	outMu.Lock()
+	err := out.Flush()
+	outMu.Unlock()
+	if err != nil {
 		if errors.Is(err, syscall.EPIPE) {
 			os.Exit(0)
 		}
