@@ -694,7 +694,7 @@ func TestPaneLabelSetAndRefused(t *testing.T) {
 	x.h.Pane("w1:p1").Label = ""
 	x.h.Pane("w1:q1").Label = "advisor"
 	x.reset()
-	x.failing(t, "FAIL pane w1:q1 is labelled advisor, not pj-l-01 (obor restart pj-l-01 --pane w1:q1 to reuse it)",
+	x.failing(t, "FAIL pane w1:q1 is labelled advisor, not pj-l-01 (advisor holds it: use another pane for pj-l-01, or clear the pane's label in the terminal)",
 		"pane", "--start", "L-01", "--pane", "w1:q1")
 	hasNot(t, strings.Join(x.reqs(), "\n"), "agent.start", "foreign label on --pane → no start")
 

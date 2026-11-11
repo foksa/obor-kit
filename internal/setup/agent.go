@@ -236,8 +236,8 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 			return project.Failf("pane %s is already labelled %s (obor restart %s)", p.ID, a.name, a.name)
 		}
 		if p.ID == w.pane && p.Label != "" && p.Label != a.name {
-			return project.Failf("pane %s is labelled %s, not %s (obor restart %s --pane %s to reuse it)", p.ID, p.Label,
-				a.name, a.name, p.ID)
+			return project.Failf("pane %s is labelled %s, not %s (%s holds it: use another pane for %s, or clear the "+
+				"pane's label in the terminal)", p.ID, p.Label, a.name, p.Label, a.name)
 		}
 		if p.ID == w.pane {
 			label = p.Label
