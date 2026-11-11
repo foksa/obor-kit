@@ -448,10 +448,10 @@ func (s *sleeper) stopAgents(ctx context.Context) error {
 	return nil
 }
 
-// stopServe ends the project's running serve and confirms it down: launchd's agent, when loaded, is uninstalled
-// first (it ends launchd's serve, and no launchd serve takes over the lock); a serve that is not launchd's (in a pane,
-// or run by hand, on any OS) is then asked to exit over its socket (wire.MethodExit: its graceful exit).
-// Down is serve.flock released and serve.sock not answering, within Wait.
+// stopServe ends the project's running serve and confirms it down: launchd's agent is uninstalled first, loaded or
+// only installed (loaded it ends launchd's serve, and no launchd serve takes over the lock; a plist it left behind
+// goes); a serve that is not launchd's (in a pane, or run by hand, on any OS) is then asked to exit over its socket
+// (wire.MethodExit: its graceful exit). Down is serve.flock released and serve.sock not answering, within Wait.
 func (s *sleeper) stopServe(ctx context.Context, id wire.Envelope) error {
 	root := s.Cfg.Root
 	svc := serviceOf(s.Cfg, s.Env)
@@ -459,14 +459,18 @@ func (s *sleeper) stopServe(ctx context.Context, id wire.Envelope) error {
 	defer cancel()
 	pid, launchd, how := servePID(root), false, "its exit"
 	if svc.Supported() {
-		if lpid, loaded := svc.PID(sctx); loaded {
-			launchd = pid != 0 && lpid == pid
+		lpid, loaded := svc.PID(sctx)
+		launchd = loaded && pid != 0 && lpid == pid
+		_, statErr := os.Stat(svc.PlistPath())
+		if loaded || statErr == nil { // launchd's own agent, or one only installed: it goes too
 			line, err := svc.Uninstall(sctx)
 			if err != nil {
 				return fmt.Errorf("obor serve uninstall: %v", err)
 			}
 			s.say("serve: %s", line)
-			how = "its uninstall"
+			if loaded {
+				how = "its uninstall"
+			}
 		}
 	}
 	if !launchd {

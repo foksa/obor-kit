@@ -81,6 +81,25 @@ func TestServeJobServeDown(t *testing.T) {
 	}
 }
 
+// serve down and the lane's state row unreadable: the restart refuses, naming the read's failure, because it cannot
+// tell that the lane holds no task whose job serve would hand back with the wake.
+func TestRestartJobUnreadableLaneRow(t *testing.T) {
+	t.Parallel()
+	p := testkit.NewPlain(t)
+	p.Write(".obor/state/obor.db", "not a database\n")
+	down := func(wire.RestartJobReq) (string, error) { return "", errors.New("i/o timeout") }
+	job, err := resolveAgentJob(p.Root, "pj-l-01", "worker", "L-01", down)
+	if err == nil || job != "" {
+		t.Fatalf("serve down, state row unreadable: %q, %v; want an error", job, err)
+	}
+	for _, want := range []string{"L-01: its state row cannot be read", "not a database",
+		"obor serve may hold a job for it", "start obor serve, then retry"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q lacks %q", err, want)
+		}
+	}
+}
+
 // obor restart (internal/launch has the behaviour): the result line last, FAIL → exit 1 (a --stop that gives up
 // prints its evidence first).
 func TestRestartCommand(t *testing.T) {
