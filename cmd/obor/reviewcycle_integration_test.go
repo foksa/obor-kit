@@ -357,6 +357,93 @@ func TestReviewGitCloseUntrackedBacklog(t *testing.T) {
 	}
 }
 
+// git status -z: the close reads every changed path whole, so a review's files in a directory whose name has a space,
+// a quote or a non-ASCII character are the close's own and it commits, and a renamed tracked BACKLOG.md (status
+// "R  new\0old") commits the rename, both halves, leaving the checkout clean.
+func TestReviewGitClosePathShapes(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ name, dir string }{
+		{"space", "docs/review files"},
+		{"quote", `docs/re"views`},
+		{"non-ASCII", "docs/réviews"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p, head := reviewFixture(t)
+			g := reviewGit{root: p.Root}
+			file, verify := tc.dir+"/RV-4.md", tc.dir+"/RV-4-verify.md"
+			p.Write(file, "# RV-4\n")
+			p.Write(verify, "# RV-4 verify\n")
+			c := closeOf(p, head, "rare case")
+			c.File = p.Path(file)
+			if err := g.Close(context.Background(), c); err != nil {
+				t.Fatalf("close with %s in its dir: %v; want committed", tc.name, err)
+			}
+			if p.Exists(file) || p.Exists(verify) {
+				t.Errorf("the close kept the review's files")
+			}
+			if accepted, want := p.Git(p.Root, "show", "HEAD:"+app.AcceptedFile),
+				strings.TrimSpace(acceptedHeadText+"- (RV-4, accepted) rare case\n"); accepted != want {
+				t.Errorf("docs/accepted.md committed:\n%q\nwant:\n%q", accepted, want)
+			}
+			if st := p.Git(p.Root, "status", "--porcelain", "--untracked-files=all"); st != "" {
+				t.Errorf("the main checkout is dirty after the close: %q", st)
+			}
+		})
+	}
+
+	t.Run("rename", func(t *testing.T) {
+		t.Parallel()
+		p, head := reviewFixture(t)
+		g := reviewGit{root: p.Root}
+		p.Write("docs/reviews/RV-4.md", "# RV-4\n")
+		if err := os.MkdirAll(p.Path("notes"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		p.Git(p.Root, "mv", "BACKLOG.md", "notes/BACKLOG.md")
+		if st := p.Git(p.Root, "status", "--porcelain"); !strings.Contains(st, "R  BACKLOG.md -> notes/BACKLOG.md") {
+			t.Fatalf("precondition: BACKLOG.md renamed, status %q", st)
+		}
+		if err := g.Close(context.Background(), closeOf(p, head, "rare case")); err != nil {
+			t.Fatalf("close with a renamed BACKLOG.md: %v; want committed", err)
+		}
+		if got := p.Git(p.Root, "show", "HEAD:notes/BACKLOG.md"); !strings.Contains(got, "# Backlog") {
+			t.Errorf("notes/BACKLOG.md committed:\n%s", got)
+		}
+		if out := p.Git(p.Root, "ls-tree", "-r", "--name-only", "HEAD"); slices.Contains(strings.Split(out, "\n"), "BACKLOG.md") {
+			t.Errorf("the old BACKLOG.md is still committed:\n%s", out)
+		}
+		if st := p.Git(p.Root, "status", "--porcelain", "--untracked-files=all"); st != "" {
+			t.Errorf("the main checkout is dirty after the close: %q", st)
+		}
+	})
+
+	// the allowance is for a BACKLOG.md on both halves: another tracked file renamed onto that name is dirty.
+	t.Run("a file renamed onto BACKLOG.md", func(t *testing.T) {
+		t.Parallel()
+		p, head := reviewFixture(t)
+		g := reviewGit{root: p.Root}
+		p.Write("docs/reviews/RV-4.md", "# RV-4\n")
+		if err := os.MkdirAll(p.Path("docs"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		p.Git(p.Root, "mv", "fix.txt", "docs/BACKLOG.md")
+		if st := p.Git(p.Root, "status", "--porcelain"); !strings.Contains(st, "R  fix.txt -> docs/BACKLOG.md") {
+			t.Fatalf("precondition: fix.txt renamed, status %q", st)
+		}
+		if err := g.Close(context.Background(), closeOf(p, head)); err == nil ||
+			err.Error() != "the main checkout is dirty outside a BACKLOG.md, docs/accepted.md and RV-4's files (R  fix.txt -> docs/BACKLOG.md): nothing changed" {
+			t.Errorf("a file renamed onto BACKLOG.md: %v; want refused", err)
+		}
+		if got := p.Git(p.Root, "rev-parse", "HEAD"); got != head {
+			t.Errorf("a refused close committed: HEAD %s, want %s", got, head)
+		}
+		if !p.Exists("docs/reviews/RV-4.md") || p.Exists(app.AcceptedFile) {
+			t.Errorf("a refused close changed the checkout")
+		}
+	})
+}
+
 // obor review fix is no subcommand (a fix task's spec line Fixes: RV-<n> links it), and there is no verify
 // by hand: each is a usage error of obor review, which names neither; nothing is sent.
 func TestReviewFixGone(t *testing.T) {
