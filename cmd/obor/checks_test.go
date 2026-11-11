@@ -46,9 +46,7 @@ func TestNightlySwitch(t *testing.T) {
 	if len(calls) != 2 {
 		t.Fatalf("%d requests, want 2", len(calls))
 	}
-	serve.mu.Lock()
-	method := serve.methods[0]
-	serve.mu.Unlock()
+	method := serve.sentMethods()[0]
 	if method != wire.MethodConfig {
 		t.Errorf("method %q, want %q", method, wire.MethodConfig)
 	}

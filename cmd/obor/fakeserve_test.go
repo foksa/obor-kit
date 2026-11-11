@@ -111,6 +111,13 @@ func (f *fakeServe) requests() (calls []sentCall, n int) {
 	return append([]sentCall(nil), f.calls...), f.n
 }
 
+// sentMethods is the method of each call so far, copied under its mutex.
+func (f *fakeServe) sentMethods() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.methods...)
+}
+
 // servedProject is a project whose merge loop is obor serve's (an integrator role), with lane L-01; edits change the
 // config further.
 func servedProject(t *testing.T, edits ...func(map[string]any)) *testkit.Project {

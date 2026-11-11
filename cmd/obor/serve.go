@@ -340,10 +340,13 @@ func serveDump(w io.Writer, cwd string) int {
 	return 0
 }
 
-// flushWriter writes through out and flushes at once.
+// flushWriter writes through out and flushes at once; outMu holds the pair together, since out's buffer is written
+// by serve's own goroutine and by the app's (Options.Out).
 type flushWriter struct{}
 
 func (flushWriter) Write(p []byte) (int, error) {
+	outMu.Lock()
+	defer outMu.Unlock()
 	n, err := out.Write(p)
 	if err == nil {
 		err = out.Flush()

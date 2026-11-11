@@ -1178,6 +1178,14 @@ func TestOborKitCheckRace(t *testing.T) {
 			wantLine: "race: 0 data race report(s), 1 package(s) with failing tests under -race",
 		},
 		{
+			name: "a test's own FAIL line",
+			canned: "FAIL obor serve dump /x: no such file or directory\n" +
+				"FAIL\tobor/internal/a\t1.2s\n",
+			wantCode: 0,
+			wantExit: 0,
+			wantLine: "race: 0 data race report(s), 1 package(s) with failing tests under -race",
+		},
+		{
 			name: "a race",
 			canned: "==================\nWARNING: DATA RACE\nRead at 0x00c0000b4010 by goroutine 7:\n" +
 				"  obor/internal/a.TestX()\n\nWARNING: DATA RACE\nWrite at 0x00c0000b4010 by goroutine 8:\n" +

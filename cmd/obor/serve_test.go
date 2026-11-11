@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -21,9 +22,9 @@ import (
 )
 
 // startServe starts obor serve (the binary) in dir with env; its output is the buffer.
-func startServe(t *testing.T, dir string, env []string) (*exec.Cmd, *bytes.Buffer) {
+func startServe(t *testing.T, dir string, env []string) (*exec.Cmd, *serveOut) {
 	t.Helper()
-	var out bytes.Buffer
+	var out serveOut
 	cmd := exec.Command(oborBin, "serve")
 	cmd.Dir, cmd.Stdout, cmd.Stderr, cmd.Env = dir, &out, &out, append(os.Environ(), env...)
 	if err := cmd.Start(); err != nil {
@@ -31,6 +32,24 @@ func startServe(t *testing.T, dir string, env []string) (*exec.Cmd, *bytes.Buffe
 	}
 	t.Cleanup(func() { _ = cmd.Process.Kill() })
 	return cmd, &out
+}
+
+// serveOut is a serve's output: exec's copies write it while the test reads it, so both take its mutex.
+type serveOut struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *serveOut) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *serveOut) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
 }
 
 func TestServeReportsHerdrProtocolMismatch(t *testing.T) {

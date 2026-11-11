@@ -49,9 +49,7 @@ func TestPauseRequest(t *testing.T) {
 	if len(calls) != 3 {
 		t.Fatalf("%d requests, want 3", len(calls))
 	}
-	serve.mu.Lock()
-	methods := append([]string(nil), serve.methods...)
-	serve.mu.Unlock()
+	methods := serve.sentMethods()
 	for i, m := range methods {
 		if m != wire.MethodPause {
 			t.Errorf("request %d: method %q, want %q", i+1, m, wire.MethodPause)
