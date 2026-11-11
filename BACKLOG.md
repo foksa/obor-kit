@@ -14,8 +14,8 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   at any path), T-1230/T-1231 (keep-lane and cmd/obor flakes), T-1232 (A4: `internal/app/review` package), T-1234
   (uncounted step retries wait), worker text (no machine load), deep-dive text (no git writes in probes); all
   reviewed (RV-184, RV-185).
-  **Next steps:** (1) 11-16 or later: C1 store migrations (DD-v0.35 group 1). (2) After ~2 weeks of the nightly's race
-  line: decide A1 steps 3-4 (`docs/research/improve-architecture.md`). (3) Owner may pick A6 `obor stats`. (4) v0.37
+  **Next steps:** (1) 11-16 or later: C1 store migrations (DD-v0.35 group 1). (2) After C1: decide A1 steps 3-4
+  (`docs/research/improve-architecture.md`) from the check-then-act findings, not the race count (decisions 11-11). (3) Owner may pick A6 `obor stats`. (4) v0.37
   when the owner wants: everything since v0.36 is reviewed. Parked by the owner 11-10: `obor run` (Later candidates).
 ## Owner decisions pending
 - none (agent skills scope decided 11-10: 1A, T-1201).
