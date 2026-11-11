@@ -1949,9 +1949,9 @@ func eqInt(t *testing.T, got, want int, what string) {
 	}
 }
 
-// A start the terminal's adapter retries itself (herdr: a name it kept from a pane that ran the agent before, cleared;
-// herdr's TestSocketStartNameTaken has the cases) is a start: the adapter's lines are printed. One it answers NotReady
-// is the startup-dialog FAIL.
+// A start the terminal's adapter retries itself (herdr: a name it kept with no live agent behind it, cleared; herdr's
+// TestSocketStartNameTaken has the cases) is a start: the adapter's lines are printed. A name a live agent in another
+// pane holds is a FAIL that names the holder; one herdr answers NotReady is the startup-dialog FAIL.
 func TestRestartAgentNameTaken(t *testing.T) {
 	t.Parallel()
 	t.Run("start agent_name_taken once: name cleared, retried, RESTARTED", func(t *testing.T) {
@@ -1971,24 +1971,26 @@ func TestRestartAgentNameTaken(t *testing.T) {
 			t.Errorf("restarted:\n%s", out)
 		}
 	})
-	t.Run("a live unlabelled holder elsewhere: cleared there, the agent starts in the target pane, retried", func(t *testing.T) {
+	t.Run("a live agent in another pane holds the name: FAIL naming the holder, nothing cleared or started", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.sid("pj-l-01", "sid-1")
 		x.shell("w1:p3", "pj-l-01", "")
-		// A live agent under the name in a pane obor does not label pj-l-01: its name is stale, the label is identity.
+		// A live agent under the name, in a pane obor does not label pj-l-01 (herdr's name is not obor's identity).
 		x.f.Agent("w1:p1", "pj-l-01", "idle", "")
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01", Pane: "w1:p3"})
-		contains(t, out, "agent start: name pj-l-01 taken (pane w1:p1): clearing it and retrying", "said")
-		eqInt(t, len(x.calls("agent.start")), 2, "retried once")
-		if clr, start := x.index("agent.rename name=null target=w1:p1"), x.lastIndex("agent.start"); clr < 0 || clr > start {
-			t.Errorf("cleared before the retry: %q", x.srv.Calls())
+		eq(t, failLine(out), "FAIL pj-l-01 already runs in pane w1:p1 (its label is none): quit it there, or put its "+
+			"label back", "result")
+		eqInt(t, len(x.calls("agent.start")), 1, "the start refused at once, not retried")
+		eqInt(t, len(x.calls("agent.rename name=null")), 0, "a clear")
+		eq(t, x.f.Pane("w1:p1").Name, "pj-l-01", "the holder's name")
+		eq(t, x.f.Pane("w1:p1").Kind, "claude", "the holder's agent")
+		eq(t, x.f.Pane("w1:p3").Kind, "", "no agent started in the target pane")
+		if strings.Contains(out, "restart pj-l-01") || strings.Contains(out, "start it by hand") {
+			t.Errorf("the FAIL names the command that just failed:\n%s", out)
 		}
-		eq(t, x.f.Pane("w1:p3").Name, "pj-l-01", "the agent started in the target pane")
-		eq(t, x.f.Pane("w1:p1").Name, "", "the holder's name")
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
-		if !ok {
-			t.Errorf("restarted:\n%s", out)
+		if ok {
+			t.Error("a failure")
 		}
 	})
 	t.Run("start blocked at a startup dialog (agent_not_ready): FAIL that says so, not retried", func(t *testing.T) {

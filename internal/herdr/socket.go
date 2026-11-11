@@ -579,13 +579,28 @@ func orNil(s string) any {
 	return s
 }
 
+// heldName is a start herdr refused because a live agent in another pane holds the name: that pane, its label ("" when
+// the pane has none) and herdr's own answer (port.NameHeld).
+type heldName struct {
+	Err         *Error
+	Pane, Label string
+}
+
+// NameHeld is port.NameHeld's: the pane whose live agent holds the name, and its label.
+func (h *heldName) NameHeld() (string, string) { return h.Pane, h.Label }
+
+func (h *heldName) Error() string { return h.Err.Error() }
+
+// Unwrap keeps herdr's answer in the chain (Reached, the error predicates).
+func (h *heldName) Unwrap() error { return h.Err }
+
 // Start is agent.start: name a new agent of kind in pane and type its command line (kind and args) at the pane's
 // shell. herdr answers at once, before the agent runs (launch_pending, live): the answer is no proof the agent
 // came up, the caller polls for it (launch.started). herdr lags in noticing an exit and holds a name from a pane that
-// ran the agent before, or from a pane whose agent obor no longer identifies there: the label is obor's identity, so a
-// name taken by another pane is stale to obor too, and is cleared, said on say, and the start retried once (a clear
-// that fails warns on say too). Sent once otherwise, never retried: a request that timed out may have been typed
-// (Reached).
+// ran the agent before: a name it refuses as taken while no live agent elsewhere holds it is cleared, said on say, and
+// the start retried once (a clear that fails warns on say too). A live agent in another pane holding the name is a
+// refusal: nothing is cleared, and the error is port.NameHeld's, with the holder's pane and label. Sent once otherwise,
+// never retried: a request that timed out may have been typed (Reached).
 func (s *Socket) Start(ctx context.Context, name, kind, pane string, say func(format string, args ...any), args ...string) (port.Pane, error) {
 	a, err := s.start(ctx, name, kind, pane, args...)
 	var e *Error
@@ -596,8 +611,14 @@ func (s *Socket) Start(ctx context.Context, name, kind, pane string, say func(fo
 	if h, herr := s.agentAt(ctx, name); herr == nil {
 		holder = h.ID
 	}
-	// herdr kept the name of this pane's own agent, or one another pane holds, or one no agent holds: clear it and
-	// retry.
+	if holder != "" && holder != pane { // a live agent in another pane holds it: the start stays refused
+		label := ""
+		if p, perr := s.paneAt(ctx, holder); perr == nil {
+			label = p.Label
+		}
+		return a, &heldName{Err: e, Pane: holder, Label: label}
+	}
+	// herdr kept the name of this pane's own agent, or one no agent holds: clear it and retry.
 	at := ""
 	if holder != "" {
 		at = " (pane " + holder + ")"

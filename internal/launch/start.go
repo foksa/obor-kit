@@ -30,13 +30,13 @@ type (
 // up to 30 s for an agent ready for input, which an agent busy on its first prompt never is); a start with a first
 // prompt whose agent works on it is a start, its launch pending or herdr's call given up on (attempt.counts,
 // busyStart). herdr's agent name is neither required nor renamed back (herdr drops it at times and obor
-// addresses the pane by id); a name herdr still holds, in this pane or another, is cleared and the start retried once,
-// the adapter's line for it
-// (and a failed clear's warning) said through Diag (else Out). A failed start is a *StartError, herdr's error
-// printed: NoShell when the pane never became its shell, NotReady with a hint when the pane shows a trust dialog or a
-// Codex self-update, or herdr says NotReady. A failed env line is its own error; a failed pane label is a Fail (nothing
-// started). A start reports the confirmed start (serve ends the agent's skew entry) and, for a kind whose sessions its
-// transcript names,
+// addresses the pane by id); a name herdr still holds and no live agent does is cleared and the start retried once,
+// the adapter's line for it (and a failed clear's warning) said through Diag (else Out); a live agent in another pane
+// holding the name is a refusal for good, its line naming the holder (nameHeldFail). A failed start is a *StartError,
+// herdr's error printed: NoShell when the pane never became its shell, NotReady with a hint when the pane shows a trust
+// dialog or a Codex self-update, or herdr says NotReady. A failed env line is its own error; a failed pane label is a
+// Fail (nothing started). A start reports the confirmed start (serve ends the agent's skew entry) and, for a kind whose
+// sessions its transcript names,
 // its session (done).
 func (l *Launcher) Start(ctx context.Context, s Start) error {
 	_, err := l.start(ctx, s)
@@ -96,6 +96,12 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
 	if t.err == nil {
 		return l.done(ctx, s, t.a), nil
 	}
+	// A start whose name a live agent in another pane holds is refused for good: a second agent under one name is no
+	// start. Its line names the holder and the way out, never the command that just failed (the pane was already
+	// stopped and labelled for it).
+	if pane, label, held := port.NameHeld(t.err); held {
+		return port.Pane{}, nameHeldFail{Fail: project.Fail(nameHeldLine(s.Agent, pane, label)), pane: pane, label: label}
+	}
 	err := t.err
 	l.say("%v", err)
 	if s.Prompt != "" && !port.NotReady(err) {
@@ -113,6 +119,27 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
 		return port.Pane{}, &StartError{Err: err, NotReady: true, Hint: s.Agent + " waits at a startup dialog in pane " + s.Pane + ": answer it there"}
 	}
 	return port.Pane{}, &StartError{Err: err}
+}
+
+// nameHeldFail is a start's refusal for good: a live agent in another pane holds the agent name (port.NameHeld), so no
+// second agent of that name starts. Its line names the holder; serve's dispatch makes it a needs-you, not a counted
+// failure.
+type nameHeldFail struct {
+	project.Fail
+	pane, label string
+}
+
+func (f nameHeldFail) NameHeld() (string, string) { return f.pane, f.label }
+func (f nameHeldFail) Unwrap() error              { return f.Fail }
+
+// nameHeldLine is nameHeldFail's FAIL: the agent, the pane whose live agent holds its name, that pane's label (none when
+// it has none) and what to do about it; never the command that just failed, which started nothing.
+func nameHeldLine(agent, pane, label string) string {
+	if label == "" {
+		label = "none"
+	}
+	return fmt.Sprintf("%s already runs in pane %s (its label is %s): quit it there, or put its label back", agent, pane,
+		label)
 }
 
 // attempt is one agent start as started saw it: the agent it ended with, the terminal's error, and whether the

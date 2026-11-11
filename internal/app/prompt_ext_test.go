@@ -67,14 +67,14 @@ func TestTypedDispatchStartsOnOneLine(t *testing.T) {
 	})
 }
 
-// A dispatch's start under an agent name another pane still holds (a live agent there, a pane obor does not label for
-// it: herdr's name is stale to obor) clears that name and retries once: the worker starts in its lane's pane, and no
-// counted failure reaches the loop.
-func TestDispatchStartClearsANameAnotherPaneHolds(t *testing.T) {
+// A dispatch whose start finds the agent's name held by a live agent in another pane is refused for good: the needs-you
+// names that pane, the holder's agent and name are untouched, and no counted failure reaches the loop.
+func TestDispatchStartRefusedWhileALiveAgentHoldsTheName(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
 		r := newLoopRig(t, dispatching())
-		r.f.Agent("w1:p7", "pj-l-01", "idle", r.lane) // no pane label backs it: stale
+		holder := r.f.Agent("w1:p7", "pj-l-01", "idle", r.lane)
+		holder.Label = "notes"
 		cfg, err := config.Load(r.p.Root)
 		if err != nil {
 			t.Fatal(err)
@@ -89,12 +89,15 @@ func TestDispatchStartClearsANameAnotherPaneHolds(t *testing.T) {
 			t.Fatalf("precondition: no holder of the name: %+v", r.f.Panes)
 		}
 		r.mustDispatch("d1")
-		r.waitStep("1 result work")
+		r.waitPrefix("1 fact needs-you{start: pj-l-01 already runs in pane w1:p7 (its label is notes): quit it there, " +
+			"or put its label back}")
 		r.passes()
-		if r.hasPrefix("1 fact needs-you") || r.hasPrefix("1 fact failed") {
-			t.Errorf("the taken name was counted: %q", r.steps())
+		if r.hasPrefix("1 fact failed") {
+			t.Errorf("the refused start was counted as a failure: %q", r.steps())
 		}
-		same(t, r.result("work"), `"sent (start prompt)"`, "work result")
+		if n := r.countPrefix("1 fact needs-you"); n != 1 {
+			t.Errorf("needs-you records = %d, want 1: %q", n, r.steps())
+		}
 		starts, cleared := 0, false
 		for _, q := range r.srv.Requests() {
 			switch q.Method {
@@ -106,22 +109,16 @@ func TestDispatchStartClearsANameAnotherPaneHolds(t *testing.T) {
 					starts++
 				}
 			case "agent.rename":
-				var p struct {
-					Target string  `json:"target"`
-					Name   *string `json:"name"`
-				}
-				if json.Unmarshal(q.Params, &p) == nil && p.Target == "w1:p7" && p.Name == nil {
-					cleared = true
-				}
+				cleared = true // a clear of the held name, whatever target
 			}
 		}
-		same(t, starts, 2, "agent.start of pj-l-01")
-		if !cleared {
-			t.Errorf("the holder w1:p7's name not cleared: %+v", r.srv.Requests())
+		same(t, starts, 1, "agent.start of pj-l-01")
+		if cleared {
+			t.Errorf("the live holder's name was cleared: %+v", r.srv.Requests())
 		}
-		same(t, r.f.Pane("w1:p1").Name, "pj-l-01", "the agent started in its pane")
-		same(t, r.f.Pane("w1:p7").Name, "", "the holder's name")
+		same(t, r.f.Pane("w1:p7").Name, "pj-l-01", "the holder's name")
 		same(t, r.f.Pane("w1:p7").Kind, "claude", "the holder's agent")
+		same(t, r.f.Pane("w1:p1").Kind, "", "no agent started in the lane's pane")
 	})
 }
 
