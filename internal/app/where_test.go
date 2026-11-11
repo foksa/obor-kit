@@ -37,6 +37,22 @@ func TestWhere(t *testing.T) {
 		}, "pj-advisor", []string{"w1:p1", "w1:p2", "w9:p9"},
 			wire.WhereReply{State: wire.WhereNone, Why: "no proof",
 				Runs: map[string]string{"w1:p1": "pj-lead", "w1:p2": "", "w9:p9": ""}}},
+		// A configured role started by hand (no start row, no brief, no line) in w1:p1, then relabelled notes: its
+		// recorded session is the pane's, and it is identified by it under the other label.
+		{"a relabelled role's recorded session", func(h *harness) {
+			h.withLead()
+			h.pane("w1:p1").Label = "notes"
+			h.sids(map[string]string{"pj-advisor": "s1"})
+		}, "pj-advisor", []string{"w1:p1"},
+			wire.WhereReply{State: wire.WhereIdentified, Pane: "w1:p1", Source: "session", Label: "notes",
+				Runs: map[string]string{"w1:p1": "pj-advisor"}}},
+		// The same fixture asked for another agent: the pane labelled notes runs the role, not notes.
+		{"another agent's named pane runs the relabelled role", func(h *harness) {
+			h.withLead()
+			h.pane("w1:p1").Label = "notes"
+			h.sids(map[string]string{"pj-advisor": "s1"})
+		}, "pj-lead", []string{"w1:p1"},
+			wire.WhereReply{State: wire.WhereNone, Why: "no proof", Runs: map[string]string{"w1:p1": "pj-advisor"}}},
 		// serve's own start of pj-l-01 in w1:p1 (terminal t1); the pane shows no session yet.
 		{"start row", func(h *harness) {
 			h.pane("w1:p1").Session = ""

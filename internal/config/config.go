@@ -1207,6 +1207,19 @@ func (c *Config) LaneAgentAliases(lane string) []string {
 	return roles.LaneAgentAliases(lane, c.Data.Project.AgentPrefix)
 }
 
+// Agents is every agent name c names, by the name rules AgentLookup resolves: each lane's worker, then each role
+// agent's (the lead, the integrator, every configured role), without repeats.
+func (c *Config) Agents() []string {
+	var names []string
+	for _, lane := range c.Lanes() {
+		names = append(names, c.LaneAgentAliases(lane.Name)...)
+	}
+	for _, rc := range c.RoleAgents() {
+		names = append(names, rc.Agent)
+	}
+	return Unique(names...)
+}
+
 // AgentLookup follows lane → role precedence, then resolves an unmatched cwd at to a lane.
 func (c *Config) AgentLookup(agent, at string) (AgentInfo, bool) {
 	for _, lane := range c.Lanes() {
