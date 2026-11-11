@@ -68,4 +68,25 @@ describe("accepted.md's filter", () => {
   it("is the whole text with no words", () => {
     expect(filterLines(text, "  ")).toEqual({ text, shown: 3, total: 3 });
   });
+  const multi = [
+    "# Accepted findings",
+    "",
+    "- (RV-84 2nd verify #3, accepted: rare) `obor stop`: if unregister or the marker write fails",
+    "  the prior pause is lost (persist it in a recovery record, ~20-50 lines).",
+    "- (RV-84 verify, accepted) `obor stop`: a pause cleared by another client is not",
+    "  guarded; a serve-owned stopping state would be (design concern).",
+  ].join("\n");
+  it("keeps a multiline item whole when its first line matches", () => {
+    const r = filterLines(multi, "unregister");
+    expect(r).toEqual({ text: "# Accepted findings\n" + multi.split("\n").slice(2, 4).join("\n"), shown: 1, total: 2 });
+    expect(md(r.text, (id) => id)).toContain("the prior pause is lost");
+  });
+  it("keeps a multiline item whole when only a continuation line matches", () => {
+    const r = filterLines(multi, "guarded");
+    expect(r).toEqual({ text: "# Accepted findings\n" + multi.split("\n").slice(4).join("\n"), shown: 1, total: 2 });
+    expect(md(r.text, (id) => id)).toContain("is not guarded");
+  });
+  it("is the document unchanged with no words", () => {
+    expect(filterLines(multi, "")).toEqual({ text: multi, shown: 2, total: 2 });
+  });
 });
