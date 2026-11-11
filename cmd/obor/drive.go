@@ -81,8 +81,7 @@ func driveCmd(args []string) int {
 		return 1
 	}
 	if err := startDrive(ctx, cfg, d, project.OSEnv); err != nil {
-		fmt.Fprintf(out, "FAIL %v (the drive is recorded: retry with obor drive %s, which starts its agent again; obor drop %s ends it)\n",
-			err, d.task, d.task)
+		fmt.Fprintln(out, driveFailed(err, d.task))
 		return 1
 	}
 	fmt.Fprintf(out, "OK %s: %s drives in lane %s on %s; obor land %s when done\n", d.task, d.agent, d.lane,
@@ -92,6 +91,12 @@ func driveCmd(args []string) int {
 
 // drivingPrefix starts serve's reply to obor drive on a drive whose agent runs already (DRIVING <task> → <lane>: …).
 const drivingPrefix = "DRIVING "
+
+// driveFailed is the FAIL line of a drive whose start failed: the start's own message (a failed start's hint already
+// names the command that starts it again) and what ends the recorded drive; the retry command is not repeated here.
+func driveFailed(err error, task string) string {
+	return fmt.Sprintf("FAIL %v (the drive is recorded; obor drop %s ends it)", err, task)
+}
 
 // drive is serve's DRIVE reply: the task, its lane, the drive agent and its type reference.
 type drive struct{ task, lane, agent, ref string }

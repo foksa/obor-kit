@@ -324,7 +324,7 @@ func (l *Launcher) hasSession(agent string) bool {
 
 // retry is the command that starts t's agent again: a restart with --fresh when no session is recorded, on its pane.
 func (l *Launcher) retry(t *target) string {
-	return startAgain("", t.agent, l.hasSession(t.agent), t.pane)
+	return project.RestartCmd("", t.agent, l.hasSession(t.agent), t.pane)
 }
 
 // sameSid: herdr's session value live (an id, or its transcript's path) names session sid.
@@ -336,32 +336,15 @@ var trustRE = regexp.MustCompile(`(?i)trust (this|the) (folder|directory)|do you
 
 // notReady is why the agent cannot take a prompt yet, from its pane's screen after the start: every kind's trust
 // dialog, else what the kind sees on it (agents.Kind.NotReady: Codex's self-update); "" when none shows. The hint
-// names what a person does next: answer the dialog, or the command that starts the agent again (startAgain).
+// names what a person does next: answer the dialog, or the command that starts the agent again (project.RestartCmd).
 func notReady(screen, kind, name, pane, again string, hasSession bool) string {
 	if trustRE.MatchString(screen) {
 		return "a 'Trust this folder?' dialog in pane " + pane + ": answer it there (Enter = trust; once per repo)"
 	}
 	if k, ok := agents.Lookup(kind); ok {
 		if why := k.NotReady(screen); why != "" {
-			return kind + " " + why + " in pane " + pane + ": start it again with " + startAgain(again, name, hasSession, pane)
+			return kind + " " + why + " in pane " + pane + ": start it again with " + project.RestartCmd(again, name, hasSession, pane)
 		}
 	}
 	return ""
-}
-
-// startAgain is the command that starts agent again: own when the start has one (a drive's `obor drive <T-xx>`,
-// which keeps its prompt), else `obor restart <agent>`. With no recorded session the restart adds --fresh, which a
-// plain restart needs to start a new session; pane adds --pane ("" leaves it out: a drive places its own pane).
-func startAgain(own, agent string, hasSession bool, pane string) string {
-	if own != "" {
-		return own
-	}
-	cmd := "obor restart " + agent
-	if !hasSession {
-		cmd += " --fresh"
-	}
-	if pane != "" {
-		cmd += " --pane " + pane
-	}
-	return cmd
 }

@@ -363,16 +363,9 @@ func startBusy(err error) bool {
 // the agent as it was — a drive's own command, or a restart with --fresh when no session is recorded (the plain form
 // refuses with none).
 func (s *Setup) notShell(pane string, a agent) error {
-	cmd := a.again
-	if cmd == "" {
-		cmd = "obor restart " + a.name
-		if _, ok := store.CurrentAt(s.cfg.Root, a.name); !ok {
-			cmd += " --fresh"
-		}
-		cmd += " --pane " + pane
-	}
+	_, hasSession := store.CurrentAt(s.cfg.Root, a.name)
 	return project.Failf("pane %s is not an available shell after %s: start the agent there with %s",
-		pane, s.shellWait(), cmd)
+		pane, s.shellWait(), project.RestartCmd(a.again, a.name, hasSession, pane))
 }
 
 // --- placement -------------------------------------------------------------------------------------------

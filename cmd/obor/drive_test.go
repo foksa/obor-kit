@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -88,6 +89,22 @@ func TestDriveAgentRunningStartsNothing(t *testing.T) {
 	if rc != 0 || !strings.Contains(stdout, "DRIVING T-07 → L-01: pj-l1-drive runs already") ||
 		!strings.Contains(stdout, "OK T-07 → L-01: pj-l1-drive runs already (pane w1:p5)") || strings.Contains(stdout, "FAIL") {
 		t.Errorf("drive while its agent runs: rc %d, %q; want the reply and OK, nothing started", rc, stdout)
+	}
+}
+
+// A drive whose start failed prints its retry once: the start's own hint names `obor drive <T-xx>`, and the FAIL line
+// around it says only what ends the recorded drive.
+func TestDriveFailedNamesTheRetryOnce(t *testing.T) {
+	t.Parallel()
+	err := errors.New("pane w1:n1 is not an available shell after 10s: start the agent there with obor drive T-07")
+	got := driveFailed(err, "T-07")
+	if n := strings.Count(got, "obor drive T-07"); n != 1 {
+		t.Errorf("FAIL line %q names the retry %d times, want once", got, n)
+	}
+	for _, want := range []string{"FAIL pane w1:n1 is not an available shell", "the drive is recorded; obor drop T-07 ends it"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("FAIL line %q, want %q in it", got, want)
+		}
 	}
 }
 
