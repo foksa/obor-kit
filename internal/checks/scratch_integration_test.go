@@ -263,6 +263,30 @@ func TestGateLinksUnlistedUntrackedSettingsIntoTheScratch(t *testing.T) {
 	}
 }
 
+// A settings file git tracks is not linked into the gate's scratch worktree: the worktree has it from git as the
+// regular file it checked out, which the linker leaves as it is.
+func TestGateLeavesATrackedSettingsFileToGit(t *testing.T) {
+	t.Parallel()
+	y := newSx(t, cmd("check", "echo 1 pass"))
+	y.Write(filepath.Join(y.Root, project.PluginSettings), "{}\n")
+	y.Git(y.Root, "add", "-f", project.PluginSettings)
+	y.Git(y.Root, "commit", "-qm", "settings")
+	if slices.Contains(y.s.Cfg.LaneLinks(), project.PluginSettings) {
+		t.Fatalf("precondition: lanes.links %q does not list the settings file", y.s.Cfg.LaneLinks())
+	}
+	if project.SettingsUntrackedWith(y.Root, project.Git) {
+		t.Fatal("precondition: git tracks the main checkout's settings file")
+	}
+	y.green(lane(y.submit()))
+	path := filepath.Join(y.serve, project.PluginSettings)
+	if fi, err := os.Lstat(path); err != nil || !fi.Mode().IsRegular() {
+		t.Fatalf("the scratch's settings file: %v, %v; want the regular file git checked out", fi, err)
+	}
+	if got, want := y.Read(path), "{}\n"; got != want {
+		t.Errorf("the scratch's settings file = %q, want git's %q", got, want)
+	}
+}
+
 // a gate converges from whatever serve's worktree holds (an open merge and a dirty tree, the worktree gone): the
 // same candidate, the worktree clean. The rest of the scenario table is the workflow contract's
 // (TestWorkflowContractScratchFF).
