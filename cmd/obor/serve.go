@@ -183,7 +183,7 @@ func mergeLoop(env project.Env, term port.Terminal, end *serveEnd, kinds *kindCa
 			}
 		}
 		o := checks.Options{Cfg: cfg, Env: env, Environ: os.Environ(), Out: flushWriter{}, PID: os.Getpid()}
-		agents := &launch.Launcher{Cfg: cfg, Env: env, H: term.Control, Out: io.Discard,
+		agents := &launch.Launcher{Cfg: cfg, Env: env, H: term.Control, Out: io.Discard, Diag: flushWriter{},
 			Background: func(search func()) { go search() }, Log: flushWriter{}}
 		wf, err := workflowOf(o)
 		if err != nil {

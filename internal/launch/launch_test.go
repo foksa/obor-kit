@@ -1986,6 +1986,36 @@ func TestRestartAgentNameTaken(t *testing.T) {
 	})
 }
 
+// A serve start (Out discarded, Diag serve's log) keeps the terminal adapter's recovery lines: a start herdr refuses
+// for a name it kept, cleared and retried with the clear failing too, puts the retry line and the warning in the log,
+// and nothing else. A CLI restart's same lines go to its screen (TestRestartAgentNameTaken).
+func TestServeStartLogsNameRecovery(t *testing.T) {
+	t.Parallel()
+	x := setup(t)
+	x.sid("pj-l-01", "sid-1")
+	x.shell("w1:p3", "pj-l-01", "")
+	x.srv.Once("agent.start", herdrtest.Failure{Code: "agent_name_taken", Message: "name pj-l-01 taken"})
+	x.srv.Once("agent.rename", herdrtest.Failure{Code: "agent_not_found", Message: "agent pj-l-01 not found"})
+	var log bytes.Buffer
+	l := x.launcher(io.Discard) // serve's launcher: a start's progress goes nowhere
+	l.Diag = &log
+	line, err := l.Restart(context.Background(), launch.Request{Agent: "pj-l-01"})
+	if err != nil || line != "RESTARTED pj-l-01 (pane w1:p3, session sid-1)" {
+		t.Fatalf("restart = %q, %v; want the start retried in its pane", line, err)
+	}
+	if n := len(x.calls("agent.start")); n != 2 {
+		t.Errorf("agent.start sent %d times, want one retry", n)
+	}
+	lines := strings.Split(strings.TrimSuffix(log.String(), "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("serve's log got %q, want the retry line and the failed clear's warning only", log.String())
+	}
+	eq(t, lines[0], "agent start: name pj-l-01 taken: clearing it and retrying", "the retry line")
+	if !strings.HasPrefix(lines[1], "warning: herdr kept the name pj-l-01: ") || !strings.Contains(lines[1], "agent_not_found") {
+		t.Errorf("serve's log warning = %q, want the failed clear", lines[1])
+	}
+}
+
 // Claude suspends on Ctrl+Z and herdr then sees an idle shell; a stopped child of the pane's shell refuses
 // restart and stop before anything is typed (a second Claude next to the frozen one). The shell is a real sh with a
 // real sleep child, in a throwaway process group; the real ps reads it.
