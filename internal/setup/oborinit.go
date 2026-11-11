@@ -34,9 +34,10 @@ package setup
 //	herdr      serve restarts its own panes after a herdr restart, so herdr must not resume agents: when its
 //	           config.toml does not set `[session] resume_agents_on_restore = false`, the summary says the line to
 //	           add (user-global: it affects every herdr pane; obor never edits that config).
-//	panes      L-01 in a new tab "workers", L-02 and the integrator beside it (the integrator in the caller's tab when
-//	           that is the project's), the reviewer in a new tab "review". A pane held by a trust dialog is
-//	           listed, not fatal: Enter there, then obor init again.
+//	panes      the first two configured lanes (lanes.list's, else L-01 … L-max(2, lanes.count)): the first in a new tab
+//	           "workers", the second and the integrator beside it (the integrator in the caller's tab when that is the
+//	           project's), the reviewer in a new tab "review". A pane held by a trust dialog is listed, not fatal:
+//	           Enter there, then obor init again.
 //	serve      obor serve install (Setup.Serve; off darwin it says to run obor serve yourself).
 //
 // The output ends with the setup table (setup show): per difficulty level each of its model refs with what runs
@@ -662,8 +663,9 @@ func exitText(err error) string {
 
 // --- panes ------------------------------------------------------------------------------------------------------
 
-// initPanes labels the panes of L-01, L-02, the integrator and the reviewer and starts no agent (each skipped when it runs): one summary line each
-// through add, and the agents a trust dialog holds ("name (pane id)").
+// initPanes labels the panes of the configured lanes (the first two), the integrator and the reviewer and starts no
+// agent (each skipped when it runs): one summary line each through add, and the agents a trust dialog holds
+// ("name (pane id)").
 func (s *Setup) initPanes(ctx context.Context, add func(name, state, format string, a ...any)) ([]string, error) {
 	var waiting []string
 	place := func(what, agent string, f func(w where) error, w where) error {
@@ -691,16 +693,25 @@ func (s *Setup) initPanes(ctx context.Context, add func(name, state, format stri
 	role := func(name string) func(where) error {
 		return func(w where) error { return s.rolePane(ctx, name, w, false) }
 	}
-	// The layout is the terminal's: L-01 in a group of its own, L-02 and the integrator beside it (the
-	// integrator by the caller's own pane when it has one), the reviewer in a group of its own.
-	if err := place("L-01", s.laneWorker("L-01"), lane("L-01"), where{own: true}); err != nil {
-		return nil, err
+	// The layout is the terminal's: the first lane in a group of its own, the second beside it (the integrator by
+	// the caller's own pane when it has one), the reviewer in a group of its own. A config of fewer lanes places
+	// what it has, and more than two keep the panes they place at dispatch.
+	lanes := initLaneNames(s.cfg)
+	var beside where
+	for i, name := range lanes {
+		if i >= 2 {
+			break
+		}
+		w := beside
+		if i == 0 {
+			w = where{own: true}
+		}
+		if err := place(name, s.laneWorker(name), lane(name), w); err != nil {
+			return nil, err
+		}
+		beside = where{beside: s.placed} // every outcome of the step but an error placed a pane
 	}
-	beside := where{beside: s.placed} // L-01's pane: every outcome of its step but an error placed one
-	if err := place("L-02", s.laneWorker("L-02"), lane("L-02"), beside); err != nil {
-		return nil, err
-	}
-	integrator := beside
+	integrator := beside // beside the last lane pane; with no lane, the default placement
 	if _, err := project.Pane(s.Env); err == nil {
 		integrator = where{} // the default placement: the caller's tab when it is the project's
 	}

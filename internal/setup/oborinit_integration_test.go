@@ -518,6 +518,86 @@ func TestOborInitSetsUpEveryConfiguredLane(t *testing.T) {
 	}
 }
 
+// init's panes follow the configured lanes: the first two, whatever named them (a list's own names, or a count's), the
+// first in a tab of its own and the second beside it; zero or one lane places what it has, and the role panes are
+// placed in every case. Lanes past the first two place their pane at dispatch. Init reaches its serve step in each.
+func TestOborInitPlacesTheConfiguredLanes(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name string
+		edit func(map[string]any)
+		want []string // the lane panes init places, in order
+	}{
+		{"a list: L-02 and L-05", testkit.Set("lanes.list", `[{"name":"L-02"},{"name":"L-05"}]`),
+			[]string{"L-02", "L-05"}},
+		{"a list without L-02: L-01 and L-03", testkit.Set("lanes.list", `[{"name":"L-01"},{"name":"L-03"}]`),
+			[]string{"L-01", "L-03"}},
+		{"a list of one: L-02", testkit.Set("lanes.list", `[{"name":"L-02"}]`), []string{"L-02"}},
+		{"an empty list: no lane pane", testkit.Set("lanes.list", `[]`), nil},
+		{"a count of four: the first two", testkit.Set("lanes.count", 4), []string{"L-01", "L-02"}},
+	} {
+		x := newGitInitFx(t, true)
+		x.Config(c.edit)
+		out := x.init(t)
+		if x.serves != 1 || stateOf(out, "serve") != "done" {
+			t.Errorf("%s: serve step %q, %d installs\n%s", c.name, summary(out, "serve"), x.serves, out)
+		}
+		cfg, err := config.Load(x.Root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		labels := map[string]bool{} // every labelled pane
+		for _, p := range x.h.Panes {
+			if p.Label != "" {
+				labels[p.Label] = true
+			}
+		}
+		if len(labels) != len(c.want)+2 { // the lane panes, the integrator and the reviewer
+			t.Errorf("%s: labelled panes %v, want %v, the integrator and the reviewer", c.name, labels, c.want)
+		}
+		want := map[string]bool{}
+		for _, lane := range c.want {
+			want[lane] = true
+			agent := cfg.AgentName("worker", lane)
+			if x.paneOf(agent) == "" || stateOf(out, lane) != "done" {
+				t.Errorf("%s: %s: pane %q, step %q", c.name, lane, x.paneOf(agent), summary(out, lane))
+			}
+		}
+		for _, l := range cfg.Lanes() { // past the first two: its pane comes at dispatch
+			if !want[l.Name] && x.paneOf(cfg.AgentName("worker", l.Name)) != "" {
+				t.Errorf("%s: %s has a pane at init", c.name, l.Name)
+			}
+		}
+		for _, role := range []string{"integrator", "reviewer"} {
+			if x.paneOf(cfg.AgentName(role, "")) == "" || stateOf(out, role) != "done" {
+				t.Errorf("%s: %s: pane %q, step %q", c.name, role, x.paneOf(cfg.AgentName(role, "")), summary(out, role))
+			}
+		}
+		if len(c.want) == 0 {
+			continue
+		}
+		// The lane panes share a tab, the integrator sits in it, the reviewer's tab is its own.
+		tab := func(agent string) string {
+			if p := x.h.Pane(x.paneOf(agent)); p != nil {
+				return p.Tab
+			}
+			return ""
+		}
+		first := tab(cfg.AgentName("worker", c.want[0]))
+		for _, lane := range c.want[1:] {
+			if got := tab(cfg.AgentName("worker", lane)); got != first {
+				t.Errorf("%s: %s in tab %q, %s in %q", c.name, lane, got, c.want[0], first)
+			}
+		}
+		if got := tab(cfg.AgentName("integrator", "")); got != first {
+			t.Errorf("%s: integrator in tab %q, the lanes in %q", c.name, got, first)
+		}
+		if got := tab(cfg.AgentName("reviewer", "")); got == first {
+			t.Errorf("%s: reviewer in the lanes' tab %q", c.name, got)
+		}
+	}
+}
+
 // obor init's rerun is the repair path for a lane, and the last run's outcome decides: a failed lane_setup
 // runs again, a finished one is skipped, and a lane dir that is no worktree of the repo is a FAIL (never a skip).
 // Slow: seven cases, each two or three real obor init runs (its commit, its lanes' worktree adds: the code under test
