@@ -10,9 +10,9 @@ import (
 // A predicate serve ships is named so that a missing field reads as the safe answer: a task is open unless it says it
 // ended, a lane is locked unless it says it is free.
 type Status struct {
-	Since     string `json:"since,omitempty"`      // when this serve started (RFC 3339)
-	Connected bool   `json:"connected"`            // the herdr subscription is live
-	HerdrNote string `json:"herdr_note,omitempty"` // "herdr 0.9.4, protocol 23" when herdr is newer than obor's protocol
+	Since        string `json:"since,omitempty"`         // when this serve started (RFC 3339)
+	Connected    bool   `json:"connected"`               // the terminal subscription is live
+	TerminalNote string `json:"terminal_note,omitempty"` // the adapter's note on a terminal newer than it knows
 	// Skew names the agents whose calls carry another obor release than serve's, with both versions ("": none),
 	// compared by release. A reader prints it.
 	Skew    string         `json:"skew,omitempty"`

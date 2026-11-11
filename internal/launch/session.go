@@ -264,7 +264,7 @@ func (l *Launcher) searchRollout(ctx context.Context, agent, pane, kind, lane st
 	}
 	p, ok := l.pin(ctx, pane)
 	if !ok {
-		say("warning: herdr names no process of %s in pane %s (its %s session is not recorded)", agent, pane, kind)
+		say("warning: the terminal names no process of %s in pane %s (its %s session is not recorded)", agent, pane, kind)
 		return
 	}
 	if l.Background == nil {

@@ -81,7 +81,7 @@ func (r leadRun) run(ctx context.Context, args []string) int {
 
 	running, err := r.t.Setup.Agents(ctx)
 	if err != nil {
-		return fail("herdr agent list failed (is herdr running?)")
+		return fail("terminal agent list failed (is the terminal running?)")
 	}
 	for _, a := range running {
 		if a.Name == agent && !leadOurs(cfg, agent, a.Cwd) {

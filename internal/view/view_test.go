@@ -1,13 +1,46 @@
 package view
 
 import (
+	"context"
+	"errors"
 	"slices"
 	"testing"
 	"time"
 
 	"obor/internal/app/wire"
+	"obor/internal/checks"
+	"obor/internal/config"
 	"obor/internal/launch"
+	"obor/internal/testkit"
 )
+
+// serveOf carries serve's terminal state into the view: connected, and the adapter's note on a terminal newer than it
+// knows; a serve that is down has neither.
+func TestServeCarriesTheTerminalNote(t *testing.T) {
+	p := testkit.New(t)
+	p.Config()
+	cfg, err := config.Load(p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lanes := checks.NewLaneTable(context.Background(), cfg)
+	note := "herdr 0.9.5, protocol 24 (newer than obor's 22)"
+	var v Project
+	serveOf(&v, wire.Status{Connected: true, TerminalNote: note}, nil, lanes, nil)
+	if !v.Serve.Up || !v.Serve.Terminal || v.Serve.TerminalNote != note {
+		t.Errorf("serve %+v, want up on the terminal with the note %q", v.Serve, note)
+	}
+	v = Project{}
+	serveOf(&v, wire.Status{Connected: false}, nil, lanes, nil)
+	if !v.Serve.Up || v.Serve.Terminal || v.Serve.TerminalNote != "" {
+		t.Errorf("a disconnected terminal: %+v, want up without it", v.Serve)
+	}
+	v = Project{}
+	serveOf(&v, wire.Status{}, errors.New("serve: gone"), lanes, nil)
+	if v.Serve.Terminal || v.Serve.TerminalNote != "" {
+		t.Errorf("serve down: %+v, want no terminal", v.Serve)
+	}
+}
 
 // a lane whose restart lock is held has op restart (obor status); a lock file nobody holds (its restart
 // was killed) is no op.

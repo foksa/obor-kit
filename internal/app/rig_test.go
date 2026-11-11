@@ -918,7 +918,7 @@ func Quiet(a *App, root, task string) (quietSince, seenWrite time.Time) {
 }
 
 // InstanceOf is snap's terminal instance as serve records it in InstanceFile (restore.go).
-func InstanceOf(snap port.Snapshot) string { return instanceOf(snap) }
+func InstanceOf(snap port.Snapshot) string { return snap.Instance }
 
 // Counts is how many full checks and merge loop passes a has done.
 func Counts(a *App) (checks, passes int) {

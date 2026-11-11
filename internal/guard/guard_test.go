@@ -214,7 +214,7 @@ func TestHeadlessAgentRunsDenied(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
 	P, L := f.P, f.L
-	const why = "runs an agent headless; agents run in herdr panes"
+	const why = "runs an agent headless; agents run in terminal panes"
 	cases := []tc{}
 	for _, who := range []string{"lead", "integrator", "worker", "reviewer", "-"} {
 		cwd := P

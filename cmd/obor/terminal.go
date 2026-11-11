@@ -11,6 +11,7 @@ import (
 	"obor/internal/config"
 	"obor/internal/herdr"
 	"obor/internal/project"
+	"obor/internal/service"
 )
 
 // terminal is the project's terminal: one value for its panes and events, launch's pane operations, the wakes serve
@@ -25,4 +26,20 @@ func terminal(cfg *config.Config, env project.Env) (port.Terminal, error) {
 	default:
 		return port.Terminal{}, fmt.Errorf("terminal.kind %q: obor knows %s", k, strings.Join(config.TerminalKinds, ", "))
 	}
+}
+
+// terminalEnv is the terminal's environment for a serve launchd starts: the adapter's own variables, read from the
+// caller's env (the plist carries the ones set). A kind obor does not know has none.
+func terminalEnv(cfg *config.Config, env project.Env) []service.EnvVar {
+	switch cfg.TerminalKind() {
+	case config.DefaultTerminal:
+		var out []service.EnvVar
+		for _, name := range herdr.EnvNames {
+			if v := env.Get(name); v != "" {
+				out = append(out, service.EnvVar{Name: name, Value: v})
+			}
+		}
+		return out
+	}
+	return nil
 }

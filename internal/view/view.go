@@ -74,11 +74,11 @@ type Running struct {
 
 // Serve: serve answered (Up, since when) or not (Error); the project's state in it.
 type Serve struct {
-	Up        bool   `json:"up"`
-	Since     string `json:"since,omitempty"`
-	Error     string `json:"error,omitempty"`      // why it is down
-	Herdr     bool   `json:"herdr"`                // serve's herdr subscription is live
-	HerdrNote string `json:"herdr_note,omitempty"` // herdr's version and protocol when newer than obor's
+	Up           bool   `json:"up"`
+	Since        string `json:"since,omitempty"`
+	Error        string `json:"error,omitempty"`         // why it is down
+	Terminal     bool   `json:"terminal"`                // serve's terminal subscription is live
+	TerminalNote string `json:"terminal_note,omitempty"` // the adapter's note on a terminal newer than it knows
 	// Skew names the agents whose calls carry another obor release than serve's, with both versions ("" when none;
 	// wire.Status.Skew). The reader prints it.
 	Skew     string `json:"skew,omitempty"`
@@ -250,7 +250,7 @@ func serveOf(v *Project, ss wire.Status, err error, p *checks.LaneTable, bg map[
 		v.NeedsYou = needsYou(ps)
 		return ps
 	}
-	v.Serve.Up, v.Serve.Since, v.Serve.Herdr, v.Serve.HerdrNote, v.Serve.Skew = true, ss.Since, ss.Connected, ss.HerdrNote, ss.Skew
+	v.Serve.Up, v.Serve.Since, v.Serve.Terminal, v.Serve.TerminalNote, v.Serve.Skew = true, ss.Since, ss.Connected, ss.TerminalNote, ss.Skew
 	v.Serve.SinceTime, _ = time.Parse(time.RFC3339, ss.Since)
 	if x := ss.Project; x != nil && filepath.Clean(x.Root) == filepath.Clean(p.Root) {
 		ps, v.Serve.Project = *x, true

@@ -93,10 +93,9 @@ type App struct {
 	mu        sync.Mutex
 	since     time.Time // when New made it: obor status's "serve: up since"
 	connected bool
-	streams   int    // herdr streams connected (connect): a pass that saw one end ran on no snapshot of it
-	herdrVer  string // the server serve is connected to (or was last): its snapshot's version and protocol
-	herdrProt int
-	herdrOwn  int              // obor's own protocol, as that snapshot said
+	streams   int              // herdr streams connected (connect): a pass that saw one end ran on no snapshot of it
+	termVer   string           // the terminal serve is connected to (or was last): its snapshot's version
+	termNote  string           // that snapshot's note: the adapter's sentence on a terminal newer than it knows ("" otherwise)
 	p         *proj            // Options.Root's project once loaded (loadProject); nil before
 	obs       map[string]*seen // by pane id: every pane of the last snapshot and the events since
 	skews     map[string]bool  // by agent and version: the wire callers whose obor differs from serve's and were logged
@@ -135,8 +134,10 @@ type App struct {
 // and the live state below it.
 type proj struct {
 	root, name string
-	log        *event.Log
-	folded     folded
+	// terminal is the project's terminal kind (config.TerminalKind): its name among the tools the version pass reads.
+	terminal string
+	log      *event.Log
+	folded   folded
 	// The live state: none of it is rebuilt by a replay; a restart starts it afresh (docs/state-model.md "Not
 	// recorded"), or it is the project's config, a read of the lanes or herdr, or a claim held while a step runs. A fold
 	// may reset a live entry its record ends (resume and clear a task's retries, answered its stall timer, a dispatch

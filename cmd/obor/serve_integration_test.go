@@ -70,8 +70,8 @@ func TestServeBinary(t *testing.T) {
 	if !strings.Contains(out.String(), "obor serve: running (project "+p.Root+", socket "+sock+")") {
 		t.Errorf("serve's start line names no project and socket:\n%s", out.String())
 	}
-	if !strings.Contains(out.String(), "herdr: fake protocol "+strconv.Itoa(herdr.Protocol)+"\n") {
-		t.Errorf("serve did not report its herdr snapshot before running:\n%s", out.String())
+	if !strings.Contains(out.String(), "terminal: fake\n") {
+		t.Errorf("serve did not report its terminal's version before running:\n%s", out.String())
 	}
 	// serve registers the project it serves in the machine's list of obor projects by name.
 	if b, err := os.ReadFile(filepath.Join(home, "projects.json")); err != nil ||

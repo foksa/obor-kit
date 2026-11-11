@@ -15,6 +15,7 @@ import (
 	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/project"
+	"obor/internal/service"
 	"obor/internal/testkit"
 )
 
@@ -248,5 +249,29 @@ func TestServeInstalledIsThePlistOfTheConfigName(t *testing.T) {
 	}
 	if got, ok := installed(cfg); !ok || got != plist {
 		t.Errorf("a plist there: %s, %v; want %s, true", got, ok, plist)
+	}
+}
+
+// serviceOf carries the terminal's own variables from the caller's env into the plist: the adapter names them (herdr:
+// HERDR_SOCKET_PATH), and one the caller does not have is left out.
+func TestServiceOfTakesTheTerminalsVariables(t *testing.T) {
+	t.Parallel()
+	p := testkit.NewPlain(t)
+	p.Config()
+	cfg, err := config.Load(p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := serviceOf(cfg, testkit.MapEnv(map[string]string{"HOME": t.TempDir(), "PATH": "/opt/bin",
+		"HERDR_SOCKET_PATH": "/tmp/h.sock"}))
+	if len(s.Env) != 1 || s.Env[0] != (service.EnvVar{Name: "HERDR_SOCKET_PATH", Value: "/tmp/h.sock"}) {
+		t.Fatalf("the terminal's variables = %+v, want HERDR_SOCKET_PATH=/tmp/h.sock", s.Env)
+	}
+	if !strings.Contains(string(s.Plist()), "<key>HERDR_SOCKET_PATH</key>") {
+		t.Errorf("the plist does not carry the terminal's variable:\n%s", s.Plist())
+	}
+	s = serviceOf(cfg, testkit.MapEnv(map[string]string{"HOME": t.TempDir(), "PATH": "/opt/bin"}))
+	if len(s.Env) != 0 {
+		t.Errorf("the caller has none of the terminal's variables, but the plist carries %+v", s.Env)
 	}
 }

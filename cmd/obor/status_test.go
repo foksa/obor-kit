@@ -152,7 +152,7 @@ func taskLines(t *testing.T, st wire.Status) map[string]string {
 		tasks[ts.Task] = view.Task{Task: ts.Task, Lane: ts.Lane, Attempt: ts.Attempt, TaskState: ts.State, Open: !ts.Ended,
 			Phase: ts.Phase, Running: ts.Running}
 	}
-	writeStatus(&buf, view.Project{Serve: view.Serve{Up: true, Herdr: true, Project: true, Merging: true},
+	writeStatus(&buf, view.Project{Serve: view.Serve{Up: true, Terminal: true, Project: true, Merging: true},
 		Tasks: tasks}, time.Now())
 	lines := map[string]string{}
 	for _, l := range strings.Split(buf.String(), "\n") {
@@ -245,11 +245,11 @@ func TestStatusServeLine(t *testing.T) {
 		s    view.Serve
 		want string
 	}{
-		{"launchd", view.Serve{Up: true, Since: at, Herdr: true, Project: true, Merging: true, PID: 4242, Launchd: "running"},
+		{"launchd", view.Serve{Up: true, Since: at, Terminal: true, Project: true, Merging: true, PID: 4242, Launchd: "running"},
 			"serve: launchd pid 4242 since " + since.Local().Format("Jan 2 15:04") + " (1h)"},
-		{"pane, agent installed", view.Serve{Up: true, Since: at, Herdr: true, Project: true, Merging: true, PID: 77,
+		{"pane, agent installed", view.Serve{Up: true, Since: at, Terminal: true, Project: true, Merging: true, PID: 77,
 			Launchd: "loaded"}, "serve: pane pid 77 since " + since.Local().Format("Jan 2 15:04") + " (1h)"},
-		{"pane, no agent", view.Serve{Up: true, Since: at, Herdr: true, Project: true, Merging: true, PID: 77,
+		{"pane, no agent", view.Serve{Up: true, Since: at, Terminal: true, Project: true, Merging: true, PID: 77,
 			Launchd: "none"}, "serve: pane pid 77 since " + since.Local().Format("Jan 2 15:04") + " (1h)"},
 		{"down, no agent", view.Serve{Error: "obor serve is not running", Launchd: "none"},
 			"serve: down (obor serve install)"},
@@ -271,7 +271,7 @@ func TestServeLineSkew(t *testing.T) {
 	t.Parallel()
 	skew := "pj-l-01 runs obor v0.1.0 (serve v0.2.0)"
 	var b bytes.Buffer
-	writeStatus(&b, view.Project{Serve: view.Serve{Up: true, Herdr: true, Project: true, Merging: true, Skew: skew}},
+	writeStatus(&b, view.Project{Serve: view.Serve{Up: true, Terminal: true, Project: true, Merging: true, Skew: skew}},
 		time.Now())
 	lines := strings.Split(b.String(), "\n")
 	want := "serve: another obor release: " + skew + "; restart them (obor restart <agent>)"
@@ -282,14 +282,14 @@ func TestServeLineSkew(t *testing.T) {
 		t.Errorf("second line is %q, want %q (in\n%s)", lines[1], want, b.String())
 	}
 	var none bytes.Buffer
-	writeStatus(&none, view.Project{Serve: view.Serve{Up: true, Herdr: true, Project: true, Merging: true}}, time.Now())
+	writeStatus(&none, view.Project{Serve: view.Serve{Up: true, Terminal: true, Project: true, Merging: true}}, time.Now())
 	for _, l := range strings.Split(none.String(), "\n") {
 		if strings.HasPrefix(l, "serve: another obor release") {
 			t.Errorf("no skew: unexpected line %q (in\n%s)", l, none.String())
 		}
 	}
 	// --json carries the same field, and no key at all when there is no skew.
-	bJSON, err := json.Marshal(view.Project{Serve: view.Serve{Up: true, Herdr: true, Project: true, Merging: true,
+	bJSON, err := json.Marshal(view.Project{Serve: view.Serve{Up: true, Terminal: true, Project: true, Merging: true,
 		Skew: skew}})
 	if err != nil {
 		t.Fatal(err)
@@ -305,7 +305,7 @@ func TestServeLineSkew(t *testing.T) {
 	if js.Serve.Skew != skew {
 		t.Errorf("--json serve.skew = %q, want %q (%s)", js.Serve.Skew, skew, bJSON)
 	}
-	bJSON, err = json.Marshal(view.Project{Serve: view.Serve{Up: true, Herdr: true, Project: true, Merging: true}})
+	bJSON, err = json.Marshal(view.Project{Serve: view.Serve{Up: true, Terminal: true, Project: true, Merging: true}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -833,15 +833,15 @@ func TestStatusOverServe(t *testing.T) {
 		t.Errorf("a lane's task or agent listed again on its own line, or a dropped task listed:\n%s", text)
 	}
 
-	// herdr not connected; the event log broken.
+	// the terminal not connected; the event log broken.
 	ss.Connected = false
 	ss.Project = &wire.ProjectStatus{Name: "pj", Root: p.Root, Merging: true, LogError: "disk full"}
 	_, text = statusWith(t, p, g, ss, nil, now)
-	matchLine(t, text, `^serve: up since .*; herdr: not connected$`, "herdr down")
+	matchLine(t, text, `^serve: up since .*; terminal: not connected$`, "terminal down")
 	matchLine(t, text, `^serve: event log broken: disk full$`, "log error")
 	ss.Project = nil
 	_, text = statusWith(t, p, g, ss, nil, now)
-	matchLine(t, text, `^serve: up since .*; this project is not loaded \(obor serve's output says why\); herdr: not connected$`, "not loaded")
+	matchLine(t, text, `^serve: up since .*; this project is not loaded \(obor serve's output says why\); terminal: not connected$`, "not loaded")
 }
 
 // Serve down: one line saying so, first, the lanes from the store and git alone (no phase, so a submitted lane

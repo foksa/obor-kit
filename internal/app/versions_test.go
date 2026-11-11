@@ -31,10 +31,10 @@ func newVersionRig(t *testing.T) *versionRig {
 		return v.read
 	}}
 	v.a.mu.Lock()
-	ver := v.a.herdrVer
+	ver := v.a.termVer
 	v.a.mu.Unlock()
 	if ver != "" {
-		t.Fatalf("precondition: the harness's herdr names version %q, want none", ver)
+		t.Fatalf("precondition: the harness's terminal names version %q, want none", ver)
 	}
 	return v
 }
@@ -82,10 +82,10 @@ func (v *versionRig) seq(what string) int64 {
 	return v.proj().folded.versions[what].seq
 }
 
-// herdr sets what serve knows of the terminal, as a snapshot does.
-func (v *versionRig) herdr(ver string, connected bool) {
+// terminal sets what serve knows of the terminal, as a snapshot does.
+func (v *versionRig) terminal(ver string, connected bool) {
 	v.a.mu.Lock()
-	v.a.herdrVer, v.a.connected = ver, connected
+	v.a.termVer, v.a.connected = ver, connected
 	v.a.mu.Unlock()
 }
 
@@ -218,31 +218,31 @@ func TestVersionNotReadIsNoChange(t *testing.T) {
 func TestVersionOfTheTerminal(t *testing.T) {
 	t.Parallel()
 	v := newVersionRig(t)
-	v.herdr("0.9.5", false)
+	v.terminal("0.9.5", false)
 	v.tick(0)
 	v.want("not connected")
 	if v.calls != 1 {
 		t.Fatalf("precondition: the read ran %d times, want 1", v.calls)
 	}
 
-	v.herdr("0.9.5", true)
+	v.terminal("0.9.5", true)
 	v.tick(versionsEvery)
 	v.want("connected", "herdr 0.9.5 <-")
 	if _, _, ok := v.rule(); ok {
 		t.Errorf("the rule holds on the terminal's first sighting")
 	}
 
-	v.herdr("0.9.6", false)
+	v.terminal("0.9.6", false)
 	v.tick(versionsEvery)
 	v.want("a new version, not connected", "herdr 0.9.5 <-")
 
-	v.herdr("0.9.6", true)
+	v.terminal("0.9.6", true)
 	v.tick(versionsEvery)
 	v.want("a new version", "herdr 0.9.5 <-", "herdr 0.9.6 <- 0.9.5")
 	if _, act, ok := v.rule(); !ok || !strings.HasPrefix(act.line, "herdr changed version: 0.9.6 (was 0.9.5). ") {
 		t.Errorf("the rule: ok %v line %q, want the terminal's change", ok, act.line)
 	}
-	if v.read[terminalTool] != "" {
+	if v.read[v.proj().terminal] != "" {
 		t.Errorf("the tick wrote the terminal into the reader's map: %v", v.read)
 	}
 }

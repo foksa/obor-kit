@@ -480,10 +480,10 @@ func writeServe(w io.Writer, s view.Serve, now time.Time) {
 		case !s.Merging:
 			line += "; merge loop off (no integrator role)"
 		}
-		if !s.Herdr {
-			line += "; herdr: not connected"
-		} else if s.HerdrNote != "" {
-			line += "; " + s.HerdrNote
+		if !s.Terminal {
+			line += "; terminal: not connected"
+		} else if s.TerminalNote != "" {
+			line += "; " + s.TerminalNote
 		}
 		fmt.Fprintln(w, line)
 		if s.Skew != "" {

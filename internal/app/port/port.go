@@ -54,14 +54,16 @@ func (p Pane) Busy() bool { return p.Status == "working" || p.Status == "blocked
 
 // Snapshot is the terminal's session at one moment: every pane.
 type Snapshot struct {
-	Version  string // the terminal's version and protocol as the snapshot said (Protocol 0: not read)
-	Protocol int
-	Speaks   int // the protocol obor itself speaks: Protocol above it is a newer terminal
-	// Started is when the terminal's server started (herdr: its socket file's modification time, set when the server
-	// creates the socket at its start and untouched while it runs; herdr's API names no instance): a terminal restart
-	// changes it, so it is the instance serve's restore compares (internal/app/restore.go). Zero: not known.
-	Started time.Time
-	Panes   []Pane
+	Version string // the terminal's version as the snapshot said ("" when not read)
+	// Instance identifies the terminal's run (herdr: its socket file's modification time, in RFC 3339 with
+	// nanoseconds, set when the server creates the socket at its start and untouched while it runs): a terminal
+	// restart changes it, so it is the instance serve's restore compares (internal/app/restore.go). "" where the
+	// adapter cannot tell.
+	Instance string
+	// Note is the adapter's own sentence when the terminal is newer than the adapter knows (herdr: its protocol above
+	// obor's), else "": obor status shows it.
+	Note  string
+	Panes []Pane
 }
 
 // Event kinds.
@@ -69,11 +71,11 @@ const (
 	EventStatus  = "status"  // Pane's agent, its status or its metadata changed: New
 	EventCreated = "created" // a new pane: New
 	EventClosed  = "closed"  // Pane was closed
-	EventExited  = "exited"  // Pane's shell exited and herdr removed it
+	EventExited  = "exited"  // Pane's shell exited and the terminal removed it
 )
 
-// Event is one terminal event. New is the whole pane as herdr reported it after the event (status, created): it replaces
-// what the app knew of the pane, metadata too. An event without it (New.ID "") carries Status and Agent only.
+// Event is one terminal event. New is the whole pane as the terminal reported it after the event (status, created): it
+// replaces what the app knew of the pane, metadata too. An event without it (New.ID "") carries Status and Agent only.
 type Event struct {
 	Kind, Pane    string
 	Status, Agent string
@@ -107,12 +109,12 @@ type Terminal struct {
 	Setup   TerminalSetup
 }
 
-// Panes is the terminal (the herdr adapter), as the core uses it.
+// Panes is the terminal, as the core uses it.
 type Panes interface {
 	Subscribe(ctx context.Context) (*Stream, error)
-	// Snapshot reads herdr's session now: one session.snapshot, the same source Subscribe's Snapshot is built from.
-	// A pane's cwd can change with no event (a cd in it, obor setup pane moving it into a lane), so the snapshot the
-	// stream gave can be stale.
+	// Snapshot reads the terminal's session now: one session.snapshot, the same source Subscribe's Snapshot is built
+	// from. A pane's cwd can change with no event (a cd in it, obor setup pane moving it into a lane), so the snapshot
+	// the stream gave can be stale.
 	Snapshot(ctx context.Context) (Snapshot, error)
 	// Busy: the agent in pane still runs a child besides the agent CLI (a command, a background job). An error means
 	// unknown, not idle.

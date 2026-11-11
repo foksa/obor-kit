@@ -58,7 +58,7 @@
     if (!s) return w;
     if (s.up && !s.project) w.push({ text: "project not loaded", state: "pending" });
     if (s.up && !s.merging) w.push({ text: "merge loop off", state: "idle" });
-    if (s.up && !s.herdr) w.push({ text: "herdr not connected", state: "blocked" });
+    if (s.up && !s.terminal) w.push({ text: "terminal not connected", state: "blocked" });
     if (s.log_error) w.push({ text: "log: " + s.log_error, state: "fail" });
     for (const n of v?.notes || []) w.push({ text: n, state: "pending" });
     return w;

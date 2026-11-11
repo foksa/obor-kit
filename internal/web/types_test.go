@@ -203,6 +203,11 @@ func TestTSStringSetsMatchGo(t *testing.T) {
 			t.Errorf("%s places a lane by its column: a lane git calls working is not the phase (T-883)", page)
 		}
 	}
+	// the project page warns on serve's terminal, by the name view.Serve sends (types.ts's Serve): no herdr of its own.
+	page := readTS(t, filepath.Join(tsPages, "Project.svelte"))
+	if !strings.Contains(page, "!s.terminal") || strings.Contains(page, "s.herdr") {
+		t.Errorf("Project.svelte: the terminal warning is not on s.terminal (view.Serve)")
+	}
 }
 
 // readTS is path's source.

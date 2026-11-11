@@ -135,6 +135,10 @@ func (a *answerError) toError(op string) *Error {
 // (tests/conformance, H-S1) guards the methods and params obor sends against a newer herdr's schema.
 const Protocol = 22
 
+// EnvNames are the environment variables a caller's serve needs to reach herdr: the launchd agent's plist carries the
+// ones the caller has (cmd/obor/terminal.go).
+var EnvNames = []string{"HERDR_SOCKET_PATH"}
+
 // SocketPath is herdr's socket for env: $HERDR_SOCKET_PATH, else ~/.config/herdr/herdr.sock.
 func SocketPath(env project.Env) string {
 	if p, ok := env("HERDR_SOCKET_PATH"); ok && p != "" {

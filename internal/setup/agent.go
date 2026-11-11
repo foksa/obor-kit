@@ -197,7 +197,7 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 		return project.Failf("unknown model %s (models: %s)", a.typ, strings.Join(s.cfg.ModelNames(), ", "))
 	}
 	if !config.AgentNameRE.MatchString(a.name) {
-		return project.Failf("bad herdr agent name %s", a.name)
+		return project.Failf("bad agent name %s", a.name)
 	}
 	what := a.lane
 	if what == "" {
@@ -205,7 +205,7 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	}
 	running, err := s.T.Agents(ctx)
 	if err != nil {
-		return project.Failf("herdr agent list failed (is herdr running?)")
+		return project.Failf("terminal agent list failed (is the terminal running?)")
 	}
 	s.placed, s.running, s.started, s.idle = "", false, false, false
 	for _, r := range running {
@@ -222,7 +222,7 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	}
 	panes, err := s.T.Panes(ctx)
 	if err != nil {
-		return project.Failf("herdr pane list failed")
+		return project.Failf("terminal pane list failed")
 	}
 	label := ""
 	for _, p := range panes {
@@ -233,12 +233,11 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 			return nil
 		}
 		if p.Label == a.name && p.ID != w.pane {
-			return project.Failf("pane %s is already labelled %s (obor restart %s, or herdr pane rename %s --clear)", p.ID,
-				a.name, a.name, p.ID)
+			return project.Failf("pane %s is already labelled %s (obor restart %s)", p.ID, a.name, a.name)
 		}
 		if p.ID == w.pane && p.Label != "" && p.Label != a.name {
-			return project.Failf("pane %s is labelled %s, not %s (herdr pane rename %s --clear to reuse it)", p.ID, p.Label,
-				a.name, p.ID)
+			return project.Failf("pane %s is labelled %s, not %s (obor restart %s --pane %s to reuse it)", p.ID, p.Label,
+				a.name, a.name, p.ID)
 		}
 		if p.ID == w.pane {
 			label = p.Label
@@ -298,7 +297,7 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	if a.noStart {
 		if label != a.name {
 			if err := s.T.RenamePane(ctx, pane, a.name); err != nil {
-				return project.Failf("herdr pane rename %s %s failed", pane, a.name)
+				return project.Failf("terminal pane rename %s %s failed", pane, a.name)
 			}
 			s.say("labelled pane %s %s", pane, a.name)
 		}
@@ -320,11 +319,11 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	var se *port.StartError
 	switch {
 	case errors.As(err, &se) && se.NoShell, fresh && startBusy(err):
-		return s.notShell(pane, a.name, lt.Kind)
+		return s.notShell(pane, a.name)
 	case errors.As(err, &se) && se.NotReady:
 		return project.Failf("agent not ready: %s", se.Hint)
 	case errors.As(err, &se):
-		return project.Failf("herdr agent start %s failed (pane %s)", a.name, pane)
+		return project.Failf("terminal agent start %s failed (pane %s)", a.name, pane)
 	case err != nil:
 		return err
 	}
@@ -344,9 +343,9 @@ func startBusy(err error) bool {
 }
 
 // notShell is the refusal for a new pane whose shell did not come up within the bound.
-func (s *Setup) notShell(pane, agent, kind string) error {
-	return project.Failf("pane %s is not an available shell after %s: start the agent there by hand "+
-		"(herdr agent start %s --kind %s --pane %s)", pane, s.shellWait(), agent, kind, pane)
+func (s *Setup) notShell(pane, agent string) error {
+	return project.Failf("pane %s is not an available shell after %s: start the agent there with obor restart %s --pane %s",
+		pane, s.shellWait(), agent, pane)
 }
 
 // --- placement -------------------------------------------------------------------------------------------

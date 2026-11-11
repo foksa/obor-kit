@@ -85,6 +85,18 @@ func TestSweep(t *testing.T) {
 			}
 			there(t, freshTmp) // a backup being written now
 		}},
+		{"the instance the old name wrote goes, the new name's stays", func(t *testing.T, cfg *config.Config, now time.Time) {
+			state := StateDir(cfg.Root)
+			old := filepath.Join(state, "herdr-instance")
+			live := filepath.Join(state, "terminal-instance")
+			sweepFile(t, now, old, time.Hour)
+			sweepFile(t, now, live, time.Hour)
+			if lines := Sweep(cfg, now, false); len(lines) != 0 {
+				t.Fatalf("Sweep = %q, want no lines", lines)
+			}
+			gone(t, old)
+			there(t, live)
+		}},
 		{"files of gone lanes and agents go, the live ones stay", func(t *testing.T, cfg *config.Config, now time.Time) {
 			state := StateDir(cfg.Root)
 			live := []string{

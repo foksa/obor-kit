@@ -102,7 +102,7 @@ process (`plugin.Local`).
 **core** — `app`: the only place with obor logic. Files by concern: `app.go` (types, options), `serve.go` (New, Serve,
   run, the serve flock), `restore.go` (the restore of the project's panes after a lost terminal connection came
   back, through the `Restorer` port, and at serve's first connect when herdr restarted while serve was down:
-  the instance it last connected to in `.obor/state/herdr-instance`), `project.go` (load, log, fold), `log.go` (serve's side of the backup), `panes.go` (herdr events to projects),
+  the instance it last connected to in `.obor/state/terminal-instance`), `project.go` (load, log, fold), `log.go` (serve's side of the backup), `panes.go` (herdr events to projects),
   `watchdog.go`, `lanescan.go` (the lane table as a cached observation: scanned on the tick and by a refresher, never
   per pane event), `toast.go` (the owner's herdr toast, a rule action's best-effort after), `status.go` (the status snapshot and `Listen`: the socket's server half); the merge loop: `loop.go` (wake, advance, record, do, drive, the picks),
   `mtask.go` (loop state fold), `states.go` (the state table), `steps.go` (scratch/after steps, submit, gate, publish,

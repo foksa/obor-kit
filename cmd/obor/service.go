@@ -17,11 +17,11 @@ import (
 )
 
 // serviceOf is the launchd agent of cfg's project: labelled by its config name (else its root's base, as
-// serve names it), running the kit's bin/obor with the caller's PATH and HERDR_SOCKET_PATH.
+// serve names it), running the kit's bin/obor with the caller's PATH and the terminal's variables.
 func serviceOf(cfg *config.Config, env project.Env) service.Service {
 	name := cfg.ProjectName()
 	return service.Service{Name: name, Root: cfg.Root, Kit: project.KitRoot(env), Home: env.Get("HOME"),
-		UID: os.Getuid(), GOOS: runtime.GOOS, Path: env.Get("PATH"), Herdr: env.Get("HERDR_SOCKET_PATH")}
+		UID: os.Getuid(), GOOS: runtime.GOOS, Path: env.Get("PATH"), Env: terminalEnv(cfg, env)}
 }
 
 // serveService is `obor serve install|uninstall|restart` for the project around cwd: its line, or FAIL. Install

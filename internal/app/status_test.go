@@ -749,62 +749,59 @@ func TestListenDecodesTheMethodsRequest(t *testing.T) {
 	}
 }
 
-// The herdr notice follows the server serve is connected to: each snapshot records its version and protocol,
-// a change is logged once, and the status note comes from that state.
-func TestHerdrNoteFollowsTheConnectedServer(t *testing.T) {
+// The terminal notice follows the terminal serve is connected to: each snapshot records its version and the adapter's
+// note, a change is logged once, and the status note comes from that state.
+func TestTerminalNoteFollowsTheConnectedServer(t *testing.T) {
 	t.Parallel()
 	var out bytes.Buffer
 	a := rootApp(t.TempDir(), &out)
-	snap := func(version string, protocol int) port.Snapshot {
-		return port.Snapshot{Version: version, Protocol: protocol, Speaks: 22}
+	// The adapter's own sentence, as herdr's note reads on a newer protocol than obor's.
+	note := func(version string, protocol int) string {
+		return "herdr " + version + ", protocol " + strconv.Itoa(protocol) + " (newer than obor's 22)"
 	}
-	lines := func() int {
-		return strings.Count(out.String(), "herdr: ") - strings.Count(out.String(), "herdr: connected")
+	snap := func(version, note string) port.Snapshot { return port.Snapshot{Version: version, Note: note} }
+	once := func(line, when string) {
+		t.Helper()
+		if n := strings.Count(out.String(), line+"\n"); n != 1 {
+			t.Errorf("%s: the log has %q %d times, want once:\n%s", when, line, n, &out)
+		}
 	}
 	ctx := context.Background()
 
-	if n := a.Status().HerdrNote; n != "" || a.Status().Connected {
+	if n := a.Status().TerminalNote; n != "" || a.Status().Connected {
 		t.Fatalf("before any connect: note %q, connected %v; want none", n, a.Status().Connected)
 	}
-	// Serve started with herdr down; herdr comes up newer than obor's protocol.
-	a.connect(ctx, snap("0.9.4", 23))
-	want := "herdr 0.9.4, protocol 23 (newer than obor's 22)"
-	if n := a.Status().HerdrNote; n != want {
-		t.Errorf("note after herdr came up = %q, want %q", n, want)
+	// Serve started with the terminal down; it comes up newer than obor's protocol.
+	a.connect(ctx, snap("0.9.4", note("0.9.4", 23)))
+	want := note("0.9.4", 23)
+	if n := a.Status().TerminalNote; n != want {
+		t.Errorf("note after the terminal came up = %q, want %q", n, want)
 	}
-	if got := strings.Count(out.String(), "herdr: 0.9.4 protocol 23\n"); got != 1 {
-		t.Errorf("log names the first version %d times, want once:\n%s", got, &out)
-	}
+	once("terminal: 0.9.4", "the first connect")
+	once("terminal: "+want, "the first connect")
 	// The same version again (a reconnect): no new line.
 	a.mu.Lock()
 	a.connected = false
 	a.mu.Unlock()
-	if n := a.Status().HerdrNote; n != "" {
+	if n := a.Status().TerminalNote; n != "" {
 		t.Errorf("note while disconnected = %q, want none", n)
 	}
-	a.connect(ctx, snap("0.9.4", 23))
-	if got := strings.Count(out.String(), "herdr: 0.9.4 protocol 23\n"); got != 1 {
-		t.Errorf("a reconnect to the same version logged it %d times in all, want 1:\n%s", got, &out)
-	}
-	if lines() != 1 {
-		t.Errorf("version lines = %d, want 1:\n%s", lines(), &out)
-	}
-	// A different (newer) version: the note changes and the line is logged once.
-	a.connect(ctx, snap("0.9.5", 24))
-	if n, w := a.Status().HerdrNote, "herdr 0.9.5, protocol 24 (newer than obor's 22)"; n != w {
+	a.connect(ctx, snap("0.9.4", want))
+	once("terminal: 0.9.4", "a reconnect")
+	once("terminal: "+want, "a reconnect")
+	// A different (newer) version: the note changes and each line is logged once.
+	a.connect(ctx, snap("0.9.5", note("0.9.5", 24)))
+	if n, w := a.Status().TerminalNote, note("0.9.5", 24); n != w {
 		t.Errorf("note after the upgrade = %q, want %q", n, w)
 	}
-	if got := strings.Count(out.String(), "herdr: 0.9.5 protocol 24\n"); got != 1 {
-		t.Errorf("log names the upgraded version %d times, want once:\n%s", got, &out)
-	}
-	// Back to obor's own protocol: no note, and the change is logged.
-	a.connect(ctx, snap("0.8.0", 22))
-	if n := a.Status().HerdrNote; n != "" {
+	once("terminal: 0.9.5", "the upgrade")
+	once("terminal: "+note("0.9.5", 24), "the upgrade")
+	// Back to obor's own protocol: no note, and the version change is logged.
+	a.connect(ctx, snap("0.8.0", ""))
+	if n := a.Status().TerminalNote; n != "" {
 		t.Errorf("note on obor's own protocol = %q, want none", n)
 	}
-	if got := strings.Count(out.String(), "herdr: 0.8.0 protocol 22\n"); got != 1 {
-		t.Errorf("log names the downgraded version %d times, want once:\n%s", got, &out)
-	}
+	once("terminal: 0.8.0", "the downgrade")
 }
 
 // #4: a waiting task has no lane, so its needs-you names the task in the drop command, never <LANE>.
