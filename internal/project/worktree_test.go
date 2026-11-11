@@ -2,9 +2,11 @@ package project
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -138,6 +140,63 @@ func TestWorktreeLinksAddsNothingWithoutASettingsFile(t *testing.T) {
 	}
 	if _, err := os.Lstat(filepath.Join(dir, ".claude")); err == nil {
 		t.Error("the worktree got a .claude directory for a settings file the main checkout does not have")
+	}
+}
+
+// The With forms answer from the git query they are given: tracked → no settings link; untracked and present → the
+// settings file linked; listed in lanes.links → once.
+func TestWorktreeLinksWithAsksTheQueryItIsGiven(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		cfg     string
+		tracked bool
+		want    []string
+		queries []string
+	}{
+		{"tracked: no settings link", `{"version":2,"project":{"agent_prefix":"pj"},"lanes":{"links":["local.env"]}}`,
+			true, []string{"local.env"}, []string{"ls-files --error-unmatch -- " + PluginSettings}},
+		{"untracked and present: linked", `{"version":2,"project":{"agent_prefix":"pj"},"lanes":{"links":["local.env"]}}`,
+			false, []string{"local.env", PluginSettings}, []string{"ls-files --error-unmatch -- " + PluginSettings}},
+		{"listed in lanes.links: once", `{"version":2,"project":{"agent_prefix":"pj"},"lanes":{"links":[".claude/settings.json"]}}`,
+			false, []string{PluginSettings}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg, dir := plainProject(t, tt.cfg)
+			put(t, filepath.Join(cfg.Root, "local.env"), "A=1\n")
+			put(t, filepath.Join(cfg.Root, PluginSettings), "{}\n")
+			untracked := errors.New("path not in the index")
+			var asked []string
+			git := func(gotDir string, args ...string) (string, error) {
+				if gotDir != cfg.Root {
+					t.Errorf("query in %s, want the main checkout %s", gotDir, cfg.Root)
+				}
+				asked = append(asked, strings.Join(args, " "))
+				if tt.tracked {
+					return PluginSettings + "\n", nil
+				}
+				return "", untracked
+			}
+			links := WorktreeLinksWith(cfg, git)
+			if !reflect.DeepEqual(links, tt.want) {
+				t.Fatalf("WorktreeLinksWith = %q, want %q", links, tt.want)
+			}
+			if !reflect.DeepEqual(asked, tt.queries) {
+				t.Errorf("queries = %q, want %q", asked, tt.queries)
+			}
+			if got, want := SettingsUntrackedWith(cfg.Root, git), !tt.tracked; got != want {
+				t.Errorf("SettingsUntrackedWith = %v, want %v", got, want)
+			}
+			linked, err := LinkInto(cfg.Root, dir, links)
+			if err != nil || !reflect.DeepEqual(linked, tt.want) {
+				t.Fatalf("LinkInto = %q, %v; want %q", linked, err, tt.want)
+			}
+			if _, err := os.Lstat(filepath.Join(dir, PluginSettings)); (err == nil) != slices.Contains(tt.want, PluginSettings) {
+				t.Errorf("settings file in the worktree: %v, want its presence to match %q", err, tt.want)
+			}
+		})
 	}
 }
 

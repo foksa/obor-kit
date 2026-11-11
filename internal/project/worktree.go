@@ -45,8 +45,14 @@ const PluginSettings = ".claude/settings.json"
 // caller (obor setup's lanes and role worktrees, obor init, the launcher's start of a role agent, the checks'
 // scratch worktrees and lane tests) passes this.
 func WorktreeLinks(cfg *config.Config) []string {
+	return WorktreeLinksWith(cfg, Git)
+}
+
+// WorktreeLinksWith is WorktreeLinks, its git query run by git: a caller with its own git seam (obor setup's fake)
+// passes that seam, so the policy stays here.
+func WorktreeLinksWith(cfg *config.Config, git func(dir string, args ...string) (string, error)) []string {
 	links := cfg.LaneLinks()
-	if slices.Contains(links, PluginSettings) || !SettingsUntracked(cfg.Root) {
+	if slices.Contains(links, PluginSettings) || !SettingsUntrackedWith(cfg.Root, git) {
 		return links
 	}
 	return append(slices.Clone(links), PluginSettings)
@@ -54,10 +60,15 @@ func WorktreeLinks(cfg *config.Config) []string {
 
 // SettingsUntracked: the main checkout root has PluginSettings and git does not track it.
 func SettingsUntracked(root string) bool {
+	return SettingsUntrackedWith(root, Git)
+}
+
+// SettingsUntrackedWith is SettingsUntracked, its git query run by git.
+func SettingsUntrackedWith(root string, git func(dir string, args ...string) (string, error)) bool {
 	if _, err := os.Stat(filepath.Join(root, PluginSettings)); err != nil {
 		return false
 	}
-	_, err := Git(root, "ls-files", "--error-unmatch", "--", PluginSettings)
+	_, err := git(root, "ls-files", "--error-unmatch", "--", PluginSettings)
 	return err != nil
 }
 

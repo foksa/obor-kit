@@ -130,7 +130,7 @@ func (s *Setup) addLane(n int) error {
 // linkWorktree links project.WorktreeLinks into the worktree dir (a lane, a role worktree) with project.LinkInto and
 // says what became of each entry: linked, already there, or not in the main checkout.
 func (s *Setup) linkWorktree(dir string) error {
-	links := s.worktreeLinks()
+	links := project.WorktreeLinksWith(s.cfg, s.git().Git)
 	linked, err := project.LinkInto(s.root, dir, links)
 	if err != nil {
 		return project.Failf("%v", err)

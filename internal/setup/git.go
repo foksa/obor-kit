@@ -3,10 +3,7 @@ package setup
 import (
 	"bytes"
 	"context"
-	"os"
 	"os/exec"
-	"path/filepath"
-	"slices"
 	"strings"
 
 	"obor/internal/project"
@@ -59,23 +56,4 @@ func (s *Setup) git() gitHost {
 		return s.host
 	}
 	return realGit{}
-}
-
-// worktreeLinks is project.WorktreeLinks with the "is it tracked" question asked through the seam: lanes.links, plus
-// project.PluginSettings while the main checkout has it, git does not track it and lanes.links does not list it.
-func (s *Setup) worktreeLinks() []string {
-	links := s.cfg.LaneLinks()
-	if slices.Contains(links, project.PluginSettings) || !s.settingsUntracked() {
-		return links
-	}
-	return append(slices.Clone(links), project.PluginSettings)
-}
-
-// settingsUntracked is project.SettingsUntracked of the main checkout, through the seam.
-func (s *Setup) settingsUntracked() bool {
-	if _, err := os.Stat(filepath.Join(s.root, project.PluginSettings)); err != nil {
-		return false
-	}
-	_, err := s.git().Git(s.root, "ls-files", "--error-unmatch", "--", project.PluginSettings)
-	return err != nil
 }
