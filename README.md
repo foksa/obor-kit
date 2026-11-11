@@ -40,7 +40,8 @@ you ─── lead (Claude Code) ── writes a spec ── obor spec set T-12 
   failure there is only a warning.
 - **Reviews.** When a few merges have piled up (`obor status` says "review due") the lead asks for one; a hard task
   gets one when it merges. The reviewer, from another model family, reviews the merged work; its findings become fix
-  tasks, and it verifies them.
+  tasks, and it verifies them. `obor status` and `obor web` show an open review's stage (reviewing, the lead's turn,
+  fixes, verifying, approved).
 - **Guards** (Claude Code hooks, an OpenCode plugin) keep a worker inside its lane: no pushes, no edits outside its
   worktree, no edits to protected files unless its spec allows them.
 - **The lead never merges and never polls.** serve sends it one line when something needs it, and the lead answers
