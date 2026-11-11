@@ -773,11 +773,16 @@ writes in, and nothing else goes to a chat agent but a job's wake. State in `doc
   session with no inbox record (a session its SessionStart hook did not register) is typed as before: a refused wake
   would strand the worker until a restart, a typed one reaches it as it always did.
 - **Finding the pane**: one identity table per project, derived each pass
-  from proofs (session record > serve's own start > label; herdr's agent name is never read), answers which pane an
-  agent runs in (Identified, Ambiguous: two panes with equal proof, or Unavailable) and which agent a pane runs. Every
-  line, brief and job wake is addressed to the identified pane's id right before it goes; ambiguous or unavailable,
-  it waits (lead lines are posted by inbox record, pane-independent). The CLI (`obor restart`) finds a pane by
-  its label, so it works while serve is down. Mechanics: `docs/state-model.md` row 48.
+  from proofs (session record > serve's own start > label; herdr's agent name is never read by the table), answers
+  which pane an agent runs in (Identified, Ambiguous: two panes with equal proof, or Unavailable) and which agent a
+  pane runs; every configured agent is a candidate. Every line, brief and job wake is addressed to the identified
+  pane's id right before it goes; ambiguous or unavailable, it waits (lead lines are posted by inbox record,
+  pane-independent). **Every start asks it first** (owner 2026-11-11, `docs/research/start-identity-advice.md`):
+  launch's `Locate` sends serve's `where` request, adds the terminal's live holder of the agent's name (read once,
+  the weakest claim) and decides runs / ambiguous / free / cannot tell before any stop, label, env line or session
+  record; restart, stop, serve's starts, setup, `obor lead` and `obor drive` all go through it. Serve down: a start
+  that would add an agent is refused while a live agent pane of the project is not labelled for another configured
+  agent. Only a label naming another configured agent reserves a pane. Mechanics: `docs/state-model.md` row 48.
 - Only for projects with a merge loop (an integrator role): the loop's pass is the delivery's clock. `obor send` and
   `obor brief` to a project without one are refused (`merge loop off …`), as `obor dispatch` is.
 
