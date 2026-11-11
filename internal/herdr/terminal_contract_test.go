@@ -22,7 +22,7 @@ func contractTerminal(t *testing.T) testkit.Terminal {
 }
 
 // TestTerminalContract runs the terminal contract (testkit.Contract: start, status, instance, place, type, type with
-// guard, keys, screen, wait, pane busy, rename, process info, notify, reconnect) against herdr's adapter over
+// guard, keys, screen, wait, pane busy, named, rename, process info, notify, reconnect) against herdr's adapter over
 // herdrtest; the live herdr tier runs the same rows (tests/conformance, H-C).
 func TestTerminalContract(t *testing.T) {
 	t.Parallel()
@@ -31,7 +31,7 @@ func TestTerminalContract(t *testing.T) {
 		names = append(names, row.Name)
 	}
 	want := []string{"start", "status", "instance", "place", "type", "type with guard", "keys", "screen", "wait",
-		"pane busy", "rename", "process info", "notify", "reconnect"}
+		"pane busy", "named", "rename", "process info", "notify", "reconnect"}
 	if len(names) != len(want) {
 		t.Fatalf("contract rows %q, want %q", names, want)
 	}

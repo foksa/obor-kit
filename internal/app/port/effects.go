@@ -62,8 +62,8 @@ const (
 )
 
 // PaneControl is the pane operations launch needs: read panes, look at one, type into it, start an agent CLI in it.
-// A pane is named by its id, an agent by its pane's label; the terminal's own names for agents stay in its adapter. A
-// "not found" error matches NotFound; every other kind of failure the callers ask about is a predicate below
+// A pane is named by its id, an agent by its pane's label; the terminal's own name for an agent is read only by Named,
+// on the agent layer's side with Start and Prompt. A "not found" error matches NotFound; every other kind of failure the callers ask about is a predicate below
 // (PaneBusy, NotReady, TimedOut, …), never a code of the terminal's.
 type PaneControl interface {
 	Prompter
@@ -89,11 +89,15 @@ type PaneControl interface {
 	// Start starts agent CLI kind in pane for the agent name, returning once the terminal took the start: the pane as
 	// it answered, or as it shows it when the answer came later (its ID "" when neither showed one). What the terminal
 	// keeps of an earlier start of name that a live agent does not hold is cleared and the start retried once, say
-	// taking the adapter's lines for it and for a failed clear (nil: silent). A live agent in another pane holding the
-	// name is a refusal for good: the adapter's error matches NameHeld. Only the terminal's own not-found says the
-	// name has no holder: any other answer to the holder lookup (an error, or no pane) stops the start with it, with
-	// nothing cleared.
+	// taking the adapter's lines for it and for a failed clear (nil: silent). It decides no identity: a live agent in
+	// another pane holding the name (a start that lost a race) is a refusal for good, the adapter's error matching
+	// NameHeld with that pane. The holder lookup is Named's: only its NotFound says the name has no holder, any other
+	// error stops the start with it, nothing cleared.
 	Start(ctx context.Context, name, kind, pane string, say func(format string, args ...any), args ...string) (Pane, error)
+	// Named is the pane whose live agent the terminal holds under name, the agent as the terminal reports it (its
+	// label not read). NotFound: no live agent holds the name. An answer that names no pane is an error, never "no
+	// holder".
+	Named(ctx context.Context, name string) (Pane, error)
 }
 
 // NotFound: err says the pane or agent asked about does not exist (an error in the chain with NotFound() true).
@@ -116,15 +120,13 @@ func NotReady(err error) bool {
 }
 
 // NameHeld: err says a start was refused for good because a live agent in another pane holds the agent's name; it
-// returns that pane's id and its label ("" when the pane has none) (an error in the chain with NameHeld() (string,
-// string)).
-func NameHeld(err error) (pane, label string, held bool) {
-	var e interface{ NameHeld() (string, string) }
+// returns that pane's id (an error in the chain with NameHeld() string).
+func NameHeld(err error) (pane string, held bool) {
+	var e interface{ NameHeld() string }
 	if !errors.As(err, &e) {
-		return "", "", false
+		return "", false
 	}
-	pane, label = e.NameHeld()
-	return pane, label, true
+	return e.NameHeld(), true
 }
 
 // TimedOut: err says the terminal's wait ended at its own timeout (an error in the chain with TimedOut() true).

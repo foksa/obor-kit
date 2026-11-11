@@ -166,6 +166,21 @@ var Contract = []Row{
 		}
 		return nil
 	}},
+	{Name: "named", Agent: true, Run: func(ctx context.Context, t Terminal, pane string) error {
+		// The terminal's holder of a name: the pane its live agent runs in; a name no live agent holds is NotFound.
+		const name = "obor-contract-named"
+		if _, err := t.Control.Named(ctx, name); !port.NotFound(err) {
+			return fmt.Errorf("the holder of a name no agent holds: %v; want a not-found error", err)
+		}
+		if _, err := t.Control.Start(ctx, name, "claude", pane, nil); err != nil {
+			return fmt.Errorf("start: %w", err)
+		}
+		a, err := t.Control.Named(ctx, name)
+		if err != nil || a.ID != pane || a.Agent != "claude" {
+			return fmt.Errorf("the holder of the started name = %+v, %v; want pane %s running a claude agent", a, err, pane)
+		}
+		return nil
+	}},
 	{Name: "rename", Run: func(ctx context.Context, t Terminal, pane string) error {
 		for _, label := range []string{"obor-contract-label", ""} {
 			if err := t.Control.RenamePane(ctx, pane, label); err != nil {
