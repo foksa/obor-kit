@@ -39,22 +39,26 @@ func base() env {
 	}
 }
 
-// the green run has no line (the precondition the breach cases rest on) and counts every package.
+// the green run has no line and no warning (the precondition the breach cases rest on) and counts every package.
 func TestCheckGreen(t *testing.T) {
 	e := base()
-	lines, n := check(e.budget, e.pkgs, e.runs, e.tmp)
+	lines, n, warned := check(e.budget, e.pkgs, e.runs, e.tmp)
 	if len(lines) != 0 {
 		t.Fatalf("a run under every budget printed %q; want none", lines)
 	}
 	if n != 2 {
 		t.Errorf("check compared %d packages; want 2", n)
 	}
+	if warned != 0 {
+		t.Errorf("a run under every budget warned for %d packages; want 0", warned)
+	}
 }
 
-// one line per breach, in the shape `FAIL budget: <pkg> <metric> <got> > <max>` for a metric, and a
-// line of its own for a missing budget, a failed run and the TMPDIR's leftovers.
+// one line per finding: `WARN budget: <pkg> <metric> <got> > <max>` for a package over its time cap,
+// `FAIL budget: <pkg> <metric> <got> > <max>` for a breach, and a line of its own for a missing budget, a failed run
+// and the TMPDIR's leftovers. Only a FAIL line fails the check.
 func TestCheckBreaches(t *testing.T) {
-	if lines, _ := check(base().budget, base().pkgs, base().runs, nil); len(lines) != 0 {
+	if lines, _, _ := check(base().budget, base().pkgs, base().runs, nil); len(lines) != 0 {
 		t.Fatalf("precondition: the base run is green, got %q", lines)
 	}
 	for _, c := range []struct {
@@ -62,11 +66,11 @@ func TestCheckBreaches(t *testing.T) {
 		edit func(*env)
 		want []string
 	}{
-		{"full over budget", func(e *env) {
+		{"time over budget warns, it does not fail", func(e *env) {
 			r := e.runs["a"]
 			r.Elapsed = 4.5
 			e.runs["a"] = r
-		}, []string{"FAIL budget: a full_s 4.5s > 4.0s"}},
+		}, []string{"WARN budget: a full_s 4.5s > 4.0s"}},
 		{"git over budget", func(e *env) {
 			r := e.runs["a"]
 			r.Git = 11
@@ -77,14 +81,14 @@ func TestCheckBreaches(t *testing.T) {
 			e.budget.Packages["a"] = Budget{FullS: 0.6, GitProcs: 10}
 			e.runs["a"] = Run{Passed: true, Elapsed: 0.9, Git: 10}
 		}, nil},
-		{"a wall over the floor over a tiny cap", func(e *env) {
+		{"a wall over the floor over a tiny cap warns", func(e *env) {
 			e.budget.Packages["a"] = Budget{FullS: 0.6, GitProcs: 10}
 			e.runs["a"] = Run{Passed: true, Elapsed: 1.1, Git: 10}
-		}, []string{"FAIL budget: a full_s 1.1s > 1.0s"}},
+		}, []string{"WARN budget: a full_s 1.1s > 1.0s"}},
 		{"a cap over the floor stays the cap", func(e *env) {
 			e.budget.Packages["a"] = Budget{FullS: 1.5, GitProcs: 10}
 			e.runs["a"] = Run{Passed: true, Elapsed: 1.6, Git: 10}
-		}, []string{"FAIL budget: a full_s 1.6s > 1.5s"}},
+		}, []string{"WARN budget: a full_s 1.6s > 1.5s"}},
 		{"no budget for a package with tests", func(e *env) {
 			delete(e.budget.Packages, "b")
 		}, []string{"FAIL budget: b missing from tests/budget.json"}},
@@ -101,23 +105,55 @@ func TestCheckBreaches(t *testing.T) {
 		{"temp entries left", func(e *env) {
 			e.tmp = []string{"obor-leftover-1", "obor-leftover-2"}
 		}, []string{"FAIL budget: tmp 2 entries left in the private TMPDIR: obor-leftover-1, obor-leftover-2"}},
-		{"several at once", func(e *env) {
+		{"time and git over budget: WARN, then FAIL", func(e *env) {
 			r := e.runs["b"]
 			r.Elapsed, r.Git = 9.5, 101
 			e.runs["b"] = r
-		}, []string{"FAIL budget: b full_s 9.5s > 9.0s", "FAIL budget: b git_procs 101 > 100"}},
+		}, []string{"WARN budget: b full_s 9.5s > 9.0s", "FAIL budget: b git_procs 101 > 100"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			e := base()
 			c.edit(&e)
-			lines, n := check(e.budget, e.pkgs, e.runs, e.tmp)
+			lines, n, warned := check(e.budget, e.pkgs, e.runs, e.tmp)
 			if !slices.Equal(lines, c.want) {
 				t.Errorf("check printed %q; want %q", lines, c.want)
 			}
 			if n != len(e.pkgs) {
 				t.Errorf("check compared %d packages; want %d", n, len(e.pkgs))
 			}
+			wantWarn := 0
+			for _, line := range c.want {
+				if strings.HasPrefix(line, "WARN ") {
+					wantWarn++
+				}
+			}
+			if warned != wantWarn {
+				t.Errorf("check warned for %d packages; want %d", warned, wantWarn)
+			}
+			if got, want := breached(lines), breached(c.want); got != want {
+				t.Errorf("breached = %v; want %v", got, want)
+			}
 		})
+	}
+}
+
+// a warning is not a breach: only a FAIL line fails the check.
+func TestBreached(t *testing.T) {
+	if breached([]string{"WARN budget: a full_s 4.5s > 4.0s"}) {
+		t.Error("a run whose only line is a time cap warning is a breach; want green")
+	}
+	if !breached([]string{"WARN budget: a full_s 4.5s > 4.0s", "FAIL budget: a git_procs 11 > 10"}) {
+		t.Error("a run with a FAIL line is no breach; want one")
+	}
+}
+
+// a green run's summary counts the packages it compared and, when some only warned, how many went over their time cap.
+func TestOKLine(t *testing.T) {
+	if got, want := okLine(42, 0), "budget OK: 42 packages"; got != want {
+		t.Errorf("okLine(42, 0) = %q; want %q", got, want)
+	}
+	if got, want := okLine(42, 2), "budget OK: 42 packages (2 over their time cap)"; got != want {
+		t.Errorf("okLine(42, 2) = %q; want %q", got, want)
 	}
 }
 

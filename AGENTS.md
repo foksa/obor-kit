@@ -64,8 +64,9 @@ no per-file list is enforced: the integrator checks placement against `docs/modu
   `internal/app/rig_ext_test.go`): no wait in them is wall-clock time; a test that needs a unix socket is in an
   `_integration_test.go` file.
 - The suite has a budget: `tests/budget.json` caps each package's full wall time at 2 cores and its
-  git processes; the nightly's `make check-budget` prints `FAIL budget: …` per breach. A budget is raised only by an
-  owner line in `docs/decisions.md`; a task that gets under it lowers it.
+  git processes; the nightly's `make check-budget` prints `FAIL budget: …` per breach and `WARN budget: …` for a
+  package over its time cap. A `git_procs` budget is raised only by an owner line in `docs/decisions.md`; a task that
+  gets under it lowers it, and a `full_s` cap any task may adjust with the measurement in its report.
 - Test rules (test rework, `docs/plan/test-suite-rework.md`):
   - Real git only in `internal/checks`, the CLI tests (`cmd/obor`) and `internal/setup`'s githook tests (hooks that
     git itself runs): the code that runs git. Anywhere else a test uses the package's fake (a `FakeScratch`, a stub

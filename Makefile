@@ -239,10 +239,13 @@ check-release:
 
 # check-budget (commands.check_budget, the nightly's non-gating budget line): every package with tests runs once
 # at GOMAXPROCS=2 with a counting git wrapper first on PATH and a private TMPDIR (tests/budget), and its wall time and
-# git processes are compared with tests/budget.json. One "FAIL budget: <pkg> <metric> <got> > <max>" per breach, else
-# "budget OK: N packages". The nightly runs it on a quiet machine, so its numbers are comparable; a budget is raised
-# only by an owner line in docs/decisions.md and lowered by any task that gets under it (docs/plan/test-suite-
-# rework.md §3). Seed it with `GO="$(GO)" $(GO) run ./tests/budget -seed` for the whole file, or
+# git processes are compared with tests/budget.json. One "FAIL budget: <pkg> <metric> <got> > <max>" per breach (git
+# processes, a failed run, a missing entry, the TMPDIR's leftovers); a package over its wall-time cap is a
+# "WARN budget: <pkg> full_s <got> > <max>" line, and only a failure reddens the line. A green run prints
+# "budget OK: N packages", with how many warned, after its warning lines. The nightly runs it on a quiet machine, so
+# its numbers are comparable; a git_procs budget is raised only by an owner line in docs/decisions.md and lowered by
+# any task that gets under it (docs/plan/test-suite-rework.md §3), and a full_s cap any task may adjust with the
+# measurement in its report. Seed it with `GO="$(GO)" $(GO) run ./tests/budget -seed` for the whole file, or
 # `GO="$(GO)" $(GO) run ./tests/budget -seed <pkg>...` for the entries it names (an import path, a relative path or a
 # pattern: -seed resolves them through go list), every other entry unchanged, so the task that adds a package seeds
 # that package alone. The seed writes tests/budget.json itself (a shell
