@@ -457,6 +457,68 @@ func TestSocketStartNameTaken(t *testing.T) {
 	})
 }
 
+// Start's holder lookup must answer: a name-taken start whose agent.get fails, or answers with no pane, ends with that
+// error, clearing nothing and retrying nothing — a lookup that did not say "not found" says nothing about a live
+// holder. Only herdr's not-found means the name has no holder (the retry in TestSocketStartNameTaken).
+func TestSocketStartHolderLookupFails(t *testing.T) {
+	t.Parallel()
+	t.Run("agent.get fails after name taken: the error, nothing cleared, no retry", func(t *testing.T) {
+		t.Parallel()
+		f := fixture()
+		srv := herdrtest.Serve(t, f)
+		srv.Once("agent.start", herdrtest.Failure{Code: "agent_name_taken", Message: "name pj-l-04 taken"})
+		srv.Once("agent.get", herdrtest.Failure{Code: "internal_error", Message: "state store is busy"})
+		if count(srv, "agent.start") != 0 || count(srv, "agent.rename") != 0 {
+			t.Fatal("precondition: no start or rename yet")
+		}
+		a, err := srv.Client().Start(ctx, "pj-l-04", "claude", "w1:p2", nil)
+		if err == nil {
+			t.Fatalf("Start = %+v, nil; want the failed holder lookup's error", a)
+		}
+		if !strings.Contains(err.Error(), "internal_error") {
+			t.Errorf("Start error = %v, want the holder lookup's own error", err)
+		}
+		if port.NotFound(err) {
+			t.Errorf("Start error = %v, want the lookup's error, not a not-found", err)
+		}
+		if n := count(srv, "agent.start"); n != 1 {
+			t.Errorf("agent.start sent %d times, want no retry after a lookup that did not answer", n)
+		}
+		if n := count(srv, "agent.rename"); n != 0 {
+			t.Errorf("agent.rename sent %d times (%q), want nothing cleared", n, srv.Calls())
+		}
+		if p := f.Pane("w1:p2"); p.Name != "" || p.Kind != "" {
+			t.Errorf("the target pane = %+v, want no agent started in it", p)
+		}
+	})
+	t.Run("agent.get answers with no pane: the error, nothing cleared, no retry", func(t *testing.T) {
+		t.Parallel()
+		f := fixture()
+		srv := herdrtest.Serve(t, f)
+		srv.Once("agent.start", herdrtest.Failure{Code: "agent_name_taken", Message: "name pj-l-04 taken"})
+		srv.Reply("agent.get", map[string]any{"agent": map[string]any{"pane_id": ""}})
+		if count(srv, "agent.start") != 0 || count(srv, "agent.rename") != 0 {
+			t.Fatal("precondition: no start or rename yet")
+		}
+		a, err := srv.Client().Start(ctx, "pj-l-04", "claude", "w1:p2", nil)
+		if err == nil {
+			t.Fatalf("Start = %+v, nil; want an error for an answer with no pane", a)
+		}
+		if !strings.Contains(err.Error(), "no pane") {
+			t.Errorf("Start error = %v, want it to name the missing pane", err)
+		}
+		if n := count(srv, "agent.start"); n != 1 {
+			t.Errorf("agent.start sent %d times, want no retry after an answer with no pane", n)
+		}
+		if n := count(srv, "agent.rename"); n != 0 {
+			t.Errorf("agent.rename sent %d times (%q), want nothing cleared", n, srv.Calls())
+		}
+		if p := f.Pane("w1:p2"); p.Name != "" || p.Kind != "" {
+			t.Errorf("the target pane = %+v, want no agent started in it", p)
+		}
+	})
+}
+
 // herdr's own waits: agent.wait ends when the agent reaches the state asked for (text already on the screen
 // matches at once), times out while it does not, and ends agent_not_running when the agent leaves the pane;
 // pane.wait_for_output reads the text when the regex matches. Each is one request: obor does not poll.

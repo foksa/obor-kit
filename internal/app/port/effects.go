@@ -90,7 +90,9 @@ type PaneControl interface {
 	// it answered, or as it shows it when the answer came later (its ID "" when neither showed one). What the terminal
 	// keeps of an earlier start of name that a live agent does not hold is cleared and the start retried once, say
 	// taking the adapter's lines for it and for a failed clear (nil: silent). A live agent in another pane holding the
-	// name is a refusal for good: the adapter's error matches NameHeld.
+	// name is a refusal for good: the adapter's error matches NameHeld. Only the terminal's own not-found says the
+	// name has no holder: any other answer to the holder lookup (an error, or no pane) stops the start with it, with
+	// nothing cleared.
 	Start(ctx context.Context, name, kind, pane string, say func(format string, args ...any), args ...string) (Pane, error)
 }
 
