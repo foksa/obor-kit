@@ -266,7 +266,7 @@ func otherAgent(root, label string, names []string) bool {
 // start does there when that pane is at its shell; one that runs an agent is cannot tell (moved): the intent
 // stays the gone pane's (its key is pending), so a start there that ran and left no result cannot be told from any
 // other agent, and a second start would stop a worker already at its job. A launch refusal (background
-// tasks without force, a live agent in another pane holding the name) is final: needs-you{start: why}. It runs under
+// tasks without force, the agent proven live in another pane) is final: needs-you{start: why}. It runs under
 // work job's intent and carries its wake (startJob).
 func (a *App) startWorker(ctx context.Context, p *proj, fx *Loop, mt mtask, key event.Key, d startData, work event.Key) bool {
 	pending := p.log.Open(key)
@@ -364,13 +364,10 @@ func (a *App) runsIn(pane string) string {
 	return o.pane.Agent + " (" + strings.Join(of, ", ") + ")"
 }
 
-// startRefused: the launch refused for good: the agent has background tasks (no force), a live agent in another pane
-// holds its name, or the start check refused it (a quarantined Codex install: a needs-you, not a counted failure).
+// startRefused: the launch refused for good (a needs-you, not a counted failure): the agent has background tasks (no
+// force), or a port.Refused: the start's decision (the agent runs in another pane, or cannot be told) or the start
+// check (a quarantined Codex install).
 func startRefused(err error) bool {
 	var refused port.Refused
-	if errors.As(err, &refused) || strings.Contains(err.Error(), "has background tasks") {
-		return true
-	}
-	_, held := port.NameHeld(err)
-	return held
+	return errors.As(err, &refused) || strings.Contains(err.Error(), "has background tasks")
 }

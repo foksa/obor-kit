@@ -958,7 +958,8 @@ func TestRoleStartRefusedWhenALiveAgentHoldsTheName(t *testing.T) {
 	x := newFx(t, testkit.Set("agents.roles", `{"lead": "opus"}`))
 	holder := x.h.Agent("w1:x1", "pj-lead", "idle", x.Root)
 	holder.Label = "notes"
-	x.failing(t, "FAIL pj-lead already runs in pane w1:x1 (its label is notes): quit it there, or put its label back",
+	x.failing(t, "FAIL pj-lead already runs in pane w1:x1 (proof: name; label notes): obor restart pj-lead --pane w1:x1 "+
+		"restarts it there, or quit it there first",
 		"role", "lead", "--new-tab", "lead", "--start")
 	calls := strings.Join(x.reqs(), "\n")
 	if n := strings.Count(calls, "agent.start "); n != 1 {

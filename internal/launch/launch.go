@@ -10,9 +10,12 @@
 //	         an unknown agent keeps its OBOR_ROLE, in the pane's cwd. Kind and args from the dispatch's model (the
 //	         launch's, else a lane agent's lane row model), else the role / lead / agents entry's model (config.Model: base args, model id, kinds args, then --settings for
 //	         claude); no model: the kind herdr reports for the pane, else claude, no args.
-//	Where    --pane, else the pane labelled <agent> (in this project). Never a pane labelled for another
-//	         agent, never a second pane labelled <agent> (no moves between panes), never a known agent's pane whose cwd
-//	         is outside this project.
+//	Where    Locate (locate.go), under the agent's restart lock, before anything is stopped, labelled, typed or
+//	         recorded: the pane serve's identity table proves the agent runs in (a restart in place, its label put
+//	         back), else its home (the pane labelled <agent> at its shell, in this project), else --pane. Refused: a
+//	         target other than the pane the agent runs in, an ambiguous agent, a pane serve gives to another agent or
+//	         labelled for one, a second pane labelled <agent>, and with serve down a start beside a live agent of the
+//	         project no label accounts for. Never a known agent's pane whose cwd is outside this project.
 //	Session  the recorded sid, else the one herdr reports for the pane (never herdr's for a kind whose sessions obor
 //	         names itself: Claude); --fresh: a new one. None → FAIL (pass --fresh), checked before anything is
 //	         stopped. A fresh start of such a kind records the id obor chose before the agent runs. A recorded Claude
@@ -27,9 +30,9 @@
 //	         RESTARTED only when the start succeeded and its agent is seen.
 //	Start    the env line typed at the shell (never into another program), then Start (the one start, shared with
 //	         obor setup): the pane labelled <agent>, herdr agent start (a name herdr kept with no live agent behind
-//	         it: cleared and retried once; one a live agent in another pane holds: FAIL naming that pane), a look for a
-//	         startup dialog. The start ends when its agent runs in the pane, not at herdr's own bound for an agent ready
-//	         for input. herdr's agent name is neither required nor renamed back.
+//	         it: cleared and retried once), a look for a startup dialog. The start ends when its agent runs in the
+//	         pane, not at herdr's own bound for an agent ready for input. herdr's agent name is neither required nor
+//	         renamed back.
 //	Self     the caller's own pane (project.Pane): scheduled, see self.go.
 //
 // Every operation registers one op record (kind restart) for its whole run.
@@ -125,6 +128,10 @@ type Launcher struct {
 	// Install is the machine a kind's start check reads (agents.StartChecker); nil: project.InstallHost of
 	// this launcher's Env.
 	Install func() agents.InstallHost
+	// Where asks serve's identity table which pane runs an agent, and which agent each pane of the request runs
+	// (Locate); nil: the where request to Cfg.Root's serve. An error is serve that cannot tell (wire.Absent: not
+	// running).
+	Where func(ctx context.Context, req wire.WhereReq) (wire.WhereReply, error)
 }
 
 // Request is one `obor restart` (the core's port.Launch: Launcher is an port.Agents).
@@ -285,57 +292,41 @@ type target struct {
 	session    string            // the session id obor chose for the start (build; "": none)
 }
 
-// resolve is who and where (shared by Restart and Stop) with typ the launch's model type ("": none; port.Launch.Type, a
-// dispatch's); nothing is typed.
-func (l *Launcher) resolve(ctx context.Context, agent, pane, typ string) (*target, error) {
+// resolve is who the agent is and its pane's facts (shared by Restart and Stop), pane the one Locate chose ("": none,
+// no pane is the agent's) for the caller's asked (--pane; "": none), with typ the launch's model type ("": none;
+// port.Launch.Type, a dispatch's); nothing is typed. An agent no config entry, lane cwd or recorded session knows is
+// started only in the pane the caller named.
+func (l *Launcher) resolve(ctx context.Context, agent, asked, pane, typ string) (*target, error) {
 	t := &target{agent: agent}
 	if l.Cfg != nil {
 		t.info, t.known = l.Cfg.AgentLookup(agent, "")
 		if !t.known {
-			// An agent whose pane (--pane, else its labelled one) has a lane worktree as cwd: that lane's agent.
-			p := pane
-			if p == "" {
-				p, _ = l.PaneOf(ctx, agent, "")
-			}
-			if cwd := l.paneCwd(ctx, p); cwd != "" {
+			// An agent whose pane has a lane worktree as cwd: that lane's agent.
+			if cwd := l.paneCwd(ctx, pane); cwd != "" {
 				if info, ok := l.Cfg.AgentLookup(agent, cwd); ok {
 					t.info, t.known = info, true
-					l.say("lane %s (pane %s cwd)", info.Lane, p)
+					l.say("lane %s (pane %s cwd)", info.Lane, pane)
 				}
 			}
 		}
 	}
 	rec, _ := l.session(agent)
 	t.sid, t.sidKind, t.transcript = rec.ID, rec.Kind, rec.Transcript
-	if !t.known && t.sid == "" && pane == "" {
+	if !t.known && t.sid == "" && asked == "" {
 		return nil, project.Failf("unknown agent %s (no lane, role, agents entry or recorded session)", agent)
+	}
+	if pane == "" {
+		return nil, project.Failf("no pane labelled %s (pass --pane)", agent)
 	}
 	panes, err := l.H.Panes(ctx)
 	if err != nil {
 		return nil, project.Failf("terminal pane list failed (is the terminal running?)")
 	}
 	t.panes = panes
-	src := "--pane"
-	if pane == "" {
-		if pane, err = l.paneIn(panes, agent, ""); err != nil {
-			return nil, project.Failf("no pane labelled %s (pass --pane)", agent)
-		}
-		src = "label"
-	}
 	t.pane = pane
 	for _, p := range panes {
 		if p.ID == pane {
 			t.entry = p
-		}
-	}
-	l.say("pane %s (from %s)", pane, src)
-	// The label is the pane's identity (R-28 §2): never take a pane labelled for another agent, never label a second pane.
-	if t.entry.Label != "" && t.entry.Label != agent {
-		return nil, project.Failf("pane %s is labelled %s, not %s", pane, t.entry.Label, agent)
-	}
-	for _, p := range panes {
-		if p.Label == agent && p.ID != pane {
-			return nil, project.Failf("pane %s is already labelled %s (obor restart %s there)", p.ID, agent, agent)
 		}
 	}
 	if err := l.inProject(ctx, t); err != nil {
@@ -475,7 +466,13 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	if err != nil {
 		return port.Started{}, err
 	}
-	t, err := l.resolve(ctx, req.Agent, req.Pane, req.Type)
+	// The decision before anything is touched, under the agent's restart lock held to the start's last step.
+	loc, end, err := l.Locate(ctx, req.Agent, req.Pane, true)
+	if err != nil {
+		return port.Started{}, err
+	}
+	defer end()
+	t, err := l.resolve(ctx, req.Agent, req.Pane, loc.Pane, req.Type)
 	if err != nil {
 		return port.Started{}, err
 	}
@@ -491,11 +488,6 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 			return port.Started{}, err
 		}
 	}
-	end, err := l.begin(ctx, t.agent, t.info.Lane)
-	if err != nil {
-		return port.Started{}, err
-	}
-	defer end()
 
 	// The session, checked before anything is stopped: none and no --fresh → FAIL.
 	// A kind that resumes nothing (agents.Caps.Resume false: OpenCode) always starts fresh: serve records its

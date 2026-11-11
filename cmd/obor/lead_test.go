@@ -134,8 +134,8 @@ func TestLeadRunsByItsPaneLabel(t *testing.T) {
 	x := newLeadFx(t)
 	x.f.Agent("w1:p1", "pj-lead", "working", x.p.Root).Label = "notes"
 	out, rc := x.run(t)
-	if rc != 1 || lastLine(out) != "FAIL pj-lead already runs in pane w1:p1 (its label is notes): quit it there, or "+
-		"put its label back" {
+	if rc != 1 || lastLine(out) != "FAIL pj-lead already runs in pane w1:p1 (proof: name; label notes): obor restart "+
+		"pj-lead --pane w1:p1 restarts it there, or quit it there first" {
 		t.Fatalf("herdr name pj-lead in a pane labelled notes: exit %d, want the start refused naming the holder\n%s", rc, out)
 	}
 	c := x.calls()
