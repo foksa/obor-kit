@@ -43,19 +43,24 @@ func restart(args []string) int {
 		return 1
 	}
 
-	l := &launch.Launcher{Env: project.OSEnv, H: herdrSocket(project.OSEnv), Out: out}
-	if _, cfg, rc := load(); rc == 0 {
-		l.Cfg = cfg
-		l.Job = func(ctx context.Context, role, lane string) (string, error) {
-			return serveAgentJob(ctx, cfg, req.Agent, role, lane)
-		}
-	} else if rc != 3 {
+	_, cfg, rc := load()
+	if rc != 0 && rc != 3 {
 		fmt.Fprintln(out, "FAIL the config does not load (obor config validate)")
 		return 1
 	}
+	t, err := terminal(cfg, project.OSEnv)
+	if err != nil {
+		fmt.Fprintln(out, "FAIL "+err.Error())
+		return 1
+	}
+	l := &launch.Launcher{Env: project.OSEnv, H: t.Control, Out: out, Cfg: cfg}
+	if rc == 0 {
+		l.Job = func(ctx context.Context, role, lane string) (string, error) {
+			return serveAgentJob(ctx, cfg, req.Agent, role, lane)
+		}
+	}
 	ctx := context.Background()
 	var line string
-	var err error
 	if stopIt {
 		line, err = l.Stop(ctx, req.Agent, req.Pane, req.Force)
 	} else {

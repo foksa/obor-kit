@@ -35,6 +35,17 @@ func Ask(ctx context.Context, path string) (Status, error) {
 // project).
 func SocketPath(root string) string { return filepath.Join(root, ".obor", "state", "serve.sock") }
 
+// MaxSocketPath is the longest unix socket path macOS accepts (sun_path); Linux allows 108.
+const MaxSocketPath = 104
+
+// CheckSocketPath fails when path is too long to be a unix socket address.
+func CheckSocketPath(path string) error {
+	if len(path) > MaxSocketPath {
+		return fmt.Errorf("socket path is %d bytes, longer than the %d a unix socket allows: %s", len(path), MaxSocketPath, path)
+	}
+	return nil
+}
+
 // NewCallID is a new call's id: a repeated call id gets the app's stored reply, so every call (a CLI request, an MCP
 // tool call) has its own.
 func NewCallID() string {

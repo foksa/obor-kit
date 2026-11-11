@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"obor/internal/app/event"
+	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/testkit"
 )
@@ -23,7 +24,7 @@ func TestLoadWithoutServe(t *testing.T) {
 	p.Commit(o1)
 	p.Dispatched("L-01")
 	p.Spec("T-01", "# T-01 — a task title\n\nDifficulty: simple\n")
-	v, err := Load(context.Background(), p.Root, time.Now(), 5)
+	v, err := Load(context.Background(), p.Root, time.Now(), 5, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,6 +64,7 @@ func TestNarrowReadsSpawnNoProcesses(t *testing.T) {
 		ask:   func(context.Context, string) (wire.Status, error) { return ss, nil },
 		git:   func(context.Context, string, ...string) (string, error) { git++; return "", errors.New("no git") },
 		procs: func(context.Context) ([]Proc, error) { ps++; return nil, errors.New("no ps") },
+		info:  func(context.Context, string) (port.ProcessInfo, error) { return port.ProcessInfo{}, nil },
 	}
 	reads := func(name string, fn func() error) (int, int) {
 		g, q := git, ps

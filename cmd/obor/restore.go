@@ -7,21 +7,22 @@ import (
 	"context"
 	"io"
 
+	"obor/internal/app/port"
 	"obor/internal/checks"
 	"obor/internal/config"
 	"obor/internal/launch"
 	"obor/internal/project"
 )
 
-// restorer is the restore over env's herdr with obor restart's launch: serve's, after its terminal connection came
-// back (its own project). env must name no pane: the restore is no process of one.
-func restorer(env project.Env) *launch.Restorer {
-	return &launch.Restorer{Env: env, H: herdrSocket(env),
+// restorer is the restore over the project's terminal term (serve's) with obor restart's launch: serve's, after its
+// terminal connection came back (its own project). env must name no pane: the restore is no process of one.
+func restorer(term port.Terminal, env project.Env) *launch.Restorer {
+	return &launch.Restorer{Env: env, H: term.Control,
 		LaneState: func(cfg *config.Config, l config.Lane) string {
 			return checks.NewLaneTable(context.Background(), cfg).LaneState(l).State
 		},
 		Restart: func(ctx context.Context, cfg *config.Config, req launch.Request, w io.Writer) (string, error) {
-			l := &launch.Launcher{Cfg: cfg, Env: env, H: herdrSocket(env), Out: w}
+			l := &launch.Launcher{Cfg: cfg, Env: env, H: term.Control, Out: w}
 			return l.Restart(ctx, req)
 		}}
 }

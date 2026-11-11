@@ -7,9 +7,9 @@ import (
 	"os"
 	"strings"
 
+	"obor/internal/app/port"
 	"obor/internal/config"
 	"obor/internal/help"
-	"obor/internal/herdr"
 	"obor/internal/launch"
 	"obor/internal/project"
 	"obor/internal/roles"
@@ -20,7 +20,7 @@ import (
 type leadRun struct {
 	dir, kit string
 	env      project.Env
-	h        *herdr.Socket
+	t        port.Terminal // nil fields: run builds the project's
 	out      io.Writer
 	tune     func(*launch.Launcher)
 	// wake is obor start in a stopped project, its outside systems as this project's (nil: the real ones; tests fake
@@ -38,7 +38,7 @@ type leadRun struct {
 // labelled untyped lead is restarted as any other).
 func lead(args []string) int {
 	cwd, _ := os.Getwd()
-	r := leadRun{dir: cwd, kit: project.KitRoot(project.OSEnv), env: project.OSEnv, h: herdrSocket(project.OSEnv), out: out}
+	r := leadRun{dir: cwd, kit: project.KitRoot(project.OSEnv), env: project.OSEnv, out: out}
 	return r.run(context.Background(), args)
 }
 
@@ -61,10 +61,17 @@ func (r leadRun) run(ctx context.Context, args []string) int {
 	if err != nil {
 		return fail("the config does not load (obor config validate)")
 	}
+	if r.t.Control == nil {
+		t, err := terminal(cfg, r.env)
+		if err != nil {
+			return fail("%v", err)
+		}
+		r.t = t
+	}
 	if project.Stopped(cfg.Root) { // no lead starts in a stopped project: obor start's steps go first
 		s := r.wake
 		if s == nil {
-			s = &sleeper{Cfg: cfg, Env: r.env, Cwd: r.dir, Out: r.out, H: r.h}
+			s = &sleeper{Cfg: cfg, Env: r.env, Cwd: r.dir, Out: r.out, H: r.t.Control}
 		}
 		if rc := s.start(ctx); rc != 0 {
 			return rc
@@ -72,7 +79,7 @@ func (r leadRun) run(ctx context.Context, args []string) int {
 	}
 	agent := cfg.AgentName("lead", "")
 
-	running, err := r.h.Agents(ctx)
+	running, err := r.t.Setup.Agents(ctx)
 	if err != nil {
 		return fail("herdr agent list failed (is herdr running?)")
 	}
@@ -87,7 +94,7 @@ func (r leadRun) run(ctx context.Context, args []string) int {
 		}
 	}
 
-	l := &launch.Launcher{Cfg: cfg, Env: r.env, H: r.h, Out: r.out}
+	l := &launch.Launcher{Cfg: cfg, Env: r.env, H: r.t.Control, Out: r.out}
 	if r.tune != nil {
 		r.tune(l)
 	}
@@ -107,7 +114,7 @@ func (r leadRun) run(ctx context.Context, args []string) int {
 	if rc, _ := cfg.Role("lead"); rc.Type == "" {
 		return fail("roles.lead is not set (a model ref, e.g. <model>[:<effort>]): a new lead pane needs it")
 	}
-	s := &setup.Setup{Kit: r.kit, Dir: r.dir, Env: r.env, T: terminalSetup(r.env, r.h), Out: r.out, Starter: launcherFor(r.env, r.kit, r.h, r.out, r.tune)}
+	s := &setup.Setup{Kit: r.kit, Dir: r.dir, Env: r.env, T: r.t.Setup, Out: r.out, Starter: launcherFor(r.env, r.kit, r.t.Control, r.out, r.tune)}
 	return s.Run(ctx, []string{"role", "lead", "--new-tab", "lead", "--start"})
 }
 

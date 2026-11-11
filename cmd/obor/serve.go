@@ -24,7 +24,6 @@ import (
 	"obor/internal/checks"
 	"obor/internal/config"
 	"obor/internal/help"
-	"obor/internal/herdr"
 	"obor/internal/launch"
 	"obor/internal/project"
 	"obor/internal/selfexec"
@@ -69,7 +68,7 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 	end := &serveEnd{stop: stop}
 	root := repo.Root
 	sock := wire.SocketPath(root)
-	if err := herdr.CheckSocketPath(sock); err != nil {
+	if err := wire.CheckSocketPath(sock); err != nil {
 		errf("FAIL obor serve: %v", err)
 		return 1
 	}
@@ -93,7 +92,8 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 	_ = os.Remove(sock) // a leftover of a serve that died: the lock says none runs
 	// The plugin kinds' manifests, before anything reads them: the merge loop keeps them current.
 	kinds := &kindCache{}
-	if cfg, err := config.Load(root); err == nil {
+	cfg, cfgErr := config.Load(root)
+	if cfgErr == nil {
 		kinds.refresh(cfg, flushWriter{})
 	}
 	// The machine's list of obor projects by name: obor send and obor projects read it. A failure is one line,
@@ -101,11 +101,15 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 	if _, err := project.Register(root, env); err != nil {
 		fmt.Fprintf(flushWriter{}, "obor serve: the machine's project list is not updated (%v)\n", err)
 	}
-	panes := herdr.Panes{S: herdrSocket(env)}
-	a := app.New(app.Options{Root: root, Out: flushWriter{}, Refresh: refreshed, Loop: mergeLoop(env, panes, end, kinds),
+	term, err := terminal(cfg, env)
+	if err != nil {
+		errf("FAIL obor serve: %v", err)
+		return 1
+	}
+	a := app.New(app.Options{Root: root, Out: flushWriter{}, Refresh: port.Refreshed, Loop: mergeLoop(env, term, end, kinds),
 		Inboxed: inboxed(root), Exit: stop, Binary: binaryWatch(env), Tick: serveTick, Follow: serveTick,
-		Restore: restorer(paneless(env))},
-		panes, checks.Lanes{})
+		Restore: restorer(term, paneless(env))},
+		term.Panes, checks.Lanes{})
 	served := make(chan struct{})
 	go func() {
 		defer close(served)
@@ -158,12 +162,12 @@ type serveEnd struct {
 }
 
 // mergeLoop is the merge loop's adapters for a project: serve's scratch on its config as it is now (a merged config
-// change counts), launch for the integrator's start and the merged worker's stop, the herdr socket for the job
+// change counts), launch for the integrator's start and the merged worker's stop, the terminal for the job
 // prompts and the lines it types, the session inbox for the lead's lines and for the lines and job wakes of a
 // kind with an inbox, and dispatch as state (dispatchLoop: obor serve is the only dispatcher).
 // end ends serve for its self-restart. A plugin kind whose command changed is described again first
 // (kindCache).
-func mergeLoop(env project.Env, panes herdr.Panes, end *serveEnd, kinds *kindCache) func(root string) (*app.Loop, error) {
+func mergeLoop(env project.Env, term port.Terminal, end *serveEnd, kinds *kindCache) func(root string) (*app.Loop, error) {
 	return func(root string) (*app.Loop, error) {
 		repo, err := project.Find(root)
 		if err != nil {
@@ -179,7 +183,7 @@ func mergeLoop(env project.Env, panes herdr.Panes, end *serveEnd, kinds *kindCac
 			}
 		}
 		o := checks.Options{Cfg: cfg, Env: env, Environ: os.Environ(), Out: flushWriter{}, PID: os.Getpid()}
-		agents := &launch.Launcher{Cfg: cfg, Env: env, H: herdrSocket(env), Out: io.Discard,
+		agents := &launch.Launcher{Cfg: cfg, Env: env, H: term.Control, Out: io.Discard,
 			Background: func(search func()) { go search() }, Log: flushWriter{}}
 		wf, err := workflowOf(o)
 		if err != nil {
@@ -188,7 +192,7 @@ func mergeLoop(env project.Env, panes herdr.Panes, end *serveEnd, kinds *kindCac
 		if k := cfg.TerminalKind(); k != config.DefaultTerminal { // herdr is the one terminal adapter
 			return nil, fmt.Errorf("terminal.kind %q: serve knows %s", k, strings.Join(config.TerminalKinds, ", "))
 		}
-		l := &app.Loop{Workflow: wf, Agents: agents, Typer: panes, Nightly: nightly(o), Disk: diskOf(repo.Root),
+		l := &app.Loop{Workflow: wf, Agents: agents, Typer: term.Typer, Nightly: nightly(o), Disk: diskOf(repo.Root),
 			Inbox: poster{repo.Root}}
 		dispatchLoop(l, env, cfg)
 		l.Config = configFile{root: repo.Root, main: cfg.MainBranch()}
@@ -246,9 +250,6 @@ func workflowOf(o checks.Options) (port.Workflow, error) {
 		return nil, fmt.Errorf("workflow.kind %q: serve knows %s", k, strings.Join(config.WorkflowKinds, ", "))
 	}
 }
-
-// herdrSocket is the herdr socket client every runtime caller shares: herdr's socket for env (herdr.SocketPath).
-func herdrSocket(env project.Env) *herdr.Socket { return &herdr.Socket{Path: herdr.SocketPath(env)} }
 
 // diskOf is the merge loop's low-disk watch of the volume root is on.
 func diskOf(root string) *app.Disk {
@@ -310,12 +311,6 @@ func nightly(o checks.Options) *app.Nightly {
 			out.SHA = sha
 			return out, err
 		}}
-}
-
-// refreshed: the herdr stream ended only so the app reads a new snapshot (a workspace or a pane moved).
-func refreshed(err error) bool {
-	var e *herdr.Error
-	return errors.As(err, &e) && e.Code == "refresh"
 }
 
 // configured: root has an obor config.

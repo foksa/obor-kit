@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"obor/internal/project"
 )
 
@@ -70,10 +71,11 @@ func Reached(err error) bool {
 	return !errors.As(err, &e) || e.reached
 }
 
-// NotFound, Unavailable and ErrorCode let the core read an *Error without importing herdr (port.NotFound,
-// port.NotRunning, port.ErrorCode).
+// NotFound, Unavailable, Refreshed and ErrorCode let the core read an *Error without importing herdr (port.NotFound,
+// port.NotRunning, port.Refreshed, port.ErrorCode).
 func (e *Error) NotFound() bool    { return e.Kind == NotFound }
 func (e *Error) Unavailable() bool { return e.Kind == Unavailable }
+func (e *Error) Refreshed() bool   { return e.Code == "refresh" }
 func (e *Error) ErrorCode() string { return e.Code }
 
 func (e *Error) Error() string {
@@ -114,9 +116,6 @@ func (a *answerError) toError(op string) *Error {
 // (tests/conformance, H-S1) guards the methods and params obor sends against a newer herdr's schema.
 const Protocol = 22
 
-// MaxSocketPath is the longest unix socket path macOS accepts (sun_path); Linux allows 108.
-const MaxSocketPath = 104
-
 // SocketPath is herdr's socket for env: $HERDR_SOCKET_PATH, else ~/.config/herdr/herdr.sock.
 func SocketPath(env project.Env) string {
 	if p, ok := env("HERDR_SOCKET_PATH"); ok && p != "" {
@@ -127,14 +126,6 @@ func SocketPath(env project.Env) string {
 		home, _ = os.UserHomeDir()
 	}
 	return filepath.Join(home, ".config", "herdr", "herdr.sock")
-}
-
-// CheckSocketPath fails when path is too long to be a unix socket address.
-func CheckSocketPath(path string) error {
-	if len(path) > MaxSocketPath {
-		return fmt.Errorf("socket path is %d bytes, longer than the %d a unix socket allows: %s", len(path), MaxSocketPath, path)
-	}
-	return nil
 }
 
 // Socket is a herdr client over the socket at Path. Make one with Dial (it checks the protocol).
@@ -155,7 +146,7 @@ func Dial(ctx context.Context, path string) (*Socket, error) {
 // checked is s once herdr answers ping with this client's Protocol or a newer one.
 func (s *Socket) checked(ctx context.Context) (*Socket, error) {
 	if s.Conn == nil {
-		if err := CheckSocketPath(s.Path); err != nil {
+		if err := wire.CheckSocketPath(s.Path); err != nil {
 			return nil, &Error{Kind: Unavailable, Op: "ping", Msg: err.Error()}
 		}
 	}
@@ -208,7 +199,7 @@ func (s *Socket) dial(ctx context.Context, op string) (net.Conn, error) {
 		}
 		return c, nil
 	}
-	if err := CheckSocketPath(s.Path); err != nil {
+	if err := wire.CheckSocketPath(s.Path); err != nil {
 		return nil, &Error{Kind: Unavailable, Op: op, Msg: err.Error()}
 	}
 	var d net.Dialer

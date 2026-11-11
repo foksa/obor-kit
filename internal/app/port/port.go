@@ -1,11 +1,13 @@
 // Package port holds the ports of obor's core (docs/module-map.md): the interfaces the core drives its adapters
 // through and the plain types they exchange. It is a leaf below package app, so an adapter reaches the core's contract
-// without importing the core: the terminal's events and snapshot (Pane, Snapshot, Event, Stream, Panes), the lane table (Lane,
-// Lanes) and the effects of effects.go (Agents, Typer, PaneControl, Starter, Scratch, LaneSetup and their types).
+// without importing the core: the terminal's events and snapshot (Pane, Snapshot, Event, Stream, Panes) and the one
+// value cmd/obor builds of them (Terminal), the lane table (Lane, Lanes) and the effects of effects.go (Agents, Typer,
+// PaneControl, Starter, Scratch, LaneSetup and their types).
 package port
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"obor/internal/agents"
@@ -85,6 +87,24 @@ type Stream struct {
 	C        <-chan Event
 	Err      func() error
 	Close    func()
+}
+
+// Refreshed: err ended a stream only so the caller reads a new snapshot and subscribes again (a layout change the
+// subscription cannot follow): the app subscribes again with no line in Out.
+func Refreshed(err error) bool {
+	var e interface{ Refreshed() bool }
+	return errors.As(err, &e) && e.Refreshed()
+}
+
+// Terminal is the project's terminal as cmd/obor builds it from the project's terminal kind (config.TerminalKind): the
+// panes and their events (Panes), the pane operations launch needs (PaneControl), the wakes and lines typed into agents
+// (Typer) and what setup asks of it (TerminalSetup). The four are fields rather than one interface because
+// PaneControl.Type and Typer.Type are one name with two signatures; a terminal implements all four.
+type Terminal struct {
+	Panes   Panes
+	Control PaneControl
+	Typer   Typer
+	Setup   TerminalSetup
 }
 
 // Panes is the terminal (the herdr adapter), as the core uses it.

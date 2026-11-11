@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"obor/internal/checks"
 	"obor/internal/config"
 	"obor/internal/herdr"
@@ -88,13 +90,13 @@ func TestServeSocketPathTooLong(t *testing.T) {
 		t.Fatal(err)
 	}
 	sock := filepath.Join(long, ".obor", "state", "serve.sock")
-	if len(sock) <= herdr.MaxSocketPath {
-		t.Fatalf("precondition: %s is %d bytes, not over %d", sock, len(sock), herdr.MaxSocketPath)
+	if len(sock) <= wire.MaxSocketPath {
+		t.Fatalf("precondition: %s is %d bytes, not over %d", sock, len(sock), wire.MaxSocketPath)
 	}
 	rc, _, stderr := run(t, long, nil, "serve")
 	if rc != 1 || !strings.Contains(stderr, "FAIL obor serve: ") || !strings.Contains(stderr, sock) ||
-		!strings.Contains(stderr, strconv.Itoa(herdr.MaxSocketPath)) {
-		t.Errorf("obor serve with a long socket path: exit %d, %q; want 1 naming %s and %d", rc, stderr, sock, herdr.MaxSocketPath)
+		!strings.Contains(stderr, strconv.Itoa(wire.MaxSocketPath)) {
+		t.Errorf("obor serve with a long socket path: exit %d, %q; want 1 naming %s and %d", rc, stderr, sock, wire.MaxSocketPath)
 	}
 	if _, err := os.Stat(filepath.Join(long, ".obor", "state", "serve.flock")); err == nil {
 		t.Error("serve.flock left by the refused start")
@@ -202,7 +204,7 @@ func TestMergeLoopWorkflowWiring(t *testing.T) {
 		if kind != "" {
 			p.Config(testkit.Set("merge.workflow", kind))
 		}
-		l, err := mergeLoop(p.Env(), herdr.Panes{}, &serveEnd{stop: func() {}}, &kindCache{})(p.Root)
+		l, err := mergeLoop(p.Env(), port.Terminal{}, &serveEnd{stop: func() {}}, &kindCache{})(p.Root)
 		if err != nil {
 			t.Fatalf("kind %q: %v", kind, err)
 		}
@@ -212,7 +214,7 @@ func TestMergeLoopWorkflowWiring(t *testing.T) {
 		}
 	}
 	p.Config(testkit.Set("merge.workflow", "x"))
-	if _, err := mergeLoop(p.Env(), herdr.Panes{}, &serveEnd{stop: func() {}}, &kindCache{})(p.Root); err == nil ||
+	if _, err := mergeLoop(p.Env(), port.Terminal{}, &serveEnd{stop: func() {}}, &kindCache{})(p.Root); err == nil ||
 		!strings.Contains(err.Error(), "serve knows scratch-ff") {
 		t.Errorf("kind x: %v; want refused naming the known kinds", err)
 	}

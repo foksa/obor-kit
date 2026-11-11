@@ -190,8 +190,9 @@ process (`plugin.Local`).
 - `herdr`: herdr socket client (events.subscribe, session.snapshot, agent.prompt, pane.*). Implements `app.Panes`
   and `app.Typer`, and `port.TerminalSetup` as `Setup` (`setup.go`: the layout of setup's placements in tabs,
   workspaces and splits, herdr's `resume_agents_on_restore` hint, the workspace rename); herdr's own `Pane` (tab and workspace ids) stays
-  here; `terminal.kind` `herdr` selects it; `herdr/herdrtest` is its fake (test helper) and holds the terminal contract
-  table (`contract.go`, run by `TestTerminalContract` and the live tier's H-C rows).
+  here; `cmd/obor`'s `terminal` builds the project's `port.Terminal` over these; `herdr/herdrtest` is its fake (test
+  helper) and holds the terminal contract table (`contract.go`, run by `TestTerminalContract` and the live tier's
+  H-C rows).
 - `checks`: git and the merge gate: lanes (`checks.Lane`, `LaneSetup`), serve's worktree `<lanes_dir>/merge` (submit,
   gate: merge and compile, resolved, publish, after_merge over pins under `refs/obor/`), the lane test of a candidate in
   the task's lane worktree (`lanetest.go`, `Scratch.Test`: the class's checks), nightly/milestone checks in their own worktree,
@@ -230,7 +231,7 @@ rev, open job), serve's tasks and agents, the role agents, needs-you, the full c
 the outbox, pause, nightly) and the newest worded events (seq, ts, task, line). `view.Load` is that build for one
 project at a root (serve's answer, the lane table, the store), as `obor web` builds every project the machine knows.
 `background.go` is the agents' long-running background processes (`Input.Background`, by agent name;
-`ScanBackground`: one `ps` per build, each agent pane's foreground leader from herdr process-info, its descendants
+`ScanBackground`: one `ps` per build, each agent pane's foreground leader from the caller's process info, its descendants
 running > 30 s through its shells, helpers left out), labelled from the PreToolUse hook's records
 (`project.AppendBackground` / `BackgroundCalls`, `.obor/state/background.jsonl`); the process table and the call's
 matching are `internal/background`'s.
@@ -249,7 +250,9 @@ socket: scripted panes and plugins, and every request a test's client sent; the 
 **entry** — `cmd/obor`: flags and wiring only; `obor status`' rendering of
 `view.Project` (rendering only: no state is joined there); the
 thin `app.Specs`, `Lanes`, `Poster` adapters and the review git (`reviewGit`, `port.Review`) live here; `workflowOf`
-picks the workflow by workflow.kind (and `configFile`, `app.ConfigFile` on the main checkout's git). The lead's chat commands are the same CLI (`status`, `dispatch`,
+picks the workflow by workflow.kind (and `configFile`, `app.ConfigFile` on the main checkout's git); `terminal.go`
+builds the project's terminal (`port.Terminal`, herdr its one kind), and no other production file imports
+`internal/herdr` (`TestOneTerminalBuilder`). The lead's chat commands are the same CLI (`status`, `dispatch`,
 `resume`, `drop`, `drive`, `land`, `spec`, `watch`, `pause`, `send`, `projects`, `brief`), beside `serve`, `mcp`,
 `setup`, `config` and the rest (`run`, `nightly`, `flakes`, `restart`, `lead`, `plugin`,
 `hook`, `whoami`).

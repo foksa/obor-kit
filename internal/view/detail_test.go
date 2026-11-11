@@ -29,7 +29,7 @@ func TestMergedTaskKeepsItsLaneAndAgent(t *testing.T) {
 	p.MergedAt("T-01", "cafe1234", false, time.Now().Unix())
 	p.ClearState("L-01")
 	p.Git(o1, "checkout", "-q", "--detach")
-	v, err := Load(context.Background(), p.Root, time.Now(), 5)
+	v, err := Load(context.Background(), p.Root, time.Now(), 5, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
