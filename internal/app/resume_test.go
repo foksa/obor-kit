@@ -67,7 +67,7 @@ func TestAnswerReachesIdleWorkerHerdrSessionStale(t *testing.T) {
 	t.Parallel()
 	h := staleHerdr(t)
 	in, liner := &kindSpy{}, &linerSpy{}
-	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Typer: liner})
+	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Prompter: liner})
 	if !slices.Equal(in.calls, []string{"claude pj-l-01: [obor answer] move the helpers down"}) || len(liner.calls) != 0 ||
 		len(h.lines()) != 0 {
 		t.Errorf("posted %q, typed %q, queued %q; want the answer posted to pj-l-01's inbox", in.calls, liner.calls,
@@ -85,7 +85,7 @@ func TestAnswerTypedWhenInboxIsAnotherPanes(t *testing.T) {
 	ss[len(ss)-1].Pane = "w1:p5" // the record came from another pane
 	h.a.mu.Unlock()
 	in, liner := &kindSpy{}, &linerSpy{}
-	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Typer: liner})
+	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Prompter: liner})
 	if len(in.calls) != 0 || !slices.Equal(liner.calls, []string{"w1:p1: [obor answer] move the helpers down"}) ||
 		len(h.lines()) != 0 {
 		t.Errorf("posted %q, typed %q, queued %q; want the answer typed into w1:p1", in.calls, liner.calls, h.lines())
@@ -128,7 +128,7 @@ func TestAnswerToWorkingWorkerAtNextIdle(t *testing.T) {
 	h := staleHerdr(t)
 	h.status("w1:p1", func(p *port.Pane) { p.Status = "working" })
 	in := &kindSpy{}
-	fx := &Loop{Inbox: in, Typer: &linerSpy{}}
+	fx := &Loop{Inbox: in, Prompter: &linerSpy{}}
 	h.a.deliver(context.Background(), h.proj(), fx)
 	ms := h.a.Status().Project.Messages
 	if len(in.calls) != 0 || len(ms) != 1 || !strings.Contains(ms[0].Held, "pj-l-01 is busy in pane w1:p1") {
@@ -185,7 +185,7 @@ func TestResumeStalledWorker(t *testing.T) {
 	}
 	in := &kindSpy{}
 	h.a.opt.Inboxed = func(string) (string, bool) { return "", true }
-	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Typer: &linerSpy{}})
+	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Prompter: &linerSpy{}})
 	if !slices.Equal(in.calls, []string{"claude pj-l-01: [obor answer] keep the guard; move the helpers down"}) {
 		t.Errorf("posted %q; want the decision reach pj-l-01", in.calls)
 	}
@@ -200,7 +200,7 @@ func settledThenIdle(t *testing.T, h *harness) {
 	}
 	h.status("w1:p1", func(p *port.Pane) { p.Status = "idle" })
 	in, liner := &kindSpy{}, &linerSpy{}
-	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Typer: liner})
+	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Prompter: liner})
 	if len(in.calls) != 0 || len(liner.calls) != 0 {
 		t.Errorf("posted %q, typed %q at the next idle; want the settled answer never delivered", in.calls, liner.calls)
 	}
@@ -314,7 +314,7 @@ func fixStep(t *testing.T, h *harness, f *schedScratch) {
 	h.a.mu.Lock()
 	s := h.a.pickWorking(p, *p.folded.loop["T-1"])
 	h.a.mu.Unlock()
-	if s == nil || !s(context.Background(), &Loop{Workflow: WorkflowOf(f), Agents: f, Typer: f}) {
+	if s == nil || !s(context.Background(), &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f}) {
 		t.Fatal("pickWorking: no step, or it failed")
 	}
 }

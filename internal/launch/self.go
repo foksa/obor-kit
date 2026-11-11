@@ -115,7 +115,7 @@ func (l *Launcher) waitScheduled(ctx context.Context, agent, pane string) (waite
 	if err := l.whenIdle(ctx, t, word); err != nil {
 		return true, err
 	}
-	if _, err := l.H.Agent(ctx, t.pane); !port.NotFound(err) {
+	if a, err := l.H.Pane(ctx, t.pane); err != nil || a.Agent != "" { // an agent, or a pane that cannot be read
 		return true, nil
 	}
 	if l.atShell(ctx, t.pane) {
@@ -134,24 +134,18 @@ func (l *Launcher) waitScheduled(ctx context.Context, agent, pane string) (waite
 		prog, t.pane, d, word, t.agent)
 }
 
-// sameAgent (after the scheduled wait): confirms the pane still runs t's agent before anything is stopped.
-// herdr's name is the pane's agent: the same, or none (unnamed pane, or no agent: stop finds a shell), is fine; another
-// agent's name, or a lookup that fails any other way (identity unknown), is a FAIL. No retry.
+// sameAgent (after the scheduled wait): confirms the terminal still answers for t's pane before anything is stopped.
+// The pane's label is its agent, and resolve refused another agent's label just before; a pane that cannot be read
+// (identity unknown) is a FAIL. No retry.
 func (l *Launcher) sameAgent(ctx context.Context, t *target) error {
-	a, err := l.H.Agent(ctx, t.pane)
-	switch {
-	case port.NotFound(err):
-		return nil
-	case err != nil:
+	if _, err := l.H.Pane(ctx, t.pane); err != nil {
 		return l.giveUp(ctx, t, "cannot confirm pane %s runs %s: %v: not stopped", t.pane, t.agent, err)
-	case a.Name != "" && a.Name != t.agent:
-		return project.Failf("pane %s runs agent %s, not %s (renamed while waiting): not stopped", t.pane, a.Name, t.agent)
 	}
 	return nil
 }
 
-// whenIdle (the scheduled run) waits until t's agent is not working or blocked, ≤ Sched. Only ErrNotFound means no
-// agent (nothing to wait for); any other error is an unknown status: keep looking. word ("restart" or
+// whenIdle (the scheduled run) waits until t's agent is not working or blocked, ≤ Sched. A pane with no agent, or one
+// the terminal no longer has, is nothing to wait for; any other error is an unknown status: keep looking. word ("restart" or
 // "stop") names the operation in the give-up text.
 func (l *Launcher) whenIdle(ctx context.Context, t *target, word string) error {
 	d := l.Sched
@@ -162,13 +156,15 @@ func (l *Launcher) whenIdle(ctx context.Context, t *target, word string) error {
 	status := t.entry.Status
 	var last error
 	if l.until(ctx, d, func() bool {
-		a, err := l.H.Agent(ctx, t.pane)
+		a, err := l.H.Pane(ctx, t.pane)
 		switch {
 		case port.NotFound(err):
 			return true
 		case err != nil:
 			last = err
 			return false
+		case a.Agent == "":
+			return true
 		}
 		status, last = a.Status, nil
 		return !a.Busy()

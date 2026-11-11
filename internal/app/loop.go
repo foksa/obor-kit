@@ -36,8 +36,8 @@ type Loop struct {
 	// is gated, published, dispatched or reviewed.
 	Workflow port.Workflow
 	Agents   port.Agents
-	// Typer types job wakes and lines into agents' panes (nil: none typed; posted ones need Inbox).
-	Typer port.Typer
+	// Prompter types job wakes and lines to the agents in their panes (nil: none typed; posted ones need Inbox).
+	Prompter port.Prompter
 	// Specs is what a dispatch reads of a task's id and spec; Kit is the obor kit (the worker prompt's template).
 	// Without Workflow and Specs the app dispatches nothing (dispatch.go).
 	Specs Specs

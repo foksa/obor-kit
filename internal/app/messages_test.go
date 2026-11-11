@@ -127,7 +127,7 @@ func (s *freshSpy) Stop(_ context.Context, agent, pane string, force bool) (stri
 	return "STOPPED " + agent, nil
 }
 
-func (s *freshSpy) Type(_ context.Context, _, text string, _ bool) (bool, error) {
+func (s *freshSpy) Prompt(_ context.Context, _, text string, _ bool) (bool, error) {
 	s.typed = append(s.typed, text)
 	return true, nil
 }
@@ -217,7 +217,7 @@ func TestFreshBriefPerRole(t *testing.T) {
 					t.Fatal("no briefed fact")
 				}
 				s := &freshSpy{}
-				fx := &Loop{Agents: s, Typer: s}
+				fx := &Loop{Agents: s, Prompter: s}
 				a.deliver(context.Background(), p, fx)
 				want := []string{"start " + c.agent + " w:role"}
 				if running {
@@ -252,7 +252,7 @@ func TestFreshBriefSupersedesQueued(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &freshSpy{}
-	fx := &Loop{Agents: s, Typer: s}
+	fx := &Loop{Agents: s, Prompter: s}
 	a.deliver(context.Background(), p, fx) // busy: the old line waits
 	a.mu.Lock()
 	queued := len(p.out.Queued())
@@ -307,7 +307,7 @@ func TestFreshBriefRefusedStopsNothing(t *testing.T) {
 	}
 	same(t, briefSeq(t, p, "pj-advisor")+briefSeq(t, p, "pj-int"), int64(0), "briefed facts")
 	s := &freshSpy{}
-	a.deliver(context.Background(), p, &Loop{Agents: s, Typer: s})
+	a.deliver(context.Background(), p, &Loop{Agents: s, Prompter: s})
 	same(t, len(s.events), 0, "stops and starts")
 	if w := a.whereIs(p, "pj-advisor"); w.State != Identified {
 		t.Errorf("pj-advisor %+v, want still running", w)
@@ -355,7 +355,7 @@ func TestFreshBriefStopFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &freshSpy{stopErr: errors.New("pj-researcher still working 30s after Escape")}
-	fx := &Loop{Agents: s, Typer: s}
+	fx := &Loop{Agents: s, Prompter: s}
 	a.deliver(context.Background(), p, fx)
 	same(t, len(s.events), 1, "stops tried")
 	same(t, len(s.launches), 0, "starts after a failed stop")
@@ -967,7 +967,7 @@ func TestBriefSupersededEndsNeedsYou(t *testing.T) {
 		t.Fatal(err)
 	}
 	l := &linerSpy{}
-	a.opt.Loop = func(string) (*Loop, error) { return &Loop{Typer: l, Inbox: l}, nil }
+	a.opt.Loop = func(string) (*Loop, error) { return &Loop{Prompter: l, Inbox: l}, nil }
 	now = now.Add(25 * time.Hour)
 	a.advance(context.Background())
 	if len(p.folded.active[event.MsgTask]) != 1 {
@@ -1053,16 +1053,16 @@ type duringSpy struct {
 	during func()
 }
 
-func (d *duringSpy) Type(ctx context.Context, agent, text string, x bool) (bool, error) {
+func (d *duringSpy) Prompt(ctx context.Context, agent, text string, x bool) (bool, error) {
 	if f := d.during; f != nil {
 		d.during = nil
 		f()
 	}
-	return d.linerSpy.Type(ctx, agent, text, x)
+	return d.linerSpy.Prompt(ctx, agent, text, x)
 }
 
 func (d *duringSpy) Post(ctx context.Context, _, agent, line string) (bool, error) {
-	return d.Type(ctx, agent, line, false)
+	return d.Prompt(ctx, agent, line, false)
 }
 
 // A line routed for delivery (no intent yet) that a newer brief supersedes
@@ -1123,7 +1123,7 @@ func TestBriefRetiresARoutedLine(t *testing.T) {
 				t.Error(err)
 			}
 		}
-		fx := &Loop{Typer: d, Inbox: d}
+		fx := &Loop{Prompter: d, Inbox: d}
 		a.deliver(context.Background(), p, fx)
 		if reply == "" || strings.Contains(reply, "replaces") {
 			t.Errorf("brief B during A's delivery: %q; want it recorded, replacing nothing", reply)
@@ -1316,7 +1316,7 @@ func TestQueuedLeadLineAfterRename(t *testing.T) {
 			a.opt.Inboxed = func(string) (string, bool) { return "", false }
 			queueLine(t, a, p, kind, now)
 			first := &linerSpy{}
-			a.deliver(context.Background(), p, &Loop{Typer: first, Inbox: &inboxSpy{}}) // records the finished line
+			a.deliver(context.Background(), p, &Loop{Prompter: first, Inbox: &inboxSpy{}}) // records the finished line
 			if len(first.calls) != 0 || len(p.out.Queued()) != 1 || !p.out.Queued()[0].IsLead() {
 				t.Fatalf("precondition: one lead line queued, nothing typed; typed %v, queued %d", first.calls, len(p.out.Queued()))
 			}
@@ -1335,15 +1335,15 @@ func TestQueuedLeadLineAfterRename(t *testing.T) {
 
 			b.opt.Inboxed = func(string) (string, bool) { return "", false }
 			lines, posts := &linerSpy{}, &inboxSpy{}
-			b.deliver(context.Background(), q, &Loop{Typer: lines, Inbox: posts})
+			b.deliver(context.Background(), q, &Loop{Prompter: lines, Inbox: posts})
 			if len(lines.calls) != 0 || len(posts.calls) != 0 || len(q.out.Queued()) != 1 {
 				t.Fatalf("no inbox: typed %q, posted %q, queued %d; want nothing tried, still queued", lines.calls,
 					posts.calls, len(q.out.Queued()))
 			}
 
 			b.opt.Inboxed = func(string) (string, bool) { return "", true }
-			b.deliver(context.Background(), q, &Loop{Typer: lines, Inbox: posts})
-			b.deliver(context.Background(), q, &Loop{Typer: lines, Inbox: posts})
+			b.deliver(context.Background(), q, &Loop{Prompter: lines, Inbox: posts})
+			b.deliver(context.Background(), q, &Loop{Prompter: lines, Inbox: posts})
 			if len(lines.calls) != 0 || len(posts.calls) != 1 || !strings.HasPrefix(posts.calls[0], "pj-lead: [obor") ||
 				len(q.out.Queued()) != 0 {
 				t.Errorf("inbox recorded: typed %q, posted %q, queued %d; want posted once, never typed", lines.calls,
@@ -1582,7 +1582,7 @@ func TestRV90RefusedAndSettled(t *testing.T) {
 	t.Parallel()
 	h := staleHerdr(t)
 	in := &linerSpy{refuse: true}
-	fx := &Loop{Inbox: in, Typer: &linerSpy{}}
+	fx := &Loop{Inbox: in, Prompter: &linerSpy{}}
 	h.a.deliver(context.Background(), h.proj(), fx)
 	seq := answerSeq(t, h)
 	if s, _ := lineAt(h, h.proj(), seq); len(in.calls) != 1 || s != outbox.Waiting {
@@ -1594,7 +1594,7 @@ func TestRV90RefusedAndSettled(t *testing.T) {
 	}
 	in.refuse = false
 	typer := &linerSpy{}
-	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Typer: typer})
+	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Prompter: typer})
 	if len(in.calls) != 1 || len(typer.calls) != 0 {
 		t.Errorf("posts %q, typed %q at the next idle; want the settled answer never sent", in.calls, typer.calls)
 	}
@@ -1630,7 +1630,7 @@ func TestRV90RefusedReason(t *testing.T) {
 			reasons)
 	}
 	typer := &linerSpy{}
-	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Typer: typer})
+	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Prompter: typer})
 	if len(in.calls) != 2 || !slices.Equal(typer.calls, []string{"w1:p1: [obor answer] move the helpers down"}) ||
 		len(h.lines()) != 0 {
 		t.Errorf("posts %q, typed %q, queued %q; want the answer typed into w1:p1 after the refused post", in.calls,
@@ -1658,12 +1658,12 @@ func TestRefusedPostTypedOnlyWhenIdle(t *testing.T) {
 	h2.a.deliver(context.Background(), h2.proj(), &Loop{Inbox: in2})
 	h2.status("w1:p1", func(p *port.Pane) { p.Status = "working" })
 	typer := &linerSpy{}
-	h2.a.deliver(context.Background(), h2.proj(), &Loop{Inbox: in2, Typer: typer})
+	h2.a.deliver(context.Background(), h2.proj(), &Loop{Inbox: in2, Prompter: typer})
 	if len(in2.calls) != 1 || len(typer.calls) != 0 || len(h2.lines()) != 1 {
 		t.Fatalf("busy: posts %q, typed %q; want nothing sent to the working worker", in2.calls, typer.calls)
 	}
 	h2.status("w1:p1", func(p *port.Pane) { p.Status = "idle" })
-	h2.a.deliver(context.Background(), h2.proj(), &Loop{Inbox: in2, Typer: typer})
+	h2.a.deliver(context.Background(), h2.proj(), &Loop{Inbox: in2, Prompter: typer})
 	if len(in2.calls) != 1 || len(typer.calls) != 1 || len(h2.lines()) != 0 {
 		t.Errorf("idle: posts %q, typed %q, queued %q; want it typed once", in2.calls, typer.calls, h2.lines())
 	}
@@ -1714,7 +1714,7 @@ func TestRV90Drop(t *testing.T) {
 			}
 			h.status("w1:p1", func(p *port.Pane) { p.Status = "idle" })
 			in, typer := &kindSpy{}, &linerSpy{}
-			h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Typer: typer})
+			h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Prompter: typer})
 			if len(in.calls) != 0 || len(typer.calls) != 0 {
 				t.Errorf("posted %q, typed %q; want nothing sent to the lane's worker", in.calls, typer.calls)
 			}
@@ -1797,7 +1797,7 @@ func TestSettledOpenDeliveryClosedUnsent(t *testing.T) {
 			}
 			h.now = h.now.Add(msgWait + time.Minute) // it would raise its needs-you if it stayed
 			in, typer := &kindSpy{}, &linerSpy{}
-			h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Typer: typer})
+			h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Prompter: typer})
 			if len(in.calls) != 0 || len(typer.calls) != 0 {
 				t.Errorf("posted %q, typed %q; want the settled answer not sent again", in.calls, typer.calls)
 			}
@@ -1836,7 +1836,7 @@ func TestSettledOpenDeliveryClosedAfterReplay(t *testing.T) {
 	}
 	h.now = h.now.Add(msgWait + time.Minute)
 	in, typer := &kindSpy{}, &linerSpy{}
-	a.deliver(context.Background(), p, &Loop{Inbox: in, Typer: typer})
+	a.deliver(context.Background(), p, &Loop{Inbox: in, Prompter: typer})
 	if len(in.calls) != 0 || len(typer.calls) != 0 {
 		t.Errorf("posted %q, typed %q; want nothing sent", in.calls, typer.calls)
 	}
@@ -1863,7 +1863,7 @@ func TestSettledInFlightDeliveryLeftAlone(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: post, Typer: &linerSpy{}})
+		h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: post, Prompter: &linerSpy{}})
 	}()
 	<-post.started
 	submitT1(t, h)
@@ -1871,7 +1871,7 @@ func TestSettledInFlightDeliveryLeftAlone(t *testing.T) {
 		t.Fatalf("precondition: the in-flight line in state %d (queued %v), want sending settled", s, ok)
 	}
 	h.status("w1:p1", func(p *port.Pane) { p.Status = "working" })
-	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: &kindSpy{}, Typer: &linerSpy{}})
+	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: &kindSpy{}, Prompter: &linerSpy{}})
 	if closed, others := closedUnsent(h, seq); closed || len(others) != 0 {
 		t.Errorf("retired result %v, other results %q while its post runs; want none", closed, others)
 	}

@@ -457,7 +457,7 @@ func (r *rig) start() {
 	r.out = &syncBuf{}
 	r.app = app.New(app.Options{Root: r.root, Tick: 2 * time.Millisecond, Retry: 5 * time.Millisecond,
 		StepRetry: 5 * time.Millisecond, StepRetryMax: 40 * time.Millisecond,
-		Now: r.clock.Now, Out: r.out, Info: c.ProcessInfo, Procs: r.procsFn, Refresh: func(err error) bool {
+		Now: r.clock.Now, Out: r.out, Info: c.ProcessInfo, Screen: c.Screen, Procs: r.procsFn, Refresh: func(err error) bool {
 			var e *herdr.Error
 			return errors.As(err, &e) && e.Code == "refresh"
 		}, Loop: r.loop, Restore: r.restore}, panes, r.lanes)
@@ -674,7 +674,7 @@ func (d *dispatchFakes) loop(fx *app.Loop, panes herdr.Panes) {
 		fx.Workflow, fx.Specs = app.WorkflowOf(fx.Workflow, d), d
 	}
 	fx.Kit = kit
-	fx.Typer = cutPrompter{d, panes}
+	fx.Prompter = cutPrompter{d, panes.S}
 }
 
 // enter counts a call of method and gives its armed failure (nil: act).
@@ -792,15 +792,15 @@ func (d *dispatchFakes) startWorker(ctx context.Context, req port.Launch) (port.
 	return port.Started{Line: "STARTED pj-l-01", Pane: "w1:p1", Kind: "claude", Session: sid}, nil
 }
 
-// cutPrompter is the herdr typer with the work job's cut points.
+// cutPrompter is the herdr prompter with the work job's cut points.
 type cutPrompter struct {
 	d     *dispatchFakes
-	inner port.Typer
+	inner port.Prompter
 }
 
-func (c cutPrompter) Type(ctx context.Context, pane, text string, clear bool) (bool, error) {
+func (c cutPrompter) Prompt(ctx context.Context, pane, text string, clear bool) (bool, error) {
 	if !strings.HasPrefix(text, "[obor job ") || !strings.Contains(text, "/work") {
-		return c.inner.Type(ctx, pane, text, clear)
+		return c.inner.Prompt(ctx, pane, text, clear)
 	}
 	if err := c.d.enter("prompt"); err != nil {
 		return false, err
@@ -808,7 +808,7 @@ func (c cutPrompter) Type(ctx context.Context, pane, text string, clear bool) (b
 	if err := c.d.hold(ctx, "prompt", "before"); err != nil {
 		return false, err
 	}
-	if typed, err := c.inner.Type(ctx, pane, text, clear); err != nil {
+	if typed, err := c.inner.Prompt(ctx, pane, text, clear); err != nil {
 		return typed, err
 	}
 	return true, c.d.hold(ctx, "prompt", "after")
@@ -2094,7 +2094,7 @@ func (r *loopRig) launch() {
 	r.app = app.New(app.Options{Root: r.p.Root, Tick: tick, Retry: 5 * time.Millisecond, RetryMax: 40 * time.Millisecond,
 		StepRetry: retry, StepRetryMax: retryMax,
 		Now: r.clock.Now, Out: r.out, Inboxed: r.inbox.recorded, Exit: r.exit, Binary: r.binary, Follow: tick, Tokens: r.tokens,
-		Info: c.ProcessInfo, Procs: quietProcs,
+		Info: c.ProcessInfo, Screen: c.Screen, Procs: quietProcs,
 		Refresh: func(err error) bool {
 			var e *herdr.Error
 			return errors.As(err, &e) && e.Code == "refresh"
@@ -2109,7 +2109,7 @@ func (r *loopRig) launch() {
 			if r.nightOf != nil {
 				night = r.nightOf()
 			}
-			fx := &app.Loop{Workflow: app.WorkflowOf(r.scratch, r.review), Agents: r, Typer: panes, Kit: "../..", Nightly: night, Disk: r.disk,
+			fx := &app.Loop{Workflow: app.WorkflowOf(r.scratch, r.review), Agents: r, Prompter: c, Kit: "../..", Nightly: night, Disk: r.disk,
 				Inbox: r.inbox, Restart: r.restart, Config: r.config}
 			if r.disp != nil {
 				r.disp.loop(fx, panes)
@@ -2884,11 +2884,11 @@ func (r *loopRig) startWithAgents(agents port.Agents) {
 	r.out = &syncBuf{}
 	r.app = app.New(app.Options{Root: r.p.Root, Tick: 20 * time.Millisecond, Retry: 5 * time.Millisecond,
 		StepRetry: 5 * time.Millisecond, StepRetryMax: 40 * time.Millisecond,
-		Now: r.clock.Now, Out: r.out, Info: c.ProcessInfo, Procs: quietProcs, Refresh: func(err error) bool {
+		Now: r.clock.Now, Out: r.out, Info: c.ProcessInfo, Screen: c.Screen, Procs: quietProcs, Refresh: func(err error) bool {
 			var e *herdr.Error
 			return errors.As(err, &e) && e.Code == "refresh"
 		}, Loop: func(string) (*app.Loop, error) {
-			fx := &app.Loop{Workflow: app.WorkflowOf(r.scratch), Agents: agents, Typer: panes}
+			fx := &app.Loop{Workflow: app.WorkflowOf(r.scratch), Agents: agents, Prompter: c}
 			r.disp.loop(fx, panes)
 			return fx, nil
 		}},

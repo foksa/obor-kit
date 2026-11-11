@@ -198,7 +198,7 @@ func (l *Launcher) started(ctx context.Context, s Start) attempt {
 			t.err = fmt.Errorf("terminal agent start %s: no %s agent came up in %s within %s", s.Agent, s.Kind, s.Pane, l.upWait())
 			return t
 		case <-tick.C:
-			a, err := l.H.Agent(ctx, s.Pane)
+			a, err := l.H.Pane(ctx, s.Pane)
 			if err != nil {
 				continue
 			}
@@ -240,7 +240,7 @@ func up(a port.Pane, s Start) bool {
 // is no start, however ready that old agent looks; one herdr accepted and gave up on is, once herdr lists its
 // agent launched, or working on the prompt.
 func (l *Launcher) busyStart(ctx context.Context, s Start, t attempt) (port.Pane, bool) {
-	a, err := l.H.Agent(ctx, s.Pane)
+	a, err := l.H.Pane(ctx, s.Pane)
 	if err != nil || !t.counts(a, s) {
 		return a, false
 	}

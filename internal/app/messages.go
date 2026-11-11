@@ -179,7 +179,7 @@ func (a *App) logWorked(p *proj) {
 // alarms (roleWakes), and the needs-you of lines waiting longer than msgWait.
 func (a *App) deliver(ctx context.Context, p *proj, fx *Loop) {
 	a.closeSettled(ctx, p)
-	if fx.Typer == nil && fx.Inbox == nil {
+	if fx.Prompter == nil && fx.Inbox == nil {
 		return
 	}
 	now := a.opt.Now()
@@ -355,9 +355,9 @@ func (a *App) routeOf(p *proj, fx *Loop, q outbox.Line) (post, target, held stri
 	}
 	post, inboxed := a.via(fx, p, w, to)
 	switch {
-	case post != "" && inboxed && !(q.RefusedPost() && fx.Typer != nil): // after a refused post: typed
+	case post != "" && inboxed && !(q.RefusedPost() && fx.Prompter != nil): // after a refused post: typed
 		return post, to, ""
-	case fx.Typer != nil:
+	case fx.Prompter != nil:
 		return "", w.Pane.ID, ""
 	case post != "":
 		return "", "", fmt.Sprintf("no inbox recorded for the session in %s's pane %s, and serve types no lines", to,

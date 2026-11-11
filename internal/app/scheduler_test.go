@@ -36,7 +36,7 @@ func TestScratchQueuePredictsNothing(t *testing.T) {
 	h, f := seedSched(t, false)
 	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{"roles":{"integrator":""}}}`)
 	h.a.opt.Loop = func(string) (*Loop, error) {
-		return &Loop{Workflow: WorkflowOf(f), Agents: f, Typer: f,
+		return &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f,
 			Disk: &Disk{Volume: "/vol/pj", Free: func() (uint64, error) { return 1 << 30, nil }}}, nil
 	}
 	p := reloadProj(t, h)
@@ -138,7 +138,7 @@ func TestRunningGateCommand(t *testing.T) {
 	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{"roles":{"integrator":""}}}`)
 	f := &cmdScratch{schedScratch: sf, started: make(chan struct{}), blank: make(chan struct{}),
 		blanked: make(chan struct{}), release: make(chan struct{})}
-	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Workflow: WorkflowOf(f), Agents: f, Typer: f}, nil }
+	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f}, nil }
 	reloadProj(t, h)
 	if err := os.MkdirAll(h.lanes.lanes[0].Dir, 0o755); err != nil {
 		t.Fatal(err)

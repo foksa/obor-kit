@@ -44,7 +44,7 @@ func runJob(r *concRig, p *proj, task string, s *stopSpy) bool {
 	if step == nil {
 		r.t.Fatalf("%s: no step", task)
 	}
-	return step(context.Background(), &Loop{Agents: s, Typer: s})
+	return step(context.Background(), &Loop{Agents: s, Prompter: s})
 }
 
 // acceptJob is the integrator's accept of task's first review job (patch p).
@@ -253,7 +253,7 @@ func TestBriefToStoppedRoleAgent(t *testing.T) {
 				t.Fatal("no briefed fact")
 			}
 			f := &startJobFakes{concFakes: newConcFakes("")}
-			a.deliver(context.Background(), p, &Loop{Agents: f, Typer: f})
+			a.deliver(context.Background(), p, &Loop{Agents: f, Prompter: f})
 			line := "[obor pj-lead] why X?"
 			key := event.Key{Task: event.MsgTask, Step: outbox.StepDeliver + fmt.Sprint(seq)}
 			if c.started {
@@ -297,7 +297,7 @@ func TestBriefReachesCustomRole(t *testing.T) {
 		t.Errorf("reply %q, want it started fresh", reply)
 	}
 	f := &startJobFakes{concFakes: newConcFakes("")}
-	a.deliver(context.Background(), p, &Loop{Agents: f, Typer: f})
+	a.deliver(context.Background(), p, &Loop{Agents: f, Prompter: f})
 	if want := (port.Launch{Agent: "pj-ux-buddy", Pane: "w:ux", Fresh: true, Prompt: "[obor pj-lead] review the flows"}); len(f.launches) != 1 || f.launches[0] != want {
 		t.Errorf("launches %+v, want %+v", f.launches, want)
 	}
@@ -451,7 +451,7 @@ func TestBriefToStoppedWorkerStartsNothing(t *testing.T) {
 		t.Errorf("reply %q says the worker is started fresh", reply)
 	}
 	f := &startJobFakes{concFakes: newConcFakes("")}
-	a.deliver(context.Background(), p, &Loop{Agents: f, Typer: f})
+	a.deliver(context.Background(), p, &Loop{Agents: f, Prompter: f})
 	same(t, len(f.launches), 0, "starts of the stopped worker")
 	same(t, len(f.typed), 0, "lines typed")
 	a.mu.Lock()

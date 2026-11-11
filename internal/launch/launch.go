@@ -11,8 +11,8 @@
 //	         launch's, else a lane agent's lane row model), else the role / lead / agents entry's model (config.Model: base args, model id, kinds args, then --settings for
 //	         claude); no model: the kind herdr reports for the pane, else claude, no args.
 //	Where    --pane, else the pane labelled <agent> (in this project). Never a pane labelled for another
-//	         agent, never a second pane labelled <agent>, never a known agent's pane whose cwd is outside this project
-//	         Another pane holding the agent's herdr name (moving between panes) → FAIL with a hint: no moves.
+//	         agent, never a second pane labelled <agent> (no moves between panes), never a known agent's pane whose cwd
+//	         is outside this project.
 //	Session  the recorded sid, else the one herdr reports for the pane (never herdr's for a kind whose sessions obor
 //	         names itself: Claude); --fresh: a new one. None → FAIL (pass --fresh), checked before anything is
 //	         stopped. A fresh start of such a kind records the id obor chose before the agent runs. A recorded Claude
@@ -494,12 +494,6 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	}
 	defer end()
 
-	// Another pane holds the herdr name: herdr would refuse the start. No moves: FAIL before anything is stopped.
-	if a, err := l.H.Agent(ctx, t.agent); err == nil && a.ID != "" && a.ID != t.pane {
-		return port.Started{}, project.Failf("pane %s holds the name %s: restart it there (obor restart %s)",
-			a.ID, t.agent, t.agent)
-	}
-
 	// The session, checked before anything is stopped: none and no --fresh → FAIL.
 	// A kind that resumes nothing (agents.Caps.Resume false: OpenCode) always starts fresh: serve records its
 	// session, but there is nothing obor resumes. The recorded session wins: herdr's live one for the pane is a
@@ -633,7 +627,7 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	}
 	switch {
 	case wake != "" && sid != "":
-		if err := l.H.Wake(ctx, t.pane, wake); err != nil {
+		if _, err := l.H.Prompt(ctx, t.pane, wake, false); err != nil {
 			l.say("warning: %s's wake not typed into pane %s: %v (type it there: %s)", what, t.pane, err, wake)
 		} else {
 			l.say("%s: its wake typed", what)
@@ -756,7 +750,7 @@ func (l *Launcher) setEnv(ctx context.Context, t *target) error {
 	// the old env — and its failure word when it failed, so a visible failure ends the wait at once instead
 	// of at the timeout.
 	okMark, badMark := envMark(), envMark()
-	if err := l.H.Type(ctx, t.pane, envLine(t)+" && echo "+okMark.typed+" || echo "+badMark.typed); err != nil {
+	if err := l.H.Write(ctx, t.pane, envLine(t)+" && echo "+okMark.typed+" || echo "+badMark.typed, true); err != nil {
 		return project.Failf("terminal pane run %s (env) failed", t.pane)
 	}
 	// One server-owned wait for either mark (the echoed words, which the typed line's quoted forms never match): its

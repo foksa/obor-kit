@@ -1,8 +1,8 @@
 // Package port holds the ports of obor's core (docs/module-map.md): the interfaces the core drives its adapters
 // through and the plain types they exchange. It is a leaf below package app, so an adapter reaches the core's contract
 // without importing the core: the terminal's events and snapshot (Pane, Snapshot, Event, Stream, Panes) and the one
-// value cmd/obor builds of them (Terminal), the lane table (Lane, Lanes) and the effects of effects.go (Agents, Typer,
-// PaneControl, Starter, Scratch, LaneSetup and their types).
+// value cmd/obor builds of them (Terminal), the lane table (Lane, Lanes) and the effects of effects.go (Agents,
+// Prompter, PaneControl, Starter, Scratch, LaneSetup and their types).
 package port
 
 import (
@@ -13,20 +13,16 @@ import (
 // Pane is one terminal pane as the core sees it: the pane's own fields and those of the agent that runs in it (none:
 // the agent fields are empty). It is the one shape the terminal adapter's agent and pane answers, its snapshot and its
 // stream's events use, in terminal-neutral terms (the herdr adapter keeps herdr's own tab and workspace
-// ids to itself).
+// ids, and the name it runs an agent under, to itself).
 type Pane struct {
 	ID string
 	// Group is the group the terminal shows the pane in, by the name a person reads (herdr: its workspace's label):
 	// the app serves a pane whose group is its project's name. Set by Panes' snapshot and stream; "" in PaneControl's
 	// answers and when the terminal reports none.
-	Group string
-	Cwd   string
-	Label string // the pane's label (obor's agent name, set by its launch); kept when an event has none
-	Agent string // the agent's kind ("" when none runs)
-	// Name is the name the terminal runs the agent under (PaneControl.Start's name, Agent's target), "" when it has
-	// none (it exited, or a restore dropped it): launch and setup find a running agent by it; the app never identifies
-	// a pane by it (registry.go).
-	Name       string
+	Group      string
+	Cwd        string
+	Label      string // the pane's label (obor's agent name, set by its launch); kept when an event has none
+	Agent      string // the agent's kind ("" when none runs)
 	Status     string // idle, working, blocked, done, unknown
 	Transcript string // the agent's transcript file when the terminal reports one, else ""
 	// Session is the agent's raw session as the terminal reports it (an id, or a path), "" when none: the session's
@@ -96,13 +92,12 @@ func Refreshed(err error) bool {
 }
 
 // Terminal is the project's terminal as cmd/obor builds it from the project's terminal kind (config.TerminalKind): the
-// panes and their events (Panes), the pane operations launch needs (PaneControl), the wakes and lines typed into agents
-// (Typer) and what setup asks of it (TerminalSetup). The four are fields rather than one interface because
-// PaneControl.Type and Typer.Type are one name with two signatures; a terminal implements all four.
+// panes and their events (Panes), the pane operations launch needs and the wakes and lines typed to agents
+// (PaneControl, a Prompter) and what setup asks of it (TerminalSetup). They are fields, not one interface: an adapter
+// may answer them from separate values (herdr's Setup is one setup run's); a terminal implements all three.
 type Terminal struct {
 	Panes   Panes
 	Control PaneControl
-	Typer   Typer
 	Setup   TerminalSetup
 }
 
@@ -113,8 +108,6 @@ type Panes interface {
 	// from. A pane's cwd can change with no event (a cd in it, obor setup pane moving it into a lane), so the snapshot
 	// the stream gave can be stale.
 	Snapshot(ctx context.Context) (Snapshot, error)
-	// Screen is pane's visible text, its last lines: what a blocked pane asks a person.
-	Screen(ctx context.Context, pane string, lines int) (string, error)
 	Notify(ctx context.Context, title, body string) error
 }
 

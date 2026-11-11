@@ -735,15 +735,15 @@ func TestOborInitSetsTheLeadsType(t *testing.T) {
 func TestOborInitPrefixUniqueAgainstRunningAgents(t *testing.T) {
 	t.Parallel()
 	x := newFakeGitInitFx(t, true)
-	x.h.Agent("w9:a1", "proj-lead", "idle", "/elsewhere")
-	x.h.Agent("w9:a2", "proj2-lead", "idle", "/elsewhere2")
+	x.h.Agent("w9:a1", "proj-lead", "idle", "/elsewhere").Label = "proj-lead"
+	x.h.Agent("w9:a2", "proj2-lead", "idle", "/elsewhere2").Label = "proj2-lead"
 	x.init(t)
 	cfg, err := config.Load(x.Root)
 	if err != nil || cfg.Data.Project.AgentPrefix != "proj3" {
 		t.Fatalf("prefix %q (%v), want proj3", cfg.Data.Project.AgentPrefix, err)
 	}
 	y := newFakeGitInitFx(t, true)
-	y.h.Agent("w9:a1", "proj-lead", "idle", "/elsewhere")
+	y.h.Agent("w9:a1", "proj-lead", "idle", "/elsewhere").Label = "proj-lead"
 	y.init(t, "--prefix", "proj")
 	if cfg, _ := config.Load(y.Root); cfg.Data.Project.AgentPrefix != "proj" {
 		t.Errorf("explicit prefix %q", cfg.Data.Project.AgentPrefix)

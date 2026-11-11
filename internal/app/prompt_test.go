@@ -32,7 +32,7 @@ func TestPromptFreshDelivered(t *testing.T) {
 	}
 }
 
-// Enter lost → submit-only is the Typer's own row: herdr.TestPanesPromptDelivery ("enter lost: one submit-only").
+// Enter lost → submit-only is the Prompter's own row: herdr.TestPanesPromptDelivery ("enter lost: one submit-only").
 
 // The send succeeds, its result's write fails: the next pass writes the
 // result, nothing is typed again and no failure is counted.
@@ -148,7 +148,7 @@ func TestPromptIntegratorJob(t *testing.T) {
 	t.Parallel()
 	h, s := seedSched(t, true)
 	f := &boxPrompter{box: map[string]string{"w1:p9": "[obor job T-2/1/review]"}}
-	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Workflow: WorkflowOf(s), Agents: s, Typer: f}, nil }
+	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Workflow: WorkflowOf(s), Agents: s, Prompter: f}, nil }
 	p := h.proj()
 	raw, _ := json.Marshal(promptData{Agent: "pj-int", Job: "T-2/1/review"})
 	r, err := p.log.Append(event.Record{Task: "T-2", Attempt: 1, Step: event.StepReview, Kind: event.KindIntent, Class: event.ClassPrompt,

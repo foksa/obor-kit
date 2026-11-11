@@ -73,12 +73,12 @@ func (a *App) send(ctx context.Context, p *proj, fx *Loop, mt mtask, key event.K
 // via is how a wake or a line reaches agent, identified at w (under mu): posted to its session's inbox as kind post
 // (w's pane's kind has one: posted) or typed into w's pane (post ""). inboxed: post's inbox can take it (fx.Inbox, and
 // agent's record is the session live in w's pane (liveSession) or names none); false for a typed
-// one when fx has no Typer.
+// one when fx has no Prompter.
 func (a *App) via(fx *Loop, p *proj, w Where, agent string) (post string, inboxed bool) {
 	if w.State == Identified && posted(w.Pane.Agent) {
 		return w.Pane.Agent, fx.Inbox != nil && a.inboxedAt(p, agent, w)
 	}
-	return "", fx.Typer != nil
+	return "", fx.Prompter != nil
 }
 
 // transmit sends text to target: posted to agent target's session through kind post's inbox, or, post "", typed into
@@ -87,7 +87,7 @@ func (fx *Loop) transmit(ctx context.Context, post, target, text string, clear b
 	if post != "" {
 		return fx.Inbox.Post(ctx, post, target, text)
 	}
-	return fx.Typer.Type(ctx, target, text, clear)
+	return fx.Prompter.Prompt(ctx, target, text, clear)
 }
 
 // sentStart is the result of a delivery an agent's start carried: a job's wake as its first prompt (startJob), or a

@@ -50,13 +50,13 @@ func (l *Launcher) evidence(ctx context.Context, t *target) string {
 	var b strings.Builder
 
 	status := "(unavailable: no agent in the pane)"
-	if a, err := l.H.Agent(ctx, t.pane); err == nil {
+	if a, err := l.H.Pane(ctx, t.pane); err != nil {
+		status = fmt.Sprintf("(unavailable: %v)", err)
+	} else if a.Agent != "" {
 		status = a.Status
 		if status == "" {
 			status = "unknown"
 		}
-	} else {
-		status = fmt.Sprintf("(unavailable: %v)", err)
 	}
 	fmt.Fprintf(&b, "agent status: %s\n", clip(status))
 

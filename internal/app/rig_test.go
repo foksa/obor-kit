@@ -49,7 +49,7 @@ func acceptAt(t *testing.T, h *harness, f *schedScratch, gate, kind string, rev 
 		Candidate: port.Candidate{Task: "T-1", SHA: sha, Target: "base1", Patch: "same-diff"}})
 	p := h.a.p
 	mt := *p.folded.loop["T-1"]
-	if !h.a.job(ctx, p, &Loop{Agents: f, Typer: f}, mt, nth(event.StepReview, mt.reviews+1)) {
+	if !h.a.job(ctx, p, &Loop{Agents: f, Prompter: f}, mt, nth(event.StepReview, mt.reviews+1)) {
 		t.Fatal("precondition: the review job was not sent")
 	}
 	if _, err := h.a.verdict(ctx, wire.VerdictReq{Envelope: wire.Envelope{Root: h.root, Agent: "pj-int",
@@ -97,7 +97,7 @@ func seedRoles(t *testing.T) (*harness, *schedScratch) {
 		port.Pane{ID: "w1:rev", Group: "pj", Cwd: filepath.Join(h.wt, "reviewer"), Agent: "claude", Label: "pj-rev", Status: "idle"},
 		port.Pane{ID: "w1:dd", Group: "pj", Cwd: filepath.Join(h.wt, "deep_dive"), Agent: "claude", Label: "pj-deep-dive", Status: "idle"})
 	f := &schedScratch{h: h}
-	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Workflow: WorkflowOf(f), Agents: f, Typer: f}, nil }
+	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f}, nil }
 	if err := os.MkdirAll(h.lanes.lanes[0].Dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func newAdmitRig(t *testing.T, gated bool) *admitRig {
 	if gated {
 		r.s.release = make(chan struct{})
 	}
-	r.fx = &Loop{Workflow: WorkflowOf(r.s, r.git), Agents: r.agents, Typer: f}
+	r.fx = &Loop{Workflow: WorkflowOf(r.s, r.git), Agents: r.agents, Prompter: f}
 	h.a.opt.Loop = func(string) (*Loop, error) { return r.fx, nil }
 	return r
 }
@@ -307,7 +307,7 @@ func busyAnswered(t *testing.T) *harness {
 	h := staleHerdr(t)
 	h.status("w1:p1", func(p *port.Pane) { p.Status = "working" })
 	in := &kindSpy{}
-	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Typer: &linerSpy{}})
+	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Prompter: &linerSpy{}})
 	if len(in.calls) != 0 || len(h.lines()) != 1 || len(h.a.Status().Project.Messages) != 1 {
 		t.Fatalf("precondition: posted %q, queued %q; want the answer waiting for the busy worker", in.calls, h.lines())
 	}
@@ -379,7 +379,7 @@ func (r *concRig) reload(name string) (*App, *proj) {
 // goroutine and the test at once.
 
 // concFakes is one project's adapters: its Scratch the package's one fake (FakeWorkflow: gates green, a held gate,
-// publish, resolved check or lane test waits for its release), its Agents, Typer, LaneSetup and Specs.
+// publish, resolved check or lane test waits for its release), its Agents, Prompter, LaneSetup and Specs.
 type concFakes struct {
 	*FakeWorkflow
 	restarts int // under the FakeWorkflow's mu
@@ -424,7 +424,7 @@ func (f *concFakes) Stop(_ context.Context, agent, _ string, force bool) (string
 	return "STOPPED", nil
 }
 
-func (f *concFakes) Type(context.Context, string, string, bool) (bool, error) {
+func (f *concFakes) Prompt(context.Context, string, string, bool) (bool, error) {
 	return true, nil
 }
 
@@ -485,7 +485,7 @@ func newConcRig(t *testing.T) *concRig {
 		r.roots[name] = root
 		f := newConcFakes("")
 		r.fakes[name] = f
-		fx := &Loop{Workflow: WorkflowOf(f), Agents: f, Typer: f, Kit: r.kit}
+		fx := &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f, Kit: r.kit}
 		if name == "pj" {
 			fx.Specs = f
 		}
@@ -659,7 +659,7 @@ func (r *concRig) running(name, task string) string {
 }
 
 func (f *concFakes) loopWithSpecs(kit string) *Loop {
-	return &Loop{Workflow: WorkflowOf(f), Agents: f, Typer: f, Specs: f, Kit: kit}
+	return &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f, Specs: f, Kit: kit}
 }
 
 // needsForceErr is launch's refusal of a stop without force that only force gets past (port.NeedsForce).
@@ -2220,7 +2220,7 @@ func taskMerged(task, head string) lineStep {
 
 // The project's lines survive a restart (orderly and SIGKILL) and an off-target checkout.
 
-// linerSpy is a Typer and a Poster that records each line typed or posted (the lead's); refuse: refused before
+// linerSpy is a Prompter and a Poster that records each line typed or posted (the lead's); refuse: refused before
 // typing; hang: typing begins and never returns (the process is killed there).
 type linerSpy struct {
 	calls  []string
@@ -2228,7 +2228,7 @@ type linerSpy struct {
 	hang   func()
 }
 
-func (l *linerSpy) Type(_ context.Context, agent, text string, _ bool) (bool, error) {
+func (l *linerSpy) Prompt(_ context.Context, agent, text string, _ bool) (bool, error) {
 	l.calls = append(l.calls, agent+": "+text)
 	switch {
 	case l.hang != nil:
@@ -2241,11 +2241,11 @@ func (l *linerSpy) Type(_ context.Context, agent, text string, _ bool) (bool, er
 }
 
 func (l *linerSpy) Post(ctx context.Context, _, agent, line string) (bool, error) {
-	return l.Type(ctx, agent, line, false)
+	return l.Prompt(ctx, agent, line, false)
 }
 
 // linerLoop is a loop whose lines go to l, typed and posted.
-func linerLoop(l *linerSpy) *Loop { return &Loop{Typer: l, Inbox: l} }
+func linerLoop(l *linerSpy) *Loop { return &Loop{Prompter: l, Inbox: l} }
 
 // lineRoot is a merging project with a reviewer role.
 func lineRoot(t *testing.T) string {
@@ -2563,7 +2563,7 @@ func needsMessages(t *testing.T, p *proj) []event.Message {
 // docs/state-model.md "Prompts" (the wake contract) and row 4's agent.start replay. The first
 // action after the setup is the case's entry.
 
-// boxPrompter is a Typer whose agents never take a prompt by themselves: what is typed stays in the pane's box (box),
+// boxPrompter is a Prompter whose agents never take a prompt by themselves: what is typed stays in the pane's box (box),
 // so a second typing on top of an unsent one shows. Each call takes the next scripted outcome (then: typed).
 type boxPrompter struct {
 	outcomes []boxOutcome
@@ -2577,7 +2577,7 @@ type boxOutcome struct {
 	err   error
 }
 
-func (f *boxPrompter) Type(_ context.Context, pane, text string, clear bool) (bool, error) {
+func (f *boxPrompter) Prompt(_ context.Context, pane, text string, clear bool) (bool, error) {
 	job := jobOf(text)
 	f.jobs, f.clears = append(f.jobs, job), append(f.clears, clear)
 	o := boxOutcome{typed: true}
@@ -2645,7 +2645,7 @@ func promptRig(t *testing.T, started bool, before ...func(h *harness)) (*harness
 	kit, _ := filepath.Abs("../..")
 	f := &boxPrompter{box: map[string]string{}}
 	ag := &startAgents{h: h, sid: "new-session"}
-	return h, &Loop{Workflow: WorkflowOf(s), Agents: ag, Typer: f, Kit: kit}, f, ag
+	return h, &Loop{Workflow: WorkflowOf(s), Agents: ag, Prompter: f, Kit: kit}, f, ag
 }
 
 // proj is pj now (a reload replaces it).
@@ -2720,7 +2720,7 @@ func seedQuestions(t *testing.T, report string) (*harness, *schedScratch) {
 	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{"roles":{"integrator":""}}}`)
 	f := &schedScratch{h: h}
 	h.a.opt.Loop = func(string) (*Loop, error) {
-		return &Loop{Workflow: WorkflowOf(f), Agents: f, Typer: f, Kit: "../.."}, nil
+		return &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f, Kit: "../.."}, nil
 	}
 	if err := os.MkdirAll(h.lanes.lanes[0].Dir, 0o755); err != nil {
 		t.Fatal(err)
@@ -2749,7 +2749,7 @@ func pickGreenStep(t *testing.T, h *harness, f *schedScratch, replay bool) *mtas
 		p = reloadProj(t, h)
 	}
 	s := h.a.pickGreen(p, *p.folded.loop["T-1"])
-	if s == nil || !s(context.Background(), &Loop{Agents: f, Typer: f}) {
+	if s == nil || !s(context.Background(), &Loop{Agents: f, Prompter: f}) {
 		t.Fatal("pickGreen: no step, or it failed")
 	}
 	return p.folded.loop["T-1"]
@@ -3267,10 +3267,10 @@ func (r *reviewRig) finish() {
 	if r.p.out.Brief("pj-rev") == nil {
 		r.t.Fatal("precondition: the reviewer has no open brief to finish")
 	}
-	r.a.deliver(context.Background(), r.p, &Loop{Typer: &linerSpy{}})
+	r.a.deliver(context.Background(), r.p, &Loop{Prompter: &linerSpy{}})
 	r.working(true)
 	r.working(false)
-	r.a.deliver(context.Background(), r.p, &Loop{Typer: &linerSpy{}})
+	r.a.deliver(context.Background(), r.p, &Loop{Prompter: &linerSpy{}})
 	if r.p.out.Brief("pj-rev") != nil {
 		r.t.Fatal("precondition: the reviewer's brief is still open after its work")
 	}
@@ -3301,7 +3301,7 @@ func briefedVerify(t *testing.T) *reviewRig {
 	r.merged("T-a")
 	r.merged("T-b")
 	r.verifyPass()
-	r.a.deliver(context.Background(), r.p, &Loop{Typer: &linerSpy{}})
+	r.a.deliver(context.Background(), r.p, &Loop{Prompter: &linerSpy{}})
 	r.working(true)
 	if n := len(verifyBriefs(t, r.p.root)); n != 1 || r.p.out.Brief("pj-rev") == nil || r.pending() != "T-a,T-b" {
 		t.Fatalf("precondition: %d verify briefs, brief open %t, pending %q; want one open, T-a,T-b pending", n,
@@ -3465,7 +3465,7 @@ func (f *schedScratch) Stop(context.Context, string, string, bool) (string, erro
 	return "stopped", nil
 }
 
-func (f *schedScratch) Type(context.Context, string, string, bool) (bool, error) {
+func (f *schedScratch) Prompt(context.Context, string, string, bool) (bool, error) {
 	return true, nil
 }
 
@@ -3479,7 +3479,7 @@ func seedSched(t *testing.T, serve bool, before ...func(h *harness)) (*harness, 
 	}
 	h.write(filepath.Join(h.root, ".obor", "config.json"), cfg)
 	f := &schedScratch{h: h}
-	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Workflow: WorkflowOf(f), Agents: f, Typer: f}, nil }
+	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f}, nil }
 	if err := os.MkdirAll(h.lanes.lanes[0].Dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -3701,7 +3701,7 @@ func (f *startJobFakes) Launch(_ context.Context, l port.Launch) (port.Started, 
 	return port.Started{Line: "STARTED"}, nil
 }
 
-func (f *startJobFakes) Type(_ context.Context, _, text string, _ bool) (bool, error) {
+func (f *startJobFakes) Prompt(_ context.Context, _, text string, _ bool) (bool, error) {
 	f.typed = append(f.typed, text)
 	return true, nil
 }
@@ -3736,7 +3736,7 @@ func same[T comparable](t *testing.T, got, want T, what string) {
 	}
 }
 
-// Probe effects: start runs inside Restart (an agent obeying its CLI first prompt); typed are the Typer's
+// Probe effects: start runs inside Restart (an agent obeying its CLI first prompt); typed are the Prompter's
 // texts.
 type startEffects struct {
 	*concFakes
@@ -3751,7 +3751,7 @@ func (f *startEffects) Launch(_ context.Context, l port.Launch) (port.Started, e
 	return port.Started{Line: "STARTED"}, nil
 }
 
-func (f *startEffects) Type(_ context.Context, agent, text string, clear bool) (bool, error) {
+func (f *startEffects) Prompt(_ context.Context, agent, text string, clear bool) (bool, error) {
 	f.typed = append(f.typed, text)
 	return true, nil
 }
@@ -3819,11 +3819,14 @@ func (h *harness) t1() mtask {
 	return *h.a.p.folded.loop["T-1"]
 }
 
-// newTestApp is New with the test's own scripted activity: a package test's app reads Busy, Activity and Turn from
-// its fake panes (activity.go), as the test scripts them.
+// newTestApp is New with the test's own scripted activity and screen: a package test's app reads Busy, Activity and
+// Turn from its fake panes (activity.go) and a blocked pane's question from their Screen, as the test scripts them.
 func newTestApp(opt Options, panes *fakePanes, lanes *fakeLanes) *App {
 	if opt.Activity == nil {
 		opt.Activity = panes
+	}
+	if opt.Screen == nil {
+		opt.Screen = panes.Screen
 	}
 	return New(opt, panes, lanes)
 }

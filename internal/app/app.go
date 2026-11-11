@@ -1,6 +1,6 @@
 // Package app is obor's core (docs/module-map.md): the per-project event log, its replay, the watchdogs over the
 // agents herdr reports and the merge loop (loop.go). Adapters reach it through the interfaces it defines: Panes
-// (herdr's events and snapshot), Lanes (which lane holds which task) and the merge loop's Gate, Agents and Typer.
+// (herdr's events and snapshot), Lanes (which lane holds which task) and the merge loop's Gate, Agents and Prompter.
 // The watchdogs only observe: what needs the owner is a rule pass's (rules.go), which toasts the owner and lines the
 // lead.
 //
@@ -75,6 +75,9 @@ type Options struct {
 	Home string
 	// Info is the terminal's process info of one pane (Activity's child-process check; nil: unknown activity).
 	Info func(ctx context.Context, pane string) (port.ProcessInfo, error)
+	// Screen is a pane's visible text, its last lines, as the terminal shows it: what a blocked pane asks a person
+	// (nil: a blocked needs-you carries no question).
+	Screen func(ctx context.Context, pane string, lines int) (string, error)
 	// Procs is the machine's process table (Activity's child-process check; nil: background.ReadProcs).
 	Procs func(ctx context.Context) ([]background.Proc, error)
 	// Restore restarts the project's labelled panes that run no agent, after the terminal connection came back

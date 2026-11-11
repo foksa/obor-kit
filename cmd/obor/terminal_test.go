@@ -9,5 +9,5 @@ import (
 // fakeTerminal is the project's terminal over a fake herdr socket, as terminal builds one for herdr (a test's).
 func fakeTerminal(s *herdr.Socket, env project.Env) port.Terminal {
 	p := herdr.Panes{S: s}
-	return port.Terminal{Panes: p, Control: s, Typer: p, Setup: &herdr.Setup{Socket: s, Env: env}}
+	return port.Terminal{Panes: p, Control: s, Setup: &herdr.Setup{Socket: s, Env: env}}
 }

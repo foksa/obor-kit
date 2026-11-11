@@ -232,7 +232,7 @@ func (l *lab) manifestPlugin() (string, error) {
 // pane.send_input typed, which answers the dialog). Whether a trust dialog showed.
 func trustDialog(l *lab, pane string, s started) bool {
 	whereT := at("internal/launch/start.go", "var trustRE") + ", CAP §2.1"
-	whereB := at(launchGo, "l.H.Wake(") + ", " + at(socketGo, "func (s *Socket) Wake") + ", F3.3"
+	whereB := at(launchGo, "l.H.Prompt(") + ", " + at(socketGo, "func (s *Socket) Prompt") + ", F3.3"
 	trust := sourceRegexp("internal/launch/start.go", "trustRE")
 	if trust == nil {
 		report("FAIL", "CC-L5", "internal/launch/start.go has no trustRE to check", whereT)

@@ -45,12 +45,12 @@ var Contract = []Row{
 		if _, err := t.Control.Start(ctx, name, "claude", pane, nil); err != nil {
 			return fmt.Errorf("start: %w", err)
 		}
-		if err := t.Control.Wait(ctx, name, []string{"idle", "done"}, 30*time.Second); err != nil {
+		if err := t.Control.WaitStatus(ctx, pane, []string{"idle", "done"}, 30*time.Second); err != nil {
 			return fmt.Errorf("wait for the started agent to be idle: %w", err)
 		}
-		a, err := t.Control.Agent(ctx, name)
-		if err != nil || a.ID != pane || a.Name != name {
-			return fmt.Errorf("the started agent by its name = %+v, %v; want it in pane %s under %s", a, err, pane, name)
+		a, err := t.Control.Pane(ctx, pane)
+		if err != nil || a.ID != pane || a.Agent != "claude" {
+			return fmt.Errorf("the pane after the start = %+v, %v; want pane %s running a claude agent", a, err, pane)
 		}
 		return nil
 	}},
@@ -121,8 +121,8 @@ var Contract = []Row{
 	}},
 	{Name: "type with guard", Run: func(ctx context.Context, t Terminal, pane string) error {
 		const what = "obor-contract-guarded"
-		if err := t.Control.Wake(ctx, pane, what); !port.NotFound(err) {
-			return fmt.Errorf("the guarded type at a shell: %v; want it refused before typing (not found)", err)
+		if began, err := t.Control.Prompt(ctx, pane, what, false); began || !port.NotFound(err) {
+			return fmt.Errorf("a prompt at a shell: began %v, %v; want it refused before typing (not found)", began, err)
 		}
 		text, err := t.Control.Screen(ctx, pane, 40)
 		if err != nil || strings.Contains(text, what) {
@@ -131,10 +131,10 @@ var Contract = []Row{
 		return nil
 	}},
 	{Name: "keys", Run: func(ctx context.Context, t Terminal, pane string) error {
-		if err := t.Control.SendKeys(ctx, pane, "ctrl+u"); err != nil {
+		if err := t.Control.SendKeys(ctx, pane, port.KeyCtrlU); err != nil {
 			return fmt.Errorf("keys to the pane: %w", err)
 		}
-		if err := t.Control.SendKeys(ctx, missing, "ctrl+u"); !port.NotFound(err) {
+		if err := t.Control.SendKeys(ctx, missing, port.KeyCtrlU); !port.NotFound(err) {
 			return fmt.Errorf("keys to a missing pane: %v; want a not-found error", err)
 		}
 		return nil
@@ -225,8 +225,8 @@ const missing = "obor-contract-missing:p0"
 // typed types a command line at the pane's shell that prints obor-contract-<word>, and waits for that output. The
 // line quotes word, so only the shell's output matches, never the typed line itself.
 func typed(ctx context.Context, t Terminal, pane, word string) error {
-	if err := t.Control.Type(ctx, pane, "true && echo obor-contract-\""+word+"\""); err != nil {
-		return fmt.Errorf("type: %w", err)
+	if err := t.Control.Write(ctx, pane, "true && echo obor-contract-\""+word+"\"", true); err != nil {
+		return fmt.Errorf("write: %w", err)
 	}
 	if _, err := t.Control.WaitForOutput(ctx, pane, "obor-contract-"+word, 10*time.Second); err != nil {
 		return fmt.Errorf("wait for the typed line's output: %w", err)

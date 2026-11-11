@@ -48,7 +48,7 @@ func TestMergeDuringAReviewPublishesAtOnce(t *testing.T) {
 					t.Fatal(err)
 				}
 				f := &schedScratch{h: h}
-				h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Workflow: WorkflowOf(f), Agents: f, Typer: f}, nil }
+				h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f}, nil }
 			}
 			h.a.mu.Lock()
 			briefed := c.to != "" && h.a.p.out.Brief(c.to) != nil

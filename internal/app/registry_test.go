@@ -30,7 +30,7 @@ func TestIdentStartByServe(t *testing.T) {
 
 	h.a.opt.Inboxed = func(string) (string, bool) { return "", true }
 	in, typed := &inboxSpy{}, &boxPrompter{box: map[string]string{}}
-	if !h.wake(&Loop{Inbox: in, Typer: typed}) {
+	if !h.wake(&Loop{Inbox: in, Prompter: typed}) {
 		t.Fatal("wake not sent")
 	}
 	if len(in.calls) != 1 || !strings.HasPrefix(in.calls[0], "pj-l-01: [obor job T-1/1/work]") || len(typed.jobs) != 0 {
@@ -50,7 +50,7 @@ func TestIdentRestartByLead(t *testing.T) {
 	eqs(t, h.where("pj-l-01"), "identified w1:p1 session", "where")
 	h.brief("pj-l-01", "[obor pj-lead] verify")
 	l := &linerSpy{}
-	h.a.deliver(context.Background(), h.proj(), &Loop{Typer: l})
+	h.a.deliver(context.Background(), h.proj(), &Loop{Prompter: l})
 	if !slices.Equal(l.calls, []string{"w1:p1: [obor pj-lead] verify"}) {
 		t.Errorf("typed %q, want the brief into w1:p1", l.calls)
 	}
@@ -154,7 +154,7 @@ func TestIdentStartedByHand(t *testing.T) {
 	eqs(t, h.where("pj-l-01"), "identified w1:p1 label", "where")
 	h.brief("pj-l-01", "[obor pj-lead] review this")
 	l := &linerSpy{}
-	h.a.deliver(context.Background(), h.proj(), &Loop{Typer: l})
+	h.a.deliver(context.Background(), h.proj(), &Loop{Prompter: l})
 	if !slices.Equal(l.calls, []string{"w1:p1: [obor pj-lead] review this"}) || len(h.lines()) != 0 {
 		t.Errorf("typed %q, queued %q; want the brief delivered into w1:p1", l.calls, h.lines())
 	}
@@ -173,7 +173,7 @@ func TestIdentNameDropped(t *testing.T) {
 	eqs(t, h.where("pj-l-01"), before, "after herdr dropped the name")
 	h.brief("pj-l-01", "[obor pj-lead] verify")
 	l := &linerSpy{}
-	h.a.deliver(context.Background(), h.proj(), &Loop{Typer: l})
+	h.a.deliver(context.Background(), h.proj(), &Loop{Prompter: l})
 	if !slices.Equal(l.calls, []string{"w1:p1: [obor pj-lead] verify"}) {
 		t.Errorf("typed %q, want the line addressed to w1:p1", l.calls)
 	}
@@ -189,7 +189,7 @@ func TestIdentTwoLabels(t *testing.T) {
 	h.connect()
 	eqs(t, h.where("pj-l-01"), "ambiguous w1:p1 w1:p3", "where")
 	f := &boxPrompter{box: map[string]string{}}
-	if h.wake(&Loop{Typer: f}) || len(f.jobs) != 0 || h.count(event.KindIntent, event.StepWork) != 0 {
+	if h.wake(&Loop{Prompter: f}) || len(f.jobs) != 0 || h.count(event.KindIntent, event.StepWork) != 0 {
 		t.Errorf("typed %q, %d intents; want nothing", f.jobs, h.count(event.KindIntent, event.StepWork))
 	}
 	st := h.a.Status()
@@ -319,7 +319,7 @@ func TestIdentDuplicateLater(t *testing.T) {
 	}
 	h.brief("pj-l-01", "[obor pj-lead] verify")
 	l := &linerSpy{}
-	h.a.deliver(context.Background(), h.proj(), &Loop{Typer: l})
+	h.a.deliver(context.Background(), h.proj(), &Loop{Prompter: l})
 	if len(l.calls) != 0 || len(h.lines()) != 1 {
 		t.Errorf("typed %q, queued %q; want the line held", l.calls, h.lines())
 	}
@@ -448,7 +448,7 @@ func TestIdentAmbiguityDuringWake(t *testing.T) {
 	h.add(h.twin())
 	eqs(t, h.where("pj-l-01"), "ambiguous w1:p1 w1:p3", "where")
 	f := &boxPrompter{box: map[string]string{}}
-	fx := &Loop{Typer: f}
+	fx := &Loop{Prompter: f}
 	if h.wake(fx) || len(f.jobs) != 0 {
 		t.Fatalf("typed %q while ambiguous", f.jobs)
 	}
@@ -470,13 +470,13 @@ func TestIdentAmbiguityEnds(t *testing.T) {
 	h.connect()
 	h.brief("pj-l-01", "[obor pj-lead] verify")
 	l := &linerSpy{}
-	h.a.deliver(context.Background(), h.proj(), &Loop{Typer: l})
+	h.a.deliver(context.Background(), h.proj(), &Loop{Prompter: l})
 	if len(l.calls) != 0 {
 		t.Fatalf("precondition: held while ambiguous, typed %q", l.calls)
 	}
 	h.remove("w1:p3", port.EventClosed)
 	eqs(t, h.where("pj-l-01"), "identified w1:p1 label", "where")
-	h.a.deliver(context.Background(), h.proj(), &Loop{Typer: l})
+	h.a.deliver(context.Background(), h.proj(), &Loop{Prompter: l})
 	if !slices.Equal(l.calls, []string{"w1:p1: [obor pj-lead] verify"}) || len(h.lines()) != 0 {
 		t.Errorf("typed %q, queued %q; want the brief delivered into w1:p1", l.calls, h.lines())
 	}
@@ -490,12 +490,12 @@ func TestIdentNotConnected(t *testing.T) {
 	h.a.loadProject()
 	eqs(t, h.where("pj-l-01"), "unavailable not connected", "where")
 	f := &boxPrompter{box: map[string]string{}}
-	if h.wake(&Loop{Typer: f}) || len(f.jobs) != 0 || h.count(event.KindIntent, event.StepWork) != 0 {
+	if h.wake(&Loop{Prompter: f}) || len(f.jobs) != 0 || h.count(event.KindIntent, event.StepWork) != 0 {
 		t.Errorf("wake typed %q before the first snapshot", f.jobs)
 	}
 	h.brief("pj-l-01", "[obor pj-lead] verify")
 	l := &linerSpy{}
-	h.a.deliver(context.Background(), h.proj(), &Loop{Typer: l})
+	h.a.deliver(context.Background(), h.proj(), &Loop{Prompter: l})
 	if len(l.calls) != 0 || len(h.lines()) != 1 {
 		t.Errorf("typed %q, queued %q; want the line queued", l.calls, h.lines())
 	}
@@ -518,7 +518,7 @@ func TestIdentLeadTwoPanes(t *testing.T) {
 		t.Fatal("line not recorded")
 	}
 	in := &inboxSpy{}
-	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Typer: &linerSpy{}})
+	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Prompter: &linerSpy{}})
 	if !slices.Equal(in.calls, []string{"pj-lead: [obor] hello"}) {
 		t.Errorf("posted %q, want the lead line posted", in.calls)
 	}
@@ -624,11 +624,11 @@ func TestIdentInboxOfAnotherSession(t *testing.T) {
 			eqs(t, h.where("pj-l-01"), "identified w1:p1 session", "where")
 			h.a.opt.Inboxed = func(string) (string, bool) { return tc.rec, true }
 			in, typed, liner := &kindSpy{}, &boxPrompter{box: map[string]string{}}, &linerSpy{}
-			if !h.wake(&Loop{Inbox: in, Typer: typed}) {
+			if !h.wake(&Loop{Inbox: in, Prompter: typed}) {
 				t.Fatal("wake not sent")
 			}
 			h.brief("pj-l-01", "[obor pj-lead] verify")
-			h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Typer: liner})
+			h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Prompter: liner})
 			if tc.want == "posted" {
 				if len(in.calls) != 2 || !strings.HasPrefix(in.calls[0], "claude pj-l-01: [obor job T-1/1/work]") ||
 					in.calls[1] != "claude pj-l-01: [obor pj-lead] verify" || len(typed.jobs) != 0 {
@@ -687,7 +687,7 @@ func TestIdentSessionUnknown(t *testing.T) {
 				h.brief(tc.agent, "[obor] hello")
 			}
 			in, liner := &kindSpy{}, &linerSpy{}
-			h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Typer: liner})
+			h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Prompter: liner})
 			if tc.want == "typed" {
 				if len(in.calls) != 0 || !slices.Equal(liner.calls, []string{"w1:p1: [obor] hello"}) || len(h.lines()) != 0 {
 					t.Errorf("posted %q, typed %q, queued %q; want the line typed into w1:p1", in.calls, liner.calls,
@@ -950,7 +950,7 @@ func TestIdentQueuedBriefMoveBeforeEffect(t *testing.T) {
 	h.queuedLeadThenBrief()
 	lines := &linerSpy{}
 	f := &verifyPost{during: func() { h.move("w1:p1", "w1:p7") }}
-	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: f, Typer: lines})
+	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: f, Prompter: lines})
 	if !slices.Equal(f.posts, []string{"pj-lead: [obor] lead line"}) {
 		t.Fatalf("precondition: posted %q, want the lead line", f.posts)
 	}
@@ -976,7 +976,7 @@ func TestIdentQueuedBriefAmbiguousBeforeEffect(t *testing.T) {
 		tw.Agent = "codex"
 		h.add(tw)
 	}}
-	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: f, Typer: lines})
+	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: f, Prompter: lines})
 	if !slices.Equal(f.posts, []string{"pj-lead: [obor] lead line"}) {
 		t.Fatalf("precondition: posted %q, want the lead line", f.posts)
 	}
@@ -988,7 +988,7 @@ func TestIdentQueuedBriefAmbiguousBeforeEffect(t *testing.T) {
 	}
 	h.remove("w1:p3", port.EventClosed)
 	f.during = func() {}
-	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: f, Typer: lines})
+	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: f, Prompter: lines})
 	if !slices.Equal(lines.calls, []string{"w1:p1: [obor] verify"}) || len(h.lines()) != 0 {
 		t.Errorf("after the duplicate closed: typed %q, queued %q; want the brief typed into w1:p1", lines.calls,
 			h.lines())

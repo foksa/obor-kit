@@ -43,7 +43,7 @@ func TestStoppedCurrentTaskNotAnOldWatch(t *testing.T) {
 			h := newHarness(t)
 			h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{"roles":{"integrator":""}}}`)
 			f := &schedScratch{h: h}
-			h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Workflow: WorkflowOf(f), Agents: f, Typer: f}, nil }
+			h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f}, nil }
 			if err := os.MkdirAll(h.lanes.lanes[0].Dir, 0o755); err != nil {
 				t.Fatal(err)
 			}

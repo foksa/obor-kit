@@ -108,9 +108,44 @@ func TestLeadRunningTouchesNothing(t *testing.T) {
 		}
 	}
 	for _, c := range strings.Split(x.calls(), "\n") {
-		if c != "agent.list {}" {
-			t.Errorf("running lead: only the agent list asked, no input sent: %q", x.calls())
+		if c != "agent.list {}" && c != "pane.list {}" {
+			t.Errorf("running lead: only the agents and their panes' labels asked, no input sent: %q", x.calls())
 		}
+	}
+}
+
+// The lead that already runs is the agent in the pane labelled with its name, whatever name the terminal runs that
+// agent under: a labelled pane whose agent herdr names otherwise (or not at all) is the running lead, and an agent
+// herdr names pj-lead in a pane labelled for something else is not: obor lead then opens a lead pane of its own, where
+// herdr refuses the start (the name is the live agent's).
+func TestLeadRunsByItsPaneLabel(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{"", "someone"} {
+		x := newLeadFx(t)
+		x.f.Agent("w1:p1", name, "working", x.p.Root).Label = "pj-lead"
+		if out, rc := x.run(t); rc != 0 || lastLine(out) != "OK pj-lead runs (pane w1:p1)" {
+			t.Errorf("labelled pj-lead, herdr name %q: exit %d\n%s", name, rc, out)
+		}
+		if c := x.calls(); strings.Contains(c, "agent.start") || strings.Contains(c, "pane.send_input") {
+			t.Errorf("labelled pj-lead, herdr name %q: nothing started or typed:\n%s", name, c)
+		}
+	}
+
+	x := newLeadFx(t)
+	x.f.Agent("w1:p1", "pj-lead", "working", x.p.Root).Label = "notes"
+	out, rc := x.run(t)
+	if rc == 0 || strings.Contains(out, "OK pj-lead runs") {
+		t.Fatalf("herdr name pj-lead in a pane labelled notes: exit %d, want no running lead found and the start refused\n%s", rc, out)
+	}
+	c := x.calls()
+	if !strings.Contains(c, "tab.create") || !strings.Contains(c, `"name":"pj-lead"`) {
+		t.Errorf("a lead pane of its own asked for and a start tried there:\n%s", c)
+	}
+	if strings.Contains(c, `"pane_id":"w1:p1","text"`) || strings.Contains(c, `pane.send_keys {"keys":["esc"],"pane_id":"w1:p1"`) {
+		t.Errorf("the relabelled pane's agent was typed at or stopped:\n%s", c)
+	}
+	if x.f.Pane("w1:p1").Kind == "" {
+		t.Error("the relabelled pane's agent no longer runs")
 	}
 }
 

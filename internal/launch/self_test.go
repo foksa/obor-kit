@@ -61,13 +61,13 @@ type idleAfter struct {
 	got *int
 }
 
-func (w idleAfter) Agent(ctx context.Context, target string) (port.Pane, error) {
+func (w idleAfter) Pane(ctx context.Context, target string) (port.Pane, error) {
 	if target == w.p.ID {
 		if *w.got++; *w.got > w.n {
 			w.p.Status = "idle"
 		}
 	}
-	return w.PaneControl.Agent(ctx, target)
+	return w.PaneControl.Pane(ctx, target)
 }
 
 // obor restart of the caller's own pane schedules a detached run that restarts the agent once it is idle.
@@ -202,21 +202,21 @@ type polled struct {
 	atExit *[]string
 }
 
-func (w polled) Agent(ctx context.Context, target string) (port.Pane, error) {
+func (w polled) Pane(ctx context.Context, target string) (port.Pane, error) {
 	if target == w.p.ID {
 		*w.got++
 		if err := w.hook(*w.got); err != nil {
 			return port.Pane{}, err
 		}
 	}
-	return w.PaneControl.Agent(ctx, target)
+	return w.PaneControl.Pane(ctx, target)
 }
 
-func (w polled) Type(ctx context.Context, pane, text string) error {
+func (w polled) Write(ctx context.Context, pane, text string, submit bool) error {
 	if pane == w.p.ID && strings.Contains(text, "/exit") {
 		*w.atExit = append(*w.atExit, w.p.Status)
 	}
-	return w.PaneControl.Type(ctx, pane, text)
+	return w.PaneControl.Write(ctx, pane, text, submit)
 }
 
 // the handoff is `obor restart <you> --fresh` from the agent's own pane, with no --force and no handoff
@@ -419,7 +419,7 @@ func TestScheduledWaitsThenDecidesFresh(t *testing.T) {
 		lacks(t, x.startCall(), "--resume", "a new session")
 		eq(t, record(x), "sid-before\n", "record kept")
 	})
-	t.Run("#8 pane relabelled or renamed to another agent while waiting: FAIL, no /exit (also --force)", func(t *testing.T) {
+	t.Run("#8 pane relabelled to another agent while waiting: FAIL, no /exit (also --force)", func(t *testing.T) {
 		t.Parallel()
 		for _, c := range []struct {
 			name   string
@@ -428,8 +428,6 @@ func TestScheduledWaitsThenDecidesFresh(t *testing.T) {
 		}{
 			{"relabelled", func(a *herdrtest.Pane) { a.Label, a.Name = "other-agent", "other-agent" },
 				"FAIL pane w1:p3 is labelled other-agent, not pj-l-01"},
-			{"renamed", func(a *herdrtest.Pane) { a.Name = "other-agent" },
-				"FAIL pane w1:p3 runs agent other-agent, not pj-l-01 (renamed while waiting): not stopped"},
 		} {
 			for _, stop := range []bool{false, true} {
 				for _, force := range []bool{false, true} {
@@ -456,27 +454,6 @@ func TestScheduledWaitsThenDecidesFresh(t *testing.T) {
 				}
 			}
 		}
-	})
-	t.Run("#9 another pane takes the herdr name while waiting: the name-holder FAIL", func(t *testing.T) {
-		t.Parallel()
-		x := setup(t)
-		x.sid("pj-l-01", "sid-1")
-		a := x.agent("w1:p3", "pj-l-01", "claude", "working")
-		out, ok, got, atExit := run(x, a, own, false, time.Minute, func(n int) error {
-			if n == 2 {
-				a.Name, a.Status = "", "idle"
-				x.f.Agent("w1:p7", "pj-l-01", "idle", "")
-			}
-			return nil
-		})
-		if got < 2 {
-			t.Errorf("precondition: changed while waiting (%d polls)", got)
-		}
-		eq(t, failLine(out), "FAIL pane w1:p7 holds the name pj-l-01: restart it there (obor restart pj-l-01)", "result")
-		if ok || len(atExit) != 0 {
-			t.Errorf("no /exit: %v", atExit)
-		}
-		untouched(t, x)
 	})
 }
 
@@ -534,7 +511,7 @@ func TestSameAgentAfterScheduledWait(t *testing.T) {
 		return fmt.Sprintf("RESTARTED %s (pane %s, session sid-1)", k.agent, k.pane)
 	}
 
-	t.Run("same name: proceeds", func(t *testing.T) {
+	t.Run("the pane reads as before: proceeds", func(t *testing.T) {
 		t.Parallel()
 		for _, stop := range []bool{false, true} {
 			x := setupFor(t, claude)
@@ -543,31 +520,6 @@ func TestSameAgentAfterScheduledWait(t *testing.T) {
 				t.Fatalf("stop=%v: %s", stop, out)
 			}
 			eq(t, last(out), result(claude, stop), "result")
-		}
-	})
-	t.Run("unnamed pane (label checks passed): proceeds", func(t *testing.T) {
-		t.Parallel()
-		for _, stop := range []bool{false, true} {
-			x := setupFor(t, claude)
-			out, ok, _, _ := run(x, claude, launch.Request{Agent: claude.agent, Pane: claude.pane}, stop,
-				func(a *herdrtest.Pane) { a.Name = "" }, nil)
-			if !ok {
-				t.Fatalf("stop=%v: %s", stop, out)
-			}
-			eq(t, last(out), result(claude, stop), "result")
-		}
-	})
-	t.Run("another agent's name: FAIL, nothing touched", func(t *testing.T) {
-		t.Parallel()
-		for _, stop := range []bool{false, true} {
-			x := setupFor(t, claude)
-			out, ok, _, atExit := run(x, claude, launch.Request{Agent: claude.agent, Pane: claude.pane}, stop,
-				func(a *herdrtest.Pane) { a.Name = "other-agent" }, nil)
-			eq(t, failLine(out), "FAIL pane w1:p3 runs agent other-agent, not pj-l-01 (renamed while waiting): not stopped", "result")
-			if ok {
-				t.Errorf("stop=%v: not run", stop)
-			}
-			untouched(t, x, atExit)
 		}
 	})
 	t.Run("ErrNotFound (no agent in the pane): proceeds", func(t *testing.T) {

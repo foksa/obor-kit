@@ -80,7 +80,7 @@ func (l *Launcher) stop(ctx context.Context, t *target, force, escape bool, hint
 		if !force && !escape {
 			return project.Failf("%s is %s (%s)", t.agent, status, hint)
 		}
-		_ = l.H.SendKeys(ctx, t.pane, "esc")
+		_ = l.H.SendKeys(ctx, t.pane, port.KeyEsc)
 		idle := min(l.idle(), left())
 		if !l.awaitIdle(ctx, t.pane, idle) {
 			if !force {
@@ -117,7 +117,7 @@ func (l *Launcher) stop(ctx context.Context, t *target, force, escape bool, hint
 			_ = l.H.SendKeys(ctx, t.pane, k)
 		}
 	}
-	if err := l.H.Type(ctx, t.pane, quit); err != nil {
+	if err := l.H.Write(ctx, t.pane, quit, true); err != nil {
 		return project.Failf("terminal pane run %s %s failed", t.pane, quit)
 	}
 	chose, polls := false, 0
@@ -133,14 +133,14 @@ func (l *Launcher) stop(ctx context.Context, t *target, force, escape bool, hint
 		// The second Enter submits a quit a completion menu took the first Enter for; never into the kind's exit
 		// dialog, where a bare Enter would pick its default option.
 		if polls++; polls == 2 && recipe.SecondEnter && !open {
-			_ = l.H.SendKeys(ctx, t.pane, "enter")
+			_ = l.H.SendKeys(ctx, t.pane, port.KeyEnter)
 		}
 		if !open {
 			return false
 		}
 		// Never leave the dialog open: force picks the dialog's option by its key, else Escape closes it.
 		if !force || n == "" {
-			_ = l.H.SendKeys(ctx, t.pane, "esc")
+			_ = l.H.SendKeys(ctx, t.pane, port.KeyEsc)
 			dialogErr = bgFail
 			if force {
 				dialogErr = project.Failf("%s: exit dialog without a numbered %q option (closed it)", t.agent, recipe.Dialog.Option)
@@ -160,12 +160,12 @@ func (l *Launcher) stop(ctx context.Context, t *target, force, escape bool, hint
 	if !exited {
 		_, open := l.exitDialog(ctx, t.pane, recipe.Dialog)
 		if open {
-			_ = l.H.SendKeys(ctx, t.pane, "esc")
+			_ = l.H.SendKeys(ctx, t.pane, port.KeyEsc)
 		}
 		if !open && recipe.SecondEnter && polls < 2 {
 			// The wait ended before the second poll: send the quit's second Enter anyway, so a popup that took the
 			// first one never leaves a stop that "did not exit" without it (a wait shorter than two polls).
-			_ = l.H.SendKeys(ctx, t.pane, "enter")
+			_ = l.H.SendKeys(ctx, t.pane, port.KeyEnter)
 		}
 		if !force {
 			cleared := ""
@@ -217,11 +217,11 @@ func programs(kind string) string {
 	return kind
 }
 
-// awaitIdle: the agent in pane went idle (or done, or left) within d, as herdr's agent.wait says: one server-owned
-// wait instead of a poll of agent.get. Only herdr's timeout (TimedOut) says it is still busy; an agent that left
-// (agent_not_running) and any other error are done, as the poll's error was.
+// awaitIdle: the agent in pane went idle (or done, or left) within d, as the terminal's own wait says: one
+// server-owned wait instead of a poll of the pane. Only the terminal's timeout (TimedOut) says it is still busy; an
+// agent that left and any other error are done, as a poll's error would be.
 func (l *Launcher) awaitIdle(ctx context.Context, pane string, d time.Duration) bool {
-	return !port.TimedOut(l.H.Wait(ctx, pane, []string{"idle", "done"}, d))
+	return !port.TimedOut(l.H.WaitStatus(ctx, pane, []string{"idle", "done"}, d))
 }
 
 // finish ends the exited agent's leftovers, if they keep the foreground.
@@ -282,8 +282,7 @@ func (l *Launcher) alive(pid int) bool {
 func (l *Launcher) exited(ctx context.Context, pane string, pgid int) bool {
 	now, err := l.group(ctx, pane)
 	if err != nil || now.shell == 0 {
-		_, aerr := l.H.Agent(ctx, pane)
-		return aerr != nil || (pgid > 1 && !l.alive(pgid))
+		return l.noAgent(ctx, pane) || (pgid > 1 && !l.alive(pgid))
 	}
 	unlisted := now.pgid == pgid && len(now.members) > 0 && !now.listed(pgid)
 	return now.atShell() || (pgid > 1 && (unlisted || !l.alive(pgid)))
@@ -412,8 +411,13 @@ func (l *Launcher) atShell(ctx context.Context, pane string) bool {
 	if pi, err := l.H.ProcessInfo(ctx, pane); err == nil && pi.ShellPID != 0 {
 		return pi.AtShell()
 	}
-	_, err := l.H.Agent(ctx, pane)
-	return err != nil
+	return l.noAgent(ctx, pane)
+}
+
+// noAgent: the terminal shows no agent in pane: it runs none there, or the pane cannot be read.
+func (l *Launcher) noAgent(ctx context.Context, pane string) bool {
+	a, err := l.H.Pane(ctx, pane)
+	return err != nil || a.Agent == ""
 }
 
 // ShellWait is how long a restart waits after its stop for the pane's shell, and how long it retries a start herdr

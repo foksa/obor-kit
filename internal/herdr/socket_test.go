@@ -116,26 +116,32 @@ func TestSocketSnapshotAndAgents(t *testing.T) {
 		t.Errorf("Snapshot = %+v", snap)
 	}
 	want := []port.Pane{
-		{Name: "pj-l-01", ID: "w1:p1", Status: "idle", Cwd: "/proj-wt/L-01", Agent: "claude", Session: "5e1d0c2b-aaaa", Launched: true},
+		{ID: "w1:p1", Status: "idle", Cwd: "/proj-wt/L-01", Agent: "claude", Session: "5e1d0c2b-aaaa", Launched: true},
 		{ID: "w1:p3", Status: "working", Cwd: "/elsewhere", Agent: "claude", Launched: true},
 	}
 	var got []port.Pane
 	for _, a := range snap.Agents {
 		got = append(got, a.Pane)
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Snapshot agents = %+v\nwant %+v", snap.Agents, want)
+	if !reflect.DeepEqual(got, want) || snap.Agents[0].Name != "pj-l-01" || snap.Agents[1].Name != "" {
+		t.Errorf("Snapshot agents = %+v\nwant %+v, the first named pj-l-01", snap.Agents, want)
 	}
+	// The agents the core is given carry their pane's label, not herdr's name; so does one pane read by its id.
+	want[0].Label = "pj-l-01"
 	agents, err := c.Agents(ctx)
 	if err != nil || !reflect.DeepEqual(agents, want) {
 		t.Errorf("Agents = %+v, %v", agents, err)
 	}
-	if a, err := c.Agent(ctx, "pj-l-01"); err != nil || a != want[0] {
-		t.Errorf("Agent = %+v, %v", a, err)
+	if a, err := c.Pane(ctx, "w1:p1"); err != nil || a != want[0] {
+		t.Errorf("Pane of an agent's pane = %+v, %v; want %+v", a, err, want[0])
 	}
-	_, err = c.Agent(ctx, "nope")
-	if e := herdrErr(t, err); !errors.Is(err, herdr.ErrNotFound) || e.Code != "agent_not_found" || e.Op != "agent.get" {
-		t.Errorf("Agent(nope) = %v, want not found (agent_not_found) from agent.get", err)
+	shell := port.Pane{ID: "w1:p2", Label: "pj-l-02", Cwd: "/proj-wt/L-02", Launched: true}
+	if a, err := c.Pane(ctx, "w1:p2"); err != nil || a != shell {
+		t.Errorf("Pane of a shell = %+v, %v; want %+v (no agent)", a, err, shell)
+	}
+	_, err = c.Pane(ctx, "w9:p9")
+	if e := herdrErr(t, err); !port.NotFound(err) || e.Code != "pane_not_found" || e.Op != "pane.get" {
+		t.Errorf("Pane of a missing pane = %v, want not found (pane_not_found) from pane.get", err)
 	}
 
 	// A pane's workspace and transcript path, from the snapshot.
@@ -177,11 +183,10 @@ func TestSocketRequestParams(t *testing.T) {
 	srv.Reply("pane.close", map[string]any{"type": "ok"})
 	srv.Reply("notification.show", map[string]any{"type": "notification_show", "shown": true, "reason": "shown"})
 
-	a, err := c.Prompt(ctx, "pj-l-01", "hello")
-	if err != nil || a.Status != "working" || a.ID != "w1:p1" {
-		t.Errorf("Prompt = %+v, %v", a, err)
+	if began, err := c.Prompt(ctx, "w1:p1", "hello", false); err != nil || !began {
+		t.Errorf("Prompt = %v, %v", began, err)
 	}
-	if a, err := c.Start(ctx, "pj-l-04", "claude", "w1:p2", nil, "--model", "haiku"); err != nil || a.Name != "pj-l-01" {
+	if a, err := c.Start(ctx, "pj-l-04", "claude", "w1:p2", nil, "--model", "haiku"); err != nil || a.ID != "w1:p1" {
 		t.Errorf("Start = %+v, %v", a, err)
 	}
 	if id, err := c.Split(ctx, "w1:p1", "down", "/proj-wt/L-04", "OBOR_AGENT=pj-l-04"); err != nil || id != "w1:p9" {
@@ -195,7 +200,7 @@ func TestSocketRequestParams(t *testing.T) {
 	}
 
 	for _, tc := range []struct{ method, want string }{
-		{"agent.prompt", `{"target":"pj-l-01","text":"hello"}`},
+		{"agent.prompt", `{"target":"w1:p1","text":"hello"}`},
 		{"agent.start", `{"args":["--model","haiku"],"kind":"claude","name":"pj-l-04","pane_id":"w1:p2"}`},
 		{"pane.split", `{"cwd":"/proj-wt/L-04","direction":"down","env":{"OBOR_AGENT":"pj-l-04"},"target_pane_id":"w1:p1"}`},
 		{"pane.close", `{"pane_id":"w1:p9"}`},
@@ -212,9 +217,9 @@ func TestSocketErrors(t *testing.T) {
 	srv := herdrtest.Serve(t, fixture())
 	c := srv.Client()
 	srv.Fail("agent.prompt", "agent_blocked", "agent is blocked")
-	_, err := c.Prompt(ctx, "pj-l-01", "hi")
-	if e := herdrErr(t, err); e.Kind != herdr.Failed || e.Code != "agent_blocked" || e.Op != "agent.prompt" {
-		t.Errorf("blocked prompt = %v, want failed agent_blocked", err)
+	began, err := c.Prompt(ctx, "w1:p1", "hi", false)
+	if e := herdrErr(t, err); began || e.Kind != herdr.Failed || e.Code != "agent_blocked" || e.Op != "agent.prompt" {
+		t.Errorf("blocked prompt = began %v, %v; want it refused before typing, failed agent_blocked", began, err)
 	}
 	if err := c.Close(ctx, "w1:p1"); err == nil || herdrErr(t, err).Code != "not_scripted" {
 		t.Errorf("unscripted method = %v, want the fake's not_scripted error", err)
@@ -281,18 +286,16 @@ func TestSocketStartSentOnce(t *testing.T) {
 func TestErrorCodesAsPredicates(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
-		code                              string
-		busy, notReady, blocked, timedOut bool
-		answered                          bool
+		code                     string
+		busy, notReady, timedOut bool
+		answered                 bool
 	}{
-		{"agent_pane_busy", true, false, false, false, true},
-		{"pane_not_available", true, false, false, false, true},
-		{"agent_not_ready", false, true, false, false, true},
-		{"agent_blocked", false, false, true, false, true},
-		{"blocked", false, false, true, false, true},
-		{"timeout", false, false, false, true, true},
-		{"agent_name_taken", false, false, false, false, true},
-		{"", false, false, false, false, false},
+		{"agent_pane_busy", true, false, false, true},
+		{"pane_not_available", true, false, false, true},
+		{"agent_not_ready", false, true, false, true},
+		{"timeout", false, false, true, true},
+		{"agent_name_taken", false, false, false, true},
+		{"", false, false, false, false},
 	} {
 		err := &herdr.Error{Kind: herdr.Failed, Op: "agent.start", Code: c.code, Msg: "x"}
 		if got := port.PaneBusy(err); got != c.busy {
@@ -300,9 +303,6 @@ func TestErrorCodesAsPredicates(t *testing.T) {
 		}
 		if got := port.NotReady(err); got != c.notReady {
 			t.Errorf("%q: NotReady = %t, want %t", c.code, got, c.notReady)
-		}
-		if got := port.Blocked(err); got != c.blocked {
-			t.Errorf("%q: Blocked = %t, want %t", c.code, got, c.blocked)
 		}
 		if got := port.TimedOut(err); got != c.timedOut {
 			t.Errorf("%q: TimedOut = %t, want %t", c.code, got, c.timedOut)
@@ -326,13 +326,14 @@ func TestSocketStartNameTaken(t *testing.T) {
 	t.Parallel()
 	t.Run("a name no agent holds: cleared by name, retried once", func(t *testing.T) {
 		t.Parallel()
-		srv := herdrtest.Serve(t, fixture())
+		f := fixture()
+		srv := herdrtest.Serve(t, f)
 		srv.Once("agent.start", herdrtest.Failure{Code: "agent_name_taken", Message: "name pj-l-04 taken"})
 		if count(srv, "agent.start") != 0 || count(srv, "agent.rename") != 0 {
 			t.Fatal("precondition: no start or rename yet")
 		}
 		a, err := srv.Client().Start(ctx, "pj-l-04", "claude", "w1:p2", nil, "--model", "haiku")
-		if err != nil || a.ID != "w1:p2" || a.Name != "pj-l-04" {
+		if err != nil || a.ID != "w1:p2" || f.Pane("w1:p2").Name != "pj-l-04" {
 			t.Fatalf("Start = %+v, %v; want the agent started in w1:p2 after the retry", a, err)
 		}
 		if n := count(srv, "agent.start"); n != 2 {
@@ -407,7 +408,7 @@ func TestSocketStartNameTaken(t *testing.T) {
 		var said []string
 		say := func(format string, args ...any) { said = append(said, fmt.Sprintf(format, args...)) }
 		a, err := srv.Client().Start(ctx, "pj-l-04", "claude", "w1:p4", say)
-		if err != nil || a.ID != "w1:p4" || a.Name != "pj-l-04" {
+		if err != nil || a.ID != "w1:p4" || f.Pane("w1:p4").Name != "pj-l-04" {
 			t.Fatalf("Start = %+v, %v; want the agent restarted in its pane", a, err)
 		}
 		if n := count(srv, "agent.start"); n != 2 {
@@ -449,35 +450,38 @@ func TestSocketWaits(t *testing.T) {
 	srv := herdrtest.Serve(t, f)
 	c := srv.Client()
 
-	if err := c.Wait(ctx, "pj-l-01", []string{"idle", "done"}, time.Second); err != nil {
+	if err := c.WaitStatus(ctx, "w1:p1", []string{"idle", "done"}, time.Second); err != nil {
 		t.Fatalf("Wait of an idle agent: %v", err)
 	}
-	if got, want := lastParams(t, srv, "agent.wait"), `{"target":"pj-l-01","timeout_ms":1000,"until":["idle","done"]}`; got != want {
+	if got, want := lastParams(t, srv, "agent.wait"), `{"target":"w1:p1","timeout_ms":1000,"until":["idle","done"]}`; got != want {
 		t.Errorf("agent.wait params = %s\nwant %s", got, want)
+	}
+	// A pane that runs no agent has nothing to wait for: a not-found error, never a timeout.
+	if err := c.WaitStatus(ctx, "w1:p2", []string{"idle"}, time.Second); !port.NotFound(err) || port.TimedOut(err) {
+		t.Errorf("Wait at a shell = %v, want not found", err)
 	}
 
 	// The agent works on: the wait ends when it reaches done, not at the call.
-	f.Set("w1:p3", func(p *herdrtest.Pane) { p.Name = "pj-l-03" })
 	go func() {
 		time.Sleep(20 * time.Millisecond)
 		f.Set("w1:p3", func(p *herdrtest.Pane) { p.Status = "done" })
 	}()
 	start := time.Now()
-	if err := c.Wait(ctx, "pj-l-03", []string{"idle", "done"}, 10*time.Second); err != nil {
+	if err := c.WaitStatus(ctx, "w1:p3", []string{"idle", "done"}, 10*time.Second); err != nil {
 		t.Errorf("Wait until the working agent finished: %v", err)
 	} else if waited := time.Since(start); waited < 15*time.Millisecond {
 		t.Errorf("Wait answered in %s: it answered before the status changed", waited)
 	}
 
 	// It times out while the agent stays busy.
-	if err := c.Wait(ctx, "pj-l-03", []string{"idle"}, 60*time.Millisecond); herdrErr(t, err).Code != "timeout" {
+	if err := c.WaitStatus(ctx, "w1:p3", []string{"idle"}, 60*time.Millisecond); herdrErr(t, err).Code != "timeout" || !port.TimedOut(err) {
 		t.Errorf("Wait on a busy agent = %v, want timeout", err)
 	}
 
 	// An agent that leaves its pane ends the wait with agent_not_running: the wait sees it once, then it is gone
 	// (LeaveAfter counts checks, so the order is the fake's, not the machine's).
 	f.Set("w1:p3", func(p *herdrtest.Pane) { p.LeaveAfter = 2 })
-	if err := c.Wait(ctx, "pj-l-03", []string{"idle"}, 10*time.Second); herdrErr(t, err).Code != "agent_not_running" {
+	if err := c.WaitStatus(ctx, "w1:p3", []string{"idle"}, 10*time.Second); herdrErr(t, err).Code != "agent_not_running" {
 		t.Errorf("Wait on an agent that left = %v, want agent_not_running", err)
 	}
 
@@ -501,8 +505,8 @@ func TestSocketWaits(t *testing.T) {
 	if _, err := c.WaitForOutput(ctx, "w1:p2", "NEVER_42", 60*time.Millisecond); herdrErr(t, err).Code != "timeout" {
 		t.Errorf("WaitForOutput of text never printed = %v, want timeout", err)
 	}
-	if n, m := count(srv, "agent.wait"), count(srv, "pane.wait_for_output"); n != 4 || m != 3 {
-		t.Errorf("%d agent.wait and %d pane.wait_for_output requests, want one per wait: 4 and 3", n, m)
+	if n, m := count(srv, "agent.wait"), count(srv, "pane.wait_for_output"); n != 5 || m != 3 {
+		t.Errorf("%d agent.wait and %d pane.wait_for_output requests, want one per wait: 5 and 3", n, m)
 	}
 }
 
@@ -740,13 +744,13 @@ func pushLive(srv *herdrtest.Server, typ, pane, event string, data map[string]an
 	return 0
 }
 
-func agentOf(snap herdr.Snapshot, pane string) port.Pane {
+func agentOf(snap herdr.Snapshot, pane string) herdr.Pane {
 	for _, a := range snap.Agents {
 		if a.ID == pane {
-			return a.Pane
+			return a
 		}
 	}
-	return port.Pane{}
+	return herdr.Pane{}
 }
 
 // a status event queued before the final snapshot never overrides it, on every Subscribe (the first
@@ -939,23 +943,23 @@ func TestStreamRefreshesPaneMetadata(t *testing.T) {
 		set   func(*herdrtest.Pane)
 		event string
 		data  map[string]any
-		want  func(port.Pane) bool // nil: no event
+		want  func(herdr.Pane) bool // nil: no event
 	}{
 		{"late agent detection", "w1:p2", late, "pane_agent_detected",
 			map[string]any{"type": "pane_agent_detected", "pane_id": "w1:p2", "workspace_id": "w1", "agent": "claude"},
-			func(a port.Pane) bool { return a.Name == "pj-l-02" && a.Agent == "claude" && a.Session == "abcd-1234" }},
+			func(a herdr.Pane) bool { return a.Name == "pj-l-02" && a.Agent == "claude" && a.Session == "abcd-1234" }},
 		{"a status event brings a new agent", "w1:p2", late, herdr.EventStatus,
 			map[string]any{"pane_id": "w1:p2", "workspace_id": "w1", "agent_status": "idle", "agent": "claude"},
-			func(a port.Pane) bool { return a.Name == "pj-l-02" && a.Session == "abcd-1234" && a.Status == "idle" }},
+			func(a herdr.Pane) bool { return a.Name == "pj-l-02" && a.Session == "abcd-1234" && a.Status == "idle" }},
 		{"cwd change", "w1:p1", func(p *herdrtest.Pane) { p.Cwd = "/proj-wt/L-09" }, "pane_updated",
 			update("/proj-wt/L-09", byID),
-			func(a port.Pane) bool { return a.Cwd == "/proj-wt/L-09" && a.Name == "pj-l-01" }},
+			func(a herdr.Pane) bool { return a.Cwd == "/proj-wt/L-09" && a.Name == "pj-l-01" }},
 		{"session path replacement", "w1:p1", func(p *herdrtest.Pane) { p.Transcript = "/t/new.jsonl" }, "pane_updated",
 			update("/proj-wt/L-01", map[string]any{"agent": "claude", "kind": "path", "value": "/t/new.jsonl"}),
-			func(a port.Pane) bool { return a.Transcript == "/t/new.jsonl" && a.Name == "pj-l-01" }},
+			func(a herdr.Pane) bool { return a.Transcript == "/t/new.jsonl" && a.Name == "pj-l-01" }},
 		{"RV-36 #11: a name change alone (the pane payload has no name)", "w1:p1",
 			func(p *herdrtest.Pane) { p.Name = "renamed-agent" }, "pane_updated", update("/proj-wt/L-01", byID),
-			func(a port.Pane) bool { return a.Name == "renamed-agent" && a.Cwd == "/proj-wt/L-01" }},
+			func(a herdr.Pane) bool { return a.Name == "renamed-agent" && a.Cwd == "/proj-wt/L-01" }},
 		{"an update that changes nothing obor watches", "w1:p1", func(*herdrtest.Pane) {}, "pane_updated",
 			update("/proj-wt/L-01", byID), nil},
 	} {
@@ -979,7 +983,7 @@ func TestStreamRefreshesPaneMetadata(t *testing.T) {
 			if ev != (herdr.Event{Kind: herdr.EventExited, Pane: "w1:p2"}) {
 				t.Errorf("%s: event = %+v, want none before w1:p2 exited", tc.name, ev)
 			}
-		} else if ev.Kind != herdr.EventStatus || ev.Pane != tc.pane || ev.Agent != ev.Now.Agent || !tc.want(ev.Now.Pane) {
+		} else if ev.Kind != herdr.EventStatus || ev.Pane != tc.pane || ev.Agent != ev.Now.Agent || !tc.want(ev.Now) {
 			t.Errorf("%s: event = %+v", tc.name, ev)
 		}
 		st.Close()
@@ -1135,7 +1139,17 @@ func TestSocketPaneInput(t *testing.T) {
 	_, err := c.Screen(ctx, "w9:x", 40)
 	notFound(t, err, "pane.read", "pane_not_found")
 
-	if err := c.Type(ctx, "w1:p1", "/exit"); err != nil {
+	// Write without submit types the text and sends no key: it waits in the pane, nothing runs.
+	if err := c.Write(ctx, "w1:p1", "/exit", false); err != nil {
+		t.Fatal(err)
+	}
+	if got := lastParams(t, srv, "pane.send_input"); got != `{"pane_id":"w1:p1","text":"/exit"}` {
+		t.Errorf("pane.send_input params without submit = %s", got)
+	}
+	if p := f.Pane("w1:p1"); p.Pending != "/exit" || p.Screen != "line 1\nline 2\n" {
+		t.Fatalf("after an unsubmitted write: pending %q, screen %q; want the text waiting, nothing run", p.Pending, p.Screen)
+	}
+	if err := c.Write(ctx, "w1:p1", "/exit", true); err != nil {
 		t.Fatal(err)
 	}
 	if got := lastParams(t, srv, "pane.send_input"); got != `{"keys":["Enter"],"pane_id":"w1:p1","text":"/exit"}` {
@@ -1144,7 +1158,7 @@ func TestSocketPaneInput(t *testing.T) {
 	if s, _ := c.Screen(ctx, "w1:p1", 40); !strings.Contains(s, "Exit and stop tasks") {
 		t.Fatalf("after /exit the screen = %q, want the exit dialog", s)
 	}
-	notFound(t, c.Type(ctx, "w9:x", "ls"), "pane.send_input", "pane_not_found")
+	notFound(t, c.Write(ctx, "w9:x", "ls", true), "pane.send_input", "pane_not_found")
 
 	if err := c.SendKeys(ctx, "w1:p1", "1"); err != nil {
 		t.Fatal(err)
@@ -1156,6 +1170,14 @@ func TestSocketPaneInput(t *testing.T) {
 		t.Errorf("after the dialog's 1 the pane hosts %q, want the agent gone", p.Kind)
 	}
 	notFound(t, c.SendKeys(ctx, "w9:x", "esc"), "pane.send_keys", "pane_not_found")
+
+	// obor's key names go out as herdr's; a digit and a key obor has no name for go as they are.
+	if err := c.SendKeys(ctx, "w1:p2", port.KeyEnter, port.KeyEsc, port.KeyCtrlC, port.KeyCtrlU, "2", "tab"); err != nil {
+		t.Fatal(err)
+	}
+	if got := lastParams(t, srv, "pane.send_keys"); got != `{"keys":["enter","esc","ctrl+c","ctrl+u","2","tab"],"pane_id":"w1:p2"}` {
+		t.Errorf("pane.send_keys params of obor's key names = %s", got)
+	}
 }
 
 func TestSocketRenames(t *testing.T) {
@@ -1177,20 +1199,6 @@ func TestSocketRenames(t *testing.T) {
 		t.Errorf("pane.rename clear params = %s", got)
 	}
 	notFound(t, c.RenamePane(ctx, "w9:x", "l"), "pane.rename", "pane_not_found")
-
-	if err := c.RenameAgent(ctx, "w1:p3", "pj-l-03"); err != nil || f.Pane("w1:p3").Name != "pj-l-03" {
-		t.Errorf("RenameAgent: %v, name %q", err, f.Pane("w1:p3").Name)
-	}
-	if got := lastParams(t, srv, "agent.rename"); got != `{"name":"pj-l-03","target":"w1:p3"}` {
-		t.Errorf("agent.rename params = %s", got)
-	}
-	if err := c.RenameAgent(ctx, "pj-l-03", ""); err != nil || f.Pane("w1:p3").Name != "" {
-		t.Errorf("RenameAgent clear: %v, name %q", err, f.Pane("w1:p3").Name)
-	}
-	if got := lastParams(t, srv, "agent.rename"); got != `{"name":null,"target":"pj-l-03"}` {
-		t.Errorf("agent.rename clear params = %s", got)
-	}
-	notFound(t, c.RenameAgent(ctx, "nope", "x"), "agent.rename", "agent_not_found")
 }
 
 // Notify reads herdr's answer. shown true is success; shown false is a port.NotShown naming the reason (the
@@ -1257,7 +1265,7 @@ func TestAgentLaunchFact(t *testing.T) {
 			if c.method == "agent.start" {
 				a, err = c0.Start(ctx, "conf-ready-128", "claude", "w1:p1", nil)
 			} else {
-				a, err = c0.Agent(ctx, "w1:p1")
+				a, err = c0.Pane(ctx, "w1:p1")
 			}
 			if err != nil {
 				t.Fatal(err)

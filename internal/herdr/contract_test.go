@@ -218,7 +218,7 @@ func TestWireIsOne(t *testing.T) {
 		t.Fatalf("the fake's snapshot has %d panes, want 1", len(snap.Panes))
 	}
 	wantPane := herdr.Pane{Pane: port.Pane{ID: "w1:p1", Terminal: "t1", Label: "pj-l-01", Cwd: "/proj-wt/L-01",
-		Agent: "claude", Name: "pj-l-01", Status: "idle", Session: "5e1d0c2b-aaaa"}, Workspace: "w1", Tab: "w1:t1"}
+		Agent: "claude", Status: "idle", Session: "5e1d0c2b-aaaa"}, Workspace: "w1", Tab: "w1:t1", Name: "pj-l-01"}
 	if got := snap.Panes[0]; got != wantPane {
 		t.Errorf("the fake's pane = %+v, want the scripted %+v", got, wantPane)
 	}

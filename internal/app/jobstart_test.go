@@ -522,7 +522,7 @@ func TestStartJobIntegrator(t *testing.T) {
 		running bool   // the integrator's pane stays in the snapshot
 		job     string // the job the step sends
 		start   string // the start that runs ("": none)
-		typed   int    // Typer calls
+		typed   int    // Prompter calls
 	}{
 		{name: "review: fresh start", setup: []func(*concRig){gate(outGreen)}, job: "review", start: "start.review"},
 		{name: "resolve: fresh start", setup: []func(*concRig){gate(outConflict)}, job: "resolve",
@@ -563,7 +563,7 @@ func TestStartJobIntegrator(t *testing.T) {
 			if step == nil {
 				t.Fatal("no step")
 			}
-			if !step(context.Background(), &Loop{Agents: f, Typer: f}) {
+			if !step(context.Background(), &Loop{Agents: f, Prompter: f}) {
 				t.Fatal("the job step failed")
 			}
 
@@ -576,7 +576,7 @@ func TestStartJobIntegrator(t *testing.T) {
 				same(t, done(p, event.Key{Task: "T-1", Attempt: 1, Step: row.start}), true, row.start+" done")
 				same(t, early.State+" "+early.Job, "job "+job, "job_next during the start")
 			}
-			same(t, len(f.typed), row.typed, "Typer calls")
+			same(t, len(f.typed), row.typed, "Prompter calls")
 			want := `"sent (start prompt)"`
 			if row.typed > 0 {
 				want = `"sent"`
@@ -659,7 +659,7 @@ func TestIntegratorJobFetchableDuringStart(t *testing.T) {
 				_ = json.Unmarshal([]byte(raw), &early)
 				t.Logf("first prompt=%q; job_next during start=%s", l.Prompt, raw)
 			}
-			fx := &Loop{Agents: f, Typer: f}
+			fx := &Loop{Agents: f, Prompter: f}
 			mt := *p.folded.loop["T-1"]
 			if !r.a.job(context.Background(), p, fx, mt, kind) {
 				t.Fatal("job failed")
@@ -696,7 +696,7 @@ func TestWorkerEarlyFetchDuringStart(t *testing.T) {
 			t.Fatalf("early worker fetch=%s", raw)
 		}
 	}
-	fx := &Loop{Agents: f, Typer: f, Kit: r.kit}
+	fx := &Loop{Agents: f, Prompter: f, Kit: r.kit}
 	mt := *p.folded.loop["T-2"]
 	d := startData{Agent: mt.agent, Pane: "w1:p2"}
 	if !r.a.startWorker(context.Background(), p, fx, mt, event.Key{Task: mt.task, Attempt: mt.attempt, Step: event.StepStartWork}, d,
@@ -756,7 +756,7 @@ func (f *heldStart) Launch(ctx context.Context, l port.Launch) (port.Started, er
 	return port.Started{Line: "STARTED " + l.Agent}, nil
 }
 
-func (f *heldStart) Type(_ context.Context, agent, text string, _ bool) (bool, error) {
+func (f *heldStart) Prompt(_ context.Context, agent, text string, _ bool) (bool, error) {
 	job := jobOf(text)
 	f.mu.Lock()
 	f.typed = append(f.typed, agent+" "+job)
@@ -775,7 +775,7 @@ func heldRig(t *testing.T, agent string) (*concRig, *proj, *heldStart) {
 	r.a.opt.Loop = func(root string) (*Loop, error) {
 		fx, err := loop(root)
 		if err == nil && root == p.root {
-			fx.Agents, fx.Typer = f, f
+			fx.Agents, fx.Prompter = f, f
 		}
 		return fx, err
 	}

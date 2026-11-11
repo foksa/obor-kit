@@ -18,6 +18,7 @@ package setup
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -126,7 +127,8 @@ func (r *renamer) stop(ctx context.Context) error {
 	}
 	for _, a := range running {
 		if r.inProject(a.Cwd) {
-			return project.Failf("agent %s runs in %s: quit it (its pane may stay), then run obor setup rename again", a.Name, a.Cwd)
+			return project.Failf("agent %s runs in %s: quit it (its pane may stay), then run obor setup rename again",
+				cmp.Or(a.Label, a.Agent), a.Cwd)
 		}
 	}
 	r.ok("0 stop", true, "no serve holds the flock, no agent of the project runs")

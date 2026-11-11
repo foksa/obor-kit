@@ -1171,16 +1171,14 @@ func TestRestartLabel(t *testing.T) {
 	t.Parallel()
 	x := setup(t)
 	x.sid("pj-l-01", "sid-1")
-	a := x.agent("w1:p2", "pj-l-01", "claude", "idle")
-	a.Label, a.Foreground = "", 1 // herdr still names w1:p2 pj-l-01, its agent exited
+	x.shell("w1:p2", "", "")
 	x.shell("w1:p3", "pj-l-01", "")
 	out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
-	contains(t, out, "pane w1:p3 (from label)", "the label wins over the herdr name")
-	if ok {
-		t.Errorf("another pane holds the herdr name: no move\n%s", out)
+	contains(t, out, "pane w1:p3 (from label)", "the pane is found by its label")
+	eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "started in the labelled pane")
+	if !ok {
+		t.Errorf("restarted:\n%s", out)
 	}
-	eq(t, last(out), "FAIL pane w1:p2 holds the name pj-l-01: restart it there (obor restart pj-l-01)",
-		"the name is elsewhere: FAIL with a hint")
 
 	x.reset()
 	x.shell("w1:p4", "", "")
@@ -1188,7 +1186,7 @@ func TestRestartLabel(t *testing.T) {
 	eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p4, session sid-1)", "an unlabelled --pane is fine")
 	contains(t, out, "labelled pane w1:p4 pj-l-01", "said")
 	eq(t, x.f.Panes[0].Label, "pj-l-01", "label set in herdr")
-	env, ren, start := x.index("pane.send_input keys=[Enter] pane_id=w1:p4 text=cd "), x.index("pane.rename label=pj-l-01 pane_id=w1:p4"), x.index("agent.start")
+	env, ren, start := x.index("pane.send_input keys=[Enter] pane_id=w1:p4 text=cd "), x.index("pane.rename label=pj-l-01 pane_id=w1:p4"), x.lastIndex("agent.start")
 	if !(env >= 0 && env < ren && ren < start) {
 		t.Errorf("env, then label, then start: %q", x.srv.Calls())
 	}
@@ -1829,7 +1827,7 @@ type waitGone struct {
 	err error
 }
 
-func (w waitGone) Wait(ctx context.Context, target string, until []string, timeout time.Duration) error {
+func (w waitGone) WaitStatus(ctx context.Context, target string, until []string, timeout time.Duration) error {
 	return w.err
 }
 
@@ -1951,27 +1949,11 @@ func eqInt(t *testing.T, got, want int, what string) {
 	}
 }
 
-// The start's name-taken retry (herdr keeps a name from a pane that ran agent before, and lags in
-// noticing an exit; obor itself renames nothing back): herdr's Start clears the name it kept and retries once.
+// A start the terminal's adapter retries itself (herdr: a name it kept from a pane that ran the agent before, cleared;
+// herdr's TestSocketStartNameTaken has the cases) is a start: the adapter's lines are printed. One it answers NotReady
+// is the startup-dialog FAIL.
 func TestRestartAgentNameTaken(t *testing.T) {
 	t.Parallel()
-	t.Run("start fails twice: retried once, herdr's error, FAIL", func(t *testing.T) {
-		t.Parallel()
-		x := setup(t)
-		x.sid("pj-l-01", "sid-1")
-		x.shell("w1:p3", "pj-l-01", "")
-		taken := herdrtest.Failure{Code: "agent_name_taken", Message: "name pj-l-01 taken"}
-		x.srv.Once("agent.start", taken, taken)
-		out, ok := x.restart(launch.Request{Agent: "pj-l-01", Pane: "w1:p3"})
-		contains(t, strings.Join(x.calls("agent.rename"), "\n"), "agent.rename name=null target=pj-l-01",
-			"the stale name cleared by name")
-		eqInt(t, len(x.calls("agent.start")), 2, "agent_name_taken: retried once")
-		contains(t, out, "agent_name_taken", "herdr's error printed")
-		eq(t, failLine(out), "FAIL start failed in w1:p3 (no agent runs there: the pane is at its shell, maybe mid-command: run obor restart pj-l-01 --pane w1:p3 again or start it by hand)", "result")
-		if ok {
-			t.Error("failed")
-		}
-	})
 	t.Run("start agent_name_taken once: name cleared, retried, RESTARTED", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
@@ -1984,22 +1966,6 @@ func TestRestartAgentNameTaken(t *testing.T) {
 		if clr, start := x.index("agent.rename name=null target=pj-l-01"), len(x.srv.Calls())-1; clr < 0 || clr > start {
 			t.Errorf("cleared before the retry: %q", x.srv.Calls())
 		}
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
-		if !ok {
-			t.Errorf("restarted:\n%s", out)
-		}
-	})
-	t.Run("the stale name cannot be cleared: warning names the agent, retried once", func(t *testing.T) {
-		t.Parallel()
-		x := setup(t)
-		x.sid("pj-l-01", "sid-1")
-		x.shell("w1:p3", "pj-l-01", "")
-		x.srv.Once("agent.start", herdrtest.Failure{Code: "agent_name_taken", Message: "name pj-l-01 taken"})
-		x.srv.Once("agent.rename", herdrtest.Failure{Code: "agent_not_found", Message: "agent pj-l-01 not found"})
-		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
-		contains(t, out, "agent start: name pj-l-01 taken: clearing it and retrying", "said")
-		contains(t, out, "warning: herdr kept the name pj-l-01: ", "the failed clear warned")
-		eqInt(t, len(x.calls("agent.start")), 2, "retried once")
 		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
 		if !ok {
 			t.Errorf("restarted:\n%s", out)
@@ -2018,69 +1984,6 @@ func TestRestartAgentNameTaken(t *testing.T) {
 			t.Error("a failure")
 		}
 	})
-	t.Run("the pane still holds the name (herdr lagging an exit): cleared by its pane, retried", func(t *testing.T) {
-		t.Parallel()
-		x := setup(t)
-		x.wait = shortWait
-		a := x.agent("w1:p7", "pj-rev", "codex", "working")
-		a.Session, a.OnQuit = "cx-9", "linger"
-		x.srv.Once("agent.start", herdrtest.Failure{Code: "agent_name_taken", Message: "name pj-rev taken"})
-		out, ok := x.restart(launch.Request{Agent: "pj-rev", Fresh: true, Force: true})
-		contains(t, strings.Join(x.calls("pane.send_input"), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p7 text=/quit", "precondition: Codex stopped")
-		eq(t, strings.Join(x.calls("agent.rename"), "\n"), "agent.rename name=null target=w1:p7", "the stale name cleared by its pane")
-		contains(t, out, "agent start: name pj-rev taken (pane w1:p7): clearing it and retrying", "said")
-		eqInt(t, len(x.calls("agent.start")), 2, "retried once")
-		eq(t, last(out), "RESTARTED pj-rev (pane w1:p7, session new)", "result")
-		if !ok {
-			t.Errorf("restarted:\n%s", out)
-		}
-	})
-}
-
-// Cut: no fg resume, no moves; both FAIL with a hint before anything is typed. Replaces bash restart.test.sh
-// case_stopped_job_gets_fg_and_resumed, case_suspended_agent_found_by_label_fg_renames_after_detection,
-// case_fg_without_detection_does_not_rename, case_fg_resumes_something_else_warns,
-// case_move_to_other_pane_clears_old_name_resumes_recorded_or_old_session, case_move_live_old_agent_fails_before_stopping,
-// case_move_codex_resumes_old_pane_session_else_fails.
-func TestRestartCuts(t *testing.T) {
-	t.Parallel()
-	for _, c := range []struct {
-		name string
-		prep func(x *fx)
-		req  launch.Request
-		line string
-	}{{
-		name: "--pane elsewhere while the old pane's exited agent holds the name",
-		prep: func(x *fx) {
-			x.sid("pj-l-01", "sid-1")
-			a := x.agent("w1:p3", "pj-l-01", "claude", "idle")
-			a.Label, a.Foreground, a.Session = "", 1, "sid-old"
-			x.shell("w1:p8", "", "").Session = "sid-target"
-		},
-		req:  launch.Request{Agent: "pj-l-01", Pane: "w1:p8"},
-		line: "FAIL pane w1:p3 holds the name pj-l-01: restart it there (obor restart pj-l-01)",
-	}, {
-		name: "--pane elsewhere while the old pane runs the live agent (--force)",
-		prep: func(x *fx) {
-			x.sid("pj-l-01", "sid-1")
-			x.agent("w1:p3", "pj-l-01", "claude", "idle").Label = ""
-			x.agent("w1:p8", "", "claude", "idle").Label = ""
-		},
-		req:  launch.Request{Agent: "pj-l-01", Pane: "w1:p8", Force: true},
-		line: "FAIL pane w1:p3 holds the name pj-l-01: restart it there (obor restart pj-l-01)",
-	}} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			x := setup(t)
-			c.prep(x)
-			out, ok := x.restart(c.req)
-			eq(t, last(out), c.line, "result")
-			if ok || len(x.calls("pane.send_input")) > 0 || len(x.calls("pane.send_keys")) > 0 ||
-				len(x.calls("agent.rename")) > 0 || x.startCall() != "" {
-				t.Errorf("nothing stopped, typed, renamed or started: %q", x.srv.Calls())
-			}
-		})
-	}
 }
 
 // Claude suspends on Ctrl+Z and herdr then sees an idle shell; a stopped child of the pane's shell refuses
@@ -2714,9 +2617,9 @@ func (s lockSpy) note(what string) {
 	}
 }
 
-func (s lockSpy) Type(ctx context.Context, pane, text string) error {
+func (s lockSpy) Write(ctx context.Context, pane, text string, submit bool) error {
 	s.note("run")
-	return s.PaneControl.Type(ctx, pane, text)
+	return s.PaneControl.Write(ctx, pane, text, submit)
 }
 
 func (s lockSpy) Start(ctx context.Context, name, kind, pane string, say func(format string, args ...any), args ...string) (port.Pane, error) {
@@ -2952,8 +2855,8 @@ type exitHook struct {
 	fn func()
 }
 
-func (e exitHook) Type(ctx context.Context, pane, text string) error {
-	err := e.PaneControl.Type(ctx, pane, text)
+func (e exitHook) Write(ctx context.Context, pane, text string, submit bool) error {
+	err := e.PaneControl.Write(ctx, pane, text, submit)
 	if text == "/exit" {
 		e.fn()
 	}
@@ -3417,18 +3320,18 @@ type popup struct {
 	enters *int
 }
 
-func (p popup) Type(ctx context.Context, pane, text string) error {
+func (p popup) Write(ctx context.Context, pane, text string, submit bool) error {
 	if text == "/exit" {
 		return nil
 	}
-	return p.PaneControl.Type(ctx, pane, text)
+	return p.PaneControl.Write(ctx, pane, text, submit)
 }
 
 func (p popup) SendKeys(ctx context.Context, pane string, keys ...string) error {
 	for _, k := range keys {
 		if k == "enter" {
 			*p.enters++
-			return p.PaneControl.Type(ctx, pane, "/exit")
+			return p.PaneControl.Write(ctx, pane, "/exit", true)
 		}
 	}
 	return p.PaneControl.SendKeys(ctx, pane, keys...)
@@ -3441,11 +3344,11 @@ type slowAfterQuit struct {
 	quit *bool
 }
 
-func (s slowAfterQuit) Type(ctx context.Context, pane, text string) error {
+func (s slowAfterQuit) Write(ctx context.Context, pane, text string, submit bool) error {
 	if text == "/exit" {
 		*s.quit = true
 	}
-	return s.PaneControl.Type(ctx, pane, text)
+	return s.PaneControl.Write(ctx, pane, text, submit)
 }
 
 func (s slowAfterQuit) ProcessInfo(ctx context.Context, pane string) (port.ProcessInfo, error) {
