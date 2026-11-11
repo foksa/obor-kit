@@ -27,8 +27,9 @@ func run(t *testing.T, dir string, args ...string) {
 	}
 }
 
-// fixture: proj (main checkout, committed config) with lanes L-01 and review, and merge (the scratch), under proj-wt.
-func fixture(t *testing.T, cfg string) (root, wt string) {
+// fixture: proj (main checkout, its config written but not committed) with one worktree per name under proj-wt,
+// each added detached from main. A test names the worktrees it reads: one git process each.
+func fixture(t *testing.T, cfg string, worktrees ...string) (root, wt string) {
 	t.Helper()
 	t.Setenv("GIT_CONFIG_GLOBAL", "/dev/null")
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
@@ -40,7 +41,7 @@ func fixture(t *testing.T, cfg string) (root, wt string) {
 	os.WriteFile(filepath.Join(root, ".obor", "config.json"), []byte(cfg), 0o644)
 	run(t, base, "git", "-c", "init.defaultBranch=main", "init", "-q", root)
 	run(t, root, "git", "-c", "user.name=t", "-c", "user.email=t@x", "commit", "-q", "--allow-empty", "-m", "init")
-	for _, l := range []string{"L-01", "review", "merge", "reviewer", "deep_dive", "integrator"} {
+	for _, l := range worktrees {
 		run(t, root, "git", "worktree", "add", "-q", "--detach", filepath.Join(wt, l), "main")
 	}
 	return root, wt
@@ -60,7 +61,7 @@ func role(t *testing.T, dir string) Role {
 }
 
 func TestFindFromALaneGivesTheMainCheckout(t *testing.T) {
-	root, wt := fixture(t, `{"version":2,"project":{"agent_prefix":"pj"}}`)
+	root, wt := fixture(t, `{"version":2,"project":{"agent_prefix":"pj"}}`, "L-01")
 	r, err := Find(filepath.Join(wt, "L-01"))
 	if err != nil {
 		t.Fatal(err)
@@ -314,7 +315,8 @@ func TestProjectLockWaitContextAndHolderLine(t *testing.T) {
 }
 
 func TestDetectRoleCwdEnvAndLanes(t *testing.T) {
-	root, wt := fixture(t, `{"version":2,"project":{"agent_prefix":"pj"},"agents":{"roles":{"reviewer":"opus","deep_dive":"opus"}}}`)
+	root, wt := fixture(t, `{"version":2,"project":{"agent_prefix":"pj"},"agents":{"roles":{"reviewer":"opus","deep_dive":"opus"}}}`,
+		"L-01", "review", "merge", "reviewer", "deep_dive", "integrator")
 	if got := role(t, filepath.Join(wt, "L-01")); got != (Role{"worker", "L-01", "cwd"}) {
 		t.Errorf("lane: %+v", got)
 	}
@@ -371,7 +373,7 @@ func TestDetectRoleCwdEnvAndLanes(t *testing.T) {
 // worker (env or none: OpenCode's shared hook process), the drive agent, each role; a stale OBOR_AGENT is never read;
 // a prefix change applies at once (nothing stored).
 func TestSelfDerivesTheName(t *testing.T) {
-	root, wt := fixture(t, `{"version":2,"project":{"agent_prefix":"pj"},"agents":{"roles":{"reviewer":"opus","deep_dive":"opus","advisor":"opus"}}}`)
+	root, wt := fixture(t, `{"version":2,"project":{"agent_prefix":"pj"},"agents":{"roles":{"reviewer":"opus","deep_dive":"opus","advisor":"opus"}}}`, "L-01")
 	lane := filepath.Join(wt, "L-01")
 	self := func(dir string, env map[string]string) string {
 		t.Helper()

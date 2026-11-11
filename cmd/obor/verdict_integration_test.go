@@ -35,8 +35,14 @@ func TestResumeAndNoVerdictVerbs(t *testing.T) {
 	f := herdrtest.New()
 	f.Workspaces = []herdr.Workspace{{ID: "w1", Label: "proj"}}
 	srv := herdrtest.Serve(t, f)
+	// serve reads the versions of the agent CLIs it may start (launch.CLIVersions) from PATH: stubs, so the real
+	// CLIs never run (opencode unpacks Bun's files into TMPDIR).
+	bin := t.TempDir()
+	for _, name := range []string{"claude", "codex", "opencode"} {
+		testkit.Script(t, bin, name, "#!/bin/sh\nexit 0\n")
+	}
 	env := []string{"OBOR_STATE_HOME=" + home, "HERDR_SOCKET_PATH=" + srv.Path, "OBOR_ROLE=integrator",
-		"OBOR_AGENT=pj-int"}
+		"OBOR_AGENT=pj-int", "PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH")}
 
 	check := func(env []string, want string, args ...string) {
 		t.Helper()
