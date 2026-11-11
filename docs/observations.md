@@ -44,6 +44,7 @@ live in `docs/decisions.md`, open work in `BACKLOG.md`, the lead's own working r
 - **External CLIs change under us** (Codex auto-upgrades; Gatekeeper per binary per version): after a `brew
   upgrade`, check `codex --version` and the setup warning first.
 - Commit BACKLOG at once while any task in flight edits it (an uncommitted edit held a publish).
+- A serve started from a `dist/obor` built off a dirty main checkout runs uncommitted code against the live store (11-07: it migrated the store to schema 13 and serve was down 4 min): build releases and serves from committed code only.
 - `obor web` does not follow a new binary: restart it after a merge that changes the view.
 - Re-dispatching a waiting task sends it to the back; `Priority: high` puts it first. Check `obor status` before
   dropping: a "queued" task may already be on a lane, or already merged (T-1213/T-1214 merged before a drop, 11-10).

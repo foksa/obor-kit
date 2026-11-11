@@ -83,29 +83,12 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
 - (2026-10-26, low) OpenCode dispatch: each `agent.start` result lands ~30 s after start even when the job was
   fetched in 4 s; starts run one at a time. The start could end on the delivered fact.
 ## Concerns
-- (lead 11-11) Start identity: built 11-11 (T-1260..T-1264, decisions O1-O4); RV-192 #1 (only a label naming another configured agent reserves a pane): T-1266 (in flight). Watch the next live restarts for a refusal that names a pane wrongly.
 - (lead 11-11) **herdr server CPU bursts** (pid 98146, up 5d16h, 2912 CPU-min = ~35% average): at 09:50 it ran at 100% for a while (`sample`: main thread looping in `handle_scheduled_tasks_headless` → `App::start_pending_agent_resumes` with no wait, log quiet), at 09:58 8%. Not the budget breaches' main cause (macOS StorageManagement at ~120% for an hour was). Check whether obor's `launch_pending` agents feed that resume list before an upstream report.
 - (lead 11-08) **Serve fires waiting work on the old binary before its self-restart after a merge:** `obor review --after T-1059,T-1060` fired at 19:35:16Z on 77df169's serve and hit the very bug T-1059 fixed; serve restarted on the new binary ~30 s later. A fix to serve's own code is live only after that restart, so an --after request or dispatch that tests the fix should fire after it (restart first, then fire). Small; decide when it bites again.
 - (lead 11-07) **A task parked on a needs-you keeps its lane**: T-982 and T-983 (gate timeouts, not their diffs) held L-04 and L-01 while the fixes for the timeouts (T-989, T-990) waited for a lane. Since T-961 a merge-loop task holds its lane for its lane test; a parked one could release it (its tree is in its branch and candidate pin) and take a lane again when resumed. Decide with the next merge-flow change.
-- (lead 11-07) **Flake, 3 sightings**: `TestWakePostRefusedThenReplayed` (internal/app) failed T-704's gate, a gate near serve.log:13435 and T-957's full re-gate 11-07 14:28 (0.7 s, passes on main in 0.8 s); each red sent a worker back. The rework's retest (plan §5 T-C) absorbs it; fix the test if it recurs after T-C.
-- (lead 11-07) **Not a flake**: `TestJobNudgeFromDelivery/activity_at_8_min` red in T-956's gate was a rule bug: watchJob counted herdr 'not connected' as the integrator gone (against T-759); fixed in T-956 (jobs.go, joblost_test.go). Also: lead commits to main while candidates wait cost each a moved re-gate (12:40 BACKLOG commit moved T-950): bookkeeping only at a quiet merge queue.
-- (lead 11-07) **Serve down 09:53-09:57: store at schema 13.** The audit's uncommitted schema-13 code ran as the live serve (launchd start 09:15 on a `dist/obor` built from the dirty main checkout) and migrated `.obor/state/obor.db`; T-939's merge rebuilt `dist/obor` at 12 and serve refused the store. Lead backed it up (scratchpad obor-schema13-0957.db), dropped `spec_calls` (2 receipts) and set 12. Rule: never `make build` uncommitted code in the main checkout; serve runs `dist/obor`. A store-schema change needs its rollback said in the spec.
 - (11-06, state-machine audit) Tests that inject effect results through `record` can miss differences in the real
   `App.do` path (SM-03: live idle keys differed from replay). Keep production-boundary regressions for durable
   metadata and retry receipts; findings, fixes and state tables are in `docs/state-model.md` (SM-01–04).
-- (11-04) `make upgrade-check` takes the catalog's newest release below VERSION as the previous one, so a second release before the first ships 404s on its download (v0.24.1 over the unpublished v0.24.0). Ran it with `PREV=0.23.1` (what the axis projects run). Fix if it recurs: default to the newest release origin has, or ship each release before tagging the next.
-- (11-03) T-765 rollout on obor-kit: the old serve could not load the merged config, so `dist/obor` was not rebuilt
-  and serve stayed down ("lanes: must be an object") until the lead ran `make build`, `obor setup migrate`
-  (local.json) and `obor serve restart`. The upgrade guide must give other projects that order.
-- (11-03) T-766's `--after` dispatch, queued under the old serve, was placed on DeepSeek after the upgrade despite its
-  `Model: opus` line (a fresh `obor dispatch` honoured it). One-time, from the Type:→Model: rename; watch for another
-  queued request ignoring its spec's line.
-- (11-03) `obor drop` left the running worker up ("left running; --force stops it"), and `obor restart <lane agent>`
-  then started an agent with no job (idle, `resume reprompt` refused). Recovery: `restart --stop`, drop, dispatch.
-- (11-04) `TestRestartReleasesTheName` (internal/launch) flaked on T-775's gate: "no claude agent came up within
-  60ms" under suite load; passes alone; T-775 does not touch launch. Second flake → widen the stub's start wait.
-- (11-03) `TestDriveStartRetried` (T-755) flaked once on T-757's gate (red, then green on rerun): watch for a second flake, then fix its timing.
-- (11-03 08:19) one-off `needs-you loop: the branch of the main checkout …: exit status 2` (`cmd/obor/serve_dispatch.go:77`, `git branch --show-current`) around serve's re-exec after T-754/T-756 merged; cleared by itself, main clean on `main`. If it recurs: capture git's stderr in that error.
 - **`internal/app` is where all growth lands** (+789 in phase 4, 7.4k; DD-v0.12 Design 1). Keep "a new state or
   step is a row in `states.go`"; split files in phase 5.
 - **Surface growth:** each feature brings 2–4 review findings. Consolidate before new features.
