@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -65,6 +66,10 @@ type fx struct {
 	install func() agents.InstallHost
 	// shellWait is Setup.ShellWait (0: 10 s), for tests that count on the bound
 	shellWait time.Duration
+	// host is Setup.host, the git seam (nil: the real calls); fake is the fakeGit of bareFakeGit, which host then is
+	host gitHost
+	fake *fakeGit
+	tb   testing.TB
 	// poll and up are the launcher's Poll and Up (0: its defaults, 1 s and 30 s), for a start that polls
 	poll, up time.Duration
 }
@@ -102,6 +107,66 @@ func bareGit(t *testing.T) *fx {
 	return withHerdr(t, testkit.New(t))
 }
 
+// bareFakeGit is bareGit with no git process: a plain project (testkit.NewDir) that is a repository the fake keeps (one
+// commit on main holding the .gitignore testkit.New commits), setup's git calls go to it (Setup.host), and x.Git answers
+// from it: for the tests of what setup decides (the steps, the lanes it adds, the hooks path it sets). A test of git's
+// own result (a real commit, a real worktree, a real hook) uses bareGit.
+func bareFakeGit(t *testing.T) *fx {
+	t.Helper()
+	x := withHerdr(t, testkit.NewDir(t))
+	const ignore = ".task-done.md\n"
+	x.Write(".gitignore", ignore)
+	x.fake = newFakeGit()
+	x.host = x.fake
+	if err := x.fake.seed(x.Root, map[string]string{".gitignore": ignore}); err != nil {
+		t.Fatal(err)
+	}
+	return x
+}
+
+// newFakeGitFx is newFx on bareFakeGit.
+func newFakeGitFx(t *testing.T, edits ...func(map[string]any)) *fx {
+	t.Helper()
+	x := bareFakeGit(t)
+	x.Config(edits...)
+	return x
+}
+
+// Git is the fixture's git: the fake's answer in a fake-git fixture, else testkit's real git; the test fails on an
+// error either way.
+func (x *fx) Git(dir string, args ...string) string {
+	if x.fake == nil {
+		return x.Project.Git(dir, args...)
+	}
+	x.tb.Helper()
+	out, err := x.fake.Git(dir, args...)
+	if err != nil {
+		x.tb.Fatalf("git %v: %v", args, err)
+	}
+	return strings.TrimSpace(out)
+}
+
+// gitIn is git -C dir args…: its stdout trimmed and its error.
+func gitIn(dir string, args ...string) (string, error) {
+	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).Output()
+	return strings.TrimSpace(string(out)), err
+}
+
+// gitOut is git -C dir args…, its stdout trimmed and its error: the fake's in a fake-git fixture, else the real one.
+func (x *fx) gitOut(dir string, args ...string) (string, error) {
+	if x.fake == nil {
+		return gitIn(dir, args...)
+	}
+	out, err := x.fake.Git(dir, args...)
+	return strings.TrimSpace(out), err
+}
+
+// hasCommit: dir's repository has a commit.
+func (x *fx) hasCommit(dir string) bool {
+	_, err := x.gitOut(dir, "rev-parse", "-q", "--verify", "HEAD")
+	return err == nil
+}
+
 // lane is `obor setup lane <name>` in a plain project: the lane's worktree is laid out as files first
 // (testkit.PlainLane), so setup finds it and runs no git; the config edit, links and lane_setup are setup's.
 func (x *fx) lane(t *testing.T, name string) string {
@@ -116,7 +181,7 @@ func withHerdr(t *testing.T, p *testkit.Project) *fx {
 	h := herdrtest.New()
 	h.Tab("w1:t1", 200, 50, "w1:p1")
 	h.Tab("w1:t2", 200, 50, "w1:q1")
-	x := &fx{Project: p, h: h, srv: herdrtest.Serve(t, h)}
+	x := &fx{Project: p, h: h, srv: herdrtest.Serve(t, h), tb: t}
 	for _, p := range h.Panes {
 		p.Cwd = x.Root // in workspace w1, its id's
 	}
@@ -179,7 +244,7 @@ func (x *fx) newSetup(t *testing.T) (*Setup, *bytes.Buffer) {
 	return &Setup{Kit: k, Env: env, T: &herdr.Setup{Socket: h, Env: env}, Out: &out, McpCheck: check, ShellWait: x.shellWait,
 		Starter: func(cfg *config.Config) port.Starter {
 			return &launch.Launcher{Cfg: cfg, Env: env, Kit: k, H: h, Out: &out, Rollout: rollout, Open: open, Poll: x.poll, Up: x.up}
-		}, Serve: x.serve, Installed: x.installed, Install: install}, &out
+		}, Serve: x.serve, Installed: x.installed, Install: install, host: x.host}, &out
 }
 
 // reqs is the requests the fake herdr socket got since reset, each as req's one line, e.g. "pane.split cwd=/w

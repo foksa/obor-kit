@@ -100,7 +100,7 @@ func (s *Setup) laneDone(ctx context.Context, lane, dir string) (bool, error) {
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		return false, nil
 	}
-	repo, err := project.Find(dir)
+	repo, err := s.git().Find(dir)
 	if err != nil || repo.Root != s.root || repo.Top != project.Physical(dir) {
 		return false, project.Failf("%s exists and is not a worktree of %s", dir, s.root)
 	}
@@ -130,7 +130,7 @@ func (s *Setup) addLane(n int) error {
 // linkWorktree links project.WorktreeLinks into the worktree dir (a lane, a role worktree) with project.LinkInto and
 // says what became of each entry: linked, already there, or not in the main checkout.
 func (s *Setup) linkWorktree(dir string) error {
-	links := project.WorktreeLinks(s.cfg)
+	links := s.worktreeLinks()
 	linked, err := project.LinkInto(s.root, dir, links)
 	if err != nil {
 		return project.Failf("%v", err)

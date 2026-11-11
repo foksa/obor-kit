@@ -79,7 +79,7 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if r, err := project.Find(s.Dir); err == nil && project.Stopped(r.Root) {
+	if r, err := s.git().Find(s.Dir); err == nil && project.Stopped(r.Root) {
 		return project.Failf("%s is stopped (obor stop): obor start wakes it", r.Root)
 	}
 	running, err := s.T.Agents(ctx)
@@ -95,7 +95,7 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	// Decided before any write: init commits only in a directory that held nothing but.git (or init's own
 	// untouched files, a rerun); a repository with no commit and anything else in it is a FAIL.
 	root, repo := s.Dir, true
-	switch r, err := project.Find(s.Dir); {
+	switch r, err := s.git().Find(s.Dir); {
 	case errors.Is(err, project.ErrNotGit):
 		repo = false
 	case err != nil:
@@ -165,7 +165,7 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	add("githooks", doneOr(hooksChanged), "%s", hooksLine(s.root))
+	add("githooks", doneOr(hooksChanged), "%s", s.hooksLine(s.root))
 
 	// commands
 	set, err := s.initCommands()
@@ -736,7 +736,7 @@ func (s *Setup) laneWorker(lane string) string {
 // from removing the links) and lanes.links is linked into the existing lanes; tracked or absent → nothing to do. A
 // role worktree gets the links where it is made (rolePane; the launcher at its agent's start).
 func (s *Setup) initPluginLinks() (state, what string, err error) {
-	if !project.SettingsUntracked(s.root) {
+	if !s.settingsUntracked() {
 		return "already", project.PluginSettings + " is tracked or absent: lanes get it from git", nil
 	}
 	changed := false
@@ -761,7 +761,7 @@ func (s *Setup) initPluginLinks() (state, what string, err error) {
 		if _, err := os.Stat(l.Dir); err != nil {
 			continue
 		}
-		linked, err := project.LinkInto(s.root, l.Dir, project.WorktreeLinks(s.cfg))
+		linked, err := project.LinkInto(s.root, l.Dir, s.worktreeLinks())
 		if err != nil {
 			return "", "", project.Failf("%v", err)
 		}
