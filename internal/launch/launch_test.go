@@ -167,6 +167,8 @@ func setup(t *testing.T, edits ...func(map[string]any)) *fx {
 	return newFx(t, false, edits...)
 }
 
+// setupGit is a real git project for the test of a git call (project.AddWorktree): the launcher adds the role
+// worktree, which is absent.
 func setupGit(t *testing.T, edits ...func(map[string]any)) *fx {
 	t.Helper()
 	return newFx(t, true, edits...)
@@ -174,12 +176,13 @@ func setupGit(t *testing.T, edits ...func(map[string]any)) *fx {
 
 func newFx(t *testing.T, git bool, edits ...func(map[string]any)) *fx {
 	t.Helper()
-	p := testkit.NewPlain(t)
+	var p *testkit.Project
 	var lane string
 	if git {
+		// No lane: the tests that need git start role agents, and a lane no test reads would be a worktree add.
 		p = testkit.New(t)
-		lane = p.Lane("L-01", "")
 	} else {
+		p = testkit.NewPlain(t)
 		lane = p.PlainLane("L-01", "")
 	}
 	f := p.Herdr()
