@@ -499,7 +499,7 @@ func writeServe(w io.Writer, s view.Serve, now time.Time) {
 }
 
 // writeReviewOpen is the open review's line under serve's, nothing when none is open: its id, its stage with what the
-// stage is about, the review file once written, the reviewer with its pane's status and the stage's age, e.g.
+// stage is about, its newest review file once written, the reviewer with its pane's status and the stage's age, e.g.
 // `review RV-190: reviewing T-1254, T-1255 (ob-rev working, 6m)` or `review RV-190: fixes T-1260 merged · T-1261 open ·
 // reviews/RV-190.md (ob-rev idle, 12m)`.
 func writeReviewOpen(w io.Writer, ro *wire.ReviewOpenStatus, now time.Time) {

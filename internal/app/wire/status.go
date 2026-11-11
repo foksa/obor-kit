@@ -115,16 +115,16 @@ type ReviewRequestStatus struct {
 // The open review's stages (ReviewOpenStatus.Stage), in the order a cycle passes them.
 const (
 	ReviewReviewing = "reviewing" // the reviewer's review brief is open
-	ReviewWritten   = "written"   // the review brief ended and no fix task is linked: the lead's turn
+	ReviewWritten   = "written"   // no fix is pending and the newest review file does not approve it: the lead's turn
 	ReviewFixes     = "fixes"     // a linked fix task is open, or merged and no finished verify covers it
 	ReviewVerifying = "verifying" // the reviewer's verify brief is open
-	ReviewApproved  = "approved"  // every linked fix ended unmerged or a finished verify covers it: the lead's close is next
+	ReviewApproved  = "approved"  // no fix is pending and the newest review file's Result says approved: the lead's close is next
 )
 
 // ReviewOpenStatus is the open review (review.go, reviewverify.go): its id, its stage (Review*), the tasks its cycle
 // covered so far (its in-scope tasks, then each finished verify's), its fix tasks (linked by their specs' Fixes: lines),
 // the reviewer agent and its pane's status ("": no pane identified), since when the stage holds (Unix seconds) and its
-// review file once written (relative to the project's root; "": not written).
+// newest review file once written (relative to the project's root; "": not written).
 type ReviewOpenStatus struct {
 	ID          string      `json:"id"`
 	Stage       string      `json:"stage"`

@@ -273,10 +273,11 @@ func (p *proj) reviewStatus(now time.Time) string {
 // reviewOpen is the open review as obor status and obor web show it (nil: none open; under mu). Its stage is the
 // review fold's (review.State) with the reviewer's open brief (outbox) and the fix round the verify rule last read
 // (p.fixes): verifying while the reviewer's verify brief is open, reviewing while its open brief is the review's
-// own (review.State.BriefFile), then written while no fix task is linked, fixes while a linked task is pending
-// (review.Cycle.Pending) and approved once none is. Since is the stage's start: the review's start (reviewing), the
-// verify brief's (verifying), the first pending fix's dispatch (fixes), else the reviewer's last brief's end (the
-// lead's turn). The file is the review file once it is in the main checkout.
+// own (review.State.BriefFile), then fixes while a linked task is pending (review.Cycle.Pending). With none
+// pending the newest review file's Result line decides: approved when it says so, else written (changes requested,
+// or a file nothing can be read from: the lead's turn). Since is the stage's start: the review's start (reviewing),
+// the verify brief's (verifying), the first pending fix's dispatch (fixes), else the reviewer's last brief's end (the
+// lead's turn). The file is the newest of the review's files once it is in the main checkout.
 func (a *App) reviewOpen(p *proj) *wire.ReviewOpenStatus {
 	c := p.folded.rv.Cycle()
 	if c.Open() == "" {
@@ -304,13 +305,15 @@ func (a *App) reviewOpen(p *proj) *wire.ReviewOpenStatus {
 	}
 	since := turn
 	pending := c.Pending(round.Links)
+	file, result := "", ""
+	if s.Reviews != "" {
+		file, result = newestReviewFile(p.root, s.Reviews, c.ID)
+	}
 	switch {
 	case brief != nil && p.folded.rv.Verifying(s.Agent):
 		ro.Stage, since = wire.ReviewVerifying, brief.At()
 	case brief != nil && p.folded.rv.BriefFile(s.Agent, brief.Seq()) == c.ID:
 		ro.Stage, since = wire.ReviewReviewing, c.At
-	case len(round.Links) == 0:
-		ro.Stage = wire.ReviewWritten
 	case len(pending) > 0:
 		ro.Stage = wire.ReviewFixes
 		var first time.Time
@@ -323,18 +326,70 @@ func (a *App) reviewOpen(p *proj) *wire.ReviewOpenStatus {
 			since = first
 		}
 	default:
-		ro.Stage = wire.ReviewApproved
+		ro.Stage = wire.ReviewWritten
+		// The reviewer's verdict is its newest file's: approved closes the review, changes requested is the lead's turn.
+		if strings.HasPrefix(strings.ToLower(strings.TrimLeft(result, " \t`*")), "approved") {
+			ro.Stage = wire.ReviewApproved
+		}
 	}
 	if !since.IsZero() {
 		ro.Since = since.Unix()
 	}
-	if s.Reviews != "" {
-		file := filepath.Join(s.Reviews, c.ID+".md")
-		if _, err := os.Stat(filepath.Join(p.root, file)); err == nil {
-			ro.File = file
+	ro.File = file
+	return ro
+}
+
+// newestReviewFile is the newest of id's review files in root's reviews dir: the review's own RV-n.md, then its
+// verify's RV-n-verify.md, then each later verify's RV-n-verify-<k>.md (k from 1), each one newer than the last. file
+// is its path from root and result its Result line's text (both "": no such file; result only: nothing readable).
+func newestReviewFile(root, reviews, id string) (file, result string) {
+	entries, err := os.ReadDir(filepath.Join(root, reviews))
+	if err != nil {
+		return "", ""
+	}
+	order := 0
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if n := reviewFileOrder(id, e.Name()); n > order {
+			order, file = n, filepath.Join(reviews, e.Name())
 		}
 	}
-	return ro
+	if file == "" {
+		return "", ""
+	}
+	if b, err := os.ReadFile(filepath.Join(root, file)); err == nil {
+		result = resultText(b)
+	}
+	return file, result
+}
+
+// reviewFileOrder is name's place among id's review files: the review's own first (RV-n.md), then its verify's
+// (RV-n-verify.md), then each later verify's (RV-n-verify-<k>.md, the higher k the later); 0 when name is not one.
+func reviewFileOrder(id, name string) int {
+	rest, ok := strings.CutPrefix(name, id)
+	if !ok {
+		return 0
+	}
+	rest, ok = strings.CutSuffix(rest, ".md")
+	switch {
+	case !ok:
+		return 0
+	case rest == "":
+		return 1
+	case rest == "-verify":
+		return 2
+	}
+	k, ok := strings.CutPrefix(rest, "-verify-")
+	if !ok {
+		return 0
+	}
+	n, err := strconv.Atoi(k)
+	if err != nil || n < 1 {
+		return 0
+	}
+	return n + 2
 }
 
 // reviewDueTick counts, on every pass, the merges in the next review's scope (review.Next.Scope: since the review before
