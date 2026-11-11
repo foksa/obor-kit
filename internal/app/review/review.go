@@ -20,6 +20,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"obor/internal/app/event"
 	"obor/internal/app/outbox"
@@ -92,7 +93,7 @@ func (v *Verify) Tasks() []string { return v.tasks }
 // Why is why the verify ended unfinished ("": it did not).
 func (v *Verify) Why() string { return v.why }
 
-// review is one review the log started, one value: its start's seq, id and head; covered, the in-scope
+// review is one review the log started, one value: its start's seq, time, id and head; covered, the in-scope
 // tasks its start named; fixes, the tasks its finished verifies covered; reviewed, the head the reviewer last
 // finished (the start's, then each finished verify's; an open review's only); closed, its review.closed
 // fact's seq (its state; 0: open) and subject, its close commit's subject as the close's reply names it ("": open, or
@@ -101,6 +102,7 @@ func (v *Verify) Why() string { return v.why }
 // changes nothing.
 type review struct {
 	seq      int64
+	at       time.Time
 	id, head string
 	covered  []string
 	fixes    []string
@@ -139,12 +141,14 @@ func (rv *review) cycle() []string {
 }
 
 // State is the reviews' and the merges' records folded: every review the log started, in
-// order; every merge, in order; per agent its open verify brief, and the last verify brief since the last start that
-// ended unfinished. The zero State is an empty one.
+// order; every merge, in order; per agent its open verify brief and when its last brief ended (its finished line, or a
+// stop that ended it), and the last verify brief since the last start that ended unfinished. The zero State is an
+// empty one.
 type State struct {
 	reviews []review
 	merges  []Merge
 	open    map[string]*Verify
+	endAt   map[string]time.Time
 	failed  *Verify
 }
 
@@ -156,7 +160,7 @@ type State struct {
 // firing and a call's stored reply are package app's to fold.
 func (s *State) Fold(r event.Record) (d Data, ok bool) {
 	if s.open == nil {
-		s.open = map[string]*Verify{}
+		s.open, s.endAt = map[string]*Verify{}, map[string]time.Time{}
 	}
 	if m, merged := event.MergeOf(r); merged {
 		s.merges = append(s.merges, Merge{task: m.Task, sha: m.SHA, seq: r.Seq})
@@ -184,11 +188,13 @@ func (s *State) Fold(r event.Record) (d Data, ok bool) {
 		var m event.Message
 		if json.Unmarshal(r.Data, &m) == nil && m.Ends != "" { // the finished line
 			s.ended(m.Ends, "")
+			s.endAt[m.Ends] = event.RecordTime(r)
 		}
 	case event.StepStopped:
 		var st outbox.Stopped
 		if json.Unmarshal(r.Data, &st) == nil && st.Ends != "" { // an error stop: no finished line follows
 			s.ended(st.Ends, "the reviewer stopped: "+st.Error)
+			s.endAt[st.Ends] = event.RecordTime(r)
 		}
 	}
 	return Data{}, false
@@ -202,7 +208,7 @@ func (s *State) foldReview(r event.Record, d Data, read bool) {
 		if !read {
 			return
 		}
-		s.reviews = append(s.reviews, review{seq: r.Seq, id: d.ID, head: d.Head, covered: slices.Clone(d.Tasks),
+		s.reviews = append(s.reviews, review{seq: r.Seq, at: event.RecordTime(r), id: d.ID, head: d.Head, covered: slices.Clone(d.Tasks),
 			reviewed: d.Head})
 		s.failed = nil
 	case event.StepReviewClosing:
@@ -328,12 +334,14 @@ func (s *State) Last() Last {
 // Prev is the id of the review before the newest one ("": none).
 func (s *State) Prev() string { return s.prev().id }
 
-// Cycle is the newest review's cycle, what it covered: the review (Head, the head it started at); Covered, its
+// Cycle is the newest review's cycle, what it covered: the review (Head, the head it started at; At, its start's
+// time); Covered, its
 // in-scope tasks plus each finished verify's, once each (a closed review's: its close's snapshot); Reviewed, the head
 // the reviewer last finished while it is open (its start's, then each finished verify's, never the head of a verify
 // that did not finish; "": closed, or none started).
 type Cycle struct {
 	Last
+	At       time.Time
 	Reviewed string
 	Covered  []string
 }
@@ -341,7 +349,7 @@ type Cycle struct {
 // Cycle is the newest review's cycle (the zero Cycle: none started).
 func (s *State) Cycle() Cycle {
 	cur := s.cur()
-	c := Cycle{Last: s.Last(), Covered: cur.cycle()}
+	c := Cycle{Last: s.Last(), At: cur.at, Covered: cur.cycle()}
 	if c.Open() != "" {
 		c.Reviewed = cur.reviewed
 	}
@@ -399,6 +407,13 @@ func (s *State) MergeOf(task string) Merge {
 	return out
 }
 
+// Ended is when agent's last brief ended: its finished line or the stop that ended it (zero: none folded). A newer
+// brief replacing an open one is no end here.
+func (s *State) Ended(agent string) time.Time { return s.endAt[agent] }
+
+// Verifying: agent has an open verify brief.
+func (s *State) Verifying(agent string) bool { return s.open[agent] != nil }
+
 // Failed is the last verify brief since the newest review's start that ended unfinished (nil: none).
 func (s *State) Failed() *Verify { return s.failed }
 
@@ -439,16 +454,21 @@ func (f Round) Line() string {
 	}
 	items := make([]string, 0, len(f.Links))
 	for _, l := range f.Links {
-		switch {
-		case l.End != "":
-			items = append(items, l.Task+" "+l.End)
-		case l.Merged == 0:
-			items = append(items, l.Task+" open")
-		case slices.Contains(f.Covered, l.Task):
-			items = append(items, l.Task+" verified")
-		default:
-			items = append(items, l.Task+" merged")
-		}
+		items = append(items, l.Task+" "+f.State(l))
 	}
 	return f.ID + " fixes: " + strings.Join(items, " · ")
+}
+
+// State is link l's state in the round: how it ended unmerged (dropped, rejected), open (not merged), verified (merged
+// and the cycle covers it) or merged.
+func (f Round) State(l Link) string {
+	switch {
+	case l.End != "":
+		return l.End
+	case l.Merged == 0:
+		return "open"
+	case slices.Contains(f.Covered, l.Task):
+		return "verified"
+	}
+	return "merged"
 }

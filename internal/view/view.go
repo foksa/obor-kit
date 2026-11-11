@@ -48,10 +48,11 @@ type Project struct {
 	Paused    *Pause             `json:"paused"`
 	// ModelPauses is the model pauses in force (obor pause --model), by model name (the Setup page;
 	// obor status --json prints them as model_pauses).
-	ModelPauses map[string]*Pause    `json:"model_pauses,omitempty"`
-	Messages    []wire.MessageStatus `json:"messages"`          // the lines not typed yet
-	Review      string               `json:"review,omitempty"`  // the open review request, or "review due: …"
-	Watches     []wire.WatchStatus   `json:"watches,omitempty"` // the lead's open watches (obor status)
+	ModelPauses map[string]*Pause      `json:"model_pauses,omitempty"`
+	Messages    []wire.MessageStatus   `json:"messages"`              // the lines not typed yet
+	Review      string                 `json:"review,omitempty"`      // the open review request, or "review due: …"
+	ReviewOpen  *wire.ReviewOpenStatus `json:"review_open,omitempty"` // the open review and its stage (nil: none)
+	Watches     []wire.WatchStatus     `json:"watches,omitempty"`     // the lead's open watches (obor status)
 	// Idle is the project's idle state: the pipeline is empty, what ended it and the lead's acknowledgement.
 	// obor status and obor web show it; a dispatch or a review request ends it.
 	Idle   *Idle          `json:"idle,omitempty"`
@@ -266,7 +267,7 @@ func serveOf(v *Project, ss wire.Status, err error, p *checks.LaneTable, bg map[
 	}
 	v.Agents = append(v.Agents, ps.Agents...)
 	v.Messages = append(v.Messages, ps.Messages...)
-	v.Review, v.Watches = ps.Review, ps.Watches
+	v.Review, v.ReviewOpen, v.Watches = ps.Review, ps.ReviewOpen, ps.Watches
 	v.Idle = ps.Idle
 	v.Facts = ps.Facts
 	v.NeedsYou = needsYou(ps)

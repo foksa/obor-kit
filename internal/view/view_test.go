@@ -42,6 +42,33 @@ func TestServeCarriesTheTerminalNote(t *testing.T) {
 	}
 }
 
+// serveOf carries serve's open review into the view as serve sent it (obor status, obor web); none open is none.
+func TestServeCarriesTheOpenReview(t *testing.T) {
+	p := testkit.New(t)
+	p.Config()
+	cfg, err := config.Load(p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lanes := checks.NewLaneTable(context.Background(), cfg)
+	ro := &wire.ReviewOpenStatus{ID: "RV-190", Stage: wire.ReviewReviewing, Tasks: []string{"T-1254", "T-1255"},
+		Agent: "ob-rev", AgentStatus: "working", Since: 100}
+	var v Project
+	serveOf(&v, wire.Status{Project: &wire.ProjectStatus{Root: p.Root, ReviewOpen: ro}}, nil, lanes, nil)
+	if !v.Serve.Project {
+		t.Fatal("precondition: serve's project is not this one")
+	}
+	if v.ReviewOpen == nil || v.ReviewOpen.ID != "RV-190" || v.ReviewOpen.Stage != wire.ReviewReviewing ||
+		!slices.Equal(v.ReviewOpen.Tasks, ro.Tasks) || v.ReviewOpen.Agent != "ob-rev" {
+		t.Errorf("open review %+v, want serve's RV-190 reviewing", v.ReviewOpen)
+	}
+	v = Project{}
+	serveOf(&v, wire.Status{Project: &wire.ProjectStatus{Root: p.Root}}, nil, lanes, nil)
+	if v.ReviewOpen != nil {
+		t.Errorf("none open: %+v, want none", v.ReviewOpen)
+	}
+}
+
 // a lane whose restart lock is held has op restart (obor status); a lock file nobody holds (its restart
 // was killed) is no op.
 func TestRestartOpIsTheHeldRestartLock(t *testing.T) {

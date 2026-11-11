@@ -195,8 +195,10 @@ type ProjectsEntry struct {
 	Lanes     []LaneDot       `json:"lanes"`
 	FullCheck *view.FullCheck `json:"full_check"`
 	Paused    *view.Pause     `json:"paused"`
-	Events    []view.Event    `json:"events"`
-	Error     string          `json:"error,omitempty"`
+	// ReviewOpen is the open review and its stage (the fleet page's RV-n badge; nil: none open).
+	ReviewOpen *wire.ReviewOpenStatus `json:"review_open,omitempty"`
+	Events     []view.Event           `json:"events"`
+	Error      string                 `json:"error,omitempty"`
 }
 
 // LaneDot is one lane as the fleet page shows it: its name, its state column, its configured type, whether it is free
@@ -230,7 +232,7 @@ func (s *Server) projectsAPI(w http.ResponseWriter, r *http.Request) {
 			e.Up, e.NeedsYou, e.Queue = v.Serve.Up, len(v.NeedsYou), len(v.Queue.Merge)+len(v.Queue.Waiting)
 			e.Running = append(e.Running, v.Running...)
 			e.Background = v.BackgroundCount()
-			e.FullCheck, e.Paused = v.FullCheck, v.Paused
+			e.FullCheck, e.Paused, e.ReviewOpen = v.FullCheck, v.Paused, v.ReviewOpen
 			e.Events = append(e.Events, v.Events[:min(fleetEvents, len(v.Events))]...)
 			for _, r := range v.Roles {
 				if r.Status == "working" || r.Brief != nil { // a brief waiting to be delivered counts, as on the project page

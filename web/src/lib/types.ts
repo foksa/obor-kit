@@ -215,6 +215,24 @@ export interface ReviewItem {
   state: string;
 }
 
+// ReviewOpenStatus is the open review (wire.ReviewOpenStatus): its stage (REVIEW_STAGES, review.ts), the tasks its cycle
+// covered, its fix tasks, the reviewer and its pane's status, since when the stage holds and its file once written.
+export interface ReviewOpenStatus {
+  id: string;
+  stage: string;
+  tasks?: string[];
+  fixes?: ReviewFix[];
+  agent?: string;
+  agent_status?: string;
+  since: number;
+  file?: string;
+}
+
+export interface ReviewFix {
+  task: string;
+  state: string; // open, merged, verified, dropped, rejected
+}
+
 export interface OutboxItem {
   kind: string;
   to: string;
@@ -264,6 +282,7 @@ export interface ProjectView {
   paused: Pause | null;
   messages: MessageStatus[];
   review?: string;
+  review_open?: ReviewOpenStatus;
   watches?: WatchStatus[];
   idle?: Idle;
   queue: Queue;
@@ -308,6 +327,7 @@ export interface ProjectsEntry {
   lanes: LaneDot[];
   full_check?: FullCheck | null;
   paused?: Pause | null;
+  review_open?: ReviewOpenStatus;
   events: Event[];
   error?: string;
 }

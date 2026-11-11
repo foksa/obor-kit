@@ -1,5 +1,5 @@
 <script lang="ts">
-  // A project's dashboard: what needs you, the status row, the pipeline, the lanes, then the lead's watches, the
+  // A project's dashboard: what needs you, the open review, the status row, the pipeline, the lanes, then the lead's watches, the
   // queue and the role agents beside the events.
   import { onDestroy } from "svelte";
   import { Live } from "../lib/live.svelte";
@@ -8,6 +8,7 @@
   import { href } from "../lib/route";
   import { dur, now, roleName, splitTasks, unixOf } from "../lib/format";
   import { idleText } from "../lib/idle";
+  import { fileName, reviewActive, reviewStageText, reviewTone } from "../lib/review";
   import { stageOf, taskOf } from "../lib/stages";
   import { WAITS_NEVER, laneSteps, pipelineOf, queuedForLane, waitChips } from "../lib/pipeline";
   import type { Lane, ProjectView, Role, WaitItem } from "../lib/types";
@@ -138,6 +139,23 @@
         <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="var(--ok)" stroke-width="1.8" aria-hidden="true"><circle cx="8" cy="8" r="6.5"></circle><path d="M5 8.2l2 2 4-4.4"></path></svg>
         <strong>Nothing needs you</strong>
         <span class="muted small">Questions, red gates, sendbacks and failed starts show here first, with the command that answers them.</span>
+      </div>
+    {/if}
+
+    {#if v.review_open}
+      {@const r = v.review_open}
+      <div class="card review" class:active={reviewActive(r.stage)}>
+        <Pill tone={reviewTone(r.stage)} text={reviewStageText(r.stage)} />
+        <strong class="mono">{r.id}</strong>
+        {#if r.tasks?.length}<span class="rtasks">{#each r.tasks as t (t)}<TaskLink {project} task={t} chip />{/each}</span>{/if}
+        {#if r.fixes?.length}
+          <span class="muted small">fixes {#each r.fixes as f, j (f.task)}{j ? " · " : ""}<TaskLink {project} task={f.task} /> {f.state}{/each}</span>
+        {/if}
+        {#if r.file}<span class="mono small muted" title={r.file}>{fileName(r.file)}</span>{/if}
+        <span class="rwho small">
+          {#if r.agent}<AgentLink {project} agent={r.agent} />{#if r.agent_status}<Pill state={r.agent_status} />{/if}{/if}
+          {#if r.since}<span class="mono muted"><Rel at={r.since} mode="for" /></span>{/if}
+        </span>
       </div>
     {/if}
 
@@ -317,6 +335,10 @@
 </div>
 
 <style>
+  .review { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px 16px; margin-bottom: 16px; }
+  .review.active { border-color: var(--ok); }
+  .review .rtasks { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+  .review .rwho { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
   .head-btn { margin-left: auto; }
   .down { margin: -12px 0 0; }
   .of { font-size: 16px; color: var(--muted); font-weight: 500; }

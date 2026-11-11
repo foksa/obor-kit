@@ -138,6 +138,7 @@ func (a *App) Status() wire.Status {
 			ps.ReviewRequest = &wire.ReviewRequestStatus{After: q.after, Waiting: p.reviewWaits(q.after), Held: q.held,
 				Note: q.note, By: q.by, Since: q.at.Unix()}
 		}
+		ps.ReviewOpen = a.reviewOpen(p)
 		ps.Briefs = p.out.BriefStatus()
 		ps.Stopped = a.stoppedRoles(p)
 		for _, f := range ps.Facts {

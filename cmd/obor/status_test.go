@@ -421,7 +421,8 @@ func TestStatusPendingLine(t *testing.T) {
 	}
 }
 
-// --short is the serve line, the running line and needs-you, nothing else (a status bar).
+// --short is the serve line, the running line and needs-you, nothing else (a status bar; the open review's line, when
+// one is open: TestStatusReviewOpen).
 func TestStatusShort(t *testing.T) {
 	p := testkit.NewPlain(t)
 	p.Config()
@@ -448,6 +449,79 @@ func TestStatusShort(t *testing.T) {
 		if strings.Contains(b.String(), gone) {
 			t.Errorf("--short prints %q:\n%s", gone, b.String())
 		}
+	}
+}
+
+// the open review's line per stage: what the stage is about, the file once written, the reviewer with its pane's status
+// and the stage's age.
+func TestReviewOpenLine(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
+	since := now.Add(-6 * time.Minute).Unix()
+	base := wire.ReviewOpenStatus{ID: "RV-190", Tasks: []string{"T-1254", "T-1255"}, Agent: "ob-rev",
+		AgentStatus: "working", Since: since}
+	file := "reviews/RV-190.md"
+	for _, c := range []struct {
+		stage, file string
+		fixes       []wire.ReviewFix
+		want        string
+	}{
+		{wire.ReviewReviewing, "", nil, "review RV-190: reviewing T-1254, T-1255 (ob-rev working, 6m)"},
+		{wire.ReviewWritten, file, nil, "review RV-190: written: the lead's turn · reviews/RV-190.md (ob-rev working, 6m)"},
+		{wire.ReviewFixes, file, []wire.ReviewFix{{Task: "T-1260", State: "merged"}, {Task: "T-1261", State: "open"}},
+			"review RV-190: fixes T-1260 merged · T-1261 open · reviews/RV-190.md (ob-rev working, 6m)"},
+		{wire.ReviewVerifying, file, []wire.ReviewFix{{Task: "T-1260", State: "merged"}, {Task: "T-1261", State: "dropped"}},
+			"review RV-190: verifying T-1260 · reviews/RV-190.md (ob-rev working, 6m)"},
+		{wire.ReviewApproved, file, []wire.ReviewFix{{Task: "T-1260", State: "verified"}},
+			"review RV-190: approved: close it · reviews/RV-190.md (ob-rev working, 6m)"},
+	} {
+		ro := base
+		ro.Stage, ro.File, ro.Fixes = c.stage, c.file, c.fixes
+		var b bytes.Buffer
+		writeReviewOpen(&b, &ro, now)
+		if got := strings.TrimSuffix(b.String(), "\n"); got != c.want {
+			t.Errorf("%s: %q, want %q", c.stage, got, c.want)
+		}
+	}
+	var b bytes.Buffer
+	writeReviewOpen(&b, nil, now)
+	if b.Len() != 0 {
+		t.Errorf("no open review: %q, want no line", b.String())
+	}
+}
+
+// the open review's line is right under serve's in obor status and in --short, and --json carries it as review_open.
+func TestStatusReviewOpen(t *testing.T) {
+	p := testkit.NewPlain(t)
+	p.Config()
+	now := time.Now().Truncate(time.Second)
+	ss := wire.Status{Since: now.Add(-time.Hour).UTC().Format(time.RFC3339), Connected: true, Project: &wire.ProjectStatus{
+		Name: "pj", Root: p.Root, Merging: true,
+		ReviewOpen: &wire.ReviewOpenStatus{ID: "RV-190", Stage: wire.ReviewReviewing, Tasks: []string{"T-1254"},
+			Agent: "ob-rev", AgentStatus: "working", Since: now.Add(-6 * time.Minute).Unix()},
+	}}
+	want := "review RV-190: reviewing T-1254 (ob-rev working, 6m)"
+	st, text := statusOf(t, p, ss, nil, now)
+	lines := strings.Split(text, "\n")
+	if len(lines) < 2 || !strings.HasPrefix(lines[0], "serve: up since ") || lines[1] != want {
+		t.Errorf("obor status:\n%s\nwant serve's line, then %q", text, want)
+	}
+	var b bytes.Buffer
+	writeStatusShort(&b, st, now)
+	short := strings.Split(b.String(), "\n")
+	if len(short) < 2 || !strings.HasPrefix(short[0], "serve: up since ") || short[1] != want {
+		t.Errorf("--short:\n%s\nwant serve's line, then %q", b.String(), want)
+	}
+	js, err := json.Marshal(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		ReviewOpen *wire.ReviewOpenStatus `json:"review_open"`
+	}
+	if err := json.Unmarshal(js, &got); err != nil || got.ReviewOpen == nil || got.ReviewOpen.ID != "RV-190" ||
+		got.ReviewOpen.Stage != wire.ReviewReviewing {
+		t.Errorf("--json review_open %+v (%v), want RV-190 reviewing", got.ReviewOpen, err)
 	}
 }
 

@@ -6,9 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"obor/internal/app/event"
+	"obor/internal/app/outbox"
 	"obor/internal/app/port"
 	"obor/internal/app/review"
 	"obor/internal/app/wire"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -265,6 +268,73 @@ func (p *proj) reviewStatus(now time.Time) string {
 		return s
 	}
 	return p.due
+}
+
+// reviewOpen is the open review as obor status and obor web show it (nil: none open; under mu). Its stage is the
+// review fold's (review.State) with the reviewer's open brief (outbox) and the fix round the verify rule last read
+// (p.fixes): verifying while the reviewer's verify brief is open, reviewing while its open brief is the review's
+// own (review.State.BriefFile), then written while no fix task is linked, fixes while a linked task is pending
+// (review.Cycle.Pending) and approved once none is. Since is the stage's start: the review's start (reviewing), the
+// verify brief's (verifying), the first pending fix's dispatch (fixes), else the reviewer's last brief's end (the
+// lead's turn). The file is the review file once it is in the main checkout.
+func (a *App) reviewOpen(p *proj) *wire.ReviewOpenStatus {
+	c := p.folded.rv.Cycle()
+	if c.Open() == "" {
+		return nil
+	}
+	s, _ := reviewConfig(p.root) // no reviewer configured: the stage reads without its brief and pane
+	ro := &wire.ReviewOpenStatus{ID: c.ID, Tasks: c.Covered, Agent: s.Agent}
+	round := review.Round{ID: c.ID, Covered: c.Covered}
+	if p.fixes.ID == c.ID {
+		round.Links = p.fixes.Links
+	}
+	for _, l := range round.Links {
+		ro.Fixes = append(ro.Fixes, wire.ReviewFix{Task: l.Task, State: round.State(l)})
+	}
+	var brief *outbox.Brief
+	if s.Agent != "" {
+		brief = p.out.Brief(s.Agent)
+		if w := a.whereIs(p, s.Agent); w.State == Identified {
+			ro.AgentStatus = w.Pane.Status
+		}
+	}
+	turn := c.At // the lead's turn: since the reviewer's last brief ended in this review
+	if end := p.folded.rv.Ended(s.Agent); s.Agent != "" && end.After(turn) {
+		turn = end
+	}
+	since := turn
+	pending := c.Pending(round.Links)
+	switch {
+	case brief != nil && p.folded.rv.Verifying(s.Agent):
+		ro.Stage, since = wire.ReviewVerifying, brief.At()
+	case brief != nil && p.folded.rv.BriefFile(s.Agent, brief.Seq()) == c.ID:
+		ro.Stage, since = wire.ReviewReviewing, c.At
+	case len(round.Links) == 0:
+		ro.Stage = wire.ReviewWritten
+	case len(pending) > 0:
+		ro.Stage = wire.ReviewFixes
+		var first time.Time
+		for _, task := range pending {
+			if mt := p.folded.loop[task]; mt != nil && !mt.at.IsZero() && (first.IsZero() || mt.at.Before(first)) {
+				first = mt.at
+			}
+		}
+		if !first.IsZero() {
+			since = first
+		}
+	default:
+		ro.Stage = wire.ReviewApproved
+	}
+	if !since.IsZero() {
+		ro.Since = since.Unix()
+	}
+	if s.Reviews != "" {
+		file := filepath.Join(s.Reviews, c.ID+".md")
+		if _, err := os.Stat(filepath.Join(p.root, file)); err == nil {
+			ro.File = file
+		}
+	}
+	return ro
 }
 
 // reviewDueTick counts, on every pass, the merges in the next review's scope (review.Next.Scope: since the review before

@@ -27,8 +27,8 @@ import (
 )
 
 // status is `obor status [--facts] [--json] [--short]`. Serve down is a line, never a non-zero exit: the lanes are read
-// from the store alone. --facts adds the facts in force; --short prints only the serve line, the running line and
-// needs-you. --all is no flag (a serve holds one project, this one).
+// from the store alone. --facts adds the facts in force; --short prints only the serve line, the open review's line,
+// the running line and needs-you. --all is no flag (a serve holds one project, this one).
 func status(args []string) int {
 	asJSON, facts, short := false, false, false
 	for _, a := range args {
@@ -135,13 +135,15 @@ func statusSections(st view.Project, now time.Time) [][]string {
 		fullCheckSection(st, now)}
 }
 
-// serveSection is the project's notes, then serve's line with the running line and the pending line under it.
+// serveSection is the project's notes, then serve's line with the open review's line, the running line and the
+// pending line under it.
 func serveSection(st view.Project, now time.Time) []string {
 	var b strings.Builder
 	for _, n := range st.Notes { // the project's own lines first: an unknown config key, a stopped project
 		fmt.Fprintln(&b, n)
 	}
 	writeServe(&b, st.Serve, now)
+	writeReviewOpen(&b, st.ReviewOpen, now)
 	writeRunning(&b, st, now)
 	writePending(&b, st, now)
 	return textLines(b.String())
@@ -445,11 +447,12 @@ func writeLines(w io.Writer, s []string) {
 	}
 }
 
-// writeStatusShort is `obor status --short`: serve's line, the running line (and the pending line under it) and
+// writeStatusShort is `obor status --short`: serve's line, the open review's line, the running line (and the pending line under it) and
 // each needs-you, nothing else (a status bar or a quick glance). It is the head of writeStatus' text, so
 // both read the same.
 func writeStatusShort(w io.Writer, st view.Project, now time.Time) {
 	writeServe(w, st.Serve, now)
+	writeReviewOpen(w, st.ReviewOpen, now)
 	writeRunning(w, st, now)
 	writePending(w, st, now)
 	writeNeedsYou(w, st)
@@ -493,6 +496,52 @@ func writeServe(w io.Writer, s view.Serve, now time.Time) {
 			fmt.Fprintf(w, "serve: event log broken: %s\n", s.LogError)
 		}
 	}
+}
+
+// writeReviewOpen is the open review's line under serve's, nothing when none is open: its id, its stage with what the
+// stage is about, the review file once written, the reviewer with its pane's status and the stage's age, e.g.
+// `review RV-190: reviewing T-1254, T-1255 (ob-rev working, 6m)` or `review RV-190: fixes T-1260 merged · T-1261 open ·
+// reviews/RV-190.md (ob-rev idle, 12m)`.
+func writeReviewOpen(w io.Writer, ro *wire.ReviewOpenStatus, now time.Time) {
+	if ro == nil {
+		return
+	}
+	var fixes, merged []string
+	for _, f := range ro.Fixes {
+		fixes = append(fixes, f.Task+" "+f.State)
+		if f.State == "merged" {
+			merged = append(merged, f.Task)
+		}
+	}
+	line := "review " + ro.ID + ": "
+	switch ro.Stage {
+	case wire.ReviewReviewing:
+		line += "reviewing " + cmp.Or(strings.Join(ro.Tasks, ", "), "no merges")
+	case wire.ReviewWritten:
+		line += "written: the lead's turn"
+	case wire.ReviewFixes:
+		line += "fixes " + strings.Join(fixes, " · ")
+	case wire.ReviewVerifying:
+		line += "verifying " + cmp.Or(strings.Join(merged, ", "), strings.Join(fixes, " · "))
+	case wire.ReviewApproved:
+		line += "approved: close it"
+	default:
+		line += ro.Stage
+	}
+	if ro.File != "" {
+		line += " · " + ro.File
+	}
+	var who []string
+	if ro.Agent != "" {
+		who = append(who, strings.TrimSpace(ro.Agent+" "+ro.AgentStatus))
+	}
+	if ro.Since > 0 {
+		who = append(who, app.Age(max(now.Sub(time.Unix(ro.Since, 0)), 0)))
+	}
+	if len(who) > 0 {
+		line += " (" + strings.Join(who, ", ") + ")"
+	}
+	fmt.Fprintln(w, line)
 }
 
 // writeRunning is the running line right under serve's: what serve does without an agent, each step with the
