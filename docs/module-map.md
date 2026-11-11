@@ -238,7 +238,8 @@ running > 30 s through its shells, helpers left out), labelled from the PreToolU
 (`project.AppendBackground` / `BackgroundCalls`, `.obor/state/background.jsonl`); the process table and the call's
 matching are `internal/background`'s.
 `view.Detail` is the drill-down the API serves and nothing else: a task's state, spec, report, gate line and log,
-needs-you, records and jobs; an agent's sessions (a transcript path and last write, never contents), briefs, lines and
+needs-you, records and jobs; every task the store knows (`TaskList`, the tasks page: one read each of the specs, the
+dispatch, merge, drop and review facts and the log's activity per task); an agent's sessions (a transcript path and last write, never contents), briefs, lines and
 jobs; a job's text (a `prompts` row). The pages read narrow: `view.LoadTask`, `view.LoadAgent` and
 `view.LoadSetup` build only their page's facts (a task or agent page runs no git and no ps; setup reads the lane
 states). `EventsSince` pages the log by seq for the page's long poll. It may import base,
@@ -259,7 +260,7 @@ builds the project's terminal (`port.Terminal`, herdr its one kind), and no othe
 `setup`, `config` and the rest (`run`, `nightly`, `flakes`, `restart`, `lead`, `plugin`,
 `hook`, `whoami`).
 - `web` (`internal/web`): `obor web`'s HTTP server over the read model — the API (`/api/projects`,
-  `/api/view`, `/api/setup`, `/api/task`, `/api/agent`, `/api/job`, `/api/events` with a long poll on the store's seq,
+  `/api/view`, `/api/setup`, `/api/task`, `/api/tasks`, `/api/agent`, `/api/job`, `/api/events` with a long poll on the store's seq,
   `/api/help`: `help.Commands` and the kit's README sections, read at the request)
   and the page: a Svelte app whose source is `web/` at the repo's root, built by `make web` into
   `internal/web/dist` (committed, `embed`; the Go build needs no Node, `TestDistFresh` fails on a stale build).

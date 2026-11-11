@@ -1,13 +1,14 @@
-// Routes: a hash as a page and the hash of every page a link points to. Help ("h") is the one page of no project.
+// Routes: a hash as a page and the hash of every page a link points to. Help ("h") is the one page of no project;
+// "tasks" is a project's list of every task.
 
-export type Kind = "" | "p" | "s" | "t" | "a" | "j" | "h";
+export type Kind = "" | "p" | "s" | "tasks" | "t" | "a" | "j" | "h";
 export interface Route {
   kind: Kind;
   project: string;
   id: string;
 }
 
-const KINDS = new Set(["", "p", "s", "t", "a", "j"]); // the kinds parseRoute splits ("h", help, is matched whole)
+const KINDS = new Set(["", "p", "s", "tasks", "t", "a", "j"]); // the kinds parseRoute splits ("h", help, is matched whole)
 
 const dec = (s: string | undefined) => {
   try { return decodeURIComponent(s || ""); } catch { return s || ""; }
@@ -21,7 +22,8 @@ export function parseRoute(hash: string): Route {
   const project = dec(parts[1]);
   // a job's id keeps its slashes, encoded or not
   const id = parts.slice(2).map(dec).join("/");
-  if (!KINDS.has(kind) || (kind !== "" && !project) || ("taj".includes(kind) && kind !== "" && !id)) {
+  const needsId = kind === "t" || kind === "a" || kind === "j";
+  if (!KINDS.has(kind) || (kind !== "" && !project) || (needsId && !id)) {
     return { kind: "", project: "", id: "" };
   }
   return { kind, project, id };
@@ -33,6 +35,7 @@ export const href = {
   help: () => "#/h",
   project: (p: string) => `#/p/${enc(p)}`,
   setup: (p: string) => `#/s/${enc(p)}`,
+  tasks: (p: string) => `#/tasks/${enc(p)}`,
   task: (p: string, t: string) => `#/t/${enc(p)}/${enc(t)}`,
   agent: (p: string, a: string) => `#/a/${enc(p)}/${enc(a)}`,
   job: (p: string, j: string) => `#/j/${enc(p)}/${enc(j)}`,

@@ -87,7 +87,7 @@ var errServeDown = errors.New("obor serve is not running")
 // callWait bounds a POST's request to serve: inside the socket's own 10 s per connection.
 const callWait = 12 * time.Second
 
-// Handler is the page and the API: /api/projects, /api/view, /api/setup, /api/task, /api/agent, /api/job,
+// Handler is the page and the API: /api/projects, /api/view, /api/setup, /api/task, /api/tasks, /api/agent, /api/job,
 // /api/events and /api/help, the two POST routes /api/config and /api/pause, and the page for every other path ("/" plus the hash
 // routes the page itself reads).
 func (s *Server) Handler() http.Handler {
@@ -96,6 +96,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/view", s.viewAPI)
 	mux.HandleFunc("/api/setup", s.setupAPI)
 	mux.HandleFunc("/api/task", s.taskAPI)
+	mux.HandleFunc("/api/tasks", s.tasksAPI)
 	mux.HandleFunc("/api/agent", s.agentAPI)
 	mux.HandleFunc("/api/job", s.jobAPI)
 	mux.HandleFunc("/api/events", s.eventsAPI)
@@ -306,6 +307,24 @@ func (s *Server) taskAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, t)
+}
+
+// tasksAPI is /api/tasks?project=<name>: every task the store knows (view.Detail.TaskList), newest activity first,
+// from the task page's narrow read.
+func (s *Server) tasksAPI(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.project(w, r)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), askTimeout)
+	defer cancel()
+	d, err := s.taskRead(ctx, p.Root)
+	if err != nil {
+		fail(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	d.Root = p.Root
+	writeJSON(w, http.StatusOK, d.TaskList())
 }
 
 // agentAPI is /api/agent?project=<name>&agent=<name>: the agent's page, from the narrow agent read.

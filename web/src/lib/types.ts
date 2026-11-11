@@ -494,3 +494,29 @@ export interface Help {
   commands: HelpCommand[];
   sections: HelpSection[];
 }
+
+// TaskFixes is a fix task's Fixes: line (view.TaskFixes): the review it fixes, the line's rest, the tasks that review
+// started on.
+export interface TaskFixes {
+  review: string;
+  note?: string;
+  tasks?: string[];
+}
+
+// TaskRow is one row of /api/tasks (view.TaskRow): every task the store knows, newest activity first.
+export interface TaskRow {
+  task: string;
+  title?: string;
+  rev?: number;
+  difficulty?: string;
+  model?: string; // the spec's Model: refs, as written
+  ran?: string; // the model ref its last dispatch chose
+  state: string; // waiting | running | needs-you | in the merge loop | merged | dropped | never dispatched
+  lane?: string;
+  attempts?: number;
+  merge_sha?: string;
+  merged_at?: number;
+  review?: string; // the review that covered it
+  fixes?: TaskFixes;
+  last?: number; // last activity, epoch seconds
+}

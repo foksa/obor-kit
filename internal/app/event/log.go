@@ -212,9 +212,44 @@ func Since(db *sql.DB, seq int64, limit int) ([]Record, error) {
 	return queryRecords(db, recordQuery+" WHERE seq > ? ORDER BY seq LIMIT ?", seq, limit)
 }
 
-// Facts is every fact of step, in seq order (the setup page's dispatches; ReadMerges' merges).
-func Facts(db *sql.DB, step string) ([]Record, error) {
-	return queryRecords(db, recordQuery+" WHERE kind = ? AND step = ? ORDER BY seq", KindFact, step)
+// Facts is every fact of one of steps, in seq order (the setup page's dispatches; ReadMerges' merges; the tasks
+// page's dispatches, merges, drops and reviews in one read).
+func Facts(db *sql.DB, steps ...string) ([]Record, error) {
+	if len(steps) == 0 {
+		return nil, nil
+	}
+	args := []any{KindFact}
+	for _, s := range steps {
+		args = append(args, s)
+	}
+	return queryRecords(db, recordQuery+" WHERE kind = ? AND step IN (?"+strings.Repeat(", ?", len(steps)-1)+
+		") ORDER BY seq", args...)
+}
+
+// Activity is one task's records at a glance: the time of its newest record (RFC 3339) and the highest attempt
+// any of them names.
+type Activity struct {
+	Last     string
+	Attempts int
+}
+
+// TaskActivity is every task's Activity in db, by task, in one read of the events table (the tasks page).
+func TaskActivity(db *sql.DB) (map[string]Activity, error) {
+	rows, err := db.Query("SELECT task, MAX(ts), MAX(attempt) FROM events GROUP BY task")
+	if err != nil {
+		return nil, fmt.Errorf("event log: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]Activity{}
+	for rows.Next() {
+		var task string
+		var a Activity
+		if err := rows.Scan(&task, &a.Last, &a.Attempts); err != nil {
+			return nil, fmt.Errorf("event log: %w", err)
+		}
+		out[task] = a
+	}
+	return out, rows.Err()
 }
 
 // ResultsUnder is every result whose step is one of bases or a step under it (<base>.N, <base>.<job>), in seq order
