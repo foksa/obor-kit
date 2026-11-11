@@ -33,7 +33,8 @@ import (
 // A worker of a kind with no such hook whose transcript records its turns (agents.Caps.Status transcript: Codex) is read
 // instead: idle with an open task, its transcript's last turn ended on an error (a usage limit) → the same fact
 // stopped, its needs-you and lead line, with the turn (turnStop); once per turn, as its call id is the turn's. A later
-// turn in the transcript (its start, read whatever the pane's status) ends it: fact resumed (cause stopped).
+// turn in the transcript (its start, read whatever the pane's status) ends it: fact resumed (cause stopped), and the
+// same check goes on to judge what the worker shows (a turn that resumed into a dialog: needs-you{blocked} at once).
 //
 // A role agent's stop on a usage limit with its brief open keeps the brief open: the stop is on it (Brief,
 // Reset) until the agent's next turn (fact turned: its UserPromptSubmit or Stop hook's turn request, or a Codex
@@ -219,9 +220,10 @@ func counts(t agents.Turn, status string, done bool) bool {
 }
 
 // turnStop decides task's stop from its worker's transcript (ev, sampled by pane), for a kind whose turns are read
-// (under mu; true: a fact was recorded, nothing else is decided for task in this check), by turnDecide:
+// (under mu; true: the turn ended on an error and its stop was recorded, so nothing else is decided for task in this
+// check), by turnDecide:
 //   - a stop in force read from the transcript, and a later turn there (another id), its start or its end → fact
-//     resumed (cause stopped);
+//     resumed (cause stopped), and the check goes on to judge what the resumed worker shows now;
 //   - none in force, its last turn ended on an error, the worker idle, no stop recorded for that turn → fact stopped
 //     (call id "turn.<id>": a replay folds it into the calls, so the turn is never recorded twice).
 //
@@ -250,7 +252,8 @@ func (a *App) turnStop(p *proj, task string, w *watch, ev map[string]*evidence) 
 		return false
 	}
 	if act != turnStop || stopped { // the stop in force ends (a new stop: the next check records it)
-		return a.fact(p, task, w, verdict{step: event.StepResumed, cause: causeStopped, pane: o})
+		a.fact(p, task, w, verdict{step: event.StepResumed, cause: causeStopped, pane: o})
+		return false // judge decides on the same check: a dialog the resumed turn shows is the owner's now
 	}
 	d, said := newStop(cmp.Or(w.lane.Agent, a.shownAs(p, o)), e.turn.Error, e.turn.Details, callID)
 	a.workerStop(p, &d, said, task, w, o)

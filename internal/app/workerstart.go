@@ -153,7 +153,8 @@ func (a *App) nextStart(p *proj, mt mtask) step {
 // waitPane is nextStart's wait for a pane of the lane (under mu): nothing until opt.Gone has passed since the first pass
 // without one, then herdr's panes are read again before the owner is told; the agent starts in a pane the read finds
 // (the next pass: the wait ends only once the snapshot, with the read's cwd and label, places it there), and none is
-// needs-you{no pane in lane}.
+// needs-you{no pane in lane}. serve stopping while the read runs is no answer either: the pass is the last and nothing
+// is recorded.
 func (a *App) waitPane(p *proj, mt mtask) step {
 	now := a.opt.Now()
 	since, ok := p.nopane[mt.task]
@@ -192,6 +193,9 @@ func (a *App) waitPane(p *proj, mt mtask) step {
 		}
 		a.mu.Unlock()
 		if o == nil {
+			if ctx.Err() != nil { // serve stopped after the read answered: the last pass of it, the owner told nothing
+				return false
+			}
 			return a.needsYou(p, &mt, causeNoPane, "no pane in lane "+mt.lane+" ("+mt.disp.Dir+"): open one there")
 		}
 		return usable

@@ -123,6 +123,54 @@ func TestRereadCanceledContextRecordsNothing(t *testing.T) {
 	}
 }
 
+// A re-read that answers while serve stops records nothing either: its answer ran with the stop already in force, so
+// the pass is no needs-you, and the next serve starts the wait again.
+func TestRereadCanceledAfterItsAnswerRecordsNothing(t *testing.T) {
+	t.Parallel()
+	h, fx, _, ag := promptRig(t, false, noPane)
+	if h.step(t, fx) {
+		t.Fatal("precondition: the pass that finds no pane waits")
+	}
+	if since(h).IsZero() {
+		t.Fatal("precondition: the no-pane clock started")
+	}
+	h.now = h.now.Add(2 * minute)
+	h.panes.snap = snapshot() // the read finds no pane: its answer would be the needs-you
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	h.panes.after = cancel // serve stops once the read has answered
+	p := h.proj()
+	h.a.mu.Lock()
+	s := h.a.nextDispatch(p, *p.folded.loop["T-1"])
+	h.a.mu.Unlock()
+	if s == nil {
+		t.Fatal("precondition: the wait's step")
+	}
+	went := s(ctx, fx)
+	if n := noPaneFacts(h); n != 0 {
+		t.Errorf("needs-you{no pane in lane} from a read serve's stop cut from its use: %d, want none", n)
+	}
+	if went {
+		t.Error("the canceled pass went on")
+	}
+	if ag.restarts != 0 {
+		t.Errorf("starts with no pane: %d", ag.restarts)
+	}
+	h.panes.after = nil
+	if h.step(t, fx) {
+		t.Fatal("precondition: the pass of the next serve waits again")
+	}
+	if got := since(h); !got.Equal(h.now) {
+		t.Errorf("the no-pane clock after serve's stop is %s, want the wait started again at %s", got, h.now)
+	}
+	h.now = h.now.Add(2 * minute)
+	h.panes.snap = snapshot()
+	h.step(t, fx)
+	if n := noPaneFacts(h); n != 1 {
+		t.Errorf("needs-you{no pane in lane} of the next serve's read: %d, want 1", n)
+	}
+}
+
 // A pane the stream closes between the read and its use is not raised again: the fresh list answers only
 // which pane is in the lane, never what the snapshot knows of it. A later read that finds none is the needs-you.
 func TestRereadDoesNotResurrectAClosedPane(t *testing.T) {
