@@ -1,8 +1,8 @@
 {
   "packages": {
     "obor/cmd/obor": {
-      "full_s": 53.1,
-      "git_procs": 1443
+      "full_s": 45.9,
+      "git_procs": 1119
     },
     "obor/internal/agents": {
       "full_s": 0.4,

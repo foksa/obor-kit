@@ -1,5 +1,3 @@
-//go:build integration
-
 package main
 
 import (
@@ -29,7 +27,7 @@ func flakeLine(t *testing.T, at int64, test, task string, saved bool) string {
 // tasks), one line each with the tasks and the newest time; none → "no flaky tests (7d)"; read-only, no arguments.
 func TestFlakesCommand(t *testing.T) {
 	t.Parallel()
-	p := testkit.New(t)
+	p := testkit.NewPlain(t)
 	p.Config()
 	now := time.Now().Unix()
 	day := int64(24 * 60 * 60)
@@ -64,7 +62,7 @@ func TestFlakesCommand(t *testing.T) {
 		}
 	}
 
-	q := testkit.New(t)
+	q := testkit.NewPlain(t)
 	q.Config()
 	if rc, stdout, stderr := run(t, q.Root, nil, "flakes"); rc != 0 || stdout != "no flaky tests (7d)\n" || stderr != "" {
 		t.Errorf("no log: exit %d, %q, %q; want 0, no flaky tests (7d)", rc, stdout, stderr)

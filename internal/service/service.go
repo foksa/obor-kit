@@ -404,6 +404,14 @@ var execLaunchctl = func(ctx context.Context, args ...string) ([]byte, error) {
 	return exec.CommandContext(ctx, "launchctl", args...).CombinedOutput()
 }
 
+// SetLaunchctl replaces the launchctl call with f (a test of another package answers for launchd in process); it
+// returns the call it replaced. The default runs launchctl from PATH.
+func SetLaunchctl(f func(ctx context.Context, args ...string) ([]byte, error)) (restore func()) {
+	was := execLaunchctl
+	execLaunchctl = f
+	return func() { execLaunchctl = was }
+}
+
 // launchctl runs launchctl (from PATH) under timeout; its error carries its output.
 func launchctl(ctx context.Context, timeout time.Duration, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)

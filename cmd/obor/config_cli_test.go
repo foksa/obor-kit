@@ -1,5 +1,3 @@
-//go:build integration
-
 package main
 
 import (
@@ -14,8 +12,8 @@ import (
 // past its two versions is an unknown key, a FAIL line (cache.warn_tokens).
 func TestConfigValidateBinary(t *testing.T) {
 	t.Parallel()
-	p := testkit.New(t)
-	p.Lane("L-01", "")
+	p := testkit.NewPlain(t)
+	p.PlainLane("L-01", "")
 	for _, c := range []struct {
 		edits []func(map[string]any)
 		rc    int
@@ -42,8 +40,8 @@ func TestConfigValidateBinary(t *testing.T) {
 
 func TestWhoami(t *testing.T) {
 	t.Parallel()
-	p := testkit.New(t)
-	lane := p.Lane("L-01", "task/T-02")
+	p := testkit.NewPlain(t)
+	lane := p.PlainLane("L-01", "task/T-02")
 	p.Config()
 
 	// bash config.test.sh case_whoami_unarmed
@@ -65,10 +63,8 @@ func TestWhoami(t *testing.T) {
 	}
 
 	// bash config.test.sh case_whoami_armed: no allowed globs, only the protected files the stored spec
-	// unlocks; a spec committed in git counts for nothing.
+	// unlocks; a spec file in the tree counts for nothing.
 	p.Write("docs/tasks/T-02.md", "# T-02\n\n## Protected files this task may edit\n`git/only.md`\n")
-	p.Git(p.Root, "add", "docs/tasks/T-02.md")
-	p.Git(p.Root, "commit", "-q", "-m", "spec T-02 in git")
 	p.Spec("T-02", "# T-02\n\n## Files you may touch\n`lib/obor.sh`\n\n## Protected files this task may edit\n"+
 		"`docs/design.md`, `docs/*.md` (a glob unlocks nothing)\n\n## Tests\n`not/this.sh`\n")
 	p.State("L-01", `{"lane":"L-01","task":"T-02","branch":"task/T-02","agent":"pj-l1","base":"main",
@@ -101,7 +97,7 @@ func TestWhoami(t *testing.T) {
 // role derives no name (no agent line).
 func TestWhoamiCustomRole(t *testing.T) {
 	t.Parallel()
-	p := testkit.New(t)
+	p := testkit.NewPlain(t)
 	p.Write("docs/agents/ux_buddy.md", "# Role: ux_buddy\n")
 	p.Config(testkit.Set("agents.roles.integrator", "opus"), testkit.Set("agents.roles.ux_buddy", `{"model": "opus", "write": ["docs/ux/"]}`),
 		testkit.Set("agents.roles.researcher", "sonnet"))
