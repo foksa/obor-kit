@@ -14,8 +14,9 @@
 //	         recorded: the pane serve's identity table proves the agent runs in (a restart in place, its label put
 //	         back), else its home (the pane labelled <agent> at its shell, in this project), else --pane. Refused: a
 //	         target other than the pane the agent runs in, an ambiguous agent, a pane serve gives to another agent or
-//	         labelled for one, a second pane labelled <agent>, and with serve down a start beside a live agent of the
-//	         project no label accounts for. Never a known agent's pane whose cwd is outside this project.
+//	         labelled for another agent the config names, a second pane labelled <agent>, and with serve down a start
+//	         beside a live agent of the project no label accounts for. Never a known agent's pane whose cwd is outside
+//	         this project.
 //	Session  the recorded sid, else the one herdr reports for the pane (never herdr's for a kind whose sessions obor
 //	         names itself: Claude); --fresh: a new one. None → FAIL (pass --fresh), checked before anything is
 //	         stopped. A fresh start of such a kind records the id obor chose before the agent runs. A recorded Claude

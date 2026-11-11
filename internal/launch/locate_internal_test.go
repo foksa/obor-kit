@@ -96,6 +96,16 @@ func TestLocate(t *testing.T) {
 		{name: "free: a target labelled for another agent is refused", agent: "pj-l-01", target: "w1:p4",
 			panes: []port.Pane{shell("w1:p4", "pj-rev")}, serve: none,
 			refuse: "pane w1:p4 is labelled pj-rev, not pj-l-01"},
+		{name: "serve down: a target labelled notes goes, the label names nobody", agent: "pj-l-01", target: "w1:p4",
+			panes: []port.Pane{shell("w1:p4", "notes")}, serve: none,
+			want: Located{Pane: "w1:p4", Label: "notes"}},
+		{name: "serve down: a target labelled an old alias goes, the label names nobody", agent: "pj-l-01",
+			target: "w1:p4", panes: []port.Pane{shell("w1:p4", "pj-l1")}, serve: none,
+			want: Located{Pane: "w1:p4", Label: "pj-l1"}},
+		{name: "serve down: a target labelled notes beside an unaccounted agent is the O1 refusal", agent: "pj-l-01",
+			target: "w1:p4", panes: []port.Pane{shell("w1:p4", "notes"), agent("w1:p1", "notes")},
+			refuse: "cannot tell whether the claude in pane w1:p1 (label notes) is pj-l-01: obor serve is not running. " +
+				"obor serve restart, then retry; or obor restart pj-l-01 --pane w1:p1 to replace it"},
 		{name: "free: the agent's label on a live pane serve gives to another agent is not its pane", agent: "pj-l-01",
 			panes: []port.Pane{agent("w1:p4", "pj-l-01"), shell("w1:p2", "pj-l-01")},
 			serve: &wire.WhereReply{State: wire.WhereNone, Runs: map[string]string{"w1:p4": "pj-advisor"}},
@@ -115,13 +125,14 @@ func TestLocate(t *testing.T) {
 			want:  Located{Pane: "w1:p3", Label: "pj-l-01"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			named := func(label string) bool {
+				return label == "pj-lead" || label == "pj-l-01" || label == "pj-advisor" || label == "pj-rev"
+			}
 			in := locateIn{agent: tc.agent, target: tc.target, adds: !tc.stop, root: "/p", panes: tc.panes, serve: tc.serve,
 				holder: tc.holder, holderErr: tc.lookup,
 				ours:    func(p port.Pane) bool { return p.Cwd == "" || strings.HasPrefix(p.Cwd, "/p") },
 				project: func(p port.Pane) bool { return strings.HasPrefix(p.Cwd, "/p") },
-				named: func(label string) bool {
-					return label == "pj-lead" || label == "pj-l-01" || label == "pj-advisor" || label == "pj-rev"
-				}}
+				other:   func(label string) bool { return label != tc.agent && named(label) }}
 			if tc.serve == nil {
 				in.down = down
 			}
