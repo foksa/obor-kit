@@ -76,14 +76,19 @@ func (p *proj) cutEnd(key event.Key) {
 	}
 }
 
-// cutEndFact ends the waits the fact r decides (under mu): a counted failure ends its step's, and any fact of a
-// task other than the lines' ends that task's (a resume, a new decision on it: the step is tried at once). The lines
-// share one task key, so a line's wait ends only with its own failure or result.
+// cutEndFact ends the waits the fact r decides (under mu): a counted failure ends its step's, and a fact of a task
+// other than the lines' or a call's receipt ends that task's (a resume, a new decision on it: the step is tried at
+// once). The lines share one task key, so a line's wait ends only with its own failure or result. A receipt says a
+// call landed (a spec stored, a job fetched), not that an attempt of a step ended: its wait stands out its delay.
 func (p *proj) cutEndFact(r event.Record) {
 	if r.Task == event.MsgTask {
 		if r.Step == event.StepFailed {
 			p.cutEnd(event.Key{Task: r.Task, Step: r.Fact().Step})
 		}
+		return
+	}
+	switch r.Step {
+	case event.StepSpecSet, event.StepDelivered:
 		return
 	}
 	for key := range p.cuts {

@@ -380,6 +380,42 @@ func TestStoppedCodexOncePerTurn(t *testing.T) {
 	})
 }
 
+// A Codex worker resuming from its usage stop into a dialog gets its needs-you{blocked} in the check that ends the
+// stop (judge runs after the resumed fact), not a watchdog tick later: one question read, not two.
+func TestStoppedCodexResumeIntoDialog(t *testing.T) {
+	t.Parallel()
+	bubble(t, func(t *testing.T) {
+		r := codexStopped(t)
+		if r.inForce() != 1 || r.has("0 fact resumed") {
+			t.Fatalf("precondition: the stop in force before the next turn: %q", r.steps())
+		}
+		if reads := countReq(r.srv, "pane.read"); reads != 0 {
+			t.Fatalf("precondition: pane.read %d times with no dialog: want none", reads)
+		}
+		reads := countReq(r.srv, "pane.read")
+		r.stop()
+		r.append(cdxStarted2)
+		r.f.Set("w1:p1", func(p *herdrtest.Pane) {
+			p.Status, p.Screen = "blocked", "Allow `go test` to run? (y/n)"
+		})
+		r.start()
+		r.waitFor("the dialog's needs-you", func() bool {
+			for _, f := range r.app.Status().Project.Facts {
+				if f.Task == "T-1" && f.Step == event.StepNeedsYou && f.Fact().Reason == "blocked" {
+					return true
+				}
+			}
+			return false
+		})
+		if !r.has("0 fact resumed") || r.inForce() != 0 {
+			t.Errorf("after the next turn: %q, %d stops in force; want the resumed fact and none", r.steps(), r.inForce())
+		}
+		if n := countReq(r.srv, "pane.read") - reads; n != 1 {
+			t.Errorf("pane.read %d times for the dialog, want 1: the resume and its needs-you are one check", n)
+		}
+	})
+}
+
 // The Codex worker's next turn starts, then writes more than the adapter's first read (one 300 KiB output)
 // while serve is down (a replay) or its herdr connection is lost (a reconnect): the stop still ends on that start.
 func TestStoppedCodexNextTurnPastTheTail(t *testing.T) {

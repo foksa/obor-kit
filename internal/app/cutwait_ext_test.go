@@ -95,6 +95,59 @@ func gaps(at []time.Time) string {
 	return strings.Join(s, " ")
 }
 
+// A receipt of the task (a stored spec, a fetched job) is no decision on its steps: an uncounted attempt's wait
+// stands out its delay, so the spec set's wake does not run the gate again at once.
+func TestCutReceiptKeepsTheRetryWait(t *testing.T) {
+	t.Parallel()
+	bubble(t, func(t *testing.T) {
+		r := newLoopRig(t)
+		r.tick, r.stepRetry, r.stepRetryMax = time.Second, 5*time.Second, 20*time.Second
+		r.work("feature.txt", "feature\n")
+		var mu sync.Mutex
+		var at []time.Time // each try of the gate, on the bubble's clock
+		r.scratch.Arm("Gate", func(context.Context) error {
+			mu.Lock()
+			defer mu.Unlock()
+			at = append(at, time.Now())
+			if len(at) == 1 {
+				return context.Canceled
+			}
+			return nil
+		})
+		tries := func() []time.Time {
+			mu.Lock()
+			defer mu.Unlock()
+			return append([]time.Time(nil), at...)
+		}
+		r.start()
+		r.submit()
+		r.waitFor("the gate's cut try", func() bool { return len(tries()) == 1 })
+		r.waitFor("the cut step's wait", func() bool {
+			return strings.Contains(r.out.String(), "not recorded: tried again in 5s")
+		})
+		passes := app.StreamPasses(r.app)
+		if reply := r.setSpec("s1", "# T-1 — Work\n\nDifficulty: medium\n"); reply != "SET T-1 rev 1" {
+			t.Fatalf("the spec set: %q, want SET T-1 rev 1", reply)
+		}
+		if n := r.taskStep("T-1", "fact spec.set"); n != 1 {
+			t.Fatalf("precondition: %d spec.set facts, want the receipt: %q", n, r.steps())
+		}
+		time.Sleep(4 * time.Second)
+		if n, ran := len(tries()), app.StreamPasses(r.app)-passes; n != 1 || ran < 2 {
+			t.Fatalf("4s after the spec set: %d tries over %d passes; want the cut try only and the wait standing: %q",
+				n, ran, r.steps())
+		}
+		r.waitStep("1 result gate")
+		got := tries()
+		if len(got) != 2 {
+			t.Fatalf("%d tries of the gate, want 2 (the cut one, the one after its delay)", len(got))
+		}
+		if gap := got[1].Sub(got[0]); gap < 5*time.Second || gap >= 7*time.Second {
+			t.Errorf("the gate's second try came %s after the cut one, want the 5s delay", gap)
+		}
+	})
+}
+
 // A line's post cut while serve runs (a cancellation before a byte went out) records no failure and is posted again
 // only after the delay, not once per pass; the line then goes out once.
 func TestCutPostWaitsBeforeRetry(t *testing.T) {

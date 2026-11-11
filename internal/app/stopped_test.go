@@ -432,7 +432,8 @@ func TestTurnCodexAbortedAndNewError(t *testing.T) {
 }
 
 // Workers have no brief: their hooks' start and end of the resumed turn each end the stop (fact resumed); a Codex
-// worker's rollout the same, by its next turn's start or its end. No brief is made or read.
+// worker's rollout the same, by its next turn's start or its end, and that check goes on to judge. No brief is made or
+// read.
 func TestTurnWorkerPhases(t *testing.T) {
 	t.Parallel()
 	for _, ended := range []bool{false, true} {
@@ -479,9 +480,10 @@ func TestTurnWorkerPhases(t *testing.T) {
 			if turn(agents.Turn{ID: "t1", Ended: true, Error: "usage_limit_exceeded", Details: "limit"}) {
 				t.Fatal("the stopped turn read again decided something")
 			}
-			if !turn(agents.Turn{ID: "t2", Ended: ended}) || p.stops("T-1") || p.briefCount() != 0 {
-				t.Errorf("the next turn's %s: stopped %v, %d briefs; want the stop ended, none", name, p.stops("T-1"),
-					p.briefCount())
+			went := turn(agents.Turn{ID: "t2", Ended: ended})
+			if went || p.stops("T-1") || p.briefCount() != 0 {
+				t.Errorf("the next turn's %s: went on %v, stopped %v, %d briefs; want the stop ended, none, and judge's turn",
+					name, went, p.stops("T-1"), p.briefCount())
 			}
 		})
 	}
