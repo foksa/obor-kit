@@ -38,7 +38,8 @@ Without `--tab` / `--new-tab` the current pane's tab is split; `--pane <id>` use
 `<project.agent_prefix>-rev`, `<project.agent_prefix>-lead`); Claude agents except leads start with Remote Control and auto memory off, on a settings file obor writes (`.obor/state/settings/<agent>.json`: the user's settings with the project's `.obor/claude/settings_override.json` merged over them; a lead keeps Remote Control, auto memory and the user's settings as they are).
 - `FAIL tab … is full` → use `--new-tab` (a tab holds 4 panes).
 - `FAIL agent not ready: … Trust this folder? …` → ask the user to answer the dialog in that pane (Enter = trust,
-  once per repo). `… updated itself and exited …` → rerun the `herdr agent start` the hint prints.
+  once per repo). `… updated itself and exited …` → run the command the hint prints (`obor restart <agent> [--fresh] --pane <id>`,
+  or `obor drive <T-xx>`).
 Rerunning `obor setup pane` for a lane whose agent runs is a no-op (`OK … already running`).
 `obor setup agents` caches each plugin kind's manifest (`.obor/state/kinds/`) and checks every kind's install;
 no kind installs anything outside the project. opencode lanes (`kind:

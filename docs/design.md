@@ -240,8 +240,8 @@ proofs ("Finding the pane" below); `obor hook` under opencode has no env and der
 "opencode lanes").
 After a herdr restart (herdr `resume_agents_on_restore = false`), serve restarts its project's labelled panes
 (`launch.Restorer`): when its terminal connection comes back during its lifetime, and at its first connect
-when herdr restarted while serve was down — told by the herdr socket file's mtime against the instance serve last
-restored for (`.obor/state/herdr-instance`; herdr exposes no instance id). A serve restart or re-exec with
+when the terminal restarted while serve was down — told by the adapter's instance (herdr: its socket file's mtime;
+herdr exposes no instance id) against the instance serve last restored for (`.obor/state/terminal-instance`). A serve restart or re-exec with
 the same herdr restores nothing, so a role agent stopped on purpose stays stopped. obor ships no herdr plugin. The
 store's `session` facts record each agent's sessions
 (`docs/state-model.md` row 51), for resuming after a kill.
