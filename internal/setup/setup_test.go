@@ -951,6 +951,30 @@ func TestRoleLeadNewTabGetsRoleEnv(t *testing.T) {
 	has(t, named(calls), "agent.start args=[--permission-mode auto --model opus --session-id NEW /obor:lead] kind=claude name=pj-lead pane_id=w1:n1", "the agent named by its derived name, no Remote Control default (T-280)")
 }
 
+// A role start under a name a live agent in another pane holds is refused for good: its FAIL names the holder pane and
+// that pane's label, nothing of the holder is cleared or stopped, and the placed pane runs no agent.
+func TestRoleStartRefusedWhenALiveAgentHoldsTheName(t *testing.T) {
+	t.Parallel()
+	x := newFx(t, testkit.Set("agents.roles", `{"lead": "opus"}`))
+	holder := x.h.Agent("w1:x1", "pj-lead", "idle", x.Root)
+	holder.Label = "notes"
+	x.failing(t, "FAIL pj-lead already runs in pane w1:x1 (its label is notes): quit it there, or put its label back",
+		"role", "lead", "--new-tab", "lead", "--start")
+	calls := strings.Join(x.reqs(), "\n")
+	if n := strings.Count(calls, "agent.start "); n != 1 {
+		t.Errorf("%d agent.start calls, want the one refusal (not retried):\n%s", n, calls)
+	}
+	if strings.Contains(calls, "agent.rename ") {
+		t.Errorf("the holder's name was cleared:\n%s", calls)
+	}
+	if p := x.h.Pane("w1:x1"); p.Name != "pj-lead" || p.Kind != "claude" || p.Label != "notes" {
+		t.Errorf("the holder = %+v, want pj-lead (label notes) still running in w1:x1", p)
+	}
+	if p := x.h.Pane("w1:n1"); p == nil || p.Kind != "" {
+		t.Errorf("the placed pane = %+v, want no agent started in it", p)
+	}
+}
+
 // a lead of a type without settings keeps Remote Control; a worker does not. (Setup role lead, the one lead.)
 func TestLeadKeepsRemoteControl(t *testing.T) {
 	t.Parallel()

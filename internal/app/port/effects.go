@@ -88,8 +88,9 @@ type PaneControl interface {
 	SendKeys(ctx context.Context, pane string, keys ...string) error
 	// Start starts agent CLI kind in pane for the agent name, returning once the terminal took the start: the pane as
 	// it answered, or as it shows it when the answer came later (its ID "" when neither showed one). What the terminal
-	// keeps of an earlier start of name, in that pane or in another, is cleared and the start retried once, say taking
-	// the adapter's lines for it and for a failed clear (nil: silent).
+	// keeps of an earlier start of name that a live agent does not hold is cleared and the start retried once, say
+	// taking the adapter's lines for it and for a failed clear (nil: silent). A live agent in another pane holding the
+	// name is a refusal for good: the adapter's error matches NameHeld.
 	Start(ctx context.Context, name, kind, pane string, say func(format string, args ...any), args ...string) (Pane, error)
 }
 
@@ -110,6 +111,18 @@ func PaneBusy(err error) bool {
 func NotReady(err error) bool {
 	var e interface{ NotReady() bool }
 	return errors.As(err, &e) && e.NotReady()
+}
+
+// NameHeld: err says a start was refused for good because a live agent in another pane holds the agent's name; it
+// returns that pane's id and its label ("" when the pane has none) (an error in the chain with NameHeld() (string,
+// string)).
+func NameHeld(err error) (pane, label string, held bool) {
+	var e interface{ NameHeld() (string, string) }
+	if !errors.As(err, &e) {
+		return "", "", false
+	}
+	pane, label = e.NameHeld()
+	return pane, label, true
 }
 
 // TimedOut: err says the terminal's wait ended at its own timeout (an error in the chain with TimedOut() true).
