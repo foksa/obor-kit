@@ -16,13 +16,12 @@
     "roles": {
       "reviewer": "terra:xhigh",
       "lead": "opus:high",
-      "deep_dive": "fable:medium",
-      "integrator": "fable:low",
+      "deep_dive": "opus:high",
+      "integrator": "opus:medium",
       "researcher": "sonnet:medium"
     },
     "difficulty": {
       "hard": [
-        "fable:medium",
         "opus:high"
       ],
       "medium": [
