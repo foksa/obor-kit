@@ -7,16 +7,16 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 
 ## Handoff (lead; rewrite at each handoff)
 Read `docs/observations.md` first (patterns from past sessions: where we went in circles, the load tax, traps).
-- 2026-11-10 ~23:00 (lead; previous Handoff: `git show 2126da93:BACKLOG.md`). Every lane free, nothing queued, no
-  watch, no open review (RV-185 closed). **v0.36.0 shipped** (role worktree ready/setup, blocked worker → needs-you at
-  once with the pane's question, `review close --force` for an empty unwritten review, C15-C18 deleted with C16
-  restored). P1 ran on both stores. Since v0.36 on staging: T-1229/T-1233 (review close carries a tracked BACKLOG.md
-  at any path), T-1230/T-1231 (keep-lane and cmd/obor flakes), T-1232 (A4: `internal/app/review` package), T-1234
-  (uncounted step retries wait), worker text (no machine load), deep-dive text (no git writes in probes); all
-  reviewed (RV-184, RV-185).
-  **Next steps:** (1) 11-16 or later: C1 store migrations (DD-v0.35 group 1). (2) After C1: decide A1 steps 3-4
-  (`docs/research/improve-architecture.md`) from the check-then-act findings, not the race count (decisions 11-11). (3) Owner may pick A6 `obor stats`. (4) v0.37
-  when the owner wants: everything since v0.36 is reviewed. Parked by the owner 11-10: `obor run` (Later candidates).
+- 2026-11-11 ~23:00 (lead; previous Handoff: `git show 935956b4:BACKLOG.md`). Every lane free, nothing queued, no
+  watch, no open review (RV-196 closed). **Shipped today: v0.37.0, v0.38.0, v0.39.0.** v0.38: terminal plan steps
+  1-5 (herdr behind one interface), start identity (`Locate` asks serve's `where` before any stop/label; decisions
+  O1-O4), review card in status/web. v0.39: web Tasks and Docs pages, `obor flakes` real flakes only (no ancestry
+  rule: entries age out in 7 days), accepted sweep (80 → 46 lines; each deep dive now sweeps accepted.md). Config:
+  Fable is the advisor only; hard/integrator/deep dive on opus. axis-maps was reset 11-11 (fresh store, v2 config).
+  **Next steps:** (1) 11-16 or later: C1 store migrations (DD-v0.35 group 1). (2) After C1: decide A1 steps 3-4 from
+  the check-then-act findings. (3) Parked until the owner decides a second terminal: D3 and terminal plan steps 6-9
+  (`docs/plan/terminal-adapters.md`). (4) Watch the first live dispatches on axis-alies/axis-maps under start identity.
+  (5) If an empty lane `index.lock` recurs, find the step that leaves it (BACKLOG Open, 11-06 and 11-11).
 ## Owner decisions pending
 - none (agent skills scope decided 11-10: 1A, T-1201).
 
