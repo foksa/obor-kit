@@ -47,7 +47,8 @@ func executable(path string) bool {
 // candidate when the watch is made: a test binary, `go run` or a lane's own build (OBOR_NO_SELF_HOST) never follows.
 type Watch struct {
 	Kit, Home string
-	Now       func() time.Time // nil: time.Now
+	Now       func() time.Time  // nil: time.Now
+	Probe     func(string) bool // a candidate's `version` probe (New: probe); a test answers for the files it makes
 
 	self os.FileInfo // the running binary's file (nil: the watch is off)
 	mu   sync.Mutex
@@ -62,7 +63,7 @@ func New(kit, home string) *Watch {
 
 // watchOf is New for the running binary exe ("": unknown, the watch is off).
 func watchOf(kit, home, exe string) *Watch {
-	w := &Watch{Kit: kit, Home: home}
+	w := &Watch{Kit: kit, Home: home, Probe: probe}
 	if exe != "" && kit != "" {
 		w.self = sameAs(exe, Candidate(kit, home))
 	}
@@ -112,7 +113,7 @@ func (w *Watch) Changed() bool {
 	if w.bad != nil && os.SameFile(fi, w.bad) && fi.ModTime().Equal(w.bad.ModTime()) {
 		return false
 	}
-	if !probe(cand) {
+	if !w.Probe(cand) {
 		w.bad = fi
 		return false
 	}

@@ -387,10 +387,10 @@ func (s Service) PID(ctx context.Context) (pid int, loaded bool) {
 // Install's retry included. Callers give their context at least this.
 const Deadline = 3 * time.Minute
 
-// The launchctl timeouts (vars: the tests shorten them). callTimeout is for the calls launchd answers at once (print,
-// bootstrap); stopTimeout for the ones that wait for serve to exit (kickstart -k, bootout: launchd's ExitTimeOut, 20s
-// by default, before it SIGKILLs serve — the flat 10s it once had killed launchctl mid-kickstart). settle is
-// how long a verb reads launchd's state after a call that changes it, every pollEvery.
+// The launchctl timeouts (a test that kills a kickstart lowers stopTimeout). callTimeout is for the calls launchd
+// answers at once (print, bootstrap); stopTimeout for the ones that wait for serve to exit (kickstart -k, bootout:
+// launchd's ExitTimeOut, 20s by default, before it SIGKILLs serve — the flat 10s it once had killed launchctl
+// mid-kickstart). settle is how long a verb reads launchd's state after a call that changes it, every pollEvery.
 var (
 	callTimeout = 10 * time.Second
 	stopTimeout = 45 * time.Second
@@ -398,11 +398,17 @@ var (
 	pollEvery   = 250 * time.Millisecond
 )
 
+// execLaunchctl runs launchctl (from PATH) under ctx: its combined output. The verbs' every launchctl call goes through
+// it, so a test answers for launchd in process and records the calls. A test replaces it.
+var execLaunchctl = func(ctx context.Context, args ...string) ([]byte, error) {
+	return exec.CommandContext(ctx, "launchctl", args...).CombinedOutput()
+}
+
 // launchctl runs launchctl (from PATH) under timeout; its error carries its output.
 func launchctl(ctx context.Context, timeout time.Duration, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "launchctl", args...).CombinedOutput()
+	out, err := execLaunchctl(ctx, args...)
 	if err != nil {
 		msg := fmt.Sprintf("launchctl %s: %v", strings.Join(args, " "), err)
 		if said := strings.TrimSpace(string(out)); said != "" {
