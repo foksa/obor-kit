@@ -12,6 +12,11 @@ already done, areas to emphasise.
 ## Outputs
 `<reviews dir>/DD-<milestone>.md`: findings by area with severity, file:line, evidence, suggested fix; a short design
 section. The lead turns findings into tasks.
+It also sweeps `docs/accepted.md` (the accepted review findings): each line checked against the code is GONE (the
+code it names was deleted or rewritten), FIXED (fixed since: the commit), CHEAP (still true, about 20 production lines
+or fewer, or the fix simplifies: files and the fix in one line) or KEEP (likelihood, cost); a section of the DD file
+lists them, CHEAP grouped by shared files. The lead deletes GONE and FIXED lines and puts CHEAP into the milestone's
+fix wave.
 
 ## Rules
 - Read-only on source; probes without git writes (your guard allows git reads only, a scratch dir included): a

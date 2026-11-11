@@ -1,7 +1,9 @@
 # Accepted findings
 
 Review findings accepted instead of fixed, one line each, written by `obor review close --accept` (newest
-last). Nobody reads this file at session start: look a line up when its symptom shows, and fix it then.
+last). Nobody reads this file at session start: look a line up when its symptom shows, and fix it then. Each
+milestone deep dive sweeps it: lines whose code is gone or fixed are deleted, cheap fixes join that milestone's fix
+wave (owner 2026-11-11).
 
 - (RV-172 design, accepted) `checks.ScratchFF` still embeds `Scratch.Cfg` and `Lane.Cfg`, set once from the same pointer by its constructor (T-1161); drop the second stored pointer on a later touch if that stays simpler.
 - (RV-170, accepted) (RV-170, constructed) a shape-2 config with merge.retest as a string plus a second clone's shape-1 local.json holding only merge.retest_join loses the command (the reshaped local object replaces the string); no real project has that combination
