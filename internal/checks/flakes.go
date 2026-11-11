@@ -187,90 +187,28 @@ type Flaky struct {
 	Last  int64
 }
 
-// flakeRule is the rule for a passed-on-retry line a fix ended: a merge after the line whose spec title names the test,
-// or one whose diff touched a file that defines it and whose commit the line's sha does not contain. Its reads (git, the
-// specs, the merges) are lazy and remembered per rule, so one `obor flakes` round pays for each task, test and sha once.
+// flakeRule is the rule for a passed-on-retry line a fix ended: a merge after the line whose spec title names the test.
+// Its reads (the specs, the merges) are lazy and remembered per rule, so one `obor flakes` round pays for each once.
 type flakeRule struct {
-	cfg      *config.Config
-	loaded   bool                // the specs and the merges are read
-	specs    []flakeSpec         // the task specs' titles
-	merged   map[string]flakeFix // task → its newest merge (fact merged)
-	diffs    map[string][]string // "<task>\0<sha>" → the task diff's files (nil: git cannot tell)
-	defs     map[string][]string // "<test>\0<sha>" → the files defining the test (empty: a package name)
-	ancestry map[string]bool     // "<fix>\0<sha>" → sha's history holds fix
-}
-
-// flakeFix is a task's newest merge: its time and the merge's head, the sha its diff reads from.
-type flakeFix struct {
-	at  int64
-	sha string
+	cfg    *config.Config
+	loaded bool             // the specs and the merges are read
+	specs  []flakeSpec      // the task specs' titles
+	merged map[string]int64 // task → its newest merge's time (fact merged)
 }
 
 // flakeSpec is one task spec: its task and the title after the dash of its "# <task> — <title>" heading.
 type flakeSpec struct{ task, title string }
 
 func newFlakeRule(cfg *config.Config) *flakeRule {
-	return &flakeRule{cfg: cfg, diffs: map[string][]string{}, defs: map[string][]string{},
-		ancestry: map[string]bool{}}
+	return &flakeRule{cfg: cfg, merged: map[string]int64{}}
 }
 
-// explained reports whether a merge ended the test's flakes: a task merged after the line whose spec title names the
-// test, or one whose diff touched a file that defines it and whose commit the line's sha does not contain. A line git,
-// the specs or the merges cannot place counts as no fix.
-func (r *flakeRule) explained(e Flake) bool {
-	if e.SHA == "" || e.Task == "" {
-		return false
-	}
-	return r.beforeFix(e.Test, e.Time) || r.fixedSince(e.Test, e.SHA)
-}
-
-// fixedSince reports whether a task merged a change to a file that defines the test at sha, and that sha does not
-// contain the merge: gates run on older bases, so a merge newer than the base can fix a test a line older in time
-// still flaked on.
-func (r *flakeRule) fixedSince(test, sha string) bool {
-	r.load()
-	defs := r.defines(test, sha)
-	if len(defs) == 0 {
-		return false
-	}
-	for task, m := range r.merged {
-		if r.touches(task, m.sha, defs) && !r.contains(m.sha, sha) {
-			return true
-		}
-	}
-	return false
-}
-
-// contains reports whether sha's history holds fix (git merge-base --is-ancestor), cached per pair. A pair git cannot
-// answer counts as holding it: a fix this rule cannot place never ends a flake.
-func (r *flakeRule) contains(fix, sha string) bool {
-	key := fix + "\x00" + sha
-	if ok, seen := r.ancestry[key]; seen {
-		return ok
-	}
-	_, err := project.Git(r.cfg.Root, "merge-base", "--is-ancestor", fix, sha)
-	yes, unknown := exit1(err)
-	ok := yes || unknown != nil
-	r.ancestry[key] = ok
-	return ok
-}
-
-// touches reports whether the task's merged diff changed one of files.
-func (r *flakeRule) touches(task, sha string, files []string) bool {
-	changed := r.diff(task, sha)
-	for _, f := range files {
-		if slices.Contains(changed, f) {
-			return true
-		}
-	}
-	return false
-}
-
-// beforeFix reports whether a line at at came before the merge of a task whose spec title names test.
+// beforeFix reports whether a line at at came before the merge of a task whose spec title names test: the test's
+// flakes, older in time, are the ones that fix ended.
 func (r *flakeRule) beforeFix(test string, at int64) bool {
 	r.load()
 	for _, s := range r.specs {
-		if m, ok := r.merged[s.task]; ok && at < m.at && mentions(s.title, test) {
+		if m, ok := r.merged[s.task]; ok && at < m && mentions(s.title, test) {
 			return true
 		}
 	}
@@ -298,77 +236,6 @@ func ident(c byte) bool {
 	return c == '_' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
 }
 
-// diff is the files of the task's change: from the merge-base of the target branch and sha to sha, so a lane's commit
-// and the gate's merge of it read as the task's work. When sha is already in the branch (a merge's head: the old merge
-// runs the checks before its merge commit exists), it is the task's merge commit on the branch, first parent to it, as
-// "Merge <task>: …". Nil: git cannot tell, so no fix is seen.
-func (r *flakeRule) diff(task, sha string) []string {
-	key := task + "\x00" + sha
-	if files, ok := r.diffs[key]; ok {
-		return files
-	}
-	files := r.taskDiff(task, sha)
-	r.diffs[key] = files
-	return files
-}
-
-func (r *flakeRule) taskDiff(task, sha string) []string {
-	branch := r.cfg.MainBranch() // the target the tasks merge into
-	base, err := project.Git(r.cfg.Root, "merge-base", branch, sha)
-	if err != nil {
-		return nil
-	}
-	if base = strings.TrimSpace(base); base != sha {
-		return r.changed(base, sha)
-	}
-	out, err := project.Git(r.cfg.Root, "log", "-1", "--format=%H", "--merges", "--fixed-strings",
-		"--grep=Merge "+task+":", branch)
-	if err != nil {
-		return nil
-	}
-	merge := strings.TrimSpace(out)
-	if merge == "" {
-		return nil
-	}
-	return r.changed(merge+"^1", merge)
-}
-
-// changed is the files git diff --name-only names for a..b (nil: git cannot tell).
-func (r *flakeRule) changed(a, b string) []string {
-	out, err := project.Git(r.cfg.Root, "diff", "--name-only", a, b)
-	if err != nil {
-		return nil
-	}
-	return nonBlank(out)
-}
-
-// defines is the files at sha that hold "func <test>(" (empty: a package-level name, or git cannot tell).
-func (r *flakeRule) defines(test, sha string) []string {
-	key := test + "\x00" + sha
-	if files, ok := r.defs[key]; ok {
-		return files
-	}
-	var files []string
-	if out, err := project.Git(r.cfg.Root, "grep", "-l", "-F", "func "+test+"(", sha); err == nil {
-		for _, l := range nonBlank(out) {
-			files = append(files, strings.TrimPrefix(l, sha+":"))
-		}
-	}
-	r.defs[key] = files
-	return files
-}
-
-// nonBlank is s's lines, trimmed, without the empty ones.
-func nonBlank(s string) []string {
-	var out []string
-	for _, l := range strings.Split(s, "\n") {
-		if l = strings.TrimSpace(l); l != "" {
-			out = append(out, l)
-		}
-	}
-	return out
-}
-
 // load reads the task specs' titles and the tasks' newest merge (fact merged), both the store's, read-only; no
 // store leaves them empty, so no fix is seen.
 func (r *flakeRule) load() {
@@ -376,11 +243,11 @@ func (r *flakeRule) load() {
 		return
 	}
 	r.loaded = true
-	r.merged = map[string]flakeFix{}
+	r.merged = map[string]int64{}
 	if merges, err := event.ReadMerges(r.cfg.Root); err == nil {
 		for _, m := range merges {
-			if at := m.At.Unix(); at > r.merged[m.Task].at {
-				r.merged[m.Task] = flakeFix{at: at, sha: m.SHA}
+			if at := m.At.Unix(); at > r.merged[m.Task] {
+				r.merged[m.Task] = at
 			}
 		}
 	}
@@ -405,7 +272,8 @@ func FlakyTests(cfg *config.Config, entries []Flake, now time.Time) []Flaky {
 	rule := newFlakeRule(cfg)
 	byTest := map[string]*acc{}
 	for _, e := range entries {
-		if e.Test == "" || e.Check == raceCheck || !e.PassedOnRetry || e.Time < cutoff || rule.explained(e) {
+		if e.Test == "" || e.Check == raceCheck || !e.PassedOnRetry || e.Time < cutoff ||
+			rule.beforeFix(e.Test, e.Time) {
 			continue
 		}
 		a := byTest[e.Test]

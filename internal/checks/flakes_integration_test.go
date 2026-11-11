@@ -158,8 +158,8 @@ func TestFlakeLogNightly(t *testing.T) {
 	})
 }
 
-// flakeFx is a project whose internal/x/x_test.go defines TestLedger — the test a later merge can fix — with the
-// target branch and paths a flake rule reads.
+// flakeFx is a project whose internal/x/x_test.go defines TestLedger — the test a later merge can touch — and whose
+// store holds the specs and the merges the flakes rule reads.
 type flakeFx struct {
 	*testkit.Project
 	t   *testing.T
@@ -170,22 +170,17 @@ func newFlakeFx(t *testing.T) *flakeFx {
 	t.Helper()
 	base := snapshot(t, builtBase("flakes", func(base string) string {
 		p := testkit.NewAt(mainTB{}, base)
-		p.Write("internal/x/x.go", "package x\n")
 		p.Write("internal/x/x_test.go", "package x\n\nfunc TestLedger(t *testing.T) {}\n")
-		p.Write("shared.txt", "one\n")
 		p.Git(p.Root, "add", "-A")
 		p.Git(p.Root, "commit", "-q", "-m", "fixture")
 		return base
 	}))
 	p := testkit.Adopt(t, base)
-	cfg := &config.Config{Root: p.Root}
-	cfg.Data.Merge.TargetBranch = "main"
-	return &flakeFx{Project: p, t: t, cfg: cfg}
+	return &flakeFx{Project: p, t: t, cfg: &config.Config{Root: p.Root}}
 }
 
-// task commits files on branch task/<task>, merges it onto main ("Merge <task>: change" as obor does) and returns the
-// lane commit's sha: the sha a merge's checks ran on.
-func (x *flakeFx) task(task string, files map[string]string) string {
+// task commits files on branch task/<task> and merges it onto main ("Merge <task>: change" as obor does).
+func (x *flakeFx) task(task string, files map[string]string) {
 	x.t.Helper()
 	branch := "task/" + task
 	x.Git(x.Root, "checkout", "-q", "-b", branch)
@@ -194,10 +189,8 @@ func (x *flakeFx) task(task string, files map[string]string) string {
 	}
 	x.Git(x.Root, "add", "-A")
 	x.Git(x.Root, "commit", "-q", "-m", task+": change")
-	sha := x.Git(x.Root, "rev-parse", "HEAD")
 	x.Git(x.Root, "checkout", "-q", "main")
 	x.Git(x.Root, "merge", "-q", "--no-ff", "-m", "Merge "+task+": change", branch)
-	return sha
 }
 
 // spec stores task's spec with the given title (the store: the flakes rule's only source).
@@ -230,9 +223,8 @@ func flakyNames(got []Flaky) string {
 	return strings.Join(out, " ")
 }
 
-// a passed-on-retry line counts as a flake unless a merge fixed the test: a merge after it whose spec title names the
-// test, or any merge that changed a file defining the test and that the line's sha does not contain. Reds alone are no
-// flake evidence.
+// a passed-on-retry line counts as a flake unless a merge after it has a spec title naming the test. A merge that
+// changed the test's file is no fix on its own: no git history is read. Reds alone are no flake evidence.
 func TestFlakyRule(t *testing.T) {
 	t.Parallel()
 	const test = "TestLedger"
@@ -240,63 +232,38 @@ func TestFlakyRule(t *testing.T) {
 	at := func(offset int64) int64 { return now.Unix() + offset }
 	const body = "package x\n\nfunc TestLedger(t *testing.T) { %s }\n"
 
-	t.Run("a merge after the line changed the test's file: no alert", func(t *testing.T) {
+	t.Run("a merge after the line whose spec title names the test: no alert", func(t *testing.T) {
 		t.Parallel()
 		x := newFlakeFx(t)
-		t1 := x.task("T-01", map[string]string{"shared.txt": "two\n"})
+		tested := x.Git(x.Root, "rev-parse", "main")
+		x.spec("T-05", "Git lock contention after a crash: "+test+" (flaky ×2)")
+		x.mergedAt("T-05", at(-50))
+		got := FlakyTests(x.cfg, []Flake{saved(test, "T-01", tested, at(-300))}, now)
+		if len(got) != 0 {
+			t.Errorf("flaky %q, want none: the fix's spec title names the test", flakyNames(got))
+		}
+	})
+
+	t.Run("a later merge that changed the test's file, its title not naming it: an alert", func(t *testing.T) {
+		t.Parallel()
+		x := newFlakeFx(t)
+		tested := x.Git(x.Root, "rev-parse", "main") // the line ran on this: the merge below is not in its history
+		x.spec("T-05", "x calls the ledger twice")
 		x.task("T-05", map[string]string{"internal/x/x_test.go": fmt.Sprintf(body, "t.Log(1)")})
 		x.mergedAt("T-05", at(-50))
-		got := FlakyTests(x.cfg, []Flake{saved(test, "T-01", t1, at(-200))}, now)
-		if len(got) != 0 {
-			t.Errorf("flaky %q, want none: the merge after the line changed the test's file", flakyNames(got))
-		}
-	})
-
-	t.Run("a fix older than the line but not in its sha: no alert", func(t *testing.T) {
-		t.Parallel()
-		x := newFlakeFx(t)
-		t1 := x.task("T-01", map[string]string{"shared.txt": "two\n"})
-		x.task("T-05", map[string]string{"internal/x/x_test.go": fmt.Sprintf(body, "t.Log(1)")})
-		x.mergedAt("T-05", at(-100))
-		got := FlakyTests(x.cfg, []Flake{saved(test, "T-01", t1, at(-50))}, now)
-		if len(got) != 0 {
-			t.Errorf("flaky %q, want none: the line's sha does not contain the fix", flakyNames(got))
-		}
-	})
-
-	t.Run("a red on a sha that contains the fix: an alert", func(t *testing.T) {
-		t.Parallel()
-		x := newFlakeFx(t)
-		x.task("T-01", map[string]string{"shared.txt": "two\n"})
-		x.task("T-05", map[string]string{"internal/x/x_test.go": fmt.Sprintf(body, "t.Log(1)")})
-		x.mergedAt("T-05", at(-100))
-		fixIn := x.Git(x.Root, "rev-parse", "main") // the merge of the fix: the line ran on top of it
-		got := FlakyTests(x.cfg, []Flake{saved(test, "T-01", fixIn, at(-50))}, now)
+		got := FlakyTests(x.cfg, []Flake{saved(test, "T-01", tested, at(-200))}, now)
 		if flakyNames(got) != test {
-			t.Fatalf("flaky %q, want %q: the line's sha contains the fix", flakyNames(got), test)
+			t.Fatalf("flaky %q, want %q: only a title naming the test ends a flake", flakyNames(got), test)
 		}
 		if got[0].N != 1 || strings.Join(got[0].Tasks, ",") != "T-01" {
 			t.Errorf("×%d tasks %q, want ×1 tasks T-01", got[0].N, got[0].Tasks)
 		}
 	})
 
-	t.Run("a merge after the line whose spec title names the test: no alert", func(t *testing.T) {
-		t.Parallel()
-		x := newFlakeFx(t)
-		t1 := x.task("T-01", map[string]string{"shared.txt": "two\n"})
-		x.spec("T-05", "Git lock contention after a crash: "+test+" (flaky ×2)")
-		x.mergedAt("T-05", at(-50))
-		got := FlakyTests(x.cfg, []Flake{saved(test, "T-01", t1, at(-300))}, now)
-		if len(got) != 0 {
-			t.Errorf("flaky %q, want none: the fix's spec title names the test", flakyNames(got))
-		}
-	})
-
 	t.Run("a passed-on-retry line with no fix after it: an alert", func(t *testing.T) {
 		t.Parallel()
 		x := newFlakeFx(t)
-		t1 := x.task("T-01", map[string]string{"shared.txt": "two\n"})
-		got := FlakyTests(x.cfg, []Flake{saved(test, "T-01", t1, at(-100))}, now)
+		got := FlakyTests(x.cfg, []Flake{saved(test, "T-01", "", at(-100))}, now)
 		if flakyNames(got) != test {
 			t.Fatalf("flaky %q, want %q", flakyNames(got), test)
 		}
@@ -305,9 +272,7 @@ func TestFlakyRule(t *testing.T) {
 	t.Run("reds on two tasks, no retry pass: no alert", func(t *testing.T) {
 		t.Parallel()
 		x := newFlakeFx(t)
-		t1 := x.task("T-01", map[string]string{"shared.txt": "two\n"})
-		t2 := x.task("T-02", map[string]string{"shared.txt": "three\n"})
-		got := FlakyTests(x.cfg, []Flake{red(test, "T-01", t1, at(-200)), red(test, "T-02", t2, at(-100))}, now)
+		got := FlakyTests(x.cfg, []Flake{red(test, "T-01", "", at(-200)), red(test, "T-02", "", at(-100))}, now)
 		if len(got) != 0 {
 			t.Errorf("flaky %q, want none: two reds with no retry pass are no flake", flakyNames(got))
 		}
@@ -317,8 +282,7 @@ func TestFlakyRule(t *testing.T) {
 		t.Parallel()
 		x := newFlakeFx(t)
 		const pkg = "example.com/build"
-		t1 := x.task("T-01", map[string]string{"shared.txt": "two\n"})
-		got := FlakyTests(x.cfg, []Flake{saved(pkg, "T-01", t1, at(-100))}, now)
+		got := FlakyTests(x.cfg, []Flake{saved(pkg, "T-01", "", at(-100))}, now)
 		if flakyNames(got) != pkg {
 			t.Fatalf("flaky %q, want %q", flakyNames(got), pkg)
 		}
