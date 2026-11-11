@@ -44,6 +44,7 @@ export interface Task {
   task_state?: string;
   open?: boolean;
   phase?: string;
+  waiting?: boolean; // serve's waiting predicate: the dispatch waits (its task line is the queue's)
   step?: number;
   attempt?: number;
   running?: string;
@@ -305,6 +306,7 @@ export interface LaneDot {
   task_state?: string;
   open?: boolean;
   phase?: string;
+  waiting?: boolean; // serve's waiting predicate: the dispatch waits (its task line is the queue's)
   step?: number;
   attempt?: number;
   running?: string;
@@ -362,6 +364,7 @@ export interface TaskDetail {
   task_state?: string;
   open?: boolean;
   phase?: string;
+  waiting?: boolean; // serve's waiting predicate: the dispatch waits (its task line is the queue's)
   step?: number;
   attempt?: number;
   running?: string;
