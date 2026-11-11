@@ -338,7 +338,11 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	case errors.As(err, &se) && se.NoShell, fresh && startBusy(err):
 		return s.notShell(pane, a)
 	case errors.As(err, &se) && se.NotReady:
-		return project.Failf("agent not ready: %s", se.Hint)
+		hint := project.Failf("agent not ready: %s", se.Hint)
+		if se.Retry {
+			hint = project.RetryHint(hint)
+		}
+		return hint
 	case errors.As(err, &se):
 		return project.Failf("terminal agent start %s failed (pane %s)", a.name, pane)
 	case err != nil:
@@ -361,11 +365,11 @@ func startBusy(err error) bool {
 
 // notShell is the refusal for a new pane whose shell did not come up within the bound: the command it prints starts
 // the agent as it was — a drive's own command, or a restart with --fresh when no session is recorded (the plain form
-// refuses with none).
+// refuses with none). The error carries that command (project.RetryHint): its caller adds none of its own.
 func (s *Setup) notShell(pane string, a agent) error {
 	_, hasSession := store.CurrentAt(s.cfg.Root, a.name)
-	return project.Failf("pane %s is not an available shell after %s: start the agent there with %s",
-		pane, s.shellWait(), project.RestartCmd(a.again, a.name, hasSession, pane))
+	return project.RetryHint(project.Failf("pane %s is not an available shell after %s: start the agent there with %s",
+		pane, s.shellWait(), project.RestartCmd(a.again, a.name, hasSession, pane)))
 }
 
 // --- placement -------------------------------------------------------------------------------------------

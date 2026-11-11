@@ -92,10 +92,14 @@ func driveCmd(args []string) int {
 // drivingPrefix starts serve's reply to obor drive on a drive whose agent runs already (DRIVING <task> → <lane>: …).
 const drivingPrefix = "DRIVING "
 
-// driveFailed is the FAIL line of a drive whose start failed: the start's own message (a failed start's hint already
-// names the command that starts it again) and what ends the recorded drive; the retry command is not repeated here.
+// driveFailed is the FAIL line of a drive whose start failed: the start's own message, the command that starts the
+// drive again when that message does not already name it, and what ends the recorded drive.
 func driveFailed(err error, task string) string {
-	return fmt.Sprintf("FAIL %v (the drive is recorded; obor drop %s ends it)", err, task)
+	if project.RetryHinted(err) {
+		return fmt.Sprintf("FAIL %v (the drive is recorded; obor drop %s ends it)", err, task)
+	}
+	return fmt.Sprintf("FAIL %v: start it again with %s (the drive is recorded; obor drop %s ends it)",
+		err, project.RestartCmd("obor drive "+task, "", false, ""), task)
 }
 
 // drive is serve's DRIVE reply: the task, its lane, the drive agent and its type reference.
@@ -142,8 +146,9 @@ func startDrive(ctx context.Context, cfg *config.Config, d drive, env project.En
 		ref = ""
 	}
 	typ, effort := config.ParseModelRef(ref)
-	if typ == "" {
-		return fmt.Errorf("lane %s runs no model: obor drop %s, then obor drive <name> --model <model>", d.lane, d.task)
+	if typ == "" { // its advice is the whole start: obor drive adds no retry to it
+		return project.RetryHint(fmt.Errorf("lane %s runs no model: obor drop %s, then obor drive <name> --model <model>",
+			d.lane, d.task))
 	}
 	cwd, _ := os.Getwd()
 	s := &setup.Setup{Kit: kit, Dir: cwd, Env: env, T: t.Setup, Out: out, McpCheck: mcp.Check,

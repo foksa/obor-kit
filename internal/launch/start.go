@@ -120,8 +120,8 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
 	}
 	// Only a failed start looks at the screen (a started agent's prompt delivery is judged by herdr alone).
 	screen, _ := l.H.Screen(ctx, s.Pane, 60)
-	if hint := notReady(screen, s.Kind, s.Agent, s.Pane, s.Again, hasSession); hint != "" {
-		return port.Pane{}, &StartError{Err: err, NotReady: true, Hint: hint}
+	if hint, retry := notReady(screen, s.Kind, s.Agent, s.Pane, s.Again, hasSession); hint != "" {
+		return port.Pane{}, &StartError{Err: err, NotReady: true, Hint: hint, Retry: retry}
 	}
 	if port.NotReady(err) {
 		// Started, but waiting at a startup dialog the screen does not name (live 2026-10-13): the agent runs.
@@ -336,15 +336,16 @@ var trustRE = regexp.MustCompile(`(?i)trust (this|the) (folder|directory)|do you
 
 // notReady is why the agent cannot take a prompt yet, from its pane's screen after the start: every kind's trust
 // dialog, else what the kind sees on it (agents.Kind.NotReady: Codex's self-update); "" when none shows. The hint
-// names what a person does next: answer the dialog, or the command that starts the agent again (project.RestartCmd).
-func notReady(screen, kind, name, pane, again string, hasSession bool) string {
+// names what a person does next: answer the dialog, or the command that starts the agent again (project.RestartCmd,
+// which retry says the hint carries).
+func notReady(screen, kind, name, pane, again string, hasSession bool) (hint string, retry bool) {
 	if trustRE.MatchString(screen) {
-		return "a 'Trust this folder?' dialog in pane " + pane + ": answer it there (Enter = trust; once per repo)"
+		return "a 'Trust this folder?' dialog in pane " + pane + ": answer it there (Enter = trust; once per repo)", false
 	}
 	if k, ok := agents.Lookup(kind); ok {
 		if why := k.NotReady(screen); why != "" {
-			return kind + " " + why + " in pane " + pane + ": start it again with " + project.RestartCmd(again, name, hasSession, pane)
+			return kind + " " + why + " in pane " + pane + ": start it again with " + project.RestartCmd(again, name, hasSession, pane), true
 		}
 	}
-	return ""
+	return "", false
 }
