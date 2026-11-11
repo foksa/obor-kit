@@ -13,6 +13,7 @@
   import Agent from "./pages/Agent.svelte";
   import Job from "./pages/Job.svelte";
   import Setup from "./pages/Setup.svelte";
+  import Tasks from "./pages/Tasks.svelte";
   import Help from "./pages/Help.svelte";
   import Dot from "./ui/Dot.svelte";
 
@@ -34,6 +35,7 @@
     if (!r.project) return c;
     c.push({ text: r.project, href: r.kind === "p" ? undefined : href.project(r.project) });
     if (r.kind === "s") c.push({ text: "Setup" });
+    if (r.kind === "tasks") c.push({ text: "Tasks" });
     if (r.kind === "t") c.push({ text: r.id, mono: true });
     if (r.kind === "a") c.push({ text: "agent " + r.id, mono: true });
     if (r.kind === "j") c.push({ text: "job " + r.id, mono: true });
@@ -114,6 +116,10 @@
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="8" r="2.2"></circle><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"></path></svg>
             Setup
           </a>
+          <a class="item sub" class:on={route.kind === "tasks"} href={href.tasks(p.name)}>
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M6 4h8M6 8h8M6 12h8"></path><circle cx="2.8" cy="4" r="0.9" fill="currentColor"></circle><circle cx="2.8" cy="8" r="0.9" fill="currentColor"></circle><circle cx="2.8" cy="12" r="0.9" fill="currentColor"></circle></svg>
+            Tasks
+          </a>
         {/if}
       {:else}
         {#if projects.error}<p class="note">{projects.error}</p>{/if}
@@ -148,6 +154,7 @@
         {#if route.kind === ""}<Fleet />
         {:else if route.kind === "p"}<Project project={route.project} />
         {:else if route.kind === "s"}<Setup project={route.project} />
+        {:else if route.kind === "tasks"}<Tasks project={route.project} />
         {:else if route.kind === "t"}<Task project={route.project} id={route.id} />
         {:else if route.kind === "a"}<Agent project={route.project} id={route.id} />
         {:else if route.kind === "j"}<Job project={route.project} id={route.id} />

@@ -60,6 +60,8 @@ var goStructs = map[string]reflect.Type{
 	"TaskRecord":       reflect.TypeOf(view.TaskRecord{}),
 	"Prompt":           reflect.TypeOf(view.Prompt{}),
 	"TaskDetail":       reflect.TypeOf(view.TaskDetail{}),
+	"TaskRow":          reflect.TypeOf(view.TaskRow{}),
+	"TaskFixes":        reflect.TypeOf(view.TaskFixes{}),
 	"AgentSession":     reflect.TypeOf(view.AgentSession{}),
 	"AgentLine":        reflect.TypeOf(view.AgentLine{}),
 	"AgentDetail":      reflect.TypeOf(view.AgentDetail{}),

@@ -19,6 +19,12 @@ describe("routes", () => {
     expect(parseRoute(href.help())).toEqual({ kind: "h", project: "", id: "" });
     for (const h of ["#/h/pj", "#/h/pj/x"]) expect(parseRoute(h).kind).toBe("");
   });
+  it("parses a project's tasks page, tasks/<project>, and links to it", () => {
+    expect(parseRoute("#/tasks/obor-kit")).toEqual({ kind: "tasks", project: "obor-kit", id: "" });
+    expect(parseRoute("#/tasks/a%20b")).toEqual({ kind: "tasks", project: "a b", id: "" });
+    expect(parseRoute(href.tasks("a b"))).toEqual({ kind: "tasks", project: "a b", id: "" });
+    for (const h of ["#/tasks", "#/tasks/", "#/task/pj"]) expect(parseRoute(h).kind).toBe("");
+  });
   it("links every kind the router handles, and back", () => {
     const links = [href.project("a b"), href.setup("pj"), href.task("pj", "T-1"), href.agent("pj", "x"), href.job("pj", "T-1/1/work")];
     expect(links.map((l) => parseRoute(l).kind)).toEqual(["p", "s", "t", "a", "j"]);
