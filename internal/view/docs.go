@@ -28,7 +28,7 @@ type DocGroup struct {
 	Docs []Doc  `json:"docs"`
 }
 
-// DocList is a project's docs: the markdown files git tracks under its root at Head, the pinned ones first (in
+// DocList is a project's docs: the markdown files git's index tracks under its root at Head, the pinned ones first (in
 // PinnedDocs' order) and the rest by directory (the root first, then by name). Nothing else is ever served.
 type DocList struct {
 	Head   string     `json:"head"`
@@ -106,25 +106,38 @@ func (l DocList) Has(p string) bool {
 	return false
 }
 
-// DocCache is the doc list of each project root, read again only when the root's HEAD moves (one rev-parse per
-// request, the ls-files and log only for a new HEAD). The zero value reads real git (checks.DocsHead,
-// checks.TrackedDocs); a test injects Head and Files.
+// DocCache is the doc list of each project root, read again when the root's HEAD or git index moves (one rev-parse and
+// one stat per request, the ls-files and log only when either moved). The zero value reads real git (checks.DocsHead,
+// checks.TrackedDocs, checks.DocsIndex, checks.IndexFile); a test injects Head, Files, Index and Tracked.
 type DocCache struct {
 	Head  func(ctx context.Context, root string) (string, error)
 	Files func(ctx context.Context, root string) ([]checks.TrackedDoc, error)
+	// Index is the key of root's git index (checks.DocsIndex): the list is read again when it moves.
+	Index func(root string) (mtime, size int64, err error)
+	// Tracked is whether the index tracks a path as a regular file (checks.IndexFile): a doc is read only while it does.
+	Tracked func(ctx context.Context, root, p string) (bool, error)
 
 	mu sync.Mutex
-	m  map[string]DocList // by root
+	m  map[string]docItem // by root
 }
 
-// List is root's doc list at its HEAD.
+// docItem is one root's list and the HEAD and index key it was read at.
+type docItem struct {
+	list        DocList
+	mtime, size int64
+}
+
+// List is root's doc list at its HEAD and index.
 func (c *DocCache) List(ctx context.Context, root string) (DocList, error) {
-	head, files := c.Head, c.Files
+	head, files, index := c.Head, c.Files, c.Index
 	if head == nil {
 		head = checks.DocsHead
 	}
 	if files == nil {
 		files = checks.TrackedDocs
+	}
+	if index == nil {
+		index = checks.DocsIndex
 	}
 	h, err := head(ctx, root)
 	if err != nil {
@@ -133,22 +146,26 @@ func (c *DocCache) List(ctx context.Context, root string) (DocList, error) {
 	if h == "" {
 		return DocList{}, fmt.Errorf("%s: git names no HEAD", root)
 	}
+	mtime, size, err := index(root)
+	if err != nil {
+		return DocList{}, fmt.Errorf("%s: index: %w", root, err)
+	}
 	c.mu.Lock()
-	l, ok := c.m[root]
+	it, ok := c.m[root]
 	c.mu.Unlock()
-	if ok && l.Head == h {
-		return l, nil
+	if ok && it.list.Head == h && it.mtime == mtime && it.size == size {
+		return it.list, nil
 	}
 	fs, err := files(ctx, root)
 	if err != nil {
 		return DocList{}, fmt.Errorf("%s: tracked docs: %w", root, err)
 	}
-	l = BuildDocs(h, fs)
+	l := BuildDocs(h, fs)
 	c.mu.Lock()
 	if c.m == nil {
-		c.m = map[string]DocList{}
+		c.m = map[string]docItem{}
 	}
-	c.m[root] = l
+	c.m[root] = docItem{list: l, mtime: mtime, size: size}
 	c.mu.Unlock()
 	return l, nil
 }
@@ -156,21 +173,39 @@ func (c *DocCache) List(ctx context.Context, root string) (DocList, error) {
 // MaxDoc is the largest doc ReadDoc returns.
 const MaxDoc = 4 << 20
 
-// ErrNotADoc is a path ReadDoc refuses: it is not in the doc list.
+// ErrNotADoc is a path ReadDoc refuses: git's index does not track it as a regular file under the root, or the list does
+// not have it.
 var ErrNotADoc = errors.New("not a tracked markdown file")
 
-// ReadDoc is the text of p, one of l's docs, from the checkout at root. A path not in the list is ErrNotADoc (a "../"
-// never is: git lists none), and a file whose real path leaves the root (a directory swapped for a symlink since the
-// list was read) is refused too.
-func ReadDoc(root string, l DocList, p string) (string, error) {
+// ReadDoc is the text of p, one of l's docs, from the checkout at root. p is served only while git's index tracks it as
+// a regular file (Tracked at this read), so a path that is no longer tracked, a tracked path replaced on disk by a
+// symlink, a path not in the list (a "../" never is) and one whose real path leaves the root are ErrNotADoc.
+func (c *DocCache) ReadDoc(ctx context.Context, root string, l DocList, p string) (string, error) {
 	if !l.Has(p) {
 		return "", fmt.Errorf("%w: %s", ErrNotADoc, p)
+	}
+	tracked := c.Tracked
+	if tracked == nil {
+		tracked = checks.IndexFile
+	}
+	ok, err := tracked(ctx, root, p)
+	if err != nil {
+		return "", fmt.Errorf("%s: index: %w", root, err)
+	}
+	if !ok {
+		return "", fmt.Errorf("%w: %s is not in git's index", ErrNotADoc, p)
+	}
+	onDisk := filepath.Join(root, filepath.FromSlash(p))
+	if fi, err := os.Lstat(onDisk); err != nil {
+		return "", err
+	} else if fi.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("%w: %s is a symlink on disk", ErrNotADoc, p)
 	}
 	realRoot, err := filepath.EvalSymlinks(root)
 	if err != nil {
 		return "", err
 	}
-	real, err := filepath.EvalSymlinks(filepath.Join(root, filepath.FromSlash(p)))
+	real, err := filepath.EvalSymlinks(onDisk)
 	if err != nil {
 		return "", err
 	}

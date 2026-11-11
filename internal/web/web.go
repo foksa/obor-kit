@@ -79,7 +79,7 @@ type Server struct {
 	Call func(ctx context.Context, root string, r wire.Req) (string, error)
 	// Kit is the kit's root, whose README.md /api/help reads ("": project.KitRoot).
 	Kit string
-	// Docs is each project's doc list, cached per HEAD (zero value: real git), for /api/docs and /api/doc.
+	// Docs is each project's doc list, cached per HEAD and git index (zero value: real git), for /api/docs and /api/doc.
 	Docs view.DocCache
 }
 
@@ -397,8 +397,8 @@ func (s *Server) helpAPI(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, Help{Groups: help.Groups, Commands: help.Commands, Sections: sections})
 }
 
-// docsAPI is /api/docs?project=<name>: the markdown files git tracks in the project's main checkout (view.DocList),
-// read again when its HEAD moves.
+// docsAPI is /api/docs?project=<name>: the markdown files git's index tracks in the project's main checkout
+// (view.DocList), read again when its HEAD or index moves.
 func (s *Server) docsAPI(w http.ResponseWriter, r *http.Request) {
 	p, ok := s.project(w, r)
 	if !ok {
@@ -421,7 +421,7 @@ type DocText struct {
 }
 
 // docAPI is /api/doc?project=<name>&path=<path>: one doc's text, read-only. A path that is not in the project's doc
-// list (an untracked or ignored file, anything outside the root) is refused (403).
+// list (an untracked or ignored file, one git's index no longer tracks, anything outside the root) is refused (403).
 func (s *Server) docAPI(w http.ResponseWriter, r *http.Request) {
 	p, ok := s.project(w, r)
 	if !ok {
@@ -439,7 +439,7 @@ func (s *Server) docAPI(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	text, err := view.ReadDoc(p.Root, l, doc)
+	text, err := s.Docs.ReadDoc(ctx, p.Root, l, doc)
 	switch {
 	case errors.Is(err, view.ErrNotADoc):
 		fail(w, http.StatusForbidden, err.Error()+": obor web serves only the markdown files git tracks")

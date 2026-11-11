@@ -13,7 +13,8 @@ import (
 
 // TestTrackedDocs: the doc list is the .md files git tracks under the root, in every directory, each with its newest
 // commit's time; an untracked file, a gitignored one, a symlink and a non-markdown file are not in it, and HEAD is the
-// sha rev-parse names.
+// sha rev-parse names. IndexFile is true only for a path the index tracks as a regular file (a staged one too, one git
+// rm --cached dropped not), and DocsIndex is the index file's key, new after a git add.
 func TestTrackedDocs(t *testing.T) {
 	root := t.TempDir()
 	git := func(env []string, args ...string) string {
@@ -91,5 +92,37 @@ func TestTrackedDocs(t *testing.T) {
 	head, err := DocsHead(ctx, root)
 	if want := git(nil, "rev-parse", "HEAD"); err != nil || head+"\n" != want {
 		t.Errorf("DocsHead = %q, %v; want %q", head, err, want)
+	}
+	for _, c := range []struct {
+		path string
+		want bool
+	}{
+		{"README.md", true}, {"docs/staged.md", true}, {"draft.md", false}, {"link.md", false},
+		{"docs/reviews/RV-1.md", false}, {"docs", false}, {"missing.md", false},
+	} {
+		if got, err := IndexFile(ctx, root, c.path); err != nil || got != c.want {
+			t.Errorf("IndexFile(%s) = %v, %v; want %v", c.path, got, err, c.want)
+		}
+	}
+	mtime, size, err := DocsIndex(root)
+	if err != nil || mtime == 0 || size == 0 {
+		t.Fatalf("DocsIndex = %d, %d, %v; want the index file's key", mtime, size, err)
+	}
+	write("docs/later.md", "later\n")
+	git(nil, "add", "docs/later.md")
+	if m2, s2, err := DocsIndex(root); err != nil || (m2 == mtime && s2 == size) {
+		t.Errorf("DocsIndex after git add = %d, %d, %v; want a new key", m2, s2, err)
+	}
+	if got, err := IndexFile(ctx, root, "docs/later.md"); err != nil || !got {
+		t.Errorf("IndexFile of a newly staged doc = %v, %v; want true", got, err)
+	}
+	write("docs/a[1].md", "brackets\n")
+	git(nil, "add", "docs/a[1].md")
+	if got, err := IndexFile(ctx, root, "docs/a[1].md"); err != nil || !got {
+		t.Errorf("IndexFile of a staged name with glob characters = %v, %v; want true", got, err)
+	}
+	git(nil, "rm", "-q", "--cached", "README.md")
+	if got, err := IndexFile(ctx, root, "README.md"); err != nil || got {
+		t.Errorf("IndexFile of a doc git rm --cached dropped = %v, %v; want false", got, err)
 	}
 }
