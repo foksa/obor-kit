@@ -53,6 +53,8 @@ type ProjectStatus struct {
 	Review string `json:"review,omitempty"`
 	// ReviewRequest is the open review request as data (the view's queue; nil: none): Review is its line.
 	ReviewRequest *ReviewRequestStatus `json:"review_request,omitempty"`
+	// ReviewOpen is the open review (started, not closed) and its stage (nil: none open).
+	ReviewOpen *ReviewOpenStatus `json:"review_open,omitempty"`
 	// Briefs is the role agents' open briefs (messages.go): the brief each is on, since when and whether its line was
 	// delivered (the view's roles and queue), by agent.
 	Briefs []BriefStatus `json:"briefs,omitempty"`
@@ -108,6 +110,37 @@ type ReviewRequestStatus struct {
 	Note    string   `json:"note,omitempty"`
 	By      string   `json:"by,omitempty"`
 	Since   int64    `json:"since"`
+}
+
+// The open review's stages (ReviewOpenStatus.Stage), in the order a cycle passes them.
+const (
+	ReviewReviewing = "reviewing" // the reviewer's review brief is open
+	ReviewWritten   = "written"   // the review brief ended and no fix task is linked: the lead's turn
+	ReviewFixes     = "fixes"     // a linked fix task is open, or merged and no finished verify covers it
+	ReviewVerifying = "verifying" // the reviewer's verify brief is open
+	ReviewApproved  = "approved"  // every linked fix ended unmerged or a finished verify covers it: the lead's close is next
+)
+
+// ReviewOpenStatus is the open review (review.go, reviewverify.go): its id, its stage (Review*), the tasks its cycle
+// covered so far (its in-scope tasks, then each finished verify's), its fix tasks (linked by their specs' Fixes: lines),
+// the reviewer agent and its pane's status ("": no pane identified), since when the stage holds (Unix seconds) and its
+// review file once written (relative to the project's root; "": not written).
+type ReviewOpenStatus struct {
+	ID          string      `json:"id"`
+	Stage       string      `json:"stage"`
+	Tasks       []string    `json:"tasks,omitempty"`
+	Fixes       []ReviewFix `json:"fixes,omitempty"`
+	Agent       string      `json:"agent,omitempty"`
+	AgentStatus string      `json:"agent_status,omitempty"`
+	Since       int64       `json:"since"`
+	File        string      `json:"file,omitempty"`
+}
+
+// ReviewFix is one fix task of the open review and its state: open, merged, verified (a finished verify covers it),
+// dropped or rejected.
+type ReviewFix struct {
+	Task  string `json:"task"`
+	State string `json:"state"`
 }
 
 // BriefStatus is a role agent's open brief: to whom, since when (Unix seconds: its line's delivery, else its fact's

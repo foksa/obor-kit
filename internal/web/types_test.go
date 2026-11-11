@@ -29,47 +29,49 @@ var (
 // and web's own answer shapes. An interface with no same-named struct (HelpCommand is help.Command, ProjectView is
 // view.Project) is in tsOnly; a new interface must be one or the other, so the test never silently skips one.
 var goStructs = map[string]reflect.Type{
-	"Background":    reflect.TypeOf(view.Background{}),
-	"Running":       reflect.TypeOf(view.Running{}),
-	"Serve":         reflect.TypeOf(view.Serve{}),
-	"Job":           reflect.TypeOf(view.Job{}),
-	"Task":          reflect.TypeOf(view.Task{}),
-	"Lane":          reflect.TypeOf(view.Lane{}),
-	"BriefStatus":   reflect.TypeOf(wire.BriefStatus{}),
-	"Role":          reflect.TypeOf(view.Role{}),
-	"NeedsYou":      reflect.TypeOf(view.NeedsYou{}),
-	"FullCheck":     reflect.TypeOf(view.FullCheck{}),
-	"Pause":         reflect.TypeOf(view.Pause{}),
-	"PendingStep":   reflect.TypeOf(wire.PendingStep{}),
-	"TaskStatus":    reflect.TypeOf(wire.TaskStatus{}),
-	"AgentStatus":   reflect.TypeOf(wire.AgentStatus{}),
-	"MessageStatus": reflect.TypeOf(wire.MessageStatus{}),
-	"WatchStatus":   reflect.TypeOf(wire.WatchStatus{}),
-	"Idle":          reflect.TypeOf(view.Idle{}),
-	"MergeItem":     reflect.TypeOf(view.MergeItem{}),
-	"WaitItem":      reflect.TypeOf(view.WaitItem{}),
-	"ReviewItem":    reflect.TypeOf(view.ReviewItem{}),
-	"OutboxItem":    reflect.TypeOf(view.OutboxItem{}),
-	"Queue":         reflect.TypeOf(view.Queue{}),
-	"Event":         reflect.TypeOf(view.Event{}),
-	"EventsPage":    reflect.TypeOf(view.EventsPage{}),
-	"LaneDot":       reflect.TypeOf(LaneDot{}),
-	"ProjectsEntry": reflect.TypeOf(ProjectsEntry{}),
-	"TaskRecord":    reflect.TypeOf(view.TaskRecord{}),
-	"Prompt":        reflect.TypeOf(view.Prompt{}),
-	"TaskDetail":    reflect.TypeOf(view.TaskDetail{}),
-	"AgentSession":  reflect.TypeOf(view.AgentSession{}),
-	"AgentLine":     reflect.TypeOf(view.AgentLine{}),
-	"AgentDetail":   reflect.TypeOf(view.AgentDetail{}),
-	"SetupLevel":    reflect.TypeOf(view.SetupLevel{}),
-	"SetupType":     reflect.TypeOf(view.SetupType{}),
-	"SetupModel":    reflect.TypeOf(view.SetupModel{}),
-	"SetupKind":     reflect.TypeOf(view.SetupKind{}),
-	"SetupLane":     reflect.TypeOf(view.SetupLane{}),
-	"SetupRole":     reflect.TypeOf(view.SetupRole{}),
-	"DispatchCount": reflect.TypeOf(view.DispatchCount{}),
-	"Setup":         reflect.TypeOf(view.Setup{}),
-	"Help":          reflect.TypeOf(Help{}),
+	"Background":       reflect.TypeOf(view.Background{}),
+	"Running":          reflect.TypeOf(view.Running{}),
+	"Serve":            reflect.TypeOf(view.Serve{}),
+	"Job":              reflect.TypeOf(view.Job{}),
+	"Task":             reflect.TypeOf(view.Task{}),
+	"Lane":             reflect.TypeOf(view.Lane{}),
+	"BriefStatus":      reflect.TypeOf(wire.BriefStatus{}),
+	"Role":             reflect.TypeOf(view.Role{}),
+	"NeedsYou":         reflect.TypeOf(view.NeedsYou{}),
+	"FullCheck":        reflect.TypeOf(view.FullCheck{}),
+	"Pause":            reflect.TypeOf(view.Pause{}),
+	"PendingStep":      reflect.TypeOf(wire.PendingStep{}),
+	"TaskStatus":       reflect.TypeOf(wire.TaskStatus{}),
+	"AgentStatus":      reflect.TypeOf(wire.AgentStatus{}),
+	"MessageStatus":    reflect.TypeOf(wire.MessageStatus{}),
+	"WatchStatus":      reflect.TypeOf(wire.WatchStatus{}),
+	"Idle":             reflect.TypeOf(view.Idle{}),
+	"MergeItem":        reflect.TypeOf(view.MergeItem{}),
+	"WaitItem":         reflect.TypeOf(view.WaitItem{}),
+	"ReviewItem":       reflect.TypeOf(view.ReviewItem{}),
+	"ReviewOpenStatus": reflect.TypeOf(wire.ReviewOpenStatus{}),
+	"ReviewFix":        reflect.TypeOf(wire.ReviewFix{}),
+	"OutboxItem":       reflect.TypeOf(view.OutboxItem{}),
+	"Queue":            reflect.TypeOf(view.Queue{}),
+	"Event":            reflect.TypeOf(view.Event{}),
+	"EventsPage":       reflect.TypeOf(view.EventsPage{}),
+	"LaneDot":          reflect.TypeOf(LaneDot{}),
+	"ProjectsEntry":    reflect.TypeOf(ProjectsEntry{}),
+	"TaskRecord":       reflect.TypeOf(view.TaskRecord{}),
+	"Prompt":           reflect.TypeOf(view.Prompt{}),
+	"TaskDetail":       reflect.TypeOf(view.TaskDetail{}),
+	"AgentSession":     reflect.TypeOf(view.AgentSession{}),
+	"AgentLine":        reflect.TypeOf(view.AgentLine{}),
+	"AgentDetail":      reflect.TypeOf(view.AgentDetail{}),
+	"SetupLevel":       reflect.TypeOf(view.SetupLevel{}),
+	"SetupType":        reflect.TypeOf(view.SetupType{}),
+	"SetupModel":       reflect.TypeOf(view.SetupModel{}),
+	"SetupKind":        reflect.TypeOf(view.SetupKind{}),
+	"SetupLane":        reflect.TypeOf(view.SetupLane{}),
+	"SetupRole":        reflect.TypeOf(view.SetupRole{}),
+	"DispatchCount":    reflect.TypeOf(view.DispatchCount{}),
+	"Setup":            reflect.TypeOf(view.Setup{}),
+	"Help":             reflect.TypeOf(Help{}),
 }
 
 // tsOnly are the interfaces with no same-named Go struct: help's rows are help.Command and help.Section (web.Help ties
@@ -183,6 +185,14 @@ func TestTSStringSetsMatchGo(t *testing.T) {
 	}
 	if !strings.Contains(pipeline, `export const WAITS_NEVER = "`+view.WaitsNever+`";`) {
 		t.Errorf("pipeline.ts: WAITS_NEVER is not view.WaitsNever %q", view.WaitsNever)
+	}
+
+	// the open review's stages are wire's (review.ts words them as obor status does).
+	wantStages := []string{wire.ReviewReviewing, wire.ReviewWritten, wire.ReviewFixes, wire.ReviewVerifying,
+		wire.ReviewApproved}
+	reviewTS := readTS(t, filepath.Join(tsLib, "review.ts"))
+	if got, ok := tsStringSet(reviewTS, "export const REVIEW_STAGES = [", "]"); !ok || !slices.Equal(got, wantStages) {
+		t.Errorf("review.ts: REVIEW_STAGES %v (parsed %v), want %v (wire.Review*)", got, ok, wantStages)
 	}
 
 	format := readTS(t, filepath.Join(tsLib, "format.ts"))

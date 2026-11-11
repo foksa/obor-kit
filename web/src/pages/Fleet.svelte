@@ -8,6 +8,7 @@
   import { href } from "../lib/route";
   import { dur, human, now, roleName, tone, unixOf } from "../lib/format";
   import { stageOf } from "../lib/stages";
+  import { reviewBadge, reviewTone } from "../lib/review";
   import type { LaneDot, ProjectsEntry } from "../lib/types";
   import Pill from "../ui/Pill.svelte";
   import Stat from "../ui/Stat.svelte";
@@ -121,6 +122,7 @@
                 <a class="pname" href={href.project(p.name)}>{p.name}</a>
                 <span class="mono path ell" title={p.root}>{p.root}</span>
               </div>
+              {#if p.review_open}<Pill tone={reviewTone(p.review_open.stage)} text={reviewBadge(p.review_open)} />{/if}
               {#if p.needs_you}<Pill state="needs-you" text="{p.needs_you} needs you" />{/if}
               {#if p.error}<Pill state="fail" text="error" />
               {:else if p.paused}<Pill state="paused" text="paused" />

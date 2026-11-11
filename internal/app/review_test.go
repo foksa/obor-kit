@@ -11,6 +11,7 @@ import (
 
 	"obor/internal/app/event"
 	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"obor/internal/store"
 )
 
@@ -469,5 +470,92 @@ func TestReviewDueFromTheFold(t *testing.T) {
 	r.tick()
 	if got := r.a.Status().Project.Review; got != "" {
 		t.Errorf("RV-5 started on them: %q, want none", got)
+	}
+}
+
+// The open review's stage as obor status reads it (Project.ReviewOpen), through a scripted cycle: a request is no open
+// review; the start is reviewing (the reviewer's brief open); its brief ended is written (the file shown once in the
+// main checkout); a linked fix dispatched is fixes, merged still fixes; its verify briefed is verifying; the verify
+// finished is approved; the close leaves none. Each stage's since is its start.
+func TestReviewOpenStages(t *testing.T) {
+	t.Parallel()
+	r := newReviewRig(t)
+	open := func() *wire.ReviewOpenStatus { return r.a.Status().Project.ReviewOpen }
+	want := func(when, stage string, since time.Time) *wire.ReviewOpenStatus {
+		t.Helper()
+		ro := open()
+		if ro == nil {
+			t.Fatalf("%s: no open review, want %s", when, stage)
+		}
+		if ro.ID != "RV-5" || ro.Stage != stage || ro.Since != since.Unix() || ro.Agent != "pj-rev" {
+			t.Fatalf("%s: %+v, want RV-5 %s since %s, reviewer pj-rev", when, *ro, stage, since)
+		}
+		return ro
+	}
+	r.mustCall("r1", nil, "", false)
+	if ro := open(); ro != nil {
+		t.Fatalf("a request: open review %+v, want none (the request line shows it)", *ro)
+	}
+	start := r.now
+	r.pass()
+	r.now = r.now.Add(time.Minute)
+	lineStatus(r.a, "w:rev", "working", r.now)
+	ro := want("started", wire.ReviewReviewing, start)
+	if strings.Join(ro.Tasks, ",") != "T-a,T-b" || ro.AgentStatus != "working" || ro.File != "" || len(ro.Fixes) != 0 {
+		t.Errorf("started: %+v, want T-a,T-b covered, the reviewer working, no file, no fixes", *ro)
+	}
+
+	r.now = r.now.Add(5 * time.Minute)
+	written := r.now
+	lineStatus(r.a, "w:rev", "idle", r.now)
+	r.a.deliver(context.Background(), r.p, &Loop{Inbox: &inboxSpy{}}) // the finished line ends the brief
+	if r.p.out.Brief("pj-rev") != nil {
+		t.Fatal("precondition: the reviewer's brief is still open")
+	}
+	if ro := want("brief ended, no file", wire.ReviewWritten, written); ro.File != "" || ro.AgentStatus != "idle" {
+		t.Errorf("no review file: %+v, want no file, the reviewer idle", *ro)
+	}
+	writeReview(t, r.p.root, "RV-5", "Result: changes requested · 1234567 · T-a,T-b\n")
+	if ro := want("written", wire.ReviewWritten, written); ro.File != filepath.Join("reviews", "RV-5.md") {
+		t.Errorf("written: file %q, want reviews/RV-5.md", ro.File)
+	}
+
+	r.now = r.now.Add(3 * time.Minute)
+	dispatched := r.now
+	r.fixTask("T-c", "Fixes: RV-5")
+	r.verifyPass()
+	if ro := want("fix dispatched", wire.ReviewFixes, dispatched); len(ro.Fixes) != 1 ||
+		ro.Fixes[0] != (wire.ReviewFix{Task: "T-c", State: "open"}) {
+		t.Errorf("fix dispatched: fixes %+v, want T-c open", ro.Fixes)
+	}
+	r.now = r.now.Add(4 * time.Minute)
+	r.merged("T-c")
+	r.working(true) // the reviewer busy: the verify waits
+	r.verifyPass()
+	if ro := want("fix merged", wire.ReviewFixes, dispatched); len(ro.Fixes) != 1 || ro.Fixes[0].State != "merged" {
+		t.Errorf("fix merged: fixes %+v, want T-c merged", ro.Fixes)
+	}
+
+	r.now = r.now.Add(time.Minute)
+	verify := r.now
+	r.working(false)
+	r.verifyPass()
+	if n := len(verifyBriefs(t, r.p.root)); n != 1 {
+		t.Fatalf("precondition: %d verify briefs, want one", n)
+	}
+	want("verify briefed", wire.ReviewVerifying, verify)
+
+	r.now = r.now.Add(2 * time.Minute)
+	verified := r.now
+	r.finish()
+	r.verifyPass()
+	if ro := want("verify finished", wire.ReviewApproved, verified); strings.Join(ro.Tasks, ",") != "T-a,T-b,T-c" ||
+		len(ro.Fixes) != 1 || ro.Fixes[0].State != "verified" {
+		t.Errorf("verify finished: %+v, want T-a,T-b,T-c covered, T-c verified", *ro)
+	}
+
+	r.closedBy("RV-5", "RV-5 closed · 2222222 · approved · T-a,T-b,T-c")
+	if ro := open(); ro != nil {
+		t.Errorf("closed: open review %+v, want none", *ro)
 	}
 }
