@@ -45,14 +45,17 @@ type fakeLaunchd struct {
 	kick   kick
 }
 
-// kick is kickstart -k's work: the new serve's pid (0: the pid stays), whether it unloads the label, how long it waits
-// for the old serve to exit, and its exit code.
+// kick is kickstart -k's work: the new serve's pid (nil: the pid stays), whether it unloads the label, how long it
+// waits for the old serve to exit, and its exit code.
 type kick struct {
-	pid    int
+	pid    *int
 	unload bool
 	wait   time.Duration
 	exit   int
 }
+
+// pidOf is a pid a kickstart gives serve (0: no serve runs).
+func pidOf(p int) *int { return &p }
 
 // fakeLaunchctl installs a fake launchd for the test (the label not loaded, print's pid 4242 once it is) and returns
 // it: its calls are the launchctl calls the verbs make.
@@ -87,8 +90,8 @@ func (f *fakeLaunchd) run(ctx context.Context, args ...string) ([]byte, error) {
 		if !f.loaded {
 			return nil, errors.New("exit status 113")
 		}
-		if f.kick.pid != 0 {
-			f.pid = f.kick.pid
+		if f.kick.pid != nil {
+			f.pid = *f.kick.pid
 		}
 		if f.kick.unload {
 			f.loaded = false
@@ -542,7 +545,7 @@ func TestRestartSlowKickstart(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		f := fakeLaunchctl(t)
 		s := installed(t, f)
-		f.kick = kick{pid: 4243, wait: callTimeout + time.Second}
+		f.kick = kick{pid: pidOf(4243), wait: callTimeout + time.Second}
 		if f.kick.wait >= stopTimeout {
 			t.Fatal("precondition: the kickstart is inside stopTimeout")
 		}
@@ -565,7 +568,7 @@ func TestRestartKickstartErrorPidChanged(t *testing.T) {
 		was := stopTimeout
 		stopTimeout = 300 * time.Millisecond
 		t.Cleanup(func() { stopTimeout = was })
-		f.kick = kick{pid: 4243, wait: 5 * time.Second}
+		f.kick = kick{pid: pidOf(4243), wait: 5 * time.Second}
 		start := time.Now()
 		line, err := s.Restart(context.Background())
 		if err != nil {
@@ -585,27 +588,26 @@ func TestRestartKickstartErrorPidChanged(t *testing.T) {
 }
 
 // a kickstart error after which serve was not restarted is a FAIL naming launchctl's error and the state it
-// left: the old pid still running, no serve running, or the label gone from launchd. The failed kickstart changes
-// nothing, so each FAIL comes from the whole settle window read, on the bubble's clock.
+// left: the old pid still running, no serve running (the pid moved from 4242 to 0, which is no restart), or the label
+// gone from launchd. The poll that finds it reads the whole settle window, on the bubble's clock.
 func TestRestartKickstartErrorNotRestarted(t *testing.T) {
 	for _, c := range []struct {
 		name string
 		kick kick
-		pid  int // the pid the failed kickstart leaves (0: loaded, no serve)
 		want string
 	}{
-		{"pid unchanged", kick{exit: 1}, 4242,
+		{"pid unchanged", kick{exit: 1},
 			"obor.serve.pj still runs the old serve (pid 4242), not restarted: obor serve restart again"},
-		{"no serve runs", kick{exit: 1}, 0,
+		{"no serve runs", kick{exit: 1, pid: pidOf(0)},
 			"obor.serve.pj is loaded but no serve runs (log "},
-		{"unloaded", kick{exit: 1, unload: true}, 4242,
+		{"unloaded", kick{exit: 1, unload: true},
 			"obor.serve.pj is no longer loaded in launchd: obor serve install"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				f := fakeLaunchctl(t)
 				s := installed(t, f)
-				f.kick, f.pid = c.kick, c.pid
+				f.kick = c.kick
 				line, err := s.Restart(context.Background())
 				if err == nil {
 					t.Fatalf("restart: %q, no error", line)
