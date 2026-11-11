@@ -7,6 +7,7 @@ import (
 
 	"obor/internal/app/wire"
 	"obor/internal/config"
+	"obor/internal/project"
 	"obor/internal/testkit"
 )
 
@@ -92,18 +93,38 @@ func TestDriveAgentRunningStartsNothing(t *testing.T) {
 	}
 }
 
-// A drive whose start failed prints its retry once: the start's own hint names `obor drive <T-xx>`, and the FAIL line
-// around it says only what ends the recorded drive.
+// A drive whose start failed names the command that starts it again once: a start whose message carries it (a pane
+// that never became a shell, a kind's startup hint) keeps its own; one that does not (a prepare timeout, a terminal
+// agent-list failure, an ordinary start error) has it added; a failure with advice of its own (no model) gets none.
 func TestDriveFailedNamesTheRetryOnce(t *testing.T) {
 	t.Parallel()
-	err := errors.New("pane w1:n1 is not an available shell after 10s: start the agent there with obor drive T-07")
-	got := driveFailed(err, "T-07")
-	if n := strings.Count(got, "obor drive T-07"); n != 1 {
-		t.Errorf("FAIL line %q names the retry %d times, want once", got, n)
-	}
-	for _, want := range []string{"FAIL pane w1:n1 is not an available shell", "the drive is recorded; obor drop T-07 ends it"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("FAIL line %q, want %q in it", got, want)
+	const ending = "the drive is recorded; obor drop T-07 ends it"
+	for _, c := range []struct {
+		name  string
+		err   error
+		named int  // occurrences of the drive's command in the FAIL line
+		adds  bool // the FAIL line adds "start it again with …" around the start's message
+	}{
+		{"prepare timeout", errors.New("lane L-01 is not prepared for T-07 after 1m0s (obor status says why)"), 1, true},
+		{"agent list failure", project.Fail("terminal agent list failed (is the terminal running?)"), 1, true},
+		{"generic start error", project.Fail("terminal agent start pj-l-01-drive failed (pane w1:n1)"), 1, true},
+		{"not-shell hint, which carries it", project.RetryHint(project.Fail(
+			"pane w1:n1 is not an available shell after 10s: start the agent there with obor drive T-07")), 1, false},
+		{"no model, its own advice", project.RetryHint(project.Fail(
+			"lane L-01 runs no model: obor drop T-07, then obor drive <name> --model <model>")), 0, false},
+	} {
+		got := driveFailed(c.err, "T-07")
+		if !strings.HasPrefix(got, "FAIL "+c.err.Error()) {
+			t.Errorf("%s: FAIL line %q, want the start's own message first", c.name, got)
+		}
+		if n := strings.Count(got, "obor drive T-07"); n != c.named {
+			t.Errorf("%s: FAIL line %q names the drive's command %d times, want %d", c.name, got, n, c.named)
+		}
+		if !strings.Contains(got, ending) {
+			t.Errorf("%s: FAIL line %q, want %q", c.name, got, ending)
+		}
+		if adds := strings.Contains(got, "start it again with obor drive T-07"); adds != c.adds {
+			t.Errorf("%s: FAIL line %q adds the retry: %v, want %v", c.name, got, adds, c.adds)
 		}
 	}
 }

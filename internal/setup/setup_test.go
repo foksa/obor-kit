@@ -668,7 +668,8 @@ func TestDriveRetryFindsItsRelabelledPane(t *testing.T) {
 }
 
 // A drive's failed start prints the drive's own command: obor drive <T-xx> starts its agent again with its prompt,
-// where a restart would start the driver role with no prompt of the drive's.
+// where a restart would start the driver role with no prompt of the drive's. The error carries that command
+// (project.RetryHint) unless its hint names something else to do (a trust dialog), so obor drive adds no second one.
 func TestDriveStartHintNamesTheDrive(t *testing.T) {
 	t.Parallel()
 	drive := func(t *testing.T, x *fx) error {
@@ -688,6 +689,9 @@ func TestDriveStartHintNamesTheDrive(t *testing.T) {
 		if want := "pane w1:n1 is not an available shell after 300ms: start the agent there with obor drive T-07"; err == nil || err.Error() != want {
 			t.Errorf("StartDrive: %v, want %q", err, want)
 		}
+		if err != nil && !project.RetryHinted(err) {
+			t.Errorf("StartDrive: %v; want the error to carry the drive's command", err)
+		}
 	})
 	t.Run("a startup dialog", func(t *testing.T) {
 		t.Parallel()
@@ -698,6 +702,23 @@ func TestDriveStartHintNamesTheDrive(t *testing.T) {
 		err := drive(t, x)
 		if want := "agent not ready: codex updated itself and exited in pane w1:n1: start it again with obor drive T-07"; err == nil || err.Error() != want {
 			t.Errorf("StartDrive: %v, want %q", err, want)
+		}
+		if err != nil && !project.RetryHinted(err) {
+			t.Errorf("StartDrive: %v; want the error to carry the drive's command", err)
+		}
+	})
+	t.Run("a trust dialog, whose hint names no command", func(t *testing.T) {
+		t.Parallel()
+		x := newFx(t)
+		x.lane(t, "L-01")
+		x.screen = "Trust this folder?"
+		x.srv.Fail("agent.start", "agent_not_ready", "blocked during startup")
+		err := drive(t, x)
+		if want := "agent not ready: a 'Trust this folder?' dialog in pane w1:n1: answer it there (Enter = trust; once per repo)"; err == nil || err.Error() != want {
+			t.Errorf("StartDrive: %v, want %q", err, want)
+		}
+		if err != nil && project.RetryHinted(err) {
+			t.Errorf("StartDrive: %v; want no command, so obor drive adds the retry", err)
 		}
 	})
 }

@@ -291,12 +291,16 @@ type Start struct {
 }
 
 // StartError is a failed start (the multiplexer's error, or the startup dialog seen in the pane). NotReady: the agent
-// runs but waits at a startup dialog; Hint says what to do. NoShell: no start was made (Start.Await).
+// runs but waits at a startup dialog; Hint says what to do. NoShell: no start was made (Start.Await). Retry: Hint
+// already names the command that starts the agent again.
 type StartError struct {
 	Err      error
 	NotReady bool
 	Hint     string
 	NoShell  bool // the pane did not become its shell within Start.Shell (Await): nothing typed, nothing started
+	// Retry: Hint carries the command that starts the agent again (a kind's startup hint): a caller adding that
+	// command to a whole failure adds none of its own.
+	Retry bool
 }
 
 func (e *StartError) Error() string {
