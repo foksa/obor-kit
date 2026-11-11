@@ -25,7 +25,8 @@ import (
 // The terminal restarted while serve was down (a machine restart, herdr first and serve later; herdr restarted
 // while serve was stopped or re-execing): its panes came back as shells and no stream of this serve saw the loss.
 // Serve keeps the instance of the terminal it last connected to in InstanceFile (the snapshot's Instance,
-// port.Snapshot), written at every connect where it changed. At its first connect it restores when the
+// port.Snapshot), written at every connect where it changed, and at the connect that read it from the file the old
+// name reads (the sweep retires that file). At its first connect it restores when the
 // terminal is another one than recorded, or when nothing is recorded and the terminal started after serve's last
 // activity (the newest record of the project's log as its replay left it, before this serve's start-up appended any:
 // a brand-new project, or a terminal that ran before it, restores nothing). The same instance restores nothing: a serve re-exec (every build) or restart leaves a role agent stopped on
@@ -59,23 +60,24 @@ func legacyInstanceFile(root string) string {
 }
 
 // recordedInstance is the terminal instance serve recorded last ("": none), from InstanceFile, else from the file the
-// old name reads. An error: neither file could be read.
-func recordedInstance(root string) (string, error) {
+// old name reads (legacy: it came from there, and serve writes it under the new name at that connect). An error: neither
+// file could be read.
+func recordedInstance(root string) (inst string, legacy bool, err error) {
 	b, err := os.ReadFile(InstanceFile(root))
 	if err == nil {
-		return strings.TrimSpace(string(b)), nil
+		return strings.TrimSpace(string(b)), false, nil
 	}
 	if !errors.Is(err, os.ErrNotExist) {
-		return "", err
+		return "", false, err
 	}
 	b, err = os.ReadFile(legacyInstanceFile(root))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return "", nil
+			return "", false, nil
 		}
-		return "", err
+		return "", false, err
 	}
-	return strings.TrimSpace(string(b)), nil
+	return strings.TrimSpace(string(b)), true, nil
 }
 
 // noteWoke records, at the project's load, whether obor stop's pause is in force (under mu).
@@ -86,13 +88,14 @@ func (a *App) noteWoke(p *proj) {
 
 // connectRestore restores after a stream's snapshot is applied, when lost (the connection was lost since the last
 // stream) or at serve's first connect when the terminal restarted since (the rule above), and records the terminal's
-// instance.
+// instance: under the new name when it changed, and when it was read from the legacy file, whose name the sweep retires
+// (so an upgraded project keeps its record after that pass).
 func (a *App) connectRestore(ctx context.Context, wg *sync.WaitGroup, snap port.Snapshot, first, lost bool) {
 	if a.opt.Restore == nil || a.opt.Root == "" {
 		return
 	}
 	cur := snap.Instance
-	was, err := recordedInstance(a.opt.Root)
+	was, legacy, err := recordedInstance(a.opt.Root)
 	if err != nil {
 		a.logf("terminal: %v: read as no instance recorded", err)
 	}
@@ -111,7 +114,7 @@ func (a *App) connectRestore(ctx context.Context, wg *sync.WaitGroup, snap port.
 			a.restore(ctx, wg, why)
 		}
 	}
-	if cur == "" || cur == was {
+	if cur == "" || cur == was && !legacy {
 		return
 	}
 	if err := project.WriteAtomic(InstanceFile(a.opt.Root), []byte(cur+"\n")); err != nil {
