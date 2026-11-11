@@ -42,7 +42,7 @@ type Row struct {
 var Contract = []Row{
 	{Name: "start", Agent: true, Run: func(ctx context.Context, t Terminal, pane string) error {
 		const name = "obor-contract"
-		if _, err := t.Control.Start(ctx, name, "claude", pane); err != nil {
+		if _, err := t.Control.Start(ctx, name, "claude", pane, nil); err != nil {
 			return fmt.Errorf("start: %w", err)
 		}
 		if err := t.Control.Wait(ctx, name, []string{"idle", "done"}, 30*time.Second); err != nil {
@@ -158,10 +158,10 @@ var Contract = []Row{
 	}},
 	{Name: "pane busy", Agent: true, Run: func(ctx context.Context, t Terminal, pane string) error {
 		// A pane that runs an agent is not an available shell: a start there is refused as PaneBusy, never a start.
-		if _, err := t.Control.Start(ctx, "obor-contract-busy", "claude", pane); err != nil {
+		if _, err := t.Control.Start(ctx, "obor-contract-busy", "claude", pane, nil); err != nil {
 			return fmt.Errorf("a start into the pane's shell: %w", err)
 		}
-		if _, err := t.Control.Start(ctx, "obor-contract-busy-2", "claude", pane); !port.PaneBusy(err) {
+		if _, err := t.Control.Start(ctx, "obor-contract-busy-2", "claude", pane, nil); !port.PaneBusy(err) {
 			return fmt.Errorf("a start into the pane that runs an agent: %v; want a pane-busy error", err)
 		}
 		return nil

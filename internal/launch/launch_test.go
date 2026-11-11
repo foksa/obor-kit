@@ -1818,9 +1818,9 @@ type startEnds struct {
 	ended chan struct{}
 }
 
-func (s startEnds) Start(ctx context.Context, name, kind, pane string, args ...string) (port.Pane, error) {
+func (s startEnds) Start(ctx context.Context, name, kind, pane string, say func(format string, args ...any), args ...string) (port.Pane, error) {
 	defer close(s.ended)
-	return s.PaneControl.Start(ctx, name, kind, pane, args...)
+	return s.PaneControl.Start(ctx, name, kind, pane, say, args...)
 }
 
 // waitGone makes herdr's agent.wait answer err at once: a stop's idle wait sees the agent leave (agent_not_running).
@@ -1979,10 +1979,27 @@ func TestRestartAgentNameTaken(t *testing.T) {
 		x.shell("w1:p3", "pj-l-01", "")
 		x.srv.Once("agent.start", herdrtest.Failure{Code: "agent_name_taken", Message: "name pj-l-01 taken"})
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
+		contains(t, out, "agent start: name pj-l-01 taken: clearing it and retrying", "said")
 		eqInt(t, len(x.calls("agent.start")), 2, "retried once")
 		if clr, start := x.index("agent.rename name=null target=pj-l-01"), len(x.srv.Calls())-1; clr < 0 || clr > start {
 			t.Errorf("cleared before the retry: %q", x.srv.Calls())
 		}
+		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
+		if !ok {
+			t.Errorf("restarted:\n%s", out)
+		}
+	})
+	t.Run("the stale name cannot be cleared: warning names the agent, retried once", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.sid("pj-l-01", "sid-1")
+		x.shell("w1:p3", "pj-l-01", "")
+		x.srv.Once("agent.start", herdrtest.Failure{Code: "agent_name_taken", Message: "name pj-l-01 taken"})
+		x.srv.Once("agent.rename", herdrtest.Failure{Code: "agent_not_found", Message: "agent pj-l-01 not found"})
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
+		contains(t, out, "agent start: name pj-l-01 taken: clearing it and retrying", "said")
+		contains(t, out, "warning: herdr kept the name pj-l-01: ", "the failed clear warned")
+		eqInt(t, len(x.calls("agent.start")), 2, "retried once")
 		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
 		if !ok {
 			t.Errorf("restarted:\n%s", out)
@@ -2011,6 +2028,7 @@ func TestRestartAgentNameTaken(t *testing.T) {
 		out, ok := x.restart(launch.Request{Agent: "pj-rev", Fresh: true, Force: true})
 		contains(t, strings.Join(x.calls("pane.send_input"), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p7 text=/quit", "precondition: Codex stopped")
 		eq(t, strings.Join(x.calls("agent.rename"), "\n"), "agent.rename name=null target=w1:p7", "the stale name cleared by its pane")
+		contains(t, out, "agent start: name pj-rev taken (pane w1:p7): clearing it and retrying", "said")
 		eqInt(t, len(x.calls("agent.start")), 2, "retried once")
 		eq(t, last(out), "RESTARTED pj-rev (pane w1:p7, session new)", "result")
 		if !ok {
@@ -2701,9 +2719,9 @@ func (s lockSpy) Type(ctx context.Context, pane, text string) error {
 	return s.PaneControl.Type(ctx, pane, text)
 }
 
-func (s lockSpy) Start(ctx context.Context, name, kind, pane string, args ...string) (port.Pane, error) {
+func (s lockSpy) Start(ctx context.Context, name, kind, pane string, say func(format string, args ...any), args ...string) (port.Pane, error) {
 	s.note("start")
-	return s.PaneControl.Start(ctx, name, kind, pane, args...)
+	return s.PaneControl.Start(ctx, name, kind, pane, say, args...)
 }
 
 // one restart lock (the lane's, else the agent's) held for the whole operation, freed at its end.
@@ -3749,9 +3767,9 @@ type startProbe struct {
 	atStart func()
 }
 
-func (p startProbe) Start(ctx context.Context, name, kind, pane string, args ...string) (port.Pane, error) {
+func (p startProbe) Start(ctx context.Context, name, kind, pane string, say func(format string, args ...any), args ...string) (port.Pane, error) {
 	p.atStart()
-	return p.PaneControl.Start(ctx, name, kind, pane, args...)
+	return p.PaneControl.Start(ctx, name, kind, pane, say, args...)
 }
 
 // a role with no configured model still gets its kind's launch defaults: Claude's memory off for

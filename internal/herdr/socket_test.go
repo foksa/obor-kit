@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
@@ -180,7 +181,7 @@ func TestSocketRequestParams(t *testing.T) {
 	if err != nil || a.Status != "working" || a.ID != "w1:p1" {
 		t.Errorf("Prompt = %+v, %v", a, err)
 	}
-	if a, err := c.Start(ctx, "pj-l-04", "claude", "w1:p2", "--model", "haiku"); err != nil || a.Name != "pj-l-01" {
+	if a, err := c.Start(ctx, "pj-l-04", "claude", "w1:p2", nil, "--model", "haiku"); err != nil || a.Name != "pj-l-01" {
 		t.Errorf("Start = %+v, %v", a, err)
 	}
 	if id, err := c.Split(ctx, "w1:p1", "down", "/proj-wt/L-04", "OBOR_AGENT=pj-l-04"); err != nil || id != "w1:p9" {
@@ -252,7 +253,7 @@ func TestSocketStartSentOnce(t *testing.T) {
 	if count(srv, "agent.start") != 0 {
 		t.Fatal("precondition: no start yet")
 	}
-	_, err := slow.Start(ctx, "pj-l-04", "claude", "w1:p4", "--model", "opus", "--", prompt)
+	_, err := slow.Start(ctx, "pj-l-04", "claude", "w1:p4", nil, "--model", "opus", "--", prompt)
 	if !errors.Is(err, errUnavailable) || !strings.Contains(err.Error(), "timed out after 50ms") {
 		t.Fatalf("a start answered after the bound = %v, want unavailable: timed out after 50ms", err)
 	}
@@ -319,7 +320,8 @@ func TestErrorCodesAsPredicates(t *testing.T) {
 }
 
 // agent.start's name-taken retry: a name herdr still holds from a pane that ran the agent before (or that no agent
-// holds) is cleared and the start retried once; a live agent elsewhere holding it is the refusal.
+// holds) is cleared and the start retried once, said on the start's say; a live agent elsewhere holding it is the
+// refusal.
 func TestSocketStartNameTaken(t *testing.T) {
 	t.Parallel()
 	t.Run("a name no agent holds: cleared by name, retried once", func(t *testing.T) {
@@ -329,7 +331,7 @@ func TestSocketStartNameTaken(t *testing.T) {
 		if count(srv, "agent.start") != 0 || count(srv, "agent.rename") != 0 {
 			t.Fatal("precondition: no start or rename yet")
 		}
-		a, err := srv.Client().Start(ctx, "pj-l-04", "claude", "w1:p2", "--model", "haiku")
+		a, err := srv.Client().Start(ctx, "pj-l-04", "claude", "w1:p2", nil, "--model", "haiku")
 		if err != nil || a.ID != "w1:p2" || a.Name != "pj-l-04" {
 			t.Fatalf("Start = %+v, %v; want the agent started in w1:p2 after the retry", a, err)
 		}
@@ -347,10 +349,45 @@ func TestSocketStartNameTaken(t *testing.T) {
 			t.Errorf("no agent.rename by name: %q", srv.Calls())
 		}
 	})
+	t.Run("nil say: the retry runs silently", func(t *testing.T) {
+		t.Parallel()
+		srv := herdrtest.Serve(t, fixture())
+		srv.Once("agent.start", herdrtest.Failure{Code: "agent_name_taken", Message: "name pj-l-04 taken"})
+		if _, err := srv.Client().Start(ctx, "pj-l-04", "claude", "w1:p2", nil); err != nil {
+			t.Fatalf("a start with no say = %v, want the silent retry to run", err)
+		}
+		if n := count(srv, "agent.start"); n != 2 {
+			t.Errorf("agent.start sent %d times, want the retry", n)
+		}
+	})
+	t.Run("say gets the retry line, then the failed clear's warning", func(t *testing.T) {
+		t.Parallel()
+		srv := herdrtest.Serve(t, fixture())
+		srv.Once("agent.start", herdrtest.Failure{Code: "agent_name_taken", Message: "name pj-l-04 taken"})
+		srv.Once("agent.rename", herdrtest.Failure{Code: "agent_not_found", Message: "agent pj-l-04 not found"})
+		var said []string
+		say := func(format string, args ...any) { said = append(said, fmt.Sprintf(format, args...)) }
+		if _, err := srv.Client().Start(ctx, "pj-l-04", "claude", "w1:p2", say); err != nil {
+			t.Fatalf("Start = %v; want the start retried after the failed clear", err)
+		}
+		if n := count(srv, "agent.start"); n != 2 {
+			t.Errorf("agent.start sent %d times, want one retry", n)
+		}
+		if len(said) != 2 {
+			t.Fatalf("say got %q, want the retry line and the warning", said)
+		}
+		if want := "agent start: name pj-l-04 taken: clearing it and retrying"; said[0] != want {
+			t.Errorf("say first line = %q, want %q", said[0], want)
+		}
+		if !strings.HasPrefix(said[1], "warning: herdr kept the name pj-l-04: ") ||
+			!strings.Contains(said[1], "agent_not_found") {
+			t.Errorf("say warning = %q, want it to name the agent and the clear's error", said[1])
+		}
+	})
 	t.Run("a live agent elsewhere holds the name: refused, not retried", func(t *testing.T) {
 		t.Parallel()
 		srv := herdrtest.Serve(t, fixture())
-		if _, err := srv.Client().Start(ctx, "pj-l-01", "claude", "w1:p2"); herdrErr(t, err).Code != "agent_name_taken" {
+		if _, err := srv.Client().Start(ctx, "pj-l-01", "claude", "w1:p2", nil); herdrErr(t, err).Code != "agent_name_taken" {
 			t.Errorf("Start into w1:p2 under a name w1:p1's agent holds = %v, want the name-taken refusal", err)
 		}
 		if n := count(srv, "agent.start"); n != 1 {
@@ -367,7 +404,9 @@ func TestSocketStartNameTaken(t *testing.T) {
 		p.Foreground = 1 // herdr has not reaped the agent's exit: it still holds the name, the shell has the fg
 		srv := herdrtest.Serve(t, f)
 		srv.Once("agent.start", herdrtest.Failure{Code: "agent_name_taken", Message: "name pj-l-04 taken"})
-		a, err := srv.Client().Start(ctx, "pj-l-04", "claude", "w1:p4")
+		var said []string
+		say := func(format string, args ...any) { said = append(said, fmt.Sprintf(format, args...)) }
+		a, err := srv.Client().Start(ctx, "pj-l-04", "claude", "w1:p4", say)
 		if err != nil || a.ID != "w1:p4" || a.Name != "pj-l-04" {
 			t.Fatalf("Start = %+v, %v; want the agent restarted in its pane", a, err)
 		}
@@ -383,13 +422,16 @@ func TestSocketStartNameTaken(t *testing.T) {
 		if !cleared {
 			t.Errorf("the lingering name not cleared by its pane: %q", srv.Calls())
 		}
+		if want := "agent start: name pj-l-04 taken (pane w1:p4): clearing it and retrying"; len(said) != 1 || said[0] != want {
+			t.Errorf("say got %q, want only %q", said, want)
+		}
 	})
 	t.Run("taken twice: the refusal, no third start", func(t *testing.T) {
 		t.Parallel()
 		srv := herdrtest.Serve(t, fixture())
 		taken := herdrtest.Failure{Code: "agent_name_taken", Message: "name pj-l-04 taken"}
 		srv.Once("agent.start", taken, taken)
-		if _, err := srv.Client().Start(ctx, "pj-l-04", "claude", "w1:p2"); err == nil {
+		if _, err := srv.Client().Start(ctx, "pj-l-04", "claude", "w1:p2", nil); err == nil {
 			t.Fatal("a start refused twice succeeded")
 		}
 		if n := count(srv, "agent.start"); n != 2 {
@@ -1213,7 +1255,7 @@ func TestAgentLaunchFact(t *testing.T) {
 			var a port.Pane
 			var err error
 			if c.method == "agent.start" {
-				a, err = c0.Start(ctx, "conf-ready-128", "claude", "w1:p1")
+				a, err = c0.Start(ctx, "conf-ready-128", "claude", "w1:p1", nil)
 			} else {
 				a, err = c0.Agent(ctx, "w1:p1")
 			}

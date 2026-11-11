@@ -26,7 +26,7 @@ func TestStartRefusesNewlineArgument(t *testing.T) {
 			f := herdrtest.New()
 			f.Shell("w1:p1", "pj-l-01", "")
 			cl := herdrtest.Serve(t, f).Client()
-			_, err := cl.Start(context.Background(), "pj-l-01", "claude", "w1:p1", "--model", "opus", c.arg)
+			_, err := cl.Start(context.Background(), "pj-l-01", "claude", "w1:p1", nil, "--model", "opus", c.arg)
 			p := f.Pane("w1:p1")
 			if p == nil {
 				t.Fatal("precondition: pane w1:p1 exists")

@@ -77,8 +77,9 @@ type PaneControl interface {
 	// Start starts agent CLI kind in pane under name, returning once the agent runs there and is named: the agent as
 	// the multiplexer answered, or as it shows it in the pane when the answer came later (its ID "" when neither
 	// named one). A name the terminal still holds from a pane that ran the agent before is cleared and the start
-	// retried once; a live agent elsewhere holding the name is a refusal.
-	Start(ctx context.Context, name, kind, pane string, args ...string) (Pane, error)
+	// retried once, say taking the adapter's lines for it and for a failed clear (nil: silent); a live agent
+	// elsewhere holding the name is a refusal.
+	Start(ctx context.Context, name, kind, pane string, say func(format string, args ...any), args ...string) (Pane, error)
 }
 
 // NotFound: err says the pane or agent asked about does not exist (an error in the chain with NotFound() true).
