@@ -17,6 +17,12 @@ own terminal to say `idle`, `working`, `blocked`, `done` or `error`; Rex and her
 
 ## Recommendation
 
+Revised the same day after the owner's finding: **Rex is a multiplexer, herdr is a tool for agents.** herdr is two
+things in one: a multiplexer (panes, input, output, layout) and an agent layer on top (which agent runs in a pane,
+its status, a start that waits until it is up, a prompt that refuses a blocked agent, the agent's session). Rex is
+only the first. The first draft treated the difference as a feature Rex lacks; it is a layer Rex does not have and
+will not grow. Items 3 and 5 and §3 follow from that.
+
 1. **"Both" means per project: one serve talks to one terminal, chosen by `project.terminal`** (the key exists,
    `internal/config/config.go:66`). Two projects on one machine may use different terminals. Not per role, and not
    one serve on two terminals: if that is ever wanted it is a third adapter that wraps two (§3), never a core feature.
@@ -25,21 +31,28 @@ own terminal to say `idle`, `working`, `blocked`, `done` or `error`; Rex and her
    What is left is that **`internal/launch` runs herdr's start protocol through the port**: it compares herdr's error
    codes, waits on herdr's `launch_pending`, clears herdr's agent names and types an env line because herdr's start
    takes no env (§2 B). A rex adapter written today would have to imitate herdr to satisfy launch.
-3. **Raise the port from herdr's verbs to obor's intents** (§3): observe panes, place a pane, start an agent in a pane
-   (argv, env, cwd, label, in one call), type into it, send keys, look at it, label it, notify. How env reaches the
-   agent, what "the agent is up" means, agent names, error codes, tabs, windows and sessions stay inside the adapter.
-4. **Do the cleanup in five small steps that pay off on herdr alone, then one hard step, then Rex** (plan). The hard
-   step (the start behind the port) is only worth its risk once a second terminal is decided; the rule "a method added
-   to a port names the implementation that needs it" (`improve-architecture.md` A2) holds it back until then.
-5. **Rex fits, with one real gap: status.** Rex gives an instance id, an ordered event stream with a snapshot, tabs
-   and splits obor can place, process and cwd events, and a server that outlives its app. It detects no agent and has
-   no "refuse typing while blocked": status is whatever the program reports by OSC 7501. Claude Code reports it
-   (per `herdr-core.md` §3); Codex and OpenCode are not known to. So a rex project needs obor to own status for
-   those kinds first (owner decision D3).
-6. **Before any rex code, one live probe run on a throwaway Rex server** (plan step 7). Rex is a closed beta at 0.1.0
+3. **Split the port into the two layers herdr merges** (§3). A **multiplexer port** every terminal implements:
+   panes and their events, placement, write text, keys, screen, process info, label. An **agent layer** above it:
+   status, start, guarded prompt, wait. herdr supplies the agent layer natively; over a plain multiplexer it is
+   obor's own, written once and shared by every multiplexer adapter. A second multiplexer is then a new adapter and
+   nothing else; the agent layer is the one-time cost, and it is not Rex's.
+4. **Do the cleanup in five small steps that pay off on herdr alone, then the split of the start, then obor's agent
+   layer, then Rex** (plan). The rule "a method added to a port names the implementation that needs it"
+   (`improve-architecture.md` A2) holds the later steps back until a second terminal is decided.
+5. **Rex fits as a multiplexer.** It gives an instance id, an ordered event stream with a snapshot, tabs and splits
+   obor can place, process and cwd events, and a server that outlives its app. Everything about agents is obor's on
+   Rex. obor has part of it already: its `UserPromptSubmit` and `Stop` hooks report each turn's start and end to
+   serve (`internal/app/wire/request.go:221-222`), Codex's turns come from its transcript, and launch already waits
+   for a shell and reads process info by itself. Missing: a blocked signal, and "is it up" without herdr's answer.
+6. **The decision that matters most is who owns the agent layer on herdr** (D3): keep herdr's there and run obor's
+   only over a multiplexer (two status and start paths to keep true), or drive herdr as a multiplexer too and have
+   one agent layer everywhere. Recommended: build obor's layer, log it beside herdr's on herdr, and decide from the
+   differences.
+7. **Before any rex code, one live probe run on a throwaway Rex server** (plan step 8). Rex is a closed beta at 0.1.0
    and five facts that shape the adapter are undocumented.
-7. On the needs list alone herdr-core scores higher than Rex (§1). Rex has what herdr-core lacks: a window the owner
-   watches, with tabs and splits obor can lay out. The port in §3 serves both, so that choice can wait for the probes.
+8. herdr-core sits between the two: no agent brands, but a guarded send, a turn counter and status relayed from the
+   program. Rex has what herdr-core lacks: a window the owner watches, with tabs and splits obor can lay out. The
+   multiplexer port in §3 serves both.
 
 ## 1. Rex and herdr-core against the needs list
 
@@ -52,17 +65,19 @@ The list is `improve-architecture.md` A2 "Idea, terminal" (lines 91-102).
 | 1 | An instance identity | **Yes.** `server.status` returns `instance_id` ("A random ID for this run of the server. A new value means a new server process, even if pid is the same"), `started_at` and `pid` | the socket-file mtime (`internal/herdr/panes.go:110-119`) |
 | 2 | An event when a pane is relabelled | **Probably, not verified.** No `block_label_changed` exists (windows and sessions have one). `session.set_block_label` returns a `revision`, and `session_view_changed {revision}` is sent when the view changes | the label merge on every reread (`internal/herdr/socket.go:1005-1028`), if probe R2 holds |
 | 3 | An environment on an agent start | **By argv, not by a field.** A terminal block's options are `command`, `shell`, `cwd`, `interactive`, `initial_input`, `exit`, `path_prepend`: no `env`. But the agent can be the block's own `command`, so `env NAME=VALUE … claude …` carries the env and nothing is typed | the typed env line, its two marks and its output wait (`internal/launch/launch.go:742-768`), the shell wait (`internal/launch/stop.go:411-431`) |
-| 4 | A blocked state that typing respects | **No.** `write` and the `paste` event type whatever the program's state. `blocked` (with `kind`: permission, question, auth) exists only as a status the program reported. The adapter can read `program_status` and then paste: a check-then-act gap, and only for programs that report | nothing; it adds a check |
+| 4 | A blocked state that typing respects | **Not a multiplexer's job.** `write` and the `paste` event type whatever the program's state. `blocked` (with `kind`: permission, question, auth) exists only as a status the program reported. The guard is the agent layer's: check the status, then write (a check-then-act gap) | nothing; obor's layer adds the check |
 | 5 | Stable optional fields | **Yes, by policy.** Each enum's description says how to treat an unknown value; the connection exchanges `api_revision` and `api_min_revision`; `rex api describe --json` prints each method's schema from the running server | the hand-kept list checked against a schema dump (`internal/herdr/contract.go`) has a native counterpart |
 | 6 | A plugin or hook registry that is not user-global | **Not needed.** obor needs no plugin in Rex. A probe gets its own server: `rex server run --listen unix://<dir>/s.sock --state-dir <dir> --config <file> --restore=false` | the "never link a real plugin from a test" rule (`AGENTS.md`) has no rex counterpart |
 | 7 | Idle cost | **Unknown.** The Rex server running here used 30 s of CPU in 71 h, with no obor load. herdr: about 35 % of a core on average (`BACKLOG.md:85`). Measure with agents running (R11) | — |
 
-What herdr gives and Rex does not (outside the list):
+What herdr gives and Rex does not (outside the list). The first two are herdr's agent layer, which a multiplexer
+does not have; the rest are differences between two multiplexers:
 
-- **Agent detection and status.** herdr reads the screen; Rex reads only OSC 7501. No agent kind, no session id
-  (`agent_session`). obor already names Claude's sessions and finds Codex's itself, so the session half costs little.
-- **Server-side waits.** No `agent.wait`, no `pane.wait_for_output`. The adapter waits on events
-  (`terminal.program_status_changed`, `terminal.child_exited`) or polls the screen (`format`).
+- **Agent detection and status.** herdr reads the screen; Rex relays only what a program reports by OSC 7501. No
+  agent kind, no session id (`agent_session`). obor already names Claude's sessions and finds Codex's itself, so the
+  session half costs little.
+- **Agent calls.** No `agent.start`, `agent.prompt`, `agent.wait`; and no `pane.wait_for_output`. Waiting is on
+  events (`terminal.program_status_changed`, `terminal.child_exited`, `terminal.process_changed`) or on the screen.
 - **A notification call.** Rex shows notifications that programs emit; it has no method to show one.
 - **Text and Enter in one call.** A `paste` event, then an `enter` key.
 - **A documented wire.** The control channel is a WebSocket (`rex.control.v1`; the binary links `coder/websocket`)
@@ -168,8 +183,23 @@ herdr's protocol to test obor's decisions.
 
 ## 3. The port shape
 
-**Rule.** The port says what obor wants done; the adapter says how its terminal does it. A second terminal is then
+**Rule.** The port says what obor wants done; the adapter says how its terminal does it. A second multiplexer is then
 one package, one `case` in the selector, one row in the pane-variable table and one live tier.
+
+### Two layers
+
+| Layer | What it is | herdr | Rex | herdr-core | obor's own, today |
+|---|---|---|---|---|---|
+| **Multiplexer** | panes and their events, placement, write, keys, screen, process info, label, instance | yes | yes | yes, without layout | — |
+| **Agent: which kind runs** | the kind in a pane | detection | none | none | obor started it, so its start record says (`internal/app/identity`); process info names the binary |
+| **Agent: status** | idle, working, blocked, done | screen detection | relays OSC 7501 | relays OSC 7501 | turn start and end from the hooks (`wire/request.go:221-222`), Codex's turns from its transcript; no blocked signal |
+| **Agent: start** | run it and know it is up | `agent.start`, `launch_pending` | none | `terminal.run` | launch's shell wait, env line and process checks; "up" rests on herdr's answer |
+| **Agent: guarded prompt** | refuse typing into a dialog | `agent.prompt` | none | `send` | none |
+| **Agent: session** | the session the agent runs | `agent_session` | none | none | Claude's is named by obor, Codex's found by launch |
+
+The right-hand column is why this is a one-time build and not a rewrite: about half of an agent layer exists in obor
+already, used beside herdr's. The rule that joins the two: **a pane's agent facts are the terminal's when it
+reports them, else obor's own.** A multiplexer adapter reports none and needs no flag to say so.
 
 ### What the port names
 
@@ -182,8 +212,9 @@ one package, one `case` in the selector, one row in the pane-variable table and 
 | **Instance** | an opaque string for this run of the terminal's server; a new value means it restarted | socket mtime | `instance_id` | to be probed |
 | **Event** | created, closed, exited, status; each carries the whole pane. A stream is a snapshot and the events after it; one that cannot stay complete ends, and the core subscribes again | reread per event | `seq` | `seq` and `missed` |
 | **Placement** | whose pane, its cwd, and near what (`Own`, a new named place, in a place the user named, beside a pane). Never a tab, window or split | tabs, splits | windows, splits | nothing to lay out |
-| **Start** | run this agent in this pane: label, kind, argv, env, cwd. Returns the pane it runs in once it runs | env line, `agent.start`, the evidence poll | to be chosen (D5) | `terminal.run` |
-| **Type** | text into a pane, submitted; with `Guard`, refused before any byte when the agent is blocked | `agent.prompt` | status check, `paste`, `enter` | `send` |
+| **Write** | text into a pane, submitted or not; no judgement about what runs there | `pane.send_input` | `paste`, `enter` | `send --force` |
+| **Start** (agent layer) | run this agent in this pane: label, kind, argv, env, cwd. Returns the pane it runs in once it runs | native: `agent.start` and its evidence poll | obor's: the command line written at the shell, or the block's own command (D5) | native: `terminal.run` |
+| **Prompt** (agent layer) | text to the agent, refused before any byte when it is blocked | native: `agent.prompt` | obor's: its own status, then `Write` | native: `send` |
 
 Identity in a process: `OBOR_PANE`, which every obor start sets, else the terminal's own variable. That variable is
 picked **by the project's terminal kind, not by whichever is set**: one table in `internal/project`
@@ -194,33 +225,39 @@ server autostarted from a herdr pane would carry `HERDR_PANE_ID` and `OBOR_*` in
 ### Sketch
 
 ```go
-// Terminal is all obor asks of a terminal. One adapter implements it; serve, launch and setup each use a part.
-type Terminal interface {
-	// observe
-	Subscribe(ctx context.Context) (*Stream, error)
+// Mux is what every terminal gives: panes, placement, input, output. It knows no agent.
+type Mux interface {
+	Subscribe(ctx context.Context) (*Stream, error) // panes created, closed, changed (label, cwd, foreground)
 	Snapshot(ctx context.Context) (Snapshot, error) // Instance, Version, Note, Panes
-	Pane(ctx context.Context, id string) (Pane, error)
 	Screen(ctx context.Context, pane string, lines int) (string, error)
 	ProcessInfo(ctx context.Context, pane string) (ProcessInfo, error)
-	// act on a pane
-	Type(ctx context.Context, pane, text string, o TypeOpts) (began bool, err error) // Guard, Clear
-	Keys(ctx context.Context, pane string, keys ...string) error                    // obor's key names
+	Write(ctx context.Context, pane, text string, submit bool) error
+	Keys(ctx context.Context, pane string, keys ...string) error // obor's key names
 	Label(ctx context.Context, pane, label string) error
-	WaitStatus(ctx context.Context, pane string, until []string, timeout time.Duration) error
-	Start(ctx context.Context, s AgentStart) (Pane, error)
-	// setup
 	Place(ctx context.Context, p Placement) (pane string, err error)
 	RenameProject(ctx context.Context, old, name string, relabel func(string) string) (Renamed, error)
 	ResumeHint() string
-	Notify(ctx context.Context, title, body string) error
+	Notify(ctx context.Context, title, body string) error // NotShown where the terminal has none
+}
+
+// A terminal that knows agents also implements these; obor's own layer does the same work over a plain Mux.
+type AgentStarter interface {
+	Start(ctx context.Context, s AgentStart) (Pane, error) // label, kind, argv, env, cwd; returns once it runs
+}
+type Prompter interface {
+	Prompt(ctx context.Context, pane, text string, clear bool) (began bool, err error) // refused when blocked
+	WaitStatus(ctx context.Context, pane string, until []string, timeout time.Duration) error
 }
 ```
 
-Fourteen methods where `Panes`, `PaneControl`, `Typer` and `TerminalSetup` have twenty-four between them today
-(a pane list is `Snapshot`'s). Errors
-are port predicates (`NotFound`, `NotRunning`, and new: `PaneBusy`, `NotReady`, `Blocked`, `TimedOut`), not code
-strings. Stopping an agent stays in `launch`: the quit recipe is the kind's, and it needs only `Keys`, `Type`,
-`Screen`, `ProcessInfo` and a signal to a pid.
+`Mux` has eleven methods where `Panes`, `PaneControl`, `Typer` and `TerminalSetup` have twenty-four between them
+today. A terminal's agent facts ride on `Pane` (`Agent`, `Status`, `Session`), empty from a multiplexer. Callers ask
+for the optional interfaces and fall back to obor's layer: `launch` starts an agent through `AgentStarter` when the
+terminal has one, else by writing the command line at the pane's shell and watching the process; the core prompts
+through `Prompter`, else checks its own status and writes. Errors are port predicates (`NotFound`, `NotRunning`, and
+new: `PaneBusy`, `NotReady`, `Blocked`, `TimedOut`), not code strings. Stopping an agent stays in `launch` on either
+kind of terminal: the quit recipe is the kind's, and it needs only `Keys`, `Write`, `Screen`, `ProcessInfo` and a
+signal to a pid.
 
 ### What stays private to an adapter
 
@@ -230,8 +267,9 @@ codes; protocol numbers and schema checks; the socket path and its variable; how
 
 ### What leaves the terminal port altogether
 
-`Activity`, `Turn` and the transcript lookup (they are about agent kinds), and `Busy`'s `ps` walk (it needs only
-`ProcessInfo`). `WaitForOutput` goes once the env line is inside the herdr adapter.
+`Activity`, `Turn` and the transcript lookup (they are obor's agent layer already, sitting in the herdr adapter), and
+`Busy`'s `ps` walk (it needs only `ProcessInfo`). `WaitForOutput` has one caller, the env line (`launch.go:763`),
+which can read the screen through `Screen` instead.
 
 ### What "both" means
 
@@ -250,10 +288,18 @@ codes; protocol numbers and schema checks; the socket path and its variable; how
 - **D2.** Where the choice lives. `project.terminal` is in the committed project config, so it holds for everyone
   on the project; a terminal is closer to a fact about a machine. Recommended: keep the project key, and add a
   per-machine override only when a second person needs a different terminal.
-- **D3.** Status on a terminal that detects nothing (Rex, herdr-core). Options: (a) obor's hooks write OSC 7501 to
-  the pane's tty, so the terminal reports status natively and the port does not change; (b) hooks report to serve
-  and serve overlays the status; (c) Rex only for kinds that report by themselves (Claude). Recommended: probe (a)
-  first (R3); it is the terminal's native format and works for herdr-core unchanged.
+- **D3.** Who owns the agent layer. obor's own is needed for any multiplexer; the question is herdr.
+  (a) **Two layers**: herdr's on herdr, obor's over a multiplexer. Nothing changes on herdr; two status and start
+  paths must be kept true, each with its live tier.
+  (b) **One layer**: obor's everywhere, herdr driven as a multiplexer (`pane.send_input`, `pane.read`,
+  `pane.process_info`, pane events). `agent.start`, `agent.prompt`, `agent.wait`, agent names, `launch_pending` and
+  `agent_session` leave obor, and with them most of §2 B. It gives up herdr's screen detection of dialogs and
+  reverses the 2026-10-09 direction "herdr is the source of agent state" (`docs/design.md:702-705`).
+  Recommended: build obor's layer (plan step 7), log its status beside herdr's on herdr for a week, and choose (b)
+  only if the differences are in obor's favour or small.
+- **D3a.** Where obor's blocked signal comes from: a hook the kinds have for permission prompts (Claude has one;
+  `hooks/hooks.json` registers none today), OSC 7501 where the multiplexer relays it (Rex, herdr-core; Claude Code
+  emits it), or the screen. Recommended: hooks first, 7501 as a second source where present, never the screen.
 - **D4.** Rex transport: the `rex` CLI as a subprocess (no dependency, the documented surface; a process per call
   and one long `rex events` child) or a WebSocket client (a new dependency needing approval, on an undocumented
   framing). Recommended: the CLI for the probe and the first adapter.
@@ -265,8 +311,12 @@ codes; protocol numbers and schema checks; the socket path and its variable; how
 
 ## Design concerns
 
-- **launch is half a herdr adapter.** That is the cost of a port made of herdr's verbs. It is also where most start
-  bugs were fixed, so moving it is the riskiest step in the plan; it is last before Rex for that reason.
+- **launch is two things mixed.** Part of it is herdr's agent protocol (codes, `launch_pending`, names); part is
+  already an agent layer over a multiplexer (the shell wait, the env line, process checks). The plan separates them
+  where the first draft moved all of it into the herdr adapter. It is still where most start bugs were fixed, so it
+  is the riskiest step.
+- **Two agent layers is the expensive outcome.** If D3 stays at (a) for good, every start and status rule exists
+  twice. The comparison run in step 7 is there so that (a) is a measured choice, not a default.
 - **Core tests speak herdr's wire.** Thirty-nine test files outside the adapter depend on the herdr fake. A port-level
   fake would make them cheaper and terminal-neutral, but it is a large test change; the plan takes it only for
   `launch`, where the start moves anyway.

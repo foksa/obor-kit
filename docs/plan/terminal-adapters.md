@@ -3,8 +3,14 @@
 Advisor plan, 2026-11-11. Reasons, the Rex and herdr-core tables, the leak list and the port sketch are in
 `docs/research/terminal-port-advice.md`; this file is the steps. Line numbers are at commit `96131f0c`.
 
-Steps 1-5 are small, independent of Rex and useful on herdr alone. Step 6 is hard and waits for a decision that a
-second terminal will be built. Steps 7-9 are Rex. No task ids or specs here: the owner picks, the lead writes them.
+The frame (owner 11-11): Rex is a multiplexer, herdr is a tool for agents. herdr is a multiplexer with an agent
+layer on top (status, start, guarded prompt); Rex is the multiplexer alone. So the port splits into a multiplexer
+port every terminal implements and an agent layer that herdr supplies natively and obor supplies over a plain
+multiplexer.
+
+Steps 1-5 are small, independent of Rex and useful on herdr alone. Steps 6 and 7 are the split and obor's own agent
+layer: hard, and they wait for a decision that a second terminal will be built. Steps 8 and 9 are Rex. No task ids or
+specs here: the owner picks, the lead writes them.
 
 ## Decisions needed first (owner)
 
@@ -12,7 +18,8 @@ second terminal will be built. Steps 7-9 are Rex. No task ids or specs here: the
 |---|---|---|---|
 | D1 | "Both" means one terminal per project | yes | step 1's selector shape |
 | D2 | The choice lives in `project.terminal` (committed), with no per-machine override yet | yes | step 9 |
-| D3 | Status on a terminal that detects nothing: hooks write OSC 7501, serve overlays hook reports, or Claude only | probe the first (R3) | step 8 |
+| D3 | Who owns the agent layer on herdr: herdr (two layers in obor) or obor (herdr driven as a multiplexer) | build obor's, compare on herdr, then decide | what step 7 deletes |
+| D3a | obor's blocked signal: a kind's permission hook, OSC 7501 where relayed, or the screen | hooks, then 7501; never the screen | step 7 |
 | D4 | Rex transport: the `rex` CLI as a subprocess, or a WebSocket dependency | the CLI | step 9 |
 | D5 | Rex pane model: agent typed at a shell block, or agent as the block's command | after R4, R8 | step 9 |
 | D6 | Notifications where the terminal has none | an OS notifier behind `Notify` | step 9 |
@@ -77,42 +84,68 @@ second terminal will be built. Steps 7-9 are Rex. No task ids or specs here: the
 - **Tests.** Changed: the fakes return the predicates. A contract row per predicate that a shell pane can show
   (`TimedOut`, `NotFound` exist; `PaneBusy` added).
 
-### 5. Panes by id, one way to type
-- **Does.** `Agent(target)` becomes `Pane(id)`; `Wait(target, …)` becomes `WaitStatus(pane, …)`. Callers that find a
-  running agent by herdr's name match the pane's label instead. `RenameAgent` and `Pane.Name` leave the port.
-  `Typer.Type`, `PaneControl.Type` and `Wake` become one `Type(pane, text, TypeOpts{Guard, Clear})`;
-  `PaneControl.Screen` and `Panes.Screen` become one. Keys are obor's names (`enter`, `esc`, `ctrl+c`, `ctrl+u`, a
-  digit), which today equal herdr's; each adapter maps them.
+### 5. Panes by id, two ways to type
+- **Does.** `Agent(target)` becomes a pane read by id; `Wait(target, …)` becomes `WaitStatus(pane, …)`. Callers that
+  find a running agent by herdr's name match the pane's label instead. `RenameAgent` and `Pane.Name` leave the port.
+  Typing has two meanings and gets two names: `Write(pane, text, submit)` (the multiplexer's: a command line at a
+  shell, a quit) and `Prompt(pane, text, clear)` (the agent layer's: refused when the agent is blocked).
+  `PaneControl.Type` is the first; `Typer.Type` and `Wake` are the second. `PaneControl.Screen` and `Panes.Screen`
+  become one. Keys are obor's names (`enter`, `esc`, `ctrl+c`, `ctrl+u`, a digit), which today equal herdr's; each
+  adapter maps them.
 - **Files.** `internal/app/port/effects.go:46-80`, `port.go:27-30`; `internal/herdr/socket.go:392-530`,
   `panes.go:305-328`; `internal/launch/start.go:93-110`, `self.go:138-148`, `launch.go:635`, `stop.go`;
   `cmd/obor/lead.go:75-86`; `internal/setup/agent.go:206`, `oborinit.go:85,370`, `rename.go:121-129`;
   `internal/app/prompt.go`.
-- **Deletes.** `Pane.Name`, `RenameAgent`, `Wake`, one `Screen`, two `Type`s.
+- **Deletes.** `Pane.Name`, `RenameAgent`, `Wake`, one `Screen`, one of three ways to type.
 - **Risk.** A pane whose label and herdr name differ (a person relabelled it): today the name wins in `obor lead`'s
   "already runs" check. The rest of obor never reads herdr's name (`docs/design.md:776`, `docs/module-map.md:113`).
 - **Tests.** Changed: launch's name-taken cases move to `internal/herdr`.
 - **Live.** `make conformance TIER=live TURN=1 KIND=<kind>` for claude, codex and opencode (it touches how an agent
   is launched).
 
-### 6. The start behind the port (hard; only once a second terminal is decided)
-- **Does.** `Start(ctx, AgentStart{Pane, Label, Kind, Argv, Env, Cwd, Prompt, Bound}) (Pane, error)` returns once the
-  agent runs, or a `PaneBusy`, `NotReady` (with its hint) or `TimedOut` error. The herdr adapter does inside it what
-  launch does today: wait for the shell, type the env line and read its mark, label the pane, `agent.start`, the
-  evidence rule on `launch_pending`, the name-taken retry. launch keeps who, where, which session, the kind's
-  build, the session record and the report to serve. It may come back with another pane id than it was given (a
-  terminal that replaces the pane on a restart).
-  Two tasks: (a) the env line and shell wait, (b) the evidence rule.
-- **Files.** `internal/launch/start.go:39-268`, `launch.go:735-860`, `stop.go:411-445`; new
-  `internal/herdr/start.go`; `internal/app/port/effects.go:181-255` (`AgentEnv`, `Start`, `Starter.SetEnv`);
-  `internal/setup/agent.go:290-350`; `port.go:39-44`.
-- **Deletes.** From the port: `Pane.Launched`, `Start.Shell`, `Await`, `Env`, `Starter.SetEnv`, `WaitForOutput`.
-  From launch: about 250 lines that know herdr. launch's tests use a small in-memory `port.Terminal` instead of
-  herdr's wire fake (6 files); the start cases move to `internal/herdr`'s tests against `herdrtest`.
+### 6. Split the start: the multiplexer's part and herdr's part (hard; only once a second terminal is decided)
+- **Does.** launch's start is two things today. One is work over any multiplexer: wait for the pane's shell, set the
+  env and cwd, label the pane, look at the screen for a startup dialog. The other is herdr's agent protocol:
+  `agent.start`, the evidence rule on `launch_pending`, the name-taken retry, `agent_pane_busy`. The second moves into
+  `internal/herdr` as `AgentStarter.Start(ctx, AgentStart{Pane, Label, Kind, Argv, Prompt, Bound}) (Pane, error)`,
+  which returns once the agent runs, or a `PaneBusy`, `NotReady` or `TimedOut` error. The first stays in launch and
+  calls only `Mux` methods. launch asks the terminal for `AgentStarter`; step 7 adds the path for a terminal that
+  has none. A start may come back with another pane id than it was given.
+- **Files.** `internal/launch/start.go:83-111,134-268` (to `internal/herdr/start.go`, new); `start.go:39-82,112-132`
+  and `launch.go:735-860`, `stop.go:411-445` (stay, on `Mux`); `internal/app/port/effects.go:54-80,207-255`;
+  `port.go:39-44`; `internal/setup/agent.go:290-350`.
+- **Deletes.** From the port: `Pane.Launched`, `PaneControl.Start(name, kind, pane, args)`, `WaitForOutput` (the env
+  line reads its mark through `Screen`). From launch: every herdr code and the evidence rule, about 150 lines.
+  launch's tests use a small in-memory `Mux` instead of herdr's wire fake (6 files); the evidence cases move to
+  `internal/herdr`'s tests against `herdrtest`.
 - **Risk.** This code holds the fixes for a long run of live start bugs. Move it without changing a rule; the oracle
   is the existing start tests moved whole, and the live tier for all three kinds before and after.
 - **Live.** As step 5, for every kind.
 
-### 7. Rex probe (no product code)
+### 7. obor's agent layer over a multiplexer
+- **Does.** What herdr's agent layer does, from obor's own sources, for a terminal that reports no agent facts. Rule:
+  a pane's agent facts are the terminal's when it reports them, else obor's.
+  - **Which kind runs:** the start record obor wrote for the pane; process info confirms the binary.
+  - **Status:** working from a turn's start to its end, as the hooks already report them to serve
+    (`internal/app/wire/request.go:221-222`), and as Codex's transcript records them; idle otherwise; blocked from
+    D3a's source; unknown when no source has spoken since the start.
+  - **Start:** the command line written at the pane's shell (or the terminal's own way to run a command, D5); up
+    when the kind's binary holds the foreground and its first status arrives; `NotReady` from the screen's startup
+    dialog, as today (`internal/launch/start.go:321-335`).
+  - **Prompt:** refuse when obor's status is blocked, else `Write`.
+  - **On herdr, a comparison only:** serve logs each difference between obor's status and herdr's for the same
+    pane. One week of that log decides D3. If D3 becomes "one layer", a follow-up task drives herdr through `Mux`
+    alone and deletes `internal/herdr/start.go`, `agent.prompt`, `agent.wait` and `agent_session` from obor.
+- **Files.** `internal/app/panes.go`, `watchdog.go`, `prompt.go`, `sessions.go` (status from obor's sources, the
+  fallback rule); `internal/launch/start.go` (the start without `AgentStarter`); `internal/guard` and
+  `hooks/hooks.json` (a blocked hook, if D3a chose hooks); `internal/agents/*/` and `kinds/opencode`
+  (`Caps.Status`: a kind names its own source for a terminal that has none).
+- **Deletes.** Nothing until D3 is decided; then, with "one layer", most of the leak list's part B on herdr too.
+- **Tests.** Added: the fallback rule and the status fold as table tests on the in-memory `Mux`; contract rows that
+  run on a multiplexer with obor's layer (start with env and cwd, prompt refused when blocked).
+- **Live.** Every kind, on herdr with `AgentStarter` switched off for the run, so the layer is proven before Rex.
+
+### 8. Rex probe (no product code)
 - **Does.** One live run on a throwaway Rex server (`rex server run --listen unix://<scratch>/s.sock --state-dir
   <scratch> --config <scratch>/init.lua --restore=false`, always `--autostart=false` on the client), never the
   owner's server. A research note with one fact per probe:
@@ -121,11 +154,11 @@ second terminal will be built. Steps 7-9 are Rex. No task ids or specs here: the
 |---|---|---|
 | R1 | `rex api call` and `rex events --all --json`: time per call, event shape, behaviour when the server stops | D4 |
 | R2 | which event a `session.set_block_label` sends | the label merge |
-| R3 | `program_status` for Claude, Codex, OpenCode; and for an OSC 7501 written to `/dev/tty` by a hook | D3 |
+| R3 | `program_status` for Claude, Codex, OpenCode; and for an OSC 7501 written to `/dev/tty` by a hook | D3a |
 | R4 | env of a new block; `command: ["env", "K=V", …]` with `shell` default and `none`; whether `OBOR_*` or `HERDR_*` leak from the server's env | D5, identity |
 | R5 | after a server stop and start with `--restore`: which blocks return, whether programs re-run, whether ids and `instance_id` change | restore |
 | R6 | app quit and relaunch: blocks keep running | — |
-| R7 | a multi-line `paste` and an `enter` key into Claude's and Codex's input | `Type` |
+| R7 | a multi-line `paste` and an `enter` key into Claude's and Codex's input | `Write` |
 | R8 | a block kept open after its program exits (`exit.on_completion: false`): can a new program start in it | D5 |
 | R9 | `process`: child, foreground and ancestors for shell → agent → tool | `ProcessInfo`, `AtShell` |
 | R10 | the scratch server leaves the owner's server, config and app untouched | the test rule |
@@ -135,24 +168,16 @@ second terminal will be built. Steps 7-9 are Rex. No task ids or specs here: the
 
 - **Files.** `tests/conformance` (a `KIND=rex` live tier that prints facts, as `live_herdr.go` does);
   `docs/research/rex-probes.md`.
-- **Go or no-go.** No-go if R3 leaves no status path for the kinds the owner runs, or R12 says a person must attach
-  by hand each time.
-
-### 8. Status without detection (if D3 chose hooks)
-- **Does.** For a kind whose `Caps.Status` is not the terminal's, obor's hooks report the turn's start, its stop and
-  a permission prompt in the form D3 chose. With OSC 7501 the terminal reports it and the port is unchanged.
-- **Files.** `internal/guard` (the hook entry points), `internal/agents/*/` (`Caps.Status`), `kinds/opencode`,
-  `opencode/obor.js`.
-- **Deletes.** Nothing on herdr. It is the step that removes the need for herdr's screen detection.
-- **Live.** Every kind.
+- **Go or no-go.** No-go if R12 says a person must attach by hand each time, or R1 and the WebSocket both fail D4.
 
 ### 9. The rex adapter
-- **Does.** `internal/rex`: the client (D4), `port.Terminal` over it. Group ↔ session label, placement in windows
-  and splits (herdr's rules translated), `Instance` from `instance_id`, the stream from `session.bootstrap` and
-  `seq`, `Start` per D5, `Type` as a status check, `paste`, `enter`. `config.TerminalKinds` gains `rex`; the selector
-  gains its case; `internal/project`'s pane-variable table gains `rex: REX_BLOCK`, picked by the project's kind.
-  Mapping functions are unit-tested on recorded JSON; the contract table runs live against a scratch server
-  (`make conformance TIER=live KIND=rex`). No fake Rex server.
+- **Does.** `internal/rex`: the client (D4) and `port.Mux` over it, nothing about agents. Group ↔ session label,
+  placement in windows and splits (herdr's rules translated), `Instance` from `instance_id`, the stream from
+  `session.bootstrap` and `seq`, `Write` as `paste` and `enter`, `ProcessInfo` from `process`. Where Rex relays a
+  program's OSC 7501, the adapter passes it on as the pane's status: a terminal-reported fact like herdr's.
+  `config.TerminalKinds` gains `rex`; the selector gains its case; `internal/project`'s pane-variable table gains
+  `rex: REX_BLOCK`, picked by the project's kind. Mapping functions are unit-tested on recorded JSON; the contract
+  table runs live against a scratch server (`make conformance TIER=live KIND=rex`). No fake Rex server.
 - **Files.** `internal/rex/` (new); `cmd/obor/terminal.go`; `internal/config/config.go:241-251`, `validate.go:391`;
   `internal/project/pane.go:9-29`; `internal/checks/boundary_test.go`; `tests/conformance`; `docs/design.md`,
   `docs/module-map.md`.
@@ -163,9 +188,10 @@ second terminal will be built. Steps 7-9 are Rex. No task ids or specs here: the
 
 ## Order and stops
 
-1 → 2 → 3 in any order after 1; 4 → 5 → 6 in that order. 7 can run any time after D1 and needs no earlier step.
-Stop after 5 if no second terminal is decided: herdr's words are then out of the core, the port has one way to do
-each thing, and nothing was built for an implementation nobody named. 8 and 9 need 6 and a go from 7.
+1 → 2 → 3 in any order after 1; 4 → 5 → 6 → 7 in that order. 8 can run any time after D1 and needs no earlier
+step. Stop after 5 if no second terminal is decided: herdr's words are then out of the core, the port has one way to do
+each thing, and nothing was built for an implementation nobody named. 9 needs 7 and a go from 8; after 7 it is small,
+and so is any later multiplexer.
 
 ## Done when
 
