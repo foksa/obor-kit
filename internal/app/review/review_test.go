@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"obor/internal/app/event"
 	"obor/internal/app/outbox"
@@ -13,11 +14,25 @@ import (
 // What a review covered is the log's: tables over the fold (records → the queries package app reads).
 
 // foldLog builds records in seq order for a State.
-type foldLog struct{ recs []event.Record }
+type foldLog struct {
+	recs []event.Record
+	ts   time.Time // the clock the records are stamped with, one second apart (zero: no time stamps)
+}
+
+// clock stamps the records added from now on, one second apart: the queries that read a record's time see them.
+func (f *foldLog) clock(t time.Time) *foldLog {
+	f.ts = t
+	return f
+}
 
 func (f *foldLog) add(task, step, kind string, data any) *foldLog {
 	raw, _ := json.Marshal(data)
-	f.recs = append(f.recs, event.Record{Seq: int64(len(f.recs) + 1), Task: task, Step: step, Kind: kind, Data: raw})
+	r := event.Record{Seq: int64(len(f.recs) + 1), Task: task, Step: step, Kind: kind, Data: raw}
+	if !f.ts.IsZero() {
+		r.TS = f.ts.Format(time.RFC3339)
+		f.ts = f.ts.Add(time.Second)
+	}
+	f.recs = append(f.recs, r)
 	return f
 }
 
@@ -48,7 +63,8 @@ func (f *foldLog) verify(head, why string, tasks ...string) *foldLog {
 }
 
 // briefed is a verify brief of tasks at head, still open; ends is the finished line that ends it; brief is another
-// brief to the reviewer (no tasks, no head: the lead's, or a review's fresh start).
+// brief to the reviewer (no tasks, no head, no line: the review's own, as serve records it at a start); line is
+// another brief to the reviewer with a line (the lead's).
 func (f *foldLog) briefed(head string, tasks ...string) *foldLog {
 	return f.add(event.MsgTask, event.StepBriefed, event.KindFact, event.Message{To: "pj-rev",
 		Task: strings.Join(tasks, ","), Reviewed: head})
@@ -59,7 +75,16 @@ func (f *foldLog) ends() *foldLog {
 }
 
 func (f *foldLog) brief() *foldLog {
-	return f.add(event.MsgTask, event.StepBriefed, event.KindFact, event.Message{To: "pj-rev", Line: "look at this"})
+	return f.add(event.MsgTask, event.StepBriefed, event.KindFact, event.Message{To: "pj-rev"})
+}
+
+func (f *foldLog) line(text string) *foldLog {
+	return f.add(event.MsgTask, event.StepBriefed, event.KindFact, event.Message{To: "pj-rev", Line: text})
+}
+
+// stop is the reviewer's error stop (no finished line follows): the end of its open brief.
+func (f *foldLog) stop(why string) *foldLog {
+	return f.add(event.MsgTask, event.StepStopped, event.KindFact, outbox.Stopped{Ends: "pj-rev", Error: why})
 }
 
 // closing is a close's snapshot before its commit; closedAt a close fact carrying it, as serve's close
@@ -139,7 +164,7 @@ func TestFoldScopeAndCoverage(t *testing.T) {
 			scope: []string{"T-fix"}, next: "RV-5", cycle: []string{"T-1"}},
 		{name: "a verify a newer brief replaced covers nothing",
 			log: (&foldLog{}).merged("T-1", "m1").started("RV-4", "m1", "T-1").merged("T-fix", "m2").
-				briefed("m2", "T-fix").brief().ends(),
+				briefed("m2", "T-fix").line("look at this").ends(),
 			scope: []string{"T-fix"}, next: "RV-5", cycle: []string{"T-1"}},
 		{name: "a verify briefed before the review started is not its: nothing covered",
 			log: (&foldLog{}).merged("T-fix", "m1").briefed("m1", "T-fix").merged("T-1", "m2").
@@ -210,57 +235,56 @@ func TestFoldRound(t *testing.T) {
 		subject  string // its close commit's subject
 		prev     string // the review before it
 		failed   string // the unfinished verify: "<tasks>: <why>" ("": none)
-		file     string // the review file a brief of the reviewer open now asked for (a brief newer than every record)
 	}{
 		{name: "no review started", log: (&foldLog{}).merged("T-1", "h1")},
-		{name: "started: open, reviewed at its start's head, its brief asked for the review file",
-			log: rv4, open: "RV-4", last: "RV-4", reviewed: "h1", file: "RV-4"},
-		{name: "a verify briefed: its head is not reviewed yet, its brief asked for the verify file",
+		{name: "started: open, reviewed at its start's head",
+			log: rv4, open: "RV-4", last: "RV-4", reviewed: "h1"},
+		{name: "a verify briefed: its head is not reviewed yet",
 			log:  (&foldLog{}).merged("T-1", "h1").started("RV-4", "h1", "T-1").merged("T-fix", "h2").briefed("h2", "T-fix"),
-			open: "RV-4", last: "RV-4", reviewed: "h1", file: "RV-4-verify"},
+			open: "RV-4", last: "RV-4", reviewed: "h1"},
 		{name: "the verify finished: reviewed at its head",
 			log:  (&foldLog{}).merged("T-1", "h1").started("RV-4", "h1", "T-1").merged("T-fix", "h2").verify("h2", "", "T-fix"),
-			open: "RV-4", last: "RV-4", reviewed: "h2", file: "RV-4"},
+			open: "RV-4", last: "RV-4", reviewed: "h2"},
 		{name: "the reviewer stopped on an error: the verify did not finish, reviewed stays the start's",
 			log: (&foldLog{}).merged("T-1", "h1").started("RV-4", "h1", "T-1").merged("T-fix", "h2").
 				verify("h2", "herdr gone", "T-fix"),
-			open: "RV-4", last: "RV-4", reviewed: "h1", failed: "T-fix: the reviewer stopped: herdr gone", file: "RV-4"},
+			open: "RV-4", last: "RV-4", reviewed: "h1", failed: "T-fix: the reviewer stopped: herdr gone"},
 		{name: "a newer brief replaced the verify's: it did not finish",
 			log: (&foldLog{}).merged("T-1", "h1").started("RV-4", "h1", "T-1").merged("T-fix", "h2").
-				briefed("h2", "T-fix").brief(),
-			open: "RV-4", last: "RV-4", reviewed: "h1", failed: "T-fix: a newer brief replaced it", file: "RV-4"},
+				briefed("h2", "T-fix").line("look at this"),
+			open: "RV-4", last: "RV-4", reviewed: "h1", failed: "T-fix: a newer brief replaced it"},
 		{name: "the next start forgets the unfinished verify",
 			log: (&foldLog{}).merged("T-1", "h1").started("RV-4", "h1", "T-1").verify("h2", "herdr gone", "T-fix").
 				closed("RV-4").started("RV-5", "h3"),
-			open: "RV-5", last: "RV-5", reviewed: "h3", prev: "RV-4", file: "RV-5"},
+			open: "RV-5", last: "RV-5", reviewed: "h3", prev: "RV-4"},
 		{name: "the close's snapshot recorded, its commit not yet: open, the snapshot readable",
 			log:  (&foldLog{}).merged("T-1", "h1").started("RV-4", "h1", "T-1").closing("RV-4", "h1", "T-1"),
-			open: "RV-4", last: "RV-4", reviewed: "h1", closing: "h1 T-1", file: "RV-4"},
+			open: "RV-4", last: "RV-4", reviewed: "h1", closing: "h1 T-1"},
 		{name: "a snapshot without a head is none",
 			log:  (&foldLog{}).merged("T-1", "h1").started("RV-4", "h1", "T-1").closing("RV-4", "", "T-1"),
-			open: "RV-4", last: "RV-4", reviewed: "h1", file: "RV-4"},
+			open: "RV-4", last: "RV-4", reviewed: "h1"},
 		{name: "closed: not open, no reviewed head, no snapshot, the subject its reply's",
 			log: (&foldLog{}).merged("T-1", "h1").started("RV-4", "h1", "T-1").closing("RV-4", "h1", "T-1").
 				closedAt("RV-4", "h1", "T-1"),
-			last: "RV-4", subject: "RV-4 closed · x · approved · s", file: "RV-4"},
+			last: "RV-4", subject: "RV-4 closed · x · approved · s"},
 		{name: "a second close of the same review does not count: the first's subject stays",
 			log: (&foldLog{}).started("RV-4", "h1").closed("RV-4").add(event.ReviewTask, event.StepReviewClosed,
 				event.KindFact, Data{ID: "RV-4", Reply: ClosedReply + "another"}),
-			last: "RV-4", subject: "RV-4 closed · x · approved · s", file: "RV-4"},
+			last: "RV-4", subject: "RV-4 closed · x · approved · s"},
 		{name: "a close naming an earlier review closes nothing",
 			log:  (&foldLog{}).started("RV-4", "h1").closed("RV-3"),
-			open: "RV-4", last: "RV-4", reviewed: "h1", file: "RV-4"},
+			open: "RV-4", last: "RV-4", reviewed: "h1"},
 		{name: "a close naming a later review closes the open one",
 			log:  (&foldLog{}).started("RV-4", "h1").closed("RV-5"),
-			last: "RV-4", subject: "RV-5 closed · x · approved · s", file: "RV-4"},
+			last: "RV-4", subject: "RV-5 closed · x · approved · s"},
 		{name: "a close whose id is not a review's closes nothing",
 			log:  (&foldLog{}).started("RV-4", "h1").closed("the review"),
-			open: "RV-4", last: "RV-4", reviewed: "h1", file: "RV-4"},
+			open: "RV-4", last: "RV-4", reviewed: "h1"},
 		{name: "a review request, its firing and its end start and close nothing",
 			log: (&foldLog{}).started("RV-4", "h1").add(event.ReviewTask, event.StepReviewRequest, event.KindFact, Data{By: "pj-lead"}).
 				add(event.ReviewTask, event.StepReviewFire, event.KindFact, Data{Request: 2}).
 				add(event.ReviewTask, event.StepReviewRm, event.KindFact, Data{By: "pj-lead"}),
-			open: "RV-4", last: "RV-4", reviewed: "h1", file: "RV-4"},
+			open: "RV-4", last: "RV-4", reviewed: "h1"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -295,11 +319,52 @@ func TestFoldRound(t *testing.T) {
 			if failed != c.failed {
 				t.Errorf("the unfinished verify %q, want %q", failed, c.failed)
 			}
-			if got := s.BriefFile("pj-rev", int64(len(c.log.recs))+1); got != c.file {
-				t.Errorf("the reviewer's brief asked for %q, want %q", got, c.file)
+		})
+	}
+}
+
+// The review's own brief is the one serve sent at its start: a brief with no line, right after the start. Only it
+// and a verify's ask for a review file and end the lead's turn; any other brief to the reviewer is nobody's here.
+func TestFoldReviewBriefs(t *testing.T) {
+	t.Parallel()
+	t0 := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	start := func() *foldLog { return (&foldLog{}).clock(t0).merged("T-1", "h1").started("RV-4", "h1", "T-1") }
+	for _, c := range []struct {
+		name      string
+		log       *foldLog
+		seq       int64  // the brief BriefFile is asked about
+		file      string // the review file it asked for
+		verifying bool
+		ended     bool // its end is the lead's turn
+	}{
+		{name: "no review started: a brief asks for no review file", log: (&foldLog{}).clock(t0).brief(), seq: 1},
+		{name: "the review's own brief: the review file, its end the lead's turn",
+			log: start().brief().ends(), seq: 3, file: "RV-4", ended: true},
+		{name: "the review's own brief stopped on an error: still its end",
+			log: start().brief().stop("herdr gone"), seq: 3, file: "RV-4", ended: true},
+		{name: "an unrelated brief after the start asks for no review file, its end no lead's turn",
+			log: start().brief().line("look at the flaky test").ends(), seq: 4},
+		{name: "a verify's brief: the verify file while it is open",
+			log: start().brief().merged("T-fix", "h2").briefed("h2", "T-fix"), seq: 5, file: "RV-4-verify",
+			verifying: true},
+		{name: "the verify finished: its end the lead's turn, its file no longer asked for",
+			log: start().brief().merged("T-fix", "h2").briefed("h2", "T-fix").ends(), seq: 5, ended: true},
+		{name: "an unrelated brief replacing the verify: verifying ends with it",
+			log: start().brief().merged("T-fix", "h2").briefed("h2", "T-fix").line("look at the flaky test"), seq: 5},
+		{name: "a verify stopped on an error: its end the lead's turn",
+			log: start().brief().merged("T-fix", "h2").briefed("h2", "T-fix").stop("herdr gone"), seq: 5, ended: true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			s := c.log.fold()
+			if got := s.BriefFile("pj-rev", c.seq); got != c.file {
+				t.Errorf("the brief asked for %q, want %q", got, c.file)
 			}
-			if got := s.BriefFile("pj-rev", 0); c.file != c.last+"-verify" && got != "" {
-				t.Errorf("a brief older than the review asked for %q, want no review file", got)
+			if got := s.Verifying("pj-rev"); got != c.verifying {
+				t.Errorf("verifying %t, want %t", got, c.verifying)
+			}
+			if got := !s.Ended("pj-rev").IsZero(); got != c.ended {
+				t.Errorf("its end counted %t, want %t", got, c.ended)
 			}
 		})
 	}
@@ -364,14 +429,15 @@ func TestIDAndNumber(t *testing.T) {
 	}
 }
 
-// The fix round: what the close waits for, and obor status' line.
-func TestLinksPendingAndLine(t *testing.T) {
+// The fix round: what the close waits for, and each link's state.
+func TestLinksPendingAndState(t *testing.T) {
 	t.Parallel()
 	links := []Link{
 		{Task: "T-a", Dispatched: 5, Merged: 9},
 		{Task: "T-b", Dispatched: 6, Merged: 10},
 		{Task: "T-c", Dispatched: 7},
 		{Task: "T-d", Dispatched: 8, End: "dropped"},
+		{Task: "T-e", Dispatched: 9, End: "rejected"},
 	}
 	c := Cycle{Covered: []string{"T-start", "T-a"}}
 	if got := c.Pending(links); !slices.Equal(got, []string{"T-b", "T-c"}) {
@@ -381,10 +447,10 @@ func TestLinksPendingAndLine(t *testing.T) {
 		t.Errorf("pending of no link: %q", got)
 	}
 	r := Round{ID: "RV-5", Links: links, Covered: c.Covered}
-	if got, want := r.Line(), "RV-5 fixes: T-a verified · T-b merged · T-c open · T-d dropped"; got != want {
-		t.Errorf("the status line %q, want %q", got, want)
-	}
-	if got := (Round{ID: "RV-5", Covered: c.Covered}).Line(); got != "" {
-		t.Errorf("a round without links: %q, want no line", got)
+	want := []string{"verified", "merged", "open", "dropped", "rejected"}
+	for i, l := range links {
+		if got := r.State(l); got != want[i] {
+			t.Errorf("%s's state %q, want %q", l.Task, got, want[i])
+		}
 	}
 }

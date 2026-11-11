@@ -93,17 +93,18 @@ func (v *Verify) Tasks() []string { return v.tasks }
 // Why is why the verify ended unfinished ("": it did not).
 func (v *Verify) Why() string { return v.why }
 
-// review is one review the log started, one value: its start's seq, time, id and head; covered, the in-scope
-// tasks its start named; fixes, the tasks its finished verifies covered; reviewed, the head the reviewer last
-// finished (the start's, then each finished verify's; an open review's only); closed, its review.closed
-// fact's seq (its state; 0: open) and subject, its close commit's subject as the close's reply names it ("": open, or
-// a close recorded without one); closing, the snapshot its close recorded before the commit (fact review.closing;
-// nil: none, and once closed). A closed review is frozen at its close's snapshot: a verify ending after it
-// changes nothing.
+// review is one review the log started, one value: its start's seq, time, id and head; brief, the seq of the brief
+// serve sent at its start (0: none folded); covered, the in-scope tasks its start named; fixes, the tasks its finished
+// verifies covered; reviewed, the head the reviewer last finished (the start's, then each finished verify's; an open
+// review's only); closed, its review.closed fact's seq (its state; 0: open) and subject, its close commit's subject as
+// the close's reply names it ("": open, or a close recorded without one); closing, the snapshot its close recorded
+// before the commit (fact review.closing; nil: none, and once closed). A closed review is frozen at its close's
+// snapshot: a verify ending after it changes nothing.
 type review struct {
 	seq      int64
 	at       time.Time
 	id, head string
+	brief    int64
 	covered  []string
 	fixes    []string
 	reviewed string
@@ -141,26 +142,27 @@ func (rv *review) cycle() []string {
 }
 
 // State is the reviews' and the merges' records folded: every review the log started, in
-// order; every merge, in order; per agent its open verify brief and when its last brief ended (its finished line, or a
-// stop that ended it), and the last verify brief since the last start that ended unfinished. The zero State is an
-// empty one.
+// order; every merge, in order; per agent its open verify brief and its newest brief's seq, and when the newest
+// review's own brief or its verify last ended (its finished line, or a stop that ended it); and the last verify brief
+// since the last start that ended unfinished. The zero State is an empty one.
 type State struct {
 	reviews []review
 	merges  []Merge
 	open    map[string]*Verify
+	briefs  map[string]int64
 	endAt   map[string]time.Time
 	failed  *Verify
 }
 
-// Fold folds r: a merge; a review start (a new review); its close's snapshot (review.closing); its close (closes the
-// newest review when it names it or a later one, the first close counting, and freezes it at the close's snapshot); a
-// brief (a verify's, when it names tasks and a head; any brief replaces the agent's open verify brief); the finished
-// line that ends a brief; a stop that ends one. Any other record of a review or a line folds as nothing here (a closed
-// cycle needs none of them). For a fact of the review key it returns the fact's data (ok): a request, its end, a
-// firing and a call's stored reply are package app's to fold.
+// Fold folds r: a merge; a review start (a new review, and the brief that follows it is its own); its close's
+// snapshot (review.closing); its close (closes the newest review when it names it or a later one, the first close
+// counting, and freezes it at the close's snapshot); a brief (a verify's, when it names tasks and a head; any brief
+// replaces the agent's open verify brief); the finished line that ends a brief; a stop that ends one. Any other record
+// of a review or a line folds as nothing here (a closed cycle needs none of them). For a fact of the review key it
+// returns the fact's data (ok): a request, its end, a firing and a call's stored reply are package app's to fold.
 func (s *State) Fold(r event.Record) (d Data, ok bool) {
 	if s.open == nil {
-		s.open, s.endAt = map[string]*Verify{}, map[string]time.Time{}
+		s.open, s.briefs, s.endAt = map[string]*Verify{}, map[string]int64{}, map[string]time.Time{}
 	}
 	if m, merged := event.MergeOf(r); merged {
 		s.merges = append(s.merges, Merge{task: m.Task, sha: m.SHA, seq: r.Seq})
@@ -181,23 +183,43 @@ func (s *State) Fold(r event.Record) (d Data, ok bool) {
 			return Data{}, false
 		}
 		s.ended(m.To, "a newer brief replaced it")
+		s.briefs[m.To] = r.Seq
 		if m.Task != "" && m.Reviewed != "" {
 			s.open[m.To] = &Verify{seq: r.Seq, tasks: strings.Split(m.Task, ","), head: m.Reviewed}
+			break
+		}
+		// Serve records the review's own brief right after its start, without a line (its fresh start carried it):
+		// the first such brief of an open review that has none yet is that review's.
+		if cur := s.cur(); m.Line == "" && cur.seq != 0 && cur.closed == 0 && cur.brief == 0 {
+			cur.brief = r.Seq
 		}
 	case event.StepMessage:
 		var m event.Message
 		if json.Unmarshal(r.Data, &m) == nil && m.Ends != "" { // the finished line
+			own := s.own(m.Ends)
 			s.ended(m.Ends, "")
-			s.endAt[m.Ends] = event.RecordTime(r)
+			if own {
+				s.endAt[m.Ends] = event.RecordTime(r)
+			}
 		}
 	case event.StepStopped:
 		var st outbox.Stopped
 		if json.Unmarshal(r.Data, &st) == nil && st.Ends != "" { // an error stop: no finished line follows
+			own := s.own(st.Ends)
 			s.ended(st.Ends, "the reviewer stopped: "+st.Error)
-			s.endAt[st.Ends] = event.RecordTime(r)
+			if own {
+				s.endAt[st.Ends] = event.RecordTime(r)
+			}
 		}
 	}
 	return Data{}, false
+}
+
+// own is whether agent's newest brief belongs to the open review: it is that review's own start brief, or its open
+// verify's.
+func (s *State) own(agent string) bool {
+	cur := s.cur()
+	return cur.seq != 0 && cur.closed == 0 && (s.open[agent] != nil || s.briefs[agent] != 0 && s.briefs[agent] == cur.brief)
 }
 
 // foldReview folds the review key's fact r, its data d (read: it decoded whole; a start and a snapshot that did not
@@ -407,8 +429,9 @@ func (s *State) MergeOf(task string) Merge {
 	return out
 }
 
-// Ended is when agent's last brief ended: its finished line or the stop that ended it (zero: none folded). A newer
-// brief replacing an open one is no end here.
+// Ended is when agent's last brief that belongs to a review ended: the review's own start brief, or a verify's, by its
+// finished line or the stop that ended it (zero: none folded). A brief that belongs to no review, or a newer brief
+// replacing an open one, is no end here.
 func (s *State) Ended(agent string) time.Time { return s.endAt[agent] }
 
 // Verifying: agent has an open verify brief.
@@ -417,14 +440,15 @@ func (s *State) Verifying(agent string) bool { return s.open[agent] != nil }
 // Failed is the last verify brief since the newest review's start that ended unfinished (nil: none).
 func (s *State) Failed() *Verify { return s.failed }
 
-// BriefFile is the review file the reviewer's open brief (its fact's seq) asked for, as "RV-<n>" or "RV-<n>-verify"
-// ("": none known): a verify's brief names the newest review's verify file, a brief recorded after the newest review's
-// start (its fresh start's own) the review file.
+// BriefFile is the review file the brief (its fact's seq) of agent asked for, as "RV-<n>" or "RV-<n>-verify"
+// ("": none known): a verify's brief names the newest review's verify file, the brief the newest review started
+// with (the one serve sent at its start) the review file.
 func (s *State) BriefFile(agent string, seq int64) string {
-	switch cur := s.cur(); {
+	cur := s.cur()
+	switch {
 	case s.open[agent] != nil && cur.id != "":
 		return cur.id + "-verify"
-	case cur.id != "" && seq > cur.seq:
+	case cur.id != "" && seq != 0 && seq == cur.brief:
 		return cur.id
 	}
 	return ""
@@ -440,23 +464,11 @@ type Link struct {
 	End        string
 }
 
-// Round is a review's fix round as obor status shows it: the review, its links and the tasks its cycle covered.
+// Round is a review's fix round as the review card shows it: the review, its links and the tasks its cycle covered.
 type Round struct {
 	ID      string
 	Links   []Link
 	Covered []string
-}
-
-// Line is the round as obor status' review line shows it: "RV-n fixes: T-a merged, verified · T-b open" ("": no link).
-func (f Round) Line() string {
-	if len(f.Links) == 0 {
-		return ""
-	}
-	items := make([]string, 0, len(f.Links))
-	for _, l := range f.Links {
-		items = append(items, l.Task+" "+f.State(l))
-	}
-	return f.ID + " fixes: " + strings.Join(items, " · ")
 }
 
 // State is link l's state in the round: how it ended unmerged (dropped, rejected), open (not merged), verified (merged

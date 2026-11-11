@@ -167,7 +167,7 @@ type proj struct {
 	integrator string               // the project's integrator agent: the one caller of the verdicts
 	merging    bool                 // the merge loop runs for it (Options.Loop and an integrator role)
 	timers     map[string]*jobTimer // the work jobs' delivery timers, the integrator's jobs' timers, by task
-	// fixes: the open review's fix round as the verify rule last read it (obor status' review line); verifyDue: a
+	// fixes: the open review's fix round as the verify rule last read it (the review card's fixes); verifyDue: a
 	// verify is owed, which idle waits for (reviewverify.go); closeRead: this process read git once for the open
 	// review's close commit, the close's crash cut (reviewclose.go).
 	fixes     review.Round

@@ -131,9 +131,6 @@ func (a *App) Status() wire.Status {
 		} else {
 			ps.Review = s
 		}
-		if f := p.fixes.Line(); f != "" { // the open review's fix tasks, linked by their specs' Fixes: lines
-			ps.Review = strings.TrimPrefix(ps.Review+" · "+f, " · ")
-		}
 		if q := p.folded.review; q != nil {
 			ps.ReviewRequest = &wire.ReviewRequestStatus{After: q.after, Waiting: p.reviewWaits(q.after), Held: q.held,
 				Note: q.note, By: q.by, Since: q.at.Unix()}

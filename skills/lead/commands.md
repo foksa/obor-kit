@@ -123,8 +123,8 @@ is no line to you: `obor status` shows the review. A `Difficulty: hard` task, or
 itself when it merges, and `obor review` stays for the every-~3-merges reviews.
 - A fix task's spec carries `Fixes: RV-xx[ <what to check>]` between its title and its first `## ` heading:
   dispatching it links it to the open review (`FAIL T-xx: Fixes: RV-xx is not the open
-  review (RV-yy is open | none is open)` otherwise); `obor status`' review line shows `RV-xx fixes: T-a merged · T-b
-  open`. Once every linked task merged (or ended unmerged) and the reviewer is idle, serve runs the verify itself: it
+  review (RV-yy is open | none is open)` otherwise); `obor status`' review card shows the round (`review RV-xx: fixes
+  T-a merged · T-b open`). Once every linked task merged (or ended unmerged) and the reviewer is idle, serve runs the verify itself: it
   detaches the reviewer's role worktree at the integration branch's head and briefs the reviewer's same session
   to re-run its probes, each task's `Fixes:` text as your note. A linked task dropped or rejected: one line to you,
   not counted. A verify that did not finish (a newer brief, the reviewer's error stop) or whose git failed: one line,
