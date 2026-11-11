@@ -19,6 +19,7 @@ import (
 	"obor/internal/agents"
 	"obor/internal/agents/claude"
 	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/herdr"
 	"obor/internal/herdr/herdrtest"
@@ -72,6 +73,9 @@ type fx struct {
 	tb   testing.TB
 	// poll and up are the launcher's Poll and Up (0: its defaults, 1 s and 30 s), for a start that polls
 	poll, up time.Duration
+	// where is serve's where answer to Locate (launch.Launcher.Where; nil: the project's socket, which no test
+	// serves: serve down)
+	where func(context.Context, wire.WhereReq) (wire.WhereReply, error)
 }
 
 // newFx is a project with a config (prefix pj, lanes.dir ../proj-wt, the built-in models; edits on top) and a fake
@@ -243,7 +247,8 @@ func (x *fx) newSetup(t *testing.T) (*Setup, *bytes.Buffer) {
 	env, h := x.Env(x.env...), x.srv.Client()
 	return &Setup{Kit: k, Env: env, T: &herdr.Setup{Socket: h, Env: env}, Out: &out, McpCheck: check, ShellWait: x.shellWait,
 		Starter: func(cfg *config.Config) port.Starter {
-			return &launch.Launcher{Cfg: cfg, Env: env, Kit: k, H: h, Out: &out, Rollout: rollout, Open: open, Poll: x.poll, Up: x.up}
+			return &launch.Launcher{Cfg: cfg, Env: env, Kit: k, H: h, Out: &out, Rollout: rollout, Open: open, Poll: x.poll, Up: x.up,
+				Where: x.where}
 		}, Serve: x.serve, Installed: x.installed, Install: install, host: x.host}, &out
 }
 
@@ -327,6 +332,21 @@ func (x *fx) running(agents ...[2]string) {
 	for i, a := range agents {
 		x.h.Agent(fmt.Sprintf("w1:x%d", i+1), a[0], "idle", a[1]).Label = a[0] // labelled, as obor's start leaves its pane
 	}
+}
+
+// serveSaysNone: serve answers every where request with no proof (it runs, it identifies no pane).
+func serveSaysNone(context.Context, wire.WhereReq) (wire.WhereReply, error) {
+	return wire.WhereReply{State: wire.WhereNone, Why: "no proof"}, nil
+}
+
+// otherProject is a repository beside the project, no pane of which is the project's.
+func (x *fx) otherProject(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join(x.Base, "other")
+	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }
 
 // projectStep is the project step of `obor init` (initProject calls it too): the files it writes, its lines, or the
@@ -549,18 +569,22 @@ func TestDriveStartIsStrict(t *testing.T) {
 	has(t, named(reqs), "agent.start args=["+laneArgs+" --session-id NEW -- drive T-1] kind=claude name=pj-l-01-drive", "a strict start, obor's server alone")
 }
 
-// A drive start whose lane already holds an agent nobody labelled names the pane to quit: the pane's kind is no
-// agent name, so obor restart <kind> --stop could not stop it.
+// A drive start whose lane already holds another agent (serve and the terminal prove the drive in no pane) is
+// refused: the occupant labelled with a name the config gives an agent is stopped by that name, any other (a pane
+// nobody labelled: its kind; a person's label) is quit in its pane, since obor restart <label> --stop could not stop
+// it.
 func TestDriveStartQuitHintNamesAnUnlabelledPane(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct{ name, label, want string }{
 		{"unlabelled", "", "claude still runs in lane L-01 (pane w1:x1): quit the agent in pane w1:x1 first"},
+		{"a person's label", "notes", "notes still runs in lane L-01 (pane w1:x1): quit the agent in pane w1:x1 first"},
 		{"labelled", "pj-l-01", "pj-l-01 still runs in lane L-01 (pane w1:x1): obor restart pj-l-01 --stop first"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			x := newFx(t)
 			x.lane(t, "L-01")
+			x.where = serveSaysNone
 			x.h.Agent("w1:x1", "claude", "idle", x.LaneDir("L-01")).Label = c.label
 			s, _ := x.newSetup(t)
 			s.Dir = x.Root
@@ -570,6 +594,76 @@ func TestDriveStartQuitHintNamesAnUnlabelledPane(t *testing.T) {
 				t.Errorf("StartDrive: %v, want %q", err, c.want)
 			}
 		})
+	}
+}
+
+// A drive's name is its lane's (config.AgentLookup): another project's pane labelled with it is that project's. Its
+// idle pane is no home of this drive (a new pane is placed and the drive starts there), and its live drive is no
+// proof that this one runs (refused, nothing started). obor drive's retry is the same start.
+func TestDriveStartLeavesAnotherProjectsDrivePane(t *testing.T) {
+	t.Parallel()
+	drive := func(t *testing.T, x *fx) (string, error) {
+		t.Helper()
+		s, out := x.newSetup(t)
+		s.Dir = x.Root
+		err := s.StartDrive(context.Background(), Drive{Task: "T-07", Agent: "pj-l-01-drive", Lane: "L-01",
+			Cwd: x.LaneDir("L-01"), Prompt: "drive T-07"})
+		return out.String(), err
+	}
+	t.Run("idle", func(t *testing.T) {
+		t.Parallel()
+		x := newFx(t)
+		x.lane(t, "L-01")
+		foreign := x.h.Shell("w1:f1", "pj-l-01-drive", x.otherProject(t))
+		if foreign.Kind != "" || foreign.Label != "pj-l-01-drive" {
+			t.Fatalf("precondition: another project's idle pane labelled with the drive's name: %+v", foreign)
+		}
+		x.reset()
+		if out, err := drive(t, x); err != nil {
+			t.Fatalf("StartDrive: %v\n%s", err, out)
+		}
+		calls := named(strings.Join(x.reqs(), "\n"))
+		has(t, calls, "label=pj-l-01-drive pane_id=wn1:n2", "a pane of the drive's own, labelled")
+		has(t, calls, "kind=claude name=pj-l-01-drive pane_id=wn1:n2", "the drive starts in it")
+		hasNot(t, calls, "w1:f1", "the other project's pane untouched")
+	})
+	t.Run("live", func(t *testing.T) {
+		t.Parallel()
+		x := newFx(t)
+		x.lane(t, "L-01")
+		other := x.otherProject(t)
+		x.h.Agent("w1:f1", "pj-l-01-drive", "idle", other).Label = "pj-l-01-drive"
+		x.reset()
+		out, err := drive(t, x)
+		want := "pj-l-01-drive runs in pane w1:f1 with cwd " + other + ", outside " + x.Root + " (another project's " +
+			"agent of that name? the config's prefix names every agent: obor setup rename changes it)"
+		if err == nil || err.Error() != want {
+			t.Errorf("StartDrive: %v, want %q\n%s", err, want, out)
+		}
+		hasNot(t, out, "already running", "another project's drive is not this one running")
+		hasNot(t, strings.Join(x.reqs(), "\n"), "agent.start", "nothing started")
+	})
+}
+
+// A drive whose running pane the owner relabelled is that drive running (the terminal holds its name there): obor
+// drive's retry says so and starts nothing; it is not refused as another agent in its lane.
+func TestDriveRetryFindsItsRelabelledPane(t *testing.T) {
+	t.Parallel()
+	x := newFx(t)
+	x.lane(t, "L-01")
+	x.h.Agent("w1:x1", "pj-l-01-drive", "idle", x.LaneDir("L-01")).Label = "notes"
+	x.reset()
+	s, out := x.newSetup(t)
+	s.Dir = x.Root
+	if err := s.StartDrive(context.Background(), Drive{Task: "T-07", Agent: "pj-l-01-drive", Lane: "L-01",
+		Cwd: x.LaneDir("L-01"), Prompt: "drive T-07"}); err != nil {
+		t.Fatalf("StartDrive: %v\n%s", err, out)
+	}
+	if got := last(out.String()); got != "OK L-01: pj-l-01-drive already running" {
+		t.Errorf("last line %q, want the drive running", got)
+	}
+	for _, m := range []string{"pane.split", "pane.rename", "pane.send_input", "agent.start"} {
+		hasNot(t, strings.Join(x.reqs(), "\n"), m, "nothing touched")
 	}
 }
 
@@ -635,10 +729,10 @@ func TestPaneSplitsTheTabAndStartsTheAgentInOrder(t *testing.T) {
 	if last(out) != "OK L-01: pj-l-01 in pane w1:n1" {
 		t.Errorf("last line %q", last(out))
 	}
-	// the lane's agents, then Locate (the pane list, the terminal's holder of the name) before anything is placed; the
-	// new pane's id is herdr's answer to the split, so its shell, once up, gets the env line with OBOR_PANE before the
-	// start.
-	want := []string{"agent.list", "pane.list", "pane.list", "agent.get target=pj-l-01", "pane.list", "pane.layout pane_id=w1:p1",
+	// Locate (the pane list, the terminal's holder of the name), then the lane's agents (no other in its worktree)
+	// before anything is placed; the new pane's id is herdr's answer to the split, so its shell, once up, gets the env
+	// line with OBOR_PANE before the start.
+	want := []string{"pane.list", "agent.get target=pj-l-01", "agent.list", "pane.list", "pane.list", "pane.layout pane_id=w1:p1",
 		"pane.split cwd=" + lane + " direction=right env={OBOR_AGENT=,OBOR_LANE=L-01,OBOR_LANE_CPUS=2,OBOR_OPENCODE_MODEL=,OBOR_PANE=,OBOR_ROLE=worker,OPENCODE_CONFIG=,OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=} target_pane_id=w1:p1",
 		"pane.process_info pane_id=w1:n1", "pane.process_info pane_id=w1:n1",
 		"pane.send_input keys=[Enter] pane_id=w1:n1 text=cd " + lane + " && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:n1 OBOR_LANE_CPUS=2 && echo obor-env-M || echo obor-env-M",
@@ -775,19 +869,40 @@ func TestPaneLabelSetAndRefused(t *testing.T) {
 	hasNot(t, strings.Join(x.reqs(), "\n"), "agent.start", "rename failed → no start")
 }
 
-// bash setup.test.sh case_pane_skips_a_lane_whose_agent_runs
+// A lane pane start while the lane's worker runs in a pane the owner relabelled (the terminal holds its name there) is
+// that worker running: OK already running, nothing touched; with --pane naming another pane it is refused with
+// Locate's line naming the worker's pane. Another agent in the lane's worktree (serve and the terminal prove the
+// worker in no pane) is refused, its pane named.
 func TestPaneSkipsALaneWhoseAgentRuns(t *testing.T) {
 	t.Parallel()
 	x := newFx(t)
 	x.lane(t, "L-01")
+	x.noAgents()
+	x.h.Agent("w1:x1", "pj-l-01", "idle", x.LaneDir("L-01")).Label = "notes"
+	untouched := func(what string) {
+		t.Helper()
+		calls := strings.Join(x.reqs(), "\n")
+		for _, m := range []string{"pane.split", "tab.create", "pane.rename", "pane.send_input", "agent.start"} {
+			hasNot(t, calls, m, what+": no "+m)
+		}
+	}
+	x.reset()
+	if out := x.ok(t, "pane", "--start", "L-01", "--tab", "w1:t1"); last(out) != "OK L-01: pj-l-01 already running" {
+		t.Errorf("relabelled worker: last line %q", last(out))
+	}
+	untouched("relabelled worker")
+
+	x.reset()
+	x.failing(t, "FAIL pj-l-01 already runs in pane w1:x1 (proof: name; label notes): obor restart pj-l-01 --pane w1:x1 "+
+		"restarts it there, or quit it there first", "pane", "--start", "L-01", "--pane", "w1:p1")
+	untouched("--pane elsewhere")
+
 	x.running([2]string{"someone", x.LaneDir("L-01")})
-	out := x.ok(t, "pane", "--start", "L-01", "--tab", "w1:t1")
-	if last(out) != "OK L-01: someone already running" {
-		t.Errorf("last line %q", last(out))
-	}
-	if got := x.reqs(); strings.Join(got, ",") != "agent.list,pane.list" {
-		t.Errorf("no split, no start: %v", got)
-	}
+	x.where = serveSaysNone
+	x.reset()
+	x.failing(t, "FAIL someone still runs in lane L-01 (pane w1:x1): quit the agent in pane w1:x1 first",
+		"pane", "--start", "L-01", "--tab", "w1:t1")
+	untouched("another agent in the lane")
 }
 
 // A failed start reads the pane (only then, the one launch.Start): a trust dialog or a Codex self-update names

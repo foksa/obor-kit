@@ -473,7 +473,7 @@ func stoppedRoot(t *testing.T) string {
 	if err := os.MkdirAll(filepath.Join(root, ".obor"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cfg := `{"version":2,"project":{"name":"proj","agent_prefix":"pj"},"agents":{"roles":{"integrator":"","reviewer":"","advisor":"","deep_dive":""}}}`
+	cfg := `{"version":2,"project":{"name":"proj","agent_prefix":"pj"},"lanes":{"count":1},"agents":{"roles":{"integrator":"","reviewer":"","advisor":"","deep_dive":""}}}`
 	if err := os.WriteFile(filepath.Join(root, ".obor", "config.json"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -529,6 +529,13 @@ func TestStoppedRoles(t *testing.T) {
 			}
 			if !p.roleAgentOf("pj-rev") {
 				t.Error("pj-rev: a brief does not start the stopped reviewer")
+			}
+		}},
+		{"a lane's drive at a shell is no role agent", func(root string) []port.Pane {
+			return []port.Pane{shell(root, "w:drv", "pj-l-01-drive")}
+		}, nil, func(t *testing.T, a *App, p *proj) {
+			if p.roleAgent("pj-l-01-drive") || p.roleAgentOf("pj-l-01-drive") {
+				t.Error("pj-l-01-drive, a lane's drive agent, is a role agent")
 			}
 		}},
 		{"two panes of one agent", func(root string) []port.Pane {

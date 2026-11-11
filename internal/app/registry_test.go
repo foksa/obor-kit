@@ -419,6 +419,18 @@ func TestIdentNamedStartBeatsLabel(t *testing.T) {
 	eqs(t, h.where("pj-l-02"), "unavailable no proof", "pj-l-02")
 }
 
+// A lane's drive agent is an agent the config names (config.AgentLookup, Config.Agents): its start row proves the
+// pane the owner relabelled, so a retry of obor drive finds it running there.
+func TestIdentDriveStartRowProves(t *testing.T) {
+	t.Parallel()
+	h, _ := newIdentHarness(t)
+	h.pane("w1:p1").Label = "notes"
+	h.started("pj-l-01-drive", "w1:p1", "t1", "")
+	h.connect()
+	eqs(t, h.where("pj-l-01-drive"), "identified w1:p1 start", "pj-l-01-drive")
+	eqs(t, h.who("w1:p1"), "pj-l-01-drive", "whoIs(w1:p1)")
+}
+
 // An unconfigured agent's recorded session gives no session proof either: hk-sol's record is w1:p1's session
 // s1, and it has a brief (a candidate), yet no pane proves it.
 func TestIdentUnnamedSessionNoProof(t *testing.T) {

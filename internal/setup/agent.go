@@ -188,6 +188,28 @@ func (s *Setup) copyFile(src, rel string) error {
 	return nil
 }
 
+// laneFree refuses a start of lane agent a while another agent runs in a's lane worktree (one agent in a lane): called
+// under the lane's restart lock once Locate found a not running, so every agent there is another. The refusal names
+// the occupant to stop by its label when the config names that agent, else (a person's label, a pane nobody labelled)
+// the pane to quit it in. Nothing is touched.
+func (s *Setup) laneFree(ctx context.Context, a agent) error {
+	running, err := s.T.Agents(ctx)
+	if err != nil {
+		return project.Failf("terminal agent list failed (is the terminal running?)")
+	}
+	for _, r := range running {
+		if r.Cwd != a.cwd {
+			continue
+		}
+		who := cmp.Or(r.Label, r.Agent) // its pane's label, else (a pane nobody labelled) its kind
+		if s.cfg.NamesOtherAgent(r.Label, a.name) {
+			return project.Failf("%s still runs in lane %s (pane %s): obor restart %s --stop first", who, a.lane, r.ID, r.Label)
+		}
+		return project.Failf("%s still runs in lane %s (pane %s): quit the agent in pane %s first", who, a.lane, r.ID, r.ID)
+	}
+	return nil
+}
+
 // start places a's pane, labels it and starts the agent (see the package doc); a running agent → OK, nothing done.
 func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	// A lane's model comes with its dispatch (every lane is pooled): --start runs the ref project.LaneModel
@@ -212,33 +234,9 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 		what = a.role.Name
 	}
 	s.placed, s.running, s.started, s.idle = "", false, false, false
-	// One agent in a lane: an agent running in the lane's worktree under another label is the lane's (a lane pane: OK,
-	// nothing to do) or in the drive's way (refused). Neither touches a pane.
-	if a.lane != "" {
-		running, err := s.T.Agents(ctx)
-		if err != nil {
-			return project.Failf("terminal agent list failed (is the terminal running?)")
-		}
-		for _, r := range running {
-			if r.Cwd != a.cwd || r.Label == a.name {
-				continue
-			}
-			who := cmp.Or(r.Label, r.Agent) // its pane's label, else (a pane nobody labelled) its kind
-			switch {
-			case a.role.Name == roles.Driver && r.Label == "": // a pane nobody labelled: its kind is no agent to restart
-				return project.Failf("%s still runs in lane %s (pane %s): quit the agent in pane %s first", who, a.lane, r.ID, r.ID)
-			case a.role.Name == roles.Driver:
-				return project.Failf("%s still runs in lane %s (pane %s): obor restart %s --stop first", who, a.lane, r.ID, who)
-			}
-			s.placed, s.running = r.ID, true
-			s.say("skip agent start: %s already running (pane %s)", who, r.ID)
-			s.say("OK %s: %s already running", what, who)
-			return nil
-		}
-	}
-	// The decision before a pane is placed or labelled (launch's Locate, under the agent's restart lock, held to the
-	// start's last step): where the agent runs, else its home or the --pane target. A pane without --start adds no
-	// agent: serve down does not refuse its label.
+	// The decision before a pane is placed or labelled (launch's Locate, under the agent's restart lock, its lane's for
+	// a lane's agent, held to the start's last step): where the agent runs, else its home or the --pane target. A pane
+	// without --start adds no agent: serve down does not refuse its label.
 	l := s.Starter(s.cfg)
 	loc, end, err := l.Locate(ctx, a.name, w.pane, !a.noStart)
 	if err != nil {
@@ -250,6 +248,11 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 		s.say("skip agent start: %s already running (pane %s)", a.name, loc.Pane)
 		s.say("OK %s: %s already running", what, a.name)
 		return nil
+	}
+	if a.lane != "" {
+		if err := s.laneFree(ctx, a); err != nil {
+			return err
+		}
 	}
 	label := loc.Label
 	if a.noStart && w.pane == "" && loc.Pane != "" { // a rerun: the pane is there, labelled, with no agent

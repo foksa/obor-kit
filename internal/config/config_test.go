@@ -259,12 +259,13 @@ func TestAgentLookupPrecedence(t *testing.T) {
 	}
 	wt := filepath.Join(filepath.Dir(root), "proj-wt")
 	for name, want := range map[string]AgentInfo{
-		"pj-l-01":      {Role: "worker", Lane: "L-01", Cwd: wt + "/L-01"},
-		"pj-l-02":      {Role: "worker", Lane: "L-02", Cwd: wt + "/L-02"},
-		"pj-int":       {Role: "integrator", Type: "sonnet", Cwd: wt + "/integrator"}, // its role worktree
-		"pj-lead":      {Role: "lead", Type: "opus", Effort: "high", Cwd: root},
-		"pj-deep-dive": {Role: "deep_dive", Type: "opus", Cwd: wt + "/deep_dive"}, // its role worktree
-		"pj-triage":    {Role: "triage", Cwd: root},
+		"pj-l-01":       {Role: "worker", Lane: "L-01", Cwd: wt + "/L-01"},
+		"pj-l-02":       {Role: "worker", Lane: "L-02", Cwd: wt + "/L-02"},
+		"pj-l-02-drive": {Role: "driver", Lane: "L-02", Cwd: wt + "/L-02"},             // a lane's drive: its lane and worktree
+		"pj-int":        {Role: "integrator", Type: "sonnet", Cwd: wt + "/integrator"}, // its role worktree
+		"pj-lead":       {Role: "lead", Type: "opus", Effort: "high", Cwd: root},
+		"pj-deep-dive":  {Role: "deep_dive", Type: "opus", Cwd: wt + "/deep_dive"}, // its role worktree
+		"pj-triage":     {Role: "triage", Cwd: root},
 	} {
 		if got, ok := c.AgentLookup(name, ""); !ok || got != want {
 			t.Errorf("AgentLookup(%q) = %+v, %v; want %+v", name, got, ok, want)
@@ -275,6 +276,13 @@ func TestAgentLookupPrecedence(t *testing.T) {
 	}
 	if _, ok := c.AgentLookup("unknown", ""); ok {
 		t.Error("unknown agent found")
+	}
+	if _, ok := c.AgentLookup("pj-l-03-drive", ""); ok {
+		t.Error("the drive name of a lane the config does not have is known")
+	}
+	want := []string{"pj-l-01", "pj-l-01-drive", "pj-l-02", "pj-l-02-drive"}
+	if got := c.Agents(); len(got) < len(want) || !reflect.DeepEqual(got[:len(want)], want) {
+		t.Errorf("Agents = %v, want the lanes' workers and drives first: %v", got, want)
 	}
 	// the removed forms resolve to nothing: the compact lane alias (pj-l1), an agents entry (adv) and the bare
 	// lane name (l-01).
@@ -292,6 +300,8 @@ func TestAgentLookupPrecedence(t *testing.T) {
 	}{
 		{"another lane's worker", "pj-l-02", []string{"pj-l-01"}, true},
 		{"a role's agent", "pj-int", []string{"pj-l-01"}, true},
+		{"a lane's drive agent", "pj-l-01-drive", []string{"pj-l-01"}, true},
+		{"its own drive name", "pj-l-01-drive", []string{"pj-l-01-drive"}, false},
 		{"its own name", "pj-l-01", []string{"pj-l-01"}, false},
 		{"its own name, another agent's list", "pj-l-01", []string{"pj-l-02"}, true},
 		{"an old alias", "pj-l1", []string{"pj-l-01"}, false},

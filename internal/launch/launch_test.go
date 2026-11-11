@@ -2689,6 +2689,34 @@ func TestOneRestartLock(t *testing.T) {
 	eq(t, strings.Join(seen, " "), "run:restart-pj-int.lock", "no lane: the agent's lock")
 }
 
+// A lane's drive agent is its lane's (config.AgentLookup): its restart and its stop hold the lane's restart lock, not
+// one of its own name, and its env line is the driver's in the lane, not a worker's nor an unknown agent's.
+func TestDriveNameTakesItsLanesRestartLock(t *testing.T) {
+	t.Parallel()
+	x := setup(t)
+	x.sid("pj-l-01-drive", "sid-1")
+	x.agent("w1:p3", "pj-l-01-drive", "claude", "idle")
+	var seen []string
+	lane, own := launch.RestartLock(x.p.Root, "L-01", ""), launch.RestartLock(x.p.Root, "", "pj-l-01-drive")
+	x.wrap = func(h port.PaneControl) port.PaneControl { return lockSpy{h, []*project.Lock{lane, own}, &seen} }
+	out, ok := x.restart(launch.Request{Agent: "pj-l-01-drive"})
+	if !ok {
+		t.Fatal(out)
+	}
+	eq(t, strings.Join(seen, " "), "run:restart-L-01.lock run:restart-L-01.lock start:restart-L-01.lock",
+		"the lane's restart lock held at the /exit, the env line and the start")
+	env := strings.Join(x.calls("pane.send_input pane_id=w1:p3"), "\n")
+	has(t, env, "export OBOR_ROLE=driver OBOR_LANE=L-01 OBOR_PANE=w1:p3", "the drive's env line")
+
+	seen = nil
+	x.reset()
+	x.agent("w1:p3", "pj-l-01-drive", "claude", "idle")
+	if out, ok := x.stop("pj-l-01-drive", "", false); !ok {
+		t.Fatal(out)
+	}
+	eq(t, strings.Join(seen, " "), "run:restart-L-01.lock", "the stop: the lane's lock")
+}
+
 // lockedBuf is a bytes.Buffer a restart's goroutine writes while the test reads it.
 type lockedBuf struct {
 	mu sync.Mutex
