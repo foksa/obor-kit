@@ -95,7 +95,7 @@ func TestWorktreeLinksAddsNothingWithoutASettingsFile(t *testing.T) {
 }
 
 // The With forms answer from the git query they are given: tracked → no settings link; untracked and present → the
-// settings file linked; listed in lanes.links → once.
+// settings file linked to the main checkout's copy; listed in lanes.links → once.
 func TestWorktreeLinksWithAsksTheQueryItIsGiven(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -144,8 +144,10 @@ func TestWorktreeLinksWithAsksTheQueryItIsGiven(t *testing.T) {
 			if err != nil || !reflect.DeepEqual(linked, tt.want) {
 				t.Fatalf("LinkInto = %q, %v; want %q", linked, err, tt.want)
 			}
-			if _, err := os.Lstat(filepath.Join(dir, PluginSettings)); (err == nil) != slices.Contains(tt.want, PluginSettings) {
-				t.Errorf("settings file in the worktree: %v, want its presence to match %q", err, tt.want)
+			if slices.Contains(tt.want, PluginSettings) {
+				linksTo(t, cfg.Root, dir, PluginSettings)
+			} else if _, err := os.Lstat(filepath.Join(dir, PluginSettings)); err == nil {
+				t.Errorf("the worktree has the settings file, though the links %q do not list it", tt.want)
 			}
 		})
 	}
