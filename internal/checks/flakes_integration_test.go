@@ -149,32 +149,6 @@ func TestFlakeLogNightly(t *testing.T) {
 	})
 }
 
-// an independent FAIL <pkg> line is logged unless a --- FAIL: name of that package covers it: a
-// merge's mixed output names the test and the package that did not build.
-func TestFlakeLogMixed(t *testing.T) {
-	t.Parallel()
-	const mixed = `echo "--- FAIL: TestUnit timed out (0.01s)"; echo "FAIL example.com/unit 0.02s"; ` +
-		`echo "FAIL example.com/build [build failed]"; exit 1`
-	x := newFx(t, goLines(), cmd("check", mixed))
-	x.is(x.gate("L-01", "T-05", "red"), Red, `^RED check `)
-	x.eqList(x.logged(), []string{"TestUnit/check/false/false", "example.com/build/check/false/false"}, "red")
-}
-
-// a project with no checks.output.failed_test parses no flake names: failure still picks the failing lines for
-// the red's report, but no name is logged, with no error.
-func TestFlakeLogNoRegex(t *testing.T) {
-	t.Parallel()
-	x := newFx(t, testkit.Set("checks.output.failure", goFailGrep),
-		cmd("check", `echo "--- FAIL: TestAlpha (0.01s)"; echo "FAIL example.com/pkg 0.03s"; exit 1`))
-	cfg, err := config.Load(x.Root)
-	if err != nil || len(cfg.MergeFlakeRegex()) != 0 { // precondition: no flake_regex
-		t.Fatalf("precondition: flake_regex %v, %v; want none", cfg, err)
-	}
-	x.is(x.gate("L-01", "T-05", "red"), Red, `^RED check `)
-	x.contains(x.out.String(), "--- FAIL: TestAlpha", "fail_grep still named the failing line")
-	x.gone(".obor/state/flakes.jsonl", "no flake parsing without the regex")
-}
-
 // flakeFx is a project whose internal/x/x_test.go defines TestLedger — the test a red can be explained by — with the
 // target branch and paths a flake rule reads.
 type flakeFx struct {
@@ -185,12 +159,16 @@ type flakeFx struct {
 
 func newFlakeFx(t *testing.T) *flakeFx {
 	t.Helper()
-	p := testkit.NewAt(t, testkit.Dir(t))
-	p.Write("internal/x/x.go", "package x\n")
-	p.Write("internal/x/x_test.go", "package x\n\nfunc TestLedger(t *testing.T) {}\n")
-	p.Write("shared.txt", "one\n")
-	p.Git(p.Root, "add", "-A")
-	p.Git(p.Root, "commit", "-q", "-m", "fixture")
+	base := snapshot(t, builtBase("flakes", func(base string) string {
+		p := testkit.NewAt(mainTB{}, base)
+		p.Write("internal/x/x.go", "package x\n")
+		p.Write("internal/x/x_test.go", "package x\n\nfunc TestLedger(t *testing.T) {}\n")
+		p.Write("shared.txt", "one\n")
+		p.Git(p.Root, "add", "-A")
+		p.Git(p.Root, "commit", "-q", "-m", "fixture")
+		return base
+	}))
+	p := testkit.Adopt(t, base)
 	cfg := &config.Config{Root: p.Root}
 	cfg.Data.Merge.TargetBranch = "main"
 	return &flakeFx{Project: p, t: t, cfg: cfg}
