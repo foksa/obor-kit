@@ -599,16 +599,27 @@ func (h *heldName) Unwrap() error { return h.Err }
 // came up, the caller polls for it (launch.started). herdr lags in noticing an exit and holds a name from a pane that
 // ran the agent before: a name it refuses as taken while no live agent elsewhere holds it is cleared, said on say, and
 // the start retried once (a clear that fails warns on say too). A live agent in another pane holding the name is a
-// refusal: nothing is cleared, and the error is port.NameHeld's, with the holder's pane and label. Sent once otherwise,
-// never retried: a request that timed out may have been typed (Reached).
+// refusal: nothing is cleared, and the error is port.NameHeld's, with the holder's pane and label. The holder lookup
+// must answer: herdr's not-found means no holder, any other lookup error (or an answer with no pane) ends the start
+// with it, nothing cleared and no retry. Sent once otherwise, never retried: a request that timed out may have been
+// typed (Reached).
 func (s *Socket) Start(ctx context.Context, name, kind, pane string, say func(format string, args ...any), args ...string) (port.Pane, error) {
 	a, err := s.start(ctx, name, kind, pane, args...)
 	var e *Error
 	if !errors.As(err, &e) || !e.nameTaken() {
 		return a, err
 	}
+	// A lookup that did not answer "no such agent" proves nothing about the name: clearing on it would drop a live
+	// holder's name and start a second agent.
+	h, herr := s.agentAt(ctx, name)
+	if herr != nil && !errors.Is(herr, ErrNotFound) {
+		return a, herr
+	}
 	holder := ""
-	if h, herr := s.agentAt(ctx, name); herr == nil {
+	if herr == nil {
+		if h.ID == "" {
+			return a, &Error{Kind: BadAnswer, Op: "agent.get", Msg: "no pane in the agent", reached: true}
+		}
 		holder = h.ID
 	}
 	if holder != "" && holder != pane { // a live agent in another pane holds it: the start stays refused
