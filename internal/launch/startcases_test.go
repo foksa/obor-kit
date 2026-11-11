@@ -14,11 +14,20 @@ import (
 	"obor/internal/launch"
 )
 
-// codeErr is a terminal error with its code (herdr's agent_pane_busy, timeout, …).
-type codeErr string
+// termErr is a terminal's error as the port's predicates read it: a target it does not have, a pane that is no
+// available shell, a start it gave up waiting on.
+type termErr string
 
-func (e codeErr) Error() string     { return "herdr: " + string(e) }
-func (e codeErr) ErrorCode() string { return string(e) }
+const (
+	errNotFound termErr = "not found"
+	errPaneBusy termErr = "pane busy"
+	errTimedOut termErr = "timed out"
+)
+
+func (e termErr) Error() string  { return "herdr: " + string(e) }
+func (e termErr) NotFound() bool { return e == errNotFound }
+func (e termErr) PaneBusy() bool { return e == errPaneBusy }
+func (e termErr) TimedOut() bool { return e == errTimedOut }
 
 // memPane is an in-memory PaneControl of one pane w1:p3, scripted per row: what its listing shows (Agent), whether
 // its shell has the foreground (ProcessInfo), and each agent start's answer, or none before the start gives up on the
@@ -47,7 +56,7 @@ func (m *memPane) Agent(_ context.Context, target string) (port.Pane, error) {
 		m.onLook(m)
 	}
 	if m.listed.Agent == "" || target != memID {
-		return port.Pane{}, codeErr("agent_not_found")
+		return port.Pane{}, errNotFound
 	}
 	return m.listed, nil
 }
@@ -119,7 +128,7 @@ func TestStartCases(t *testing.T) {
 	busyFirst := func(then func(m *memPane) (port.Pane, error)) func(*memPane, int) (port.Pane, error) {
 		return func(m *memPane, n int) (port.Pane, error) {
 			if n == 1 {
-				return port.Pane{}, codeErr("agent_pane_busy")
+				return port.Pane{}, errPaneBusy
 			}
 			return then(m)
 		}
@@ -193,12 +202,12 @@ func TestStartCases(t *testing.T) {
 			prompt: wake,
 			pane: &memPane{shell: true, listed: claudeIn("idle", true, "old"), start: busyFirst(func(m *memPane) (port.Pane, error) {
 				m.listed = claudeIn("working", true, "new")
-				return port.Pane{}, codeErr("timeout")
+				return port.Pane{}, errTimedOut
 			})},
 			ok: true, want: "new", status: "working", starts: 2, said: "pj-l-01 runs in w1:p3 (working on its first prompt): started"},
 		{name: "old still running, busy until the bound: failed, never started (T-1053)", prompt: wake,
 			pane: &memPane{shell: true, listed: claudeIn("idle", true, "old"), start: func(*memPane, int) (port.Pane, error) {
-				return port.Pane{}, codeErr("agent_pane_busy")
+				return port.Pane{}, errPaneBusy
 			}},
 			ok: false, starts: -1, said: "is not an available shell yet (herdr: agent_pane_busy)", end: claudeIn("idle", true, "old")},
 		{name: "accepted pending, the CLI exits (the pending launch ends, no agent): failed", up: shortWait,

@@ -26,9 +26,10 @@
 //	         agent_pane_busy is retried like that within the same bound; past it, no start and a FAIL naming the pane.
 //	         RESTARTED only when the start succeeded and its agent is seen.
 //	Start    the env line typed at the shell (never into another program), then Start (the one start, shared with
-//	         obor setup): the pane labelled <agent>, herdr agent start (agent_name_taken: cleared and retried once), a
-//	         look for a startup dialog. The start ends when its agent runs in the pane, not at herdr's own bound for an
-//	         agent ready for input. herdr's agent name is neither required nor renamed back.
+//	         obor setup): the pane labelled <agent>, herdr agent start (a name herdr kept from a pane that ran the
+//	         agent before: cleared and retried once), a look for a startup dialog. The start ends when its agent runs
+//	         in the pane, not at herdr's own bound for an agent ready for input. herdr's agent name is neither
+//	         required nor renamed back.
 //	Self     the caller's own pane (project.Pane): scheduled, see self.go.
 //
 // Every operation registers one op record (kind restart) for its whole run.
@@ -621,7 +622,7 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 			t.pane, l.shellWait())
 	case errors.As(err, &se) && se.NotReady:
 		return port.Started{}, l.giveUp(ctx, t, "start failed in %s (%s)", t.pane, se.Hint)
-	case errors.As(err, &se) && port.ErrorCode(se.Err) == "agent_pane_busy":
+	case errors.As(err, &se) && port.PaneBusy(se.Err):
 		return port.Started{}, l.giveUp(ctx, t, "start failed in %s (herdr: the pane is not an available shell: the old "+
 			"agent has not left it; run obor restart %s --pane %s again or start it by hand)", t.pane, t.agent, t.pane)
 	case errors.As(err, &se):

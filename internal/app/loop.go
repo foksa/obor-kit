@@ -520,14 +520,14 @@ func (a *App) shutDown(what string) {
 
 // failed counts err, the failure of mt's step (the failure rule: do): fact failed{step: why}, so a restart keeps the
 // count. The tries-th is needs-you{<step> failed: why}; while it is in force the step is not tried, and obor resume
-// ends it and the count. An attempt cut off by ctx or by the loss of the herdr connection is not counted, nor herdr's
-// agent_not_found within startSettle of the start of mt's agent (herdr may not know a new agent's name yet): while
-// serve runs the step then waits before its next try (uncounted). The task waits either way.
+// ends it and the count. An attempt cut off by ctx or by the loss of the herdr connection is not counted, nor the
+// terminal's not-found for mt's agent within startSettle of its start (unsettled): while serve runs the step then
+// waits before its next try (uncounted). The task waits either way.
 func (a *App) failed(ctx context.Context, p *proj, mt mtask, step string, err error) bool {
 	a.mu.Lock()
 	cut := cutByServe(ctx, err) || !a.connected || a.p != p
 	a.mu.Unlock()
-	if port.ErrorCode(err) == "agent_not_found" && !mt.startAt.IsZero() && a.opt.Now().Sub(mt.startAt) < startSettle {
+	if unsettled(err, mt.startAt, a.opt.Now()) {
 		cut = true
 	}
 	if cut { // the step was cut, not failed
@@ -550,9 +550,15 @@ func (a *App) failed(ctx context.Context, p *proj, mt mtask, step string, err er
 	return false
 }
 
-// startSettle is how long after an agent's start herdr's agent_not_found for it is transient (failed): herdr's own
-// startup bound.
+// startSettle is how long after an agent's start the terminal's not-found for that agent is transient (unsettled):
+// herdr's own startup bound.
 const startSettle = 30 * time.Second
+
+// unsettled: err is the terminal's not-found for the agent started at startAt, less than startSettle before now:
+// herdr may not know a new agent's name yet, so the step is not counted at once (failed).
+func unsettled(err error, startAt, now time.Time) bool {
+	return port.NotFound(err) && !startAt.IsZero() && now.Sub(startAt) < startSettle
+}
 
 // loopStatus notes that a pass over p failed (err) or did not (nil) at one source (the loop's adapters, the lanes
 // read): a failure is recorded as a needs-you "loop: <error>" once per distinct error (the owner is notified, the

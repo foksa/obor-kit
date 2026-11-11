@@ -184,11 +184,11 @@ func (l *Launcher) stop(ctx context.Context, t *target, force, escape bool, hint
 	return l.finish(ctx, t, before, running)
 }
 
-// forceFail is a stop's FAIL that only force gets past (port.CodeNeedsForce): serve's drop refuses then.
+// forceFail is a stop's FAIL that only force gets past (port.NeedsForce): serve's drop refuses then.
 type forceFail struct{ project.Fail }
 
-func (forceFail) ErrorCode() string { return port.CodeNeedsForce }
-func (f forceFail) Unwrap() error   { return f.Fail }
+func (forceFail) NeedsForce() bool { return true }
+func (f forceFail) Unwrap() error  { return f.Fail }
 func needsForce(format string, a ...any) error {
 	return forceFail{project.Fail(fmt.Sprintf(format, a...))}
 }
@@ -218,10 +218,10 @@ func programs(kind string) string {
 }
 
 // awaitIdle: the agent in pane went idle (or done, or left) within d, as herdr's agent.wait says: one server-owned
-// wait instead of a poll of agent.get. Only herdr's timeout says it is still busy; an agent that left
+// wait instead of a poll of agent.get. Only herdr's timeout (TimedOut) says it is still busy; an agent that left
 // (agent_not_running) and any other error are done, as the poll's error was.
 func (l *Launcher) awaitIdle(ctx context.Context, pane string, d time.Duration) bool {
-	return port.ErrorCode(l.H.Wait(ctx, pane, []string{"idle", "done"}, d)) != "timeout"
+	return !port.TimedOut(l.H.Wait(ctx, pane, []string{"idle", "done"}, d))
 }
 
 // finish ends the exited agent's leftovers, if they keep the foreground.

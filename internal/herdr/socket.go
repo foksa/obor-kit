@@ -70,11 +70,29 @@ func Reached(err error) bool {
 	return !errors.As(err, &e) || e.reached
 }
 
-// NotFound, Unavailable and ErrorCode let the core read an *Error without importing herdr (port.NotFound,
-// port.NotRunning, port.ErrorCode).
+// NotFound, Unavailable, PaneBusy, NotReady, Blocked, TimedOut and Answered let the core read an *Error without
+// importing herdr (port.NotFound, port.NotRunning, port.PaneBusy, …): herdr's error codes stay in this package.
 func (e *Error) NotFound() bool    { return e.Kind == NotFound }
 func (e *Error) Unavailable() bool { return e.Kind == Unavailable }
-func (e *Error) ErrorCode() string { return e.Code }
+
+// PaneBusy: herdr says the pane is not an available shell to start an agent in (agent_pane_busy, pane_not_available).
+func (e *Error) PaneBusy() bool { return e.Code == "agent_pane_busy" || e.Code == "pane_not_available" }
+
+// NotReady: herdr says the agent started but waits at a startup dialog (agent_not_ready).
+func (e *Error) NotReady() bool { return e.Code == "agent_not_ready" }
+
+// Blocked: herdr says the agent is blocked on a dialog (agent_blocked, blocked).
+func (e *Error) Blocked() bool { return e.Code == "agent_blocked" || e.Code == "blocked" }
+
+// TimedOut: herdr ended the wait at its own timeout (timeout).
+func (e *Error) TimedOut() bool { return e.Code == "timeout" }
+
+// Answered: herdr sent this error itself, its code with it (an unreadable answer or a lost connection has none).
+func (e *Error) Answered() bool { return e.Code != "" }
+
+// nameTaken: herdr refused a start name this pane ran the agent under before, or one another live agent holds
+// (agent_name_taken).
+func (e *Error) nameTaken() bool { return e.Code == "agent_name_taken" }
 
 func (e *Error) Error() string {
 	if e.Code != "" {
@@ -518,9 +536,31 @@ func orNil(s string) any {
 
 // Start is agent.start: name a new agent of kind in pane and type its command line (kind and args) at the pane's
 // shell. herdr answers at once, before the agent runs (launch_pending, live): the answer is no proof the agent
-// came up, the caller polls for it (launch.started). Sent once, never retried: a request that timed out may have
-// been typed (Reached).
+// came up, the caller polls for it (launch.started). herdr lags in noticing an exit and may still hold the name from a
+// pane that ran the agent before: a name it refuses as taken while no live agent elsewhere holds it is cleared and
+// the start retried once. Sent once otherwise, never retried: a request that timed out may have been typed (Reached).
 func (s *Socket) Start(ctx context.Context, name, kind, pane string, args ...string) (port.Pane, error) {
+	a, err := s.start(ctx, name, kind, pane, args...)
+	var e *Error
+	if !errors.As(err, &e) || !e.nameTaken() {
+		return a, err
+	}
+	holder := ""
+	if h, herr := s.Agent(ctx, name); herr == nil {
+		holder = h.ID
+	}
+	if holder != "" && holder != pane { // a live agent elsewhere holds it: the start stays refused
+		return a, err
+	}
+	// herdr kept the name of this pane's own agent, or one no agent holds: clear it and retry.
+	if holder == "" || s.RenameAgent(ctx, holder, "") != nil {
+		_ = s.RenameAgent(ctx, name, "")
+	}
+	return s.start(ctx, name, kind, pane, args...)
+}
+
+// start is agent.start as sent.
+func (s *Socket) start(ctx context.Context, name, kind, pane string, args ...string) (port.Pane, error) {
 	p := map[string]any{"name": name, "kind": kind, "pane_id": pane}
 	if len(args) > 0 {
 		p["args"] = args

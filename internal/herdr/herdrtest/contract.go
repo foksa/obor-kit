@@ -87,8 +87,18 @@ var Contract = []Row{
 	}},
 	{Name: "wait", Run: func(ctx context.Context, t Terminal, pane string) error {
 		_, err := t.Control.WaitForOutput(ctx, pane, "obor-contract-never-printed", 300*time.Millisecond)
-		if port.ErrorCode(err) != "timeout" {
-			return fmt.Errorf("a wait for output never printed: %v; want error code timeout", err)
+		if !port.TimedOut(err) {
+			return fmt.Errorf("a wait for output never printed: %v; want a timed-out error", err)
+		}
+		return nil
+	}},
+	{Name: "pane busy", Agent: true, Run: func(ctx context.Context, t Terminal, pane string) error {
+		// A pane that runs an agent is not an available shell: a start there is refused as PaneBusy, never a start.
+		if _, err := t.Control.Start(ctx, "obor-contract-busy", "claude", pane); err != nil {
+			return fmt.Errorf("a start into the pane's shell: %w", err)
+		}
+		if _, err := t.Control.Start(ctx, "obor-contract-busy-2", "claude", pane); !port.PaneBusy(err) {
+			return fmt.Errorf("a start into the pane that runs an agent: %v; want a pane-busy error", err)
 		}
 		return nil
 	}},
