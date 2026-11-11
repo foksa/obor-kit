@@ -76,7 +76,7 @@ func (m *memPane) Screen(context.Context, string, int) (string, error) { return 
 func (m *memPane) RenamePane(context.Context, string, string) error { return nil }
 
 // Start is the nth start's scripted effect and answer; late, the answer is held until the start cancels the call.
-func (m *memPane) Start(ctx context.Context, _, _, _ string, _ ...string) (port.Pane, error) {
+func (m *memPane) Start(ctx context.Context, _, _, _ string, _ func(format string, args ...any), _ ...string) (port.Pane, error) {
 	m.mu.Lock()
 	m.starts++
 	a, err := m.start(m, m.starts)

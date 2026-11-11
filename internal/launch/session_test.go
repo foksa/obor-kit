@@ -203,8 +203,8 @@ type onStart struct {
 	fn func()
 }
 
-func (s onStart) Start(ctx context.Context, name, kind, pane string, args ...string) (port.Pane, error) {
-	a, err := s.PaneControl.Start(ctx, name, kind, pane, args...)
+func (s onStart) Start(ctx context.Context, name, kind, pane string, say func(format string, args ...any), args ...string) (port.Pane, error) {
+	a, err := s.PaneControl.Start(ctx, name, kind, pane, say, args...)
 	s.fn()
 	return a, err
 }

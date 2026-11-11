@@ -533,9 +533,10 @@ func orNil(s string) any {
 // Start is agent.start: name a new agent of kind in pane and type its command line (kind and args) at the pane's
 // shell. herdr answers at once, before the agent runs (launch_pending, live): the answer is no proof the agent
 // came up, the caller polls for it (launch.started). herdr lags in noticing an exit and may still hold the name from a
-// pane that ran the agent before: a name it refuses as taken while no live agent elsewhere holds it is cleared and
-// the start retried once. Sent once otherwise, never retried: a request that timed out may have been typed (Reached).
-func (s *Socket) Start(ctx context.Context, name, kind, pane string, args ...string) (port.Pane, error) {
+// pane that ran the agent before: a name it refuses as taken while no live agent elsewhere holds it is cleared, said
+// on say, and the start retried once (a clear that fails warns on say too). Sent once otherwise, never retried: a
+// request that timed out may have been typed (Reached).
+func (s *Socket) Start(ctx context.Context, name, kind, pane string, say func(format string, args ...any), args ...string) (port.Pane, error) {
 	a, err := s.start(ctx, name, kind, pane, args...)
 	var e *Error
 	if !errors.As(err, &e) || !e.nameTaken() {
@@ -549,10 +550,31 @@ func (s *Socket) Start(ctx context.Context, name, kind, pane string, args ...str
 		return a, err
 	}
 	// herdr kept the name of this pane's own agent, or one no agent holds: clear it and retry.
-	if holder == "" || s.RenameAgent(ctx, holder, "") != nil {
-		_ = s.RenameAgent(ctx, name, "")
+	at := ""
+	if holder != "" {
+		at = " (pane " + holder + ")"
+	}
+	sayf(say, "agent start: name %s taken%s: clearing it and retrying", name, at)
+	if err := s.clearName(ctx, name, holder); err != nil {
+		sayf(say, "warning: herdr kept the name %s: %v", name, err)
 	}
 	return s.start(ctx, name, kind, pane, args...)
+}
+
+// clearName drops the name a start found taken: the holder's own, else the name itself when no agent holds it (or the
+// holder's could not be cleared). Its error is the last clear's.
+func (s *Socket) clearName(ctx context.Context, name, holder string) error {
+	if holder != "" && s.RenameAgent(ctx, holder, "") == nil {
+		return nil
+	}
+	return s.RenameAgent(ctx, name, "")
+}
+
+// sayf says format through say; nil is silent.
+func sayf(say func(format string, args ...any), format string, args ...any) {
+	if say != nil {
+		say(format, args...)
+	}
 }
 
 // start is agent.start as sent.

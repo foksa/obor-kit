@@ -30,11 +30,12 @@ type (
 // up to 30 s for an agent ready for input, which an agent busy on its first prompt never is); a start with a first
 // prompt whose agent works on it is a start, its launch pending or herdr's call given up on (attempt.counts,
 // busyStart). herdr's agent name is neither required nor renamed back (herdr drops it at times and obor
-// addresses the pane by id). A failed start is a *StartError, herdr's error printed: NoShell when the pane never
-// became its shell, NotReady with a hint when the pane shows a trust dialog or a Codex self-update, or herdr says
-// NotReady. A failed env line is its own error; a failed pane label is a Fail (nothing started). A start reports
-// the confirmed start (serve ends the agent's skew entry) and, for a kind whose sessions its transcript names, its
-// session (done).
+// addresses the pane by id); a name herdr still holds is cleared and the start retried once, the adapter's line for it
+// (and a failed clear's warning) printed here. A failed start is a *StartError, herdr's error printed: NoShell when
+// the pane never became its shell, NotReady with a hint when the pane shows a trust dialog or a Codex self-update, or
+// herdr says NotReady. A failed env line is its own error; a failed pane label is a Fail (nothing started). A start
+// reports the confirmed start (serve ends the agent's skew entry) and, for a kind whose sessions its transcript names,
+// its session (done).
 func (l *Launcher) Start(ctx context.Context, s Start) error {
 	_, err := l.start(ctx, s)
 	return err
@@ -157,7 +158,7 @@ func (l *Launcher) started(ctx context.Context, s Start) attempt {
 	call, cancel := context.WithCancel(ctx)
 	res := make(chan answer, 1)
 	go func() {
-		a, err := l.H.Start(call, s.Agent, s.Kind, s.Pane, s.Args...)
+		a, err := l.H.Start(call, s.Agent, s.Kind, s.Pane, l.say, s.Args...)
 		res <- answer{a, err}
 	}()
 	answered := false
