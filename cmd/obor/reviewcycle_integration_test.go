@@ -5,9 +5,11 @@ package main
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -29,20 +31,50 @@ const acceptedHeadText = "# Accepted findings\n\n" +
 func reviewFixture(t *testing.T) (p *testkit.Project, head string) {
 	t.Helper()
 	p = testkit.New(t)
-	p.Config(testkit.Set("agents.roles.reviewer", ""))
-	p.Write("BACKLOG.md", "# Backlog\n\n## Open\n- old line\n\n## Concerns\n")
-	p.Write(".gitignore", ".obor/state/\n")
-	p.Git(p.Root, "add", "BACKLOG.md", ".gitignore")
-	p.Git(p.Root, "commit", "-q", "-m", "backlog")
-	base := p.Git(p.Root, "rev-parse", "HEAD")
-	p.Git(p.Root, "commit", "-q", "--allow-empty", "-m", "RV-3 closed · "+base[:7]+" · approved · T-1")
-	p.Git(p.Root, "checkout", "-q", "-b", "task/T-5")
-	p.Write("fix.txt", "fix\n")
-	p.Git(p.Root, "add", "fix.txt")
-	p.Git(p.Root, "commit", "-q", "-m", "T-5: fix")
-	p.Git(p.Root, "checkout", "-q", "main")
-	p.Git(p.Root, "merge", "-q", "--no-ff", "-m", "Merge T-5: fix", "task/T-5")
-	return p, p.Git(p.Root, "rev-parse", "HEAD")
+	reviewTmpl.once.Do(func() {
+		p.Config(testkit.Set("agents.roles.reviewer", ""))
+		p.Write("BACKLOG.md", "# Backlog\n\n## Open\n- old line\n\n## Concerns\n")
+		p.Write(".gitignore", ".obor/state/\n")
+		p.Git(p.Root, "add", "BACKLOG.md", ".gitignore")
+		p.Git(p.Root, "commit", "-q", "-m", "backlog")
+		base := p.Git(p.Root, "rev-parse", "HEAD")
+		p.Git(p.Root, "commit", "-q", "--allow-empty", "-m", "RV-3 closed · "+base[:7]+" · approved · T-1")
+		p.Git(p.Root, "checkout", "-q", "-b", "task/T-5")
+		p.Write("fix.txt", "fix\n")
+		p.Git(p.Root, "add", "fix.txt")
+		p.Git(p.Root, "commit", "-q", "-m", "T-5: fix")
+		p.Git(p.Root, "checkout", "-q", "main")
+		p.Git(p.Root, "merge", "-q", "--no-ff", "-m", "Merge T-5: fix", "task/T-5")
+		reviewTmpl.head = p.Git(p.Root, "rev-parse", "HEAD")
+		dir, err := os.MkdirTemp("", "obor-rvfx")
+		if err != nil {
+			t.Fatal(err)
+		}
+		afterRun = append(afterRun, func() { os.RemoveAll(dir) })
+		reviewTmpl.dir = filepath.Join(dir, "proj")
+		if out, err := exec.Command("cp", "-Rp", p.Root, reviewTmpl.dir).CombinedOutput(); err != nil {
+			t.Fatalf("copy the review fixture: %v\n%s", err, out)
+		}
+	})
+	if reviewTmpl.dir == "" {
+		t.Fatal("the review fixture was not built")
+	}
+	if !p.Exists("BACKLOG.md") { // not the project that built it: its Root becomes a copy of the built fixture
+		if err := os.RemoveAll(p.Root); err != nil {
+			t.Fatal(err)
+		}
+		if out, err := exec.Command("cp", "-Rp", reviewTmpl.dir, p.Root).CombinedOutput(); err != nil {
+			t.Fatalf("copy the review fixture: %v\n%s", err, out)
+		}
+	}
+	return p, reviewTmpl.head
+}
+
+// reviewTmpl is the fixture built once per test binary (git runs once, not per test): every reviewFixture's Root is a
+// copy (cp -Rp keeps the index's mtimes); TestMain removes it (afterRun).
+var reviewTmpl struct {
+	once      sync.Once
+	dir, head string
 }
 
 // obor review close is one review_close request to serve: the summary, each --accept line (spaces folded) and
