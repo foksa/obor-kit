@@ -230,8 +230,9 @@ func flakyNames(got []Flaky) string {
 	return strings.Join(out, " ")
 }
 
-// a passed-on-retry line counts as a flake unless a merge after it fixed the test: the merge's spec title names the
-// test, or its diff touched the file that defines it. Reds alone are no flake evidence.
+// a passed-on-retry line counts as a flake unless a merge fixed the test: a merge after it whose spec title names the
+// test, or any merge that changed a file defining the test and that the line's sha does not contain. Reds alone are no
+// flake evidence.
 func TestFlakyRule(t *testing.T) {
 	t.Parallel()
 	const test = "TestLedger"
@@ -251,15 +252,28 @@ func TestFlakyRule(t *testing.T) {
 		}
 	})
 
-	t.Run("the merge that changed the test's file came before the line: an alert", func(t *testing.T) {
+	t.Run("a fix older than the line but not in its sha: no alert", func(t *testing.T) {
 		t.Parallel()
 		x := newFlakeFx(t)
 		t1 := x.task("T-01", map[string]string{"shared.txt": "two\n"})
 		x.task("T-05", map[string]string{"internal/x/x_test.go": fmt.Sprintf(body, "t.Log(1)")})
 		x.mergedAt("T-05", at(-100))
 		got := FlakyTests(x.cfg, []Flake{saved(test, "T-01", t1, at(-50))}, now)
+		if len(got) != 0 {
+			t.Errorf("flaky %q, want none: the line's sha does not contain the fix", flakyNames(got))
+		}
+	})
+
+	t.Run("a red on a sha that contains the fix: an alert", func(t *testing.T) {
+		t.Parallel()
+		x := newFlakeFx(t)
+		x.task("T-01", map[string]string{"shared.txt": "two\n"})
+		x.task("T-05", map[string]string{"internal/x/x_test.go": fmt.Sprintf(body, "t.Log(1)")})
+		x.mergedAt("T-05", at(-100))
+		fixIn := x.Git(x.Root, "rev-parse", "main") // the merge of the fix: the line ran on top of it
+		got := FlakyTests(x.cfg, []Flake{saved(test, "T-01", fixIn, at(-50))}, now)
 		if flakyNames(got) != test {
-			t.Fatalf("flaky %q, want %q: the flake came after the fix", flakyNames(got), test)
+			t.Fatalf("flaky %q, want %q: the line's sha contains the fix", flakyNames(got), test)
 		}
 		if got[0].N != 1 || strings.Join(got[0].Tasks, ",") != "T-01" {
 			t.Errorf("×%d tasks %q, want ×1 tasks T-01", got[0].N, got[0].Tasks)
