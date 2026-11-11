@@ -110,7 +110,11 @@ func resolveAgentJob(root, agent, role, lane string, ask func(wire.RestartJobReq
 		return "", project.Failf("restart %s: obor serve is not running; it may hold an open job for %s: start serve, "+
 			"then restart", agent, agent)
 	}
-	row, ok, _ := store.ReadLaneAt(root, lane)
+	row, ok, rerr := store.ReadLaneAt(root, lane)
+	if rerr != nil { // no proof the lane holds nothing: it may hold a task whose job serve would give
+		return "", fmt.Errorf("%s: its state row cannot be read (%v), so obor serve may hold a job for it: start obor "+
+			"serve, then retry", lane, rerr)
+	}
 	if !ok || row.Task == "" {
 		return "", nil // no task on the lane: the plain restart
 	}

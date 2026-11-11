@@ -350,6 +350,43 @@ func TestStopEndsAPaneServe(t *testing.T) {
 	}
 }
 
+// launchd's agent installed but not loaded (its plist alone) beside a serve in a pane: obor stop removes the plist,
+// says the uninstall's line and then ends the pane serve as usual.
+func TestStopUninstallsAnInstalledAgentThatIsNotLoaded(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("launchd's agent: darwin only")
+	}
+	p, s, out, _, f := sleepFx(t)
+	held := paneServe(t, s, f, true)
+	if !held.Held() {
+		t.Fatal("precondition: serve.flock not held")
+	}
+	svc := serviceOf(s.Cfg, s.Env)
+	if err := os.MkdirAll(filepath.Dir(svc.PlistPath()), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(svc.PlistPath(), svc.Plist(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, loaded := svc.PID(context.Background()); loaded {
+		t.Fatal("precondition: the agent is loaded; this test wants an installed, unloaded one")
+	}
+	if rc := s.stop(context.Background()); rc != 0 {
+		t.Fatalf("exit %d\n%s", rc, out)
+	}
+	if _, err := os.Stat(svc.PlistPath()); !os.IsNotExist(err) {
+		t.Errorf("the installed agent's plist left: %v", err)
+	}
+	for _, w := range []string{"serve: UNINSTALLED " + svc.Label(), "serve: EXITING (pid 999)", "STOPPED proj"} {
+		if !strings.Contains(out.String(), w) {
+			t.Errorf("no %q line:\n%s", w, out)
+		}
+	}
+	if !project.Stopped(p.Root) {
+		t.Error("no marker")
+	}
+}
+
 // a serve in a pane that answers its exit but keeps serve.flock is not confirmed down: refused, the pause
 // cleared, no marker.
 func TestStopRefusesAPaneServeThatStaysUp(t *testing.T) {

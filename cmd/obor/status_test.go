@@ -150,7 +150,7 @@ func taskLines(t *testing.T, st wire.Status) map[string]string {
 	tasks := map[string]view.Task{}
 	for _, ts := range st.Project.Tasks { // what view.Build takes of serve's tasks for these lines
 		tasks[ts.Task] = view.Task{Task: ts.Task, Lane: ts.Lane, Attempt: ts.Attempt, TaskState: ts.State, Open: !ts.Ended,
-			Phase: ts.Phase, Running: ts.Running}
+			Waiting: ts.Waiting, Phase: ts.Phase, Running: ts.Running}
 	}
 	writeStatus(&buf, view.Project{Serve: view.Serve{Up: true, Terminal: true, Project: true, Merging: true},
 		Tasks: tasks}, time.Now())
@@ -218,10 +218,33 @@ func TestStatusShowsWaiting(t *testing.T) {
 	}
 	// A waiting task is the queue's: no task line of its own in the lanes section.
 	st := heldGateStatus()
-	st.Project.Tasks = append(st.Project.Tasks, wire.TaskStatus{Task: "T-4", Attempt: 1, State: "waiting",
+	st.Project.Tasks = append(st.Project.Tasks, wire.TaskStatus{Task: "T-4", Attempt: 1, State: "waiting", Waiting: true,
 		After: []string{"T-2"}})
 	if line, ok := taskLines(t, st)["T-4"]; ok {
 		t.Errorf("a waiting task listed as a task line: %q", line)
+	}
+}
+
+// A waiting dispatch that held its refusal so long that serve shows it as needs-you is still the queue's, not a task
+// line of the lanes section: serve's waiting predicate decides, never the displayed state.
+func TestStatusWaitingShownAsNeedsYou(t *testing.T) {
+	t.Parallel()
+	p := testkit.NewPlain(t)
+	p.Config()
+	now := time.Now()
+	ss := wire.Status{Connected: true, Project: &wire.ProjectStatus{Name: "pj", Root: p.Root,
+		Tasks: []wire.TaskStatus{{Task: "T-2", Attempt: 1, State: wire.PhaseNeedsYou, Waiting: true, Rank: 1,
+			Phase: wire.PhaseWaiting, After: []string{"T-1"}, Why: "dispatch T-2: lane of its type is working on T-1",
+			Level: "medium", Types: []string{"sonnet"}, Difficulty: "medium", Model: "sonnet"}}}}
+	st, text := statusOf(t, p, ss, nil, now)
+	if t2 := st.Tasks["T-2"]; !t2.Waiting || !t2.Open {
+		t.Fatalf("precondition: T-2 waiting %v, open %v; want a waiting dispatch serve reports", t2.Waiting, t2.Open)
+	}
+	if strings.Contains(text, "task T-2 ") {
+		t.Errorf("a waiting task shown as needs-you listed as a task line:\n%s", text)
+	}
+	if !strings.Contains(text, "queued T-2 ") {
+		t.Errorf("a waiting task shown as needs-you not in the queue:\n%s", text)
 	}
 }
 

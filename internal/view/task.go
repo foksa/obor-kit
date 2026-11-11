@@ -22,6 +22,9 @@ type Task struct {
 	TaskState string `json:"task_state,omitempty"` // serve's state of it ("": serve has no such task)
 	Open      bool   `json:"open,omitempty"`       // serve still has it in its merge loop (not ended)
 	Phase     string `json:"phase,omitempty"`      // serve's phase of it (wire.Phase*)
+	// Waiting is serve's waiting predicate of it (wire.TaskStatus.Waiting): the dispatch waits for its After tasks, a
+	// lane of its level or its keep lane, whatever state serve shows.
+	Waiting bool `json:"waiting,omitempty"`
 	// Step is the step its phase places it on (wire.PhaseStep; nil: needs-you, held, ended or no phase, which its
 	// records place).
 	Step    *int   `json:"step,omitempty"`
@@ -62,6 +65,7 @@ func tasks(ps wire.ProjectStatus, lanes []port.Lane, specs map[string]store.Spec
 	for _, st := range ps.Tasks {
 		t := get(st.Task)
 		t.TaskState, t.Phase, t.Attempt, t.Running, t.Effort = st.State, st.Phase, st.Attempt, st.Running, st.Effort
+		t.Waiting = st.Waiting
 		t.Ref = st.Ref
 		t.Open = !st.Ended
 		if st.Lane != "" {

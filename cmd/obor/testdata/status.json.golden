@@ -97,6 +97,7 @@
       "task_state": "waiting",
       "open": true,
       "phase": "waiting",
+      "waiting": true,
       "step": 0
     },
     "T-04": {
@@ -106,6 +107,7 @@
       "task_state": "waiting",
       "open": true,
       "phase": "waiting",
+      "waiting": true,
       "step": 0
     },
     "T-05": {
