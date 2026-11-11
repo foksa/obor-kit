@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// kit is a temp kit with VERSION 1.2.3 and a home; bin writes an executable script at path.
+// kit is a temp kit with VERSION 1.2.3 and a home; bin writes an executable file at path.
 type kit struct {
 	t          *testing.T
 	root, home string
@@ -29,14 +29,15 @@ func (k *kit) fetched() string {
 	return filepath.Join(k.home, ".obor", "bin", "obor-1.2.3-"+runtime.GOOS+"-"+runtime.GOARCH)
 }
 
-// bin writes an executable script at path whose `version` exits code, its mtime a minute ago (past the quiet period).
-func (k *kit) bin(path string, code string) {
+// bin writes an executable binary at path, its mtime a minute ago (past the quiet period). A test's Probe answers for
+// it: no process runs the file.
+func (k *kit) bin(path string) {
 	k.t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		k.t.Fatal(err)
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte("#!/bin/sh\nexit "+code+"\n"), 0o755); err != nil {
+	if err := os.WriteFile(tmp, []byte("a binary\n"), 0o755); err != nil {
 		k.t.Fatal(err)
 	}
 	if err := os.Rename(tmp, path); err != nil { // a new inode, as the shim's fetch and go build -o write it
@@ -46,6 +47,11 @@ func (k *kit) bin(path string, code string) {
 	if err := os.Chtimes(path, old, old); err != nil {
 		k.t.Fatal(err)
 	}
+}
+
+// passing is the probe of a candidate whose `version` exits 0: it counts the probes.
+func passing(n *int) func(string) bool {
+	return func(string) bool { *n++; return true }
 }
 
 // The candidate is the shim's rule: dist/obor when executable, else the fetched binary of the kit's VERSION; no
@@ -64,7 +70,7 @@ func TestCandidate(t *testing.T) {
 	if got := Candidate(k.root, k.home); got != k.fetched() {
 		t.Errorf("dist/obor not executable: candidate %q, want the fetched binary", got)
 	}
-	k.bin(k.dev(), "0")
+	k.bin(k.dev())
 	if got := Candidate(k.root, k.home); got != k.dev() {
 		t.Errorf("dist/obor executable: candidate %q, want %q", got, k.dev())
 	}
@@ -77,28 +83,38 @@ func TestCandidate(t *testing.T) {
 // rebuild) and on another candidate (dist/obor removed: the fetched binary), not on the same file.
 func TestChangedOnNewInode(t *testing.T) {
 	k := newKit(t)
-	k.bin(k.dev(), "0")
+	k.bin(k.dev())
 	w := watchOf(k.root, k.home, k.dev())
+	probes := 0
+	w.Probe = passing(&probes)
 	if !w.On() {
 		t.Fatal("precondition: the watch of the kit's candidate is on")
 	}
 	if w.Changed() {
 		t.Fatal("the running binary is the candidate: changed, want not")
 	}
-	k.bin(k.dev(), "0") // a rebuild: a new inode at the same path
+	if probes != 0 {
+		t.Fatal("the running binary was probed")
+	}
+	k.bin(k.dev()) // a rebuild: a new inode at the same path
 	if !w.Changed() {
 		t.Error("dist/obor rebuilt: not changed, want changed")
 	}
-	k.bin(k.fetched(), "0")
+	k.bin(k.fetched())
 	if err := os.Remove(k.dev()); err != nil {
 		t.Fatal(err)
 	}
 	if !w.Changed() {
 		t.Error("dist/obor gone, the fetched binary there: not changed, want changed")
 	}
+	if probes != 2 {
+		t.Errorf("2 new candidates: %d probes, want 2", probes)
+	}
 	other := filepath.Join(t.TempDir(), "obor")
-	k.bin(other, "0")
-	if off := watchOf(k.root, k.home, other); off.On() || off.Changed() {
+	k.bin(other)
+	off := watchOf(k.root, k.home, other)
+	off.Probe = passing(&probes)
+	if off.On() || off.Changed() {
 		t.Error("a binary that is not the kit's candidate (a lane or test build): the watch is on, want off")
 	}
 }
@@ -106,8 +122,10 @@ func TestChangedOnNewInode(t *testing.T) {
 // A candidate that is missing (a kit checked out at a new tag before its binary is fetched) is no change.
 func TestChangedMissingBinary(t *testing.T) {
 	k := newKit(t)
-	k.bin(k.fetched(), "0")
+	k.bin(k.fetched())
 	w := watchOf(k.root, k.home, k.fetched())
+	probes := 0
+	w.Probe = passing(&probes)
 	if !w.On() {
 		t.Fatal("precondition: the watch of the fetched binary is on")
 	}
@@ -120,7 +138,10 @@ func TestChangedMissingBinary(t *testing.T) {
 	if w.Changed() {
 		t.Error("the new VERSION's binary is not fetched: changed, want not")
 	}
-	k.bin(Candidate(k.root, k.home), "0")
+	if probes != 0 {
+		t.Fatal("a missing candidate was probed")
+	}
+	k.bin(Candidate(k.root, k.home))
 	if !w.Changed() {
 		t.Error("the new VERSION's binary fetched: not changed, want changed")
 	}
@@ -129,38 +150,53 @@ func TestChangedMissingBinary(t *testing.T) {
 // A candidate whose `version` fails is no change, and it is not probed again until it changes.
 func TestChangedFailingProbe(t *testing.T) {
 	k := newKit(t)
-	k.bin(k.dev(), "0")
+	k.bin(k.dev())
 	w := watchOf(k.root, k.home, k.dev())
-	k.bin(k.dev(), "3")
+	passes := false
+	probes := 0
+	w.Probe = func(string) bool { probes++; return passes }
+	k.bin(k.dev())
 	if w.Changed() {
-		t.Fatal("a candidate whose version exits 3: changed, want not")
+		t.Fatal("a candidate whose probe fails: changed, want not")
 	}
 	if w.bad == nil {
 		t.Fatal("the failed candidate is not remembered")
 	}
+	if probes != 1 {
+		t.Fatalf("%d probes of a failing candidate, want 1", probes)
+	}
 	// Made to pass in place (same inode, same mtime): still the remembered failure, not probed again.
 	old, _ := os.Stat(k.dev())
-	if err := os.WriteFile(k.dev(), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+	if err := os.WriteFile(k.dev(), []byte("a better binary\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chtimes(k.dev(), old.ModTime(), old.ModTime()); err != nil {
 		t.Fatal(err)
 	}
+	passes = true
 	if w.Changed() {
 		t.Error("the failed candidate unchanged: probed again")
 	}
-	k.bin(k.dev(), "0")
+	if probes != 1 {
+		t.Errorf("the remembered candidate: %d probes, want 1", probes)
+	}
+	k.bin(k.dev())
 	if !w.Changed() {
 		t.Error("a new candidate after a failed one: not changed, want changed")
+	}
+	if probes != 2 {
+		t.Errorf("%d probes, want 2", probes)
 	}
 }
 
 // A candidate younger than the quiet period may still be written: no change until it is Quiet old.
 func TestChangedQuietPeriod(t *testing.T) {
 	k := newKit(t)
-	k.bin(k.dev(), "0")
+	k.bin(k.dev())
 	w := watchOf(k.root, k.home, k.dev())
-	k.bin(k.dev(), "0")
+	probes := 0
+	w.Probe = passing(&probes)
+	k.bin(k.dev())
 	fi, err := os.Stat(k.dev())
 	if err != nil {
 		t.Fatal(err)
@@ -169,8 +205,30 @@ func TestChangedQuietPeriod(t *testing.T) {
 	if w.Changed() {
 		t.Error("a candidate written 4 s ago: changed, want not")
 	}
+	if probes != 0 {
+		t.Error("a candidate inside the quiet period was probed")
+	}
 	w.Now = func() time.Time { return fi.ModTime().Add(Quiet) }
 	if !w.Changed() {
 		t.Error("a candidate written 5 s ago: not changed, want changed")
+	}
+	if probes != 1 {
+		t.Errorf("a candidate past the quiet period: %d probes, want 1", probes)
+	}
+}
+
+// probe runs the binary's `version` and passes on exit 0: the system's true (0) and false (1), signed, so no first-run
+// check of a fresh executable is paid.
+func TestProbe(t *testing.T) {
+	for _, c := range []struct {
+		bin  string
+		want bool
+	}{{"/usr/bin/true", true}, {"/usr/bin/false", false}} {
+		if _, err := os.Stat(c.bin); err != nil {
+			t.Fatalf("precondition: %s: %v", c.bin, err)
+		}
+		if got := probe(c.bin); got != c.want {
+			t.Errorf("%s version: probe %v, want %v", c.bin, got, c.want)
+		}
 	}
 }

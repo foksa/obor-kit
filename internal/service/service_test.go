@@ -2,10 +2,13 @@ package service
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -29,80 +32,119 @@ func TestPlistGolden(t *testing.T) {
 	}
 }
 
-// fakeLaunchctl puts a launchctl on PATH that logs each call (one line of its args) and keeps one label's state in
-// state (a file: bootstrap loads it, bootout unloads it, print answers "pid = <the pid file, else 4242>" while loaded
-// and exits 113 otherwise). Knobs, in state's directory: a file eio holding n fails the next n bootstraps
-// with launchd's "5: Input/output error", nothing loaded; a file noload makes bootstrap exit 0 loading nothing. In
-// the environment: FAKE_KICK_PID is written to the pid file as kickstart begins, FAKE_KICK_UNLOAD unloads the label
-// then, FAKE_KICK_SLEEP seconds it then takes (exec sleep: a kill ends it), and FAKE_KICK_EXIT is its exit code.
-//
-// The script is the same for every test, under its per-test dir in FAKE_LAUNCHCTL_DIR (macOS charges ~60-200 ms
-// for the first exec of a fresh file, so a script written per call would dominate these tests).
-func fakeLaunchctl(t *testing.T) (log, state string) {
-	dir := t.TempDir()
-	log = filepath.Join(dir, "calls")
-	state = filepath.Join(dir, "loaded")
-	if fakeDir == "" {
-		d, err := os.MkdirTemp("", "obor-fake-launchctl")
-		if err != nil {
-			t.Fatal(err)
+// fakeLaunchd is an in-process launchctl (execLaunchctl): it records every call in calls and keeps one label's state:
+// loaded and pid (print's answer while loaded; 0: loaded, no serve). Its knobs are launchd's states a test needs: eio,
+// the number of bootstraps that fail with launchd's "5: Input/output error"; noload, a bootstrap that returns 0 loading
+// nothing; and kick, what kickstart -k does to a loaded label.
+type fakeLaunchd struct {
+	calls  []string
+	loaded bool
+	pid    int // print's pid while loaded (0: loaded, no serve)
+	eio    int
+	noload bool
+	kick   kick
+}
+
+// kick is kickstart -k's work: the new serve's pid (nil: the pid stays), whether it unloads the label, how long it
+// waits for the old serve to exit, and its exit code.
+type kick struct {
+	pid    *int
+	unload bool
+	wait   time.Duration
+	exit   int
+}
+
+// pidOf is a pid a kickstart gives serve (0: no serve runs).
+func pidOf(p int) *int { return &p }
+
+// fakeLaunchctl installs a fake launchd for the test (the label not loaded, print's pid 4242 once it is) and returns
+// it: its calls are the launchctl calls the verbs make.
+func fakeLaunchctl(t *testing.T) *fakeLaunchd {
+	t.Helper()
+	f := &fakeLaunchd{pid: 4242}
+	was := execLaunchctl
+	execLaunchctl = f.run
+	t.Cleanup(func() { execLaunchctl = was })
+	return f
+}
+
+// run is the fake's execLaunchctl: one launchctl call's output and error. kickstart's wait is the bubble's clock in the
+// tests that set it (synctest.Test), so a slow or a killed kickstart costs no wall time.
+func (f *fakeLaunchd) run(ctx context.Context, args ...string) ([]byte, error) {
+	f.calls = append(f.calls, strings.Join(args, " "))
+	switch args[0] {
+	case "bootstrap":
+		if f.eio > 0 {
+			f.eio--
+			return []byte("Bootstrap failed: 5: Input/output error\n"), errors.New("exit status 5")
 		}
-		fakeDir = d
-		script := `#!/bin/sh
-echo "$*" >> "$FAKE_LAUNCHCTL_DIR/calls"
-dir="$FAKE_LAUNCHCTL_DIR"
-state="$dir/loaded"
-case "$1" in
-bootstrap)
-	n=$(cat "$dir/eio" 2>/dev/null || echo 0)
-	if [ "$n" -gt 0 ]; then echo $((n-1)) > "$dir/eio"; echo "Bootstrap failed: 5: Input/output error" >&2; exit 5; fi
-	[ -f "$dir/noload" ] || : > "$state" ;;
-bootout) [ -f "$state" ] || exit 3; rm "$state" ;;
-kickstart)
-	[ -f "$state" ] || exit 113
-	[ -n "$FAKE_KICK_PID" ] && echo "$FAKE_KICK_PID" > "$dir/pid"
-	[ -n "$FAKE_KICK_UNLOAD" ] && rm "$state"
-	[ -n "$FAKE_KICK_SLEEP" ] && exec sleep "$FAKE_KICK_SLEEP"
-	exit "${FAKE_KICK_EXIT:-0}" ;;
-print) [ -f "$state" ] || { echo "Could not find service" >&2; exit 113; }
-	printf 'gui/501/x = {\n\tstate = running\n\tpid = %s\n}\n' "$(cat "$dir/pid" 2>/dev/null || echo 4242)" ;;
-esac
-`
-		if err := os.WriteFile(filepath.Join(d, "launchctl"), []byte(script), 0o755); err != nil {
-			t.Fatal(err)
+		if !f.noload {
+			f.loaded = true
 		}
+	case "bootout":
+		if !f.loaded {
+			return nil, errors.New("exit status 3")
+		}
+		f.loaded = false
+	case "kickstart":
+		if !f.loaded {
+			return nil, errors.New("exit status 113")
+		}
+		if f.kick.pid != nil {
+			f.pid = *f.kick.pid
+		}
+		if f.kick.unload {
+			f.loaded = false
+		}
+		if f.kick.wait > 0 {
+			select {
+			case <-time.After(f.kick.wait):
+			case <-ctx.Done(): // what launchctl's deadline makes of a kickstart still waiting
+				return nil, errors.New("signal: killed")
+			}
+		}
+		if f.kick.exit != 0 {
+			return nil, fmt.Errorf("exit status %d", f.kick.exit)
+		}
+	case "print":
+		if !f.loaded {
+			return []byte("Could not find service\n"), errors.New("exit status 113")
+		}
+		return []byte(fmt.Sprintf("\tpid = %d\n", f.pid)), nil
+	default:
+		return nil, fmt.Errorf("unexpected launchctl call %q", strings.Join(args, " "))
 	}
-	t.Setenv("FAKE_LAUNCHCTL_DIR", dir)
-	t.Setenv("PATH", fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	return log, state
+	return nil, nil
 }
 
-// fakeDir is the fake launchctl's shared script dir (fakeLaunchctl), removed after the tests.
-var fakeDir string
+// joined is the calls, one per line.
+func (f *fakeLaunchd) joined() string { return strings.Join(f.calls, "\n") }
 
-func TestMain(m *testing.M) {
-	code := m.Run()
-	if fakeDir != "" {
-		os.RemoveAll(fakeDir)
-	}
-	os.Exit(code)
-}
-
-func calls(t *testing.T, log string) []string {
-	b, _ := os.ReadFile(log)
-	return strings.Split(strings.TrimSpace(string(b)), "\n")
-}
-
+// darwin is a service in a temp home, on darwin's launchd.
 func darwin(t *testing.T) Service {
 	home := t.TempDir()
 	return Service{Name: "pj", Root: filepath.Join(home, "pj"), Kit: "/kit", Home: home, UID: 501, GOOS: "darwin",
 		Path: "/usr/bin"}
 }
 
+// installed is s installed in f (loaded, pid 4242), f's calls emptied.
+func installed(t *testing.T, f *fakeLaunchd) Service {
+	t.Helper()
+	s := darwin(t)
+	if _, err := s.Install(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if pid, loaded := s.PID(context.Background()); !loaded || pid != 4242 {
+		t.Fatalf("precondition: installed, pid 4242: %d %v", pid, loaded)
+	}
+	f.calls = nil
+	return s
+}
+
 // install writes the plist and bootstraps it (a second install boots the loaded one out first); restart kickstarts
 // it; uninstall boots it out and removes the plist; uninstall again and restart of nothing say it is not installed.
 func TestVerbs(t *testing.T) {
-	log, _ := fakeLaunchctl(t)
+	f := fakeLaunchctl(t)
 	s := darwin(t)
 	ctx := context.Background()
 	if _, loaded := s.PID(ctx); loaded {
@@ -143,8 +185,8 @@ func TestVerbs(t *testing.T) {
 		"bootstrap gui/501 " + plist, "print gui/501/obor.serve.pj",
 		"print gui/501/obor.serve.pj", "kickstart -k gui/501/obor.serve.pj",
 		"print gui/501/obor.serve.pj", "bootout gui/501/obor.serve.pj", "print gui/501/obor.serve.pj"}
-	if got := calls(t, log); strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Errorf("launchctl calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	if got := f.joined(); got != strings.Join(want, "\n") {
+		t.Errorf("launchctl calls:\n%s\nwant:\n%s", got, strings.Join(want, "\n"))
 	}
 	if line, err := s.Uninstall(ctx); err != nil || line != "obor.serve.pj is not installed" {
 		t.Errorf("uninstall again: %q, %v", line, err)
@@ -157,7 +199,7 @@ func TestVerbs(t *testing.T) {
 // A plist of this label that runs serve for another project: install FAILs and leaves it (and launchd) alone; the
 // same project's plist is no clash.
 func TestInstallLabelClash(t *testing.T) {
-	log, _ := fakeLaunchctl(t)
+	f := fakeLaunchctl(t)
 	s := darwin(t)
 	other := s
 	other.Root = "/elsewhere/pj"
@@ -174,8 +216,8 @@ func TestInstallLabelClash(t *testing.T) {
 	if b, _ := os.ReadFile(s.PlistPath()); string(b) != string(other.Plist()) {
 		t.Errorf("the other project's plist was changed:\n%s", b)
 	}
-	if _, err := os.Stat(log); !os.IsNotExist(err) {
-		t.Errorf("launchctl called: %q", calls(t, log))
+	if len(f.calls) != 0 {
+		t.Errorf("launchctl called: %q", f.calls)
 	}
 	if err := os.WriteFile(s.PlistPath(), s.Plist(), 0o644); err != nil {
 		t.Fatal(err)
@@ -188,7 +230,7 @@ func TestInstallLabelClash(t *testing.T) {
 // uninstall and restart check the plist's owner first: another project's plist of this label FAILs naming
 // it, and launchctl is never called — its agent is not booted out or kickstarted.
 func TestVerbsLeaveAnotherRootsAgent(t *testing.T) {
-	log, state := fakeLaunchctl(t)
+	f := fakeLaunchctl(t)
 	s := darwin(t)
 	other := s
 	other.Root = "/elsewhere/pj"
@@ -201,16 +243,12 @@ func TestVerbsLeaveAnotherRootsAgent(t *testing.T) {
 	if !strings.Contains(string(other.Plist()), "<string>/elsewhere/pj</string>") {
 		t.Fatal("precondition: the plist runs serve for another root")
 	}
-	if err := os.WriteFile(state, nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	f.loaded = true
 	ctx := context.Background()
 	if _, loaded := s.PID(ctx); !loaded {
 		t.Fatal("precondition: the label is loaded")
 	}
-	if err := os.Remove(log); err != nil { // the precondition's own print is not the verbs' doing
-		t.Fatal(err)
-	}
+	f.calls = nil // the precondition's own print is not the verbs' doing
 	for name, verb := range map[string]func(context.Context) (string, error){"uninstall": s.Uninstall, "restart": s.Restart} {
 		_, err := verb(ctx)
 		if err == nil || !strings.Contains(err.Error(), "runs obor serve for /elsewhere/pj, not "+s.Root) {
@@ -219,23 +257,21 @@ func TestVerbsLeaveAnotherRootsAgent(t *testing.T) {
 		if b, _ := os.ReadFile(s.PlistPath()); string(b) != string(other.Plist()) {
 			t.Errorf("%s changed the other project's plist:\n%s", name, b)
 		}
-		if _, err := os.Stat(state); err != nil {
-			t.Errorf("%s unloaded the other project's agent: %v", name, err)
+		if !f.loaded {
+			t.Errorf("%s unloaded the other project's agent", name)
 		}
 	}
-	if _, err := os.Stat(log); !os.IsNotExist(err) {
-		t.Errorf("launchctl called: %q", calls(t, log))
+	if len(f.calls) != 0 {
+		t.Errorf("launchctl called: %q", f.calls)
 	}
 }
 
 // a label launchd has loaded with no plist at all is nobody's to boot out or kickstart: uninstall and
 // restart FAIL saying whose it is cannot be told, and launchctl is only asked whether it is loaded.
 func TestVerbsRefuseUnownedLabel(t *testing.T) {
-	log, state := fakeLaunchctl(t)
+	f := fakeLaunchctl(t)
 	s := darwin(t)
-	if err := os.WriteFile(state, nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	f.loaded = true
 	if _, err := os.Stat(s.PlistPath()); !os.IsNotExist(err) {
 		t.Fatalf("precondition: no plist: %v", err)
 	}
@@ -245,19 +281,19 @@ func TestVerbsRefuseUnownedLabel(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "cannot tell whose it is (launchctl bootout gui/501/obor.serve.pj by hand)") {
 			t.Fatalf("%s of a loaded label with no plist: %v", name, err)
 		}
-		if _, err := os.Stat(state); err != nil {
-			t.Errorf("%s unloaded the label: %v", name, err)
+		if !f.loaded {
+			t.Errorf("%s unloaded the label", name)
 		}
 	}
 	want := []string{"print gui/501/obor.serve.pj", "print gui/501/obor.serve.pj"}
-	if got := calls(t, log); strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Errorf("launchctl calls:\n%s\nwant only the prints that read it:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	if got := f.joined(); got != strings.Join(want, "\n") {
+		t.Errorf("launchctl calls:\n%s\nwant only the prints that read it:\n%s", got, strings.Join(want, "\n"))
 	}
 }
 
 // Off darwin every verb prints the one line and does nothing (no launchctl, no plist).
 func TestElsewhere(t *testing.T) {
-	log, _ := fakeLaunchctl(t)
+	f := fakeLaunchctl(t)
 	s := darwin(t)
 	s.GOOS = "linux"
 	ctx := context.Background()
@@ -270,8 +306,8 @@ func TestElsewhere(t *testing.T) {
 	if _, loaded := s.PID(ctx); loaded {
 		t.Error("loaded on linux")
 	}
-	if _, err := os.Stat(log); !os.IsNotExist(err) {
-		t.Errorf("launchctl called: %q", calls(t, log))
+	if len(f.calls) != 0 {
+		t.Errorf("launchctl called: %q", f.calls)
 	}
 	if _, err := os.Stat(s.PlistPath()); !os.IsNotExist(err) {
 		t.Errorf("plist written on linux: %v", err)
@@ -281,7 +317,7 @@ func TestElsewhere(t *testing.T) {
 // Current: only after an install of this very plist that launchd has loaded; a changed plist (another PATH), an
 // unloaded label and off darwin are not current.
 func TestCurrent(t *testing.T) {
-	_, state := fakeLaunchctl(t)
+	f := fakeLaunchctl(t)
 	s := darwin(t)
 	ctx := context.Background()
 	if s.Current(ctx) {
@@ -298,9 +334,7 @@ func TestCurrent(t *testing.T) {
 	if moved.Current(ctx) {
 		t.Error("current with another PATH than the plist's")
 	}
-	if err := os.Remove(state); err != nil {
-		t.Fatal(err)
-	}
+	f.loaded = false
 	if s.Current(ctx) {
 		t.Error("current while launchd has it unloaded")
 	}
@@ -324,8 +358,8 @@ func TestRotateLog(t *testing.T) {
 			}
 			return err
 		}
-		prep := func(t *testing.T) (Service, string) {
-			log, state := fakeLaunchctl(t)
+		prep := func(t *testing.T) (Service, *fakeLaunchd) {
+			f := fakeLaunchctl(t)
 			s := darwin(t)
 			if err := os.MkdirAll(filepath.Dir(s.LogPath()), 0o755); err != nil {
 				t.Fatal(err)
@@ -334,14 +368,12 @@ func TestRotateLog(t *testing.T) {
 				if _, err := s.Install(context.Background()); err != nil {
 					t.Fatal(err)
 				}
-				if _, err := os.Stat(state); err != nil {
-					t.Fatalf("precondition: loaded: %v", err)
+				if !f.loaded {
+					t.Fatal("precondition: loaded")
 				}
-				if err := os.Remove(log); err != nil {
-					t.Fatal(err)
-				}
+				f.calls = nil
 			}
-			return s, log
+			return s, f
 		}
 		t.Run(verb+"/over the limit is renamed and the old .1 replaced", func(t *testing.T) {
 			s, _ := prep(t)
@@ -382,33 +414,20 @@ func TestRotateLog(t *testing.T) {
 			}
 		})
 		t.Run(verb+"/rename error is returned and nothing is started", func(t *testing.T) {
-			s, log := prep(t)
+			s, f := prep(t)
 			bigLog(t, s.LogPath(), MaxLog+1)
 			// a non-empty directory at .1 cannot be replaced by a file
 			if err := os.MkdirAll(filepath.Join(s.LogPath()+".1", "x"), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			before := 0
-			if b, err := os.ReadFile(log); err == nil {
-				before = len(strings.Split(strings.TrimSpace(string(b)), "\n"))
-			}
+			before := len(f.calls)
 			if err := run(s); err == nil {
 				t.Fatal("no error")
 			}
-			after := 0
-			if b, err := os.ReadFile(log); err == nil {
-				after = len(strings.Split(strings.TrimSpace(string(b)), "\n"))
-			}
 			// only the owner check's print may have run; no bootstrap, bootout or kickstart
-			if b, _ := os.ReadFile(log); strings.Contains(string(b), "kickstart") && verb == "install" {
-				t.Errorf("started: %s", b)
-			}
-			if verb == "install" && strings.Contains(strings.Join(calls(t, log), "\n"), "bootstrap") {
-				t.Errorf("bootstrap called: %v", calls(t, log))
-			}
-			if verb == "restart" {
-				if got := strings.Join(calls(t, log)[before:after], "\n"); strings.Contains(got, "kickstart") {
-					t.Errorf("kickstart called: %s", got)
+			for _, call := range f.calls[before:] {
+				if !strings.HasPrefix(call, "print") {
+					t.Errorf("%s after the failed rotation: %q", verb, call)
 				}
 			}
 		})
@@ -520,114 +539,84 @@ func TestRotateServeLog(t *testing.T) {
 	})
 }
 
-// fast shortens the waits for a test: stopTimeout 3s, settle 500ms read every 50ms. callTimeout keeps its 10s: a
-// forked fake launchctl under a loaded suite (the merge gate) can outlast a short one and is SIGKILLed, failing a verb
-// for no reason of the test's.
-func fast(t *testing.T) {
-	st, se, p := stopTimeout, settle, pollEvery
-	stopTimeout, settle, pollEvery = 3*time.Second, 500*time.Millisecond, 50*time.Millisecond
-	t.Cleanup(func() { stopTimeout, settle, pollEvery = st, se, p })
-}
-
-// installed is s installed in the fake launchd (loaded, pid 4242), its calls log emptied.
-func installed(t *testing.T, log string) Service {
-	t.Helper()
-	s := darwin(t)
-	if _, err := s.Install(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if pid, loaded := s.PID(context.Background()); !loaded || pid != 4242 {
-		t.Fatalf("precondition: installed, pid 4242: %d %v", pid, loaded)
-	}
-	if err := os.Remove(log); err != nil {
-		t.Fatal(err)
-	}
-	return s
-}
-
-// kickstart -k waits for the old serve to exit; one slower than 300 ms (callTimeout does not bound a kickstart) but
-// inside stopTimeout is a plain RESTARTED, no warning, kickstart called
-// once.
+// kickstart -k waits for the old serve to exit; one slower than callTimeout (which does not bound it) but inside
+// stopTimeout is a plain RESTARTED, no warning, kickstart called once. The wait is the bubble's clock.
 func TestRestartSlowKickstart(t *testing.T) {
-	fast(t)
-	// 400 ms: slower than that flat 300 ms deadline, and far enough under stopTimeout that a loaded machine still runs
-	// it inside (a whole second was waited out for nothing).
-	const slowKick = 400 * time.Millisecond
-	log, _ := fakeLaunchctl(t)
-	s := installed(t, log)
-	t.Setenv("FAKE_KICK_SLEEP", "0.4")
-	t.Setenv("FAKE_KICK_PID", "4243")
-	if slowKick >= stopTimeout {
-		t.Fatal("precondition: the kickstart is inside stopTimeout")
-	}
-	line, err := s.Restart(context.Background())
-	if err != nil || line != "RESTARTED obor.serve.pj" {
-		t.Fatalf("restart with a slow kickstart: %q, %v", line, err)
-	}
-	if n := strings.Count(strings.Join(calls(t, log), "\n"), "kickstart -k"); n != 1 {
-		t.Errorf("kickstart called %d times: %q", n, calls(t, log))
-	}
+	synctest.Test(t, func(t *testing.T) {
+		f := fakeLaunchctl(t)
+		s := installed(t, f)
+		f.kick = kick{pid: pidOf(4243), wait: callTimeout + time.Second}
+		if f.kick.wait >= stopTimeout {
+			t.Fatal("precondition: the kickstart is inside stopTimeout")
+		}
+		line, err := s.Restart(context.Background())
+		if err != nil || line != "RESTARTED obor.serve.pj" {
+			t.Fatalf("restart with a slow kickstart: %q, %v", line, err)
+		}
+		if n := strings.Count(f.joined(), "kickstart -k"); n != 1 {
+			t.Errorf("kickstart called %d times: %q", n, f.calls)
+		}
+	})
 }
 
 // launchctl ended by its deadline (signal: killed, as the axis leads saw) while launchd did restart serve —
 // the pid changed: RESTARTED with the new pid and a warning line naming launchctl's error and the old pid.
 func TestRestartKickstartErrorPidChanged(t *testing.T) {
-	fast(t)
-	log, _ := fakeLaunchctl(t)
-	s := installed(t, log)
-	stopTimeout = 300 * time.Millisecond
-	t.Setenv("FAKE_KICK_PID", "4243")
-	t.Setenv("FAKE_KICK_SLEEP", "5")
-	start := time.Now()
-	line, err := s.Restart(context.Background())
-	if err != nil {
-		t.Fatalf("restart that happened reported a failure: %v", err)
-	}
-	lines := strings.Split(line, "\n")
-	if len(lines) != 2 || lines[0] != "RESTARTED obor.serve.pj (pid 4243)" {
-		t.Fatalf("restart: %q", line)
-	}
-	if lines[1] != "warning: launchctl kickstart -k gui/501/obor.serve.pj: signal: killed: serve restarted all the same (pid 4242 before)" {
-		t.Errorf("warning line: %q", lines[1])
-	}
-	if d := time.Since(start); d > 3*time.Second {
-		t.Errorf("restart took %v: the killed kickstart was waited out", d)
-	}
+	synctest.Test(t, func(t *testing.T) {
+		f := fakeLaunchctl(t)
+		s := installed(t, f)
+		was := stopTimeout
+		stopTimeout = 300 * time.Millisecond
+		t.Cleanup(func() { stopTimeout = was })
+		f.kick = kick{pid: pidOf(4243), wait: 5 * time.Second}
+		start := time.Now()
+		line, err := s.Restart(context.Background())
+		if err != nil {
+			t.Fatalf("restart that happened reported a failure: %v", err)
+		}
+		lines := strings.Split(line, "\n")
+		if len(lines) != 2 || lines[0] != "RESTARTED obor.serve.pj (pid 4243)" {
+			t.Fatalf("restart: %q", line)
+		}
+		if lines[1] != "warning: launchctl kickstart -k gui/501/obor.serve.pj: signal: killed: serve restarted all the same (pid 4242 before)" {
+			t.Errorf("warning line: %q", lines[1])
+		}
+		if d := time.Since(start); d > 3*time.Second {
+			t.Errorf("restart took %v: the killed kickstart was waited out", d)
+		}
+	})
 }
 
 // a kickstart error after which serve was not restarted is a FAIL naming launchctl's error and the state it
-// left: the old pid still running, no serve running, or the label gone from launchd.
+// left: the old pid still running, no serve running (the pid moved from 4242 to 0, which is no restart), or the label
+// gone from launchd. The poll that finds it reads the whole settle window, on the bubble's clock.
 func TestRestartKickstartErrorNotRestarted(t *testing.T) {
 	for _, c := range []struct {
 		name string
-		env  map[string]string
+		kick kick
 		want string
 	}{
-		{"pid unchanged", map[string]string{"FAKE_KICK_EXIT": "1"},
+		{"pid unchanged", kick{exit: 1},
 			"obor.serve.pj still runs the old serve (pid 4242), not restarted: obor serve restart again"},
-		{"no serve runs", map[string]string{"FAKE_KICK_EXIT": "1", "FAKE_KICK_PID": "0"},
+		{"no serve runs", kick{exit: 1, pid: pidOf(0)},
 			"obor.serve.pj is loaded but no serve runs (log "},
-		{"unloaded", map[string]string{"FAKE_KICK_EXIT": "1", "FAKE_KICK_UNLOAD": "1"},
+		{"unloaded", kick{exit: 1, unload: true},
 			"obor.serve.pj is no longer loaded in launchd: obor serve install"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			fast(t)
-			// The failed kickstart changes nothing, so the FAIL comes from the whole settle window read: 100 ms still
-			// reads the fake's state four times and keeps the test off a 500 ms wait per case.
-			settle, pollEvery = 100*time.Millisecond, 20*time.Millisecond
-			log, _ := fakeLaunchctl(t)
-			s := installed(t, log)
-			for k, v := range c.env {
-				t.Setenv(k, v)
-			}
-			line, err := s.Restart(context.Background())
-			if err == nil {
-				t.Fatalf("restart: %q, no error", line)
-			}
-			if !strings.HasPrefix(err.Error(), "launchctl kickstart -k gui/501/obor.serve.pj: exit status 1") ||
-				!strings.Contains(err.Error(), c.want) {
-				t.Errorf("error: %v\nwant it to name %q", err, c.want)
-			}
+			synctest.Test(t, func(t *testing.T) {
+				f := fakeLaunchctl(t)
+				s := installed(t, f)
+				f.kick = c.kick
+				line, err := s.Restart(context.Background())
+				if err == nil {
+					t.Fatalf("restart: %q, no error", line)
+				}
+				if !strings.HasPrefix(err.Error(), "launchctl kickstart -k gui/501/obor.serve.pj: exit status 1") ||
+					!strings.Contains(err.Error(), c.want) {
+					t.Errorf("error: %v\nwant it to name %q", err, c.want)
+				}
+			})
 		})
 	}
 }
@@ -635,21 +624,18 @@ func TestRestartKickstartErrorNotRestarted(t *testing.T) {
 // a reinstall whose bootstrap meets the label half torn down (5: Input/output error, nothing loaded) boots it
 // out and bootstraps once more: INSTALLED, the label loaded.
 func TestInstallBootstrapEIORetried(t *testing.T) {
-	fast(t)
-	log, state := fakeLaunchctl(t)
-	s := installed(t, log)
-	if err := os.WriteFile(filepath.Join(filepath.Dir(state), "eio"), []byte("1"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	f := fakeLaunchctl(t)
+	s := installed(t, f)
+	f.eio = 1
 	line, err := s.Install(context.Background())
 	if err != nil || !strings.HasPrefix(line, "INSTALLED obor.serve.pj (") {
 		t.Fatalf("install after a bootstrap EIO: %q, %v", line, err)
 	}
-	if _, loaded := s.PID(context.Background()); !loaded {
+	if !f.loaded {
 		t.Error("the label is not loaded after the install")
 	}
 	var verbs []string
-	for _, c := range calls(t, log) {
+	for _, c := range f.calls {
 		if !strings.HasPrefix(c, "print") {
 			verbs = append(verbs, strings.Fields(c)[0])
 		}
@@ -663,12 +649,9 @@ func TestInstallBootstrapEIORetried(t *testing.T) {
 // state (not loaded) with the next step; a bootstrap that returns without loading the label is a FAIL too.
 func TestInstallEndsNotLoaded(t *testing.T) {
 	t.Run("bootstrap fails twice", func(t *testing.T) {
-		fast(t)
-		log, state := fakeLaunchctl(t)
+		f := fakeLaunchctl(t)
 		s := darwin(t)
-		if err := os.WriteFile(filepath.Join(filepath.Dir(state), "eio"), []byte("2"), 0o644); err != nil {
-			t.Fatal(err)
-		}
+		f.eio = 2
 		line, err := s.Install(context.Background())
 		if err == nil {
 			t.Fatalf("install: %q, no error", line)
@@ -679,23 +662,55 @@ func TestInstallEndsNotLoaded(t *testing.T) {
 				t.Errorf("error: %v\nwant %q", err, want)
 			}
 		}
-		if n := strings.Count(strings.Join(calls(t, log), "\n"), "bootstrap gui/501"); n != 2 {
-			t.Errorf("bootstrap called %d times: %q", n, calls(t, log))
+		if n := strings.Count(f.joined(), "bootstrap gui/501"); n != 2 {
+			t.Errorf("bootstrap called %d times: %q", n, f.calls)
 		}
-		if _, err := os.Stat(state); !os.IsNotExist(err) {
-			t.Errorf("precondition of the message: the fake has the label loaded: %v", err)
+		if f.loaded {
+			t.Error("precondition of the message: the fake has the label loaded")
 		}
 	})
 	t.Run("bootstrap loads nothing", func(t *testing.T) {
-		fast(t)
-		_, state := fakeLaunchctl(t)
+		f := fakeLaunchctl(t)
 		s := darwin(t)
-		if err := os.WriteFile(filepath.Join(filepath.Dir(state), "noload"), nil, 0o644); err != nil {
-			t.Fatal(err)
-		}
+		f.noload = true
 		line, err := s.Install(context.Background())
 		if err == nil || !strings.Contains(err.Error(), "returned, but obor.serve.pj is not loaded in launchd: obor serve install again") {
 			t.Errorf("install that loaded nothing: %q, %v", line, err)
 		}
 	})
+}
+
+// The exec boundary, the package's one test that starts a process: launchctl's arguments reach the binary, its output
+// and exit code come back in the error, and a call past its deadline is killed. Every other test answers launchd in
+// process (fakeLaunchctl).
+func TestLaunchctlExec(t *testing.T) {
+	dir := t.TempDir()
+	script := `#!/bin/sh
+case "$1" in
+exit) echo "launchd said no" >&2; exit 3 ;;
+slow) exec sleep 30 ;;
+esac
+echo "$*"
+`
+	if err := os.WriteFile(filepath.Join(dir, "launchctl"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	out, err := launchctl(context.Background(), callTimeout, "print", "gui/501/obor.serve.pj")
+	if err != nil || out != "print gui/501/obor.serve.pj\n" {
+		t.Errorf("print: %q, %v", out, err)
+	}
+	if _, err := launchctl(context.Background(), callTimeout, "exit"); err == nil ||
+		!strings.Contains(err.Error(), "exit status 3") || !strings.Contains(err.Error(), "launchd said no") {
+		t.Errorf("a failing call: %v", err)
+	}
+	start := time.Now()
+	if _, err := launchctl(context.Background(), 100*time.Millisecond, "slow"); err == nil ||
+		!strings.Contains(err.Error(), "signal: killed") {
+		t.Errorf("a call past its deadline: %v", err)
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Errorf("the call took %v: its deadline did not end it", d)
+	}
 }

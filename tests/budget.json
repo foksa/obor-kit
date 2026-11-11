@@ -93,11 +93,11 @@
       "git_procs": 282
     },
     "obor/internal/selfexec": {
-      "full_s": 1.1,
+      "full_s": 0.4,
       "git_procs": 0
     },
     "obor/internal/service": {
-      "full_s": 3,
+      "full_s": 0.7,
       "git_procs": 0
     },
     "obor/internal/setup": {
