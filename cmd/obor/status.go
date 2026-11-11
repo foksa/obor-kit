@@ -55,13 +55,19 @@ func status(args []string) int {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	ss, err := wire.Ask(ctx, wire.SocketPath(cfg.Root))
+	// A terminal obor cannot build (an unknown project.terminal) shows no background processes: the rest of the
+	// read is the config's and serve's, which say what is wrong.
+	var info func(context.Context, string) (port.ProcessInfo, error)
+	if t, terr := terminal(cfg, project.OSEnv); terr == nil {
+		info = t.Control.ProcessInfo
+	}
 	db := openStore(cfg.Root)
 	if db != nil {
 		defer db.Close()
 	}
 	st := view.Build(view.Input{Status: ss, Err: err, Lanes: checks.NewLaneTable(context.Background(), cfg), DB: db, Now: time.Now(),
 		Events: statusEvents, Notes: view.Notes(cfg.Root, warn),
-		Background: view.ScanBackground(ctx, cfg.Root, ss, err, project.OSEnv)})
+		Background: view.ScanBackground(ctx, cfg.Root, ss, err, info)})
 	st.Serve.PID, st.Serve.Launchd = serveProcess(ctx, cfg, st.Serve.Up)
 	if !asJSON {
 		switch {

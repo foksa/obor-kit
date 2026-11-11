@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"go/parser"
 	"go/scanner"
 	"go/token"
 	"io"
@@ -200,6 +201,51 @@ func layerName(pkg string) string {
 		return l
 	}
 	return "an unmapped package"
+}
+
+// TestOneTerminalBuilder: only cmd/obor/terminal.go (non-test) builds the terminal adapter by importing
+// internal/herdr; the conformance suite and the adapter itself (with its fake) may import it too. Every other package
+// reaches the terminal through port.Terminal.
+func TestOneTerminalBuilder(t *testing.T) {
+	root := filepath.Join("..", "..")
+	scanned := 0
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(root, path)
+		rel = filepath.ToSlash(rel)
+		if d.IsDir() {
+			if rel != "." && (strings.HasPrefix(d.Name(), ".") || rel == "dist") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(rel, ".go") || strings.HasSuffix(rel, "_test.go") {
+			return nil
+		}
+		if rel == "cmd/obor/terminal.go" || strings.HasPrefix(rel, "tests/conformance/") ||
+			strings.HasPrefix(rel, "internal/herdr/") {
+			return nil
+		}
+		f, err := parser.ParseFile(token.NewFileSet(), filepath.Join(root, rel), nil, parser.ImportsOnly)
+		if err != nil {
+			return err
+		}
+		scanned++
+		for _, imp := range f.Imports {
+			if strings.Trim(imp.Path.Value, `"`) == "obor/internal/herdr" {
+				t.Errorf("%s imports internal/herdr: only cmd/obor/terminal.go builds the terminal (port.Terminal)", rel)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scanned < 100 {
+		t.Fatalf("scanned %d Go files: not the module", scanned)
+	}
 }
 
 // listPackages maps each obor package (path without "obor/") to its obor imports.

@@ -11,7 +11,6 @@ import (
 	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/help"
-	"obor/internal/herdr"
 	"obor/internal/mcp"
 	"obor/internal/project"
 	"obor/internal/setup"
@@ -129,7 +128,10 @@ func startDrive(ctx context.Context, cfg *config.Config, d drive, env project.En
 		return err
 	}
 	kit := project.KitRoot(env)
-	h := &herdr.Socket{Path: herdr.SocketPath(env)}
+	t, err := terminal(cfg, env)
+	if err != nil {
+		return err
+	}
 	ref := d.ref
 	if ref == "-" {
 		ref = ""
@@ -139,8 +141,8 @@ func startDrive(ctx context.Context, cfg *config.Config, d drive, env project.En
 		return fmt.Errorf("lane %s runs no model: obor drop %s, then obor drive <name> --model <model>", d.lane, d.task)
 	}
 	cwd, _ := os.Getwd()
-	s := &setup.Setup{Kit: kit, Dir: cwd, Env: env, T: terminalSetup(env, h), Out: out, McpCheck: mcp.Check,
-		Starter: launcherFor(env, kit, h, out, nil)}
+	s := &setup.Setup{Kit: kit, Dir: cwd, Env: env, T: t.Setup, Out: out, McpCheck: mcp.Check,
+		Starter: launcherFor(env, kit, t.Control, out, nil)}
 	return s.StartDrive(ctx, setup.Drive{Agent: d.agent, Lane: d.lane, Cwd: dir, Type: typ, Effort: effort,
 		Prompt: drivePrompt(cfg, d)})
 }

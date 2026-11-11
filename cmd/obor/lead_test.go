@@ -50,7 +50,7 @@ func (x *leadFx) launcher(l *launch.Launcher) {
 func (x *leadFx) run(t *testing.T, args ...string) (string, int) {
 	t.Helper()
 	var out bytes.Buffer
-	r := leadRun{dir: x.p.Root, kit: x.p.Base, env: x.p.Env(x.env...), h: x.srv.Client(), out: &out, tune: x.launcher}
+	r := leadRun{dir: x.p.Root, kit: x.p.Base, env: x.p.Env(x.env...), t: fakeTerminal(x.srv.Client(), x.p.Env(x.env...)), out: &out, tune: x.launcher}
 	rc := r.run(context.Background(), args)
 	return out.String(), rc
 }
@@ -67,7 +67,7 @@ func (x *leadFx) runWakes(t *testing.T, up bool, args ...string) (string, int, *
 	serve := &sleepServe{root: x.p.Root, up: up}
 	wake := &sleeper{Cfg: cfg, Env: x.p.Env(x.env...), Cwd: x.p.Root, Out: &out, Wait: 300 * time.Millisecond,
 		Ask: serve.ask, Call: serve.call}
-	r := leadRun{dir: x.p.Root, kit: x.p.Base, env: x.p.Env(x.env...), h: x.srv.Client(), out: &out,
+	r := leadRun{dir: x.p.Root, kit: x.p.Base, env: x.p.Env(x.env...), t: fakeTerminal(x.srv.Client(), x.p.Env(x.env...)), out: &out,
 		tune: x.launcher, wake: wake}
 	rc := r.run(context.Background(), args)
 	return out.String(), rc, serve
@@ -169,7 +169,7 @@ func TestLeadOwnPaneStartsOnceItExits(t *testing.T) {
 			"pane_id": "w1:p1", "shell_pid": 1, "foreground_process_group_id": 77,
 			"foreground_processes": []any{map[string]any{"pid": 77, "argv0": "obor"}}}}) // obor lead itself has the foreground
 		var buf bytes.Buffer
-		r := leadRun{dir: x.p.Root, kit: x.p.Base, env: x.p.Env(x.env...), h: x.srv.Client(), out: &buf, tune: x.launcher}
+		r := leadRun{dir: x.p.Root, kit: x.p.Base, env: x.p.Env(x.env...), t: fakeTerminal(x.srv.Client(), x.p.Env(x.env...)), out: &buf, tune: x.launcher}
 		rc := r.run(context.Background(), c.args)
 		out := buf.String()
 		if rc != 0 || lastLine(out) != "STARTING pj-lead in this pane (w1:p1) once obor lead exits" || strings.Contains(out, "SCHEDULED") {

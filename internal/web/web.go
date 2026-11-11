@@ -35,6 +35,7 @@ import (
 	"syscall"
 	"time"
 
+	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/help"
 	"obor/internal/project"
@@ -60,6 +61,8 @@ const (
 type Server struct {
 	Projects func() []project.Project                            // the machine's projects (default: project.Projects)
 	Build    func(context.Context, string) (view.Project, error) // one project's view by root (default: view.Load)
+	// Process is one pane's process info, the overview's background scan (default: none read).
+	Process func(ctx context.Context, pane string) (port.ProcessInfo, error)
 	// Task, Agent and Setup are the drill-down pages' narrow reads (defaults: view.LoadTask, view.LoadAgent,
 	// view.LoadSetup): a page never builds the overview.
 	Task   func(context.Context, string) (view.Detail, error)
@@ -652,7 +655,7 @@ func (s *Server) build(ctx context.Context, root string) (view.Project, error) {
 	if n <= 0 {
 		n = defaultView
 	}
-	return view.Load(ctx, root, time.Now(), n)
+	return view.Load(ctx, root, time.Now(), n, s.Process)
 }
 
 // wait is how long /api/events holds a poll before it answers empty.

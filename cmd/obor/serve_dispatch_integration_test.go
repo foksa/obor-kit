@@ -5,8 +5,8 @@ package main
 import (
 	"testing"
 
+	"obor/internal/app/port"
 	"obor/internal/config"
-	"obor/internal/herdr"
 	"obor/internal/testkit"
 )
 
@@ -54,7 +54,7 @@ func TestSpecs(t *testing.T) {
 func TestDispatchTargetOffBranch(t *testing.T) {
 	t.Parallel()
 	p := servedGitProject(t)
-	l, err := mergeLoop(p.Env(), herdr.Panes{}, &serveEnd{stop: func() {}}, &kindCache{})(p.Root)
+	l, err := mergeLoop(p.Env(), port.Terminal{}, &serveEnd{stop: func() {}}, &kindCache{})(p.Root)
 	if err != nil {
 		t.Fatal(err)
 	}

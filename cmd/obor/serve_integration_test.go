@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/herdr"
@@ -181,7 +182,7 @@ func TestServeRunsWithARemovedPromotionKey(t *testing.T) {
 	if _, unknown, err := config.LoadHook(p.Root); err != nil || len(unknown) != len(keys) {
 		t.Fatalf("precondition: the config names the removed keys: unknown %q, %v; want %q", unknown, err, keys)
 	}
-	l, err := mergeLoop(p.Env(), herdr.Panes{}, &serveEnd{stop: func() {}}, &kindCache{})(p.Root)
+	l, err := mergeLoop(p.Env(), port.Terminal{}, &serveEnd{stop: func() {}}, &kindCache{})(p.Root)
 	if err != nil || l.Workflow == nil {
 		t.Fatalf("the merge loop with a removed promotion key: %+v, %v; want it built with its workflow", l, err)
 	}
@@ -219,7 +220,7 @@ func TestMergeLoopNightlyFollowsTheConfig(t *testing.T) {
 	p := servedGitProject(t)
 	p.Git(p.Root, "config", "user.name", "Owner")
 	p.Git(p.Root, "config", "user.email", "owner@example.com")
-	build := mergeLoop(p.Env(), herdr.Panes{}, &serveEnd{stop: func() {}}, &kindCache{})
+	build := mergeLoop(p.Env(), port.Terminal{}, &serveEnd{stop: func() {}}, &kindCache{})
 	at := func() string {
 		t.Helper()
 		l, err := build(p.Root)

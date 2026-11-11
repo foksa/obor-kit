@@ -80,7 +80,12 @@ func stopCmd(args []string) int {
 	if !s.load() {
 		return 1
 	}
-	s.H = herdrSocket(s.Env)
+	t, err := terminal(s.Cfg, s.Env)
+	if err != nil {
+		s.say("FAIL %v", err)
+		return 1
+	}
+	s.H = t.Control
 	return s.stop(context.Background())
 }
 

@@ -18,7 +18,6 @@ import (
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/background"
-	"obor/internal/herdr"
 	"obor/internal/project"
 )
 
@@ -171,35 +170,43 @@ func (v Project) BackgroundCount() int {
 }
 
 // ScanBackground is BackgroundOf for the agents of serve's answer for root (none: serve down or another project's),
-// with one ps and herdr's process info per agent pane over its socket (env's). Any failure is no processes: the
+// with one ps and info, the caller's process info of one agent pane (the terminal's). Any failure is no processes: the
 // readers show the rest.
-func ScanBackground(ctx context.Context, root string, ss wire.Status, err error, env project.Env) map[string][]Background {
-	return scanBackground(ctx, root, ss, err, env, background.ReadProcs)
+func ScanBackground(ctx context.Context, root string, ss wire.Status, err error,
+	info func(context.Context, string) (port.ProcessInfo, error)) map[string][]Background {
+	return scanBackground(ctx, root, ss, err, background.ReadProcs, info)
 }
 
-// background is ScanBackground with ps read by r.procs (background.ReadProcs when nil): the agents' long-running
-// processes of serve's answer for root (none: serve down or another project's).
+// background is ScanBackground with ps read by r.procs (background.ReadProcs when nil) and the panes' process info by
+// r.info: the agents' long-running processes of serve's answer for root (none: serve down or another project's; none
+// read when r.info is nil).
 func (r reading) background(ctx context.Context, root string, ss wire.Status, err error) map[string][]Background {
 	procs := r.procs
 	if procs == nil {
 		procs = background.ReadProcs
 	}
-	return scanBackground(ctx, root, ss, err, project.OSEnv, procs)
+	return scanBackground(ctx, root, ss, err, procs, r.info)
 }
 
-// scanBackground is ScanBackground with ps read by procs (a read's own): any failure is no processes.
-func scanBackground(ctx context.Context, root string, ss wire.Status, err error, env project.Env,
-	procs func(ctx context.Context) ([]Proc, error)) map[string][]Background {
+// scanBackground is ScanBackground with ps read by procs (a read's own). Each pane's process info waits at most
+// paneInfoWait: a read shows no processes rather than waiting on a terminal.
+func scanBackground(ctx context.Context, root string, ss wire.Status, err error,
+	procs func(ctx context.Context) ([]Proc, error),
+	info func(ctx context.Context, pane string) (port.ProcessInfo, error)) map[string][]Background {
 	if err != nil || ss.Project == nil || filepath.Clean(ss.Project.Root) != filepath.Clean(root) ||
-		len(ss.Project.Agents) == 0 {
+		len(ss.Project.Agents) == 0 || info == nil {
 		return nil
 	}
 	ps, perr := procs(ctx)
 	if perr != nil {
 		return nil
 	}
-	h := &herdr.Socket{Path: herdr.SocketPath(env), Timeout: 2 * time.Second}
 	return BackgroundOf(ctx, root, ss.Project.Agents, ps, func(ctx context.Context, pane string) (port.ProcessInfo, error) {
-		return h.ProcessInfo(ctx, pane)
+		ctx, cancel := context.WithTimeout(ctx, paneInfoWait)
+		defer cancel()
+		return info(ctx, pane)
 	})
 }
+
+// paneInfoWait is how long a read waits for one pane's process info.
+const paneInfoWait = 2 * time.Second

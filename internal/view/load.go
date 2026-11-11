@@ -14,12 +14,14 @@ import (
 	"obor/internal/store"
 )
 
-// reading is a load's outside facts beyond the project's files and store: serve's status (ask), the lane table's git
-// and the agents' one ps. The zero value is the real thing; a test sets them to count what a read spawns.
+// reading is a load's outside facts beyond the project's files and store: serve's status (ask), the lane table's git,
+// the agents' one ps and their panes' process info. Zero fields are the real things but info, which the caller
+// supplies (the read model has no terminal); a test sets them to count what a read spawns.
 type reading struct {
 	ask   func(ctx context.Context, path string) (wire.Status, error)
 	git   func(ctx context.Context, dir string, args ...string) (string, error)
 	procs func(ctx context.Context) ([]Proc, error)
+	info  func(ctx context.Context, pane string) (port.ProcessInfo, error)
 }
 
 // inputs is what the reads share: one config snapshot (cfg; warn is its line for a key this binary does not know), the
@@ -52,9 +54,10 @@ func (r reading) open(ctx context.Context, root string) inputs {
 
 // Load is reading{}.load: the project's whole view, built as `obor status --json` builds it. `obor web` builds every
 // project of the machine this way; the CLI builds the same Input itself, since it also needs the config for serve's
-// launchd line.
-func Load(ctx context.Context, root string, now time.Time, events int) (Project, error) {
-	return reading{}.load(ctx, root, now, events)
+// launchd line. info is the terminal's process info of one pane (ScanBackground; nil: no background processes read).
+func Load(ctx context.Context, root string, now time.Time, events int,
+	info func(ctx context.Context, pane string) (port.ProcessInfo, error)) (Project, error) {
+	return reading{info: info}.load(ctx, root, now, events)
 }
 
 // load is Load: serve is asked (down: its error, not an error here), the lane table is read from git and the store

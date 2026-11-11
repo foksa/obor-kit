@@ -84,13 +84,7 @@ func TestSocketDialChecksProtocol(t *testing.T) {
 
 func TestSocketPathLimit(t *testing.T) {
 	t.Parallel()
-	if err := herdr.CheckSocketPath("/" + strings.Repeat("a", 103)); err != nil {
-		t.Errorf("104-byte path: %v, want ok", err)
-	}
 	long := "/" + strings.Repeat("a", 104)
-	if err := herdr.CheckSocketPath(long); err == nil || !strings.Contains(err.Error(), "105 bytes, longer than the 104") {
-		t.Errorf("105-byte path: %v, want a clear error", err)
-	}
 	_, err := herdr.Dial(ctx, long)
 	if !errors.Is(err, errUnavailable) || !strings.Contains(err.Error(), "104") {
 		t.Errorf("Dial on a 105-byte path: %v, want unavailable naming the limit", err)

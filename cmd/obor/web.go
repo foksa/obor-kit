@@ -53,7 +53,15 @@ func webCmd(args []string) int {
 		errf("obor web: %v", err)
 		return 1
 	}
-	srv := &http.Server{Handler: (&web.Server{Events: statusEvents}).Handler(), ReadHeaderTimeout: 5 * time.Second}
+	// One terminal for the machine's overviews: the projects' panes' process info (each project's own kind is the
+	// default until a second terminal exists).
+	t, err := terminal(nil, project.OSEnv)
+	if err != nil {
+		errf("obor web: %v", err)
+		return 1
+	}
+	srv := &http.Server{Handler: (&web.Server{Events: statusEvents, Process: t.Control.ProcessInfo}).Handler(),
+		ReadHeaderTimeout: 5 * time.Second}
 	fmt.Fprintf(out, "obor web: http://%s/ (localhost; Ctrl-C ends it)\n", ln.Addr())
 	out.Flush() // said before the first request, not when the process ends
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
