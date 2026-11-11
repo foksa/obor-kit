@@ -39,22 +39,25 @@ func (g reviewGit) Close(ctx context.Context, c port.ReviewCommit) error {
 		rel, _ := filepath.Rel(root, f)
 		own[filepath.ToSlash(rel)] = true
 	}
-	st, err := g.git(ctx, "status", "--porcelain", "--untracked-files=all")
+	st, err := g.git(ctx, "status", "--porcelain", "-z", "--untracked-files=all")
 	if err != nil {
 		return err
 	}
 	docs := map[string]bool{} // of a tracked BACKLOG.md and app.AcceptedFile: the ones the close commit carries
-	for _, l := range porcelainLines(st) {
-		p := l[3:]
+	for _, e := range statusEntries(st) {
+		// a tracked BACKLOG.md; a rename also keeps the other half a BACKLOG.md, so a file renamed onto that name
+		// never lets the close commit its deletion
+		backlog := filepath.Base(e.path) == "BACKLOG.md" && e.status != "??" &&
+			(e.from == "" || filepath.Base(e.from) == "BACKLOG.md")
 		switch {
-		case p == app.AcceptedFile:
-			docs[p] = true
-		case filepath.Base(p) == "BACKLOG.md" && !strings.HasPrefix(l, "?? "):
-			docs[p] = true
-		case strings.HasPrefix(l, "?? ") && own[p]:
+		case e.path == app.AcceptedFile:
+			docs[e.path] = true
+		case backlog:
+			docs[e.path] = true
+		case e.status == "??" && own[e.path]:
 		default:
 			return fmt.Errorf("the main checkout is dirty outside a BACKLOG.md, %s and %s's files (%s): nothing changed",
-				app.AcceptedFile, c.ID, l)
+				app.AcceptedFile, c.ID, e)
 		}
 	}
 	accepted := ""
@@ -152,16 +155,44 @@ func removeFiles(files []string) error {
 	return nil
 }
 
-// porcelainLines is git status --porcelain's entry lines, untrimmed: the two status columns stay, so each
-// line's path starts at column 3 (" M BACKLOG.md" is an unstaged edit); a line shorter than "XY p" is dropped.
-func porcelainLines(out string) []string {
-	var l []string
-	for _, s := range strings.Split(out, "\n") {
-		if s = strings.TrimRight(s, "\r"); len(s) > 3 {
-			l = append(l, s)
-		}
+// statusEntry is one entry of git status --porcelain -z: its two status columns ("M ", "??" …), the path it names,
+// and for a rename or a copy the path it came from. -z separates entries and their paths with NUL and quotes no
+// path, so a path with a space, a quote or a non-ASCII name is whole.
+type statusEntry struct {
+	status string
+	path   string
+	from   string
+}
+
+// String renders the entry as git status --porcelain writes it without -z: "XY path", or "XY from -> path" for a
+// rename or a copy.
+func (e statusEntry) String() string {
+	if e.from != "" {
+		return e.status + " " + e.from + " -> " + e.path
 	}
-	return l
+	return e.status + " " + e.path
+}
+
+// statusEntries parses git status --porcelain -z with --untracked-files=all: an entry is its two status columns, a
+// space and its path, and a rename or a copy follows that path with the path it came from as the next NUL-field;
+// a field shorter than "XY p" is dropped.
+func statusEntries(out string) []statusEntry {
+	fields := strings.Split(out, "\x00")
+	var es []statusEntry
+	for i := 0; i < len(fields); i++ {
+		s := fields[i]
+		if len(s) < 4 {
+			continue
+		}
+		e := statusEntry{status: s[:2], path: s[3:]}
+		if strings.ContainsAny(e.status, "RC") {
+			if i++; i < len(fields) {
+				e.from = fields[i]
+			}
+		}
+		es = append(es, e)
+	}
+	return es
 }
 
 // Closed is the subject of review id's close commit on branch since from, newest first ("": none): port.Review's one
