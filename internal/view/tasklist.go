@@ -52,12 +52,14 @@ type TaskFixes struct {
 	Tasks  []string `json:"tasks,omitempty"`
 }
 
-// taskFacts is what the store's facts say of one task: its last dispatch's lane and model ref, its newest merge, and
-// the newest of its dispatch, waiting, merged and dropped facts (its place when serve does not say).
+// taskFacts is what the store's facts say of one task: its last dispatch's lane and model ref, its newest merge, the
+// spec rev its newest drop recorded (0: a dispatched task's drop, or none), and the newest of its dispatch, waiting,
+// merged and dropped facts (its place when serve does not say).
 type taskFacts struct {
 	lane, ran, sha string
 	merged         bool
 	mergedAt       int64
+	dropped        int
 	last           string
 }
 
@@ -104,6 +106,8 @@ func (d Detail) TaskList() []TaskRow {
 				var m event.MergedData
 				_ = json.Unmarshal(r.Data, &m)
 				f.merged, f.sha, f.mergedAt = true, m.Head, event.RecordTime(r).Unix()
+			case event.StepDropped:
+				f.dropped = r.Fact().Rev
 			}
 		}
 		activity, _ = event.TaskActivity(db)
@@ -136,7 +140,13 @@ func (d Detail) TaskList() []TaskRow {
 		if f.merged {
 			row.MergedAt = f.mergedAt
 		}
-		row.State = listState(t, f.last, needs[id])
+		last := f.last
+		// Serve revives a spec dropped before any dispatch on a later rev (internal/app/specs.go foldSpecSet): the
+		// drop ends the task only while its rev is the current one, and a dispatched task's drop (no rev) stays.
+		if last == event.StepDropped && f.dropped > 0 && s.Rev > f.dropped {
+			last = ""
+		}
+		row.State = listState(t, last, needs[id])
 		if s.Spec.FixesOK && s.Spec.FixesReview != "" {
 			row.Fixes = &TaskFixes{Review: s.Spec.FixesReview, Note: s.Spec.FixesNote, Tasks: started[s.Spec.FixesReview]}
 		}
