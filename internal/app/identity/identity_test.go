@@ -237,7 +237,7 @@ func TestCrossCheckOncePerValue(t *testing.T) {
 		r.CrossCheck("a", "s1", pane("w1:p1", "t1", "a", "s2"), true, log)
 	}
 	r.CrossCheck("a", "s1", pane("w1:p1", "t1", "a", "s1"), true, log)
-	if len(lines) != 1 || !strings.Contains(lines[0], "herdr reports session s2 for a at pane w1:p1") {
+	if len(lines) != 1 || !strings.Contains(lines[0], "the terminal reports session s2 for a at pane w1:p1") {
 		t.Fatalf("logged %q, want the s2 line once", lines)
 	}
 }

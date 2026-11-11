@@ -549,6 +549,30 @@ func TestDriveStartIsStrict(t *testing.T) {
 	has(t, named(reqs), "agent.start args=["+laneArgs+" --session-id NEW -- drive T-1] kind=claude name=pj-l-01-drive", "a strict start, obor's server alone")
 }
 
+// A drive start whose lane already holds an agent nobody labelled names the pane to quit: the pane's kind is no
+// agent name, so obor restart <kind> --stop could not stop it.
+func TestDriveStartQuitHintNamesAnUnlabelledPane(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct{ name, label, want string }{
+		{"unlabelled", "", "claude still runs in lane L-01 (pane w1:x1): quit the agent in pane w1:x1 first"},
+		{"labelled", "pj-l-01", "pj-l-01 still runs in lane L-01 (pane w1:x1): obor restart pj-l-01 --stop first"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			x := newFx(t)
+			x.lane(t, "L-01")
+			x.h.Agent("w1:x1", "claude", "idle", x.LaneDir("L-01")).Label = c.label
+			s, _ := x.newSetup(t)
+			s.Dir = x.Root
+			err := s.StartDrive(context.Background(), Drive{Task: "T-07", Agent: "pj-l-01-drive", Lane: "L-01",
+				Cwd: x.LaneDir("L-01"), Prompt: "drive T-07"})
+			if err == nil || err.Error() != c.want {
+				t.Errorf("StartDrive: %v, want %q", err, c.want)
+			}
+		})
+	}
+}
+
 // A drive's failed start prints the drive's own command: obor drive <T-xx> starts its agent again with its prompt,
 // where a restart would start the driver role with no prompt of the drive's.
 func TestDriveStartHintNamesTheDrive(t *testing.T) {

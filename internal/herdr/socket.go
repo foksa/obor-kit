@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"obor/internal/app/port"
-	"obor/internal/app/wire"
 	"obor/internal/project"
 )
 
@@ -166,7 +165,7 @@ func Dial(ctx context.Context, path string) (*Socket, error) {
 // checked is s once herdr answers ping with this client's Protocol or a newer one.
 func (s *Socket) checked(ctx context.Context) (*Socket, error) {
 	if s.Conn == nil {
-		if err := wire.CheckSocketPath(s.Path); err != nil {
+		if err := project.CheckSocketPath(s.Path); err != nil {
 			return nil, &Error{Kind: Unavailable, Op: "ping", Msg: err.Error()}
 		}
 	}
@@ -219,7 +218,7 @@ func (s *Socket) dial(ctx context.Context, op string) (net.Conn, error) {
 		}
 		return c, nil
 	}
-	if err := wire.CheckSocketPath(s.Path); err != nil {
+	if err := project.CheckSocketPath(s.Path); err != nil {
 		return nil, &Error{Kind: Unavailable, Op: op, Msg: err.Error()}
 	}
 	var d net.Dialer

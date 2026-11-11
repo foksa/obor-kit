@@ -113,8 +113,8 @@ func TestOborInitFailsFirstWhenHerdrIsDown(t *testing.T) {
 	x := newInitFx(t, true)
 	x.srv.Die()
 	out, rc := x.run(t, "obor-init")
-	if rc != 1 || !strings.HasPrefix(last(out), "FAIL herdr is not reachable (") ||
-		!strings.HasSuffix(last(out), "): start herdr, then obor init again") {
+	if rc != 1 || !strings.HasPrefix(last(out), "FAIL the terminal (herdr) is not reachable (") ||
+		!strings.HasSuffix(last(out), "): start it, then obor init again") {
 		t.Fatalf("exit %d, last line %q\n%s", rc, last(out), out)
 	}
 	if x.Exists(".obor/config.json") || x.Exists("BACKLOG.md") || x.claudeCalls() != "" {

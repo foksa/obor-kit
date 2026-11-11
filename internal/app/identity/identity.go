@@ -263,7 +263,7 @@ func (r *Registry) CrossCheck(agent, sid string, pane port.Pane, named bool, log
 		return
 	}
 	r.herdrSession[agent] = pane.Session
-	log(fmt.Sprintf("herdr reports session %s for %s at pane %s; its recorded session is %s (kept)", pane.Session,
+	log(fmt.Sprintf("the terminal reports session %s for %s at pane %s; its recorded session is %s (kept)", pane.Session,
 		agent, pane.ID, sid))
 }
 

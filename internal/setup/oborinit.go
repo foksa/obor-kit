@@ -84,7 +84,7 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	}
 	running, err := s.T.Agents(ctx)
 	if err != nil {
-		return project.Failf("herdr is not reachable (%v): start herdr, then obor init again", err)
+		return project.Failf("the terminal (herdr) is not reachable (%v): start it, then obor init again", err)
 	}
 	claude, err := project.LookPath(s.Env.Get("PATH"), agents.Default)
 	if err != nil {

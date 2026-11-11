@@ -88,13 +88,13 @@ func (r *followRig) down() {
 		r.t.Fatal("precondition: serve is not connected to herdr")
 	}
 	r.srv.Die()
-	r.waitFor("disconnected", func() bool { return !r.app.Status().Connected && strings.Contains(r.out.String(), "herdr: gone") })
+	r.waitFor("disconnected", func() bool { return !r.app.Status().Connected && strings.Contains(r.out.String(), "terminal: gone") })
 }
 
 // neverBack: herdr did not come back (serve logged no connect after the gone line).
 func (r *followRig) neverBack() bool {
 	out := r.out.String()
-	return strings.Contains(out, "herdr: gone") && !strings.Contains(out, "herdr: back") && !r.app.Status().Connected
+	return strings.Contains(out, "terminal: gone") && !strings.Contains(out, "terminal: back") && !r.app.Status().Connected
 }
 
 // Idle: no restart while the binary is the same; a new one restarts serve on the next tick, once.
@@ -300,11 +300,11 @@ func TestFollowBinaryHerdrDownAtStart(t *testing.T) {
 		r.srv.Die()
 		r.launch()
 		// The new binary appears once serve has seen herdr gone: a follow tick may come before serve's first subscribe.
-		r.waitFor("herdr gone", func() bool { return strings.Contains(r.out.String(), "herdr: gone") })
+		r.waitFor("herdr gone", func() bool { return strings.Contains(r.out.String(), "terminal: gone") })
 		r.isNew.Store(1)
 		r.waitFor("the restart to end serve", r.ended)
 		r.cancel = nil
-		if checks, _ := app.Counts(r.app); checks != 0 || strings.Contains(r.out.String(), "herdr: connected") {
+		if checks, _ := app.Counts(r.app); checks != 0 || strings.Contains(r.out.String(), "terminal: connected") {
 			t.Fatalf("precondition: herdr was there (%d checks):\n%s", checks, r.out)
 		}
 		if r.calls.Load() != 1 || !r.neverBack() {

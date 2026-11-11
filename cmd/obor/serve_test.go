@@ -14,11 +14,11 @@ import (
 
 	"obor/internal/app/event"
 	"obor/internal/app/port"
-	"obor/internal/app/wire"
 	"obor/internal/checks"
 	"obor/internal/config"
 	"obor/internal/herdr"
 	"obor/internal/herdr/herdrtest"
+	"obor/internal/project"
 	"obor/internal/store"
 	"obor/internal/testkit"
 )
@@ -90,13 +90,13 @@ func TestServeSocketPathTooLong(t *testing.T) {
 		t.Fatal(err)
 	}
 	sock := filepath.Join(long, ".obor", "state", "serve.sock")
-	if len(sock) <= wire.MaxSocketPath {
-		t.Fatalf("precondition: %s is %d bytes, not over %d", sock, len(sock), wire.MaxSocketPath)
+	if len(sock) <= project.MaxSocketPath {
+		t.Fatalf("precondition: %s is %d bytes, not over %d", sock, len(sock), project.MaxSocketPath)
 	}
 	rc, _, stderr := run(t, long, nil, "serve")
 	if rc != 1 || !strings.Contains(stderr, "FAIL obor serve: ") || !strings.Contains(stderr, sock) ||
-		!strings.Contains(stderr, strconv.Itoa(wire.MaxSocketPath)) {
-		t.Errorf("obor serve with a long socket path: exit %d, %q; want 1 naming %s and %d", rc, stderr, sock, wire.MaxSocketPath)
+		!strings.Contains(stderr, strconv.Itoa(project.MaxSocketPath)) {
+		t.Errorf("obor serve with a long socket path: exit %d, %q; want 1 naming %s and %d", rc, stderr, sock, project.MaxSocketPath)
 	}
 	if _, err := os.Stat(filepath.Join(long, ".obor", "state", "serve.flock")); err == nil {
 		t.Error("serve.flock left by the refused start")
@@ -180,7 +180,7 @@ func TestServeAcceptsNewerHerdrProtocol(t *testing.T) {
 	}
 	// The same version again: no second line.
 	srv.DropConns()
-	if !waitFor(func() bool { return strings.Count(out.String(), "herdr: connected") >= 2 }) {
+	if !waitFor(func() bool { return strings.Count(out.String(), "terminal: connected") >= 2 }) {
 		t.Fatalf("serve never connected again:\n%s", out.String())
 	}
 	if n := strings.Count(out.String(), line(herdr.Protocol+1)); n != 1 {

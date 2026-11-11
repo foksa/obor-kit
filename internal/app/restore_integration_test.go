@@ -149,14 +149,14 @@ func TestServeRestoresAfterTerminalBack(t *testing.T) {
 		t.Fatalf("precondition: %d restores at the first connect, want 0", n)
 	}
 	r.srv.Die()
-	r.waitFor("the gone line", func() bool { return strings.Contains(r.out.String(), "herdr: gone") })
+	r.waitFor("the gone line", func() bool { return strings.Contains(r.out.String(), "terminal: gone") })
 	was := r.recorded()
 	before := r.count("session.snapshot")
 	r.srv.Revive(t)
 	if r.instance() == was {
 		t.Fatalf("precondition: the revived herdr's instance is the recorded one (%s)", was)
 	}
-	r.waitFor("the back line", func() bool { return strings.Contains(r.out.String(), "herdr: back") })
+	r.waitFor("the back line", func() bool { return strings.Contains(r.out.String(), "terminal: back") })
 	r.waitFor("a restore", func() bool { n, _, _ := fr.runs(); return n >= 1 })
 	r.settled(before)
 	if n, _, _ := fr.runs(); n != 1 {
@@ -170,7 +170,7 @@ func TestServeRestoresAfterTerminalBack(t *testing.T) {
 	}
 	r.waitFor("the restore's lines", func() bool {
 		out := r.out.String()
-		return strings.Contains(out, "herdr: reconnected: restoring") && strings.Contains(out, "herdr: restore done")
+		return strings.Contains(out, "terminal: reconnected: restoring") && strings.Contains(out, "terminal: restore done")
 	})
 	if got, want := r.recorded(), r.instance(); got != want {
 		t.Errorf("recorded instance %q after the reconnect, want the revived herdr's %q", got, want)
@@ -214,7 +214,7 @@ func TestServeRestoresDoNotOverlap(t *testing.T) {
 	}
 	close(fr.hold)
 	r.waitFor("the queued restore", func() bool { n, running, _ := fr.runs(); return n == 2 && running == 0 })
-	r.waitFor("the done line", func() bool { return strings.Contains(r.out.String(), "herdr: restore done") })
+	r.waitFor("the done line", func() bool { return strings.Contains(r.out.String(), "terminal: restore done") })
 	if n, _, most := fr.runs(); n != 2 || most != 1 {
 		t.Errorf("%d restores, %d at once at most; want 2 runs, never two at once", n, most)
 	}
@@ -236,7 +236,7 @@ func TestServeRestoresAtFirstConnectAfterTerminalRestart(t *testing.T) {
 	r.waitFor("a restore", func() bool { n, _, _ := fr.runs(); return n >= 1 })
 	r.waitFor("the restore's lines", func() bool {
 		out := r.out.String()
-		return strings.Contains(out, "herdr: restarted while serve was down") && strings.Contains(out, "herdr: restore done")
+		return strings.Contains(out, "terminal: restarted while serve was down") && strings.Contains(out, "terminal: restore done")
 	})
 	r.quiet()
 	if n, _, _ := fr.runs(); n != 1 {

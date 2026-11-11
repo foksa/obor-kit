@@ -112,10 +112,10 @@ func (a *App) Serve(ctx context.Context) error {
 			if !down {
 				down = true
 				if ended != nil {
-					a.logf("herdr: gone (stream ended: %v; subscribe: %v); waiting for it, retrying up to every %s",
+					a.logf("terminal: gone (stream ended: %v; subscribe: %v); waiting for it, retrying up to every %s",
 						ended, err, a.opt.RetryMax)
 				} else {
-					a.logf("herdr: gone (%v); waiting for it, retrying up to every %s", err, a.opt.RetryMax)
+					a.logf("terminal: gone (%v); waiting for it, retrying up to every %s", err, a.opt.RetryMax)
 				}
 			}
 			ended = nil
@@ -128,9 +128,9 @@ func (a *App) Serve(ctx context.Context) error {
 		}
 		switch {
 		case down:
-			a.logf("herdr: back")
+			a.logf("terminal: back")
 		case ended != nil:
-			a.logf("herdr stream ended: %v; subscribed again", ended)
+			a.logf("terminal stream ended: %v; subscribed again", ended)
 		}
 		wait, down, ended = a.opt.Retry, false, nil
 		a.connect(ctx, st.Snapshot)
@@ -144,7 +144,7 @@ func (a *App) Serve(ctx context.Context) error {
 		switch err := st.Err(); {
 		case ctx.Err() != nil || a.opt.Refresh(err):
 		case port.Answered(err): // herdr ended it with an answer (events_lost): it is there, say so now
-			a.logf("herdr stream ended: %v; subscribing again", err)
+			a.logf("terminal stream ended: %v; subscribing again", err)
 		case err == nil:
 			ended = errors.New("closed")
 		default: // the socket went: the next subscribe says whether herdr is gone (one line either way)

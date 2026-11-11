@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	"obor/internal/app/wire"
 	"obor/internal/herdr"
+	"obor/internal/project"
 )
 
 // Server is a fake herdr socket: newline JSON over a unix socket in a temp dir (Serve) or over in-memory connections
@@ -134,7 +134,7 @@ func Serve(t testing.TB, f *Fake) *Server {
 	s := &Server{Path: filepath.Join(dir, "herdr.sock"), F: f, protocol: herdr.Protocol,
 		replies: map[string]map[string]any{}, once: map[string][]Failure{}, held: map[string]*hold{},
 		conns: map[net.Conn]bool{}}
-	if err := wire.CheckSocketPath(s.Path); err != nil {
+	if err := project.CheckSocketPath(s.Path); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.listen(); err != nil {
