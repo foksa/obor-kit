@@ -71,16 +71,29 @@ export const isAccepted = (p: string) => base(p) === "accepted.md";
 // outline is BACKLOG's sections: its ## headings.
 export const outline = (text: string): Heading[] => headings(text).filter((h) => h.level === 2);
 
-// filterLines is accepted.md under the filter box: its headings and every line with each word of q (case aside); the
-// count is of its list lines, shown and in all. An empty q is the whole text.
+// filterLines is accepted.md under the filter box: its headings and every list item with each word of q (case aside),
+// an item whole with its indented continuation lines; the count is of its list items, shown and in all. An empty q is
+// the whole text.
 export function filterLines(text: string, q: string): { text: string; shown: number; total: number } {
   const lines = String(text || "").split("\n");
   const item = (l: string) => /^\s*(?:[-*]|\d+\.)\s+/.test(l);
-  const total = lines.filter(item).length;
+  const heading = (l: string) => /^#{1,4}\s/.test(l);
+  const cont = (l: string) => /^\s+\S/.test(l);
+  // blocks is each line, a list item carrying the indented lines that continue it (md joins them back).
+  const blocks: { item: boolean; lines: string[] }[] = [];
+  for (const l of lines) {
+    const last = blocks[blocks.length - 1];
+    if (last?.item && !item(l) && !heading(l) && cont(l)) { last.lines.push(l); continue; }
+    blocks.push({ item: item(l), lines: [l] });
+  }
+  const total = blocks.filter((b) => b.item).length;
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return { text, shown: total, total };
-  const kept = lines.filter((l) => /^#{1,4}\s/.test(l) || (item(l) && words.every((w) => l.toLowerCase().includes(w))));
-  return { text: kept.join("\n"), shown: kept.filter(item).length, total };
+  const kept = blocks.filter((b) =>
+    b.item
+      ? words.every((w) => b.lines.join("\n").toLowerCase().includes(w))
+      : heading(b.lines[0]));
+  return { text: kept.flatMap((b) => b.lines).join("\n"), shown: kept.filter((b) => b.item).length, total };
 }
 
 // groupName is a directory's label in the list.
