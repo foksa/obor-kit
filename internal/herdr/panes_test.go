@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -525,9 +526,25 @@ func TestPanesSessionWithoutTranscript(t *testing.T) {
 	}
 }
 
-// the subscription's snapshot and Snapshot carry herdr's start, its socket file's time: a restarted herdr
-// (a new socket file) gives another one.
-func TestPanesStartedIsTheSocketFileTime(t *testing.T) {
+// The note is the adapter's own sentence when herdr speaks a newer protocol than obor knows; none at obor's own.
+func TestPanesNoteOnANewerProtocol(t *testing.T) {
+	t.Parallel()
+	srv := herdrtest.Serve(t, fixture())
+	p := herdr.Panes{S: srv.Client()}
+	if snap, err := p.Snapshot(ctx); err != nil || snap.Note != "" {
+		t.Errorf("at obor's protocol: note %q, %v; want none", snap.Note, err)
+	}
+	srv.Protocol(herdr.Protocol + 1)
+	snap, err := p.Snapshot(ctx)
+	want := "herdr fake, protocol " + strconv.Itoa(herdr.Protocol+1) + " (newer than obor's " + strconv.Itoa(herdr.Protocol) + ")"
+	if err != nil || snap.Note != want {
+		t.Errorf("on a newer protocol: note %q, %v; want %q", snap.Note, err, want)
+	}
+}
+
+// the subscription's snapshot and Snapshot carry herdr's instance, its socket file's time in RFC 3339: a restarted
+// herdr (a new socket file) gives another one, and two reads of the same server the same.
+func TestPanesInstanceIsTheSocketFileTime(t *testing.T) {
 	t.Parallel()
 	srv := herdrtest.Serve(t, fixture())
 	p := herdr.Panes{S: srv.Client()}
@@ -537,14 +554,18 @@ func TestPanesStartedIsTheSocketFileTime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !st.Snapshot.Started.Equal(at) {
-		t.Errorf("stream snapshot Started = %v, want the socket file's %v", st.Snapshot.Started, at)
+	if want := at.Format(time.RFC3339Nano); st.Snapshot.Instance != want {
+		t.Errorf("stream snapshot Instance = %q, want the socket file's %q", st.Snapshot.Instance, want)
 	}
 	st.Close()
 	later := at.Add(time.Hour)
 	srv.Restart(t, later)
 	snap, err := p.Snapshot(ctx)
-	if err != nil || !snap.Started.Equal(later) {
-		t.Errorf("Snapshot after a restart: Started %v, %v; want %v", snap.Started, err, later)
+	if want := later.Format(time.RFC3339Nano); err != nil || snap.Instance != want {
+		t.Errorf("Snapshot after a restart: Instance %q, %v; want %q", snap.Instance, err, want)
+	}
+	again, err := p.Snapshot(ctx)
+	if err != nil || again.Instance != snap.Instance {
+		t.Errorf("two snapshots of one server: Instance %q, %q, %v; want them equal", snap.Instance, again.Instance, err)
 	}
 }

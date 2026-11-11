@@ -40,12 +40,15 @@ func (a *App) connect(ctx context.Context, snap port.Snapshot) {
 	}
 	a.connected = true
 	a.streams++
-	if snap.Protocol != 0 && (snap.Version != a.herdrVer || snap.Protocol != a.herdrProt) {
-		a.logf("herdr: %s protocol %d", snap.Version, snap.Protocol)
+	// The terminal's version and its note: each goes to the log once when it changes. The note is what obor status
+	// shows a person (terminalNote); the version is what the version pass records (versions.go).
+	if snap.Version != "" && snap.Version != a.termVer {
+		a.logf("terminal: %s", snap.Version)
 	}
-	if snap.Protocol != 0 {
-		a.herdrVer, a.herdrProt, a.herdrOwn = snap.Version, snap.Protocol, snap.Speaks
+	if snap.Note != "" && snap.Note != a.termNote {
+		a.logf("terminal: %s", snap.Note)
 	}
+	a.termVer, a.termNote = snap.Version, snap.Note
 	a.logf("herdr: connected; %d panes, %d in the project", len(snap.Panes), a.projectPanes())
 	p := a.p
 	if p != nil {

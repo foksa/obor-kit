@@ -22,16 +22,22 @@ import (
 // Elsewhere is every verb's line off darwin (exit 0: nothing to do there yet).
 const Elsewhere = "run `obor serve` yourself (systemd --user later)"
 
+// EnvVar is one variable of the caller's environment a serve launchd starts must have: the terminal's own, as its
+// adapter names them.
+type EnvVar struct {
+	Name, Value string
+}
+
 // Service is one project's LaunchAgent.
 type Service struct {
-	Name  string // the project's config name: the label is obor.serve.<Name>
-	Root  string // the project's main checkout: the agent's WorkingDirectory
-	Kit   string // the obor kit: the agent runs <Kit>/bin/obor serve
-	Home  string // the user's home: the plist is in <Home>/Library/LaunchAgents
-	UID   int    // the gui/<uid> domain
-	GOOS  string // runtime.GOOS: launchd only on darwin
-	Path  string // the caller's PATH (launchd's own has no claude, codex, herdr or jq)
-	Herdr string // HERDR_SOCKET_PATH ("": unset, not written)
+	Name string   // the project's config name: the label is obor.serve.<Name>
+	Root string   // the project's main checkout: the agent's WorkingDirectory
+	Kit  string   // the obor kit: the agent runs <Kit>/bin/obor serve
+	Home string   // the user's home: the plist is in <Home>/Library/LaunchAgents
+	UID  int      // the gui/<uid> domain
+	GOOS string   // runtime.GOOS: launchd only on darwin
+	Path string   // the caller's PATH (launchd's own has no claude, codex, herdr or jq)
+	Env  []EnvVar // the terminal's variables as the caller has them (none: not written)
 }
 
 // Supported: launchd is there (darwin).
@@ -114,7 +120,7 @@ func RotateServeLog(root string) error {
 func (s Service) target() string { return fmt.Sprintf("gui/%d/%s", s.UID, s.Label()) }
 
 // Plist is the agent's plist: obor serve in the project, started at load, kept alive, its output in LogPath, the
-// caller's PATH (and HERDR_SOCKET_PATH when set).
+// caller's PATH and the terminal's own variables (Env).
 func (s Service) Plist() []byte {
 	var b bytes.Buffer
 	str := func(indent, v string) { fmt.Fprintf(&b, "%s<string>%s</string>\n", indent, esc(v)) }
@@ -145,9 +151,12 @@ func (s Service) Plist() []byte {
 	b.WriteString("\t<dict>\n")
 	key("\t\t", "PATH")
 	str("\t\t", s.Path)
-	if s.Herdr != "" {
-		key("\t\t", "HERDR_SOCKET_PATH")
-		str("\t\t", s.Herdr)
+	for _, v := range s.Env {
+		if v.Name == "" {
+			continue
+		}
+		key("\t\t", v.Name)
+		str("\t\t", v.Value)
 	}
 	b.WriteString("\t</dict>\n</dict>\n</plist>\n")
 	return b.Bytes()

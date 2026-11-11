@@ -30,7 +30,7 @@ func (a *App) load(root string) (*proj, error) {
 		return nil, err
 	}
 	rc, _ := cfg.Role("integrator")
-	p := &proj{root: root, name: name, log: log, tasks: map[string]*watch{},
+	p := &proj{root: root, name: name, terminal: cfg.TerminalKind(), log: log, tasks: map[string]*watch{},
 		integrator: cfg.AgentName("integrator", ""),
 		out:        outbox.New(cfg.AgentName("lead", ""), roleKind(cfg, "lead")),
 		merging:    a.opt.Loop != nil && rc.Configured, timers: map[string]*jobTimer{}, replies: map[string]string{},

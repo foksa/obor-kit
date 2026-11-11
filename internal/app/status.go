@@ -23,7 +23,7 @@ func (a *App) Status() wire.Status {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	now := a.opt.Now()
-	st := wire.Status{Since: a.since.UTC().Format(time.RFC3339), Connected: a.connected, HerdrNote: a.herdrNote()}
+	st := wire.Status{Since: a.since.UTC().Format(time.RFC3339), Connected: a.connected, TerminalNote: a.terminalNote()}
 	if p := a.p; p != nil {
 		ps := wire.ProjectStatus{Name: p.name, Root: p.root, Merging: p.merging, Agents: []wire.AgentStatus{}, Tasks: []wire.TaskStatus{},
 			Facts: []event.Record{}}
@@ -571,14 +571,14 @@ func (a *App) skewNote(seen map[string]bool) string {
 	return strings.Join(parts, ", ") + " (serve " + version.Version + ")"
 }
 
-// herdrNote is the status note for the server serve is connected to: its version and protocol when it speaks a newer
-// protocol than obor's, else none. It follows each snapshot, so a herdr started or upgraded after serve shows at once.
-// The caller holds a.mu.
-func (a *App) herdrNote() string {
-	if !a.connected || a.herdrProt <= a.herdrOwn {
+// terminalNote is the status note for the terminal serve is connected to: the adapter's sentence when it knows less
+// than that terminal ("" otherwise). It follows each snapshot, so a terminal started or upgraded after serve shows at
+// once. The caller holds a.mu.
+func (a *App) terminalNote() string {
+	if !a.connected {
 		return ""
 	}
-	return fmt.Sprintf("herdr %s, protocol %d (newer than obor's %d)", a.herdrVer, a.herdrProt, a.herdrOwn)
+	return a.termNote
 }
 
 // waitDifficulty is a waiting task's Difficulty level: its dispatch's level, else (a --model override, which names

@@ -33,7 +33,7 @@ func TestHeadlessByProgramNotName(t *testing.T) {
 	}
 	f := fixture(t)
 	P := f.P
-	const why = "runs an agent headless; agents run in herdr panes"
+	const why = "runs an agent headless; agents run in terminal panes"
 	check(t, f.Project, []tc{
 		bash("lead", P, `x-agent -p "summarise"`, "x-agent -p "+why),
 		bash("lead", P, `x-agent --print hi`, "x-agent --print "+why),

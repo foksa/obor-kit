@@ -56,7 +56,7 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
 	}
 	if s.Label != s.Agent {
 		if err := l.H.RenamePane(ctx, s.Pane, s.Agent); err != nil {
-			return port.Pane{}, project.Failf("herdr pane rename %s %s failed", s.Pane, s.Agent)
+			return port.Pane{}, project.Failf("terminal pane rename %s %s failed", s.Pane, s.Agent)
 		}
 		l.say("labelled pane %s %s", s.Pane, s.Agent)
 	}
@@ -81,7 +81,7 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
 	said := false
 	for s.Shell > 0 && port.PaneBusy(t.err) {
 		if !said {
-			l.say("pane %s is not an available shell yet (herdr: agent_pane_busy): waiting for it", s.Pane)
+			l.say("pane %s is not an available shell yet: waiting for it", s.Pane)
 			said = true
 		}
 		if !l.waitShell(ctx, s.Pane, by) {
@@ -194,7 +194,7 @@ func (l *Launcher) started(ctx context.Context, s Start) attempt {
 			}
 		case <-bound.C:
 			end()
-			t.err = fmt.Errorf("herdr agent start %s: no %s agent came up in %s within %s", s.Agent, s.Kind, s.Pane, l.upWait())
+			t.err = fmt.Errorf("terminal agent start %s: no %s agent came up in %s within %s", s.Agent, s.Kind, s.Pane, l.upWait())
 			return t
 		case <-tick.C:
 			a, err := l.H.Agent(ctx, s.Pane)
@@ -301,15 +301,15 @@ func sameSid(live, sid string) bool {
 var trustRE = regexp.MustCompile(`(?i)trust (this|the) (folder|directory)|do you trust`)
 
 // notReady is why the agent cannot take a prompt yet, from its pane's screen after the start: every kind's trust
-// dialog, else what the kind sees on it (agents.Kind.NotReady: Codex's self-update); "" when none shows.
+// dialog, else what the kind sees on it (agents.Kind.NotReady: Codex's self-update); "" when none shows. The hint
+// names what a person does next: answer the dialog, or run obor's own start again.
 func notReady(screen, kind, name, pane string) string {
 	if trustRE.MatchString(screen) {
 		return "a 'Trust this folder?' dialog in pane " + pane + ": answer it there (Enter = trust; once per repo)"
 	}
 	if k, ok := agents.Lookup(kind); ok {
 		if why := k.NotReady(screen); why != "" {
-			return kind + " " + why + " in pane " + pane + ": run herdr agent start " + name + " --kind " + kind +
-				" --pane " + pane + " again"
+			return kind + " " + why + " in pane " + pane + ": run obor restart " + name + " again"
 		}
 	}
 	return ""

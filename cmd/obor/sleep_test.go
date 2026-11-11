@@ -288,14 +288,14 @@ func TestStopRefusesTheCallersLane(t *testing.T) {
 	nothingDone(t, p, s, *stops, f)
 }
 
-// herdr's panes not listed refuses obor stop (with --force too): no proof no agent runs; the pause
+// the terminal's panes not listed refuses obor stop (with --force too): no proof no agent runs; the pause
 // cleared.
-func TestStopRefusedWhenHerdrFails(t *testing.T) {
+func TestStopRefusedWhenTerminalFails(t *testing.T) {
 	t.Parallel()
 	p, s, out, stops, f := sleepFx(t)
 	s.Force = true
 	s.H = &herdr.Socket{Path: filepath.Join(t.TempDir(), "no.sock")}
-	if rc := s.stop(context.Background()); rc != 1 || !strings.Contains(out.String(), "FAIL herdr's panes not listed") {
+	if rc := s.stop(context.Background()); rc != 1 || !strings.Contains(out.String(), "FAIL the terminal's panes not listed") {
 		t.Errorf("exit %d\n%s", rc, out)
 	}
 	pausedThenCleared(t, f, out)

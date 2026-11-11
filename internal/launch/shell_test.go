@@ -29,8 +29,7 @@ func TestRestartWaitsForTheShellAfterTheStop(t *testing.T) {
 		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
 		eqInt(t, len(x.calls("agent.start")), 3, "a start after each agent_pane_busy, then the one that ran")
 		eqInt(t, p.StartBusy, 0, "precondition: the busy answers were the two first starts'")
-		contains(t, out, "agent_pane_busy", "herdr's answer said")
-		contains(t, out, "is not an available shell yet", "the wait said")
+		contains(t, out, "is not an available shell yet", "the busy answer's wait said")
 		lacks(t, out, "runs in w1:p3", "the old agent never taken for the new one")
 		eq(t, p.Kind, "claude", "the agent runs in the pane again")
 	})
@@ -45,9 +44,8 @@ func TestRestartWaitsForTheShellAfterTheStop(t *testing.T) {
 		if ok || strings.Contains(out, "RESTARTED") {
 			t.Fatalf("a refused start said RESTARTED:\n%s", out)
 		}
-		eq(t, failLine(out), "FAIL start failed in w1:p6 (herdr: the pane is not an available shell: the old agent "+
+		eq(t, failLine(out), "FAIL start failed in w1:p6 (the pane is not an available shell: the old agent "+
 			"has not left it; run obor restart pj-lead --pane w1:p6 again or start it by hand)", "result")
-		contains(t, out, "agent_pane_busy", "herdr's answer said")
 		lacks(t, out, "runs in w1:p6", "the old agent never taken for the new one")
 	})
 	t.Run("the detached run of the handoff: the same wait", func(t *testing.T) {

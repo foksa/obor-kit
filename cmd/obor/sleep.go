@@ -349,8 +349,8 @@ func (s *sleeper) ownLane(ctx context.Context, busy []busyTask) (string, error) 
 	}
 	panes, err := s.H.Panes(ctx)
 	if err != nil {
-		return "", fmt.Errorf("herdr's panes not listed (%v): the caller's pane %s is not known; obor stop again once "+
-			"herdr answers", err, own)
+		return "", fmt.Errorf("the terminal's panes not listed (%v): the caller's pane %s is not known; obor stop again "+
+			"once the terminal answers", err, own)
 	}
 	for _, p := range panes {
 		if p.ID != own {
@@ -416,7 +416,8 @@ func busyList(bs []busyTask) string {
 func (s *sleeper) stopAgents(ctx context.Context) error {
 	panes, err := s.H.Panes(ctx)
 	if err != nil {
-		return fmt.Errorf("herdr's panes not listed (%v): its agents may still run; obor stop again once herdr answers", err)
+		return fmt.Errorf("the terminal's panes not listed (%v): its agents may still run; obor stop again once "+
+			"the terminal answers", err)
 	}
 	repo, _ := project.Find(s.Cwd)
 	ownPane, _ := project.Pane(s.Env)            // none: no pane of the caller's to spare

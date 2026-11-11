@@ -375,7 +375,7 @@ func TestScheduledWaitsThenDecidesFresh(t *testing.T) {
 		if !ok {
 			t.Fatal(out)
 		}
-		contains(t, out, "warning: herdr reports session sid-after for pane w1:p3, the recorded session is sid-before: resuming sid-before", "warned")
+		contains(t, out, "warning: the terminal reports session sid-after for pane w1:p3, the recorded session is sid-before: resuming sid-before", "warned")
 		contains(t, x.startCall(), "--resume sid-before", "recorded session resumed")
 		eq(t, record(x), "sid-before\n", "record kept")
 	})

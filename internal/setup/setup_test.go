@@ -685,7 +685,7 @@ func TestPaneLabelSetAndRefused(t *testing.T) {
 
 	x.noAgents()
 	x.reset()
-	x.failing(t, "FAIL pane w1:p1 is already labelled pj-l-01 (obor restart pj-l-01, or herdr pane rename w1:p1 --clear)",
+	x.failing(t, "FAIL pane w1:p1 is already labelled pj-l-01 (obor restart pj-l-01)",
 		"pane", "--start", "L-01", "--tab", "w1:t1")
 	calls := strings.Join(x.reqs(), "\n")
 	hasNot(t, calls, "pane.split", "held label → no split")
@@ -694,13 +694,13 @@ func TestPaneLabelSetAndRefused(t *testing.T) {
 	x.h.Pane("w1:p1").Label = ""
 	x.h.Pane("w1:q1").Label = "advisor"
 	x.reset()
-	x.failing(t, "FAIL pane w1:q1 is labelled advisor, not pj-l-01 (herdr pane rename w1:q1 --clear to reuse it)",
+	x.failing(t, "FAIL pane w1:q1 is labelled advisor, not pj-l-01 (advisor holds it: use another pane for pj-l-01, or clear the pane's label in the terminal)",
 		"pane", "--start", "L-01", "--pane", "w1:q1")
 	hasNot(t, strings.Join(x.reqs(), "\n"), "agent.start", "foreign label on --pane → no start")
 
 	x.srv.Fail("pane.rename", "pane_not_found", "gone")
 	x.reset()
-	x.failing(t, "FAIL herdr pane rename w1:p1 pj-l-01 failed", "pane", "--start", "L-01", "--pane", "w1:p1")
+	x.failing(t, "FAIL terminal pane rename w1:p1 pj-l-01 failed", "pane", "--start", "L-01", "--pane", "w1:p1")
 	hasNot(t, strings.Join(x.reqs(), "\n"), "agent.start", "rename failed → no start")
 }
 
@@ -734,9 +734,9 @@ func TestPaneNotReadyHints(t *testing.T) {
 		{"> You are in /x\n  Do you trust the contents of this directory?\n  Trust this folder? 1. Yes  2. No\n", notReady,
 			"FAIL agent not ready: a 'Trust this folder?' dialog in pane w1:n1: answer it there (Enter = trust; once per repo)"},
 		{"Updating Codex via npm install -g @openai/codex\nUpdated to 0.161.0. Restart Codex.\n$ \n", exited,
-			"FAIL agent not ready: codex updated itself and exited in pane w1:n1: run herdr agent start pj-l-01 --kind codex --pane w1:n1 again"},
+			"FAIL agent not ready: codex updated itself and exited in pane w1:n1: run obor restart pj-l-01 again"},
 		{"", notReady, "FAIL agent not ready: pj-l-01 waits at a startup dialog in pane w1:n1: answer it there"},
-		{"$ \n", exited, "FAIL herdr agent start pj-l-01 failed (pane w1:n1)"},
+		{"$ \n", exited, "FAIL terminal agent start pj-l-01 failed (pane w1:n1)"},
 	} {
 		x := newFx(t)
 		x.lane(t, "L-01")

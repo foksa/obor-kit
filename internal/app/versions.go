@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"maps"
 	"obor/internal/app/event"
-	"obor/internal/config"
 	"slices"
 	"time"
 )
@@ -20,14 +19,11 @@ import (
 // versionsEvery is how often the tools' versions are read on a pass.
 const versionsEvery = 10 * time.Minute
 
-// terminalTool is the terminal's name among the tools (the one terminal adapter).
-const terminalTool = config.DefaultTerminal
-
 // ruleVersion is the version rule's name: its key in the rule pass.
 const ruleVersion = "version.changed"
 
-// versionData is fact version's data: the tool (an agent kind's name, or terminalTool), its version as read, and
-// the one the log held before ("": the first sighting).
+// versionData is fact version's data: the tool (an agent kind's name, or the project's terminal kind), its version as
+// read, and the one the log held before ("": the first sighting).
 type versionData struct {
 	What    string `json:"what"`
 	Version string `json:"version"`
@@ -64,8 +60,8 @@ func (a *App) versionTick(ctx context.Context, p *proj, fx *Loop) {
 		read = map[string]string{}
 	}
 	a.mu.Lock()
-	if a.connected && a.herdrVer != "" {
-		read[terminalTool] = a.herdrVer
+	if a.connected && a.termVer != "" {
+		read[p.terminal] = a.termVer
 	}
 	var changed []versionData
 	for _, what := range slices.Sorted(maps.Keys(read)) {

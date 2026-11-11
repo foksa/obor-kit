@@ -118,7 +118,7 @@ func (l *Launcher) stop(ctx context.Context, t *target, force, escape bool, hint
 		}
 	}
 	if err := l.H.Type(ctx, t.pane, quit); err != nil {
-		return project.Failf("herdr pane run %s %s failed", t.pane, quit)
+		return project.Failf("terminal pane run %s %s failed", t.pane, quit)
 	}
 	chose, polls := false, 0
 	var dialogErr error

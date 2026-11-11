@@ -23,7 +23,7 @@ import (
 	"obor/internal/roles"
 )
 
-// AgentNameRE is what a herdr agent name obor starts must match.
+// AgentNameRE is what an agent name obor starts must match.
 var AgentNameRE = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 
 // ErrNoConfig: the project has no .obor/config.json (exit 3; hooks no-op).

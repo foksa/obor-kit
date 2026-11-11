@@ -1,7 +1,7 @@
 {
   "serve": {
     "up": true,
-    "herdr": true,
+    "terminal": true,
     "project": true,
     "merging": true
   },

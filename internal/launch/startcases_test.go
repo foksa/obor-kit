@@ -209,7 +209,7 @@ func TestStartCases(t *testing.T) {
 			pane: &memPane{shell: true, listed: claudeIn("idle", true, "old"), start: func(*memPane, int) (port.Pane, error) {
 				return port.Pane{}, errPaneBusy
 			}},
-			ok: false, starts: -1, said: "is not an available shell yet (herdr: agent_pane_busy)", end: claudeIn("idle", true, "old")},
+			ok: false, starts: -1, said: "is not an available shell yet: waiting for it", end: claudeIn("idle", true, "old")},
 		{name: "accepted pending, the CLI exits (the pending launch ends, no agent): failed", up: shortWait,
 			pane: &memPane{shell: true, start: func(m *memPane, _ int) (port.Pane, error) {
 				pendingThen(m, 2, port.Pane{})

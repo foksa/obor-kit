@@ -23,9 +23,9 @@ func TestStopNoPanePlainFail(t *testing.T) {
 		prep: func(x *fx) {},
 		want: "no pane labelled pj-l-01 (pass --pane)",
 	}, {
-		name: "herdr pane list failed",
+		name: "the terminal pane list failed",
 		prep: func(x *fx) { x.srv.Fail("pane.list", "internal", "boom") },
-		want: "herdr pane list failed (is herdr running?)",
+		want: "terminal pane list failed (is the terminal running?)",
 	}} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()

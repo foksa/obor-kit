@@ -13,9 +13,10 @@ import (
 )
 
 // The plist: obor serve from the kit in the project, at load, kept alive, its output in serve.log, the caller's PATH
-// and HERDR_SOCKET_PATH (escaped); without HERDR_SOCKET_PATH set, no such key.
+// then the terminal's own variables (escaped, in the order the adapter names them); with none of them set, no such key.
 func TestPlistGolden(t *testing.T) {
-	s := Service{Name: "pj", Root: "/work/p&j", Kit: "/kit", Path: "/opt/bin:/usr/bin", Herdr: "/tmp/herdr.sock"}
+	s := Service{Name: "pj", Root: "/work/p&j", Kit: "/kit", Path: "/opt/bin:/usr/bin",
+		Env: []EnvVar{{Name: "HERDR_SOCKET_PATH", Value: "/tmp/herdr.sock"}}}
 	want, err := os.ReadFile(filepath.Join("testdata", "serve.plist"))
 	if err != nil {
 		t.Fatal(err)
@@ -23,9 +24,9 @@ func TestPlistGolden(t *testing.T) {
 	if got := string(s.Plist()); got != string(want) {
 		t.Errorf("plist:\n%s\nwant:\n%s", got, want)
 	}
-	s.Herdr = ""
+	s.Env = nil
 	if got := string(s.Plist()); strings.Contains(got, "HERDR_SOCKET_PATH") || !strings.Contains(got, "<key>PATH</key>") {
-		t.Errorf("plist without HERDR_SOCKET_PATH:\n%s", got)
+		t.Errorf("plist without the terminal's variables:\n%s", got)
 	}
 	if s.PlistPath() != filepath.Join(s.Home, "Library", "LaunchAgents", "obor.serve.pj.plist") {
 		t.Errorf("plist path %s", s.PlistPath())

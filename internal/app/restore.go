@@ -24,8 +24,8 @@ import (
 //
 // The terminal restarted while serve was down (a machine restart, herdr first and serve later; herdr restarted
 // while serve was stopped or re-execing): its panes came back as shells and no stream of this serve saw the loss.
-// Serve keeps the instance of the terminal it last connected to in InstanceFile (the snapshot's Started: herdr's socket
-// file time, port.Snapshot), written at every connect where it changed. At its first connect it restores when the
+// Serve keeps the instance of the terminal it last connected to in InstanceFile (the snapshot's Instance,
+// port.Snapshot), written at every connect where it changed. At its first connect it restores when the
 // terminal is another one than recorded, or when nothing is recorded and the terminal started after serve's last
 // activity (the newest record of the project's log as its replay left it, before this serve's start-up appended any:
 // a brand-new project, or a terminal that ran before it, restores nothing). The same instance restores nothing: a serve re-exec (every build) or restart leaves a role agent stopped on
@@ -47,15 +47,35 @@ type restoreState struct {
 }
 
 // InstanceFile is where serve keeps the instance of the terminal it last connected to:
-// <root>/.obor/state/herdr-instance, one line (the terminal's start, RFC 3339 with nanoseconds).
-func InstanceFile(root string) string { return filepath.Join(project.StateDir(root), "herdr-instance") }
+// <root>/.obor/state/terminal-instance, one line (the terminal's start, RFC 3339 with nanoseconds).
+func InstanceFile(root string) string {
+	return filepath.Join(project.StateDir(root), "terminal-instance")
+}
 
-// instanceOf is snap's terminal instance as InstanceFile holds it ("": not known).
-func instanceOf(snap port.Snapshot) string {
-	if snap.Started.IsZero() {
-		return ""
+// legacyInstanceFile is where serve kept it under the name that named herdr: a serve that finds no InstanceFile reads
+// this one once, so an upgrade is not read as a terminal restart. The sweep retires it.
+func legacyInstanceFile(root string) string {
+	return filepath.Join(project.StateDir(root), "herdr-instance")
+}
+
+// recordedInstance is the terminal instance serve recorded last ("": none), from InstanceFile, else from the file the
+// old name reads. An error: neither file could be read.
+func recordedInstance(root string) (string, error) {
+	b, err := os.ReadFile(InstanceFile(root))
+	if err == nil {
+		return strings.TrimSpace(string(b)), nil
 	}
-	return snap.Started.UTC().Format(time.RFC3339Nano)
+	if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	b, err = os.ReadFile(legacyInstanceFile(root))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", nil
+		}
+		return "", err
+	}
+	return strings.TrimSpace(string(b)), nil
 }
 
 // noteWoke records, at the project's load, whether obor stop's pause is in force (under mu).
@@ -71,24 +91,23 @@ func (a *App) connectRestore(ctx context.Context, wg *sync.WaitGroup, snap port.
 	if a.opt.Restore == nil || a.opt.Root == "" {
 		return
 	}
-	cur := instanceOf(snap)
-	recorded, err := os.ReadFile(InstanceFile(a.opt.Root))
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		a.logf("herdr: %v: read as no instance recorded", err)
+	cur := snap.Instance
+	was, err := recordedInstance(a.opt.Root)
+	if err != nil {
+		a.logf("terminal: %v: read as no instance recorded", err)
 	}
-	was := strings.TrimSpace(string(recorded))
 	switch {
 	case lost:
 		a.restore(ctx, wg, "reconnected")
 	case !first:
 	case cur == "":
-		a.logf("herdr: its start is not known (socket file unreadable): no restore at serve's first connect")
+		a.logf("terminal: its start is not known (the adapter names no instance): no restore at serve's first connect")
 	default:
 		a.mu.Lock()
 		woke := a.rst.woke
 		last := a.lastActivity()
 		a.mu.Unlock()
-		if why := firstRestore(was, snap.Started, last, woke); why != "" {
+		if why := firstRestore(was, cur, last, woke); why != "" {
 			a.restore(ctx, wg, why)
 		}
 	}
@@ -96,25 +115,26 @@ func (a *App) connectRestore(ctx context.Context, wg *sync.WaitGroup, snap port.
 		return
 	}
 	if err := project.WriteAtomic(InstanceFile(a.opt.Root), []byte(cur+"\n")); err != nil {
-		a.logf("herdr: instance not recorded: %v", err)
+		a.logf("terminal: instance not recorded: %v", err)
 	}
 }
 
-// firstRestore is why serve's first connect restores ("": it does not), for the terminal started at started, the
-// instance recorded was ("": none), serve's last activity last (zero: none known) and woke (obor stop's pause in force
-// at the load).
-func firstRestore(was string, started, last time.Time, woke bool) string {
-	cur := started.UTC().Format(time.RFC3339Nano)
+// firstRestore is why serve's first connect restores ("": it does not), for the terminal's instance cur (the adapter's
+// RFC 3339 start), the instance recorded was ("": none), serve's last activity last (zero: none known) and woke (obor
+// stop's pause in force at the load).
+func firstRestore(was, cur string, last time.Time, woke bool) string {
 	switch {
 	case woke || cur == was:
 		return ""
 	case was != "":
 		return "restarted while serve was down (started " + cur + ", serve last connected to " + was + ")"
-	case !last.IsZero() && started.After(last):
-		return "started (" + cur + ") after serve's last activity (" + last.UTC().Format(time.RFC3339) +
-			"), no instance recorded"
 	}
-	return ""
+	started, err := time.Parse(time.RFC3339Nano, cur)
+	if err != nil || last.IsZero() || !started.After(last) {
+		return ""
+	}
+	return "started (" + cur + ") after serve's last activity (" + last.UTC().Format(time.RFC3339) +
+		"), no instance recorded"
 }
 
 // lastActivity is the time of the newest record of the served project's log as its replay left it, before serve's

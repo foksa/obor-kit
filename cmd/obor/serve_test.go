@@ -135,10 +135,10 @@ func TestServeDump(t *testing.T) {
 	}
 }
 
-// A herdr on a newer protocol than obor's is served, not refused: serve's log names its version and protocol once,
-// and obor status (text and JSON) carries the same note. The note follows the server serve is connected to:
-// herdr coming up after serve, and herdr restarted on another protocol, change it; a restart as the same one does not
-// log again.
+// A herdr on a newer protocol than obor's is served, not refused: serve's log names the adapter's note once, and
+// obor status (text and JSON) carries the same note. The note follows the terminal serve is connected to: herdr
+// coming up after serve, and herdr restarted on another protocol, change it; a restart as the same one does not log
+// again.
 func TestServeAcceptsNewerHerdrProtocol(t *testing.T) {
 	t.Parallel()
 	p := testkit.NewPlain(t)
@@ -157,7 +157,7 @@ func TestServeAcceptsNewerHerdrProtocol(t *testing.T) {
 		for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
 			rc, stdout, _ := run(t, p.Root, env, "status")
 			rcj, js, _ := run(t, p.Root, env, "status", "--json")
-			if rc == 0 && rcj == 0 && strings.Contains(stdout, want) && strings.Contains(js, `"herdr_note": "`+want+`"`) {
+			if rc == 0 && rcj == 0 && strings.Contains(stdout, want) && strings.Contains(js, `"terminal_note": "`+want+`"`) {
 				return
 			}
 			if time.Now().After(deadline) {
@@ -166,7 +166,7 @@ func TestServeAcceptsNewerHerdrProtocol(t *testing.T) {
 			}
 		}
 	}
-	line := func(n int) string { return "herdr: fake protocol " + strconv.Itoa(n) + "\n" }
+	line := func(n int) string { return "terminal: " + note(n) + "\n" }
 
 	// Serve started with herdr down; herdr comes up newer.
 	srv.Protocol(herdr.Protocol + 1)

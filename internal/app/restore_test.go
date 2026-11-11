@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -35,7 +36,7 @@ func TestFirstRestore(t *testing.T) {
 		{"nothing recorded, no activity known", "", time.Time{}, false, false},
 		{"nothing recorded, woken from obor stop", "", started.Add(-time.Minute), true, false},
 	} {
-		if why := firstRestore(c.was, started, c.last, c.woke); (why != "") != c.restore {
+		if why := firstRestore(c.was, cur, c.last, c.woke); (why != "") != c.restore {
 			t.Errorf("%s: firstRestore = %q, want restore %v", c.name, why, c.restore)
 		}
 	}
@@ -45,6 +46,42 @@ func TestFirstRestore(t *testing.T) {
 type countRestorer struct{ calls int }
 
 func (r *countRestorer) RestoreProject(context.Context, string) { r.calls++ }
+
+// The upgrade: serve finds the instance only under the old file's name (the one naming herdr) and reads it once as the
+// recorded instance, so a terminal that did not restart does not restore; the new name is written.
+func TestFirstConnectReadsTheOldInstanceNameOnce(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	h.log(event.Record{Task: event.ServeTask, Step: event.StepNeedsYou, Kind: event.KindFact,
+		Data: []byte(`{"reason":"serve restart on the new obor binary failed: failed"}`)})
+	started := h.now.Add(time.Hour) // after the load's activity: with nothing recorded this restores
+	inst := started.UTC().Format(time.RFC3339Nano)
+	old := filepath.Join(h.root, ".obor", "state", "herdr-instance")
+	if err := os.MkdirAll(filepath.Dir(old), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	h.write(old, inst+"\n")
+	fr := &countRestorer{}
+	h.a.opt.Restore = fr
+	h.a.loadProject()
+	var wg sync.WaitGroup
+	h.a.connectRestore(context.Background(), &wg, port.Snapshot{Instance: inst}, true, false)
+	wg.Wait()
+	if fr.calls != 0 {
+		t.Errorf("restores = %d, want none: the old file records the same instance", fr.calls)
+	}
+	if _, err := os.Stat(InstanceFile(h.root)); !os.IsNotExist(err) {
+		t.Errorf("instance under the new name: %v; want none: nothing changed", err)
+	}
+	// The terminal restarted since: the new name records its instance.
+	later := started.Add(time.Hour).UTC().Format(time.RFC3339Nano)
+	var again sync.WaitGroup
+	h.a.connectRestore(context.Background(), &again, port.Snapshot{Instance: later}, false, false)
+	again.Wait()
+	if b, err := os.ReadFile(InstanceFile(h.root)); err != nil || strings.TrimSpace(string(b)) != later {
+		t.Errorf("instance under the new name = %q, %v; want %q", b, err, later)
+	}
+}
 
 // firstConnect loads h's project at h.now and runs serve's first connect to a terminal started at started, nothing
 // recorded in InstanceFile: the restores asked for, and the instance recorded after it.
@@ -57,7 +94,7 @@ func firstConnect(t *testing.T, h *harness, started time.Time) (int, string) {
 	h.a.opt.Restore = fr
 	h.a.loadProject()
 	var wg sync.WaitGroup
-	h.a.connectRestore(context.Background(), &wg, port.Snapshot{Started: started}, true, false)
+	h.a.connectRestore(context.Background(), &wg, port.Snapshot{Instance: started.UTC().Format(time.RFC3339Nano)}, true, false)
 	wg.Wait()
 	b, err := os.ReadFile(InstanceFile(h.root))
 	if err != nil {
@@ -84,7 +121,7 @@ func TestRV165UpgradeAfterFailedServeRestart(t *testing.T) {
 	if calls != 1 {
 		t.Fatalf("restore calls = %d, want 1 (herdr started %v, last activity %v)", calls, started, h.a.lastActivity())
 	}
-	if want := instanceOf(port.Snapshot{Started: started}); rec != want {
+	if want := started.UTC().Format(time.RFC3339Nano); rec != want {
 		t.Fatalf("instance recorded %q, want %q", rec, want)
 	}
 }
@@ -105,7 +142,7 @@ func TestFirstConnectNoRestoreHerdrBeforeLastActivity(t *testing.T) {
 	if calls != 0 {
 		t.Fatalf("restore calls = %d, want 0", calls)
 	}
-	if want := instanceOf(port.Snapshot{Started: started}); rec != want {
+	if want := started.UTC().Format(time.RFC3339Nano); rec != want {
 		t.Fatalf("instance recorded %q, want %q", rec, want)
 	}
 }

@@ -96,7 +96,7 @@ func (p Panes) appPane(a port.Pane) port.Pane {
 }
 
 func (p Panes) appSnapshot(s Snapshot) port.Snapshot {
-	out := port.Snapshot{Version: s.Version, Protocol: s.Protocol, Speaks: Protocol, Started: p.started()}
+	out := port.Snapshot{Version: s.Version, Instance: p.instance(), Note: note(s)}
 	labels := s.labels()
 	seen := observed(s)
 	for _, pane := range s.Panes {
@@ -107,15 +107,23 @@ func (p Panes) appSnapshot(s Snapshot) port.Snapshot {
 	return out
 }
 
-// started is when the herdr server on p's socket started: the socket file's modification time (herdr creates the
-// socket at its start and nothing writes the file after; its API exposes no server pid, start time or instance id).
-// Zero when the file cannot be read.
-func (p Panes) started() time.Time {
+// instance is the herdr server's instance: its socket file's modification time in RFC 3339 with nanoseconds (herdr
+// creates the socket at its start and nothing writes the file after; its API exposes no server pid, start time or
+// instance id). "" when the file cannot be read.
+func (p Panes) instance() string {
 	fi, err := os.Stat(p.S.Path)
 	if err != nil {
-		return time.Time{}
+		return ""
 	}
-	return fi.ModTime()
+	return fi.ModTime().UTC().Format(time.RFC3339Nano)
+}
+
+// note is herdr's own sentence when it speaks a newer protocol than this client knows ("" otherwise): the status note.
+func note(s Snapshot) string {
+	if s.Protocol <= Protocol {
+		return ""
+	}
+	return fmt.Sprintf("herdr %s, protocol %d (newer than obor's %d)", s.Version, s.Protocol, Protocol)
 }
 
 // Snapshot is herdr's session now, as the subscription's Snapshot: the same source (session.snapshot), for a pane whose

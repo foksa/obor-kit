@@ -1205,7 +1205,7 @@ func TestRestartLabel(t *testing.T) {
 	x.srv.Fail("pane.rename", "pane_not_found", "gone")
 	n = len(x.srv.Calls())
 	out, ok = x.restart(launch.Request{Agent: "pj-l-01", Pane: "w1:p5"})
-	eq(t, last(out), "FAIL herdr pane rename w1:p5 pj-l-01 failed", "rename failing")
+	eq(t, last(out), "FAIL terminal pane rename w1:p5 pj-l-01 failed", "rename failing")
 	if ok || strings.Contains(strings.Join(x.srv.Calls()[n:], "\n"), "agent.start") {
 		t.Error("no start after a failed rename")
 	}
@@ -3328,7 +3328,7 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 		if !ok {
 			t.Fatal(out)
 		}
-		contains(t, out, "warning: herdr reports session sid-live for pane w1:p3, the recorded session is sid-rec: resuming sid-rec", "warned")
+		contains(t, out, "warning: the terminal reports session sid-live for pane w1:p3, the recorded session is sid-rec: resuming sid-rec", "warned")
 		contains(t, out, "resuming sid-rec (from record)", "source")
 		contains(t, x.startCall(), "--resume sid-rec", "the record resumed")
 		eq(t, record(x), "sid-rec\n", "record kept")

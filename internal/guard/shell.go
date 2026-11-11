@@ -478,11 +478,11 @@ func unescape(v string, quoted bool) string {
 // alias after a prompt word (`codex "hello" e hi`); `env -S` separators the shell parser reads differently (`\_`).
 func headless(h agents.Headless, name string, args []string) {
 	if sub := subcommand(args, h.ValueOpts); oneOf(sub, h.Subcommands...) {
-		deny(name + " " + sub + " runs an agent headless; agents run in herdr panes")
+		deny(name + " " + sub + " runs an agent headless; agents run in terminal panes")
 	}
 	for _, w := range positionals(args, h.ValueOpts) {
 		if oneOf(w, h.Anywhere...) {
-			deny(name + " " + w + " runs an agent headless; agents run in herdr panes")
+			deny(name + " " + w + " runs an agent headless; agents run in terminal panes")
 		}
 	}
 	if !h.PrintFlag {
@@ -495,7 +495,7 @@ func headless(h agents.Headless, name string, args []string) {
 		a, _, _ = strings.Cut(a, "=")
 		if a == "--print" || len(a) > 1 && a[0] == '-' && a[1] != '-' && strings.Contains(a, "p") &&
 			strings.Trim(a[1:], "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ") == "" {
-			deny(name + " " + a + " runs an agent headless; agents run in herdr panes")
+			deny(name + " " + a + " runs an agent headless; agents run in terminal panes")
 		}
 	}
 }

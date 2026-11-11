@@ -309,7 +309,7 @@ func (l *Launcher) resolve(ctx context.Context, agent, pane, typ string) (*targe
 	}
 	panes, err := l.H.Panes(ctx)
 	if err != nil {
-		return nil, project.Failf("herdr pane list failed (is herdr running?)")
+		return nil, project.Failf("terminal pane list failed (is the terminal running?)")
 	}
 	t.panes = panes
 	src := "--pane"
@@ -519,7 +519,7 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 		if live := t.entry.Session; live != "" && !sameSid(live, sid) {
 			switch {
 			case sid != "" && !req.Fresh:
-				l.say("warning: herdr reports session %s for pane %s, the recorded session is %s: resuming %s", live, t.pane,
+				l.say("warning: the terminal reports session %s for pane %s, the recorded session is %s: resuming %s", live, t.pane,
 					sid, sid)
 			case sid == "" && !agents.NamedSession(t.kind):
 				sid, src = live, "herdr"
@@ -623,7 +623,7 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	case errors.As(err, &se) && se.NotReady:
 		return port.Started{}, l.giveUp(ctx, t, "start failed in %s (%s)", t.pane, se.Hint)
 	case errors.As(err, &se) && port.PaneBusy(se.Err):
-		return port.Started{}, l.giveUp(ctx, t, "start failed in %s (herdr: the pane is not an available shell: the old "+
+		return port.Started{}, l.giveUp(ctx, t, "start failed in %s (the pane is not an available shell: the old "+
 			"agent has not left it; run obor restart %s --pane %s again or start it by hand)", t.pane, t.agent, t.pane)
 	case errors.As(err, &se):
 		return port.Started{}, l.giveUp(ctx, t, "start failed in %s (no agent runs there: the pane is at its shell, maybe mid-command: run obor restart %s --pane %s again or start it by hand)",
@@ -757,7 +757,7 @@ func (l *Launcher) setEnv(ctx context.Context, t *target) error {
 	// of at the timeout.
 	okMark, badMark := envMark(), envMark()
 	if err := l.H.Type(ctx, t.pane, envLine(t)+" && echo "+okMark.typed+" || echo "+badMark.typed); err != nil {
-		return project.Failf("herdr pane run %s (env) failed", t.pane)
+		return project.Failf("terminal pane run %s (env) failed", t.pane)
 	}
 	// One server-owned wait for either mark (the echoed words, which the typed line's quoted forms never match): its
 	// timeout is the env line's bound, and the text read says which mark the shell printed.

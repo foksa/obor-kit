@@ -33,8 +33,8 @@ const staleLogKeep = 14 * 24 * time.Hour
 const FlakeKeep = 7 * 24 * time.Hour
 
 // retired is the state dir's entries no current writer has, by name: a task that deletes a writer adds its file here
-// (AGENTS.md), and the sweep removes each. None today.
-var retired = []string{}
+// (AGENTS.md), and the sweep removes each.
+var retired = []string{"herdr-instance"}
 
 // Sweep removes what the project at cfg.Root no longer needs, right after obor nightly's backup: daily backups past
 // the newest backupKeep dates (either format: gzip'd days count together with the older uncompressed ones;

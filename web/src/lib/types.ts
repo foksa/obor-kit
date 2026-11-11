@@ -19,8 +19,8 @@ export interface Serve {
   up: boolean;
   since?: string;
   error?: string;
-  herdr: boolean;
-  herdr_note?: string;
+  terminal: boolean;
+  terminal_note?: string;
   skew?: string;
   project: boolean;
   merging: boolean;
