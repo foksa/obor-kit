@@ -53,7 +53,7 @@ func TestEarlyTaskDone(t *testing.T) {
 	if step == nil {
 		t.Fatal("no step")
 	}
-	if !step(context.Background(), &Loop{Agents: f, Typer: f, Kit: r.kit}) {
+	if !step(context.Background(), &Loop{Agents: f, Prompter: f, Kit: r.kit}) {
 		t.Fatal("the start step failed")
 	}
 	if len(f.launches) != 1 || f.launches[0].Prompt != wakeLine("T-2/1/work") {
@@ -94,7 +94,7 @@ func TestStartAgainSameJob(t *testing.T) {
 	if step == nil {
 		t.Fatal("no step")
 	}
-	if !step(context.Background(), &Loop{Agents: f, Typer: f, Kit: r.kit}) {
+	if !step(context.Background(), &Loop{Agents: f, Prompter: f, Kit: r.kit}) {
 		t.Fatal("the start step failed")
 	}
 	if len(f.launches) != 1 || f.launches[0].Prompt != wakeLine("T-2/1/work") {
@@ -113,7 +113,7 @@ func runNext(r *concRig, p *proj, task string, f *startJobFakes) bool {
 	if step == nil {
 		r.t.Fatalf("%s: no step", task)
 	}
-	return step(context.Background(), &Loop{Agents: f, Typer: f})
+	return step(context.Background(), &Loop{Agents: f, Prompter: f})
 }
 
 // setStatus puts the integrator's pane w1:p9 at status.

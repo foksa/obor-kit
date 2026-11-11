@@ -29,16 +29,16 @@ func (e termErr) NotFound() bool { return e == errNotFound }
 func (e termErr) PaneBusy() bool { return e == errPaneBusy }
 func (e termErr) TimedOut() bool { return e == errTimedOut }
 
-// memPane is an in-memory PaneControl of one pane w1:p3, scripted per row: what its listing shows (Agent), whether
+// memPane is an in-memory PaneControl of one pane w1:p3, scripted per row: what its listing shows (Pane), whether
 // its shell has the foreground (ProcessInfo), and each agent start's answer, or none before the start gives up on the
 // call (late). Any other call panics (the nil embedded interface): the start makes none.
 type memPane struct {
 	port.PaneControl
 	mu       sync.Mutex
-	listed   port.Pane // the pane's agent as the listing shows it (Agent "" : no agent, an error)
+	listed   port.Pane // the pane as the listing shows it (Agent "": no agent runs there)
 	shell    bool
 	starts   int
-	looks    int                                        // Agent calls so far
+	looks    int                                        // Pane calls so far
 	accepted int                                        // looks before the accepted start (pendingThen)
 	start    func(m *memPane, n int) (port.Pane, error) // the nth start's answer (1-based), under mu
 	onLook   func(m *memPane)                           // after each look, under mu (nil: nothing)
@@ -48,14 +48,14 @@ type memPane struct {
 
 const memID = "w1:p3"
 
-func (m *memPane) Agent(_ context.Context, target string) (port.Pane, error) {
+func (m *memPane) Pane(_ context.Context, target string) (port.Pane, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.looks++
 	if m.onLook != nil {
 		m.onLook(m)
 	}
-	if m.listed.Agent == "" || target != memID {
+	if target != memID {
 		return port.Pane{}, errNotFound
 	}
 	return m.listed, nil
@@ -93,9 +93,9 @@ func (m *memPane) Start(ctx context.Context, _, _, _ string, _ func(format strin
 }
 
 // claudeIn is a claude in the pane with status st as the listing shows it, launched (the terminal's word that no
-// launch is pending) or not, under herdr name name ("old", "new": which agent a row returned).
-func claudeIn(st string, launched bool, name string) port.Pane {
-	return port.Pane{ID: memID, Agent: "claude", Status: st, Launched: launched, Name: name}
+// launch is pending) or not, with session ("old", "new": which agent a row returned).
+func claudeIn(st string, launched bool, session string) port.Pane {
+	return port.Pane{ID: memID, Agent: "claude", Status: st, Launched: launched, Session: session}
 }
 
 // pendingAnswer is herdr 0.9.5's at-once answer to an accepted start (live H-L1, H-L12): the launch pending, no kind.
@@ -139,7 +139,7 @@ func TestStartCases(t *testing.T) {
 		up     time.Duration // the launcher's bound on an agent coming up (0: bound)
 		pane   *memPane
 		ok     bool
-		want   string // a started row's returned agent: its herdr name ("new": the replacement)
+		want   string // a started row's returned agent: its session ("new": the replacement)
 		looks  int    // a started row: at least this many looks after the acceptance
 		status string // a started row's returned status ("": idle)
 		starts int    // agent start calls the start made (-1: retried, at least 2)
@@ -250,7 +250,7 @@ func TestStartCases(t *testing.T) {
 				if err != nil {
 					t.Fatalf("not started: %v\n%s", err, out.String())
 				}
-				eq(t, a.Name, c.want, "the agent the start returned (its herdr name)")
+				eq(t, a.Session, c.want, "the agent the start returned (its session)")
 				status := c.status
 				if status == "" {
 					status = "idle"

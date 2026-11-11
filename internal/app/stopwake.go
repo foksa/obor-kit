@@ -129,7 +129,7 @@ func (a *App) sendWake(ctx context.Context, p *proj, fx *Loop, wk wakeTo) {
 	switch {
 	case post != "" && inboxed:
 		target = wk.agent
-	case fx.Typer == nil:
+	case fx.Prompter == nil:
 		return
 	default:
 		post = ""

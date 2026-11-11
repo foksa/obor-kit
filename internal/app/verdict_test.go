@@ -37,7 +37,7 @@ func pickGreenOnce(t *testing.T, h *harness, f *schedScratch, replay bool) *mtas
 			mt.cand.SHA, mt.cand.Patch)
 	}
 	s := h.a.pickGreen(p, *p.folded.loop["T-1"])
-	if s == nil || !s(context.Background(), &Loop{Agents: f, Typer: f}) {
+	if s == nil || !s(context.Background(), &Loop{Agents: f, Prompter: f}) {
 		t.Fatal("pickGreen: no step, or it failed")
 	}
 	return p.folded.loop["T-1"]
@@ -699,7 +699,7 @@ func (f *dropFx) Stop(ctx context.Context, agent, pane string, force bool) (stri
 	return f.concFakes.Stop(ctx, agent, pane, force)
 }
 
-func (f *dropFx) Type(ctx context.Context, agent, text string, clear bool) (bool, error) {
+func (f *dropFx) Prompt(ctx context.Context, agent, text string, clear bool) (bool, error) {
 	f.note("prompt")
 	return true, nil
 }
@@ -721,7 +721,7 @@ func (f *dropFx) AfterMerge(ctx context.Context, c port.Candidate) (string, erro
 
 // loop is fx as a project's adapters (the dispatch's too).
 func (f *dropFx) loop(kit string) *Loop {
-	return &Loop{Workflow: WorkflowOf(f), Agents: f, Typer: f, Specs: f, Kit: kit}
+	return &Loop{Workflow: WorkflowOf(f), Agents: f, Prompter: f, Specs: f, Kit: kit}
 }
 
 // dropStartCases is one per selected step kind: the setup leaves task of project proj with that
@@ -937,7 +937,7 @@ func TestDropDuringEarlyFetch(t *testing.T) {
 	if selected == nil {
 		t.Fatal("precondition: T-1 has no step selected")
 	}
-	go func() { selected(context.Background(), &Loop{Agents: f, Typer: f}); close(stepped) }()
+	go func() { selected(context.Background(), &Loop{Agents: f, Prompter: f}); close(stepped) }()
 	<-entered // the start holds the task
 	a := r.dropWithin("pj", "T-1", "drop")
 	if a.err == nil || !strings.Contains(a.err.Error(), "running; retry when it settles") {
@@ -1209,7 +1209,7 @@ func TestEarlyVerdict(t *testing.T) {
 			if step == nil {
 				t.Fatal("no step")
 			}
-			if !step(context.Background(), &Loop{Agents: f, Typer: f}) {
+			if !step(context.Background(), &Loop{Agents: f, Prompter: f}) {
 				t.Fatal("the job step failed")
 			}
 

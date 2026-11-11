@@ -115,28 +115,3 @@ func (p Panes) Snapshot(ctx context.Context) (port.Snapshot, error) {
 func (p Panes) Notify(ctx context.Context, title, body string) error {
 	return p.S.Notify(ctx, title, body)
 }
-
-// Screen is pane.read: the pane's visible text, its last lines (what a blocked pane asks a person).
-func (p Panes) Screen(ctx context.Context, pane string, lines int) (string, error) {
-	return p.S.Screen(ctx, pane, lines)
-}
-
-var _ port.Typer = Panes{}
-
-// Type types text into pane (agent.prompt, no wait): a job's wake with its [obor job <id>] tag, or serve's line as it
-// is. The agent's own proof of delivery (a job's job_next) counts, not herdr's answer. clear: the input line is
-// cleared first (ctrl+u). No key follows the text: a bare Enter would act on a selection dialog herdr reports as idle,
-// and an undelivered wake is the app's delivery timers' to send again. began is false only when nothing of the text
-// was typed: the clear failed, or agent.prompt was refused by herdr or never sent (Reached); after that, any error
-// (a lost answer) comes with began true.
-func (p Panes) Type(ctx context.Context, pane, text string, clear bool) (bool, error) {
-	if clear {
-		if err := p.S.AgentKeys(ctx, pane, "ctrl+u"); err != nil {
-			return false, err
-		}
-	}
-	if _, err := p.S.Prompt(ctx, pane, text); err != nil {
-		return Reached(err), err
-	}
-	return true, nil
-}

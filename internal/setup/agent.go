@@ -1,6 +1,7 @@
 package setup
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"maps"
@@ -209,14 +210,14 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	}
 	s.placed, s.running, s.started, s.idle = "", false, false, false
 	for _, r := range running {
-		if a.role.Name == roles.Driver && r.Name != a.name && r.Cwd == a.cwd { // one agent in a lane
-			return project.Failf("%s still runs in lane %s (pane %s): obor restart %s --stop first", r.Name, a.lane, r.ID,
-				r.Name)
+		who := cmp.Or(r.Label, r.Agent)                                         // its pane's label, else (a pane nobody labelled) its kind
+		if a.role.Name == roles.Driver && r.Label != a.name && r.Cwd == a.cwd { // one agent in a lane
+			return project.Failf("%s still runs in lane %s (pane %s): obor restart %s --stop first", who, a.lane, r.ID, who)
 		}
-		if r.Name == a.name || (a.lane != "" && r.Cwd == a.cwd) {
+		if r.Label == a.name || (a.lane != "" && r.Cwd == a.cwd) {
 			s.placed, s.running = r.ID, true
-			s.say("skip agent start: %s already running (pane %s)", r.Name, r.ID)
-			s.say("OK %s: %s already running", what, r.Name)
+			s.say("skip agent start: %s already running (pane %s)", who, r.ID)
+			s.say("OK %s: %s already running", what, who)
 			return nil
 		}
 	}

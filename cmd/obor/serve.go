@@ -108,7 +108,7 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 	}
 	a := app.New(app.Options{Root: root, Out: flushWriter{}, Refresh: port.Refreshed, Loop: mergeLoop(env, term, end, kinds),
 		Inboxed: inboxed(root), Exit: stop, Binary: binaryWatch(env), Tick: serveTick, Follow: serveTick,
-		Info: term.Control.ProcessInfo, Restore: restorer(term, paneless(env))},
+		Info: term.Control.ProcessInfo, Screen: term.Control.Screen, Restore: restorer(term, paneless(env))},
 		term.Panes, checks.Lanes{})
 	served := make(chan struct{})
 	go func() {
@@ -192,7 +192,7 @@ func mergeLoop(env project.Env, term port.Terminal, end *serveEnd, kinds *kindCa
 		if k := cfg.TerminalKind(); k != config.DefaultTerminal { // herdr is the one terminal adapter
 			return nil, fmt.Errorf("terminal.kind %q: serve knows %s", k, strings.Join(config.TerminalKinds, ", "))
 		}
-		l := &app.Loop{Workflow: wf, Agents: agents, Typer: term.Typer, Nightly: nightly(o), Disk: diskOf(repo.Root),
+		l := &app.Loop{Workflow: wf, Agents: agents, Prompter: term.Control, Nightly: nightly(o), Disk: diskOf(repo.Root),
 			Inbox: poster{repo.Root}}
 		dispatchLoop(l, env, cfg)
 		l.Config = configFile{root: repo.Root, main: cfg.MainBranch()}

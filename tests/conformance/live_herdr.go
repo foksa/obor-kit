@@ -52,7 +52,7 @@ func herdrLive(l *lab, turn bool) {
 			Args: []string{"--allowedTools", "Bash(perl:*)", "--model", "haiku"}, Prompt: hL14Prompt}), turn)
 	}
 	report("SKIP", "H-L2", "runs in the claude session (KIND=claude): Claude's trust dialog is the known dialog it needs",
-		at(launchGo, "l.H.Wake(")+", F3.3")
+		at(launchGo, "l.H.Prompt(")+", F3.3")
 	hL6(l, pane)
 }
 

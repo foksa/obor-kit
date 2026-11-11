@@ -140,7 +140,7 @@ process (`plugin.Local`).
 - `app/port` (core, a leaf below `app`): the ports and the types they exchange, with no logic: the terminal's `Pane`
   (terminal-neutral: its `Group`, no tab or workspace), `Snapshot`, `Event`, `Stream`, `Panes`; `Lane`, `Lanes`;
   `TerminalSetup` (setup's terminal: `Agents`, `Place` a `Placement`, `Integrate`, `RenameProject`); and the
-  effects (`Agents`, `Typer`, `PaneControl`, `Starter`,
+  effects (`Agents`, `Prompter`, `PaneControl`, `Starter`,
   `Scratch`, `LaneSetup`, `Review` and their inputs and outcomes, and `Workflow`, the git workflow behind one
   interface: those three and the dispatch's `Target`). Adapters import it instead of `app`.
 - `app/event` (core, a leaf below `app`): the event log's vocabulary and its store: `Record`, `Key`, `Intent`,
@@ -180,17 +180,18 @@ process (`plugin.Local`).
 - Scheduler rules: readiness (`--after`), dispatch, accept/reject/sendback, moved target, the integrator slot (no cap
   yet).
 - Watchdogs: idle with a task, working without activity, blocked, pane exited.
-- Interfaces it drives adapters through: `Panes` (subscribe, snapshot, screen, notify), `Lanes` (a project's lanes), and,
-  on its `Loop`, `Scratch` (submit/gate/resolved/publish/after_merge/landed/unpin), `Agents` (launch/stop), `Typer`
-  (a job's wake, a line typed into a pane), `Poster` (posted to a session's inbox), `Specs`, `Nightly` and `Restart` (serve's own restart after a code merge).
+- Interfaces it drives adapters through: `Panes` (subscribe, snapshot, notify), `Lanes` (a project's lanes), and,
+  on its `Loop`, `Scratch` (submit/gate/resolved/publish/after_merge/landed/unpin), `Agents` (launch/stop), `Prompter`
+  (a job's wake, a line typed to the agent in a pane), `Poster` (posted to a session's inbox), `Specs`, `Nightly` and `Restart` (serve's own restart after a code merge).
   API: `app.New(Options, Panes, Lanes)`, `(*App).Serve(ctx)`. Its rig tests (`*_ext_test.go`) run in a
   `testing/synctest` bubble on in-memory connections (`bubble`, `rig_ext_test.go`), and the ones that need a unix
   socket are `*_integration_test.go` files.
 
 **adapters** — one outside system each.
-- `herdr`: herdr socket client (events.subscribe, session.snapshot, agent.prompt, pane.*). Implements `app.Panes`
-  and `app.Typer`, and `port.TerminalSetup` as `Setup` (`setup.go`: the layout of setup's placements in tabs,
-  workspaces and splits, herdr's `resume_agents_on_restore` hint, the workspace rename); herdr's own `Pane` (tab and workspace ids) stays
+- `herdr`: herdr socket client (events.subscribe, session.snapshot, agent.prompt, pane.*). Implements `port.Panes`,
+  `port.PaneControl` (a pane read by its id, the two ways to type: `Write` into a pane, `Prompt` to its agent) with
+  `port.Prompter`, and `port.TerminalSetup` as `Setup` (`setup.go`: the layout of setup's placements in tabs,
+  workspaces and splits, herdr's `resume_agents_on_restore` hint, the workspace rename); herdr's own `Pane` (tab and workspace ids, the name herdr runs an agent under) stays
   here; `cmd/obor`'s `terminal` builds the project's `port.Terminal` over these; `herdr/herdrtest` is its fake (test
   helper).
 - `checks`: git and the merge gate: lanes (`checks.Lane`, `LaneSetup`), serve's worktree `<lanes_dir>/merge` (submit,

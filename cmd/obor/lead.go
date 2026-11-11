@@ -83,12 +83,13 @@ func (r leadRun) run(ctx context.Context, args []string) int {
 	if err != nil {
 		return fail("terminal agent list failed (is the terminal running?)")
 	}
+	// The lead that already runs is the agent in the pane labelled with its name.
 	for _, a := range running {
-		if a.Name == agent && !leadOurs(cfg, agent, a.Cwd) {
+		if a.Label == agent && !leadOurs(cfg, agent, a.Cwd) {
 			return fail("%s runs in pane %s with cwd %s, outside %s (another project's agent of that name? the "+
 				"config's prefix names every agent: obor setup rename changes it)", agent, a.ID, a.Cwd, cfg.Root)
 		}
-		if a.Name == agent {
+		if a.Label == agent {
 			fmt.Fprintf(r.out, "OK %s runs (pane %s)\n", agent, a.ID)
 			return 0
 		}

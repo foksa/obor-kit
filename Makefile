@@ -260,14 +260,12 @@ vulncheck:
 
 # Pinned; the module cache comes before the proxy, so a warm cache needs no network (a Codex sandbox has none).
 # Test support (herdrtest, testkit) is excepted. The prompts table's path readers stay for the hooks and CLIs (obor web
-# reads with a store handle it opens itself, view.Load's). port.Blocked is the port's predicate of a blocked refusal:
-# the prompt's guard is its caller. -tags conformance,release,integration:
+# reads with a store handle it opens itself, view.Load's). -tags conformance,release,integration:
 # tests/conformance's main and tests/release are behind those tags, and their untagged files (conformance's report.go)
 # are reached only from them; integration is the gate's tag too, so a tagged file is analysed as it is tested.
 deadcode:
 	@out=$$(GOPROXY="file://$$($(GO) env GOMODCACHE)/cache/download,$$($(GO) env GOPROXY)" $(GO) run golang.org/x/tools/cmd/deadcode@v0.52.0 -tags conformance,release,integration ./...) || exit $$?; \
 	out=$$(printf '%s\n' "$$out" | grep -v -e '/herdrtest/' -e '/testkit/' \
-	  -e '^internal/app/port/effects\.go:[0-9:]*: unreachable func: Blocked$$' \
 	  -e '^internal/store/prompts\.go:[0-9:]*: unreachable func: ReadPromptsAt$$'); \
 	if [ -n "$$out" ]; then printf '%s\n' "$$out"; exit 1; fi
 

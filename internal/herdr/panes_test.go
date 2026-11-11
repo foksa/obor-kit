@@ -40,7 +40,7 @@ func TestPanesSubscribe(t *testing.T) {
 	}
 	defer st.Close()
 	// The core sees workspace w1 by its label, as the pane's group.
-	want := port.Pane{ID: "w1:p1", Group: "pj", Cwd: "/proj-wt/L-01", Agent: "claude", Name: "pj-l-01", Status: "idle",
+	want := port.Pane{ID: "w1:p1", Group: "pj", Cwd: "/proj-wt/L-01", Agent: "claude", Status: "idle",
 		Label: "pj-l-01", Session: "5e1d0c2b-aaaa", Launched: true}
 	if len(st.Snapshot.Panes) != 3 || st.Snapshot.Panes[0] != want {
 		t.Fatalf("snapshot = %+v\nwant first pane %+v", st.Snapshot, want)
@@ -101,36 +101,36 @@ func nextApp(t *testing.T, st *port.Stream) port.Event {
 	return port.Event{}
 }
 
-// Type sends agent.prompt to the pane with the text as given (a job's wake with its tag); herdr's refusal is the error.
+// Prompt sends agent.prompt to the pane with the text as given (a job's wake with its tag); herdr's refusal is the error.
 func TestPanesPromptSendsJobID(t *testing.T) {
 	t.Parallel()
 	srv := herdrtest.Serve(t, fixture())
 	srv.Reply("agent.prompt", map[string]any{"type": "agent_prompted", "agent": map[string]any{"name": "pj-l-01",
 		"pane_id": "w1:p1", "agent_status": "working"}})
-	p := herdr.Panes{S: srv.Client()}
-	if _, err := p.Type(ctx, "pj-l-01", "[obor job T-7/2/review] review the candidate", false); err != nil {
+	p := srv.Client()
+	if _, err := p.Prompt(ctx, "w1:p1", "[obor job T-7/2/review] review the candidate", false); err != nil {
 		t.Fatal(err)
 	}
-	if got := lastParams(t, srv, "agent.prompt"); got != `{"target":"pj-l-01","text":"[obor job T-7/2/review] review the candidate"}` {
+	if got := lastParams(t, srv, "agent.prompt"); got != `{"target":"w1:p1","text":"[obor job T-7/2/review] review the candidate"}` {
 		t.Errorf("agent.prompt params = %s", got)
 	}
-	srv.Fail("agent.prompt", "agent_not_found", "no agent pj-l-09")
-	if typed, err := p.Type(ctx, "pj-l-09", "[obor job T-7/2/review] x", false); err == nil || typed {
+	srv.Fail("agent.prompt", "agent_not_found", "no agent in w1:p9")
+	if typed, err := p.Prompt(ctx, "w1:p9", "[obor job T-7/2/review] x", false); err == nil || typed {
 		t.Errorf("a refused prompt: typed %v, error %v; want nothing typed, an error", typed, err)
 	}
 }
 
-// Type types a line as it is (no job tag, no clear key without clear); a refused one typed nothing.
+// Prompt types a line as it is (no job tag, no clear key without clear); a refused one typed nothing.
 func TestPanesLineTypesTheLineAsItIs(t *testing.T) {
 	t.Parallel()
 	srv := herdrtest.Serve(t, fixture())
 	srv.Reply("agent.prompt", map[string]any{"type": "agent_prompted", "agent": map[string]any{"name": "pj-l-01",
 		"pane_id": "w1:p1", "agent_status": "working"}})
-	p := herdr.Panes{S: srv.Client()}
-	if typed, err := p.Type(ctx, "pj-l-01", "[obor pj-lead] verify", false); err != nil || !typed {
+	p := srv.Client()
+	if typed, err := p.Prompt(ctx, "w1:p1", "[obor pj-lead] verify", false); err != nil || !typed {
 		t.Fatalf("Line: typed %v, %v", typed, err)
 	}
-	if got := lastParams(t, srv, "agent.prompt"); got != `{"target":"pj-l-01","text":"[obor pj-lead] verify"}` {
+	if got := lastParams(t, srv, "agent.prompt"); got != `{"target":"w1:p1","text":"[obor pj-lead] verify"}` {
 		t.Errorf("agent.prompt params = %s", got)
 	}
 	for _, req := range srv.Requests() {
@@ -138,8 +138,8 @@ func TestPanesLineTypesTheLineAsItIs(t *testing.T) {
 			t.Errorf("a key sent with the line: %s", req.Params)
 		}
 	}
-	srv.Fail("agent.prompt", "agent_not_found", "no agent pj-l-09")
-	if typed, err := p.Type(ctx, "pj-l-09", "x", false); err == nil || typed {
+	srv.Fail("agent.prompt", "agent_not_found", "no agent in w1:p9")
+	if typed, err := p.Prompt(ctx, "w1:p9", "x", false); err == nil || typed {
 		t.Errorf("a refused line: typed %v, error %v; want nothing typed, an error", typed, err)
 	}
 }
@@ -171,8 +171,8 @@ func TestPanesPromptSendsNoEnter(t *testing.T) {
 					p.Status = c.status
 				}
 			})
-			p := herdr.Panes{S: srv.Client()}
-			if _, err := p.Type(ctx, "pj-l-01", "[obor job "+job+"] "+text, false); err != nil {
+			p := srv.Client()
+			if _, err := p.Prompt(ctx, "w1:p1", "[obor job "+job+"] "+text, false); err != nil {
 				t.Fatal(err)
 			}
 			a := f.Pane("w1:p1")
@@ -199,8 +199,8 @@ func TestPanesPromptAgainClearsTheLine(t *testing.T) {
 	f := fixture()
 	srv := herdrtest.Serve(t, f)
 	f.Set("w1:p1", func(p *herdrtest.Pane) { p.Prompts, p.OnEnter = []string{"typed"}, "lost" })
-	p := herdr.Panes{S: srv.Client()}
-	if _, err := p.Type(ctx, "pj-l-01", "[obor job T-7/1/review] review T-7", false); err != nil {
+	p := srv.Client()
+	if _, err := p.Prompt(ctx, "w1:p1", "[obor job T-7/1/review] review T-7", false); err != nil {
 		t.Fatal(err)
 	}
 	a := f.Pane("w1:p1")
@@ -209,7 +209,7 @@ func TestPanesPromptAgainClearsTheLine(t *testing.T) {
 			t.Fatalf("precondition: draft %q, submitted %q; want the text unsent in the box", a.Draft, a.Submitted)
 		}
 	})
-	if _, err := p.Type(ctx, "pj-l-01", "[obor job T-7/1/review] review T-7", true); err != nil {
+	if _, err := p.Prompt(ctx, "w1:p1", "[obor job T-7/1/review] review T-7", true); err != nil {
 		t.Fatal(err)
 	}
 	var order []string
@@ -218,9 +218,9 @@ func TestPanesPromptAgainClearsTheLine(t *testing.T) {
 			order = append(order, r.Method+" "+string(r.Params))
 		}
 	}
-	want := []string{`agent.prompt {"target":"pj-l-01","text":"` + msg + `"}`,
-		`agent.send_keys {"keys":["ctrl+u"],"target":"pj-l-01"}`,
-		`agent.prompt {"target":"pj-l-01","text":"` + msg + `"}`}
+	want := []string{`agent.prompt {"target":"w1:p1","text":"` + msg + `"}`,
+		`agent.send_keys {"keys":["ctrl+u"],"target":"w1:p1"}`,
+		`agent.prompt {"target":"w1:p1","text":"` + msg + `"}`}
 	if strings.Join(order, "\n") != strings.Join(want, "\n") {
 		t.Errorf("requests:\n%s\nwant:\n%s", strings.Join(order, "\n"), strings.Join(want, "\n"))
 	}
@@ -261,8 +261,8 @@ func TestPanesPromptTyped(t *testing.T) {
 				f.Set("w1:p1", func(p *herdrtest.Pane) { p.OnEnter = "" })
 				srv.Fail("agent.send_keys", "keys_failed", "cannot send keys")
 			}
-			p := herdr.Panes{S: cl}
-			typed, err := p.Type(ctx, "pj-l-01", "[obor job T-7/1/work] do T-7", c.clear)
+			p := cl
+			typed, err := p.Prompt(ctx, "w1:p1", "[obor job T-7/1/work] do T-7", c.clear)
 			if err == nil || typed != c.typed {
 				t.Fatalf("typed %v, error %v; want typed %v and an error", typed, err, c.typed)
 			}

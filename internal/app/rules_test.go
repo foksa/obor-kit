@@ -603,7 +603,7 @@ func (c *countPoster) Post(_ context.Context, _, to, line string) (bool, error) 
 	return true, nil
 }
 
-func (c *countPoster) Type(context.Context, string, string, bool) (bool, error) {
+func (c *countPoster) Prompt(context.Context, string, string, bool) (bool, error) {
 	c.typed++
 	return true, nil
 }
@@ -615,7 +615,7 @@ func TestRV52VerifyProjectionFailureDoesNotDuplicate(t *testing.T) {
 	h := newHarness(t)
 	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{"roles":{"integrator":""}}}`)
 	in := &countPoster{}
-	fx := &Loop{Inbox: in, Typer: in}
+	fx := &Loop{Inbox: in, Prompter: in}
 	h.a.opt.Loop = func(string) (*Loop, error) { return fx, nil }
 	h.a.opt.Inboxed = func(string) (string, bool) { return "", true }
 	h.connect()

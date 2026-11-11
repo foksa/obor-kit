@@ -268,7 +268,7 @@ func TestSocketEffectEndsWithServe(t *testing.T) {
 	t.Parallel()
 	h, f, job := resolveJobHarness(t)
 	b := &blockScratch{schedScratch: f, entered: make(chan context.Context, 1)}
-	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Workflow: WorkflowOf(b), Agents: f, Typer: f}, nil }
+	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Workflow: WorkflowOf(b), Agents: f, Prompter: f}, nil }
 	h.a.opt.Retry = time.Millisecond // Serve's subscribe fails on fakePanes: it retries until canceled
 	ln := newMemListener()
 	defer ln.Close()
@@ -544,7 +544,7 @@ func gateGroupHarness(t *testing.T, dir string) (*harness, *groupGate) {
 		Retry: 5 * time.Millisecond, Activity: panes}, panes, h.lanes)
 	g := &groupGate{schedScratch: &schedScratch{h: h}, dir: dir}
 	h.a.opt.Loop = func(string) (*Loop, error) {
-		return &Loop{Workflow: WorkflowOf(g), Agents: g.schedScratch, Typer: g.schedScratch}, nil
+		return &Loop{Workflow: WorkflowOf(g), Agents: g.schedScratch, Prompter: g.schedScratch}, nil
 	}
 	if err := os.MkdirAll(h.lanes.lanes[0].Dir, 0o755); err != nil {
 		t.Fatal(err)

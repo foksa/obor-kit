@@ -306,7 +306,7 @@ func TestRoleIntegratorStartsInItsWorktreeAndNeedsAType(t *testing.T) {
 	if last(out) != "OK integrator: pj-int in pane w1:p3" {
 		t.Errorf("last line %q", last(out))
 	}
-	want := []string{"agent.list", "pane.list", "pane.process_info pane_id=w1:p3", "<env line>",
+	want := []string{"agent.list", "pane.list", "pane.list", "pane.process_info pane_id=w1:p3", "<env line>",
 		"<env wait>", "pane.rename label=pj-int pane_id=w1:p3",
 		"agent.start args=[--permission-mode auto --model opus " + settings + " --session-id NEW] kind=claude name=pj-int pane_id=w1:p3"}
 	got := x.reqs()

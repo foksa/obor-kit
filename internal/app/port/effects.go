@@ -8,8 +8,8 @@ import (
 )
 
 // The effects the core drives through adapters (docs/module-map.md: adapters reach each other only through these):
-// Agents starts and stops agents (launch), Typer types job wakes and lines into their panes, PaneControl is what launch
-// itself needs of the terminal multiplexer (the herdr socket client implements it).
+// Agents starts and stops agents (launch), Prompter types job wakes and lines into their agents, PaneControl is what
+// launch itself needs of the terminal (the herdr socket client implements it).
 
 // Agents starts and stops obor agents in their panes; the kill sequence is the implementation's (launch.Launcher).
 type Agents interface {
@@ -43,42 +43,53 @@ type Launch struct {
 	Type string
 }
 
-// Typer types text into an agent's pane as it is (a job's wake with its [obor job <id>] tag, or a line carrying its
-// own [obor …]) and submits it. clear: the input line is cleared first (an earlier wake a dialog ate may sit there).
-// Delivery is proven later by the agent (a job's job_next), not by this call. began: a byte of the text may have
-// reached the pane (false only when the send was refused before any typing).
-type Typer interface {
-	Type(ctx context.Context, pane, text string, clear bool) (began bool, err error)
+// Prompter types text to the agent in a pane, as it is (a job's wake with its [obor job <id>] tag, or a line carrying
+// its own [obor …]): the agent layer's way to type. A blocked agent is refused before any input (a dialog would take
+// the text as its answer); a pane that runs no agent is refused too (NotFound). clear: the input line is cleared first
+// (an earlier wake a dialog ate may sit there). Delivery is proven later by the agent (a job's job_next), not by this
+// call. began: a byte of the text may have reached the pane (false only when the send was refused before any typing).
+type Prompter interface {
+	Prompt(ctx context.Context, pane, text string, clear bool) (began bool, err error)
 }
 
-// PaneControl is the pane operations launch needs: find agents and panes, look at a pane, type into it, start an
-// agent CLI in it. A "not found" error matches NotFound; every other kind of failure the callers ask about is a
-// predicate below (PaneBusy, NotReady, TimedOut, …), never a code of the terminal's.
+// Keys are obor's names for the keys SendKeys takes: these and a digit ("1"); each terminal adapter maps them to its
+// terminal's own.
+const (
+	KeyEnter = "enter"
+	KeyEsc   = "esc"
+	KeyCtrlC = "ctrl+c"
+	KeyCtrlU = "ctrl+u"
+)
+
+// PaneControl is the pane operations launch needs: read panes, look at one, type into it, start an agent CLI in it.
+// A pane is named by its id, an agent by its pane's label; the terminal's own names for agents stay in its adapter. A
+// "not found" error matches NotFound; every other kind of failure the callers ask about is a predicate below
+// (PaneBusy, NotReady, TimedOut, …), never a code of the terminal's.
 type PaneControl interface {
-	Agent(ctx context.Context, target string) (Pane, error)
+	Prompter
+	// Pane is pane as the terminal reports it now: its label and cwd, and the facts of the agent that runs in it
+	// (Agent "" when none does). Group is not set. NotFound: the terminal has no such pane.
+	Pane(ctx context.Context, pane string) (Pane, error)
 	Panes(ctx context.Context) ([]Pane, error)
 	ProcessInfo(ctx context.Context, pane string) (ProcessInfo, error)
 	// Screen is the pane's visible text, its last lines.
 	Screen(ctx context.Context, pane string, lines int) (string, error)
-	// Wait waits (up to timeout) for the agent at target to be in one of until (idle, done): the error matches
-	// TimedOut when it is not, NotRunning when it left the pane.
-	Wait(ctx context.Context, target string, until []string, timeout time.Duration) error
+	// WaitStatus waits (up to timeout) for the agent in pane to be in one of until (idle, done): the error matches
+	// TimedOut when it is not; any other error says no agent is there to wait for (none ran, or it left the pane).
+	WaitStatus(ctx context.Context, pane string, until []string, timeout time.Duration) error
 	// WaitForOutput waits (up to timeout) for a line of the pane's recent text to match regex, and returns the text
 	// as it then reads: the error matches TimedOut when nothing matched.
 	WaitForOutput(ctx context.Context, pane, regex string, timeout time.Duration) (string, error)
-	RenamePane(ctx context.Context, pane, label string) error   // label "" clears it
-	RenameAgent(ctx context.Context, target, name string) error // name "" clears it
-	// Type is text plus Enter, submitted at once.
-	Type(ctx context.Context, pane, text string) error
-	// Wake types a job's wake into the agent in pane (agent.prompt): a blocked agent is refused before any input
-	// (a resume or update dialog would take it as an answer), unlike Type.
-	Wake(ctx context.Context, pane, text string) error
+	RenamePane(ctx context.Context, pane, label string) error // label "" clears it
+	// Write types text into pane, whatever runs there, and with submit sends Enter after it: the multiplexer's way to
+	// type (a command line at a shell, an agent's quit). It judges nothing: an agent at a dialog gets the text too.
+	Write(ctx context.Context, pane, text string, submit bool) error
+	// SendKeys sends keys (Keys' names) to pane, whatever runs there.
 	SendKeys(ctx context.Context, pane string, keys ...string) error
-	// Start starts agent CLI kind in pane under name, returning once the agent runs there and is named: the agent as
-	// the multiplexer answered, or as it shows it in the pane when the answer came later (its ID "" when neither
-	// named one). A name the terminal still holds from a pane that ran the agent before is cleared and the start
-	// retried once, say taking the adapter's lines for it and for a failed clear (nil: silent); a live agent
-	// elsewhere holding the name is a refusal.
+	// Start starts agent CLI kind in pane for the agent name, returning once the terminal took the start: the pane as
+	// it answered, or as it shows it when the answer came later (its ID "" when neither showed one). What the terminal
+	// keeps of an earlier start of name in that pane is cleared and the start retried once, say taking the adapter's
+	// lines for it and for a failed clear (nil: silent); a live agent elsewhere started as name is a refusal.
 	Start(ctx context.Context, name, kind, pane string, say func(format string, args ...any), args ...string) (Pane, error)
 }
 
@@ -99,13 +110,6 @@ func PaneBusy(err error) bool {
 func NotReady(err error) bool {
 	var e interface{ NotReady() bool }
 	return errors.As(err, &e) && e.NotReady()
-}
-
-// Blocked: err says the agent is blocked on a dialog, so input to it is refused (an error in the chain with Blocked()
-// true).
-func Blocked(err error) bool {
-	var e interface{ Blocked() bool }
-	return errors.As(err, &e) && e.Blocked()
 }
 
 // TimedOut: err says the terminal's wait ended at its own timeout (an error in the chain with TimedOut() true).
@@ -161,12 +165,13 @@ type Restorer interface {
 }
 
 // TerminalSetup is what obor setup and obor init ask of the terminal, in terminal-neutral terms: the pane
-// operations launch needs, the agents running now, a new pane for an agent placed by the adapter's own layout, the
-// terminal's own setting for a restart, and a project rename's share. The herdr adapter (herdr.Setup) implements it;
-// setup decides whose pane and near what, never a tab, a workspace or a split.
+// operations launch needs, the panes that run an agent now, a new pane for an agent placed by the adapter's own
+// layout, the terminal's own setting for a restart, and a project rename's share. The herdr adapter (herdr.Setup)
+// implements it; setup decides whose pane and near what, never a tab, a workspace or a split.
 type TerminalSetup interface {
 	PaneControl
-	// Agents is every agent the terminal runs now.
+	// Agents is every pane that runs an agent now, with its label (obor's name of the agent; "": an agent obor did
+	// not start, or a pane nobody labelled) and the agent's cwd.
 	Agents(ctx context.Context) ([]Pane, error)
 	// Place makes a new pane for an agent where p says and returns its id; the layout is the adapter's. Its refusals
 	// and failures are the lines setup prints after FAIL.

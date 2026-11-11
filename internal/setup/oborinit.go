@@ -362,12 +362,12 @@ func (s *Setup) configExists() bool {
 	return err == nil
 }
 
-// uniquePrefix is p, else p2 … p9, the first no running agent's name starts with (<prefix>-): another project's
+// uniquePrefix is p, else p2 … p9, the first no running agent's label starts with (<prefix>-): another project's
 // agents keep theirs.
 func uniquePrefix(p string, running []port.Pane) string {
 	taken := func(c string) bool {
 		for _, a := range running {
-			if strings.HasPrefix(a.Name, c+"-") {
+			if strings.HasPrefix(a.Label, c+"-") {
 				return true
 			}
 		}

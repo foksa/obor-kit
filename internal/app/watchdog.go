@@ -312,7 +312,10 @@ const (
 // questionChars runes. The cap cuts the end (the options) deliberately: the question comes first. "" when the screen
 // cannot be read: the fact is recorded without it.
 func (a *App) question(ctx context.Context, pane string) string {
-	screen, err := a.panes.Screen(ctx, pane, questionScreen)
+	if a.opt.Screen == nil {
+		return ""
+	}
+	screen, err := a.opt.Screen(ctx, pane, questionScreen)
 	if err != nil {
 		a.logf("screen of %s: %v (the blocked needs-you without its question)", pane, err)
 		return ""

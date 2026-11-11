@@ -325,7 +325,7 @@ func (x *fx) noAgents() {
 func (x *fx) running(agents ...[2]string) {
 	x.noAgents()
 	for i, a := range agents {
-		x.h.Agent(fmt.Sprintf("w1:x%d", i+1), a[0], "idle", a[1])
+		x.h.Agent(fmt.Sprintf("w1:x%d", i+1), a[0], "idle", a[1]).Label = a[0] // labelled, as obor's start leaves its pane
 	}
 }
 
@@ -578,7 +578,7 @@ func TestPaneSplitsTheTabAndStartsTheAgentInOrder(t *testing.T) {
 	}
 	// the new pane's id is herdr's answer to the split, so its shell, once up, gets the env line with OBOR_PANE
 	// before the start.
-	want := []string{"agent.list", "pane.list", "pane.layout pane_id=w1:p1",
+	want := []string{"agent.list", "pane.list", "pane.list", "pane.layout pane_id=w1:p1",
 		"pane.split cwd=" + lane + " direction=right env={OBOR_AGENT=,OBOR_LANE=L-01,OBOR_LANE_CPUS=2,OBOR_OPENCODE_MODEL=,OBOR_PANE=,OBOR_ROLE=worker,OPENCODE_CONFIG=,OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=} target_pane_id=w1:p1",
 		"pane.process_info pane_id=w1:n1", "pane.process_info pane_id=w1:n1",
 		"pane.send_input keys=[Enter] pane_id=w1:n1 text=cd " + lane + " && unset OBOR_AGENT OBOR_OPENCODE_MODEL OPENCODE_CONFIG OPENCODE_DISABLE_CLAUDE_CODE_SKILLS && export OBOR_ROLE=worker OBOR_LANE=L-01 OBOR_PANE=w1:n1 OBOR_LANE_CPUS=2 && echo obor-env-M || echo obor-env-M",
@@ -714,7 +714,7 @@ func TestPaneSkipsALaneWhoseAgentRuns(t *testing.T) {
 	if last(out) != "OK L-01: someone already running" {
 		t.Errorf("last line %q", last(out))
 	}
-	if got := x.reqs(); strings.Join(got, ",") != "agent.list" {
+	if got := x.reqs(); strings.Join(got, ",") != "agent.list,pane.list" {
 		t.Errorf("no split, no start: %v", got)
 	}
 }
