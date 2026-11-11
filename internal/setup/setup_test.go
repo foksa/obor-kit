@@ -540,13 +540,48 @@ func TestDriveStartIsStrict(t *testing.T) {
 	x.reset()
 	s, out := x.newSetup(t)
 	s.Dir = x.Root
-	if err := s.StartDrive(context.Background(), Drive{Agent: "pj-l-01-drive", Lane: "L-01", Cwd: x.LaneDir("L-01"),
+	if err := s.StartDrive(context.Background(), Drive{Task: "T-1", Agent: "pj-l-01-drive", Lane: "L-01", Cwd: x.LaneDir("L-01"),
 		Prompt: "drive T-1"}); err != nil {
 		t.Fatalf("StartDrive: %v\n%s", err, out)
 	}
 	reqs := strings.Join(x.reqs(), "\n")
 	has(t, reqs, "OBOR_ROLE=driver", "the drive agent's role")
 	has(t, named(reqs), "agent.start args=["+laneArgs+" --session-id NEW -- drive T-1] kind=claude name=pj-l-01-drive", "a strict start, obor's server alone")
+}
+
+// A drive's failed start prints the drive's own command: obor drive <T-xx> starts its agent again with its prompt,
+// where a restart would start the driver role with no prompt of the drive's.
+func TestDriveStartHintNamesTheDrive(t *testing.T) {
+	t.Parallel()
+	drive := func(t *testing.T, x *fx) error {
+		t.Helper()
+		s, _ := x.newSetup(t)
+		s.Dir = x.Root
+		return s.StartDrive(context.Background(), Drive{Task: "T-07", Agent: "pj-l-01-drive", Lane: "L-01",
+			Cwd: x.LaneDir("L-01"), Type: "luna", Prompt: "drive T-07"})
+	}
+	t.Run("a pane that never becomes a shell", func(t *testing.T) {
+		t.Parallel()
+		x := newFx(t)
+		x.lane(t, "L-01")
+		x.h.NewPaneBusy = 15 * time.Second
+		x.shellWait = 300 * time.Millisecond
+		err := drive(t, x)
+		if want := "pane w1:n1 is not an available shell after 300ms: start the agent there with obor drive T-07"; err == nil || err.Error() != want {
+			t.Errorf("StartDrive: %v, want %q", err, want)
+		}
+	})
+	t.Run("a startup dialog", func(t *testing.T) {
+		t.Parallel()
+		x := newFx(t)
+		x.lane(t, "L-01")
+		x.screen = "Updating Codex via npm install -g @openai/codex\nUpdated to 0.161.0. Restart Codex.\n$ \n"
+		x.srv.Fail("agent.start", "agent_exited", "the agent exited")
+		err := drive(t, x)
+		if want := "agent not ready: codex updated itself and exited in pane w1:n1: start it again with obor drive T-07"; err == nil || err.Error() != want {
+			t.Errorf("StartDrive: %v, want %q", err, want)
+		}
+	})
 }
 
 // bash setup.test.sh case_lane_refuses_unknown_type_type_change_and_failing_setup: a failing lane_setup fails the lane.
@@ -734,7 +769,8 @@ func TestPaneNotReadyHints(t *testing.T) {
 		{"> You are in /x\n  Do you trust the contents of this directory?\n  Trust this folder? 1. Yes  2. No\n", notReady,
 			"FAIL agent not ready: a 'Trust this folder?' dialog in pane w1:n1: answer it there (Enter = trust; once per repo)"},
 		{"Updating Codex via npm install -g @openai/codex\nUpdated to 0.161.0. Restart Codex.\n$ \n", exited,
-			"FAIL agent not ready: codex updated itself and exited in pane w1:n1: run obor restart pj-l-01 again"},
+			"FAIL agent not ready: codex updated itself and exited in pane w1:n1: start it again with " +
+				"obor restart pj-l-01 --fresh --pane w1:n1"},
 		{"", notReady, "FAIL agent not ready: pj-l-01 waits at a startup dialog in pane w1:n1: answer it there"},
 		{"$ \n", exited, "FAIL terminal agent start pj-l-01 failed (pane w1:n1)"},
 	} {

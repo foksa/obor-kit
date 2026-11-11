@@ -256,7 +256,10 @@ type Start struct {
 	// before it runs; "" for none.
 	Session string
 	Prompt  string // the CLI's first prompt (a job's wake), in Args already; "" for none
-	Lane    string // the agent's lane: a session a fresh start reports is recorded with it
+	// Again is the command that starts this agent again as it was started (a drive's `obor drive <T-xx>`, which keeps
+	// its prompt); "": `obor restart <Agent>`. A hint that names the start again uses it.
+	Again string
+	Lane  string // the agent's lane: a session a fresh start reports is recorded with it
 	// Shell bounds the wait for the pane's shell (Await) and the retries of a start the terminal refused as PaneBusy:
 	// one bound for both, from the start's beginning; 0: neither, a pane the caller
 	// knows is its shell. The callers' bounds differ (obor setup's new pane: 10 s, its shell comes up in moments; a

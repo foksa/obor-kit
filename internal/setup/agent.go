@@ -16,6 +16,7 @@ import (
 	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/roles"
+	"obor/internal/store"
 )
 
 // where is the placement of a new agent: at most one of --tab, --new-tab, --pane (the user's), or obor init's own
@@ -60,12 +61,15 @@ type agent struct {
 	lane           string
 	noStart        bool   // label the pane and type its env, start no agent (a pane without --start)
 	prompt         string // the first prompt ("": the role's StartPrompt); a drive agent's line
+	// again is the command that starts this agent again as it was (a drive's `obor drive <T-xx>`); "": `obor restart
+	// <name>`, with --fresh when no session is recorded.
+	again string
 }
 
-// Drive is the owner's drive agent to start (obor drive): its name, lane, worktree, model and effort, and its
+// Drive is the owner's drive agent to start (obor drive): its task, name, lane, worktree, model and effort, and its
 // one-line first prompt.
 type Drive struct {
-	Agent, Lane, Cwd, Type, Effort, Prompt string
+	Task, Agent, Lane, Cwd, Type, Effort, Prompt string
 }
 
 // StartDrive starts the owner's drive agent d (role driver) in a new pane split in the caller's tab (the project's
@@ -75,9 +79,12 @@ func (s *Setup) StartDrive(ctx context.Context, d Drive) error {
 	if err := s.load(); err != nil {
 		return err
 	}
+	if d.Task == "" {
+		return project.Failf("drive start of %s: no task to name in its recovery command", d.Agent)
+	}
 	driver, _ := roles.Lookup(roles.Driver)
 	return s.start(ctx, agent{name: d.Agent, typ: d.Type, effort: d.Effort, cwd: d.Cwd, role: driver, lane: d.Lane,
-		prompt: d.Prompt}, where{})
+		prompt: d.Prompt, again: "obor drive " + d.Task}, where{})
 }
 
 func (s *Setup) pane(ctx context.Context, args []string) error {
@@ -312,7 +319,7 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	// known now: the env line exports OBOR_PANE before the start) and retries a busy answer within the same
 	// bound (launch's one start). A reused pane's env line is typed above, and its start is not retried.
 	st := port.Start{Agent: a.name, Kind: lt.Kind, Pane: pane, Label: label, Args: built.Args, Session: built.Session,
-		Lane: a.lane, Prompt: prompt}
+		Lane: a.lane, Prompt: prompt, Again: a.again}
 	if fresh {
 		st.Shell, st.Await, st.Env = s.shellWait(), true, func(context.Context) error { return setEnv() }
 	}
@@ -320,7 +327,7 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	var se *port.StartError
 	switch {
 	case errors.As(err, &se) && se.NoShell, fresh && startBusy(err):
-		return s.notShell(pane, a.name)
+		return s.notShell(pane, a)
 	case errors.As(err, &se) && se.NotReady:
 		return project.Failf("agent not ready: %s", se.Hint)
 	case errors.As(err, &se):
@@ -343,10 +350,20 @@ func startBusy(err error) bool {
 	return port.PaneBusy(err)
 }
 
-// notShell is the refusal for a new pane whose shell did not come up within the bound.
-func (s *Setup) notShell(pane, agent string) error {
-	return project.Failf("pane %s is not an available shell after %s: start the agent there with obor restart %s --pane %s",
-		pane, s.shellWait(), agent, pane)
+// notShell is the refusal for a new pane whose shell did not come up within the bound: the command it prints starts
+// the agent as it was — a drive's own command, or a restart with --fresh when no session is recorded (the plain form
+// refuses with none).
+func (s *Setup) notShell(pane string, a agent) error {
+	cmd := a.again
+	if cmd == "" {
+		cmd = "obor restart " + a.name
+		if _, ok := store.CurrentAt(s.cfg.Root, a.name); !ok {
+			cmd += " --fresh"
+		}
+		cmd += " --pane " + pane
+	}
+	return project.Failf("pane %s is not an available shell after %s: start the agent there with %s",
+		pane, s.shellWait(), cmd)
 }
 
 // --- placement -------------------------------------------------------------------------------------------

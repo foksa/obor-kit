@@ -74,6 +74,7 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
 	if s.Session != "" {
 		l.recordSession(ctx, s)
 	}
+	hasSession := l.hasSession(s.Agent)
 	shown := strings.Join(s.Args, " ")
 	if shown == "" {
 		shown = "none"
@@ -103,7 +104,7 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
 	}
 	// Only a failed start looks at the screen (a started agent's prompt delivery is judged by herdr alone).
 	screen, _ := l.H.Screen(ctx, s.Pane, 60)
-	if hint := notReady(screen, s.Kind, s.Agent, s.Pane); hint != "" {
+	if hint := notReady(screen, s.Kind, s.Agent, s.Pane, s.Again, hasSession); hint != "" {
 		return port.Pane{}, &StartError{Err: err, NotReady: true, Hint: hint}
 	}
 	if port.NotReady(err) {
@@ -299,6 +300,17 @@ func (l *Launcher) session(agent string) (store.Session, bool) {
 	return store.Session{}, false
 }
 
+// hasSession is whether a session is recorded for agent.
+func (l *Launcher) hasSession(agent string) bool {
+	_, ok := l.session(agent)
+	return ok
+}
+
+// retry is the command that starts t's agent again: a restart with --fresh when no session is recorded, on its pane.
+func (l *Launcher) retry(t *target) string {
+	return startAgain("", t.agent, l.hasSession(t.agent), t.pane)
+}
+
 // sameSid: herdr's session value live (an id, or its transcript's path) names session sid.
 func sameSid(live, sid string) bool {
 	return live == sid || sid != "" && strings.TrimSuffix(filepath.Base(live), filepath.Ext(live)) == sid
@@ -308,15 +320,32 @@ var trustRE = regexp.MustCompile(`(?i)trust (this|the) (folder|directory)|do you
 
 // notReady is why the agent cannot take a prompt yet, from its pane's screen after the start: every kind's trust
 // dialog, else what the kind sees on it (agents.Kind.NotReady: Codex's self-update); "" when none shows. The hint
-// names what a person does next: answer the dialog, or run obor's own start again.
-func notReady(screen, kind, name, pane string) string {
+// names what a person does next: answer the dialog, or the command that starts the agent again (startAgain).
+func notReady(screen, kind, name, pane, again string, hasSession bool) string {
 	if trustRE.MatchString(screen) {
 		return "a 'Trust this folder?' dialog in pane " + pane + ": answer it there (Enter = trust; once per repo)"
 	}
 	if k, ok := agents.Lookup(kind); ok {
 		if why := k.NotReady(screen); why != "" {
-			return kind + " " + why + " in pane " + pane + ": run obor restart " + name + " again"
+			return kind + " " + why + " in pane " + pane + ": start it again with " + startAgain(again, name, hasSession, pane)
 		}
 	}
 	return ""
+}
+
+// startAgain is the command that starts agent again: own when the start has one (a drive's `obor drive <T-xx>`,
+// which keeps its prompt), else `obor restart <agent>`. With no recorded session the restart adds --fresh, which a
+// plain restart needs to start a new session; pane adds --pane ("" leaves it out: a drive places its own pane).
+func startAgain(own, agent string, hasSession bool, pane string) string {
+	if own != "" {
+		return own
+	}
+	cmd := "obor restart " + agent
+	if !hasSession {
+		cmd += " --fresh"
+	}
+	if pane != "" {
+		cmd += " --pane " + pane
+	}
+	return cmd
 }

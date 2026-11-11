@@ -45,8 +45,24 @@ func TestRestartWaitsForTheShellAfterTheStop(t *testing.T) {
 			t.Fatalf("a refused start said RESTARTED:\n%s", out)
 		}
 		eq(t, failLine(out), "FAIL start failed in w1:p6 (the pane is not an available shell: the old agent "+
-			"has not left it; run obor restart pj-lead --pane w1:p6 again or start it by hand)", "result")
+			"has not left it; run obor restart pj-lead --fresh --pane w1:p6 again or start it by hand)", "result")
 		lacks(t, out, "runs in w1:p6", "the old agent never taken for the new one")
+	})
+	t.Run("agent_pane_busy with a recorded session: the plain form", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.shellBound = shortWait // the bound of the wait and the start retries
+		x.sid("pj-lead", "sid-1")
+		p := x.agent("w1:p6", "pj-lead", "claude", "idle")
+		p.OnQuit = "linger" // herdr still lists the old agent while it refuses the start
+		p.StartBusy = 1 << 30
+		out, ok := x.restart(launch.Request{Agent: "pj-lead"})
+		if ok || strings.Contains(out, "RESTARTED") {
+			t.Fatalf("a refused start said RESTARTED:\n%s", out)
+		}
+		eq(t, failLine(out), "FAIL start failed in w1:p6 (the pane is not an available shell: the old agent "+
+			"has not left it; run obor restart pj-lead --pane w1:p6 again or start it by hand)", "result")
+		lacks(t, out, "--fresh", "a recorded session resumes: no --fresh")
 	})
 	t.Run("the detached run of the handoff: the same wait", func(t *testing.T) {
 		t.Parallel()
