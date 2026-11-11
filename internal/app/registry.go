@@ -110,8 +110,9 @@ func (a *App) why(p *proj, agent string) string {
 }
 
 // reconcile rebuilds p's table from the proofs that hold now (under mu): every candidate agent × agent pane of p, each
-// pair's strongest proof (identity's Reconcile accepts them). names is whether the config names an agent (read once per
-// pass, not per pane): a start row or a recorded session of an agent it does not name is no proof.
+// pair's strongest proof (identity's Reconcile accepts them). The config is read once per pass, not per pane: names is
+// whether it names an agent (a start row or a recorded session of an agent it does not name is no proof), and its
+// agents are candidates whatever other state holds of them.
 func (a *App) reconcile(p *proj) {
 	if !a.connected {
 		return
@@ -123,9 +124,9 @@ func (a *App) reconcile(p *proj) {
 		}
 	}
 	logp := func(line string) { a.logf("%s: %s", p.name, line) }
-	names := namedAgents(p.root)
+	configured, names := namedAgents(p.root)
 	best := identity.Claims{} // by agent and terminal: the strongest proof
-	for _, agent := range a.candidates(p, mine, names) {
+	for _, agent := range a.candidates(p, mine, configured, names) {
 		sid := a.recordedSid(p, agent) // read once per candidate, not per pane
 		named := names(agent)
 		for _, pane := range mine {
@@ -138,15 +139,16 @@ func (a *App) reconcile(p *proj) {
 	p.reg.Reconcile(best, names, logp)
 }
 
-// namedAgents is whether the current config names an agent (config.Load, as serve reads it elsewhere): a lead,
-// integrator, role or lane agent, by the name rules launch resolves (AgentLookup). A config that does not load names
-// every agent: a broken file drops no proof.
-func namedAgents(root string) func(string) bool {
+// namedAgents is the agents the current config names (config.Load, as serve reads it elsewhere: its lead, integrator,
+// roles and lanes' workers, Config.Agents) and whether it names an agent, by the name rules launch resolves
+// (AgentLookup). A config that does not load names no agent to list and every agent asked about: a broken file drops
+// no proof.
+func namedAgents(root string) ([]string, func(string) bool) {
 	cfg, err := config.Load(root)
 	if err != nil {
-		return func(string) bool { return true }
+		return nil, func(string) bool { return true }
 	}
-	return func(agent string) bool {
+	return cfg.Agents(), func(agent string) bool {
 		_, ok := cfg.AgentLookup(agent, "")
 		return ok
 	}
@@ -158,11 +160,15 @@ func (a *App) recordedSid(p *proj, agent string) string {
 	return s.ID
 }
 
-// candidates is the agents a pane of p may run, sorted: its roles, its lanes' and loop's agents, the agents serve
-// started or has lines for, and the labels of mine (so a hand-started pane is named). The start row of an agent the
-// config does not name is no candidate (named): it gives no proof.
-func (a *App) candidates(p *proj, mine []port.Pane, named func(string) bool) []string {
+// candidates is the agents a pane of p may run, sorted: every agent the config names (configured), its roles, its
+// lanes' and loop's agents, the agents serve started or has lines for, and the labels of mine (so a hand-started pane
+// is named). Each pane is reconciled against all of them at once, so whatever agent is asked about, the table names
+// each pane's owner. The start row of an agent the config does not name is no candidate (named): it gives no proof.
+func (a *App) candidates(p *proj, mine []port.Pane, configured []string, named func(string) bool) []string {
 	set := map[string]bool{p.out.Lead(): true, p.integrator: true}
+	for _, agent := range configured {
+		set[agent] = true
+	}
 	for _, l := range p.lanes {
 		set[l.Agent] = true
 	}

@@ -298,6 +298,23 @@ func TestIdentSessionBeatsLabel(t *testing.T) {
 	if len(owned) != 1 {
 		t.Errorf("owned panes %q, want one (t1)", owned)
 	}
+
+	// A configured role nothing else names (no start row, brief or line) in a pane relabelled notes: its recorded
+	// session proves it, and obor status names the pane by it, not by the label.
+	h, _ = newIdentHarness(t)
+	h.withLead()
+	h.pane("w1:p1").Label = "notes"
+	h.sids(map[string]string{"pj-advisor": "s1"})
+	h.connect()
+	eqs(t, h.where("pj-advisor"), "identified w1:p1 session", "the relabelled role")
+	eqs(t, h.who("w1:p1"), "pj-advisor", "whoIs(w1:p1) of the relabelled pane")
+	var named []string
+	for _, as := range h.a.Status().Project.Agents {
+		named = append(named, as.Pane+" "+as.Name)
+	}
+	if want := []string{"w1:p1 pj-advisor"}; !slices.Equal(named, want) {
+		t.Errorf("status names %q, want %q", named, want)
+	}
 }
 
 // 15: row 6, then a second pane labelled pj-l-01 appears: Ambiguous (the old pane not kept), logged
