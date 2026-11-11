@@ -9,13 +9,17 @@
 // environment: `make check` runs with the caller's own TMPDIR, so a breach can come from a path that run never takes
 // A breach prints one line, `FAIL budget: <pkg> <metric> <got> > <max>`:
 //
-//	full_s             go test's package Elapsed against tests/budget.json (seconds; a cap under a second never fails
-//	                   on wall time alone, minWallS: at that size go test's 0.1 s granularity is the measurement)
 //	git_procs          git processes the run started, against git_procs
 //	tmp                entries left in the private TMPDIR after the runs
 //
+// A package over its wall-time cap (go test's package Elapsed against tests/budget.json) is a warning, not a breach:
+// `WARN budget: <pkg> full_s <got> > <max>`. Whole-package wall time varies about 2x from run to run with no single
+// slow test in it, so the cap says what to look at; git process counts are steady, so those fail. A cap under a second
+// never warns on wall time alone (minWallS: at that size go test's 0.1 s granularity is the measurement).
+//
 // A missing entry for a package with tests is a breach too, so a new package is never unbudgeted. A green run prints
-// `budget OK: N packages` and exits 0; a breach exits 1 (the nightly records it as a red non-gating line).
+// `budget OK: N packages` — `(K over their time cap)` when K packages warned — after its warning lines, and exits 0;
+// a breach exits 1 (the nightly records it as a red non-gating line).
 //
 // `-missing` is the budget's own listing: it compares the packages with tests with tests/budget.json, runs no tests and
 // prints the command that seeds a package without an entry, or the entry whose package is gone (a step of
@@ -24,9 +28,9 @@
 // The budgets are seeded from one quiet machine's run x1.5: `go run ./tests/budget -seed <pkg>...` measures the named
 // packages and writes their entries into tests/budget.json, every other entry unchanged, so the task that adds a
 // package seeds it alone; `-seed` with no arguments re-measures the whole file. Its arguments
-// are resolved through go list to import paths, so a relative path or a pattern works. A budget is
-// raised only by an owner line in docs/decisions.md and lowered by any task that gets under it
-// (docs/plan/test-suite-rework.md §3).
+// are resolved through go list to import paths, so a relative path or a pattern works. A git_procs budget is raised
+// only by an owner line in docs/decisions.md and lowered by any task that gets under it
+// (docs/plan/test-suite-rework.md §3); a full_s cap any task may adjust, with the measurement in its report.
 package main
 
 import (
@@ -69,14 +73,15 @@ type Run struct {
 
 // minWallS is the floor of a package's wall-time cap: go test's Elapsed moves by 0.1 s from run to run, so a
 // cap under a second is the same size as that noise (internal/version 0.6 > 0.4, tests/budget 0.9 > 0.9 on a quiet
-// machine). A package under it never fails on wall time alone: its wall time is that small.
+// machine). A package under it never warns on wall time alone: its wall time is that small.
 const minWallS = 1.0
 
 // wallLimit is the wall-time cap a package is measured against: its cap, or the floor when the cap is under it.
 func wallLimit(cap float64) float64 { return math.Max(cap, minWallS) }
 
-// check returns one FAIL budget line per breach and the number of packages it compared.
-func check(budget File, pkgs []string, runs map[string]Run, tmpLeft []string) (lines []string, n int) {
+// check returns the budget's lines — a FAIL per breach, a WARN per package over its time cap — the number of packages
+// it compared and how many warned. A warning is not a breach.
+func check(budget File, pkgs []string, runs map[string]Run, tmpLeft []string) (lines []string, n, warned int) {
 	n = len(pkgs)
 	for _, pkg := range pkgs {
 		b, ok := budget.Packages[pkg]
@@ -90,7 +95,8 @@ func check(budget File, pkgs []string, runs map[string]Run, tmpLeft []string) (l
 			continue
 		}
 		if limit := wallLimit(b.FullS); r.Elapsed > limit {
-			lines = append(lines, fmt.Sprintf("FAIL budget: %s full_s %.1fs > %.1fs", pkg, r.Elapsed, limit))
+			lines = append(lines, fmt.Sprintf("WARN budget: %s full_s %.1fs > %.1fs", pkg, r.Elapsed, limit))
+			warned++
 		}
 		if r.Git > b.GitProcs {
 			lines = append(lines, fmt.Sprintf("FAIL budget: %s git_procs %d > %d", pkg, r.Git, b.GitProcs))
@@ -103,7 +109,25 @@ func check(budget File, pkgs []string, runs map[string]Run, tmpLeft []string) (l
 		}
 		lines = append(lines, fmt.Sprintf("FAIL budget: tmp %d entries left in the private TMPDIR: %s", len(tmpLeft), strings.Join(shown, ", ")))
 	}
-	return lines, n
+	return lines, n, warned
+}
+
+// breached reports whether check's lines hold a failure: a WARN line is not one.
+func breached(lines []string) bool {
+	for _, line := range lines {
+		if strings.HasPrefix(line, "FAIL ") {
+			return true
+		}
+	}
+	return false
+}
+
+// okLine is a green run's summary: the packages compared, and when some only warned, how many went over their time cap.
+func okLine(n, warned int) string {
+	if warned == 0 {
+		return fmt.Sprintf("budget OK: %d packages", n)
+	}
+	return fmt.Sprintf("budget OK: %d packages (%d over their time cap)", n, warned)
 }
 
 // failure is the run's note for a breach line: the failed top-level tests, else the note, else nothing.
@@ -601,14 +625,14 @@ func run() int {
 		fmt.Fprintln(os.Stderr, "seed: wrote tests/budget.json")
 		return 0
 	}
-	lines, n := check(budget, pkgs, runs, r.leftovers())
+	lines, n, warned := check(budget, pkgs, runs, r.leftovers())
 	for _, line := range lines {
 		fmt.Println(line)
 	}
-	if len(lines) > 0 {
+	if breached(lines) {
 		return 1
 	}
-	fmt.Printf("budget OK: %d packages\n", n)
+	fmt.Println(okLine(n, warned))
 	return 0
 }
 
