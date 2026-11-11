@@ -25,15 +25,15 @@ const (
 // commandMax is how many characters of a command a view shows.
 const commandMax = 60
 
-// Proc is one row of the process table: pid, parent, how long it has run and its full command.
+// Proc is one row of the process table: pid, parent, process group, how long it has run and its full command.
 type Proc struct {
-	PID, PPID int
-	Age       time.Duration
-	Command   string
+	PID, PPID, PGID int
+	Age             time.Duration
+	Command         string
 }
 
 // psArgs is the one ps call (macOS and Linux alike): every process, full width, no header.
-var psArgs = []string{"-A", "-ww", "-o", "pid=,ppid=,etime=,command="}
+var psArgs = []string{"-A", "-ww", "-o", "pid=,ppid=,pgid=,etime=,command="}
 
 // ReadProcs is the machine's process table, by one ps under ctx.
 func ReadProcs(ctx context.Context) ([]Proc, error) {
@@ -44,22 +44,23 @@ func ReadProcs(ctx context.Context) ([]Proc, error) {
 	return ParseProcs(string(out)), nil
 }
 
-// ParseProcs is ps's output (pid ppid etime command, one process per line) as rows; a line that does not parse is
-// skipped.
+// ParseProcs is ps's output (pid ppid pgid etime command, one process per line) as rows; a line that does not
+// parse is skipped.
 func ParseProcs(out string) []Proc {
 	var procs []Proc
 	for _, line := range strings.Split(out, "\n") {
 		f := strings.Fields(line)
-		if len(f) < 4 {
+		if len(f) < 5 {
 			continue
 		}
 		pid, err1 := strconv.Atoi(f[0])
 		ppid, err2 := strconv.Atoi(f[1])
-		age, ok := parseEtime(f[2])
-		if err1 != nil || err2 != nil || !ok {
+		pgid, err3 := strconv.Atoi(f[2])
+		age, ok := parseEtime(f[3])
+		if err1 != nil || err2 != nil || err3 != nil || !ok {
 			continue
 		}
-		procs = append(procs, Proc{PID: pid, PPID: ppid, Age: age, Command: strings.Join(f[3:], " ")})
+		procs = append(procs, Proc{PID: pid, PPID: ppid, PGID: pgid, Age: age, Command: strings.Join(f[4:], " ")})
 	}
 	return procs
 }
@@ -228,6 +229,27 @@ func NewProcIndex(procs []Proc) *ProcIndex {
 // wraps a Bash tool call) come with it, to match a recorded call against. None when agent is not in procs.
 func (x *ProcIndex) Descendants(agent int, min time.Duration) []Found {
 	return x.walk(agent, min, true)
+}
+
+// ChildOutsideGroup: a descendant of the process agent in x runs in a process group of its own. An agent's long-lived
+// helpers (MCP servers, caffeinate) lead its group; the commands it runs, a background job too, get one of their own
+// (Claude's Bash tool). known is false when agent is not in the table: no child seen there is no evidence of quiet.
+func (x *ProcIndex) ChildOutsideGroup(agent int) (busy, known bool) {
+	a, ok := x.byPID[agent]
+	if !ok || agent <= 1 {
+		return false, false
+	}
+	for _, p := range x.byPID {
+		if p.PGID == a.PGID {
+			continue
+		}
+		for q, n := p.PPID, 0; q > 1 && n < 64; q, n = x.byPID[q].PPID, n+1 {
+			if q == agent {
+				return true, true
+			}
+		}
+	}
+	return false, true
 }
 
 // walk is Descendants with the agent's helpers left out when helpers is set; unset, every descendant is an entry

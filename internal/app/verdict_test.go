@@ -179,7 +179,7 @@ func TestDropNeedsYouTask(t *testing.T) {
 
 	// A replay of the log keeps it ended, and the stored reply with it.
 	r.app("pq").closeLog() // the first serve ends: the replay is the next one
-	b := New(Options{Root: r.roots["pq"], Now: r.a.opt.Now}, &fakePanes{}, &fakeLanes{})
+	b := newTestApp(Options{Root: r.roots["pq"], Now: r.a.opt.Now}, &fakePanes{}, &fakeLanes{})
 	b.loadProject()
 	p := b.p
 	if mt := p.folded.loop["T-3"]; mt == nil || mt.state != stDropped || mt.needs.fact.Seq != 0 {
@@ -598,7 +598,7 @@ func TestDroppedEndsTheTask(t *testing.T) {
 				t.Error("the drop mark is left set")
 			}
 			r.app("pq").closeLog() // the first serve ends: the replay is the next one
-			b := New(Options{Root: r.roots["pq"], Now: r.app("pq").opt.Now}, &fakePanes{}, &fakeLanes{})
+			b := newTestApp(Options{Root: r.roots["pq"], Now: r.app("pq").opt.Now}, &fakePanes{}, &fakeLanes{})
 			b.loadProject()
 			if mt := b.p.folded.loop["T-7"]; mt == nil || mt.state != c.want || mt.attempt != c.attempt {
 				t.Errorf("replay: %+v; want %s at attempt %d", mt, c.want, c.attempt)
@@ -1062,7 +1062,7 @@ func TestDropAndSubmission(t *testing.T) {
 			}
 		}
 		r.app("pq").closeLog() // the first serve ends: the replay is the next one
-		b := New(Options{Root: r.roots["pq"], Now: r.app("pq").opt.Now}, &fakePanes{}, &fakeLanes{})
+		b := newTestApp(Options{Root: r.roots["pq"], Now: r.app("pq").opt.Now}, &fakePanes{}, &fakeLanes{})
 		b.loadProject()
 		if mt := b.p.folded.loop["T-7"]; mt == nil || mt.state != stDropped {
 			t.Errorf("replay: %+v; want T-7 dropped", mt)

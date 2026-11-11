@@ -108,7 +108,7 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 	}
 	a := app.New(app.Options{Root: root, Out: flushWriter{}, Refresh: port.Refreshed, Loop: mergeLoop(env, term, end, kinds),
 		Inboxed: inboxed(root), Exit: stop, Binary: binaryWatch(env), Tick: serveTick, Follow: serveTick,
-		Restore: restorer(term, paneless(env))},
+		Info: term.Control.ProcessInfo, Restore: restorer(term, paneless(env))},
 		term.Panes, checks.Lanes{})
 	served := make(chan struct{})
 	go func() {

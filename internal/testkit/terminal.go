@@ -1,9 +1,15 @@
-package herdrtest
+package testkit
+
+// The terminal contract table: one table of rows, each a call on the terminal's port with its expected result or
+// refusal, plus what the core and setup rely on of an adapter, in terminal-neutral terms. internal/herdr runs it on
+// its fake (TestTerminalContract) and the conformance suite's live herdr tier on a throwaway session (tests/conformance,
+// H-C rows). A second adapter runs the same rows.
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -11,12 +17,15 @@ import (
 	"obor/internal/app/port"
 )
 
-// Terminal is a terminal adapter as the contract drives it: the core's two ports onto it (PaneControl for launch and
-// setup, Panes for serve). Group is the group its pane is in, as a person reads it (port.Pane.Group).
+// Terminal is a terminal adapter as the contract drives it: the core's ports onto it (PaneControl for launch and
+// setup, Panes for serve, TerminalSetup for a placement). Group is the group its pane is in, as a person reads it
+// (port.Pane.Group); Cwd is that pane's cwd, where a placement puts a new pane.
 type Terminal struct {
 	Control port.PaneControl
 	Panes   port.Panes
+	Setup   port.TerminalSetup
 	Group   string
+	Cwd     string
 }
 
 // Row is one row of the terminal contract: Run checks it against a pane that is a shell, in t's group, with a known
@@ -28,10 +37,8 @@ type Row struct {
 	Run   func(ctx context.Context, t Terminal, pane string) error
 }
 
-// Contract is the terminal contract (docs/plan/architecture-target.md §2b): what the core and setup rely on of
-// a terminal adapter, in terminal-neutral terms, one row each. internal/herdr's TestTerminalContract runs it against
-// this fake; the conformance suite's live herdr tier (tests/conformance, H-C rows) against a throwaway herdr session.
-// A second adapter runs the same rows.
+// Contract is the terminal contract (docs/plan/architecture-target.md §2b): what the core and setup rely on of a
+// terminal adapter, in terminal-neutral terms, one row each.
 var Contract = []Row{
 	{Name: "start", Agent: true, Run: func(ctx context.Context, t Terminal, pane string) error {
 		const name = "obor-contract"
@@ -63,8 +70,65 @@ var Contract = []Row{
 		}
 		return nil
 	}},
+	{Name: "instance", Run: func(ctx context.Context, t Terminal, _ string) error {
+		a, err := t.Panes.Snapshot(ctx)
+		if err != nil {
+			return fmt.Errorf("snapshot: %w", err)
+		}
+		b, err := t.Panes.Snapshot(ctx)
+		if err != nil {
+			return fmt.Errorf("snapshot again: %w", err)
+		}
+		switch {
+		case a.Started.IsZero():
+			return fmt.Errorf("the snapshot's instance is zero: %+v", a)
+		case !a.Started.Equal(b.Started):
+			return fmt.Errorf("the instance changed between two snapshots: %v, then %v", a.Started, b.Started)
+		}
+		return nil
+	}},
+	{Name: "place", Run: func(ctx context.Context, t Terminal, pane string) error {
+		switch {
+		case t.Setup == nil:
+			return errors.New("the terminal has no setup port: no placement")
+		case t.Cwd == "":
+			return errors.New("the contract's terminal has no cwd to place a pane in")
+		}
+		id, err := t.Setup.Place(ctx, port.Placement{Role: "contract", Cwd: t.Cwd,
+			Project: port.PlaceProject{Name: t.Group, Root: t.Cwd, Self: pane, MaxPanes: 16,
+				Has: func(cwd string) bool { return cwd == t.Cwd || strings.HasPrefix(cwd, t.Cwd+string(filepath.Separator)) }}})
+		if err != nil {
+			return fmt.Errorf("place: %w", err)
+		}
+		if id == "" {
+			return errors.New("place: no pane id")
+		}
+		snap, err := t.Panes.Snapshot(ctx)
+		if err != nil {
+			return fmt.Errorf("snapshot after place: %w", err)
+		}
+		p, ok := find(snap.Panes, id)
+		switch {
+		case !ok:
+			return fmt.Errorf("the snapshot lists no pane %s placed", id)
+		case p.Group != t.Group || p.Cwd != t.Cwd:
+			return fmt.Errorf("the placed pane = %+v; want it in group %q with cwd %s", p, t.Group, t.Cwd)
+		}
+		return nil
+	}},
 	{Name: "type", Run: func(ctx context.Context, t Terminal, pane string) error {
 		return typed(ctx, t, pane, "typed")
+	}},
+	{Name: "type with guard", Run: func(ctx context.Context, t Terminal, pane string) error {
+		const what = "obor-contract-guarded"
+		if err := t.Control.Wake(ctx, pane, what); !port.NotFound(err) {
+			return fmt.Errorf("the guarded type at a shell: %v; want it refused before typing (not found)", err)
+		}
+		text, err := t.Control.Screen(ctx, pane, 40)
+		if err != nil || strings.Contains(text, what) {
+			return fmt.Errorf("the guarded type typed: screen %q, %v", text, err)
+		}
+		return nil
 	}},
 	{Name: "keys", Run: func(ctx context.Context, t Terminal, pane string) error {
 		if err := t.Control.SendKeys(ctx, pane, "ctrl+u"); err != nil {

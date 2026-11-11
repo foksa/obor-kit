@@ -128,7 +128,7 @@ func (a *App) pastHandoff(p *proj, pane port.Pane) bool {
 	if tokens == nil {
 		tokens = transcriptTokens
 	}
-	n, ok := tokens(cmp.Or(a.transcript(p, pane), pane.Transcript))
+	n, ok := tokens(cmp.Or(a.transcript(p, pane), a.activity.Transcript(pane)))
 	return ok && int64(n) > limit
 }
 

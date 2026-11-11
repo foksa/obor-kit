@@ -14,7 +14,7 @@ import (
 // replayProj reloads p from its log in a new App, as a restart does.
 func replayProj(t *testing.T, r *concRig, p *proj) (*App, *proj) {
 	t.Helper()
-	b := New(Options{Now: r.a.opt.Now, Loop: r.a.opt.Loop}, &fakePanes{}, &fakeLanes{})
+	b := newTestApp(Options{Now: r.a.opt.Now, Loop: r.a.opt.Loop}, &fakePanes{}, &fakeLanes{})
 	q, err := b.load(p.root)
 	if err != nil {
 		t.Fatal(err)

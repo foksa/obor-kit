@@ -103,7 +103,8 @@ process (`plugin.Local`).
   run, the serve flock), `restore.go` (the restore of the project's panes after a lost terminal connection came
   back, through the `Restorer` port, and at serve's first connect when herdr restarted while serve was down:
   the instance it last connected to in `.obor/state/herdr-instance`), `project.go` (load, log, fold), `log.go` (serve's side of the backup), `panes.go` (herdr events to projects),
-  `watchdog.go`, `lanescan.go` (the lane table as a cached observation: scanned on the tick and by a refresher, never
+  `activity.go` (the agents' own activity, the watchdogs' evidence: their transcripts' last write and last turn, and the child
+  processes under a pane's agent), `watchdog.go`, `lanescan.go` (the lane table as a cached observation: scanned on the tick and by a refresher, never
   per pane event), `toast.go` (the owner's herdr toast, a rule action's best-effort after), `status.go` (the status snapshot and `Listen`: the socket's server half); the merge loop: `loop.go` (wake, advance, record, do, drive, the picks),
   `mtask.go` (loop state fold), `states.go` (the state table), `steps.go` (scratch/after steps, submit, gate, publish,
   unpin, fix), `jobstart.go` (job start, texts), `fetch.go` (jobs by fetch: the wake, the first fetch's delivered fact,
@@ -179,7 +180,7 @@ process (`plugin.Local`).
 - Scheduler rules: readiness (`--after`), dispatch, accept/reject/sendback, moved target, the integrator slot (no cap
   yet).
 - Watchdogs: idle with a task, working without activity, blocked, pane exited.
-- Interfaces it drives adapters through: `Panes` (subscribe, busy, activity, notify), `Lanes` (a project's lanes), and,
+- Interfaces it drives adapters through: `Panes` (subscribe, snapshot, screen, notify), `Lanes` (a project's lanes), and,
   on its `Loop`, `Scratch` (submit/gate/resolved/publish/after_merge/landed/unpin), `Agents` (launch/stop), `Typer`
   (a job's wake, a line typed into a pane), `Poster` (posted to a session's inbox), `Specs`, `Nightly` and `Restart` (serve's own restart after a code merge).
   API: `app.New(Options, Panes, Lanes)`, `(*App).Serve(ctx)`. Its rig tests (`*_ext_test.go`) run in a
@@ -191,8 +192,7 @@ process (`plugin.Local`).
   and `app.Typer`, and `port.TerminalSetup` as `Setup` (`setup.go`: the layout of setup's placements in tabs,
   workspaces and splits, herdr's `resume_agents_on_restore` hint, the workspace rename); herdr's own `Pane` (tab and workspace ids) stays
   here; `cmd/obor`'s `terminal` builds the project's `port.Terminal` over these; `herdr/herdrtest` is its fake (test
-  helper) and holds the terminal contract table (`contract.go`, run by `TestTerminalContract` and the live tier's
-  H-C rows).
+  helper).
 - `checks`: git and the merge gate: lanes (`checks.Lane`, `LaneSetup`), serve's worktree `<lanes_dir>/merge` (submit,
   gate: merge and compile, resolved, publish, after_merge over pins under `refs/obor/`), the lane test of a candidate in
   the task's lane worktree (`lanetest.go`, `Scratch.Test`: the class's checks), nightly/milestone checks in their own worktree,
@@ -244,8 +244,8 @@ core and the adapters; only entry packages import it. **Every reader of project 
 `obor status` (`--json` prints `view.Project` as is) and `obor web` render the same struct, so a field added for one
 appears in both; the narrow page reads share its mapping helpers, and there is no second Project builder.
 
-**test helpers** — `testkit` (fixture projects, the store helpers tests use, the workflow contract table) and `herdr/herdrtest` (the fake herdr
-socket: scripted panes and plugins, and every request a test's client sent; the terminal contract table).
+**test helpers** — `testkit` (fixture projects, the store helpers tests use, the workflow and terminal contract tables) and
+`herdr/herdrtest` (the fake herdr socket: scripted panes and plugins, and every request a test's client sent).
 
 **entry** — `cmd/obor`: flags and wiring only; `obor status`' rendering of
 `view.Project` (rendering only: no state is joined there); the

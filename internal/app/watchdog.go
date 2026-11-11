@@ -72,7 +72,7 @@ func (a *App) decideLanes(ctx context.Context, p *proj) {
 	for _, o := range ask {
 		e := a.evidence(ctx, o)
 		if turnsRead(o.Agent) {
-			e.turn, e.turned = a.panes.Turn(ctx, o, transcripts[o.ID])
+			e.turn, e.turned = a.activity.Turn(o, transcripts[o.ID])
 		}
 		ev[o.ID] = e
 	}
@@ -333,20 +333,21 @@ func (a *App) question(ctx context.Context, pane string) string {
 	return text
 }
 
-// evidence asks herdr about pane's activity (outside mu): the child-process check is a herdr call, its transcript the
-// observed pane's. A blocked pane asks a person: its question is its screen's last lines, not its activity.
+// evidence asks for pane's activity (outside mu): the child-process check is a process check and the pane's process
+// info from the terminal; its transcript is the observed pane's. A blocked pane asks a person: its question is its
+// screen's last lines, not its activity.
 func (a *App) evidence(ctx context.Context, pane port.Pane) *evidence {
 	e := &evidence{}
 	if pane.Status == "blocked" {
 		e.question = a.question(ctx, pane.ID)
 		return e
 	}
-	e.busy, e.err = a.panes.Busy(ctx, pane.ID)
+	e.busy, e.err = a.activity.Busy(ctx, pane)
 	if e.err != nil {
 		e.busy = false
 		a.logf("process info of %s: %v (activity unknown)", pane.ID, e.err)
 	}
-	e.last, e.known = a.panes.Activity(ctx, pane)
+	e.last, e.known = a.activity.Activity(pane)
 	return e
 }
 

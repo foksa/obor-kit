@@ -26,6 +26,7 @@ import (
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
+	"obor/internal/background"
 	"obor/internal/config"
 	"obor/internal/herdr"
 	"obor/internal/herdr/herdrtest"
@@ -362,8 +363,8 @@ type rig struct {
 	lanes *laneTable
 	clock *clock
 
-	mu sync.Mutex
-	ps string // the process table Busy reads
+	mu    sync.Mutex
+	procs []background.Proc // the process table Busy reads
 
 	loop    func(string) (*app.Loop, error) // Options.Loop (nil: observe only)
 	restore port.Restorer                   // Options.Restore (nil: none)
@@ -398,7 +399,7 @@ func newRig(t *testing.T) *rig {
 	}
 	r.srv = serveHerdr(t, r.f)
 	r.srv.Reply("notification.show", map[string]any{"type": "notification_show", "shown": true, "reason": "shown"})
-	r.ps = "2 1 2\n" // the agent (pid 2, the fake's foreground group) and nothing under it
+	r.procs = []background.Proc{{PID: 2, PPID: 1, PGID: 2}} // the agent (pid 2, the fake's foreground group), nothing under it
 	return r
 }
 
@@ -429,25 +430,34 @@ func write(t *testing.T, path, text string) {
 	}
 }
 
-func (r *rig) setPS(table string) {
+func (r *rig) setProcs(procs ...background.Proc) {
 	r.mu.Lock()
-	r.ps = table
+	r.procs = procs
 	r.mu.Unlock()
+}
+
+// quietProcs is the process table of the fake herdr's agent (pid 2, its foreground group) with nothing under it.
+func quietProcs(context.Context) ([]background.Proc, error) {
+	return []background.Proc{{PID: 2, PPID: 1, PGID: 2}}, nil
+}
+
+// procsFn is the machine's process table as the app's activity reads it (Options.Procs).
+func (r *rig) procsFn(context.Context) ([]background.Proc, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.procs), nil
 }
 
 // start runs the app until the test ends (or stop); it returns after the app's first full check (every project and
 // open task sampled once).
 func (r *rig) start() {
 	r.t.Helper()
-	panes := herdr.Panes{S: r.srv.Client(), PS: func(context.Context) ([]byte, error) {
-		r.mu.Lock()
-		defer r.mu.Unlock()
-		return []byte(r.ps), nil
-	}}
+	c := r.srv.Client()
+	panes := herdr.Panes{S: c}
 	r.out = &syncBuf{}
 	r.app = app.New(app.Options{Root: r.root, Tick: 2 * time.Millisecond, Retry: 5 * time.Millisecond,
 		StepRetry: 5 * time.Millisecond, StepRetryMax: 40 * time.Millisecond,
-		Now: r.clock.Now, Out: r.out, Refresh: func(err error) bool {
+		Now: r.clock.Now, Out: r.out, Info: c.ProcessInfo, Procs: r.procsFn, Refresh: func(err error) bool {
 			var e *herdr.Error
 			return errors.As(err, &e) && e.Code == "refresh"
 		}, Loop: r.loop, Restore: r.restore}, panes, r.lanes)
@@ -2070,7 +2080,8 @@ func (r *loopRig) launch() {
 	default:
 		r.p.Dispatched("L-01") // serve holds T-1 open: its task_done submits it
 	}
-	panes := herdr.Panes{S: r.srv.Client(), PS: func(context.Context) ([]byte, error) { return []byte("2 1 2\n"), nil }}
+	c := r.srv.Client()
+	panes := herdr.Panes{S: c}
 	r.out = &syncBuf{}
 	tick := 2 * time.Millisecond
 	if r.tick != 0 {
@@ -2083,6 +2094,7 @@ func (r *loopRig) launch() {
 	r.app = app.New(app.Options{Root: r.p.Root, Tick: tick, Retry: 5 * time.Millisecond, RetryMax: 40 * time.Millisecond,
 		StepRetry: retry, StepRetryMax: retryMax,
 		Now: r.clock.Now, Out: r.out, Inboxed: r.inbox.recorded, Exit: r.exit, Binary: r.binary, Follow: tick, Tokens: r.tokens,
+		Info: c.ProcessInfo, Procs: quietProcs,
 		Refresh: func(err error) bool {
 			var e *herdr.Error
 			return errors.As(err, &e) && e.Code == "refresh"
@@ -2867,11 +2879,12 @@ var (
 // args reach the fake herdr.
 func (r *loopRig) startWithAgents(agents port.Agents) {
 	r.t.Helper()
-	panes := herdr.Panes{S: r.srv.Client(), PS: func(context.Context) ([]byte, error) { return []byte("2 1 2\n"), nil }}
+	c := r.srv.Client()
+	panes := herdr.Panes{S: c}
 	r.out = &syncBuf{}
 	r.app = app.New(app.Options{Root: r.p.Root, Tick: 20 * time.Millisecond, Retry: 5 * time.Millisecond,
 		StepRetry: 5 * time.Millisecond, StepRetryMax: 40 * time.Millisecond,
-		Now: r.clock.Now, Out: r.out, Refresh: func(err error) bool {
+		Now: r.clock.Now, Out: r.out, Info: c.ProcessInfo, Procs: quietProcs, Refresh: func(err error) bool {
 			var e *herdr.Error
 			return errors.As(err, &e) && e.Code == "refresh"
 		}, Loop: func(string) (*app.Loop, error) {

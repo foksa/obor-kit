@@ -17,6 +17,7 @@ import (
 	"obor/internal/app/outbox"
 	"obor/internal/app/port"
 	"obor/internal/app/review"
+	"obor/internal/background"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -66,6 +67,16 @@ type Options struct {
 	// Tokens is a session transcript's context size (the keep lane handoff rule; ok false: none read). Nil:
 	// project.ContextTokens' read of the file.
 	Tokens func(transcript string) (int, bool)
+	// Activity is what the agents themselves record of their work, the watchdogs' evidence (activity.go; nil: the
+	// agents' files under Home and the process table, with each pane's process info from Info).
+	Activity AgentActivity
+	// Home is the user's home holding the agents' transcripts: .claude/projects and .codex/sessions
+	// ("" : os.UserHomeDir).
+	Home string
+	// Info is the terminal's process info of one pane (Activity's child-process check; nil: unknown activity).
+	Info func(ctx context.Context, pane string) (port.ProcessInfo, error)
+	// Procs is the machine's process table (Activity's child-process check; nil: background.ReadProcs).
+	Procs func(ctx context.Context) ([]background.Proc, error)
 	// Restore restarts the project's labelled panes that run no agent, after the terminal connection came back
 	// (restore.go; nil: never).
 	Restore port.Restorer
@@ -76,12 +87,13 @@ type Options struct {
 
 // App is `obor serve`'s state. Make it with New, run it with Serve.
 type App struct {
-	opt   Options
-	panes port.Panes
-	lanes port.Lanes
+	opt      Options
+	panes    port.Panes
+	lanes    port.Lanes
+	activity AgentActivity // what the agents themselves record of their work (activity.go, Options.Activity)
 
-	// mu guards the state below. Serve's goroutine changes it; it decides under mu and asks herdr, git and the lane
-	// table outside it (Busy, Activity, Lanes and Notify are never called while mu is held). The rule for a verb (J1):
+	// mu guards the state below. Serve's goroutine changes it; it decides under mu and asks the terminal, git and the
+	// lane table outside it (Busy, Activity, Lanes and Notify are never called while mu is held). The rule for a verb (J1):
 	// it reads (git, config, lanes, the spec store) with no lock, then checks, appends, folds and replies in one mu
 	// section (recordLocked); only an effect in flight is a claim (held, running, rv.what, a line's sending). Every
 	// append is inside mu with its fold (record, do's intent and result, a verdict's), so the live fold order is

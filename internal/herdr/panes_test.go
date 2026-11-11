@@ -1,16 +1,11 @@
 package herdr_test
 
 import (
-	"context"
-	"errors"
-	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"obor/internal/agents"
 	"obor/internal/app/port"
 	"obor/internal/herdr"
 	"obor/internal/herdr/herdrtest"
@@ -33,67 +28,12 @@ func TestSocketProcessInfo(t *testing.T) {
 	}
 }
 
-func TestPanesBusy(t *testing.T) {
-	t.Parallel()
-	f := fixture() // w1:p1's agent is pid 2 (the fake's foreground group); w1:p2 is a shell at its prompt
-	srv := herdrtest.Serve(t, f)
-	for _, tc := range []struct {
-		name, pane, ps string
-		want           bool
-	}{
-		{"nothing under the agent", "w1:p1", "1 0 1\n2 1 2\n", false},
-		{"helpers in the agent's group (MCP server, caffeinate)", "w1:p1", "2 1 2\n3 2 2\n4 3 2\n5 2 2\n", false},
-		{"a command in a group of its own", "w1:p1", "2 1 2\n3 2 2\n50 2 50\n", true},
-		{"a grandchild in another group", "w1:p1", "2 1 2\n3 2 2\n60 3 60\n", true},
-		{"another group not under the agent", "w1:p1", "2 1 2\n70 1 70\n71 70 71\n", false},
-		{"the shell has the foreground", "w1:p2", "1 0 1\n80 1 80\n", false},
-	} {
-		ps := tc.ps
-		p := herdr.Panes{S: srv.Client(), PS: func(context.Context) ([]byte, error) { return []byte(ps), nil }}
-		if got, err := p.Busy(ctx, tc.pane); err != nil || got != tc.want {
-			t.Errorf("%s: Busy = %v, %v; want %v", tc.name, got, err, tc.want)
-		}
-	}
-}
-
-// the cases herdr cannot tell are errors (unknown), never (false, nil) (unknown is never idle).
-func TestPanesBusyUnknown(t *testing.T) {
-	t.Parallel()
-	psOf := func(table string) func(context.Context) ([]byte, error) {
-		return func(context.Context) ([]byte, error) { return []byte(table), nil }
-	}
-	zero := fixture() // w1:p1's agent is pid 2; herdr's answer is scripted below
-	zeroSrv := herdrtest.Serve(t, zero)
-	zeroSrv.Reply("pane.process_info", map[string]any{"type": "pane_process_info",
-		"process_info": map[string]any{"pane_id": "w1:p1", "shell_pid": 1, "foreground_process_group_id": 0}})
-	for _, tc := range []struct {
-		name  string
-		panes herdr.Panes
-		want  string // what the error says
-	}{
-		{"the foreground group is 0", herdr.Panes{S: zeroSrv.Client(), PS: psOf("1 0 1\n2 1 2\n")},
-			"foreground process group is 0"},
-		{"the agent's pid is not in ps", herdr.Panes{S: herdrtest.Serve(t, fixture()).Client(), PS: psOf("1 0 1\n70 1 70\n71 70 71\n")},
-			"pid 2 is not in ps"},
-		{"ps itself fails", herdr.Panes{S: herdrtest.Serve(t, fixture()).Client(),
-			PS: func(context.Context) ([]byte, error) { return nil, errors.New("ps: permission denied") }},
-			"ps: permission denied"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			busy, err := tc.panes.Busy(ctx, "w1:p1")
-			if busy || !errors.Is(err, herdr.ErrUnknown) || !strings.Contains(err.Error(), tc.want) {
-				t.Errorf("Busy = %v, %v; want false, unknown (%q)", busy, err, tc.want)
-			}
-		})
-	}
-}
-
 func TestPanesSubscribe(t *testing.T) {
 	t.Parallel()
 	f := fixture()
 	f.Group("w1", "pj")
 	srv := herdrtest.Serve(t, f)
-	st, err := herdr.Panes{S: srv.Client(), Home: t.TempDir()}.Subscribe(ctx)
+	st, err := herdr.Panes{S: srv.Client()}.Subscribe(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,172 +98,6 @@ func nextApp(t *testing.T, st *port.Stream) port.Event {
 		t.Fatal("no event within 5 s")
 	}
 	return port.Event{}
-}
-
-// Turn reads the last turn of a Codex agent's rollout (found from its session id, or the path herdr reports)
-// from its tail, a long rollout's too (its first, cut line skipped); a kind whose turns are not read (Claude), no file,
-// no session or no agent: unknown. A turn whose start is more than a tail back (one 300 KiB output after it,
-// or thirty 10 KiB ones) is still found, by either path; an oversized task_complete is read whole; a rollout of many
-// chunks with no turn event, its last line cut: unknown.
-func TestPanesTurn(t *testing.T) {
-	t.Parallel()
-	home := t.TempDir()
-	write := func(rel, body string) string {
-		path := filepath.Join(home, rel)
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		return path
-	}
-	const (
-		started = `{"type":"event_msg","payload":{"type":"task_started","turn_id":"t1"}}` + "\n"
-		limited = `{"type":"event_msg","payload":{"type":"task_complete","turn_id":"t1","error":{"message":"try again at 6:30 PM","codex_error_info":"usage_limit_exceeded"}}}` + "\n"
-	)
-	write(".claude/projects/-proj-wt-L-01/5e1d0c2b-aaaa.jsonl", started+limited)
-	write(".codex/sessions/2026/10/24/rollout-2026-10-24T15-05-17-cdx1.jsonl", started+limited)
-	// over 256 KiB: one huge item line, cut at the tail's start, then the turn's end
-	long := write("long.jsonl", started+`{"type":"response_item","payload":{"output":"`+strings.Repeat("x", 300<<10)+`"}}`+"\n"+limited)
-	output := func(n int) string {
-		return `{"type":"response_item","payload":{"output":"` + strings.Repeat("x", n) + `"}}` + "\n"
-	}
-	const newTurn = `{"type":"event_msg","payload":{"type":"task_started","turn_id":"t2"}}` + "\n"
-	oneBig := started + limited + newTurn + output(300<<10)
-	many := started + limited + newTurn + strings.Repeat(output(10<<10), 30)
-	if len(oneBig)-len(started+limited+newTurn) <= 256<<10 || len(many)-len(started+limited+newTurn) <= 256<<10 {
-		t.Fatal("precondition: the new turn's start is more than 256 KiB from the end")
-	}
-	bigPath := write("big.jsonl", oneBig)
-	manyPath := write("many.jsonl", many)
-	write(".codex/sessions/2026/10/30/rollout-2026-10-30T09-00-00-cdxbig.jsonl", oneBig)
-	write(".codex/sessions/2026/10/30/rollout-2026-10-30T09-00-00-cdxmany.jsonl", many)
-	huge := "try again at 6:30 PM " + strings.Repeat("y", 300<<10)
-	hugeEnd := write("huge.jsonl", started+output(10)+`{"type":"event_msg","payload":{"type":"task_complete","turn_id":"t1","error":{"message":"`+huge+`","codex_error_info":"usage_limit_exceeded"}}}`+"\n")
-	noTurn := write("noturn.jsonl", strings.Repeat(output(10<<10), 60)+`{"type":"event_msg","payload":{"type":"task_comp`)
-
-	f := fixture() // w1:p1: claude, session 5e1d0c2b-aaaa
-	f.Agent("w1:p4", "pj-cdx", "idle", "/proj-wt/L-04").Kind = "codex"
-	f.Pane("w1:p4").Session = "cdx1"
-	f.Agent("w1:p5", "pj-cdx2", "idle", "/proj-wt/L-05").Kind = "codex"
-	f.Pane("w1:p5").Transcript = long
-	f.Agent("w1:p6", "pj-cdx3", "idle", "/proj-wt/L-06").Kind = "codex"
-	f.Pane("w1:p6").Session = "no-such-file"
-	for i, c := range []struct{ session, transcript string }{
-		{"", bigPath}, {"", manyPath}, {"cdxbig", ""}, {"cdxmany", ""}, {"", hugeEnd}, {"", noTurn},
-	} {
-		pane := fmt.Sprintf("w1:p%d", 10+i)
-		f.Agent(pane, fmt.Sprintf("pj-cdx%d", 10+i), "working", fmt.Sprintf("/proj-wt/O-%d", 10+i)).Kind = "codex"
-		f.Pane(pane).Session, f.Pane(pane).Transcript = c.session, c.transcript
-	}
-	srv := herdrtest.Serve(t, f)
-	p := herdr.Panes{S: srv.Client(), Home: home}
-	snap, err := p.Snapshot(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	seen := map[string]port.Pane{}
-	for _, pane := range snap.Panes {
-		seen[pane.ID] = pane
-	}
-	hit := agents.Turn{ID: "t1", Error: "usage_limit_exceeded", Details: "try again at 6:30 PM", Ended: true}
-	t2 := agents.Turn{ID: "t2"}
-	for _, tc := range []struct {
-		name, pane string
-		want       agents.Turn
-		ok         bool
-	}{
-		{"Codex session id: its rollout's last turn", "w1:p4", hit, true},
-		{"a long rollout herdr names: its tail", "w1:p5", hit, true},
-		{"herdr's path: one 300 KiB output after the new start", "w1:p10", t2, true},
-		{"herdr's path: thirty 10 KiB outputs after the new start", "w1:p11", t2, true},
-		{"session id: one 300 KiB output after the new start", "w1:p12", t2, true},
-		{"session id: thirty 10 KiB outputs after the new start", "w1:p13", t2, true},
-		{"an oversized task_complete with an error", "w1:p14", agents.Turn{ID: "t1", Error: "usage_limit_exceeded", Details: huge, Ended: true}, true},
-		{"no turn event, the last line cut", "w1:p15", agents.Turn{}, false},
-		{"Claude: turns not read", "w1:p1", agents.Turn{}, false},
-		{"no file for the id", "w1:p6", agents.Turn{}, false},
-		{"no session (w1:p3)", "w1:p3", agents.Turn{}, false},
-		{"no agent", "w1:p2", agents.Turn{}, false},
-		{"no pane", "w9:p9", agents.Turn{}, false},
-	} {
-		if got, ok := p.Turn(ctx, seen[tc.pane], ""); ok != tc.ok || got != tc.want {
-			t.Errorf("%s: Turn = %.200v, %v; want %.200v, %v", tc.name, got, ok, tc.want, tc.ok)
-		}
-	}
-}
-
-// Fable A3: herdr reports every live session by id, so the transcript is found from it: Claude's under
-// .claude/projects, Codex's rollout under .codex/sessions. Unknown stays unknown.
-func TestPanesActivity(t *testing.T) {
-	t.Parallel()
-	home := t.TempDir()
-	write := func(rel string, at time.Time) string {
-		path := filepath.Join(home, rel)
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte("{}\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.Chtimes(path, at, at); err != nil {
-			t.Fatal(err)
-		}
-		return path
-	}
-	at := time.Date(2026, 10, 24, 15, 0, 0, 0, time.UTC)
-	claude := write(".claude/projects/-proj-wt-L-01/5e1d0c2b-aaaa.jsonl", at)
-	write(".claude/projects/-proj-wt-L-01/other.jsonl", at.Add(time.Hour))
-	codex := write(".codex/sessions/2026/10/24/rollout-2026-10-24T15-05-17-01a1-cdx.jsonl", at.Add(time.Minute))
-
-	f := fixture() // w1:p1: claude, session 5e1d0c2b-aaaa
-	f.Agent("w1:p4", "pj-cdx", "idle", "/proj-wt/L-04").Kind = "codex"
-	f.Pane("w1:p4").Session = "01a1-cdx"
-	f.Agent("w1:p5", "pj-gem", "idle", "/proj-wt/L-05").Kind = "gemini"
-	f.Pane("w1:p5").Session = "5e1d0c2b-aaaa" // a Claude file of this id exists, but the kind is not Claude
-	f.Agent("w1:p6", "pj-new", "idle", "/proj-wt/L-06").Session = "no-such-file"
-	srv := herdrtest.Serve(t, f)
-	p := herdr.Panes{S: srv.Client(), Home: home}
-	snap, err := p.Snapshot(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	seen := map[string]port.Pane{}
-	for _, pane := range snap.Panes {
-		seen[pane.ID] = pane
-	}
-	for _, tc := range []struct {
-		name, pane string
-		want       time.Time
-		known      bool
-	}{
-		{"Claude session id: its transcript", "w1:p1", at, true},
-		{"Codex session id: its rollout", "w1:p4", at.Add(time.Minute), true},
-		{"unknown kind", "w1:p5", time.Time{}, false},
-		{"no file for the id yet", "w1:p6", time.Time{}, false},
-		{"no session (w1:p3)", "w1:p3", time.Time{}, false},
-		{"no agent", "w1:p2", time.Time{}, false},
-		{"no pane", "w9:p9", time.Time{}, false},
-	} {
-		if last, known := p.Activity(ctx, seen[tc.pane]); known != tc.known || !last.Equal(tc.want) {
-			t.Errorf("%s: Activity = %v, %v; want %v, %v", tc.name, last, known, tc.want, tc.known)
-		}
-	}
-
-	// The stream's panes carry the same path, for the core's transcript check.
-	st, err := p.Subscribe(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	got := map[string]string{}
-	for _, pane := range st.Snapshot.Panes {
-		got[pane.ID] = pane.Transcript
-	}
-	if got["w1:p1"] != claude || got["w1:p4"] != codex || got["w1:p5"] != "" || got["w1:p6"] != "" {
-		t.Errorf("snapshot transcripts = %v, want w1:p1 %s, w1:p4 %s, none for the rest", got, claude, codex)
-	}
 }
 
 // Type sends agent.prompt to the pane with the text as given (a job's wake with its tag); herdr's refusal is the error.
@@ -503,12 +277,15 @@ func TestPanesPromptTyped(t *testing.T) {
 
 // Two Claude sessions whose transcripts are not found yet are two
 // sessions to the app: Pane.Session is herdr's id, whatever the transcript lookup finds.
-func TestPanesSessionWithoutTranscript(t *testing.T) {
+// The terminal's session is carried as herdr reports it (an id), and the pane's transcript only when herdr reports the
+// session as a path: the core finds the file a session id names (activity.go).
+func TestPanesSessionAndTranscript(t *testing.T) {
 	t.Parallel()
 	f := fixture()
 	f.Pane("w1:p3").Session = "new-session"
+	f.Agent("w1:p4", "pj-cdx", "idle", "/proj-wt/L-04").Transcript = "/home/u/.codex/sessions/rollout-cdx.jsonl"
 	srv := herdrtest.Serve(t, f)
-	st, err := herdr.Panes{S: srv.Client(), Home: t.TempDir()}.Subscribe(ctx)
+	st, err := herdr.Panes{S: srv.Client()}.Subscribe(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -518,7 +295,10 @@ func TestPanesSessionWithoutTranscript(t *testing.T) {
 		got[p.ID] = p
 	}
 	if got["w1:p1"].Transcript != "" || got["w1:p3"].Transcript != "" {
-		t.Fatalf("precondition: no transcript found (%q, %q)", got["w1:p1"].Transcript, got["w1:p3"].Transcript)
+		t.Fatalf("precondition: no transcript reported by herdr (%q, %q)", got["w1:p1"].Transcript, got["w1:p3"].Transcript)
+	}
+	if got["w1:p4"].Transcript != "/home/u/.codex/sessions/rollout-cdx.jsonl" {
+		t.Errorf("the reported path = %q, want it as herdr gave it", got["w1:p4"].Transcript)
 	}
 	if got["w1:p1"].Session != "5e1d0c2b-aaaa" || got["w1:p3"].Session != "new-session" {
 		t.Errorf("sessions %q, %q; want herdr's ids", got["w1:p1"].Session, got["w1:p3"].Session)

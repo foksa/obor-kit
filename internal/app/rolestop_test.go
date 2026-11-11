@@ -484,7 +484,7 @@ func stoppedRoot(t *testing.T) string {
 func stoppedApp(t *testing.T, root string, panes ...port.Pane) (*App, *proj) {
 	t.Helper()
 	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
-	a := New(Options{Now: func() time.Time { return now }, Loop: func(string) (*Loop, error) { return &Loop{}, nil }},
+	a := newTestApp(Options{Now: func() time.Time { return now }, Loop: func(string) (*Loop, error) { return &Loop{}, nil }},
 		&fakePanes{}, &fakeLanes{})
 	p, err := a.load(root)
 	if err != nil {

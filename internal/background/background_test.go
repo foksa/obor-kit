@@ -8,18 +8,18 @@ import (
 	"obor/internal/project"
 )
 
-// ps's lines (pid ppid etime command) parse into rows, every etime form included; a header or a broken line is
+// ps's lines (pid ppid pgid etime command) parse into rows, every etime form included; a header or a broken line is
 // skipped.
 func TestParseProcs(t *testing.T) {
-	out := "  PID  PPID ELAPSED COMMAND\n" +
-		"  100     1   1-02:03:04 /usr/local/bin/claude --resume x\n" +
-		"  101   100    01:02:03 /bin/zsh -c   eval 'sleep 600'\n" +
-		"  102   101       00:45 sleep 600\n" +
-		"  103   101      bad sleep\n"
+	out := "  PID  PPID  PGID ELAPSED COMMAND\n" +
+		"  100     1   100 1-02:03:04 /usr/local/bin/claude --resume x\n" +
+		"  101   100   101  01:02:03 /bin/zsh -c   eval 'sleep 600'\n" +
+		"  102   101   101     00:45 sleep 600\n" +
+		"  103   101   101       bad sleep\n"
 	got := ParseProcs(out)
-	want := []Proc{{100, 1, 26*time.Hour + 3*time.Minute + 4*time.Second, "/usr/local/bin/claude --resume x"},
-		{101, 100, time.Hour + 2*time.Minute + 3*time.Second, "/bin/zsh -c eval 'sleep 600'"},
-		{102, 101, 45 * time.Second, "sleep 600"}}
+	want := []Proc{{100, 1, 100, 26*time.Hour + 3*time.Minute + 4*time.Second, "/usr/local/bin/claude --resume x"},
+		{101, 100, 101, time.Hour + 2*time.Minute + 3*time.Second, "/bin/zsh -c eval 'sleep 600'"},
+		{102, 101, 101, 45 * time.Second, "sleep 600"}}
 	if len(got) != len(want) {
 		t.Fatalf("procs %+v, want %+v", got, want)
 	}
