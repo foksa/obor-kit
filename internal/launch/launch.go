@@ -109,6 +109,9 @@ type Launcher struct {
 	Background func(search func())
 	// Log is where a background search says what it found (none, or several open); nil: nowhere.
 	Log io.Writer
+	// Diag is where a start's terminal-adapter lines go (the name herdr kept, cleared and retried, and a failed
+	// clear's warning): the diagnostics a serve start's discarded Out would swallow. nil: Out.
+	Diag io.Writer
 	// Open is the files processes pids hold open (a fresh start's session: the transcript its agent has open);
 	// nil: /proc/<pid>/fd on linux, lsof elsewhere.
 	Open func(pids []int) []string
