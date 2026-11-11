@@ -335,3 +335,15 @@ type TaskDoneReq struct {
 }
 
 func (TaskDoneReq) Method() string { return MethodTaskDone }
+
+// WhereReq is anyone's, as status is (launch's start decision): which pane runs agent Name in the envelope's Root's
+// project, and which agent each pane of Panes runs (pane ids: a start's target, a live pane labelled Name). Serve
+// answers from its identity table, rebuilt now: the reply is the JSON of a WhereReply. Refused: no agent named, no
+// served project at Root.
+type WhereReq struct {
+	Envelope
+	Name  string   `json:"name"`
+	Panes []string `json:"panes,omitempty"`
+}
+
+func (WhereReq) Method() string { return MethodWhere }

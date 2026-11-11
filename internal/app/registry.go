@@ -1,14 +1,19 @@
 // registry.go: which pane each agent of a project runs in, and which agent a pane runs.
 // The table and its rules are package identity's (proj.reg); here are the lookups that read the observed panes:
 // whereIs (agent → pane) and the table's WhoIs (pane → agent) are the app's only identity lookups, and reconcile
-// collects the proofs the table accepts.
+// collects the proofs the table accepts. whereCall is both lookups as the socket's where request: a caller outside serve
+// asks the table, never a copy of its proofs.
 package app
 
 import (
+	"encoding/json"
+	"errors"
+	"fmt"
 	"sort"
 
 	"obor/internal/app/identity"
 	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"obor/internal/config"
 )
 
@@ -185,4 +190,49 @@ func (a *App) candidates(p *proj, mine []port.Pane, named func(string) bool) []s
 	}
 	sort.Strings(out)
 	return out
+}
+
+// whereCall answers where: c.Name's pane in c's project and the agent each pane of c.Panes runs, from the table rebuilt
+// now (under mu: reconcile, whereIs, WhoIs). A pane the request names that is not one of the project's observed panes
+// runs "" (no agent the table knows of). Not connected to the terminal is its own state, with no panes' agents: nothing
+// is known.
+func (a *App) whereCall(c wire.WhereReq) (string, error) {
+	if c.Name == "" {
+		return "", errors.New("where: no agent named")
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	p := a.projAt(c.Root)
+	if p == nil {
+		return "", fmt.Errorf("where: no served project at %s", c.Root)
+	}
+	if !a.connected {
+		return whereJSON(wire.WhereReply{State: wire.WhereNotConnected})
+	}
+	a.reconcile(p)
+	var r wire.WhereReply
+	switch w := a.whereIs(p, c.Name); w.State {
+	case Identified:
+		r = wire.WhereReply{State: wire.WhereIdentified, Pane: w.Pane.ID, Source: w.Source, Label: w.Pane.Label}
+	case Ambiguous:
+		r = wire.WhereReply{State: wire.WhereAmbiguous, Panes: w.Panes, Why: notIdentified(c.Name, w)}
+	default:
+		r = wire.WhereReply{State: wire.WhereNone, Why: w.Why}
+	}
+	for _, id := range c.Panes {
+		if r.Runs == nil {
+			r.Runs = map[string]string{}
+		}
+		r.Runs[id] = ""
+		if o := a.obs[id]; o != nil && a.projectOf(o.pane) == p {
+			r.Runs[id], _ = p.reg.WhoIs(o.pane)
+		}
+	}
+	return whereJSON(r)
+}
+
+// whereJSON is r as where's reply.
+func whereJSON(r wire.WhereReply) (string, error) {
+	b, err := json.Marshal(r)
+	return string(b), err
 }

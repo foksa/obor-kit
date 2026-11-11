@@ -442,6 +442,7 @@ func (a *App) handlers() map[string]handler {
 		wire.MethodIdle:        handle(a.idleCall),
 		wire.MethodReviewClose: handle(a.reviewCloseCall),
 		wire.MethodBackup:      handle(a.backup),
+		wire.MethodWhere:       handle(a.whereCall),
 	}
 }
 
