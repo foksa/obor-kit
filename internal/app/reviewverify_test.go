@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"obor/internal/app/event"
+	"obor/internal/app/wire"
 )
 
 // The rule's table (docs/design.md "Change rules" 6: condition → action).
@@ -91,8 +92,8 @@ func TestVerifyRule(t *testing.T) {
 	}
 }
 
-// A spec with Fixes: RV-5 dispatched while RV-5 is open is linked: obor status shows it, close is refused while it is
-// open (and once merged, until a verify covers it).
+// A spec with Fixes: RV-5 dispatched while RV-5 is open is linked: the review card shows it, close is refused while it
+// is open (and once merged, until a verify covers it).
 func TestFixLinkedBySpec(t *testing.T) {
 	t.Parallel()
 	r := fixRig(t)
@@ -100,16 +101,18 @@ func TestFixLinkedBySpec(t *testing.T) {
 	if got := r.pending(); got != "T-a,T-b" {
 		t.Fatalf("pending %q, want T-a,T-b (T-c fixes another review)", got)
 	}
+	fixes := func() []wire.ReviewFix { return r.a.Status().Project.ReviewOpen.Fixes }
 	r.verifyPass()
-	if got := r.a.Status().Project.Review; got != "RV-5 fixes: T-a open · T-b open" {
-		t.Errorf("status' review line %q, want the two open links", got)
+	if got := fixes(); len(got) != 2 || got[0] != (wire.ReviewFix{Task: "T-a", State: "open"}) ||
+		got[1] != (wire.ReviewFix{Task: "T-b", State: "open"}) {
+		t.Errorf("the review card's fixes %+v, want the two open links", got)
 	}
 	r.merged("T-a")
 	r.working(true)
 	r.verifyPass()
-	if got, pending := r.a.Status().Project.Review, r.pending(); got != "RV-5 fixes: T-a merged · T-b open" ||
+	if got, pending := fixes(), r.pending(); len(got) != 2 || got[0].State != "merged" || got[1].State != "open" ||
 		pending != "T-a,T-b" {
-		t.Errorf("T-a merged: status %q, pending %q; want T-a merged, both pending", got, pending)
+		t.Errorf("T-a merged: the review card's fixes %+v, pending %q; want T-a merged, both pending", got, pending)
 	}
 }
 
@@ -306,8 +309,8 @@ func TestVerifyFinishedCovers(t *testing.T) {
 		t.Errorf("%d verify briefs after the finished verify, want one", n)
 	}
 	r.verifyPass()
-	if got := r.a.Status().Project.Review; got != "RV-5 fixes: T-a verified · T-b verified" {
-		t.Errorf("status' review line %q, want both verified", got)
+	if got := r.a.Status().Project.ReviewOpen.Fixes; len(got) != 2 || got[0].State != "verified" || got[1].State != "verified" {
+		t.Errorf("the review card's fixes %+v, want both verified", got)
 	}
 }
 
@@ -414,6 +417,18 @@ func TestReviewerFinishedLineNamesReviewAndResult(t *testing.T) {
 		want := "[obor] pj-rev finished RV-5: reviews/RV-5.md (no Result line)"
 		if len(got) != 1 || got[0] != want {
 			t.Errorf("finished lines %q, want [%q]", got, want)
+		}
+	})
+	t.Run("an unrelated brief", func(t *testing.T) {
+		t.Parallel()
+		r := newReviewRig(t)
+		r.started()       // the review's own brief: its finished line names RV-5
+		r.leadBrief("b1") // an unrelated brief to the reviewer, after the review's own
+		r.finish()
+		got := finishedLines(t, r.p.root, "pj-rev")
+		want := "[obor] pj-rev finished (briefed 0s ago)"
+		if len(got) != 2 || !strings.HasPrefix(got[0], "[obor] pj-rev finished RV-5:") || got[1] != want {
+			t.Errorf("finished lines %q, want the review's, then the unrelated brief's %q", got, want)
 		}
 	})
 	t.Run("a file with no Result line", func(t *testing.T) {

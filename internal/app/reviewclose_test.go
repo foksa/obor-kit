@@ -160,8 +160,9 @@ func TestReviewCloseCommitsAndRecords(t *testing.T) {
 	r.verifyPass()
 	r.finish()
 	r.verifyPass()
-	if got := r.a.Status().Project.Review; !strings.Contains(got, "RV-5 fixes: T-a verified · T-b verified") {
-		t.Fatalf("precondition: status %q, want the verified fix round", got)
+	if ro := r.a.Status().Project.ReviewOpen; ro == nil || len(ro.Fixes) != 2 || ro.Fixes[0].State != "verified" ||
+		ro.Fixes[1].State != "verified" {
+		t.Fatalf("precondition: the review card %+v, want the verified fix round", ro)
 	}
 	reply, err := r.close("c1", "fixed", false, "rare case")
 	subject := "RV-5 closed · abcdef0 · accepted 1 · fixed"

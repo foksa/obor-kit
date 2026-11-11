@@ -165,8 +165,8 @@ process (`plugin.Local`).
   folded, returning a review fact's data (`Data`) for `app`'s `foldReview` (the requests, a call's stored reply) to
   apply in its fold order. What a review covered and the next one's scope are decided here only: the queries `Cycle`
   (covered, reviewed head, `Pending` over the fix `Link`s) and `Next` (id, scope, the review it follows), with `Last`,
-  `Prev`, `Closing`, `Failed`, `MergeOf`, `BriefFile`; `Round` is the fix round's status line, `ID`/`Number` a review's
-  id. Its fields are unexported, so only it names them. No lock: under `App.mu`. It imports `app/event` and
+  `Prev`, `Closing`, `Failed`, `MergeOf`, `BriefFile`; `Round` is the fix round (its links and their
+  states), `ID`/`Number` a review's id. Its fields are unexported, so only it names them. No lock: under `App.mu`. It imports `app/event` and
   `app/outbox` (a stop's data) only, never `app`; the effects (the start and its brief, the verify, the close's commit
   and crash read, the reviewer's stop, the on-merge request, dispatch's `Fixes:` check) stay in `app`'s review files.
 - `app/wire` (core, a leaf above `app/event`): the app socket's client half, what a caller can ask serve: every

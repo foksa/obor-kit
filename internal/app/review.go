@@ -272,12 +272,12 @@ func (p *proj) reviewStatus(now time.Time) string {
 
 // reviewOpen is the open review as obor status and obor web show it (nil: none open; under mu). Its stage is the
 // review fold's (review.State) with the reviewer's open brief (outbox) and the fix round the verify rule last read
-// (p.fixes): verifying while the reviewer's verify brief is open, reviewing while its open brief is the review's
-// own (review.State.BriefFile), then fixes while a linked task is pending (review.Cycle.Pending). With none
-// pending the newest review file's Result line decides: approved when it says so, else written (changes requested,
+// (p.fixes): verifying while the reviewer's verify brief is open, reviewing while its open brief is the brief the
+// review started with (review.State.BriefFile), then fixes while a linked task is pending (review.Cycle.Pending). With
+// none pending the newest review file's Result line decides: approved when it says so, else written (changes requested,
 // or a file nothing can be read from: the lead's turn). Since is the stage's start: the review's start (reviewing),
-// the verify brief's (verifying), the first pending fix's dispatch (fixes), else the reviewer's last brief's end (the
-// lead's turn). The file is the newest of the review's files once it is in the main checkout.
+// the verify brief's (verifying), the first pending fix's dispatch (fixes), else the end of the review's own brief or a
+// verify's (the lead's turn). The file is the newest of the review's files once it is in the main checkout.
 func (a *App) reviewOpen(p *proj) *wire.ReviewOpenStatus {
 	c := p.folded.rv.Cycle()
 	if c.Open() == "" {
@@ -299,7 +299,7 @@ func (a *App) reviewOpen(p *proj) *wire.ReviewOpenStatus {
 			ro.AgentStatus = w.Pane.Status
 		}
 	}
-	turn := c.At // the lead's turn: since the reviewer's last brief ended in this review
+	turn := c.At // the lead's turn: since the review's own brief or a verify ended in this review
 	if end := p.folded.rv.Ended(s.Agent); s.Agent != "" && end.After(turn) {
 		turn = end
 	}

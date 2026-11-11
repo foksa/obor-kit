@@ -568,3 +568,94 @@ func TestReviewOpenStages(t *testing.T) {
 		t.Errorf("closed: open review %+v, want none", *ro)
 	}
 }
+
+// The review card follows the review's own brief: an unrelated brief to the reviewer after the review's file was
+// written and approved leaves the stage and its age alone, and its end is no turn of the lead's.
+func TestReviewOpenApprovedIgnoresAnUnrelatedBrief(t *testing.T) {
+	t.Parallel()
+	r := newReviewRig(t)
+	r.started() // the review's own brief: delivered and finished, the lead's turn
+	writeReview(t, r.p.root, "RV-5", "Result: approved · 1234567 · T-a,T-b\n")
+	ro := r.a.Status().Project.ReviewOpen
+	if ro == nil || ro.Stage != wire.ReviewApproved {
+		t.Fatalf("precondition: the review card %+v, want RV-5 approved", ro)
+	}
+	approved := ro.Since
+
+	r.now = r.now.Add(2 * time.Minute)
+	r.leadBrief("b1") // an unrelated brief to the reviewer
+	if ro := r.a.Status().Project.ReviewOpen; ro == nil || ro.Stage != wire.ReviewApproved || ro.Since != approved {
+		t.Fatalf("an unrelated brief open: the review card %+v, want approved since %s", ro, time.Unix(approved, 0))
+	}
+
+	r.now = r.now.Add(3 * time.Minute)
+	r.finish() // and its end
+	if ro := r.a.Status().Project.ReviewOpen; ro == nil || ro.Stage != wire.ReviewApproved || ro.Since != approved {
+		t.Errorf("the unrelated brief ended: the review card %+v, want approved since %s", ro, time.Unix(approved, 0))
+	}
+}
+
+// With a linked fix pending, an unrelated brief to the reviewer is no review's: the stage stays fixes, its age the
+// first pending fix's dispatch.
+func TestReviewOpenFixesIgnoresAnUnrelatedBrief(t *testing.T) {
+	t.Parallel()
+	r := fixRig(t)
+	r.verifyPass() // reads the round: T-a and T-b are open links
+	ro := r.a.Status().Project.ReviewOpen
+	if ro == nil || ro.Stage != wire.ReviewFixes || len(ro.Fixes) != 2 {
+		t.Fatalf("precondition: the review card %+v, want fixes with T-a, T-b", ro)
+	}
+	dispatched := ro.Since
+
+	r.now = r.now.Add(time.Minute)
+	r.leadBrief("b1")
+	if ro := r.a.Status().Project.ReviewOpen; ro == nil || ro.Stage != wire.ReviewFixes || ro.Since != dispatched {
+		t.Fatalf("an unrelated brief open: the review card %+v, want fixes since %s", ro, time.Unix(dispatched, 0))
+	}
+
+	r.now = r.now.Add(2 * time.Minute)
+	r.finish()
+	if ro := r.a.Status().Project.ReviewOpen; ro == nil || ro.Stage != wire.ReviewFixes || ro.Since != dispatched {
+		t.Errorf("the unrelated brief ended: the review card %+v, want fixes since %s", ro, time.Unix(dispatched, 0))
+	}
+}
+
+// An unrelated brief replacing a verify ends verifying with the verify's brief: the review's other stage shows, and
+// the unrelated brief's work is no verify of the review's.
+func TestReviewOpenVerifyingEndsWithTheVerifyBrief(t *testing.T) {
+	t.Parallel()
+	r := briefedVerify(t) // the verify of T-a, T-b open
+	ro := r.a.Status().Project.ReviewOpen
+	if ro == nil || ro.Stage != wire.ReviewVerifying {
+		t.Fatalf("precondition: the review card %+v, want verifying", ro)
+	}
+
+	r.leadBrief("b1") // the lead's brief replaces the verify's
+	if ro := r.a.Status().Project.ReviewOpen; ro == nil || ro.Stage != wire.ReviewFixes {
+		t.Fatalf("an unrelated brief replacing the verify: the review card %+v, want fixes (the verify is gone)", ro)
+	}
+	if r.p.folded.rv.Verifying("pj-rev") {
+		t.Error("the fold still counts the verify open after the lead's brief replaced it")
+	}
+
+	r.working(false)
+	r.finish()
+	if ro := r.a.Status().Project.ReviewOpen; ro == nil || ro.Stage != wire.ReviewFixes {
+		t.Errorf("the unrelated brief ended: the review card %+v, want fixes", ro)
+	}
+}
+
+// The full status lists the fix round once: the review card's fixes, not the queue's review text too (that line stays
+// the open request, or the review-due count).
+func TestStatusListsTheFixRoundOnce(t *testing.T) {
+	t.Parallel()
+	r := fixRig(t)
+	r.verifyPass()
+	p := r.a.Status().Project
+	if p.Review != "" {
+		t.Errorf("the queue's review text %q, want none (no request is open, no review is due)", p.Review)
+	}
+	if p.ReviewOpen == nil || len(p.ReviewOpen.Fixes) != 2 || p.ReviewOpen.Fixes[0].Task != "T-a" {
+		t.Errorf("the review card %+v, want the fix round", p.ReviewOpen)
+	}
+}
