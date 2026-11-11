@@ -142,8 +142,10 @@ func TestLeadRunsByItsPaneLabel(t *testing.T) {
 	if n := strings.Count(c, "agent.start"); n != 1 {
 		t.Errorf("%d agent.start calls, want one refusal:\n%s", n, c)
 	}
-	if strings.Contains(c, `"target":"w1:p1"`) {
-		t.Errorf("the live holder's name was cleared:\n%s", c)
+	for _, line := range strings.Split(c, "\n") {
+		if strings.HasPrefix(line, "agent.rename ") && strings.Contains(line, `"target":"w1:p1"`) {
+			t.Errorf("the live holder's name was cleared:\n%s", c)
+		}
 	}
 	if strings.Contains(c, `"pane_id":"w1:p1","text"`) || strings.Contains(c, `pane.send_keys {"keys":["esc"],"pane_id":"w1:p1"`) {
 		t.Errorf("the relabelled pane's agent was typed at or stopped:\n%s", c)

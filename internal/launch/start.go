@@ -98,9 +98,13 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
 	}
 	// A start whose name a live agent in another pane holds is refused for good: a second agent under one name is no
 	// start. Its line names the holder and the way out, never the command that just failed (the pane was already
-	// stopped and labelled for it).
-	if pane, label, held := port.NameHeld(t.err); held {
-		return port.Pane{}, nameHeldFail{Fail: project.Fail(nameHeldLine(s.Agent, pane, label)), pane: pane, label: label}
+	// stopped and labelled for it). The holder's label is read here: the terminal reports the pane, never a label.
+	if pane, held := port.NameHeld(t.err); held {
+		label := ""
+		if p, err := l.H.Pane(ctx, pane); err == nil {
+			label = p.Label
+		}
+		return port.Pane{}, nameHeldFail{Fail: project.Fail(nameHeldLine(s.Agent, pane, label)), pane: pane}
 	}
 	err := t.err
 	l.say("%v", err)
@@ -126,11 +130,11 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.Pane, error) {
 // failure.
 type nameHeldFail struct {
 	project.Fail
-	pane, label string
+	pane string
 }
 
-func (f nameHeldFail) NameHeld() (string, string) { return f.pane, f.label }
-func (f nameHeldFail) Unwrap() error              { return f.Fail }
+func (f nameHeldFail) NameHeld() string { return f.pane }
+func (f nameHeldFail) Unwrap() error    { return f.Fail }
 
 // nameHeldLine is nameHeldFail's FAIL: the agent, the pane whose live agent holds its name, that pane's label (none when
 // it has none) and what to do about it; never the command that just failed, which started nothing.

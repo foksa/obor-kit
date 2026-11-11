@@ -371,6 +371,6 @@ func startRefused(err error) bool {
 	if errors.As(err, &refused) || strings.Contains(err.Error(), "has background tasks") {
 		return true
 	}
-	_, _, held := port.NameHeld(err)
+	_, held := port.NameHeld(err)
 	return held
 }

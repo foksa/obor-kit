@@ -321,8 +321,8 @@ func TestErrorCodesAsPredicates(t *testing.T) {
 
 // agent.start's name-taken retry: a name herdr still holds with no live agent behind it (a pane that ran the agent
 // before, the pane's own lingering name, or one no agent holds) is cleared and the start retried once, said on the
-// start's say; a live agent in another pane holding the name is a refusal (port.NameHeld: its pane and label), nothing
-// cleared.
+// start's say; a live agent in another pane holding the name is a refusal (port.NameHeld: its pane, no label read),
+// nothing cleared.
 func TestSocketStartNameTaken(t *testing.T) {
 	t.Parallel()
 	t.Run("a name no agent holds: cleared by name, retried once", func(t *testing.T) {
@@ -386,17 +386,22 @@ func TestSocketStartNameTaken(t *testing.T) {
 			t.Errorf("say warning = %q, want it to name the agent and the clear's error", said[1])
 		}
 	})
-	t.Run("a live agent elsewhere holds the name: refused with its pane and label, nothing cleared", func(t *testing.T) {
+	t.Run("a live agent elsewhere holds the name: refused with its pane, no label read, nothing cleared", func(t *testing.T) {
 		t.Parallel()
 		f := fixture()
+		if p := f.Pane("w1:p1"); p == nil || p.Name != "pj-l-01" || p.Label != "pj-l-01" {
+			t.Fatalf("precondition: w1:p1 = %+v, want the live pj-l-01 labelled pj-l-01", p)
+		}
 		srv := herdrtest.Serve(t, f)
 		var said []string
 		say := func(format string, args ...any) { said = append(said, fmt.Sprintf(format, args...)) }
 		_, err := srv.Client().Start(ctx, "pj-l-01", "claude", "w1:p2", say)
-		pane, label, held := port.NameHeld(err)
-		if !held || pane != "w1:p1" || label != "pj-l-01" {
-			t.Fatalf("Start = %v; NameHeld = pane %q, label %q, held %t; want the live holder w1:p1 (label pj-l-01)",
-				err, pane, label, held)
+		pane, held := port.NameHeld(err)
+		if !held || pane != "w1:p1" {
+			t.Fatalf("Start = %v; NameHeld = pane %q, held %t; want the live holder w1:p1", err, pane, held)
+		}
+		if n := count(srv, "pane.get"); n != 0 {
+			t.Errorf("pane.get sent %d times (%q), want the holder's label left to the caller", n, srv.Calls())
 		}
 		if n := count(srv, "agent.start"); n != 1 {
 			t.Errorf("agent.start sent %d times, want the refusal at once", n)
