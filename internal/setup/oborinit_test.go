@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -162,6 +163,32 @@ func TestDetectCommands(t *testing.T) {
 		}
 		if (len(d.from) == 0) != (c.name == "nothing" || c.name == "makefile without check") {
 			t.Errorf("%s: from %v", c.name, d.from)
+		}
+	}
+}
+
+// obor init's lanes: at least two (a fresh config counts none), every lane a config counts, a list's own names.
+func TestInitLaneNames(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name string
+		doc  string
+		want []string
+	}{
+		{"a fresh config: two", `{"version":2,"project":{"agent_prefix":"pj"}}`, []string{"L-01", "L-02"}},
+		{"a count of four: all four", `{"version":2,"project":{"agent_prefix":"pj"},"lanes":{"count":4}}`,
+			[]string{"L-01", "L-02", "L-03", "L-04"}},
+		{"a count of one: still two", `{"version":2,"project":{"agent_prefix":"pj"},"lanes":{"count":1}}`,
+			[]string{"L-01", "L-02"}},
+		{"a list: its own names", `{"version":2,"project":{"agent_prefix":"pj"},"lanes":{"list":[{"name":"L-02"},{"name":"L-05"}]}}`,
+			[]string{"L-02", "L-05"}},
+	} {
+		cfg, err := config.LoadWith(t.TempDir(), []byte(c.doc))
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if got := initLaneNames(cfg); !slices.Equal(got, c.want) {
+			t.Errorf("%s: %v, want %v", c.name, got, c.want)
 		}
 	}
 }

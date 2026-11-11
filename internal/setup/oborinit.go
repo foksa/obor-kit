@@ -20,7 +20,9 @@ package setup
 //	commands   detect: a Makefile with a check: target → make check; go.mod → go test ./...; package.json → its
 //	           lockfile picks bun / pnpm / npm, the check script else the test script, lane_setup the install,
 //	           lane_ready test -d node_modules. Only keys still null are written; nothing found → they stay null.
-//	lanes      L-01 and L-02 (setup lane: lanes 2; a task's Model:/Difficulty: picks the model); roles.lead,
+//	lanes      L-01 … L-max(2, lanes.count): at least two (setup lane: lanes 2; a task's Model:/Difficulty: picks
+//	           the model), and every lane an existing config counts, so init leaves no configured lane without a
+//	           worktree; roles.lead,
 //	           roles.integrator and roles.reviewer keep their model when its kind's CLI is on PATH, else opus (the
 //	           example's reviewer is a Codex model: no codex → opus). A
 //	           configured lane whose dir is a worktree of this repo and whose setup finished (lane_ready, else the
@@ -205,8 +207,7 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 		return err
 	}
 	var made, had []string
-	// Two lanes: a task's Model:/Difficulty: picks the model per dispatch.
-	for _, l := range []string{"L-01", "L-02"} {
+	for _, l := range initLaneNames(s.cfg) {
 		if s.cfg.HasLane(l) {
 			done, err := s.laneDone(ctx, l, filepath.Join(s.cfg.LanesDir(), l))
 			if err != nil {
@@ -305,6 +306,23 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	s.say("")
 	s.printTable()
 	return nil
+}
+
+// initLaneNames are the lanes obor init sets up: L-01 … L-max(2, lanes.count), so a fresh config gets two and a config
+// that counts more gets every one, none left without a worktree; a lanes.list names its own lanes.
+func initLaneNames(cfg *config.Config) []string {
+	if cfg.LanesListed() {
+		names := make([]string, 0, cfg.LaneCount())
+		for _, l := range cfg.Lanes() {
+			names = append(names, l.Name)
+		}
+		return names
+	}
+	names := make([]string, 0, 2)
+	for i := 1; i <= max(2, cfg.LaneCount()); i++ {
+		names = append(names, config.LaneName(i))
+	}
+	return names
 }
 
 // commitLine names the files init committed, its agents dir as one entry.
