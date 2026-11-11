@@ -130,7 +130,7 @@ func TestPageIsEmbedded(t *testing.T) {
 	}
 	js := bundle(t)
 	for _, route := range []string{"/api/projects", "/api/view", "/api/setup", "/api/events", "/api/task", "/api/tasks",
-		"/api/agent", "/api/job", "/api/config", "/api/pause"} {
+		"/api/agent", "/api/job", "/api/config", "/api/pause", "/api/docs", "/api/doc?"} {
 		if !strings.Contains(js, route) {
 			t.Errorf("the page never calls %s", route)
 		}
@@ -138,5 +138,9 @@ func TestPageIsEmbedded(t *testing.T) {
 	// the nav's Tasks entry under a project links its tasks page
 	if !strings.Contains(js, "#/tasks/") || !strings.Contains(js, "Tasks</a>") {
 		t.Errorf("the page has no Tasks entry linking #/tasks/<project>")
+	}
+	// the nav's Docs entry under a project links its docs page
+	if !strings.Contains(js, "#/docs/") || !strings.Contains(js, "Docs</a>") {
+		t.Errorf("the page has no Docs entry linking #/docs/<project>")
 	}
 }
