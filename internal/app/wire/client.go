@@ -80,13 +80,20 @@ func Verdict(ctx context.Context, path string, r Req) (string, error) {
 // memory (a started request ending an agent's skew entry) recovers nothing from a serve that is not there, and starts
 // run on the caller's clock. Absent: no app listens at path.
 func Notify(ctx context.Context, path string, r Req) error {
+	_, err := Once(ctx, path, r)
+	return err
+}
+
+// Once is Notify with the reply line: one attempt, never retried (a read such as where, whose caller decides on its
+// own what a serve that is not there means). Absent: no app listens at path.
+func Once(ctx context.Context, path string, r Req) (string, error) {
 	r.Env().Version = version.Version
 	b, err := json.Marshal(r)
 	if err != nil {
-		return fmt.Errorf("%s: %v", r.Method(), err)
+		return "", fmt.Errorf("%s: %v", r.Method(), err)
 	}
-	_, err = askOnce(ctx, path, Request{Method: r.Method(), Call: b})
-	return err
+	ans, err := askOnce(ctx, path, Request{Method: r.Method(), Call: b})
+	return ans.Reply, err
 }
 
 // The deadlines of the socket's callers, the one table: a call is retried inside its own deadline, so a serve

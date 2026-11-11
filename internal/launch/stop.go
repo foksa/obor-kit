@@ -17,7 +17,8 @@ import (
 // port.StopBound: the one number of the stop's waits.
 const StopBound = port.StopBound
 
-// Stop quits agent in its pane (pane "": the pane labelled agent) and leaves the pane labelled, at its shell:
+// Stop quits agent in its pane (Locate's: the pane it runs in, else its home; pane the caller's target) and leaves the
+// pane labelled, at its shell:
 // idle/done → the kind's quit (agents.Kind.Stop), the exit dialog closed, wait for the shell; a kind with no quit is
 // terminated. Working/blocked → Escape, wait (≤ Idle, port.StopIdle) for it to go idle, then the same exit (no "left
 // running"); still working after Escape, or an agent whose quit opens its kind's dialog (background tasks) → FAIL
@@ -32,7 +33,13 @@ func (l *Launcher) Stop(ctx context.Context, agent, pane string, force bool) (st
 	if err != nil {
 		return "", err
 	}
-	t, err := l.resolve(ctx, agent, pane, "")
+	// The same decision as a start's, before anything is touched: the pane the agent is proven in.
+	loc, end, err := l.Locate(ctx, agent, pane, false)
+	if err != nil {
+		return "", err
+	}
+	defer end()
+	t, err := l.resolve(ctx, agent, pane, loc.Pane, "")
 	if err != nil {
 		return "", err
 	}
@@ -41,11 +48,6 @@ func (l *Launcher) Stop(ctx context.Context, agent, pane string, force bool) (st
 			return "", err
 		}
 	}
-	end, err := l.begin(ctx, t.agent, t.info.Lane)
-	if err != nil {
-		return "", err
-	}
-	defer end()
 	if l.ownPane(t) && !waited {
 		return l.schedule(t, Request{Force: force}, true)
 	}

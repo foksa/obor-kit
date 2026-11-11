@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"path/filepath"
@@ -8,7 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"obor/internal/app/wire"
 	"obor/internal/config"
+	"obor/internal/herdr/herdrtest"
 	"obor/internal/launch"
 	"obor/internal/testkit"
 )
@@ -67,12 +70,16 @@ func TestTypedDispatchStartsOnOneLine(t *testing.T) {
 	})
 }
 
-// A dispatch whose start finds the agent's name held by a live agent in another pane is refused for good: the needs-you
-// names that pane, the holder's agent and name are untouched, and no counted failure reaches the loop.
+// A dispatch whose agent is live in another pane (only the terminal's name proves it there: the pane is labelled notes)
+// is refused for good by the start's decision, which asks this serve's identity table (the where request) before the
+// stop: one needs-you naming that pane and the command that works, no counted failure, and nothing touched: no stop, no
+// label, no env line, no agent.start; the holder keeps its agent and name.
 func TestDispatchStartRefusedWhileALiveAgentHoldsTheName(t *testing.T) {
 	t.Parallel()
 	bubble(t, func(t *testing.T) {
 		r := newLoopRig(t, dispatching())
+		// The lane's pane is at its shell (herdr keeps one live agent per name): the dispatch starts the worker there.
+		r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Kind, p.Name, p.Status = "", "", "" })
 		holder := r.f.Agent("w1:p7", "pj-l-01", "idle", r.lane)
 		holder.Label = "notes"
 		cfg, err := config.Load(r.p.Root)
@@ -83,38 +90,39 @@ func TestDispatchStartRefusedWhileALiveAgentHoldsTheName(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		asked := 0
 		r.startWithAgents(&launch.Launcher{Cfg: cfg, Env: r.p.Env(), Kit: kit, H: r.srv.Client(), Out: io.Discard,
-			Wait: time.Second, Poll: time.Millisecond, PS: func(...string) ([]byte, error) { return nil, nil }})
+			Wait: time.Second, Poll: time.Millisecond, PS: func(...string) ([]byte, error) { return nil, nil },
+			Where: func(_ context.Context, req wire.WhereReq) (wire.WhereReply, error) {
+				asked++
+				var w wire.WhereReply
+				raw, err := r.ask(&req)
+				if err == nil {
+					err = json.Unmarshal([]byte(raw), &w)
+				}
+				return w, err
+			}})
 		if r.f.Pane("w1:p7").Name != "pj-l-01" {
 			t.Fatalf("precondition: no holder of the name: %+v", r.f.Panes)
 		}
 		r.mustDispatch("d1")
-		r.waitPrefix("1 fact needs-you{start: pj-l-01 already runs in pane w1:p7 (its label is notes): quit it there, " +
-			"or put its label back}")
+		r.waitPrefix("1 fact needs-you{start: pj-l-01 already runs in pane w1:p7 (proof: name; label notes): obor " +
+			"restart pj-l-01 --pane w1:p7 restarts it there, or quit it there first}")
 		r.passes()
+		if asked == 0 {
+			t.Errorf("the start's decision did not ask serve's table")
+		}
 		if r.hasPrefix("1 fact failed") {
 			t.Errorf("the refused start was counted as a failure: %q", r.steps())
 		}
 		if n := r.countPrefix("1 fact needs-you"); n != 1 {
 			t.Errorf("needs-you records = %d, want 1: %q", n, r.steps())
 		}
-		starts, cleared := 0, false
 		for _, q := range r.srv.Requests() {
 			switch q.Method {
-			case "agent.start":
-				var p struct {
-					Name string `json:"name"`
-				}
-				if json.Unmarshal(q.Params, &p) == nil && p.Name == "pj-l-01" {
-					starts++
-				}
-			case "agent.rename":
-				cleared = true // a clear of the held name, whatever target
+			case "agent.start", "agent.rename", "pane.rename", "pane.send_keys", "pane.send_input":
+				t.Errorf("the refused start sent %s %s", q.Method, q.Params)
 			}
-		}
-		same(t, starts, 1, "agent.start of pj-l-01")
-		if cleared {
-			t.Errorf("the live holder's name was cleared: %+v", r.srv.Requests())
 		}
 		same(t, r.f.Pane("w1:p7").Name, "pj-l-01", "the holder's name")
 		same(t, r.f.Pane("w1:p7").Kind, "claude", "the holder's agent")

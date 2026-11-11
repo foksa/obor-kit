@@ -23,6 +23,7 @@ import (
 	"obor/internal/agents"
 	"obor/internal/agents/claude"
 	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/herdr"
 	"obor/internal/herdr/herdrtest"
@@ -100,7 +101,10 @@ type fx struct {
 	files func(pids []int) []string
 	// install is the launcher's install check machine (zero: no kind's start is refused).
 	install agents.InstallHost
-	mu      sync.Mutex // guards reported, logged, open, searches
+	// where is serve's where answer the launcher's Locate reads (nil: serve answers that no pane proves the agent and
+	// that the panes asked about run no agent it knows).
+	where func(req wire.WhereReq) (wire.WhereReply, error)
+	mu    sync.Mutex // guards reported, logged, open, searches
 }
 
 // hold makes pid hold path open (a Codex writing its rollout).
@@ -290,7 +294,13 @@ func (x *fx) launcher(out io.Writer) *launch.Launcher {
 			x.mu.Unlock()
 			return x.startErr
 		},
-		Install: func() agents.InstallHost { return x.install }}
+		Install: func() agents.InstallHost { return x.install },
+		Where: func(_ context.Context, req wire.WhereReq) (wire.WhereReply, error) {
+			if x.where != nil {
+				return x.where(req)
+			}
+			return wire.WhereReply{State: wire.WhereNone, Why: "no proof"}, nil
+		}}
 }
 
 func (x *fx) env() project.Env {
@@ -322,7 +332,8 @@ func (x *fx) stop(agent, pane string, force bool) (string, bool) {
 func result(t *testing.T, out *bytes.Buffer, line string, err error) (string, bool) {
 	t.Helper()
 	var fail project.Fail
-	if err != nil && !errors.As(err, &fail) {
+	var refused port.Refused // Locate's refusal: the CLI prints it as a FAIL line too
+	if err != nil && !errors.As(err, &fail) && !errors.As(err, &refused) {
 		t.Fatalf("not a Fail: %v", err)
 	}
 	if err != nil {
@@ -1023,16 +1034,6 @@ func TestRestartWhereRefusals(t *testing.T) {
 	}, {
 		name: "no pane labelled the agent",
 		prep: func(x *fx) { x.sid("pj-l-01", "sid-1"); x.shell("w1:p9", "", "/elsewhere") },
-		req:  launch.Request{Agent: "pj-l-01"},
-		line: "FAIL no pane labelled pj-l-01 (pass --pane)",
-	}, {
-		name: "the herdr name alone (an unlabelled pane) is not used",
-		prep: func(x *fx) {
-			x.sid("pj-l-01", "sid-1")
-			a := x.agent("w1:p2", "pj-l-01", "claude", "idle")
-			a.Label, a.Foreground = "", 1
-			x.shell("w1:p3", "", x.lane)
-		},
 		req:  launch.Request{Agent: "pj-l-01"},
 		line: "FAIL no pane labelled pj-l-01 (pass --pane)",
 	}, {
@@ -1950,8 +1951,8 @@ func eqInt(t *testing.T, got, want int, what string) {
 }
 
 // A start the terminal's adapter retries itself (herdr: a name it kept with no live agent behind it, cleared; herdr's
-// TestSocketStartNameTaken has the cases) is a start: the adapter's lines are printed. A name a live agent in another
-// pane holds is a FAIL that names the holder; one herdr answers NotReady is the startup-dialog FAIL.
+// TestSocketStartNameTaken has the cases) is a start: the adapter's lines are printed. One herdr answers NotReady is
+// the startup-dialog FAIL. A name a live agent holds is Locate's refusal (TestRestartRefusedTouchesNothing).
 func TestRestartAgentNameTaken(t *testing.T) {
 	t.Parallel()
 	t.Run("start agent_name_taken once: name cleared, retried, RESTARTED", func(t *testing.T) {
@@ -1969,28 +1970,6 @@ func TestRestartAgentNameTaken(t *testing.T) {
 		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
 		if !ok {
 			t.Errorf("restarted:\n%s", out)
-		}
-	})
-	t.Run("a live agent in another pane holds the name: FAIL naming the holder, nothing cleared or started", func(t *testing.T) {
-		t.Parallel()
-		x := setup(t)
-		x.sid("pj-l-01", "sid-1")
-		x.shell("w1:p3", "pj-l-01", "")
-		// A live agent under the name, in a pane obor does not label pj-l-01 (herdr's name is not obor's identity).
-		x.f.Agent("w1:p1", "pj-l-01", "idle", "")
-		out, ok := x.restart(launch.Request{Agent: "pj-l-01", Pane: "w1:p3"})
-		eq(t, failLine(out), "FAIL pj-l-01 already runs in pane w1:p1 (its label is none): quit it there, or put its "+
-			"label back", "result")
-		eqInt(t, len(x.calls("agent.start")), 1, "the start refused at once, not retried")
-		eqInt(t, len(x.calls("agent.rename name=null")), 0, "a clear")
-		eq(t, x.f.Pane("w1:p1").Name, "pj-l-01", "the holder's name")
-		eq(t, x.f.Pane("w1:p1").Kind, "claude", "the holder's agent")
-		eq(t, x.f.Pane("w1:p3").Kind, "", "no agent started in the target pane")
-		if strings.Contains(out, "restart pj-l-01") || strings.Contains(out, "start it by hand") {
-			t.Errorf("the FAIL names the command that just failed:\n%s", out)
-		}
-		if ok {
-			t.Error("a failure")
 		}
 	})
 	t.Run("start blocked at a startup dialog (agent_not_ready): FAIL that says so, not retried", func(t *testing.T) {

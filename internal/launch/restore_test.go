@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"obor/internal/checks"
 	"obor/internal/config"
 	"obor/internal/herdr/herdrtest"
@@ -352,5 +353,35 @@ func TestRestoreProjectOnlyItsProject(t *testing.T) {
 		if strings.HasPrefix(c, other.Root+" ") {
 			t.Errorf("serve's run restarted the other project's pane: %q", c)
 		}
+	}
+}
+
+// A labelled pane at its shell whose agent serve proves live in another pane is no pane to restore it in: the restart's
+// decision refuses it before anything is touched, and the refusal is the one line in restore.log.
+func TestRestoreRefusedWhileTheAgentRunsElsewhere(t *testing.T) {
+	f := newRfx(t)
+	lane := f.p.PlainLane("L-01", "task/T-01")
+	f.p.Config()
+	f.p.State("L-01", `{"task":"T-01","branch":"task/T-01","agent":"pj-l-01"}`)
+	f.shell("w1:p1", lane, "pj-l-01")
+	f.h.Agent("w1:p7", "pj-l-01", "idle", lane).Label = "notes"
+	recordSessions(t, f.p.Root, store.Session{Agent: "pj-l-01", Kind: "claude", ID: "sid-l-01", Started: time.Now().Unix()})
+	f.pl.Restart = func(ctx context.Context, cfg *config.Config, req launch.Request, w io.Writer) (string, error) {
+		l := &launch.Launcher{Cfg: cfg, Env: f.p.Env(), H: f.srv.Client(), Out: w,
+			Where: func(context.Context, wire.WhereReq) (wire.WhereReply, error) {
+				return wire.WhereReply{State: wire.WhereIdentified, Pane: "w1:p7", Source: "session", Label: "notes"}, nil
+			}}
+		return l.Restart(ctx, req)
+	}
+	f.pl.RestoreProject(context.Background(), f.p.Root)
+	has(t, f.restoreLog(), "obor restart pj-l-01: FAIL pj-l-01 already runs in pane w1:p7 (proof: session; label notes): "+
+		"obor restart pj-l-01 --pane w1:p7 restarts it there, or quit it there first\n", "the refusal logged")
+	for _, c := range f.srv.Calls() {
+		if strings.HasPrefix(c, "pane.send_input") || strings.HasPrefix(c, "pane.rename") || strings.HasPrefix(c, "agent.start") {
+			t.Errorf("the refused restore touched a pane: %q", c)
+		}
+	}
+	if p := f.h.Pane("w1:p7"); p.Kind != "claude" || p.Name != "pj-l-01" {
+		t.Errorf("the live agent = %+v, want it running", p)
 	}
 }

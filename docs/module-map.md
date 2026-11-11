@@ -206,7 +206,8 @@ process (`plugin.Local`).
   are behind `//go:build integration` (`workflow_integration_test.go`, `scratch_integration_test.go`, `gitlock_integration_test.go`).
 - `launch`: start, stop (the kill sequence) and restart an agent CLI in its pane (`Launcher`, panes via
   `app.PaneControl`; implements `app.Agents` and `app.Starter`); the per-lane restart lock (`restartlock.go`:
-  `RestartLock`); the restore after the terminal restarts (`Restorer`: serve's run for its project, after a
+  `RestartLock`); `locate.go`: `Locate`, the one decision before a start or stop touches a pane (serve's `where`
+  answer, the pane list, the terminal's holder of the name), under that lock; the restore after the terminal restarts (`Restorer`: serve's run for its project, after a
   lost connection or at its first connect after a herdr restart, under its `RestoreLock`); `session.go`: the id obor names a fresh Claude
   start and records before it runs, and a fresh Codex start's session from the transcript its process holds
   open (a Codex rollout), both reported to serve; `CLIVersions`: the first line of each kind's
