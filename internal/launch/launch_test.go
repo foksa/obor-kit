@@ -1599,7 +1599,7 @@ func TestStartAgentNeverUp(t *testing.T) {
 	}
 	contains(t, out, "no claude agent came up in w1:p3 within 200ms", "why")
 	eq(t, failLine(out), "FAIL start failed in w1:p3 (no agent runs there: the pane is at its shell, maybe mid-command: "+
-		"run obor restart pj-l-01 --pane w1:p3 again or start it by hand)", "result")
+		"run obor restart pj-l-01 --fresh --pane w1:p3 again or start it by hand)", "result")
 	eqInt(t, len(x.calls("agent.rename")), 0, "nothing named")
 }
 

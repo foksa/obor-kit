@@ -621,10 +621,10 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 		return port.Started{}, l.giveUp(ctx, t, "start failed in %s (%s)", t.pane, se.Hint)
 	case errors.As(err, &se) && port.PaneBusy(se.Err):
 		return port.Started{}, l.giveUp(ctx, t, "start failed in %s (the pane is not an available shell: the old "+
-			"agent has not left it; run obor restart %s --pane %s again or start it by hand)", t.pane, t.agent, t.pane)
+			"agent has not left it; run %s again or start it by hand)", t.pane, l.retry(t))
 	case errors.As(err, &se):
-		return port.Started{}, l.giveUp(ctx, t, "start failed in %s (no agent runs there: the pane is at its shell, maybe mid-command: run obor restart %s --pane %s again or start it by hand)",
-			t.pane, t.agent, t.pane)
+		return port.Started{}, l.giveUp(ctx, t, "start failed in %s (no agent runs there: the pane is at its shell, maybe mid-command: run %s again or start it by hand)",
+			t.pane, l.retry(t))
 	case err != nil:
 		return port.Started{}, err
 	}

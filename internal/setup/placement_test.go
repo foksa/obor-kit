@@ -282,7 +282,7 @@ func TestNewPaneShellIsWaitedFor(t *testing.T) {
 		// The 10 s bound would make this test take 10 s: the same comparison (busy outlasts the bound), shorter.
 		x.shellWait = 300 * time.Millisecond
 		x.failing(t, "FAIL pane w1:n1 is not an available shell after 300ms: start the agent there with "+
-			"obor restart pj-l-01 --pane w1:n1", "pane", "--start", "L-01", "--new-tab", "workers")
+			"obor restart pj-l-01 --fresh --pane w1:n1", "pane", "--start", "L-01", "--new-tab", "workers")
 		if p := x.h.Pane("w1:n1"); p.Kind != "" {
 			t.Errorf("no agent started: %+v", p)
 		}
