@@ -476,7 +476,8 @@ func TestReviewDueFromTheFold(t *testing.T) {
 // The open review's stage as obor status reads it (Project.ReviewOpen), through a scripted cycle: a request is no open
 // review; the start is reviewing (the reviewer's brief open); its brief ended is written (the file shown once in the
 // main checkout); a linked fix dispatched is fixes, merged still fixes; its verify briefed is verifying; the verify
-// finished is approved; the close leaves none. Each stage's since is its start.
+// finished, its file requesting changes, is written, the second verify file approving it approved; the close leaves
+// none. Each stage's since is its start.
 func TestReviewOpenStages(t *testing.T) {
 	t.Parallel()
 	r := newReviewRig(t)
@@ -549,9 +550,17 @@ func TestReviewOpenStages(t *testing.T) {
 	verified := r.now
 	r.finish()
 	r.verifyPass()
-	if ro := want("verify finished", wire.ReviewApproved, verified); strings.Join(ro.Tasks, ",") != "T-a,T-b,T-c" ||
-		len(ro.Fixes) != 1 || ro.Fixes[0].State != "verified" {
-		t.Errorf("verify finished: %+v, want T-a,T-b,T-c covered, T-c verified", *ro)
+	// The verify's file says changes requested: not approved, the lead's turn, and the file shown is the verify's.
+	writeReview(t, r.p.root, "RV-5-verify", "Result: changes requested · 2b3c4d5 · T-c\n")
+	if ro := want("verify requests changes", wire.ReviewWritten, verified); strings.Join(ro.Tasks, ",") != "T-a,T-b,T-c" ||
+		len(ro.Fixes) != 1 || ro.Fixes[0].State != "verified" || ro.File != filepath.Join("reviews", "RV-5-verify.md") {
+		t.Errorf("verify requests changes: %+v, want T-a,T-b,T-c covered, T-c verified, the verify's file", *ro)
+	}
+
+	// A second verify is the newest of the review's files: its approved verdict decides.
+	writeReview(t, r.p.root, "RV-5-verify-2", "Result: approved · 2b3c4d5 · T-c\n")
+	if ro := want("the second verify approves", wire.ReviewApproved, verified); ro.File != filepath.Join("reviews", "RV-5-verify-2.md") {
+		t.Errorf("the second verify approves: file %q, want reviews/RV-5-verify-2.md", ro.File)
 	}
 
 	r.closedBy("RV-5", "RV-5 closed · 2222222 · approved · T-a,T-b,T-c")
