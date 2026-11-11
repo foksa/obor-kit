@@ -267,15 +267,18 @@ var kitPath = regexp.MustCompile(`"((?:[^"\\]|\\.)*/bin/obor)"`)
 
 // kitPaths points each lane worktree's opencode.json (per-worktree config, git-excluded: setup does not write it, so
 // it keeps the kit it was written for, which may be gone) at this kit's bin/obor. It returns the opencode.json it
-// changed, as "<lane>/opencode.json"; a lane without one is skipped.
+// changed, as "<lane>/opencode.json"; a lane without one is skipped, and a file that cannot be read stops the run.
 func (r *renamer) kitPaths() ([]string, error) {
 	shim := filepath.Join(r.Kit, "bin", "obor")
 	var moved []string
 	for _, l := range r.cfg.Lanes() {
 		path := filepath.Join(l.Dir, "opencode.json")
 		doc, err := os.ReadFile(path)
-		if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
 			continue
+		}
+		if err != nil {
+			return nil, project.Failf("%v", err)
 		}
 		out := kitPath.ReplaceAllFunc(doc, func(m []byte) []byte {
 			var p string

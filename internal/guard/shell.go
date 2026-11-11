@@ -725,7 +725,7 @@ func (s *shell) checkoutRef(args []string, dir string) bool {
 		case a == "-b" || a == "-B" || a == "--orphan" || strings.HasPrefix(a, "-b") || strings.HasPrefix(a, "-B") ||
 			strings.HasPrefix(a, "--orphan="):
 			return true
-		case a == "--detach" || a == "-d":
+		case detachFlag(a):
 			return true
 		case a == "-s" || a == "--source" || a == "--conflict" || a == "--pathspec-from-file":
 			j++
@@ -746,6 +746,20 @@ func (s *shell) checkoutRef(args []string, dir string) bool {
 	}
 	_, err := os.Lstat(p)
 	return err != nil
+}
+
+// detachFlag reports a `git checkout` flag that detaches HEAD: -d, a combined short flag with a d in it (-qd), or an
+// abbreviation of --detach (--de, --det, …).
+func detachFlag(a string) bool {
+	switch {
+	case a == "-d" || a == "--detach":
+		return true
+	case strings.HasPrefix(a, "--"):
+		return len(a) > 3 && strings.HasPrefix("--detach", a)
+	case strings.HasPrefix(a, "-"):
+		return len(a) > 1 && strings.ContainsRune(a[1:], 'd')
+	}
+	return false
 }
 
 // workerIndexWrites: git verbs that write the index; denied for workers only. Not in gitWrites: add, rm and mv are

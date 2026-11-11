@@ -581,11 +581,15 @@ func (v *validator) trunk() {
 	}
 }
 
-// warnings: merge.by_path.no_check globs that may share a path with a rule's glob (that rule's files would merge
-// guard-only).
+// warnings: merge.by_path.no_check globs (default docs/**, as Classify's) that may share a path with a rule's glob
+// (that rule's files would merge guard-only).
 func (c *Config) warnings(o ValidateOptions) []string {
 	var out []string
-	for _, n := range c.Data.Merge.ByPath.NoCheck {
+	neutral := c.Data.Merge.ByPath.NoCheck
+	if neutral == nil {
+		neutral = []string{"docs/**"}
+	}
+	for _, n := range neutral {
 		for _, rule := range c.Data.Merge.ByPath.Rules {
 			for _, glob := range rule.Paths {
 				if o.Overlap != nil && n != "" && glob != "" && o.Overlap(n, glob) {

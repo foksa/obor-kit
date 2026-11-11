@@ -582,12 +582,18 @@ func TestRoleCheckoutRows(t *testing.T) {
 		bash("reviewer", rev, "git checkout "+sha, ""),
 		bash("reviewer", rev, "git checkout --detach main", ""),
 		bash("reviewer", rev, "git checkout -q -d "+sha, ""),
+		// A combined short flag with d in it, or an abbreviation of --detach, detaches HEAD too.
+		bash("reviewer", rev, "git checkout -qd", ""),
+		bash("reviewer", rev, "git checkout --de", ""),
+		bash("reviewer", rev, "git checkout --det", ""),
+		bash("reviewer", rev, "git checkout -d", ""),
 		bash("reviewer", rev, "git switch --detach main", ""),
 		bash("reviewer", rev+"/src", "git -C "+rev+" checkout "+sha, ""),
 		bash("reviewer", P, "git -C "+rev+" checkout "+sha, ""),
 		bash("deep_dive", deep, "git checkout "+sha, ""),
 		// … but no branch of their own, no path, no other git write, and not in another worktree.
 		bash("reviewer", rev, "git checkout -b wip", readOnly),
+		bash("reviewer", rev, "git checkout -qb wip", readOnly),
 		bash("reviewer", rev, "git switch -c wip", readOnly),
 		bash("reviewer", rev, "git checkout --orphan=wip", readOnly),
 		bash("reviewer", rev, "git checkout -- .gitignore", readOnly),

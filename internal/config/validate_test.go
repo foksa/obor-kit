@@ -254,9 +254,11 @@ func TestValidate(t *testing.T) {
 		{name: "deny_commands no message", edits: []edit{set("rules", `{"deny_commands": [{"match": "^x"}]}`)},
 			want: []string{"FAIL .rules.deny_commands[0].message: required: the text the guard denies with"}},
 		// bash config.test.sh case_validate_neutral_overlap
-		// validate has no copy of merge.by_path.no_check's default (the one default is Classify's): with no
-		// neutral glob set it checks none, even where docs/** would overlap.
-		{name: "no neutral set", edits: []edit{set("merge.by_path", `{"guard": "g", "rules": [{"name": "docs", "paths": ["docs/**"], "run": ["c"]}]}`)}},
+		// no merge.by_path.no_check: the docs/** class the config gets by default overlaps the default neutral glob.
+		{name: "no neutral set, a class on the docs/** default", edits: []edit{set("merge.by_path", `{"guard": "g", "rules": [{"name": "docs", "paths": ["docs/**"], "run": ["c"]}]}`)},
+			want: []string{"WARN merge.by_path.no_check glob docs/** overlaps rule docs glob docs/**"}},
+		// an empty list is not the default: it keeps every file (Classify's reading of it) and warns of no overlap.
+		{name: "an empty neutral list, a class on docs/**", edits: []edit{set("merge.by_path", `{"guard": "g", "no_check": [], "rules": [{"name": "docs", "paths": ["docs/**"], "run": ["c"]}]}`)}},
 		{name: "*.md crosses /", edits: []edit{set("merge.by_path", neutralBase), set("merge.by_path.no_check", []any{"docs/**", "*.md"})},
 			want: []string{"WARN merge.by_path.no_check glob *.md overlaps rule skills glob skills/**",
 				"WARN merge.by_path.no_check glob *.md overlaps rule ui glob src/ui/**"}},

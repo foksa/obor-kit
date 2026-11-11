@@ -1,6 +1,8 @@
 package setup
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -264,6 +266,27 @@ func TestRenameRewritesALanesOpencodeKitPath(t *testing.T) {
 	}
 	if again := x.rename(t); !strings.Contains(again, "OK 3 files: no kit path to correct (already)") {
 		t.Errorf("a rerun changes nothing:\n%s", again)
+	}
+}
+
+// A lane's opencode.json that is there but cannot be read stops the rename at step 3: only a missing file is skipped
+// (a lane without one is normal).
+func TestRenameStopsOnALaneOpencodeItCannotRead(t *testing.T) {
+	x := renameProject(t)
+	x.stubHerdr(t, "proj")
+	path := filepath.Join(x.LaneDir("L-01"), "opencode.json")
+	if err := os.Mkdir(path, 0o755); err != nil { // a directory: ReadFile answers, but not a not-exist error
+		t.Fatal(err)
+	}
+	if _, err := os.ReadFile(path); err == nil || errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("precondition: reading %s = %v, want an error other than not-exist", path, err)
+	}
+	out, rc := x.run(t, "rename", "--name", "newp", "--prefix", "ob")
+	if rc != 1 || !strings.HasPrefix(last(out), "FAIL 3 files: ") || !strings.Contains(last(out), path) {
+		t.Fatalf("exit %d, last line %q, want FAIL 3 files naming %s\n%s", rc, last(out), path, out)
+	}
+	if strings.Contains(out, "OK 4 terminal") {
+		t.Errorf("the run went past the unreadable file:\n%s", out)
 	}
 }
 
