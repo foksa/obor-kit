@@ -14,24 +14,30 @@ func TestReconnectReadsANewSnapshot(t *testing.T) {
 		if n := r.count("session.snapshot"); n == 0 {
 			t.Fatal("no snapshot on connect")
 		}
+		// connectedLine is connect's line: a stream applied, its snapshot read before.
+		const connectedLine = "terminal: connected; "
+		connects := strings.Count(r.out.String(), connectedLine)
 		before := r.count("session.snapshot")
 		// herdr restarts; meanwhile L-01's pane is gone and L-02's agent got blocked.
 		r.f.Remove("w1:p1")
 		r.f.Pane("w1:p2").Status = "blocked"
 		r.srv.DropConns()
-		r.waitFacts("T-1 needs-you{pane exited}", "T-2 needs-you{blocked}")
+		// A reconnect is a new stream: wait for its connected line, then for the count its snapshot raised; the facts
+		// that snapshot gives follow.
+		r.waitFor("the reconnect", func() bool { return strings.Count(r.out.String(), connectedLine) > connects })
 		if n := r.count("session.snapshot"); n <= before {
 			t.Errorf("snapshots = %d, want more than the %d before the drop", n, before)
 		}
+		r.waitFacts("T-1 needs-you{pane exited}", "T-2 needs-you{blocked}")
 		r.waitConnected()
 
-		// events_lost ends the stream too: subscribe again, from a new snapshot.
+		// events_lost ends the stream too: the app says why, then subscribes again, from a new snapshot.
 		before = r.count("session.snapshot")
 		r.srv.PushError("events_lost", "subscriber lagged")
+		r.waitFor("the app to say the stream ended: events_lost", func() bool {
+			return strings.Contains(r.out.String(), "events_lost")
+		})
 		r.waitFor("a snapshot after events_lost", func() bool { return r.count("session.snapshot") > before })
-		if !strings.Contains(r.out.String(), "events_lost") {
-			t.Errorf("app output does not say why the stream ended:\n%s", r.out)
-		}
 	})
 }
 
