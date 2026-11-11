@@ -15,8 +15,9 @@ import (
 	"bytes"
 	"obor/internal/agents"
 	"obor/internal/herdr"
-	"obor/internal/herdr/herdrtest"
 	"obor/internal/launch"
+	"obor/internal/project"
+	"obor/internal/testkit"
 )
 
 const (
@@ -41,7 +42,7 @@ func herdrLive(l *lab, turn bool) {
 	hL5(l, pane)
 	hL9(l, pane)
 	hL1Timeout(l, pane)
-	hContract(l, pane, "conf")
+	hContract(l, pane, "conf", l.lane)
 	hL12(l, pane)
 	hL13(l, pane)
 	if _, err := exec.LookPath("claude"); err != nil {
@@ -57,19 +58,20 @@ func herdrLive(l *lab, turn bool) {
 
 // The contract's rows are herdr's live rows too, for the SKIP lines when herdr cannot run.
 func init() {
-	for _, row := range herdrtest.Contract {
+	for _, row := range testkit.Contract {
 		liveIDs["herdr"] = append(liveIDs["herdr"], "H-C "+row.Name)
 	}
 }
 
-// hContract: the terminal contract (herdrtest.Contract) against herdr's adapter on the throwaway session, one
-// H-C row each, on pane (a shell in the workspace labelled group). A row that starts an agent is the kind sessions'
-// (each proves a start there): SKIP here.
-func hContract(l *lab, pane, group string) {
-	where := "internal/herdr/herdrtest/contract.go (T-1044), the same rows as internal/herdr's TestTerminalContract"
+// hContract: the terminal contract (testkit.Contract) against herdr's adapter on the throwaway session, one
+// H-C row each, on pane (a shell in the workspace labelled group, working in cwd). A row that starts an agent is the
+// kind sessions' (each proves a start there): SKIP here.
+func hContract(l *lab, pane, group, cwd string) {
+	where := "internal/testkit/terminal.go, the same rows as internal/herdr's TestTerminalContract"
 	s := &herdr.Socket{Path: l.sock, Timeout: 10 * time.Second}
-	t := herdrtest.Terminal{Control: s, Panes: herdr.Panes{S: s}, Group: group}
-	for _, row := range herdrtest.Contract {
+	t := testkit.Terminal{Control: s, Panes: herdr.Panes{S: s},
+		Setup: &herdr.Setup{Socket: s, Env: project.OSEnv}, Group: group, Cwd: cwd}
+	for _, row := range testkit.Contract {
 		id := "H-C " + row.Name
 		if row.Agent {
 			report("SKIP", id, "starts an agent CLI: the kind sessions (KIND=claude, codex, opencode) prove a start", where)

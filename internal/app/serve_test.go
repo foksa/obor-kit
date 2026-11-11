@@ -539,8 +539,9 @@ func gateGroupHarness(t *testing.T, dir string) (*harness, *groupGate) {
 	t.Helper()
 	h := newHarness(t)
 	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj","agent_prefix":"pj"},"agents":{"roles":{"integrator":""}}}`)
+	panes := &openPanes{fakePanes: h.panes, snap: h.snap}
 	h.a = New(Options{Root: h.root, Now: func() time.Time { return h.now }, Tick: 20 * time.Millisecond,
-		Retry: 5 * time.Millisecond}, &openPanes{fakePanes: h.panes, snap: h.snap}, h.lanes)
+		Retry: 5 * time.Millisecond, Activity: panes}, panes, h.lanes)
 	g := &groupGate{schedScratch: &schedScratch{h: h}, dir: dir}
 	h.a.opt.Loop = func(string) (*Loop, error) {
 		return &Loop{Workflow: WorkflowOf(g), Agents: g.schedScratch, Typer: g.schedScratch}, nil

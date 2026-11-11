@@ -8,9 +8,6 @@ package port
 import (
 	"context"
 	"errors"
-	"time"
-
-	"obor/internal/agents"
 )
 
 // Pane is one terminal pane as the core sees it: the pane's own fields and those of the agent that runs in it (none:
@@ -109,25 +106,15 @@ type Terminal struct {
 	Setup   TerminalSetup
 }
 
-// Panes is the terminal, as the core uses it.
+// Panes is the terminal's panes and events, as the core uses it.
 type Panes interface {
 	Subscribe(ctx context.Context) (*Stream, error)
 	// Snapshot reads the terminal's session now: one session.snapshot, the same source Subscribe's Snapshot is built
 	// from. A pane's cwd can change with no event (a cd in it, obor setup pane moving it into a lane), so the snapshot
 	// the stream gave can be stale.
 	Snapshot(ctx context.Context) (Snapshot, error)
-	// Busy: the agent in pane still runs a child besides the agent CLI (a command, a background job). An error means
-	// unknown, not idle.
-	Busy(ctx context.Context, pane string) (bool, error)
-	// Activity is when pane's agent last wrote its transcript; known is false when obor cannot tell. pane is the one
-	// the caller observed (its Session and Transcript): no herdr call.
-	Activity(ctx context.Context, pane Pane) (last time.Time, known bool)
 	// Screen is pane's visible text, its last lines: what a blocked pane asks a person.
 	Screen(ctx context.Context, pane string, lines int) (string, error)
-	// Turn is the last turn pane's agent's transcript records, for a kind whose turns are read (agents.TurnsRead):
-	// the file transcript names (its agent's recorded session's), else the one herdr's session names; ok false
-	// when obor cannot tell. pane is the one the caller observed.
-	Turn(ctx context.Context, pane Pane, transcript string) (t agents.Turn, ok bool)
 	Notify(ctx context.Context, title, body string) error
 }
 

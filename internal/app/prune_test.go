@@ -152,7 +152,7 @@ func (h *history) session(agent, id, transcript string, at time.Time) {
 func pruneApp(t *testing.T, root string) (*App, *proj) {
 	t.Helper()
 	now := pruneNow
-	a := New(Options{Root: root, Now: func() time.Time { return now }, Loop: func(string) (*Loop, error) { return &Loop{}, nil }},
+	a := newTestApp(Options{Root: root, Now: func() time.Time { return now }, Loop: func(string) (*Loop, error) { return &Loop{}, nil }},
 		&fakePanes{}, &fakeLanes{})
 	p, err := a.load(root)
 	if err != nil {

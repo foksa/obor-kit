@@ -193,7 +193,7 @@ func (r *turnRig) setKind() {
 
 // deliver is one delivery pass, the rollout's last turn r.turn (Codex).
 func (r *turnRig) deliver() {
-	f := r.a.panes.(*fakePanes)
+	f := r.a.activity.(*fakePanes)
 	f.turn, f.turned = r.turn, r.kind == "codex" && r.turn.ID != ""
 	r.a.deliver(context.Background(), r.p, linerLoop(r.out))
 }

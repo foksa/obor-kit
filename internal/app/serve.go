@@ -47,7 +47,10 @@ func New(opt Options, panes port.Panes, lanes port.Lanes) *App {
 	if opt.Refresh == nil {
 		opt.Refresh = func(error) bool { return false }
 	}
-	a := &App{opt: opt, panes: panes, lanes: lanes,
+	if opt.Activity == nil {
+		opt.Activity = &agentFiles{home: opt.Home, info: opt.Info, procs: opt.Procs}
+	}
+	a := &App{opt: opt, panes: panes, lanes: lanes, activity: opt.Activity,
 		obs: map[string]*seen{}, kick: make(chan struct{}, 1), rescan: make(chan struct{}, 1),
 		scanned: make(chan struct{}, 1), loaded: make(chan struct{})}
 	a.life, a.stop = context.WithCancel(context.Background())

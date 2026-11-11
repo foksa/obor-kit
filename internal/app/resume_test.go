@@ -815,7 +815,7 @@ func TestLeadSendback(t *testing.T) {
 
 			// A replay keeps the next attempt, and the stored reply.
 			r.app("pq").closeLog() // the first serve ends: the replay is the next one
-			b := New(Options{Root: r.roots["pq"], Now: r.a.opt.Now}, &fakePanes{}, &fakeLanes{})
+			b := newTestApp(Options{Root: r.roots["pq"], Now: r.a.opt.Now}, &fakePanes{}, &fakeLanes{})
 			b.loadProject()
 			p := b.p
 			if mt := p.folded.loop["T-6"]; mt == nil || mt.state != stWorking || mt.attempt != 2 || mt.needs.fact.Seq != 0 {

@@ -1826,7 +1826,7 @@ func TestSettledOpenDeliveryClosedAfterReplay(t *testing.T) {
 	t.Parallel()
 	h, seq := answerIn(t, outbox.SendingSettled)
 	h.a.closeLog()
-	a := New(Options{Root: h.root, Now: func() time.Time { return h.now }}, h.panes, h.lanes)
+	a := newTestApp(Options{Root: h.root, Now: func() time.Time { return h.now }}, h.panes, h.lanes)
 	p, err := a.load(h.root)
 	if err != nil {
 		t.Fatal(err)

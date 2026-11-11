@@ -117,7 +117,7 @@ func TestIdentServeRestart(t *testing.T) {
 	h.started("pj-l-01", "w1:p1", "t1", "")
 	h.connect()
 	h.a.closeLog()
-	h.a = New(Options{Root: h.root, Now: h.a.opt.Now, Out: h.a.opt.Out}, h.panes, h.lanes)
+	h.a = newTestApp(Options{Root: h.root, Now: h.a.opt.Now, Out: h.a.opt.Out}, h.panes, h.lanes)
 	h.connect()
 	eqs(t, h.where("pj-l-01"), "identified w1:p1 start", "first pass")
 	f := &idAgents{}
@@ -427,7 +427,7 @@ func TestIdentReplayBriefWork(t *testing.T) {
 	h.connect()
 	h.brief("pj-l-01", "")
 	h.a.closeLog()
-	h.a = New(Options{Root: h.root, Now: h.a.opt.Now, Out: h.a.opt.Out}, h.panes, h.lanes)
+	h.a = newTestApp(Options{Root: h.root, Now: h.a.opt.Now, Out: h.a.opt.Out}, h.panes, h.lanes)
 	h.sids(sids)
 	h.pane("w1:p1").Status = "working"
 	h.connect()

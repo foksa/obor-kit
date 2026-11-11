@@ -52,7 +52,7 @@ func TestSessionFacts(t *testing.T) {
 	eqs(t, store.TranscriptAt(h.root, "s1"), "/t/s1.jsonl", "transcript by id")
 
 	h.a.closeLog()
-	h.a = New(Options{Root: h.root, Now: h.a.opt.Now, Out: h.a.opt.Out}, h.panes, h.lanes)
+	h.a = newTestApp(Options{Root: h.root, Now: h.a.opt.Now, Out: h.a.opt.Out}, h.panes, h.lanes)
 	h.connect()
 	eqs(t, strings.Join(h.sessions("pj-l-01"), ","), "s1 /t/s1.jsonl,s2 /t/s2.jsonl", "replay: the same facts")
 	eqs(t, h.current("pj-l-01"), "s2", "replay: current")
@@ -203,7 +203,7 @@ func TestSessionConfirmation(t *testing.T) {
 		h.session("pj-l-01", "chosen", "/t/chosen.jsonl", now+1)
 
 		h.a.closeLog()
-		h.a = New(Options{Root: h.root, Now: h.a.opt.Now, Out: h.a.opt.Out}, h.panes, h.lanes)
+		h.a = newTestApp(Options{Root: h.root, Now: h.a.opt.Now, Out: h.a.opt.Out}, h.panes, h.lanes)
 		h.connect()
 		eqs(t, strings.Join(h.sessions("pj-l-01"), ","), "chosen /t/chosen.jsonl", "one record on replay too")
 		if ss, err := store.ReadSessionsAt(h.root); err != nil || len(ss) != 1 || ss[0].Transcript != "/t/chosen.jsonl" {
@@ -265,7 +265,7 @@ func TestSessionOneOwner(t *testing.T) {
 			t.Errorf("B owns zzzz0001 live: %q", got)
 		}
 		h2.a.closeLog()
-		h2.a = New(Options{Root: h2.root, Now: h2.a.opt.Now, Out: h2.a.opt.Out}, h2.panes, h2.lanes)
+		h2.a = newTestApp(Options{Root: h2.root, Now: h2.a.opt.Now, Out: h2.a.opt.Out}, h2.panes, h2.lanes)
 		h2.connect()
 		eqs(t, h2.current("pj-a"), "zzzz0001", "replay: A owns zzzz0001")
 		eqs(t, h2.current("pj-b"), "", "replay: B does not")

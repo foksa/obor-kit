@@ -364,7 +364,7 @@ func (r *concRig) reload(name string) (*App, *proj) {
 	r.t.Helper()
 	a := r.app(name)
 	a.closeLog()
-	b := New(Options{Now: a.opt.Now, Loop: a.opt.Loop}, &fakePanes{}, &fakeLanes{})
+	b := newTestApp(Options{Now: a.opt.Now, Loop: a.opt.Loop}, &fakePanes{}, &fakeLanes{})
 	p, err := b.load(r.roots[name])
 	if err != nil {
 		r.t.Fatal(err)
@@ -489,7 +489,7 @@ func newConcRig(t *testing.T) *concRig {
 		if name == "pj" {
 			fx.Specs = f
 		}
-		a := New(Options{Root: root, Now: func() time.Time { return now }}, &fakePanes{}, &fakeLanes{})
+		a := newTestApp(Options{Root: root, Now: func() time.Time { return now }}, &fakePanes{}, &fakeLanes{})
 		a.opt.Loop = func(string) (*Loop, error) { return fx, nil }
 		loadRoot(t, a)
 		r.apps[name] = a
@@ -1049,7 +1049,7 @@ func NeedsSeq(of event.Of) int64 {
 // ReplayLanes loads the project at root as serve does on start, with no herdr and no lanes source, and closes it: its
 // log's replay writes the lanes table, the rows the lane table and dispatch read.
 func ReplayLanes(root string, now time.Time) {
-	a := New(Options{Root: root, Now: func() time.Time { return now }}, &fakePanes{}, &fakeLanes{})
+	a := newTestApp(Options{Root: root, Now: func() time.Time { return now }}, &fakePanes{}, &fakeLanes{})
 	a.loadProject()
 	a.closeLog()
 }
@@ -2264,7 +2264,7 @@ func lineRoot(t *testing.T) string {
 // lineApp loads root's log and connects to a snapshot with the lead and the reviewer pj-rev idle.
 func lineApp(t *testing.T, root string, now *time.Time) (*App, *proj) {
 	t.Helper()
-	a := New(Options{Now: func() time.Time { return *now }, Loop: func(string) (*Loop, error) { return &Loop{}, nil }},
+	a := newTestApp(Options{Now: func() time.Time { return *now }, Loop: func(string) (*Loop, error) { return &Loop{}, nil }},
 		&fakePanes{}, &fakeLanes{})
 	p, err := a.load(root)
 	if err != nil {
@@ -2346,7 +2346,7 @@ func (s *inboxSpy) Post(_ context.Context, _, agent, line string) (bool, error) 
 func replayed(t *testing.T, h *harness) *proj {
 	t.Helper()
 	h.a.closeLog()
-	a := New(Options{Root: h.root, Now: func() time.Time { return h.now }}, h.panes, h.lanes)
+	a := newTestApp(Options{Root: h.root, Now: func() time.Time { return h.now }}, h.panes, h.lanes)
 	p, err := a.load(h.root)
 	if err != nil {
 		t.Fatal(err)
@@ -3402,7 +3402,7 @@ func (r *concRig) attempt(name, task string) int {
 // rootApp is an app serving root; out is its output.
 func rootApp(root string, out *bytes.Buffer) *App {
 	now := time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)
-	return New(Options{Root: root, Out: out, Now: func() time.Time { return now }}, &fakePanes{}, &fakeLanes{})
+	return newTestApp(Options{Root: root, Out: out, Now: func() time.Time { return now }}, &fakePanes{}, &fakeLanes{})
 }
 
 // projectRoot is project pj in a temp dir.
@@ -3819,6 +3819,15 @@ func (h *harness) t1() mtask {
 	return *h.a.p.folded.loop["T-1"]
 }
 
+// newTestApp is New with the test's own scripted activity: a package test's app reads Busy, Activity and Turn from
+// its fake panes (activity.go), as the test scripts them.
+func newTestApp(opt Options, panes *fakePanes, lanes *fakeLanes) *App {
+	if opt.Activity == nil {
+		opt.Activity = panes
+	}
+	return New(opt, panes, lanes)
+}
+
 // The watchdogs' case table: each row is (prior state, event or tick, evidence) → the facts and notifications that
 // follow. The core runs without Serve: the row calls connect, event and check itself on a clock it moves, over an
 // in-memory herdr (fakePanes) and lane table. setup builds the prior state; the event is the first action after it.
@@ -3869,14 +3878,18 @@ func (f *fakePanes) Snapshot(ctx context.Context) (port.Snapshot, error) {
 	return snap, nil
 }
 
-func (f *fakePanes) Busy(_ context.Context, pane string) (bool, error) {
-	f.asked = append(f.asked, pane)
+func (f *fakePanes) Busy(_ context.Context, pane port.Pane) (bool, error) {
+	f.asked = append(f.asked, pane.ID)
 	return f.busy, f.busyErr
 }
 
-func (f *fakePanes) Activity(context.Context, port.Pane) (time.Time, bool) {
+func (f *fakePanes) Activity(port.Pane) (time.Time, bool) {
 	return f.last, !f.last.IsZero()
 }
+
+// Transcript is the path the test's pane reports, if any (the fake panes have no session id: the file's lookup is
+// agentFiles').
+func (f *fakePanes) Transcript(pane port.Pane) string { return pane.Transcript }
 
 // Screen is what the pane shows, its last lines raw (lines is honoured, as herdr's pane.read does): the question a
 // blocked pane shows sits above the TUI's blank rows and footer.
@@ -3893,7 +3906,7 @@ func (f *fakePanes) Screen(_ context.Context, pane string, lines int) (string, e
 	return text, f.screenErr
 }
 
-func (f *fakePanes) Turn(context.Context, port.Pane, string) (agents.Turn, bool) {
+func (f *fakePanes) Turn(port.Pane, string) (agents.Turn, bool) {
 	return f.turn, f.turned
 }
 
@@ -3943,7 +3956,7 @@ func newHarness(t *testing.T) *harness {
 	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"version":2,"project":{"name":"pj"}}`)
 	h.lanes.lanes = []port.Lane{{Name: "L-01", Dir: h.lane("L-01"), Task: "T-1"}}
 	h.snap = port.Snapshot{Panes: []port.Pane{{ID: "w1:p1", Group: "pj", Cwd: h.lane("L-01"), Agent: "claude", Label: "pj-l-01", Status: "idle"}}}
-	h.a = New(Options{Root: h.root, Now: func() time.Time { return h.now }}, h.panes, h.lanes)
+	h.a = newTestApp(Options{Root: h.root, Now: func() time.Time { return h.now }}, h.panes, h.lanes)
 	return h
 }
 

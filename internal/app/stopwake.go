@@ -195,7 +195,7 @@ func (a *App) roleTurns(ctx context.Context, p *proj) {
 	a.mu.Unlock()
 	sort.Slice(reads, func(i, j int) bool { return reads[i].agent < reads[j].agent })
 	for _, rd := range reads {
-		t, ok := a.panes.Turn(ctx, rd.pane, rd.transcript)
+		t, ok := a.activity.Turn(rd.pane, rd.transcript)
 		if !ok {
 			continue
 		}

@@ -102,7 +102,7 @@ func TestLaneRowsProjectTheLog(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.a.closeLog()
-	a = New(Options{Root: h.root, Now: func() time.Time { return h.now }}, h.panes, h.lanes)
+	a = newTestApp(Options{Root: h.root, Now: func() time.Time { return h.now }}, h.panes, h.lanes)
 	a.loadProject()
 	p = a.p
 	table("replayed", row2)
