@@ -474,33 +474,6 @@ func TestInitNeverOverwritesAndIsIdempotent(t *testing.T) {
 	hasNot(t, out, "created", "nothing created on rerun")
 }
 
-// init's .gitignore lines are every path obor links into a worktree (project.WorktreeLinks), the untracked
-// .claude/settings.json included though no lanes.links names it: a lane sees the link as an untracked entry, and its
-// own copy of obor's settings must not make it dirty-free.
-func TestInitGitignoresTheLinkedSettings(t *testing.T) {
-	t.Parallel()
-	x := newFakeGitFx(t)
-	x.Write(project.PluginSettings, "{}\n")
-	cfg, err := config.Load(x.Root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if slices.Contains(cfg.LaneLinks(), project.PluginSettings) {
-		t.Fatalf("precondition: lanes.links %v names the settings file (this is the auto-link)", cfg.LaneLinks())
-	}
-	if _, err := x.gitOut(x.Root, "ls-files", "--error-unmatch", "--", project.PluginSettings); err == nil {
-		t.Fatal("precondition: the main checkout tracks .claude/settings.json")
-	}
-	out, err := x.projectStep(t, "", "pj")
-	if err != nil {
-		t.Fatalf("project step: %v\n%s", err, out)
-	}
-	has(t, out, ".gitignore += "+project.PluginSettings, "the linked settings said")
-	if n := count(x.Read(".gitignore"), project.PluginSettings); n != 1 {
-		t.Errorf("%s in .gitignore %d times, want once:\n%s", project.PluginSettings, n, x.Read(".gitignore"))
-	}
-}
-
 // bash setup.test.sh case_init_refuses_a_bad_prefix
 func TestInitRefusesABadPrefix(t *testing.T) {
 	t.Parallel()

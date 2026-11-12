@@ -148,8 +148,7 @@ func (s *Setup) configJSON(name, prefix string) ([]byte, error) {
 }
 
 // gitignore appends the lines obor needs, each once (.obor/drafts/: the lead's spec drafts; reviews.dir: an
-// open review). The paths obor links into a worktree (project.WorktreeLinks) too: a link is untracked, so ignoring
-// it keeps a lane clean, and obor serve cleans the scratch with git clean, which keeps only ignored files.
+// open review). Not the paths obor links into a worktree: project.LinkInto excludes those through git's info/exclude.
 func (s *Setup) gitignore() error { return s.ignoreLines(s.gitignoreLines()...) }
 
 // ignoreLines appends lines to .gitignore, each once. A line already there with or without its trailing slash (git
@@ -185,12 +184,9 @@ func (s *Setup) ignoreLines(lines ...string) error {
 	return nil
 }
 
-// gitignoreLines are the lines init puts in .gitignore: the paths obor links into every worktree (the one link
-// policy, project.WorktreeLinks: lanes.links and the untracked .claude/settings.json), so obor's own links never make
-// a checkout dirty.
+// gitignoreLines are the lines init puts in .gitignore.
 func (s *Setup) gitignoreLines() []string {
-	return append([]string{".obor/state/", ".obor/drafts/", ".obor/local.json", ".task-run", s.reviewsIgnore()},
-		project.WorktreeLinksWith(s.cfg, s.git().Git)...)
+	return []string{".obor/state/", ".obor/drafts/", ".obor/local.json", ".task-run", s.reviewsIgnore()}
 }
 
 // initBranch is the branch gitInit makes: merge.target_branch from a config in dir, else main.

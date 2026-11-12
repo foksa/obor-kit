@@ -2,7 +2,6 @@ package checks
 
 import (
 	"context"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -31,13 +30,11 @@ type LaneTable struct {
 	// Git is the git command the table's reads run (nil: project.GitCtx): a test counts them.
 	Git func(ctx context.Context, dir string, args ...string) (string, error)
 
-	once      sync.Once
-	states    []port.Lane
-	rowsOnce  sync.Once
-	rows      map[string]store.LaneRow // the lanes table, by lane, read once
-	rowsErr   error                    // why it cannot be read (no database yet: nil, no rows)
-	linksOnce sync.Once
-	links     []string // the paths obor links into every lane (linkedPaths), read once
+	once     sync.Once
+	states   []port.Lane
+	rowsOnce sync.Once
+	rows     map[string]store.LaneRow // the lanes table, by lane, read once
+	rowsErr  error                    // why it cannot be read (no database yet: nil, no rows)
 }
 
 // git is the table's git: project.GitCtx unless a test injected Git.
@@ -69,10 +66,10 @@ func (p *LaneTable) States() []port.Lane {
 // LaneState is one lane's row: missing when the lane dir is no worktree of its own, else the one free rule
 // (port.FreeState: free, dirty-free, working, unknown) over the store's row of the lane (its task, whether that task
 // landed: serve's projection; the head its submission pinned), the lane's HEAD and its own uncommitted
-// changes (Paths: their paths). Its lane reads run in the lane dir only (rev-parse, status; headMerged's only for a
-// landed row with no recorded head): the one read of the main checkout is the link policy's (linkedPaths), not
-// what serve does for the lane's task, which is the task's phase. Unknown: git or the store could not tell (Reason
-// says why), never free.
+// changes (Paths: their paths; obor's own links are excluded through git's info/exclude, project.LinkInto). Its git
+// reads run in the lane dir only (rev-parse, status; headMerged's only for a landed row with no recorded head), never
+// in the main checkout; what serve does for its task is the task's phase. Unknown: git or the store could not tell
+// (Reason says why), never free.
 func (p *LaneTable) LaneState(l config.Lane) port.Lane {
 	// The agent is derived from the lane (no row stores it); a keep lane says its mode (a fresh one none).
 	s := port.Lane{Name: l.Name, Dir: l.Dir, State: port.LaneMissing, Agent: p.Cfg.AgentName("worker", l.Name)}
@@ -97,13 +94,12 @@ func (p *LaneTable) LaneState(l config.Lane) port.Lane {
 		s.Branch = ""
 	}
 	s.Task = p.Cfg.TaskFromBranch(s.Branch)
-	// --untracked-files=all: every untracked path, never the directory git collapses them into (a linked
-	// .claude/settings.json is a path, not ".claude/").
+	// --untracked-files=all: every untracked path, never the directory git collapses them into.
 	status, err := p.git(l.Dir, "status", "--porcelain", "--untracked-files=all")
 	if err != nil {
 		return unknown(s, "git status: "+err.Error())
 	}
-	s.Paths = p.dirtyPaths(status)
+	s.Paths = dirtyPaths(status)
 	s.Dirty = len(s.Paths) > 0
 	// An unreadable store cannot tell whether a task holds the lane: unknown, never free. A fresh project has
 	// no store, not an unreadable one: store.ReadLanesAt says so with no rows and no error.
@@ -129,26 +125,15 @@ func (p *LaneTable) headMerged(dir string) bool {
 }
 
 // dirtyPaths is the lane's uncommitted work as status (git status --porcelain --untracked-files=all) names it: each
-// entry's path, but for an untracked entry exactly at a path obor links into the lane (linkedPaths: obor's own link,
-// not the lane's work). A tracked entry at a linked path is the lane's. nil when the lane is clean.
-func (p *LaneTable) dirtyPaths(status string) []string {
+// entry's path. nil when the lane is clean.
+func dirtyPaths(status string) []string {
 	var paths []string
 	for _, line := range strings.Split(status, "\n") {
-		if len(line) <= 3 {
-			continue
-		}
-		if path := line[3:]; !strings.HasPrefix(line, "?? ") || !slices.Contains(p.linkedPaths(), path) {
-			paths = append(paths, path)
+		if len(line) > 3 {
+			paths = append(paths, line[3:])
 		}
 	}
 	return paths
-}
-
-// linkedPaths is the paths obor links into every lane (project.WorktreeLinks: lanes.links and the untracked
-// .claude/settings.json), read once: the one link policy, so the dirt check skips exactly what was linked.
-func (p *LaneTable) linkedPaths() []string {
-	p.linksOnce.Do(func() { p.links = project.WorktreeLinksWith(p.Cfg, p.git) })
-	return p.links
 }
 
 // unknown is s as a lane whose read failed: state unknown, why a git or store error. Its branch and task, when
