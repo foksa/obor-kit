@@ -142,8 +142,9 @@ every-~3-merges reviews.
   (`CLOSED <subject>`; `accepted <n>` in place of `approved` when it carries `--accept` lines, `abandoned` when the
   review's file was never written). It is a call to serve,
   which commits the close, records it and stops the reviewer on its next pass.
-  Refused, nothing changed: no open review, no review start for it in serve's log, a main checkout dirty outside
-  a tracked `BACKLOG.md`, `docs/accepted.md`, a linked fix task open, or merged and no finished verify covering it (named;
+  Refused, nothing changed: no open review, no review start for it in serve's log, a main checkout with a tracked
+  file modified or staged outside a `BACKLOG.md`, `docs/accepted.md` (an untracked file is no dirt), a linked fix
+  task open, or merged and no finished verify covering it (named;
   `--force`, the owner's word, closes anyway). `--force` also closes an unwritten review when it covers no task (nothing
   is deleted, the reviewed sha its start's head); one that covers tasks is refused, naming the `obor brief` line that
   has its reviewer write it first.
